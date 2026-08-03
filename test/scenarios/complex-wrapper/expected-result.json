@@ -1,0 +1,104 @@
+{
+  "schemaVersion": 2,
+  "scenario": "complex-wrapper-parity",
+  "ok": true,
+  "mainOk": true,
+  "cleanupOk": true,
+  "status": "ok",
+  "steps": [
+    {
+      "id": "workspace",
+      "operation": "workspace_status",
+      "ok": true,
+      "values": {
+        "ok": true,
+        "workspaceReady": true,
+        "resultAreaReady": true
+      }
+    },
+    {
+      "id": "product",
+      "operation": "product_info",
+      "ok": true,
+      "values": {
+        "ok": true,
+        "taxYear": 2025,
+        "engineFileMajor": 31
+      }
+    },
+    {
+      "id": "launch",
+      "operation": "launch",
+      "ok": true,
+      "values": {
+        "ok": true,
+        "instance.hwnd": 4242,
+        "caseRef": "cases:arbeitskopie.Gew2025",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "health",
+      "operation": "health",
+      "ok": true,
+      "values": {
+        "ok": true,
+        "running": true,
+        "advice": "gesund"
+      }
+    },
+    {
+      "id": "page-object",
+      "operation": "page_objects",
+      "ok": true,
+      "values": {
+        "ok": true,
+        "pageId": "euer-betriebseinnahmen",
+        "page.heading": "Betriebseinnahmen"
+      }
+    },
+    {
+      "id": "cases",
+      "operation": "list_cases",
+      "ok": true,
+      "values": {
+        "ok": true,
+        "count": 2
+      }
+    },
+    {
+      "id": "navigate",
+      "operation": "click",
+      "ok": true,
+      "values": {
+        "ok": true,
+        "beforePage": "Start",
+        "afterPage": "Betriebseinnahmen"
+      }
+    },
+    {
+      "id": "readback",
+      "operation": "read_page",
+      "ok": true,
+      "values": {
+        "ok": true,
+        "heading": "Betriebseinnahmen",
+        "fieldCount": 4,
+        "boundHwnd": 4242
+      }
+    }
+  ],
+  "cleanup": [
+    {
+      "id": "controlled-close",
+      "operation": "close",
+      "ok": true,
+      "values": {
+        "ok": true,
+        "closed": true,
+        "saved": false,
+        "hwnd": 4242
+      }
+    }
+  ]
+}

@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 2,
+  "name": "complex-wrapper-parity",
+  "resultFile": "complex-wrapper.json",
+  "steps": [
+    {
+      "id": "workspace",
+      "operation": "workspace_status",
+      "capture": ["ok", "workspaceReady", "resultAreaReady"],
+      "expect": { "ok": true, "workspaceReady": true, "resultAreaReady": true }
+    },
+    {
+      "id": "product",
+      "operation": "product_info",
+      "capture": ["ok", "taxYear", "engineFileMajor"],
+      "expect": { "ok": true, "taxYear": 2025, "engineFileMajor": 31 }
+    },
+    {
+      "id": "launch",
+      "operation": "launch",
+      "capture": ["ok", "instance.hwnd", "caseRef", "sha256"],
+      "expect": { "ok": true, "instance.hwnd": 4242, "caseRef": "cases:arbeitskopie.Gew2025" }
+    },
+    {
+      "id": "health",
+      "operation": "health",
+      "capture": ["ok", "running", "advice"],
+      "expect": { "ok": true, "running": true, "advice": "gesund" }
+    },
+    {
+      "id": "page-object",
+      "operation": "page_objects",
+      "args": { "pageId": { "$text": "scenarios/complex-wrapper/inputs/page-id.txt" } },
+      "capture": ["ok", "pageId", "page.heading"],
+      "expect": { "ok": true, "pageId": "euer-betriebseinnahmen" }
+    },
+    {
+      "id": "cases",
+      "operation": "list_cases",
+      "capture": ["ok", "count"],
+      "expect": { "ok": true, "count": 2 }
+    },
+    {
+      "id": "navigate",
+      "operation": "click",
+      "args": { "$json": "scenarios/complex-wrapper/inputs/navigation.json" },
+      "capture": ["ok", "beforePage", "afterPage"],
+      "expect": { "ok": true, "beforePage": "Start", "afterPage": "Betriebseinnahmen" }
+    },
+    {
+      "id": "readback",
+      "operation": "read_page",
+      "args": { "hwnd": "$steps.launch.result.instance.hwnd" },
+      "capture": ["ok", "heading", "fieldCount", "boundHwnd"],
+      "expect": { "ok": true, "heading": "Betriebseinnahmen", "fieldCount": 4, "boundHwnd": 4242 }
+    }
+  ],
+  "finally": [
+    {
+      "id": "controlled-close",
+      "operation": "close",
+      "args": { "hwnd": "$steps.launch.result.instance.hwnd", "discardChanges": true },
+      "capture": ["ok", "closed", "saved", "hwnd"],
+      "expect": { "ok": true, "closed": true, "saved": false, "hwnd": 4242 }
+    }
+  ]
+}

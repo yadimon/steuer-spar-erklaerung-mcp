@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "2025",
+  "status": "supported",
+  "product": "SteuerSparErklaerung 2025",
+  "taxYear": 2025,
+  "engineFileMajor": 31,
+  "executable": {
+    "name": "SSE.exe",
+    "installationFolderName": "Steuerjahr 2025",
+    "defaultRelativePath": "Steuertipps/SteuerSparErklaerung/Steuerjahr 2025/SSE.exe"
+  },
+  "startModes": {
+    "einur": "Gew",
+    "normal": "ESt",
+    "einurvor": "GewErfass",
+    "fest": "Fest",
+    "ermaess": "Erm",
+    "zulage": "Zulage",
+    "KonsUst": "KonsUst",
+    "NVBescheinigung": "NVBescheinigung",
+    "vorweg": "Vorweg"
+  },
+  "pageObjects": "page-objects.json",
+  "policy": "Fail closed. Only this explicitly verified profile may control SSE; other years are reported but never operated."
+}

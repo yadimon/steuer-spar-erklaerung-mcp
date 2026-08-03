@@ -1,0 +1,67 @@
+{
+  "name": "steuer-spar-erklaerung-mcp",
+  "version": "0.1.0",
+  "description": "MCP-Server zur Steuerung der SteuerSparErklaerung (Akademische Arbeitsgemeinschaft) unter Windows via UI Automation",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "steuer-spar-erklaerung-mcp": "dist/index.js",
+    "steuer-spar-erklaerung-api": "dist/api-main.js",
+    "steuer-spar-erklaerung-setup": "dist/setup.js"
+  },
+  "main": "dist/index.js",
+  "files": [
+    "dist",
+    "powershell",
+    "!powershell/.sse-native-*",
+    "profiles",
+    "skills",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node test/run-suite.mjs",
+    "build": "npm run build:native && tsc",
+    "build:native": "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File powershell/build-native.ps1",
+    "build:ts": "tsc",
+    "package:portable": "npm run build && node scripts/package-portable.mjs --zip",
+    "watch": "tsc --watch",
+    "setup": "node dist/setup.js",
+    "start": "node dist/index.js",
+    "start:api": "node dist/api-main.js",
+    "smoke": "node test/with-api.mjs node dist/index.js --selftest",
+    "test:api": "node test/api-contract.mjs",
+    "test:api-main": "node test/api-main-smoke.mjs",
+    "test:skills": "node test/public-skills.mjs",
+    "test:wrapper-boundary": "node test/wrapper-boundary.mjs",
+    "test:wrapper-catalog": "node test/mcp-wrapper-all-tools.mjs",
+    "test:no-console": "node test/with-api.mjs node test/no-console-window.mjs",
+    "test:scenario": "node test/scenario-parity.mjs",
+    "test:mcp": "node test/with-api.mjs node test/smoke.mjs",
+    "test:product": "node test/with-api.mjs node test/product-gate.mjs",
+    "test:verify": "node test/with-api.mjs node test/verify-collect.mjs",
+    "test:archive": "node test/with-api.mjs node test/archive-cases.mjs",
+    "test:hidden": "node test/with-api.mjs node test/hidden-desktop-lifecycle.mjs",
+    "test:hidden-console": "node test/with-api.mjs node test/hidden-console-smoke.mjs",
+    "test:visible-guard": "node test/with-api.mjs node test/visible-input-guard.mjs",
+    "test:search-set": "node test/with-api.mjs node test/search-set-transaction.mjs",
+    "test:toggle": "node test/with-api.mjs node test/toggle-transaction.mjs",
+    "test:click": "node test/with-api.mjs node test/click-dirty-readback.mjs",
+    "test:multi-instance": "node test/with-api.mjs node test/multi-instance-binding.mjs",
+    "test:table-region": "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File test/table-region-contract.ps1",
+    "test:table-add": "node test/with-api.mjs node test/table-add-transaction.mjs",
+    "test:table-update": "node test/with-api.mjs node test/table-update-transaction.mjs",
+    "test:table-delete": "node test/with-api.mjs node test/table-delete-transaction.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}

@@ -1,0 +1,6 @@
+interface:
+  display_name: "SteuerSparErklärung"
+  short_description: "SSE sicher prüfen und bearbeiten"
+  default_prompt: "Use $steuer-spar-erklaerung to check my SteuerSparErklärung case safely and report the result in German."
+policy:
+  allow_implicit_invocation: true
