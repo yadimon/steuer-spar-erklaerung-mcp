@@ -1,14 +1,57 @@
-# steuer-spar-erklaerung-mcp
+# Inoffizielle API und MCP für SteuerSparErklärung 2025
+
+**Ist deine Steuererklärung wirklich vollständig? Lass sie von deinem
+KI-Agenten zusätzlich prüfen – direkt in SteuerSparErklärung 2025.**
 
 > **Öffentliche Beta für Windows:** Vor produktiver Nutzung Sicherungskopien
 > anlegen und die vom Agenten gemeldeten Ergebnisse selbst prüfen. Dieses
 > Projekt ist keine Steuerberatung und garantiert keine fachlich richtige
 > Steuererklärung.
 
-Lokale Windows-Automation, mit der ein KI-Agent die **SteuerSparErklärung**
-(Wolters Kluwer Steuertipps / Akademische Arbeitsgemeinschaft) kontrolliert
-bedienen kann: Steuerfälle inventarisieren und öffnen, Seiten auslesen, Belege
-abgleichen, Werte vergleichen und verifizierte Arbeitskopien bearbeiten.
+## Am einfachsten starten
+
+### Ohne npm: diesen Text kopieren
+
+**Skill starten:** Gib einem Agenten mit GitHub- und lokalem Kommandozugriff
+diesen Text:
+
+```text
+Öffne https://github.com/yadimon/steuer-spar-erklaerung-mcp und lies
+skills/steuer-spar-erklaerung/SKILL.md. Folge diesem Skill auf Deutsch.
+Prüfe meinen vorhandenen Fall in SteuerSparErklärung 2025 zunächst nur lesend.
+Stelle eine Frage pro Schritt, verwende sichere Standardwerte und ändere nichts
+ohne meine ausdrückliche Freigabe.
+```
+
+Der Agent lädt nach Zustimmung das portable Release, prüft dessen SHA-256 und
+führt durch die Einrichtung. Dafür müssen weder npm noch Node.js, Python,
+PowerShell 7 oder ein MCP-Server installiert sein. Kann der Agent GitHub oder
+lokale Programme nicht selbst öffnen, lädt der Nutzer das portable ZIP manuell
+herunter und startet `sse-setup.cmd`.
+
+### Mit `npx skills`: Skill installieren
+
+```powershell
+npx skills add yadimon/steuer-spar-erklaerung-mcp --skill steuer-spar-erklaerung
+```
+
+Danach genügt zum Beispiel:
+
+```text
+Prüfe meine Steuererklärung in SteuerSparErklärung 2025. Beginne read-only,
+gleiche sie mit meinen Belegen ab und ändere nichts ohne meine Freigabe.
+```
+
+`npx` installiert nur den Text-Skill. Die eigentliche Automation läuft auch
+hier über das portable Release ohne globale Laufzeitinstallation.
+
+## Was dieses Projekt ist
+
+Eine inoffizielle lokale Windows-Automation, mit der ein KI-Agent die
+**SteuerSparErklärung** (Wolters Kluwer Steuertipps / Akademische
+Arbeitsgemeinschaft) kontrolliert bedienen kann: Steuerfälle inventarisieren
+und öffnen, Seiten auslesen, Belege abgleichen, Werte vergleichen und
+verifizierte Arbeitskopien bearbeiten.
 
 Die Produktgrenze kommt aus versionierten Profilen unter `profiles/`. Aktuell
 ist nur Profil `2025` mit binärer Engine-Hauptversion 31 produktiv freigegeben.
@@ -20,6 +63,34 @@ Andere Jahresversionen werden höchstens gemeldet, niemals bedient.
 Dies ist ein unabhängiges Open-Source-Projekt. Es ist weder mit Wolters Kluwer,
 Steuertipps oder der Akademischen Arbeitsgemeinschaft verbunden noch von ihnen
 freigegeben. Produkt- und Markennamen gehören ihren jeweiligen Inhabern.
+
+## Einfache Anwendungsfälle
+
+| Ziel | Beispiel für den Agenten | Standardverhalten |
+| --- | --- | --- |
+| **Schnell prüfen** | „Prüfe meinen geöffneten Steuerfall und liste Fehler, Warnungen und unklare Angaben.“ | Nur lesen, nichts verändern |
+| **Mit Belegen abgleichen** | „Vergleiche meinen Steuerfall mit den Belegen in diesem Ordner und erstelle einen Abweichungsbericht.“ | Belege nur nach Zustimmung lesen; Originale unverändert lassen |
+| **Kontrolliert korrigieren** | „Schlage Korrekturen vor und ändere nach meiner Freigabe nur eine verifizierte Arbeitskopie.“ | Erst Änderungsliste zeigen; jede Änderung zurücklesen |
+| **Nur einrichten** | „Richte die portable SteuerSparErklärung-API ein. Wenn ich unsicher bin, verwende die empfohlenen Antworten.“ | Eine Frage pro Schritt; MCP bleibt optional |
+
+Während sichtbarer Bedienung muss Windows entsperrt bleiben. Der Nutzer darf in
+dieser kurzen Phase nicht selbst klicken oder tippen; der Agent kündigt Anfang
+und Ende ausdrücklich an.
+
+## Demo in weniger als fünf Sekunden
+
+![MCP öffnet eine Musterfall-Kopie, trägt einen synthetischen Wert ein und startet den Steuerprüfer](docs/assets/demo/steuer-spar-erklaerung-demo.gif)
+
+Die kurze Tippsequenz am Anfang ist ein neutral nachgebauter Agent-Prompt; sie
+enthält weder einen echten Codex-Chat noch private Desktopdaten. Die danach
+gezeigten Programmframes stammen aus einem echten automatisierten Testlauf mit
+dem von SteuerSparErklärung installierten Musterfall
+`MusterSteuer1.ESt2025`. Die lokale API öffnet eine bytegleiche Temp-Kopie, der
+MCP-Wrapper setzt den synthetischen Wert `01.01.2000`, liest ihn zur Kontrolle
+zurück und startet den Steuerprüfer. Es wird nichts gespeichert; beim Schließen
+wird die Änderung verworfen. Das
+[strukturierte Demo-Ergebnis](docs/assets/demo/demo-result.json) hält den Lauf
+ohne lokale PC-Pfade fest.
 
 ## Was ein Nutzer erhält
 
@@ -36,19 +107,11 @@ Für die reine API-Nutzung muss kein MCP installiert werden. Ein MCP-fähiger
 Agent startet bei Bedarf nur den enthaltenen Wrapper. Endnutzer installieren
 weder Node/npm noch Python oder PowerShell 7 global.
 
-Die Skills sind im üblichen öffentlichen Layout abgelegt und werden von der
-aktuellen `skills`-CLI direkt gefunden:
-
-```powershell
-npx skills add yadimon/steuer-spar-erklaerung-mcp --skill steuer-spar-erklaerung
-npx skills add yadimon/steuer-spar-erklaerung-mcp --skill steuer-spar-erklaerung-setup
-```
-
-`npx` wird nur zum Installieren der Text-Skills benötigt, nicht zum Betrieb von
-API oder MCP. Alternativ kann ein Agent die jeweiligen `SKILL.md`-Ordner ohne
-`npx` übernehmen. `agents/openai.yaml` verbessert die Codex-Darstellung; der
-Standard `SKILL.md` bleibt zugleich mit Claude Code und anderen
-Agent-Skills-kompatiblen Clients verwendbar.
+Die Skills liegen im öffentlichen Standardlayout. `agents/openai.yaml`
+verbessert die Codex-Darstellung; der normale `SKILL.md` bleibt zugleich mit
+Claude Code und anderen Agent-Skills-kompatiblen Clients verwendbar. Der
+Haupt-Skill kann fehlende Setup-Schritte selbst durchführen; der zweite Skill
+ist ein direkter Einstieg für reine Installations- oder Reparaturaufträge.
 
 ## Warum ein eigener Server statt eines allgemeinen Windows-MCP
 
@@ -79,19 +142,19 @@ ca. 0,130–0,156 s statt 0,41–0,44 s; kompletter Aufruf ca. 0,857–0,890 s s
 Optimierungen bei 36,50–37,04 s (Median 36,92 s) statt zuvor rund 43,5 s.
 UI-Laufzeiten kommen bei geöffnetem Formular zusätzlich hinzu.
 
-## Schnellstart ohne Entwicklungswerkzeuge
+## Portable Release manuell einrichten
 
 Für Endnutzer ist das portable ZIP der Standard. Die Mindestanforderungen hängen
 von der gewählten Bereitstellungsart ab:
 
-- [Portable ZIP v0.1.0-beta.1](https://github.com/yadimon/steuer-spar-erklaerung-mcp/releases/download/v0.1.0-beta.1/steuer-spar-erklaerung.zip)
-- [SHA-256-Prüfsumme](https://github.com/yadimon/steuer-spar-erklaerung-mcp/releases/download/v0.1.0-beta.1/steuer-spar-erklaerung.zip.sha256)
+- [Portable ZIP v0.1.0-beta.2](https://github.com/yadimon/steuer-spar-erklaerung-mcp/releases/download/v0.1.0-beta.2/steuer-spar-erklaerung.zip)
+- [SHA-256-Prüfsumme](https://github.com/yadimon/steuer-spar-erklaerung-mcp/releases/download/v0.1.0-beta.2/steuer-spar-erklaerung.zip.sha256)
 
 | Verwendung | Erforderlich | Nicht erforderlich |
 | --- | --- | --- |
 | **Portable ZIP (empfohlen)** | Windows 10/11 x64, installierte SteuerSparErklärung 2025 (Engine-Hauptversion 31), entsperrte interaktive Windows-Sitzung während sichtbarer UI-Aktionen | separat installiertes Node.js/npm, Python, PowerShell 7, MCP bei direkter API-Nutzung |
-| **Späteres npm-Paket** | Windows 10/11 x64, Node.js 18 oder neuer mit npm, installierte SteuerSparErklärung 2025, entsperrte interaktive Sitzung für UI-Aktionen | Python, PowerShell 7, MCP bei direkter API-Nutzung |
-| **Entwicklung aus dem Repository** | Windows 10/11 x64, Node.js 18 oder neuer mit npm; SteuerSparErklärung 2025 nur für echte UI-/Integrationstests | Python, PowerShell 7 |
+| **Aus dem Quellcode** | Windows 10/11 x64, Node.js 22 oder neuer mit npm, installierte SteuerSparErklärung 2025, entsperrte interaktive Sitzung für UI-Aktionen | Python, PowerShell 7, MCP bei direkter API-Nutzung |
+| **Entwicklung aus dem Repository** | Windows 10/11 x64, Node.js 22 oder neuer mit npm; SteuerSparErklärung 2025 nur für echte UI-/Integrationstests | Python, PowerShell 7 |
 
 Windows PowerShell 5.1 gehört zu den unterstützten Windows-Versionen und wird
 von API und Build direkt verwendet. Das portable ZIP enthält zusätzlich eine
@@ -150,9 +213,11 @@ dieses Repository oder in geteilte Konfigurationsbeispiele übernehmen.
 
 ## Entwicklung und Release-Build
 
-Nur Entwickler benötigen Node/npm. PowerShell- und Python-Installationen sind
-auch für den Build nicht erforderlich; der native Helfer wird mit dem
-Windows-eigenen PowerShell 5.1 gebaut.
+Nur die Ausführung aus dem Quellcode und die Entwicklung benötigen Node/npm.
+Für den reproduzierbaren portable Release-Build gilt die in
+`portable/runtime.json` gepinnte Node-Version 22.22.3. Separate PowerShell- und
+Python-Installationen sind auch für den Build nicht erforderlich; der native
+Helfer wird mit dem Windows-eigenen PowerShell 5.1 gebaut.
 
 ```powershell
 npm ci

@@ -20,6 +20,7 @@ const tableRegionSource = readFileSync(join(root, "powershell", "table-region.ps
 const serverSource = readFileSync(join(root, "src", "index.ts"), "utf8");
 const operationCatalogSource = readFileSync(join(root, "src", "operation-catalog.ts"), "utf8");
 const apiContractSource = readFileSync(join(root, "src", "api-contract.ts"), "utf8");
+const apiExecutorSource = readFileSync(join(root, "src", "api-executor.ts"), "utf8");
 const skillSource = readFileSync(join(root, "skills", "steuer-spar-erklaerung", "SKILL.md"), "utf8");
 const tableDeleteTestSource = readFileSync(join(root, "test", "table-delete-transaction.mjs"), "utf8");
 const clickTestSource = readFileSync(join(root, "test", "click-dirty-readback.mjs"), "utf8");
@@ -334,13 +335,15 @@ try {
     collectBlock.includes("$privateDeltaLimitBytes") &&
     operationCatalogSource.includes(".max(5)") && operationCatalogSource.includes("Vorgabe 3, Maximum 5"),
   "sse_collect verwechselt Seitentitel mit Zyklen oder erlaubt weiterhin ueberlastende Monolithlaeufe.");
-  assert(workerOpBlock("launch").includes("bindingMode='launch-window'") &&
-    workerOpBlock("launch").includes("instance=$instance") &&
-    workerOpBlock("launch").includes("$_.title -match 'SteuerSparErklärung'") &&
-    workerOpBlock("launch").includes("if ($startupDialogs.Count) { break }") &&
+  assert(workerOpBlock("launch").includes("instance=$null") &&
+    workerOpBlock("launch").includes("-WindowStyle Normal") &&
+    apiExecutorSource.includes('await worker("windows"') &&
+    apiExecutorSource.includes('{ pid },') &&
+    apiExecutorSource.includes('bindingMode: "launch-window"') &&
+    apiExecutorSource.includes("cleanupStartedProcess") &&
     serverSource.includes("instance: r.instance, ready: r.ready") &&
     tableDeleteTestSource.includes('{ hwnd: launch.instance.hwnd }'),
-  "sse_launch liefert kein explizit weiterverwendbares Start-HWND oder der sichtbare Loeschtest ignoriert es.");
+  "sse_launch trennt Start und frischen Readback nicht oder liefert kein explizit weiterverwendbares Start-HWND.");
   assert(workerOpBlock("desktop_start").includes("bindingMode='desktop-launch-window'") &&
     workerOpBlock("desktop_start").includes("$_.title -match 'SteuerSparErklärung'") &&
     workerOpBlock("desktop_start").includes("blockedByDialog=[bool]($startupDialogWindows.Count)") &&

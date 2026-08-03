@@ -364,6 +364,210 @@ export function createApiExecutor(config: SseApiServerConfig, worker: ScenarioEx
           : { ...detail, kontrollbildEnthalten: typeof detail.bildBase64 === "string" && detail.bildBase64.length > 0 };
       }
       const configured = configuredArgs(operation, args, config);
+      if (operation === "launch") {
+        const minimumLaunchTimeoutMs = 30_000;
+        const maximumLaunchTimeoutMs = 90_000;
+        if (timeoutMs !== undefined && timeoutMs < minimumLaunchTimeoutMs) {
+          return withResourceIdentity(
+            redactPaths,
+            operationError(
+              `SSE-Start verlangt timeoutMs >= ${minimumLaunchTimeoutMs}, damit nach dem Prozessstart eine PID- und Fensterbindung moeglich bleibt.`,
+              "bad-args",
+            ),
+            configured.resourceRefs,
+          );
+        }
+        const startedAt = Date.now();
+        const launchBudgetMs = Math.min(timeoutMs ?? maximumLaunchTimeoutMs, maximumLaunchTimeoutMs);
+        const deadline = startedAt + launchBudgetMs;
+        const started = await worker("launch", configured.args, minimumLaunchTimeoutMs, signal);
+        if (started.ok === false) {
+          return withResourceIdentity(redactPaths, started, configured.resourceRefs);
+        }
+        const pid = Number(started.pid);
+        if (!Number.isInteger(pid) || pid <= 0) {
+          return withResourceIdentity(
+            redactPaths,
+            operationError("SSE-Start lieferte keine verifizierbare PID; Zustand vor Wiederholung manuell pruefen.", "startup-pid"),
+            configured.resourceRefs,
+          );
+        }
+
+        const cleanupStartedProcess = async (): Promise<{
+          cleanup: WorkerResult;
+          stillRunning: boolean;
+          cleanupError?: string;
+        }> => {
+          let cleanup: WorkerResult = { ok: false, kind: "cleanup-not-run", error: "Cleanup wurde nicht ausgefuehrt." };
+          const errors: string[] = [];
+          try {
+            cleanup = await worker("close", { pid, force: true, discardChanges: true }, 30_000);
+          } catch (error) {
+            errors.push(`close: ${error instanceof Error ? error.message : String(error)}`);
+          }
+
+          // Unbekannter Status gilt fail-closed als weiterhin laufend. Erst
+          // beide realen product_info-Listen mit garantiert fehlender PID
+          // beweisen einen erfolgreichen Prozessabbau.
+          let stillRunning = true;
+          try {
+            const status = await worker("product_info", {}, 30_000);
+            if (
+              status.ok === true &&
+              Object.hasOwn(status, "supportedRunning") &&
+              Object.hasOwn(status, "ignoredRunning")
+            ) {
+              const running = [
+                ...asArray<Record<string, unknown>>(status.supportedRunning),
+                ...asArray<Record<string, unknown>>(status.ignoredRunning),
+              ];
+              stillRunning = running.some((entry) => Number(entry.pid) === pid);
+            } else {
+              errors.push("product_info: Prozessstatus war unvollstaendig.");
+            }
+          } catch (error) {
+            errors.push(`product_info: ${error instanceof Error ? error.message : String(error)}`);
+          }
+          return {
+            cleanup,
+            stillRunning,
+            ...(errors.length ? { cleanupError: errors.join(" ") } : {}),
+          };
+        };
+
+        let lastProbeError: string | undefined;
+        let probeFailures = 0;
+        try {
+          while (Date.now() < deadline) {
+            if (signal?.aborted) {
+              const cleanupState = await cleanupStartedProcess();
+              return withResourceIdentity(redactPaths, {
+                ok: false,
+                kind: cleanupState.stillRunning ? "startup-abort-cleanup" : "aborted",
+                error: cleanupState.stillRunning
+                  ? `API-Client brach den Start ab; die exakt gestartete SSE-2025-PID ${pid} laeuft trotz Cleanup noch.`
+                  : "API-Client hat den Start abgebrochen; die exakt gestartete SSE-PID wurde ohne Speichern beendet.",
+                pid,
+                processStillRunning: cleanupState.stillRunning,
+                cleanup: cleanupState.cleanup,
+                cleanupError: cleanupState.cleanupError,
+                effectiveTimeoutMs: launchBudgetMs,
+              }, configured.resourceRefs);
+            }
+            const remainingMs = deadline - Date.now();
+            if (remainingMs < 1_000) break;
+            let observed: WorkerResult;
+            try {
+              observed = await worker("windows", {}, Math.min(15_000, Math.max(1_000, remainingMs)), signal);
+            } catch (error) {
+              lastProbeError = `windows: ${error instanceof Error ? error.message : String(error)}`;
+              probeFailures += 1;
+              if (!signal?.aborted) await new Promise((resolve) => setTimeout(resolve, 250));
+              continue;
+            }
+            if (observed.ok === false) {
+              lastProbeError = `windows: ${String(observed.error ?? observed.kind ?? "Fensterinventur fehlgeschlagen.")}`;
+              probeFailures += 1;
+              await new Promise((resolve) => setTimeout(resolve, 250));
+              continue;
+            }
+            const windows = asArray<Record<string, unknown>>(observed.windows)
+              .filter((window) => Number(window.pid) === pid && Number(window.hwnd) > 0);
+            const hasCase = typeof configured.args.file === "string" && configured.args.file.length > 0;
+            const mainCandidates = windows
+              .filter((window) => {
+                const title = String(window.title ?? "");
+                if (hasCase) return title.includes("SteuerSparErklärung");
+                return title.includes("SteuerSparErklärung") ||
+                  (title === "Steuerprogramm" && (Number(window.w) >= 900 || window.minimiert === true));
+              })
+              .sort((left, right) => Number(right.w) * Number(right.h) - Number(left.w) * Number(left.h));
+
+            let dialogs: Record<string, unknown>[] = [];
+            if (windows.length > 0) {
+              let dialogResult: WorkerResult;
+              try {
+                dialogResult = await worker(
+                  "dialog_list",
+                  { pid },
+                  Math.min(30_000, Math.max(1_000, deadline - Date.now())),
+                  signal,
+                );
+              } catch (error) {
+                lastProbeError = `dialog_list: ${error instanceof Error ? error.message : String(error)}`;
+                probeFailures += 1;
+                if (!signal?.aborted) await new Promise((resolve) => setTimeout(resolve, 250));
+                continue;
+              }
+              if (dialogResult.ok === false) {
+                lastProbeError = `dialog_list: ${String(dialogResult.error ?? dialogResult.kind ?? "Dialoginventur fehlgeschlagen.")}`;
+                probeFailures += 1;
+                await new Promise((resolve) => setTimeout(resolve, 250));
+                continue;
+              }
+              dialogs = asArray<Record<string, unknown>>(dialogResult.dialogs)
+                .filter((dialog) => Number(dialog.pid) === pid && ["native-dialog", "qt-dialog"].includes(String(dialog.kind)));
+            }
+            if (mainCandidates.length > 0 || dialogs.length > 0) {
+              const instance = mainCandidates.length === 1
+                ? {
+                    pid,
+                    hwnd: Number(mainCandidates[0].hwnd),
+                    title: String(mainCandidates[0].title ?? ""),
+                    bindingMode: "launch-window",
+                  }
+                : null;
+              return withResourceIdentity(redactPaths, {
+                ...started,
+                waitedSec: Math.round((Date.now() - startedAt) / 100) / 10,
+                windows,
+                instance,
+                ready: instance !== null,
+                blockedByDialog: dialogs.length > 0,
+                dialogs,
+                effectiveTimeoutMs: launchBudgetMs,
+                probeFailures,
+              }, configured.resourceRefs);
+            }
+            await new Promise((resolve) => setTimeout(resolve, 250));
+          }
+
+          const cleanupState = await cleanupStartedProcess();
+          return withResourceIdentity(redactPaths, {
+            ok: false,
+            kind: cleanupState.stillRunning ? "startup-timeout-cleanup" : "startup-timeout",
+            error: cleanupState.stillRunning
+              ? `SSE-2025-PID ${pid} erzeugte kein verifiziertes Fallfenster und konnte nicht sicher beendet werden.`
+              : `SSE-2025-PID ${pid} erzeugte innerhalb von ${Math.round((Date.now() - startedAt) / 100) / 10} Sekunden kein verifiziertes Fallfenster; der gestartete Prozess wurde beendet.`,
+            pid,
+            processStillRunning: cleanupState.stillRunning,
+            cleanup: cleanupState.cleanup,
+            cleanupError: cleanupState.cleanupError,
+            effectiveTimeoutMs: launchBudgetMs,
+            lastProbeError,
+            probeFailures,
+          }, configured.resourceRefs);
+        } catch (error) {
+          const cleanupState = await cleanupStartedProcess();
+          const kind = error && typeof error === "object" && typeof (error as { kind?: unknown }).kind === "string"
+            ? String((error as { kind: string }).kind)
+            : "startup-probe";
+          return withResourceIdentity(redactPaths, {
+            ok: false,
+            kind: cleanupState.stillRunning ? "startup-probe-cleanup" : kind,
+            error: cleanupState.stillRunning
+              ? `${error instanceof Error ? error.message : String(error)} Die exakt gestartete PID ${pid} laeuft trotz Cleanup noch.`
+              : `${error instanceof Error ? error.message : String(error)} Die exakt gestartete PID wurde ohne Speichern beendet.`,
+            pid,
+            processStillRunning: cleanupState.stillRunning,
+            cleanup: cleanupState.cleanup,
+            cleanupError: cleanupState.cleanupError,
+            effectiveTimeoutMs: launchBudgetMs,
+            lastProbeError,
+            probeFailures,
+          }, configured.resourceRefs);
+        }
+      }
       let createdExportDirectory: string | undefined;
       if (
         operation === "export_csv" &&

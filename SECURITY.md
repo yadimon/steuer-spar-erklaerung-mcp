@@ -3,7 +3,7 @@
 ## Unterstützte Version
 
 Während der öffentlichen Beta wird nur die jeweils neueste GitHub-Version
-unterstützt. Aktuell ist dies `v0.1.0-beta.1` für SteuerSparErklärung 2025.
+unterstützt. Aktuell ist dies `v0.1.0-beta.2` für SteuerSparErklärung 2025.
 
 ## Sicherheitsproblem melden
 

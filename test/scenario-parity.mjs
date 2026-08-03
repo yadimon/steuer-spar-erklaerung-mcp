@@ -35,10 +35,22 @@ const worker = async (operation, args) => {
     product_info: { ok: true, taxYear: 2025, engineFileMajor: 31 },
     launch: {
       ok: true,
-      instance: { pid: 3131, hwnd: 4242 },
+      pid: 3131,
       caseRef: "cases:arbeitskopie.Gew2025",
       sha256: "a".repeat(64),
     },
+    windows: {
+      ok: true,
+      windows: [{
+        pid: 3131,
+        hwnd: 4242,
+        title: "Gewinnermittlung 2025: SteuerSparErklärung für das Steuerjahr 2025",
+        w: 1200,
+        h: 800,
+        minimiert: false,
+      }],
+    },
+    dialog_list: { ok: true, dialogs: [] },
     health: { ok: true, running: true, advice: "gesund", canaryMs: 17 },
     page_objects: {
       ok: true,

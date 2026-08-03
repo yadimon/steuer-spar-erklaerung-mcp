@@ -1,6 +1,6 @@
 ---
 name: steuer-spar-erklaerung
-description: Richtet die lokale SteuerSparErklärung-Automation unter Windows ein, gleicht einen konkreten SSE-Steuerfall mit Belegen ab, prüft ihn oder bearbeitet eine verifizierte Arbeitskopie. Verwenden bei SteuerSparErklärung, SSE-Falldateien, Belegabgleich sowie API- oder MCP-Einrichtung; nicht für allgemeine Steuerfragen ohne lokalen SSE-Fall und niemals für ELSTER-Versand.
+description: Prüft einen konkreten Steuerfall in SteuerSparErklärung 2025 unter Windows, gleicht ihn mit Belegen ab, richtet bei Bedarf die portable lokale Automation ein oder bearbeitet nach Freigabe eine verifizierte Arbeitskopie. Verwenden bei „meine Steuererklärung prüfen“, SteuerSparErklärung/SSE bedienen, Belege abgleichen sowie API- oder MCP-Einrichtung; nicht für allgemeine Steuerfragen ohne lokalen SSE-Fall und niemals für ELSTER-Versand.
 ---
 
 # SteuerSparErklärung sicher prüfen
@@ -8,6 +8,21 @@ description: Richtet die lokale SteuerSparErklärung-Automation unter Windows ei
 Führe technisch unerfahrene Nutzer standardmäßig auf Deutsch. Arbeite
 read-only, bis eine konkrete Änderung an einer verifizierten Arbeitskopie
 separat freigegeben wurde.
+
+## Nutzerziel zuerst erkennen
+
+Ordne den Auftrag ohne technische Rückfrage einem sicheren Modus zu:
+
+- „prüfen“, „Schnellcheck“ oder „Fehler finden“: ausschließlich read-only;
+- „mit Belegen abgleichen“: read-only in Fall und freigegebenen Quellen;
+- „korrigieren“ oder „ändern“: zuerst Vorschläge, dann nur eine verifizierte
+  Arbeitskopie und jede einzelne Freigabe;
+- „einrichten“ oder „Verbindung reparieren“: Setup-Modus, noch keine
+  Steuerdaten lesen.
+
+Bestätige den erkannten Modus in einem kurzen deutschen Satz. Erkläre API, MCP,
+Hashes oder Dateiformate nur, wenn der Nutzer danach fragt oder eine konkrete
+Entscheidung davon abhängt.
 
 ## Harte Grenzen
 

@@ -1,9 +1,24 @@
 {
   "name": "steuer-spar-erklaerung-mcp",
-  "version": "0.1.0",
-  "description": "MCP-Server zur Steuerung der SteuerSparErklaerung (Akademische Arbeitsgemeinschaft) unter Windows via UI Automation",
+  "version": "0.1.0-beta.2",
+  "description": "Unofficial local HTTP API and optional MCP wrapper for SteuerSparErklaerung 2025 on Windows",
   "license": "MIT",
   "private": true,
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "steuererklaerung",
+    "windows",
+    "ui-automation"
+  ],
+  "homepage": "https://github.com/yadimon/steuer-spar-erklaerung-mcp#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yadimon/steuer-spar-erklaerung-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yadimon/steuer-spar-erklaerung-mcp/issues"
+  },
   "type": "module",
   "bin": {
     "steuer-spar-erklaerung-mcp": "dist/index.js",
@@ -31,6 +46,7 @@
     "start:api": "node dist/api-main.js",
     "smoke": "node test/with-api.mjs node dist/index.js --selftest",
     "test:api": "node test/api-contract.mjs",
+    "test:launch": "npm run build:ts && node test/launch-orchestration.mjs",
     "test:api-main": "node test/api-main-smoke.mjs",
     "test:skills": "node test/public-skills.mjs",
     "test:wrapper-boundary": "node test/wrapper-boundary.mjs",
@@ -54,7 +70,7 @@
     "test:table-delete": "node test/with-api.mjs node test/table-delete-transaction.mjs"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",

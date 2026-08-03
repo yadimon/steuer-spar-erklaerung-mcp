@@ -85,7 +85,9 @@ export const SSE_MCP_TOOL_SCHEMAS = {
       waitMs: z.number().min(300).max(10000).optional(),
     }).strict(),
   "sse_case_hash": z.object({ ref: CASE_REF().describe("Falldatei innerhalb des lokal konfigurierten Fallbereichs") }).strict(),
-  "sse_dialog_list": z.object({}).strict(),
+  "sse_dialog_list": z.object({
+      pid: z.number().int().positive().optional().describe("Optional nur Fenster der zuvor gestarteten SSE-PID inventarisieren"),
+    }).strict(),
   "sse_dialog_answer": z.object({
       hwnd: z.number(),
       fingerprint: SHA256(),

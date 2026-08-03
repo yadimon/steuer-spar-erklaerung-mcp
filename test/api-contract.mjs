@@ -34,6 +34,25 @@ const checkerState = {
 
 const execute = createApiExecutor(config, async (operation, args, timeoutMs, signal) => {
   calls.push({ operation, args, timeoutMs });
+  if (operation === "launch") {
+    return { ok: true, launched: true, pid: 4242, args: ["-meinur"], product: { supported: true }, case: null };
+  }
+  if (operation === "windows") {
+    return {
+      ok: true,
+      windows: [{
+        pid: 4242,
+        hwnd: 2424,
+        title: "Einkommensteuer 2025: SteuerSparErklärung für das Steuerjahr 2025",
+        w: 1200,
+        h: 800,
+        minimiert: false,
+      }],
+    };
+  }
+  if (operation === "dialog_list") return { ok: true, dialogs: [] };
+  if (operation === "product_info") return { ok: true, supportedRunning: [], ignoredRunning: [] };
+  if (operation === "close") return { ok: true, killed: true, stillRunning: false };
   if (operation === "find" && args.name === "__wait_for_abort__") {
     if (!signal?.aborted) await new Promise((resolve) => signal?.addEventListener("abort", resolve, { once: true }));
     markAbortObserved();
@@ -139,8 +158,22 @@ try {
   await callApiOperation("list_cases", { dir: "D:\\Explicit" }, 1_000, { baseUrl, token });
   assert.equal(calls.at(-1).args.dir, "D:\\Explicit", "explizite kompatible Argumente bleiben erhalten");
 
-  await callApiOperation("launch", { mode: "einur" }, 1_000, { baseUrl, token });
-  assert.equal(calls.at(-1).args.exe, config.sseExecutable, "nur die API kennt den lokalen SSE-Pfad");
+  const launched = await callApiOperation("launch", { mode: "einur" }, 30_000, { baseUrl, token });
+  const launchCall = calls.findLast((entry) => entry.operation === "launch");
+  assert.equal(launchCall.args.exe, config.sseExecutable, "nur die API kennt den lokalen SSE-Pfad");
+  assert.deepEqual(
+    calls.slice(calls.indexOf(launchCall), calls.length).map((entry) => entry.operation),
+    ["launch", "windows", "dialog_list"],
+    "SSE-Start muss Prozessstart und Fenster-/Dialog-Readback ueber frische Worker trennen",
+  );
+  assert.equal(launched.ready, true);
+  assert.equal(calls.findLast((entry) => entry.operation === "dialog_list").args.pid, 4242);
+  assert.deepEqual(launched.instance, {
+    pid: 4242,
+    hwnd: 2424,
+    title: "Einkommensteuer 2025: SteuerSparErklärung für das Steuerjahr 2025",
+    bindingMode: "launch-window",
+  });
   const callsBeforeRejectedExe = calls.length;
   const rejectedExe = await fetch(`${baseUrl}/v1/operations/launch`, {
     method: "POST",

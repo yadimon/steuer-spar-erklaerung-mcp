@@ -1,6 +1,4 @@
 interface:
   display_name: "SteuerSparErklärung Setup"
-  short_description: "Portable SSE-API und MCP einrichten"
-  default_prompt: "Use $steuer-spar-erklaerung-setup to configure the portable SSE API on this Windows PC with German defaults."
-policy:
-  allow_implicit_invocation: true
+  short_description: "Portable SSE-Automation sicher einrichten"
+  default_prompt: "Verwende $steuer-spar-erklaerung-setup, um die portable SteuerSparErklärung-2025-Automation mit deutschen Standardantworten und möglichst wenigen Systemänderungen einzurichten."

@@ -1,0 +1,28 @@
+{
+  "fixture": "Offizieller installierter Musterfall: MusterSteuer1.ESt2025 (bytegleiche Temp-Kopie)",
+  "mode": "synthetic-temporary-edit-discarded",
+  "api": "lokale HTTP-API",
+  "client": "MCP-Wrapper",
+  "startPage": "Vorbereitung Steuererklärung 2025",
+  "targetPage": "Prüfen und Abgeben",
+  "edit": {
+    "field": "Seit wann?",
+    "syntheticValue": "01.01.2000",
+    "verified": true,
+    "saved": false,
+    "discardedOnClose": true
+  },
+  "checker": {
+    "started": true,
+    "total": 8,
+    "consistent": true,
+    "introducedUnsavedChanges": false
+  },
+  "screenshots": [
+    "01-musterfall-geoeffnet.png",
+    "02-demo-wert-verifiziert.png",
+    "03-pruefen-und-abgeben.png",
+    "04-steuererklaerung-pruefen.png",
+    "05-steuerpruefer-ergebnis.png"
+  ]
+}

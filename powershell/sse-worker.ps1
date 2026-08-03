@@ -882,8 +882,9 @@ function Get-DialogDescriptor($Window, [IntPtr]$MainHwnd) {
   }
 }
 
-function Get-DialogInventory {
+function Get-DialogInventory([int]$TargetPid = 0) {
   $windows = @(Get-Windows 'SSE')
+  if ($TargetPid) { $windows = @($windows | Where-Object { [int]$_.pid -eq $TargetPid }) }
   if (-not $windows.Count) { return @() }
   # Beim Programmstart kann NUR die 518x260-Wiederherstellungsfrage offen
   # sein. Das groesste Fenster ist dann trotzdem ein Dialog, nicht das
@@ -3360,7 +3361,8 @@ switch ($Op) {
   }
 
   'dialog_list' {
-    $inventory = @(Get-DialogInventory | ForEach-Object {
+    $requestedPid = [int](Arg $a 'pid' 0)
+    $inventory = @(Get-DialogInventory $requestedPid | ForEach-Object {
       [pscustomobject]@{
         hwnd = $_.hwnd; pid = $_.pid; cls = $_.cls; title = $_.title; kind = $_.kind
         x = $_.x; y = $_.y; w = $_.w; h = $_.h
@@ -5501,58 +5503,17 @@ switch ($Op) {
     # Das ist genau so passiert und blieb lange unbemerkt.
     $argl = @("-m$mode")
     if ($caseIdentity) { $argl += ('"' + $caseIdentity.path + '"') }
-    $started = Start-Process -FilePath $productIdentity.path -ArgumentList $argl -PassThru
-    $launchWatch = [Diagnostics.Stopwatch]::StartNew()
-    $wins = @(); $mainCandidates = @(); $startupDialogs = @()
-    while ($launchWatch.ElapsedMilliseconds -lt 60000) {
-      Start-Sleep -Milliseconds 500
-      $wins = @(Get-Windows 'SSE' | Where-Object { [int]$_.pid -eq [int]$started.Id })
-      $mainCandidates = $(if ($caseIdentity) {
-        @($wins | Where-Object { $_.title -match 'SteuerSparErklärung' } |
-          Sort-Object { $_.w * $_.h } -Descending)
-      } else {
-        @(Get-SSEMainWindowCandidates $wins)
-      })
-      if ($mainCandidates.Count) { break }
-      if ($wins.Count) {
-        $startupDialogs = @(Get-DialogInventory | Where-Object {
-          [int]$_.pid -eq [int]$started.Id -and $_.kind -in @('native-dialog','qt-dialog')
-        })
-        if ($startupDialogs.Count) { break }
-      }
-    }
-    $waited = [math]::Round($launchWatch.ElapsedMilliseconds / 1000, 1)
-    if (-not $mainCandidates.Count -and -not $startupDialogs.Count) {
-      $cleanupError = $null
-      try {
-        if (-not $started.HasExited) {
-          Stop-Process -InputObject $started -Force -ErrorAction Stop
-          $started.WaitForExit(5000) | Out-Null
-        }
-      } catch { $cleanupError = $_.Exception.Message }
-      $processStillRunning = $false
-      try { $processStillRunning = -not $started.HasExited } catch { }
-      Emit ([pscustomobject]@{
-        ok=$false; kind=$(if ($processStillRunning) { 'startup-timeout-cleanup' } else { 'startup-timeout' })
-        error=$(if ($processStillRunning) {
-          "$($script:SSE_INSTANCE_LABEL)-PID $($started.Id) erzeugte kein Fenster und konnte nicht sicher beendet werden."
-        } else {
-          "$($script:SSE_INSTANCE_LABEL)-PID $($started.Id) erzeugte innerhalb von $waited Sekunden kein verifiziertes Fallfenster; der gestartete Prozess wurde beendet."
-        })
-        pid=[int]$started.Id; product=$productIdentity; case=$caseIdentity; windows=@()
-        processStillRunning=$processStillRunning; cleanupError=$cleanupError
-      })
-    }
-    $instance = $(if ($mainCandidates.Count -eq 1) {
-      [pscustomobject]@{
-        pid=[int]$mainCandidates[0].pid; hwnd=[int64]$mainCandidates[0].hwnd
-        title=[string]$mainCandidates[0].title; bindingMode='launch-window'
-      }
-    } else { $null })
+    # Der Node-Worker selbst laeuft absichtlich mit windowsHide=true, damit kein
+    # schwarzes PowerShell-Fenster aufblitzt. Ohne die explizite Fensterform
+    # erbt die gestartete GUI diesen versteckten Zustand und bleibt unsichtbar.
+    $started = Start-Process -FilePath $productIdentity.path -ArgumentList $argl -WindowStyle Normal -PassThru
     Emit ([pscustomobject]@{
-      ok = $true; launched = $true; pid=[int]$started.Id; args = $argl; waitedSec = $waited
-      windows=$wins; instance=$instance; ready=[bool]($null -ne $instance)
-      blockedByDialog=[bool]($startupDialogs.Count); dialogs=$startupDialogs
+      # Fenster und Dialoge werden absichtlich erst durch frische Worker im
+      # API-Executor verifiziert. Der Startprozess selbst kann seine von Qt
+      # erzeugten Top-Level-Fenster in bestimmten Windows-Sitzungen nicht
+      # inventarisieren, waehrend der naechste Worker sie eindeutig sieht.
+      ok = $true; launched = $true; pid=[int]$started.Id; args = $argl; waitedSec = 0
+      windows=@(); instance=$null; ready=$false; blockedByDialog=$false; dialogs=@()
       product=$productIdentity; case=$caseIdentity
     })
   }
@@ -6024,6 +5985,20 @@ switch ($Op) {
     $targetProcess = Get-Process -Id $targetPid -ErrorAction SilentlyContinue
     if (-not (Test-SSEProcess $targetProcess)) { Fail "PID $targetPid ist keine verifizierte Instanz von '$($script:SSE_PROFILE.product)'." 'ownership' }
     $wins = @($allWins | Where-Object { [int]$_.pid -eq $targetPid })
+    if ($requestedPid -and $force -and $discard -and -not $wins.Count) {
+      # Interner Fail-Closed-Cleanup fuer einen gestarteten Prozess, der noch
+      # kein Fenster erzeugt hat. Nur die explizite, erneut als SSE-2025
+      # verifizierte PID darf beendet werden.
+      Stop-Process -InputObject $targetProcess -Force -ErrorAction SilentlyContinue
+      try { $targetProcess.WaitForExit(5000) | Out-Null } catch { }
+      $stillRunning = [bool](Get-Process -Id $targetPid -ErrorAction SilentlyContinue)
+      Emit ([pscustomobject]@{
+        ok=(-not $stillRunning); killed=(-not $stillRunning); stillRunning=$stillRunning
+        discardChanges=$true; pid=$targetPid
+        error=$(if ($stillRunning) { 'Fensterlos gestartete SSE-PID konnte nicht sicher beendet werden.' } else { $null })
+        note='Exakt gebundene fensterlose Start-PID wurde ohne Speichern beendet.'
+      })
+    }
     if ($requestedHwnd) {
       $mainWindow = @($wins | Where-Object { [int64]$_.hwnd -eq [int64]$requestedHwnd })
     } else {

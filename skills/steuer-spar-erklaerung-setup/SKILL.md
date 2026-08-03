@@ -1,6 +1,6 @@
 ---
 name: steuer-spar-erklaerung-setup
-description: Richtet die portable lokale SteuerSparErklärung-API und ihren optionalen MCP-Wrapper auf Windows ein oder repariert deren Konfiguration. Verwenden bei Erstinstallation, neuem PC, fehlender API-Verbindung, geändertem SSE-/Arbeitsordner oder gewünschter MCP-Anbindung für Codex, Claude Code und andere kompatible Agenten.
+description: Installiert oder repariert die portable lokale SteuerSparErklärung-2025-Automation unter Windows ohne globales Node.js/npm, Python oder PowerShell 7 und bindet auf Wunsch den optionalen MCP-Wrapper an. Verwenden bei Erstinstallation, neuem PC, fehlender API-Verbindung, geändertem SSE-/Arbeitsordner oder gewünschter MCP-Anbindung für Codex, Claude Code und kompatible Agenten.
 ---
 
 # SteuerSparErklärung einrichten

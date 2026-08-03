@@ -17,6 +17,7 @@ const steps = [
   [process.execPath, ["test/resource-references.mjs"]],
   [powershell, ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "test/setup-task-contract.ps1"]],
   [process.execPath, ["test/api-contract.mjs"]],
+  [process.execPath, ["test/launch-orchestration.mjs"]],
   [process.execPath, ["test/operation-schema-catalog.mjs"]],
   [process.execPath, ["test/api-main-smoke.mjs"]],
   [process.execPath, ["test/abort-contract.mjs"]],

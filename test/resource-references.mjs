@@ -99,6 +99,21 @@ try {
     async (operation, args) => {
       calls.push({ operation, args });
       if (operation === "center_cases") return { ok: true, verzeichnis: roots.cases, faelle: [] };
+      if (operation === "launch") return { ok: true, launched: true, pid: 5151, operation, path: args.file, args };
+      if (operation === "windows") {
+        return {
+          ok: true,
+          windows: [{
+            pid: 5151,
+            hwnd: 5152,
+            title: "Gewinnermittlung 2025: SteuerSparErklärung für das Steuerjahr 2025",
+            w: 1200,
+            h: 800,
+            minimiert: false,
+          }],
+        };
+      }
+      if (operation === "dialog_list") return { ok: true, dialogs: [] };
       return { ok: true, operation, path: args.path, args };
     },
   );
@@ -182,9 +197,12 @@ try {
     }],
   ];
   for (const [operation, alias, legacyField, ref, expectedPath, additionalArgs = {}] of aliasCases) {
-    const result = await execute(operation, { ...additionalArgs, [alias]: ref }, 1_000);
-    assert.equal(calls.at(-1).args[legacyField], expectedPath, `${operation} muss ${alias} lokal aufloesen`);
-    assert.equal(calls.at(-1).args[alias], undefined, `${operation} darf den Alias nicht an den Worker geben`);
+    const callsBefore = calls.length;
+    const result = await execute(operation, { ...additionalArgs, [alias]: ref }, operation === "launch" ? 30_000 : 1_000);
+    const operationCall = calls.slice(callsBefore).find((entry) => entry.operation === operation);
+    assert(operationCall, `${operation} muss den Worker erreichen`);
+    assert.equal(operationCall.args[legacyField], expectedPath, `${operation} muss ${alias} lokal aufloesen`);
+    assert.equal(operationCall.args[alias], undefined, `${operation} darf den Alias nicht an den Worker geben`);
     assert.equal(result.resourceRefs[alias], ref);
     assert(!JSON.stringify(result).includes(expectedPath), `${operation} darf den lokalen Pfad nicht zurueckgeben`);
   }

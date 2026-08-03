@@ -74,6 +74,8 @@ const requiredFiles = [
   ]),
   "skills/steuer-spar-erklaerung/SKILL.md",
   "skills/steuer-spar-erklaerung-setup/SKILL.md",
+  "docs/assets/demo/steuer-spar-erklaerung-demo.gif",
+  "docs/assets/demo/demo-result.json",
   "README.md",
   "LICENSE",
   "package.json",
@@ -108,6 +110,11 @@ for (const item of ["dist", "powershell", "profiles", "skills", "README.md", "LI
   const source = join(repoRoot, item);
   if (existsSync(source)) cpSync(source, join(output, item), { recursive: true, dereference: true });
 }
+cpSync(
+  join(repoRoot, "docs", "assets", "demo"),
+  join(output, "docs", "assets", "demo"),
+  { recursive: true, dereference: true },
+);
 for (const entry of readdirSync(join(output, "powershell"))) {
   if (entry.startsWith(".sse-native-")) rmSync(join(output, "powershell", entry), { force: true });
 }

@@ -357,11 +357,12 @@ registerStrictTool(
     title: "Dialoge sicher lesen",
     description:
       "Listet alle SSE-Fenster, klassifiziert native und Qt-Dialoge und liefert Texte, erlaubte " +
-      "Antwortschaltflaechen sowie einen SHA256-Fingerprint. Den Fingerprint unveraendert an " +
+      "Antwortschaltflaechen sowie einen SHA256-Fingerprint. Mit pid wird die aufwendige Inventur " +
+      "vor dem UIA-/MSAA-Readback auf genau eine zuvor gelieferte SSE-PID begrenzt. Den Fingerprint unveraendert an " +
       "sse_dialog_answer geben; er verhindert, dass versehentlich ein inzwischen ausgetauschter Dialog beantwortet wird.",
     inputSchema: SSE_MCP_TOOL_SCHEMAS.sse_dialog_list.shape,
   },
-  async () => run("dialog_list", {}),
+  async (a) => run("dialog_list", a),
 );
 
 registerStrictTool(
