@@ -60,6 +60,22 @@ const worker = async (operation, args) => {
     list_cases: { ok: true, count: 2, cases: ["A", "B"] },
     click: { ok: true, beforePage: "Start", afterPage: "Betriebseinnahmen", screenPoint: [10, 20] },
     read_page: { ok: true, heading: "Betriebseinnahmen", fieldCount: 4, boundHwnd: args.hwnd, fields: [1, 2, 3, 4] },
+    page: {
+      ok: true,
+      ueberschrift: "Umsatzsteuer-Voranmeldungen 2025",
+      felder: [
+        { label: "Voranmeldezeitraum", typ: "ComboBox", wert: "monatlich", aid: "Combobox" },
+        { label: "Auswahl Monat", typ: "ComboBox", wert: "Juli", aid: "Combobox" },
+        { label: "Beträge für die Umsatzsteuer-Voranmeldung manuell erfassen", typ: "CheckBox", wert: false, aid: "ManuelleEingabe" },
+        { label: "Lieferungen/Leistungen zu 19%", typ: "Edit", wert: "1.000,00", aid: "Wert" },
+        { label: "Lieferungen/Leistungen zu 19%", typ: "Edit", wert: "190,00", aid: "WertUSt" },
+        { label: "Vorsteuer", typ: "Edit", wert: "-20,00", aid: "Wert" },
+        { label: "Umsatzsteuerzahllast", typ: "Edit", wert: "170,00", aid: "Wert" },
+      ],
+      aktionen: [{ name: "ELSTER", gesperrt: true }],
+      prueferMeldungen: [],
+      blockiert: false,
+    },
     close: { ok: true, closed: true, saved: false, hwnd: args.hwnd },
   };
   return fixtures[operation] ?? { ok: false, kind: "fixture", error: `Keine Fixture fuer ${operation}` };
@@ -97,6 +113,23 @@ try {
   });
   client = new Client({ name: "sse-scenario-parity", version: "1.0.0" });
   await client.connect(transport);
+
+  const callsBeforeCapabilities = workerCalls;
+  const directCapabilitiesResponse = await fetch(`${baseUrl}/v1/operations/capabilities`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ args: {} }),
+  });
+  assert.equal(directCapabilitiesResponse.status, 200);
+  const directCapabilities = (await directCapabilitiesResponse.json()).result;
+  const mcpCapabilitiesResponse = await client.callTool({ name: "sse_capabilities", arguments: {} });
+  assert.equal(mcpCapabilitiesResponse.isError, undefined, JSON.stringify(mcpCapabilitiesResponse));
+  const mcpCapabilities = JSON.parse(
+    mcpCapabilitiesResponse.content.find((item) => item.type === "text").text,
+  );
+  assert.deepEqual(mcpCapabilities, directCapabilities, "API und MCP muessen dieselben Faehigkeiten melden");
+  assert.equal(workerCalls, callsBeforeCapabilities, "Faehigkeiten duerfen keinen Desktop-Worker starten");
+
   const mcpResponse = await client.callTool(
     {
       name: "sse_run_scenario",
@@ -122,8 +155,8 @@ try {
   assert(!directBytes.toString("utf8").includes("localMachinePath"));
   assert(!directBytes.toString("utf8").includes("canaryMs"));
 
-  const callsBeforeConflict = workerCalls;
-  const overwriteWithoutHash = await fetch(`${baseUrl}/v1/operations/scenario_run`, {
+  const callsBeforeRepeat = workerCalls;
+  const idempotentRepeat = await fetch(`${baseUrl}/v1/operations/scenario_run`, {
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
     body: JSON.stringify({
@@ -131,10 +164,16 @@ try {
       timeoutMs: 300_000,
     }),
   });
-  assert.equal((await overwriteWithoutHash.json()).result.ok, false);
-  assert.equal(workerCalls, callsBeforeConflict, "Ergebnisziel-Konflikt muss vor jedem Szenarioschritt scheitern");
+  const repeated = await idempotentRepeat.json();
+  assert.equal(repeated.result.ok, true);
+  assert.equal(repeated.result.resultRef, "results:direct.json");
+  assert.equal(repeated.result.sha256, directEnvelope.result.sha256);
+  assert(workerCalls > callsBeforeRepeat, "Idempotenter Lauf muss die aktuelle UI erneut lesen statt einen alten Bericht vorzutäuschen");
+  assert.deepEqual(readFileSync(join(resultDir, "direct.json")), directBytes,
+    "Bytegleiches Szenarioergebnis muss ohne Dateiersatz wiederverwendet werden");
 
-  const overwriteWithHash = await fetch(`${baseUrl}/v1/operations/scenario_run`, {
+  const callsBeforeLegacyOverwrite = workerCalls;
+  const legacyOverwrite = await fetch(`${baseUrl}/v1/operations/scenario_run`, {
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
     body: JSON.stringify({
@@ -146,8 +185,9 @@ try {
       timeoutMs: 300_000,
     }),
   });
-  const overwritten = await overwriteWithHash.json();
-  assert.equal(overwritten.result.sha256, directEnvelope.result.sha256);
+  assert.equal(legacyOverwrite.status, 400);
+  assert.equal((await legacyOverwrite.json()).error.code, "bad-args");
+  assert.equal(workerCalls, callsBeforeLegacyOverwrite, "Altes Overwrite-Argument darf keinen Szenarioschritt starten");
   process.stdout.write(`Szenario-Paritaet: ${directEnvelope.result.sha256} (${directBytes.length} Bytes)\n`);
 } finally {
   if (client) await client.close();

@@ -247,15 +247,23 @@ try {
   assert(partialCollection.kind === "collection-incomplete" &&
     partialCollection.vollstaendig === false && partialCollection.anzahl === 1,
   `Begrenzte Gesamterfassung meldet keinen ehrlichen Teilstand: ${JSON.stringify(partialCollection)}`);
+  assert(partialCollection.advancedAfterLastCaptured === true &&
+    typeof partialCollection.currentHeadingAfter === "string" && partialCollection.currentHeadingAfter &&
+    partialCollection.currentHeadingAfter !== partialCollection.ueberschriften?.at(-1),
+  `Segment meldet die bestaetigte Weiterposition nicht eindeutig: ${JSON.stringify(partialCollection)}`);
   assert(partialCollection.datei === collectOutput && /^[A-F0-9]{64}$/.test(partialCollection.dateiHash) &&
     existsSync(collectOutput) && sha256(collectOutput) === partialCollection.dateiHash,
   "Teilstand wurde nicht atomar mit bestaetigtem Dateihash geschrieben.");
   const partialFile = JSON.parse(readFileSync(collectOutput, "utf8"));
-  assert(partialFile.vollstaendig === false && partialFile.anzahl === 1 && partialFile.stopKind,
+  assert(partialFile.vollstaendig === false && partialFile.anzahl === 1 && partialFile.stopKind &&
+    partialFile.currentHeadingAfter === partialCollection.currentHeadingAfter &&
+    partialFile.advancedAfterLastCaptured === true,
     "Teilstandsdatei verschweigt Vollstaendigkeit oder Stopgrund.");
   const beforeRejectedOverwrite = jsonResult(await client.callTool({
     name: "sse_ui_state", arguments: { hwnd: state1.instance.hwnd },
   }), "state-before-rejected-collect-overwrite");
+  assert(beforeRejectedOverwrite.heading === partialCollection.currentHeadingAfter,
+    "Der naechste Segmentstart stimmt nicht mit der nach dem letzten Snapshot bestaetigten Seite ueberein.");
   const rejectedOverwrite = errorText(await client.callTool({
     name: "sse_collect",
     arguments: { hwnd: state1.instance.hwnd, maxPages: 1, path: collectOutput },

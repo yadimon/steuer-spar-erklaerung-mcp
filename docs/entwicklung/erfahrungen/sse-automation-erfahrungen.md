@@ -54,6 +54,26 @@ Screenshots oder Fallpfade enthalten.
 - Originalfälle nicht verändern. Zuerst Hash, Übermittlungsstatus, Sicherung
   und Arbeitskopie herstellen.
 
+### UStVA-spezifische Erkenntnisse
+
+- Die Übersichtsseite kann mehrere Schaltflächen mit exakt demselben sichtbaren
+  Namen `Erfassen` enthalten. Ein generischer Namensklick wählte im realen
+  Test den falschen Unterbereich. Fachliche Bereiche deshalb über stabile
+  AutomationId-Suffixe und die erwartete Zielüberschrift binden.
+- `Voranmeldezeitraum`, `Auswahl Monat` und `Auswahl Quartal` sind getrennte,
+  dynamisch materialisierte ComboBoxen. Frequenz und konkreten Zeitraum in
+  getrennten Transaktionen mit Vor-/Nachwert setzen.
+- Eine Umstellung von vierteljährlich auf monatlich verändert sofort den
+  UStVA-Zustand und die berechneten Beträge. Das ist keine neutrale Navigation;
+  nur in einer Wegwerf- oder verifizierten Arbeitskopie und nie allein aus dem
+  Wort „Juli“ ableiten.
+- Die Übersicht berechnet Kernbeträge standardmäßig aus den Buchungen. Direkte
+  manuelle Hauptbeträge sind ein eigener bewusster Modus; Korrekturfelder wie
+  Sondervorauszahlung oder §15a-Berichtigung bleiben davon getrennt.
+- Nach jedem Erkundungslauf Änderungen verwerfen und Original-/Kopienhash
+  erneut vergleichen. Reale Fallwerte, Steuerdaten und Screenshots bleiben in
+  ignorierten lokalen Artefakten.
+
 ## Arbeitsmodell
 
 Die zuverlässige Schleife lautet:
@@ -603,10 +623,11 @@ verhindert werden.
   `sse-native.dll`; der Worker lädt sie in rund 20 ms und behält
   `sse-native.cs` als getesteten Fallback.
 - Eine geladene DLL kann nicht allein an ihrem Typnamen als aktuell erkannt
-  werden. Der Build schreibt deshalb den SHA256 des exakten C#-Quelltexts in
-  ein Sidecar; Worker und Hidden-Desktop-Launcher laden die DLL nur bei
-  Übereinstimmung. Bei Drift bleibt die alte DLL unangetastet, wird aber nicht
-  verwendet. Der Test simuliert diesen Fall in einer isolierten Kopie.
+  werden. Der Build schreibt deshalb die SHA256-Werte des exakten C#-Quelltexts
+  und der tatsächlichen DLL-Bytes in ein striktes Sidecar; Worker und
+  Hidden-Desktop-Launcher laden die DLL nur bei doppelter Übereinstimmung. Bei
+  Quell- oder Binärdrift bleibt die DLL unangetastet, wird aber nicht verwendet.
+  Tests simulieren beide Fälle in einer isolierten Kopie.
 - DLL und Sidecar lassen sich nicht als Paar atomar austauschen. Die DLL wird
   auf demselben Volume atomar ersetzt, danach das Sidecar. Im kurzen
   Zwischenzustand ist der Hashvertrag falsch und neue Worker fallen sicher auf
@@ -749,7 +770,7 @@ verhindert werden.
 | Mehrseiten-Erfassung nach Dialog oder gleicher Überschrift weiterlaufen lassen | dieselbe Seite erscheint mehrfach und ein Teilstand sieht wie eine vollständige Erklärung aus | beim ersten Dialog, Zyklus, Stillstand, Kanarienfehler oder Nutzereingriff `collection-incomplete` liefern; Teilstand und Stopgrund erhalten |
 | Seitentitel allein als Zyklus-ID verwenden | SSE nutzt dieselbe Überschrift für legitime §13b-Unterseiten hinter Material, Fremdleistungen und weiteren Kosten; der Collector stoppt falsch | gerichteten Weg `Vorgänger -> Überschrift` als Zyklus-ID verwenden; gleicher Titel aus anderem Vorgänger ist ein eigenes Vorkommen |
 | Mehr als wenige große Qt-Seiten in einem Collector-Prozess erzwingen | Schon 12 Seiten konnten nach mehreren Minuten auf über 3 GB wachsen und SSE blockieren; das Abschlussartefakt fehlte | Vorgabe 3, hart maximal 5 Seiten; Memory-/Kanarienguard auf jeder Seite. Live-Arbeit ausschließlich über direkte Tree-/Page-Object-Sprünge |
-| bestehenden Erfassungs-JSON-Pfad ungeprüft überschreiben | parallele oder manuelle Änderungen am privaten Prüfstand gehen verloren | vorhandenes Ziel nur mit `expectedOutputHashBefore` ersetzen, über temporäre Datei schreiben und neuen SHA256 zurücklesen |
+| bestehenden Erfassungs-JSON-Pfad überschreiben, auch hashgebunden | zwischen langer UI-Erfassung und Ersetzen bleibt ein Fremdänderungsfenster | jedes Segment in eine neue, exklusiv erzeugte Ergebnisdatei schreiben; vorhandene Ziele nie ersetzen und neuen SHA256 zurücklesen |
 | unvollständigen Collect-Stand als vollständige Prüfquelle verwenden | alle vorhandenen Erwartungen können stimmen, obwohl andere Seiten fehlen | `vollstaendig=true` verlangen; Teilstand nur bewusst mit `allowIncompleteSource` und ohne Gesamtaussage prüfen |
 | bei Seiten-/Feldteilstring den ersten Treffer wählen | gleichnamige Summen oder ähnliche Seiten werden verwechselt | exakte Treffer priorisieren, Teilstrings literal und eindeutig verlangen, Mehrdeutigkeit mit Kandidaten melden |
 | fachliche Soll/Ist-Abweichung als `ok=false` transportieren | MCP-Schicht ersetzt die Detailzeilen durch „Unbekannter Fehler“ | Werkzeugausführung `ok=true`, fachliches Ergebnis getrennt als `vergleichOk` melden |

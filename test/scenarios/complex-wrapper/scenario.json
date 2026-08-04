@@ -53,6 +53,29 @@
       "args": { "hwnd": "$steps.launch.result.instance.hwnd" },
       "capture": ["ok", "heading", "fieldCount", "boundHwnd"],
       "expect": { "ok": true, "heading": "Betriebseinnahmen", "fieldCount": 4, "boundHwnd": 4242 }
+    },
+    {
+      "id": "ustva-read",
+      "operation": "ustva_read",
+      "args": { "hwnd": "$steps.launch.result.instance.hwnd" },
+      "capture": [
+        "ok",
+        "taxYear",
+        "period.frequency",
+        "period.key",
+        "amounts.taxable19.base.cents",
+        "amounts.settlement.cents",
+        "transmission.blockedByApi"
+      ],
+      "expect": {
+        "ok": true,
+        "taxYear": 2025,
+        "period.frequency": "monthly",
+        "period.key": "july",
+        "amounts.taxable19.base.cents": 100000,
+        "amounts.settlement.cents": 17000,
+        "transmission.blockedByApi": true
+      }
     }
   ],
   "finally": [

@@ -17,6 +17,9 @@ Ordne den Auftrag ohne technische Rückfrage einem sicheren Modus zu:
 - „mit Belegen abgleichen“: read-only in Fall und freigegebenen Quellen;
 - „korrigieren“ oder „ändern“: zuerst Vorschläge, dann nur eine verifizierte
   Arbeitskopie und jede einzelne Freigabe;
+- „UStVA“, „Umsatzsteuer-Voranmeldung“, Monat oder Quartal vorbereiten:
+  UStVA-Modus; Zieljahr, gesetzliche Frequenz und vorhandene Übermittlung
+  zuerst prüfen, nur bei ausdrücklichem Auftrag in einer Arbeitskopie ändern;
 - „einrichten“ oder „Verbindung reparieren“: Setup-Modus, noch keine
   Steuerdaten lesen.
 
@@ -56,6 +59,21 @@ MCP oder unterstützt der Agent kein MCP, verwende dieselben Operationen direkt
 über die API. Wechsel während einer möglicherweise begonnenen Schreiboperation
 nie still den Transport; bei unklarem Zustand stoppen.
 
+Für direkte API-Aufrufe bevorzuge die ausgelieferte
+`steuer-spar-erklaerung-call`-CLI beziehungsweise im portablen Ordner
+`runtime/node.exe dist/api-cli.js`. Beginne bei einer bekannten Einzelaktion
+mit `describe <operation>` und nur bei einer breiten Planung mit `discovery`; für komplexe
+Argumente eine neue begrenzte UTF-8-JSON-Datei per `--args-file` oder einen
+kurzlebigen stdin-Datenstrom per `--args-file -` verwenden. Schreibe Steuerwerte nie als Inline-JSON in die Kommandozeile oder
+Prozessliste. Ist ein eigener Client sinnvoller, lies `openapi` und verwende
+die dort veröffentlichten 86 Bearer-geschützten Verträge.
+
+Rufe nach erfolgreicher Verbindung zuerst `sse_capabilities` beziehungsweise
+die API-Operation `capabilities` auf. Diese PC-neutrale Selbstbeschreibung ist
+die verbindliche Quelle für verfügbare Selektoren, Klickmuster, erlaubte
+Dialogantworten und die sichere Fallback-Leiter; erfinde keine Methode aus
+Modellwissen.
+
 Der Endnutzer braucht kein globales Node.js/npm, kein Python und kein
 PowerShell 7. Das portable Release enthält `runtime/node.exe` und verwendet
 Windows PowerShell 5.1. Solche Werkzeuge dürfen nur als Entwicklerabhängigkeiten
@@ -86,6 +104,9 @@ Kläre in dieser Reihenfolge:
    Setup vorgeschlagenen LocalAppData-Ordner.
 3. Wo liegen Belege: lokaler Ordner, bereits verbundener Connector oder
    manuelle Bereitstellung? Standard: **lokaler Ordner**.
+   Erfasse außerdem, welche Belege aktuell als vollständig gelten. Standard
+   für die laufende Vorbereitung: **vorhandene Ein- und Ausgangsrechnungen als
+   führendes Beleginventar; Zahlungen separat als noch abzugleichend markieren**.
 4. Darf ein konkret benannter Connector gelesen werden? Standard bei
    Unsicherheit: **Nein**.
 5. Dürfen ausgewählte Dateien als Kopien gesammelt werden? Standard: **Ja**;
@@ -106,11 +127,24 @@ Nutzerentscheidung.
 
 ## Verbindlicher Ablauf
 
-1. Lies den versionsgebundenen Operationskatalog aus der API-Selbstbeschreibung
-   und verifiziere API-Health, aktives Profil, Engine-Major und Arbeitsbereich.
+1. Lies `capabilities` und den versionsgebundenen Operationskatalog aus der
+   API-Selbstbeschreibung. Verifiziere danach API-Health, aktives Profil,
+   Engine-Major und Arbeitsbereich.
 2. Inventarisiere freigegebene Quellen. Speichere für Dateien Quelle,
    Dateiname, Größe, Änderungszeit soweit verfügbar, SHA-256 und relative
    Zielreferenz. Connectoren erst nach Zustimmung lesen.
+   Für eine vollständige SSE-Bestandsaufnahme bevorzuge kurze
+   `sse_collect`-Segmente entlang des linearen `Weiter`-Pfads. Lies pro Seite
+   Überschrift, Felder und sichtbare Tabellen und kontrolliere Dialog,
+   Seitenwechsel, Zyklus sowie Ressourcenlimit. Verwende `sse_table_read` nur
+   für eine erkannte lange Tabelle, deren Zeilen virtualisiert sind. Die globale
+   Suche dient danach nur zum gezielten Rücksprung auf eine bereits kartierte
+   Seite; ein angezeigter Suchtreffer allein beweist keine Navigation. Ist die
+   Seite, Tabellenzuordnung oder ein von Qt nicht strukturiert exponiertes
+   Bedienelement trotzdem unklar, erfasse zusätzlich mit `sse_screenshot` ein
+   Fensterbild im Ergebnisbereich. Nutze es zur visuellen Zustands- und
+   Layoutprüfung; Beträge, Auswahlwerte und Vollständigkeit müssen weiterhin
+   durch strukturierte Felder, Tabellen und Summen belegt werden.
 3. Empfehle Kopien unter `documents`. Bei Ablehnung nur Quelle und Entscheidung
    dokumentieren; Originale nicht verändern.
 4. Identifiziere den Originalfall read-only. Für Schreibarbeit Hash berechnen,
@@ -125,12 +159,93 @@ Nutzerentscheidung.
 7. Verwende für wiederholbare Mehrschrittaufgaben ein versioniertes Szenario
    aus dem installierten API-Vertrag: relative Workspace-Referenzen, eindeutige
    Schritt-IDs, dynamische `$steps.<id>.result...`-Referenzen und obligatorisches
-   `finally`.
+   `finally`. Verwende `continueOnError` nur für rein lesende Diagnosen; danach
+   darf keine Hauptmutation folgen.
 8. Prüfe steuerliche Werte nur bei einem fachlichen Prüfauftrag gegen aktuelle
    deutsche Primärquellen und Herstellerhinweise. Markiere Unsicherheit und
    empfehle bei hohem Risiko eine befugte Steuerfachperson.
 9. Schreibe immer einen Ergebnis- oder Stoppreport unter `results` und lies ihn
    abschließend zurück.
+
+## Fallback bei unbekannten Controls
+
+Fehlt eine Spezialoperation, darf die Arbeit kontrolliert weitergehen:
+
+1. Lies zuerst `sse_page_state` oder `sse_ui_state`.
+2. Entdecke das Control ausschließlich lesend mit `sse_snapshot`, `sse_find`
+   und bei Bedarf `sse_accessibility_probe`.
+3. Übernimm AutomationId oder RuntimeId nur aus diesem frischen Zustand.
+4. Verwende für Checkboxen `sse_toggle`, für Listen `sse_combo_options` plus
+   `sse_combo_select` und für Textfelder eine gebundene Schreiboperation.
+5. Verwende `sse_click` nur, wenn Ziel, Seite, Fenster und Nachbedingung
+   eindeutig sind. Nutze niemals einen generischen Toggle-Klick.
+6. Lies nach jeder Interaktion den Zustand neu. Bei Mehrdeutigkeit oder
+   Abweichung stoppen; nicht auf eine andere Methode durchprobieren.
+
+Ein unbekannter Dialogbutton wird in `unsupportedButtons` gemeldet, bleibt aber
+gesperrt. Zeige ihn dem Nutzer und stoppe. Erweitere die Allowlist nicht zur
+Laufzeit und bestätige keine Dialogkette blind.
+
+## Umsatzsteuer-Voranmeldung
+
+Eine Jahreserklärung oder allgemeine Fallprüfung autorisiert keine
+UStVA-Änderung. Bei einem ausdrücklichen UStVA-Auftrag:
+
+1. Bestimme zuerst Zieljahr und Zielzeitraum. Das Profil 2025 darf zusätzlich
+   genau den vom Hersteller vorgesehenen Folgejahr-Fall `*.GewErfass2026`
+   bedienen. Verwende diese Ausnahme nur für Gewinn-Erfassung/UStVA 2026;
+   andere 2026er Fallarten und spätere Jahre bleiben gesperrt.
+2. Lies Fallkopf, Übermittlungsprotokolle und UStVA-Zustand. Ist der Zeitraum
+   bereits übermittelt, bereite keinen zweiten Fall und keine Berichtigung ohne
+   einen neuen ausdrücklichen Auftrag vor.
+3. Erstelle vor jeder Betragseingabe ein vollständiges Periodeninventar der
+   freigegebenen Ein- und Ausgangsrechnungen. Rechnungen sind die führende
+   Quelle für Betrag, Leistungsbezug, ausgewiesene Umsatzsteuer und
+   Rechnungsaussteller; Kontoauszüge ersetzen keine fehlende Rechnung. Halte
+   Zahlungsstatus und Zahlungsdatum getrennt fest. Fehlt dieser Abgleich,
+   kennzeichne die Buchung und das Ergebnis als **vorläufig - Zahlungsabgleich
+   ausstehend**; behaupte weder einen abschließenden EÜR-Zeitpunkt noch einen
+   abschließenden Zeitpunkt bei Istversteuerung.
+4. Erfasse oder korrigiere die belegten Einnahmen und Ausgaben zuerst in den
+   fachlich passenden Buchungsseiten der Gewinn-Erfassung. Trenne dabei
+   deutsche Umsatzsteuer, EU-/Drittlands-§13b, nicht abziehbare oder
+   korrekturbedürftig ausgewiesene ausländische Umsatzsteuer sowie nicht
+   steuerbare EU-Ausgangsleistungen. Lies jede Zeile, die Seitensumme, die
+   Betriebseinnahmen/-ausgaben-Übersicht und die Vorsteuer-Übersicht zurück.
+   Verwechsle Kostenart und Umsatzsteuerbehandlung nicht: Ein Software-Abo oder
+   Online-Dienst ist wirtschaftlich eine EDV-Ausgabe, kann aber bei einem
+   ausländischen Anbieter zugleich eine sonstige Leistung nach § 13b UStG
+   sein. In der SSE-Version 2025 bietet die Buchungsseite `EDV-Kosten` keine
+   §13b-Unterseite. Erfasse eine solche Rechnung deshalb **einmal** unter
+   `Fremdleistungen -> Rechnungen nach § 13b UStG` und wähle anhand des
+   Anbietersitzes `Sonst. Leistung EU` oder `Sonst. Leistung Drittland`.
+   Erfasse denselben Nettobetrag nicht zusätzlich unter `EDV-Kosten`, weil das
+   die Betriebsausgabe verdoppeln würde. Inländische Software-Rechnungen mit
+   deutscher Umsatzsteuer und ausländische Rechnungen ohne §13b verbleiben in
+   der fachlich passenden EDV-Kostenzeile.
+   Eine Rechnung aus einem bereits übermittelten Zeitraum wird nicht still in
+   den aktuellen Zeitraum verschoben; dokumentiere stattdessen den möglichen
+   Berichtigungsbedarf.
+5. Behalte die belegte Meldefrequenz bei. „Juli“ allein ist keine Erlaubnis,
+   von vierteljährlich auf monatlich umzustellen. Bei fachlicher Unsicherheit
+   aktuelle Primärquellen prüfen und stoppen.
+6. Verwende `sse_ustva_read` vor und nach der Arbeit. Wähle Frequenz und
+   Monat/Quartal mit getrennten `sse_ustva_select_period`-Aufrufen, jeweils mit
+   Arbeitskopie, aktuellem Hash, PID/HWND sowie exaktem Vorwert.
+7. Verwende `sse_ustva_open_section` statt generischer Klicks. Öffne damit auch
+   die Detailbereiche `reverse_charge` und `input_tax`; EU-/Drittlandsleistungen
+   und normale/§13b-Vorsteuer müssen getrennt rückgelesen werden. Mehrere gleich
+   benannte Schaltflächen sind nachweislich mehrdeutig.
+8. Vergleiche die automatisch aus den Buchungen erzeugte UStVA mit dem
+   Periodeninventar. `manual_input` ist nur ein begründeter Fallback, wenn eine
+   belegte Position trotz korrekter Buchung nicht fachlich abbildbar ist.
+   Aktiviere es und ändere manuelle Hauptbeträge nur nach ausdrücklicher
+   Freigabe; dokumentiere Ursache sowie jeden Vor-/Nachwert. Eine unvollständig
+   vorgefüllte Gewinn-Erfassung darf nicht durch bloßes Übertragen von Summen in
+   die UStVA kaschiert werden.
+9. Speichere nur nach vollständigem Readback und gesonderter Freigabe mit dem
+   hashgebundenen Speicherbefehl. ELSTER, Senden und Übermittlung bleiben auch
+   dann gesperrt.
 
 Lies [references/betriebsvertrag.md](references/betriebsvertrag.md), bevor du
 API/MCP einrichtest, einen Fall öffnest oder einen Report erzeugst.
@@ -157,6 +272,7 @@ Fensterwechsel oder Sperrbildschirm.
 | MCP-Registrierung durch Nutzer | Ein erneuter Hinweis, dann direkte API anbieten |
 | Gleiche unbeantwortete Frage | Höchstens zweimal stellen, dann sicher stoppen |
 | Hash-, Ziel-, unbekannter Dialog oder Readback abweichend | Keine Wiederholung und keine weitere Änderung |
+| Abgebrochener MCP-/API-Aufruf | Zustand ist unbekannt; erst frischen Zustand lesen, dann bewusst entscheiden |
 
 ## Stoppen und ehrlich berichten
 

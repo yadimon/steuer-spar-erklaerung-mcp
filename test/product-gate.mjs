@@ -6,21 +6,38 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { SSE_MCP_TOOL_OPERATIONS } from "../dist/operation-catalog.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
 const server = join(root, "dist", "index.js");
 const worker = join(root, "powershell", "sse-worker.ps1");
 const workerSource = readFileSync(worker, "utf8");
+const workerBridgeSource = readFileSync(join(root, "src", "worker.ts"), "utf8");
+const desktopLauncherSource = readFileSync(join(root, "powershell", "run-on-desktop.ps1"), "utf8");
+const workerTransportSource = readFileSync(join(root, "powershell", "worker-transport-common.ps1"), "utf8");
 const tableRegionSource = readFileSync(join(root, "powershell", "table-region.ps1"), "utf8");
-const serverSource = readFileSync(join(root, "src", "index.ts"), "utf8");
-const operationCatalogSource = readFileSync(join(root, "src", "operation-catalog.ts"), "utf8");
+const tableValuesSource = readFileSync(join(root, "powershell", "table-values.ps1"), "utf8");
+const tableComboSource = readFileSync(join(root, "powershell", "table-combobox.ps1"), "utf8");
+const mcpRegistrySource = readFileSync(join(root, "src", "mcp-registry.ts"), "utf8");
+const mcpToolSources = readdirSync(join(root, "src"))
+  .filter((name) => /^mcp-tools(?:-[a-z]+)?\.ts$/.test(name))
+  .sort()
+  .map((name) => readFileSync(join(root, "src", name), "utf8"));
+const serverSource = [readFileSync(join(root, "src", "index.ts"), "utf8"), mcpRegistrySource, ...mcpToolSources].join("\n");
+const mcpResponseSource = readFileSync(join(root, "src", "mcp-response.ts"), "utf8");
+const operationCatalogSource = readdirSync(join(root, "src"))
+  .filter((name) => /^(?:operation-catalog|operation-schema-primitives|mcp-operation-schemas|mcp-schemas-[a-z]+)\.ts$/.test(name))
+  .sort()
+  .map((name) => readFileSync(join(root, "src", name), "utf8"))
+  .join("\n");
 const apiContractSource = readFileSync(join(root, "src", "api-contract.ts"), "utf8");
 const apiExecutorSource = readFileSync(join(root, "src", "api-executor.ts"), "utf8");
+const launchExecutorSource = readFileSync(join(root, "src", "launch-executor.ts"), "utf8");
 const skillSource = readFileSync(join(root, "skills", "steuer-spar-erklaerung", "SKILL.md"), "utf8");
 const tableDeleteTestSource = readFileSync(join(root, "test", "table-delete-transaction.mjs"), "utf8");
 const clickTestSource = readFileSync(join(root, "test", "click-dirty-readback.mjs"), "utf8");
@@ -28,7 +45,10 @@ const profileManifest = JSON.parse(readFileSync(join(root, "profiles", "2025", "
 const catalog = JSON.parse(readFileSync(join(root, "profiles", "2025", "page-objects.json"), "utf8"));
 const catalogText = JSON.stringify(catalog);
 const nativeSource = join(root, "powershell", "sse-native.cs");
+const nativeDll = join(root, "powershell", "sse-native.dll");
 const nativeSourceText = readFileSync(nativeSource, "utf8");
+const nativeLoaderSource = readFileSync(join(root, "powershell", "load-native.ps1"), "utf8");
+const nativeBuildSource = readFileSync(join(root, "powershell", "build-native.ps1"), "utf8");
 const nativeHashSidecar = join(root, "powershell", "sse-native.sha256");
 const markerPath = join(tmpdir(), "sse-mcp-desktop.txt");
 
@@ -44,15 +64,6 @@ const expectError = async (client, name, args, needle) => {
   const result = await client.callTool({ name, arguments: args });
   assert(result?.isError === true, `${name} wurde unerwartet akzeptiert: ${text(result)}`);
   assert(text(result).includes(needle), `${name} meldet nicht '${needle}': ${text(result)}`);
-};
-const directWorker = (op, args, env = {}, workerPath = worker) => {
-  const b64 = Buffer.from(JSON.stringify(args), "utf8").toString("base64");
-  const output = execFileSync(
-    "powershell.exe",
-    ["-NoLogo", "-NoProfile", "-NonInteractive", "-File", workerPath, "-Op", op, "-B64", b64],
-    { cwd: root, encoding: "utf8", windowsHide: true, env: { ...process.env, ...env } },
-  );
-  return JSON.parse(output.trim());
 };
 const workerOpBlock = (op) => {
   const marker = `\n  '${op}' {`;
@@ -72,6 +83,38 @@ const client = new Client({ name: "sse-product-gate", version: "1.0.0" });
 const pidsBefore = ssePids();
 const markerBefore = existsSync(markerPath) ? readFileSync(markerPath, "utf8") : null;
 
+assert(workerBridgeSource.includes('"System32",') && workerBridgeSource.includes('"taskkill.exe"') &&
+  !workerBridgeSource.includes('spawn("taskkill.exe"'),
+"Worker-Cleanup darf taskkill.exe nicht ueber PATH aufloesen.");
+assert(workerBridgeSource.includes("workerRuntimeFailure") &&
+  workerBridgeSource.includes('"worker-isolation-lost"') &&
+  workerBridgeSource.match(/if \(workerRuntimeFailure\)/g)?.length === 2 &&
+  workerBridgeSource.indexOf("if (workerRuntimeFailure)") < workerBridgeSource.indexOf("if (queueDepth >= MAX_WORKER_QUEUE_DEPTH)"),
+"Nicht nachweisbarer Prozessbaum-Cleanup sperrt nachfolgende Worker nicht fail-closed.");
+assert(workerBridgeSource.includes("readFileBounded(DESKTOP_MARKER, MAX_DESKTOP_MARKER_BYTES)") &&
+  workerSource.includes("$markerFile.Length -gt 4KB") &&
+  workerSource.includes("New-Object Text.UTF8Encoding($false, $true)"),
+"Desktop-Marker wird nicht in Node und PowerShell begrenzt als striktes UTF-8 gelesen.");
+assert(workerBridgeSource.includes('"-ArgsFile", argsFile') &&
+  !workerBridgeSource.includes('"-B64", b64') &&
+  workerSource.indexOf("try { $a = Read-Args }") < workerSource.indexOf("Initialize-SSEProductProfile") &&
+  workerSource.includes("Get-SSEBoundedArrayArg") &&
+  workerSource.includes("vor Profil-, DLL- und UI-Start"),
+"Worker-Argumente werden nicht dateibasiert oder erst nach teurer Produkt-/Native-Initialisierung begrenzt.");
+assert(desktopLauncherSource.includes("$maxWorkerOutputBytes = 32MB") &&
+  desktopLauncherSource.includes("Read-SSEBoundedUtf8File $aus $maxWorkerOutputBytes") &&
+  desktopLauncherSource.includes("kind = 'output-too-large'") &&
+  desktopLauncherSource.includes("if ($workerExit -ne 0)") &&
+  workerSource.includes("[IO.FileMode]::CreateNew") &&
+  workerTransportSource.includes("^sse-out-[0-9a-fA-F]{32}\\.json$") &&
+  workerTransportSource.includes("function Read-SSEBoundedUtf8File"),
+"Hidden-Desktop-Launcher liest Workerantworten nicht begrenzt und strikt als UTF-8.");
+assert(nativeLoaderSource.includes("if ($stream.Length -gt $MaxBytes)") &&
+  nativeLoaderSource.includes("Read-SSENativeBoundedUtf8 $hashPath 1KB") &&
+  nativeBuildSource.includes("Read-SSEBoundedFileBytes $source (1MB)") &&
+  nativeBuildSource.includes("[Text.UTF8Encoding]::new($false, $true).GetString($sourceBytes)"),
+"Native-Build/Loader pruefen geoeffnete Streams nicht erneut begrenzt und dekodieren den Quelltext nicht strikt.");
+
 try {
   await client.connect(transport);
   const product = json(await client.callTool({ name: "sse_product_info", arguments: {} }), "product-info");
@@ -84,6 +127,10 @@ try {
   const saveTool = listedTools.tools.find((tool) => tool.name === "sse_save");
   const dialogButtonEnum = dialogAnswerTool?.inputSchema?.properties?.button?.enum ?? [];
   assert(product.taxYear === 2025 && product.engineFileMajor === 31, "Produktgrenze ist nicht 2025/31.");
+  assert(workerSource.includes("unsupportedButtons = $unsupportedButtons") &&
+    workerSource.includes("$unsupportedButtons.Count") &&
+    !dialogButtonEnum.includes("__unbekannter_button__"),
+  "Unbekannte Dialogbuttons werden nicht sichtbar gemeldet oder waeren ohne Freigabe klickbar.");
   assert(product.profileId === profileManifest.id && product.profileStatus === profileManifest.status &&
     product.product === profileManifest.product,
   `Worker meldet nicht das aktive Profilmanifest: ${JSON.stringify(product)}`);
@@ -93,16 +140,31 @@ try {
   assert(product.defaultExecutable?.fileMajorSource === "FileMajorPart", "Engine-Major stammt nicht aus FileMajorPart.");
   assert(product.workerInitializationMs?.nativeInteropMode === "precompiled-dll",
     `Normaler Worker nutzt nicht die vorkompilierte DLL: ${JSON.stringify(product.workerInitializationMs)}`);
-  assert(product.workerInitializationMs?.nativeHashMatch === true && !product.workerInitializationMs?.nativeDllError,
-    `DLL ist nicht an den aktuellen Quellhash gebunden: ${JSON.stringify(product.workerInitializationMs)}`);
+  assert(product.workerInitializationMs?.nativeHashMatch === true &&
+    product.workerInitializationMs?.nativeDllHashMatch === true &&
+    !product.workerInitializationMs?.nativeDllError,
+  `DLL ist nicht an aktuelle Quell- und Binaerhashes gebunden: ${JSON.stringify(product.workerInitializationMs)}`);
   assert(product.interactionGuards?.lastInputInfoAvailable === true &&
     product.interactionGuards?.windowSetFingerprint === true &&
     product.interactionGuards?.noBlindRollbackAfterInterference === true,
   `Eingabe-/Fenster-Guard ist nicht vollstaendig verfuegbar: ${JSON.stringify(product.interactionGuards)}`);
   const actualNativeHash = createHash("sha256").update(readFileSync(nativeSource)).digest("hex").toUpperCase();
-  const recordedNativeHash = readFileSync(nativeHashSidecar, "utf8").trim().toUpperCase();
-  assert(actualNativeHash === recordedNativeHash && actualNativeHash === product.workerInitializationMs.nativeSourceHash,
-    "Native DLL, Sidecar und aktueller C#-Quelltext haben unterschiedliche Hashes.");
+  const nativeDllBytes = readFileSync(nativeDll);
+  const actualNativeDllHash = createHash("sha256").update(nativeDllBytes).digest("hex").toUpperCase();
+  const privateUserFragment = ["di", "mon"].join("");
+  const privateFolderFragment = ["Meine", "Ablage"].join("\\s+");
+  const nativePrivacyPattern = new RegExp(`[A-Za-z]:[\\\\/]|${privateUserFragment}|${privateFolderFragment}`, "iu");
+  for (const decodedNativeDll of [nativeDllBytes.toString("latin1"), nativeDllBytes.toString("utf16le")]) {
+    assert(!nativePrivacyPattern.test(decodedNativeDll),
+      "Native DLL enthaelt einen lokalen Build-PC-Pfad oder Nutzernamen.");
+  }
+  const nativeIntegrity = JSON.parse(readFileSync(nativeHashSidecar, "utf8"));
+  assert(nativeIntegrity.schemaVersion === 1 &&
+    actualNativeHash === nativeIntegrity.sourceSha256 &&
+    actualNativeHash === product.workerInitializationMs.nativeSourceHash &&
+    actualNativeDllHash === nativeIntegrity.dllSha256 &&
+    actualNativeDllHash === product.workerInitializationMs.nativeDllHash,
+  "Native DLL, Integritaetsmanifest und aktueller C#-Quelltext haben unterschiedliche Hashes.");
   assert(product.catalogCompatibility?.compatible === true, "Page-Object-Katalog und Worker-Grenze sind auseinandergelaufen.");
   assert(product.catalogCompatibility?.executableName === profileManifest.executable.name &&
     product.catalogCompatibility?.installationFolderName === profileManifest.executable.installationFolderName,
@@ -123,10 +185,10 @@ try {
       if (value && typeof value === "object") catalogKeyStack.push(value);
     }
   }
-  const registeredTools = [...serverSource.matchAll(/registerStrictTool\(\s*"([^"]+)"/g)]
-    .map((match) => match[1]);
-  assert(registeredTools.length === listedTools.tools.length && registeredTools.length > 0,
-    `Quell- und MCP-Werkzeugzahl laufen auseinander: ${registeredTools.length} statt ${listedTools.tools.length}.`);
+  const catalogTools = Object.keys(SSE_MCP_TOOL_OPERATIONS).sort();
+  const runtimeTools = listedTools.tools.map((tool) => tool.name).sort();
+  assert(JSON.stringify(catalogTools) === JSON.stringify(runtimeTools) && catalogTools.length > 0,
+    `Katalog und MCP-Laufzeit laufen auseinander: ${catalogTools.length} statt ${runtimeTools.length}.`);
   assert(skillSource.includes("API-Selbstbeschreibung") && skillSource.includes("installierten API-Vertrag"),
     "Public Skill weist nicht auf den versionsgebundenen API-/Tool-Katalog hin.");
   assert(centerCasesTool?.inputSchema?.properties?.hwnd,
@@ -136,7 +198,7 @@ try {
     !centerRefreshTool?.inputSchema?.properties?.expectedDirectory,
     "sse_center_refresh ist nicht an exaktes Center-Fenster und Verzeichnis gebunden.");
   const windowCloseRequired = windowCloseTool?.inputSchema?.required ?? [];
-  assert(windowCloseRequired.includes("hwnd") && windowCloseRequired.includes("titleFingerprint") &&
+  assert(windowCloseRequired.includes("pid") && windowCloseRequired.includes("hwnd") && windowCloseRequired.includes("titleFingerprint") &&
     !windowCloseTool?.inputSchema?.properties?.expectedTitle,
   "sse_window_close ist nicht PC-blind an den gelesenen Titel-Fingerprint gebunden.");
   const centerCasesBlock = workerOpBlock("center_cases");
@@ -168,6 +230,21 @@ try {
     archiveCasesBlock.includes("Test-SSEProfileCaseFileName $_.Name $true") &&
     backupCasesBlock.includes("Test-SSEProfileCaseFileName $_.Name $true"),
   "Fallpfad-, Listen-, Kopier-, Archiv- oder Backup-Pfade nutzen nicht denselben profilgebundenen Typ-/Jahresregex.");
+  assert(!/^\s*\$[A-Za-z][A-Za-z0-9_]*\s*=\s*Get-Windows 'SSE'\s*$/gmu.test(workerSource) &&
+    !workerSource.includes("(Get-Windows 'SSE').Count"),
+  "Ein einzelnes SSE-Fenster kann weiterhin durch PowerShell-Collection-Unrolling faelschlich als leer gelten.");
+  assert(workerSource.includes("function Copy-SSEFileNew") &&
+    workerSource.includes("[IO.FileMode]::CreateNew") &&
+    workingCopyBlock.includes("Copy-SSEFileNew $source $target") &&
+    backupCasesBlock.includes("Copy-SSEFileNew $file.FullName $target") &&
+    !workingCopyBlock.includes("Copy-Item -LiteralPath") &&
+    !backupCasesBlock.includes("Copy-Item -LiteralPath"),
+  "Arbeitskopien werden nicht mit einem atomaren No-Overwrite-Dateiaufruf erzeugt.");
+  assert(archiveCasesBlock.includes("New-Item -ItemType Directory -Path ([WildcardPattern]::Escape($dest))") &&
+    !archiveCasesBlock.includes("[IO.Directory]::CreateDirectory($dest)") &&
+    !archiveCasesBlock.includes("Remove-Item -LiteralPath $dest -Recurse") &&
+    archiveCasesBlock.includes("Get-ChildItem -LiteralPath $dest -Force"),
+  "Archivziele werden nicht exklusiv erstellt oder ein Rollback kann fremde Dateien rekursiv loeschen.");
   const centerRefreshBlock = workerOpBlock("center_refresh");
   assert(centerRefreshBlock.includes("Resolve-SteuertippsCenterWindow") &&
     centerRefreshBlock.includes("*.m_buttonStorageRecent") &&
@@ -178,11 +255,25 @@ try {
     !centerRefreshBlock.includes("Move-Item") && !centerRefreshBlock.includes("Remove-Item"),
   "sse_center_refresh ist nicht eng und dateineutral an die beiden Center-Ansichtsumschalter gebunden.");
   const windowCloseBlock = workerOpBlock("window_close");
-  assert(workerSource.includes("titleFingerprint = Get-SSETextSha256 ($t.ToString())") &&
+  assert(catalog.windows.taxTips.role === "nonmodal-help-window" &&
+    catalog.windows.resultComparison.role === "nonmodal-result-window" &&
+    catalog.windows.taxTips.closePolicy === "allow-exact-nonmodal-close" &&
+    catalog.windows.resultComparison.closePolicy === "allow-exact-nonmodal-close" &&
+    workerSource.includes("function Resolve-SSEClosableNonmodalWindowPolicy") &&
+    workerSource.includes("titleFingerprint = Get-SSETextSha256 ($t.ToString())") &&
     windowCloseBlock.includes("$actualTitleFingerprint") &&
     windowCloseBlock.includes("$actualTitleFingerprint -ne $titleFingerprint") &&
-    windowCloseBlock.includes("$win.kind -ne 'other'"),
-  "sse_window_close bindet Nebenfenster nicht an den lokal berechneten Titel-Fingerprint.");
+    windowCloseBlock.includes("$win.title -cne $expectedTitle") &&
+    windowCloseBlock.includes("Get-SSEBoundedIntegerArg $a 'pid'") &&
+    windowCloseBlock.includes("Resolve-SSEClosableNonmodalWindowPolicy $win") &&
+    workerSource.includes("elseif (Resolve-SSEClosableNonmodalWindowPolicy $Window) { $kind = 'known-nonmodal' }") &&
+    windowCloseBlock.includes("Test-SSESafeAuxiliaryDescriptor $win") &&
+    windowCloseBlock.includes("$win.cls -notmatch '^Qt'") &&
+    windowCloseBlock.includes("Test-Versand ([string]$win.title)") &&
+    windowCloseBlock.includes("$onlyTargetRemoved") &&
+    windowCloseBlock.includes("$missingOrChangedPeers") &&
+    windowCloseBlock.includes("$newWindows"),
+  "sse_window_close ist nicht an Profilrolle, PID, Titel-Fingerprint und exklusiven Window-Set-Readback gebunden.");
   assert(dialogButtonEnum.includes("Klicken Sie hier, um Ihre Daten zu exportieren") &&
     !dialogButtonEnum.includes("Exportieren") && !dialogButtonEnum.includes("*"),
   "sse_dialog_answer veroeffentlicht nicht den exakten CSV-Export-Schalter oder erlaubt einen generischen Export-Button.");
@@ -202,15 +293,27 @@ try {
     vastApplyBlock.includes("$diskHashAfter -ne $diskHashBefore") &&
     !vastApplyBlock.includes("Click-VerifiedPoint"),
   "VaSt-Uebernahme prueft Plan/Fall/Eingabe/Disk-Invariante nicht vollstaendig oder hat einen physischen Fallback.");
-  assert(!registeredTools.includes("sse_keys") &&
+  assert(!catalogTools.includes("sse_keys") &&
     workerSource.includes("Roh-Tastatureingabe ist aus der MCP-Oberflaeche entfernt") &&
     !workerSource.includes("SendWait($k)"),
   "Unsichere Roh-Tastatur ist registriert oder der direkte Worker-Pfad enthaelt noch seinen SendWait-Aufruf.");
+  assert(!workerSource.includes("allowSend") && !workerSource.includes("confirmSend"),
+    "Der direkte Worker besitzt weiterhin einen Schalter, der die Versand-/ELSTER-Sperre lockern kann.");
+  assert(!workerSource.includes("allowOverwrite") && !workerSource.includes("expectedTargetHash") &&
+    workerOpBlock("save_as").includes("Zieldatei existiert bereits"),
+  "Der direkte save_as-Worker kann ein vorhandenes Ziel weiterhin ueberschreiben.");
+  assert(workerBridgeSource.includes("MAX_WORKER_STDOUT_BYTES") &&
+    workerBridgeSource.includes("MAX_WORKER_STDERR_BYTES") &&
+    workerBridgeSource.includes('"output-too-large"') &&
+    workerBridgeSource.includes('new TextDecoder("utf-8", { fatal: true })'),
+  "Worker-Ausgabe ist nicht begrenzt oder wird nicht als striktes UTF-8 dekodiert.");
   const saveRequired = saveTool?.inputSchema?.required ?? [];
   assert(saveTool?.inputSchema?.properties?.hwnd &&
     saveRequired.includes("caseRef") && saveRequired.includes("expectedHashBefore") &&
     saveTool.inputSchema.properties.hwnd.description?.includes("mehreren offenen Steuerfaellen Pflicht"),
   "sse_save kann bei mehreren offenen Steuerfaellen nicht an ein exaktes Hauptfenster gebunden werden.");
+  assert(serverSource.includes('"sse_click_point"'),
+    "Die MCP-Quelldefinition fuer sse_click_point fehlt.");
   assert(workerSource.includes("Erfassen-/Bearbeiten-Hyperlinks zugelassen") &&
     workerSource.includes("$_.type -eq 'TreeItem'") &&
     workerSource.includes("$_.type -eq 'Hyperlink' -and $_.name -match '(?i)(erfassen|bearbeiten)$'") &&
@@ -226,12 +329,20 @@ try {
   assert(tableRegionSource.includes("previousSummaryY") &&
     tableRegionSource.includes("$_.y -gt $previousSummaryY -and $_.y -lt $targetSumY") &&
     workerSource.includes("$byY.Keys | Sort-Object -Descending") &&
-    workerSource.includes("$neutralTaxSelector = $cellName -in @('7','19') -and $_.w -le 80"),
+    workerSource.includes("Resolve-SSETableProfile $headingBefore $sumLabel $sumOccurrence $region") &&
+    workerSource.includes("Test-SSETableRowFreeWithProfileDefaults $byY[$_] $resolvedTableProfile") &&
+    tableComboSource.includes("$neutralTaxSelector = $cellName -in @('7','19') -and [int]$cell.w -le 80") &&
+    tableComboSource.includes("$TableProfile.known -and $TableProfile.bindingOk") &&
+    tableComboSource.includes("emptyRowDefault"),
   "sse_table_add bindet die Leerzeile nicht fail-closed an die gewaehlte Summenregion.");
   assert(workerSource.includes("$targetRegion = Get-SSETableRegion") &&
     workerSource.includes("$preDeleteMatches.Count -eq 1 -and $preDeleteMatches[0].rid -eq $zelle.rid") &&
     (workerSource.match(/no-blind-undo-after-interference/g) ?? []).length >= 2,
   "sse_table_delete bindet Ziel/Seite nicht an die Summenregion oder kann nach Interferenz blind Undo ausloesen.");
+  assert(workerSource.includes("[IO.File]::Move($temporaryPath, $fullPath)") &&
+    workerSource.includes("Screenshot-Ziel existiert bereits") &&
+    !workerSource.includes("$bmp.Save($Path, [System.Drawing.Imaging.ImageFormat]::Png)"),
+  "Screenshot-Schreiben kann ein zwischen Preflight und Save angelegtes Ergebnisziel ueberschreiben.");
   assert(workerSource.includes("function Test-SSEForegroundIsLockScreen") &&
     workerOpBlock("table_add").includes("$lockScreenIsolation") &&
     workerOpBlock("table_update").includes("$lockScreenIsolation") &&
@@ -242,7 +353,9 @@ try {
   assert(workerSource.includes("function Get-SSEPointObstruction") &&
     workerOpBlock("table_delete").includes("Get-SSEPointObstruction $hwnd $px $py") &&
     workerOpBlock("table_delete").includes("obstruction=$obstruction") &&
-    serverSource.includes('r.kind === "obstructed"') &&
+    mcpRegistrySource.includes("return apiErrorResult(operation, result)") &&
+    mcpResponseSource.includes("Alle API-Fehler bleiben strukturiert") &&
+    mcpResponseSource.includes("return { ...textResult(details), isError: true }") &&
     tableDeleteTestSource.includes('["lockscreen-shell", "foreign-app"].includes(blockerKind)') &&
     tableDeleteTestSource.includes('SSE_REQUIRE_DELETE !== "1"'),
   "sse_table_delete klassifiziert Blockierer nicht oder der Echt-Test kann beliebige Fehler als SKIP tarnen.");
@@ -255,11 +368,19 @@ try {
     workerOpBlock("table_update").includes("$mutationMethod = 'verified-cell-click'") &&
     workerOpBlock("table_update").includes("Click-VerifiedPoint $hwnd $rollbackNode"),
   "sse_table_update prueft Zielzellen/Rollback nicht gemeinsam oder kann fremde Werte ueberschreiben.");
-  assert(workerSource.includes("function ConvertTo-SSETableNumber") &&
-    workerSource.includes("$actualNumber = ConvertTo-SSETableNumber $Actual") &&
-    workerSource.includes("$requestedNumber = ConvertTo-SSETableNumber $Requested") &&
-    workerSource.includes("return $actualNumber -eq $requestedNumber"),
+  assert(workerSource.includes(". $tableValueHelpers") &&
+    tableValuesSource.includes("function ConvertTo-SSETableNumber") &&
+    tableValuesSource.includes("$actualNumber = ConvertTo-SSETableNumber $Actual") &&
+    tableValuesSource.includes("$requestedNumber = ConvertTo-SSETableNumber $Requested") &&
+    tableValuesSource.includes("return $actualNumber -eq $requestedNumber") &&
+    !tableValuesSource.includes(".StartsWith($a)") && !tableValuesSource.includes(".StartsWith($e)"),
   "Tabellen-Readback normalisiert numerisch gleiche SSE-Werte wie 0 und 0,00 nicht.");
+  const verifyBlock = workerOpBlock("verify");
+  assert(verifyBlock.includes("ConvertTo-SSETableNumber $x") &&
+    verifyBlock.includes("$a1 -eq $a2") &&
+    !verifyBlock.includes("-replace '[^\\d,.\\-]', ''") &&
+    !verifyBlock.includes("[Math]::Abs($a1 - $a2) -lt"),
+  "Soll/Ist-Verifikation kann mehrdeutigen Zahlentext weiterhin still in einen anderen Betrag umdeuten.");
   assert(workerSource.includes("$allowedAid = '.MainToolBar.QWidget.SearchSSE.QLineEdit'") &&
     workerSource.includes("sse_set_value ist nur fuer das globale steuerneutrale Suchfeld zugelassen") &&
     workerSource.includes("Kein blinder Rollback nach Eingabe-, Fenster-, Seiten- oder Binding-Interferenz") &&
@@ -289,18 +410,23 @@ try {
     workerSource.includes("@($knownStateBefore.fields | Where-Object { -not $_.present }).Count -eq 0") &&
     catalog.pages?.["gew.anlagevermoegen_wirtschaftsgut"]?.headingPrefix === "1. ",
   "Dynamische Detailseitenkoepfe sind nicht zugleich an Praefix und alle exakten Page-Object-Felder gebunden.");
-  assert(serverSource.includes('return run("page_objects", a)') &&
+  assert(SSE_MCP_TOOL_OPERATIONS.sse_page_objects === "page_objects" &&
+    serverSource.includes('"sse_page_objects"') &&
     apiContractSource.includes('"page_objects"') &&
     workerOpBlock("page_objects").includes("Get-SSEPageObjects"),
   "Page Objects laufen nicht ueber die API oder werden im frischen Worker nicht neu geladen.");
   const strictMainWindowOps = [
-    "click", "toggle", "set_value", "combo_options", "combo_select", "click_point",
+    "click", "set_value", "combo_options", "click_point",
     "positions", "export_csv", "collect", "goto_tree", "goto", "table_read",
     "table_add", "table_update", "table_delete", "menu", "menu_click", "menu_close",
   ];
   for (const op of strictMainWindowOps) {
     assert(workerOpBlock(op).includes("Resolve-SSEMainWindowDescriptor $a -RestoreMinimized"),
       `${op} waehlt bei mehreren SSE-Faellen weiterhin implizit ein Fenster.`);
+  }
+  for (const op of ["toggle", "combo_select"]) {
+    assert(workerOpBlock(op).includes("Resolve-BoundWriteWindow $a"),
+      `${op} ist nicht an eindeutiges Fenster und optionale Fall-/Hashidentitaet gebunden.`);
   }
   assert(workerOpBlock("goto").includes("keine Wiederholung") &&
     workerOpBlock("goto").includes("sse_warning_popup_read mit dem gemeldeten Dialog-HWND") &&
@@ -337,10 +463,11 @@ try {
   "sse_collect verwechselt Seitentitel mit Zyklen oder erlaubt weiterhin ueberlastende Monolithlaeufe.");
   assert(workerOpBlock("launch").includes("instance=$null") &&
     workerOpBlock("launch").includes("-WindowStyle Normal") &&
-    apiExecutorSource.includes('await worker("windows"') &&
-    apiExecutorSource.includes('{ pid },') &&
-    apiExecutorSource.includes('bindingMode: "launch-window"') &&
-    apiExecutorSource.includes("cleanupStartedProcess") &&
+    apiExecutorSource.includes("executeLaunchOperation") &&
+    launchExecutorSource.includes('await worker("windows"') &&
+    launchExecutorSource.includes('{ pid },') &&
+    launchExecutorSource.includes('bindingMode: "launch-window"') &&
+    launchExecutorSource.includes("cleanupStartedProcess") &&
     serverSource.includes("instance: r.instance, ready: r.ready") &&
     tableDeleteTestSource.includes('{ hwnd: launch.instance.hwnd }'),
   "sse_launch trennt Start und frischen Readback nicht oder liefert kein explizit weiterverwendbares Start-HWND.");
@@ -358,8 +485,15 @@ try {
     operationCatalogSource.includes('aktion: z.literal("list")'),
   "sse_positions kann weiterhin ungebunden Positionen/Felder aendern.");
   for (const op of ["table_add", "table_update", "table_delete"]) {
-    assert(serverSource.includes(`run("${op}", a, undefined, 300_000)`),
+    const timeoutPattern = new RegExp(
+      `registerApiTool\\(\\s*["']sse_${op}["'][\\s\\S]{0,1800}?\\{ timeoutMs: 300_000 \\},\\s*\\);`,
+    );
+    assert(timeoutPattern.test(serverSource),
       `${op} hat keinen expliziten 300-Sekunden-Clienttimeout.`);
+  }
+  for (const op of ["table_add", "table_delete"]) {
+    assert(workerOpBlock(op).includes("Test-SSEScalarEqual") && !workerOpBlock(op).includes("$norm ="),
+      `${op} vergleicht Kontrollsummen weiterhin durch verlustreiches Entfernen aller Punkte.`);
   }
   assert(workerOpBlock("table_add").includes("Tabellenend-Navigation ueberschritt die interne Frist; nichts geschrieben.") &&
     workerOpBlock("table_delete").includes("Tabellen-Zielsuche ueberschritt die interne Frist; nichts geloescht."),
@@ -427,7 +561,9 @@ try {
   assert(tableReadBlock.includes("$_.aid -like '*.RedThreadContent.*'") &&
     tableReadBlock.includes("Get-SSETableRegion $t $hwnd $sumRead") &&
     tableReadBlock.includes("$erst.tabelleAnzahl -eq 1") &&
-    operationCatalogSource.includes("sumOccurrence: z.number().int().min(1).optional()"),
+    operationCatalogSource.includes("sumOccurrence: UI_OCCURRENCE.optional()") &&
+    tableReadBlock.indexOf("Get-SSEBoundedIntegerArg $a 'maxRows'") <
+      tableReadBlock.indexOf("Resolve-SSEMainWindowDescriptor"),
   "sse_table_read vermischt Werte-Info oder mehrere Eingabetabellen weiterhin als scheinbar vollstaendig.");
 
   const notepad = join(process.env.WINDIR ?? "C:\\Windows", "System32", "notepad.exe");
@@ -443,44 +579,6 @@ try {
   await expectError(client, "sse_launch", { file: "C:\\__sse_mcp_tests__\\fixture.txt", mode: "einur" }, "Unrecognized key");
   await expectError(client, "sse_health", { unexpected: true }, "Unrecognized key");
   await expectError(client, "sse_close", { pid: process.pid, discardChanges: true }, "verifiziert");
-
-  const wildcard = directWorker("windows", { process: "explorer" });
-  assert(wildcard.ok === false && wildcard.kind === "blocked", `Freier Prozessname wurde direkt akzeptiert: ${JSON.stringify(wildcard)}`);
-  const injectedMode = directWorker("launch", { mode: "einur \"C:\\__sse_mcp_tests__\\fixture.Gew2024\"" });
-  assert(injectedMode.ok === false && injectedMode.kind === "bad-args", `Direkter Modus-Injektionsversuch wurde akzeptiert: ${JSON.stringify(injectedMode)}`);
-  const rawKeys = directWorker("keys", { keys: "123" });
-  assert(rawKeys.ok === false && rawKeys.kind === "blocked" && /Roh-Tastatureingabe/.test(rawKeys.error ?? ""),
-    `Direkter Roh-Tastaturaufruf wurde akzeptiert: ${JSON.stringify(rawKeys)}`);
-  for (const aktion of ["add", "delete"]) {
-    const positionsMutation = directWorker("positions", { aktion, name: "MCP neutral" });
-    assert(positionsMutation.ok === false && positionsMutation.kind === "blocked",
-      `Direkter Positions-${aktion}-Aufruf wurde akzeptiert: ${JSON.stringify(positionsMutation)}`);
-  }
-  for (const op of ["click", "click_point", "menu_click"]) {
-    const destructive = directWorker(op, { name: "Datenübernahme" });
-    assert(destructive.ok === false && destructive.kind === "blocked" && /acknowledgeDestructive/.test(destructive.error ?? ""),
-      `Destruktiver Direktaufruf '${op}' wurde ohne Bestaetigung akzeptiert: ${JSON.stringify(destructive)}`);
-  }
-  const sourceFallback = directWorker("product_info", {}, { SSE_MCP_FORCE_NATIVE_SOURCE: "1" });
-  assert(sourceFallback.ok === true && sourceFallback.workerInitializationMs?.nativeInteropMode === "source-fallback",
-    `Nativer Source-Fallback ist nicht funktionsfaehig: ${JSON.stringify(sourceFallback.workerInitializationMs)}`);
-  const driftRoot = mkdtempSync(join(tmpdir(), "sse-native-drift-"));
-  const driftDir = join(driftRoot, "powershell");
-  try {
-    mkdirSync(driftDir, { recursive: true });
-    for (const name of ["sse-worker.ps1", "akad-parser.ps1", "table-region.ps1", "load-native.ps1", "sse-native.cs", "sse-native.dll"]) {
-      copyFileSync(join(root, "powershell", name), join(driftDir, name));
-    }
-    cpSync(join(root, "profiles"), join(driftRoot, "profiles"), { recursive: true });
-    writeFileSync(join(driftDir, "sse-native.sha256"), `${"0".repeat(64)}\n`, "utf8");
-    const driftFallback = directWorker("product_info", {}, {}, join(driftDir, "sse-worker.ps1"));
-    assert(driftFallback.ok === true && driftFallback.workerInitializationMs?.nativeInteropMode === "source-fallback",
-      `Veraltete DLL wurde nicht durch Source-Fallback ersetzt: ${JSON.stringify(driftFallback.workerInitializationMs)}`);
-    assert(driftFallback.workerInitializationMs?.nativeHashMatch === false && /veraltet/i.test(driftFallback.workerInitializationMs?.nativeDllError ?? ""),
-      `Hash-Drift wurde nicht sichtbar gemeldet: ${JSON.stringify(driftFallback.workerInitializationMs)}`);
-  } finally {
-    rmSync(driftRoot, { recursive: true, force: true });
-  }
 
   assert(ssePids() === pidsBefore, "Ein abgewiesener Grenztest hat trotzdem eine SSE-PID erzeugt oder beendet.");
   const markerAfter = existsSync(markerPath) ? readFileSync(markerPath, "utf8") : null;

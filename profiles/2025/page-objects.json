@@ -16,11 +16,13 @@
     },
     "resultComparison": {
       "title": "Werte-Info: Werte vergleichen - Was wäre wenn",
-      "role": "nonmodal-result-window"
+      "role": "nonmodal-result-window",
+      "closePolicy": "allow-exact-nonmodal-close"
     },
     "taxTips": {
       "title": "Steuer-Spar-Tipps",
-      "role": "nonmodal-help-window"
+      "role": "nonmodal-help-window",
+      "closePolicy": "allow-exact-nonmodal-close"
     },
     "vastAssignment": {
       "title": "Daten der vorausgefüllten Steuererklärung",
@@ -36,6 +38,61 @@
     }
   },
   "pages": {
+    "gew.innergem_erwerb_13b_einfuhr": {
+      "heading": "Innergem. Erwerb, § 13b UStG und Einfuhr",
+      "fields": {},
+      "tables": {
+        "kostenkategorie_13b": {
+          "sumLabel": "Summe",
+          "sumOccurrence": 1,
+          "automationIdSection": "grpEmpf13b",
+          "bindingPolicy": "Bind the repeated cost-category §13b subpage by heading, first Summe occurrence and the exact grpEmpf13b automation-ID section; reject a material-page grp13bErwerb first table.",
+          "columns": [
+            {
+              "index": 3,
+              "header": "Kategorie",
+              "controlType": "ComboBox",
+              "valueKind": "enum",
+              "writePolicy": "typed-selection-required",
+              "emptyRowDefault": "Sonst. Leistung EU",
+              "openPattern": "InvokeThenVerifiedPointVisibleDesktop",
+              "optionControlType": "ListItem",
+              "optionSelectPattern": "SelectionItem",
+              "readback": [
+                "SelectionItem.IsSelected",
+                "ValuePattern.Value",
+                "checker-diff"
+              ],
+              "reason": "SSE repeats this §13b table below multiple cost categories. The exact profiled value may already be selected; otherwise only a popup-bound SelectionItem is allowed."
+            }
+          ]
+        },
+        "sonstige_leistung_eu": {
+          "sumLabel": "Summe",
+          "sumOccurrence": 2,
+          "automationIdSection": "grpEmpf13b",
+          "bindingPolicy": "Prefer automationIdSection from the selected summary region; if the snapshot does not expose it, fail closed by heading, sumLabel, sumOccurrence and column index.",
+          "columns": [
+            {
+              "index": 3,
+              "header": "Kategorie",
+              "controlType": "ComboBox",
+              "valueKind": "enum",
+              "writePolicy": "typed-selection-required",
+              "openPattern": "InvokeThenVerifiedPointVisibleDesktop",
+              "optionControlType": "ListItem",
+              "optionSelectPattern": "SelectionItem",
+              "readback": [
+                "SelectionItem.IsSelected",
+                "ValuePattern.Value",
+                "checker-diff"
+              ],
+              "reason": "Qt exposes this semantic selector as DataItem. Only an exact, popup-bound SelectionItem is allowed; ValuePattern text alone is never a commit proof."
+            }
+          ]
+        }
+      }
+    },
     "est.sonstige_werbungskosten_fahrten": {
       "heading": "Sonstige Werbungskosten/Fahrten",
       "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",

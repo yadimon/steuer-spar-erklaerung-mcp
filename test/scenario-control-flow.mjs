@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runScenario } from "../dist/scenario.js";
+import { MAX_TEXT_FILE_BYTES } from "../dist/workspace.js";
 
 const temporary = mkdtempSync(join(tmpdir(), "sse-scenario-flow-"));
 const workspaceDir = join(temporary, "workspace");
@@ -25,7 +26,6 @@ const run = async (name, scenario, executor, resultRef = `${name}-result.json`, 
     resultDir,
     scenarioRef,
     resultRef,
-    options.expectedResultSha256,
     options.totalTimeoutMs ?? 30_000,
     options.signal,
     async (operation, args, timeoutMs, signal) => {
@@ -37,6 +37,23 @@ const run = async (name, scenario, executor, resultRef = `${name}-result.json`, 
 };
 
 try {
+  let deeplyNestedInput = "wert";
+  for (let depth = 0; depth < 40; depth += 1) deeplyNestedInput = [deeplyNestedInput];
+  writeFileSync(join(workspaceDir, "deep-input.json"), JSON.stringify(deeplyNestedInput), "utf8");
+  const deepInputBudget = await run(
+    "deep-input-budget",
+    {
+      schemaVersion: 1,
+      name: "deep-input-budget",
+      resultFile: "unused.json",
+      steps: [{ id: "deep", operation: "find", args: { name: { $json: "deep-input.json" } } }],
+    },
+    async () => assert.fail("Zu tiefe JSON-Eingabe darf den Executor nicht erreichen"),
+  );
+  assert.equal(deepInputBudget.calls.length, 0);
+  assert.equal(deepInputBudget.result.result.steps[0].kind, "invalid-input");
+  assert.match(deepInputBudget.result.result.steps[0].error, /hoechstens 32 Ebenen/);
+
   const happyScenario = {
     schemaVersion: 2,
     name: "dynamic-happy",
@@ -381,7 +398,6 @@ try {
       resultDir,
       duplicateV1Ref,
       undefined,
-      undefined,
       30_000,
       undefined,
       async (...args) => {
@@ -447,7 +463,6 @@ try {
       resultDir,
       invalidSchemaRef,
       undefined,
-      undefined,
       30_000,
       undefined,
       async (...args) => {
@@ -458,6 +473,144 @@ try {
     /finally/,
   );
   assert.equal(callsBeforeInvalidSchema.length, 0, "Fehlendes Cleanup muss vor dem ersten Schritt scheitern");
+
+  const largeReport = await run(
+    "large-report",
+    {
+      schemaVersion: 1,
+      name: "large-report",
+      resultFile: "large-report-result.json",
+      steps: Array.from({ length: 100 }, (_, index) => ({
+        id: `read-${index + 1}`,
+        operation: "health",
+        capture: ["payload"],
+      })),
+    },
+    async () => ({ ok: true, payload: "x".repeat(15_000) }),
+  );
+  assert.equal(largeReport.result.ok, true);
+  assert(largeReport.result.result.reportCompacted, "Uebergrosser Bericht muss deterministisch verdichtet werden");
+  assert(largeReport.result.bytes <= MAX_TEXT_FILE_BYTES);
+  assert(largeReport.result.result.steps.every((step) => step.omittedDetails?.values?.omitted === true));
+
+  const largeValue = await run(
+    "large-value",
+    {
+      schemaVersion: 1,
+      name: "large-value",
+      resultFile: "large-value-result.json",
+      steps: [{ id: "read", operation: "health", capture: ["payload"], expect: { payload: "anders" } }],
+    },
+    async () => ({ ok: true, payload: "y".repeat(20_000) }),
+  );
+  const largeValueStep = largeValue.result.result.steps[0];
+  assert.equal(largeValueStep.values.payload.omitted, true);
+  assert.equal(largeValueStep.expectationFailures[0].actual.omitted, true);
+
+  for (const [name, scenario] of [
+    ["unknown-root-field", {
+      schemaVersion: 1,
+      name: "unknown-root-field",
+      resultFile: "unknown-root-field-result.json",
+      steps: [{ id: "read", operation: "health" }],
+      unexpected: true,
+    }],
+    ["unknown-step-field", {
+      schemaVersion: 1,
+      name: "unknown-step-field",
+      resultFile: "unknown-step-field-result.json",
+      steps: [{ id: "read", operation: "health", contineOnError: true }],
+    }],
+    ["deep-expectation", {
+      schemaVersion: 1,
+      name: "deep-expectation",
+      resultFile: "deep-expectation-result.json",
+      steps: [{ id: "read", operation: "health", expect: { payload: deeplyNestedInput } }],
+    }],
+  ]) {
+    const ref = writeScenario(name, scenario);
+    const strictCalls = [];
+    await assert.rejects(
+      runScenario(
+        workspaceDir,
+        resultDir,
+        ref,
+        undefined,
+        30_000,
+        undefined,
+        async (...args) => {
+          strictCalls.push(args);
+          return { ok: true };
+        },
+      ),
+      name === "deep-expectation" ? /hoechstens 32 Ebenen/ : /Unrecognized key/,
+    );
+    assert.equal(strictCalls.length, 0, `${name} muss vor der ersten Operation scheitern`);
+  }
+
+  for (const [name, steps, finallySteps, message] of [
+    [
+      "unsafe-continue-mutation",
+      [{ id: "write", operation: "tracked_set_value", continueOnError: true }],
+      [{ id: "cleanup", operation: "close" }],
+      /nicht rein lesende Operation/,
+    ],
+    [
+      "unsafe-later-mutation",
+      [
+        { id: "read", operation: "health", continueOnError: true },
+        { id: "write", operation: "tracked_set_value" },
+      ],
+      [{ id: "cleanup", operation: "close" }],
+      /keine Hauptmutation/,
+    ],
+    [
+      "redundant-finally-continue",
+      [{ id: "read", operation: "health" }],
+      [{ id: "cleanup", operation: "close", continueOnError: true }],
+      /finally.*continueOnError/,
+    ],
+    [
+      "unsafe-finally-mutation",
+      [{ id: "read", operation: "health" }],
+      [{ id: "cleanup", operation: "table_delete" }],
+      /finally.*Cleanup-Operationen.*table_delete/,
+    ],
+    [
+      "forbidden-late-operation",
+      [
+        { id: "would-mutate", operation: "tracked_set_value" },
+        { id: "forbidden", operation: "scenario_run" },
+      ],
+      [{ id: "cleanup", operation: "close" }],
+      /scenario_run.*nicht freigegeben/,
+    ],
+  ]) {
+    const ref = writeScenario(name, {
+      schemaVersion: 2,
+      name,
+      resultFile: `${name}-result.json`,
+      steps,
+      finally: finallySteps,
+    });
+    const unsafeCalls = [];
+    await assert.rejects(
+      runScenario(
+        workspaceDir,
+        resultDir,
+        ref,
+        undefined,
+        30_000,
+        undefined,
+        async (...args) => {
+          unsafeCalls.push(args);
+          return { ok: true };
+        },
+      ),
+      message,
+    );
+    assert.equal(unsafeCalls.length, 0, `${name} muss vor der ersten Operation scheitern`);
+  }
 
   process.stdout.write("Szenario-Steuerfluss: Referenzen, Finally, Fehlerpfade und deterministische Bytes bestanden\n");
 } finally {

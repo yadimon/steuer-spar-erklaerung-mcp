@@ -86,6 +86,20 @@
         "fieldCount": 4,
         "boundHwnd": 4242
       }
+    },
+    {
+      "id": "ustva-read",
+      "operation": "ustva_read",
+      "ok": true,
+      "values": {
+        "ok": true,
+        "taxYear": 2025,
+        "period.frequency": "monthly",
+        "period.key": "july",
+        "amounts.taxable19.base.cents": 100000,
+        "amounts.settlement.cents": 17000,
+        "transmission.blockedByApi": true
+      }
     }
   ],
   "cleanup": [

@@ -4,6 +4,8 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } f
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { listProductProfileIds, loadProductProfile } from "../dist/product-profiles.js";
+import { SSE_START_MODES } from "../dist/operation-catalog.js";
+import { WORKER_RUNTIME_FILES } from "./worker-fixture-files.mjs";
 
 const root = resolve(process.cwd());
 const profile = loadProductProfile("2025");
@@ -12,8 +14,24 @@ assert.equal(profile.taxYear, 2025);
 assert.equal(profile.engineFileMajor, 31);
 assert.equal(profile.executable.name, "SSE.exe");
 assert.equal(profile.pageObjectsPath, join(root, "profiles", "2025", "page-objects.json"));
+assert.deepEqual(profile.additionalCaseYears, { einurvor: [2026] });
+assert.deepEqual(Object.keys(profile.startModes).sort(), [...SSE_START_MODES].sort(),
+  "Oeffentliche Startmodi und produktives Profil muessen identisch sein.");
 assert.throws(() => loadProductProfile("2024"), /fehlt/);
 assert.throws(() => loadProductProfile("..\\2025"), /Ungueltige/);
+
+const invalidAdditionalYearRoot = mkdtempSync(join(tmpdir(), "sse-product-additional-year-"));
+try {
+  const copiedProfile = join(invalidAdditionalYearRoot, "2025");
+  cpSync(join(root, "profiles", "2025"), copiedProfile, { recursive: true });
+  const manifestPath = join(copiedProfile, "profile.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  manifest.additionalCaseYears.einurvor = [2027];
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  assert.throws(() => loadProductProfile("2025", invalidAdditionalYearRoot), /unmittelbar folgende Falljahr/);
+} finally {
+  rmSync(invalidAdditionalYearRoot, { recursive: true, force: true });
+}
 
 const invalidRelativeRoot = mkdtempSync(join(tmpdir(), "sse-product-relative-"));
 try {
@@ -26,6 +44,16 @@ try {
   assert.throws(() => loadProductProfile("2025", invalidRelativeRoot), /defaultRelativePath/);
 } finally {
   rmSync(invalidRelativeRoot, { recursive: true, force: true });
+}
+
+const invalidEncodingRoot = mkdtempSync(join(tmpdir(), "sse-product-encoding-"));
+try {
+  const copiedProfile = join(invalidEncodingRoot, "2025");
+  cpSync(join(root, "profiles", "2025"), copiedProfile, { recursive: true });
+  writeFileSync(join(copiedProfile, "profile.json"), Buffer.from([0x7b, 0x22, 0x80, 0x22, 0x7d]));
+  assert.throws(() => loadProductProfile("2025", invalidEncodingRoot), /kein gueltiges UTF-8/);
+} finally {
+  rmSync(invalidEncodingRoot, { recursive: true, force: true });
 }
 
 const temporary = mkdtempSync(join(tmpdir(), "sse-product-profile-"));
@@ -41,6 +69,32 @@ try {
   rmSync(temporary, { recursive: true, force: true });
 }
 
+const incompatibleCatalogRoot = mkdtempSync(join(tmpdir(), "sse-product-catalog-"));
+try {
+  const copiedProfile = join(incompatibleCatalogRoot, "2025");
+  cpSync(join(root, "profiles", "2025"), copiedProfile, { recursive: true });
+  const pageObjectsPath = join(copiedProfile, "page-objects.json");
+  const pageObjects = JSON.parse(readFileSync(pageObjectsPath, "utf8"));
+  pageObjects.compatibility.executableName = "Andere.exe";
+  writeFileSync(pageObjectsPath, `${JSON.stringify(pageObjects, null, 2)}\n`, "utf8");
+  assert.throws(() => loadProductProfile("2025", incompatibleCatalogRoot), /widersprechen/);
+} finally {
+  rmSync(incompatibleCatalogRoot, { recursive: true, force: true });
+}
+
+const emptyCatalogRoot = mkdtempSync(join(tmpdir(), "sse-product-empty-catalog-"));
+try {
+  const copiedProfile = join(emptyCatalogRoot, "2025");
+  cpSync(join(root, "profiles", "2025"), copiedProfile, { recursive: true });
+  const pageObjectsPath = join(copiedProfile, "page-objects.json");
+  const pageObjects = JSON.parse(readFileSync(pageObjectsPath, "utf8"));
+  pageObjects.pages = {};
+  writeFileSync(pageObjectsPath, `${JSON.stringify(pageObjects, null, 2)}\n`, "utf8");
+  assert.throws(() => loadProductProfile("2025", emptyCatalogRoot), /Seitenkatalog darf nicht leer/);
+} finally {
+  rmSync(emptyCatalogRoot, { recursive: true, force: true });
+}
+
 const powershell = join(
   process.env.SystemRoot ?? process.env.WINDIR ?? "C:\\Windows",
   "System32", "WindowsPowerShell", "v1.0", "powershell.exe",
@@ -52,10 +106,7 @@ const runWorkerProfileMutation = (mutate) => {
   const isolatedProfiles = join(isolatedRoot, "profiles");
   try {
     mkdirSync(isolatedPowerShell, { recursive: true });
-    for (const name of [
-      "sse-worker.ps1", "akad-parser.ps1", "table-region.ps1", "load-native.ps1",
-      "sse-native.cs", "sse-native.dll", "sse-native.sha256",
-    ]) {
+    for (const name of WORKER_RUNTIME_FILES) {
       cpSync(join(root, "powershell", name), join(isolatedPowerShell, name));
     }
     cpSync(join(root, "profiles"), isolatedProfiles, { recursive: true });

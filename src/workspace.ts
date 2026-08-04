@@ -2,22 +2,25 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   existsSync,
   closeSync,
+  fstatSync,
+  linkSync,
   mkdirSync,
   openSync,
-  readFileSync,
   readSync,
   readdirSync,
   realpathSync,
-  renameSync,
   statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { MAX_WORKSPACE_TEXT_BYTES } from "./api-contract.js";
+import { readFileBounded } from "./bounded-files.js";
 
-export const MAX_TEXT_FILE_BYTES = 1024 * 1024;
+export const MAX_TEXT_FILE_BYTES = MAX_WORKSPACE_TEXT_BYTES;
 export const MAX_LIST_HASH_BYTES = 16 * 1024 * 1024;
 export const MAX_LIST_TOTAL_HASH_BYTES = 64 * 1024 * 1024;
+export const MAX_LIST_DIRECTORIES = 5_000;
 
 export interface TextFileInfo {
   ref: string;
@@ -36,16 +39,30 @@ function hash(buffer: Buffer): string {
   return createHash("sha256").update(buffer).digest("hex");
 }
 
+function decodeUtf8(buffer: Buffer): string {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+  } catch {
+    throw new Error("Textdatei ist kein gueltiges UTF-8.");
+  }
+}
+
 function hashFile(path: string, bytes: number): string | null {
   if (bytes > MAX_LIST_HASH_BYTES) return null;
   const descriptor = openSync(path, "r");
   const digest = createHash("sha256");
   const buffer = Buffer.allocUnsafe(64 * 1024);
   try {
+    const opened = fstatSync(descriptor);
+    if (!opened.isFile() || opened.size !== bytes || opened.size > MAX_LIST_HASH_BYTES) return null;
+    let total = 0;
     let read = 0;
     while ((read = readSync(descriptor, buffer, 0, buffer.length, null)) > 0) {
+      total += read;
+      if (total > bytes || total > MAX_LIST_HASH_BYTES) return null;
       digest.update(buffer.subarray(0, read));
     }
+    if (total !== bytes) return null;
     return digest.digest("hex");
   } finally {
     closeSync(descriptor);
@@ -102,20 +119,19 @@ export function resolveWorkspacePath(root: string, ref: string, createParent = f
 export function validateWorkspaceTextWrite(
   root: string,
   ref: string,
-  expectedSha256?: string,
 ): void {
   const path = resolveWorkspacePath(root, ref, true);
   if (existsSync(path)) {
-    if (!expectedSha256) throw new Error("Vorhandene Datei verlangt expectedSha256.");
-    const stats = statSync(path);
-    if (!stats.isFile()) throw new Error("Dateireferenz bezeichnet keine regulaere Datei.");
-    if (stats.size > MAX_TEXT_FILE_BYTES) throw new Error(`Textdatei ist groesser als ${MAX_TEXT_FILE_BYTES} Bytes.`);
-    if (hash(readFileSync(path)) !== expectedSha256.toLowerCase()) {
-      throw new Error("expectedSha256 stimmt nicht mit der Zieldatei ueberein.");
-    }
-  } else if (expectedSha256) {
-    throw new Error("expectedSha256 wurde angegeben, aber die Zieldatei existiert nicht.");
+    throw new Error("Textdatei existiert bereits; eine neue Dateireferenz verwenden.");
   }
+}
+
+export function validateWorkspaceTextTarget(root: string, ref: string): void {
+  const path = resolveWorkspacePath(root, ref, true);
+  if (!existsSync(path)) return;
+  const stats = statSync(path);
+  if (!stats.isFile()) throw new Error("Dateireferenz bezeichnet keine regulaere Datei.");
+  if (stats.size > MAX_TEXT_FILE_BYTES) throw new Error(`Textdatei ist groesser als ${MAX_TEXT_FILE_BYTES} Bytes.`);
 }
 
 export function ensureWorkspace(root: string): void {
@@ -127,53 +143,91 @@ export function readWorkspaceText(root: string, ref: string): { info: TextFileIn
   const stats = statSync(path);
   if (!stats.isFile()) throw new Error("Dateireferenz bezeichnet keine regulaere Datei.");
   if (stats.size > MAX_TEXT_FILE_BYTES) throw new Error(`Textdatei ist groesser als ${MAX_TEXT_FILE_BYTES} Bytes.`);
-  const buffer = readFileSync(path);
-  return { info: { ref, bytes: buffer.length, sha256: hash(buffer) }, text: buffer.toString("utf8") };
+  const buffer = readFileBounded(path, MAX_TEXT_FILE_BYTES);
+  if (resolveWorkspacePath(root, ref) !== path) {
+    throw new Error("Dateireferenz wurde waehrend des Lesens ausgetauscht.");
+  }
+  return { info: { ref, bytes: buffer.length, sha256: hash(buffer) }, text: decodeUtf8(buffer) };
 }
 
 export function writeWorkspaceText(
   root: string,
   ref: string,
   text: string,
-  expectedSha256?: string,
 ): TextFileInfo {
   if (typeof text !== "string") throw new Error("'text' muss eine Zeichenkette sein.");
   const buffer = Buffer.from(text, "utf8");
   if (buffer.length > MAX_TEXT_FILE_BYTES) throw new Error(`Textdatei ist groesser als ${MAX_TEXT_FILE_BYTES} Bytes.`);
-  validateWorkspaceTextWrite(root, ref, expectedSha256);
+  validateWorkspaceTextWrite(root, ref);
   const path = resolveWorkspacePath(root, ref, true);
 
   const temporary = `${path}.tmp-${randomUUID()}`;
   try {
     writeFileSync(temporary, buffer, { flag: "wx" });
-    renameSync(temporary, path);
+    // Der Hardlink erzeugt das Ziel auf demselben Volume atomar und exklusiv.
+    // Er scheitert, falls waehrend des Temp-Writes eine fremde Datei erscheint;
+    // anders als rename besitzt dieser Pfad keinerlei Overwrite-Semantik.
+    linkSync(temporary, path);
   } finally {
     if (existsSync(temporary)) unlinkSync(temporary);
   }
   return { ref, bytes: buffer.length, sha256: hash(buffer) };
 }
 
-export function listWorkspaceFiles(root: string, ref = ".", limit = 500, includeHashes = true): ListedFileInfo[] {
+export function listWorkspaceFiles(
+  root: string,
+  ref = ".",
+  limit = 500,
+  includeHashes = true,
+  maxDirectories = MAX_LIST_DIRECTORIES,
+): ListedFileInfo[] {
+  if (!Number.isInteger(limit) || limit < 1 || limit > 2_000) {
+    throw new Error("Dateilimit muss eine ganze Zahl zwischen 1 und 2000 sein.");
+  }
+  if (!Number.isInteger(maxDirectories) || maxDirectories < 1 || maxDirectories > MAX_LIST_DIRECTORIES) {
+    throw new Error(`Ordnerlimit muss eine ganze Zahl zwischen 1 und ${MAX_LIST_DIRECTORIES} sein.`);
+  }
   const start = ref === "." ? realpathSync(root) : resolveWorkspacePath(root, ref);
   if (!statSync(start).isDirectory()) throw new Error("Dateireferenz bezeichnet keinen Ordner.");
   const realRoot = realpathSync(root);
   const files: ListedFileInfo[] = [];
   const pending = [start];
   let remainingHashBytes = MAX_LIST_TOTAL_HASH_BYTES;
+  let visitedDirectories = 0;
   while (pending.length > 0) {
-    const current = pending.pop()!;
+    const current = realpathSync(pending.pop()!);
+    if (!inside(realRoot, current)) {
+      throw new Error("Dateiliste folgt einem ausgetauschten Ordner ausserhalb des Arbeitsbereichs.");
+    }
+    visitedDirectories += 1;
+    if (visitedDirectories > maxDirectories) {
+      throw new Error(`Dateiliste ueberschreitet das Ordnerlimit von ${maxDirectories}.`);
+    }
     const entries = readdirSync(current, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name, "de"));
     for (const entry of entries) {
       const path = resolve(current, entry.name);
       if (entry.isSymbolicLink()) continue;
-      if (entry.isDirectory()) pending.push(path);
+      if (entry.isDirectory()) {
+        const directory = realpathSync(path);
+        if (!inside(realRoot, directory)) {
+          throw new Error("Dateiliste folgt einem ausgetauschten Ordner ausserhalb des Arbeitsbereichs.");
+        }
+        pending.push(directory);
+      }
       if (!entry.isFile()) continue;
-      const bytes = statSync(path).size;
+      const file = realpathSync(path);
+      if (!inside(realRoot, file)) {
+        throw new Error("Dateiliste folgt einer ausgetauschten Datei ausserhalb des Arbeitsbereichs.");
+      }
+      const bytes = statSync(file).size;
       const mayHash = includeHashes && bytes <= remainingHashBytes;
-      const sha256 = mayHash ? hashFile(path, bytes) : null;
+      const sha256 = mayHash ? hashFile(file, bytes) : null;
+      if (realpathSync(path) !== file) {
+        throw new Error("Dateireferenz wurde waehrend der Auflistung ausgetauscht.");
+      }
       if (sha256 !== null) remainingHashBytes -= bytes;
       files.push({
-        ref: relative(realRoot, path).replaceAll("\\", "/"),
+        ref: relative(realRoot, file).replaceAll("\\", "/"),
         bytes,
         sha256,
         ...(sha256 === null ? { hashOmitted: true as const } : {}),

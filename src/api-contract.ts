@@ -5,10 +5,16 @@ export const DEFAULT_API_HOST = "127.0.0.1";
 export const DEFAULT_API_PORT = 43127;
 export const DEFAULT_OPERATION_TIMEOUT_MS = 90_000;
 export const MAX_OPERATION_TIMEOUT_MS = 300_000;
+export const MAX_WORKER_QUEUE_DEPTH = 32;
 // Eine UTF-8-Textdatei darf 1 MiB gross sein. JSON-Escaping kann einzelne
 // Zeichen bis auf sechs Bytes aufblasen; 8 MiB lassen diesen legitimen Fall
 // zu, ohne unbeschraenkte Request-Bodies zu akzeptieren.
 export const MAX_API_BODY_BYTES = 8 * 1024 * 1024;
+export const MAX_WORKSPACE_TEXT_BYTES = 1024 * 1024;
+// Worker-stdout ist auf 32 MiB begrenzt. Die HTTP-Huelle und JSON-Escapes
+// brauchen etwas Reserve, duerfen den MCP-Prozess aber nicht unbegrenzt
+// Speicher belegen.
+export const MAX_API_RESPONSE_BYTES = 40 * 1024 * 1024;
 
 /**
  * Explizite API-Grenze. Nur bereits vom MCP angebotene, fachlich gebundene
@@ -16,6 +22,7 @@ export const MAX_API_BODY_BYTES = 8 * 1024 * 1024;
  * freie Tastatureingaben (`keys`) absichtlich.
  */
 export const SSE_API_OPERATIONS = [
+  "capabilities",
   "accessibility_probe",
   "archive_cases",
   "backup_cases",
@@ -82,6 +89,11 @@ export const SSE_API_OPERATIONS = [
   "tree_scroll",
   "tree_top",
   "ui_state",
+  "ustva_change_value",
+  "ustva_open_section",
+  "ustva_read",
+  "ustva_select_period",
+  "ustva_set_flag",
   "vast_apply",
   "vast_dialog_read",
   "vast_mapping_options",
@@ -95,6 +107,7 @@ export const SSE_API_OPERATIONS = [
   "workspace_file_write_text",
   "workspace_status",
   "window_close",
+  "window_restore",
   "windows",
 ] as const;
 
@@ -143,4 +156,8 @@ export function safeTokenEqual(actual: string, expected: string): boolean {
   const actualBytes = Buffer.from(actual, "utf8");
   const expectedBytes = Buffer.from(expected, "utf8");
   return actualBytes.length === expectedBytes.length && timingSafeEqual(actualBytes, expectedBytes);
+}
+
+export function isValidApiToken(value: string): boolean {
+  return value.length >= 24 && value.length <= 512 && /^[A-Za-z0-9._~+/-]+=*$/.test(value);
 }

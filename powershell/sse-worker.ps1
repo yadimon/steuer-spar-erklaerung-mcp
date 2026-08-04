@@ -8,7 +8,7 @@
  weitere Abfrage still "0 Treffer". Ein frischer Prozess je Aufruf ist die
  einzige zuverlaessige Gegenmassnahme.
 
- Aufruf:  powershell.exe -NoProfile -File sse-worker.ps1 -Op <name> -B64 <base64-json>
+ Aufruf:  powershell.exe -NoProfile -File sse-worker.ps1 -Op <name> -ArgsFile <temp-json>
  Ausgabe: genau EINE Zeile JSON auf stdout.
 ================================================================================
 #>
@@ -16,6 +16,7 @@
 param(
   [Parameter(Mandatory)][string]$Op,
   [string]$B64 = '',
+  [string]$ArgsFile = '',
   # Wird der Arbeiter auf einem eigenen Desktop gestartet, kommt seine
   # Standardausgabe nicht zurueck. Dann schreibt er das Ergebnis hierhin.
   [string]$OutFile = ''
@@ -39,16 +40,57 @@ $script:INIT_TIMINGS = [ordered]@{}
 [Console]::OutputEncoding = New-Object Text.UTF8Encoding($false)
 $OutputEncoding = [Console]::OutputEncoding
 
+$transportCommonPath = Join-Path $PSScriptRoot 'worker-transport-common.ps1'
+if (-not (Test-Path -LiteralPath $transportCommonPath -PathType Leaf)) {
+  [Console]::Out.Write((@{ ok=$false; kind='worker-init'; error='Gemeinsame Worker-Transportgrenze fehlt.' } | ConvertTo-Json -Compress))
+  exit 1
+}
+. $transportCommonPath
+
+if ($B64 -and $ArgsFile) {
+  [Console]::Out.Write((@{ ok=$false; kind='bad-args'; error='B64 und ArgsFile duerfen nicht gemeinsam gesetzt sein.' } | ConvertTo-Json -Compress))
+  exit 1
+}
+if ($ArgsFile) {
+  try { $ArgsFile = Resolve-SSEWorkerArgsFile $ArgsFile }
+  catch {
+    [Console]::Out.Write((@{ ok=$false; kind='bad-args'; error=$_.Exception.Message } | ConvertTo-Json -Compress))
+    exit 1
+  }
+}
+
+if ($OutFile) {
+  try { $OutFile = Resolve-SSEWorkerOutputFile $OutFile }
+  catch {
+    [Console]::Out.Write((@{ ok=$false; kind='bad-args'; error=$_.Exception.Message } | ConvertTo-Json -Compress))
+    exit 1
+  }
+}
+
 # ---------------------------------------------------------------- Hilfsmittel
 function Read-Args {
   # WICHTIG: PSCustomObject, KEINE Hashtable. Bei einer Hashtable treffen
   # $a.contains / $a.keys / $a.count / $a.values die eingebauten Mitglieder
   # statt der Aufrufparameter - $a.contains ist dann IMMER wahr. Das hat
   # exakte Namenssuche in Teilstringsuche verwandelt.
-  if (-not $B64) { return [pscustomobject]@{} }
-  $json = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($B64))
-  if (-not $json.Trim()) { return [pscustomobject]@{} }
-  $json | ConvertFrom-Json
+  if ($ArgsFile) {
+    $decoded = Read-SSEJsonFileStrict $ArgsFile 8MB
+  } elseif ($B64) {
+    $strictUtf8 = New-Object Text.UTF8Encoding($false, $true)
+    $json = $strictUtf8.GetString([Convert]::FromBase64String($B64))
+    if (-not $json.Trim()) { return [pscustomobject]@{} }
+    $trimmedJson = $json.Trim()
+    if (-not $trimmedJson.StartsWith('{') -or -not $trimmedJson.EndsWith('}')) {
+      throw 'Worker-Argumente muessen ein JSON-Objekt sein.'
+    }
+    $decoded = $json | ConvertFrom-Json
+  } else {
+    return [pscustomobject]@{}
+  }
+  if ($null -eq $decoded -or $decoded -isnot [pscustomobject]) {
+    throw 'Worker-Argumente muessen ein JSON-Objekt sein.'
+  }
+  $decoded
 }
 # Sicherer Zugriff: fehlende Eigenschaft -> $null (statt Fehler)
 function Arg($obj, [string]$name, $default = $null) {
@@ -65,8 +107,26 @@ function Get-SSEPageObjects {
   if (-not (Test-Path -LiteralPath $catalogPath -PathType Leaf)) {
     Fail "Page-Object-Katalog fehlt: $catalogPath" 'not-found'
   }
-  try { Get-Content -Raw -LiteralPath $catalogPath -Encoding UTF8 | ConvertFrom-Json }
+  try { Read-SSEJsonFileStrict $catalogPath }
   catch { Fail "Page-Object-Katalog ist ungueltig: $($_.Exception.Message)" 'invalid-catalog' }
+}
+function Resolve-SSEClosableNonmodalWindowPolicy($Window) {
+  if (-not $Window) { return $null }
+  $catalog = Get-SSEPageObjects
+  foreach ($entry in @($catalog.windows.PSObject.Properties)) {
+    $definition = $entry.Value
+    $role = [string]$definition.role
+    if ($role -notin @('nonmodal-help-window','nonmodal-result-window') -or
+        [string]$definition.closePolicy -ne 'allow-exact-nonmodal-close' -or
+        -not [string]$definition.title -or [string]$Window.title -cne [string]$definition.title) {
+      continue
+    }
+    return [pscustomobject]@{
+      id=[string]$entry.Name; role=$role; title=[string]$definition.title
+      closePolicy=[string]$definition.closePolicy
+    }
+  }
+  $null
 }
 function Resolve-SSEPageObject([string]$PageId, [string]$FieldId = '') {
   $catalog = Get-SSEPageObjects
@@ -85,7 +145,16 @@ function Emit($obj) {
   $obj | Add-Member -NotePropertyName ms -NotePropertyValue $script:T0.ElapsedMilliseconds -Force
   # Depth hoch, damit verschachtelte Baeume nicht abgeschnitten werden
   $json = $obj | ConvertTo-Json -Depth 24 -Compress
-  if ($OutFile) { [IO.File]::WriteAllText($OutFile, $json, (New-Object Text.UTF8Encoding($false))) }
+  if ($OutFile) {
+    $bytes = (New-Object Text.UTF8Encoding($false)).GetBytes($json)
+    $stream = [IO.File]::Open($OutFile, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+    try {
+      $stream.Write($bytes, 0, $bytes.Length)
+      $stream.Flush($true)
+    } finally {
+      $stream.Dispose()
+    }
+  }
   else          { [Console]::Out.Write($json) }
   exit 0
 }
@@ -99,6 +168,116 @@ function Fail($msg, $kind = 'error', $details = $null) {
     }
   }
   Emit ([pscustomobject]$payload)
+}
+function Get-SSEBoundedIntegerArg(
+  $obj,
+  [string]$name,
+  [long]$default,
+  [long]$minimum,
+  [long]$maximum
+) {
+  $raw = Arg $obj $name $default
+  if ($raw -is [string] -or $raw -is [bool] -or $raw -isnot [ValueType]) {
+    Fail "$name muss eine ganze Zahl zwischen $minimum und $maximum sein." 'bad-args'
+  }
+  try { $number = [double]$raw }
+  catch { Fail "$name muss eine ganze Zahl zwischen $minimum und $maximum sein." 'bad-args' }
+  if ([double]::IsNaN($number) -or [double]::IsInfinity($number) -or
+      $number -ne [Math]::Truncate($number) -or $number -lt $minimum -or $number -gt $maximum) {
+    Fail "$name muss eine ganze Zahl zwischen $minimum und $maximum sein." 'bad-args'
+  }
+  [long]$number
+}
+function Get-SSEBoundedArrayArg(
+  $obj,
+  [string]$name,
+  [int]$minimum,
+  [int]$maximum
+) {
+  $property = $obj.PSObject.Properties[$name]
+  if ($null -eq $property -or $null -eq $property.Value) {
+    if ($minimum -gt 0) { Fail "$name muss eine Liste mit $minimum bis $maximum Eintraegen sein." 'bad-args' }
+    return @()
+  }
+  if ($property.Value -isnot [Array]) {
+    Fail "$name muss eine Liste mit $minimum bis $maximum Eintraegen sein." 'bad-args'
+  }
+  $items = @($property.Value)
+  if ($items.Count -lt $minimum -or $items.Count -gt $maximum) {
+    Fail "$name muss eine Liste mit $minimum bis $maximum Eintraegen sein." 'bad-args'
+  }
+  @($items)
+}
+function Assert-SSEWorkerArgumentBudget($Value, [int]$Depth, [ref]$Nodes) {
+  $Nodes.Value = [int]$Nodes.Value + 1
+  if ($Nodes.Value -gt 50000) {
+    Fail 'Worker-Argumente duerfen hoechstens 50000 Werte enthalten.' 'bad-args'
+  }
+  if ($Depth -gt 32) {
+    Fail 'Worker-Argumente duerfen hoechstens 32 Ebenen tief sein.' 'bad-args'
+  }
+  if ($null -eq $Value) { return }
+  if ($Value -is [string]) {
+    if ([Text.Encoding]::UTF8.GetByteCount([string]$Value) -gt 65536) {
+      Fail 'Worker-Zeichenketten duerfen hoechstens 65536 UTF-8-Bytes enthalten.' 'bad-args'
+    }
+    return
+  }
+  if ($Value -is [Array]) {
+    $entries = @($Value)
+    if ($entries.Count -gt 2000) {
+      Fail 'Worker-Listen duerfen hoechstens 2000 Eintraege enthalten.' 'bad-args'
+    }
+    foreach ($entry in $entries) { Assert-SSEWorkerArgumentBudget $entry ($Depth + 1) $Nodes }
+    return
+  }
+  if ($Value -is [pscustomobject]) {
+    $properties = @($Value.PSObject.Properties)
+    if ($properties.Count -gt 2000) {
+      Fail 'Worker-Objekte duerfen hoechstens 2000 Felder enthalten.' 'bad-args'
+    }
+    foreach ($property in $properties) { Assert-SSEWorkerArgumentBudget $property.Value ($Depth + 1) $Nodes }
+  }
+}
+function Read-SSEJsonFileStrict([string]$Path, [long]$MaxBytes = 16MB) {
+  $text = Read-SSEBoundedUtf8File $Path $MaxBytes
+  $text | ConvertFrom-Json
+}
+try { $a = Read-Args }
+catch { Fail 'Worker-Argumente sind kein gueltiges Base64-/UTF-8-/JSON-Objekt.' 'bad-args' }
+$argumentNodes = 0
+Assert-SSEWorkerArgumentBudget $a 0 ([ref]$argumentNodes)
+
+# Auch direkte Worker-Aufrufer duerfen Windows-Identitaeten nicht ueber
+# negative, gebrochene oder jenseits von JSON sicher darstellbare Zahlen
+# einschleusen. Diese gemeinsame Grenze greift vor Profil-, DLL- und UI-Start.
+if ($null -ne (Arg $a 'hwnd')) {
+  $a.hwnd = Get-SSEBoundedIntegerArg $a 'hwnd' 0 1 9007199254740991
+}
+if ($null -ne (Arg $a 'expectedMainHwnd')) {
+  $a.expectedMainHwnd = Get-SSEBoundedIntegerArg $a 'expectedMainHwnd' 0 1 9007199254740991
+}
+if ($null -ne (Arg $a 'pid')) {
+  $a.pid = Get-SSEBoundedIntegerArg $a 'pid' 0 1 2147483647
+}
+foreach ($occurrenceName in @('occurrence','sumOccurrence','seiteOccurrence','labelOccurrence')) {
+  if ($null -ne (Arg $a $occurrenceName)) {
+    $a.$occurrenceName = Get-SSEBoundedIntegerArg $a $occurrenceName 1 1 1000
+  }
+}
+foreach ($collectionLimit in @(
+  [pscustomobject]@{ name='types'; minimum=0; maximum=50 },
+  [pscustomobject]@{ name='werte'; minimum=1; maximum=100 },
+  [pscustomobject]@{ name='plan'; minimum=1; maximum=500 },
+  [pscustomobject]@{ name='erwartungen'; minimum=1; maximum=500 },
+  [pscustomobject]@{ name='sumChecks'; minimum=0; maximum=100 },
+  [pscustomobject]@{ name='resultLabels'; minimum=0; maximum=500 },
+  [pscustomobject]@{ name='cases'; minimum=1; maximum=2000 },
+  [pscustomobject]@{ name='expectedRemaining'; minimum=1; maximum=2000 }
+)) {
+  if ($null -ne $a.PSObject.Properties[$collectionLimit.name]) {
+    $a.($collectionLimit.name) = @(Get-SSEBoundedArrayArg $a $collectionLimit.name $collectionLimit.minimum $collectionLimit.maximum)
+  }
 }
 
 function Test-SSEExactProperties($Value, [string[]]$Expected) {
@@ -116,10 +295,26 @@ function Get-SSECaseFileMatch([string]$PathOrName) {
 function Test-SSEProfileCaseFileName([string]$PathOrName, [bool]$IncludeBackups = $true, [string[]]$AllowedTypes = @()) {
   $caseMatch = Get-SSECaseFileMatch $PathOrName
   if (-not $caseMatch -or -not $caseMatch.Success) { return $false }
-  if ([int]$caseMatch.Groups['year'].Value -ne $script:SSE_TAX_YEAR) { return $false }
+  if (-not (Test-SSECaseYearAllowed ([string]$caseMatch.Groups['type'].Value) ([int]$caseMatch.Groups['year'].Value))) { return $false }
   if (-not $IncludeBackups -and $caseMatch.Groups['backup'].Success) { return $false }
   if ($AllowedTypes.Count -and [string]$caseMatch.Groups['type'].Value -notin $AllowedTypes) { return $false }
   $true
+}
+
+function Get-SSEAllowedCaseYearsForMode([string]$Mode) {
+  $years = @($script:SSE_TAX_YEAR)
+  $property = $script:SSE_PROFILE.additionalCaseYears.PSObject.Properties[$Mode]
+  if ($property) { $years += @($property.Value | ForEach-Object { [int]$_ }) }
+  @($years | Sort-Object -Unique)
+}
+
+function Test-SSECaseYearAllowed([string]$DocumentType, [int]$Year) {
+  foreach ($mode in @($script:SSE_PROFILE.startModes.PSObject.Properties)) {
+    if ([string]$mode.Value -ieq $DocumentType -and $Year -in @(Get-SSEAllowedCaseYearsForMode ([string]$mode.Name))) {
+      return $true
+    }
+  }
+  $false
 }
 
 function Initialize-SSEProductProfile {
@@ -128,11 +323,11 @@ function Initialize-SSEProductProfile {
   if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
     Fail "SSE-Profil fehlt: $manifestPath" 'invalid-profile'
   }
-  try { $profileManifest = Get-Content -Raw -LiteralPath $manifestPath -Encoding UTF8 | ConvertFrom-Json }
+  try { $profileManifest = Read-SSEJsonFileStrict $manifestPath }
   catch { Fail "SSE-Profil ist kein gueltiges JSON: $($_.Exception.Message)" 'invalid-profile' }
   $manifestProperties = @(
     'schemaVersion','id','status','product','taxYear','engineFileMajor',
-    'executable','startModes','pageObjects','policy'
+    'executable','startModes','additionalCaseYears','pageObjects','policy'
   )
   $executableProperties = @('name','installationFolderName','defaultRelativePath')
   $manifestShapeOk = Test-SSEExactProperties $profileManifest $manifestProperties
@@ -141,12 +336,28 @@ function Initialize-SSEProductProfile {
   $startModesOk = [bool]($startModeProperties.Count -and -not @($startModeProperties | Where-Object {
     -not [string]$_.Name -or -not [string]$_.Value
   }).Count)
+  $additionalCaseYearsOk = $profileManifest.additionalCaseYears -is [pscustomobject]
+  if ($additionalCaseYearsOk) {
+    foreach ($additional in @($profileManifest.additionalCaseYears.PSObject.Properties)) {
+      $years = @($additional.Value)
+      $modeKnown = $null -ne $profileManifest.startModes.PSObject.Properties[[string]$additional.Name]
+      $validYears = @($years | Where-Object {
+        $_ -isnot [ValueType] -or [int]$_ -ne ([int]$profileManifest.taxYear + 1)
+      }).Count -eq 0
+      if (-not $modeKnown -or -not $years.Count -or -not $validYears -or
+          @($years | Sort-Object -Unique).Count -ne $years.Count) {
+        $additionalCaseYearsOk = $false
+        break
+      }
+    }
+  }
   if (-not $manifestShapeOk -or -not $executableShapeOk -or
       [int]$profileManifest.schemaVersion -ne 1 -or [string]$profileManifest.id -ne $script:SSE_PROFILE_ID -or
       [string]$profileManifest.status -ne 'supported' -or [int]$profileManifest.taxYear -ne [int]$script:SSE_PROFILE_ID -or
       [int]$profileManifest.engineFileMajor -le 0 -or -not [string]$profileManifest.product -or
       -not [string]$profileManifest.executable.name -or -not [string]$profileManifest.executable.installationFolderName -or
-      -not $startModesOk -or -not [string]$profileManifest.pageObjects -or -not [string]$profileManifest.policy) {
+      -not $startModesOk -or -not $additionalCaseYearsOk -or
+      -not [string]$profileManifest.pageObjects -or -not [string]$profileManifest.policy) {
     Fail "SSE-Profil '$($script:SSE_PROFILE_ID)' ist unvollstaendig oder nicht produktiv freigegeben." 'invalid-profile'
   }
   $pageObjectsName = [string]$profileManifest.pageObjects
@@ -165,7 +376,7 @@ function Initialize-SSEProductProfile {
   if (-not (Test-Path -LiteralPath $pageObjectsPath -PathType Leaf)) {
     Fail "Page-Objects des SSE-Profils fehlen: $pageObjectsPath" 'invalid-profile'
   }
-  try { $pageObjects = Get-Content -Raw -LiteralPath $pageObjectsPath -Encoding UTF8 | ConvertFrom-Json }
+  try { $pageObjects = Read-SSEJsonFileStrict $pageObjectsPath }
   catch { Fail "Page-Objects des SSE-Profils sind ungueltig: $($_.Exception.Message)" 'invalid-profile' }
   if ([int]$pageObjects.schemaVersion -ne 1 -or
       [string]$pageObjects.product -ne [string]$profileManifest.product -or
@@ -293,12 +504,13 @@ function Get-SSECaseIdentity([string]$Path, [string]$Mode) {
   }
   $documentType = $match.Groups['type'].Value
   $year = [int]$match.Groups['year'].Value
-  if ($year -ne $script:SSE_TAX_YEAR) {
-    Fail "Falldatei gehoert zum Steuerjahr $year; dieser MCP steuert ausschliesslich Steuerjahr $($script:SSE_TAX_YEAR)." 'unsupported-year'
-  }
   $expectedType = Get-SSEStartModeType $Mode
   if ($documentType -ine $expectedType) {
-    Fail "Startmodus '$Mode' erwartet .$expectedType$($script:SSE_TAX_YEAR), die Falldatei ist .$documentType$year." 'mode-mismatch'
+    Fail "Startmodus '$Mode' erwartet den Falltyp .$expectedType, die Falldatei ist .$documentType$year." 'mode-mismatch'
+  }
+  $allowedYears = @(Get-SSEAllowedCaseYearsForMode $Mode)
+  if ($year -notin $allowedYears) {
+    Fail "Falldatei gehoert zum Jahr $year; Startmodus '$Mode' erlaubt im Profil '$($script:SSE_PROFILE_ID)' nur: $($allowedYears -join ', ')." 'unsupported-year'
   }
   if (-not (Test-Path -LiteralPath $fullPath -PathType Leaf)) { Fail "Falldatei nicht gefunden: $fullPath" 'not-found' }
   [pscustomobject]@{ path=$fullPath; documentType=$documentType; taxYear=$year; mode=$Mode; supported=$true }
@@ -324,6 +536,17 @@ if (-not (Test-Path -LiteralPath $tableRegionHelpers -PathType Leaf)) {
   Fail "Tabellenregion-Helfer fehlt: $tableRegionHelpers" 'not-found'
 }
 . $tableRegionHelpers
+
+$tableValueHelpers = Join-Path $PSScriptRoot 'table-values.ps1'
+if (-not (Test-Path -LiteralPath $tableValueHelpers -PathType Leaf)) {
+  Fail "Tabellenwert-Helfer fehlt: $tableValueHelpers" 'not-found'
+}
+. $tableValueHelpers
+$tableComboHelpers = Join-Path $PSScriptRoot 'table-combobox.ps1'
+if (-not (Test-Path -LiteralPath $tableComboHelpers -PathType Leaf)) {
+  Fail "Tabellen-ComboBox-Helfer fehlt: $tableComboHelpers" 'not-found'
+}
+. $tableComboHelpers
 $initProbe.Stop(); $script:INIT_TIMINGS.assembliesMs = $initProbe.ElapsedMilliseconds
 
 # ---------------------------------------------------------- Versteckter Desktop
@@ -347,13 +570,21 @@ $script:INIT_TIMINGS.nativeInteropMs = $nativeLoad.ms
 $script:INIT_TIMINGS.nativeSourceHash = $nativeLoad.sourceHash
 $script:INIT_TIMINGS.nativeExpectedSourceHash = $nativeLoad.expectedSourceHash
 $script:INIT_TIMINGS.nativeHashMatch = $nativeLoad.hashMatch
+$script:INIT_TIMINGS.nativeDllHash = $nativeLoad.dllHash
+$script:INIT_TIMINGS.nativeExpectedDllHash = $nativeLoad.expectedDllHash
+$script:INIT_TIMINGS.nativeDllHashMatch = $nativeLoad.dllHashMatch
 if ($nativeLoad.dllError) { $script:INIT_TIMINGS.nativeDllError = $nativeLoad.dllError }
 }
 $script:DESKTOP_MARKE = Join-Path $env:TEMP 'sse-mcp-desktop.txt'
 $script:DESKTOP_NAME  = $null
 $script:DESKTOP_PID   = 0
 if (Test-Path -LiteralPath $script:DESKTOP_MARKE) {
-  $markerRaw = (Get-Content -LiteralPath $script:DESKTOP_MARKE -Raw).Trim()
+  try {
+    $markerFile = Get-Item -LiteralPath $script:DESKTOP_MARKE -Force -ErrorAction Stop
+    if ($markerFile.PSIsContainer -or $markerFile.Length -gt 4KB) { throw 'Desktop-Marker ist ungueltig.' }
+    $markerUtf8 = New-Object Text.UTF8Encoding($false, $true)
+    $markerRaw = ([IO.File]::ReadAllText($markerFile.FullName, $markerUtf8)).Trim()
+  } catch { $markerRaw = '' }
   $n = $markerRaw
   if ($markerRaw.StartsWith('{')) {
     try {
@@ -391,8 +622,9 @@ $WLK = [System.Windows.Automation.TreeWalker]::ControlViewWalker
 $RAW = [System.Windows.Automation.TreeWalker]::RawViewWalker
 
 # ------------------------------------------------------------- Sicherheitsnetz
-# Alles, was Daten ans Finanzamt schicken koennte. Wird NIE ausgeloest,
-# ausser der Aufrufer setzt ausdruecklich confirmSend=true UND allowSend=true.
+# Alles, was Daten ans Finanzamt schicken koennte. Wird NIE ausgeloest.
+# Es gibt absichtlich keinen internen Schalter und keinen direkten Worker-
+# Parameter, der diese Grenze lockern kann.
 $script:VERSAND = @(
   'ELSTER','Anmeldungen versenden','Jahreserklärungen abschließen',
   'Belege nachreichen','Kommunikation mit dem Finanzamt per ELSTER',
@@ -572,7 +804,7 @@ function Get-NormalizedDirectoryPath([string]$Path) {
   $full.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
 }
 
-function Complete-FailedDesktopStart([IntPtr]$ProcessHandle, [string]$DesktopName, [int]$Pid) {
+function Complete-FailedDesktopStart([IntPtr]$ProcessHandle, [string]$DesktopName, [int]$ProcessId) {
   $errors = New-Object System.Collections.ArrayList
   $WAIT_OBJECT_0 = 0
   $exited = $ProcessHandle -eq [IntPtr]::Zero -or [DSK]::WaitForSingleObject($ProcessHandle, 0) -eq $WAIT_OBJECT_0
@@ -590,10 +822,10 @@ function Complete-FailedDesktopStart([IntPtr]$ProcessHandle, [string]$DesktopNam
     $markerRemoved = -not (Test-Path -LiteralPath $script:DESKTOP_MARKE)
   } else {
     try {
-      @{ name = $DesktopName; pid = $Pid } | ConvertTo-Json -Compress |
+      @{ name = $DesktopName; pid = $ProcessId } | ConvertTo-Json -Compress |
         Set-Content -LiteralPath $script:DESKTOP_MARKE -Encoding UTF8 -ErrorAction Stop
-      $recovery = (Get-Content -LiteralPath $script:DESKTOP_MARKE -Raw -ErrorAction Stop | ConvertFrom-Json)
-      $markerWritten = [string]$recovery.name -eq $DesktopName -and [int]$recovery.pid -eq $Pid
+      $recovery = Read-SSEJsonFileStrict $script:DESKTOP_MARKE 4KB
+      $markerWritten = [string]$recovery.name -eq $DesktopName -and [int]$recovery.pid -eq $ProcessId
       if (-not $markerWritten) { $null = $errors.Add('Recovery-Marker liess sich nicht identisch zuruecklesen.') }
     } catch { $null = $errors.Add($_.Exception.Message) }
   }
@@ -672,7 +904,12 @@ function Get-SSEPointObstruction([IntPtr]$BoundWindow, [int]$X, [int]$Y) {
   }
 }
 
-function Click-VerifiedPoint([IntPtr]$Window, $Node) {
+function Click-VerifiedPoint(
+  [IntPtr]$Window,
+  $Node,
+  $ExpectedInputTick = $null,
+  [switch]$RequireForeground
+) {
   if (-not $Node -or $Node.w -le 0 -or $Node.h -le 0) { Fail 'Klickziel hat keine sichtbare Flaeche.' 'offscreen' }
   $px = [int]($Node.x + $Node.w / 2); $py = [int]($Node.y + $Node.h / 2)
   $null = Show-SSEWindow $Window
@@ -696,6 +933,14 @@ function Click-VerifiedPoint([IntPtr]$Window, $Node) {
       Hide-SSETopmost $Window
       Fail "MSAA-Mittelpunkt liegt unmittelbar vor dem Klick nicht mehr im aktuellen Zielrechteck. NICHT geklickt." 'stale'
     }
+  }
+  if ($null -ne $ExpectedInputTick -and -not (Test-SSELastInputUnchanged $ExpectedInputTick)) {
+    Hide-SSETopmost $Window
+    Fail 'Fremde Benutzereingabe unmittelbar vor dem verifizierten Klick erkannt. NICHT geklickt.' 'interference'
+  }
+  if ($RequireForeground -and [SW]::GetForegroundWindow() -ne $Window) {
+    Hide-SSETopmost $Window
+    Fail 'Gebundenes SSE-Fenster ist unmittelbar vor dem verifizierten Klick nicht im Vordergrund. NICHT geklickt.' 'interference'
   }
   [SW]::SetCursorPos($px, $py) | Out-Null
   Start-Sleep -Milliseconds 100
@@ -762,13 +1007,14 @@ function Get-DialogDescriptor($Window, [IntPtr]$MainHwnd) {
   # Worker-Prozess nativ beenden.
   if (
     [int64]$Window.hwnd -eq [int64]$MainHwnd -or
-    ($Window.w -ge 900 -and $Window.title -match 'SteuerSparErklärung')
+    (($Window.w -ge 900 -or $Window.minimiert) -and $Window.title -match 'SteuerSparErklärung')
   ) { $kind = 'main' }
-  elseif ($Window.title -eq 'Steuer-Spar-Tipps') { $kind = 'tips' }
   elseif ($Window.cls -match 'Shadow|PopupDropShadow') { $kind = 'shadow' }
   elseif ($Window.cls -eq '#32770') { $kind = 'native-dialog' }
+  elseif ($Window.title -eq 'Steuer-Spar-Tipps') { $kind = 'tips' }
+  elseif (Resolve-SSEClosableNonmodalWindowPolicy $Window) { $kind = 'known-nonmodal' }
 
-  $tree = $null; $buttons = @(); $texts = @()
+  $tree = $null; $buttons = @(); $texts = @(); $observedButtonNames = @(); $unsupportedButtons = @()
   $uiaReadOk = $false; $uiaError = $null; $msaaReadOk = $false; $msaaError = $null
   $skipUia = $false
   # Der offizielle CSV-Exportdialog exponiert in Qt keinen brauchbaren
@@ -794,6 +1040,7 @@ function Get-DialogDescriptor($Window, [IntPtr]$MainHwnd) {
         }
       }
       $fastNames = @($fastItems | ForEach-Object { ConvertTo-SSEDialogButtonName $_.Name } | Select-Object -Unique)
+      $observedButtonNames = @($fastNames)
       if ($fastNames.Count -eq 2 -and
           'Klicken Sie hier, um Ihre Daten zu exportieren' -in $fastNames -and 'Schließen' -in $fastNames) {
         $buttons = @($fastItems | Group-Object Name | ForEach-Object { $_.Group[0] } | ForEach-Object {
@@ -808,11 +1055,14 @@ function Get-DialogDescriptor($Window, [IntPtr]$MainHwnd) {
       }
     } catch { $msaaError = $_.Exception.Message }
   }
-  if ($kind -notin @('main','tips','shadow')) {
+  if ($kind -notin @('main','tips','known-nonmodal','shadow')) {
     if (-not $skipUia) {
       try {
         $tree = Walk-Tree ([IntPtr][int64]$Window.hwnd) 1200 12
         $uiaReadOk = $true
+        $observedButtonNames = @($tree.nodes | Where-Object {
+          $_.name -and $_.type -in @('Button','Pane')
+        } | ForEach-Object { ($_.name -replace '\s+', ' ').Trim() } | Where-Object { $_ } | Select-Object -Unique)
         $buttons = @($tree.nodes | Where-Object {
           $_.name -and $_.type -in @('Button','Pane') -and $_.name -in $script:DIALOG_BUTTONS
         } | ForEach-Object { [pscustomobject]@{
@@ -854,18 +1104,23 @@ function Get-DialogDescriptor($Window, [IntPtr]$MainHwnd) {
           type = 'MSAA-PushButton'; source = 'msaa-point'; path = $null
           x = $_.X; y = $_.Y; w = $_.W; h = $_.H
         } })
+        $observedButtonNames = @(@($observedButtonNames) + @($acc | Where-Object {
+          $_.Role -eq 43 -and $_.Name
+        } | ForEach-Object { ($_.Name -replace '\s+', ' ').Trim() }) | Select-Object -Unique)
         $texts = @($acc | Where-Object { $_.Role -eq 41 -and $_.Name } |
           ForEach-Object { ($_.Name -replace '\s+', ' ').Trim() } | Where-Object { $_ } | Select-Object -Unique)
         $msaaReadOk = $true
       } catch { $msaaError = $_.Exception.Message }
     }
-    if ($kind -eq 'other' -and $buttons.Count) { $kind = 'qt-dialog' }
+    $unsupportedButtons = @($observedButtonNames | Where-Object { $_ -notin $script:DIALOG_BUTTONS } | Select-Object -Unique)
+    if ($kind -eq 'other' -and ($buttons.Count -or $unsupportedButtons.Count)) { $kind = 'qt-dialog' }
   }
   $fingerprint = $null
   if ($kind -in @('native-dialog','qt-dialog')) {
     $body = @(
       ([string]$Window.title -replace '\s+', ' ').Trim()
       ((@($buttons | ForEach-Object { $_.name }) | Sort-Object) -join '|')
+      ((@($unsupportedButtons) | Sort-Object) -join '|')
       ((@($texts) | Sort-Object) -join '|')
     ) -join "`0"
     $bytes = [Text.Encoding]::UTF8.GetBytes($body)
@@ -876,8 +1131,8 @@ function Get-DialogDescriptor($Window, [IntPtr]$MainHwnd) {
   [pscustomobject]@{
     hwnd = [int64]$Window.hwnd; pid = [int]$Window.pid; cls = $Window.cls; title = $Window.title
     titleFingerprint = $Window.titleFingerprint; kind = $kind
-    x = $Window.x; y = $Window.y; w = $Window.w; h = $Window.h
-    buttons = $buttons; texts = $texts; fingerprint = $fingerprint; tree = $tree
+    x = $Window.x; y = $Window.y; w = $Window.w; h = $Window.h; minimiert = [bool]$Window.minimiert
+    buttons = $buttons; unsupportedButtons = $unsupportedButtons; texts = $texts; fingerprint = $fingerprint; tree = $tree
     uiaReadOk = $uiaReadOk; uiaError = $uiaError; msaaReadOk = $msaaReadOk; msaaError = $msaaError
   }
 }
@@ -886,10 +1141,10 @@ function Get-DialogInventory([int]$TargetPid = 0) {
   $windows = @(Get-Windows 'SSE')
   if ($TargetPid) { $windows = @($windows | Where-Object { [int]$_.pid -eq $TargetPid }) }
   if (-not $windows.Count) { return @() }
-  # Beim Programmstart kann NUR die 518x260-Wiederherstellungsfrage offen
-  # sein. Das groesste Fenster ist dann trotzdem ein Dialog, nicht das
-  # Hauptfenster. Ein SSE-Hauptfenster ist in der Praxis deutlich breiter.
-  $main = @($windows | Where-Object { $_.w -ge 900 } | Select-Object -First 1)
+  # Der gemeinsame Hauptfensterresolver erkennt auch minimierte Fallfenster,
+  # deren Ersatzgeometrie bei -32000 sonst wie ein kompakter Qt-Dialog wirkt.
+  # Der 518x260-Startdialog "Steuerprogramm" bleibt dagegen bewusst draussen.
+  $main = @(Get-SSEMainWindowCandidates $windows | Select-Object -First 1)
   $mainHwnd = $(if ($main.Count) { [IntPtr][int64]$main[0].hwnd } else { [IntPtr]::Zero })
   @($windows | ForEach-Object { Get-DialogDescriptor $_ $mainHwnd })
 }
@@ -969,6 +1224,27 @@ function Resolve-SSEMainWindowDescriptor($a, $Windows = $null, [switch]$RestoreM
   $main
 }
 
+# Vollstaendiger, kanonisch sortierter Zustand aller Peer-Fenster einer
+# expliziten Restore-Transaktion. Das Ziel selbst bleibt draussen, weil genau
+# dessen Minimiert-/Geometriezustand sich aendern soll; jede Aenderung an einem
+# anderen sichtbaren SSE-Fenster wird dagegen im SHA256-Readback sichtbar.
+function Get-SSEPeerWindowSet($Windows, [int]$ProcessId, [IntPtr]$TargetHwnd) {
+  $peers = @($Windows | Where-Object {
+    [int]$_.pid -eq $ProcessId -and [int64]$_.hwnd -ne [int64]$TargetHwnd
+  } | Sort-Object hwnd | ForEach-Object {
+    [pscustomobject][ordered]@{
+      hwnd=[int64]$_.hwnd; pid=[int]$_.pid; cls=[string]$_.cls
+      titleFingerprint=([string]$_.titleFingerprint).ToUpperInvariant()
+      minimiert=[bool]$_.minimiert; hung=[bool]$_.hung
+      x=[int]$_.x; y=[int]$_.y; w=[int]$_.w; h=[int]$_.h
+    }
+  })
+  [pscustomobject]@{
+    fingerprint=Get-SSETextSha256 ($peers | ConvertTo-Json -Depth 4 -Compress)
+    windows=$peers
+  }
+}
+
 function Test-SSESystemOverlayDescriptor($Descriptor) {
   [bool]($Descriptor -and $Descriptor.cls -match '^UAC[ _]' -and
     $Descriptor.w -le 80 -and $Descriptor.h -le 80)
@@ -1024,7 +1300,10 @@ function Invoke-DialogButtonInfo($Dialog, $ButtonInfo) {
 # Fuer echte Dialoge: dialog=true setzen.
 function Resolve-Window($a) {
   $h = Arg $a 'hwnd'
-  $wins = Get-Windows 'SSE'
+  # PowerShell rollt eine Sammlung mit genau einem Element beim Rueckgabepipe
+  # zum Einzelobjekt aus. Dessen fehlendes .Count wurde hier als 0 interpretiert
+  # und fuehrte ausgerechnet beim normalen Ein-Fenster-Fall zu no-window.
+  $wins = @(Get-Windows 'SSE')
   if ($h) {
     $exact = @($wins | Where-Object { [int64]$_.hwnd -eq [int64]$h })
     if ($exact.Count -ne 1) { Fail 'Das angegebene hwnd gehoert nicht mehr zum erwarteten Prozess.' 'stale-window' }
@@ -1045,7 +1324,7 @@ function Resolve-Window($a) {
   if (-not $gross.Count) {
     [SW]::ShowWindow([IntPtr][int64]$wins[0].hwnd, 9) | Out-Null   # SW_RESTORE
     Start-Sleep -Milliseconds 700
-    $wins = Get-Windows 'SSE'
+    $wins = @(Get-Windows 'SSE')
     if ($wantedPid) { $wins = @($wins | Where-Object { [int]$_.pid -eq [int]$wantedPid }) }
     if (@($wins | Where-Object { -not $_.minimiert }).Count -eq 0) {
       Fail 'Das Fenster ist minimiert und liess sich nicht wiederherstellen. Bitte von Hand oeffnen.' 'minimized'
@@ -2136,19 +2415,39 @@ function Get-AccessibilityProbeData {
 
 function Take-Shot {
   param([IntPtr]$hwnd, [string]$Path)
+  $fullPath = [IO.Path]::GetFullPath($Path)
+  $parent = [IO.Path]::GetDirectoryName($fullPath)
+  if (-not (Test-Path -LiteralPath $parent -PathType Container)) { Fail "Screenshot-Zielordner fehlt: $parent" 'not-found' }
+  if (Test-Path -LiteralPath $fullPath) { Fail "Screenshot-Ziel existiert bereits: $fullPath" 'exists' }
+  $temporaryPath = Join-Path $parent ('.' + [IO.Path]::GetFileName($fullPath) + '.shot-' + [guid]::NewGuid().ToString('N') + '.png')
   $r = New-Object SW+RC
   [SW]::GetWindowRect($hwnd, [ref]$r) | Out-Null
   $w = $r.R - $r.L; $h = $r.B - $r.T
   if ($w -le 0 -or $h -le 0) { Fail "Fenster hat Groesse ${w}x${h} - vermutlich noch nicht bereit." 'no-window' }
-  $bmp = New-Object System.Drawing.Bitmap($w, $h)
-  $g = [System.Drawing.Graphics]::FromImage($bmp)
-  $hdc = $g.GetHdc()
-  # PW_RENDERFULLCONTENT = 2 -> funktioniert auch im Hintergrund
-  $okShot = [SW]::PrintWindow($hwnd, $hdc, 2)
-  $g.ReleaseHdc($hdc)
-  $bmp.Save($Path, [System.Drawing.Imaging.ImageFormat]::Png)
-  $g.Dispose(); $bmp.Dispose()
-  [pscustomobject]@{ path = $Path; w = $w; h = $h; ok = [bool]$okShot }
+  $bmp = $null; $g = $null; $hdc = [IntPtr]::Zero
+  try {
+    $bmp = New-Object System.Drawing.Bitmap($w, $h)
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    $hdc = $g.GetHdc()
+    # PW_RENDERFULLCONTENT = 2 -> funktioniert auch im Hintergrund
+    $okShot = [SW]::PrintWindow($hwnd, $hdc, 2)
+    $g.ReleaseHdc($hdc); $hdc = [IntPtr]::Zero
+    $bmp.Save($temporaryPath, [System.Drawing.Imaging.ImageFormat]::Png)
+    # File.Move besitzt auf .NET Framework bewusst keinen Overwrite-Pfad.
+    # Taucht das Ziel nach dem Preflight auf, bleibt die fremde Datei erhalten.
+    [IO.File]::Move($temporaryPath, $fullPath)
+    [pscustomobject]@{ path = $fullPath; w = $w; h = $h; ok = [bool]$okShot }
+  } catch {
+    if (Test-Path -LiteralPath $fullPath) {
+      Fail "Screenshot-Ziel erschien waehrend der Aufnahme und wurde nicht ueberschrieben: $fullPath" 'exists'
+    }
+    Fail "Screenshot konnte nicht sicher geschrieben werden: $($_.Exception.Message)" 'write-failed'
+  } finally {
+    if ($hdc -ne [IntPtr]::Zero -and $g) { $g.ReleaseHdc($hdc) }
+    if ($g) { $g.Dispose() }
+    if ($bmp) { $bmp.Dispose() }
+    if (Test-Path -LiteralPath $temporaryPath) { Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue }
+  }
 }
 
 function Remove-SSETemporaryFile([string]$Path) {
@@ -2162,17 +2461,31 @@ function Remove-SSETemporaryFile([string]$Path) {
   [pscustomobject]@{ removed = $removed; error = $cleanupError }
 }
 
-function Move-SSEFileReplace([string]$Source, [string]$Destination) {
-  if (-not (Test-Path -LiteralPath $Destination -PathType Leaf)) {
-    [IO.File]::Move($Source, $Destination)
-    return
-  }
-  $backup = Join-Path ([IO.Path]::GetDirectoryName($Destination)) `
-    ('.' + [IO.Path]::GetFileName($Destination) + '.' + [guid]::NewGuid().ToString('N') + '.replace-backup')
+function Copy-SSEFileNew([string]$Source, [string]$Destination) {
+  # CreateNew macht die No-Overwrite-Bedingung atomar. Die Quelle bleibt fuer
+  # die kurze Kopie gegen paralleles Schreiben gesperrt; eine von uns erzeugte
+  # Teildatei wird nach einem I/O-Fehler gezielt entfernt.
+  $sourceStream = $null
+  $destinationStream = $null
+  $destinationCreated = $false
+  $copyError = $null
   try {
-    [IO.File]::Replace($Source, $Destination, $backup)
+    $sourceStream = [IO.File]::Open($Source, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+    $destinationStream = [IO.File]::Open($Destination, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+    $destinationCreated = $true
+    $sourceStream.CopyTo($destinationStream)
+    $destinationStream.Flush($true)
+  } catch {
+    $copyError = $_
   } finally {
-    if (Test-Path -LiteralPath $backup) { Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue }
+    if ($destinationStream) { $destinationStream.Dispose() }
+    if ($sourceStream) { $sourceStream.Dispose() }
+  }
+  if ($copyError) {
+    if ($destinationCreated -and (Test-Path -LiteralPath $Destination -PathType Leaf)) {
+      Remove-Item -LiteralPath $Destination -Force -ErrorAction SilentlyContinue
+    }
+    throw $copyError
   }
 }
 
@@ -2215,62 +2528,6 @@ function Invoke-WindowsOcr([string]$Path) {
 # UIA-Arbeitsprozess verwendet. So bleiben native Qt/UIA-Fehler isoliert, aber
 # Vorher-/Nachher-Lesung, Commit, Summen und Steuerwirkung brauchen nicht mehr
 # je einen eigenen MCP-Roundtrip.
-function Normalize-SSEScalar($Value) {
-  if ($null -eq $Value) { return '' }
-  (("$Value" -replace '[\s.]', '') -replace ',', '.').Trim()
-}
-
-function Test-SSEScalarEqual($Actual, $Expected) {
-  $a = Normalize-SSEScalar $Actual
-  $e = Normalize-SSEScalar $Expected
-  ($a -eq $e) -or ($a -and $e.StartsWith($a)) -or ($a -and $a.StartsWith($e))
-}
-
-function ConvertTo-SSETableNumber([string]$Value) {
-  if ($null -eq $Value) { return $null }
-  $text = $Value.Trim() -replace '\s', ''
-  if (-not $text -or $text -notmatch '^-?[\d.,]+$') { return $null }
-
-  # SSE zeigt Zahlen deutsch formatiert an (z. B. 0,00), waehrend ein
-  # Aufrufer fuer dimensionslose Tabellenwerte oft nur 0 oder 19 sendet.
-  # Tausenderpunkte werden nur dann entfernt, wenn ein Komma vorhanden ist
-  # oder die einzige Punktgruppe genau drei Nachkommastellen hat. Damit sind
-  # sowohl 1.234,56 als auch tolerierte API-Eingaben wie 108.90 eindeutig.
-  if ($text.Contains(',')) {
-    $text = $text.Replace('.', '').Replace(',', '.')
-  } elseif ($text -match '^(-?\d+)\.(\d{3})$') {
-    $text = $text.Replace('.', '')
-  } elseif (($text.ToCharArray() | Where-Object { $_ -eq '.' }).Count -gt 1) {
-    $text = $text.Replace('.', '')
-  }
-
-  $parsed = [decimal]0
-  $styles = [Globalization.NumberStyles]::AllowLeadingSign -bor [Globalization.NumberStyles]::AllowDecimalPoint
-  if ([decimal]::TryParse($text, $styles, [Globalization.CultureInfo]::InvariantCulture, [ref]$parsed)) {
-    return $parsed
-  }
-  $null
-}
-
-function Test-SSETableCellEquivalent([string]$Actual, [string]$Requested) {
-  if ($Actual -eq $Requested) { return $true }
-  if (-not $Requested -and $Actual -in @('', '0', '0,00', '0.00')) { return $true }
-  # Qt zeigt ein eingegebenes Datum teilweise ohne Jahr an. Tag und Monat sind
-  # dann die belastbare Ruecklesung; das Steuerjahr ist durch Produkt/Falldatei
-  # bereits fest auf 2025 gebunden.
-  if ($Requested -match '^\d{1,2}\.\d{1,2}\.\d{4}$' -and $Actual -match '^\d{1,2}\.\d{1,2}(?:\.\d{2,4})?$') {
-    $requestedDate = $Requested.Split('.')
-    $actualDate = $Actual.Split('.')
-    return [int]$requestedDate[0] -eq [int]$actualDate[0] -and
-      [int]$requestedDate[1] -eq [int]$actualDate[1]
-  }
-  $actualNumber = ConvertTo-SSETableNumber $Actual
-  $requestedNumber = ConvertTo-SSETableNumber $Requested
-  if ($null -ne $actualNumber -and $null -ne $requestedNumber) {
-    return $actualNumber -eq $requestedNumber
-  }
-  $false
-}
 
 function Get-SSETextSha256([string]$Text) {
   $sha = [Security.Cryptography.SHA256]::Create()
@@ -2687,6 +2944,651 @@ function Get-SSETableRegion($Tree, [IntPtr]$Hwnd, $TargetSumRead) {
   Get-SSETableRegionFromNodes $Tree.nodes $bounds $TargetSumRead
 }
 
+function Resolve-SSETableProfile([string]$Page, [string]$SumLabel, [int]$SumOccurrence, $Region) {
+  $catalog = Get-SSEPageObjects
+  $matches = New-Object System.Collections.ArrayList
+  foreach ($pageProperty in @($catalog.pages.PSObject.Properties)) {
+    $pageObject = $pageProperty.Value
+    if ([string]$pageObject.heading -ne $Page -or -not $pageObject.tables) { continue }
+    foreach ($tableProperty in @($pageObject.tables.PSObject.Properties)) {
+      $tableObject = $tableProperty.Value
+      if ([string]$tableObject.sumLabel -ne $SumLabel -or [int]$tableObject.sumOccurrence -ne $SumOccurrence) { continue }
+      $columns = @($tableObject.columns)
+      if (-not $columns.Count -or @($columns | Where-Object {
+        [int]$_.index -lt 0 -or -not [string]$_.header -or
+        [string]$_.controlType -ne 'ComboBox' -or [string]$_.valueKind -ne 'enum' -or
+        [string]$_.writePolicy -notin @('unsupported-fail-closed','typed-selection-required') -or -not [string]$_.reason -or
+        ($_.PSObject.Properties['emptyRowDefault'] -and (
+          -not [string]$_.emptyRowDefault -or [string]$_.writePolicy -ne 'typed-selection-required'
+        )) -or
+        ([string]$_.writePolicy -eq 'typed-selection-required' -and (
+          [string]$_.openPattern -notin @('Invoke','InvokeThenVerifiedPointVisibleDesktop') -or [string]$_.optionControlType -ne 'ListItem' -or
+          [string]$_.optionSelectPattern -ne 'SelectionItem' -or
+          'SelectionItem.IsSelected' -notin @($_.readback) -or 'ValuePattern.Value' -notin @($_.readback) -or
+          'checker-diff' -notin @($_.readback)
+        ))
+      }).Count) {
+        Fail "Tabellenprofil '$($pageProperty.Name)/$($tableProperty.Name)' ist unvollstaendig oder nicht fail-closed." 'invalid-catalog'
+      }
+      $duplicateColumns = @($columns | Group-Object { [int]$_.index } | Where-Object { $_.Count -ne 1 })
+      if ($duplicateColumns.Count) {
+        Fail "Tabellenprofil '$($pageProperty.Name)/$($tableProperty.Name)' definiert Spalten mehrfach." 'invalid-catalog'
+      }
+      $null = $matches.Add([pscustomobject]@{
+        pageId=[string]$pageProperty.Name; tableId=[string]$tableProperty.Name
+        table=$tableObject; columns=$columns
+      })
+    }
+  }
+  if (-not $matches.Count) {
+    return [pscustomobject]@{ known=$false; bindingOk=$true; columns=@() }
+  }
+  if ($matches.Count -ne 1) {
+    Fail "Mehrere Tabellenprofile passen zu Seite '$Page', Summe '$SumLabel', Vorkommen $SumOccurrence." 'invalid-catalog'
+  }
+
+  $match = $matches[0]
+  $section = [string]$match.table.automationIdSection
+  $scopePrefix = [string]$Region.scopePrefix
+  $aidBound = $false
+  $aidFallback = $false
+  if ($section) {
+    if ($scopePrefix) {
+      $expectedScopeSuffix = "/.$section./.$section."
+      if (-not $scopePrefix.EndsWith($expectedScopeSuffix, [StringComparison]::Ordinal)) {
+        return [pscustomobject]@{
+          known=$true; bindingOk=$false; pageId=$match.pageId; tableId=$match.tableId
+          columns=$match.columns; automationIdSection=$section; observedScopePrefix=$scopePrefix
+          reason="Die sichtbare Tabellenregion gehoert nicht zum profilierten Automation-ID-Abschnitt '$section'."
+        }
+      }
+      $aidBound = $true
+    } else {
+      # Manche Qt-/UIA-Snapshots liefern fuer die Summenregion keine Automation-ID.
+      # Dann bleibt die deklarierte Mindestbindung Seite + Summenlabel + Vorkommen
+      # + Spaltenindex erhalten und semantische Selektoren bleiben fail-closed.
+      $aidFallback = $true
+    }
+  }
+  [pscustomobject]@{
+    known=$true; bindingOk=$true; pageId=$match.pageId; tableId=$match.tableId
+    profileSumLabel=[string]$match.table.sumLabel; profileSumOccurrence=[int]$match.table.sumOccurrence
+    columns=$match.columns; automationIdSection=$section; observedScopePrefix=$scopePrefix
+    aidBound=$aidBound; aidFallback=$aidFallback
+    bindingStrength=$(if ($aidBound) {
+      'page+sumLabel+sumOccurrence+automationIdSection+column'
+    } else {
+      'page+sumLabel+sumOccurrence+column'
+    })
+  }
+}
+
+function Get-SSETableProfileColumn($TableProfile, [int]$ColumnIndex) {
+  if (-not $TableProfile -or -not $TableProfile.known) { return $null }
+  @($TableProfile.columns | Where-Object { [int]$_.index -eq $ColumnIndex } | Select-Object -First 1)[0]
+}
+
+function Get-SSETableComboCellValue($Element, $Cell) {
+  $value = $null
+  try {
+    $pattern = $null
+    if ($Element -and $Element.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$pattern)) {
+      $value = [string]$pattern.Current.Value
+    }
+    if ($null -eq $value -or $value -eq '') { $value = [string]$Element.Current.Name }
+  } catch { }
+  if (($null -eq $value -or $value -eq '') -and $Cell) { $value = [string]$Cell.name }
+  [string]$value
+}
+
+function Get-SSETableComboPopupSources([int]$ProcessId, [IntPtr]$MainHwnd, [int64[]]$WindowIdsBefore) {
+  $sources = New-Object System.Collections.ArrayList
+  try {
+    $mainTree = Walk-Tree $MainHwnd 2400 25 18 -WithValues
+    $null = $sources.Add([pscustomobject]@{
+      hwnd=[int64]$MainHwnd; isMain=$true; isNewPopup=$false; window=$null; tree=$mainTree
+    })
+  } catch { }
+  foreach ($window in @(Get-Windows 'SSE' | Where-Object {
+    [int]$_.pid -eq $ProcessId -and [int64]$_.hwnd -ne [int64]$MainHwnd -and
+    [int64]$_.hwnd -notin @($WindowIdsBefore)
+  })) {
+    try {
+      $tree = Walk-Tree ([IntPtr][int64]$window.hwnd) 1200 15 14 -WithValues
+      $null = $sources.Add([pscustomobject]@{
+        hwnd=[int64]$window.hwnd; isMain=$false; isNewPopup=$true; window=$window; tree=$tree
+      })
+    } catch { }
+  }
+  @($sources)
+}
+
+function Read-SSETableComboCellState(
+  [IntPtr]$Hwnd, [string]$ExpectedPage, [string]$SumLabel, [int]$SumOccurrence,
+  [int]$RowY, [int]$ColumnIndex, $TableProfile
+) {
+  try {
+    $tree = Walk-Tree $Hwnd 4000 45 18 -WithValues
+    $heading = Get-CurrentHeading $Hwnd $tree
+    if ($heading -ne $ExpectedPage) {
+      return [pscustomobject]@{ ok=$false; interference=$true; error="Seite ist '$heading' statt '$ExpectedPage'."; tree=$tree }
+    }
+    $sumRead = Read-LabeledValueFromTree $tree $Hwnd $SumLabel $SumOccurrence
+    if (-not $sumRead.selected) {
+      return [pscustomobject]@{ ok=$false; interference=$true; error='Gebundene Summenregion ist nicht mehr sichtbar.'; tree=$tree }
+    }
+    $region = Get-SSETableRegion $tree $Hwnd $sumRead
+    if (-not $region.ok) {
+      return [pscustomobject]@{ ok=$false; interference=$true; error="Tabellenregion ist nicht mehr gebunden: $($region.error)"; tree=$tree }
+    }
+    $section = [string]$TableProfile.automationIdSection
+    if ($section -and $region.scopePrefix) {
+      $expectedScopeSuffix = "/.$section./.$section."
+      if (-not ([string]$region.scopePrefix).EndsWith($expectedScopeSuffix, [StringComparison]::Ordinal)) {
+        return [pscustomobject]@{ ok=$false; interference=$true; error='Automation-ID-Tabellenbindung hat sich geaendert.'; tree=$tree }
+      }
+    }
+    $rowCells = @($region.cells | Where-Object { [Math]::Abs([int]$_.y - $RowY) -le 4 } | Sort-Object x)
+    if ($ColumnIndex -lt 0 -or $ColumnIndex -ge $rowCells.Count) {
+      return [pscustomobject]@{ ok=$false; interference=$true; error='Gebundene Tabellenzeile oder Spalte ist nicht mehr sichtbar.'; tree=$tree }
+    }
+    $cell = $rowCells[$ColumnIndex]
+    $element = Get-LiveElement $Hwnd $cell.rid $cell.aid
+    if (-not $element) {
+      return [pscustomobject]@{ ok=$false; interference=$true; error='Gebundene ComboBox-Zelle ist nicht mehr greifbar.'; tree=$tree }
+    }
+    [pscustomobject]@{
+      ok=$true; interference=$false; tree=$tree; heading=$heading; sumRead=$sumRead; region=$region
+      cell=$cell; nextCell=$(if (($ColumnIndex + 1) -lt $rowCells.Count) { $rowCells[$ColumnIndex + 1] } else { $null })
+      element=$element; value=(Get-SSETableComboCellValue $element $cell)
+      rowCellCount=$rowCells.Count
+      ridMatchCount=@($tree.nodes | Where-Object { [string]$_.rid -ceq [string]$cell.rid }).Count
+      checkerMessages=@(Get-SSEPageCheckerMessages $tree $Hwnd)
+    }
+  } catch {
+    [pscustomobject]@{ ok=$false; interference=$true; error=$_.Exception.Message; tree=$null }
+  }
+}
+
+function Invoke-SSETableComboSelection {
+  param(
+    [Parameter(Mandatory)][IntPtr]$Hwnd,
+    [Parameter(Mandatory)][int]$ProcessId,
+    [Parameter(Mandatory)][string]$ExpectedPage,
+    [Parameter(Mandatory)][string]$SumLabel,
+    [Parameter(Mandatory)][int]$SumOccurrence,
+    [Parameter(Mandatory)][int]$RowY,
+    [Parameter(Mandatory)][int]$ColumnIndex,
+    [Parameter(Mandatory)]$TableProfile,
+    [Parameter(Mandatory)]$ColumnProfile,
+    [Parameter(Mandatory)][AllowEmptyString()][string]$ExpectedCurrent,
+    [Parameter(Mandatory)][string]$Wanted,
+    [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$CheckerMessagesBefore,
+    $InputBaseline = $null,
+    [bool]$GuardUserInput = $true,
+    [switch]$Rollback
+  )
+
+  $stateBefore = Read-SSETableComboCellState $Hwnd $ExpectedPage $SumLabel $SumOccurrence $RowY $ColumnIndex $TableProfile
+  if (-not $stateBefore.ok) {
+    return [pscustomobject]@{ ok=$false; interference=[bool]$stateBefore.interference; mutationStarted=$false; error=$stateBefore.error }
+  }
+  if (-not [string]::Equals([string]$stateBefore.value, $ExpectedCurrent, [StringComparison]::Ordinal)) {
+    return [pscustomobject]@{
+      ok=$false; interference=$true; mutationStarted=$false
+      error="ComboBox-Vorwert ist '$($stateBefore.value)' statt '$ExpectedCurrent'."
+      before=$stateBefore.value
+    }
+  }
+  if ([string]$ColumnProfile.writePolicy -ne 'typed-selection-required' -or
+      [string]$ColumnProfile.openPattern -notin @('Invoke','InvokeThenVerifiedPointVisibleDesktop') -or
+      [string]$ColumnProfile.optionSelectPattern -ne 'SelectionItem' -or
+      [int]$ColumnProfile.index -ne $ColumnIndex -or
+      [string]$TableProfile.profileSumLabel -cne $SumLabel -or
+      [int]$TableProfile.profileSumOccurrence -ne $SumOccurrence) {
+    return [pscustomobject]@{ ok=$false; interference=$false; mutationStarted=$false; error='Produktprofil erlaubt keine typisierte Auswahl fuer diese Spalte.' }
+  }
+  if ([string]::Equals($Wanted, $ExpectedCurrent, [StringComparison]::Ordinal)) {
+    $noopBinding = Test-SSETableComboOpenFallbackBinding `
+      $stateBefore $stateBefore $TableProfile $ExpectedCurrent $ColumnIndex $SumOccurrence
+    if (-not $noopBinding.ok) {
+      return [pscustomobject]@{
+        ok=$false; kind='profile-binding-mismatch'; interference=$true; mutationStarted=$false
+        error='ComboBox-No-op ist nicht mehr vollstaendig an Profil, Seite, Summe, Zeile und Spalte gebunden.'
+        before=$ExpectedCurrent; requested=$Wanted; after=[string]$stateBefore.value
+        openEvidence=[pscustomobject]@{ noop=$true; binding=$noopBinding }
+        inputBaselineAfter=$InputBaseline
+      }
+    }
+    return [pscustomobject]@{
+      ok=$true; kind='ok'; interference=$false; mutationStarted=$false
+      before=$ExpectedCurrent; requested=$Wanted; after=[string]$stateBefore.value
+      method='noop-already-target'; internalSelected=$null; editorClosed=$true
+      popupBinding=[pscustomobject]@{ kind='not-opened'; reason='Exakter Live-Wert entspricht bereits dem angeforderten und erwarteten Wert.' }
+      openEvidence=[pscustomobject]@{ noop=$true; binding=$noopBinding.evidence; invokeAttempted=$false; clickAttempted=$false }
+      inputBaselineAfter=$InputBaseline
+      checkerMessagesAfter=$stateBefore.checkerMessages; newCheckerMessages=@()
+    }
+  }
+  $guardUserInput = [bool]$GuardUserInput
+  if ($guardUserInput -and ($null -eq $InputBaseline -or -not (Test-SSELastInputUnchanged $InputBaseline))) {
+    return [pscustomobject]@{ ok=$false; interference=$true; mutationStarted=$false; error='Benutzereingabe vor dem Oeffnen der Tabellen-ComboBox erkannt.' }
+  }
+  $interactionBefore = Get-SSEInteractionWindowSet $ProcessId $Hwnd
+  $windowIdsBefore = @((Get-Windows 'SSE' | Where-Object { [int]$_.pid -eq $ProcessId }) | ForEach-Object { [int64]$_.hwnd })
+  $openMethod = 'invoke'
+  $openEvidence = [ordered]@{ invokeAttempted=$true; invokeSucceeded=$false; verifiedPointAttempted=$false }
+  $invoke = $null
+  if (-not $stateBefore.element.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$invoke)) {
+    return [pscustomobject]@{ ok=$false; interference=$false; mutationStarted=$false; error='Profilierte DataItem-Zelle bietet kein InvokePattern.' }
+  }
+  try { $invoke.Invoke(); $openEvidence['invokeSucceeded']=$true }
+  catch { $openEvidence['invokeError']=$_.Exception.Message }
+  if ($openEvidence['invokeSucceeded']) { Start-Sleep -Milliseconds 350 }
+  if ($guardUserInput -and -not (Test-SSELastInputUnchanged $InputBaseline)) {
+    return [pscustomobject]@{ ok=$false; interference=$true; mutationStarted=$false; error='Benutzereingabe beim Oeffnen der Tabellen-ComboBox erkannt.' }
+  }
+  if ((Get-CurrentHeading $Hwnd) -ne $ExpectedPage) {
+    return [pscustomobject]@{ ok=$false; interference=$true; mutationStarted=$false; error='Seite wechselte beim Oeffnen der Tabellen-ComboBox.' }
+  }
+
+  $sources = @(Get-SSETableComboPopupSources $ProcessId $Hwnd $windowIdsBefore)
+  $popup = Resolve-SSETableComboPopup $sources $stateBefore.cell $Wanted $ExpectedCurrent $TableProfile
+  $openEvidence['invokePopupKind'] = [string]$popup.kind
+  $openEvidence['invokePopupCandidateCount'] = @($popup.candidates).Count
+  if (-not $popup.ok -and [string]$ColumnProfile.openPattern -eq 'InvokeThenVerifiedPointVisibleDesktop') {
+    if ($script:DESKTOP_NAME) {
+      return [pscustomobject]@{
+        ok=$false; interference=$false; mutationStarted=$false; error='Verifizierter Tabellen-ComboBox-Klick ist nur auf dem sichtbaren Desktop erlaubt.'
+        popupBinding=$popup; openEvidence=[pscustomobject]$openEvidence; inputBaselineAfter=$InputBaseline
+      }
+    }
+    if (-not $guardUserInput -or $null -eq $InputBaseline) {
+      return [pscustomobject]@{
+        ok=$false; interference=$false; mutationStarted=$false; error='Verifizierter Tabellen-ComboBox-Klick erfordert eine lesbare Benutzereingabe-Epoche.'
+        popupBinding=$popup; openEvidence=[pscustomobject]$openEvidence; inputBaselineAfter=$InputBaseline
+      }
+    }
+    $openEvidence['verifiedPointAttempted']=$true
+    $currentInteraction = Get-SSEInteractionWindowSet $ProcessId $Hwnd
+    if ($currentInteraction.fingerprint -ne $interactionBefore.fingerprint) {
+      return [pscustomobject]@{
+        ok=$false; interference=$true; mutationStarted=$false; error='SSE-Fensterlage wechselte vor dem verifizierten Tabellen-ComboBox-Klick.'
+        popupBinding=$popup; openEvidence=[pscustomobject]$openEvidence; inputBaselineAfter=$InputBaseline
+      }
+    }
+    $boundPid = 0
+    [SW]::GetWindowThreadProcessId($Hwnd, [ref]$boundPid) | Out-Null
+    if ($boundPid -ne $ProcessId) {
+      return [pscustomobject]@{
+        ok=$false; interference=$true; mutationStarted=$false; error='Gebundenes Hauptfenster gehoert nicht mehr zur erwarteten SSE-Prozess-ID.'
+        popupBinding=$popup; openEvidence=[pscustomobject]$openEvidence; inputBaselineAfter=$InputBaseline
+      }
+    }
+    $null = Show-SSEWindow $Hwnd
+    Start-Sleep -Milliseconds 100
+    if ([SW]::GetForegroundWindow() -ne $Hwnd -or
+        ($guardUserInput -and -not (Test-SSELastInputUnchanged $InputBaseline))) {
+      Hide-SSETopmost $Hwnd
+      return [pscustomobject]@{
+        ok=$false; interference=$true; mutationStarted=$false; error='Vordergrund- oder Benutzereingabe-Interferenz vor dem verifizierten Tabellen-ComboBox-Klick.'
+        popupBinding=$popup; openEvidence=[pscustomobject]$openEvidence; inputBaselineAfter=$InputBaseline
+      }
+    }
+    $clickState = Read-SSETableComboCellState $Hwnd $ExpectedPage $SumLabel $SumOccurrence $RowY $ColumnIndex $TableProfile
+    $clickBinding = Test-SSETableComboOpenFallbackBinding $stateBefore $clickState $TableProfile $ExpectedCurrent $ColumnIndex $SumOccurrence
+    if (-not $clickBinding.ok) {
+      $initialElementAfterInvoke = Get-LiveElement $Hwnd $stateBefore.cell.rid $stateBefore.cell.aid
+      $freshElementAfterInvoke = $(if ($clickState.ok) {
+        Get-LiveElement $Hwnd $clickState.cell.rid $clickState.cell.aid
+      } else { $null })
+      $openEvidence['clickBinding'] = $clickBinding
+      $openEvidence['postInvokeIdentity'] = [pscustomobject]@{
+        initialRidResolvable=[bool]$initialElementAfterInvoke
+        freshRidResolvable=[bool]$freshElementAfterInvoke
+        initialRid=[string]$stateBefore.cell.rid; freshRid=[string]$clickState.cell.rid
+        initialAid=[string]$stateBefore.cell.aid; freshAid=[string]$clickState.cell.aid
+        expectedPid=$ProcessId; observedPid=$boundPid; foregroundHwnd=[int64][SW]::GetForegroundWindow()
+        hwnd=[int64]$Hwnd; windowFingerprintUnchanged=[bool]($currentInteraction.fingerprint -eq $interactionBefore.fingerprint)
+        inputEpochUnchanged=[bool](-not $guardUserInput -or (Test-SSELastInputUnchanged $InputBaseline))
+        pageUnchanged=[bool]($clickState.ok -and [string]$clickState.heading -ceq $ExpectedPage)
+      }
+      Hide-SSETopmost $Hwnd
+      return [pscustomobject]@{
+        ok=$false; interference=$true; mutationStarted=$false; error='Vollstaendige Tabellen-ComboBox-Bindung wechselte unmittelbar vor dem verifizierten Klick.'
+        popupBinding=$popup; clickBinding=$clickBinding; openEvidence=[pscustomobject]$openEvidence; inputBaselineAfter=$InputBaseline
+      }
+    }
+    $clickNode = [pscustomobject]@{
+      x=[int]$clickState.cell.x; y=[int]$clickState.cell.y; w=[int]$clickState.cell.w; h=[int]$clickState.cell.h
+      name=[string]$clickState.cell.name; rid=[string]$clickState.cell.rid; aid=[string]$clickState.cell.aid
+      source='profile-bound-table-combobox'
+    }
+    $clickX = [int]($clickNode.x + $clickNode.w / 2); $clickY = [int]($clickNode.y + $clickNode.h / 2)
+    $obstruction = Get-SSEPointObstruction $Hwnd $clickX $clickY
+    if (-not $obstruction.isBoundTarget -or [int]$obstruction.boundPid -ne $ProcessId) {
+      Hide-SSETopmost $Hwnd
+      return [pscustomobject]@{
+        ok=$false; interference=$true; mutationStarted=$false; error='Zellmittelpunkt ist nicht mehr an Root und PID des SSE-Hauptfensters gebunden.'
+        popupBinding=$popup; clickBinding=$clickBinding; obstruction=$obstruction
+        openEvidence=[pscustomobject]$openEvidence; inputBaselineAfter=$InputBaseline
+      }
+    }
+    $clickResult = Click-VerifiedPoint -Window $Hwnd -Node $clickNode `
+      -ExpectedInputTick $(if ($guardUserInput) { $InputBaseline } else { $null }) -RequireForeground
+    if ($guardUserInput) {
+      $InputBaseline = Get-SSELastInputTick
+      if ($null -eq $InputBaseline) {
+        return [pscustomobject]@{ ok=$false; interference=$true; mutationStarted=$false; error='Windows-Eingabe-Epoche ist nach dem verifizierten Klick nicht lesbar.' }
+      }
+    }
+    Start-Sleep -Milliseconds 350
+    if (($guardUserInput -and -not (Test-SSELastInputUnchanged $InputBaseline)) -or
+        [SW]::GetForegroundWindow() -ne $Hwnd -or (Get-CurrentHeading $Hwnd) -ne $ExpectedPage) {
+      return [pscustomobject]@{
+        ok=$false; interference=$true; mutationStarted=$false; error='Eingabe-, Vordergrund- oder Seiteninterferenz nach dem verifizierten Tabellen-ComboBox-Klick.'
+        popupBinding=$popup; clickBinding=$clickBinding; openEvidence=[pscustomobject]$openEvidence; inputBaselineAfter=$InputBaseline
+      }
+    }
+    $openMethod = 'invoke+verified-cell-point'
+    $openEvidence['verifiedPoint']=[pscustomobject]@{
+      x=$clickResult.x; y=$clickResult.y; hwnd=[int64]$Hwnd; pid=$ProcessId
+      binding=$clickBinding.evidence; obstruction=$obstruction
+    }
+    $sources = @(Get-SSETableComboPopupSources $ProcessId $Hwnd $windowIdsBefore)
+    $popup = Resolve-SSETableComboPopup $sources $clickState.cell $Wanted $ExpectedCurrent $TableProfile
+    $openEvidence['verifiedPointPopupKind']=[string]$popup.kind
+    $openEvidence['verifiedPointPopupCandidateCount']=@($popup.candidates).Count
+    if (-not $popup.ok -and @($popup.candidates).Count -eq 0) {
+      $arrowInteraction = Get-SSEInteractionWindowSet $ProcessId $Hwnd
+      if ($arrowInteraction.fingerprint -ne $interactionBefore.fingerprint -or
+          ($guardUserInput -and -not (Test-SSELastInputUnchanged $InputBaseline)) -or
+          [SW]::GetForegroundWindow() -ne $Hwnd -or (Get-CurrentHeading $Hwnd) -ne $ExpectedPage) {
+        return [pscustomobject]@{
+          ok=$false; interference=$true; mutationStarted=$false
+          error='Eingabe-, Fenster-, Vordergrund- oder Seiteninterferenz vor dem gebundenen Drop-Arrow-Klick.'
+          popupBinding=$popup; openEvidence=[pscustomobject]$openEvidence; inputBaselineAfter=$InputBaseline
+        }
+      }
+      $arrowState = Read-SSETableComboCellState $Hwnd $ExpectedPage $SumLabel $SumOccurrence $RowY $ColumnIndex $TableProfile
+      $arrowBinding = Test-SSETableComboOpenFallbackBinding $clickState $arrowState $TableProfile $ExpectedCurrent $ColumnIndex $SumOccurrence
+      if (-not $arrowBinding.ok) {
+        $openEvidence['dropArrowBinding']=$arrowBinding
+        return [pscustomobject]@{
+          ok=$false; interference=$true; mutationStarted=$false
+          error='Tabellen-ComboBox-Zelle wechselte zwischen Aktivierung und Drop-Arrow-Klick.'
+          popupBinding=$popup; openEvidence=[pscustomobject]$openEvidence; inputBaselineAfter=$InputBaseline
+        }
+      }
+      $arrowPoint = Get-SSETableComboDropArrowPoint $arrowState.cell $arrowState.nextCell
+      if (-not $arrowPoint.ok) {
+        $openEvidence['dropArrowPoint']=$arrowPoint
+        return [pscustomobject]@{
+          ok=$false; interference=$false; mutationStarted=$false
+          error='Profilierter Drop-Arrow-Hotspot liegt nicht eindeutig innerhalb der gebundenen Tabellenzelle.'
+          popupBinding=$popup; openEvidence=[pscustomobject]$openEvidence; inputBaselineAfter=$InputBaseline
+        }
+      }
+      $arrowObstruction = Get-SSEPointObstruction $Hwnd $arrowPoint.x $arrowPoint.y
+      if (-not $arrowObstruction.isBoundTarget -or [int]$arrowObstruction.boundPid -ne $ProcessId) {
+        $openEvidence['dropArrowObstruction']=$arrowObstruction
+        return [pscustomobject]@{
+          ok=$false; interference=$true; mutationStarted=$false
+          error='Drop-Arrow-Hotspot ist nicht mehr an Root und PID des SSE-Hauptfensters gebunden.'
+          popupBinding=$popup; openEvidence=[pscustomobject]$openEvidence; inputBaselineAfter=$InputBaseline
+        }
+      }
+      $arrowNode = [pscustomobject]@{
+        x=$arrowPoint.node.x; y=$arrowPoint.node.y; w=$arrowPoint.node.w; h=$arrowPoint.node.h
+        name=[string]$arrowState.cell.name; rid=[string]$arrowState.cell.rid; aid=[string]$arrowState.cell.aid
+        source=[string]$arrowPoint.node.source
+      }
+      $arrowClick = Click-VerifiedPoint -Window $Hwnd -Node $arrowNode `
+        -ExpectedInputTick $InputBaseline -RequireForeground
+      $InputBaseline = Get-SSELastInputTick
+      if ($null -eq $InputBaseline) {
+        return [pscustomobject]@{ ok=$false; interference=$true; mutationStarted=$false; error='Windows-Eingabe-Epoche ist nach dem Drop-Arrow-Klick nicht lesbar.' }
+      }
+      Start-Sleep -Milliseconds 350
+      if (-not (Test-SSELastInputUnchanged $InputBaseline) -or (Get-CurrentHeading $Hwnd) -ne $ExpectedPage) {
+        return [pscustomobject]@{
+          ok=$false; interference=$true; mutationStarted=$false
+          error='Eingabe- oder Seiteninterferenz nach dem gebundenen Drop-Arrow-Klick.'
+          popupBinding=$popup; openEvidence=[pscustomobject]$openEvidence; inputBaselineAfter=$InputBaseline
+        }
+      }
+      $openMethod = 'invoke+verified-cell-point+verified-drop-arrow-point'
+      $openEvidence['dropArrowPoint']=[pscustomobject]@{
+        x=$arrowClick.x; y=$arrowClick.y; inset=$arrowPoint.inset
+        cellRight=$arrowPoint.cellRight; nextColumnX=$arrowPoint.nextColumnX
+        hwnd=[int64]$Hwnd; pid=$ProcessId; binding=$arrowBinding.evidence; obstruction=$arrowObstruction
+      }
+      $sources = @(Get-SSETableComboPopupSources $ProcessId $Hwnd $windowIdsBefore)
+      $popup = Resolve-SSETableComboPopup $sources $arrowState.cell $Wanted $ExpectedCurrent $TableProfile
+      $openEvidence['dropArrowPopupKind']=[string]$popup.kind
+      $openEvidence['dropArrowPopupCandidateCount']=@($popup.candidates).Count
+    }
+  }
+  if (-not $popup.ok) {
+    $unchangedState = Read-SSETableComboCellState $Hwnd $ExpectedPage $SumLabel $SumOccurrence $RowY $ColumnIndex $TableProfile
+    $unchangedReference = $(if ($arrowState) { $arrowState } elseif ($clickState) { $clickState } else { $stateBefore })
+    $unchangedBinding = Test-SSETableComboOpenFallbackBinding $unchangedReference $unchangedState $TableProfile $ExpectedCurrent $ColumnIndex $SumOccurrence
+    $unchanged = [bool]($unchangedBinding.ok -and
+      [string]::Equals([string]$unchangedState.value, $ExpectedCurrent, [StringComparison]::Ordinal))
+    $openEvidence['noSelectionReadback']=[pscustomobject]@{
+      valueUnchanged=[bool]([string]::Equals([string]$unchangedState.value, $ExpectedCurrent, [StringComparison]::Ordinal))
+      bindingUnchanged=[bool]$unchangedBinding.ok; binding=$unchangedBinding
+    }
+    return [pscustomobject]@{
+      ok=$false; interference=[bool](-not $unchanged); mutationStarted=$false
+      error=$popup.error; popupBinding=$popup; editorClosed=$false; valueUnchanged=$unchanged
+      method=$openMethod; openEvidence=[pscustomobject]$openEvidence; inputBaselineAfter=$InputBaseline
+      rollback=[pscustomobject]@{ versucht=$false; erfolgreich=$unchanged; grund='Keine Option ausgewaehlt; Zellwert erneut gelesen.' }
+    }
+  }
+
+  $targetElement = Get-LiveElement ([IntPtr][int64]$popup.sourceHwnd) $popup.target.rid $popup.target.aid
+  $rollbackElement = Get-LiveElement ([IntPtr][int64]$popup.sourceHwnd) $popup.rollback.rid $popup.rollback.aid
+  $selection = $null; $rollbackSelection = $null
+  if (-not $targetElement -or -not $targetElement.Current.IsEnabled -or
+      -not $targetElement.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$selection) -or
+      -not $rollbackElement -or
+      -not $rollbackElement.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$rollbackSelection)) {
+    try { $invoke.Invoke(); Start-Sleep -Milliseconds 250 } catch { }
+    return [pscustomobject]@{
+      ok=$false; interference=$false; mutationStarted=$false
+      error='Ziel- oder Ausgangsoption bietet kein rollbackfaehiges SelectionItemPattern.'; popupBinding=$popup.binding
+      method=$openMethod; openEvidence=[pscustomobject]$openEvidence; inputBaselineAfter=$InputBaseline
+    }
+  }
+  if ($guardUserInput -and -not (Test-SSELastInputUnchanged $InputBaseline)) {
+    return [pscustomobject]@{
+      ok=$false; interference=$true; mutationStarted=$false; error='Benutzereingabe unmittelbar vor der Optionsauswahl erkannt.'
+      method=$openMethod; openEvidence=[pscustomobject]$openEvidence; inputBaselineAfter=$InputBaseline
+    }
+  }
+
+  $mutationStarted = $true
+  $internalSelected = $false
+  $selectionError = $null
+  try {
+    $selection.Select()
+    $internalSelected = [bool]$selection.Current.IsSelected
+  } catch { $selectionError = $_.Exception.Message }
+  Start-Sleep -Milliseconds 450
+  $stateAfter = Read-SSETableComboCellState $Hwnd $ExpectedPage $SumLabel $SumOccurrence $RowY $ColumnIndex $TableProfile
+  $interactionAfter = Get-SSEInteractionWindowSet $ProcessId $Hwnd
+  $postSources = @(Get-SSETableComboPopupSources $ProcessId $Hwnd $windowIdsBefore)
+  $postPopup = Resolve-SSETableComboPopup $postSources $stateBefore.cell $Wanted $ExpectedCurrent $TableProfile
+  $boundListPresent = Test-SSETableComboBoundListPresent $postSources $popup
+  $popupClosed = [bool](-not $boundListPresent)
+  $afterValue = $(if ($stateAfter.ok) { [string]$stateAfter.value } else { $null })
+  $physicalListItemCommit = $false
+  $selectionCommitMethod = 'selection-item'
+  if ($stateAfter.ok -and
+      [string]::Equals($afterValue, $ExpectedCurrent, [StringComparison]::Ordinal) -and
+      $postPopup.ok -and $boundListPresent -and
+      (Test-SSETableComboPopupBindingEquivalent $popup $postPopup) -and
+      (-not $guardUserInput -or (Test-SSELastInputUnchanged $InputBaseline))) {
+    $selectionEvidence = [ordered]@{
+      semanticSelected=$internalSelected; semanticError=$selectionError
+      fallbackAttempted=$false; sourceHwnd=[int64]$postPopup.sourceHwnd
+      listRid=[string]$postPopup.list.rid; targetRid=[string]$postPopup.target.rid
+    }
+    if ($script:DESKTOP_NAME) {
+      $selectionEvidence['fallbackError']='Verifizierter Popup-ListItem-Klick ist auf dem versteckten Desktop gesperrt.'
+    } elseif (-not $guardUserInput -or $null -eq $InputBaseline) {
+      $selectionEvidence['fallbackError']='Verifizierter Popup-ListItem-Klick erfordert eine lesbare Benutzereingabe-Epoche.'
+    } elseif ([int64]$postPopup.sourceHwnd -eq [int64]$Hwnd) {
+      $selectionEvidence['fallbackError']='Physischer Commit ist nur fuer ein separat gebundenes Popup-HWND erlaubt.'
+    } else {
+      $selectionEvidence['fallbackAttempted']=$true
+      $popupWindows = @(Get-Windows 'SSE' | Where-Object {
+        [int]$_.pid -eq $ProcessId -and [int64]$_.hwnd -eq [int64]$postPopup.sourceHwnd
+      })
+      $popupPid = 0
+      [SW]::GetWindowThreadProcessId(([IntPtr][int64]$postPopup.sourceHwnd), [ref]$popupPid) | Out-Null
+      $targetNode = $postPopup.target
+      if ($popupWindows.Count -ne 1 -or $popupPid -ne $ProcessId -or
+          -not $targetNode.rid -or [int]$targetNode.w -le 0 -or [int]$targetNode.h -le 0) {
+        $selectionEvidence['fallbackError']='Popup-HWND, PID oder sichtbares Ziel-ListItem ist nicht mehr eindeutig gebunden.'
+      } else {
+        $targetX=[int]($targetNode.x + $targetNode.w / 2)
+        $targetY=[int]($targetNode.y + $targetNode.h / 2)
+        $targetObstruction=Get-SSEPointObstruction ([IntPtr][int64]$postPopup.sourceHwnd) $targetX $targetY
+        if (-not $targetObstruction.isBoundTarget -or [int]$targetObstruction.boundPid -ne $ProcessId -or
+            -not (Test-SSELastInputUnchanged $InputBaseline)) {
+          $selectionEvidence['fallbackError']='Popup-ListItem-Mittelpunkt ist nicht mehr an Popup-Root, PID und Eingabe-Epoche gebunden.'
+          $selectionEvidence['obstruction']=$targetObstruction
+        } else {
+          $popupClick=Click-VerifiedPoint -Window ([IntPtr][int64]$postPopup.sourceHwnd) -Node $targetNode `
+            -ExpectedInputTick $InputBaseline -RequireForeground
+          $InputBaseline=Get-SSELastInputTick
+          $selectionEvidence['verifiedPoint']=[pscustomobject]@{
+            x=$popupClick.x; y=$popupClick.y; hwnd=[int64]$postPopup.sourceHwnd; pid=$ProcessId
+            listRid=[string]$postPopup.list.rid; targetRid=[string]$postPopup.target.rid
+            targetAid=[string]$postPopup.target.aid; obstruction=$targetObstruction
+          }
+          if ($null -eq $InputBaseline) {
+            $selectionEvidence['fallbackError']='Windows-Eingabe-Epoche ist nach dem Popup-ListItem-Klick nicht lesbar.'
+          } else {
+            Start-Sleep -Milliseconds 450
+            $stateAfter=Read-SSETableComboCellState $Hwnd $ExpectedPage $SumLabel $SumOccurrence $RowY $ColumnIndex $TableProfile
+            $interactionAfter=Get-SSEInteractionWindowSet $ProcessId $Hwnd
+            $postSources=@(Get-SSETableComboPopupSources $ProcessId $Hwnd $windowIdsBefore)
+            $postPopup=Resolve-SSETableComboPopup $postSources $stateBefore.cell $Wanted $ExpectedCurrent $TableProfile
+            $boundListPresent=Test-SSETableComboBoundListPresent $postSources $popup
+            $popupClosed=[bool](-not $boundListPresent)
+            $afterValue=$(if ($stateAfter.ok) { [string]$stateAfter.value } else { $null })
+            $physicalListItemCommit=$true
+            $selectionCommitMethod='selection-item+verified-list-item-point'
+            $selectionEvidence['boundListGone']=$popupClosed
+            $selectionEvidence['cellValueAfter']=$afterValue
+            $selectionEvidence['inputEpochAfter']=$InputBaseline
+          }
+        }
+      }
+    }
+    $openEvidence['selectionCommit']=[pscustomobject]$selectionEvidence
+  }
+  $inputChanged = [bool]($guardUserInput -and -not (Test-SSELastInputUnchanged $InputBaseline))
+  $windowChanged = [bool]($interactionAfter.fingerprint -ne $interactionBefore.fingerprint)
+  $interference = [bool]($inputChanged -or $windowChanged -or -not $popupClosed -or
+    (-not $stateAfter.ok -and $stateAfter.interference))
+  $newCheckerMessages = $(if ($stateAfter.ok) {
+    @(Compare-SSEPageCheckerMessages $CheckerMessagesBefore $stateAfter.checkerMessages)
+  } else { @() })
+  $visualOk = [bool]($stateAfter.ok -and [string]::Equals($afterValue, $Wanted, [StringComparison]::Ordinal))
+  $semanticOk = [bool]($physicalListItemCommit -or ($internalSelected -and -not $selectionError))
+  $checkerOk = [bool]($Rollback -or -not $newCheckerMessages.Count)
+  if (-not $interference -and $semanticOk -and $visualOk -and $checkerOk) {
+    return [pscustomobject]@{
+      ok=$true; interference=$false; mutationStarted=$mutationStarted
+      before=$ExpectedCurrent; requested=$Wanted; after=$afterValue
+      method="$openMethod+$selectionCommitMethod"; internalSelected=$internalSelected
+      popupBinding=$popup.binding; options=$popup.options
+      popupClosed=$popupClosed
+      openEvidence=[pscustomobject]$openEvidence; inputBaselineAfter=$InputBaseline
+      checkerMessagesAfter=$stateAfter.checkerMessages; newCheckerMessages=$newCheckerMessages
+    }
+  }
+  if ($interference) {
+    return [pscustomobject]@{
+      ok=$false; interference=$true; mutationStarted=$mutationStarted
+      error='Fenster-, Seiten-, Zell- oder Benutzereingabe-Interferenz waehrend der typisierten Auswahl.'
+      before=$ExpectedCurrent; requested=$Wanted; after=$afterValue
+      internalSelected=$internalSelected; popupBinding=$popup.binding; popupClosed=$popupClosed
+      method=$openMethod; openEvidence=[pscustomobject]$openEvidence; inputBaselineAfter=$InputBaseline
+      rollback=[pscustomobject]@{ versucht=$false; grund='Kein blinder Rollback nach Interferenz.' }
+    }
+  }
+  if (-not [string]::Equals($afterValue, $ExpectedCurrent, [StringComparison]::Ordinal) -and
+      -not [string]::Equals($afterValue, $Wanted, [StringComparison]::Ordinal)) {
+    return [pscustomobject]@{
+      ok=$false; interference=$true; mutationStarted=$mutationStarted
+      error="Unerwarteter dritter ComboBox-Wert '$afterValue'; kein blinder Rollback."
+      before=$ExpectedCurrent; requested=$Wanted; after=$afterValue
+      internalSelected=$internalSelected; popupBinding=$popup.binding
+      method=$openMethod; openEvidence=[pscustomobject]$openEvidence; inputBaselineAfter=$InputBaseline
+      rollback=[pscustomobject]@{ versucht=$false; grund='Fremder oder transformierter Wert.' }
+    }
+  }
+
+  $rollbackAttempted = $false; $rollbackOk = $false; $rollbackValue = $afterValue; $rollbackError = $null
+  $rollbackMethod = $null; $rollbackOpenEvidence = $null
+  if ([string]::Equals($afterValue, $ExpectedCurrent, [StringComparison]::Ordinal)) {
+    $rollbackOk = $true
+  } elseif ([string]::Equals($afterValue, $Wanted, [StringComparison]::Ordinal)) {
+    if ($Rollback) {
+      $rollbackError = 'Rollback-Auswahl verletzte ihre eigene Nachbedingung; kein rekursiver Blind-Rollback.'
+    } else {
+      $rollbackAttempted = $true
+      $rollbackResult = Invoke-SSETableComboSelection `
+        -Hwnd $Hwnd -ProcessId $ProcessId -ExpectedPage $ExpectedPage `
+        -SumLabel $SumLabel -SumOccurrence $SumOccurrence -RowY $RowY -ColumnIndex $ColumnIndex `
+        -TableProfile $TableProfile -ColumnProfile $ColumnProfile `
+        -ExpectedCurrent $Wanted -Wanted $ExpectedCurrent -CheckerMessagesBefore $CheckerMessagesBefore `
+        -InputBaseline $InputBaseline -GuardUserInput:$guardUserInput -Rollback
+      if ($guardUserInput -and $null -ne $rollbackResult.inputBaselineAfter) {
+        $InputBaseline = $rollbackResult.inputBaselineAfter
+      }
+      $rollbackOk = [bool]$rollbackResult.ok
+      $rollbackValue = [string]$rollbackResult.after
+      $rollbackMethod = [string]$rollbackResult.method
+      $rollbackOpenEvidence = $rollbackResult.openEvidence
+      if (-not $rollbackOk) { $rollbackError = [string]$rollbackResult.error }
+    }
+  } else {
+    $rollbackError = "Unerwarteter dritter Wert '$afterValue'; nicht blind ueberschrieben."
+  }
+  [pscustomobject]@{
+    ok=$false; interference=$false; mutationStarted=$mutationStarted
+    error=$(if ($selectionError) { $selectionError } elseif (-not $semanticOk) { 'SelectionItem.IsSelected bestaetigte die interne Auswahl nicht.' } elseif (-not $visualOk) { "Visueller Readback ist '$afterValue' statt '$Wanted'." } else { "Neue Pruefermeldung: $($newCheckerMessages -join ' | ')" })
+    before=$ExpectedCurrent; requested=$Wanted; after=$afterValue
+    internalSelected=$internalSelected; popupBinding=$popup.binding
+    method=$openMethod; openEvidence=[pscustomobject]$openEvidence; inputBaselineAfter=$InputBaseline
+    checkerMessagesAfter=$(if ($stateAfter.ok) { $stateAfter.checkerMessages } else { @() })
+    newCheckerMessages=$newCheckerMessages
+    rollback=[pscustomobject]@{
+      versucht=$rollbackAttempted; erfolgreich=$rollbackOk; ist=$rollbackValue; erwartet=$ExpectedCurrent
+      grund=$rollbackError; methode=$rollbackMethod; openEvidence=$rollbackOpenEvidence
+    }
+  }
+}
+
+function Get-SSEPageCheckerMessages($Tree, [IntPtr]$Hwnd) {
+  $bounds = Get-ContentBounds $Tree $Hwnd
+  @($Tree.nodes | Where-Object {
+    $_.type -eq 'TreeItem' -and $_.name -and $_.x -gt $bounds.maxX -and $_.name.Length -lt 180
+  } | ForEach-Object { [string]$_.name } | Where-Object {
+    $_ -notin @('Eingabehilfe','Steuertipps','Prüfer','Mehr Details','Zurzeit keine Hinweise zu diesem Dialog.')
+  } | Select-Object -Unique)
+}
+
+function Compare-SSEPageCheckerMessages([object[]]$Before, [object[]]$After) {
+  @($After | Where-Object { [string]$_ -notin @($Before | ForEach-Object { [string]$_ }) })
+}
+
 function Resolve-TrackedFieldNode($Tree, $CallArgs, [IntPtr]$Hwnd) {
   $direct = Resolve-Node $Tree $CallArgs
   if ($direct -and $direct.type -in @('Edit','DataItem')) { return $direct }
@@ -2938,8 +3840,33 @@ function Commit-TrackedValue([IntPtr]$Hwnd, $Node, [string]$Value, [string]$Expe
   } catch { Hide-SSETopmost $Hwnd; return New-SSECommitResult 'failed' }
 }
 
+function Get-SSETrackedDateParts([string]$Value) {
+  $trimmed = ([string]$Value).Trim()
+  if ($trimmed -notmatch '^(\d{1,2})\.(\d{1,2})(?:\.(\d{2}|\d{4}))?\.?$') { return $null }
+  $day = [int]$Matches[1]; $month = [int]$Matches[2]
+  if ($day -lt 1 -or $day -gt 31 -or $month -lt 1 -or $month -gt 12) { return $null }
+  $year = $null
+  if ($Matches[3]) {
+    $year = [int]$Matches[3]
+    if ([string]$Matches[3] -match '^\d{2}$') { $year += 2000 }
+  }
+  [pscustomobject]@{ day=$day; month=$month; year=$year }
+}
+
+function Test-SSETrackedValueEquivalent($Actual, $Expected, [string]$ValueKind = '') {
+  if (Test-SSEScalarEqual $Actual $Expected) { return $true }
+  if ($ValueKind -ne 'date') { return $false }
+  $actualDate = Get-SSETrackedDateParts ([string]$Actual)
+  $expectedDate = Get-SSETrackedDateParts ([string]$Expected)
+  if (-not $actualDate -or -not $expectedDate) { return $false }
+  if ($actualDate.day -ne $expectedDate.day -or $actualDate.month -ne $expectedDate.month) { return $false }
+  # SSE blendet auf einigen Seiten das im Fallkontext eindeutige Jahr aus
+  # ('15.07' statt '15.07.2026'). Sind beide Jahre sichtbar, muessen sie
+  # trotzdem exakt uebereinstimmen.
+  [bool]($null -eq $actualDate.year -or $null -eq $expectedDate.year -or $actualDate.year -eq $expectedDate.year)
+}
+
 # ================================================================== Operationen
-$a = Read-Args
 
 switch ($Op) {
 
@@ -2992,6 +3919,9 @@ switch ($Op) {
       profileStatus=[string]$script:SSE_PROFILE.status
       product=[string]$script:SSE_PROFILE.product
       taxYear=$script:SSE_TAX_YEAR
+      supportedCaseYears=[pscustomobject]@{
+        einurvor=@(Get-SSEAllowedCaseYearsForMode 'einurvor')
+      }
       engineFileMajor=$script:SSE_ENGINE_MAJOR
       defaultExecutable=$defaultIdentity
       catalogCompatibility=[pscustomobject]@{
@@ -3023,7 +3953,7 @@ switch ($Op) {
                  else { "$($script:SSE_PROFILE.product) laeuft nicht." })
       })
     }
-    $wins = Get-Windows 'SSE'
+    $wins = @(Get-Windows 'SSE')
     $canary = $null
     if ($wins.Count) { $canary = Test-Canary ([IntPtr][int64]$wins[0].hwnd) }
     $dialogInventory = @(Get-DialogInventory | Where-Object { $_.kind -in @('native-dialog','qt-dialog') })
@@ -3048,7 +3978,8 @@ switch ($Op) {
   }
 
   'windows' {
-    Emit ([pscustomobject]@{ ok = $true; windows = Get-Windows ($(if ($a.process) { $a.process } else { 'SSE' })) })
+    $listedWindows = @(Get-Windows ($(if ($a.process) { $a.process } else { 'SSE' })))
+    Emit ([pscustomobject]@{ ok = $true; windows = @($listedWindows) })
   }
 
   'center_cases' {
@@ -3225,44 +4156,160 @@ switch ($Op) {
     })
   }
 
-  'window_close' {
-    # Nur ein nicht-modales Nebenfenster schliessen. Hauptfenster und modale
-    # Dialoge haben absichtlich eigene, strengere Werkzeuge.
+  'window_restore' {
+    # Nur ein exakt zuvor gelesenes, verifiziertes SSE-Hauptfenster aus seinem
+    # minimierten Zustand holen. Keine Tastatur, keine Maus, keine Koordinaten
+    # und keine Steuerdatenoperation sind Teil dieses engen Win32-Vertrags.
+    $pidRaw = Arg $a 'pid'
     $hwndRaw = Arg $a 'hwnd'
+    $titleFingerprint = ([string](Arg $a 'titleFingerprint')).ToUpperInvariant()
+    if ($null -eq $pidRaw -or $null -eq $hwndRaw -or $titleFingerprint -notmatch '^[A-F0-9]{64}$') {
+      Fail 'pid, hwnd und der 64-stellige titleFingerprint aus sse_windows sind Pflicht.' 'bad-args'
+    }
+    $targetPid = [int](Get-SSEBoundedIntegerArg $a 'pid' 0 1 2147483647)
+    $targetHwnd = [int64](Get-SSEBoundedIntegerArg $a 'hwnd' 0 1 9007199254740991)
+    $beforeWindows = @(Get-Windows 'SSE' | Where-Object { [int]$_.pid -eq $targetPid })
+    $beforeTarget = @($beforeWindows | Where-Object { [int64]$_.hwnd -eq $targetHwnd })
+    if ($beforeTarget.Count -ne 1) {
+      Fail 'Das exakt an PID und HWND gebundene SSE-Fenster existiert nicht mehr.' 'stale-window'
+    }
+    $mainCandidates = @((Get-SSEMainWindowCandidates $beforeWindows) | Where-Object {
+      [int]$_.pid -eq $targetPid -and [int64]$_.hwnd -eq $targetHwnd
+    })
+    if ($mainCandidates.Count -ne 1) {
+      Fail 'Das exakt adressierte Fenster ist kein bestaetigtes SSE-Hauptfenster.' 'blocked'
+    }
+    $targetBefore = $beforeTarget[0]
+    $actualTitleFingerprint = ([string]$targetBefore.titleFingerprint).ToUpperInvariant()
+    if ($actualTitleFingerprint -ne $titleFingerprint) {
+      Fail "Fenstertitel-Fingerprint hat sich geaendert: '$actualTitleFingerprint' statt '$titleFingerprint'." 'precondition-failed'
+    }
+    $peerSetBefore = Get-SSEPeerWindowSet $beforeWindows $targetPid ([IntPtr]$targetHwnd)
+
+    if (-not $targetBefore.minimiert) {
+      Emit ([pscustomobject]@{
+        ok=$true; pid=$targetPid; hwnd=$targetHwnd; titleFingerprint=$actualTitleFingerprint
+        restored=$false; alreadyRestored=$true; minimizedBefore=$false; minimizedAfter=$false
+        method='none-already-restored'; peerWindowsUnchanged=$true
+        peerWindowCount=$peerSetBefore.windows.Count
+        peerFingerprintBefore=$peerSetBefore.fingerprint; peerFingerprintAfter=$peerSetBefore.fingerprint
+        verified=$true
+      })
+    }
+
+    [SW]::ShowWindow([IntPtr]$targetHwnd, 9) | Out-Null # SW_RESTORE
+    Start-Sleep -Milliseconds ([Math]::Min(10000, [Math]::Max(300, [int](Arg $a 'waitMs' 800))))
+
+    $afterWindows = @(Get-Windows 'SSE' | Where-Object { [int]$_.pid -eq $targetPid })
+    $afterTargetMatches = @($afterWindows | Where-Object { [int64]$_.hwnd -eq $targetHwnd })
+    $afterTarget = $(if ($afterTargetMatches.Count -eq 1) { $afterTargetMatches[0] } else { $null })
+    $afterMainCandidates = @((Get-SSEMainWindowCandidates $afterWindows) | Where-Object {
+      [int]$_.pid -eq $targetPid -and [int64]$_.hwnd -eq $targetHwnd
+    })
+    $peerSetAfter = Get-SSEPeerWindowSet $afterWindows $targetPid ([IntPtr]$targetHwnd)
+    $peerWindowsUnchanged = [bool](
+      $peerSetAfter.windows.Count -eq $peerSetBefore.windows.Count -and
+      $peerSetAfter.fingerprint -eq $peerSetBefore.fingerprint
+    )
+    $targetUnchanged = [bool](
+      $afterTarget -and $afterTargetMatches.Count -eq 1 -and $afterMainCandidates.Count -eq 1 -and
+      [int]$afterTarget.pid -eq $targetPid -and [int64]$afterTarget.hwnd -eq $targetHwnd -and
+      ([string]$afterTarget.cls -ceq [string]$targetBefore.cls) -and
+      ([string]$afterTarget.titleFingerprint).ToUpperInvariant() -eq $actualTitleFingerprint
+    )
+    $restored = [bool]($targetUnchanged -and -not [bool]$afterTarget.minimiert)
+    if (-not $restored -or -not $peerWindowsUnchanged) {
+      Emit ([pscustomobject]@{
+        ok=$false; kind='postcondition-failed'; error='Hauptfenster-Restore oder unveraenderter Peer-Fenstersatz ist nicht vollstaendig bewiesen; keine Wiederholung.'
+        pid=$targetPid; hwnd=$targetHwnd; titleFingerprint=$actualTitleFingerprint
+        restored=$restored; minimizedBefore=$true
+        minimizedAfter=$(if ($afterTarget) { [bool]$afterTarget.minimiert } else { $null })
+        targetUnchanged=$targetUnchanged; peerWindowsUnchanged=$peerWindowsUnchanged
+        peerWindowCountBefore=$peerSetBefore.windows.Count; peerWindowCountAfter=$peerSetAfter.windows.Count
+        peerFingerprintBefore=$peerSetBefore.fingerprint; peerFingerprintAfter=$peerSetAfter.fingerprint
+      })
+    }
+    Emit ([pscustomobject]@{
+      ok=$true; pid=$targetPid; hwnd=$targetHwnd; titleFingerprint=$actualTitleFingerprint
+      restored=$true; alreadyRestored=$false; minimizedBefore=$true; minimizedAfter=$false
+      method='ShowWindow(SW_RESTORE)'; targetUnchanged=$true; peerWindowsUnchanged=$true
+      peerWindowCount=$peerSetAfter.windows.Count
+      peerFingerprintBefore=$peerSetBefore.fingerprint; peerFingerprintAfter=$peerSetAfter.fingerprint
+      verified=$true
+    })
+  }
+
+  'window_close' {
+    # Nur ein im aktiven Page-Object-Katalog explizit freigegebenes,
+    # nicht-modales Nebenfenster schliessen. Hauptfenster, modale Dialoge und
+    # unbekannte Fenster haben absichtlich eigene, strengere Werkzeuge.
+    $hwndRaw = Arg $a 'hwnd'
+    $pidRaw = Arg $a 'pid'
     $expectedTitle = [string](Arg $a 'expectedTitle')
     $titleFingerprint = ([string](Arg $a 'titleFingerprint')).ToUpperInvariant()
-    if (-not $hwndRaw -or ([bool]$expectedTitle -eq [bool]$titleFingerprint)) {
-      Fail 'hwnd und genau eines von titleFingerprint oder expectedTitle sind Pflicht.' 'bad-args'
+    if (-not $hwndRaw -or $null -eq $pidRaw -or ([bool]$expectedTitle -eq [bool]$titleFingerprint)) {
+      Fail 'pid, hwnd und genau eines von titleFingerprint oder expectedTitle sind Pflicht.' 'bad-args'
     }
-    $desc = @(Get-DialogInventory | Where-Object { [int64]$_.hwnd -eq [int64]$hwndRaw })
+    $targetPid = [int](Get-SSEBoundedIntegerArg $a 'pid' 0 1 2147483647)
+    $beforeWindows = @(Get-Windows 'SSE' | Where-Object { [int]$_.pid -eq $targetPid })
+    $beforeHwnds = @($beforeWindows | ForEach-Object { [int64]$_.hwnd })
+    $descInventory = @(Get-DialogInventory $targetPid)
+    $desc = @($descInventory | Where-Object {
+      [int]$_.pid -eq $targetPid -and [int64]$_.hwnd -eq [int64]$hwndRaw
+    })
     if ($desc.Count -ne 1) { Fail 'Das exakt adressierte Fenster existiert nicht mehr.' 'stale' }
     $win = $desc[0]
     $actualTitleFingerprint = ([string]$win.titleFingerprint).ToUpperInvariant()
     if ($titleFingerprint -and $actualTitleFingerprint -ne $titleFingerprint) {
       Fail "Fenstertitel-Fingerprint hat sich geaendert: '$actualTitleFingerprint' statt '$titleFingerprint'." 'precondition-failed'
     }
-    if ($expectedTitle -and $win.title -ne $expectedTitle) {
+    if ($expectedTitle -and $win.title -cne $expectedTitle) {
       Fail "Fenstertitel hat sich geaendert: '$($win.title)' statt '$expectedTitle'." 'precondition-failed'
     }
-    if ($win.kind -ne 'other') {
-      Fail "Fensterart '$($win.kind)' ist gesperrt. Hauptfenster mit sse_close, Dialoge mit sse_dialog_answer behandeln." 'blocked'
+    $windowPolicy = Resolve-SSEClosableNonmodalWindowPolicy $win
+    $blockingBefore = @($descInventory | Where-Object { $_.kind -in @('native-dialog','qt-dialog') })
+    if (-not $windowPolicy -or $win.kind -notin @('tips','known-nonmodal') -or $win.cls -notmatch '^Qt' -or
+        -not (Test-SSESafeAuxiliaryDescriptor $win) -or $blockingBefore.Count -or
+        (Test-Versand ([string]$win.title))) {
+      Fail "Fensterart '$($win.kind)' ist nicht als bekanntes, dialogfreies Page-Object-Nebenfenster freigegeben. Hauptfenster mit sse_close, Dialoge mit sse_dialog_answer behandeln." 'blocked'
     }
+    $beforePeers = @($beforeWindows | Where-Object { [int64]$_.hwnd -ne [int64]$hwndRaw } | ForEach-Object {
+      [pscustomobject]@{
+        hwnd=[int64]$_.hwnd; pid=[int]$_.pid; cls=[string]$_.cls
+        titleFingerprint=([string]$_.titleFingerprint).ToUpperInvariant()
+      }
+    })
     $res = [IntPtr]::Zero
     $sent = [SW]::SendMessageTimeout([IntPtr][int64]$hwndRaw, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero, 0x0002, 5000, [ref]$res)
     if (-not $sent) { Fail 'WM_CLOSE konnte nicht sicher zugestellt werden.' 'timeout' }
     Start-Sleep -Milliseconds ([Math]::Min(10000, [Math]::Max(300, [int](Arg $a 'waitMs' 800))))
     $closed = -not [SW]::IsWindow([IntPtr][int64]$hwndRaw)
-    $newDialogs = @(Get-DialogInventory | Where-Object { $_.kind -in @('native-dialog','qt-dialog') })
-    if (-not $closed -or $newDialogs.Count) {
+    $afterWindows = @(Get-Windows 'SSE' | Where-Object { [int]$_.pid -eq $targetPid })
+    $newWindows = @($afterWindows | Where-Object { [int64]$_.hwnd -notin $beforeHwnds } | ForEach-Object {
+      [pscustomobject]@{ hwnd=[int64]$_.hwnd; titleFingerprint=([string]$_.titleFingerprint).ToUpperInvariant() }
+    })
+    $missingOrChangedPeers = @($beforePeers | Where-Object {
+      $beforePeer = $_
+      $same = @($afterWindows | Where-Object { [int64]$_.hwnd -eq [int64]$beforePeer.hwnd })
+      $same.Count -ne 1 -or [int]$same[0].pid -ne [int]$beforePeer.pid -or
+        [string]$same[0].cls -cne [string]$beforePeer.cls -or
+        ([string]$same[0].titleFingerprint).ToUpperInvariant() -ne [string]$beforePeer.titleFingerprint
+    })
+    $newDialogs = @(Get-DialogInventory $targetPid | Where-Object { $_.kind -in @('native-dialog','qt-dialog') })
+    $onlyTargetRemoved = [bool]($closed -and $afterWindows.Count -eq ($beforeWindows.Count - 1) -and
+      -not $newWindows.Count -and -not $missingOrChangedPeers.Count -and -not $newDialogs.Count)
+    if (-not $onlyTargetRemoved) {
       Emit ([pscustomobject]@{
         ok = $false; kind = 'postcondition-failed'; hwnd = [int64]$hwndRaw
-        titleFingerprint = $actualTitleFingerprint; closed = $closed; newDialogs = $newDialogs
-        error = 'Nebenfenster wurde nicht dialogfrei geschlossen; keine Wiederholung.'
+        pid=$targetPid; titleFingerprint = $actualTitleFingerprint; closed = $closed
+        newWindows=$newWindows; missingOrChangedPeers=@($missingOrChangedPeers | ForEach-Object { $_.hwnd }); newDialogs = $newDialogs
+        error = 'Nebenfenster wurde nicht als einzige Fensteraenderung dialogfrei geschlossen; keine Wiederholung.'
       })
     }
     Emit ([pscustomobject]@{
-      ok = $true; hwnd = [int64]$hwndRaw; titleFingerprint = $actualTitleFingerprint
-      closed = $true; verified = $true
+      ok = $true; pid=$targetPid; hwnd = [int64]$hwndRaw; titleFingerprint = $actualTitleFingerprint
+      windowId=[string]$windowPolicy.id; windowRole=[string]$windowPolicy.role
+      closed = $true; onlyTargetRemoved=$true; verified = $true
     })
   }
 
@@ -3365,7 +4412,7 @@ switch ($Op) {
     $inventory = @(Get-DialogInventory $requestedPid | ForEach-Object {
       [pscustomobject]@{
         hwnd = $_.hwnd; pid = $_.pid; cls = $_.cls; title = $_.title; kind = $_.kind
-        x = $_.x; y = $_.y; w = $_.w; h = $_.h
+        x = $_.x; y = $_.y; w = $_.w; h = $_.h; minimiert = $_.minimiert
         buttons = $_.buttons; texts = $_.texts; fingerprint = $_.fingerprint
         uiaReadOk = $_.uiaReadOk; uiaError = $_.uiaError; msaaReadOk = $_.msaaReadOk; msaaError = $_.msaaError
       }
@@ -3625,10 +4672,11 @@ switch ($Op) {
   }
 
   'snapshot' {
+    $maxNodes = Get-SSEBoundedIntegerArg $a 'maxNodes' 4000 1 5000
     $hwnd = Resolve-Window $a
     $can = Test-Canary $hwnd
     if (-not $can.ok) { Fail "Kanarienvogel traege ($($can.ms) ms) - Programm ueberlastet, Ergebnisse waeren unzuverlaessig. Neu starten." 'degraded' }
-    $t = Walk-Tree $hwnd ([int](Arg $a 'maxNodes' 4000)) -WithValues
+    $t = Walk-Tree $hwnd $maxNodes -WithValues
     $nodes = $t.nodes
     if ($a.minX -ne $null) { $nodes = @($nodes | Where-Object { $_.x -ge [int]$a.minX }) }
     if ($a.maxX -ne $null) { $nodes = @($nodes | Where-Object { $_.x -le [int]$a.maxX }) }
@@ -3696,13 +4744,18 @@ switch ($Op) {
   }
 
   'read_page' {
+    $requestedMinX = $(if ($null -ne (Arg $a 'minX')) { Get-SSEBoundedIntegerArg $a 'minX' 0 -1000000 1000000 } else { $null })
+    $requestedMaxX = $(if ($null -ne (Arg $a 'maxX')) { Get-SSEBoundedIntegerArg $a 'maxX' 0 -1000000 1000000 } else { $null })
+    if ($null -ne $requestedMinX -and $null -ne $requestedMaxX -and $requestedMinX -gt $requestedMaxX) {
+      Fail 'maxX muss groesser oder gleich minX sein.' 'bad-args'
+    }
     $hwnd = Resolve-Window $a
     $can = Test-Canary $hwnd
     if (-not $can.ok) { Fail "Kanarienvogel traege ($($can.ms) ms) - neu starten." 'degraded' }
     $t = Walk-Tree $hwnd -WithValues
     $b = Get-ContentBounds $t $hwnd
-    $minX = $(if ($a.minX -ne $null) { [int]$a.minX } else { $b.minX })
-    $maxX = $(if ($a.maxX -ne $null) { [int]$a.maxX } else { $b.maxX })
+    $minX = $(if ($null -ne $requestedMinX) { $requestedMinX } else { $b.minX })
+    $maxX = $(if ($null -ne $requestedMaxX) { $requestedMaxX } else { $b.maxX })
     $keep = @('Text','DataItem','Edit','CheckBox','Header','RadioButton','Button','Hyperlink','ComboBox')
     # Ein Knoten zaehlt, wenn er eine Beschriftung ODER einen Feldwert hat.
     $rows = @($t.nodes | Where-Object {
@@ -3815,11 +4868,12 @@ switch ($Op) {
     $sub   = [bool](Arg $a 'contains' $false)
     $wantT = [string](Arg $a 'type')
     $wantA = [string](Arg $a 'aid')
+    if (-not $q -and -not $wantA -and -not $wantT) { Fail 'sse_find braucht name, aid oder type.' 'bad-args' }
+    if ($sub -and -not $q) { Fail 'sse_find contains=true ist nur zusammen mit name erlaubt.' 'bad-args' }
     $hits = @($t.nodes | Where-Object {
-      $nameHit = if ($wantA) { $_.aid -eq $wantA -or $_.aid -like "*$wantA" }
-                 elseif ($sub) { $_.name -like "*$q*" }
-                 else { $_.name -eq $q }
-      $nameHit -and ($_.name -or $wantA) -and (-not $wantT -or $_.type -eq $wantT)
+      $nameHit = -not $q -or $(if ($sub) { $_.name -like "*$q*" } else { $_.name -eq $q })
+      $aidHit = -not $wantA -or $_.aid -eq $wantA -or $_.aid -like "*$wantA"
+      $nameHit -and $aidHit -and (-not $wantT -or $_.type -eq $wantT)
     })
     # Baumstatistik mitliefern. Ein abgeschnittener Baum liefert sonst
     # 'count: 0' - das sieht aus wie "gibt es nicht", ist aber "nicht gesucht".
@@ -3839,10 +4893,11 @@ switch ($Op) {
     if ($pattern -eq 'toggle') {
       Fail 'Direktes TogglePattern ist gesperrt. Checkboxen ausschliesslich mit sse_toggle und Seiten-/Vor-/Nachzustandsvertrag setzen.' 'blocked'
     }
+    $waitMs = Get-SSEBoundedIntegerArg $a 'waitMs' 1200 100 10000
     # Sperre greift auf dem Namen UND der AutomationId - sonst waere sie
     # ueber die aid-Adressierung trivial zu umgehen.
     foreach ($probe in @($name, $aid)) {
-      if ($probe -and (Test-Versand $probe) -and -not ((Arg $a 'allowSend') -eq $true -and (Arg $a 'confirmSend') -eq $true)) {
+      if ($probe -and (Test-Versand $probe)) {
         Fail "GESPERRT: '$probe' koennte Daten ans Finanzamt uebermitteln. Dieser Server loest das nicht aus." 'blocked'
       }
     }
@@ -3930,7 +4985,7 @@ switch ($Op) {
     foreach ($node in $cands) {
       # Auch der getroffene Knoten wird geprueft (Adressierung per rid/aid).
       foreach ($probe in @($node.name, $node.aid)) {
-        if (($probe -and (Test-Versand $probe)) -and -not ((Arg $a 'allowSend') -eq $true -and (Arg $a 'confirmSend') -eq $true)) {
+        if ($probe -and (Test-Versand $probe)) {
           Fail "GESPERRT: Das getroffene Element ('$probe') koennte uebermitteln." 'blocked'
         }
       }
@@ -3940,7 +4995,6 @@ switch ($Op) {
       try {
         switch ($pattern) {
           'invoke'   { $el.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() }
-          'toggle'   { $el.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle() }
           'select'   {
             # Qt kann SelectionItemPattern.Select sichtbar bestaetigen, ohne
             # die fachliche Aenderungslogik des Formulars auszufuehren. Ein
@@ -3978,7 +5032,7 @@ switch ($Op) {
     if (-not $erfolg) {
       Fail "Pattern '$pattern' bei '$name' fehlgeschlagen ($($cands.Count) Kandidaten geprueft): $letzterFehler" 'pattern-failed'
     }
-    Start-Sleep -Milliseconds ([int](Arg $a 'waitMs' 1200))
+    Start-Sleep -Milliseconds $waitMs
 
     # Manche Qt-Schaltflaechen melden ein erfolgreiches InvokePattern, fuehren
     # ihre Navigation aber nur bei einem echten Mausklick aus. Nur wenn der
@@ -4012,7 +5066,7 @@ switch ($Op) {
           }
           $null = Click-VerifiedPoint $hwnd $freshCandidates[0]
           $activationMethod = 'uia-invoke+verified-point-fallback'
-          Start-Sleep -Milliseconds ([int](Arg $a 'waitMs' 1200))
+          Start-Sleep -Milliseconds $waitMs
         }
       }
     }
@@ -4147,7 +5201,8 @@ switch ($Op) {
   }
 
   'toggle' {
-    $hwnd = [IntPtr][int64](Resolve-SSEMainWindowDescriptor $a -RestoreMinimized).hwnd
+    $boundWrite = Resolve-BoundWriteWindow $a
+    $hwnd = [IntPtr][int64]$boundWrite.window.hwnd
     $expectedPage = [string](Arg $a 'expectedPage')
     if (-not $expectedPage) { Fail 'expectedPage ist Pflicht.' 'bad-args' }
     foreach ($required in @('expectedBefore','value','expectedAfter')) {
@@ -4451,6 +5506,10 @@ switch ($Op) {
       }
     }
     $name = $(if ($known) { [string]$known.field.label } else { [string](Arg $a 'name') })
+    $valueKind = $(if ($known) { [string]$known.field.valueKind } else { [string](Arg $a 'valueKind') })
+    if ($valueKind -and $valueKind -notin @('text','currency','date')) {
+      Fail "valueKind '$valueKind' ist fuer tracked_set_value nicht unterstuetzt." 'bad-args'
+    }
     if (-not $name -and -not (Arg $a 'aid') -and -not (Arg $a 'rid')) {
       Fail 'Eines von name, aid oder rid wird gebraucht.' 'bad-args'
     }
@@ -4501,9 +5560,15 @@ switch ($Op) {
       Fail 'Zielfeld bietet kein ValuePattern.' 'no-value-pattern'
     }
     if ($vp.Current.IsReadOnly) { Fail 'Zielfeld ist schreibgeschuetzt.' 'readonly' }
-    $before = $vp.Current.Value
-    if ($null -eq $before -or $before -eq '') { $before = $node.name }
-    if (-not (Test-SSEScalarEqual $before $expectedBefore)) {
+    $beforeRaw = [string]$vp.Current.Value
+    $beforeDisplay = $beforeRaw
+    if (-not $beforeDisplay) { $beforeDisplay = [string]$node.name }
+    $before = $beforeDisplay
+    $beforeMatches = [bool](
+      (Test-SSETrackedValueEquivalent $beforeRaw $expectedBefore $valueKind) -or
+      (Test-SSETrackedValueEquivalent $beforeDisplay $expectedBefore $valueKind)
+    )
+    if (-not $beforeMatches) {
       Fail "Vorwert ist '$before', erwartet '$expectedBefore'. NICHT geaendert." 'precondition-failed'
     }
 
@@ -4563,7 +5628,7 @@ switch ($Op) {
       Fail 'Zielfeld ist unmittelbar vor dem Schreiben nicht mehr beschreibbar.' 'stale'
     }
     $interactionWindowsBefore = Get-SSEInteractionWindowSet ([int]$boundWrite.window.pid) $hwnd
-    $commitResult = Commit-TrackedValue $hwnd $liveNode $requested ([string]$before)
+    $commitResult = Commit-TrackedValue $hwnd $liveNode $requested $beforeRaw
     $commitMethod = [string]$commitResult.method
     $interactionWindowsAfter = Get-SSEInteractionWindowSet ([int]$boundWrite.window.pid) $hwnd
     $windowSetChanged = [bool]($interactionWindowsBefore.fingerprint -ne $interactionWindowsAfter.fingerprint)
@@ -4587,14 +5652,14 @@ switch ($Op) {
       } catch { }
       $mutationState = $(
         if ($null -eq $observedAfterInterference) { 'unknown' }
-        elseif (Test-SSEScalarEqual $observedAfterInterference $before) { 'unchanged' }
-        elseif (Test-SSEScalarEqual $observedAfterInterference $expectedAfter) { 'requested-value-visible' }
+        elseif (Test-SSETrackedValueEquivalent $observedAfterInterference $before $valueKind) { 'unchanged' }
+        elseif (Test-SSETrackedValueEquivalent $observedAfterInterference $expectedAfter $valueKind) { 'requested-value-visible' }
         else { 'different-value-visible' }
       )
       Emit ([pscustomobject]@{
         ok=$false; kind='interference'
         error='Interaktions-Guard hat fremde Eingabe, ein verschobenes/ausgetauschtes Element oder eine blockierende Fensterlage erkannt. Zustand wurde nur gelesen; kein automatischer Rollback und kein Speichern. Mit sse_ui_state neu synchronisieren.'
-        seite=$heading; pageId=$pageId; fieldId=$fieldId
+        seite=$heading; pageId=$pageId; fieldId=$fieldId; valueKind=$valueKind
         pid=[int]$boundWrite.window.pid; bindung=$boundWrite.bindingMode
         feld=[pscustomobject]@{
           vorher=$before; angefordert=$requested; erwartet=$expectedAfter
@@ -4618,14 +5683,15 @@ switch ($Op) {
     $afterTree = $(if ($fastKnown) { $null } else { Walk-Tree $hwnd 5000 60 20 -WithValues })
     $afterNode = $(if ($fastKnown) { Resolve-KnownFieldNode $hwnd $known } else { Resolve-TrackedFieldNode $afterTree $selectorArgs $hwnd })
     $knownStateAfter = $(if ($known) { Get-KnownPageState $hwnd $known } else { $null })
-    $after = $null
+    $after = $null; $afterRaw = $null; $afterDisplay = $null
     if ($afterNode) {
       $afterElement = Get-LiveElement $hwnd $afterNode.rid $afterNode.aid
       $afterVp = $null
       if ($afterElement -and $afterElement.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$afterVp)) {
-        $after = $afterVp.Current.Value
+        $afterRaw = [string]$afterVp.Current.Value
       }
-      if ($null -eq $after -or $after -eq '') { $after = $afterNode.name }
+      $afterDisplay = [string]$afterNode.name
+      $after = $(if ($afterRaw) { $afterRaw } elseif ($afterDisplay) { $afterDisplay } else { '' })
     }
     $sumAfter = New-Object System.Collections.ArrayList
     $sumOk = $true
@@ -4650,48 +5716,122 @@ switch ($Op) {
       }
     }
 
-    $fieldOk = Test-SSEScalarEqual $after $expectedAfter
+    $fieldOk = [bool](
+      (Test-SSETrackedValueEquivalent $afterRaw $expectedAfter $valueKind) -or
+      (Test-SSETrackedValueEquivalent $afterDisplay $expectedAfter $valueKind)
+    )
     $commitOk = ($commitMethod -eq 'verified-keyboard-replace')
     $allOk = [bool]($fieldOk -and $sumOk -and $resultOk -and $commitOk)
     if (-not $allOk) {
       $rollbackMethod = 'not-attempted'
-      $restoredValue = $null
-      if (Test-SSEScalarEqual $after $before) {
+      $rollbackAttempted = $false
+      $rollbackReason = $null
+      $restoredRaw = $afterRaw
+      $restoredDisplay = $afterDisplay
+      $rollbackOk = [bool](
+        (Test-SSEScalarEqual $afterRaw $beforeRaw) -and
+        (Test-SSETrackedValueEquivalent $afterDisplay $beforeDisplay $valueKind)
+      )
+      if ($rollbackOk) {
         # Fokus-/Epochabbruch geschah vor der Wertmutation. Ein erneutes
         # Schreiben waere kein Rollback, sondern ein unnoetiges neues Risiko.
         $rollbackMethod = 'not-needed-value-unchanged'
-        $restoredValue = $after
+        $rollbackReason = 'Roher Wert und Anzeige blieben im Ausgangszustand.'
       } else {
+        $rollbackTree = $(if ($fastKnown) { $null } else { Walk-Tree $hwnd 5000 60 20 -WithValues })
+        $rollbackNode = $(if ($fastKnown) { Resolve-KnownFieldNode $hwnd $known } else { Resolve-TrackedFieldNode $rollbackTree $selectorArgs $hwnd })
+        $rollbackElement = $(if ($rollbackNode) { Get-LiveElement $hwnd $rollbackNode.rid $rollbackNode.aid } else { $null })
+        $rollbackVp = $null
+        $rollbackCurrentRaw = $null; $rollbackCurrentDisplay = $null
+        if ($rollbackElement -and
+            $rollbackElement.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$rollbackVp) -and
+            -not $rollbackVp.Current.IsReadOnly) {
+          $rollbackCurrentRaw = [string]$rollbackVp.Current.Value
+          $rollbackCurrentDisplay = [string]$rollbackNode.name
+        }
+        $rollbackWindowsBefore = Get-SSEInteractionWindowSet ([int]$boundWrite.window.pid) $hwnd
+        $rollbackInputBefore = Get-SSELastInputTick
+        $rollbackHeading = $(if ($known) { (Get-KnownPageState $hwnd $known).heading } else { Get-CurrentHeading $hwnd $rollbackTree })
+        $rollbackOwnValue = [bool](
+          (Test-SSETrackedValueEquivalent $rollbackCurrentRaw $requested $valueKind) -or
+          (Test-SSETrackedValueEquivalent $rollbackCurrentRaw $expectedAfter $valueKind) -or
+          (Test-SSETrackedValueEquivalent $rollbackCurrentDisplay $requested $valueKind) -or
+          (Test-SSETrackedValueEquivalent $rollbackCurrentDisplay $expectedAfter $valueKind)
+        )
+        $rollbackPreflightOk = [bool](
+          $rollbackNode -and $rollbackVp -and $rollbackOwnValue -and
+          (Test-KnownPageHeading $rollbackHeading $(if ($known) { $known.page } else { [pscustomobject]@{ heading=$expectedPage } })) -and
+          $rollbackWindowsBefore.fingerprint -eq $interactionWindowsAfter.fingerprint -and
+          ($null -eq $commitResult.inputAfter -or
+            ($null -ne $rollbackInputBefore -and [uint64]$rollbackInputBefore -eq [uint64]$commitResult.inputAfter))
+        )
+        if (-not $rollbackPreflightOk) {
+          $resultWindowClosed = $false
+          Emit ([pscustomobject]@{
+            ok=$false; kind='interference'
+            error='Zielfeld, Seite, Fensterlage, Eingabe-Epoche oder eigener formatierter Wert ist vor dem Rollback nicht mehr eindeutig gebunden. Kein automatischer Rollback.'
+            seite=$heading; pageId=$pageId; fieldId=$fieldId; valueKind=$valueKind
+            feld=[pscustomobject]@{
+              vorher=$before; vorherRaw=$beforeRaw; angefordert=$requested; erwartet=$expectedAfter
+              nachher=$after; nachherRaw=$afterRaw; aktuelleAnzeige=$rollbackCurrentDisplay
+              aktuellerRawwert=$rollbackCurrentRaw; ok=[bool]$fieldOk
+            }
+            commit=$commitMethod; commitDetails=$commitResult.details
+            rollback=[pscustomobject]@{
+              versucht=$false; methode='not-attempted-after-interference'; ok=$null
+              grund='Kein blinder Rollback nach Eingabe-, Fenster-, Seiten-, Binding- oder Fremdwertinterferenz.'
+            }
+            ergebnisFensterGeschlossen=$resultWindowClosed
+          })
+        }
+        $rollbackAttempted = $true
         try {
-          $rollbackTree = $(if ($fastKnown) { $null } else { Walk-Tree $hwnd 5000 60 20 -WithValues })
-          $rollbackNode = $(if ($fastKnown) { Resolve-KnownFieldNode $hwnd $known } else { Resolve-TrackedFieldNode $rollbackTree $selectorArgs $hwnd })
-          $rollbackElement = Get-LiveElement $hwnd $rollbackNode.rid $rollbackNode.aid
-          $rollbackVp = $null
-          if ($rollbackElement -and $rollbackElement.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$rollbackVp) -and -not $rollbackVp.Current.IsReadOnly) {
-            $rollbackExpected = $(if ($null -ne $after -and "$after") { [string]$after } else { [string]$requested })
-            $rollbackResult = Commit-TrackedValue $hwnd $rollbackNode ([string]$before) $rollbackExpected
-            $rollbackMethod = [string]$rollbackResult.method
-          }
-          $verifyTree = $(if ($fastKnown) { $null } else { Walk-Tree $hwnd 5000 60 20 -WithValues })
-          $verifyNode = $(if ($fastKnown) { Resolve-KnownFieldNode $hwnd $known } else { Resolve-TrackedFieldNode $verifyTree $selectorArgs $hwnd })
-          $verifyElement = Get-LiveElement $hwnd $verifyNode.rid $verifyNode.aid
-          $verifyVp = $null
-          if ($verifyElement -and $verifyElement.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$verifyVp)) {
-            $restoredValue = $verifyVp.Current.Value
-          }
-          if ($null -eq $restoredValue -or $restoredValue -eq '') { $restoredValue = $verifyNode.name }
-        } catch { }
+          # Fuer die Epochbindung den frisch gelesenen ROHEN aktuellen Wert
+          # verwenden. Die Anzeige kann bei Datum bewusst '15.07' sein,
+          # waehrend ValuePattern einen anderen kanonischen Wert exponiert.
+          $rollbackResult = Commit-TrackedValue $hwnd $rollbackNode $beforeRaw $rollbackCurrentRaw
+          $rollbackMethod = [string]$rollbackResult.method
+          $rollbackReason = $(if ($rollbackMethod -eq 'verified-keyboard-replace') { $null } else { "Rollback-Commit meldete '$rollbackMethod'." })
+        } catch {
+          $rollbackMethod = 'failed'
+          $rollbackReason = $_.Exception.Message
+        }
+
+        $verifyTree = $(if ($fastKnown) { $null } else { Walk-Tree $hwnd 5000 60 20 -WithValues })
+        $verifyNode = $(if ($fastKnown) { Resolve-KnownFieldNode $hwnd $known } else { Resolve-TrackedFieldNode $verifyTree $selectorArgs $hwnd })
+        $verifyElement = $(if ($verifyNode) { Get-LiveElement $hwnd $verifyNode.rid $verifyNode.aid } else { $null })
+        $verifyVp = $null
+        if ($verifyElement -and $verifyElement.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$verifyVp)) {
+          $restoredRaw = [string]$verifyVp.Current.Value
+          $restoredDisplay = [string]$verifyNode.name
+        }
+        $rollbackOk = [bool](
+          $rollbackMethod -eq 'verified-keyboard-replace' -and
+          (Test-SSEScalarEqual $restoredRaw $beforeRaw) -and
+          (Test-SSETrackedValueEquivalent $restoredDisplay $beforeDisplay $valueKind)
+        )
+        if (-not $rollbackOk -and -not $rollbackReason) {
+          $rollbackReason = 'Roher Ausgangswert und Anzeige wurden nach dem Rollback nicht exakt bestaetigt.'
+        }
       }
-      $rollbackOk = Test-SSEScalarEqual $restoredValue $before
       $resultWindowClosed = Close-TrackedResultWindow $tracking
       Emit ([pscustomobject]@{
         ok=$false; kind='postcondition-failed'
-        error='Nachbedingung verletzt; alter Feldwert wurde wiederhergestellt.'
-        seite=$heading; pageId=$pageId; fieldId=$fieldId
+        error=$(if ($rollbackOk) {
+          'Nachbedingung verletzt; roher alter Feldwert und Anzeige wurden wiederhergestellt.'
+        } else {
+          'Nachbedingung verletzt; Rollback zum rohen Ausgangswert ist NICHT bewiesen. Zustand neu lesen und nicht speichern.'
+        })
+        seite=$heading; pageId=$pageId; fieldId=$fieldId; valueKind=$valueKind
         pid=[int]$boundWrite.window.pid; bindung=$boundWrite.bindingMode
         epochVorher=$(if ($knownStateBefore) { $knownStateBefore.epoch } else { $null })
         epochNachher=$(if ($knownStateAfter) { $knownStateAfter.epoch } else { $null })
-        feld=[pscustomobject]@{ vorher=$before; angefordert=$requested; erwartet=$expectedAfter; nachher=$after; ok=[bool]$fieldOk }
+        feld=[pscustomobject]@{
+          vorher=$before; vorherRaw=$beforeRaw; vorherAnzeige=$beforeDisplay
+          angefordert=$requested; erwartet=$expectedAfter
+          nachher=$after; nachherRaw=$afterRaw; nachherAnzeige=$afterDisplay
+          ok=[bool]$fieldOk; formatAware=[bool]($valueKind -eq 'date')
+        }
         summen=@($sumAfter)
         ergebnisDiff=@($resultDiff); ergebnisVollstaendig=[bool]$resultOk
         commit=$commitMethod
@@ -4704,18 +5844,27 @@ switch ($Op) {
           vorher=$interactionWindowsBefore.fingerprint; nachher=$interactionWindowsAfter.fingerprint
           geaendert=$windowSetChanged
         }
-        rollback=[pscustomobject]@{ versucht=$true; methode=$rollbackMethod; wert=$restoredValue; ok=[bool]$rollbackOk }
+        rollback=[pscustomobject]@{
+          versucht=$rollbackAttempted; methode=$rollbackMethod
+          wert=$restoredDisplay; rawWert=$restoredRaw
+          erwartet=$beforeDisplay; erwartetRaw=$beforeRaw
+          ok=[bool]$rollbackOk; grund=$rollbackReason
+        }
         ergebnisFensterGeschlossen=[bool]$resultWindowClosed
       })
     }
 
     $resultWindowClosed = Close-TrackedResultWindow $tracking
     Emit ([pscustomobject]@{
-      ok=$true; verified=$true; seite=$heading; pageId=$pageId; fieldId=$fieldId
+      ok=$true; verified=$true; seite=$heading; pageId=$pageId; fieldId=$fieldId; valueKind=$valueKind
       pid=[int]$boundWrite.window.pid; bindung=$boundWrite.bindingMode
       epochVorher=$(if ($knownStateBefore) { $knownStateBefore.epoch } else { $null })
       epochNachher=$(if ($knownStateAfter) { $knownStateAfter.epoch } else { $null })
-      feld=[pscustomobject]@{ vorher=$before; angefordert=$requested; nachher=$after; erwartet=$expectedAfter; ok=$true }
+      feld=[pscustomobject]@{
+        vorher=$before; vorherRaw=$beforeRaw; vorherAnzeige=$beforeDisplay
+        angefordert=$requested; nachher=$after; nachherRaw=$afterRaw; nachherAnzeige=$afterDisplay
+        erwartet=$expectedAfter; ok=$true; formatAware=[bool]($valueKind -eq 'date')
+      }
       summen=@($sumAfter)
       ergebnisDiff=@($resultDiff)
       ergebnisVerfolgt=[bool]$trackResults
@@ -4790,7 +5939,8 @@ switch ($Op) {
   }
 
   'combo_select' {
-    $hwnd = [IntPtr][int64](Resolve-SSEMainWindowDescriptor $a -RestoreMinimized).hwnd
+    $boundWrite = Resolve-BoundWriteWindow $a
+    $hwnd = [IntPtr][int64]$boundWrite.window.hwnd
     $expectedPage = [string](Arg $a 'expectedPage')
     $wanted = [string](Arg $a 'value')
     $expectedCurrent = [string](Arg $a 'expectedCurrent')
@@ -5296,11 +6446,11 @@ switch ($Op) {
             'Ohne ihn wuerde ein beliebiges unbeschriftetes Element angeklickt.') 'bad-args'
     }
     foreach ($probe in @($nm, $aid)) {
-      if ($probe -and (Test-Versand $probe) -and -not $checkerReadOnly -and
-          -not ((Arg $a 'allowSend') -eq $true -and (Arg $a 'confirmSend') -eq $true)) {
+      if ($probe -and (Test-Versand $probe) -and -not $checkerReadOnly) {
         Fail "GESPERRT: '$probe' koennte Daten ans Finanzamt uebermitteln." 'blocked'
       }
     }
+    $waitMs = Get-SSEBoundedIntegerArg $a 'waitMs' 1400 100 10000
     Assert-SSEDestructiveAcknowledgement $a @($nm, $aid)
     $hwnd = [IntPtr][int64](Resolve-SSEMainWindowDescriptor $a -RestoreMinimized).hwnd
     $can = Test-Canary $hwnd
@@ -5335,8 +6485,7 @@ switch ($Op) {
       Fail 'checkerReadOnly ist nur fuer eine exakte globale Pruefer-TreeItem-Meldung zulaessig.' 'blocked'
     }
     foreach ($probe in @($node.name, $node.aid)) {
-      if ($probe -and (Test-Versand $probe) -and -not $verifiedCheckerRead -and
-          -not ((Arg $a 'allowSend') -eq $true -and (Arg $a 'confirmSend') -eq $true)) {
+      if ($probe -and (Test-Versand $probe) -and -not $verifiedCheckerRead) {
         Fail "GESPERRT: Das getroffene Element ('$probe') koennte uebermitteln." 'blocked'
       }
     }
@@ -5392,7 +6541,7 @@ switch ($Op) {
         Start-Sleep -Milliseconds 40
         [SW]::PostMessage($hwnd, $WM_LBUTTONUP, [IntPtr]::Zero, $lp) | Out-Null
       }
-      Start-Sleep -Milliseconds ([int](Arg $a 'waitMs' 1400))
+      Start-Sleep -Milliseconds $waitMs
       Emit ([pscustomobject]@{
         ok = $true; clicked = $node.name; at = "$px,$py"; clientAt = "$($pt.X),$($pt.Y)"
         double = ((Arg $a 'double') -eq $true); method = 'PostMessage'
@@ -5435,7 +6584,7 @@ switch ($Op) {
       [SW]::mouse_event(0x0002, 0, 0, 0, [IntPtr]::Zero)
       [SW]::mouse_event(0x0004, 0, 0, 0, [IntPtr]::Zero)
     }
-    Start-Sleep -Milliseconds ([int](Arg $a 'waitMs' 1400))
+    Start-Sleep -Milliseconds $waitMs
     [SW]::SetCursorPos($alt.X, $alt.Y) | Out-Null        # Zeiger zurueck
     $windowClosed = -not [SW]::IsWindow($hwnd)
     if (-not $windowClosed) { [SW]::SetWindowPos($hwnd, $HWND_NOTOPMOST, 0, 0, 0, 0, $SWP) | Out-Null }
@@ -5533,7 +6682,7 @@ switch ($Op) {
       Fail "Erwartete Falldatei fehlt: $expectedPath" 'not-found'
     }
     $hwnd = [IntPtr][int64](Resolve-SSEMainWindowDescriptor $a -RestoreMinimized).hwnd
-    $wins = Get-Windows 'SSE'
+    $wins = @(Get-Windows 'SSE')
     $main = @($wins | Where-Object { [int64]$_.hwnd -eq [int64]$hwnd })[0]
     $binding = Test-CaseBinding $main $expectedPath
     if (-not $binding.ok) {
@@ -5822,7 +6971,6 @@ switch ($Op) {
     $sourcePathRaw = [string](Arg $a 'expectedSourcePath')
     $sourceHash = ([string](Arg $a 'expectedSourceHash')).ToUpperInvariant()
     $targetPathRaw = [string](Arg $a 'targetPath')
-    $allowOverwrite = ((Arg $a 'allowOverwrite') -eq $true)
     if (-not $sourcePathRaw -or -not $sourceHash -or -not $targetPathRaw) {
       Fail 'expectedSourcePath, expectedSourceHash und targetPath sind Pflicht.' 'bad-args'
     }
@@ -5830,13 +6978,7 @@ switch ($Op) {
     $targetPath = [IO.Path]::GetFullPath($targetPathRaw)
     if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) { Fail "Quelldatei fehlt: $sourcePath" 'not-found' }
     if ((Get-Sha256 $sourcePath) -ne $sourceHash) { Fail 'Quell-Hash stimmt nicht. NICHT gespeichert.' 'precondition-failed' }
-    if (Test-Path -LiteralPath $targetPath) {
-      if (-not $allowOverwrite) { Fail "Zieldatei existiert bereits: $targetPath" 'exists' }
-      $targetExpectedHash = ([string](Arg $a 'expectedTargetHash')).ToUpperInvariant()
-      if (-not $targetExpectedHash -or (Get-Sha256 $targetPath) -ne $targetExpectedHash) {
-        Fail 'Ueberschreiben verlangt expectedTargetHash und einen exakten Treffer.' 'precondition-failed'
-      }
-    }
+    if (Test-Path -LiteralPath $targetPath) { Fail "Zieldatei existiert bereits: $targetPath" 'exists' }
     $targetDir = Split-Path -Parent $targetPath
     if (-not (Test-Path -LiteralPath $targetDir -PathType Container)) { Fail "Zielordner fehlt: $targetDir" 'not-found' }
 
@@ -5899,8 +7041,8 @@ switch ($Op) {
     $null = Click-VerifiedPoint $dialogHwnd $saveButtons[0]
     Start-Sleep -Milliseconds ([int](Arg $a 'waitMs' 2500))
 
-    # Ein Ueberschreibdialog wird niemals blind bestaetigt. Trotz erlaubtem
-    # Overwrite muss er ueber den separaten, textgebundenen Dialogpfad gehen.
+    # Ein unerwarteter Dialog (einschliesslich eines durch ein Rennen neu
+    # entstandenen Ueberschreibdialogs) wird niemals automatisch bestaetigt.
     $remaining = @(Get-Windows 'SSE' | Where-Object {
       [int64]$_.hwnd -ne [int64]$hwnd -and $_.title -ne 'Steuer-Spar-Tipps'
     })
@@ -6175,16 +7317,27 @@ switch ($Op) {
     if (-not (Test-Path -LiteralPath $targetDir -PathType Container)) { Fail "Zielordner fehlt: $targetDir" 'not-found' }
     $sourceBefore = Get-Sha256 $source
     if ($sourceBefore -ne $expectedHash) { Fail 'Quell-Hash stimmt nicht; NICHT kopiert.' 'precondition-failed' }
-    Copy-Item -LiteralPath $source -Destination $target -ErrorAction Stop
+    Copy-SSEFileNew $source $target
+    # Nur fuer den Dateisystem-Regressionslauf: simuliert einen fremden
+    # Austausch zwischen Kopie und Readback. Das darf keinen blinden Delete
+    # des nun unbekannten Ziels ausloesen.
+    if ($env:SSE_MCP_TEST_FAULT -eq 'working-copy-after-copy') {
+      [IO.File]::WriteAllText($target, 'simulierte fremde Datei', (New-Object Text.UTF8Encoding($false)))
+    }
     $sourceAfter = Get-Sha256 $source
     $targetHash = Get-Sha256 $target
     $verified = ($sourceAfter -eq $sourceBefore -and $targetHash -eq $sourceBefore)
     if (-not $verified) {
-      if (Test-Path -LiteralPath $target -PathType Leaf) { Remove-Item -LiteralPath $target -Force }
+      $targetStillOwned = [bool]($targetHash -and $targetHash -eq $sourceBefore)
+      if ($targetStillOwned -and (Test-Path -LiteralPath $target -PathType Leaf)) {
+        Remove-Item -LiteralPath $target -Force
+      }
+      $rolledBack = -not (Test-Path -LiteralPath $target)
       Emit ([pscustomobject]@{
-        ok = $false; kind = 'postcondition-failed'; error = 'Arbeitskopie wich von der Quelle ab; erzeugtes Ziel wurde entfernt.'
+        ok = $false; kind = 'postcondition-failed'
+        error = $(if ($rolledBack) { 'Arbeitskopie wich von der Quelle ab; eigenes Ziel wurde entfernt.' } else { 'Arbeitskopie wurde nach dem Erstellen veraendert; unbekanntes Ziel blieb zur manuellen Klaerung erhalten.' })
         source = $source; target = $target; sourceBefore = $sourceBefore; sourceAfter = $sourceAfter; targetHash = $targetHash
-        rolledBack = (-not (Test-Path -LiteralPath $target))
+        targetStillOwned = $targetStillOwned; rolledBack = $rolledBack
       })
     }
     $summary = Get-CaseSummary $target
@@ -6267,8 +7420,12 @@ switch ($Op) {
 
     $created = $false
     $moved = New-Object System.Collections.ArrayList
+    $manifestPath = Join-Path $dest 'pruefsummen.csv'
     try {
-      [IO.Directory]::CreateDirectory($dest) | Out-Null
+      # New-Item meldet ein zwischen Preflight und Erstellung auftauchendes
+      # Ziel als Fehler; CreateDirectory wuerde ein fremdes Verzeichnis
+      # dagegen still als Erfolg behandeln.
+      New-Item -ItemType Directory -Path ([WildcardPattern]::Escape($dest)) -ErrorAction Stop | Out-Null
       $created = $true
       foreach ($entry in $archiveEntries) {
         $source = $actualMap[[string]$entry.name].FullName
@@ -6298,7 +7455,7 @@ switch ($Op) {
         throw 'Restbestand stimmt nach der Archivierung nicht mit expectedRemaining ueberein.'
       }
       @($moved | ForEach-Object { [pscustomobject]@{ file=$_.name; sha256=$_.sha256 } }) |
-        Export-Csv -LiteralPath (Join-Path $dest 'pruefsummen.csv') -NoTypeInformation -Encoding UTF8
+        Export-Csv -LiteralPath $manifestPath -NoTypeInformation -Encoding UTF8
     } catch {
       $problem = $_.Exception.Message
       $rollbackEntries = @($moved)
@@ -6321,9 +7478,13 @@ switch ($Op) {
       }
       $allRestored = [bool]($rollbackFiles.Count -eq $moved.Count -and -not @($rollbackFiles | Where-Object { -not $_.restored }).Count)
       if ($allRestored -and $created -and (Test-Path -LiteralPath $dest -PathType Container)) {
-        $caseResidue = @(Get-ChildItem -LiteralPath $dest -File | Where-Object { Test-SSEProfileCaseFileName $_.Name $true })
-        if (-not $caseResidue.Count) {
-          Remove-Item -LiteralPath $dest -Recurse -Force -ErrorAction SilentlyContinue
+        if (Test-Path -LiteralPath $manifestPath -PathType Leaf) {
+          Remove-Item -LiteralPath $manifestPath -Force -ErrorAction SilentlyContinue
+        }
+        # Niemals rekursiv loeschen: taucht im neuen Archivordner ein fremdes
+        # Objekt auf, bleibt der Ordner als sichtbarer Konflikt erhalten.
+        if (-not @(Get-ChildItem -LiteralPath $dest -Force).Count) {
+          Remove-Item -LiteralPath $dest -Force -ErrorAction SilentlyContinue
         }
       }
       Emit ([pscustomobject]@{
@@ -6360,21 +7521,41 @@ switch ($Op) {
     })
     if (-not $files.Count) { Fail "Keine Falldateien in $dir gefunden." 'not-found' }
     $created = $false
+    $copied = New-Object System.Collections.ArrayList
+    $manifestPath = Join-Path $dest 'pruefsummen.csv'
     try {
-      New-Item -ItemType Directory -Path $dest -ErrorAction Stop | Out-Null
+      New-Item -ItemType Directory -Path ([WildcardPattern]::Escape($dest)) -ErrorAction Stop | Out-Null
       $created = $true
       foreach ($file in $files) {
-        Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $dest $file.Name) -ErrorAction Stop
+        $target = Join-Path $dest $file.Name
+        $sourceHashBefore = Get-Sha256 $file.FullName
+        Copy-SSEFileNew $file.FullName $target
+        $sourceHashAfter = Get-Sha256 $file.FullName
+        $targetHash = Get-Sha256 $target
+        if (-not $sourceHashBefore -or $sourceHashAfter -ne $sourceHashBefore -or $targetHash -ne $sourceHashBefore) {
+          throw "Sicherungskopie fuer '$($file.Name)' ist nicht bytegleich."
+        }
+        $null = $copied.Add([pscustomobject]@{ path=$target; sha256=$targetHash })
       }
-      $hashes = @($files | ForEach-Object {
-        [pscustomobject]@{ file = $_.Name; sha256 = Get-Sha256 $_.FullName }
+      $hashes = @($copied | ForEach-Object {
+        [pscustomobject]@{ file = [IO.Path]::GetFileName($_.path); sha256 = $_.sha256 }
       })
-      $hashes | Export-Csv -LiteralPath (Join-Path $dest 'pruefsummen.csv') -NoTypeInformation -Encoding UTF8
+      $hashes | Export-Csv -LiteralPath $manifestPath -NoTypeInformation -Encoding UTF8
     } catch {
-      if ($created -and (Test-Path -LiteralPath $dest -PathType Container)) {
-        Remove-Item -LiteralPath $dest -Recurse -Force
+      $problem = $_
+      foreach ($entry in @($copied)) {
+        if ((Get-Sha256 $entry.path) -eq $entry.sha256) {
+          Remove-Item -LiteralPath $entry.path -Force -ErrorAction SilentlyContinue
+        }
       }
-      throw
+      if ($created -and (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+        Remove-Item -LiteralPath $manifestPath -Force -ErrorAction SilentlyContinue
+      }
+      if ($created -and (Test-Path -LiteralPath $dest -PathType Container) -and
+          -not @(Get-ChildItem -LiteralPath $dest -Force).Count) {
+        Remove-Item -LiteralPath $dest -Force -ErrorAction SilentlyContinue
+      }
+      throw $problem
     }
     Emit ([pscustomobject]@{ ok = $true; dest = $dest; files = $hashes.Count; hashes = $hashes })
   }
@@ -7514,7 +8695,12 @@ switch ($Op) {
     }
 
     # --- Sperrzustand ------------------------------------------------------
-    $wins = Get-Windows 'SSE'
+    $wins = @(Get-Windows 'SSE')
+    $targetPid = 0
+    [SW]::GetWindowThreadProcessId($hwnd, [ref]$targetPid) | Out-Null
+    $dialoge = @(Get-DialogInventory | Where-Object {
+      [int]$_.pid -eq $targetPid -and $_.kind -in @('native-dialog','qt-dialog')
+    })
     $pruefer = @($t.nodes | Where-Object {
       $_.type -eq 'TreeItem' -and $_.name -and $_.x -gt $b.maxX -and $_.name.Length -lt 90
     } | ForEach-Object { $_.name } | Where-Object { $_ -notin @('Eingabehilfe','Steuertipps','Prüfer','Mehr Details','Zurzeit keine Hinweise zu diesem Dialog.') } | Select-Object -Unique)
@@ -7532,9 +8718,15 @@ switch ($Op) {
         hinweis = 'Nur die SICHTBAREN Zeilen. Bei mehr Zeilen sse_table_read benutzen.'
       } } else { $null })
       aktionen = @($aktionen)
-      blockiert = [bool]($pruefer.Count -or ($wins.Count -gt 2))
+      blockiert = [bool]($pruefer.Count -or $dialoge.Count -or ($wins.Count -gt 2))
       prueferMeldungen = $pruefer
       leerePflichtfelder = @($pflichtLeer | ForEach-Object { $_.label })
+      dialoge = @($dialoge | ForEach-Object {
+        [pscustomobject]@{
+          hwnd=$_.hwnd; title=$_.title; fingerprint=$_.fingerprint
+          buttons=$_.buttons; unsupportedButtons=$_.unsupportedButtons
+        }
+      })
       offeneFenster = $wins.Count
       stats = $t.stats
     })
@@ -7628,32 +8820,27 @@ switch ($Op) {
     # JSON. Grosse Monolithlaeufe ueberlasten Qt/SSE kumulativ; der Aufrufer
     # setzt daher mit einem neuen, hashgebundenen Segment fort.
     # Grundlage jeder Verifikation - ohne das gibt es nichts zu vergleichen.
-    $hwnd = [IntPtr][int64](Resolve-SSEMainWindowDescriptor $a -RestoreMinimized).hwnd
     $max = [int](Arg $a 'maxPages' 3)
     if ($max -lt 1 -or $max -gt 5) {
       Fail 'sse_collect maxPages muss zwischen 1 und 5 liegen. Fuer den Live-Dialog direkte Page-Object-/Tree-Spruenge verwenden.' 'bad-args'
     }
     $ziel = [string](Arg $a 'path')
     $zielParent = $null
+    if ($a.PSObject.Properties['expectedOutputHashBefore']) {
+      Fail 'expectedOutputHashBefore ist gesperrt; fuer jedes Diagnose-Segment eine neue resultRef verwenden.' 'blocked'
+    }
     if ($ziel) {
       try { $ziel = [IO.Path]::GetFullPath($ziel) }
       catch { Fail "Ungueltiger Ausgabepfad: $($_.Exception.Message)" 'bad-args' }
       if ([IO.Path]::GetExtension($ziel) -ine '.json') { Fail 'sse_collect path muss auf .json enden.' 'bad-args' }
       $zielParent = Split-Path $ziel -Parent
       if (-not (Test-Path -LiteralPath $zielParent -PathType Container)) { Fail "Zielordner existiert nicht: $zielParent" 'not-found' }
-      $expectedOutputHash = [string](Arg $a 'expectedOutputHashBefore')
-      if (Test-Path -LiteralPath $ziel -PathType Leaf) {
-        if (-not $expectedOutputHash) {
-          Fail 'Zieldatei existiert bereits; expectedOutputHashBefore ist zum sicheren Ersetzen Pflicht.' 'precondition-failed'
-        }
-        $actualOutputHash = Get-Sha256 $ziel
-        if ($actualOutputHash -ine $expectedOutputHash) {
-          Fail "Zieldatei hat SHA256 $actualOutputHash statt $expectedOutputHash; nicht ueberschrieben." 'precondition-failed'
-        }
-      } elseif ($expectedOutputHash) {
-        Fail 'expectedOutputHashBefore wurde angegeben, aber die Zieldatei existiert nicht.' 'precondition-failed'
+      if (Test-Path -LiteralPath $ziel) {
+        Fail 'Zieldatei existiert bereits; fuer jedes Diagnose-Segment eine neue resultRef verwenden.' 'exists'
       }
     }
+    # Datei-Preconditions muessen vor jeder potentiellen UI-Aktion scheitern.
+    $hwnd = [IntPtr][int64](Resolve-SSEMainWindowDescriptor $a -RestoreMinimized).hwnd
     $seiten = New-Object System.Collections.ArrayList
     # Dieselbe Ueberschrift kommt in SSE absichtlich mehrfach vor, etwa die
     # §-13b-Unterseite hinter Material, Fremdleistungen und weiteren
@@ -7666,6 +8853,11 @@ switch ($Op) {
     $vollstaendig = $false
     $stopKind = 'limit-reached'
     $stopReason = "Seitenlimit $max erreicht; der Batch ist nicht als vollstaendig bewiesen."
+    # Explizit festhalten, wo SSE NACH dem letzten erfassten Snapshot steht.
+    # Das alte fortsetzenAb bezeichnet weiterhin die zuletzt geschriebene
+    # Seite und ist deshalb allein kein sicherer Wiederaufnahmepunkt.
+    $currentHeadingAfter = $null
+    $advancedAfterLastCaptured = $false
     $stopDialoge = @()
     $guardUserInput = [bool](-not $script:DESKTOP_NAME)
     $inputBaseline = $(if ($guardUserInput) { Get-SSELastInputTick } else { $null })
@@ -7730,6 +8922,8 @@ switch ($Op) {
                                          $_.y -ge ($r0.T + 190) -and $_.y -le ($r0.T + 290) } |
                Sort-Object y | Select-Object -First 1).name
       if (-not $head) { $head = "(ohne Ueberschrift $i)" }
+      $currentHeadingAfter = $head
+      $advancedAfterLastCaptured = $false
       $seitenWeg = "$eingetretenVon`u{001F}$head"
       if ($gesehenWege.ContainsKey($seitenWeg)) {
         $stopKind = 'cycle'
@@ -7805,6 +8999,11 @@ switch ($Op) {
         $stopReason = "Weiter auf '$head' konnte nicht per InvokePattern ausgeloest werden: $($_.Exception.Message.Split("`n")[0])"
         break
       }
+      # Ab dem erfolgreichen Invoke ist die aktuelle Seite bis zum Heading-
+      # Readback unbekannt. Bei Prozess-/Dialog-/Canary-Stopp darf deshalb
+      # nicht faelschlich die alte Seite als aktuelle Lage ausgegeben werden.
+      $currentHeadingAfter = $null
+      $advancedAfterLastCaptured = $false
       Start-Sleep -Milliseconds 950
       try {
         $collectProcess = Get-Process -Id $targetPid -ErrorAction Stop
@@ -7844,11 +9043,19 @@ switch ($Op) {
         break
       }
       $afterHeading = Get-CurrentHeading $hwnd
-      if (-not $afterHeading -or $afterHeading -eq $head) {
+      if (-not $afterHeading) {
         $stopKind = 'no-progress'
         $stopReason = "Weiter auf '$head' ergab keinen bestaetigten Seitenwechsel. Keine automatische Wiederholung."
         break
       }
+      if ($afterHeading -eq $head) {
+        $currentHeadingAfter = $head
+        $stopKind = 'no-progress'
+        $stopReason = "Weiter auf '$head' ergab keinen bestaetigten Seitenwechsel. Keine automatische Wiederholung."
+        break
+      }
+      $currentHeadingAfter = $afterHeading
+      $advancedAfterLastCaptured = $true
       $naechsterWeg = "$head`u{001F}$afterHeading"
       if ($gesehenWege.ContainsKey($naechsterWeg)) {
         $stopKind = 'cycle'
@@ -7862,15 +9069,32 @@ switch ($Op) {
     $document = [pscustomobject]@{
       erstellt=(Get-Date).ToString('s'); vollstaendig=$vollstaendig
       stopKind=$stopKind; stopReason=$stopReason
+      currentHeadingAfter=$currentHeadingAfter
+      advancedAfterLastCaptured=$advancedAfterLastCaptured
       anzahl=$seiten.Count; seiten=@($seiten)
     }
     if ($ziel) {
       $tmpOutput = Join-Path $zielParent ("." + [IO.Path]::GetFileName($ziel) + "." + [Guid]::NewGuid().ToString('N') + '.tmp')
       try {
         $json = $document | ConvertTo-Json -Depth 12
-        [IO.File]::WriteAllText($tmpOutput, $json, (New-Object Text.UTF8Encoding($false)))
-        Move-SSEFileReplace $tmpOutput $ziel
+        $bytes = (New-Object Text.UTF8Encoding($false)).GetBytes($json)
+        $outputStream = $null
+        try {
+          $outputStream = [IO.File]::Open($tmpOutput, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+          $outputStream.Write($bytes, 0, $bytes.Length)
+          $outputStream.Flush($true)
+        } finally {
+          if ($outputStream) { $outputStream.Dispose() }
+        }
+        # File.Move besitzt hier absichtlich keinen Overwrite-Pfad. Erscheint
+        # das Ziel waehrend des UI-Laufs, bleibt die fremde Datei erhalten.
+        [IO.File]::Move($tmpOutput, $ziel)
         $dateiHash = Get-Sha256 $ziel
+      } catch {
+        if (Test-Path -LiteralPath $ziel) {
+          Fail 'Zieldatei erschien waehrend der Erfassung und wurde nicht ueberschrieben.' 'exists'
+        }
+        Fail "Diagnoseartefakt konnte nicht sicher geschrieben werden: $($_.Exception.Message)" 'write-failed'
       } finally {
         if (Test-Path -LiteralPath $tmpOutput) { Remove-Item -LiteralPath $tmpOutput -Force -ErrorAction SilentlyContinue }
       }
@@ -7884,6 +9108,8 @@ switch ($Op) {
       ueberschriften=@($seiten | ForEach-Object { $_.ueberschrift })
       seiten=$(if ($ziel) { $null } else { @($seiten) })
       fortsetzenAb=$(if ($seiten.Count) { $seiten[-1].ueberschrift } else { $null })
+      currentHeadingAfter=$currentHeadingAfter
+      advancedAfterLastCaptured=$advancedAfterLastCaptured
       dialoge=@($stopDialoge | ForEach-Object {
         [pscustomobject]@{ hwnd=$_.hwnd; title=$_.title; fingerprint=$_.fingerprint; buttons=$_.buttons }
       })
@@ -7928,10 +9154,8 @@ switch ($Op) {
     if ($sourceHashBefore -ine $expectedSourceHash) {
       Fail "Quellstand hat SHA256 $sourceHashBefore statt $expectedSourceHash; nicht geprueft." 'precondition-failed'
     }
-    try {
-      $sourceText = [IO.File]::ReadAllText($quelle, [Text.Encoding]::UTF8)
-      $sourceDocument = $sourceText | ConvertFrom-Json
-    } catch {
+    try { $sourceDocument = Read-SSEJsonFileStrict $quelle 16MB }
+    catch {
       Fail "Collect-JSON ist nicht lesbar: $($_.Exception.Message)" 'invalid-source'
     }
     $sourceHashAfter = Get-Sha256 $quelle
@@ -7960,19 +9184,10 @@ switch ($Op) {
     $zahl = {
       param($s)
       if ($null -eq $s) { return $null }
-      $x = ("$s" -replace '[^\d,.\-]', '')
-      if (-not $x -or $x -eq '-') { return $null }
-      if ($x.Contains(',')) {
-        $x = $x.Replace('.', '').Replace(',', '.')
-      } elseif ($x.Contains('.')) {
-        # Ein einzelner Punkt mit 1-2 Nachkommastellen ist ein moeglicher
-        # Invariant-Dezimalpunkt; Punkte in Dreiergruppen sind Tausendertrenner.
-        if ($x -notmatch '^-?\d+\.\d{1,2}$') { $x = $x.Replace('.', '') }
-      }
-      $d = [decimal]0
-      if ([decimal]::TryParse($x, [Globalization.NumberStyles]::Number,
-                              [Globalization.CultureInfo]::InvariantCulture, [ref]$d)) { return $d }
-      $null
+      $x = "$s".Trim()
+      $x = $x -replace '^(?:€|EUR)\s*', ''
+      $x = $x -replace '\s*(?:€|EUR|%)$', ''
+      ConvertTo-SSETableNumber $x
     }
 
     function Resolve-VerificationMatch($Items, [string]$Property, [string]$Needle, $Occurrence) {
@@ -8045,7 +9260,7 @@ switch ($Op) {
       }
       $feld = $fieldMatch.item
       $a1 = & $zahl $feld.wert; $a2 = & $zahl $soll
-      $gleich = $(if ($null -ne $a1 -and $null -ne $a2) { [Math]::Abs($a1 - $a2) -lt 0.005 } else { "$($feld.wert)".Trim() -eq $soll.Trim() })
+      $gleich = $(if ($null -ne $a1 -and $null -ne $a2) { $a1 -eq $a2 } else { "$($feld.wert)".Trim() -eq $soll.Trim() })
       $null = $ergebnis.Add([pscustomobject]@{
         seite = $seite.ueberschrift; label = $feld.label; soll = $soll; ist = $feld.wert
         differenz = $(if ($null -ne $a1 -and $null -ne $a2) { [Math]::Round($a1 - $a2, 2) } else { $null })
@@ -8306,7 +9521,7 @@ switch ($Op) {
       }
       if ($jetzt -eq $vorher) {
         # Seite wechselt nicht -> gesperrt oder Sackgasse
-        $wins = Get-Windows 'SSE'
+        $wins = @(Get-Windows 'SSE')
         $null = $weg.Add("Seite wechselt nicht (offene Fenster: $($wins.Count))")
         break
       }
@@ -8946,6 +10161,7 @@ switch ($Op) {
     # fuer diesen Baum kein ScrollPattern; deshalb wird ein Mausradereignis
     # exakt ueber einem aktuell sichtbaren TreeItem gesendet. Es wird nichts
     # aktiviert und keine Steuerangabe geaendert.
+    $steps = Get-SSEBoundedIntegerArg $a 'steps' 40 1 80
     if ($script:DESKTOP_NAME) {
       Fail "Der Navigationsbaum kann auf dem versteckten Desktop nicht per Mausrad bewegt werden." 'hidden-desktop'
     }
@@ -8970,7 +10186,6 @@ switch ($Op) {
     [SW]::SetCursorPos($px, $py) | Out-Null
     Start-Sleep -Milliseconds 100
     $MOUSEEVENTF_WHEEL = 0x0800
-    $steps = [Math]::Min(80, [Math]::Max(1, [int](Arg $a 'steps' 40)))
     for ($i = 0; $i -lt $steps; $i++) {
       [SW]::mouse_event($MOUSEEVENTF_WHEEL, 0, 0, 120, [IntPtr]::Zero)
     }
@@ -8997,6 +10212,7 @@ switch ($Op) {
     if ($richtung -notin @('up','down')) {
       Fail "direction muss 'up' oder 'down' sein." 'bad-args'
     }
+    $steps = Get-SSEBoundedIntegerArg $a 'steps' 8 1 80
     $hwnd = [IntPtr][int64](Resolve-SSEMainWindowDescriptor $a -RestoreMinimized).hwnd
     $can = Test-Canary $hwnd
     if (-not $can.ok) { Fail "Kanarienvogel traege ($($can.ms) ms) - nicht rollen." 'degraded' }
@@ -9023,7 +10239,6 @@ switch ($Op) {
     [SW]::SetCursorPos($px, $py) | Out-Null
     Start-Sleep -Milliseconds 100
     $MOUSEEVENTF_WHEEL = 0x0800
-    $steps = [Math]::Min(80, [Math]::Max(1, [int](Arg $a 'steps' 8)))
     # mouse_event deklariert dwData als UInt32. Ein negativer WHEEL_DELTA
     # muss deshalb als Zweierkomplement uebergeben werden.
     $delta = $(if ($richtung -eq 'up') { [uint32]120 } else { [uint32]([int64]0x100000000 - 120) })
@@ -9060,6 +10275,9 @@ switch ($Op) {
     # Darauf setzt dieses Werkzeug auf.
     $ziel = [string](Arg $a 'ziel')
     if (-not $ziel) { Fail 'ziel fehlt (Ueberschrift der gewuenschten Seite)' 'bad-args' }
+    $requestedMaxSteps = $(if ($null -ne (Arg $a 'maxSteps')) {
+      Get-SSEBoundedIntegerArg $a 'maxSteps' 40 1 200
+    } else { $null })
     # Schrittzahl GESAMT, nicht je Richtung. Vorher waren es maxSteps pro
     # Richtung - bei 40 also 80 Seitenwechsel, die das Programm sichtbar
     # durch das ganze Formular blaettern liessen. Das ist fuer den Nutzer
@@ -9355,7 +10573,7 @@ switch ($Op) {
     } elseif (-not $richtungVorgegeben -and ($iZiel -ge 0 -or $iStart -ge 0)) {
       $vorgabe = 90      # eine Seite unbekannt: grosszuegig, kostet versteckt nichts
     }
-    $maxS = [int](Arg $a 'maxSteps' $vorgabe)
+    $maxS = $(if ($null -ne $requestedMaxSteps) { $requestedMaxSteps } else { $vorgabe })
 
     foreach ($richtung in $reihenfolge) {
       $stillstand = 0
@@ -9456,14 +10674,14 @@ switch ($Op) {
     # stehen im UIA-Baum, es gibt keinen ScrollPattern-Container und PgDn
     # wirkt nicht. Der Cursor zieht die Ansicht mit - also wandert er mit
     # der Pfeiltaste durch die Zeilen, und die Ergebnisse werden vereinigt.
+    $maxSchritte = Get-SSEBoundedIntegerArg $a 'maxRows' 200 1 1000
+    $sumLabel = [string](Arg $a 'sumLabel')
+    $sumOccurrence = Get-SSEBoundedIntegerArg $a 'sumOccurrence' 1 1 1000
     $hwnd = [IntPtr][int64](Resolve-SSEMainWindowDescriptor $a -RestoreMinimized).hwnd
     $dirtyBefore = Get-DirtyState (Walk-Tree $hwnd 600 20 8)
-    $maxSchritte = [int](Arg $a 'maxRows' 200)
-    $sumLabel = [string](Arg $a 'sumLabel')
-    $sumOccurrence = [int](Arg $a 'sumOccurrence' 1)
-    if ($sumOccurrence -lt 1) { Fail 'sumOccurrence muss mindestens 1 sein.' 'bad-args' }
     $gesehen = New-Object 'System.Collections.Generic.HashSet[string]'
     $alle = New-Object System.Collections.ArrayList
+    $identityState = [pscustomobject]@{ fehlend = $false }
     $kopf = @()
 
     function LiesZeilen($hwnd) {
@@ -9509,35 +10727,96 @@ switch ($Op) {
       }
       $h = @($hRaw | Sort-Object x)
       $hd = @(); foreach ($x in $h) { if (-not $hd.Count -or [Math]::Abs($x.x - $hd[-1].x) -gt 8) { $hd += $x } }
-      $rows = @(); $cur = $null; $cy = -9999
+      $rows = @(); $rowsWithIdentity = @(); $cur = $null; $curRids = $null; $cy = -9999
       foreach ($c in $z) {
         if ($null -eq $cur -or [Math]::Abs($c.y - $cy) -gt 10) {
-          if ($null -ne $cur) { $rows += , $cur }
-          $cy = $c.y; $cur = @($null) * [Math]::Max(1, $hd.Count)
+          if ($null -ne $cur) {
+            $identityParts = @()
+            for ($columnIndex = 0; $columnIndex -lt $curRids.Count; $columnIndex++) {
+              $ridValue = [string]($curRids[$columnIndex])
+              if ($ridValue) { $identityParts += "${columnIndex}=$ridValue" }
+            }
+            $identity = $(if ($identityParts.Count) { $identityParts -join '|' } else { $null })
+            $rows += , $cur
+            $rowsWithIdentity += [pscustomobject]@{ werte = @($cur); identitaet = $identity }
+          }
+          $cy = $c.y
+          $cur = @($null) * [Math]::Max(1, $hd.Count)
+          $curRids = @($null) * [Math]::Max(1, $hd.Count)
         }
         $best = 0; $d = [int]::MaxValue
         for ($i = 0; $i -lt $hd.Count; $i++) { $dd = [Math]::Abs($c.x - $hd[$i].x); if ($dd -lt $d) { $d = $dd; $best = $i } }
-        if ($best -lt $cur.Count) { $cur[$best] = $c.name } else { $cur += $c.name }
+        if ($best -lt $cur.Count) {
+          $cur[$best] = $c.name
+          $curRids[$best] = $c.rid
+        } else {
+          $cur += $c.name
+          $curRids += $c.rid
+        }
       }
-      if ($null -ne $cur) { $rows += , $cur }
+      if ($null -ne $cur) {
+        $identityParts = @()
+        for ($columnIndex = 0; $columnIndex -lt $curRids.Count; $columnIndex++) {
+          $ridValue = [string]($curRids[$columnIndex])
+          if ($ridValue) { $identityParts += "${columnIndex}=$ridValue" }
+        }
+        $identity = $(if ($identityParts.Count) { $identityParts -join '|' } else { $null })
+        $rows += , $cur
+        $rowsWithIdentity += [pscustomobject]@{ werte = @($cur); identitaet = $identity }
+      }
       [pscustomobject]@{
         kopf = @($hd | ForEach-Object { $_.name }); zeilen = $rows
+        zeilenMitIdentitaet = @($rowsWithIdentity)
         ersteZelle = $(if ($z.Count) { $z[0] } else { $null })
         tabelleAnzahl = $tableCount; bindung = $binding; error = $readError
+      }
+    }
+
+    # RuntimeIds stammen aus UIA und identifizieren die sichtbaren Zellobjekte.
+    # Zeileninhalt ist absichtlich KEINE Identitaet: zwei legitime, inhaltlich
+    # gleiche Buchungszeilen muessen beide im Ergebnis erhalten bleiben.
+    $addSnapshotRows = {
+      param($snapshot)
+      foreach ($entry in @($snapshot.zeilenMitIdentitaet)) {
+        $identity = [string]$entry.identitaet
+        if (-not $identity) {
+          $identityState.fehlend = $true
+          continue
+        }
+        if ($gesehen.Add($identity)) {
+          $null = $alle.Add([object[]]@($entry.werte))
+        }
+      }
+    }
+
+    $cursorSelectionPattern = $null
+    $getCursorSignature = {
+      if (-not $cursorSelectionPattern) { return $null }
+      try {
+        $selected = @($cursorSelectionPattern.Current.GetSelection())
+        $runtimeIds = @($selected | ForEach-Object {
+          try { $_.GetRuntimeId() -join '.' } catch { $null }
+        } | Where-Object { $_ } | Sort-Object)
+        if (-not $runtimeIds.Count) { return $null }
+        return ($runtimeIds -join '|')
+      } catch {
+        return $null
       }
     }
 
     $erst = LiesZeilen $hwnd
     if ($erst.error) { Fail $erst.error 'precondition-failed' }
     $kopf = $erst.kopf
-    foreach ($r in $erst.zeilen) { $k = ($r -join '|'); if ($gesehen.Add($k)) { $null = $alle.Add($r) } }
+    & $addSnapshotRows $erst
 
     # In die erste Zelle klicken, damit die Pfeiltaste greift.
     $geklickt = $false
+    $cursorUnavailable = $false
+    $cursorSignature = $null
     if ($erst.ersteZelle -and (Arg $a 'noKeys') -ne $true -and $erst.tabelleAnzahl -eq 1) {
+      $HWND_TOPMOST = [IntPtr](-1); $HWND_NOTOPMOST = [IntPtr](-2)
+      $SWP = 0x0001 -bor 0x0002 -bor 0x0010
       try {
-        $HWND_TOPMOST = [IntPtr](-1); $HWND_NOTOPMOST = [IntPtr](-2)
-        $SWP = 0x0001 -bor 0x0002 -bor 0x0010
         $z0 = $erst.ersteZelle
         $px = [int]($z0.x + $z0.w / 2); $py = [int]($z0.y + $z0.h / 2)
         $null = Show-SSEWindow $hwnd
@@ -9559,39 +10838,125 @@ switch ($Op) {
           # Fuer eine stabile Reihenfolge jetzt bewusst am Anfang neu sammeln.
           $gesehen.Clear()
           $alle.Clear()
-          foreach ($r in (LiesZeilen $hwnd).zeilen) {
-            $k = ($r -join '|'); if ($gesehen.Add($k)) { $null = $alle.Add($r) }
+          $identityState.fehlend = $false
+          $topSnapshot = LiesZeilen $hwnd
+          if ($topSnapshot.error) {
+            $cursorUnavailable = $true
+          } else {
+            $kopf = $topSnapshot.kopf
+            & $addSnapshotRows $topSnapshot
+
+            # Der Tabellencontainer meldet die aktuell markierte Qt-Zeile als
+            # Auswahl (typischerweise eine ausgewaehlte Zelle je Spalte). Die
+            # RuntimeId-Signatur veraendert sich auch bei identischem Inhalt und
+            # bleibt erst am echten Tabellenende nach DOWN unveraendert.
+            $freshFirst = Get-LiveElement $hwnd $topSnapshot.ersteZelle.rid
+            $ancestor = $freshFirst
+            for ($level = 0; $level -lt 8 -and $ancestor; $level++) {
+              $selectionPatternProbe = $null
+              if ($ancestor.TryGetCurrentPattern(
+                  [System.Windows.Automation.SelectionPattern]::Pattern, [ref]$selectionPatternProbe)) {
+                $cursorSelectionPattern = $selectionPatternProbe
+                break
+              }
+              try { $ancestor = $WLK.GetParent($ancestor) } catch { $ancestor = $null }
+            }
+            $cursorSignature = & $getCursorSignature
+            if (-not $cursorSignature) { $cursorUnavailable = $true }
           }
         }
+      } catch {
+        $cursorUnavailable = $true
+      } finally {
         [SW]::SetWindowPos($hwnd, $HWND_NOTOPMOST, 0, 0, 0, 0, $SWP) | Out-Null
-      } catch { }
-    }
-
-    $leerlauf = 0
-    if ($geklickt) {
-      for ($i = 1; $i -le $maxSchritte; $i++) {
-        [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
-        Start-Sleep -Milliseconds 160
-        if ($i % 3 -ne 0) { continue }
-        $neu = 0
-        foreach ($r in (LiesZeilen $hwnd).zeilen) { $k = ($r -join '|'); if ($gesehen.Add($k)) { $null = $alle.Add($r); $neu++ } }
-        if ($neu) { $leerlauf = 0 } else { $leerlauf++ }
-        if ($leerlauf -ge 4) { break }
       }
     }
+
+    $schritte = 0
+    $stableCursorMoves = 0
+    $endProven = $false
+    if ($geklickt -and -not $cursorUnavailable) {
+      for ($i = 1; $i -le $maxSchritte; $i++) {
+        try {
+          [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
+        } catch {
+          $cursorUnavailable = $true
+          break
+        }
+        $schritte++
+        Start-Sleep -Milliseconds 160
+        $nextCursorSignature = & $getCursorSignature
+        if (-not $nextCursorSignature) {
+          $cursorUnavailable = $true
+          break
+        }
+        if ($nextCursorSignature -eq $cursorSignature) {
+          $stableCursorMoves++
+        } else {
+          $stableCursorMoves = 0
+        }
+        $cursorSignature = $nextCursorSignature
+
+        if ($i % 3 -eq 0 -or $stableCursorMoves -gt 0 -or $i -eq $maxSchritte) {
+          $snapshot = LiesZeilen $hwnd
+          if ($snapshot.error) {
+            $cursorUnavailable = $true
+            break
+          }
+          & $addSnapshotRows $snapshot
+        }
+        # Zwei bestaetigte DOWN-Versuche mit unveraenderter UIA-Auswahl sind
+        # der Endbeweis. Identische Zelltexte spielen dabei keine Rolle.
+        if ($stableCursorMoves -ge 2) {
+          $endProven = $true
+          break
+        }
+      }
+    }
+
+    # Auch bei einem abgebrochenen Cursorbeweis den letzten lesbaren Viewport
+    # mitnehmen. Seine RuntimeIds verhindern doppelte Ueberlappungszeilen.
+    if ($geklickt) {
+      $finalSnapshot = LiesZeilen $hwnd
+      if (-not $finalSnapshot.error) { & $addSnapshotRows $finalSnapshot }
+    }
+
+    $limitReached = [bool]($geklickt -and $schritte -ge $maxSchritte)
+    $vollstaendig = [bool](
+      $geklickt -and $erst.tabelleAnzahl -eq 1 -and $endProven -and
+      -not $limitReached -and -not $cursorUnavailable -and -not $identityState.fehlend
+    )
+    $stopKind = $(
+      if ($limitReached) { 'max-rows' }
+      elseif ($identityState.fehlend) { 'row-identity-unavailable' }
+      elseif ($cursorUnavailable) { 'cursor-unavailable' }
+      elseif ($endProven) { 'end-of-table' }
+      elseif ($erst.tabelleAnzahl -gt 1 -and -not $sumLabel) { 'ambiguous-table' }
+      elseif (-not $erst.ersteZelle -or $erst.tabelleAnzahl -eq 0) { 'no-table' }
+      else { 'visible-only' }
+    )
 
     # Nur Zeilen mit Inhalt melden
     $echte = @($alle | Where-Object { @($_ | Where-Object { $_ -and "$_".Trim() -and "$_" -ne '0,00' -and "$_" -ne '0' }).Count -gt 0 })
     $dirtyAfter = Get-DirtyState (Walk-Tree $hwnd 600 20 8)
     Emit ([pscustomobject]@{
       ok = $true; kopf = $kopf; zeilen = $echte; anzahl = $echte.Count
-      vollstaendig = [bool]($geklickt -and $erst.tabelleAnzahl -eq 1)
+      vollstaendig = $vollstaendig
+      schritte = $schritte
+      steps = $schritte
+      stopKind = $stopKind
+      limitReached = $limitReached
       tabelleAnzahl = $erst.tabelleAnzahl
       bindung = $erst.bindung
       ungespeichertVorher = $dirtyBefore
       ungespeichertNachher = $dirtyAfter
       ungespeichertEingefuehrt = [bool]((-not $dirtyBefore) -and $dirtyAfter)
-      hinweis = $(if ($geklickt) { 'Cursor durchlief die gebundene Tabelle - Summe der Seite zur Gegenprobe vergleichen.' }
+      hinweis = $(if ($vollstaendig) { 'Das Tabellenende wurde ueber die UIA-Auswahl bewiesen - Summe der Seite trotzdem zur Gegenprobe vergleichen.' }
+                  elseif ($limitReached) {
+                    "Nach $schritte DOWN-Schritten ist maxRows erreicht; Ergebnis ist bewusst als unvollstaendig markiert."
+                  } elseif ($cursorUnavailable -or $identityState.fehlend) {
+                    'Cursor- oder Zeilenidentitaet war nicht sicher beweisbar; nur die gelesenen Zeilen werden als Teilstand gemeldet.'
+                  }
                   elseif ($erst.tabelleAnzahl -gt 1 -and -not $sumLabel) {
                     "$($erst.tabelleAnzahl) Eingabetabellen gefunden. Fuer einen Vollstaendigkeitsbeweis sumLabel und sumOccurrence angeben; nichts fokussiert."
                   } else { 'NUR sichtbare Zeilen: die Tabelle liess sich nicht eindeutig anklicken. Ergebnis kann unvollstaendig sein.' })
@@ -9617,7 +10982,6 @@ switch ($Op) {
     if (-not @($werte | Where-Object { [string]$_ }).Count) {
       Fail 'werte enthaelt keinen zu schreibenden Zellwert.' 'bad-args'
     }
-    $norm = { param($s) ("$s" -replace '[\s.]', '') -replace ',', '.' }
     $targetPid = 0
     [SW]::GetWindowThreadProcessId($hwnd, [ref]$targetPid) | Out-Null
     $dialogsBefore = @(Get-DialogInventory | Where-Object {
@@ -9633,10 +10997,11 @@ switch ($Op) {
     if (-not $sumBeforeRead.selected) {
       Fail "Kontrollsumme '$sumLabel' (Vorkommen $sumOccurrence) wurde nicht eindeutig gefunden. NICHT geaendert." 'precondition-failed'
     }
-    if ((& $norm $sumBeforeRead.value) -ne (& $norm $expectedBefore)) {
+    if (-not (Test-SSEScalarEqual $sumBeforeRead.value $expectedBefore)) {
       Fail "Vorbedingung verletzt: '$sumLabel' ist '$($sumBeforeRead.value)', erwartet '$expectedBefore'. NICHT geaendert." 'precondition-failed'
     }
     $dirtyBefore = Get-DirtyState $beforeTree
+    $checkerBefore = @(Get-SSEPageCheckerMessages $beforeTree $hwnd)
 
     function Find-FreeTableRow([IntPtr]$window, $tree = $null, $targetSumRead = $null) {
       if ($null -eq $tree) { $tree = Walk-Tree $window -WithValues }
@@ -9647,6 +11012,7 @@ switch ($Op) {
         return [pscustomobject]@{
           tree=$tree; cells=@(); byY=@{}; free=@(); firstCell=$null
           targetSum=$targetSumRead; targetSumY=$null; previousSummaryY=$null
+          selectionMethod=$null; scopePrefix=$null; tableProfile=$null; profileMismatch=$false
           error="Kontrollsumme '$sumLabel' ist fuer die Tabellenbindung nicht sichtbar."
         }
       }
@@ -9656,7 +11022,19 @@ switch ($Op) {
         return [pscustomobject]@{
           tree=$tree; cells=@(); byY=@{}; free=@(); firstCell=$null
           targetSum=$targetSumRead; targetSumY=$region.targetSumY
-          previousSummaryY=$region.previousSummaryY; error=$region.error
+          previousSummaryY=$region.previousSummaryY
+          selectionMethod=$region.selectionMethod; scopePrefix=$region.scopePrefix; tableProfile=$null; profileMismatch=$false
+          error=$region.error
+        }
+      }
+      $resolvedTableProfile = Resolve-SSETableProfile $headingBefore $sumLabel $sumOccurrence $region
+      if ($resolvedTableProfile.known -and -not $resolvedTableProfile.bindingOk) {
+        return [pscustomobject]@{
+          tree=$tree; cells=@(); byY=@{}; free=@(); firstCell=$null
+          targetSum=$targetSumRead; targetSumY=$region.targetSumY; previousSummaryY=$region.previousSummaryY
+          selectionMethod=$region.selectionMethod; scopePrefix=$region.scopePrefix
+          tableProfile=$resolvedTableProfile; profileMismatch=$true
+          error="$($resolvedTableProfile.reason) Tabellenprofil '$($resolvedTableProfile.pageId)/$($resolvedTableProfile.tableId)' nicht gebunden."
         }
       }
       $cells = @($region.cells)
@@ -9674,24 +11052,56 @@ switch ($Op) {
         # Selector-Zelle. Das ist noch kein Datensatz. Betrag/Netto sind dort
         # 0,00 und Datum/Bezeichnung leer. Den Default deshalb nur in einer
         # schmalen Zelle neutral behandeln; ein echter Betrag 19,00 in einer
-        # breiten Betragszelle bleibt Inhalt und wird nie ueberschrieben.
-        @($byY[$_] | Where-Object {
-          $cellName = [string]$_.name
-          $neutralTaxSelector = $cellName -in @('7','19') -and $_.w -le 80
-          $cellName -and $cellName -ne '0,00' -and $cellName -ne '0' -and -not $neutralTaxSelector
-        }).Count -eq 0
+        # breiten Betragszelle bleibt Inhalt und wird nie ueberschrieben. Ein
+        # fachlicher Kategorie-Default wird nur an exakt der gebundenen
+        # Profilspalte neutralisiert.
+        Test-SSETableRowFreeWithProfileDefaults $byY[$_] $resolvedTableProfile
       })
       $anchorY = @($byY.Keys | Sort-Object -Descending | Select-Object -First 1)
       [pscustomobject]@{
         tree = $tree; cells = $cells; byY = $byY; free = $free
         firstCell = $(if ($anchorY.Count) { @($byY[$anchorY[0]] | Sort-Object x)[0] } else { $null })
         targetSum=$targetSumRead; targetSumY=$region.targetSumY
-        previousSummaryY=$region.previousSummaryY; error=$null
+        previousSummaryY=$region.previousSummaryY
+        selectionMethod=$region.selectionMethod; scopePrefix=$region.scopePrefix
+        tableProfile=$resolvedTableProfile; profileMismatch=$false
+        error=$null
+      }
+    }
+
+    function Get-TableStructureEvidence($read) {
+      if (-not $read -or $read.error) {
+        return [pscustomobject]@{
+          ok=$false; rowCount=$null; freeRowCount=$null; populatedRowCount=$null
+          fingerprint=$null; endRowFingerprint=$null; error=$(if ($read) { $read.error } else { 'Tabellenlesung fehlt.' })
+        }
+      }
+      $rowSignatures = New-Object System.Collections.ArrayList
+      $rowYs = @($read.byY.Keys | Sort-Object)
+      foreach ($rowY in $rowYs) {
+        $cellParts = @($read.byY[$rowY] | Sort-Object x | ForEach-Object {
+          $aid = [string]$_.aid
+          $aidSuffix = $(if ($aid) { ($aid -split '\.')[-1] } else { '' })
+          "$($_.type)`u{001F}$aidSuffix`u{001F}$($_.w)`u{001F}$([string]$_.name)"
+        })
+        $null = $rowSignatures.Add($cellParts -join "`u{001E}")
+      }
+      $freeCount = @($read.free).Count
+      [pscustomobject]@{
+        ok=$true
+        rowCount=$rowYs.Count
+        freeRowCount=$freeCount
+        populatedRowCount=$rowYs.Count - $freeCount
+        fingerprint=Get-SSETextSha256 (@($rowSignatures) -join "`u{001D}")
+        endRowFingerprint=$(if ($rowSignatures.Count) { Get-SSETextSha256 ([string]$rowSignatures[-1]) } else { $null })
+        error=$null
       }
     }
 
     $freeRead = Find-FreeTableRow $hwnd $beforeTree $sumBeforeRead
-    if ($freeRead.error) { Fail "$($freeRead.error) NICHT geaendert." 'precondition-failed' }
+    if ($freeRead.error) {
+      Fail "$($freeRead.error) NICHT geaendert." $(if ($freeRead.profileMismatch) { 'table-profile-mismatch' } else { 'precondition-failed' })
+    }
     $navigationSteps = 0
     $searchDeadlineMs = 60000
     $testDeadlineMs = 0
@@ -9734,7 +11144,9 @@ switch ($Op) {
           }
         }
         $freeRead = Find-FreeTableRow $hwnd
-        if ($freeRead.error) { Fail "$($freeRead.error) NICHT geschrieben." 'precondition-failed' }
+        if ($freeRead.error) {
+          Fail "$($freeRead.error) NICHT geschrieben." $(if ($freeRead.profileMismatch) { 'table-profile-mismatch' } else { 'precondition-failed' })
+        }
         if ($freeRead.free.Count) { break }
         if ([SW]::GetForegroundWindow() -ne $hwnd) {
           Fail 'Tabellenfokus ging waehrend der Navigation verloren; nichts geschrieben.' 'interference'
@@ -9751,23 +11163,101 @@ switch ($Op) {
     if ($werte.Count -gt $zeile.Count) {
       Fail "werte enthaelt $($werte.Count) Spalten, die freie sichtbare Zeile aber nur $($zeile.Count)." 'bad-args'
     }
+    $tableProfile = $freeRead.tableProfile
+    $structureBefore = Get-TableStructureEvidence $freeRead
+    if (-not $structureBefore.ok) {
+      Fail "Tabellenstruktur vor der Anlage ist nicht beweisbar: $($structureBefore.error) NICHT geaendert." 'precondition-failed'
+    }
+    # Fuer den Rollback den ROHEN ValuePattern-Wert jeder beschreibbaren Zelle
+    # der Anlegezeile sichern. Der sichtbare Name kann bei einer technisch
+    # leeren Qt-Zelle bereits '0,00' sein, obwohl ValuePattern.Value leer ist.
+    # '0,00' zurueckzuschreiben erzeugt sonst einen echten leeren Datensatz.
+    $rowSnapshotBefore = New-Object System.Collections.ArrayList
+    for ($snapshotColumn = 0; $snapshotColumn -lt $zeile.Count; $snapshotColumn++) {
+      $snapshotCell = $zeile[$snapshotColumn]
+      $snapshotColumnProfile = Get-SSETableProfileColumn $tableProfile $snapshotColumn
+      if (($snapshotColumnProfile -and [string]$snapshotColumnProfile.controlType -eq 'ComboBox') -or
+          [string]$snapshotCell.type -eq 'ComboBox') {
+        continue
+      }
+      $snapshotElement = Get-LiveElement $hwnd $snapshotCell.rid
+      $snapshotPattern = $null
+      if ($snapshotElement -and
+          $snapshotElement.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$snapshotPattern) -and
+          -not $snapshotPattern.Current.IsReadOnly) {
+        $null = $rowSnapshotBefore.Add([pscustomobject]@{
+          spalte=$snapshotColumn; cell=$snapshotCell
+          beforeRaw=[string]$snapshotPattern.Current.Value
+          beforeDisplay=[string]$snapshotElement.Current.Name
+        })
+      }
+    }
     $prepared = New-Object System.Collections.ArrayList
+    $unsupportedComboCells = New-Object System.Collections.ArrayList
     for ($i = 0; $i -lt $werte.Count; $i++) {
       $requested = [string]$werte[$i]
       if (-not $requested) { continue }
       $cell = $zeile[$i]
       $el = Get-LiveElement $hwnd $cell.rid
       if (-not $el) { Fail "Zelle in Spalte $i ist vor dem Schreiben nicht greifbar." 'stale' }
+      $columnProfile = Get-SSETableProfileColumn $tableProfile $i
+      if ($columnProfile -and [string]$columnProfile.controlType -eq 'ComboBox') {
+        $beforeValue = Get-SSETableComboCellValue $el $cell
+        if ([string]$columnProfile.writePolicy -eq 'typed-selection-required') {
+          $expectedCombo = Get-SSETableComboExpectedBefore $a $i
+          if (-not $expectedCombo.present) {
+            Fail "comboExpectedBefore.$i ist fuer die profilierte ComboBox-Spalte '$([string]$columnProfile.header)' Pflicht. NICHT geaendert." 'bad-args'
+          }
+          if (-not [string]::Equals($beforeValue, [string]$expectedCombo.value, [StringComparison]::Ordinal)) {
+            Fail "ComboBox-Vorwert in Spalte $i ist '$beforeValue', erwartet '$($expectedCombo.value)'. NICHT geaendert." 'precondition-failed'
+          }
+          $invokeProbe = $null
+          if (-not $el.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$invokeProbe)) {
+            Fail "Profilierte ComboBox-Spalte $i bietet kein InvokePattern. NICHT geaendert." 'unsupported-table-combobox'
+          }
+          $null = $prepared.Add([pscustomobject]@{
+            spalte=$i; requested=$requested; before=$beforeValue; mode='combo'
+            cell=$cell; rowY=[int]$freie[0]; tableProfile=$tableProfile; columnProfile=$columnProfile
+          })
+        } else {
+          $null = $unsupportedComboCells.Add([pscustomobject]@{
+            spalte=$i; header=[string]$columnProfile.header; controlType='ComboBox'
+            observedControlType=[string]$cell.type; requested=$requested; current=$beforeValue
+            rid=$cell.rid; aid=$cell.aid; reason=[string]$columnProfile.reason
+          })
+        }
+        continue
+      }
       $vp = $null
       if (-not $el.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$vp)) {
         Fail "Zelle in Spalte $i bietet kein ValuePattern; nichts geschrieben." 'no-value-pattern'
       }
       if ($vp.Current.IsReadOnly) { Fail "Zelle in Spalte $i ist schreibgeschuetzt; nichts geschrieben." 'readonly' }
-      $beforeValue = [string]$vp.Current.Value
+      $beforeRawValue = [string]$vp.Current.Value
+      $beforeValue = $beforeRawValue
       if (-not $beforeValue) { try { $beforeValue = [string]$el.Current.Name } catch { } }
       $null = $prepared.Add([pscustomobject]@{
-        spalte=$i; requested=$requested; before=$beforeValue
-        cell=$cell; element=$el; pattern=$vp
+        spalte=$i; requested=$requested; before=$beforeValue; beforeRaw=$beforeRawValue
+        cell=$cell; element=$el; pattern=$vp; mode='value'
+      })
+    }
+    if ($unsupportedComboCells.Count) {
+      Emit ([pscustomobject]@{
+        ok=$false; kind='unsupported-table-combobox'
+        error='Tabellen-ComboBox erkannt. Ohne zeilen- und optionsgebundene semantische Auswahl wird vor der ersten Datenmutation abgebrochen.'
+        page=$headingBefore; expectedPage=$expectedPage; mutationStarted=$false
+        unsupportedCells=@($unsupportedComboCells)
+        supportedCellTypes=@('Edit','Spinner','DataItem')
+        requiredCapability='typed-table-combobox-selection'
+        checkerMessagesBefore=$checkerBefore
+        tableBinding=[pscustomobject]@{
+          sumLabel=$sumLabel; sumOccurrence=$sumOccurrence; sumY=$freeRead.targetSumY
+          previousSummaryY=$freeRead.previousSummaryY; rowY=$freie[0]
+          pageObjectId=$tableProfile.pageId; tableObjectId=$tableProfile.tableId
+          selectionMethod=$freeRead.selectionMethod; scopePrefix=$freeRead.scopePrefix
+          bindingStrength=$tableProfile.bindingStrength; aidFallback=[bool]$tableProfile.aidFallback
+        }
+        rollback=[pscustomobject]@{ versucht=$false; grund='Fail-closed vor der ersten Datenmutation; kein Rollback erforderlich.' }
       })
     }
     if (-not $prepared.Count) { Fail 'Keine beschreibbare Zielzelle vorbereitet.' 'bad-args' }
@@ -9776,8 +11266,9 @@ switch ($Op) {
     $results = New-Object System.Collections.ArrayList
     $changed = New-Object System.Collections.ArrayList
     $failure = $null
+    $failureKind = $null
     $interference = $false
-    foreach ($entry in $prepared) {
+    foreach ($entry in @($prepared | Sort-Object @{ Expression = { if ($_.mode -eq 'combo') { 0 } else { 1 } } }, spalte)) {
       if ($lockScreenIsolation -and -not (Test-SSEForegroundIsLockScreen)) {
         $failure = 'Windows-Lockscreen wurde waehrend der Zellschreibung verlassen.'
         $interference = $true
@@ -9790,6 +11281,42 @@ switch ($Op) {
           $interference = $true
           break
         }
+      }
+      if ($entry.mode -eq 'combo') {
+        $comboResult = Invoke-SSETableComboSelection `
+          -Hwnd $hwnd -ProcessId $targetPid -ExpectedPage $expectedPage `
+          -SumLabel $sumLabel -SumOccurrence $sumOccurrence -RowY $entry.rowY -ColumnIndex $entry.spalte `
+          -TableProfile $entry.tableProfile -ColumnProfile $entry.columnProfile `
+          -ExpectedCurrent $entry.before -Wanted $entry.requested -CheckerMessagesBefore $checkerBefore `
+          -InputBaseline $inputBaseline -GuardUserInput:$guardUserInput
+        if ($guardUserInput -and $null -ne $comboResult.inputBaselineAfter) {
+          $inputBaseline = $comboResult.inputBaselineAfter
+        }
+        $comboDiagnostic = Get-SSETableComboDiagnosticProjection $comboResult
+        $null = $results.Add([pscustomobject]@{
+          spalte=$entry.spalte; ok=[bool]$comboResult.ok; vorher=$entry.before
+          gewuenscht=$entry.requested; ist=$comboResult.after; methode=$comboResult.method
+          error=$comboDiagnostic.error; kind=$comboDiagnostic.kind
+          mutationStarted=$comboDiagnostic.mutationStarted; interference=$comboDiagnostic.interference
+          editorClosed=$comboDiagnostic.editorClosed; internalSelected=$comboResult.internalSelected
+          popupBinding=$comboDiagnostic.popupBinding; openEvidence=$comboDiagnostic.openEvidence
+          diagnosticBounds=$comboDiagnostic.diagnosticBounds
+          newCheckerMessages=$comboResult.newCheckerMessages
+        })
+        if ($comboResult.ok) {
+          $entry | Add-Member -NotePropertyName mutationMethod -NotePropertyValue $comboResult.method -Force
+          if ($comboResult.mutationStarted) { $null = $changed.Add($entry) }
+          continue
+        }
+        $failure = [string]$comboResult.error
+        $failureKind = [string]$comboDiagnostic.kind
+        $interference = [bool]$comboResult.interference
+        if ($comboResult.mutationStarted -and
+            -not ($comboResult.rollback -and $comboResult.rollback.erfolgreich) -and
+            [string]::Equals([string]$comboResult.after, [string]$entry.requested, [StringComparison]::Ordinal)) {
+          $null = $changed.Add($entry)
+        }
+        break
       }
       try {
         $null = $changed.Add($entry)
@@ -9835,25 +11362,33 @@ switch ($Op) {
     Start-Sleep -Milliseconds 500
     $interactionAfter = Get-SSEInteractionWindowSet $targetPid $hwnd
     if ($lockScreenIsolation -and -not (Test-SSEForegroundIsLockScreen)) {
-      $failure = 'Windows-Lockscreen wurde waehrend der Tabellenaktion verlassen.'
+      if (-not $failure) { $failure = 'Windows-Lockscreen wurde waehrend der Tabellenaktion verlassen.' }
       $interference = $true
     }
     if ($interactionAfter.fingerprint -ne $interactionBefore.fingerprint) {
-      $failure = 'Die logische SSE-Fensterlage hat sich waehrend der Tabellenaktion geaendert.'
+      if (-not $failure) { $failure = 'Die logische SSE-Fensterlage hat sich waehrend der Tabellenaktion geaendert.' }
       $interference = $true
     }
     $afterTree = $null; $sumAfterRead = $null; $headingAfter = $null
+    $checkerAfter = @(); $newCheckerMessages = @()
     if (-not $interference) {
       $afterTree = Walk-Tree $hwnd -WithValues
       $headingAfter = Get-CurrentHeading $hwnd $afterTree
       if ($headingAfter -ne $expectedPage) {
-        $failure = "Seite wechselte waehrend der Tabellenaktion zu '$headingAfter'."
+        if (-not $failure) { $failure = "Seite wechselte waehrend der Tabellenaktion zu '$headingAfter'." }
         $interference = $true
       } else {
         $sumAfterRead = Read-LabeledValueFromTree $afterTree $hwnd $sumLabel $sumOccurrence
-        if ((& $norm $sumAfterRead.value) -ne (& $norm $expectedAfter)) {
+    if (-not $failure -and -not (Test-SSEScalarEqual $sumAfterRead.value $expectedAfter)) {
           $failure = "Nachsumme '$sumLabel' ist '$($sumAfterRead.value)', erwartet '$expectedAfter'."
         }
+      }
+    }
+    if ($afterTree) {
+      $checkerAfter = @(Get-SSEPageCheckerMessages $afterTree $hwnd)
+      $newCheckerMessages = @(Compare-SSEPageCheckerMessages $checkerBefore $checkerAfter)
+      if ($newCheckerMessages.Count -and -not $failure) {
+        $failure = "Neue Pruefermeldung nach Tabellenmutation: $($newCheckerMessages -join ' | ')"
       }
     }
 
@@ -9863,6 +11398,8 @@ switch ($Op) {
           ok=$false; kind='interference'; error=$failure
           page=$headingAfter; expectedPage=$expectedPage
           sumBefore=$sumBeforeRead.value; sumAfter=$(if ($sumAfterRead) { $sumAfterRead.value } else { $null })
+          checkerMessagesBefore=$checkerBefore; checkerMessagesAfter=$checkerAfter
+          newCheckerMessages=$newCheckerMessages
           zellen=@($results); geaenderteSpalten=@($changed | ForEach-Object { $_.spalte })
           tableBinding=[pscustomobject]@{
             sumOccurrence=$sumOccurrence; sumY=$freeRead.targetSumY
@@ -9875,38 +11412,201 @@ switch ($Op) {
           }
         })
       }
-      $rollbackCells = New-Object System.Collections.ArrayList
-      foreach ($entry in @($changed | Sort-Object spalte -Descending)) {
-        $restored = $false; $actualRollback = $null; $rollbackError = $null
-        try {
-          $entry.pattern.SetValue($entry.before)
-          Start-Sleep -Milliseconds 250
-          $actualRollback = [string]$entry.pattern.Current.Value
-          if (-not $actualRollback) { try { $actualRollback = [string]$entry.element.Current.Name } catch { } }
-          $restored = Test-SSETableCellEquivalent $actualRollback $entry.before
-        } catch { $rollbackError = $_.Exception.Message }
-        $null = $rollbackCells.Add([pscustomobject]@{
-          spalte=$entry.spalte; erwartet=$entry.before; ist=$actualRollback
-          restored=$restored; error=$rollbackError
+      # Vor jeder Ruecksetzung erneut beweisen, dass ausschliesslich unsere
+      # geschriebenen Werte in exakt derselben Zeile stehen. Bei fremder
+      # Eingabe, Fenster-/Seitenwechsel oder einem dritten Zellwert gibt es
+      # weiterhin keinen Rollback.
+      $rollbackPreflightError = $null
+      $rollbackInputBefore = Get-SSELastInputTick
+      $rollbackWindowsBefore = Get-SSEInteractionWindowSet $targetPid $hwnd
+      if ($lockScreenIsolation -and -not (Test-SSEForegroundIsLockScreen)) {
+        $rollbackPreflightError = 'Windows-Lockscreen wurde vor dem Rollback verlassen.'
+      } elseif ($guardUserInput -and $null -ne $inputBaseline -and $null -ne $rollbackInputBefore -and
+                $rollbackInputBefore -ne $inputBaseline) {
+        $rollbackPreflightError = 'Fremde Benutzereingabe vor dem Rollback erkannt.'
+      } elseif ($rollbackWindowsBefore.fingerprint -ne $interactionBefore.fingerprint -or
+                $headingAfter -ne $expectedPage) {
+        $rollbackPreflightError = 'Fenster- oder Seitenbindung veraenderte sich vor dem Rollback.'
+      }
+      if (-not $rollbackPreflightError) {
+        foreach ($entry in $changed) {
+          $live = Get-LiveElement $hwnd $entry.cell.rid
+          $livePattern = $null
+          if (-not $live -or
+              -not $live.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$livePattern) -or
+              $livePattern.Current.IsReadOnly) {
+            $rollbackPreflightError = "Spalte $($entry.spalte) ist vor dem Rollback nicht mehr gebunden."
+            break
+          }
+          $liveRaw = [string]$livePattern.Current.Value
+          $liveDisplay = $liveRaw
+          if (-not $liveDisplay) { try { $liveDisplay = [string]$live.Current.Name } catch { } }
+          $ownRequested = Test-SSETableCellEquivalent $liveDisplay $entry.requested
+          $stillBefore = $liveRaw -eq [string]$entry.beforeRaw -and
+            (Test-SSETableCellEquivalent $liveDisplay $entry.before)
+          if (-not $ownRequested -and -not $stillBefore) {
+            $rollbackPreflightError = "Spalte $($entry.spalte) zeigt vor dem Rollback den fremden/unerwarteten Wert '$liveDisplay'."
+            break
+          }
+        }
+      }
+      if ($rollbackPreflightError) {
+        Emit ([pscustomobject]@{
+          ok=$false; kind='interference'; error=$rollbackPreflightError
+          originalError=$failure; page=$headingAfter; expectedPage=$expectedPage
+          sumBefore=$sumBeforeRead.value; sumAfter=$(if ($sumAfterRead) { $sumAfterRead.value } else { $null })
+          checkerMessagesBefore=$checkerBefore; checkerMessagesAfter=$checkerAfter
+          newCheckerMessages=$newCheckerMessages
+          zellen=@($results); geaenderteSpalten=@($changed | ForEach-Object { $_.spalte })
+          tableBinding=[pscustomobject]@{
+            sumOccurrence=$sumOccurrence; sumY=$freeRead.targetSumY
+            previousSummaryY=$freeRead.previousSummaryY; rowY=$freie[0]
+          }
+          rollback=[pscustomobject]@{
+            versucht=$false; grund='Kein blinder Rollback nach fremder Eingabe/Fenster-/Seiten- oder Zellwertinterferenz.'
+            strukturVorher=$structureBefore
+          }
         })
+      }
+
+      # Nicht den sichtbaren Fallbacknamen ('0,00'), sondern den exakten rohen
+      # ValuePattern-Ausgangswert ALLER beschreibbaren Zellen rueckschreiben.
+      # Damit verschwindet der von Qt angelegte Datensatz wieder, statt neben
+      # der neuen Anlegezeile als zweite leere Zeile stehenzubleiben.
+      $rollbackActions = @{}
+      foreach ($snapshot in @($rowSnapshotBefore | Sort-Object spalte -Descending)) {
+        $attempted = $false; $setError = $null
+        try {
+          if ($lockScreenIsolation -and -not (Test-SSEForegroundIsLockScreen)) {
+            throw 'Windows-Lockscreen wurde waehrend des Rollbacks verlassen.'
+          }
+          if ($guardUserInput -and -not (Test-SSELastInputUnchanged $inputBaseline)) {
+            throw 'Fremde Benutzereingabe waehrend des Rollbacks erkannt.'
+          }
+          $comboEntry = @($changed | Where-Object {
+            $_.mode -eq 'combo' -and [int]$_.spalte -eq [int]$snapshot.spalte
+          } | Select-Object -First 1)
+          if ($comboEntry.Count) {
+            $attempted = $true
+            $comboRollback = Invoke-SSETableComboSelection `
+              -Hwnd $hwnd -ProcessId $targetPid -ExpectedPage $expectedPage `
+              -SumLabel $sumLabel -SumOccurrence $sumOccurrence -RowY $comboEntry[0].rowY -ColumnIndex $comboEntry[0].spalte `
+              -TableProfile $comboEntry[0].tableProfile -ColumnProfile $comboEntry[0].columnProfile `
+              -ExpectedCurrent $comboEntry[0].requested -Wanted $comboEntry[0].before -CheckerMessagesBefore $checkerBefore `
+              -InputBaseline $inputBaseline -GuardUserInput:$guardUserInput -Rollback
+            if ($guardUserInput -and $null -ne $comboRollback.inputBaselineAfter) {
+              $inputBaseline = $comboRollback.inputBaselineAfter
+            }
+            if (-not $comboRollback.ok) { throw "Semantischer ComboBox-Rollback fehlgeschlagen: $($comboRollback.error)" }
+            $rollbackActions[[int]$snapshot.spalte] = [pscustomobject]@{ attempted=$attempted; error=$null }
+            continue
+          }
+          $live = Get-LiveElement $hwnd $snapshot.cell.rid
+          $livePattern = $null
+          if (-not $live -or
+              -not $live.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$livePattern) -or
+              $livePattern.Current.IsReadOnly) {
+            throw "Spalte $($snapshot.spalte) ist fuer den strukturellen Rollback nicht mehr gebunden."
+          }
+          $currentRaw = [string]$livePattern.Current.Value
+          if ($currentRaw -ne [string]$snapshot.beforeRaw) {
+            $attempted = $true
+            $livePattern.SetValue([string]$snapshot.beforeRaw)
+            Start-Sleep -Milliseconds 250
+          }
+        } catch { $setError = $_.Exception.Message }
+        $rollbackActions[[int]$snapshot.spalte] = [pscustomobject]@{
+          attempted=$attempted; error=$setError
+        }
+        if ($setError -match 'Benutzereingabe|Lockscreen') { break }
       }
       Start-Sleep -Milliseconds 500
       $rollbackTree = Walk-Tree $hwnd -WithValues
+      $rollbackHeading = Get-CurrentHeading $hwnd $rollbackTree
       $rollbackSum = Read-LabeledValueFromTree $rollbackTree $hwnd $sumLabel $sumOccurrence
-      $rollbackOk = [bool](((& $norm $rollbackSum.value) -eq (& $norm $expectedBefore)) -and
-        @($rollbackCells | Where-Object { -not $_.restored }).Count -eq 0)
+      $rollbackRead = Find-FreeTableRow $hwnd $rollbackTree $rollbackSum
+      $rollbackStructure = Get-TableStructureEvidence $rollbackRead
+      $rollbackCheckerMessages = @(Get-SSEPageCheckerMessages $rollbackTree $hwnd)
+      $rollbackNewCheckerMessages = @(Compare-SSEPageCheckerMessages $checkerBefore $rollbackCheckerMessages)
+      $rollbackWindowsAfter = Get-SSEInteractionWindowSet $targetPid $hwnd
+      $rollbackInputAfter = Get-SSELastInputTick
+      $rollbackStructureOk = [bool](
+        $rollbackStructure.ok -and
+        $rollbackStructure.rowCount -eq $structureBefore.rowCount -and
+        $rollbackStructure.freeRowCount -eq $structureBefore.freeRowCount -and
+        $rollbackStructure.populatedRowCount -eq $structureBefore.populatedRowCount -and
+        $rollbackStructure.fingerprint -eq $structureBefore.fingerprint -and
+        $rollbackStructure.endRowFingerprint -eq $structureBefore.endRowFingerprint
+      )
+
+      # Zellbeweis auf der wiederhergestellten Anlegezeile. Selbst wenn Qt die
+      # UIA-Elemente beim strukturellen Entfernen neu erzeugt, werden die rohen
+      # Werte spaltenweise aus dem frischen Endzustand gelesen.
+      $rollbackCells = New-Object System.Collections.ArrayList
+      $rollbackFinalRow = @()
+      if ($rollbackRead.ok -ne $false -and @($rollbackRead.free).Count) {
+        $rollbackFreeY = @($rollbackRead.free | Sort-Object -Descending)[0]
+        $rollbackFinalRow = @($rollbackRead.byY[$rollbackFreeY] | Sort-Object x)
+      }
+      foreach ($snapshot in $rowSnapshotBefore) {
+        $actualRaw = $null; $actualDisplay = $null; $readError = $null
+        try {
+          if ($snapshot.spalte -ge $rollbackFinalRow.Count) { throw 'Zelle fehlt in der wiederhergestellten Anlegezeile.' }
+          $finalCell = $rollbackFinalRow[$snapshot.spalte]
+          $finalElement = Get-LiveElement $hwnd $finalCell.rid
+          $finalPattern = $null
+          if (-not $finalElement -or
+              -not $finalElement.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$finalPattern)) {
+            throw 'ValuePattern der wiederhergestellten Zelle fehlt.'
+          }
+          $actualRaw = [string]$finalPattern.Current.Value
+          $actualDisplay = [string]$finalElement.Current.Name
+        } catch { $readError = $_.Exception.Message }
+        $action = $rollbackActions[[int]$snapshot.spalte]
+        $restored = [bool](
+          -not $readError -and $actualRaw -eq [string]$snapshot.beforeRaw -and
+          $actualDisplay -eq [string]$snapshot.beforeDisplay -and
+          (-not $action -or -not $action.error)
+        )
+        $null = $rollbackCells.Add([pscustomobject]@{
+          spalte=$snapshot.spalte; erwartetRaw=$snapshot.beforeRaw; istRaw=$actualRaw
+          erwartetAnzeige=$snapshot.beforeDisplay; istAnzeige=$actualDisplay
+          attempted=$(if ($action) { $action.attempted } else { $false })
+          restored=$restored; error=$(if ($action -and $action.error) { $action.error } else { $readError })
+        })
+      }
+      $rollbackInteractionOk = [bool](
+        $rollbackHeading -eq $expectedPage -and
+        $rollbackWindowsAfter.fingerprint -eq $interactionBefore.fingerprint -and
+        (-not $lockScreenIsolation -or (Test-SSEForegroundIsLockScreen)) -and
+        (-not $guardUserInput -or $null -eq $inputBaseline -or $null -eq $rollbackInputAfter -or
+          $rollbackInputAfter -eq $inputBaseline)
+      )
+      $rollbackOk = [bool](
+        (Test-SSEScalarEqual $rollbackSum.value $expectedBefore) -and
+        $rollbackNewCheckerMessages.Count -eq 0 -and
+        $rollbackStructureOk -and $rollbackInteractionOk -and
+        @($rollbackCells | Where-Object { -not $_.restored }).Count -eq 0
+      )
       Emit ([pscustomobject]@{
-        ok=$false; kind='postcondition-failed'; error=$failure
+        ok=$false; kind=$(if ($failureKind) { $failureKind } else { 'postcondition-failed' }); error=$failure
         page=$headingAfter; expectedPage=$expectedPage
         sumBefore=$sumBeforeRead.value; sumAfter=$(if ($sumAfterRead) { $sumAfterRead.value } else { $null })
+        checkerMessagesBefore=$checkerBefore; checkerMessagesAfter=$checkerAfter
+        newCheckerMessages=$newCheckerMessages
         zellen=@($results)
         tableBinding=[pscustomobject]@{
           sumOccurrence=$sumOccurrence; sumY=$freeRead.targetSumY
           previousSummaryY=$freeRead.previousSummaryY; rowY=$freie[0]
         }
         rollback=[pscustomobject]@{
-          versucht=$true; erfolgreich=$rollbackOk; summe=$rollbackSum.value
+          versucht=$true; methode='raw-value-row-restore'; erfolgreich=$rollbackOk
+          ausgangszustandBewiesen=$rollbackOk; strukturEntfernt=$rollbackStructureOk
+          summe=$rollbackSum.value
           erwarteteSumme=$expectedBefore; zellen=@($rollbackCells)
+          checkerMessages=$rollbackCheckerMessages; newCheckerMessages=$rollbackNewCheckerMessages
+          strukturVorher=$structureBefore; strukturNachher=$rollbackStructure
+          interactionOk=$rollbackInteractionOk
         }
       })
     }
@@ -9915,6 +11615,8 @@ switch ($Op) {
       ok=$true; verified=$true; page=$headingAfter
       zeileY=$freie[0]; navigationSteps=$navigationSteps; zellen=@($results)
       sumLabel=$sumLabel; sumBefore=$sumBeforeRead.value; sumAfter=$sumAfterRead.value
+      checkerMessagesBefore=$checkerBefore; checkerMessagesAfter=$checkerAfter
+      newCheckerMessages=$newCheckerMessages
       tableBinding=[pscustomobject]@{
         sumOccurrence=$sumOccurrence; sumY=$freeRead.targetSumY
         previousSummaryY=$freeRead.previousSummaryY; rowY=$freie[0]
@@ -9963,6 +11665,7 @@ switch ($Op) {
     if (-not $beforeRead.selected -or -not (Test-SSEScalarEqual $beforeRead.value $expectedBefore)) {
       Fail "Vorbedingung verletzt: '$sumLabel' ist '$($beforeRead.value)', erwartet '$expectedBefore'. NICHT geaendert." 'precondition-failed'
     }
+    $checkerBefore = @(Get-SSEPageCheckerMessages $beforeTree $hwnd)
     $region = Get-SSETableRegion $beforeTree $hwnd $beforeRead
     if (-not $region.ok) {
       Fail "Tabellenregion fuer '$sumLabel' nicht eindeutig: $($region.error) NICHT geaendert." 'precondition-failed'
@@ -9977,16 +11680,49 @@ switch ($Op) {
     if ($werte.Count -gt $cells.Count) {
       Fail "werte enthaelt $($werte.Count) Spalten, die sichtbare Zeile aber nur $($cells.Count)." 'bad-args'
     }
+    $tableProfile = Resolve-SSETableProfile $headingBefore $sumLabel $sumOccurrence $region
+    if ($tableProfile.known -and -not $tableProfile.bindingOk) {
+      Fail "$($tableProfile.reason) Tabellenprofil '$($tableProfile.pageId)/$($tableProfile.tableId)' nicht gebunden. NICHT geaendert." 'table-profile-mismatch'
+    }
 
     # Alle Zielzellen muessen vor der ersten Mutation gleichzeitig schreibbar
     # und mit ihrem aktuellen Wert gebunden sein.
     $prepared = New-Object System.Collections.ArrayList
+    $unsupportedComboCells = New-Object System.Collections.ArrayList
     for ($i = 0; $i -lt $werte.Count; $i++) {
       if ($null -eq $werte[$i]) { continue }
       $requested = [string]$werte[$i]
       $cell = $cells[$i]
       $el = Get-LiveElement $hwnd $cell.rid
       if (-not $el) { Fail "Spalte $i der Zielzeile ist nicht mehr gebunden; nichts geaendert." 'stale' }
+      $columnProfile = Get-SSETableProfileColumn $tableProfile $i
+      if ($columnProfile -and [string]$columnProfile.controlType -eq 'ComboBox') {
+        $beforeValue = Get-SSETableComboCellValue $el $cell
+        if ([string]$columnProfile.writePolicy -eq 'typed-selection-required') {
+          $expectedCombo = Get-SSETableComboExpectedBefore $a $i
+          if (-not $expectedCombo.present) {
+            Fail "comboExpectedBefore.$i ist fuer die profilierte ComboBox-Spalte '$([string]$columnProfile.header)' Pflicht. NICHT geaendert." 'bad-args'
+          }
+          if (-not [string]::Equals($beforeValue, [string]$expectedCombo.value, [StringComparison]::Ordinal)) {
+            Fail "ComboBox-Vorwert in Spalte $i ist '$beforeValue', erwartet '$($expectedCombo.value)'. NICHT geaendert." 'precondition-failed'
+          }
+          $invokeProbe = $null
+          if (-not $el.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$invokeProbe)) {
+            Fail "Profilierte ComboBox-Spalte $i bietet kein InvokePattern. NICHT geaendert." 'unsupported-table-combobox'
+          }
+          $null = $prepared.Add([pscustomobject]@{
+            spalte=$i; requested=$requested; before=$beforeValue; mode='combo'
+            cell=$cell; rowY=[int]$target.y; tableProfile=$tableProfile; columnProfile=$columnProfile
+          })
+        } else {
+          $null = $unsupportedComboCells.Add([pscustomobject]@{
+            spalte=$i; header=[string]$columnProfile.header; controlType='ComboBox'
+            observedControlType=[string]$cell.type; requested=$requested; current=$beforeValue
+            rid=$cell.rid; aid=$cell.aid; reason=[string]$columnProfile.reason
+          })
+        }
+        continue
+      }
       $toggleRequested = $null
       if ($requested -match '^(?i:true|false)$') { $toggleRequested = $requested.ToLowerInvariant() -eq 'true' }
       $tp = $null
@@ -10010,6 +11746,25 @@ switch ($Op) {
         before=[string]$old; cell=$cell; mode=$mode
       })
     }
+    if ($unsupportedComboCells.Count) {
+      Emit ([pscustomobject]@{
+        ok=$false; kind='unsupported-table-combobox'
+        error='Tabellen-ComboBox erkannt. Ohne zeilen- und optionsgebundene semantische Auswahl wird vor der ersten Datenmutation abgebrochen.'
+        page=$headingBefore; expectedPage=$expectedPage; ziel=$text; mutationStarted=$false
+        unsupportedCells=@($unsupportedComboCells)
+        supportedCellTypes=@('Edit','Spinner','DataItem','Toggle')
+        requiredCapability='typed-table-combobox-selection'
+        checkerMessagesBefore=$checkerBefore
+        tableBinding=[pscustomobject]@{
+          sumLabel=$sumLabel; sumOccurrence=$sumOccurrence; sumY=$region.targetSumY
+          previousSummaryY=$region.previousSummaryY; rowY=$target.y; targetRid=$target.rid
+          pageObjectId=$tableProfile.pageId; tableObjectId=$tableProfile.tableId
+          selectionMethod=$region.selectionMethod; scopePrefix=$region.scopePrefix
+          bindingStrength=$tableProfile.bindingStrength; aidFallback=[bool]$tableProfile.aidFallback
+        }
+        rollback=[pscustomobject]@{ versucht=$false; grund='Fail-closed vor der ersten Datenmutation; kein Rollback erforderlich.' }
+      })
+    }
 
     $dirtyBefore = Get-DirtyState $beforeTree
     $lockScreenIsolation = [bool](-not $script:DESKTOP_NAME -and (Test-SSEForegroundIsLockScreen))
@@ -10018,9 +11773,9 @@ switch ($Op) {
     $interactionBefore = Get-SSEInteractionWindowSet $targetPid $hwnd
     $changed = New-Object System.Collections.ArrayList
     $results = New-Object System.Collections.ArrayList
-    $failure = $null; $interference = $false
+    $failure = $null; $failureKind = $null; $interference = $false
 
-    foreach ($entry in $prepared) {
+    foreach ($entry in @($prepared | Sort-Object @{ Expression = { if ($_.mode -eq 'combo') { 0 } else { 1 } } }, spalte)) {
       if ($lockScreenIsolation -and -not (Test-SSEForegroundIsLockScreen)) {
         $failure = 'Windows-Lockscreen wurde waehrend der Zellaktualisierung verlassen.'
         $interference = $true; break
@@ -10028,6 +11783,42 @@ switch ($Op) {
       if ($guardUserInput -and -not (Test-SSELastInputUnchanged $inputBaseline)) {
         $failure = 'Fremde Benutzereingabe unmittelbar vor einer Zellaktualisierung erkannt.'
         $interference = $true; break
+      }
+      if ($entry.mode -eq 'combo') {
+        $comboResult = Invoke-SSETableComboSelection `
+          -Hwnd $hwnd -ProcessId $targetPid -ExpectedPage $expectedPage `
+          -SumLabel $sumLabel -SumOccurrence $sumOccurrence -RowY $entry.rowY -ColumnIndex $entry.spalte `
+          -TableProfile $entry.tableProfile -ColumnProfile $entry.columnProfile `
+          -ExpectedCurrent $entry.before -Wanted $entry.requested -CheckerMessagesBefore $checkerBefore `
+          -InputBaseline $inputBaseline -GuardUserInput:$guardUserInput
+        if ($guardUserInput -and $null -ne $comboResult.inputBaselineAfter) {
+          $inputBaseline = $comboResult.inputBaselineAfter
+        }
+        $comboDiagnostic = Get-SSETableComboDiagnosticProjection $comboResult
+        $null = $results.Add([pscustomobject]@{
+          spalte=$entry.spalte; vorher=$entry.before; gewuenscht=$entry.requested; ist=$comboResult.after
+          methode=$comboResult.method; ok=[bool]$comboResult.ok; internalSelected=$comboResult.internalSelected
+          error=$comboDiagnostic.error; kind=$comboDiagnostic.kind
+          mutationStarted=$comboDiagnostic.mutationStarted; interference=$comboDiagnostic.interference
+          editorClosed=$comboDiagnostic.editorClosed
+          popupBinding=$comboDiagnostic.popupBinding; openEvidence=$comboDiagnostic.openEvidence
+          diagnosticBounds=$comboDiagnostic.diagnosticBounds
+          newCheckerMessages=$comboResult.newCheckerMessages
+        })
+        if ($comboResult.ok) {
+          $entry | Add-Member -NotePropertyName mutationMethod -NotePropertyValue $comboResult.method -Force
+          if ($comboResult.mutationStarted) { $null = $changed.Add($entry) }
+          continue
+        }
+        $failure = [string]$comboResult.error
+        $failureKind = [string]$comboDiagnostic.kind
+        $interference = [bool]$comboResult.interference
+        if ($comboResult.mutationStarted -and
+            -not ($comboResult.rollback -and $comboResult.rollback.erfolgreich) -and
+            [string]::Equals([string]$comboResult.after, [string]$entry.requested, [StringComparison]::Ordinal)) {
+          $null = $changed.Add($entry)
+        }
+        break
       }
       $live = Get-LiveElement $hwnd $entry.cell.rid
       $livePattern = $null; $liveBefore = $null
@@ -10124,30 +11915,38 @@ switch ($Op) {
     Start-Sleep -Milliseconds 500
     $interactionAfter = Get-SSEInteractionWindowSet $targetPid $hwnd
     if ($lockScreenIsolation -and -not (Test-SSEForegroundIsLockScreen)) {
-      $failure = 'Windows-Lockscreen wurde waehrend der Tabellenaktualisierung verlassen.'
+      if (-not $failure) { $failure = 'Windows-Lockscreen wurde waehrend der Tabellenaktualisierung verlassen.' }
       $interference = $true
     }
     if ($interactionAfter.fingerprint -ne $interactionBefore.fingerprint) {
-      $failure = 'Die logische SSE-Fensterlage hat sich waehrend der Tabellenaktualisierung geaendert.'
+      if (-not $failure) { $failure = 'Die logische SSE-Fensterlage hat sich waehrend der Tabellenaktualisierung geaendert.' }
       $interference = $true
     }
     if ($guardUserInput -and -not (Test-SSELastInputUnchanged $inputBaseline)) {
-      $failure = 'Fremde Benutzereingabe waehrend der Tabellenaktualisierung erkannt.'
+      if (-not $failure) { $failure = 'Fremde Benutzereingabe waehrend der Tabellenaktualisierung erkannt.' }
       $interference = $true
     }
 
     $afterTree = $null; $afterRead = $null; $headingAfter = $null
+    $checkerAfter = @(); $newCheckerMessages = @()
     if (-not $interference) {
       $afterTree = Walk-Tree $hwnd -WithValues
       $headingAfter = Get-CurrentHeading $hwnd $afterTree
       if ($headingAfter -ne $expectedPage) {
-        $failure = "Seite wechselte waehrend der Tabellenaktualisierung zu '$headingAfter'."
+        if (-not $failure) { $failure = "Seite wechselte waehrend der Tabellenaktualisierung zu '$headingAfter'." }
         $interference = $true
       } else {
         $afterRead = Read-LabeledValueFromTree $afterTree $hwnd $sumLabel $sumOccurrence
-        if (-not $afterRead.selected -or -not (Test-SSEScalarEqual $afterRead.value $expectedAfter)) {
+        if (-not $failure -and (-not $afterRead.selected -or -not (Test-SSEScalarEqual $afterRead.value $expectedAfter))) {
           $failure = "Nachsumme '$sumLabel' ist '$($afterRead.value)', erwartet '$expectedAfter'."
         }
+      }
+    }
+    if ($afterTree) {
+      $checkerAfter = @(Get-SSEPageCheckerMessages $afterTree $hwnd)
+      $newCheckerMessages = @(Compare-SSEPageCheckerMessages $checkerBefore $checkerAfter)
+      if ($newCheckerMessages.Count -and -not $failure) {
+        $failure = "Neue Pruefermeldung nach Tabellenmutation: $($newCheckerMessages -join ' | ')"
       }
     }
 
@@ -10161,6 +11960,8 @@ switch ($Op) {
           ok=$false; kind='interference'; error=$failure
           page=$headingAfter; expectedPage=$expectedPage; ziel=$text
           summeVorher=$beforeRead.value; summeNachher=$(if ($afterRead) { $afterRead.value } else { $null })
+          checkerMessagesBefore=$checkerBefore; checkerMessagesAfter=$checkerAfter
+          newCheckerMessages=$newCheckerMessages
           zellen=@($results); geaenderteSpalten=@($changed | ForEach-Object { $_.spalte })
           tableBinding=$binding
           inputGuard=[pscustomobject]@{
@@ -10178,9 +11979,18 @@ switch ($Op) {
       $rollbackPrepared = New-Object System.Collections.ArrayList
       $rollbackInterference = $false; $rollbackReason = $null
       foreach ($entry in $changed) {
-        $live = Get-LiveElement $hwnd $entry.cell.rid; $rollbackPattern = $null; $current = $null
-        if (-not $live) {
-          $rollbackInterference=$true; $rollbackReason="Spalte $($entry.spalte) ist vor Rollback nicht mehr gebunden."; break
+        $live = $null; $rollbackPattern = $null; $current = $null
+        if ($entry.mode -eq 'combo') {
+          $comboState = Read-SSETableComboCellState $hwnd $expectedPage $sumLabel $sumOccurrence $entry.rowY $entry.spalte $entry.tableProfile
+          if (-not $comboState.ok) {
+            $rollbackInterference=$true; $rollbackReason="ComboBox-Spalte $($entry.spalte) ist vor Rollback nicht mehr gebunden: $($comboState.error)"; break
+          }
+          $current = [string]$comboState.value
+        } else {
+          $live = Get-LiveElement $hwnd $entry.cell.rid
+          if (-not $live) {
+            $rollbackInterference=$true; $rollbackReason="Spalte $($entry.spalte) ist vor Rollback nicht mehr gebunden."; break
+          }
         }
         if ($entry.mode -eq 'toggle') {
           if (-not $live.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$rollbackPattern) -or
@@ -10188,7 +11998,7 @@ switch ($Op) {
             $rollbackInterference=$true; $rollbackReason="Toggle-Spalte $($entry.spalte) ist vor Rollback nicht eindeutig gebunden."; break
           }
           $current = $(if ([string]$rollbackPattern.Current.ToggleState -eq 'On') { 'true' } else { 'false' })
-        } else {
+        } elseif ($entry.mode -eq 'value') {
           if (-not $live.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$rollbackPattern) -or $rollbackPattern.Current.IsReadOnly) {
             $rollbackInterference=$true; $rollbackReason="Wert-Spalte $($entry.spalte) ist vor Rollback nicht gebunden."; break
           }
@@ -10212,6 +12022,8 @@ switch ($Op) {
           ok=$false; kind='interference'; error=$rollbackReason
           page=$headingAfter; expectedPage=$expectedPage; ziel=$text
           summeVorher=$beforeRead.value; summeNachher=$(if ($afterRead) { $afterRead.value } else { $null })
+          checkerMessagesBefore=$checkerBefore; checkerMessagesAfter=$checkerAfter
+          newCheckerMessages=$newCheckerMessages
           zellen=@($results); geaenderteSpalten=@($changed | ForEach-Object { $_.spalte }); tableBinding=$binding
           rollback=[pscustomobject]@{ versucht=$false; grund='Kein blinder Rollback nach fremdem Zellwert/Eingabe/Fensterwechsel.' }
         })
@@ -10222,7 +12034,19 @@ switch ($Op) {
         $restored=$true; $actualRollback=$item.current; $rollbackError=$null
         if ($item.needsRollback) {
           try {
-            if ($item.entry.mode -eq 'toggle') {
+            if ($item.entry.mode -eq 'combo') {
+              $comboRollback = Invoke-SSETableComboSelection `
+                -Hwnd $hwnd -ProcessId $targetPid -ExpectedPage $expectedPage `
+                -SumLabel $sumLabel -SumOccurrence $sumOccurrence -RowY $item.entry.rowY -ColumnIndex $item.entry.spalte `
+                -TableProfile $item.entry.tableProfile -ColumnProfile $item.entry.columnProfile `
+                -ExpectedCurrent $item.entry.requested -Wanted $item.entry.before -CheckerMessagesBefore $checkerBefore `
+                -InputBaseline $inputBaseline -GuardUserInput:$guardUserInput -Rollback
+              if ($guardUserInput -and $null -ne $comboRollback.inputBaselineAfter) {
+                $inputBaseline = $comboRollback.inputBaselineAfter
+              }
+              if (-not $comboRollback.ok) { throw $comboRollback.error }
+              $actualRollback=[string]$comboRollback.after
+            } elseif ($item.entry.mode -eq 'toggle') {
               if ($item.entry.mutationMethod -eq 'verified-cell-click') {
                 $rollbackLive = Get-LiveElement $hwnd $item.entry.cell.rid
                 if (-not $rollbackLive) { throw 'Toggle-Zelle ist fuer den verifizierten Rollback-Klick verschwunden.' }
@@ -10258,22 +12082,28 @@ switch ($Op) {
       $rollbackTree=Walk-Tree $hwnd -WithValues
       $rollbackHeading=Get-CurrentHeading $hwnd $rollbackTree
       $rollbackSum=Read-LabeledValueFromTree $rollbackTree $hwnd $sumLabel $sumOccurrence
+      $rollbackCheckerMessages = @(Get-SSEPageCheckerMessages $rollbackTree $hwnd)
+      $rollbackNewCheckerMessages = @(Compare-SSEPageCheckerMessages $checkerBefore $rollbackCheckerMessages)
       $rollbackWindowsAfter=Get-SSEInteractionWindowSet $targetPid $hwnd
       $rollbackOk=[bool](
         $rollbackHeading -eq $expectedPage -and
         $rollbackWindowsAfter.fingerprint -eq $interactionBefore.fingerprint -and
         (-not $guardUserInput -or (Test-SSELastInputUnchanged $inputBaseline)) -and
         (Test-SSEScalarEqual $rollbackSum.value $expectedBefore) -and
+        $rollbackNewCheckerMessages.Count -eq 0 -and
         @($rollbackCells | Where-Object { -not $_.restored }).Count -eq 0
       )
       Emit ([pscustomobject]@{
-        ok=$false; kind='postcondition-failed'; error=$failure
+        ok=$false; kind=$(if ($failureKind) { $failureKind } else { 'postcondition-failed' }); error=$failure
         page=$rollbackHeading; expectedPage=$expectedPage; ziel=$text
         summeVorher=$beforeRead.value; summeNachher=$(if ($afterRead) { $afterRead.value } else { $null })
+        checkerMessagesBefore=$checkerBefore; checkerMessagesAfter=$checkerAfter
+        newCheckerMessages=$newCheckerMessages
         zellen=@($results); tableBinding=$binding
         rollback=[pscustomobject]@{
           versucht=$true; erfolgreich=$rollbackOk; summe=$rollbackSum.value
           erwarteteSumme=$expectedBefore; zellen=@($rollbackCells)
+          checkerMessages=$rollbackCheckerMessages; newCheckerMessages=$rollbackNewCheckerMessages
         }
       })
     }
@@ -10281,6 +12111,8 @@ switch ($Op) {
     Emit ([pscustomobject]@{
       ok=$true; verified=$true; ziel=$text; page=$headingAfter
       summeVorher=$beforeRead.value; summeNachher=$afterRead.value
+      checkerMessagesBefore=$checkerBefore; checkerMessagesAfter=$checkerAfter
+      newCheckerMessages=$newCheckerMessages
       zellen=@($results); tableBinding=$binding
       ungespeichertVorher=$dirtyBefore; ungespeichertNachher=$(Get-DirtyState $afterTree)
       inputGuard=[pscustomobject]@{
@@ -10322,7 +12154,6 @@ switch ($Op) {
     })
     if ($dialogsBefore.Count) { Fail 'Ein modaler Dialog ist offen; Loeschung nicht begonnen.' 'precondition-failed' }
 
-    $norm = { param($s) ("$s" -replace '[\s.]', '') -replace ',', '.' }
     function Read-LabeledValue([IntPtr]$window, [string]$label, [string]$expectedHint = '', [int]$occurrence = 0) {
       $tree = Walk-Tree $window -WithValues
       $bounds = Get-ContentBounds $tree $window
@@ -10363,15 +12194,14 @@ switch ($Op) {
           return [pscustomobject]@{ value = $null; selected = $null; tree = $tree; candidates = $unique; matchedExpected = $false; occurrence = $occurrence }
         }
         $chosen = $unique[$occurrence - 1]
-        $matchesHint = (-not $expectedHint) -or ((& $norm $chosen.value) -eq (& $norm $expectedHint))
+        $matchesHint = (-not $expectedHint) -or (Test-SSEScalarEqual $chosen.value $expectedHint)
         return [pscustomobject]@{
           value = $(if ($matchesHint) { $chosen.value } else { $null })
           selected = $chosen; tree = $tree; candidates = $unique; matchedExpected = [bool]$matchesHint; occurrence = $occurrence
         }
       }
       if ($expectedHint) {
-        $expectedNormalized = & $norm $expectedHint
-        $matching = @($unique | Where-Object { (& $norm $_.value) -eq $expectedNormalized })
+        $matching = @($unique | Where-Object { Test-SSEScalarEqual $_.value $expectedHint })
         if ($matching.Count -eq 1) {
           return [pscustomobject]@{ value = $matching[0].value; selected = $matching[0]; tree = $tree; candidates = $unique; matchedExpected = $true }
         }
@@ -10389,7 +12219,7 @@ switch ($Op) {
     if ($headingBefore -ne $expectedPage) {
       Fail "Vorbedingung verletzt: aktuelle Seite ist '$headingBefore', erwartet '$expectedPage'. NICHT geloescht." 'precondition-failed'
     }
-    if ((& $norm $before) -ne (& $norm $expectedBefore)) {
+    if (-not (Test-SSEScalarEqual $before $expectedBefore)) {
       Fail "Vorbedingung verletzt: '$sumLabel' ist '$before', erwartet '$expectedBefore'. NICHT geloescht." 'precondition-failed'
     }
 
@@ -10434,7 +12264,7 @@ switch ($Op) {
             Fail 'Tabellenfokus ging waehrend der Zielsuche verloren; nichts geloescht.' 'interference'
           }
           $currentRead = Read-LabeledValue $hwnd $sumLabel $expectedBefore $sumOccurrence
-          if ((& $norm $currentRead.value) -ne (& $norm $expectedBefore)) {
+          if (-not (Test-SSEScalarEqual $currentRead.value $expectedBefore)) {
             Fail "Kontrollsumme/Seite veraenderten sich waehrend der Zielsuche. NICHT geloescht." 'interference'
           }
           $t = $currentRead.tree
@@ -10472,7 +12302,7 @@ switch ($Op) {
     $pointMatches = $(if ($pointRegion.ok) {
       @($pointRegion.cells | Where-Object { $_.name -eq $text })
     } else { @() })
-    if ($pointHeading -ne $expectedPage -or ((& $norm $pointRead.value) -ne (& $norm $expectedBefore)) -or
+    if ($pointHeading -ne $expectedPage -or -not (Test-SSEScalarEqual $pointRead.value $expectedBefore) -or
         $pointMatches.Count -ne 1) {
       [SW]::SetWindowPos($hwnd, $HWND_NOTOPMOST, 0, 0, 0, 0, $SWP) | Out-Null
       Fail 'Seite, Summe oder eindeutige Zielzelle veraenderten sich beim Aktivieren; nichts geloescht.' 'interference'
@@ -10589,7 +12419,7 @@ switch ($Op) {
     $preDeleteInputAfter = Get-SSELastInputTick
     $preDeleteOk = [bool](
       $preDeleteHeading -eq $expectedPage -and
-      ((& $norm $preDeleteRead.value) -eq (& $norm $expectedBefore)) -and
+      (Test-SSEScalarEqual $preDeleteRead.value $expectedBefore) -and
       $preDeleteMatches.Count -eq 1 -and $preDeleteMatches[0].rid -eq $zelle.rid -and
       [SW]::GetForegroundWindow() -eq $hwnd -and
       $interactionBeforeDelete.fingerprint -eq $preDeleteWindows.fingerprint -and
@@ -10668,7 +12498,7 @@ switch ($Op) {
       })
     }
 
-    $postOk = (-not $nochDa) -and ((& $norm $after) -eq (& $norm $expectedAfter))
+    $postOk = (-not $nochDa) -and (Test-SSEScalarEqual $after $expectedAfter)
     if (-not $postOk) {
       $rollbackGuardInput = Get-SSELastInputTick
       $rollbackGuardWindows = Get-SSEInteractionWindowSet $targetPid $hwnd
@@ -10715,7 +12545,7 @@ switch ($Op) {
         ($null -ne $rollbackInputBaseline -and $null -ne $rollbackInputAfter -and $rollbackInputBaseline -ne $rollbackInputAfter)
       )
       $rolledBack = [bool](-not $rollbackInterference -and $targetRestored -and
-        ((& $norm $rollbackRead.value) -eq (& $norm $expectedBefore)))
+        (Test-SSEScalarEqual $rollbackRead.value $expectedBefore))
       Emit ([pscustomobject]@{
         ok = $false; kind = 'postcondition-failed'; geloescht = $text
         error = $(if ($rolledBack) {
@@ -10817,6 +12647,7 @@ switch ($Op) {
   'menu_click' {
     $eintrag = [string](Arg $a 'name')
     if (-not $eintrag) { Fail 'name fehlt' 'bad-args' }
+    $waitMs = Get-SSEBoundedIntegerArg $a 'waitMs' 1500 100 10000
     if (Test-Versand $eintrag) { Fail "GESPERRT: '$eintrag' fuehrt zu einer Uebermittlung." 'blocked' }
     Assert-SSEDestructiveAcknowledgement $a @($eintrag)
     $mainWindow = Resolve-SSEMainWindowDescriptor $a -RestoreMinimized
@@ -10858,10 +12689,10 @@ switch ($Op) {
     # und die SSE-Prozess-ID gebunden.
     $dirtyBefore = Get-DirtyStateFast $mainHwnd
     $null = Click-VerifiedPoint $match.hwnd $match.node
-    Start-Sleep -Milliseconds ([int](Arg $a 'waitMs' 1500))
+    Start-Sleep -Milliseconds $waitMs
     Emit ([pscustomobject]@{
       ok = $true; ausgeloest = $match.node.name; angefordert = $eintrag
-      method = 'verified-point'; fenster = (Get-Windows 'SSE').Count
+      method = 'verified-point'; fenster = (@(Get-Windows 'SSE')).Count
       ungespeichertVorher=$dirtyBefore; ungespeichertNachher=$(Get-DirtyStateFast $mainHwnd)
     })
   }

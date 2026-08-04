@@ -35,6 +35,16 @@ for (const name of discovered) {
 const main = readFileSync(join(skillsRoot, "steuer-spar-erklaerung", "SKILL.md"), "utf8");
 assert(main.includes("kein globales Node.js/npm") && main.includes("kein Python") && main.includes("PowerShell 7"));
 assert(main.includes("MCP ist ein optionaler dünner Wrapper") && main.includes("API-Selbstbeschreibung"));
+assert(main.includes("steuer-spar-erklaerung-call") && main.includes("--args-file -") && main.includes("Prozessliste"));
+assert(main.includes("describe <operation>") && main.includes("discovery"));
+assert(main.includes("sse_capabilities") && main.includes("Fallback bei unbekannten Controls"));
+assert(main.includes("unsupportedButtons") && main.includes("generischen Toggle-Klick"));
 assert(main.includes("niemals über ELSTER") && main.includes("verifizierten Arbeitskopie"));
+assert(main.includes("sse_ustva_read") && main.includes("sse_ustva_open_section"));
+const setup = readFileSync(join(skillsRoot, "steuer-spar-erklaerung-setup", "SKILL.md"), "utf8");
+assert(setup.includes("runtime/node.exe dist/api-cli.js health") && setup.includes("discovery"));
+assert(setup.includes('command = "node"') && setup.includes("schwarze `cmd.exe`-Fenster"));
+assert(setup.includes("Windows x64") && setup.includes("Windows PowerShell 5.1"));
+assert(!setup.includes("Windows 10/11"), "Setup darf kompatible Windows-Versionen nicht nach Label sperren.");
 
 process.stdout.write("Public Skills: 2 flache npx-kompatible, deutsche und portable Skill-Pakete bestanden\n");

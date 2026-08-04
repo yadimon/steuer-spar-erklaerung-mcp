@@ -1,0 +1,133 @@
+import { join } from "node:path";
+
+const node = process.execPath;
+const powershell = process.env.SSE_POWERSHELL_EXE ??
+  join(process.env.SystemRoot ?? process.env.WINDIR ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+const psFile = (name, file) => ({
+  name,
+  command: powershell,
+  args: ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", file],
+});
+const nodeFile = (name, file, ...args) => ({ name, command: node, args: [file, ...args] });
+const withApi = (name, file, ...args) => nodeFile(name, "test/with-api.mjs", node, file, ...args);
+
+export const serialBuildSteps = Object.freeze([
+  psFile("native-build", "powershell/build-native.ps1"),
+  nodeFile("typescript-build", "node_modules/typescript/bin/tsc"),
+]);
+
+export const parallelSteps = Object.freeze([
+  nodeFile("suite-runner-contract", "test/suite-runner-contract.mjs"),
+  nodeFile("public-skills", "test/public-skills.mjs"),
+  nodeFile("repository-privacy", "test/repository-privacy-contract.mjs"),
+  nodeFile("repository-links", "test/repository-links-contract.mjs"),
+  nodeFile("javascript-syntax", "test/javascript-syntax-contract.mjs"),
+  psFile("powershell-syntax", "test/powershell-syntax-contract.ps1"),
+  psFile("tracked-date-rollback", "test/tracked-date-rollback-contract.ps1"),
+  psFile("window-restore-contract", "test/window-restore-contract.ps1"),
+  nodeFile("portable-package", "test/portable-package.mjs"),
+  nodeFile("direct-worker-guard", "test/direct-worker-guard.mjs"),
+  nodeFile("direct-worker-resource-guard", "test/direct-worker-resource-guard.mjs"),
+  nodeFile("direct-worker-file-guard", "test/direct-worker-file-guard.mjs"),
+  nodeFile("worker-input-file-contract", "test/worker-input-file-contract.mjs"),
+  nodeFile("direct-worker-collection-guard", "test/direct-worker-collection-guard.mjs"),
+  nodeFile("worker-progress-contract", "test/worker-progress-contract.mjs"),
+  nodeFile("table-add-rollback-contract", "test/table-add-rollback-contract.mjs"),
+  withApi("verify-collect", "test/verify-collect.mjs"),
+  nodeFile("product-profiles", "test/product-profiles.mjs"),
+  psFile("akad-parser", "test/akad-parser-contract.ps1"),
+  nodeFile("setup-wizard", "test/setup-wizard.mjs"),
+  nodeFile("atomic-files", "test/atomic-files.mjs"),
+  nodeFile("jsonl-logger", "test/jsonl-logger.mjs"),
+  nodeFile("npm-package", "test/npm-package-contract.mjs"),
+  nodeFile("portable-zip", "test/portable-zip-contract.mjs"),
+  nodeFile("workspace-containment", "test/workspace-containment.mjs"),
+  nodeFile("resource-references", "test/resource-references.mjs"),
+  nodeFile("backup-cases-contract", "test/backup-cases-contract.mjs"),
+  nodeFile("archive-cases-synthetic", "test/archive-cases-synthetic.mjs"),
+  psFile("setup-task", "test/setup-task-contract.ps1"),
+  nodeFile("api-contract", "test/api-contract.mjs"),
+  nodeFile("api-discovery-contract", "test/api-discovery-contract.mjs"),
+  nodeFile("api-openapi-contract", "test/api-openapi-contract.mjs"),
+  nodeFile("api-cli-contract", "test/api-cli-contract.mjs"),
+  nodeFile("api-config-contract", "test/api-config-contract.mjs"),
+  nodeFile("api-all-operations", "test/api-all-operations.mjs"),
+  nodeFile("launch-orchestration", "test/launch-orchestration.mjs"),
+  nodeFile("operation-schema-catalog", "test/operation-schema-catalog.mjs"),
+  nodeFile("source-architecture", "test/source-architecture-contract.mjs"),
+  nodeFile("mcp-module-boundaries", "test/mcp-module-boundaries.mjs"),
+  nodeFile("mcp-main-contract", "test/mcp-main-contract.mjs"),
+  nodeFile("mcp-registry-contract", "test/mcp-registry-contract.mjs"),
+  nodeFile("mcp-response-contract", "test/mcp-response-contract.mjs"),
+  nodeFile("capabilities-contract", "test/capabilities-contract.mjs"),
+  nodeFile("ustva-contract", "test/ustva-contract.mjs"),
+  nodeFile("api-main-smoke", "test/api-main-smoke.mjs"),
+  nodeFile("abort-contract", "test/abort-contract.mjs"),
+  nodeFile("wrapper-boundary", "test/wrapper-boundary.mjs"),
+  nodeFile("mcp-wrapper-catalog", "test/mcp-wrapper-all-tools.mjs"),
+  nodeFile("mcp-api-all-operations", "test/mcp-api-all-operations.mjs"),
+  nodeFile("mcp-cancellation", "test/mcp-cancellation.mjs"),
+  nodeFile("worker-timeout", "test/worker-timeout.mjs"),
+  nodeFile("worker-output-file-contract", "test/worker-output-file-contract.mjs"),
+  nodeFile("direct-worker-identity-guard", "test/direct-worker-identity-guard.mjs"),
+  nodeFile("direct-worker-native-guard", "test/direct-worker-native-guard.mjs"),
+  nodeFile("scenario-parity", "test/scenario-parity.mjs"),
+  nodeFile("scenario-control-flow", "test/scenario-control-flow.mjs"),
+  withApi("mcp-selftest", "dist/index.js", "--selftest"),
+  psFile("table-region", "test/table-region-contract.ps1"),
+  psFile("table-values", "test/table-values-contract.ps1"),
+  withApi("product-gate", "test/product-gate.mjs"),
+  withApi("archive-cases", "test/archive-cases.mjs"),
+]);
+
+export const exclusiveSteps = Object.freeze([
+  withApi("no-console-window", "test/no-console-window.mjs"),
+]);
+
+const FAST_STEP_NAMES = new Set([
+  "suite-runner-contract",
+  "public-skills",
+  "repository-privacy",
+  "repository-links",
+  "javascript-syntax",
+  "powershell-syntax",
+  "tracked-date-rollback",
+  "window-restore-contract",
+  "atomic-files",
+  "jsonl-logger",
+  "workspace-containment",
+  "resource-references",
+  "api-contract",
+  "api-discovery-contract",
+  "api-openapi-contract",
+  "api-cli-contract",
+  "api-config-contract",
+  "api-all-operations",
+  "launch-orchestration",
+  "operation-schema-catalog",
+  "source-architecture",
+  "mcp-module-boundaries",
+  "mcp-main-contract",
+  "mcp-registry-contract",
+  "mcp-response-contract",
+  "capabilities-contract",
+  "ustva-contract",
+  "api-main-smoke",
+  "abort-contract",
+  "wrapper-boundary",
+  "mcp-wrapper-catalog",
+  "mcp-api-all-operations",
+  "worker-timeout",
+  "worker-progress-contract",
+  "table-add-rollback-contract",
+  "table-values",
+  "scenario-parity",
+  "scenario-control-flow",
+]);
+
+export const fastBuildSteps = Object.freeze(
+  serialBuildSteps.filter((step) => step.name === "typescript-build"),
+);
+export const fastSteps = Object.freeze(
+  parallelSteps.filter((step) => FAST_STEP_NAMES.has(step.name)),
+);

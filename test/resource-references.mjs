@@ -10,7 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { loadApiServerConfig } from "../dist/api-config.js";
-import { createApiExecutor } from "../dist/api-executor.js";
+import { API_RESOURCE_BINDINGS, createApiExecutor } from "../dist/api-executor.js";
 import {
   formatResourceReference,
   parseResourceReference,
@@ -54,6 +54,9 @@ try {
     "workspace:ordner/../../escape.txt",
     "workspace:datei.txt:stream",
     "workspace:NUL",
+    "workspace:berichte/CON.txt",
+    "results:COM1.json",
+    "backups:lpt9/manifest.json",
     "unknown:file.txt",
     "workspace:",
   ]) {
@@ -181,7 +184,8 @@ try {
     ["collect", "resultRef", "path", "results:neu.json", join(roots.results, "neu.json")],
     ["export_csv", "resultRef", "dir", "results:csv-export", join(roots.results, "csv-export")],
     ["verify", "sourceRef", "from", "results:erfassung.json", join(roots.results, "erfassung.json"), {
-      expectedSourceHash: "0".repeat(64), erwartungen: [],
+      expectedSourceHash: "0".repeat(64),
+      erwartungen: [{ seite: "Seite", label: "Feld", wert: "1" }],
     }],
     ["screenshot", "resultRef", "path", "results:kontrolle.png", join(roots.results, "kontrolle.png")],
     ["save", "caseRef", "expectedPath", "cases:arbeit.Gew2025", join(roots.cases, "arbeit.Gew2025"), {
@@ -189,6 +193,22 @@ try {
     }],
     ["file_dialog_select", "resourceRef", "expectedPath", "documents:rechnung.txt", join(roots.documents, "rechnung.txt"), {
       expectedDialogTitle: "Öffnen",
+    }],
+    ["vast_apply", "expectedCaseRef", "expectedCasePath", "cases:arbeit.Gew2025", join(roots.cases, "arbeit.Gew2025"), {
+      hwnd: 101,
+      expectedMainHwnd: 102,
+      expectedCaseHash: "0".repeat(64),
+      mappingFingerprint: "1".repeat(64),
+      plan: [{ certificate: "Bescheinigung", occurrence: 1, localTarget: "Ziel" }],
+      acknowledgeApply: true,
+    }],
+    ["toggle", "expectedCaseRef", "expectedCasePath", "cases:arbeit.Gew2025", join(roots.cases, "arbeit.Gew2025"), {
+      expectedPage: "Seite", aid: ".Flag", expectedBefore: false, value: true, expectedAfter: true,
+      expectedCaseHash: "0".repeat(64),
+    }],
+    ["combo_select", "expectedCaseRef", "expectedCasePath", "cases:arbeit.Gew2025", join(roots.cases, "arbeit.Gew2025"), {
+      expectedPage: "Seite", aid: ".Combo", expectedCurrent: "A", value: "B", expectedAfter: "B",
+      expectedCaseHash: "0".repeat(64),
     }],
     ["backup_cases", "destinationRef", "dest", "backups:sicherung", join(roots.backups, "sicherung")],
     ["archive_cases", "destinationRef", "dest", "backups:archiv", join(roots.backups, "archiv"), {
@@ -206,6 +226,14 @@ try {
     assert.equal(result.resourceRefs[alias], ref);
     assert(!JSON.stringify(result).includes(expectedPath), `${operation} darf den lokalen Pfad nicht zurueckgeben`);
   }
+
+  writeFileSync(join(roots.results, "kontrolle.png"), "vorhandenes-kontrollbild", "utf8");
+  const callsBeforeExistingScreenshot = calls.length;
+  const existingScreenshot = await execute("screenshot", { resultRef: "results:kontrolle.png" }, 1_000);
+  assert.equal(existingScreenshot.ok, false);
+  assert.equal(existingScreenshot.kind, "bad-args");
+  assert.match(existingScreenshot.error, /existiert bereits/);
+  assert.equal(calls.length, callsBeforeExistingScreenshot, "Screenshot darf vorhandene Ergebnisdatei nicht ersetzen");
 
   const listedCases = await execute("list_cases", {}, 1_000);
   assert.equal(calls.at(-1).args.dir, roots.cases);
@@ -264,6 +292,16 @@ try {
     targetRef: "cases:arbeitskopie.Gew2025",
   });
 
+  const bindingOperationsCovered = new Set([
+    ...aliasCases.map(([operation]) => operation),
+    "case_hash", "tracked_set_value", "save_as", "make_working_copy",
+  ]);
+  assert.deepEqual(
+    Object.keys(API_RESOURCE_BINDINGS).sort(),
+    [...bindingOperationsCovered].sort(),
+    "Jeder deklarative Ressourcen-Bindungspfad braucht einen Aufloesungs-/Redaktionsvertrag.",
+  );
+
   const read = await execute("workspace_file_read_text", { ref: "documents:rechnung.txt" }, 1_000);
   assert.equal(read.ok, true);
   assert.equal(read.ref, "documents:rechnung.txt");
@@ -290,6 +328,9 @@ try {
     "cases:arbeit.Gew2025",
     "documents:rechnung.txt",
     "backups:manuell.txt",
+    "workspace:documents/neuer-beleg.txt",
+    "workspace:results/falscher-alias.txt",
+    "workspace:backups/falscher-alias.txt",
   ]) {
     const refusedWrite = await execute(
       "workspace_file_write_text",

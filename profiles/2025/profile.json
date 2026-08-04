@@ -21,6 +21,11 @@
     "NVBescheinigung": "NVBescheinigung",
     "vorweg": "Vorweg"
   },
+  "additionalCaseYears": {
+    "einurvor": [
+      2026
+    ]
+  },
   "pageObjects": "page-objects.json",
-  "policy": "Fail closed. Only this explicitly verified profile may control SSE; other years are reported but never operated."
+  "policy": "Fail closed. Only this explicitly verified product profile and its declared case-year exceptions may be controlled; undeclared years are reported but never operated."
 }

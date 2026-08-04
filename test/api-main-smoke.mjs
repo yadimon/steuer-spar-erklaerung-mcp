@@ -1,13 +1,17 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { Agent, createServer as createHttpServer, request as httpRequest } from "node:http";
 import { createServer } from "node:net";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { performance } from "node:perf_hooks";
 import { withCombinedAbortSignal } from "../dist/abort.js";
-import { attachScreenshotImage, installApiShutdown } from "../dist/api-main.js";
+import { API_MAIN_USAGE, parseApiMainArguments } from "../dist/api-main-arguments.js";
+import { SSE_API_OPERATIONS, SSE_API_VERSION } from "../dist/api-contract.js";
+import { attachScreenshotImage, installApiShutdown, MAX_SCREENSHOT_IMAGE_BYTES } from "../dist/api-runtime.js";
+import { readFileBounded } from "../dist/bounded-files.js";
 
 const reservePort = async () => {
   const probe = createServer();
@@ -19,6 +23,43 @@ const reservePort = async () => {
   await new Promise((resolve) => probe.close(resolve));
   return port;
 };
+
+assert.deepEqual(parseApiMainArguments([]), { help: false });
+assert.deepEqual(parseApiMainArguments(["--help"]), { help: true });
+assert.deepEqual(parseApiMainArguments(["--config", "C:\\config.json"]), {
+  help: false,
+  configPath: "C:\\config.json",
+});
+assert.throws(() => parseApiMainArguments(["--config"]), /Ungueltige API-Startargumente/);
+assert.throws(() => parseApiMainArguments(["--config", "a.json", "extra"]), /Ungueltige API-Startargumente/);
+assert.throws(() => parseApiMainArguments(["--unknown"]), /Ungueltige API-Startargumente/);
+
+const helpStartedAt = performance.now();
+const helpChild = spawn(process.execPath, ["dist/api-main.js", "--help"], {
+  cwd: process.cwd(),
+  windowsHide: true,
+  env: { ...process.env, SSE_API_TOKEN: "" },
+  stdio: ["ignore", "pipe", "pipe"],
+});
+let helpStdout = "";
+let helpStderr = "";
+helpChild.stdout.on("data", (chunk) => { helpStdout += chunk.toString("utf8"); });
+helpChild.stderr.on("data", (chunk) => { helpStderr += chunk.toString("utf8"); });
+const [helpCode] = await once(helpChild, "exit");
+const helpMs = performance.now() - helpStartedAt;
+assert.equal(helpCode, 0, helpStderr);
+assert.equal(helpStdout.trim(), API_MAIN_USAGE);
+assert(helpMs < 2_500, `API-Hilfe lud zu viel Laufzeitcode (${helpMs.toFixed(0)} ms).`);
+
+const invalidMain = spawnSync(process.execPath, ["dist/api-main.js", "--unknown"], {
+  cwd: process.cwd(),
+  windowsHide: true,
+  encoding: "utf8",
+  timeout: 15_000,
+});
+assert.equal(invalidMain.status, 1);
+assert.match(invalidMain.stderr, /SSE-API-Start fehlgeschlagen: Ungueltige API-Startargumente/);
+assert(!invalidMain.stderr.includes(process.cwd()), "Argumentfehler darf keinen lokalen Quellpfad ausgeben.");
 
 const temporary = mkdtempSync(join(tmpdir(), "sse-api-main-smoke-"));
 const workspaceDir = join(temporary, "workspace");
@@ -35,12 +76,26 @@ writeFileSync(
 );
 
 const screenshotPath = join(resultDir, "kontrolle.png");
-const screenshotBytes = Buffer.from("synthetic-png-fixture", "utf8");
+const screenshotBytes = Buffer.concat([
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+  Buffer.from("synthetic-png-fixture", "utf8"),
+]);
 writeFileSync(screenshotPath, screenshotBytes);
 const screenshotResult = { ok: true, shot: { path: screenshotPath, w: 10, h: 20 } };
 const attached = attachScreenshotImage(resultDir, "screenshot", { includeImage: true }, screenshotResult);
 assert.equal(attached.imageBase64, screenshotBytes.toString("base64"));
 assert.deepEqual(attached.shot, screenshotResult.shot);
+
+const invalidPngPath = join(resultDir, "kein-png.png");
+writeFileSync(invalidPngPath, "not-a-png", "utf8");
+const invalidPng = attachScreenshotImage(
+  resultDir,
+  "screenshot",
+  { includeImage: true },
+  { ok: true, shot: { path: invalidPngPath, w: 10, h: 20 } },
+);
+assert.match(invalidPng.imageReadError, /PNG-Signatur/);
+assert.equal(invalidPng.imageBase64, undefined);
 
 const vanishedPath = join(resultDir, "schon-entfernt.png");
 const vanished = attachScreenshotImage(
@@ -63,6 +118,20 @@ const outside = attachScreenshotImage(
 assert.equal(outside.ok, true);
 assert.match(outside.imageReadError, /ausserhalb des konfigurierten Ergebnisbereichs/);
 assert.equal(outside.imageBase64, undefined);
+
+const oversizedPath = join(resultDir, "zu-gross.png");
+writeFileSync(oversizedPath, "x", "utf8");
+truncateSync(oversizedPath, MAX_SCREENSHOT_IMAGE_BYTES + 1);
+const oversized = attachScreenshotImage(
+  resultDir,
+  "screenshot",
+  { includeImage: true },
+  { ok: true, shot: { path: oversizedPath, w: 10, h: 20 } },
+);
+assert.equal(oversized.ok, true);
+assert.match(oversized.imageReadError, /Ergebnis bleibt erhalten/);
+assert.equal(oversized.imageBase64, undefined);
+assert.throws(() => readFileBounded(screenshotPath, 4), /groesser als 4 Bytes/);
 
 const lifecycleServer = createHttpServer((_request, response) => response.end("ok"));
 lifecycleServer.listen(0, "127.0.0.1");
@@ -119,6 +188,19 @@ assert(lifecycleEvents.some((event) => event.event === "shutdown-requested"));
 assert(lifecycleEvents.some((event) => event.event === "shutdown-complete"));
 assert(!lifecycleEvents.some((event) => event.event === "shutdown-forced"));
 
+const logFailureServer = createHttpServer((_request, response) => response.end("ok"));
+logFailureServer.listen(0, "127.0.0.1");
+await once(logFailureServer, "listening");
+const logFailureLifecycle = installApiShutdown(
+  logFailureServer,
+  new AbortController(),
+  () => { throw new Error("synthetischer Shutdown-Logfehler"); },
+  { forceAfterMs: 100, registerProcessSignals: false },
+);
+logFailureLifecycle.requestShutdown();
+await logFailureLifecycle.closed;
+logFailureLifecycle.dispose();
+
 let acceptHangingRequest;
 const hangingRequestAccepted = new Promise((resolveAccepted) => { acceptHangingRequest = resolveAccepted; });
 const forceServer = createHttpServer(() => acceptHangingRequest());
@@ -150,6 +232,12 @@ assert(forceEvents.some((event) => event.event === "shutdown-complete"));
 const child = spawn(process.execPath, ["dist/api-main.js", "--config", configPath], {
   cwd: process.cwd(),
   windowsHide: true,
+  env: {
+    ...process.env,
+    SSE_API_TOKEN: "stale-api-main-token-with-at-least-24-characters",
+    SSE_API_PORT: "9",
+    SSE_WORKSPACE_DIR: join(temporary, "stale-workspace"),
+  },
   stdio: ["ignore", "pipe", "pipe"],
 });
 let stderr = "";
@@ -169,6 +257,17 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   assert.equal(healthy, true, `Produktiver API-Entry-Point wurde nicht gesund: ${stderr}`);
+
+  const actualOpenApiResponse = await fetch(`${baseUrl}/v1/openapi.json`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  assert.equal(actualOpenApiResponse.status, 200);
+  const actualOpenApi = await actualOpenApiResponse.json();
+  assert.equal(actualOpenApi.openapi, "3.1.0");
+  assert.equal(Object.keys(actualOpenApi.paths).length, SSE_API_OPERATIONS.length + 3);
+  assert(actualOpenApi.paths["/healthz"]?.get);
+  assert(actualOpenApi.paths[`/${SSE_API_VERSION}/operations`]?.get);
+  assert(actualOpenApi.paths[`/${SSE_API_VERSION}/openapi.json`]?.get);
 
   const unauthorized = await fetch(`${baseUrl}/v1/operations/workspace_status`, {
     method: "POST",
@@ -200,4 +299,4 @@ try {
   rmSync(temporary, { recursive: true, force: true });
 }
 
-process.stdout.write("API-Main-Smoke: Bild-Fallback, Keep-alive-Shutdown, Abort-Fan-out, Start, Auth und Log bestanden\n");
+process.stdout.write(`API-Main-Smoke: Hilfe in ${helpMs.toFixed(0)} ms, Bild, Shutdown, Abort, Start, Auth und Log bestanden\n`);

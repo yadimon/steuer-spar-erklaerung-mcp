@@ -1,12 +1,48 @@
 ﻿<# Shared, hash-bound loader for the public Win32/MSAA helper assembly. #>
 
-function Get-SSENativeSourceSha256([string]$Path) {
+function Get-SSENativeSha256([string]$Path, [long]$MaxBytes) {
+  $file = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+  if ($file.PSIsContainer -or $file.Length -gt $MaxBytes) {
+    throw "Native Integritaetsdatei ist groesser als $MaxBytes Bytes: $($file.Length)"
+  }
   $algorithm = [Security.Cryptography.SHA256]::Create()
   try {
-    $hash = $algorithm.ComputeHash([IO.File]::ReadAllBytes($Path))
-    ([BitConverter]::ToString($hash) -replace '-', '').ToUpperInvariant()
+    $stream = [IO.File]::OpenRead($file.FullName)
+    try {
+      if ($stream.Length -gt $MaxBytes) {
+        throw "Native Integritaetsdatei ist groesser als $MaxBytes Bytes: $($stream.Length)"
+      }
+      $hash = $algorithm.ComputeHash($stream)
+      ([BitConverter]::ToString($hash) -replace '-', '').ToUpperInvariant()
+    } finally {
+      $stream.Dispose()
+    }
   } finally {
     $algorithm.Dispose()
+  }
+}
+
+function Read-SSENativeBoundedUtf8([string]$Path, [long]$MaxBytes) {
+  $file = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+  if ($file.PSIsContainer -or $file.Length -gt $MaxBytes) {
+    throw "Native Integritaetsdatei ist groesser als $MaxBytes Bytes: $($file.Length)"
+  }
+  $stream = $null
+  try {
+    $stream = [IO.File]::Open($file.FullName, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+    if ($stream.Length -gt $MaxBytes) {
+      throw "Native Integritaetsdatei ist groesser als $MaxBytes Bytes: $($stream.Length)"
+    }
+    $bytes = New-Object byte[] ([int]$stream.Length)
+    $offset = 0
+    while ($offset -lt $bytes.Length) {
+      $read = $stream.Read($bytes, $offset, $bytes.Length - $offset)
+      if ($read -eq 0) { throw 'Native Integritaetsdatei wurde waehrend des Lesens verkuerzt.' }
+      $offset += $read
+    }
+    [Text.UTF8Encoding]::new($false, $true).GetString($bytes)
+  } finally {
+    if ($stream) { $stream.Dispose() }
   }
 }
 
@@ -48,20 +84,56 @@ function Import-SSENativeInterop {
     throw "Nativer Interop-Quelltext fehlt: $sourcePath"
   }
 
-  $sourceHash = Get-SSENativeSourceSha256 $sourcePath
-  $expectedHash = $(if (Test-Path -LiteralPath $hashPath -PathType Leaf) {
-    (Get-Content -Raw -LiteralPath $hashPath).Trim().ToUpperInvariant()
-  } else { '' })
-  $hashMatch = [bool]($expectedHash -and $expectedHash -eq $sourceHash)
+  $sourceHash = Get-SSENativeSha256 $sourcePath (1MB)
+  $dllHash = ''
+  $dllReadError = $null
+  if (Test-Path -LiteralPath $assemblyPath -PathType Leaf) {
+    try { $dllHash = Get-SSENativeSha256 $assemblyPath (4MB) }
+    catch { $dllReadError = $_.Exception.Message }
+  }
+  $expectedSourceHash = ''
+  $expectedDllHash = ''
+  $manifestError = $null
+  if (Test-Path -LiteralPath $hashPath -PathType Leaf) {
+    try {
+      $manifestFile = Get-Item -LiteralPath $hashPath -Force -ErrorAction Stop
+      if ($manifestFile.PSIsContainer -or $manifestFile.Length -gt 1KB) {
+        throw 'Interop-Integritaetsmanifest ist kein kleines regulaeres Dokument.'
+      }
+      $manifestText = Read-SSENativeBoundedUtf8 $hashPath 1KB
+      $manifest = $manifestText | ConvertFrom-Json -ErrorAction Stop
+      $manifestProperties = @($manifest.PSObject.Properties.Name)
+      if ($manifest.schemaVersion -ne 1 -or $manifestProperties.Count -ne 3 -or
+          'schemaVersion' -notin $manifestProperties -or 'sourceSha256' -notin $manifestProperties -or
+          'dllSha256' -notin $manifestProperties) {
+        throw 'Interop-Integritaetsmanifest hat nicht Schema 1.'
+      }
+      $expectedSourceHash = ([string]$manifest.sourceSha256).ToUpperInvariant()
+      $expectedDllHash = ([string]$manifest.dllSha256).ToUpperInvariant()
+      if ($expectedSourceHash -notmatch '^[A-F0-9]{64}$' -or $expectedDllHash -notmatch '^[A-F0-9]{64}$') {
+        throw 'Interop-Integritaetsmanifest enthaelt keinen gueltigen SHA256.'
+      }
+    } catch {
+      $manifestError = $_.Exception.Message
+    }
+  } else {
+    $manifestError = 'Integritaetsmanifest der Interop-DLL fehlt.'
+  }
+  $hashMatch = [bool]($expectedSourceHash -and $expectedSourceHash -eq $sourceHash)
+  $dllHashMatch = [bool]($expectedDllHash -and $expectedDllHash -eq $dllHash)
   $dllError = $null
 
   if (-not $ForceSource) {
     if (-not (Test-Path -LiteralPath $assemblyPath -PathType Leaf)) {
       $dllError = 'Vorkompilierte Interop-DLL fehlt.'
-    } elseif (-not $expectedHash) {
-      $dllError = 'Quellhash-Sidecar der Interop-DLL fehlt.'
+    } elseif ($dllReadError) {
+      $dllError = $dllReadError
+    } elseif ($manifestError) {
+      $dllError = $manifestError
     } elseif (-not $hashMatch) {
-      $dllError = "Interop-DLL ist veraltet: Quellhash $expectedHash, aktuell $sourceHash."
+      $dllError = "Interop-DLL ist veraltet: Quellhash $expectedSourceHash, aktuell $sourceHash."
+    } elseif (-not $dllHashMatch) {
+      $dllError = "Interop-DLL-Hash stimmt nicht: erwartet $expectedDllHash, aktuell $dllHash."
     } else {
       try {
         Add-Type -Path $assemblyPath -ErrorAction Stop
@@ -71,7 +143,8 @@ function Import-SSENativeInterop {
         $timer.Stop()
         return [pscustomobject]@{
           mode='precompiled-dll'; ms=$timer.ElapsedMilliseconds
-          sourceHash=$sourceHash; expectedSourceHash=$expectedHash; hashMatch=$true
+          sourceHash=$sourceHash; expectedSourceHash=$expectedSourceHash; hashMatch=$true
+          dllHash=$dllHash; expectedDllHash=$expectedDllHash; dllHashMatch=$true
           dllError=$null
         }
       } catch {
@@ -96,7 +169,8 @@ function Import-SSENativeInterop {
   $timer.Stop()
   [pscustomobject]@{
     mode='source-fallback'; ms=$timer.ElapsedMilliseconds
-    sourceHash=$sourceHash; expectedSourceHash=$expectedHash; hashMatch=$hashMatch
+    sourceHash=$sourceHash; expectedSourceHash=$expectedSourceHash; hashMatch=$hashMatch
+    dllHash=$dllHash; expectedDllHash=$expectedDllHash; dllHashMatch=$dllHashMatch
     dllError=$dllError
   }
 }

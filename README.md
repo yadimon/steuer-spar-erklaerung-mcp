@@ -31,6 +31,15 @@ herunter und startet `sse-setup.cmd`.
 
 ### Mit `npx skills`: Skill installieren
 
+Ohne Installation kann zuerst geprüft werden, welche Skills erkannt werden:
+
+```powershell
+npx skills add yadimon/steuer-spar-erklaerung-mcp --list
+```
+
+Der Scanner findet `steuer-spar-erklaerung` und
+`steuer-spar-erklaerung-setup`. Den Haupt-Skill installiert dieser Befehl:
+
 ```powershell
 npx skills add yadimon/steuer-spar-erklaerung-mcp --skill steuer-spar-erklaerung
 ```
@@ -71,6 +80,7 @@ freigegeben. Produkt- und Markennamen gehören ihren jeweiligen Inhabern.
 | **Schnell prüfen** | „Prüfe meinen geöffneten Steuerfall und liste Fehler, Warnungen und unklare Angaben.“ | Nur lesen, nichts verändern |
 | **Mit Belegen abgleichen** | „Vergleiche meinen Steuerfall mit den Belegen in diesem Ordner und erstelle einen Abweichungsbericht.“ | Belege nur nach Zustimmung lesen; Originale unverändert lassen |
 | **Kontrolliert korrigieren** | „Schlage Korrekturen vor und ändere nach meiner Freigabe nur eine verifizierte Arbeitskopie.“ | Erst Änderungsliste zeigen; jede Änderung zurücklesen |
+| **UStVA vorbereiten** | „Bereite meine Umsatzsteuer-Voranmeldung für Juli in einer Arbeitskopie vor, prüfe sie gegen die Belege und sende sie nicht ab.“ | Zieljahr und Meldezeitraum prüfen; vorhandene Übermittlung nie duplizieren; ELSTER bleibt gesperrt |
 | **Nur einrichten** | „Richte die portable SteuerSparErklärung-API ein. Wenn ich unsicher bin, verwende die empfohlenen Antworten.“ | Eine Frage pro Schritt; MCP bleibt optional |
 
 Während sichtbarer Bedienung muss Windows entsperrt bleiben. Der Nutzer darf in
@@ -134,7 +144,8 @@ Die Win32-/MSAA-Brücke wird beim Build einmalig als `sse-native.dll`
 kompiliert. Der frische Worker lädt danach die DLL, statt drei C#-Blöcke je
 Action neu zu kompilieren. Fehlt die DLL oder ist sie inkompatibel, kompiliert
 er fail-safe aus `sse-native.cs`. Ein SHA256-Sidecar bindet die DLL an genau
-diesen Quellstand; bei Drift wird die DLL nie geladen. Auch der Launcher für
+diesen Quellstand **und** an ihre exakten Binärbytes; bei Quell- oder DLL-Drift
+wird die DLL vor `Add-Type` verworfen. Auch der Launcher für
 den versteckten Desktop nutzt dieselbe Brücke statt eigener C#-Kompilierung.
 Gemessen ohne laufendes SSE nach der Hashbindung: Worker-Median
 ca. 0,130–0,156 s statt 0,41–0,44 s; kompletter Aufruf ca. 0,857–0,890 s statt
@@ -181,14 +192,70 @@ Direkter API-Start aus einem entpackten Release:
 ```
 
 Der erzeugte VBS-Starter führt denselben Befehl ohne Konsolenfenster aus.
+Bei einem ausdrücklichen `--config` ist genau diese Datei maßgeblich; geerbte
+`SSE_*`-Umgebungswerte können Port, Token oder Arbeitsbereich dann nicht
+überschreiben.
 
 Die API bindet ausschließlich an `127.0.0.1` oder `::1`, verlangt ein
 Bearer-Token, akzeptiert nur explizit freigegebene Operationen und protokolliert
-weder Argumente noch Ergebnisse. Alle 80 Operationsargumente werden gegen den
+weder Argumente noch Ergebnisse. Alle 86 Operationsargumente werden gegen den
 gemeinsamen strikten API-/MCP-Katalog geprüft, bevor ein UI-Worker startet;
 unbekannte oder unvollständige Felder liefern `400 bad-args`. Für einen
 bestätigten fensterlosen Autostart steht `powershell/install-api-task.ps1`
 bereit; das Setup registriert ihn nie ungefragt.
+
+Jede veröffentlichte MCP-Eingabeeigenschaft, einschließlich verschachtelter
+Plan-, Prüf- und Archivobjekte, besitzt eine eigene JSON-Schema-Beschreibung.
+Ein Katalogvertrag verhindert, dass neue Optionen unbeschrieben erscheinen.
+
+`GET /v1/operations` liefert nach Bearer-Authentifizierung nicht nur alle
+Operationsnamen, sondern auch deren JSON-Schema-Draft-07-Argumentverträge,
+read-only/destructive-Merkmale, harte Größenlimits, die generische
+Fallback-Leiter und den ELSTER-Sicherheitsstatus.
+Ein Programm oder Agent kann die reine HTTP-API dadurch vollständig entdecken,
+ohne zuerst MCP oder lokalen Quellcode laden zu müssen.
+Braucht ein Agent nur einen Vertrag, liefert
+`GET /v1/operations/{operation}` dieselben Angaben kompakt für genau diese
+Operation; in der CLI entspricht das `describe <operation>`.
+
+Für Standardwerkzeuge steht derselbe Vertrag zusätzlich authentifiziert unter
+`GET /v1/openapi.json` als OpenAPI 3.1 bereit. Das Dokument enthält zusätzlich
+den öffentlichen Healthcheck, den Gesamtkatalog und seinen eigenen Abrufpfad.
+Alle 86 POST-Routen referenzieren
+dort direkt die produktiven Argument-Schemas und Bearer-Authentifizierung.
+Der ausgelieferte JavaScript-Client bietet dafür `readApiDiscovery()` und
+`readOpenApiDocument()`; beide erzwingen Loopback, Token, Größenlimit, UTF-8,
+JSON-Struktur und eine kurze Discovery-Frist.
+
+Ohne eigenen Code kann ein lokaler Agent dieselbe API direkt aufrufen:
+
+```powershell
+steuer-spar-erklaerung-call health
+steuer-spar-erklaerung-call find --args-file .\find-args.json --timeout-ms 5000
+steuer-spar-erklaerung-call describe find
+steuer-spar-erklaerung-call discovery
+```
+
+Die CLI liest standardmäßig die eingerichtete API-Konfiguration. Komplexe
+Argumente kommen ausschließlich aus einer begrenzten UTF-8-JSON-Datei oder
+über `--args-file -` aus begrenztem stdin; ein
+`--args-json` in der sichtbaren Prozesskommandozeile ist absichtlich gesperrt.
+
+POST-Aufrufe verwenden `Content-Type: application/json`; nicht als gültiges
+UTF-8 lesbare Nutzdaten werden vor dem Executor abgelehnt. Bricht ein Agent
+einen MCP-Aufruf ab, wird derselbe Abbruch über HTTP bis zum lokalen Worker
+weitergereicht. Vor einem erneuten Schreibversuch muss der Zustand gelesen
+werden.
+Der MCP-Client akzeptiert seinerseits nur JSON-Antworten in gültigem UTF-8 und
+begrenzt deren dekodierte Größe auf 40 MiB. Eingebettete Kontrollbilder werden
+bereits im API-Prozess auf 20 MiB begrenzt.
+Der MCP kennzeichnet jedes Werkzeug standardisiert als read-only oder
+zustandsbehaftet, die zweite Gruppe zusätzlich als nicht-destruktiv/additiv
+oder potenziell destruktiv, und immer als rein lokal. `sse_capabilities` liefert
+dieselben typisierten, lückenlos partitionierten Operationsgruppen für
+generische Agenten-Fallbacks. UI-Texte sind
+auf 64 KiB und Listen/Objekte auf 2.000 Einträge begrenzt; Arbeitsdateitext
+behält sein separates 1-MiB-Limit.
 
 Die vom Setup erzeugte Mergevorlage in die Konfiguration des jeweiligen
 MCP-Clients mergen; vorhandene Konfiguration nie blind ersetzen:
@@ -208,13 +275,19 @@ MCP-Clients mergen; vorhandene Konfiguration nie blind ersetzen:
 }
 ```
 
+`command` muss dabei der absolute Pfad zur ausgelieferten
+`runtime/node.exe` bleiben. Ein alter Eintrag mit nur `node`, `node.cmd`, `npx`
+oder einem Batch-/Versionsmanager-Shim kann zusätzliche `cmd.exe`-Prozessketten
+und schwarze Konsolenfenster erzeugen; der Setup-Skill ersetzt gezielt nur
+diesen Servereintrag nach bestätigtem Backup und Diff.
+
 `<PORTABLE>` und das Token lokal ersetzen. Keine echten Fallpfade oder Token in
 dieses Repository oder in geteilte Konfigurationsbeispiele übernehmen.
 
 ## Entwicklung und Release-Build
 
 Nur die Ausführung aus dem Quellcode und die Entwicklung benötigen Node/npm.
-Für den reproduzierbaren portable Release-Build gilt die in
+Für den geprüften portablen Release-Build gilt die in
 `portable/runtime.json` gepinnte Node-Version 22.22.3. Separate PowerShell- und
 Python-Installationen sind auch für den Build nicht erforderlich; der native
 Helfer wird mit dem Windows-eigenen PowerShell 5.1 gebaut.
@@ -232,9 +305,10 @@ außerdem `sse-native.dll`. `sse_product_info.workerInitializationMs` zeigt, ob
 die geprüfte DLL (`precompiled-dll`) oder der sichere Quelltext-Fallback geladen
 wurde.
 
-Für eine spätere npm-Veröffentlichung sind drei CLI-Einstiege vorbereitet:
-`steuer-spar-erklaerung-api`, `steuer-spar-erklaerung-mcp` und
-`steuer-spar-erklaerung-setup`. Das Paket bleibt bis zu einem ausdrücklich
+Für eine spätere npm-Veröffentlichung sind vier CLI-Einstiege vorbereitet:
+`steuer-spar-erklaerung-api`, `steuer-spar-erklaerung-mcp`,
+`steuer-spar-erklaerung-call` und `steuer-spar-erklaerung-setup`. Das Paket
+bleibt bis zu einem ausdrücklich
 freigegebenen Release auf `private: true`; der Endnutzer-Standard ist weiterhin
 das portable ZIP ohne globale npm-Installation.
 
@@ -254,13 +328,53 @@ und sperrt das Zurückschreiben des Redaktionsplatzhalters. Für den CSV-Export
 kann die API einen neuen leeren `results:`-Unterordner sicher anlegen; bei einem
 fehlgeschlagenen Exportstart wird ein leer gebliebener Restordner entfernt.
 `sse_run_scenario` führt einen seriellen Ablauf aus und schreibt eine
-kanonische Ergebnisdatei. Ein vorhandenes Ergebnis darf nur mit dem zuvor
-gelesenen `expectedResultSha256` ersetzt werden.
+kanonische Ergebnisdatei. Ein bytegleiches deterministisches Ergebnis wird
+unter derselben Referenz wiederverwendet; abweichende oder parallel erschienene
+Inhalte werden nie ersetzt, sondern erhalten eine SHA256-Konfliktreferenz.
+Szenario- und Schrittfelder sind strikt; Tippfehler werden vor dem ersten
+UI-Schritt abgelehnt. Sehr große Capture-Werte werden mit Bytezahl und SHA-256
+zusammengefasst. Sollte der Gesamtbericht trotzdem 1 MiB überschreiten, wird
+eine deterministische, weiterhin vollständige Status-/Hash-Zusammenfassung
+statt einer verlorenen Ergebnisdatei geschrieben.
 Der versionierte komplexe Kontrollfall liegt unter
 `test/scenarios/complex-wrapper/`; direkter API-Aufruf und echter MCP-Wrapper
 müssen beide bytegleich `expected-result.json` mit SHA-256
-`13f088c95aab8dc622ac2ef3c494c8b05afe29fb5c7f09d155927c5857c3a214`
+`06d6a962dd41654e1591fa5df40ed389e7b55a62e147a4af52c0888e3573e0f9`
 erzeugen.
+
+### Umsatzsteuer-Voranmeldung vorbereiten, niemals senden
+
+Der einfachste Agentenauftrag lautet:
+
+```text
+Bereite meine Umsatzsteuer-Voranmeldung für Juli mit dem
+steuer-spar-erklaerung-Skill vor. Prüfe zuerst Jahr, Meldezeitraum,
+Übermittlungsstatus und Belege. Arbeite nur in einer hashverifizierten Kopie,
+lies alle Beträge zurück und sende nichts über ELSTER ab.
+```
+
+Die dedizierten `sse_ustva_*`-Operationen verwenden stabile Fachschlüssel statt
+deutscher Schaltflächentexte. `sse_ustva_select_period` setzt bewusst nur ein
+Dropdown pro Aufruf: zuerst gegebenenfalls `frequency`, danach `month` oder
+`quarter`. Eine vorhandene vierteljährliche Meldepflicht darf nicht allein
+wegen des Wortes „Juli“ auf monatlich geändert werden. Bereits übermittelte
+Zeiträume werden nur gelesen und berichtet, nie erneut angelegt oder ersetzt.
+
+Direkt über die API lässt sich ein bereits geöffnetes UStVA-Formular so lesen:
+
+```powershell
+$body = @{ args = @{ hwnd = 123456 } } | ConvertTo-Json -Depth 5
+Invoke-RestMethod -Method Post `
+  -Uri 'http://127.0.0.1:43127/v1/operations/ustva_read' `
+  -Headers @{ Authorization = 'Bearer <LOKALES_TOKEN>' } `
+  -ContentType 'application/json' -Body $body
+```
+
+Für eine Änderung kommen zusätzlich die logische Fallreferenz
+`cases:<arbeitskopie>.Gew2025`, deren unmittelbar zuvor gelesener SHA-256 sowie
+PID/HWND in den Request. Kein UStVA-Befehl speichert die Falldatei oder bedient
+ELSTER. Der vollständige fachliche und technische Ablauf steht in
+[Umsatzsteuer-Voranmeldung](docs/UMSATZSTEUER-VORANMELDUNG.md).
 
 ## Betriebswissen
 
@@ -281,7 +395,7 @@ Roh-Screenshots, OCR, Navigationsexporte und UI-Snapshots gehören nur nach
 
 | Werkzeug | Zweck |
 |---|---|
-| `sse_product_info` | Installierte/r laufende SSE-Versionen und die erzwungene 2025-/Engine-31-Grenze lesen |
+| `sse_product_info` | Installierte/r laufende SSE-Versionen sowie profilgebundene Falljahre lesen (Profil 2025: zusätzlich nur `GewErfass2026`) |
 | `sse_health` | Läuft das Programm, ist es ansprechbar? Kanarienvogel-Messung |
 | `sse_windows` | Sichtbare Fenster, erkennt modale Dialoge |
 | `sse_center_cases` | Read-only Fallliste des Steuertipps-Centers im Modus „Verzeichnis“, gegen primäre ESt-/Gew-Dateien im Ordner abgeglichen |
@@ -306,14 +420,24 @@ Roh-Screenshots, OCR, Navigationsexporte und UI-Snapshots gehören nur nach
 | `sse_get_value` / `sse_set_value` | Feld eindeutig lesen / ausschließlich globalen Suchtext transaktional setzen |
 | `sse_change_known_field` | Katalogisiertes Feld atomar mit PID/Epoche/Readback/Steuer-Diff ändern |
 | `sse_change_field` | Noch nicht katalogisiertes Feld atomar mit Vor-/Nachbedingungen sowie Eingabe-/Fenster-Guard ändern |
+| `sse_capabilities` | PC-blinde API-/MCP-Operationszuordnung, sichere Fallback-Leiter, Selektoren, Klickmuster und erlaubte Dialogantworten lesen |
 | `sse_toggle` | Echte Checkbox seiten- und vor-/nachzustandsgebunden setzen; eigener Fehler wird zurückgerollt |
 | `sse_combo_options` / `sse_combo_select` | Dropdown eindeutig lesen / seiten- und vor-/nachwertgebunden mit Interference-Stopp auswählen |
+| `sse_ustva_read` | UStVA-Übersicht sowie §13b- und Vorsteuer-Details 2025/2026 als stabile Struktur lesen |
+| `sse_ustva_select_period` | Frequenz, Monat oder Quartal einzeln über semantische Schlüssel und Fall-/Hashbindung auswählen |
+| `sse_ustva_set_flag` | Berichtigung, Belege, Verrechnung, SEPA-Widerruf, Zusatzangaben oder manuelle Erfassung gebunden setzen |
+| `sse_ustva_change_value` | Katalogisierte UStVA-Betrags-/Korrekturfelder mit Vor-/Nachwert und Arbeitskopie ändern |
+| `sse_ustva_open_section` | Gleich benannte „Erfassen“-Aktionen eindeutig den Bereichen Kleinunternehmer, steuerfrei oder nicht steuerbar zuordnen |
 | `sse_table_add` | An eine exakte Summenregion gebundene freie Tabellenzeile per ValuePattern anlegen |
 | `sse_table_update` | Seiten-/summenregionsgebundene Zeile transaktional aktualisieren, auch versteckt |
 | `sse_table_delete` | Seiten-/summenregionsgebundene Zeile mit Interference-Guard löschen (nur sichtbar); verdeckte Punkte melden den Blockierertyp und brechen vor Mutation ab |
 | `sse_click` / `sse_click_point` | UIA-Aktion bzw. echter Klick; physischer Pfad nur für Navigations-/Prüfer-TreeItems und exakt benannte Erfassen-/Bearbeiten-Hyperlinks |
 | `sse_scroll` | `intoview` / `percent` / `list` |
 | `sse_launch` / `sse_close` | Programm starten und eindeutiges Start-HWND für Folgeaktionen liefern / gebunden beenden |
+| `sse_list_cases` | Falldateien + ELSTER-Status ohne das Programm zu öffnen |
+| `sse_backup_cases` | Sicherung mit SHA256-Prüfsummen |
+| `sse_archive_cases` | Alte Test-/Zwischenfälle hashgebunden und wiederherstellbar aus dem aktiven Ordner archivieren |
+| `sse_desktop_start` / `sse_desktop_status` / `sse_desktop_stop` | Exakt PID-gebundene SSE-Instanz auf eigenem unsichtbaren Windows-Desktop betreiben |
 
 Der VaSt-Ergebnisdialog wird nach `sse_vast_apply` immer erst als neuer
 Folgedialog gemeldet. Sein Hinweis, dass Wahlleistungen nicht immer per VaSt
@@ -321,10 +445,18 @@ Folgedialog gemeldet. Sein Hinweis, dass Wahlleistungen nicht immer per VaSt
 dieser exakte offizielle Satz darf beim fingerprintgebundenen `Schließen` den
 Versand-Guard passieren; andere Übermittlungs- oder ELSTER-Texte bleiben
 gesperrt.
-| `sse_list_cases` | Falldateien + ELSTER-Status ohne das Programm zu öffnen |
-| `sse_backup_cases` | Sicherung mit SHA256-Prüfsummen |
-| `sse_archive_cases` | Alte Test-/Zwischenfälle hashgebunden und wiederherstellbar aus dem aktiven Ordner archivieren |
-| `sse_desktop_start` / `sse_desktop_status` / `sse_desktop_stop` | Exakt PID-gebundene SSE-Instanz auf eigenem unsichtbaren Windows-Desktop betreiben |
+
+### Wenn ein Spezialwerkzeug fehlt
+
+Der Agent liest zuerst `sse_capabilities`. Danach kann er ein unbekanntes
+Control sicher untersuchen: frischen Seitenzustand lesen, mit `sse_snapshot`
+und `sse_find` entdecken, bei Bedarf `sse_accessibility_probe` verwenden und
+erst dann genau eine gebundene Operation ausführen. Checkboxen und Dropdowns
+haben eigene Methoden; nach jeder Interaktion ist ein Readback Pflicht.
+
+Unbekannte Dialogbuttons erscheinen in `unsupportedButtons`, bleiben aber
+absichtlich gesperrt. Das Modell darf dadurch erklären, was sichtbar ist und
+um eine Entscheidung bitten, aber keinen freien Buttontext ausprobieren.
 
 ## Sicherheit
 
@@ -351,8 +483,9 @@ Der historische Name `sse_set_value` ist fail-closed auf die bekannte
 AutomationId des steuerneutralen globalen Suchfelds begrenzt. Auch dort sind
 exakter Vor-/Nachwert sowie Eingabe-, Fenster-, Dialog- und Seitenbindung
 Pflicht. Steuer-, Formular- und Tabellenfelder werden darüber abgewiesen.
-`pattern="toggle"` ist im generischen `sse_click` gesperrt. Checkboxen laufen
-über `sse_toggle`; Dropdowns über `sse_combo_select`. `pattern="select"` ist
+`pattern="toggle"` wird im generischen `sse_click` nicht angeboten und bleibt
+für alte direkte API-Aufrufe gesperrt. Checkboxen laufen über `sse_toggle`;
+Dropdowns über `sse_combo_select`. `pattern="select"` ist
 nur für genau einen über seine exakte AutomationId adressierten RadioButton
 zulässig. Dabei liest das Werkzeug die ganze Gruppe, verlangt vorher und
 nachher genau eine ausgewählte Option und verwendet einen PID-/Root-verifizierten
@@ -422,9 +555,9 @@ Dasselbe gilt für Batchläufe: `sse_collect` stoppt beim ersten Dialog,
 Seitenscheinerfolg, Zyklus, kranken UIA-Kanarienvogel oder — im sichtbaren
 Modus — einer fremden Benutzereingabe. Der zurückgegebene bzw. geschriebene
 Teilstand trägt `vollstaendig=false`, `stopKind` und `stopReason`; MCP meldet
-`collection-incomplete`. Eine vorhandene JSON-Zieldatei wird nur mit ihrem
-exakten `expectedOutputHashBefore` ersetzt, der neue Stand atomar geschrieben
-und als `dateiHash` zurückgelesen. Nach einem Prüfhinweis erst antworten und
+`collection-incomplete`. Jede Erfassung schreibt eine neue JSON-Zieldatei;
+vorhandene oder während des Laufs erscheinende Ziele werden nie ersetzt. Der
+neue Stand wird atomar geschrieben und als `dateiHash` zurückgelesen. Nach einem Prüfhinweis erst antworten und
 `sse_ui_state` lesen, niemals den wartenden Weiter-Klick wiederholen.
 Die Vorgabe sind 3, das harte Maximum 5 Seiten je Diagnose-Segment. Private-
 Memory-Zuwachs und UIA-Kanarienzustand werden vor und nach jedem Seitenwechsel
@@ -503,12 +636,28 @@ Klick neu geprüft.
 ## Test
 
 ```powershell
-npm test                        # Build, Selbsttest, fail-closed SSE-2025-Grenzen, Archivtest
+npm test                        # vollständige Suite inkl. Portable-, Worker- und Konsolenfenster-Gates
+npm run test:fast               # schneller API-/MCP-/Schema-Loop ohne schwere Portable-/Worker-Gates
 npm run test:api                # Auth-, Allowlist-, Body- und Timeout-Vertrag der HTTP-API
+npm run test:api-config         # strikte lokale Konfiguration, Loopback, Token, Pfade und UTF-8
+npm run test:atomic-files       # Setup-Inhalte vollständig vorstagen und Fehlerreste entfernen
+npm run test:package            # öffentlicher npm-Inhalt, Einstiege, Runtime und Skills
+npm run test:api-all            # alle 86 API-Routen erfolgreich plus bad-args vor dem Executor
+npm run test:api-discovery      # alle 86 JSON-Schemas, Traits, Grenzen und kompakte Antwort
+npm run test:api-openapi        # standardisierte OpenAPI-3.1-Routen aus denselben Verträgen
+npm run test:api-cli            # sicherer direkter Agentenaufruf ohne Werte in der Prozessliste
 npm run test:api-main           # produktiven API-Entry-Point fensterlos starten und prüfen
-npm run test:wrapper-boundary   # 80 MCP-Werkzeuge ausschließlich an 80 API-Operationen binden
-npm run test:wrapper-catalog    # alle 80 MCP-Werkzeuge dynamisch gegen eine Fake-API aufrufen
-npm run test:no-console        # echten MCP/API/PowerShell-Aufruf auf neue sichtbare Konsolenfenster überwachen
+npm run test:javascript-syntax  # alle JS-Einstiege inkl. manueller UI-Regressionen parsen
+npm run test:mcp-main           # strikten stdio-/Selftest-/Hilfe-Startvertrag prüfen
+npm run test:mcp-modules        # 86 Werkzeuge exakt einmal in sechs kleinen Modulen sichern
+npm run test:capabilities       # PC-blinde API-/MCP-Zuordnung und sichere Fallback-Leiter
+npm run test:ustva              # alle Zeitwerte, Flags, Betragsfelder und UStVA-Bereiche
+npm run test:table-values       # deutsche/invariante Zahlen exakt vergleichen, Mehrdeutigkeit ablehnen
+npm run test:wrapper-boundary   # 86 MCP-Werkzeuge ausschließlich an 86 API-Operationen binden
+npm run test:wrapper-catalog    # alle 86 MCP-Werkzeuge dynamisch gegen eine Fake-API aufrufen
+npm run test:mcp-api-all        # alle 86 Werkzeuge durch echten MCP- und HTTP-API-Router
+npm run test:mcp-cancel         # MCP-Abbruch bis zur HTTP-API und gesunden Folgeaufruf beweisen
+npm run test:no-console         # echten MCP/API/PowerShell-Aufruf auf neue sichtbare Konsolenfenster überwachen
 npm run test:scenario           # bytegleiche Ergebnisdatei via direkter API und echtem MCP
 npm run test:product            # 2025-/Version-/Modus-/Prozessgrenzen ohne Programmstart
 npm run test:verify             # synthetischer hashgebundener Collect-/Soll-Ist-Abgleich
@@ -523,6 +672,28 @@ npm run test:table-add           # richtige Summenregion, Erfolg und Zell-/Summe
 npm run test:table-update        # gebundene Zeilenaktualisierung, Erfolg und Rollback; braucht Fixture-Env
 npm run test:table-delete        # sichtbarer Summenregions-/Auswahl-/Delete-Test; braucht Fixture-Env
 ```
+
+Die Vollsuite führt konfliktfreie Verträge standardmäßig mit höchstens acht Prozessen
+parallel aus; der Konsolenfenster-Sentinel läuft weiterhin exklusiv. Für enge
+CI-Umgebungen lässt sich die Grenze beispielsweise mit
+`$env:SSE_TEST_CONCURRENCY = '2'` reduzieren. Kein Test wird dadurch
+übersprungen.
+Jeder Test-Kindprozess hat zusätzlich eine harte Fünf-Minuten-Frist und ein
+Ausgabelimit von 8 MiB. Ein Hänger oder Log-Sturm beendet nur den exakt
+gestarteten Testprozessbaum und wird seinem Testnamen zugeordnet. Erfolgreiche
+Schritte geben standardmäßig nur Name und Dauer aus; `SSE_TEST_VERBOSE=1`
+blendet ihre vollständige Unterausgabe ein. Fehler zeigen unabhängig davon
+einen auf 64 KiB begrenzten Diagnoseauszug. Die produktive
+Worker-Brücke begrenzt stdout auf 32 MiB und stderr auf 1 MiB; ungültiges UTF-8
+oder ein Ausgabesturm beendet den betroffenen Worker-Prozessbaum fail-closed.
+Worker-Argumente werden exklusiv in einer höchstens 8 MiB großen Tempdatei
+übergeben und nach jedem Ausgang gelöscht. So erscheinen Steuerwerte nicht als
+Base64-Prozessargument, und große gültige Pläne scheitern nicht am Windows-
+Kommandozeilenlimit.
+API-Antworten (40 MiB) und optionale Screenshot-Anhänge (20 MiB) besitzen
+eigene, speicherbegrenzte Lesepfade.
+Die serielle UI-Queue akzeptiert höchstens 32 laufende/wartende Aufträge;
+weitere Aufrufe erhalten `busy`, statt unbeschränkt Speicher zu belegen.
 
 Add/Update können auf einer neutralen, bereits auf der Zielseite gespeicherten
 `.Gew2025`-Vorlage vollständig fensterlos geprüft werden. Der Guard erzeugt
@@ -549,7 +720,8 @@ OCR-Bildtransport ohne neue Temp-Datei, fingerprintgebundene Dialogantwort,
 Dirty-State, Markerabbau und unveränderten SHA256 der wegwerfbaren Falldatei.
 `test:product` erzwingt außerdem einmal den nativen C#-Fallback und prüft, dass
 abgewiesene Starts weder SSE-PIDs noch den Desktop-Marker verändern. Zusätzlich
-simuliert es eine veraltete DLL und verlangt den sichtbaren Quelltext-Fallback.
+simuliert es eine veraltete Quelle; der Native-Guard manipuliert zusätzlich die
+DLL selbst und verlangt in beiden Fällen den sichtbaren Quelltext-Fallback.
 `test:visible-guard` arbeitet ausschließlich auf einer MCP-erzeugten Temp-Kopie,
 speichert nie und entfernt die Kopie wieder. Bleibt ein fremdes Fenster vor
 SSE, bestätigt der Lauf den rollbackfreien `epoch-obstructed`-Abbruch und
@@ -573,23 +745,34 @@ in beiden Fällen unverändert bleiben.
 ## Aufbau
 
 ```
-src/index.ts          PC-unabhaengiger MCP-Wrapper und Werkzeugdefinitionen
-src/api-main.ts       lokale loopback-only HTTP-API
+src/index.ts          Fehlergrenze des MCP-Prozesseinstiegs
+src/mcp-main.ts       strikte Argumente sowie stdio-, Hilfe- und Selftest-Modus
+src/mcp-tools.ts      Zusammensetzung der fachlich getrennten MCP-Werkzeuggruppen
+src/mcp-tools-*.ts    PC-unabhaengige Definitionen und Response-Shaping (max. 24 KiB je Gruppe)
+src/mcp-registry.ts   strikte MCP-Registrierung, Abbruch und API-Fehlergrenze
+src/api-main.ts       minimaler, strikt geparster API-Prozesseinstieg
+src/api-runtime.ts    loopback-only API-Laufzeit und kontrollierter Shutdown
 src/api-server.ts     Auth-, Allowlist-, Request- und Fehlervertrag
-src/api-executor.ts   API-Operationen, Workspace und Szenarioausfuehrung
-src/operation-catalog.ts gemeinsame strikte Schemas fuer 80 API-/MCP-Operationen
+src/api-executor.ts   schlanke API-Orchestrierung und lokale Ressourcenbindung
+src/workspace-executor.ts Dateiverwaltung und Szenarioausfuehrung
+src/mcp-schemas-*.ts  86 strikte MCP-Eingabeschemas in denselben sechs Fachgruppen
+src/operation-schema-primitives.ts gemeinsame Referenz-, Hash-, Selektor- und Grenzbausteine
+src/operation-catalog.ts API-Projektion, Operationszuordnung und Argumentbudgets
 src/api-client.ts     einzige MCP-Verbindung zur lokalen API
+src/bounded-files.ts  speicherbegrenztes Lesen lokaler Konfigurations-/Ergebnisdateien
 src/workspace.ts      relative Textdateien mit Pfad- und SHA256-Schutz
 src/scenario.ts       serielle, kanonische API-/MCP-Szenarien
+src/setup-main.ts     strikter, lazy geladener Hilfe-/Wizard-Einstieg
 src/setup.ts          deutscher portabler Setup-Wizard
 src/worker.ts         API-Bruecke zu PowerShell (ein frischer Prozess je UIA-Aufruf)
-powershell/sse-worker.ps1   die gesamte UIA-Logik
+powershell/sse-worker.ps1   UIA-Operationen und fail-closed Transaktionen
+powershell/table-values.ps1 strikte Zahlen-, Feld- und Tabellen-Readbackvergleiche
 powershell/sse-native.cs    öffentliche Win32-/MSAA-Brücke, einmalig kompiliert
-powershell/build-native.ps1 reproduzierbarer Build von sse-native.dll
+powershell/build-native.ps1 geprüfter Build von sse-native.dll samt Integritätsmanifest
 powershell/load-native.ps1  gemeinsamer SHA256-gebundener DLL-/Fallback-Loader
 powershell/akad-parser.ps1  Python-freier In-Process-Kopfparser mit ELSTER-Tri-State
 portable/runtime.json       gepinnte offizielle Node-Version und SHA-256
-scripts/package-portable.mjs reproduzierbarer Release-Ordner, ZIP und Prüfsumme
+scripts/package-portable.mjs geprüfter Release-Ordner, ZIP und Prüfsumme
 profiles/             explizit freigegebene Produktversionen und Page Objects
 skills/               flache öffentliche Skills für npx/Codex/Claude Code
 docs/entwicklung/erfahrungen/ getrennte Entwicklungs-Memory ohne Runtime-Last

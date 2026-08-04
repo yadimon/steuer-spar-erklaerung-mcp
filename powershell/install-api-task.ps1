@@ -24,11 +24,7 @@ if ($existing -and -not $Replace) {
   throw "Aufgabe '$TaskName' existiert bereits. Erst pruefen; zum bewussten Ersetzen -Replace angeben."
 }
 
-$configStem = [IO.Path]::GetFileNameWithoutExtension($config)
-if (-not $configStem) { $configStem = 'config' }
-$vbsPath = Join-Path (Split-Path -Parent $config) "start-sse-api.$configStem.hidden.vbs"
-$vbs = New-SseApiVbsContent -NodePath $node -ApiMainPath $apiMain -ConfigPath $config
-[IO.File]::WriteAllText($vbsPath, $vbs, [Text.UTF8Encoding]::new($false))
+$vbsPath = Write-SseApiVbsLauncher -NodePath $node -ApiMainPath $apiMain -ConfigPath $config
 
 $arguments = '//B //NoLogo "' + $vbsPath + '"'
 $action = New-ScheduledTaskAction -Execute $wscript -Argument $arguments -WorkingDirectory $repo

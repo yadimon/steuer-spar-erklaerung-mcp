@@ -3,9 +3,12 @@ import { spawnSync } from "node:child_process";
 import {
   cpSync,
   existsSync,
+  lstatSync,
+  mkdtempSync,
   mkdirSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -16,6 +19,9 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "..");
 const allowedRoot = resolve(repoRoot, "artifacts", "portable");
+const packageJson = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
+const ownershipMarkerName = ".sse-portable-build.json";
+const ownershipMarkerContent = `${JSON.stringify({ schemaVersion: 1, product: packageJson.name })}\n`;
 const outputArgumentIndex = process.argv.indexOf("--output");
 const createZip = process.argv.includes("--zip");
 const requestedOutput = outputArgumentIndex >= 0 ? process.argv[outputArgumentIndex + 1] : undefined;
@@ -29,6 +35,15 @@ if (!insideAllowedRoot || insideAllowedRoot.startsWith("..") || isAbsolute(insid
   throw new Error(`Portable-Ausgabe muss ein Unterordner von ${allowedRoot} sein: ${output}`);
 }
 if (process.platform !== "win32") throw new Error("Portable Windows-Pakete werden nur unter Windows gebaut.");
+mkdirSync(allowedRoot, { recursive: true });
+const realAllowedRoot = realpathSync(allowedRoot);
+let existingAncestor = output;
+while (!existsSync(existingAncestor)) existingAncestor = dirname(existingAncestor);
+const realAncestor = realpathSync(existingAncestor);
+const ancestorRelative = relative(realAllowedRoot, realAncestor);
+if (ancestorRelative.startsWith("..") || isAbsolute(ancestorRelative)) {
+  throw new Error(`Portable-Ausgabe folgt einem Pfad ausserhalb von ${realAllowedRoot}: ${output}`);
+}
 
 const profilesRoot = join(repoRoot, "profiles");
 const supportedProfiles = readdirSync(profilesRoot, { withFileTypes: true })
@@ -53,11 +68,15 @@ const dotSourcedPowerShellFiles = [
   "powershell/api-task-common.ps1",
   "powershell/load-native.ps1",
   "powershell/table-region.ps1",
+  "powershell/table-values.ps1",
+  "powershell/worker-transport-common.ps1",
 ];
 
 const requiredFiles = [
   "dist/api-main.js",
   "dist/index.js",
+  "dist/setup-main.js",
+  "dist/setup-main-arguments.js",
   "dist/setup.js",
   "powershell/sse-worker.ps1",
   "powershell/run-on-desktop.ps1",
@@ -104,8 +123,24 @@ if (
   );
 }
 
-rmSync(output, { recursive: true, force: true });
+if (existsSync(output)) {
+  const outputStats = lstatSync(output);
+  const ownershipMarker = join(output, ownershipMarkerName);
+  if (outputStats.isSymbolicLink() || !outputStats.isDirectory()) {
+    throw new Error(`Portable-Ausgabe ist kein eigener regulaerer Buildordner: ${output}`);
+  }
+  if (
+    !existsSync(ownershipMarker) ||
+    lstatSync(ownershipMarker).isSymbolicLink() ||
+    statSync(ownershipMarker).size > 1024 ||
+    readFileSync(ownershipMarker, "utf8") !== ownershipMarkerContent
+  ) {
+    throw new Error(`Portable-Ausgabe besitzt keine gueltige Build-Eigentumsmarke und wird nicht geloescht: ${output}`);
+  }
+  rmSync(output, { recursive: true });
+}
 mkdirSync(output, { recursive: true });
+writeFileSync(join(output, ownershipMarkerName), ownershipMarkerContent, { encoding: "utf8", flag: "wx" });
 for (const item of ["dist", "powershell", "profiles", "skills", "README.md", "LICENSE", "package.json"]) {
   const source = join(repoRoot, item);
   if (existsSync(source)) cpSync(source, join(output, item), { recursive: true, dereference: true });
@@ -126,10 +161,8 @@ cpSync(nodeLicense, join(runtimeDir, "LICENSE-node.txt"));
 
 const npmCli = process.env.npm_execpath || join(dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
 if (!existsSync(npmCli)) throw new Error(`npm CLI fuer den Entwickler-Build fehlt: ${npmCli}`);
-const dependencyStage = join(allowedRoot, `.dependency-stage-${process.pid}`);
-rmSync(dependencyStage, { recursive: true, force: true });
+const dependencyStage = mkdtempSync(join(allowedRoot, ".dependency-stage-"));
 try {
-  mkdirSync(dependencyStage, { recursive: true });
   cpSync(join(repoRoot, "package.json"), join(dependencyStage, "package.json"));
   cpSync(join(repoRoot, "package-lock.json"), join(dependencyStage, "package-lock.json"));
   const npm = spawnSync(
@@ -147,7 +180,7 @@ try {
 
 writeFileSync(
   join(output, "sse-setup.cmd"),
-  '@echo off\r\n"%~dp0runtime\\node.exe" "%~dp0dist\\setup.js"\r\nif errorlevel 1 pause\r\n',
+  '@echo off\r\n"%~dp0runtime\\node.exe" "%~dp0dist\\setup-main.js" %*\r\nif errorlevel 1 pause\r\n',
   "utf8",
 );
 const sha256 = (path) => createHash("sha256").update(readFileSync(path)).digest("hex");
@@ -160,7 +193,6 @@ const files = collectFiles(output)
   .filter((path) => path !== "portable-manifest.json")
   .sort()
   .map((path) => ({ path, bytes: statSync(join(output, path)).size, sha256: sha256(join(output, path)) }));
-const packageJson = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
 writeFileSync(
   join(output, "portable-manifest.json"),
   `${JSON.stringify({
@@ -194,8 +226,19 @@ writeFileSync(
 if (createZip) {
   const zipPath = `${output}.zip`;
   const checksumPath = `${zipPath}.sha256`;
-  rmSync(zipPath, { force: true });
-  rmSync(checksumPath, { force: true });
+  const zipExists = existsSync(zipPath);
+  const checksumExists = existsSync(checksumPath);
+  if (zipExists || checksumExists) {
+    if (!zipExists || !checksumExists || lstatSync(zipPath).isSymbolicLink() || lstatSync(checksumPath).isSymbolicLink()) {
+      throw new Error("Vorhandenes ZIP/Pruefsummenpaar ist unvollstaendig oder verlinkt und wird nicht ersetzt.");
+    }
+    const expectedChecksum = `${sha256(zipPath)}  ${zipPath.split(/[\\/]/u).at(-1)}\n`;
+    if (statSync(checksumPath).size > 256 || readFileSync(checksumPath, "utf8") !== expectedChecksum) {
+      throw new Error("Vorhandenes ZIP stimmt nicht mit seiner Pruefsumme ueberein und wird nicht ersetzt.");
+    }
+    rmSync(zipPath);
+    rmSync(checksumPath);
+  }
   const systemRoot = process.env.SystemRoot || process.env.WINDIR || "C:\\Windows";
   const powershell = join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
   const archive = spawnSync(
@@ -209,7 +252,7 @@ if (createZip) {
   if (archive.error || archive.status !== 0 || !existsSync(zipPath)) {
     throw new Error(`Portable ZIP konnte nicht erstellt werden: ${archive.stderr || archive.error?.message}`);
   }
-  writeFileSync(checksumPath, `${sha256(zipPath)}  ${zipPath.split(/[\\/]/u).at(-1)}\n`, "utf8");
+  writeFileSync(checksumPath, `${sha256(zipPath)}  ${zipPath.split(/[\\/]/u).at(-1)}\n`, { encoding: "utf8", flag: "wx" });
   process.stdout.write(`${zipPath}\n${checksumPath}\n`);
 } else {
   process.stdout.write(`${output}\n`);

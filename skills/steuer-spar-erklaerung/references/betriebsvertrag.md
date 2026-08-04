@@ -8,7 +8,7 @@ Referenz beschreibt nur die stabilen Grenzen.
 - `portable-manifest.json` nennt Plattform, gebündelte Runtime und unterstützte
   Produktprofile. Prüfe die im Release veröffentlichte SHA-256-Prüfsumme.
 - `sse-setup.cmd` ist der manuelle Einmal-Einstieg. Ein Agent mit sicherem
-  Prozesswerkzeug kann dieselbe `runtime/node.exe dist/setup.js` ohne separates
+  Prozesswerkzeug kann dieselbe `runtime/node.exe dist/setup-main.js` ohne separates
   Konsolenfenster starten.
 - Das Setup schreibt lokale API-Konfiguration, eine MCP-Mergevorlage und einen
   fensterlosen VBS-API-Starter außerhalb des Repositorys. Token nie anzeigen.
@@ -35,9 +35,14 @@ Verwende die vom Setup zurückgelesenen Bereiche für `documents`, `results` und
 Workspace. Alle API-Dateireferenzen bleiben relativ und dürfen den Workspace
 nicht verlassen.
 
-Vorhandene Textdateien nur mit dem unmittelbar gelesenen `expectedSha256`
-ersetzen. Ein Schreibkonflikt ist ein Stoppsignal, keine Aufforderung zum
-blinden Überschreiben.
+Textdateien immer unter einer neuen Referenz schreiben. Ein vorhandenes Ziel
+ist ein Stoppsignal, keine Aufforderung zum blinden Überschreiben.
+
+Fensterbilder nur über `sse_screenshot` in eine neue Referenz unter `results`
+schreiben. Sie dienen als ergänzender Nachweis für aktuelle Seite, sichtbare
+Abschnitte und Qt-Elemente, die UIA nicht strukturiert liefert. Vertrauliche
+Rohbilder nicht ins Repository übernehmen. Ein Screenshot ersetzt weder den
+strukturierten Feld-/Tabellen-Readback noch den Summen- und Hashnachweis.
 
 Speichere eine nicht geheime `setup-decisions.json`, falls das Release keinen
 anderen Namen vorgibt. Erlaubt sind Profil, Engine, Workspace, Arbeitsmodus,

@@ -12,7 +12,9 @@ PowerShell 5.1.
 
 ## Vorprüfung
 
-1. Prüfe Windows 10/11 x64. Unter Linux, macOS oder ARM64 freundlich stoppen.
+1. Prüfe Windows x64 mit Windows PowerShell 5.1. Unter Linux, macOS oder ARM64
+   freundlich stoppen; eine neuere Windows-Version nicht allein wegen ihrer
+   Versionsnummer ablehnen.
 2. Suche eine vorhandene Konfiguration und teste API-Health. Erzeuge keine
    zweite Installation, wenn eine passende bereits funktioniert.
 3. Lies `portable-manifest.json` und die veröffentlichte SHA-256-Prüfsumme.
@@ -64,12 +66,20 @@ Lies vor der Ausführung
    erzeugen. Token niemals in Chat, Log oder Git wiedergeben.
 4. Sichere vorhandene Konfiguration. Merge nur, wenn der Nutzer Dateipfad und
    Diff bestätigt hat; ersetze niemals die komplette Datei.
+   Repariere einen alten Eintrag mit `command = "node"`, `node.cmd`, `npx` oder
+   einem Batch-Wrapper: MCP muss die absolute mitgelieferte
+   `runtime/node.exe` direkt starten. Sonst können Shim-Prozessketten und
+   schwarze `cmd.exe`-Fenster entstehen.
 5. Starte die API mit dem erzeugten fensterlosen Launcher. Registriere eine
    geplante Aufgabe nur nach separater Zustimmung.
 6. Prüfe `/healthz`, Produktprofil, Engine, Workspace und read-only Zustand.
+   Ohne MCP verwende die ausgelieferte CLI; im portablen Ordner lautet der
+   Health-Aufruf `runtime/node.exe dist/api-cli.js health --config <config.json>`.
+   Lies danach `discovery`; Argumentwerte nie direkt in die Kommandozeile schreiben.
 7. Bei MCP-Wunsch: verwende das vollständige Serverobjekt der Setup-Ausgabe,
-   lade den Client neu, liste den Server und führe einen realen Health-Aufruf
-   aus. Bleibt das unmöglich, direkte API als vollwertigen Fallback anbieten.
+   prüfe darin nochmals den absoluten `runtime/node.exe`-Befehl, lade den Client
+   neu, liste den Server und führe einen realen Health-Aufruf aus. Bleibt das
+   unmöglich, direkte API als vollwertigen Fallback anbieten.
 
 ## Erfolg und Stopps
 

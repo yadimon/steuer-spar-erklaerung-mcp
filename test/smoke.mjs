@@ -78,12 +78,22 @@ const main = async () => {
     fail++;
     failures.push("sse_keys: unsichere Roh-Tastatur ist weiterhin oeffentlich registriert.");
   }
+  const clickPatterns = tools.tools.find((tool) => tool.name === "sse_click")
+    ?.inputSchema?.properties?.pattern?.enum ?? [];
+  if (!clickPatterns.includes("toggle")) {
+    pass++;
+  } else {
+    fail++;
+    failures.push("sse_click: gesperrtes TogglePattern wird weiterhin oeffentlich beworben.");
+  }
   for (const required of [
     "sse_product_info",
+    "sse_capabilities",
     "sse_page_objects",
     "sse_page_state",
     "sse_snapshot_compare",
     "sse_case_hash",
+    "sse_window_restore",
     "sse_dialog_list",
     "sse_dialog_answer",
     "sse_warning_popup_read",
@@ -103,6 +113,11 @@ const main = async () => {
     "sse_toggle",
     "sse_combo_options",
     "sse_combo_select",
+    "sse_ustva_read",
+    "sse_ustva_select_period",
+    "sse_ustva_set_flag",
+    "sse_ustva_change_value",
+    "sse_ustva_open_section",
     "sse_menu_close",
     "sse_save",
     "sse_file_dialog_select",
@@ -222,25 +237,25 @@ const main = async () => {
       client,
       "sse_launch",
       { exe: join(process.env.WINDIR ?? "C:\\Windows", "System32", "notepad.exe"), mode: "einur" },
-      mustError("Nur SteuerSparErklaerung 2025"),
+      mustError("Invalid arguments for tool sse_launch"),
     );
     await check(
       client,
       "sse_desktop_start",
       { exe: join(process.env.WINDIR ?? "C:\\Windows", "System32", "notepad.exe"), mode: "einur", name: "SSEVersionGateTest" },
-      mustError("Nur SteuerSparErklaerung 2025"),
+      mustError("Invalid arguments for tool sse_desktop_start"),
     );
     await check(
       client,
       "sse_launch",
       { file: "C:\\__sse_mcp_tests__\\fixture.Gew2024", mode: "einur" },
-      mustError("Steuerjahr 2024"),
+      mustError("Invalid arguments for tool sse_launch"),
     );
     await check(
       client,
       "sse_launch",
       { file: "C:\\__sse_mcp_tests__\\fixture.ESt2025", mode: "einur" },
-      mustError("Startmodus 'einur' erwartet .Gew2025"),
+      mustError("Invalid arguments for tool sse_launch"),
     );
   } else {
     process.stdout.write("\n(uebersprungen: SSE-2025-Startgrenzen — Standardinstallation nicht verifiziert)\n");
@@ -262,7 +277,15 @@ const main = async () => {
     process.stdout.write(`\n✓ Programm gesund (Kanarienvogel ${healthObj.canaryMs} ms)\n`);
   }
 
-  await check(client, "sse_windows", {}, okIf((t) => t.includes('"windows"'), "Fensterliste fehlt"));
+  await check(client, "sse_windows", {}, (res, responseText) => {
+    if (res.isError) return { ok: false, why: `Fehler: ${responseText.slice(0, 200)}` };
+    try {
+      const parsed = JSON.parse(responseText);
+      return { ok: Array.isArray(parsed.windows), why: "Fensterliste ist kein stabiles Array" };
+    } catch {
+      return { ok: false, why: "Fensterliste ist kein JSON" };
+    }
+  });
   await check(
     client,
     "sse_dialog_list",
@@ -347,7 +370,10 @@ const main = async () => {
     await check(client, "sse_click", { name }, mustError("GESPERRT"));
   }
   await check(client, "sse_click", { aid: "tb_elster" }, mustError("GESPERRT"));
-  await check(client, "sse_click", { name: "Prüfer", pattern: "toggle" }, mustError("sse_toggle"));
+  await check(client, "sse_click", { name: "Prüfer", pattern: "toggle" }, (res) => ({
+    ok: res.isError === true,
+    why: "gesperrtes Legacy-TogglePattern muss am MCP-Schema scheitern",
+  }));
   await check(client, "sse_click", { name: "Ja", pattern: "select" }, mustError("exakte AutomationId"));
   // Derselbe Schutz muss beim echten Mausklick gelten.
   await check(client, "sse_click_point", { name: "Anmeldungen versenden" }, mustError("GESPERRT"));

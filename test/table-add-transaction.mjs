@@ -112,6 +112,22 @@ try {
   assert(rollback.sumAfter === "1,53" && rollback.rollback?.versucht === true &&
     rollback.rollback?.erfolgreich === true && rollback.rollback?.summe === "1,51",
   `Rollback ist nicht vollstaendig belegt: ${JSON.stringify(rollback.rollback)}`);
+  assert(rollback.rollback?.methode === "raw-value-row-restore" &&
+    rollback.rollback?.ausgangszustandBewiesen === true &&
+    rollback.rollback?.strukturEntfernt === true && rollback.rollback?.interactionOk === true,
+  `Rollback beweist die strukturelle Entfernung der neuen Zeile nicht: ${JSON.stringify(rollback.rollback)}`);
+  assert(rollback.rollback?.strukturVorher?.rowCount === rollback.rollback?.strukturNachher?.rowCount &&
+    rollback.rollback?.strukturVorher?.freeRowCount === rollback.rollback?.strukturNachher?.freeRowCount &&
+    rollback.rollback?.strukturVorher?.populatedRowCount === rollback.rollback?.strukturNachher?.populatedRowCount &&
+    rollback.rollback?.strukturVorher?.fingerprint === rollback.rollback?.strukturNachher?.fingerprint &&
+    rollback.rollback?.strukturVorher?.endRowFingerprint === rollback.rollback?.strukturNachher?.endRowFingerprint,
+  `Rollback hinterliess eine verwaiste zweite Leerzeile oder ein anderes Tabellenende: ${JSON.stringify({
+    vorher: rollback.rollback?.strukturVorher,
+    nachher: rollback.rollback?.strukturNachher,
+  })}`);
+  assert(Array.isArray(rollback.rollback?.zellen) && rollback.rollback.zellen.length > 0 &&
+    rollback.rollback.zellen.every((cell) => cell.restored === true),
+  `Nicht alle rohen Ausgangszellwerte wurden wiederhergestellt: ${JSON.stringify(rollback.rollback?.zellen)}`);
   assert(rollback.tableBinding?.rowY > rollback.tableBinding?.previousSummaryY &&
     rollback.tableBinding?.rowY < rollback.tableBinding?.sumY,
   `Rollback-Zeile lag nicht in der gebundenen Summenregion: ${JSON.stringify(rollback.tableBinding)}`);

@@ -4,7 +4,8 @@ $files = @(
   (Join-Path $PSScriptRoot '..\powershell\install-api-task.ps1'),
   (Join-Path $PSScriptRoot '..\powershell\api-task-common.ps1'),
   (Join-Path $PSScriptRoot 'run-hidden-copy.ps1'),
-  (Join-Path $PSScriptRoot '..\powershell\run-on-desktop.ps1')
+  (Join-Path $PSScriptRoot '..\powershell\run-on-desktop.ps1'),
+  (Join-Path $PSScriptRoot '..\powershell\worker-transport-common.ps1')
 )
 $desktopLauncher = $files[4]
 foreach ($file in $files) {
@@ -23,7 +24,7 @@ foreach ($required in @(
   'RestartCount 3',
   'ExecutionTimeLimit (New-TimeSpan -Seconds 0)',
   'dist\api-main.js',
-  'start-sse-api.$configStem.hidden.vbs'
+  'Write-SseApiVbsLauncher'
 )) {
   if (-not $install.Contains($required)) { throw "Autostart-Vertrag fehlt: $required" }
 }
@@ -44,6 +45,20 @@ $invalidBase64Output = & $desktopLauncher -Op 'health' -B64 'e30=" -Command' -De
 if ($LASTEXITCODE -ne 1) { throw 'Desktop-Launcher hat ein injizierbares Base64-Argument nicht abgewiesen.' }
 $invalidBase64 = $invalidBase64Output | ConvertFrom-Json
 if ($invalidBase64.kind -ne 'bad-args') { throw 'Desktop-Launcher meldet fuer ungueltiges Base64 nicht bad-args.' }
+
+$desktopLauncherSource = [IO.File]::ReadAllText($desktopLauncher, [Text.Encoding]::UTF8)
+if (-not $desktopLauncherSource.Contains("`$cmd.Append(' -ArgsFile")) {
+  throw 'Desktop-Launcher reicht die interne Argumentdatei nicht an den Worker weiter.'
+}
+$invalidArgsFileOutput = & $desktopLauncher -Op 'health' -ArgsFile $files[0] -Desktop 'SSEAuto' 2>$null
+if ($LASTEXITCODE -ne 1) { throw 'Desktop-Launcher hat eine Argumentdatei ausserhalb des Temp-Roots nicht abgewiesen.' }
+$invalidArgsFile = $invalidArgsFileOutput | ConvertFrom-Json
+if ($invalidArgsFile.kind -ne 'bad-args') { throw 'Desktop-Launcher meldet fuer eine fremde Argumentdatei nicht bad-args.' }
+$ambiguousArgsOutput = & $desktopLauncher -Op 'health' -B64 'e30=' -ArgsFile $files[0] -Desktop 'SSEAuto' 2>$null
+if ($LASTEXITCODE -ne 1) { throw 'Desktop-Launcher hat B64 und ArgsFile gemeinsam akzeptiert.' }
+if (($ambiguousArgsOutput | ConvertFrom-Json).kind -ne 'bad-args') {
+  throw 'Desktop-Launcher meldet fuer doppelte Argumenttransporte nicht bad-args.'
+}
 
 . $files[2]
 $portableRoot = Join-Path $env:TEMP ('sse-task-contract-' + [guid]::NewGuid().ToString('N'))
@@ -66,4 +81,27 @@ if ($vbs -notmatch '^CreateObject\("WScript\.Shell"\)\.Run """.*node\.exe"" "".*
   throw "Fensterloser VBS-Aufruf ist nicht korrekt gequotet: $vbs"
 }
 
-Write-Output 'OK: Setup-/Autostartskripte sind syntaktisch gueltig und fensterlos verdrahtet.'
+$launcherRoot = Join-Path $env:TEMP ('sse-launcher-contract-' + [guid]::NewGuid().ToString('N'))
+try {
+  New-Item -ItemType Directory -Path $launcherRoot | Out-Null
+  $launcherConfig = Join-Path $launcherRoot 'config.json'
+  [IO.File]::WriteAllText($launcherConfig, '{}', [Text.UTF8Encoding]::new($false))
+  $launcher = Write-SseApiVbsLauncher -NodePath $node -ApiMainPath $api -ConfigPath $launcherConfig
+  $reused = Write-SseApiVbsLauncher -NodePath $node -ApiMainPath $api -ConfigPath $launcherConfig
+  if ($reused -ne $launcher) { throw 'Bytegleicher Launcher wurde nicht stabil wiederverwendet.' }
+  [IO.File]::WriteAllText($launcher, 'fremder Inhalt', [Text.UTF8Encoding]::new($false))
+  $foreign = [IO.File]::ReadAllBytes($launcher)
+  try {
+    $null = Write-SseApiVbsLauncher -NodePath $node -ApiMainPath $api -ConfigPath $launcherConfig
+    throw 'Fremder inhaltsadressierter Launcher wurde still akzeptiert.'
+  } catch {
+    if ($_.Exception.Message -eq 'Fremder inhaltsadressierter Launcher wurde still akzeptiert.') { throw }
+  }
+  if ([BitConverter]::ToString([IO.File]::ReadAllBytes($launcher)) -ne [BitConverter]::ToString($foreign)) {
+    throw 'Fremder inhaltsadressierter Launcher wurde ueberschrieben.'
+  }
+} finally {
+  if (Test-Path -LiteralPath $launcherRoot) { Remove-Item -LiteralPath $launcherRoot -Recurse -Force }
+}
+
+Write-Output 'OK: Setup-/Autostartskripte sind syntaktisch, fensterlos und kollisionssicher verdrahtet.'

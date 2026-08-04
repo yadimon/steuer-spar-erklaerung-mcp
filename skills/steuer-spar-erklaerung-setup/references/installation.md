@@ -6,7 +6,7 @@ Verifiziere mindestens:
 
 - `portable-manifest.json`
 - `runtime/node.exe`
-- `dist/api-main.js`, `dist/index.js` und `dist/setup.js`
+- `dist/api-main.js`, `dist/index.js` und `dist/setup-main.js`
 - `profiles/<id>/profile.json` und dessen Page-Objects
 - `powershell/sse-worker.ps1` samt nativen Hilfsdateien
 - `sse-setup.cmd`
@@ -28,6 +28,10 @@ Verwende die ausgegebenen echten Dateinamen. Keine Namen oder JSON-Felder
 hinzuerfinden. Der MCP-Eintrag darf nur API-URL und Token als PC-bezogene
 Betriebswerte benötigen; lokale SSE-/Fall-/Workspace-Pfade gehören allein in
 die API-Konfiguration.
+Als `command` immer den absoluten Pfad zur ausgelieferten `runtime/node.exe`
+übernehmen. Niemals `node`, `node.cmd`, `npx`, eine Volta-/npm-Shimdatei oder
+einen Batch-Wrapper eintragen; solche Zwischenstufen können zusätzliche
+`cmd.exe`-Prozesse und sichtbare schwarze Fenster erzeugen.
 
 ## Manuelle Agentenaktion
 

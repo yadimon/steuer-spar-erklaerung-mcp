@@ -19,11 +19,19 @@
 param(
   [Parameter(Mandatory)][string]$Op,
   [string]$B64 = '',
+  [string]$ArgsFile = '',
   [string]$Desktop = 'SSEAuto',
   [int]$TimeoutSec = 180
 )
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = New-Object Text.UTF8Encoding($false)
+
+$transportCommonPath = Join-Path $PSScriptRoot 'worker-transport-common.ps1'
+if (-not (Test-Path -LiteralPath $transportCommonPath -PathType Leaf)) {
+  Write-Output (@{ ok=$false; kind='worker-init'; error='Gemeinsame Worker-Transportgrenze fehlt.' } | ConvertTo-Json -Compress)
+  exit 1
+}
+. $transportCommonPath
 
 # Diese Werte werden normalerweise nur von der validierten Node-API erzeugt.
 # Der Launcher bleibt trotzdem auch bei einem direkten Aufruf fail-closed,
@@ -35,6 +43,17 @@ if ($Op -notmatch '^[A-Za-z0-9_-]{1,64}$') {
 if ($B64 -and $B64 -notmatch '^[A-Za-z0-9+/]*={0,2}$') {
   Write-Output (@{ ok=$false; kind='bad-args'; error='Worker-Argument ist kein Base64-Text.' } | ConvertTo-Json -Compress)
   exit 1
+}
+if ($B64 -and $ArgsFile) {
+  Write-Output (@{ ok=$false; kind='bad-args'; error='B64 und ArgsFile duerfen nicht gemeinsam gesetzt sein.' } | ConvertTo-Json -Compress)
+  exit 1
+}
+if ($ArgsFile) {
+  try { $ArgsFile = Resolve-SSEWorkerArgsFile $ArgsFile }
+  catch {
+    Write-Output (@{ ok=$false; kind='bad-args'; error=$_.Exception.Message } | ConvertTo-Json -Compress)
+    exit 1
+  }
 }
 if ($Desktop -notmatch '^[A-Za-z0-9_-]{1,64}$') {
   Write-Output (@{ ok=$false; kind='bad-args'; error='Ungueltiger Desktopname.' } | ConvertTo-Json -Compress)
@@ -55,19 +74,25 @@ catch {
 
 $worker = Join-Path $PSScriptRoot 'sse-worker.ps1'
 $aus = Join-Path $env:TEMP ("sse-out-" + [Guid]::NewGuid().ToString('N') + ".json")
+try { $aus = Resolve-SSEWorkerOutputFile $aus }
+catch {
+  Write-Output (@{ ok=$false; kind='worker-init'; error=$_.Exception.Message } | ConvertTo-Json -Compress)
+  exit 1
+}
 try {
-$pwshExe = $(if ($env:SSE_POWERSHELL_EXE) { $env:SSE_POWERSHELL_EXE }
+$powershellExe = $(if ($env:SSE_POWERSHELL_EXE) { $env:SSE_POWERSHELL_EXE }
              else { "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" })
-if (-not (Test-Path -LiteralPath $pwshExe -PathType Leaf) -or
-    [IO.Path]::GetFileName($pwshExe) -ine 'powershell.exe') {
+if (-not (Test-Path -LiteralPath $powershellExe -PathType Leaf) -or
+    [IO.Path]::GetFileName($powershellExe) -ine 'powershell.exe') {
   Write-Output (@{ ok=$false; kind='worker-init'; error='Windows PowerShell wurde nicht gefunden.' } | ConvertTo-Json -Compress)
   exit 1
 }
 
 $cmd = New-Object Text.StringBuilder 4096
-$null = $cmd.Append('"' + $pwshExe + '" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $worker + '"')
+$null = $cmd.Append('"' + $powershellExe + '" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $worker + '"')
 $null = $cmd.Append(' -Op "' + $Op + '"')
 if ($B64) { $null = $cmd.Append(' -B64 "' + $B64 + '"') }
+if ($ArgsFile) { $null = $cmd.Append(' -ArgsFile "' + $ArgsFile + '"') }
 $null = $cmd.Append(' -OutFile "' + $aus + '"')
 
 $si = New-Object DSK+SI
@@ -94,7 +119,7 @@ if (-not [DSK]::SetInformationJobObject($job, 9, [ref]$jobInfo, [uint32]$jobInfo
   exit 1
 }
 
-$ok = [DSK]::CreateProcess($pwshExe, $cmd, [IntPtr]::Zero, [IntPtr]::Zero, $false,
+$ok = [DSK]::CreateProcess($powershellExe, $cmd, [IntPtr]::Zero, [IntPtr]::Zero, $false,
         0x00000014, [IntPtr]::Zero, $PSScriptRoot, [ref]$si, [ref]$pi)   # CREATE_NEW_CONSOLE | CREATE_SUSPENDED
 if (-not $ok) {
   $e = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
@@ -139,8 +164,36 @@ $workerExit = [uint32]0
 [DSK]::CloseHandle($pi.hProcess) | Out-Null
 [DSK]::CloseHandle($pi.hThread) | Out-Null
 
+if ($workerExit -ne 0) {
+  Write-Output (@{
+    ok = $false; kind = 'worker-exit'; workerExitCode = $workerExit
+    error = "Arbeiter '$Op' endete vor einer vertrauenswuerdigen Ausgabe (Exit $workerExit)."
+  } | ConvertTo-Json -Compress)
+  exit 1
+}
+
 if (Test-Path -LiteralPath $aus) {
-  $txt = [IO.File]::ReadAllText($aus, [Text.Encoding]::UTF8)
+  $maxWorkerOutputBytes = 32MB
+  $outputBytes = (Get-Item -LiteralPath $aus -Force).Length
+  if ($outputBytes -gt $maxWorkerOutputBytes) {
+    Write-Output (@{
+      ok = $false; kind = 'output-too-large'
+      error = "Arbeiter '$Op' ueberschritt das Ausgabelimit von $maxWorkerOutputBytes Bytes."
+    } | ConvertTo-Json -Compress)
+    exit 1
+  }
+  try {
+    $txt = Read-SSEBoundedUtf8File $aus $maxWorkerOutputBytes
+  } catch {
+    $readKind = $(if ($_.Exception.Message -match 'groesser als') { 'output-too-large' } else { 'parse' })
+    Write-Output (@{
+      ok = $false; kind = $readKind
+      error = $(if ($readKind -eq 'output-too-large') {
+        "Arbeiter '$Op' ueberschritt das Ausgabelimit von $maxWorkerOutputBytes Bytes."
+      } else { "Arbeiter '$Op' lieferte kein gueltiges UTF-8." })
+    } | ConvertTo-Json -Compress)
+    exit 1
+  }
   if ($txt.Trim()) { Write-Output $txt; exit 0 }
 }
 Write-Output (@{

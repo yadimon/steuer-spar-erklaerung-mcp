@@ -14,14 +14,43 @@ $hashTemporary = Join-Path $PSScriptRoot ('.sse-native-' + [guid]::NewGuid().ToS
 $replaceBackup = Join-Path $PSScriptRoot ('.sse-native-' + [guid]::NewGuid().ToString('N') + '.replace.dll')
 $hashReplaceBackup = Join-Path $PSScriptRoot ('.sse-native-' + [guid]::NewGuid().ToString('N') + '.replace.sha256')
 
-function Get-SSEFileSha256([string]$Path) {
+function Get-SSEFileSha256([string]$Path, [long]$MaxBytes) {
   $hashAlgorithm = [Security.Cryptography.SHA256]::Create()
   try {
     $stream = [IO.File]::OpenRead($Path)
-    try { ([BitConverter]::ToString($hashAlgorithm.ComputeHash($stream)) -replace '-', '').ToUpperInvariant() }
+    try {
+      if ($stream.Length -gt $MaxBytes) {
+        throw "File is larger than $MaxBytes bytes: $($stream.Length)"
+      }
+      ([BitConverter]::ToString($hashAlgorithm.ComputeHash($stream)) -replace '-', '').ToUpperInvariant()
+    }
     finally { $stream.Dispose() }
   } finally {
     $hashAlgorithm.Dispose()
+  }
+}
+
+function Read-SSEBoundedFileBytes([string]$Path, [long]$MaxBytes) {
+  $file = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+  if ($file.PSIsContainer -or $file.Length -gt $MaxBytes) {
+    throw "File is larger than $MaxBytes bytes: $($file.Length)"
+  }
+  $stream = $null
+  try {
+    $stream = [IO.File]::Open($file.FullName, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+    if ($stream.Length -gt $MaxBytes) {
+      throw "File is larger than $MaxBytes bytes: $($stream.Length)"
+    }
+    $bytes = New-Object byte[] ([int]$stream.Length)
+    $offset = 0
+    while ($offset -lt $bytes.Length) {
+      $read = $stream.Read($bytes, $offset, $bytes.Length - $offset)
+      if ($read -eq 0) { throw 'File was truncated while being read.' }
+      $offset += $read
+    }
+    ,$bytes
+  } finally {
+    if ($stream) { $stream.Dispose() }
   }
 }
 
@@ -30,11 +59,11 @@ if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
 }
 
 try {
-  $sourceBytes = [IO.File]::ReadAllBytes($source)
+  $sourceBytes = Read-SSEBoundedFileBytes $source (1MB)
   $algorithm = [Security.Cryptography.SHA256]::Create()
   try { $sourceHash = ([BitConverter]::ToString($algorithm.ComputeHash($sourceBytes)) -replace '-', '').ToUpperInvariant() }
   finally { $algorithm.Dispose() }
-  $sourceText = [Text.Encoding]::UTF8.GetString($sourceBytes)
+  $sourceText = [Text.UTF8Encoding]::new($false, $true).GetString($sourceBytes)
   $compile = @{
     TypeDefinition = $sourceText
     OutputAssembly = $temporary
@@ -51,6 +80,10 @@ try {
   if (-not (Test-Path -LiteralPath $temporary -PathType Leaf)) {
     throw 'Add-Type did not create the native helper assembly.'
   }
+  $temporaryFile = Get-Item -LiteralPath $temporary -Force -ErrorAction Stop
+  if ($temporaryFile.Length -gt 4MB) {
+    throw "Native helper assembly is larger than 4194304 bytes: $($temporaryFile.Length)"
+  }
   $assembly = [Reflection.Assembly]::Load([IO.File]::ReadAllBytes($temporary))
   $requiredTypes = @('DSK','SW','SSEAccNode','SSEAccessible')
   $actualTypes = @($assembly.GetTypes() | ForEach-Object { $_.FullName })
@@ -66,7 +99,13 @@ try {
     throw "Native helper surface is incomplete. Types: $($missingTypes -join ', '); DSK methods: $($missingMethods -join ', '); SW methods: $($missingSwMethods -join ', ')"
   }
 
-  [IO.File]::WriteAllText($hashTemporary, $sourceHash + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+  $dllHash = Get-SSEFileSha256 $temporary (4MB)
+  $integrityManifest = [ordered]@{
+    schemaVersion = 1
+    sourceSha256 = $sourceHash
+    dllSha256 = $dllHash
+  } | ConvertTo-Json -Compress
+  [IO.File]::WriteAllText($hashTemporary, $integrityManifest + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
   if (Test-Path -LiteralPath $target -PathType Leaf) {
     [IO.File]::Replace($temporary, $target, $replaceBackup)
   } else {
@@ -80,7 +119,10 @@ try {
   } else {
     [IO.File]::Move($hashTemporary, $hashTarget)
   }
-  $dllHash = Get-SSEFileSha256 $target
+  $installedDllHash = Get-SSEFileSha256 $target (4MB)
+  if ($installedDllHash -ne $dllHash) {
+    throw "Installed native helper hash changed during replacement: expected $dllHash, received $installedDllHash"
+  }
   Write-Output "Built powershell/sse-native.dll (dll=$dllHash source=$sourceHash)"
 } finally {
   if (Test-Path -LiteralPath $temporary) {

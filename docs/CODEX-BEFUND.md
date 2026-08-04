@@ -1,4 +1,15 @@
-Prüfauftrag abgeschlossen. Ergebnis: Die zugesicherte harte Versandsperre ist nicht erfüllt. Ich habe 4 kritische, 7 ernste, 2 mittlere und 1 geringe Schwachstelle gefunden.
+# Historischer Sicherheitsbefund vor der Härtung
+
+> **Nicht der aktuelle Produktstatus.** Dieses Dokument bewahrt den damaligen
+> Audit-Befund und seine Begründungen als Entwicklungsnachweis. Die aktuelle
+> Implementierung entfernt unter anderem Roh-Tastatur, Versand-Freischalter und
+> ungebundene Schreibwege; die ausführbaren Produkt-, Wrapper- und Privacy-Gates
+> sind maßgeblich. Aktuelle Grenzen stehen in [Sicherheit](../README.md#sicherheit)
+> und [Architektur](ARCHITEKTUR.md#harte-sicherheit).
+
+Der damalige Prüfauftrag ergab: Die zugesicherte harte Versandsperre war zu
+diesem Zeitpunkt nicht erfüllt. Gefunden wurden 4 kritische, 7 ernste, 2
+mittlere und 1 geringe Schwachstelle.
 
 ## Kritische Befunde
 
@@ -10,7 +21,7 @@ fail-closed ab. Notwendige Tasten liegen nur noch innerhalb gebundener
 Spezialwerkzeuge.
 
 - **Schwere:** kritisch
-- **Datei und Zeile:** [sse-worker.ps1:699–708](C:/development/steuer-spar-erklaerung-mcp/powershell/sse-worker.ps1:699), [index.ts:324–339](C:/development/steuer-spar-erklaerung-mcp/src/index.ts:324)
+- **Historische Fundstellen:** `powershell/sse-worker.ps1:699–708`, `src/index.ts:324–339`
 - **Konkreter Auslösepfad:** Wenn „Senden“, „Übermitteln“ oder eine entsprechende Standardschaltfläche fokussiert ist:
   `sse_keys({"keys":"{ENTER}"})`.
   
@@ -21,7 +32,7 @@ Spezialwerkzeuge.
 ### 2. Die namensbasierte Sperre lässt realistische Varianten und generische Bestätigungen durch
 
 - **Schwere:** kritisch
-- **Datei und Zeile:** [sse-worker.ps1:93–104](C:/development/steuer-spar-erklaerung-mcp/powershell/sse-worker.ps1:93), [sse-worker.ps1:485–510](C:/development/steuer-spar-erklaerung-mcp/powershell/sse-worker.ps1:485), [sse-worker.ps1:632–649](C:/development/steuer-spar-erklaerung-mcp/powershell/sse-worker.ps1:632)
+- **Historische Fundstellen:** `powershell/sse-worker.ps1:93–104`, `:485–510`, `:632–649`
 - **Konkrete Auslösepfade:**
   - `sse_click({"name":"Elektronische Steuererklärung (ELSTER)…"})`
   - `sse_click_point({"name":"Jahreserklärungen abschließen…"})`
@@ -42,7 +53,7 @@ Spezialwerkzeuge.
 ### 3. `sse_click_point({})` darf ein beliebiges unbeschriftetes Element anklicken
 
 - **Schwere:** kritisch
-- **Datei und Zeile:** [sse-worker.ps1:616–649](C:/development/steuer-spar-erklaerung-mcp/powershell/sse-worker.ps1:616), verglichen mit der vorhandenen Validierung in [sse-worker.ps1:485–488](C:/development/steuer-spar-erklaerung-mcp/powershell/sse-worker.ps1:485)
+- **Historische Fundstellen:** `powershell/sse-worker.ps1:616–649`, verglichen mit `:485–488`
 - **Konkreter Auslösepfad:**
   - `sse_click_point({})`
   - `sse_click_point({"type":"Button"})`
@@ -54,7 +65,7 @@ Spezialwerkzeuge.
 ### 4. Parserfehler werden als „nicht übermittelt“ ausgegeben
 
 - **Schwere:** kritisch
-- **Datei und Zeile:** [akad-parse.py:42–63](C:/development/steuer-spar-erklaerung-mcp/powershell/akad-parse.py:42), [akad-parse.py:68–77](C:/development/steuer-spar-erklaerung-mcp/powershell/akad-parse.py:68), [akad-parse.py:131–135](C:/development/steuer-spar-erklaerung-mcp/powershell/akad-parse.py:131), [sse-worker.ps1:762–780](C:/development/steuer-spar-erklaerung-mcp/powershell/sse-worker.ps1:762)
+- **Historische Fundstellen:** `powershell/akad-parse.py:42–77`, `:131–135`, `powershell/sse-worker.ps1:762–780`
 - **Konkrete Auslösepfade:**
   - `sse_list_cases({"dir":"C:\\Faelle"})`, wenn dort eine `fremd.ESt2025` ohne AKAD-Kopf liegt. Der Parser liefert ein `error`-Feld; der Worker ignoriert es und setzt `transmitted=false`.
   - Dasselbe Werkzeug bei einer Falldatei, deren Kopf vor `ElsterTransferTime` beschädigt ist. Die Schleife bricht still ab und setzt anschließend ebenfalls `transmitted=false`.
@@ -68,7 +79,7 @@ Spezialwerkzeuge.
 ### 5. Die 12-Pixel-Gruppierung kann Beträge der falschen Beschriftung zuordnen
 
 - **Schwere:** ernst
-- **Datei und Zeile:** [sse-worker.ps1:420–441](C:/development/steuer-spar-erklaerung-mcp/powershell/sse-worker.ps1:420)
+- **Historische Fundstelle:** `powershell/sse-worker.ps1:420–441`
 - **Konkreter Auslösepfad:** `sse_read_page({})` bei Knoten mit Y-Werten:
   - `Fahrtkosten`, Y=100
   - zweite Beschriftungszeile, Y=111
@@ -81,7 +92,7 @@ Spezialwerkzeuge.
 ### 6. `Get-ContentBounds` kann Felder still ausschließen oder fremde Inhalte aufnehmen
 
 - **Schwere:** ernst
-- **Datei und Zeile:** [sse-worker.ps1:261–271](C:/development/steuer-spar-erklaerung-mcp/powershell/sse-worker.ps1:261), [sse-worker.ps1:414–423](C:/development/steuer-spar-erklaerung-mcp/powershell/sse-worker.ps1:414)
+- **Historische Fundstellen:** `powershell/sse-worker.ps1:261–271`, `:414–423`
 - **Konkreter Auslösepfad:** `sse_read_page({})` auf einer Seite mit einem zusätzlichen `Tree` im Formular oder einer formularinternen Schaltfläche namens „Eingabehilfe“. Der erste passende Knoten bestimmt dann `minX` beziehungsweise `maxX`, ohne Prüfung von Elternknoten, AutomationId oder Seitenrolle.
 - **Folge:** Labels oder Beträge verschwinden aus der Ausgabe. Beim Rückfall auf 28/79 Prozent können bei geändertem DPI, eingeklappter Navigation oder anderer Seitenleiste entweder rechte Felder abgeschnitten oder Navigation/Hilfe als Steuerdaten aufgenommen werden.
 - **Vorschlag:** Navigations- und Hilfebereich über stabile AutomationIds/Elternpfade identifizieren. Grenzen auf Fensterlage, sinnvolle Breite und enthaltene Feldanzahl validieren; bei unplausiblen Grenzen mit `incomplete` abbrechen.
@@ -89,7 +100,7 @@ Spezialwerkzeuge.
 ### 7. Leere Tabellenzellen verschieben die Spalten
 
 - **Schwere:** ernst
-- **Datei und Zeile:** [sse-worker.ps1:451–466](C:/development/steuer-spar-erklaerung-mcp/powershell/sse-worker.ps1:451), [index.ts:154–169](C:/development/steuer-spar-erklaerung-mcp/src/index.ts:154)
+- **Historische Fundstellen:** `powershell/sse-worker.ps1:451–466`, `src/index.ts:154–169`
 - **Konkreter Auslösepfad:** `sse_read_table({})` bei den Spalten `Datum | Text | Betrag`, wenn Qt für eine leere Textzelle überhaupt kein `DataItem` liefert. Ausgegeben wird beispielsweise `["31.07.2026","100,00"]`.
 - **Folge:** Der Betrag erscheint positionsmäßig unter `Text`; alle nachfolgenden Spalten sind verschoben. Liefert UIA dagegen ein leeres `DataItem`, bleibt die leere Zeichenkette erhalten – der Fehler hängt daher vom Qt-Provider ab.
 - **Vorschlag:** Zellen über `GridPattern`/`TablePattern` oder anhand ihrer X-Position den Header-Spalten zuordnen und fehlende Zellen als `null` einsetzen. Abweichende Spaltenanzahlen nicht ungeprüft zurückgeben.
@@ -97,7 +108,7 @@ Spezialwerkzeuge.
 ### 8. UIA-Fehler und abgeschnittene Bäume werden als erfolgreiche Ergebnisse behandelt
 
 - **Schwere:** ernst
-- **Datei und Zeile:** [sse-worker.ps1:194–255](C:/development/steuer-spar-erklaerung-mcp/powershell/sse-worker.ps1:194), insbesondere die leeren Catches in [sse-worker.ps1:211–229](C:/development/steuer-spar-erklaerung-mcp/powershell/sse-worker.ps1:211)
+- **Historische Fundstelle:** `powershell/sse-worker.ps1:194–255`, insbesondere damalige leere Catches in `:211–229`
 - **Konkrete Auslösepfade:**
   - `sse_read_page({})`, wenn das `ValuePattern` eines Betragsfeldes eine Ausnahme wirft. Der Wert wird `null`; bei einem unbeschrifteten Feld verschwindet das ganze Feld.
   - `sse_find({"name":"Steuernummer"})`, wenn der Baumlauf vorher wegen Fehler, 4.000 Knoten oder Zeitlimit abbricht. Das Werkzeug meldet regulär `count: 0`.
@@ -108,7 +119,7 @@ Spezialwerkzeuge.
 ### 9. Gleichzeitige MCP-Aufrufe sind nicht serialisiert
 
 - **Schwere:** ernst
-- **Datei und Zeile:** [worker.ts:42–56](C:/development/steuer-spar-erklaerung-mcp/src/worker.ts:42), [sse-worker.ps1:319–337](C:/development/steuer-spar-erklaerung-mcp/powershell/sse-worker.ps1:319), [sse-worker.ps1:616–690](C:/development/steuer-spar-erklaerung-mcp/powershell/sse-worker.ps1:616)
+- **Historische Fundstellen:** `src/worker.ts:42–56`, `powershell/sse-worker.ps1:319–337`, `:616–690`
 - **Konkrete Auslösepfade:**
   - Client A: `sse_read_page({})`; gleichzeitig Client B: `sse_click({"name":"Weiter"})`. A kann einen Mischzustand aus zwei Seiten lesen.
   - Historischer Auslösepfad (inzwischen blockiert): `sse_set_value({"rid":"<RuntimeId>","value":"500,00"})`; B scrollt oder wechselt die Seite zwischen dem ersten Baumlauf und `Get-LiveElement`.
@@ -125,7 +136,7 @@ Suchfeld begrenzt und verlangt exakten Vor-/Nachwert sowie Interference-Guard.
 Fachliche Felder werden vor jeder Mutation blockiert.
 
 - **Schwere:** ernst
-- **Datei und Zeile:** [sse-worker.ps1:555–560](C:/development/steuer-spar-erklaerung-mcp/powershell/sse-worker.ps1:555)
+- **Historische Fundstelle:** `powershell/sse-worker.ps1:555–560`
 - **Konkreter Auslösepfad:** `sse_set_value({"name":"Betrag","value":"2.340,00"})`, wenn die anschließende Wertabfrage scheitert oder einen abweichend interpretierten Wert liefert.
 - **Folge:** Die Antwort enthält weiterhin `ok:true`, selbst bei `after:null` oder `after` ungleich `requested`. Ein Agent kann danach den Fall speichern, obwohl die Änderung nicht bestätigt wurde.
 - **Vorschlag:** Fehlende oder nicht äquivalente Rücklesung als `verification-failed` behandeln. Das Element neu auflösen und den normalisierten tatsächlichen Wert zwingend vergleichen.
@@ -133,7 +144,7 @@ Fachliche Felder werden vor jeder Mutation blockiert.
 ### 11. Die Parserheuristik kann bei beschädigten oder fremden Dateien eine falsche Deutung akzeptieren
 
 - **Schwere:** ernst
-- **Datei und Zeile:** [akad-parse.py:26–39](C:/development/steuer-spar-erklaerung-mcp/powershell/akad-parse.py:26), [akad-parse.py:55–63](C:/development/steuer-spar-erklaerung-mcp/powershell/akad-parse.py:55), [akad-parse.py:80–109](C:/development/steuer-spar-erklaerung-mcp/powershell/akad-parse.py:80)
+- **Historische Fundstellen:** `powershell/akad-parse.py:26–39`, `:55–63`, `:80–109`
 - **Konkreter Auslösepfad:** `sse_list_cases({"dir":"C:\\BeschaedigteFaelle"})`, wenn ein Längenwert in einen Datenbereich zeigt, der zufällig wie `<kleine Länge><druckbarer ASCII-Name>\0` aussieht.
 - **Folge:** `_plausible_record` prüft nur den nächsten Namen, nicht dessen Typ, Wert und restliche Satzkette. Bei mehreren plausiblen Varianten gewinnt stets die erste. Falls gar keine Variante einen Folgesatz ergibt, wird trotzdem `variants[0]` akzeptiert. Dadurch kann insbesondere `ElsterTransferTime` falsch leer oder nichtleer werden; doppelte Namen überschreiben zudem frühere Metadaten.
 - **Vorschlag:** Bekannte Typen deterministisch dekodieren. Unbekannte Typen nur akzeptieren, wenn genau eine Interpretation eine vollständig gültige Folgekette ergibt. Mehrdeutigkeit, Duplikate und unvollständige letzte Sätze als Fehler behandeln.
@@ -145,7 +156,7 @@ Für eine intakte Datei mit genau der dokumentierten Typkodierung fand ich keine
 ### 12. Die Zyklus- und Zeitsperren sind nur teilweise hart
 
 - **Schwere:** mittel
-- **Datei und Zeile:** [sse-worker.ps1:177–255](C:/development/steuer-spar-erklaerung-mcp/powershell/sse-worker.ps1:177), [sse-worker.ps1:319–337](C:/development/steuer-spar-erklaerung-mcp/powershell/sse-worker.ps1:319), [worker.ts:62–73](C:/development/steuer-spar-erklaerung-mcp/src/worker.ts:62)
+- **Historische Fundstellen:** `powershell/sse-worker.ps1:177–255`, `:319–337`, `src/worker.ts:62–73`
 - **Konkreter Auslösepfad:** `sse_click({"rid":"<RuntimeId>"})`, wenn Qt bei `Get-LiveElement` denselben Geschwisterknoten wiederholt und dessen RuntimeId nicht lesbar ist.
 - **Folge:** `Walk-Tree` selbst terminiert algorithmisch durch Knotenlimit/Zeitprüfung, sofern keine einzelne UIA-Funktion blockiert. `Get-LiveElement` besitzt dagegen weder Knoten- noch Zeitlimit; es läuft bis zum äußeren 90-Sekunden-Timeout. Ein blockierender COM/UIA-Aufruf kann auch das interne `TimeoutSec` von `Walk-Tree` umgehen.
 - **Vorschlag:** Harte Maximalzahl, Deadline und Identitätsfallback auch in `Get-LiveElement`. Wiederholte Knoten ohne RuntimeId über zusätzliche Identitätsmerkmale erkennen. Einen festgestellten Zyklus als unvollständiges Ergebnis behandeln.
@@ -153,7 +164,7 @@ Für eine intakte Datei mit genau der dokumentierten Typkodierung fand ich keine
 ### 13. Der Parser liest die komplette Datei ohne Größenlimit
 
 - **Schwere:** mittel
-- **Datei und Zeile:** [akad-parse.py:42–50](C:/development/steuer-spar-erklaerung-mcp/powershell/akad-parse.py:42)
+- **Historische Fundstelle:** `powershell/akad-parse.py:42–50`
 - **Konkreter Auslösepfad:** `sse_list_cases({"dir":"C:\\Faelle"})` mit einer sehr großen Datei, deren Name auf `.ESt2025` oder eine andere akzeptierte Endung passt.
 - **Folge:** `fh.read()`, große UUID-Slices, Wertdekodierung und JSON-Ausgabe können den Python-Prozess mehrfach in Dateigröße Speicher verbrauchen. Ein Absturz führt anschließend wiederum zum kritischen `transmitted=false`-Fehlermodus. Eine Endlosschleife im Python-Parser besteht dagegen nicht: maximal 400 Iterationen, und gewählte Varianten bewegen den Offset vorwärts.
 - **Vorschlag:** Dateigröße begrenzen und nur den Klartextkopf bis `svCrypted` streamen. UUID-, Namen- und Wertlängen vor dem Kopieren strikt begrenzen.
@@ -163,7 +174,7 @@ Für eine intakte Datei mit genau der dokumentierten Typkodierung fand ich keine
 ### 14. `sse_health.windows` wechselt bei genau einem Fenster von Liste zu Objekt
 
 - **Schwere:** gering
-- **Datei und Zeile:** [sse-worker.ps1:367–375](C:/development/steuer-spar-erklaerung-mcp/powershell/sse-worker.ps1:367), [index.ts:67–78](C:/development/steuer-spar-erklaerung-mcp/src/index.ts:67), Normalisierung vorhanden in [worker.ts:36–40](C:/development/steuer-spar-erklaerung-mcp/src/worker.ts:36)
+- **Historische Fundstellen:** `powershell/sse-worker.ps1:367–375`, `src/index.ts:67–78`; damalige Normalisierung in `src/worker.ts:36–40`
 - **Konkreter Auslösepfad:** `sse_health({})`, wenn genau ein sichtbares SSE-Fenster existiert.
 - **Folge:** Durch PowerShell-Pipeline-Entpackung wird `windows` ein Einzelobjekt statt eines Arrays. Ein Aufrufer mit `windows.length` oder Arrayiteration liegt falsch. `sse_windows`, `snapshot`, `find` und `list_cases` normalisieren ihre Listen bereits mit `asArray`.
 - **Vorschlag:** Im Worker `windows = @($wins)` setzen oder auch `sse_health` im TypeScript-Adapter über `asArray` formen.
@@ -172,7 +183,9 @@ Für eine intakte Datei mit genau der dokumentierten Typkodierung fand ich keine
 
 - Keine weiteren problematischen Parameterzugriffe über `.count`, `.keys`, `.values`, `.clone`, `.item` oder `.length` gefunden. Die verbleibenden `.Count`-Zugriffe betreffen echte Collections; `sse_keys` benutzt sicher `Arg`.
 - Die Nachprüfung des aufgelösten Knotennamens existiert in `click` und `click_point` und schützt erkannte Versandnamen auch bei `aid`/`rid`.
-- `allowSend` und `confirmSend` sind nicht Teil der MCP-Schemas; unbekannte Zod-Felder werden entfernt. Über reguläre MCP-Werkzeugaufrufe lässt sich diese interne Ausnahme daher nicht setzen. Bei direktem Aufruf des PowerShell-Workers wäre sie weiterhin nutzbar.
+- Der frühere direkte Worker-Ausweg über `allowSend` und `confirmSend` wurde
+  entfernt. Ein statischer Produkt-Gate-Test verhindert seine Wiedereinführung;
+  Versand-/ELSTER-Aktionen bleiben auch bei direktem Worker-Aufruf gesperrt.
 - Der TypeScript-Code wurde ohne Ausgabe kompiliert geprüft: 2 Quelldateien, 0 Diagnosen.
 - Die Versandvarianten sowie die Y-/Tabellengruppierung wurden mit isolierten, quellcodegleichen Modellen reproduziert.
 - Ich habe die reale Steueranwendung, Versanddialoge und Steuerfalldateien bewusst nicht bedient. Der vorhandene Smoke-Test klickt echte UI-Elemente und prüft nur drei exakte `sse_click`-Namen; er deckt `keys`, `click_point`, Varianten, `aid/rid` und Parserfehler nicht ab.

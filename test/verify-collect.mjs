@@ -53,6 +53,8 @@ try {
           { label: "EDV-Kosten", wert: "5.440,39", ro: true },
           { label: "Kosten", wert: "10,00", ro: true },
           { label: "Kosten", wert: "20,00", ro: true },
+          { label: "Währung", wert: "5.440,39 EUR", ro: true },
+          { label: "Mehrdeutig", wert: "1.2.3", ro: true },
         ],
       },
       {
@@ -73,6 +75,8 @@ try {
       { seite: "Betriebsausgaben", label: "Kosten", labelOccurrence: 2, wert: "20,00" },
       { seite: "Ausgaben", seiteOccurrence: 2, label: "EDV-Kosten", wert: "50,00" },
       { seite: "Betriebsausgaben", label: "EDV-Kosten", wert: "5.440,00" },
+      { seite: "Betriebsausgaben", label: "Währung", wert: "5440.39" },
+      { seite: "Betriebsausgaben", label: "Mehrdeutig", wert: "123" },
     ],
   });
   assert(compared.ok === true && compared.vergleichOk === false,
@@ -91,7 +95,11 @@ try {
     "Bewusste Seiten-Occurrence loest die gemeldete Mehrdeutigkeit nicht auf.");
   assert(compared.ergebnis[5].status === "ABWEICHUNG" && compared.ergebnis[5].differenz === 0.39,
     "Centgenaue Differenz wurde nicht korrekt berechnet.");
-  assert(compared.abweichungen === 3,
+  assert(compared.ergebnis[6].status === "stimmt",
+    "Explizites EUR-Suffix wurde nicht als sicherer Zahlenzusatz erkannt.");
+  assert(compared.ergebnis[7].status === "ABWEICHUNG" && compared.ergebnis[7].differenz === null,
+    "Mehrdeutige Zahlengruppierung wurde im Soll/Ist-Bericht numerisch bestaetigt.");
+  assert(compared.abweichungen === 4,
     `Mehrdeutigkeiten und Wertabweichung wurden nicht vollstaendig gezaehlt: ${compared.abweichungen}`);
 
   const wrongHash = callVerify({

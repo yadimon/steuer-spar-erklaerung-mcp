@@ -16,7 +16,7 @@ am laufenden Programm belegt, nicht geraten.
 
 Für Diagnose, Implementierung oder Erweiterung des MCP-Servers die vollständige
 sanitisierte Erfahrungsreferenz lesen:
-[`references/sse-automation-erfahrungen.md`](references/sse-automation-erfahrungen.md).
+[`sse-automation-erfahrungen.md`](sse-automation-erfahrungen.md).
 Sie dokumentiert auch gescheiterte Ansätze, Nachbedingungen, Recovery,
 Tabellenverträge, Prüfergrenzen und den aktuellen Backlog.
 
@@ -30,8 +30,8 @@ SSE-Installation, Fall- oder Ergebnisordner erraten. Zu Beginn
 - Mit `sse_workspace_files` nur relative Referenzen samt Größe und SHA256
   auflisten.
 - Mit `sse_workspace_read_text` Eingaben oder Ergebnisse lesen.
-- Mit `sse_workspace_write_text` neue Texte schreiben; vorhandene Dateien nur
-  mit dem gerade gelesenen `expectedSha256` ersetzen.
+- Mit `sse_workspace_write_text` neue Texte unter neuen Referenzen schreiben;
+  vorhandene Dateien nie ersetzen.
 - Mit `sse_run_scenario` versionierte JSON-Abläufe seriell ausführen. Der
   direkte API-Aufruf und der MCP-Wrapper müssen dieselbe kanonische
   Ergebnisdatei samt SHA256 liefern.
@@ -178,8 +178,9 @@ Accessibility-Brücke ist lückenhaft, daraus folgen drei Eigenheiten:
 4. **Tabellen sind virtualisiert.** Nur die *sichtbaren* Zeilen stehen im
    UIA-Baum. Es gibt keinen scrollbaren Container, `ScrollPattern` findet
    nichts und `{PGDN}` bewirkt nichts. `sse_read_table` liefert deshalb
-   stillschweigend eine *unvollständige* Tabelle — bei der Einnahmenliste
-   waren es 6 von 15 Zeilen, Summe 35.670 statt 89.250 €.
+   stillschweigend eine *unvollständige* Tabelle — in einem realen Testfall
+   waren nur 6 von 15 Zeilen sichtbar und die Teilsumme dadurch deutlich zu
+   niedrig.
 
    **Vollständig lesen geht nur über den Cursor:** `sse_table_read` springt
    zuerst mit Strg+Pos1 an den Tabellenanfang, wandert mit der Pfeiltaste
@@ -321,7 +322,7 @@ sichtbare fremde Eingabe liefern `collection-incomplete` mit
 `vollstaendig=false`, `stopKind`, `stopReason` und einem fortsetzbaren
 Teilstand. Bei einem Prüfhinweis nicht erneut Weiter auslösen: Dialog
 fingerprintgebunden beantworten, dann `sse_ui_state` lesen. Bestehende
-Teilstandsdateien nur mit ihrem aktuellen `expectedOutputHashBefore` ersetzen;
+Teilstandsdateien nicht ersetzen; jedes Segment in eine neue Ergebnisreferenz schreiben;
 `dateiHash` danach zurückprüfen. Export- und Erfassungsdateien enthalten echte
 Steuerwerte und gehören niemals in dieses Repository. Nie durch Erhöhen des
 Limits eine „Vollaufnahme“ erzwingen: lange Monolithläufe können SSE kumulativ

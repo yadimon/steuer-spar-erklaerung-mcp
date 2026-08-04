@@ -111,6 +111,29 @@ export function resolveResourceReference(
   return { ...parsed, root, path };
 }
 
+/**
+ * Verhindert, dass ein schreibbarer Oberbereich als Alias fuer einen logisch
+ * nur lesbaren Unterbereich verwendet wird. Das ist relevant fuer die
+ * Vorgabestruktur, in der documents/results/backups unter workspace liegen.
+ */
+export function assertResourceWriteBoundary(
+  roots: ResourceRoots,
+  resource: ResolvedResourceReference,
+): void {
+  if (resource.area !== "workspace") return;
+  for (const area of RESOURCE_AREAS) {
+    if (area === "workspace") continue;
+    const configuredRoot = roots[area];
+    if (!configuredRoot || !win32.isAbsolute(configuredRoot)) continue;
+    const otherRoot = existsSync(configuredRoot) ? realpathSync(configuredRoot) : resolve(configuredRoot);
+    if (inside(otherRoot, resource.path)) {
+      throw new Error(
+        `Schreiben ueber 'workspace:' in den Ressourcenbereich '${area}' ist gesperrt; '${area}:' explizit verwenden.`,
+      );
+    }
+  }
+}
+
 interface PreparedResourceRoot {
   area: ResourceArea;
   root: string;

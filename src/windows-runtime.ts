@@ -6,6 +6,7 @@ export interface WindowsPowerShellRuntime {
   executable: string;
   version: string;
   major: number;
+  minor: number;
 }
 
 export function resolveProductNode(repoRoot: string, fallback = process.execPath): string {
@@ -66,11 +67,13 @@ export function probeWindowsPowerShell(
     );
   }
   const version = (probe.stdout ?? "").trim();
-  const major = Number(version.split(".")[0]);
-  if (!Number.isInteger(major) || major < 5) {
+  const [majorText, minorText] = version.split(".");
+  const major = Number(majorText);
+  const minor = Number(minorText);
+  if (!Number.isInteger(major) || !Number.isInteger(minor) || major !== 5 || minor < 1) {
     throw new Error(
-      `Windows PowerShell konnte nicht sicher gestartet werden${probe.stderr ? `: ${probe.stderr.trim()}` : "."}`,
+      `Windows PowerShell 5.1 ist erforderlich; erkannt wurde '${version || "unbekannt"}'.`,
     );
   }
-  return { executable, version, major };
+  return { executable, version, major, minor };
 }
