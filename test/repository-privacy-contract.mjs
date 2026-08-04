@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { extname, relative, resolve } from "node:path";
 
 const root = resolve(process.cwd());
@@ -24,6 +24,7 @@ let checked = 0;
 for (const file of listed.split("\0").filter(Boolean)) {
   if (!textExtensions.has(extname(file).toLowerCase())) continue;
   const absolute = resolve(root, file);
+  if (!existsSync(absolute)) continue;
   const source = readFileSync(absolute, "utf8");
   checked += 1;
   for (const rule of rules) {

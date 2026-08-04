@@ -1,11 +1,35 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, lstatSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, lstatSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
 export interface AtomicTextWrite {
   path: string;
   content: string;
   mode?: number;
+}
+
+export function createTextFileExclusive(file: AtomicTextWrite): boolean {
+  if (existsSync(file.path)) {
+    if (!lstatSync(file.path).isFile()) throw new Error(`Schreibziel ist keine regulaere Datei: ${file.path}`);
+    return false;
+  }
+  const temporary = join(dirname(file.path), `.${basename(file.path)}.sse-tmp-${process.pid}-${randomUUID()}`);
+  try {
+    writeFileSync(temporary, file.content, {
+      encoding: "utf8",
+      flag: "wx",
+      ...(file.mode === undefined ? {} : { mode: file.mode }),
+    });
+    try {
+      linkSync(temporary, file.path);
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
+      throw error;
+    }
+  } finally {
+    if (existsSync(temporary)) unlinkSync(temporary);
+  }
 }
 
 /**

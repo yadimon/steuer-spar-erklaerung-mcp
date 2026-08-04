@@ -63,10 +63,3 @@
 - Real SSE controls can share names; stable automation IDs and expected pages
   are required.
 - UIA errors invalidate the worker process; never hide incomplete reads.
-
-## Last Confirmed State
-
-- verified_at: 2026-08-04 02:44 Europe/Berlin
-- notes: full suite green in 33,700 ms with 86 operations. MCP registration,
-  domain executors and filesystem helpers now have dedicated typed boundaries;
-  duplicate array-normalization code was removed.

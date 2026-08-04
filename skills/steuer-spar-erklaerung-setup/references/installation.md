@@ -22,6 +22,11 @@ Der Wizard erzeugt außerhalb des Releaseordners:
 - eine lokale API-Konfiguration mit Loopback-Host, Token, Profil und Pfaden,
 - eine vollständige MCP-Mergevorlage,
 - einen fensterlosen VBS-Starter für genau diese Konfiguration,
+- `setup-decisions.json` mit Modus, Quellen, Connector-Freigaben und
+  Tracking-Entscheidung,
+- `settings.md` mit den lesbaren Nutzerprioritäten,
+- ein neues `tracking.md` oder die unveränderte Referenz auf eine vorhandene
+  `.xlsx`-Trackingdatei,
 - bei bestätigtem Ersetzen redigierte Backups vorhandener Setup-Dateien.
 
 Verwende die ausgegebenen echten Dateinamen. Keine Namen oder JSON-Felder

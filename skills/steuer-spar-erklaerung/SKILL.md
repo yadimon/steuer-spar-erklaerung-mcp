@@ -45,9 +45,10 @@ Diese Regeln gelten auch auf ausdrücklichen Wunsch:
 - Behaupte Erfolg nur nach Readback. Ein Exitcode oder sichtbarer Klick reicht
   nicht als Nachweis.
 
-Unterstütze ausschließlich Windows 10/11 x64 und ein im installierten Release
-als `supported` ausgewiesenes Produktprofil. Derzeit ist das Profil `2025` mit
-Engine-Major `31` freigegeben. Automatisiere keine andere Version ersatzweise.
+Unterstütze ausschließlich Windows x64 mit Windows PowerShell 5.1 und ein im
+installierten Release als `supported` ausgewiesenes Produktprofil. Derzeit ist
+das Profil `2025` mit Engine-Major `31` freigegeben. Automatisiere keine andere
+Version ersatzweise.
 
 ## Architektur richtig verwenden
 
@@ -83,7 +84,20 @@ bezeichnet werden.
 
 Prüfe zuerst nur nicht geheime Setup-Metadaten: Betriebssystem, Architektur,
 vorhandenes Release, Konfiguration, API-Health, Produktprofil und
+Arbeitsbereich. Lies danach `setup-decisions.json` und `settings.md` aus diesem
 Arbeitsbereich. Lies noch keine Belege, Connector-Inhalte oder Steuerdaten.
+Fehlt eine dieser Setup-Dateien, führe den Setup-Skill aus, statt Annahmen über
+Pfade oder Präferenzen zu treffen.
+
+Lies anschließend das in den Entscheidungen benannte Tracking. Mit direktem,
+freigegebenem Dateizugriff darf Markdown nach Hashprüfung und Backup aktualisiert
+werden. Über API/MCP sind Textdateien absichtlich create-only: lies den letzten
+Stand und schreibe einen neuen datierten Snapshot unter `workspace:tracking/`,
+statt eine Datei zu überschreiben. Bei einer vorhandenen `.xlsx`-Datei verwende
+eine verfügbare Tabellenkalkulations-Fähigkeit und erhalte ihre Struktur; die
+lokale API selbst liest oder schreibt XLSX nicht. Ist das nicht zuverlässig
+möglich, frage, ob zusätzlich Markdown-Snapshots angelegt werden dürfen.
+Ersetze Excel niemals still.
 
 Biete sofort an:
 
@@ -127,7 +141,8 @@ Nutzerentscheidung.
 
 ## Verbindlicher Ablauf
 
-1. Lies `capabilities` und den versionsgebundenen Operationskatalog aus der
+1. Lies die gespeicherten Nutzerprioritäten und das Tracking, dann
+   `capabilities` und den versionsgebundenen Operationskatalog aus der
    API-Selbstbeschreibung. Verifiziere danach API-Health, aktives Profil,
    Engine-Major und Arbeitsbereich.
 2. Inventarisiere freigegebene Quellen. Speichere für Dateien Quelle,

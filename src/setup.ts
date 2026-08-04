@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -7,18 +7,21 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
-import { createInterface } from "node:readline/promises";
-import { stdin, stdout } from "node:process";
-import { fileURLToPath } from "node:url";
-import { DEFAULT_API_PORT, isValidApiToken } from "./api-contract.js";
-import { replaceTextFilesFromStaging } from "./atomic-files.js";
+import { isValidApiToken } from "./api-contract.js";
+import { createTextFileExclusive, replaceTextFilesFromStaging } from "./atomic-files.js";
 import { readFileBounded } from "./bounded-files.js";
-import { assertApiResourceTopology, defaultApiConfigPath } from "./api-config.js";
-import { listProductProfileIds, loadProductProfile } from "./product-profiles.js";
+import { assertApiResourceTopology } from "./api-config.js";
+import { loadProductProfile } from "./product-profiles.js";
+import {
+  normalizeSetupPreferences,
+  renderSettingsMarkdown,
+  renderTrackingMarkdown,
+  type SetupPreferenceValues,
+} from "./setup-preferences.js";
 import { probeWindowsPowerShell, resolveProductNode } from "./windows-runtime.js";
-import { parseSetupArguments, SETUP_USAGE } from "./setup-main-arguments.js";
 
 export { parseSetupArguments, SETUP_USAGE } from "./setup-main-arguments.js";
+export { loadStoredSetupPreferences } from "./setup-preferences.js";
 
 export interface SetupValues {
   repoRoot: string;
@@ -32,6 +35,7 @@ export interface SetupValues {
   backupsDir?: string;
   port: number;
   token: string;
+  preferences?: SetupPreferenceValues;
 }
 
 export interface SetupArtifacts {
@@ -39,6 +43,10 @@ export interface SetupArtifacts {
   mcpConfig: Record<string, unknown>;
   setupDecisions: Record<string, unknown>;
   setupDecisionsPath: string;
+  settingsPath: string;
+  settingsContent: string;
+  trackingPath: string;
+  trackingContent?: string;
   mcpConfigPath: string;
   apiLauncherPath: string;
   apiLauncherContent: string;
@@ -48,7 +56,8 @@ export function setupArtifactTargetPaths(
   values: SetupValues,
   artifacts: SetupArtifacts = buildSetupArtifacts(values),
 ): readonly string[] {
-  return [values.configPath, artifacts.mcpConfigPath, artifacts.apiLauncherPath, artifacts.setupDecisionsPath];
+  return [values.configPath, artifacts.mcpConfigPath, artifacts.apiLauncherPath,
+    artifacts.setupDecisionsPath, artifacts.settingsPath];
 }
 
 export const MAX_SETUP_FILE_BYTES = 16 * 1024 * 1024;
@@ -99,7 +108,9 @@ export function detectSseExecutables(profileId = "2025", env: NodeJS.ProcessEnv 
   const profile = loadProductProfile(profileId);
   const systemDrive = (env.SystemDrive ?? "C:").replace(/[\\/]+$/u, "");
   const systemProgramFiles = resolve(`${systemDrive}\\`, "Program Files");
-  const roots = [env.ProgramFiles, env["ProgramFiles(x86)"], systemProgramFiles]
+  const explicitRoots = env.SSE_SETUP_PROGRAM_FILES_ROOTS?.split(";").map((entry) => entry.trim()).filter(Boolean) ?? [];
+  const configuredRoots = [env.ProgramFiles, env["ProgramFiles(x86)"]].filter(Boolean);
+  const roots = (explicitRoots.length ? explicitRoots : [...configuredRoots, ...(configuredRoots.length ? [] : [systemProgramFiles])])
     .filter((entry): entry is string => Boolean(entry));
   const candidates = roots.map((root) =>
     join(root, ...profile.executable.defaultRelativePath.split("/")),
@@ -164,6 +175,11 @@ export function buildSetupArtifacts(values: SetupValues): SetupArtifacts {
     `CreateObject("WScript.Shell").Run "${command.replaceAll('"', '""')}", 0, False\r\n`;
   const documentsDir = values.documentsDir ?? join(values.workspaceDir, "documents");
   const backupsDir = values.backupsDir ?? join(values.workspaceDir, "backups");
+  const preferences = normalizeSetupPreferences(values.workspaceDir, values.preferences);
+  for (const [index, path] of preferences.sourceFolders.entries()) {
+    assertSetupPath(path, `sourceFolders[${index}]`);
+  }
+  assertSetupPath(preferences.tracking.path, "trackingPath");
   assertApiResourceTopology({
     ...(values.caseDir ? { caseDir: values.caseDir } : {}),
     documentsDir,
@@ -171,6 +187,15 @@ export function buildSetupArtifacts(values: SetupValues): SetupArtifacts {
     resultDir: values.resultDir,
     backupsDir,
   });
+  for (const sourceFolder of preferences.sourceFolders) {
+    assertApiResourceTopology({
+      caseDir: sourceFolder,
+      documentsDir,
+      workspaceDir: values.workspaceDir,
+      resultDir: values.resultDir,
+      backupsDir,
+    });
+  }
   return {
     apiConfig: {
       profileId,
@@ -194,12 +219,18 @@ export function buildSetupArtifacts(values: SetupValues): SetupArtifacts {
       },
     },
     setupDecisions: {
-      schemaVersion: 1,
+      schemaVersion: 2,
       profileId,
-      requestedMode: "not-asked",
-      documentCollection: "not-asked",
-      connectorAccess: "not-asked",
-      copyPolicy: "copy-only-after-consent",
+      requestedMode: preferences.mode,
+      transport: preferences.transport,
+      useSafeDefaults: preferences.useSafeDefaults,
+      initialReadOnlyCheck: preferences.initialReadOnlyCheck,
+      documentCollection: preferences.documentCollection,
+      sourceFolders: preferences.sourceFolders,
+      connectors: preferences.connectors,
+      tracking: preferences.tracking,
+      priorities: preferences.priorities,
+      copyPolicy: "copy-only-after-source-confirmation",
       caseDirectoryConfigured: Boolean(values.caseDir),
       areas: {
         documents: "documents",
@@ -212,6 +243,10 @@ export function buildSetupArtifacts(values: SetupValues): SetupArtifacts {
       },
     },
     setupDecisionsPath,
+    settingsPath: preferences.settingsPath,
+    settingsContent: renderSettingsMarkdown(preferences),
+    trackingPath: preferences.tracking.path,
+    ...(preferences.tracking.format === "markdown" ? { trackingContent: renderTrackingMarkdown() } : {}),
     mcpConfigPath,
     apiLauncherPath,
     apiLauncherContent,
@@ -221,14 +256,21 @@ export function buildSetupArtifacts(values: SetupValues): SetupArtifacts {
 export function writeSetupArtifacts(
   values: SetupValues,
   allowOverwrite: boolean,
-): { apiConfigPath: string; mcpConfigPath: string; apiLauncherPath: string; setupDecisionsPath: string; backups: string[] } {
+  options: { preserveExistingSettings?: boolean } = {},
+) {
   const artifacts = buildSetupArtifacts(values);
   const targets = setupArtifactTargetPaths(values, artifacts);
   const normalizedTargets = targets.map((target) => resolve(target).toLocaleLowerCase("de-DE"));
   if (new Set(normalizedTargets).size !== normalizedTargets.length) {
     throw new Error("Setup-Zieldateien muessen unterschiedliche Pfade verwenden.");
   }
-  const existing = targets.filter(existsSync);
+  const settingsAlreadyExists = existsSync(artifacts.settingsPath);
+  const preservedTargets = options.preserveExistingSettings && settingsAlreadyExists
+    ? new Set([resolve(artifacts.settingsPath).toLocaleLowerCase("de-DE")])
+    : new Set<string>();
+  const existing = targets.filter(existsSync).filter(
+    (target) => !preservedTargets.has(resolve(target).toLocaleLowerCase("de-DE")),
+  );
   if (existing.length && !allowOverwrite) {
     throw new Error(`Konfiguration existiert bereits: ${existing.join(", ")}`);
   }
@@ -237,6 +279,17 @@ export function writeSetupArtifacts(
   mkdirSync(values.resultDir, { recursive: true });
   mkdirSync(values.documentsDir ?? join(values.workspaceDir, "documents"), { recursive: true });
   mkdirSync(values.backupsDir ?? join(values.workspaceDir, "backups"), { recursive: true });
+  const preferences = normalizeSetupPreferences(values.workspaceDir, values.preferences);
+  for (const sourceFolder of preferences.sourceFolders) {
+    if (!existsSync(sourceFolder) || !statSync(sourceFolder).isDirectory()) {
+      throw new Error(`Freigegebener Quellordner fehlt oder ist kein Ordner: ${sourceFolder}`);
+    }
+  }
+  if (preferences.tracking.format === "xlsx") {
+    if (!existsSync(preferences.tracking.path) || !statSync(preferences.tracking.path).isFile()) {
+      throw new Error(`Ausgewaehltes Excel-Tracking fehlt oder ist keine Datei: ${preferences.tracking.path}`);
+    }
+  }
   const backupPlans = existing.map((target) => {
     const bytes = readSetupFile(target);
     const backupExtension = extname(target) || ".bak";
@@ -258,15 +311,15 @@ export function writeSetupArtifacts(
     try {
       writeFileSync(backup, content, { encoding: "utf8", mode: 0o600, flag: "wx" });
     } catch (error) {
-      // Ein paralleler identischer Setup-Lauf darf exakt dasselbe deterministische
-      // Backup gewonnen haben. Abweichende oder unlesbare Dateien bleiben hart
-      // gesperrt und werden niemals ueberschrieben.
       const wonByOtherProcess =
         error && typeof error === "object" && (error as NodeJS.ErrnoException).code === "EEXIST";
       if (!wonByOtherProcess || !backupMatches(backup, expected)) throw error;
     }
   }
   const backups = backupPlans.map((plan) => plan.backup);
+  const trackingCreated = artifacts.trackingContent
+    ? createTextFileExclusive({ path: artifacts.trackingPath, content: artifacts.trackingContent, mode: 0o600 })
+    : false;
   replaceTextFilesFromStaging([
     { path: values.configPath, content: `${JSON.stringify(artifacts.apiConfig, null, 2)}\n`, mode: 0o600 },
     { path: artifacts.mcpConfigPath, content: `${JSON.stringify(artifacts.mcpConfig, null, 2)}\n`, mode: 0o600 },
@@ -276,98 +329,18 @@ export function writeSetupArtifacts(
       content: `${JSON.stringify(artifacts.setupDecisions, null, 2)}\n`,
       mode: 0o600,
     },
+    ...(!settingsAlreadyExists || !options.preserveExistingSettings
+      ? [{ path: artifacts.settingsPath, content: artifacts.settingsContent, mode: 0o600 }]
+      : []),
   ]);
   return {
     apiConfigPath: values.configPath,
     mcpConfigPath: artifacts.mcpConfigPath,
     apiLauncherPath: artifacts.apiLauncherPath,
     setupDecisionsPath: artifacts.setupDecisionsPath,
+    settingsPath: artifacts.settingsPath,
+    trackingPath: artifacts.trackingPath,
+    trackingCreated,
     backups,
   };
-}
-
-export async function runSetupMain(args: readonly string[]): Promise<void> {
-  const options = parseSetupArguments(args);
-  if (options.help) {
-    stdout.write(`${SETUP_USAGE}\n`);
-    return;
-  }
-  const here = dirname(fileURLToPath(import.meta.url));
-  const repoRoot = resolve(here, "..");
-  const defaultsPath = defaultApiConfigPath();
-  const prompt = createInterface({ input: stdin, output: stdout });
-  const ask = async (label: string, defaultValue = ""): Promise<string> => {
-    const suffix = defaultValue ? ` [${defaultValue}]` : "";
-    const answer = (await prompt.question(`${label}${suffix}: `)).trim();
-    return answer || defaultValue;
-  };
-
-  try {
-    stdout.write(`${SETUP_USAGE.split("\n")[0]}\n\n`);
-    assertWindowsPowerShell();
-    const supportedProfiles = listProductProfileIds().filter((id) => {
-      try { loadProductProfile(id); return true; } catch { return false; }
-    });
-    if (!supportedProfiles.length) throw new Error("Kein produktiv freigegebenes SSE-Profil ist enthalten.");
-    const profileId = await ask(
-      `Steuerjahr/Produktprofil (${supportedProfiles.join(", ")})`,
-      supportedProfiles.includes("2025") ? "2025" : supportedProfiles[0],
-    );
-    if (!supportedProfiles.includes(profileId)) throw new Error(`Produktprofil '${profileId}' ist nicht freigegeben.`);
-    const profile = loadProductProfile(profileId);
-    const detected = detectSseExecutables(profileId);
-    const sseExecutable = validateSseExecutable(
-      await ask(`Pfad zu ${profile.executable.name} (${profile.executable.installationFolderName})`, detected.length === 1 ? detected[0] : ""),
-      profileId,
-    );
-    const caseDirInput = await ask("Optionaler Fallordner (leer lassen erlaubt)");
-    const configPath = resolve(await ask("Lokale API-Konfiguration", defaultsPath));
-    const workspaceDir = resolve(
-      await ask("Arbeitsbereich fuer Szenarioeingaben", join(dirname(configPath), "workspace")),
-    );
-    const documentsDir = resolve(await ask("Dokumentenordner", join(workspaceDir, "documents")));
-    const resultDir = resolve(await ask("Ergebnisordner", join(workspaceDir, "results")));
-    const backupsDir = resolve(await ask("Sicherungsordner", join(workspaceDir, "backups")));
-    const port = Number(await ask("Lokaler API-Port", String(DEFAULT_API_PORT)));
-    if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error("Port muss zwischen 1 und 65535 liegen.");
-    const token = randomBytes(32).toString("base64url");
-    const values: SetupValues = {
-      repoRoot,
-      profileId,
-      configPath,
-      sseExecutable,
-      ...(caseDirInput ? { caseDir: resolve(caseDirInput) } : {}),
-      documentsDir,
-      workspaceDir,
-      resultDir,
-      backupsDir,
-      port,
-      token,
-    };
-    const existingTargets = setupArtifactTargetPaths(values).filter(existsSync);
-    const overwrite = existingTargets.length
-      ? /^(j|ja|y|yes)$/i.test(await ask(
-          `${existingTargets.length} vorhandene Setup-Datei(en) nach redigiertem Backup ersetzen? (ja/nein)`,
-          "nein",
-        ))
-      : false;
-    const written = writeSetupArtifacts(values, overwrite);
-    stdout.write(`\nAPI-Konfiguration: ${written.apiConfigPath}\n`);
-    stdout.write(`MCP-Mergevorlage: ${written.mcpConfigPath}\n`);
-    stdout.write(`Fensterloser API-Starter: ${written.apiLauncherPath}\n`);
-    stdout.write(`Setup-Entscheidungen: ${written.setupDecisionsPath}\n`);
-    if (written.backups.length) stdout.write(`Backups: ${written.backups.join(", ")}\n`);
-    stdout.write("Token wurde nur in den lokalen Konfigurationsdateien gespeichert.\n");
-    stdout.write(`API direkt starten: "${resolveProductNode(repoRoot)}" "${join(repoRoot, "dist", "api-main.js")}" --config "${configPath}"\n`);
-    stdout.write("Nach Token- oder Pfadaenderungen eine laufende API bzw. die geplante Aufgabe neu starten.\n");
-  } finally {
-    prompt.close();
-  }
-}
-
-if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))) {
-  runSetupMain(process.argv.slice(2)).catch((error) => {
-    process.stderr.write(`Setup fehlgeschlagen: ${error instanceof Error ? error.message : String(error)}\n`);
-    process.exit(1);
-  });
 }

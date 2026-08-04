@@ -7,7 +7,7 @@ async function main(args: readonly string[]): Promise<void> {
     process.stdout.write(`${SETUP_USAGE}\n`);
     return;
   }
-  const { runSetupMain } = await import("./setup.js");
+  const { runSetupMain } = await import("./setup-wizard.js");
   await runSetupMain(args);
 }
 

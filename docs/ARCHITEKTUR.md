@@ -345,5 +345,6 @@ Eine Funktion gilt nur als lauffähig, wenn:
   ausdrücklich benannte Fixture-Voraussetzung existiert.
 
 Der Gesamtstand ist erst produktiv, wenn die schnelle portable Testsuite, alle
-verfügbaren Real-Fixture-Tests, die Skill-Validierung, ein unabhängiger
-Claude-Review und der abschließende Anforderungsabgleich grün sind.
+verfügbaren Real-Fixture-Tests, die Skill-Validierung, Datenschutzprüfung und
+der abschließende Anforderungsabgleich grün sind. Externe Reviews sind
+zusätzliche Evidenz und ersetzen diese Prüfungen nicht.

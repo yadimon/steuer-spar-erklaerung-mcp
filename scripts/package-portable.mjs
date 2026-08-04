@@ -94,7 +94,6 @@ const requiredFiles = [
   "skills/steuer-spar-erklaerung/SKILL.md",
   "skills/steuer-spar-erklaerung-setup/SKILL.md",
   "docs/assets/demo/steuer-spar-erklaerung-demo.gif",
-  "docs/assets/demo/demo-result.json",
   "README.md",
   "LICENSE",
   "package.json",

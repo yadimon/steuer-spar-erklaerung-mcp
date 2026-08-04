@@ -19,6 +19,7 @@ import {
 } from "./resources.js";
 import { ensureWorkspace } from "./workspace.js";
 import { executeWorkspaceOperation, isWorkspaceExecutorOperation } from "./workspace-executor.js";
+import { readWorkspaceStatus } from "./workspace-status.js";
 
 interface ConfiguredArguments {
   args: Record<string, unknown>;
@@ -166,15 +167,12 @@ export function createApiExecutor(config: SseApiServerConfig, worker: ScenarioEx
         return { ok: true, ...SSE_CAPABILITIES };
       }
       if (operation === "workspace_status") {
-        return {
-          ok: true,
-          workspaceReady: true,
-          resultAreaReady: true,
-          caseDirectoryConfigured: Boolean(config.caseDir),
-          documentAreaReady: true,
-          backupAreaReady: true,
-          sseExecutableConfigured: Boolean(config.sseExecutable),
-        };
+        return readWorkspaceStatus({
+          ...config,
+          profileId: config.profileId ?? "2025",
+          documentsDir: roots.documents!,
+          backupsDir: roots.backups!,
+        });
       }
       if (isWorkspaceExecutorOperation(operation)) {
         return await executeWorkspaceOperation(operation, args, {

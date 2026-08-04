@@ -41,10 +41,15 @@ assert(main.includes("sse_capabilities") && main.includes("Fallback bei unbekann
 assert(main.includes("unsupportedButtons") && main.includes("generischen Toggle-Klick"));
 assert(main.includes("niemals über ELSTER") && main.includes("verifizierten Arbeitskopie"));
 assert(main.includes("sse_ustva_read") && main.includes("sse_ustva_open_section"));
+assert(main.includes("setup-decisions.json") && main.includes("settings.md"));
+assert(main.includes("Tracking") && main.includes(".xlsx") && main.includes("Excel niemals still"));
 const setup = readFileSync(join(skillsRoot, "steuer-spar-erklaerung-setup", "SKILL.md"), "utf8");
 assert(setup.includes("runtime/node.exe dist/api-cli.js health") && setup.includes("discovery"));
 assert(setup.includes('command = "node"') && setup.includes("schwarze `cmd.exe`-Fenster"));
 assert(setup.includes("Windows x64") && setup.includes("Windows PowerShell 5.1"));
+assert(setup.includes("--defaults") && setup.includes("--no-start"));
+assert(setup.includes("settings.md") && setup.includes("tracking.md") && setup.includes(".xlsx"));
+assert(setup.includes("Connector") && setup.includes("read-only Prüfung"));
 assert(!setup.includes("Windows 10/11"), "Setup darf kompatible Windows-Versionen nicht nach Label sperren.");
 
 process.stdout.write("Public Skills: 2 flache npx-kompatible, deutsche und portable Skill-Pakete bestanden\n");

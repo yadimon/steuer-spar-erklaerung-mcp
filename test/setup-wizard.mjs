@@ -7,6 +7,7 @@ import { performance } from "node:perf_hooks";
 import {
   assertWindowsPowerShell,
   buildSetupArtifacts,
+  loadStoredSetupPreferences,
   MAX_SETUP_FILE_BYTES,
   parseSetupArguments,
   SETUP_USAGE,
@@ -19,9 +20,16 @@ import { probeWindowsPowerShell } from "../dist/windows-runtime.js";
 
 const temporary = mkdtempSync(join(tmpdir(), "sse-setup-test-"));
 try {
-  assert.deepEqual(parseSetupArguments([]), { help: false });
-  assert.deepEqual(parseSetupArguments(["--help"]), { help: true });
-  assert.deepEqual(parseSetupArguments(["-h"]), { help: true });
+  assert.deepEqual(parseSetupArguments([]), { help: false, defaults: false, startApi: true });
+  assert.deepEqual(parseSetupArguments(["--defaults"]), { help: false, defaults: true, startApi: true });
+  assert.deepEqual(parseSetupArguments(["--no-start"]), { help: false, defaults: false, startApi: false });
+  assert.deepEqual(parseSetupArguments(["--defaults", "--no-start"]), {
+    help: false,
+    defaults: true,
+    startApi: false,
+  });
+  assert.deepEqual(parseSetupArguments(["--help"]), { help: true, defaults: false, startApi: false });
+  assert.deepEqual(parseSetupArguments(["-h"]), { help: true, defaults: false, startApi: false });
   assert.throws(() => parseSetupArguments(["--unbekannt"]), /Ungueltige Setup-Argumente/);
   const helpStartedAt = performance.now();
   const help = spawnSync(process.execPath, ["dist/setup-main.js", "--help"], {
@@ -32,6 +40,8 @@ try {
   const helpMs = performance.now() - helpStartedAt;
   assert.equal(help.status, 0, help.stderr);
   assert.equal(help.stdout, `${SETUP_USAGE}\n`);
+  assert.match(help.stdout, /--defaults/);
+  assert.match(help.stdout, /--no-start/);
   assert(!help.stdout.includes("Steuerjahr/Produktprofil"), "--help darf keinen interaktiven Prompt starten.");
   assert(helpMs < 2_500, `Setup-Hilfe lud zu viel Laufzeitcode (${helpMs.toFixed(0)} ms).`);
   const invalid = spawnSync(process.execPath, ["dist/setup-main.js", "--unbekannt"], {
@@ -42,6 +52,48 @@ try {
   assert.notEqual(invalid.status, 0);
   assert.match(invalid.stderr, /Ungueltige Setup-Argumente/);
   assert(!invalid.stdout.includes("Steuerjahr/Produktprofil"), "Ungueltige Argumente duerfen keinen Prompt starten.");
+
+  const defaultsRoot = join(temporary, "defaults-e2e");
+  const defaultsProgramFiles = join(defaultsRoot, "Program Files");
+  const defaultsSse = join(
+    defaultsProgramFiles,
+    "Steuertipps",
+    "SteuerSparErklaerung",
+    "Steuerjahr 2025",
+    "SSE.exe",
+  );
+  mkdirSync(join(defaultsSse, ".."), { recursive: true });
+  writeFileSync(defaultsSse, "default-sse-fixture", "utf8");
+  const defaultsEnvironment = {
+    ...process.env,
+    LOCALAPPDATA: join(defaultsRoot, "LocalAppData"),
+    ProgramFiles: defaultsProgramFiles,
+    "ProgramFiles(x86)": defaultsProgramFiles,
+    SSE_SETUP_PROGRAM_FILES_ROOTS: defaultsProgramFiles,
+  };
+  const firstDefaults = spawnSync(process.execPath, ["dist/setup-main.js", "--defaults", "--no-start"], {
+    encoding: "utf8",
+    env: defaultsEnvironment,
+    windowsHide: true,
+    timeout: 15_000,
+  });
+  assert.equal(firstDefaults.status, 0, firstDefaults.stderr);
+  assert.match(firstDefaults.stdout, /API noch nicht gestartet/);
+  const defaultsConfigPath = join(defaultsEnvironment.LOCALAPPDATA, "SteuerSparErklaerungApi", "config.json");
+  const defaultsConfigBefore = JSON.parse(readFileSync(defaultsConfigPath, "utf8"));
+  const defaultsSettingsPath = join(defaultsConfigBefore.workspaceDir, "settings.md");
+  writeFileSync(defaultsSettingsPath, "# Eigene Default-Einstellung\n", "utf8");
+  const secondDefaults = spawnSync(process.execPath, ["dist/setup-main.js", "--defaults", "--no-start"], {
+    encoding: "utf8",
+    env: defaultsEnvironment,
+    windowsHide: true,
+    timeout: 15_000,
+  });
+  assert.equal(secondDefaults.status, 0, secondDefaults.stderr);
+  const defaultsConfigAfter = JSON.parse(readFileSync(defaultsConfigPath, "utf8"));
+  assert.equal(defaultsConfigAfter.token, defaultsConfigBefore.token, "Default-Reparatur darf das Token nicht rotieren.");
+  assert.equal(readFileSync(defaultsSettingsPath, "utf8"), "# Eigene Default-Einstellung\n");
+
   assertWindowsPowerShell();
   const powershellRuntime = probeWindowsPowerShell();
   assert.equal(powershellRuntime.major, 5);
@@ -53,7 +105,9 @@ try {
   const configPath = join(temporary, "local-config", "config.json");
   const workspaceDir = join(temporary, "workspace");
   const resultDir = join(workspaceDir, "results");
+  const sourceDir = join(temporary, "belege");
   mkdirSync(sseDir, { recursive: true });
+  mkdirSync(sourceDir, { recursive: true });
   mkdirSync(join(repoRoot, "runtime"), { recursive: true });
   writeFileSync(sseExecutable, "fixture", "utf8");
   writeFileSync(portableNode, "portable-node-fixture", "utf8");
@@ -71,16 +125,32 @@ try {
     resultDir,
     port: 43127,
     token: "setup-test-token-with-at-least-24-characters",
+    preferences: {
+      mode: "read-only-check",
+      transport: "api-and-mcp",
+      documentCollection: "reference-only",
+      sourceFolders: [sourceDir],
+      connectors: [
+        { name: "Gmail", access: "approved" },
+        { name: "Drive", access: "not-approved" },
+      ],
+      tracking: { format: "markdown", path: join(workspaceDir, "tracking.md") },
+      initialReadOnlyCheck: true,
+      priorities: ["Rechnungen zuerst pruefen."],
+    },
   };
   const preview = buildSetupArtifacts(values);
   assert.equal(preview.mcpConfigPath, join(temporary, "local-config", "mcp-client.config.json"));
   assert.equal(preview.apiLauncherPath, join(temporary, "local-config", "start-sse-api.config.hidden.vbs"));
   assert.equal(preview.setupDecisionsPath, join(workspaceDir, "setup-decisions.json"));
+  assert.equal(preview.settingsPath, join(workspaceDir, "settings.md"));
+  assert.equal(preview.trackingPath, join(workspaceDir, "tracking.md"));
   assert.deepEqual(setupArtifactTargetPaths(values), [
     configPath,
     preview.mcpConfigPath,
     preview.apiLauncherPath,
     preview.setupDecisionsPath,
+    preview.settingsPath,
   ]);
   assert.equal(preview.apiConfig.host, "127.0.0.1");
   assert.equal(preview.apiConfig.profileId, "2025");
@@ -118,24 +188,47 @@ try {
   const mcpConfig = JSON.parse(readFileSync(first.mcpConfigPath, "utf8"));
   const apiLauncher = readFileSync(first.apiLauncherPath, "utf8");
   const setupDecisions = JSON.parse(readFileSync(first.setupDecisionsPath, "utf8"));
+  const settings = readFileSync(first.settingsPath, "utf8");
+  const tracking = readFileSync(first.trackingPath, "utf8");
   assert.equal(apiConfig.sseExecutable, sseExecutable);
   assert.equal(apiConfig.profileId, "2025");
   assert.equal(apiConfig.caseDir, values.caseDir);
   assert.equal(mcpConfig.mcpServers["steuer-spar-erklaerung"].env.SSE_API_TOKEN, values.token);
   assert(apiLauncher.includes(`""${portableNode}""`) && apiLauncher.includes(`--config ""${configPath}""`));
   assert.equal(setupDecisions.profileId, "2025");
-  assert.equal(setupDecisions.copyPolicy, "copy-only-after-consent");
+  assert.equal(setupDecisions.schemaVersion, 2);
+  assert.equal(setupDecisions.requestedMode, "read-only-check");
+  assert.equal(setupDecisions.transport, "api-and-mcp");
+  assert.equal(setupDecisions.documentCollection, "reference-only");
+  assert.deepEqual(setupDecisions.sourceFolders, [sourceDir]);
+  assert.deepEqual(setupDecisions.connectors, [
+    { name: "Gmail", access: "approved" },
+    { name: "Drive", access: "not-approved" },
+  ]);
+  assert.equal(setupDecisions.copyPolicy, "copy-only-after-source-confirmation");
   assert.equal(setupDecisions.safety.elsterTransmission, "blocked");
   assert(!JSON.stringify(setupDecisions).includes(values.token));
+  assert.match(settings, /Rechnungen zuerst pruefen/);
+  assert.match(settings, /Gmail: Lesen freigegeben/);
+  assert(!settings.includes(values.token));
+  assert.match(tracking, /Beleg- und Quellen-Tracking/);
+  const storedPreferences = loadStoredSetupPreferences(workspaceDir);
+  assert.equal(storedPreferences.mode, "read-only-check");
+  assert.equal(storedPreferences.transport, "api-and-mcp");
+  assert.deepEqual(storedPreferences.sourceFolders, [sourceDir]);
+  assert.equal(storedPreferences.tracking.path, first.trackingPath);
   const loaded = loadApiServerConfig({ SSE_API_CONFIG: first.apiConfigPath });
   assert.equal(loaded.workspaceDir, workspaceDir);
   assert.equal(loaded.profileId, "2025");
   assert.equal(loaded.sseExecutable, sseExecutable);
   assert.throws(() => writeSetupArtifacts(values, false), /existiert bereits/);
 
+  writeFileSync(first.trackingPath, `${tracking}\nManueller Tracking-Eintrag bleibt erhalten.\n`, "utf8");
   const changed = { ...values, port: 43128 };
   const second = writeSetupArtifacts(changed, true);
-  assert.equal(second.backups.length, 4);
+  assert.equal(second.backups.length, 5);
+  assert.equal(second.trackingCreated, false);
+  assert.match(readFileSync(second.trackingPath, "utf8"), /Manueller Tracking-Eintrag bleibt erhalten/);
   let redactedJsonBackups = 0;
   for (const backup of second.backups) {
     const backupText = readFileSync(backup, "utf8");
@@ -145,10 +238,77 @@ try {
   assert.equal(redactedJsonBackups, 2, "API- und MCP-JSON-Backup wurden nicht redigiert.");
   assert(second.backups.some((backup) => backup.endsWith(".vbs")), "VBS-Backup traegt keine ausfuehrbare Dateiendung.");
   assert.equal(JSON.parse(readFileSync(configPath, "utf8")).port, 43128);
+  writeFileSync(second.settingsPath, "# Eigene Einstellungen\n\nNicht ersetzen.\n", "utf8");
+  const reused = writeSetupArtifacts(changed, true, { preserveExistingSettings: true });
+  assert.equal(reused.backups.length, 4);
+  assert.equal(readFileSync(reused.settingsPath, "utf8"), "# Eigene Einstellungen\n\nNicht ersetzen.\n");
+
+  const excelTracking = join(temporary, "bestehend.xlsx");
+  writeFileSync(excelTracking, "private-excel-fixture", "utf8");
+  const excelValues = {
+    ...values,
+    configPath: join(temporary, "excel-config", "config.json"),
+    workspaceDir: join(temporary, "excel-workspace"),
+    resultDir: join(temporary, "excel-workspace", "results"),
+    preferences: { ...values.preferences, tracking: { format: "xlsx", path: excelTracking } },
+  };
+  const excelWrite = writeSetupArtifacts(excelValues, false);
+  assert.equal(excelWrite.trackingCreated, false);
+  assert.equal(readFileSync(excelTracking, "utf8"), "private-excel-fixture");
+  assert.throws(
+    () => buildSetupArtifacts({
+      ...values,
+      preferences: { ...values.preferences, tracking: { format: "markdown", path: join(temporary, "outside.md") } },
+    }),
+    /innerhalb des privaten Arbeitsbereichs/,
+  );
+  assert.throws(
+    () => buildSetupArtifacts({ ...values, preferences: { ...values.preferences, mode: "unknown" } }),
+    /Unbekannter Setup-Modus/,
+  );
+  assert.throws(
+    () => buildSetupArtifacts({
+      ...values,
+      preferences: {
+        ...values.preferences,
+        sourceFolders: Array.from({ length: 33 }, (_, index) => join(temporary, `source-${index}`)),
+      },
+    }),
+    /Hoechstens 32/,
+  );
+  assert.throws(
+    () => buildSetupArtifacts({
+      ...values,
+      preferences: { ...values.preferences, sourceFolders: [workspaceDir] },
+    }),
+    /'cases'.*'workspace'/,
+  );
+  assert.throws(
+    () => writeSetupArtifacts({
+      ...values,
+      configPath: join(temporary, "missing-source", "config.json"),
+      workspaceDir: join(temporary, "missing-source", "workspace"),
+      resultDir: join(temporary, "missing-source", "workspace", "results"),
+      preferences: {
+        ...values.preferences,
+        sourceFolders: [join(temporary, "nicht-vorhanden")],
+        tracking: { format: "markdown", path: join(temporary, "missing-source", "workspace", "tracking.md") },
+      },
+    }, false),
+    /Quellordner fehlt/,
+  );
+  const invalidDecisionWorkspace = join(temporary, "invalid-decisions");
+  mkdirSync(invalidDecisionWorkspace, { recursive: true });
+  writeFileSync(
+    join(invalidDecisionWorkspace, "setup-decisions.json"),
+    JSON.stringify({ ...setupDecisions, connectors: "Gmail" }),
+    "utf8",
+  );
+  assert.throws(() => loadStoredSetupPreferences(invalidDecisionWorkspace), /Connector-Entscheidungen/);
   const stableBackups = writeSetupArtifacts(changed, true).backups;
   writeFileSync(stableBackups[0], "manipuliertes-backup\n", "utf8");
   assert.throws(() => writeSetupArtifacts(changed, true), /Backup weicht.*erwarteten Inhalt/);
-  process.stdout.write(`Setup-Wizard: schnelle Hilfe in ${helpMs.toFixed(0)} ms, portable Pfadtrennung, Dateilimit, Backup und MCP-Mergevorlage bestanden\n`);
+  process.stdout.write(`Setup-Wizard: Hilfe in ${helpMs.toFixed(0)} ms, Einstellungen, Tracking, Backups und MCP-Mergevorlage bestanden\n`);
 } finally {
   rmSync(temporary, { recursive: true, force: true });
 }

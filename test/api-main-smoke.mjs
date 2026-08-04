@@ -12,6 +12,8 @@ import { API_MAIN_USAGE, parseApiMainArguments } from "../dist/api-main-argument
 import { SSE_API_OPERATIONS, SSE_API_VERSION } from "../dist/api-contract.js";
 import { attachScreenshotImage, installApiShutdown, MAX_SCREENSHOT_IMAGE_BYTES } from "../dist/api-runtime.js";
 import { readFileBounded } from "../dist/bounded-files.js";
+import { startAndVerifySetupApi, verifySetupApi } from "../dist/setup-runtime.js";
+import { configurationFingerprint } from "../dist/workspace-status.js";
 
 const reservePort = async () => {
   const probe = createServer();
@@ -258,6 +260,38 @@ try {
   }
   assert.equal(healthy, true, `Produktiver API-Entry-Point wurde nicht gesund: ${stderr}`);
 
+  const expectedConfigurationFingerprint = configurationFingerprint({
+    profileId: "2025",
+    documentsDir: join(workspaceDir, "documents"),
+    workspaceDir,
+    resultDir,
+    backupsDir: join(workspaceDir, "backups"),
+  });
+  const setupVerification = await verifySetupApi(
+    { host: "127.0.0.1", port, token, expectedConfigurationFingerprint },
+    { attempts: 1 },
+  );
+  assert.equal(setupVerification.baseUrl, baseUrl);
+  assert.equal(setupVerification.operationCount, SSE_API_OPERATIONS.length);
+  assert.equal(setupVerification.workspaceReady, true);
+  assert.equal(setupVerification.startedBySetup, false);
+  await assert.rejects(
+    verifySetupApi(
+      { host: "127.0.0.1", port, token, expectedConfigurationFingerprint: "0".repeat(64) },
+      { attempts: 1 },
+    ),
+    /andere lokale Konfiguration/,
+  );
+  const occupiedPortStartedAt = performance.now();
+  await assert.rejects(
+    startAndVerifySetupApi(
+      { host: "127.0.0.1", port, token: "wrong-token-with-at-least-24-characters" },
+      join(temporary, "missing-launcher.vbs"),
+    ),
+    /Port .* bereits.*nicht zur Konfiguration passt/,
+  );
+  assert(performance.now() - occupiedPortStartedAt < 5_000, "Fremde API am Port wurde nicht schnell erkannt.");
+
   const actualOpenApiResponse = await fetch(`${baseUrl}/v1/openapi.json`, {
     headers: { authorization: `Bearer ${token}` },
   });
@@ -285,6 +319,22 @@ try {
   const envelope = await status.json();
   assert.equal(envelope.result.workspaceReady, true);
   assert.equal(envelope.result.resultAreaReady, true);
+  assert.equal(envelope.result.documentAreaReady, true);
+  assert.equal(envelope.result.backupAreaReady, true);
+  assert.equal(envelope.result.profileId, "2025");
+  assert.equal(envelope.result.configurationFingerprint, expectedConfigurationFingerprint);
+
+  rmSync(resultDir, { recursive: true, force: true });
+  writeFileSync(resultDir, "kein-ergebnisordner", "utf8");
+  const brokenStatus = await fetch(`${baseUrl}/v1/operations/workspace_status`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ args: {}, timeoutMs: 1_000 }),
+  });
+  assert.equal(brokenStatus.status, 200);
+  assert.equal((await brokenStatus.json()).result.resultAreaReady, false);
+  rmSync(resultDir, { force: true });
+  mkdirSync(resultDir, { recursive: true });
 } finally {
   child.kill("SIGTERM");
   const [code, signal] = await once(child, "exit");

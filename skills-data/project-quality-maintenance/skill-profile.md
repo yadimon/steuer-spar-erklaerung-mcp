@@ -44,10 +44,5 @@
   detected as workspaces or edited as source.
 - The archive integration test intentionally skips without its private fixture.
 - PowerShell changes must remain Windows PowerShell 5.1 compatible.
-- Claude review is a user-requested commit gate and currently requires login.
-
-## Last Confirmed State
-
-- verified_at: 2026-08-04 02:44 Europe/Berlin
-- notes: `npm test` passed in 33,700 ms with 86 API/MCP operations; focused
-  no-overwrite, backup and synthetic archive/rollback gates passed afterward.
+- External reviews are advisory evidence; local tests and the actual diff stay
+  authoritative.
