@@ -22,7 +22,8 @@ assert(
 assert(existsSync(releasePath), `Release Notes fehlen: ${releasePath}`);
 
 const releaseNotes = readFileSync(releasePath, "utf8");
-assert(releaseNotes.startsWith(`# v${packageJson.version}\n`), "Release Notes tragen nicht die Paketversion als H1.");
+const releaseHeading = releaseNotes.split(/\r?\n/u, 1)[0];
+assert.equal(releaseHeading, `# v${packageJson.version}`, "Release Notes tragen nicht die Paketversion als H1.");
 assert.match(releaseNotes, /SteuerSparErklärung 2025/u, "Release Notes nennen das unterstützte Produktprofil nicht.");
 assert.match(releaseNotes, /ELSTER/iu, "Release Notes verschweigen die dauerhafte Übermittlungsgrenze.");
 assert.match(releaseNotes, /steuer-spar-erklaerung\.zip\.sha256/u, "Release Notes erklären die ZIP-Prüfsumme nicht.");
