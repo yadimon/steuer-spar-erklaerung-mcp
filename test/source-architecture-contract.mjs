@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { basename, join } from "node:path";
 
 const sourceDirectory = "src";
@@ -11,15 +11,26 @@ const maximumModuleBytes = 24 * 1024;
 const maximumSourceLineCharacters = 200;
 const graph = new Map();
 
+function normalizedUtf8Bytes(source) {
+  return Buffer.byteLength(source.replace(/\r\n/gu, "\n"), "utf8");
+}
+
+assert.equal(
+  normalizedUtf8Bytes("erste\nzweite\n"),
+  normalizedUtf8Bytes("erste\r\nzweite\r\n"),
+  "Die Modulgroesse muss fuer LF- und CRLF-Checkouts identisch sein.",
+);
+
 for (const sourceFile of sourceFiles) {
   const path = join(sourceDirectory, sourceFile);
-  const size = statSync(path).size;
+  const source = readFileSync(path, "utf8");
+  const size = normalizedUtf8Bytes(source);
   assert(
     size <= maximumModuleBytes,
-    `${sourceFile} ist mit ${size} Bytes groesser als die wartbare Modulgrenze ${maximumModuleBytes}.`,
+    `${sourceFile} ist mit ${size} normalisierten UTF-8-Bytes groesser als die wartbare Modulgrenze ` +
+      `${maximumModuleBytes}.`,
   );
 
-  const source = readFileSync(path, "utf8");
   if (source.includes("@modelcontextprotocol/sdk")) {
     assert(sourceFile.startsWith("mcp-"), `${sourceFile} koppelt den API-Kern an das MCP-SDK.`);
   }
