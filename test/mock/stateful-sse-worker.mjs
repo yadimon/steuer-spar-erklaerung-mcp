@@ -425,6 +425,7 @@ export function createStatefulSseWorker({ caseDir }) {
   let verticalPercent = 0;
   let treeOffset = 0;
   let searchValue = "";
+  let productInfoCalls = 0;
   const pid = 3131;
   const hwnd = 4242;
   const vastHwnd = 8888;
@@ -642,14 +643,42 @@ export function createStatefulSseWorker({ caseDir }) {
   const worker = async (operation, args = {}) => {
     journal.push({ operation, args: clone(args) });
     switch (operation) {
-      case "product_info":
+      case "product_info": {
+        const installationFound = productInfoCalls++ % 2 === 0;
         return {
           ok: true,
           taxYear: 2025,
           engineFileMajor: 31,
           profileId: "2025",
           supportedCaseYears: { einurvor: [2025, 2026] },
+          buildDrift: {
+            current: installationFound ? "31.0.1.0" : "",
+            verified: "31.0.1.0",
+            drifted: false,
+          },
+          defaultExecutable: installationFound
+            ? {
+                path: "C:\\Synthetic\\Steuerjahr 2025\\SSE.exe",
+                exists: true,
+                supported: true,
+                reason: "Synthetische Produktidentitaet verifiziert.",
+                taxYear: 2025,
+                expectedFileMajor: 31,
+                fileMajor: 31,
+                fileMajorSource: "FileMajorPart",
+                fileVersion: "31.0.1.0",
+                productName: "Synthetische SteuerSparErklaerung",
+                companyName: "Synthetischer Hersteller",
+                folder: "Steuerjahr 2025",
+              }
+            : {
+                path: "C:\\Synthetic\\Fehlt\\SSE.exe",
+                exists: false,
+                supported: false,
+                reason: "Programmdatei existiert nicht.",
+              },
         };
+      }
       case "health":
         return { ok: true, running: openPath !== null, advice: "synthetic-healthy" };
       case "list_cases": {

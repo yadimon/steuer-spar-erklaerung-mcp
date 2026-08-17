@@ -625,6 +625,23 @@ test("18 profile 2025 launches Gewinn-Erfassung 2026 and serves UStVA through HT
   await withHarness(async (harness) => {
     const product = await harness.call("product_info");
     assert.deepEqual(product.supportedCaseYears, { einurvor: [2025, 2026] });
+    assert.equal(product.defaultExecutable.supported, true);
+    const productWithoutInstallation = await harness.call("product_info");
+    assert.deepEqual(
+      {
+        currentBuild: productWithoutInstallation.buildDrift.current,
+        exists: productWithoutInstallation.defaultExecutable.exists,
+        supported: productWithoutInstallation.defaultExecutable.supported,
+        reason: productWithoutInstallation.defaultExecutable.reason,
+      },
+      {
+        currentBuild: "",
+        exists: false,
+        supported: false,
+        reason: "Programmdatei existiert nicht.",
+      },
+      "Die portable Produktinfo muss eine fehlende Standardinstallation strukturiert darstellen.",
+    );
     const cases = await harness.call("list_cases");
     assert(cases.cases.some((entry) => entry.name === "synthetic.GewErfass2026"));
 

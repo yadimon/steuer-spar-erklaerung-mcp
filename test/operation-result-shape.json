@@ -6226,9 +6226,11 @@
         "fields": {
           "buildDrift": {
             "types": [
+              "object:{\"current\":\"string-empty\",\"drifted\":\"boolean\",\"verified\":\"string-other\"}",
               "object:{\"current\":\"string-other\",\"drifted\":\"boolean\",\"verified\":\"string-other\"}"
             ],
             "labels": [
+              "stateful-mock",
               "worker"
             ],
             "outcomes": [
@@ -6248,9 +6250,11 @@
           },
           "defaultExecutable": {
             "types": [
-              "object:{\"companyName\":\"string-other\",\"exists\":\"boolean\",\"expectedFileMajor\":\"nonnegative-number\",\"fileMajor\":\"nonnegative-number\",\"fileMajorSource\":\"string-other\",\"fileVersion\":\"string-other\",\"folder\":\"string-other\",\"path\":\"string-other\",\"productName\":\"string-other\",\"reason\":\"string-other\",\"supported\":\"boolean\",\"taxYear\":\"nonnegative-number\"}"
+              "object:{\"companyName\":\"string-other\",\"exists\":\"boolean\",\"expectedFileMajor\":\"nonnegative-number\",\"fileMajor\":\"nonnegative-number\",\"fileMajorSource\":\"string-other\",\"fileVersion\":\"string-other\",\"folder\":\"string-other\",\"path\":\"string-other\",\"productName\":\"string-other\",\"reason\":\"string-other\",\"supported\":\"boolean\",\"taxYear\":\"nonnegative-number\"}",
+              "object:{\"exists\":\"boolean\",\"path\":\"string-other\",\"reason\":\"string-other\",\"supported\":\"boolean\"}"
             ],
             "labels": [
+              "stateful-mock",
               "worker"
             ],
             "outcomes": [
