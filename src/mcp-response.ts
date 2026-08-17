@@ -55,6 +55,38 @@ export function textResult(value: unknown, extra: Content[] = []): CallToolResul
   return { content: [{ type: "text", text }, ...extra] };
 }
 
+const MCP_BINARY_RESULT_KEYS = new Set(["imageBase64", "bildBase64"]);
+
+function omitMcpBinaryPayloads(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(omitMcpBinaryPayloads);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+    .filter(([key]) => !MCP_BINARY_RESULT_KEYS.has(key))
+    .map(([key, entry]) => [key, omitMcpBinaryPayloads(entry)]));
+}
+
+/**
+ * Bewahrt die kompakte, ggf. geformte Textantwort fuer bestehende MCP-Clients
+ * und liefert parallel das vollstaendige API-Ergebnis fuer strukturierte
+ * Clients. Beide Darstellungen durchlaufen dieselbe PC-Pfad-Redaktion.
+ */
+export function apiSuccessResult(
+  textValue: unknown,
+  apiResult: Record<string, unknown>,
+  extra: Content[] = [],
+): CallToolResult {
+  // Bildbytes liegen bereits als MCP-image-Contentblock vor. Eine zweite
+  // Base64-Kopie im JSON kann die Antwort sonst um viele MiB verdoppeln.
+  const structuredContent = redactPcLocalPaths(omitMcpBinaryPayloads(apiResult));
+  if (!structuredContent || typeof structuredContent !== "object" || Array.isArray(structuredContent)) {
+    throw new TypeError("Das strukturierte MCP-Ergebnis muss ein JSON-Objekt sein.");
+  }
+  return {
+    ...textResult(textValue, extra),
+    structuredContent: structuredContent as Record<string, unknown>,
+  };
+}
+
 export function errorResult(message: string): CallToolResult {
   return { ...textResult(message), isError: true };
 }
@@ -64,7 +96,15 @@ export function apiErrorResult(operation: string, result: Record<string, unknown
   // Rollback- oder Readback-Felder nicht durch eine Kind-Allowlist verloren.
   const hint = apiErrorHint(operation, result);
   const details = { ...result, ...(hint ? { hint } : {}) };
-  return { ...textResult(details), isError: true };
+  const structuredContent = redactPcLocalPaths(omitMcpBinaryPayloads(details));
+  if (!structuredContent || typeof structuredContent !== "object" || Array.isArray(structuredContent)) {
+    throw new TypeError("Das strukturierte MCP-Fehlerergebnis muss ein JSON-Objekt sein.");
+  }
+  return {
+    ...textResult(details),
+    structuredContent: structuredContent as Record<string, unknown>,
+    isError: true,
+  };
 }
 
 function apiErrorHint(operation: string, result: Record<string, unknown>): string | undefined {

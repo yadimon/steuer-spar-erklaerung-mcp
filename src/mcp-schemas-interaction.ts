@@ -60,6 +60,12 @@ export const SSE_MCP_INTERACTION_SCHEMAS = {
     acknowledgeDestructive: z.boolean().optional().describe(
       "Nur nach bewusstem Readback fuer destruktiv benannte TreeItems einmalig true setzen",
     ),
+    expectedPageBefore: z.string().optional().describe(
+      "Optionale exakte Seitenueberschrift unmittelbar vor dem physischen Klick; bei Abweichung wird nicht geklickt",
+    ),
+    expectedPageAfter: z.string().optional().describe(
+      "Optionale exakte Zielueberschrift; eine blosse Auswahl-/Fingerprint-Aenderung gilt dann nicht als Erfolg",
+    ),
     waitMs: UI_WAIT_MS.optional().describe("Wartezeit auf den Navigations-Readback"),
     hwnd: WINDOW_HANDLE.optional(),
   }).strict(),

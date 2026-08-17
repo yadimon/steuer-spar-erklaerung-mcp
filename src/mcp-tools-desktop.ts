@@ -13,7 +13,7 @@ export function registerDesktopTools(registry: McpRegistry): void {
       title: "Programm unsichtbar starten",
       description:
         "Startet die SteuerSparErklaerung auf einem EIGENEN, unsichtbaren Windows-Desktop. " +
-        "Ausschliesslich SteuerSparErklaerung 2025 und dazu passende 2025-Falldateien werden akzeptiert. " +
+        "Ausschliesslich das aktive, von der API freigegebene Produktprofil und dazu passende Falldateien werden akzeptiert. " +
         "Das Fenster kann dort auf dem sichtbaren Desktop nicht erscheinen - der Nutzer wird nicht " +
         "mehr unterbrochen, auch nicht beim Blaettern. (Ohne das holt sich das Programm bei JEDEM " +
         "Seitenwechsel selbst den Vordergrund; das ist Verhalten der Anwendung und laesst sich sonst " +

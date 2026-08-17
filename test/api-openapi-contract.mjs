@@ -32,6 +32,11 @@ for (const operation of SSE_API_OPERATIONS) {
     `#/components/schemas/Args_${operation}`,
   );
   assert.equal(SSE_OPENAPI_DOCUMENT.components.schemas[`Args_${operation}`], SSE_API_DISCOVERY.argumentSchemas[operation]);
+  assert.equal(SSE_OPENAPI_DOCUMENT.components.schemas[`Result_${operation}`], SSE_API_DISCOVERY.resultSchemas[operation]);
+  const responseSchema = post.responses["200"].content["application/json"].schema;
+  assert.equal(responseSchema.allOf[0].$ref, "#/components/schemas/OperationEnvelope");
+  assert.equal(responseSchema.allOf[1].properties.operation.const, operation);
+  assert.equal(responseSchema.allOf[1].properties.result.$ref, `#/components/schemas/Result_${operation}`);
   assert(post.responses["200"] && post.responses["400"] && post.responses["405"] && post.responses["502"]);
 }
 
@@ -60,7 +65,10 @@ assert.deepEqual(
 );
 
 const serialized = JSON.stringify(SSE_OPENAPI_DOCUMENT);
-assert(Buffer.byteLength(serialized, "utf8") < 256 * 1024, "OpenAPI-Dokument ist unnoetig gross.");
+// 87 operationsspezifische Result-Schemas mit den realen stabilen Worker-
+// Feldern brauchen knapp 260 KiB; die enge Reserve faengt unbeabsichtigte
+// Schema-Dopplung weiterhin ab.
+assert(Buffer.byteLength(serialized, "utf8") < 272 * 1024, "OpenAPI-Dokument ist unnoetig gross.");
 assert(!serialized.includes("C:\\development"));
 assert(!serialized.includes("allowSend") && !serialized.includes("confirmSend"));
 

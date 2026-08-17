@@ -1,10 +1,15 @@
 # Produktarchitektur
 
-Stand: 2026-08-04
+Stand: 2026-08-11
 
 Dieses Dokument ist der überprüfbare Zielvertrag für API, MCP, Setup,
 Steuerjahrprofile und öffentliche Skills. Es beschreibt das Produkt, nicht die
 Entstehungsgeschichte einzelner UIA-Lösungen.
+
+> **Statushinweis:** Dieses Dokument enthält auch Zielverträge, die noch nicht
+> vollständig erreicht sind. Der aktuell belegte Produktstand und offene Gates
+> stehen in [VERIFIKATION.md](VERIFIKATION.md); Transportdetails stehen in
+> [API-MCP-VERTRAG.md](API-MCP-VERTRAG.md).
 
 ## Produktziel
 
@@ -50,22 +55,31 @@ Agent oder eigenes Programm
 - Sie bindet ausschließlich an Loopback und verlangt ein lokales Token.
 - Sie besitzt Operationen, Schemas, Queue, Abbruch, Dateiverwaltung,
   Szenarioausführung und Auflösung maschinenneutraler Ressourcen.
-- Ihr authentifizierter Katalog `GET /v1/operations` veröffentlicht die 86
-  Argumentverträge als JSON Schema Draft 7 zusammen mit Traits, Grenzen,
-  Fallback-Planung und Sicherheitsstatus. Reine API-Clients brauchen MCP daher
-  weder zur Discovery noch zur Wahl des sicheren generischen Folgeschritts.
+- Ihr authentifizierter Katalog `GET /v1/operations` veröffentlicht alle
+  Argumentverträge und die versionierten `Result_<operation>`-Mindestverträge
+  als JSON Schema Draft 7 zusammen mit Traits, Grenzen, Fallback-Planung und
+  Sicherheitsstatus. Reine API-Clients brauchen MCP daher weder zur Discovery
+  noch zur Wahl des sicheren generischen Folgeschritts.
 - `GET /v1/operations/{operation}` liefert denselben Vertrag für eine einzelne
   Operation, damit ein Agent nicht für jeden unbekannten Aufruf den Gesamtkatalog
   übertragen und verarbeiten muss.
 - `GET /v1/openapi.json` projiziert genau diese Laufzeitquelle zusätzlich auf
-  OpenAPI 3.1. Neben den 86 Operationspfaden stehen dort auch Healthcheck,
+  OpenAPI 3.1. Neben den Operationspfaden stehen dort auch Healthcheck,
   Gesamtkatalog und OpenAPI-Abruf selbst; es gibt keinen separat gepflegten
   oder permissiveren API-Vertrag.
 - Der direkte CLI-Client akzeptiert komplexe Argumente nur aus einer begrenzten
   UTF-8-Datei oder aus begrenztem stdin, nie als Steuerwerte in Prozessargumenten.
-- Direkte API-Aufrufe und MCP-Aufrufe derselben Operation liefern dieselbe
-  kanonische Ergebnisstruktur. Transportmetadaten wie Request-ID und Dauer
-  dürfen außerhalb dieses fachlichen Ergebnisses liegen.
+- Direkte API-Aufrufe liefern das vollständige Worker-/Kompositionsergebnis.
+  Dieses wird vor der HTTP-Ausgabe gegen den operationsspezifischen
+  Ergebnisvertrag geprüft; malformed Ergebnisse werden redigiert als
+  `invalid-operation-result` gestoppt.
+  Die gemeinsamen MCP-Registrierer veröffentlichen dieses Ergebnis zusätzlich
+  PC-pfad-redigiert und ohne bereits als Bildblock übertragene Base64-Bytes als
+  `structuredContent`; kompakte Textprojektionen bleiben vorerst aus
+  Kompatibilitätsgründen bestehen. Auch die spezialisierten Bild-,
+  Prüfer-, Workspace- und Navigationshandler nutzen dieselbe Strukturgrenze.
+  Transportmetadaten
+  wie Request-ID und Dauer liegen außerhalb des fachlichen Ergebnisses.
 - Nur die API kennt absolute Installations-, Fall-, Dokument-, Arbeits- und
   Ergebnisverzeichnisse.
 - Konfiguration und Wizard verweigern überlappende Fall-, Dokument-, Ergebnis-
@@ -78,9 +92,9 @@ Agent oder eigenes Programm
   nur dasselbe Schema und reicht den Aufruf weiter; der Worker erhält daraus
   eng gebundene generische UI-Transaktionen.
 - `capabilities` beschreibt ohne Worker- oder PC-Zugriff Selektoren,
-  Klickmuster, Dialog-Button-Allowlist, Fallback-Stufen und harte
-  Sicherheitsmerkmale. Agenten lesen diese Laufzeitquelle statt Methoden zu
-  erraten.
+  Klickmuster, Dialog-Button-Allowlist, Fallback-Stufen, harte
+  Sicherheitsmerkmale und die vollständige profilabhängige Operationsmatrix.
+  Agenten lesen diese Laufzeitquelle statt Methoden zu erraten.
 - Fachliche Fehler bleiben als strukturierte, redigierte API-Ergebnisse bis
   zum MCP-Client erhalten. Ein `ok=false` darf nicht in einen unklassifizierten
   Textfehler umgewandelt werden.
@@ -104,15 +118,21 @@ Agent oder eigenes Programm
   Windows-/UNC-/Datei-URLs und typische POSIX-Systempfade. Normale HTTPS-URLs
   bleiben unverändert, damit ein separat installierter Wrapper weder Details
   des API-Rechners noch seines eigenen Hosts preisgibt.
-- Werkzeuge und fachliche Ergebnisse werden aus demselben API-Katalog
-  abgeleitet. Ein getrennter MCP-Vertrag darf nicht driften.
+- Werkzeugnamen, API-Zuordnung, Eingaben und versionierte
+  Ergebnismindestverträge werden aus gemeinsamen Katalogen abgeleitet. Alle 87
+  Werkzeuge deklarieren das operationsspezifische `outputSchema` und liefern
+  das vollständige, pfadredigierte nicht-binäre Ergebnis als
+  `structuredContent`. Bereits als MCP-Bildblock gelieferte Base64-Bytes werden
+  nicht dupliziert. Die offenen Zusatzfelder halten neue fachliche Readbacks
+  kompatibel; sie ersetzen keine Live-Evidenz für noch ungetestete
+  UI-Varianten.
 - Jede veröffentlichte Eingabeeigenschaft muss auch verschachtelt eine eigene
   Agentenbeschreibung tragen; der echte MCP-Katalog wird darauf geprüft.
 - Standardisierte MCP-Annotations und `capabilities` beziehen read-only-,
   nicht-destruktiv-zustandsbehaftete und potenziell destruktive Gruppen aus
   derselben typisierten Quelle. Beide Partitionen sind lückenlos.
-- Der Prozesseinstieg bleibt minimal; 86 Werkzeugdefinitionen liegen exakt
-  einmal in sechs fachlichen Modulen. Ein Quellvertrag begrenzt jedes Modul auf
+- Der Prozesseinstieg bleibt minimal; Werkzeugdefinitionen liegen exakt einmal
+  in sechs fachlichen Modulen. Ein Quellvertrag begrenzt jedes Modul auf
   24 KiB, ohne den gemeinsamen Laufzeitkatalog zu duplizieren.
 - Ohne eingerichtete API liefert MCP eine kurze Setup-Diagnose statt lokaler
   Eigenlogik.
@@ -124,6 +144,16 @@ Agent oder eigenes Programm
 
 - Jeder UIA-Aufruf läuft weiterhin in einem frischen Prozess. Das isoliert den
   bekannten Qt/UIA-Fehlerzustand, in dem spätere Reads still leer werden.
+- Was dieser Schnitt kostet, ist gemessen und nicht geschätzt. Ein beliebiger
+  Workeraufruf braucht rund 1,1 s Wanduhrzeit, davon etwa 130 ms für den
+  PowerShell-Start, **rund 560 ms allein für das Übersetzen des über 700 KB
+  großen Workerskripts**, 40 ms für die UIA-Assemblies, 36 ms für den
+  vorkompilierten Interop und den Rest für die Operation selbst. Die
+  naheliegende Vermutung, die UIA-Schicht sei der Engpass, ist damit widerlegt.
+- Wer diesen Boden senken will, muss also das Skript aufteilen, sodass ein
+  Aufruf nur den Code seiner Operation übersetzt – nicht die Assemblies
+  verzögern oder den Prozess wiederverwenden. Letzteres verbietet der oben
+  genannte Qt/UIA-Fehlerzustand.
 - Sichtbare physische Eingabe ist in einer verschachtelbaren Vordergrund-Lease
   gekapselt. Innerhalb einer atomaren Action wird dasselbe SSE-Fenster nur
   einmal angehoben. Erfolg, Fachfehler und globaler Trap laufen vor der
@@ -148,6 +178,18 @@ Agent oder eigenes Programm
   Abweichung wechselt vor `Add-Type` auf den getesteten Quelltext-Fallback.
 - UI-Mutationen bleiben an PID, HWND, Seite, Element, Vorwert und
   Nachbedingungen gebunden.
+- Weicht der installierte Minor-/Patch-Build vom `verifiedBuild` des Profils
+  ab, stoppen API und direkter Worker die in
+  `capabilities.operationPolicy[*].blockedOnBuildDrift` ausgewiesenen
+  UI-/Steuerfallmutationen mit `build-drift`. Lese-, Diagnose- und sichere
+  Cleanup-Operationen bleiben zur Ursachenklärung verfügbar. Fehlende oder
+  grundsätzlich fremde Binaries behalten ihre präzisere
+  Launch-/Versionsfehlerart.
+- Die Interaktionsart ist explizit: reine UIA-Leser laufen im Hintergrund;
+  Focusless-Schreiben ist nur für profilierte Feldpfade mit Feld-, Summen- und
+  Dirty-State-Readback erlaubt; nicht strukturiert bedienbare Qt-Controls
+  benötigen eine sichtbare Vordergrund-Lease und Nutzerzustimmung. Ein privater
+  Desktop ist Fokus-/UX-Isolation, keine Security-Sandbox.
 - Feld-, Tabellen- und UStVA-Beträge werden mit gemeinsam getesteter deutscher
   Gruppierung und exakter Dezimalgleichheit zurückgelesen. Präfixe sowie
   mehrdeutige Punktfolgen gelten nicht als Übereinstimmung.
@@ -226,6 +268,11 @@ produktabhängige Daten liegen in einem Jahresprofil:
 
 ```text
 profiles/
+  2024/
+    profile.json
+    page-objects.json
+    fixtures/
+    tests/
   2025/
     profile.json
     page-objects.json
@@ -238,8 +285,18 @@ Installationsmerkmale, Dateiendungen, Startmodi und Page Objects. Eine
 Jahresversion gilt erst dann als unterstützt, wenn Build, Vertragsprüfungen und
 ein realer read-only Smoke für dieses Profil bestanden sind.
 
-Aktuell ist ausschließlich 2025 produktiv unterstützt. Andere installierte
-Jahre werden erkannt und angezeigt, aber fail-closed nicht bedient. Ein zweiter
+Profil `2025` ist produktiv unterstützt. Profil `2024` ist experimentell: Der
+aktuelle Opt-in-Sweep belegt Lesen, Navigation, Ergebnisse, Prüfer und UStVA-
+Read auf Build `30.0.127.0`, aber keine allgemeine Schreibfreigabe und keinen
+Focusless-Commit. Der Setup-Wizard bietet ausschließlich `supported`-Profile
+an. Seine Dialogantwort ist zusätzlich auf eine exakt gebundene passive
+Gewinnaktualisierungsnotiz mit `OK` beschränkt; Recovery-Dateien werden nicht
+automatisch verworfen. Das Manifest trennt `status` von `operationAccess`:
+2025 trägt `full`, 2024 `verification-only`. Setup und voller Betriebsraum
+öffnen sich nur bei `supported` **und** `full`; eine reine Status-Promotion
+bleibt daher fail-closed. `capabilities.operationPolicy` klassifiziert alle 87
+Operationen als Lesen, Navigation, bedingtes Focusless-Schreiben, Mutation,
+destruktiv oder Cleanup und nennt Opt-in- sowie Build-Drift-Gates. Ein zweiter
 MCP-Server pro Jahr ist nicht vorgesehen, solange sich nur Profildaten ändern.
 Erst eine nachgewiesene, grundlegende UI-/Protokollabweichung rechtfertigt
 einen separaten Worker-Adapter.
@@ -312,7 +369,9 @@ Referenzfall umfasst mindestens:
 Der gleiche Fall wird einmal direkt über HTTP und einmal über MCP ausgeführt.
 Beide Wege müssen byteidentische kanonische Ergebnisdateien und denselben
 SHA256 liefern. Ein Mock-Test bleibt als schneller Vertragstest erhalten,
-ersetzt aber nicht den explizit freigegebenen realen Fixture-Test.
+ersetzt aber nicht den explizit freigegebenen realen Fixture-Test. Der
+gegenwärtige automatisierte Paritätstest ist noch mockbasiert; der reale
+zweifache Fixture-Lauf ist ein offenes Release-Gate.
 
 `continueOnError` ist nur für ausdrücklich katalogisierte read-only Schritte
 zulässig. Danach darf im Hauptlauf keine Mutation folgen. `finally` akzeptiert
@@ -340,11 +399,25 @@ Kann selbst nach dem harten Wachhund kein Prozessende nachgewiesen werden,
 sperrt der API-Prozess alle weiteren Worker-Aufrufe bis zum Neustart. So kann
 kein möglicherweise verwaister UI-Worker mit einem Folgeauftrag konkurrieren.
 
-## Definition of Done
+`npm run test:fast` und `npm test` starten absichtlich keine reale SSE-UI.
+`npm run test:live` ist das strikte opt-in Gate für 2025 und 2024: fehlende
+Voraussetzungen oder verbliebene SSE-Prozesse sind Fehler, kein grüner SKIP.
+
+Beide vollständigen Läufe enden mit der Abdeckungsbilanz aus echter
+Ausführung (`test/operation-coverage.json`). Sie unterscheidet, was gegen den
+synthetischen Worker und was gegen die installierte Anwendung belegt ist, und
+verhindert als Ratsche, dass Abdeckung unbemerkt verschwindet oder unbemerkt
+entsteht.
+Profilierte Live-Läufe verwenden ausschließlich Wegwerfkopien und werden mit
+Voraussetzungen und belegtem Umfang in
+[VERIFIKATION.md](VERIFIKATION.md) geführt.
+
+## Definition of Done (Ziel, noch nicht vollständig erreicht)
 
 Eine Funktion gilt nur als lauffähig, wenn:
 
-- sie im gemeinsamen API-Katalog mit Eingabe- und Ergebnisschema steht;
+- sie im gemeinsamen API-Katalog mit Eingabe- und konkretem Ergebnisschema
+  steht;
 - direkte API- und MCP-Aufrufe denselben fachlichen Vertrag erfüllen;
 - Abbruch, Timeout und Prozesscleanup getestet sind;
 - kein sichtbares Konsolenfenster entsteht;

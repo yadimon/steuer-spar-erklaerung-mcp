@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApiExecutor } from "../dist/api-executor.js";
+import { traceOperations } from "./operation-trace.mjs";
 import {
   USTVA_FLAGS,
   USTVA_PERIOD_SELECTORS,
@@ -62,7 +63,7 @@ function fieldsForCurrentPage() {
   return fields;
 }
 
-const execute = createApiExecutor({
+const execute = traceOperations("ustva-mock", createApiExecutor({
   host: "127.0.0.1",
   port: 1,
   token: "ustva-contract-token-with-at-least-24-characters",
@@ -84,7 +85,7 @@ const execute = createApiExecutor({
     };
   }
   return { ok: true, operation, ...args };
-});
+}));
 
 try {
   const read = await execute("ustva_read", { hwnd: 42 }, 5_000);

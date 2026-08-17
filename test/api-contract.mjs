@@ -81,6 +81,9 @@ const execute = createApiExecutor(config, async (operation, args, timeoutMs, sig
   if (operation === "find" && args.name === "__oversized_response__") {
     return { ok: true, value: "x".repeat(MAX_API_RESPONSE_BYTES) };
   }
+  if (operation === "find" && args.name === "__malformed_result__") {
+    return { ok: "kein-boolean", leaked: "C:\\Privat\\darf-nicht-zum-client.txt" };
+  }
   if (operation === "checker_results") {
     return {
       ok: true,
@@ -323,6 +326,18 @@ try {
   assert.equal(oversizedResponseError.error.code, "response-too-large");
   assert(!JSON.stringify(oversizedResponseError).includes("xxx"));
 
+  const malformedResult = await fetch(`${baseUrl}/v1/operations/find`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ args: { name: "__malformed_result__" }, timeoutMs: 1_000 }),
+  });
+  assert.equal(malformedResult.status, 502);
+  const malformedResultError = await malformedResult.json();
+  assert.equal(malformedResultError.error.code, "invalid-operation-result");
+  assert.match(malformedResultError.error.message, /Result_find/);
+  assert.match(malformedResultError.error.message, /ok:invalid_type/);
+  assert(!JSON.stringify(malformedResultError).includes("Privat"), "Malformed Worker-Daten duerfen nicht reflektiert werden.");
+
   const blocked = await fetch(`${baseUrl}/v1/operations/keys`, {
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
@@ -479,6 +494,20 @@ try {
   assert.equal(transportChecked.ok, true);
   assert.equal(operationFetchInit.redirect, "error");
   assert.equal(operationFetchInit.headers.accept, "application/json");
+  await assert.rejects(
+    callApiOperation("health", {}, 1_000, {
+      baseUrl,
+      token,
+      fetchImpl: async () => new Response(JSON.stringify({
+        apiVersion: "v1",
+        requestId: randomUUID(),
+        operation: "health",
+        durationMs: 0,
+        result: { ok: true, running: "ja" },
+      }), { status: 200, headers: { "content-type": "application/json" } }),
+    }),
+    (error) => error?.kind === "protocol" && /versionierten Ergebnisvertrag/.test(error.message),
+  );
   let discoveryFetchInit;
   await readApiDiscovery({
     baseUrl,

@@ -31,9 +31,10 @@ Referenz beschreibt nur die stabilen Grenzen.
 ## Arbeitsbereich
 
 Verwende die vom Setup zurückgelesenen Bereiche für `documents`, `results` und
-`backups`. Erzeuge bei Bedarf zusätzlich `cases` und `scenarios` innerhalb des
-Workspace. Alle API-Dateireferenzen bleiben relativ und dürfen den Workspace
-nicht verlassen.
+`backups`. Diese Bereiche dürfen getrennt außerhalb des Workspace liegen.
+Erzeuge bei Bedarf zusätzlich `cases` und `scenarios` innerhalb des Workspace.
+Alle API-Dateireferenzen bleiben relativ und dürfen den jeweils konfigurierten
+Ressourcenbereich nicht verlassen.
 
 Textdateien immer unter einer neuen Referenz schreiben. Ein vorhandenes Ziel
 ist ein Stoppsignal, keine Aufforderung zum blinden Überschreiben.

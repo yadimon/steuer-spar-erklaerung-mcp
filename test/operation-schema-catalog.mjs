@@ -53,6 +53,20 @@ assert.deepEqual(
   { aid: ".Radio", pattern: "select" },
 );
 assert.throws(() => parseApiOperationArgs("click_point", {}), /Bezeichner/);
+assert.deepEqual(
+  parseApiOperationArgs("click_point", {
+    name: "Prüfen und Abgeben",
+    type: "TreeItem",
+    expectedPageBefore: "Vorbereitung der Steuererklärung für das Jahr 2024",
+    expectedPageAfter: "Prüfen und Abgeben",
+  }),
+  {
+    name: "Prüfen und Abgeben",
+    type: "TreeItem",
+    expectedPageBefore: "Vorbereitung der Steuererklärung für das Jahr 2024",
+    expectedPageAfter: "Prüfen und Abgeben",
+  },
+);
 for (const hwnd of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
   assert.throws(() => parseApiOperationArgs("page", { hwnd }), undefined, `Ungueltiges hwnd akzeptiert: ${hwnd}`);
 }

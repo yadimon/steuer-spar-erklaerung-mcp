@@ -80,7 +80,9 @@ const api = createServer(async (request, response) => {
     tippsZusatzinfos: [],
     sonstige: [],
     aufgeklappt: [],
-    product: { supported: true, taxYear: 2025, fileMajor: 31 },
+    product: operation === "product_info"
+      ? "SteuerSparErklaerung Testprofil"
+      : { supported: true, taxYear: 2025, fileMajor: 31 },
     diagnosticText: "Dokumentation https://example.invalid/home/hilfe; lokaler Test C:\\Temp\\synthetic.png; danach lesbar",
     text: "Original mit C:\\NichtKonfiguriert\\beleg.txt; Ende",
     verzeichnis: operation === "center_cases" ? "Z:\\FremdeFaelle" : undefined,
@@ -137,12 +139,23 @@ try {
   for (const tool of catalog.tools) {
     assert(tool.title?.trim(), `${tool.name} braucht einen sichtbaren Titel.`);
     assert(tool.description?.trim(), `${tool.name} braucht eine Agentenbeschreibung.`);
+    assert(tool.outputSchema, `${tool.name} braucht ein deklariertes MCP-Ergebnisschema.`);
+    assert.equal(tool.outputSchema?.properties?.ok?.type, "boolean", `${tool.name}: outputSchema.ok fehlt.`);
+    assert(tool.outputSchema?.required?.includes("ok"), `${tool.name}: outputSchema muss ok verlangen.`);
     assertPropertyDescriptions(tool.inputSchema, tool.name);
     const references = `${tool.title}\n${tool.description}`.match(/\bsse_[a-z0-9_]+\b/g) ?? [];
     for (const reference of references) {
       assert(catalogToolNames.has(reference), `${tool.name} verweist auf das unbekannte MCP-Werkzeug ${reference}.`);
     }
   }
+  const clickCatalogTool = catalog.tools.find((tool) => tool.name === "sse_click");
+  assert.equal(clickCatalogTool?.outputSchema?.type, "object");
+  assert.equal(clickCatalogTool?.outputSchema?.properties?.ok?.type, "boolean");
+  assert(clickCatalogTool?.outputSchema?.required?.includes("ok"));
+  assert.equal(clickCatalogTool?.outputSchema?.additionalProperties, true,
+    "Das generische API-Ergebnisschema muss unbekannte Operationsfelder erhalten.");
+  assert(catalog.tools.find((tool) => tool.name === "sse_ustva_change_value")?.outputSchema,
+    "Der folgende isError-Test muss wirklich trotz deklariertem Erfolgsschema laufen.");
   const launchDescription = catalog.tools.find((tool) => tool.name === "sse_launch")?.description ?? "";
   assert.match(launchDescription, /sse_dialog_list/);
   assert.match(launchDescription, /sse_dialog_answer/);
@@ -193,6 +206,10 @@ try {
     ok: true,
     clicked: "Weiter",
     pattern: "invoke",
+    syntheticAdditionalField: {
+      detail: "Nur im vollstaendigen API-Ergebnis",
+      localPath: "C:\\Privat\\synthetisch.json",
+    },
     focusTelemetry: {
       acquisitions: 2,
       raises: 1,
@@ -210,6 +227,13 @@ try {
   assert.notEqual(focusedClick.isError, true);
   assert(focusedClickText.includes('"focusTelemetry"'), "Geformte MCP-Antwort verlor Focus-Telemetrie.");
   assert(focusedClickText.includes('"raises": 1') && focusedClickText.includes('"foregroundRestored": true'));
+  assert(!focusedClickText.includes("syntheticAdditionalField"),
+    "Die bestehende kompakte Textprojektion einer geformten Operation muss stabil bleiben.");
+  assert.equal(focusedClick.structuredContent?.syntheticAdditionalField?.detail,
+    "Nur im vollstaendigen API-Ergebnis");
+  assert.equal(focusedClick.structuredContent?.syntheticAdditionalField?.localPath,
+    "[Lokaler PC-Pfad von der MCP-Ausgabe entfernt.]");
+  assert.equal(focusedClick.structuredContent?.focusTelemetry?.raises, 1);
 
   let optionVariants = 0;
   let boundaryVariants = 0;

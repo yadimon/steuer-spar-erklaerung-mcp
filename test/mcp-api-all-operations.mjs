@@ -79,6 +79,13 @@ try {
     assert.equal(calls.length, before + 1, `${tool.name} erreichte den API-Executor nicht genau einmal.`);
     assert.equal(calls.at(-1).operation, SSE_MCP_TOOL_OPERATIONS[tool.name]);
     assert(!text.includes("C:\\Privat") && !text.includes("C:\\Synthetisch"), `${tool.name} gab einen PC-Pfad aus.`);
+    assert(tool.outputSchema, `${tool.name} veroeffentlicht kein MCP-outputSchema.`);
+    assert.equal(result.structuredContent?.ok, true, `${tool.name} verlor das kanonische API-Ergebnis.`);
+    assert.equal(result.structuredContent?.operation, SSE_MCP_TOOL_OPERATIONS[tool.name],
+      `${tool.name} verlor ein API-Feld im structuredContent.`);
+    const structuredText = JSON.stringify(result.structuredContent);
+    assert(!structuredText.includes("C:\\Privat") && !structuredText.includes("C:\\Synthetisch"),
+      `${tool.name} gab einen PC-Pfad im structuredContent aus.`);
 
     const beforeUnknown = calls.length;
     const unknown = await client.callTool(

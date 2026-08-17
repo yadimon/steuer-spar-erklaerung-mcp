@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
-import { exclusiveSteps, fastBuildSteps, fastSteps, parallelSteps, serialBuildSteps } from "./suite-plan.mjs";
+import {
+  exclusiveSteps,
+  fastBuildSteps,
+  fastSteps,
+  finalSteps,
+  parallelSteps,
+  serialBuildSteps,
+} from "./suite-plan.mjs";
 import {
   DEFAULT_FAILURE_OUTPUT_LIMIT_BYTES,
   DEFAULT_STEP_OUTPUT_LIMIT_BYTES,
@@ -12,30 +19,36 @@ import {
 } from "./suite-runner.mjs";
 
 const expectedNames = [
-  "native-build", "typescript-build", "suite-runner-contract", "public-skills", "repository-privacy", "repository-links", "javascript-syntax", "powershell-syntax", "product-profiles", "product-profile-status",
+  "native-build", "typescript-build", "suite-runner-contract", "public-skills", "repository-privacy", "repository-links", "javascript-syntax", "powershell-syntax", "product-profiles", "product-profile-status", "profile-operation-policy",
   "akad-parser", "setup-wizard", "atomic-files", "jsonl-logger", "portable-package", "npm-package", "portable-zip", "workspace-containment",
-  "resource-references", "backup-cases-contract", "archive-cases-synthetic", "setup-task", "api-contract", "checker-open-contract", "api-discovery-contract", "api-openapi-contract", "api-cli-contract", "api-config-contract", "api-all-operations", "launch-orchestration", "operation-schema-catalog", "source-architecture", "no-year-conditionals", "mcp-module-boundaries", "mcp-main-contract",
+  "resource-references", "backup-cases-contract", "archive-cases-synthetic", "setup-task", "api-contract", "checker-open-contract", "api-discovery-contract", "api-openapi-contract", "api-cli-contract", "api-config-contract", "api-all-operations", "launch-orchestration", "operation-schema-catalog", "result-contract", "result-field-worker-guard", "source-architecture", "no-year-conditionals", "mcp-module-boundaries", "mcp-main-contract",
   "mcp-registry-contract", "mcp-response-contract", "capabilities-contract", "ustva-contract", "api-tax-journeys", "api-main-smoke", "abort-contract", "wrapper-boundary", "mcp-wrapper-catalog", "mcp-api-all-operations", "mcp-cancellation",
-  "worker-timeout", "worker-progress-contract", "worker-output-file-contract", "worker-input-file-contract", "direct-worker-guard", "direct-worker-experimental-guard", "direct-worker-resource-guard", "direct-worker-identity-guard", "direct-worker-collection-guard", "direct-worker-file-guard", "direct-worker-native-guard", "scenario-parity", "scenario-control-flow", "mcp-selftest", "table-region",
-  "product-gate", "verify-collect", "archive-cases", "table-values", "table-add-rollback-contract", "tracked-date-rollback", "desktop-enumeration", "window-restore-contract", "window-scope", "structure-binding", "build-drift", "foreground-lease-contract", "focusless-commit-contract", "no-console-window",
+  "worker-timeout", "worker-progress-contract", "worker-output-file-contract", "worker-input-file-contract", "direct-worker-guard", "direct-worker-experimental-guard", "experimental-dialog-policy", "direct-worker-resource-guard", "direct-worker-identity-guard", "direct-worker-collection-guard", "direct-worker-file-guard", "direct-worker-native-guard", "scenario-parity", "scenario-control-flow", "mcp-selftest", "table-region",
+  "product-gate", "verify-collect", "file-operations-worker", "archive-cases", "table-values", "table-add-rollback-contract", "table-window-scope", "tracked-date-rollback", "desktop-enumeration", "window-restore-contract", "window-scope", "structure-binding", "snapshot-runtime-id", "checker-zero-results", "build-drift", "foreground-lease-contract", "focusless-commit-contract", "no-console-window", "operation-coverage",
 ];
-const allSteps = [...serialBuildSteps, ...parallelSteps, ...exclusiveSteps];
+const allSteps = [...serialBuildSteps, ...parallelSteps, ...exclusiveSteps, ...finalSteps];
 assert.deepEqual(allSteps.map((step) => step.name).sort(), expectedNames.sort());
 assert.equal(new Set(allSteps.map((step) => step.name)).size, allSteps.length, "Testnamen muessen eindeutig sein.");
 assert.deepEqual(exclusiveSteps.map((step) => step.name), ["no-console-window"]);
 assert(!parallelSteps.some((step) => step.name === "no-console-window"));
+// Die Abdeckungsbilanz wertet das Protokoll aller anderen Schritte aus und
+// darf deshalb weder parallel noch vor ihnen laufen.
+assert.deepEqual(finalSteps.map((step) => step.name), ["operation-coverage"]);
+assert(!parallelSteps.some((step) => step.name === "operation-coverage"));
+assert(!fastSteps.some((step) => step.name === "operation-coverage"));
 assert.deepEqual(fastBuildSteps.map((step) => step.name), ["typescript-build"]);
 assert(fastSteps.length >= 20, "Der schnelle Lauf muss die breite API-/MCP-Vertragsflaeche behalten.");
 assert(fastSteps.every((step) => parallelSteps.includes(step)), "Schnelle Schritte muessen aus dem Vollplan stammen.");
 for (const heavyweight of [
   "portable-package", "portable-zip", "direct-worker-guard", "product-gate", "no-console-window",
+  "file-operations-worker",
 ]) {
   assert(!fastSteps.some((step) => step.name === heavyweight), `${heavyweight} gehoert nur in den Volltest.`);
 }
 for (const required of [
   "api-contract", "api-discovery-contract", "api-openapi-contract", "api-cli-contract", "api-all-operations", "mcp-wrapper-catalog",
-  "mcp-api-all-operations", "api-tax-journeys", "operation-schema-catalog", "source-architecture", "mcp-module-boundaries", "mcp-main-contract", "repository-privacy", "repository-links", "javascript-syntax", "powershell-syntax",
-  "foreground-lease-contract", "focusless-commit-contract", "desktop-enumeration",
+  "mcp-api-all-operations", "api-tax-journeys", "operation-schema-catalog", "result-contract", "result-field-worker-guard", "source-architecture", "mcp-module-boundaries", "mcp-main-contract", "repository-privacy", "repository-links", "javascript-syntax", "powershell-syntax",
+  "foreground-lease-contract", "focusless-commit-contract", "desktop-enumeration", "checker-zero-results", "snapshot-runtime-id", "experimental-dialog-policy", "table-window-scope", "profile-operation-policy",
 ]) {
   assert(fastSteps.some((step) => step.name === required), `${required} fehlt im schnellen Sicherheitsnetz.`);
 }

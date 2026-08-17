@@ -85,6 +85,33 @@ export const SSE_CLEANUP_OPERATIONS = [
   "window_close",
 ] as const satisfies readonly SseApiOperation[];
 
+/** UI-/Steuerfallmutationen, die bei einem nicht erneut verifizierten SSE-Build fail-closed stoppen. */
+export const SSE_BUILD_DRIFT_BLOCKED_OPERATIONS = [
+  "checker_run",
+  "click",
+  "click_point",
+  "combo_select",
+  "dialog_answer",
+  "file_dialog_select",
+  "goto",
+  "menu_click",
+  "save",
+  "save_as",
+  "set_value",
+  "table_add",
+  "table_delete",
+  "table_update",
+  "toggle",
+  "tracked_set_value",
+  "ustva_change_value",
+  "ustva_open_section",
+  "ustva_select_period",
+  "ustva_set_flag",
+  "vast_apply",
+  "vast_mapping_select",
+  "vast_row_set_expanded",
+] as const satisfies readonly SseApiOperation[];
+
 export function operationAnnotations(operation: SseApiOperation): {
   readOnlyHint: boolean;
   destructiveHint: boolean;

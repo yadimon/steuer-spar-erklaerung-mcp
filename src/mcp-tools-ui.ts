@@ -2,8 +2,8 @@
  * Generische, gebundene UI-Lese-, Navigations-, Tabellen- und Menuewerkzeuge.
  */
 import { asArray } from "./api-client.js";
-import { apiErrorResult, textResult, type Content } from "./mcp-response.js";
-import type { McpRegistry } from "./mcp-registry.js";
+import { apiErrorResult, apiSuccessResult, type Content } from "./mcp-response.js";
+import { apiResultOutputSchema, type McpRegistry } from "./mcp-registry.js";
 import { SSE_MCP_TOOL_SCHEMAS } from "./operation-catalog.js";
 
 export function registerUiTools(registry: McpRegistry): void {
@@ -53,6 +53,7 @@ export function registerUiTools(registry: McpRegistry): void {
         "useSearch=false gesetzt werden. Ein Navigationsbaum-Klick braucht den sichtbaren Desktop. " +
         "'Gewinnermittlung beginnen' bleibt eine bekannte Sackgasse ohne Vor-/Zurueck-Schalter.",
       inputSchema: SSE_MCP_TOOL_SCHEMAS.sse_goto.shape,
+      outputSchema: apiResultOutputSchema("goto"),
     },
     async (a) =>
       run(
@@ -264,6 +265,7 @@ export function registerUiTools(registry: McpRegistry): void {
         "ist, und ist das zuverlaessigste Werkzeug ueberhaupt. Bei jedem Zweifel ueber den Programmzustand " +
         "zuerst hierher greifen.",
       inputSchema: SSE_MCP_TOOL_SCHEMAS.sse_screenshot.shape,
+      outputSchema: apiResultOutputSchema("screenshot"),
     },
     async (a) => {
       try {
@@ -297,7 +299,7 @@ export function registerUiTools(registry: McpRegistry): void {
             mimeType: "image/png",
           });
         }
-        return textResult({
+        return apiSuccessResult({
           ref: typedShot.path,
           width: typedShot.w,
           height: typedShot.h,
@@ -306,7 +308,7 @@ export function registerUiTools(registry: McpRegistry): void {
           ...(a.includeImage && imageBase64 && !validPngBase64
             ? { imageReadError: "API-Bildinhalt hatte keine gueltige PNG-Signatur und wurde verworfen." }
             : {}),
-        }, extra);
+        }, r, extra);
       } catch (e) {
         return caughtErrorResult("screenshot", e);
       }

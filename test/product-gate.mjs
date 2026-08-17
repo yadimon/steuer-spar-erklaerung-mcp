@@ -355,7 +355,8 @@ try {
     workerOpBlock("table_delete").includes("obstruction=$obstruction") &&
     mcpRegistrySource.includes("return apiErrorResult(operation, result)") &&
     mcpResponseSource.includes("Alle API-Fehler bleiben strukturiert") &&
-    mcpResponseSource.includes("return { ...textResult(details), isError: true }") &&
+    mcpResponseSource.includes("structuredContent: structuredContent as Record<string, unknown>") &&
+    mcpResponseSource.includes("isError: true") &&
     tableDeleteTestSource.includes('["lockscreen-shell", "foreign-app"].includes(blockerKind)') &&
     tableDeleteTestSource.includes('SSE_REQUIRE_DELETE !== "1"'),
   "sse_table_delete klassifiziert Blockierer nicht oder der Echt-Test kann beliebige Fehler als SKIP tarnen.");
@@ -440,7 +441,9 @@ try {
   assert((workerOpBlock("goto").match(/erreicht\s*=\s*\$true/g) ?? []).length === 4,
     "Mindestens ein erfolgreicher sse_goto-Pfad meldet erreicht=true nicht konsistent.");
   const checkerCloseBlock = workerOpBlock("checker_close");
-  assert(checkerCloseBlock.includes("PrueferWidgetSSE.FrameTitle.QPushButton") &&
+  assert(checkerCloseBlock.includes("Get-SSEContainerDescendants $before.nodes '.PrueferWidgetSSE.FrameTitle' 'Button' 'Group'") &&
+    checkerCloseBlock.includes("$buttons.Count -ne 1") &&
+    checkerCloseBlock.includes("$invoke.Invoke()") &&
     checkerCloseBlock.includes("$headingAfter -eq $headingBefore") &&
     checkerCloseBlock.includes("$dirtyAfter -eq $dirtyBefore") &&
     checkerCloseBlock.includes("-not $afterResult.aktiv") &&

@@ -2,6 +2,7 @@
   "schemaVersion": 1,
   "id": "2025",
   "status": "supported",
+  "operationAccess": "full",
   "product": "SteuerSparErklaerung 2025",
   "taxYear": 2025,
   "engineFileMajor": 31,

@@ -8,6 +8,7 @@ const profileSchema = z.object({
   schemaVersion: z.literal(1),
   id: z.string().regex(/^[0-9]{4}$/u),
   status: z.enum(["supported", "experimental", "disabled"]),
+  operationAccess: z.enum(["full", "verification-only"]),
   product: z.string().min(1),
   taxYear: z.number().int().min(2000).max(2200),
   engineFileMajor: z.number().int().positive(),
@@ -187,4 +188,10 @@ export function loadProductProfile(id = "2025", root = defaultProfilesRoot): Pro
     throw new Error(`Page-Objects und Manifest des SSE-Profils '${id}' widersprechen sich.`);
   }
   return { ...parsed, profileDir, manifestPath, pageObjectsPath };
+}
+
+export function isProductProfileReleased(
+  profile: Pick<ProductProfile, "status" | "operationAccess">,
+): boolean {
+  return profile.status === "supported" && profile.operationAccess === "full";
 }

@@ -3,6 +3,16 @@
  * per SSE_PROFILE_ID gewaehlten Jahres.
  * Jeder Fall wird in den isolierten Test-API-Fallbereich kopiert, von MCP
  * nochmals bytegleich dupliziert, nur gelesen und ohne Speichern geschlossen.
+ *
+ * Welche Operationen der Lauf versucht, entscheidet die Faehigkeitsmatrix des
+ * Profils aus `sse_capabilities` - nicht dieser Test. Was die Matrix erlaubt
+ * und keinen Steuerfall veraendert, wird ausgefuehrt; fuer alles andere muss
+ * sie ausdruecklich einen Sperrgrund nennen. Ein stiller SKIP ist damit
+ * ausgeschlossen.
+ *
+ * Voraussetzung ist eine unbenutzte Windows-Sitzung: Navigation laeuft ueber
+ * echte Mausklicks, und Windows verweigert den Vordergrundwechsel, solange
+ * nebenher gearbeitet wird.
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -11,6 +21,7 @@ import { basename, dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { callApiOperation } from "../dist/api-client.js";
 import { loadProductProfile } from "../dist/product-profiles.js";
 
 const profileId = process.env.SSE_PROFILE_ID ?? "2025";
@@ -58,6 +69,30 @@ const call = async (name, args = {}, timeout = 180_000) => {
   const result = await callRaw(name, args, timeout);
   if (result?.isError) throw new Error(`${name}: ${fullText(result)}`);
   return parsedText(result, name);
+};
+/**
+ * Erlaubt genau die aufgezaehlten fachlichen Fehlerarten als gueltiges
+ * Ergebnis. Alles andere bleibt ein Testfehler; ein pauschales Durchwinken
+ * gibt es nicht.
+ */
+const callTolerant = async (name, args, allowedKinds, timeout = 180_000) => {
+  const result = await callRaw(name, args, timeout);
+  const parsed = parsedText(result, name);
+  if (!result?.isError) return parsed;
+  assert(allowedKinds.includes(parsed.kind),
+    `${name}: unerwartete Fehlerart '${parsed.kind}' (erlaubt: ${allowedKinds.join(", ")}): ${parsed.error}`);
+  return parsed;
+};
+const callCanonical = async (name, args = {}, timeout = 180_000) => {
+  const result = await callRaw(name, args, timeout);
+  if (result?.isError) throw new Error(`${name}: ${fullText(result)}`);
+  assert(result?.structuredContent && typeof result.structuredContent === "object" && !Array.isArray(result.structuredContent),
+    `${name}: kanonisches MCP-structuredContent fehlt.`);
+  return result.structuredContent;
+};
+const withoutWorkerTiming = (result) => {
+  const { ms: _ignored, ...stable } = result;
+  return stable;
 };
 const sha256 = (path) => createHash("sha256").update(readFileSync(path)).digest("hex").toUpperCase();
 const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -157,24 +192,107 @@ async function assertReadOnlyOperationSweep(definition, hwnd) {
 
   // sse_table_read ist der eigenstaendige Tabellenvertrag (nicht sse_read_table).
   await call("sse_table_read", { hwnd });
+
+  // Die tieferen Accessibility-Diagnosen sind deutlich teurer als die
+  // fachlichen Leser. Ein echter Lauf pro Produktprofil reicht, um ihren
+  // MCP -> API -> Worker-Vertrag gegen die installierte Engine zu beweisen.
+  if (definition.id === definitions[0].id) {
+    const snapshot = await call("sse_snapshot", { hwnd, namedOnly: true, maxNodes: 5000 }, 180_000);
+    assert.equal(typeof snapshot.count, "number", `${id}: sse_snapshot ohne numerischen count.`);
+    assert.equal(snapshot.count, snapshot.nodes?.length,
+      `${id}: sse_snapshot.count stimmt nicht mit nodes.length ueberein.`);
+    const probeTarget = snapshot.nodes?.find((node) =>
+      typeof node.rid === "string" && node.rid.length > 0 && typeof node.name === "string" && node.name.length > 0);
+    assert(probeTarget, `${id}: sse_snapshot lieferte kein eindeutig per rid pruefbares Element.`);
+
+    const probe = await call("sse_accessibility_probe", {
+      hwnd,
+      rid: probeTarget.rid,
+      maxDepth: 2,
+      maxNodes: 50,
+      includePatterns: true,
+      includeRaw: true,
+      includeMsaa: false,
+    }, 180_000);
+    assert.equal(probe.node?.rid, probeTarget.rid,
+      `${id}: sse_accessibility_probe band nicht das zuvor gesnapshotete Element.`);
+    assert.equal(typeof probe.uia, "object", `${id}: sse_accessibility_probe ohne UIA-Befund.`);
+    assert(Array.isArray(probe.rawDescendants), `${id}: sse_accessibility_probe ohne RawView-Liste.`);
+    assert.equal(typeof probe.rawTruncated, "boolean",
+      `${id}: sse_accessibility_probe ohne rawTruncated-Status.`);
+
+    const compared = await call("sse_snapshot_compare", { hwnd, repetitions: 3 }, 240_000);
+    assert.equal(compared.equivalent, true,
+      `${id}: sicherer TreeWalker und Bulk-Snapshot sind nicht aequivalent: ${JSON.stringify(compared.samples)}`);
+    assert.equal(compared.legacy?.count, compared.bulk?.count,
+      `${id}: Snapshot-Vergleich lieferte unterschiedliche Knotenzahlen.`);
+    assert.equal(compared.canaryAfter?.ok, true, `${id}: SSE wurde waehrend snapshot_compare traege.`);
+    assert.equal(compared.privateValuesReturned, false,
+      `${id}: snapshot_compare darf keine privaten Werte zurueckgeben.`);
+    assert.equal(typeof compared.runtimeIdChurnCount, "number",
+      `${id}: snapshot_compare weist RuntimeId-Churn nicht separat aus.`);
+    for (const field of ["missingCount", "extraCount", "metadataMismatchCount", "valueMismatchCount"]) {
+      assert.equal(compared[field], 0, `${id}: snapshot_compare meldete ${field}=${compared[field]}.`);
+    }
+  }
 }
 
-// Steuerpruefer-Sweep: nur fuer Musterfaelle mit definition.checker === true.
-// Ein echter Fall kann auf einer beliebigen Seite stehen - sse_goto versucht
-// zuerst die globale Suche; nur bei deren nachgewiesenem Fehlschlag greift der
-// dokumentierte Ruecksprung auf einen echten Klick im Navigationsbaum. Scheitert
-// auch dieser, faellt der Test laut statt den Ausfall stillschweigend zu
-// uebergehen.
+/**
+ * Springt ueber den Navigationsbaum in einen Hauptzweig.
+ *
+ * Der Weg ueber die globale Suche ist hier nicht verlaesslich: Der Doppelklick
+ * auf den Suchtreffer aktiviert ihn im Vorbereitungszweig reproduzierbar nicht,
+ * die Suche schliesst sich wieder auf der Ausgangsseite und `sse_goto` meldet
+ * korrekt `not-found`. Der Baumeintrag desselben Namens fuehrt dagegen direkt
+ * zur Zweigseite - solange die Suche geschlossen ist, ist er eindeutig.
+ */
+async function gotoNavigationBranch(id, hwnd, heading, attempts = 3) {
+  // Ein Klick auf einen Navigationseintrag ist wiederholbar: Er waehlt einen
+  // Zweig aus und schreibt nichts. Auf einer ausgelasteten Maschine baut Qt die
+  // Seite gelegentlich langsamer auf, als die Nachbedingung wartet - dann ist
+  // derselbe Klick erneut der richtige Schritt, kein Aufweichen der Pruefung.
+  const failures = [];
+  let clicked = null;
+  for (let attempt = 1; attempt <= attempts && !clicked; attempt++) {
+    // Erst pruefen, dass der Name im Baum eindeutig ist - dann ueber genau
+    // diesen Namen klicken. Eine runtime id waere hier die falsche Bindung:
+    // Engine 30 vergibt zwischen zwei Aufrufen neue IDs, der Klick liefe dann
+    // in ein 'nicht gefunden'.
+    const found = await callCanonical("sse_find", { name: heading, type: "TreeItem", hwnd });
+    assert.equal(found.count, 1,
+      `${id}: Navigationszweig '${heading}' ist nicht eindeutig: ${JSON.stringify(found.hits)}`);
+    const outcome = await callTolerant("sse_click_point",
+      { name: heading, type: "TreeItem", expectedPageAfter: heading, waitMs: 4_000, hwnd },
+      ["postcondition-failed"], 120_000);
+    if (outcome.ok === false) {
+      failures.push(`Versuch ${attempt}: ${outcome.error}`);
+      await wait(1_000);
+      continue;
+    }
+    clicked = outcome;
+  }
+  assert(clicked,
+    `${id}: Navigationszweig '${heading}' in ${attempts} Anlaeufen nicht erreicht. ` +
+    "Wenn jeder Versuch dieselbe Ausgangsseite meldet, kam der Klick nicht bei der Anwendung an: " +
+    "Windows verweigert den Vordergrundwechsel, solange der Rechner nebenher bedient wird. " +
+    `Das Live-Gate braucht eine unbenutzte Sitzung.\n${failures.join("\n")}`);
+  assertSemanticEqual(clicked.ueberschriftNachher, heading, `${id}: Navigationszweig nicht erreicht`);
+  assertSemanticEqual(clicked.seiteGewechselt, true, `${id}: Zweigklick meldet keinen Seitenwechsel`);
+
+  // Regression: Ein Sprung auf die bereits offene Seite ist ein gueltiges
+  // Ergebnis und muss 'weg' als Liste liefern. Ein blosser Text dort liess
+  // jeden solchen Aufruf als invalid-operation-result enden.
+  const already = await callCanonical("sse_goto", { name: heading, hwnd }, 120_000);
+  assertSemanticEqual(already.schritte, 0, `${id}: goto auf die offene Seite meldet Schritte`);
+  assert(Array.isArray(already.weg),
+    `${id}: goto liefert 'weg' nicht als Liste: ${JSON.stringify(already.weg)}`);
+  return clicked;
+}
+
 async function runCheckerSweep(definition, hwnd) {
   const { id } = definition;
 
-  const gotoPruefen = await callRaw("sse_goto", { name: "Prüfen und Abgeben", hwnd }, 300_000);
-  if (gotoPruefen?.isError) {
-    const clicked = await call("sse_click_point",
-      { name: "Prüfen und Abgeben", type: "TreeItem", hwnd }, 60_000);
-    assert.equal(clicked.clicked, "Prüfen und Abgeben",
-      `${id}: Ruecksprung click_point auf 'Prüfen und Abgeben' schlug ebenfalls fehl.`);
-  }
+  await gotoNavigationBranch(id, hwnd, "Prüfen und Abgeben");
 
   await call("sse_goto", {
     name: "Steuererklärung prüfen", useSearch: false, direction: "Weiter", maxSteps: 10, hwnd,
@@ -195,6 +313,19 @@ async function runCheckerSweep(definition, hwnd) {
 
   const results = await call("sse_checker_results", { hwnd }, 180_000);
   assert.equal(results.gesamt, run.gesamt, `${id}: checker_results.gesamt weicht von checker_run.gesamt ab.`);
+
+  // Die Komposition checker_open selbst: Sie liest den Prueferbaum, oeffnet
+  // genau eine gebundene Meldung read-only und liefert deren Detailtext.
+  const message = [...(results.fragenWarnungen ?? []), ...(results.tippsZusatzinfos ?? []), ...(results.sonstige ?? [])]
+    .map((entry) => entry.text)
+    .find((text) => typeof text === "string" && text.length > 0);
+  assert(message, `${id}: checker_results lieferte keine oeffenbare Meldung.`);
+  const detail = await callCanonical("sse_checker_open", { name: message, hwnd }, 300_000);
+  assertSemanticEqual(detail.meldung, message, `${id}: checker_open oeffnete eine andere Meldung`);
+  assert.equal(typeof detail.kontrollbildEnthalten, "boolean",
+    `${id}: checker_open meldet nicht, ob ein Kontrollbild vorliegt.`);
+  const reset = await callCanonical("sse_checker_reset", { hwnd }, 240_000);
+  assert.deepEqual(reset.aufgeklappt ?? [], [], `${id}: checker_reset liess eine Detailkarte offen.`);
 
   const closed = await call("sse_checker_close", { hwnd }, 90_000);
   assert.equal(closed.ok, true, `${id}: checker_close meldete keinen Erfolg.`);
@@ -217,10 +348,6 @@ async function unlinkOwned(path) {
 
 function classifyStartupDialog(dialog) {
   const text = (dialog.texts ?? []).join(" ");
-  if (dialog.title === "Steuerprogramm" && text.toLowerCase().includes("wiederherstell") &&
-      (dialog.buttons ?? []).some((button) => button.name === "Nein")) return "Nein";
-  if (dialog.title === "Aktualisierung fehlgeschlagen!" && text.includes("importierte Steuerfall") &&
-      (dialog.buttons ?? []).some((button) => button.name.toLowerCase() === "ok")) return "OK";
   if (dialog.title === "Gewinn aktualisiert!" && /^Der Gewinn des Betriebs ».+« wurde aktualisiert\.$/u.test(text) &&
       (dialog.buttons ?? []).length === 1 && dialog.buttons[0].name === "OK") return "OK";
   return null;
@@ -242,12 +369,258 @@ async function dismissBoundStartupDialogs(pid) {
   throw new Error("Startdialog-Kette ueberschritt vier strikt gebundene Antworten.");
 }
 
+/**
+ * Der Verifikationskatalog des aktiven Profils entscheidet, welche Operationen
+ * dieser Lauf ueberhaupt versuchen darf. So bleibt ein eingeschraenktes
+ * Jahresprofil eingeschraenkt, ohne dass der Test still weniger prueft: Was
+ * hier nicht laeuft, muss die Matrix ausdruecklich als gesperrt ausweisen.
+ */
+let operationPolicy = null;
+function policyFor(operation) {
+  const entry = operationPolicy?.[operation];
+  assert(entry, `Die Fähigkeitsmatrix kennt '${operation}' nicht.`);
+  return entry;
+}
+function allowedOperation(operation) {
+  return policyFor(operation).availability === "allowed";
+}
+function assertBlockedOnPurpose(operation) {
+  const entry = policyFor(operation);
+  assert.notEqual(entry.availability, "allowed",
+    `'${operation}' ist erlaubt und muss deshalb auch live geprueft werden.`);
+  assert(entry.reason.length > 0, `'${operation}' ist gesperrt, nennt aber keinen Grund.`);
+  semanticChecks += 1;
+}
+
+/** Profilunabhaengige Katalog-, Datei- und Arbeitsbereichsauskuenfte. */
+async function assertLocalCatalogSweep() {
+  const info = await callCanonical("sse_product_info");
+  assertSemanticEqual(info.profileId, profileId, "product_info: falsches Profil");
+  assertSemanticEqual(info.taxYear, profile.taxYear, "product_info: falsches Steuerjahr");
+
+  const listed = await callCanonical("sse_list_cases", {});
+  assert.equal(typeof listed.count, "number", "list_cases ohne numerischen count.");
+
+  const status = await callCanonical("sse_workspace_status");
+  assert.equal(status.workspaceReady, true, "workspace_status meldet den Arbeitsbereich nicht als bereit.");
+  assert.equal(status.caseDirectoryReady, true, "workspace_status meldet den Testfallordner nicht als bereit.");
+
+  // MCP verlangt die eindeutige Form 'bereich:pfad'; der bare Pfad mit
+  // separatem 'area' bleibt der lokalen HTTP-API vorbehalten.
+  const files = await callCanonical("sse_workspace_files", { ref: "workspace:." });
+  assert(Array.isArray(files.files), "workspace_file_list ohne Dateiliste.");
+
+  const catalog = await callCanonical("sse_page_objects", {});
+  assert.equal(catalog.catalog?.schemaVersion, 1, "page_objects lieferte keinen Profilkatalog.");
+  const pages = catalog.catalog.pages ?? {};
+  assert(Object.keys(pages).length >= 1, "Der Profilkatalog nennt keine bekannte Seite.");
+
+  if (allowedOperation("workspace_file_write_text")) {
+    const ref = `workspace:live-sweep-${process.pid}.txt`;
+    const written = await callCanonical("sse_workspace_write_text", { ref, text: "Live-Sweep\n" });
+    assert.equal(written.ref, ref, "workspace_file_write_text gab keine Ressourcenreferenz zurueck.");
+    const read = await callCanonical("sse_workspace_read_text", { ref });
+    assertSemanticEqual(read.text, "Live-Sweep\n", "workspace_file_read_text: Rueckgabe weicht ab");
+  } else {
+    assertBlockedOnPurpose("workspace_file_write_text");
+  }
+
+  return pages;
+}
+
+/**
+ * Waehlt die katalogisierte Seite, die zum Dokumenttyp des Musterfalls gehoert.
+ * Nur so ist `known_page_state` deterministisch pruefbar: Auf einer Seite eines
+ * anderen Dokumenttyps liefert der Leser korrekt `heading: null`.
+ */
+function knownPageForCase(pages, definition) {
+  const documentType = extname(definition.file).replace(/^\./u, "");
+  const matches = Object.entries(pages)
+    .filter(([, page]) => page.documentType === documentType)
+    .sort(([left], [right]) => left.localeCompare(right));
+  assert(matches.length >= 1,
+    `Der Profilkatalog kennt keine Seite fuer den Dokumenttyp '${documentType}'.`);
+  const [pageId, page] = matches[0];
+  assert(typeof page.heading === "string" && page.heading.length > 0,
+    `Katalogseite '${pageId}' hat keine Ueberschrift.`);
+  return { pageId, heading: page.heading };
+}
+
+/**
+ * Bewusst teurere, aber ausschliesslich lesende Diagnosen. Sie laufen einmal je
+ * Profil am ersten Musterfall; jede weitere Wiederholung kostet nur Zeit.
+ */
+async function assertDeepReadOnlySweep(definition, hwnd, pages) {
+  const { id } = definition;
+
+  // Der Musterfall benennt Personenseiten mit Suffix ("... Eva"), waehrend der
+  // Katalog die generische Ueberschrift fuehrt. Eine erzwungene Navigation
+  // dorthin waere deshalb nicht verlaesslich. Geprueft wird der Vertrag der
+  // Operation selbst: gebundene Seiten-ID, Sollueberschrift, stabiler
+  // Inhaltsfingerprint und die Zusicherung, dass keine privaten Werte bleiben.
+  const knownPage = knownPageForCase(pages, definition);
+  const known = await callCanonical("sse_page_state", { pageId: knownPage.pageId, hwnd });
+  assert.equal(known.pageId, knownPage.pageId, `${id}: known_page_state band die angefragte Seite nicht.`);
+  assertSemanticEqual(known.expectedHeading, knownPage.heading, `${id}: known_page_state nennt eine andere Sollseite`);
+  assert.equal(typeof known.onExpectedPage, "boolean", `${id}: known_page_state ohne Seitenurteil.`);
+  assert.match(String(known.epoch), /^[A-F0-9]{64}$/u,
+    `${id}: known_page_state liefert keinen Inhaltsfingerprint: ${known.epoch}`);
+  assert(Array.isArray(known.fields), `${id}: known_page_state ohne Feldliste.`);
+  assert.equal(known.privateValuesPersisted, false,
+    `${id}: known_page_state darf keine privaten Werte ablegen.`);
+  const repeated = await callCanonical("sse_page_state", { pageId: knownPage.pageId, hwnd });
+  assertSemanticEqual(repeated.epoch, known.epoch,
+    `${id}: der Inhaltsfingerprint wechselt ohne Zustandsaenderung`);
+
+  // Die MCP-Textprojektion einiger Werkzeuge fuehrt kein 'ok'; ein
+  // zurueckgegebenes Objekt beweist den Erfolg bereits, weil call() bei
+  // isError wirft. Geprueft werden deshalb fachliche Felder.
+  const positions = await callCanonical("sse_positions", { aktion: "list", hwnd });
+  assert.equal(typeof positions.anzahl, "number", `${id}: positions ohne numerische anzahl.`);
+
+  const checked = await callCanonical("sse_check_page", { hwnd });
+  assert.equal(typeof checked.beanstandungsfrei, "boolean", `${id}: check ohne Gesamturteil.`);
+  assert(Array.isArray(checked.leerePflichtfelder), `${id}: check ohne Pflichtfeldliste.`);
+
+  // Nicht jede Musterfallseite besitzt einen scrollbaren Container. Genau diese
+  // eine dokumentierte Antwort ist zulaessig; jede andere Fehlerart bleibt rot.
+  const scrolled = await callTolerant("sse_scroll", { mode: "percent", vPercent: 0, hwnd }, ["no-scroll-pattern"]);
+  assert(scrolled.mode === "percent" || scrolled.kind === "no-scroll-pattern",
+    `${id}: scroll lieferte weder eine Prozentbestaetigung noch die Ohne-Roller-Antwort: ${JSON.stringify(scrolled)}`);
+  const treeScrolled = await callCanonical("sse_tree_scroll", { direction: "down", steps: 1, hwnd });
+  assert.equal(treeScrolled.gerollt, "down", `${id}: tree_scroll bestaetigte die Richtung nicht.`);
+  const treeTop = await callCanonical("sse_tree_top", { hwnd });
+  assert.equal(treeTop.gerollt, "oben", `${id}: tree_top bestaetigte den Sprung an den Anfang nicht.`);
+
+  const warning = await callCanonical("sse_warning_popup_read", { hwnd });
+  assertSemanticEqual(warning.active, false, `${id}: unerwarteter Warnhinweis im reinen Leselauf`);
+
+  // Erst hier liegen eigene Kopien im isolierten Testfallordner; vorher waere
+  // eine Sicherung inhaltslos.
+  if (allowedOperation("backup_cases")) {
+    const backup = await callCanonical("sse_backup_cases", { destinationRef: `backups:live-sweep-${process.pid}` }, 300_000);
+    assert(Array.isArray(backup.files) && backup.files.length >= 1,
+      `${id}: backup_cases lieferte keine Dateiliste: ${JSON.stringify(backup).slice(0, 300)}`);
+    assertSemanticEqual(backup.anzahl, backup.files.length, `${id}: backup_cases zaehlt anders als es auflistet`);
+  } else {
+    assertBlockedOnPurpose("backup_cases");
+  }
+
+  const found = await callCanonical("sse_find", { name: "Steuer", contains: true, hwnd });
+  assert(found.count >= 1, `${id}: find lieferte kein Element fuer den Einzelwertlesetest.`);
+  const target = found.hits.find((hit) => typeof hit.rid === "string" && hit.rid.length > 0);
+  assert(target, `${id}: find lieferte keinen Treffer mit runtime id.`);
+  const single = await callCanonical("sse_get_value", { rid: target.rid, hwnd });
+  assert.equal(single.node?.rid, target.rid, `${id}: get_value band einen anderen Knoten.`);
+  assert.equal(typeof single.readOnly, "boolean", `${id}: get_value ohne Schreibschutzangabe.`);
+
+  if (allowedOperation("menu")) {
+    const menus = await callCanonical("sse_menu", { hwnd });
+    assert(Array.isArray(menus.menues) && menus.menues.length >= 1, `${id}: menu listete keine Menuezeile.`);
+    const closed = await callCanonical("sse_menu_close", { hwnd });
+    assertSemanticEqual(closed.popupCountAfter, 0, `${id}: menu_close liess ein Menuepopup offen`);
+    const dismissed = await callCanonical("sse_dismiss", { hwnd });
+    assert.equal(typeof dismissed.geschlossen, "number", `${id}: dismiss ohne Zahl geschlossener Hilfsfenster.`);
+  } else {
+    for (const operation of ["menu", "menu_close", "dismiss"]) assertBlockedOnPurpose(operation);
+  }
+
+  // Die Szenario-Engine gegen die echte Anwendung: zwei rein lesende Schritte
+  // mit Erwartung und Capture, danach der hashgebundene Ergebnisreadback.
+  if (allowedOperation("scenario_run")) {
+    const scenarioRef = `workspace:live-${id}-${process.pid}.json`;
+    const scenarioResultRef = `results:live-${id}-${process.pid}-szenario.json`;
+    const heading = (await callCanonical("sse_page", { hwnd })).ueberschrift;
+    await callCanonical("sse_workspace_write_text", {
+      ref: scenarioRef,
+      text: `${JSON.stringify({
+        schemaVersion: 2,
+        name: `live read scenario ${id}`,
+        resultFile: `live-${id}-${process.pid}-szenario.json`,
+        steps: [
+          { id: "seite", operation: "page", args: { hwnd }, capture: ["ueberschrift"], expect: { ueberschrift: heading } },
+          { id: "zeilen", operation: "read_page", args: { hwnd }, capture: ["heading"], expect: { heading } },
+        ],
+        finally: [{ id: "abschluss", operation: "page", args: { hwnd }, expect: { ueberschrift: heading } }],
+      }, null, 2)}\n`,
+    });
+    const scenario = await callCanonical("sse_run_scenario",
+      { scenarioRef, resultRef: scenarioResultRef }, 300_000);
+    assertSemanticEqual(scenario.result?.mainOk, true,
+      `${id}: Szenariolauf gegen die echte Anwendung schlug fehl: ${JSON.stringify(scenario.result).slice(0, 400)}`);
+    assertSemanticEqual(scenario.result.cleanupOk, true, `${id}: Szenario-Abschlussschritt schlug fehl`);
+    assertSemanticEqual(scenario.result.steps.length, 2, `${id}: Szenario fuehrte nicht beide Schritte aus`);
+    const report = JSON.parse((await callCanonical("sse_workspace_read_text", { ref: scenarioResultRef })).text);
+    assertSemanticEqual(report.status, "ok", `${id}: Szenarioreport meldet keinen Erfolg`);
+    assertSemanticEqual(report.steps.find((step) => step.id === "seite")?.values?.ueberschrift, heading,
+      `${id}: Szenarioreport haelt die gelesene Ueberschrift nicht fest`);
+  } else {
+    assertBlockedOnPurpose("scenario_run");
+  }
+
+  if (allowedOperation("screenshot")) {
+    const shot = await callCanonical("sse_screenshot", { resultRef: `results:live-${id}-${process.pid}.png`, hwnd }, 180_000);
+    assert(Number(shot.shot?.w) > 0 && Number(shot.shot?.h) > 0, `${id}: screenshot ohne Bildmasse.`);
+  } else {
+    assertBlockedOnPurpose("screenshot");
+  }
+
+  if (allowedOperation("collect")) {
+    // Ein am Seitenlimit gestoppter Sammellauf ist ein dokumentiertes, gueltiges
+    // Ergebnis - aber nur genau dieses eine. Jede andere Fehlerart bleibt rot.
+    const collectRef = `results:live-${id}-${process.pid}.json`;
+    const collected = await callTolerant(
+      "sse_collect", { resultRef: collectRef, maxPages: 2, hwnd }, ["collection-incomplete"], 300_000,
+    );
+    assert.equal(typeof collected.dateiHash, "string", `${id}: collect ohne dateiHash fuer die Gegenpruefung.`);
+    assert(Array.isArray(collected.ueberschriften) && collected.ueberschriften.length >= 1,
+      `${id}: collect sammelte keine Seite.`);
+
+    // Der Soll/Ist-Abgleich meldet Mehrdeutigkeit bewusst als Abweichung. Statt
+    // auf ein zufaellig eindeutiges Paar zu hoffen, wird die Position explizit
+    // mitgegeben - dafuer gibt es seiteOccurrence und labelOccurrence.
+    const document = JSON.parse((await callCanonical("sse_workspace_read_text", { ref: collectRef })).text);
+    const pagesInDocument = document.seiten ?? [];
+    const expectation = pagesInDocument.flatMap((page, pageIndex) => {
+      const seiteOccurrence = pagesInDocument
+        .slice(0, pageIndex + 1)
+        .filter((candidate) => candidate.ueberschrift === page.ueberschrift).length;
+      const felder = page.felder ?? [];
+      return felder.flatMap((field, fieldIndex) => {
+        if (typeof field.wert !== "string" || field.wert === "") return [];
+        const labelOccurrence = felder
+          .slice(0, fieldIndex + 1)
+          .filter((candidate) => candidate.label === field.label).length;
+        return [{ seite: page.ueberschrift, seiteOccurrence, label: field.label, labelOccurrence, wert: field.wert }];
+      });
+    })[0];
+    assert(expectation, `${id}: collect lieferte keine pruefbare Feldzeile.`);
+    const verified = await callCanonical("sse_verify", {
+      sourceRef: collectRef,
+      expectedSourceHash: collected.dateiHash,
+      allowIncompleteSource: collected.vollstaendig !== true,
+      erwartungen: [expectation],
+    }, 180_000);
+    assertSemanticEqual(verified.ergebnis?.[0]?.status, "stimmt",
+      `${id}: verify bestaetigte den eigenen Sammelstand nicht: ${JSON.stringify(verified.ergebnis?.[0])}`);
+    assertSemanticEqual(verified.abweichungen, 0, `${id}: verify meldete eine Abweichung gegen den eigenen Stand`);
+  } else {
+    assertBlockedOnPurpose("collect");
+    assertBlockedOnPurpose("verify");
+  }
+}
+
 const observations = [];
 const startedAt = Date.now();
 await client.connect(transport);
 try {
   assert.equal((await call("sse_health")).running, false,
     "Live-Muster-Test startet nur ohne vorhandene SSE-Instanz.");
+  const capabilities = await call("sse_capabilities");
+  operationPolicy = capabilities.operationPolicy;
+  assert(operationPolicy && typeof operationPolicy === "object",
+    "sse_capabilities lieferte keine Profil-Operationsmatrix.");
+  const catalogPages = await assertLocalCatalogSweep();
   for (const definition of definitions) {
     const source = join(musterDir, definition.file);
     const suffix = `${process.pid}-${Date.now()}${extname(source)}`;
@@ -263,6 +636,11 @@ try {
       copyFileSync(source, stagedSource);
       const staged = await call("sse_case_hash", { ref: sourceRef });
       assert.equal(staged.sha256, sourceHash, `${definition.id}: staging hash`);
+      const directHash = await callApiOperation("case_hash", { ref: sourceRef }, 30_000);
+      const canonicalMcpHash = await callCanonical("sse_case_hash", { ref: sourceRef }, 30_000);
+      assert.deepEqual(withoutWorkerTiming(canonicalMcpHash), withoutWorkerTiming(directHash),
+        `${definition.id}: direkter HTTP- und kanonischer MCP-Fallhash weichen ab.`);
+      semanticChecks += 1;
       await call("sse_make_working_copy", { sourceRef, targetRef, expectedSourceHash: sourceHash });
       const working = await call("sse_case_hash", { ref: targetRef });
       assert.equal(working.sha256, sourceHash, `${definition.id}: working-copy hash`);
@@ -278,6 +656,14 @@ try {
       const page = await call("sse_page", { hwnd: instance.hwnd });
       const result = await call(definition.operation, { hwnd: instance.hwnd }, 300_000);
       assertExpectedResultRows(definition, result);
+      if (definition.id === definitions[0].id) {
+        const parityArgs = { hwnd: instance.hwnd, openIfNeeded: false };
+        const directResult = await callApiOperation("result_details", parityArgs, 300_000);
+        const canonicalMcpResult = await callCanonical(definition.operation, parityArgs, 300_000);
+        assert.deepEqual(withoutWorkerTiming(canonicalMcpResult), withoutWorkerTiming(directResult),
+          `${definition.id}: direkter HTTP- und kanonischer MCP-Ergebnisreadback weichen ab.`);
+        semanticChecks += 1;
+      }
       await assertReadOnlyOperationSweep(definition, instance.hwnd);
       const observation = {
         id: definition.id,
@@ -295,9 +681,35 @@ try {
           `${definition.id}: UStVA-Uebersicht wurde nicht erreicht: ${JSON.stringify(navigation)}`);
         observation.ustva = await call("sse_ustva_read", { hwnd: instance.hwnd }, 300_000);
         assertExpectedUstva(observation.ustva, definition.ustva);
+        // Die UStVA-Uebersicht traegt immer den Zeitraumwaehler. Sie ist damit
+        // die einzige Seite, auf der ein ComboBox-Lesevertrag ohne Ratespiel
+        // gebunden werden kann.
+        const combos = await call("sse_find", { type: "ComboBox", hwnd: instance.hwnd });
+        assert(combos.count >= 1, `${definition.id}: UStVA-Uebersicht ohne Zeitraum-ComboBox.`);
+        const combo = combos.hits.find((hit) => typeof hit.aid === "string" && hit.aid.length > 0);
+        assert(combo, `${definition.id}: keine ComboBox mit AutomationId auf der UStVA-Uebersicht.`);
+        // Engine 30 haengt die Popup-Eintraege nicht unter die AutomationId der
+        // ComboBox. Der Leser meldet das ehrlich als 'not-found', statt eine
+        // moeglicherweise fremde Liste zu behaupten - genau diese beiden
+        // Ausgaenge sind zulaessig, ein stiller dritter waere der Fehler.
+        const options = await callTolerant(
+          "sse_combo_options", { rid: combo.rid, hwnd: instance.hwnd }, ["not-found"], 180_000,
+        );
+        const boundOptions = Array.isArray(options.options) && options.options.length >= 1 &&
+          options.collapsedAfterRead === true;
+        const honestMiss = options.ok === false && options.kind === "not-found" && options.options === undefined;
+        assert(boundOptions || honestMiss,
+          `${definition.id}: combo_options lieferte weder eine gebundene Optionsliste noch einen sauberen Fehlschlag: ` +
+          JSON.stringify(options).slice(0, 300));
+        semanticChecks += 1;
       }
       if (definition.checker) {
         observation.checkerGesamt = await runCheckerSweep(definition, instance.hwnd);
+      }
+      // Ganz zum Schluss: Der Tiefensweep blaettert durch Seiten und Menues und
+      // wuerde die genau gebundenen UStVA- und Prueferwege davor verlassen.
+      if (definition.id === definitions[0].id) {
+        await assertDeepReadOnlySweep(definition, instance.hwnd, catalogPages);
       }
       observations.push(observation);
       if (process.env.SSE_LIVE_MUSTER_PROBE === "1") {

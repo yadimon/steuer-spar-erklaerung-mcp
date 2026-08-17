@@ -10,7 +10,11 @@ import {
   environmentForExplicitApiConfig,
   loadApiServerConfig,
 } from "./api-config.js";
-import { listProductProfileIds, loadProductProfile } from "./product-profiles.js";
+import {
+  isProductProfileReleased,
+  listProductProfileIds,
+  loadProductProfile,
+} from "./product-profiles.js";
 import {
   assertWindowsPowerShell,
   detectSseExecutables,
@@ -54,7 +58,7 @@ export async function runSetupMain(args: readonly string[]): Promise<void> {
     stdout.write(`${SETUP_USAGE.split("\n")[0]}\n\n`);
     assertWindowsPowerShell();
     const supportedProfiles = listProductProfileIds().filter((id) => {
-      try { loadProductProfile(id); return true; } catch { return false; }
+      try { return isProductProfileReleased(loadProductProfile(id)); } catch { return false; }
     });
     if (!supportedProfiles.length) throw new Error("Kein produktiv freigegebenes SSE-Profil ist enthalten.");
     const useSafeDefaults = options.defaults || await askYes(

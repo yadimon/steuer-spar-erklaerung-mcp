@@ -68,6 +68,7 @@ export async function executeCheckerOpen(
         ...target,
         name: "Weiter",
         type: "Button",
+        expectedPageBefore: "Prüfen und Abgeben",
         expectedPageAfter: "Steuererklärung prüfen",
         waitMs: 900,
       }, 180_000);

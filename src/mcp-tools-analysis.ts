@@ -2,8 +2,8 @@
  * Fachliche Lese-, Pruef- und Steuerpruefer-Werkzeuge.
  */
 import { asArray } from "./api-client.js";
-import { apiErrorResult, textResult, type Content } from "./mcp-response.js";
-import type { McpRegistry } from "./mcp-registry.js";
+import { apiErrorResult, apiSuccessResult, type Content } from "./mcp-response.js";
+import { apiResultOutputSchema, type McpRegistry } from "./mcp-registry.js";
 import { SSE_MCP_TOOL_SCHEMAS } from "./operation-catalog.js";
 
 export function registerAnalysisTools(registry: McpRegistry): void {
@@ -108,7 +108,7 @@ export function registerAnalysisTools(registry: McpRegistry): void {
         "Steuerdaten werden weder geaendert noch gespeichert. 'festgehalten' ist der Vergleichsstand, " +
         "'differenz' die Auswirkung gegen diesen Stand. Fuer die Wirkung einer Eingabe vor und nach " +
         "der Aenderung lesen oder in Werte-Info bewusst einen Vergleichsstand setzen. Bei mehreren " +
-        "SSE-2025-Hauptfenstern ist hwnd Pflicht; Ergebnisfenster anderer PIDs werden nie uebernommen.",
+        "mehreren Hauptfenstern des aktiven SSE-Profils ist hwnd Pflicht; Ergebnisfenster anderer PIDs werden nie uebernommen.",
     },
     (r) => ({
       geoeffnet: r.geoeffnet,
@@ -229,6 +229,7 @@ export function registerAnalysisTools(registry: McpRegistry): void {
         "lokal mit Windows-OCR gelesen und als Text PLUS Kontrollbild zurueckgegeben. Der exakte " +
         "Meldungstext ist Pflicht.",
       inputSchema: SSE_MCP_TOOL_SCHEMAS.sse_checker_open.shape,
+      outputSchema: apiResultOutputSchema("checker_open"),
     },
     async (a) => {
       try {
@@ -239,7 +240,7 @@ export function registerAnalysisTools(registry: McpRegistry): void {
         if (imageBase64) {
           extra.push({ type: "image", data: imageBase64, mimeType: "image/png" });
         }
-        return textResult(
+        return apiSuccessResult(
           {
             meldung: detail.meldung,
             leseweg: detail.leseweg,
@@ -255,6 +256,7 @@ export function registerAnalysisTools(registry: McpRegistry): void {
             ungespeichert: detail.ungespeichert,
             kontrollbildEnthalten: detail.kontrollbildEnthalten === true,
           },
+          detail,
           extra,
         );
       } catch (e) {

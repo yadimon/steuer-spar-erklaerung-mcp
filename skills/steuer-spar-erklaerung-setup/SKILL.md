@@ -1,6 +1,6 @@
 ---
 name: steuer-spar-erklaerung-setup
-description: Installiert oder repariert die portable lokale SteuerSparErklärung-2025-Automation unter Windows ohne globales Node.js/npm, Python oder PowerShell 7 und bindet auf Wunsch den optionalen MCP-Wrapper an. Verwenden bei Erstinstallation, neuem PC, fehlender API-Verbindung, geändertem SSE-/Arbeitsordner oder gewünschter MCP-Anbindung für Codex, Claude Code und kompatible Agenten.
+description: Installiert oder repariert die portable lokale SteuerSparErklärung-Automation für ein vom Release unterstütztes Produktprofil unter Windows ohne globales Node.js/npm, Python oder PowerShell 7 und bindet auf Wunsch den optionalen MCP-Wrapper an. Verwenden bei Erstinstallation, neuem PC, fehlender API-Verbindung, geändertem SSE-/Arbeitsordner oder gewünschter MCP-Anbindung für Codex, Claude Code und kompatible Agenten.
 ---
 
 # SteuerSparErklärung einrichten
@@ -18,8 +18,10 @@ PowerShell 5.1.
 2. Suche eine vorhandene Konfiguration und teste API-Health. Erzeuge keine
    zweite Installation, wenn eine passende bereits funktioniert.
 3. Lies `portable-manifest.json` und die veröffentlichte SHA-256-Prüfsumme.
-   Akzeptiere nur ein als `supported` markiertes Profil; derzeit `2025` /
-   Engine-Major `31`.
+   Akzeptiere nur ein Profil mit `status=supported` und
+   `operationAccess=full`; derzeit `2025` / Engine-Major `31`.
+   Experimentelle oder `verification-only`-Profile werden weder angeboten noch
+   über einen Setup-Opt-in freigeschaltet.
 4. Die kanonische öffentliche Releasequelle ist
    `https://github.com/yadimon/steuer-spar-erklaerung-mcp/releases`. Verwende
    ausschließlich ein dort veröffentlichtes Asset namens

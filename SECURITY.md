@@ -29,6 +29,35 @@ unvermeidbar erscheinen, warte auf eine private Rückfrage des Maintainers.
 
 ## Betriebsgrenze
 
-Die lokale API bindet ausschließlich an Loopback und verlangt ein Token. Der
-MCP-Wrapper kennt keine lokalen PC-Pfade. Der Server darf keine Steuererklärung
-übermitteln und ersetzt weder fachliche Prüfung noch Steuerberatung.
+Die lokale API bindet ausschließlich an Loopback. `/healthz` ist als einzige
+technische Zustandsroute ohne Token erreichbar; Discovery, OpenAPI und alle
+Operationen verlangen das Bearer-Token. Der MCP-Wrapper kennt keine lokalen
+PC-Pfade. Der Server darf keine Steuererklärung übermitteln und ersetzt weder
+fachliche Prüfung noch Steuerberatung.
+
+Das Token erteilt volle Autorität für alle vom aktiven Profil serverseitig
+zugelassenen Operationen. Eine Freigabefrage im Agenten-Skill ist eine
+Bedienrichtlinie, keine zweite serverseitige Approval-Sperre. Deshalb:
+
+- API ausschließlich auf Loopback betreiben und niemals per Proxy, Tunnel,
+  Portweiterleitung oder gemeinsamem Remote-Desktop-Dienst veröffentlichen;
+- Konfigurationsdatei und MCP-Prozessumgebung wie ein lokales Geheimnis
+  schützen; Token nicht in Chat, Log, Prozessargumente oder Git kopieren;
+- Dateirechte des Konfigurationsordners auf das jeweilige Windows-Konto
+  begrenzen;
+- bei `buildDrift.drifted=true` keine Mutation ausführen, bis der neue Build
+  gezielt verifiziert ist. API und direkter Worker erzwingen dies zusätzlich
+  für die in `capabilities.operationPolicy[*].blockedOnBuildDrift`
+  ausgewiesenen UI-/Steuerfallmutationen mit `build-drift`; Lesen, Diagnose und
+  sicherer Cleanup bleiben möglich;
+- einen privaten Desktop nur als Fokus-/UX-Isolation verstehen, nicht als
+  Security-Sandbox.
+
+Fehlgeschlagene, abgebrochene oder zeitlich abgelaufene Mutationen können einen
+unbekannten Zustand hinterlassen. Vor einer Wiederholung immer Fall, Fenster,
+Seite, Wert, Dirty-State und Datei-Hash neu lesen.
+
+Produktfreigabe besteht aus zwei unabhängigen Manifestwerten: Nur
+`status=supported` zusammen mit `operationAccess=full` darf vom Setup angeboten
+werden. Ein Profil mit `verification-only` bleibt auch nach einer versehentlichen
+reinen Statusänderung auf den expliziten Opt-in-Verifikationskatalog begrenzt.

@@ -127,7 +127,9 @@ export const SSE_MCP_UI_SCHEMAS = {
   }).strict(),
   "sse_snapshot_compare": z.object({
     hwnd: WINDOW_HANDLE.optional(),
-    repetitions: z.number().int().min(1).max(10).optional().describe("Bulk-Snapshot-Wiederholungen im selben Worker; Vorgabe 3"),
+    repetitions: z.number().int().min(1).max(10).optional().describe(
+      "Unmittelbare Legacy/Bulk-Vergleichspaare im selben Worker; Vorgabe 3, mindestens ein exaktes Paar ist fuer Paritaet erforderlich",
+    ),
   }).strict(),
   "sse_accessibility_probe": z.object({
     hwnd: WINDOW_HANDLE.optional(),

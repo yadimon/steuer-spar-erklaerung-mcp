@@ -41,12 +41,20 @@ try {
 
   const result = callWorker("backup_cases", { dir: cases, dest: backup });
   assert.equal(result.ok, true, JSON.stringify(result));
-  assert.equal(result.files, 2);
+  assert.equal(result.anzahl, 2);
+  // 'files' traegt wie bei archive_cases name/sha256 je Datei. Eine blosse
+  // Anzahl unter demselben Namen hatte den veroeffentlichten Ergebnisvertrag
+  // verletzt und jeden API-Aufruf mit 502 beendet.
+  assert.equal(result.files.length, 2);
+  for (const entry of result.files) {
+    assert.equal(entry.sha256, expected.get(entry.name));
+    assert.equal(sha256(join(backup, entry.name)), entry.sha256);
+  }
   assert.equal(result.hashes.length, 2);
   for (const entry of result.hashes) {
     assert.equal(entry.sha256, expected.get(entry.file));
-    assert.equal(sha256(join(backup, entry.file)), entry.sha256);
   }
+  assert.match(result.manifest, /pruefsummen\.csv$/);
   const manifest = readFileSync(join(backup, "pruefsummen.csv"), "utf8");
   assert.match(manifest, /eins\.Gew2025/);
   assert.match(manifest, /zwei\.Gew2025/);

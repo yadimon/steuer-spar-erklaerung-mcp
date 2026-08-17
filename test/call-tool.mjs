@@ -4,7 +4,7 @@
  * Beispiele:
  *   node test/call-tool.mjs sse_health
  *   node test/call-tool.mjs sse_dialog_list '{}'
- *   node test/call-tool.mjs sse_case_hash '{"path":"G:/.../fall.Gew2025"}'
+ *   node test/call-tool.mjs sse_case_hash '{"ref":"cases:fall.Gew2025"}'
  */
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";

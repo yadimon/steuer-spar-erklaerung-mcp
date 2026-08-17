@@ -20,6 +20,7 @@ import {
 } from "../dist/operation-catalog.js";
 import { SSE_PACKAGE_NAME, SSE_PACKAGE_VERSION } from "../dist/version.js";
 import {
+  SSE_BUILD_DRIFT_BLOCKED_OPERATIONS,
   SSE_CLEANUP_OPERATIONS,
   SSE_DESTRUCTIVE_OPERATIONS,
   SSE_NON_DESTRUCTIVE_STATEFUL_OPERATIONS,
@@ -55,6 +56,22 @@ assert.equal(result.transport.mcpCancellationPropagatesToApi, true);
 assert.equal(result.transport.workerArguments, "exclusive-bounded-temp-json");
 assert.equal(result.transport.workerArgumentsVisibleInProcessList, false);
 assert.equal(result.transport.workerQueueDepth, 32);
+assert.deepEqual(result.profile, {
+  id: "2025",
+  status: "supported",
+  operationAccess: "full",
+  operateExperimental: false,
+});
+assert.equal(result.buildDriftPolicy, "block-ui-tax-mutations");
+assert.deepEqual(Object.keys(result.operationPolicy), SSE_API_OPERATIONS);
+for (const operation of SSE_API_OPERATIONS) {
+  assert.equal(result.operationPolicy[operation].operation, operation);
+  assert.equal(result.operationPolicy[operation].availability, "allowed");
+  assert.equal(
+    result.operationPolicy[operation].blockedOnBuildDrift,
+    SSE_BUILD_DRIFT_BLOCKED_OPERATIONS.includes(operation),
+  );
+}
 assert.deepEqual(result.limits, {
   apiRequestBytes: MAX_API_BODY_BYTES,
   apiResponseBytes: MAX_API_RESPONSE_BYTES,

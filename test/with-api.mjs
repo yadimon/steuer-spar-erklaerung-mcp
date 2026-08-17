@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { createApiExecutor } from "../dist/api-executor.js";
 import { createSseApiServer } from "../dist/api-server.js";
 import { callWorker } from "../dist/worker.js";
+import { traceOperations } from "./operation-trace.mjs";
 
 const [, , command, ...args] = process.argv;
 if (!command) {
@@ -37,7 +38,7 @@ const config = {
   // SSE_OPERATE_EXPERIMENTAL oeffnet den Weg fuer genau solche Laeufe.
   operateExperimental: process.env.SSE_OPERATE_EXPERIMENTAL === "1",
 };
-const execute = createApiExecutor(config, callWorker);
+const execute = traceOperations("worker", createApiExecutor(config, callWorker));
 const server = createSseApiServer({ config, execute });
 server.listen(0, "127.0.0.1");
 await once(server, "listening");

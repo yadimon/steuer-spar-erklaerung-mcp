@@ -5,7 +5,7 @@ import { z } from "zod";
 import { callApiOperation as callApiOperationDirect } from "./api-client.js";
 import { ApiClientError } from "./api-client-error.js";
 import type { SseApiOperation } from "./api-contract.js";
-import { apiErrorResult, errorResult, textResult } from "./mcp-response.js";
+import { apiErrorResult, apiSuccessResult, errorResult } from "./mcp-response.js";
 import {
   assertApiArgumentBudget,
   formatOperationArgumentError,
@@ -15,9 +15,14 @@ import {
   type SseMcpToolName,
 } from "./operation-catalog.js";
 import { operationAnnotations } from "./operation-traits.js";
+import { SSE_API_RESULT_OUTPUT_SCHEMAS } from "./result-contract.js";
 
 type ToolConfig = { title: string; description: string; };
 type ApiResultShape = (result: Record<string, unknown>) => unknown;
+
+export function apiResultOutputSchema(operation: SseApiOperation): z.ZodTypeAny {
+  return SSE_API_RESULT_OUTPUT_SCHEMAS[operation];
+}
 
 /**
  * Kapselt die gesamte MCP-Transportgrenze: strikte Schemas, Groessenbudgets,
@@ -58,7 +63,7 @@ export function createMcpRegistry(server: McpServer) {
       const payload = shape && result.focusTelemetry && shaped && typeof shaped === "object" && !Array.isArray(shaped)
         ? { ...shaped, focusTelemetry: result.focusTelemetry }
         : shaped;
-      return textResult(payload);
+      return apiSuccessResult(payload, result);
     } catch (error) {
       return caughtErrorResult(operation, error);
     }
@@ -70,7 +75,12 @@ export function createMcpRegistry(server: McpServer) {
    */
   function registerStrictTool<Shape extends z.ZodRawShape>(
     name: SseMcpToolName,
-    config: { title?: string; description?: string; inputSchema: Shape; },
+    config: {
+      title?: string;
+      description?: string;
+      inputSchema: Shape;
+      outputSchema?: z.ZodTypeAny;
+    },
     callback: (args: z.infer<z.ZodObject<Shape>>) => CallToolResult | Promise<CallToolResult>,
   ) {
     return server.registerTool(
@@ -107,7 +117,7 @@ export function createMcpRegistry(server: McpServer) {
     const schema = SSE_MCP_TOOL_SCHEMAS[name] as z.AnyZodObject;
     return registerStrictTool(
       name,
-      { ...config, inputSchema: schema.shape },
+      { ...config, inputSchema: schema.shape, outputSchema: apiResultOutputSchema(SSE_MCP_TOOL_OPERATIONS[name]) },
       async (args) => run(SSE_MCP_TOOL_OPERATIONS[name], args, undefined, options.timeoutMs),
     );
   }
@@ -121,7 +131,7 @@ export function createMcpRegistry(server: McpServer) {
     const schema = SSE_MCP_TOOL_SCHEMAS[name] as z.AnyZodObject;
     return registerStrictTool(
       name,
-      { ...config, inputSchema: schema.shape },
+      { ...config, inputSchema: schema.shape, outputSchema: apiResultOutputSchema(SSE_MCP_TOOL_OPERATIONS[name]) },
       async (args) => run(SSE_MCP_TOOL_OPERATIONS[name], args, shape, options.timeoutMs),
     );
   }

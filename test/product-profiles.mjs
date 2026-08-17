@@ -3,7 +3,11 @@ import { spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { listProductProfileIds, loadProductProfile } from "../dist/product-profiles.js";
+import {
+  isProductProfileReleased,
+  listProductProfileIds,
+  loadProductProfile,
+} from "../dist/product-profiles.js";
 import { SSE_START_MODES } from "../dist/operation-catalog.js";
 import { WORKER_RUNTIME_FILES } from "./worker-fixture-files.mjs";
 
@@ -13,6 +17,8 @@ assert.deepEqual(listProductProfileIds(), ["2024", "2025"]);
 assert.equal(profile.taxYear, 2025);
 assert.equal(profile.engineFileMajor, 31);
 assert.equal(profile.status, "supported");
+assert.equal(profile.operationAccess, "full");
+assert.equal(isProductProfileReleased(profile), true);
 assert.equal(profile.verifiedBuild, "31.0.1.0");
 assert.equal(profile.executable.name, "SSE.exe");
 assert.equal(profile.pageObjectsPath, join(root, "profiles", "2025", "page-objects.json"));
@@ -28,6 +34,8 @@ for (const unsupportedMode of ["KonsUst", "KonsUSt", "zulage", "NVBescheinigung"
 }
 const profile2024 = loadProductProfile("2024");
 assert.equal(profile2024.status, "experimental");
+assert.equal(profile2024.operationAccess, "verification-only");
+assert.equal(isProductProfileReleased(profile2024), false);
 assert.equal(profile2024.verifiedBuild, "30.0.127.0");
 assert.throws(() => loadProductProfile("..\\2025"), /Ungueltige/);
 
@@ -132,7 +140,7 @@ const runWorkerProfileMutation = (mutate, op = "product_info") => {
       ],
       {
         cwd: isolatedRoot,
-        env: { ...process.env, SSE_PROFILE_ID: "2025" },
+        env: { ...process.env, SSE_PROFILE_ID: "2025", SSE_OPERATE_EXPERIMENTAL: "" },
         encoding: "utf8",
         windowsHide: true,
       },
@@ -145,8 +153,16 @@ const runWorkerProfileMutation = (mutate, op = "product_info") => {
 };
 
 // "experimental" laedt jetzt bewusst (Initialize-SSEProductProfile laesst es
-// zu); eine nicht in EXPERIMENTAL_ALLOWED gelistete Betriebsoperation wie
-// "windows" bleibt trotzdem gesperrt, deshalb hier statt "product_info".
+// zu). Zuerst beweisen, dass die isolierte Manifestmutation wirklich vom
+// Worker gelesen wird; danach die Betriebs-Gate separat pruefen.
+const experimentalInfo = runWorkerProfileMutation(({ profilePath }) => {
+  const manifest = JSON.parse(readFileSync(profilePath, "utf8"));
+  manifest.status = "experimental";
+  writeJson(profilePath, manifest);
+});
+assert.equal(experimentalInfo.profileStatus, "experimental", JSON.stringify(experimentalInfo));
+assert.equal(experimentalInfo.operationAccess, "full", JSON.stringify(experimentalInfo));
+
 const unsupportedStatus = runWorkerProfileMutation(({ profilePath }) => {
   const manifest = JSON.parse(readFileSync(profilePath, "utf8"));
   manifest.status = "experimental";
@@ -203,5 +219,6 @@ const experimentalResult = JSON.parse(experimentalWorker.stdout.trim());
 assert.equal(experimentalResult.ok, true);
 assert.equal(experimentalResult.profileId, "2024");
 assert.equal(experimentalResult.profileStatus, "experimental");
+assert.equal(experimentalResult.operationAccess, "verification-only");
 
 process.stdout.write("Produktprofile: explizite Version, Drift- und Unknown-Version-Gates bestanden\n");

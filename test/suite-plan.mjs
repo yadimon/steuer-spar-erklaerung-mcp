@@ -31,15 +31,19 @@ export const parallelSteps = Object.freeze([
   nodeFile("portable-package", "test/portable-package.mjs"),
   nodeFile("direct-worker-guard", "test/direct-worker-guard.mjs"),
   nodeFile("direct-worker-experimental-guard", "test/direct-worker-experimental-guard.mjs"),
+  psFile("experimental-dialog-policy", "test/experimental-dialog-policy-contract.ps1"),
   nodeFile("direct-worker-resource-guard", "test/direct-worker-resource-guard.mjs"),
   nodeFile("direct-worker-file-guard", "test/direct-worker-file-guard.mjs"),
   nodeFile("worker-input-file-contract", "test/worker-input-file-contract.mjs"),
   nodeFile("direct-worker-collection-guard", "test/direct-worker-collection-guard.mjs"),
   nodeFile("worker-progress-contract", "test/worker-progress-contract.mjs"),
   nodeFile("table-add-rollback-contract", "test/table-add-rollback-contract.mjs"),
+  nodeFile("table-window-scope", "test/table-window-scope-contract.mjs"),
   withApi("verify-collect", "test/verify-collect.mjs"),
+  withApi("file-operations-worker", "test/file-operations-worker.mjs"),
   nodeFile("product-profiles", "test/product-profiles.mjs"),
   nodeFile("product-profile-status", "test/product-profile-status-contract.mjs"),
+  nodeFile("profile-operation-policy", "test/profile-operation-policy.mjs"),
   psFile("akad-parser", "test/akad-parser-contract.ps1"),
   nodeFile("setup-wizard", "test/setup-wizard.mjs"),
   nodeFile("atomic-files", "test/atomic-files.mjs"),
@@ -60,6 +64,8 @@ export const parallelSteps = Object.freeze([
   nodeFile("api-all-operations", "test/api-all-operations.mjs"),
   nodeFile("launch-orchestration", "test/launch-orchestration.mjs"),
   nodeFile("operation-schema-catalog", "test/operation-schema-catalog.mjs"),
+  nodeFile("result-contract", "test/result-contract.mjs"),
+  nodeFile("result-field-worker-guard", "test/result-field-worker-guard.mjs"),
   nodeFile("source-architecture", "test/source-architecture-contract.mjs"),
   nodeFile("no-year-conditionals", "test/no-year-conditionals-contract.mjs"),
   nodeFile("mcp-module-boundaries", "test/mcp-module-boundaries.mjs"),
@@ -86,6 +92,8 @@ export const parallelSteps = Object.freeze([
   psFile("table-values", "test/table-values-contract.ps1"),
   psFile("window-scope", "test/window-scope-contract.ps1"),
   psFile("structure-binding", "test/structure-binding-contract.ps1"),
+  psFile("snapshot-runtime-id", "test/snapshot-runtime-id-contract.ps1"),
+  psFile("checker-zero-results", "test/checker-zero-results-contract.ps1"),
   psFile("build-drift", "test/build-drift-contract.ps1"),
   withApi("product-gate", "test/product-gate.mjs"),
   withApi("archive-cases", "test/archive-cases.mjs"),
@@ -93,6 +101,14 @@ export const parallelSteps = Object.freeze([
 
 export const exclusiveSteps = Object.freeze([
   withApi("no-console-window", "test/no-console-window.mjs"),
+]);
+
+/**
+ * Laeuft zuletzt: die Abdeckungsbilanz wertet das Laufzeitprotokoll aller
+ * vorherigen Schritte aus und darf deshalb keinen davon parallel sehen.
+ */
+export const finalSteps = Object.freeze([
+  nodeFile("operation-coverage", "test/operation-coverage-contract.mjs"),
 ]);
 
 const FAST_STEP_NAMES = new Set([
@@ -107,6 +123,8 @@ const FAST_STEP_NAMES = new Set([
   "window-restore-contract",
   "window-scope",
   "structure-binding",
+  "snapshot-runtime-id",
+  "checker-zero-results",
   "build-drift",
   "foreground-lease-contract",
   "focusless-commit-contract",
@@ -121,10 +139,14 @@ const FAST_STEP_NAMES = new Set([
   "api-cli-contract",
   "api-config-contract",
   "product-profile-status",
+  "profile-operation-policy",
   "direct-worker-experimental-guard",
+  "experimental-dialog-policy",
   "api-all-operations",
   "launch-orchestration",
   "operation-schema-catalog",
+  "result-contract",
+  "result-field-worker-guard",
   "source-architecture",
   "no-year-conditionals",
   "mcp-module-boundaries",
@@ -142,6 +164,7 @@ const FAST_STEP_NAMES = new Set([
   "worker-timeout",
   "worker-progress-contract",
   "table-add-rollback-contract",
+  "table-window-scope",
   "table-values",
   "scenario-parity",
   "scenario-control-flow",

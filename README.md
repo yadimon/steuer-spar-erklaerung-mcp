@@ -1,7 +1,8 @@
-# Inoffizielle API und MCP für SteuerSparErklärung 2025
+# Inoffizielle API und MCP für SteuerSparErklärung
 
 Steuerfälle mit einem KI-Agenten prüfen, mit Belegen abgleichen und nach
-Freigabe kontrolliert bearbeiten – lokal in SteuerSparErklärung 2025.
+Freigabe kontrolliert bearbeiten – über eine gemeinsame lokale API und einen
+optionalen, PC-blinden MCP-Wrapper.
 
 > **Öffentliche Beta für Windows x64.** Vor Änderungen eine Sicherungskopie
 > anlegen und Ergebnisse selbst prüfen. Dieses Projekt ist keine
@@ -57,14 +58,25 @@ weiterhin aus dem portablen Release laufen.
 | UStVA vorbereiten | „Bereite die UStVA für Juli vor und sende sie nicht ab.“ | Zeitraum und vorhandene Übermittlungen zuerst prüfen |
 | Nur einrichten | „Richte die portable API ein und verwende empfohlene Antworten.“ | Direkte API, MCP optional |
 
-Bei sichtbarer UI-Automation muss Windows entsperrt bleiben. Während der Agent
-klickt oder schreibt, nicht gleichzeitig Maus oder Tastatur verwenden. Reine
-UIA-Lese-, Invoke-, Auswahl- und Speicheraktionen bleiben im Hintergrund. Wenn
-Qt fuer einen echten Feld-Commit Maus oder Tastatur braucht, haelt der Worker
-den Vordergrund nur fuer diesen atomaren Abschnitt und gibt danach das zuvor
-aktive Fenster sowie den Mauszeiger zurueck, sofern keine fremde Eingabe erkannt
-wurde. Solche Antworten enthalten `focusTelemetry` mit Raise-Zahl, Haltezeit,
-TOPMOST-Cleanup und Restore-Ergebnis; API und MCP reichen sie identisch durch.
+Die Automation unterscheidet drei Betriebsarten:
+
+1. strukturierte UIA-Lesewege ohne Vordergrundwechsel;
+2. wenige ausdrücklich profilierte Focusless-Transaktionen mit Feld-, Summen-
+   und Dirty-State-Readback;
+3. sichtbare Vordergrund-Leases für Controls, die Qt nicht sicher im
+   Hintergrund bedienbar macht.
+
+Für sichtbare Bedienung muss Windows entsperrt bleiben. Während der Agent
+klickt oder schreibt, nicht gleichzeitig Maus oder Tastatur verwenden. Der
+Worker gibt das zuvor aktive Fenster und den Mauszeiger best effort zurück,
+sofern keine fremde Eingabe erkannt wurde. Die Sicherheits-Telemetrie bleibt
+im vollständigen API-Ergebnis und bei den gemeinsamen API-Werkzeugen im
+kanonischen MCP-Strukturergebnis erhalten.
+Bei einem vom Profil abweichenden Minor-/Patch-Build bleiben Lesen, Diagnose
+und sicherer Cleanup erreichbar. Die in
+`capabilities.operationPolicy[*].blockedOnBuildDrift` ausgewiesenen
+UI-/Steuerfallmutationen stoppen serverseitig mit `build-drift`, bis der neue
+Build live verifiziert wurde.
 
 ## Was enthalten ist
 
@@ -75,9 +87,16 @@ TOPMOST-Cleanup und Restore-Ergebnis; API und MCP reichen sie identisch durch.
 - öffentliche Skills für Prüfung und Einrichtung;
 - versionierte Produktprofile und gemeinsame API-/MCP-Vertragstests.
 
-Aktuell ist Profil `2025` mit Engine-Hauptversion 31 freigegeben. Andere
-Produktversionen werden nicht automatisch bedient. Das Projekt ist unabhängig
-und weder mit Wolters Kluwer, Steuertipps noch der Akademischen
+| Profil | Status | Aktuell belegter Umfang |
+| --- | --- | --- |
+| `2025` / Engine 31 | `supported` / `full` | Lesen, Navigation, Ergebnis, Prüfer und UStVA-Read live geprüft; Schreibpfade nur einzeln freigegeben |
+| `2024` / Engine 30 | `experimental` / `verification-only` | derselbe read-only Muster-Sweep nur mit bewusstem Entwickler-Opt-in; keine allgemeine Schreibfreigabe und kein Focusless-Commit |
+
+Der veröffentlichte Beta-Release unterstützt weiterhin Profil `2025`. Der
+Quellstand enthält zusätzlich das experimentelle Profil `2024`; der Wizard
+bietet es nicht produktiv an. Details und genaue Testgrenzen stehen im
+[Verifikationsstand](docs/VERIFIKATION.md). Das Projekt ist unabhängig und
+weder mit Wolters Kluwer, Steuertipps noch der Akademischen
 Arbeitsgemeinschaft verbunden.
 
 ## Einrichtung
@@ -222,18 +241,41 @@ Der vollständige Ablauf ist unter
 npm ci
 npm run test:fast
 npm test
+npm run test:live
 npm run package:portable
 ```
 
-`npm test` prüft unter anderem API-/MCP-Parität, Argumentverträge,
-Sicherheitsgrenzen, Backups, Skills, Links und Repository-Datenschutz. Echte
-UI-Tests benötigen eine ausdrücklich konfigurierte neutrale Testdatei; private
-Steuerfälle gehören nicht in das Repository.
+`npm test` prüft unter anderem API-/MCP-Verträge, Argumentgrenzen, Backups,
+Skills, Links und Repository-Datenschutz, startet aber keine echte SSE-UI. Das
+strikte opt-in Live-Gate verwendet ausschließlich herstellereigene
+Wegwerfkopien, prüft beide Profile nacheinander und lässt fehlende
+Voraussetzungen nicht als grünen SKIP gelten:
+
+```powershell
+npm run test:live
+```
+
+Private Steuerfälle gehören nicht in das Repository. Welche Operationen nur
+ein Schema/Mock, einen echten Leseweg oder eine Mutation belegen, ist in
+[Verifikation](docs/VERIFIKATION.md) getrennt aufgeführt.
+
+Beide Läufe schließen mit einer Abdeckungsbilanz ab: Jede Operation, die
+während der Suite einen echten API-Executor erreicht, wird protokolliert und
+gegen `test/operation-coverage.json` geprüft. Verschwundene Abdeckung ist eine
+Regression, neu entstandene muss bewusst übernommen werden
+(`SSE_WRITE_OPERATION_COVERAGE=1`). Die Bilanz ist damit die verbindliche
+Antwort auf „welche API-Funktion ist wirklich belegt?" – Prosa ist es nicht.
+
+Das Live-Gate braucht eine unbenutzte Windows-Sitzung: Navigation läuft über
+echte Mausklicks, und Windows verweigert den Vordergrundwechsel, solange
+nebenher gearbeitet wird.
 
 Weitere Unterlagen:
 
 - [Abgleichvorlage](docs/ABGLEICH-BEISPIEL.md)
 - [Produktarchitektur](docs/ARCHITEKTUR.md)
+- [API-/MCP-Vertrag](docs/API-MCP-VERTRAG.md)
+- [Verifikationsstand](docs/VERIFIKATION.md)
 - [Entwicklungswissen](docs/entwicklung/README.md)
 - [Haupt-Skill](skills/steuer-spar-erklaerung/SKILL.md)
 - [Setup-Skill](skills/steuer-spar-erklaerung-setup/SKILL.md)

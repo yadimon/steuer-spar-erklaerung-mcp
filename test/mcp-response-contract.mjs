@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   apiErrorResult,
+  apiSuccessResult,
   LOCAL_PATH_REDACTION,
   redactLocalPathText,
   redactPcLocalPaths,
@@ -68,9 +69,43 @@ assert.equal(text.isError, undefined);
 assert(text.content[0].text.includes(LOCAL_PATH_REDACTION));
 assert(!text.content[0].text.includes("Privat"));
 
+const apiSuccess = apiSuccessResult(
+  { ok: true, summary: "kompakt" },
+  {
+    ok: true,
+    summary: "vollstaendig",
+    syntheticAdditionalField: {
+      path: "C:\\Privat\\nur-api.json",
+      value: 42,
+    },
+    imageBase64: "A".repeat(1024),
+    nested: { bildBase64: "B".repeat(1024), retained: true },
+  },
+);
+assert.deepEqual(JSON.parse(apiSuccess.content[0].text), { ok: true, summary: "kompakt" });
+assert.equal(apiSuccess.structuredContent.ok, true);
+assert.equal(apiSuccess.structuredContent.syntheticAdditionalField.value, 42);
+assert.equal(apiSuccess.structuredContent.syntheticAdditionalField.path, LOCAL_PATH_REDACTION);
+assert.equal(apiSuccess.structuredContent.imageBase64, undefined);
+assert.equal(apiSuccess.structuredContent.nested.bildBase64, undefined);
+assert.equal(apiSuccess.structuredContent.nested.retained, true);
+assert(!JSON.stringify(apiSuccess.structuredContent).includes("Privat"));
+
 const isolation = apiErrorResult("health", { ok: false, kind: "worker-isolation-lost", error: "nicht beendet" });
 assert.equal(isolation.isError, true);
 assert(isolation.content[0].text.includes("API-Prozess neu starten"));
 assert(isolation.content[0].text.includes("nicht blind wiederholen"));
+assert.equal(isolation.structuredContent.ok, false);
+assert.equal(isolation.structuredContent.kind, "worker-isolation-lost");
+assert(isolation.structuredContent.hint.includes("API-Prozess neu starten"));
+
+const redactedError = apiErrorResult("health", {
+  ok: false,
+  kind: "synthetic",
+  error: "Fehler in C:\\Privat\\fall.Gew2025",
+  imageBase64: "A".repeat(1024),
+});
+assert.equal(redactedError.structuredContent.error, `Fehler in ${LOCAL_PATH_REDACTION}`);
+assert.equal(redactedError.structuredContent.imageBase64, undefined);
 
 process.stdout.write("MCP-Antwortgrenze: Windows-/UNC-/Datei-URL-/POSIX-Pfade redigiert, Nutztext und Recovery erhalten\n");

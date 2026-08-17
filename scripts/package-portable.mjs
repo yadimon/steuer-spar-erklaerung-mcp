@@ -55,12 +55,16 @@ const supportedProfiles = readdirSync(profilesRoot, { withFileTypes: true })
     if (manifest.schemaVersion !== 1 || manifest.id !== entry.name || String(manifest.taxYear) !== entry.name) {
       throw new Error(`Portable Produktprofil '${entry.name}' widerspricht Verzeichnis, Schema oder Steuerjahr.`);
     }
+    if (!["supported", "experimental", "disabled"].includes(manifest.status) ||
+        !["full", "verification-only"].includes(manifest.operationAccess)) {
+      throw new Error(`Portable Produktprofil '${entry.name}' hat keinen gueltigen Freigabe-/Operationsstatus.`);
+    }
     if (typeof manifest.pageObjects !== "string" || !/^[^\\/:]+\.json$/iu.test(manifest.pageObjects)) {
       throw new Error(`Portable Produktprofil '${entry.name}' nennt keinen sicheren Page-Object-Dateinamen.`);
     }
     return manifest;
   })
-  .filter((profile) => profile.status === "supported");
+  .filter((profile) => profile.status === "supported" && profile.operationAccess === "full");
 if (!supportedProfiles.length) throw new Error("Portable Build enthaelt kein produktiv freigegebenes SSE-Profil.");
 
 const dotSourcedPowerShellFiles = [
@@ -212,6 +216,8 @@ writeFileSync(
     },
     supportedProfiles: supportedProfiles.map((profile) => ({
       id: profile.id,
+      status: profile.status,
+      operationAccess: profile.operationAccess,
       product: profile.product,
       taxYear: profile.taxYear,
       engineFileMajor: profile.engineFileMajor,

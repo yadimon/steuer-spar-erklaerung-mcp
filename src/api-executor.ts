@@ -8,6 +8,11 @@ import { executeCheckerOpen } from "./checker-executor.js";
 import { ExecutorArgumentError, operationError } from "./executor-errors.js";
 import { executeLaunchOperation } from "./launch-executor.js";
 import { parseApiOperationArgs, parseCheckerReadOnlyClickArgs } from "./operation-catalog.js";
+import {
+  createProfileOperationMatrix,
+  EXPERIMENTAL_PROFILE_BASE_OPERATIONS,
+  EXPERIMENTAL_PROFILE_VERIFICATION_OPERATIONS,
+} from "./profile-operation-policy.js";
 import { loadProductProfile } from "./product-profiles.js";
 import type { ScenarioExecutor } from "./scenario.js";
 import { executeUstvaOperation, isUstvaOperation } from "./ustva-executor.js";
@@ -142,13 +147,25 @@ function withResourceIdentity(
   return { ...redacted, resourceRefs };
 }
 
-// Ein experimentelles (noch unverifiziertes) Jahr darf nur befragt, nie
-// betrieben werden. backup_cases und archive_cases schreiben Dateien und
-// stehen deshalb absichtlich nicht in dieser Liste.
-const EXPERIMENTAL_ALLOWED: ReadonlySet<SseApiOperation> = new Set<SseApiOperation>([
-  "capabilities", "health", "help", "product_info", "workspace_status",
-  "list_cases", "case_hash", "workspace_file_list", "workspace_file_read_text",
-]);
+export {
+  EXPERIMENTAL_PROFILE_BASE_OPERATIONS,
+  EXPERIMENTAL_PROFILE_VERIFICATION_OPERATIONS,
+} from "./profile-operation-policy.js";
+
+const EXPERIMENTAL_PROFILE_BASE = new Set<SseApiOperation>(EXPERIMENTAL_PROFILE_BASE_OPERATIONS);
+const EXPERIMENTAL_PROFILE_VERIFICATION = new Set<SseApiOperation>(
+  EXPERIMENTAL_PROFILE_VERIFICATION_OPERATIONS,
+);
+
+function isExperimentalDialogAnswerCandidate(
+  operation: SseApiOperation,
+  args: Record<string, unknown>,
+): boolean {
+  // Der Worker bindet diesen Kandidaten zusaetzlich an eine exakt bekannte
+  // passive Startnotiz. Alle bestaetigenden, speichernden oder
+  // exportierenden Antworten scheitern bereits hier, bevor UI gelesen wird.
+  return operation === "dialog_answer" && args.button === "OK";
+}
 
 export function createApiExecutor(config: SseApiServerConfig, worker: ScenarioExecutor): ScenarioExecutor {
   const roots = resourceRoots(config);
@@ -165,19 +182,39 @@ export function createApiExecutor(config: SseApiServerConfig, worker: ScenarioEx
     timeoutMs: number | undefined,
     signal?: AbortSignal,
     internalCheckerClick = false,
+    internalCheckerNavigation = false,
   ): Promise<WorkerResult> => {
     try {
-      if (
-        profile.status === "experimental" &&
-        config.operateExperimental !== true &&
-        !EXPERIMENTAL_ALLOWED.has(operation)
-      ) {
+      if (profile.status === "disabled" && !EXPERIMENTAL_PROFILE_BASE.has(operation)) {
         return operationError(
-          `Produktprofil '${profile.id}' ist noch nicht verifiziert (status=experimental). ` +
-            "Nur Katalog- und Dateiauskuenfte sind erlaubt. Fuer eine bewusste Jahresverifikation " +
-            "operateExperimental: true in der API-Konfiguration setzen.",
-          "profile-unverified",
+          `Produktprofil '${profile.id}' ist deaktiviert; Betriebsoperationen sind gesperrt.`,
+          "profile-disabled",
         );
+      }
+      const verificationOnlyProfile =
+        profile.status !== "supported" || profile.operationAccess !== "full";
+      if (verificationOnlyProfile && !EXPERIMENTAL_PROFILE_BASE.has(operation)) {
+        if (config.operateExperimental !== true) {
+          return operationError(
+            `Produktprofil '${profile.id}' ist nicht vollstaendig freigegeben ` +
+              `(status=${profile.status}, operationAccess=${profile.operationAccess}). ` +
+              "Nur Katalog- und Dateiauskuenfte sind erlaubt. Fuer eine bewusste Jahresverifikation " +
+              "operateExperimental: true in der API-Konfiguration setzen.",
+            "profile-unverified",
+          );
+        }
+        if (
+          !EXPERIMENTAL_PROFILE_VERIFICATION.has(operation) &&
+          !internalCheckerNavigation &&
+          !isExperimentalDialogAnswerCandidate(operation, args)
+        ) {
+          return operationError(
+            `Operation '${operation}' ist fuer das eingeschraenkte Produktprofil '${profile.id}' ` +
+              "nicht im expliziten Verifikationskatalog. operateExperimental erlaubt nur den " +
+              "geprueften Lese-, Navigations- und Disposable-Copy-Lebenszyklus.",
+            "profile-operation-unverified",
+          );
+        }
       }
       // HTTP-Aufrufe wurden bereits am Serverrand geprueft. Dieser zweite
       // Einstieg ist absichtlich noetig, weil Szenarien und komponierte
@@ -186,7 +223,22 @@ export function createApiExecutor(config: SseApiServerConfig, worker: ScenarioEx
         ? parseCheckerReadOnlyClickArgs(args)
         : parseApiOperationArgs(operation, args);
       if (operation === "capabilities") {
-        return { ok: true, ...SSE_CAPABILITIES };
+        return {
+          ok: true,
+          ...SSE_CAPABILITIES,
+          profile: {
+            id: profile.id,
+            status: profile.status,
+            operationAccess: profile.operationAccess,
+            operateExperimental: config.operateExperimental === true,
+          },
+          operationPolicy: createProfileOperationMatrix(
+            profile.status,
+            profile.operationAccess,
+            config.operateExperimental === true,
+          ),
+          buildDriftPolicy: "block-ui-tax-mutations",
+        };
       }
       if (operation === "workspace_status") {
         return readWorkspaceStatus({
@@ -215,12 +267,19 @@ export function createApiExecutor(config: SseApiServerConfig, worker: ScenarioEx
           nestedSignal,
         ) => {
           const checkerClick = nestedOperation === "click_point" && nestedArgs.checkerReadOnly === true;
+          const checkerNavigation =
+            nestedOperation === "click" &&
+            nestedArgs.name === "Weiter" &&
+            nestedArgs.type === "Button" &&
+            nestedArgs.expectedPageBefore === "Prüfen und Abgeben" &&
+            nestedArgs.expectedPageAfter === "Steuererklärung prüfen";
           return await executeOperation(
             nestedOperation,
             nestedArgs,
             nestedTimeoutMs,
             nestedSignal,
             checkerClick,
+            checkerNavigation,
           );
         });
       }
@@ -228,6 +287,12 @@ export function createApiExecutor(config: SseApiServerConfig, worker: ScenarioEx
         return await executeUstvaOperation(operation, args, timeoutMs, signal, executeOperation);
       }
       const configured = configuredArgs(operation, args, config);
+      if (internalCheckerNavigation) {
+        // Kein oeffentliches Argumentschema akzeptiert dieses Feld. Es wird
+        // erst nach der strikten Validierung fuer den eng gebundenen
+        // checker_open-Navigationsschritt an den Worker angehaengt.
+        configured.args.experimentalCheckerNavigation = true;
+      }
       if (
         operation === "screenshot" &&
         typeof configured.args.path === "string" &&
@@ -292,6 +357,6 @@ export function createApiExecutor(config: SseApiServerConfig, worker: ScenarioEx
     }
   };
   const execute: ScenarioExecutor = (operation, args, timeoutMs, signal) =>
-    executeOperation(operation, args, timeoutMs, signal, false);
+    executeOperation(operation, args, timeoutMs, signal, false, false);
   return execute;
 }

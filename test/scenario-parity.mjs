@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { createApiExecutor } from "../dist/api-executor.js";
+import { traceOperations } from "./operation-trace.mjs";
 import { createSseApiServer } from "../dist/api-server.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -81,7 +82,7 @@ const worker = async (operation, args) => {
   return fixtures[operation] ?? { ok: false, kind: "fixture", error: `Keine Fixture fuer ${operation}` };
 };
 
-const execute = createApiExecutor(config, worker);
+const execute = traceOperations("scenario-mock", createApiExecutor(config, worker));
 const server = createSseApiServer({ config, execute });
 server.listen(0, "127.0.0.1");
 await once(server, "listening");

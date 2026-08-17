@@ -2,6 +2,43 @@
 
 Stand: 2026-08-06
 
+## Umsetzungsstand 2026-08-11
+
+Dieses Dokument bewahrt die damalige Designentscheidung. Mehrere Aussagen im
+Futur beziehungsweise unter „Nicht im Umfang“ sind inzwischen historisch:
+
+- `experimental` ist ladbar, 2024 bleibt aber weiterhin `experimental`;
+- Fenstercontainer, Client-Header, Suche und Navigationsauswahl werden
+  strukturell und profilneutral gebunden;
+- `test/live-muster-cases.mjs` ist profilgetrieben und lief auf den
+  Hersteller-Musterfällen von 2024 und 2025 erfolgreich;
+- der Live-Sweep belegt inzwischen auch Gew2024, Ergebnisfenster,
+  `checker_run/results/close`, UStVA-Read sowie mehrere Seiten- und
+  Tabellenleser;
+- der Live-Sweep ist opt-in und **nicht** Bestandteil von `npm test`;
+- 2024 besitzt weiterhin keinen profilierten Focusless-Commit und keine
+  allgemeine Schreibfreigabe. Ein grüner Lese-Sweep rechtfertigt daher keine
+  Promotion auf `supported`;
+- `operateExperimental` ist kein Generalschlüssel: Der aktuelle Quellstand
+  öffnet damit ausschließlich einen expliziten, in TypeScript und PowerShell
+  paritätsgetesteten Verifikationskatalog. Steuerdaten-, Tabellen-, Speicher-,
+  Export- und VaSt-Mutationen bleiben gesperrt. Dialogantworten liegen außerhalb
+  dieses Katalogs; nur eine exakt gebundene passive Gewinnaktualisierungsnotiz
+  darf mit `OK` geschlossen werden. Recovery-Dateien werden nie automatisch
+  verworfen;
+- Profilstatus und Operationsfreigabe sind getrennt: 2025 ist
+  `supported/full`, 2024 `experimental/verification-only`. Wizard und voller
+  Betriebsraum verlangen beide Freigaben. Eine reine Status-Promotion öffnet
+  daher weder Setup noch Schreiboperationen;
+- bei Build-Drift bleiben Lesen, Diagnose und sicherer Cleanup verfügbar,
+  UI-/Steuerfallmutationen stoppen aber in API und direktem Worker mit
+  `build-drift`.
+
+Der aktuelle Support- und Operationsstand ist normativ in
+[../../VERIFIKATION.md](../../VERIFIKATION.md) beschrieben. Offene Checkboxen
+im zugehörigen historischen Implementierungsplan sind kein Beleg dafür, dass
+bereits umgesetzte Schritte fehlen.
+
 ## Ziel
 
 Dieselbe API bedient mehrere Produktjahre der SteuerSparErklaerung in
@@ -88,8 +125,9 @@ Regeln; das Profil traegt nur noch Stammdaten und Selektorendungen.
 ```text
 profiles/
   2024/
-    profile.json           Manifest: Jahr, Engine-Hauptversion, verifizierter Build,
-                           Installationsmerkmale, Startmodi, treeSelectPolicy
+    profile.json           Manifest: Jahr, Status, Operationszugang,
+                           Engine-Hauptversion, verifizierter Build,
+                           Installationsmerkmale und Startmodi
     page-objects.json      UI-Katalog inkl. Containerselektoren
     fixtures/              aufgezeichnete Knotenbaeume fuer Offline-Tests
     tests/expectations.json  Musterfaelle und erwartete Werte fuer den Live-Smoke
@@ -129,18 +167,15 @@ Gegenprobe; auf Unterseiten kann sie bewusst von der Ueberschrift abweichen.
 
 ### Ehrlicher Profilstatus
 
-`loadProductProfile` laedt heute ausschliesslich Profile mit
-`status = "supported"` und wirft sonst. Ein Jahr, das erkannt, aber noch
-nicht verifiziert ist, hat damit keinen darstellbaren Zustand - es bleibt
-nur, es faelschlich als `supported` zu fuehren.
+`loadProductProfile` lädt `supported` und `experimental`, damit ein noch nicht
+freigegebenes Jahr sichtbar und überprüfbar bleibt. Das Manifest trennt
+`status` von `operationAccess`. Nur `supported/full` gilt als Releaseprofil;
+`experimental/verification-only` erlaubt ohne Opt-in ausschließlich den
+Basiskatalog. Die Trennung verhindert, dass eine Statusänderung allein Setup
+oder Mutationen öffnet.
 
-Deshalb wird `experimental` ein ladbarer Status: das Profil ist sichtbar,
-`health` und `product_info` weisen es aus, aber jede Operation, die die
-Anwendung startet oder Daten aendert, scheitert fail-closed mit einem
-Hinweis auf die fehlende Verifikation. Nur Katalog- und Dateiauskuenfte
-(`list_cases`, `case_hash`, `workspace_status`) bleiben erlaubt.
-
-2024 traegt `experimental`, bis der Live-Smoke dieses Jahres besteht.
+2024 trägt `experimental/verification-only`, bis nicht nur der Lese-Smoke,
+sondern auch die ausdrücklich gewünschte Operationsfläche live belegt ist.
 
 Verifikationslaeufe brauchen genau die gesperrten Operationen; ohne einen
 bewussten Ausweg liesse sich ein experimentelles Jahr nie verifizieren.
@@ -193,9 +228,10 @@ nach der Messung genau die falsche.
 Tests dieses Profils zuletzt erfolgreich liefen, zum Beispiel `30.0.127.0`
 fuer 2024 und `31.0.1.0` fuer 2025.
 
-Die Steuerbarkeit haengt weiterhin nur an der **Hauptversion**; ein
-Minor-Update bleibt bedienbar und bricht nichts ab. Zusaetzlich melden
-`health` und `product_info`:
+Die Produkterkennung hängt weiterhin an der **Hauptversion**; ein Minor-Update
+bleibt für Lesen, Diagnose und sicheren Cleanup erreichbar. UI- und
+Steuerfallmutationen stoppen dagegen fail-closed, bis der Build erneut geprüft
+ist. `health` und `product_info` melden:
 
 ```json
 "buildDrift": { "verified": "30.0.127.0", "current": "30.0.140.0", "drifted": true }
@@ -211,7 +247,7 @@ Nach einem Drift ist der Live-Smoke des Jahres erneut zu fahren und
 | --- | --- | --- | --- |
 | Strukturregeln auf aufgezeichneten Baeumen beider Engines | `profiles/<jahr>/fixtures/` | nein | schnelle Suite |
 | Vertrag „keine Jahresbedingungen im gemeinsamen Code“ | AST von `powershell/`, `src/` | nein | schnelle Suite |
-| Live-Smoke auf Musterfaellen | `profiles/<jahr>/tests/expectations.json` | ja, opt-in | vollstaendiges `npm test` |
+| Live-Smoke auf Musterfaellen | `profiles/<jahr>/tests/expectations.json` | ja, opt-in | `npm run test:live` |
 
 Die Fixtures enthalten je Engine mindestens eine Seite **mit** und eine
 **ohne** Ueberschriftscontainer, damit sowohl der Treffer als auch das

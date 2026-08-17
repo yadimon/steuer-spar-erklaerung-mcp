@@ -4,13 +4,13 @@
 import { asArray } from "./api-client.js";
 import {
   apiErrorResult,
+  apiSuccessResult,
   errorResult,
   LOCAL_PATH_REDACTION,
   redactLocalPathText,
-  textResult,
   type Content,
 } from "./mcp-response.js";
-import type { McpRegistry } from "./mcp-registry.js";
+import { apiResultOutputSchema, type McpRegistry } from "./mcp-registry.js";
 import { SSE_MCP_TOOL_SCHEMAS } from "./operation-catalog.js";
 
 export function registerDiagnosticTools(registry: McpRegistry): void {
@@ -41,11 +41,11 @@ export function registerDiagnosticTools(registry: McpRegistry): void {
   registerApiTool(
     "sse_product_info",
     {
-      title: "SSE-2025-Produktgrenze pruefen",
+      title: "Aktive SSE-Produktgrenze pruefen",
       description:
-        "Liest die erwartete Steuerjahres-/Engine-Identitaet, prueft die installierte Standarddatei und listet " +
-        "laufende verifizierte bzw. ignorierte SSE-Versionen. Dieser MCP steuert ausschliesslich " +
-        "SteuerSparErklaerung 2025 (Engine-Hauptversion 31); andere Jahresversionen werden niemals angefasst.",
+        "Liest die erwartete Steuerjahres-/Engine-Identitaet des von der API konfigurierten Produktprofils, " +
+        "prueft die installierte Standarddatei und listet laufende verifizierte bzw. ignorierte SSE-Versionen. " +
+        "Nicht zum aktiven Profil passende Jahres-/Engine-Versionen werden niemals ersatzweise angefasst.",
     },
   );
 
@@ -124,6 +124,7 @@ export function registerDiagnosticTools(registry: McpRegistry): void {
         "Vorhandene oder waehrend des Schreibens erscheinende Ziele werden nie ersetzt. Pfadwechsel sind gesperrt. " +
         "Der sichtbare Redaktionsplatzhalter aus sse_workspace_read_text wird nie geschrieben.",
       inputSchema: SSE_MCP_TOOL_SCHEMAS.sse_workspace_write_text.shape,
+      outputSchema: apiResultOutputSchema("workspace_file_write_text"),
     },
     async (a) => {
       if (a.text.includes(LOCAL_PATH_REDACTION)) {
@@ -167,7 +168,7 @@ export function registerDiagnosticTools(registry: McpRegistry): void {
     {
       title: "Fenster auflisten",
       description:
-        "Listet alle sichtbaren Fenster der verifizierten SSE 2025 oder des SteuertippsCenters samt " +
+        "Listet alle sichtbaren Fenster des aktiven, verifizierten SSE-Produktprofils oder des SteuertippsCenters samt " +
         "Groesse und Haenge-Status. Freie Prozessnamen und Wildcards sind gesperrt. Nuetzlich, um modale " +
         "Dialoge zu erkennen (z. B. die Rueckfrage nach einer Wiederherstellungsdatei beim Start).",
     },
@@ -299,6 +300,7 @@ export function registerDiagnosticTools(registry: McpRegistry): void {
         "mit sse_dialog_answer. Bei mehreren Warnfenstern kann deren exakter HWND angegeben werden. " +
         "Aendert weder Steuerdaten noch den Gelesen-/Ignoriert-Status.",
       inputSchema: SSE_MCP_TOOL_SCHEMAS.sse_warning_popup_read.shape,
+      outputSchema: apiResultOutputSchema("warning_popup_read"),
     },
     async (a) => {
       try {
@@ -313,7 +315,7 @@ export function registerDiagnosticTools(registry: McpRegistry): void {
         if (a.includeImage && imageBase64) {
           extra.push({ type: "image", data: imageBase64, mimeType: "image/png" });
         }
-        return textResult({
+        return apiSuccessResult({
           active: r.active,
           hwnd: r.hwnd,
           pid: r.pid,
@@ -335,7 +337,7 @@ export function registerDiagnosticTools(registry: McpRegistry): void {
           msaaError: r.msaaError,
           hinweis: r.hinweis,
           kontrollbildEnthalten: extra.length > 0,
-        }, extra);
+        }, r, extra);
       } catch (e) {
         return caughtErrorResult("warning_popup_read", e);
       }

@@ -383,7 +383,7 @@ function Initialize-SSEProductProfile {
   try { $profileManifest = Read-SSEJsonFileStrict $manifestPath }
   catch { Fail "SSE-Profil ist kein gueltiges JSON: $($_.Exception.Message)" 'invalid-profile' }
   $manifestProperties = @(
-    'schemaVersion','id','status','product','taxYear','engineFileMajor','verifiedBuild',
+    'schemaVersion','id','status','operationAccess','product','taxYear','engineFileMajor','verifiedBuild',
     'executable','startModes','additionalCaseYears','pageObjects','policy'
   )
   $executableProperties = @('name','installationFolderName','defaultRelativePath')
@@ -411,6 +411,7 @@ function Initialize-SSEProductProfile {
   if (-not $manifestShapeOk -or -not $executableShapeOk -or
       [int]$profileManifest.schemaVersion -ne 1 -or [string]$profileManifest.id -ne $script:SSE_PROFILE_ID -or
       [string]$profileManifest.status -notin @('supported', 'experimental') -or [int]$profileManifest.taxYear -ne [int]$script:SSE_PROFILE_ID -or
+      [string]$profileManifest.operationAccess -notin @('full', 'verification-only') -or
       [int]$profileManifest.engineFileMajor -le 0 -or -not [string]$profileManifest.product -or
       -not [string]$profileManifest.executable.name -or -not [string]$profileManifest.executable.installationFolderName -or
       -not $startModesOk -or -not $additionalCaseYearsOk -or
@@ -2243,10 +2244,18 @@ function Resolve-Nodes {
 # Einzug; sie darf deshalb nicht als zusaetzliche Meldung gezaehlt werden.
 function Get-CheckerResults {
   param($tree, [IntPtr]$hwnd = [IntPtr]::Zero)
+  $checkerTree = Find-SSEContainerNode $tree.nodes $script:SSE_CHECKER_TREE_SUFFIX 'Tree'
+  $allItems = @(Get-SSEContainerDescendants $tree.nodes $script:SSE_CHECKER_TREE_SUFFIX 'TreeItem' 'Tree')
   $raw = @(Get-SSECheckerTreeItems $tree | Sort-Object y, x)
   if (-not $raw.Count) {
+    # Der eindeutig gebundene Tree ist selbst der Beleg, dass der Pruefer
+    # offen ist. Keine Nachfahren bedeuten ein abgeschlossenes Null-Ergebnis,
+    # nicht "Pruefer geschlossen". Existieren dagegen namenlose TreeItems,
+    # bleibt das Ergebnis aktiv, aber bewusst inkonsistent/fail-closed.
+    $leer = [bool]($checkerTree -and -not $allItems.Count)
     return [pscustomobject]@{
-      aktiv = $false; fragenWarnungenAngekuendigt = 0; tippsAngekuendigt = 0
+      aktiv = [bool]$checkerTree; leer = $leer
+      fragenWarnungenAngekuendigt = 0; tippsAngekuendigt = 0
       fragenWarnungenGruppeGesehen = $false; tippsGruppeGesehen = $false
       fragenWarnungen = @(); tippsZusatzinfos = @(); sonstige = @(); gesamt = 0
       aufgeklappt = @()
@@ -2283,6 +2292,7 @@ function Get-CheckerResults {
 
   [pscustomobject]@{
     aktiv = $true
+    leer = $false
     fragenWarnungenAngekuendigt = $warnDeclared
     tippsAngekuendigt = $tipsDeclared
     fragenWarnungenGruppeGesehen = $warnSeen
@@ -2298,10 +2308,15 @@ function Get-CheckerResults {
 function Test-CheckerResultComplete($result) {
   [bool](
     $result.aktiv -and
-    $result.fragenWarnungenGruppeGesehen -and
-    $result.tippsGruppeGesehen -and
-    $result.fragenWarnungenAngekuendigt -eq @($result.fragenWarnungen).Count -and
-    $result.tippsAngekuendigt -eq @($result.tippsZusatzinfos).Count
+    (
+      ($result.leer -eq $true -and $result.gesamt -eq 0) -or
+      (
+        $result.fragenWarnungenGruppeGesehen -and
+        $result.tippsGruppeGesehen -and
+        $result.fragenWarnungenAngekuendigt -eq @($result.fragenWarnungen).Count -and
+        $result.tippsAngekuendigt -eq @($result.tippsZusatzinfos).Count
+      )
+    )
   )
 }
 
@@ -4481,22 +4496,263 @@ function Test-SSETrackedValueEquivalent($Actual, $Expected, [string]$ValueKind =
   [bool]($null -eq $actualDate.year -or $null -eq $expectedDate.year -or $actualDate.year -eq $expectedDate.year)
 }
 
+# Vergleicht zwei unmittelbar nacheinander gelesene UIA-Baeume, ohne private
+# Namen oder Werte auszugeben. Engine 30 kann fuer semantisch identische,
+# unbenannte Qt-Knoten zwischen TreeWalker- und Bulk-Lauf neue RuntimeIds
+# vergeben. Solche Knoten werden deshalb zusaetzlich ueber einen nur im Worker
+# gebildeten Vollfingerprint gepaart; echte Struktur-/Wertabweichungen bleiben
+# sichtbar und fail-closed.
+function Get-SSESnapshotParentLineageKey($Node, $Nodes) {
+  $byIndex = @{}
+  foreach ($candidate in @($Nodes)) {
+    if ($null -ne $candidate.i) { $byIndex[[int]$candidate.i] = $candidate }
+  }
+  $lineage = New-Object System.Collections.ArrayList
+  $parentIndex = $(if ($null -eq $Node.p) { -1 } else { [int]$Node.p })
+  $seen = @{}
+  while ($parentIndex -ge 0) {
+    if ($seen.ContainsKey($parentIndex)) {
+      $null = $lineage.Add([ordered]@{ cycle=$true })
+      break
+    }
+    $seen[$parentIndex] = $true
+    if (-not $byIndex.ContainsKey($parentIndex)) {
+      # Auch unvollstaendige/synthetische Baeume bleiben fail-closed: zwei
+      # verschiedene nicht aufloesbare Elternindizes duerfen nicht gleich sein.
+      $null = $lineage.Add([ordered]@{ missingParent=$parentIndex })
+      break
+    }
+    $parent = $byIndex[$parentIndex]
+    $null = $lineage.Add([ordered]@{
+      type=[string]$parent.type; name=[string]$parent.name; aid=[string]$parent.aid
+      x=$(if ($null -eq $parent.x) { $null } else { [int]$parent.x })
+      y=$(if ($null -eq $parent.y) { $null } else { [int]$parent.y })
+      w=$(if ($null -eq $parent.w) { $null } else { [int]$parent.w })
+      h=$(if ($null -eq $parent.h) { $null } else { [int]$parent.h })
+      on=$(if ($null -eq $parent.on) { $null } else { [bool]$parent.on })
+    })
+    $parentIndex = $(if ($null -eq $parent.p) { -1 } else { [int]$parent.p })
+  }
+  Get-SSETextSha256 (@($lineage) | ConvertTo-Json -Depth 8 -Compress)
+}
+
+function Get-SSESnapshotPrivateComparisonKey($Node, $Nodes = @()) {
+  $privatePayload = [ordered]@{
+    # Laufindizes i/p verschieben sich bereits durch einen kurz sichtbaren
+    # Qt-Geschwisterknoten. Die gehashte semantische Elternlinie bindet echtes
+    # Reparenting, ohne solche reinen Indexverschiebungen als Strukturbruch zu
+    # melden. d bleibt als zusaetzliche Strukturgrenze erhalten.
+    parentLineage = Get-SSESnapshotParentLineageKey $Node $Nodes
+    d = $(if ($null -eq $Node.d) { $null } else { [int]$Node.d })
+    type = [string]$Node.type
+    name = [string]$Node.name
+    aid = [string]$Node.aid
+    x = $(if ($null -eq $Node.x) { $null } else { [int]$Node.x })
+    y = $(if ($null -eq $Node.y) { $null } else { [int]$Node.y })
+    w = $(if ($null -eq $Node.w) { $null } else { [int]$Node.w })
+    h = $(if ($null -eq $Node.h) { $null } else { [int]$Node.h })
+    on = $(if ($null -eq $Node.on) { $null } else { [bool]$Node.on })
+    val = $(if ($null -eq $Node.val) { $null } else { [string]$Node.val })
+    ro = $(if ($null -eq $Node.ro) { $null } else { [bool]$Node.ro })
+  }
+  Get-SSETextSha256 ($privatePayload | ConvertTo-Json -Depth 3 -Compress)
+}
+
+function Compare-SSESnapshotNodes($LegacyNodes, $BulkNodes) {
+  $legacyByRid = @{}
+  $bulkByRid = @{}
+  $unmatchedLegacy = New-Object System.Collections.ArrayList
+  $unmatchedBulk = New-Object System.Collections.ArrayList
+  foreach ($node in @($LegacyNodes)) {
+    if ($node.rid) { $legacyByRid[[string]$node.rid] = $node }
+    else { $null = $unmatchedLegacy.Add($node) }
+  }
+  foreach ($node in @($BulkNodes)) {
+    if ($node.rid) { $bulkByRid[[string]$node.rid] = $node }
+    else { $null = $unmatchedBulk.Add($node) }
+  }
+
+  $missing = New-Object System.Collections.ArrayList
+  $extra = New-Object System.Collections.ArrayList
+  $metadataMismatch = New-Object System.Collections.ArrayList
+  $valueMismatch = New-Object System.Collections.ArrayList
+  foreach ($rid in $legacyByRid.Keys) {
+    if (-not $bulkByRid.ContainsKey($rid)) {
+      $null = $unmatchedLegacy.Add($legacyByRid[$rid])
+      continue
+    }
+    $old = $legacyByRid[$rid]
+    $new = $bulkByRid[$rid]
+    $oldParentLineage = Get-SSESnapshotParentLineageKey $old $LegacyNodes
+    $newParentLineage = Get-SSESnapshotParentLineageKey $new $BulkNodes
+    $oldMeta = @($oldParentLineage,$old.d,$old.type,$old.name,$old.aid,$old.x,$old.y,$old.w,$old.h,[bool]$old.on) -join '|'
+    $newMeta = @($newParentLineage,$new.d,$new.type,$new.name,$new.aid,$new.x,$new.y,$new.w,$new.h,[bool]$new.on) -join '|'
+    if ($oldMeta -ne $newMeta) {
+      $null = $metadataMismatch.Add([pscustomobject]@{ type=$old.type; aid=$old.aid })
+    }
+    if ($old.type -in @('Edit','ComboBox','Spinner') -and
+        ((-not (Test-SSEScalarEqual $old.val $new.val)) -or $old.ro -ne $new.ro)) {
+      $null = $valueMismatch.Add([pscustomobject]@{ type=$old.type; aid=$old.aid })
+    }
+  }
+  foreach ($rid in $bulkByRid.Keys) {
+    if (-not $legacyByRid.ContainsKey($rid)) { $null = $unmatchedBulk.Add($bulkByRid[$rid]) }
+  }
+
+  $bulkByPrivateKey = @{}
+  foreach ($node in @($unmatchedBulk)) {
+    $key = Get-SSESnapshotPrivateComparisonKey $node $BulkNodes
+    if (-not $bulkByPrivateKey.ContainsKey($key)) {
+      $bulkByPrivateKey[$key] = New-Object 'System.Collections.Generic.Queue[object]'
+    }
+    $bulkByPrivateKey[$key].Enqueue($node)
+  }
+  $runtimeIdChurnCount = 0
+  foreach ($node in @($unmatchedLegacy)) {
+    $key = Get-SSESnapshotPrivateComparisonKey $node $LegacyNodes
+    $bucket = $null
+    if ($bulkByPrivateKey.ContainsKey($key)) { $bucket = $bulkByPrivateKey[$key] }
+    if ($null -ne $bucket -and $bucket.Count -gt 0) {
+      $null = $bucket.Dequeue()
+      $runtimeIdChurnCount += 1
+      if (-not $bucket.Count) { $bulkByPrivateKey.Remove($key) }
+    } else {
+      $null = $missing.Add([pscustomobject]@{ type=$node.type; aid=$node.aid })
+    }
+  }
+  foreach ($key in @($bulkByPrivateKey.Keys)) {
+    $bucket = $bulkByPrivateKey[$key]
+    while ($bucket.Count -gt 0) {
+      $node = $bucket.Dequeue()
+      $null = $extra.Add([pscustomobject]@{ type=$node.type; aid=$node.aid })
+    }
+  }
+
+  $equivalent = (-not $missing.Count -and -not $extra.Count -and
+    -not $metadataMismatch.Count -and -not $valueMismatch.Count)
+  [pscustomobject]@{
+    equivalent = [bool]$equivalent
+    runtimeIdChurnCount = $runtimeIdChurnCount
+    missingCount = $missing.Count
+    extraCount = $extra.Count
+    metadataMismatchCount = $metadataMismatch.Count
+    valueMismatchCount = $valueMismatch.Count
+    samples = [pscustomobject]@{
+      missing=@($missing | Select-Object -First 5); extra=@($extra | Select-Object -First 5)
+      metadata=@($metadataMismatch | Select-Object -First 5); values=@($valueMismatch | Select-Object -First 5)
+    }
+  }
+}
+
+# Experimentalprofile duerfen nur die passive Gewinnaktualisierungsnotiz
+# beantworten, die der echte Musterfall-Sweep fachlich und hashgebunden
+# verifiziert. Die
+# breite Dialogoperation bleibt fuer alle anderen Titel, Texte und Schalter
+# gesperrt; insbesondere Speichern, Ja und der CSV-Export sind kein Opt-in-Pfad.
+function Test-SSEExperimentalDialogAnswerAllowed($Dialog, [string]$ButtonName) {
+  if (-not $Dialog -or -not $ButtonName) { return $false }
+  $texts = @($Dialog.texts | ForEach-Object { [string]$_ })
+  $joinedText = ($texts -join ' ')
+  $buttons = @($Dialog.buttons | ForEach-Object { [string]$_.name })
+  $hasRequestedButton = @($buttons | Where-Object { $_ -ceq $ButtonName }).Count -eq 1
+  if (-not $hasRequestedButton) { return $false }
+
+  if ([string]$Dialog.title -ceq 'Gewinn aktualisiert!' -and
+      $ButtonName -ceq 'OK' -and
+      $buttons.Count -eq 1 -and
+      $joinedText -match '^Der Gewinn des Betriebs .+ wurde aktualisiert\.$') {
+    return $true
+  }
+  $false
+}
+
 # ================================================================== Operationen
 
-# Mirror von EXPERIMENTAL_ALLOWED's worker-gerouteter Teilmenge in
-# src/api-executor.ts - beide synchron halten. Ein experimentelles (noch
-# unverifiziertes) Jahr darf nur befragt, nie betrieben werden, ausser bei
-# bewusster Ueberschreibung ueber operateExperimental.
-$experimentalAllowedOps = @('health', 'help', 'product_info', 'list_cases', 'case_hash')
-if ([string]$script:SSE_PROFILE.status -eq 'experimental' -and
-    $env:SSE_OPERATE_EXPERIMENTAL -ne '1' -and
-    $Op -notin $experimentalAllowedOps) {
-  Fail (
-    "Produktprofil '$($script:SSE_PROFILE_ID)' ist noch nicht verifiziert (status=experimental). " +
-    "Nur Katalog- und Dateiauskuenfte sind erlaubt. Fuer eine bewusste Jahresverifikation " +
-    "operateExperimental: true in der API-Konfiguration setzen."
-  ) 'profile-unverified'
+# Mirror der gleichnamigen Kataloge in src/profile-operation-policy.ts und
+# src/operation-traits.ts. Der Vertragstest
+# direct-worker-experimental-guard.mjs verhindert eine unbemerkte Abweichung.
+$experimentalProfileBaseOps = @(
+  'capabilities', 'health', 'help', 'product_info', 'workspace_status',
+  'list_cases', 'case_hash', 'workspace_file_list', 'workspace_file_read_text'
+)
+$experimentalProfileVerificationOps = @(
+  'accessibility_probe', 'check', 'checker_close', 'checker_detail',
+  'checker_open', 'checker_reset', 'checker_results', 'checker_run',
+  'click_point', 'close', 'combo_options', 'dialog_list',
+  'find', 'get_value', 'goto', 'known_page_state', 'launch',
+  'make_working_copy', 'page', 'page_objects', 'positions', 'read_full',
+  'read_page', 'read_table', 'result_details', 'scroll', 'scroll_page',
+  'snapshot', 'snapshot_compare', 'subpages', 'table_read', 'tree_scroll',
+  'tree_top', 'ui_state', 'ustva_read', 'warning_popup_read', 'window_close',
+  'window_restore', 'windows'
+)
+$buildDriftBlockedOps = @(
+  'checker_run', 'click', 'click_point', 'combo_select', 'dialog_answer',
+  'file_dialog_select', 'goto', 'menu_click', 'save', 'save_as', 'set_value',
+  'table_add', 'table_delete', 'table_update', 'toggle',
+  'tracked_set_value', 'ustva_change_value', 'ustva_open_section', 'ustva_select_period',
+  'ustva_set_flag', 'vast_apply', 'vast_mapping_select',
+  'vast_row_set_expanded'
+)
+
+function Assert-SSEVerifiedBuildForOperation([string]$Operation) {
+  if ($Operation -notin $buildDriftBlockedOps) { return }
+  $identity = Get-SSEExecutableIdentity $script:SSE_DEFAULT_EXE
+  # Fehlende oder grundsaetzlich fremde Binaries werden von den bestehenden
+  # Launch-/Fenstergrenzen mit ihrer praeziseren Fehlerart behandelt. Diese
+  # Gate adressiert ausschliesslich Minor-/Patch-Drift innerhalb des Profils.
+  if (-not $identity.exists -or -not $identity.supported) { return }
+  $drift = Get-SSEBuildDrift ([string]$script:SSE_PROFILE.verifiedBuild) ([string]$identity.fileVersion)
+  if ($drift.drifted) {
+    Fail (
+      "Operation '$Operation' ist fuer den installierten SSE-Build gesperrt. " +
+      "Verifiziert: '$($drift.verified)'; installiert: '$($drift.current)'. " +
+      'Lese-, Diagnose- und sichere Cleanup-Operationen bleiben verfuegbar; ' +
+      'UI-/Steuerfallmutationen muessen fuer diesen Build erneut live verifiziert werden.'
+    ) 'build-drift'
+  }
 }
+$experimentalCheckerNavigation = [bool](
+  $Op -eq 'click' -and
+  (Arg $a 'experimentalCheckerNavigation') -eq $true -and
+  [string](Arg $a 'name') -eq 'Weiter' -and
+  [string](Arg $a 'type') -eq 'Button' -and
+  [string](Arg $a 'expectedPageBefore') -eq 'Prüfen und Abgeben' -and
+  [string](Arg $a 'expectedPageAfter') -eq 'Steuererklärung prüfen' -and
+  [string](Arg $a 'pattern' 'invoke') -eq 'invoke'
+)
+$experimentalDialogAnswerCandidate = [bool](
+  $Op -eq 'dialog_answer' -and
+  [string](Arg $a 'button') -ceq 'OK'
+)
+$verificationOnlyProfile = [bool](
+  [string]$script:SSE_PROFILE.status -ne 'supported' -or
+  [string]$script:SSE_PROFILE.operationAccess -ne 'full'
+)
+if ([string]$script:SSE_PROFILE.status -eq 'disabled' -and $Op -notin $experimentalProfileBaseOps) {
+  Fail "Produktprofil '$($script:SSE_PROFILE_ID)' ist deaktiviert; Betriebsoperationen sind gesperrt." 'profile-disabled'
+}
+if ($verificationOnlyProfile -and $Op -notin $experimentalProfileBaseOps) {
+  if ($env:SSE_OPERATE_EXPERIMENTAL -ne '1') {
+    Fail (
+      "Produktprofil '$($script:SSE_PROFILE_ID)' ist nicht vollstaendig freigegeben " +
+      "(status=$($script:SSE_PROFILE.status), operationAccess=$($script:SSE_PROFILE.operationAccess)). " +
+      "Nur Katalog- und Dateiauskuenfte sind erlaubt. Fuer eine bewusste Jahresverifikation " +
+      "operateExperimental: true in der API-Konfiguration setzen."
+    ) 'profile-unverified'
+  }
+  if ($Op -notin $experimentalProfileVerificationOps -and
+      -not $experimentalCheckerNavigation -and
+      -not $experimentalDialogAnswerCandidate) {
+    Fail (
+      "Operation '$Op' ist fuer das eingeschraenkte Produktprofil '$($script:SSE_PROFILE_ID)' " +
+      "nicht im expliziten Verifikationskatalog. operateExperimental erlaubt nur den " +
+      "geprueften Lese-, Navigations- und Disposable-Copy-Lebenszyklus."
+    ) 'profile-operation-unverified'
+  }
+}
+
+Assert-SSEVerifiedBuildForOperation $Op
 
 switch ($Op) {
 
@@ -4643,6 +4899,7 @@ switch ($Op) {
       ok=$true
       profileId=$script:SSE_PROFILE_ID
       profileStatus=[string]$script:SSE_PROFILE.status
+      operationAccess=[string]$script:SSE_PROFILE.operationAccess
       product=[string]$script:SSE_PROFILE.product
       taxYear=$script:SSE_TAX_YEAR
       supportedCaseYears=[pscustomobject]@{
@@ -5217,6 +5474,13 @@ switch ($Op) {
     if ($dialog.title -eq 'Aktualisierung fehlgeschlagen!' -and $buttonName -eq 'Übernehmen') {
       $buttonName = 'Datei neu zuordnen'
     }
+    if ($verificationOnlyProfile -and
+        -not (Test-SSEExperimentalDialogAnswerAllowed $dialog $buttonName)) {
+      Fail (
+        "Dialogantwort '$buttonName' fuer '$($dialog.title)' ist fuer das eingeschraenkte " +
+        "Produktprofil nicht als passiver Musterfall-Startdialog verifiziert."
+      ) 'profile-operation-unverified'
+    }
     foreach ($probe in @($dialog.title) + @($dialog.texts) + @($dialog.buttons | ForEach-Object { $_.name })) {
       if ($probe -and (Test-Versand $probe) -and
           -not (Test-SSEKnownPassiveTransmissionNotice $dialog $buttonName $probe)) {
@@ -5425,53 +5689,46 @@ switch ($Op) {
     $hwnd = Resolve-Window $a
     $canary = Test-Canary $hwnd
     if (-not $canary.ok) { Fail "Kanarienvogel traege ($($canary.ms) ms)." 'degraded' }
-    $legacyWatch = [Diagnostics.Stopwatch]::StartNew()
-    $legacy = Walk-TreeLegacy $hwnd 5000 60 20 -WithValues
-    $legacyMs = $legacyWatch.ElapsedMilliseconds
     $repetitions = [Math]::Max(1, [Math]::Min(10, [int](Arg $a 'repetitions' 3)))
+    $legacyRuns = New-Object System.Collections.ArrayList
     $bulkRuns = New-Object System.Collections.ArrayList
-    $bulk = $null
+    $legacy = $null; $bulk = $null; $comparison = $null
+    $legacyMs = 0; $bulkMs = 0; $bestScore = [int]::MaxValue
     for ($runIndex = 0; $runIndex -lt $repetitions; $runIndex++) {
+      # Ein Paar muss unmittelbar nacheinander entstehen. Ein einzelner alter
+      # Legacy-Baum gegen den letzten mehrerer Bulk-Laeufe verwechselt sonst
+      # legitime Qt-Animationen/async Navigation mit einer Implementierungs-
+      # abweichung. Ein exaktes Paar beweist Paritaet; gibt es keines, bleibt
+      # das Paar mit der kleinsten Abweichung als fail-closed Diagnose stehen.
+      $legacyWatch = [Diagnostics.Stopwatch]::StartNew()
+      $candidateLegacy = Walk-TreeLegacy $hwnd 5000 60 20 -WithValues
+      $candidateLegacyMs = $legacyWatch.ElapsedMilliseconds
       $bulkWatch = [Diagnostics.Stopwatch]::StartNew()
-      $bulk = Get-UiSnapshot $hwnd 5000 60 20 -WithValues
-      $null = $bulkRuns.Add($bulkWatch.ElapsedMilliseconds)
+      $candidateBulk = Get-UiSnapshot $hwnd 5000 60 20 -WithValues
+      $candidateBulkMs = $bulkWatch.ElapsedMilliseconds
+      $null = $legacyRuns.Add($candidateLegacyMs)
+      $null = $bulkRuns.Add($candidateBulkMs)
+      $candidateComparison = Compare-SSESnapshotNodes $candidateLegacy.nodes $candidateBulk.nodes
+      $candidateScore = [int]($candidateComparison.missingCount + $candidateComparison.extraCount +
+        $candidateComparison.metadataMismatchCount + $candidateComparison.valueMismatchCount)
+      if ($null -eq $comparison -or
+          ($candidateComparison.equivalent -and -not $comparison.equivalent) -or
+          (-not $comparison.equivalent -and $candidateScore -lt $bestScore)) {
+        $legacy = $candidateLegacy; $bulk = $candidateBulk
+        $legacyMs = $candidateLegacyMs; $bulkMs = $candidateBulkMs
+        $comparison = $candidateComparison; $bestScore = $candidateScore
+      }
     }
-    $bulkMs = [int]$bulkRuns[-1]
     $canaryAfter = Test-Canary $hwnd
-    $legacyByRid = @{}; foreach ($node in @($legacy.nodes)) { if ($node.rid) { $legacyByRid[$node.rid] = $node } }
-    $bulkByRid = @{}; foreach ($node in @($bulk.nodes)) { if ($node.rid) { $bulkByRid[$node.rid] = $node } }
-    $missing = New-Object System.Collections.ArrayList
-    $extra = New-Object System.Collections.ArrayList
-    $metadataMismatch = New-Object System.Collections.ArrayList
-    $valueMismatch = New-Object System.Collections.ArrayList
-    foreach ($rid in $legacyByRid.Keys) {
-      if (-not $bulkByRid.ContainsKey($rid)) {
-        $n = $legacyByRid[$rid]; $null = $missing.Add([pscustomobject]@{ type=$n.type; aid=$n.aid }); continue
-      }
-      $old = $legacyByRid[$rid]; $new = $bulkByRid[$rid]
-      $oldMeta = @($old.type,$old.name,$old.aid,$old.x,$old.y,$old.w,$old.h,[bool]$old.on) -join '|'
-      $newMeta = @($new.type,$new.name,$new.aid,$new.x,$new.y,$new.w,$new.h,[bool]$new.on) -join '|'
-      if ($oldMeta -ne $newMeta) { $null = $metadataMismatch.Add([pscustomobject]@{ type=$old.type; aid=$old.aid }) }
-      if ($old.type -in @('Edit','ComboBox','Spinner') -and
-          ((-not (Test-SSEScalarEqual $old.val $new.val)) -or $old.ro -ne $new.ro)) {
-        $null = $valueMismatch.Add([pscustomobject]@{ type=$old.type; aid=$old.aid })
-      }
-    }
-    foreach ($rid in $bulkByRid.Keys) {
-      if (-not $legacyByRid.ContainsKey($rid)) { $n = $bulkByRid[$rid]; $null = $extra.Add([pscustomobject]@{ type=$n.type; aid=$n.aid }) }
-    }
-    $equivalent = (-not $missing.Count -and -not $extra.Count -and -not $metadataMismatch.Count -and -not $valueMismatch.Count)
     Emit ([pscustomobject]@{
-      ok=$true; equivalent=[bool]$equivalent; hwnd=[int64]$hwnd
-      legacy=[pscustomobject]@{ count=@($legacy.nodes).Count; ms=$legacyMs; stats=$legacy.stats }
+      ok=$true; equivalent=[bool]$comparison.equivalent; hwnd=[int64]$hwnd
+      legacy=[pscustomobject]@{ count=@($legacy.nodes).Count; ms=$legacyMs; runs=@($legacyRuns); stats=$legacy.stats }
       bulk=[pscustomobject]@{ count=@($bulk.nodes).Count; ms=$bulkMs; runs=@($bulkRuns); stats=$bulk.stats }
       canaryAfter=$canaryAfter
-      missingCount=$missing.Count; extraCount=$extra.Count
-      metadataMismatchCount=$metadataMismatch.Count; valueMismatchCount=$valueMismatch.Count
-      samples=[pscustomobject]@{
-        missing=@($missing | Select-Object -First 5); extra=@($extra | Select-Object -First 5)
-        metadata=@($metadataMismatch | Select-Object -First 5); values=@($valueMismatch | Select-Object -First 5)
-      }
+      runtimeIdChurnCount=$comparison.runtimeIdChurnCount
+      missingCount=$comparison.missingCount; extraCount=$comparison.extraCount
+      metadataMismatchCount=$comparison.metadataMismatchCount; valueMismatchCount=$comparison.valueMismatchCount
+      samples=$comparison.samples
       privateValuesReturned=$false
     })
   }
@@ -7278,6 +7535,12 @@ switch ($Op) {
     # ob der Klick ueberhaupt etwas bewirkt hat.
     $tv = $t
     $kopfVorher = (Get-SSEHeading $tv).text
+    $expectedPageBefore = [string](Arg $a 'expectedPageBefore')
+    $expectedPageAfter = [string](Arg $a 'expectedPageAfter')
+    if ($expectedPageBefore -and $kopfVorher -ne $expectedPageBefore) {
+      Fail ("Seitenbindung verletzt: vor dem Klick auf '$($node.name)' war '$kopfVorher' offen, " +
+            "erwartet war '$expectedPageBefore'. Es wurde NICHT geklickt.") 'precondition-failed'
+    }
     $fingerprintVorher = Get-SSETextSha256 ((@($tv.nodes | ForEach-Object {
       "$($_.type)|$($_.name)|$($_.aid)|$($_.val)|$($_.selected)"
     })) -join "`n")
@@ -7380,6 +7643,12 @@ switch ($Op) {
       "$($_.type)|$($_.name)|$($_.aid)|$($_.val)|$($_.selected)"
     })) -join "`n")
     $gewirkt = ($kopfNachher -ne $kopfVorher) -or ($fingerprintNachher -ne $fingerprintVorher)
+
+    if ($expectedPageAfter -and $kopfNachher -ne $expectedPageAfter) {
+      Fail ("Klick auf '$($node.name)' erreichte nicht die erwartete Seite. " +
+            "Aktuell: '$kopfNachher'; erwartet: '$expectedPageAfter'. " +
+            'Der Klick wurde bereits ausgefuehrt; Zustand vor einer Wiederholung neu lesen.') 'postcondition-failed'
+    }
 
     if ($script:DESKTOP_NAME -and -not $gewirkt) {
       Fail ("Der Klick auf '$($node.name)' blieb wirkungslos - auf dem versteckten Desktop " +
@@ -8327,7 +8596,13 @@ switch ($Op) {
       }
       throw $problem
     }
-    Emit ([pscustomobject]@{ ok = $true; dest = $dest; files = $hashes.Count; hashes = $hashes })
+    # 'files' ist wie bei archive_cases die Liste aus name/sha256. Die reine
+    # Anzahl steht in 'anzahl'; 'hashes' bleibt fuer bestehende Aufrufer.
+    Emit ([pscustomobject]@{
+      ok = $true; dest = $dest; anzahl = $hashes.Count
+      files = @($hashes | ForEach-Object { [pscustomobject]@{ name = $_.file; sha256 = $_.sha256 } })
+      hashes = $hashes; manifest = $manifestPath; verified = $true
+    })
   }
 
   'checker_results' {
@@ -11164,7 +11439,9 @@ switch ($Op) {
     }
 
     $start = AktuelleUeberschrift $hwnd
-    if ($start -eq $ziel) { Emit ([pscustomobject]@{ ok = $true; erreicht = $true; ueberschrift = $start; schritte = 0; weg = 'schon dort' }) }
+    # 'weg' ist im Ergebnisvertrag eine Liste. Ein blosser Text hier liess jeden
+    # goto-Aufruf auf die bereits offene Seite als invalid-operation-result enden.
+    if ($start -eq $ziel) { Emit ([pscustomobject]@{ ok = $true; erreicht = $true; ueberschrift = $start; schritte = 0; weg = @('schon dort') }) }
     $weg = New-Object System.Collections.ArrayList
     $null = $weg.Add($start)
 
@@ -11293,10 +11570,13 @@ switch ($Op) {
                 Start-Sleep -Milliseconds 120
                 $null = Click-VerifiedPoint $hwnd $genau
                 # Solange die Suchseite offen ist, ist die Formularueberschrift
-                # nicht im UIA-Baum. Kurz nur den Klick abarbeiten lassen; die
-                # belastbare Gegenprobe folgt direkt nach 'Suche schliessen'.
-                Start-Sleep -Milliseconds 300
-                $nachSuche = AktuelleUeberschrift $hwnd
+                # nicht im UIA-Baum. Ein einzelner Readback nach fester
+                # Wartezeit hat den Seitenaufbau gelegentlich verpasst und den
+                # Sprung dadurch als wirkungslos gemeldet, obwohl die Zielseite
+                # kurz danach stand. Deshalb hier dieselbe Polling-Gegenprobe
+                # wie nach 'Suche schliessen'; sie kehrt sofort zurueck, sobald
+                # eine echte Seite sichtbar ist.
+                $nachSuche = WarteAufUeberschrift $hwnd $start $ziel 1500
                 $aktiviert = ($nachSuche -eq $ziel)
                 $suchSeiteGeoeffnet = $aktiviert -or ($nachSuche -and $nachSuche -ne $start)
                 $null = $suchWeg.Add("PID-gepruefter Doppelklick -> '$nachSuche'")
@@ -11781,7 +12061,7 @@ switch ($Op) {
       [int]$_.pid -eq $targetPid -and $_.kind -in @('native-dialog','qt-dialog')
     })
     if ($dialogsBefore.Count) { Fail 'Ein modaler Dialog ist offen; Tabellenzeile nicht begonnen.' 'precondition-failed' }
-    $beforeTree = Walk-Tree $hwnd -WithValues
+    $beforeTree = Walk-BoundTree $hwnd -WithValues
     $headingBefore = Get-CurrentHeading $hwnd $beforeTree
     if ($headingBefore -ne $expectedPage) {
       Fail "Vorbedingung verletzt: aktuelle Seite ist '$headingBefore', erwartet '$expectedPage'. NICHT geaendert." 'precondition-failed'
@@ -11797,7 +12077,7 @@ switch ($Op) {
     $checkerBefore = @(Get-SSEPageCheckerMessages $beforeTree $hwnd)
 
     function Find-FreeTableRow([IntPtr]$window, $tree = $null, $targetSumRead = $null) {
-      if ($null -eq $tree) { $tree = Walk-Tree $window -WithValues }
+      if ($null -eq $tree) { $tree = Walk-BoundTree $window -WithValues }
       if ($null -eq $targetSumRead) {
         $targetSumRead = Read-LabeledValueFromTree $tree $window $sumLabel $sumOccurrence
       }
@@ -12167,7 +12447,7 @@ switch ($Op) {
     $afterTree = $null; $sumAfterRead = $null; $headingAfter = $null
     $checkerAfter = @(); $newCheckerMessages = @()
     if (-not $interference) {
-      $afterTree = Walk-Tree $hwnd -WithValues
+      $afterTree = Walk-BoundTree $hwnd -WithValues
       $headingAfter = Get-CurrentHeading $hwnd $afterTree
       if ($headingAfter -ne $expectedPage) {
         if (-not $failure) { $failure = "Seite wechselte waehrend der Tabellenaktion zu '$headingAfter'." }
@@ -12316,7 +12596,7 @@ switch ($Op) {
         if ($setError -match 'Benutzereingabe|Lockscreen') { break }
       }
       Start-Sleep -Milliseconds 500
-      $rollbackTree = Walk-Tree $hwnd -WithValues
+      $rollbackTree = Walk-BoundTree $hwnd -WithValues
       $rollbackHeading = Get-CurrentHeading $hwnd $rollbackTree
       $rollbackSum = Read-LabeledValueFromTree $rollbackTree $hwnd $sumLabel $sumOccurrence
       $rollbackRead = Find-FreeTableRow $hwnd $rollbackTree $rollbackSum
@@ -12451,7 +12731,7 @@ switch ($Op) {
     })
     if ($dialogsBefore.Count) { Fail 'Ein modaler Dialog ist offen; Aktualisierung nicht begonnen.' 'precondition-failed' }
 
-    $beforeTree = Walk-Tree $hwnd -WithValues
+    $beforeTree = Walk-BoundTree $hwnd -WithValues
     $headingBefore = Get-CurrentHeading $hwnd $beforeTree
     if ($headingBefore -ne $expectedPage) {
       Fail "Vorbedingung verletzt: aktuelle Seite ist '$headingBefore', erwartet '$expectedPage'. NICHT geaendert." 'precondition-failed'
@@ -12465,12 +12745,12 @@ switch ($Op) {
     if (-not $region.ok) {
       Fail "Tabellenregion fuer '$sumLabel' nicht eindeutig: $($region.error) NICHT geaendert." 'precondition-failed'
     }
-    $matches = @($region.cells | Where-Object { $_.name -eq $text -and $_.aid -notmatch 'WerteInfo' })
+    $matches = @($region.cells | Where-Object { $_.name -eq $text })
     if (-not $matches.Count) { Fail "Keine sichtbare Tabellenzelle mit '$text' gefunden." 'not-found' }
     if ($matches.Count -ne 1) { Fail "$($matches.Count) Zellen mit '$text' gefunden; Zielzeile ist nicht eindeutig." 'ambiguous' }
     $target = $matches[0]
     $cells = @($region.cells | Where-Object {
-      [Math]::Abs($_.y - $target.y) -le 4 -and $_.aid -notmatch 'WerteInfo'
+      [Math]::Abs($_.y - $target.y) -le 4
     } | Sort-Object x)
     if ($werte.Count -gt $cells.Count) {
       Fail "werte enthaelt $($werte.Count) Spalten, die sichtbare Zeile aber nur $($cells.Count)." 'bad-args'
@@ -12725,7 +13005,7 @@ switch ($Op) {
     $afterTree = $null; $afterRead = $null; $headingAfter = $null
     $checkerAfter = @(); $newCheckerMessages = @()
     if (-not $interference) {
-      $afterTree = Walk-Tree $hwnd -WithValues
+      $afterTree = Walk-BoundTree $hwnd -WithValues
       $headingAfter = Get-CurrentHeading $hwnd $afterTree
       if ($headingAfter -ne $expectedPage) {
         if (-not $failure) { $failure = "Seite wechselte waehrend der Tabellenaktualisierung zu '$headingAfter'." }
@@ -12874,7 +13154,7 @@ switch ($Op) {
         })
       }
       Start-Sleep -Milliseconds 500
-      $rollbackTree=Walk-Tree $hwnd -WithValues
+      $rollbackTree=Walk-BoundTree $hwnd -WithValues
       $rollbackHeading=Get-CurrentHeading $hwnd $rollbackTree
       $rollbackSum=Read-LabeledValueFromTree $rollbackTree $hwnd $sumLabel $sumOccurrence
       $rollbackCheckerMessages = @(Get-SSEPageCheckerMessages $rollbackTree $hwnd)
@@ -12950,7 +13230,7 @@ switch ($Op) {
     if ($dialogsBefore.Count) { Fail 'Ein modaler Dialog ist offen; Loeschung nicht begonnen.' 'precondition-failed' }
 
     function Read-LabeledValue([IntPtr]$window, [string]$label, [string]$expectedHint = '', [int]$occurrence = 0) {
-      $tree = Walk-Tree $window -WithValues
+      $tree = Walk-BoundTree $window -WithValues
       $bounds = Get-ContentBounds $tree $window
       $texts = @($tree.nodes | Where-Object {
         $_.type -eq 'Text' -and $_.name -and $_.x -ge $bounds.minX -and $_.x -le $bounds.maxX

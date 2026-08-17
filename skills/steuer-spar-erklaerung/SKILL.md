@@ -1,6 +1,6 @@
 ---
 name: steuer-spar-erklaerung
-description: Prüft einen konkreten Steuerfall in SteuerSparErklärung 2025 unter Windows, gleicht ihn mit Belegen ab, richtet bei Bedarf die portable lokale Automation ein oder bearbeitet nach Freigabe eine verifizierte Arbeitskopie. Verwenden bei „meine Steuererklärung prüfen“, SteuerSparErklärung/SSE bedienen, Belege abgleichen sowie API- oder MCP-Einrichtung; nicht für allgemeine Steuerfragen ohne lokalen SSE-Fall und niemals für ELSTER-Versand.
+description: Prüft einen konkreten Steuerfall in einer vom lokalen Release unterstützten SteuerSparErklärung unter Windows, gleicht ihn mit Belegen ab, richtet bei Bedarf die portable lokale Automation ein oder bearbeitet nach Freigabe eine verifizierte Arbeitskopie. Verwenden bei „meine Steuererklärung prüfen“, SteuerSparErklärung/SSE bedienen, Belege abgleichen sowie API- oder MCP-Einrichtung; nicht für allgemeine Steuerfragen ohne lokalen SSE-Fall und niemals für ELSTER-Versand.
 ---
 
 # SteuerSparErklärung sicher prüfen
@@ -33,8 +33,12 @@ Diese Regeln gelten auch auf ausdrücklichen Wunsch:
 
 - Sende, übermittle, bestätige oder schließe niemals über ELSTER ab. Bereite
   keinen Versandklick und keinen Umgehungsweg vor.
-- Lösche, überschreibe, verschiebe oder benenne niemals Originalfälle oder
-  bereits übermittelte Falldateien um.
+- Lösche, überschreibe oder benenne niemals Originalfälle oder bereits
+  übermittelte Falldateien um. Verschiebe Fälle im normalen Prüf- und
+  Bearbeitungsablauf nicht. Die einzige enge Ausnahme ist ein ausdrücklich
+  beauftragter Archivlauf für nachweislich nicht übermittelte Fälle über
+  `sse_archive_cases`: vollständiges Inventar, Hashbindung und ausschließlich
+  ein neues Ziel im konfigurierten Backupbereich sind Pflicht.
 - Ändere Steuerdaten nur in einer zuvor bytegleich verifizierten Arbeitskopie.
 - Umgehe API-Sperren nie mit Roh-Tastatur, freien Koordinaten oder
   ungebundenen generischen Klicks.
@@ -48,7 +52,10 @@ Diese Regeln gelten auch auf ausdrücklichen Wunsch:
 Unterstütze ausschließlich Windows x64 mit Windows PowerShell 5.1 und ein im
 installierten Release als `supported` ausgewiesenes Produktprofil. Derzeit ist
 das Profil `2025` mit Engine-Major `31` freigegeben. Automatisiere keine andere
-Version ersatzweise.
+Version ersatzweise. Akzeptiere nur `status=supported` zusammen mit
+`operationAccess=full`. Meldet `product_info.buildDrift.drifted=true`, stoppe
+vor jeder Mutation, bis der installierte Build gezielt verifiziert wurde; API
+und direkter Worker erzwingen diese Mutationssperre zusätzlich.
 
 ## Architektur richtig verwenden
 
@@ -67,7 +74,8 @@ mit `describe <operation>` und nur bei einer breiten Planung mit `discovery`; f�
 Argumente eine neue begrenzte UTF-8-JSON-Datei per `--args-file` oder einen
 kurzlebigen stdin-Datenstrom per `--args-file -` verwenden. Schreibe Steuerwerte nie als Inline-JSON in die Kommandozeile oder
 Prozessliste. Ist ein eigener Client sinnvoller, lies `openapi` und verwende
-die dort veröffentlichten 86 Bearer-geschützten Verträge.
+ausschließlich die dort aktuell veröffentlichten Bearer-geschützten Verträge.
+Leite Anzahl und Namen immer aus der Laufzeitquelle ab.
 
 Rufe nach erfolgreicher Verbindung zuerst `sse_capabilities` beziehungsweise
 die API-Operation `capabilities` auf. Diese PC-neutrale Selbstbeschreibung ist
@@ -189,7 +197,10 @@ Fehlt eine Spezialoperation, darf die Arbeit kontrolliert weitergehen:
 1. Lies zuerst `sse_page_state` oder `sse_ui_state`.
 2. Entdecke das Control ausschließlich lesend mit `sse_snapshot`, `sse_find`
    und bei Bedarf `sse_accessibility_probe`.
-3. Übernimm AutomationId oder RuntimeId nur aus diesem frischen Zustand.
+3. Übernimm AutomationId oder RuntimeId nur aus diesem frischen Zustand. Für
+   eine Aktion ist der Name oder die AutomationId die bessere Bindung: Ältere
+   Programmversionen vergeben zwischen zwei Aufrufen neue RuntimeIds, und die
+   Aktion endet dann mit `not-found` auf einem leeren Bezeichner.
 4. Verwende für Checkboxen `sse_toggle`, für Listen `sse_combo_options` plus
    `sse_combo_select` und für Textfelder eine gebundene Schreiboperation.
 5. Verwende `sse_click` nur, wenn Ziel, Seite, Fenster und Nachbedingung

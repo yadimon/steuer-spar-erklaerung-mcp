@@ -24,6 +24,7 @@ import type { SseApiServerConfig } from "./api-config.js";
 import { apiOperationDiscovery, SSE_API_DISCOVERY } from "./api-discovery.js";
 import { SSE_OPENAPI_DOCUMENT } from "./api-openapi.js";
 import { formatOperationArgumentError, parseApiOperationArgs } from "./operation-catalog.js";
+import { parseApiOperationResult } from "./result-contract.js";
 
 export type OperationExecutor = (
   operation: SseApiOperation,
@@ -251,7 +252,26 @@ export function createSseApiServer(options: SseApiServerOptions): Server {
         }
         throw error;
       }
-      const result = await execute(operationName, args, body.timeoutMs, controller.signal);
+      const rawResult = await execute(operationName, args, body.timeoutMs, controller.signal);
+      let result: WorkerResult;
+      try {
+        result = parseApiOperationResult(operationName, rawResult);
+      } catch (error) {
+        if (error instanceof ZodError) {
+          const issueSummary = error.issues.slice(0, 4).map((issue) => {
+            const path = issue.path.length ? issue.path.map(String).join(".") : "$";
+            const received = "received" in issue ? `/${String(issue.received)}` : "";
+            return `${path}:${issue.code}${received}`;
+          }).join(", ");
+          throw new ApiRequestError(
+            `SSE-Arbeitsprozess lieferte kein gueltiges Result_${operationName}-Ergebnis` +
+              `${issueSummary ? ` (${issueSummary})` : ""}.`,
+            502,
+            "invalid-operation-result",
+          );
+        }
+        throw error;
+      }
       const envelope: OperationEnvelope = {
         apiVersion: SSE_API_VERSION,
         requestId,

@@ -15,6 +15,7 @@ import { withCombinedAbortSignal } from "./abort.js";
 import { ZodError } from "zod";
 import { ApiClientError } from "./api-client-error.js";
 import { formatOperationArgumentError, parseApiOperationArgs } from "./operation-catalog.js";
+import { parseApiOperationResult, SSE_API_RESULT_SCHEMA_VERSION } from "./result-contract.js";
 
 export { asArray, type WorkerResult } from "./api-contract.js";
 export { ApiClientError } from "./api-client-error.js";
@@ -31,6 +32,8 @@ export interface ApiDiscoveryDocument {
   apiVersion: string;
   operations: readonly string[];
   argumentSchemas: Readonly<Record<string, unknown>>;
+  resultSchemaVersion: number;
+  resultSchemas: Readonly<Record<string, unknown>>;
   operationTraits: Readonly<Record<string, unknown>>;
   planning: Readonly<Record<string, unknown>>;
   limits: Readonly<Record<string, unknown>>;
@@ -42,6 +45,8 @@ export interface ApiOperationDiscoveryDocument {
   apiVersion: string;
   operation: SseApiOperation;
   argumentSchema: Readonly<Record<string, unknown>>;
+  resultSchemaVersion: number;
+  resultSchema: Readonly<Record<string, unknown>>;
   operationTraits: Readonly<Record<string, unknown>>;
   planning: Readonly<Record<string, unknown>>;
   limits: Readonly<Record<string, unknown>>;
@@ -282,6 +287,7 @@ export async function readApiDiscovery(options: ApiClientOptions = {}): Promise<
   const payload = await readAuthenticatedApiDocument("operations", options);
   const operations = Array.isArray(payload.operations) ? payload.operations : [];
   const argumentSchemas = isRecord(payload.argumentSchemas) ? payload.argumentSchemas : {};
+  const resultSchemas = isRecord(payload.resultSchemas) ? payload.resultSchemas : {};
   const operationTraits = isRecord(payload.operationTraits) ? payload.operationTraits : {};
   const exactOperations = operations.length === SSE_API_OPERATIONS.length &&
     operations.every((operation, index) => operation === SSE_API_OPERATIONS[index]);
@@ -290,10 +296,13 @@ export async function readApiDiscovery(options: ApiClientOptions = {}): Promise<
     payload.apiVersion !== SSE_API_VERSION ||
     !exactOperations ||
     !hasExactOperationKeys(argumentSchemas) ||
+    payload.resultSchemaVersion !== SSE_API_RESULT_SCHEMA_VERSION ||
+    !hasExactOperationKeys(resultSchemas) ||
     !hasExactOperationKeys(operationTraits) ||
     !hasPublishedSafetyAndLimits(payload) ||
     !SSE_API_OPERATIONS.every((operation) =>
       isPublishedArgumentSchema(argumentSchemas[operation]) &&
+      isPublishedArgumentSchema(resultSchemas[operation]) &&
       isPublishedOperationTraits(operationTraits[operation]))
   ) {
     throw new ApiClientError("SSE-API-Discovery hat nicht die erwartete Struktur oder Version.", "protocol");
@@ -314,6 +323,8 @@ export async function readApiOperationDiscovery(
     payload.apiVersion !== SSE_API_VERSION ||
     payload.operation !== operation ||
     !isPublishedArgumentSchema(payload.argumentSchema) ||
+    payload.resultSchemaVersion !== SSE_API_RESULT_SCHEMA_VERSION ||
+    !isPublishedArgumentSchema(payload.resultSchema) ||
     !isPublishedOperationTraits(payload.operationTraits) ||
     !hasPublishedSafetyAndLimits(payload)
   ) {
@@ -327,6 +338,7 @@ export async function readOpenApiDocument(options: ApiClientOptions = {}): Promi
   const info = isRecord(payload.info) ? payload.info : {};
   const paths = isRecord(payload.paths) ? payload.paths : {};
   const components = isRecord(payload.components) ? payload.components : {};
+  const schemas = isRecord(components.schemas) ? components.schemas : {};
   const securitySchemes = isRecord(components.securitySchemes) ? components.securitySchemes : {};
   const bearerAuth = isRecord(securitySchemes.bearerAuth) ? securitySchemes.bearerAuth : {};
   const operationPaths = SSE_API_OPERATIONS.map((operation) => `/${SSE_API_VERSION}/operations/${operation}`);
@@ -343,6 +355,7 @@ export async function readOpenApiDocument(options: ApiClientOptions = {}): Promi
     payload.openapi !== "3.1.0" ||
     info.version !== SSE_API_VERSION ||
     !exactPaths ||
+    !SSE_API_OPERATIONS.every((operation) => isRecord(schemas[`Result_${operation}`])) ||
     bearerAuth.type !== "http" ||
     bearerAuth.scheme !== "bearer"
   ) {
@@ -421,7 +434,14 @@ export async function callApiOperation(
     if (!isRecord(payload.result) || typeof payload.result.ok !== "boolean") {
       throw new ApiClientError("SSE-API-Ergebnis hat keinen gueltigen ok-Status.", "protocol");
     }
-    return payload.result as WorkerResult;
+    try {
+      return parseApiOperationResult(operation, payload.result);
+    } catch {
+      throw new ApiClientError(
+        `SSE-API-Ergebnis fuer '${operation}' verletzt den versionierten Ergebnisvertrag.`,
+        "protocol",
+      );
+    }
   } catch (error) {
     if (error instanceof ApiClientError) throw error;
     if (settings.signal?.aborted) {

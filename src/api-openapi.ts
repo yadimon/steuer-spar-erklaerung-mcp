@@ -7,9 +7,13 @@ import {
 import { SSE_API_DISCOVERY } from "./api-discovery.js";
 
 const schemaName = (operation: SseApiOperation): string => `Args_${operation}`;
+const resultSchemaName = (operation: SseApiOperation): string => `Result_${operation}`;
 
 const argumentComponents = Object.freeze(Object.fromEntries(
   SSE_API_OPERATIONS.map((operation) => [schemaName(operation), SSE_API_DISCOVERY.argumentSchemas[operation]]),
+));
+const resultComponents = Object.freeze(Object.fromEntries(
+  SSE_API_OPERATIONS.map((operation) => [resultSchemaName(operation), SSE_API_DISCOVERY.resultSchemas[operation]]),
 ));
 
 const operationPaths = Object.freeze(Object.fromEntries(
@@ -56,7 +60,22 @@ const operationPaths = Object.freeze(Object.fromEntries(
           responses: {
             "200": {
               description: "Strukturiertes lokales Operationsergebnis",
-              content: { "application/json": { schema: { $ref: "#/components/schemas/OperationEnvelope" } } },
+              content: {
+                "application/json": {
+                  schema: {
+                    allOf: [
+                      { $ref: "#/components/schemas/OperationEnvelope" },
+                      {
+                        type: "object",
+                        properties: {
+                          operation: { const: operation },
+                          result: { $ref: `#/components/schemas/${resultSchemaName(operation)}` },
+                        },
+                      },
+                    ],
+                  },
+                },
+              },
             },
             "400": { $ref: "#/components/responses/ApiError" },
             "401": { $ref: "#/components/responses/ApiError" },
@@ -143,6 +162,7 @@ export const SSE_OPENAPI_DOCUMENT = Object.freeze({
     },
     schemas: {
       ...argumentComponents,
+      ...resultComponents,
       OperationEnvelope: {
         type: "object",
         required: ["apiVersion", "requestId", "operation", "durationMs", "result"],
@@ -177,12 +197,17 @@ export const SSE_OPENAPI_DOCUMENT = Object.freeze({
       },
       OperationDiscoveryDocument: {
         type: "object",
-        required: ["schemaVersion", "apiVersion", "operation", "argumentSchema", "operationTraits", "planning", "limits", "safety"],
+        required: [
+          "schemaVersion", "apiVersion", "operation", "argumentSchema", "resultSchemaVersion",
+          "resultSchema", "operationTraits", "planning", "limits", "safety",
+        ],
         properties: {
           schemaVersion: { const: 1 },
           apiVersion: { const: SSE_API_VERSION },
           operation: { type: "string", enum: SSE_API_OPERATIONS },
           argumentSchema: { type: "object" },
+          resultSchemaVersion: { const: SSE_API_DISCOVERY.resultSchemaVersion },
+          resultSchema: { type: "object" },
           operationTraits: { type: "object" },
           planning: { $ref: "#/components/schemas/PlanningContract" },
           limits: { type: "object" },

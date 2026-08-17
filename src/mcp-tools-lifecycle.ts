@@ -15,8 +15,8 @@ export function registerLifecycleTools(registry: McpRegistry): void {
       title: "Programm starten",
       description:
         "Startet die SteuerSparErklaerung, optional direkt mit einer Falldatei. Der Startmodus bestimmt " +
-        "das Modul. Nur die verifizierte SteuerSparErklaerung 2025 und Falldateien des Steuerjahres 2025 " +
-        "werden akzeptiert; andere Jahresversionen werden nicht gesteuert. " +
+        "das Modul. Nur das aktive, verifizierte Produktprofil und dazu passende Falldateien werden akzeptiert; " +
+        "andere Jahres-/Engine-Versionen werden nicht ersatzweise gesteuert. " +
         "Wenn beim Start genau ein Hauptfenster erkennbar ist, liefert instance dessen PID/HWND zur sofortigen " +
         "expliziten Bindung aller Folgeaktionen. " +
         "einur=Gewinnermittlung/EUER, normal=Einkommensteuer, einurvor=Gewinn-Erfassung Folgejahr, " +

@@ -6,9 +6,11 @@
  * Steuerfaelle.
  */
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { once } from "node:events";
 import {
   appendFileSync,
+  existsSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -24,8 +26,14 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { SSE_API_OPERATIONS } from "../dist/api-contract.js";
 import { createApiExecutor } from "../dist/api-executor.js";
 import { createSseApiServer } from "../dist/api-server.js";
+import { traceOperations } from "./operation-trace.mjs";
 import {
   CHECKER_MESSAGE,
+  MONTHS,
+  TABLE_PAGE,
+  TABLE_SUM_LABEL,
+  VAST_TARGET,
+  VAST_UNMAPPED,
   WARNING_TEXT,
   createStatefulSseWorker,
   seedSyntheticCases,
@@ -60,7 +68,7 @@ async function createHarness() {
     documentsDir,
     sseExecutable: "C:\\Synthetic\\SSE.exe",
   };
-  const execute = createApiExecutor(config, worker);
+  const execute = traceOperations("stateful-mock", createApiExecutor(config, worker));
   const server = createSseApiServer({ config, execute });
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
@@ -163,6 +171,8 @@ test("03 income-tax field mutation changes calculation but not the unsaved file"
   await withHarness(async (harness) => {
     await launchIncome(harness);
     const hash = (await harness.call("case_hash", { ref: "cases:synthetic.ESt2025" })).sha256;
+    const before = await harness.call("known_page_state", { pageId: "est.arbeitnehmer", hwnd: 4242 });
+    assert.match(before.epoch, /^[A-F0-9]{64}$/u, "known_page_state liefert einen Inhaltsfingerprint, keinen Zaehler");
     const changed = await harness.call("tracked_set_value", {
       expectedPage: "Arbeitnehmer",
       name: "Werbungskosten",
@@ -176,6 +186,7 @@ test("03 income-tax field mutation changes calculation but not the unsaved file"
     assert.equal(sha256File(harness.seeded.incomePath), hash, "ungespeicherte UI-Aenderung darf keine Datei schreiben");
     const state = await harness.call("known_page_state", { pageId: "est.arbeitnehmer", hwnd: 4242 });
     assert.equal(state.dirty, true);
+    assert.notEqual(state.epoch, before.epoch, "Der Seitenfingerprint muss sich nach der Aenderung bewegen");
     assert.equal(state.fields.find((field) => field.label === "Werbungskosten").value, "2.000,00");
     const report = await harness.call("result_details", { hwnd: 4242 });
     assert.equal(rowByName(report, "Zu versteuerndes Einkommen").aktuell, "46.000,00");
@@ -601,5 +612,430 @@ test("17 MCP reads the same UStVA result from the mock-backed real API", async (
     } finally {
       await client.close();
     }
+  });
+});
+
+test("18 navigation, page readers and the element tree agree on one page", async () => {
+  await withHarness(async (harness) => {
+    await launchFreelancer(harness);
+    const navigated = await harness.call("goto", { name: TABLE_PAGE, maxSteps: 20 });
+    assert.equal(navigated.erreicht, true);
+    assert.equal(navigated.ueberschrift, TABLE_PAGE);
+
+    const stepwise = await harness.call("goto", { name: "Einnahmen/Ausgaben", useSearch: false, direction: "Zurück", maxSteps: 20 });
+    assert.deepEqual(stepwise.weg, ["Einnahmen/Ausgaben", TABLE_PAGE]);
+    await harness.call("goto", { name: TABLE_PAGE });
+
+    const subpages = await harness.call("subpages", { hwnd: 4242 });
+    assert.equal(subpages.unterseiten[0].name, "Umsatzsteuer-Voranmeldungen 2025");
+
+    const page = await harness.call("page", { hwnd: 4242 });
+    const readPage = await harness.call("read_page", { hwnd: 4242 });
+    const readFull = await harness.call("read_full", { hwnd: 4242 });
+    assert.equal(readPage.heading, page.ueberschrift);
+    assert.equal(readFull.ueberschrift, page.ueberschrift);
+    assert.equal(readFull.anzahl, readPage.lines.length, "read_full und read_page zaehlen dieselbe Seite");
+
+    const found = await harness.call("find", { name: "Zinsertrag", contains: true, hwnd: 4242 });
+    assert.equal(found.count, 1);
+    assert.equal(found.incomplete, false);
+    const value = await harness.call("get_value", { rid: found.treffer[0].rid, hwnd: 4242 });
+    assert.equal(value.wert, "1,00");
+    const positions = await harness.call("positions", { aktion: "list", hwnd: 4242 });
+    assert.equal(positions.anzahl, readPage.lines.length);
+    const summe = positions.positionen.find((entry) => entry.name === TABLE_SUM_LABEL);
+    assert.equal(typeof summe.y, "number");
+
+    // 'Einnahmen' trifft die Summenzeile und den Navigationseintrag; ein
+    // mehrdeutiger Bezeichner darf keinen willkuerlichen Treffer liefern.
+    const ambiguous = await harness.request("get_value", { name: "Einnahmen", contains: true, hwnd: 4242 });
+    assert.equal(ambiguous.body.result.ok, false);
+    assert.equal(ambiguous.body.result.kind, "ambiguous");
+
+    const help = await harness.call("help", { hwnd: 4242 });
+    assert.deepEqual(Object.keys(help.abschnitte), [`Hilfe zu ${TABLE_PAGE}`]);
+    const checked = await harness.call("check", { hwnd: 4242 });
+    assert.equal(checked.konsistent, true);
+    const objects = await harness.call("page_objects", { pageId: "gew.sonstige" });
+    assert.equal(objects.anzahl, readPage.lines.length);
+  });
+});
+
+test("19 scroll and tree state are reported instead of guessed", async () => {
+  await withHarness(async (harness) => {
+    await launchFreelancer(harness);
+    await harness.call("goto", { name: TABLE_PAGE });
+    const info = await harness.call("scroll_page", { mode: "info", hwnd: 4242 });
+    assert.equal(info.scrollbar, true);
+    const scrolled = await harness.call("scroll_page", { mode: "amount", direction: "down", hwnd: 4242 });
+    assert.equal(scrolled.vPercent, 25);
+    const positioned = await harness.call("scroll", { mode: "percent", vPercent: 60, hwnd: 4242 });
+    assert.equal(positioned.vPercent, 60);
+    const intoView = await harness.call("scroll", { mode: "intoview", name: TABLE_SUM_LABEL, hwnd: 4242 });
+    assert.equal(intoView.treffer, 1);
+    assert.equal((await harness.call("tree_scroll", { direction: "down", steps: 3, hwnd: 4242 })).offset, 3);
+    assert.equal((await harness.call("tree_top", { hwnd: 4242 })).offset, 0);
+    // Navigation setzt den Rollzustand zurueck; sonst laege ein spaeterer
+    // Lesevorgang unbemerkt auf dem falschen Seitenausschnitt.
+    await harness.call("goto", { name: "Abziehbare Vorsteuer" });
+    assert.equal((await harness.call("scroll_page", { mode: "info", hwnd: 4242 })).vPercent, 0);
+  });
+});
+
+test("20 table add, update and delete are bound by page and sum", async () => {
+  await withHarness(async (harness) => {
+    await launchFreelancer(harness);
+    await harness.call("goto", { name: TABLE_PAGE });
+    const before = await harness.call("table_read", { sumLabel: TABLE_SUM_LABEL, hwnd: 4242 });
+    assert.equal(before.anzahl, 2);
+    assert.equal(before.summe, "1,50");
+
+    const added = await harness.call("table_add", {
+      expectedPage: TABLE_PAGE,
+      werte: ["", "01.03.2025", "Synthetische Einnahme", "0,50"],
+      sumLabel: TABLE_SUM_LABEL,
+      expectedBefore: "1,50",
+      expectedAfter: "2,00",
+    });
+    assert.equal(added.verified, true);
+    assert.equal(added.rowCount, 3);
+
+    const updated = await harness.call("table_update", {
+      expectedPage: TABLE_PAGE,
+      text: "Synthetische Einnahme",
+      werte: [null, null, "1,50"],
+      sumLabel: TABLE_SUM_LABEL,
+      expectedBefore: "2,00",
+      expectedAfter: "3,00",
+    });
+    assert.equal(updated.updated.betrag, 150);
+
+    const table = await harness.call("read_table", { hwnd: 4242 });
+    assert.equal(table.rowCount, 3);
+    assert.deepEqual(table.headers, ["Datum", "Text", "Betrag"]);
+    assert.deepEqual(table.rows.at(-1), ["01.03.2025", "Synthetische Einnahme", "1,50"]);
+
+    const deleted = await harness.call("table_delete", {
+      expectedPage: TABLE_PAGE,
+      text: "Synthetische Einnahme",
+      sumLabel: TABLE_SUM_LABEL,
+      expectedBefore: "3,00",
+      expectedAfter: "1,50",
+    });
+    assert.equal(deleted.deleted.text, "Synthetische Einnahme");
+    assert.equal((await harness.call("table_read", { hwnd: 4242 })).summe, "1,50");
+  });
+});
+
+test("21 a wrong expected sum rolls the table back completely", async () => {
+  await withHarness(async (harness) => {
+    await launchFreelancer(harness);
+    await harness.call("goto", { name: TABLE_PAGE });
+    const failed = await harness.request("table_add", {
+      expectedPage: TABLE_PAGE,
+      werte: ["", "02.03.2025", "Darf nicht bleiben", "0,50"],
+      sumLabel: TABLE_SUM_LABEL,
+      expectedBefore: "1,50",
+      expectedAfter: "999,99",
+    });
+    const result = failed.body.result;
+    assert.equal(result.ok, false);
+    assert.equal(result.kind, "postcondition-failed");
+    assert.equal(result.rollback.erfolgreich, true);
+    assert.equal(result.rollback.summe, "1,50");
+    const after = await harness.call("read_table", { hwnd: 4242 });
+    assert.equal(after.rowCount, 2, "Die zurueckgerollte Zeile darf nicht sichtbar bleiben");
+    assert(!after.rows.some((row) => row[1] === "Darf nicht bleiben"));
+
+    const wrongPage = await harness.request("table_delete", {
+      expectedPage: "Einnahmen/Ausgaben",
+      text: "Zinsertrag Tagesgeld",
+      sumLabel: TABLE_SUM_LABEL,
+      expectedBefore: "1,50",
+      expectedAfter: "0,50",
+    });
+    assert.equal(wrongPage.body.result.kind, "precondition-failed");
+    assert.equal((await harness.call("read_table", { hwnd: 4242 })).rowCount, 2);
+  });
+});
+
+test("22 menu keeps ELSTER closed and opens only safe dialogs", async () => {
+  await withHarness(async (harness) => {
+    await launchFreelancer(harness);
+    const menu = await harness.call("menu", { hwnd: 4242 });
+    const elster = menu.menues.find((entry) => entry.name === "ELSTER");
+    assert(elster.eintraege.every((entry) => entry.gesperrt === true), "ELSTER-Eintraege muessen gesperrt bleiben");
+
+    const blocked = await harness.request("menu_click", { name: "Anmeldungen versenden", acknowledgeDestructive: true });
+    assert.equal(blocked.body.result.ok, false);
+    assert.equal(blocked.body.result.kind, "blocked");
+
+    const safe = await harness.call("menu_click", { name: "Roter Faden" });
+    assert.equal(safe.menu, "Ansicht");
+    assert.equal((await harness.call("menu_close", { hwnd: 4242 })).closed, true);
+
+    await harness.call("menu_click", { name: "Steuerfall öffnen..." });
+    const selected = await harness.call("file_dialog_select", {
+      expectedDialogTitle: "Steuerfall öffnen",
+      resourceRef: "cases:synthetic.Gew2025",
+      expectedHash: harness.seeded.freelancerHash,
+    });
+    assert.equal(selected.closed, true);
+    assert.equal((await harness.call("dismiss", { hwnd: 4242 })).dismissed, true);
+  });
+});
+
+test("23 window handles stay bound to the exact current title", async () => {
+  await withHarness(async (harness) => {
+    await launchFreelancer(harness);
+    const windows = await harness.call("windows", {});
+    const target = windows.windows[0];
+    assert.equal(target.minimiert, false);
+    const fingerprint = createHash("sha256").update(target.title).digest("hex").toUpperCase();
+
+    const stale = await harness.request("window_close", { pid: target.pid, hwnd: target.hwnd, expectedTitle: "Fremdes Fenster" });
+    assert.equal(stale.body.result.kind, "stale");
+
+    assert.equal((await harness.call("window_close", { pid: target.pid, hwnd: target.hwnd, titleFingerprint: fingerprint })).closed, true);
+    assert.equal((await harness.call("windows", {})).windows[0].minimiert, true);
+    assert.equal((await harness.call("window_restore", { pid: target.pid, hwnd: target.hwnd, titleFingerprint: fingerprint })).restored, true);
+    assert.equal((await harness.call("windows", {})).windows[0].minimiert, false);
+  });
+});
+
+test("24 diagnostics bind snapshot, comparison and probe to the same element", async () => {
+  await withHarness(async (harness) => {
+    await launchFreelancer(harness);
+    await harness.call("goto", { name: TABLE_PAGE });
+    const snapshot = await harness.call("snapshot", { namedOnly: true, maxNodes: 500, hwnd: 4242 });
+    assert.equal(snapshot.count, snapshot.nodes.length);
+    const compared = await harness.call("snapshot_compare", { repetitions: 3, hwnd: 4242 });
+    assert.equal(compared.equivalent, true);
+    assert.equal(compared.privateValuesReturned, false);
+    assert.equal(compared.legacy.count, snapshot.count);
+
+    const probe = await harness.call("accessibility_probe", {
+      rid: snapshot.nodes[0].rid, maxDepth: 2, maxNodes: 50, includePatterns: true, includeRaw: true, hwnd: 4242,
+    });
+    assert.equal(probe.node.rid, snapshot.nodes[0].rid);
+    assert.equal(probe.rawTruncated, false);
+
+    const combos = await harness.request("combo_options", { name: "Auswahl Monat", hwnd: 4242 });
+    assert.equal(combos.body.result.kind, "not-found", "Auf dieser Seite gibt es keine ComboBox");
+    await harness.call("goto", { name: "Umsatzsteuer-Voranmeldungen 2025" });
+    const options = await harness.call("combo_options", { name: "Auswahl Monat", hwnd: 4242 });
+    assert.deepEqual(options.optionen, MONTHS);
+    assert.equal(options.aktuell, "Juni");
+  });
+});
+
+test("25 screenshot, CSV export and collect write only into bound result refs", async () => {
+  await withHarness(async (harness) => {
+    await launchFreelancer(harness);
+    const shot = await harness.call("screenshot", { resultRef: "results:kontrolle.png", includeImage: true, hwnd: 4242 });
+    assert.equal(shot.shot.w, 1200);
+    assert.equal(shot.shot.path, "results:kontrolle.png", "Der lokale Pfad darf die API nicht verlassen");
+    assert.equal(existsSync(join(harness.resultDir, "kontrolle.png")), true);
+    const repeated = await harness.request("screenshot", { resultRef: "results:kontrolle.png", hwnd: 4242 });
+    assert.equal(repeated.body.result.kind, "bad-args", "Ein vorhandenes Kontrollbild darf nicht ueberschrieben werden");
+
+    const exported = await harness.call("export_csv", { resultRef: "results:csv", hwnd: 4242 });
+    assert.equal(exported.anzahl, 1);
+    assert.match(readFileSync(join(harness.resultDir, "csv", "ergebnis.csv"), "utf8"), /Betriebseinnahmen;100\.000,00/u);
+
+    const collected = await harness.call("collect", { resultRef: "results:sammlung.json", maxPages: 2, hwnd: 4242 });
+    assert.equal(collected.anzahl, 2);
+    assert.deepEqual(collected.ueberschriften, ["Einnahmen/Ausgaben", TABLE_PAGE]);
+    const report = JSON.parse(readFileSync(join(harness.resultDir, "sammlung.json"), "utf8"));
+    assert.equal(report.seiten.length, 2);
+
+    const files = await harness.call("workspace_file_list", { ref: ".", area: "results" });
+    assert.deepEqual(
+      files.files.map((file) => file.ref).sort(),
+      ["results:csv/ergebnis.csv", "results:kontrolle.png", "results:sammlung.json"],
+    );
+  });
+});
+
+test("26 backup and archive move cases only against a proven inventory", async () => {
+  await withHarness(async (harness) => {
+    const backup = await harness.call("backup_cases", { destinationRef: "backups:lauf-1" });
+    assert.equal(backup.anzahl, 2);
+    assert.equal(existsSync(join(harness.temporary, "backups", "lauf-1", "synthetic.Gew2025")), true);
+
+    const stale = await harness.request("archive_cases", {
+      destinationRef: "backups:archiv-1",
+      cases: [{ name: "synthetic.Gew2025", expectedSha256: "0".repeat(64) }],
+      expectedRemaining: [{ name: "synthetic.ESt2025", expectedSha256: harness.seeded.incomeHash }],
+    });
+    assert.equal(stale.body.result.kind, "precondition-failed");
+    assert.equal(existsSync(harness.seeded.freelancerPath), true, "Ein falscher Hash darf nichts verschieben");
+
+    const archived = await harness.call("archive_cases", {
+      destinationRef: "backups:archiv-1",
+      cases: [{ name: "synthetic.Gew2025", expectedSha256: harness.seeded.freelancerHash }],
+      expectedRemaining: [{ name: "synthetic.ESt2025", expectedSha256: harness.seeded.incomeHash }],
+    });
+    assert.equal(archived.archived, 1);
+    assert.equal(existsSync(harness.seeded.freelancerPath), false);
+    assert.equal((await harness.call("list_cases", {})).count, 1);
+    assert.equal((await harness.call("center_cases", { hwnd: 4242 })).anzahl, 1);
+    assert.equal((await harness.call("center_refresh", { hwnd: 4242, expectedDirectoryRef: "cases:." })).aktualisiert, true);
+  });
+});
+
+test("27 save_as and the private desktop keep the source case untouched", async () => {
+  await withHarness(async (harness) => {
+    const started = await harness.call("desktop_start", {
+      caseRef: "cases:synthetic.Gew2025", mode: "einur", name: "SSESynthetic", timeoutSec: 45,
+    }, 30_000);
+    assert.equal(started.desktop, "SSESynthetic");
+    assert.equal((await harness.call("desktop_status", {})).aktiv, true);
+
+    const copied = await harness.call("save_as", {
+      sourceRef: "cases:synthetic.Gew2025",
+      expectedSourceHash: harness.seeded.freelancerHash,
+      targetRef: "cases:kopie.Gew2025",
+    });
+    assert.equal(copied.sha256, harness.seeded.freelancerHash);
+    assert.equal(sha256File(harness.seeded.freelancerPath), harness.seeded.freelancerHash);
+    assert.equal(copied.target, "cases:kopie.Gew2025");
+
+    const stopped = await harness.call("desktop_stop", { discardChanges: true }, 30_000);
+    assert.equal(stopped.hartBeendet, false);
+    assert.equal(stopped.desktopMarkeEntfernt, true);
+    assert.equal((await harness.call("desktop_status", {})).aktiv, false);
+  });
+});
+
+test("28 VaSt only merges an acknowledged plan that still matches the dialog", async () => {
+  await withHarness(async (harness) => {
+    await launchIncome(harness);
+    const hash = (await harness.call("case_hash", { ref: "cases:synthetic.ESt2025" })).sha256;
+    await harness.call("menu_click", { name: "Belege abrufen (VaSt)..." });
+    const dialog = await harness.call("vast_dialog_read", { hwnd: 4242 });
+    assert.equal(dialog.anzahl, 1);
+    const row = dialog.zeilen[0];
+    assert.equal(row.localTarget, VAST_UNMAPPED);
+
+    const binding = { mappingFingerprint: dialog.mappingFingerprint, certificate: row.certificate, occurrence: row.occurrence };
+    assert.equal((await harness.call("vast_row_details", { ...binding, hwnd: 4242 })).betrag, "65.000,00");
+    assert.equal((await harness.call("vast_row_set_expanded", { ...binding, expectedBefore: false, expanded: true, hwnd: 4242 })).after, true);
+    assert.deepEqual(
+      (await harness.call("vast_mapping_options", { ...binding, expectedCurrent: VAST_UNMAPPED, hwnd: 4242 })).optionen,
+      [VAST_UNMAPPED, VAST_TARGET],
+    );
+
+    const unacknowledged = await harness.request("vast_apply", {
+      hwnd: 8888, expectedMainHwnd: 4242, expectedCaseRef: "cases:synthetic.ESt2025", expectedCaseHash: hash,
+      mappingFingerprint: dialog.mappingFingerprint, acknowledgeApply: false,
+      plan: [{ certificate: row.certificate, occurrence: row.occurrence, localTarget: VAST_UNMAPPED }],
+    });
+    assert.equal(unacknowledged.status, 400, "acknowledgeApply=false darf das Schema nicht passieren");
+
+    await harness.call("vast_mapping_select", {
+      ...binding, expectedCurrent: VAST_UNMAPPED, value: VAST_TARGET, expectedAfter: VAST_TARGET, hwnd: 4242,
+    });
+    const stalePlan = await harness.request("vast_apply", {
+      hwnd: 8888, expectedMainHwnd: 4242, expectedCaseRef: "cases:synthetic.ESt2025", expectedCaseHash: hash,
+      mappingFingerprint: dialog.mappingFingerprint, acknowledgeApply: true,
+      plan: [{ certificate: row.certificate, occurrence: row.occurrence, localTarget: VAST_UNMAPPED }],
+    });
+    assert.equal(stalePlan.body.result.kind, "stale");
+
+    const applied = await harness.call("vast_apply", {
+      hwnd: 8888, expectedMainHwnd: 4242, expectedCaseRef: "cases:synthetic.ESt2025", expectedCaseHash: hash,
+      mappingFingerprint: dialog.mappingFingerprint, acknowledgeApply: true,
+      plan: [{ certificate: row.certificate, occurrence: row.occurrence, localTarget: VAST_TARGET }],
+    });
+    assert.equal(applied.applied, 1);
+    assert.equal(applied.ungespeichert, true);
+    assert.equal(sha256File(harness.seeded.incomePath), hash, "Der Merge darf die Datei nicht ungefragt schreiben");
+    const state = await harness.call("known_page_state", { pageId: "est.arbeitnehmer", hwnd: 4242 });
+    assert.equal(state.fields.find((field) => field.label === "Bruttoarbeitslohn").value, "65.000,00");
+  });
+});
+
+test("29 checker window state and generic rid writes stay readable", async () => {
+  await withHarness(async (harness) => {
+    await launchIncome(harness);
+    const run = await harness.call("checker_run", { hwnd: 4242 });
+    assert.equal(run.konsistent, true);
+    assert.equal(run.gesamt, 1);
+    const closed = await harness.call("checker_close", { hwnd: 4242 });
+    assert.equal(closed.warOffen, true, "checker_close muss das zuvor geoeffnete Fenster kennen");
+    assert.equal((await harness.call("checker_close", { hwnd: 4242 })).warOffen, false);
+
+    const hash = (await harness.call("case_hash", { ref: "cases:synthetic.ESt2025" })).sha256;
+    const found = await harness.call("find", { name: "Werbungskosten", hwnd: 4242 });
+    const written = await harness.call("set_value", {
+      rid: found.treffer[0].rid, expectedBefore: "1.000,00", value: "1.500,00", expectedAfter: "1.500,00",
+    });
+    assert.equal(written.verified, true);
+    assert.equal((await harness.call("get_value", { name: "Werbungskosten", hwnd: 4242 })).wert, "1.500,00");
+    assert.equal(sha256File(harness.seeded.incomePath), hash, "Eine UI-Aenderung schreibt keine Datei");
+  });
+});
+
+test("30 a working copy carries combo, toggle and lifecycle at the API boundary", async () => {
+  await withHarness(async (harness) => {
+    const copy = await harness.call("make_working_copy", {
+      sourceRef: "cases:synthetic.Gew2025",
+      targetRef: "cases:arbeitskopie.Gew2025",
+      expectedSourceHash: harness.seeded.freelancerHash,
+    });
+    assert.equal(copy.targetHash, harness.seeded.freelancerHash);
+    assert.equal(copy.copied, true);
+    assert.deepEqual(copy.resourceRefs, {
+      sourceRef: "cases:synthetic.Gew2025",
+      targetRef: "cases:arbeitskopie.Gew2025",
+    });
+
+    await harness.call("launch", { caseRef: "cases:arbeitskopie.Gew2025", mode: "einur" }, 30_000);
+    const state = await harness.call("ui_state", { hwnd: 4242 });
+    assert.equal(state.running, true);
+    assert.equal(state.instance.hwnd, 4242);
+    assert.equal(state.ungespeichert, false);
+    assert.equal((await harness.call("dialog_list", { pid: state.instance.pid })).count, 0);
+
+    const page = "Umsatzsteuer-Voranmeldungen 2025";
+    await harness.call("goto", { name: page });
+    const hash = (await harness.call("case_hash", { ref: "cases:arbeitskopie.Gew2025" })).sha256;
+    const binding = { expectedCaseRef: "cases:arbeitskopie.Gew2025", expectedCaseHash: hash };
+    const toggled = await harness.call("toggle", {
+      expectedPage: page, aid: ".RahmenWerteUebersicht.ManuelleEingabe",
+      expectedBefore: false, value: true, expectedAfter: true, ...binding,
+    });
+    assert.equal(toggled.after, true);
+    const selected = await harness.call("combo_select", {
+      expectedPage: page, aid: ".AuswahlAnmeldezeitraum.AuswahlMonat.Combobox",
+      expectedCurrent: "Juni", value: "Juli", expectedAfter: "Juli", ...binding,
+    });
+    assert.equal(selected.after, "Juli");
+    assert.equal((await harness.call("ustva_read", { hwnd: 4242 })).period.key, "july");
+    assert.equal((await harness.call("ui_state", { hwnd: 4242 })).ungespeichert, true);
+
+    const closed = await harness.call("close", { hwnd: 4242, pid: 3131, force: true, discardChanges: true });
+    assert.equal(closed.closed, true);
+    assert.equal(closed.stillRunning, false);
+    assert.equal(sha256File(join(harness.caseDir, "arbeitskopie.Gew2025")), hash, "Verwerfen darf nichts schreiben");
+    assert.equal((await harness.call("ui_state", {})).running, false);
+  });
+});
+
+test("31 the checker detail and reset are reachable without the composition", async () => {
+  await withHarness(async (harness) => {
+    await launchIncome(harness);
+    assert.equal((await harness.call("checker_run", { hwnd: 4242 })).gesamt, 1);
+    const clicked = await harness.call("click_point", {
+      name: CHECKER_MESSAGE, type: "TreeItem", waitMs: 500, hwnd: 4242,
+    });
+    assert.equal(clicked.clicked, true);
+    const detail = await harness.call("checker_detail", { name: CHECKER_MESSAGE, hwnd: 4242 });
+    assert.equal(detail.meldung, CHECKER_MESSAGE);
+    assert(detail.text.length > 0);
+    const reset = await harness.call("checker_reset", { hwnd: 4242 });
+    assert.deepEqual(reset.aufgeklappt, []);
+    assert.equal(reset.konsistent, true);
   });
 });

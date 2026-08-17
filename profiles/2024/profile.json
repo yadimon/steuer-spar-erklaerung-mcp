@@ -2,6 +2,7 @@
   "schemaVersion": 1,
   "id": "2024",
   "status": "experimental",
+  "operationAccess": "verification-only",
   "product": "SteuerSparErklaerung 2024",
   "taxYear": 2024,
   "engineFileMajor": 30,

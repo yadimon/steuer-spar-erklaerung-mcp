@@ -83,7 +83,7 @@ export async function executeLaunchOperation(
           ok: false,
           kind: cleanupState.stillRunning ? "startup-abort-cleanup" : "aborted",
           error: cleanupState.stillRunning
-            ? `API-Client brach den Start ab; die exakt gestartete SSE-2025-PID ${pid} laeuft trotz Cleanup noch.`
+            ? `API-Client brach den Start ab; die exakt gestartete SSE-PID ${pid} laeuft trotz Cleanup noch.`
             : "API-Client hat den Start abgebrochen; die exakt gestartete SSE-PID wurde ohne Speichern beendet.",
           pid,
           processStillRunning: cleanupState.stillRunning,
@@ -179,8 +179,8 @@ export async function executeLaunchOperation(
       ok: false,
       kind: cleanupState.stillRunning ? "startup-timeout-cleanup" : "startup-timeout",
       error: cleanupState.stillRunning
-        ? `SSE-2025-PID ${pid} erzeugte kein verifiziertes Fallfenster und konnte nicht sicher beendet werden.`
-        : `SSE-2025-PID ${pid} erzeugte innerhalb von ${Math.round((Date.now() - startedAt) / 100) / 10} Sekunden kein verifiziertes Fallfenster; der gestartete Prozess wurde beendet.`,
+        ? `SSE-PID ${pid} erzeugte kein verifiziertes Fallfenster und konnte nicht sicher beendet werden.`
+        : `SSE-PID ${pid} erzeugte innerhalb von ${Math.round((Date.now() - startedAt) / 100) / 10} Sekunden kein verifiziertes Fallfenster; der gestartete Prozess wurde beendet.`,
       pid,
       processStillRunning: cleanupState.stillRunning,
       cleanup: cleanupState.cleanup,
