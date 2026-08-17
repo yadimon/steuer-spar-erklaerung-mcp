@@ -12,7 +12,8 @@
   "windows": {
     "main": {
       "process": "SSE",
-      "role": "main"
+      "role": "main",
+      "headingAutomationIdSuffix": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel"
     },
     "resultComparison": {
       "title": "Werte-Info: Werte vergleichen - Was wäre wenn",
@@ -35,6 +36,32 @@
       },
       "columns": ["Bescheinigung", "Daten", "Eingabefenster / Daten"],
       "policy": "Read and map with the sse_vast_* tools. Applying mapped data requires sse_vast_apply with the complete plan, mapping fingerprint, exact case/hash and explicit acknowledgement; it is never implied by changing a mapping."
+    }
+  },
+  "focuslessCommits": {
+    "gew.beitraege_gebuehren_abgaben.betrag": {
+      "heading": "Beiträge, Gebühren und Abgaben",
+      "controlType": "DataItem",
+      "valueKind": "currency",
+      "automationIdSuffix": ".Bankgebuehren.Tab",
+      "columnHeader": "Betrag",
+      "commitMethod": "value-pattern-plus-posted-tab",
+      "resultTracking": false,
+      "requiredSumChecks": [
+        {
+          "label": "Summe",
+          "occurrence": 1
+        }
+      ],
+      "verification": [
+        "exact-runtime-id-and-automation-id",
+        "selected-item-with-focused-table",
+        "field-readback",
+        "page-total-readback",
+        "dirty-state",
+        "rollback-on-postcondition-failure"
+      ],
+      "reason": "Live-tested on a disposable hidden Gew2025 copy with a 10 ms visible-foreground watcher."
     }
   },
   "pages": {

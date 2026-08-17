@@ -724,6 +724,49 @@ verhindert werden.
   ist. `previousFingerprint` liefert `changedSince` ohne alten Zustand erneut
   zu übertragen.
 
+## Focusless: Navigation, Messung und offene Grenze
+
+- `EnumDesktopWindows` meldet für einen Desktop ohne Top-Level-Fenster `FALSE`
+  und lässt den Thread-Fehler unangetastet. Der versteckte Start ruft die
+  Enumeration in der ersten Poll-Runde auf, wenn der frisch erzeugte Desktop
+  normalerweise noch leer ist. Ein Restfehler des Threads (beobachtet: 203,
+  `ERROR_ENVVAR_NOT_FOUND`) erschien dadurch als Startfehler. Vor dem Aufruf den
+  Thread-Fehler löschen und nur bei echtem Fehler werfen; ein ungültiges Handle
+  bleibt fail-closed.
+- Ein Fall speichert seine zuletzt geöffnete Seite in der Datei. Eine Fixture
+  öffnet deshalb nicht zwangsläufig dort, wo ein älterer Test sie erwartet.
+  Live-Tests dürfen die Startseite nicht als Konstante annehmen; sie sollen die
+  profilierte Seite aus dem Katalog binden und ihre Erwartungswerte aus der
+  gelesenen Seite ableiten.
+- Focusless-Navigation zwischen Seiten funktioniert: `sse_goto useSearch=false`
+  blättert linear auch auf dem versteckten Desktop. Qt kann das mit dem
+  automatischen Prüffenster »Die Prüfung hat ergeben …« unterbrechen. Der Ablauf
+  `sse_goto` → `sse_warning_popup_read ocr=true` → `sse_dialog_answer` mit
+  UIA-Fingerprint **und** `bodyFingerprint` → `sse_goto` erreichte die Zielseite
+  in 17 Blätterschritten in rund 57–62 s. Der Dirty-State blieb dabei
+  unverändert; ohne `bodyFingerprint` verweigert die Antwort korrekt.
+- `sse_save_as` braucht den sichtbaren Desktop (nativer Dateidialog).
+  `sse_save` läuft versteckt und schreibt die Datei; seine strenge
+  Nachbedingung (Hashwechsel, deaktivierter Sichern-Schalter und Dialogfreiheit
+  gemeinsam) kann dabei trotzdem `postcondition-failed` melden. Die Datei ist
+  dann geschrieben, der Zustand aber nicht bewiesen: erneut hashen statt mit dem
+  alten Vorhash weiterzuarbeiten.
+- Gemessene Phasen einer erfolgreichen versteckten Feldtransaktion
+  (`zeitmessung`): gesamt 12,3 s, davon Commit 9,0 s (73 %), Fensterbindung
+  1,5 s, die drei vollständigen Walk-Tree-Läufe zusammen nur 1,35 s (11 %). Die
+  naheliegende Optimierung „weniger Baumläufe“ lohnt sich also nicht; der
+  Commit ist der einzige relevante Kostenblock.
+- Offene Grenze: der Focusless-Commit bindet den Qt-Fokus nur, wenn der Fall
+  bereits auf der profilierten Seite geöffnet wurde. Nach linearer Navigation
+  meldet er `focus-mismatch`. Auch bei direkt geöffneter Seite war er nicht
+  reproduzierbar: ein Lauf gelang, alle späteren meldeten `focus-mismatch` mit
+  `hasKeyboardFocus=false` auf Zelle **und** Tabelle, obwohl beide
+  `keyboardFocusable=true` sind. In diesem Zustand wird nichts mutiert und nicht
+  blind zurückgerollt. Ein längeres Fokus-Zeitbudget und das gemeinsame Pollen
+  beider Fokusbeweise änderten nichts; die Ursache liegt vermutlich darin, dass
+  das SSE-Fenster auf dem privaten Desktop kein aktives Fenster hat. Solange das
+  nicht bewiesen gelöst ist, bleibt der Pfad fail-closed.
+
 ## Bekannte Fehlwege
 
 | Ansatz | Beobachtung | Konsequenz |

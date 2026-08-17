@@ -17,6 +17,13 @@ assert.equal(profile.pageObjectsPath, join(root, "profiles", "2025", "page-objec
 assert.deepEqual(profile.additionalCaseYears, { einurvor: [2026] });
 assert.deepEqual(Object.keys(profile.startModes).sort(), [...SSE_START_MODES].sort(),
   "Oeffentliche Startmodi und produktives Profil muessen identisch sein.");
+assert.deepEqual(Object.keys(profile.startModes).sort(),
+  ["einur", "einurvor", "ermaess", "fest", "normal", "vorweg"],
+  "Das Profil darf nur die von SSEKonf.ini als ValidModes akzeptierten Direktstarts anbieten.");
+for (const unsupportedMode of ["KonsUst", "KonsUSt", "zulage", "NVBescheinigung"]) {
+  assert.equal(profile.startModes[unsupportedMode], undefined,
+    `Nicht direkt startbarer SSE-Modus ${unsupportedMode} darf nicht veroeffentlicht werden.`);
+}
 assert.throws(() => loadProductProfile("2024"), /fehlt/);
 assert.throws(() => loadProductProfile("..\\2025"), /Ungueltige/);
 

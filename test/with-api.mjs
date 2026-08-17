@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApiExecutor } from "../dist/api-executor.js";
@@ -15,8 +15,10 @@ if (!command) {
 }
 
 const temporary = mkdtempSync(join(tmpdir(), "sse-api-test-"));
+const caseDir = process.env.SSE_CASE_DIR ?? join(temporary, "cases");
 const workspaceDir = join(temporary, "workspace");
 const resultDir = join(temporary, "results");
+mkdirSync(caseDir, { recursive: true });
 mkdirSync(workspaceDir, { recursive: true });
 mkdirSync(resultDir, { recursive: true });
 const token = randomBytes(32).toString("base64url");
@@ -27,7 +29,7 @@ const config = {
   configPath: join(temporary, "config.json"),
   workspaceDir,
   resultDir,
-  caseDir: process.env.SSE_CASE_DIR,
+  caseDir,
   sseExecutable: process.env.SSE_EXECUTABLE,
 };
 const execute = createApiExecutor(config, callWorker);
@@ -44,6 +46,7 @@ try {
       ...process.env,
       SSE_API_URL: `http://127.0.0.1:${address.port}`,
       SSE_API_TOKEN: token,
+      SSE_TEST_CASE_DIR: caseDir,
       SSE_TEST_WORKSPACE_DIR: workspaceDir,
       SSE_TEST_RESULT_DIR: resultDir,
     },
@@ -55,5 +58,12 @@ try {
   process.exitCode = typeof code === "number" ? code : 1;
 } finally {
   await new Promise((resolve) => server.close(resolve));
-  rmSync(temporary, { recursive: true, force: true });
+  for (let attempt = 0; attempt < 20 && existsSync(temporary); attempt++) {
+    try {
+      rmSync(temporary, { recursive: true, force: true, maxRetries: 2, retryDelay: 100 });
+    } catch (error) {
+      if (!error || !["EBUSY", "EPERM", "ENOTEMPTY"].includes(error.code) || attempt === 19) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
 }

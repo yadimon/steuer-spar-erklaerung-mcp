@@ -52,9 +52,9 @@ function Test-SSENativeSurface {
     if (-not ($name -as [type])) { return $false }
   }
   $required = @{
-    DSK=@('CreateDesktop','OpenDesktop','EnumDesktopWindows','CreateProcess','WaitForSingleObject',
-      'CloseHandle','TerminateProcess','GetExitCodeProcess','CreateJobObject','SetInformationJobObject',
-      'AssignProcessToJobObject','ResumeThread')
+    DSK=@('CreateDesktop','OpenDesktop','EnumDesktopWindows','ListDesktopWindows','SetLastError',
+      'CreateProcess','WaitForSingleObject','CloseHandle','TerminateProcess','GetExitCodeProcess',
+      'CreateJobObject','SetInformationJobObject','AssignProcessToJobObject','ResumeThread')
     SW=@('EnumWindows','GetWindowRect','GetWindowThreadProcessId','SendMessageTimeout','mouse_event','GetLastInputInfo')
     SSEAccessible=@('Describe','DescribePoint','Invoke')
   }

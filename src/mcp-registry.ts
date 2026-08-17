@@ -51,7 +51,14 @@ export function createMcpRegistry(server: McpServer) {
     try {
       const result = await callApiOperation(operation, args, timeoutMs);
       if (result.ok === false) return apiErrorResult(operation, result);
-      return textResult(shape ? shape(result) : result);
+      const shaped = shape ? shape(result) : result;
+      // Focus-Telemetrie gehoert zum Sicherheits-/Performancevertrag jeder
+      // physischen Action. Auch kompakt geformte MCP-Antworten duerfen sie
+      // nicht verlieren; read-only Ergebnisse enthalten das Feld gar nicht.
+      const payload = shape && result.focusTelemetry && shaped && typeof shaped === "object" && !Array.isArray(shaped)
+        ? { ...shaped, focusTelemetry: result.focusTelemetry }
+        : shaped;
+      return textResult(payload);
     } catch (error) {
       return caughtErrorResult(operation, error);
     }

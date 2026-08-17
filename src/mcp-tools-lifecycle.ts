@@ -20,7 +20,8 @@ export function registerLifecycleTools(registry: McpRegistry): void {
         "Wenn beim Start genau ein Hauptfenster erkennbar ist, liefert instance dessen PID/HWND zur sofortigen " +
         "expliziten Bindung aller Folgeaktionen. " +
         "einur=Gewinnermittlung/EUER, normal=Einkommensteuer, einurvor=Gewinn-Erfassung Folgejahr, " +
-        "fest=Feststellung, ermaess=Lohnsteuer-Ermaessigung, KonsUst=Konsolidierte Umsatzsteuer, vorweg=Prognose. " +
+        "fest=Feststellung, ermaess=Lohnsteuer-Ermaessigung, vorweg=Prognose. " +
+        "UStVA wird im Modus einur bearbeitet; nicht von SSE.exe akzeptierte Zusatzmodi werden nicht angeboten. " +
         "Nach dem Start kann eine Rueckfrage nach einer Wiederherstellungsdatei erscheinen - mit " +
         "sse_dialog_list lesen und ausschliesslich mit dem gelieferten Fingerprint ueber " +
         "sse_dialog_answer beantworten; niemals dafuer den generischen Klick verwenden.",

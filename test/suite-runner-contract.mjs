@@ -15,9 +15,9 @@ const expectedNames = [
   "native-build", "typescript-build", "suite-runner-contract", "public-skills", "repository-privacy", "repository-links", "javascript-syntax", "powershell-syntax", "product-profiles",
   "akad-parser", "setup-wizard", "atomic-files", "jsonl-logger", "portable-package", "npm-package", "portable-zip", "workspace-containment",
   "resource-references", "backup-cases-contract", "archive-cases-synthetic", "setup-task", "api-contract", "api-discovery-contract", "api-openapi-contract", "api-cli-contract", "api-config-contract", "api-all-operations", "launch-orchestration", "operation-schema-catalog", "source-architecture", "mcp-module-boundaries", "mcp-main-contract",
-  "mcp-registry-contract", "mcp-response-contract", "capabilities-contract", "ustva-contract", "api-main-smoke", "abort-contract", "wrapper-boundary", "mcp-wrapper-catalog", "mcp-api-all-operations", "mcp-cancellation",
+  "mcp-registry-contract", "mcp-response-contract", "capabilities-contract", "ustva-contract", "api-tax-journeys", "api-main-smoke", "abort-contract", "wrapper-boundary", "mcp-wrapper-catalog", "mcp-api-all-operations", "mcp-cancellation",
   "worker-timeout", "worker-progress-contract", "worker-output-file-contract", "worker-input-file-contract", "direct-worker-guard", "direct-worker-resource-guard", "direct-worker-identity-guard", "direct-worker-collection-guard", "direct-worker-file-guard", "direct-worker-native-guard", "scenario-parity", "scenario-control-flow", "mcp-selftest", "table-region",
-  "product-gate", "verify-collect", "archive-cases", "table-values", "table-add-rollback-contract", "tracked-date-rollback", "window-restore-contract", "no-console-window",
+  "product-gate", "verify-collect", "archive-cases", "table-values", "table-add-rollback-contract", "tracked-date-rollback", "desktop-enumeration", "window-restore-contract", "window-scope", "foreground-lease-contract", "focusless-commit-contract", "no-console-window",
 ];
 const allSteps = [...serialBuildSteps, ...parallelSteps, ...exclusiveSteps];
 assert.deepEqual(allSteps.map((step) => step.name).sort(), expectedNames.sort());
@@ -34,7 +34,8 @@ for (const heavyweight of [
 }
 for (const required of [
   "api-contract", "api-discovery-contract", "api-openapi-contract", "api-cli-contract", "api-all-operations", "mcp-wrapper-catalog",
-  "mcp-api-all-operations", "operation-schema-catalog", "source-architecture", "mcp-module-boundaries", "mcp-main-contract", "repository-privacy", "repository-links", "javascript-syntax", "powershell-syntax",
+  "mcp-api-all-operations", "api-tax-journeys", "operation-schema-catalog", "source-architecture", "mcp-module-boundaries", "mcp-main-contract", "repository-privacy", "repository-links", "javascript-syntax", "powershell-syntax",
+  "foreground-lease-contract", "focusless-commit-contract", "desktop-enumeration",
 ]) {
   assert(fastSteps.some((step) => step.name === required), `${required} fehlt im schnellen Sicherheitsnetz.`);
 }

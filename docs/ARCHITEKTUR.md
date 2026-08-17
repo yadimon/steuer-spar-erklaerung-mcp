@@ -124,6 +124,14 @@ Agent oder eigenes Programm
 
 - Jeder UIA-Aufruf läuft weiterhin in einem frischen Prozess. Das isoliert den
   bekannten Qt/UIA-Fehlerzustand, in dem spätere Reads still leer werden.
+- Sichtbare physische Eingabe ist in einer verschachtelbaren Vordergrund-Lease
+  gekapselt. Innerhalb einer atomaren Action wird dasselbe SSE-Fenster nur
+  einmal angehoben. Erfolg, Fachfehler und globaler Trap laufen vor der
+  Ergebnisserialisierung durch denselben Cleanup: alle vom Worker gesetzten
+  TOPMOST-Zustände werden entfernt; bei unveränderter Windows-Input-Epoche
+  werden vorheriges Vordergrundfenster und eigener Mauszeiger best effort
+  wiederhergestellt. `focusTelemetry` macht Raise-Zahl, Haltezeit und Restore
+  in API und MCP messbar.
 - Prozesse werden fensterlos gestartet, an eine Queue gebunden und bei
   Timeout oder API-Shutdown als eigener Prozessbaum beendet.
 - Operationsargumente liegen in einer exklusiven, auf 8 MiB begrenzten

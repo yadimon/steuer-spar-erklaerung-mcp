@@ -110,6 +110,42 @@ function Get-SSEPageObjects {
   try { Read-SSEJsonFileStrict $catalogPath }
   catch { Fail "Page-Object-Katalog ist ungueltig: $($_.Exception.Message)" 'invalid-catalog' }
 }
+function Resolve-SSEFocuslessCommitPolicy([string]$Heading, $Node, [string]$ValueKind, [object[]]$SumChecks, $Tree) {
+  $catalog = Get-SSEPageObjects
+  foreach ($entry in @($catalog.focuslessCommits.PSObject.Properties)) {
+    $policy = $entry.Value
+    if ([string]$policy.heading -cne $Heading -or
+        [string]$policy.controlType -cne [string]$Node.type -or
+        [string]$policy.valueKind -cne $ValueKind -or
+        -not [string]$Node.aid -or
+        -not [string]$policy.automationIdSuffix -or
+        -not [string]$Node.aid.EndsWith([string]$policy.automationIdSuffix, [StringComparison]::Ordinal)) {
+      continue
+    }
+    if ([string]$policy.columnHeader) {
+      if (-not $Tree) { continue }
+      $headers = @($Tree.nodes | Where-Object { $_.type -eq 'Header' -and $_.name -and $_.w -gt 0 } |
+        Sort-Object x)
+      $nearestHeader = @($headers | Sort-Object { [Math]::Abs([int]$Node.x - [int]$_.x) } | Select-Object -First 1)[0]
+      if (-not $nearestHeader -or [string]$nearestHeader.name -cne [string]$policy.columnHeader) { continue }
+    }
+    $requiredOk = $true
+    foreach ($required in @($policy.requiredSumChecks)) {
+      $requiredLabel = [string]$required.label
+      $requiredOccurrence = [int](Arg $required 'occurrence' 1)
+      $matches = @($SumChecks | Where-Object {
+        [string](Arg $_ 'label') -ceq $requiredLabel -and
+        [int](Arg $_ 'occurrence' 1) -eq $requiredOccurrence -and
+        $null -ne (Arg $_ 'before') -and $null -ne (Arg $_ 'after')
+      })
+      if ($matches.Count -ne 1) { $requiredOk = $false; break }
+    }
+    if ($requiredOk) {
+      return [pscustomobject]@{ id=[string]$entry.Name; definition=$policy }
+    }
+  }
+  $null
+}
 function Resolve-SSEClosableNonmodalWindowPolicy($Window) {
   if (-not $Window) { return $null }
   $catalog = Get-SSEPageObjects
@@ -142,6 +178,21 @@ function Resolve-SSEPageObject([string]$PageId, [string]$FieldId = '') {
   [pscustomobject]@{ catalog=$catalog; page=$page; field=$field; pageId=$PageId; fieldId=$FieldId }
 }
 function Emit($obj) {
+  # Physische Eingabe darf das zuvor aktive Benutzerfenster, den Mauszeiger
+  # oder ein dauerhaftes TOPMOST-Bit niemals als Seiteneffekt zuruecklassen.
+  # Emit ist der gemeinsame Ausgang fuer Erfolg, Fail und den globalen trap;
+  # damit wird auch ein unerwarteter Fehler zwischen Raise und Cleanup sicher
+  # aufgeraeumt. Initialisierungsfehler vor Definition der Lease bleiben davon
+  # unberuehrt und koennen weiterhin als JSON gemeldet werden.
+  if (Get-Command Exit-SSEForegroundLease -CommandType Function -ErrorAction SilentlyContinue) {
+    try { Exit-SSEForegroundLease -Force -Reason 'emit' } catch { }
+    try {
+      $focusTelemetry = Get-SSEForegroundLeaseTelemetry
+      if ($focusTelemetry -and [int]$focusTelemetry.acquisitions -gt 0) {
+        $obj | Add-Member -NotePropertyName focusTelemetry -NotePropertyValue $focusTelemetry -Force
+      }
+    } catch { }
+  }
   $obj | Add-Member -NotePropertyName ms -NotePropertyValue $script:T0.ElapsedMilliseconds -Force
   # Depth hoch, damit verschachtelte Baeume nicht abgeschnitten werden
   $json = $obj | ConvertTo-Json -Depth 24 -Compress
@@ -547,6 +598,11 @@ if (-not (Test-Path -LiteralPath $tableComboHelpers -PathType Leaf)) {
   Fail "Tabellen-ComboBox-Helfer fehlt: $tableComboHelpers" 'not-found'
 }
 . $tableComboHelpers
+$windowScopeHelpers = Join-Path $PSScriptRoot 'window-scope.ps1'
+if (-not (Test-Path -LiteralPath $windowScopeHelpers -PathType Leaf)) {
+  Fail "Fensterbindungs-Helfer fehlt: $windowScopeHelpers" 'not-found'
+}
+. $windowScopeHelpers
 $initProbe.Stop(); $script:INIT_TIMINGS.assembliesMs = $initProbe.ElapsedMilliseconds
 
 # ---------------------------------------------------------- Versteckter Desktop
@@ -719,13 +775,25 @@ function Get-Windows([string]$ProcName = 'SSE') {
 # 170, sobald PowerShell ein Fenster besitzt). EnumDesktopWindows prueft den
 # neu angelegten Desktop direkt und vermeidet dadurch einen falschen
 # 90-Sekunden-Timeout bei einem tatsaechlich erfolgreichen SSE-Start.
-function Get-WindowsOnDesktop([IntPtr]$Desktop, [string]$ProcName = 'SSE') {
-  $procs = @(Get-AllowedWindowProcesses $ProcName)
-  if (-not $procs) { return @() }
-  $ids = @($procs | ForEach-Object { $_.Id })
+function Get-WindowsOnDesktop(
+  [IntPtr]$Desktop,
+  [string]$ProcName = 'SSE',
+  [int]$ExactProcessId = 0
+) {
+  # Directly after CreateProcess the returned PID is already bound to the
+  # previously verified executable and the private desktop. Re-discovering it
+  # through Get-Process/MainModule can transiently omit that exact process even
+  # after its Qt window exists. The exact-PID path is both stricter and faster;
+  # general status/ownership calls keep the normal product-filtered discovery.
+  if ($ExactProcessId -gt 0) {
+    $ids = @($ExactProcessId)
+  } else {
+    $procs = @(Get-AllowedWindowProcesses $ProcName)
+    if (-not $procs) { return @() }
+    $ids = @($procs | ForEach-Object { $_.Id })
+  }
   $list = New-Object System.Collections.ArrayList
-  $cb = [DSK+EP]{
-    param($h, $l)
+  foreach ($h in @([DSK]::ListDesktopWindows($Desktop))) {
     $ppid = 0
     [SW]::GetWindowThreadProcessId($h, [ref]$ppid) | Out-Null
     if ($ids -contains [int]$ppid -and [SW]::IsWindowVisible($h)) {
@@ -740,9 +808,28 @@ function Get-WindowsOnDesktop([IntPtr]$Desktop, [string]$ProcName = 'SSE') {
         minimiert = [bool]([SW]::IsIconic($h))
       })
     }
-    return $true
   }
-  [DSK]::EnumDesktopWindows($Desktop, $cb, [IntPtr]::Zero) | Out-Null
+  @($list | Sort-Object { $_.w * $_.h } -Descending)
+}
+
+function Get-ExactProcessWindowsOnDesktop([IntPtr]$Desktop, [int]$ExactProcessId) {
+  if ($ExactProcessId -le 0) { return @() }
+  $list = New-Object System.Collections.ArrayList
+  foreach ($h in @([DSK]::ListDesktopWindows($Desktop))) {
+    $windowProcessId = 0
+    [SW]::GetWindowThreadProcessId($h, [ref]$windowProcessId) | Out-Null
+    if ([int]$windowProcessId -eq $ExactProcessId -and [SW]::IsWindowVisible($h)) {
+      $t = New-Object Text.StringBuilder 512; [SW]::GetWindowTextW($h, $t, 512) | Out-Null
+      $c = New-Object Text.StringBuilder 256; [SW]::GetClassNameW($h, $c, 256) | Out-Null
+      $r = New-Object SW+RC; [SW]::GetWindowRect($h, [ref]$r) | Out-Null
+      $null = $list.Add([pscustomobject]@{
+        hwnd = [int64]$h; pid = [int]$windowProcessId
+        x = $r.L; y = $r.T; w = $r.R - $r.L; h = $r.B - $r.T
+        cls = $c.ToString(); title = $t.ToString(); titleFingerprint = Get-SSETextSha256 ($t.ToString())
+        hung = [SW]::IsHungAppWindow($h); minimiert = [bool]([SW]::IsIconic($h))
+      })
+    }
+  }
   @($list | Sort-Object { $_.w * $_.h } -Descending)
 }
 
@@ -913,7 +1000,10 @@ function Click-VerifiedPoint(
   if (-not $Node -or $Node.w -le 0 -or $Node.h -le 0) { Fail 'Klickziel hat keine sichtbare Flaeche.' 'offscreen' }
   $px = [int]($Node.x + $Node.w / 2); $py = [int]($Node.y + $Node.h / 2)
   $null = Show-SSEWindow $Window
-  Start-Sleep -Milliseconds 250
+  # Bei einer bereits gehaltenen Lease ist SSE schon oben und im Vordergrund.
+  # Ein weiterer 250-ms-Settle pro Zell-/Pfeil-/Popup-Klick waere nur Flackern
+  # und macht mehrstufige Tabellenaktionen unnoetig langsam.
+  if ($script:SSE_FOREGROUND_LEASE.lastAcquireRaised) { Start-Sleep -Milliseconds 250 }
   $obstruction = Get-SSEPointObstruction $Window $px $py
   if (-not $obstruction.isBoundTarget) {
     Hide-SSETopmost $Window
@@ -946,9 +1036,10 @@ function Click-VerifiedPoint(
   Start-Sleep -Milliseconds 100
   [SW]::mouse_event(0x0002, 0, 0, 0, [IntPtr]::Zero)
   [SW]::mouse_event(0x0004, 0, 0, 0, [IntPtr]::Zero)
+  Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick) ([pscustomobject]@{ x=$px; y=$py })
   Start-Sleep -Milliseconds 180
   if ([SW]::IsWindow($Window)) { Hide-SSETopmost $Window }
-  [pscustomobject]@{ x = $px; y = $py; targetPid = $targetPid }
+  [pscustomobject]@{ x = $px; y = $py }
 }
 
 $akadParserPath = Join-Path $PSScriptRoot 'akad-parser.ps1'
@@ -1414,28 +1505,67 @@ function Resolve-BoundWriteWindow($a) {
 # Nicht-modale Helfer, die man wegklicken darf, ohne dass Daten leiden.
 $script:HELFERFENSTER = @('Steuer-Spar-Tipps')
 
-# Fenster wirklich nach vorn holen.
+# Eine sichtbare physische Eingabe erhaelt genau eine verschachtelbare Lease.
+# Der erste Aufrufer merkt sich Benutzerfenster und Mausposition. Weitere
+# Klicks auf dasselbe bereits aktive HWND ueberspringen das erneute Raise.
+# Der gemeinsame Emit-Pfad erzwingt die Freigabe auch nach Fail/Exception.
+$script:SSE_FOREGROUND_LEASE = [ordered]@{
+  depth=0; rootHwnd=[int64]0; targetPid=0
+  previousForeground=[int64]0; previousCursor=$null
+  raisedWindows=(New-Object System.Collections.ArrayList)
+  acquisitions=0; raises=0; topmostCycles=0; releases=0
+  lastAcquireRaised=$false; lastOwnedInputTick=$null; ownedCursorPoint=$null
+  foregroundHeldMs=0; foregroundRestored=$false; cursorRestored=$false
+  releasedByEmit=$false; restoreSkippedReason=$null; cleanupError=$null
+  watch=$null
+}
+
+function Test-SSEWindowIsLockScreen([IntPtr]$Hwnd) {
+  if ($Hwnd -eq [IntPtr]::Zero -or -not [SW]::IsWindow($Hwnd)) { return $false }
+  $root = [SW]::GetAncestor($Hwnd, 2) # GA_ROOT
+  if ($root -eq [IntPtr]::Zero) { $root = $Hwnd }
+  $windowPid = 0; [SW]::GetWindowThreadProcessId($root, [ref]$windowPid) | Out-Null
+  $processName = ''
+  if ($windowPid -gt 0) {
+    try { $processName = [string](Get-Process -Id $windowPid -ErrorAction Stop).ProcessName } catch { }
+  }
+  $className = Get-SSEWindowClassName $root
+  [bool]($processName -eq 'LockApp' -or $className -match 'LockScreenBackstopFrame')
+}
+
+# Fenster wirklich nach vorn holen. Topmost wird nur fuer SSE-Ziele gesetzt;
+# beim best-effort Restore des Benutzerfensters bleibt es bewusst aus.
 #
 # SetForegroundWindow allein scheitert aus einem Hintergrundprozess: Windows
 # laesst nur den aktuellen Vordergrundprozess den Fokus vergeben. Der
 # uebliche Ausweg ist, sich kurz an dessen Eingabewarteschlange zu haengen -
 # dann gilt man als berechtigt. Danach wieder loesen.
-function Show-SSEWindow([IntPtr]$hwnd) {
+function Wait-SSEExactForeground([IntPtr]$Hwnd, [int]$TimeoutMs) {
+  $wait = [Diagnostics.Stopwatch]::StartNew()
+  do {
+    if ([SW]::GetForegroundWindow() -eq $Hwnd) { return $true }
+    $remaining = $TimeoutMs - [int]$wait.ElapsedMilliseconds
+    if ($remaining -le 0) { break }
+    Start-Sleep -Milliseconds ([Math]::Min(15, $remaining))
+  } while ($wait.ElapsedMilliseconds -lt $TimeoutMs)
+  [bool]([SW]::GetForegroundWindow() -eq $Hwnd)
+}
+
+function Set-SSEForegroundWindowCore([IntPtr]$hwnd, [switch]$Topmost) {
   $HWND_TOPMOST = [IntPtr](-1)
-  # Diese Funktion soll das bereits verifizierte SSE-HWND bewusst aktivieren.
+  # Diese Funktion soll das bereits verifizierte Ziel-HWND bewusst aktivieren.
   # SWP_NOACTIVATE waere hier widerspruechlich und liess ein davorliegendes
   # Topmost-Fenster trotz erfolgreichem SetWindowPos aktiv.
   $SWP = 0x0001 -bor 0x0002 # NOSIZE | NOMOVE
   if ([SW]::IsIconic($hwnd)) { [SW]::ShowWindow($hwnd, 9) | Out-Null; Start-Sleep -Milliseconds 500 }
-  [SW]::SetWindowPos($hwnd, $HWND_TOPMOST, 0, 0, 0, 0, $SWP) | Out-Null
+  if ($Topmost) { [SW]::SetWindowPos($hwnd, $HWND_TOPMOST, 0, 0, 0, 0, $SWP) | Out-Null }
   [SW]::BringWindowToTop($hwnd) | Out-Null
-  $direct = [SW]::SetForegroundWindow($hwnd)
-  Start-Sleep -Milliseconds 150
+  $null = [SW]::SetForegroundWindow($hwnd)
   # SetForegroundWindow kann Erfolg melden, obwohl Windows oder der Benutzer
   # den Vordergrund im selben Moment wieder aendert. Nur das tatsaechliche
   # exakte HWND gilt als Erfolg; andernfalls trotzdem den AttachThreadInput-
   # Fallback versuchen statt den irrefuehrenden API-Rueckgabewert zu glauben.
-  if ($direct -and [SW]::GetForegroundWindow() -eq $hwnd) { return $true }
+  if (Wait-SSEExactForeground $hwnd 150) { return $true }
 
   $vorne = [SW]::GetForegroundWindow()
   $fremd = 0; [SW]::GetWindowThreadProcessId($vorne, [ref]$fremd) | Out-Null
@@ -1443,7 +1573,6 @@ function Show-SSEWindow([IntPtr]$hwnd) {
   $zielPid = 0
   $tidZiel = [SW]::GetWindowThreadProcessId($hwnd, [ref]$zielPid)
   $tidSelbst = [SW]::GetCurrentThreadId()
-  $ok = $false
   $attachedForeground = $false; $attachedTarget = $false; $attachedQueues = $false
   try {
     if ($tidFremd -ne 0 -and $tidFremd -ne $tidSelbst) {
@@ -1456,16 +1585,174 @@ function Show-SSEWindow([IntPtr]$hwnd) {
       $attachedQueues = [SW]::AttachThreadInput($tidFremd, $tidZiel, $true)
     }
     [SW]::BringWindowToTop($hwnd) | Out-Null
-    $ok = [SW]::SetForegroundWindow($hwnd)
+    $null = [SW]::SetForegroundWindow($hwnd)
   } finally {
     if ($attachedQueues) { [SW]::AttachThreadInput($tidFremd, $tidZiel, $false) | Out-Null }
     if ($attachedTarget) { [SW]::AttachThreadInput($tidSelbst, $tidZiel, $false) | Out-Null }
     if ($attachedForeground) { [SW]::AttachThreadInput($tidSelbst, $tidFremd, $false) | Out-Null }
   }
-  Start-Sleep -Milliseconds 200
-  if ($ok -and [SW]::GetForegroundWindow() -eq $hwnd) { return $true }
+  if (Wait-SSEExactForeground $hwnd 200) { return $true }
 
   return $false
+}
+
+function Enter-SSEForegroundLease([IntPtr]$Hwnd) {
+  $lease = $script:SSE_FOREGROUND_LEASE
+  $lease.lastAcquireRaised = $false
+  if ($Hwnd -eq [IntPtr]::Zero -or -not [SW]::IsWindow($Hwnd)) { return $false }
+
+  # watch bleibt auch bei depth=0 bis Emit gesetzt. Ein zwischenzeitliches
+  # Hide nimmt nur TOPMOST zurueck; es darf den Benutzerfokus nicht vor einer
+  # direkt folgenden Tabellen-/Dialogtaste wiederherstellen.
+  if ($null -eq $lease.watch) {
+    $lease.rootHwnd = [int64]$Hwnd
+    $targetPid = 0; [SW]::GetWindowThreadProcessId($Hwnd, [ref]$targetPid) | Out-Null
+    $lease.targetPid = [int]$targetPid
+    $lease.previousForeground = [int64][SW]::GetForegroundWindow()
+    $cursor = New-Object SW+PT
+    $lease.previousCursor = $(if ([SW]::GetCursorPos([ref]$cursor)) {
+      [pscustomobject]@{ x=[int]$cursor.X; y=[int]$cursor.Y }
+    } else { $null })
+    $lease.raisedWindows.Clear()
+    $lease.acquisitions = 0; $lease.raises = 0; $lease.topmostCycles = 0; $lease.releases = 0
+    $lease.lastOwnedInputTick = Get-SSELastInputTick
+    $lease.ownedCursorPoint = $null
+    $lease.foregroundHeldMs = 0; $lease.foregroundRestored = $false; $lease.cursorRestored = $false
+    $lease.releasedByEmit = $false; $lease.restoreSkippedReason = $null; $lease.cleanupError = $null
+    $lease.watch = [Diagnostics.Stopwatch]::StartNew()
+  }
+
+  $lease.depth = [int]$lease.depth + 1
+  $lease.acquisitions = [int]$lease.acquisitions + 1
+  if ([int]$lease.acquisitions -gt 1 -and [SW]::GetForegroundWindow() -eq $Hwnd) {
+    return $true
+  }
+
+  if ([int64]$Hwnd -notin @($lease.raisedWindows)) { $null = $lease.raisedWindows.Add([int64]$Hwnd) }
+  $lease.lastAcquireRaised = $true
+  $lease.raises = [int]$lease.raises + 1
+  $lease.topmostCycles = [int]$lease.topmostCycles + 1
+  Set-SSEForegroundWindowCore $Hwnd -Topmost
+}
+
+function Show-SSEWindow([IntPtr]$hwnd) {
+  Enter-SSEForegroundLease $hwnd
+}
+
+function Set-SSEForegroundLeaseInputCheckpoint($InputTick, $CursorPoint = $null) {
+  $lease = $script:SSE_FOREGROUND_LEASE
+  # watch bleibt absichtlich bis Emit aktiv, auch wenn ein zwischenzeitliches
+  # Hide die Verschachtelung auf 0 gebracht hat. Tabellen und Dateidialoge
+  # senden ihre Taste direkt nach einem verifizierten Klick; diese eigene
+  # Eingabe muss weiterhin von echter Benutzerinterferenz unterscheidbar sein.
+  if ($null -eq $lease.watch -or $null -eq $InputTick) { return }
+  $lease.lastOwnedInputTick = [uint64]$InputTick
+  if ($CursorPoint) {
+    $lease.ownedCursorPoint = [pscustomobject]@{ x=[int]$CursorPoint.x; y=[int]$CursorPoint.y }
+  }
+}
+
+function Exit-SSEForegroundLease {
+  param([IntPtr]$Hwnd = [IntPtr]::Zero, [switch]$Force, [string]$Reason = 'explicit')
+  $lease = $script:SSE_FOREGROUND_LEASE
+  $HWND_NOTOPMOST = [IntPtr](-2)
+  $SWP = 0x0001 -bor 0x0002 -bor 0x0010 # NOSIZE | NOMOVE | NOACTIVATE
+
+  if ($null -eq $lease.watch) {
+    if ($Hwnd -ne [IntPtr]::Zero -and [SW]::IsWindow($Hwnd)) {
+      [SW]::SetWindowPos($Hwnd, $HWND_NOTOPMOST, 0, 0, 0, 0, $SWP) | Out-Null
+    }
+    return
+  }
+  if (-not $Force) {
+    if ([int]$lease.depth -gt 0) { $lease.depth = [int]$lease.depth - 1 }
+    if ([int]$lease.depth -gt 0) { return }
+    # Fokus und Cursor bleiben bis zum gemeinsamen Emit-Ausgang gebunden.
+    # TOPMOST wird dagegen sofort entfernt, damit Readback/OCR den Desktop
+    # nicht laenger als fuer den physischen Abschnitt ueberdeckt.
+    foreach ($raisedRaw in @($lease.raisedWindows)) {
+      try {
+        $raised = [IntPtr][int64]$raisedRaw
+        if ([SW]::IsWindow($raised)) {
+          [SW]::SetWindowPos($raised, $HWND_NOTOPMOST, 0, 0, 0, 0, $SWP) | Out-Null
+        }
+      } catch { $lease.cleanupError = $_.Exception.Message }
+    }
+    return
+  } else {
+    $lease.releasedByEmit = ($Reason -eq 'emit')
+    $lease.depth = 0
+  }
+
+  $lease.releases = [int]$lease.releases + 1
+  if ($lease.watch) {
+    $lease.watch.Stop()
+    $lease.foregroundHeldMs = [int64]$lease.watch.ElapsedMilliseconds
+  }
+  foreach ($raisedRaw in @($lease.raisedWindows)) {
+    try {
+      $raised = [IntPtr][int64]$raisedRaw
+      if ([SW]::IsWindow($raised)) {
+        [SW]::SetWindowPos($raised, $HWND_NOTOPMOST, 0, 0, 0, 0, $SWP) | Out-Null
+      }
+    } catch { $lease.cleanupError = $_.Exception.Message }
+  }
+
+  $inputUnchanged = [bool]($null -ne $lease.lastOwnedInputTick -and
+    (Test-SSELastInputUnchanged $lease.lastOwnedInputTick))
+  if ($inputUnchanged -and $lease.previousCursor -and $lease.ownedCursorPoint) {
+    try {
+      $currentCursor = New-Object SW+PT
+      if ([SW]::GetCursorPos([ref]$currentCursor) -and
+          [Math]::Abs([int]$currentCursor.X - [int]$lease.ownedCursorPoint.x) -le 2 -and
+          [Math]::Abs([int]$currentCursor.Y - [int]$lease.ownedCursorPoint.y) -le 2) {
+        $lease.cursorRestored = [bool][SW]::SetCursorPos(
+          [int]$lease.previousCursor.x, [int]$lease.previousCursor.y)
+      }
+    } catch { $lease.cleanupError = $_.Exception.Message }
+  }
+
+  $previous = [IntPtr][int64]$lease.previousForeground
+  $current = [SW]::GetForegroundWindow()
+  $currentPid = 0
+  if ($current -ne [IntPtr]::Zero) { [SW]::GetWindowThreadProcessId($current, [ref]$currentPid) | Out-Null }
+  $previousPid = 0
+  if ($previous -ne [IntPtr]::Zero) { [SW]::GetWindowThreadProcessId($previous, [ref]$previousPid) | Out-Null }
+  if (-not $inputUnchanged) {
+    $lease.restoreSkippedReason = 'input-changed'
+  } elseif ($previous -eq [IntPtr]::Zero -or -not [SW]::IsWindow($previous)) {
+    $lease.restoreSkippedReason = 'previous-window-stale'
+  } elseif ($previousPid -eq [int]$lease.targetPid) {
+    $lease.restoreSkippedReason = 'previous-window-is-sse'
+  } elseif (Test-SSEWindowIsLockScreen $previous) {
+    $lease.restoreSkippedReason = 'previous-window-is-lockscreen'
+  } elseif ($current -eq $previous) {
+    $lease.foregroundRestored = $true
+    $lease.restoreSkippedReason = 'already-restored'
+  } elseif ($currentPid -ne [int]$lease.targetPid) {
+    $lease.restoreSkippedReason = 'foreground-changed'
+  } else {
+    try {
+      $lease.foregroundRestored = [bool](Set-SSEForegroundWindowCore $previous)
+      if (-not $lease.foregroundRestored) { $lease.restoreSkippedReason = 'windows-denied-restore' }
+    } catch {
+      $lease.cleanupError = $_.Exception.Message
+      $lease.restoreSkippedReason = 'restore-error'
+    }
+  }
+  $lease.watch = $null
+}
+
+function Get-SSEForegroundLeaseTelemetry {
+  $lease = $script:SSE_FOREGROUND_LEASE
+  [pscustomobject]@{
+    acquisitions=[int]$lease.acquisitions; raises=[int]$lease.raises
+    topmostCycles=[int]$lease.topmostCycles; releases=[int]$lease.releases
+    foregroundHeldMs=[int64]$lease.foregroundHeldMs
+    foregroundRestored=[bool]$lease.foregroundRestored; cursorRestored=[bool]$lease.cursorRestored
+    releasedByEmit=[bool]$lease.releasedByEmit; restoreSkippedReason=$lease.restoreSkippedReason
+    cleanupError=$lease.cleanupError
+  }
 }
 
 # Nicht jeder gefaehrliche Befehl ist ein Versandweg. Datenuebernahme,
@@ -1495,7 +1782,14 @@ function Assert-SSEDestructiveAcknowledgement($a, [string[]]$Names) {
   }
 }
 function Hide-SSETopmost([IntPtr]$hwnd) {
-  [SW]::SetWindowPos($hwnd, [IntPtr](-2), 0, 0, 0, 0, (0x0001 -bor 0x0002 -bor 0x0010)) | Out-Null
+  Exit-SSEForegroundLease -Hwnd $hwnd
+}
+
+# Ein abgeschlossener physischer Abschnitt gibt Benutzerfokus und Cursor
+# sofort zurueck. Emit bleibt der gemeinsame Safety-Net-Ausgang, falls eine
+# Exception vor diesem expliziten Abschluss abbricht.
+function Complete-SSEPhysicalSection([IntPtr]$hwnd) {
+  Exit-SSEForegroundLease -Hwnd $hwnd -Force -Reason 'physical-section'
 }
 
 # ---------------------------------------------------------------- Kanarienvogel
@@ -1787,6 +2081,62 @@ function Walk-Tree {
   Get-UiSnapshot $hwnd $MaxNodes $TimeoutSec $MaxDepth -WithValues:$WithValues -WithScroll:$WithScroll
 }
 
+# Baumlauf, der NUR den eigenen Inhalt des gebundenen Fensters liefert.
+#
+# UIA haengt ein besessenes Fenster als Kind an seinen Besitzer. Ein Lauf ab
+# dem Hauptfenster enthaelt deshalb auch nicht-modale Fenster wie die
+# Werte-Info; deren Header-/DataItem-Knoten liegen mitten im Inhaltsbereich
+# und sind allein ueber X/Y nicht von der Seite zu trennen. Seitenlesende
+# Operationen muessen diesen Lauf verwenden, damit sie nicht die Tabelle eines
+# fremden Fensters als Seiteninhalt melden.
+function Walk-BoundTree {
+  param([IntPtr]$hwnd, [int]$MaxNodes = 4000, [int]$TimeoutSec = 45, [int]$MaxDepth = 16,
+        [switch]$WithValues, [switch]$WithScroll)
+  $roh = Get-UiSnapshot $hwnd $MaxNodes $TimeoutSec $MaxDepth -WithValues:$WithValues -WithScroll:$WithScroll
+  $scope = Split-SSEWindowScope $roh.nodes
+  [pscustomobject]@{
+    nodes = @($scope.own)
+    stats = $roh.stats
+    fremdeFenster = @($scope.foreign)
+    alleKnoten = @($roh.nodes)
+  }
+}
+
+# Stabile AutomationId der Seitenueberschrift aus dem Profilkatalog.
+# Einmal je Arbeitsprozess gelesen; der Katalog liegt sonst bei jeder
+# Seitenabfrage erneut auf der Platte.
+$script:SSE_HEADING_AID_SUFFIX = $null
+function Get-SSEHeadingAidSuffix {
+  if ($null -eq $script:SSE_HEADING_AID_SUFFIX) {
+    $catalog = Get-SSEPageObjects
+    $suffix = [string]$catalog.windows.main.headingAutomationIdSuffix
+    if (-not $suffix) {
+      Fail 'Page-Object-Katalog nennt keine headingAutomationIdSuffix fuer das Hauptfenster.' 'invalid-catalog'
+    }
+    $script:SSE_HEADING_AID_SUFFIX = $suffix
+  }
+  $script:SSE_HEADING_AID_SUFFIX
+}
+
+# Seitenueberschrift bestimmen. Bevorzugt der stabile Kopfknoten; nur wenn die
+# Seite gar keinen besitzt, wird das alte Y-Band als AUSGEWIESENER Rueckfall
+# verwendet. Der frueher unmarkierte Rueckfall hat auf einer Uebersichtsseite
+# den Absatz "der SteuerSparErklaerung fuer das Steuerjahr 2025." als
+# Seitentitel gemeldet.
+function Get-SSEHeading {
+  param($Tree, $Bounds, [IntPtr]$hwnd)
+  $kopf = Get-SSEPageHeadingNode $Tree.nodes (Get-SSEHeadingAidSuffix)
+  if ($kopf) {
+    return [pscustomobject]@{ text = [string]$kopf.name; quelle = 'clientHeader' }
+  }
+  $r = New-Object SW+RC; [SW]::GetWindowRect($hwnd, [ref]$r) | Out-Null
+  $geraten = ($Tree.nodes | Where-Object {
+    $_.type -eq 'Text' -and $_.x -ge $Bounds.minX -and $_.x -le $Bounds.maxX -and
+    $_.y -ge ($r.T + 190) -and $_.y -le ($r.T + 290)
+  } | Sort-Object y | Select-Object -First 1).name
+  [pscustomobject]@{ text = [string]$geraten; quelle = 'geometrie-rueckfall' }
+}
+
 # Grenzen des Arbeitsbereichs bestimmen. NICHT fest verdrahten: das Fenster
 # ist mal 1768, mal 2578 px breit. Links endet der Navigationsbaum (Tree),
 # rechts beginnt die Hilfespalte (Knopf "Eingabehilfe").
@@ -2020,6 +2370,7 @@ function Read-CheckerCompleteInteractiveLegacy {
     $null = Show-SSEWindow $hwnd
     $focusUsed = $true
     [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
+    Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick)
     Start-Sleep -Milliseconds 750
 
     # Liegt der Fokusanker am unteren Fensterrand, kann die zugleich geoeffnete
@@ -2035,6 +2386,7 @@ function Read-CheckerCompleteInteractiveLegacy {
       for ($wheelStep = 0; $wheelStep -lt 6; $wheelStep++) {
         [SW]::mouse_event(0x0800, 0, 0, $wheelDown, [IntPtr]::Zero)
       }
+      Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick) ([pscustomobject]@{ x=$wheelX; y=$wheelY })
       Start-Sleep -Milliseconds 700
     }
     Hide-SSETopmost $hwnd
@@ -2783,6 +3135,29 @@ function Test-SSEForegroundIsLockScreen {
   }
   $className = Get-SSEWindowClassName $foregroundRoot
   [bool]($processName -eq 'LockApp' -or $className -match 'LockScreenBackstopFrame')
+}
+
+# Reine Messung. Der Phasenlog veraendert keine Vor-/Nachbedingung und wird
+# nur additiv in die Antwort aufgenommen, damit eine Optimierung an gemessenen
+# statt geratenen Kosten ansetzen kann.
+function New-SSEPhaseLog {
+  [pscustomobject]@{
+    items = New-Object System.Collections.ArrayList
+    watch = [Diagnostics.Stopwatch]::StartNew()
+    total = [Diagnostics.Stopwatch]::StartNew()
+  }
+}
+function Complete-SSEPhase($Log, [string]$Name) {
+  if (-not $Log) { return }
+  $null = $Log.items.Add([pscustomobject]@{ phase=$Name; ms=[int64]$Log.watch.ElapsedMilliseconds })
+  $Log.watch.Restart()
+}
+function Get-SSEPhaseReport($Log) {
+  if (-not $Log) { return $null }
+  [pscustomobject]@{
+    gesamtMs = [int64]$Log.total.ElapsedMilliseconds
+    phasen = @($Log.items)
+  }
 }
 
 function New-SSECommitResult([string]$Method, $InputBefore = $null, $InputAfter = $null, $Details = $null) {
@@ -3734,12 +4109,12 @@ function Commit-TrackedValue([IntPtr]$Hwnd, $Node, [string]$Value, [string]$Expe
     # Beweis wird kein einziges Eingabezeichen gesendet.
     $foregroundPrepared = Show-SSEWindow $Hwnd
     if (-not [SW]::IsWindow($Hwnd)) {
-      Hide-SSETopmost $Hwnd
+      Complete-SSEPhysicalSection $Hwnd
       return New-SSECommitResult 'stale-window'
     }
     $inputBefore = Get-SSELastInputTick
     if ($null -eq $inputBefore) {
-      Hide-SSETopmost $Hwnd
+      Complete-SSEPhysicalSection $Hwnd
       return New-SSECommitResult 'interference-input-guard-unavailable'
     }
 
@@ -3751,11 +4126,11 @@ function Commit-TrackedValue([IntPtr]$Hwnd, $Node, [string]$Value, [string]$Expe
     $vp = $null
     if (-not $target -or -not $target.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$vp) -or
         $vp.Current.IsReadOnly -or -not (Test-SSEScalarEqual $vp.Current.Value $ExpectedCurrent)) {
-      Hide-SSETopmost $Hwnd; return New-SSECommitResult 'epoch-value-changed' $inputBefore (Get-SSELastInputTick)
+      Complete-SSEPhysicalSection $Hwnd; return New-SSECommitResult 'epoch-value-changed' $inputBefore (Get-SSELastInputTick)
     }
     $rectangle = $target.Current.BoundingRectangle
     if ([double]::IsInfinity($rectangle.X) -or $rectangle.Width -le 0 -or $rectangle.Height -le 0) {
-      Hide-SSETopmost $Hwnd; return New-SSECommitResult 'epoch-offscreen' $inputBefore (Get-SSELastInputTick)
+      Complete-SSEPhysicalSection $Hwnd; return New-SSECommitResult 'epoch-offscreen' $inputBefore (Get-SSELastInputTick)
     }
     if ([Math]::Abs([int]$rectangle.X - [int]$Node.x) -gt 3 -or [Math]::Abs([int]$rectangle.Y - [int]$Node.y) -gt 3) {
       $positionDetails = [pscustomobject]@{
@@ -3765,7 +4140,7 @@ function Commit-TrackedValue([IntPtr]$Hwnd, $Node, [string]$Value, [string]$Expe
           w=[int]$rectangle.Width; h=[int]$rectangle.Height
         }
       }
-      Hide-SSETopmost $Hwnd
+      Complete-SSEPhysicalSection $Hwnd
       return New-SSECommitResult 'epoch-position-changed' $inputBefore (Get-SSELastInputTick) $positionDetails
     }
     $px = [int]($rectangle.X + $rectangle.Width / 2)
@@ -3783,12 +4158,12 @@ function Commit-TrackedValue([IntPtr]$Hwnd, $Node, [string]$Value, [string]$Expe
         foregroundHwnd=[int64][SW]::GetForegroundWindow()
         foregroundPrepared=[bool]$foregroundPrepared
       }
-      Hide-SSETopmost $Hwnd
+      Complete-SSEPhysicalSection $Hwnd
       return New-SSECommitResult 'epoch-obstructed' $inputBefore (Get-SSELastInputTick) $obstructionDetails
     }
     if (-not (Test-SSELastInputUnchanged $inputBefore)) {
       $changedAt = Get-SSELastInputTick
-      Hide-SSETopmost $Hwnd
+      Complete-SSEPhysicalSection $Hwnd
       return New-SSECommitResult 'interference-before-click' $inputBefore $changedAt
     }
 
@@ -3797,47 +4172,262 @@ function Commit-TrackedValue([IntPtr]$Hwnd, $Node, [string]$Value, [string]$Expe
     [SW]::mouse_event(0x0004, 0, 0, 0, [IntPtr]::Zero)
     Start-Sleep -Milliseconds 20
     $afterClickInput = Get-SSELastInputTick
+    Set-SSEForegroundLeaseInputCheckpoint $afterClickInput ([pscustomobject]@{ x=$px; y=$py })
     Start-Sleep -Milliseconds 60
     if (-not (Test-SSELastInputUnchanged $afterClickInput) -or [SW]::GetForegroundWindow() -ne $Hwnd) {
       $changedAt = Get-SSELastInputTick
-      Hide-SSETopmost $Hwnd
+      Complete-SSEPhysicalSection $Hwnd
       return New-SSECommitResult 'interference-before-input' $inputBefore $changedAt
     }
     $focused = [System.Windows.Automation.AutomationElement]::FocusedElement
-    $focusedRid = $(try { $focused.GetRuntimeId() -join '.' } catch { '' })
-    $focusedAid = $(try { $focused.Current.AutomationId } catch { '' })
-    if ($focusedRid -ne $Node.rid -and $focusedAid -ne $Node.aid) {
-      Hide-SSETopmost $Hwnd; return New-SSECommitResult 'focus-mismatch' $inputBefore (Get-SSELastInputTick)
+    $focusBound = $false
+    $focusChain = New-Object System.Collections.ArrayList
+    $focusProbe = $focused
+    for ($focusLevel = 0; $focusLevel -lt 8 -and $focusProbe; $focusLevel++) {
+      $probeRid = $(try { $focusProbe.GetRuntimeId() -join '.' } catch { '' })
+      $probeAid = $(try { [string]$focusProbe.Current.AutomationId } catch { '' })
+      $probeType = $(try { $focusProbe.Current.ControlType.ProgrammaticName.Replace('ControlType.','') } catch { '' })
+      $null = $focusChain.Add([pscustomobject]@{ level=$focusLevel; rid=$probeRid; aid=$probeAid; type=$probeType })
+      if (($Node.rid -and $probeRid -eq $Node.rid) -or ($Node.aid -and $probeAid -eq $Node.aid)) {
+        $focusBound = $true
+        break
+      }
+      try { $focusProbe = $WLK.GetParent($focusProbe) } catch { $focusProbe = $null }
+    }
+    if (-not $focusBound) {
+      $focusDetails = [pscustomobject]@{
+        expectedRid=[string]$Node.rid; expectedAid=[string]$Node.aid
+        foregroundHwnd=[int64][SW]::GetForegroundWindow()
+        chain=@($focusChain)
+      }
+      Complete-SSEPhysicalSection $Hwnd
+      return New-SSECommitResult 'focus-mismatch' $inputBefore (Get-SSELastInputTick) $focusDetails
     }
     [System.Windows.Forms.SendKeys]::SendWait('^a')
     $afterSelectInput = Get-SSELastInputTick
+    Set-SSEForegroundLeaseInputCheckpoint $afterSelectInput ([pscustomobject]@{ x=$px; y=$py })
     Start-Sleep -Milliseconds 40
     if (-not (Test-SSELastInputUnchanged $afterSelectInput) -or [SW]::GetForegroundWindow() -ne $Hwnd) {
       $changedAt = Get-SSELastInputTick
-      Hide-SSETopmost $Hwnd
+      Complete-SSEPhysicalSection $Hwnd
       return New-SSECommitResult 'interference-before-value' $inputBefore $changedAt
     }
     if ($Value) {
       [System.Windows.Forms.SendKeys]::SendWait((ConvertTo-SendKeysLiteral $Value))
       $afterValueInput = Get-SSELastInputTick
+      Set-SSEForegroundLeaseInputCheckpoint $afterValueInput ([pscustomobject]@{ x=$px; y=$py })
       Start-Sleep -Milliseconds 60
       if (-not (Test-SSELastInputUnchanged $afterValueInput) -or [SW]::GetForegroundWindow() -ne $Hwnd) {
         $changedAt = Get-SSELastInputTick
-        Hide-SSETopmost $Hwnd
+        Complete-SSEPhysicalSection $Hwnd
         return New-SSECommitResult 'interference-after-value' $inputBefore $changedAt
       }
     }
     [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
     $afterCommitInput = Get-SSELastInputTick
-    Start-Sleep -Milliseconds 700
-    if (-not (Test-SSELastInputUnchanged $afterCommitInput) -or [SW]::GetForegroundWindow() -ne $Hwnd) {
-      $changedAt = Get-SSELastInputTick
-      Hide-SSETopmost $Hwnd
-      return New-SSECommitResult 'interference-after-commit' $inputBefore $changedAt
+    Set-SSEForegroundLeaseInputCheckpoint $afterCommitInput ([pscustomobject]@{ x=$px; y=$py })
+    $settleWatch = [Diagnostics.Stopwatch]::StartNew()
+    $settleAttempts = 0
+    $settledValue = $null
+    $settledEarly = $false
+    while ($settleWatch.ElapsedMilliseconds -lt 700) {
+      Start-Sleep -Milliseconds 50
+      $settleAttempts++
+      if (-not (Test-SSELastInputUnchanged $afterCommitInput) -or [SW]::GetForegroundWindow() -ne $Hwnd) {
+        $changedAt = Get-SSELastInputTick
+        Complete-SSEPhysicalSection $Hwnd
+        return New-SSECommitResult 'interference-after-commit' $inputBefore $changedAt ([pscustomobject]@{
+          settleMs=[int64]$settleWatch.ElapsedMilliseconds; settleAttempts=$settleAttempts
+        })
+      }
+      try { $settledValue = [string]$vp.Current.Value } catch { $settledValue = $null }
+      if ($null -ne $settledValue -and (Test-SSEScalarEqual $settledValue $Value)) {
+        $settledEarly = $true
+        break
+      }
     }
-    Hide-SSETopmost $Hwnd
-    return New-SSECommitResult 'verified-keyboard-replace' $inputBefore $afterCommitInput
-  } catch { Hide-SSETopmost $Hwnd; return New-SSECommitResult 'failed' }
+    $settleDetails = [pscustomobject]@{
+      settleMs=[int64]$settleWatch.ElapsedMilliseconds; settleAttempts=$settleAttempts
+      settledEarly=$settledEarly; observedValue=$settledValue
+    }
+    Complete-SSEPhysicalSection $Hwnd
+    return New-SSECommitResult 'verified-keyboard-replace' $inputBefore $afterCommitInput $settleDetails
+  } catch { Complete-SSEPhysicalSection $Hwnd; return New-SSECommitResult 'failed' }
+}
+
+function Commit-TrackedValueFocusless([IntPtr]$Hwnd, $Node, [string]$Value, [string]$ExpectedCurrent) {
+  # The exact UIA field is bound on the private desktop. Qt receives only a
+  # queued Tab commit after ValuePattern replacement; the visible desktop and
+  # physical input channel are never touched.
+  if (-not $script:DESKTOP_NAME) {
+    return New-SSECommitResult 'none-focusless-desktop-required'
+  }
+  if (-not [SW]::IsWindow($Hwnd)) { return New-SSECommitResult 'stale-window' }
+  $strategy = 'value-pattern-tab'
+
+  try {
+    $expectedPid = 0
+    [SW]::GetWindowThreadProcessId($Hwnd, [ref]$expectedPid) | Out-Null
+    if ($expectedPid -le 0) { return New-SSECommitResult 'stale-window' }
+
+    $target = Get-LiveElement $Hwnd $Node.rid $Node.aid
+    $vp = $null
+    if (-not $target -or
+        -not $target.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$vp) -or
+        $vp.Current.IsReadOnly) {
+      return New-SSECommitResult 'epoch-value-changed'
+    }
+    $currentComparable = [string]$vp.Current.Value
+    if ([string]$Node.type -eq 'DataItem' -and -not $currentComparable) {
+      $currentComparable = [string]$target.Current.Name
+    }
+    if (-not (Test-SSEScalarEqual $currentComparable $ExpectedCurrent)) {
+      return New-SSECommitResult 'epoch-value-changed'
+    }
+    if ([int]$target.Current.ProcessId -ne $expectedPid) {
+      return New-SSECommitResult 'focusless-process-mismatch'
+    }
+
+    # A just-closed nonmodal result window does not return Qt's active focus
+    # to the main window. Activate the top-level UIA element inside the same
+    # private desktop before binding the exact child field.
+    $mainElement = [System.Windows.Automation.AutomationElement]::FromHandle($Hwnd)
+    if (-not $mainElement -or [int]$mainElement.Current.ProcessId -ne $expectedPid) {
+      return New-SSECommitResult 'focusless-main-window-mismatch'
+    }
+    $mainElement.SetFocus()
+    Start-Sleep -Milliseconds 30
+
+    $selectedByPattern = $false
+    if ([string]$Node.type -eq 'DataItem') {
+      $selectionItem = $null
+      if ($target.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$selectionItem)) {
+        $selectionItem.Select()
+        $selectedByPattern = $true
+        Start-Sleep -Milliseconds 30
+      }
+    }
+    $target.SetFocus()
+    $focusWatch = [Diagnostics.Stopwatch]::StartNew()
+    $focusBound = $false
+    $tableParent = $null
+    while ($focusWatch.ElapsedMilliseconds -lt 500) {
+      $focusBound = $(try { [bool]$target.Current.HasKeyboardFocus } catch { $false })
+      if ($focusBound) { break }
+      Start-Sleep -Milliseconds 20
+    }
+    $focusMode = $(if ($focusBound) { 'exact-element' } else { '' })
+    if (-not $focusBound -and $selectedByPattern -and $selectionItem) {
+      $selectedExactly = $(try { [bool]$selectionItem.Current.IsSelected } catch { $false })
+      $tableParent = $(try { $WLK.GetParent($target) } catch { $null })
+      $tableFocused = [bool]($tableParent -and
+        $(try { $tableParent.Current.ControlType -eq [System.Windows.Automation.ControlType]::Table } catch { $false }) -and
+        $(try { [bool]$tableParent.Current.HasKeyboardFocus } catch { $false }))
+      if ($selectedExactly -and $tableFocused) {
+        $focusBound = $true
+        $focusMode = 'selected-item-focused-table'
+      }
+    }
+    if (-not $focusBound) {
+      $focusHierarchy = New-Object System.Collections.ArrayList
+      $focusProbe = $target
+      for ($focusLevel = 0; $focusLevel -lt 8 -and $focusProbe; $focusLevel++) {
+        $null = $focusHierarchy.Add([pscustomobject]@{
+          level=$focusLevel
+          rid=$(try { $focusProbe.GetRuntimeId() -join '.' } catch { '' })
+          aid=$(try { [string]$focusProbe.Current.AutomationId } catch { '' })
+          type=$(try { $focusProbe.Current.ControlType.ProgrammaticName.Replace('ControlType.','') } catch { '' })
+          hasKeyboardFocus=$(try { [bool]$focusProbe.Current.HasKeyboardFocus } catch { $false })
+          keyboardFocusable=$(try { [bool]$focusProbe.Current.IsKeyboardFocusable } catch { $false })
+        })
+        try { $focusProbe = $WLK.GetParent($focusProbe) } catch { $focusProbe = $null }
+      }
+      return New-SSECommitResult 'focus-mismatch' $null $null ([pscustomobject]@{
+        desktop=[string]$script:DESKTOP_NAME; expectedPid=[int]$expectedPid
+        expectedRid=[string]$Node.rid; expectedAid=[string]$Node.aid
+        focusMs=[int64]$focusWatch.ElapsedMilliseconds; selectedByPattern=$selectedByPattern
+        hierarchy=@($focusHierarchy)
+      })
+    }
+
+    $writeWatch = [Diagnostics.Stopwatch]::StartNew()
+    # Qt recalculates the whole page inside SetValue, so this single call is
+    # measured separately from the bounded readback loops that follow it.
+    $setValueWatch = [Diagnostics.Stopwatch]::StartNew()
+    $vp.SetValue($Value)
+    $setValueWatch.Stop()
+
+    $typedValue = $null
+    $typeWatch = [Diagnostics.Stopwatch]::StartNew()
+    while ($typeWatch.ElapsedMilliseconds -lt 1200) {
+      Start-Sleep -Milliseconds 20
+      if ([string]$Node.type -eq 'DataItem') {
+        $typedTarget = Get-LiveElement $Hwnd $Node.rid $Node.aid
+        $typedValue = $(if ($typedTarget) { [string]$typedTarget.Current.Name } else { $null })
+      } else {
+        $typedValue = [string]$vp.Current.Value
+      }
+      if (Test-SSEScalarEqual $typedValue $Value) { break }
+    }
+    if (-not (Test-SSEScalarEqual $typedValue $Value)) {
+      return New-SSECommitResult 'focusless-write-readback-mismatch' $null $null ([pscustomobject]@{
+        desktop=[string]$script:DESKTOP_NAME; strategy=$strategy
+        requested=$Value; observedValue=$typedValue
+        typeMs=[int64]$typeWatch.ElapsedMilliseconds
+      })
+    }
+
+    # lParam carries repeat=1 and the standard scan code 0x0f. The key-up
+    # bits match a released transition. Posting, rather than SendInput, keeps
+    # the messages inside the hidden desktop's SSE queue.
+    $VK_TAB = [int]0x09
+    $tabDown = [SW]::PostMessage($Hwnd, [uint32]0x0100, [IntPtr]$VK_TAB, [IntPtr][int64]0x000F0001)
+    Start-Sleep -Milliseconds 10
+    $tabUp = [SW]::PostMessage($Hwnd, [uint32]0x0101, [IntPtr]$VK_TAB, [IntPtr][int64]0xC00F0001)
+    if (-not $tabDown -or -not $tabUp) {
+      return New-SSECommitResult 'posted-tab-queue-failed' $null $null ([pscustomobject]@{
+        desktop=[string]$script:DESKTOP_NAME; tabDown=[bool]$tabDown; tabUp=[bool]$tabUp
+      })
+    }
+
+    $settledValue = $null
+    $settleWatch = [Diagnostics.Stopwatch]::StartNew()
+    $settleAttempts = 0
+    $settledEarly = $false
+    while ($settleWatch.ElapsedMilliseconds -lt 1200) {
+      Start-Sleep -Milliseconds 40
+      $settleAttempts++
+      if ([string]$Node.type -eq 'DataItem') {
+        $settledTarget = Get-LiveElement $Hwnd $Node.rid $Node.aid
+        $settledValue = $(if ($settledTarget) { [string]$settledTarget.Current.Name } else { $null })
+      } else {
+        $settledValue = [string]$vp.Current.Value
+      }
+      if (Test-SSEScalarEqual $settledValue $Value) { $settledEarly = $true; break }
+    }
+    if (-not $settledEarly) {
+      return New-SSECommitResult 'posted-tab-settle-mismatch' $null $null ([pscustomobject]@{
+        desktop=[string]$script:DESKTOP_NAME; requested=$Value; observedValue=$settledValue
+        settleMs=[int64]$settleWatch.ElapsedMilliseconds; settleAttempts=$settleAttempts
+      })
+    }
+    New-SSECommitResult 'verified-focusless-value-pattern-tab' $null $null ([pscustomobject]@{
+      desktop=[string]$script:DESKTOP_NAME; targetPid=[int]$expectedPid
+      strategy=$strategy; focusVerified=$focusBound; focusMode=$focusMode
+      focusMs=[int64]$focusWatch.ElapsedMilliseconds
+      selectedByPattern=$selectedByPattern
+      writeMs=[int64]$writeWatch.ElapsedMilliseconds
+      setValueMs=[int64]$setValueWatch.ElapsedMilliseconds
+      typeMs=[int64]$typeWatch.ElapsedMilliseconds
+      settleMs=[int64]$settleWatch.ElapsedMilliseconds; settleAttempts=$settleAttempts
+      settledEarly=$settledEarly; observedValue=$settledValue
+      foregroundLeaseUsed=$false; physicalInputUsed=$false
+    })
+  } catch {
+    New-SSECommitResult 'focusless-commit-failed' $null $null ([pscustomobject]@{
+      desktop=[string]$script:DESKTOP_NAME; strategy=$strategy; error=$_.Exception.Message
+    })
+  }
 }
 
 function Get-SSETrackedDateParts([string]$Value) {
@@ -3869,6 +4459,100 @@ function Test-SSETrackedValueEquivalent($Actual, $Expected, [string]$ValueKind =
 # ================================================================== Operationen
 
 switch ($Op) {
+
+  'focusless_write_probe' {
+    # Private test-only operation. It is deliberately absent from the API/MCP
+    # catalog and touches only the tax-neutral global search QLineEdit.
+    if (-not $script:DESKTOP_NAME -or $env:SSE_MCP_EXPERIMENT_FOCUSLESS -ne '1') {
+      Fail 'Focusless-Probe ist nur explizit auf dem privaten Desktop freigegeben.' 'blocked'
+    }
+    $hwnd = Resolve-Window $a
+    $expectedPid = 0
+    [SW]::GetWindowThreadProcessId($hwnd, [ref]$expectedPid) | Out-Null
+    $expectedBefore = [string](Arg $a 'expectedBefore' '')
+    $value = [string](Arg $a 'value' 'SSEWM42')
+    if ($expectedBefore -ne '') {
+      Fail 'Der neutrale Suchfeld-Probe startet nur von einem leeren Feld.' 'bad-args'
+    }
+    if (-not $value -or $value.Length -gt 64) {
+      Fail 'Probe-Wert muss 1 bis 64 UTF-16-Zeichen enthalten.' 'bad-args'
+    }
+    foreach ($character in $value.ToCharArray()) {
+      $code = [int]$character
+      if ($code -lt 0x20 -or $code -in @(0x00E5,0x00FF) -or
+          ($code -ge 0xD800 -and $code -le 0xDFFF)) {
+        Fail 'Probe-Wert enthaelt ein fuer Qt-WM_CHAR nicht sicher unterstuetztes Zeichen.' 'bad-args'
+      }
+    }
+    $dialogs = @(Get-DialogInventory | Where-Object { $_.kind -in @('native-dialog','qt-dialog') })
+    if ($dialogs.Count) { Fail 'Ein modaler Dialog blockiert den neutralen Suchfeld-Probe.' 'precondition-failed' }
+    $target = Find-ExactAutomationElement $hwnd '.MainToolBar.QWidget.SearchSSE.QLineEdit'
+    $vp = $null
+    if (-not $target -or [int]$target.Current.ProcessId -ne $expectedPid -or
+        -not $target.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$vp) -or
+        $vp.Current.IsReadOnly -or [string]$vp.Current.Value -ne $expectedBefore) {
+      Fail 'Globales Suchfeld ist nicht exakt leer und beschreibbar gebunden.' 'precondition-failed'
+    }
+    $focusBefore = $(try { [bool]$target.Current.HasKeyboardFocus } catch { $false })
+    try { $target.SetFocus() } catch {
+      Emit ([pscustomobject]@{
+        ok=$false; kind='probe-no-focus'; error=$_.Exception.Message
+        focusBefore=$focusBefore; focusAfter=$false; mutated=$false
+      })
+    }
+    Start-Sleep -Milliseconds 30
+    $focusAfter = $(try { [bool]$target.Current.HasKeyboardFocus } catch { $false })
+    if (-not $focusAfter) {
+      Emit ([pscustomobject]@{
+        ok=$false; kind='probe-no-focus'
+        error='Qt-UIA bestaetigte keinen internen Fokus auf dem Suchfeld; keine Nachricht gesendet.'
+        focusBefore=$focusBefore; focusAfter=$focusAfter; mutated=$false
+      })
+    }
+
+    $postWatch = [Diagnostics.Stopwatch]::StartNew()
+    $posted = 0
+    $postFailure = $null
+    foreach ($character in $value.ToCharArray()) {
+      $livePid = 0
+      [SW]::GetWindowThreadProcessId($hwnd, [ref]$livePid) | Out-Null
+      if (-not [SW]::IsWindow($hwnd) -or [SW]::IsHungAppWindow($hwnd) -or $livePid -ne $expectedPid) {
+        $postFailure = [pscustomobject]@{ kind='stale-or-hung'; index=$posted }
+        break
+      }
+      if (-not [SW]::PostMessage($hwnd, [uint32]0x0102, [IntPtr][int]$character, [IntPtr]1)) {
+        $postFailure = [pscustomobject]@{
+          kind='post-message-failed'; index=$posted
+          win32Error=[Runtime.InteropServices.Marshal]::GetLastWin32Error()
+        }
+        break
+      }
+      $posted++
+    }
+    $observed = [string]$vp.Current.Value
+    $readbackWatch = [Diagnostics.Stopwatch]::StartNew()
+    while (-not $postFailure -and $readbackWatch.ElapsedMilliseconds -lt 1200 -and
+           -not (Test-SSEScalarEqual $observed $value)) {
+      Start-Sleep -Milliseconds 20
+      $observed = [string]$vp.Current.Value
+    }
+
+    # Search is tax-neutral and restored through UIA even when the posted
+    # channel fails. This cleanup never serves as evidence for the channel.
+    $vp.SetValue($expectedBefore)
+    $restored = [string]$vp.Current.Value
+    $verified = [bool](-not $postFailure -and (Test-SSEScalarEqual $observed $value) -and $restored -eq $expectedBefore)
+    Emit ([pscustomobject]@{
+      ok=$verified; kind=$(if ($verified) { 'focusless-probe' } else { 'focusless-probe-failed' })
+      verified=$verified; method='wm-char-search-probe'; desktop=[string]$script:DESKTOP_NAME
+      hwnd=[int64]$hwnd; pid=[int]$expectedPid
+      focusBefore=$focusBefore; focusAfter=$focusAfter
+      requested=$value; observed=$observed; restored=$restored
+      postedCharacters=$posted; postFailure=$postFailure
+      postMs=[int64]$postWatch.ElapsedMilliseconds; readbackMs=[int64]$readbackWatch.ElapsedMilliseconds
+      foregroundLeaseUsed=$false; physicalInputUsed=$false; privateValuesPersisted=$false
+    })
+  }
 
   'page_objects' {
     $catalog = Get-SSEPageObjects
@@ -4807,7 +5491,7 @@ switch ($Op) {
 
   'read_table' {
     $hwnd = Resolve-Window $a
-    $t = Walk-Tree $hwnd
+    $t = Walk-BoundTree $hwnd
     # Kopfzellen bestimmen die Spalten. Doppelte Kopfnamen (Qt liefert sie
     # gelegentlich zweifach) werden ueber die X-Position zusammengefasst.
     $rohHeads = @($t.nodes | Where-Object { $_.type -eq 'Header' -and $_.name -and $_.w -gt 0 } | Sort-Object x)
@@ -4851,6 +5535,9 @@ switch ($Op) {
       ok = $true
       headers = @($heads | ForEach-Object { $_.name })
       rows = @($rows); rowCount = $rows.Count
+      # Fremde Fenster ausweisen. Frueher lieferte read_table bei geoeffneter
+      # Werte-Info deren Tabelle als Seiteninhalt - ohne jeden Hinweis.
+      ausgeschlosseneFenster = @($t.fremdeFenster)
       # Baumstatistik mitliefern: bei abgeschnittenem Baum sind Zeilen
       # verloren gegangen und das Ergebnis waere still unvollstaendig.
       stats = $t.stats
@@ -5522,25 +6209,26 @@ switch ($Op) {
       Fail 'expectedPage, expectedBefore, value und expectedAfter sind Pflicht.' 'bad-args'
     }
     $sumChecks = @((Arg $a 'sumChecks') | Where-Object { $null -ne $_ })
+    $trackResults = [bool](Arg $a 'trackResults' $(if ($script:DESKTOP_NAME) { $false } else { $true }))
     $fastKnown = [bool]($known -and $sumChecks.Count -eq 0)
+    $phaseLog = New-SSEPhaseLog
 
     $boundWrite = Resolve-BoundWriteWindow $a
     $hwnd = [IntPtr][int64]$boundWrite.window.hwnd
-    if ($script:DESKTOP_NAME) {
-      Fail ("Atomare Feldtransaktionen sind auf dem versteckten Desktop '$($script:DESKTOP_NAME)' gesperrt: " +
-            'Qt berechnet Summen erst nach einem echten Tastatur-Fokuswechsel. Sichtbar arbeiten, damit Readback und Rollback belastbar sind.') 'hidden-desktop'
-    }
     $can = Test-Canary $hwnd
     if (-not $can.ok) { Fail "Kanarienvogel traege ($($can.ms) ms) - neu starten." 'degraded' }
     $dialogs = @(Get-DialogInventory | Where-Object { $_.kind -in @('native-dialog','qt-dialog') })
     if ($dialogs.Count) { Fail 'Ein modaler Dialog ist offen; Feldtransaktion nicht gestartet.' 'precondition-failed' }
+    Complete-SSEPhase $phaseLog 'bind'
     $knownStateBefore = $(if ($known) { Get-KnownPageState $hwnd $known } else { $null })
     $expectedEpoch = [string](Arg $a 'expectedEpoch')
     if ($expectedEpoch -and $knownStateBefore.epoch -ne $expectedEpoch) {
       Fail "Page-Object-Epoche hat sich geaendert ($($knownStateBefore.epoch) statt $expectedEpoch). NICHT geaendert." 'precondition-failed'
     }
 
+    Complete-SSEPhase $phaseLog 'stateBefore'
     $beforeTree = $(if ($fastKnown) { $null } else { Walk-Tree $hwnd 5000 60 20 -WithValues })
+    Complete-SSEPhase $phaseLog 'beforeTree'
     $heading = $(if ($fastKnown) { $knownStateBefore.heading } else { Get-CurrentHeading $hwnd $beforeTree })
     $knownPageMatches = [bool](
       $known -and (Test-KnownPageHeading $heading $known.page) -and
@@ -5553,6 +6241,18 @@ switch ($Op) {
     if (-not $node) { Fail 'Zielfeld nicht eindeutig gefunden.' 'not-found' }
     if ($node.type -notin @('Edit','DataItem')) {
       Fail "Ziel ist '$($node.type)', erwartet wird ein beschreibbares Feld." 'bad-target'
+    }
+    $focuslessPolicy = $null
+    if ($script:DESKTOP_NAME) {
+      $focuslessPolicy = Resolve-SSEFocuslessCommitPolicy $heading $node $valueKind $sumChecks $beforeTree
+      if (-not $focuslessPolicy) {
+        Fail ("Focusless-Feldtransaktion ist fuer Seite '$heading', Typ '$($node.type)' und diesen Summenvertrag nicht profiliert. " +
+              'Nur live getestete Profilfelder duerfen ohne sichtbaren Fokus geschrieben werden.') 'hidden-desktop'
+      }
+      if ($trackResults) {
+        Fail ('Focusless-Profil prueft den fachlichen Seitenwert ueber den verpflichtenden Summenvertrag. ' +
+              'trackResults=true wuerde das interne Werte-Info-Fenster aktiv halten und ist deshalb vor der Mutation gesperrt.') 'hidden-desktop'
+      }
     }
     $element = Get-LiveElement $hwnd $node.rid $node.aid
     $vp = $null
@@ -5591,7 +6291,6 @@ switch ($Op) {
       })
     }
 
-    $trackResults = [bool](Arg $a 'trackResults' $true)
     $tracking = $null; $resultBefore = $null
     if ($trackResults) {
       $tracking = Open-TrackedResultWindow $hwnd
@@ -5605,7 +6304,9 @@ switch ($Op) {
 
     # Nach dem Oeffnen von Werte-Info das Hauptfenster und Zielfeld frisch
     # aufloesen; keine RuntimeId aus einem alten Baum blind weiterverwenden.
+    Complete-SSEPhase $phaseLog 'preconditions'
     $liveTree = $(if ($fastKnown) { $null } else { Walk-Tree $hwnd 5000 60 20 -WithValues })
+    Complete-SSEPhase $phaseLog 'liveTree'
     $knownStateLive = $(if ($known) { Get-KnownPageState $hwnd $known } else { $null })
     if ($fastKnown -and (-not (Test-KnownPageHeading $knownStateLive.heading $known.page) -or
         @($knownStateLive.fields | Where-Object { -not $_.present }).Count -ne 0)) {
@@ -5628,7 +6329,14 @@ switch ($Op) {
       Fail 'Zielfeld ist unmittelbar vor dem Schreiben nicht mehr beschreibbar.' 'stale'
     }
     $interactionWindowsBefore = Get-SSEInteractionWindowSet ([int]$boundWrite.window.pid) $hwnd
-    $commitResult = Commit-TrackedValue $hwnd $liveNode $requested $beforeRaw
+    $commitExpectedCurrent = $(if ($liveNode.type -eq 'DataItem' -and -not $beforeRaw) { $beforeDisplay } else { $beforeRaw })
+    Complete-SSEPhase $phaseLog 'resolveLiveNode'
+    $commitResult = $(if ($script:DESKTOP_NAME) {
+      Commit-TrackedValueFocusless $hwnd $liveNode $requested $commitExpectedCurrent
+    } else {
+      Commit-TrackedValue $hwnd $liveNode $requested $beforeRaw
+    })
+    Complete-SSEPhase $phaseLog 'commit'
     $commitMethod = [string]$commitResult.method
     $interactionWindowsAfter = Get-SSEInteractionWindowSet ([int]$boundWrite.window.pid) $hwnd
     $windowSetChanged = [bool]($interactionWindowsBefore.fingerprint -ne $interactionWindowsAfter.fingerprint)
@@ -5677,10 +6385,13 @@ switch ($Op) {
         }
         rollback=[pscustomobject]@{ versucht=$false; methode='not-attempted-after-interference'; ok=$null }
         ergebnisFensterGeschlossen=$false
+        zeitmessung=$(Complete-SSEPhase $phaseLog 'interference'; Get-SSEPhaseReport $phaseLog)
       })
     }
 
+    Complete-SSEPhase $phaseLog 'windowGuard'
     $afterTree = $(if ($fastKnown) { $null } else { Walk-Tree $hwnd 5000 60 20 -WithValues })
+    Complete-SSEPhase $phaseLog 'afterTree'
     $afterNode = $(if ($fastKnown) { Resolve-KnownFieldNode $hwnd $known } else { Resolve-TrackedFieldNode $afterTree $selectorArgs $hwnd })
     $knownStateAfter = $(if ($known) { Get-KnownPageState $hwnd $known } else { $null })
     $after = $null; $afterRaw = $null; $afterDisplay = $null
@@ -5720,7 +6431,7 @@ switch ($Op) {
       (Test-SSETrackedValueEquivalent $afterRaw $expectedAfter $valueKind) -or
       (Test-SSETrackedValueEquivalent $afterDisplay $expectedAfter $valueKind)
     )
-    $commitOk = ($commitMethod -eq 'verified-keyboard-replace')
+    $commitOk = ($commitMethod -in @('verified-keyboard-replace','verified-focusless-value-pattern-tab'))
     $allOk = [bool]($fieldOk -and $sumOk -and $resultOk -and $commitOk)
     if (-not $allOk) {
       $rollbackMethod = 'not-attempted'
@@ -5789,9 +6500,15 @@ switch ($Op) {
           # Fuer die Epochbindung den frisch gelesenen ROHEN aktuellen Wert
           # verwenden. Die Anzeige kann bei Datum bewusst '15.07' sein,
           # waehrend ValuePattern einen anderen kanonischen Wert exponiert.
-          $rollbackResult = Commit-TrackedValue $hwnd $rollbackNode $beforeRaw $rollbackCurrentRaw
+          $rollbackTargetValue = $(if ($rollbackNode.type -eq 'DataItem' -and -not $beforeRaw) { $beforeDisplay } else { $beforeRaw })
+          $rollbackExpectedCurrent = $(if ($rollbackNode.type -eq 'DataItem' -and -not $rollbackCurrentRaw) { $rollbackCurrentDisplay } else { $rollbackCurrentRaw })
+          $rollbackResult = $(if ($script:DESKTOP_NAME) {
+            Commit-TrackedValueFocusless $hwnd $rollbackNode $rollbackTargetValue $rollbackExpectedCurrent
+          } else {
+            Commit-TrackedValue $hwnd $rollbackNode $beforeRaw $rollbackCurrentRaw
+          })
           $rollbackMethod = [string]$rollbackResult.method
-          $rollbackReason = $(if ($rollbackMethod -eq 'verified-keyboard-replace') { $null } else { "Rollback-Commit meldete '$rollbackMethod'." })
+          $rollbackReason = $(if ($rollbackMethod -in @('verified-keyboard-replace','verified-focusless-value-pattern-tab')) { $null } else { "Rollback-Commit meldete '$rollbackMethod'." })
         } catch {
           $rollbackMethod = 'failed'
           $rollbackReason = $_.Exception.Message
@@ -5806,7 +6523,7 @@ switch ($Op) {
           $restoredDisplay = [string]$verifyNode.name
         }
         $rollbackOk = [bool](
-          $rollbackMethod -eq 'verified-keyboard-replace' -and
+          $rollbackMethod -in @('verified-keyboard-replace','verified-focusless-value-pattern-tab') -and
           (Test-SSEScalarEqual $restoredRaw $beforeRaw) -and
           (Test-SSETrackedValueEquivalent $restoredDisplay $beforeDisplay $valueKind)
         )
@@ -5851,6 +6568,7 @@ switch ($Op) {
           ok=[bool]$rollbackOk; grund=$rollbackReason
         }
         ergebnisFensterGeschlossen=[bool]$resultWindowClosed
+        zeitmessung=$(Complete-SSEPhase $phaseLog 'rollback'; Get-SSEPhaseReport $phaseLog)
       })
     }
 
@@ -5858,6 +6576,7 @@ switch ($Op) {
     Emit ([pscustomobject]@{
       ok=$true; verified=$true; seite=$heading; pageId=$pageId; fieldId=$fieldId; valueKind=$valueKind
       pid=[int]$boundWrite.window.pid; bindung=$boundWrite.bindingMode
+      focuslessPolicy=$(if ($focuslessPolicy) { [string]$focuslessPolicy.id } else { $null })
       epochVorher=$(if ($knownStateBefore) { $knownStateBefore.epoch } else { $null })
       epochNachher=$(if ($knownStateAfter) { $knownStateAfter.epoch } else { $null })
       feld=[pscustomobject]@{
@@ -5883,6 +6602,7 @@ switch ($Op) {
       }
       ungespeichert=$(if ($fastKnown) { Get-DirtyStateFast $hwnd } else { Get-DirtyState $afterTree })
       ergebnisFensterGeschlossen=[bool]$resultWindowClosed
+      zeitmessung=$(Complete-SSEPhase $phaseLog 'readback'; Get-SSEPhaseReport $phaseLog)
     })
   }
 
@@ -6145,6 +6865,7 @@ switch ($Op) {
           [SW]::mouse_event(0x0800, 0, 0, $wheelDelta, [IntPtr]::Zero)
         }
         $inputBaseline = Get-SSELastInputTick
+        Set-SSEForegroundLeaseInputCheckpoint $inputBaseline ([pscustomobject]@{ x=$wheelX; y=$wheelY })
       }
       if (-not $virtualMatch) {
         try { $focusEc.Collapse() } catch { }
@@ -6586,6 +7307,7 @@ switch ($Op) {
     }
     Start-Sleep -Milliseconds $waitMs
     [SW]::SetCursorPos($alt.X, $alt.Y) | Out-Null        # Zeiger zurueck
+    Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick) ([pscustomobject]@{ x=$alt.X; y=$alt.Y })
     $windowClosed = -not [SW]::IsWindow($hwnd)
     if (-not $windowClosed) { [SW]::SetWindowPos($hwnd, $HWND_NOTOPMOST, 0, 0, 0, 0, $SWP) | Out-Null }
 
@@ -6888,6 +7610,7 @@ switch ($Op) {
       $null = Click-VerifiedPoint $dialogHwnd $field
       [System.Windows.Forms.SendKeys]::SendWait('^a')
       [System.Windows.Forms.SendKeys]::SendWait((ConvertTo-SendKeysLiteral $path))
+      Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick)
       Start-Sleep -Milliseconds 400
 
       $null = Click-VerifiedPoint $dialogHwnd $folderButton
@@ -6919,6 +7642,7 @@ switch ($Op) {
     $null = Click-VerifiedPoint $dialogHwnd $field
     [System.Windows.Forms.SendKeys]::SendWait('^a')
     [System.Windows.Forms.SendKeys]::SendWait((ConvertTo-SendKeysLiteral $path))
+    Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick)
     Start-Sleep -Milliseconds 400
 
     $treeAfterInput = Walk-Tree $dialogHwnd 1500 -WithValues
@@ -6995,6 +7719,7 @@ switch ($Op) {
     }
     Start-Sleep -Milliseconds 300
     [System.Windows.Forms.SendKeys]::SendWait('^%s')
+    Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick)
     Start-Sleep -Milliseconds 1200
     Hide-SSETopmost $hwnd
 
@@ -7022,6 +7747,7 @@ switch ($Op) {
     $null = Click-VerifiedPoint $dialogHwnd $fileField
     [System.Windows.Forms.SendKeys]::SendWait('^a')
     [System.Windows.Forms.SendKeys]::SendWait((ConvertTo-SendKeysLiteral $targetPath))
+    Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick)
     Start-Sleep -Milliseconds 350
     $dialogTree2 = Walk-Tree $dialogHwnd 1500 -WithValues
     $fileReadback = @($dialogTree2.nodes | Where-Object {
@@ -7899,6 +8625,7 @@ switch ($Op) {
         }
         Start-Sleep -Milliseconds 600
         [SW]::SetCursorPos($oldCursor.X, $oldCursor.Y) | Out-Null
+        Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick) ([pscustomobject]@{ x=$oldCursor.X; y=$oldCursor.Y })
         Hide-SSETopmost $hwnd
         $roundScrolled = $true
       } else { Start-Sleep -Milliseconds 800 }
@@ -8171,7 +8898,9 @@ switch ($Op) {
           # nicht-auswaehlende Schliessaktion und wird nur in diesem exakt
           # fingerprintgebundenen Dropdown-Kontext gesendet.
           if (-not (Show-SSEWindow ([IntPtr][int64]$dialog.hwnd))) { throw 'VaSt-Dialog konnte fuer Escape nicht aktiviert werden.' }
-          [System.Windows.Forms.SendKeys]::SendWait('{ESC}'); Start-Sleep -Milliseconds 220
+          [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
+          Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick)
+          Start-Sleep -Milliseconds 220
           $closed=$true
         } catch { if (-not $processingError) { $processingError = "Dropdown konnte nicht geschlossen werden: $($_.Exception.Message)" } }
       }
@@ -8295,13 +9024,18 @@ switch ($Op) {
         [SW]::SetCursorPos($px,$py)|Out-Null; Start-Sleep -Milliseconds 80
         [SW]::mouse_event(0x0002,0,0,0,[IntPtr]::Zero); [SW]::mouse_event(0x0004,0,0,0,[IntPtr]::Zero)
         $selected=$true; Start-Sleep -Milliseconds 300
-      } finally { [SW]::SetCursorPos($oldCursor.X,$oldCursor.Y)|Out-Null }
+      } finally {
+        [SW]::SetCursorPos($oldCursor.X,$oldCursor.Y)|Out-Null
+        Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick) ([pscustomobject]@{ x=$oldCursor.X; y=$oldCursor.Y })
+      }
     } catch { $processingError=$_.Exception.Message }
     finally {
       if ($opened -and $popupConfirmed -and -not $selected) {
         try {
           if (Show-SSEWindow ([IntPtr][int64]$dialog.hwnd)) {
-            [System.Windows.Forms.SendKeys]::SendWait('{ESC}'); Start-Sleep -Milliseconds 220
+            [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
+            Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick)
+            Start-Sleep -Milliseconds 220
           }
         } catch { }
       }
@@ -8627,14 +9361,13 @@ switch ($Op) {
     $hwnd = Resolve-Window $a
     $can = Test-Canary $hwnd
     if (-not $can.ok) { Fail "Kanarienvogel traege ($($can.ms) ms) - Programm ueberlastet, neu starten." 'degraded' }
-    $t = Walk-Tree $hwnd -WithValues
+    $t = Walk-BoundTree $hwnd -WithValues
     $b = Get-ContentBounds $t $hwnd
     $r0 = New-Object SW+RC; [SW]::GetWindowRect($hwnd, [ref]$r0) | Out-Null
     $imInhalt = { param($n) $n.x -ge $b.minX -and $n.x -le $b.maxX }
 
-    $heading = ($t.nodes | Where-Object { $_.type -eq 'Text' -and (& $imInhalt $_) -and
-                                          $_.y -ge ($r0.T + 190) -and $_.y -le ($r0.T + 290) } |
-                Sort-Object y | Select-Object -First 1).name
+    $kopfzeile = Get-SSEHeading $t $b $hwnd
+    $heading = $kopfzeile.text
 
     # --- Felder: alles Beschreibbare mit seiner Beschriftung ---------------
     # Die Beschriftung eines Feldes ist der naechste Text LINKS davon in
@@ -8709,6 +9442,8 @@ switch ($Op) {
     Emit ([pscustomobject]@{
       ok = $true
       ueberschrift = $heading
+      ueberschriftQuelle = $kopfzeile.quelle
+      ausgeschlosseneFenster = @($t.fremdeFenster)
       felder = @($felder)
       tabelle = $(if ($heads.Count -or $zeilen.Count) { [pscustomobject]@{
         kopf = @($heads | ForEach-Object { $_.name })
@@ -8914,13 +9649,12 @@ switch ($Op) {
         $stopDialoge = $dialogsAtStart
         break
       }
-      $t = Walk-Tree $hwnd -WithValues
+      $t = Walk-BoundTree $hwnd -WithValues
       $b = Get-ContentBounds $t $hwnd
       $r0 = New-Object SW+RC; [SW]::GetWindowRect($hwnd, [ref]$r0) | Out-Null
       $inh = { param($n) $n.x -ge $b.minX -and $n.x -le $b.maxX }
-      $head = ($t.nodes | Where-Object { $_.type -eq 'Text' -and (& $inh $_) -and
-                                         $_.y -ge ($r0.T + 190) -and $_.y -le ($r0.T + 290) } |
-               Sort-Object y | Select-Object -First 1).name
+      $kopfzeile = Get-SSEHeading $t $b $hwnd
+      $head = $kopfzeile.text
       if (-not $head) { $head = "(ohne Ueberschrift $i)" }
       $currentHeadingAfter = $head
       $advancedAfterLastCaptured = $false
@@ -8966,6 +9700,8 @@ switch ($Op) {
 
       $null = $seiten.Add([pscustomobject]@{
         nr = $i; ueberschrift = $head
+        ueberschriftQuelle = $kopfzeile.quelle
+        ausgeschlosseneFenster = @($t.fremdeFenster)
         felder = @($felder)
         tabelle = $(if ($echte.Count) { [pscustomobject]@{ kopf = @($hd | ForEach-Object { $_.name }); zeilen = $echte } } else { $null })
       })
@@ -9384,12 +10120,9 @@ switch ($Op) {
     }
 
     function Ueberschrift([IntPtr]$h) {
-      $t = Walk-Tree $h 1200
+      $t = Walk-BoundTree $h 1200
       $b = Get-ContentBounds $t $h
-      $r = New-Object SW+RC; [SW]::GetWindowRect($h, [ref]$r) | Out-Null
-      ($t.nodes | Where-Object { $_.type -eq 'Text' -and $_.x -ge $b.minX -and $_.x -le $b.maxX -and
-                                 $_.y -ge ($r.T + 190) -and $_.y -le ($r.T + 290) } |
-       Sort-Object y | Select-Object -First 1).name
+      (Get-SSEHeading $t $b $h).text
     }
     function Passt($ist, $soll) {
       if (-not $ist) { return $false }
@@ -9888,13 +10621,16 @@ switch ($Op) {
       $gewartet = 0; $fenster = @(); $mainCandidates = @(); $startupDialogWindows = @()
       while ($gewartet -lt $timeoutSec) {
         Start-Sleep -Milliseconds 500; $gewartet += 0.5
-        $fenster = @(Get-WindowsOnDesktop $d 'SSE' | Where-Object { [int]$_.pid -eq [int]$pi.pid })
-        $mainCandidates = $(if ($caseIdentity) {
-          @($fenster | Where-Object { $_.title -match 'SteuerSparErklärung' } |
+        $fenster = @(Get-ExactProcessWindowsOnDesktop $d ([int]$pi.pid))
+        # Windows PowerShell 5.1 unwraps a singleton emitted through $(if ...)
+        # to a scalar PSCustomObject; its missing Count then looks exactly like
+        # zero windows. Assign each branch as an explicit array instead.
+        if ($caseIdentity) {
+          $mainCandidates = @($fenster | Where-Object { $_.title -match 'SteuerSparErklärung' } |
             Sort-Object { $_.w * $_.h } -Descending)
         } else {
-          @(Get-SSEMainWindowCandidates $fenster)
-        })
+          $mainCandidates = @(Get-SSEMainWindowCandidates $fenster)
+        }
         # Ein kompakter Startdialog kann den geladenen Fall blockieren. Er ist
         # kein Hauptfenster, muss aber nach gesetztem Eigentumsmarker gezielt
         # mit sse_dialog_list/sse_dialog_answer erreichbar bleiben.
@@ -9905,6 +10641,16 @@ switch ($Op) {
         if ($mainCandidates.Count -or $startupDialogWindows.Count) { break }
       }
       if (-not $mainCandidates.Count -and -not $startupDialogWindows.Count) {
+        $timeoutHandles = @([DSK]::ListDesktopWindows($d))
+        $timeoutExactWindows = @(Get-ExactProcessWindowsOnDesktop $d ([int]$pi.pid))
+        $timeoutDetails = [pscustomobject]@{
+          createProcessPid=[int]$pi.pid
+          desktopHandleCount=$timeoutHandles.Count
+          lastLoopWindows=@($fenster)
+          lastMainCandidates=@($mainCandidates)
+          lastStartupDialogs=@($startupDialogWindows)
+          exactWindowsBeforeCleanup=@($timeoutExactWindows)
+        }
         $cleanup = Complete-FailedDesktopStart $pi.hProcess $name ([int]$pi.pid)
         if ($cleanup.processStillRunning -or -not $cleanup.markerRemoved) {
           Emit ([pscustomobject]@{
@@ -9915,7 +10661,7 @@ switch ($Op) {
           })
         }
         Fail ("Neu gestartete SSE-PID $($pi.pid) erzeugte innerhalb von $gewartet Sekunden kein eigenes verifiziertes Fenster. " +
-              "Der Prozessabbruch und Markerabbau wurden verifiziert; andere SSE-Fenster wurden nicht uebernommen.") 'startup-timeout'
+              "Der Prozessabbruch und Markerabbau wurden verifiziert; andere SSE-Fenster wurden nicht uebernommen.") 'startup-timeout' $timeoutDetails
       }
       $ownedPid = [int]$pi.pid
       @{ name = $name; pid = $ownedPid } | ConvertTo-Json -Compress |
@@ -10189,6 +10935,7 @@ switch ($Op) {
     for ($i = 0; $i -lt $steps; $i++) {
       [SW]::mouse_event($MOUSEEVENTF_WHEEL, 0, 0, 120, [IntPtr]::Zero)
     }
+    Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick) ([pscustomobject]@{ x=$px; y=$py })
     Start-Sleep -Milliseconds 700
     Hide-SSETopmost $hwnd
     $t2 = Walk-Tree $hwnd 1800
@@ -10247,6 +10994,7 @@ switch ($Op) {
     }
     Start-Sleep -Milliseconds 700
     [SW]::SetCursorPos($alt.X, $alt.Y) | Out-Null
+    Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick) ([pscustomobject]@{ x=$alt.X; y=$alt.Y })
     Hide-SSETopmost $hwnd
     $t2 = Walk-Tree $hwnd 1800
     $after = @($t2.nodes | Where-Object { $_.type -eq 'TreeItem' -and $_.on -and $_.w -gt 0 } | Sort-Object y)
@@ -10386,11 +11134,10 @@ switch ($Op) {
     # Vor dem linearen Blaettern die globale Suche versuchen. Das ist auf dem
     # versteckten Desktop besonders wichtig: Suchtreffer und Navigationsbaum
     # sind Qt-Items, deren Invoke-/SelectionItem-Pattern zwar Erfolg melden,
-    # aber die Seite oft nicht aktivieren. SetFocus auf den exakt gelesenen
-    # Treffer plus eine gezielt an dasselbe Qt-Hauptfenster gepostete
-    # Eingabetaste funktioniert ohne sichtbaren Cursor und ohne Fokuswechsel
-    # auf dem Benutzerdesktop. Der Seitenwechsel wird danach zwingend
-    # rueckgelesen; andernfalls faellt die Operation auf das Blaettern zurueck.
+    # aber die Seite oft nicht aktivieren. Ohne belastbaren Seitenwechsel wird
+    # der Treffer nie als Erfolg gewertet; dann bleibt nur der kontrollierte
+    # lineare Pfad. Rohe gepostete Enter-Nachrichten sind gemessen ebenfalls
+    # wirkungslos und gehoeren nicht in den Produktionspfad.
     if ((Arg $a 'viaSuche') -ne $false) {
       $ts = Walk-Tree $hwnd 1500
       $suchfeld = @($ts.nodes | Where-Object { $_.type -eq 'Edit' -and $_.aid -match 'SearchSSE' })[0]
@@ -10833,6 +11580,7 @@ switch ($Op) {
           # Nicht von der zufaelligen aktuellen Scrollposition aus lesen:
           # Ctrl+Home setzt Cursor und virtuelle Ansicht auf die erste Zeile.
           [System.Windows.Forms.SendKeys]::SendWait('^{HOME}')
+          Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick) ([pscustomobject]@{ x=$px; y=$py })
           Start-Sleep -Milliseconds 350
           # Die zuerst sichtbaren Zeilen koennen aus der Tabellenmitte stammen.
           # Fuer eine stabile Reihenfolge jetzt bewusst am Anfang neu sammeln.
@@ -10879,6 +11627,7 @@ switch ($Op) {
       for ($i = 1; $i -le $maxSchritte; $i++) {
         try {
           [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
+          Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick) ([pscustomobject]@{ x=$px; y=$py })
         } catch {
           $cursorUnavailable = $true
           break
@@ -11132,6 +11881,7 @@ switch ($Op) {
       if ($guardUserInput) { $inputBaseline = Get-SSELastInputTick }
       [System.Windows.Forms.SendKeys]::SendWait('^{END}')
       if ($guardUserInput) { $inputBaseline = Get-SSELastInputTick }
+      Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick)
       Start-Sleep -Milliseconds 350
       for ($navigationSteps = 0; $navigationSteps -le 40; $navigationSteps++) {
         if ($searchWatch.ElapsedMilliseconds -ge $searchDeadlineMs) {
@@ -11153,6 +11903,7 @@ switch ($Op) {
         }
         [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
         if ($guardUserInput) { $inputBaseline = Get-SSELastInputTick }
+        Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick)
         Start-Sleep -Milliseconds 100
       }
     }
@@ -12251,6 +13002,7 @@ switch ($Op) {
         }
         [System.Windows.Forms.SendKeys]::SendWait('^{HOME}')
         $inputBaseline = Get-SSELastInputTick
+        Set-SSEForegroundLeaseInputCheckpoint $inputBaseline
         Start-Sleep -Milliseconds 350
         for ($searchSteps = 0; $searchSteps -le 250; $searchSteps++) {
           if ($searchWatch.ElapsedMilliseconds -ge $searchDeadlineMs) {
@@ -12279,6 +13031,7 @@ switch ($Op) {
           if ($matches.Count) { break }
           [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
           $inputBaseline = Get-SSELastInputTick
+          Set-SSEForegroundLeaseInputCheckpoint $inputBaseline
           Start-Sleep -Milliseconds 80
         }
       }
@@ -12360,6 +13113,7 @@ switch ($Op) {
     [SW]::SetCursorPos($px, $py) | Out-Null; Start-Sleep -Milliseconds 120
     [SW]::mouse_event(0x0002, 0, 0, 0, [IntPtr]::Zero); [SW]::mouse_event(0x0004, 0, 0, 0, [IntPtr]::Zero)
     $inputBaseline = Get-SSELastInputTick
+    Set-SSEForegroundLeaseInputCheckpoint $inputBaseline ([pscustomobject]@{ x=$px; y=$py })
     Start-Sleep -Milliseconds 300
     if ([SW]::GetForegroundWindow() -ne $hwnd) {
       [SW]::SetWindowPos($hwnd, $HWND_NOTOPMOST, 0, 0, 0, 0, $SWP) | Out-Null
@@ -12432,6 +13186,7 @@ switch ($Op) {
 
     [System.Windows.Forms.SendKeys]::SendWait('^+{DEL}')
     $deleteInputBaseline = Get-SSELastInputTick
+    Set-SSEForegroundLeaseInputCheckpoint $deleteInputBaseline ([pscustomobject]@{ x=$px; y=$py })
     Start-Sleep -Milliseconds 900
     [SW]::SetWindowPos($hwnd, $HWND_NOTOPMOST, 0, 0, 0, 0, $SWP) | Out-Null
 
@@ -12528,6 +13283,7 @@ switch ($Op) {
 
       [System.Windows.Forms.SendKeys]::SendWait('^z')
       $rollbackInputBaseline = Get-SSELastInputTick
+      Set-SSEForegroundLeaseInputCheckpoint $rollbackInputBaseline ([pscustomobject]@{ x=$px; y=$py })
       Start-Sleep -Milliseconds 1100
       [SW]::SetWindowPos($hwnd, $HWND_NOTOPMOST, 0, 0, 0, 0, $SWP) | Out-Null
       $rollbackRead = Read-LabeledValue $hwnd $sumLabel $expectedBefore $sumOccurrence

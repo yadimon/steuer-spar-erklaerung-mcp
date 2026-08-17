@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const SSE_START_MODES = [
-  "einur", "normal", "einurvor", "fest", "ermaess", "zulage", "KonsUst", "NVBescheinigung", "vorweg",
+  "einur", "normal", "einurvor", "fest", "ermaess", "vorweg",
 ] as const;
 export const SSE_CLICK_PATTERNS = ["invoke", "select", "expand", "collapse"] as const;
 export const SSE_API_CLICK_PATTERNS = [...SSE_CLICK_PATTERNS, "toggle"] as const;

@@ -189,6 +189,28 @@ try {
   }
   assert.equal(calls.length, expectedToolCount, `Erwartet wurde genau ein API-Aufruf je MCP-Werkzeug, erhalten: ${calls.length}`);
 
+  forcedResult = {
+    ok: true,
+    clicked: "Weiter",
+    pattern: "invoke",
+    focusTelemetry: {
+      acquisitions: 2,
+      raises: 1,
+      topmostCycles: 1,
+      releases: 1,
+      foregroundHeldMs: 640,
+      foregroundRestored: true,
+      cursorRestored: true,
+      releasedByEmit: false,
+    },
+  };
+  const focusedClick = await client.callTool({ name: "sse_click", arguments: { name: "Weiter" } });
+  const focusedClickText = focusedClick.content
+    .filter((entry) => entry.type === "text").map((entry) => entry.text).join("\n");
+  assert.notEqual(focusedClick.isError, true);
+  assert(focusedClickText.includes('"focusTelemetry"'), "Geformte MCP-Antwort verlor Focus-Telemetrie.");
+  assert(focusedClickText.includes('"raises": 1') && focusedClickText.includes('"foregroundRestored": true'));
+
   let optionVariants = 0;
   let boundaryVariants = 0;
   let strictRejections = 0;

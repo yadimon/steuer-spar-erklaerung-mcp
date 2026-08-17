@@ -58,7 +58,13 @@ weiterhin aus dem portablen Release laufen.
 | Nur einrichten | „Richte die portable API ein und verwende empfohlene Antworten.“ | Direkte API, MCP optional |
 
 Bei sichtbarer UI-Automation muss Windows entsperrt bleiben. Während der Agent
-klickt oder schreibt, nicht gleichzeitig Maus oder Tastatur verwenden.
+klickt oder schreibt, nicht gleichzeitig Maus oder Tastatur verwenden. Reine
+UIA-Lese-, Invoke-, Auswahl- und Speicheraktionen bleiben im Hintergrund. Wenn
+Qt fuer einen echten Feld-Commit Maus oder Tastatur braucht, haelt der Worker
+den Vordergrund nur fuer diesen atomaren Abschnitt und gibt danach das zuvor
+aktive Fenster sowie den Mauszeiger zurueck, sofern keine fremde Eingabe erkannt
+wurde. Solche Antworten enthalten `focusTelemetry` mit Raise-Zahl, Haltezeit,
+TOPMOST-Cleanup und Restore-Ergebnis; API und MCP reichen sie identisch durch.
 
 ## Was enthalten ist
 

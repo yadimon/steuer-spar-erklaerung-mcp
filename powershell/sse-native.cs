@@ -12,6 +12,27 @@ public class DSK {
   [DllImport("user32.dll", SetLastError=true, CharSet=CharSet.Unicode)]
   public static extern IntPtr OpenDesktop(string name, int flags, bool inherit, uint access);
   [DllImport("user32.dll", SetLastError=true)] public static extern bool EnumDesktopWindows(IntPtr desktop, EP cb, IntPtr l);
+  [DllImport("kernel32.dll")] public static extern void SetLastError(uint code);
+  public static IntPtr[] ListDesktopWindows(IntPtr desktop) {
+    var windows = new List<IntPtr>();
+    EP callback = delegate(IntPtr hwnd, IntPtr context) {
+      windows.Add(hwnd);
+      return true;
+    };
+    // EnumDesktopWindows also returns FALSE for a desktop that currently owns
+    // no top-level window, and it leaves the thread error untouched in that
+    // case. A freshly created private desktop is exactly in that state until
+    // the launched process shows its first window, so a leftover error such as
+    // ERROR_ENVVAR_NOT_FOUND must never be reported as an enumeration failure.
+    // The callback always returns true, so FALSE plus a cleared error can only
+    // mean "nothing to enumerate"; a real error is still raised.
+    SetLastError(0);
+    if (!EnumDesktopWindows(desktop, callback, IntPtr.Zero)) {
+      int lastError = Marshal.GetLastWin32Error();
+      if (lastError != 0) throw new System.ComponentModel.Win32Exception(lastError);
+    }
+    return windows.ToArray();
+  }
   [DllImport("user32.dll", SetLastError=true)] public static extern bool CloseDesktop(IntPtr h);
   [DllImport("user32.dll", SetLastError=true)] public static extern bool SetThreadDesktop(IntPtr h);
   [DllImport("user32.dll", SetLastError=true)] public static extern IntPtr GetThreadDesktop(uint tid);
@@ -77,7 +98,7 @@ public class SW {
   [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h,IntPtr after,int x,int y,int cx,int cy,uint flags);
   [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr h);
   [DllImport("user32.dll")] public static extern bool ScreenToClient(IntPtr h, ref PT p);
-  [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h,uint m,IntPtr w,IntPtr l);
+  [DllImport("user32.dll", SetLastError=true)] public static extern bool PostMessage(IntPtr h,uint m,IntPtr w,IntPtr l);
   [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr h,uint m,IntPtr w,IntPtr l);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern IntPtr GetLastActivePopup(IntPtr h);

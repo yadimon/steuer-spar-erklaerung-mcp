@@ -89,7 +89,7 @@ try {
   $actualTypes = @($assembly.GetTypes() | ForEach-Object { $_.FullName })
   $missingTypes = @($requiredTypes | Where-Object { $_ -notin $actualTypes })
   $requiredDskMethods = @('CreateDesktop','CreateProcess','GetExitCodeProcess','CreateJobObject',
-    'SetInformationJobObject','AssignProcessToJobObject','ResumeThread')
+    'SetInformationJobObject','AssignProcessToJobObject','ResumeThread','ListDesktopWindows','SetLastError')
   $dskType = $assembly.GetType('DSK', $false)
   $missingMethods = @($requiredDskMethods | Where-Object { -not $dskType -or -not $dskType.GetMethod($_) })
   $requiredSwMethods = @('GetLastInputInfo')
