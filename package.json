@@ -95,7 +95,7 @@
     "test:coverage": "node test/operation-coverage-contract.mjs",
     "test:scenario": "node test/scenario-parity.mjs",
     "test:mcp": "node test/with-api.mjs node test/smoke.mjs",
-    "test:product": "node test/with-api.mjs node test/product-gate.mjs",
+    "test:product": "node test/with-api.mjs node test/product-gate.mjs --require-installed",
     "test:verify": "node test/with-api.mjs node test/verify-collect.mjs",
     "test:file-operations": "npm run build:ts && node test/with-api.mjs node test/file-operations-worker.mjs",
     "test:archive": "node test/with-api.mjs node test/archive-cases.mjs",

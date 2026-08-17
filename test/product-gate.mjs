@@ -55,6 +55,7 @@ const nativeLoaderSource = readFileSync(join(root, "powershell", "load-native.ps
 const nativeBuildSource = readFileSync(join(root, "powershell", "build-native.ps1"), "utf8");
 const nativeHashSidecar = join(root, "powershell", "sse-native.sha256");
 const markerPath = join(tmpdir(), "sse-mcp-desktop.txt");
+const requireInstalledProduct = process.argv.includes("--require-installed");
 
 const assert = (condition, message) => {
   if (!condition) throw new Error(message);
@@ -140,10 +141,18 @@ try {
   assert(product.profileId === profileManifest.id && product.profileStatus === profileManifest.status &&
     product.product === profileManifest.product,
   `Worker meldet nicht das aktive Profilmanifest: ${JSON.stringify(product)}`);
-  assert(product.defaultExecutable?.supported === true, "Lokale SSE-2025-Standardinstallation wurde nicht verifiziert.");
-  assert(product.defaultExecutable?.reason === `${profileManifest.product} verifiziert.`,
-    `EXE-Identitaet stammt nicht aus dem Profil: ${JSON.stringify(product.defaultExecutable)}`);
-  assert(product.defaultExecutable?.fileMajorSource === "FileMajorPart", "Engine-Major stammt nicht aus FileMajorPart.");
+  assert(typeof product.defaultExecutable?.supported === "boolean",
+    `Produktinfo meldet keinen pruefbaren Standard-EXE-Status: ${JSON.stringify(product.defaultExecutable)}`);
+  if (product.defaultExecutable.supported) {
+    assert(product.defaultExecutable.reason === `${profileManifest.product} verifiziert.`,
+      `EXE-Identitaet stammt nicht aus dem Profil: ${JSON.stringify(product.defaultExecutable)}`);
+    assert(product.defaultExecutable.fileMajorSource === "FileMajorPart", "Engine-Major stammt nicht aus FileMajorPart.");
+  } else {
+    assert(!requireInstalledProduct, "Lokale SSE-2025-Standardinstallation wurde nicht verifiziert.");
+    assert(product.defaultExecutable.exists === false &&
+      product.defaultExecutable.reason === "Programmdatei existiert nicht.",
+    `Ein portabler Lauf darf nur eine nachweislich fehlende Standard-EXE akzeptieren: ${JSON.stringify(product.defaultExecutable)}`);
+  }
   assert(product.workerInitializationMs?.nativeInteropMode === "precompiled-dll",
     `Normaler Worker nutzt nicht die vorkompilierte DLL: ${JSON.stringify(product.workerInitializationMs)}`);
   assert(product.workerInitializationMs?.nativeHashMatch === true &&

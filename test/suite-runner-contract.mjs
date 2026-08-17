@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   exclusiveSteps,
   fastBuildSteps,
@@ -29,6 +30,12 @@ const expectedNames = [
 const allSteps = [...serialBuildSteps, ...parallelSteps, ...exclusiveSteps, ...finalSteps];
 assert.deepEqual(allSteps.map((step) => step.name).sort(), expectedNames.sort());
 assert.equal(new Set(allSteps.map((step) => step.name)).size, allSteps.length, "Testnamen muessen eindeutig sein.");
+const portableProductGate = parallelSteps.find((step) => step.name === "product-gate");
+assert(portableProductGate && !portableProductGate.args.includes("--require-installed"),
+  "Der portable Volltest darf keine lokal installierte SSE voraussetzen.");
+const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
+assert.match(packageJson.scripts?.["test:product"] ?? "", /product-gate\.mjs --require-installed$/u,
+  "Der explizite lokale Produkt-Test muss eine installierte SSE verlangen.");
 assert.deepEqual(exclusiveSteps.map((step) => step.name), ["no-console-window"]);
 assert(!parallelSteps.some((step) => step.name === "no-console-window"));
 // Die Abdeckungsbilanz wertet das Protokoll aller anderen Schritte aus und

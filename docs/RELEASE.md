@@ -47,6 +47,7 @@ oder wiederverwendet werden.
 npm ci --ignore-scripts
 npm audit --omit=dev --audit-level=high
 npm test
+npm run test:product
 npm run package:portable
 npm run verify:portable-release
 ```

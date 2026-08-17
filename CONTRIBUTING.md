@@ -62,6 +62,10 @@ Arbeitskopie, Vorher-/Nachher-Readback und getrennte reale Evidenz.
 | Portable Laufzeit, Paketinhalt oder Release-Metadaten | `npm test`, `npm run package:portable`, `npm run verify:portable-release` |
 | UI-Bindung oder Profilverhalten | vollständige Offline-Suite und, wenn Voraussetzungen vorhanden sind, der passende opt-in Live-Lauf |
 
+`npm test` bleibt auf einem neutralen Windows-Rechner ohne installierte SSE
+portabel. Wer die unterstützte SSE-2025-Standardinstallation besitzt, prüft die
+lokale Produktidentität zusätzlich mit `npm run test:product`.
+
 `npm run test:live` benötigt eine installierte SSE, herstellerseitige
 Musterfälle, eine unbenutzte entsperrte Windows-Sitzung und eine ausdrücklich
 aktivierte Live-Konfiguration. Fehlende Voraussetzungen sind kein Fehler eines
