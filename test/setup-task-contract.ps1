@@ -67,8 +67,10 @@ try {
   New-Item -ItemType Directory -Path $portableRuntime -Force | Out-Null
   $portableNode = Join-Path $portableRuntime 'node.exe'
   [IO.File]::WriteAllBytes($portableNode, [byte[]](0))
-  if ((Resolve-SseNodePath -RepoRoot $portableRoot) -ne $portableNode) {
-    throw 'Portable runtime\node.exe wird nicht vor globalem node.exe bevorzugt.'
+  $expectedPortableNode = [IO.Path]::GetFullPath($portableNode)
+  $resolvedPortableNode = Resolve-SseNodePath -RepoRoot $portableRoot
+  if (-not [string]::Equals($resolvedPortableNode, $expectedPortableNode, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Portable runtime\node.exe wird nicht vor globalem node.exe bevorzugt: erwartet=$expectedPortableNode erhalten=$resolvedPortableNode exists=$([IO.File]::Exists($expectedPortableNode))"
   }
 } finally {
   if (Test-Path -LiteralPath $portableRoot) { Remove-Item -LiteralPath $portableRoot -Recurse -Force }
