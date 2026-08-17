@@ -90,6 +90,16 @@ const realWorkerShapes = {
     sonstige: [],
     aufgeklappt: [],
   },
+  click: {
+    clicked: "Weiter",
+    pattern: "invoke",
+    method: "uia-invoke+verified-point-fallback",
+    kandidaten: 1,
+    ueberschriftVorher: "Einnahmen",
+    ueberschriftNachher: "Ausgaben",
+    navigiert: true,
+    verified: true,
+  },
   // Der Worker meldet die gesicherten Dateien als Liste und die Anzahl separat;
   // eine Anzahl unter 'files' hatte jeden echten Aufruf mit 502 beendet.
   backup_cases: {

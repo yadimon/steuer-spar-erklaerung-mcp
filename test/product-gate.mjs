@@ -39,8 +39,9 @@ const apiContractSource = readFileSync(join(root, "src", "api-contract.ts"), "ut
 const apiExecutorSource = readFileSync(join(root, "src", "api-executor.ts"), "utf8");
 const launchExecutorSource = readFileSync(join(root, "src", "launch-executor.ts"), "utf8");
 const skillSource = readFileSync(join(root, "skills", "steuer-spar-erklaerung", "SKILL.md"), "utf8");
-const tableDeleteTestSource = readFileSync(join(root, "test", "table-delete-transaction.mjs"), "utf8");
-const clickTestSource = readFileSync(join(root, "test", "click-dirty-readback.mjs"), "utf8");
+const liveWriteJourneySource = readFileSync(join(root, "test", "live-write-journey.mjs"), "utf8");
+const liveJourneyRunnerSource = readFileSync(join(root, "test", "run-live-journey.mjs"), "utf8");
+const hiddenDesktopLifecycleSource = readFileSync(join(root, "test", "hidden-desktop-lifecycle.mjs"), "utf8");
 const profileManifest = JSON.parse(readFileSync(join(root, "profiles", "2025", "profile.json"), "utf8"));
 const catalog = JSON.parse(readFileSync(join(root, "profiles", "2025", "page-objects.json"), "utf8"));
 const catalogText = JSON.stringify(catalog);
@@ -336,9 +337,20 @@ try {
     tableComboSource.includes("emptyRowDefault"),
   "sse_table_add bindet die Leerzeile nicht fail-closed an die gewaehlte Summenregion.");
   assert(workerSource.includes("$targetRegion = Get-SSETableRegion") &&
-    workerSource.includes("$preDeleteMatches.Count -eq 1 -and $preDeleteMatches[0].rid -eq $zelle.rid") &&
+    workerOpBlock("table_delete").includes("Read-LabeledValueFromTree $tree $window $label $occurrence") &&
+    workerOpBlock("table_delete").includes("$matches = @($read.candidates | Where-Object { Test-SSEScalarEqual $_.value $expectedHint })") &&
+    workerOpBlock("table_delete").includes("$matches.Count -eq 1") &&
+    tableRegionSource.includes("$value = [string]$field.val") &&
+    tableRegionSource.includes("if (-not $value) { $value = [string]$field.name }") &&
+    workerOpBlock("table_delete").includes("function Resolve-TableDeleteFreshTarget") &&
+    workerOpBlock("table_delete").includes("Resolve-TableDeleteFreshTarget $pointRegion") &&
+    workerOpBlock("table_delete").includes("Resolve-TableDeleteFreshTarget $preDeleteRegion") &&
+    workerOpBlock("table_delete").includes("$_.name -eq $text -and $_.aid -eq $targetAid") &&
+    workerOpBlock("table_delete").includes("$rows.Count -eq $targetRowsBeforeActivate.Count") &&
+    workerOpBlock("table_delete").includes("row-column-after-ambiguous-automation-id") &&
+    workerSource.includes("activationCheck=[pscustomobject]") &&
     (workerSource.match(/no-blind-undo-after-interference/g) ?? []).length >= 2,
-  "sse_table_delete bindet Ziel/Seite nicht an die Summenregion oder kann nach Interferenz blind Undo ausloesen.");
+  "sse_table_delete bindet Ziel/Seite nicht an die gemeinsame Summenregion oder kann nach Interferenz blind Undo ausloesen.");
   assert(workerSource.includes("[IO.File]::Move($temporaryPath, $fullPath)") &&
     workerSource.includes("Screenshot-Ziel existiert bereits") &&
     !workerSource.includes("$bmp.Save($Path, [System.Drawing.Imaging.ImageFormat]::Png)"),
@@ -357,9 +369,10 @@ try {
     mcpResponseSource.includes("Alle API-Fehler bleiben strukturiert") &&
     mcpResponseSource.includes("structuredContent: structuredContent as Record<string, unknown>") &&
     mcpResponseSource.includes("isError: true") &&
-    tableDeleteTestSource.includes('["lockscreen-shell", "foreign-app"].includes(blockerKind)') &&
-    tableDeleteTestSource.includes('SSE_REQUIRE_DELETE !== "1"'),
-  "sse_table_delete klassifiziert Blockierer nicht oder der Echt-Test kann beliebige Fehler als SKIP tarnen.");
+    liveWriteJourneySource.includes("assert.notEqual(result?.isError, true") &&
+    liveJourneyRunnerSource.includes('assert.equal(ssePids(), ""') &&
+    liveJourneyRunnerSource.includes("copyFileSync(source, copy)"),
+  "sse_table_delete ist nicht strukturiert fail-closed oder die Live-Reise ist nicht an eine freie Wegwerfkopie gebunden.");
   assert(workerSource.includes("$rollbackPrepared = New-Object System.Collections.ArrayList") &&
     workerSource.includes("Kein blinder Rollback nach fremdem Zellwert/Eingabe/Fensterwechsel") &&
     workerSource.includes("Test-SSETableCellEquivalent $liveBefore $entry.before") &&
@@ -473,12 +486,15 @@ try {
     launchExecutorSource.includes('bindingMode: "launch-window"') &&
     launchExecutorSource.includes("cleanupStartedProcess") &&
     serverSource.includes("instance: r.instance, ready: r.ready") &&
-    tableDeleteTestSource.includes('{ hwnd: launch.instance.hwnd }'),
+    liveWriteJourneySource.includes("const hwnd = launched.instance?.hwnd") &&
+    liveWriteJourneySource.includes('sse_ui_state", { hwnd }'),
   "sse_launch trennt Start und frischen Readback nicht oder liefert kein explizit weiterverwendbares Start-HWND.");
   assert(workerOpBlock("desktop_start").includes("bindingMode='desktop-launch-window'") &&
     workerOpBlock("desktop_start").includes("$_.title -match 'SteuerSparErklärung'") &&
     workerOpBlock("desktop_start").includes("blockedByDialog=[bool]($startupDialogWindows.Count)") &&
-    serverSource.includes("instance: r.instance") && clickTestSource.includes("const hwnd = start.instance.hwnd"),
+    serverSource.includes("instance: r.instance") &&
+    hiddenDesktopLifecycleSource.includes("state1.instance?.hwnd") &&
+    hiddenDesktopLifecycleSource.includes("arguments: { hwnd: state1.instance.hwnd"),
   "Versteckter Start kehrt vor geladenem Fall/Dialog zurueck oder Folgeaktion ignoriert sein Start-HWND.");
   assert(workerSource.includes("hwnd ist auch fuer konsistente Lese-/UI-Aktionen Pflicht") &&
     workerSource.includes("$mainCandidates = @(Get-SSEMainWindowCandidates $wins)"),
@@ -515,8 +531,15 @@ try {
   assert(workerOpBlock("goto_tree").includes("Click-VerifiedPoint $hwnd $labelNode") &&
     !workerOpBlock("goto_tree").includes("[SW]::mouse_event"),
   "Alter Navigationsbaum-Fallback umgeht weiterhin den Root-verifizierten TreeItem-Klick.");
+  const verifiedClickStart = workerSource.indexOf("function Click-VerifiedPoint(");
+  const verifiedClickEnd = workerSource.indexOf("\nfunction ", verifiedClickStart + 1);
+  assert(verifiedClickStart >= 0 && verifiedClickEnd > verifiedClickStart,
+    "Gemeinsamer Root-verifizierter Klickhelfer fehlt.");
+  const verifiedClick = workerSource.slice(verifiedClickStart, verifiedClickEnd);
   assert(workerSource.includes("expectedRoot=[int64]$Hwnd; hitRoot=[int64]$hitRoot") &&
-    workerOpBlock("click_point").includes("$trefferRoot = [SW]::GetAncestor($unter, 2)") &&
+    workerOpBlock("click_point").includes("Click-VerifiedPoint -Window $hwnd -Node $labelPoint") &&
+    verifiedClick.includes("Get-SSEPointObstruction $Window $px $py") &&
+    verifiedClick.includes("$obstruction.isBoundTarget") &&
     workerOpBlock("tree_top").includes("$hitRoot = [SW]::GetAncestor($hitWindow, 2)") &&
     workerOpBlock("tree_scroll").includes("$hitRoot = [SW]::GetAncestor($hitWindow, 2)") &&
     workerOpBlock("checker_detail").includes("$hitRoot = [SW]::GetAncestor($hitWindow, 2)") &&

@@ -16,6 +16,7 @@ if (!command) {
 }
 
 const temporary = mkdtempSync(join(tmpdir(), "sse-api-test-"));
+const preserveTemporaryOnFailure = process.env.SSE_PRESERVE_TEST_SANDBOX_ON_FAILURE === "1";
 const caseDir = process.env.SSE_CASE_DIR ?? join(temporary, "cases");
 const workspaceDir = join(temporary, "workspace");
 const resultDir = join(temporary, "results");
@@ -45,6 +46,7 @@ await once(server, "listening");
 const address = server.address();
 if (!address || typeof address !== "object") throw new Error("Test-API hat keinen TCP-Port erhalten.");
 
+let childFailed = false;
 try {
   const child = spawn(command, args, {
     cwd: process.cwd(),
@@ -60,16 +62,24 @@ try {
     windowsHide: true,
   });
   const [code, signal] = await once(child, "exit");
-  if (signal) throw new Error(`Testprozess wurde durch Signal ${signal} beendet.`);
+  if (signal) {
+    childFailed = true;
+    throw new Error(`Testprozess wurde durch Signal ${signal} beendet.`);
+  }
+  childFailed = code !== 0;
   process.exitCode = typeof code === "number" ? code : 1;
 } finally {
   await new Promise((resolve) => server.close(resolve));
-  for (let attempt = 0; attempt < 20 && existsSync(temporary); attempt++) {
-    try {
-      rmSync(temporary, { recursive: true, force: true, maxRetries: 2, retryDelay: 100 });
-    } catch (error) {
-      if (!error || !["EBUSY", "EPERM", "ENOTEMPTY"].includes(error.code) || attempt === 19) throw error;
-      await new Promise((resolve) => setTimeout(resolve, 250));
+  if (childFailed && preserveTemporaryOnFailure) {
+    process.stderr.write(`Test-Sandbox zur Diagnose erhalten: ${temporary}\n`);
+  } else {
+    for (let attempt = 0; attempt < 20 && existsSync(temporary); attempt++) {
+      try {
+        rmSync(temporary, { recursive: true, force: true, maxRetries: 2, retryDelay: 100 });
+      } catch (error) {
+        if (!error || !["EBUSY", "EPERM", "ENOTEMPTY"].includes(error.code) || attempt === 19) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
     }
   }
 }

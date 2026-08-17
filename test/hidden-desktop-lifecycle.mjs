@@ -16,12 +16,17 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
+import { fixtureCaseRef } from "./fixture-case-ref.mjs";
+import { gotoPageFocusless } from "./focusless-navigation.mjs";
+import { profiledTablePage } from "./profiled-table-page.mjs";
 
 const fixture = process.env.SSE_HIDDEN_FIXTURE;
 if (!fixture) {
   process.stderr.write("SSE_HIDDEN_FIXTURE mit einer entbehrlichen Falldatei ist Pflicht.\n");
   process.exit(2);
 }
+const caseRef = fixtureCaseRef(fixture);
+const formHeading = profiledTablePage().heading;
 
 const sha256 = (path) => createHash("sha256").update(readFileSync(path)).digest("hex").toUpperCase();
 const fullText = (result) => result?.content?.filter((c) => c.type === "text").map((c) => c.text).join("\n") ?? "";
@@ -51,7 +56,16 @@ const transport = new StdioClientTransport({
 });
 const client = new Client({ name: "sse-hidden-lifecycle", version: "1.0.0" });
 const desktopName = `SSEAutoTest${process.pid}${Date.now()}`;
-const collectOutput = join(tmpdir(), `sse-collect-${process.pid}-${Date.now()}.json`);
+// Der Sammellauf schreibt in den Ergebnisbereich der API und wird auch nur so
+// adressiert: seit der Pfadredaktion nimmt sse_collect kein 'path' mehr an.
+const resultDir = process.env.SSE_TEST_RESULT_DIR;
+if (!resultDir) {
+  process.stderr.write("SSE_TEST_RESULT_DIR aus dem isolierten Test-API-Wrapper fehlt.\n");
+  process.exit(2);
+}
+const collectName = `sse-collect-${process.pid}-${Date.now()}.json`;
+const collectRef = `results:${collectName}`;
+const collectOutput = join(resultDir, collectName);
 const hashBefore = sha256(fixture);
 const ocrArtifacts = () => readdirSync(tmpdir())
   .filter((name) => /^sse-(?:warning|checker-(?:full|detail))-[A-Za-z0-9-]+\.png$/i.test(name))
@@ -88,7 +102,7 @@ try {
   const baselineSsePids = ssePids();
   const start = jsonResult(await client.callTool({
     name: "sse_desktop_start",
-    arguments: { file: fixture, mode: "einur", name: desktopName, timeoutSec: 15 },
+    arguments: { caseRef, mode: "einur", name: desktopName, timeoutSec: 15 },
   }, undefined, { timeout: 30_000, maxTotalTimeout: 30_000 }), "start");
   started = true;
   assert(start.desktop === desktopName, "Start meldet den falschen Desktop.");
@@ -103,7 +117,7 @@ try {
 
   const deniedSecondStart = errorText(await client.callTool({
     name: "sse_desktop_start",
-    arguments: { file: fixture, mode: "einur", name: desktopName, timeoutSec: 5 },
+    arguments: { caseRef, mode: "einur", name: desktopName, timeoutSec: 5 },
   }), "second-start");
   assert(/bereits aktiv|zweiter Start|desktop-active/i.test(deniedSecondStart), "Zweiter Start wurde nicht als belegter Desktop verweigert.");
   assert(ssePids() === oneStartedPidSet, "Verweigerter Doppelstart hat trotzdem eine weitere SSE-PID erzeugt.");
@@ -178,62 +192,53 @@ try {
     "Werte-Info wurde faelschlich als Warnfenster eingeordnet.");
 
   jsonResult(await client.callTool({ name: "sse_dismiss", arguments: {} }), "dismiss-known-helpers");
-  const blockedForward = jsonErrorResult(await client.callTool({
-    name: "sse_click",
-    arguments: { name: "Weiter", expectedPageBefore: stateWithResult.heading },
-  }), "navigate-forward-blocked");
-  assert(blockedForward.kind === "navigation-blocked" && blockedForward.navigiert === false,
-    `Wirkungsloser Weiter-Klick wurde nicht strukturiert blockiert: ${JSON.stringify(blockedForward)}`);
-  assert(blockedForward.ueberschriftVorher === stateWithResult.heading &&
-    blockedForward.ueberschriftNachher === stateWithResult.heading,
-  "Blockierte Navigation hat keinen exakten Vor-/Nachseiten-Readback.");
-  assert(blockedForward.dialoge?.some((dialog) => dialog.title?.startsWith("Die Prüfung hat ergeben")),
-    "Blockierte Navigation meldet den neu geoeffneten Pruefhinweis nicht.");
-  const blockedBack = jsonErrorResult(await client.callTool({
-    name: "sse_click",
-    arguments: { name: "Zurück", expectedPageBefore: stateWithResult.heading },
-  }), "navigate-back-with-dialog");
-  assert(blockedBack.kind === "navigation-blocked" && blockedBack.clicked === null,
-    "Navigation bei bereits offenem Dialog wurde trotzdem ausgeloest.");
+
+  // Der offizielle Musterfall oeffnet auf einer Uebersichtsseite, die gar
+  // keinen 'Weiter'-Schalter besitzt. Der frueher hier erwartete blockierte
+  // Vorwaertsklick war an die private Arbeitskopie des Autors gebunden und
+  // konnte auf einer frischen Kopie nie eintreten - der Test scheiterte mit
+  // 'not-found' statt 'navigation-blocked'. Deshalb wird zuerst fokusfrei auf
+  // eine profilierte Formularseite navigiert; erst dort ist der Blaetterpfad
+  // deterministisch vorhanden, und Hin- und Rueckweg sind exakt pruefbar.
   const ocrArtifactsBefore = ocrArtifacts();
-  const warningResult = await client.callTool({ name: "sse_warning_popup_read", arguments: { includeImage: true } });
-  const warning = jsonResult(warningResult, "warning-popup");
-  assert(warning.active === true && warning.ocrOk === true, "Automatischer Pruefhinweis wurde nicht vollstaendig gelesen.");
-  assert(Array.isArray(warning.warnings) && warning.warnings.length > 0, "Pruefhinweis meldet keinen strukturierten Titel.");
-  assert(typeof warning.text === "string" && warning.text.length > 50, "Pruefhinweis-OCR lieferte keinen belastbaren Fliesstext.");
-  assert(typeof warning.bodyFingerprint === "string" && warning.bodyFingerprint.length === 64, "OCR-Fliesstext hat keinen Fingerprint.");
-  assert(warningResult.content.some((part) => part.type === "image"), "Kontrollbild wurde nicht ueber den MCP-Transport geliefert.");
-  assert(JSON.stringify(ocrArtifacts()) === JSON.stringify(ocrArtifactsBefore), "Warn-/Pruefer-OCR hinterliess eine neue temporaere Bilddatei.");
-  const answered = jsonResult(await client.callTool({
-    name: "sse_dialog_answer",
-    arguments: {
-      hwnd: warning.hwnd,
-      fingerprint: warning.fingerprint,
-      bodyFingerprint: warning.bodyFingerprint,
-      button: "Jetzt ignorieren",
-    },
-  }), "warning-answer");
-  assert(answered.closed === true && answered.answered === "Jetzt ignorieren", "Pruefhinweis wurde nicht fingerprintgebunden geschlossen.");
-  assert(Object.hasOwn(answered, "ungespeichertVorher") && Object.hasOwn(answered, "ungespeichertNachher"),
-    "Dialogantwort meldet den Dirty-State nicht vor und nach der Aktion.");
-  const afterAnswerState = jsonResult(await client.callTool({
-    name: "sse_ui_state",
-    arguments: { hwnd: stateWithResult.instance.hwnd, previousFingerprint: stateWithResult.stateFingerprint },
-  }), "state-after-answer");
-  assert(afterAnswerState.heading && afterAnswerState.heading !== stateWithResult.heading &&
-    afterAnswerState.changedSince === true,
-  `Der hinter dem Hinweis wartende Seitenwechsel wurde nicht im neuen Zustand sichtbar: ${JSON.stringify(afterAnswerState)}`);
+  await gotoPageFocusless(client, formHeading, { hwnd: state1.instance.hwnd });
+  assert(JSON.stringify(ocrArtifacts()) === JSON.stringify(ocrArtifactsBefore),
+    "Die Pruefhinweis-OCR waehrend der Navigation hinterliess eine temporaere Bilddatei.");
+
+  // Ein breiter Teilstring darf nie zu einem geratenen Invoke fuehren.
+  const ambiguous = await client.callTool({
+    name: "sse_click",
+    arguments: { name: "e", contains: true, pattern: "invoke", hwnd: state1.instance.hwnd },
+  });
+  assert(ambiguous?.isError === true && /Teilstringsuche ist nicht eindeutig/.test(fullText(ambiguous)),
+    `Breiter Teilstring wurde nicht vor dem Invoke abgewiesen: ${fullText(ambiguous)}`);
+  const stateAfterAmbiguous = jsonResult(await client.callTool({
+    name: "sse_ui_state", arguments: { hwnd: state1.instance.hwnd },
+  }), "state-after-ambiguous");
+  assert(stateAfterAmbiguous.heading === formHeading,
+    "Mehrdeutiger Klick hat trotz Abbruch die Seite gewechselt.");
+
+  const forward = jsonResult(await client.callTool({
+    name: "sse_click",
+    arguments: { name: "Weiter", expectedPageBefore: formHeading, waitMs: 2500, hwnd: state1.instance.hwnd },
+  }, undefined, { timeout: 120_000, maxTotalTimeout: 120_000 }), "navigate-forward");
+  assert(forward.navigiert === true && forward.verified === true && forward.ueberschriftNachher !== formHeading,
+    `Vorwaertsnavigation wurde nicht per Seiten-Readback bestaetigt: ${JSON.stringify(forward)}`);
+  assert(forward.ungespeichertVorher === forward.ungespeichertNachher,
+    `Reine Vorwaertsnavigation veraenderte den Speicherzustand: ${JSON.stringify(forward)}`);
+
   const back = jsonResult(await client.callTool({
     name: "sse_click",
     arguments: {
       name: "Zurück",
-      expectedPageBefore: afterAnswerState.heading,
-      expectedPageAfter: stateWithResult.heading,
-      waitMs: 1800,
+      expectedPageBefore: forward.ueberschriftNachher,
+      expectedPageAfter: formHeading,
+      waitMs: 2500,
+      hwnd: state1.instance.hwnd,
     },
-  }), "navigate-back");
+  }, undefined, { timeout: 120_000, maxTotalTimeout: 120_000 }), "navigate-back");
   assert(back.navigiert === true && back.verified === true &&
-    back.ueberschriftNachher === stateWithResult.heading,
+    back.ueberschriftNachher === formHeading,
   `Ruecknavigation bestaetigt die erwartete Zielseite nicht: ${JSON.stringify(back)}`);
   const resultBeforeStop = jsonResult(await client.callTool({
     name: "sse_result_details",
@@ -242,7 +247,7 @@ try {
   assert(resultBeforeStop.vollstaendig === true, "Werte-Info konnte vor dem sicheren Stop nicht erneut gelesen werden.");
   const partialCollection = jsonErrorResult(await client.callTool({
     name: "sse_collect",
-    arguments: { hwnd: state1.instance.hwnd, maxPages: 1, path: collectOutput },
+    arguments: { hwnd: state1.instance.hwnd, maxPages: 1, resultRef: collectRef },
   }, undefined, { timeout: 60_000, maxTotalTimeout: 60_000 }), "partial-collection");
   assert(partialCollection.kind === "collection-incomplete" &&
     partialCollection.vollstaendig === false && partialCollection.anzahl === 1,
@@ -251,9 +256,9 @@ try {
     typeof partialCollection.currentHeadingAfter === "string" && partialCollection.currentHeadingAfter &&
     partialCollection.currentHeadingAfter !== partialCollection.ueberschriften?.at(-1),
   `Segment meldet die bestaetigte Weiterposition nicht eindeutig: ${JSON.stringify(partialCollection)}`);
-  assert(partialCollection.datei === collectOutput && /^[A-F0-9]{64}$/.test(partialCollection.dateiHash) &&
+  assert(partialCollection.datei === collectRef && /^[A-F0-9]{64}$/.test(partialCollection.dateiHash) &&
     existsSync(collectOutput) && sha256(collectOutput) === partialCollection.dateiHash,
-  "Teilstand wurde nicht atomar mit bestaetigtem Dateihash geschrieben.");
+  `Teilstand wurde nicht atomar mit bestaetigtem Dateihash geschrieben: ${JSON.stringify(partialCollection.datei)}`);
   const partialFile = JSON.parse(readFileSync(collectOutput, "utf8"));
   assert(partialFile.vollstaendig === false && partialFile.anzahl === 1 && partialFile.stopKind &&
     partialFile.currentHeadingAfter === partialCollection.currentHeadingAfter &&
@@ -266,7 +271,7 @@ try {
     "Der naechste Segmentstart stimmt nicht mit der nach dem letzten Snapshot bestaetigten Seite ueberein.");
   const rejectedOverwrite = errorText(await client.callTool({
     name: "sse_collect",
-    arguments: { hwnd: state1.instance.hwnd, maxPages: 1, path: collectOutput },
+    arguments: { hwnd: state1.instance.hwnd, maxPages: 1, resultRef: collectRef },
   }), "collect-overwrite-without-hash");
   assert(/expectedOutputHashBefore|existiert bereits/i.test(rejectedOverwrite),
     "Bestehender Teilstand wurde nicht vor dem Batch hashgebunden geschuetzt.");

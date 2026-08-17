@@ -137,7 +137,7 @@ try {
   assert.equal(existsSync(csvDirectory), true, "API muss einen neuen leeren CSV-Ergebnisordner sicher anlegen");
   assert.equal(calls.at(-1).args.dir, csvDirectory);
   assert.deepEqual(csvExport.resourceRefs, { resultRef: "results:csv-neu" });
-  const failedCsvDirectory = join(roots.results, "csv-fehler");
+  const failedCsvDirectory = join(roots.results, "csv-fehler", "verschachtelt");
   const failingExport = createApiExecutor(
     {
       host: "127.0.0.1",
@@ -152,9 +152,11 @@ try {
     },
     async () => ({ ok: false, kind: "test", error: "dialog blieb zu" }),
   );
-  const failedCsv = await failingExport("export_csv", { resultRef: "results:csv-fehler" }, 1_000);
+  const failedCsv = await failingExport("export_csv", { resultRef: "results:csv-fehler/verschachtelt" }, 1_000);
   assert.equal(failedCsv.ok, false);
   assert.equal(existsSync(failedCsvDirectory), false, "fehlgeschlagener Export darf keinen leeren Restordner hinterlassen");
+  assert.equal(existsSync(join(roots.results, "csv-fehler")), false,
+    "fehlgeschlagener Export darf auch neu angelegte Elternordner nicht hinterlassen");
 
   const hashed = await execute("case_hash", { ref: "cases:arbeit.Gew2025" }, 1_000);
   assert.equal(calls.at(-1).args.path, join(roots.cases, "arbeit.Gew2025"));

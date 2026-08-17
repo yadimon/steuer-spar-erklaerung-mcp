@@ -684,6 +684,11 @@ try {
   abortController.abort();
   await assert.rejects(aborting, /abort/i);
   await waitForWithin(abortObserved, 5_000, "API-Abbruchsignal erreichte Executor nicht");
+  const abortedOperationLog = logs.findLast((record) =>
+    record.event === "operation" && record.operation === "find" && record.kind === "aborted",
+  );
+  assert.equal(abortedOperationLog?.delivered, false,
+    "Ein bereits ausgefuehrtes Ergebnis muss auch nach Client-Abbruch datenarm geloggt werden.");
 
   const badBody = await fetch(`${baseUrl}/v1/operations/health`, {
     method: "POST",

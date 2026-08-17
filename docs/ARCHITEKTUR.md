@@ -400,8 +400,12 @@ sperrt der API-Prozess alle weiteren Worker-Aufrufe bis zum Neustart. So kann
 kein möglicherweise verwaister UI-Worker mit einem Folgeauftrag konkurrieren.
 
 `npm run test:fast` und `npm test` starten absichtlich keine reale SSE-UI.
-`npm run test:live` ist das strikte opt-in Gate für 2025 und 2024: fehlende
-Voraussetzungen oder verbliebene SSE-Prozesse sind Fehler, kein grüner SKIP.
+`npm run test:live-core-read` belegt für beide Profile die auf der offenen
+Herstellermusterseite möglichen, fallunverändernden Leseverträge; sein Ergebnis
+weist die nicht enthaltene Bereichsnavigation, Prüfer, UStVA und den
+Tiefensweep ausdrücklich aus. `npm run test:live` ist weiterhin das strikte,
+weitergehende opt-in Gate für 2025 und 2024: fehlende Voraussetzungen oder
+verbliebene SSE-Prozesse sind Fehler, kein grüner SKIP.
 
 Beide vollständigen Läufe enden mit der Abdeckungsbilanz aus echter
 Ausführung (`test/operation-coverage.json`). Sie unterscheidet, was gegen den

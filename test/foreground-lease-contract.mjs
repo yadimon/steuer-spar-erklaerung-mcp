@@ -71,10 +71,38 @@ assert.match(complete, /Exit-SSEForegroundLease -Hwnd \$hwnd -Force -Reason 'phy
 const click = functionBlock("Click-VerifiedPoint(");
 for (const required of [
   "$script:SSE_FOREGROUND_LEASE.lastAcquireRaised",
+  "ForegroundAttempts",
+  "$foregroundAttempt",
   "Set-SSEForegroundLeaseInputCheckpoint",
   "Hide-SSETopmost $Window",
 ]) assert(click.includes(required), `Click-VerifiedPoint fehlt Lease-Vertrag: ${required}`);
+assert.match(click, /for \(\$foregroundAttempt = 1; \$foregroundAttempt -le \$ForegroundAttempts; \$foregroundAttempt\+\+\)/u,
+  "Click-VerifiedPoint muss die Vordergrundbindung begrenzt und ohne weitere Eingabe erneut versuchen.");
 assert(!click.includes("targetPid = $targetPid"), "Click-VerifiedPoint exportiert eine dynamisch geerbte targetPid.");
+
+const clickPointStart = worker.indexOf("\n  'click_point' {");
+const clickPointEnd = worker.indexOf("\n  'keys' {", clickPointStart);
+assert(clickPointStart >= 0 && clickPointEnd > clickPointStart, "click_point-Workerblock fehlt.");
+const clickPoint = worker.slice(clickPointStart, clickPointEnd);
+assert.match(clickPoint, /Click-VerifiedPoint[\s\S]*-ExpectedInputTick \$inputBeforeClick/s,
+  "Der oeffentliche physische Klick muss denselben Input- und Root-verifizierten Helper wie Tabellenaktionen verwenden.");
+assert.match(clickPoint, /-ExpectedInputTick \$inputBeforeClick -RequireForeground/u,
+  "Der oeffentliche physische Klick braucht neben der Eingabe-Epoche den echten Vordergrund unmittelbar vor dem Input.");
+assert(!clickPoint.includes("[SW]::mouse_event"),
+  "click_point darf keinen zweiten, weniger streng gebundenen Mauspfad unterhalten.");
+assert(!clickPoint.includes("[SW]::PostMessage"),
+  "click_point darf keine dokumentationswidrige Hintergrund-Klickausnahme unterhalten.");
+
+const semanticClickStart = worker.indexOf("\n  'click' {");
+const semanticClickEnd = worker.indexOf("\n  'toggle' {", semanticClickStart);
+assert(semanticClickStart >= 0 && semanticClickEnd > semanticClickStart, "click-Workerblock fehlt.");
+const semanticClick = worker.slice(semanticClickStart, semanticClickEnd);
+assert.match(semanticClick, /\$activationMethod = \$\(if \(\$radioSelectionMethod\) \{ \$radioSelectionMethod \} else \{ "uia-\$pattern" \}\)/u,
+  "sse_click muss im Erfolgsresultat das tatsaechlich ausgefuehrte UIA-Pattern melden.");
+assert.match(semanticClick, /'expand'\s+\{ \$el\.GetCurrentPattern\(\[System\.Windows\.Automation\.ExpandCollapsePattern\]::Pattern\)\.Expand\(\) \}/u,
+  "expand muss das ExpandCollapsePattern ausfuehren.");
+assert.match(semanticClick, /'collapse'\s+\{ \$el\.GetCurrentPattern\(\[System\.Windows\.Automation\.ExpandCollapsePattern\]::Pattern\)\.Collapse\(\) \}/u,
+  "collapse muss das ExpandCollapsePattern ausfuehren.");
 
 const commit = functionBlock("Commit-TrackedValue(");
 for (const checkpoint of ["$afterClickInput", "$afterSelectInput", "$afterValueInput", "$afterCommitInput"]) {

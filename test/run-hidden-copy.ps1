@@ -1,8 +1,7 @@
 ﻿param(
   [Parameter(Mandatory = $true)]
   [string]$Source,
-  [string]$TestScript = 'hidden-console-smoke.mjs',
-  [switch]$HiddenTables
+  [string]$TestScript = 'hidden-console-smoke.mjs'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -37,15 +36,7 @@ try {
     'hidden-console-smoke.mjs' { $env:SSE_HIDDEN_FIXTURE = $target }
     'hidden-start-page.mjs' { $env:SSE_HIDDEN_FIXTURE = $target }
     'hidden-desktop-lifecycle.mjs' { $env:SSE_HIDDEN_FIXTURE = $target }
-    'table-add-transaction.mjs' {
-      $env:SSE_TABLE_ADD_FIXTURE = $target
-      if (-not $HiddenTables) { $env:SSE_TABLE_VISIBLE = '1' } else { Remove-Item Env:SSE_TABLE_VISIBLE -ErrorAction SilentlyContinue }
-    }
-    'table-update-transaction.mjs' {
-      $env:SSE_TABLE_UPDATE_FIXTURE = $target
-      if (-not $HiddenTables) { $env:SSE_TABLE_VISIBLE = '1' } else { Remove-Item Env:SSE_TABLE_VISIBLE -ErrorAction SilentlyContinue }
-    }
-    'table-delete-transaction.mjs' { $env:SSE_TABLE_DELETE_FIXTURE = $target }
+    'table-lifecycle-transaction.mjs' { $env:SSE_TABLE_FIXTURE = $target }
     default { throw "Testskript ist fuer den geschuetzten Fixture-Lauf nicht freigegeben: $testPath" }
   }
   & node (Join-Path $PSScriptRoot 'with-api.mjs') node $testPath

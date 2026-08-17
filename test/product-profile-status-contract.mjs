@@ -1,10 +1,17 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isProductProfileReleased, loadProductProfile } from "../dist/product-profiles.js";
 
 const root = mkdtempSync(join(tmpdir(), "sse-profile-status-"));
+// Der gesamte Inhalt dieses Verzeichnisses wird unten deterministisch aus
+// diesem Test heraus geschrieben; ein Fehlschlag hinterlaesst dort also keine
+// Diagnose, die nicht schon im Quelltext steht. Ohne diesen Haken sammelte
+// jeder Lauf ein weiteres Verzeichnis in %TEMP% an.
+process.on("exit", () => {
+  rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+});
 const dir = join(root, "2024");
 mkdirSync(dir, { recursive: true });
 

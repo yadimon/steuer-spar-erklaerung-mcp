@@ -16,6 +16,8 @@ export function registerInteractionTools(registry: McpRegistry): void {
       description:
         "Loest ein Bedienelement ueber UI Automation aus - NICHT ueber Bildschirmkoordinaten. " +
         "Das Fenster muss dafuer NICHT im Vordergrund sein. " +
+        "pattern='expand' und pattern='collapse' aendern ausschliesslich den Expandierungszustand eines Baumeintrags; " +
+        "sie sind keine Seitennavigation. " +
         "Mit expectedPageAfter liest das Werkzeug bei jeder navigierenden Schaltflaeche die Seitenueberschrift " +
         "vor und nach der Aktion selbst zurueck und meldet einen wirkungslosen Klick statt Scheinerfolg. " +
         "Meldet eine Qt-Aktion ein wirkungsloses InvokePattern, ist nur bei unveraenderter Ausgangsseite, " +
@@ -70,7 +72,8 @@ export function registerInteractionTools(registry: McpRegistry): void {
         "muessen ueber ihre zustands-, summen- oder fingerprintgebundenen Spezialwerkzeuge laufen. " +
         "Die Koordinaten stammen aus dem Element selbst, nicht aus einem Bildschirmfoto; vor dem Klick " +
         "wird geprueft, dass dort wirklich ein Fenster des Programms liegt, sonst wird abgebrochen. " +
-        "Holt das Fenster dafuer kurz nach oben. Fuer Schaltflaechen ist sse_click vorzuziehen.",
+        "Der Klick braucht ausserdem den tatsaechlichen Vordergrund des gebundenen SSE-Fensters; verweigert Windows ihn, " +
+        "bricht das Werkzeug vor jedem Mausinput ab. Fuer Schaltflaechen ist sse_click vorzuziehen.",
     },
     (r) => ({
       clicked: r.clicked,

@@ -1,6 +1,6 @@
 import type { SseApiServerConfig } from "./api-config.js";
 import { existsSync, mkdirSync, readdirSync, rmdirSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { type SseApiOperation, type WorkerResult } from "./api-contract.js";
 import { ZodError } from "zod";
 import { SSE_CAPABILITIES } from "./capabilities.js";
@@ -319,7 +319,10 @@ export function createApiExecutor(config: SseApiServerConfig, worker: ScenarioEx
             "CSV-Ergebnisordner erschien waehrend des Preflights; fremdes Ziel wird nicht verwendet.",
           );
         }
-        createdExportDirectory = configured.args.dir;
+        // mkdirSync gibt die oberste neu angelegte Komponente zurueck. Diese
+        // merken wir als Cleanup-Wurzel, damit ein fehlgeschlagener Export
+        // keine leere verschachtelte results:-Struktur hinterlaesst.
+        createdExportDirectory = firstCreatedDirectory;
       }
       let result: WorkerResult | undefined;
       try {
@@ -327,8 +330,15 @@ export function createApiExecutor(config: SseApiServerConfig, worker: ScenarioEx
       } finally {
         if (createdExportDirectory && result?.ok !== true) {
           try {
-            if (existsSync(createdExportDirectory) && readdirSync(createdExportDirectory).length === 0) {
-              rmdirSync(createdExportDirectory);
+            let candidate = configured.args.dir;
+            while (
+              typeof candidate === "string" &&
+              existsSync(candidate) &&
+              readdirSync(candidate).length === 0
+            ) {
+              rmdirSync(candidate);
+              if (candidate === createdExportDirectory) break;
+              candidate = dirname(candidate);
             }
           } catch {
             // Best-effort-Aufraeumen darf weder den strukturierten Workerfehler

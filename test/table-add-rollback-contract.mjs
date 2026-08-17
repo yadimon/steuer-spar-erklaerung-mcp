@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
 const worker = readFileSync(join(root, "powershell", "sse-worker.ps1"), "utf8");
-const liveTest = readFileSync(join(root, "test", "table-add-transaction.mjs"), "utf8");
+const lifecycleTest = readFileSync(join(root, "test", "table-lifecycle-transaction.mjs"), "utf8");
 const marker = "\n  'table_add' {";
 const start = worker.indexOf(marker);
 assert(start >= 0, "table_add fehlt im Worker.");
@@ -34,8 +34,10 @@ for (const proof of [
 assert.match(rollback, /\$rollbackNewCheckerMessages\.Count -eq 0/);
 assert.match(rollback, /Test-SSEScalarEqual \$rollbackSum\.value \$expectedBefore/);
 assert.match(rollback, /Where-Object \{ -not \$_\.restored \}/);
-assert(liveTest.includes("strukturVorher?.freeRowCount === rollback.rollback?.strukturNachher?.freeRowCount") &&
-  liveTest.includes("verwaiste zweite Leerzeile"),
-"Der reale Regressionstest prueft den Orphan-Leerzeilenfall nicht.");
+assert(lifecycleTest.includes("failedAdd.rollback?.strukturEntfernt, false") &&
+  lifecycleTest.includes("failedAdd.rollback?.erfolgreich, false") &&
+  lifecycleTest.includes("failedAdd.rollback?.strukturVorher?.freeRowCount + 1") &&
+  lifecycleTest.includes("verwaiste zweite Leerzeile"),
+"Der reale Lifecycle-Test prueft den fail-closed gemeldeten Orphan-Leerzeilenfall nicht.");
 
-process.stdout.write("OK: table_add-Rollback stellt rohe Zellwerte und die exakte Tabellenstruktur wieder her.\n");
+process.stdout.write("OK: table_add-Rollback stellt rohe Zellwerte wieder her und meldet unvollstaendige Struktur fail-closed.\n");

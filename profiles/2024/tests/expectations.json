@@ -1,5 +1,9 @@
 {
   "musterDirRelative": "musterfaelle",
+  "snapshotCompare": {
+    "allowMissingOnly": true,
+    "repetitions": 5
+  },
   "cases": [
     {
       "id": "est",

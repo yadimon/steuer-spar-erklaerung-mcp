@@ -7,7 +7,7 @@ $errors = $null
 $ast = [Management.Automation.Language.Parser]::ParseFile($workerPath, [ref]$tokens, [ref]$errors)
 if ($errors.Count) { throw "Worker-Parserfehler: $($errors[0].Message)" }
 
-foreach ($functionName in @('Get-SSESnapshotParentLineageKey', 'Get-SSESnapshotPrivateComparisonKey', 'Compare-SSESnapshotNodes')) {
+foreach ($functionName in @('New-SSESnapshotNodeIndex', 'Get-SSESnapshotParentLineageKey', 'Get-SSESnapshotPrivateComparisonKey', 'Compare-SSESnapshotNodes')) {
   $definition = @($ast.FindAll({
     param($node)
     $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $functionName

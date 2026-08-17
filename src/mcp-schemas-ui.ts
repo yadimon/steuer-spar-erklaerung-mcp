@@ -65,6 +65,9 @@ export const SSE_MCP_UI_SCHEMAS = {
   "sse_table_update": z.object({
     expectedPage: z.string().describe("Exakte aktuelle Seitenueberschrift"),
     text: z.string().describe("Eindeutiger vorhandener Zelltext der Zielzeile"),
+    targetRid: z.string().optional().describe(
+      "Frische Runtime-ID der Zielzelle aus sse_table_add oder sse_table_update; bindet bei gleichem Text exakt",
+    ),
     werte: z.array(z.string().nullable()).min(1).max(SSE_OPERATION_LIMITS.tableValues).describe(
       "Neue Werte in sichtbarer Spaltenreihenfolge; null ueberspringt, true/false setzt Toggle-Zellen; " +
       "profilierte Tabellen-ComboBoxen werden auch als UIA-DataItem nur ueber eine exakt popupgebundene " +
@@ -82,6 +85,9 @@ export const SSE_MCP_UI_SCHEMAS = {
   "sse_table_delete": z.object({
     expectedPage: z.string().describe("Exakte aktuelle Seitenueberschrift"),
     text: z.string().describe("Eindeutiger Text einer Zelle der zu loeschenden Zeile"),
+    targetRid: z.string().optional().describe(
+      "Frische Runtime-ID der Zielzelle aus sse_table_update; bindet bei gleichem Text exakt",
+    ),
     sumLabel: z.string().describe("Beschriftung der Kontrollsumme, z. B. 'Summe der Einnahmen'"),
     sumOccurrence: UI_OCCURRENCE.optional().describe(
       "1-basierte Position von oben, falls dasselbe Summenlabel mehrfach vorkommt",

@@ -5,9 +5,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { fixtureCaseRef } from "./fixture-case-ref.mjs";
 
 const fixture = process.env.SSE_HIDDEN_FIXTURE;
 if (!fixture) throw new Error("SSE_HIDDEN_FIXTURE fehlt.");
+const caseRef = fixtureCaseRef(fixture);
 const sha256 = () => createHash("sha256").update(readFileSync(fixture)).digest("hex");
 const before = sha256();
 const here = dirname(fileURLToPath(import.meta.url));
@@ -27,7 +29,7 @@ let started = false;
 try {
   await client.connect(transport);
   const start = parse(await client.callTool(
-    { name: "sse_desktop_start", arguments: { file: fixture, mode: "einur", name: `SSEPageProbe${process.pid}`, timeoutSec: 30 } },
+    { name: "sse_desktop_start", arguments: { caseRef, mode: "einur", name: `SSEPageProbe${process.pid}`, timeoutSec: 30 } },
     undefined,
     { timeout: 90_000, maxTotalTimeout: 90_000 },
   ), "start");

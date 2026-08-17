@@ -24,7 +24,7 @@
         "stateful-mock",
         "worker"
       ],
-      "live": "untested"
+      "live": "functional"
     },
     "backup_cases": {
       "offline": "functional",
@@ -75,7 +75,7 @@
       "offlineLabels": [
         "stateful-mock"
       ],
-      "live": "untested"
+      "live": "functional"
     },
     "checker_open": {
       "offline": "functional",
@@ -110,7 +110,7 @@
       "offlineLabels": [
         "stateful-mock"
       ],
-      "live": "untested"
+      "live": "functional"
     },
     "click_point": {
       "offline": "functional",
@@ -145,35 +145,35 @@
       "offlineLabels": [
         "stateful-mock"
       ],
-      "live": "untested"
+      "live": "functional"
     },
     "desktop_start": {
       "offline": "functional",
       "offlineLabels": [
         "stateful-mock"
       ],
-      "live": "untested"
+      "live": "functional"
     },
     "desktop_status": {
       "offline": "functional",
       "offlineLabels": [
         "stateful-mock"
       ],
-      "live": "untested"
+      "live": "functional"
     },
     "desktop_stop": {
       "offline": "functional",
       "offlineLabels": [
         "stateful-mock"
       ],
-      "live": "untested"
+      "live": "functional"
     },
     "dialog_answer": {
       "offline": "functional",
       "offlineLabels": [
         "stateful-mock"
       ],
-      "live": "untested"
+      "live": "functional"
     },
     "dialog_list": {
       "offline": "functional",
@@ -194,14 +194,14 @@
       "offlineLabels": [
         "stateful-mock"
       ],
-      "live": "untested"
+      "live": "functional"
     },
     "file_dialog_select": {
       "offline": "functional",
       "offlineLabels": [
         "stateful-mock"
       ],
-      "live": "untested"
+      "live": "functional"
     },
     "find": {
       "offline": "functional",
@@ -280,7 +280,7 @@
       "offlineLabels": [
         "stateful-mock"
       ],
-      "live": "untested"
+      "live": "functional"
     },
     "menu_close": {
       "offline": "functional",
@@ -350,14 +350,14 @@
       "offlineLabels": [
         "stateful-mock"
       ],
-      "live": "untested"
+      "live": "functional"
     },
     "save_as": {
       "offline": "functional",
       "offlineLabels": [
         "stateful-mock"
       ],
-      "live": "untested"
+      "live": "functional"
     },
     "scenario_run": {
       "offline": "functional",
@@ -379,7 +379,7 @@
       "offlineLabels": [
         "stateful-mock"
       ],
-      "live": "error-path-only"
+      "live": "functional"
     },
     "scroll_page": {
       "offline": "functional",
@@ -393,7 +393,7 @@
       "offlineLabels": [
         "stateful-mock"
       ],
-      "live": "untested"
+      "live": "functional"
     },
     "snapshot": {
       "offline": "functional",
@@ -421,14 +421,14 @@
       "offlineLabels": [
         "stateful-mock"
       ],
-      "live": "untested"
+      "live": "functional"
     },
     "table_delete": {
       "offline": "functional",
       "offlineLabels": [
         "stateful-mock"
       ],
-      "live": "untested"
+      "live": "functional"
     },
     "table_read": {
       "offline": "functional",
@@ -442,21 +442,21 @@
       "offlineLabels": [
         "stateful-mock"
       ],
-      "live": "untested"
+      "live": "functional"
     },
     "toggle": {
       "offline": "functional",
       "offlineLabels": [
         "stateful-mock"
       ],
-      "live": "untested"
+      "live": "functional"
     },
     "tracked_set_value": {
       "offline": "functional",
       "offlineLabels": [
         "stateful-mock"
       ],
-      "live": "untested"
+      "live": "functional"
     },
     "tree_scroll": {
       "offline": "functional",
@@ -485,14 +485,14 @@
         "stateful-mock",
         "ustva-mock"
       ],
-      "live": "untested"
+      "live": "functional"
     },
     "ustva_open_section": {
       "offline": "functional",
       "offlineLabels": [
         "ustva-mock"
       ],
-      "live": "untested"
+      "live": "functional"
     },
     "ustva_read": {
       "offline": "functional",
@@ -508,7 +508,7 @@
         "stateful-mock",
         "ustva-mock"
       ],
-      "live": "untested"
+      "live": "functional"
     },
     "ustva_set_flag": {
       "offline": "functional",
@@ -516,7 +516,7 @@
         "stateful-mock",
         "ustva-mock"
       ],
-      "live": "untested"
+      "live": "functional"
     },
     "vast_apply": {
       "offline": "functional",
@@ -611,14 +611,14 @@
       "offlineLabels": [
         "stateful-mock"
       ],
-      "live": "untested"
+      "live": "functional"
     },
     "window_restore": {
       "offline": "functional",
       "offlineLabels": [
         "stateful-mock"
       ],
-      "live": "untested"
+      "live": "functional"
     },
     "windows": {
       "offline": "functional",

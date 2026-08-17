@@ -37,12 +37,21 @@ function checkSyntax(path) {
 }
 
 const modules = roots.flatMap(collectModules).sort();
+// Skripte, die nur mit einer Fixture laufen und deshalb in keinem normalen
+// Lauf ausgefuehrt werden. Genau sie verrotten unbemerkt, also wird hier
+// wenigstens ihre Syntax verbindlich mitgeprueft.
+//
+// table-add/-update/-delete-transaction.mjs und click-dirty-readback.mjs
+// standen frueher hier. Sie sind entfernt, weil sie nicht bloss ruhten,
+// sondern nachweislich nicht mehr lauffaehig waren: Sie uebergaben
+// 'file:<absoluter Pfad>' an sse_launch, was das strikte Schema seit der
+// Pfadredaktion abweist, und erwarteten feste Betraege aus einer privaten
+// Arbeitskopie. Ihre Gebiete deckt test/table-lifecycle-transaction.mjs
+// beziehungsweise test/hidden-desktop-lifecycle.mjs vollstaendig ab.
 const requiredDormantEntries = [
   "multi-instance-binding.mjs",
   "search-set-transaction.mjs",
-  "table-add-transaction.mjs",
-  "table-delete-transaction.mjs",
-  "table-update-transaction.mjs",
+  "table-lifecycle-transaction.mjs",
   "toggle-transaction.mjs",
   "visible-input-guard.mjs",
 ].map((name) => join("test", name));

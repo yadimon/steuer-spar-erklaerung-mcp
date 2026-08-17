@@ -97,20 +97,19 @@
     "test:hidden-console": "node test/with-api.mjs node test/hidden-console-smoke.mjs",
     "test:visible-guard": "node test/with-api.mjs node test/visible-input-guard.mjs",
     "test:live": "npm run build && node test/run-live-suite.mjs",
+    "test:live-core-read": "npm run build && node test/run-live-core-read.mjs",
+    "test:live-journey": "npm run build && node test/run-live-journey.mjs",
     "test:live-muster": "node test/with-api.mjs node test/live-muster-cases.mjs",
     "test:search-set": "node test/with-api.mjs node test/search-set-transaction.mjs",
     "test:toggle": "node test/with-api.mjs node test/toggle-transaction.mjs",
     "test:capabilities": "npm run build:ts && node test/capabilities-contract.mjs",
     "test:ustva": "npm run build:ts && node test/ustva-contract.mjs",
     "test:tax-journeys": "npm run build:ts && node --test test/api-tax-journeys.mjs",
-    "test:click": "node test/with-api.mjs node test/click-dirty-readback.mjs",
     "test:multi-instance": "node test/with-api.mjs node test/multi-instance-binding.mjs",
     "test:desktop-enum": "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File test/desktop-enumeration-contract.ps1",
     "test:table-region": "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File test/table-region-contract.ps1",
     "test:table-values": "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File test/table-values-contract.ps1",
-    "test:table-add": "node test/with-api.mjs node test/table-add-transaction.mjs",
-    "test:table-update": "node test/with-api.mjs node test/table-update-transaction.mjs",
-    "test:table-delete": "node test/with-api.mjs node test/table-delete-transaction.mjs"
+    "test:table-lifecycle": "node test/with-api.mjs node test/table-lifecycle-transaction.mjs"
   },
   "engines": {
     "node": ">=22"

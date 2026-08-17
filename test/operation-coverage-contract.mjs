@@ -19,6 +19,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SSE_API_OPERATIONS } from "../dist/api-contract.js";
 import { OPERATION_TRACE_LABELS, operationTraceDirectory } from "./operation-trace.mjs";
+import { COVERAGE_RANK, mergeCoverageLabels, retainHighestCoverageStatus } from "./operation-coverage-lib.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const ledgerPath = join(here, "operation-coverage.json");
@@ -76,14 +77,14 @@ if (process.env.SSE_WRITE_OPERATION_COVERAGE === "1") {
     const carried = previous.operations?.[operation] ?? {};
     operations[operation] = scope === "offline"
       ? {
-        offline: observedStatus(operation),
-        offlineLabels: observedLabels(operation),
+        offline: retainHighestCoverageStatus(carried.offline, observedStatus(operation)),
+        offlineLabels: mergeCoverageLabels(carried.offlineLabels, observedLabels(operation)),
         live: carried.live ?? "untested",
       }
       : {
         offline: carried.offline ?? "untested",
         offlineLabels: carried.offlineLabels ?? [],
-        live: observedStatus(operation),
+        live: retainHighestCoverageStatus(carried.live, observedStatus(operation)),
       };
   }
   writeFileSync(
@@ -117,8 +118,7 @@ for (const operation of SSE_API_OPERATIONS) {
   );
   const actual = observedStatus(operation);
   if (actual === claimed) continue;
-  const rank = { untested: 0, "error-path-only": 1, functional: 2 };
-  if (rank[actual] < rank[claimed]) regressions.push(`${operation}: erwartet ${claimed}, beobachtet ${actual}`);
+  if (COVERAGE_RANK[actual] < COVERAGE_RANK[claimed]) regressions.push(`${operation}: erwartet ${claimed}, beobachtet ${actual}`);
   else upgrades.push(`${operation}: beobachtet ${actual}, Bilanz sagt ${claimed}`);
 }
 

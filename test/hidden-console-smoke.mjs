@@ -5,9 +5,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { fixtureCaseRef } from "./fixture-case-ref.mjs";
 
 const fixture = process.env.SSE_HIDDEN_FIXTURE;
 if (!fixture) throw new Error("SSE_HIDDEN_FIXTURE mit einer entbehrlichen Arbeitskopie ist Pflicht.");
+const caseRef = fixtureCaseRef(fixture);
 const sha256 = () => createHash("sha256").update(readFileSync(fixture)).digest("hex");
 const before = sha256();
 const here = dirname(fileURLToPath(import.meta.url));
@@ -33,7 +35,7 @@ try {
   const desktopName = `SSEHiddenSmoke${process.pid}${Date.now()}`;
   const start = parse(
     await client.callTool(
-      { name: "sse_desktop_start", arguments: { file: fixture, mode: "einur", name: desktopName, timeoutSec: 20 } },
+      { name: "sse_desktop_start", arguments: { caseRef, mode: "einur", name: desktopName, timeoutSec: 20 } },
       undefined,
       { timeout: 45_000, maxTotalTimeout: 45_000 },
     ),

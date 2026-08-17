@@ -209,12 +209,26 @@ function Read-AkadHeader {
     $record = $meta['ElsterTransferTime']
     $transferTime = $(if ($null -eq $record.value) { '' } else { ([string]$record.value).Trim() })
     $out['elsterTransferTime'] = $transferTime
-    if ($transferTime -and $transferTime -ne '0') {
+    # SSE schreibt 'kein Versand' je nach Build als leer, '0' oder '-'. Der
+    # Herstellermusterfall enthaelt '-'; der frueher reine Wahrheitswert-Test
+    # meldete ihn deshalb als "übermittelt am -", obwohl er nie versendet
+    # wurde. Ein echter Zeitstempel enthaelt immer Ziffern.
+    #
+    # Die Fehlerrichtung ist bewusst gewaehlt: Ein unbekanntes, nicht
+    # platzhalterartiges Format bleibt 'unknown' statt still 'nicht
+    # übermittelt' zu behaupten - eine irrtuemlich zweite Abgabe waere der
+    # teurere Fehler.
+    if ($transferTime -in @('', '0', '-')) {
+      $out['transmitted'] = $false
+      $out['transmittedReason'] = $(if ($transferTime) {
+        "ElsterTransferTime ist der Platzhalter '$transferTime' - kein Versand"
+      } else { 'ElsterTransferTime ist leer' })
+    } elseif ($transferTime -match '\d') {
       $out['transmitted'] = $true
       $out['transmittedReason'] = "übermittelt am $transferTime"
     } else {
-      $out['transmitted'] = $false
-      $out['transmittedReason'] = 'ElsterTransferTime ist leer'
+      $out['transmitted'] = 'unknown'
+      $out['transmittedReason'] = "ElsterTransferTime '$transferTime' ist weder Platzhalter noch Zeitstempel - keine Aussage möglich."
     }
   }
   return [pscustomobject]$out

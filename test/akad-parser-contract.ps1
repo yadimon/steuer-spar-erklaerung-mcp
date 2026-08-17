@@ -37,7 +37,7 @@ function Get-Utf8NullTerminated([string]$Value) {
   return [byte[]]([Text.Encoding]::UTF8.GetBytes($Value) + [byte]0)
 }
 
-function New-AkadFixture([string]$Path, [ValidateSet('true','false','unknown')][string]$TransferState) {
+function New-AkadFixture([string]$Path, [ValidateSet('true','false','unknown','platzhalter','unlesbar')][string]$TransferState) {
   $stream = New-Object IO.MemoryStream
   $writer = New-Object IO.BinaryWriter($stream)
   try {
@@ -58,6 +58,11 @@ function New-AkadFixture([string]$Path, [ValidateSet('true','false','unknown')][
       Write-AkadPrefixedRecord -Writer $writer -Name 'ElsterTransferTime' -Type 4 -Value (Get-Utf8NullTerminated '02.08.2026 11:22:33')
     } elseif ($TransferState -eq 'false') {
       Write-AkadPrefixedRecord -Writer $writer -Name 'ElsterTransferTime' -Type 4 -Value ([byte[]](0))
+    } elseif ($TransferState -eq 'platzhalter') {
+      # Genau das steht im Herstellermusterfall.
+      Write-AkadPrefixedRecord -Writer $writer -Name 'ElsterTransferTime' -Type 4 -Value (Get-Utf8NullTerminated '-')
+    } elseif ($TransferState -eq 'unlesbar') {
+      Write-AkadPrefixedRecord -Writer $writer -Name 'ElsterTransferTime' -Type 4 -Value (Get-Utf8NullTerminated 'spaeter')
     }
     Write-AkadPrefixedRecord -Writer $writer -Name 'svCrypted' -Type 12 -Value ([byte[]](1,2,3,4,5,6,7,8))
     $writer.Flush()
@@ -81,9 +86,13 @@ try {
   $notAkadPath = Join-Path $temporary 'other.Gew2025'
   $largePath = Join-Path $temporary 'large.Gew2025'
   $missingPath = Join-Path $temporary 'missing.Gew2025'
+  $placeholderPath = Join-Path $temporary 'platzhalter.Gew2025'
+  $unreadablePath = Join-Path $temporary 'unlesbar.Gew2025'
   New-AkadFixture -Path $truePath -TransferState true
   New-AkadFixture -Path $falsePath -TransferState false
   New-AkadFixture -Path $unknownPath -TransferState unknown
+  New-AkadFixture -Path $placeholderPath -TransferState platzhalter
+  New-AkadFixture -Path $unreadablePath -TransferState unlesbar
   [IO.File]::WriteAllBytes($shortPath, [byte[]](1,2,3))
   [IO.File]::WriteAllBytes($notAkadPath, (New-Object byte[] 64))
   [IO.File]::WriteAllBytes($largePath, (New-Object byte[] (600 * 1024)))
@@ -113,6 +122,20 @@ try {
   Assert-True ($parsedFalse.transmitted -is [bool]) 'transmitted=false muss boolesch sein'
   Assert-Equal $parsedFalse.transmitted $false 'Sicher nicht uebermittelt'
   Assert-Equal $parsedFalse.elsterTransferTime '' 'Leere ELSTER-Zeit'
+
+  # Der offizielle Musterfall traegt '-' fuer 'nie versendet'. Der frueher
+  # reine Wahrheitswert-Test meldete ihn als "übermittelt am -" - eine
+  # Falschaussage ueber genau die Tatsache, auf die es hier ankommt.
+  $parsedPlaceholder = @(Invoke-AkadParser -Paths @($placeholderPath))[0]
+  Assert-True ($parsedPlaceholder.transmitted -is [bool]) 'Platzhalter muss boolesch entschieden werden'
+  Assert-Equal $parsedPlaceholder.transmitted $false 'Platzhalter - heisst nicht uebermittelt'
+  Assert-Equal $parsedPlaceholder.elsterTransferTime '-' 'Platzhalter bleibt im Rohwert sichtbar'
+  Assert-Equal $parsedPlaceholder.transmittedReason "ElsterTransferTime ist der Platzhalter '-' - kein Versand" 'Grund fuer Platzhalter'
+
+  # Ein unbekanntes Format wird NICHT still zu 'nicht uebermittelt': eine
+  # irrtuemlich zweite Abgabe waere der teurere Fehler.
+  $parsedUnreadable = @(Invoke-AkadParser -Paths @($unreadablePath))[0]
+  Assert-Equal $parsedUnreadable.transmitted 'unknown' 'Unbekanntes Zeitformat bleibt unbekannt'
 
   $parsedUnknown = @(Invoke-AkadParser -Paths @($unknownPath))[0]
   Assert-Equal $parsedUnknown.transmitted 'unknown' 'Fehlendes Feld bleibt unbekannt'

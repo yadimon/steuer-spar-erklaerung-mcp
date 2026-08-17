@@ -38,7 +38,11 @@ Diese Regeln gelten auch auf ausdrücklichen Wunsch:
   Bearbeitungsablauf nicht. Die einzige enge Ausnahme ist ein ausdrücklich
   beauftragter Archivlauf für nachweislich nicht übermittelte Fälle über
   `sse_archive_cases`: vollständiges Inventar, Hashbindung und ausschließlich
-  ein neues Ziel im konfigurierten Backupbereich sind Pflicht.
+  ein neues Ziel im konfigurierten Backupbereich sind Pflicht. Lies das
+  Inventar mit `sse_list_cases` und `includeBackups: true`. Das Programm legt
+  beim Speichern eine eigene `<Fallname>_Backup`-Datei daneben, und der
+  Bestandsabgleich zählt sie mit; ein unvollständiger Restbestand wird mit
+  `inventory-mismatch` gestoppt, ohne etwas zu verschieben.
 - Ändere Steuerdaten nur in einer zuvor bytegleich verifizierten Arbeitskopie.
 - Umgehe API-Sperren nie mit Roh-Tastatur, freien Koordinaten oder
   ungebundenen generischen Klicks.
@@ -175,7 +179,10 @@ Nutzerentscheidung.
    Öffnen Bytegleichheit bestätigen.
 5. Lies unmittelbar vor jeder Änderung Fallreferenz, Zustand, Fensterbindung
    (`HWND`) und Hash neu. Führe genau eine eng gebundene Änderung aus und lies
-   Wert sowie Zustand sofort zurück.
+   Wert sowie Zustand sofort zurück. Für eine Tabellenzeile liefert
+   `sse_table_read` mit `sumLabel` die aktuelle Kontrollsumme als `summe`;
+   genau dieser Wert gehört unverändert als `expectedBefore` in
+   `sse_table_add`, `sse_table_update` oder `sse_table_delete`. Rate ihn nie.
 6. Stoppe bei Hash-, Ziel-, Dialog- oder Readback-Abweichung ohne Wiederholung.
    Die read-only Prüfung darf weiterlaufen, wenn sie den unsicheren Zustand
    klar ausgrenzt.

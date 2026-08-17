@@ -34,7 +34,10 @@ for (const operation of EXPERIMENTAL_PROFILE_VERIFICATION_OPERATIONS) {
   assert.equal(experimentalOpen[operation].availability, "allowed", `${operation}: mit Opt-in`);
   assert.equal(experimentalOpen[operation].requiresExperimentalOptIn, true);
 }
-for (const operation of ["table_update", "tracked_set_value", "vast_apply", "save", "export_csv"]) {
+for (const operation of [
+  "toggle", "tracked_set_value", "table_add", "table_update", "table_delete", "save", "save_as",
+  "vast_apply", "export_csv",
+]) {
   assert.equal(experimentalOpen[operation].availability, "blocked", `${operation}: kein Generalschluessel`);
 }
 assert.equal(experimentalClosed.dialog_answer.availability, "blocked");

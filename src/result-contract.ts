@@ -95,7 +95,16 @@ const OPERATION_RESULT_FIELDS = {
     currentHeadingAfter: OPTIONAL_STRING,
     advancedAfterLastCaptured: OPTIONAL_BOOLEAN,
   },
-  table_read: { zeilen: OPTIONAL_ARRAY, vollstaendig: OPTIONAL_BOOLEAN, anzahl: OPTIONAL_NON_NEGATIVE_NUMBER },
+  // 'summe' ist der gelesene Wert der gebundenen Kontrollsumme. Ohne ihn
+  // koennte ein Aufrufer die Pflichtangaben expectedBefore/expectedAfter der
+  // Tabellenmutationen nicht ermitteln; er bleibt null, wenn kein sumLabel
+  // angegeben wurde.
+  table_read: {
+    zeilen: OPTIONAL_ARRAY,
+    vollstaendig: OPTIONAL_BOOLEAN,
+    anzahl: OPTIONAL_NON_NEGATIVE_NUMBER,
+    summe: OPTIONAL_STRING,
+  },
   result_details: { zeilen: OPTIONAL_ARRAY, vollstaendig: OPTIONAL_BOOLEAN, anzahl: OPTIONAL_NON_NEGATIVE_NUMBER },
   snapshot: { nodes: OPTIONAL_ARRAY, count: OPTIONAL_NON_NEGATIVE_NUMBER, stats: OPTIONAL_OBJECT },
   snapshot_compare: {
@@ -116,6 +125,16 @@ const OPERATION_RESULT_FIELDS = {
     aufgeklappt: OPTIONAL_ARRAY,
   },
   checker_run: { gesamt: OPTIONAL_NON_NEGATIVE_NUMBER, konsistent: OPTIONAL_BOOLEAN },
+  click: {
+    clicked: OPTIONAL_STRING,
+    pattern: OPTIONAL_STRING,
+    method: OPTIONAL_STRING,
+    kandidaten: OPTIONAL_NON_NEGATIVE_NUMBER,
+    ueberschriftVorher: OPTIONAL_STRING,
+    ueberschriftNachher: OPTIONAL_STRING,
+    navigiert: OPTIONAL_BOOLEAN,
+    verified: OPTIONAL_BOOLEAN,
+  },
   checker_open: { meldung: OPTIONAL_STRING, text: OPTIONAL_STRING, ocrOk: OPTIONAL_BOOLEAN },
   warning_popup_read: { active: OPTIONAL_BOOLEAN, title: OPTIONAL_STRING, text: OPTIONAL_STRING },
   screenshot: {

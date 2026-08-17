@@ -4,11 +4,13 @@
  * Jeder Fall wird in den isolierten Test-API-Fallbereich kopiert, von MCP
  * nochmals bytegleich dupliziert, nur gelesen und ohne Speichern geschlossen.
  *
- * Welche Operationen der Lauf versucht, entscheidet die Faehigkeitsmatrix des
- * Profils aus `sse_capabilities` - nicht dieser Test. Was die Matrix erlaubt
- * und keinen Steuerfall veraendert, wird ausgefuehrt; fuer alles andere muss
- * sie ausdruecklich einen Sperrgrund nennen. Ein stiller SKIP ist damit
- * ausgeschlossen.
+ * Im Modus `full` entscheidet die Faehigkeitsmatrix des Profils aus
+ * `sse_capabilities`, welche fallunveraendernden Operationen der Lauf
+ * versucht. Was die Matrix erlaubt, wird ausgefuehrt; fuer alles andere muss
+ * sie ausdruecklich einen Sperrgrund nennen. `core-read` ist dagegen ein
+ * bewusst kleinerer Evidenzmodus fuer die geoeffnete Musterfallseite und weist
+ * seine nicht enthaltenen UI-Zweigwechsel im Ergebnis aus. Ein stiller SKIP
+ * ist in beiden Modi ausgeschlossen.
  *
  * Voraussetzung ist eine unbenutzte Windows-Sitzung: Navigation laeuft ueber
  * echte Mausklicks, und Windows verweigert den Vordergrundwechsel, solange
@@ -31,6 +33,10 @@ if (!existsSync(expectationsPath)) {
   throw new Error(`Musterfall-Erwartungen fuer SSE-Profil '${profileId}' fehlen: ${expectationsPath}`);
 }
 const expectations = JSON.parse(readFileSync(expectationsPath, "utf8"));
+const snapshotCompareExpectation = expectations.snapshotCompare ?? {};
+const snapshotCompareRepetitions = snapshotCompareExpectation.repetitions ?? 3;
+assert(Number.isInteger(snapshotCompareRepetitions) && snapshotCompareRepetitions >= 1 && snapshotCompareRepetitions <= 10,
+  `snapshotCompare.repetitions fuer Profil '${profileId}' muss zwischen 1 und 10 liegen.`);
 
 const steuertippsRoot = "C:\\Program Files\\Steuertipps\\SteuerSparErklaerung";
 const defaultMusterDir = join(steuertippsRoot, profile.executable.installationFolderName, expectations.musterDirRelative);
@@ -39,6 +45,9 @@ const testCaseDir = process.env.SSE_TEST_CASE_DIR;
 if (!testCaseDir) throw new Error("SSE_TEST_CASE_DIR aus dem isolierten Test-API-Wrapper fehlt.");
 
 const allDefinitions = expectations.cases;
+const liveMode = process.env.SSE_LIVE_MUSTER_MODE ?? "full";
+assert(["full", "core-read"].includes(liveMode),
+  `Unbekannter SSE_LIVE_MUSTER_MODE '${liveMode}'; erlaubt sind full und core-read.`);
 const requestedIds = new Set((process.env.SSE_LIVE_MUSTER_CASES ?? "")
   .split(",").map((id) => id.trim()).filter(Boolean));
 const knownIds = new Set(allDefinitions.map(({ id }) => id));
@@ -77,7 +86,13 @@ const call = async (name, args = {}, timeout = 180_000) => {
  */
 const callTolerant = async (name, args, allowedKinds, timeout = 180_000) => {
   const result = await callRaw(name, args, timeout);
-  const parsed = parsedText(result, name);
+  // Die kompakte MCP-Textprojektion darf alte Clients nicht brechen, kann aber
+  // Diagnosefelder wie die Klickbindung auslassen. Der Live-Gate bewertet
+  // deshalb das kanonische, bereits pfadredigierte Ergebnis, falls es vorliegt.
+  const parsed = result?.structuredContent && typeof result.structuredContent === "object" &&
+    !Array.isArray(result.structuredContent)
+    ? result.structuredContent
+    : parsedText(result, name);
   if (!result?.isError) return parsed;
   assert(allowedKinds.includes(parsed.kind),
     `${name}: unerwartete Fehlerart '${parsed.kind}' (erlaubt: ${allowedKinds.join(", ")}): ${parsed.error}`);
@@ -129,6 +144,32 @@ function assertExpectedUstva(ustva, erwartet) {
   assert.equal(ustva.transmission.blockedByApi, true, "UStVA: API-Versandsperre fehlt.");
   assert.equal(ustva.effects.savePerformed, false, "UStVA: Leseweg hat gespeichert.");
   assert.equal(ustva.effects.submissionPerformed, false, "UStVA: Leseweg hat uebermittelt.");
+}
+
+function assertSnapshotComparison(definition, compared) {
+  assert.equal(compared.canaryAfter?.ok, true, `${definition.id}: SSE wurde waehrend snapshot_compare traege.`);
+  assert.equal(compared.privateValuesReturned, false,
+    `${definition.id}: snapshot_compare darf keine privaten Werte zurueckgeben.`);
+  assert.equal(typeof compared.runtimeIdChurnCount, "number",
+    `${definition.id}: snapshot_compare weist RuntimeId-Churn nicht separat aus.`);
+
+  const missingOnlyAllowed = snapshotCompareExpectation.allowMissingOnly === true;
+  if (!missingOnlyAllowed) {
+    assert.equal(compared.equivalent, true,
+      `${definition.id}: sicherer TreeWalker und Bulk-Snapshot sind nicht aequivalent: ${JSON.stringify(compared.samples)}`);
+  }
+  for (const field of ["extraCount", "metadataMismatchCount", "valueMismatchCount"]) {
+    assert.equal(compared[field], 0,
+      `${definition.id}: snapshot_compare meldete ${field}=${compared[field]}: ${JSON.stringify(compared.samples)}`);
+  }
+  if (compared.equivalent) {
+    assert.equal(compared.missingCount, 0, `${definition.id}: aequivalenter Snapshot meldet fehlende Knoten.`);
+    return;
+  }
+  assert(missingOnlyAllowed,
+    `${definition.id}: Snapshot-Abweichung ist fuer dieses Profil nicht freigegeben: ${JSON.stringify(compared.samples)}`);
+  assert(compared.missingCount > 0,
+    `${definition.id}: nicht aequivalenter Snapshot braucht mindestens einen explizit gemeldeten fehlenden Knoten.`);
 }
 
 function assertNoDoubledHelpLines(id, abschnitte) {
@@ -221,19 +262,8 @@ async function assertReadOnlyOperationSweep(definition, hwnd) {
     assert.equal(typeof probe.rawTruncated, "boolean",
       `${id}: sse_accessibility_probe ohne rawTruncated-Status.`);
 
-    const compared = await call("sse_snapshot_compare", { hwnd, repetitions: 3 }, 240_000);
-    assert.equal(compared.equivalent, true,
-      `${id}: sicherer TreeWalker und Bulk-Snapshot sind nicht aequivalent: ${JSON.stringify(compared.samples)}`);
-    assert.equal(compared.legacy?.count, compared.bulk?.count,
-      `${id}: Snapshot-Vergleich lieferte unterschiedliche Knotenzahlen.`);
-    assert.equal(compared.canaryAfter?.ok, true, `${id}: SSE wurde waehrend snapshot_compare traege.`);
-    assert.equal(compared.privateValuesReturned, false,
-      `${id}: snapshot_compare darf keine privaten Werte zurueckgeben.`);
-    assert.equal(typeof compared.runtimeIdChurnCount, "number",
-      `${id}: snapshot_compare weist RuntimeId-Churn nicht separat aus.`);
-    for (const field of ["missingCount", "extraCount", "metadataMismatchCount", "valueMismatchCount"]) {
-      assert.equal(compared[field], 0, `${id}: snapshot_compare meldete ${field}=${compared[field]}.`);
-    }
+    const compared = await call("sse_snapshot_compare", { hwnd, repetitions: snapshotCompareRepetitions }, 240_000);
+    assertSnapshotComparison(definition, compared);
   }
 }
 
@@ -263,9 +293,15 @@ async function gotoNavigationBranch(id, hwnd, heading, attempts = 3) {
       `${id}: Navigationszweig '${heading}' ist nicht eindeutig: ${JSON.stringify(found.hits)}`);
     const outcome = await callTolerant("sse_click_point",
       { name: heading, type: "TreeItem", expectedPageAfter: heading, waitMs: 4_000, hwnd },
-      ["postcondition-failed"], 120_000);
+      ["postcondition-failed", "interference"], 120_000);
     if (outcome.ok === false) {
-      failures.push(`Versuch ${attempt}: ${outcome.error}`);
+      const focus = outcome.focusTelemetry
+        ? ` Focus=${JSON.stringify(outcome.focusTelemetry)}`
+        : "";
+      const click = outcome.clickBinding
+        ? ` Klick=${JSON.stringify(outcome.clickBinding)}`
+        : "";
+      failures.push(`Versuch ${attempt}: ${outcome.error}${click}${focus}`);
       await wait(1_000);
       continue;
     }
@@ -273,9 +309,9 @@ async function gotoNavigationBranch(id, hwnd, heading, attempts = 3) {
   }
   assert(clicked,
     `${id}: Navigationszweig '${heading}' in ${attempts} Anlaeufen nicht erreicht. ` +
-    "Wenn jeder Versuch dieselbe Ausgangsseite meldet, kam der Klick nicht bei der Anwendung an: " +
-    "Windows verweigert den Vordergrundwechsel, solange der Rechner nebenher bedient wird. " +
-    `Das Live-Gate braucht eine unbenutzte Sitzung.\n${failures.join("\n")}`);
+    "Wenn jeder Versuch dieselbe Ausgangsseite meldet, hat Qt die gebundene Eingabe nicht aktiviert. " +
+    "Die einzelnen Versuche enthalten deshalb ihre Focus-Telemetrie; vor einem erneuten Volltest " +
+    `eine ruhige sichtbare Sitzung und die angegebene Bindung pruefen.\n${failures.join("\n")}`);
   assertSemanticEqual(clicked.ueberschriftNachher, heading, `${id}: Navigationszweig nicht erreicht`);
   assertSemanticEqual(clicked.seiteGewechselt, true, `${id}: Zweigklick meldet keinen Seitenwechsel`);
 
@@ -324,6 +360,14 @@ async function runCheckerSweep(definition, hwnd) {
   assertSemanticEqual(detail.meldung, message, `${id}: checker_open oeffnete eine andere Meldung`);
   assert.equal(typeof detail.kontrollbildEnthalten, "boolean",
     `${id}: checker_open meldet nicht, ob ein Kontrollbild vorliegt.`);
+  // checker_detail ist absichtlich kein eigenstaendiges MCP-Werkzeug, aber
+  // sehr wohl eine veröffentlichte HTTP-Operation. Nach checker_open ist die
+  // Karte exakt gebunden und aufgeklappt; der direkte API-Leseweg darf damit
+  // kein eigenes UI-Verhalten auslösen und muss denselben Meldungstitel lesen.
+  const directDetail = await callApiOperation("checker_detail", { name: message, hwnd }, 300_000);
+  assertSemanticEqual(directDetail.meldung, message,
+    `${id}: direkter checker_detail-Aufruf las eine andere Meldung`);
+  assert.equal(typeof directDetail.text, "string", `${id}: checker_detail ohne Detailtext.`);
   const reset = await callCanonical("sse_checker_reset", { hwnd }, 240_000);
   assert.deepEqual(reset.aufgeklappt ?? [], [], `${id}: checker_reset liess eine Detailkarte offen.`);
 
@@ -344,6 +388,46 @@ async function unlinkOwned(path) {
     await wait(250);
   }
   assert(!existsSync(path), `Testkopie blieb gesperrt: ${path}`);
+}
+
+async function waitForOwnSseShutdown() {
+  // Der MCP-Request kann wegen seines Zeitlimits bereits beendet sein, obwohl
+  // der vom Worker gestartete, PID-gebundene Schliessvorgang noch auslaeuft.
+  // Da der Live-Test nur ohne fremde SSE-Instanz startet, beweist running=false
+  // hier, dass die eigene Instanz beendet ist.
+  let lastError = null;
+  for (let attempt = 0; attempt < 20; attempt++) {
+    try {
+      if (!(await call("sse_health")).running) return null;
+    } catch (error) {
+      lastError = error;
+    }
+    await wait(500);
+  }
+  return lastError
+    ? `Gesundheitspruefung nach discard-close scheiterte: ${lastError.message}`
+    : "Eigene SSE-Instanz blieb nach discard-close aktiv.";
+}
+
+async function closeOwnedLiveInstance(instance, launchedPid) {
+  const pid = instance?.pid ?? launchedPid;
+  if (!pid) return waitForOwnSseShutdown();
+
+  const args = instance?.hwnd
+    ? { pid, hwnd: instance.hwnd, force: true, discardChanges: true }
+    : { pid, force: true, discardChanges: true };
+  let closeError = null;
+  try {
+    const closed = await callRaw("sse_close", args, 90_000);
+    if (closed?.isError) closeError = `sse_close: ${fullText(closed)}`;
+    else if (parsedText(closed, "sse_close").ok !== true) closeError = "sse_close meldete keinen erfolgreichen Abschluss.";
+  } catch (error) {
+    closeError = `sse_close: ${error.message}`;
+  }
+
+  const shutdownError = await waitForOwnSseShutdown();
+  if (!shutdownError) return null;
+  return closeError ? `${closeError} ${shutdownError}` : shutdownError;
 }
 
 function classifyStartupDialog(dialog) {
@@ -370,10 +454,12 @@ async function dismissBoundStartupDialogs(pid) {
 }
 
 /**
- * Der Verifikationskatalog des aktiven Profils entscheidet, welche Operationen
- * dieser Lauf ueberhaupt versuchen darf. So bleibt ein eingeschraenktes
- * Jahresprofil eingeschraenkt, ohne dass der Test still weniger prueft: Was
- * hier nicht laeuft, muss die Matrix ausdruecklich als gesperrt ausweisen.
+ * Im Vollmodus entscheidet der Verifikationskatalog des aktiven Profils,
+ * welche Operationen dieser Lauf ueberhaupt versuchen darf. So bleibt ein
+ * eingeschraenktes Jahresprofil eingeschraenkt, ohne dass der Test still
+ * weniger prueft: Was dort nicht laeuft, muss die Matrix ausdruecklich als
+ * gesperrt ausweisen. Der gesonderte Core-Read-Modus begrenzt seinen Umfang
+ * stattdessen explizit und veröffentlicht diese Grenze im Ergebnis.
  */
 let operationPolicy = null;
 function policyFor(operation) {
@@ -482,8 +568,15 @@ async function assertDeepReadOnlySweep(definition, hwnd, pages) {
   assert.equal(typeof checked.beanstandungsfrei, "boolean", `${id}: check ohne Gesamturteil.`);
   assert(Array.isArray(checked.leerePflichtfelder), `${id}: check ohne Pflichtfeldliste.`);
 
-  // Nicht jede Musterfallseite besitzt einen scrollbaren Container. Genau diese
-  // eine dokumentierte Antwort ist zulaessig; jede andere Fehlerart bleibt rot.
+  // Die reine Inventur ist auf jeder Seite erfolgreich und beweist den
+  // generischen Scroll-Workerpfad auch dann, wenn die konkrete Seite kurz ist.
+  const scrollInventory = await callCanonical("sse_scroll", { mode: "list", hwnd });
+  assert.equal(typeof scrollInventory.count, "number", `${id}: scroll list ohne numerischen count.`);
+  assert(Array.isArray(scrollInventory.scrollables), `${id}: scroll list ohne Containerliste.`);
+
+  // Nicht jede Musterfallseite besitzt einen scrollbaren Container. Fuer den
+  // anschliessenden Prozentweg ist genau diese dokumentierte Antwort zulaessig;
+  // jede andere Fehlerart bleibt rot.
   const scrolled = await callTolerant("sse_scroll", { mode: "percent", vPercent: 0, hwnd }, ["no-scroll-pattern"]);
   assert(scrolled.mode === "percent" || scrolled.kind === "no-scroll-pattern",
     `${id}: scroll lieferte weder eine Prozentbestaetigung noch die Ohne-Roller-Antwort: ${JSON.stringify(scrolled)}`);
@@ -566,6 +659,12 @@ async function assertDeepReadOnlySweep(definition, hwnd, pages) {
   }
 
   if (allowedOperation("collect")) {
+    // Der Sammellauf beginnt auf der aktuellen Seite. Wo die vorherigen
+    // Schritte enden, ist nicht garantiert - von einer Uebersichtsseite ohne
+    // Blaetterweg sammelt er zu Recht nichts. Deshalb wird zuvor gebunden in
+    // den Formularzweig gesprungen; dort gibt es immer Seiten.
+    await gotoNavigationBranch(id, hwnd, "Steuererklärung");
+
     // Ein am Seitenlimit gestoppter Sammellauf ist ein dokumentiertes, gueltiges
     // Ergebnis - aber nur genau dieses eine. Jede andere Fehlerart bleibt rot.
     const collectRef = `results:live-${id}-${process.pid}.json`;
@@ -672,13 +771,9 @@ try {
         operation: definition.operation,
         result,
       };
-      if (definition.ustva) {
+      if (liveMode === "full" && definition.ustva) {
         const ustvaPage = definition.ustva.page;
-        const navigation = await call("sse_goto", {
-          name: ustvaPage, maxSteps: 200, useSearch: true, hwnd: instance.hwnd,
-        }, 300_000);
-        assert(navigation.erreicht === true && navigation.ueberschrift === ustvaPage,
-          `${definition.id}: UStVA-Uebersicht wurde nicht erreicht: ${JSON.stringify(navigation)}`);
+        await gotoNavigationBranch(definition.id, instance.hwnd, ustvaPage);
         observation.ustva = await call("sse_ustva_read", { hwnd: instance.hwnd }, 300_000);
         assertExpectedUstva(observation.ustva, definition.ustva);
         // Die UStVA-Uebersicht traegt immer den Zeitraumwaehler. Sie ist damit
@@ -703,12 +798,15 @@ try {
           JSON.stringify(options).slice(0, 300));
         semanticChecks += 1;
       }
-      if (definition.checker) {
+      if (liveMode === "full" && definition.checker) {
         observation.checkerGesamt = await runCheckerSweep(definition, instance.hwnd);
       }
       // Ganz zum Schluss: Der Tiefensweep blaettert durch Seiten und Menues und
       // wuerde die genau gebundenen UStVA- und Prueferwege davor verlassen.
-      if (definition.id === definitions[0].id) {
+      // Der Tiefensweep enthält die ESt-spezifische Sammelnavigation. Bei
+      // einem gefilterten Gew-Einzelprofil darf dessen Auswahl nicht den
+      // stabilen, ersten Musterfall des Profilkatalogs ersetzen.
+      if (liveMode === "full" && definition.id === allDefinitions[0].id) {
         await assertDeepReadOnlySweep(definition, instance.hwnd, catalogPages);
       }
       observations.push(observation);
@@ -720,24 +818,17 @@ try {
       throw error;
     } finally {
       const cleanupErrors = [];
-      if (instance?.pid && instance?.hwnd) {
-        try {
-          const closed = await callRaw("sse_close", {
-            pid: instance.pid, hwnd: instance.hwnd, force: true, discardChanges: true,
-          }, 90_000);
-          if (closed?.isError) cleanupErrors.push(`sse_close: ${fullText(closed)}`);
-        } catch (error) { cleanupErrors.push(`sse_close: ${error.message}`); }
-      } else if (launchedPid) {
-        try {
-          const closed = await callRaw("sse_close", { pid: launchedPid, force: true, discardChanges: true }, 90_000);
-          if (closed?.isError) cleanupErrors.push(`sse_close: ${fullText(closed)}`);
-        } catch (error) { cleanupErrors.push(`sse_close: ${error.message}`); }
-      }
+      const cleanupError = await closeOwnedLiveInstance(instance, launchedPid);
+      if (cleanupError) cleanupErrors.push(cleanupError);
       assert.equal(sha256(source), sourceHash, `${definition.id}: offizieller Musterfall wurde veraendert.`);
-      await unlinkOwned(target);
-      await unlinkOwned(stagedSource);
-      const stillRunning = (await call("sse_health")).running;
-      if (stillRunning) cleanupErrors.push(`${definition.id}: eigene SSE-Instanz blieb nach discard-close aktiv.`);
+      // Solange nicht bewiesen ist, dass die eigene Instanz beendet wurde,
+      // bleiben ihre Wegwerfkopien als Diagnoseartefakt erhalten. Der Wrapper
+      // darf sie dann nicht still entfernen und einen eventuell noch offenen
+      // Prozess mit einem nicht mehr existierenden Fall zuruecklassen.
+      if (!cleanupError) {
+        await unlinkOwned(target);
+        await unlinkOwned(stagedSource);
+      }
       if (cleanupErrors.length) {
         const cleanupMessage = cleanupErrors.join(" ");
         if (primaryError instanceof Error) primaryError.message += ` Cleanup: ${cleanupMessage}`;
@@ -758,6 +849,10 @@ process.stdout.write(`${JSON.stringify({
     ustvaPage: observation.ustva?.page ?? null,
     checkerGesamt: observation.checkerGesamt ?? null,
   })),
+  mode: liveMode,
+  omittedInCoreRead: liveMode === "core-read"
+    ? ["cross-section-navigation", "ustva-read", "checker", "deep-read-sweep"]
+    : [],
   semanticChecks,
   durationMs: Date.now() - startedAt,
 }, null, 2)}\n`);

@@ -94,6 +94,9 @@ export function registerUiTools(registry: McpRegistry): void {
       ungespeichertEingefuehrt: r.ungespeichertEingefuehrt,
       hinweis: r.hinweis,
       zeilen: asArray(r.zeilen),
+      // Ohne die gelesene Kontrollsumme koennte ein Aufrufer die
+      // Pflichtangabe expectedBefore der Tabellenmutationen nur raten.
+      summe: r.summe,
     }),
     { timeoutMs: 300_000 },
   );

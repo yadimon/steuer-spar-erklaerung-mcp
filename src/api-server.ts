@@ -45,7 +45,6 @@ function sendJson(
   status: number,
   body: unknown,
   headers: OutgoingHttpHeaders = {},
-  beforeEnd?: () => void,
 ): SendJsonOutcome {
   if (response.writableEnded || response.destroyed) return "unavailable";
   const json = JSON.stringify(body);
@@ -59,7 +58,6 @@ function sendJson(
     "x-content-type-options": "nosniff",
     ...headers,
   });
-  beforeEnd?.();
   response.end(json);
   return "sent";
 }
@@ -287,7 +285,12 @@ export function createSseApiServer(options: SseApiServerOptions): Server {
         ok: result.ok,
         ...(result.kind ? { kind: result.kind } : {}),
       };
-      const sendOutcome = sendJson(response, 200, envelope, {}, () => safeLog(operationLog));
+      const sendOutcome = sendJson(response, 200, envelope);
+      // Auch bei einem bereits getrennten Client ist das Worker-Ergebnis fuer
+      // die sichere Wiederholung entscheidend: die Operation kann schon einen
+      // Steuerfall geaendert haben. Das Log bleibt datenarm und enthaelt keine
+      // Argumente oder Resultatwerte.
+      safeLog({ ...operationLog, delivered: sendOutcome === "sent" });
       if (sendOutcome === "unavailable") return;
       if (sendOutcome === "too-large") {
         safeLog({

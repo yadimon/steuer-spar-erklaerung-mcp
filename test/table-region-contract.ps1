@@ -48,6 +48,16 @@ $exactSecond = Select-SSESummaryFromNodes $exactPriorityNodes $bounds 'Summe' 2
 Assert-True ($exactSecond.candidateCount -eq 2) 'Laengeres Prefix-Label wurde als exaktes Summenlabel gezaehlt.'
 Assert-True ($exactSecond.selected.rid -eq 'exact-2') 'Exakte Summenlabel-Prioritaet band die falsche Zeile.'
 
+# Qt liefert für einige Summenfelder ein vorhandenes, aber leeres
+# ValuePattern. Der sichtbare Name bleibt dann die einzige lesbare Summe und
+# muss für Tabellen-Vorbedingungen genutzt werden.
+$emptyValueNodes = @(
+  (Node 'Text' 'Summe' 300 100)
+  (Node 'Edit' '1,50' 700 100 100 '' 'empty-value-sum')
+)
+$emptyValueSummary = Select-SSESummaryFromNodes $emptyValueNodes $bounds 'Summe' 1
+Assert-True ($emptyValueSummary.value -eq '1,50') 'Leeres ValuePattern fiel nicht auf den sichtbaren Summennamen zurück.'
+
 # Zwei Tabellen mit unterschiedlichen Summenlabels: die eindeutige zweite
 # Beschriftung muss trotzdem die vorherige (anders benannte) Summenzeile als
 # untere geometrische Grenze verwenden.

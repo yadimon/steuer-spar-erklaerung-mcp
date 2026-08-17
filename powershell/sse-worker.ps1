@@ -1012,15 +1012,36 @@ function Click-VerifiedPoint(
   [IntPtr]$Window,
   $Node,
   $ExpectedInputTick = $null,
-  [switch]$RequireForeground
+  [switch]$RequireForeground,
+  [int]$SettleMs = 250,
+  [ValidateRange(1,2)][int]$ClickCount = 1,
+  [ValidateRange(1,3)][int]$ForegroundAttempts = 3
 ) {
   if (-not $Node -or $Node.w -le 0 -or $Node.h -le 0) { Fail 'Klickziel hat keine sichtbare Flaeche.' 'offscreen' }
   $px = [int]($Node.x + $Node.w / 2); $py = [int]($Node.y + $Node.h / 2)
-  $null = Show-SSEWindow $Window
-  # Bei einer bereits gehaltenen Lease ist SSE schon oben und im Vordergrund.
-  # Ein weiterer 250-ms-Settle pro Zell-/Pfeil-/Popup-Klick waere nur Flackern
-  # und macht mehrstufige Tabellenaktionen unnoetig langsam.
-  if ($script:SSE_FOREGROUND_LEASE.lastAcquireRaised) { Start-Sleep -Milliseconds 250 }
+  # Windows darf Vordergrundwechsel aus einem Hintergrundprozess ablehnen,
+  # obwohl das Ziel weiterhin sichtbar und PID-/Root-gebunden ist. Vor einem
+  # physischen Input sind deshalb bis zu drei reine Reakquisitionen erlaubt;
+  # zwischen ihnen wird nie geklickt und die Lease sauber wieder abgesenkt.
+  # Ein dauerhaft verweigerter Vordergrund bleibt fail-closed.
+  $foregroundReady = (-not $RequireForeground)
+  for ($foregroundAttempt = 1; $foregroundAttempt -le $ForegroundAttempts; $foregroundAttempt++) {
+    $null = Show-SSEWindow $Window
+    # Bei einer bereits gehaltenen Lease ist SSE schon oben und im Vordergrund.
+    # Ein weiterer Settle pro Zell-/Pfeil-/Popup-Klick waere nur Flackern und
+    # macht mehrstufige Tabellenaktionen unnoetig langsam.
+    if ($script:SSE_FOREGROUND_LEASE.lastAcquireRaised -and $SettleMs -gt 0) { Start-Sleep -Milliseconds $SettleMs }
+    if (-not $RequireForeground -or [SW]::GetForegroundWindow() -eq $Window) {
+      $foregroundReady = $true
+      break
+    }
+    Hide-SSETopmost $Window
+    if ($foregroundAttempt -lt $ForegroundAttempts) { Start-Sleep -Milliseconds 100 }
+  }
+  if (-not $foregroundReady) {
+    Hide-SSETopmost $Window
+    Fail 'Gebundenes SSE-Fenster konnte vor dem verifizierten Klick nicht in den Vordergrund gebracht werden. NICHT geklickt.' 'interference'
+  }
   $obstruction = Get-SSEPointObstruction $Window $px $py
   if (-not $obstruction.isBoundTarget) {
     Hide-SSETopmost $Window
@@ -1049,14 +1070,23 @@ function Click-VerifiedPoint(
     Hide-SSETopmost $Window
     Fail 'Gebundenes SSE-Fenster ist unmittelbar vor dem verifizierten Klick nicht im Vordergrund. NICHT geklickt.' 'interference'
   }
+  $foregroundHwndBeforeClick = [int64][SW]::GetForegroundWindow()
+  $foregroundBoundBeforeClick = [bool]($foregroundHwndBeforeClick -eq [int64]$Window)
   [SW]::SetCursorPos($px, $py) | Out-Null
   Start-Sleep -Milliseconds 100
-  [SW]::mouse_event(0x0002, 0, 0, 0, [IntPtr]::Zero)
-  [SW]::mouse_event(0x0004, 0, 0, 0, [IntPtr]::Zero)
+  for ($clickNumber = 1; $clickNumber -le $ClickCount; $clickNumber++) {
+    [SW]::mouse_event(0x0002, 0, 0, 0, [IntPtr]::Zero)
+    [SW]::mouse_event(0x0004, 0, 0, 0, [IntPtr]::Zero)
+    if ($clickNumber -lt $ClickCount) { Start-Sleep -Milliseconds 90 }
+  }
   Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick) ([pscustomobject]@{ x=$px; y=$py })
   Start-Sleep -Milliseconds 180
   if ([SW]::IsWindow($Window)) { Hide-SSETopmost $Window }
-  [pscustomobject]@{ x = $px; y = $py }
+  [pscustomobject]@{
+    x = $px; y = $py; clickCount = $ClickCount
+    foregroundHwndBeforeClick=$foregroundHwndBeforeClick
+    foregroundBoundBeforeClick=$foregroundBoundBeforeClick
+  }
 }
 
 $akadParserPath = Join-Path $PSScriptRoot 'akad-parser.ps1'
@@ -4502,11 +4532,19 @@ function Test-SSETrackedValueEquivalent($Actual, $Expected, [string]$ValueKind =
 # vergeben. Solche Knoten werden deshalb zusaetzlich ueber einen nur im Worker
 # gebildeten Vollfingerprint gepaart; echte Struktur-/Wertabweichungen bleiben
 # sichtbar und fail-closed.
-function Get-SSESnapshotParentLineageKey($Node, $Nodes) {
+function New-SSESnapshotNodeIndex($Nodes) {
   $byIndex = @{}
   foreach ($candidate in @($Nodes)) {
     if ($null -ne $candidate.i) { $byIndex[[int]$candidate.i] = $candidate }
   }
+  $byIndex
+}
+
+function Get-SSESnapshotParentLineageKey($Node, $Nodes = @(), $ByIndex = $null, $Cache = $null) {
+  if ($null -eq $ByIndex) { $ByIndex = New-SSESnapshotNodeIndex $Nodes }
+  if ($null -eq $Cache) { $Cache = @{} }
+  $nodeIndex = $(if ($null -eq $Node.i) { $null } else { [int]$Node.i })
+  if ($null -ne $nodeIndex -and $Cache.ContainsKey($nodeIndex)) { return $Cache[$nodeIndex] }
   $lineage = New-Object System.Collections.ArrayList
   $parentIndex = $(if ($null -eq $Node.p) { -1 } else { [int]$Node.p })
   $seen = @{}
@@ -4516,13 +4554,13 @@ function Get-SSESnapshotParentLineageKey($Node, $Nodes) {
       break
     }
     $seen[$parentIndex] = $true
-    if (-not $byIndex.ContainsKey($parentIndex)) {
+    if (-not $ByIndex.ContainsKey($parentIndex)) {
       # Auch unvollstaendige/synthetische Baeume bleiben fail-closed: zwei
       # verschiedene nicht aufloesbare Elternindizes duerfen nicht gleich sein.
       $null = $lineage.Add([ordered]@{ missingParent=$parentIndex })
       break
     }
-    $parent = $byIndex[$parentIndex]
+    $parent = $ByIndex[$parentIndex]
     $null = $lineage.Add([ordered]@{
       type=[string]$parent.type; name=[string]$parent.name; aid=[string]$parent.aid
       x=$(if ($null -eq $parent.x) { $null } else { [int]$parent.x })
@@ -4533,16 +4571,18 @@ function Get-SSESnapshotParentLineageKey($Node, $Nodes) {
     })
     $parentIndex = $(if ($null -eq $parent.p) { -1 } else { [int]$parent.p })
   }
-  Get-SSETextSha256 (@($lineage) | ConvertTo-Json -Depth 8 -Compress)
+  $key = Get-SSETextSha256 (@($lineage) | ConvertTo-Json -Depth 8 -Compress)
+  if ($null -ne $nodeIndex) { $Cache[$nodeIndex] = $key }
+  $key
 }
 
-function Get-SSESnapshotPrivateComparisonKey($Node, $Nodes = @()) {
+function Get-SSESnapshotPrivateComparisonKey($Node, $Nodes = @(), $ByIndex = $null, $LineageCache = $null) {
   $privatePayload = [ordered]@{
     # Laufindizes i/p verschieben sich bereits durch einen kurz sichtbaren
     # Qt-Geschwisterknoten. Die gehashte semantische Elternlinie bindet echtes
     # Reparenting, ohne solche reinen Indexverschiebungen als Strukturbruch zu
     # melden. d bleibt als zusaetzliche Strukturgrenze erhalten.
-    parentLineage = Get-SSESnapshotParentLineageKey $Node $Nodes
+    parentLineage = Get-SSESnapshotParentLineageKey $Node $Nodes $ByIndex $LineageCache
     d = $(if ($null -eq $Node.d) { $null } else { [int]$Node.d })
     type = [string]$Node.type
     name = [string]$Node.name
@@ -4559,6 +4599,10 @@ function Get-SSESnapshotPrivateComparisonKey($Node, $Nodes = @()) {
 }
 
 function Compare-SSESnapshotNodes($LegacyNodes, $BulkNodes) {
+  $legacyByIndex = New-SSESnapshotNodeIndex $LegacyNodes
+  $bulkByIndex = New-SSESnapshotNodeIndex $BulkNodes
+  $legacyLineageCache = @{}
+  $bulkLineageCache = @{}
   $legacyByRid = @{}
   $bulkByRid = @{}
   $unmatchedLegacy = New-Object System.Collections.ArrayList
@@ -4583,8 +4627,8 @@ function Compare-SSESnapshotNodes($LegacyNodes, $BulkNodes) {
     }
     $old = $legacyByRid[$rid]
     $new = $bulkByRid[$rid]
-    $oldParentLineage = Get-SSESnapshotParentLineageKey $old $LegacyNodes
-    $newParentLineage = Get-SSESnapshotParentLineageKey $new $BulkNodes
+    $oldParentLineage = Get-SSESnapshotParentLineageKey $old $LegacyNodes $legacyByIndex $legacyLineageCache
+    $newParentLineage = Get-SSESnapshotParentLineageKey $new $BulkNodes $bulkByIndex $bulkLineageCache
     $oldMeta = @($oldParentLineage,$old.d,$old.type,$old.name,$old.aid,$old.x,$old.y,$old.w,$old.h,[bool]$old.on) -join '|'
     $newMeta = @($newParentLineage,$new.d,$new.type,$new.name,$new.aid,$new.x,$new.y,$new.w,$new.h,[bool]$new.on) -join '|'
     if ($oldMeta -ne $newMeta) {
@@ -4601,7 +4645,7 @@ function Compare-SSESnapshotNodes($LegacyNodes, $BulkNodes) {
 
   $bulkByPrivateKey = @{}
   foreach ($node in @($unmatchedBulk)) {
-    $key = Get-SSESnapshotPrivateComparisonKey $node $BulkNodes
+    $key = Get-SSESnapshotPrivateComparisonKey $node $BulkNodes $bulkByIndex $bulkLineageCache
     if (-not $bulkByPrivateKey.ContainsKey($key)) {
       $bulkByPrivateKey[$key] = New-Object 'System.Collections.Generic.Queue[object]'
     }
@@ -4609,7 +4653,7 @@ function Compare-SSESnapshotNodes($LegacyNodes, $BulkNodes) {
   }
   $runtimeIdChurnCount = 0
   foreach ($node in @($unmatchedLegacy)) {
-    $key = Get-SSESnapshotPrivateComparisonKey $node $LegacyNodes
+    $key = Get-SSESnapshotPrivateComparisonKey $node $LegacyNodes $legacyByIndex $legacyLineageCache
     $bucket = $null
     if ($bulkByPrivateKey.ContainsKey($key)) { $bucket = $bulkByPrivateKey[$key] }
     if ($null -ne $bucket -and $bucket.Count -gt 0) {
@@ -4695,13 +4739,64 @@ $buildDriftBlockedOps = @(
   'vast_row_set_expanded'
 )
 
-function Assert-SSEVerifiedBuildForOperation([string]$Operation) {
+function Resolve-SSEBuildIdentityForOperation([string]$Operation, $Args) {
+  # Launch besitzt noch kein gebundenes Fenster; alle anderen UI-/Steuerfall-
+  # Mutationen muessen den Build der tatsaechlich laufenden SSE pruefen, nicht
+  # bloss den konfigurierten Standardinstallationspfad.
+  if ($Operation -eq 'launch') {
+    return [pscustomobject]@{ identity=(Get-SSEExecutableIdentity $script:SSE_DEFAULT_EXE); source='configured' }
+  }
+  $requestedPid = $(if ($Args -and $Args.PSObject.Properties['pid']) { [int]$Args.pid } else { 0 })
+  if ($requestedPid -gt 0) {
+    $process = Get-Process -Id $requestedPid -ErrorAction SilentlyContinue
+    if (-not $process -or $process.ProcessName -ne 'SSE') {
+      return [pscustomobject]@{ identity=$null; source='pid'; error="Gebundene SSE-PID $requestedPid ist nicht lesbar." }
+    }
+    return [pscustomobject]@{ identity=(Get-SSEExecutableIdentity ([string]$process.Path)); source='pid' }
+  }
+  $requestedHwnd = $(if ($Args -and $Args.PSObject.Properties['hwnd']) { [int64]$Args.hwnd } else { 0 })
+  if ($requestedHwnd -gt 0) {
+    $ownerPid = 0
+    [SW]::GetWindowThreadProcessId([IntPtr]$requestedHwnd, [ref]$ownerPid) | Out-Null
+    $process = Get-Process -Id $ownerPid -ErrorAction SilentlyContinue
+    if (-not $process -or $process.ProcessName -ne 'SSE') {
+      return [pscustomobject]@{ identity=$null; source='hwnd'; error="Gebundenes Fenster $requestedHwnd gehoert keiner lesbaren SSE-PID." }
+    }
+    return [pscustomobject]@{ identity=(Get-SSEExecutableIdentity ([string]$process.Path)); source='hwnd' }
+  }
+  $allRunning = @(Get-SSEProcessIdentities)
+  $running = @($allRunning | Where-Object { $_.supported })
+  if ($running.Count -eq 1) {
+    return [pscustomobject]@{ identity=(Get-SSEExecutableIdentity ([string]$running[0].path)); source='running' }
+  }
+  if ($running.Count -gt 1) {
+    return [pscustomobject]@{ identity=$null; source='running'; error='Mehrere freigegebene SSE-Instanzen laufen; hwnd oder pid ist fuer die Build-Pruefung Pflicht.' }
+  }
+  # Ohne steuerbare Instanz soll der nachfolgende Operationsweg weiterhin seine
+  # praezise no-window-/unsupported-Version melden. Existiert dagegen eine
+  # laufende, aber nicht lesbare SSE, darf die Mutation nicht fail-open werden.
+  $unknownRunning = @($allRunning | Where-Object { -not $_.supported })
+  if ($unknownRunning.Count) {
+    return [pscustomobject]@{ identity=$null; source='running'; error='Laufende SSE-Instanz ist fuer die Build-Pruefung nicht sicher identifizierbar.' }
+  }
+  [pscustomobject]@{ identity=(Get-SSEExecutableIdentity $script:SSE_DEFAULT_EXE); source='configured' }
+}
+
+function Assert-SSEVerifiedBuildForOperation([string]$Operation, $Args = $null) {
   if ($Operation -notin $buildDriftBlockedOps) { return }
-  $identity = Get-SSEExecutableIdentity $script:SSE_DEFAULT_EXE
-  # Fehlende oder grundsaetzlich fremde Binaries werden von den bestehenden
-  # Launch-/Fenstergrenzen mit ihrer praeziseren Fehlerart behandelt. Diese
-  # Gate adressiert ausschliesslich Minor-/Patch-Drift innerhalb des Profils.
-  if (-not $identity.exists -or -not $identity.supported) { return }
+  $resolved = Resolve-SSEBuildIdentityForOperation $Operation $Args
+  if ($resolved.error) { Fail $resolved.error 'build-identity-unverified' }
+  $identity = $resolved.identity
+  # Ohne laufende Instanz delegieren wir weiter an die bestehende Operations-
+  # grenze, damit sie ihren genaueren no-window-/unsupported-Version-Fehler
+  # liefern kann. Eine konkret gebundene oder laufende Instanz bleibt dagegen
+  # immer fail-closed.
+  if (-not $identity.exists -or -not $identity.supported) {
+    if ($resolved.source -in @('pid','hwnd','running')) {
+      Fail "SSE-Build der gebundenen Instanz ist nicht verifizierbar: $($identity.reason)" 'build-identity-unverified'
+    }
+    return
+  }
   $drift = Get-SSEBuildDrift ([string]$script:SSE_PROFILE.verifiedBuild) ([string]$identity.fileVersion)
   if ($drift.drifted) {
     Fail (
@@ -4752,7 +4847,7 @@ if ($verificationOnlyProfile -and $Op -notin $experimentalProfileBaseOps) {
   }
 }
 
-Assert-SSEVerifiedBuildForOperation $Op
+Assert-SSEVerifiedBuildForOperation $Op $a
 
 switch ($Op) {
 
@@ -5836,7 +5931,9 @@ switch ($Op) {
     Emit ([pscustomobject]@{
       ok = $true
       headers = @($heads | ForEach-Object { $_.name })
-      rows = @($rows); rowCount = $rows.Count
+      # Wie bei table_read: Windows PowerShell 5.1 macht aus einer
+      # verschachtelten Zeile sonst {"value":[...],"Count":n}.
+      rows = @($rows | ForEach-Object { ,[string[]]@($_ | ForEach-Object { [string]$_ }) }); rowCount = $rows.Count
       # Fremde Fenster ausweisen. Frueher lieferte read_table bei geoeffneter
       # Werte-Info deren Tabelle als Seiteninhalt - ohne jeden Hinweis.
       ausgeschlosseneFenster = @($t.fremdeFenster)
@@ -6029,7 +6126,10 @@ switch ($Op) {
     # unveraendert ist, kein Dialog erschien und das Ziel frisch noch genau
     # einmal als Button existiert, darf sichtbar PID-/Root-verifiziert geklickt
     # werden. Dadurch gibt es weder einen blinden Doppelklick noch Scheinerfolg.
-    $activationMethod = $(if ($radioSelectionMethod) { $radioSelectionMethod } else { 'uia-invoke' })
+    # Die Antwort beschreibt die tatsaechlich ausgefuehrte UIA-Aktion. Das ist
+    # besonders fuer TreeItems wichtig: expand/collapse aendert nur den Ast,
+    # es behauptet keine Seitennavigation.
+    $activationMethod = $(if ($radioSelectionMethod) { $radioSelectionMethod } else { "uia-$pattern" })
     if ($hasPagePostcondition -and -not $isNavigation -and $pattern -eq 'invoke') {
       $probeTree = Walk-Tree $hwnd 900
       $probeHeading = Get-CurrentHeading $hwnd $probeTree
@@ -7546,81 +7646,32 @@ switch ($Op) {
     })) -join "`n")
     $dirtyBefore = Get-DirtyStateFast $hwnd
 
-    # Versuch, ohne Vordergrund zu klicken: Mausnachrichten direkt an das
-    # Fenster posten.
-    #
-    # GEMESSEN: Qt 6 ignoriert das. Getestet wurden PostMessage und
-    # SendMessage, jeweils an das Hauptfenster und an das Kindfenster mit
-    # dessen eigenen Client-Koordinaten - der Vordergrund blieb unberuehrt,
-    # aber es passierte auch nichts. Qt wertet nur echte Eingaben aus.
-    #
-    # Deshalb ist dieser Weg NICHT die Vorgabe. Nur mit background=true,
-    # falls eine kuenftige Programmversion es doch verarbeitet.
+    # Qt verarbeitet gegen die getesteten Versionen nur echte, sichtbare
+    # Eingabe. Ein frueherer direkter Worker-Ausweg per PostMessage war weder
+    # im oeffentlichen Schema erreichbar noch wirksam und wuerde einen zweiten,
+    # schwach gebundenen Klickpfad erhalten.
     if ((Arg $a 'background') -eq $true) {
-      $pt = New-Object SW+PT; $pt.X = $px; $pt.Y = $py
-      [SW]::ScreenToClient($hwnd, [ref]$pt) | Out-Null
-      $lp = [IntPtr](($pt.Y -shl 16) -bor ($pt.X -band 0xFFFF))
-      $WM_MOUSEMOVE = 0x0200; $WM_LBUTTONDOWN = 0x0201; $WM_LBUTTONUP = 0x0202
-      $WM_LBUTTONDBLCLK = 0x0203; $MK_LBUTTON = [IntPtr]1
-      [SW]::PostMessage($hwnd, $WM_MOUSEMOVE, [IntPtr]::Zero, $lp) | Out-Null
-      Start-Sleep -Milliseconds 60
-      [SW]::PostMessage($hwnd, $WM_LBUTTONDOWN, $MK_LBUTTON, $lp) | Out-Null
-      Start-Sleep -Milliseconds 40
-      [SW]::PostMessage($hwnd, $WM_LBUTTONUP, [IntPtr]::Zero, $lp) | Out-Null
-      if ((Arg $a 'double') -eq $true) {
-        Start-Sleep -Milliseconds 60
-        [SW]::PostMessage($hwnd, $WM_LBUTTONDBLCLK, $MK_LBUTTON, $lp) | Out-Null
-        Start-Sleep -Milliseconds 40
-        [SW]::PostMessage($hwnd, $WM_LBUTTONUP, [IntPtr]::Zero, $lp) | Out-Null
-      }
-      Start-Sleep -Milliseconds $waitMs
-      Emit ([pscustomobject]@{
-        ok = $true; clicked = $node.name; at = "$px,$py"; clientAt = "$($pt.X),$($pt.Y)"
-        double = ((Arg $a 'double') -eq $true); method = 'PostMessage'
-        ungespeichertVorher=$dirtyBefore; ungespeichertNachher=$(Get-DirtyStateFast $hwnd)
-        node = $node
-        note = 'Ohne Vordergrund geklickt. Wirkt der Klick nicht, mit foreground=true wiederholen.'
-      })
+      Fail 'Hintergrundklicks sind nicht unterstuetzt: Qt verarbeitet sie nicht verlaesslich. Sichtbaren, punkt- und root-verifizierten Klick verwenden.' 'blocked'
     }
 
-    # SetForegroundWindow scheitert aus einem Hintergrundprozess (Windows
-    # laesst nur den aktuellen Vordergrundprozess den Fokus vergeben).
-    # SetWindowPos mit HWND_TOPMOST hebt das Fenster trotzdem nach oben -
-    # das genuegt, damit der Klick es trifft. Danach wieder zuruecknehmen.
-    $HWND_TOPMOST = [IntPtr](-1); $HWND_NOTOPMOST = [IntPtr](-2)
-    $SWP = 0x0001 -bor 0x0002 -bor 0x0010   # NOSIZE | NOMOVE | NOACTIVATE
-    $null = Show-SSEWindow $hwnd
-    Start-Sleep -Milliseconds 450
-
-    # Sicherheitspruefung: liegt an der Stelle wirklich ein Fenster DIESES
-    # Prozesses? Ohne das landet der Klick auf einem fremden Fenster.
-    $zielPid = 0; [SW]::GetWindowThreadProcessId($hwnd, [ref]$zielPid) | Out-Null
-    $pt = New-Object SW+PT; $pt.X = $px; $pt.Y = $py
-    $unter = [SW]::WindowFromPoint($pt)
-    $trefferRoot = [SW]::GetAncestor($unter, 2) # GA_ROOT
-    $trefferPid = 0; [SW]::GetWindowThreadProcessId($unter, [ref]$trefferPid) | Out-Null
-    if ($trefferPid -ne $zielPid -or [int64]$trefferRoot -ne [int64]$hwnd) {
-      [SW]::SetWindowPos($hwnd, $HWND_NOTOPMOST, 0, 0, 0, 0, $SWP) | Out-Null
-      Fail ("Abgebrochen: an Position $px,$py liegt nicht das gebundene Hauptfenster " +
-            "(PID $trefferPid/$zielPid, Root $([int64]$trefferRoot)/$([int64]$hwnd)). " +
-            "Es wurde NICHT geklickt. Bitte die SteuerSparErklaerung sichtbar in den Vordergrund holen.") 'obstructed'
+    # Der labelnahe Punkt wird als 2x2-Node an den gemeinsamen Helfer
+    # uebergeben. Damit bleiben die TreeItem-Geometrie und alle Sicherheits-
+    # invarianten (Root, Eingabe-Epoche, Cursor-Cleanup) zentral. Fuer diesen
+    # punktgebundenen Mausinput ist der aktuelle Vordergrund keine zusaetzliche
+    # Sicherheitsgrenze: WindowFromPoint beweist den Ziel-Root unmittelbar vor
+    # dem Klick. Tastatur- und Tabellenpfade verlangen weiterhin Vordergrund.
+    $inputBeforeClick = Get-SSELastInputTick
+    if ($null -eq $inputBeforeClick) {
+      Fail 'Windows-Eingabe-Epoche ist vor dem physischen Klick nicht lesbar. NICHT geklickt.' 'interference'
     }
-
-    $alt = New-Object SW+PT; [SW]::GetCursorPos([ref]$alt) | Out-Null
-    [SW]::SetCursorPos($px, $py) | Out-Null
-    Start-Sleep -Milliseconds 120
-    [SW]::mouse_event(0x0002, 0, 0, 0, [IntPtr]::Zero)   # LEFTDOWN
-    [SW]::mouse_event(0x0004, 0, 0, 0, [IntPtr]::Zero)   # LEFTUP
-    if ((Arg $a 'double') -eq $true) {
-      Start-Sleep -Milliseconds 90
-      [SW]::mouse_event(0x0002, 0, 0, 0, [IntPtr]::Zero)
-      [SW]::mouse_event(0x0004, 0, 0, 0, [IntPtr]::Zero)
+    $labelPoint = [pscustomobject]@{
+      x=[int]($px - 1); y=[int]($py - 1); w=2; h=2; source='tree-label-point'
     }
+    $clickResult = Click-VerifiedPoint -Window $hwnd -Node $labelPoint `
+      -ExpectedInputTick $inputBeforeClick -RequireForeground -SettleMs 450 `
+      -ClickCount $(if ((Arg $a 'double') -eq $true) { 2 } else { 1 })
     Start-Sleep -Milliseconds $waitMs
-    [SW]::SetCursorPos($alt.X, $alt.Y) | Out-Null        # Zeiger zurueck
-    Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick) ([pscustomobject]@{ x=$alt.X; y=$alt.Y })
     $windowClosed = -not [SW]::IsWindow($hwnd)
-    if (-not $windowClosed) { [SW]::SetWindowPos($hwnd, $HWND_NOTOPMOST, 0, 0, 0, 0, $SWP) | Out-Null }
 
     # Bei Dialogschaltflaechen ist das Verschwinden des exakt adressierten
     # Dialogfensters die staerkste Nachbedingung. Der fruehere Code versuchte
@@ -7628,7 +7679,7 @@ switch ($Op) {
     # erfolgreich gespeichert bzw. den Dialog geschlossen hatte.
     if ($windowClosed) {
       Emit ([pscustomobject]@{
-        ok = $true; clicked = $node.name; at = "$px,$py"; double = ((Arg $a 'double') -eq $true)
+        ok = $true; clicked = $node.name; at = "$($clickResult.x),$($clickResult.y)"; double = ((Arg $a 'double') -eq $true)
         node = $node; windowClosed = $true; verified = $true
         note = 'Das exakt adressierte Fenster wurde durch den Klick geschlossen.'
       })
@@ -7647,7 +7698,14 @@ switch ($Op) {
     if ($expectedPageAfter -and $kopfNachher -ne $expectedPageAfter) {
       Fail ("Klick auf '$($node.name)' erreichte nicht die erwartete Seite. " +
             "Aktuell: '$kopfNachher'; erwartet: '$expectedPageAfter'. " +
-            'Der Klick wurde bereits ausgefuehrt; Zustand vor einer Wiederholung neu lesen.') 'postcondition-failed'
+            'Der Klick wurde bereits ausgefuehrt; Zustand vor einer Wiederholung neu lesen.') 'postcondition-failed' `
+        ([pscustomobject]@{
+          clickBinding=[pscustomobject]@{
+            x=$clickResult.x; y=$clickResult.y; clickCount=$clickResult.clickCount
+            foregroundHwndBeforeClick=$clickResult.foregroundHwndBeforeClick
+            foregroundBoundBeforeClick=$clickResult.foregroundBoundBeforeClick
+          }
+        })
     }
 
     if ($script:DESKTOP_NAME -and -not $gewirkt) {
@@ -7658,9 +7716,14 @@ switch ($Op) {
     }
 
     Emit ([pscustomobject]@{
-      ok = $true; clicked = $node.name; at = "$px,$py"; double = ((Arg $a 'double') -eq $true)
+      ok = $true; clicked = $node.name; at = "$($clickResult.x),$($clickResult.y)"; double = ((Arg $a 'double') -eq $true)
       node = $node
       ueberschriftVorher = $kopfVorher; ueberschriftNachher = $kopfNachher; seiteGewechselt = $gewirkt
+      clickBinding=[pscustomobject]@{
+        x=$clickResult.x; y=$clickResult.y; clickCount=$clickResult.clickCount
+        foregroundHwndBeforeClick=$clickResult.foregroundHwndBeforeClick
+        foregroundBoundBeforeClick=$clickResult.foregroundBoundBeforeClick
+      }
       uiFingerprintVorher=$fingerprintVorher; uiFingerprintNachher=$fingerprintNachher
       ungespeichertVorher=$dirtyBefore; ungespeichertNachher=$(Get-DirtyStateFast $hwnd)
       note = 'Fenster wurde dafuer kurz nach oben geholt und danach zurueckgesetzt.'
@@ -7777,34 +7840,67 @@ switch ($Op) {
     # legitim aendern (z. B. 31.26 -> 31.30). Identitaet, Steuerjahr,
     # Steuernummer und insbesondere der Uebermittlungsstatus muessen dagegen
     # unveraendert bleiben.
+    # 'Kein Zeitstempel' schreibt SSE je nach Build als '-' oder leer. Gemessen
+    # am Herstellermusterfall: vor dem Speichern '-', danach ''. Beides heisst
+    # unuebermittelt; ein echter Zeitstempel bliebe weiterhin ein Unterschied.
+    # Der semantische Uebermittlungsstatus wird zusaetzlich separat verglichen.
+    $normalisiereTransferZeit = { param($Wert)
+      $text = [string]$Wert
+      if ($text.Trim() -in @('', '-')) { '' } else { $text }
+    }
     $identityBefore = [ordered]@{
       FileType = $summaryBefore.header.FileType
       VJahr = $summaryBefore.header.VJahr
       Steuernummer = $summaryBefore.header.Steuernummer
-      ElsterTransferTime = $summaryBefore.header.ElsterTransferTime
+      ElsterTransferTime = & $normalisiereTransferZeit $summaryBefore.header.ElsterTransferTime
       MitElsterVersendetText = $summaryBefore.header.MitElsterVersendetText
     }
     $identityAfter = $(if ($summaryAfter) { [ordered]@{
       FileType = $summaryAfter.header.FileType
       VJahr = $summaryAfter.header.VJahr
       Steuernummer = $summaryAfter.header.Steuernummer
-      ElsterTransferTime = $summaryAfter.header.ElsterTransferTime
+      ElsterTransferTime = & $normalisiereTransferZeit $summaryAfter.header.ElsterTransferTime
       MitElsterVersendetText = $summaryAfter.header.MitElsterVersendetText
     } } else { $null })
     $headerStable = ($null -ne $identityAfter -and
                      ($identityBefore | ConvertTo-Json -Compress) -eq ($identityAfter | ConvertTo-Json -Compress) -and
                      $summaryBefore.transmitted -eq $summaryAfter.transmitted)
-    $mtimeAdvanced = ($itemAfter.LastWriteTimeUtc -gt $itemBefore.LastWriteTimeUtc)
-    $verified = ($after -and $after -ne $before -and $mtimeAdvanced -and $headerStable -and
+    # Nicht '-gt': SSE speichert ueber eine temporaere Datei und benennt um.
+    # Windows uebernimmt dabei per File Tunneling die alten Zeitstempel des
+    # gleichnamigen Vorgaengers, wenn beides innerhalb weniger Sekunden
+    # passiert. Gemessen: identischer LastWriteTimeUtc bei geaendertem Hash -
+    # jedes erfolgreiche Speichern wurde deshalb als Fehlschlag gemeldet.
+    # Der Hashwechsel bleibt der eigentliche Beweis; eine zurueckgedrehte
+    # Schreibzeit waere weiterhin ein Fehler.
+    $mtimeNichtZurueckgedreht = ($itemAfter.LastWriteTimeUtc -ge $itemBefore.LastWriteTimeUtc)
+    $verified = ($after -and $after -ne $before -and $mtimeNichtZurueckgedreht -and $headerStable -and
                  $saveAfter -and -not $saveAfter.on -and -not $dialogWindows.Count)
     if (-not $verified) {
+      # Welche Nachbedingung genau gerissen ist, stand bisher nicht in der
+      # Antwort - der Aufrufer bekam nur die Sammelmeldung und musste raten.
+      $offen = @()
+      if (-not $after) { $offen += 'datei-nach-dem-speichern-nicht-lesbar' }
+      elseif ($after -eq $before) { $offen += 'hash-unveraendert' }
+      if (-not $mtimeNichtZurueckgedreht) { $offen += 'schreibzeit-zurueckgedreht' }
+      if (-not $headerStable) {
+        $offen += $(if (($identityBefore | ConvertTo-Json -Compress) -ne ($identityAfter | ConvertTo-Json -Compress)) {
+          'fallidentitaet-geaendert'
+        } else { 'uebermittlungsstatus-geaendert' })
+      }
+      if (-not $saveAfter) { $offen += 'sichern-schaltflaeche-verschwunden' }
+      elseif ($saveAfter.on) { $offen += 'sichern-weiterhin-aktiv' }
+      if ($dialogWindows.Count) { $offen += 'dialog-offen' }
       Emit ([pscustomobject]@{
         ok = $false; kind = 'postcondition-failed'
-        error = 'Speichern wurde ausgeloest, aber Hashwechsel, deaktivierte Sichern-Schaltflaeche und Dialogfreiheit sind nicht gemeinsam bestaetigt.'
+        error = "Speichern wurde ausgeloest, aber nicht bestaetigt. Offen: $($offen -join ', ')."
+        offeneBedingungen = @($offen)
         path = $expectedPath; hashBefore = $before; hashAfter = $after
         mtimeBeforeUtc = $itemBefore.LastWriteTimeUtc.ToString('o'); mtimeAfterUtc = $itemAfter.LastWriteTimeUtc.ToString('o')
         headerStable = $headerStable; headerBefore = $summaryBefore.header; headerAfter = $(if ($summaryAfter) { $summaryAfter.header } else { $null })
         identityBefore = $identityBefore; identityAfter = $identityAfter
+        transmittedBefore = $summaryBefore.transmitted; transmittedAfter = $(if ($summaryAfter) { $summaryAfter.transmitted } else { $null })
+        transmittedReasonBefore = $summaryBefore.transmittedReason
+        transmittedReasonAfter = $(if ($summaryAfter) { $summaryAfter.transmittedReason } else { $null })
         saveEnabledAfter = $(if ($saveAfter) { [bool]$saveAfter.on } else { $null })
         searchClosedBeforeSave = $searchClosedBeforeSave
         openWindows = $dialogWindows; verified = $false
@@ -10017,7 +10113,14 @@ switch ($Op) {
         ueberschriftQuelle = $kopfzeile.quelle
         ausgeschlosseneFenster = @($t.fremdeFenster)
         felder = @($felder)
-        tabelle = $(if ($echte.Count) { [pscustomobject]@{ kopf = @($hd | ForEach-Object { $_.name }); zeilen = $echte } } else { $null })
+        # Zeilen bewusst als string[] je Zeile: sonst serialisiert Windows
+        # PowerShell 5.1 jede Zeile als {"value":[...],"Count":n}.
+        tabelle = $(if ($echte.Count) {
+          [pscustomobject]@{
+            kopf = @($hd | ForEach-Object { $_.name })
+            zeilen = @($echte | ForEach-Object { ,[string[]]@($_ | ForEach-Object { [string]$_ }) })
+          }
+        } else { $null })
       })
 
       $gesehenWege[$seitenWeg] = $true
@@ -11792,6 +11895,7 @@ switch ($Op) {
             $binding = [pscustomobject]@{
               sumLabel=$sumLabel; sumOccurrence=$sumOccurrence
               sumY=$region.targetSumY; previousSummaryY=$region.previousSummaryY
+              summeKandidaten=$sumRead.candidateCount
             }
           }
         }
@@ -12010,10 +12114,28 @@ switch ($Op) {
     )
 
     # Nur Zeilen mit Inhalt melden
-    $echte = @($alle | Where-Object { @($_ | Where-Object { $_ -and "$_".Trim() -and "$_" -ne '0,00' -and "$_" -ne '0' }).Count -gt 0 })
+    $roh = @($alle | Where-Object { @($_ | Where-Object { $_ -and "$_".Trim() -and "$_" -ne '0,00' -and "$_" -ne '0' }).Count -gt 0 })
+    # Windows PowerShell 5.1 serialisiert ein verschachteltes object[] als
+    # {"value":[...],"Count":n} statt als Zeile. Der veroeffentlichte Vertrag
+    # verspricht eine Liste von Zeilen; ohne diese Umformung bekam jeder
+    # Aufrufer Huellobjekte. Der synthetische Worker hat das nie gezeigt.
+    $echte = @($roh | ForEach-Object { ,[string[]]@($_ | ForEach-Object { [string]$_ }) })
+
+    # Die Kontrollsumme steht nur in einem Baum MIT Werten: ohne -WithValues
+    # liefert Qt die Summenzelle ohne ValuePattern-Inhalt, und der Leser meldet
+    # eine leere Summe. Ohne diesen Wert kann ein Aufrufer die Pflichtangaben
+    # expectedBefore/expectedAfter der Tabellenmutationen nicht ermitteln - er
+    # muesste die Kontrollsumme raten. Lesen und Schreiben binden dieselbe
+    # Zelle ueber dasselbe Label und dieselbe Occurrence.
+    $summe = $null
+    if ($sumLabel) {
+      $summeRead = Read-LabeledValueFromTree (Walk-Tree $hwnd -WithValues) $hwnd $sumLabel $sumOccurrence
+      $summe = [string]$summeRead.value
+    }
     $dirtyAfter = Get-DirtyState (Walk-Tree $hwnd 600 20 8)
     Emit ([pscustomobject]@{
       ok = $true; kopf = $kopf; zeilen = $echte; anzahl = $echte.Count
+      summe = $summe
       vollstaendig = $vollstaendig
       schritte = $schritte
       steps = $schritte
@@ -12369,7 +12491,7 @@ switch ($Op) {
         }
         $comboDiagnostic = Get-SSETableComboDiagnosticProjection $comboResult
         $null = $results.Add([pscustomobject]@{
-          spalte=$entry.spalte; ok=[bool]$comboResult.ok; vorher=$entry.before
+          spalte=$entry.spalte; rid=$entry.cell.rid; ok=[bool]$comboResult.ok; vorher=$entry.before
           gewuenscht=$entry.requested; ist=$comboResult.after; methode=$comboResult.method
           error=$comboDiagnostic.error; kind=$comboDiagnostic.kind
           mutationStarted=$comboDiagnostic.mutationStarted; interference=$comboDiagnostic.interference
@@ -12421,7 +12543,7 @@ switch ($Op) {
         }
         $good = Test-SSETableCellEquivalent $actual $entry.requested
         $null = $results.Add([pscustomobject]@{
-          spalte=$entry.spalte; ok=[bool]$good; vorher=$entry.before
+          spalte=$entry.spalte; rid=$entry.cell.rid; ok=[bool]$good; vorher=$entry.before
           gewuenscht=$entry.requested; ist=$actual
         })
         if (-not $good) {
@@ -12491,10 +12613,44 @@ switch ($Op) {
       # geschriebenen Werte in exakt derselben Zeile stehen. Bei fremder
       # Eingabe, Fenster-/Seitenwechsel oder einem dritten Zellwert gibt es
       # weiterhin keinen Rollback.
+      # Qt baut die Tabelle beim Materialisieren der neuen Zeile neu auf und
+      # haengt darunter sofort eine frische Anlegezeile an. Die vor dem
+      # Schreiben gemerkten RuntimeIds zeigen danach auf DIESE leere Zeile.
+      # Gemessen am Herstellermusterfall: Der Rollback verglich dadurch leere
+      # Zellen mit leeren Sollwerten, hielt alles fuer erledigt (attempted
+      # ueberall false) und liess die eben geschriebene Zeile stehen - die
+      # Summe blieb auf dem falschen Wert. Auch die Interferenzpruefung lief
+      # ins Leere, weil sie dieselben veralteten Bindungen benutzte.
+      #
+      # Die Y-Position der beschriebenen Zeile aendert sich dabei nicht: die
+      # neue Leerzeile entsteht darunter. Deshalb wird die Zielzeile hier aus
+      # einem frischen Baum ueber ihr Y neu gebunden, bevor irgendetwas
+      # geprueft oder zurueckgeschrieben wird. Gelingt das nicht, gibt es
+      # keinen Rollback - blind auf veralteten Bindungen zu schreiben waere
+      # genau der Fehler, den dieser Pfad verhindern soll.
+      $rebindError = $null
+      $rebindRead = Find-FreeTableRow $hwnd
+      if ($rebindRead.error) {
+        $rebindError = "Tabellenbindung vor dem Rollback nicht lesbar: $($rebindRead.error)"
+      } else {
+        $rebindRow = @()
+        if ($rebindRead.byY -and $rebindRead.byY.ContainsKey($freie[0])) {
+          $rebindRow = @($rebindRead.byY[$freie[0]] | Sort-Object x)
+        }
+        if ($rebindRow.Count -lt $zeile.Count) {
+          $rebindError = "Die beschriebene Zeile ist auf Y=$($freie[0]) nicht mehr vollstaendig auffindbar."
+        } else {
+          foreach ($entry in $changed) { $entry.cell = $rebindRow[[int]$entry.spalte] }
+          foreach ($snapshot in $rowSnapshotBefore) { $snapshot.cell = $rebindRow[[int]$snapshot.spalte] }
+        }
+      }
+
       $rollbackPreflightError = $null
       $rollbackInputBefore = Get-SSELastInputTick
       $rollbackWindowsBefore = Get-SSEInteractionWindowSet $targetPid $hwnd
-      if ($lockScreenIsolation -and -not (Test-SSEForegroundIsLockScreen)) {
+      if ($rebindError) {
+        $rollbackPreflightError = $rebindError
+      } elseif ($lockScreenIsolation -and -not (Test-SSEForegroundIsLockScreen)) {
         $rollbackPreflightError = 'Windows-Lockscreen wurde vor dem Rollback verlassen.'
       } elseif ($guardUserInput -and $null -ne $inputBaseline -and $null -ne $rollbackInputBefore -and
                 $rollbackInputBefore -ne $inputBaseline) {
@@ -12583,8 +12739,20 @@ switch ($Op) {
               $livePattern.Current.IsReadOnly) {
             throw "Spalte $($snapshot.spalte) ist fuer den strukturellen Rollback nicht mehr gebunden."
           }
+          # NICHT nur den rohen Wert vergleichen: Qt haelt ValuePattern.Value
+          # einer Betragszelle auch nach dem Schreiben leer und zeigt den
+          # Betrag ausschliesslich im Namen. Gemessen am Herstellermusterfall
+          # war 'roh leer == vorher leer' fuer jede Spalte wahr, der Rollback
+          # schrieb deshalb nichts zurueck und liess die angelegte Zeile
+          # stehen. Der frueher gruene Regressionstest hat das verdeckt, weil
+          # er zusaetzlich eine Textspalte beschrieb, deren Rohwert sich
+          # tatsaechlich aenderte.
           $currentRaw = [string]$livePattern.Current.Value
-          if ($currentRaw -ne [string]$snapshot.beforeRaw) {
+          $currentDisplay = $currentRaw
+          if (-not $currentDisplay) { try { $currentDisplay = [string]$live.Current.Name } catch { } }
+          $rawUnveraendert = $currentRaw -eq [string]$snapshot.beforeRaw
+          $anzeigeUnveraendert = Test-SSETableCellEquivalent $currentDisplay $snapshot.beforeDisplay
+          if (-not $rawUnveraendert -or -not $anzeigeUnveraendert) {
             $attempted = $true
             $livePattern.SetValue([string]$snapshot.beforeRaw)
             Start-Sleep -Milliseconds 250
@@ -12712,6 +12880,7 @@ switch ($Op) {
     $hwnd = [IntPtr][int64](Resolve-SSEMainWindowDescriptor $a -RestoreMinimized).hwnd
     $expectedPage = [string](Arg $a 'expectedPage')
     $text = [string](Arg $a 'text')
+    $targetRid = [string](Arg $a 'targetRid')
     $werte = @(Arg $a 'werte')
     $sumLabel = [string](Arg $a 'sumLabel')
     $expectedBefore = [string](Arg $a 'expectedBefore')
@@ -12745,8 +12914,13 @@ switch ($Op) {
     if (-not $region.ok) {
       Fail "Tabellenregion fuer '$sumLabel' nicht eindeutig: $($region.error) NICHT geaendert." 'precondition-failed'
     }
-    $matches = @($region.cells | Where-Object { $_.name -eq $text })
-    if (-not $matches.Count) { Fail "Keine sichtbare Tabellenzelle mit '$text' gefunden." 'not-found' }
+    $matches = @($region.cells | Where-Object {
+      $_.name -eq $text -and (-not $targetRid -or $_.rid -eq $targetRid)
+    })
+    if (-not $matches.Count) {
+      if ($targetRid) { Fail "Die gebundene Zielzelle '$text' ist nicht mehr sichtbar; nichts geaendert." 'stale' }
+      Fail "Keine sichtbare Tabellenzelle mit '$text' gefunden." 'not-found'
+    }
     if ($matches.Count -ne 1) { Fail "$($matches.Count) Zellen mit '$text' gefunden; Zielzeile ist nicht eindeutig." 'ambiguous' }
     $target = $matches[0]
     $cells = @($region.cells | Where-Object {
@@ -12871,7 +13045,7 @@ switch ($Op) {
         }
         $comboDiagnostic = Get-SSETableComboDiagnosticProjection $comboResult
         $null = $results.Add([pscustomobject]@{
-          spalte=$entry.spalte; vorher=$entry.before; gewuenscht=$entry.requested; ist=$comboResult.after
+          spalte=$entry.spalte; rid=$entry.cell.rid; vorher=$entry.before; gewuenscht=$entry.requested; ist=$comboResult.after
           methode=$comboResult.method; ok=[bool]$comboResult.ok; internalSelected=$comboResult.internalSelected
           error=$comboDiagnostic.error; kind=$comboDiagnostic.kind
           mutationStarted=$comboDiagnostic.mutationStarted; interference=$comboDiagnostic.interference
@@ -12977,7 +13151,7 @@ switch ($Op) {
         }
         $good = Test-SSETableCellEquivalent $actual $entry.requested
         $null = $results.Add([pscustomobject]@{
-          spalte=$entry.spalte; vorher=$entry.before; gewuenscht=$entry.requested; ist=$actual
+          spalte=$entry.spalte; rid=$entry.cell.rid; vorher=$entry.before; gewuenscht=$entry.requested; ist=$actual
           methode=$entry.mutationMethod; ok=[bool]$good
         })
         if (-not $good) { $failure = "Spalte $($entry.spalte) zeigt '$actual' statt '$($entry.requested)'."; break }
@@ -13208,6 +13382,7 @@ switch ($Op) {
     $hwnd = [IntPtr][int64](Resolve-SSEMainWindowDescriptor $a -RestoreMinimized).hwnd
     $expectedPage = [string](Arg $a 'expectedPage')
     $text = [string](Arg $a 'text')
+    $targetRid = [string](Arg $a 'targetRid')
     if (-not $expectedPage -or -not $text) { Fail 'expectedPage und text sind Pflicht.' 'bad-args' }
     $sumLabel = [string](Arg $a 'sumLabel')
     $expectedBefore = [string](Arg $a 'expectedBefore')
@@ -13231,61 +13406,26 @@ switch ($Op) {
 
     function Read-LabeledValue([IntPtr]$window, [string]$label, [string]$expectedHint = '', [int]$occurrence = 0) {
       $tree = Walk-BoundTree $window -WithValues
-      $bounds = Get-ContentBounds $tree $window
-      $texts = @($tree.nodes | Where-Object {
-        $_.type -eq 'Text' -and $_.name -and $_.x -ge $bounds.minX -and $_.x -le $bounds.maxX
-      })
-      $candidates = New-Object System.Collections.ArrayList
-
-      foreach ($field in ($tree.nodes | Where-Object {
-        $_.type -in @('Edit','ComboBox','Spinner') -and $_.x -ge $bounds.minX -and $_.x -le $bounds.maxX
-      } | Sort-Object y, x)) {
-        $lab = ($texts | Where-Object { [Math]::Abs($_.y - $field.y) -le 14 -and $_.x -lt $field.x } |
-                Sort-Object { $field.x - $_.x } | Select-Object -First 1).name
-        if ($lab -and ($lab -eq $label -or $lab.StartsWith($label))) {
-          $null = $candidates.Add([pscustomobject]@{
-            value = $(if ($null -ne $field.val) { "$($field.val)" } else { "$($field.name)" })
-            y = $field.y; source = 'field'
-          })
-        }
+      # Nicht einen zweiten, leicht abweichenden Summenparser pflegen: Add,
+      # Update und Delete müssen dieselben Labels, Fallbackwerte und
+      # Occurrences auflösen. Die moderne Auswahl kennt insbesondere Qt-Felder
+      # mit leerem ValuePattern und sichtbarem Summennamen.
+      $read = Read-LabeledValueFromTree $tree $window $label $occurrence
+      $selected = $read.selected
+      if ($occurrence -lt 1) {
+        # Historischer Delete-Vertrag: ohne explizite Occurrence darf genau
+        # eine bereits gelesene Summe dem erwarteten Vorwert entsprechen.
+        # Das ist eine Auswahl aus dem gemeinsamen Kandidatenbestand, kein
+        # zweiter Parser; Mehrdeutigkeit bleibt fail-closed.
+        $matches = @($read.candidates | Where-Object { Test-SSEScalarEqual $_.value $expectedHint })
+        $selected = $(if ($matches.Count -eq 1) { $matches[0] } else { $null })
       }
-
-      foreach ($labNode in ($texts | Where-Object { $_.name -eq $label -or $_.name.StartsWith($label) })) {
-        $right = @($texts | Where-Object {
-          [Math]::Abs($_.y - $labNode.y) -le 12 -and $_.x -gt $labNode.x -and $_.name -match '^-?[\d.]+,\d{2}$'
-        } | Sort-Object x)
-        if ($right.Count -eq 1) {
-          $null = $candidates.Add([pscustomobject]@{ value = "$($right[0].name)"; y = $labNode.y; source = 'text' })
-        }
+      $actual = $(if ($selected) { [string]$selected.value } else { $null })
+      [pscustomobject]@{
+        value=$actual; selected=$selected; tree=$tree; candidates=$read.candidates
+        matchedExpected=$(if ($expectedHint) { Test-SSEScalarEqual $actual $expectedHint } else { $null })
+        occurrence=$occurrence
       }
-
-      # Dasselbe UI-Feld kann als ValuePattern und als Text erscheinen. Erst
-      # nach Y+Wert deduplizieren; gleichnamige Summen in verschiedenen
-      # Abschnitten bleiben absichtlich getrennt.
-      $unique = @($candidates | Group-Object { "$($_.y)|$($_.value)" } | ForEach-Object { $_.Group[0] })
-      $unique = @($unique | Sort-Object y)
-      if ($occurrence -gt 0) {
-        if ($occurrence -gt $unique.Count) {
-          return [pscustomobject]@{ value = $null; selected = $null; tree = $tree; candidates = $unique; matchedExpected = $false; occurrence = $occurrence }
-        }
-        $chosen = $unique[$occurrence - 1]
-        $matchesHint = (-not $expectedHint) -or (Test-SSEScalarEqual $chosen.value $expectedHint)
-        return [pscustomobject]@{
-          value = $(if ($matchesHint) { $chosen.value } else { $null })
-          selected = $chosen; tree = $tree; candidates = $unique; matchedExpected = [bool]$matchesHint; occurrence = $occurrence
-        }
-      }
-      if ($expectedHint) {
-        $matching = @($unique | Where-Object { Test-SSEScalarEqual $_.value $expectedHint })
-        if ($matching.Count -eq 1) {
-          return [pscustomobject]@{ value = $matching[0].value; selected = $matching[0]; tree = $tree; candidates = $unique; matchedExpected = $true }
-        }
-        return [pscustomobject]@{ value = $null; selected = $null; tree = $tree; candidates = $unique; matchedExpected = $false }
-      }
-      if ($unique.Count -eq 1) {
-        return [pscustomobject]@{ value = $unique[0].value; selected = $unique[0]; tree = $tree; candidates = $unique; matchedExpected = $null }
-      }
-      [pscustomobject]@{ value = $null; selected = $null; tree = $tree; candidates = $unique; matchedExpected = $null }
     }
 
     $beforeRead = Read-LabeledValue $hwnd $sumLabel $expectedBefore $sumOccurrence
@@ -13303,7 +13443,9 @@ switch ($Op) {
     if (-not $targetRegion.ok) {
       Fail "Tabellenregion fuer '$sumLabel' nicht eindeutig: $($targetRegion.error) NICHT geloescht." 'precondition-failed'
     }
-    $matches = @($targetRegion.cells | Where-Object { $_.name -eq $text })
+    $matches = @($targetRegion.cells | Where-Object {
+      $_.name -eq $text -and (-not $targetRid -or $_.rid -eq $targetRid)
+    })
     $searchSteps = 0
     $searchDeadlineMs = 60000
     $testDeadlineMs = 0
@@ -13351,7 +13493,9 @@ switch ($Op) {
           if (-not $targetRegion.ok) {
             Fail "Tabellenregion verschwand waehrend der Zielsuche. NICHT geloescht." 'interference'
           }
-          $matches = @($targetRegion.cells | Where-Object { $_.name -eq $text })
+          $matches = @($targetRegion.cells | Where-Object {
+            $_.name -eq $text -and (-not $targetRid -or $_.rid -eq $targetRid)
+          })
           if ($matches.Count) { break }
           [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
           $inputBaseline = Get-SSELastInputTick
@@ -13360,9 +13504,69 @@ switch ($Op) {
         }
       }
     }
-    if (-not $matches.Count) { Fail "Keine Zelle mit '$text' gefunden (auch nicht nach $searchSteps Navigationsschritten)." 'not-found' }
+    if (-not $matches.Count) {
+      if ($targetRid) { Fail "Die gebundene Zielzelle '$text' ist nicht mehr sichtbar (auch nicht nach $searchSteps Navigationsschritten)." 'stale' }
+      Fail "Keine Zelle mit '$text' gefunden (auch nicht nach $searchSteps Navigationsschritten)." 'not-found'
+    }
     if ($matches.Count -ne 1) { Fail "$($matches.Count) Zellen mit '$text' gefunden; Loeschziel ist nicht eindeutig." 'ambiguous' }
     $zelle = $matches[0]
+    # Show-SSEWindow kann bei Qt den gesamten UIA-Baum neu materialisieren und
+    # damit jede RuntimeId ersetzen. Die AutomationId dieser bereits exakt per
+    # RuntimeId gebundenen Zelle bleibt im getesteten Profil dagegen erhalten.
+    # Sie wird ausschliesslich als Rebind-Anker innerhalb derselben Operation
+    # verwendet; ohne sie gibt es nach dem Sichtbar-Aktivieren keinen Fallback.
+    $targetAid = [string]$zelle.aid
+    $targetRowsBeforeActivate = @($targetRegion.cells | Group-Object y | Sort-Object { [int]$_.Name })
+    $targetRowIndex = -1
+    $targetColumnIndex = -1
+    for ($rowIndex = 0; $rowIndex -lt $targetRowsBeforeActivate.Count; $rowIndex++) {
+      $rowCells = @($targetRowsBeforeActivate[$rowIndex].Group | Sort-Object x)
+      for ($columnIndex = 0; $columnIndex -lt $rowCells.Count; $columnIndex++) {
+        if ([string]$rowCells[$columnIndex].rid -eq [string]$zelle.rid) {
+          $targetRowIndex = $rowIndex
+          $targetColumnIndex = $columnIndex
+          break
+        }
+      }
+      if ($targetRowIndex -ge 0) { break }
+    }
+    if ($targetRowIndex -lt 0 -or $targetColumnIndex -lt 0) {
+      Fail 'Die exakt gebundene Zielzelle ist nicht mehr in der Tabellenstruktur auffindbar; nichts geloescht.' 'stale'
+    }
+
+    function Resolve-TableDeleteFreshTarget($Region) {
+      # UIA-RuntimeIds duerfen nach ShowWindow, Select oder einem echten Klick
+      # wechseln. Der Ersatzbeweis bleibt eng: derselbe Summenbereich, exakt
+      # gleicher Text, unveraenderte Tabellenform und gespeicherte Zeile/Spalte.
+      # Eine mehrfach verwendete Qt-AutomationId ist allein nie ausreichend.
+      $method = 'runtime-id'
+      $matches = $(if ($Region.ok) {
+        @($Region.cells | Where-Object {
+          $_.name -eq $text -and (-not $targetRid -or $_.rid -eq $targetRid)
+        })
+      } else { @() })
+      if (-not $matches.Count -and $targetAid -and $Region.ok) {
+        $matches = @($Region.cells | Where-Object {
+          $_.name -eq $text -and $_.aid -eq $targetAid
+        })
+        $method = 'automation-id'
+      }
+      if (($matches.Count -eq 0 -or $matches.Count -gt 1) -and $Region.ok) {
+        $rows = @($Region.cells | Group-Object y | Sort-Object { [int]$_.Name })
+        if ($rows.Count -eq $targetRowsBeforeActivate.Count -and $targetRowIndex -lt $rows.Count) {
+          $rowCells = @($rows[$targetRowIndex].Group | Sort-Object x)
+          if ($targetColumnIndex -lt $rowCells.Count -and
+              [string]$rowCells[$targetColumnIndex].name -eq $text -and
+              (-not $targetAid -or [string]$rowCells[$targetColumnIndex].aid -eq $targetAid)) {
+            $matches = @($rowCells[$targetColumnIndex])
+            $method = $(if ($method -eq 'automation-id') {
+              'row-column-after-ambiguous-automation-id'
+            } else { 'row-column' })
+          }
+        }
+      }
+      [pscustomobject]@{ matches=@($matches); method=$method }
+    }
 
     # anklicken (macht sie zur aktiven Zeile) und Strg+Umschalt+Entf
     $HWND_TOPMOST = [IntPtr](-1); $HWND_NOTOPMOST = [IntPtr](-2)
@@ -13376,15 +13580,27 @@ switch ($Op) {
     $pointRead = Read-LabeledValue $hwnd $sumLabel $expectedBefore $sumOccurrence
     $pointHeading = Get-CurrentHeading $hwnd $pointRead.tree
     $pointRegion = Get-SSETableRegion $pointRead.tree $hwnd $pointRead
-    $pointMatches = $(if ($pointRegion.ok) {
-      @($pointRegion.cells | Where-Object { $_.name -eq $text })
-    } else { @() })
+    $pointTarget = Resolve-TableDeleteFreshTarget $pointRegion
+    $pointMatches = @($pointTarget.matches)
+    $pointMatchMethod = [string]$pointTarget.method
     if ($pointHeading -ne $expectedPage -or -not (Test-SSEScalarEqual $pointRead.value $expectedBefore) -or
         $pointMatches.Count -ne 1) {
       [SW]::SetWindowPos($hwnd, $HWND_NOTOPMOST, 0, 0, 0, 0, $SWP) | Out-Null
-      Fail 'Seite, Summe oder eindeutige Zielzelle veraenderten sich beim Aktivieren; nichts geloescht.' 'interference'
+      Fail 'Seite, Summe oder eindeutige Zielzelle veraenderten sich beim Aktivieren; nichts geloescht.' 'interference' `
+        ([pscustomobject]@{
+          activationCheck=[pscustomobject]@{
+            expectedPage=$expectedPage; observedPage=$pointHeading
+            expectedSum=$expectedBefore; observedSum=$pointRead.value
+            regionOk=[bool]$pointRegion.ok; regionError=$pointRegion.error
+            targetMatchCount=$pointMatches.Count; targetMatchMethod=$pointMatchMethod
+            targetRowIndex=$targetRowIndex; targetColumnIndex=$targetColumnIndex
+            rowsBeforeActivate=$targetRowsBeforeActivate.Count
+            rowsAfterActivate=$(if ($pointRegion.ok) { @($pointRegion.cells | Group-Object y).Count } else { $null })
+          }
+        })
     }
     $zelle = $pointMatches[0]
+    $targetAid = [string]$zelle.aid
     $targetRegion = $pointRegion
     $targetElement = Get-LiveElement $hwnd $zelle.rid
     if (-not $targetElement -or [string]$targetElement.Current.Name -ne $text) {
@@ -13490,23 +13706,36 @@ switch ($Op) {
     $preDeleteRead = Read-LabeledValue $hwnd $sumLabel $expectedBefore $sumOccurrence
     $preDeleteHeading = Get-CurrentHeading $hwnd $preDeleteRead.tree
     $preDeleteRegion = Get-SSETableRegion $preDeleteRead.tree $hwnd $preDeleteRead
-    $preDeleteMatches = $(if ($preDeleteRegion.ok) {
-      @($preDeleteRegion.cells | Where-Object { $_.name -eq $text })
-    } else { @() })
+    $preDeleteTarget = Resolve-TableDeleteFreshTarget $preDeleteRegion
+    $preDeleteMatches = @($preDeleteTarget.matches)
     $preDeleteWindows = Get-SSEInteractionWindowSet $targetPid $hwnd
     $preDeleteInputAfter = Get-SSELastInputTick
     $preDeleteOk = [bool](
       $preDeleteHeading -eq $expectedPage -and
       (Test-SSEScalarEqual $preDeleteRead.value $expectedBefore) -and
-      $preDeleteMatches.Count -eq 1 -and $preDeleteMatches[0].rid -eq $zelle.rid -and
+      $preDeleteMatches.Count -eq 1 -and
       [SW]::GetForegroundWindow() -eq $hwnd -and
       $interactionBeforeDelete.fingerprint -eq $preDeleteWindows.fingerprint -and
       ($null -eq $preDeleteInput -or $null -eq $preDeleteInputAfter -or $preDeleteInput -eq $preDeleteInputAfter)
     )
     if (-not $preDeleteOk) {
       [SW]::SetWindowPos($hwnd, $HWND_NOTOPMOST, 0, 0, 0, 0, $SWP) | Out-Null
-      Fail 'Seite, Summe, Zielzeile, Fensterlage oder Eingabe veraenderten sich nach der Auswahl; NICHT geloescht.' 'interference'
+      Fail 'Seite, Summe, Zielzeile, Fensterlage oder Eingabe veraenderten sich nach der Auswahl; NICHT geloescht.' 'interference' `
+        ([pscustomobject]@{
+          preDeleteCheck=[pscustomobject]@{
+            expectedPage=$expectedPage; observedPage=$preDeleteHeading
+            expectedSum=$expectedBefore; observedSum=$preDeleteRead.value
+            regionOk=[bool]$preDeleteRegion.ok; regionError=$preDeleteRegion.error
+            targetMatchCount=$preDeleteMatches.Count; targetMatchMethod=$preDeleteTarget.method
+            foregroundOk=([SW]::GetForegroundWindow() -eq $hwnd)
+            windowSetUnchanged=($interactionBeforeDelete.fingerprint -eq $preDeleteWindows.fingerprint)
+            inputUnchanged=($null -eq $preDeleteInput -or $null -eq $preDeleteInputAfter -or $preDeleteInput -eq $preDeleteInputAfter)
+          }
+        })
     }
+    # Ab hier ist die frische, strukturell gleichgebundene Zelle die Referenz
+    # fuer den folgenden Readback und einen eventuellen Undo-Nachweis.
+    $zelle = $preDeleteMatches[0]
 
     [System.Windows.Forms.SendKeys]::SendWait('^+{DEL}')
     $deleteInputBaseline = Get-SSELastInputTick
@@ -13548,10 +13777,12 @@ switch ($Op) {
     $afterRead = Read-LabeledValue $hwnd $sumLabel $expectedAfter $sumOccurrence
     $after = $afterRead.value
     $headingAfter = Get-CurrentHeading $hwnd $afterRead.tree
-    $nochDa = @($afterRead.tree.nodes | Where-Object {
-      $_.type -eq 'DataItem' -and $_.name -eq $text -and
-      $_.y -gt $regionLowerY -and $_.y -lt $regionUpperY
-    }).Count -gt 0
+    $afterRegion = Get-SSETableRegion $afterRead.tree $hwnd $afterRead
+    $nochDa = if ($afterRegion.ok) {
+      [bool](@($afterRegion.cells | Where-Object {
+        $_.name -eq $text -and $(if ($targetAid) { $_.aid -eq $targetAid } else { $_.rid -eq $zelle.rid })
+      }).Count -gt 0)
+    } else { $true }
     $postCheckWindows = Get-SSEInteractionWindowSet $targetPid $hwnd
     $postCheckInputAfter = Get-SSELastInputTick
     $postCheckInterference = [bool](

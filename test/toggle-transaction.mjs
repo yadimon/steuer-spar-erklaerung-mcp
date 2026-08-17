@@ -14,6 +14,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { fixtureCaseRef } from "./fixture-case-ref.mjs";
 
 const fixture = process.env.SSE_TOGGLE_FIXTURE;
 if (!fixture) {
@@ -52,7 +53,10 @@ let started = false;
 try {
   await client.connect(new StdioClientTransport({ command: process.execPath, args: [server], env: { ...process.env } }));
   const start = parsed(await client.callTool(
-    { name: "sse_desktop_start", arguments: { file: fixture, mode: "einur", name: "SSEToggleTxn", timeoutSec: 45 } },
+    {
+      name: "sse_desktop_start",
+      arguments: { caseRef: fixtureCaseRef(fixture, { extension: ".Gew2025" }), mode: "einur", name: "SSEToggleTxn", timeoutSec: 45 },
+    },
     undefined,
     { timeout: 180_000, maxTotalTimeout: 180_000 },
   ), "desktop-start");

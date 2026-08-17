@@ -45,9 +45,11 @@ export function traceOperations(label, execute, env = process.env) {
   mkdirSync(directory, { recursive: true });
   const file = join(directory, `${label}-${process.pid}-${randomUUID().replaceAll("-", "")}.jsonl`);
   const record = (operation, result, failed, elapsedMs) => {
+    const profileId = env.SSE_PROFILE_ID ?? null;
     const line = JSON.stringify({
       label,
       operation,
+      profileId,
       ok: failed ? false : result?.ok === true,
       ms: elapsedMs,
       ...(failed ? { threw: true } : {}),

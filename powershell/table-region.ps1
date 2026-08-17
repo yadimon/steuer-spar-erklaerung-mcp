@@ -28,7 +28,12 @@ function Select-SSESummaryFromNodes {
       [Math]::Abs($_.y - $field.y) -le 14 -and $_.x -lt $field.x
     } | Sort-Object { $field.x - $_.x } | Select-Object -First 1).name
     if ($lab -and ($lab -eq $Label -or $lab.StartsWith($Label))) {
-      $value = $(if ($null -ne $field.val) { "$($field.val)" } else { "$($field.name)" })
+      # Qt liefert bei manchen Summenfeldern ein vorhandenes, aber leeres
+      # ValuePattern. Der sichtbare Name trägt dann weiterhin den Betrag;
+      # leer ist kein brauchbarer Summenwert und darf die sichere Vorbedingung
+      # einer Tabellenmutation nicht fälschlich scheitern lassen.
+      $value = [string]$field.val
+      if (-not $value) { $value = [string]$field.name }
       $null = $found.Add([pscustomobject]@{
         label=$lab; value=$value; y=$field.y; rid=$field.rid; aid=$field.aid
       })

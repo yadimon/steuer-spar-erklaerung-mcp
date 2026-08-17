@@ -22,7 +22,8 @@ export const SSE_MCP_INTERACTION_SCHEMAS = {
       .enum(SSE_CLICK_PATTERNS)
       .optional()
       .describe(
-        "Vorgabe 'invoke'. toggle ist fail-closed gesperrt; select nur mit exakter aid fuer einen RadioButton samt exklusivem Gruppen-Readback.",
+        "Vorgabe 'invoke'. expand/collapse aendern nur den Tree-Zustand, nicht die Seite. " +
+        "toggle ist fail-closed gesperrt; select nur mit exakter aid fuer einen RadioButton samt Gruppen-Readback.",
       ),
     acknowledgeDestructive: z.boolean().optional().describe(
       "Nur nach bewusstem Readback fuer lokale Loesch-/Import-/Uebernahme-/Zuruecksetzbefehle einmalig true setzen",
