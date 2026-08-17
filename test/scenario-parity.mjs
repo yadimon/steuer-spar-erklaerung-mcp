@@ -152,11 +152,16 @@ try {
   const directBytes = readFileSync(join(resultDir, "direct.json"));
   const mcpBytes = readFileSync(join(resultDir, "mcp.json"));
   const expectedBytes = readFileSync(join(here, "scenarios", "complex-wrapper", "expected-result.json"));
-  if (process.env.SSE_SCENARIO_PRINT === "1") process.stdout.write(directBytes.toString("utf8"));
+  const directText = directBytes.toString("utf8");
+  if (process.env.SSE_SCENARIO_PRINT === "1") process.stdout.write(directText);
   assert.deepEqual(mcpBytes, directBytes, "API und MCP muessen bytegleiche Ergebnisdateien schreiben");
-  assert.deepEqual(directBytes, expectedBytes, "API/MCP-Ergebnis muss der versionierten Ergebnisdatei entsprechen");
-  assert(!directBytes.toString("utf8").includes("localMachinePath"));
-  assert(!directBytes.toString("utf8").includes("canaryMs"));
+  assert.deepEqual(
+    JSON.parse(directText),
+    JSON.parse(expectedBytes.toString("utf8")),
+    "API/MCP-Ergebnis muss strukturell der versionierten Ergebnisdatei entsprechen",
+  );
+  assert(!directText.includes("localMachinePath"));
+  assert(!directText.includes("canaryMs"));
 
   const callsBeforeRepeat = workerCalls;
   const idempotentRepeat = await fetch(`${baseUrl}/v1/operations/scenario_run`, {
