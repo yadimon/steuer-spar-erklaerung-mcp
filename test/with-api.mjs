@@ -31,6 +31,11 @@ const config = {
   resultDir,
   caseDir,
   sseExecutable: process.env.SSE_EXECUTABLE,
+  profileId: process.env.SSE_PROFILE_ID,
+  // Ein noch unverifiziertes Jahr laesst sich sonst nie verifizieren: seine
+  // Betriebsoperationen sind fail-closed. Nur ein ausdruecklich gesetztes
+  // SSE_OPERATE_EXPERIMENTAL oeffnet den Weg fuer genau solche Laeufe.
+  operateExperimental: process.env.SSE_OPERATE_EXPERIMENTAL === "1",
 };
 const execute = createApiExecutor(config, callWorker);
 const server = createSseApiServer({ config, execute });

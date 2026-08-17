@@ -34,11 +34,27 @@ export async function executeCheckerOpen(
 
   let current = await step("checker_results", target, 180_000);
   if (current.ok === false) return current;
-  if (current.aktiv === true && current.konsistent !== true) {
-    const visible = checkerMessages(current);
-    if (!visible.some((message) => message.text === args.name)) {
+  if (
+    current.aktiv === true &&
+    current.konsistent !== true &&
+    !checkerMessages(current).some((message) => message.text === args.name)
+  ) {
+    // Eine bereits aufgeklappte Detailkarte kann den Baum verlaengern und
+    // untere Meldungen aus dem virtualisierten Qt-Fenster schieben; dann liest
+    // der Baum konsistent=false. checker_reset schliesst alle Karten und stellt
+    // die vollstaendige Liste wieder her - dieselbe sichere Erholung, die der
+    // Oeffnungspfad unten schon nutzt. Erst wenn die Meldung auch danach fehlt,
+    // ist sie wirklich nicht vorhanden.
+    const reset = await step("checker_reset", target, 240_000);
+    if (reset.ok === false) return reset;
+    current = await step("checker_results", target, 180_000);
+    if (current.ok === false) return current;
+    if (
+      current.konsistent !== true &&
+      !checkerMessages(current).some((message) => message.text === args.name)
+    ) {
       return operationError(
-        "Der Qt-Prueferbaum ist unvollstaendig und die gewuenschte Meldung darin nicht sichtbar; keine Seriennavigation ausgefuehrt.",
+        "Der Qt-Prueferbaum blieb auch nach checker_reset unvollstaendig und die gewuenschte Meldung darin nicht sichtbar.",
         "checker-incomplete",
       );
     }

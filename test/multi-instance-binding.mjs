@@ -136,7 +136,7 @@ try {
     `Explizit gebundenes sse_save traf die Zielinstanz nicht: ${JSON.stringify(boundSave)}`);
 
   await expectAmbiguous("sse_set_value", {
-    aid: ".MainToolBar.QWidget.SearchSSE.QLineEdit", expectedBefore: "", value: "MCP multi", expectedAfter: "",
+    rid: "irrelevant-vor-fensterbindung", expectedBefore: "", value: "MCP multi", expectedAfter: "",
   });
   await expectAmbiguous("sse_find", { name: "Weiter" });
   await expectAmbiguous("sse_toggle", {
@@ -148,15 +148,21 @@ try {
     sumLabel: "irrelevant", expectedBefore: "0,00", expectedAfter: "1,00",
   });
 
+  const searchFieldBefore = await call("sse_get_value", {
+    hwnd: secondMain.hwnd, aid: ".MainToolBar.QWidget.SearchSSE.QLineEdit", type: "Edit",
+  });
+  const searchRid = String(searchFieldBefore.node?.rid ?? "");
+  assert(searchRid, `sse_get_value lieferte keine rid fuer das gebundene Suchfeld: ${JSON.stringify(searchFieldBefore)}`);
+
   const searchSet = await call("sse_set_value", {
     hwnd: secondMain.hwnd,
-    aid: ".MainToolBar.QWidget.SearchSSE.QLineEdit", expectedBefore: "", value: "MCP multi", expectedAfter: "MCP multi",
+    rid: searchRid, expectedBefore: "", value: "MCP multi", expectedAfter: "MCP multi",
   });
   assert(searchSet.ok === true && searchSet.verified === true && searchSet.after === "MCP multi",
     `Explizit gebundene Suchfeldaktion scheiterte: ${JSON.stringify(searchSet)}`);
   const searchReset = await call("sse_set_value", {
     hwnd: secondMain.hwnd,
-    aid: ".MainToolBar.QWidget.SearchSSE.QLineEdit", expectedBefore: "MCP multi", value: "", expectedAfter: "",
+    rid: searchRid, expectedBefore: "MCP multi", value: "", expectedAfter: "",
   });
   assert(searchReset.ok === true && searchReset.verified === true && searchReset.after === "",
     `Explizit gebundener Suchfeld-Reset scheiterte: ${JSON.stringify(searchReset)}`);

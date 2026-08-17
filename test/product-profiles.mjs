@@ -9,9 +9,11 @@ import { WORKER_RUNTIME_FILES } from "./worker-fixture-files.mjs";
 
 const root = resolve(process.cwd());
 const profile = loadProductProfile("2025");
-assert.deepEqual(listProductProfileIds(), ["2025"]);
+assert.deepEqual(listProductProfileIds(), ["2024", "2025"]);
 assert.equal(profile.taxYear, 2025);
 assert.equal(profile.engineFileMajor, 31);
+assert.equal(profile.status, "supported");
+assert.equal(profile.verifiedBuild, "31.0.1.0");
 assert.equal(profile.executable.name, "SSE.exe");
 assert.equal(profile.pageObjectsPath, join(root, "profiles", "2025", "page-objects.json"));
 assert.deepEqual(profile.additionalCaseYears, { einurvor: [2026] });
@@ -24,7 +26,9 @@ for (const unsupportedMode of ["KonsUst", "KonsUSt", "zulage", "NVBescheinigung"
   assert.equal(profile.startModes[unsupportedMode], undefined,
     `Nicht direkt startbarer SSE-Modus ${unsupportedMode} darf nicht veroeffentlicht werden.`);
 }
-assert.throws(() => loadProductProfile("2024"), /fehlt/);
+const profile2024 = loadProductProfile("2024");
+assert.equal(profile2024.status, "experimental");
+assert.equal(profile2024.verifiedBuild, "30.0.127.0");
 assert.throws(() => loadProductProfile("..\\2025"), /Ungueltige/);
 
 const invalidAdditionalYearRoot = mkdtempSync(join(tmpdir(), "sse-product-additional-year-"));
@@ -107,7 +111,7 @@ const powershell = join(
   "System32", "WindowsPowerShell", "v1.0", "powershell.exe",
 );
 const writeJson = (path, value) => writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-const runWorkerProfileMutation = (mutate) => {
+const runWorkerProfileMutation = (mutate, op = "product_info") => {
   const isolatedRoot = mkdtempSync(join(tmpdir(), "sse-worker-profile-"));
   const isolatedPowerShell = join(isolatedRoot, "powershell");
   const isolatedProfiles = join(isolatedRoot, "profiles");
@@ -124,7 +128,7 @@ const runWorkerProfileMutation = (mutate) => {
       powershell,
       [
         "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
-        join(isolatedPowerShell, "sse-worker.ps1"), "-Op", "product_info",
+        join(isolatedPowerShell, "sse-worker.ps1"), "-Op", op,
       ],
       {
         cwd: isolatedRoot,
@@ -140,13 +144,16 @@ const runWorkerProfileMutation = (mutate) => {
   }
 };
 
+// "experimental" laedt jetzt bewusst (Initialize-SSEProductProfile laesst es
+// zu); eine nicht in EXPERIMENTAL_ALLOWED gelistete Betriebsoperation wie
+// "windows" bleibt trotzdem gesperrt, deshalb hier statt "product_info".
 const unsupportedStatus = runWorkerProfileMutation(({ profilePath }) => {
   const manifest = JSON.parse(readFileSync(profilePath, "utf8"));
   manifest.status = "experimental";
   writeJson(profilePath, manifest);
-});
+}, "windows");
 assert.equal(unsupportedStatus.ok, false);
-assert.equal(unsupportedStatus.kind, "invalid-profile");
+assert.equal(unsupportedStatus.kind, "profile-unverified");
 
 const pageObjectTraversal = runWorkerProfileMutation(({ profilePath }) => {
   const manifest = JSON.parse(readFileSync(profilePath, "utf8"));
@@ -175,7 +182,10 @@ assert.equal(pageObjectDrift.ok, false);
 assert.equal(pageObjectDrift.kind, "invalid-profile");
 assert.match(pageObjectDrift.error, /Kompatibilitaet/);
 
-const invalidWorker = spawnSync(
+// 2024 ist ein reales, experimentelles Profil und "product_info" steht in
+// EXPERIMENTAL_ALLOWED: der echte Worker muss es gegen das echte 2024-Profil
+// erreichen (nicht mehr an der Initialisierung scheitern).
+const experimentalWorker = spawnSync(
   powershell,
   [
     "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
@@ -188,9 +198,10 @@ const invalidWorker = spawnSync(
     windowsHide: true,
   },
 );
-assert.equal(invalidWorker.status, 0, invalidWorker.stderr);
-const invalidResult = JSON.parse(invalidWorker.stdout.trim());
-assert.equal(invalidResult.ok, false);
-assert.equal(invalidResult.kind, "invalid-profile");
+assert.equal(experimentalWorker.status, 0, experimentalWorker.stderr);
+const experimentalResult = JSON.parse(experimentalWorker.stdout.trim());
+assert.equal(experimentalResult.ok, true);
+assert.equal(experimentalResult.profileId, "2024");
+assert.equal(experimentalResult.profileStatus, "experimental");
 
 process.stdout.write("Produktprofile: explizite Version, Drift- und Unknown-Version-Gates bestanden\n");

@@ -102,13 +102,19 @@ function Arg($obj, [string]$name, $default = $null) {
 function Test-SSEDesktopName([string]$Name) {
   [bool]($Name -and $Name -match '^[A-Za-z0-9_-]{1,64}$')
 }
+# Der Katalog aendert sich waehrend eines Arbeitsprozesses nicht. Ohne
+# Zwischenspeicher lasen ihn Dialoginventur und Seitenaufnahme bei jedem
+# Durchlauf erneut von der Platte - bei der Segmenterfassung einmal je Seite.
+$script:SSE_PAGE_OBJECTS = $null
 function Get-SSEPageObjects {
+  if ($null -ne $script:SSE_PAGE_OBJECTS) { return $script:SSE_PAGE_OBJECTS }
   $catalogPath = Join-Path $script:SSE_PROFILE_DIR ([string]$script:SSE_PROFILE.pageObjects)
   if (-not (Test-Path -LiteralPath $catalogPath -PathType Leaf)) {
     Fail "Page-Object-Katalog fehlt: $catalogPath" 'not-found'
   }
-  try { Read-SSEJsonFileStrict $catalogPath }
+  try { $script:SSE_PAGE_OBJECTS = Read-SSEJsonFileStrict $catalogPath }
   catch { Fail "Page-Object-Katalog ist ungueltig: $($_.Exception.Message)" 'invalid-catalog' }
+  $script:SSE_PAGE_OBJECTS
 }
 function Resolve-SSEFocuslessCommitPolicy([string]$Heading, $Node, [string]$ValueKind, [object[]]$SumChecks, $Tree) {
   $catalog = Get-SSEPageObjects
@@ -377,7 +383,7 @@ function Initialize-SSEProductProfile {
   try { $profileManifest = Read-SSEJsonFileStrict $manifestPath }
   catch { Fail "SSE-Profil ist kein gueltiges JSON: $($_.Exception.Message)" 'invalid-profile' }
   $manifestProperties = @(
-    'schemaVersion','id','status','product','taxYear','engineFileMajor',
+    'schemaVersion','id','status','product','taxYear','engineFileMajor','verifiedBuild',
     'executable','startModes','additionalCaseYears','pageObjects','policy'
   )
   $executableProperties = @('name','installationFolderName','defaultRelativePath')
@@ -404,7 +410,7 @@ function Initialize-SSEProductProfile {
   }
   if (-not $manifestShapeOk -or -not $executableShapeOk -or
       [int]$profileManifest.schemaVersion -ne 1 -or [string]$profileManifest.id -ne $script:SSE_PROFILE_ID -or
-      [string]$profileManifest.status -ne 'supported' -or [int]$profileManifest.taxYear -ne [int]$script:SSE_PROFILE_ID -or
+      [string]$profileManifest.status -notin @('supported', 'experimental') -or [int]$profileManifest.taxYear -ne [int]$script:SSE_PROFILE_ID -or
       [int]$profileManifest.engineFileMajor -le 0 -or -not [string]$profileManifest.product -or
       -not [string]$profileManifest.executable.name -or -not [string]$profileManifest.executable.installationFolderName -or
       -not $startModesOk -or -not $additionalCaseYearsOk -or
@@ -603,6 +609,16 @@ if (-not (Test-Path -LiteralPath $windowScopeHelpers -PathType Leaf)) {
   Fail "Fensterbindungs-Helfer fehlt: $windowScopeHelpers" 'not-found'
 }
 . $windowScopeHelpers
+$structureBindingHelpers = Join-Path $PSScriptRoot 'structure-binding.ps1'
+if (-not (Test-Path -LiteralPath $structureBindingHelpers -PathType Leaf)) {
+  Fail "Strukturbindungs-Helfer fehlt: $structureBindingHelpers" 'not-found'
+}
+. $structureBindingHelpers
+$profileVerificationHelpers = Join-Path $PSScriptRoot 'profile-verification.ps1'
+if (-not (Test-Path -LiteralPath $profileVerificationHelpers -PathType Leaf)) {
+  Fail "Build-Verifikations-Helfer fehlt: $profileVerificationHelpers" 'not-found'
+}
+. $profileVerificationHelpers
 $initProbe.Stop(); $script:INIT_TIMINGS.assembliesMs = $initProbe.ElapsedMilliseconds
 
 # ---------------------------------------------------------- Versteckter Desktop
@@ -2098,43 +2114,62 @@ function Walk-BoundTree {
     nodes = @($scope.own)
     stats = $roh.stats
     fremdeFenster = @($scope.foreign)
-    alleKnoten = @($roh.nodes)
   }
 }
 
-# Stabile AutomationId der Seitenueberschrift aus dem Profilkatalog.
-# Einmal je Arbeitsprozess gelesen; der Katalog liegt sonst bei jeder
-# Seitenabfrage erneut auf der Platte.
-$script:SSE_HEADING_AID_SUFFIX = $null
-function Get-SSEHeadingAidSuffix {
-  if ($null -eq $script:SSE_HEADING_AID_SUFFIX) {
-    $catalog = Get-SSEPageObjects
-    $suffix = [string]$catalog.windows.main.headingAutomationIdSuffix
-    if (-not $suffix) {
-      Fail 'Page-Object-Katalog nennt keine headingAutomationIdSuffix fuer das Hauptfenster.' 'invalid-catalog'
+# Selektorendungen aus dem Profilkatalog. Einmal je Arbeitsprozess gelesen;
+# der Katalog laege sonst bei jeder Seitenabfrage erneut auf der Platte.
+$script:SSE_MAIN_WINDOW_SELECTORS = $null
+function Get-SSEMainWindowSelectors {
+  if ($null -eq $script:SSE_MAIN_WINDOW_SELECTORS) {
+    $haupt = (Get-SSEPageObjects).windows.main
+    $heading = [string]$haupt.headingContainerAutomationIdSuffix
+    $search = [string]$haupt.searchContainerAutomationIdSuffix
+    if (-not $heading -or -not $search) {
+      Fail 'Page-Object-Katalog nennt keine Containerendungen fuer Ueberschrift und Suchfeld.' 'invalid-catalog'
     }
-    $script:SSE_HEADING_AID_SUFFIX = $suffix
+    $script:SSE_MAIN_WINDOW_SELECTORS = [pscustomobject]@{ heading = $heading; search = $search }
   }
-  $script:SSE_HEADING_AID_SUFFIX
+  $script:SSE_MAIN_WINDOW_SELECTORS
 }
 
-# Seitenueberschrift bestimmen. Bevorzugt der stabile Kopfknoten; nur wenn die
-# Seite gar keinen besitzt, wird das alte Y-Band als AUSGEWIESENER Rueckfall
-# verwendet. Der frueher unmarkierte Rueckfall hat auf einer Uebersichtsseite
-# den Absatz "der SteuerSparErklaerung fuer das Steuerjahr 2025." als
-# Seitentitel gemeldet.
+# Seitenueberschrift ueber den beschrifteten Container bestimmen.
+#
+# Der Blattknoten traegt nur in Engine 31 eine eigene AutomationId; der
+# Container traegt sie in beiden Engines. Ein Y-Band waere dagegen von
+# Fenstergroesse, DPI und Schriftskalierung abhaengig und hat auf einer
+# 2024-Statusseite bereits einen Fliesstextabsatz als Titel gemeldet.
+#
+# Findet der Container nichts, wird NICHTS geraten: eine falsche Ueberschrift
+# wird in Segmentaufnahmen als Seitenidentitaet weiterverwendet.
 function Get-SSEHeading {
-  param($Tree, $Bounds, [IntPtr]$hwnd)
-  $kopf = Get-SSEPageHeadingNode $Tree.nodes (Get-SSEHeadingAidSuffix)
+  param($Tree)
+  $kopf = Get-SSEContainerChild $Tree.nodes (Get-SSEMainWindowSelectors).heading 'Text'
   if ($kopf) {
     return [pscustomobject]@{ text = [string]$kopf.name; quelle = 'clientHeader' }
   }
-  $r = New-Object SW+RC; [SW]::GetWindowRect($hwnd, [ref]$r) | Out-Null
-  $geraten = ($Tree.nodes | Where-Object {
-    $_.type -eq 'Text' -and $_.x -ge $Bounds.minX -and $_.x -le $Bounds.maxX -and
-    $_.y -ge ($r.T + 190) -and $_.y -le ($r.T + 290)
-  } | Sort-Object y | Select-Object -First 1).name
-  [pscustomobject]@{ text = [string]$geraten; quelle = 'geometrie-rueckfall' }
+  [pscustomobject]@{ text = $null; quelle = 'nicht-gefunden' }
+}
+
+# Globales Suchfeld ueber seinen beschrifteten Container binden. In Engine 30
+# traegt das Edit selbst keine AutomationId; der Container 'SearchSSE' traegt
+# sie in beiden Engines.
+# Eintraege des globalen Steuerpruefers ueber ihren Baum-Container binden.
+#
+# Engine 30 gibt den TreeItems des Pruefers keine eigene AutomationId; nur der
+# Tree traegt sie. Eine Bindung ueber die Id der Eintraege findet dort also
+# nichts und liess den Prueflauf ins Leere warten. Der Container ist in beiden
+# Engines gleich benannt, der Typ trennt ihn von seinen Kindern.
+$script:SSE_CHECKER_TREE_SUFFIX = 'PrueferWidgetSSE.SteuerPruefer'
+function Get-SSECheckerTreeItems {
+  param($Tree)
+  @(Get-SSEContainerDescendants $Tree.nodes $script:SSE_CHECKER_TREE_SUFFIX 'TreeItem' 'Tree' |
+    Where-Object { $_.name })
+}
+
+function Get-SSESearchFieldNode {
+  param($Tree)
+  Get-SSEContainerChild $Tree.nodes (Get-SSEMainWindowSelectors).search 'Edit'
 }
 
 # Grenzen des Arbeitsbereichs bestimmen. NICHT fest verdrahten: das Fenster
@@ -2208,9 +2243,7 @@ function Resolve-Nodes {
 # Einzug; sie darf deshalb nicht als zusaetzliche Meldung gezaehlt werden.
 function Get-CheckerResults {
   param($tree, [IntPtr]$hwnd = [IntPtr]::Zero)
-  $raw = @($tree.nodes | Where-Object {
-    $_.type -eq 'TreeItem' -and $_.name -and $_.aid -like '*PrueferWidgetSSE.SteuerPruefer*'
-  } | Sort-Object y, x)
+  $raw = @(Get-SSECheckerTreeItems $tree | Sort-Object y, x)
   if (-not $raw.Count) {
     return [pscustomobject]@{
       aktiv = $false; fragenWarnungenAngekuendigt = 0; tippsAngekuendigt = 0
@@ -2302,18 +2335,15 @@ function Read-CheckerCompleteInteractiveLegacy {
       warnungen = @($result.fragenWarnungen).Count; tipps = @($result.tippsZusatzinfos).Count
     })
 
-    $selected = @($tree.nodes | Where-Object {
-      $_.type -eq 'TreeItem' -and $_.name -and
-      $_.aid -like '*PrueferWidgetSSE.SteuerPruefer*' -and
-      ($_.selected -eq $true -or ($tree.stats.cycleRid -and $_.rid -eq $tree.stats.cycleRid))
+    $selected = @(Get-SSECheckerTreeItems $tree | Where-Object {
+      $_.selected -eq $true -or ($tree.stats.cycleRid -and $_.rid -eq $tree.stats.cycleRid)
     } | Sort-Object y, x | Select-Object -First 1)
     # Bei den beiden Gruppenkoepfen wird dieselbe logische Qt-Zeile teils mit
     # einer zweiten RuntimeId gespiegelt. Der Zyklusname bleibt dabei stabil.
     if (-not $selected.Count -and $tree.stats.cycleName) {
-      $selected = @($tree.nodes | Where-Object {
-        $_.type -eq 'TreeItem' -and $_.name -eq $tree.stats.cycleName -and
-        $_.aid -like '*PrueferWidgetSSE.SteuerPruefer*'
-      } | Sort-Object y, x | Select-Object -First 1)
+      $selected = @(Get-SSECheckerTreeItems $tree |
+        Where-Object { $_.name -eq $tree.stats.cycleName } |
+        Sort-Object y, x | Select-Object -First 1)
     }
 
     # Bei virtualisierten letzten Zeilen liefert Qt gelegentlich keinen
@@ -2321,9 +2351,7 @@ function Read-CheckerCompleteInteractiveLegacy {
     # Dann ist die letzte aeussere sichtbare Meldungszeile der sichere Anker,
     # um per echtem Klick + DOWN die naechste Zeile zu materialisieren.
     if (-not $selected.Count) {
-      $outerCandidates = @($tree.nodes | Where-Object {
-        $_.type -eq 'TreeItem' -and $_.name -and
-        $_.aid -like '*PrueferWidgetSSE.SteuerPruefer*' -and
+      $outerCandidates = @(Get-SSECheckerTreeItems $tree | Where-Object {
         $_.name -notmatch '^\d+\s+(Fragen oder Warnungen|Tipps oder Zusatzinformationen)$'
       })
       if ($outerCandidates.Count) {
@@ -2464,23 +2492,24 @@ function Convert-SSEComparableNumber($Value) {
 # mehrere Workerstarts und vermeidet gemischte Vorher-/Nachher-Zustaende.
 function Read-ResultDetailsFromTree {
   param($Tree)
-  $allData = @($Tree.nodes | Where-Object {
-    $_.type -eq 'DataItem' -and $_.aid -like '*WerteInfo*obj_Wertetabelle'
-  })
+  # Ueber den Tabellen-Container binden, nie ueber die Ids der Zellen:
+  # Engine 30 laesst sowohl das Zwischenstueck 'WerteInfo' als auch die
+  # AutomationIds der Zellen und Kopfzeilen weg. Das Endstueck des
+  # Containers ist in beiden Engines gleich.
+  $wertetabelle = 'obj_Wertetabelle'
+  $allData = @(Get-SSEContainerDescendants $Tree.nodes $wertetabelle 'DataItem' 'Table')
   # Negative Bildschirmkoordinaten sind auf Mehrmonitor-Systemen legitim.
   # Nicht positionierte/virtualisierte Zellen erkennt der Snapshot stattdessen
   # an einem leeren Rechteck (0x0, meist x/y=-1).
   $unpositioned = @($allData | Where-Object { $_.w -le 0 -or $_.h -le 0 })
   $data = @($allData | Where-Object { $_.w -gt 0 -and $_.h -gt 0 } | Sort-Object y, x)
-  $headers = @($Tree.nodes | Where-Object {
-    $_.type -eq 'Header' -and $_.aid -like '*WerteInfo*obj_Wertetabelle' -and $_.w -gt 0 -and $_.h -gt 0
-  } | Sort-Object x | ForEach-Object { $_.name })
-  $tableScroll = @($Tree.nodes | Where-Object {
-    $_.aid -like '*WerteInfo*obj_Wertetabelle' -and $null -ne $_.scroll
-  } | Select-Object -First 1)
-  $scrollIncomplete = [bool]($tableScroll.Count -and $tableScroll[0].scroll.vScrollable -and
-    [double]$tableScroll[0].scroll.vView -lt 99.999)
-  $windowOpen = @($Tree.nodes | Where-Object { $_.aid -like '*SSE_Application.WerteInfo*' }).Count -gt 0
+  $headers = @(Get-SSEContainerDescendants $Tree.nodes $wertetabelle 'Header' 'Table' |
+    Where-Object { $_.w -gt 0 -and $_.h -gt 0 } | Sort-Object x | ForEach-Object { $_.name })
+  $tabelle = Find-SSEContainerNode $Tree.nodes $wertetabelle 'Table'
+  $scrollIncomplete = [bool]($tabelle -and $null -ne $tabelle.scroll -and $tabelle.scroll.vScrollable -and
+    [double]$tabelle.scroll.vView -lt 99.999)
+  # Der Tabellen-Container ist selbst der Beleg, dass die Werte-Info offen ist.
+  $windowOpen = [bool]$tabelle
   if (-not $data.Count) {
     return [pscustomobject]@{
       verfuegbar = $false; fensterOffen = [bool]$windowOpen; anzahl = 0
@@ -3299,14 +3328,7 @@ function Get-KnownPageState([IntPtr]$Hwnd, $Known) {
 
 function Get-CurrentHeading([IntPtr]$Hwnd, $Tree = $null) {
   if ($null -eq $Tree) { $Tree = Walk-Tree $Hwnd 1200 25 12 -WithValues }
-  $bounds = Get-ContentBounds $Tree $Hwnd
-  $rect = New-Object SW+RC
-  [SW]::GetWindowRect($Hwnd, [ref]$rect) | Out-Null
-  ($Tree.nodes | Where-Object {
-    $_.type -eq 'Text' -and $_.name -and
-    $_.x -ge $bounds.minX -and $_.x -le $bounds.maxX -and
-    $_.y -ge ($rect.T + 190) -and $_.y -le ($rect.T + 290)
-  } | Sort-Object y | Select-Object -First 1).name
+  (Get-SSEHeading $Tree).text
 }
 
 function Read-LabeledValueFromTree($Tree, [IntPtr]$Hwnd, [string]$Label, [int]$Occurrence = 1) {
@@ -4016,7 +4038,10 @@ function Open-TrackedResultWindow([IntPtr]$MainHwnd) {
   if (-not $valueWindows.Count) {
     $tree = Walk-Tree $MainHwnd 2500 35 15 -WithValues
     $buttons = @($tree.nodes | Where-Object {
-      $_.type -eq 'Button' -and $_.aid -like '*TaxResultsWidgetSSE*hoverBtnMehrDetails'
+      # Endstueck statt vollem Pfad: Engine 30 haengt den Knopf ohne das
+      # Zwischenstueck 'TaxResultsWidgetSSE' ein. Das Endstueck ist in
+      # beiden Engines eindeutig.
+      $_.type -eq 'Button' -and $_.aid -like '*hoverBtnMehrDetails'
     })
     if ($buttons.Count -ne 1) {
       return [pscustomobject]@{ ok=$false; error="Mehr-Details-Knopf nicht eindeutig ($($buttons.Count) Treffer)." }
@@ -4458,6 +4483,21 @@ function Test-SSETrackedValueEquivalent($Actual, $Expected, [string]$ValueKind =
 
 # ================================================================== Operationen
 
+# Mirror von EXPERIMENTAL_ALLOWED's worker-gerouteter Teilmenge in
+# src/api-executor.ts - beide synchron halten. Ein experimentelles (noch
+# unverifiziertes) Jahr darf nur befragt, nie betrieben werden, ausser bei
+# bewusster Ueberschreibung ueber operateExperimental.
+$experimentalAllowedOps = @('health', 'help', 'product_info', 'list_cases', 'case_hash')
+if ([string]$script:SSE_PROFILE.status -eq 'experimental' -and
+    $env:SSE_OPERATE_EXPERIMENTAL -ne '1' -and
+    $Op -notin $experimentalAllowedOps) {
+  Fail (
+    "Produktprofil '$($script:SSE_PROFILE_ID)' ist noch nicht verifiziert (status=experimental). " +
+    "Nur Katalog- und Dateiauskuenfte sind erlaubt. Fuer eine bewusste Jahresverifikation " +
+    "operateExperimental: true in der API-Konfiguration setzen."
+  ) 'profile-unverified'
+}
+
 switch ($Op) {
 
   'focusless_write_probe' {
@@ -4486,7 +4526,9 @@ switch ($Op) {
     }
     $dialogs = @(Get-DialogInventory | Where-Object { $_.kind -in @('native-dialog','qt-dialog') })
     if ($dialogs.Count) { Fail 'Ein modaler Dialog blockiert den neutralen Suchfeld-Probe.' 'precondition-failed' }
-    $target = Find-ExactAutomationElement $hwnd '.MainToolBar.QWidget.SearchSSE.QLineEdit'
+    $ts = Walk-Tree $hwnd
+    $suchfeld = Get-SSESearchFieldNode $ts
+    $target = $(if ($suchfeld) { Get-LiveElement $hwnd $suchfeld.rid } else { $null })
     $vp = $null
     if (-not $target -or [int]$target.Current.ProcessId -ne $expectedPid -or
         -not $target.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$vp) -or
@@ -4608,6 +4650,7 @@ switch ($Op) {
       }
       engineFileMajor=$script:SSE_ENGINE_MAJOR
       defaultExecutable=$defaultIdentity
+      buildDrift=(Get-SSEBuildDrift ([string]$script:SSE_PROFILE.verifiedBuild) ([string]$defaultIdentity.fileVersion))
       catalogCompatibility=[pscustomobject]@{
         compatible=$catalogCompatible; taxYear=[int]$catalog.taxYear; engineFileMajor=[int]$catalog.engineFileMajor
         executableName=[string]$catalog.compatibility.executableName
@@ -4633,6 +4676,7 @@ switch ($Op) {
         ok = $true; running = $false; windows = @()
         profileId=$script:SSE_PROFILE_ID; product=[string]$script:SSE_PROFILE.product; taxYear=$script:SSE_TAX_YEAR
         ignoredRunning=@($processIdentities | Where-Object { -not $_.supported })
+        buildDrift=(Get-SSEBuildDrift ([string]$script:SSE_PROFILE.verifiedBuild) '')
         note = $(if ($processIdentities.Count) { "Keine unterstuetzte Instanz von '$($script:SSE_PROFILE.product)'. Andere Produktprofile werden nicht gesteuert." }
                  else { "$($script:SSE_PROFILE.product) laeuft nicht." })
       })
@@ -4642,11 +4686,13 @@ switch ($Op) {
     if ($wins.Count) { $canary = Test-Canary ([IntPtr][int64]$wins[0].hwnd) }
     $dialogInventory = @(Get-DialogInventory | Where-Object { $_.kind -in @('native-dialog','qt-dialog') })
     $p = $procs[0]
+    $identity = @($processIdentities | Where-Object { [int]$_.pid -eq [int]$p.Id })[0]
     Emit ([pscustomobject]@{
       ok = $true; running = $true
       profileId=$script:SSE_PROFILE_ID; product=[string]$script:SSE_PROFILE.product; taxYear=$script:SSE_TAX_YEAR
       pid = $p.Id; cpuSec = [math]::Round($p.CPU, 1); title = $p.MainWindowTitle
       ignoredRunning=@($processIdentities | Where-Object { -not $_.supported })
+      buildDrift=(Get-SSEBuildDrift ([string]$script:SSE_PROFILE.verifiedBuild) ([string]$identity.fileVersion))
       windows = $wins
       canaryOk = $(if ($canary) { $canary.ok } else { $false })
       canaryMs = $(if ($canary) { $canary.ms } else { -1 })
@@ -5016,7 +5062,10 @@ switch ($Op) {
     if (-not $valueWindows.Count -and $openIfNeeded) {
       $tree = Walk-Tree $mainHwnd 5000 60 20 -WithValues
       $buttons = @($tree.nodes | Where-Object {
-        $_.type -eq 'Button' -and $_.aid -like '*TaxResultsWidgetSSE*hoverBtnMehrDetails'
+        # Endstueck statt vollem Pfad: Engine 30 haengt den Knopf ohne das
+      # Zwischenstueck 'TaxResultsWidgetSSE' ein. Das Endstueck ist in
+      # beiden Engines eindeutig.
+      $_.type -eq 'Button' -and $_.aid -like '*hoverBtnMehrDetails'
       })
       if ($buttons.Count -ne 1) {
         Fail "Mehr-Details-Knopf der Ergebnisanzeige nicht eindeutig gefunden ($($buttons.Count) Treffer)." 'not-found'
@@ -5480,12 +5529,8 @@ switch ($Op) {
       $cur += $r
     }
     if ($cur.Count) { $null = $lines.Add([pscustomobject]@{ y = $anker.y; cells = @($cur | ForEach-Object { & $cellText $_ }) }) }
-    # Ueberschrift: erster Text im Arbeitsbereich unterhalb der Dialog-Symbolleiste
-    $r0 = New-Object SW+RC; [SW]::GetWindowRect($hwnd, [ref]$r0) | Out-Null
-    $headTop = $r0.T + 190; $headBot = $r0.T + 290
-    $head = ($t.nodes | Where-Object { $_.type -eq 'Text' -and $_.x -ge $minX -and $_.x -le $maxX -and
-                                       $_.y -ge $headTop -and $_.y -le $headBot } |
-             Sort-Object y | Select-Object -First 1).name
+    # Ueberschrift ueber den beschrifteten Container (Get-SSEHeading).
+    $head = (Get-SSEHeading $t).text
     Emit ([pscustomobject]@{ ok = $true; heading = $head; bounds = $b; lines = @($lines); stats = $t.stats })
   }
 
@@ -6047,13 +6092,6 @@ switch ($Op) {
     # globale, steuerneutrale Suchfeld erhalten. Direkte ValuePattern-Writes
     # in fachliche Felder umgehen Qt-Commit, Ergebnis-Diff und Page-Objects;
     # sie sind deshalb hier bewusst fail-closed gesperrt.
-    $allowedAid = '.MainToolBar.QWidget.SearchSSE.QLineEdit'
-    $aid = [string](Arg $a 'aid')
-    if ($aid -ne $allowedAid) {
-      Fail ('sse_set_value ist nur fuer das globale steuerneutrale Suchfeld zugelassen. ' +
-            'Steuerfelder ueber sse_change_known_field, sse_change_field, sse_table_add, ' +
-            'sse_table_update oder sse_combo_select aendern.') 'blocked'
-    }
     foreach ($required in @('value','expectedBefore','expectedAfter')) {
       if (-not $a.PSObject.Properties[$required]) { Fail "$required ist Pflicht." 'bad-args' }
     }
@@ -6070,14 +6108,24 @@ switch ($Op) {
     })
     if ($dialogsBefore.Count) { Fail 'Ein modaler Dialog ist offen; Suchtext nicht geaendert.' 'precondition-failed' }
 
+    # Container-gebundenes Suchfeld ermitteln; die angeforderte rid muss exakt
+    # zum aktuell strukturell gebundenen Suchfeld passen. Kein AutomationId-
+    # Vergleich mehr: Engine 30 gibt dem Edit selbst keine eigene AutomationId.
+    # EIN Baumlauf traegt Gate UND Schreibpfad: der zweite, wertlose Lauf
+    # kostete einen kompletten UIA-Snapshot (~0,5-0,9 s) pro Aufruf.
     $t = Walk-Tree $hwnd -WithValues
-    $headingBefore = Get-CurrentHeading $hwnd $t
-    $candidates = @(Resolve-Nodes $t ([pscustomobject]@{ aid=$allowedAid; type='Edit' }))
-    if (-not $candidates.Count) { Fail 'Globales SSE-Suchfeld nicht gefunden.' 'not-found' }
-    if ($candidates.Count -ne 1 -or -not ([string]$candidates[0].aid).EndsWith($allowedAid)) {
-      Fail "Globales SSE-Suchfeld ist nicht eindeutig ($($candidates.Count) Treffer)." 'ambiguous'
+    $node = Get-SSESearchFieldNode $t
+    if (-not $node) {
+      Fail 'Globales Suchfeld ist nicht strukturell gebunden; sse_set_value bleibt gesperrt.' 'blocked'
     }
-    $node = $candidates[0]
+    $ridRoh = Arg $a 'rid'
+    $rid = [string]$ridRoh
+    if (-not $rid -or $rid -ne [string]$node.rid) {
+      Fail ('sse_set_value ist nur fuer das globale steuerneutrale Suchfeld zugelassen und verlangt dessen ' +
+            'frische rid. Steuerfelder ueber sse_change_known_field, sse_change_field, sse_table_add, ' +
+            'sse_table_update oder sse_combo_select aendern.') 'blocked'
+    }
+    $headingBefore = Get-CurrentHeading $hwnd $t
     $el = Get-LiveElement $hwnd $node.rid $node.aid
     if (-not $el) { Fail 'Globales SSE-Suchfeld ist nicht mehr greifbar.' 'stale' }
     $vp = $null
@@ -6098,7 +6146,7 @@ switch ($Op) {
     $interactionBefore = Get-SSEInteractionWindowSet $targetPid $hwnd
     $live = Get-LiveElement $hwnd $node.rid $node.aid
     $liveVp = $null
-    if (-not $live -or -not ([string]$live.Current.AutomationId).EndsWith($allowedAid) -or
+    if (-not $live -or
         -not $live.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$liveVp) -or
         $liveVp.Current.IsReadOnly -or [string]$liveVp.Current.Value -ne $expectedBefore) {
       Fail 'Suchfeldbindung oder Vorwert aenderte sich unmittelbar vor dem Schreiben. NICHT geaendert.' 'precondition-failed'
@@ -6117,21 +6165,20 @@ switch ($Op) {
     $afterTree = Walk-Tree $hwnd -WithValues
     $headingAfter = Get-CurrentHeading $hwnd $afterTree
     $pageChanged = [bool]($headingAfter -ne $headingBefore)
-    $freshMatches = @(Resolve-Nodes $afterTree ([pscustomobject]@{ aid=$allowedAid; type='Edit' }))
-    $fresh = $(if ($freshMatches.Count -eq 1) { Get-LiveElement $hwnd $freshMatches[0].rid $freshMatches[0].aid } else { $null })
+    $freshSuchfeld = Get-SSESearchFieldNode $afterTree
+    $fresh = $(if ($freshSuchfeld) { Get-LiveElement $hwnd $freshSuchfeld.rid $freshSuchfeld.aid } else { $null })
     $after = $null; $freshVp = $null
-    if ($fresh -and ([string]$fresh.Current.AutomationId).EndsWith($allowedAid) -and
-        $fresh.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$freshVp)) {
+    if ($fresh -and $fresh.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$freshVp)) {
       $after = [string]$freshVp.Current.Value
     }
 
-    if ($inputChanged -or $windowChanged -or $pageChanged -or $freshMatches.Count -ne 1) {
+    if ($inputChanged -or $windowChanged -or $pageChanged -or -not $freshSuchfeld) {
       Emit ([pscustomobject]@{
         ok=$false; kind='interference'
         error='Benutzereingabe, Fensterlage, Seite oder Suchfeldbindung veraenderte sich waehrend der Mutation.'
         before=$before; requested=$val; after=$after; expectedAfter=$expectedAfter; verified=$false
         pageBefore=$headingBefore; pageAfter=$headingAfter
-        binding=[pscustomobject]@{ aid=$node.aid; allowedSuffix=$allowedAid; rid=$node.rid }
+        binding=[pscustomobject]@{ rid=$node.rid }
         inputGuard=[pscustomobject]@{ aktiv=$guardUserInput; baseline=$inputBaseline; beobachtet=$(Get-SSELastInputTick); eingriffErkannt=$inputChanged }
         windowGuard=[pscustomobject]@{ vorher=$interactionBefore.fingerprint; nachher=$interactionAfter.fingerprint; geaendert=$windowChanged }
         rollback=[pscustomobject]@{ versucht=$false; grund='Kein blinder Rollback nach Eingabe-, Fenster-, Seiten- oder Binding-Interferenz.' }
@@ -6141,7 +6188,7 @@ switch ($Op) {
     if ($after -eq $expectedAfter) {
       Emit ([pscustomobject]@{
         ok=$true; verified=$true; before=$before; requested=$val; after=$after; expectedAfter=$expectedAfter
-        page=$headingAfter; binding=[pscustomobject]@{ aid=$freshMatches[0].aid; allowedSuffix=$allowedAid; rid=$freshMatches[0].rid }
+        page=$headingAfter; binding=[pscustomobject]@{ rid=$freshSuchfeld.rid }
         inputGuard=[pscustomobject]@{ aktiv=$guardUserInput; baseline=$inputBaseline; beobachtet=$(Get-SSELastInputTick); eingriffErkannt=$false }
         windowGuard=[pscustomobject]@{ vorher=$interactionBefore.fingerprint; nachher=$interactionAfter.fingerprint; geaendert=$false }
       })
@@ -6156,7 +6203,7 @@ switch ($Op) {
       try {
         $freshVp.SetValue($before)
         Start-Sleep -Milliseconds 300
-        $rollbackFresh = Get-LiveElement $hwnd $freshMatches[0].rid $freshMatches[0].aid
+        $rollbackFresh = Get-LiveElement $hwnd $freshSuchfeld.rid $freshSuchfeld.aid
         $rollbackVp = $null
         if ($rollbackFresh -and $rollbackFresh.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$rollbackVp)) {
           $rollbackAfter = [string]$rollbackVp.Current.Value
@@ -6170,7 +6217,7 @@ switch ($Op) {
       ok=$false; kind='postcondition-failed'
       error="Suchfeld zeigt '$after', erwartet '$expectedAfter'."
       before=$before; requested=$val; after=$after; expectedAfter=$expectedAfter; verified=$false
-      page=$headingAfter; binding=[pscustomobject]@{ aid=$node.aid; allowedSuffix=$allowedAid; rid=$node.rid }
+      page=$headingAfter; binding=[pscustomobject]@{ rid=$node.rid }
       rollback=[pscustomobject]@{ versucht=$rollbackAttempted; erfolgreich=$rollbackOk; ist=$rollbackAfter; erwartet=$before; grund=$rollbackReason }
     })
   }
@@ -7198,9 +7245,14 @@ switch ($Op) {
     # globale Pruefermeldung verifizierte TreeItem-Zeile darf auch dann zum
     # Lesen aufgeklappt werden, wenn ihr Text das Wort "ELSTER" enthaelt.
     # Andere Elemente, Knöpfe und Abgabewege bleiben unveraendert gesperrt.
+    # Zugehoerigkeit ueber den Baum-Container statt ueber die AutomationId des
+    # Eintrags: Engine 30 gibt den Prueferzeilen keine eigene Id, und die
+    # Teilbaumzugehoerigkeit ist der staerkere Nachweis - sie laesst sich durch
+    # einen gleich benannten Fremdknoten nicht vortaeuschen.
+    $checkerRids = @(Get-SSECheckerTreeItems $t | ForEach-Object { $_.rid })
     $verifiedCheckerRead = [bool](
       $checkerReadOnly -and $nm -and $node.name -eq $nm -and $node.type -eq 'TreeItem' -and
-      $node.aid -like '*PrueferWidgetSSE.SteuerPruefer*'
+      $node.rid -and $checkerRids -contains $node.rid
     )
     if ($checkerReadOnly -and -not $verifiedCheckerRead) {
       Fail 'checkerReadOnly ist nur fuer eine exakte globale Pruefer-TreeItem-Meldung zulaessig.' 'blocked'
@@ -7225,11 +7277,7 @@ switch ($Op) {
     # Ueberschrift VOR dem Klick merken - nur so laesst sich hinterher sagen,
     # ob der Klick ueberhaupt etwas bewirkt hat.
     $tv = $t
-    $bv = Get-ContentBounds $tv $hwnd
-    $rv = New-Object SW+RC; [SW]::GetWindowRect($hwnd, [ref]$rv) | Out-Null
-    $kopfVorher = ($tv.nodes | Where-Object { $_.type -eq 'Text' -and $_.x -ge $bv.minX -and $_.x -le $bv.maxX -and
-                                              $_.y -ge ($rv.T + 190) -and $_.y -le ($rv.T + 290) } |
-                   Sort-Object y | Select-Object -First 1).name
+    $kopfVorher = (Get-SSEHeading $tv).text
     $fingerprintVorher = Get-SSETextSha256 ((@($tv.nodes | ForEach-Object {
       "$($_.type)|$($_.name)|$($_.aid)|$($_.val)|$($_.selected)"
     })) -join "`n")
@@ -7327,11 +7375,7 @@ switch ($Op) {
     # Zeiger: der Klick wird zwar abgesetzt, Qt reagiert aber nicht. Ohne
     # diese Pruefung meldet das Werkzeug faelschlich Erfolg.
     $t2 = Walk-Tree $hwnd 900
-    $b2 = Get-ContentBounds $t2 $hwnd
-    $r2 = New-Object SW+RC; [SW]::GetWindowRect($hwnd, [ref]$r2) | Out-Null
-    $kopfNachher = ($t2.nodes | Where-Object { $_.type -eq 'Text' -and $_.x -ge $b2.minX -and $_.x -le $b2.maxX -and
-                                               $_.y -ge ($r2.T + 190) -and $_.y -le ($r2.T + 290) } |
-                    Sort-Object y | Select-Object -First 1).name
+    $kopfNachher = (Get-SSEHeading $t2).text
     $fingerprintNachher = Get-SSETextSha256 ((@($t2.nodes | ForEach-Object {
       "$($_.type)|$($_.name)|$($_.aid)|$($_.val)|$($_.selected)"
     })) -join "`n")
@@ -8417,9 +8461,7 @@ switch ($Op) {
       $toClose = @($result.aufgeklappt | Where-Object { -not $knownTechnical.Contains([string]$_) })
       if (-not $toClose.Count) { break }
 
-      $raw = @($t.nodes | Where-Object {
-        $_.type -eq 'TreeItem' -and $_.name -and $_.aid -like '*PrueferWidgetSSE.SteuerPruefer*'
-      })
+      $raw = @(Get-SSECheckerTreeItems $t)
       $left = ($raw | Measure-Object x -Minimum).Minimum
       $details = @($raw | Where-Object {
         $_.x -gt ($left + 6) -and $_.h -ge 70 -and $_.name -in $toClose
@@ -8481,10 +8523,12 @@ switch ($Op) {
         note='Die Ergebnisleiste des globalen Steuerpruefers war bereits geschlossen.'
       })
     }
-    $buttons = @($before.nodes | Where-Object {
-      $_.type -eq 'Button' -and $_.on -and
-      $_.aid -like '*.PrueferWidgetSSE.FrameTitle.QPushButton'
-    })
+    # Ueber den Titelleisten-Container binden: Engine 30 gibt dem Schliessen-
+    # Knopf keine eigene AutomationId. Der Container enthaelt genau diesen
+    # einen Knopf; 'Steuererklaerung abschliessen' liegt eine Ebene hoeher und
+    # wird dadurch nie getroffen.
+    $buttons = @(Get-SSEContainerDescendants $before.nodes '.PrueferWidgetSSE.FrameTitle' 'Button' 'Group' |
+      Where-Object { $_.on })
     if ($buttons.Count -ne 1) {
       Fail "$($buttons.Count) eindeutige Schliessen-Schaltflaechen der Prueferleiste gefunden; nichts ausgeloest." 'ambiguous'
     }
@@ -8503,9 +8547,7 @@ switch ($Op) {
     $afterResult = Get-CheckerResults $after $hwnd
     $headingAfter = Get-CurrentHeading $hwnd $after
     $dirtyAfter = Get-DirtyStateFast $hwnd
-    $buttonAfter = @($after.nodes | Where-Object {
-      $_.type -eq 'Button' -and $_.aid -like '*.PrueferWidgetSSE.FrameTitle.QPushButton'
-    })
+    $buttonAfter = @(Get-SSEContainerDescendants $after.nodes '.PrueferWidgetSSE.FrameTitle' 'Button' 'Group')
     $verified = [bool](-not $afterResult.aktiv -and -not $buttonAfter.Count -and
       $headingAfter -eq $headingBefore -and $dirtyAfter -eq $dirtyBefore)
     if (-not $verified) {
@@ -8533,9 +8575,7 @@ switch ($Op) {
     $t = Walk-Tree $hwnd 5000 60 20 -WithValues
     $result = Get-CheckerResults $t $hwnd
     if (-not $result.aktiv) { Fail 'Der globale Steuerpruefer ist nicht offen.' 'precondition-failed' }
-    $raw = @($t.nodes | Where-Object {
-      $_.type -eq 'TreeItem' -and $_.name -and $_.aid -like '*PrueferWidgetSSE.SteuerPruefer*'
-    })
+    $raw = @(Get-SSECheckerTreeItems $t)
     $left = ($raw | Measure-Object x -Minimum).Minimum
     $detail = @($raw | Where-Object {
       $_.x -gt ($left + 6) -and $_.h -ge 70 -and $_.name -eq $wanted
@@ -8632,9 +8672,7 @@ switch ($Op) {
 
       if ($roundScrolled) { $detailScrolled = $true }
       $t = Walk-Tree $hwnd 5000 60 20 -WithValues
-      $raw = @($t.nodes | Where-Object {
-        $_.type -eq 'TreeItem' -and $_.name -and $_.aid -like '*PrueferWidgetSSE.SteuerPruefer*'
-      })
+      $raw = @(Get-SSECheckerTreeItems $t)
       $left = ($raw | Measure-Object x -Minimum).Minimum
       $detail = @($raw | Where-Object {
         $_.x -gt ($left + 6) -and $_.h -ge 70 -and $_.name -eq $wanted
@@ -9366,7 +9404,7 @@ switch ($Op) {
     $r0 = New-Object SW+RC; [SW]::GetWindowRect($hwnd, [ref]$r0) | Out-Null
     $imInhalt = { param($n) $n.x -ge $b.minX -and $n.x -le $b.maxX }
 
-    $kopfzeile = Get-SSEHeading $t $b $hwnd
+    $kopfzeile = Get-SSEHeading $t
     $heading = $kopfzeile.text
 
     # --- Felder: alles Beschreibbare mit seiner Beschriftung ---------------
@@ -9443,6 +9481,7 @@ switch ($Op) {
       ok = $true
       ueberschrift = $heading
       ueberschriftQuelle = $kopfzeile.quelle
+      navigationAuswahl = (Get-SSENavigationSelectionFromNodes $t.nodes)
       ausgeschlosseneFenster = @($t.fremdeFenster)
       felder = @($felder)
       tabelle = $(if ($heads.Count -or $zeilen.Count) { [pscustomobject]@{
@@ -9653,7 +9692,7 @@ switch ($Op) {
       $b = Get-ContentBounds $t $hwnd
       $r0 = New-Object SW+RC; [SW]::GetWindowRect($hwnd, [ref]$r0) | Out-Null
       $inh = { param($n) $n.x -ge $b.minX -and $n.x -le $b.maxX }
-      $kopfzeile = Get-SSEHeading $t $b $hwnd
+      $kopfzeile = Get-SSEHeading $t
       $head = $kopfzeile.text
       if (-not $head) { $head = "(ohne Ueberschrift $i)" }
       $currentHeadingAfter = $head
@@ -10121,8 +10160,7 @@ switch ($Op) {
 
     function Ueberschrift([IntPtr]$h) {
       $t = Walk-BoundTree $h 1200
-      $b = Get-ContentBounds $t $h
-      (Get-SSEHeading $t $b $h).text
+      (Get-SSEHeading $t).text
     }
     function Passt($ist, $soll) {
       if (-not $ist) { return $false }
@@ -10141,7 +10179,7 @@ switch ($Op) {
     # verschieben sich, sobald sich Zweige auf- oder zuklappen.
     if ((Arg $a 'viaSuche') -ne $false) {
       $ts = Walk-Tree $hwnd 1500
-      $feld = @($ts.nodes | Where-Object { $_.type -eq 'Edit' -and $_.aid -match 'SearchSSE' })[0]
+      $feld = Get-SSESearchFieldNode $ts
       if ($feld) {
         $el = Get-LiveElement $hwnd $feld.rid
         $vp = $null
@@ -10294,9 +10332,17 @@ switch ($Op) {
     }
     $ausgabe = [ordered]@{}
     foreach ($k in $abschnitte.Keys) {
-      $texte = @($abschnitte[$k] | Where-Object { $_.typ -in @('Text','Hyperlink','TreeItem','Button') } | ForEach-Object { $_.text })
+      # Qt exponiert eine verlinkte Hilfezeile doppelt: einmal als Text und
+      # einmal als Hyperlink. Unmittelbare Wiederholungen werden deshalb
+      # zusammengefasst - sie sind dieselbe Zeile, keine zweite Aussage.
+      $rohTexte = @($abschnitte[$k] | Where-Object { $_.typ -in @('Text','Hyperlink','TreeItem','Button') } | ForEach-Object { $_.text })
+      $texte = New-Object System.Collections.ArrayList
+      foreach ($zeile in $rohTexte) {
+        if ($texte.Count -and $texte[$texte.Count - 1] -ceq $zeile) { continue }
+        $null = $texte.Add($zeile)
+      }
       $verweise = @($abschnitte[$k] | Where-Object { $_.typ -eq 'Hyperlink' } | ForEach-Object { $_.text })
-      $ausgabe[$k] = [pscustomobject]@{ text = ($texte -join ' '); zeilen = $texte; verweise = $verweise }
+      $ausgabe[$k] = [pscustomobject]@{ text = (@($texte) -join ' '); zeilen = @($texte); verweise = $verweise }
     }
     $ueberschrift = ($t.nodes | Where-Object { $_.type -eq 'Text' -and $_.x -ge $b.minX -and $_.x -le $b.maxX } |
                      Sort-Object y | Select-Object -First 1).name
@@ -10357,11 +10403,8 @@ switch ($Op) {
     $lies = {
       $t = Walk-Tree $hwnd -WithValues
       $b = Get-ContentBounds $t $hwnd
-      $r0 = New-Object SW+RC; [SW]::GetWindowRect($hwnd, [ref]$r0) | Out-Null
       if (-not $script:kopf) {
-        $script:kopf = ($t.nodes | Where-Object { $_.type -eq 'Text' -and $_.x -ge $b.minX -and $_.x -le $b.maxX -and
-                                                  $_.y -ge ($r0.T + 190) -and $_.y -le ($r0.T + 290) } |
-                        Sort-Object y | Select-Object -First 1).name
+        $script:kopf = (Get-SSEHeading $t).text
       }
       $keep = @('Text','DataItem','Edit','CheckBox','Header','RadioButton','Button','Hyperlink','ComboBox')
       $reihen = @($t.nodes | Where-Object {
@@ -10510,9 +10553,7 @@ switch ($Op) {
     $t = $read.tree
     $b = Get-ContentBounds $t $hwnd
     $r0 = New-Object SW+RC; [SW]::GetWindowRect($hwnd, [ref]$r0) | Out-Null
-    $kopf = ($t.nodes | Where-Object { $_.type -eq 'Text' -and $_.x -ge $b.minX -and $_.x -le $b.maxX -and
-                                       $_.y -ge ($r0.T + 190) -and $_.y -le ($r0.T + 290) } |
-             Sort-Object y | Select-Object -First 1).name
+    $kopf = (Get-SSEHeading $t).text
     $pruefer = @($t.nodes | Where-Object { $_.type -eq 'TreeItem' -and $_.name -and $_.x -gt $b.maxX -and $_.name.Length -lt 120 } |
                 ForEach-Object { $_.name } |
                 Where-Object { $_ -notin @('Eingabehilfe','Steuertipps','Prüfer','Mehr Details','Zurzeit keine Hinweise zu diesem Dialog.') } | Select-Object -Unique)
@@ -11067,11 +11108,7 @@ switch ($Op) {
       param([IntPtr]$h)
       # 400 Knoten genuegen: die Ueberschrift steht weit oben im Baum.
       $t = Walk-Tree $h 400
-      $bb = Get-ContentBounds $t $h
-      $rr = New-Object SW+RC; [SW]::GetWindowRect($h, [ref]$rr) | Out-Null
-      ($t.nodes | Where-Object { $_.type -eq 'Text' -and $_.x -ge $bb.minX -and $_.x -le $bb.maxX -and
-                                 $_.y -ge ($rr.T + 190) -and $_.y -le ($rr.T + 290) } |
-       Sort-Object y | Select-Object -First 1).name
+      (Get-SSEHeading $t).text
     }
     function WarteAufUeberschrift {
       param(
@@ -11140,7 +11177,7 @@ switch ($Op) {
     # wirkungslos und gehoeren nicht in den Produktionspfad.
     if ((Arg $a 'viaSuche') -ne $false) {
       $ts = Walk-Tree $hwnd 1500
-      $suchfeld = @($ts.nodes | Where-Object { $_.type -eq 'Edit' -and $_.aid -match 'SearchSSE' })[0]
+      $suchfeld = Get-SSESearchFieldNode $ts
       if ($suchfeld) {
         $se = Get-LiveElement $hwnd $suchfeld.rid
         $svp = $null
@@ -11162,8 +11199,15 @@ switch ($Op) {
             $_.type -in @('DataItem','ListItem','TreeItem') -and $_.name -and
             $_.y -lt ($rr.T + 520) -and $_.x -lt $bb.maxX
           } | Sort-Object y)
-          $genau = @($treffer | Where-Object { $_.name -eq $ziel })[0]
-          if (-not $genau) { $genau = @($treffer | Where-Object { $_.name -like "*$ziel*" })[0] }
+          # Bei mehreren exakten Namensgleichheiten den LINKESTEN nehmen: ein
+          # Navigationszweig ("Prüfen und Abgeben") erscheint als Ergebnis
+          # dreifach - als eingerueckte Unterpunkt-Kachel (grosses x, fuehrt in
+          # den Unterbereich), als Hauptkachel und als Knoten des
+          # Navigationsbaums ganz links (x~25). Nur der linke fuehrt auf die
+          # Zielseite selbst; die Sortierung nach y allein griff sonst die
+          # oberste Kachel und landete daneben.
+          $genau = @($treffer | Where-Object { $_.name -eq $ziel } | Sort-Object x, y)[0]
+          if (-not $genau) { $genau = @($treffer | Where-Object { $_.name -like "*$ziel*" } | Sort-Object x, y)[0] }
           if (-not $genau) {
             $genau = @($treffer | Where-Object {
               $_.x -lt ($rr.L + 250) -and $_.y -lt ($rr.T + 400) -and

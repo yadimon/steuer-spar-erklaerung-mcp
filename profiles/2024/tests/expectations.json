@@ -1,0 +1,46 @@
+{
+  "musterDirRelative": "musterfaelle",
+  "cases": [
+    {
+      "id": "est",
+      "file": "MusterSteuer1.ESt2024",
+      "mode": "normal",
+      "operation": "sse_result_details",
+      "checker": true,
+      "checkerMarksCaseModified": true,
+      "expectedRows": [
+        ["Erstattung", "3.398,63 €"],
+        ["Werbungskosten Heinz", "2.469,00 €"],
+        ["Werbungskosten Eva", "3.901,00 €"],
+        ["Summe der Einkünfte", "49.506,00 €"],
+        ["Abziehbare Vorsorgeaufwendungen", "6.657,00 €"],
+        ["Einkommen", "36.982,00 €"],
+        ["Zu versteuerndes Einkommen", "36.762,00 €"],
+        ["Anzahl der Kinder", "2 Kinder"]
+      ]
+    },
+    {
+      "id": "gew",
+      "file": "MusterGewinnermittlung.Gew2024",
+      "mode": "einur",
+      "operation": "sse_result_details",
+      "expectedRows": [
+        ["Einnahmen (ohne private Nutzung)", "24.098,48 €"],
+        ["Als Einnahmen anzusetzende private Nutzungsanteile", "794,57 €"],
+        ["Summe der Betriebseinnahmen", "24.893,05 €"],
+        ["Fahrzeugkosten", "5.593,09 €"],
+        ["Abschreibungen", "3.367,35 €"],
+        ["Fremdleistungen", "8.500,00 €"],
+        ["Arbeitszimmer", "1.246,43 €"]
+      ],
+      "ustva": {
+        "page": "Umsatzsteuer-Voranmeldungen 2024",
+        "period": "quarterly:q1",
+        "taxable19BaseCents": 1012000,
+        "taxable19TaxCents": 192280,
+        "inputTaxCents": -2935,
+        "settlement": "payment:189345"
+      }
+    }
+  ]
+}

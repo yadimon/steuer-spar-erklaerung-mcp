@@ -95,8 +95,10 @@ export function registerInteractionTools(registry: McpRegistry): void {
         "Kompatibler Low-Level-Name fuer genau das bekannte, steuerneutrale globale SSE-Suchfeld. " +
         "Steuerdaten-, Formular- und Tabellenfelder sind hier fail-closed gesperrt und muessen ueber " +
         "sse_change_known_field, sse_change_field, sse_table_add, sse_table_update oder sse_combo_select laufen. " +
-        "Vorwert, erwarteter Nachwert, exakte AutomationId, Fensterlage, Dialoge und fremde Benutzereingabe " +
-        "werden in einem Worker geprueft; bei Interferenz erfolgt kein blinder Rollback.",
+        "Das Suchfeld wird strukturell ueber seinen beschrifteten Container gebunden; die uebergebene rid muss " +
+        "frisch sein und zum aktuell gebundenen Suchfeld passen. Vorwert, erwarteter Nachwert, Fensterlage, " +
+        "Dialoge und fremde Benutzereingabe werden in einem Worker geprueft; bei Interferenz erfolgt kein " +
+        "blinder Rollback.",
     },
   );
 

@@ -64,7 +64,10 @@ export const SSE_MCP_INTERACTION_SCHEMAS = {
     hwnd: WINDOW_HANDLE.optional(),
   }).strict(),
   "sse_set_value": z.object({
-    aid: z.literal(".MainToolBar.QWidget.SearchSSE.QLineEdit").describe("Fest gebundene AutomationId des globalen Suchfelds"),
+    rid: z.string().min(1).describe(
+      "Frische RuntimeId des strukturell ueber seinen Container gebundenen globalen Suchfelds, " +
+      "z. B. aus sse_get_value oder sse_snapshot; muss zum aktuell gebundenen Suchfeld passen",
+    ),
     expectedBefore: z.string().describe("Exakter unmittelbar erwarteter Suchtext; leerer String ist erlaubt"),
     value: z.string().describe("Neuer Wert"),
     expectedAfter: z.string().describe("Exakter erwarteter Suchtext nach ValuePattern-Readback"),

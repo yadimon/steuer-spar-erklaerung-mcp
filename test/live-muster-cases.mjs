@@ -1,5 +1,6 @@
 /**
- * Opt-in Live-Regression gegen die mit SSE 2025 ausgelieferten Musterfaelle.
+ * Opt-in Live-Regression gegen die mit SSE ausgelieferten Musterfaelle des
+ * per SSE_PROFILE_ID gewaehlten Jahres.
  * Jeder Fall wird in den isolierten Test-API-Fallbereich kopiert, von MCP
  * nochmals bytegleich dupliziert, nur gelesen und ohne Speichern geschlossen.
  */
@@ -10,16 +11,23 @@ import { basename, dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { loadProductProfile } from "../dist/product-profiles.js";
 
-const defaultMusterDir = "C:\\Program Files\\Steuertipps\\SteuerSparErklaerung\\Steuerjahr 2025\\musterfaelle";
+const profileId = process.env.SSE_PROFILE_ID ?? "2025";
+const profile = loadProductProfile(profileId);
+const expectationsPath = join(profile.profileDir, "tests", "expectations.json");
+if (!existsSync(expectationsPath)) {
+  throw new Error(`Musterfall-Erwartungen fuer SSE-Profil '${profileId}' fehlen: ${expectationsPath}`);
+}
+const expectations = JSON.parse(readFileSync(expectationsPath, "utf8"));
+
+const steuertippsRoot = "C:\\Program Files\\Steuertipps\\SteuerSparErklaerung";
+const defaultMusterDir = join(steuertippsRoot, profile.executable.installationFolderName, expectations.musterDirRelative);
 const musterDir = process.env.SSE_MUSTER_DIR ?? defaultMusterDir;
 const testCaseDir = process.env.SSE_TEST_CASE_DIR;
 if (!testCaseDir) throw new Error("SSE_TEST_CASE_DIR aus dem isolierten Test-API-Wrapper fehlt.");
 
-const allDefinitions = [
-  { id: "est", file: "MusterSteuer1.ESt2025", mode: "normal", operation: "sse_result_details" },
-  { id: "gew", file: "MusterGewinnermittlung.Gew2025", mode: "einur", operation: "sse_result_details" },
-];
+const allDefinitions = expectations.cases;
 const requestedIds = new Set((process.env.SSE_LIVE_MUSTER_CASES ?? "")
   .split(",").map((id) => id.trim()).filter(Boolean));
 const knownIds = new Set(allDefinitions.map(({ id }) => id));
@@ -28,27 +36,6 @@ const definitions = requestedIds.size
   ? allDefinitions.filter(({ id }) => requestedIds.has(id))
   : allDefinitions;
 
-const expectedResultRows = {
-  est: [
-    ["Erstattung", "3.540,63 €"],
-    ["Werbungskosten Heinz", "2.140,00 €"],
-    ["Werbungskosten Eva", "4.011,00 €"],
-    ["Summe der Einkünfte", "49.725,00 €"],
-    ["Abziehbare Vorsorgeaufwendungen", "6.657,00 €"],
-    ["Einkommen", "37.080,00 €"],
-    ["Zu versteuerndes Einkommen", "36.860,00 €"],
-    ["Anzahl der Kinder", "2 Kinder"],
-  ],
-  gew: [
-    ["Einnahmen (ohne private Nutzung)", "24.098,48 €"],
-    ["Als Einnahmen anzusetzende private Nutzungsanteile", "794,57 €"],
-    ["Summe der Betriebseinnahmen", "24.893,05 €"],
-    ["Fahrzeugkosten", "5.593,09 €"],
-    ["Abschreibungen", "3.367,35 €"],
-    ["Fremdleistungen", "8.500,00 €"],
-    ["Arbeitszimmer", "1.173,23 €"],
-  ],
-};
 for (const definition of definitions) {
   const path = join(musterDir, definition.file);
   assert(existsSync(path), `Offizieller SSE-Musterfall fehlt: ${path}`);
@@ -81,31 +68,138 @@ function assertSemanticEqual(actual, expected, message) {
   semanticChecks += 1;
 }
 
-function assertExpectedResultRows(id, result) {
+function assertExpectedResultRows(definition, result) {
+  const { id, expectedRows } = definition;
   assert.equal(result.vollstaendig, true, `${id}: Ergebnisliste ist nicht vollstaendig.`);
   assert.deepEqual(result.unvollstaendigeZeilen, [], `${id}: unvollstaendige Ergebniszeilen.`);
   assert.deepEqual(result.vergleichsInvariantFehler, [], `${id}: Vergleichsinvariante verletzt.`);
   const rows = new Map((result.zeilen ?? []).map((row) => [row.beobachteterWert, row.aktuell]));
-  for (const [label, expected] of expectedResultRows[id]) {
+  for (const [label, expected] of expectedRows) {
     assertSemanticEqual(rows.get(label), expected, `${id}: ${label}`);
   }
 }
 
-function assertExpectedUstva(ustva) {
+function assertExpectedUstva(ustva, erwartet) {
   assert.equal(ustva.ok, true, "UStVA: Snapshot ist nicht erfolgreich.");
-  assert.equal(ustva.page, "Umsatzsteuer-Voranmeldungen 2025", "UStVA: falsche Seite.");
-  assertSemanticEqual(`${ustva.period.frequency}:${ustva.period.key}`, "quarterly:q1", "UStVA: Zeitraum");
-  assertSemanticEqual(ustva.amounts.taxable19.base.cents, 1_012_000, "UStVA: 19%-Bemessungsgrundlage");
-  assertSemanticEqual(ustva.amounts.taxable19.tax.cents, 192_280, "UStVA: 19%-Steuer");
-  assertSemanticEqual(ustva.amounts.inputTax.cents, -13_470, "UStVA: Vorsteuer");
+  assert.equal(ustva.page, erwartet.page, "UStVA: falsche Seite.");
+  assertSemanticEqual(`${ustva.period.frequency}:${ustva.period.key}`, erwartet.period, "UStVA: Zeitraum");
+  assertSemanticEqual(ustva.amounts.taxable19.base.cents, erwartet.taxable19BaseCents, "UStVA: 19%-Bemessungsgrundlage");
+  assertSemanticEqual(ustva.amounts.taxable19.tax.cents, erwartet.taxable19TaxCents, "UStVA: 19%-Steuer");
+  assertSemanticEqual(ustva.amounts.inputTax.cents, erwartet.inputTaxCents, "UStVA: Vorsteuer");
   assertSemanticEqual(
     `${ustva.amounts.settlement.kind}:${ustva.amounts.settlement.cents}`,
-    "payment:178810",
+    erwartet.settlement,
     "UStVA: Zahllast",
   );
   assert.equal(ustva.transmission.blockedByApi, true, "UStVA: API-Versandsperre fehlt.");
   assert.equal(ustva.effects.savePerformed, false, "UStVA: Leseweg hat gespeichert.");
   assert.equal(ustva.effects.submissionPerformed, false, "UStVA: Leseweg hat uebermittelt.");
+}
+
+function assertNoDoubledHelpLines(id, abschnitte) {
+  const namen = Object.keys(abschnitte);
+  assert(namen.length >= 1, `${id}: sse_help lieferte keinen Abschnitt.`);
+  for (const name of namen) {
+    const zeilen = abschnitte[name]?.zeilen ?? [];
+    for (let i = 1; i < zeilen.length; i++) {
+      assert.notEqual(zeilen[i], zeilen[i - 1],
+        `${id}: sse_help-Abschnitt '${name}' hat eine doppelte Folgezeile: '${zeilen[i]}'.`);
+    }
+  }
+}
+
+// Lese-Sweep fuer Operationen, die laut Coverage-Audit bisher keine einzige
+// funktionale Zusicherung hatten (help, subpages, read_table u. a.). "ok"
+// wird bewusst nicht als Feld gelesen: call() wirft bereits bei isError, ein
+// zurueckgegebenes Objekt beweist den Erfolg also schon durch sein Dasein.
+async function assertReadOnlyOperationSweep(definition, hwnd) {
+  const { id } = definition;
+
+  const page = await call("sse_page", { hwnd });
+  assert.equal(typeof page.ueberschrift, "string", `${id}: sse_page ohne ueberschrift.`);
+  assert(page.ueberschrift.length > 0, `${id}: sse_page lieferte eine leere ueberschrift.`);
+  // Kernregressionswaechter: die Strukturbindung muss auf BEIDEN Engines ueber
+  // den gebundenen Client-Header lesen, nie ueber den Geometrie-Rueckfall.
+  assert.equal(page.ueberschriftQuelle, "clientHeader",
+    `${id}: sse_page las die Ueberschrift nicht ueber den gebundenen Client-Header.`);
+
+  await call("sse_read_page", { hwnd });
+
+  const subpages = await call("sse_subpages", { hwnd });
+  assert.equal(typeof subpages.anzahl, "number", `${id}: sse_subpages ohne numerische anzahl.`);
+  assert(subpages.anzahl >= 0, `${id}: sse_subpages lieferte eine negative anzahl.`);
+
+  const found = await call("sse_find", { hwnd, name: "Steuer", contains: true });
+  assert.equal(typeof found.count, "number", `${id}: sse_find ohne numerischen count.`);
+  assert.equal(found.incomplete, false, `${id}: sse_find-Baumlauf war abgeschnitten.`);
+
+  // sse_windows kennt kein hwnd - es listet alle Fenster des SSE-Prozesses.
+  const windows = await call("sse_windows", {});
+  assert(Array.isArray(windows.windows) && windows.windows.length >= 1,
+    `${id}: sse_windows lieferte kein Fenster.`);
+
+  const help = await call("sse_help", { hwnd });
+  assert.equal(typeof help.abschnitte, "object", `${id}: sse_help ohne abschnitte-Objekt.`);
+  assertNoDoubledHelpLines(id, help.abschnitte);
+
+  const readTable = await call("sse_read_table", { hwnd });
+  assert(Array.isArray(readTable.ausgeschlosseneFenster),
+    `${id}: sse_read_table ohne ausgeschlosseneFenster-Liste.`);
+
+  // sse_read_full sammelt die Seite ueber ihre Rollstufen ein.
+  const readFull = await call("sse_read_full", { hwnd });
+  assert.equal(typeof readFull.anzahl, "number", `${id}: sse_read_full ohne numerische anzahl.`);
+  assert(readFull.anzahl >= 0, `${id}: sse_read_full lieferte eine negative anzahl.`);
+
+  // sse_scroll_page meldet den Rollzustand; kurze Seiten haben scrollbar=false.
+  const scrollPage = await call("sse_scroll_page", { hwnd });
+  assert.equal(typeof scrollPage.scrollbar, "boolean", `${id}: sse_scroll_page ohne scrollbar-Flag.`);
+
+  // sse_table_read ist der eigenstaendige Tabellenvertrag (nicht sse_read_table).
+  await call("sse_table_read", { hwnd });
+}
+
+// Steuerpruefer-Sweep: nur fuer Musterfaelle mit definition.checker === true.
+// Ein echter Fall kann auf einer beliebigen Seite stehen - sse_goto versucht
+// zuerst die globale Suche; nur bei deren nachgewiesenem Fehlschlag greift der
+// dokumentierte Ruecksprung auf einen echten Klick im Navigationsbaum. Scheitert
+// auch dieser, faellt der Test laut statt den Ausfall stillschweigend zu
+// uebergehen.
+async function runCheckerSweep(definition, hwnd) {
+  const { id } = definition;
+
+  const gotoPruefen = await callRaw("sse_goto", { name: "Prüfen und Abgeben", hwnd }, 300_000);
+  if (gotoPruefen?.isError) {
+    const clicked = await call("sse_click_point",
+      { name: "Prüfen und Abgeben", type: "TreeItem", hwnd }, 60_000);
+    assert.equal(clicked.clicked, "Prüfen und Abgeben",
+      `${id}: Ruecksprung click_point auf 'Prüfen und Abgeben' schlug ebenfalls fehl.`);
+  }
+
+  await call("sse_goto", {
+    name: "Steuererklärung prüfen", useSearch: false, direction: "Weiter", maxSteps: 10, hwnd,
+  }, 300_000);
+
+  const run = await call("sse_checker_run", { hwnd }, 240_000);
+  assert.equal(run.konsistent, true, `${id}: checker_run lieferte einen inkonsistenten Ergebnisbaum.`);
+  assert.equal(typeof run.gesamt, "number", `${id}: checker_run ohne numerisches gesamt.`);
+  assert(run.gesamt > 0, `${id}: checker_run lieferte gesamt <= 0.`);
+  // Engine 30 vermerkt den Prueflauf im Dokument und setzt dabei den
+  // Ungespeichert-Zustand; Engine 31 tut das nicht. Die Datei aendert sich in
+  // beiden Faellen nicht - der Schlusshash dieses Tests belegt das. Erwartet
+  // wird deshalb der im Profil hinterlegte Wert, nicht pauschal "false":
+  // so faellt sowohl ein neues Dirty-Verhalten in 31 als auch ein
+  // verschwundenes in 30 auf.
+  assert.equal(run.ungespeichertEingefuehrt, definition.checkerMarksCaseModified === true,
+    `${id}: checker_run verhielt sich beim Ungespeichert-Zustand anders als im Profil erwartet.`);
+
+  const results = await call("sse_checker_results", { hwnd }, 180_000);
+  assert.equal(results.gesamt, run.gesamt, `${id}: checker_results.gesamt weicht von checker_run.gesamt ab.`);
+
+  const closed = await call("sse_checker_close", { hwnd }, 90_000);
+  assert.equal(closed.ok, true, `${id}: checker_close meldete keinen Erfolg.`);
+
+  return run.gesamt;
 }
 
 async function unlinkOwned(path) {
@@ -183,7 +277,8 @@ try {
         `${definition.id}: SSE-Instanz ist nicht eindeutig gebunden.`);
       const page = await call("sse_page", { hwnd: instance.hwnd });
       const result = await call(definition.operation, { hwnd: instance.hwnd }, 300_000);
-      assertExpectedResultRows(definition.id, result);
+      assertExpectedResultRows(definition, result);
+      await assertReadOnlyOperationSweep(definition, instance.hwnd);
       const observation = {
         id: definition.id,
         file: definition.file,
@@ -191,15 +286,18 @@ try {
         operation: definition.operation,
         result,
       };
-      if (definition.id === "gew") {
-        const ustvaPage = "Umsatzsteuer-Voranmeldungen 2025";
+      if (definition.ustva) {
+        const ustvaPage = definition.ustva.page;
         const navigation = await call("sse_goto", {
           name: ustvaPage, maxSteps: 200, useSearch: true, hwnd: instance.hwnd,
         }, 300_000);
         assert(navigation.erreicht === true && navigation.ueberschrift === ustvaPage,
-          `gew: UStVA-Uebersicht wurde nicht erreicht: ${JSON.stringify(navigation)}`);
+          `${definition.id}: UStVA-Uebersicht wurde nicht erreicht: ${JSON.stringify(navigation)}`);
         observation.ustva = await call("sse_ustva_read", { hwnd: instance.hwnd }, 300_000);
-        assertExpectedUstva(observation.ustva);
+        assertExpectedUstva(observation.ustva, definition.ustva);
+      }
+      if (definition.checker) {
+        observation.checkerGesamt = await runCheckerSweep(definition, instance.hwnd);
       }
       observations.push(observation);
       if (process.env.SSE_LIVE_MUSTER_PROBE === "1") {
@@ -246,6 +344,7 @@ process.stdout.write(`${JSON.stringify({
     file: observation.file,
     resultRows: observation.result.anzahl,
     ustvaPage: observation.ustva?.page ?? null,
+    checkerGesamt: observation.checkerGesamt ?? null,
   })),
   semanticChecks,
   durationMs: Date.now() - startedAt,

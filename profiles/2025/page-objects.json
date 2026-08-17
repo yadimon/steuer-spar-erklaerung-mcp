@@ -13,7 +13,8 @@
     "main": {
       "process": "SSE",
       "role": "main",
-      "headingAutomationIdSuffix": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel"
+      "headingContainerAutomationIdSuffix": ".ClientFrameSSE.ClientHeader",
+      "searchContainerAutomationIdSuffix": "SearchSSE"
     },
     "resultComparison": {
       "title": "Werte-Info: Werte vergleichen - Was wäre wenn",

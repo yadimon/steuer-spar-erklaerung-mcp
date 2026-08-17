@@ -381,7 +381,8 @@ try {
     !verifyBlock.includes("-replace '[^\\d,.\\-]', ''") &&
     !verifyBlock.includes("[Math]::Abs($a1 - $a2) -lt"),
   "Soll/Ist-Verifikation kann mehrdeutigen Zahlentext weiterhin still in einen anderen Betrag umdeuten.");
-  assert(workerSource.includes("$allowedAid = '.MainToolBar.QWidget.SearchSSE.QLineEdit'") &&
+  assert(workerSource.includes("function Get-SSESearchFieldNode") &&
+    workerSource.includes("$suchfeld = Get-SSESearchFieldNode $ts") &&
     workerSource.includes("sse_set_value ist nur fuer das globale steuerneutrale Suchfeld zugelassen") &&
     workerSource.includes("Kein blinder Rollback nach Eingabe-, Fenster-, Seiten- oder Binding-Interferenz") &&
     !skillSource.includes('sse_set_value name="Bürobedarf"'),

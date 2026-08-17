@@ -64,19 +64,21 @@ try {
     arguments: { aid: SEARCH_AID, type: "Edit" },
   }), "read-before");
   const original = String(beforeRead.value ?? "");
+  const rid = String(beforeRead.node?.rid ?? "");
+  assert(rid, `sse_get_value lieferte keine rid fuer das globale Suchfeld: ${JSON.stringify(beforeRead)}`);
 
   const first = parsed(await client.callTool({
     name: "sse_set_value",
-    arguments: { aid: SEARCH_AID, expectedBefore: original, value: "MCP neutral search", expectedAfter: "MCP neutral search" },
+    arguments: { rid, expectedBefore: original, value: "MCP neutral search", expectedAfter: "MCP neutral search" },
   }), "set-success");
   assert(first.ok === true && first.verified === true && first.after === "MCP neutral search" &&
-    first.binding?.allowedSuffix === SEARCH_AID && String(first.binding?.aid ?? "").endsWith(SEARCH_AID),
+    first.binding?.rid === rid,
   `Suchtext wurde nicht exakt verifiziert: ${JSON.stringify(first)}`);
 
   const rollbackResult = await client.callTool({
     name: "sse_set_value",
     arguments: {
-      aid: SEARCH_AID,
+      rid,
       expectedBefore: "MCP neutral search",
       value: "MCP neutral rollback",
       expectedAfter: "absichtlich falsche Nachbedingung",
@@ -96,7 +98,7 @@ try {
 
   const reset = parsed(await client.callTool({
     name: "sse_set_value",
-    arguments: { aid: SEARCH_AID, expectedBefore: "MCP neutral search", value: original, expectedAfter: original },
+    arguments: { rid, expectedBefore: "MCP neutral search", value: original, expectedAfter: original },
   }), "set-reset");
   assert(reset.ok === true && reset.verified === true && reset.after === original,
     `Suchfeld wurde nicht auf den Ausgangswert zurueckgesetzt: ${JSON.stringify(reset)}`);

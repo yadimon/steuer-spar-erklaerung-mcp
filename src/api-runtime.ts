@@ -163,6 +163,7 @@ export async function runApiRuntime(configPath?: string): Promise<void> {
   process.env.SSE_PROFILE_ID = config.profileId;
   if (config.caseDir) process.env.SSE_CASE_DIR = config.caseDir;
   if (config.sseExecutable) process.env.SSE_EXECUTABLE = config.sseExecutable;
+  if (config.operateExperimental === true) process.env.SSE_OPERATE_EXPERIMENTAL = "1";
   const shutdown = new AbortController();
 
   const execute = createApiExecutor(config, async (operation, args, timeoutMs, signal) => {

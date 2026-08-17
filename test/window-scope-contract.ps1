@@ -82,40 +82,4 @@ $wurzelGeteilt = Split-SSEWindowScope $mitWurzel -KeepRid '42.8129466'
 Assert-True ($wurzelGeteilt.own.Count -eq 2 -and $wurzelGeteilt.foreign.Count -eq 0) `
   'Das gebundene Fenster wurde als fremd behandelt.'
 
-# --------------------------------------------------------------------------
-# B) Seitenueberschrift ueber die stabile AutomationId statt ueber Geometrie
-#
-# Die Ueberschrift wurde bisher als "erster Text im Y-Band top+190..top+290"
-# geraten. Ein umgebrochener Absatz, der zufaellig in dieses 100-px-Band
-# faellt und weiter oben beginnt, gewinnt dabei gegen die echte Ueberschrift.
-# Genau so wurde "der SteuerSparErklaerung fuer das Steuerjahr 2025." als
-# Seitentitel gemeldet.
-# --------------------------------------------------------------------------
-$headingAid = '.centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel'
-
-$mitAbsatz = @(
-  (Node 0 -1 0 'Text' 'der SteuerSparErklaerung fuer das Steuerjahr 2025.' 620 195 'SSE_Application.AAV4GLEngineWindow31.centralWidget.DialogUI.Absatz.Text')
-  (Node 1 -1 0 'Text' 'Datensicherung' 575 199 "SSE_Application.AAV4GLEngineWindow31$headingAid")
-)
-$ueberschrift = Get-SSEPageHeadingNode $mitAbsatz $headingAid
-Assert-True ($null -ne $ueberschrift) 'Ueberschrift wurde trotz vorhandenem ClientHeader nicht gefunden.'
-Assert-True ($ueberschrift.name -eq 'Datensicherung') `
-  "Ein Textabsatz hat die echte Ueberschrift verdraengt: '$($ueberschrift.name)'"
-
-# Fehlt der Kopfknoten, ist $null zu liefern - NICHT zu raten.
-$ohneKopf = @( (Node 0 -1 0 'Text' 'irgendein Absatz' 620 195 'SSE_Application.Egal.Text') )
-Assert-True ($null -eq (Get-SSEPageHeadingNode $ohneKopf $headingAid)) `
-  'Ohne ClientHeader-Knoten wurde eine Ueberschrift geraten statt $null geliefert.'
-
-# Der Kopfknoten eines fremden Fensters darf die Ueberschrift nicht stellen.
-$fremderKopf = @(
-  (Node 0 -1 0 'Window' 'Fremd' 100 100 'SSE_Application.Fremd')
-  (Node 1  0 1 'Text'   'Fremdtitel' 110 199 "SSE_Application.Fremd$headingAid")
-  (Node 2 -1 0 'Text'   'Echter Titel' 575 199 "SSE_Application.AAV4GLEngineWindow31$headingAid")
-)
-$fremdGeteilt = Split-SSEWindowScope $fremderKopf
-$fremdUeber = Get-SSEPageHeadingNode $fremdGeteilt.own $headingAid
-Assert-True ($fremdUeber.name -eq 'Echter Titel') `
-  "Die Ueberschrift kam aus einem fremden Fenster: '$($fremdUeber.name)'"
-
-Write-Output 'Fensterbindung und Ueberschriftserkennung: alle Vertraege bestanden'
+Write-Output 'Fensterbindung: alle Vertraege bestanden'

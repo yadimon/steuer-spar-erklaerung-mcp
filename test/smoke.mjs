@@ -186,10 +186,10 @@ const main = async () => {
   const setValueTool = tools.tools.find((tool) => tool.name === "sse_set_value");
   const setValueDescription = (setValueTool?.description ?? "").toLowerCase();
   const setValueRequired = new Set(setValueTool?.inputSchema?.required ?? []);
-  const setValueAid = setValueTool?.inputSchema?.properties?.aid;
-  if (setValueRequired.has("aid") && setValueRequired.has("expectedBefore") &&
+  const setValueRid = setValueTool?.inputSchema?.properties?.rid;
+  if (setValueRequired.has("rid") && setValueRequired.has("expectedBefore") &&
       setValueRequired.has("value") && setValueRequired.has("expectedAfter") &&
-      setValueAid?.const === ".MainToolBar.QWidget.SearchSSE.QLineEdit" &&
+      setValueRid?.type === "string" &&
       setValueDescription.includes("steuerneutrale") && setValueDescription.includes("gesperrt")) {
     pass++;
   } else {

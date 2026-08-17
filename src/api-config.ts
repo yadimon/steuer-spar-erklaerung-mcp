@@ -19,6 +19,9 @@ export interface SseApiServerConfig {
   resultDir: string;
   backupsDir: string;
   sseExecutable?: string;
+  // Nur fuer Verifikationslaeufe und Fixture-Aufnahmen gegen ein
+  // experimentelles Jahr; der Setup-Wizard schreibt dieses Feld nie.
+  operateExperimental?: boolean;
 }
 interface ConfigFile {
   profileId?: unknown;
@@ -31,13 +34,16 @@ interface ConfigFile {
   resultDir?: unknown;
   backupsDir?: unknown;
   sseExecutable?: unknown;
+  operateExperimental?: unknown;
 }
 
 const CONFIG_FIELDS = new Set<keyof ConfigFile>([
   "profileId", "host", "port", "token", "caseDir", "documentsDir",
-  "workspaceDir", "resultDir", "backupsDir", "sseExecutable",
+  "workspaceDir", "resultDir", "backupsDir", "sseExecutable", "operateExperimental",
 ]);
-const STRING_CONFIG_FIELDS = [...CONFIG_FIELDS].filter((field) => field !== "port");
+const STRING_CONFIG_FIELDS = [...CONFIG_FIELDS].filter(
+  (field) => field !== "port" && field !== "operateExperimental",
+);
 
 export const SSE_API_CONFIG_ENVIRONMENT_KEYS = Object.freeze([
   "SSE_API_CONFIG",
@@ -174,6 +180,9 @@ export function loadApiServerConfig(env: NodeJS.ProcessEnv = process.env): SseAp
     if (file.port !== undefined && typeof file.port !== "number") {
       throw new Error("API-Konfigurationsfeld 'port' muss eine Zahl sein.");
     }
+    if (file.operateExperimental !== undefined && typeof file.operateExperimental !== "boolean") {
+      throw new Error("API-Konfigurationsfeld 'operateExperimental' muss ein Wahrheitswert sein.");
+    }
   }
 
   const host = optionalString(env.SSE_API_HOST) ?? optionalString(file.host) ?? DEFAULT_API_HOST;
@@ -212,6 +221,7 @@ export function loadApiServerConfig(env: NodeJS.ProcessEnv = process.env): SseAp
     optionalString(env.SSE_EXECUTABLE) ?? optionalString(file.sseExecutable),
     "sseExecutable",
   );
+  const operateExperimental = file.operateExperimental === true ? true : undefined;
   assertApiResourceTopology({
     ...(caseDir ? { caseDir } : {}),
     documentsDir,
@@ -232,5 +242,6 @@ export function loadApiServerConfig(env: NodeJS.ProcessEnv = process.env): SseAp
     resultDir,
     backupsDir,
     ...(sseExecutable ? { sseExecutable } : {}),
+    ...(operateExperimental ? { operateExperimental } : {}),
   };
 }

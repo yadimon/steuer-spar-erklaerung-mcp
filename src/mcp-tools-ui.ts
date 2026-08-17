@@ -343,6 +343,7 @@ export function registerUiTools(registry: McpRegistry): void {
       headers: asArray(r.headers),
       rowCount: r.rowCount,
       rows: asArray(r.rows),
+      ausgeschlosseneFenster: asArray(r.ausgeschlosseneFenster),
     }),
   );
 
@@ -400,7 +401,7 @@ export function registerUiTools(registry: McpRegistry): void {
         "WICHTIG: Ein leeres Ergebnis ist bei diesem Programm kein Beweis fuer Abwesenheit - bei " +
         "ueberlastetem UIA liefert es faelschlich nichts. Im Zweifel sse_health.",
     },
-    (r) => ({ count: r.count, hits: asArray(r.hits) }),
+    (r) => ({ count: r.count, hits: asArray(r.hits), incomplete: r.incomplete }),
   );
 
   registerApiTool(

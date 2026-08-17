@@ -12,12 +12,12 @@ import {
 } from "./suite-runner.mjs";
 
 const expectedNames = [
-  "native-build", "typescript-build", "suite-runner-contract", "public-skills", "repository-privacy", "repository-links", "javascript-syntax", "powershell-syntax", "product-profiles",
+  "native-build", "typescript-build", "suite-runner-contract", "public-skills", "repository-privacy", "repository-links", "javascript-syntax", "powershell-syntax", "product-profiles", "product-profile-status",
   "akad-parser", "setup-wizard", "atomic-files", "jsonl-logger", "portable-package", "npm-package", "portable-zip", "workspace-containment",
-  "resource-references", "backup-cases-contract", "archive-cases-synthetic", "setup-task", "api-contract", "api-discovery-contract", "api-openapi-contract", "api-cli-contract", "api-config-contract", "api-all-operations", "launch-orchestration", "operation-schema-catalog", "source-architecture", "mcp-module-boundaries", "mcp-main-contract",
+  "resource-references", "backup-cases-contract", "archive-cases-synthetic", "setup-task", "api-contract", "checker-open-contract", "api-discovery-contract", "api-openapi-contract", "api-cli-contract", "api-config-contract", "api-all-operations", "launch-orchestration", "operation-schema-catalog", "source-architecture", "no-year-conditionals", "mcp-module-boundaries", "mcp-main-contract",
   "mcp-registry-contract", "mcp-response-contract", "capabilities-contract", "ustva-contract", "api-tax-journeys", "api-main-smoke", "abort-contract", "wrapper-boundary", "mcp-wrapper-catalog", "mcp-api-all-operations", "mcp-cancellation",
-  "worker-timeout", "worker-progress-contract", "worker-output-file-contract", "worker-input-file-contract", "direct-worker-guard", "direct-worker-resource-guard", "direct-worker-identity-guard", "direct-worker-collection-guard", "direct-worker-file-guard", "direct-worker-native-guard", "scenario-parity", "scenario-control-flow", "mcp-selftest", "table-region",
-  "product-gate", "verify-collect", "archive-cases", "table-values", "table-add-rollback-contract", "tracked-date-rollback", "desktop-enumeration", "window-restore-contract", "window-scope", "foreground-lease-contract", "focusless-commit-contract", "no-console-window",
+  "worker-timeout", "worker-progress-contract", "worker-output-file-contract", "worker-input-file-contract", "direct-worker-guard", "direct-worker-experimental-guard", "direct-worker-resource-guard", "direct-worker-identity-guard", "direct-worker-collection-guard", "direct-worker-file-guard", "direct-worker-native-guard", "scenario-parity", "scenario-control-flow", "mcp-selftest", "table-region",
+  "product-gate", "verify-collect", "archive-cases", "table-values", "table-add-rollback-contract", "tracked-date-rollback", "desktop-enumeration", "window-restore-contract", "window-scope", "structure-binding", "build-drift", "foreground-lease-contract", "focusless-commit-contract", "no-console-window",
 ];
 const allSteps = [...serialBuildSteps, ...parallelSteps, ...exclusiveSteps];
 assert.deepEqual(allSteps.map((step) => step.name).sort(), expectedNames.sort());

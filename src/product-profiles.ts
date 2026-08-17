@@ -11,6 +11,7 @@ const profileSchema = z.object({
   product: z.string().min(1),
   taxYear: z.number().int().min(2000).max(2200),
   engineFileMajor: z.number().int().positive(),
+  verifiedBuild: z.string().regex(/^\d+\.\d+\.\d+\.\d+$/u),
   executable: z.object({
     name: z.literal("SSE.exe"),
     installationFolderName: z.string().min(1),
@@ -166,7 +167,9 @@ export function loadProductProfile(id = "2025", root = defaultProfilesRoot): Pro
   if (parsed.id !== id || String(parsed.taxYear) !== id) {
     throw new Error(`SSE-Profil '${id}' widerspricht id/taxYear im Manifest.`);
   }
-  if (parsed.status !== "supported") throw new Error(`SSE-Profil '${id}' ist nicht produktiv freigegeben.`);
+  if (parsed.status === "disabled") {
+    throw new Error(`SSE-Profil '${id}' ist abgeschaltet.`);
+  }
   if (Object.keys(parsed.startModes).length === 0) throw new Error(`SSE-Profil '${id}' definiert keine Startmodi.`);
   const pageObjectsPath = join(profileDir, parsed.pageObjects);
   if (!existsSync(pageObjectsPath)) throw new Error(`Page-Objects fuer SSE-Profil '${id}' fehlen: ${pageObjectsPath}`);

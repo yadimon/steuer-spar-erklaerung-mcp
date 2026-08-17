@@ -6,6 +6,7 @@ export const WORKER_RUNTIME_FILES = Object.freeze([
   "table-region.ps1",
   "table-values.ps1",
   "table-combobox.ps1",
+  "window-scope.ps1",
   "load-native.ps1",
   "sse-native.cs",
   "sse-native.dll",

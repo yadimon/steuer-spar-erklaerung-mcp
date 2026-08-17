@@ -80,6 +80,7 @@ export function registerDesktopTools(registry: McpRegistry): void {
     },
     (r) => ({
       ueberschrift: r.ueberschrift,
+      ueberschriftQuelle: r.ueberschriftQuelle,
       blockiert: r.blockiert,
       prueferMeldungen: asArray(r.prueferMeldungen),
       leerePflichtfelder: asArray(r.leerePflichtfelder),

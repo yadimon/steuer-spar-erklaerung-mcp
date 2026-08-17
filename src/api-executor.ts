@@ -5,9 +5,10 @@ import { type SseApiOperation, type WorkerResult } from "./api-contract.js";
 import { ZodError } from "zod";
 import { SSE_CAPABILITIES } from "./capabilities.js";
 import { executeCheckerOpen } from "./checker-executor.js";
-import { ExecutorArgumentError } from "./executor-errors.js";
+import { ExecutorArgumentError, operationError } from "./executor-errors.js";
 import { executeLaunchOperation } from "./launch-executor.js";
 import { parseApiOperationArgs, parseCheckerReadOnlyClickArgs } from "./operation-catalog.js";
+import { loadProductProfile } from "./product-profiles.js";
 import type { ScenarioExecutor } from "./scenario.js";
 import { executeUstvaOperation, isUstvaOperation } from "./ustva-executor.js";
 import {
@@ -141,8 +142,17 @@ function withResourceIdentity(
   return { ...redacted, resourceRefs };
 }
 
+// Ein experimentelles (noch unverifiziertes) Jahr darf nur befragt, nie
+// betrieben werden. backup_cases und archive_cases schreiben Dateien und
+// stehen deshalb absichtlich nicht in dieser Liste.
+const EXPERIMENTAL_ALLOWED: ReadonlySet<SseApiOperation> = new Set<SseApiOperation>([
+  "capabilities", "health", "help", "product_info", "workspace_status",
+  "list_cases", "case_hash", "workspace_file_list", "workspace_file_read_text",
+]);
+
 export function createApiExecutor(config: SseApiServerConfig, worker: ScenarioExecutor): ScenarioExecutor {
   const roots = resourceRoots(config);
+  const profile = loadProductProfile(config.profileId);
   ensureWorkspace(config.workspaceDir);
   ensureWorkspace(config.resultDir);
   ensureWorkspace(roots.documents!);
@@ -157,6 +167,18 @@ export function createApiExecutor(config: SseApiServerConfig, worker: ScenarioEx
     internalCheckerClick = false,
   ): Promise<WorkerResult> => {
     try {
+      if (
+        profile.status === "experimental" &&
+        config.operateExperimental !== true &&
+        !EXPERIMENTAL_ALLOWED.has(operation)
+      ) {
+        return operationError(
+          `Produktprofil '${profile.id}' ist noch nicht verifiziert (status=experimental). ` +
+            "Nur Katalog- und Dateiauskuenfte sind erlaubt. Fuer eine bewusste Jahresverifikation " +
+            "operateExperimental: true in der API-Konfiguration setzen.",
+          "profile-unverified",
+        );
+      }
       // HTTP-Aufrufe wurden bereits am Serverrand geprueft. Dieser zweite
       // Einstieg ist absichtlich noetig, weil Szenarien und komponierte
       // Operationen den Executor direkt aufrufen.

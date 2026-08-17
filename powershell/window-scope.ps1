@@ -75,26 +75,3 @@ function Split-SSEWindowScope {
   }
 }
 
-<#
-Liefert den Ueberschriftsknoten der Seite ueber seine STABILE AutomationId.
-
-Die frueher verwendete Geometrieregel ("erster Text im Y-Band top+190 bis
-top+290") liess sich von jedem umgebrochenen Absatz schlagen, der zufaellig
-weiter oben in dieses Band ragte. Fehlt der Kopfknoten, wird bewusst $null
-geliefert - eine geratene Ueberschrift ist schlimmer als eine fehlende, weil
-sie in Segmentaufnahmen als Seitenidentitaet weiterverwendet wird.
-#>
-function Get-SSEPageHeadingNode {
-  param(
-    [Parameter(Mandatory)][AllowEmptyCollection()]$Nodes,
-    [Parameter(Mandatory)][string]$HeadingAidSuffix
-  )
-
-  if (-not $HeadingAidSuffix) { return $null }
-  $treffer = @(@($Nodes) | Where-Object {
-    $_.type -eq 'Text' -and [string]$_.aid -and
-    ([string]$_.aid).EndsWith($HeadingAidSuffix, [StringComparison]::Ordinal)
-  } | Sort-Object y, x)
-  if (-not $treffer.Count) { return $null }
-  $treffer[0]
-}
