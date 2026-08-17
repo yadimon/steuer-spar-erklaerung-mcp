@@ -10,7 +10,7 @@ UI-Operation auf jeder Jahresversion praktisch funktioniert.
 
 | Profil | Status | Verifizierter Build | aktuelle Kern-Leseevidenz | vollständige Navigation/Prüfer/UStVA | allgemeine Schreibpfade | profilierter Focusless-Commit |
 | --- | --- | --- | --- | --- | --- | --- |
-| `2025` | `supported` | `31.0.1.0` | striktes Live-Gate grün: beide offiziellen Musterfälle, 47 semantische Prüfungen und 38 geforderte Operationen | Navigation, Prüfer und UStVA im strikten Gate grün | fünf getrennte Mutationstests plus große Schreibreise grün; keine vollständige VaSt-/Center-Matrix | profilierter Commit im strikten Gate grün |
+| `2025` | `supported` | `31.0.1.0` | letzter vollständiger strikter Grünlauf vor dem terminalen Collect-Zusatz: beide offiziellen Musterfälle und 38 geforderte Operationen; neuer Collect-Erfolg separat live belegt | Navigation, Prüfer und UStVA im letzten vollständigen strikten Gate grün | fünf getrennte Mutationstests plus große Schreibreise grün; keine vollständige VaSt-/Center-Matrix | profilierter Commit im letzten vollständigen strikten Gate grün |
 | `2024` | `experimental` | `30.0.127.0` | Opt-in-Live-Gate grün: beide offiziellen Musterfälle, 43 semantische Prüfungen und 38 geforderte Operationen | Navigation, Prüfer und UStVA-Read im strikten Gate grün; daraus folgt keine Freigabe | nicht freigegeben und im Gate als gesperrt geprüft | keiner |
 
 `experimental` bedeutet: Das Profil darf weder vom Setup angeboten noch wie
@@ -31,8 +31,17 @@ nie automatisch verworfen.
 | --- | --- | --- | --- |
 | Schnell | `npm run test:fast` | Build, vollständiger Operations-/Toolkatalog, strikte Eingaben, Auth-/Transportgrenzen, Mock-Journeys, Sicherheits- und Quellverträge | reale SSE-UI |
 | Vollständig offline | `npm test` | zusätzliche Packaging-, Worker-, Timeout-, Cleanup- und No-Console-Verträge sowie die Abdeckungsbilanz | reale SSE-UI; optionale Fixtures können fehlen |
-| Core-Read-Live-Gate | `npm run test:live-core-read` | beide Profile und ihre offiziellen Musterfälle über MCP→API→Worker: Produkt-/Arbeitsbereich, Hash/Arbeitskopie, Start/PID/HWND, Ergebnislesen, HTTP↔kanonisches-MCP, Seiten-/Hilfe-/Tabellen-/Snapshot-/Accessibility-Leser und gebundener Discard-Close | physische Bereichsnavigation, Prüfer, UStVA, Tiefensweep und Steuerfall-Schreibwege |
-| Striktes Live-Gate | `npm run test:live` | beide Profile nacheinander, jede vom Profil erlaubte Leseoperation, der profilierte Schreibweg, die große Schreibreise, echter MCP→API→Worker-Weg, direkter HTTP↔kanonischer MCP-Vergleich, Hash- und Cleanup-Invarianten; fehlende Voraussetzungen sind Fehler | vollständige Mutationsmatrix |
+| Page-Object-Offlineparität | `node test/page-objects-parity.mjs` | lokaler API-Pfad und echter PowerShell-Worker liefern für jedes Profil denselben Vollkatalog, dieselbe exakte und case-insensitive Seite sowie denselben Unknown-ID-Fehler; Reload, Vorab-Abbruch, lokaler Timeout und budgetierter Drift-Fallback sind separat gebunden | echte Formularfelder oder UI-Zustände |
+| Verify-Offlineparität | `node test/verify-local-parity.mjs` | lokaler API-Pfad und echter Worker liefern für vollständige, unvollständige, mehrdeutige und hashabweichende Collect-Stände feldgleiche Ergebnisse; Dezimal-/Währungsformate, Occurrences, Ressourcenidentität, Abort/Timeout ohne Subprozess und riskanter Unicode-Fallback sind gebunden | fachliche Richtigkeit der Erwartungen oder Vollständigkeit des vorausgehenden UI-Collects |
+| Arbeitskopie-Offlineparität | `node test/working-copy-local-parity.mjs` | lokaler API-Pfad und echter Worker liefern für lesbaren wie unbekannten AKAD-Kopf denselben Erfolgsvertrag; Fehlerarten für falschen Hash, vorhandenes Ziel, Endungs- und Ordnerfehler sind workergebunden; beide Profile, echte Datei-Ersetzung, Pfadredaktion sowie Abort/Timeout-Cleanup ohne Worker sind geprüft | vollständige Semantik exotischer Dateisysteme, ein hängender einzelner Kernel-I/O-Aufruf oder Ausschluss des dokumentierten Rollback-TOCTOU-Restfensters |
+| Fallsicherungs-Offlineparität | `node test/backup-local-parity.mjs` | lokaler API-Pfad und echter Worker liefern denselben Erfolgs-, Wiederholschutz- und bytegleichen CSV-Manifestvertrag auch für verschachtelte Ziele, nichtalphabetische und Nicht-ASCII-Namen; ResourceRefs, Quell-/Zielinventar, zweiter Inhaltsreadback, partielle Manifeste, fremde Zielinhalte sowie Abort-/Timeout-Rollback ohne Worker sind geprüft | vollständige Semantik exotischer Dateisysteme, ein hängender einzelner Kernel-I/O-Aufruf oder Ausschluss des dokumentierten Rollback-TOCTOU-Restfensters |
+| Fallarchivierungs-Offlineparität | `node test/archive-local-parity.mjs` | lokaler API-Pfad und echter Worker liefern denselben Erfolg, dieselben zentralen Preflight-Fehlerarten und ein bytegleiches CSV-Manifest; vollständiger Bestand einschließlich `_Backup`, Zeitstempel, ResourceRefs, kein Workerstart, SSE-Prozesssperre vor jeder Entfernung, fail-closed Nicht-POSIX-Delete, Teilmanifest, verschachtelter Rollback, Abort/Timeout sowie Quell-, Ziel-, Restbestands- und Doppelinterferenz mit Recovery-Datei sind geprüft | erneuter echter SSE-Lauf über den neuen Lokalpfad; vollständige Semantik exotischer Dateisysteme oder ein hängender einzelner Kernel-I/O-Aufruf |
+| SSE-Prozessguard | `node test/sse-process-guard.mjs` | lokalisierte leere `tasklist`-Antworten, exakter `SSE.exe`-CSV-Treffer und fail-closed Ablehnung leerer, fremder oder unstrukturierter Antworten | jede Windows-Locale und jeder externe Prozessstart im kleinen Fenster nach der zweiten Probe |
+| Optionale Live-Skript-Verträge | `node test/live-script-resource-contract.mjs` | Mehrinstanz- und Suchdiagnose verwenden ausschließlich die aktuellen strikten MCP-ResourceRefs; zwei zufällig benannte Wegwerfkopien liegen im konfigurierten `cases:`-Bereich und nur bei unveränderter Dateiidentität plus Quellhash werden diese beiden exakten Dateien nach dem Schließen entfernt | tatsächlicher Zwei-Instanz-Lauf ohne gesetzte neutrale Fixture und installierte SSE |
+| Core-Read-Live-Gate | `npm run test:live-core-read` | beide Profile und ihre offiziellen Musterfälle über MCP→API und für UI-Leser weiter zum Worker: Produkt-/Arbeitsbereich, Hash/Arbeitskopie, Start/PID/HWND, Ergebnislesen, HTTP↔kanonisches-MCP, Seiten-/Hilfe-/Tabellen-/Snapshot-/Accessibility-Leser und gebundener Discard-Close | physische Bereichsnavigation, Prüfer, UStVA, Tiefensweep und Steuerfall-Schreibwege |
+| Striktes Live-Gate | `npm run test:live` | beide Profile nacheinander, jede vom Profil erlaubte Leseoperation, lokale-gegen-Worker-Falldateiparität, der profilierte Schreibweg, die große Schreibreise, Steuertipps-Center 2025 auf privatem Desktop, echter MCP→API→Worker-Weg für UI-Aktionen, direkter HTTP↔kanonischer MCP-Vergleich, Hash- und Cleanup-Invarianten; fehlende Voraussetzungen sind Fehler | vollständige Mutationsmatrix pro Jahresprofil; VaSt-Dialogwege |
+| Center-Live-Gate | `npm run test:live-center` | `center_cases` und `center_refresh` für Profil 2025 über die HTTP-API, exakte HWND-/Verzeichnisbindung, pfadredigierte Antworten, unveränderter Dateibestand und Kill-on-close-Cleanup auf einem privaten Desktop | Profil 2024; VaSt; fachliche Richtigkeit der realen Fallnamen |
+| Falldatei-Liveparität | `npm run test:live-case-file` | lokale API-Implementierung und direkter PowerShell-Worker liefern denselben Fallhash sowie dieselbe vollständige Standard-Fallliste des offiziellen Musterordners; keine SSE-UI wird gestartet | ausführliche Parser-Metadaten und UI-Verhalten |
 | Große Schreibreise | `npm run test:live-journey` | eine zusammenhängende Reise auf einer Wegwerfkopie: Tabellenschreibzyklus mit Kontrollsummen-Readback, hashgebundenes Speichern mit Datei- und Neustart-Persistenzbeweis, UStVA-Schreibquartett mit Zahllast-Kontrolle, CSV-Export bis zur Datei, Menü-/Fenster-/Dialogverwaltung, Speichern unter und Archiv | VaSt-Dialogwege, Steuertipps-Center |
 | Einzelprofil-Live | `npm run test:live-muster` | gezielter profilabhängiger Musterlauf für Diagnose | das jeweils andere Profil |
 | Focusless | `npm run test:hidden-focusless` | ein konkret profiliertes 2025-Feld mit Feld-/Summen-/Dirty-State-Readback; im strikten Gate enthalten | andere Felder; 2024; sichtbare Tabellen-/Combo-Pfade |
@@ -44,6 +53,19 @@ MCP-Werkzeugnamen. Das sind nicht 87 eindeutige Eins-zu-eins-Zuordnungen:
 `tracked_set_value` auf; `checker_detail` ist eine API-interne Komposition von
 `sse_checker_open`.
 
+Fixture-gesteuerte Diagnoseprogramme sind ebenfalls Teil des wartbaren
+Vertrags: Sie dürfen nicht jahrelang erfolgreich `SKIP` melden, während ihre
+MCP-Argumente längst vom öffentlichen Schema abgewiesen würden. Der statische
+Live-Skript-Vertrag bindet deshalb die tatsächlich geschriebenen Argumentnamen
+an die strikten Laufzeitschemas. Beim Mehrinstanztest muss
+`SSE_MULTI_INSTANCE_FIXTURE` direkt im über `SSE_CASE_DIR` konfigurierten
+Fallordner liegen. Die Quelle wird nur gehasht; zwei eindeutig benannte
+Arbeitskopien werden über `sourceRef`/`targetRef` erzeugt und nach dem
+gebundenen Schließen nur dann einzeln entfernt, wenn `dev`/`ino` und SHA-256
+weiterhin den test-eigenen Stand beweisen. Ersetzte oder geänderte Ziele bleiben
+bewusst zur manuellen Klärung erhalten. Ein rekursiver Cleanup des Fallordners
+ist ausdrücklich ausgeschlossen.
+
 Alle Operationen besitzen getestete Eingabeschemata und einen versionierten
 `Result_<operation>`-Mindestvertrag. API, Discovery, OpenAPI und alle
 MCP-`outputSchema`-Definitionen verwenden diesen Katalog; ein malformed
@@ -51,6 +73,69 @@ Worker-Ergebnis wird vor der Ausgabe mit `invalid-operation-result` gestoppt.
 Die Schemas bleiben für zusätzliche Fachfelder offen. Deshalb ist „alle
 Operationen transportseitig validiert“ weiterhin nicht mit „jede mögliche
 UI-Ergebnisvariante live erzeugt“ gleichzusetzen.
+
+### Ergebnisform-Bilanz
+
+`test/operation-result-shape.json` wird am selben API-Executor-Rand wie die
+Operationsabdeckung erzeugt. Pro Operation und Scope speichert sie nur:
+
+- Top-Level-Feldname und wertfreie JSON-Typklasse;
+- bei Objektfeldern sichere direkte Schlüsselnamen und deren Typklassen;
+- Herkunftsmarke des Harnischs;
+- Erfolg oder Fachfehler;
+- optional die öffentliche Profil-ID.
+
+Steuerwerte, lokale Pfade und tiefer verschachtelte Inhalte werden weder in die
+Trace-Dateien noch in die Bilanz geschrieben. Der Offline-Stand vom
+2026-08-16 enthält 645 Operation-Feld-Beobachtungen außerhalb des
+generischen Transportumschlags; 502 davon sind bereits explizit typisiert.
+Das ist eine sichtbare Ausbaubilanz, kein Prozentwert für praktische
+UI-Abdeckung. Alle 87 Operationen besitzen konkrete Fachfelder; darunter sind
+alle 23 destruktiv annotierten Operationen sowie der nicht destruktive, aber
+zustandsbehaftete `set_value`-Suchfeldpfad. 143 beobachtete Zusatz- und
+API-Grenzfelder bleiben vom offenen Mindestvertrag durchgelassen, ohne schon
+als stabile Einzelfelder zugesagt zu werden.
+
+Für die zuletzt direkt an den Worker-Emit-Stellen auditierten 30 Operationen
+gilt eine zusätzliche Mock-Ratsche: Jedes beobachtete Top-Level-Feld außer dem
+generischen API-Metafeld `resourceRefs` muss im operationsspezifischen Schema
+stehen. So können historische Mock-Namen wie `find.treffer` statt `find.hits`
+oder ein fiktiver Steuerfeld-Write über `set_value` nicht erneut als
+Laufzeitevidenz gelten. Der statische Guard zählt derzeit 638 explizite
+Top-Level-Felder in 75 echten Worker-Operationsblöcken; API-interne
+Kompositionen werden separat an ihren TypeScript-Executoren geprüft. Derselbe
+Guard sichert berechnete `ok`-Ausgaben als Ratsche ab: Jeder mögliche Fehlerzweig muss
+`kind` und `error` tragen. Dadurch wurden zwei `close`-Varianten und der
+fail-closed `menu_close`-Nachbedingungsfehler vor dem Commit korrigiert.
+
+Die Live-Spalte der Ergebnisform-Bilanz enthält jetzt 234 fachliche
+Feldbeobachtungen aus 31 echten 2025-Worker-Operationen; 122 davon sind
+explizit typisiert. Der Lauf deckte zunächst einen echten Vertragsfehler auf:
+`find.note` wurde bei nicht abgeschnittenem Baum als PowerShell-Leerobjekt
+serialisiert und vom Textschema mit `invalid-operation-result` gestoppt. Der
+Worker gibt deshalb nun ausdrücklich `null` aus; dieselbe Normalisierung gilt
+für die optionalen Hinweise von `positions` und `dismiss`.
+
+Der anschließende Lauf passierte diesen Vertrag, scheiterte aber später beim
+bekannten Prüfer-Navigationszweig dreimal fail-closed an der Foreground-Lease.
+Die bis dahin echten, unverändernden Reads wurden über den vorgesehenen
+monotonen Live-Merge übernommen. Das ist eine partielle Ergebnisform-Evidenz,
+kein grüner strikter Live-Gate-Lauf und kein neuer 2024-Nachweis. Historische
+79/87-Live-Abdeckung und Ergebnisform-Spalte bleiben getrennte Messungen; die
+Feldformen werden niemals aus der Coverage-Zahl abgeleitet.
+
+Bewusste Regeneration nach einer getesteten Vertragsänderung:
+
+```powershell
+$env:SSE_WRITE_OPERATION_SHAPE = '1'
+npm test
+Remove-Item Env:SSE_WRITE_OPERATION_SHAPE
+```
+
+Der Abschlussvertrag stoppt bei neuen Feld-/Typvarianten und wenn ein
+beobachteter Typ vom veröffentlichten Schema abgewiesen würde. Ein zusätzlicher
+statischer Worker-Feldguard schützt optionale Recovery-Pfade, die nicht in
+jedem deterministischen Lauf erscheinen.
 
 ## Abdeckungsbilanz aus echter Ausführung
 
@@ -71,14 +156,46 @@ synthetischen Worker, der Seitengraph, Elementbaum, Tabelle, Menü, VaSt-Dialog
 und Fenster-/Desktopzustand modelliert. Das beweist Argumentbindung,
 Ressourcenauflösung, Komposition, Ergebnisvertrag und Redaktion über die
 gesamte Kette. Es beweist ausdrücklich **nicht** die proprietäre UIA-Schicht;
-dafür zählt allein die Live-Spalte derselben Bilanz, die `npm run test:live`
-gegen die installierte Anwendung füllt. Dort stehen seit dem strikten Lauf vom
-2026-08-16 78 der 87 Operationen. `collect` ist zusätzlich live auf seinem
-dokumentierten, dateischreibenden `collection-incomplete`-Fehlerpfad belegt.
-Die acht noch nie erfolgreich live aufgerufenen Operationen sind
-`center_cases`, `center_refresh` sowie die sechs VaSt-Wege `vast_apply`,
+dafür zählt allein die Live-Spalte derselben Bilanz, die echte Worker-Aufrufe
+gegen die installierte Anwendung füllen. Dort stehen am 2026-08-16 81 der 87
+Operationen: 78 aus dem letzten vollständig grünen Zwei-Profil-Gate, der
+anschließend gezielt ausgeführte `collect`-Erfolgspfad sowie die zwei separat
+auf einem privaten Desktop belegten Center-Operationen. `collect` ist auf der
+profilierten ESt-2025-Startseite ohne `Weiter` erfolgreich mit `end-of-branch` belegt:
+genau eine Seite, kein Navigationsschritt hinter dem gespeicherten Stand und
+hashgleicher Datei-Readback. Der getrennte Zwei-Seiten-Lauf belegt weiterhin
+`collection-incomplete`, `limit-reached` und den hashgebundenen Teilabgleich.
+„Vollständig" gilt dabei nur für den ab der jeweiligen Startseite erreichbaren
+Blätterpfad, nicht für den gesamten Steuerfall. Noch nie erfolgreich live
+aufgerufen sind damit nur die sechs VaSt-Wege: `vast_apply`,
 `vast_dialog_read`, `vast_mapping_options`, `vast_mapping_select`,
 `vast_row_details` und `vast_row_set_expanded`.
+
+Der Center-Nachweis startet ausschließlich den profilierten 2025-Center in
+einem neuen Windows-Desktop und bindet den gesamten Prozessbaum an einen
+Kill-on-close-Job. Ein vorhandener Center-Prozess, Desktop oder Marker ist ein
+Fehler und wird niemals übernommen. Der intern gelesene absolute Ordner bleibt
+nur im Testprozess; API-Antwort und wertfreier Operation-Trace enthalten ihn
+nicht. Vor und nach `center_cases` → `center_refresh` → `center_cases` werden
+Name/Typ/Größe/Zeitstempel/Inhalt der angezeigten Top-Level-Dateien in eine
+nicht rückrechenbare Inventarsignatur überführt. Der echte Lauf belegte drei
+grüne API-Schritte, unveränderte Suche/Sortierung, identisches Inventar und
+null verbleibende Center-Prozesse. `center_refresh` wechselt die persistente
+Center-Ansicht technisch kurz zu „Zuletzt verwendet“ und danach zurück. Der
+Erfolgsvertrag beweist die Rückkehr; scheitert der zweite Toggle, bleibt die
+Operation fail-closed, kann den Ansichtsmodus aber nicht blind restaurieren.
+
+Das Endurteil ist doppelt fail-closed: Sowohl der inhaltsgebundene Seitenbaum
+als auch der kleinere Navigationsbaum müssen ungekürzt sein. Fehlt `Weiter`
+in einem abgeschnittenen der beiden UIA-Snapshots, liefert `collect`
+`snapshot-truncated` statt eines falschen `end-of-branch`.
+
+Der gezielte 2025-Lauf protokollierte `collect ok=true` in 1.613 ms und räumte
+seine SSE-PID vollständig auf. Der anschließend unveränderte Prüfer-Tree-Klick
+erhielt in derselben Desktop-Sitzung dreimal keine Foreground-Lease und stoppte
+jeweils vor dem Klick mit `interference`. Deshalb wird hier nur der gemessene
+Collect-Weg hochgestuft; ein neuer vollständiger Grünlauf des gesamten Gates
+wird daraus ausdrücklich nicht abgeleitet.
 
 ### Die Freigabepolitik liest die Live-Bilanz nicht
 
@@ -86,10 +203,10 @@ Das gehört ausdrücklich hierher, weil es leicht zu überschätzen ist: Die
 Abdeckungsbilanz ist **Dokumentation, keine Laufzeitsperre**. Ein Profil mit
 `status=supported` und `operationAccess=full` gibt alle Operationen frei –
 unabhängig davon, ob sie jemals erfolgreich gegen die echte Anwendung
-gelaufen sind. Gemessen am 2026-08-16 sind noch 9 der 87 Operationen nicht
-live-funktional belegt: der genannte `collect`-Fehlerpfad und acht ungetestete
-Wege. Zwei davon (`vast_apply`, `vast_mapping_select`) fallen in die Klasse
-`destructive`.
+gelaufen sind. Gemessen am 2026-08-16 sind noch 8 der 87 Operationen nicht
+live-funktional belegt: die oben genannten, weiterhin ungetesteten Center- und
+VaSt-Wege. Zwei davon (`vast_apply`, `vast_mapping_select`) fallen in die
+Klasse `destructive`.
 
 Das ist kein Widerspruch zu den Sicherheitszusagen: Jede dieser Operationen
 trägt weiterhin ihre eigenen Vor- und Nachbedingungen, die Hash-, Fenster-
@@ -102,17 +219,101 @@ eine funktionierende Operation zu blockieren, weil das Gate zuletzt an einer
 fremden Benutzereingabe gescheitert ist.
 
 Der aggregierte Wert ersetzt keinen Jahresnachweis: Das strikte Live-Gate
-fordert zusätzlich für **jedes** Profil 37 erfolgreiche, profilmarkierte
-Worker-Aufrufe aus dem expliziten Lese-/Navigationsvertrag – darunter
+fordert zusätzlich für **jedes** Profil 38 erfolgreiche, profilmarkierte
+Operationsaufrufe aus dem expliziten Lese-/Navigationsvertrag – darunter
 Ergebnislesen, Snapshot/Accessibility, Prüfer, UStVA sowie die hashgebundene
-Wegwerfkopie. Eine erfolgreiche Ausführung des jeweils anderen Jahres kann
+Wegwerfkopie. Reine API-Lokalpfade sind darin absichtlich keine
+Worker-Aufrufe. Eine erfolgreiche Ausführung des jeweils anderen Jahres kann
 diese Pflicht nicht erfüllen.
 
-Die Bilanz berichtet außerdem die teuersten Operationen eines Laufs. Der
-Befund ist eindeutig: Auch rein lokale Auskünfte zahlen den vollen Preis eines
-frischen PowerShell-Prozesses – `case_hash` braucht rund 1,2 s je Aufruf, ohne
-die Oberfläche überhaupt zu berühren. Wer viele Fälle prüft, sollte das
-einplanen; die Zahl ist gemessen, nicht geschätzt.
+Die Bilanz hatte außerdem den größten vermeidbaren Prozesspreis gezeigt:
+`case_hash` und `list_cases` brauchten im frischen PowerShell-Worker jeweils
+rund 1,1 bis 1,4 s, ohne die Oberfläche zu berühren. Seit 2026-08-16 laufen
+Fallhash und Standard-Fallliste im API-Prozess; die Hashberechnung streamt,
+die Fallliste liest je Datei höchstens 512 KiB Kopf. Der feldgenaue Vergleich
+auf beiden offiziellen Musterordnern ergab identische acht Hashfelder sowie
+identische, gleich geordnete Listen mit 11 Fällen (2025) und 14 Fällen (2024).
+Der Vergleichslauf am 2026-08-16 brauchte beim Hash lokal 6/7 ms statt
+1.160/1.140 ms im Worker und bei der Liste lokal 16/19 ms statt 1.233/1.327 ms
+im Worker (2025/2024). Das sind orientierende Messwerte, keine harte
+Testschwelle. Der direkte Worker bleibt für ausführliche Metadaten, unbekannte
+Parserfälle und kompatible lokale Aufrufer erhalten.
+
+Auch `page_objects` hatte trotz rein öffentlicher Profilmetadaten pro Aufruf
+einen frischen Worker gestartet. Drei direkte 2025-Workerläufe am 2026-08-16
+brauchten 997/987/1.007 ms. Der neue API-Pfad las, validierte und redigierte den
+vollständigen 2025-Katalog in 1.000 aufeinanderfolgenden Aufrufen im Mittel in
+2,957 ms je Aufruf; Transportzeit ist darin nicht enthalten und der Messwert
+ist keine Testschwelle. `test/page-objects-parity.mjs` bindet die semantische
+Parität für 2024 und 2025 an den echten Worker, einschließlich dessen
+case-insensitiver ID-Auflösung. Das Live-Gate prüft weiterhin den öffentlichen
+API-/MCP-Weg; den dort nicht mehr gestarteten Worker-Katalogpfad beweist dieser
+Offline-Test separat.
+
+`verify` war derselbe unnötige Prozesspfad für eine reine, bereits
+hashgebundene JSON-Auswertung. Drei direkte Workerstarts ohne fachliche Arbeit
+brauchten am 2026-08-16 1.236/1.103/1.077 ms. Der lokale Executor brauchte für
+1.000 aufeinanderfolgende vollständige Hash-, Stabilitäts- und
+Vergleichsaufrufe nach dem Review insgesamt 655,730 ms, im Mittel 0,656 ms. Beide Werte sind
+orientierende Messungen ohne Transport und keine Testschwelle. Der lokale
+Pfad liest die höchstens 16 MiB große Quelle einmal gepuffert und hasht sie
+danach nochmals ungepuffert über stabile Dateihandles. Er prüft SHA-256 und
+Dateiidentität, parst strikt UTF-8/JSON und rechnet Dezimal-
+differenzen per `BigInt` mit Half-to-even-Rundung. Bei Unicode-Faltungen oder
+manuell gebauten Quelltypen, deren Windows-PowerShell-Semantik Node nicht
+beweisbar gleich abbildet, verwendet er mit dem verbleibenden Zeitbudget den
+echten Worker. Der Paritätstest beweist beide Wege; ungültige Quellen oder ein
+nicht-boolesches `vollstaendig` bleiben fail-closed.
+
+Auch `make_working_copy` hatte trotz reiner Dateiarbeit einen frischen Worker
+gestartet. Bei einer synthetischen 1-MiB-Falldatei brauchten drei direkte
+Workerläufe am 2026-08-16 1.112/1.086/1.073 ms, der lokale Executor
+24,0/11,7/10,5 ms. Das sind orientierende Messwerte ohne HTTP-Transport und
+keine Testschwelle. Der lokale Pfad verwendet `wx+` für ein atomar neues Ziel,
+streamt die Bytes über dauerhaft offene Handles und verifiziert danach Quelle
+und Ziel erneut über Hash, Identität und Dateizustand. Quellenänderung rollt
+nur die nachweislich eigene Kopie zurück; ein fremd verändertes Ziel bleibt zur
+manuellen Klärung erhalten. Weil Node die exklusiveren Windows-Share-Modi des
+Workers nicht ausdrücken und kein `DELETE_ON_CLOSE` setzen kann, beweist der
+Vertrag Erkennung statt Verhinderung sowie das verbleibende kleine
+Rollback-TOCTOU-Fenster. Der PowerShell-Pfad bleibt als direkte
+Kompatibilitätsschnittstelle und Paritätsreferenz bestehen. Open-Aufrufe sind
+deadlinegebunden; die Kopierschleife prüft kooperativ zwischen 1-MiB-Blöcken.
+Da Node laufende `FileHandle`-Operationen nicht sicher abbrechen kann, kann ein
+einzelner hängender Kernel-/Netzlaufwerkaufruf die Frist überschreiten. Das
+eigentumsgeprüfte Cleanup wird auch nach Fristablauf zu Ende geführt.
+
+`backup_cases` nutzt über API und MCP jetzt dieselbe lokale, hash- und
+identitätsgebundene Kopiergrenze. Bei einer synthetischen 1-MiB-Falldatei
+brauchten drei direkte Workerläufe am 2026-08-16
+1.104,6/1.106,8/1.112,5 ms, der lokale Executor 47,0/35,5/38,4 ms. Die Werte
+enthalten keinen HTTP-Transport und sind keine Testschwelle. Der
+Offline-Paritätstest vergleicht zusätzlich das CSV-Manifest byteweise mit
+Windows PowerShell 5.1. Quell- und Zielinventar werden während des Laufs exakt
+gebunden; fremde Einträge führen zu einem fail-closed Ergebnis und bleiben zur
+manuellen Klärung erhalten. Für Node-Dateihandles und Rollback gelten dieselben
+Share-Mode-, Kernel-I/O- und TOCTOU-Grenzen wie bei `make_working_copy`.
+Der frühere Live-Nachweis von `backup_cases` lief noch über den Worker. Der nun
+ausgelieferte API-/MCP-Lokalpfad ist deshalb bis zum nächsten strikten Live-Gate
+als offline workerparitätisch, nicht als erneut live ausgeführt, belegt.
+
+`archive_cases` vermeidet über API und MCP ebenfalls den frischen Worker, ohne
+die Sicherungsregeln auf einen schnellen Rename zu reduzieren. Bei einer
+synthetischen 1-MiB-Falldatei brauchten drei direkte Workerläufe am 2026-08-16
+1.201,3/1.188,4/1.195,1 ms. Der lokale Produktionspfad einschließlich zweier
+echter fail-closed `tasklist.exe`-Prüfungen brauchte
+790,5/875,8/841,9 ms. Die Werte enthalten keinen HTTP-Transport und sind keine
+Testschwelle. Der lokale Pfad kopiert in ein exklusiv neues Ziel, übernimmt
+`atime`/`mtime`, verifiziert Ziel und noch offenen Quell-Handle vollständig und
+entfernt erst danach den Quellnamen. Sein Manifest ist bytegleich zum Windows-
+PowerShell-Worker. Rollback läuft auch nach Clientabbruch oder Deadline zu
+Ende; bei fremdem Ziel wird aus dem offenen Originalhandle restauriert, und
+ein gleichzeitiger Quell-/Zielkonflikt erzeugt eine explizit gemeldete,
+hashverifizierte Recovery-Datei statt Originalbytes zu verlieren.
+Die große Schreibreise vom 2026-08-14 belegt die fachliche Archivoperation real,
+lief aber noch über den Worker. Der neue lokale API-/MCP-Pfad ist daher bis zum
+nächsten strikten Live-Gate als offline workerparitätisch, nicht als erneut live
+ausgeführt, belegt.
 
 ## Aktuelle Live-Muster-Evidenz
 
@@ -121,11 +322,12 @@ Basisnachweis. Am 2026-08-14 lief er erfolgreich für 2025 und 2024 (bei 2024
 mit dem engen Verifikations-Opt-in), jeweils gegen beide offiziellen
 Musterfälle. Pro Profil prüfte er 21 semantische Aussagen und beendete alle
 gestarteten SSE-Instanzen. Er überspringt nicht still: Sein JSON-Ergebnis
-nennt die vier bewusst nicht enthaltenen Bereiche
-`cross-section-navigation`, `ustva-read`, `checker` und `deep-read-sweep`.
+nennt die fünf bewusst nicht enthaltenen Bereiche
+`cross-section-navigation`, `ustva-read`, `checker`, `terminal-collect` und
+`deep-read-sweep`.
 
 Das strikte `npm run test:live` bleibt der weitergehende Nachweis für diese
-vier Bereiche und die profilierten Mutationsfixtures. Es wird nicht durch das
+fünf Bereiche und die profilierten Mutationsfixtures. Es wird nicht durch das
 Core-Read-Gate ersetzt. Am 2026-08-16 bestand es für beide Profile ohne SKIP
 und ohne verbleibende SSE-Instanz. Die Foreground-Lease funktionierte in
 diesem Lauf. Wird sie durch Benutzereingabe oder einen fremden
@@ -373,12 +575,11 @@ strengen Prüfung unbemerkt geblieben:
    Für Aufrufer heißt das: `sse_list_cases` mit `includeBackups: true` ist vor
    einem Archivlauf Pflicht.
 
-Zwei Grenzen bleiben bewusst außerhalb der Reise und damit live unbelegt:
+Eine Grenze bleibt bewusst außerhalb der Reise und weiterhin live unbelegt:
 Die sechs `vast_*`-Operationen brauchen den echten VaSt-Belegabruf-Dialog
-eines ELSTER-Kontos, und `center_cases`/`center_refresh` brauchen das
-separate Steuertipps-Center mit der realen Nutzerkonfiguration. Beide sind
-offline gegen den zustandsbehafteten synthetischen Worker belegt; ein
-Live-Nachweis ohne diese Voraussetzungen wäre gespielt statt bewiesen.
+eines ELSTER-Kontos. `center_cases` und `center_refresh` sind dagegen nun im
+separaten privaten Center-Gate sowie im strikten Runner enthalten. Ein
+VaSt-Live-Nachweis ohne die echte Voraussetzung wäre gespielt statt bewiesen.
 
 Die Reise braucht eine entsperrte, unbenutzte Windows-Sitzung: Zwei Versuche
 am Vormittag des 2026-08-14 endeten reproduzierbar fail-closed mit
@@ -435,17 +636,20 @@ Sitzung prüfbar, ohne Fremdbedienung pauschal als Ursache zu behaupten.
 
 Für „jede praktische SSE-Aktion vollständig geprüft“ fehlen insbesondere:
 
-1. das UStVA-Schreiben, `save_as`, `export_csv` und `file_dialog_select`. Diese
-   Operationen sind offline gegen den synthetischen Worker vollständig
-   abgedeckt – gegen die echte Anwendung bleiben sie unbewiesen. Combo/Toggle,
-   Tabellen-Add/Update/Delete und `save` laufen inzwischen im Gate gegen
-   Wegwerfkopien; `combo_select` fehlt weiterhin, weil die profilierte
-   ComboBox-Tabelle nur auf Engine 31 bindbar ist;
-2. ein vollständiger HTTP-gegen-MCP-Szenariolauf auf zwei unabhängigen frischen
+1. erfolgreiche Live-Läufe der sechs `vast_*`-Operationen mit einem neutralen
+   ELSTER-/VaSt-Dialog. Diese sechs Operationen sind offline funktional, aber
+   live weiterhin ungetestet;
+2. eine fallweite Gesamterfassung. Der erfolgreiche `collect`-Lauf beweist
+   exakt das Ende eines profilierten Ein-Seiten-Blätterpfads; der getrennte
+   Zwei-Seiten-Lauf beweist den fortsetzbaren Teilstand. Wegen des absichtlichen
+   Maximums von fünf Seiten ersetzt beides keine Baumkartierung des ganzen Falls;
+3. die 2024-Mutationsmatrix. Der Experimental-Opt-in sperrt diese Pfade
+   absichtlich; die erfolgreichen 2025-Läufe für UStVA-Schreiben,
+   `combo_select`, `save_as`, `export_csv` und `file_dialog_select` sind keine
+   Freigabe für Engine 30;
+4. ein vollständiger HTTP-gegen-MCP-Szenariolauf auf zwei unabhängigen frischen
    Wegwerfkopien einschließlich der freigegebenen Mutationen; der aktuelle
    Live-Lauf belegt bereits die echte Transportparität für Hash und Ergebnisreadback;
-3. eine ausdrücklich bereitgestellte neutrale VaSt-Fixture für Mapping und
-   Apply. Ohne diese Fixture bleibt VaSt-Apply unbewiesen und gesperrt.
 
 Die Live-Spalte der Abdeckungsbilanz ist die verbindliche Antwort darauf,
 welche Operationen die echte Anwendung schon bedient hat. Prosa in dieser Datei

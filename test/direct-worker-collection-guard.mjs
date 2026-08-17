@@ -1,5 +1,18 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { desktopMarkerState, directWorker, ssePids } from "./direct-worker-helpers.mjs";
+
+const worker = readFileSync(resolve(process.cwd(), "powershell", "sse-worker.ps1"), "utf8");
+const collectStart = worker.indexOf("  'collect' {");
+const collectEnd = worker.indexOf("  'verify' {", collectStart);
+assert(collectStart >= 0 && collectEnd > collectStart, "Collect-Workerblock ist nicht eindeutig auffindbar.");
+const collectBlock = worker.slice(collectStart, collectEnd);
+assert.match(
+  collectBlock,
+  /if \(\$navigationTree\.stats\.truncated -or \$t\.stats\.truncated\)/u,
+  "Ein abgeschnittener Navigationsbaum darf nie als bewiesenes Zweigende gelten.",
+);
 
 const pidsBefore = ssePids();
 const markerBefore = desktopMarkerState();

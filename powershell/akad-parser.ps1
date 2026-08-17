@@ -218,7 +218,10 @@ function Read-AkadHeader {
     # platzhalterartiges Format bleibt 'unknown' statt still 'nicht
     # übermittelt' zu behaupten - eine irrtuemlich zweite Abgabe waere der
     # teurere Fehler.
-    if ($transferTime -in @('', '0', '-')) {
+    if ([string]$record.typ -ne 'text') {
+      $out['transmitted'] = 'unknown'
+      $out['transmittedReason'] = "ElsterTransferTime hat unerwarteten Typ '$($record.typ)' - keine Aussage möglich."
+    } elseif ($transferTime -in @('', '0', '-')) {
       $out['transmitted'] = $false
       $out['transmittedReason'] = $(if ($transferTime) {
         "ElsterTransferTime ist der Platzhalter '$transferTime' - kein Versand"

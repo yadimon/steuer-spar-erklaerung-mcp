@@ -259,12 +259,23 @@ Private Steuerfälle gehören nicht in das Repository. Welche Operationen nur
 ein Schema/Mock, einen echten Leseweg oder eine Mutation belegen, ist in
 [Verifikation](docs/VERIFIKATION.md) getrennt aufgeführt.
 
-Beide Läufe schließen mit einer Abdeckungsbilanz ab: Jede Operation, die
+Beide Läufe schließen mit zwei Laufzeitbilanzen ab: Jede Operation, die
 während der Suite einen echten API-Executor erreicht, wird protokolliert und
 gegen `test/operation-coverage.json` geprüft. Verschwundene Abdeckung ist eine
 Regression, neu entstandene muss bewusst übernommen werden
-(`SSE_WRITE_OPERATION_COVERAGE=1`). Die Bilanz ist damit die verbindliche
-Antwort auf „welche API-Funktion ist wirklich belegt?" – Prosa ist es nicht.
+(`SSE_WRITE_OPERATION_COVERAGE=1`). Parallel hält
+`test/operation-result-shape.json` ausschließlich Ergebnisfeldnamen und
+wertfreie JSON-Typklassen fest. Bei einem Objektfeld werden zusätzlich dessen
+sichere direkte Schlüsselnamen und Typklassen erfasst – niemals Steuerwerte,
+Pfade oder tiefer verschachtelte Inhalte. Neue
+Felder oder Typvarianten brauchen `SSE_WRITE_OPERATION_SHAPE=1`. Die Bilanzen
+sind damit die verbindliche Antwort auf „welche API-Funktion und Ergebnisform
+ist wirklich belegt?" – Prosa ist es nicht.
+
+Alle 87 API-Operationen veröffentlichen mindestens ein eigenes fachliches
+Ergebnisfeld. Die Schemas bleiben trotzdem vorwärtskompatible
+Mindestverträge: Nicht jedes optionale Worker-Feld und nicht jeder UI-Zustand
+ist bereits durch einen echten Live-Lauf erzeugt.
 
 Das Live-Gate braucht eine unbenutzte Windows-Sitzung: Navigation läuft über
 echte Mausklicks, und Windows verweigert den Vordergrundwechsel, solange

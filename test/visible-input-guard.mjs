@@ -12,6 +12,7 @@
  */
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { classifyPassiveStartupDialog } from "./startup-dialog-policy.mjs";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
@@ -123,25 +124,14 @@ try {
     const realDialogs = (dialogs.dialogs ?? []).filter((dialog) =>
       dialog.kind === "native-dialog" || dialog.kind === "qt-dialog");
     if (!realDialogs.length) break;
-    const recovery = realDialogs.find((dialog) =>
-      dialog.title === "Steuerprogramm" &&
-      (dialog.texts ?? []).join(" ").toLowerCase().includes("wiederherstell") &&
-      (dialog.buttons ?? []).some((button) => button.name === "Nein"));
-    const staleImport = realDialogs.find((dialog) =>
-      dialog.title === "Aktualisierung fehlgeschlagen!" &&
-      (dialog.texts ?? []).join(" ").includes("importierte Steuerfall") &&
-      (dialog.buttons ?? []).some((button) => button.name.toLowerCase() === "ok"));
-    const profitUpdated = realDialogs.find((dialog) =>
-      dialog.title === "Gewinn aktualisiert!" &&
-      (dialog.texts ?? []).some((text) => /^Der Gewinn des Betriebs ».+« wurde aktualisiert\.$/u.test(text)) &&
-      (dialog.buttons ?? []).length === 1 && dialog.buttons[0].name === "OK");
-    const expected = recovery ?? staleImport ?? profitUpdated;
-    assert(expected && realDialogs.length === 1,
+    const expected = realDialogs[0];
+    const button = classifyPassiveStartupDialog(expected);
+    assert(button && realDialogs.length === 1,
       `Unerwarteter Startdialog; nichts beantwortet: ${JSON.stringify(realDialogs)}`);
     await call("sse_dialog_answer", {
       hwnd: expected.hwnd,
       fingerprint: expected.fingerprint,
-      button: recovery ? "Nein" : "OK",
+      button,
     });
     if (dialogRound === 3) throw new Error("Startdialog-Kette ueberschritt vier strikt gebundene Antworten.");
   }

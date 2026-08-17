@@ -37,7 +37,7 @@ function Get-Utf8NullTerminated([string]$Value) {
   return [byte[]]([Text.Encoding]::UTF8.GetBytes($Value) + [byte]0)
 }
 
-function New-AkadFixture([string]$Path, [ValidateSet('true','false','unknown','platzhalter','unlesbar')][string]$TransferState) {
+function New-AkadFixture([string]$Path, [ValidateSet('true','false','unknown','platzhalter','unlesbar','typed-date')][string]$TransferState) {
   $stream = New-Object IO.MemoryStream
   $writer = New-Object IO.BinaryWriter($stream)
   try {
@@ -63,6 +63,8 @@ function New-AkadFixture([string]$Path, [ValidateSet('true','false','unknown','p
       Write-AkadPrefixedRecord -Writer $writer -Name 'ElsterTransferTime' -Type 4 -Value (Get-Utf8NullTerminated '-')
     } elseif ($TransferState -eq 'unlesbar') {
       Write-AkadPrefixedRecord -Writer $writer -Name 'ElsterTransferTime' -Type 4 -Value (Get-Utf8NullTerminated 'spaeter')
+    } elseif ($TransferState -eq 'typed-date') {
+      Write-AkadDateRecord -Writer $writer -Name 'ElsterTransferTime' -Day 0 -Month 0 -Year 0
     }
     Write-AkadPrefixedRecord -Writer $writer -Name 'svCrypted' -Type 12 -Value ([byte[]](1,2,3,4,5,6,7,8))
     $writer.Flush()
@@ -88,11 +90,13 @@ try {
   $missingPath = Join-Path $temporary 'missing.Gew2025'
   $placeholderPath = Join-Path $temporary 'platzhalter.Gew2025'
   $unreadablePath = Join-Path $temporary 'unlesbar.Gew2025'
+  $typedDatePath = Join-Path $temporary 'typed-date.Gew2025'
   New-AkadFixture -Path $truePath -TransferState true
   New-AkadFixture -Path $falsePath -TransferState false
   New-AkadFixture -Path $unknownPath -TransferState unknown
   New-AkadFixture -Path $placeholderPath -TransferState platzhalter
   New-AkadFixture -Path $unreadablePath -TransferState unlesbar
+  New-AkadFixture -Path $typedDatePath -TransferState typed-date
   [IO.File]::WriteAllBytes($shortPath, [byte[]](1,2,3))
   [IO.File]::WriteAllBytes($notAkadPath, (New-Object byte[] 64))
   [IO.File]::WriteAllBytes($largePath, (New-Object byte[] (600 * 1024)))
@@ -136,6 +140,10 @@ try {
   # irrtuemlich zweite Abgabe waere der teurere Fehler.
   $parsedUnreadable = @(Invoke-AkadParser -Paths @($unreadablePath))[0]
   Assert-Equal $parsedUnreadable.transmitted 'unknown' 'Unbekanntes Zeitformat bleibt unbekannt'
+
+  $parsedTypedDate = @(Invoke-AkadParser -Paths @($typedDatePath))[0]
+  Assert-True ($parsedTypedDate.transmitted -is [string]) 'Unerwarteter Feldtyp darf kein boolesches Versand-true liefern'
+  Assert-Equal $parsedTypedDate.transmitted 'unknown' 'Unerwarteter Feldtyp bleibt unbekannt'
 
   $parsedUnknown = @(Invoke-AkadParser -Paths @($unknownPath))[0]
   Assert-Equal $parsedUnknown.transmitted 'unknown' 'Fehlendes Feld bleibt unbekannt'

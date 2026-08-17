@@ -18,6 +18,8 @@ const server = join(root, "dist", "index.js");
 const worker = join(root, "powershell", "sse-worker.ps1");
 const workerSource = readFileSync(worker, "utf8");
 const workerBridgeSource = readFileSync(join(root, "src", "worker.ts"), "utf8");
+const desktopMarkerNodeSource = readFileSync(join(root, "src", "desktop-marker.ts"), "utf8");
+const desktopMarkerWorkerSource = readFileSync(join(root, "powershell", "desktop-marker.ps1"), "utf8");
 const desktopLauncherSource = readFileSync(join(root, "powershell", "run-on-desktop.ps1"), "utf8");
 const workerTransportSource = readFileSync(join(root, "powershell", "worker-transport-common.ps1"), "utf8");
 const tableRegionSource = readFileSync(join(root, "powershell", "table-region.ps1"), "utf8");
@@ -37,6 +39,7 @@ const operationCatalogSource = readdirSync(join(root, "src"))
   .join("\n");
 const apiContractSource = readFileSync(join(root, "src", "api-contract.ts"), "utf8");
 const apiExecutorSource = readFileSync(join(root, "src", "api-executor.ts"), "utf8");
+const pageObjectsExecutorSource = readFileSync(join(root, "src", "page-objects-executor.ts"), "utf8");
 const launchExecutorSource = readFileSync(join(root, "src", "launch-executor.ts"), "utf8");
 const skillSource = readFileSync(join(root, "skills", "steuer-spar-erklaerung", "SKILL.md"), "utf8");
 const liveWriteJourneySource = readFileSync(join(root, "test", "live-write-journey.mjs"), "utf8");
@@ -92,9 +95,11 @@ assert(workerBridgeSource.includes("workerRuntimeFailure") &&
   workerBridgeSource.match(/if \(workerRuntimeFailure\)/g)?.length === 2 &&
   workerBridgeSource.indexOf("if (workerRuntimeFailure)") < workerBridgeSource.indexOf("if (queueDepth >= MAX_WORKER_QUEUE_DEPTH)"),
 "Nicht nachweisbarer Prozessbaum-Cleanup sperrt nachfolgende Worker nicht fail-closed.");
-assert(workerBridgeSource.includes("readFileBounded(DESKTOP_MARKER, MAX_DESKTOP_MARKER_BYTES)") &&
-  workerSource.includes("$markerFile.Length -gt 4KB") &&
-  workerSource.includes("New-Object Text.UTF8Encoding($false, $true)"),
+assert(workerBridgeSource.includes("resolveDesktopMarkerForOperation(") &&
+  desktopMarkerNodeSource.includes("readFileBounded(markerPath, MAX_DESKTOP_MARKER_BYTES)") &&
+  desktopMarkerNodeSource.includes('new TextDecoder("utf-8", { fatal: true })') &&
+  desktopMarkerWorkerSource.includes("$markerFile.Length -gt 4KB") &&
+  desktopMarkerWorkerSource.includes("New-Object Text.UTF8Encoding($false, $true)"),
 "Desktop-Marker wird nicht in Node und PowerShell begrenzt als striktes UTF-8 gelesen.");
 assert(workerBridgeSource.includes('"-ArgsFile", argsFile') &&
   !workerBridgeSource.includes('"-B64", b64') &&
@@ -428,8 +433,12 @@ try {
   assert(SSE_MCP_TOOL_OPERATIONS.sse_page_objects === "page_objects" &&
     serverSource.includes('"sse_page_objects"') &&
     apiContractSource.includes('"page_objects"') &&
+    apiExecutorSource.includes('if (operation === "page_objects")') &&
+    apiExecutorSource.includes("executeLocalPageObjects") &&
+    pageObjectsExecutorSource.includes("loadProductProfile(options.profileId, options.profilesRoot)") &&
+    pageObjectsExecutorSource.includes("resolvePageObjectDefinition") &&
     workerOpBlock("page_objects").includes("Get-SSEPageObjects"),
-  "Page Objects laufen nicht ueber die API oder werden im frischen Worker nicht neu geladen.");
+  "Page Objects werden nicht pro API-Aufruf neu geladen oder verlieren ihren Worker-Kompatibilitaetspfad.");
   const strictMainWindowOps = [
     "click", "set_value", "combo_options", "click_point",
     "positions", "export_csv", "collect", "goto_tree", "goto", "table_read",

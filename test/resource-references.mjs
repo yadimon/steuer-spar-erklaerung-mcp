@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -30,9 +31,15 @@ const roots = {
 
 for (const root of Object.values(roots)) mkdirSync(root, { recursive: true });
 writeFileSync(join(roots.cases, "arbeit.Gew2025"), "case-fixture");
+const caseFixtureHash = createHash("sha256").update("case-fixture").digest("hex").toUpperCase();
 writeFileSync(join(roots.documents, "rechnung.txt"), "beleg\n");
 writeFileSync(join(roots.workspace, "eingabe.txt"), "input\n");
-writeFileSync(join(roots.results, "erfassung.json"), "{}\n");
+const collectedFixture = `${JSON.stringify({
+  vollstaendig: true,
+  seiten: [{ ueberschrift: "Seite", felder: [{ label: "Feld", wert: "1" }] }],
+})}\n`;
+writeFileSync(join(roots.results, "erfassung.json"), collectedFixture);
+const collectedFixtureHash = createHash("sha256").update(collectedFixture).digest("hex").toUpperCase();
 
 try {
   assert.deepEqual(parseResourceReference("documents:belege\\rechnung.pdf"), {
@@ -119,6 +126,7 @@ try {
       if (operation === "dialog_list") return { ok: true, dialogs: [] };
       return { ok: true, operation, path: args.path, args };
     },
+    { archiveHasRunningSseProcess: async () => false },
   );
 
   const centerCases = await execute("center_cases", { hwnd: 42 }, 1_000);
@@ -158,16 +166,26 @@ try {
   assert.equal(existsSync(join(roots.results, "csv-fehler")), false,
     "fehlgeschlagener Export darf auch neu angelegte Elternordner nicht hinterlassen");
 
+  const callsBeforeHash = calls.length;
   const hashed = await execute("case_hash", { ref: "cases:arbeit.Gew2025" }, 1_000);
-  assert.equal(calls.at(-1).args.path, join(roots.cases, "arbeit.Gew2025"));
+  assert.equal(calls.length, callsBeforeHash, "case_hash muss ohne PowerShell-Worker auskommen");
   assert.equal(hashed.path, "cases:arbeit.Gew2025");
-  assert.equal(hashed.args.path, "cases:arbeit.Gew2025");
+  assert.equal(
+    hashed.sha256,
+    createHash("sha256").update("case-fixture").digest("hex").toUpperCase(),
+  );
   assert.deepEqual(hashed.resourceRefs, { ref: "cases:arbeit.Gew2025" });
   assert(!JSON.stringify(hashed).includes(roots.cases), "API-Ergebnis darf den lokalen Fallordner nicht enthalten");
 
   const legacy = await execute("case_hash", { path: join(roots.cases, "arbeit.Gew2025") }, 1_000);
-  assert.equal(calls.at(-1).args.path, join(roots.cases, "arbeit.Gew2025"));
+  assert.equal(calls.length, callsBeforeHash, "Auch der Legacy-Pfad darf keinen Worker starten");
   assert.equal(legacy.ok, true, "Direkte API-Pfadfelder bleiben kompatibel");
+  const missingCase = await execute("case_hash", { ref: "cases:fehlt.Gew2025" }, 1_000);
+  assert.equal(missingCase.ok, false);
+  assert.equal(missingCase.kind, "not-found");
+  assert.deepEqual(missingCase.resourceRefs, { ref: "cases:fehlt.Gew2025" });
+  assert(!JSON.stringify(missingCase).includes(roots.cases), "Fallhash-Fehler darf den lokalen Fallordner nicht enthalten");
+  assert.match(missingCase.error, /cases:fehlt\.Gew2025/);
   const ambiguous = await execute(
     "case_hash",
     { ref: "cases:arbeit.Gew2025", path: join(roots.cases, "arbeit.Gew2025") },
@@ -185,10 +203,6 @@ try {
     ["center_refresh", "expectedDirectoryRef", "expectedDirectory", "cases:.", roots.cases, { hwnd: 42 }],
     ["collect", "resultRef", "path", "results:neu.json", join(roots.results, "neu.json")],
     ["export_csv", "resultRef", "dir", "results:csv-export", join(roots.results, "csv-export")],
-    ["verify", "sourceRef", "from", "results:erfassung.json", join(roots.results, "erfassung.json"), {
-      expectedSourceHash: "0".repeat(64),
-      erwartungen: [{ seite: "Seite", label: "Feld", wert: "1" }],
-    }],
     ["screenshot", "resultRef", "path", "results:kontrolle.png", join(roots.results, "kontrolle.png")],
     ["save", "caseRef", "expectedPath", "cases:arbeit.Gew2025", join(roots.cases, "arbeit.Gew2025"), {
       expectedHashBefore: "0".repeat(64),
@@ -212,11 +226,6 @@ try {
       expectedPage: "Seite", aid: ".Combo", expectedCurrent: "A", value: "B", expectedAfter: "B",
       expectedCaseHash: "0".repeat(64),
     }],
-    ["backup_cases", "destinationRef", "dest", "backups:sicherung", join(roots.backups, "sicherung")],
-    ["archive_cases", "destinationRef", "dest", "backups:archiv", join(roots.backups, "archiv"), {
-      cases: [{ name: "alt.Gew2025", expectedSha256: "0".repeat(64) }],
-      expectedRemaining: [{ name: "aktuell.Gew2025", expectedSha256: "1".repeat(64) }],
-    }],
   ];
   for (const [operation, alias, legacyField, ref, expectedPath, additionalArgs = {}] of aliasCases) {
     const callsBefore = calls.length;
@@ -229,6 +238,30 @@ try {
     assert(!JSON.stringify(result).includes(expectedPath), `${operation} darf den lokalen Pfad nicht zurueckgeben`);
   }
 
+  const callsBeforeBackup = calls.length;
+  const backup = await execute("backup_cases", { destinationRef: "backups:sicherung" }, 30_000);
+  assert.equal(calls.length, callsBeforeBackup, "backup_cases muss ohne PowerShell-Worker auskommen");
+  assert.equal(backup.ok, true);
+  assert.deepEqual(backup.resourceRefs, { destinationRef: "backups:sicherung" });
+  assert.equal(backup.dest, "backups:sicherung");
+  assert.equal(backup.manifest, "backups:sicherung/pruefsummen.csv");
+  assert.equal(existsSync(join(roots.backups, "sicherung", "arbeit.Gew2025")), true);
+  assert(!JSON.stringify(backup).includes(join(roots.backups, "sicherung")),
+    "backup_cases darf den lokalen Sicherungspfad nicht zurueckgeben");
+
+  const callsBeforeVerify = calls.length;
+  const verified = await execute("verify", {
+    sourceRef: "results:erfassung.json",
+    expectedSourceHash: collectedFixtureHash,
+    erwartungen: [{ seite: "Seite", label: "Feld", wert: "1" }],
+  }, 1_000);
+  assert.equal(calls.length, callsBeforeVerify, "verify muss ohne PowerShell-Worker auskommen");
+  assert.equal(verified.ok, true);
+  assert.equal(verified.vergleichOk, true);
+  assert.deepEqual(verified.resourceRefs, { sourceRef: "results:erfassung.json" });
+  assert(!JSON.stringify(verified).includes(join(roots.results, "erfassung.json")),
+    "verify darf den lokalen Quellpfad nicht zurueckgeben");
+
   writeFileSync(join(roots.results, "kontrolle.png"), "vorhandenes-kontrollbild", "utf8");
   const callsBeforeExistingScreenshot = calls.length;
   const existingScreenshot = await execute("screenshot", { resultRef: "results:kontrolle.png" }, 1_000);
@@ -237,17 +270,46 @@ try {
   assert.match(existingScreenshot.error, /existiert bereits/);
   assert.equal(calls.length, callsBeforeExistingScreenshot, "Screenshot darf vorhandene Ergebnisdatei nicht ersetzen");
 
-  const listedCases = await execute("list_cases", {}, 1_000);
+  const listedCases = await execute("list_cases", { verbose: true }, 1_000);
   assert.equal(calls.at(-1).args.dir, roots.cases);
   assert(!JSON.stringify(listedCases).includes(roots.cases));
+
+  const emptyCaseDir = join(temporary, "empty-cases");
+  mkdirSync(emptyCaseDir);
+  const emptyListWorkerCalls = [];
+  const emptyListExecute = createApiExecutor(
+    {
+      host: "127.0.0.1",
+      port: 43131,
+      token: "empty-list-token-with-at-least-24-characters",
+      configPath,
+      caseDir: emptyCaseDir,
+      workspaceDir: join(temporary, "empty-list-workspace"),
+      resultDir: join(temporary, "empty-list-results"),
+    },
+    async (operation, args) => {
+      emptyListWorkerCalls.push({ operation, args });
+      return { ok: true, count: 0, cases: [], dir: args.dir, verboseWorker: true };
+    },
+  );
+  const emptyList = await emptyListExecute("list_cases", {}, 1_000);
+  assert.equal(emptyList.count, 0);
+  assert.equal(emptyList.dir, "cases:.");
+  assert.equal(emptyListWorkerCalls.length, 0, "Leere lokale Fallliste darf keinen Worker starten");
+  const verboseList = await emptyListExecute("list_cases", { verbose: true }, 1_000);
+  assert.equal(verboseList.verboseWorker, true);
+  assert.equal(emptyListWorkerCalls.at(-1).operation, "list_cases", "Verbose-Liste muss beim Worker bleiben");
+  const callsBeforeArchive = calls.length;
   const archived = await execute("archive_cases", {
     destinationRef: "backups:archiv-2",
     cases: [{ name: "alt.Gew2025", expectedSha256: "0".repeat(64) }],
     expectedRemaining: [{ name: "aktuell.Gew2025", expectedSha256: "1".repeat(64) }],
   }, 1_000);
-  assert.equal(calls.at(-1).args.dir, roots.cases);
-  assert.equal(calls.at(-1).args.dest, join(roots.backups, "archiv-2"));
+  assert.equal(calls.length, callsBeforeArchive, "archive_cases muss auch bei Preflight-Fehlern ohne Worker auskommen");
+  assert.equal(archived.kind, "inventory-mismatch");
+  assert.deepEqual(archived.resourceRefs, { destinationRef: "backups:archiv-2" });
   assert(!JSON.stringify(archived).includes(roots.cases));
+  assert(!JSON.stringify(archived).includes(join(roots.backups, "archiv-2")));
 
   const saveAs = await execute(
     "save_as",
@@ -278,17 +340,21 @@ try {
   assert.equal(calls.at(-1).args.expectedCaseRef, undefined);
   assert.deepEqual(tracked.resourceRefs, { expectedCaseRef: "cases:arbeit.Gew2025" });
 
+  const callsBeforeCopy = calls.length;
   const copied = await execute(
     "make_working_copy",
     {
       sourceRef: "cases:arbeit.Gew2025",
       targetRef: "cases:arbeitskopie.Gew2025",
-      expectedSourceHash: "0".repeat(64),
+      expectedSourceHash: caseFixtureHash,
     },
     1_000,
   );
-  assert.equal(calls.at(-1).args.source, join(roots.cases, "arbeit.Gew2025"));
-  assert.equal(calls.at(-1).args.target, join(roots.cases, "arbeitskopie.Gew2025"));
+  assert.equal(calls.length, callsBeforeCopy, "Lokale Arbeitskopie darf den Worker nicht starten.");
+  assert.equal(copied.ok, true, JSON.stringify(copied));
+  assert.equal(copied.source, "cases:arbeit.Gew2025");
+  assert.equal(copied.target, "cases:arbeitskopie.Gew2025");
+  assert.equal(existsSync(join(roots.cases, "arbeitskopie.Gew2025")), true);
   assert.deepEqual(copied.resourceRefs, {
     sourceRef: "cases:arbeit.Gew2025",
     targetRef: "cases:arbeitskopie.Gew2025",
@@ -296,7 +362,7 @@ try {
 
   const bindingOperationsCovered = new Set([
     ...aliasCases.map(([operation]) => operation),
-    "case_hash", "tracked_set_value", "save_as", "make_working_copy",
+    "case_hash", "verify", "tracked_set_value", "save_as", "make_working_copy", "backup_cases", "archive_cases",
   ]);
   assert.deepEqual(
     Object.keys(API_RESOURCE_BINDINGS).sort(),
@@ -366,6 +432,7 @@ try {
   assert.match(embedded, /results:unterordner\/erfassung\.json/);
 
   const lateCaseDir = join(temporary, "spaeter-eingebundene-faelle");
+  const lateWorkerCalls = [];
   const lateExecute = createApiExecutor(
     {
       host: "127.0.0.1",
@@ -376,13 +443,39 @@ try {
       workspaceDir: join(temporary, "late-workspace"),
       resultDir: join(temporary, "late-results"),
     },
-    async () => ({ ok: true, path: join(lateCaseDir, "spaeter.Gew2025") }),
+    async (operation, args, workerTimeoutMs) => {
+      lateWorkerCalls.push({ operation, args, workerTimeoutMs });
+      return { ok: true, path: join(lateCaseDir, "spaeter.Gew2025") };
+    },
   );
   const beforeMount = await lateExecute("list_cases", {}, 1_000);
   assert.equal(beforeMount.path, "cases:spaeter.Gew2025", "auch ein noch fehlender Fallroot muss PC-blind bleiben");
   mkdirSync(lateCaseDir, { recursive: true });
-  const afterMount = await lateExecute("list_cases", {}, 1_000);
+  writeFileSync(join(lateCaseDir, "spaeter.Gew2025"), "Parser-Fallback fuer Redaktionsprobe", "utf8");
+  const afterMount = await lateExecute("list_cases", {}, 5_000);
   assert.equal(afterMount.path, "cases:spaeter.Gew2025", "spaeter eingebundener Fallroot muss neu erkannt werden");
+  const fallbackCall = lateWorkerCalls.at(-1);
+  assert(
+    fallbackCall.workerTimeoutMs <= 5_000 && fallbackCall.workerTimeoutMs >= 2_000,
+    "Der Worker-Fallback darf nur das nach dem lokalen Parser verbleibende Zeitbudget erhalten.",
+  );
+
+  const callsBeforeShortBudget = lateWorkerCalls.length;
+  const shortBudget = await lateExecute("list_cases", {}, 1_000);
+  assert.equal(shortBudget.ok, false);
+  assert.equal(shortBudget.kind, "timeout");
+  assert.equal(
+    lateWorkerCalls.length,
+    callsBeforeShortBudget,
+    "Ein nicht sicher nutzbarer Rest darf keinen PowerShell-Prozess mehr starten.",
+  );
+
+  const defaultBudget = await lateExecute("list_cases", {});
+  assert.equal(defaultBudget.path, "cases:spaeter.Gew2025");
+  assert(
+    lateWorkerCalls.at(-1).workerTimeoutMs <= 90_000 && lateWorkerCalls.at(-1).workerTimeoutMs >= 2_000,
+    "Auch ohne explizites timeoutMs muessen lokaler Parser und Worker ein gemeinsames Standardbudget teilen.",
+  );
 
   process.stdout.write("Ressourcenreferenzen: 5 Bereiche, stabile Rueckgaben und Escape-Sperren bestanden\n");
 } finally {

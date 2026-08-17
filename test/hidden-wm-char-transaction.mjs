@@ -21,6 +21,7 @@ import { basename, dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { classifyPassiveStartupDialog } from "./startup-dialog-policy.mjs";
 
 const source = process.env.SSE_FOCUSLESS_FIXTURE;
 assert(source && existsSync(source) && extname(source).toLowerCase() === ".gew2025",
@@ -92,14 +93,7 @@ async function dismissBoundStartupDialogs(pid) {
     if (!dialogs.length) return;
     assert.equal(dialogs.length, 1, `Mehrdeutige Startdialoge: ${JSON.stringify(dialogs)}`);
     const dialog = dialogs[0];
-    const texts = (dialog.texts ?? []).join(" ");
-    let button = null;
-    if (dialog.title === "Steuerprogramm" && texts.toLowerCase().includes("wiederherstell") &&
-        (dialog.buttons ?? []).some((candidate) => candidate.name === "Nein")) button = "Nein";
-    if (dialog.title === "Aktualisierung fehlgeschlagen!" && texts.includes("importierte Steuerfall") &&
-        (dialog.buttons ?? []).some((candidate) => candidate.name.toLowerCase() === "ok")) button = "OK";
-    if (dialog.title === "Gewinn aktualisiert!" && /^Der Gewinn des Betriebs ».+« wurde aktualisiert\.$/u.test(texts) &&
-        (dialog.buttons ?? []).length === 1 && dialog.buttons[0].name === "OK") button = "OK";
+    const button = classifyPassiveStartupDialog(dialog);
     assert(button, `Unerwarteter Startdialog; nichts beantwortet: ${JSON.stringify(dialog)}`);
     await call("sse_dialog_answer", { hwnd: dialog.hwnd, fingerprint: dialog.fingerprint, button });
   }

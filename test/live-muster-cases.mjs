@@ -25,6 +25,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { callApiOperation } from "../dist/api-client.js";
 import { loadProductProfile } from "../dist/product-profiles.js";
+import { classifyPassiveStartupDialog } from "./startup-dialog-policy.mjs";
 
 const profileId = process.env.SSE_PROFILE_ID ?? "2025";
 const profile = loadProductProfile(profileId);
@@ -430,13 +431,6 @@ async function closeOwnedLiveInstance(instance, launchedPid) {
   return closeError ? `${closeError} ${shutdownError}` : shutdownError;
 }
 
-function classifyStartupDialog(dialog) {
-  const text = (dialog.texts ?? []).join(" ");
-  if (dialog.title === "Gewinn aktualisiert!" && /^Der Gewinn des Betriebs ».+« wurde aktualisiert\.$/u.test(text) &&
-      (dialog.buttons ?? []).length === 1 && dialog.buttons[0].name === "OK") return "OK";
-  return null;
-}
-
 async function dismissBoundStartupDialogs(pid) {
   for (let round = 0; round < 4; round++) {
     const listed = await call("sse_dialog_list", { pid });
@@ -444,7 +438,7 @@ async function dismissBoundStartupDialogs(pid) {
       dialog.kind === "native-dialog" || dialog.kind === "qt-dialog");
     if (!dialogs.length) return;
     assert.equal(dialogs.length, 1, `Mehrdeutige Startdialoge: ${JSON.stringify(dialogs)}`);
-    const button = classifyStartupDialog(dialogs[0]);
+    const button = classifyPassiveStartupDialog(dialogs[0]);
     assert(button, `Unerwarteter Startdialog; nichts beantwortet: ${JSON.stringify(dialogs[0])}`);
     await call("sse_dialog_answer", {
       hwnd: dialogs[0].hwnd, fingerprint: dialogs[0].fingerprint, button,
@@ -530,6 +524,114 @@ function knownPageForCase(pages, definition) {
   assert(typeof page.heading === "string" && page.heading.length > 0,
     `Katalogseite '${pageId}' hat keine Ueberschrift.`);
   return { pageId, heading: page.heading };
+}
+
+/**
+ * Belegt den fortsetzbaren Collect-Teilstand und dessen hashgebundene
+ * Gegenpruefung. Dieser Pfad bleibt getrennt vom erfolgreichen End-of-Branch-
+ * Nachweis: Ein Seitenlimit darf niemals als vollstaendige Sammlung gelten.
+ */
+async function assertPartialCollectAndVerify(id, hwnd) {
+  // Der Sammellauf beginnt auf der aktuellen Seite. Wo die vorherigen
+  // Schritte enden, ist nicht garantiert - auf einer Uebersichtsseite ohne
+  // Blaetterweg entstuende nur ein terminales Ein-Seiten-Segment. Fuer den
+  // getrennten Teilstandvertrag wird deshalb gebunden in den Formularzweig
+  // gesprungen; dort folgen sicher weitere Seiten.
+  await gotoNavigationBranch(id, hwnd, "Steuererklärung");
+
+  // Ein am Seitenlimit gestoppter Sammellauf ist ein dokumentiertes, gueltiges
+  // Ergebnis - aber nur genau dieses eine. Jede andere Fehlerart bleibt rot.
+  const collectRef = `results:live-${id}-${process.pid}.json`;
+  const collected = await callTolerant(
+    "sse_collect", { resultRef: collectRef, maxPages: 2, hwnd }, ["collection-incomplete"], 300_000,
+  );
+  assert.equal(collected.ok, false, `${id}: begrenzter collect-Lauf meldete unerwartet Erfolg.`);
+  assert.equal(collected.vollstaendig, false, `${id}: Seitenlimit wurde als vollstaendige Sammlung ausgegeben.`);
+  assert.equal(collected.stopKind, "limit-reached", `${id}: begrenzter collect-Lauf stoppte aus anderem Grund.`);
+  assert.equal(collected.anzahl, 2, `${id}: begrenzter collect-Lauf erfasste nicht exakt zwei Seiten.`);
+  assert.equal(collected.advancedAfterLastCaptured, true,
+    `${id}: collect belegte den Folgezustand hinter dem Teilstand nicht.`);
+  assert.match(collected.dateiHash ?? "", /^[A-F0-9]{64}$/u,
+    `${id}: collect ohne gueltigen dateiHash fuer die Gegenpruefung.`);
+  assert.equal(collected.ueberschriften?.length, 2, `${id}: collect meldete nicht beide erfassten Seiten.`);
+
+  // Der Soll/Ist-Abgleich meldet Mehrdeutigkeit bewusst als Abweichung. Statt
+  // auf ein zufaellig eindeutiges Paar zu hoffen, wird die Position explizit
+  // mitgegeben - dafuer gibt es seiteOccurrence und labelOccurrence.
+  const document = JSON.parse((await callCanonical("sse_workspace_read_text", { ref: collectRef })).text);
+  const pagesInDocument = document.seiten ?? [];
+  const expectation = pagesInDocument.flatMap((page, pageIndex) => {
+    const seiteOccurrence = pagesInDocument
+      .slice(0, pageIndex + 1)
+      .filter((candidate) => candidate.ueberschrift === page.ueberschrift).length;
+    const felder = page.felder ?? [];
+    return felder.flatMap((field, fieldIndex) => {
+      if (typeof field.wert !== "string" || field.wert === "") return [];
+      const labelOccurrence = felder
+        .slice(0, fieldIndex + 1)
+        .filter((candidate) => candidate.label === field.label).length;
+      return [{ seite: page.ueberschrift, seiteOccurrence, label: field.label, labelOccurrence, wert: field.wert }];
+    });
+  })[0];
+  assert(expectation, `${id}: collect lieferte keine pruefbare Feldzeile.`);
+  const verified = await callCanonical("sse_verify", {
+    sourceRef: collectRef,
+    expectedSourceHash: collected.dateiHash,
+    allowIncompleteSource: collected.vollstaendig !== true,
+    erwartungen: [expectation],
+  }, 180_000);
+  assertSemanticEqual(verified.ergebnis?.[0]?.status, "stimmt",
+    `${id}: verify bestaetigte den eigenen Sammelstand nicht: ${JSON.stringify(verified.ergebnis?.[0])}`);
+  assertSemanticEqual(verified.abweichungen, 0, `${id}: verify meldete eine Abweichung gegen den eigenen Stand`);
+}
+
+/**
+ * Beweist einen erfolgreichen Collect-Lauf nur auf einer profilierten
+ * Endseite. Der vollstaendige UIA-Suchlauf muss vorher bestaetigen, dass kein
+ * Weiter-Schalter existiert; andernfalls wird collect gar nicht erst gestartet.
+ */
+async function assertTerminalCollect(definition, hwnd, headingAtLaunch) {
+  const { id, terminalCollect } = definition;
+  assert.equal(typeof terminalCollect?.headingAtLaunch, "string",
+    `${id}: terminalCollect braucht eine profilierte Startueberschrift.`);
+  assertSemanticEqual(headingAtLaunch, terminalCollect.headingAtLaunch,
+    `${id}: Musterfall oeffnete nicht auf der profilierten Collect-Endseite`);
+
+  const forward = await callCanonical("sse_find", { name: "Weiter", contains: true, hwnd });
+  assert.equal(forward.incomplete, false,
+    `${id}: UIA-Suche nach 'Weiter' war unvollstaendig; Endseite ist nicht bewiesen.`);
+  const forwardControls = (forward.hits ?? []).filter((hit) =>
+    ["Button", "Hyperlink"].includes(hit.type) && /^Weiter\b/u.test(hit.name?.trim() ?? ""));
+  assert.deepEqual(forwardControls, [],
+    `${id}: Profilseite '${headingAtLaunch}' besitzt ein Weiter-Control und ist keine sichere Collect-Endseite.`);
+
+  const collectRef = `results:live-${id}-${process.pid}-terminal.json`;
+  const collected = await callCanonical(
+    "sse_collect", { resultRef: collectRef, maxPages: 2, hwnd }, 300_000,
+  );
+  assertSemanticEqual(collected.ok, true, `${id}: terminaler collect-Lauf meldete keinen Erfolg`);
+  assertSemanticEqual(collected.vollstaendig, true, `${id}: terminaler collect-Lauf blieb unvollstaendig`);
+  assertSemanticEqual(collected.stopKind, "end-of-branch", `${id}: terminaler collect-Lauf bewies das Zweigende nicht`);
+  assertSemanticEqual(collected.anzahl, 1, `${id}: terminaler collect-Lauf erfasste nicht exakt eine Seite`);
+  assertSemanticEqual(collected.advancedAfterLastCaptured, false,
+    `${id}: terminaler collect-Lauf navigierte hinter den gespeicherten Stand`);
+  assertSemanticEqual(collected.currentHeadingAfter, headingAtLaunch,
+    `${id}: terminaler collect-Lauf endete auf einer anderen Seite`);
+  assert.deepEqual(collected.ueberschriften, [headingAtLaunch], `${id}: terminaler collect-Lauf meldete eine andere Seite.`);
+  assert.match(collected.dateiHash ?? "", /^[A-F0-9]{64}$/u,
+    `${id}: terminaler collect-Lauf lieferte keinen gueltigen Dateihash.`);
+
+  const saved = await callCanonical("sse_workspace_read_text", { ref: collectRef });
+  assert.equal(createHash("sha256").update(saved.text).digest("hex").toUpperCase(), collected.dateiHash,
+    `${id}: gespeicherter terminaler Collect-Stand passt nicht zum gemeldeten Hash.`);
+  const document = JSON.parse(saved.text);
+  assert.equal(document.vollstaendig, true, `${id}: terminale Collect-Datei ist als unvollstaendig markiert.`);
+  assert.equal(document.stopKind, "end-of-branch", `${id}: terminale Collect-Datei enthaelt einen anderen Stopgrund.`);
+  assert.equal(document.anzahl, 1, `${id}: terminale Collect-Datei enthaelt nicht exakt eine Seite.`);
+  assert.equal(document.seiten?.[0]?.ueberschrift, headingAtLaunch,
+    `${id}: terminale Collect-Datei enthaelt eine andere Seite.`);
+  assert((document.seiten?.[0]?.felder ?? []).length >= 1,
+    `${id}: terminale Collect-Datei enthaelt keine einzige strukturierte Feldzeile.`);
 }
 
 /**
@@ -659,50 +761,7 @@ async function assertDeepReadOnlySweep(definition, hwnd, pages) {
   }
 
   if (allowedOperation("collect")) {
-    // Der Sammellauf beginnt auf der aktuellen Seite. Wo die vorherigen
-    // Schritte enden, ist nicht garantiert - von einer Uebersichtsseite ohne
-    // Blaetterweg sammelt er zu Recht nichts. Deshalb wird zuvor gebunden in
-    // den Formularzweig gesprungen; dort gibt es immer Seiten.
-    await gotoNavigationBranch(id, hwnd, "Steuererklärung");
-
-    // Ein am Seitenlimit gestoppter Sammellauf ist ein dokumentiertes, gueltiges
-    // Ergebnis - aber nur genau dieses eine. Jede andere Fehlerart bleibt rot.
-    const collectRef = `results:live-${id}-${process.pid}.json`;
-    const collected = await callTolerant(
-      "sse_collect", { resultRef: collectRef, maxPages: 2, hwnd }, ["collection-incomplete"], 300_000,
-    );
-    assert.equal(typeof collected.dateiHash, "string", `${id}: collect ohne dateiHash fuer die Gegenpruefung.`);
-    assert(Array.isArray(collected.ueberschriften) && collected.ueberschriften.length >= 1,
-      `${id}: collect sammelte keine Seite.`);
-
-    // Der Soll/Ist-Abgleich meldet Mehrdeutigkeit bewusst als Abweichung. Statt
-    // auf ein zufaellig eindeutiges Paar zu hoffen, wird die Position explizit
-    // mitgegeben - dafuer gibt es seiteOccurrence und labelOccurrence.
-    const document = JSON.parse((await callCanonical("sse_workspace_read_text", { ref: collectRef })).text);
-    const pagesInDocument = document.seiten ?? [];
-    const expectation = pagesInDocument.flatMap((page, pageIndex) => {
-      const seiteOccurrence = pagesInDocument
-        .slice(0, pageIndex + 1)
-        .filter((candidate) => candidate.ueberschrift === page.ueberschrift).length;
-      const felder = page.felder ?? [];
-      return felder.flatMap((field, fieldIndex) => {
-        if (typeof field.wert !== "string" || field.wert === "") return [];
-        const labelOccurrence = felder
-          .slice(0, fieldIndex + 1)
-          .filter((candidate) => candidate.label === field.label).length;
-        return [{ seite: page.ueberschrift, seiteOccurrence, label: field.label, labelOccurrence, wert: field.wert }];
-      });
-    })[0];
-    assert(expectation, `${id}: collect lieferte keine pruefbare Feldzeile.`);
-    const verified = await callCanonical("sse_verify", {
-      sourceRef: collectRef,
-      expectedSourceHash: collected.dateiHash,
-      allowIncompleteSource: collected.vollstaendig !== true,
-      erwartungen: [expectation],
-    }, 180_000);
-    assertSemanticEqual(verified.ergebnis?.[0]?.status, "stimmt",
-      `${id}: verify bestaetigte den eigenen Sammelstand nicht: ${JSON.stringify(verified.ergebnis?.[0])}`);
-    assertSemanticEqual(verified.abweichungen, 0, `${id}: verify meldete eine Abweichung gegen den eigenen Stand`);
+    await assertPartialCollectAndVerify(id, hwnd);
   } else {
     assertBlockedOnPurpose("collect");
     assertBlockedOnPurpose("verify");
@@ -753,6 +812,11 @@ try {
       assert(Number.isInteger(instance?.pid) && Number.isInteger(instance?.hwnd),
         `${definition.id}: SSE-Instanz ist nicht eindeutig gebunden.`);
       const page = await call("sse_page", { hwnd: instance.hwnd });
+      if (liveMode === "full" && definition.terminalCollect) {
+        assert(allowedOperation("collect"),
+          `${definition.id}: terminalCollect ist profiliert, aber collect laut Faehigkeitsmatrix gesperrt.`);
+        await assertTerminalCollect(definition, instance.hwnd, page.ueberschrift);
+      }
       const result = await call(definition.operation, { hwnd: instance.hwnd }, 300_000);
       assertExpectedResultRows(definition, result);
       if (definition.id === definitions[0].id) {
@@ -851,7 +915,7 @@ process.stdout.write(`${JSON.stringify({
   })),
   mode: liveMode,
   omittedInCoreRead: liveMode === "core-read"
-    ? ["cross-section-navigation", "ustva-read", "checker", "deep-read-sweep"]
+    ? ["cross-section-navigation", "ustva-read", "checker", "terminal-collect", "deep-read-sweep"]
     : [],
   semanticChecks,
   durationMs: Date.now() - startedAt,

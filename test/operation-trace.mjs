@@ -15,6 +15,7 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
+import { resultTypeTag } from "./operation-result-shape-lib.mjs";
 
 export const OPERATION_TRACE_DIRECTORY_KEY = "SSE_TEST_OPERATION_TRACE_DIR";
 
@@ -24,10 +25,28 @@ export const OPERATION_TRACE_LABELS = Object.freeze([
   "stateful-mock",
   "ustva-mock",
   "scenario-mock",
+  "profile-catalog",
+  "local-file",
 ]);
 
 export function operationTraceDirectory(env = process.env) {
   return env[OPERATION_TRACE_DIRECTORY_KEY] ?? "";
+}
+
+export const OPERATION_RESULT_FIELD_PATTERN = /^[A-Za-z][A-Za-z0-9_]{0,63}$/u;
+
+/** Nur Feldnamen und wertfreie Typklassen, niemals Werte oder tiefer verschachtelte Nutzdaten. */
+export function operationResultShape(result) {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return {};
+  const shape = {};
+  for (const [field, value] of Object.entries(result)) {
+    if (value === undefined) continue;
+    if (!OPERATION_RESULT_FIELD_PATTERN.test(field)) {
+      throw new Error(`Unsicherer Ergebnisfeldname im Operation-Trace: '${field}'.`);
+    }
+    shape[field] = resultTypeTag(value);
+  }
+  return shape;
 }
 
 /**
@@ -54,6 +73,7 @@ export function traceOperations(label, execute, env = process.env) {
       ms: elapsedMs,
       ...(failed ? { threw: true } : {}),
       ...(typeof result?.kind === "string" && result.kind ? { kind: result.kind } : {}),
+      fields: operationResultShape(result),
     });
     appendFileSync(file, `${line}\n`, "utf8");
   };
@@ -61,15 +81,18 @@ export function traceOperations(label, execute, env = process.env) {
   return async (operation, args, timeoutMs, signal) => {
     const startedAt = process.hrtime.bigint();
     let result;
-    let failed = false;
     try {
       result = await execute(operation, args, timeoutMs, signal);
-      return result;
     } catch (error) {
-      failed = true;
+      try {
+        record(operation, result, true, Math.round(Number(process.hrtime.bigint() - startedAt) / 1_000_000));
+      } catch (traceError) {
+        throw new AggregateError([error, traceError],
+          `Operation '${operation}' und ihr wertfreier Trace sind beide fehlgeschlagen.`);
+      }
       throw error;
-    } finally {
-      record(operation, result, failed, Math.round(Number(process.hrtime.bigint() - startedAt) / 1_000_000));
     }
+    record(operation, result, false, Math.round(Number(process.hrtime.bigint() - startedAt) / 1_000_000));
+    return result;
   };
 }

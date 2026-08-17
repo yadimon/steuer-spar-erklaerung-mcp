@@ -33,7 +33,8 @@ function Assert-True([bool]$Condition, [string]$Message) {
   if (-not $Condition) { throw $Message }
 }
 
-$profitNotice = Dialog 'Gewinn aktualisiert!' @('Der Gewinn des Betriebs »Muster« wurde aktualisiert.') @('OK')
+$profitText = 'Der Gewinn des Betriebs {0}Muster{1} wurde aktualisiert.' -f [char]0x00BB, [char]0x00AB
+$profitNotice = Dialog 'Gewinn aktualisiert!' @($profitText) @('OK')
 Assert-True (Test-SSEExperimentalDialogAnswerAllowed $profitNotice 'OK') `
   'Exakt bekannte passive Gewinnnotiz wurde gesperrt.'
 
@@ -44,7 +45,9 @@ foreach ($case in @(
   @{ dialog = (Dialog 'Aktualisierung fehlgeschlagen!' @('Der importierte Steuerfall konnte nicht aktualisiert werden.') @('OK')); button = 'OK' },
   @{ dialog = (Dialog 'Aktualisierung fehlgeschlagen!' @('Anderer Inhalt') @('OK')); button = 'OK' },
   @{ dialog = (Dialog 'Gewinn aktualisiert!' @('Anderer Inhalt') @('OK')); button = 'OK' },
-  @{ dialog = (Dialog 'Gewinn aktualisiert!' @('Der Gewinn des Betriebs »Muster« wurde aktualisiert.') @('OK', 'Details')); button = 'OK' },
+  @{ dialog = (Dialog 'Gewinn aktualisiert!' @($profitText.Substring(0,1).ToLowerInvariant() + $profitText.Substring(1)) @('OK')); button = 'OK' },
+  @{ dialog = (Dialog 'Gewinn aktualisiert!' @('Der Gewinn des Betriebs Muster wurde aktualisiert.') @('OK')); button = 'OK' },
+  @{ dialog = (Dialog 'Gewinn aktualisiert!' @($profitText) @('OK', 'Details')); button = 'OK' },
   @{ dialog = (Dialog 'Steuerprogramm' @('Änderungen speichern?') @('Nein')); button = 'Nein' }
 )) {
   Assert-True (-not (Test-SSEExperimentalDialogAnswerAllowed $case.dialog $case.button)) `

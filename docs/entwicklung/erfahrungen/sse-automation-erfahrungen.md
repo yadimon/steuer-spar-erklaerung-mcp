@@ -175,6 +175,12 @@ einer veralteten Antwort bedient wird.
   Elternfenster darf offen bleiben, wenn genau ein neuer, oberster,
   fingerprintgebundener Ordnerdialog erscheint. Das ist Fortschritt zu einem
   Folgedialog, kein wirkungsloser Klick.
+- Eingeschränkte Produktprofile und automatische Live-Testhelfer beantworten
+  ausschließlich die exakt betitelte passive Gewinnnotiz mit genau einem
+  `OK`: Der Text muss case-sensitiv dem belegten Satz mit `»Betriebsname«`
+  entsprechen. Recovery- und Importdialoge bleiben auch bei einer
+  Wegwerfkopie unangetastet, solange keine explizite Eigentumsbindung an genau
+  diesen Startvorgang existiert.
 
 ### Wiederherstellungsdatei
 
@@ -517,15 +523,39 @@ verhindert werden.
 
 ### Eigentum am versteckten Desktop und Dialoge
 
-- Ein Desktopname ist kein ausreichender Eigentumsnachweis. Der Marker enthält
-  einen validierten ASCII-Namen und die PID genau des Prozesses, den der MCP
-  selbst mit `CreateProcess` gestartet hat.
+- Ein Desktopname ist kein ausreichender Eigentumsnachweis. Der aktuelle
+  Marker-Vertrag enthält Schemaversion, Owner, validierten ASCII-Namen und die
+  PID genau des Prozesses, den der MCP selbst mit `CreateProcess` gestartet
+  hat. Alte Name-/Name+PID-Marker bleiben nur lesbar, nicht neu erzeugbar.
+- Nur eine wirklich fehlende Markerdatei bedeutet sichtbaren Desktop. Leere,
+  zu große, nicht streng UTF-8-lesbare, syntaktisch defekte oder unerwartet
+  erweiterte Marker stoppen Node und PowerShell mit
+  `desktop-marker-invalid`; stiller sichtbarer Fallback wäre ein
+  Sicherheitsfehler.
 - Beim Start nur Fenster dieser neuen PID akzeptieren. Die größte oder einzige
   SSE-Instanz zu übernehmen kann eine ältere Sitzung adoptieren und den neuen
   Prozess verwaisen lassen.
-- Eine aktive Marke wird niemals überschrieben. Ist ihr Prozess tot, darf sie
-  erst entfernt werden, wenn der markierte Desktop nachweislich kein
-  SSE-Fenster mehr enthält.
+- Eine aktive Marke wird niemals überschrieben: neue Marker entstehen mit
+  `CreateNew`. Ist ihr Prozess tot, darf sie erst entfernt werden, wenn der
+  markierte Desktop nachweislich kein SSE-Fenster mehr enthält und
+  Owner/Name/PID unmittelbar vor dem Cleanup noch übereinstimmen.
+  PowerShell kann Vergleich und Löschen nicht als eine atomare Dateisystem-
+  Operation ausdrücken; das kleine verbleibende Read→Delete-Fenster wird durch
+  exklusives `CreateNew` und die einzige freigegebene Writer-Grenze minimiert,
+  aber nicht als mathematisch ausgeschlossen behauptet.
+- Das test-only Eigentum `center-test` wird nur mit explizitem
+  `SSE_CENTER_LIVE_TEST=1` und ausschließlich für `center_cases` sowie
+  `center_refresh` akzeptiert. Der Center-Launcher hält einen
+  Kill-on-close-Job offen; beendet sich der Test oder seine Pipe, endet nur
+  der exakt gestartete Center-Prozessbaum. Absolute Center-Pfade bleiben im
+  Testprozess und erscheinen weder im API-Ergebnis noch im wertfreien Trace.
+- Ein liegengebliebener `center-test`-Marker sperrt alle normalen Aktionen,
+  darf aber über `desktop_status` read-only als `markeVeraltet` diagnostiziert
+  werden. Nur der Test entfernt ihn bei exakt gleichem Owner/Name/PID; sonst
+  ist manuelle Prüfung Pflicht.
+- Umgekehrt besitzt ein normaler SSE-Marker keinen Center-Prozess:
+  `center_cases`/`center_refresh` stoppen dann mit `desktop-marker-owner`, statt
+  den Center irreführend auf dem privaten SSE-Desktop zu suchen.
 - `desktop_status` darf nicht über den markierten Desktop-Launcher geroutet
   werden: Ist dieser Desktop nach einem Crash verschwunden, könnte dort gerade
   kein Worker mehr starten. Status läuft sichtbar, öffnet das Desktop-Objekt
@@ -655,6 +685,13 @@ verhindert werden.
   dabei bis auf mehrere Gigabyte wachsen und blockierte ihn. Der sichere
   Schnellpfad nutzt einen elementweisen Cache-TreeWalker; RuntimeIds werden
   zwischen Provider-Aufrufen zyklusgeschützt. Das ist UIA, kein OCR.
+- Der Vergleich von TreeWalker- und Bulk-Snapshot paart zuerst stabile
+  RuntimeIds. Metadaten binden dabei die gehashte semantische Elternlinie und
+  die Tiefe; ein Reparenting bleibt damit auch bei stabiler RuntimeId sichtbar.
+  Nur ungepaarte Knoten dürfen über denselben privaten Vollfingerprint als
+  RuntimeId-Churn versöhnt werden. Rohe Lauf-/Elternindizes sind kein
+  Identitätsmerkmal, weil ein kurz sichtbarer Qt-Geschwisterknoten sie
+  verschieben kann.
 - Eine leere Tabellenzeile kann im USt-Satz-Feld bereits den Default `7/19`
   anzeigen. Die Freizeilenerkennung behandelt ausschließlich diesen Default
   als neutral; sonstige vorbelegte Zellen bleiben belegt.
@@ -688,8 +725,10 @@ verhindert werden.
   vorhanden, wird deshalb **nicht** erneut geschrieben. Ein echter Rollback
   erfolgt nur, wenn das Feld noch den von der Action gesetzten Wert trägt;
   anschließend wird der alte Wert erneut gelesen.
-- Katalogisierte Metadaten liest der persistente Node-Server direkt (gemessen
-  rund 24 ms ohne UIA-Worker). Eine vollständige katalogisierte Feldaktion
+- Katalogisierte Metadaten liest der persistente Node-Server direkt. Der
+  vollständige 2025-Katalog brauchte am 16.08.2026 im Executor-Mittel über
+  1.000 Aufrufe 2,957 ms ohne Transport und UIA-Worker statt rund einer Sekunde
+  im frischen Worker. Eine vollständige katalogisierte Feldaktion
   einschließlich 14-zeiligem Werte-Info-Vorher/Nachher-Vergleich brauchte auf
   der Testkopie rund 6,5 s statt zuvor etwa 15 s.
 - Der persistente Server darf den Page-Object-Katalog nicht nur beim Start
@@ -723,6 +762,27 @@ verhindert werden.
   draußen, damit Schließen/Öffnen mit identischem Inhalt stabil vergleichbar
   ist. `previousFingerprint` liefert `changedSince` ohne alten Zustand erneut
   zu übertragen.
+
+## Lange Gates und dauerhafte Evidenz
+
+- Ein Hintergrund-Gate kann nach dem Ende oder Rate-Limit der steuernden
+  Agentensitzung korrekt fertiglaufen. Weder die letzte Chatnachricht noch eine
+  bloße »Task completed«-Meldung beweist den Produktstand. Verbindlich wird der
+  Lauf erst, wenn Exitcode, fehlende Rest-SSE-Prozesse und die eigentliche
+  Testzusammenfassung gelesen, die Abdeckungsbilanz regeneriert und beides in
+  einem Commit festgehalten wurde. Genau so wurde der erfolgreiche strikte
+  Zwei-Profil-Lauf vom 14.08.2026 nachträglich dauerhaft übernommen.
+- Zwischenstände aus einem laufenden Gate altern sofort. Eine im Chat genannte
+  Operationszahl darf deshalb nie in spätere Berichte kopiert werden; normativ
+  bleiben Laufzeitkatalog und `test/operation-coverage.json` des aktuellen
+  Commits.
+- Mehrstufige Ausführung darf ein Client-Zeitbudget nicht pro Stufe neu
+  gewähren. Ein schneller lokaler Versuch und sein Worker-Fallback teilen eine
+  Deadline; der Worker erhält nur die verbleibende Frist. Reichen weniger als
+  zwei Sekunden für den Prozessstart, scheitert der Aufruf ohne einen sicher
+  aussichtslosen PowerShell-Prozess zu erzeugen. Auch ein noch laufendes Datei-
+  `open` muss den Abbruch früh an den Aufrufer zurückgeben und ein verspätet
+  geöffnetes Handle anschließend schließen.
 
 ## Focusless: Navigation, Messung und offene Grenze
 
@@ -772,6 +832,7 @@ verhindert werden.
 | Ansatz | Beobachtung | Konsequenz |
 |---|---|---|
 | `PostMessage`/`SendMessage` für Qt-Mausklicks | wird ignoriert | physischen, PID-geprüften Klick verwenden |
+| PowerShell-Katalogzugriff naiv als case-sensitive JavaScript-Index nachbauen | `PSObject.Properties[$PageId]` löst IDs case-insensitive auf und echo't trotzdem die vom Aufrufer gelieferte Schreibweise | IDs mit reiner Case-Kollision bereits im Profilschema abweisen; sonst zuerst exakt, danach nur einen eindeutig case-insensitiven Treffer akzeptieren und die Aufrufer-ID unverändert zurückgeben |
 | WinForms-/COM-SendKeys auf verstecktem Desktop | keine nutzbare Eingabewarteschlange; kann mit irreführendem Systemtext scheitern | nie als versteckten Fallback verwenden |
 | öffentliche Roh-Tastatur mit Sperrliste | unbekannter Fokus kann Steuerfelder, Löschen oder Versand auslösen; fehlender Vordergrund kann sogar eine fremde Anwendung treffen | `sse_keys` nicht registrieren und direkten Worker-Pfad blockieren; Tasten nur intern in ziel-/seiten-/summengebundenen Spezialwerkzeugen |
 | öffentlichen PID-geprüften Klick auf beliebige UIA-Typen erlauben | Checkboxen, Radios, Dropdowns, Tabellenzellen und Dialogknöpfe umgehen ihre Vor-/Nachzustands- oder Fingerprintverträge | `sse_click_point` auf Navigations-/Prüfer-TreeItems begrenzen; andere Typen nur über Spezialwerkzeuge |
@@ -819,6 +880,27 @@ verhindert werden.
 | fachliche Soll/Ist-Abweichung als `ok=false` transportieren | MCP-Schicht ersetzt die Detailzeilen durch „Unbekannter Fehler“ | Werkzeugausführung `ok=true`, fachliches Ergebnis getrennt als `vergleichOk` melden |
 | Speichern nur über Buttonstatus prüfen | Navigation kann dirty wirken | Dateihash und Änderungszeit |
 | rohe Fall-Snapshots in `docs/` speichern | private Daten landen im Repo | ausschließlich `.tmp/`, danach löschen |
+
+### Ergebnisverträge und Testharnische
+
+- Ein grüner Mock ist keine Evidenz, wenn er andere Ergebnisfelder als der
+  Worker erfindet. Feldnamen für API, OpenAPI und MCP deshalb von den realen
+  `Emit`-Objekten ableiten; eine Suche im ganzen Operationsblock reicht nicht,
+  weil verschachtelte `binding.rid`- oder `rollback.grund`-Properties sonst
+  fälschlich wie Top-Level-Felder wirken.
+- `set_value` ist kein allgemeiner Schreibpfad. Es darf ausschließlich das
+  globale steuerneutrale Suchfeld über dessen frische Runtime-ID ändern und
+  muss Vorwert, Read-back, Eingabe-/Fensterguard und gegebenenfalls Rollback
+  melden. Steuerfelder gehören zu `tracked_set_value` beziehungsweise den
+  fachlichen Tabellen-, Toggle- und Combo-Operationen.
+- `export_csv` bestätigt nur den gebundenen Exportdialog und dessen
+  Folgezustand. Eine Harnisch darf nicht schon eine CSV-Datei erfinden; die
+  Auswahl des Zielordners und der tatsächliche Dateiabschluss bleiben ein
+  eigener Dialog-/Nachbedingungsvertrag.
+- UIA-Scrollprozent kann `-1` als `NoScroll`-Sentinel liefern. Ein
+  nichtnegatives Ergebnisschema würde einen korrekten Worker-Read in einen
+  HTTP-502-Fehler verwandeln; Prozentfelder brauchen deshalb einen endlichen,
+  aber nicht zwingend nichtnegativen Zahlenvertrag.
 
 ## Verifikationsmuster
 

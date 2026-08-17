@@ -149,6 +149,36 @@ try {
     refusedLegacy.sourceVollstaendig === null,
   "Altes JSON ohne Vollstaendigkeitsnachweis wurde als vollstaendig behandelt.");
 
+  const malformedCompleteness = writeDocument("malformed-completeness.json", {
+    vollstaendig: "false",
+    anzahl: 1,
+    seiten: [{ nr: 1, ueberschrift: "Betriebsausgaben", felder: [{ label: "EDV-Kosten", wert: "10,00" }] }],
+  });
+  const refusedMalformedCompleteness = callVerify({
+    from: malformedCompleteness.path,
+    expectedSourceHash: malformedCompleteness.hash,
+    erwartungen: [{ seite: "Betriebsausgaben", label: "EDV-Kosten", wert: "10,00" }],
+  });
+  assert(refusedMalformedCompleteness.ok === false &&
+    refusedMalformedCompleteness.kind === "verification-source-incomplete" &&
+    refusedMalformedCompleteness.sourceVollstaendig === null,
+  "Nicht-boolesches vollstaendig wurde als belastbarer Vollstaendigkeitsnachweis akzeptiert.");
+
+  for (const [name, document] of [
+    ["missing-pages.json", { vollstaendig: true }],
+    ["empty-pages.json", { vollstaendig: true, seiten: [] }],
+    ["scalar-pages.json", { vollstaendig: true, seiten: { ueberschrift: "Keine Liste", felder: [] } }],
+  ]) {
+    const malformedPages = writeDocument(name, document);
+    const refusedMalformedPages = callVerify({
+      from: malformedPages.path,
+      expectedSourceHash: malformedPages.hash,
+      erwartungen: [{ seite: "Seite", label: "Feld", wert: "1" }],
+    });
+    assert(refusedMalformedPages.ok === false && refusedMalformedPages.kind === "invalid-source",
+      `${name}: fehlende oder nicht-listenfoermige Seiten wurden nicht als invalid-source abgewiesen.`);
+  }
+
   const transport = new StdioClientTransport({ command: process.execPath, args: [join(root, "dist", "index.js")], env: { ...process.env } });
   const client = new Client({ name: "sse-verify-regression", version: "1.0.0" });
   try {

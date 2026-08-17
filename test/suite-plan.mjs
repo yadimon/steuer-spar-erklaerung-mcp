@@ -27,11 +27,14 @@ export const parallelSteps = Object.freeze([
   psFile("desktop-enumeration", "test/desktop-enumeration-contract.ps1"),
   psFile("window-restore-contract", "test/window-restore-contract.ps1"),
   nodeFile("foreground-lease-contract", "test/foreground-lease-contract.mjs"),
+  nodeFile("desktop-marker-contract", "test/desktop-marker-contract.mjs"),
+  psFile("desktop-marker-write-contract", "test/desktop-marker-write-contract.ps1"),
   nodeFile("focusless-commit-contract", "test/focusless-commit-contract.mjs"),
   nodeFile("portable-package", "test/portable-package.mjs"),
   nodeFile("direct-worker-guard", "test/direct-worker-guard.mjs"),
   nodeFile("direct-worker-experimental-guard", "test/direct-worker-experimental-guard.mjs"),
   psFile("experimental-dialog-policy", "test/experimental-dialog-policy-contract.ps1"),
+  nodeFile("startup-dialog-policy", "test/startup-dialog-policy-contract.mjs"),
   nodeFile("direct-worker-resource-guard", "test/direct-worker-resource-guard.mjs"),
   nodeFile("direct-worker-file-guard", "test/direct-worker-file-guard.mjs"),
   nodeFile("worker-input-file-contract", "test/worker-input-file-contract.mjs"),
@@ -41,11 +44,15 @@ export const parallelSteps = Object.freeze([
   nodeFile("table-delete-rebinding", "test/table-delete-rebinding-contract.mjs"),
   nodeFile("table-window-scope", "test/table-window-scope-contract.mjs"),
   withApi("verify-collect", "test/verify-collect.mjs"),
+  nodeFile("verify-local-parity", "test/verify-local-parity.mjs"),
+  nodeFile("working-copy-local-parity", "test/working-copy-local-parity.mjs"),
   withApi("file-operations-worker", "test/file-operations-worker.mjs"),
   nodeFile("product-profiles", "test/product-profiles.mjs"),
+  nodeFile("page-objects-parity", "test/page-objects-parity.mjs"),
   nodeFile("product-profile-status", "test/product-profile-status-contract.mjs"),
   nodeFile("profile-operation-policy", "test/profile-operation-policy.mjs"),
   psFile("akad-parser", "test/akad-parser-contract.ps1"),
+  nodeFile("case-file", "test/case-file-contract.mjs"),
   nodeFile("setup-wizard", "test/setup-wizard.mjs"),
   nodeFile("atomic-files", "test/atomic-files.mjs"),
   nodeFile("jsonl-logger", "test/jsonl-logger.mjs"),
@@ -53,8 +60,12 @@ export const parallelSteps = Object.freeze([
   nodeFile("portable-zip", "test/portable-zip-contract.mjs"),
   nodeFile("workspace-containment", "test/workspace-containment.mjs"),
   nodeFile("resource-references", "test/resource-references.mjs"),
+  nodeFile("live-script-resource-contract", "test/live-script-resource-contract.mjs"),
   nodeFile("backup-cases-contract", "test/backup-cases-contract.mjs"),
+  nodeFile("backup-local-parity", "test/backup-local-parity.mjs"),
   nodeFile("archive-cases-synthetic", "test/archive-cases-synthetic.mjs"),
+  nodeFile("archive-local-parity", "test/archive-local-parity.mjs"),
+  nodeFile("sse-process-guard", "test/sse-process-guard.mjs"),
   psFile("setup-task", "test/setup-task-contract.ps1"),
   nodeFile("api-contract", "test/api-contract.mjs"),
   nodeFile("checker-open-contract", "test/checker-open-contract.mjs"),
@@ -66,6 +77,7 @@ export const parallelSteps = Object.freeze([
   nodeFile("launch-orchestration", "test/launch-orchestration.mjs"),
   nodeFile("operation-schema-catalog", "test/operation-schema-catalog.mjs"),
   nodeFile("operation-coverage-merge", "test/operation-coverage-merge-contract.mjs"),
+  nodeFile("operation-result-shape-merge", "test/operation-result-shape-merge-contract.mjs"),
   nodeFile("operation-trace", "test/operation-trace-contract.mjs"),
   nodeFile("live-profile-read-coverage", "test/live-profile-read-coverage-contract.mjs"),
   nodeFile("live-core-read-contract", "test/live-core-read-contract.mjs"),
@@ -109,11 +121,12 @@ export const exclusiveSteps = Object.freeze([
 ]);
 
 /**
- * Laeuft zuletzt: die Abdeckungsbilanz wertet das Laufzeitprotokoll aller
- * vorherigen Schritte aus und darf deshalb keinen davon parallel sehen.
+ * Laufen zuletzt: beide Bilanzen werten das Laufzeitprotokoll aller vorherigen
+ * Schritte aus und duerfen deshalb keinen davon parallel sehen.
  */
 export const finalSteps = Object.freeze([
   nodeFile("operation-coverage", "test/operation-coverage-contract.mjs"),
+  nodeFile("operation-result-shape", "test/operation-result-shape-contract.mjs"),
 ]);
 
 const FAST_STEP_NAMES = new Set([
@@ -132,11 +145,16 @@ const FAST_STEP_NAMES = new Set([
   "checker-zero-results",
   "build-drift",
   "foreground-lease-contract",
+  "desktop-marker-contract",
+  "desktop-marker-write-contract",
   "focusless-commit-contract",
   "atomic-files",
+  "case-file",
   "jsonl-logger",
   "workspace-containment",
   "resource-references",
+  "live-script-resource-contract",
+  "sse-process-guard",
   "api-contract",
   "checker-open-contract",
   "api-discovery-contract",
@@ -147,10 +165,12 @@ const FAST_STEP_NAMES = new Set([
   "profile-operation-policy",
   "direct-worker-experimental-guard",
   "experimental-dialog-policy",
+  "startup-dialog-policy",
   "api-all-operations",
   "launch-orchestration",
   "operation-schema-catalog",
   "operation-coverage-merge",
+  "operation-result-shape-merge",
   "operation-trace",
   "live-profile-read-coverage",
   "live-core-read-contract",

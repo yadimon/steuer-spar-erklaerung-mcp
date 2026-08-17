@@ -1,16 +1,22 @@
 import { z } from "zod";
 import { SSE_API_OPERATIONS, type SseApiOperation, type WorkerResult } from "./api-contract.js";
+import { MUTATION_OPERATION_RESULT_FIELDS } from "./result-mutation-fields.js";
+import { UTILITY_OPERATION_RESULT_FIELDS } from "./result-utility-fields.js";
+import {
+  CLICK_RESULT_FIELDS,
+  OPTIONAL_ARRAY,
+  OPTIONAL_BOOLEAN,
+  OPTIONAL_CASE_LIST,
+  OPTIONAL_NON_NEGATIVE_NUMBER,
+  OPTIONAL_OBJECT,
+  OPTIONAL_SHA256,
+  OPTIONAL_STRING,
+  OPTIONAL_STRING_ARRAY,
+  OPTIONAL_STRING_OR_BOOLEAN,
+  OPTIONAL_TRANSMISSION_STATE,
+} from "./result-schema-types.js";
 
 export const SSE_API_RESULT_SCHEMA_VERSION = 1;
-
-const OPTIONAL_NON_NEGATIVE_NUMBER = z.number().finite().nonnegative().nullable().optional()
-  .describe("Optionaler nichtnegativer Wert");
-const OPTIONAL_STRING = z.string().nullable().optional().describe("Optionaler Text");
-const OPTIONAL_BOOLEAN = z.boolean().nullable().optional().describe("Optionales Flag");
-const OPTIONAL_STRING_OR_BOOLEAN = z.union([z.string(), z.boolean()]).nullable().optional()
-  .describe("Optionaler Text oder historisches Bestaetigungsflag");
-const OPTIONAL_ARRAY = z.array(z.unknown()).nullable().optional().describe("Optionale Ergebnisliste");
-const OPTIONAL_OBJECT = z.record(z.unknown()).nullable().optional().describe("Optionales Teilresultat");
 
 /**
  * Typisiert bewusst stabile, transportrelevante Felder. Die Worker-Antworten
@@ -18,7 +24,7 @@ const OPTIONAL_OBJECT = z.record(z.unknown()).nullable().optional().describe("Op
  * Jedes Feld ist optional, weil erfolgreiche No-op-/Nicht-laufend-Zustaende
  * je Operation kleinere, aber weiterhin gueltige Varianten besitzen koennen.
  */
-const OPERATION_RESULT_FIELDS = {
+const CORE_OPERATION_RESULT_FIELDS = {
   capabilities: {
     transport: OPTIONAL_OBJECT,
     safety: OPTIONAL_OBJECT,
@@ -36,11 +42,21 @@ const OPERATION_RESULT_FIELDS = {
   },
   health: { running: OPTIONAL_BOOLEAN, buildDrift: OPTIONAL_OBJECT, windows: OPTIONAL_ARRAY },
   windows: { windows: OPTIONAL_ARRAY },
-  list_cases: { cases: OPTIONAL_ARRAY, count: OPTIONAL_NON_NEGATIVE_NUMBER },
+  list_cases: {
+    dir: OPTIONAL_STRING,
+    cases: OPTIONAL_CASE_LIST,
+    count: OPTIONAL_NON_NEGATIVE_NUMBER,
+    parserError: OPTIONAL_STRING,
+  },
   case_hash: {
+    path: OPTIONAL_STRING,
     exists: OPTIONAL_BOOLEAN,
     size: OPTIONAL_NON_NEGATIVE_NUMBER,
-    sha256: z.string().regex(/^[A-Fa-f0-9]{64}$/).nullable().optional().describe("SHA-256 der gebundenen Ressource"),
+    mtimeUtc: OPTIONAL_STRING,
+    sha256: OPTIONAL_SHA256,
+    header: OPTIONAL_OBJECT,
+    transmitted: OPTIONAL_TRANSMISSION_STATE,
+    transmittedReason: OPTIONAL_STRING,
   },
   workspace_status: {
     profileId: OPTIONAL_STRING,
@@ -95,6 +111,19 @@ const OPERATION_RESULT_FIELDS = {
     currentHeadingAfter: OPTIONAL_STRING,
     advancedAfterLastCaptured: OPTIONAL_BOOLEAN,
   },
+  verify: {
+    vergleichOk: OPTIONAL_BOOLEAN,
+    sourceHash: OPTIONAL_SHA256,
+    sourceHashBefore: OPTIONAL_SHA256,
+    sourceHashAfter: OPTIONAL_SHA256,
+    sourceVollstaendig: OPTIONAL_BOOLEAN,
+    sourceStopKind: OPTIONAL_STRING,
+    sourceStopReason: OPTIONAL_STRING,
+    geprueft: OPTIONAL_NON_NEGATIVE_NUMBER,
+    abweichungen: OPTIONAL_NON_NEGATIVE_NUMBER,
+    ergebnis: OPTIONAL_ARRAY,
+    zusammenfassung: OPTIONAL_STRING,
+  },
   // 'summe' ist der gelesene Wert der gebundenen Kontrollsumme. Ohne ihn
   // koennte ein Aufrufer die Pflichtangaben expectedBefore/expectedAfter der
   // Tabellenmutationen nicht ermitteln; er bleibt null, wenn kein sumLabel
@@ -125,16 +154,7 @@ const OPERATION_RESULT_FIELDS = {
     aufgeklappt: OPTIONAL_ARRAY,
   },
   checker_run: { gesamt: OPTIONAL_NON_NEGATIVE_NUMBER, konsistent: OPTIONAL_BOOLEAN },
-  click: {
-    clicked: OPTIONAL_STRING,
-    pattern: OPTIONAL_STRING,
-    method: OPTIONAL_STRING,
-    kandidaten: OPTIONAL_NON_NEGATIVE_NUMBER,
-    ueberschriftVorher: OPTIONAL_STRING,
-    ueberschriftNachher: OPTIONAL_STRING,
-    navigiert: OPTIONAL_BOOLEAN,
-    verified: OPTIONAL_BOOLEAN,
-  },
+  click: CLICK_RESULT_FIELDS,
   checker_open: { meldung: OPTIONAL_STRING, text: OPTIONAL_STRING, ocrOk: OPTIONAL_BOOLEAN },
   warning_popup_read: { active: OPTIONAL_BOOLEAN, title: OPTIONAL_STRING, text: OPTIONAL_STRING },
   screenshot: {
@@ -164,15 +184,27 @@ const OPERATION_RESULT_FIELDS = {
     copied: OPTIONAL_BOOLEAN,
     source: OPTIONAL_STRING,
     target: OPTIONAL_STRING,
-    sourceHash: OPTIONAL_STRING,
-    targetHash: OPTIONAL_STRING,
+    sourceHash: OPTIONAL_SHA256,
+    targetHash: OPTIONAL_SHA256,
     verified: OPTIONAL_BOOLEAN,
+    header: OPTIONAL_OBJECT,
+    transmitted: OPTIONAL_TRANSMISSION_STATE,
+    sourceBefore: OPTIONAL_SHA256,
+    sourceAfter: OPTIONAL_SHA256,
+    targetStillOwned: OPTIONAL_BOOLEAN,
+    rolledBack: OPTIONAL_BOOLEAN,
   },
   backup_cases: {
     dest: OPTIONAL_STRING,
     anzahl: OPTIONAL_NON_NEGATIVE_NUMBER,
     files: OPTIONAL_ARRAY,
+    hashes: OPTIONAL_ARRAY,
     manifest: OPTIONAL_STRING,
+    verified: OPTIONAL_BOOLEAN,
+    copiedBeforeFailure: OPTIONAL_NON_NEGATIVE_NUMBER,
+    rolledBack: OPTIONAL_BOOLEAN,
+    retainedTargets: OPTIONAL_STRING_ARRAY,
+    backupStillExists: OPTIONAL_BOOLEAN,
   },
   archive_cases: {
     archived: OPTIONAL_NON_NEGATIVE_NUMBER,
@@ -180,9 +212,30 @@ const OPERATION_RESULT_FIELDS = {
     files: OPTIONAL_ARRAY,
     remaining: OPTIONAL_ARRAY,
     manifest: OPTIONAL_STRING,
+    verified: OPTIONAL_BOOLEAN,
     recoverable: OPTIONAL_BOOLEAN,
+    movedBeforeFailure: OPTIONAL_NON_NEGATIVE_NUMBER,
+    rolledBack: OPTIONAL_BOOLEAN,
+    rollbackFiles: OPTIONAL_ARRAY,
+    recoveryFiles: OPTIONAL_STRING_ARRAY,
+    retainedTargets: OPTIONAL_STRING_ARRAY,
+    archiveStillExists: OPTIONAL_BOOLEAN,
   },
 } as const satisfies Partial<Record<SseApiOperation, z.ZodRawShape>>;
+
+const RESULT_FIELD_TABLES = [
+  CORE_OPERATION_RESULT_FIELDS,
+  MUTATION_OPERATION_RESULT_FIELDS,
+  UTILITY_OPERATION_RESULT_FIELDS,
+] as const;
+const duplicateOperations = RESULT_FIELD_TABLES
+  .flatMap((table) => Object.keys(table))
+  .filter((operation, index, operations) => operations.indexOf(operation) !== index);
+if (duplicateOperations.length > 0) {
+  throw new Error(`Doppelte Operations-Ergebnisvertraege: ${[...new Set(duplicateOperations)].join(", ")}`);
+}
+const OPERATION_RESULT_FIELDS = Object.freeze(Object.assign({}, ...RESULT_FIELD_TABLES)) as
+  Partial<Record<SseApiOperation, z.ZodRawShape>>;
 
 function createOperationResultOutputSchema(operation: SseApiOperation): z.AnyZodObject {
   const operationFields = OPERATION_RESULT_FIELDS[operation as keyof typeof OPERATION_RESULT_FIELDS] ?? {};

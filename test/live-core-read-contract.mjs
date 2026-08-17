@@ -8,6 +8,8 @@ const runner = read("test/run-live-core-read.mjs");
 const sweep = read("test/live-muster-cases.mjs");
 const withApi = read("test/with-api.mjs");
 const expectations2024 = JSON.parse(read("profiles/2024/tests/expectations.json"));
+const expectations2025 = JSON.parse(read("profiles/2025/tests/expectations.json"));
+const headingFixture2025 = JSON.parse(read("profiles/2025/fixtures/heading-vorhanden.json"));
 const liveRunner = read("test/run-live-suite.mjs");
 
 assert.equal(packageJson.scripts["test:live-core-read"], "npm run build && node test/run-live-core-read.mjs",
@@ -32,6 +34,7 @@ assert.match(sweep, /\["full", "core-read"\]\.includes\(liveMode\)/u,
 for (const gate of [
   "if (liveMode === \"full\" && definition.ustva)",
   "if (liveMode === \"full\" && definition.checker)",
+  "if (liveMode === \"full\" && definition.terminalCollect)",
   "if (liveMode === \"full\" && definition.id === allDefinitions[0].id)",
 ]) {
   assert(sweep.includes(gate), `Der Volltestbereich fehlt oder ist nicht klar auf full begrenzt: ${gate}`);
@@ -52,6 +55,36 @@ assert.match(withApi, /if \(childFailed && preserveTemporaryOnFailure\) \{[\s\S]
   "Ein fehlgeschlagener opt-in Live-Test darf seine Sandbox nicht still entfernen.");
 assert.equal(expectations2024.snapshotCompare?.allowMissingOnly, true,
   "Engine-30-Snapshot-Differenzen muessen als profilierte, enge Diagnoseausnahme dokumentiert sein.");
+assert.deepEqual(
+  expectations2024.cases.filter((entry) => entry.terminalCollect).map((entry) => entry.id),
+  [],
+  "Das experimentelle 2024-Profil darf keinen terminalen Collect-Livepfad freigeben.",
+);
+const terminalCollectCases = expectations2025.cases.filter((entry) => entry.terminalCollect);
+assert.equal(terminalCollectCases.length, 1,
+  "Das 2025-Profil muss genau einen gemessenen terminalen Collect-Startzustand benennen.");
+assert.equal(terminalCollectCases[0].id, "est", "Der terminale Collect-Startzustand gehoert zum ESt-Musterfall.");
+assert.equal(terminalCollectCases[0].terminalCollect.headingAtLaunch, headingFixture2025.erwarteteUeberschrift,
+  "Profilierte Collect-Startseite und aufgezeichnete UI-Ueberschrift weichen ab.");
+assert.deepEqual(
+  headingFixture2025.nodes.filter((node) =>
+    ["Button", "Hyperlink"].includes(node.type) && /^Weiter\b/u.test(node.name?.trim() ?? "")),
+  [],
+  "Die aufgezeichnete terminale Startseite enthaelt inzwischen ein Weiter-Control.",
+);
+assert.match(sweep, /async function assertTerminalCollect\(definition, hwnd, headingAtLaunch\)/u,
+  "Der Live-Sweep muss den terminalen Collect-Erfolg als eigenen Vertrag pruefen.");
+const terminalCollectStart = sweep.indexOf("async function assertTerminalCollect");
+const terminalCollectEnd = sweep.indexOf("async function assertDeepReadOnlySweep", terminalCollectStart);
+assert(terminalCollectStart >= 0 && terminalCollectEnd > terminalCollectStart,
+  "Der terminale Collect-Vertrag muss als klar begrenzte Hilfsfunktion auffindbar bleiben.");
+const terminalCollectFunction = sweep.slice(terminalCollectStart, terminalCollectEnd);
+assert(terminalCollectFunction.indexOf("forward.incomplete") < terminalCollectFunction.indexOf("sse_collect"),
+  "Die vollstaendige Weiter-Suche muss vor dem terminalen Collect-Lauf scheitern koennen.");
+assert.match(terminalCollectFunction, /stopKind, "end-of-branch"/u,
+  "Der erfolgreiche Collect-Livepfad muss das echte Zweigende verlangen.");
+assert.match(terminalCollectFunction, /maxPages: 2/u,
+  "Das Zweigende muss vor einem hoeheren Seitenlimit eintreten statt durch maxPages=1 erzwungen zu sein.");
 assert.match(sweep, /function assertSnapshotComparison\(definition, compared\)/u,
   "Der Live-Sweep muss Snapshot-Differenzen je Profil fail-closed bewerten.");
 assert.match(sweep, /assert\(missingOnlyAllowed,/u,
@@ -62,7 +95,9 @@ assert.match(sweep, /result\?\.structuredContent && typeof result\.structuredCon
   "Der Live-Gate muss bei tolerierten MCP-Fehlern die vollstaendige kanonische Diagnose bevorzugen.");
 assert.match(liveRunner, /let liveGateCompleted = false;/u,
   "Ein fehlgeschlagener strikter Live-Gate muss seine echte Abdeckungsspur unterscheiden koennen.");
-assert.match(liveRunner, /if \(liveGateCompleted\) \{[\s\S]*Live-Abdeckungsspur zur Diagnose erhalten/u,
-  "Die Live-Abdeckungsspur darf erst nach einem vollstaendig gruenen Gate entfernt werden.");
+assert.match(liveRunner, /if \(liveGateCompleted\) \{[\s\S]*Live-Evidenzspur zur Diagnose erhalten/u,
+  "Die Live-Evidenzspur darf erst nach einem vollstaendig gruenen Gate entfernt werden.");
+assert.match(liveRunner, /"test\/operation-result-shape-contract\.mjs"/u,
+  "Das strikte Live-Gate muss neben der Coverage auch die Ergebnisform-Bilanz pruefen.");
 
 process.stdout.write("Core-Read-Live-Gate: Modusgrenze, Profilisolierung und Cleanup-Vertrag bestehen\n");

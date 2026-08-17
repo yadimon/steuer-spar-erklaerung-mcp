@@ -53,12 +53,16 @@ const callWorker = (args, env = {}) => {
   );
   return JSON.parse(output.trim());
 };
-const createInventory = (directory) => {
+const createInventory = (directory, hideCurrent = false) => {
   mkdirSync(directory);
   const old = join(directory, "alt.Gew2025");
   const current = join(directory, "aktuell.Gew2025");
   writeFileSync(old, akadCase());
   writeFileSync(current, akadCase());
+  if (hideCurrent) {
+    const attrib = join(process.env.SystemRoot ?? process.env.WINDIR ?? "C:\\Windows", "System32", "attrib.exe");
+    execFileSync(attrib, ["+H", current], { windowsHide: true });
+  }
   return {
     old,
     current,
@@ -72,7 +76,7 @@ const createInventory = (directory) => {
 
 const temporary = mkdtempSync(join(tmpdir(), "sse-archive-synthetic-"));
 try {
-  const cases = createInventory(join(temporary, "cases"));
+  const cases = createInventory(join(temporary, "cases"), true);
   const archive = join(temporary, "archive");
   const success = callWorker({ ...cases.args, dest: archive });
   assert.equal(success.ok, true, JSON.stringify(success));

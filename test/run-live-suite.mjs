@@ -51,6 +51,39 @@ function runProfile(profileId) {
   assert.equal(leakedPids, "", `Nach Live-Musterprofil ${profileId}: verbliebene SSE-Prozesse (${leakedPids}). Nicht blind beenden.`);
 }
 
+function runCenterCoverage() {
+  process.stdout.write("\n> Steuertipps-Center auf privatem Desktop (2025)\n");
+  const run = spawnSync(
+    process.execPath,
+    ["test/run-live-center.mjs"],
+    { cwd: root, env: { ...process.env }, stdio: "inherit", windowsHide: true },
+  );
+  if (run.error) throw new Error(`Center-Livevertrag konnte nicht laufen: ${run.error.message}`, { cause: run.error });
+  assert.equal(run.signal, null, `Center-Livevertrag endete mit Signal ${run.signal}.`);
+  assert.equal(run.status, 0, `Center-Livevertrag scheiterte mit Exit ${run.status}.`);
+}
+
+function assertCaseFileParity(profileId) {
+  process.stdout.write(`\n> ${profileId}-Fallhash-Paritaet\n`);
+  const env = { ...process.env, SSE_PROFILE_ID: profileId };
+  for (const key of ["SSE_LIVE_MUSTER_CASES", "SSE_MUSTER_DIR", "SSE_TEST_CASE_DIR", "SSE_CASE_DIR"]) delete env[key];
+  const check = spawnSync(
+    process.execPath,
+    ["test/case-file-live-parity.mjs"],
+    {
+      cwd: root,
+      env,
+      stdio: "inherit",
+      windowsHide: true,
+    },
+  );
+  if (check.error) {
+    throw new Error(`${profileId}-Fallhash-Paritaet konnte nicht laufen: ${check.error.message}`, { cause: check.error });
+  }
+  assert.equal(check.signal, null, `${profileId}-Fallhash-Paritaet endete mit Signal ${check.signal}.`);
+  assert.equal(check.status, 0, `${profileId}-Fallhash-Paritaet scheiterte mit Exit ${check.status}.`);
+}
+
 /**
  * Legt eine Wegwerfkopie des offiziellen Gewinnermittlungs-Musterfalls an.
  *
@@ -294,23 +327,28 @@ function runFixtureScripts(profileId) {
   }
 }
 
-/** Die dokumentierte Live-Abdeckung wird bewiesen statt behauptet. */
-function assertLiveCoverageLedger() {
-  process.stdout.write("\n> Live-Abdeckungsbilanz\n");
-  const ledger = spawnSync(
-    process.execPath,
-    ["test/operation-coverage-contract.mjs"],
-    {
-      cwd: root,
-      env: { ...process.env, SSE_TEST_COVERAGE_SCOPE: "live" },
-      stdio: "inherit",
-      windowsHide: true,
-    },
-  );
-  if (ledger.error) {
-    throw new Error(`Live-Abdeckungsbilanz konnte nicht laufen: ${ledger.error.message}`, { cause: ledger.error });
+/** Dokumentierte Live-Abdeckung und wertfreie Ergebnisformen werden bewiesen. */
+function assertLiveLedgers() {
+  for (const [label, script] of [
+    ["Live-Abdeckungsbilanz", "test/operation-coverage-contract.mjs"],
+    ["Live-Ergebnisform-Bilanz", "test/operation-result-shape-contract.mjs"],
+  ]) {
+    process.stdout.write(`\n> ${label}\n`);
+    const ledger = spawnSync(
+      process.execPath,
+      [script],
+      {
+        cwd: root,
+        env: { ...process.env, SSE_TEST_COVERAGE_SCOPE: "live" },
+        stdio: "inherit",
+        windowsHide: true,
+      },
+    );
+    if (ledger.error) {
+      throw new Error(`${label} konnte nicht laufen: ${ledger.error.message}`, { cause: ledger.error });
+    }
+    assert.equal(ledger.status, 0, `${label} scheiterte mit Exit ${ledger.status}.`);
   }
-  assert.equal(ledger.status, 0, `Live-Abdeckungsbilanz scheiterte mit Exit ${ledger.status}.`);
 }
 
 /** Beide Jahresprofile brauchen einen getrennten Nachweis der Kernlesewege. */
@@ -340,17 +378,19 @@ process.env[OPERATION_TRACE_DIRECTORY_KEY] = traceDirectory;
 let liveGateCompleted = false;
 try {
   for (const profileId of ["2025", "2024"]) {
+    assertCaseFileParity(profileId);
     runProfile(profileId);
     runFixtureScripts(profileId);
   }
+  runCenterCoverage();
   for (const profileId of ["2025", "2024"]) assertProfileReadCoverage(profileId);
-  assertLiveCoverageLedger();
+  assertLiveLedgers();
   liveGateCompleted = true;
 } finally {
   if (liveGateCompleted) {
     rmSync(traceDirectory, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   } else {
-    process.stderr.write(`Live-Abdeckungsspur zur Diagnose erhalten: ${traceDirectory}\n`);
+    process.stderr.write(`Live-Evidenzspur zur Diagnose erhalten: ${traceDirectory}\n`);
   }
 }
 

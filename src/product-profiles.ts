@@ -140,12 +140,51 @@ const pageObjectsCompatibilitySchema = z.object({
   }).passthrough(),
   windows: z.record(z.unknown()).refine((value) => Object.keys(value).length > 0, "Fensterkatalog darf nicht leer sein."),
   pages: z.record(pageObjectSchema).refine((value) => Object.keys(value).length > 0, "Seitenkatalog darf nicht leer sein."),
-}).passthrough();
+}).passthrough().superRefine((catalog, context) => {
+  const foldedIds = new Map<string, string>();
+  for (const pageId of Object.keys(catalog.pages)) {
+    const folded = pageId.toLocaleLowerCase("de-DE");
+    const previous = foldedIds.get(folded);
+    if (previous !== undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["pages", pageId],
+        message: `Page-Object-IDs '${previous}' und '${pageId}' unterscheiden sich nur in Gross-/Kleinschreibung.`,
+      });
+    } else {
+      foldedIds.set(folded, pageId);
+    }
+  }
+});
+
+export type PageObjectsCatalog = z.infer<typeof pageObjectsCompatibilitySchema>;
+export type PageObjectDefinition = PageObjectsCatalog["pages"][string];
+
+export type PageObjectResolution =
+  | { status: "found"; page: PageObjectDefinition }
+  | { status: "missing" }
+  | { status: "ambiguous" };
+
+export function resolvePageObjectDefinition(
+  catalog: PageObjectsCatalog,
+  pageId: string,
+): PageObjectResolution {
+  if (Object.hasOwn(catalog.pages, pageId)) {
+    return { status: "found", page: catalog.pages[pageId]! };
+  }
+  const foldedPageId = pageId.toLocaleLowerCase("de-DE");
+  const matches = Object.keys(catalog.pages).filter(
+    (candidate) => candidate.toLocaleLowerCase("de-DE") === foldedPageId,
+  );
+  if (matches.length !== 1) return { status: matches.length ? "ambiguous" : "missing" };
+  return { status: "found", page: catalog.pages[matches[0]!]! };
+}
 
 export type ProductProfile = z.infer<typeof profileSchema> & {
   profileDir: string;
   manifestPath: string;
   pageObjectsPath: string;
+  pageObjectsCatalog: PageObjectsCatalog;
 };
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -174,20 +213,20 @@ export function loadProductProfile(id = "2025", root = defaultProfilesRoot): Pro
   if (Object.keys(parsed.startModes).length === 0) throw new Error(`SSE-Profil '${id}' definiert keine Startmodi.`);
   const pageObjectsPath = join(profileDir, parsed.pageObjects);
   if (!existsSync(pageObjectsPath)) throw new Error(`Page-Objects fuer SSE-Profil '${id}' fehlen: ${pageObjectsPath}`);
-  const pageObjects = pageObjectsCompatibilitySchema.parse(
+  const pageObjectsCatalog = pageObjectsCompatibilitySchema.parse(
     readJsonFileStrict(pageObjectsPath, `Page-Objects fuer SSE-Profil '${id}'`),
   );
   if (
-    pageObjects.product !== parsed.product ||
-    pageObjects.taxYear !== parsed.taxYear ||
-    pageObjects.engineFileMajor !== parsed.engineFileMajor ||
-    pageObjects.compatibility.executableName.toLowerCase() !== parsed.executable.name.toLowerCase() ||
-    pageObjects.compatibility.installationFolderName.toLocaleLowerCase("de-DE") !==
+    pageObjectsCatalog.product !== parsed.product ||
+    pageObjectsCatalog.taxYear !== parsed.taxYear ||
+    pageObjectsCatalog.engineFileMajor !== parsed.engineFileMajor ||
+    pageObjectsCatalog.compatibility.executableName.toLowerCase() !== parsed.executable.name.toLowerCase() ||
+    pageObjectsCatalog.compatibility.installationFolderName.toLocaleLowerCase("de-DE") !==
       parsed.executable.installationFolderName.toLocaleLowerCase("de-DE")
   ) {
     throw new Error(`Page-Objects und Manifest des SSE-Profils '${id}' widersprechen sich.`);
   }
-  return { ...parsed, profileDir, manifestPath, pageObjectsPath };
+  return { ...parsed, profileDir, manifestPath, pageObjectsPath, pageObjectsCatalog };
 }
 
 export function isProductProfileReleased(

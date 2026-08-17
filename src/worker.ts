@@ -18,7 +18,10 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { resolveWindowsPowerShell } from "./windows-runtime.js";
 import { MAX_API_BODY_BYTES, MAX_WORKER_QUEUE_DEPTH } from "./api-contract.js";
-import { readFileBounded } from "./bounded-files.js";
+import {
+  DESKTOP_MARKER_PATH,
+  resolveDesktopMarkerForOperation,
+} from "./desktop-marker.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const WORKER = join(HERE, "..", "powershell", "sse-worker.ps1");
@@ -28,38 +31,6 @@ const TASKKILL = join(
   "System32",
   "taskkill.exe",
 );
-/** Marke, die sse_desktop_start hinterlaesst: Desktopname und eigene SSE-PID. */
-const DESKTOP_MARKER = join(process.env.TEMP ?? process.env.TMP ?? ".", "sse-mcp-desktop.txt");
-const VALID_DESKTOP_NAME = /^[A-Za-z0-9_-]{1,64}$/;
-export const MAX_DESKTOP_MARKER_BYTES = 4 * 1024;
-
-/**
- * Laeuft die Anwendung auf einem eigenen, unsichtbaren Desktop?
- *
- * Dann muss der Arbeiter DORT geboren werden: SetThreadDesktop nachtraeglich
- * scheitert mit Fehler 170, sobald der Thread ein Fenster besitzt - und
- * PowerShell hat beim Start eines. run-on-desktop.ps1 startet ihn per
- * CreateProcess mit lpDesktop und reicht das Ergebnis ueber eine Datei
- * zurueck, weil die Standardausgabe die Desktop-Grenze nicht ueberquert.
- */
-function versteckterDesktop(): string | null {
-  try {
-    const raw = new TextDecoder("utf-8", { fatal: true })
-      .decode(readFileBounded(DESKTOP_MARKER, MAX_DESKTOP_MARKER_BYTES))
-      .trim();
-    if (!raw) return null;
-    if (raw.startsWith("{")) {
-      const marker = JSON.parse(raw) as { name?: unknown };
-      const name = typeof marker.name === "string" ? marker.name.trim() : "";
-      return VALID_DESKTOP_NAME.test(name) ? name : null;
-    }
-    // Rueckwaertskompatibel zu alten Nur-Name-Marken.
-    return VALID_DESKTOP_NAME.test(raw) ? raw : null;
-  } catch {
-    return null;
-  }
-}
-
 /** Standardfrist je Aufruf. Baumlaeufe brauchen selten mehr als 5 s. */
 const DEFAULT_TIMEOUT_MS = 90_000;
 export const MAX_WORKER_STDOUT_BYTES = 32 * 1024 * 1024;
@@ -230,6 +201,18 @@ async function callWorkerUnsynchronised(
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
   signal?: AbortSignal,
 ): Promise<WorkerResult> {
+  // Ein vorhandener, aber ungueltiger/fremder Marker ist kein Signal fuer den
+  // sichtbaren Desktop. Die Entscheidung geschieht vor der Argumentdatei,
+  // damit ein Fail-Closed-Abbruch keine Tempdatei hinterlaesst.
+  const marker = op === "desktop_start" || op === "desktop_status"
+    ? null
+    : resolveDesktopMarkerForOperation(
+        DESKTOP_MARKER_PATH,
+        op,
+        process.env.SSE_CENTER_LIVE_TEST === "1",
+      );
+  const desk = marker?.name ?? null;
+
   // JSON in einer exklusiven Tempdatei vermeidet Windows' Kommandozeilenlimit
   // und legt Steuerwerte nicht als Base64 im Prozessargument offen.
   const argsFile = createWorkerArgumentsFile(args);
@@ -244,7 +227,6 @@ async function callWorkerUnsynchronised(
   // selbst read-only. Ist der Prozess abgestuerzt und das Desktop-Objekt schon
   // verschwunden, koennte der Launcher dort keinen Worker mehr starten und
   // damit gerade den wichtigen Zustand markeVeraltet nicht melden.
-  const desk = op === "desktop_start" || op === "desktop_status" ? null : versteckterDesktop();
   const argv: string[] = desk
     ? ["-NoLogo", "-NoProfile", "-NonInteractive", "-File", DESKTOP_LAUNCHER,
        "-Op", op, "-ArgsFile", argsFile, "-Desktop", desk, "-TimeoutSec", String(Math.max(30, Math.floor(timeoutMs / 1000) - 5))]

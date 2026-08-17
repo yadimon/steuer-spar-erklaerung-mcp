@@ -1,6 +1,6 @@
 # Produktarchitektur
 
-Stand: 2026-08-11
+Stand: 2026-08-16
 
 Dieses Dokument ist der überprüfbare Zielvertrag für API, MCP, Setup,
 Steuerjahrprofile und öffentliche Skills. Es beschreibt das Produkt, nicht die
@@ -28,12 +28,12 @@ Agent oder eigenes Programm
         └── MCP (dünner Wrapper) ────┤
                                      ▼
                               lokale SSE-API
-                          Auth, Queue, Dateien,
+                       Auth, Queue, Dateien/Hash,
                          Szenarien, Konfiguration
                                      │
                                      ▼
                          isolierter Windows-Worker
-                         UIA, Win32, Dateiheader
+                              UIA, Win32
                                      │
                                      ▼
                          SteuerSparErklärung UI
@@ -66,10 +66,16 @@ Agent oder eigenes Programm
 - `GET /v1/openapi.json` projiziert genau diese Laufzeitquelle zusätzlich auf
   OpenAPI 3.1. Neben den Operationspfaden stehen dort auch Healthcheck,
   Gesamtkatalog und OpenAPI-Abruf selbst; es gibt keinen separat gepflegten
-  oder permissiveren API-Vertrag.
+  oder permissiveren API-Vertrag. Wiederkehrende Blattverträge wie optionaler
+  Text, Flag, SHA-256 und Guard-Objekt werden dort als gemeinsame Komponenten
+  referenziert. Auch der für alle 87 Operationen identische
+  `ok/kind/error/ms`-Umschlag liegt einmal als `OperationResultEnvelope` vor;
+  jedes `Result_<operation>` ergänzt per `allOf` seine eigenen Fachfelder. Das
+  hält die vollständiger gewordenen Result-Schemas unter dem Größenbudget,
+  ohne Discovery oder Laufzeitvalidierung abzuschwächen.
 - Der direkte CLI-Client akzeptiert komplexe Argumente nur aus einer begrenzten
   UTF-8-Datei oder aus begrenztem stdin, nie als Steuerwerte in Prozessargumenten.
-- Direkte API-Aufrufe liefern das vollständige Worker-/Kompositionsergebnis.
+- Direkte API-Aufrufe liefern das vollständige Executor-/Worker-/Kompositionsergebnis.
   Dieses wird vor der HTTP-Ausgabe gegen den operationsspezifischen
   Ergebnisvertrag geprüft; malformed Ergebnisse werden redigiert als
   `invalid-operation-result` gestoppt.
@@ -82,6 +88,84 @@ Agent oder eigenes Programm
   wie Request-ID und Dauer liegen außerhalb des fachlichen Ergebnisses.
 - Nur die API kennt absolute Installations-, Fall-, Dokument-, Arbeits- und
   Ergebnisverzeichnisse.
+- `case_hash` hasht und liest den begrenzten AKAD-Kopf direkt im API-Prozess;
+  das nicht-ausführliche `list_cases` liest denselben Kopf lokal für alle
+  profilkonformen Fälle. `verbose: true` und ein lokal nicht sicher lesbarer
+  AKAD-Kopf fallen auf den kompatiblen Worker zurück. Das opt-in Live-Gate
+  vergleicht beide Implementierungen auf jedem Profil feldgenau. Die API
+  verwirft lokale Ergebnisse, wenn eine Datei während des Lesens geändert oder
+  ersetzt wird. Versteckte/System-Falldateien gehören dabei ausdrücklich zum
+  Bestand; Liste, Sicherung und Archiv-Inventar verwenden dieselbe Regel.
+  Dateiöffnung, Stream und ein eventueller Worker-Fallback verbrauchen ein
+  gemeinsames Abbruch-/Timeout-Budget statt die Client-Frist neu zu starten.
+  Unter zwei Sekunden Rest startet die API keinen neuen PowerShell-Fallback.
+- `page_objects` liefert den öffentlichen, profilierten UI-Metadatenkatalog
+  ebenfalls direkt aus der API. Manifest und Katalog werden pro Aufruf neu
+  gelesen und gemeinsam validiert; ein Startzeit-Cache wäre während der
+  schrittweisen Profilentwicklung veraltet. Exakte und eindeutig
+  case-insensitive IDs entsprechen der PowerShell-Auflösung; IDs, die sich nur
+  in Groß-/Kleinschreibung unterscheiden, sind bereits im Profilschema
+  ungültig. Lokaler Profildrift fällt mit demselben Restbudget auf den Worker
+  zurück. Ein eigener Offline-Paritätstest vergleicht beide Pfade auf jedem
+  ausgelieferten Profil und beweist Reload, Timeout sowie Fallback separat.
+- `verify` prüft den strikt UTF-8-/JSON- und SHA-256-gebundenen `collect`-Stand
+  direkt im API-Prozess. Der Dateihandle ist auf 16 MiB begrenzt; Hash,
+  Dateigröße, Geräte-/Dateiidentität und Zeitstempel werden vor und nach der
+  Auswertung stabil gebunden. Fehlender Seiten-Array oder ein nicht-boolesches
+  `vollstaendig` sind fail-closed. Der reine Vergleich bildet deutsche und
+  invariante Zahlenformate mit exakter Dezimalarithmetik und Banker's-Rounding
+  ab. Unicode-/Quelltypen außerhalb der nachgewiesenen PowerShell-Parität
+  fallen mit demselben Restbudget auf den Worker zurück, statt lokal einen
+  möglicherweise großzügigeren Treffer zu bestätigen.
+- `make_working_copy` kopiert profilkonforme Falldateien direkt im API-Prozess
+  in ein atomar neues `cases:`-Ziel. Quelle und Ziel bleiben bis zum
+  vollständigen Doppel-Readback geöffnet; SHA-256, Geräte-/Dateiidentität,
+  Größe und Zeitstempel müssen konsistent bleiben. Abort/Timeout räumt nur
+  nach erneut bewiesener Eigentümerschaft auf, fremder Zielinhalt wird nie
+  blind gelöscht, und nach begonnener Mutation existiert kein Worker-Fallback.
+  Der Node-Dateihandle kann die exklusiven Windows-Share-Modi des Workers nicht
+  ausdrücken: Konkurrenz wird daher erkannt statt präventiv ausgeschlossen.
+  Auch der sichere Rollback besitzt ohne `DELETE_ON_CLOSE` ein kleines
+  Restfenster zwischen letzter Identitätsprüfung und `unlink`; dieser
+  Unterschied ist Teil des veröffentlichten Betriebsvertrags. Dateiöffnungen
+  sind deadlinegebunden und ein spät erzeugtes leeres Ziel wird nachgeräumt;
+  die nicht abbrechbaren Node-`FileHandle`-Operationen prüfen kooperativ
+  zwischen 1-MiB-Blöcken. Ein einzelner hängender Kernel-/Netzlaufwerkaufruf
+  kann das Zeitbudget daher überschreiten, während eigentumsgeprüftes Cleanup
+  absichtlich nicht mitten im Sicherheitsnachweis abgebrochen wird.
+- `backup_cases` komponiert dieselbe verifizierte Einzelkopie ebenfalls im
+  API-Prozess und startet über API oder MCP keinen PowerShell-Worker. Das Ziel
+  und bei Bedarf seine verschachtelte Elternkette entstehen komponentenweise
+  exklusiv neu; vor jeder Kopie sowie vor dem Manifest müssen Quell-
+  Fallinventar, Zielinventar und Verzeichnisidentitäten exakt zum erwarteten
+  Stand passen. Nach dem Manifest werden Quelle sowie Zielinventar und
+  Zielidentität erneut geprüft. Jede Datei wird vor und nach der Kopie gehasht,
+  das CSV-Manifest bleibt bytekompatibel zum direkten Worker. Bei Abort,
+  Timeout oder Interferenz entfernt der Rollback nur Dateien mit weiterhin
+  passender Identität, Größe und Eigenhash. Ein partielles Eigenmanifest gilt
+  nur bei unveränderter Identität und exaktem Präfix der beabsichtigten Bytes
+  als löschbar. Fremde oder veränderte Ziele bleiben erhalten und werden als
+  `retainedTargets` gemeldet. Die für `make_working_copy`
+  dokumentierten Windows-Share- und Rollback-TOCTOU-Grenzen gelten auch hier;
+  der direkte Worker bleibt Kompatibilitätsschnittstelle und Paritätsreferenz.
+- `archive_cases` bindet über API und MCP den vollständigen aktiven
+  Fallbestand einschließlich profilkonformer `_Backup`-Dateien, alle
+  erwarteten Hashes und den sicher falschen Übermittlungsstatus, ohne einen
+  Worker zu starten. `SSE.exe` wird per fail-closed Prozessprobe vor dem
+  Preflight und nochmals direkt vor jeder Quellentfernung ausgeschlossen. Jede
+  Archivdatei entsteht mit `wx+`, wird vollständig verifiziert und erst dann
+  vom Quellpfad entfernt; ein überschreibendes Node-`rename` wird bewusst nicht
+  verwendet. Offene Quell-Handles bleiben bis zur Endfreigabe oder zum
+  Rollback erhalten, sodass selbst ein nachträglich fremd verändertes
+  Archivziel nicht als Rücksicherungsquelle vertraut werden muss. Bei
+  gleichzeitig fremd belegtem Quell- und Zielpfad bewahrt eine exklusive,
+  hashgeprüfte `.sse-recovery-*`-Datei die Originalbytes im identitätsgebundenen
+  Fallordner. Manifest, verschachtelte Zielkette, Abort/Timeout und fremde
+  Einträge folgen denselben Eigentums- und Cleanup-Regeln wie die lokale
+  Fallsicherung. Dateisysteme ohne sichere Namensentfernung bei offenem Handle
+  enden fail-closed mit einer erhaltenen, gemeldeten Archivkopie. Der direkte
+  Worker bleibt für direkte Aufrufer und als
+  Paritätsreferenz bestehen.
 - Konfiguration und Wizard verweigern überlappende Fall-, Dokument-, Ergebnis-
   und Backupbereiche. `documents`, `results` und `backups` dürfen als getrennte
   Unterordner im Workspace oder ganz außerhalb liegen; keiner darf den
@@ -144,16 +228,17 @@ Agent oder eigenes Programm
 
 - Jeder UIA-Aufruf läuft weiterhin in einem frischen Prozess. Das isoliert den
   bekannten Qt/UIA-Fehlerzustand, in dem spätere Reads still leer werden.
-- Was dieser Schnitt kostet, ist gemessen und nicht geschätzt. Ein beliebiger
-  Workeraufruf braucht rund 1,1 s Wanduhrzeit, davon etwa 130 ms für den
+- Was dieser Schnitt kostet, ist gemessen und nicht geschätzt. Ein weiterhin
+  nötiger Workeraufruf braucht rund 1,1 s Wanduhrzeit, davon etwa 130 ms für den
   PowerShell-Start, **rund 560 ms allein für das Übersetzen des über 700 KB
   großen Workerskripts**, 40 ms für die UIA-Assemblies, 36 ms für den
   vorkompilierten Interop und den Rest für die Operation selbst. Die
   naheliegende Vermutung, die UIA-Schicht sei der Engpass, ist damit widerlegt.
-- Wer diesen Boden senken will, muss also das Skript aufteilen, sodass ein
-  Aufruf nur den Code seiner Operation übersetzt – nicht die Assemblies
-  verzögern oder den Prozess wiederverwenden. Letzteres verbietet der oben
-  genannte Qt/UIA-Fehlerzustand.
+- Reine Datei-/Metadatenoperationen werden nach feldgenauer Parität in den
+  API-Prozess gezogen. Für verbleibende UI-Operationen lässt sich dieser Boden
+  nur durch eine fachliche Skriptaufteilung senken, sodass ein Aufruf weniger
+  Code übersetzt – nicht durch einen langlebigen UIA-Prozess. Letzteres
+  verbietet der oben genannte Qt/UIA-Fehlerzustand.
 - Sichtbare physische Eingabe ist in einer verschachtelbaren Vordergrund-Lease
   gekapselt. Innerhalb einer atomaren Action wird dasselbe SSE-Fenster nur
   einmal angehoben. Erfolg, Fachfehler und globaler Trap laufen vor der
@@ -412,6 +497,16 @@ Ausführung (`test/operation-coverage.json`). Sie unterscheidet, was gegen den
 synthetischen Worker und was gegen die installierte Anwendung belegt ist, und
 verhindert als Ratsche, dass Abdeckung unbemerkt verschwindet oder unbemerkt
 entsteht.
+Daneben führt `test/operation-result-shape.json` eine wertfreie Bilanz der
+tatsächlich gesehenen Top-Level-Feldnamen, JSON-Typklassen, Herkunftsmarken und
+Ergebnisarten. Für ein Objektfeld erfasst sie außerdem die sicheren direkten
+Schlüsselnamen und deren Typklassen, damit beispielsweise ein Screenshotobjekt
+mit `path`, `w` und `h` wirklich gegen seinen Mindestvertrag geprüft wird. Das
+Laufzeitprotokoll speichert keine Werte und keine tiefer verschachtelten
+Inhalte. Neue Feld- oder Typvarianten stoppen den Test bis zur bewussten
+Übernahme; die Schemas müssen jede belegte Variante akzeptieren.
+Der statische Worker-Feldguard bleibt ergänzend bestehen, weil optionale
+Fehler- und Recovery-Felder nicht in jedem deterministischen Lauf erscheinen.
 Profilierte Live-Läufe verwenden ausschließlich Wegwerfkopien und werden mit
 Voraussetzungen und belegtem Umfang in
 [VERIFIKATION.md](VERIFIKATION.md) geführt.

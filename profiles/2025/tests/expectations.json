@@ -8,6 +8,9 @@
       "operation": "sse_result_details",
       "checker": true,
       "checkerMarksCaseModified": false,
+      "terminalCollect": {
+        "headingAtLaunch": "Vorbereitung Steuererklärung 2025"
+      },
       "expectedRows": [
         ["Erstattung", "3.540,63 €"],
         ["Werbungskosten Heinz", "2.140,00 €"],

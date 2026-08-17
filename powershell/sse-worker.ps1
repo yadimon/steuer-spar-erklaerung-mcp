@@ -343,6 +343,11 @@ function Test-SSEExactProperties($Value, [string[]]$Expected) {
   $expectedNames = @($Expected | Sort-Object)
   [bool](-not @(Compare-Object -ReferenceObject $expectedNames -DifferenceObject $actualNames).Count)
 }
+$desktopMarkerHelpersPath = Join-Path $PSScriptRoot 'desktop-marker.ps1'
+if (-not (Test-Path -LiteralPath $desktopMarkerHelpersPath -PathType Leaf)) {
+  Fail "Desktop-Marker-Helfer fehlt: $desktopMarkerHelpersPath" 'worker-init'
+}
+. $desktopMarkerHelpersPath
 
 function Get-SSECaseFileMatch([string]$PathOrName) {
   if (-not $PathOrName -or -not $script:SSE_CASE_FILE_REGEX) { return $null }
@@ -648,38 +653,36 @@ $script:INIT_TIMINGS.nativeExpectedDllHash = $nativeLoad.expectedDllHash
 $script:INIT_TIMINGS.nativeDllHashMatch = $nativeLoad.dllHashMatch
 if ($nativeLoad.dllError) { $script:INIT_TIMINGS.nativeDllError = $nativeLoad.dllError }
 }
-$script:DESKTOP_MARKE = Join-Path $env:TEMP 'sse-mcp-desktop.txt'
+$desktopTempRoot = $(if ($env:TEMP) { $env:TEMP } elseif ($env:TMP) { $env:TMP } else { '.' })
+$script:DESKTOP_MARKE = Join-Path $desktopTempRoot 'sse-mcp-desktop.txt'
+$script:SSE_CENTER_TEST_OPERATIONS = @('center_cases','center_refresh')
 $script:DESKTOP_NAME  = $null
 $script:DESKTOP_PID   = 0
+$script:DESKTOP_OWNER = $null
 if (Test-Path -LiteralPath $script:DESKTOP_MARKE) {
   try {
-    $markerFile = Get-Item -LiteralPath $script:DESKTOP_MARKE -Force -ErrorAction Stop
-    if ($markerFile.PSIsContainer -or $markerFile.Length -gt 4KB) { throw 'Desktop-Marker ist ungueltig.' }
-    $markerUtf8 = New-Object Text.UTF8Encoding($false, $true)
-    $markerRaw = ([IO.File]::ReadAllText($markerFile.FullName, $markerUtf8)).Trim()
-  } catch { $markerRaw = '' }
-  $n = $markerRaw
-  if ($markerRaw.StartsWith('{')) {
-    try {
-      $marker = $markerRaw | ConvertFrom-Json
-      $n = [string]$marker.name
-      $script:DESKTOP_PID = [int]$marker.pid
-    } catch { $n = '' }
+    $loadedDesktopMarker = Read-SSEDesktopMarker $script:DESKTOP_MARKE
+  } catch {
+    Fail 'Desktop-Marker ist ungueltig; sichtbarer Desktop wird nicht ersatzweise verwendet.' 'desktop-marker-invalid'
   }
-  if ($n -and (Test-SSEDesktopName $n)) {
-    # Die Marke allein ist massgeblich. SetThreadDesktop kann NICHT als
-    # Nachweis dienen: es scheitert mit Fehler 170, sobald der Thread ein
-    # Fenster besitzt - und PowerShell hat beim Start eines. Wird der
-    # Arbeiter ueber run-on-desktop.ps1 gestartet, ist er ohnehin schon
-    # dort geboren; der Aufruf unten ist nur der Fall fuer Direktstarts.
-    $script:DESKTOP_NAME = $n
-    if ($Op -ne 'desktop_start') {
-      $h = [DSK]::OpenDesktop($n, 0, $false, 0x10000000)   # GENERIC_ALL
-      if ($h -ne [IntPtr]::Zero) { [DSK]::SetThreadDesktop($h) | Out-Null }
-    }
-  } else {
-    $script:DESKTOP_NAME = $null
-    $script:DESKTOP_PID = 0
+  if ($loadedDesktopMarker.owner -ceq 'center-test' -and $Op -ne 'desktop_status' -and
+      ($env:SSE_CENTER_LIVE_TEST -ne '1' -or $Op -notin $script:SSE_CENTER_TEST_OPERATIONS)) {
+    Fail 'Desktop-Marker gehoert dem isolierten Center-Test; Operation wurde nicht dorthin geroutet.' 'desktop-marker-owner'
+  }
+  if ($loadedDesktopMarker.owner -ceq 'sse' -and $Op -in $script:SSE_CENTER_TEST_OPERATIONS) {
+    Fail 'SSE-Desktop-Marker besitzt keinen Steuertipps-Center; Center-Operation wurde nicht dorthin geroutet.' 'desktop-marker-owner'
+  }
+  $script:DESKTOP_NAME = [string]$loadedDesktopMarker.name
+  $script:DESKTOP_PID = [uint32]$loadedDesktopMarker.pid
+  $script:DESKTOP_OWNER = [string]$loadedDesktopMarker.owner
+  # Die Marke allein ist massgeblich. SetThreadDesktop kann NICHT als
+  # Nachweis dienen: es scheitert mit Fehler 170, sobald der Thread ein
+  # Fenster besitzt - und PowerShell hat beim Start eines. Wird der
+  # Arbeiter ueber run-on-desktop.ps1 gestartet, ist er ohnehin schon
+  # dort geboren; der Aufruf unten ist nur der Fall fuer Direktstarts.
+  if ($Op -ne 'desktop_start') {
+    $h = [DSK]::OpenDesktop($script:DESKTOP_NAME, 0, $false, 0x10000000)   # GENERIC_ALL
+    if ($h -ne [IntPtr]::Zero) { [DSK]::SetThreadDesktop($h) | Out-Null }
   }
 }
 
@@ -921,17 +924,24 @@ function Complete-FailedDesktopStart([IntPtr]$ProcessHandle, [string]$DesktopNam
 
   $markerWritten = $false; $markerRemoved = $false
   if ($exited) {
-    try { Remove-Item -LiteralPath $script:DESKTOP_MARKE -Force -ErrorAction Stop }
-    catch { if (Test-Path -LiteralPath $script:DESKTOP_MARKE) { $null = $errors.Add($_.Exception.Message) } }
-    $markerRemoved = -not (Test-Path -LiteralPath $script:DESKTOP_MARKE)
+    $markerRemoved = Remove-SSEDesktopMarkerIfOwned $script:DESKTOP_MARKE 'sse' $DesktopName $ProcessId
+    if (-not $markerRemoved) {
+      $null = $errors.Add('Vorhandener Desktop-Marker gehoert nicht der fehlgeschlagenen Start-PID und blieb erhalten.')
+    }
   } else {
     try {
-      @{ name = $DesktopName; pid = $ProcessId } | ConvertTo-Json -Compress |
-        Set-Content -LiteralPath $script:DESKTOP_MARKE -Encoding UTF8 -ErrorAction Stop
-      $recovery = Read-SSEJsonFileStrict $script:DESKTOP_MARKE 4KB
-      $markerWritten = [string]$recovery.name -eq $DesktopName -and [int]$recovery.pid -eq $ProcessId
+      $recovery = Write-SSEDesktopMarkerExclusive $script:DESKTOP_MARKE 'sse' $DesktopName $ProcessId
+      $markerWritten = $recovery.owner -eq 'sse' -and [string]$recovery.name -eq $DesktopName -and
+        [uint32]$recovery.pid -eq [uint32]$ProcessId
       if (-not $markerWritten) { $null = $errors.Add('Recovery-Marker liess sich nicht identisch zuruecklesen.') }
-    } catch { $null = $errors.Add($_.Exception.Message) }
+    } catch {
+      try {
+        $recovery = Read-SSEDesktopMarker $script:DESKTOP_MARKE
+        $markerWritten = $recovery.owner -eq 'sse' -and [string]$recovery.name -eq $DesktopName -and
+          [uint32]$recovery.pid -eq [uint32]$ProcessId
+      } catch { $markerWritten = $false }
+      if (-not $markerWritten) { $null = $errors.Add($_.Exception.Message) }
+    }
   }
   [pscustomobject]@{
     processExited = $exited; processStillRunning = -not $exited
@@ -4704,7 +4714,7 @@ function Test-SSEExperimentalDialogAnswerAllowed($Dialog, [string]$ButtonName) {
   if ([string]$Dialog.title -ceq 'Gewinn aktualisiert!' -and
       $ButtonName -ceq 'OK' -and
       $buttons.Count -eq 1 -and
-      $joinedText -match '^Der Gewinn des Betriebs .+ wurde aktualisiert\.$') {
+      $joinedText -cmatch '^Der Gewinn des Betriebs \u00BB[^\u00BB\u00AB\r\n]+\u00AB wurde aktualisiert\.$') {
     return $true
   }
   $false
@@ -5234,7 +5244,7 @@ switch ($Op) {
       entfernt=@($namesBefore | Where-Object { $_ -notin $namesAfter })
       hinzugekommen=@($namesAfter | Where-Object { $_ -notin $namesBefore })
       sucheUnveraendert=$searchSame; sortierungUnveraendert=$sortSame
-      hinweis="Nur die Center-Ansicht wurde aktualisiert; kein Steuerfall wurde geoeffnet oder veraendert."
+      hinweis="Die Center-Ansicht wechselte kurz zu 'Zuletzt verwendet' und erfolgreich zurueck zu 'Verzeichnis'; kein Steuerfall wurde geoeffnet oder veraendert. Scheitert der zweite Toggle, kann der Ansichtsmodus bis zur manuellen Rueckkehr abweichen."
     })
   }
 
@@ -5967,7 +5977,8 @@ switch ($Op) {
       ok = $true; count = $hits.Count; hits = $hits; stats = $t.stats
       incomplete = [bool]$t.stats.truncated
       note = $(if ($t.stats.truncated) {
-        'ACHTUNG: Der Baumlauf wurde abgeschnitten. "Nicht gefunden" ist hier KEIN Beweis fuer Abwesenheit.' })
+        'ACHTUNG: Der Baumlauf wurde abgeschnitten. "Nicht gefunden" ist hier KEIN Beweis fuer Abwesenheit.'
+      } else { $null })
     })
   }
 
@@ -8271,6 +8282,7 @@ switch ($Op) {
       $stillRunning = [bool](Get-Process -Id $targetPid -ErrorAction SilentlyContinue)
       Emit ([pscustomobject]@{
         ok=(-not $stillRunning); killed=(-not $stillRunning); stillRunning=$stillRunning
+        kind=$(if ($stillRunning) { 'postcondition-failed' } else { $null })
         discardChanges=$true; pid=$targetPid
         error=$(if ($stillRunning) { 'Fensterlos gestartete SSE-PID konnte nicht sicher beendet werden.' } else { $null })
         note='Exakt gebundene fensterlose Start-PID wurde ohne Speichern beendet.'
@@ -8368,6 +8380,7 @@ switch ($Op) {
     $laeuftNoch = [bool](Get-Process -Id $targetPid -ErrorAction SilentlyContinue)
     Emit ([pscustomobject]@{
       ok = (-not $laeuftNoch); wasHung = $hung; killed = $killed; stillRunning = $laeuftNoch
+      kind = $(if ($laeuftNoch) { 'postcondition-failed' } else { $null })
       error = $(if ($laeuftNoch) { 'Programm laeuft nach dem Schliessversuch noch; Dialogzustand mit sse_ui_state pruefen.' } else { $null })
       speichernAntwort = $antwort; sollteSpeichern = $save
       discardChanges = $discard; pid = $targetPid
@@ -8382,7 +8395,7 @@ switch ($Op) {
     if (-not $dir) { Fail 'dir ist Pflicht (alternativ Umgebungsvariable SSE_CASE_DIR setzen).' 'bad-args' }
     if (-not (Test-Path -LiteralPath $dir)) { Fail "Ordner nicht gefunden: $dir" 'not-found' }
     $incBackup = ($a.includeBackups -eq $true)
-    $files = @(Get-ChildItem -LiteralPath $dir -File | Where-Object {
+    $files = @(Get-ChildItem -LiteralPath $dir -File -Force | Where-Object {
       Test-SSEProfileCaseFileName $_.Name $incBackup
     })
     if (-not $files.Count) { Emit ([pscustomobject]@{ ok = $true; dir = $dir; count = 0; cases = @() }) }
@@ -8522,7 +8535,7 @@ switch ($Op) {
       $null = $expected.Add([pscustomobject]@{ name=$name; expectedSha256=$hash })
     }
 
-    $actualFiles = @(Get-ChildItem -LiteralPath $dir -File | Where-Object { Test-SSEProfileCaseFileName $_.Name $true })
+    $actualFiles = @(Get-ChildItem -LiteralPath $dir -File -Force | Where-Object { Test-SSEProfileCaseFileName $_.Name $true })
     $actualMap = @{}
     foreach ($file in $actualFiles) { $actualMap[$file.Name] = $file }
     $actualNames = @($actualFiles | ForEach-Object { $_.Name.ToLowerInvariant() } | Sort-Object)
@@ -8583,7 +8596,7 @@ switch ($Op) {
           throw "Resthash stimmt fuer '$($entry.name)' nicht."
         }
       }
-      $remainingActual = @(Get-ChildItem -LiteralPath $dir -File | Where-Object { Test-SSEProfileCaseFileName $_.Name $true } |
+      $remainingActual = @(Get-ChildItem -LiteralPath $dir -File -Force | Where-Object { Test-SSEProfileCaseFileName $_.Name $true } |
         ForEach-Object { $_.Name.ToLowerInvariant() } | Sort-Object)
       $remainingExpected = @($remainingEntries | ForEach-Object { ([string]$_.name).ToLowerInvariant() } | Sort-Object)
       if (@(Compare-Object -ReferenceObject $remainingExpected -DifferenceObject $remainingActual).Count) {
@@ -8651,7 +8664,7 @@ switch ($Op) {
     }
     if (Test-Path -LiteralPath $dest) { Fail "Sicherungsziel existiert bereits: $dest" 'precondition-failed' }
 
-    $files = @(Get-ChildItem -LiteralPath $dir -File | Where-Object {
+    $files = @(Get-ChildItem -LiteralPath $dir -File -Force | Where-Object {
       Test-SSEProfileCaseFileName $_.Name $true
     })
     if (-not $files.Count) { Fail "Keine Falldateien in $dir gefunden." 'not-found' }
@@ -9891,8 +9904,13 @@ switch ($Op) {
     # Verweis "»X« bearbeiten". Diese Abfrage ist rein lesend.
     $namen = @($t.nodes | Where-Object { $_.name -match '^»(.+)« bearbeiten$' } |
                ForEach-Object { ($_.name -replace '^»', '') -replace '« bearbeiten$', '' } | Select-Object -Unique)
-    Emit ([pscustomobject]@{ ok = $true; positionen = $namen; anzahl = $namen.Count
-      hinweis = $(if (-not $namen.Count) { "Keine Positionen sichtbar - erst auf die Uebersichtsseite ('Erlöse Lieferungen/Leistungen' bzw. 'Betriebsausgaben: Eigene Positionen') navigieren." }) })
+    Emit ([pscustomobject]@{
+      ok = $true; positionen = $namen; anzahl = $namen.Count
+      hinweis = $(if (-not $namen.Count) {
+        "Keine Positionen sichtbar - erst auf die Uebersichtsseite ('Erlöse Lieferungen/Leistungen' bzw. " +
+        "'Betriebsausgaben: Eigene Positionen') navigieren."
+      } else { $null })
+    })
   }
 
   'export_csv' {
@@ -10130,9 +10148,9 @@ switch ($Op) {
         $_.name -eq 'Weiter' -and $_.type -eq 'Button'
       })[0]
       if (-not $wtr -or -not $wtr.on) {
-        if ($t.stats.truncated) {
+        if ($navigationTree.stats.truncated -or $t.stats.truncated) {
           $stopKind = 'snapshot-truncated'
-          $stopReason = "Auf '$head' war der UIA-Snapshot abgeschnitten; das Ende des Blaetterpfads ist nicht bewiesen."
+          $stopReason = "Auf '$head' war ein UIA-Snapshot abgeschnitten; das Ende des Blaetterpfads ist nicht bewiesen."
         } else {
           $vollstaendig = $true
           $stopKind = 'end-of-branch'
@@ -10319,10 +10337,22 @@ switch ($Op) {
         sourceHashBefore=$sourceHashBefore; sourceHashAfter=$sourceHashAfter
       })
     }
-    $daten = @($sourceDocument.seiten)
+    $pagesProperty = $sourceDocument.PSObject.Properties['seiten']
+    if (-not $pagesProperty -or $pagesProperty.Value -isnot [Array]) {
+      Fail 'Collect-JSON enthaelt keine Seitenliste.' 'invalid-source'
+    }
+    $daten = @($pagesProperty.Value)
     if (-not $daten.Count) { Fail 'Collect-JSON enthaelt keine Seiten.' 'invalid-source' }
     $sourceCompleteProperty = $sourceDocument.PSObject.Properties['vollstaendig']
-    $sourceVollstaendig = $(if ($sourceCompleteProperty) { [bool]$sourceCompleteProperty.Value } else { $null })
+    # Nur ein echtes JSON-Boolean darf ein Gesamturteil freigeben. Besonders
+    # die Zeichenkette "false" waere bei einem direkten [bool]-Cast wahr.
+    $sourceVollstaendig = $(
+      if ($sourceCompleteProperty -and $sourceCompleteProperty.Value -is [bool]) {
+        [bool]$sourceCompleteProperty.Value
+      } else {
+        $null
+      }
+    )
     $allowIncomplete = [bool](Arg $a 'allowIncompleteSource' $false)
     if ($sourceVollstaendig -ne $true -and -not $allowIncomplete) {
       Emit ([pscustomobject]@{
@@ -10997,9 +11027,12 @@ switch ($Op) {
           Fail "Desktop '$($script:DESKTOP_NAME)' enthaelt SSE-Fenster, die nicht mehr sicher an den Marker gebunden sind." 'desktop-occupied'
         }
       }
-      Remove-Item -LiteralPath $script:DESKTOP_MARKE -Force
+      if (-not (Remove-SSEDesktopMarkerIfOwned $script:DESKTOP_MARKE $script:DESKTOP_OWNER $script:DESKTOP_NAME $script:DESKTOP_PID)) {
+        Fail 'Veralteter Desktop-Marker wechselte waehrend der Pruefung den Eigentuemer und blieb erhalten.' 'marker-cleanup'
+      }
       $script:DESKTOP_NAME = $null
       $script:DESKTOP_PID = 0
+      $script:DESKTOP_OWNER = $null
     }
 
     $GENERIC_ALL = 0x10000000
@@ -11083,8 +11116,11 @@ switch ($Op) {
               "Der Prozessabbruch und Markerabbau wurden verifiziert; andere SSE-Fenster wurden nicht uebernommen.") 'startup-timeout' $timeoutDetails
       }
       $ownedPid = [int]$pi.pid
-      @{ name = $name; pid = $ownedPid } | ConvertTo-Json -Compress |
-        Set-Content -LiteralPath $script:DESKTOP_MARKE -Encoding UTF8
+      $writtenMarker = Write-SSEDesktopMarkerExclusive $script:DESKTOP_MARKE 'sse' $name $ownedPid
+      if ($writtenMarker.owner -ne 'sse' -or $writtenMarker.name -ne $name -or
+          [uint32]$writtenMarker.pid -ne [uint32]$ownedPid) {
+        throw 'Desktop-Marker liess sich nach exklusivem Schreiben nicht identisch zuruecklesen.'
+      }
     } catch {
       $startupError = $_.Exception.Message
       $cleanup = Complete-FailedDesktopStart $pi.hProcess $name ([int]$pi.pid)
@@ -11277,9 +11313,9 @@ switch ($Op) {
     }
     $markerError = $null
     try {
-      if (Test-Path -LiteralPath $script:DESKTOP_MARKE) { Remove-Item -LiteralPath $script:DESKTOP_MARKE -Force }
+      $markerRemoved = Remove-SSEDesktopMarkerIfOwned $script:DESKTOP_MARKE 'sse' $script:DESKTOP_NAME $ownedPid
+      if (-not $markerRemoved) { $markerError = 'Marker wechselte den Eigentuemer oder ist nicht mehr gueltig.' }
     } catch { $markerError = $_.Exception.Message }
-    $markerRemoved = -not (Test-Path -LiteralPath $script:DESKTOP_MARKE)
     if (-not $markerRemoved) {
       Emit ([pscustomobject]@{ ok=$false; kind='marker-cleanup'; error="SSE ist beendet, Desktop-Marker blieb bestehen: $markerError"; hartBeendet=$beendet; pid=$ownedPid; desktopMarkeEntfernt=$false })
     }
@@ -11316,7 +11352,8 @@ switch ($Op) {
       desktopErreichbar = $desktopReachable
       markeVeraltet = [bool]($markerPresent -and -not ($script:DESKTOP_NAME -and $script:DESKTOP_PID -and $ownedRunning -and $desktopReachable -and $statusWindows.Count))
       fenster = $statusWindows
-      note = $(if ($script:DESKTOP_NAME) { "Status hat den markierten Desktop '$($script:DESKTOP_NAME)' explizit geoeffnet und nur PID $($script:DESKTOP_PID) geprueft." }
+      note = $(if ($script:DESKTOP_OWNER -eq 'center-test') { 'Status hat einen Center-Testmarker nur diagnostiziert; keine SSE-Instanz wurde uebernommen oder veraendert.' }
+               elseif ($script:DESKTOP_NAME) { "Status hat den markierten Desktop '$($script:DESKTOP_NAME)' explizit geoeffnet und nur PID $($script:DESKTOP_PID) geprueft." }
                else { 'Keine gueltige Desktopmarke geladen.' })
     })
   }
@@ -14035,10 +14072,13 @@ switch ($Op) {
     $after = @(Get-Windows 'SSE' | Where-Object {
       [int]$_.pid -eq $targetPid -and $_.cls -match 'PopupDropShadow|SysShadow'
     })
+    $verified = [bool]($after.Count -eq 0)
     Emit ([pscustomobject]@{
-      ok = ($after.Count -eq 0); collapsed = $collapsed
+      ok = $verified; collapsed = $collapsed
+      kind = $(if ($verified) { $null } else { 'postcondition-failed' })
+      error = $(if ($verified) { $null } else { 'Menue-Popup ist nach dem Collapse noch sichtbar; keine Tasten gesendet.' })
       popupCountBefore = $before.Count; popupCountAfter = $after.Count
-      verified = ($after.Count -eq 0)
+      verified = $verified
       warning = $(if ($after.Count) { 'Menue-Popup ist noch sichtbar; keine Tasten gesendet.' } else { $null })
     })
   }
@@ -14290,7 +14330,7 @@ switch ($Op) {
       ok=$true; geschlossen=$zu; systemOverlaysIgnoriert=$systemOverlays
       stehenGelassen=@($stehenGelassen)
       verbleibend=@(Get-Windows 'SSE' | Where-Object { [int]$_.pid -eq [int]$main.pid }).Count
-      note = $(if ($stehenGelassen.Count) { 'Nicht eindeutig harmlose Fenster wurden bewusst nicht geschlossen - bitte ansehen.' })
+      note = $(if ($stehenGelassen.Count) { 'Nicht eindeutig harmlose Fenster wurden bewusst nicht geschlossen - bitte ansehen.' } else { $null })
     })
   }
 

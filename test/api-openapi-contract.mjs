@@ -32,13 +32,45 @@ for (const operation of SSE_API_OPERATIONS) {
     `#/components/schemas/Args_${operation}`,
   );
   assert.equal(SSE_OPENAPI_DOCUMENT.components.schemas[`Args_${operation}`], SSE_API_DISCOVERY.argumentSchemas[operation]);
-  assert.equal(SSE_OPENAPI_DOCUMENT.components.schemas[`Result_${operation}`], SSE_API_DISCOVERY.resultSchemas[operation]);
+  assert.equal(
+    SSE_OPENAPI_DOCUMENT.components.schemas[`Result_${operation}`].description,
+    SSE_API_DISCOVERY.resultSchemas[operation].description,
+  );
   const responseSchema = post.responses["200"].content["application/json"].schema;
   assert.equal(responseSchema.allOf[0].$ref, "#/components/schemas/OperationEnvelope");
   assert.equal(responseSchema.allOf[1].properties.operation.const, operation);
   assert.equal(responseSchema.allOf[1].properties.result.$ref, `#/components/schemas/Result_${operation}`);
   assert(post.responses["200"] && post.responses["400"] && post.responses["405"] && post.responses["502"]);
 }
+
+for (const field of ["ok", "kind", "error", "ms"]) {
+  assert(!Object.hasOwn(SSE_OPENAPI_DOCUMENT.components.schemas.Result_health.properties, field),
+    `Result_health darf den gemeinsamen Transportwert '${field}' nicht erneut inline duplizieren.`);
+}
+assert.equal(SSE_OPENAPI_DOCUMENT.components.schemas.Result_health.allOf[0].$ref,
+  "#/components/schemas/OperationResultEnvelope");
+assert.equal(SSE_OPENAPI_DOCUMENT.components.schemas.OperationResultEnvelope.properties.ok.$ref,
+  "#/components/schemas/ResultOk");
+assert.deepEqual(SSE_OPENAPI_DOCUMENT.components.schemas.OperationResultEnvelope.required, ["ok"]);
+assert.equal(SSE_OPENAPI_DOCUMENT.components.schemas.Result_toggle.properties.verified.$ref,
+  "#/components/schemas/OptionalFlag");
+assert.notEqual(
+  SSE_OPENAPI_DOCUMENT.components.schemas.Result_toggle.properties.verified,
+  SSE_OPENAPI_DOCUMENT.components.schemas.Result_save.properties.verified,
+  "Result-Schemas duerfen auch ihre kompakten Referenzobjekte nicht gemeinsam mutierbar teilen.",
+);
+assert.deepEqual(SSE_OPENAPI_DOCUMENT.components.schemas.ResultOk, SSE_API_DISCOVERY.resultSchemas.health.properties.ok);
+assert.notEqual(SSE_OPENAPI_DOCUMENT.components.schemas.ResultOk, SSE_API_DISCOVERY.resultSchemas.health.properties.ok,
+  "OpenAPI-Komponenten duerfen die Discovery-Objekte nicht per Referenz teilen.");
+
+const commonResultComponentNames = [
+  "ResultOk", "ResultKind", "ResultError", "ResultWorkerMs", "OptionalText", "OptionalFlag",
+  "OptionalObject", "OptionalArray", "OptionalNonNegativeNumber", "OptionalSha256",
+  "OptionalStringList", "OptionalTransmissionState",
+];
+assert.equal(new Set(commonResultComponentNames.map((name) =>
+  JSON.stringify(SSE_OPENAPI_DOCUMENT.components.schemas[name]))).size, commonResultComponentNames.length,
+"Gemeinsame OpenAPI-Resultbausteine muessen paarweise verschieden sein.");
 
 assert.equal(SSE_OPENAPI_DOCUMENT.paths[`/${SSE_API_VERSION}/operations/keys`], undefined);
 for (const operation of ["click_point", "vast_mapping_select"]) {
@@ -65,8 +97,12 @@ assert.deepEqual(
 );
 
 const serialized = JSON.stringify(SSE_OPENAPI_DOCUMENT);
+for (const name of commonResultComponentNames) {
+  assert(serialized.includes(`\"$ref\":\"#/components/schemas/${name}\"`),
+    `Gemeinsame OpenAPI-Komponente '${name}' wird von keinem Result-Schema referenziert.`);
+}
 // 87 operationsspezifische Result-Schemas mit den realen stabilen Worker-
-// Feldern brauchen knapp 260 KiB; die enge Reserve faengt unbeabsichtigte
+// Feldern brauchen knapp 265 KiB; die enge Reserve faengt unbeabsichtigte
 // Schema-Dopplung weiterhin ab.
 assert(Buffer.byteLength(serialized, "utf8") < 272 * 1024, "OpenAPI-Dokument ist unnoetig gross.");
 assert(!serialized.includes("C:\\development"));

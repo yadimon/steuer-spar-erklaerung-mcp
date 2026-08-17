@@ -53,14 +53,16 @@ const worker = async (operation, args) => {
     },
     dialog_list: { ok: true, dialogs: [] },
     health: { ok: true, running: true, advice: "gesund", canaryMs: 17 },
-    page_objects: {
-      ok: true,
-      pageId: args.pageId,
-      page: { heading: "Betriebseinnahmen", localMachinePath: "must-not-be-captured" },
-    },
-    list_cases: { ok: true, count: 2, cases: ["A", "B"] },
+    list_cases: { ok: true, count: 2, cases: [{ name: "A" }, { name: "B" }] },
     click: { ok: true, beforePage: "Start", afterPage: "Betriebseinnahmen", screenPoint: [10, 20] },
-    read_page: { ok: true, heading: "Betriebseinnahmen", fieldCount: 4, boundHwnd: args.hwnd, fields: [1, 2, 3, 4] },
+    read_page: {
+      ok: true,
+      heading: "Betriebseinnahmen",
+      fieldCount: 4,
+      boundHwnd: args.hwnd,
+      fields: [1, 2, 3, 4],
+      localMachinePath: "must-not-be-captured",
+    },
     page: {
       ok: true,
       ueberschrift: "Umsatzsteuer-Voranmeldungen 2025",

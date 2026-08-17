@@ -84,7 +84,57 @@ const execute = traceOperations("ustva-mock", createApiExecutor({
       blockiert: false,
     };
   }
-  return { ok: true, operation, ...args };
+  if (operation === "click") {
+    const before = currentHeading;
+    currentHeading = String(args.expectedPageAfter ?? currentHeading);
+    return {
+      ok: true,
+      clicked: String(args.aid ?? args.name ?? "synthetic-click"),
+      pattern: "invoke",
+      method: "synthetic-bound-action",
+      kandidaten: 1,
+      ueberschriftVorher: before,
+      ueberschriftNachher: currentHeading,
+      navigiert: before !== currentHeading,
+      verified: true,
+    };
+  }
+  if (operation === "combo_select") {
+    return {
+      ok: true,
+      before: args.expectedCurrent,
+      after: args.expectedAfter,
+      expectedAfter: args.expectedAfter,
+      page: args.expectedPage,
+      selected: args.value,
+      method: "synthetic-bound-action",
+      verified: true,
+    };
+  }
+  if (operation === "toggle") {
+    return {
+      ok: true,
+      before: args.expectedBefore,
+      wanted: args.value,
+      after: args.expectedAfter,
+      expectedAfter: args.expectedAfter,
+      page: args.expectedPage,
+      method: "synthetic-bound-action",
+      verified: true,
+    };
+  }
+  if (operation === "tracked_set_value") {
+    return {
+      ok: true,
+      verified: true,
+      seite: args.expectedPage,
+      bindung: String(args.aid ?? args.name ?? "synthetic-field"),
+      ungespeichert: true,
+      epochVorher: "A".repeat(64),
+      epochNachher: "B".repeat(64),
+    };
+  }
+  throw new Error(`Unerwartete UStVA-Mock-Operation '${operation}'.`);
 }));
 
 try {
@@ -246,6 +296,7 @@ try {
   assert.equal(calls.at(-1).operation, "click");
   assert.equal(calls.at(-1).args.aid, ".RahmenSteuerfreiUndNichtSteuerbar.Stfr.Button");
   assert.equal(calls.at(-1).args.expectedPageAfter, "Steuerfreie Umsätze");
+  currentHeading = "Umsatzsteuer-Voranmeldungen 2025";
 
   let periodVariants = 0;
   for (const [selector, definition] of Object.entries(USTVA_PERIOD_SELECTORS)) {

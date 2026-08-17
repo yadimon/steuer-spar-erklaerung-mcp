@@ -106,5 +106,14 @@ $reparentedTree = Compare-SSESnapshotNodes @($parentA, $parentB, $child) @(
 )
 Assert-True (-not $reparentedTree.equivalent -and $reparentedTree.missingCount -eq 1 -and $reparentedTree.extraCount -eq 1) `
   'Reparenting in einem gueltigen Baum wurde durch RuntimeId-Churn maskiert.'
+$stableRidReparentedTree = Compare-SSESnapshotNodes @($parentA, $parentB, $child) @(
+  (Node '10' 'Parent A' '' 'Group' 'parent-a' 0 -1 0),
+  (Node '11' 'Parent B' '' 'Group' 'parent-b' 1 -1 0),
+  (Node '12' 'Privater Name' 'Privater Wert' 'Edit' '' 2 1 1)
+)
+Assert-True (-not $stableRidReparentedTree.equivalent -and
+    $stableRidReparentedTree.metadataMismatchCount -eq 1 -and
+    $stableRidReparentedTree.missingCount -eq 0 -and $stableRidReparentedTree.extraCount -eq 0) `
+  'Reparenting mit stabiler RuntimeId wurde in einem gueltigen Baum nicht als Metadatenabweichung erkannt.'
 
 Write-Output 'Snapshot-Vergleich: RuntimeId-Churn gepaart, echte private Struktur-/Wertabweichungen fail-closed.'

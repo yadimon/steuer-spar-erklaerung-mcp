@@ -6,7 +6,6 @@ import {
   readFileSync,
   readdirSync,
   renameSync,
-  statSync,
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
@@ -251,6 +250,18 @@ function pageElements(model) {
     h: 24,
     enabled: true,
   }));
+  nodes.unshift({
+    rid: "rid.global.search",
+    aid: "",
+    name: "Globales Suchfeld",
+    type: "Edit",
+    value: model.searchValue,
+    x: 620,
+    y: 40,
+    w: 240,
+    h: 24,
+    enabled: true,
+  });
   if (page === TABLE_PAGE) {
     tableRows(caseState).forEach((row, index) => {
       nodes.push({
@@ -405,6 +416,7 @@ export function createStatefulSseWorker({ caseDir }) {
   let desktopName = null;
   let verticalPercent = 0;
   let treeOffset = 0;
+  let searchValue = "";
   const pid = 3131;
   const hwnd = 4242;
   const vastHwnd = 8888;
@@ -431,6 +443,7 @@ export function createStatefulSseWorker({ caseDir }) {
     cases,
     get currentPage() { return currentPage; },
     get openPath() { return openPath; },
+    get searchValue() { return searchValue; },
     get dialogs() { return dialogs; },
     openCase: () => openPath ? readCase(openPath) : null,
     openWarning() {
@@ -507,7 +520,7 @@ export function createStatefulSseWorker({ caseDir }) {
       ok: true,
       verified: true,
       feld: { vorher: actualBefore, nachher: actualAfter, ok: actualAfter === after },
-      epochNachher: epoch,
+      epochNachher: sha256(String(epoch)),
       ergebnisDiff: resultRows(caseState),
     };
   };
@@ -519,17 +532,22 @@ export function createStatefulSseWorker({ caseDir }) {
       : { error: { ok: false, kind: "not-found", error: "Kein Steuerfall offen." } };
   };
 
-  const createVastDialog = () => ({
-    mappingFingerprint: sha256("synthetic-vast-mapping"),
-    rows: [{
+  const vastMappingFingerprint = (rows) => sha256(JSON.stringify(rows.map((row) => ({
+    certificate: row.certificate,
+    occurrence: row.occurrence,
+    localTarget: row.localTarget,
+  }))));
+  const createVastDialog = () => {
+    const rows = [{
       certificate: VAST_CERTIFICATE,
       occurrence: 1,
       expanded: false,
       localTarget: VAST_UNMAPPED,
       options: [VAST_UNMAPPED, VAST_TARGET],
       amountCents: 6_500_000,
-    }],
-  });
+    }];
+    return { mappingFingerprint: vastMappingFingerprint(rows), rows };
+  };
 
   const findVastRow = (args) => {
     if (!vast) return { error: { ok: false, kind: "not-found", error: "Kein VaSt-Dialog offen." } };
@@ -546,7 +564,7 @@ export function createStatefulSseWorker({ caseDir }) {
    * binden die Aktion. Eine verletzte Nachsumme rollt die eigene Aenderung
    * vollstaendig zurueck, statt eine halb geschriebene Tabelle zu hinterlassen.
    */
-  const mutateTable = (args, change) => {
+  const mutateTable = (operation, args, change) => {
     const caseState = model.openCase();
     if (!caseState) return { ok: false, kind: "not-found", error: "Kein Steuerfall offen." };
     if (currentPage !== String(args.expectedPage)) {
@@ -568,18 +586,49 @@ export function createStatefulSseWorker({ caseDir }) {
     const after = formatCents(tableSumCents(caseState));
     if (after !== String(args.expectedAfter)) {
       caseState.values.sonstigeEinnahmen = backup;
+      const sums = operation === "table_update"
+        ? { summeVorher: before, summeNachher: after }
+        : operation === "table_delete"
+          ? { before, after, target: String(args.text), rolledBack: true }
+          : { sumBefore: before, sumAfter: after };
       return {
         ok: false,
         kind: "postcondition-failed",
         error: `Nachsumme '${after}', erwartet '${args.expectedAfter}'. Eigene Aenderung zurueckgerollt.`,
-        sumBefore: before,
-        sumAfter: after,
+        ...sums,
         rollback: { versucht: true, erfolgreich: true, summe: formatCents(tableSumCents(caseState)) },
       };
     }
     caseState.dirty = true;
     epoch += 1;
-    return { ok: true, verified: true, sumBefore: before, sumAfter: after, rowCount: tableRows(caseState).length, ...outcome };
+    if (operation === "table_update") {
+      return {
+        ok: true,
+        verified: true,
+        ziel: String(args.text),
+        summeVorher: before,
+        summeNachher: after,
+        zellen: [outcome.updated],
+      };
+    }
+    if (operation === "table_delete") {
+      return {
+        ok: true,
+        verified: true,
+        geloescht: true,
+        target: String(args.text),
+        before,
+        after,
+        nochVorhanden: false,
+      };
+    }
+    return {
+      ok: true,
+      verified: true,
+      sumBefore: before,
+      sumAfter: after,
+      zellen: [outcome.added],
+    };
   };
 
   const worker = async (operation, args = {}) => {
@@ -592,20 +641,6 @@ export function createStatefulSseWorker({ caseDir }) {
       case "list_cases": {
         const files = readdirSync(args.dir ?? caseDir).filter((name) => /\.(?:ESt|Gew)2025$/u.test(name));
         return { ok: true, count: files.length, cases: files.map((name) => ({ name })) };
-      }
-      case "case_hash": {
-        const path = resolve(String(args.path));
-        if (!existsSync(path)) return { ok: false, kind: "not-found", error: "Falldatei fehlt." };
-        const caseState = readCase(path);
-        return {
-          ok: true,
-          path,
-          exists: true,
-          size: statSync(path).size,
-          sha256: sha256File(path),
-          header: { FileType: caseState.kind === "income_tax" ? "ESt" : "Gew", VJahr: caseState.taxYear },
-          transmitted: false,
-        };
       }
       case "make_working_copy": {
         const source = resolve(String(args.source));
@@ -720,9 +755,20 @@ export function createStatefulSseWorker({ caseDir }) {
         return { ok: true, before: args.expectedBefore, after: args.expectedAfter };
       }
       case "click": {
+        const before = currentPage;
         const target = String(args.expectedPageAfter ?? "");
         if (target) currentPage = target;
-        return { ok: true, beforePage: args.expectedPageBefore, afterPage: currentPage };
+        return {
+          ok: true,
+          clicked: String(args.name ?? args.aid ?? "synthetic-click"),
+          pattern: String(args.pattern ?? "invoke"),
+          method: "synthetic-bound-action",
+          kandidaten: 1,
+          ueberschriftVorher: before,
+          ueberschriftNachher: currentPage,
+          navigiert: before !== currentPage,
+          verified: true,
+        };
       }
       case "save": {
         const caseState = model.openCase();
@@ -772,18 +818,47 @@ export function createStatefulSseWorker({ caseDir }) {
       }
       case "click_point":
         if (args.checkerReadOnly === true) expandedChecker = [String(args.name)];
-        return { ok: true, clicked: true };
+        return { ok: true, clicked: String(args.name ?? ""), verified: true };
       case "checker_reset":
         expandedChecker = [];
-        return { ok: true, fragenWarnungen: checkerMessages(model.openCase()), aufgeklappt: [], konsistent: true };
-      case "checker_detail":
+        return {
+          ok: true,
+          geschlossen: [],
+          anzahlGeschlossen: 0,
+          konsistent: true,
+          fragenWarnungenAngekuendigt: checkerMessages(model.openCase()).length,
+          tippsAngekuendigt: 0,
+          fragenWarnungen: checkerMessages(model.openCase()),
+          tippsZusatzinfos: [],
+          sonstige: [],
+          aufgeklappt: [],
+          technischeFokusKarten: [],
+          nichtGeschlossen: [],
+          navigationSchritte: 0,
+          fokusVerwendet: false,
+          ohneOffeneKarten: true,
+          ungespeichert: model.openCase()?.dirty ?? null,
+          hinweis: "Synthetischer Prueferbaum ist geschlossen.",
+        };
+      case "checker_detail": {
+        const text = "Bitte tragen Sie die fehlende Belegnummer ein.";
         return {
           ok: true,
           meldung: args.name,
-          text: "Bitte tragen Sie die fehlende Belegnummer ein.",
+          text,
           leseweg: "synthetic-structured",
           bildBase64: Buffer.from("synthetic-control-image").toString("base64"),
+          strukturiertOk: true,
+          ocrVerwendet: false,
+          ocrOk: null,
+          strukturQuellen: ["synthetic-tree"],
+          sprache: "deu",
+          zeilen: 1,
+          ocrFehler: null,
+          inAnsichtGerollt: false,
+          ungespeichert: model.openCase()?.dirty ?? null,
         };
+      }
       case "warning_popup_read": {
         const dialog = dialogs[0];
         if (!dialog) return { ok: true, active: false, warnings: [], actions: [], text: "" };
@@ -854,27 +929,61 @@ export function createStatefulSseWorker({ caseDir }) {
       }
       case "tree_top":
         treeOffset = 0;
-        return { ok: true, oben: true, schritte: Number(args.steps ?? 1), offset: treeOffset };
+        return {
+          ok: true,
+          gerollt: "top",
+          schritte: Number(args.steps ?? 1),
+          ersterKnoten: pageSequence(model.openCase())[0],
+          sichtbareKnoten: pageSequence(model.openCase()).slice(0, 4),
+        };
       case "tree_scroll":
         treeOffset = Math.max(0, treeOffset + (args.direction === "up" ? -1 : 1) * Number(args.steps ?? 1));
-        return { ok: true, richtung: args.direction ?? "down", offset: treeOffset };
+        return {
+          ok: true,
+          gerollt: String(args.direction ?? "down"),
+          schritte: Number(args.steps ?? 1),
+          ersterKnoten: pageSequence(model.openCase())[treeOffset] ?? null,
+          letzterKnoten: pageSequence(model.openCase()).at(-1) ?? null,
+          sichtbareKnoten: pageSequence(model.openCase()).slice(treeOffset, treeOffset + 4),
+        };
       case "scroll": {
         if (args.mode === "percent") verticalPercent = Number(args.vPercent ?? 0);
         const nodes = pageElements(model);
-        const treffer = args.mode === "intoview"
-          ? nodes.filter((node) => matchesSelector(node, args)).length
-          : 0;
-        return { ok: true, mode: args.mode ?? "intoview", vPercent: verticalPercent, treffer };
+        if (args.mode === "intoview") {
+          const target = nodes.find((node) => matchesSelector(node, args));
+          return { ok: true, mode: "intoview", scrolledTo: target?.name ?? null };
+        }
+        if (args.mode === "list") {
+          return { ok: true, count: 1, scrollables: [{ name: currentPage, vPercent: verticalPercent }] };
+        }
+        return { ok: true, mode: "percent", target: currentPage, vPercent: verticalPercent };
       }
       case "scroll_page": {
         const caseState = requireOpenCase();
         if (caseState.error) return caseState.error;
         const scrollbar = pageElements(model).length > 8;
+        const before = verticalPercent;
         if (args.mode === "percent") verticalPercent = Number(args.vPercent ?? 0);
         if (args.mode === "amount") {
           verticalPercent = Math.min(100, Math.max(0, verticalPercent + (args.direction === "up" ? -25 : 25)));
         }
-        return { ok: true, scrollbar, vPercent: verticalPercent, mode: args.mode ?? "info" };
+        if (!scrollbar) {
+          return {
+            ok: true,
+            scrollbar: false,
+            position: -1,
+            sichtbarerAnteil: 100,
+            hinweis: "Kein rollbarer Inhaltsbereich.",
+          };
+        }
+        return {
+          ok: true,
+          scrollbar: true,
+          vorher: before,
+          nachher: verticalPercent,
+          bereich: String(args.direction ?? args.mode ?? "info"),
+          bewegt: args.mode !== "info",
+        };
       }
 
       // ------------------------------------------------------------- Lesen
@@ -901,12 +1010,14 @@ export function createStatefulSseWorker({ caseDir }) {
       case "find": {
         const caseState = requireOpenCase();
         if (caseState.error) return caseState.error;
-        const treffer = pageElements(model).filter((node) => matchesSelector(node, args));
+        const hits = pageElements(model).filter((node) => matchesSelector(node, args));
         return {
           ok: true,
-          count: treffer.length,
+          count: hits.length,
           incomplete: false,
-          treffer: treffer.map(({ rid, aid, name, type, value }) => ({ rid, aid, name, type, value })),
+          hits: hits.map(({ rid, aid, name, type, value }) => ({ rid, aid, name, type, value })),
+          stats: { visited: pageElements(model).length },
+          note: null,
         };
       }
       case "get_value": {
@@ -918,7 +1029,12 @@ export function createStatefulSseWorker({ caseDir }) {
           return { ok: false, kind: "ambiguous", error: `Bezeichner trifft ${treffer.length} Elemente.` };
         }
         const [node] = treffer;
-        return { ok: true, name: node.name, wert: node.value, typ: node.type, aid: node.aid, rid: node.rid };
+        return {
+          ok: true,
+          node: { name: node.name, type: node.type, aid: node.aid, rid: node.rid },
+          value: node.value,
+          readOnly: node.type !== "Edit",
+        };
       }
       case "positions": {
         const caseState = requireOpenCase();
@@ -926,9 +1042,9 @@ export function createStatefulSseWorker({ caseDir }) {
         const nodes = pageElements(model);
         return {
           ok: true,
-          aktion: "list",
           anzahl: nodes.length,
           positionen: nodes.map((node) => ({ name: node.name, typ: node.type, x: node.x, y: node.y, w: node.w, h: node.h })),
+          hinweis: null,
         };
       }
       case "help": {
@@ -936,33 +1052,30 @@ export function createStatefulSseWorker({ caseDir }) {
         if (caseState.error) return caseState.error;
         return {
           ok: true,
+          seite: currentPage,
           abschnitte: {
             [`Hilfe zu ${currentPage}`]: {
               zeilen: [`Synthetische Hilfe zur Seite ${currentPage}.`, "Alle Betraege sind erfunden."],
             },
           },
+          hinweis: null,
         };
       }
       case "check": {
         const caseState = requireOpenCase();
         if (caseState.error) return caseState.error;
-        const leer = pageElements(model).filter((node) => node.type === "Edit" && node.value === "");
+        const leer = pageElements(model).filter((node) =>
+          node.rid !== "rid.global.search" && node.type === "Edit" && node.value === "");
         return {
           ok: true,
-          konsistent: leer.length === 0,
-          ueberschrift: currentPage,
+          beanstandungsfrei: leer.length === 0,
+          seite: currentPage,
+          prueferMeldungen: checkerMessages(caseState.value),
+          baumFehler: [],
           leerePflichtfelder: leer.map((node) => node.name),
-          befunde: [],
-        };
-      }
-      case "page_objects": {
-        const caseState = requireOpenCase();
-        if (caseState.error) return caseState.error;
-        return {
-          ok: true,
-          pageId: args.pageId ?? null,
-          anzahl: pageElements(model).length,
-          objekte: pageElements(model).map(({ aid, name, type }) => ({ aid, name, type })),
+          ergebnisAnzeige: "synthetisch",
+          steuerpruefer: { aktiv: checkerActive },
+          urteil: leer.length === 0 ? "beanstandungsfrei" : "pruefen",
         };
       }
       case "collect": {
@@ -1025,7 +1138,7 @@ export function createStatefulSseWorker({ caseDir }) {
         };
       }
       case "table_add":
-        return mutateTable(args, (rows) => {
+        return mutateTable("table_add", args, (rows) => {
           const [, datum, text, betrag] = args.werte.map((value) => String(value ?? ""));
           const cents = parseGermanCents(betrag);
           if (cents === null) return { error: { ok: false, kind: "bad-args", error: `Betrag '${betrag}' ist kein deutscher Geldwert.` } };
@@ -1033,7 +1146,7 @@ export function createStatefulSseWorker({ caseDir }) {
           return { added: { datum, text, betrag: cents } };
         });
       case "table_update":
-        return mutateTable(args, (rows) => {
+        return mutateTable("table_update", args, (rows) => {
           const index = rows.findIndex((row) => row.text === String(args.text));
           if (index < 0) return { error: { ok: false, kind: "not-found", error: `Zeile '${args.text}' fehlt.` } };
           const [datum, text, betrag] = args.werte.map((value) => (value === null ? null : String(value)));
@@ -1047,7 +1160,7 @@ export function createStatefulSseWorker({ caseDir }) {
           return { updated: clone(rows[index]) };
         });
       case "table_delete":
-        return mutateTable(args, (rows) => {
+        return mutateTable("table_delete", args, (rows) => {
           const index = rows.findIndex((row) => row.text === String(args.text));
           if (index < 0) return { error: { ok: false, kind: "not-found", error: `Zeile '${args.text}' fehlt.` } };
           const [removed] = rows.splice(index, 1);
@@ -1061,35 +1174,68 @@ export function createStatefulSseWorker({ caseDir }) {
         const treffer = pageElements(model).filter((node) => node.type === "ComboBox" && matchesSelector(node, args));
         if (!treffer.length) return { ok: false, kind: "not-found", error: "Keine ComboBox passt zum Bezeichner." };
         const [node] = treffer;
-        const optionen = node.name === "Auswahl Monat" ? MONTHS : ["monatlich", "vierteljährlich", "jährlich"];
-        return { ok: true, name: node.name, aktuell: node.value, anzahl: optionen.length, optionen };
+        const options = node.name === "Auswahl Monat" ? MONTHS : ["monatlich", "vierteljährlich", "jährlich"];
+        return {
+          ok: true,
+          current: node.value,
+          combo: { rid: node.rid, aid: node.aid },
+          options,
+          collapsedAfterRead: true,
+        };
       }
       case "set_value": {
         const caseState = requireOpenCase();
         if (caseState.error) return caseState.error;
-        const node = pageElements(model).find((entry) => entry.rid === String(args.rid));
-        if (!node) return { ok: false, kind: "not-found", error: `Element '${args.rid}' fehlt.` };
-        if (node.value !== String(args.expectedBefore)) {
-          return { ok: false, kind: "precondition-failed", error: `Vorwert '${node.value}', erwartet '${args.expectedBefore}'.` };
+        if (String(args.rid) !== "rid.global.search") {
+          return { ok: false, kind: "blocked", error: "set_value ist nur fuer das globale Suchfeld zugelassen." };
         }
-        return applyTrackedValue({
-          expectedPage: currentPage,
-          name: node.name,
-          expectedBefore: args.expectedBefore,
-          value: args.value,
-          expectedAfter: args.expectedAfter,
-        });
+        const before = searchValue;
+        const requested = String(args.value);
+        const expectedAfter = String(args.expectedAfter);
+        if (before !== String(args.expectedBefore)) {
+          return { ok: false, kind: "precondition-failed", error: `Vorwert '${before}', erwartet '${args.expectedBefore}'.` };
+        }
+        searchValue = requested;
+        const windowFingerprint = sha256(JSON.stringify({ hwnd, pid, dialogs: dialogs.length }));
+        if (searchValue !== expectedAfter) {
+          searchValue = before;
+          return {
+            ok: false,
+            kind: "postcondition-failed",
+            error: `Suchfeld zeigt '${requested}', erwartet '${expectedAfter}'.`,
+            before,
+            requested,
+            after: requested,
+            expectedAfter,
+            verified: false,
+            page: currentPage,
+            binding: { rid: "rid.global.search" },
+            rollback: { versucht: true, erfolgreich: true, ist: searchValue, erwartet: before, grund: null },
+          };
+        }
+        return {
+          ok: true,
+          verified: true,
+          before,
+          requested,
+          after: searchValue,
+          expectedAfter,
+          page: currentPage,
+          binding: { rid: "rid.global.search" },
+          inputGuard: { aktiv: false, baseline: null, beobachtet: null, eingriffErkannt: false },
+          windowGuard: { vorher: windowFingerprint, nachher: windowFingerprint, geaendert: false },
+        };
       }
       case "menu": {
         const caseState = requireOpenCase();
         if (caseState.error) return caseState.error;
         return {
           ok: true,
-          geoeffnet: openMenu,
           menues: MENUS.map(({ name, eintraege }) => ({
             name,
             eintraege: eintraege.map((entry) => ({ name: entry.name, gesperrt: entry.blocked === true })),
           })),
+          hinweis: null,
         };
       }
       case "menu_click": {
@@ -1106,15 +1252,23 @@ export function createStatefulSseWorker({ caseDir }) {
           fileDialog = { hwnd: 6161, title: "Steuerfall öffnen", fingerprint: sha256("synthetic-file-dialog") };
         }
         if (entry.opens === "vast") vast = createVastDialog();
-        return { ok: true, clicked: name, menu: entry.menu, oeffnet: entry.opens ?? null };
+        return {
+          ok: true,
+          ausgeloest: name,
+          angefordert: name,
+          method: "synthetic-bound-action",
+          fenster: fileDialog || vast ? 2 : 1,
+          ungespeichertVorher: caseState.value.dirty,
+          ungespeichertNachher: caseState.value.dirty,
+        };
       }
       case "menu_close":
         openMenu = null;
-        return { ok: true, closed: true };
+        return { ok: true, collapsed: ["synthetic-menu"], popupCountBefore: 1, popupCountAfter: 0, verified: true, warning: null };
       case "dismiss":
         openMenu = null;
         fileDialog = null;
-        return { ok: true, dismissed: true };
+        return { ok: true, geschlossen: 1, systemOverlaysIgnoriert: 0, stehenGelassen: [], verbleibend: 0, note: null };
 
       // ------------------------------------------------------------- Fenster
       case "window_close": {
@@ -1128,7 +1282,20 @@ export function createStatefulSseWorker({ caseDir }) {
           return { ok: false, kind: "stale", error: "Fenstertitel-Fingerprint stimmt nicht mehr." };
         }
         minimised = true;
-        return { ok: true, closed: true, hwnd: args.hwnd };
+        return {
+          ok: true,
+          closed: true,
+          hwnd: Number(args.hwnd),
+          pid,
+          titleFingerprint: sha256(title),
+          windowId: "main",
+          windowRole: "main",
+          onlyTargetRemoved: true,
+          verified: true,
+          newWindows: [],
+          missingOrChangedPeers: [],
+          newDialogs: [],
+        };
       }
       case "window_restore": {
         const caseState = requireOpenCase();
@@ -1137,8 +1304,28 @@ export function createStatefulSseWorker({ caseDir }) {
         if (String(args.titleFingerprint).toUpperCase() !== sha256(title)) {
           return { ok: false, kind: "stale", error: "Fenstertitel-Fingerprint stimmt nicht mehr." };
         }
+        const wasMinimised = minimised;
         minimised = false;
-        return { ok: true, restored: true, minimiert: minimised, hwnd: args.hwnd };
+        const peerFingerprint = sha256(JSON.stringify([]));
+        return {
+          ok: true,
+          restored: wasMinimised,
+          alreadyRestored: !wasMinimised,
+          minimizedBefore: wasMinimised,
+          minimizedAfter: false,
+          targetUnchanged: true,
+          peerWindowsUnchanged: true,
+          verified: true,
+          method: wasMinimised ? "restore" : "already-visible",
+          hwnd: Number(args.hwnd),
+          pid,
+          titleFingerprint: sha256(title),
+          peerWindowCount: 0,
+          peerWindowCountBefore: 0,
+          peerWindowCountAfter: 0,
+          peerFingerprintBefore: peerFingerprint,
+          peerFingerprintAfter: peerFingerprint,
+        };
       }
 
       // ------------------------------------------------------------ Diagnose
@@ -1179,6 +1366,7 @@ export function createStatefulSseWorker({ caseDir }) {
         if (!node) return { ok: false, kind: "not-found", error: "Kein Element passt zum Bezeichner." };
         return {
           ok: true,
+          hwnd,
           node: { rid: node.rid, aid: node.aid, name: node.name, type: node.type },
           uia: {
             controlType: node.type,
@@ -1188,7 +1376,9 @@ export function createStatefulSseWorker({ caseDir }) {
           },
           rawDescendants: args.includeRaw === true ? [] : [],
           rawTruncated: false,
-          msaa: args.includeMsaa === true ? { role: node.type } : null,
+          msaaOverlaps: args.includeMsaa === true ? [{ role: node.type }] : [],
+          textCandidates: [node.name],
+          fazit: "Synthetischer Accessibility-Abgleich.",
         };
       }
       case "screenshot": {
@@ -1209,7 +1399,28 @@ export function createStatefulSseWorker({ caseDir }) {
       case "checker_close": {
         const wasOpen = checkerWindowOpen;
         checkerWindowOpen = false;
-        return { ok: true, closed: true, warOffen: wasOpen };
+        return wasOpen
+          ? {
+              ok: true,
+              closed: true,
+              alreadyClosed: false,
+              verified: true,
+              headingBefore: "Steuerpruefer",
+              headingAfter: currentPage,
+              dirtyBefore: model.openCase()?.dirty ?? null,
+              dirtyAfter: model.openCase()?.dirty ?? null,
+              closeButtonRemaining: 0,
+              note: null,
+            }
+          : {
+              ok: true,
+              closed: false,
+              alreadyClosed: true,
+              verified: true,
+              heading: currentPage,
+              ungespeichert: model.openCase()?.dirty ?? null,
+              note: null,
+            };
       }
 
       // -------------------------------------------------------- Dateiaktionen
@@ -1223,7 +1434,16 @@ export function createStatefulSseWorker({ caseDir }) {
         copyFileSync(source, target);
         openPath = target;
         cases.delete(target);
-        return { ok: true, saved: true, source, target, sha256: sha256File(target), verified: true };
+        return {
+          ok: true,
+          savedAs: true,
+          sourcePath: source,
+          sourceHash: sha256File(source),
+          targetPath: target,
+          targetHash: sha256File(target),
+          attachedPath: target,
+          verified: true,
+        };
       }
       case "file_dialog_select": {
         if (!fileDialog) return { ok: false, kind: "not-found", error: "Kein Dateidialog offen." };
@@ -1236,21 +1456,22 @@ export function createStatefulSseWorker({ caseDir }) {
           return { ok: false, kind: "precondition-failed", error: "Dateihash stimmt nicht mehr." };
         }
         fileDialog = null;
-        return { ok: true, selected: target, closed: true };
+        return { ok: true, selected: target, dialogClosed: true, verified: true };
       }
       case "export_csv": {
         const caseState = requireOpenCase();
         if (caseState.error) return caseState.error;
         const directory = resolve(String(args.dir));
         mkdirSync(directory, { recursive: true });
-        const rows = resultRows(caseState.value);
-        const file = join(directory, "ergebnis.csv");
-        writeFileSync(
-          file,
-          `Beobachteter Wert;Aktuell\n${rows.map((row) => `${row.beobachteterWert};${row.aktuell}`).join("\n")}\n`,
-          "utf8",
-        );
-        return { ok: true, dir: directory, anzahl: 1, dateien: [{ name: basename(file), path: file, sha256: sha256File(file) }] };
+        return {
+          ok: true,
+          ausgeloest: "Export CSV",
+          invokeReportedError: null,
+          dialog: { title: "CSV-Export", directory },
+          offeneDialoge: 1,
+          dateienVorher: readdirSync(directory).length,
+          hinweis: "Der Exportdialog ist offen; es wurde noch keine Datei bestaetigt.",
+        };
       }
       case "backup_cases": {
         const source = resolve(String(args.dir ?? caseDir));
@@ -1311,12 +1532,40 @@ export function createStatefulSseWorker({ caseDir }) {
       }
       case "center_cases": {
         const files = readdirSync(caseDir).filter((name) => /\.(?:ESt|Gew)2025$/u.test(name));
-        return { ok: true, anzahl: files.length, faelle: files.map((name) => ({ name })) };
+        return {
+          ok: true,
+          hwnd,
+          canaryMs: 1,
+          modus: "center",
+          verzeichnis: caseDir,
+          suche: "",
+          sortierung: "Name",
+          ansicht: "Liste",
+          faelle: files.map((name) => ({ name })),
+          dateisystemFaelle: files.map((name) => ({ name })),
+          nurImCenter: [],
+          nurImDateisystem: [],
+          konsistent: true,
+          snapshot: { count: files.length },
+          hinweis: null,
+        };
       }
       case "center_refresh": {
         const directory = resolve(String(args.expectedDirectory));
         if (!existsSync(directory)) return { ok: false, kind: "not-found", error: "Fallordner fehlt." };
-        return { ok: true, aktualisiert: true, directory, anzahl: readdirSync(directory).length };
+        const files = readdirSync(directory).sort();
+        return {
+          ok: true,
+          hwnd,
+          verzeichnis: directory,
+          vorher: files,
+          nachher: files,
+          entfernt: [],
+          hinzugekommen: [],
+          sucheUnveraendert: true,
+          sortierungUnveraendert: true,
+          hinweis: null,
+        };
       }
 
       // ------------------------------------------------------- Eigener Desktop
@@ -1362,18 +1611,25 @@ export function createStatefulSseWorker({ caseDir }) {
         if (!vast) return { ok: false, kind: "not-found", error: "Kein VaSt-Dialog offen." };
         return {
           ok: true,
-          active: true,
           hwnd: vastHwnd,
-          expectedMainHwnd: hwnd,
+          pid,
+          title: "Vorausgefuellte Steuererklaerung",
+          dialogFingerprint: sha256("synthetic-vast-dialog"),
           mappingFingerprint: vast.mappingFingerprint,
-          anzahl: vast.rows.length,
-          zeilen: vast.rows.map((row) => ({
+          certificateCount: vast.rows.length,
+          unresolvedCount: vast.rows.filter((row) => row.localTarget === VAST_UNMAPPED).length,
+          rows: vast.rows.map((row) => ({
             certificate: row.certificate,
             occurrence: row.occurrence,
             betrag: formatCents(row.amountCents),
             localTarget: row.localTarget,
             expanded: row.expanded,
           })),
+          duplicateTargets: [],
+          riskyDuplicateTargets: [],
+          safeToApply: vast.rows.every((row) => row.localTarget !== VAST_UNMAPPED),
+          ocr: { used: false },
+          note: null,
         };
       }
       case "vast_row_details": {
@@ -1381,11 +1637,24 @@ export function createStatefulSseWorker({ caseDir }) {
         if (row.error) return row.error;
         return {
           ok: true,
+          hwnd: vastHwnd,
+          mappingFingerprint: vast.mappingFingerprint,
+          expectedMappingFingerprint: vast.mappingFingerprint,
+          actualMappingFingerprint: vast.mappingFingerprint,
           certificate: row.value.certificate,
           occurrence: row.value.occurrence,
-          betrag: formatCents(row.value.amountCents),
-          expanded: row.value.expanded,
-          details: [{ label: "Bruttoarbeitslohn", wert: formatCents(row.value.amountCents) }],
+          initialExpanded: row.value.expanded,
+          expandedByTool: false,
+          restored: true,
+          expectedExpanded: row.value.expanded,
+          actualExpanded: row.value.expanded,
+          comparisons: [{ label: "Bruttoarbeitslohn", wert: formatCents(row.value.amountCents) }],
+          structuredLines: ["Bruttoarbeitslohn"],
+          detailLines: [formatCents(row.value.amountCents)],
+          ocr: { used: false },
+          interactionMethod: "synthetic-tree",
+          processingError: null,
+          note: null,
         };
       }
       case "vast_row_set_expanded": {
@@ -1394,8 +1663,25 @@ export function createStatefulSseWorker({ caseDir }) {
         if (row.value.expanded !== args.expectedBefore) {
           return { ok: false, kind: "precondition-failed", error: `Zeile ist ${row.value.expanded ? "offen" : "zu"}.` };
         }
+        const before = row.value.expanded;
         row.value.expanded = args.expanded === true;
-        return { ok: true, before: args.expectedBefore, after: row.value.expanded };
+        return {
+          ok: true,
+          hwnd: vastHwnd,
+          certificate: row.value.certificate,
+          occurrence: row.value.occurrence,
+          before,
+          after: row.value.expanded,
+          requested: args.expanded === true,
+          clicked: before !== row.value.expanded,
+          selectedTargetBefore: row.value.localTarget,
+          selectedTargetAfter: row.value.localTarget,
+          beforeViewFingerprint: sha256(JSON.stringify({ before })),
+          afterViewFingerprint: sha256(JSON.stringify({ after: row.value.expanded })),
+          expectedMappingFingerprint: vast.mappingFingerprint,
+          actualMappingFingerprint: vast.mappingFingerprint,
+          note: null,
+        };
       }
       case "vast_mapping_options": {
         const row = findVastRow(args);
@@ -1403,7 +1689,24 @@ export function createStatefulSseWorker({ caseDir }) {
         if (row.value.localTarget !== String(args.expectedCurrent)) {
           return { ok: false, kind: "precondition-failed", error: `Aktuelles Ziel ist '${row.value.localTarget}'.` };
         }
-        return { ok: true, aktuell: row.value.localTarget, anzahl: row.value.options.length, optionen: row.value.options };
+        return {
+          ok: true,
+          hwnd: vastHwnd,
+          mappingFingerprint: vast.mappingFingerprint,
+          expectedMappingFingerprint: vast.mappingFingerprint,
+          actualMappingFingerprint: vast.mappingFingerprint,
+          certificate: row.value.certificate,
+          occurrence: row.value.occurrence,
+          current: row.value.localTarget,
+          uiaOptions: row.value.options,
+          newOcrLines: [],
+          opened: true,
+          popupConfirmed: true,
+          closed: true,
+          restored: true,
+          processingError: null,
+          note: null,
+        };
       }
       case "vast_mapping_select": {
         const row = findVastRow(args);
@@ -1414,11 +1717,25 @@ export function createStatefulSseWorker({ caseDir }) {
         if (!row.value.options.includes(String(args.value))) {
           return { ok: false, kind: "not-found", error: `Option '${args.value}' fehlt.` };
         }
+        const before = row.value.localTarget;
+        const fingerprintBefore = vast.mappingFingerprint;
         row.value.localTarget = String(args.value);
         if (row.value.localTarget !== String(args.expectedAfter)) {
           return { ok: false, kind: "postcondition-failed", error: "Zuordnung entspricht nicht der Erwartung." };
         }
-        return { ok: true, before: args.expectedCurrent, selected: args.value, after: row.value.localTarget };
+        vast.mappingFingerprint = vastMappingFingerprint(vast.rows);
+        return {
+          ok: true,
+          changed: before !== row.value.localTarget,
+          hwnd: Number(args.hwnd),
+          certificate: row.value.certificate,
+          occurrence: row.value.occurrence,
+          before,
+          after: row.value.localTarget,
+          changes: [{ certificate: row.value.certificate, occurrence: row.value.occurrence, before, after: row.value.localTarget }],
+          mappingFingerprintBefore: fingerprintBefore,
+          mappingFingerprintAfter: vast.mappingFingerprint,
+        };
       }
       case "vast_apply": {
         if (!vast) return { ok: false, kind: "not-found", error: "Kein VaSt-Dialog offen." };
@@ -1450,7 +1767,14 @@ export function createStatefulSseWorker({ caseDir }) {
         caseState.value.dirty = applied > 0;
         epoch += 1;
         vast = null;
-        return { ok: true, applied, verified: true, ungespeichert: caseState.value.dirty, geschlossen: true };
+        return {
+          ok: true,
+          applied: true,
+          saved: false,
+          dialogClosed: true,
+          appliedPlan: args.plan,
+          dirtyAfter: caseState.value.dirty,
+        };
       }
       default:
         return { ok: false, kind: "fixture", error: `Keine stateful Fixture fuer '${operation}'.` };

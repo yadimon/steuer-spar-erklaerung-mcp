@@ -43,6 +43,10 @@ Diese Regeln gelten auch auf ausdrücklichen Wunsch:
   beim Speichern eine eigene `<Fallname>_Backup`-Datei daneben, und der
   Bestandsabgleich zählt sie mit; ein unvollständiger Restbestand wird mit
   `inventory-mismatch` gestoppt, ohne etwas zu verschieben.
+  Bei `rolledBack: false`, `retainedTargets` oder `recoveryFiles` stoppe den
+  Ablauf und lege dem Menschen genau diese strukturierten Pfade zur Klärung
+  vor; starte keine zweite Archivierung und verschiebe Recovery-Dateien nicht
+  automatisch.
 - Ändere Steuerdaten nur in einer zuvor bytegleich verifizierten Arbeitskopie.
 - Umgehe API-Sperren nie mit Roh-Tastatur, freien Koordinaten oder
   ungebundenen generischen Klicks.

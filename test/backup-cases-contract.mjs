@@ -37,6 +37,8 @@ try {
   const second = join(cases, "zwei.Gew2025");
   writeFileSync(first, "synthetischer-fall-eins\n", "utf8");
   writeFileSync(second, Buffer.from([0, 1, 2, 3, 255]));
+  const attrib = join(process.env.SystemRoot ?? process.env.WINDIR ?? "C:\\Windows", "System32", "attrib.exe");
+  execFileSync(attrib, ["+H", second], { windowsHide: true });
   const expected = new Map([["eins.Gew2025", sha256(first)], ["zwei.Gew2025", sha256(second)]]);
 
   const result = callWorker("backup_cases", { dir: cases, dest: backup });

@@ -12,8 +12,69 @@ const resultSchemaName = (operation: SseApiOperation): string => `Result_${opera
 const argumentComponents = Object.freeze(Object.fromEntries(
   SSE_API_OPERATIONS.map((operation) => [schemaName(operation), SSE_API_DISCOVERY.argumentSchemas[operation]]),
 ));
+
+function resultProperty(operation: SseApiOperation, property: string): object {
+  const schema = SSE_API_DISCOVERY.resultSchemas[operation] as { properties?: Record<string, object>; };
+  const value = schema.properties?.[property];
+  if (!value) throw new Error(`Result_${operation}.${property} fehlt fuer die OpenAPI-Komprimierung.`);
+  return structuredClone(value);
+}
+
+/** Wiederkehrende Blattvertraege nur einmal publizieren statt hunderte Male inline. */
+const resultValueComponents = Object.freeze({
+  ResultOk: resultProperty("health", "ok"),
+  ResultKind: resultProperty("health", "kind"),
+  ResultError: resultProperty("health", "error"),
+  ResultWorkerMs: resultProperty("health", "ms"),
+  OptionalText: resultProperty("page", "ueberschrift"),
+  OptionalFlag: resultProperty("health", "running"),
+  OptionalObject: resultProperty("capabilities", "transport"),
+  OptionalArray: resultProperty("health", "windows"),
+  OptionalNonNegativeNumber: resultProperty("list_cases", "count"),
+  OptionalSha256: resultProperty("case_hash", "sha256"),
+  OptionalStringList: resultProperty("backup_cases", "retainedTargets"),
+  OptionalTransmissionState: resultProperty("case_hash", "transmitted"),
+});
+const resultValueReferences = new Map(Object.entries(resultValueComponents)
+  .map(([name, schema]) => [JSON.stringify(schema), { $ref: `#/components/schemas/${name}` }]));
+const RESULT_TRANSPORT_PROPERTIES = new Set(["ok", "kind", "error", "ms"]);
+const resultEnvelopeComponent = Object.freeze({
+  type: "object",
+  properties: {
+    ok: { $ref: "#/components/schemas/ResultOk" },
+    kind: { $ref: "#/components/schemas/ResultKind" },
+    error: { $ref: "#/components/schemas/ResultError" },
+    ms: { $ref: "#/components/schemas/ResultWorkerMs" },
+  },
+  required: ["ok"],
+  additionalProperties: true,
+  description: "Gemeinsamer Transportumschlag jedes Operationsergebnisses",
+});
+
+function compactResultSchema(schema: unknown): unknown {
+  if (!schema || typeof schema !== "object" || Array.isArray(schema)) return schema;
+  const typed = structuredClone(schema) as {
+    properties?: Record<string, unknown>;
+    description?: string;
+  } & Record<string, unknown>;
+  if (!typed.properties) return schema;
+  const operationProperties = Object.entries(typed.properties)
+    .filter(([property]) => !RESULT_TRANSPORT_PROPERTIES.has(property));
+  return {
+    allOf: [{ $ref: "#/components/schemas/OperationResultEnvelope" }],
+    properties: Object.fromEntries(operationProperties.map(([property, value]) => [
+      property,
+      structuredClone(resultValueReferences.get(JSON.stringify(value)) ?? value),
+    ])),
+    description: typed.description,
+  };
+}
+
 const resultComponents = Object.freeze(Object.fromEntries(
-  SSE_API_OPERATIONS.map((operation) => [resultSchemaName(operation), SSE_API_DISCOVERY.resultSchemas[operation]]),
+  SSE_API_OPERATIONS.map((operation) => [
+    resultSchemaName(operation),
+    compactResultSchema(SSE_API_DISCOVERY.resultSchemas[operation]),
+  ]),
 ));
 
 const operationPaths = Object.freeze(Object.fromEntries(
@@ -162,6 +223,8 @@ export const SSE_OPENAPI_DOCUMENT = Object.freeze({
     },
     schemas: {
       ...argumentComponents,
+      ...resultValueComponents,
+      OperationResultEnvelope: resultEnvelopeComponent,
       ...resultComponents,
       OperationEnvelope: {
         type: "object",

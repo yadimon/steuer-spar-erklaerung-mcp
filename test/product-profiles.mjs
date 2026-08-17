@@ -7,6 +7,7 @@ import {
   isProductProfileReleased,
   listProductProfileIds,
   loadProductProfile,
+  resolvePageObjectDefinition,
 } from "../dist/product-profiles.js";
 import { SSE_START_MODES } from "../dist/operation-catalog.js";
 import { WORKER_RUNTIME_FILES } from "./worker-fixture-files.mjs";
@@ -22,6 +23,17 @@ assert.equal(isProductProfileReleased(profile), true);
 assert.equal(profile.verifiedBuild, "31.0.1.0");
 assert.equal(profile.executable.name, "SSE.exe");
 assert.equal(profile.pageObjectsPath, join(root, "profiles", "2025", "page-objects.json"));
+assert.equal(profile.pageObjectsCatalog.schemaVersion, 1);
+assert.equal(profile.pageObjectsCatalog.taxYear, 2025);
+assert(Object.hasOwn(profile.pageObjectsCatalog.pages, "est.sonstige_werbungskosten_fahrten"));
+const firstPage = profile.pageObjectsCatalog.pages["est.sonstige_werbungskosten_fahrten"];
+const ambiguousCatalog = {
+  ...profile.pageObjectsCatalog,
+  pages: { Beispiel: firstPage, bEISPIEL: firstPage },
+};
+assert.equal(resolvePageObjectDefinition(ambiguousCatalog, "Beispiel").status, "found");
+assert.equal(resolvePageObjectDefinition(ambiguousCatalog, "BEISPIEL").status, "ambiguous");
+assert.equal(resolvePageObjectDefinition(ambiguousCatalog, "fehlt").status, "missing");
 assert.deepEqual(profile.additionalCaseYears, { einurvor: [2026] });
 assert.deepEqual(Object.keys(profile.startModes).sort(), [...SSE_START_MODES].sort(),
   "Oeffentliche Startmodi und produktives Profil muessen identisch sein.");
@@ -112,6 +124,21 @@ try {
   assert.throws(() => loadProductProfile("2025", emptyCatalogRoot), /Seitenkatalog darf nicht leer/);
 } finally {
   rmSync(emptyCatalogRoot, { recursive: true, force: true });
+}
+
+const caseCollisionRoot = mkdtempSync(join(tmpdir(), "sse-product-case-collision-"));
+try {
+  const copiedProfile = join(caseCollisionRoot, "2025");
+  cpSync(join(root, "profiles", "2025"), copiedProfile, { recursive: true });
+  const pageObjectsPath = join(copiedProfile, "page-objects.json");
+  const pageObjects = JSON.parse(readFileSync(pageObjectsPath, "utf8"));
+  const firstPage = Object.values(pageObjects.pages)[0];
+  pageObjects.pages.Beispiel = firstPage;
+  pageObjects.pages.bEISPIEL = firstPage;
+  writeFileSync(pageObjectsPath, `${JSON.stringify(pageObjects, null, 2)}\n`, "utf8");
+  assert.throws(() => loadProductProfile("2025", caseCollisionRoot), /Gross-\/Kleinschreibung/);
+} finally {
+  rmSync(caseCollisionRoot, { recursive: true, force: true });
 }
 
 const powershell = join(

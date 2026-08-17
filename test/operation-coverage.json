@@ -47,14 +47,14 @@
       "offlineLabels": [
         "stateful-mock"
       ],
-      "live": "untested"
+      "live": "functional"
     },
     "center_refresh": {
       "offline": "functional",
       "offlineLabels": [
         "stateful-mock"
       ],
-      "live": "untested"
+      "live": "functional"
     },
     "check": {
       "offline": "functional",
@@ -131,7 +131,7 @@
       "offlineLabels": [
         "stateful-mock"
       ],
-      "live": "error-path-only"
+      "live": "functional"
     },
     "combo_options": {
       "offline": "functional",
@@ -299,6 +299,7 @@
     "page_objects": {
       "offline": "functional",
       "offlineLabels": [
+        "profile-catalog",
         "stateful-mock"
       ],
       "live": "functional"
@@ -563,6 +564,7 @@
     "verify": {
       "offline": "functional",
       "offlineLabels": [
+        "local-file",
         "worker"
       ],
       "live": "functional"

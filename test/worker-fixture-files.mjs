@@ -2,6 +2,7 @@
 export const WORKER_RUNTIME_FILES = Object.freeze([
   "sse-worker.ps1",
   "worker-transport-common.ps1",
+  "desktop-marker.ps1",
   "akad-parser.ps1",
   "table-region.ps1",
   "table-values.ps1",

@@ -32,7 +32,7 @@
       "operation": "page_objects",
       "args": { "pageId": { "$text": "scenarios/complex-wrapper/inputs/page-id.txt" } },
       "capture": ["ok", "pageId", "page.heading"],
-      "expect": { "ok": true, "pageId": "euer-betriebseinnahmen" }
+      "expect": { "ok": true, "pageId": "est.sonstige_werbungskosten_fahrten" }
     },
     {
       "id": "cases",
