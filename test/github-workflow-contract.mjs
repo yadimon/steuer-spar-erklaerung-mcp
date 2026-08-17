@@ -4,6 +4,17 @@ import { existsSync, readFileSync } from "node:fs";
 const workflowPath = ".github/workflows/windows-ci.yml";
 assert(existsSync(workflowPath), "Windows-CI-Workflow fehlt.");
 
+const publicProcessFiles = [
+  "CONTRIBUTING.md",
+  ".github/PULL_REQUEST_TEMPLATE.md",
+  ".github/ISSUE_TEMPLATE/config.yml",
+  ".github/ISSUE_TEMPLATE/fehler.yml",
+  "docs/RELEASE.md",
+];
+for (const path of publicProcessFiles) {
+  assert(existsSync(path), `Öffentlicher Contributor-/Release-Vertrag fehlt: ${path}`);
+}
+
 const workflow = readFileSync(workflowPath, "utf8");
 const nodeVersion = readFileSync(".node-version", "utf8").trim();
 const runtime = JSON.parse(readFileSync("portable/runtime.json", "utf8"));
@@ -56,5 +67,52 @@ assert.match(workflow, /if-no-files-found: error/u);
 assert.match(workflow, /retention-days: 7/u);
 assert(!/(?:gh\s+release|create-release|softprops|contents:\s*write|secrets\.)/iu.test(workflow),
   "CI darf weder veröffentlichen noch Schreibrechte oder Secrets verwenden.");
+
+const contributing = readFileSync("CONTRIBUTING.md", "utf8");
+for (const required of [
+  "npm ci --ignore-scripts",
+  "npm run test:fast",
+  "npm test",
+  "npm run test:live",
+  "Conventional Commits",
+  "SSE_WRITE_OPERATION_COVERAGE",
+  "SSE_WRITE_OPERATION_SHAPE",
+  "Niemals echte Steuerdaten einreichen",
+]) {
+  assert(contributing.includes(required), `CONTRIBUTING.md verschweigt: ${required}`);
+}
+
+const pullRequestTemplate = readFileSync(".github/PULL_REQUEST_TEMPLATE.md", "utf8");
+assert.match(pullRequestTemplate, /Keine echten Steuerfälle/u);
+assert.match(pullRequestTemplate, /npm run test:fast/u);
+assert.match(pullRequestTemplate, /npm test/u);
+assert.match(pullRequestTemplate, /Live-Evidenz/u);
+assert.match(pullRequestTemplate, /Release-Auswirkung/u);
+
+const issueConfig = readFileSync(".github/ISSUE_TEMPLATE/config.yml", "utf8");
+assert.match(issueConfig, /^blank_issues_enabled: false$/mu);
+assert.match(issueConfig, /security\/advisories\/new/u);
+const bugTemplate = readFileSync(".github/ISSUE_TEMPLATE/fehler.yml", "utf8");
+assert.match(bugTemplate, /keine echten Steuerfälle/u);
+assert.match(bugTemplate, /required: true/u);
+assert.match(bugTemplate, /Produktprofil und Build/u);
+assert.match(bugTemplate, /Direkte HTTP-API oder CLI/u);
+
+const releaseProcess = readFileSync("docs/RELEASE.md", "utf8");
+for (const required of [
+  "npm audit --omit=dev --audit-level=high",
+  "npm test",
+  "npm run package:portable",
+  "npm run verify:portable-release",
+  "git tag -a",
+  "gh release create",
+  "--verify-tag --prerelease",
+  "gh release download",
+  "npx skills add yadimon/steuer-spar-erklaerung-mcp --list",
+]) {
+  assert(releaseProcess.includes(required), `Release-Prozess verschweigt: ${required}`);
+}
+assert.match(releaseProcess, /Erst nach ausdrücklicher Freigabe/u);
+assert.match(releaseProcess, /kein öffentliches Release/u);
 
 process.stdout.write(`GitHub Windows-CI: Node ${nodeVersion}, read-only, 5 Gates und gepinnte Actions bestanden\n`);

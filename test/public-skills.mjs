@@ -53,4 +53,21 @@ assert(setup.includes("settings.md") && setup.includes("tracking.md") && setup.i
 assert(setup.includes("Connector") && setup.includes("read-only Prüfung"));
 assert(!setup.includes("Windows 10/11"), "Setup darf kompatible Windows-Versionen nicht nach Label sperren.");
 
+const readme = readFileSync(join(root, "README.md"), "utf8");
+assert(readme.includes("## Was die Beta kann") && readme.includes("## Voraussetzungen"));
+assert.match(
+  readme,
+  /--skill steuer-spar-erklaerung --skill steuer-spar-erklaerung-setup/gu,
+  "README installiert nicht beide öffentlichen Skills gemeinsam.",
+);
+for (const agent of ["codex", "claude-code"]) {
+  assert(
+    readme.includes(`--agent ${agent} --global --copy --yes`),
+    `README enthält keinen nichtinteraktiven globalen Windows-Installationsweg für ${agent}.`,
+  );
+}
+assert(readme.includes("https://www.skills.sh/docs/cli"), "README verlinkt die offizielle skills-CLI nicht.");
+assert(readme.includes("Get-FileHash -Algorithm SHA256"), "README erklärt die manuelle ZIP-Prüfsumme nicht.");
+assert.match(readme, /npx skills.*Node\.js mit npm/su, "README verschweigt die npx-Voraussetzung.");
+
 process.stdout.write("Public Skills: 2 flache npx-kompatible, deutsche und portable Skill-Pakete bestanden\n");

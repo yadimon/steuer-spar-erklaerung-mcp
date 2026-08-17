@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Sicherheitsproblem privat melden
+    url: https://github.com/yadimon/steuer-spar-erklaerung-mcp/security/advisories/new
+    about: Keine ausnutzbaren Details oder sensiblen Steuerdaten in einem öffentlichen Issue veröffentlichen.

@@ -8,6 +8,34 @@ optionalen, PC-blinden MCP-Wrapper.
 > anlegen und Ergebnisse selbst prüfen. Dieses Projekt ist keine
 > Steuerberatung und übermittelt nichts an das Finanzamt.
 
+## Was die Beta kann
+
+- einen geöffneten Steuerfall strukturiert lesen und den Programm-Prüfer
+  auswerten;
+- Angaben mit freigegebenen Belegen und einem Tracking abgleichen;
+- fehlende, widersprüchliche oder unklare Angaben als Report zusammenfassen;
+- nach ausdrücklicher Freigabe einzelne Korrekturen ausschließlich in einer
+  verifizierten Arbeitskopie durchführen und zurücklesen;
+- UStVA-Zeiträume für 2025 sowie vorgesehene `GewErfass2026`-Fälle vorbereiten,
+  ohne sie zu übermitteln;
+- dieselben freigegebenen Funktionen über lokale HTTP-API oder optional MCP
+  für Codex, Claude Code und kompatible Agenten bereitstellen.
+
+Die Beta ersetzt weder SteuerSparErklärung noch eine fachliche Prüfung. Sie
+automatisiert nachvollziehbare Arbeitsschritte in der installierten Anwendung.
+
+## Voraussetzungen
+
+- Windows x64 und eine installierte SteuerSparErklärung 2025;
+- ein Agent mit Zugriff auf lokale Dateien und Programme, zum Beispiel Codex
+  oder Claude Code;
+- für sichtbare Bedienung eine entsperrte, währenddessen unbenutzte
+  Windows-Sitzung.
+
+Das portable Release benötigt kein global installiertes Node.js, npm, Python
+oder PowerShell 7. Nur der optionale Installationsweg mit `npx skills` setzt
+Node.js mit npm voraus.
+
 ## Schnellstart
 
 ### Ohne npm
@@ -27,11 +55,25 @@ nicht global installiert werden. Wenn der Agent keine Programme starten darf,
 kann das ZIP von der [Release-Seite](https://github.com/yadimon/steuer-spar-erklaerung-mcp/releases)
 manuell geladen und anschließend `sse-setup.cmd` gestartet werden.
 
-### Mit `npx skills`
+### Mit `npx skills` (optional)
+
+Die offene [`skills`-CLI](https://www.skills.sh/docs/cli) erkennt beide
+[Repository-Skills](skills/). Für Codex werden sie unter Windows so
+benutzerweit und ohne Rückfragen als Kopie installiert:
 
 ```powershell
 npx skills add yadimon/steuer-spar-erklaerung-mcp --list
-npx skills add yadimon/steuer-spar-erklaerung-mcp --skill steuer-spar-erklaerung
+npx skills add yadimon/steuer-spar-erklaerung-mcp `
+  --skill steuer-spar-erklaerung --skill steuer-spar-erklaerung-setup `
+  --agent codex --global --copy --yes
+```
+
+Für Claude Code ist nur der Agentname anders:
+
+```powershell
+npx skills add yadimon/steuer-spar-erklaerung-mcp `
+  --skill steuer-spar-erklaerung --skill steuer-spar-erklaerung-setup `
+  --agent claude-code --global --copy --yes
 ```
 
 Danach genügt zum Beispiel:
@@ -41,8 +83,11 @@ Prüfe meine Steuererklärung in SteuerSparErklärung 2025. Gleiche sie mit
 meinen Belegen ab und ändere nichts ohne meine ausdrückliche Freigabe.
 ```
 
-`npx` installiert hier nur den Agenten-Skill. Die Automation selbst kann
-weiterhin aus dem portablen Release laufen.
+`npx` installiert nur die geprüften Agentenanweisungen. Der Skill führt danach
+durch Download, Prüfsumme und Einrichtung des separat veröffentlichten
+portablen Releases. Vor der Installation kann der
+[Haupt-Skill](skills/steuer-spar-erklaerung/SKILL.md) vollständig gelesen
+werden.
 
 ## Beispiel
 
@@ -115,6 +160,15 @@ Arbeitsgemeinschaft verbunden.
    [Setup-Skill](skills/steuer-spar-erklaerung-setup/SKILL.md) verwenden.
 4. Die vorgeschlagenen sicheren Standardwerte übernehmen oder Pfade und
    Arbeitsweise einzeln festlegen.
+
+Die Prüfsumme lässt sich im Downloadordner mit Windows PowerShell vergleichen:
+
+```powershell
+$actual = (Get-FileHash -Algorithm SHA256 '.\steuer-spar-erklaerung.zip').Hash.ToLowerInvariant()
+$expected = ((Get-Content '.\steuer-spar-erklaerung.zip.sha256' -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+if ($actual -ne $expected) { throw 'SHA-256 stimmt nicht. ZIP nicht verwenden.' }
+"SHA-256 stimmt: $actual"
+```
 
 Der Wizard erkennt eine vorhandene Konfiguration am Standardpfad, erzeugt bei
 Bedarf ein lokales Token und legt außerhalb des Repositorys an:
@@ -317,9 +371,20 @@ Weitere Unterlagen:
 - [Produktarchitektur](docs/ARCHITEKTUR.md)
 - [API-/MCP-Vertrag](docs/API-MCP-VERTRAG.md)
 - [Verifikationsstand](docs/VERIFIKATION.md)
+- [Release-Prozess](docs/RELEASE.md)
+- [Release Notes v0.1.0-beta.3](docs/releases/v0.1.0-beta.3.md)
 - [Entwicklungswissen](docs/entwicklung/README.md)
+- [Mitwirken](CONTRIBUTING.md)
 - [Haupt-Skill](skills/steuer-spar-erklaerung/SKILL.md)
 - [Setup-Skill](skills/steuer-spar-erklaerung-setup/SKILL.md)
+
+## Feedback und Beiträge
+
+Fehlerberichte und Pull Requests sind willkommen. Niemals echte Steuerfälle,
+Belege, Namen, Steuer-IDs, Tokens, lokale Pfade oder ungeschwärzte Screenshots
+öffentlich hochladen. Der [Beitragsleitfaden](CONTRIBUTING.md) beschreibt
+Entwicklungsumgebung, Tests und Datenschutz; Sicherheitsprobleme gehören in
+den privaten GitHub-Bereich **Report a vulnerability**.
 
 ## Lizenz
 

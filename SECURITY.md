@@ -4,10 +4,12 @@
 
 Während der öffentlichen Beta wird nur die jeweils neueste GitHub-Version
 unterstützt. Dieser Quellstand bereitet `v0.1.0-beta.3` für
-SteuerSparErklärung 2025 vor. Bis ZIP und separate SHA-256-Datei tatsächlich
-auf GitHub veröffentlicht sind, bleibt `v0.1.0-beta.2` die letzte öffentliche
-unterstützte Version. Quellstand, Tag oder automatisch erzeugtes GitHub-
-Quellarchiv allein gelten nicht als portables Release.
+SteuerSparErklärung 2025 vor. Eine vorbereitete Version gilt erst dann als
+öffentlich unterstützt, wenn auf der GitHub-Release-Seite ihr Tag, das
+portable ZIP und die separate SHA-256-Datei gemeinsam veröffentlicht sind.
+Bis dahin bleibt das jeweils jüngste dort vollständige Release unterstützt.
+Quellstand, Tag oder automatisch erzeugtes GitHub-Quellarchiv allein gelten
+nicht als portables Release.
 
 ## Sicherheitsproblem melden
 

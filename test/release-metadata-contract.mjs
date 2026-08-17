@@ -34,6 +34,12 @@ assert(
 );
 assert(security.includes(`v${packageJson.version}`), "Sicherheitsrichtlinie nennt den vorbereiteten Paketstand nicht.");
 assert.match(security, /jeweils neueste GitHub-Version/u, "Security nennt die unterstützte Release-Linie nicht.");
+assert.match(
+  security,
+  /jeweils jüngste dort vollständige Release unterstützt/u,
+  "Security bindet Support nicht dauerhaft an ein vollständiges ZIP-/SHA-Release.",
+);
+assert(!/bleibt `v0\.1\.0-beta\.\d+`/u.test(security), "Security enthält eine nach Veröffentlichung veraltende Vorversion.");
 assert.match(readme, /`2024` \/ Engine 30 \| `experimental` \/ `verification-only`/u);
 assert.match(mainSkill, /Profil `2025` mit Engine-Major `31` freigegeben/u);
 assert.match(setupSkill, /derzeit `2025` \/ Engine-Major `31`/u);
