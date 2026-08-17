@@ -1,23 +1,61 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
-import { createServer } from "node:http";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { once } from "node:events";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { createApiExecutor } from "../dist/api-executor.js";
+import { createSseApiServer } from "../dist/api-server.js";
 
 const token = "mcp-cancellation-token-with-24-characters";
+const temporary = mkdtempSync(join(tmpdir(), "sse-mcp-cancellation-"));
+const workspaceDir = join(temporary, "workspace");
+const resultDir = join(temporary, "results");
+mkdirSync(workspaceDir);
+mkdirSync(resultDir);
+writeFileSync(join(workspaceDir, "large.bin"), Buffer.alloc(16 * 1024 * 1024, 0x4d));
+
+const config = {
+  host: "127.0.0.1",
+  port: 1,
+  token,
+  configPath: join(temporary, "config.json"),
+  workspaceDir,
+  resultDir,
+};
+const baseExecute = createApiExecutor(config, async () => ({ ok: true }));
 let requestCount = 0;
 let resolveFirstStarted;
-let resolveFirstClosed;
+let resolveAbortedLog;
 const firstStarted = new Promise((resolve) => { resolveFirstStarted = resolve; });
-const firstClosed = new Promise((resolve) => { resolveFirstClosed = resolve; });
+const abortedLog = new Promise((resolve) => { resolveAbortedLog = resolve; });
+const logs = [];
+
+const execute = async (operation, args, timeoutMs, signal) => {
+  if (operation === "workspace_file_list") {
+    requestCount += 1;
+    if (requestCount === 1) resolveFirstStarted();
+  }
+  return await baseExecute(operation, args, timeoutMs, signal);
+};
+
+const api = createSseApiServer({
+  config,
+  execute,
+  log: (record) => {
+    logs.push(record);
+    if (record.event === "operation" && record.operation === "workspace_file_list" && record.kind === "aborted") {
+      resolveAbortedLog(record);
+    }
+  },
+});
 
 async function waitForWithin(promise, timeoutMs, message) {
   let timer;
   try {
-    await Promise.race([
+    return await Promise.race([
       promise,
       new Promise((_, reject) => {
         timer = setTimeout(() => reject(new Error(message)), timeoutMs);
@@ -27,27 +65,6 @@ async function waitForWithin(promise, timeoutMs, message) {
     clearTimeout(timer);
   }
 }
-
-const api = createServer(async (request, response) => {
-  for await (const _chunk of request) {
-    // Consume the complete request before deliberately holding the response.
-  }
-  requestCount += 1;
-  if (requestCount === 1) {
-    response.once("close", resolveFirstClosed);
-    resolveFirstStarted();
-    return;
-  }
-  const envelope = {
-    apiVersion: "v1",
-    requestId: randomUUID(),
-    operation: "health",
-    durationMs: 0,
-    result: { ok: true, running: false, windows: [] },
-  };
-  response.writeHead(200, { "content-type": "application/json" });
-  response.end(JSON.stringify(envelope));
-});
 
 api.listen(0, "127.0.0.1");
 await once(api, "listening");
@@ -69,24 +86,37 @@ try {
   await client.connect(transport);
   const controller = new AbortController();
   const cancelled = client.callTool(
-    { name: "sse_health", arguments: {} },
+    { name: "sse_workspace_files", arguments: { ref: "workspace:.", limit: 2_000, includeHashes: true } },
     undefined,
     { signal: controller.signal, timeout: 10_000, maxTotalTimeout: 10_000 },
   );
-  await waitForWithin(firstStarted, 5_000, "MCP-Anfrage erreichte die API nicht");
+  await waitForWithin(firstStarted, 5_000, "MCP-Workspace-Anfrage erreichte die echte API nicht");
   controller.abort();
   await assert.rejects(cancelled, /abort/i);
-  await waitForWithin(firstClosed, 5_000, "MCP-Abbruch schloss die API-Anfrage nicht");
+
+  const cancelledRecord = await waitForWithin(
+    abortedLog,
+    5_000,
+    `API-Executor meldete nach MCP-Abbruch kein aborted-Ergebnis: ${JSON.stringify(logs)}`,
+  );
+  assert.equal(cancelledRecord.ok, false);
+  assert.equal(cancelledRecord.kind, "aborted");
+  assert.equal(cancelledRecord.delivered, false,
+    "Das abgebrochene Executor-Ergebnis darf nicht als an den getrennten MCP-Client zugestellt gelten");
 
   const recovered = await client.callTool(
-    { name: "sse_health", arguments: {} },
+    { name: "sse_workspace_files", arguments: { ref: "workspace:.", limit: 2_000, includeHashes: false } },
     undefined,
-    { timeout: 2_000, maxTotalTimeout: 2_000 },
+    { timeout: 5_000, maxTotalTimeout: 5_000 },
   );
   assert.notEqual(recovered.isError, true);
+  assert.equal(recovered.structuredContent?.ok, true);
+  assert.equal(recovered.structuredContent?.truncated, false);
+  assert.deepEqual(recovered.structuredContent?.files?.map((file) => file.ref), ["workspace:large.bin"]);
   assert.equal(requestCount, 2);
-  process.stdout.write("MCP-Abbruch: HTTP-Auftrag beendet und Folgeaufruf erfolgreich\n");
+  process.stdout.write("MCP-Abbruch: echter Workspace-Auftrag beendet und Folgeaufruf erfolgreich\n");
 } finally {
   await client.close();
   await new Promise((resolve, reject) => api.close((error) => (error ? reject(error) : resolve())));
+  rmSync(temporary, { recursive: true, force: true });
 }

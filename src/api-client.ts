@@ -14,6 +14,7 @@ import {
 import { withCombinedAbortSignal } from "./abort.js";
 import { ZodError } from "zod";
 import { ApiClientError } from "./api-client-error.js";
+import { localHttpFetch } from "./local-http-transport.js";
 import { formatOperationArgumentError, parseApiOperationArgs } from "./operation-catalog.js";
 import { parseApiOperationResult, SSE_API_RESULT_SCHEMA_VERSION } from "./result-contract.js";
 
@@ -97,7 +98,7 @@ function clientSettings(options: ApiClientOptions = {}): ApiClientSettings {
   return {
     baseUrl: parsedUrl.origin,
     token,
-    fetchImpl: options.fetchImpl ?? fetch,
+    fetchImpl: options.fetchImpl ?? localHttpFetch,
     ...(options.signal ? { signal: options.signal } : {}),
   };
 }
@@ -170,6 +171,48 @@ function apiResponseError(payload: Record<string, unknown>, status: number): Api
   return new ApiClientError(`SSE-API: ${message}`, kind);
 }
 
+const HTTP_TRANSPORT_TIMEOUT_CODES = new Set([
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_BODY_TIMEOUT",
+]);
+const HTTP_TRANSPORT_STATE_UNKNOWN_CODES = new Set([
+  "ECONNRESET",
+  "ECONNABORTED",
+  "EPIPE",
+  "ERR_STREAM_PREMATURE_CLOSE",
+  "UND_ERR_SOCKET",
+]);
+
+function transportCodeFrom(value: unknown): string | undefined {
+  try {
+    if (!isRecord(value) || typeof value.code !== "string") return undefined;
+    return /^[A-Z][A-Z0-9_]{1,63}$/u.test(value.code) ? value.code : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function transportFailureCode(error: unknown): string | undefined {
+  const directCode = transportCodeFrom(error);
+  if (directCode) return directCode;
+  try {
+    const cause = error instanceof Error
+      ? (error as Error & { cause?: unknown }).cause
+      : undefined;
+    return transportCodeFrom(cause);
+  } catch {
+    // Fehlerobjekte stammen von der Transportgrenze und koennen fremde
+    // Getter besitzen. Deren Diagnose darf den eigentlichen Fehler nicht
+    // durch einen zweiten Ausnahmefehler verdecken.
+    return undefined;
+  }
+}
+
+function networkErrorMessage(prefix: string, error: unknown, code?: string): string {
+  const detail = error instanceof Error ? error.message : String(error);
+  return `${prefix}${code ? ` (${code})` : ""}: ${detail}`;
+}
+
 function hasJsonContentType(response: Response): boolean {
   const contentType = response.headers.get("content-type") ?? "";
   return contentType.split(";", 1)[0]?.trim().toLowerCase() === "application/json";
@@ -192,6 +235,7 @@ export async function readApiJsonResponse(
     throw new ApiClientError("Internes API-Antwortlimit ist ungueltig.", "protocol");
   }
   if (!hasJsonContentType(response)) {
+    await cancelResponseBody(response);
     throw new ApiClientError("SSE-API-Antwort muss Content-Type application/json verwenden.", "protocol");
   }
   const advertisedLength = response.headers.get("content-length");
@@ -245,14 +289,21 @@ async function readAuthenticatedApiDocument(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), API_DOCUMENT_TIMEOUT_MS);
   try {
-    const response = await withCombinedAbortSignal([controller.signal, settings.signal], (signal) =>
-      settings.fetchImpl(`${settings.baseUrl}/${SSE_API_VERSION}/${path}`, {
-        method: "GET",
-        headers: { accept: "application/json", authorization: `Bearer ${settings.token}` },
-        redirect: "error",
-        signal,
-      }));
-    const payload = await readApiJsonResponse(response, MAX_API_DOCUMENT_BYTES);
+    const { response, payload } = await withCombinedAbortSignal(
+      [controller.signal, settings.signal],
+      async (signal) => {
+        const response = await settings.fetchImpl(`${settings.baseUrl}/${SSE_API_VERSION}/${path}`, {
+          method: "GET",
+          headers: { accept: "application/json", authorization: `Bearer ${settings.token}` },
+          redirect: "error",
+          signal,
+        });
+        return {
+          response,
+          payload: await readApiJsonResponse(response, MAX_API_DOCUMENT_BYTES),
+        };
+      },
+    );
     if (!isRecord(payload)) {
       throw new ApiClientError("SSE-API-Dokument ist kein JSON-Objekt.", "protocol");
     }
@@ -274,8 +325,15 @@ async function readAuthenticatedApiDocument(
         "timeout",
       );
     }
+    const transportCode = transportFailureCode(error);
+    if (transportCode && HTTP_TRANSPORT_TIMEOUT_CODES.has(transportCode)) {
+      throw new ApiClientError(
+        `SSE-API-Dokument ueberschritt das HTTP-Transportlimit (${transportCode}).`,
+        "timeout",
+      );
+    }
     throw new ApiClientError(
-      `SSE-API-Dokument nicht erreichbar: ${error instanceof Error ? error.message : String(error)}`,
+      networkErrorMessage("SSE-API-Dokument nicht erreichbar", error, transportCode),
       "network",
     );
   } finally {
@@ -400,19 +458,26 @@ export async function callApiOperation(
   const clientTimeoutMs = timeoutMs + 12_000;
   const timer = setTimeout(() => controller.abort(), clientTimeoutMs);
   try {
-    const response = await withCombinedAbortSignal([controller.signal, settings.signal], (signal) =>
-      settings.fetchImpl(`${settings.baseUrl}/${SSE_API_VERSION}/operations/${operation}`, {
-        method: "POST",
-        headers: {
-          accept: "application/json",
-          authorization: `Bearer ${settings.token}`,
-          "content-type": "application/json",
-        },
-        body: requestBody,
-        redirect: "error",
-        signal,
-      }));
-    const payload = await readApiJsonResponse(response);
+    const { response, payload } = await withCombinedAbortSignal(
+      [controller.signal, settings.signal],
+      async (signal) => {
+        const response = await settings.fetchImpl(
+          `${settings.baseUrl}/${SSE_API_VERSION}/operations/${operation}`,
+          {
+            method: "POST",
+            headers: {
+              accept: "application/json",
+              authorization: `Bearer ${settings.token}`,
+              "content-type": "application/json",
+            },
+            body: requestBody,
+            redirect: "error",
+            signal,
+          },
+        );
+        return { response, payload: await readApiJsonResponse(response) };
+      },
+    );
     if (!isRecord(payload)) {
       throw new ApiClientError("SSE-API lieferte keine gueltige Antworthuelle.", "protocol");
     }
@@ -457,7 +522,22 @@ export async function callApiOperation(
         "timeout",
       );
     }
-    throw new ApiClientError(`SSE-API nicht erreichbar: ${error instanceof Error ? error.message : String(error)}`, "network");
+    const transportCode = transportFailureCode(error);
+    if (transportCode && HTTP_TRANSPORT_TIMEOUT_CODES.has(transportCode)) {
+      throw new ApiClientError(
+        `SSE-API antwortete nicht innerhalb des HTTP-Transportlimits (${transportCode}). ` +
+          "Der Zustand ist unbekannt; vor jeder Wiederholung zuerst gezielt lesen.",
+        "timeout",
+      );
+    }
+    if (transportCode && HTTP_TRANSPORT_STATE_UNKNOWN_CODES.has(transportCode)) {
+      throw new ApiClientError(
+        networkErrorMessage("SSE-API-Verbindung brach waehrend des Operationsaufrufs ab", error, transportCode) +
+          " Der Zustand ist unbekannt; vor jeder Wiederholung zuerst gezielt lesen.",
+        "transport-unknown",
+      );
+    }
+    throw new ApiClientError(networkErrorMessage("SSE-API nicht erreichbar", error, transportCode), "network");
   } finally {
     clearTimeout(timer);
   }

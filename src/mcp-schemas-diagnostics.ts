@@ -28,7 +28,7 @@ export const SSE_MCP_DIAGNOSTIC_SCHEMAS = {
   "sse_workspace_files": z.object({
     ref: RESOURCE_REF().optional().describe("Bereich und Unterordner; Vorgabe workspace:."),
     limit: z.number().int("'limit' muss eine ganze Zahl sein.").min(1).max(2000).optional()
-      .describe("Maximale Zahl gelisteter Dateien; Vorgabe und Maximum 2000"),
+      .describe("Maximale Zahl gelisteter Dateien; Vorgabe 500, Maximum 2000"),
     includeHashes: z.boolean().optional().describe("SHA256 berechnen; Vorgabe true, false fuer besonders schnelle Listen"),
   }).strict(),
   "sse_workspace_read_text": z.object({

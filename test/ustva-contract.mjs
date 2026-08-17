@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApiExecutor } from "../dist/api-executor.js";
+import { executeUstvaOperation } from "../dist/ustva-executor.js";
 import { traceOperations } from "./operation-trace.mjs";
 import {
   USTVA_FLAGS,
@@ -61,6 +62,18 @@ function fieldsForCurrentPage() {
   if (currentHeading === "Steuerschuldnerschaft nach § 13b UStG") return reverseChargeFields;
   if (currentHeading === "Abziehbare Vorsteuer") return inputTaxFields;
   return fields;
+}
+
+function overviewWorkerPage() {
+  return {
+    ok: true,
+    ueberschrift: "Umsatzsteuer-Voranmeldungen 2025",
+    felder: fields,
+    aktionen: [{ name: "ELSTER", gesperrt: true }],
+    dialoge: [],
+    prueferMeldungen: [],
+    blockiert: false,
+  };
 }
 
 const execute = traceOperations("ustva-mock", createApiExecutor({
@@ -369,10 +382,78 @@ try {
     assert.equal(calls.at(-1).args.expectedPageAfter, definition.targetPage);
     assert.equal(mapped.ustva.effects.taxDataChanged, false);
   }
+
+  const budgetScenarios = [
+    ["ustva_select_period", { selector: "month", expectedCurrent: "june", value: "july" }, "combo_select"],
+    ["ustva_set_flag", { flag: "corrected", expectedBefore: false, value: true, expectedAfter: true }, "toggle"],
+    ["ustva_change_value", {
+      field: "input_tax_adjustment", expectedBefore: "0,00", value: "1,00", expectedAfter: "1,00",
+    }, "tracked_set_value"],
+    ["ustva_open_section", { section: "tax_exempt" }, "click"],
+  ];
+  for (const [operation, args, expectedFollowup] of budgetScenarios) {
+    let budgetNow = 10_000;
+    const budgetCalls = [];
+    const budgeted = await executeUstvaOperation(
+      operation,
+      args,
+      10_000,
+      undefined,
+      async (nestedOperation, _nestedArgs, nestedTimeoutMs) => {
+        budgetCalls.push({ operation: nestedOperation, timeoutMs: nestedTimeoutMs });
+        if (nestedOperation === "page") {
+          budgetNow += 137;
+          return overviewWorkerPage();
+        }
+        return { ok: true, verified: true };
+      },
+      { now: () => budgetNow },
+    );
+    assert.equal(budgeted.ok, true, operation);
+    assert.deepEqual(budgetCalls, [
+      { operation: "page", timeoutMs: 10_000 },
+      { operation: expectedFollowup, timeoutMs: 9_863 },
+    ], `${operation}: Seitenread und Folgeaktion muessen dieselbe absolute Deadline teilen.`);
+  }
+
+  let exhaustedNow = 20_000;
+  const exhaustedCalls = [];
+  const exhausted = await executeUstvaOperation(
+    "ustva_set_flag",
+    { flag: "corrected", expectedBefore: false, value: true, expectedAfter: true },
+    500,
+    undefined,
+    async (operation, _args, nestedTimeoutMs) => {
+      exhaustedCalls.push({ operation, timeoutMs: nestedTimeoutMs });
+      exhaustedNow += 500;
+      return overviewWorkerPage();
+    },
+    { now: () => exhaustedNow },
+  );
+  assert.deepEqual(exhaustedCalls, [{ operation: "page", timeoutMs: 500 }]);
+  assert.equal(exhausted.ok, false);
+  assert.equal(exhausted.kind, "timeout");
+
+  const alreadyAborted = new AbortController();
+  alreadyAborted.abort(new Error("synthetischer UStVA-Abbruch"));
+  const abortedCalls = [];
+  const aborted = await executeUstvaOperation(
+    "ustva_read",
+    {},
+    5_000,
+    alreadyAborted.signal,
+    async (operation) => {
+      abortedCalls.push(operation);
+      return overviewWorkerPage();
+    },
+  );
+  assert.deepEqual(abortedCalls, [], "Vorab-Abbruch darf keinen UStVA-Worker mehr starten.");
+  assert.equal(aborted.ok, false);
+  assert.equal(aborted.kind, "aborted");
 } finally {
   rmSync(temporary, { recursive: true, force: true });
 }
 
 process.stdout.write(
-  "UStVA-Vertrag: Übersicht/§13b/Vorsteuer-Read, 18 Zeitwerte, 6 Flags, 16 Betragsfelder, 5 Bereiche und Fall-/Hashbindung\n",
+  "UStVA-Vertrag: Reads, 18 Zeitwerte, 6 Flags, 16 Betragsfelder, 5 Bereiche, Fallbindung und gemeinsames Zeitbudget\n",
 );

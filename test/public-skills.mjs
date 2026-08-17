@@ -43,6 +43,7 @@ assert(main.includes("niemals über ELSTER") && main.includes("verifizierten Arb
 assert(main.includes("sse_ustva_read") && main.includes("sse_ustva_open_section"));
 assert(main.includes("setup-decisions.json") && main.includes("settings.md"));
 assert(main.includes("Tracking") && main.includes(".xlsx") && main.includes("Excel niemals still"));
+assert(main.includes("API-/HTTP-Transporttimeout") && main.includes("nicht als Unerreichbarkeit behandeln"));
 const setup = readFileSync(join(skillsRoot, "steuer-spar-erklaerung-setup", "SKILL.md"), "utf8");
 assert(setup.includes("runtime/node.exe dist/api-cli.js health") && setup.includes("discovery"));
 assert(setup.includes('command = "node"') && setup.includes("schwarze `cmd.exe`-Fenster"));

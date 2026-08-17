@@ -310,6 +310,7 @@ Fensterwechsel oder Sperrbildschirm.
 | Gleiche unbeantwortete Frage | Höchstens zweimal stellen, dann sicher stoppen |
 | Hash-, Ziel-, unbekannter Dialog oder Readback abweichend | Keine Wiederholung und keine weitere Änderung |
 | Abgebrochener MCP-/API-Aufruf | Zustand ist unbekannt; erst frischen Zustand lesen, dann bewusst entscheiden |
+| API-/HTTP-Transporttimeout oder `transport-unknown` | Zustand kann nach bereits gestarteter Operation unbekannt sein; nicht als Unerreichbarkeit behandeln, erst frischen Zustand lesen |
 
 ## Stoppen und ehrlich berichten
 

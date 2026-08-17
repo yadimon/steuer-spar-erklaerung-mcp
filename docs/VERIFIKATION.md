@@ -1,6 +1,6 @@
 # Verifikationsstand
 
-Stand: 2026-08-16
+Stand: 2026-08-17
 
 Dieses Dokument trennt veröffentlichte Verträge, Mock-/Quelltests und echte
 SSE-Läufe. Ein grüner Vertragstest beweist nicht automatisch, dass jede
@@ -42,6 +42,14 @@ nie automatisch verworfen.
 | Striktes Live-Gate | `npm run test:live` | beide Profile nacheinander, jede vom Profil erlaubte Leseoperation, lokale-gegen-Worker-Falldateiparität, der profilierte Schreibweg, die große Schreibreise, Steuertipps-Center 2025 auf privatem Desktop, echter MCP→API→Worker-Weg für UI-Aktionen, direkter HTTP↔kanonischer MCP-Vergleich, Hash- und Cleanup-Invarianten; fehlende Voraussetzungen sind Fehler | vollständige Mutationsmatrix pro Jahresprofil; VaSt-Dialogwege |
 | Center-Live-Gate | `npm run test:live-center` | `center_cases` und `center_refresh` für Profil 2025 über die HTTP-API, exakte HWND-/Verzeichnisbindung, pfadredigierte Antworten, unveränderter Dateibestand und Kill-on-close-Cleanup auf einem privaten Desktop | Profil 2024; VaSt; fachliche Richtigkeit der realen Fallnamen |
 | Falldatei-Liveparität | `npm run test:live-case-file` | lokale API-Implementierung und direkter PowerShell-Worker liefern denselben Fallhash sowie dieselbe vollständige Standard-Fallliste des offiziellen Musterordners; keine SSE-UI wird gestartet | ausführliche Parser-Metadaten und UI-Verhalten |
+| Workspace-Dateivertrag | `node test/workspace-file-cancellation.mjs` | synchrone/kooperative Listenparität, Abbruch vor und während der Liste sowie nach einem 64-KiB-Hashblock, Hashbudget auch bei verworfener I/O, Deadline ohne Teilergebnis, exakte Trunkierung samt Gleichheitsgrenze, Read-Post-Deadline, Write-Preflight und veröffentlichte Schemas | reales langsames Netzlaufwerk; Abbruch eines bereits laufenden synchronen 1-MiB-Textwrites |
+| MCP-Abbruchkette | `node test/mcp-cancellation.mjs` | echter `sse_workspace_files`-Aufruf über MCP-Prozess, HTTP-Client, API-Server und Workspace-Executor; Clientabbruch ergibt serverseitig `ok=false`, `kind=aborted`, `delivered=false`, danach gelingt ein vollständiger Folgeaufruf | harter Prozessabsturz während des Abbruchs; bereits gestartete synchrone Mutationen |
+| Worker-Queue-Abbruch | `node test/worker-timeout.mjs` | Vorab-Abbruch auch bei voller Queue bleibt `aborted`; eine echte 32er-Belegung liefert `busy`; 31 abgebrochene wartende Aufträge geben ihre Plätze vor Abschluss des Vorderauftrags frei und starten keinen Worker | Betriebssystemstillstand innerhalb eines bereits gestarteten Worker-/Cleanup-Prozesses |
+| HTTP-Body-Abbruch | `node test/api-client-body-abort.mjs` | Aufruferabbruch nach bereits gelieferten HTTP-Headern beendet verzögerte Operations- und Discovery-JSON-Streams; ein echter falscher `Content-Type` bleibt `protocol`, cancelt aber einen laufenden 64-MiB-Body und schließt den serverseitigen Socket innerhalb 500 ms | ein nicht abbrechbarer Kernel-/Netzwerkaufruf unterhalb des Node-Streams |
+| HTTP-Transportfehler | `node test/api-client-transport-timeout.mjs` | Header-/Body-Timeoutcodes injizierter Alternativtransporte werden eindeutig als `timeout` klassifiziert; ein echter Defaulttransport-Reset nach nachweislich empfangenem Mutations-POST wird samt direktem `ECONNRESET` zu `transport-unknown`; ein danach real verweigerter Verbindungsaufbau bleibt `network` und nennt `ECONNREFUSED` | unbekannte Fehlerformen fremder Transportimplementierungen |
+| Loopback-Defaulttransport | `node test/api-local-http-transport.mjs` | produktiver Client ist von globalem `fetch` unabhängig; echter POST/Authorization, Loopback-/Bodygrenze, Nullbody-Status 204/205/304, Redirect-Stopp und Abbruch nach Headern sind geprüft | hängender einzelner Kernelaufruf unterhalb von Node-Streams |
+| UStVA-Kompositionsbudget | `node test/ustva-contract.mjs` | Seiten-Read und gebundene Mutation verwenden eine deterministisch geprüfte absolute Deadline; verbrauchtes Restbudget und Vorab-Abbruch verhindern jeden Folge-Workerstart | Scheduler-/Kernelstillstand innerhalb eines bereits gestarteten Workeraufrufs |
+| Release-Artefakte | `node test/dist-artifacts-contract.mjs`, `node test/npm-package-contract.mjs`, `node test/portable-package.mjs` | quellbasiertes Pruning entfernt ausschließlich veraltete JS/Maps, stoppt vor Fremddateien, prüft jeden ausgelieferten Buildpfad gegen `src` und startet API-CLI, API und MCP aus dem echten Portable-Bundle | Signatur/Authentizität des separat veröffentlichten ZIP-Prüfsummenpaares |
 | Große Schreibreise | `npm run test:live-journey` | eine zusammenhängende Reise auf einer Wegwerfkopie: Tabellenschreibzyklus mit Kontrollsummen-Readback, hashgebundenes Speichern mit Datei- und Neustart-Persistenzbeweis, UStVA-Schreibquartett mit Zahllast-Kontrolle, CSV-Export bis zur Datei, Menü-/Fenster-/Dialogverwaltung, Speichern unter und Archiv | VaSt-Dialogwege, Steuertipps-Center |
 | Einzelprofil-Live | `npm run test:live-muster` | gezielter profilabhängiger Musterlauf für Diagnose | das jeweils andere Profil |
 | Focusless | `npm run test:hidden-focusless` | ein konkret profiliertes 2025-Feld mit Feld-/Summen-/Dirty-State-Readback; im strikten Gate enthalten | andere Felder; 2024; sichtbare Tabellen-/Combo-Pfade |
@@ -203,9 +211,9 @@ Das gehört ausdrücklich hierher, weil es leicht zu überschätzen ist: Die
 Abdeckungsbilanz ist **Dokumentation, keine Laufzeitsperre**. Ein Profil mit
 `status=supported` und `operationAccess=full` gibt alle Operationen frei –
 unabhängig davon, ob sie jemals erfolgreich gegen die echte Anwendung
-gelaufen sind. Gemessen am 2026-08-16 sind noch 8 der 87 Operationen nicht
-live-funktional belegt: die oben genannten, weiterhin ungetesteten Center- und
-VaSt-Wege. Zwei davon (`vast_apply`, `vast_mapping_select`) fallen in die
+gelaufen sind. Gemessen am 2026-08-16 sind noch 6 der 87 Operationen nicht
+live-funktional belegt: die oben genannten, weiterhin ungetesteten VaSt-Wege.
+Zwei davon (`vast_apply`, `vast_mapping_select`) fallen in die
 Klasse `destructive`.
 
 Das ist kein Widerspruch zu den Sicherheitszusagen: Jede dieser Operationen
@@ -238,6 +246,34 @@ Der Vergleichslauf am 2026-08-16 brauchte beim Hash lokal 6/7 ms statt
 im Worker (2025/2024). Das sind orientierende Messwerte, keine harte
 Testschwelle. Der direkte Worker bleibt für ausführliche Metadaten, unbekannte
 Parserfälle und kompatible lokale Aufrufer erhalten.
+
+`listWorkspaceFiles` bleibt als synchroner Referenzpfad für den
+Containment-Vertragstest erhalten. Jeder API-, MCP- und Szenarioaufruf von
+`workspace_file_list` läuft kooperativ: Nach jeder vollständig
+containment-geprüften Ordner-/Dateieinheit und nach höchstens 64 KiB Hash-I/O
+erhält Node einen echten Eventloop-Turn und prüft anschließend Clientabbruch
+sowie Restzeit. Das Hashbudget beträgt 16 MiB pro Datei und 64 MiB pro Liste;
+gelesene Bytes eines wegen gleichzeitiger Änderung verworfenen Hashes werden
+nicht zurückgebucht. Bei Abbruch
+oder Deadline wird keine Teilliste veröffentlicht. Erreicht eine erfolgreiche
+Liste dagegen das fachliche Dateilimit, sucht sie containment- und
+deadline-gebunden genau einen weiteren Treffer: Nur dessen Existenz setzt
+`truncated=true`; ein vollständig geprüftes Verzeichnis liefert
+`truncated=false`. Ein orientierender Lauf am
+2026-08-17 mit 1.000 Ein-Byte-Dateien und deaktivierten Hashes brauchte lokal
+1.279 ms synchron und 1.378 ms kooperativ; während des kooperativen Laufs
+konnten 1.001 Timer-Ticks abgearbeitet werden. Die Werte enthalten keinen
+HTTP-Transport, hängen stark vom Dateisystem ab und sind keine Testschwelle.
+Ein separater 16-MiB-Einzelhash am selben Tag brauchte 10,9 ms synchron und
+24,2 ms kooperativ, lieferte denselben SHA-256 und ließ währenddessen 14
+Timer-Ticks zu. Auch diese Werte sind nur eine lokale Orientierung; der
+zusätzliche absolute Preis kauft die gebundene Abbruchlatenz zwischen
+64-KiB-Blöcken.
+Die auf 1 MiB begrenzten Text-Lese-/Schreibpfade prüfen Abbruch und Deadline
+vor dem Dateizugriff; Lesen verwirft außerdem ein nach Fristende fertiges
+Ergebnis. Ein bereits exklusiv begonnenes synchrones Schreiben wird nicht als
+Timeout umetikettiert, weil ein solcher Fehler einen unsicheren Retry
+nahelegen würde.
 
 Auch `page_objects` hatte trotz rein öffentlicher Profilmetadaten pro Aufruf
 einen frischen Worker gestartet. Drei direkte 2025-Workerläufe am 2026-08-16

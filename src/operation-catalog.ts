@@ -344,7 +344,7 @@ schemasByOperation.workspace_file_list = z.object({
     .describe("Bereichsreferenz oder relativer Pfad innerhalb von area"),
   area: RESOURCE_AREA.optional(),
   limit: z.number().int("'limit' muss eine ganze Zahl sein.").min(1).max(2000).optional()
-    .describe("Maximale Zahl gelisteter Dateien; hoechstens 2000"),
+    .describe("Maximale Zahl gelisteter Dateien; Vorgabe 500, Maximum 2000"),
   includeHashes: z.boolean().optional().describe("SHA256 berechnen; Vorgabe true"),
 }).strict();
 schemasByOperation.workspace_file_read_text = z.object({

@@ -69,7 +69,7 @@ const CORE_OPERATION_RESULT_FIELDS = {
     backupAreaReady: OPTIONAL_BOOLEAN,
     sseExecutableConfigured: OPTIONAL_BOOLEAN,
   },
-  workspace_file_list: { files: OPTIONAL_ARRAY },
+  workspace_file_list: { files: OPTIONAL_ARRAY, truncated: OPTIONAL_BOOLEAN },
   workspace_file_read_text: { text: OPTIONAL_STRING, sha256: OPTIONAL_STRING },
   workspace_file_write_text: { ref: OPTIONAL_STRING, sha256: OPTIONAL_STRING, bytes: OPTIONAL_NON_NEGATIVE_NUMBER },
   page: { ueberschrift: OPTIONAL_STRING },

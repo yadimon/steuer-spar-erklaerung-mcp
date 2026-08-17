@@ -12,6 +12,7 @@ const nodeFile = (name, file, ...args) => ({ name, command: node, args: [file, .
 const withApi = (name, file, ...args) => nodeFile(name, "test/with-api.mjs", node, file, ...args);
 
 export const serialBuildSteps = Object.freeze([
+  nodeFile("dist-prune", "scripts/prune-dist.mjs"),
   psFile("native-build", "powershell/build-native.ps1"),
   nodeFile("typescript-build", "node_modules/typescript/bin/tsc"),
 ]);
@@ -56,9 +57,11 @@ export const parallelSteps = Object.freeze([
   nodeFile("setup-wizard", "test/setup-wizard.mjs"),
   nodeFile("atomic-files", "test/atomic-files.mjs"),
   nodeFile("jsonl-logger", "test/jsonl-logger.mjs"),
+  nodeFile("dist-artifacts", "test/dist-artifacts-contract.mjs"),
   nodeFile("npm-package", "test/npm-package-contract.mjs"),
   nodeFile("portable-zip", "test/portable-zip-contract.mjs"),
   nodeFile("workspace-containment", "test/workspace-containment.mjs"),
+  nodeFile("workspace-file-cancellation", "test/workspace-file-cancellation.mjs"),
   nodeFile("resource-references", "test/resource-references.mjs"),
   nodeFile("live-script-resource-contract", "test/live-script-resource-contract.mjs"),
   nodeFile("backup-cases-contract", "test/backup-cases-contract.mjs"),
@@ -68,6 +71,9 @@ export const parallelSteps = Object.freeze([
   nodeFile("sse-process-guard", "test/sse-process-guard.mjs"),
   psFile("setup-task", "test/setup-task-contract.ps1"),
   nodeFile("api-contract", "test/api-contract.mjs"),
+  nodeFile("api-client-body-abort", "test/api-client-body-abort.mjs"),
+  nodeFile("api-client-transport-timeout", "test/api-client-transport-timeout.mjs"),
+  nodeFile("api-local-http-transport", "test/api-local-http-transport.mjs"),
   nodeFile("checker-open-contract", "test/checker-open-contract.mjs"),
   nodeFile("api-discovery-contract", "test/api-discovery-contract.mjs"),
   nodeFile("api-openapi-contract", "test/api-openapi-contract.mjs"),
@@ -77,6 +83,7 @@ export const parallelSteps = Object.freeze([
   nodeFile("launch-orchestration", "test/launch-orchestration.mjs"),
   nodeFile("operation-schema-catalog", "test/operation-schema-catalog.mjs"),
   nodeFile("operation-coverage-merge", "test/operation-coverage-merge-contract.mjs"),
+  nodeFile("verification-doc-coverage", "test/verification-doc-coverage-contract.mjs"),
   nodeFile("operation-result-shape-merge", "test/operation-result-shape-merge-contract.mjs"),
   nodeFile("operation-trace", "test/operation-trace-contract.mjs"),
   nodeFile("live-profile-read-coverage", "test/live-profile-read-coverage-contract.mjs"),
@@ -151,11 +158,16 @@ const FAST_STEP_NAMES = new Set([
   "atomic-files",
   "case-file",
   "jsonl-logger",
+  "dist-artifacts",
   "workspace-containment",
+  "workspace-file-cancellation",
   "resource-references",
   "live-script-resource-contract",
   "sse-process-guard",
   "api-contract",
+  "api-client-body-abort",
+  "api-client-transport-timeout",
+  "api-local-http-transport",
   "checker-open-contract",
   "api-discovery-contract",
   "api-openapi-contract",
@@ -170,6 +182,7 @@ const FAST_STEP_NAMES = new Set([
   "launch-orchestration",
   "operation-schema-catalog",
   "operation-coverage-merge",
+  "verification-doc-coverage",
   "operation-result-shape-merge",
   "operation-trace",
   "live-profile-read-coverage",
@@ -201,7 +214,7 @@ const FAST_STEP_NAMES = new Set([
 ]);
 
 export const fastBuildSteps = Object.freeze(
-  serialBuildSteps.filter((step) => step.name === "typescript-build"),
+  serialBuildSteps.filter((step) => step.name === "dist-prune" || step.name === "typescript-build"),
 );
 export const fastSteps = Object.freeze(
   parallelSteps.filter((step) => FAST_STEP_NAMES.has(step.name)),

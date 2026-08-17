@@ -12057,6 +12057,18 @@
             "outcomes": [
               "success"
             ]
+          },
+          "truncated": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock",
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
           }
         }
       },

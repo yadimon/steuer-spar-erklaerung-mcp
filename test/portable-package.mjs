@@ -57,6 +57,7 @@ assert(!existsSync(join(bundle, "node_modules", "typescript")), "Portable-Paket 
 assert(!existsSync(join(bundle, "node_modules", "@types", "node")), "Portable-Paket enthaelt @types/node.");
 assert(existsSync(join(bundle, "profiles", "2025", "profile.json")), "Portable-Paket enthaelt das Produktprofil nicht.");
 assert(existsSync(join(bundle, "profiles", "2025", "page-objects.json")), "Portable-Paket enthaelt die Page-Objects nicht.");
+assert(existsSync(apiCli), "Portable-Paket enthaelt die dokumentierte API-CLI nicht.");
 assert(existsSync(join(bundle, "skills", "steuer-spar-erklaerung", "SKILL.md")), "Portable-Paket enthaelt den Haupt-Skill nicht.");
 assert(existsSync(join(bundle, "skills", "steuer-spar-erklaerung-setup", "SKILL.md")), "Portable-Paket enthaelt den Setup-Skill nicht.");
 const setupCommand = readFileSync(join(bundle, "sse-setup.cmd"), "utf8");
@@ -71,6 +72,10 @@ for (const file of manifest.files) {
     file.sha256,
     `Manifest-SHA256 stimmt nicht: ${file.path}`,
   );
+  if (/^dist\/.+\.js(?:\.map)?$/u.test(file.path)) {
+    const source = join(repoRoot, "src", file.path.slice("dist/".length).replace(/\.js(?:\.map)?$/u, ".ts"));
+    assert(existsSync(source), `Portable-Paket enthaelt ein Build-Artefakt ohne TypeScript-Quelle: ${file.path}`);
+  }
 }
 
 const reservePort = async () => {

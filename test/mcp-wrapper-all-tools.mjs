@@ -41,9 +41,9 @@ const expectedToolCount = Object.keys(SSE_MCP_TOOL_OPERATIONS).length;
 const token = "all-tools-wrapper-token-with-at-least-24-characters";
 const calls = [];
 let forcedResult;
-let forceNetworkError = false;
+let forceTransportReset = false;
 const api = createServer(async (request, response) => {
-  if (forceNetworkError) {
+  if (forceTransportReset) {
     request.socket.destroy();
     return;
   }
@@ -201,6 +201,25 @@ try {
       `${tool.name} darf keinen lokalen API-/Wrapper-Pfad ausgeben`);
   }
   assert.equal(calls.length, expectedToolCount, `Erwartet wurde genau ein API-Aufruf je MCP-Werkzeug, erhalten: ${calls.length}`);
+
+  forcedResult = {
+    ok: true,
+    ref: "workspace:.",
+    files: [{ ref: "workspace:eins.txt", bytes: 4, sha256: null, hashOmitted: true }],
+    truncated: true,
+  };
+  const limitedWorkspace = await client.callTool({
+    name: "sse_workspace_files",
+    arguments: { ref: "workspace:.", limit: 1, includeHashes: false },
+  });
+  assert.notEqual(limitedWorkspace.isError, true);
+  assert.equal(limitedWorkspace.structuredContent?.truncated, true,
+    "MCP structuredContent muss die kanonische API-Trunkierungsmarkierung erhalten");
+  assert.match(
+    limitedWorkspace.content.filter((entry) => entry.type === "text").map((entry) => entry.text).join("\n"),
+    /"truncated": true/u,
+    "Auch die lesbare MCP-Textantwort muss die abgeschnittene Liste kenntlich machen",
+  );
 
   forcedResult = {
     ok: true,
@@ -534,17 +553,23 @@ try {
     assert.equal(calls.length, beforeInvalid, `${name} darf semantisch ungueltig keinen HTTP-Aufruf ausloesen`);
     strictRejections += 1;
   }
-  forceNetworkError = true;
-  const networkError = await client.callTool(
+  forceTransportReset = true;
+  const transportReset = await client.callTool(
     { name: "sse_health", arguments: {} },
     undefined,
     { timeout: 10_000, maxTotalTimeout: 10_000 },
   );
-  forceNetworkError = false;
-  const networkErrorText = networkError.content
+  forceTransportReset = false;
+  const transportResetText = transportReset.content
     .filter((entry) => entry.type === "text").map((entry) => entry.text).join("\n");
-  assert.equal(networkError.isError, true);
-  assert(networkErrorText.includes('"kind": "network"'), "MCP muss Client-/Transportfehler strukturiert klassifizieren");
+  assert.equal(transportReset.isError, true);
+  assert.equal(transportReset.structuredContent?.kind, "transport-unknown",
+    "MCP muss einen Operations-Reset als zustandsunklar klassifizieren");
+  assert(
+    transportResetText.includes('"kind": "transport-unknown"') &&
+      /Zustand ist unbekannt/u.test(transportResetText),
+    "MCP-Text muss die strukturierte Unknown-State-Warnung behalten",
+  );
   process.stdout.write(
     `MCP-Katalog-Smoke: ${catalog.tools.length} Werkzeuge, ${catalogBytes} Bytes/${catalogReadyMs} ms, ` +
     `${optionVariants} Optionsvarianten, ` +

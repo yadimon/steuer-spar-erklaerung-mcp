@@ -1,6 +1,6 @@
 # API-/MCP-Vertrag
 
-Stand: 2026-08-16
+Stand: 2026-08-17
 
 ## Rollen
 
@@ -135,18 +135,65 @@ Die Zahl der Werkzeugnamen ist nicht die Zahl eindeutiger API-Ziele.
 Beispielsweise bilden zwei Feldwerkzeuge auf `tracked_set_value` ab.
 `checker_open` komponiert intern Prüferlesen und einen eng gebundenen
 read-only Detailklick. UStVA-Werkzeuge komponieren profilierte Seiten- und
-Feldoperationen in der API, nicht im MCP-Prozess.
+Feldoperationen in der API, nicht im MCP-Prozess. Ihr Seiten-Read und die
+nachfolgende gebundene UI-Aktion teilen eine absolute Aufruferdeadline. Unter
+zwei Sekunden Rest startet keine UStVA-Mutation oder Bereichsnavigation mehr.
 
 Jede neue Ausnahme braucht einen Vertragstest, der API-Ziel, Argumente,
 Fehlerweitergabe und Ergebnisfelder nachweist.
 
 ## Queue, Abbruch und Timeout
 
+Der HTTP-Client hält das kombinierte MCP-/Aufrufersignal und seine eigene
+Frist nicht nur bis zu den Antwortheadern, sondern bis zum vollständigen,
+größenbegrenzten JSON-Body aktiv. Das gilt für Operationen ebenso wie für
+Discovery und OpenAPI; ein nach den Headern hängender Body bleibt damit
+abbrechbar. Lehnt der Client eine Antwort schon wegen eines falschen
+`Content-Type` ab, cancelt er den ungenutzten Body vor dem Protokollfehler;
+dadurch bleiben weder ein Streaming-Body noch sein Keep-alive-Socket aktiv.
+Der produktive Defaultpfad verwendet direkt `node:http` auf Loopback und hat
+keine zusätzliche 300-Sekunden-`fetch`-/Undici-Frist. Dadurch bleibt das
+zusätzliche Cleanup-Fenster auch nach einer maximalen Fünf-Minuten-Operation
+erreichbar. Injizierte Test-/Alternativtransporte können weiterhin
+`UND_ERR_HEADERS_TIMEOUT` oder `UND_ERR_BODY_TIMEOUT` liefern; beide werden als
+`timeout` mit unbekanntem Operationszustand klassifiziert und dürfen keine
+blinde Wiederholung auslösen.
+Node-HTTP-Fehlercodes werden sowohl direkt am Fehler als auch in einer
+Transportursache gelesen. Bricht eine bereits aufgebaute Verbindung während
+eines Operations-POSTs mit `ECONNRESET`, `ECONNABORTED`, `EPIPE`,
+`ERR_STREAM_PREMATURE_CLOSE` oder `UND_ERR_SOCKET` ab, lautet die Fehlerart
+`transport-unknown`: Der Auftrag kann bereits ausgeführt worden sein und darf
+erst nach einem gezielten Zustands-Readback wiederholt werden. Ein verweigerter
+Verbindungsaufbau (`ECONNREFUSED`) bleibt dagegen `network`.
+Die gültigen HTTP-Nullbody-Statuscodes 204, 205 und 304 werden ohne
+synthetischen Web-Stream abgebildet; 304 bleibt bei `redirect=error` dennoch
+vorher gesperrt. Dadurch entstehen an dieser Adaptergrenze keine internen
+WHATWG-`Response`-Konstruktorfehler.
+
 Die API serialisiert Windows-Worker- und damit UI-Aufträge. Rein lokale,
 read-only Pfade wie `case_hash`, das nicht-ausführliche `list_cases`, der
 öffentliche Profilkatalog `page_objects` und die hashgebundene
 `verify`-Auswertung laufen ohne PowerShell-Prozess und beachten denselben
 Abbruch und Timeout.
+Die Worker-Queue zählt höchstens 32 tatsächlich laufende oder noch wartende
+Aufträge. Ein bereits abgebrochener Aufruf wird nicht eingereiht; ein erst in
+der Queue abgebrochener Aufruf gibt seinen Kapazitätsplatz sofort frei und
+wird vollständig aus der Warteliste entfernt, ohne einen Worker zu starten.
+Nur ein bereits gestarteter Worker behält den Platz bis zum nachgewiesenen
+Prozessbaum-Cleanup. `busy` bezeichnet dadurch echte laufende/wartende Last,
+nicht zurückgelassene Clientabbrüche.
+Die lokale Workspace-Dateiliste gibt den Eventloop zwischen vollständig
+containment-geprüften Laufeinheiten sowie zwischen höchstens 64 KiB großen
+Hashblöcken frei und liefert bei Abbruch oder Deadline keine Teilliste. Pro
+Datei werden höchstens 16 MiB, pro Liste höchstens 64 MiB gehasht; tatsächlich
+gelesene Bytes belasten dieses Gesamtbudget auch dann dauerhaft, wenn eine
+währenddessen veränderte Datei keinen Hash erhält. Bei einem fachlichen
+Dateilimit prüft die Liste genau einen weiteren
+Treffer und kennzeichnet die ansonsten gültige Teilliste mit `truncated=true`;
+ein vollständig durchlaufenes Verzeichnis liefert `truncated=false`.
+Die auf 1 MiB begrenzten Textoperationen prüfen beides vor dem
+Dateizugriff; ein bereits exklusiv begonnenes synchrones Schreiben wird zu
+Ende geführt und nicht nachträglich als fehlgeschlagen ausgegeben.
 Auch `make_working_copy` läuft im API-Prozess: Quelle und atomar neu erzeugtes
 Ziel bleiben über denselben Aufruf geöffnet, werden vollständig gehasht und an
 Dateiidentität, Größe sowie Zeitstempel gebunden. Ein Abbruch oder Timeout

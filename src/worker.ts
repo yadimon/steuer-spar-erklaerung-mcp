@@ -134,9 +134,51 @@ export function parseWorkerResult(text: string, operation: string): WorkerResult
  * wurde, und zwei Klicks streiten sich um denselben Mauszeiger. Deshalb
  * laeuft immer nur ein Arbeitsprozess.
  */
-let schlange: Promise<unknown> = Promise.resolve();
-let queueDepth = 0;
 let workerRuntimeFailure: WorkerError | null = null;
+
+interface QueuedWorkerCall {
+  op: string;
+  args: Record<string, unknown>;
+  timeoutMs: number;
+  signal?: AbortSignal;
+  abortWhileQueued?: () => void;
+  resolve: (result: WorkerResult) => void;
+  reject: (error: unknown) => void;
+}
+
+const workerQueue: QueuedWorkerCall[] = [];
+let workerRunning = false;
+
+function startNextWorkerCall(): void {
+  if (workerRunning) return;
+  const next = workerQueue.shift();
+  if (!next) return;
+  if (next.signal && next.abortWhileQueued) {
+    next.signal.removeEventListener("abort", next.abortWhileQueued);
+  }
+  workerRunning = true;
+  void runQueuedWorkerCall(next);
+}
+
+async function runQueuedWorkerCall(call: QueuedWorkerCall): Promise<void> {
+  try {
+    if (workerRuntimeFailure) {
+      throw new WorkerError(workerRuntimeFailure.message, workerRuntimeFailure.kind);
+    }
+    const result = await callWorkerUnsynchronised(
+      call.op,
+      call.args,
+      call.timeoutMs,
+      call.signal,
+    );
+    call.resolve(result);
+  } catch (error) {
+    call.reject(error);
+  } finally {
+    workerRunning = false;
+    startNextWorkerCall();
+  }
+}
 
 export function callWorker(
   op: string,
@@ -147,6 +189,12 @@ export function callWorker(
   if (workerRuntimeFailure) {
     return Promise.reject(new WorkerError(workerRuntimeFailure.message, workerRuntimeFailure.kind));
   }
+  if (signal?.aborted) {
+    return Promise.reject(
+      new WorkerError("API-Client hat den Aufruf vor dem Einreihen abgebrochen; kein Worker wurde gestartet.", "aborted"),
+    );
+  }
+  const queueDepth = workerQueue.length + (workerRunning ? 1 : 0);
   if (queueDepth >= MAX_WORKER_QUEUE_DEPTH) {
     return Promise.reject(
       new WorkerError(
@@ -155,43 +203,26 @@ export function callWorker(
       ),
     );
   }
-  queueDepth += 1;
-  let started = false;
-  const run = () => {
-    if (workerRuntimeFailure) {
-      return Promise.reject(new WorkerError(workerRuntimeFailure.message, workerRuntimeFailure.kind));
-    }
-    started = true;
-    if (signal?.aborted) {
-      return Promise.reject(
-        new WorkerError("API-Client hat den Aufruf vor dem Start abgebrochen; Zustand vor Wiederholung lesen.", "aborted"),
-      );
-    }
-    return callWorkerUnsynchronised(op, args, timeoutMs, signal);
-  };
-  const naechster = schlange.then(
-    run,
-    run,
-  );
-  // Kette darf nicht durch einen Fehler abreissen.
-  const settled = naechster.finally(() => { queueDepth -= 1; });
-  schlange = settled.catch(() => undefined);
-  if (!signal) return settled;
-
-  // Ein bereits wartender Auftrag soll seinen HTTP-/MCP-Aufrufer sofort
-  // freigeben, wenn dieser abbricht. Sein Platzhalter bleibt in der seriellen
-  // Kette und wird beim Erreichen wegen desselben Signals ohne Workerstart
-  // uebersprungen. Ein bereits laufender Auftrag wartet dagegen weiterhin auf
-  // den verifizierten Prozessbaum-Cleanup in callWorkerUnsynchronised.
   return new Promise<WorkerResult>((resolve, reject) => {
-    const onAbort = () => {
-      if (!started) {
-        reject(new WorkerError("API-Client hat den wartenden Auftrag abgebrochen; kein Worker wurde gestartet.", "aborted"));
-      }
+    const queued: QueuedWorkerCall = { op, args, timeoutMs, resolve, reject };
+    if (signal) queued.signal = signal;
+    const abortWhileQueued = () => {
+      const index = workerQueue.indexOf(queued);
+      if (index < 0) return;
+      workerQueue.splice(index, 1);
+      signal?.removeEventListener("abort", abortWhileQueued);
+      reject(new WorkerError("API-Client hat den wartenden Auftrag abgebrochen; kein Worker wurde gestartet.", "aborted"));
     };
-    signal.addEventListener("abort", onAbort, { once: true });
-    if (signal.aborted) onAbort();
-    settled.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+    if (signal) {
+      queued.abortWhileQueued = abortWhileQueued;
+      signal.addEventListener("abort", abortWhileQueued, { once: true });
+    }
+    workerQueue.push(queued);
+    if (signal?.aborted) {
+      abortWhileQueued();
+      return;
+    }
+    startNextWorkerCall();
   });
 }
 

@@ -38,9 +38,10 @@
   "scripts": {
     "test": "node test/run-suite.mjs",
     "test:fast": "node test/run-fast-suite.mjs",
-    "build": "npm run build:native && tsc",
+    "build": "npm run prune:dist && npm run build:native && tsc",
     "build:native": "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File powershell/build-native.ps1",
-    "build:ts": "tsc",
+    "build:ts": "npm run prune:dist && tsc",
+    "prune:dist": "node scripts/prune-dist.mjs",
     "package:portable": "npm run build && node scripts/package-portable.mjs --zip",
     "watch": "tsc --watch",
     "setup": "node dist/setup-main.js",

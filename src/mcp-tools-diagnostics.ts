@@ -88,6 +88,7 @@ export function registerDiagnosticTools(registry: McpRegistry): void {
       title: "SSE-Arbeitsdateien auflisten",
       description:
         "Listet maschinenneutrale Dateireferenzen, Groesse und SHA256 in einem konfigurierten API-Ressourcenbereich. " +
+        "truncated kennzeichnet eindeutig, ob weitere Dateien hinter dem angeforderten Limit liegen. " +
         "Absolute Pfade, Pfadwechsel und symbolische Links aus dem Arbeitsbereich heraus sind gesperrt.",
     },
   );

@@ -1,5 +1,10 @@
-import type { SseApiOperation, WorkerResult } from "./api-contract.js";
-import { ExecutorArgumentError } from "./executor-errors.js";
+import {
+  DEFAULT_OPERATION_TIMEOUT_MS,
+  MAX_OPERATION_TIMEOUT_MS,
+  type SseApiOperation,
+  type WorkerResult,
+} from "./api-contract.js";
+import { ExecutorArgumentError, operationError } from "./executor-errors.js";
 import {
   mapUstvaPeriodValue,
   normalizeUstvaCurrentPage,
@@ -16,6 +21,8 @@ const USTVA_OPERATIONS = [
   "ustva_open_section",
 ] as const satisfies readonly SseApiOperation[];
 type UstvaOperation = typeof USTVA_OPERATIONS[number];
+const MIN_USTVA_READ_MS = 200;
+const MIN_USTVA_FOLLOWUP_MS = 2_000;
 
 export type NestedApiExecutor = (
   operation: SseApiOperation,
@@ -23,6 +30,16 @@ export type NestedApiExecutor = (
   timeoutMs: number | undefined,
   signal?: AbortSignal,
 ) => Promise<WorkerResult>;
+
+type UstvaStep = (
+  operation: SseApiOperation,
+  args: Record<string, unknown>,
+  minimumRemainingMs?: number,
+) => Promise<WorkerResult>;
+
+interface UstvaExecutorOptions {
+  now?: () => number;
+}
 
 function mutationEffects(taxDataChanged: boolean) {
   return { taxDataChanged, savePerformed: false, submissionPerformed: false } as const;
@@ -44,15 +61,12 @@ function caseBinding(args: Record<string, unknown>): Record<string, unknown> {
 
 async function readCurrentUstvaPage(
   args: Record<string, unknown>,
-  timeoutMs: number | undefined,
-  signal: AbortSignal | undefined,
-  execute: NestedApiExecutor,
+  step: UstvaStep,
 ): Promise<WorkerResult> {
-  return normalizeUstvaCurrentPage(await execute(
+  return normalizeUstvaCurrentPage(await step(
     "page",
     args.hwnd === undefined ? {} : { hwnd: args.hwnd },
-    timeoutMs,
-    signal,
+    MIN_USTVA_READ_MS,
   ));
 }
 
@@ -84,10 +98,34 @@ export async function executeUstvaOperation(
   timeoutMs: number | undefined,
   signal: AbortSignal | undefined,
   execute: NestedApiExecutor,
+  options: UstvaExecutorOptions = {},
 ): Promise<WorkerResult> {
+  const now = options.now ?? Date.now;
+  const effectiveTimeoutMs = Math.max(
+    0,
+    Math.min(timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS, MAX_OPERATION_TIMEOUT_MS),
+  );
+  const deadline = now() + effectiveTimeoutMs;
+  const step: UstvaStep = async (nestedOperation, nestedArgs, minimumRemainingMs = MIN_USTVA_READ_MS) => {
+    if (signal?.aborted) {
+      return operationError(
+        "API-Client hat die UStVA-Operation abgebrochen; Zustand vor Wiederholung lesen.",
+        "aborted",
+      );
+    }
+    const remainingMs = Math.floor(deadline - now());
+    if (remainingMs < minimumRemainingMs) {
+      return operationError(
+        "Gesamtfrist der UStVA-Operation ist aufgebraucht; keine weitere UI-Aktion ausgefuehrt.",
+        "timeout",
+      );
+    }
+    return await execute(nestedOperation, nestedArgs, remainingMs, signal);
+  };
+
   switch (operation) {
     case "ustva_read": {
-      return readCurrentUstvaPage(args, timeoutMs, signal, execute);
+      return readCurrentUstvaPage(args, step);
     }
     case "ustva_select_period": {
       const selector = String(args.selector);
@@ -102,10 +140,10 @@ export async function executeUstvaOperation(
       if (expected.aid !== requested.aid) {
         throw new ExecutorArgumentError("UStVA-Vorwert und Ziel gehoeren nicht zum selben Selektor.");
       }
-      const page = await readCurrentUstvaPage(args, timeoutMs, signal, execute);
+      const page = await readCurrentUstvaPage(args, step);
       const pageError = requireOverview(page);
       if (pageError) return pageError;
-      const result = await execute("combo_select", {
+      const result = await step("combo_select", {
         expectedPage: page.page,
         aid: requested.aid,
         expectedCurrent: expected.display,
@@ -113,7 +151,7 @@ export async function executeUstvaOperation(
         expectedAfter: requested.display,
         ...optionalWindow(args),
         ...caseBinding(args),
-      }, timeoutMs, signal);
+      }, MIN_USTVA_FOLLOWUP_MS);
       return withUstvaMetadata(result, {
         selector,
         before: args.expectedCurrent,
@@ -124,10 +162,10 @@ export async function executeUstvaOperation(
       const flag = String(args.flag) as keyof typeof USTVA_FLAGS;
       const aid = USTVA_FLAGS[flag];
       if (!aid) throw new ExecutorArgumentError(`Unbekanntes UStVA-Flag: '${flag}'.`);
-      const page = await readCurrentUstvaPage(args, timeoutMs, signal, execute);
+      const page = await readCurrentUstvaPage(args, step);
       const pageError = requireOverview(page);
       if (pageError) return pageError;
-      const result = await execute("toggle", {
+      const result = await step("toggle", {
         expectedPage: page.page,
         aid,
         expectedBefore: args.expectedBefore,
@@ -135,7 +173,7 @@ export async function executeUstvaOperation(
         expectedAfter: args.expectedAfter,
         ...optionalWindow(args),
         ...caseBinding(args),
-      }, timeoutMs, signal);
+      }, MIN_USTVA_FOLLOWUP_MS);
       return withUstvaMetadata(result, { flag }, mutationEffects(args.expectedBefore !== args.expectedAfter));
     }
     case "ustva_change_value": {
@@ -147,7 +185,7 @@ export async function executeUstvaOperation(
           `UStVA-Feld '${field}' ist nur bei bewusst aktivierter manueller Erfassung erlaubt; manualInputConfirmed=true fehlt.`,
         );
       }
-      const page = await readCurrentUstvaPage(args, timeoutMs, signal, execute);
+      const page = await readCurrentUstvaPage(args, step);
       if (page.ok === false) return page;
       if (page.pageKind !== definition.page) {
         return {
@@ -168,7 +206,7 @@ export async function executeUstvaOperation(
           };
         }
       }
-      const result = await execute("tracked_set_value", {
+      const result = await step("tracked_set_value", {
         expectedPage: page.page,
         aid: definition.aid,
         expectedBefore: args.expectedBefore,
@@ -177,7 +215,7 @@ export async function executeUstvaOperation(
         trackResults: false,
         ...optionalWindow(args),
         ...caseBinding(args),
-      }, timeoutMs, signal);
+      }, MIN_USTVA_FOLLOWUP_MS);
       return withUstvaMetadata(
         result,
         { field, manualOnly: definition.manualOnly },
@@ -188,16 +226,16 @@ export async function executeUstvaOperation(
       const section = String(args.section) as keyof typeof USTVA_SECTIONS;
       const definition = USTVA_SECTIONS[section];
       if (!definition) throw new ExecutorArgumentError(`Unbekannter UStVA-Bereich: '${section}'.`);
-      const page = await readCurrentUstvaPage(args, timeoutMs, signal, execute);
+      const page = await readCurrentUstvaPage(args, step);
       const pageError = requireOverview(page);
       if (pageError) return pageError;
-      const result = await execute("click", {
+      const result = await step("click", {
         aid: definition.aid,
         expectedPageBefore: page.page,
         expectedPageAfter: definition.targetPage,
         waitMs: 3_000,
         ...(args.hwnd === undefined ? {} : { hwnd: args.hwnd }),
-      }, timeoutMs, signal);
+      }, MIN_USTVA_FOLLOWUP_MS);
       return withUstvaMetadata(result, {
         section,
         targetPage: definition.targetPage,

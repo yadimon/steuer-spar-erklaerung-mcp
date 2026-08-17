@@ -245,6 +245,12 @@ npm run test:live
 npm run package:portable
 ```
 
+Jeder Build entfernt ausschließlich veraltete `dist/*.js`- und
+`dist/*.js.map`-Dateien ohne passende TypeScript-Quelle. Unbekannte Dateien
+oder Links im Buildordner stoppen fail-closed. npm- und Portable-Vertrag
+prüfen zusätzlich, dass kein quellloses Artefakt ausgeliefert wird und die
+dokumentierte API-CLI im Paket liegt.
+
 `npm test` prüft unter anderem API-/MCP-Verträge, Argumentgrenzen, Backups,
 Skills, Links und Repository-Datenschutz, startet aber keine echte SSE-UI. Das
 strikte opt-in Live-Gate verwendet ausschließlich herstellereigene

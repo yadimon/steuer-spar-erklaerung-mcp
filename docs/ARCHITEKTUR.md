@@ -46,9 +46,27 @@ Agent oder eigenes Programm
 - Die lokale HTTP/JSON-API ist die einzige fachliche Ausführungsgrenze.
 - POST-Nutzdaten müssen `application/json` und gültiges UTF-8 sein; fehlerhafte
   Transportdaten erreichen weder Argumentparser noch Executor.
-- Der API-Client liest nur JSON in gültigem UTF-8 und höchstens 40 MiB; ein
+- Der API-Client hält Aufruferabbruch und eigene Frist bis zum letzten Byte
+  des begrenzten Antwortkörpers aktiv und liest nur JSON in gültigem UTF-8
+  und höchstens 40 MiB; ein
   optionales Screenshot-Bild wird vor Base64 auf höchstens 20 MiB begrenzt
   und nur mit gültiger PNG-Signatur als Bild ausgeliefert.
+- Frühe Client-Protokollabbrüche wie ein falscher Response-`Content-Type`
+  canceln den ungenutzten Body, bevor sie den Fehler liefern. Streaming-Body
+  und Keep-alive-Socket bleiben dadurch nicht im lokalen Prozess gebunden.
+- Der produktive Defaulttransport nutzt direkt Nodes Loopback-HTTP-Client und
+  besitzt keine zusätzliche 300-Sekunden-`fetch`-/Undici-Frist. Damit bleibt
+  das zwölfsekündige Prozessbaum-Cleanup-Fenster auch nach einer maximalen
+  Fünf-Minuten-Operation erhalten. Injizierte Test-/Alternativtransporte mit
+  eindeutigen Header-/Body-Timeoutcodes werden weiterhin als `timeout` mit
+  unbekanntem Operationszustand behandelt, niemals als `network`.
+- Direkte Node- und verschachtelte Undici-Fehlercodes werden gleich
+  ausgewertet. Verbindungsabbrüche während eines Operations-POSTs liefern
+  `transport-unknown` samt verpflichtendem Zustands-Readback; ein sicher
+  verweigerter Verbindungsaufbau bleibt `network`.
+- HTTP 204, 205 und 304 werden als gültige Antworten ohne Body-Stream
+  konstruiert; die strengere Redirect-Sperre des API-Clients bleibt davon
+  unberührt.
 - Der Client folgt keinen HTTP-Redirects und akzeptiert Erfolgs- oder
   Fehlerhüllen nur mit passender API-Version und gültiger Request-ID; bei
   Erfolgen sind zusätzlich Operation und nichtnegative Dauer gebunden.
@@ -253,8 +271,10 @@ Agent oder eigenes Programm
   UTF-8-Tempdatei. Dadurch gelten weder Windows' Kommandozeilenlimit noch
   Base64-Steuerwerte in der Prozessliste; die Node-Brücke entfernt die Datei
   nach Erfolg, Fehler, Timeout oder Abbruch.
-- Die Queue ist auf 32 laufende/wartende Aufträge begrenzt; ein abgebrochener
-  wartender Auftrag startet später keinen Worker, und Überlast liefert `busy`.
+- Die Queue ist auf 32 tatsächlich laufende/wartende Aufträge begrenzt.
+  Vorab abgebrochene Aufträge werden nicht aufgenommen; ein abgebrochener
+  wartender Auftrag gibt seinen Platz sofort frei und startet später keinen
+  Worker. Nur echte Überlast liefert `busy`.
 - Auch der direkte Worker besitzt keinen Versand-Freischalter. stdout/stderr
   sind begrenzt und werden als striktes UTF-8 dekodiert.
 - Die vorkompilierte native Brücke wird vor dem Laden gegen getrennte SHA256-
@@ -294,6 +314,8 @@ Agent oder eigenes Programm
 - UStVA-Frequenz, Monat/Quartal, Kennzeichen und Betragsfelder sind
   semantisch katalogisiert. Gleich benannte UI-Aktionen dürfen nicht generisch
   erraten werden; ein bereits übermittelter Zeitraum wird nie still dupliziert.
+  Der vorgeschaltete Seiten-Read und jede Folgeaktion verbrauchen dieselbe
+  absolute Deadline; unter zwei Sekunden Rest beginnt keine Folgeaktion.
 - Ein fehlgeschlagener, abgebrochener oder unvollständiger Read gilt niemals
   als leerer Steuerstand.
 
@@ -325,6 +347,11 @@ Der Standard ist ein portable GitHub Release:
 - keine Administratorrechte, Dienste, geplanten Aufgaben oder PATH-Änderungen;
 - Start nur für die aktuelle Arbeit und kontrollierter Shutdown danach;
 - npm bleibt ausschließlich Build-/CI-Werkzeug;
+- vor TypeScript-Builds werden nur quelllose Compilerartefakte unter dem
+  gebundenen `dist`-Ordner entfernt; unbekannte Dateien oder Links stoppen den
+  Build. npm- und Portable-Paketierung validieren danach erneut jedes
+  JavaScript-/Source-Map-Artefakt gegen seine TypeScript-Quelle und verlangen
+  alle dokumentierten CLI-Einstiege;
 - Python wird aus dem Produkt entfernt;
 - eine benötigte Node-Laufzeit wird gebündelt oder das gebaute Programm als
   ausführbares Artefakt ausgeliefert;
@@ -470,7 +497,8 @@ bereits ausgeführten UI-Schritten weiterhin eine Ergebnisdatei entsteht.
 
 ## Testsuite
 
-Der Suite-Plan enthält drei Phasen: Builds laufen seriell, voneinander
+Der Suite-Plan enthält drei Phasen: quellgebundenes `dist`-Pruning und Builds
+laufen seriell, voneinander
 unabhängige Vertragstests mit begrenzter Parallelität und globale Sentinels
 exklusiv. Der No-Console-Test darf nie parallel zu Prozessen anderer Tests
 laufen. Jeder Schritt behält eigenen Namen, Dauer, begrenzte Diagnoseausgabe und

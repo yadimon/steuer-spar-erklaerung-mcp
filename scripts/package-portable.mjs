@@ -15,6 +15,7 @@ import {
 } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { assertDistArtifacts } from "./dist-artifacts.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "..");
@@ -79,6 +80,7 @@ const dotSourcedPowerShellFiles = [
 
 const requiredFiles = [
   "dist/api-main.js",
+  "dist/api-cli.js",
   "dist/index.js",
   "dist/setup-main.js",
   "dist/setup-main-arguments.js",
@@ -106,6 +108,7 @@ const requiredFiles = [
 for (const item of requiredFiles) {
   if (!existsSync(join(repoRoot, item))) throw new Error(`Portable Build-Artefakt fehlt: ${item}`);
 }
+assertDistArtifacts(repoRoot);
 
 const nodeExecutable = process.execPath;
 const nodeLicense = join(dirname(nodeExecutable), "LICENSE");

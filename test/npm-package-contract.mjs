@@ -38,6 +38,7 @@ for (const required of [
   "dist/api-main-arguments.js",
   "dist/api-runtime.js",
   "dist/api-cli.js",
+  "dist/local-http-transport.js",
   "dist/api-discovery.js",
   "dist/api-openapi.js",
   "dist/jsonl-logger.js",
@@ -80,6 +81,10 @@ for (const required of [
 for (const path of paths) {
   assert(!/^(?:src|test|skills-data|artifacts|\.tmp)\//u.test(path), `npm-Paket enthaelt Entwicklungsdatei: ${path}`);
   assert(!/[A-Za-z]:[\\/]|Users[\\/]|Meine\s+Ablage|dimon/iu.test(path), `npm-Paket enthaelt lokalen Pfad: ${path}`);
+  if (/^dist\/.+\.js(?:\.map)?$/u.test(path)) {
+    const source = join("src", path.slice("dist/".length).replace(/\.js(?:\.map)?$/u, ".ts"));
+    assert(existsSync(source), `npm-Paket enthaelt ein Build-Artefakt ohne TypeScript-Quelle: ${path}`);
+  }
 }
 
 process.stdout.write(`npm-Paketvertrag: ${manifest.entryCount} Dateien, ${manifest.size} Bytes, Runtime und 2 Skills enthalten\n`);
