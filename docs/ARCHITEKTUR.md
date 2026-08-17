@@ -195,8 +195,11 @@ Agent oder eigenes Programm
   eng gebundene generische UI-Transaktionen.
 - `capabilities` beschreibt ohne Worker- oder PC-Zugriff Selektoren,
   Klickmuster, Dialog-Button-Allowlist, Fallback-Stufen, harte
-  Sicherheitsmerkmale und die vollständige profilabhängige Operationsmatrix.
-  Agenten lesen diese Laufzeitquelle statt Methoden zu erraten.
+  Sicherheitsmerkmale, die vollständige profilabhängige Operationsmatrix und
+  eine releasegebundene, rein informative Live-Evidenz je Operation. Agenten
+  lesen diese Laufzeitquelle statt Methoden oder Verifikationsstand zu
+  erraten; `liveEvidence` verändert niemals `operationPolicy` und steht auch
+  in der direkten API-Discovery ohne MCP bereit.
 - Fachliche Fehler bleiben als strukturierte, redigierte API-Ergebnisse bis
   zum MCP-Client erhalten. Ein `ok=false` darf nicht in einen unklassifizierten
   Textfehler umgewandelt werden.

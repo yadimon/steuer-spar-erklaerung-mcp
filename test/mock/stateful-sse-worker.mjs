@@ -356,7 +356,7 @@ function matchesSelector(node, args) {
   return typeof args.type === "string" && args.type !== "";
 }
 
-export function seedSyntheticCases(caseDir) {
+export function seedSyntheticCases(caseDir, { includeNextYearUstva = false } = {}) {
   mkdirSync(caseDir, { recursive: true });
   const incomePath = join(caseDir, "synthetic.ESt2025");
   const freelancerPath = join(caseDir, "synthetic.Gew2025");
@@ -391,11 +391,19 @@ export function seedSyntheticCases(caseDir) {
   };
   writeCanonicalCase(incomePath, income);
   writeCanonicalCase(freelancerPath, freelancer);
+  const nextYearUstvaPath = join(caseDir, "synthetic.GewErfass2026");
+  if (includeNextYearUstva) {
+    writeCanonicalCase(nextYearUstvaPath, { ...clone(freelancer), taxYear: 2026 });
+  }
   return {
     incomePath,
     freelancerPath,
     incomeHash: sha256File(incomePath),
     freelancerHash: sha256File(freelancerPath),
+    ...(includeNextYearUstva ? {
+      nextYearUstvaPath,
+      nextYearUstvaHash: sha256File(nextYearUstvaPath),
+    } : {}),
   };
 }
 
@@ -635,11 +643,18 @@ export function createStatefulSseWorker({ caseDir }) {
     journal.push({ operation, args: clone(args) });
     switch (operation) {
       case "product_info":
-        return { ok: true, taxYear: 2025, engineFileMajor: 31, profileId: "2025" };
+        return {
+          ok: true,
+          taxYear: 2025,
+          engineFileMajor: 31,
+          profileId: "2025",
+          supportedCaseYears: { einurvor: [2025, 2026] },
+        };
       case "health":
         return { ok: true, running: openPath !== null, advice: "synthetic-healthy" };
       case "list_cases": {
-        const files = readdirSync(args.dir ?? caseDir).filter((name) => /\.(?:ESt|Gew)2025$/u.test(name));
+        const files = readdirSync(args.dir ?? caseDir)
+          .filter((name) => /\.(?:(?:ESt|Gew)2025|GewErfass2026)$/u.test(name));
         return { ok: true, count: files.length, cases: files.map((name) => ({ name })) };
       }
       case "make_working_copy": {
@@ -662,10 +677,36 @@ export function createStatefulSseWorker({ caseDir }) {
       }
       case "launch": {
         if (!args.file || !existsSync(args.file)) return { ok: false, kind: "not-found", error: "Falldatei fehlt." };
+        const fileName = basename(String(args.file));
+        const expectedMode = fileName.endsWith(".ESt2025")
+          ? "normal"
+          : fileName.endsWith(".Gew2025")
+            ? "einur"
+            : fileName.endsWith(".GewErfass2026")
+              ? "einurvor"
+              : null;
+        if (expectedMode === null) {
+          return { ok: false, kind: "unsupported-case", error: "Falldatei gehoert nicht zum synthetischen Profil." };
+        }
+        if (String(args.mode ?? "einur") !== expectedMode) {
+          return { ok: false, kind: "mode-mismatch", error: `Startmodus muss fuer diesen Fall '${expectedMode}' sein.` };
+        }
         openPath = resolve(String(args.file));
         const caseState = readCase(openPath);
         currentPage = caseState.kind === "income_tax" ? "Arbeitnehmer" : "Einnahmen/Ausgaben";
-        return { ok: true, pid, path: openPath, sha256: sha256File(openPath) };
+        return {
+          ok: true,
+          pid,
+          path: openPath,
+          sha256: sha256File(openPath),
+          case: {
+            path: openPath,
+            documentType: expectedMode === "einurvor" ? "GewErfass" : expectedMode === "normal" ? "ESt" : "Gew",
+            taxYear: caseState.taxYear,
+            mode: expectedMode,
+            supported: true,
+          },
+        };
       }
       case "windows": {
         if (!openPath) return { ok: true, windows: [] };

@@ -59,6 +59,7 @@ export const SSE_API_DISCOVERY = Object.freeze({
   }),
   limits: SSE_CAPABILITIES.limits,
   safety: SSE_CAPABILITIES.safety,
+  liveEvidence: SSE_CAPABILITIES.liveEvidence,
 });
 
 /** Kleine Einzelansicht fuer Agenten, die nur eine Operation planen. */
@@ -74,5 +75,6 @@ export function apiOperationDiscovery(operation: SseApiOperation) {
     planning: SSE_API_DISCOVERY.planning,
     limits: SSE_API_DISCOVERY.limits,
     safety: SSE_API_DISCOVERY.safety,
+    liveEvidence: SSE_API_DISCOVERY.liveEvidence,
   });
 }

@@ -51,6 +51,7 @@ nie automatisch verworfen.
 | Loopback-Defaulttransport | `node test/api-local-http-transport.mjs` | produktiver Client ist von globalem `fetch` unabhängig; echter POST/Authorization, Loopback-/Bodygrenze, Nullbody-Status 204/205/304, Redirect-Stopp und Abbruch nach Headern sind geprüft | hängender einzelner Kernelaufruf unterhalb von Node-Streams |
 | Statische API-Vertragsdokumente | `node test/api-static-document-cache.mjs` | Discovery und OpenAPI werden beim Serverstart je einmal größenbegrenzt als UTF-8 serialisiert; wiederholte authentifizierte GETs bleiben byteidentisch und selbst eine spätere interne Mutation eines nur flach eingefrorenen Schemaobjekts verändert den veröffentlichten Snapshot nicht | Signatur oder langfristiges HTTP-Caching über Prozessneustarts; Einzeloperations-Discovery bleibt dynamisch serialisiert |
 | UStVA-Kompositionsbudget | `node test/ustva-contract.mjs` | Seiten-Read und gebundene Mutation verwenden eine deterministisch geprüfte absolute Deadline; verbrauchtes Restbudget und Vorab-Abbruch verhindern jeden Folge-Workerstart | Scheduler-/Kernelstillstand innerhalb eines bereits gestarteten Workeraufrufs |
+| Folgejahr-UStVA-Live | `npm run test:live-ustva-next-year` | Profil 2025 öffnet eine bytegleiche `GewErfass2026`-Wegwerfkopie ausschließlich mit `einurvor`; MCP→HTTP-API→Worker liefert die UStVA-Übersicht 2026, lässt ELSTER gesperrt, verändert den Dirty-State beim reinen `ustva_read` nicht weiter und hält die Testkopie über SHA-256 unverändert | UStVA-Mutationen 2026, Speichern, ELSTER oder andere 2026er Fallarten; die Navigation zur automatisch erzeugten UStVA kann SSE-intern bereits `ungespeichert` setzen |
 | Windows-CI | `node test/github-workflow-contract.mjs` | `.node-version` entspricht der gepinnten Portable-Runtime; Workflow-Trigger, ausschließlich lesende Contents-Berechtigung, nicht persistierte Checkout-Credentials, konkrete Action-Commit-SHAs, `npm ci --ignore-scripts` → Produktionsaudit → Volltest → Portable-Build → erneute Release-Prüfung, exaktes ZIP-/Sidecar-Artefakt und fehlende Release-/Push-/Secret-Schritte sind statisch gebunden | erfolgreicher Lauf auf einem GitHub-Hosted-Windows-Runner vor dem ersten Push dieses Workflows; Authentizität eines später separat veröffentlichten Artefakts |
 | Release-Artefakte | `node test/dist-artifacts-contract.mjs`, `node test/native-build-cache.mjs`, `node test/npm-package-contract.mjs`, `node test/portable-archive-verification.mjs`, `node test/portable-release-verification.mjs`, `node test/portable-package.mjs` | quellbasiertes Pruning stoppt vor Fremddateien; der Native-Build verwendet nur eine quell-, DLL-hash- und vollständig oberflächengeprüfte Binärdatei wieder und baut nach Quelländerung, DLL-Manipulation, unvollständiger Assembly, strengem Schemafehler oder fehlender DLL rückstandsfrei neu; derselbe PS5.1-Loader bestätigt den Vorkompilierungsmodus; der schnelle PS5.1-Archivvertrag verwirft falsche Version, gleich lange Hashmanipulation, Traversal, Windows-Case-Kollision und Extra-Datei; `npm run verify:portable-release` bindet ein bereits gebautes Veröffentlichungs-ZIP erneut exakt an Sidecar-Dateiname, äußeren Hash, aktuellen Paketnamen und aktuelle Paketversion; der Volltest baut das echte ZIP, erzwingt dessen interne Manifestprüfung, prüft die äußere SHA256-Datei und startet API-CLI, API und MCP aus dem Portable-Bundle | byteidentischer frischer Native-Neubau auf unterschiedlichen Build-Hosts; Signatur/Authentizität des separat veröffentlichten ZIP-Prüfsummenpaares |
 | Große Schreibreise | `npm run test:live-journey` | eine zusammenhängende Reise auf einer Wegwerfkopie: Tabellenschreibzyklus mit Kontrollsummen-Readback, hashgebundenes Speichern mit Datei- und Neustart-Persistenzbeweis, UStVA-Schreibquartett mit Zahllast-Kontrolle, CSV-Export bis zur Datei, Menü-/Fenster-/Dialogverwaltung, Speichern unter und Archiv | VaSt-Dialogwege, Steuertipps-Center |
@@ -227,14 +228,20 @@ jeweils vor dem Klick mit `interference`. Deshalb wird hier nur der gemessene
 Collect-Weg hochgestuft; ein neuer vollständiger Grünlauf des gesamten Gates
 wird daraus ausdrücklich nicht abgeleitet.
 
-### Die Freigabepolitik liest die Live-Bilanz nicht
+### Die Live-Bilanz informiert, steuert aber keine Freigabe
 
 Das gehört ausdrücklich hierher, weil es leicht zu überschätzen ist: Die
-Abdeckungsbilanz ist **Dokumentation, keine Laufzeitsperre**. Ein Profil mit
+Abdeckungsbilanz ist **Dokumentation, keine Laufzeitsperre**. Die API liest
+niemals `test/operation-coverage.json`; `capabilities.liveEvidence` liefert
+stattdessen einen fest kompilierten Release-Snapshot, den ein Vertragstest an
+die erzeugte Bilanz bindet. `affectsAvailability=false` und
+`profileSpecific=false` benennen seine Grenzen maschinenlesbar. Ein Profil mit
 `status=supported` und `operationAccess=full` gibt alle Operationen frei –
 unabhängig davon, ob sie jemals erfolgreich gegen die echte Anwendung
 gelaufen sind. Gemessen am 2026-08-16 sind noch 6 der 87 Operationen nicht
 live-funktional belegt: die oben genannten, weiterhin ungetesteten VaSt-Wege.
+Damit sind 81 Operationen `functional` und keine ist derzeit nur als
+`error-path-only` belegt.
 Zwei davon (`vast_apply`, `vast_mapping_select`) fallen in die
 Klasse `destructive`.
 
@@ -246,7 +253,8 @@ Live-Spalte als Freigabeliste liest, liest sie falsch. Eine Kopplung beider
 Ebenen wäre möglich – sie ist bewusst noch nicht gebaut, weil eine
 Laufzeitsperre auf Basis einer Testdatei den umgekehrten Fehler erzeugen kann:
 eine funktionierende Operation zu blockieren, weil das Gate zuletzt an einer
-fremden Benutzereingabe gescheitert ist.
+fremden Benutzereingabe gescheitert ist. Die tatsächliche Sperre bleibt allein
+`capabilities.operationPolicy`.
 
 Der aggregierte Wert ersetzt keinen Jahresnachweis: Das strikte Live-Gate
 fordert zusätzlich für **jedes** Profil 38 erfolgreiche, profilmarkierte

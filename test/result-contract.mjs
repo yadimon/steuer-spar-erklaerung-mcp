@@ -44,6 +44,18 @@ assert.deepEqual(
   "list_cases muss Verzeichnis, Liste, Anzahl und Parserstatus im API-/MCP-Schema veroeffentlichen.",
 );
 assert.deepEqual(
+  Object.keys(SSE_API_RESULT_OUTPUT_SCHEMAS.product_info.shape).filter((key) =>
+    ["profileId", "taxYear", "supportedCaseYears"].includes(key)),
+  ["profileId", "taxYear", "supportedCaseYears"],
+  "product_info muss die profilgebundenen Falljahre maschinenlesbar veroeffentlichen.",
+);
+assert.deepEqual(
+  Object.keys(SSE_API_RESULT_OUTPUT_SCHEMAS.ustva_read.shape).filter((key) =>
+    ["page", "pageKind", "taxYear", "period", "flags", "amounts", "sections", "transmission", "effects"].includes(key)),
+  ["page", "pageKind", "taxYear", "period", "flags", "amounts", "sections", "transmission", "effects"],
+  "ustva_read muss den stabilen 2025-/2026-Fachsnapshot im API-/MCP-Schema veroeffentlichen.",
+);
+assert.deepEqual(
   Object.keys(SSE_API_RESULT_OUTPUT_SCHEMAS.verify.shape).filter((key) =>
     ["vergleichOk", "sourceHash", "sourceHashBefore", "sourceHashAfter", "sourceVollstaendig",
       "sourceStopKind", "sourceStopReason",
@@ -122,6 +134,27 @@ assert.throws(
   () => parseApiOperationResult("case_hash", { ok: true, transmitted: "vielleicht" }),
   /unknown|boolean/i,
   "case_hash darf neben boolesch nur den ausdruecklichen Uebermittlungsstatus 'unknown' veroeffentlichen.",
+);
+assert.throws(
+  () => parseApiOperationResult("product_info", { ok: true, supportedCaseYears: { einurvor: ["2026"] } }),
+  /number/i,
+  "product_info muss die Folgejahre numerisch und nicht als Anzeigetext liefern.",
+);
+assert.throws(
+  () => parseApiOperationResult("launch", {
+    ok: true,
+    case: { path: "cases:muster.GewErfass2026", documentType: "GewErfass", taxYear: "2026", mode: "einurvor", supported: true },
+  }),
+  /number/i,
+  "launch.case muss das tatsaechliche Folgejahr typisiert liefern.",
+);
+assert.throws(
+  () => parseApiOperationResult("ustva_read", {
+    ok: true,
+    period: { frequency: "monthly", frequencyDisplay: "monatlich", selector: "month", key: 7, display: "Juli" },
+  }),
+  /string/i,
+  "ustva_read.period muss den semantischen Periodenschluessel als Text liefern.",
 );
 assert.throws(
   () => parseApiOperationResult("backup_cases", {

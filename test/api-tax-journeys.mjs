@@ -46,7 +46,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
 const token = "tax-journey-token-with-at-least-24-characters";
 
-async function createHarness() {
+async function createHarness({ includeNextYearUstva = false } = {}) {
   const temporary = mkdtempSync(join(tmpdir(), "sse-tax-journeys-"));
   const caseDir = join(temporary, "cases");
   const workspaceDir = join(temporary, "workspace");
@@ -56,7 +56,7 @@ async function createHarness() {
   for (const path of [caseDir, workspaceDir, resultDir, backupsDir, documentsDir]) {
     mkdirSync(path, { recursive: true });
   }
-  const seeded = seedSyntheticCases(caseDir);
+  const seeded = seedSyntheticCases(caseDir, { includeNextYearUstva });
   const { worker, model } = createStatefulSseWorker({ caseDir });
   const config = {
     host: "127.0.0.1",
@@ -115,8 +115,8 @@ async function createHarness() {
   };
 }
 
-async function withHarness(action) {
-  const harness = await createHarness();
+async function withHarness(action, options = {}) {
+  const harness = await createHarness(options);
   try {
     await action(harness);
   } finally {
@@ -621,7 +621,78 @@ test("17 MCP reads the same UStVA result from the mock-backed real API", async (
   });
 });
 
-test("18 navigation, page readers and the element tree agree on one page", async () => {
+test("18 profile 2025 launches Gewinn-Erfassung 2026 and serves UStVA through HTTP and MCP", async () => {
+  await withHarness(async (harness) => {
+    const product = await harness.call("product_info");
+    assert.deepEqual(product.supportedCaseYears, { einurvor: [2025, 2026] });
+    const cases = await harness.call("list_cases");
+    assert(cases.cases.some((entry) => entry.name === "synthetic.GewErfass2026"));
+
+    const wrongMode = await harness.call(
+      "launch",
+      { caseRef: "cases:synthetic.GewErfass2026", mode: "einur" },
+      30_000,
+    );
+    assert.equal(wrongMode.ok, false);
+    assert.equal(wrongMode.kind, "mode-mismatch");
+
+    const launched = await harness.call(
+      "launch",
+      { caseRef: "cases:synthetic.GewErfass2026", mode: "einurvor" },
+      30_000,
+    );
+    assert.deepEqual(
+      { documentType: launched.case.documentType, taxYear: launched.case.taxYear, mode: launched.case.mode },
+      { documentType: "GewErfass", taxYear: 2026, mode: "einurvor" },
+    );
+    await harness.call("click", {
+      name: "UStVA",
+      expectedPageBefore: "Einnahmen/Ausgaben",
+      expectedPageAfter: "Umsatzsteuer-Voranmeldungen 2026",
+    });
+    const direct = await harness.call("ustva_read", { hwnd: 4242 });
+    assert.equal(direct.taxYear, 2026);
+    assert.equal(direct.page, "Umsatzsteuer-Voranmeldungen 2026");
+    const caseHash = (await harness.call("case_hash", { ref: "cases:synthetic.GewErfass2026" })).sha256;
+    const selected = await harness.call("ustva_select_period", {
+      selector: "month",
+      expectedCurrent: "june",
+      value: "july",
+      expectedCaseRef: "cases:synthetic.GewErfass2026",
+      expectedCaseHash: caseHash,
+    });
+    assert.equal(selected.ustva.effects.taxDataChanged, true);
+    const afterSelection = await harness.call("ustva_read", { hwnd: 4242 });
+    assert.equal(afterSelection.taxYear, 2026);
+    assert.equal(afterSelection.period.key, "july");
+
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [join(root, "dist", "index.js")],
+      env: { ...process.env, SSE_API_URL: harness.baseUrl, SSE_API_TOKEN: token },
+    });
+    const client = new Client({ name: "next-year-ustva-parity", version: "1.0.0" });
+    try {
+      await client.connect(transport);
+      const response = await client.callTool({ name: "sse_ustva_read", arguments: { hwnd: 4242 } });
+      assert.notEqual(response.isError, true, JSON.stringify(response));
+      const throughMcp = response.structuredContent;
+      assert.equal(throughMcp.taxYear, 2026);
+      assert.deepEqual(throughMcp.period, afterSelection.period);
+      assert.deepEqual(throughMcp.amounts, afterSelection.amounts);
+    } finally {
+      await client.close();
+    }
+    await harness.call("close", { hwnd: 4242, pid: 3131, force: true, discardChanges: true });
+    assert.equal(
+      sha256File(harness.seeded.nextYearUstvaPath),
+      harness.seeded.nextYearUstvaHash,
+      "Discard der synthetischen UStVA-2026-Aenderung darf die Falldatei nicht schreiben.",
+    );
+  }, { includeNextYearUstva: true });
+});
+
+test("19 navigation, page readers and the element tree agree on one page", async () => {
   await withHarness(async (harness) => {
     await launchFreelancer(harness);
     const navigated = await harness.call("goto", { name: TABLE_PAGE, maxSteps: 20 });
@@ -671,7 +742,7 @@ test("18 navigation, page readers and the element tree agree on one page", async
   });
 });
 
-test("19 scroll and tree state are reported instead of guessed", async () => {
+test("20 scroll and tree state are reported instead of guessed", async () => {
   await withHarness(async (harness) => {
     await launchFreelancer(harness);
     await harness.call("goto", { name: TABLE_PAGE });
@@ -692,7 +763,7 @@ test("19 scroll and tree state are reported instead of guessed", async () => {
   });
 });
 
-test("20 table add, update and delete are bound by page and sum", async () => {
+test("21 table add, update and delete are bound by page and sum", async () => {
   await withHarness(async (harness) => {
     await launchFreelancer(harness);
     await harness.call("goto", { name: TABLE_PAGE });
@@ -738,7 +809,7 @@ test("20 table add, update and delete are bound by page and sum", async () => {
   });
 });
 
-test("21 a wrong expected sum rolls the table back completely", async () => {
+test("22 a wrong expected sum rolls the table back completely", async () => {
   await withHarness(async (harness) => {
     await launchFreelancer(harness);
     await harness.call("goto", { name: TABLE_PAGE });
@@ -770,7 +841,7 @@ test("21 a wrong expected sum rolls the table back completely", async () => {
   });
 });
 
-test("22 menu keeps ELSTER closed and opens only safe dialogs", async () => {
+test("23 menu keeps ELSTER closed and opens only safe dialogs", async () => {
   await withHarness(async (harness) => {
     await launchFreelancer(harness);
     const menu = await harness.call("menu", { hwnd: 4242 });
@@ -796,7 +867,7 @@ test("22 menu keeps ELSTER closed and opens only safe dialogs", async () => {
   });
 });
 
-test("23 window handles stay bound to the exact current title", async () => {
+test("24 window handles stay bound to the exact current title", async () => {
   await withHarness(async (harness) => {
     await launchFreelancer(harness);
     const windows = await harness.call("windows", {});
@@ -814,7 +885,7 @@ test("23 window handles stay bound to the exact current title", async () => {
   });
 });
 
-test("24 diagnostics bind snapshot, comparison and probe to the same element", async () => {
+test("25 diagnostics bind snapshot, comparison and probe to the same element", async () => {
   await withHarness(async (harness) => {
     await launchFreelancer(harness);
     await harness.call("goto", { name: TABLE_PAGE });
@@ -840,7 +911,7 @@ test("24 diagnostics bind snapshot, comparison and probe to the same element", a
   });
 });
 
-test("25 screenshot, CSV dialog and collect stay bound to result refs", async () => {
+test("26 screenshot, CSV dialog and collect stay bound to result refs", async () => {
   await withHarness(async (harness) => {
     await launchFreelancer(harness);
     const shot = await harness.call("screenshot", { resultRef: "results:kontrolle.png", includeImage: true, hwnd: 4242 });
@@ -870,7 +941,7 @@ test("25 screenshot, CSV dialog and collect stay bound to result refs", async ()
   });
 });
 
-test("26 backup and archive move cases only against a proven inventory", async () => {
+test("27 backup and archive move cases only against a proven inventory", async () => {
   await withHarness(async (harness) => {
     writeFileSync(harness.seeded.freelancerPath, createSyntheticAkadCase({ fileType: "Gew", taxNumber: "freelancer" }));
     writeFileSync(harness.seeded.incomePath, createSyntheticAkadCase({ fileType: "ESt", taxNumber: "income" }));
@@ -907,7 +978,7 @@ test("26 backup and archive move cases only against a proven inventory", async (
   });
 });
 
-test("27 save_as and the private desktop keep the source case untouched", async () => {
+test("28 save_as and the private desktop keep the source case untouched", async () => {
   await withHarness(async (harness) => {
     const started = await harness.call("desktop_start", {
       caseRef: "cases:synthetic.Gew2025", mode: "einur", name: "SSESynthetic", timeoutSec: 45,
@@ -931,7 +1002,7 @@ test("27 save_as and the private desktop keep the source case untouched", async 
   });
 });
 
-test("28 VaSt only merges an acknowledged plan that still matches the dialog", async () => {
+test("29 VaSt only merges an acknowledged plan that still matches the dialog", async () => {
   await withHarness(async (harness) => {
     await launchIncome(harness);
     const hash = (await harness.call("case_hash", { ref: "cases:synthetic.ESt2025" })).sha256;
@@ -979,7 +1050,7 @@ test("28 VaSt only merges an acknowledged plan that still matches the dialog", a
   });
 });
 
-test("29 checker state and the bounded global search transaction stay readable", async () => {
+test("30 checker state and the bounded global search transaction stay readable", async () => {
   await withHarness(async (harness) => {
     await launchIncome(harness);
     const run = await harness.call("checker_run", { hwnd: 4242 });
@@ -1000,7 +1071,7 @@ test("29 checker state and the bounded global search transaction stay readable",
   });
 });
 
-test("30 a working copy carries combo, toggle and lifecycle at the API boundary", async () => {
+test("31 a working copy carries combo, toggle and lifecycle at the API boundary", async () => {
   await withHarness(async (harness) => {
     const copy = await harness.call("make_working_copy", {
       sourceRef: "cases:synthetic.Gew2025",
@@ -1046,7 +1117,7 @@ test("30 a working copy carries combo, toggle and lifecycle at the API boundary"
   });
 });
 
-test("31 the checker detail and reset are reachable without the composition", async () => {
+test("32 the checker detail and reset are reachable without the composition", async () => {
   await withHarness(async (harness) => {
     await launchIncome(harness);
     assert.equal((await harness.call("checker_run", { hwnd: 4242 })).gesamt, 1);

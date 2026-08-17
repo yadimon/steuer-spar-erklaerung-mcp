@@ -23,6 +23,7 @@ import {
   SSE_READ_ONLY_OPERATIONS,
   SSE_STATEFUL_OPERATIONS,
 } from "./operation-traits.js";
+import { SSE_LIVE_EVIDENCE } from "./operation-live-evidence.js";
 import { SSE_PACKAGE_NAME, SSE_PACKAGE_VERSION } from "./version.js";
 
 type FallbackStage = {
@@ -112,6 +113,7 @@ export const SSE_CAPABILITIES = Object.freeze({
     warningAlsoRequiresBodyFingerprint: true,
   },
   fallbackStages,
+  liveEvidence: SSE_LIVE_EVIDENCE,
   safety: {
     elsterAndSubmissionBlocked: true,
     directWorkerSubmissionBypass: false,

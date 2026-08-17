@@ -84,6 +84,19 @@
               "success"
             ]
           },
+          "liveEvidence": {
+            "types": [
+              "object:{\"affectsAvailability\":\"boolean\",\"basis\":\"string-other\",\"errorPathOnlyCount\":\"nonnegative-number\",\"functionalCount\":\"nonnegative-number\",\"operationStatus\":\"object\",\"profileSpecific\":\"boolean\",\"schemaVersion\":\"nonnegative-number\",\"scope\":\"string-other\",\"untestedCount\":\"nonnegative-number\",\"untestedOperations\":\"array-many:string-other\"}"
+            ],
+            "labels": [
+              "scenario-mock",
+              "stateful-mock",
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "ok": {
             "types": [
               "boolean"
@@ -240,6 +253,17 @@
           "limits": {
             "types": [
               "object:{\"apiRequestBytes\":\"nonnegative-number\",\"apiResponseBytes\":\"nonnegative-number\",\"argumentCollectionItems\":\"nonnegative-number\",\"argumentDepth\":\"nonnegative-number\",\"argumentNodes\":\"nonnegative-number\",\"argumentStringBytes\":\"nonnegative-number\",\"operation\":\"object\",\"operationTimeoutMs\":\"nonnegative-number\",\"workerArgumentBytes\":\"nonnegative-number\"}"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "liveEvidence": {
+            "types": [
+              "object:{\"affectsAvailability\":\"boolean\",\"basis\":\"string-other\",\"errorPathOnlyCount\":\"nonnegative-number\",\"functionalCount\":\"nonnegative-number\",\"operationStatus\":\"object\",\"profileSpecific\":\"boolean\",\"schemaVersion\":\"nonnegative-number\",\"scope\":\"string-other\",\"untestedCount\":\"nonnegative-number\",\"untestedOperations\":\"array-many:string-other\"}"
             ],
             "labels": [
               "worker"
@@ -4803,6 +4827,17 @@
               "success"
             ]
           },
+          "case": {
+            "types": [
+              "object:{\"documentType\":\"string-other\",\"mode\":\"string-other\",\"path\":\"string-other\",\"supported\":\"boolean\",\"taxYear\":\"nonnegative-number\"}"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "dialogs": {
             "types": [
               "array-empty"
@@ -4825,6 +4860,17 @@
               "success"
             ]
           },
+          "error": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
           "instance": {
             "types": [
               "object:{\"bindingMode\":\"string-other\",\"hwnd\":\"nonnegative-number\",\"pid\":\"nonnegative-number\",\"title\":\"string-other\"}"
@@ -4836,6 +4882,17 @@
               "success"
             ]
           },
+          "kind": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
           "ok": {
             "types": [
               "boolean"
@@ -4844,6 +4901,7 @@
               "stateful-mock"
             ],
             "outcomes": [
+              "error",
               "success"
             ]
           },
@@ -4899,6 +4957,7 @@
               "stateful-mock"
             ],
             "outcomes": [
+              "error",
               "success"
             ]
           },
@@ -6203,6 +6262,7 @@
               "nonnegative-number"
             ],
             "labels": [
+              "stateful-mock",
               "worker"
             ],
             "outcomes": [
@@ -6247,6 +6307,7 @@
               "boolean"
             ],
             "labels": [
+              "stateful-mock",
               "worker"
             ],
             "outcomes": [
@@ -6291,6 +6352,7 @@
               "string-other"
             ],
             "labels": [
+              "stateful-mock",
               "worker"
             ],
             "outcomes": [
@@ -6313,6 +6375,7 @@
               "object:{\"einurvor\":\"array-many:nonnegative-number\"}"
             ],
             "labels": [
+              "stateful-mock",
               "worker"
             ],
             "outcomes": [
@@ -6335,6 +6398,7 @@
               "nonnegative-number"
             ],
             "labels": [
+              "stateful-mock",
               "worker"
             ],
             "outcomes": [

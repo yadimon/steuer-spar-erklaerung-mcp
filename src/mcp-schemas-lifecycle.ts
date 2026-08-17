@@ -12,10 +12,12 @@ import {
 
 export const SSE_MCP_LIFECYCLE_SCHEMAS = {
   "sse_launch": z.object({
-    caseRef: CASE_REF().optional().describe("Falldatei, z. B. cases:arbeitskopie.Gew2025"),
+    caseRef: CASE_REF().optional().describe(
+      "Falldatei, z. B. cases:arbeitskopie.Gew2025 oder im Profil 2025 cases:ustva.GewErfass2026",
+    ),
     mode: SSE_START_MODE
       .optional()
-      .describe("Vorgabe 'einur'"),
+      .describe("Vorgabe 'einur'; fuer Gewinn-Erfassung des Folgejahres 'einurvor'"),
     exe: z.never().optional().describe("Nicht zulaessig; wird ausschliesslich in der lokalen API konfiguriert"),
   }).strict(),
   "sse_save": z.object({

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { SSE_API_OPERATIONS, type SseApiOperation, type WorkerResult } from "./api-contract.js";
 import { MUTATION_OPERATION_RESULT_FIELDS } from "./result-mutation-fields.js";
 import { UTILITY_OPERATION_RESULT_FIELDS } from "./result-utility-fields.js";
+import { SSE_LIVE_EVIDENCE_STATUSES } from "./operation-live-evidence.js";
 import {
   CLICK_RESULT_FIELDS,
   OPTIONAL_ARRAY,
@@ -17,6 +18,36 @@ import {
 } from "./result-schema-types.js";
 
 export const SSE_API_RESULT_SCHEMA_VERSION = 1;
+const API_OPERATION_NAME_SCHEMA = z.enum(SSE_API_OPERATIONS);
+const OPTIONAL_SUPPORTED_CASE_YEARS = z.record(
+  z.string().min(1),
+  z.array(z.number().int().nonnegative()).min(1),
+).nullable().optional().describe("Freigegebene Falljahre je profiliertem Startmodus");
+const OPTIONAL_CASE_IDENTITY = z.object({
+  path: z.string().min(1).describe("Redigierte Ressourcenidentitaet des gestarteten Falls"),
+  documentType: z.string().min(1).describe("Profilierter SSE-Dokumenttyp"),
+  taxYear: z.number().int().nonnegative().describe("Tatsaechliches Falljahr"),
+  mode: z.string().min(1).describe("Verwendeter profilierter Startmodus"),
+  supported: z.boolean().describe("Ergebnis der Profilpruefung"),
+}).passthrough().nullable().optional().describe("Profilgebundene Identitaet der gestarteten Falldatei");
+const OPTIONAL_USTVA_PERIOD = z.object({
+  frequency: z.string().nullable().describe("Normalisierte Meldefrequenz"),
+  frequencyDisplay: z.string().nullable().describe("Von SSE angezeigte Meldefrequenz"),
+  selector: z.string().nullable().describe("Aktive Zeitraumdimension month oder quarter"),
+  key: z.string().nullable().describe("Stabiler semantischer Periodenschluessel"),
+  display: z.string().nullable().describe("Von SSE angezeigter Monat oder Quartal"),
+}).passthrough().nullable().optional().describe("Semantisch normalisierter UStVA-Zeitraum");
+const OPTIONAL_USTVA_FLAGS = z.record(z.string().min(1), z.boolean().nullable())
+  .nullable().optional().describe("Semantische UStVA-Kennzeichen");
+const OPTIONAL_USTVA_TRANSMISSION = z.object({
+  blockedByApi: z.boolean().describe("Ob die API jede Uebermittlung blockiert"),
+  uiGuardObserved: z.boolean().nullable().describe("In der SSE-Oberflaeche beobachteter ELSTER-Guard"),
+  existingSubmissionStatus: z.string().min(1).describe("Status einer vorhandenen Uebermittlung in dieser Lesung"),
+}).passthrough().nullable().optional().describe("Lokaler UStVA-Uebermittlungs-Guard");
+const OPTIONAL_USTVA_READ_EFFECTS = z.object({
+  savePerformed: z.boolean().describe("Ob die Lesung gespeichert hat"),
+  submissionPerformed: z.boolean().describe("Ob die Lesung uebermittelt hat"),
+}).passthrough().nullable().optional().describe("Nachweis, dass die Lesung weder speichert noch uebermittelt");
 
 /**
  * Typisiert bewusst stabile, transportrelevante Felder. Die Worker-Antworten
@@ -28,6 +59,20 @@ const CORE_OPERATION_RESULT_FIELDS = {
   capabilities: {
     transport: OPTIONAL_OBJECT,
     safety: OPTIONAL_OBJECT,
+    liveEvidence: z.object({
+      schemaVersion: z.number().int().nonnegative().describe("Version des Live-Evidenzvertrags; der Produzent liefert exakt die gemeinsame Release-Konstante"),
+      basis: z.string().min(1).describe("Art des zugrunde liegenden Live-Nachweises; der Produzent liefert exakt die gemeinsame Release-Konstante"),
+      scope: z.string().min(1).describe("Aggregationsgrenze des Release-Snapshots; der Produzent liefert exakt die gemeinsame Release-Konstante"),
+      profileSpecific: z.boolean().describe("Ob die Matrix einen einzelnen Jahresprofilnachweis darstellt"),
+      affectsAvailability: z.boolean().describe("Ob die Evidenz die serverseitige Operationsfreigabe beeinflusst"),
+      functionalCount: z.number().int().nonnegative().describe("Anzahl mindestens einmal live erfolgreicher Operationen"),
+      errorPathOnlyCount: z.number().int().nonnegative().describe("Anzahl nur mit echtem Fehlerergebnis live belegter Operationen"),
+      untestedCount: z.number().int().nonnegative().describe("Anzahl noch nie live erfolgreicher Operationen"),
+      untestedOperations: z.array(z.string().min(1))
+        .describe("Noch nie live erfolgreich belegte Operationsnamen, aggregiert ueber alle Jahresprofile"),
+      operationStatus: z.record(API_OPERATION_NAME_SCHEMA, z.enum(SSE_LIVE_EVIDENCE_STATUSES))
+        .describe("Releasegebundener Live-Status je API-Operation, aggregiert ueber alle Jahresprofile; kein Nachweis fuer das aktuell gebundene profile.id"),
+    }).passthrough().optional().describe("Informative und nicht freigabewirksame Live-Evidenzmatrix"),
     profile: OPTIONAL_OBJECT,
     operationPolicy: OPTIONAL_OBJECT,
     buildDriftPolicy: OPTIONAL_STRING,
@@ -38,6 +83,7 @@ const CORE_OPERATION_RESULT_FIELDS = {
     operationAccess: OPTIONAL_STRING,
     product: OPTIONAL_STRING,
     taxYear: OPTIONAL_NON_NEGATIVE_NUMBER,
+    supportedCaseYears: OPTIONAL_SUPPORTED_CASE_YEARS,
     buildDrift: OPTIONAL_OBJECT,
   },
   health: { running: OPTIONAL_BOOLEAN, buildDrift: OPTIONAL_OBJECT, windows: OPTIONAL_ARRAY },
@@ -165,7 +211,12 @@ const CORE_OPERATION_RESULT_FIELDS = {
     }).passthrough().nullable().optional().describe("Metadaten des erzeugten Kontrollbilds"),
   },
   goto: { erreicht: OPTIONAL_BOOLEAN, ueberschrift: OPTIONAL_STRING, weg: OPTIONAL_ARRAY },
-  launch: { pid: OPTIONAL_NON_NEGATIVE_NUMBER, instance: OPTIONAL_OBJECT, ready: OPTIONAL_BOOLEAN },
+  launch: {
+    pid: OPTIONAL_NON_NEGATIVE_NUMBER,
+    instance: OPTIONAL_OBJECT,
+    ready: OPTIONAL_BOOLEAN,
+    case: OPTIONAL_CASE_IDENTITY,
+  },
   close: { stillRunning: OPTIONAL_BOOLEAN, killed: OPTIONAL_BOOLEAN },
   desktop_start: { pid: OPTIONAL_NON_NEGATIVE_NUMBER, desktop: OPTIONAL_STRING },
   desktop_status: {
@@ -178,7 +229,18 @@ const CORE_OPERATION_RESULT_FIELDS = {
   dialog_list: { dialogs: OPTIONAL_ARRAY, windows: OPTIONAL_ARRAY, count: OPTIONAL_NON_NEGATIVE_NUMBER },
   dialog_answer: { closed: OPTIONAL_BOOLEAN, answered: OPTIONAL_STRING_OR_BOOLEAN },
   ui_state: { running: OPTIONAL_BOOLEAN, heading: OPTIONAL_STRING, blockiert: OPTIONAL_BOOLEAN },
-  ustva_read: { page: OPTIONAL_STRING, periods: OPTIONAL_ARRAY },
+  ustva_read: {
+    page: OPTIONAL_STRING,
+    periods: OPTIONAL_ARRAY,
+    pageKind: OPTIONAL_STRING,
+    taxYear: OPTIONAL_NON_NEGATIVE_NUMBER,
+    period: OPTIONAL_USTVA_PERIOD,
+    flags: OPTIONAL_USTVA_FLAGS,
+    amounts: OPTIONAL_OBJECT,
+    sections: OPTIONAL_STRING_ARRAY,
+    transmission: OPTIONAL_USTVA_TRANSMISSION,
+    effects: OPTIONAL_USTVA_READ_EFFECTS,
+  },
   scenario_run: { steps: OPTIONAL_ARRAY, resultRef: OPTIONAL_STRING, sha256: OPTIONAL_STRING },
   make_working_copy: {
     copied: OPTIONAL_BOOLEAN,

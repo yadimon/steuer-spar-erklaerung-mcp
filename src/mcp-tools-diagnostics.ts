@@ -33,7 +33,8 @@ export function registerDiagnosticTools(registry: McpRegistry): void {
         "Liefert PC-blind die verfuegbaren Selektoren, Klickmuster, Dialogantworten und die sichere generische " +
         "Fallback-Leiter. Damit kann ein Agent bei einer noch nicht fachlich katalogisierten Seite ueber " +
         "Snapshot, Find, eindeutige AutomationId/RuntimeId und gebundene Basisoperationen weiterarbeiten. " +
-        "Nennt auch direkte CLI-, Discovery- und OpenAPI-Pfade fuer einen Betrieb ohne MCP. " +
+        "Nennt auch die rein informative, nicht freigabewirksame Live-Evidenz je Operation sowie direkte " +
+        "CLI-, Discovery- und OpenAPI-Pfade fuer einen Betrieb ohne MCP. " +
         "Die Antwort liest keinen Steuerfall und uebermittelt niemals per ELSTER.",
     },
   );

@@ -21,7 +21,8 @@ export function registerLifecycleTools(registry: McpRegistry): void {
         "expliziten Bindung aller Folgeaktionen. " +
         "einur=Gewinnermittlung/EUER, normal=Einkommensteuer, einurvor=Gewinn-Erfassung Folgejahr, " +
         "fest=Feststellung, ermaess=Lohnsteuer-Ermaessigung, vorweg=Prognose. " +
-        "UStVA wird im Modus einur bearbeitet; nicht von SSE.exe akzeptierte Zusatzmodi werden nicht angeboten. " +
+        "UStVA im Profiljahr wird im Modus einur bearbeitet; die Gewinn-Erfassung des ausdruecklich " +
+        "freigegebenen Folgejahres im Modus einurvor. Nicht von SSE.exe akzeptierte Zusatzmodi werden nicht angeboten. " +
         "Nach dem Start kann eine Rueckfrage nach einer Wiederherstellungsdatei erscheinen - mit " +
         "sse_dialog_list lesen und ausschliesslich mit dem gelieferten Fingerprint ueber " +
         "sse_dialog_answer beantworten; niemals dafuer den generischen Klick verwenden.",

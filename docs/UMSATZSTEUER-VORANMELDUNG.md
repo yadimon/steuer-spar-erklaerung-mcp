@@ -1,6 +1,6 @@
 # Umsatzsteuer-Voranmeldung sicher vorbereiten
 
-Stand: 2026-08-04
+Stand: 2026-08-17
 
 Dieses Projekt kann eine Umsatzsteuer-Voranmeldung (UStVA) in
 SteuerSparErklärung lesen und in einer verifizierten Arbeitskopie vorbereiten.
@@ -35,6 +35,12 @@ Steuerberatung.
    Istversteuerungs-Zeitpunkte gelten dann noch nicht als abschließend geprüft.
 3. Für Änderungen eine neue Arbeitskopie erzeugen und Bytegleichheit zum
    Ausgangsfall bestätigen.
+   Auch ein ausschließlich gelesener `*.GewErfass2026`-Fall kann beim Öffnen
+   der automatisch erzeugten UStVA-Seite von SSE als `ungespeichert` markiert
+   werden. Dieser UI-Status ist deshalb kein Beweis für einen API-Schreibzugriff:
+   Zustand unmittelbar vor `ustva_read` festhalten, die Lesung darf ihn nicht
+   weiter verändern, anschließend ohne Speichern schließen und die
+   Bytegleichheit per SHA-256 erneut beweisen.
 4. Belegte Einnahmen und Ausgaben zuerst in den fachlich passenden Tabellen der
    Gewinn-Erfassung erfassen. Deutsche Vorsteuer, EU-/Drittlands-§13b,
    korrekturbedürftig ausgewiesene ausländische Umsatzsteuer und nicht
@@ -93,6 +99,19 @@ denselben fünf Operationen:
 Die API nimmt semantische Schlüssel wie `month` + `july` oder `quarter` + `q3`
 entgegen und übersetzt sie erst lokal in die deutsche Oberfläche. Absolute
 Pfade gelangen nicht in den MCP-Vertrag.
+
+Für die Folgejahr-Ausnahme ist der maschinenlesbare Ablauf:
+
+1. `product_info` lesen und `supportedCaseYears.einurvor` auf `2026` prüfen;
+2. die `*.GewErfass2026`-Referenz mit `launch` und `mode=einurvor` öffnen;
+3. die Seite `Umsatzsteuer-Voranmeldungen 2026` gebunden ansteuern;
+4. `ustva_read` ausführen und `taxYear=2026`, `pageKind=overview`, Zeitraum,
+   Beträge sowie den Übermittlungs-Guard prüfen.
+
+Der opt-in Live-Nachweis `npm run test:live-ustva-next-year` führt genau diesen
+Weg über MCP, HTTP-API und echten Worker auf einer bereitgestellten
+Wegwerfkopie aus. Er schließt ohne Speichern, prüft SHA-256 vor/nach und
+behandelt eine verbleibende SSE-Instanz als Fehler.
 
 ## Bewusste Stopps
 

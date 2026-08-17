@@ -77,6 +77,11 @@ und sicherer Cleanup erreichbar. Die in
 `capabilities.operationPolicy[*].blockedOnBuildDrift` ausgewiesenen
 UI-/Steuerfallmutationen stoppen serverseitig mit `build-drift`, bis der neue
 Build live verifiziert wurde.
+`capabilities.liveEvidence.operationStatus` trennt zusätzlich je Operation
+den releasegebundenen Live-Nachweis von bloßer Offline-Abdeckung. Diese Matrix
+ist informativ (`affectsAvailability=false`); nur `operationPolicy` entscheidet
+über die tatsächliche Laufzeitfreigabe. Reine API-Clients erhalten denselben
+Snapshot auch über die authentifizierte Operations-Discovery.
 
 ## Was enthalten ist
 
@@ -89,7 +94,7 @@ Build live verifiziert wurde.
 
 | Profil | Status | Aktuell belegter Umfang |
 | --- | --- | --- |
-| `2025` / Engine 31 | `supported` / `full` | Lesen, Navigation, Ergebnis, Prüfer und UStVA-Read live geprüft; Schreibpfade nur einzeln freigegeben |
+| `2025` / Engine 31 | `supported` / `full` | Lesen, Navigation, Ergebnis und Prüfer live geprüft; UStVA-Read für 2025 sowie `GewErfass2026` live geprüft; Schreibpfade nur einzeln freigegeben |
 | `2024` / Engine 30 | `experimental` / `verification-only` | derselbe read-only Muster-Sweep nur mit bewusstem Entwickler-Opt-in; keine allgemeine Schreibfreigabe und kein Focusless-Commit |
 
 Der veröffentlichte Beta-Release unterstützt weiterhin Profil `2025`. Der
@@ -225,6 +230,12 @@ in der [Produktarchitektur](docs/ARCHITEKTUR.md) und im
 Die UStVA-Werkzeuge wählen Zeitraum und Formularabschnitt über stabile
 Fachschlüssel. Sie prüfen vorhandene Übermittlungen, lesen Werte zurück und
 speichern oder senden nicht automatisch.
+
+Für `*.GewErfass2026` wird weiterhin die installierte Anwendung für das
+Steuerjahr 2025 verwendet, aber der Fall muss mit `mode=einurvor` gestartet
+werden. `product_info`/`sse_product_info` nennt die freigegebenen Folgejahre
+unter `supportedCaseYears`; die UStVA-Lesung gibt den tatsächlichen Formularjahrgang
+separat als `taxYear=2026` zurück.
 
 ```text
 Bereite meine Umsatzsteuer-Voranmeldung für Juli in einer verifizierten

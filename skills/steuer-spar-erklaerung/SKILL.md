@@ -89,7 +89,16 @@ Rufe nach erfolgreicher Verbindung zuerst `sse_capabilities` beziehungsweise
 die API-Operation `capabilities` auf. Diese PC-neutrale Selbstbeschreibung ist
 die verbindliche Quelle für verfügbare Selektoren, Klickmuster, erlaubte
 Dialogantworten und die sichere Fallback-Leiter; erfinde keine Methode aus
-Modellwissen.
+Modellwissen. Prüfe zusätzlich `liveEvidence.operationStatus` vor UI- oder
+Steuerdatenaktionen. `untested` bedeutet, dass dieser Weg im Release noch nie
+erfolgreich an der echten Anwendung belegt wurde: nicht als bewiesen
+darstellen und nur mit ausdrücklicher, passender Fixture-Voraussetzung
+erproben. `error-path-only` belegt ausschließlich ein echtes strukturiertes
+Fehlerergebnis, aber noch keinen erfolgreichen Fachweg. Der Status ist über
+alle Jahresprofile aggregiert und kein Nachweis für das aktuell gebundene
+`profile.id`. `liveEvidence.affectsAvailability=false` ist absichtlich rein
+informativ; die tatsächliche Serversperre steht weiterhin ausschließlich in
+`operationPolicy`.
 
 Der Endnutzer braucht kein globales Node.js/npm, kein Python und kein
 PowerShell 7. Das portable Release enthält `runtime/node.exe` und verwendet

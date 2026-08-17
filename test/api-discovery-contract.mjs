@@ -6,6 +6,8 @@ import { parseApiOperationArgs } from "../dist/operation-catalog.js";
 
 assert.equal(SSE_API_DISCOVERY.schemaVersion, 1);
 assert.equal(SSE_API_DISCOVERY.safety.elsterAndSubmissionBlocked, true);
+assert.equal(SSE_API_DISCOVERY.liveEvidence.affectsAvailability, false);
+assert.equal(SSE_API_DISCOVERY.liveEvidence.operationStatus.vast_apply, "untested");
 assert.deepEqual(SSE_API_DISCOVERY.operations, SSE_API_OPERATIONS);
 assert.deepEqual(Object.keys(SSE_API_DISCOVERY.argumentSchemas), SSE_API_OPERATIONS);
 assert.equal(SSE_API_DISCOVERY.resultSchemaVersion, 1);
@@ -73,6 +75,7 @@ assert.equal(singleFind.resultSchemaVersion, SSE_API_DISCOVERY.resultSchemaVersi
 assert.deepEqual(singleFind.resultSchema, SSE_API_DISCOVERY.resultSchemas.find);
 assert.deepEqual(singleFind.operationTraits, SSE_API_DISCOVERY.operationTraits.find);
 assert.deepEqual(singleFind.planning, SSE_API_DISCOVERY.planning);
+assert.deepEqual(singleFind.liveEvidence, SSE_API_DISCOVERY.liveEvidence);
 assert(Buffer.byteLength(JSON.stringify(singleFind), "utf8") < 16 * 1024);
 
 const emptyObjectOperations = SSE_API_OPERATIONS.filter((operation) => {

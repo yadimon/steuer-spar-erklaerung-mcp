@@ -19,6 +19,7 @@ import {
   SSE_OPERATION_LIMITS,
 } from "../dist/operation-catalog.js";
 import { SSE_PACKAGE_NAME, SSE_PACKAGE_VERSION } from "../dist/version.js";
+import { SSE_LIVE_EVIDENCE } from "../dist/operation-live-evidence.js";
 import {
   SSE_BUILD_DRIFT_BLOCKED_OPERATIONS,
   SSE_CLEANUP_OPERATIONS,
@@ -47,6 +48,11 @@ assert.equal(calls.length, 0, "PC-blinde Faehigkeiten duerfen keinen Worker star
 assert.deepEqual(result.safety, SSE_CAPABILITIES.safety);
 assert.equal(result.safety.elsterAndSubmissionBlocked, true);
 assert.equal(result.safety.directWorkerSubmissionBypass, false);
+assert.deepEqual(result.liveEvidence, SSE_LIVE_EVIDENCE);
+assert.equal(result.liveEvidence.affectsAvailability, false);
+assert.equal(result.liveEvidence.functionalCount, 81);
+assert.equal(result.liveEvidence.errorPathOnlyCount, 0);
+assert.equal(result.liveEvidence.untestedCount, 6);
 assert.equal(result.transport.directApiWithoutMcp, true);
 assert.equal(result.transport.directCliWithoutMcp, true);
 assert.equal(result.transport.discoveryPath, "/v1/operations");
