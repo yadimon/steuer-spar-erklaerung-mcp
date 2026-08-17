@@ -310,13 +310,14 @@ async function callWorkerUnsynchronised(
 
     const rejectTermination = () => {
       if (settled || !timeoutError) return;
-      if (child.exitCode === null && child.signalCode === null) {
-        workerRuntimeFailure ??= new WorkerError(
-          "SSE-Workerprozessbaum konnte nicht nachweislich beendet werden. API neu starten und vor weiteren " +
-            "Aenderungen laufende SSE-/PowerShell-Prozesse sowie den sichtbaren Fallzustand kontrollieren.",
-          "worker-isolation-lost",
-        );
-      }
+      // `exit`/exitCode beweist nur das Ende des direkten Parents. Erreicht der
+      // aeussere Waechter diesen noch ungesetzten Promise, ist Nodes `close`
+      // samt geschlossenen stdout/stderr-Handles gerade nicht eingetreten.
+      workerRuntimeFailure ??= new WorkerError(
+        "SSE-Workerprozessbaum konnte nicht nachweislich beendet werden. API neu starten und vor weiteren " +
+          "Aenderungen laufende SSE-/PowerShell-Prozesse sowie den sichtbaren Fallzustand kontrollieren.",
+        "worker-isolation-lost",
+      );
       settled = true;
       cleanup();
       const terminationError = workerRuntimeFailure

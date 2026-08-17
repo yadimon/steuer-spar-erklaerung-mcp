@@ -91,6 +91,20 @@ assert.equal(apiSuccess.structuredContent.nested.bildBase64, undefined);
 assert.equal(apiSuccess.structuredContent.nested.retained, true);
 assert(!JSON.stringify(apiSuccess.structuredContent).includes("Privat"));
 
+let rawFieldReads = 0;
+const rawApiResult = { ok: true };
+Object.defineProperty(rawApiResult, "path", {
+  enumerable: true,
+  get() {
+    rawFieldReads += 1;
+    return "C:\\Privat\\einmal-lesen.json";
+  },
+});
+const rawSuccess = apiSuccessResult(rawApiResult, rawApiResult);
+assert.equal(rawFieldReads, 1, "Ungeformte MCP-Ergebnisse duerfen nicht doppelt rekursiv gelesen werden.");
+assert.deepEqual(JSON.parse(rawSuccess.content[0].text), rawSuccess.structuredContent);
+assert.equal(rawSuccess.structuredContent.path, LOCAL_PATH_REDACTION);
+
 const isolation = apiErrorResult("health", { ok: false, kind: "worker-isolation-lost", error: "nicht beendet" });
 assert.equal(isolation.isError, true);
 assert(isolation.content[0].text.includes("API-Prozess neu starten"));

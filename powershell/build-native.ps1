@@ -30,6 +30,15 @@ function Get-SSEFileSha256([string]$Path, [long]$MaxBytes) {
   }
 }
 
+function Get-SSEBytesSha256([byte[]]$Bytes) {
+  $hashAlgorithm = [Security.Cryptography.SHA256]::Create()
+  try {
+    ([BitConverter]::ToString($hashAlgorithm.ComputeHash($Bytes)) -replace '-', '').ToUpperInvariant()
+  } finally {
+    $hashAlgorithm.Dispose()
+  }
+}
+
 function Read-SSEBoundedFileBytes([string]$Path, [long]$MaxBytes) {
   $file = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
   if ($file.PSIsContainer -or $file.Length -gt $MaxBytes) {
@@ -54,16 +63,95 @@ function Read-SSEBoundedFileBytes([string]$Path, [long]$MaxBytes) {
   }
 }
 
+function Assert-SSENativeAssemblySurface([Reflection.Assembly]$Assembly) {
+  $required = @{
+    DSK=@('CreateDesktop','OpenDesktop','EnumDesktopWindows','ListDesktopWindows','SetLastError',
+      'CloseDesktop','SetThreadDesktop','GetThreadDesktop','GetCurrentThreadId','CloseHandle','TerminateProcess',
+      'WaitForSingleObject','GetExitCodeProcess','CreateJobObject','SetInformationJobObject',
+      'AssignProcessToJobObject','ResumeThread','CreateProcess')
+    SW=@('PrintWindow','GetWindowRect','GetDlgItem','EnumWindows','EnumChildWindows','GetDlgCtrlID',
+      'GetWindowThreadProcessId','GetWindowTextW','GetClassNameW','IsWindowVisible','IsWindow','IsHungAppWindow',
+      'SetForegroundWindow','SendMessageTimeout','SetCursorPos','GetCursorPos','mouse_event','keybd_event',
+      'WindowFromPoint','GetAncestor','ShowWindow','SetWindowPos','BringWindowToTop','ScreenToClient','PostMessage',
+      'SendMessage','GetForegroundWindow','GetLastActivePopup','GetLastInputInfo','IsIconic','AttachThreadInput',
+      'GetCurrentThreadId')
+    SSEAccessible=@('Describe','DescribePoint','Invoke')
+    SSEAccNode=@()
+  }
+  $missingTypes = @()
+  $missingMethods = @()
+  foreach ($typeName in $required.Keys) {
+    $type = $Assembly.GetType($typeName, $false)
+    if (-not $type) {
+      $missingTypes += $typeName
+      continue
+    }
+    foreach ($methodName in $required[$typeName]) {
+      if (-not $type.GetMethod($methodName)) {
+        $missingMethods += "$typeName.$methodName"
+      }
+    }
+  }
+  if ($missingTypes.Count -or $missingMethods.Count) {
+    throw "Native helper surface is incomplete. Types: $($missingTypes -join ', '); methods: $($missingMethods -join ', ')"
+  }
+}
+
+function Get-SSEReusableNativeIntegrity(
+  [string]$SourceHash,
+  [string]$AssemblyPath,
+  [string]$ManifestPath
+) {
+  try {
+    if (-not (Test-Path -LiteralPath $AssemblyPath -PathType Leaf)) {
+      throw 'Native helper assembly is missing.'
+    }
+    if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) {
+      throw 'Native helper integrity manifest is missing.'
+    }
+    $manifestBytes = Read-SSEBoundedFileBytes $ManifestPath (1KB)
+    $manifestText = [Text.UTF8Encoding]::new($false, $true).GetString($manifestBytes)
+    $manifest = $manifestText | ConvertFrom-Json -ErrorAction Stop
+    $properties = @($manifest.PSObject.Properties.Name)
+    if ($manifest.schemaVersion -ne 1 -or $properties.Count -ne 3 -or
+        'schemaVersion' -notin $properties -or 'sourceSha256' -notin $properties -or
+        'dllSha256' -notin $properties) {
+      throw 'Native helper integrity manifest does not match schema 1.'
+    }
+    $expectedSourceHash = ([string]$manifest.sourceSha256).ToUpperInvariant()
+    $expectedDllHash = ([string]$manifest.dllSha256).ToUpperInvariant()
+    if ($expectedSourceHash -notmatch '^[A-F0-9]{64}$' -or
+        $expectedDllHash -notmatch '^[A-F0-9]{64}$' -or
+        $expectedSourceHash -ne $SourceHash) {
+      throw 'Native helper integrity manifest has invalid or stale hashes.'
+    }
+    $assemblyBytes = Read-SSEBoundedFileBytes $AssemblyPath (4MB)
+    $actualDllHash = Get-SSEBytesSha256 $assemblyBytes
+    if ($actualDllHash -ne $expectedDllHash) {
+      throw 'Native helper assembly hash does not match the integrity manifest.'
+    }
+    $assembly = [Reflection.Assembly]::Load($assemblyBytes)
+    Assert-SSENativeAssemblySurface $assembly
+    [pscustomobject]@{ sourceSha256 = $expectedSourceHash; dllSha256 = $actualDllHash }
+  } catch {
+    Write-Verbose "Native helper cache miss: $($_.Exception.Message)"
+    $null
+  }
+}
+
 if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
   throw "Native source file is missing: $source"
 }
 
 try {
   $sourceBytes = Read-SSEBoundedFileBytes $source (1MB)
-  $algorithm = [Security.Cryptography.SHA256]::Create()
-  try { $sourceHash = ([BitConverter]::ToString($algorithm.ComputeHash($sourceBytes)) -replace '-', '').ToUpperInvariant() }
-  finally { $algorithm.Dispose() }
+  $sourceHash = Get-SSEBytesSha256 $sourceBytes
   $sourceText = [Text.UTF8Encoding]::new($false, $true).GetString($sourceBytes)
+  $reusable = Get-SSEReusableNativeIntegrity $sourceHash $target $hashTarget
+  if ($reusable) {
+    Write-Output "Reused powershell/sse-native.dll (dll=$($reusable.dllSha256) source=$($reusable.sourceSha256))"
+    return
+  }
   $compile = @{
     TypeDefinition = $sourceText
     OutputAssembly = $temporary
@@ -84,20 +172,9 @@ try {
   if ($temporaryFile.Length -gt 4MB) {
     throw "Native helper assembly is larger than 4194304 bytes: $($temporaryFile.Length)"
   }
-  $assembly = [Reflection.Assembly]::Load([IO.File]::ReadAllBytes($temporary))
-  $requiredTypes = @('DSK','SW','SSEAccNode','SSEAccessible')
-  $actualTypes = @($assembly.GetTypes() | ForEach-Object { $_.FullName })
-  $missingTypes = @($requiredTypes | Where-Object { $_ -notin $actualTypes })
-  $requiredDskMethods = @('CreateDesktop','CreateProcess','GetExitCodeProcess','CreateJobObject',
-    'SetInformationJobObject','AssignProcessToJobObject','ResumeThread','ListDesktopWindows','SetLastError')
-  $dskType = $assembly.GetType('DSK', $false)
-  $missingMethods = @($requiredDskMethods | Where-Object { -not $dskType -or -not $dskType.GetMethod($_) })
-  $requiredSwMethods = @('GetLastInputInfo')
-  $swType = $assembly.GetType('SW', $false)
-  $missingSwMethods = @($requiredSwMethods | Where-Object { -not $swType -or -not $swType.GetMethod($_) })
-  if ($missingTypes.Count -or $missingMethods.Count -or $missingSwMethods.Count) {
-    throw "Native helper surface is incomplete. Types: $($missingTypes -join ', '); DSK methods: $($missingMethods -join ', '); SW methods: $($missingSwMethods -join ', ')"
-  }
+  $assemblyBytes = Read-SSEBoundedFileBytes $temporary (4MB)
+  $assembly = [Reflection.Assembly]::Load($assemblyBytes)
+  Assert-SSENativeAssemblySurface $assembly
 
   $dllHash = Get-SSEFileSha256 $temporary (4MB)
   $integrityManifest = [ordered]@{

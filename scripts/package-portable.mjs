@@ -261,6 +261,31 @@ if (createZip) {
   if (archive.error || archive.status !== 0 || !existsSync(zipPath)) {
     throw new Error(`Portable ZIP konnte nicht erstellt werden: ${archive.stderr || archive.error?.message}`);
   }
+  const verification = spawnSync(
+    powershell,
+    [
+      "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
+      join(repoRoot, "scripts", "verify-portable-archive.ps1"),
+      "-ZipPath", zipPath,
+      "-ExpectedRootName", output.split(/[\\/]/u).at(-1),
+      "-ExpectedProduct", packageJson.name,
+      "-ExpectedVersion", packageJson.version,
+    ],
+    { cwd: repoRoot, encoding: "utf8", windowsHide: true, maxBuffer: 4 * 1024 * 1024 },
+  );
+  let verifiedArchive;
+  try {
+    verifiedArchive = JSON.parse(verification.stdout?.trim() ?? "");
+  } catch {
+    verifiedArchive = null;
+  }
+  if (verification.error || verification.status !== 0 || verifiedArchive?.ok !== true) {
+    if (existsSync(zipPath) && !lstatSync(zipPath).isSymbolicLink()) rmSync(zipPath);
+    throw new Error(
+      `Portables ZIP bestand die interne Manifestpruefung nicht: ` +
+        `${verification.stderr || verification.error?.message || "ungueltige Pruefausgabe"}`,
+    );
+  }
   writeFileSync(checksumPath, `${sha256(zipPath)}  ${zipPath.split(/[\\/]/u).at(-1)}\n`, { encoding: "utf8", flag: "wx" });
   process.stdout.write(`${zipPath}\n${checksumPath}\n`);
 } else {

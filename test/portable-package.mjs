@@ -13,6 +13,8 @@ import { SSE_MCP_TOOL_OPERATIONS } from "../dist/operation-catalog.js";
 
 const repoRoot = process.cwd();
 const bundle = resolve(repoRoot, "artifacts", "portable", "test-bundle");
+const bundleZip = `${bundle}.zip`;
+const bundleChecksum = `${bundleZip}.sha256`;
 const foreignBundle = resolve(repoRoot, "artifacts", "portable", `foreign-${process.pid}`);
 try {
   mkdirSync(foreignBundle, { recursive: true });
@@ -29,10 +31,16 @@ try {
 }
 const packaged = spawnSync(
   process.execPath,
-  ["scripts/package-portable.mjs", "--output", "artifacts/portable/test-bundle"],
+  ["scripts/package-portable.mjs", "--output", "artifacts/portable/test-bundle", "--zip"],
   { cwd: repoRoot, encoding: "utf8", windowsHide: true, maxBuffer: 16 * 1024 * 1024 },
 );
 assert.equal(packaged.status, 0, `Portable-Paketierung scheiterte: ${packaged.stderr || packaged.stdout}`);
+assert(existsSync(bundleZip) && existsSync(bundleChecksum), "Portable-Paketierung lieferte kein ZIP-/SHA256-Paar.");
+assert.equal(
+  readFileSync(bundleChecksum, "utf8"),
+  `${createHash("sha256").update(readFileSync(bundleZip)).digest("hex")}  test-bundle.zip\n`,
+  "Portable Release-ZIP stimmt nicht mit seiner veroeffentlichten SHA256-Datei ueberein.",
+);
 
 const portableNode = join(bundle, "runtime", "node.exe");
 const apiMain = join(bundle, "dist", "api-main.js");
@@ -238,6 +246,8 @@ try {
   await once(api, "exit");
   rmSync(temporary, { recursive: true, force: true });
   rmSync(bundle, { recursive: true, force: true });
+  rmSync(bundleZip, { force: true });
+  rmSync(bundleChecksum, { force: true });
 }
 
 process.stdout.write("Portable-Paket: gebuendeltes Node, kein npm/Python und echter CLI/MCP/API-Start bestanden\n");

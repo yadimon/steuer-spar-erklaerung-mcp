@@ -11,7 +11,11 @@ await assert.rejects(callWorker("health", {}, 1), /Zeitueberschreitung/);
 const controller = new AbortController();
 const aborted = callWorker("health", {}, 90_000, controller.signal);
 setTimeout(() => controller.abort(), 1);
-await assert.rejects(aborted, /Zustand ist unbekannt|vor dem Start abgebrochen/);
+await assert.rejects(
+  aborted,
+  (error) => error?.kind === "aborted" && /Zustand ist unbekannt/.test(error.message),
+  "Ein Abbruch des laufenden Workers muss eindeutig als aborted klassifiziert werden.",
+);
 
 const preAbortedController = new AbortController();
 preAbortedController.abort();

@@ -14,8 +14,10 @@ const POSIX_LOCAL_PATH = new RegExp(
   `(^|[^A-Za-z0-9:/])((?:\/(?:${POSIX_ROOTS}))(?:\/[^;,\\)\\]\\}\\"'<>|\\r\\n]*)?)`,
   "g",
 );
+const MCP_BINARY_RESULT_KEYS = new Set(["imageBase64", "bildBase64"]);
 
 export function redactLocalPathText(value: string): string {
+  if (!value.includes("/") && !value.includes("\\") && !value.includes("%")) return value;
   return value
     .replace(LOCAL_FILE_URL, LOCAL_PATH_REDACTION)
     .replace(ENCODED_WINDOWS_LOCAL_PATH, (_match, prefix: string) => `${prefix}${LOCAL_PATH_REDACTION}`)
@@ -24,16 +26,34 @@ export function redactLocalPathText(value: string): string {
     .replace(POSIX_LOCAL_PATH, (_match, prefix: string) => `${prefix}${LOCAL_PATH_REDACTION}`);
 }
 
-export function redactPcLocalPaths(value: unknown): unknown {
-  if (typeof value === "string") return redactLocalPathText(value);
-  if (Array.isArray(value)) return value.map(redactPcLocalPaths);
-  if (!value || typeof value !== "object") return value;
-  const entries = Object.entries(value as Record<string, unknown>);
+interface RedactedValue {
+  value: unknown;
+  omittedBinaryPayload: boolean;
+}
+
+function redactValue(value: unknown, omitBinaryPayloads: boolean): RedactedValue {
+  if (typeof value === "string") return { value: redactLocalPathText(value), omittedBinaryPayload: false };
+  if (Array.isArray(value)) {
+    const redacted: unknown[] = [];
+    let omittedBinaryPayload = false;
+    for (const entry of value) {
+      const redactedEntry = redactValue(entry, omitBinaryPayloads);
+      omittedBinaryPayload ||= redactedEntry.omittedBinaryPayload;
+      redacted.push(redactedEntry.value);
+    }
+    return { value: redacted, omittedBinaryPayload };
+  }
+  if (!value || typeof value !== "object") return { value, omittedBinaryPayload: false };
+  const allEntries = Object.entries(value as Record<string, unknown>);
+  const entries = omitBinaryPayloads
+    ? allEntries.filter(([key]) => !MCP_BINARY_RESULT_KEYS.has(key))
+    : allEntries;
   const reservedKeys = new Set(entries
     .map(([key]) => key)
     .filter((key) => redactLocalPathText(key) === key));
   const output: Array<[string, unknown]> = [];
   const outputKeys = new Set<string>();
+  let omittedBinaryPayload = entries.length !== allEntries.length;
   let redactedIndex = 1;
   for (const [key, entry] of entries) {
     let safeKey = key;
@@ -44,25 +64,25 @@ export function redactPcLocalPaths(value: unknown): unknown {
       } while (reservedKeys.has(safeKey) || outputKeys.has(safeKey));
     }
     outputKeys.add(safeKey);
-    output.push([safeKey, redactPcLocalPaths(entry)]);
+    const redactedEntry = redactValue(entry, omitBinaryPayloads);
+    omittedBinaryPayload ||= redactedEntry.omittedBinaryPayload;
+    output.push([safeKey, redactedEntry.value]);
   }
-  return Object.fromEntries(output);
+  return { value: Object.fromEntries(output), omittedBinaryPayload };
+}
+
+export function redactPcLocalPaths(value: unknown): unknown {
+  return redactValue(value, false).value;
+}
+
+function contentFromRedacted(value: unknown, extra: Content[] = []): Content[] {
+  const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+  return [{ type: "text", text }, ...extra];
 }
 
 export function textResult(value: unknown, extra: Content[] = []): CallToolResult {
   const redacted = redactPcLocalPaths(value);
-  const text = typeof redacted === "string" ? redacted : JSON.stringify(redacted, null, 2);
-  return { content: [{ type: "text", text }, ...extra] };
-}
-
-const MCP_BINARY_RESULT_KEYS = new Set(["imageBase64", "bildBase64"]);
-
-function omitMcpBinaryPayloads(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(omitMcpBinaryPayloads);
-  if (!value || typeof value !== "object") return value;
-  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
-    .filter(([key]) => !MCP_BINARY_RESULT_KEYS.has(key))
-    .map(([key, entry]) => [key, omitMcpBinaryPayloads(entry)]));
+  return { content: contentFromRedacted(redacted, extra) };
 }
 
 /**
@@ -77,12 +97,16 @@ export function apiSuccessResult(
 ): CallToolResult {
   // Bildbytes liegen bereits als MCP-image-Contentblock vor. Eine zweite
   // Base64-Kopie im JSON kann die Antwort sonst um viele MiB verdoppeln.
-  const structuredContent = redactPcLocalPaths(omitMcpBinaryPayloads(apiResult));
+  const redactedResult = redactValue(apiResult, true);
+  const structuredContent = redactedResult.value;
   if (!structuredContent || typeof structuredContent !== "object" || Array.isArray(structuredContent)) {
     throw new TypeError("Das strukturierte MCP-Ergebnis muss ein JSON-Objekt sein.");
   }
+  const content = textValue === apiResult && !redactedResult.omittedBinaryPayload
+    ? contentFromRedacted(structuredContent, extra)
+    : textResult(textValue, extra).content;
   return {
-    ...textResult(textValue, extra),
+    content,
     structuredContent: structuredContent as Record<string, unknown>,
   };
 }
@@ -96,12 +120,15 @@ export function apiErrorResult(operation: string, result: Record<string, unknown
   // Rollback- oder Readback-Felder nicht durch eine Kind-Allowlist verloren.
   const hint = apiErrorHint(operation, result);
   const details = { ...result, ...(hint ? { hint } : {}) };
-  const structuredContent = redactPcLocalPaths(omitMcpBinaryPayloads(details));
+  const redactedDetails = redactValue(details, true);
+  const structuredContent = redactedDetails.value;
   if (!structuredContent || typeof structuredContent !== "object" || Array.isArray(structuredContent)) {
     throw new TypeError("Das strukturierte MCP-Fehlerergebnis muss ein JSON-Objekt sein.");
   }
   return {
-    ...textResult(details),
+    content: redactedDetails.omittedBinaryPayload
+      ? textResult(details).content
+      : contentFromRedacted(structuredContent),
     structuredContent: structuredContent as Record<string, unknown>,
     isError: true,
   };

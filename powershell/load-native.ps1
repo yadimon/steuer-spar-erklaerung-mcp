@@ -53,9 +53,15 @@ function Test-SSENativeSurface {
   }
   $required = @{
     DSK=@('CreateDesktop','OpenDesktop','EnumDesktopWindows','ListDesktopWindows','SetLastError',
-      'CreateProcess','WaitForSingleObject','CloseHandle','TerminateProcess','GetExitCodeProcess',
-      'CreateJobObject','SetInformationJobObject','AssignProcessToJobObject','ResumeThread')
-    SW=@('EnumWindows','GetWindowRect','GetWindowThreadProcessId','SendMessageTimeout','mouse_event','GetLastInputInfo')
+      'CloseDesktop','SetThreadDesktop','GetThreadDesktop','GetCurrentThreadId','CloseHandle','TerminateProcess',
+      'WaitForSingleObject','GetExitCodeProcess','CreateJobObject','SetInformationJobObject',
+      'AssignProcessToJobObject','ResumeThread','CreateProcess')
+    SW=@('PrintWindow','GetWindowRect','GetDlgItem','EnumWindows','EnumChildWindows','GetDlgCtrlID',
+      'GetWindowThreadProcessId','GetWindowTextW','GetClassNameW','IsWindowVisible','IsWindow','IsHungAppWindow',
+      'SetForegroundWindow','SendMessageTimeout','SetCursorPos','GetCursorPos','mouse_event','keybd_event',
+      'WindowFromPoint','GetAncestor','ShowWindow','SetWindowPos','BringWindowToTop','ScreenToClient','PostMessage',
+      'SendMessage','GetForegroundWindow','GetLastActivePopup','GetLastInputInfo','IsIconic','AttachThreadInput',
+      'GetCurrentThreadId')
     SSEAccessible=@('Describe','DescribePoint','Invoke')
   }
   foreach ($typeName in $required.Keys) {

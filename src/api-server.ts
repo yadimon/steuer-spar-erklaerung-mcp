@@ -40,27 +40,56 @@ export interface SseApiServerOptions {
 }
 type SendJsonOutcome = "sent" | "unavailable" | "too-large";
 
+function sendJsonPayload(
+  response: ServerResponse,
+  status: number,
+  payload: string | Buffer,
+  byteLength: number,
+  headers: OutgoingHttpHeaders = {},
+): SendJsonOutcome {
+  if (response.writableEnded || response.destroyed) return "unavailable";
+  if (byteLength > MAX_API_RESPONSE_BYTES) return "too-large";
+  response.writeHead(status, {
+    "content-type": "application/json; charset=utf-8",
+    "content-length": byteLength,
+    "cache-control": "no-store",
+    "cross-origin-resource-policy": "same-origin",
+    "x-content-type-options": "nosniff",
+    ...headers,
+  });
+  response.end(payload);
+  return "sent";
+}
+
+function sendJsonBytes(
+  response: ServerResponse,
+  status: number,
+  bytes: Buffer,
+  headers: OutgoingHttpHeaders = {},
+): SendJsonOutcome {
+  return sendJsonPayload(response, status, bytes, bytes.length, headers);
+}
+
 function sendJson(
   response: ServerResponse,
   status: number,
   body: unknown,
   headers: OutgoingHttpHeaders = {},
 ): SendJsonOutcome {
-  if (response.writableEnded || response.destroyed) return "unavailable";
   const json = JSON.stringify(body);
-  const bytes = Buffer.byteLength(json);
-  if (bytes > MAX_API_RESPONSE_BYTES) return "too-large";
-  response.writeHead(status, {
-    "content-type": "application/json; charset=utf-8",
-    "content-length": bytes,
-    "cache-control": "no-store",
-    "cross-origin-resource-policy": "same-origin",
-    "x-content-type-options": "nosniff",
-    ...headers,
-  });
-  response.end(json);
-  return "sent";
+  return sendJsonPayload(response, status, json, Buffer.byteLength(json), headers);
 }
+
+function serializeStaticApiDocument(name: string, body: unknown): Buffer {
+  const bytes = Buffer.from(JSON.stringify(body), "utf8");
+  if (bytes.length > MAX_API_RESPONSE_BYTES) {
+    throw new Error(`${name} ist groesser als das API-Antwortlimit.`);
+  }
+  return bytes;
+}
+
+const SSE_API_DISCOVERY_BYTES = serializeStaticApiDocument("API-Discovery", SSE_API_DISCOVERY);
+const SSE_OPENAPI_BYTES = serializeStaticApiDocument("OpenAPI-Dokument", SSE_OPENAPI_DOCUMENT);
 
 class ApiRequestError extends Error {
   constructor(
@@ -183,12 +212,12 @@ export function createSseApiServer(options: SseApiServerOptions): Server {
     }
 
     if (request.method === "GET" && url.pathname === `/${SSE_API_VERSION}/operations`) {
-      sendJson(response, 200, SSE_API_DISCOVERY);
+      sendJsonBytes(response, 200, SSE_API_DISCOVERY_BYTES);
       return;
     }
 
     if (request.method === "GET" && url.pathname === `/${SSE_API_VERSION}/openapi.json`) {
-      sendJson(response, 200, SSE_OPENAPI_DOCUMENT);
+      sendJsonBytes(response, 200, SSE_OPENAPI_BYTES);
       return;
     }
 

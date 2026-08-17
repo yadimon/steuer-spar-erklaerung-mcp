@@ -3,7 +3,11 @@
 ## Unterstützte Version
 
 Während der öffentlichen Beta wird nur die jeweils neueste GitHub-Version
-unterstützt. Aktuell ist dies `v0.1.0-beta.2` für SteuerSparErklärung 2025.
+unterstützt. Dieser Quellstand bereitet `v0.1.0-beta.3` für
+SteuerSparErklärung 2025 vor. Bis ZIP und separate SHA-256-Datei tatsächlich
+auf GitHub veröffentlicht sind, bleibt `v0.1.0-beta.2` die letzte öffentliche
+unterstützte Version. Quellstand, Tag oder automatisch erzeugtes GitHub-
+Quellarchiv allein gelten nicht als portables Release.
 
 ## Sicherheitsproblem melden
 

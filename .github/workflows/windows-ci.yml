@@ -1,0 +1,55 @@
+name: Windows CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up pinned Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: '.node-version'
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Run complete offline suite
+        run: npm test
+
+      - name: Build portable release candidate
+        run: npm run package:portable
+
+      - name: Reverify release artifact
+        run: npm run verify:portable-release
+
+      - name: Upload verified portable pair
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: portable-${{ github.sha }}
+          path: |
+            artifacts/portable/steuer-spar-erklaerung.zip
+            artifacts/portable/steuer-spar-erklaerung.zip.sha256
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0

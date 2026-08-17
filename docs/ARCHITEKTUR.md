@@ -266,7 +266,12 @@ Agent oder eigenes Programm
   wiederhergestellt. `focusTelemetry` macht Raise-Zahl, Haltezeit und Restore
   in API und MCP messbar.
 - Prozesse werden fensterlos gestartet, an eine Queue gebunden und bei
-  Timeout oder API-Shutdown als eigener Prozessbaum beendet.
+  Timeout oder API-Shutdown als eigener Prozessbaum beendet. Ein Exitcode des
+  direkten Parents genügt nicht als Cleanup-Beweis: Erst Nodes `close` nach
+  geschlossenen stdout/stderr-Handles gilt als regulärer Abschluss. Bleibt
+  dieses Lifecycle-Signal auch nach beiden Cleanup-Wächtern aus, wird der
+  aktuelle Platz nur im global verriegelten Zustand freigegeben;
+  `worker-isolation-lost` sperrt alle weiteren Workerstarts bis zum API-Neustart.
 - Operationsargumente liegen in einer exklusiven, auf 8 MiB begrenzten
   UTF-8-Tempdatei. Dadurch gelten weder Windows' Kommandozeilenlimit noch
   Base64-Steuerwerte in der Prozessliste; die Node-Brücke entfernt die Datei
@@ -281,6 +286,14 @@ Agent oder eigenes Programm
   Werte für C#-Quelle und DLL-Bytes geprüft. Die Hashes werden begrenzt
   gestreamt; Quelle, DLL und Manifest besitzen eigene Größenlimits. Jede
   Abweichung wechselt vor `Add-Type` auf den getesteten Quelltext-Fallback.
+- Der Build verwendet die vorhandene DLL nur bei strikt gültigem Manifest,
+  passendem aktuellen Quellhash, passendem tatsächlichen DLL-Hash und
+  vollständiger Typ-/Methodenoberfläche wieder.
+  Das verhindert unnötigen Binärdrift bei wiederholten Paket-Builds. Der
+  Windows-PowerShell-5.1-Compiler selbst verspricht für zwei frische Builds
+  keine byteidentische Ausgabe; Integrität und Archive binden daher die
+  tatsächlich erzeugten Bytes statt compilerübergreifende Reproduzierbarkeit
+  zu behaupten.
 - UI-Mutationen bleiben an PID, HWND, Seite, Element, Vorwert und
   Nachbedingungen gebunden.
 - Weicht der installierte Minor-/Patch-Build vom `verifiedBuild` des Profils
@@ -352,6 +365,12 @@ Der Standard ist ein portable GitHub Release:
   Build. npm- und Portable-Paketierung validieren danach erneut jedes
   JavaScript-/Source-Map-Artefakt gegen seine TypeScript-Quelle und verlangen
   alle dokumentierten CLI-Einstiege;
+- das fertige Portable-ZIP wird vor seiner äußeren SHA256-Datei erneut unter
+  Windows PowerShell 5.1 geöffnet. Es darf nur eine gebundene Wurzel, sichere
+  kollisionsfreie Windows-Pfade und exakt die Manifestdateien enthalten;
+  Produkt/Version, Bytezahl und Datei-SHA256 werden aus den komprimierten
+  Streams geprüft. Ein ungültiges neu erzeugtes ZIP wird entfernt und der
+  Build stoppt;
 - Python wird aus dem Produkt entfernt;
 - eine benötigte Node-Laufzeit wird gebündelt oder das gebaute Programm als
   ausführbares Artefakt ausgeliefert;

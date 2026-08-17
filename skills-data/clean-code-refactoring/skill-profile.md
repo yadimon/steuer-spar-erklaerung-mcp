@@ -149,6 +149,19 @@
   - collect_end_guard: `end-of-branch` requires both the bound content snapshot
     and the separately bounded navigation snapshot to be untruncated
   - refactor_goals: only cohesive helpers backed by focused contracts
+- `powershell/build-native.ps1`:
+  - role: PowerShell-5.1-kompatibler Build und Integritaetsbindung der
+    vorkompilierten Win32-/MSAA-Bruecke
+  - keep_stable: vorhandene DLL nur bei strikt passendem Manifest, Quellhash,
+    tatsaechlichem DLL-Hash und vollstaendiger Typ-/Methodenoberflaeche
+    wiederverwenden; jede Abweichung baut neu
+  - windows_limit: der lokale .NET-Framework-Compiler bietet keinen
+    deterministischen Modus; Byte-Reproduzierbarkeit gilt nur durch die
+    verifizierte Wiederverwendung, nicht fuer zwei frische Compiles
+  - extra_test_expectations: Cache-Hit, echter Loader, unvollstaendige
+    Assembly, unvollstaendiger frischer Compile, Build-/Loader-/C#-Paritaet,
+    Quellaenderung, DLL-Manipulation, strikte Manifestfehler, fehlende DLL,
+    fehlendes Manifest und rueckstandsfreies Cleanup isoliert pruefen
 
 ## Known Drift Or Gotchas
 

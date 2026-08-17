@@ -103,6 +103,12 @@ Schemas; OpenAPI referenziert sie pro Operationspfad; jedes MCP-Werkzeug nutzt
 das zugehörige Schema als `outputSchema` und liefert das vollständige Ergebnis
 als `structuredContent`.
 
+Gesamt-Discovery und OpenAPI werden beim Serverstart einmal innerhalb des
+Antwortlimits als UTF-8-Bytes serialisiert. Wiederholte GETs übertragen diesen
+byteidentischen Snapshot, statt die rund 200–270 KiB großen Vertragsbäume pro
+Request erneut zu durchlaufen. Die kleine Einzeloperations-Discovery bleibt
+dynamisch, weil ihre Serialisierung im gemessenen Pfad vernachlässigbar ist.
+
 Die MCP-Eingaben dürfen strenger sein als die der lokalen API, nie
 großzügiger. Bekannt und gewollt:
 
@@ -283,7 +289,10 @@ weitergereicht.
 Timeout oder Abbruch bedeutet bei einer Mutation nicht
 „nicht ausgeführt“: Vor jeder Wiederholung muss der Zustand neu gelesen werden.
 Kann ein gestarteter Worker-Prozessbaum nicht sicher beendet werden, sperrt die
-API weitere Worker-Aufrufe bis zum Neustart.
+API weitere Worker-Aufrufe bis zum Neustart. Ein beendeter direkter Parent ist
+dabei kein ausreichender Nachweis: Hält ein entkoppelter Enkel geerbte
+stdout/stderr-Handles offen und verhindert dadurch Nodes `close`, verriegelt
+der äußere Cleanup-Wächter die Worker-Laufzeit fail-closed.
 
 ## Ergebnisgrenze und Evidenz
 

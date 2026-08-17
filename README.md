@@ -249,7 +249,20 @@ Jeder Build entfernt ausschließlich veraltete `dist/*.js`- und
 `dist/*.js.map`-Dateien ohne passende TypeScript-Quelle. Unbekannte Dateien
 oder Links im Buildordner stoppen fail-closed. npm- und Portable-Vertrag
 prüfen zusätzlich, dass kein quellloses Artefakt ausgeliefert wird und die
-dokumentierte API-CLI im Paket liegt.
+dokumentierte API-CLI im Paket liegt. `package:portable` öffnet das erzeugte
+ZIP vor dem Schreiben der äußeren Prüfsumme erneut: Pfade, Windows-Kollisionen,
+Produkt/Version, Dateizahl, Bytezahl und SHA-256 jeder manifestierten Datei
+müssen exakt stimmen; Extra-Dateien stoppen den Build.
+
+Der Native-Build verwendet eine vorhandene `sse-native.dll` nur wieder, wenn
+striktes Manifest, aktueller C#-Quellhash, tatsächlicher DLL-Hash und die
+vollständige erwartete Typ-/Methodenoberfläche gemeinsam passen. Dadurch bleibt
+das erneut geprüfte Artefakt bei unveränderter Quelle stabil; Änderung,
+Beschädigung oder ein inkompatibles Compilerartefakt erzwingt einen
+vollständigen Neubau. Der mit
+Windows PowerShell 5.1 verfügbare .NET-Framework-Compiler garantiert für zwei
+frische Builds jedoch keine byteidentische DLL. Das Manifest bindet deshalb
+immer die konkret ausgelieferten Bytes, nicht ein angenommenes Build-Ergebnis.
 
 `npm test` prüft unter anderem API-/MCP-Verträge, Argumentgrenzen, Backups,
 Skills, Links und Repository-Datenschutz, startet aber keine echte SSE-UI. Das
