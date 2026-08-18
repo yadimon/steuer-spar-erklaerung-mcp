@@ -18,7 +18,12 @@ import {
   renderTrackingMarkdown,
   type SetupPreferenceValues,
 } from "./setup-preferences.js";
-import { probeWindowsPowerShell, resolveProductNode } from "./windows-runtime.js";
+import {
+  assertPersistentProductRoot,
+  probeWindowsPowerShell,
+  resolveProductMcpEntry,
+  resolveProductNode,
+} from "./windows-runtime.js";
 
 export { parseSetupArguments, SETUP_USAGE } from "./setup-main-arguments.js";
 export { loadStoredSetupPreferences } from "./setup-preferences.js";
@@ -40,14 +45,14 @@ export interface SetupValues {
 
 export interface SetupArtifacts {
   apiConfig: Record<string, unknown>;
-  mcpConfig: Record<string, unknown>;
+  mcpConfig?: Record<string, unknown>;
   setupDecisions: Record<string, unknown>;
   setupDecisionsPath: string;
   settingsPath: string;
   settingsContent: string;
   trackingPath: string;
   trackingContent?: string;
-  mcpConfigPath: string;
+  mcpConfigPath?: string;
   apiLauncherPath: string;
   apiLauncherContent: string;
 }
@@ -56,7 +61,7 @@ export function setupArtifactTargetPaths(
   values: SetupValues,
   artifacts: SetupArtifacts = buildSetupArtifacts(values),
 ): readonly string[] {
-  return [values.configPath, artifacts.mcpConfigPath, artifacts.apiLauncherPath,
+  return [values.configPath, ...(artifacts.mcpConfigPath ? [artifacts.mcpConfigPath] : []), artifacts.apiLauncherPath,
     artifacts.setupDecisionsPath, artifacts.settingsPath];
 }
 
@@ -163,9 +168,9 @@ export function buildSetupArtifacts(values: SetupValues): SetupArtifacts {
   ] as const) {
     assertSetupPath(value, name, optional);
   }
+  assertPersistentProductRoot(values.repoRoot);
   const apiUrl = `http://127.0.0.1:${values.port}`;
   const configStem = basename(values.configPath, extname(values.configPath)) || "config";
-  const mcpConfigPath = join(dirname(values.configPath), `mcp-client.${configStem}.json`);
   const apiLauncherPath = join(dirname(values.configPath), `start-sse-api.${configStem}.hidden.vbs`);
   const setupDecisionsPath = join(values.workspaceDir, "setup-decisions.json");
   const nodeExecutable = resolveProductNode(values.repoRoot);
@@ -176,6 +181,12 @@ export function buildSetupArtifacts(values: SetupValues): SetupArtifacts {
   const documentsDir = values.documentsDir ?? join(values.workspaceDir, "documents");
   const backupsDir = values.backupsDir ?? join(values.workspaceDir, "backups");
   const preferences = normalizeSetupPreferences(values.workspaceDir, values.preferences);
+  const mcpConfigPath = preferences.transport === "api-and-mcp"
+    ? join(dirname(values.configPath), `mcp-client.${configStem}.json`)
+    : undefined;
+  const mcpEntry = preferences.transport === "api-and-mcp"
+    ? resolveProductMcpEntry(values.repoRoot)
+    : undefined;
   for (const [index, path] of preferences.sourceFolders.entries()) {
     assertSetupPath(path, `sourceFolders[${index}]`);
   }
@@ -209,15 +220,18 @@ export function buildSetupArtifacts(values: SetupValues): SetupArtifacts {
       resultDir: values.resultDir,
       backupsDir,
     },
-    mcpConfig: {
-      mcpServers: {
-        "steuer-spar-erklaerung": {
-          command: nodeExecutable,
-          args: [join(values.repoRoot, "dist", "index.js")],
-          env: { SSE_API_URL: apiUrl, SSE_API_TOKEN: values.token },
+    ...(mcpConfigPath && mcpEntry ? {
+      mcpConfig: {
+        mcpServers: {
+          "steuer-spar-erklaerung": {
+            command: nodeExecutable,
+            args: [mcpEntry],
+            env: { SSE_API_URL: apiUrl, SSE_API_TOKEN: values.token },
+          },
         },
       },
-    },
+      mcpConfigPath,
+    } : {}),
     setupDecisions: {
       schemaVersion: 2,
       profileId,
@@ -247,7 +261,6 @@ export function buildSetupArtifacts(values: SetupValues): SetupArtifacts {
     settingsContent: renderSettingsMarkdown(preferences),
     trackingPath: preferences.tracking.path,
     ...(preferences.tracking.format === "markdown" ? { trackingContent: renderTrackingMarkdown() } : {}),
-    mcpConfigPath,
     apiLauncherPath,
     apiLauncherContent,
   };
@@ -322,7 +335,9 @@ export function writeSetupArtifacts(
     : false;
   replaceTextFilesFromStaging([
     { path: values.configPath, content: `${JSON.stringify(artifacts.apiConfig, null, 2)}\n`, mode: 0o600 },
-    { path: artifacts.mcpConfigPath, content: `${JSON.stringify(artifacts.mcpConfig, null, 2)}\n`, mode: 0o600 },
+    ...(artifacts.mcpConfigPath && artifacts.mcpConfig
+      ? [{ path: artifacts.mcpConfigPath, content: `${JSON.stringify(artifacts.mcpConfig, null, 2)}\n`, mode: 0o600 }]
+      : []),
     { path: artifacts.apiLauncherPath, content: artifacts.apiLauncherContent, mode: 0o600 },
     {
       path: artifacts.setupDecisionsPath,
@@ -335,7 +350,7 @@ export function writeSetupArtifacts(
   ]);
   return {
     apiConfigPath: values.configPath,
-    mcpConfigPath: artifacts.mcpConfigPath,
+    ...(artifacts.mcpConfigPath ? { mcpConfigPath: artifacts.mcpConfigPath } : {}),
     apiLauncherPath: artifacts.apiLauncherPath,
     setupDecisionsPath: artifacts.setupDecisionsPath,
     settingsPath: artifacts.settingsPath,

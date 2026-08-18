@@ -1,6 +1,6 @@
 ---
 name: steuer-spar-erklaerung
-description: Prüft einen konkreten Steuerfall in einer vom lokalen Release unterstützten SteuerSparErklärung unter Windows, gleicht ihn mit Belegen ab, richtet bei Bedarf die portable lokale Automation ein oder bearbeitet nach Freigabe eine verifizierte Arbeitskopie. Verwenden bei „meine Steuererklärung prüfen“, SteuerSparErklärung/SSE bedienen, Belege abgleichen sowie API- oder MCP-Einrichtung; nicht für allgemeine Steuerfragen ohne lokalen SSE-Fall und niemals für ELSTER-Versand.
+description: Prüft einen konkreten Steuerfall in einer vom lokalen Release unterstützten SteuerSparErklärung unter Windows, gleicht ihn mit Belegen ab, richtet bei Bedarf die lokale Automation über npm oder ein portables Release ein oder bearbeitet nach Freigabe eine verifizierte Arbeitskopie. Verwenden bei „meine Steuererklärung prüfen“, SteuerSparErklärung/SSE bedienen, Belege abgleichen sowie API- oder MCP-Einrichtung; nicht für allgemeine Steuerfragen ohne lokalen SSE-Fall und niemals für ELSTER-Versand.
 ---
 
 # SteuerSparErklärung sicher prüfen
@@ -101,9 +101,9 @@ informativ; die tatsächliche Serversperre steht weiterhin ausschließlich in
 `operationPolicy`.
 
 Der Endnutzer braucht kein globales Node.js/npm, kein Python und kein
-PowerShell 7. Das portable Release enthält `runtime/node.exe` und verwendet
-Windows PowerShell 5.1. Solche Werkzeuge dürfen nur als Entwicklerabhängigkeiten
-bezeichnet werden.
+PowerShell 7. Ist Node.js/npm schon vorhanden, darf der Setup-Skill die
+veröffentlichten npm-Pakete verwenden; andernfalls enthält das portable
+Release `runtime/node.exe`. Beide Wege verwenden Windows PowerShell 5.1.
 
 ## Einstieg und Wizard
 

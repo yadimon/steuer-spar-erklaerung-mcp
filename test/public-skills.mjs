@@ -51,7 +51,8 @@ const firstRun = readFileSync(
 );
 assert(firstRun.includes("der richtige Steuerfall") && firstRun.includes("vollständige Liste der Belegordner"));
 assert(firstRun.includes("höchstens 100") && firstRun.includes("Durchsuche niemals das gesamte Laufwerk"));
-assert(firstRun.includes("aktuellste passende veröffentlichte Portable-Release"));
+assert(firstRun.includes("aktuellste") && firstRun.includes("passende veröffentlichte Portable-Release"));
+assert(firstRun.includes("`@beta`-Pakete persistent installieren"));
 assert(firstRun.includes("`OK`, `OK Standard` oder `OK Default`"));
 assert(firstRun.includes("Setup allein erfüllt") && firstRun.includes("capabilities"));
 const setup = readFileSync(join(skillsRoot, "steuer-spar-erklaerung-setup", "SKILL.md"), "utf8");
@@ -62,6 +63,8 @@ assert(setup.includes("--defaults") && setup.includes("--no-start"));
 assert(setup.includes("settings.md") && setup.includes("tracking.md") && setup.includes(".xlsx"));
 assert(setup.includes("Connector") && setup.includes("read-only Prüfung"));
 assert(setup.includes("aktuellste dort veröffentlichte") && setup.includes("OK Standard"));
+assert(setup.includes("npm install --global") && setup.includes("@yadimon/steuer-spar-erklaerung-api@beta"));
+assert(setup.includes("@yadimon/steuer-spar-erklaerung-mcp@beta") && setup.includes("flüchtigen `npx`-Cache"));
 assert(setup.includes("`--defaults` nur") && setup.includes("frage den Nutzer nicht erneut"));
 assert(!setup.includes("Windows 10/11"), "Setup darf kompatible Windows-Versionen nicht nach Label sperren.");
 for (const source of [main, firstRun, setup]) {
@@ -86,6 +89,8 @@ for (const agent of ["codex", "claude-code"]) {
 }
 assert(readme.includes("https://www.skills.sh/docs/cli"), "README verlinkt die offizielle skills-CLI nicht.");
 assert(readme.includes("Get-FileHash -Algorithm SHA256"), "README erklärt die manuelle ZIP-Prüfsumme nicht.");
-assert.match(readme, /npx skills.*Node\.js mit npm/su, "README verschweigt die npx-Voraussetzung.");
+assert.match(readme, /npx skills.*Node\.js 22\+ mit npm/su, "README verschweigt die npx-Voraussetzung.");
+assert(readme.includes("npm install --global @yadimon/steuer-spar-erklaerung-api@beta"));
+assert(readme.includes("npm install --global @yadimon/steuer-spar-erklaerung-mcp@beta"));
 
 process.stdout.write("Public Skills: 2 flache npx-kompatible, deutsche und portable Skill-Pakete bestanden\n");

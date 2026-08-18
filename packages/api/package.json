@@ -1,0 +1,59 @@
+{
+  "name": "@yadimon/steuer-spar-erklaerung-api",
+  "version": "0.1.0-beta.4",
+  "description": "Unofficial local HTTP API, CLI and setup wizard for SteuerSparErklaerung on Windows",
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "steuererklaerung",
+    "windows",
+    "api",
+    "ui-automation"
+  ],
+  "homepage": "https://github.com/yadimon/steuer-spar-erklaerung-mcp#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yadimon/steuer-spar-erklaerung-mcp.git",
+    "directory": "packages/api"
+  },
+  "bugs": {
+    "url": "https://github.com/yadimon/steuer-spar-erklaerung-mcp/issues"
+  },
+  "bin": {
+    "steuer-spar-erklaerung-api": "dist/api-main.js",
+    "steuer-spar-erklaerung-call": "dist/api-cli.js",
+    "steuer-spar-erklaerung-setup": "dist/setup-main.js"
+  },
+  "exports": {
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "powershell",
+    "!powershell/.sse-native-*",
+    "profiles",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "pack": "npm pack --dry-run --ignore-scripts",
+    "publish:dry-run": "npm publish --dry-run --ignore-scripts --tag beta --access public"
+  },
+  "publishConfig": {
+    "access": "public",
+    "tag": "beta"
+  },
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "zod": "^3.25.76",
+    "zod-to-json-schema": "^3.25.2"
+  }
+}

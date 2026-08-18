@@ -59,7 +59,7 @@ Arbeitskopie, Vorher-/Nachher-Readback und getrennte reale Evidenz.
 | --- | --- |
 | Nur Dokumentation oder Skill-Text | `npm run test:fast` |
 | TypeScript, PowerShell, API, MCP, Profile oder Tests | `npm test` |
-| Portable Laufzeit, Paketinhalt oder Release-Metadaten | `npm test`, `npm run package:portable`, `npm run verify:portable-release` |
+| npm-/Portable-Laufzeit, Paketinhalt oder Release-Metadaten | `npm test`, `npm run pack`, `npm run publish:dry-run`, `npm run test:npm-clean-install`, `npm run package:portable`, `npm run verify:portable-release` |
 | UI-Bindung oder Profilverhalten | vollständige Offline-Suite und, wenn Voraussetzungen vorhanden sind, der passende opt-in Live-Lauf |
 
 `npm test` bleibt auf einem neutralen Windows-Rechner ohne installierte SSE
@@ -103,7 +103,9 @@ Ein Pull Request soll:
    enthalten.
 
 Die read-only [Windows-CI](.github/workflows/windows-ci.yml) führt Audit,
-Volltest, portablen Paketbau und erneute Artefaktprüfung aus. Ein grüner
+Volltest, portablen Paketbau und erneute Artefaktprüfung aus. Der getrennte
+npm-Publish-Workflow ist manuell, taggebunden und verwendet OIDC ohne
+langlebiges npm-Token. Ein grüner
 Offline-Lauf allein macht ein neues UI-Verhalten nicht live-verifiziert.
 
 Maintainer folgen für Version, Tag und GitHub-Prerelease zusätzlich dem

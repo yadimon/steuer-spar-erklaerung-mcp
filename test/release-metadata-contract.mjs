@@ -5,6 +5,8 @@ import { exclusiveSteps, finalSteps, parallelSteps, serialBuildSteps } from "./s
 
 const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
 const packageLock = JSON.parse(readFileSync("package-lock.json", "utf8"));
+const apiPackage = JSON.parse(readFileSync(join("packages", "api", "package.json"), "utf8"));
+const mcpPackage = JSON.parse(readFileSync(join("packages", "mcp", "package.json"), "utf8"));
 const versionSource = readFileSync("src/version.ts", "utf8");
 const security = readFileSync("SECURITY.md", "utf8");
 const readme = readFileSync("README.md", "utf8");
@@ -15,6 +17,10 @@ const releasePath = join("docs", "releases", `v${packageJson.version}.md`);
 assert.match(packageJson.version, /^0\.1\.0-beta\.\d+$/u, "Beta-Release braucht eine erwartete SemVer-Vorabversion.");
 assert.equal(packageLock.version, packageJson.version, "Lockfile und package.json haben unterschiedliche Versionen.");
 assert.equal(packageLock.packages?.[""]?.version, packageJson.version, "Lockfile-Rootpaket hat eine andere Version.");
+assert.equal(apiPackage.version, packageJson.version, "API-npm-Paket hat eine andere Version.");
+assert.equal(mcpPackage.version, packageJson.version, "MCP-npm-Paket hat eine andere Version.");
+assert.equal(packageLock.packages?.["packages/api"]?.version, packageJson.version, "API-Lockfile hat eine andere Version.");
+assert.equal(packageLock.packages?.["packages/mcp"]?.version, packageJson.version, "MCP-Lockfile hat eine andere Version.");
 assert(
   versionSource.includes(`SSE_PACKAGE_VERSION = "${packageJson.version}"`),
   "Kompilierte Runtimeversion und package.json laufen auseinander.",
@@ -34,7 +40,9 @@ assert(
   "Release Notes nennen nicht den aktuellen vollständig bestandenen Suite-Plan.",
 );
 assert(security.includes(`v${packageJson.version}`), "Sicherheitsrichtlinie nennt den vorbereiteten Paketstand nicht.");
-assert.match(security, /jeweils neueste GitHub-Version/u, "Security nennt die unterstützte Release-Linie nicht.");
+assert.match(security, /jeweils neueste vollständige\s+Release-Version/u, "Security nennt die unterstützte Release-Linie nicht.");
+assert.match(security, /@yadimon\/steuer-spar-erklaerung-api/u);
+assert.match(security, /@yadimon\/steuer-spar-erklaerung-mcp/u);
 assert.match(
   security,
   /jeweils jüngste dort vollständige Release unterstützt/u,

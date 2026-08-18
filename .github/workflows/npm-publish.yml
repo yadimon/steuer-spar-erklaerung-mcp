@@ -1,0 +1,59 @@
+name: Publish npm beta
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: npm-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Bind workflow ref to package version
+        run: |
+          $version = node -p "require('./package.json').version"
+          $expectedRef = "refs/tags/v$version"
+          if ($env:GITHUB_REF -ne $expectedRef) {
+            throw "Publish muss auf $expectedRef gestartet werden; erhalten: $env:GITHUB_REF"
+          }
+
+      - name: Set up pinned Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: '.node-version'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+
+      - name: Install npm with Trusted Publishing support
+        run: npm install --global npm@11.19.0
+
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Run complete release suite
+        run: npm test
+
+      - name: Prove clean installation from both tarballs
+        run: npm run test:npm-clean-install
+
+      - name: Publish PC-blind MCP package
+        run: npm publish --workspace @yadimon/steuer-spar-erklaerung-mcp --ignore-scripts --tag beta --access public
+
+      - name: Publish Windows API package
+        run: npm publish --workspace @yadimon/steuer-spar-erklaerung-api --ignore-scripts --tag beta --access public

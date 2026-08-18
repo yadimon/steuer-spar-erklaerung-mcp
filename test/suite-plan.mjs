@@ -15,6 +15,7 @@ export const serialBuildSteps = Object.freeze([
   nodeFile("dist-prune", "scripts/prune-dist.mjs"),
   psFile("native-build", "powershell/build-native.ps1"),
   nodeFile("typescript-build", "node_modules/typescript/bin/tsc"),
+  nodeFile("npm-package-build", "scripts/build-npm-packages.mjs"),
 ]);
 
 export const parallelSteps = Object.freeze([

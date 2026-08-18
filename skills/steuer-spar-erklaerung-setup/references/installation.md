@@ -1,4 +1,23 @@
-# Portable Installation und Client-Anbindung
+# npm-/Portable-Installation und Client-Anbindung
+
+## Weg wählen
+
+Eine funktionierende vorhandene Installation wird immer wiederverwendet.
+Andernfalls gilt:
+
+- Ist Node.js 22 oder neuer mit npm bereits vorhanden, darf nach bestätigtem
+  Plan `@yadimon/steuer-spar-erklaerung-api@beta` persistent installiert
+  werden. Das getrennte Paket
+  `@yadimon/steuer-spar-erklaerung-mcp@beta` kommt nur bei bestätigtem
+  MCP-Wunsch dazu.
+- Fehlt eine passende Node/npm-Laufzeit, verwende das Portable-Release. Node,
+  npm, Python oder PowerShell 7 werden nicht eigens installiert.
+
+Der npm-Weg ist kein Quellbuild. Lies vor der Installation beide Registry-
+Versionen, sofern MCP gewünscht ist, und verlange dieselbe Version sowie den
+gleichnamigen vollständigen GitHub-Release. Starte Setup nie direkt aus
+`npx`: dessen `_npx`-Cache ist flüchtig und ungeeignet für dauerhafte API- und
+MCP-Startpfade.
 
 ## Releaseinhalt
 
@@ -41,10 +60,14 @@ Verwende die ausgegebenen echten Dateinamen. Keine Namen oder JSON-Felder
 hinzuerfinden. Der MCP-Eintrag darf nur API-URL und Token als PC-bezogene
 Betriebswerte benötigen; lokale SSE-/Fall-/Workspace-Pfade gehören allein in
 die API-Konfiguration.
-Als `command` immer den absoluten Pfad zur ausgelieferten `runtime/node.exe`
-übernehmen. Niemals `node`, `node.cmd`, `npx`, eine Volta-/npm-Shimdatei oder
-einen Batch-Wrapper eintragen; solche Zwischenstufen können zusätzliche
-`cmd.exe`-Prozesse und sichtbare schwarze Fenster erzeugen.
+Als `command` immer den vom Wizard ausgegebenen absoluten Pfad zur echten
+`node.exe` übernehmen. Beim Portable-Weg ist das die ausgelieferte
+`runtime/node.exe`; beim npm-Weg die Node-Datei, mit der der persistente
+Setup-Wizard läuft. Niemals `node`, `node.cmd`, `npx`, eine Volta-/npm-
+Shimdatei oder einen Batch-Wrapper eintragen; solche Zwischenstufen können
+zusätzliche `cmd.exe`-Prozesse und sichtbare schwarze Fenster erzeugen. Die
+MCP-Argumentdatei muss beim npm-Weg innerhalb des dauerhaft installierten
+`@yadimon/steuer-spar-erklaerung-mcp` liegen, niemals unter `_npx`.
 
 ## Manuelle Agentenaktion
 

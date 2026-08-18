@@ -1,0 +1,50 @@
+{
+  "name": "@yadimon/steuer-spar-erklaerung-mcp",
+  "version": "0.1.0-beta.4",
+  "description": "PC-blind MCP wrapper for the local SteuerSparErklaerung API",
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "steuererklaerung",
+    "api-client"
+  ],
+  "homepage": "https://github.com/yadimon/steuer-spar-erklaerung-mcp#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yadimon/steuer-spar-erklaerung-mcp.git",
+    "directory": "packages/mcp"
+  },
+  "bugs": {
+    "url": "https://github.com/yadimon/steuer-spar-erklaerung-mcp/issues"
+  },
+  "bin": {
+    "steuer-spar-erklaerung-mcp": "dist/index.js"
+  },
+  "exports": {
+    "./cli": "./dist/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "pack": "npm pack --dry-run --ignore-scripts",
+    "publish:dry-run": "npm publish --dry-run --ignore-scripts --tag beta --access public"
+  },
+  "publishConfig": {
+    "access": "public",
+    "tag": "beta"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.25.76",
+    "zod-to-json-schema": "^3.25.2"
+  }
+}

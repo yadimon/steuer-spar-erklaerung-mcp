@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { once } from "node:events";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -112,9 +112,12 @@ await once(api, "listening");
 const address = api.address();
 assert(address && typeof address === "object");
 const here = dirname(fileURLToPath(import.meta.url));
+const mcpEntry = process.env.SSE_TEST_MCP_ENTRY
+  ? resolve(process.env.SSE_TEST_MCP_ENTRY)
+  : join(here, "..", "dist", "index.js");
 const transport = new StdioClientTransport({
   command: process.execPath,
-  args: [join(here, "..", "dist", "index.js")],
+  args: [mcpEntry],
   env: {
     ...process.env,
     SSE_API_URL: `http://127.0.0.1:${address.port}`,

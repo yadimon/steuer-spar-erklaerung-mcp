@@ -1,14 +1,16 @@
 ---
 name: steuer-spar-erklaerung-setup
-description: Installiert oder repariert die portable lokale SteuerSparErklärung-Automation für ein vom Release unterstütztes Produktprofil unter Windows ohne globales Node.js/npm, Python oder PowerShell 7 und bindet auf Wunsch den optionalen MCP-Wrapper an. Verwenden bei Erstinstallation, neuem PC, fehlender API-Verbindung, geändertem SSE-/Arbeitsordner oder gewünschter MCP-Anbindung für Codex, Claude Code und kompatible Agenten.
+description: Installiert oder repariert die lokale SteuerSparErklärung-Automation für ein vom Release unterstütztes Produktprofil unter Windows über vorhandenes Node.js/npm oder ein portables Release ohne globale Entwicklerwerkzeuge und bindet auf Wunsch den getrennten MCP-Wrapper an. Verwenden bei Erstinstallation, neuem PC, fehlender API-Verbindung, geändertem SSE-/Arbeitsordner oder gewünschter MCP-Anbindung für Codex, Claude Code und kompatible Agenten.
 ---
 
 # SteuerSparErklärung einrichten
 
 Führe den Wizard auf Deutsch und mit möglichst wenigen Systemänderungen aus.
-Der Endnutzer braucht kein globales Node.js/npm, kein Python und kein
-PowerShell 7. Nutze das im Release gebündelte `runtime/node.exe` sowie Windows
-PowerShell 5.1.
+Installiere Node.js/npm, Python oder PowerShell 7 nicht eigens für dieses
+Produkt. Ist Node.js 22 oder neuer mit npm bereits vorhanden, darf der
+bestätigte Standardplan die getrennten npm-Pakete verwenden. Sonst nutze das
+portable Release mit gebündeltem `runtime/node.exe`. Beide Wege verwenden
+Windows PowerShell 5.1.
 
 ## Vorprüfung
 
@@ -17,12 +19,22 @@ PowerShell 5.1.
    Versionsnummer ablehnen.
 2. Suche eine vorhandene Konfiguration und teste API-Health. Erzeuge keine
    zweite Installation, wenn eine passende bereits funktioniert.
-3. Lies `portable-manifest.json` und die veröffentlichte SHA-256-Prüfsumme.
+3. Wähle genau einen persistenten Distributionsweg:
+   - **npm:** nur bei bereits funktionierendem Node.js 22+ mit npm; niemals
+     direkt aus einem flüchtigen `npx`-Cache einrichten;
+   - **Portable:** wenn Node/npm fehlt, ungeeignet oder vom Nutzer nicht für
+     die Runtime gewünscht ist. Installiere Node/npm nicht als Voraussetzung.
+4. Binde beide Wege an denselben vollständigen Release. Beim npm-Weg lies die
+   `beta`-Version von `@yadimon/steuer-spar-erklaerung-api` und bei
+   MCP-Wunsch zusätzlich `@yadimon/steuer-spar-erklaerung-mcp`; beide müssen
+   gleich sein und zu einem vollständigen GitHub-Release mit ZIP und
+   Prüfsumme gehören. Beim Portable-Weg lies `portable-manifest.json` und die
+   veröffentlichte SHA-256-Prüfsumme.
    Akzeptiere nur ein Profil mit `status=supported` und
    `operationAccess=full`; derzeit `2025` / Engine-Major `31`.
    Experimentelle oder `verification-only`-Profile werden weder angeboten noch
    über einen Setup-Opt-in freigeschaltet.
-4. Die kanonische öffentliche Releasequelle ist
+5. Die kanonische öffentliche Releasequelle ist
    `https://github.com/yadimon/steuer-spar-erklaerung-mcp/releases`. Verwende
    das aktuellste dort veröffentlichte, nicht als Draft markierte Release oder
    Prerelease, das beide exakten Assets `steuer-spar-erklaerung.zip` und
@@ -31,7 +43,7 @@ PowerShell 5.1.
    GitHub-Quellarchive (`Source code`) sind kein portables Release. Eine andere
    Quelle nur verwenden, wenn der Nutzer sie ausdrücklich nennt; nie eine URL
    oder Versionsnummer erfinden.
-5. Fehlt ein fertiges portables Release, stoppe mit dieser konkreten Angabe.
+6. Fehlt ein fertiges portables Release, stoppe mit dieser konkreten Angabe.
    Fordere einen Laien nicht zum lokalen npm-Build auf.
 
 ## Einfacher Standardlauf
@@ -43,14 +55,18 @@ Prüfung fortfahren.
 
 Ohne bestätigten First-Run-Plan zeige vor Änderungen einen kurzen Standardplan:
 
-- funktionierende Konfiguration wiederverwenden, sonst das aktuellste passende
-  veröffentlichte Portable-Release samt Prüfsumme installieren;
+- funktionierende Konfiguration wiederverwenden; sonst bei vorhandenem
+  Node.js/npm das passende API-Paket persistent mit `@beta` installieren,
+  andernfalls das aktuellste passende veröffentlichte Portable-Release samt
+  Prüfsumme installieren;
 - `SSE.exe` automatisch erkennen; nur bei keinem oder mehreren Treffern fragen;
 - LocalAppData-Arbeitsbereich, read-only Prüfung, Markdown-Tracking und direkte
   API verwenden;
 - kein Connector, keine Agenten-Konfigurationsänderung und kein Autostart.
 
-Der Nutzer kann diesen konkret gezeigten Plan mit `OK`, `OK Standard` oder
+Der Plan nennt vor der Bestätigung ausdrücklich den gewählten npm- oder
+Portable-Weg und ob nur API oder zusätzlich MCP installiert wird. Der Nutzer
+kann diesen konkret gezeigten Plan mit `OK`, `OK Standard` oder
 `OK Default` gemeinsam bestätigen. Das autorisiert genau den genannten
 Download und die lokalen Standard-Setup-Dateien, aber keine
 Steuerdatenänderung, keinen Connector, keinen MCP-Konfigurations-Merge, keinen
@@ -68,16 +84,23 @@ Richte MCP nur auf ausdrücklichen Wunsch und nach gezeigtem Datei-Diff ein.
 Lies vor der Ausführung
 [references/installation.md](references/installation.md).
 
-1. Prüfe Release-Hash, Tag und Manifest und entpacke erst nach bestätigtem
-   Standardplan oder einer gleichwertigen ausdrücklichen Zustimmung.
-2. Starte den mitgelieferten Setup-Wizard. Sind bestätigter Fall- oder
+1. Prüfe Version, Tag und Distributionsartefakt erst nach bestätigtem
+   Standardplan oder einer gleichwertigen ausdrücklichen Zustimmung:
+   - npm: installiere `@yadimon/steuer-spar-erklaerung-api@beta` persistent
+     mit `npm install --global`; installiere
+     `@yadimon/steuer-spar-erklaerung-mcp@beta` nur bei bestätigtem
+     MCP-Wunsch. Verwende weder `npx` noch einen temporären Paketcache zum
+     Start des Setup-Wizards.
+   - Portable: prüfe Release-Hash, Tag und Manifest und entpacke danach.
+2. Starte den Setup-Wizard des gewählten Wegs. Sind bestätigter Fall- oder
    Belegordner noch nicht in einer wiederverwendeten Konfiguration gespeichert,
    führe ihn interaktiv aus und beantworte seine technischen Rückfragen selbst
    aus dem bestätigten Standardplan; frage den Nutzer nicht erneut. Verwende
    `--defaults` nur, wenn diese Pfade bereits gespeichert sind oder ausdrücklich
    kein Fall-/Quellordner gebunden werden soll. `--no-start` nur auf Wunsch.
-   Verwende keinen globalen `node`- oder `npm`-Befehl und führe keinen Build auf
-   dem Nutzer-PC aus.
+   Führe keinen Build auf dem Nutzer-PC aus. Beim Portable-Weg keinen globalen
+   `node`- oder `npm`-Befehl verwenden; beim npm-Weg ausschließlich die
+   veröffentlichten `@beta`-Pakete installieren, niemals Git-Quellcode bauen.
 3. Lass ein starkes Token und lokale Dateien außerhalb des Repositorys
    erzeugen. Dazu gehören `setup-decisions.json`, `settings.md` und ein neues
    `tracking.md` oder die Referenz auf eine vorhandene `.xlsx`-Datei. Token
@@ -85,20 +108,24 @@ Lies vor der Ausführung
 4. Sichere vorhandene Konfiguration. Merge nur, wenn der Nutzer Dateipfad und
    Diff bestätigt hat; ersetze niemals die komplette Datei.
    Repariere einen alten Eintrag mit `command = "node"`, `node.cmd`, `npx` oder
-   einem Batch-Wrapper: MCP muss die absolute mitgelieferte
-   `runtime/node.exe` direkt starten. Sonst können Shim-Prozessketten und
-   schwarze `cmd.exe`-Fenster entstehen.
+   einem Batch-Wrapper: MCP muss die vom Wizard ausgegebene absolute
+   `node.exe` direkt starten – portable die mitgelieferte `runtime/node.exe`,
+   beim npm-Weg die tatsächlich laufende Node-Datei. Die Argumente müssen auf
+   den dauerhaften MCP-Paketeinstieg zeigen. Sonst können Shim-Prozessketten,
+   ungültige Cachepfade und schwarze `cmd.exe`-Fenster entstehen.
 5. Starte die API mit dem erzeugten fensterlosen Launcher. Registriere eine
    geplante Aufgabe nur nach separater Zustimmung.
 6. Prüfe `/healthz`, Discovery, Produktprofil, Engine, Workspace und read-only
    Zustand. Lies danach `settings.md`, `setup-decisions.json` und das gewählte
    Tracking zurück. Vorhandene Nutzerdateien dürfen bei einem Default-Lauf
    nicht still ersetzt werden.
-   Ohne MCP verwende die ausgelieferte CLI; im portablen Ordner lautet der
-   Health-Aufruf `runtime/node.exe dist/api-cli.js health --config <config.json>`.
+   Ohne MCP verwende die ausgelieferte CLI. Beim npm-Weg lautet sie
+   `steuer-spar-erklaerung-call`; im portablen Ordner lautet der Health-Aufruf
+   `runtime/node.exe dist/api-cli.js health --config <config.json>`.
    Lies danach `discovery`; Argumentwerte nie direkt in die Kommandozeile schreiben.
 7. Bei MCP-Wunsch: verwende das vollständige Serverobjekt der Setup-Ausgabe,
-   prüfe darin nochmals den absoluten `runtime/node.exe`-Befehl, lade den Client
+   prüfe darin nochmals den absoluten `node.exe`-Befehl und dauerhaften
+   MCP-Einstieg, lade den Client
    neu, liste den Server und führe einen realen Health-Aufruf aus. Bleibt das
    unmöglich, direkte API als vollwertigen Fallback anbieten.
 
