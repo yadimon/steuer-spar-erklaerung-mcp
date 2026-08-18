@@ -8,6 +8,9 @@ const rootPackage = JSON.parse(readFileSync("package.json", "utf8"));
 const packageLock = JSON.parse(readFileSync("package-lock.json", "utf8"));
 const apiPackage = JSON.parse(readFileSync("packages/api/package.json", "utf8"));
 const mcpPackage = JSON.parse(readFileSync("packages/mcp/package.json", "utf8"));
+const apiReadme = readFileSync("packages/api/README.md", "utf8");
+const mcpReadme = readFileSync("packages/mcp/README.md", "utf8");
+const cleanInstallSource = readFileSync("test/npm-clean-install.mjs", "utf8");
 
 assert.equal(rootPackage.private, true, "Das Workspace-Root muss unveroeffentlichbar bleiben.");
 assert.deepEqual(rootPackage.workspaces, ["packages/*"]);
@@ -34,6 +37,8 @@ for (const [directory, manifest] of [["packages/api", apiPackage], ["packages/mc
 }
 
 assert.equal(apiPackage.name, "@yadimon/steuer-spar-erklaerung-api");
+assert.match(apiPackage.description, /HTTP API wrapper and CLI/u);
+assert.doesNotMatch(apiPackage.description, /wizard/iu, "Das API-Paket darf nicht als Wizard positioniert werden.");
 assert.deepEqual(apiPackage.os, ["win32"]);
 assert.deepEqual(apiPackage.cpu, ["x64"]);
 assert.deepEqual(apiPackage.bin, {
@@ -42,9 +47,39 @@ assert.deepEqual(apiPackage.bin, {
   "steuer-spar-erklaerung-setup": "dist/setup-main.js",
 });
 assert.equal(mcpPackage.name, "@yadimon/steuer-spar-erklaerung-mcp");
+assert.match(mcpPackage.description, /MCP wrapper.*via the local API package/u);
 assert.equal(mcpPackage.os, undefined, "Der PC-blinde MCP-Wrapper soll plattformneutral installierbar bleiben.");
 assert.equal(mcpPackage.cpu, undefined, "Der PC-blinde MCP-Wrapper soll keine CPU-Einschraenkung tragen.");
 assert.deepEqual(mcpPackage.bin, { "steuer-spar-erklaerung-mcp": "dist/index.js" });
+
+for (const required of [
+  "Beta und inoffiziell",
+  "Windows x64",
+  "SteuerSparErklärung 2025 / Engine-Major 31",
+  "@yadimon/steuer-spar-erklaerung-api@beta",
+  "API-Wrapper",
+  "Setup-Skill",
+  "ELSTER",
+  "GitHub Releases",
+]) {
+  assert(apiReadme.includes(required), `API-Paket-README verschweigt: ${required}`);
+}
+for (const required of [
+  "Beta und inoffiziell",
+  "PC-blinder MCP-Wrapper",
+  "exakt dieselbe Version",
+  "@yadimon/steuer-spar-erklaerung-mcp@beta",
+  "87 fachliche MCP-Toolnamen",
+  "structuredContent",
+  "SSE_API_TOKEN",
+  "ELSTER",
+]) {
+  assert(mcpReadme.includes(required), `MCP-Paket-README verschweigt: ${required}`);
+}
+assert.match(mcpReadme, /über die lokale\s+SteuerSparErklärung-API/u);
+assert.match(cleanInstallSource, /process\.argv\.includes\("--published"\)/u);
+assert.match(cleanInstallSource, /npm_config_cache: join\(temporary, "npm-cache"\)/u);
+assert.match(cleanInstallSource, /"Registry-Smoke"/u);
 
 const npmCli = process.env.npm_execpath ?? join(dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
 assert(existsSync(npmCli), `npm CLI fuer Paketvertrag fehlt: ${npmCli}`);
