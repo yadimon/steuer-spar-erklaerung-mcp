@@ -9,33 +9,53 @@ if (process.platform !== "win32" || process.arch !== "x64") {
   throw new Error("Der Clean-install-Smoke fuer das API-Paket braucht Windows x64.");
 }
 
+const publishedMode = process.argv.includes("--published");
+const unexpectedArguments = process.argv.slice(2).filter((argument) => argument !== "--published");
+assert.deepEqual(unexpectedArguments, [], `Unbekannte Argumente: ${unexpectedArguments.join(", ")}`);
+const rootPackage = JSON.parse(readFileSync("package.json", "utf8"));
+const expectedVersion = rootPackage.version;
+const mcpPackageName = "@yadimon/steuer-spar-erklaerung-mcp";
+const apiPackageName = "@yadimon/steuer-spar-erklaerung-api";
+
 const npmCli = process.env.npm_execpath ?? join(dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
 assert(existsSync(npmCli), `npm CLI fehlt: ${npmCli}`);
 const temporary = mkdtempSync(join(tmpdir(), "sse-npm-install-"));
 
 function npm(args, options = {}) {
+  const { env: optionEnv = {}, ...spawnOptions } = options;
   const result = spawnSync(process.execPath, [npmCli, ...args], {
     cwd: process.cwd(),
     encoding: "utf8",
     windowsHide: true,
     maxBuffer: 8 * 1024 * 1024,
-    ...options,
+    env: {
+      ...process.env,
+      npm_config_cache: join(temporary, "npm-cache"),
+      ...optionEnv,
+    },
+    ...spawnOptions,
   });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   return result.stdout;
 }
 
 try {
-  const tarballs = [];
-  for (const directory of ["packages/mcp", "packages/api"]) {
-    const output = npm(["pack", `./${directory}`, "--json", "--ignore-scripts", "--pack-destination", temporary]);
-    const [packed] = JSON.parse(output);
-    const tarball = join(temporary, basename(packed.filename));
-    assert(existsSync(tarball), `Tarball fehlt: ${tarball}`);
-    tarballs.push(tarball);
+  const installSources = [];
+  if (publishedMode) {
+    installSources.push(`${mcpPackageName}@${expectedVersion}`, `${apiPackageName}@${expectedVersion}`);
+  } else {
+    for (const directory of ["packages/mcp", "packages/api"]) {
+      const output = npm(["pack", `./${directory}`, "--json", "--ignore-scripts", "--pack-destination", temporary]);
+      const [packed] = JSON.parse(output);
+      const tarball = join(temporary, basename(packed.filename));
+      assert(existsSync(tarball), `Tarball fehlt: ${tarball}`);
+      installSources.push(tarball);
+    }
   }
-  const apiTarball = tarballs.find((path) => basename(path).includes("-api-"));
-  assert(apiTarball, "API-Tarball wurde nicht erzeugt.");
+  const apiSource = publishedMode
+    ? `${apiPackageName}@${expectedVersion}`
+    : installSources.find((path) => basename(path).includes("-api-"));
+  assert(apiSource, "API-Installationsquelle wurde nicht erzeugt.");
 
   const installRoot = join(temporary, "installation");
   npm([
@@ -44,7 +64,7 @@ try {
     "--ignore-scripts",
     "--no-audit",
     "--no-fund",
-    ...tarballs,
+    ...installSources,
   ]);
 
   const apiOnlyRoot = join(temporary, "api-only-installation");
@@ -54,7 +74,7 @@ try {
     "--ignore-scripts",
     "--no-audit",
     "--no-fund",
-    apiTarball,
+    apiSource,
   ]);
   assert(
     existsSync(join(apiOnlyRoot, "node_modules", ".bin", "steuer-spar-erklaerung-setup.cmd")),
@@ -87,10 +107,15 @@ try {
 
   const apiRoot = join(installRoot, "node_modules", "@yadimon", "steuer-spar-erklaerung-api");
   const mcpRoot = join(installRoot, "node_modules", "@yadimon", "steuer-spar-erklaerung-mcp");
+  assert.equal(JSON.parse(readFileSync(join(apiRoot, "package.json"), "utf8")).version, expectedVersion);
+  assert.equal(JSON.parse(readFileSync(join(mcpRoot, "package.json"), "utf8")).version, expectedVersion);
   assert(!existsSync(join(apiRoot, "dist", "index.js")), "API-Paket enthaelt den MCP-Einstieg.");
   assert(!existsSync(join(mcpRoot, "powershell")), "MCP-Paket enthaelt PowerShell.");
   assert(!existsSync(join(mcpRoot, "profiles")), "MCP-Paket enthaelt Produktprofile.");
-  assert.match(readFileSync(join(apiRoot, "README.md"), "utf8"), /keinen MCP-Server/u);
+  assert.match(
+    readFileSync(join(apiRoot, "README.md"), "utf8"),
+    /MCP-Server ist bewusst \*\*nicht\*\* enthalten/u,
+  );
   assert.match(readFileSync(join(mcpRoot, "README.md"), "utf8"), /PC-blinder MCP-Wrapper/u);
   const installedWindowsRuntime = await import(pathToFileURL(join(apiRoot, "dist", "windows-runtime.js")).href);
   assert.equal(
@@ -113,8 +138,10 @@ try {
   assert.equal(installedMcpContract.status, 0, installedMcpContract.stderr || installedMcpContract.stdout);
   assert.match(installedMcpContract.stdout, /87 Werkzeuge.*\d+ API-Roundtrips/u, "Installierter MCP-Vertrag ist unvollstaendig.");
 
+  const sourceLabel = publishedMode ? "exakten npm-Registry-Paketen" : "zwei getrennten Tarballs";
   process.stdout.write(
-    `npm-Clean-install: ${commands.length} CLI-Einstiege und 87-Tool-MCP-Vertrag aus zwei getrennten Tarballs bestanden\n`,
+    `npm-${publishedMode ? "Registry-Smoke" : "Clean-install"}: ${commands.length} CLI-Einstiege und ` +
+      `87-Tool-MCP-Vertrag aus ${sourceLabel} bestanden\n`,
   );
 } finally {
   rmSync(resolve(temporary), { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });

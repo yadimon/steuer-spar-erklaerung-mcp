@@ -64,6 +64,12 @@ npm run publish:dry-run
 npm run test:npm-clean-install
 ```
 
+Die identische lokale Gatefolge kann als ein Befehl ausgeführt werden:
+
+```powershell
+npm run check
+```
+
 `verify:portable-release` muss Produkt, Version, Dateizahl, Bytezahl und
 SHA-256 des bereits gebauten ZIP als `ok: true` ausgeben. Der anschließende
 Clean-install-Smoke muss vier CLI-Einstiege und den 87-Tool-MCP-Vertrag aus
@@ -148,8 +154,18 @@ npm view '@yadimon/steuer-spar-erklaerung-api' dist-tags --json
 
 `npm whoami` muss `yadimon` oder ein Konto mit Veröffentlichungsrecht im
 Scope `@yadimon` zeigen. Beide `beta`-Tags müssen exakt `$version` nennen;
-`latest` darf in der Beta nicht auf diese Version zeigen. Der erste lokale
-Publish besitzt noch keine OIDC-Provenance.
+`latest` darf in der Beta nicht auf diese Version zeigen. Falls ein erster
+manueller Publish zusätzlich `latest` angelegt hat, diesen nach erfolgreicher
+Prüfung mit den folgenden npm-Schreiboperationen entfernen:
+
+```powershell
+npm dist-tag rm '@yadimon/steuer-spar-erklaerung-mcp' latest
+npm dist-tag rm '@yadimon/steuer-spar-erklaerung-api' latest
+```
+
+Bei aktiviertem `auth-and-writes` verlangt npm dabei einen persönlichen OTP-
+Schritt; den Code ausschließlich direkt in der eigenen Konsole oder npm-
+Sitzung eingeben. Der erste lokale Publish besitzt noch keine OIDC-Provenance.
 
 Danach auf npmjs.com **für beide Pakete getrennt** unter
 `Settings -> Trusted Publisher -> GitHub Actions` eintragen:
@@ -165,9 +181,19 @@ authentication and disallow tokens“ aktivieren. Das sperrt langlebige Tokens,
 nicht OIDC. In GitHub weder ein klassisches npm-Token noch ein Secret
 `NPM_TOKEN` anlegen.
 
-Ab der nächsten Version den bereits geprüften GitHub-Release zuerst vollständig
-veröffentlichen und zurücklesen. Danach den Workflow bewusst auf dem Tag
-starten:
+Ab der nächsten vollständig vorbereiteten Version übernimmt der lokale
+Orchestrator die Reihenfolge. Er verlangt einen sauberen `main`, identische
+API-/MCP-Versionen, vorhandene Release Notes und keinen `latest`-Tag, führt
+alle Gates aus, pusht Commit und annotierten Tag, erstellt und liest den
+GitHub-Prerelease zurück, startet erst danach Trusted Publishing und führt
+abschließend den Registry-Smoke aus:
+
+```powershell
+npm run release:current
+```
+
+Für eine gezielte Wiederaufnahme kann der Workflow weiterhin bewusst auf dem
+bereits veröffentlichten GitHub-Tag gestartet werden:
 
 ```powershell
 gh workflow run npm-publish.yml --repo yadimon/steuer-spar-erklaerung-mcp --ref $tag
@@ -178,7 +204,13 @@ GitHub-gehosteten Windows-Runner die Native-Runtime, führt Vollsuite und echten
 Tarball-Clean-install aus und veröffentlicht zuerst MCP, danach API. Bei einem
 Teilfehler nie eine bereits veröffentlichte Paketversion wiederverwenden oder
 den Tag verschieben. Das fehlende Paket aus demselben Tag-Checkout gezielt
-fertigstellen und anschließend beide Registry-Versionen zurücklesen.
+fertigstellen und anschließend beide Registry-Versionen zurücklesen. Der
+veröffentlichte Installationsvertrag wird separat gegen die echten Registry-
+Artefakte geprüft:
+
+```powershell
+npm run smoke:published
+```
 
 ## 7. Öffentlichen Skill und Einstieg prüfen
 

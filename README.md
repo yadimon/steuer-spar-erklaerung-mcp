@@ -174,8 +174,9 @@ Snapshot auch über die authentifizierte Operations-Discovery.
 - ein portables Windows-x64-Paket mit eigener Node-Laufzeit;
 - lokale PDF-zu-PNG- und Bild-OCR-Helfer ohne Python-/Poppler-Pflicht;
 - getrennte npm-Pakete für Windows-API und PC-blinden MCP-Wrapper;
-- ein deutscher Setup-Wizard mit fensterlosem API-Start;
-- öffentliche Skills für Prüfung und Einrichtung;
+- ein deutscher Setup-Skill mit geführtem First-Run und fensterlosem API-Start;
+- öffentliche Skills für Prüfung und Einrichtung sowie technische
+  Konfigurationshelfer im API-Paket;
 - versionierte Produktprofile und gemeinsame API-/MCP-Vertragstests.
 
 | Profil | Status | Aktuell belegter Umfang |
@@ -184,7 +185,7 @@ Snapshot auch über die authentifizierte Operations-Discovery.
 | `2024` / Engine 30 | `experimental` / `verification-only` | derselbe read-only Muster-Sweep nur mit bewusstem Entwickler-Opt-in; keine allgemeine Schreibfreigabe und kein Focusless-Commit |
 
 Der veröffentlichte Beta-Release unterstützt weiterhin Profil `2025`. Der
-Quellstand enthält zusätzlich das experimentelle Profil `2024`; der Wizard
+Quellstand enthält zusätzlich das experimentelle Profil `2024`; der Setup-Skill
 bietet es nicht produktiv an. Details und genaue Testgrenzen stehen im
 [Verifikationsstand](docs/VERIFIKATION.md). Das Projekt ist unabhängig und
 weder mit Wolters Kluwer, Steuertipps noch der Akademischen
@@ -194,11 +195,18 @@ Arbeitsgemeinschaft verbunden.
 
 ### npm-Pakete
 
-`@yadimon/steuer-spar-erklaerung-api@beta` enthält API, Setup-Wizard, direkte
-CLI, Profile und die Windows-/Native-Runtime. Es enthält keinen MCP-Server.
-`@yadimon/steuer-spar-erklaerung-mcp@beta` enthält nur den MCP-Clientgraphen
-und kennt weiterhin ausschließlich API-URL und Token. Beide Pakete müssen
+`@yadimon/steuer-spar-erklaerung-api@beta` ist der lokale Windows-x64-
+API-Wrapper für SteuerSparErklärung. Er enthält HTTP-API, direkte CLI, Profile,
+Windows-/Native-Runtime und den technischen Konfigurationshelfer, den der
+Setup-Skill verwendet; er enthält keinen MCP-Server.
+`@yadimon/steuer-spar-erklaerung-mcp@beta` ist der PC-blinde MCP-Wrapper für
+SteuerSparErklärung über dieses API-Paket. Er kennt ausschließlich API-URL und
+Token und automatisiert die Oberfläche nicht selbst. Beide Pakete müssen
 dieselbe Version tragen und zum vollständigen GitHub-Release gehören.
+Die npm-Seiten besitzen eigene Einstiege für das
+[API-Paket](packages/api/README.md) und den
+[MCP-Wrapper](packages/mcp/README.md); diese erklären Voraussetzungen,
+Paketgrenzen und Sicherheitsregeln ohne einen lokalen Repository-Checkout.
 
 ### Portables Release
 
@@ -378,7 +386,14 @@ npm run package:portable
 npm run pack
 npm run publish:dry-run
 npm run test:npm-clean-install
+npm run smoke:published
 ```
+
+Maintainer können sämtliche lokalen Release-Gates mit `npm run check`
+zusammenfassen. `npm run release:current` ist absichtlich stärker: Es darf nur
+auf einem sauberen, releasefertig versionierten `main` laufen, erstellt und
+prüft Tag sowie GitHub-Prerelease, startet anschließend Trusted Publishing und
+installiert zum Schluss beide exakten Registry-Pakete für einen realen Smoke.
 
 Jeder Build entfernt ausschließlich veraltete `dist/*.js`- und
 `dist/*.js.map`-Dateien ohne passende TypeScript-Quelle. Unbekannte Dateien
@@ -443,7 +458,7 @@ Weitere Unterlagen:
 - [API-/MCP-Vertrag](docs/API-MCP-VERTRAG.md)
 - [Verifikationsstand](docs/VERIFIKATION.md)
 - [Release-Prozess](docs/RELEASE.md)
-- [Release Notes v0.1.0-beta.5](docs/releases/v0.1.0-beta.5.md)
+- [Release Notes v0.1.0-beta.6](docs/releases/v0.1.0-beta.6.md)
 - [Entwicklungswissen](docs/entwicklung/README.md)
 - [Mitwirken](CONTRIBUTING.md)
 - [Haupt-Skill](skills/steuer-spar-erklaerung/SKILL.md)

@@ -21,10 +21,48 @@ const workflow = readFileSync(workflowPath, "utf8");
 const nodeVersion = readFileSync(".node-version", "utf8").trim();
 const runtime = JSON.parse(readFileSync("portable/runtime.json", "utf8"));
 const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
+const releaseCheckPath = "scripts/release-check.mjs";
+const releaseCurrentPath = "scripts/release-current.mjs";
+assert(existsSync(releaseCheckPath), "Lokaler Release-Check fehlt.");
+assert(existsSync(releaseCurrentPath), "Lokaler Release-Orchestrator fehlt.");
+const releaseCheck = readFileSync(releaseCheckPath, "utf8");
+const releaseCurrent = readFileSync(releaseCurrentPath, "utf8");
 
 assert.equal(nodeVersion, runtime.node.version, ".node-version und portable Runtime laufen auseinander.");
 assert.equal(Number(nodeVersion.split(".")[0]), 22, "CI muss die freigegebene Node-22-Linie verwenden.");
 assert.match(packageJson.engines.node, />=22/u, "package.json nennt Node 22 nicht als Mindestversion.");
+assert.equal(packageJson.scripts.check, "node scripts/release-check.mjs");
+assert.equal(packageJson.scripts["release:check"], "node scripts/release-check.mjs");
+assert.equal(packageJson.scripts["release:current"], "node scripts/release-current.mjs");
+assert.equal(packageJson.scripts["smoke:published"], "node test/npm-clean-install.mjs --published");
+
+for (const required of [
+  '["audit", "--omit=dev", "--audit-level=high"]',
+  '["test"]',
+  '["run", "test:product"]',
+  '["run", "package:portable"]',
+  '["run", "verify:portable-release"]',
+  '["run", "pack"]',
+  '["run", "publish:dry-run"]',
+  '["run", "test:npm-clean-install"]',
+]) {
+  assert(releaseCheck.includes(required), `release:check verschweigt Gate: ${required}`);
+}
+for (const required of [
+  'capture(git, ["status", "--short"])',
+  '["fetch", "origin", "--prune", "--tags"]',
+  '["merge-base", "--is-ancestor", "origin/main", headSha]',
+  "assertAnnotatedTag(tag)",
+  "assertNoLatestTags()",
+  'npm(["run", "release:check"])',
+  '"--verify-tag", "--prerelease"',
+  '"workflow", "run", workflow',
+  'gh(["run", "watch"',
+  'npm(["run", "smoke:published"])',
+]) {
+  assert(releaseCurrent.includes(required), `release:current verschweigt Grenze: ${required}`);
+}
+assert(!/npm\(\["publish"/u.test(releaseCurrent), "release:current darf npm nicht lokal mit Langzeittoken publizieren.");
 
 assert.match(workflow, /^name: Windows CI$/mu);
 for (const trigger of ["push:", "pull_request:", "workflow_dispatch:"]) {
