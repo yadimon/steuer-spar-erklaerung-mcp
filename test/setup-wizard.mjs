@@ -109,8 +109,10 @@ try {
   mkdirSync(sseDir, { recursive: true });
   mkdirSync(sourceDir, { recursive: true });
   mkdirSync(join(repoRoot, "runtime"), { recursive: true });
+  mkdirSync(join(repoRoot, "dist"), { recursive: true });
   writeFileSync(sseExecutable, "fixture", "utf8");
   writeFileSync(portableNode, "portable-node-fixture", "utf8");
+  writeFileSync(join(repoRoot, "dist", "index.js"), "// mcp fixture\n", "utf8");
   const fakeSseDirectory = join(temporary, "Falsche Programme", "Steuertipps", "Steuerjahr 2025", "SSE.exe");
   mkdirSync(fakeSseDirectory, { recursive: true });
   assert.throws(() => validateSseExecutable(fakeSseDirectory), /regulaere Datei/);
@@ -170,6 +172,27 @@ try {
   assert.throws(() => buildSetupArtifacts({ ...values, workspaceDir: `${workspaceDir}\nzweite-zeile` }), /Steuerzeichen/);
   assert.throws(() => buildSetupArtifacts({ ...values, resultDir: values.caseDir }), /Ressourcenbereiche/);
   assert.throws(() => buildSetupArtifacts({ ...values, resultDir: workspaceDir }), /Ressourcenbereich/);
+  assert.throws(
+    () => buildSetupArtifacts({
+      ...values,
+      repoRoot: join(temporary, "npm-cache", "_npx", "1234abcd", "node_modules", "steuer-spar-erklaerung-mcp"),
+    }),
+    /fluechtigen npx-Cache.*npm install --global.*@beta.*portable Release/,
+  );
+  const apiOnlyRoot = join(temporary, "api-only-package");
+  mkdirSync(join(apiOnlyRoot, "dist"), { recursive: true });
+  const apiOnly = buildSetupArtifacts({
+    ...values,
+    repoRoot: apiOnlyRoot,
+    preferences: { ...values.preferences, transport: "api" },
+  });
+  assert.equal(apiOnly.mcpConfig, undefined);
+  assert.equal(apiOnly.mcpConfigPath, undefined);
+  assert(!setupArtifactTargetPaths({
+    ...values,
+    repoRoot: apiOnlyRoot,
+    preferences: { ...values.preferences, transport: "api" },
+  }).some((path) => path.includes("mcp-client")));
   assert.throws(
     () => writeSetupArtifacts({ ...values, configPath: join(workspaceDir, "setup-decisions.json") }, false),
     /unterschiedliche Pfade/,

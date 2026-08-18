@@ -1,6 +1,8 @@
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { SSE_PACKAGE_VERSION } from "./version.js";
 
 export interface WindowsPowerShellRuntime {
   executable: string;
@@ -12,6 +14,42 @@ export interface WindowsPowerShellRuntime {
 export function resolveProductNode(repoRoot: string, fallback = process.execPath): string {
   const bundled = resolve(repoRoot, "runtime", "node.exe");
   return existsSync(bundled) ? bundled : resolve(fallback);
+}
+
+export function assertPersistentProductRoot(repoRoot: string): void {
+  const segments = resolve(repoRoot).toLowerCase().split(/[\\/]+/u);
+  const npxCacheIndex = segments.lastIndexOf("_npx");
+  if (npxCacheIndex >= 0 && segments.slice(npxCacheIndex + 2).includes("node_modules")) {
+    throw new Error(
+      "Diese Installation liegt im fluechtigen npx-Cache und wuerde ungueltige dauerhafte Startpfade erzeugen. " +
+      "Bitte npm install --global @yadimon/steuer-spar-erklaerung-api@beta verwenden oder das portable Release nutzen.",
+    );
+  }
+}
+
+export function resolveProductMcpEntry(repoRoot: string): string {
+  const localEntry = resolve(repoRoot, "dist", "index.js");
+  if (existsSync(localEntry)) return localEntry;
+  try {
+    const packageManifest = JSON.parse(readFileSync(
+      fileURLToPath(import.meta.resolve("@yadimon/steuer-spar-erklaerung-mcp/package.json")),
+      "utf8",
+    )) as { version?: unknown };
+    if (packageManifest.version !== SSE_PACKAGE_VERSION) {
+      throw new Error(
+        `Installierte MCP-Version '${String(packageManifest.version)}' passt nicht zur API-Version '${SSE_PACKAGE_VERSION}'.`,
+      );
+    }
+    const installedEntry = fileURLToPath(import.meta.resolve("@yadimon/steuer-spar-erklaerung-mcp/cli"));
+    if (existsSync(installedEntry)) return resolve(installedEntry);
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("passt nicht zur API-Version")) throw error;
+    // Die konkrete Fehlermeldung unten ist fuer Nutzer hilfreicher als ERR_MODULE_NOT_FOUND.
+  }
+  throw new Error(
+    "MCP wurde angefordert, aber @yadimon/steuer-spar-erklaerung-mcp ist nicht dauerhaft installiert. " +
+    "Installieren Sie das MCP-Paket mit @beta oder waehlen Sie den direkten API-Transport.",
+  );
 }
 
 /**

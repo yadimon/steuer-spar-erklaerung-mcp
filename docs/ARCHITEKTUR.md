@@ -357,12 +357,23 @@ Pfade bleiben lokal und werden nicht in MCP-Ergebnisse oder Szenarioartefakte
 
 ### Nutzerstandard
 
-Der Standard ist ein portable GitHub Release:
+Es gibt zwei gleich versionierte Distributionswege. Eine vorhandene passende
+Installation wird wiederverwendet. Mit bereits vorhandenem Node.js 22+ und npm
+kann der Setup-Skill die veröffentlichten `@beta`-Pakete persistent
+installieren; andernfalls bleibt das portable GitHub Release der vollständige
+Weg ohne globale Entwicklerwerkzeuge.
 
-- entpacken statt installieren;
-- keine Administratorrechte, Dienste, geplanten Aufgaben oder PATH-Änderungen;
+- Portable wird entpackt statt installiert und braucht keine
+  Administratorrechte, Dienste, geplanten Aufgaben oder PATH-Änderungen;
 - Start nur für die aktuelle Arbeit und kontrollierter Shutdown danach;
-- npm bleibt ausschließlich Build-/CI-Werkzeug;
+- das Root-Manifest bleibt ein privater Build-Workspace. Das Windows-x64-
+  Paket `@yadimon/steuer-spar-erklaerung-api` enthält API, CLI, Setup,
+  PowerShell-/Native-Runtime und Profile; das plattformneutrale Paket
+  `@yadimon/steuer-spar-erklaerung-mcp` enthält nur den PC-blinden
+  Clientgraphen;
+- beide npm-Pakete werden aus derselben TypeScript-Quelle mit getrennten
+  Einstieggraphen gebaut. Ein generischer OpenAPI-Proxy oder ein dupliziertes
+  drittes Contract-Paket ist nicht Teil der Architektur;
 - vor TypeScript-Builds werden nur quelllose Compilerartefakte unter dem
   gebundenen `dist`-Ordner entfernt; unbekannte Dateien oder Links stoppen den
   Build. npm- und Portable-Paketierung validieren danach erneut jedes
@@ -382,16 +393,17 @@ Der Standard ist ein portable GitHub Release:
   Worker, native DLL und Source-Fallback unter genau dieser Laufzeit. Ein
   privates oder globales PowerShell 7 gehört nicht zum Produkt.
 
-Ein kleiner Online-Bootstrap darf später zusätzlich angeboten werden. Er ist
-nicht der einzige Installationsweg und lädt ausschließlich gepinnte offizielle
-Artefakte mit SHA256-Prüfung in den lokalen Arbeitsbereich.
+Der npm-Weg ist nicht der einzige Installationsweg und baut keinen Quellcode
+auf dem Nutzer-PC. Ein Setup aus dem flüchtigen `_npx`-Cache wird verweigert,
+weil API-Starter und MCP-Konfiguration dauerhafte absolute Pfade benötigen.
 
 ### Betriebsarten
 
 1. **Standard:** API bei Bedarf fensterlos starten, Aufgabe ausführen, sauber
    beenden.
-2. **MCP-Komfort:** Agentkonfiguration verweist direkt auf den portable
-   MCP-Launcher; dieser spricht mit derselben API.
+2. **MCP-Komfort:** Agentkonfiguration verweist direkt auf den portablen oder
+   separat installierten MCP-Einstieg; dieser spricht mit derselben API und
+   kennt nur URL und Token.
 3. **Dauerbetrieb (opt-in):** Autostart oder geplante Aufgabe nur nach
    ausdrücklicher Zustimmung des Nutzers.
 

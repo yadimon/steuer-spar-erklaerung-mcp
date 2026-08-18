@@ -1,8 +1,16 @@
 # Release-Prozess
 
-Dieses Projekt veröffentlicht keine npm-Pakete und keinen gehosteten Dienst.
-Das Produkt ist ein manuell freigegebenes Windows-x64-ZIP mit separater
-SHA-256-Datei auf GitHub. `package.json` bleibt deshalb `private: true`.
+Dieses Projekt veröffentlicht keinen gehosteten Dienst. Es hat drei bewusst
+getrennte Distributionsartefakte:
+
+- ein portables Windows-x64-ZIP mit separater SHA-256-Datei auf GitHub;
+- `@yadimon/steuer-spar-erklaerung-api` für API, CLI und Setup;
+- `@yadimon/steuer-spar-erklaerung-mcp` als PC-blinden MCP-Wrapper.
+
+Das Root-`package.json` bleibt als Build-Workspace `private: true`. Nur die
+beiden Manifeste unter `packages/` sind veröffentlichbar. GitHub Releases
+bleiben der vollständige Weg für Nutzer ohne Node.js/npm und werden durch npm
+nicht ersetzt.
 
 Die Windows-CI besitzt absichtlich nur Leserechte. Sie baut und prüft ein
 kurzlebiges Artefakt, veröffentlicht aber weder Tags noch Releases. Jeder
@@ -13,6 +21,7 @@ kurzlebiges Artefakt, veröffentlicht aber weder Tags noch Releases. Jeder
 Für eine neue Beta müssen gemeinsam aktualisiert werden:
 
 - `package.json` und `package-lock.json`;
+- beide `packages/*/package.json`-Versionen;
 - `src/version.ts`;
 - `docs/releases/v<version>.md`;
 - `SECURITY.md`, Skills und README, soweit sich Supportgrenzen ändern;
@@ -50,12 +59,17 @@ npm test
 npm run test:product
 npm run package:portable
 npm run verify:portable-release
+npm run pack
+npm run publish:dry-run
+npm run test:npm-clean-install
 ```
 
-Der letzte Befehl muss Produkt, Version, Dateizahl, Bytezahl und SHA-256 des
-bereits gebauten ZIP als `ok: true` ausgeben. Danach nochmals prüfen, dass der
-Worktree sauber ist. Private Steuerdaten, lokale Konfigurationen und
-Test-Arbeitskopien dürfen nicht im Commit oder Artefakt liegen.
+`verify:portable-release` muss Produkt, Version, Dateizahl, Bytezahl und
+SHA-256 des bereits gebauten ZIP als `ok: true` ausgeben. Der anschließende
+Clean-install-Smoke muss vier CLI-Einstiege und den 87-Tool-MCP-Vertrag aus
+zwei getrennten Tarballs bestätigen. Danach nochmals prüfen, dass der Worktree
+sauber ist. Private Steuerdaten, lokale Konfigurationen und Test-Arbeitskopien
+dürfen nicht im Commit oder Artefakt liegen.
 
 ## 4. Annotierten Tag und GitHub-Prerelease veröffentlichen
 
@@ -107,7 +121,66 @@ Den exakten Prüfordner erst nach erfolgreichem Vergleich entfernen. Zusätzlich
 muss der annotierte Tag auf dem geprüften `main`-Commit liegen und das Release
 als **Pre-release** sichtbar sein.
 
-## 6. Öffentlichen Skill und Einstieg prüfen
+## 6. npm erstmals veröffentlichen und Trusted Publishing verbinden
+
+Beide Paketnamen sind neu. Für ihre allererste Veröffentlichung muss der
+Maintainer lokal mit einem npm-Konto angemeldet sein, das den Scope
+`@yadimon` besitzt oder darin Veröffentlichungsrecht hat. Existiert der npm-
+Nutzer beziehungsweise die Organisation `yadimon` noch nicht unter eigener
+Kontrolle, zuerst diesen Scope einrichten oder die beiden Paketnamen vor dem
+Release gemeinsam ändern. Ein freier Paketname allein verleiht kein Recht am
+Scope. npm braucht keine separate Freigabe des GitHub-Repositorys und GitHub
+braucht keinen `NPM_TOKEN`. Die Verbindung zum Repository entsteht nach dem
+Bootstrap über Trusted Publishing.
+
+Erst nachdem die GitHub-Assets aus Abschnitt 5 vollständig zurückgelesen
+wurden, aus demselben sauberen Tag-Checkout einmalig ausführen:
+
+```powershell
+npm install --global npm@11.19.0
+npm login
+npm whoami
+npm publish --workspace @yadimon/steuer-spar-erklaerung-mcp --ignore-scripts --tag beta --access public
+npm publish --workspace @yadimon/steuer-spar-erklaerung-api --ignore-scripts --tag beta --access public
+npm view '@yadimon/steuer-spar-erklaerung-mcp' dist-tags --json
+npm view '@yadimon/steuer-spar-erklaerung-api' dist-tags --json
+```
+
+`npm whoami` muss `yadimon` oder ein Konto mit Veröffentlichungsrecht im
+Scope `@yadimon` zeigen. Beide `beta`-Tags müssen exakt `$version` nennen;
+`latest` darf in der Beta nicht auf diese Version zeigen. Der erste lokale
+Publish besitzt noch keine OIDC-Provenance.
+
+Danach auf npmjs.com **für beide Pakete getrennt** unter
+`Settings -> Trusted Publisher -> GitHub Actions` eintragen:
+
+- Organization or user: `yadimon`
+- Repository: `steuer-spar-erklaerung-mcp`
+- Workflow filename: `npm-publish.yml`
+- Environment name: leer
+- Allowed actions: `npm publish`
+
+Anschließend unter `Publishing access` möglichst „Require two-factor
+authentication and disallow tokens“ aktivieren. Das sperrt langlebige Tokens,
+nicht OIDC. In GitHub weder ein klassisches npm-Token noch ein Secret
+`NPM_TOKEN` anlegen.
+
+Ab der nächsten Version den bereits geprüften GitHub-Release zuerst vollständig
+veröffentlichen und zurücklesen. Danach den Workflow bewusst auf dem Tag
+starten:
+
+```powershell
+gh workflow run npm-publish.yml --repo yadimon/steuer-spar-erklaerung-mcp --ref $tag
+```
+
+Der Workflow akzeptiert nur `refs/tags/v<package-version>`, baut auf einem
+GitHub-gehosteten Windows-Runner die Native-Runtime, führt Vollsuite und echten
+Tarball-Clean-install aus und veröffentlicht zuerst MCP, danach API. Bei einem
+Teilfehler nie eine bereits veröffentlichte Paketversion wiederverwenden oder
+den Tag verschieben. Das fehlende Paket aus demselben Tag-Checkout gezielt
+fertigstellen und anschließend beide Registry-Versionen zurücklesen.
+
+## 7. Öffentlichen Skill und Einstieg prüfen
 
 Nach Veröffentlichung und Aktualisierung von `main`:
 

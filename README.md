@@ -33,8 +33,8 @@ automatisiert nachvollziehbare Arbeitsschritte in der installierten Anwendung.
   Windows-Sitzung.
 
 Das portable Release benötigt kein global installiertes Node.js, npm, Python
-oder PowerShell 7. Nur der optionale Installationsweg mit `npx skills` setzt
-Node.js mit npm voraus.
+oder PowerShell 7. Der optionale Weg über `npx skills` und die getrennten
+npm-Runtimepakete setzt ein bereits vorhandenes Node.js 22+ mit npm voraus.
 
 ## Schnellstart
 
@@ -90,11 +90,35 @@ Prüfe meine Steuererklärung in SteuerSparErklärung 2025. Gleiche sie mit
 meinen Belegen ab und ändere nichts ohne meine ausdrückliche Freigabe.
 ```
 
-`npx` installiert nur die geprüften Agentenanweisungen. Der Skill führt danach
-durch Download, Prüfsumme und Einrichtung des separat veröffentlichten
-portablen Releases. Vor der Installation kann der
+`npx skills` installiert nur die geprüften Agentenanweisungen. Ist Node.js 22+
+mit npm bereits vorhanden, kann der Skill anschließend das API-Paket und auf
+Wunsch den getrennten MCP-Wrapper persistent installieren. Sonst führt er
+durch Download, Prüfsumme und Einrichtung des portablen Releases. Vor der Installation kann der
 [Haupt-Skill](skills/steuer-spar-erklaerung/SKILL.md) vollständig gelesen
 werden.
+
+### Runtime mit npm (optional)
+
+Die npm-Pakete sind getrennt: API, Setup und CLI bleiben im Windows-Paket;
+der PC-blinde MCP-Wrapper kann unabhängig installiert werden. Der normale
+Skill-Wizard übernimmt diese Befehle nach Bestätigung. Manuell lautet der
+API-only-Weg:
+
+```powershell
+npm install --global @yadimon/steuer-spar-erklaerung-api@beta
+steuer-spar-erklaerung-setup
+```
+
+Nur wenn der Agent MCP verwenden soll, kommt das zweite Paket dazu:
+
+```powershell
+npm install --global @yadimon/steuer-spar-erklaerung-mcp@beta
+steuer-spar-erklaerung-setup
+```
+
+Setup nie direkt aus `npx` starten: Der temporäre `_npx`-Cache ist kein
+stabiler Ort für dauerhafte API-/MCP-Startpfade. Für Nutzer ohne Node/npm ist
+der Portable-Weg unten vollständig gleichwertig.
 
 ## Beispiel
 
@@ -108,7 +132,7 @@ werden.
 | Belege abgleichen | „Vergleiche den Fall mit den Belegen in diesem Ordner.“ | Originale unverändert lassen |
 | Korrektur vorbereiten | „Schlage Korrekturen vor und ändere nach meiner Freigabe eine Arbeitskopie.“ | Vorher/nachher zurücklesen |
 | UStVA vorbereiten | „Bereite die UStVA für Juli vor und sende sie nicht ab.“ | Zeitraum und vorhandene Übermittlungen zuerst prüfen |
-| Nur einrichten | „Richte die portable API ein und verwende empfohlene Antworten.“ | Direkte API, MCP optional |
+| Nur einrichten | „Richte die lokale API ein und verwende empfohlene Antworten.“ | npm oder Portable; direkte API, MCP optional |
 
 Die Automation unterscheidet drei Betriebsarten:
 
@@ -140,6 +164,7 @@ Snapshot auch über die authentifizierte Operations-Discovery.
 - eine lokale, token-geschützte HTTP-API als Kern;
 - ein optionaler MCP-Wrapper, der ausschließlich die API aufruft;
 - ein portables Windows-x64-Paket mit eigener Node-Laufzeit;
+- getrennte npm-Pakete für Windows-API und PC-blinden MCP-Wrapper;
 - ein deutscher Setup-Wizard mit fensterlosem API-Start;
 - öffentliche Skills für Prüfung und Einrichtung;
 - versionierte Produktprofile und gemeinsame API-/MCP-Vertragstests.
@@ -157,6 +182,14 @@ weder mit Wolters Kluwer, Steuertipps noch der Akademischen
 Arbeitsgemeinschaft verbunden.
 
 ## Einrichtung
+
+### npm-Pakete
+
+`@yadimon/steuer-spar-erklaerung-api@beta` enthält API, Setup-Wizard, direkte
+CLI, Profile und die Windows-/Native-Runtime. Es enthält keinen MCP-Server.
+`@yadimon/steuer-spar-erklaerung-mcp@beta` enthält nur den MCP-Clientgraphen
+und kennt weiterhin ausschließlich API-URL und Token. Beide Pakete müssen
+dieselbe Version tragen und zum vollständigen GitHub-Release gehören.
 
 ### Portables Release
 
@@ -315,13 +348,17 @@ npm run test:fast
 npm test
 npm run test:live
 npm run package:portable
+npm run pack
+npm run publish:dry-run
+npm run test:npm-clean-install
 ```
 
 Jeder Build entfernt ausschließlich veraltete `dist/*.js`- und
 `dist/*.js.map`-Dateien ohne passende TypeScript-Quelle. Unbekannte Dateien
-oder Links im Buildordner stoppen fail-closed. npm- und Portable-Vertrag
-prüfen zusätzlich, dass kein quellloses Artefakt ausgeliefert wird und die
-dokumentierte API-CLI im Paket liegt. `package:portable` öffnet das erzeugte
+oder Links im Buildordner stoppen fail-closed. Die beiden npm-Paketverträge
+prüfen zusätzlich, dass kein quellloses Artefakt ausgeliefert wird, die API
+keinen MCP-Server enthält und der MCP-Tarball weder PowerShell noch Profile
+kennt. `package:portable` öffnet das erzeugte
 ZIP vor dem Schreiben der äußeren Prüfsumme erneut: Pfade, Windows-Kollisionen,
 Produkt/Version, Dateizahl, Bytezahl und SHA-256 jeder manifestierten Datei
 müssen exakt stimmen; Extra-Dateien stoppen den Build.
@@ -379,7 +416,7 @@ Weitere Unterlagen:
 - [API-/MCP-Vertrag](docs/API-MCP-VERTRAG.md)
 - [Verifikationsstand](docs/VERIFIKATION.md)
 - [Release-Prozess](docs/RELEASE.md)
-- [Release Notes v0.1.0-beta.3](docs/releases/v0.1.0-beta.3.md)
+- [Release Notes v0.1.0-beta.4](docs/releases/v0.1.0-beta.4.md)
 - [Entwicklungswissen](docs/entwicklung/README.md)
 - [Mitwirken](CONTRIBUTING.md)
 - [Haupt-Skill](skills/steuer-spar-erklaerung/SKILL.md)

@@ -1,9 +1,13 @@
 {
   "name": "steuer-spar-erklaerung-mcp",
-  "version": "0.1.0-beta.3",
-  "description": "Unofficial profile-driven local HTTP API and optional MCP wrapper for SteuerSparErklaerung on Windows",
+  "version": "0.1.0-beta.4",
+  "description": "Workspace for the unofficial SteuerSparErklaerung API, MCP wrapper and portable Windows release",
   "license": "MIT",
   "private": true,
+  "packageManager": "npm@10.9.2",
+  "workspaces": [
+    "packages/*"
+  ],
   "keywords": [
     "mcp",
     "model-context-protocol",
@@ -20,26 +24,12 @@
     "url": "https://github.com/yadimon/steuer-spar-erklaerung-mcp/issues"
   },
   "type": "module",
-  "bin": {
-    "steuer-spar-erklaerung-mcp": "dist/index.js",
-    "steuer-spar-erklaerung-api": "dist/api-main.js",
-    "steuer-spar-erklaerung-call": "dist/api-cli.js",
-    "steuer-spar-erklaerung-setup": "dist/setup-main.js"
-  },
-  "main": "dist/index.js",
-  "files": [
-    "dist",
-    "powershell",
-    "!powershell/.sse-native-*",
-    "profiles",
-    "skills",
-    "README.md"
-  ],
   "scripts": {
     "test": "node test/run-suite.mjs",
     "test:fast": "node test/run-fast-suite.mjs",
-    "build": "npm run prune:dist && npm run build:native && tsc",
+    "build": "npm run prune:dist && npm run build:native && tsc && node scripts/build-npm-packages.mjs",
     "build:native": "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File powershell/build-native.ps1",
+    "build:npm-packages": "npm run build:native && node scripts/build-npm-packages.mjs",
     "build:ts": "npm run prune:dist && tsc",
     "prune:dist": "node scripts/prune-dist.mjs",
     "package:portable": "npm run build && node scripts/package-portable.mjs --zip",
@@ -70,7 +60,8 @@
     "test:worker-native": "node test/direct-worker-native-guard.mjs",
     "test:worker-inherited-pipe": "npm run build:ts && node test/worker-inherited-pipe.mjs",
     "test:native-build-cache": "node test/native-build-cache.mjs",
-    "test:package": "npm run build:ts && node test/npm-package-contract.mjs",
+    "test:package": "npm run build:npm-packages && node test/npm-package-contract.mjs",
+    "test:npm-clean-install": "npm run build:npm-packages && node test/npm-clean-install.mjs",
     "test:release-metadata": "node test/release-metadata-contract.mjs",
     "test:portable-release": "npm run build:ts && node test/portable-release-verification.mjs",
     "test:api-all": "npm run build:ts && node test/api-all-operations.mjs",
@@ -122,7 +113,9 @@
     "test:desktop-enum": "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File test/desktop-enumeration-contract.ps1",
     "test:table-region": "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File test/table-region-contract.ps1",
     "test:table-values": "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File test/table-values-contract.ps1",
-    "test:table-lifecycle": "node test/with-api.mjs node test/table-lifecycle-transaction.mjs"
+    "test:table-lifecycle": "node test/with-api.mjs node test/table-lifecycle-transaction.mjs",
+    "pack": "node scripts/npm-package-lifecycle.mjs pack",
+    "publish:dry-run": "node scripts/npm-package-lifecycle.mjs publish:dry-run"
   },
   "engines": {
     "node": ">=22"

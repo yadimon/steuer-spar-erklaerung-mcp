@@ -3,6 +3,8 @@ import { existsSync, readFileSync } from "node:fs";
 
 const workflowPath = ".github/workflows/windows-ci.yml";
 assert(existsSync(workflowPath), "Windows-CI-Workflow fehlt.");
+const publishWorkflowPath = ".github/workflows/npm-publish.yml";
+assert(existsSync(publishWorkflowPath), "npm-Publish-Workflow fehlt.");
 
 const publicProcessFiles = [
   "CONTRIBUTING.md",
@@ -69,6 +71,44 @@ assert.match(workflow, /retention-days: 7/u);
 assert(!/(?:gh\s+release|create-release|softprops|contents:\s*write|secrets\.)/iu.test(workflow),
   "CI darf weder veröffentlichen noch Schreibrechte oder Secrets verwenden.");
 
+const publishWorkflow = readFileSync(publishWorkflowPath, "utf8");
+assert.match(publishWorkflow, /^name: Publish npm beta$/mu);
+assert.match(publishWorkflow, /^  workflow_dispatch:$/mu, "npm-Publish muss bewusst manuell gestartet werden.");
+assert(!/^  push:$/mu.test(publishWorkflow), "npm-Publish darf nicht automatisch auf einen Tag-Push reagieren.");
+assert.match(
+  publishWorkflow,
+  /^permissions:\r?\n  contents: read\r?\n  id-token: write$/mu,
+  "npm-Publish braucht nur Contents-Leserechte und OIDC.",
+);
+assert.match(publishWorkflow, /^    runs-on: windows-2022$/mu);
+assert.match(publishWorkflow, /^    timeout-minutes: 25$/mu);
+assert(!/secrets\.|NODE_AUTH_TOKEN|NPM_TOKEN/iu.test(publishWorkflow), "Trusted Publishing darf kein npm-Token verwenden.");
+for (const [action, revision] of Object.entries({
+  "actions/checkout": pinnedActions["actions/checkout"],
+  "actions/setup-node": pinnedActions["actions/setup-node"],
+})) {
+  assert(publishWorkflow.includes(`uses: ${action}@${revision}`), `${action} ist im npm-Publish nicht geprueft gepinnt.`);
+}
+assert(!/uses:\s+[^\s]+@(v\d+|main|master)\b/u.test(publishWorkflow), "npm-Publish verwendet einen beweglichen Action-Ref.");
+assert.match(publishWorkflow, /node-version-file: '\.node-version'/u);
+assert.match(publishWorkflow, /registry-url: 'https:\/\/registry\.npmjs\.org'/u);
+assert.match(publishWorkflow, /npm install --global npm@11\.19\.0/u);
+assert.match(publishWorkflow, /refs\/tags\/v/u, "npm-Publish muss Tag und Paketversion binden.");
+const publishCommands = [
+  "npm ci --ignore-scripts",
+  "npm audit --omit=dev --audit-level=high",
+  "npm test",
+  "npm run test:npm-clean-install",
+  "npm publish --workspace @yadimon/steuer-spar-erklaerung-mcp --ignore-scripts --tag beta --access public",
+  "npm publish --workspace @yadimon/steuer-spar-erklaerung-api --ignore-scripts --tag beta --access public",
+];
+let previousPublish = -1;
+for (const command of publishCommands) {
+  const index = publishWorkflow.indexOf(`run: ${command}`);
+  assert(index > previousPublish, `npm-Publish-Befehl fehlt oder steht in falscher Reihenfolge: ${command}`);
+  previousPublish = index;
+}
+
 const contributing = readFileSync("CONTRIBUTING.md", "utf8");
 for (const required of [
   "npm ci --ignore-scripts",
@@ -111,6 +151,9 @@ for (const required of [
   "--verify-tag --prerelease",
   "gh release download",
   "npx skills add yadimon/steuer-spar-erklaerung-mcp --list",
+  "npm publish --workspace @yadimon/steuer-spar-erklaerung-mcp --ignore-scripts --tag beta --access public",
+  "npm publish --workspace @yadimon/steuer-spar-erklaerung-api --ignore-scripts --tag beta --access public",
+  "npm-publish.yml",
 ]) {
   assert(releaseProcess.includes(required), `Release-Prozess verschweigt: ${required}`);
 }

@@ -207,7 +207,7 @@ export async function runSetupMain(args: readonly string[]): Promise<void> {
       preserveExistingSettings: Boolean(existingConfiguration),
     });
     stdout.write(`\nAPI-Konfiguration: ${written.apiConfigPath}\n`);
-    stdout.write(`MCP-Mergevorlage: ${written.mcpConfigPath}\n`);
+    if (written.mcpConfigPath) stdout.write(`MCP-Mergevorlage: ${written.mcpConfigPath}\n`);
     stdout.write(`Fensterloser API-Starter: ${written.apiLauncherPath}\n`);
     stdout.write(`Setup-Entscheidungen: ${written.setupDecisionsPath}\n`);
     stdout.write(`Persoenliche Einstellungen: ${written.settingsPath}\n`);
@@ -237,6 +237,7 @@ export async function runSetupMain(args: readonly string[]): Promise<void> {
       stdout.write(`API noch nicht gestartet. Fensterloser Starter: ${written.apiLauncherPath}\n`);
     }
     if (transport === "api-and-mcp") {
+      if (!written.mcpConfigPath) throw new Error("MCP-Transport wurde ohne Mergevorlage erzeugt.");
       stdout.write(`MCP bleibt optional. Mergevorlage erst nach gezeigtem Konfigurations-Diff verwenden: ${written.mcpConfigPath}\n`);
     }
     if (initialReadOnlyCheck) {

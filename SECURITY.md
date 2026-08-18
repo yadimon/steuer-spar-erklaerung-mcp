@@ -2,14 +2,21 @@
 
 ## Unterstützte Version
 
-Während der öffentlichen Beta wird nur die jeweils neueste GitHub-Version
-unterstützt. Dieser Quellstand bereitet `v0.1.0-beta.3` für
+Während der öffentlichen Beta wird nur die jeweils neueste vollständige
+Release-Version unterstützt. Dieser Quellstand bereitet `v0.1.0-beta.4` für
 SteuerSparErklärung 2025 vor. Eine vorbereitete Version gilt erst dann als
 öffentlich unterstützt, wenn auf der GitHub-Release-Seite ihr Tag, das
 portable ZIP und die separate SHA-256-Datei gemeinsam veröffentlicht sind.
 Bis dahin bleibt das jeweils jüngste dort vollständige Release unterstützt.
 Quellstand, Tag oder automatisch erzeugtes GitHub-Quellarchiv allein gelten
 nicht als portables Release.
+
+Die npm-Pakete `@yadimon/steuer-spar-erklaerung-api` und
+`@yadimon/steuer-spar-erklaerung-mcp` werden in der Beta ausschließlich über
+den Dist-Tag `beta` unterstützt. Beide npm-Pakete müssen dieselbe Version
+tragen, und diese Version muss dem jüngsten vollständigen GitHub-Release
+entsprechen. Ein einzelnes, abweichendes oder nur unter `latest`
+veröffentlichtes Paket gilt nicht als freigegebener Produktstand.
 
 ## Sicherheitsproblem melden
 

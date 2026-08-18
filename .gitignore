@@ -4,6 +4,9 @@ artifacts/
 .tmp/
 *.log
 *.tsbuildinfo
+packages/api/powershell/
+packages/api/profiles/
+packages/*/LICENSE
 powershell/sse-native.dll
 powershell/sse-native.sha256
 powershell/.sse-native-*.dll
