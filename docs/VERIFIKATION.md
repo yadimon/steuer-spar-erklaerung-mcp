@@ -1,0 +1,727 @@
+# Verifikationsstand
+
+Stand: 2026-08-17
+
+Dieses Dokument trennt veröffentlichte Verträge, Mock-/Quelltests und echte
+SSE-Läufe. Ein grüner Vertragstest beweist nicht automatisch, dass jede
+UI-Operation auf jeder Jahresversion praktisch funktioniert.
+
+## Produkt- und Supportmatrix
+
+| Profil | Status | Verifizierter Build | aktuelle Kern-Leseevidenz | vollständige Navigation/Prüfer/UStVA | allgemeine Schreibpfade | profilierter Focusless-Commit |
+| --- | --- | --- | --- | --- | --- | --- |
+| `2025` | `supported` | `31.0.1.0` | letzter vollständiger strikter Grünlauf vor dem terminalen Collect-Zusatz: beide offiziellen Musterfälle und 38 geforderte Operationen; neuer Collect-Erfolg separat live belegt | Navigation, Prüfer und UStVA im letzten vollständigen strikten Gate grün | fünf getrennte Mutationstests plus große Schreibreise grün; keine vollständige VaSt-/Center-Matrix | profilierter Commit im letzten vollständigen strikten Gate grün |
+| `2024` | `experimental` | `30.0.127.0` | Opt-in-Live-Gate grün: beide offiziellen Musterfälle, 43 semantische Prüfungen und 38 geforderte Operationen | Navigation, Prüfer und UStVA-Read im strikten Gate grün; daraus folgt keine Freigabe | nicht freigegeben und im Gate als gesperrt geprüft | keiner |
+
+`experimental` bedeutet: Das Profil darf weder vom Setup angeboten noch wie
+ein produktiv unterstütztes Jahr behandelt werden. Der Opt-in dient nur der
+gezielten Verifikation. Er ist keine Nutzerfreigabe für unbewiesene
+Steuerdatenänderungen. API und direkter Worker begrenzen den Opt-in auf
+paritätsgetestete Kataloge für Lesen, Navigation, Prüfer/UStVA-Read sowie den
+nötigen Wegwerfkopie-Lebenszyklus; Tabellen-, Steuerdaten-, Speicher-, Export-
+und VaSt-Mutationen bleiben mit `profile-operation-unverified` gesperrt.
+`dialog_answer` gehört nicht zum allgemeinen Katalog: Nur `OK` auf der exakt
+titel-, text- und schaltergebundenen passiven Gewinnaktualisierungsnotiz darf
+die Worker-Prüfung erreichen. Insbesondere eine Wiederherstellungsdatei wird
+nie automatisch verworfen.
+
+## Was die Tests beweisen
+
+| Ebene | Befehl | Beweis | Nicht bewiesen |
+| --- | --- | --- | --- |
+| Schnell | `npm run test:fast` | Build, vollständiger Operations-/Toolkatalog, strikte Eingaben, Auth-/Transportgrenzen, Mock-Journeys, Sicherheits- und Quellverträge | reale SSE-UI |
+| Vollständig offline | `npm test` | zusätzliche Packaging-, Worker-, Timeout-, Cleanup- und No-Console-Verträge sowie die Abdeckungsbilanz; eine vorhandene Standardinstallation wird identitätsgeprüft, ihr nachweisliches Fehlen bleibt auf neutralen Build-Rechnern zulässig | reale SSE-UI; optionale Fixtures können fehlen |
+| Lokales Produkt-Gate | `npm run test:product` | verlangt die unterstützte SSE-2025-Standardinstallation und prüft EXE-, Engine-, Native-, Prozess-, Jahres-, Modus- und Kataloggrenzen fail-closed | Bedienung eines echten Steuerfalls |
+| Page-Object-Offlineparität | `node test/page-objects-parity.mjs` | lokaler API-Pfad und echter PowerShell-Worker liefern für jedes Profil denselben Vollkatalog, dieselbe exakte und case-insensitive Seite sowie denselben Unknown-ID-Fehler; Reload, Vorab-Abbruch, lokaler Timeout und budgetierter Drift-Fallback sind separat gebunden | echte Formularfelder oder UI-Zustände |
+| Verify-Offlineparität | `node test/verify-local-parity.mjs` | lokaler API-Pfad und echter Worker liefern für vollständige, unvollständige, mehrdeutige und hashabweichende Collect-Stände feldgleiche Ergebnisse; Dezimal-/Währungsformate, Occurrences, Ressourcenidentität, Abort/Timeout ohne Subprozess und riskanter Unicode-Fallback sind gebunden | fachliche Richtigkeit der Erwartungen oder Vollständigkeit des vorausgehenden UI-Collects |
+| Arbeitskopie-Offlineparität | `node test/working-copy-local-parity.mjs` | lokaler API-Pfad und echter Worker liefern für lesbaren wie unbekannten AKAD-Kopf denselben Erfolgsvertrag; Fehlerarten für falschen Hash, vorhandenes Ziel, Endungs- und Ordnerfehler sind workergebunden; beide Profile, echte Datei-Ersetzung, Pfadredaktion sowie Abort/Timeout-Cleanup ohne Worker sind geprüft | vollständige Semantik exotischer Dateisysteme, ein hängender einzelner Kernel-I/O-Aufruf oder Ausschluss des dokumentierten Rollback-TOCTOU-Restfensters |
+| Fallsicherungs-Offlineparität | `node test/backup-local-parity.mjs` | lokaler API-Pfad und echter Worker liefern denselben Erfolgs-, Wiederholschutz- und bytegleichen CSV-Manifestvertrag auch für verschachtelte Ziele, nichtalphabetische und Nicht-ASCII-Namen; ResourceRefs, Quell-/Zielinventar, zweiter Inhaltsreadback, partielle Manifeste, fremde Zielinhalte sowie Abort-/Timeout-Rollback ohne Worker sind geprüft | vollständige Semantik exotischer Dateisysteme, ein hängender einzelner Kernel-I/O-Aufruf oder Ausschluss des dokumentierten Rollback-TOCTOU-Restfensters |
+| Fallarchivierungs-Offlineparität | `node test/archive-local-parity.mjs` | lokaler API-Pfad und echter Worker liefern denselben Erfolg, dieselben zentralen Preflight-Fehlerarten und ein bytegleiches CSV-Manifest; vollständiger Bestand einschließlich `_Backup`, Zeitstempel, ResourceRefs, kein Workerstart, SSE-Prozesssperre vor jeder Entfernung, fail-closed Nicht-POSIX-Delete, Teilmanifest, verschachtelter Rollback, Abort/Timeout sowie Quell-, Ziel-, Restbestands- und Doppelinterferenz mit Recovery-Datei sind geprüft | erneuter echter SSE-Lauf über den neuen Lokalpfad; vollständige Semantik exotischer Dateisysteme oder ein hängender einzelner Kernel-I/O-Aufruf |
+| SSE-Prozessguard | `node test/sse-process-guard.mjs` | lokalisierte leere `tasklist`-Antworten, exakter `SSE.exe`-CSV-Treffer und fail-closed Ablehnung leerer, fremder oder unstrukturierter Antworten | jede Windows-Locale und jeder externe Prozessstart im kleinen Fenster nach der zweiten Probe |
+| Optionale Live-Skript-Verträge | `node test/live-script-resource-contract.mjs` | Mehrinstanz- und Suchdiagnose verwenden ausschließlich die aktuellen strikten MCP-ResourceRefs; zwei zufällig benannte Wegwerfkopien liegen im konfigurierten `cases:`-Bereich und nur bei unveränderter Dateiidentität plus Quellhash werden diese beiden exakten Dateien nach dem Schließen entfernt | tatsächlicher Zwei-Instanz-Lauf ohne gesetzte neutrale Fixture und installierte SSE |
+| Core-Read-Live-Gate | `npm run test:live-core-read` | beide Profile und ihre offiziellen Musterfälle über MCP→API und für UI-Leser weiter zum Worker: Produkt-/Arbeitsbereich, Hash/Arbeitskopie, Start/PID/HWND, Ergebnislesen, HTTP↔kanonisches-MCP, Seiten-/Hilfe-/Tabellen-/Snapshot-/Accessibility-Leser und gebundener Discard-Close | physische Bereichsnavigation, Prüfer, UStVA, Tiefensweep und Steuerfall-Schreibwege |
+| Striktes Live-Gate | `npm run test:live` | beide Profile nacheinander, jede vom Profil erlaubte Leseoperation, lokale-gegen-Worker-Falldateiparität, der profilierte Schreibweg, die große Schreibreise, Steuertipps-Center 2025 auf privatem Desktop, echter MCP→API→Worker-Weg für UI-Aktionen, direkter HTTP↔kanonischer MCP-Vergleich, Hash- und Cleanup-Invarianten; fehlende Voraussetzungen sind Fehler | vollständige Mutationsmatrix pro Jahresprofil; VaSt-Dialogwege |
+| Center-Live-Gate | `npm run test:live-center` | `center_cases` und `center_refresh` für Profil 2025 über die HTTP-API, exakte HWND-/Verzeichnisbindung, pfadredigierte Antworten, unveränderter Dateibestand und Kill-on-close-Cleanup auf einem privaten Desktop | Profil 2024; VaSt; fachliche Richtigkeit der realen Fallnamen |
+| Falldatei-Liveparität | `npm run test:live-case-file` | lokale API-Implementierung und direkter PowerShell-Worker liefern denselben Fallhash sowie dieselbe vollständige Standard-Fallliste des offiziellen Musterordners; keine SSE-UI wird gestartet | ausführliche Parser-Metadaten und UI-Verhalten |
+| Workspace-Dateivertrag | `node test/workspace-file-cancellation.mjs` | synchrone/kooperative Listenparität, Abbruch vor und während der Liste sowie nach einem 64-KiB-Hashblock, Hashbudget auch bei verworfener I/O, Deadline ohne Teilergebnis, exakte Trunkierung samt Gleichheitsgrenze, Read-Post-Deadline, Write-Preflight und veröffentlichte Schemas | reales langsames Netzlaufwerk; Abbruch eines bereits laufenden synchronen 1-MiB-Textwrites |
+| MCP-Abbruchkette | `node test/mcp-cancellation.mjs` | echter `sse_workspace_files`-Aufruf über MCP-Prozess, HTTP-Client, API-Server und Workspace-Executor; Clientabbruch ergibt serverseitig `ok=false`, `kind=aborted`, `delivered=false`, danach gelingt ein vollständiger Folgeaufruf | harter Prozessabsturz während des Abbruchs; bereits gestartete synchrone Mutationen |
+| Worker-Queue-Abbruch | `node test/worker-timeout.mjs` | Vorab-Abbruch auch bei voller Queue bleibt `aborted`; eine echte 32er-Belegung liefert `busy`; 31 abgebrochene wartende Aufträge geben ihre Plätze vor Abschluss des Vorderauftrags frei und starten keinen Worker | Betriebssystemstillstand innerhalb eines bereits gestarteten Worker-/Cleanup-Prozesses |
+| Worker-Prozessbaum-Cleanup | `node test/worker-inherited-pipe.mjs` | ein echter Windows-Enkelprozess hält nach beendetem Parent geerbte stdout/stderr-Handles offen; fehlendes `close` verriegelt nach beiden Cleanup-Wächtern die globale Worker-Laufzeit mit `worker-isolation-lost`, bevor selbst ein bereits abgebrochener Folgeaufruf die Queue betreten kann | Identifikation oder automatische Beseitigung eines bereits vom beendeten Parent entkoppelten fremden Prozessbaums |
+| HTTP-Body-Abbruch | `node test/api-client-body-abort.mjs` | Aufruferabbruch nach bereits gelieferten HTTP-Headern beendet verzögerte Operations- und Discovery-JSON-Streams; ein echter falscher `Content-Type` bleibt `protocol`, cancelt aber einen laufenden 64-MiB-Body und schließt den serverseitigen Socket innerhalb 500 ms | ein nicht abbrechbarer Kernel-/Netzwerkaufruf unterhalb des Node-Streams |
+| HTTP-Transportfehler | `node test/api-client-transport-timeout.mjs` | Header-/Body-Timeoutcodes injizierter Alternativtransporte werden eindeutig als `timeout` klassifiziert; ein echter Defaulttransport-Reset nach nachweislich empfangenem Mutations-POST wird samt direktem `ECONNRESET` zu `transport-unknown`; ein danach real verweigerter Verbindungsaufbau bleibt `network` und nennt `ECONNREFUSED` | unbekannte Fehlerformen fremder Transportimplementierungen |
+| Loopback-Defaulttransport | `node test/api-local-http-transport.mjs` | produktiver Client ist von globalem `fetch` unabhängig; echter POST/Authorization, Loopback-/Bodygrenze, Nullbody-Status 204/205/304, Redirect-Stopp und Abbruch nach Headern sind geprüft | hängender einzelner Kernelaufruf unterhalb von Node-Streams |
+| Statische API-Vertragsdokumente | `node test/api-static-document-cache.mjs` | Discovery und OpenAPI werden beim Serverstart je einmal größenbegrenzt als UTF-8 serialisiert; wiederholte authentifizierte GETs bleiben byteidentisch und selbst eine spätere interne Mutation eines nur flach eingefrorenen Schemaobjekts verändert den veröffentlichten Snapshot nicht | Signatur oder langfristiges HTTP-Caching über Prozessneustarts; Einzeloperations-Discovery bleibt dynamisch serialisiert |
+| UStVA-Kompositionsbudget | `node test/ustva-contract.mjs` | Seiten-Read und gebundene Mutation verwenden eine deterministisch geprüfte absolute Deadline; verbrauchtes Restbudget und Vorab-Abbruch verhindern jeden Folge-Workerstart | Scheduler-/Kernelstillstand innerhalb eines bereits gestarteten Workeraufrufs |
+| Folgejahr-UStVA-Live | `npm run test:live-ustva-next-year` | Profil 2025 öffnet eine bytegleiche `GewErfass2026`-Wegwerfkopie ausschließlich mit `einurvor`; MCP→HTTP-API→Worker liefert die UStVA-Übersicht 2026, lässt ELSTER gesperrt, verändert den Dirty-State beim reinen `ustva_read` nicht weiter und hält die Testkopie über SHA-256 unverändert | UStVA-Mutationen 2026, Speichern, ELSTER oder andere 2026er Fallarten; die Navigation zur automatisch erzeugten UStVA kann SSE-intern bereits `ungespeichert` setzen |
+| Windows-CI | `node test/github-workflow-contract.mjs` | `.node-version` entspricht der gepinnten Portable-Runtime; Workflow-Trigger, ausschließlich lesende Contents-Berechtigung, nicht persistierte Checkout-Credentials, konkrete Action-Commit-SHAs, `npm ci --ignore-scripts` → Produktionsaudit → Volltest → Portable-Build → erneute Release-Prüfung, exaktes ZIP-/Sidecar-Artefakt und fehlende Release-/Push-/Secret-Schritte sind statisch gebunden | ein grüner GitHub-Hosted-Windows-Lauf für den tatsächlich zu mergenden SHA; Authentizität eines später separat veröffentlichten Artefakts |
+| Release-Artefakte | `node test/dist-artifacts-contract.mjs`, `node test/native-build-cache.mjs`, `node test/npm-package-contract.mjs`, `node test/portable-archive-verification.mjs`, `node test/portable-release-verification.mjs`, `node test/portable-package.mjs` | quellbasiertes Pruning stoppt vor Fremddateien; der Native-Build verwendet nur eine quell-, DLL-hash- und vollständig oberflächengeprüfte Binärdatei wieder und baut nach Quelländerung, DLL-Manipulation, unvollständiger Assembly, strengem Schemafehler oder fehlender DLL rückstandsfrei neu; derselbe PS5.1-Loader bestätigt den Vorkompilierungsmodus; der schnelle PS5.1-Archivvertrag verwirft falsche Version, gleich lange Hashmanipulation, Traversal, Windows-Case-Kollision und Extra-Datei; `npm run verify:portable-release` bindet ein bereits gebautes Veröffentlichungs-ZIP erneut exakt an Sidecar-Dateiname, äußeren Hash, aktuellen Paketnamen und aktuelle Paketversion; der Volltest baut das echte ZIP, erzwingt dessen interne Manifestprüfung, prüft die äußere SHA256-Datei und startet API-CLI, API und MCP aus dem Portable-Bundle | byteidentischer frischer Native-Neubau auf unterschiedlichen Build-Hosts; Signatur/Authentizität des separat veröffentlichten ZIP-Prüfsummenpaares |
+| Große Schreibreise | `npm run test:live-journey` | eine zusammenhängende Reise auf einer Wegwerfkopie: Tabellenschreibzyklus mit Kontrollsummen-Readback, hashgebundenes Speichern mit Datei- und Neustart-Persistenzbeweis, UStVA-Schreibquartett mit Zahllast-Kontrolle, CSV-Export bis zur Datei, Menü-/Fenster-/Dialogverwaltung, Speichern unter und Archiv | VaSt-Dialogwege, Steuertipps-Center |
+| Einzelprofil-Live | `npm run test:live-muster` | gezielter profilabhängiger Musterlauf für Diagnose | das jeweils andere Profil |
+| Focusless | `npm run test:hidden-focusless` | ein konkret profiliertes 2025-Feld mit Feld-/Summen-/Dirty-State-Readback; im strikten Gate enthalten | andere Felder; 2024; sichtbare Tabellen-/Combo-Pfade |
+
+Die lokale Orientierungsmessung vom 2026-08-17 nutzte nach fünf Warmups 100
+sequenzielle Loopback-GETs je Gesamtdokument. Der Discovery-Mittelwert sank von
+2,207 auf 1,374 ms, OpenAPI von 5,865 auf 1,983 ms; die dynamische
+Einzeloperations-Discovery blieb mit 0,391 gegenüber 0,337 ms praktisch im
+Messrauschen. Diese Werte begründen den begrenzten Cache, sind aber keine
+plattformübergreifende Leistungsschwelle.
+
+Für den ungeformten MCP-Erfolgspfad wurde auf demselben Rechner ein
+synthetischer 5.000-Knoten-Snapshot mit 1.130.179 UTF-8-Bytes nach zehn
+Warmups in sieben Runden zu je 30 Antworten gemessen. Drei Prozessläufe lagen
+vor der Optimierung bei 82,8 bis 85,5 ms Median und danach bei 14,4 bis
+14,6 ms. Der Vertrag prüft keine flüchtige Zeitgrenze, sondern die Ursachen:
+Bei `textValue === apiResult` darf jedes Ergebnisfeld nur einmal rekursiv
+gelesen werden; dieselbe redigierte Struktur speist Text und
+`structuredContent`. Strings ohne `/`, `\\` oder `%` überspringen die sechs
+Pfadregexe, weil keine unterstützte lokale Pfadform ohne diese notwendigen
+Zeichen auskommt. Geformte Texte und Antworten mit ausgelagerten Binärfeldern
+bleiben getrennte Darstellungen.
+
+Der Laufzeitkatalog ist die Quelle für die aktuelle Anzahl und Benennung der
+Operationen. Am genannten Stand enthält er 87 API-Operationen und 87
+MCP-Werkzeugnamen. Das sind nicht 87 eindeutige Eins-zu-eins-Zuordnungen:
+`sse_change_field` und `sse_change_known_field` rufen beide
+`tracked_set_value` auf; `checker_detail` ist eine API-interne Komposition von
+`sse_checker_open`.
+
+Fixture-gesteuerte Diagnoseprogramme sind ebenfalls Teil des wartbaren
+Vertrags: Sie dürfen nicht jahrelang erfolgreich `SKIP` melden, während ihre
+MCP-Argumente längst vom öffentlichen Schema abgewiesen würden. Der statische
+Live-Skript-Vertrag bindet deshalb die tatsächlich geschriebenen Argumentnamen
+an die strikten Laufzeitschemas. Beim Mehrinstanztest muss
+`SSE_MULTI_INSTANCE_FIXTURE` direkt im über `SSE_CASE_DIR` konfigurierten
+Fallordner liegen. Die Quelle wird nur gehasht; zwei eindeutig benannte
+Arbeitskopien werden über `sourceRef`/`targetRef` erzeugt und nach dem
+gebundenen Schließen nur dann einzeln entfernt, wenn `dev`/`ino` und SHA-256
+weiterhin den test-eigenen Stand beweisen. Ersetzte oder geänderte Ziele bleiben
+bewusst zur manuellen Klärung erhalten. Ein rekursiver Cleanup des Fallordners
+ist ausdrücklich ausgeschlossen.
+
+Alle Operationen besitzen getestete Eingabeschemata und einen versionierten
+`Result_<operation>`-Mindestvertrag. API, Discovery, OpenAPI und alle
+MCP-`outputSchema`-Definitionen verwenden diesen Katalog; ein malformed
+Worker-Ergebnis wird vor der Ausgabe mit `invalid-operation-result` gestoppt.
+Die Schemas bleiben für zusätzliche Fachfelder offen. Deshalb ist „alle
+Operationen transportseitig validiert“ weiterhin nicht mit „jede mögliche
+UI-Ergebnisvariante live erzeugt“ gleichzusetzen.
+
+### Ergebnisform-Bilanz
+
+`test/operation-result-shape.json` wird am selben API-Executor-Rand wie die
+Operationsabdeckung erzeugt. Pro Operation und Scope speichert sie nur:
+
+- Top-Level-Feldname und wertfreie JSON-Typklasse;
+- bei Objektfeldern sichere direkte Schlüsselnamen und deren Typklassen;
+- Herkunftsmarke des Harnischs;
+- Erfolg oder Fachfehler;
+- optional die öffentliche Profil-ID.
+
+Steuerwerte, lokale Pfade und tiefer verschachtelte Inhalte werden weder in die
+Trace-Dateien noch in die Bilanz geschrieben. Der Offline-Stand vom
+2026-08-16 enthält 645 Operation-Feld-Beobachtungen außerhalb des
+generischen Transportumschlags; 502 davon sind bereits explizit typisiert.
+Das ist eine sichtbare Ausbaubilanz, kein Prozentwert für praktische
+UI-Abdeckung. Alle 87 Operationen besitzen konkrete Fachfelder; darunter sind
+alle 23 destruktiv annotierten Operationen sowie der nicht destruktive, aber
+zustandsbehaftete `set_value`-Suchfeldpfad. 143 beobachtete Zusatz- und
+API-Grenzfelder bleiben vom offenen Mindestvertrag durchgelassen, ohne schon
+als stabile Einzelfelder zugesagt zu werden.
+
+Für die zuletzt direkt an den Worker-Emit-Stellen auditierten 30 Operationen
+gilt eine zusätzliche Mock-Ratsche: Jedes beobachtete Top-Level-Feld außer dem
+generischen API-Metafeld `resourceRefs` muss im operationsspezifischen Schema
+stehen. So können historische Mock-Namen wie `find.treffer` statt `find.hits`
+oder ein fiktiver Steuerfeld-Write über `set_value` nicht erneut als
+Laufzeitevidenz gelten. Der statische Guard zählt derzeit 638 explizite
+Top-Level-Felder in 75 echten Worker-Operationsblöcken; API-interne
+Kompositionen werden separat an ihren TypeScript-Executoren geprüft. Derselbe
+Guard sichert berechnete `ok`-Ausgaben als Ratsche ab: Jeder mögliche Fehlerzweig muss
+`kind` und `error` tragen. Dadurch wurden zwei `close`-Varianten und der
+fail-closed `menu_close`-Nachbedingungsfehler vor dem Commit korrigiert.
+
+Die Live-Spalte der Ergebnisform-Bilanz enthält jetzt 234 fachliche
+Feldbeobachtungen aus 31 echten 2025-Worker-Operationen; 122 davon sind
+explizit typisiert. Der Lauf deckte zunächst einen echten Vertragsfehler auf:
+`find.note` wurde bei nicht abgeschnittenem Baum als PowerShell-Leerobjekt
+serialisiert und vom Textschema mit `invalid-operation-result` gestoppt. Der
+Worker gibt deshalb nun ausdrücklich `null` aus; dieselbe Normalisierung gilt
+für die optionalen Hinweise von `positions` und `dismiss`.
+
+Der anschließende Lauf passierte diesen Vertrag, scheiterte aber später beim
+bekannten Prüfer-Navigationszweig dreimal fail-closed an der Foreground-Lease.
+Die bis dahin echten, unverändernden Reads wurden über den vorgesehenen
+monotonen Live-Merge übernommen. Das ist eine partielle Ergebnisform-Evidenz,
+kein grüner strikter Live-Gate-Lauf und kein neuer 2024-Nachweis. Historische
+79/87-Live-Abdeckung und Ergebnisform-Spalte bleiben getrennte Messungen; die
+Feldformen werden niemals aus der Coverage-Zahl abgeleitet.
+
+Bewusste Regeneration nach einer getesteten Vertragsänderung:
+
+```powershell
+$env:SSE_WRITE_OPERATION_SHAPE = '1'
+npm test
+Remove-Item Env:SSE_WRITE_OPERATION_SHAPE
+```
+
+Der Abschlussvertrag stoppt bei neuen Feld-/Typvarianten und wenn ein
+beobachteter Typ vom veröffentlichten Schema abgewiesen würde. Ein zusätzlicher
+statischer Worker-Feldguard schützt optionale Recovery-Pfade, die nicht in
+jedem deterministischen Lauf erscheinen.
+
+## Abdeckungsbilanz aus echter Ausführung
+
+`test/operation-coverage.json` ist keine handgepflegte Behauptung: Die
+verhaltenstragenden Testharnische protokollieren jede Operation, die einen
+echten API-Executor erreicht, und der letzte Schritt von `npm test` vergleicht
+das Protokoll mit dem Katalog. Die Bilanz ist eine Ratsche in beide
+Richtungen – verschwundene Abdeckung ist eine Regression, neue Abdeckung muss
+mit `SSE_WRITE_OPERATION_COVERAGE=1` bewusst übernommen werden.
+
+Gezählt wird nur der API-Rand. Operationen, die eine Komposition oder ein
+Szenario intern aufruft, gelten damit nicht automatisch als geprüft; sie
+brauchen einen eigenen Aufruf über die HTTP-Grenze.
+
+Stand: alle 87 Operationen werden im Offline-Lauf mindestens einmal
+erfolgreich ausgeführt – überwiegend gegen den zustandsbehafteten
+synthetischen Worker, der Seitengraph, Elementbaum, Tabelle, Menü, VaSt-Dialog
+und Fenster-/Desktopzustand modelliert. Das beweist Argumentbindung,
+Ressourcenauflösung, Komposition, Ergebnisvertrag und Redaktion über die
+gesamte Kette. Es beweist ausdrücklich **nicht** die proprietäre UIA-Schicht;
+dafür zählt allein die Live-Spalte derselben Bilanz, die echte Worker-Aufrufe
+gegen die installierte Anwendung füllen. Dort stehen am 2026-08-16 81 der 87
+Operationen: 78 aus dem letzten vollständig grünen Zwei-Profil-Gate, der
+anschließend gezielt ausgeführte `collect`-Erfolgspfad sowie die zwei separat
+auf einem privaten Desktop belegten Center-Operationen. `collect` ist auf der
+profilierten ESt-2025-Startseite ohne `Weiter` erfolgreich mit `end-of-branch` belegt:
+genau eine Seite, kein Navigationsschritt hinter dem gespeicherten Stand und
+hashgleicher Datei-Readback. Der getrennte Zwei-Seiten-Lauf belegt weiterhin
+`collection-incomplete`, `limit-reached` und den hashgebundenen Teilabgleich.
+„Vollständig" gilt dabei nur für den ab der jeweiligen Startseite erreichbaren
+Blätterpfad, nicht für den gesamten Steuerfall. Noch nie erfolgreich live
+aufgerufen sind damit nur die sechs VaSt-Wege: `vast_apply`,
+`vast_dialog_read`, `vast_mapping_options`, `vast_mapping_select`,
+`vast_row_details` und `vast_row_set_expanded`.
+
+Der Center-Nachweis startet ausschließlich den profilierten 2025-Center in
+einem neuen Windows-Desktop und bindet den gesamten Prozessbaum an einen
+Kill-on-close-Job. Ein vorhandener Center-Prozess, Desktop oder Marker ist ein
+Fehler und wird niemals übernommen. Der intern gelesene absolute Ordner bleibt
+nur im Testprozess; API-Antwort und wertfreier Operation-Trace enthalten ihn
+nicht. Vor und nach `center_cases` → `center_refresh` → `center_cases` werden
+Name/Typ/Größe/Zeitstempel/Inhalt der angezeigten Top-Level-Dateien in eine
+nicht rückrechenbare Inventarsignatur überführt. Der echte Lauf belegte drei
+grüne API-Schritte, unveränderte Suche/Sortierung, identisches Inventar und
+null verbleibende Center-Prozesse. `center_refresh` wechselt die persistente
+Center-Ansicht technisch kurz zu „Zuletzt verwendet“ und danach zurück. Der
+Erfolgsvertrag beweist die Rückkehr; scheitert der zweite Toggle, bleibt die
+Operation fail-closed, kann den Ansichtsmodus aber nicht blind restaurieren.
+
+Das Endurteil ist doppelt fail-closed: Sowohl der inhaltsgebundene Seitenbaum
+als auch der kleinere Navigationsbaum müssen ungekürzt sein. Fehlt `Weiter`
+in einem abgeschnittenen der beiden UIA-Snapshots, liefert `collect`
+`snapshot-truncated` statt eines falschen `end-of-branch`.
+
+Der gezielte 2025-Lauf protokollierte `collect ok=true` in 1.613 ms und räumte
+seine SSE-PID vollständig auf. Der anschließend unveränderte Prüfer-Tree-Klick
+erhielt in derselben Desktop-Sitzung dreimal keine Foreground-Lease und stoppte
+jeweils vor dem Klick mit `interference`. Deshalb wird hier nur der gemessene
+Collect-Weg hochgestuft; ein neuer vollständiger Grünlauf des gesamten Gates
+wird daraus ausdrücklich nicht abgeleitet.
+
+### Die Live-Bilanz informiert, steuert aber keine Freigabe
+
+Das gehört ausdrücklich hierher, weil es leicht zu überschätzen ist: Die
+Abdeckungsbilanz ist **Dokumentation, keine Laufzeitsperre**. Die API liest
+niemals `test/operation-coverage.json`; `capabilities.liveEvidence` liefert
+stattdessen einen fest kompilierten Release-Snapshot, den ein Vertragstest an
+die erzeugte Bilanz bindet. `affectsAvailability=false` und
+`profileSpecific=false` benennen seine Grenzen maschinenlesbar. Ein Profil mit
+`status=supported` und `operationAccess=full` gibt alle Operationen frei –
+unabhängig davon, ob sie jemals erfolgreich gegen die echte Anwendung
+gelaufen sind. Gemessen am 2026-08-16 sind noch 6 der 87 Operationen nicht
+live-funktional belegt: die oben genannten, weiterhin ungetesteten VaSt-Wege.
+Damit sind 81 Operationen `functional` und keine ist derzeit nur als
+`error-path-only` belegt.
+Zwei davon (`vast_apply`, `vast_mapping_select`) fallen in die
+Klasse `destructive`.
+
+Das ist kein Widerspruch zu den Sicherheitszusagen: Jede dieser Operationen
+trägt weiterhin ihre eigenen Vor- und Nachbedingungen, die Hash-, Fenster-
+und Readback-Bindung sowie die Versandsperre. Es heißt aber, dass „vom Profil
+freigegeben" und „live bewiesen" zwei verschiedene Aussagen sind. Wer die
+Live-Spalte als Freigabeliste liest, liest sie falsch. Eine Kopplung beider
+Ebenen wäre möglich – sie ist bewusst noch nicht gebaut, weil eine
+Laufzeitsperre auf Basis einer Testdatei den umgekehrten Fehler erzeugen kann:
+eine funktionierende Operation zu blockieren, weil das Gate zuletzt an einer
+fremden Benutzereingabe gescheitert ist. Die tatsächliche Sperre bleibt allein
+`capabilities.operationPolicy`.
+
+Der aggregierte Wert ersetzt keinen Jahresnachweis: Das strikte Live-Gate
+fordert zusätzlich für **jedes** Profil 38 erfolgreiche, profilmarkierte
+Operationsaufrufe aus dem expliziten Lese-/Navigationsvertrag – darunter
+Ergebnislesen, Snapshot/Accessibility, Prüfer, UStVA sowie die hashgebundene
+Wegwerfkopie. Reine API-Lokalpfade sind darin absichtlich keine
+Worker-Aufrufe. Eine erfolgreiche Ausführung des jeweils anderen Jahres kann
+diese Pflicht nicht erfüllen.
+
+Die Bilanz hatte außerdem den größten vermeidbaren Prozesspreis gezeigt:
+`case_hash` und `list_cases` brauchten im frischen PowerShell-Worker jeweils
+rund 1,1 bis 1,4 s, ohne die Oberfläche zu berühren. Seit 2026-08-16 laufen
+Fallhash und Standard-Fallliste im API-Prozess; die Hashberechnung streamt,
+die Fallliste liest je Datei höchstens 512 KiB Kopf. Der feldgenaue Vergleich
+auf beiden offiziellen Musterordnern ergab identische acht Hashfelder sowie
+identische, gleich geordnete Listen mit 11 Fällen (2025) und 14 Fällen (2024).
+Der Vergleichslauf am 2026-08-16 brauchte beim Hash lokal 6/7 ms statt
+1.160/1.140 ms im Worker und bei der Liste lokal 16/19 ms statt 1.233/1.327 ms
+im Worker (2025/2024). Das sind orientierende Messwerte, keine harte
+Testschwelle. Der direkte Worker bleibt für ausführliche Metadaten, unbekannte
+Parserfälle und kompatible lokale Aufrufer erhalten.
+
+`listWorkspaceFiles` bleibt als synchroner Referenzpfad für den
+Containment-Vertragstest erhalten. Jeder API-, MCP- und Szenarioaufruf von
+`workspace_file_list` läuft kooperativ: Nach jeder vollständig
+containment-geprüften Ordner-/Dateieinheit und nach höchstens 64 KiB Hash-I/O
+erhält Node einen echten Eventloop-Turn und prüft anschließend Clientabbruch
+sowie Restzeit. Das Hashbudget beträgt 16 MiB pro Datei und 64 MiB pro Liste;
+gelesene Bytes eines wegen gleichzeitiger Änderung verworfenen Hashes werden
+nicht zurückgebucht. Bei Abbruch
+oder Deadline wird keine Teilliste veröffentlicht. Erreicht eine erfolgreiche
+Liste dagegen das fachliche Dateilimit, sucht sie containment- und
+deadline-gebunden genau einen weiteren Treffer: Nur dessen Existenz setzt
+`truncated=true`; ein vollständig geprüftes Verzeichnis liefert
+`truncated=false`. Ein orientierender Lauf am
+2026-08-17 mit 1.000 Ein-Byte-Dateien und deaktivierten Hashes brauchte lokal
+1.279 ms synchron und 1.378 ms kooperativ; während des kooperativen Laufs
+konnten 1.001 Timer-Ticks abgearbeitet werden. Die Werte enthalten keinen
+HTTP-Transport, hängen stark vom Dateisystem ab und sind keine Testschwelle.
+Ein separater 16-MiB-Einzelhash am selben Tag brauchte 10,9 ms synchron und
+24,2 ms kooperativ, lieferte denselben SHA-256 und ließ währenddessen 14
+Timer-Ticks zu. Auch diese Werte sind nur eine lokale Orientierung; der
+zusätzliche absolute Preis kauft die gebundene Abbruchlatenz zwischen
+64-KiB-Blöcken.
+Die auf 1 MiB begrenzten Text-Lese-/Schreibpfade prüfen Abbruch und Deadline
+vor dem Dateizugriff; Lesen verwirft außerdem ein nach Fristende fertiges
+Ergebnis. Ein bereits exklusiv begonnenes synchrones Schreiben wird nicht als
+Timeout umetikettiert, weil ein solcher Fehler einen unsicheren Retry
+nahelegen würde.
+
+Auch `page_objects` hatte trotz rein öffentlicher Profilmetadaten pro Aufruf
+einen frischen Worker gestartet. Drei direkte 2025-Workerläufe am 2026-08-16
+brauchten 997/987/1.007 ms. Der neue API-Pfad las, validierte und redigierte den
+vollständigen 2025-Katalog in 1.000 aufeinanderfolgenden Aufrufen im Mittel in
+2,957 ms je Aufruf; Transportzeit ist darin nicht enthalten und der Messwert
+ist keine Testschwelle. `test/page-objects-parity.mjs` bindet die semantische
+Parität für 2024 und 2025 an den echten Worker, einschließlich dessen
+case-insensitiver ID-Auflösung. Das Live-Gate prüft weiterhin den öffentlichen
+API-/MCP-Weg; den dort nicht mehr gestarteten Worker-Katalogpfad beweist dieser
+Offline-Test separat.
+
+`verify` war derselbe unnötige Prozesspfad für eine reine, bereits
+hashgebundene JSON-Auswertung. Drei direkte Workerstarts ohne fachliche Arbeit
+brauchten am 2026-08-16 1.236/1.103/1.077 ms. Der lokale Executor brauchte für
+1.000 aufeinanderfolgende vollständige Hash-, Stabilitäts- und
+Vergleichsaufrufe nach dem Review insgesamt 655,730 ms, im Mittel 0,656 ms. Beide Werte sind
+orientierende Messungen ohne Transport und keine Testschwelle. Der lokale
+Pfad liest die höchstens 16 MiB große Quelle einmal gepuffert und hasht sie
+danach nochmals ungepuffert über stabile Dateihandles. Er prüft SHA-256 und
+Dateiidentität, parst strikt UTF-8/JSON und rechnet Dezimal-
+differenzen per `BigInt` mit Half-to-even-Rundung. Bei Unicode-Faltungen oder
+manuell gebauten Quelltypen, deren Windows-PowerShell-Semantik Node nicht
+beweisbar gleich abbildet, verwendet er mit dem verbleibenden Zeitbudget den
+echten Worker. Der Paritätstest beweist beide Wege; ungültige Quellen oder ein
+nicht-boolesches `vollstaendig` bleiben fail-closed.
+
+Auch `make_working_copy` hatte trotz reiner Dateiarbeit einen frischen Worker
+gestartet. Bei einer synthetischen 1-MiB-Falldatei brauchten drei direkte
+Workerläufe am 2026-08-16 1.112/1.086/1.073 ms, der lokale Executor
+24,0/11,7/10,5 ms. Das sind orientierende Messwerte ohne HTTP-Transport und
+keine Testschwelle. Der lokale Pfad verwendet `wx+` für ein atomar neues Ziel,
+streamt die Bytes über dauerhaft offene Handles und verifiziert danach Quelle
+und Ziel erneut über Hash, Identität und Dateizustand. Quellenänderung rollt
+nur die nachweislich eigene Kopie zurück; ein fremd verändertes Ziel bleibt zur
+manuellen Klärung erhalten. Weil Node die exklusiveren Windows-Share-Modi des
+Workers nicht ausdrücken und kein `DELETE_ON_CLOSE` setzen kann, beweist der
+Vertrag Erkennung statt Verhinderung sowie das verbleibende kleine
+Rollback-TOCTOU-Fenster. Der PowerShell-Pfad bleibt als direkte
+Kompatibilitätsschnittstelle und Paritätsreferenz bestehen. Open-Aufrufe sind
+deadlinegebunden; die Kopierschleife prüft kooperativ zwischen 1-MiB-Blöcken.
+Da Node laufende `FileHandle`-Operationen nicht sicher abbrechen kann, kann ein
+einzelner hängender Kernel-/Netzlaufwerkaufruf die Frist überschreiten. Das
+eigentumsgeprüfte Cleanup wird auch nach Fristablauf zu Ende geführt.
+
+`backup_cases` nutzt über API und MCP jetzt dieselbe lokale, hash- und
+identitätsgebundene Kopiergrenze. Bei einer synthetischen 1-MiB-Falldatei
+brauchten drei direkte Workerläufe am 2026-08-16
+1.104,6/1.106,8/1.112,5 ms, der lokale Executor 47,0/35,5/38,4 ms. Die Werte
+enthalten keinen HTTP-Transport und sind keine Testschwelle. Der
+Offline-Paritätstest vergleicht zusätzlich das CSV-Manifest byteweise mit
+Windows PowerShell 5.1. Quell- und Zielinventar werden während des Laufs exakt
+gebunden; fremde Einträge führen zu einem fail-closed Ergebnis und bleiben zur
+manuellen Klärung erhalten. Für Node-Dateihandles und Rollback gelten dieselben
+Share-Mode-, Kernel-I/O- und TOCTOU-Grenzen wie bei `make_working_copy`.
+Der frühere Live-Nachweis von `backup_cases` lief noch über den Worker. Der nun
+ausgelieferte API-/MCP-Lokalpfad ist deshalb bis zum nächsten strikten Live-Gate
+als offline workerparitätisch, nicht als erneut live ausgeführt, belegt.
+
+`archive_cases` vermeidet über API und MCP ebenfalls den frischen Worker, ohne
+die Sicherungsregeln auf einen schnellen Rename zu reduzieren. Bei einer
+synthetischen 1-MiB-Falldatei brauchten drei direkte Workerläufe am 2026-08-16
+1.201,3/1.188,4/1.195,1 ms. Der lokale Produktionspfad einschließlich zweier
+echter fail-closed `tasklist.exe`-Prüfungen brauchte
+790,5/875,8/841,9 ms. Die Werte enthalten keinen HTTP-Transport und sind keine
+Testschwelle. Der lokale Pfad kopiert in ein exklusiv neues Ziel, übernimmt
+`atime`/`mtime`, verifiziert Ziel und noch offenen Quell-Handle vollständig und
+entfernt erst danach den Quellnamen. Sein Manifest ist bytegleich zum Windows-
+PowerShell-Worker. Rollback läuft auch nach Clientabbruch oder Deadline zu
+Ende; bei fremdem Ziel wird aus dem offenen Originalhandle restauriert, und
+ein gleichzeitiger Quell-/Zielkonflikt erzeugt eine explizit gemeldete,
+hashverifizierte Recovery-Datei statt Originalbytes zu verlieren.
+Die große Schreibreise vom 2026-08-14 belegt die fachliche Archivoperation real,
+lief aber noch über den Worker. Der neue lokale API-/MCP-Pfad ist daher bis zum
+nächsten strikten Live-Gate als offline workerparitätisch, nicht als erneut live
+ausgeführt, belegt.
+
+## Aktuelle Live-Muster-Evidenz
+
+`npm run test:live-core-read` ist der reproduzierbare, fallunverändernde
+Basisnachweis. Am 2026-08-14 lief er erfolgreich für 2025 und 2024 (bei 2024
+mit dem engen Verifikations-Opt-in), jeweils gegen beide offiziellen
+Musterfälle. Pro Profil prüfte er 21 semantische Aussagen und beendete alle
+gestarteten SSE-Instanzen. Er überspringt nicht still: Sein JSON-Ergebnis
+nennt die fünf bewusst nicht enthaltenen Bereiche
+`cross-section-navigation`, `ustva-read`, `checker`, `terminal-collect` und
+`deep-read-sweep`.
+
+Das strikte `npm run test:live` bleibt der weitergehende Nachweis für diese
+fünf Bereiche und die profilierten Mutationsfixtures. Es wird nicht durch das
+Core-Read-Gate ersetzt. Am 2026-08-16 bestand es für beide Profile ohne SKIP
+und ohne verbleibende SSE-Instanz. Die Foreground-Lease funktionierte in
+diesem Lauf. Wird sie durch Benutzereingabe oder einen fremden
+Vordergrundprozess verloren, meldet der Worker weiterhin `interference`
+**vor** Mausinput; ein möglicherweise wirkungsloser Klick kann damit nicht als
+erfolgreiche Navigation gelten.
+
+## Strikter Live-Muster-Sweep
+
+Der Sweep startet ohne vorhandene SSE-Instanz. Er kopiert jeden offiziellen
+Musterfall in den isolierten Test-Fallbereich, erzeugt daraus eine zweite
+Arbeitskopie, bindet PID/HWND, liest ausschließlich, schließt mit Verwerfen
+und prüft den unveränderten SHA-256. Testkopien werden erst nach bestätigtem
+Prozessende entfernt. Bleibt ein PID-gebundener Schließvorgang nach seinem
+Client-Timeout noch aktiv, wartet der Sweep auf den Abschluss; bei weiterhin
+unklarem Zustand erhält der Live-Runner seine isolierte Sandbox als
+Diagnoseartefakt statt sie still zu löschen.
+
+Welche Operationen der Sweep versucht, entscheidet nicht der Test, sondern die
+Fähigkeitsmatrix aus `sse_capabilities`. Alles, was das aktive Profil erlaubt
+und keinen Steuerfall verändert, wird ausgeführt; alles andere muss die Matrix
+ausdrücklich als gesperrt ausweisen. Ein stiller `SKIP` ist damit ausgeschlossen –
+ein Profil kann keine Prüfung mehr dadurch verlieren, dass sie einfach ausbleibt.
+
+Er umfasst derzeit unter anderem:
+
+- Produkt-/Fallhash, Kopie, Start, Dialoginventar und gebundener Close;
+- Fenster-/Seitenzustand, Ergebnisse, Seiten-, Vollseiten-, Hilfe- und
+  Tabellenleser;
+- Navigation, Unterseiten, Suche, Roll- und Baumzustand;
+- katalogisierten Seitenzustand samt Inhaltsfingerprint, Einzelwertlesung,
+  Positionen, Seitenprüfung und Auswahllisten;
+- Prüferlauf, Prüferergebnis, gebundenes Öffnen einer Meldung, Reset und Close;
+- UStVA-Zeitraum und Betragsreadback ohne Speichern oder Übermittlung;
+- Element-Snapshot, Accessibility-Probe und Vergleich des sicheren
+  TreeWalker-Pfads mit dem Bulk-Snapshot;
+- Sammellauf, hashgebundenen Soll/Ist-Abgleich, Kontrollbild und Fallsicherung
+  in die isolierten Test-Ressourcenbereiche;
+- einen zweistufigen, rein lesenden Szenariolauf samt Abschlussschritt und
+  hashgebundenem Ergebnisbericht.
+
+Genau dieser Sweep hat drei Operationen aufgedeckt, die gegen die echte
+Anwendung nie funktioniert haben: `backup_cases`, `known_page_state` und
+`goto` auf die bereits offene Seite endeten jedes Mal mit
+`invalid-operation-result`, weil ihr veröffentlichter Ergebnisvertrag einen
+anderen Typ versprach als der Worker lieferte – eine Anzahl statt einer Liste,
+ein Fingerprint statt einer Zahl, ein Text statt einer Liste. Alle drei waren
+zuvor grün, aber eben nur schematisch geprüft. Ein Ergebnisschema ohne echten
+Aufruf ist deshalb keine Zusicherung.
+
+Ebenfalls belegt: Der Sprung über die globale Suche aktiviert den Treffer im
+Vorbereitungszweig reproduzierbar nicht – der Doppelklick verpufft und `goto`
+meldet korrekt `not-found`. Der gleichnamige Eintrag im Navigationsbaum führt
+dagegen zuverlässig zum Ziel. Der Sweep nimmt deshalb diesen Weg; er ist damit
+zugleich der einzige Live-Beleg für `click_point`.
+
+`snapshot_compare` kann auf Engine 30 über unmittelbar benachbarte
+Messpaare hinweg einen echten Leserunterschied melden. Das Profil verwendet
+deshalb fünf statt drei Wiederholungen. Im Lauf vom 2026-08-14
+fehlten dem Bulk-Snapshot fünf unbenannte TreeWalker-Knoten (`Button`, `Custom`
+und `Hyperlink`); es gab keine zusätzlichen Knoten, Metadaten- oder
+Wertabweichungen. Das 2024-Profil erlaubt deshalb ausschließlich diesen
+fehlende-Knoten-Diagnoseausgang. Jede zusätzliche Struktur-, Metadaten- oder
+Wertabweichung bleibt rot. Der Vergleich wird also nicht weichgestellt, sondern
+liefert für diese bekannte Engine-Grenze weiterhin seinen fail-closed Befund.
+
+Ein weiterer Engine-Unterschied ist damit belegt: `combo_options` bindet die
+Auswahleinträge an die AutomationId der ComboBox. Engine 31 liefert so eine
+vollständige Liste; Engine 30 hängt die Popup-Einträge nicht darunter und der
+Leser meldet ehrlich `not-found`, statt eine womöglich fremde Liste zu
+behaupten. Der Live-Sweep akzeptiert genau diese beiden Ausgänge – eine dritte,
+stillschweigend geratene Liste wäre der Fehler.
+
+## Wegwerfkopien statt privater Fixtures
+
+Die Einzeltransaktionen brauchen einen Steuerfall, den sie verändern dürfen.
+Bisher musste der von außen kommen: Jedes Skript verlangte eine eigene
+Umgebungsvariable auf eine „neutrale Kopie", und ohne sie beendete es sich mit
+`SKIP` und Rückgabewert 0. Genau so verschwanden sie aus jedem Gate.
+
+Das Gate stellt die Kopie inzwischen selbst her: Es kopiert den offiziellen
+Gewinnermittlungs-Musterfall in ein frisches Temp-Verzeichnis, richtet den
+Fallbereich der Test-API darauf, führt das Skript aus und löscht das
+Verzeichnis wieder. Danach prüft es dreierlei – Exit 0, unveränderter SHA-256
+des Originalmusterfalls und null verbliebene SSE-Prozesse. Die Kopie ist damit
+kein Vorrecht des Entwicklerrechners mehr, sondern Teil des Laufs.
+
+Dabei kam heraus, warum diese Skripte nicht nur ungenutzt, sondern **defekt**
+waren: Acht von ihnen übergaben `sse_desktop_start` bzw. `sse_launch` einen
+absoluten Windows-Pfad als `file`. Seit der Pfadredaktion kennt die
+MCP-Schicht nur noch `caseRef` im konfigurierten Fallbereich, und ihr striktes
+Schema weist alles andere ab. Jedes dieser Skripte scheiterte deshalb im
+allerersten Aufruf – unbemerkt, weil niemand sie mehr startete. Die Umrechnung
+liegt jetzt in `test/fixture-case-ref.mjs` an einer Stelle.
+
+Zwei weitere Annahmen dieser Skripte hielten der frischen Kopie nicht stand:
+
+- Sie erwarteten feste Beträge („1,50" → „1,51"). Die stammten aus der privaten
+  Arbeitskopie ihres Autors. Die Zieltabelle kommt jetzt aus dem Produktprofil,
+  jeder erwartete Betrag aus der laufenden Anwendung.
+- Sie erwarteten eine Startseite mit „Weiter". Der offizielle Musterfall öffnet
+  auf einer Übersichtsseite ganz ohne diesen Schalter; der Test scheiterte mit
+  `not-found` statt der erwarteten blockierten Navigation.
+
+Der zweite Punkt ist mehr als ein Testdetail. Gemessen wurde: Von dieser
+Startseite führt **kein** fokusfreier Weg weiter. `Invoke` auf „Jetzt beginnen"
+wird ausgeführt und wechselt die Seite nicht; linear blättern geht nicht, weil
+es kein „Weiter" gibt; und der Navigationsbaum braucht einen echten Mausklick,
+der auf dem privaten Desktop technisch ausgeschlossen ist. Jeder versteckte
+Lauf war dort gefangen. Das Gate stellt die Vorlage deshalb einmal **sichtbar**
+auf die profilierte Formularseite und speichert – die Anwendung merkt sich die
+Seite in der Datei, und alle folgenden Läufe öffnen direkt dort, auch versteckt.
+
+### Was dieser Weg an echten Fehlern freigelegt hat
+
+Erst dieser Lauf gegen den Herstellermusterfall hat vier Defekte gezeigt, die
+gegen den synthetischen Worker alle grün waren:
+
+1. **`sse_save` meldete jedes erfolgreiche Speichern als Fehlschlag.** Zwei
+   Nachbedingungen waren zu streng. Erstens verlangte sie eine *fortgeschrittene*
+   Schreibzeit; SSE speichert aber über eine temporäre Datei und benennt um,
+   und Windows überträgt dabei per File Tunneling die alten Zeitstempel –
+   gemessen: identischer `LastWriteTimeUtc` bei geändertem Hash. Zweitens
+   verglich sie `ElsterTransferTime` wörtlich, das der Build beim Speichern von
+   „-" auf leer normalisiert. Der Hashwechsel bleibt der eigentliche Beweis.
+2. **Der Kopfparser meldete den Musterfall als übermittelt.** `-` ist der
+   Platzhalter für „nie versendet"; der frühere Test „nicht leer und nicht 0"
+   machte daraus `transmitted = true`, Begründung „übermittelt am -". Für ein
+   Werkzeug, dessen erste Regel „niemals versenden" ist, ist eine falsche
+   Übermittlungsauskunft der schlechteste denkbare Fehler. Jetzt gilt: leer,
+   `0` und `-` heißen nicht übermittelt, ein Wert mit Ziffern heißt übermittelt,
+   und alles andere bleibt ausdrücklich `unknown` statt geraten – ein
+   irrtümlich zweiter Versand wäre der teurere Fehler.
+3. **`table_read`, `read_table` und `collect` lieferten keine Tabellenzeilen.**
+   Windows PowerShell 5.1 serialisiert ein verschachteltes `object[]` als
+   `{"value":[…],"Count":n}`. Jeder Aufrufer bekam also Hüllobjekte statt
+   Zeilen. Der synthetische Worker baut seine Zeilen in JavaScript und konnte
+   das nie zeigen.
+4. **Die Kontrollsumme war gar nicht lesbar.** `table_add`, `table_update` und
+   `table_delete` verlangen `expectedBefore` zwingend, aber keine einzige
+   Leseoperation lieferte den Wert – ein Aufrufer hätte ihn raten müssen.
+   `sse_table_read` meldet ihn jetzt als `summe`. Dass er zunächst leer blieb,
+   lag daran, dass der Leser den Baum ohne Werte lief; Qt gibt die Summenzelle
+   nur mit `-WithValues` heraus.
+
+Dazu kommt eine Diagnoseverbesserung: `sse_save` nennt bei `postcondition-failed`
+jetzt in `offeneBedingungen`, welche Bedingung gerissen ist. Vorher stand dort
+nur eine Sammelmeldung, und genau diese Sammelmeldung hat den obigen Befund
+jahrelang verdeckt.
+
+Für ein Jahr ohne volle Freigabe laufen diese Transaktionen nicht. Das ist kein
+stiller SKIP: Das Gate prüft stattdessen, dass die Policy jede der sieben
+Steuerfallmutationen mit genanntem Grund sperrt – auch mit gesetztem
+Experimental-Opt-in.
+
+## Profilierter Schreibweg
+
+Der profilierte Focusless-Commit schreibt eine gebundene Tabellenzelle auf
+einem privaten Windows-Desktop, mit laufendem Vordergrundwächter. Bewiesen
+werden Feld-Readback, abhängige Seitensumme, `ungespeichert`, das Ausbleiben
+jeder physischen Eingabe und dass die Arbeitskopie nicht auf die Platte
+geschrieben wird.
+
+Er brauchte früher eine von außen gestellte Fixture, weil ein Fall nötig ist,
+der sich die profilierte Seite bereits merkt. Diesen Fall stellt das Gate
+inzwischen selbst her (siehe oben); eine Umgebungsvariable ist nicht mehr
+Voraussetzung.
+
+Eine Tabellenzeile **löschen** geht dagegen nur sichtbar: Qt verlangt dafür
+Strg+Umschalt+Entf, und der Worker sperrt `sse_table_delete` auf dem privaten
+Desktop ausdrücklich ab. Der Tabellen-Lebenszyklus läuft deshalb bewusst
+sichtbar – das Gate verlangt ohnehin eine unbenutzte Maschine.
+
+Ein Vorbehalt gehört dazu: Erscheint beim Start eine Wiederherstellungsfrage,
+beantwortet dieser Schritt sie gebunden mit „Nein". Das verwirft die
+Autosave-Daten einer zuvor abgestürzten SSE-Sitzung – auch wenn diese zu einem
+ganz anderen Steuerfall gehört. Das Gate startet deshalb nur ohne laufende
+SSE-Instanz; wer eine offene Wiederherstellung erwartet, klärt sie vorher
+selbst in der Anwendung.
+
+## Große Schreibreise
+
+`test/live-write-journey.mjs` ist die eine lange, streng lineare Reise über
+die Schreib- und Dateiwege: lesen, Kontrollsumme prüfen, schreiben,
+Kontrollsumme erneut prüfen – und für jedes Speichern der Beweis auf der
+Platte. Sie läuft im strikten Live-Gate nach den Einzeltransaktionen und
+zusätzlich eigenständig über `npm run test:live-journey`. Anders als die
+Einzeltransaktionen **speichert sie ihre Wegwerfkopie mit Absicht**; ihr
+Runner erwartet deshalb den Hashwechsel der Kopie und weiterhin den
+byteidentischen Musterfall.
+
+Ihre Beweiskette in einer Ausführung:
+
+- Tabellenzeile anlegen, Kontrollsumme aus der Anwendung gegenlesen,
+  hashgebunden speichern (Datei ändert sich nachweislich), Anwendung
+  schließen, **neu starten und die Zeile erneut vorfinden** – erst der
+  Neustart trennt „im Fenster sichtbar" von „in der Datei gespeichert";
+- Zeile löschen, Summe exakt zurück auf dem Ausgangswert, zweites
+  hashgebundenes Speichern;
+- UStVA-Quartett auf der Übersicht: Zeitraum q1→q2 direkt per `combo_select`
+  und zurück über `ustva_select_period`, Belege-Kennzeichen hin und zurück,
+  Sondervorauszahlung 100,00 mit exakt um 10.000 Cent sinkender Zahllast und
+  vollständiger Rücknahme, Vorsteuerbereich öffnen und zurück – alles ohne
+  Speichern, die Datei bleibt nachweislich auf dem Stand des letzten Saves;
+- CSV-Export über den echten Dialogweg (`export_csv` → `dialog_answer` →
+  nativer Ordnerdialog per `file_dialog_select`) bis zu tatsächlich
+  geschriebenen CSV-Dateien im Ergebnisbereich, danach derselbe Exportdialog
+  noch einmal über `menu`/`menu_click`;
+- Werte-Info als bekanntes Nebenfenster öffnen und per `window_close` exakt
+  fingerprintgebunden schließen; Hauptfenster echt minimieren und per
+  `window_restore` verifiziert zurückholen;
+- `save_as` auf eine Zweitdatei samt nachgewiesener Fensterumbindung,
+  Bestandskontrolle über `list_cases`/`case_hash` und hashgebundenes
+  Verschieben der Zweitdatei per `archive_cases`.
+
+### Was die Reise bereits an Wirklichkeit freigelegt hat
+
+Vier Annahmen hielten dem echten Programm nicht stand. Alle vier sind
+Produktverhalten, nicht Testfehler – und alle vier wären mit einer weniger
+strengen Prüfung unbemerkt geblieben:
+
+1. **Die profilierte Gebührentabelle spiegelt den Betrag in eine zweite,
+   berechnete Spalte derselben Zeile.** Eine Zeilenbindung allein über den
+   Text ist dort deshalb grundsätzlich mehrdeutig; `sse_table_delete` weist
+   das korrekt mit `ambiguous` ab. Nach einem Neustart existiert keine
+   Runtime-ID aus der Mutation mehr, die Reise leitet sie deshalb neu aus der
+   laufenden Anwendung ab und prüft strukturelle gegen geometrische Sicht.
+   Für Aufrufer heißt das: Eine Tabellenzeile über einen Betrag zu adressieren
+   ist auf gespiegelten Tabellen nicht eindeutig – `targetRid` ist Pflicht.
+2. **Der CSV-Export schreibt eine Datei je Ausgabekategorie, und Kategorien
+   ohne Daten ergeben eine leere Datei.** Am Musterfall ist das
+   `GWGVerzeichnis.csv` – der Fall hat keine geringwertigen Wirtschaftsgüter.
+   Eine leere Exportdatei ist damit korrektes Verhalten; beweiskräftig ist,
+   dass überhaupt Inhalt geschrieben wurde.
+3. **Der abgeschlossene Export legt eine weitere Meldung über das
+   Exportfenster.** `sse_dialog_answer` verweigert die Antwort auf einen
+   verdeckten Dialog mit `non-topmost-dialog`. Die Reise räumt die Kette
+   deshalb von oben nach unten ab und benutzt genau dieses strukturierte
+   Urteil als Reihenfolgequelle, statt eine Reihenfolge zu raten.
+4. **SteuerSparErklärung legt beim Speichern eine eigene Sicherungsdatei
+   `<Fallname>_Backup` neben den Fall**, und der Bestandsabgleich von
+   `sse_archive_cases` zählt sie mit. Ein Archivlauf, der nur die sichtbaren
+   Falldateien kennt, wird deshalb korrekt mit `inventory-mismatch` gestoppt –
+   die Operation verlangt den vollständigen Restbestand, nicht den vermuteten.
+   Für Aufrufer heißt das: `sse_list_cases` mit `includeBackups: true` ist vor
+   einem Archivlauf Pflicht.
+
+Eine Grenze bleibt bewusst außerhalb der Reise und weiterhin live unbelegt:
+Die sechs `vast_*`-Operationen brauchen den echten VaSt-Belegabruf-Dialog
+eines ELSTER-Kontos. `center_cases` und `center_refresh` sind dagegen nun im
+separaten privaten Center-Gate sowie im strikten Runner enthalten. Ein
+VaSt-Live-Nachweis ohne die echte Voraussetzung wäre gespielt statt bewiesen.
+
+Die Reise braucht eine entsperrte, unbenutzte Windows-Sitzung: Zwei Versuche
+am Vormittag des 2026-08-14 endeten reproduzierbar fail-closed mit
+`interference`, weil während der ersten Zellschreibung echte Benutzereingaben
+eintrafen – bei gesperrtem Bildschirm scheitern dagegen die
+SendInput-Dialogwege. Ihr erster vollständiger Lauf gehört deshalb in das
+unbeaufsichtigte Zeitfenster des geplanten Gesamtlaufs; erst mit dessen
+Abdeckungsbilanz wandern die neuen Operationen in die Live-Spalte.
+
+Engine 30 vergibt bei einzelnen semantisch identischen, unbenannten Qt-Knoten
+zwischen zwei unmittelbar folgenden Läufen neue Runtime-IDs. Der Vergleich
+weist diese als `runtimeIdChurnCount` aus und paart sie nur im identischen
+Traversal-Slot mit identischem Elternindex und gleicher Tiefe, wenn außerdem
+Typ, Name, AutomationId, Geometrie, Zustand und privater Wert intern exakt
+identisch sind. Die privaten Vergleichsdaten verlassen den Worker nicht; echte
+Struktur- oder Wertabweichungen bleiben ein Fehler.
+
+Praktische Folge für Aufrufer: Eine Runtime-ID aus einem vorherigen Aufruf ist
+auf Engine 30 keine tragfähige Bindung für eine Aktion – der Klick endet dann
+mit `not-found` auf einem leeren Bezeichner. Für Aktionen binden Name oder
+AutomationId; die Eindeutigkeit wird vorher lesend geprüft.
+
+Strikte Ausführung beider Profile in PowerShell:
+
+```powershell
+npm run test:live
+```
+
+Der Runner entfernt eine eventuell gesetzte Fallauswahl, startet nur ohne
+vorhandene SSE-Instanz, prüft `2025` und danach `2024` vollständig und verlangt
+nach jedem Profil wieder null SSE-Prozesse. Für 2024 setzt er den eng begrenzten
+Verifikations-Opt-in selbst. Im Lauf werden ein Dateihash und ein stabiler
+Ergebnisreadback jeweils direkt per HTTP und über das kanonische MCP-
+`structuredContent` verglichen.
+
+Fehlende Installation, Musterdatei oder Testvoraussetzung darf in einem
+verpflichtenden Live-Gate nicht als grüner `SKIP` gelten. Vor und nach dem Lauf
+muss geprüft werden, dass keine fremde SSE-Instanz übernommen oder beendet
+wurde.
+
+Während des Laufs darf der Rechner nicht nebenher bedient werden. Vor jedem
+echten Baumklick bindet der Worker den aktuellen Windows-Eingabetick sowie den
+exakten SSE-PID-/Root an der Zielposition; fremde Eingabe oder Überdeckung
+stoppt deshalb vor dem Input. Ein physischer Baumklick verlangt zusätzlich,
+dass genau dieses SSE-HWND unmittelbar vor dem Mausinput im Vordergrund ist.
+Verweigert Windows die Aktivierung, meldet `sse_click_point` `interference`
+und führt keinen Klick aus. Nur bei Vordergrund-, Root- und Input-Bindung kann
+ein wirkungsloser Qt-Klick noch als `postcondition-failed` erscheinen. Der
+Sweep wiederholt ausschließlich diesen lesenden Zweigklick begrenzt und gibt
+pro Versuch Fokus- und Klick-Bindungsdaten aus; damit ist eine ruhige sichtbare
+Sitzung prüfbar, ohne Fremdbedienung pauschal als Ursache zu behaupten.
+
+## Noch nicht freigegeben
+
+Für „jede praktische SSE-Aktion vollständig geprüft“ fehlen insbesondere:
+
+1. erfolgreiche Live-Läufe der sechs `vast_*`-Operationen mit einem neutralen
+   ELSTER-/VaSt-Dialog. Diese sechs Operationen sind offline funktional, aber
+   live weiterhin ungetestet;
+2. eine fallweite Gesamterfassung. Der erfolgreiche `collect`-Lauf beweist
+   exakt das Ende eines profilierten Ein-Seiten-Blätterpfads; der getrennte
+   Zwei-Seiten-Lauf beweist den fortsetzbaren Teilstand. Wegen des absichtlichen
+   Maximums von fünf Seiten ersetzt beides keine Baumkartierung des ganzen Falls;
+3. die 2024-Mutationsmatrix. Der Experimental-Opt-in sperrt diese Pfade
+   absichtlich; die erfolgreichen 2025-Läufe für UStVA-Schreiben,
+   `combo_select`, `save_as`, `export_csv` und `file_dialog_select` sind keine
+   Freigabe für Engine 30;
+4. ein vollständiger HTTP-gegen-MCP-Szenariolauf auf zwei unabhängigen frischen
+   Wegwerfkopien einschließlich der freigegebenen Mutationen; der aktuelle
+   Live-Lauf belegt bereits die echte Transportparität für Hash und Ergebnisreadback;
+
+Die Live-Spalte der Abdeckungsbilanz ist die verbindliche Antwort darauf,
+welche Operationen die echte Anwendung schon bedient hat. Prosa in dieser Datei
+darf ihr nie widersprechen.
+
+Eine Jahresprofil-Promotion ist erst zulässig, wenn diese Freigaben nicht
+pauschal über den Profilstatus erfolgen und alle für das Jahr erlaubten
+Operationsklassen mit passender Live-Evidenz hinterlegt sind.

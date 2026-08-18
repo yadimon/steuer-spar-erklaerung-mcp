@@ -1,0 +1,53 @@
+node_modules/
+dist/
+artifacts/
+.tmp/
+*.log
+*.tsbuildinfo
+powershell/sse-native.dll
+powershell/sse-native.sha256
+powershell/.sse-native-*.dll
+powershell/.sse-native-*.sha256
+powershell/.sse-native-*.replace.dll
+powershell/.sse-native-*.replace.sha256
+
+# Arbeitsdateien der Erkundung
+*.png
+akad.json
+out.json
+err.txt
+docs/seiten-roh/
+docs/*.json
+
+# Niemals Steuerdaten ins Repo
+*.ESt20*
+*.Gew20*
+*.GewErfass20*
+*.Fest20*
+*.Erm20*
+*.Vorweg20*
+*.KonsUst20*
+*.Zulage20*
+*.NVBescheinigung20*
+*_Backup
+
+# Private lokale Testdaten und VM-Smoke-Umgebung
+/.private/
+/.vm-provisioning/
+/documents/
+/backups/
+/cases/
+/results/
+/workspace/
+/tmp/
+
+# Lokale VirtualBox-Maschinen, Exporte und Laufzeitstatus
+*.vbox
+*.vbox-prev
+*.vdi
+*.vhd
+*.vmdk
+*.ova
+*.ovf
+*.sav
+*.nvram

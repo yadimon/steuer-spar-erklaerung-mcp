@@ -1,0 +1,633 @@
+{
+  "schemaVersion": 1,
+  "hinweis": "Erzeugt aus echter Testausfuehrung. Nicht von Hand hochstufen - erst Test schreiben, dann regenerieren.",
+  "operations": {
+    "capabilities": {
+      "offline": "functional",
+      "offlineLabels": [
+        "scenario-mock",
+        "stateful-mock",
+        "worker"
+      ],
+      "live": "functional"
+    },
+    "accessibility_probe": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "archive_cases": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock",
+        "worker"
+      ],
+      "live": "functional"
+    },
+    "backup_cases": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock",
+        "worker"
+      ],
+      "live": "functional"
+    },
+    "case_hash": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock",
+        "worker"
+      ],
+      "live": "functional"
+    },
+    "center_cases": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "center_refresh": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "check": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "checker_close": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "checker_detail": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "checker_open": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "checker_reset": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "checker_results": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "checker_run": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "click": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "click_point": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "close": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "collect": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "combo_options": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "combo_select": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "desktop_start": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "desktop_status": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "desktop_stop": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "dialog_answer": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "dialog_list": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "dismiss": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "export_csv": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "file_dialog_select": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "find": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "get_value": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "goto": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "health": {
+      "offline": "functional",
+      "offlineLabels": [
+        "worker"
+      ],
+      "live": "functional"
+    },
+    "help": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "known_page_state": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "launch": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "list_cases": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock",
+        "worker"
+      ],
+      "live": "functional"
+    },
+    "make_working_copy": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock",
+        "worker"
+      ],
+      "live": "functional"
+    },
+    "menu": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "menu_click": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "menu_close": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "page": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "page_objects": {
+      "offline": "functional",
+      "offlineLabels": [
+        "profile-catalog",
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "positions": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "product_info": {
+      "offline": "functional",
+      "offlineLabels": [
+        "worker"
+      ],
+      "live": "functional"
+    },
+    "read_full": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "read_page": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "read_table": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "result_details": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "save": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "save_as": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "scenario_run": {
+      "offline": "functional",
+      "offlineLabels": [
+        "scenario-mock",
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "screenshot": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "scroll": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "scroll_page": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "set_value": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "snapshot": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "snapshot_compare": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "subpages": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "table_add": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "table_delete": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "table_read": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "table_update": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "toggle": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "tracked_set_value": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "tree_scroll": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "tree_top": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "ui_state": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "ustva_change_value": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock",
+        "ustva-mock"
+      ],
+      "live": "functional"
+    },
+    "ustva_open_section": {
+      "offline": "functional",
+      "offlineLabels": [
+        "ustva-mock"
+      ],
+      "live": "functional"
+    },
+    "ustva_read": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock",
+        "ustva-mock"
+      ],
+      "live": "functional"
+    },
+    "ustva_select_period": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock",
+        "ustva-mock"
+      ],
+      "live": "functional"
+    },
+    "ustva_set_flag": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock",
+        "ustva-mock"
+      ],
+      "live": "functional"
+    },
+    "vast_apply": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "untested"
+    },
+    "vast_dialog_read": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "untested"
+    },
+    "vast_mapping_options": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "untested"
+    },
+    "vast_mapping_select": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "untested"
+    },
+    "vast_row_details": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "untested"
+    },
+    "vast_row_set_expanded": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "untested"
+    },
+    "verify": {
+      "offline": "functional",
+      "offlineLabels": [
+        "local-file",
+        "worker"
+      ],
+      "live": "functional"
+    },
+    "warning_popup_read": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "workspace_file_list": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock",
+        "worker"
+      ],
+      "live": "functional"
+    },
+    "workspace_file_read_text": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock",
+        "worker"
+      ],
+      "live": "functional"
+    },
+    "workspace_file_write_text": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock",
+        "worker"
+      ],
+      "live": "functional"
+    },
+    "workspace_status": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock",
+        "worker"
+      ],
+      "live": "functional"
+    },
+    "window_close": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "window_restore": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "windows": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    }
+  }
+}

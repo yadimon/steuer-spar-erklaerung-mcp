@@ -1,0 +1,49 @@
+{
+  "musterDirRelative": "musterfaelle",
+  "cases": [
+    {
+      "id": "est",
+      "file": "MusterSteuer1.ESt2025",
+      "mode": "normal",
+      "operation": "sse_result_details",
+      "checker": true,
+      "checkerMarksCaseModified": false,
+      "terminalCollect": {
+        "headingAtLaunch": "Vorbereitung Steuererklärung 2025"
+      },
+      "expectedRows": [
+        ["Erstattung", "3.540,63 €"],
+        ["Werbungskosten Heinz", "2.140,00 €"],
+        ["Werbungskosten Eva", "4.011,00 €"],
+        ["Summe der Einkünfte", "49.725,00 €"],
+        ["Abziehbare Vorsorgeaufwendungen", "6.657,00 €"],
+        ["Einkommen", "37.080,00 €"],
+        ["Zu versteuerndes Einkommen", "36.860,00 €"],
+        ["Anzahl der Kinder", "2 Kinder"]
+      ]
+    },
+    {
+      "id": "gew",
+      "file": "MusterGewinnermittlung.Gew2025",
+      "mode": "einur",
+      "operation": "sse_result_details",
+      "expectedRows": [
+        ["Einnahmen (ohne private Nutzung)", "24.098,48 €"],
+        ["Als Einnahmen anzusetzende private Nutzungsanteile", "794,57 €"],
+        ["Summe der Betriebseinnahmen", "24.893,05 €"],
+        ["Fahrzeugkosten", "5.593,09 €"],
+        ["Abschreibungen", "3.367,35 €"],
+        ["Fremdleistungen", "8.500,00 €"],
+        ["Arbeitszimmer", "1.173,23 €"]
+      ],
+      "ustva": {
+        "page": "Umsatzsteuer-Voranmeldungen 2025",
+        "period": "quarterly:q1",
+        "taxable19BaseCents": 1012000,
+        "taxable19TaxCents": 192280,
+        "inputTaxCents": -13470,
+        "settlement": "payment:178810"
+      }
+    }
+  ]
+}

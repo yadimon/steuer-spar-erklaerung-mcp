@@ -1,0 +1,6 @@
+{
+  "name": "Betriebseinnahmen",
+  "type": "TreeItem",
+  "expectedPageBefore": "Start",
+  "expectedPageAfter": "Betriebseinnahmen"
+}
