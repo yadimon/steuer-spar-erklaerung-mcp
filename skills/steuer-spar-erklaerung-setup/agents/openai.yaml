@@ -1,0 +1,4 @@
+interface:
+  display_name: "SteuerSparErklärung Setup"
+  short_description: "Portable SSE-Automation sicher einrichten"
+  default_prompt: "Verwende $steuer-spar-erklaerung-setup, um die portable SteuerSparErklärung-2025-Automation mit deutschen Standardantworten und möglichst wenigen Systemänderungen einzurichten."

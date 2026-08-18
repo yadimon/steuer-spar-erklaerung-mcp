@@ -1,0 +1,74 @@
+name: Fehler melden
+description: Reproduzierbaren Fehler ohne echte Steuer- oder Personendaten melden
+title: "[Fehler] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Danke für den Bericht. Verwende ausschließlich synthetische Angaben oder Hersteller-Musterfälle. Sicherheitslücken bitte über „Report a vulnerability“ privat melden.
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Datenschutz
+      options:
+        - label: Ich habe keine echten Steuerfälle, Belege, Namen, Steuer-IDs, Tokens, lokalen privaten Pfade oder ungeschwärzten Screenshots angehängt.
+          required: true
+
+  - type: input
+    id: release
+    attributes:
+      label: Release-Version
+      description: Zum Beispiel v0.1.0-beta.3 aus Setup, Health oder portablem Manifest.
+      placeholder: v0.1.0-beta.x
+    validations:
+      required: true
+
+  - type: input
+    id: product
+    attributes:
+      label: Produktprofil und Build
+      description: Sanitisiertes Ergebnis aus product_info, zum Beispiel Profil 2025, Engine 31, Build ohne lokale Pfade.
+      placeholder: Profil 2025, Engine 31, Build …
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Oberfläche
+      options:
+        - Portable Einrichtung
+        - Direkte HTTP-API oder CLI
+        - MCP-Wrapper
+        - Sichtbare SSE-Automation
+        - Dokumentation oder Skill
+        - Unklar
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduktionsschritte
+      description: Kurze Schritte mit synthetischen Werten; keine lokalen Pfade oder Steuerdaten einfügen.
+      placeholder: |
+        1. …
+        2. …
+        3. …
+    validations:
+      required: true
+
+  - type: textarea
+    id: result
+    attributes:
+      label: Erwartetes und tatsächliches Ergebnis
+      description: Fehlerart und sanitisierten Text nennen. Tokens, Argumente, Ergebnisse und private Pfade entfernen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: verification
+    attributes:
+      label: Bereits ausgeführte Prüfungen
+      description: Zum Beispiel Health, capabilities, test:fast oder ein frischer Readback. „Nicht ausgeführt“ ist zulässig.

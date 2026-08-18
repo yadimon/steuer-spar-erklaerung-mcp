@@ -1,0 +1,294 @@
+// Public Win32/MSAA interop used by the fresh per-action PowerShell worker.
+// Kept in one compilation unit so Add-Type invokes the compiler only once.
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Text;
+
+public class DSK {
+  public delegate bool EP(IntPtr h, IntPtr l);
+  [DllImport("user32.dll", SetLastError=true, CharSet=CharSet.Unicode)]
+  public static extern IntPtr CreateDesktop(string name, IntPtr dev, IntPtr dm, int flags, uint access, IntPtr sa);
+  [DllImport("user32.dll", SetLastError=true, CharSet=CharSet.Unicode)]
+  public static extern IntPtr OpenDesktop(string name, int flags, bool inherit, uint access);
+  [DllImport("user32.dll", SetLastError=true)] public static extern bool EnumDesktopWindows(IntPtr desktop, EP cb, IntPtr l);
+  [DllImport("kernel32.dll")] public static extern void SetLastError(uint code);
+  public static IntPtr[] ListDesktopWindows(IntPtr desktop) {
+    var windows = new List<IntPtr>();
+    EP callback = delegate(IntPtr hwnd, IntPtr context) {
+      windows.Add(hwnd);
+      return true;
+    };
+    // EnumDesktopWindows also returns FALSE for a desktop that currently owns
+    // no top-level window, and it leaves the thread error untouched in that
+    // case. A freshly created private desktop is exactly in that state until
+    // the launched process shows its first window, so a leftover error such as
+    // ERROR_ENVVAR_NOT_FOUND must never be reported as an enumeration failure.
+    // The callback always returns true, so FALSE plus a cleared error can only
+    // mean "nothing to enumerate"; a real error is still raised.
+    SetLastError(0);
+    if (!EnumDesktopWindows(desktop, callback, IntPtr.Zero)) {
+      int lastError = Marshal.GetLastWin32Error();
+      if (lastError != 0) throw new System.ComponentModel.Win32Exception(lastError);
+    }
+    return windows.ToArray();
+  }
+  [DllImport("user32.dll", SetLastError=true)] public static extern bool CloseDesktop(IntPtr h);
+  [DllImport("user32.dll", SetLastError=true)] public static extern bool SetThreadDesktop(IntPtr h);
+  [DllImport("user32.dll", SetLastError=true)] public static extern IntPtr GetThreadDesktop(uint tid);
+  [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+  [DllImport("kernel32.dll", SetLastError=true)] public static extern bool CloseHandle(IntPtr h);
+  [DllImport("kernel32.dll", SetLastError=true)] public static extern bool TerminateProcess(IntPtr h, uint exitCode);
+  [DllImport("kernel32.dll", SetLastError=true)] public static extern uint WaitForSingleObject(IntPtr h, uint milliseconds);
+  [DllImport("kernel32.dll", SetLastError=true)] public static extern bool GetExitCodeProcess(IntPtr h, out uint code);
+  [DllImport("kernel32.dll", SetLastError=true, CharSet=CharSet.Unicode)]
+  public static extern IntPtr CreateJobObject(IntPtr sa, string name);
+  [DllImport("kernel32.dll", SetLastError=true)]
+  public static extern bool SetInformationJobObject(IntPtr job, int infoClass,
+    ref JOBOBJECT_EXTENDED_LIMIT_INFORMATION info, uint length);
+  [DllImport("kernel32.dll", SetLastError=true)]
+  public static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+  [DllImport("kernel32.dll", SetLastError=true)] public static extern uint ResumeThread(IntPtr thread);
+  [DllImport("kernel32.dll", SetLastError=true, CharSet=CharSet.Unicode)]
+  public static extern bool CreateProcess(string app, StringBuilder cmd, IntPtr pa, IntPtr ta,
+    bool inherit, uint flags, IntPtr env, string dir, ref SI si, out PI pi);
+  [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)]
+  public struct SI { public int cb; public string res; public string desktop; public string title;
+    public int x,y,xs,ys,xc,yc,fill,flags; public short show,res2; public IntPtr res3,i,o,e; }
+  [StructLayout(LayoutKind.Sequential)]
+  public struct PI { public IntPtr hProcess, hThread; public int pid, tid; }
+  [StructLayout(LayoutKind.Sequential)]
+  public struct IO_COUNTERS { public ulong ReadOperationCount, WriteOperationCount, OtherOperationCount,
+    ReadTransferCount, WriteTransferCount, OtherTransferCount; }
+  [StructLayout(LayoutKind.Sequential)]
+  public struct JOBOBJECT_BASIC_LIMIT_INFORMATION {
+    public long PerProcessUserTimeLimit, PerJobUserTimeLimit; public uint LimitFlags;
+    public UIntPtr MinimumWorkingSetSize, MaximumWorkingSetSize; public uint ActiveProcessLimit;
+    public UIntPtr Affinity; public uint PriorityClass, SchedulingClass;
+  }
+  [StructLayout(LayoutKind.Sequential)]
+  public struct JOBOBJECT_EXTENDED_LIMIT_INFORMATION {
+    public JOBOBJECT_BASIC_LIMIT_INFORMATION BasicLimitInformation; public IO_COUNTERS IoInfo;
+    public UIntPtr ProcessMemoryLimit, JobMemoryLimit, PeakProcessMemoryUsed, PeakJobMemoryUsed;
+  }
+}
+
+public class SW {
+  [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h,IntPtr hdc,uint f);
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h,out RC r);
+  [DllImport("user32.dll")] public static extern IntPtr GetDlgItem(IntPtr h,int id);
+  [DllImport("user32.dll")] public static extern bool EnumWindows(EP cb,IntPtr l);
+  [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr parent,EP cb,IntPtr l);
+  [DllImport("user32.dll")] public static extern int GetDlgCtrlID(IntPtr h);
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h,out uint pid);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode, ExactSpelling=true)] public static extern int GetWindowTextW(IntPtr h,StringBuilder s,int n);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode, ExactSpelling=true)] public static extern int GetClassNameW(IntPtr h,StringBuilder s,int n);
+  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool IsWindowUnicode(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool IsHungAppWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern IntPtr SendMessageTimeout(IntPtr h,uint m,IntPtr w,IntPtr l,uint f,uint t,out IntPtr r);
+  [DllImport("user32.dll", CharSet=CharSet.Ansi, ExactSpelling=true)] public static extern IntPtr SendMessageTimeoutA(IntPtr h,uint m,IntPtr w,IntPtr l,uint f,uint t,out IntPtr r);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode, ExactSpelling=true)] public static extern IntPtr SendMessageTimeoutW(IntPtr h,uint m,IntPtr w,IntPtr l,uint f,uint t,out IntPtr r);
+  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x,int y);
+  [DllImport("user32.dll")] public static extern bool GetCursorPos(out PT p);
+  [DllImport("user32.dll")] public static extern void mouse_event(uint f,uint dx,uint dy,uint d,IntPtr e);
+  [DllImport("user32.dll")] public static extern void keybd_event(byte vk,byte scan,uint flags,IntPtr extra);
+  [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(PT p);
+  [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr h,uint f);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h,int c);
+  [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h,IntPtr after,int x,int y,int cx,int cy,uint flags);
+  [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool ScreenToClient(IntPtr h, ref PT p);
+  [DllImport("user32.dll", SetLastError=true)] public static extern bool PostMessage(IntPtr h,uint m,IntPtr w,IntPtr l);
+  [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr h,uint m,IntPtr w,IntPtr l);
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern IntPtr GetLastActivePopup(IntPtr h);
+  [DllImport("user32.dll", SetLastError=true)] public static extern bool GetLastInputInfo(ref LASTINPUTINFO info);
+  [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint a,uint b,bool attach);
+  [DllImport("user32.dll")] public static extern bool GetGUIThreadInfo(uint idThread,ref GUIINFO info);
+  [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+  public struct RC { public int L,T,R,B; }
+  public struct PT { public int X,Y; }
+  [StructLayout(LayoutKind.Sequential)]
+  public struct GUIINFO {
+    public int cbSize;
+    public uint flags;
+    public IntPtr hwndActive,hwndFocus,hwndCapture,hwndMenuOwner,hwndMoveSize,hwndCaret;
+    public RC rcCaret;
+  }
+  [StructLayout(LayoutKind.Sequential)]
+  public struct INPUT { public uint type; public INPUTUNION input; }
+  [StructLayout(LayoutKind.Explicit)]
+  public struct INPUTUNION {
+    [FieldOffset(0)] public MOUSEINPUT mouse;
+    [FieldOffset(0)] public KEYBDINPUT keyboard;
+    [FieldOffset(0)] public HARDWAREINPUT hardware;
+  }
+  [StructLayout(LayoutKind.Sequential)]
+  public struct MOUSEINPUT { public int dx,dy; public uint mouseData,dwFlags,time; public UIntPtr dwExtraInfo; }
+  [StructLayout(LayoutKind.Sequential)]
+  public struct KEYBDINPUT { public ushort wVk,wScan; public uint dwFlags,time; public UIntPtr dwExtraInfo; }
+  [StructLayout(LayoutKind.Sequential)]
+  public struct HARDWAREINPUT { public uint uMsg; public ushort wParamL,wParamH; }
+  [DllImport("user32.dll", SetLastError=true)] static extern uint SendInput(uint count,INPUT[] inputs,int size);
+  public static bool SendUnicodeText(string text) {
+    if (text == null) return false;
+    int size = Marshal.SizeOf(typeof(INPUT));
+    foreach (char ch in text) {
+      INPUT[] pair = new INPUT[2];
+      pair[0].type = 1;
+      pair[0].input.keyboard.wScan = ch;
+      pair[0].input.keyboard.dwFlags = 0x0004;
+      pair[1].type = 1;
+      pair[1].input.keyboard.wScan = ch;
+      pair[1].input.keyboard.dwFlags = 0x0004 | 0x0002;
+      if (SendInput(2, pair, size) != 2) return false;
+    }
+    return true;
+  }
+  [StructLayout(LayoutKind.Sequential)]
+  public struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }
+  public delegate bool EP(IntPtr h,IntPtr l);
+}
+
+public sealed class SSEAccNode {
+  public string Name;
+  public string Value;
+  public string Description;
+  public string Help;
+  public string KeyboardShortcut;
+  public int Role;
+  public int State;
+  public string DefaultAction;
+  public int X, Y, W, H;
+  public int[] Path;
+}
+
+public static class SSEAccessible {
+  const uint OBJID_CLIENT = 0xFFFFFFFC;
+  static readonly Guid IID_IAccessible = new Guid("618736e0-3c3d-11cf-810c-00aa00389b71");
+  [StructLayout(LayoutKind.Sequential)] struct POINT { public int X, Y; }
+
+  [DllImport("oleacc.dll")]
+  static extern int AccessibleObjectFromWindow(
+    IntPtr hwnd, uint id, ref Guid iid,
+    [In, Out, MarshalAs(UnmanagedType.IUnknown)] ref object accessible);
+
+  [DllImport("oleacc.dll")]
+  static extern int AccessibleObjectFromPoint(
+    POINT point,
+    [Out, MarshalAs(UnmanagedType.Interface)] out object accessible,
+    [Out, MarshalAs(UnmanagedType.Struct)] out object childId);
+
+  [DllImport("oleacc.dll")]
+  static extern int AccessibleChildren(
+    [MarshalAs(UnmanagedType.Interface)] object container, int start, int count,
+    [In, Out, MarshalAs(UnmanagedType.LPArray, SizeParamIndex = 2)] object[] children,
+    out int obtained);
+
+  static object Root(long hwnd) {
+    object root = null;
+    Guid iid = IID_IAccessible;
+    int hr = AccessibleObjectFromWindow((IntPtr)hwnd, OBJID_CLIENT, ref iid, ref root);
+    if (hr != 0 || root == null) throw new InvalidOperationException("AccessibleObjectFromWindow: " + hr);
+    return root;
+  }
+
+  static object[] Children(object parent) {
+    dynamic p = parent;
+    int count = 0;
+    try { count = Convert.ToInt32(p.accChildCount); } catch { }
+    if (count <= 0) return new object[0];
+    object[] result = new object[count];
+    int obtained = 0;
+    int hr = AccessibleChildren(parent, 0, count, result, out obtained);
+    if (hr != 0) return new object[0];
+    if (obtained == result.Length) return result;
+    Array.Resize(ref result, obtained);
+    return result;
+  }
+
+  static void Walk(object parent, List<int> path, List<SSEAccNode> output, int depth) {
+    if (depth > 8 || output.Count >= 240) return;
+    object[] children = Children(parent);
+    for (int i = 0; i < children.Length && output.Count < 240; i++) {
+      object child = children[i];
+      // Simple integer child IDs are uncommon in Qt and cannot have descendants.
+      // Native Win32 dialogs are handled by UIA, so ignore them in this fallback.
+      if (child == null || child is int || child is short || child is long) continue;
+      try {
+        dynamic c = child;
+        int x = 0, y = 0, w = 0, h = 0;
+        try { c.accLocation(out x, out y, out w, out h, 0); } catch { }
+        string name = "", value = "", description = "", help = "", shortcut = "", action = "";
+        int role = 0, state = 0;
+        try { name = Convert.ToString(c.accName(0)) ?? ""; } catch { }
+        try { value = Convert.ToString(c.accValue(0)) ?? ""; } catch { }
+        try { description = Convert.ToString(c.accDescription(0)) ?? ""; } catch { }
+        try { help = Convert.ToString(c.accHelp(0)) ?? ""; } catch { }
+        try { shortcut = Convert.ToString(c.accKeyboardShortcut(0)) ?? ""; } catch { }
+        try { action = Convert.ToString(c.accDefaultAction(0)) ?? ""; } catch { }
+        try { role = Convert.ToInt32(c.accRole(0)); } catch { }
+        try { state = Convert.ToInt32(c.accState(0)); } catch { }
+        var childPath = new List<int>(path); childPath.Add(i);
+        output.Add(new SSEAccNode {
+          Name = name, Value = value, Description = description, Help = help,
+          KeyboardShortcut = shortcut, DefaultAction = action, Role = role, State = state,
+          X = x, Y = y, W = w, H = h, Path = childPath.ToArray()
+        });
+        Walk(child, childPath, output, depth + 1);
+      } catch { }
+    }
+  }
+
+  public static SSEAccNode[] Describe(long hwnd) {
+    var output = new List<SSEAccNode>();
+    Walk(Root(hwnd), new List<int>(), output, 0);
+    return output.ToArray();
+  }
+
+  public static SSEAccNode DescribePoint(int x, int y) {
+    object accessible = null, childId = null;
+    POINT point = new POINT { X = x, Y = y };
+    int hr = AccessibleObjectFromPoint(point, out accessible, out childId);
+    if (hr != 0 || accessible == null) return null;
+    dynamic c = accessible;
+    object id = childId ?? 0;
+    int left = 0, top = 0, width = 0, height = 0;
+    string name = "", value = "", description = "", help = "", shortcut = "", action = "";
+    int role = 0, state = 0;
+    try { c.accLocation(out left, out top, out width, out height, id); } catch { }
+    try { name = Convert.ToString(c.accName(id)) ?? ""; } catch { }
+    try { value = Convert.ToString(c.accValue(id)) ?? ""; } catch { }
+    try { description = Convert.ToString(c.accDescription(id)) ?? ""; } catch { }
+    try { help = Convert.ToString(c.accHelp(id)) ?? ""; } catch { }
+    try { shortcut = Convert.ToString(c.accKeyboardShortcut(id)) ?? ""; } catch { }
+    try { action = Convert.ToString(c.accDefaultAction(id)) ?? ""; } catch { }
+    try { role = Convert.ToInt32(c.accRole(id)); } catch { }
+    try { state = Convert.ToInt32(c.accState(id)); } catch { }
+    return new SSEAccNode {
+      Name = name, Value = value, Description = description, Help = help,
+      KeyboardShortcut = shortcut, DefaultAction = action, Role = role, State = state,
+      X = left, Y = top, W = width, H = height, Path = new int[0]
+    };
+  }
+
+  public static void Invoke(long hwnd, int[] path) {
+    if (path == null || path.Length == 0) throw new ArgumentException("MSAA path fehlt.");
+    object current = Root(hwnd);
+    for (int depth = 0; depth < path.Length; depth++) {
+      object[] children = Children(current);
+      int index = path[depth];
+      if (index < 0 || index >= children.Length) throw new InvalidOperationException("MSAA path ist veraltet.");
+      object child = children[index];
+      if (child == null || child is int || child is short || child is long)
+        throw new InvalidOperationException("Einfaches MSAA-Kind kann nicht sicher adressiert werden.");
+      current = child;
+    }
+    dynamic target = current;
+    target.accDoDefaultAction(0);
+  }
+}

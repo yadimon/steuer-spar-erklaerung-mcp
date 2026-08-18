@@ -1,0 +1,4 @@
+interface:
+  display_name: "SteuerSparErklärung"
+  short_description: "Steuerfall sicher prüfen und abgleichen"
+  default_prompt: "Verwende $steuer-spar-erklaerung, um meinen Steuerfall in SteuerSparErklärung 2025 zunächst nur lesend zu prüfen und das Ergebnis auf Deutsch zu erklären."

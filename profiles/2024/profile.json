@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "2024",
+  "status": "experimental",
+  "operationAccess": "verification-only",
+  "product": "SteuerSparErklaerung 2024",
+  "taxYear": 2024,
+  "engineFileMajor": 30,
+  "verifiedBuild": "30.0.127.0",
+  "executable": {
+    "name": "SSE.exe",
+    "installationFolderName": "Steuerjahr 2024",
+    "defaultRelativePath": "Steuertipps/SteuerSparErklaerung/Steuerjahr 2024/SSE.exe"
+  },
+  "startModes": {
+    "einur": "Gew",
+    "normal": "ESt",
+    "einurvor": "GewErfass",
+    "fest": "Fest",
+    "ermaess": "Erm",
+    "vorweg": "Vorweg"
+  },
+  "additionalCaseYears": {
+    "einurvor": [
+      2025
+    ]
+  },
+  "pageObjects": "page-objects.json",
+  "policy": "Fail closed. Only this explicitly verified product profile and its declared case-year exceptions may be controlled; undeclared years are reported but never operated."
+}
