@@ -111,8 +111,20 @@ Prüfe zuerst nur nicht geheime Setup-Metadaten: Betriebssystem, Architektur,
 vorhandenes Release, Konfiguration, API-Health, Produktprofil und
 Arbeitsbereich. Lies danach `setup-decisions.json` und `settings.md` aus diesem
 Arbeitsbereich. Lies noch keine Belege, Connector-Inhalte oder Steuerdaten.
-Fehlt eine dieser Setup-Dateien, führe den Setup-Skill aus, statt Annahmen über
-Pfade oder Präferenzen zu treffen.
+Ist die Einrichtung unvollständig oder sind Fall und Belegquellen noch nicht
+sicher bestätigt, lies
+[references/first-run.md](references/first-run.md) und führe den dortigen
+einfachen First-Run-Wizard aus. Er stellt vor der technischen Einrichtung nur
+die zwei entscheidenden fachlichen Fragen: richtiger Steuerfall und
+vollständige Belegordner. Erst danach kann der Nutzer alle gezeigten sicheren
+technischen Defaults gemeinsam mit `OK Standard` bestätigen.
+
+Fehlt eine funktionierende Einrichtung, verwende anschließend
+`steuer-spar-erklaerung-setup`. Ist dieser Skill nicht installiert, führe
+dessen sichere Schritte inline aus. Kehre nach erfolgreichem Setup automatisch
+zum ursprünglichen Prüfauftrag zurück; ein Auftrag wie „Prüfe meine
+Steuererklärung“ ist nicht schon durch die Einrichtung erfüllt. Bereits
+bestätigte Pfade und Entscheidungen nicht erneut erfragen.
 
 Lies anschließend das in den Entscheidungen benannte Tracking. Mit direktem,
 freigegebenem Dateizugriff darf Markdown nach Hashprüfung und Backup aktualisiert
@@ -123,46 +135,6 @@ eine verfügbare Tabellenkalkulations-Fähigkeit und erhalte ihre Struktur; die
 lokale API selbst liest oder schreibt XLSX nicht. Ist das nicht zuverlässig
 möglich, frage, ob zusätzlich Markdown-Snapshots angelegt werden dürfen.
 Ersetze Excel niemals still.
-
-Biete sofort an:
-
-> Sie können „alles mit Standardwerten“ antworten. Dann verwende ich die
-> sicheren Empfehlungen. Zustimmungen zum Installieren, Lesen eines
-> Connectors, Kopieren von Dateien, Ändern von Steuerdaten oder Bearbeiten
-> einer Agenten-Konfiguration frage ich trotzdem einzeln ab.
-
-Stelle nur eine Frage pro Nachricht. Überspringe sicher beantwortete Fragen.
-Jede Frage nennt eine empfohlene Antwort, zum Beispiel „Wenn Sie unsicher sind,
-antworten Sie Nein.“
-
-Kläre in dieser Reihenfolge:
-
-1. Nur Setup, Prüfung ohne Falländerung oder kontrollierte Bearbeitung?
-   Standard: **Prüfung ohne Falländerung**.
-2. Vorhandenen Arbeitsbereich wiederverwenden? Standard: **Ja**, sonst den vom
-   Setup vorgeschlagenen LocalAppData-Ordner.
-3. Wo liegen Belege: lokaler Ordner, bereits verbundener Connector oder
-   manuelle Bereitstellung? Standard: **lokaler Ordner**.
-   Erfasse außerdem, welche Belege aktuell als vollständig gelten. Standard
-   für die laufende Vorbereitung: **vorhandene Ein- und Ausgangsrechnungen als
-   führendes Beleginventar; Zahlungen separat als noch abzugleichend markieren**.
-4. Darf ein konkret benannter Connector gelesen werden? Standard bei
-   Unsicherheit: **Nein**.
-5. Dürfen ausgewählte Dateien als Kopien gesammelt werden? Standard: **Ja**;
-   Originale unverändert lassen.
-6. Direkte API oder nachweislich vorhandenes MCP? Standard: **direkte API,
-   wenn MCP nicht bereits funktioniert**.
-7. Nur bei Bearbeitung: Darf eine verifizierte Arbeitskopie entstehen?
-   Standard: **Ja**.
-8. Nur bei Bearbeitung: Sind die anschließend einzeln aufgelisteten Änderungen
-   freigegeben? Standard: **erst nach Prüfung der Liste Ja**.
-9. Nur bei sichtbarer Bedienung: Darf SSE jetzt gesteuert werden? Standard:
-   **Ja, wenn der PC frei bleibt**.
-
-Fehlt eine funktionierende Einrichtung, verwende
-`steuer-spar-erklaerung-setup`. Ist dieser Skill nicht installiert, führe
-dessen sichere Schritte inline aus und frage nur bei einer erforderlichen
-Nutzerentscheidung.
 
 ## Verbindlicher Ablauf
 
