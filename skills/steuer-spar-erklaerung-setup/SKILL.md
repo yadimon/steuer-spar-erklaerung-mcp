@@ -29,7 +29,10 @@ Windows PowerShell 5.1.
    MCP-Wunsch zusätzlich `@yadimon/steuer-spar-erklaerung-mcp`; beide müssen
    gleich sein und zu einem vollständigen GitHub-Release mit ZIP und
    Prüfsumme gehören. Beim Portable-Weg lies `portable-manifest.json` und die
-   veröffentlichte SHA-256-Prüfsumme.
+   veröffentlichte SHA-256-Prüfsumme. Parse das Manifest einmal als JSON und
+   lies nur Version, Profilstatus und die für den Start nötigen Dateieinträge;
+   gib niemals die vollständige Dateiliste oder das ganze Manifest aus und
+   durchsuche `dist` nicht breit nach vermeintlichen Verträgen.
    Akzeptiere nur ein Profil mit `status=supported` und
    `operationAccess=full`; derzeit `2025` / Engine-Major `31`.
    Experimentelle oder `verification-only`-Profile werden weder angeboten noch
@@ -91,13 +94,21 @@ Lies vor der Ausführung
      `@yadimon/steuer-spar-erklaerung-mcp@beta` nur bei bestätigtem
      MCP-Wunsch. Verwende weder `npx` noch einen temporären Paketcache zum
      Start des Setup-Wizards.
-   - Portable: prüfe Release-Hash, Tag und Manifest und entpacke danach.
-2. Starte den Setup-Wizard des gewählten Wegs. Sind bestätigter Fall- oder
-   Belegordner noch nicht in einer wiederverwendeten Konfiguration gespeichert,
-   führe ihn interaktiv aus und beantworte seine technischen Rückfragen selbst
-   aus dem bestätigten Standardplan; frage den Nutzer nicht erneut. Verwende
+   - Portable: prüfe Release-Hash und Tag, entpacke danach mit dem eingebauten
+     Windows-`tar.exe` in einen neuen leeren Zielordner und prüfe erst dort das
+     Manifest. `Expand-Archive` kann bei den vielen kleinen Release-Dateien
+     mehrere Minuten dauern; ein Agent-Timeout ist kein abgeschlossenes
+     Entpacken und der Teilordner darf nicht gestartet werden.
+2. Starte den Setup-Wizard des gewählten Wegs. Sind Fall und Belegordner im
+   First-Run bereits bestätigt, übergib ausschließlich dessen kurze private
+   JSON-Datei mit `--plan-file <absoluter-planpfad>`. Sie darf nur
+   `schemaVersion`, `profileId`, `caseDir`, `sourceFolders` und optional den
+   eindeutig erkannten `sseExecutable` enthalten. Der Plan erzwingt direkte
+   API, read-only, Reference-only, Markdown-Tracking, keine Connectoren und
+   keine interaktiven Prompts; automatisiere `stdin` dafür nicht. Verwende
    `--defaults` nur, wenn diese Pfade bereits gespeichert sind oder ausdrücklich
-   kein Fall-/Quellordner gebunden werden soll. `--no-start` nur auf Wunsch.
+   kein Fall-/Quellordner gebunden werden soll, und frage den Nutzer nicht erneut.
+   `--no-start` nur auf Wunsch.
    Führe keinen Build auf dem Nutzer-PC aus. Beim Portable-Weg keinen globalen
    `node`- oder `npm`-Befehl verwenden; beim npm-Weg ausschließlich die
    veröffentlichten `@beta`-Pakete installieren, niemals Git-Quellcode bauen.
@@ -115,14 +126,22 @@ Lies vor der Ausführung
    ungültige Cachepfade und schwarze `cmd.exe`-Fenster entstehen.
 5. Starte die API mit dem erzeugten fensterlosen Launcher. Registriere eine
    geplante Aufgabe nur nach separater Zustimmung.
+   Antwortet auf demselben Port bereits eine API mit einem abweichenden Konfigurationsfingerprint,
+   starte keine zweite API neben einer alten API.
+   Beende die eindeutig gebundene alte API kontrolliert oder verwende ihre
+   bestätigte Konfiguration, und verifiziere erst danach genau einen Neustart.
+   Ein beliebiger Portprozess darf niemals pauschal beendet werden.
 6. Prüfe `/healthz`, Discovery, Produktprofil, Engine, Workspace und read-only
    Zustand. Lies danach `settings.md`, `setup-decisions.json` und das gewählte
    Tracking zurück. Vorhandene Nutzerdateien dürfen bei einem Default-Lauf
    nicht still ersetzt werden.
    Ohne MCP verwende die ausgelieferte CLI. Beim npm-Weg lautet sie
    `steuer-spar-erklaerung-call`; im portablen Ordner lautet der Health-Aufruf
-   `runtime/node.exe dist/api-cli.js health --config <config.json>`.
-   Lies danach `discovery`; Argumentwerte nie direkt in die Kommandozeile schreiben.
+   `runtime/node.exe dist/api-cli.js health --config <config.json>
+   --journal-file <neue-private-datei.jsonl>`. Lies danach `discovery`;
+   Argumentwerte nie direkt in die Kommandozeile schreiben. Schreibe eigene
+   Diagnosezeilen niemals in stdout eines CLI-Aufrufs, dessen stdout als JSON
+   geparst wird; lies das Journal getrennt.
 7. Bei MCP-Wunsch: verwende das vollständige Serverobjekt der Setup-Ausgabe,
    prüfe darin nochmals den absoluten `node.exe`-Befehl und dauerhaften
    MCP-Einstieg, lade den Client

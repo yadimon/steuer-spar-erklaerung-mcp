@@ -1,6 +1,6 @@
 # Verifikationsstand
 
-Stand: 2026-08-17
+Stand: 2026-08-18
 
 Dieses Dokument trennt veröffentlichte Verträge, Mock-/Quelltests und echte
 SSE-Läufe. Ein grüner Vertragstest beweist nicht automatisch, dass jede
@@ -50,6 +50,9 @@ nie automatisch verworfen.
 | HTTP-Body-Abbruch | `node test/api-client-body-abort.mjs` | Aufruferabbruch nach bereits gelieferten HTTP-Headern beendet verzögerte Operations- und Discovery-JSON-Streams; ein echter falscher `Content-Type` bleibt `protocol`, cancelt aber einen laufenden 64-MiB-Body und schließt den serverseitigen Socket innerhalb 500 ms | ein nicht abbrechbarer Kernel-/Netzwerkaufruf unterhalb des Node-Streams |
 | HTTP-Transportfehler | `node test/api-client-transport-timeout.mjs` | Header-/Body-Timeoutcodes injizierter Alternativtransporte werden eindeutig als `timeout` klassifiziert; ein echter Defaulttransport-Reset nach nachweislich empfangenem Mutations-POST wird samt direktem `ECONNRESET` zu `transport-unknown`; ein danach real verweigerter Verbindungsaufbau bleibt `network` und nennt `ECONNREFUSED` | unbekannte Fehlerformen fremder Transportimplementierungen |
 | Loopback-Defaulttransport | `node test/api-local-http-transport.mjs` | produktiver Client ist von globalem `fetch` unabhängig; echter POST/Authorization, Loopback-/Bodygrenze, Nullbody-Status 204/205/304, Redirect-Stopp und Abbruch nach Headern sind geprüft | hängender einzelner Kernelaufruf unterhalb von Node-Streams |
+| CLI-Aufrufjournal | `node test/api-cli-contract.mjs` | exklusives create-only JSONL, vor dem API-Aufruf geflushter `pending`-Stand, dauerhafter vollständiger Erfolg und fachliches `ok=false`, lokaler Fehlerabschluss sowie unveränderte Kollisionsdatei ohne API-Aufruf | Wiederanlauf nach Prozess-/Stromausfall und serverseitige Transaktionswiederaufnahme |
+| Bestätigter Setup-Plan | `node test/setup-wizard.mjs` | striktes 64-KiB-UTF-8-JSON mit enger Feldallowlist, absoluten vorhandenen Fall-/Quellordnern, promptfrei erzwungenen read-only/API/Reference-only-Defaults und fail-closed Abweichung zu einer vorhandenen Konfiguration | fachliche Nutzerbestätigung vor Erzeugung der Plandatei; echter Release-Download |
+| Lokaler PDF-Renderer | `node test/pdf-render-helper.mjs` | Windows-PDF-API rendert ein echtes synthetisches PDF ohne Zusatzruntime in eine PNG-Datei; Seiten-/Breitenlimit und create-only Zielkollision liefern kompaktes JSON; der dedizierte Windows-PowerShell-Prozess flusht stdout und neutralisiert den auf einer echten Windows-11-VM beobachteten WinRT-Abschlusscode 2170 | OCR-Qualität realer Scans, passwortgeschützte oder defekte PDFs |
 | Statische API-Vertragsdokumente | `node test/api-static-document-cache.mjs` | Discovery und OpenAPI werden beim Serverstart je einmal größenbegrenzt als UTF-8 serialisiert; wiederholte authentifizierte GETs bleiben byteidentisch und selbst eine spätere interne Mutation eines nur flach eingefrorenen Schemaobjekts verändert den veröffentlichten Snapshot nicht | Signatur oder langfristiges HTTP-Caching über Prozessneustarts; Einzeloperations-Discovery bleibt dynamisch serialisiert |
 | UStVA-Kompositionsbudget | `node test/ustva-contract.mjs` | Seiten-Read und gebundene Mutation verwenden eine deterministisch geprüfte absolute Deadline; verbrauchtes Restbudget und Vorab-Abbruch verhindern jeden Folge-Workerstart | Scheduler-/Kernelstillstand innerhalb eines bereits gestarteten Workeraufrufs |
 | Folgejahr-UStVA-Live | `npm run test:live-ustva-next-year` | Profil 2025 öffnet eine bytegleiche `GewErfass2026`-Wegwerfkopie ausschließlich mit `einurvor`; MCP→HTTP-API→Worker liefert die UStVA-Übersicht 2026, lässt ELSTER gesperrt, verändert den Dirty-State beim reinen `ustva_read` nicht weiter und hält die Testkopie über SHA-256 unverändert | UStVA-Mutationen 2026, Speichern, ELSTER oder andere 2026er Fallarten; die Navigation zur automatisch erzeugten UStVA kann SSE-intern bereits `ungespeichert` setzen |
@@ -382,6 +385,71 @@ Die große Schreibreise vom 2026-08-14 belegt die fachliche Archivoperation real
 lief aber noch über den Worker. Der neue lokale API-/MCP-Pfad ist daher bis zum
 nächsten strikten Live-Gate als offline workerparitätisch, nicht als erneut live
 ausgeführt, belegt.
+
+## Isolierter First-Run-VM-Smoke vom 2026-08-18
+
+Ein realer Endnutzerlauf startete aus einem sauberen VirtualBox-Snapshot mit
+Windows 11 x64, installierter SteuerSparErklärung 2025 Build 31.0.1.0 und in
+ChatGPT angemeldetem Codex, aber ohne globales Node/npm, Poppler oder ein
+vorbereitetes API-Setup. Der Agent lief durchgehend mit `gpt-5.6-sol` und
+Reasoning `medium`; ein Wechsel auf `high` war nicht nötig.
+
+Der Lauf belegte in dieser Reihenfolge:
+
+- Installation beider lokaler Skills aus dem Portable-Release und begrenzte
+  Metadatensuche ohne Öffnen von Steuer- oder Beleginhalten;
+- getrennte Bestätigung des Einkommensteuerfalls und des einzigen
+  Belegordners sowie einen gemeinsam bestätigten `OK Standard`-Plan;
+- eine exakt vier Felder große, 181 Byte lange First-run-Datei und echten
+  promptfreien Setup-Aufruf mit `--plan-file`;
+- Loopback-API, Profil `2025`/`supported`/`full`, Engine 31, Buildgleichheit,
+  87 Operationen, 81 funktionale und sechs als `untested` ausgewiesene
+  VaSt-Operationen;
+- CLI-Journal mit vor dem Setup geflushtem `pending` und abgeschlossenem
+  lokalem Fehler, ohne eine Aktion blind zu wiederholen;
+- Inventar und SHA-256 der acht freigegebenen PDFs, aber Rendering und Lesen
+  ausschließlich der vier 2025-Dateien;
+- bytegleiche Prüfkopie vor der sichtbaren Zustimmung; der Fenstertitel band
+  anschließend PID/HWND nachweislich nur an diese Kopie;
+- zwei begrenzte `collect`-Segmente. Nach sechs Seiten meldete ausschließlich
+  die Prüfkopie `ungespeichert=true`; der Agent stoppte sofort, fragte nach
+  Verwerfen und navigierte nicht weiter;
+- `close` mit `discardChanges=true`, `stillRunning=false`, ohne Force und mit
+  Speicherantwort `Nein`; danach null Fenster, Health `running=false` und
+  unveränderte, weiterhin gleiche Original-/Kopie-Hashes;
+- einen create-only UTF-8-Teilbericht mit anschließend identischen API-,
+  physischen und aus dem Readback berechneten SHA-256-Bytes.
+
+Der Smoke deckte drei reale Betriebsprobleme auf. `Expand-Archive` erreichte
+wegen der vielen kleinen Dateien wiederholt das Agent-Limit; das eingebaute
+Windows-`tar.exe` entpackte dasselbe ZIP erfolgreich. Der native PDF-Renderer
+erzeugte korrekte PNGs und `ok=true`, verließ den dedizierten Prozess auf diesem
+Windows-Build aber zunächst mit WinRT-Restcode 2170; nach vollständig
+geflushtem JSON und direktem Prozessabschluss lieferte derselbe echte PDF-Typ
+Exitcode 0. Schließlich ersetzte eine Windows-PowerShell-stdin-Pipeline Umlaute
+in einem Report durch `?`; eine direkte UTF-8-Argumentübertragung und der
+Byte-Readback erkannten und korrigierten das über einen neuen create-only
+Bericht. Alle drei Erkenntnisse sind jetzt in Runtime, Skills und Verträgen
+abgebildet.
+
+Ein anschließendes Gate verwendete das nach allen Runtime-/Skill-Änderungen
+neu gebaute Portable-ZIP mit SHA-256
+`453aa47c853e358a06f340c6f54ab53d1e525e94130db42b6a07af20ffaf518d`
+aus demselben erneut zurückgesetzten Snapshot. Dabei wurde eine vierte reale
+Betriebslücke gefunden: Der kalte API-Prozess meldete erst nach rund 4,2
+Sekunden `ready`, während drei Probes bei 0/2/4 Sekunden knapp vollständig vor
+dem Listener lagen. Setup verwendet deshalb jetzt sechs begrenzte
+Startversuche und getrennte Diagnose für Health, Discovery und Workspace. Der
+erneute Lauf mit dem korrigierten exakten ZIP belegte PDF-Render-Exitcode 0,
+eine gültige PNG-Seite, `--plan-file`-Setup-Exitcode 0, Profil 2025,
+zurückgelesenen Fall-/Belegordner, API-Health, 87 Discovery-Operationen und ein
+dauerhaftes Journal `pending` → `complete`.
+
+Der Lauf ist kein vollständiger steuerfachlicher Nachweis: Er stoppte bewusst
+am Dirty-State, spätere SSE-Bereiche blieben ungeprüft, VaSt wurde nicht
+verwendet und die private Fixture-/Belegevidenz wird nicht veröffentlicht. Er
+belegt den sicheren First-Run- und Teilprüfungsweg, nicht die Richtigkeit einer
+gesamten Steuererklärung.
 
 ## Aktuelle Live-Muster-Evidenz
 

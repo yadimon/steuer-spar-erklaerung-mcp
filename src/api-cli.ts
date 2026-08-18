@@ -11,19 +11,21 @@ interface CliArguments {
   targetOperation?: string;
   argsFile?: string;
   configPath?: string;
+  journalFile?: string;
   timeoutMs: number;
 }
 
 const usage = [
   "Aufruf:",
-  "  steuer-spar-erklaerung-call health [--config <config.json>]",
-  "  steuer-spar-erklaerung-call <operation> --args-file <args.json|-> [--timeout-ms <ms>] [--config <config.json>]",
-  "  steuer-spar-erklaerung-call discovery [--config <config.json>]",
-  "  steuer-spar-erklaerung-call describe <operation> [--config <config.json>]",
-  "  steuer-spar-erklaerung-call openapi [--config <config.json>]",
+  "  steuer-spar-erklaerung-call health [--config <config.json>] [--journal-file <new.jsonl>]",
+  "  steuer-spar-erklaerung-call <operation> --args-file <args.json|-> [--timeout-ms <ms>] [--config <config.json>] [--journal-file <new.jsonl>]",
+  "  steuer-spar-erklaerung-call discovery [--config <config.json>] [--journal-file <new.jsonl>]",
+  "  steuer-spar-erklaerung-call describe <operation> [--config <config.json>] [--journal-file <new.jsonl>]",
+  "  steuer-spar-erklaerung-call openapi [--config <config.json>] [--journal-file <new.jsonl>]",
   "",
   "Mit --args-file - kommt ein begrenztes JSON-Objekt ueber stdin.",
   "Argumentwerte werden absichtlich nicht direkt in der Kommandozeile akzeptiert.",
+  "--journal-file legt vor dem Aufruf exklusiv ein dauerhaftes pending/result-Protokoll an und ueberschreibt nie.",
 ].join("\n");
 
 function parseCliArguments(argv: readonly string[]): CliArguments {
@@ -33,6 +35,7 @@ function parseCliArguments(argv: readonly string[]): CliArguments {
   }
   let argsFile: string | undefined;
   let configPath: string | undefined;
+  let journalFile: string | undefined;
   let timeoutMs = 90_000;
   let targetOperation: string | undefined;
   let optionStart = 1;
@@ -46,7 +49,7 @@ function parseCliArguments(argv: readonly string[]): CliArguments {
   for (let index = optionStart; index < argv.length; index += 1) {
     const option = argv[index];
     const value = argv[index + 1];
-    if (!["--args-file", "--config", "--timeout-ms"].includes(option ?? "")) {
+    if (!["--args-file", "--config", "--journal-file", "--timeout-ms"].includes(option ?? "")) {
       throw new ApiClientError(`Unbekannte Option '${option}'.\n${usage}`, "usage");
     }
     if (!value || value.startsWith("--")) {
@@ -54,6 +57,7 @@ function parseCliArguments(argv: readonly string[]): CliArguments {
     }
     if (option === "--args-file") argsFile = value === "-" ? "-" : resolve(value);
     if (option === "--config") configPath = resolve(value);
+    if (option === "--journal-file") journalFile = resolve(value);
     if (option === "--timeout-ms") {
       timeoutMs = Number(value);
       if (!Number.isInteger(timeoutMs)) {
@@ -71,6 +75,7 @@ function parseCliArguments(argv: readonly string[]): CliArguments {
     ...(targetOperation ? { targetOperation } : {}),
     ...(argsFile ? { argsFile } : {}),
     ...(configPath ? { configPath } : {}),
+    ...(journalFile ? { journalFile } : {}),
   };
 }
 
@@ -130,17 +135,36 @@ export async function runApiCli(argv: readonly string[]): Promise<number> {
     return 0;
   }
   const cli = parseCliArguments(argv);
-  const [options, client] = await Promise.all([
-    loadClientOptions(cli.configPath),
-    import("./api-client.js"),
-  ]);
-  let output: unknown;
-  if (cli.command === "discovery") output = await client.readApiDiscovery(options);
-  else if (cli.command === "describe") output = await client.readApiOperationDiscovery(cli.targetOperation!, options);
-  else if (cli.command === "openapi") output = await client.readOpenApiDocument(options);
-  else output = await client.callApiOperation(cli.command, await readOperationArgs(cli.argsFile), cli.timeoutMs, options);
-  process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
-  return output && typeof output === "object" && "ok" in output && output.ok === false ? 1 : 0;
+  const journal = cli.journalFile
+    ? (await import("./api-cli-journal.js")).createCliJournal(cli.journalFile, cli)
+    : undefined;
+  try {
+    const [options, client] = await Promise.all([
+      loadClientOptions(cli.configPath),
+      import("./api-client.js"),
+    ]);
+    let output: unknown;
+    if (cli.command === "discovery") output = await client.readApiDiscovery(options);
+    else if (cli.command === "describe") output = await client.readApiOperationDiscovery(cli.targetOperation!, options);
+    else if (cli.command === "openapi") output = await client.readOpenApiDocument(options);
+    else output = await client.callApiOperation(cli.command, await readOperationArgs(cli.argsFile), cli.timeoutMs, options);
+    const exitCode = output && typeof output === "object" && "ok" in output && output.ok === false ? 1 : 0;
+    journal?.complete(output, exitCode);
+    process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
+    return exitCode;
+  } catch (error) {
+    const kind = error instanceof ApiClientError ? error.kind : "unexpected";
+    const message = error instanceof Error ? error.message : String(error);
+    const exitCode = kind === "usage" || kind === "bad-args" ? 2 : 1;
+    try {
+      journal?.error(kind, message, exitCode);
+    } catch {
+      // Der urspruengliche API-/CLI-Fehler bleibt massgeblich, auch wenn das Journalmedium ausfaellt.
+    }
+    throw error;
+  } finally {
+    journal?.close();
+  }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))) {

@@ -4,6 +4,17 @@ import { join } from "node:path";
 import { setTimeout as wait } from "node:timers/promises";
 import { callApiOperation, readApiDiscovery, type ApiClientOptions } from "./api-client.js";
 
+// A cold Windows VM can need several seconds for the first PowerShell-backed
+// health snapshot even after the loopback listener is ready. Keep this budget
+// local to setup verification; normal API operation deadlines stay unchanged.
+export const SETUP_HEALTH_TIMEOUT_MS = 15_000;
+export const SETUP_WORKSPACE_TIMEOUT_MS = 15_000;
+export const SETUP_START_ATTEMPTS = 6;
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export interface SetupApiEndpoint {
   host: string;
   port: number;
@@ -30,7 +41,7 @@ async function healthResponds(endpoint: SetupApiEndpoint, fetchImpl: typeof fetc
     const response = await fetchImpl(`${setupBaseUrl(endpoint)}/healthz`, {
       method: "GET",
       redirect: "error",
-      signal: AbortSignal.timeout(2_000),
+      signal: AbortSignal.timeout(SETUP_HEALTH_TIMEOUT_MS),
     });
     await response.body?.cancel();
     return response.ok;
@@ -45,17 +56,27 @@ async function verifyOnce(
   startedBySetup: boolean,
 ): Promise<SetupApiVerification> {
   const baseUrl = setupBaseUrl(endpoint);
-  const health = await fetchImpl(`${baseUrl}/healthz`, {
-    method: "GET",
-    headers: { accept: "application/json" },
-    redirect: "error",
-    signal: AbortSignal.timeout(2_000),
-  });
+  let health: Response;
+  try {
+    health = await fetchImpl(`${baseUrl}/healthz`, {
+      method: "GET",
+      headers: { accept: "application/json" },
+      redirect: "error",
+      signal: AbortSignal.timeout(SETUP_HEALTH_TIMEOUT_MS),
+    });
+  } catch (error) {
+    throw new Error(`API-Health nicht erreichbar: ${errorMessage(error)}`);
+  }
   if (!health.ok) throw new Error(`API-Health antwortete mit HTTP ${health.status}.`);
   await health.body?.cancel();
   const options: ApiClientOptions = { baseUrl, token: endpoint.token, fetchImpl };
-  const discovery = await readApiDiscovery(options);
-  const workspace = await callApiOperation("workspace_status", {}, 5_000, options);
+  const discovery = await readApiDiscovery(options).catch((error: unknown) => {
+    throw new Error(`API-Discovery nicht verifiziert: ${errorMessage(error)}`);
+  });
+  const workspace = await callApiOperation("workspace_status", {}, SETUP_WORKSPACE_TIMEOUT_MS, options)
+    .catch((error: unknown) => {
+      throw new Error(`API-Arbeitsbereich nicht verifiziert: ${errorMessage(error)}`);
+    });
   if (
     !workspace.ok ||
     workspace.workspaceReady !== true ||
@@ -99,7 +120,7 @@ export async function verifySetupApi(
       if (attempt < attempts) await wait(delayMs);
     }
   }
-  throw new Error(`Lokale API konnte nicht verifiziert werden: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
+  throw new Error(`Lokale API konnte nicht verifiziert werden: ${errorMessage(lastError)}`);
 }
 
 export async function startAndVerifySetupApi(
@@ -135,7 +156,7 @@ export async function startAndVerifySetupApi(
   child.unref();
   return verifySetupApi(endpoint, {
     ...fetchOption,
-    attempts: 3,
+    attempts: SETUP_START_ATTEMPTS,
     delayMs: 2_000,
     startedBySetup: true,
   });

@@ -59,6 +59,7 @@ export const parallelSteps = Object.freeze([
   psFile("akad-parser", "test/akad-parser-contract.ps1"),
   nodeFile("case-file", "test/case-file-contract.mjs"),
   nodeFile("setup-wizard", "test/setup-wizard.mjs"),
+  nodeFile("pdf-render-helper", "test/pdf-render-helper.mjs"),
   nodeFile("atomic-files", "test/atomic-files.mjs"),
   nodeFile("jsonl-logger", "test/jsonl-logger.mjs"),
   nodeFile("dist-artifacts", "test/dist-artifacts-contract.mjs"),

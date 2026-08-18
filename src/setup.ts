@@ -27,6 +27,7 @@ import {
 
 export { parseSetupArguments, SETUP_USAGE } from "./setup-main-arguments.js";
 export { loadStoredSetupPreferences } from "./setup-preferences.js";
+export { loadConfirmedSetupPlan } from "./setup-plan.js";
 
 export interface SetupValues {
   repoRoot: string;

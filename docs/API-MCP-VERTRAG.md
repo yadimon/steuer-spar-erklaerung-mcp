@@ -1,6 +1,6 @@
 # API-/MCP-Vertrag
 
-Stand: 2026-08-17
+Stand: 2026-08-18
 
 ## Rollen
 
@@ -50,6 +50,41 @@ Ein fachlich erwartbarer Fehlschlag kann als gültige Operationsantwort mit
 `result.ok=false`, `kind`, `error` und Readback-/Recovery-Feldern erscheinen.
 Fehler vor der Ausführung, etwa Authentifizierung, unbekannte Operation oder
 ungültige Argumente, verwenden eine HTTP-Fehlerhülle.
+
+## Dauerhaftes CLI-Journal
+
+Die ausgelieferte CLI kann mit `--journal-file <neue.jsonl>` einen
+absturzlesbaren Aufrufernachweis erzeugen. Sie reserviert den Pfad exklusiv und
+überschreibt nie. Noch vor Konfigurationslesen oder API-Aufruf schreibt und
+flush't sie einen Eintrag mit `schemaVersion=1`, `invocationId` und
+`status=pending`. Nach der Antwort folgt vor stdout ein ebenfalls synchronisierter
+Eintrag `complete` mit `exitCode` und dem vollständigen Ergebnis. Ein lokaler
+Clientfehler endet nach Möglichkeit mit `status=error`.
+
+`complete` beschreibt den abgeschlossenen CLI-/API-Roundtrip, nicht zwingend
+fachlichen Erfolg. Bei `result.ok=false` ist `exitCode=1` beabsichtigt; der
+Aufrufer muss `kind`, `error` und mögliche Teilstands-/Recovery-Felder lesen.
+Insbesondere bleibt ein durch sein Seitenlimit beendetes `collect`
+`collection-incomplete`, auch wenn es verwertbare gelesene Seiten enthält.
+
+Ein alleiniger `pending`-Eintrag beweist weder Erfolg noch Fehlschlag. Die
+Operation kann serverseitig begonnen worden sein, während Aufrufer, Pipe oder
+Transport abbrachen. Eine solche Operation darf nicht blind wiederholt werden;
+zuerst ist ihr fachlicher Zustand über eine neue, read-only API-Abfrage zu
+ermitteln. Das Journal ist bewusst eine optionale CLI-Aufruferfunktion und kein
+zweites serverseitiges Transaktionsprotokoll.
+
+Für `--args-file` gilt zusätzlich ein Bytevertrag: Mehrzeilige oder
+nicht-ASCII Nutzdaten werden als neue UTF-8-JSON-Datei ohne BOM erzeugt,
+zurückgeparst und über ihren Pfad übergeben. Eine Windows-PowerShell-Pipeline
+vor `--args-file -` ist dafür ungeeignet, weil ihre implizite Codepage
+beispielsweise Umlaute durch `?` ersetzen kann, ohne dass JSON ungültig wird.
+Stdin bleibt auf kleine, im selben Prozess erzeugte ASCII-Objekte begrenzt.
+Create-only Textresultate werden nach dem Schreiben über die API zurückgelesen;
+API-Hash, physischer Hash und Hash des zurückgelesenen UTF-8-Texts müssen
+übereinstimmen. Ein bereits kodierungsbeschädigtes Ziel wird nicht
+überschrieben, sondern durch einen neuen, ausdrücklich korrigierenden Snapshot
+ersetzt.
 
 ## MCP-Abbildung
 
@@ -206,6 +241,13 @@ Dateiidentität, Größe sowie Zeitstempel gebunden. Ein Abbruch oder Timeout
 entfernt eine Teilkopie nur, wenn Identität, Bytezahl und Teilhash weiterhin
 den eigenen Schreibstand beweisen; ein fremd verändertes Ziel bleibt erhalten.
 Nach dem Erzeugen eines Ziels gibt es niemals einen Worker-Fallback.
+Für UI-gebundene Prüfungen ist diese Operation auch ohne geplante fachliche
+Mutation die Sicherheitsgrenze: Erst Originalhash lesen, dann eine neue
+bytegleiche Prüffallkopie erstellen und ausschließlich deren `targetRef`
+starten. SSE kann reine Seitennavigation als `ungespeichert=true` markieren.
+Darum ist „read-only“ keine Zusage, dass ein direkt geöffnetes Original im
+Arbeitsspeicher clean bleibt; ein reiner UI-Audit darf das Original gar nicht
+öffnen und darf den Navigationszustand der Kopie nie speichern.
 Die beiden potenziell langsamen Dateiöffnungen sind an Clientabbruch und
 Deadline gebunden; ein spät erfolgreicher Ziel-Open schließt und entfernt sein
 leeres Eigenziel nachträglich. `FileHandle.read/write/stat/unlink` besitzen in

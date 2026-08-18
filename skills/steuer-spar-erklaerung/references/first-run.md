@@ -43,6 +43,9 @@ Ordner und Zugriffsfehler. Durchsuche niemals das gesamte Laufwerk,
 `AppData`, Browserprofile, Passwortspeicher, `.ssh`, Systemordner, Netzwerk-
 laufwerke oder nicht lokal verfügbare Cloud-Inhalte. Zeige keine langen
 Dateilisten und keine Dokumentinhalte.
+Schließe außerdem Release-, Download-, Paket-, Skill-, Cache-, `node_modules`-
+und Agentenordner als Belegkandidaten aus. Ein Ordnername mit „steuer“ im
+installierten Produkt oder Quellcode ist kein Belegindiz.
 
 Die Vorschau darf nur Typ/Jahr des Falls, Ordner, Änderungszeit und bei
 Belegordnern eine grobe Anzahl passender Dateien nennen. Ein Treffer ist noch
@@ -90,6 +93,10 @@ Erst nach beiden Antworten zeige kurz den tatsächlichen Plan. Standard ist:
   Portable-Weg bringt seine Node-Laufzeit mit;
 - einen privaten Standard-Arbeitsbereich außerhalb von Git verwenden;
 - zunächst nur die direkte lokale Loopback-API und read-only arbeiten;
+- vor sichtbarer UI-Navigation eine neue hashverifizierte Prüffallkopie neben
+  dem Original erzeugen und ausschließlich diese öffnen; die Kopie bleibt als
+  klar benannte lokale Prüfkopie bestehen, bis der Nutzer später ihre
+  Archivierung oder Bereinigung beauftragt;
 - bestätigte Quellen nur lesen und Originale unverändert lassen;
 - kein Connector-Zugriff, keine Agenten-Konfigurationsänderung, kein
   Autostart, keine Steuerdatenänderung und keine ELSTER-Aktion.
@@ -113,6 +120,28 @@ auf ausdrücklichen Wunsch und nach gezeigtem Konfigurations-Diff ein.
 Fehlt eine verifizierte API, verwende nun den Setup-Skill. Übernimm die bereits
 bestätigten Pfade und den Standardplan; frage sie nicht erneut. Ist der
 Setup-Skill nicht installiert, führe dieselben sicheren Schritte inline aus.
+
+Schreibe dafür nach `OK Standard` eine neue, höchstens 64 KiB große UTF-8-
+JSON-Datei im privaten temporären Arbeitsbereich des Agenten. Sie enthält nur:
+
+```json
+{
+  "schemaVersion": 1,
+  "profileId": "2025",
+  "caseDir": "<absoluter Ordner des bestätigten Steuerfalls>",
+  "sourceFolders": ["<absolut bestätigter Belegordner>"]
+}
+```
+
+Bei „keine Belege“ ist `sourceFolders` leer. Optional darf der bereits
+eindeutig erkannte absolute `sseExecutable` ergänzt werden. Token, Schreibmodus,
+Connectoren oder andere Autorität gehören niemals in diesen Plan. Übergib ihn
+dem veröffentlichten Setup mit `--plan-file <absoluter-planpfad>`; simuliere
+keine interaktive Standardeingabe und schreibe keine Pfade als einzelne
+Kommandozeilenargumente. Der Setup-Prozess validiert Schema, vorhandene Ordner
+und sichere read-only Defaults. Nach erfolgreichem Setup stehen die dauerhaften
+Entscheidungen in `setup-decisions.json`; die temporäre Plandatei darf danach
+gelöscht werden, wenn sie ausschließlich für diesen Lauf neu erzeugt wurde.
 
 Nach erfolgreichem Setup kehre automatisch zum ursprünglichen Prüfauftrag
 zurück. Setup allein erfüllt einen Auftrag wie „Prüfe meine Steuererklärung“
