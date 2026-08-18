@@ -90,6 +90,7 @@ const requiredFiles = [
   "powershell/start-api-hidden.ps1",
   "powershell/install-api-task.ps1",
   "powershell/ocr-image.ps1",
+  "powershell/render-pdf.ps1",
   "powershell/sse-native.dll",
   "powershell/sse-native.sha256",
   "powershell/sse-native.cs",

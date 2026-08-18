@@ -12,7 +12,13 @@ import { API_MAIN_USAGE, parseApiMainArguments } from "../dist/api-main-argument
 import { SSE_API_OPERATIONS, SSE_API_VERSION } from "../dist/api-contract.js";
 import { attachScreenshotImage, installApiShutdown, MAX_SCREENSHOT_IMAGE_BYTES } from "../dist/api-runtime.js";
 import { readFileBounded } from "../dist/bounded-files.js";
-import { startAndVerifySetupApi, verifySetupApi } from "../dist/setup-runtime.js";
+import {
+  SETUP_HEALTH_TIMEOUT_MS,
+  SETUP_START_ATTEMPTS,
+  SETUP_WORKSPACE_TIMEOUT_MS,
+  startAndVerifySetupApi,
+  verifySetupApi,
+} from "../dist/setup-runtime.js";
 import { configurationFingerprint } from "../dist/workspace-status.js";
 
 const reservePort = async () => {
@@ -27,6 +33,10 @@ const reservePort = async () => {
 };
 
 assert.deepEqual(parseApiMainArguments([]), { help: false });
+assert(SETUP_HEALTH_TIMEOUT_MS >= 10_000, "Kaltes VM-Healthfenster wurde wieder zu kurz gesetzt.");
+assert(SETUP_WORKSPACE_TIMEOUT_MS >= SETUP_HEALTH_TIMEOUT_MS,
+  "Workspace-Verifikation darf nicht vor dem kalten Healthfenster abbrechen.");
+assert(SETUP_START_ATTEMPTS >= 5, "Kaltes VM-Listenerfenster deckt die gemessenen vier Sekunden nicht ab.");
 assert.deepEqual(parseApiMainArguments(["--help"]), { help: true });
 assert.deepEqual(parseApiMainArguments(["--config", "C:\\config.json"]), {
   help: false,

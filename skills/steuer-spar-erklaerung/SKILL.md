@@ -48,6 +48,12 @@ Diese Regeln gelten auch auf ausdrücklichen Wunsch:
   vor; starte keine zweite Archivierung und verschiebe Recovery-Dateien nicht
   automatisch.
 - Ändere Steuerdaten nur in einer zuvor bytegleich verifizierten Arbeitskopie.
+- Öffne auch für eine UI-gebundene reine Prüfung niemals den Originalfall.
+  SSE kann schon beim Navigieren die zuletzt besuchte Seite als ungespeicherte
+  In-Memory-Änderung markieren. Erzeuge daher vor der ersten UI-Navigation mit
+  `sse_make_working_copy` eine neue hashverifizierte Prüffallkopie im
+  konfigurierten Fallbereich und öffne ausschließlich diese. Ein Original darf
+  nur über dateibasierte Operationen wie Hash, Kopf und Inventar gelesen werden.
 - Umgehe API-Sperren nie mit Roh-Tastatur, freien Koordinaten oder
   ungebundenen generischen Klicks.
 - Installiere nichts still. Ändere weder Autostart noch Agenten-Konfiguration,
@@ -64,6 +70,11 @@ Version ersatzweise. Akzeptiere nur `status=supported` zusammen mit
 `operationAccess=full`. Meldet `product_info.buildDrift.drifted=true`, stoppe
 vor jeder Mutation, bis der installierte Build gezielt verifiziert wurde; API
 und direkter Worker erzwingen diese Mutationssperre zusätzlich.
+Bei `health.running=false` und leerem `buildDrift.current` bedeutet
+`drifted=true` nur: aktuell ist kein laufender Build messbar. Behaupte daraus
+keine installierte Versionsabweichung. Nach einem erlaubten Launch muss
+`product_info` den laufenden Build erneut bestimmen; erst dessen nichtleerer
+`current`-Wert ist ein echter Gleich-/Driftnachweis.
 
 ## Architektur richtig verwenden
 
@@ -79,11 +90,44 @@ Für direkte API-Aufrufe bevorzuge die ausgelieferte
 `steuer-spar-erklaerung-call`-CLI beziehungsweise im portablen Ordner
 `runtime/node.exe dist/api-cli.js`. Beginne bei einer bekannten Einzelaktion
 mit `describe <operation>` und nur bei einer breiten Planung mit `discovery`; für komplexe
-Argumente eine neue begrenzte UTF-8-JSON-Datei per `--args-file` oder einen
-kurzlebigen stdin-Datenstrom per `--args-file -` verwenden. Schreibe Steuerwerte nie als Inline-JSON in die Kommandozeile oder
-Prozessliste. Ist ein eigener Client sinnvoller, lies `openapi` und verwende
+Argumente bevorzugt eine neue begrenzte UTF-8-JSON-Datei per `--args-file`
+verwenden. `--args-file -` ist nur für kleine, im selben Prozess erzeugte
+ASCII-Objekte geeignet. Mehrzeiligen Text oder Nicht-ASCII-Zeichen niemals
+durch eine Windows-PowerShell-Pipeline an stdin reichen: deren implizite
+Codepage kann Umlaute unbemerkt durch `?` ersetzen. Dafür JSON UTF-8 ohne BOM
+in eine private Datei schreiben, diese zurückparsen und ihren Pfad an
+`--args-file` übergeben. Schreibe Steuerwerte nie als Inline-JSON in die
+Kommandozeile oder Prozessliste. Ist ein eigener Client sinnvoller, lies `openapi` und verwende
 ausschließlich die dort aktuell veröffentlichten Bearer-geschützten Verträge.
 Leite Anzahl und Namen immer aus der Laufzeitquelle ab.
+
+Lege bei direkten Laufzeit- und UI-Aufrufen mit `--journal-file
+<neue-private-datei.jsonl>` immer eine neue Journaldatei im privaten
+Arbeitsbereich des Agenten an. Die CLI schreibt vor dem API-Aufruf dauerhaft
+einen JSONL-Eintrag mit `status="pending"`, `command`, `invocationId` und
+`startedAt` und danach `status="complete"`, `exitCode` und vollständigem
+`result` oder `status="error"` samt Fehlertext.
+Existierende Dateien werden nie überschrieben. `pending`, ein fehlender
+Abschlusseintrag oder leerer stdout bedeuten einen unbekannten Zustand: lies
+zuerst das Journal und danach frischen API-Zustand, starte dieselbe Aktion aber
+nicht erneut. Vermische eigene Diagnoseausgaben nicht mit dem JSON-stdout der
+CLI; lies das Journal in einem getrennten Schritt. Verwende für `launch`, `windows`, `collect`, `ui_state`, `close`
+und `health` auf langsamen PCs kein künstlich verkürztes Transportlimit; die
+CLI-Vorgabe beträgt 90 Sekunden.
+Ein synchronisierter `complete`-Eintrag mit `exitCode=1` ist kein
+Transportfehler: lies `result`. Bei `result.ok=false` ist die fachliche
+Operation nachweislich fehlgeschlagen oder absichtlich unvollständig. Ein
+`collect` mit `kind="collection-incomplete"` und `stopKind="limit-reached"`
+darf seine gelesenen Seiten als klar begrenzten Teilstand liefern, aber niemals
+als vollständige Prüfung gelten.
+
+Eine Agentensandbox darf die API-Wahrheit nicht durch lokale Prozessproben
+ersetzen. Unterdrücktes oder verweigertes `Get-CimInstance`, `Get-Process` oder
+`tasklist` beweist keine beendete SSE-PID. Melden `close` nicht gleichzeitig
+`ok=true` und `stillRunning=false`, bleibt nur die Aussage: „Meine Automation
+ist beendet; SSE kann noch geöffnet sein.“ Behaupte „SSE ist geschlossen“ erst
+nach diesem positiven Close-Readback und einer frischen API-Abfrage von
+`windows` oder `health`, in der die gebundene PID/HWND nicht mehr läuft.
 
 Rufe nach erfolgreicher Verbindung zuerst `sse_capabilities` beziehungsweise
 die API-Operation `capabilities` auf. Diese PC-neutrale Selbstbeschreibung ist
@@ -145,6 +189,17 @@ Ersetze Excel niemals still.
 2. Inventarisiere freigegebene Quellen. Speichere für Dateien Quelle,
    Dateiname, Größe, Änderungszeit soweit verfügbar, SHA-256 und relative
    Zielreferenz. Connectoren erst nach Zustimmung lesen.
+   Für PDF-Belege verwende zuerst eine bereits verfügbare PDF-Fähigkeit. Fehlt
+   sie, installiere weder Python noch Poppler, sondern rendere gezielt nur die
+   für Zieljahr/-zeitraum plausiblen Dateien mit dem ausgelieferten
+   `powershell/render-pdf.ps1` in einen neuen privaten Temp-Ordner. Der Helper
+   begrenzt Breite und Seitenzahl, überschreibt keine PNG-Datei und liefert
+   kompaktes JSON. Starte ihn immer als eigenen Prozess mit
+   `powershell.exe -NoProfile -NonInteractive -File`; die WinRT-Runtime mancher
+   Windows-Builds kann sonst beim Prozessabbau einen fremden Restcode liefern.
+   Erfolg verlangt zugleich Exitcode 0, `ok=true` und den PNG-Readback. OCR
+   erfolgt danach bei Bedarf lokal mit `ocr-image.ps1`.
+   Rendere nicht vorsorglich Belegordner anderer Jahre vollständig.
    Für eine vollständige SSE-Bestandsaufnahme bevorzuge kurze
    `sse_collect`-Segmente entlang des linearen `Weiter`-Pfads. Lies pro Seite
    Überschrift, Felder und sichtbare Tabellen und kontrolliere Dialog,
@@ -157,11 +212,18 @@ Ersetze Excel niemals still.
    Fensterbild im Ergebnisbereich. Nutze es zur visuellen Zustands- und
    Layoutprüfung; Beträge, Auswahlwerte und Vollständigkeit müssen weiterhin
    durch strukturierte Felder, Tabellen und Summen belegt werden.
+   Kann die Agentensandbox lokale Ergebnisdateien nicht direkt öffnen, schwäche
+   keine ACL. Fordere das Bild mit `includeImage: true` an und lies Textresultate
+   über `sse_workspace_read_text` beziehungsweise `workspace_file_read_text`.
 3. Empfehle Kopien unter `documents`. Bei Ablehnung nur Quelle und Entscheidung
    dokumentieren; Originale nicht verändern.
-4. Identifiziere den Originalfall read-only. Für Schreibarbeit Hash berechnen,
-   neue Kopie unter `cases` erzeugen, beide Hashes vergleichen und vor dem
-   Öffnen Bytegleichheit bestätigen.
+4. Identifiziere den Originalfall dateibasiert read-only. Vor jeder UI-
+   Navigation – auch bei einer reinen Prüfung – Hash berechnen, eine eindeutig
+   neu benannte Prüffallkopie unter `cases` erzeugen, beide Hashes vergleichen
+   und vor dem Öffnen Bytegleichheit bestätigen. Öffne den Originalfall nicht.
+   Die Prüffallkopie bleibt bis zu einem später ausdrücklich beauftragten,
+   inventargebundenen Archiv- oder Bereinigungsschritt bestehen; lösche sie
+   nicht mit Roh-Dateibefehlen.
 5. Lies unmittelbar vor jeder Änderung Fallreferenz, Zustand, Fensterbindung
    (`HWND`) und Hash neu. Führe genau eine eng gebundene Änderung aus und lies
    Wert sowie Zustand sofort zurück. Für eine Tabellenzeile liefert
@@ -170,7 +232,12 @@ Ersetze Excel niemals still.
    `sse_table_add`, `sse_table_update` oder `sse_table_delete`. Rate ihn nie.
 6. Stoppe bei Hash-, Ziel-, Dialog- oder Readback-Abweichung ohne Wiederholung.
    Die read-only Prüfung darf weiterlaufen, wenn sie den unsicheren Zustand
-   klar ausgrenzt.
+   klar ausgrenzt. Meldet die Prüffallkopie nach Navigation
+   `ungespeichert=true`, navigiere nicht weiter. Schließe nur nach ausdrücklicher
+   Bestätigung mit `discardChanges=true`, lies `stillRunning=false`, Fenster,
+   Health sowie Hash von Original und Kopie zurück und speichere niemals diesen
+   reinen Navigationszustand. Wurde entgegen dieser Regel der Originalfall
+   geöffnet, ist für das Verwerfen eine eigene Nutzerbestätigung Pflicht.
 7. Verwende für wiederholbare Mehrschrittaufgaben ein versioniertes Szenario
    aus dem installierten API-Vertrag: relative Workspace-Referenzen, eindeutige
    Schritt-IDs, dynamische `$steps.<id>.result...`-Referenzen und obligatorisches
@@ -182,88 +249,14 @@ Ersetze Excel niemals still.
 9. Schreibe immer einen Ergebnis- oder Stoppreport unter `results` und lies ihn
    abschließend zurück.
 
-## Fallback bei unbekannten Controls
+## Bedarfsreferenzen
 
-Fehlt eine Spezialoperation, darf die Arbeit kontrolliert weitergehen:
-
-1. Lies zuerst `sse_page_state` oder `sse_ui_state`.
-2. Entdecke das Control ausschließlich lesend mit `sse_snapshot`, `sse_find`
-   und bei Bedarf `sse_accessibility_probe`.
-3. Übernimm AutomationId oder RuntimeId nur aus diesem frischen Zustand. Für
-   eine Aktion ist der Name oder die AutomationId die bessere Bindung: Ältere
-   Programmversionen vergeben zwischen zwei Aufrufen neue RuntimeIds, und die
-   Aktion endet dann mit `not-found` auf einem leeren Bezeichner.
-4. Verwende für Checkboxen `sse_toggle`, für Listen `sse_combo_options` plus
-   `sse_combo_select` und für Textfelder eine gebundene Schreiboperation.
-5. Verwende `sse_click` nur, wenn Ziel, Seite, Fenster und Nachbedingung
-   eindeutig sind. Nutze niemals einen generischen Toggle-Klick.
-6. Lies nach jeder Interaktion den Zustand neu. Bei Mehrdeutigkeit oder
-   Abweichung stoppen; nicht auf eine andere Methode durchprobieren.
-
-Ein unbekannter Dialogbutton wird in `unsupportedButtons` gemeldet, bleibt aber
-gesperrt. Zeige ihn dem Nutzer und stoppe. Erweitere die Allowlist nicht zur
-Laufzeit und bestätige keine Dialogkette blind.
-
-## Umsatzsteuer-Voranmeldung
-
-Eine Jahreserklärung oder allgemeine Fallprüfung autorisiert keine
-UStVA-Änderung. Bei einem ausdrücklichen UStVA-Auftrag:
-
-1. Bestimme zuerst Zieljahr und Zielzeitraum. Das Profil 2025 darf zusätzlich
-   genau den vom Hersteller vorgesehenen Folgejahr-Fall `*.GewErfass2026`
-   bedienen. Verwende diese Ausnahme nur für Gewinn-Erfassung/UStVA 2026;
-   andere 2026er Fallarten und spätere Jahre bleiben gesperrt.
-2. Lies Fallkopf, Übermittlungsprotokolle und UStVA-Zustand. Ist der Zeitraum
-   bereits übermittelt, bereite keinen zweiten Fall und keine Berichtigung ohne
-   einen neuen ausdrücklichen Auftrag vor.
-3. Erstelle vor jeder Betragseingabe ein vollständiges Periodeninventar der
-   freigegebenen Ein- und Ausgangsrechnungen. Rechnungen sind die führende
-   Quelle für Betrag, Leistungsbezug, ausgewiesene Umsatzsteuer und
-   Rechnungsaussteller; Kontoauszüge ersetzen keine fehlende Rechnung. Halte
-   Zahlungsstatus und Zahlungsdatum getrennt fest. Fehlt dieser Abgleich,
-   kennzeichne die Buchung und das Ergebnis als **vorläufig - Zahlungsabgleich
-   ausstehend**; behaupte weder einen abschließenden EÜR-Zeitpunkt noch einen
-   abschließenden Zeitpunkt bei Istversteuerung.
-4. Erfasse oder korrigiere die belegten Einnahmen und Ausgaben zuerst in den
-   fachlich passenden Buchungsseiten der Gewinn-Erfassung. Trenne dabei
-   deutsche Umsatzsteuer, EU-/Drittlands-§13b, nicht abziehbare oder
-   korrekturbedürftig ausgewiesene ausländische Umsatzsteuer sowie nicht
-   steuerbare EU-Ausgangsleistungen. Lies jede Zeile, die Seitensumme, die
-   Betriebseinnahmen/-ausgaben-Übersicht und die Vorsteuer-Übersicht zurück.
-   Verwechsle Kostenart und Umsatzsteuerbehandlung nicht: Ein Software-Abo oder
-   Online-Dienst ist wirtschaftlich eine EDV-Ausgabe, kann aber bei einem
-   ausländischen Anbieter zugleich eine sonstige Leistung nach § 13b UStG
-   sein. In der SSE-Version 2025 bietet die Buchungsseite `EDV-Kosten` keine
-   §13b-Unterseite. Erfasse eine solche Rechnung deshalb **einmal** unter
-   `Fremdleistungen -> Rechnungen nach § 13b UStG` und wähle anhand des
-   Anbietersitzes `Sonst. Leistung EU` oder `Sonst. Leistung Drittland`.
-   Erfasse denselben Nettobetrag nicht zusätzlich unter `EDV-Kosten`, weil das
-   die Betriebsausgabe verdoppeln würde. Inländische Software-Rechnungen mit
-   deutscher Umsatzsteuer und ausländische Rechnungen ohne §13b verbleiben in
-   der fachlich passenden EDV-Kostenzeile.
-   Eine Rechnung aus einem bereits übermittelten Zeitraum wird nicht still in
-   den aktuellen Zeitraum verschoben; dokumentiere stattdessen den möglichen
-   Berichtigungsbedarf.
-5. Behalte die belegte Meldefrequenz bei. „Juli“ allein ist keine Erlaubnis,
-   von vierteljährlich auf monatlich umzustellen. Bei fachlicher Unsicherheit
-   aktuelle Primärquellen prüfen und stoppen.
-6. Verwende `sse_ustva_read` vor und nach der Arbeit. Wähle Frequenz und
-   Monat/Quartal mit getrennten `sse_ustva_select_period`-Aufrufen, jeweils mit
-   Arbeitskopie, aktuellem Hash, PID/HWND sowie exaktem Vorwert.
-7. Verwende `sse_ustva_open_section` statt generischer Klicks. Öffne damit auch
-   die Detailbereiche `reverse_charge` und `input_tax`; EU-/Drittlandsleistungen
-   und normale/§13b-Vorsteuer müssen getrennt rückgelesen werden. Mehrere gleich
-   benannte Schaltflächen sind nachweislich mehrdeutig.
-8. Vergleiche die automatisch aus den Buchungen erzeugte UStVA mit dem
-   Periodeninventar. `manual_input` ist nur ein begründeter Fallback, wenn eine
-   belegte Position trotz korrekter Buchung nicht fachlich abbildbar ist.
-   Aktiviere es und ändere manuelle Hauptbeträge nur nach ausdrücklicher
-   Freigabe; dokumentiere Ursache sowie jeden Vor-/Nachwert. Eine unvollständig
-   vorgefüllte Gewinn-Erfassung darf nicht durch bloßes Übertragen von Summen in
-   die UStVA kaschiert werden.
-9. Speichere nur nach vollständigem Readback und gesonderter Freigabe mit dem
-   hashgebundenen Speicherbefehl. ELSTER, Senden und Übermittlung bleiben auch
-   dann gesperrt.
+Fehlt für ein benötigtes Control eine Spezialoperation, lies erst dann
+[references/ui-fallback.md](references/ui-fallback.md). Bei einem ausdrücklichen
+UStVA-, Umsatzsteuer-Voranmeldungs-, Gewinn-Erfassungs- oder Folgejahr-Auftrag
+lies vor der Facharbeit
+[references/ustva.md](references/ustva.md). Für eine normale Einkommensteuer-
+Prüfung werden diese Detailreferenzen nicht benötigt.
 
 Lies [references/betriebsvertrag.md](references/betriebsvertrag.md), bevor du
 API/MCP einrichtest, einen Fall öffnest oder einen Report erzeugst.
@@ -315,6 +308,15 @@ Modus, Profil, Engine, Fallreferenz, Quelleninventar, geprüfte Punkte,
 Abweichungen, Änderungen mit Vorher/Nachher/Readback, Hashes, Transportwechsel,
 fachliche Quellen, Unsicherheiten, Stopps und manuelle Schritte. Entferne Token,
 Zugangsdaten und unnötige personenbezogene Daten.
+
+Übergib einen mehrzeiligen Bericht ausschließlich über eine neue UTF-8-
+Argumentdatei an `workspace_file_write_text`, nie über eine PowerShell-stdin-
+Pipeline. Lies die Datei über die API zurück und vergleiche API-, physische und
+aus dem UTF-8-Text berechnete SHA-256-Bytes. Prüfe zusätzlich, dass erwartete
+Umlaute erhalten und keine Ersatzfragezeichen entstanden sind. Ist ein
+create-only Bericht inhaltlich kodierungsbeschädigt, überschreibe ihn nicht:
+markiere ihn in einem neuen korrekt kodierten Bericht ausdrücklich als
+verworfen.
 
 Beende mit dem zurückgelesenen relativen Reportpfad und dem ausdrücklichen
 Hinweis, dass keine ELSTER-Übermittlung durchgeführt wurde.

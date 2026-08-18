@@ -43,11 +43,11 @@ npm-Runtimepakete setzt ein bereits vorhandenes Node.js 22+ mit npm voraus.
 Gib einem Agenten mit GitHub- und lokalem Dateizugriff diesen Auftrag:
 
 ```text
-Öffne https://github.com/yadimon/steuer-spar-erklaerung-mcp und lies
-skills/steuer-spar-erklaerung/SKILL.md. Folge dem Skill auf Deutsch.
-Prüfe meine Steuererklärung 2025 zunächst nur lesend. Finde zuerst den
-wahrscheinlichen Steuerfall und die Belegordner und lass sie mich bestätigen.
-Richte danach bei Bedarf alles mit sicheren Standardwerten ein.
+Installiere oder aktualisiere zuerst die Steuer-Skills direkt aus dem aktuellen
+Repository https://github.com/yadimon/steuer-spar-erklaerung-mcp (Skill-Installer
+oder direkter Repository-Download, keine gecachte Webansicht). Prüfe danach
+meine Steuererklärung 2025 auf Deutsch zunächst nur lesend. Finde Steuerfall
+und Belegordner, lass sie mich bestätigen und richte den Rest sicher ein.
 ```
 
 Der Agent schlägt zuerst einen wahrscheinlichen Steuerfall oder wenige
@@ -61,6 +61,14 @@ müssen nicht global installiert werden. Wenn der Agent keine Programme starten
 darf, kann das ZIP von der
 [Release-Seite](https://github.com/yadimon/steuer-spar-erklaerung-mcp/releases)
 manuell geladen und anschließend `sse-setup.cmd` gestartet werden.
+Eine nur im Browser geöffnete Raw-Datei gilt wegen möglicher Web-Caches nicht
+als installierter Skill; entscheidend ist die aktuelle lokale Repository-Kopie.
+
+Vor einer sichtbaren Prüfung erzeugt der Agent eine neue, per SHA-256
+verifizierte Prüffallkopie und öffnet nur diese. Das ist auch beim reinen Lesen
+nötig, weil SSE bereits durch Seitennavigation einen ungespeicherten
+In-Memory-Zustand setzen kann. Der Originalfall wird dabei nicht in der UI
+geöffnet und nie überschrieben.
 
 ### Mit `npx skills` (optional)
 
@@ -164,6 +172,7 @@ Snapshot auch über die authentifizierte Operations-Discovery.
 - eine lokale, token-geschützte HTTP-API als Kern;
 - ein optionaler MCP-Wrapper, der ausschließlich die API aufruft;
 - ein portables Windows-x64-Paket mit eigener Node-Laufzeit;
+- lokale PDF-zu-PNG- und Bild-OCR-Helfer ohne Python-/Poppler-Pflicht;
 - getrennte npm-Pakete für Windows-API und PC-blinden MCP-Wrapper;
 - ein deutscher Setup-Wizard mit fensterlosem API-Start;
 - öffentliche Skills für Prüfung und Einrichtung;
@@ -195,7 +204,9 @@ dieselbe Version tragen und zum vollständigen GitHub-Release gehören.
 
 1. Von der [Release-Seite](https://github.com/yadimon/steuer-spar-erklaerung-mcp/releases)
    `steuer-spar-erklaerung.zip` und die zugehörige `.sha256`-Datei laden.
-2. SHA-256 prüfen und das ZIP in einen lokalen Ordner entpacken.
+2. SHA-256 prüfen und das ZIP in einen neuen leeren lokalen Ordner entpacken.
+   Unter Windows ist `tar.exe` dafür deutlich schneller als `Expand-Archive`;
+   einen nach Timeout nur teilweise gefüllten Ordner nicht verwenden.
 3. `sse-setup.cmd` starten oder den
    [Setup-Skill](skills/steuer-spar-erklaerung-setup/SKILL.md) verwenden.
 4. Die vorgeschlagenen sicheren Standardwerte übernehmen oder Pfade und
@@ -210,6 +221,16 @@ if ($actual -ne $expected) { throw 'SHA-256 stimmt nicht. ZIP nicht verwenden.' 
 "SHA-256 stimmt: $actual"
 ```
 
+Nach erfolgreicher Prüfung beispielsweise so entpacken:
+
+```powershell
+$target = Join-Path $PWD 'steuer-spar-erklaerung'
+if (Test-Path -LiteralPath $target) { throw "Neues Ziel existiert bereits: $target" }
+New-Item -ItemType Directory -Path $target | Out-Null
+& "$env:SystemRoot\System32\tar.exe" -xf '.\steuer-spar-erklaerung.zip' -C $target
+if ($LASTEXITCODE -ne 0) { throw "Entpacken fehlgeschlagen: $LASTEXITCODE" }
+```
+
 Der Wizard erkennt eine vorhandene Konfiguration am Standardpfad, erzeugt bei
 Bedarf ein lokales Token und legt außerhalb des Repositorys an:
 
@@ -221,7 +242,10 @@ Bedarf ein lokales Token und legt außerhalb des Repositorys an:
 - getrennte Ordner für Dokumentkopien, Ergebnisse und Backups.
 
 Mit `--defaults` läuft die technische Einrichtung mit sicheren Vorgaben.
-`--no-start` erzeugt nur die Dateien. Sonst fragt der Wizard, ob er die API
+Nach den zwei First-run-Bestätigungen kann der Agent die bestätigten absoluten
+Fall- und Belegordner über eine kurze private JSON-Datei mit `--plan-file`
+übergeben; der Wizard akzeptiert daraus keine Tokens oder Schreibrechte und
+stellt keine Eingabeprompts erneut. `--no-start` erzeugt nur die Dateien. Sonst fragt der Wizard, ob er die API
 jetzt fensterlos starten und Health, Discovery sowie Arbeitsbereich prüfen darf.
 Die API kann Markdown-Fortschritte als neue datierte Snapshots anlegen, ersetzt
 aber keine vorhandene Trackingdatei. Eine referenzierte XLSX-Datei wird nur über
@@ -253,9 +277,12 @@ steuer-spar-erklaerung-call describe workspace_status
 steuer-spar-erklaerung-call workspace_status
 ```
 
-Komplexe Argumente werden über eine begrenzte UTF-8-JSON-Datei oder stdin
+Komplexe Argumente werden bevorzugt über eine begrenzte UTF-8-JSON-Datei
 übergeben, damit Token, Pfade und Nutzdaten nicht in der sichtbaren
-Prozesskommandozeile erscheinen. Für eigene Clients stehen zur Verfügung:
+Prozesskommandozeile erscheinen. Mehrzeilige oder nicht-ASCII Texte gehören
+immer in diese Datei; eine Windows-PowerShell-stdin-Pipeline kann Umlaute durch
+`?` ersetzen. Für kleine ASCII-Objekte bleibt `--args-file -` verfügbar. Für
+eigene Clients stehen zur Verfügung:
 
 - `GET /healthz`
 - `GET /v1/operations`
@@ -416,7 +443,7 @@ Weitere Unterlagen:
 - [API-/MCP-Vertrag](docs/API-MCP-VERTRAG.md)
 - [Verifikationsstand](docs/VERIFIKATION.md)
 - [Release-Prozess](docs/RELEASE.md)
-- [Release Notes v0.1.0-beta.4](docs/releases/v0.1.0-beta.4.md)
+- [Release Notes v0.1.0-beta.5](docs/releases/v0.1.0-beta.5.md)
 - [Entwicklungswissen](docs/entwicklung/README.md)
 - [Mitwirken](CONTRIBUTING.md)
 - [Haupt-Skill](skills/steuer-spar-erklaerung/SKILL.md)

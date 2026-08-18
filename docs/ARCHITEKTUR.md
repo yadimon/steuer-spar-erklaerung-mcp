@@ -93,6 +93,10 @@ Agent oder eigenes Programm
   ohne Discovery oder Laufzeitvalidierung abzuschwächen.
 - Der direkte CLI-Client akzeptiert komplexe Argumente nur aus einer begrenzten
   UTF-8-Datei oder aus begrenztem stdin, nie als Steuerwerte in Prozessargumenten.
+  Mehrzeilige oder nicht-ASCII Nutzdaten verwenden immer die Datei: Eine
+  Windows-PowerShell-Pipeline kann gültiges JSON erzeugen und dabei trotzdem
+  Umlaute durch `?` ersetzen. Stdin bleibt kleinen, im selben Prozess
+  erzeugten ASCII-Objekten vorbehalten.
 - Direkte API-Aufrufe liefern das vollständige Executor-/Worker-/Kompositionsergebnis.
   Dieses wird vor der HTTP-Ausgabe gegen den operationsspezifischen
   Ergebnisvertrag geprüft; malformed Ergebnisse werden redigiert als
@@ -327,6 +331,12 @@ Agent oder eigenes Programm
 - Originale und übermittelte Fälle werden nicht gelöscht oder überschrieben.
 - Fachliche Änderungen erfolgen nur an verifizierten Arbeitskopien und werden
   unmittelbar zurückgelesen.
+- UI-Navigation erfolgt auch für reine Prüfungen ausschließlich auf einer
+  hashverifizierten Prüffallkopie. SSE kann bereits beim Wechsel zwischen
+  Seiten `ungespeichert=true` setzen, obwohl kein Steuerwert eingegeben wurde.
+  Das Original bleibt deshalb auf dateibasierte Hash-/Inventarleser begrenzt;
+  ein reiner Navigationszustand wird nach ausdrücklicher Bestätigung verworfen,
+  nie gespeichert.
 - UStVA-Frequenz, Monat/Quartal, Kennzeichen und Betragsfelder sind
   semantisch katalogisiert. Gleich benannte UI-Aktionen dürfen nicht generisch
   erraten werden; ein bereits übermittelter Zeitraum wird nie still dupliziert.
@@ -334,6 +344,10 @@ Agent oder eigenes Programm
   absolute Deadline; unter zwei Sekunden Rest beginnt keine Folgeaktion.
 - Ein fehlgeschlagener, abgebrochener oder unvollständiger Read gilt niemals
   als leerer Steuerstand.
+- Wenn SSE nicht läuft, ist der aktuelle Build nicht messbar. Health bleibt
+  mit leerem `buildDrift.current` und `drifted=true` fail-closed; das bedeutet
+  „unbekannt“, nicht den Nachweis einer abweichend installierten Version. Nach
+  dem Launch liefert `product_info` den eigentlichen Buildvergleich.
 
 ## Ressourcen statt PC-Pfade
 
@@ -365,12 +379,19 @@ Weg ohne globale Entwicklerwerkzeuge.
 
 - Portable wird entpackt statt installiert und braucht keine
   Administratorrechte, Dienste, geplanten Aufgaben oder PATH-Änderungen;
+- die äußere SHA-256-Prüfung erfolgt vor dem Entpacken in einen neuen leeren
+  Ordner. Windows-`tar.exe` ist der Standardpfad; ein Timeout oder partielles
+  `Expand-Archive` ist keine lauffähige Installation;
 - Start nur für die aktuelle Arbeit und kontrollierter Shutdown danach;
 - das Root-Manifest bleibt ein privater Build-Workspace. Das Windows-x64-
   Paket `@yadimon/steuer-spar-erklaerung-api` enthält API, CLI, Setup,
   PowerShell-/Native-Runtime und Profile; das plattformneutrale Paket
   `@yadimon/steuer-spar-erklaerung-mcp` enthält nur den PC-blinden
   Clientgraphen;
+- der native PDF-Helfer läuft als eigener Windows-PowerShell-Prozess. Er
+  flusht das kompakte JSON vor dem direkten Prozessabschluss, damit ein auf
+  einzelnen Windows-Builds beobachteter WinRT-Restcode einen erfolgreichen
+  Render nicht als Fehler maskiert;
 - beide npm-Pakete werden aus derselben TypeScript-Quelle mit getrennten
   Einstieggraphen gebaut. Ein generischer OpenAPI-Proxy oder ein dupliziertes
   drittes Contract-Paket ist nicht Teil der Architektur;
@@ -460,6 +481,16 @@ automatisch read-only prüfen, lokale Ordner anlegen, neue Arbeitskopien
 erzeugen und repo-/portable-eigene Dateien schreiben. Vor externen
 Kontoverbindungen, Massenkopien, globalen Installationen, Agentkonfiguration,
 Autostart oder Steuerdatenänderungen ist eine passende Bestätigung notwendig.
+
+Nach dem fachlichen Zwei-Fragen-First-run kann der Agent die bereits
+bestätigten Werte über `--plan-file` statt über simulierte Terminaleingabe
+übergeben. Schema 1 akzeptiert ausschließlich Profil, absoluten Fallordner,
+höchstens 32 absolute Quellordner und optional die eindeutig erkannte SSE-
+Executable. Der höchstens 64 KiB große UTF-8-Plan kann weder Token noch
+Schreibmodus, Connector, MCP-Merge, Autostart oder ELSTER-Autorität setzen.
+Relative, unbekannte oder fehlende Pfade sowie Widersprüche zu einer
+vorhandenen Konfiguration stoppen fail-closed. Planläufe erzwingen direkte API,
+read-only, Reference-only, Markdown-Tracking und eine erste read-only Prüfung.
 
 Vor einem Überschreiben werden redigierte Backups inhaltlich verifiziert. Alle
 neuen Setup-Inhalte werden zuerst vollständig in exklusiven Nachbardateien

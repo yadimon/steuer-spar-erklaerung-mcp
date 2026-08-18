@@ -37,13 +37,23 @@ assert(main.includes("kein globales Node.js/npm") && main.includes("kein Python"
 assert(main.includes("MCP ist ein optionaler dünner Wrapper") && main.includes("API-Selbstbeschreibung"));
 assert(main.includes("steuer-spar-erklaerung-call") && main.includes("--args-file -") && main.includes("Prozessliste"));
 assert(main.includes("describe <operation>") && main.includes("discovery"));
-assert(main.includes("sse_capabilities") && main.includes("Fallback bei unbekannten Controls"));
-assert(main.includes("unsupportedButtons") && main.includes("generischen Toggle-Klick"));
+assert(main.includes("sse_capabilities") && main.includes("references/ui-fallback.md"));
 assert(main.includes("niemals über ELSTER") && main.includes("verifizierten Arbeitskopie"));
-assert(main.includes("sse_ustva_read") && main.includes("sse_ustva_open_section"));
+assert(main.includes("UI-gebundene reine Prüfung niemals den Originalfall"));
+assert(main.includes("sse_make_working_copy") && main.includes("discardChanges=true"));
+assert(main.includes("references/ustva.md"));
 assert(main.includes("setup-decisions.json") && main.includes("settings.md"));
+assert(main.includes("powershell/render-pdf.ps1") && main.includes("ocr-image.ps1"));
 assert(main.includes("Tracking") && main.includes(".xlsx") && main.includes("Excel niemals still"));
 assert(main.includes("API-/HTTP-Transporttimeout") && main.includes("nicht als Unerreichbarkeit behandeln"));
+assert(main.includes("--journal-file") && main.includes("`pending`") && main.includes("leerer stdout"));
+assert(main.includes('status="complete"') && main.includes("JSON-stdout"));
+assert(main.includes("Nicht-ASCII-Zeichen") && main.includes("PowerShell-Pipeline") && main.includes("durch `?` ersetzen"));
+assert(main.includes("-NonInteractive -File") && main.includes("Exitcode 0") && main.includes("`ok=true`"));
+assert(main.includes("kodierungsbeschädigt") && /UTF-8-\s*Argumentdatei/u.test(main));
+assert(main.includes("Get-CimInstance") && main.includes("beweist keine beendete SSE-PID"));
+assert(main.includes("SSE kann noch geöffnet sein") && main.includes("stillRunning=false"));
+assert(main.includes("kein laufender Build messbar") && main.includes('kind="collection-incomplete"'));
 assert(main.includes("references/first-run.md") && main.includes("OK Standard"));
 const firstRun = readFileSync(
   join(skillsRoot, "steuer-spar-erklaerung", "references", "first-run.md"),
@@ -54,18 +64,42 @@ assert(firstRun.includes("höchstens 100") && firstRun.includes("Durchsuche niem
 assert(firstRun.includes("aktuellste") && firstRun.includes("passende veröffentlichte Portable-Release"));
 assert(firstRun.includes("`@beta`-Pakete persistent installieren"));
 assert(firstRun.includes("`OK`, `OK Standard` oder `OK Default`"));
+assert(firstRun.includes("hashverifizierte Prüffallkopie") && firstRun.includes("ausschließlich diese öffnen"));
 assert(firstRun.includes("Setup allein erfüllt") && firstRun.includes("capabilities"));
+assert(firstRun.includes("--plan-file") && firstRun.includes('"schemaVersion": 1'));
+assert(firstRun.includes("Release-, Download-, Paket-, Skill-, Cache-"));
+const uiFallback = readFileSync(
+  join(skillsRoot, "steuer-spar-erklaerung", "references", "ui-fallback.md"),
+  "utf8",
+);
+assert(uiFallback.includes("unsupportedButtons") && uiFallback.includes("generischen Toggle-Klick"));
+const ustva = readFileSync(
+  join(skillsRoot, "steuer-spar-erklaerung", "references", "ustva.md"),
+  "utf8",
+);
+assert(ustva.includes("sse_ustva_read") && ustva.includes("sse_ustva_open_section"));
+assert(ustva.includes("*.GewErfass2026") && ustva.includes("ELSTER"));
 const setup = readFileSync(join(skillsRoot, "steuer-spar-erklaerung-setup", "SKILL.md"), "utf8");
 assert(setup.includes("runtime/node.exe dist/api-cli.js health") && setup.includes("discovery"));
 assert(setup.includes('command = "node"') && setup.includes("schwarze `cmd.exe`-Fenster"));
 assert(setup.includes("Windows x64") && setup.includes("Windows PowerShell 5.1"));
 assert(setup.includes("--defaults") && setup.includes("--no-start"));
+assert(setup.includes("--plan-file") && setup.includes("automatisiere `stdin` dafür nicht"));
+assert(setup.includes("vollständige Dateiliste") && setup.includes("Manifest aus"));
 assert(setup.includes("settings.md") && setup.includes("tracking.md") && setup.includes(".xlsx"));
 assert(setup.includes("Connector") && setup.includes("read-only Prüfung"));
 assert(setup.includes("aktuellste dort veröffentlichte") && setup.includes("OK Standard"));
 assert(setup.includes("npm install --global") && setup.includes("@yadimon/steuer-spar-erklaerung-api@beta"));
 assert(setup.includes("@yadimon/steuer-spar-erklaerung-mcp@beta") && setup.includes("flüchtigen `npx`-Cache"));
 assert(setup.includes("`--defaults` nur") && setup.includes("frage den Nutzer nicht erneut"));
+assert(setup.includes("abweichenden Konfigurationsfingerprint") && setup.includes("neben einer alten API"));
+assert(setup.includes("Windows-`tar.exe`") && setup.includes("Teilordner darf nicht gestartet werden"));
+const installation = readFileSync(
+  join(skillsRoot, "steuer-spar-erklaerung-setup", "references", "installation.md"),
+  "utf8",
+);
+assert(installation.includes("System32\\tar.exe") && installation.includes("nicht in denselben Ordner nachentpacken"));
+assert(installation.includes("WinRT") && installation.includes("Exitcode 0"));
 assert(!setup.includes("Windows 10/11"), "Setup darf kompatible Windows-Versionen nicht nach Label sperren.");
 for (const source of [main, firstRun, setup]) {
   assert(
@@ -92,5 +126,6 @@ assert(readme.includes("Get-FileHash -Algorithm SHA256"), "README erklärt die m
 assert.match(readme, /npx skills.*Node\.js 22\+ mit npm/su, "README verschweigt die npx-Voraussetzung.");
 assert(readme.includes("npm install --global @yadimon/steuer-spar-erklaerung-api@beta"));
 assert(readme.includes("npm install --global @yadimon/steuer-spar-erklaerung-mcp@beta"));
+assert(readme.toLowerCase().includes("installiere oder aktualisiere") && readme.includes("gecachte Webansicht"));
 
 process.stdout.write("Public Skills: 2 flache npx-kompatible, deutsche und portable Skill-Pakete bestanden\n");

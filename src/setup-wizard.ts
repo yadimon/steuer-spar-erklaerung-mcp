@@ -30,6 +30,7 @@ import {
   type SetupTransport,
 } from "./setup-preferences.js";
 import { parseSetupArguments, SETUP_USAGE } from "./setup-main-arguments.js";
+import { loadConfirmedSetupPlan } from "./setup-plan.js";
 import { startAndVerifySetupApi, type SetupApiVerification } from "./setup-runtime.js";
 import { configurationFingerprint } from "./workspace-status.js";
 
@@ -42,6 +43,7 @@ export async function runSetupMain(args: readonly string[]): Promise<void> {
   const here = dirname(fileURLToPath(import.meta.url));
   const repoRoot = resolve(here, "..");
   const defaultsPath = defaultApiConfigPath();
+  const confirmedPlan = options.planFile ? loadConfirmedSetupPlan(options.planFile) : undefined;
   const prompt = createInterface({ input: stdin, output: stdout });
   const ask = async (label: string, defaultValue = ""): Promise<string> => {
     const suffix = defaultValue ? ` [${defaultValue}]` : "";
@@ -61,7 +63,7 @@ export async function runSetupMain(args: readonly string[]): Promise<void> {
       try { return isProductProfileReleased(loadProductProfile(id)); } catch { return false; }
     });
     if (!supportedProfiles.length) throw new Error("Kein produktiv freigegebenes SSE-Profil ist enthalten.");
-    const useSafeDefaults = options.defaults || await askYes(
+    const useSafeDefaults = Boolean(confirmedPlan) || options.defaults || await askYes(
       "Alles mit sicheren Standardwerten einrichten? Wenn Sie unsicher sind, antworten Sie Ja",
       true,
     );
@@ -79,7 +81,7 @@ export async function runSetupMain(args: readonly string[]): Promise<void> {
       : false;
     const existingConfiguration = reuseExisting ? existingCandidate : undefined;
     const defaultProfile = supportedProfiles.includes("2025") ? "2025" : supportedProfiles[0]!;
-    const profileId = existingConfiguration?.profileId ?? (useSafeDefaults ? defaultProfile : await ask(
+    const profileId = existingConfiguration?.profileId ?? confirmedPlan?.profileId ?? (useSafeDefaults ? defaultProfile : await ask(
       `Steuerjahr/Produktprofil (${supportedProfiles.join(", ")})`,
       defaultProfile,
     ));
@@ -94,7 +96,7 @@ export async function runSetupMain(args: readonly string[]): Promise<void> {
       );
     }
     const sseExecutable = validateSseExecutable(
-      existingConfiguration?.sseExecutable ?? (useSafeDefaults
+      existingConfiguration?.sseExecutable ?? confirmedPlan?.sseExecutable ?? (useSafeDefaults
         ? detected[0]!
         : await ask(
           `Pfad zu ${profile.executable.name} (${profile.executable.installationFolderName})`,
@@ -102,7 +104,7 @@ export async function runSetupMain(args: readonly string[]): Promise<void> {
         )),
       profileId,
     );
-    const caseDirInput = existingConfiguration?.caseDir ?? (useSafeDefaults
+    const caseDirInput = existingConfiguration?.caseDir ?? confirmedPlan?.caseDir ?? (useSafeDefaults
       ? ""
       : await ask("Optionaler Fallordner (leer lassen erlaubt)"));
     const configPath = existingConfiguration?.configPath ?? resolve(
@@ -125,10 +127,10 @@ export async function runSetupMain(args: readonly string[]): Promise<void> {
     const storedPreferences = existingConfiguration
       ? loadStoredSetupPreferences(workspaceDir)
       : undefined;
-    const mode = storedPreferences?.mode ?? (useSafeDefaults
+    const mode = confirmedPlan ? "read-only-check" : storedPreferences?.mode ?? (useSafeDefaults
       ? "read-only-check"
       : await ask("Ziel: setup-only, read-only-check oder controlled-edit", "read-only-check") as SetupMode);
-    const sourceFolders = storedPreferences?.sourceFolders ?? (useSafeDefaults
+    const sourceFolders = confirmedPlan?.sourceFolders ?? storedPreferences?.sourceFolders ?? (useSafeDefaults
       ? []
       : splitList(await ask("Optionale lokale Quellordner, durch Semikolon getrennt (leer erlaubt)"))
         .map((path) => resolve(path)));
@@ -145,14 +147,14 @@ export async function runSetupMain(args: readonly string[]): Promise<void> {
       );
       connectors.push({ name, access: approved ? "approved" : "not-approved" });
     }
-    const documentCollection = storedPreferences?.documentCollection ?? ((useSafeDefaults || await askYes(
+    const documentCollection = confirmedPlan ? "reference-only" : storedPreferences?.documentCollection ?? ((useSafeDefaults || await askYes(
       "Duerfen bestaetigte Dateien spaeter als Kopien unter documents gesammelt werden? Wenn Sie unsicher sind, antworten Sie Ja",
       true,
     )) ? "copy-after-confirmation" : "reference-only");
-    const transport = storedPreferences?.transport ?? (useSafeDefaults
+    const transport = confirmedPlan ? "api" : storedPreferences?.transport ?? (useSafeDefaults
       ? "api"
       : await ask("Direkte API oder API plus MCP?", "api") as SetupTransport);
-    const trackingFormat = storedPreferences?.tracking?.format ?? (
+    const trackingFormat = confirmedPlan ? "markdown" : storedPreferences?.tracking?.format ?? (
       useSafeDefaults ? "markdown" : await ask("Tracking als markdown oder vorhandenes xlsx? Die lokale API bearbeitet xlsx nicht.", "markdown")
     );
     const trackingPath = storedPreferences?.tracking?.path ?? (trackingFormat === "xlsx"
@@ -161,7 +163,7 @@ export async function runSetupMain(args: readonly string[]): Promise<void> {
     const additionalPriorities = storedPreferences?.priorities ?? (useSafeDefaults
       ? []
       : splitList(await ask("Optionale weitere Prioritaeten, durch Semikolon getrennt (leer erlaubt)")));
-    const initialReadOnlyCheck = storedPreferences?.initialReadOnlyCheck ?? (useSafeDefaults || await askYes(
+    const initialReadOnlyCheck = confirmedPlan ? true : storedPreferences?.initialReadOnlyCheck ?? (useSafeDefaults || await askYes(
       "Nach erfolgreichem Setup eine erste Read-only-Pruefung vorbereiten? Wenn Sie unsicher sind, antworten Sie Ja",
       true,
     ));
@@ -194,8 +196,31 @@ export async function runSetupMain(args: readonly string[]): Promise<void> {
         ...(additionalPriorities.length ? { priorities: additionalPriorities } : {}),
       },
     };
+    if (confirmedPlan && existingConfiguration) {
+      const samePath = (left: string | undefined, right: string): boolean =>
+        Boolean(left) && resolve(left!).toLocaleLowerCase("de-DE") === resolve(right).toLocaleLowerCase("de-DE");
+      const storedSources = storedPreferences?.sourceFolders ?? [];
+      const sameSources = storedPreferences &&
+        storedSources.length === confirmedPlan.sourceFolders.length &&
+        storedSources.every((path, index) => samePath(path, confirmedPlan.sourceFolders[index]!));
+      if (
+        existingConfiguration.profileId !== confirmedPlan.profileId ||
+        !samePath(existingConfiguration.caseDir, confirmedPlan.caseDir) ||
+        (confirmedPlan.sseExecutable !== undefined &&
+          !samePath(existingConfiguration.sseExecutable, confirmedPlan.sseExecutable)) ||
+        (storedPreferences && (!sameSources || storedPreferences.mode !== "read-only-check" ||
+          storedPreferences.transport !== "api" || storedPreferences.documentCollection !== "reference-only" ||
+          storedPreferences.initialReadOnlyCheck !== true || storedPreferences.tracking?.format !== "markdown" ||
+          (storedPreferences.connectors?.length ?? 0) !== 0))
+      ) {
+        throw new Error(
+          "Bestaetigter Setup-Plan weicht von der vorhandenen Konfiguration ab. " +
+          "Bestehende API nicht automatisch umkonfigurieren; zuerst bewusst sichern oder interaktiv neu einrichten.",
+        );
+      }
+    }
     const existingTargets = setupArtifactTargetPaths(values).filter(existsSync);
-    const overwrite = existingTargets.length && options.defaults
+    const overwrite = existingTargets.length && (options.defaults || Boolean(confirmedPlan))
       ? true
       : existingTargets.length
       ? /^(j|ja|y|yes)$/i.test(await ask(
@@ -216,7 +241,7 @@ export async function runSetupMain(args: readonly string[]): Promise<void> {
     stdout.write("Token wurde nur in den lokalen Konfigurationsdateien gespeichert.\n");
     let apiVerification: SetupApiVerification | undefined;
     const startApiNow = options.startApi && (
-      options.defaults || await askYes("Lokale API jetzt fensterlos starten und pruefen?", true)
+      options.defaults || Boolean(confirmedPlan) || await askYes("Lokale API jetzt fensterlos starten und pruefen?", true)
     );
     if (startApiNow) {
       const writtenConfig = loadApiServerConfig(environmentForExplicitApiConfig(written.apiConfigPath));

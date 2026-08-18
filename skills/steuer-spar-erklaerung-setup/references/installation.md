@@ -35,12 +35,41 @@ Verifiziere mindestens:
 - `dist/api-main.js`, `dist/index.js` und `dist/setup-main.js`
 - `profiles/<id>/profile.json` und dessen Page-Objects
 - `powershell/sse-worker.ps1` samt nativen Hilfsdateien
+- `powershell/render-pdf.ps1` und `powershell/ocr-image.ps1`
 - `sse-setup.cmd`
 
 Nutze die neben dem ZIP im selben Release veröffentlichte `.sha256`-Datei.
 Prüfe, dass Sidecar, ZIP, Release-Tag und `portable-manifest.json` zueinander
-gehören. Prüfe danach die Dateihashes des internen Manifests, falls das Release
-dafür eine Prüfroutine bereitstellt.
+gehören. Entpacke erst nach erfolgreicher äußerer Hashprüfung in einen neuen,
+leeren Zielordner. Bevorzuge das in Windows enthaltene
+`$env:SystemRoot\System32\tar.exe -xf <zip> -C <ziel>`; es verarbeitet das
+Portable-Release mit seinen vielen kleinen Dateien wesentlich schneller als
+`Expand-Archive`. Warte den Prozessabschluss ab und verlange Exitcode 0. Ein
+Timeout oder ein bereits teilweise gefülltes Ziel ist kein Erfolg: nicht
+fortsetzen und nicht in denselben Ordner nachentpacken. Prüfe danach die
+Dateihashes des internen Manifests, falls das Release
+dafür eine Prüfroutine bereitstellt. Parse `portable-manifest.json` dabei als
+JSON und vergleiche gezielt nur die benötigten Pfade. Drucke weder das
+vollständige Manifest noch dessen gesamte Dateiliste in den Agentenkontext und
+verwende keine breite Quelltextsuche als Ersatz für die veröffentlichte
+Selbstbeschreibung.
+
+Der PDF-Helper muss als eigener
+`powershell.exe -NoProfile -NonInteractive -File powershell/render-pdf.ps1`
+Prozess laufen. Erfolg verlangt Exitcode 0, `ok=true` im kompakten JSON und
+lesbare create-only PNG-Dateien. Das schützt auch Windows-Builds, deren WinRT-
+PDF-Runtime beim normalen Prozessabbau sonst einen fremden Restcode setzt.
+
+## Bestätigten First-run-Plan anwenden
+
+Nach den zwei Nutzerbestätigungen und `OK Standard` erzeugt der Hauptskill eine
+kurze private JSON-Datei mit `schemaVersion: 1`, `profileId`, dem absoluten
+`caseDir`, den absoluten `sourceFolders` und optional einem eindeutig erkannten
+`sseExecutable`. Starte den Wizard mit `--plan-file <absoluter-planpfad>`.
+Andere Felder, relative oder fehlende Ordner und widersprüchliche bestehende
+Konfigurationen werden fail-closed abgelehnt. Insbesondere kann der Plan weder
+Token noch Schreibmodus, Connectorzugriff, MCP-Merge, Autostart oder ELSTER-
+Autorität setzen. Verwende dafür keine simulierte Prompt-Eingabe.
 
 ## Setup-Ausgabe
 

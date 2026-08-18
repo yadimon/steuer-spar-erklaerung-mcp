@@ -7,6 +7,7 @@ import { performance } from "node:perf_hooks";
 import {
   assertWindowsPowerShell,
   buildSetupArtifacts,
+  loadConfirmedSetupPlan,
   loadStoredSetupPreferences,
   MAX_SETUP_FILE_BYTES,
   parseSetupArguments,
@@ -28,9 +29,18 @@ try {
     defaults: true,
     startApi: false,
   });
+  assert.deepEqual(parseSetupArguments(["--plan-file", "C:\\private\\setup-plan.json", "--no-start"]), {
+    help: false,
+    defaults: false,
+    startApi: false,
+    planFile: "C:\\private\\setup-plan.json",
+  });
   assert.deepEqual(parseSetupArguments(["--help"]), { help: true, defaults: false, startApi: false });
   assert.deepEqual(parseSetupArguments(["-h"]), { help: true, defaults: false, startApi: false });
   assert.throws(() => parseSetupArguments(["--unbekannt"]), /Ungueltige Setup-Argumente/);
+  assert.throws(() => parseSetupArguments(["--plan-file"]), /Wert.*--plan-file/);
+  assert.throws(() => parseSetupArguments(["--plan-file", "a.json", "--plan-file", "b.json"]), /nur einmal/);
+  assert.throws(() => parseSetupArguments(["--defaults", "--plan-file", "a.json"]), /nicht zusammen/);
   const helpStartedAt = performance.now();
   const help = spawnSync(process.execPath, ["dist/setup-main.js", "--help"], {
     encoding: "utf8",
@@ -93,6 +103,82 @@ try {
   const defaultsConfigAfter = JSON.parse(readFileSync(defaultsConfigPath, "utf8"));
   assert.equal(defaultsConfigAfter.token, defaultsConfigBefore.token, "Default-Reparatur darf das Token nicht rotieren.");
   assert.equal(readFileSync(defaultsSettingsPath, "utf8"), "# Eigene Default-Einstellung\n");
+
+  const planRoot = join(temporary, "plan-e2e");
+  const planCaseDir = join(planRoot, "Steuerfaelle", "2025");
+  const planSourceDir = join(planRoot, "Belege", "2025");
+  mkdirSync(planCaseDir, { recursive: true });
+  mkdirSync(planSourceDir, { recursive: true });
+  const planPath = join(planRoot, "confirmed-setup-plan.json");
+  writeFileSync(planPath, JSON.stringify({
+    schemaVersion: 1,
+    profileId: "2025",
+    caseDir: planCaseDir,
+    sourceFolders: [planSourceDir],
+  }), "utf8");
+  assert.deepEqual(loadConfirmedSetupPlan(planPath), {
+    schemaVersion: 1,
+    profileId: "2025",
+    caseDir: planCaseDir,
+    sourceFolders: [planSourceDir],
+  });
+  const planEnvironment = {
+    ...defaultsEnvironment,
+    LOCALAPPDATA: join(planRoot, "LocalAppData"),
+  };
+  const plannedSetup = spawnSync(
+    process.execPath,
+    ["dist/setup-main.js", "--plan-file", planPath, "--no-start"],
+    { encoding: "utf8", env: planEnvironment, windowsHide: true, timeout: 15_000 },
+  );
+  assert.equal(plannedSetup.status, 0, plannedSetup.stderr);
+  assert(!plannedSetup.stdout.includes("(ja/nein)"), "Bestaetigter Plan darf keine Eingabepromenade starten.");
+  const planConfigPath = join(planEnvironment.LOCALAPPDATA, "SteuerSparErklaerungApi", "config.json");
+  const planConfig = JSON.parse(readFileSync(planConfigPath, "utf8"));
+  const planDecisions = JSON.parse(readFileSync(join(planConfig.workspaceDir, "setup-decisions.json"), "utf8"));
+  assert.equal(planConfig.profileId, "2025");
+  assert.equal(planConfig.caseDir, planCaseDir);
+  assert.deepEqual(planDecisions.sourceFolders, [planSourceDir]);
+  assert.equal(planDecisions.requestedMode, "read-only-check");
+  assert.equal(planDecisions.transport, "api");
+  assert.equal(planDecisions.documentCollection, "reference-only");
+  assert.equal(planDecisions.useSafeDefaults, true);
+  assert.throws(() => loadConfirmedSetupPlan("relative-plan.json"), /--plan-file muss ein absoluter Pfad/);
+  const changedPlanSource = join(planRoot, "Belege", "andere");
+  mkdirSync(changedPlanSource, { recursive: true });
+  const changedPlanPath = join(planRoot, "changed-setup-plan.json");
+  writeFileSync(changedPlanPath, JSON.stringify({
+    schemaVersion: 1,
+    profileId: "2025",
+    caseDir: planCaseDir,
+    sourceFolders: [changedPlanSource],
+  }), "utf8");
+  const mismatchedPlan = spawnSync(
+    process.execPath,
+    ["dist/setup-main.js", "--plan-file", changedPlanPath, "--no-start"],
+    { encoding: "utf8", env: planEnvironment, windowsHide: true, timeout: 15_000 },
+  );
+  assert.notEqual(mismatchedPlan.status, 0);
+  assert.match(mismatchedPlan.stderr, /weicht von der vorhandenen Konfiguration ab/);
+  assert.deepEqual(JSON.parse(readFileSync(planConfigPath, "utf8")), planConfig);
+
+  const invalidPlanPath = join(planRoot, "invalid-plan.json");
+  writeFileSync(invalidPlanPath, JSON.stringify({
+    schemaVersion: 1,
+    profileId: "2025",
+    caseDir: planCaseDir,
+    sourceFolders: [],
+    token: "must-not-be-accepted",
+  }), "utf8");
+  assert.throws(() => loadConfirmedSetupPlan(invalidPlanPath), /Unbekanntes Feld 'token'/);
+  const missingSourcePlanPath = join(planRoot, "missing-source-plan.json");
+  writeFileSync(missingSourcePlanPath, JSON.stringify({
+    schemaVersion: 1,
+    profileId: "2025",
+    caseDir: planCaseDir,
+    sourceFolders: [join(planRoot, "fehlt")],
+  }), "utf8");
+  assert.throws(() => loadConfirmedSetupPlan(missingSourcePlanPath), /Quellordner.*kein Ordner/);
 
   assertWindowsPowerShell();
   const powershellRuntime = probeWindowsPowerShell();
