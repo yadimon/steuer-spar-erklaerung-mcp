@@ -24,59 +24,58 @@ PowerShell 5.1.
    über einen Setup-Opt-in freigeschaltet.
 4. Die kanonische öffentliche Releasequelle ist
    `https://github.com/yadimon/steuer-spar-erklaerung-mcp/releases`. Verwende
-   ausschließlich ein dort veröffentlichtes Asset namens
-   `steuer-spar-erklaerung.zip` zusammen mit der gleichnamigen `.sha256`-Datei.
+   das aktuellste dort veröffentlichte, nicht als Draft markierte Release oder
+   Prerelease, das beide exakten Assets `steuer-spar-erklaerung.zip` und
+   `steuer-spar-erklaerung.zip.sha256` enthält. Ermittle es über die direkte
+   Release-Liste/API, nicht aus Suchtreffern oder gecachtem Seitentext.
    GitHub-Quellarchive (`Source code`) sind kein portables Release. Eine andere
    Quelle nur verwenden, wenn der Nutzer sie ausdrücklich nennt; nie eine URL
-   erfinden.
+   oder Versionsnummer erfinden.
 5. Fehlt ein fertiges portables Release, stoppe mit dieser konkreten Angabe.
    Fordere einen Laien nicht zum lokalen npm-Build auf.
 
-## Fragen mit Standardantwort
+## Einfacher Standardlauf
 
-Stelle eine Frage pro Nachricht und überspringe bereits sicher erkannte Werte.
-Erkläre jeweils: „Wenn Sie unsicher sind, antworten Sie …“
+Wird Setup als Teil einer Steuerprüfung aufgerufen, lies zuerst den bereits
+bestätigten First-Run-Plan des Hauptskills. Frage Steuerfall und Belegordner
+nicht erneut. Der Hauptskill muss nach erfolgreichem Setup automatisch mit der
+Prüfung fortfahren.
 
-1. Darf das geprüfte portable Release heruntergeladen und in einen genannten
-   lokalen Ordner entpackt werden? Standard: **Ja**.
-2. Wo liegt `SSE.exe`? Standard: automatisch erkannte Installation des aktiven
-   Profils; bei mehreren Treffern den Nutzer wählen lassen.
-3. Soll eine vorhandene Konfiguration mit ihrem Arbeitsbereich und Token
-   wiederverwendet werden? Standard: **Ja**. Andernfalls gilt der vom Setup
-   vorgeschlagene LocalAppData-Pfad außerhalb jedes Git-Repositorys.
-4. Ist das Ziel nur Setup, eine read-only Prüfung oder kontrollierte
-   Bearbeitung? Standard: **read-only Prüfung**.
-5. Wo liegen Belege und andere Quellen? Standard: noch keinen externen Ordner
-   freigeben und die private `documents`-Ablage vorbereiten. Bereits sicher
-   bekannte lokale Quellordner einzeln erfassen.
-6. Darf ein konkret benannter, bereits verbundener Connector gelesen werden?
-   Standard: **Nein**. Fehlende Connectoren nicht selbst installieren.
-7. Dürfen später bestätigte Dateien als Kopien gesammelt werden? Standard:
-   **Ja**; Originale nie verschieben oder verändern.
-8. Soll das Belegtracking als neue Markdown-Datei geführt oder eine vorhandene
-   Excel-Datei referenziert werden? Standard: **Markdown**. Eine Excel-Datei
-   nur wählen, wenn sie existiert und der Agent sie zuverlässig mit einer
-   separaten Tabellen-Fähigkeit lesen kann; API und MCP bearbeiten XLSX nicht.
-9. Soll nur die direkte API eingerichtet werden oder zusätzlich MCP?
-   Standard: **direkte API; MCP nur bei Wunsch oder bereits passendem Client**.
-10. Darf bei MCP-Wunsch genau der neue Servereintrag in eine vorhandene
-   Agenten-Konfiguration gemergt werden? Standard: **Nein, bis Dateipfad und
-   Diff gezeigt wurden**.
-11. Soll ein Start bei Anmeldung eingerichtet werden? Standard: **Nein**.
+Ohne bestätigten First-Run-Plan zeige vor Änderungen einen kurzen Standardplan:
 
-„Alles mit Standardwerten“ beantwortet keine Zustimmung zu Download,
-Konfigurationsänderung oder Autostart. Diese Zustimmungen weiterhin einzeln
-einholen.
+- funktionierende Konfiguration wiederverwenden, sonst das aktuellste passende
+  veröffentlichte Portable-Release samt Prüfsumme installieren;
+- `SSE.exe` automatisch erkennen; nur bei keinem oder mehreren Treffern fragen;
+- LocalAppData-Arbeitsbereich, read-only Prüfung, Markdown-Tracking und direkte
+  API verwenden;
+- kein Connector, keine Agenten-Konfigurationsänderung und kein Autostart.
+
+Der Nutzer kann diesen konkret gezeigten Plan mit `OK`, `OK Standard` oder
+`OK Default` gemeinsam bestätigen. Das autorisiert genau den genannten
+Download und die lokalen Standard-Setup-Dateien, aber keine
+Steuerdatenänderung, keinen Connector, keinen MCP-Konfigurations-Merge, keinen
+Autostart und keine ELSTER-Aktion.
+Frage nur bei einer echten Abweichung weiter, etwa mehreren SSE-Installationen,
+einer widersprüchlichen vorhandenen Konfiguration oder einem zu ersetzenden
+Ziel ohne verifizierbares Backup.
+
+MCP bleibt optional. Erkläre bei Nachfrage kurz, dass die lokale API die
+SteuerSparErklärung bedient und MCP einen kompatiblen Agenten damit verbindet.
+Richte MCP nur auf ausdrücklichen Wunsch und nach gezeigtem Datei-Diff ein.
 
 ## Einrichten
 
 Lies vor der Ausführung
 [references/installation.md](references/installation.md).
 
-1. Prüfe Release-Hash und entpacke erst nach Zustimmung.
-2. Starte den mitgelieferten Setup-Wizard. Nach den getrennt bestätigten
-   Download-/Installationsschritten darf `--defaults` die technischen
-   Standardwerte ohne weitere Eingaben verwenden; `--no-start` nur auf Wunsch.
+1. Prüfe Release-Hash, Tag und Manifest und entpacke erst nach bestätigtem
+   Standardplan oder einer gleichwertigen ausdrücklichen Zustimmung.
+2. Starte den mitgelieferten Setup-Wizard. Sind bestätigter Fall- oder
+   Belegordner noch nicht in einer wiederverwendeten Konfiguration gespeichert,
+   führe ihn interaktiv aus und beantworte seine technischen Rückfragen selbst
+   aus dem bestätigten Standardplan; frage den Nutzer nicht erneut. Verwende
+   `--defaults` nur, wenn diese Pfade bereits gespeichert sind oder ausdrücklich
+   kein Fall-/Quellordner gebunden werden soll. `--no-start` nur auf Wunsch.
    Verwende keinen globalen `node`- oder `npm`-Befehl und führe keinen Build auf
    dem Nutzer-PC aus.
 3. Lass ein starkes Token und lokale Dateien außerhalb des Repositorys

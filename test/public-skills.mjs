@@ -44,6 +44,16 @@ assert(main.includes("sse_ustva_read") && main.includes("sse_ustva_open_section"
 assert(main.includes("setup-decisions.json") && main.includes("settings.md"));
 assert(main.includes("Tracking") && main.includes(".xlsx") && main.includes("Excel niemals still"));
 assert(main.includes("API-/HTTP-Transporttimeout") && main.includes("nicht als Unerreichbarkeit behandeln"));
+assert(main.includes("references/first-run.md") && main.includes("OK Standard"));
+const firstRun = readFileSync(
+  join(skillsRoot, "steuer-spar-erklaerung", "references", "first-run.md"),
+  "utf8",
+);
+assert(firstRun.includes("der richtige Steuerfall") && firstRun.includes("vollständige Liste der Belegordner"));
+assert(firstRun.includes("höchstens 100") && firstRun.includes("Durchsuche niemals das gesamte Laufwerk"));
+assert(firstRun.includes("aktuellste passende veröffentlichte Portable-Release"));
+assert(firstRun.includes("`OK`, `OK Standard` oder `OK Default`"));
+assert(firstRun.includes("Setup allein erfüllt") && firstRun.includes("capabilities"));
 const setup = readFileSync(join(skillsRoot, "steuer-spar-erklaerung-setup", "SKILL.md"), "utf8");
 assert(setup.includes("runtime/node.exe dist/api-cli.js health") && setup.includes("discovery"));
 assert(setup.includes('command = "node"') && setup.includes("schwarze `cmd.exe`-Fenster"));
@@ -51,7 +61,15 @@ assert(setup.includes("Windows x64") && setup.includes("Windows PowerShell 5.1")
 assert(setup.includes("--defaults") && setup.includes("--no-start"));
 assert(setup.includes("settings.md") && setup.includes("tracking.md") && setup.includes(".xlsx"));
 assert(setup.includes("Connector") && setup.includes("read-only Prüfung"));
+assert(setup.includes("aktuellste dort veröffentlichte") && setup.includes("OK Standard"));
+assert(setup.includes("`--defaults` nur") && setup.includes("frage den Nutzer nicht erneut"));
 assert(!setup.includes("Windows 10/11"), "Setup darf kompatible Windows-Versionen nicht nach Label sperren.");
+for (const source of [main, firstRun, setup]) {
+  assert(
+    !/v\d+\.\d+\.\d+-beta\.\d+/iu.test(source),
+    "Runtime-Skills dürfen keine konkrete Beta-Version als Installationsziel festschreiben.",
+  );
+}
 
 const readme = readFileSync(join(root, "README.md"), "utf8");
 assert(readme.includes("## Was die Beta kann") && readme.includes("## Voraussetzungen"));

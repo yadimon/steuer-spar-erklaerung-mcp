@@ -45,14 +45,21 @@ Gib einem Agenten mit GitHub- und lokalem Dateizugriff diesen Auftrag:
 ```text
 Öffne https://github.com/yadimon/steuer-spar-erklaerung-mcp und lies
 skills/steuer-spar-erklaerung/SKILL.md. Folge dem Skill auf Deutsch.
-Richte die portable lokale API mit sicheren Standardwerten ein und prüfe
-meinen Steuerfall zunächst nur lesend. Ändere nichts ohne meine Freigabe.
+Prüfe meine Steuererklärung 2025 zunächst nur lesend. Finde zuerst den
+wahrscheinlichen Steuerfall und die Belegordner und lass sie mich bestätigen.
+Richte danach bei Bedarf alles mit sicheren Standardwerten ein.
 ```
 
-Der Agent führt durch Download, Prüfsumme und Einrichtung. Das portable Release
-bringt seine eigene Laufzeit mit; Node.js/npm, Python und PowerShell 7 müssen
-nicht global installiert werden. Wenn der Agent keine Programme starten darf,
-kann das ZIP von der [Release-Seite](https://github.com/yadimon/steuer-spar-erklaerung-mcp/releases)
+Der Agent schlägt zuerst einen wahrscheinlichen Steuerfall oder wenige
+plausible Kandidaten und die passenden Belegordner vor. Nach diesen beiden
+Bestätigungen kann `OK`, `OK Standard` oder `OK Default` alle angezeigten
+sicheren technischen Defaults gemeinsam übernehmen. Danach führt der Agent
+durch das aktuellste passende veröffentlichte Portable-Release, Prüfsumme und
+Einrichtung und setzt die read-only Prüfung automatisch fort. Das portable
+Release bringt seine eigene Laufzeit mit; Node.js/npm, Python und PowerShell 7
+müssen nicht global installiert werden. Wenn der Agent keine Programme starten
+darf, kann das ZIP von der
+[Release-Seite](https://github.com/yadimon/steuer-spar-erklaerung-mcp/releases)
 manuell geladen und anschließend `sse-setup.cmd` gestartet werden.
 
 ### Mit `npx skills` (optional)

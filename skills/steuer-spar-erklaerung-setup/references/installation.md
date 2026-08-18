@@ -2,6 +2,13 @@
 
 ## Releaseinhalt
 
+Ermittle das aktuellste veröffentlichte, nicht als Draft markierte Release oder
+Prerelease über die direkte GitHub-Release-Liste des kanonischen Repositorys.
+Akzeptiere nur einen Eintrag, der beide exakten Assets
+`steuer-spar-erklaerung.zip` und `steuer-spar-erklaerung.zip.sha256` enthält.
+Verlasse dich weder auf Suchtreffer noch auf gecachten Seitentext und kodiere
+keine konkrete Beta- oder Versionsnummer in den Ablauf.
+
 Verifiziere mindestens:
 
 - `portable-manifest.json`
@@ -11,9 +18,10 @@ Verifiziere mindestens:
 - `powershell/sse-worker.ps1` samt nativen Hilfsdateien
 - `sse-setup.cmd`
 
-Nutze die neben dem ZIP veröffentlichte `.sha256`-Datei. Prüfe danach die
-Dateihashes des internen Manifests, falls das Release dafür eine Prüfroutine
-bereitstellt.
+Nutze die neben dem ZIP im selben Release veröffentlichte `.sha256`-Datei.
+Prüfe, dass Sidecar, ZIP, Release-Tag und `portable-manifest.json` zueinander
+gehören. Prüfe danach die Dateihashes des internen Manifests, falls das Release
+dafür eine Prüfroutine bereitstellt.
 
 ## Setup-Ausgabe
 
