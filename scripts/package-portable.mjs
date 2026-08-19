@@ -82,6 +82,7 @@ const requiredFiles = [
   "dist/api-main.js",
   "dist/api-cli.js",
   "dist/index.js",
+  "dist/api-mcp-bootstrap.js",
   "dist/setup-main.js",
   "dist/setup-main-arguments.js",
   "dist/setup.js",

@@ -81,10 +81,18 @@ keine installierte Versionsabweichung. Nach einem erlaubten Launch muss
 Die lokale HTTP-API auf Loopback ist der universelle Kern. Nur sie kennt
 `SSE.exe`, lokale Pfade, Arbeitsbereich, Falldateien und UI Automation.
 
-MCP ist ein optionaler dünner Wrapper. Er kennt nur API-URL und Token. Fehlt
+MCP ist ein optionaler dünner Wrapper. Sein Prozess kennt nur API-URL und
+Token; die Client-Konfiguration selbst bleibt tokenfrei und startet den lokalen
+Bootstrap. Fehlt
 MCP oder unterstützt der Agent kein MCP, verwende dieselben Operationen direkt
 über die API. Wechsel während einer möglicherweise begonnenen Schreiboperation
 nie still den Transport; bei unklarem Zustand stoppen.
+
+Lies oder parse `config.json` niemals, um das API-Token selbst zu extrahieren.
+Verwende für authentifizierte direkte Aufrufe ausschließlich die ausgelieferte
+CLI, die das Token intern lädt; baue keinen `curl`-, `Invoke-RestMethod`- oder
+eigenen HTTP-Befehl mit Bearer-Token. Nur `/healthz` darf ohne Token direkt
+geprüft werden.
 
 Für direkte API-Aufrufe bevorzuge die ausgelieferte
 `steuer-spar-erklaerung-call`-CLI beziehungsweise im portablen Ordner
@@ -164,8 +172,11 @@ vollständige Belegordner. Erst danach kann der Nutzer alle gezeigten sicheren
 technischen Defaults gemeinsam mit `OK Standard` bestätigen.
 
 Fehlt eine funktionierende Einrichtung, verwende anschließend
-`steuer-spar-erklaerung-setup`. Ist dieser Skill nicht installiert, führe
-dessen sichere Schritte inline aus. Kehre nach erfolgreichem Setup automatisch
+`steuer-spar-erklaerung-setup`. Ist dieser Skill nicht installiert, installiere
+beide öffentlichen Skills nach dessen kanonischer
+`references/installation.md`, statt die Einrichtung frei zu improvisieren.
+Verlange nach Setup ein grünes `steuer-spar-erklaerung-setup --check` und bei
+MCP zusätzlich Serverliste plus realen MCP-Health-Aufruf. Kehre danach automatisch
 zum ursprünglichen Prüfauftrag zurück; ein Auftrag wie „Prüfe meine
 Steuererklärung“ ist nicht schon durch die Einrichtung erfüllt. Bereits
 bestätigte Pfade und Entscheidungen nicht erneut erfragen.
@@ -221,6 +232,9 @@ Ersetze Excel niemals still.
    Navigation – auch bei einer reinen Prüfung – Hash berechnen, eine eindeutig
    neu benannte Prüffallkopie unter `cases` erzeugen, beide Hashes vergleichen
    und vor dem Öffnen Bytegleichheit bestätigen. Öffne den Originalfall nicht.
+   Starte eine Einkommensteuerdatei `.ESt<jahr>` immer explizit mit
+   `mode="normal"`; verlasse dich dafür nicht auf die `einur`-Vorgabe für
+   Gewinnermittlungsdateien.
    Die Prüffallkopie bleibt bis zu einem später ausdrücklich beauftragten,
    inventargebundenen Archiv- oder Bereinigungsschritt bestehen; lösche sie
    nicht mit Roh-Dateibefehlen.
@@ -317,6 +331,9 @@ Umlaute erhalten und keine Ersatzfragezeichen entstanden sind. Ist ein
 create-only Bericht inhaltlich kodierungsbeschädigt, überschreibe ihn nicht:
 markiere ihn in einem neuen korrekt kodierten Bericht ausdrücklich als
 verworfen.
+Verwende entweder eine vollständige Referenz wie `results:bericht.md` oder
+`area="results"` mit `ref="bericht.md"`; kombiniere `area="results"` nie mit
+`ref="results/bericht.md"`, weil das einen doppelten Unterordner erzeugt.
 
 Beende mit dem zurückgelesenen relativen Reportpfad und dem ausdrücklichen
 Hinweis, dass keine ELSTER-Übermittlung durchgeführt wurde.

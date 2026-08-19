@@ -35,7 +35,9 @@ for (const name of discovered) {
 const main = readFileSync(join(skillsRoot, "steuer-spar-erklaerung", "SKILL.md"), "utf8");
 assert(main.includes("kein globales Node.js/npm") && main.includes("kein Python") && main.includes("PowerShell 7"));
 assert(main.includes("MCP ist ein optionaler dünner Wrapper") && main.includes("API-Selbstbeschreibung"));
+assert(main.includes("Client-Konfiguration selbst bleibt tokenfrei") && main.includes("setup --check"));
 assert(main.includes("steuer-spar-erklaerung-call") && main.includes("--args-file -") && main.includes("Prozessliste"));
+assert(main.includes("`config.json` niemals") && main.includes("keinen `curl`-") && main.includes("Nur `/healthz`"));
 assert(main.includes("describe <operation>") && main.includes("discovery"));
 assert(main.includes("sse_capabilities") && main.includes("references/ui-fallback.md"));
 assert(main.includes("niemals über ELSTER") && main.includes("verifizierten Arbeitskopie"));
@@ -81,9 +83,11 @@ assert(ustva.includes("sse_ustva_read") && ustva.includes("sse_ustva_open_sectio
 assert(ustva.includes("*.GewErfass2026") && ustva.includes("ELSTER"));
 const setup = readFileSync(join(skillsRoot, "steuer-spar-erklaerung-setup", "SKILL.md"), "utf8");
 assert(setup.includes("runtime/node.exe dist/api-cli.js health") && setup.includes("discovery"));
+assert(setup.includes("`config.json` niemals") && setup.includes("keinen `curl`-") && setup.includes("Nur `/healthz`"));
 assert(setup.includes('command = "node"') && setup.includes("schwarze `cmd.exe`-Fenster"));
 assert(setup.includes("Windows x64") && setup.includes("Windows PowerShell 5.1"));
 assert(setup.includes("--defaults") && setup.includes("--no-start"));
+assert(setup.includes("--with-mcp") && setup.includes("setup --check"));
 assert(setup.includes("--plan-file") && setup.includes("automatisiere `stdin` dafür nicht"));
 assert(setup.includes("vollständige Dateiliste") && setup.includes("Manifest aus"));
 assert(setup.includes("settings.md") && setup.includes("tracking.md") && setup.includes(".xlsx"));
@@ -93,6 +97,7 @@ assert(setup.includes("npm install --global") && setup.includes("@yadimon/steuer
 assert(setup.includes("@yadimon/steuer-spar-erklaerung-mcp@beta") && setup.includes("flüchtigen `npx`-Cache"));
 assert(setup.includes("`--defaults` nur") && setup.includes("frage den Nutzer nicht erneut"));
 assert(setup.includes("abweichenden Konfigurationsfingerprint") && setup.includes("neben einer alten API"));
+assert(setup.includes("öffnet nie selbst einen Steuerfall") && setup.includes("hashverifizierte Prüffallkopie"));
 assert(setup.includes("Windows-`tar.exe`") && setup.includes("Teilordner darf nicht gestartet werden"));
 const installation = readFileSync(
   join(skillsRoot, "steuer-spar-erklaerung-setup", "references", "installation.md"),
@@ -100,6 +105,13 @@ const installation = readFileSync(
 );
 assert(installation.includes("System32\\tar.exe") && installation.includes("nicht in denselben Ordner nachentpacken"));
 assert(installation.includes("WinRT") && installation.includes("Exitcode 0"));
+assert(installation.includes("Installation für Menschen und AI-Agenten"));
+assert(installation.includes("Codex Cloud") && installation.includes("OpenCode"));
+assert(installation.includes("Node.js 22+ mit npm") && installation.includes("Portable"));
+assert(installation.includes("--agent <codex|claude-code|opencode>"));
+assert(installation.includes("steuer-spar-erklaerung-setup --check"));
+assert(installation.includes("enthält **kein Token**") && installation.includes("containsToken: false"));
+assert(installation.includes("## Zwei kopierbare Prompts") && installation.includes("$steuer-spar-erklaerung"));
 assert(!setup.includes("Windows 10/11"), "Setup darf kompatible Windows-Versionen nicht nach Label sperren.");
 for (const source of [main, firstRun, setup]) {
   assert(
@@ -115,7 +127,7 @@ assert.match(
   /--skill steuer-spar-erklaerung --skill steuer-spar-erklaerung-setup/gu,
   "README installiert nicht beide öffentlichen Skills gemeinsam.",
 );
-for (const agent of ["codex", "claude-code"]) {
+for (const agent of ["codex", "claude-code", "opencode"]) {
   assert(
     readme.includes(`--agent ${agent} --global --copy --yes`),
     `README enthält keinen nichtinteraktiven globalen Windows-Installationsweg für ${agent}.`,
@@ -127,5 +139,7 @@ assert.match(readme, /npx skills.*Node\.js 22\+ mit npm/su, "README verschweigt 
 assert(readme.includes("npm install --global @yadimon/steuer-spar-erklaerung-api@beta"));
 assert(readme.includes("npm install --global @yadimon/steuer-spar-erklaerung-mcp@beta"));
 assert(readme.toLowerCase().includes("installiere oder aktualisiere") && readme.includes("gecachte Webansicht"));
+assert(readme.includes("## Schnellstart mit zwei Prompts") && readme.includes("steuer-spar-erklaerung-setup --check"));
+assert(readme.includes("Nicht in einer Cloud-Umgebung ausführen") && readme.includes("$steuer-spar-erklaerung"));
 
 process.stdout.write("Public Skills: 2 flache npx-kompatible, deutsche und portable Skill-Pakete bestanden\n");

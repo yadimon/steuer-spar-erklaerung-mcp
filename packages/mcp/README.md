@@ -27,9 +27,11 @@ steuer-spar-erklaerung-mcp --help
 ```
 
 Der öffentliche Setup-Skill übernimmt Installation, Versionsabgleich und die
-Client-Konfiguration. Das erzeugte MCP-Serverobjekt enthält nur den absoluten
-Node-/MCP-Einstieg sowie `SSE_API_URL` und `SSE_API_TOKEN`; Steuerfall-, Beleg-
-und Programmpfade verbleiben im API-Prozess auf dem Steuer-PC.
+Client-Konfiguration. Das erzeugte MCP-Serverobjekt enthält kein Token. Es
+startet eine absolute Node-Datei und einen lokalen API-Bootstrap, der
+`SSE_API_URL` und `SSE_API_TOKEN` erst im Kindprozess aus der geschützten
+API-Konfiguration setzt; Steuerfall-, Beleg- und Programmpfade verbleiben im
+API-Prozess auf dem Steuer-PC.
 
 ## Vertrag
 
@@ -43,6 +45,8 @@ und Programmpfade verbleiben im API-Prozess auf dem Steuer-PC.
 ## Sicherheitsgrenzen
 
 - MCP erhält keine Steuerfall-, Dokument- oder Programmpfade;
+- `SSE_API_TOKEN` gehört weder in Client-Diffs noch in Prozessargumente oder
+  Agentenprotokolle;
 - API und Token dürfen nicht über Netzwerk-Proxys oder öffentliche Gateways
   exponiert werden;
 - Originalfälle werden nicht überschrieben;

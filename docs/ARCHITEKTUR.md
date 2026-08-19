@@ -417,6 +417,10 @@ Weg ohne globale Entwicklerwerkzeuge.
 Der npm-Weg ist nicht der einzige Installationsweg und baut keinen Quellcode
 auf dem Nutzer-PC. Ein Setup aus dem flüchtigen `_npx`-Cache wird verweigert,
 weil API-Starter und MCP-Konfiguration dauerhafte absolute Pfade benötigen.
+Die MCP-Client-Konfiguration enthält kein Token. Sie startet einen kleinen
+Bootstrap aus dem API-/Portable-Paket; nur dieser liest die lokale
+API-Konfiguration und übergibt URL und Token im Prozessumfeld an den
+PC-blinden MCP-Kindprozess.
 
 ### Betriebsarten
 

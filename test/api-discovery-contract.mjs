@@ -63,6 +63,14 @@ assert.equal(SSE_API_DISCOVERY.argumentSchemas.goto.properties.maxSteps.maximum,
 assert.equal(SSE_API_DISCOVERY.argumentSchemas.click.properties.waitMs.maximum, 10_000);
 assert.equal(SSE_API_DISCOVERY.argumentSchemas.close.properties.pid.maximum, 2_147_483_647);
 assert.equal(SSE_API_DISCOVERY.argumentSchemas.tracked_set_value.anyOf.length, 2);
+assert.match(
+  SSE_API_DISCOVERY.argumentSchemas.launch.properties.mode.description,
+  /normal=Einkommensteuer.*\.ESt-Datei immer normal/u,
+);
+assert.match(
+  SSE_API_DISCOVERY.argumentSchemas.workspace_file_write_text.properties.ref.description,
+  /area='results'.*nicht 'results\/bericht\.md'/u,
+);
 assert.equal(SSE_API_DISCOVERY.operationTraits.health.readOnlyHint, true);
 assert.equal(SSE_API_DISCOVERY.operationTraits.workspace_file_write_text.destructiveHint, false);
 assert.equal(SSE_API_DISCOVERY.operationTraits.collect.destructiveHint, false);

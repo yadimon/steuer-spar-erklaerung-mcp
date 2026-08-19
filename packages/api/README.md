@@ -39,6 +39,7 @@ verwendet werden.
 npm install --global @yadimon/steuer-spar-erklaerung-api@beta
 steuer-spar-erklaerung-api --help
 steuer-spar-erklaerung-call --help
+steuer-spar-erklaerung-setup --check
 ```
 
 Für die geführte Einrichtung sollte ein Agent den Setup-Skill verwenden. Er

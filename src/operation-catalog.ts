@@ -126,7 +126,10 @@ export const SSE_MCP_COMPOSITION_ONLY_OPERATIONS = [
 const RESOURCE_AREA = z.enum(["cases", "documents", "workspace", "results", "backups"])
   .describe("Lokal konfigurierter Ressourcenbereich fuer einen relativen ref-Wert");
 const API_TEXT_WRITE_AREA = z.enum(["workspace", "results"])
-  .describe("Schreibbarer lokaler Ressourcenbereich fuer einen relativen ref-Wert");
+  .describe(
+    "Schreibbarer lokaler Ressourcenbereich fuer einen relativen ref-Wert; " +
+    "den Bereich nicht zusaetzlich als ersten Pfadteil in ref wiederholen",
+  );
 const API_LOCAL_PATH = z.string().min(1).refine(
   (value) => /^(?:[A-Za-z]:[\\/]|\\\\)/.test(value) && !/[\x00-\x1f*?"<>|]/.test(value),
   "Absoluter lokaler Windows-Pfad ohne Platzhalter erwartet",
@@ -354,7 +357,10 @@ schemasByOperation.workspace_file_read_text = z.object({
 }).strict();
 schemasByOperation.workspace_file_write_text = z.object({
   ref: z.union([TEXT_WRITE_REF(), BARE_RESOURCE_REF()])
-    .describe("Neue Textdateireferenz oder relativer Pfad innerhalb von area"),
+    .describe(
+      "Neue Textdateireferenz (z. B. results:bericht.md) oder relativer Pfad innerhalb von area; " +
+      "bei area='results' also 'bericht.md', nicht 'results/bericht.md'",
+    ),
   area: API_TEXT_WRITE_AREA.optional(),
   text: z.string().describe("Vollstaendiger UTF-8-Inhalt der exklusiv neu anzulegenden Datei"),
 }).strict();
