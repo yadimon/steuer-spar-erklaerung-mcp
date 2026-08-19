@@ -3,7 +3,7 @@
 ## Unterstützte Version
 
 Während der öffentlichen Beta wird nur die jeweils neueste vollständige
-Release-Version unterstützt. Dieser Quellstand bereitet `v0.1.0-beta.6` für
+Release-Version unterstützt. Dieser Quellstand bereitet `v0.1.0-beta.7` für
 SteuerSparErklärung 2025 vor. Eine vorbereitete Version gilt erst dann als
 öffentlich unterstützt, wenn auf der GitHub-Release-Seite ihr Tag, das
 portable ZIP und die separate SHA-256-Datei gemeinsam veröffentlicht sind.
@@ -47,6 +47,9 @@ technische Zustandsroute ohne Token erreichbar; Discovery, OpenAPI und alle
 Operationen verlangen das Bearer-Token. Der MCP-Wrapper kennt keine lokalen
 PC-Pfade. Der Server darf keine Steuererklärung übermitteln und ersetzt weder
 fachliche Prüfung noch Steuerberatung.
+Die vom Setup erzeugte Client-Konfiguration enthält das Token nicht. Ein
+API-seitiger lokaler Bootstrap liest die geschützte Konfiguration erst beim
+Prozessstart und setzt URL und Token ausschließlich für den MCP-Kindprozess.
 
 Das Token erteilt volle Autorität für alle vom aktiven Profil serverseitig
 zugelassenen Operationen. Eine Freigabefrage im Agenten-Skill ist eine

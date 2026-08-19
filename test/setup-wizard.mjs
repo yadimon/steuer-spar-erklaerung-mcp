@@ -21,26 +21,40 @@ import { probeWindowsPowerShell } from "../dist/windows-runtime.js";
 
 const temporary = mkdtempSync(join(tmpdir(), "sse-setup-test-"));
 try {
-  assert.deepEqual(parseSetupArguments([]), { help: false, defaults: false, startApi: true });
-  assert.deepEqual(parseSetupArguments(["--defaults"]), { help: false, defaults: true, startApi: true });
-  assert.deepEqual(parseSetupArguments(["--no-start"]), { help: false, defaults: false, startApi: false });
+  assert.deepEqual(parseSetupArguments([]), { help: false, defaults: false, startApi: true, check: false, withMcp: false });
+  assert.deepEqual(parseSetupArguments(["--defaults"]), { help: false, defaults: true, startApi: true, check: false, withMcp: false });
+  assert.deepEqual(parseSetupArguments(["--no-start"]), { help: false, defaults: false, startApi: false, check: false, withMcp: false });
   assert.deepEqual(parseSetupArguments(["--defaults", "--no-start"]), {
     help: false,
     defaults: true,
     startApi: false,
+    check: false,
+    withMcp: false,
+  });
+  assert.deepEqual(parseSetupArguments(["--plan-file", "C:\\private\\setup-plan.json", "--with-mcp"]), {
+    help: false,
+    defaults: false,
+    startApi: true,
+    check: false,
+    withMcp: true,
+    planFile: "C:\\private\\setup-plan.json",
   });
   assert.deepEqual(parseSetupArguments(["--plan-file", "C:\\private\\setup-plan.json", "--no-start"]), {
     help: false,
     defaults: false,
     startApi: false,
+    check: false,
+    withMcp: false,
     planFile: "C:\\private\\setup-plan.json",
   });
-  assert.deepEqual(parseSetupArguments(["--help"]), { help: true, defaults: false, startApi: false });
-  assert.deepEqual(parseSetupArguments(["-h"]), { help: true, defaults: false, startApi: false });
+  assert.deepEqual(parseSetupArguments(["--check"]), { help: false, defaults: false, startApi: false, check: true, withMcp: false });
+  assert.deepEqual(parseSetupArguments(["--help"]), { help: true, defaults: false, startApi: false, check: false, withMcp: false });
+  assert.deepEqual(parseSetupArguments(["-h"]), { help: true, defaults: false, startApi: false, check: false, withMcp: false });
   assert.throws(() => parseSetupArguments(["--unbekannt"]), /Ungueltige Setup-Argumente/);
   assert.throws(() => parseSetupArguments(["--plan-file"]), /Wert.*--plan-file/);
   assert.throws(() => parseSetupArguments(["--plan-file", "a.json", "--plan-file", "b.json"]), /nur einmal/);
   assert.throws(() => parseSetupArguments(["--defaults", "--plan-file", "a.json"]), /nicht zusammen/);
+  assert.throws(() => parseSetupArguments(["--check", "--no-start"]), /Ungueltige Setup-Argumente/);
   const helpStartedAt = performance.now();
   const help = spawnSync(process.execPath, ["dist/setup-main.js", "--help"], {
     encoding: "utf8",
@@ -52,6 +66,7 @@ try {
   assert.equal(help.stdout, `${SETUP_USAGE}\n`);
   assert.match(help.stdout, /--defaults/);
   assert.match(help.stdout, /--no-start/);
+  assert.match(help.stdout, /--check/);
   assert(!help.stdout.includes("Steuerjahr/Produktprofil"), "--help darf keinen interaktiven Prompt starten.");
   assert(helpMs < 2_500, `Setup-Hilfe lud zu viel Laufzeitcode (${helpMs.toFixed(0)} ms).`);
   const invalid = spawnSync(process.execPath, ["dist/setup-main.js", "--unbekannt"], {
@@ -128,7 +143,7 @@ try {
   };
   const plannedSetup = spawnSync(
     process.execPath,
-    ["dist/setup-main.js", "--plan-file", planPath, "--no-start"],
+    ["dist/setup-main.js", "--plan-file", planPath, "--with-mcp", "--no-start"],
     { encoding: "utf8", env: planEnvironment, windowsHide: true, timeout: 15_000 },
   );
   assert.equal(plannedSetup.status, 0, plannedSetup.stderr);
@@ -140,7 +155,11 @@ try {
   assert.equal(planConfig.caseDir, planCaseDir);
   assert.deepEqual(planDecisions.sourceFolders, [planSourceDir]);
   assert.equal(planDecisions.requestedMode, "read-only-check");
-  assert.equal(planDecisions.transport, "api");
+  assert.equal(planDecisions.transport, "api-and-mcp");
+  const planMcpPath = join(planEnvironment.LOCALAPPDATA, "SteuerSparErklaerungApi", "mcp-client.config.json");
+  const planMcp = JSON.parse(readFileSync(planMcpPath, "utf8"));
+  assert.equal(planMcp.mcpServers["steuer-spar-erklaerung"].env, undefined);
+  assert(!JSON.stringify(planMcp).includes(planConfig.token));
   assert.equal(planDecisions.documentCollection, "reference-only");
   assert.equal(planDecisions.useSafeDefaults, true);
   assert.throws(() => loadConfirmedSetupPlan("relative-plan.json"), /--plan-file muss ein absoluter Pfad/);
@@ -199,6 +218,7 @@ try {
   writeFileSync(sseExecutable, "fixture", "utf8");
   writeFileSync(portableNode, "portable-node-fixture", "utf8");
   writeFileSync(join(repoRoot, "dist", "index.js"), "// mcp fixture\n", "utf8");
+  writeFileSync(join(repoRoot, "dist", "api-mcp-bootstrap.js"), "// bootstrap fixture\n", "utf8");
   const fakeSseDirectory = join(temporary, "Falsche Programme", "Steuertipps", "Steuerjahr 2025", "SSE.exe");
   mkdirSync(fakeSseDirectory, { recursive: true });
   assert.throws(() => validateSseExecutable(fakeSseDirectory), /regulaere Datei/);
@@ -242,8 +262,17 @@ try {
   ]);
   assert.equal(preview.apiConfig.host, "127.0.0.1");
   assert.equal(preview.apiConfig.profileId, "2025");
-  assert.equal(preview.mcpConfig.mcpServers["steuer-spar-erklaerung"].env.SSE_API_URL, "http://127.0.0.1:43127");
-  assert.equal(preview.mcpConfig.mcpServers["steuer-spar-erklaerung"].command, portableNode);
+  const previewServer = preview.mcpConfig.mcpServers["steuer-spar-erklaerung"];
+  assert.equal(previewServer.command, portableNode);
+  assert.deepEqual(previewServer.args, [
+    join(repoRoot, "dist", "api-mcp-bootstrap.js"),
+    "--config",
+    configPath,
+    "--mcp-entry",
+    join(repoRoot, "dist", "index.js"),
+  ]);
+  assert.equal(previewServer.env, undefined);
+  assert(!JSON.stringify(preview.mcpConfig).includes(values.token), "MCP-Konfiguration darf kein API-Token enthalten");
   assert(preview.apiLauncherContent.includes(`""${portableNode}""`));
   assert(preview.apiLauncherContent.includes(`--config ""${configPath}""`));
   assert(!JSON.stringify(preview.mcpConfig).includes(sseExecutable), "MCP-Konfiguration darf SSE.exe nicht kennen");
@@ -302,7 +331,8 @@ try {
   assert.equal(apiConfig.sseExecutable, sseExecutable);
   assert.equal(apiConfig.profileId, "2025");
   assert.equal(apiConfig.caseDir, values.caseDir);
-  assert.equal(mcpConfig.mcpServers["steuer-spar-erklaerung"].env.SSE_API_TOKEN, values.token);
+  assert.equal(mcpConfig.mcpServers["steuer-spar-erklaerung"].env, undefined);
+  assert(!JSON.stringify(mcpConfig).includes(values.token));
   assert(apiLauncher.includes(`""${portableNode}""`) && apiLauncher.includes(`--config ""${configPath}""`));
   assert.equal(setupDecisions.profileId, "2025");
   assert.equal(setupDecisions.schemaVersion, 2);
@@ -344,7 +374,7 @@ try {
     assert(!backupText.includes(values.token), "Redigiertes Backup enthaelt weiterhin ein API-Token");
     if (backup.toLowerCase().includes(".json.") && backupText.includes("<redacted>")) redactedJsonBackups += 1;
   }
-  assert.equal(redactedJsonBackups, 2, "API- und MCP-JSON-Backup wurden nicht redigiert.");
+  assert.equal(redactedJsonBackups, 1, "API-JSON-Backup wurde nicht redigiert.");
   assert(second.backups.some((backup) => backup.endsWith(".vbs")), "VBS-Backup traegt keine ausfuehrbare Dateiendung.");
   assert.equal(JSON.parse(readFileSync(configPath, "utf8")).port, 43128);
   writeFileSync(second.settingsPath, "# Eigene Einstellungen\n\nNicht ersetzen.\n", "utf8");

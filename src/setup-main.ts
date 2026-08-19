@@ -7,6 +7,11 @@ async function main(args: readonly string[]): Promise<void> {
     process.stdout.write(`${SETUP_USAGE}\n`);
     return;
   }
+  if (options.check) {
+    const { runSetupCheck } = await import("./setup-check.js");
+    await runSetupCheck();
+    return;
+  }
   const { runSetupMain } = await import("./setup-wizard.js");
   await runSetupMain(args);
 }

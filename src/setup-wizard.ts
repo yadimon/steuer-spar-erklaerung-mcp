@@ -151,7 +151,7 @@ export async function runSetupMain(args: readonly string[]): Promise<void> {
       "Duerfen bestaetigte Dateien spaeter als Kopien unter documents gesammelt werden? Wenn Sie unsicher sind, antworten Sie Ja",
       true,
     )) ? "copy-after-confirmation" : "reference-only");
-    const transport = confirmedPlan ? "api" : storedPreferences?.transport ?? (useSafeDefaults
+    const transport = options.withMcp ? "api-and-mcp" : confirmedPlan ? "api" : storedPreferences?.transport ?? (useSafeDefaults
       ? "api"
       : await ask("Direkte API oder API plus MCP?", "api") as SetupTransport);
     const trackingFormat = confirmedPlan ? "markdown" : storedPreferences?.tracking?.format ?? (
@@ -203,13 +203,15 @@ export async function runSetupMain(args: readonly string[]): Promise<void> {
       const sameSources = storedPreferences &&
         storedSources.length === confirmedPlan.sourceFolders.length &&
         storedSources.every((path, index) => samePath(path, confirmedPlan.sourceFolders[index]!));
+      const explicitMcpUpgrade = options.withMcp && storedPreferences?.transport === "api";
       if (
         existingConfiguration.profileId !== confirmedPlan.profileId ||
         !samePath(existingConfiguration.caseDir, confirmedPlan.caseDir) ||
         (confirmedPlan.sseExecutable !== undefined &&
           !samePath(existingConfiguration.sseExecutable, confirmedPlan.sseExecutable)) ||
         (storedPreferences && (!sameSources || storedPreferences.mode !== "read-only-check" ||
-          storedPreferences.transport !== "api" || storedPreferences.documentCollection !== "reference-only" ||
+          (!explicitMcpUpgrade && storedPreferences.transport !== transport) ||
+          storedPreferences.documentCollection !== "reference-only" ||
           storedPreferences.initialReadOnlyCheck !== true || storedPreferences.tracking?.format !== "markdown" ||
           (storedPreferences.connectors?.length ?? 0) !== 0))
       ) {

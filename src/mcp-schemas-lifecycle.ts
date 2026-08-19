@@ -17,7 +17,10 @@ export const SSE_MCP_LIFECYCLE_SCHEMAS = {
     ),
     mode: SSE_START_MODE
       .optional()
-      .describe("Vorgabe 'einur'; fuer Gewinn-Erfassung des Folgejahres 'einurvor'"),
+      .describe(
+        "Startmodus: normal=Einkommensteuer, einur=Gewinnermittlung/EUER (Vorgabe), " +
+        "einurvor=Gewinn-Erfassung des Folgejahres; bei einer .ESt-Datei immer normal explizit setzen",
+      ),
     exe: z.never().optional().describe("Nicht zulaessig; wird ausschliesslich in der lokalen API konfiguriert"),
   }).strict(),
   "sse_save": z.object({

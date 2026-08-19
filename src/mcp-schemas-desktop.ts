@@ -13,7 +13,10 @@ import {
 export const SSE_MCP_DESKTOP_SCHEMAS = {
   "sse_desktop_start": z.object({
     caseRef: CASE_REF().optional().describe("Falldatei innerhalb des lokal konfigurierten Fallbereichs"),
-    mode: SSE_START_MODE.optional().describe("Startmodus, Vorgabe 'einur' (Gewinnermittlung)"),
+    mode: SSE_START_MODE.optional().describe(
+      "Startmodus: normal=Einkommensteuer, einur=Gewinnermittlung/EUER (Vorgabe), " +
+      "einurvor=Gewinn-Erfassung des Folgejahres; bei einer .ESt-Datei immer normal explizit setzen",
+    ),
     name: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).optional().describe("Desktopname aus ASCII-Buchstaben, Ziffern, _ oder -, Vorgabe 'SSEAuto'"),
     timeoutSec: z.number().int().min(3).max(90).optional().describe("Startwartezeit in Sekunden, Vorgabe 30"),
     exe: z.never().optional().describe("Nicht zulaessig; wird ausschliesslich in der lokalen API konfiguriert"),

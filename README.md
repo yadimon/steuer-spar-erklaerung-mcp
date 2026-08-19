@@ -27,102 +27,105 @@ automatisiert nachvollziehbare Arbeitsschritte in der installierten Anwendung.
 ## Voraussetzungen
 
 - Windows x64 und eine installierte SteuerSparErklärung 2025;
-- ein Agent mit Zugriff auf lokale Dateien und Programme, zum Beispiel Codex
-  oder Claude Code;
+- ein **lokal** laufender Agent mit Zugriff auf lokale Dateien und Programme,
+  zum Beispiel Codex, Claude Code oder OpenCode;
 - für sichtbare Bedienung eine entsperrte, währenddessen unbenutzte
   Windows-Sitzung.
 
 Das portable Release benötigt kein global installiertes Node.js, npm, Python
 oder PowerShell 7. Der optionale Weg über `npx skills` und die getrennten
 npm-Runtimepakete setzt ein bereits vorhandenes Node.js 22+ mit npm voraus.
+Docker und ein Repository-Checkout sind für Nutzer nicht erforderlich. Alle
+Voraussetzungen, beide Installationswege, Client-Anbindung und Erfolgskriterien
+stehen in der
+[Installationsanleitung für Menschen und AI-Agenten](skills/steuer-spar-erklaerung-setup/references/installation.md).
 
-## Schnellstart
+## Schnellstart mit zwei Prompts
 
-### Ohne npm
+### 1. Lokal installieren
 
-Gib einem Agenten mit GitHub- und lokalem Dateizugriff diesen Auftrag:
+Gib einem **lokalen** Agenten diesen Auftrag. Er wählt selbst npm oder das
+Portable-Release, installiert beide Skills und prüft API plus MCP:
 
 ```text
-Installiere oder aktualisiere zuerst die Steuer-Skills direkt aus dem aktuellen
-Repository https://github.com/yadimon/steuer-spar-erklaerung-mcp (Skill-Installer
-oder direkter Repository-Download, keine gecachte Webansicht). Prüfe danach
-meine Steuererklärung 2025 auf Deutsch zunächst nur lesend. Finde Steuerfall
-und Belegordner, lass sie mich bestätigen und richte den Rest sicher ein.
+Richte SteuerSparErklärung vollständig lokal auf diesem Windows-PC nach
+https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/skills/steuer-spar-erklaerung-setup/references/installation.md
+ein. Installiere oder aktualisiere beide Skills für diesen lokalen Agenten und
+verwende das neueste vollständige Release. Richte lokale API plus MCP ein;
+zeige vor der Client-Konfigurationsänderung den tokenfreien Diff. Prüfe danach
+mit `steuer-spar-erklaerung-setup --check`, der MCP-Serverliste des Clients und
+einem echten MCP-Health-Aufruf. Nicht in einer Cloud-Umgebung ausführen und
+noch keinen Steuerfall öffnen.
 ```
 
-Der Agent schlägt zuerst einen wahrscheinlichen Steuerfall oder wenige
-plausible Kandidaten und die passenden Belegordner vor. Nach diesen beiden
-Bestätigungen kann `OK`, `OK Standard` oder `OK Default` alle angezeigten
-sicheren technischen Defaults gemeinsam übernehmen. Danach führt der Agent
-durch das aktuellste passende veröffentlichte Portable-Release, Prüfsumme und
-Einrichtung und setzt die read-only Prüfung automatisch fort. Das portable
-Release bringt seine eigene Laufzeit mit; Node.js/npm, Python und PowerShell 7
-müssen nicht global installiert werden. Wenn der Agent keine Programme starten
-darf, kann das ZIP von der
-[Release-Seite](https://github.com/yadimon/steuer-spar-erklaerung-mcp/releases)
-manuell geladen und anschließend `sse-setup.cmd` gestartet werden.
-Eine nur im Browser geöffnete Raw-Datei gilt wegen möglicher Web-Caches nicht
-als installierter Skill; entscheidend ist die aktuelle lokale Repository-Kopie.
+Das Setup verändert noch keinen Steuerfall. Vor dem Merge in eine vorhandene
+Client-Konfiguration zeigt der Agent den konkreten tokenfreien Diff. Erfolg
+bedeutet: `--check` ist grün, der neu geladene Client meldet den MCP-Server als
+verbunden und ein echter MCP-Health-Aufruf funktioniert.
 
-Vor einer sichtbaren Prüfung erzeugt der Agent eine neue, per SHA-256
-verifizierte Prüffallkopie und öffnet nur diese. Das ist auch beim reinen Lesen
-nötig, weil SSE bereits durch Seitennavigation einen ungespeicherten
-In-Memory-Zustand setzen kann. Der Originalfall wird dabei nicht in der UI
-geöffnet und nie überschrieben.
+### 2. Steuerfall prüfen
 
-### Mit `npx skills` (optional)
+Danach genügt ein fachlicher Prompt mit den echten Pfaden:
+
+```text
+Nutze $steuer-spar-erklaerung und prüfe meine Einkommensteuererklärung 2025
+nur lesend. Steuerfall: <ABSOLUTER_PFAD_ZUM_FALL>. Belege:
+<ABSOLUTE_BELEGORDNER>. Erzeuge zuerst eine hashverifizierte Arbeitskopie,
+gleiche Fall, Belege und SSE-Prüfer ab und schreibe einen Report in den
+konfigurierten Ergebnisordner. Ändere nichts ohne meine ausdrückliche Freigabe
+und führe keine ELSTER-Übermittlung aus.
+```
+
+Eine im Kalenderjahr 2026 abgegebene Einkommensteuererklärung ist hier der
+unterstützte Steuerfall **2025**. Das Produktprofil 2026 ist nicht freigegeben.
+Vor sichtbarer Navigation erzeugt der Hauptskill eine neue, per SHA-256
+verifizierte Prüffallkopie und öffnet nur diese; der Originalfall bleibt
+ungeöffnet und unverändert.
+
+### Skills manuell mit `npx` installieren
 
 Die offene [`skills`-CLI](https://www.skills.sh/docs/cli) erkennt beide
-[Repository-Skills](skills/). Für Codex werden sie unter Windows so
-benutzerweit und ohne Rückfragen als Kopie installiert:
+[Repository-Skills](skills/). Ersetze `<agent>` durch `codex`, `claude-code`
+oder `opencode`:
 
 ```powershell
-npx skills add yadimon/steuer-spar-erklaerung-mcp --list
-npx skills add yadimon/steuer-spar-erklaerung-mcp `
+npx -y skills add yadimon/steuer-spar-erklaerung-mcp --list
+npx -y skills add yadimon/steuer-spar-erklaerung-mcp `
   --skill steuer-spar-erklaerung --skill steuer-spar-erklaerung-setup `
-  --agent codex --global --copy --yes
+  --agent <agent> --global --copy --yes
 ```
 
-Für Claude Code ist nur der Agentname anders:
+Die vollständigen nichtinteraktiven Varianten bleiben explizit dokumentiert:
 
 ```powershell
-npx skills add yadimon/steuer-spar-erklaerung-mcp `
-  --skill steuer-spar-erklaerung --skill steuer-spar-erklaerung-setup `
-  --agent claude-code --global --copy --yes
+npx -y skills add yadimon/steuer-spar-erklaerung-mcp --skill steuer-spar-erklaerung --skill steuer-spar-erklaerung-setup --agent codex --global --copy --yes
+npx -y skills add yadimon/steuer-spar-erklaerung-mcp --skill steuer-spar-erklaerung --skill steuer-spar-erklaerung-setup --agent claude-code --global --copy --yes
+npx -y skills add yadimon/steuer-spar-erklaerung-mcp --skill steuer-spar-erklaerung --skill steuer-spar-erklaerung-setup --agent opencode --global --copy --yes
 ```
 
-Danach genügt zum Beispiel:
-
-```text
-Prüfe meine Steuererklärung in SteuerSparErklärung 2025. Gleiche sie mit
-meinen Belegen ab und ändere nichts ohne meine ausdrückliche Freigabe.
-```
+Eine nur geöffnete oder gecachte Webansicht ist keine lokale Skill-
+Installation; nach dem Kopieren den Agenten neu laden und beide Skills
+auflisten.
 
 `npx skills` installiert nur die geprüften Agentenanweisungen. Ist Node.js 22+
-mit npm bereits vorhanden, kann der Skill anschließend das API-Paket und auf
-Wunsch den getrennten MCP-Wrapper persistent installieren. Sonst führt er
-durch Download, Prüfsumme und Einrichtung des portablen Releases. Vor der Installation kann der
-[Haupt-Skill](skills/steuer-spar-erklaerung/SKILL.md) vollständig gelesen
-werden.
+mit npm bereits vorhanden, installiert der Setup-Skill API und MCP persistent.
+Sonst führt er durch Download, Prüfsumme und Einrichtung des portablen Releases.
 
 ### Runtime mit npm (optional)
 
 Die npm-Pakete sind getrennt: API, Setup und CLI bleiben im Windows-Paket;
-der PC-blinde MCP-Wrapper kann unabhängig installiert werden. Der normale
-Skill-Wizard übernimmt diese Befehle nach Bestätigung. Manuell lautet der
-API-only-Weg:
+der PC-blinde MCP-Wrapper kann unabhängig installiert werden. Das empfohlene
+lokale Agenten-Setup installiert beide Pakete in exakt derselben Version:
 
 ```powershell
-npm install --global @yadimon/steuer-spar-erklaerung-api@beta
-steuer-spar-erklaerung-setup
+npm install --global @yadimon/steuer-spar-erklaerung-api@beta @yadimon/steuer-spar-erklaerung-mcp@beta
+steuer-spar-erklaerung-setup --with-mcp
+steuer-spar-erklaerung-setup --check
 ```
 
-Nur wenn der Agent MCP verwenden soll, kommt das zweite Paket dazu:
-
-```powershell
-npm install --global @yadimon/steuer-spar-erklaerung-mcp@beta
-steuer-spar-erklaerung-setup
-```
+Für einen bewusst später ergänzten MCP-Transport ist auch
+`npm install --global @yadimon/steuer-spar-erklaerung-mcp@beta` zulässig; vor
+dem erneuten Setup muss seine Version exakt zum API-Paket passen.
 
 Setup nie direkt aus `npx` starten: Der temporäre `_npx`-Cache ist kein
 stabiler Ort für dauerhafte API-/MCP-Startpfade. Für Nutzer ohne Node/npm ist
@@ -243,7 +246,7 @@ Der Wizard erkennt eine vorhandene Konfiguration am Standardpfad, erzeugt bei
 Bedarf ein lokales Token und legt außerhalb des Repositorys an:
 
 - API-Konfiguration und fensterlosen Starter;
-- eine optionale MCP-Mergevorlage;
+- bei `--with-mcp` eine tokenfreie MCP-Mergevorlage;
 - `setup-decisions.json` für maschinenlesbare Entscheidungen;
 - `settings.md` für persönliche Prioritäten und Quellen;
 - `tracking.md` oder eine Referenz auf eine vorhandene `.xlsx`-Datei;
@@ -298,14 +301,10 @@ eigene Clients stehen zur Verfügung:
 - `GET /v1/openapi.json`
 - `POST /v1/operations/{operation}`
 
-Beispiel für einen direkten Aufruf:
+Beispiel für einen authentifizierten Aufruf ohne Token in der Kommandozeile:
 
 ```powershell
-$body = @{ args = @{}; timeoutMs = 5000 } | ConvertTo-Json -Depth 5
-Invoke-RestMethod -Method Post `
-  -Uri 'http://127.0.0.1:43127/v1/operations/workspace_status' `
-  -Headers @{ Authorization = 'Bearer <LOKALES_TOKEN>' } `
-  -ContentType 'application/json' -Body $body
+steuer-spar-erklaerung-call workspace_status
 ```
 
 Operationen verwenden logische Ressourcen wie `cases:`, `documents:` und
@@ -313,30 +312,36 @@ Operationen verwenden logische Ressourcen wie `cases:`, `documents:` und
 
 ## MCP optional anbinden
 
-MCP ist ein dünner Wrapper über dieselbe API. Der Wrapper kennt nur URL und
+MCP ist ein dünner Wrapper über dieselbe API. Sein Prozess kennt nur URL und
 Token; SSE-, Fall- und Dokumentpfade bleiben in der lokalen API-Konfiguration.
 Die vom Setup erzeugte Servervorlage wird nach Prüfung in die Konfiguration des
 jeweiligen Clients gemergt:
+
+`command` zeigt direkt auf die portable `runtime/node.exe`. Die Argumente
+starten zuerst den lokalen Bootstrap; nur er liest das API-Token aus der
+geschützten Konfiguration und reicht es intern an den MCP-Prozess weiter:
 
 ```json
 {
   "mcpServers": {
     "steuer-spar-erklaerung": {
       "command": "<PORTABLE>/runtime/node.exe",
-      "args": ["<PORTABLE>/dist/index.js"],
-      "env": {
-        "SSE_API_URL": "http://127.0.0.1:43127",
-        "SSE_API_TOKEN": "<LOKALES_TOKEN>"
-      }
+      "args": [
+        "<PORTABLE>/dist/api-mcp-bootstrap.js",
+        "--config", "<LOCALAPPDATA>/SteuerSparErklaerungApi/config.json",
+        "--mcp-entry", "<PORTABLE>/dist/index.js"
+      ]
     }
   }
 }
 ```
 
-`command` soll direkt auf die portable `runtime/node.exe` zeigen. So werden
-zusätzliche Batch-/Shim-Prozesse und unnötige Konsolenfenster vermieden. Eine
-vorhandene Client-Konfiguration nie vollständig ersetzen; nur den bestätigten
-Servereintrag mergen.
+Die Client-Konfiguration enthält dadurch weder `SSE_API_TOKEN` noch einen
+Bearer-Wert. So werden außerdem Batch-/Shim-Prozesse und unnötige
+Konsolenfenster vermieden. Eine vorhandene Client-Konfiguration nie vollständig
+ersetzen; nur den bestätigten tokenfreien Servereintrag mergen. Danach
+`steuer-spar-erklaerung-setup --check`, die Serverliste des neu geladenen
+Clients und einen echten MCP-Health-Aufruf prüfen.
 
 ## Sicherheitsmodell
 
@@ -458,7 +463,7 @@ Weitere Unterlagen:
 - [API-/MCP-Vertrag](docs/API-MCP-VERTRAG.md)
 - [Verifikationsstand](docs/VERIFIKATION.md)
 - [Release-Prozess](docs/RELEASE.md)
-- [Release Notes v0.1.0-beta.6](docs/releases/v0.1.0-beta.6.md)
+- [Release Notes v0.1.0-beta.7](docs/releases/v0.1.0-beta.7.md)
 - [Entwicklungswissen](docs/entwicklung/README.md)
 - [Mitwirken](CONTRIBUTING.md)
 - [Haupt-Skill](skills/steuer-spar-erklaerung/SKILL.md)

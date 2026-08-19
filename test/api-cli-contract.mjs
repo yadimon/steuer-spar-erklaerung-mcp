@@ -192,6 +192,20 @@ try {
   assert.equal(JSON.parse(described.stdout).operation, "find");
   assert(JSON.parse(described.stdout).argumentSchema.properties.name);
 
+  const describedLaunch = await runCli("describe", "launch", "--config", config.configPath);
+  assert.equal(describedLaunch.code, 0, describedLaunch.stderr);
+  assert.match(
+    JSON.parse(describedLaunch.stdout).argumentSchema.properties.mode.description,
+    /normal=Einkommensteuer.*\.ESt-Datei immer normal/u,
+  );
+
+  const describedWrite = await runCli("describe", "workspace_file_write_text", "--config", config.configPath);
+  assert.equal(describedWrite.code, 0, describedWrite.stderr);
+  assert.match(
+    JSON.parse(describedWrite.stdout).argumentSchema.properties.ref.description,
+    /area='results'.*nicht 'results\/bericht\.md'/u,
+  );
+
   const unknownDescription = await runCli("describe", "nicht_freigegeben", "--config", config.configPath);
   assert.equal(unknownDescription.code, 1);
   assert.match(unknownDescription.stderr, /nicht Teil der freigegebenen SSE-API/);

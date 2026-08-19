@@ -170,7 +170,6 @@ export function buildSetupArtifacts(values: SetupValues): SetupArtifacts {
     assertSetupPath(value, name, optional);
   }
   assertPersistentProductRoot(values.repoRoot);
-  const apiUrl = `http://127.0.0.1:${values.port}`;
   const configStem = basename(values.configPath, extname(values.configPath)) || "config";
   const apiLauncherPath = join(dirname(values.configPath), `start-sse-api.${configStem}.hidden.vbs`);
   const setupDecisionsPath = join(values.workspaceDir, "setup-decisions.json");
@@ -188,6 +187,12 @@ export function buildSetupArtifacts(values: SetupValues): SetupArtifacts {
   const mcpEntry = preferences.transport === "api-and-mcp"
     ? resolveProductMcpEntry(values.repoRoot)
     : undefined;
+  const mcpLauncher = preferences.transport === "api-and-mcp"
+    ? join(values.repoRoot, "dist", "api-mcp-bootstrap.js")
+    : undefined;
+  if (mcpLauncher && !existsSync(mcpLauncher)) {
+    throw new Error(`Lokaler MCP-Bootstrap fehlt: ${mcpLauncher}`);
+  }
   for (const [index, path] of preferences.sourceFolders.entries()) {
     assertSetupPath(path, `sourceFolders[${index}]`);
   }
@@ -221,13 +226,12 @@ export function buildSetupArtifacts(values: SetupValues): SetupArtifacts {
       resultDir: values.resultDir,
       backupsDir,
     },
-    ...(mcpConfigPath && mcpEntry ? {
+    ...(mcpConfigPath && mcpEntry && mcpLauncher ? {
       mcpConfig: {
         mcpServers: {
           "steuer-spar-erklaerung": {
             command: nodeExecutable,
-            args: [mcpEntry],
-            env: { SSE_API_URL: apiUrl, SSE_API_TOKEN: values.token },
+            args: [mcpLauncher, "--config", values.configPath, "--mcp-entry", mcpEntry],
           },
         },
       },

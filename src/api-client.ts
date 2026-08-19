@@ -91,7 +91,7 @@ function clientSettings(options: ApiClientOptions = {}): ApiClientSettings {
   const token = options.token ?? process.env.SSE_API_TOKEN ?? "";
   if (!token || !isValidApiToken(token)) {
     throw new ApiClientError(
-      "SSE_API_TOKEN fehlt oder ist ungueltig. Zuerst den deutschen Setup-Wizard ausfuehren und URL/Token im MCP-Client setzen.",
+      "SSE_API_TOKEN fehlt oder ist ungueltig. Zuerst den deutschen Setup-Wizard ausfuehren und den erzeugten tokenfreien MCP-Bootstrap verwenden.",
       "setup",
     );
   }

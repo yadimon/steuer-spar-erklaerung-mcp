@@ -6,6 +6,10 @@ description: Installiert oder repariert die lokale SteuerSparErklärung-Automati
 # SteuerSparErklärung einrichten
 
 Führe den Wizard auf Deutsch und mit möglichst wenigen Systemänderungen aus.
+Dieser Skill folgt dem kanonischen Vertrag unter
+[references/installation.md](references/installation.md) und richtet das
+Produkt ausschließlich auf dem lokalen Windows-PC ein, nie in einem Cloud-
+oder Remote-Agentencontainer.
 Installiere Node.js/npm, Python oder PowerShell 7 nicht eigens für dieses
 Produkt. Ist Node.js 22 oder neuer mit npm bereits vorhanden, darf der
 bestätigte Standardplan die getrennten npm-Pakete verwenden. Sonst nutze das
@@ -19,6 +23,9 @@ Windows PowerShell 5.1.
    Versionsnummer ablehnen.
 2. Suche eine vorhandene Konfiguration und teste API-Health. Erzeuge keine
    zweite Installation, wenn eine passende bereits funktioniert.
+   Prüfe außerdem, dass `steuer-spar-erklaerung-setup` und der Hauptskill
+   `steuer-spar-erklaerung` für den aktuellen lokalen Client installiert sind.
+   Ohne Hauptskill darf nach Setup keine Fachprüfung improvisiert werden.
 3. Wähle genau einen persistenten Distributionsweg:
    - **npm:** nur bei bereits funktionierendem Node.js 22+ mit npm; niemals
      direkt aus einem flüchtigen `npx`-Cache einrichten;
@@ -64,7 +71,8 @@ Ohne bestätigten First-Run-Plan zeige vor Änderungen einen kurzen Standardplan
   Prüfsumme installieren;
 - `SSE.exe` automatisch erkennen; nur bei keinem oder mehreren Treffern fragen;
 - LocalAppData-Arbeitsbereich, read-only Prüfung, Markdown-Tracking und direkte
-  API verwenden;
+   API verwenden; bei einem ausdrücklich gewünschten vollständigen lokalen
+   Agenten-Setup API plus MCP verwenden;
 - kein Connector, keine Agenten-Konfigurationsänderung und kein Autostart.
 
 Der Plan nennt vor der Bestätigung ausdrücklich den gewählten npm- oder
@@ -106,7 +114,7 @@ Lies vor der Ausführung
    eindeutig erkannten `sseExecutable` enthalten. Der Plan erzwingt direkte
    API, read-only, Reference-only, Markdown-Tracking, keine Connectoren und
    keine interaktiven Prompts; automatisiere `stdin` dafür nicht. Verwende
-   `--defaults` nur, wenn diese Pfade bereits gespeichert sind oder ausdrücklich
+   Bei bestätigtem MCP `--with-mcp` ergänzen. `--defaults` nur, wenn diese Pfade bereits gespeichert sind oder ausdrücklich
    kein Fall-/Quellordner gebunden werden soll, und frage den Nutzer nicht erneut.
    `--no-start` nur auf Wunsch.
    Führe keinen Build auf dem Nutzer-PC aus. Beim Portable-Weg keinen globalen
@@ -116,6 +124,15 @@ Lies vor der Ausführung
    erzeugen. Dazu gehören `setup-decisions.json`, `settings.md` und ein neues
    `tracking.md` oder die Referenz auf eine vorhandene `.xlsx`-Datei. Token
    niemals in Chat, Log oder Git wiedergeben.
+   Lies oder parse `config.json` niemals, um das Token selbst zu extrahieren.
+   Verwende für authentifizierte Prüfungen ausschließlich die ausgelieferte
+   CLI, die das Token intern lädt; baue keinen `curl`-, `Invoke-RestMethod`-
+   oder eigenen HTTP-Befehl mit Bearer-Token. Nur `/healthz` darf ohne Token
+   direkt geprüft werden. Die erzeugte MCP-Mergevorlage muss tokenfrei sein:
+   Sie darf nur die absolute `node.exe` und den lokalen Bootstrap samt
+   `--config`-/`--mcp-entry`-Argumenten enthalten. Der Bootstrap lädt das Token
+   erst im Prozess; ein `env`-Objekt mit `SSE_API_TOKEN` ist eine veraltete,
+   unsichere Vorlage und muss durch erneutes Setup ersetzt werden.
 4. Sichere vorhandene Konfiguration. Merge nur, wenn der Nutzer Dateipfad und
    Diff bestätigt hat; ersetze niemals die komplette Datei.
    Repariere einen alten Eintrag mit `command = "node"`, `node.cmd`, `npx` oder
@@ -131,7 +148,9 @@ Lies vor der Ausführung
    Beende die eindeutig gebundene alte API kontrolliert oder verwende ihre
    bestätigte Konfiguration, und verifiziere erst danach genau einen Neustart.
    Ein beliebiger Portprozess darf niemals pauschal beendet werden.
-6. Prüfe `/healthz`, Discovery, Produktprofil, Engine, Workspace und read-only
+6. Führe nach dem Start `steuer-spar-erklaerung-setup --check` aus; beim
+   Portable-Weg `sse-setup.cmd --check`. Prüfe damit `/healthz`, Discovery,
+   Produktprofil, Engine, Workspace und read-only
    Zustand. Lies danach `settings.md`, `setup-decisions.json` und das gewählte
    Tracking zurück. Vorhandene Nutzerdateien dürfen bei einem Default-Lauf
    nicht still ersetzt werden.
@@ -142,10 +161,12 @@ Lies vor der Ausführung
    Argumentwerte nie direkt in die Kommandozeile schreiben. Schreibe eigene
    Diagnosezeilen niemals in stdout eines CLI-Aufrufs, dessen stdout als JSON
    geparst wird; lies das Journal getrennt.
-7. Bei MCP-Wunsch: verwende das vollständige Serverobjekt der Setup-Ausgabe,
+7. Bei MCP-Wunsch: verwende das vollständige **tokenfreie** Serverobjekt der Setup-Ausgabe,
    prüfe darin nochmals den absoluten `node.exe`-Befehl und dauerhaften
    MCP-Einstieg, lade den Client
-   neu, liste den Server und führe einen realen Health-Aufruf aus. Bleibt das
+   neu, liste den Server und führe einen realen MCP-Health-Aufruf aus. Für
+   Codex `codex mcp list`, für Claude Code `claude mcp list`, für OpenCode
+   `opencode mcp list` beziehungsweise `opencode mcp ls` verwenden. Bleibt das
    unmöglich, direkte API als vollwertigen Fallback anbieten.
 
 ## Erfolg und Stopps
@@ -153,6 +174,12 @@ Lies vor der Ausführung
 Erfolg erst melden, wenn API, Profil und Workspace zurückgelesen wurden. Ein
 nicht laufendes SSE mit `running=false` ist für den technischen Setup-Test
 zulässig.
+
+Dieser Setup-Skill öffnet nie selbst einen Steuerfall. War das Setup Teil einer
+Steuerprüfung, übergib danach an den Hauptskill `steuer-spar-erklaerung`; erst
+dessen hashverifizierte Prüffallkopie und ausdrückliche UI-Freigabe erlauben
+sichtbare Navigation. Ist der Hauptskill nicht verfügbar, stoppe nach dem
+technischen Setup und fordere ihn an, statt die Fachprüfung zu improvisieren.
 
 Stoppe bei inkompatiblem System, unbekannter Releasequelle, Hashfehler,
 unfreigegebenem Profil, fehlender Nutzerzustimmung, uneindeutiger

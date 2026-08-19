@@ -1,4 +1,4 @@
 interface:
   display_name: "SteuerSparErklärung"
   short_description: "Steuerfall sicher prüfen und abgleichen"
-  default_prompt: "Verwende $steuer-spar-erklaerung, um meine Steuererklärung 2025 mit sicheren Standardwerten einzurichten und zunächst nur lesend zu prüfen; frage mich zuerst nur nach dem richtigen Steuerfall und den Belegordnern."
+  default_prompt: "Verwende $steuer-spar-erklaerung, um meine Steuererklärung 2025 zunächst nur lesend in einer hashverifizierten Arbeitskopie zu prüfen; frage mich zuerst nur nach dem richtigen Steuerfall und den Belegordnern."
