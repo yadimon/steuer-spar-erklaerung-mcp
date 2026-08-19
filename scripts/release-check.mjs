@@ -4,6 +4,11 @@ import { dirname, join } from "node:path";
 
 const npmCli = process.env.npm_execpath ?? join(dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
 if (!existsSync(npmCli)) throw new Error(`npm CLI fehlt: ${npmCli}`);
+const configuredConcurrency = process.env.SSE_TEST_CONCURRENCY?.trim();
+const releaseEnvironment = {
+  ...process.env,
+  SSE_TEST_CONCURRENCY: configuredConcurrency || "4",
+};
 
 const steps = [
   ["Dependency-Audit", ["audit", "--omit=dev", "--audit-level=high"]],
@@ -20,6 +25,7 @@ for (const [label, args] of steps) {
   process.stdout.write(`\n=== Release-Gate: ${label} ===\n`);
   const result = spawnSync(process.execPath, [npmCli, ...args], {
     cwd: process.cwd(),
+    env: releaseEnvironment,
     stdio: "inherit",
     windowsHide: true,
   });

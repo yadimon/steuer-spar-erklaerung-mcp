@@ -70,6 +70,17 @@ Die identische lokale Gatefolge kann als ein Befehl ausgeführt werden:
 npm run check
 ```
 
+Der Release-Check begrenzt die umfangreiche Windows-/PowerShell-Suite
+standardmäßig auf vier parallele Prozesse. Das priorisiert reproduzierbare
+Release-Gates gegenüber maximaler Geschwindigkeit. Maintainer können den Wert
+für einen passend dimensionierten Rechner bewusst überschreiben:
+
+```powershell
+$env:SSE_TEST_CONCURRENCY = '6'
+npm run check
+Remove-Item Env:SSE_TEST_CONCURRENCY
+```
+
 `verify:portable-release` muss Produkt, Version, Dateizahl, Bytezahl und
 SHA-256 des bereits gebauten ZIP als `ok: true` ausgeben. Der anschließende
 Clean-install-Smoke muss vier CLI-Einstiege und den 87-Tool-MCP-Vertrag aus

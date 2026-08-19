@@ -48,6 +48,12 @@ for (const required of [
 ]) {
   assert(releaseCheck.includes(required), `release:check verschweigt Gate: ${required}`);
 }
+assert.match(
+  releaseCheck,
+  /SSE_TEST_CONCURRENCY:\s*configuredConcurrency \|\| "4"/u,
+  "release:check muss ohne explizites Override eine konservative Parallelitaet verwenden.",
+);
+assert.match(releaseCheck, /env:\s*releaseEnvironment/u, "Release-Kindprozesse muessen die begrenzte Umgebung erben.");
 for (const required of [
   'capture(git, ["status", "--short"])',
   '["fetch", "origin", "--prune", "--tags"]',
