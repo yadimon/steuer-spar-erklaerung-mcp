@@ -86,15 +86,15 @@ function assertRegistryState(version, expectedPublished) {
   return published === packageNames.length;
 }
 
-function assertNoLatestTags() {
+function assertBetaTagPolicy(version) {
   for (const packageName of packageNames) {
     const tags = registryTags(packageName);
-    if (tags.latest) {
+    if (tags.latest === version) {
       throw new Error(
-        `${packageName} besitzt noch den dist-tag latest=${tags.latest}. ` +
-          `Beta-Releases erst nach 'npm dist-tag rm ${packageName} latest' fortsetzen.`,
+        `${packageName}@${version} darf waehrend der Beta nicht zugleich als latest markiert sein.`,
       );
     }
+    if (tags.latest) process.stdout.write(`${packageName}: beta-Kanal wird aktualisiert; latest bleibt auf ${tags.latest}.\n`);
   }
 }
 
@@ -197,7 +197,7 @@ const existingRemoteTag = remoteTagCommit(tag);
 if (existingRemoteTag && existingRemoteTag !== headSha) {
   throw new Error(`${tag} zeigt remote auf ${existingRemoteTag}, erwartet ${headSha}.`);
 }
-assertNoLatestTags();
+assertBetaTagPolicy(version);
 const alreadyPublished = assertRegistryState(version, false);
 
 npm(["run", "release:check"]);
@@ -232,7 +232,9 @@ if (!alreadyPublished) {
 
 for (const packageName of packageNames) {
   const tags = registryTags(packageName);
-  if (tags.beta !== version || tags.latest) throw new Error(`Unerwartete dist-tags fuer ${packageName}: ${JSON.stringify(tags)}`);
+  if (tags.beta !== version || tags.latest === version) {
+    throw new Error(`Unerwartete dist-tags fuer ${packageName}: ${JSON.stringify(tags)}`);
+  }
 }
 npm(["run", "smoke:published"]);
 process.stdout.write(`\nRelease ${tag} vollstaendig verifiziert: ${releaseUrl}\n`);
