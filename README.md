@@ -59,7 +59,9 @@ anderen Eintrag löscht und kein Token enthält, sichere die Datei und wende ihn
 ohne weitere Rückfrage an; andernfalls stoppe. Prüfe danach mit
 `steuer-spar-erklaerung-setup --check`, der MCP-Serverliste und einem echten
 Aufruf des MCP-Tools `sse_health` mit `ok=true`; „connected“ allein genügt
-nicht. Nicht in einer Cloud-Umgebung ausführen, keinen Autostart oder Connector
+nicht. Die rohe API-Datei `config.json` weder öffnen, lesen noch parsen und
+keine eigenen HTTP-Aufrufe bauen; Setup-CLI und MCP laden das Token intern.
+Nicht in einer Cloud-Umgebung ausführen, keinen Autostart oder Connector
 einrichten und noch keinen Steuerfall öffnen.
 ```
 

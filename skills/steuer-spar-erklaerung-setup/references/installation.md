@@ -43,6 +43,11 @@ mindestens 22 meldet und `npm --version` funktioniert. Dann nicht parallel das
 Portable-Release herunterladen. Fehlt Node/npm, bleibt Portable unterstützt;
 Node.js wird nicht nur für dieses Produkt nachinstalliert.
 
+OpenCode darf die rohe API-Datei `config.json` weder öffnen, lesen noch parsen
+und die API nicht mit selbst gebauten HTTP-Aufrufen prüfen. Setup-CLI und
+MCP-Bootstrap laden das Token intern; für die Prüfung genügen `--check`, die
+MCP-Serverliste und der echte MCP-Aufruf `sse_health`.
+
 `npx skills` selbst benötigt Node.js/npm. Git ist keine Produktvoraussetzung:
 ohne funktionierenden Skill-Installer darf der Agent die beiden Skillordner aus
 dem aktuellen Repository-ZIP kopieren oder die Skills aus dem verifizierten
@@ -154,8 +159,10 @@ Der Wizard erzeugt außerhalb des Produkts eine Loopback-Konfiguration, einen
 fensterlosen API-Starter, `setup-decisions.json`, `settings.md`, Tracking und
 eine MCP-Mergevorlage. Die MCP-Vorlage enthält **kein Token**: Sie startet einen
 lokalen Bootstrap, der das Token erst im Prozess aus `config.json` lädt.
-`config.json` und ihr Token niemals in Chat, Log, Diff, Prozessargument oder
-eigenen `curl`-/`Invoke-RestMethod`-Aufruf übernehmen.
+`config.json` niemals öffnen, lesen oder parsen. Die Datei und ihr Token niemals
+in Chat, Log, Diff, Prozessargument oder eigenen `curl`-/`Invoke-RestMethod`-
+Aufruf übernehmen. Authentifizierte Prüfungen ausschließlich über Setup-CLI,
+ausgelieferte API-CLI oder MCP ausführen; diese laden das Token intern.
 
 ## 4. MCP an den lokalen Client binden
 
@@ -231,7 +238,9 @@ anderen Eintrag löscht und kein Token enthält, sichere die Datei und wende ihn
 ohne weitere Rückfrage an; andernfalls stoppe. Prüfe danach mit
 `steuer-spar-erklaerung-setup --check`, der MCP-Serverliste und einem echten
 Aufruf des MCP-Tools `sse_health` mit `ok=true`; „connected“ allein genügt
-nicht. Nicht in einer Cloud-Umgebung ausführen, keinen Autostart oder Connector
+nicht. Die rohe API-Datei `config.json` weder öffnen, lesen noch parsen und
+keine eigenen HTTP-Aufrufe bauen; Setup-CLI und MCP laden das Token intern.
+Nicht in einer Cloud-Umgebung ausführen, keinen Autostart oder Connector
 einrichten und noch keinen Steuerfall öffnen.
 ```
 
