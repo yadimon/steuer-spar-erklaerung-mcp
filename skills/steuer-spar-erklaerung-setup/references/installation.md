@@ -43,6 +43,12 @@ mindestens 22 meldet und `npm --version` funktioniert. Dann nicht parallel das
 Portable-Release herunterladen. Fehlt Node/npm, bleibt Portable unterstützt;
 Node.js wird nicht nur für dieses Produkt nachinstalliert.
 
+OpenCode ist ein sekundärer, best-effort Client. Verwende dort einen Agenten,
+der PowerShell-Anweisungen zuverlässig ausführt. Für ein technisches Setup ohne
+Steuerfallbindung nach der Paketinstallation exakt
+`steuer-spar-erklaerung-setup --defaults --with-mcp` ausführen: den
+interaktiven Wizard nicht starten und niemals Antworten über `stdin` zuführen.
+
 OpenCode darf die rohe API-Datei `config.json` weder öffnen, lesen noch parsen
 und die API nicht mit selbst gebauten HTTP-Aufrufen prüfen. Setup-CLI und
 MCP-Bootstrap laden das Token intern; für die Prüfung genügen `--check`, die
@@ -241,6 +247,9 @@ ohne weitere Rückfrage an; andernfalls stoppe. Prüfe danach mit
 Aufruf des MCP-Tools `sse_health` mit `ok=true`; „connected“ allein genügt
 nicht. Die rohe API-Datei `config.json` weder öffnen, lesen noch parsen und
 keine eigenen HTTP-Aufrufe bauen; Setup-CLI und MCP laden das Token intern.
+Bei OpenCode mit vorhandenem npm den npm-Weg und für dieses technische Setup
+`steuer-spar-erklaerung-setup --defaults --with-mcp` verwenden; keine
+interaktive Eingabe automatisieren.
 Nicht in einer Cloud-Umgebung ausführen, keinen Autostart oder Connector
 einrichten und noch keinen Steuerfall öffnen.
 ```
