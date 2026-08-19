@@ -62,6 +62,9 @@ ohne weitere Rückfrage an; andernfalls stoppe. Prüfe danach mit
 Aufruf des MCP-Tools `sse_health` mit `ok=true`; „connected“ allein genügt
 nicht. Die rohe API-Datei `config.json` weder öffnen, lesen noch parsen und
 keine eigenen HTTP-Aufrufe bauen; Setup-CLI und MCP laden das Token intern.
+Bei OpenCode mit vorhandenem npm den npm-Weg und für dieses technische Setup
+`steuer-spar-erklaerung-setup --defaults --with-mcp` verwenden; keine
+interaktive Eingabe automatisieren.
 Nicht in einer Cloud-Umgebung ausführen, keinen Autostart oder Connector
 einrichten und noch keinen Steuerfall öffnen.
 ```
@@ -116,6 +119,18 @@ npx -y skills add yadimon/steuer-spar-erklaerung-mcp --skill steuer-spar-erklaer
 npx -y skills add yadimon/steuer-spar-erklaerung-mcp --skill steuer-spar-erklaerung --skill steuer-spar-erklaerung-setup --agent claude-code --global --copy --yes
 npx -y skills add yadimon/steuer-spar-erklaerung-mcp --skill steuer-spar-erklaerung --skill steuer-spar-erklaerung-setup --agent opencode --global --copy --yes
 ```
+
+OpenCode bleibt ein sekundärer, best-effort Client. Mit bereits vorhandenem
+Node.js/npm ist sein kurzer Runtime-Weg nach der Skill-Installation:
+
+```powershell
+npm install --global @yadimon/steuer-spar-erklaerung-api@beta @yadimon/steuer-spar-erklaerung-mcp@beta
+steuer-spar-erklaerung-setup --defaults --with-mcp
+```
+
+Den interaktiven Wizard dort nicht per `stdin` automatisieren. Für den
+empfohlenen Standardweg sind Codex oder Claude Code mit eingerichteter lokaler
+Anmeldung die belastbarer geprüften Clients.
 
 Eine nur geöffnete oder gecachte Webansicht ist keine lokale Skill-
 Installation; nach dem Kopieren den Agenten neu laden und beide Skills

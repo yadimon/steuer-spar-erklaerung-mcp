@@ -118,12 +118,14 @@ assert(installation.includes("Installation für Menschen und AI-Agenten"));
 assert(installation.includes("Codex Cloud") && installation.includes("OpenCode"));
 assert(installation.includes("Node.js 22+ mit npm") && installation.includes("Portable"));
 assert(installation.includes("Für OpenCode ist der npm-Weg der einfache Standard"));
+assert(installation.includes("OpenCode ist ein sekundärer, best-effort Client"));
 assert(
   installation.includes("OpenCode darf die rohe API-Datei `config.json` weder öffnen, lesen noch parsen")
     && installation.includes("Setup-CLI")
     && installation.includes("MCP-Bootstrap laden das Token intern"),
 );
 assert(installation.includes("--agent <codex|claude-code|opencode>"));
+assert(installation.includes("steuer-spar-erklaerung-setup --defaults --with-mcp") && installation.includes("niemals Antworten über `stdin`"));
 assert(installation.includes("steuer-spar-erklaerung-setup --check"));
 assert(installation.includes("enthält **kein Token**") && installation.includes("containsToken: false"));
 assert(installation.includes("## Zwei kopierbare Prompts") && installation.includes("$steuer-spar-erklaerung"));
@@ -180,5 +182,6 @@ assert(readme.toLowerCase().includes("installiere oder aktualisiere") && readme.
 assert(readme.includes("## Schnellstart mit zwei Prompts") && readme.includes("steuer-spar-erklaerung-setup --check"));
 assert(readme.includes("Nicht in einer Cloud-Umgebung ausführen") && readme.includes("$steuer-spar-erklaerung"));
 assert(readme.includes("dieser Auftrag gilt als `OK Standard`") && readme.includes("additiv hinzufügt oder aktualisiert"));
+assert(readme.includes("OpenCode bleibt ein sekundärer, best-effort Client") && readme.includes("Codex oder Claude Code"));
 
 process.stdout.write("Public Skills: 2 flache npx-kompatible, deutsche und portable Skill-Pakete bestanden\n");
