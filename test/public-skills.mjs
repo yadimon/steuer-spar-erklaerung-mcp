@@ -128,6 +128,7 @@ assert(installation.includes("steuer-spar-erklaerung-setup --check"));
 assert(installation.includes("enthält **kein Token**") && installation.includes("containsToken: false"));
 assert(installation.includes("## Zwei kopierbare Prompts") && installation.includes("$steuer-spar-erklaerung"));
 assert(installation.includes("additiv hinzufügt oder aktualisiert") && installation.includes("ohne weitere Rückfrage"));
+assert(installation.includes("Führe ihn jetzt vollständig aus und frage") && installation.includes("nicht erneut nach Bestätigung"));
 assert(installation.includes("dieser Auftrag gilt als `OK Standard`") && installation.includes("sichtbare Bedienung"));
 assert(installation.includes("MCP-Tools `sse_health`") && installation.includes("`ok=true`"));
 assert(!setup.includes("Windows 10/11"), "Setup darf kompatible Windows-Versionen nicht nach Label sperren.");
