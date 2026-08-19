@@ -31,6 +31,9 @@ Windows PowerShell 5.1.
      direkt aus einem flüchtigen `npx`-Cache einrichten;
    - **Portable:** wenn Node/npm fehlt, ungeeignet oder vom Nutzer nicht für
      die Runtime gewünscht ist. Installiere Node/npm nicht als Voraussetzung.
+   Bei OpenCode mit bereits funktionierendem Node.js 22+ und npm ist npm der
+   kurze Standardweg; prüfe dann nicht zusätzlich den Portable-Weg und lade
+   nicht beide Distributionen herunter.
 4. Binde beide Wege an denselben vollständigen Release. Beim npm-Weg lies die
    `beta`-Version von `@yadimon/steuer-spar-erklaerung-api` und bei
    MCP-Wunsch zusätzlich `@yadimon/steuer-spar-erklaerung-mcp`; beide müssen
@@ -89,6 +92,11 @@ Ziel ohne verifizierbares Backup.
 MCP bleibt optional. Erkläre bei Nachfrage kurz, dass die lokale API die
 SteuerSparErklärung bedient und MCP einen kompatiblen Agenten damit verbindet.
 Richte MCP nur auf ausdrücklichen Wunsch und nach gezeigtem Datei-Diff ein.
+Eine bereits im aktuellen Auftrag enthaltene bedingte Zustimmung gilt ohne
+dritte Rückfrage, wenn sie ausschließlich Backup plus additiven Merge oder
+Update des einen tokenfreien Eintrags `steuer-spar-erklaerung` erlaubt und der
+gezeigte Diff genau diese Grenzen einhält. Bei Löschung, Ersetzung der ganzen
+Datei, weiteren Servern, Token oder anderem Befehl stoppe stattdessen.
 
 ## Einrichten
 
@@ -111,10 +119,14 @@ Lies vor der Ausführung
    First-Run bereits bestätigt, übergib ausschließlich dessen kurze private
    JSON-Datei mit `--plan-file <absoluter-planpfad>`. Sie darf nur
    `schemaVersion`, `profileId`, `caseDir`, `sourceFolders` und optional den
-   eindeutig erkannten `sseExecutable` enthalten. Der Plan erzwingt direkte
-   API, read-only, Reference-only, Markdown-Tracking, keine Connectoren und
-   keine interaktiven Prompts; automatisiere `stdin` dafür nicht. Verwende
-   Bei bestätigtem MCP `--with-mcp` ergänzen. `--defaults` nur, wenn diese Pfade bereits gespeichert sind oder ausdrücklich
+   eindeutig erkannten `sseExecutable` enthalten. Bei einer neuen Einrichtung
+   setzt der Plan read-only, Reference-only, Markdown-Tracking und keine
+   Connectoren. Bei einer vorhandenen technischen Einrichtung darf er genau
+   einmal zuvor leere Fall-/Quellbindungen ergänzen; vorhandenen Transport und
+   sonstige Einstellungen behält der Wizard dabei bei. Bereits nicht leere
+   Bindungen darf der Plan niemals ersetzen. Er startet keine interaktiven
+   Prompts; automatisiere `stdin` dafür nicht. Bei bestätigtem MCP
+   `--with-mcp` ergänzen. `--defaults` nur, wenn diese Pfade bereits gespeichert sind oder ausdrücklich
    kein Fall-/Quellordner gebunden werden soll, und frage den Nutzer nicht erneut.
    `--no-start` nur auf Wunsch.
    Führe keinen Build auf dem Nutzer-PC aus. Beim Portable-Weg keinen globalen
@@ -134,7 +146,8 @@ Lies vor der Ausführung
    erst im Prozess; ein `env`-Objekt mit `SSE_API_TOKEN` ist eine veraltete,
    unsichere Vorlage und muss durch erneutes Setup ersetzt werden.
 4. Sichere vorhandene Konfiguration. Merge nur, wenn der Nutzer Dateipfad und
-   Diff bestätigt hat; ersetze niemals die komplette Datei.
+   Diff bestätigt hat oder der aktuelle Auftrag die oben beschriebene enge
+   bedingte Zustimmung bereits enthält; ersetze niemals die komplette Datei.
    Repariere einen alten Eintrag mit `command = "node"`, `node.cmd`, `npx` oder
    einem Batch-Wrapper: MCP muss die vom Wizard ausgegebene absolute
    `node.exe` direkt starten – portable die mitgelieferte `runtime/node.exe`,
@@ -143,11 +156,13 @@ Lies vor der Ausführung
    ungültige Cachepfade und schwarze `cmd.exe`-Fenster entstehen.
 5. Starte die API mit dem erzeugten fensterlosen Launcher. Registriere eine
    geplante Aufgabe nur nach separater Zustimmung.
-   Antwortet auf demselben Port bereits eine API mit einem abweichenden Konfigurationsfingerprint,
-   starte keine zweite API neben einer alten API.
-   Beende die eindeutig gebundene alte API kontrolliert oder verwende ihre
-   bestätigte Konfiguration, und verifiziere erst danach genau einen Neustart.
-   Ein beliebiger Portprozess darf niemals pauschal beendet werden.
+   Für die einmalige Ergänzung zuvor leerer Fall-/Quellbindungen fordert der
+   Wizard die laufende API selbst über ihren internen Loopback-Setup-Endpunkt
+   mit Token und exaktem bisherigen Konfigurationsfingerprint zum kontrollierten
+   Shutdown auf, schreibt redigierte Backups und startet genau diese API neu.
+   Antwortet auf demselben Port eine andere, alte oder nicht eindeutig
+   gebundene API, stoppe. Ein beliebiger Port- oder Node-Prozess darf niemals
+   pauschal beendet werden.
 6. Führe nach dem Start `steuer-spar-erklaerung-setup --check` aus; beim
    Portable-Weg `sse-setup.cmd --check`. Prüfe damit `/healthz`, Discovery,
    Produktprofil, Engine, Workspace und read-only
@@ -164,7 +179,9 @@ Lies vor der Ausführung
 7. Bei MCP-Wunsch: verwende das vollständige **tokenfreie** Serverobjekt der Setup-Ausgabe,
    prüfe darin nochmals den absoluten `node.exe`-Befehl und dauerhaften
    MCP-Einstieg, lade den Client
-   neu, liste den Server und führe einen realen MCP-Health-Aufruf aus. Für
+   neu, liste den Server und führe das MCP-Tool `sse_health` real aus. Erfolg
+   verlangt dessen strukturiertes Resultat mit `ok=true`; ein Servereintrag,
+   Status „connected“ oder erfolgreicher Handshake ist kein Ersatz. Für
    Codex `codex mcp list`, für Claude Code `claude mcp list`, für OpenCode
    `opencode mcp list` beziehungsweise `opencode mcp ls` verwenden. Bleibt das
    unmöglich, direkte API als vollwertigen Fallback anbieten.
@@ -185,6 +202,11 @@ Stoppe bei inkompatiblem System, unbekannter Releasequelle, Hashfehler,
 unfreigegebenem Profil, fehlender Nutzerzustimmung, uneindeutiger
 Agenten-Konfiguration oder nicht erreichbarer API nach einem Erstversuch und
 höchstens zwei Wiederholungen im Abstand von je 2 Sekunden.
+
+Lehnt `--plan-file` eine vorhandene Bindung oder den kontrollierten Neustart
+ab, arbeite nicht darum herum: `config.json`, `setup-decisions.json`,
+installierte Runtime-Dateien und Prozesse weder lesen noch manuell ändern oder
+beenden. Melde den Wizard-Fehler als sicheren Stopp.
 
 Berichte konkrete Datei, letzten gelesenen Zustand, bereits erzeugte Dateien
 und genau eine nächste sichere Aktion. Lösche Konfigurationen oder geplante

@@ -181,8 +181,9 @@ export async function runApiRuntime(configPath?: string): Promise<void> {
     config,
     execute,
     log,
+    requestSetupShutdown: () => shutdownLifecycle.requestShutdown(),
   });
+  const shutdownLifecycle = installApiShutdown(server, shutdown, log);
   await listenSseApiServer(server, config.host, config.port);
   log({ event: "ready", host: config.host, port: config.port });
-  installApiShutdown(server, shutdown, log);
 }

@@ -10,6 +10,7 @@ import { MAX_API_BODY_BYTES, MAX_API_RESPONSE_BYTES, MAX_OPERATION_TIMEOUT_MS, S
 import { createApiExecutor } from "../dist/api-executor.js";
 import { SSE_API_DISCOVERY } from "../dist/api-discovery.js";
 import { createSseApiServer, listenSseApiServer } from "../dist/api-server.js";
+import { configurationFingerprint } from "../dist/workspace-status.js";
 
 const token = "test-token-with-at-least-24-characters";
 const calls = [];
@@ -23,10 +24,13 @@ const config = {
   configPath: "C:\\ApiConfig\\config.json",
   caseDir: "C:\\SSE-Cases",
   workspaceDir: join(temporary, "workspace"),
+  documentsDir: join(temporary, "documents"),
   resultDir: "C:\\SSE-Results",
+  backupsDir: join(temporary, "backups"),
   sseExecutable: "C:\\Program Files\\SSE 2025\\SSE.exe",
 };
 config.resultDir = join(temporary, "results");
+let setupShutdownRequested = false;
 let markAbortStarted;
 let markAbortObserved;
 const abortStarted = new Promise((resolve) => { markAbortStarted = resolve; });
@@ -121,6 +125,7 @@ const server = createSseApiServer({
     if (throwOnLog) throw new Error("synthetischer Logfehler");
     logs.push(record);
   },
+  requestSetupShutdown: () => { setupShutdownRequested = true; },
 });
 assert.equal(server.headersTimeout, 10_000);
 assert.equal(server.requestTimeout, 30_000);
@@ -216,6 +221,30 @@ try {
 
   const unauthorizedOpenApi = await fetch(`${baseUrl}/v1/openapi.json`);
   assert.equal(unauthorizedOpenApi.status, 401);
+
+  const unauthorizedSetupShutdown = await fetch(`${baseUrl}/v1/setup/shutdown`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ expectedConfigurationFingerprint: configurationFingerprint(config) }),
+  });
+  assert.equal(unauthorizedSetupShutdown.status, 401);
+  const mismatchedSetupShutdown = await fetch(`${baseUrl}/v1/setup/shutdown`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ expectedConfigurationFingerprint: "0".repeat(64) }),
+  });
+  assert.equal(mismatchedSetupShutdown.status, 409);
+  assert.equal((await mismatchedSetupShutdown.json()).error.code, "configuration-mismatch");
+  assert.equal(setupShutdownRequested, false);
+  const acceptedSetupShutdown = await fetch(`${baseUrl}/v1/setup/shutdown`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ expectedConfigurationFingerprint: configurationFingerprint(config) }),
+  });
+  assert.equal(acceptedSetupShutdown.status, 202);
+  assert.equal((await acceptedSetupShutdown.json()).ok, true);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(setupShutdownRequested, true);
 
   const clientDiscovery = await readApiDiscovery({ baseUrl, token });
   assert.deepEqual(clientDiscovery.operations, SSE_API_OPERATIONS);

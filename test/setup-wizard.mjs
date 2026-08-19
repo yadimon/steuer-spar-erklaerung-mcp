@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,6 +20,7 @@ import { loadApiServerConfig } from "../dist/api-config.js";
 import { probeWindowsPowerShell } from "../dist/windows-runtime.js";
 
 const temporary = mkdtempSync(join(tmpdir(), "sse-setup-test-"));
+let technicalApiProcess;
 try {
   assert.deepEqual(parseSetupArguments([]), { help: false, defaults: false, startApi: true, check: false, withMcp: false });
   assert.deepEqual(parseSetupArguments(["--defaults"]), { help: false, defaults: true, startApi: true, check: false, withMcp: false });
@@ -118,6 +119,98 @@ try {
   const defaultsConfigAfter = JSON.parse(readFileSync(defaultsConfigPath, "utf8"));
   assert.equal(defaultsConfigAfter.token, defaultsConfigBefore.token, "Default-Reparatur darf das Token nicht rotieren.");
   assert.equal(readFileSync(defaultsSettingsPath, "utf8"), "# Eigene Default-Einstellung\n");
+
+  const technicalRoot = join(temporary, "technical-then-case-binding");
+  const technicalEnvironment = {
+    ...defaultsEnvironment,
+    LOCALAPPDATA: join(technicalRoot, "LocalAppData"),
+  };
+  const technicalSetup = spawnSync(
+    process.execPath,
+    ["dist/setup-main.js", "--defaults", "--with-mcp", "--no-start"],
+    { encoding: "utf8", env: technicalEnvironment, windowsHide: true, timeout: 15_000 },
+  );
+  assert.equal(technicalSetup.status, 0, technicalSetup.stderr);
+  const technicalConfigPath = join(
+    technicalEnvironment.LOCALAPPDATA,
+    "SteuerSparErklaerungApi",
+    "config.json",
+  );
+  const technicalConfig = JSON.parse(readFileSync(technicalConfigPath, "utf8"));
+  assert.equal(technicalConfig.caseDir, undefined);
+  const technicalPreferences = loadStoredSetupPreferences(technicalConfig.workspaceDir);
+  assert.equal(technicalPreferences.transport, "api-and-mcp");
+  assert.deepEqual(technicalPreferences.sourceFolders, []);
+  let technicalApiStderr = "";
+  technicalApiProcess = spawn(process.execPath, ["dist/api-main.js", "--config", technicalConfigPath], {
+    env: technicalEnvironment,
+    windowsHide: true,
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+  technicalApiProcess.stderr.on("data", (chunk) => { technicalApiStderr += chunk.toString("utf8"); });
+  const technicalApiExited = new Promise((resolve) => {
+    technicalApiProcess.once("exit", (code, signal) => resolve({ code, signal }));
+  });
+  let technicalApiHealthy = false;
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    try {
+      const response = await fetch(`http://127.0.0.1:${technicalConfig.port}/healthz`);
+      technicalApiHealthy = response.ok;
+      await response.body?.cancel();
+      if (technicalApiHealthy) break;
+    } catch {
+      // API startet noch.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  assert.equal(technicalApiHealthy, true, technicalApiStderr);
+  const boundCaseDir = join(technicalRoot, "cases", "2025");
+  const boundSourceDir = join(technicalRoot, "documents", "2025");
+  mkdirSync(boundCaseDir, { recursive: true });
+  mkdirSync(boundSourceDir, { recursive: true });
+  const bindingPlanPath = join(technicalRoot, "binding-plan.json");
+  writeFileSync(bindingPlanPath, JSON.stringify({
+    schemaVersion: 1,
+    profileId: "2025",
+    caseDir: boundCaseDir,
+    sourceFolders: [boundSourceDir],
+  }), "utf8");
+  const boundSetup = spawnSync(
+    process.execPath,
+    ["dist/setup-main.js", "--plan-file", bindingPlanPath, "--no-start"],
+    { encoding: "utf8", env: technicalEnvironment, windowsHide: true, timeout: 15_000 },
+  );
+  assert.equal(boundSetup.status, 0, boundSetup.stderr);
+  assert.match(boundSetup.stdout, /erstmalige Fall-\/Quellbindung/);
+  const technicalApiExit = await Promise.race([
+    technicalApiExited,
+    new Promise((_, reject) => setTimeout(() => reject(new Error("Kontrollierte technische API blieb aktiv.")), 5_000)),
+  ]);
+  assert.equal(technicalApiExit.code, 0, technicalApiStderr);
+  const boundConfig = JSON.parse(readFileSync(technicalConfigPath, "utf8"));
+  const boundPreferences = loadStoredSetupPreferences(boundConfig.workspaceDir);
+  assert.equal(boundConfig.caseDir, boundCaseDir);
+  assert.equal(boundConfig.token, technicalConfig.token, "Erstbindung darf das Token nicht rotieren.");
+  assert.deepEqual(boundPreferences.sourceFolders, [boundSourceDir]);
+  assert.equal(boundPreferences.transport, "api-and-mcp", "Erstbindung darf MCP nicht still downgraden.");
+  const replacementSourceDir = join(technicalRoot, "documents", "replacement");
+  mkdirSync(replacementSourceDir, { recursive: true });
+  const replacementPlanPath = join(technicalRoot, "replacement-plan.json");
+  writeFileSync(replacementPlanPath, JSON.stringify({
+    schemaVersion: 1,
+    profileId: "2025",
+    caseDir: boundCaseDir,
+    sourceFolders: [replacementSourceDir],
+  }), "utf8");
+  const replacementSetup = spawnSync(
+    process.execPath,
+    ["dist/setup-main.js", "--plan-file", replacementPlanPath, "--no-start"],
+    { encoding: "utf8", env: technicalEnvironment, windowsHide: true, timeout: 15_000 },
+  );
+  assert.notEqual(replacementSetup.status, 0);
+  assert.match(replacementSetup.stderr, /weicht von der vorhandenen Konfiguration ab/);
+  assert.deepEqual(JSON.parse(readFileSync(technicalConfigPath, "utf8")), boundConfig);
+  assert.deepEqual(loadStoredSetupPreferences(boundConfig.workspaceDir), boundPreferences);
 
   const planRoot = join(temporary, "plan-e2e");
   const planCaseDir = join(planRoot, "Steuerfaelle", "2025");
@@ -449,5 +542,6 @@ try {
   assert.throws(() => writeSetupArtifacts(changed, true), /Backup weicht.*erwarteten Inhalt/);
   process.stdout.write(`Setup-Wizard: Hilfe in ${helpMs.toFixed(0)} ms, Einstellungen, Tracking, Backups und MCP-Mergevorlage bestanden\n`);
 } finally {
+  if (technicalApiProcess && technicalApiProcess.exitCode === null) technicalApiProcess.kill();
   rmSync(temporary, { recursive: true, force: true });
 }

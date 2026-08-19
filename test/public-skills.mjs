@@ -57,6 +57,9 @@ assert(main.includes("Get-CimInstance") && main.includes("beweist keine beendete
 assert(main.includes("SSE kann noch geöffnet sein") && main.includes("stillRunning=false"));
 assert(main.includes("kein laufender Build messbar") && main.includes('kind="collection-incomplete"'));
 assert(main.includes("references/first-run.md") && main.includes("OK Standard"));
+assert(main.includes("echten Aufruf von `sse_health`") && main.includes("Handshake allein genügt nicht"));
+assert(main.includes("sichtbare read-only UI-Navigation") && main.includes("dritte Rückfrage"));
+assert(main.includes("Runtime-Dateien oder") && main.includes("niemals manuell als Umgehung"));
 const firstRun = readFileSync(
   join(skillsRoot, "steuer-spar-erklaerung", "references", "first-run.md"),
   "utf8",
@@ -69,6 +72,8 @@ assert(firstRun.includes("`OK`, `OK Standard` oder `OK Default`"));
 assert(firstRun.includes("hashverifizierte Prüffallkopie") && firstRun.includes("ausschließlich diese öffnen"));
 assert(firstRun.includes("Setup allein erfüllt") && firstRun.includes("capabilities"));
 assert(firstRun.includes("--plan-file") && firstRun.includes('"schemaVersion": 1'));
+assert(firstRun.includes("genau einmal") && firstRun.includes("Fingerprint") || firstRun.includes("fingerprint"));
+assert(firstRun.includes("Frage sie nicht erneut") && firstRun.includes("gleichwertige Bestätigung"));
 assert(firstRun.includes("Release-, Download-, Paket-, Skill-, Cache-"));
 const uiFallback = readFileSync(
   join(skillsRoot, "steuer-spar-erklaerung", "references", "ui-fallback.md"),
@@ -94,9 +99,13 @@ assert(setup.includes("settings.md") && setup.includes("tracking.md") && setup.i
 assert(setup.includes("Connector") && setup.includes("read-only Prüfung"));
 assert(setup.includes("aktuellste dort veröffentlichte") && setup.includes("OK Standard"));
 assert(setup.includes("npm install --global") && setup.includes("@yadimon/steuer-spar-erklaerung-api@beta"));
+assert(setup.includes("Bei OpenCode") && setup.includes("npm der") && setup.includes("kurze Standardweg"));
 assert(setup.includes("@yadimon/steuer-spar-erklaerung-mcp@beta") && setup.includes("flüchtigen `npx`-Cache"));
 assert(setup.includes("`--defaults` nur") && setup.includes("frage den Nutzer nicht erneut"));
-assert(setup.includes("abweichenden Konfigurationsfingerprint") && setup.includes("neben einer alten API"));
+assert(setup.includes("internen Loopback-Setup-Endpunkt") && setup.includes("Konfigurationsfingerprint"));
+assert(setup.includes("zuvor leere Fall-/Quellbindungen") && setup.includes("Bereits nicht leere"));
+assert(setup.includes("MCP-Tool `sse_health`") && setup.includes("Handshake ist kein Ersatz"));
+assert(setup.includes("arbeite nicht darum herum") && setup.includes("Prozesse weder lesen noch manuell ändern"));
 assert(setup.includes("öffnet nie selbst einen Steuerfall") && setup.includes("hashverifizierte Prüffallkopie"));
 assert(setup.includes("Windows-`tar.exe`") && setup.includes("Teilordner darf nicht gestartet werden"));
 const installation = readFileSync(
@@ -108,10 +117,14 @@ assert(installation.includes("WinRT") && installation.includes("Exitcode 0"));
 assert(installation.includes("Installation für Menschen und AI-Agenten"));
 assert(installation.includes("Codex Cloud") && installation.includes("OpenCode"));
 assert(installation.includes("Node.js 22+ mit npm") && installation.includes("Portable"));
+assert(installation.includes("Für OpenCode ist der npm-Weg der einfache Standard"));
 assert(installation.includes("--agent <codex|claude-code|opencode>"));
 assert(installation.includes("steuer-spar-erklaerung-setup --check"));
 assert(installation.includes("enthält **kein Token**") && installation.includes("containsToken: false"));
 assert(installation.includes("## Zwei kopierbare Prompts") && installation.includes("$steuer-spar-erklaerung"));
+assert(installation.includes("additiv hinzufügt oder aktualisiert") && installation.includes("ohne weitere Rückfrage"));
+assert(installation.includes("dieser Auftrag gilt als `OK Standard`") && installation.includes("sichtbare Bedienung"));
+assert(installation.includes("MCP-Tools `sse_health`") && installation.includes("`ok=true`"));
 assert(!setup.includes("Windows 10/11"), "Setup darf kompatible Windows-Versionen nicht nach Label sperren.");
 for (const source of [main, firstRun, setup]) {
   assert(
@@ -121,6 +134,19 @@ for (const source of [main, firstRun, setup]) {
 }
 
 const readme = readFileSync(join(root, "README.md"), "utf8");
+const fencedPrompt = (source, prefix) => [...source.matchAll(/```text\r?\n([\s\S]*?)\r?\n```/gu)]
+  .map((match) => match[1])
+  .find((text) => text.startsWith(prefix));
+assert.equal(
+  fencedPrompt(readme, "Richte SteuerSparErklärung"),
+  fencedPrompt(installation, "Richte SteuerSparErklärung"),
+  "README und kanonische Anleitung enthalten unterschiedliche Installationsprompts.",
+);
+assert.equal(
+  fencedPrompt(readme, "Nutze $steuer-spar-erklaerung"),
+  fencedPrompt(installation, "Nutze $steuer-spar-erklaerung"),
+  "README und kanonische Anleitung enthalten unterschiedliche Prüfprompts.",
+);
 assert(readme.includes("## Was die Beta kann") && readme.includes("## Voraussetzungen"));
 assert.match(
   readme,
@@ -141,5 +167,6 @@ assert(readme.includes("npm install --global @yadimon/steuer-spar-erklaerung-mcp
 assert(readme.toLowerCase().includes("installiere oder aktualisiere") && readme.includes("gecachte Webansicht"));
 assert(readme.includes("## Schnellstart mit zwei Prompts") && readme.includes("steuer-spar-erklaerung-setup --check"));
 assert(readme.includes("Nicht in einer Cloud-Umgebung ausführen") && readme.includes("$steuer-spar-erklaerung"));
+assert(readme.includes("dieser Auftrag gilt als `OK Standard`") && readme.includes("additiv hinzufügt oder aktualisiert"));
 
 process.stdout.write("Public Skills: 2 flache npx-kompatible, deutsche und portable Skill-Pakete bestanden\n");

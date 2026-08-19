@@ -10,6 +10,8 @@ import { callApiOperation, readApiDiscovery, type ApiClientOptions } from "./api
 export const SETUP_HEALTH_TIMEOUT_MS = 15_000;
 export const SETUP_WORKSPACE_TIMEOUT_MS = 15_000;
 export const SETUP_START_ATTEMPTS = 6;
+export const SETUP_SHUTDOWN_ATTEMPTS = 10;
+export const SETUP_SHUTDOWN_DELAY_MS = 500;
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -48,6 +50,54 @@ async function healthResponds(endpoint: SetupApiEndpoint, fetchImpl: typeof fetc
   } catch {
     return false;
   }
+}
+
+export async function stopSetupApiForRebind(
+  endpoint: SetupApiEndpoint,
+  options: { fetchImpl?: typeof fetch; attempts?: number; delayMs?: number } = {},
+): Promise<boolean> {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  if (!endpoint.expectedConfigurationFingerprint) {
+    throw new Error("Kontrollierte API-Neubindung benoetigt den bisherigen Konfigurationsfingerprint.");
+  }
+  if (!await healthResponds(endpoint, fetchImpl)) return false;
+  let response: Response;
+  try {
+    response = await fetchImpl(`${setupBaseUrl(endpoint)}/v1/setup/shutdown`, {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        authorization: `Bearer ${endpoint.token}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        expectedConfigurationFingerprint: endpoint.expectedConfigurationFingerprint,
+      }),
+      redirect: "error",
+      signal: AbortSignal.timeout(SETUP_HEALTH_TIMEOUT_MS),
+    });
+  } catch (error) {
+    throw new Error(`Kontrollierter API-Shutdown nicht erreichbar: ${errorMessage(error)}`);
+  }
+  if (response.status !== 202) {
+    await response.body?.cancel();
+    throw new Error(
+      response.status === 404
+        ? "Laufende API unterstuetzt die sichere Neubindung noch nicht. Runtime aktualisieren und die API bewusst neu starten."
+        : `Laufende API lehnte die sichere Neubindung mit HTTP ${response.status} ab.`,
+    );
+  }
+  await response.body?.cancel();
+  const attempts = options.attempts ?? SETUP_SHUTDOWN_ATTEMPTS;
+  const delayMs = options.delayMs ?? SETUP_SHUTDOWN_DELAY_MS;
+  if (!Number.isInteger(attempts) || attempts < 1 || attempts > 20) {
+    throw new Error("Setup-API-Shutdown erlaubt 1 bis 20 Warteversuche.");
+  }
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    if (!await healthResponds(endpoint, fetchImpl)) return true;
+    if (attempt < attempts) await wait(delayMs);
+  }
+  throw new Error("Kontrolliert beendete API blieb am bestaetigten Loopback-Port erreichbar.");
 }
 
 async function verifyOnce(

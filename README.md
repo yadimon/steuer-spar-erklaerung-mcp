@@ -52,16 +52,21 @@ Richte SteuerSparErklärung vollständig lokal auf diesem Windows-PC nach
 https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/skills/steuer-spar-erklaerung-setup/references/installation.md
 ein. Installiere oder aktualisiere beide Skills für diesen lokalen Agenten und
 verwende das neueste vollständige Release. Richte lokale API plus MCP ein;
-zeige vor der Client-Konfigurationsänderung den tokenfreien Diff. Prüfe danach
-mit `steuer-spar-erklaerung-setup --check`, der MCP-Serverliste des Clients und
-einem echten MCP-Health-Aufruf. Nicht in einer Cloud-Umgebung ausführen und
-noch keinen Steuerfall öffnen.
+dieser Prompt bestätigt den beschriebenen Standardplan samt Download aus der
+kanonischen Quelle. Zeige den tokenfreien Client-Diff. Wenn er ausschließlich
+den Server `steuer-spar-erklaerung` additiv hinzufügt oder aktualisiert, keinen
+anderen Eintrag löscht und kein Token enthält, sichere die Datei und wende ihn
+ohne weitere Rückfrage an; andernfalls stoppe. Prüfe danach mit
+`steuer-spar-erklaerung-setup --check`, der MCP-Serverliste und einem echten
+Aufruf des MCP-Tools `sse_health` mit `ok=true`; „connected“ allein genügt
+nicht. Nicht in einer Cloud-Umgebung ausführen, keinen Autostart oder Connector
+einrichten und noch keinen Steuerfall öffnen.
 ```
 
 Das Setup verändert noch keinen Steuerfall. Vor dem Merge in eine vorhandene
 Client-Konfiguration zeigt der Agent den konkreten tokenfreien Diff. Erfolg
 bedeutet: `--check` ist grün, der neu geladene Client meldet den MCP-Server als
-verbunden und ein echter MCP-Health-Aufruf funktioniert.
+verbunden und das MCP-Tool `sse_health` liefert wirklich `ok=true`.
 
 ### 2. Steuerfall prüfen
 
@@ -70,10 +75,16 @@ Danach genügt ein fachlicher Prompt mit den echten Pfaden:
 ```text
 Nutze $steuer-spar-erklaerung und prüfe meine Einkommensteuererklärung 2025
 nur lesend. Steuerfall: <ABSOLUTER_PFAD_ZUM_FALL>. Belege:
-<ABSOLUTE_BELEGORDNER>. Erzeuge zuerst eine hashverifizierte Arbeitskopie,
-gleiche Fall, Belege und SSE-Prüfer ab und schreibe einen Report in den
-konfigurierten Ergebnisordner. Ändere nichts ohne meine ausdrückliche Freigabe
-und führe keine ELSTER-Übermittlung aus.
+<ABSOLUTE_BELEGORDNER>. Diese Pfade sind richtig und für diese Prüfung
+vollständig; dieser Auftrag gilt als `OK Standard`. Falls die technische
+Einrichtung noch keine Fall-/Quellbindung hat, ergänze genau diese Pfade über
+den sicheren Setup-Plan. Erzeuge eine hashverifizierte Prüffallkopie, kündige
+die sichtbare Bedienung an und navigiere danach ohne weitere Rückfrage nur
+lesend in dieser Kopie. Gleiche Fall, Belege und SSE-Prüfer ab und schreibe
+einen Report in den konfigurierten Ergebnisordner. Belege nur am Ursprungsort
+lesen und nicht in `documents` kopieren. Original, Steuerwerte und Belege nicht
+ändern oder speichern; bei ungespeichertem Zustand stoppen und keine
+ELSTER-Übermittlung ausführen.
 ```
 
 Eine im Kalenderjahr 2026 abgegebene Einkommensteuererklärung ist hier der
@@ -256,7 +267,11 @@ Mit `--defaults` läuft die technische Einrichtung mit sicheren Vorgaben.
 Nach den zwei First-run-Bestätigungen kann der Agent die bestätigten absoluten
 Fall- und Belegordner über eine kurze private JSON-Datei mit `--plan-file`
 übergeben; der Wizard akzeptiert daraus keine Tokens oder Schreibrechte und
-stellt keine Eingabeprompts erneut. `--no-start` erzeugt nur die Dateien. Sonst fragt der Wizard, ob er die API
+stellt keine Eingabeprompts erneut. Eine vorhandene technische Konfiguration
+mit leeren Fall-/Quellbindungen darf er damit genau einmal ergänzen; Token,
+MCP-Transport und sonstige Einstellungen bleiben erhalten, bereits nicht leere
+Bindungen werden abgelehnt. Eine laufende exakt gebundene API beendet und
+startet der Wizard dabei selbst kontrolliert neu. `--no-start` erzeugt nur die Dateien. Sonst fragt der Wizard, ob er die API
 jetzt fensterlos starten und Health, Discovery sowie Arbeitsbereich prüfen darf.
 Die API kann Markdown-Fortschritte als neue datierte Snapshots anlegen, ersetzt
 aber keine vorhandene Trackingdatei. Eine referenzierte XLSX-Datei wird nur über
@@ -341,7 +356,8 @@ Bearer-Wert. So werden außerdem Batch-/Shim-Prozesse und unnötige
 Konsolenfenster vermieden. Eine vorhandene Client-Konfiguration nie vollständig
 ersetzen; nur den bestätigten tokenfreien Servereintrag mergen. Danach
 `steuer-spar-erklaerung-setup --check`, die Serverliste des neu geladenen
-Clients und einen echten MCP-Health-Aufruf prüfen.
+Clients und einen echten Aufruf des MCP-Tools `sse_health` mit `ok=true`
+prüfen. Ein bloßes „connected“ oder ein Handshake genügt nicht.
 
 ## Sicherheitsmodell
 
@@ -463,7 +479,7 @@ Weitere Unterlagen:
 - [API-/MCP-Vertrag](docs/API-MCP-VERTRAG.md)
 - [Verifikationsstand](docs/VERIFIKATION.md)
 - [Release-Prozess](docs/RELEASE.md)
-- [Release Notes v0.1.0-beta.7](docs/releases/v0.1.0-beta.7.md)
+- [Release Notes v0.1.0-beta.8](docs/releases/v0.1.0-beta.8.md)
 - [Entwicklungswissen](docs/entwicklung/README.md)
 - [Mitwirken](CONTRIBUTING.md)
 - [Haupt-Skill](skills/steuer-spar-erklaerung/SKILL.md)
