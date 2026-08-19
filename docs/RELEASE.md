@@ -154,14 +154,11 @@ npm view '@yadimon/steuer-spar-erklaerung-api' dist-tags --json
 
 `npm whoami` muss `yadimon` oder ein Konto mit Veröffentlichungsrecht im
 Scope `@yadimon` zeigen. Beide `beta`-Tags müssen exakt `$version` nennen;
-`latest` darf in der Beta nicht auf diese Version zeigen. Falls ein erster
-manueller Publish zusätzlich `latest` angelegt hat, diesen nach erfolgreicher
-Prüfung mit den folgenden npm-Schreiboperationen entfernen:
-
-```powershell
-npm dist-tag rm '@yadimon/steuer-spar-erklaerung-mcp' latest
-npm dist-tag rm '@yadimon/steuer-spar-erklaerung-api' latest
-```
+`latest` darf in der Beta nicht auf diese Version zeigen. Ein vorhandener,
+älterer `latest`-Tag darf bestehen bleiben: Installationen ohne expliziten Tag
+erhalten weiterhin diesen Stand, während die aktuelle Vorabversion bewusst mit
+`@beta` installiert wird. Für einen Beta-Release muss `latest` daher nicht
+gelöscht oder verschoben werden.
 
 Bei aktiviertem `auth-and-writes` verlangt npm dabei einen persönlichen OTP-
 Schritt; den Code ausschließlich direkt in der eigenen Konsole oder npm-
@@ -183,7 +180,8 @@ nicht OIDC. In GitHub weder ein klassisches npm-Token noch ein Secret
 
 Ab der nächsten vollständig vorbereiteten Version übernimmt der lokale
 Orchestrator die Reihenfolge. Er verlangt einen sauberen `main`, identische
-API-/MCP-Versionen, vorhandene Release Notes und keinen `latest`-Tag, führt
+API-/MCP-Versionen und vorhandene Release Notes. Außerdem verhindert er, dass
+die aktuelle Betaversion zugleich als `latest` markiert ist. Danach führt er
 alle Gates aus, pusht Commit und annotierten Tag, erstellt und liest den
 GitHub-Prerelease zurück, startet erst danach Trusted Publishing und führt
 abschließend den Registry-Smoke aus:
