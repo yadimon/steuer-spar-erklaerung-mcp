@@ -18,6 +18,13 @@ Alle technischen Empfehlungen danach als einen sichtbaren Standardplan
 zusammenfassen. Der Nutzer kann ihn mit `OK`, `OK Standard` oder `OK Default`
 gemeinsam bestätigen oder einzelne Abweichungen nennen.
 
+Nennt der aktuelle Auftrag bereits genau einen absoluten Steuerfallpfad, die
+vollständige Liste absoluter Belegordner und ausdrücklich `OK Standard` oder
+die gleichwertige Bestätigung des unten beschriebenen Standardplans, gelten
+die beiden fachlichen Antworten und der Standardplan für diesen Auftrag als
+bestätigt. Frage sie nicht erneut. Eine allgemeine Bitte „prüfe meine
+Steuererklärung“ ohne diese Angaben ist keine solche Bestätigung.
+
 ## Kandidaten nur oberflächlich suchen
 
 Suche vor den beiden Fragen kurz und ausschließlich anhand von Dateisystem-
@@ -142,6 +149,13 @@ Kommandozeilenargumente. Der Setup-Prozess validiert Schema, vorhandene Ordner
 und sichere read-only Defaults. Nach erfolgreichem Setup stehen die dauerhaften
 Entscheidungen in `setup-decisions.json`; die temporäre Plandatei darf danach
 gelöscht werden, wenn sie ausschließlich für diesen Lauf neu erzeugt wurde.
+
+Eine vorhandene rein technische Einrichtung ohne Fall- und Quellbindung darf
+der veröffentlichte Wizard genau einmal mit diesem bestätigten Plan ergänzen.
+Er muss vorhandenen Transport und sonstige Einstellungen bewahren und eine
+laufende, exakt fingerprint-gebundene API kontrolliert neu starten. Lehnt der
+Wizard die Bindung ab, ändere weder `config.json` noch
+`setup-decisions.json` manuell und beende keinen Prozess als Umgehung.
 
 Nach erfolgreichem Setup kehre automatisch zum ursprünglichen Prüfauftrag
 zurück. Setup allein erfüllt einen Auftrag wie „Prüfe meine Steuererklärung“

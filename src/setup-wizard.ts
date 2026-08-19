@@ -31,7 +31,11 @@ import {
 } from "./setup-preferences.js";
 import { parseSetupArguments, SETUP_USAGE } from "./setup-main-arguments.js";
 import { loadConfirmedSetupPlan } from "./setup-plan.js";
-import { startAndVerifySetupApi, type SetupApiVerification } from "./setup-runtime.js";
+import {
+  startAndVerifySetupApi,
+  stopSetupApiForRebind,
+  type SetupApiVerification,
+} from "./setup-runtime.js";
 import { configurationFingerprint } from "./workspace-status.js";
 
 export async function runSetupMain(args: readonly string[]): Promise<void> {
@@ -127,7 +131,7 @@ export async function runSetupMain(args: readonly string[]): Promise<void> {
     const storedPreferences = existingConfiguration
       ? loadStoredSetupPreferences(workspaceDir)
       : undefined;
-    const mode = confirmedPlan ? "read-only-check" : storedPreferences?.mode ?? (useSafeDefaults
+    const mode = storedPreferences?.mode ?? (confirmedPlan ? "read-only-check" : useSafeDefaults
       ? "read-only-check"
       : await ask("Ziel: setup-only, read-only-check oder controlled-edit", "read-only-check") as SetupMode);
     const sourceFolders = confirmedPlan?.sourceFolders ?? storedPreferences?.sourceFolders ?? (useSafeDefaults
@@ -147,23 +151,30 @@ export async function runSetupMain(args: readonly string[]): Promise<void> {
       );
       connectors.push({ name, access: approved ? "approved" : "not-approved" });
     }
-    const documentCollection = confirmedPlan ? "reference-only" : storedPreferences?.documentCollection ?? ((useSafeDefaults || await askYes(
-      "Duerfen bestaetigte Dateien spaeter als Kopien unter documents gesammelt werden? Wenn Sie unsicher sind, antworten Sie Ja",
-      true,
-    )) ? "copy-after-confirmation" : "reference-only");
-    const transport = options.withMcp ? "api-and-mcp" : confirmedPlan ? "api" : storedPreferences?.transport ?? (useSafeDefaults
-      ? "api"
-      : await ask("Direkte API oder API plus MCP?", "api") as SetupTransport);
-    const trackingFormat = confirmedPlan ? "markdown" : storedPreferences?.tracking?.format ?? (
-      useSafeDefaults ? "markdown" : await ask("Tracking als markdown oder vorhandenes xlsx? Die lokale API bearbeitet xlsx nicht.", "markdown")
-    );
+    const documentCollection = storedPreferences?.documentCollection ?? (confirmedPlan
+      ? "reference-only"
+      : (useSafeDefaults || await askYes(
+        "Duerfen bestaetigte Dateien spaeter als Kopien unter documents gesammelt werden? Wenn Sie unsicher sind, antworten Sie Ja",
+        true,
+      )) ? "copy-after-confirmation" : "reference-only");
+    const transport = options.withMcp
+      ? "api-and-mcp"
+      : storedPreferences?.transport ?? (confirmedPlan ? "api" : useSafeDefaults
+        ? "api"
+        : await ask("Direkte API oder API plus MCP?", "api") as SetupTransport);
+    const trackingFormat = storedPreferences?.tracking?.format ?? (confirmedPlan
+      ? "markdown"
+      : useSafeDefaults ? "markdown" : await ask(
+        "Tracking als markdown oder vorhandenes xlsx? Die lokale API bearbeitet xlsx nicht.",
+        "markdown",
+      ));
     const trackingPath = storedPreferences?.tracking?.path ?? (trackingFormat === "xlsx"
       ? resolve(await ask("Pfad zur vorhandenen privaten Excel-Trackingdatei"))
       : join(workspaceDir, "tracking.md"));
     const additionalPriorities = storedPreferences?.priorities ?? (useSafeDefaults
       ? []
       : splitList(await ask("Optionale weitere Prioritaeten, durch Semikolon getrennt (leer erlaubt)")));
-    const initialReadOnlyCheck = confirmedPlan ? true : storedPreferences?.initialReadOnlyCheck ?? (useSafeDefaults || await askYes(
+    const initialReadOnlyCheck = storedPreferences?.initialReadOnlyCheck ?? (confirmedPlan ? true : useSafeDefaults || await askYes(
       "Nach erfolgreichem Setup eine erste Read-only-Pruefung vorbereiten? Wenn Sie unsicher sind, antworten Sie Ja",
       true,
     ));
@@ -196,30 +207,47 @@ export async function runSetupMain(args: readonly string[]): Promise<void> {
         ...(additionalPriorities.length ? { priorities: additionalPriorities } : {}),
       },
     };
+    let controlledRebind = false;
     if (confirmedPlan && existingConfiguration) {
       const samePath = (left: string | undefined, right: string): boolean =>
         Boolean(left) && resolve(left!).toLocaleLowerCase("de-DE") === resolve(right).toLocaleLowerCase("de-DE");
       const storedSources = storedPreferences?.sourceFolders ?? [];
-      const sameSources = storedPreferences &&
+      const sameSources = Boolean(storedPreferences) &&
         storedSources.length === confirmedPlan.sourceFolders.length &&
         storedSources.every((path, index) => samePath(path, confirmedPlan.sourceFolders[index]!));
+      const sameCase = samePath(existingConfiguration.caseDir, confirmedPlan.caseDir);
+      const sameSseExecutable = confirmedPlan.sseExecutable === undefined ||
+        samePath(existingConfiguration.sseExecutable, confirmedPlan.sseExecutable);
       const explicitMcpUpgrade = options.withMcp && storedPreferences?.transport === "api";
+      const sameTransport = !storedPreferences || storedPreferences.transport === transport || explicitMcpUpgrade;
+      const fillsEmptyBindings = Boolean(storedPreferences) &&
+        !existingConfiguration.caseDir &&
+        storedSources.length === 0;
       if (
         existingConfiguration.profileId !== confirmedPlan.profileId ||
-        !samePath(existingConfiguration.caseDir, confirmedPlan.caseDir) ||
-        (confirmedPlan.sseExecutable !== undefined &&
-          !samePath(existingConfiguration.sseExecutable, confirmedPlan.sseExecutable)) ||
-        (storedPreferences && (!sameSources || storedPreferences.mode !== "read-only-check" ||
-          (!explicitMcpUpgrade && storedPreferences.transport !== transport) ||
-          storedPreferences.documentCollection !== "reference-only" ||
-          storedPreferences.initialReadOnlyCheck !== true || storedPreferences.tracking?.format !== "markdown" ||
-          (storedPreferences.connectors?.length ?? 0) !== 0))
+        !sameSseExecutable ||
+        !sameTransport ||
+        (!sameCase || !sameSources) && !fillsEmptyBindings
       ) {
         throw new Error(
           "Bestaetigter Setup-Plan weicht von der vorhandenen Konfiguration ab. " +
           "Bestehende API nicht automatisch umkonfigurieren; zuerst bewusst sichern oder interaktiv neu einrichten.",
         );
       }
+      controlledRebind = fillsEmptyBindings && (!sameCase || !sameSources);
+    }
+    if (controlledRebind && existingConfiguration) {
+      const stopped = await stopSetupApiForRebind({
+        host: existingConfiguration.host,
+        port: existingConfiguration.port,
+        token: existingConfiguration.token,
+        expectedConfigurationFingerprint: configurationFingerprint(existingConfiguration),
+      });
+      stdout.write(
+        stopped
+          ? "Bisherige API fuer die bestaetigte erstmalige Fall-/Quellbindung kontrolliert beendet.\n"
+          : "Bisherige API war fuer die bestaetigte erstmalige Fall-/Quellbindung nicht aktiv.\n",
+      );
     }
     const existingTargets = setupArtifactTargetPaths(values).filter(existsSync);
     const overwrite = existingTargets.length && (options.defaults || Boolean(confirmedPlan))

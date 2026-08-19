@@ -14,9 +14,11 @@ import { attachScreenshotImage, installApiShutdown, MAX_SCREENSHOT_IMAGE_BYTES }
 import { readFileBounded } from "../dist/bounded-files.js";
 import {
   SETUP_HEALTH_TIMEOUT_MS,
+  SETUP_SHUTDOWN_ATTEMPTS,
   SETUP_START_ATTEMPTS,
   SETUP_WORKSPACE_TIMEOUT_MS,
   startAndVerifySetupApi,
+  stopSetupApiForRebind,
   verifySetupApi,
 } from "../dist/setup-runtime.js";
 import { configurationFingerprint } from "../dist/workspace-status.js";
@@ -37,12 +39,49 @@ assert(SETUP_HEALTH_TIMEOUT_MS >= 10_000, "Kaltes VM-Healthfenster wurde wieder 
 assert(SETUP_WORKSPACE_TIMEOUT_MS >= SETUP_HEALTH_TIMEOUT_MS,
   "Workspace-Verifikation darf nicht vor dem kalten Healthfenster abbrechen.");
 assert(SETUP_START_ATTEMPTS >= 5, "Kaltes VM-Listenerfenster deckt die gemessenen vier Sekunden nicht ab.");
+assert(SETUP_SHUTDOWN_ATTEMPTS >= 5, "Kontrollierter API-Shutdown braucht mehrere Readback-Versuche.");
 assert.deepEqual(parseApiMainArguments(["--help"]), { help: true });
 assert.deepEqual(parseApiMainArguments(["--config", "C:\\config.json"]), {
   help: false,
   configPath: "C:\\config.json",
 });
 assert.throws(() => parseApiMainArguments(["--config"]), /Ungueltige API-Startargumente/);
+
+const shutdownEndpoint = {
+  host: "127.0.0.1",
+  port: 43127,
+  token: "setup-runtime-test-token-with-24-characters",
+  expectedConfigurationFingerprint: "a".repeat(64),
+};
+let shutdownHealthReads = 0;
+let shutdownPosted = false;
+const controlledShutdown = await stopSetupApiForRebind(shutdownEndpoint, {
+  attempts: 2,
+  delayMs: 0,
+  fetchImpl: async (url, init) => {
+    if (String(url).endsWith("/healthz")) {
+      shutdownHealthReads += 1;
+      return new Response("{}", { status: shutdownHealthReads === 1 ? 200 : 503 });
+    }
+    assert.equal(String(url), "http://127.0.0.1:43127/v1/setup/shutdown");
+    assert.equal(init?.method, "POST");
+    assert.equal(init?.headers?.authorization, `Bearer ${shutdownEndpoint.token}`);
+    assert.deepEqual(JSON.parse(String(init?.body)), {
+      expectedConfigurationFingerprint: shutdownEndpoint.expectedConfigurationFingerprint,
+    });
+    shutdownPosted = true;
+    return new Response("{}", { status: 202 });
+  },
+});
+assert.equal(controlledShutdown, true);
+assert.equal(shutdownPosted, true);
+assert.equal(shutdownHealthReads, 2);
+await assert.rejects(
+  stopSetupApiForRebind({ ...shutdownEndpoint, expectedConfigurationFingerprint: undefined }, {
+    fetchImpl: async () => { throw new Error("darf nicht senden"); },
+  }),
+  /bisherigen Konfigurationsfingerprint/,
+);
 assert.throws(() => parseApiMainArguments(["--config", "a.json", "extra"]), /Ungueltige API-Startargumente/);
 assert.throws(() => parseApiMainArguments(["--unknown"]), /Ungueltige API-Startargumente/);
 

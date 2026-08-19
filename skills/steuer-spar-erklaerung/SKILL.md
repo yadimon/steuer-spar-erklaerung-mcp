@@ -170,16 +170,25 @@ einfachen First-Run-Wizard aus. Er stellt vor der technischen Einrichtung nur
 die zwei entscheidenden fachlichen Fragen: richtiger Steuerfall und
 vollständige Belegordner. Erst danach kann der Nutzer alle gezeigten sicheren
 technischen Defaults gemeinsam mit `OK Standard` bestätigen.
+Enthält der aktuelle Auftrag bereits absolute Pfade, deren
+Vollständigkeitsbestätigung und ausdrücklich `OK Standard` samt den dort
+definierten engen read-only Schritten, frage weder Pfade noch Standardplan
+erneut ab.
 
 Fehlt eine funktionierende Einrichtung, verwende anschließend
 `steuer-spar-erklaerung-setup`. Ist dieser Skill nicht installiert, installiere
 beide öffentlichen Skills nach dessen kanonischer
 `references/installation.md`, statt die Einrichtung frei zu improvisieren.
 Verlange nach Setup ein grünes `steuer-spar-erklaerung-setup --check` und bei
-MCP zusätzlich Serverliste plus realen MCP-Health-Aufruf. Kehre danach automatisch
+MCP zusätzlich Serverliste plus echten Aufruf von `sse_health` mit
+strukturiertem `ok=true`; „connected“ oder ein Handshake allein genügt nicht.
+Kehre danach automatisch
 zum ursprünglichen Prüfauftrag zurück; ein Auftrag wie „Prüfe meine
 Steuererklärung“ ist nicht schon durch die Einrichtung erfüllt. Bereits
 bestätigte Pfade und Entscheidungen nicht erneut erfragen.
+Lehnt der Setup-Wizard einen `--plan-file`-Lauf oder den kontrollierten
+Neustart ab, ändere `config.json`, `setup-decisions.json`, Runtime-Dateien oder
+Prozesse niemals manuell als Umgehung. Melde den konkreten sicheren Stopp.
 
 Lies anschließend das in den Entscheidungen benannte Tracking. Mit direktem,
 freigegebenem Dateizugriff darf Markdown nach Hashprüfung und Backup aktualisiert
@@ -285,8 +294,12 @@ Kündige vor dem ersten sichtbaren Schritt an:
 > Bescheid, wenn die Bedienung beendet ist. Schwarze Konsolenfenster sind kein
 > normaler Betriebszustand.
 
-Beginne erst nach Zustimmung. Stoppe bei Nutzerinteraktion, unbekanntem Dialog,
-Fensterwechsel oder Sperrbildschirm.
+Beginne erst nach Zustimmung. Eine Zustimmung im aktuellen Auftrag zählt ohne
+dritte Rückfrage, wenn sie genau den bestätigten Fall, eine hashverifizierte
+Prüffallkopie und sichtbare read-only UI-Navigation in der entsperrten Sitzung
+nennt. Kündige die sichtbare Navigation trotzdem mit obigem Hinweis an und
+beginne dann. Eine allgemeine Bitte „prüfen“ reicht dafür nicht. Stoppe bei
+Nutzerinteraktion, unbekanntem Dialog, Fensterwechsel oder Sperrbildschirm.
 
 ## Wiederholungsgrenzen
 

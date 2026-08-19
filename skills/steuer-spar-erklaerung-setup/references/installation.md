@@ -38,6 +38,11 @@ Es gibt genau zwei unterstützte Installationswege:
 | npm | Node.js 22+ mit npm | kürzeste Installation und einfache Updates |
 | Portable | nichts Zusätzliches | PCs ohne Node.js/npm |
 
+Für OpenCode ist der npm-Weg der einfache Standard, sobald `node --version`
+mindestens 22 meldet und `npm --version` funktioniert. Dann nicht parallel das
+Portable-Release herunterladen. Fehlt Node/npm, bleibt Portable unterstützt;
+Node.js wird nicht nur für dieses Produkt nachinstalliert.
+
 `npx skills` selbst benötigt Node.js/npm. Git ist keine Produktvoraussetzung:
 ohne funktionierenden Skill-Installer darf der Agent die beiden Skillordner aus
 dem aktuellen Repository-ZIP kopieren oder die Skills aus dem verifizierten
@@ -136,6 +141,15 @@ oder ELSTER-Autorität. `--defaults` ist nur für bereits gespeicherte Pfade ode
 ein bewusst technisches Setup ohne Fall-/Belegbindung gedacht. `--no-start`
 erzeugt Dateien, prüft die laufende API aber nicht.
 
+Bei einer vorhandenen technischen Konfiguration darf ein bestätigter Plan
+genau einmal zuvor leere `caseDir`-/`sourceFolders`-Bindungen ergänzen. Der
+Wizard behält Token, MCP-Transport und alle übrigen Einstellungen bei, fordert
+eine exakt per Token und Fingerprint gebundene laufende API kontrolliert zum
+Shutdown auf, sichert die bisherigen Dateien und startet sie neu. Bereits
+nicht leere Bindungen werden weiterhin abgelehnt. Nach einer Ablehnung niemals
+`config.json`, `setup-decisions.json`, Runtime-Dateien oder Prozesse manuell
+als Umgehung ändern.
+
 Der Wizard erzeugt außerhalb des Produkts eine Loopback-Konfiguration, einen
 fensterlosen API-Starter, `setup-decisions.json`, `settings.md`, Tracking und
 eine MCP-Mergevorlage. Die MCP-Vorlage enthält **kein Token**: Sie startet einen
@@ -146,7 +160,10 @@ eigenen `curl`-/`Invoke-RestMethod`-Aufruf übernehmen.
 ## 4. MCP an den lokalen Client binden
 
 Vor jeder Clientänderung vorhandene Konfiguration sichern, den konkreten
-Dateipfad und einen tokenfreien Diff zeigen und Zustimmung einholen. Niemals
+Dateipfad und einen tokenfreien Diff zeigen und Zustimmung einholen. Eine im
+aktuellen Auftrag bereits enthaltene bedingte Zustimmung reicht, wenn der
+gezeigte Diff ausschließlich den einen Server `steuer-spar-erklaerung` additiv
+mergt oder aktualisiert und keine anderen Einträge löscht oder ersetzt. Niemals
 die ganze Datei ersetzen. Verwende `command` und `args` unverändert aus dem
 Serverobjekt `steuer-spar-erklaerung` der erzeugten Mergevorlage.
 
@@ -187,8 +204,11 @@ anschließend noch der tatsächliche Client geprüft werden muss.
 Danach im neu geladenen Client:
 
 1. Serverliste zeigt `steuer-spar-erklaerung` als verbunden;
-2. ein realer MCP-Health-Aufruf liefert `ok=true`;
+2. ein realer Aufruf des MCP-Tools `sse_health` liefert strukturiert `ok=true`;
 3. keine Ausgabe enthält Token, Steuerwerte oder lokale Steuerdateipfade.
+
+„Connected“, ein erfolgreicher Handshake oder nur die Serverliste ersetzen
+den Tool-Aufruf nicht.
 
 Erst diese drei Ebenen zusammen sind ein erfolgreiches Setup. Der Setup-Skill
 öffnet keinen Steuerfall. Für eine Prüfung muss er an den installierten
@@ -204,10 +224,15 @@ Richte SteuerSparErklärung vollständig lokal auf diesem Windows-PC nach
 https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/skills/steuer-spar-erklaerung-setup/references/installation.md
 ein. Installiere oder aktualisiere beide Skills für diesen lokalen Agenten und
 verwende das neueste vollständige Release. Richte lokale API plus MCP ein;
-zeige vor der Client-Konfigurationsänderung den tokenfreien Diff. Prüfe danach
-mit `steuer-spar-erklaerung-setup --check`, der MCP-Serverliste des Clients und
-einem echten MCP-Health-Aufruf. Nicht in einer Cloud-Umgebung ausführen und
-noch keinen Steuerfall öffnen.
+dieser Prompt bestätigt den beschriebenen Standardplan samt Download aus der
+kanonischen Quelle. Zeige den tokenfreien Client-Diff. Wenn er ausschließlich
+den Server `steuer-spar-erklaerung` additiv hinzufügt oder aktualisiert, keinen
+anderen Eintrag löscht und kein Token enthält, sichere die Datei und wende ihn
+ohne weitere Rückfrage an; andernfalls stoppe. Prüfe danach mit
+`steuer-spar-erklaerung-setup --check`, der MCP-Serverliste und einem echten
+Aufruf des MCP-Tools `sse_health` mit `ok=true`; „connected“ allein genügt
+nicht. Nicht in einer Cloud-Umgebung ausführen, keinen Autostart oder Connector
+einrichten und noch keinen Steuerfall öffnen.
 ```
 
 ### Prompt 2: Steuerfall nur lesend prüfen
@@ -215,10 +240,16 @@ noch keinen Steuerfall öffnen.
 ```text
 Nutze $steuer-spar-erklaerung und prüfe meine Einkommensteuererklärung 2025
 nur lesend. Steuerfall: <ABSOLUTER_PFAD_ZUM_FALL>. Belege:
-<ABSOLUTE_BELEGORDNER>. Erzeuge zuerst eine hashverifizierte Arbeitskopie,
-gleiche Fall, Belege und SSE-Prüfer ab und schreibe einen Report in den
-konfigurierten Ergebnisordner. Ändere nichts ohne meine ausdrückliche Freigabe
-und führe keine ELSTER-Übermittlung aus.
+<ABSOLUTE_BELEGORDNER>. Diese Pfade sind richtig und für diese Prüfung
+vollständig; dieser Auftrag gilt als `OK Standard`. Falls die technische
+Einrichtung noch keine Fall-/Quellbindung hat, ergänze genau diese Pfade über
+den sicheren Setup-Plan. Erzeuge eine hashverifizierte Prüffallkopie, kündige
+die sichtbare Bedienung an und navigiere danach ohne weitere Rückfrage nur
+lesend in dieser Kopie. Gleiche Fall, Belege und SSE-Prüfer ab und schreibe
+einen Report in den konfigurierten Ergebnisordner. Belege nur am Ursprungsort
+lesen und nicht in `documents` kopieren. Original, Steuerwerte und Belege nicht
+ändern oder speichern; bei ungespeichertem Zustand stoppen und keine
+ELSTER-Übermittlung ausführen.
 ```
 
 Die im Kalenderjahr 2026 abgegebene Einkommensteuererklärung betrifft in

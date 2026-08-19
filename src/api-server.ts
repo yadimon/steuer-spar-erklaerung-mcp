@@ -25,6 +25,7 @@ import { apiOperationDiscovery, SSE_API_DISCOVERY } from "./api-discovery.js";
 import { SSE_OPENAPI_DOCUMENT } from "./api-openapi.js";
 import { formatOperationArgumentError, parseApiOperationArgs } from "./operation-catalog.js";
 import { parseApiOperationResult } from "./result-contract.js";
+import { configurationFingerprint } from "./workspace-status.js";
 
 export type OperationExecutor = (
   operation: SseApiOperation,
@@ -37,6 +38,7 @@ export interface SseApiServerOptions {
   config: SseApiServerConfig;
   execute: OperationExecutor;
   log?: (record: Record<string, unknown>) => void;
+  requestSetupShutdown?: () => void;
 }
 type SendJsonOutcome = "sent" | "unavailable" | "too-large";
 
@@ -174,6 +176,24 @@ function parseOperationRequest(value: unknown): OperationRequest {
   };
 }
 
+function parseSetupShutdownRequest(value: unknown): { expectedConfigurationFingerprint: string } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new ApiRequestError("Setup-Shutdown-Anfrage muss ein JSON-Objekt sein.");
+  }
+  const body = value as Record<string, unknown>;
+  const unknownFields = Object.keys(body).filter((key) => key !== "expectedConfigurationFingerprint");
+  if (unknownFields.length) {
+    throw new ApiRequestError(`Unbekanntes Setup-Shutdown-Feld: '${unknownFields.sort()[0]}'.`);
+  }
+  if (
+    typeof body.expectedConfigurationFingerprint !== "string" ||
+    !/^[a-f0-9]{64}$/u.test(body.expectedConfigurationFingerprint)
+  ) {
+    throw new ApiRequestError("expectedConfigurationFingerprint muss ein SHA-256-Fingerprint sein.");
+  }
+  return { expectedConfigurationFingerprint: body.expectedConfigurationFingerprint };
+}
+
 export function createSseApiServer(options: SseApiServerOptions): Server {
   const { config, execute } = options;
   const log = options.log ?? (() => undefined);
@@ -218,6 +238,74 @@ export function createSseApiServer(options: SseApiServerOptions): Server {
 
     if (request.method === "GET" && url.pathname === `/${SSE_API_VERSION}/openapi.json`) {
       sendJsonBytes(response, 200, SSE_OPENAPI_BYTES);
+      return;
+    }
+
+    if (url.pathname === `/${SSE_API_VERSION}/setup/shutdown`) {
+      if (!options.requestSetupShutdown) {
+        sendJson(response, 404, apiError(requestId, "not-found", "API-Endpunkt nicht gefunden."));
+        return;
+      }
+      if (request.method !== "POST") {
+        sendJson(
+          response,
+          405,
+          apiError(requestId, "method-not-allowed", "Fuer diese Route ist nur POST erlaubt."),
+          { allow: "POST" },
+        );
+        return;
+      }
+      if (!hasJsonContentType(request)) {
+        sendJson(
+          response,
+          415,
+          apiError(requestId, "unsupported-media-type", "POST-Anfragen muessen Content-Type application/json verwenden."),
+        );
+        return;
+      }
+      try {
+        let decoded: unknown;
+        try {
+          decoded = await readJson(request);
+        } catch (error) {
+          if (error instanceof SyntaxError) throw new ApiRequestError("Anfragekoerper ist kein gueltiges JSON.");
+          throw error;
+        }
+        const body = parseSetupShutdownRequest(decoded);
+        if (body.expectedConfigurationFingerprint !== configurationFingerprint(config)) {
+          throw new ApiRequestError(
+            "Laufende API verwendet nicht die fuer die Neubindung bestaetigte Konfiguration.",
+            409,
+            "configuration-mismatch",
+          );
+        }
+        response.once("finish", () => {
+          setImmediate(() => options.requestSetupShutdown?.());
+        });
+        sendJson(response, 202, {
+          ok: true,
+          apiVersion: SSE_API_VERSION,
+          configurationFingerprint: body.expectedConfigurationFingerprint,
+        });
+        safeLog({ event: "setup-shutdown-accepted", requestId });
+      } catch (error) {
+        const requestError = error instanceof ApiRequestError ? error : undefined;
+        safeLog({
+          event: "setup-shutdown-rejected",
+          requestId,
+          code: requestError?.code ?? "setup-shutdown-failed",
+          errorName: error instanceof Error ? error.name : "Error",
+        });
+        sendJson(
+          response,
+          requestError?.status ?? 502,
+          apiError(
+            requestId,
+            requestError?.code ?? "setup-shutdown-failed",
+            requestError?.message ?? "Kontrollierter API-Shutdown ist fehlgeschlagen.",
+          ),
+        );
+      }
       return;
     }
 
