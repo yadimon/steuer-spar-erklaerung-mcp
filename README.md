@@ -51,9 +51,10 @@ Portable-Release, installiert beide Skills und prüft API plus MCP:
 Richte SteuerSparErklärung vollständig lokal auf diesem Windows-PC nach
 https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/skills/steuer-spar-erklaerung-setup/references/installation.md
 ein. Installiere oder aktualisiere beide Skills für diesen lokalen Agenten und
-verwende das neueste vollständige Release. Richte lokale API plus MCP ein;
-dieser Prompt bestätigt den beschriebenen Standardplan samt Download aus der
-kanonischen Quelle. Zeige den tokenfreien Client-Diff. Wenn er ausschließlich
+verwende das neueste vollständige Release. Richte lokale API plus MCP ein.
+Dieser Auftrag gilt als `OK Standard` für den beschriebenen Setup-Plan samt
+Download aus der kanonischen Quelle: Führe ihn jetzt vollständig aus und frage
+nicht erneut nach Bestätigung. Zeige den tokenfreien Client-Diff. Wenn er ausschließlich
 den Server `steuer-spar-erklaerung` additiv hinzufügt oder aktualisiert, keinen
 anderen Eintrag löscht und kein Token enthält, sichere die Datei und wende ihn
 ohne weitere Rückfrage an; andernfalls stoppe. Prüfe danach mit
