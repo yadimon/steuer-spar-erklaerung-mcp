@@ -568,7 +568,7 @@ Weitere Unterlagen:
 - [API-/MCP-Vertrag](docs/API-MCP-VERTRAG.md)
 - [Verifikationsstand](docs/VERIFIKATION.md)
 - [Release-Prozess](docs/RELEASE.md)
-- [Release Notes v0.1.0-beta.9](docs/releases/v0.1.0-beta.9.md)
+- [Release Notes v0.1.0-beta.10](docs/releases/v0.1.0-beta.10.md)
 - [Entwicklungswissen](docs/entwicklung/README.md)
 - [Mitwirken](CONTRIBUTING.md)
 - [Haupt-Skill](skills/steuer-spar-erklaerung/SKILL.md)

@@ -3,7 +3,7 @@
 ## Unterstützte Version
 
 Während der öffentlichen Beta wird nur die jeweils neueste vollständige
-Release-Version unterstützt. `v0.1.0-beta.9` ist die aktuelle öffentlich
+Release-Version unterstützt. `v0.1.0-beta.10` ist die aktuelle öffentlich
 unterstützte Version für SteuerSparErklärung 2025: Tag, portables ZIP und
 separate SHA-256-Datei sind gemeinsam auf der GitHub-Release-Seite
 veröffentlicht. Ein künftiger vorbereiteter Quellstand wird erst mit diesen
