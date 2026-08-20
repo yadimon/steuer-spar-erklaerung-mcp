@@ -90,6 +90,7 @@ assert(firstRun.includes("Setup allein erfüllt") && firstRun.includes("capabili
 assert(firstRun.includes("--plan-file") && firstRun.includes('"schemaVersion": 1'));
 assert(firstRun.includes("genau einmal") && firstRun.includes("Fingerprint") || firstRun.includes("fingerprint"));
 assert(firstRun.includes("Frage sie nicht erneut") && firstRun.includes("gleichwertige Bestätigung"));
+assert(firstRun.includes("Standard-Prüflauf direkt ausführen") && firstRun.includes("keiner ELSTER-Aktion"));
 assert(firstRun.includes("Release-, Download-, Paket-, Skill-, Cache-"));
 const uiFallback = readFileSync(
   join(skillsRoot, "steuer-spar-erklaerung", "references", "ui-fallback.md"),
@@ -114,6 +115,7 @@ assert(setup.includes("vollständige Dateiliste") && setup.includes("Manifest au
 assert(setup.includes("settings.md") && setup.includes("tracking.md") && setup.includes(".xlsx"));
 assert(setup.includes("Connector") && setup.includes("read-only Prüfung"));
 assert(setup.includes("aktuellste dort veröffentlichte") && setup.includes("OK Standard"));
+assert(setup.includes("Standard-Setup direkt auszuführen") && setup.includes("tokenfreien additiven MCP-Merge"));
 assert(setup.includes("npm install --global") && setup.includes("@yadimon/steuer-spar-erklaerung-api@beta"));
 assert(setup.includes("Bei OpenCode") && setup.includes("npm der") && setup.includes("kurze Standardweg"));
 assert(setup.includes("@yadimon/steuer-spar-erklaerung-mcp@beta") && setup.includes("flüchtigen `npx`-Cache"));
@@ -124,8 +126,11 @@ assert(setup.includes("MCP-Tool `sse_health`") && setup.includes("Handshake ist 
 assert(
   setup.includes("%USERPROFILE%\\.steuer-spar-erklaerung")
     && setup.includes("Packages\\Claude_*\\LocalCache")
+    && setup.includes("eigenständig angemeldete Claude Code CLI")
+    && setup.includes("Git for Windows")
+    && setup.includes("Claude Cowork")
     && setup.includes("`--config`"),
-  "Der Setup-Skill muss Claude-Desktop-Dateivirtualisierung in einen dauerhaften Benutzerpfad lenken.",
+  "Der Setup-Skill muss Claude Code CLI und Cowork trennen und einen dauerhaften Benutzerpfad verwenden.",
 );
 assert(setup.includes("arbeite nicht darum herum") && setup.includes("Prozesse weder lesen noch manuell ändern"));
 assert(setup.includes("öffnet nie selbst einen Steuerfall") && setup.includes("hashverifizierte Prüffallkopie"));
@@ -137,7 +142,7 @@ const installation = readFileSync(
 assert(installation.includes("System32\\tar.exe") && installation.includes("nicht in denselben Ordner nachentpacken"));
 assert(installation.includes("WinRT") && installation.includes("Exitcode 0"));
 assert(installation.includes("Installation für Menschen und AI-Agenten"));
-assert(installation.includes("Codex Cloud") && installation.includes("OpenCode"));
+assert(installation.includes("Codex Cloud") && installation.includes("OpenCode") && installation.includes("Claude Cowork"));
 assert(installation.includes("Node.js 22+ mit npm") && installation.includes("Portable"));
 assert(installation.includes("Für OpenCode ist der npm-Weg der einfache Standard"));
 assert(installation.includes("OpenCode ist ein sekundärer, best-effort Client"));
@@ -153,14 +158,16 @@ assert(
   installation.includes("$sseRuntimeRoot")
     && installation.includes("$sseConfigPath")
     && installation.includes("--config $sseConfigPath --defaults --with-mcp")
-    && installation.includes("AppData\\Local\\Packages\\Claude_*\\LocalCache"),
-  "Die Installationsanleitung braucht einen kopierbaren nicht virtualisierten Claude-Desktop-Weg.",
+    && installation.includes("AppData\\Local\\Packages\\Claude_*\\LocalCache")
+    && installation.includes("Claude Code CLI unter Windows (nicht Cowork)")
+    && installation.includes("Git for Windows"),
+  "Die Installationsanleitung braucht einen kopierbaren Host-Weg für die eigenständige Claude Code CLI.",
 );
 assert(installation.includes("enthält **kein Token**") && installation.includes("containsToken: false"));
 assert(installation.includes("## Zwei kopierbare Prompts") && installation.includes("$steuer-spar-erklaerung"));
-assert(installation.includes("additiv hinzufügt oder aktualisiert") && installation.includes("ohne weitere Rückfrage"));
-assert(installation.includes("Führe ihn jetzt vollständig aus und frage") && installation.includes("nicht erneut nach Bestätigung"));
-assert(installation.includes("dieser Auftrag gilt als `OK Standard`") && installation.includes("sichtbare Bedienung"));
+assert(installation.includes("tokenfreien additiven MCP-Merges") && installation.includes("fragt innerhalb dieser Grenzen aber nicht erneut"));
+assert(installation.includes("Standard-Setup direkt ausführen") && installation.includes("Standard-Prüflauf direkt ausführen"));
+assert(installation.includes("hashverifizierte Kopie") && installation.includes("kein Speichern und kein ELSTER"));
 assert(installation.includes("MCP-Tools `sse_health`") && installation.includes("`ok=true`"));
 assert(!setup.includes("Windows 10/11"), "Setup darf kompatible Windows-Versionen nicht nach Label sperren.");
 for (const source of [main, firstRun, setup]) {
@@ -180,15 +187,21 @@ assert.equal(
   "README und kanonische Anleitung enthalten unterschiedliche Installationsprompts.",
 );
 assert(
-  fencedPrompt(readme, "Richte SteuerSparErklärung").includes(
-    "`config.json` weder öffnen, lesen noch parsen",
-  ),
-  "Der öffentliche Installationsprompt muss das Lesen der rohen Token-Konfiguration verbieten.",
+  fencedPrompt(readme, "Richte SteuerSparErklärung").includes("Standard-Setup mit lokaler API plus MCP direkt aus")
+    && fencedPrompt(readme, "Richte SteuerSparErklärung").includes("MCP-Tool `sse_health`")
+    && fencedPrompt(readme, "Richte SteuerSparErklärung").length < 600,
+  "Der öffentliche Installationsprompt muss kurz bleiben und den kanonischen Standardlauf benennen.",
 );
 assert.equal(
   fencedPrompt(readme, "Nutze $steuer-spar-erklaerung"),
   fencedPrompt(installation, "Nutze $steuer-spar-erklaerung"),
   "README und kanonische Anleitung enthalten unterschiedliche Prüfprompts.",
+);
+assert(
+  fencedPrompt(readme, "Nutze $steuer-spar-erklaerung").includes("<ABSOLUTER_PFAD_ZUR_ESt2025-DATEI>")
+    && fencedPrompt(readme, "Nutze $steuer-spar-erklaerung").includes("Standard-Prüflauf direkt aus")
+    && fencedPrompt(readme, "Nutze $steuer-spar-erklaerung").length < 400,
+  "Der öffentliche Prüfprompt muss kurz bleiben und einen exakten Steuerfallpfad verlangen.",
 );
 assert(readme.includes("## Was die Beta kann") && readme.includes("## Voraussetzungen"));
 assert.match(
@@ -207,10 +220,11 @@ assert(readme.includes("Get-FileHash -Algorithm SHA256"), "README erklärt die m
 assert.match(readme, /npx skills.*Node\.js 22\+ mit npm/su, "README verschweigt die npx-Voraussetzung.");
 assert(readme.includes("npm install --global @yadimon/steuer-spar-erklaerung-api@beta"));
 assert(readme.includes("npm install --global @yadimon/steuer-spar-erklaerung-mcp@beta"));
-assert(readme.toLowerCase().includes("installiere oder aktualisiere") && readme.includes("gecachte Webansicht"));
+assert(readme.toLowerCase().includes("installiere beide skills") && readme.includes("gecachte Webansicht"));
 assert(readme.includes("## Schnellstart mit zwei Prompts") && readme.includes("steuer-spar-erklaerung-setup --check"));
-assert(readme.includes("Nicht in einer Cloud-Umgebung ausführen") && readme.includes("$steuer-spar-erklaerung"));
-assert(readme.includes("dieser Auftrag gilt als `OK Standard`") && readme.includes("additiv hinzufügt oder aktualisiert"));
-assert(readme.includes("OpenCode bleibt ein sekundärer, best-effort Client") && readme.includes("Codex oder Claude Code"));
+assert(readme.includes("Claude Cowork") && readme.includes("Git for Windows") && readme.includes("$steuer-spar-erklaerung"));
+assert(readme.includes("Standard-Setup direkt ausführen") && readme.includes("Standard-Prüflauf direkt ausführen"));
+assert(readme.includes("rein additiven MCP-Eintrag") && readme.includes("Stopp ohne Speichern oder ELSTER"));
+assert(readme.includes("OpenCode bleibt ein sekundärer, best-effort Client") && readme.includes("Claude Code CLI"));
 
 process.stdout.write("Public Skills: 2 flache npx-kompatible, deutsche und portable Skill-Pakete bestanden\n");
