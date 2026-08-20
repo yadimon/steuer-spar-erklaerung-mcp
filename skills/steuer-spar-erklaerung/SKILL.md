@@ -188,6 +188,12 @@ Eine reine NPX-Konfiguration meldet `steuer-spar-erklaerung-setup --check`
 als `ok=false` mit `kind="foreground-only-config"`. Das ist keine kaputte
 Installation, sondern „noch kein dauerhaftes Setup“.
 
+Das Setup selbst darf dabei nicht über `npx` laufen. Eine Runtime aus dem
+flüchtigen npx-Cache würde dauerhafte Startpfade in ein Verzeichnis schreiben,
+das wieder verschwindet; der Wizard bricht deshalb bewusst ab und verlangt
+`npm.cmd install --global @yadimon/steuer-spar-erklaerung-api@beta` oder das
+portable Release. Der NPX-Kurzweg bleibt also bewusst der einmalige Prüflauf.
+
 Lege bei direkten Laufzeit- und UI-Aufrufen mit `--journal-file
 <neue-private-datei.jsonl>` immer eine neue Journaldatei im privaten
 Arbeitsbereich des Agenten an. Die CLI schreibt vor dem API-Aufruf dauerhaft
