@@ -88,9 +88,9 @@ assert(firstRun.includes("`OK`, `OK Standard` oder `OK Default`"));
 assert(firstRun.includes("hashverifizierte Prüffallkopie") && firstRun.includes("ausschließlich diese öffnen"));
 assert(firstRun.includes("Setup allein erfüllt") && firstRun.includes("capabilities"));
 assert(firstRun.includes("--plan-file") && firstRun.includes('"schemaVersion": 1'));
-assert(firstRun.includes("genau einmal") && firstRun.includes("Fingerprint") || firstRun.includes("fingerprint"));
+assert(firstRun.includes("genau einmal") && /fingerprint/iu.test(firstRun));
 assert(firstRun.includes("Frage sie nicht erneut") && firstRun.includes("gleichwertige Bestätigung"));
-assert(firstRun.includes("Standard-Prüflauf direkt ausführen") && firstRun.includes("keiner ELSTER-Aktion"));
+assert(firstRun.includes("Standard-Prüflauf ausführen") && firstRun.includes("keiner ELSTER-Aktion"));
 assert(firstRun.includes("Release-, Download-, Paket-, Skill-, Cache-"));
 const uiFallback = readFileSync(
   join(skillsRoot, "steuer-spar-erklaerung", "references", "ui-fallback.md"),
@@ -115,14 +115,17 @@ assert(setup.includes("vollständige Dateiliste") && setup.includes("Manifest au
 assert(setup.includes("settings.md") && setup.includes("tracking.md") && setup.includes(".xlsx"));
 assert(setup.includes("Connector") && setup.includes("read-only Prüfung"));
 assert(setup.includes("aktuellste dort veröffentlichte") && setup.includes("OK Standard"));
-assert(setup.includes("Standard-Setup direkt auszuführen") && setup.includes("tokenfreien additiven MCP-Merge"));
-assert(setup.includes("npm install --global") && setup.includes("@yadimon/steuer-spar-erklaerung-api@beta"));
+assert(setup.includes("`Standard-Setup ausführen`") && setup.includes("tokenfreien") && setup.includes("additiven Merge"));
+assert(setup.includes("npm.cmd install --global") && setup.includes("@yadimon/steuer-spar-erklaerung-api@beta"));
+assert(setup.includes("npx.cmd") && setup.includes("Execution Policy"));
 assert(setup.includes("Bei OpenCode") && setup.includes("npm der") && setup.includes("kurze Standardweg"));
 assert(setup.includes("@yadimon/steuer-spar-erklaerung-mcp@beta") && setup.includes("flüchtigen `npx`-Cache"));
 assert(setup.includes("`--defaults` nur") && setup.includes("frage den Nutzer nicht erneut"));
 assert(setup.includes("internen Loopback-Setup-Endpunkt") && setup.includes("Konfigurationsfingerprint"));
 assert(setup.includes("zuvor leere Fall-/Quellbindungen") && setup.includes("Bereits nicht leere"));
-assert(setup.includes("MCP-Tool `sse_health`") && setup.includes("Handshake ist kein Ersatz"));
+assert(setup.includes("führt `sse_health` real aus") && setup.includes("Handshake ist kein Ersatz"));
+assert(setup.includes("Technisches Setup bereit; Client-Verifikation nach Neustart offen."));
+assert(setup.includes("genau einen Neustart") && setup.includes("nächste Fachauftrag zuerst die Serverliste"));
 assert(
   setup.includes("%USERPROFILE%\\.steuer-spar-erklaerung")
     && setup.includes("Packages\\Claude_*\\LocalCache")
@@ -166,9 +169,19 @@ assert(
 assert(installation.includes("enthält **kein Token**") && installation.includes("containsToken: false"));
 assert(installation.includes("## Zwei kopierbare Prompts") && installation.includes("$steuer-spar-erklaerung"));
 assert(installation.includes("tokenfreien additiven MCP-Merges") && installation.includes("fragt innerhalb dieser Grenzen aber nicht erneut"));
-assert(installation.includes("Standard-Setup direkt ausführen") && installation.includes("Standard-Prüflauf direkt ausführen"));
+assert(installation.includes("`Standard-Setup ausführen`") && installation.includes("`Standard-Prüflauf ausführen`"));
 assert(installation.includes("hashverifizierte Kopie") && installation.includes("kein Speichern und kein ELSTER"));
 assert(installation.includes("MCP-Tools `sse_health`") && installation.includes("`ok=true`"));
+assert(installation.includes("Technisches Setup bereit; Client-Verifikation nach Neustart") && installation.includes("Prompt 2 übernimmt"));
+assert(
+  installation.includes("required = true")
+    && installation.includes("startup_timeout_sec = 30")
+    && installation.includes("tool_timeout_sec = 300")
+    && installation.includes('"sse_health", "sse_capabilities", "sse_product_info"')
+    && installation.includes('"sse_checker_results", "sse_checker_run", "sse_checker_open"'),
+  "Die Codex-Einrichtung muss den getesteten Kernkatalog und belastbare MCP-Zeitbudgets setzen.",
+);
+assert(installation.includes("`mcp_tool_call`") && installation.includes("API-CLI-Aufruf `health` ist kein Ersatz"));
 assert(!setup.includes("Windows 10/11"), "Setup darf kompatible Windows-Versionen nicht nach Label sperren.");
 for (const source of [main, firstRun, setup]) {
   assert(
@@ -187,10 +200,10 @@ assert.equal(
   "README und kanonische Anleitung enthalten unterschiedliche Installationsprompts.",
 );
 assert(
-  fencedPrompt(readme, "Richte SteuerSparErklärung").includes("Standard-Setup mit lokaler API plus MCP direkt aus")
-    && fencedPrompt(readme, "Richte SteuerSparErklärung").includes("MCP-Tool `sse_health`")
+  fencedPrompt(readme, "Richte SteuerSparErklärung").includes("Standard-Setup ausführen: lokale API plus MCP.")
+    && !fencedPrompt(readme, "Richte SteuerSparErklärung").includes("sse_health")
     && fencedPrompt(readme, "Richte SteuerSparErklärung").length < 600,
-  "Der öffentliche Installationsprompt muss kurz bleiben und den kanonischen Standardlauf benennen.",
+  "Der öffentliche Installationsprompt muss kurz bleiben und darf keine unmögliche Tool-Verifikation vor dem Neustart verlangen.",
 );
 assert.equal(
   fencedPrompt(readme, "Nutze $steuer-spar-erklaerung"),
@@ -199,7 +212,7 @@ assert.equal(
 );
 assert(
   fencedPrompt(readme, "Nutze $steuer-spar-erklaerung").includes("<ABSOLUTER_PFAD_ZUR_ESt2025-DATEI>")
-    && fencedPrompt(readme, "Nutze $steuer-spar-erklaerung").includes("Standard-Prüflauf direkt aus")
+    && fencedPrompt(readme, "Nutze $steuer-spar-erklaerung").includes("Standard-Prüflauf ausführen.")
     && fencedPrompt(readme, "Nutze $steuer-spar-erklaerung").length < 400,
   "Der öffentliche Prüfprompt muss kurz bleiben und einen exakten Steuerfallpfad verlangen.",
 );
@@ -218,13 +231,47 @@ for (const agent of ["codex", "claude-code", "opencode"]) {
 assert(readme.includes("https://www.skills.sh/docs/cli"), "README verlinkt die offizielle skills-CLI nicht.");
 assert(readme.includes("Get-FileHash -Algorithm SHA256"), "README erklärt die manuelle ZIP-Prüfsumme nicht.");
 assert.match(readme, /npx skills.*Node\.js 22\+ mit npm/su, "README verschweigt die npx-Voraussetzung.");
-assert(readme.includes("npm install --global @yadimon/steuer-spar-erklaerung-api@beta"));
-assert(readme.includes("npm install --global @yadimon/steuer-spar-erklaerung-mcp@beta"));
-assert(readme.toLowerCase().includes("installiere beide skills") && readme.includes("gecachte Webansicht"));
+assert(readme.includes("npm.cmd install --global @yadimon/steuer-spar-erklaerung-api@beta"));
+assert(readme.includes("npm.cmd install --global @yadimon/steuer-spar-erklaerung-mcp@beta"));
+assert(readme.includes("npx.cmd") && readme.includes("PowerShell-Execution-Policy"));
+assert(readme.toLowerCase().includes("installiere oder aktualisiere beide skills") && readme.includes("gecachte Webansicht"));
 assert(readme.includes("## Schnellstart mit zwei Prompts") && readme.includes("steuer-spar-erklaerung-setup --check"));
 assert(readme.includes("Claude Cowork") && readme.includes("Git for Windows") && readme.includes("$steuer-spar-erklaerung"));
-assert(readme.includes("Standard-Setup direkt ausführen") && readme.includes("Standard-Prüflauf direkt ausführen"));
-assert(readme.includes("rein additiven MCP-Eintrag") && readme.includes("Stopp ohne Speichern oder ELSTER"));
+assert(readme.includes("`Standard-Setup ausführen`") && readme.includes("`Standard-Prüflauf ausführen`"));
+assert(readme.includes("bedingten tokenfreien additiven MCP-Merges") && readme.includes("Stopp ohne Speichern oder ELSTER"));
 assert(readme.includes("OpenCode bleibt ein sekundärer, best-effort Client") && readme.includes("Claude Code CLI"));
+assert(readme.includes("Download, persistenter Installation") && readme.includes("Starte den lokalen Agenten dann einmal neu"));
+assert(readme.includes("MCP als optionale Produktfunktion") && readme.includes("Agenten-Standard enthält MCP"));
+assert(readme.includes("Kernwerkzeuge des Standard-Prüflaufs") && readme.includes("alle 87 Operationen"));
+assert(
+  main.includes("https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/skills/steuer-spar-erklaerung-setup/references/installation.md")
+    && main.includes("Technisches Setup bereit;")
+    && main.includes("Client-Verifikation nach Neustart offen."),
+  "Der Hauptskill muss fehlendes Setup ohne zirkuläre lokale Referenz und ohne vorgetäuschte Client-Verifikation behandeln.",
+);
+assert(
+  setup.includes("`required`")
+    && setup.includes("`startup_timeout_sec`")
+    && setup.includes("`tool_timeout_sec`")
+    && setup.includes("`enabled_tools`")
+    && main.includes("Shell oder direkte API-CLI ist kein Ersatz"),
+  "Setup- und Hauptskill müssen die Codex-Kataloggrenze und den echten MCP-Nachweis erzwingen.",
+);
+for (const source of [readme, installation, setup, main, firstRun]) {
+  assert(!source.includes("Standard-Setup direkt"), "Die alte abweichende Setup-Freigabeformulierung ist noch vorhanden.");
+  assert(!source.includes("Standard-Prüflauf direkt"), "Die alte abweichende Prüflauf-Freigabeformulierung ist noch vorhanden.");
+}
+
+const architecture = readFileSync(join(root, "docs", "ARCHITEKTUR.md"), "utf8");
+assert(
+  architecture.includes("installiert `steuer-spar-erklaerung` und")
+    && architecture.includes("`steuer-spar-erklaerung-setup` gemeinsam")
+    && !architecture.includes("bleibt allein installierbar"),
+  "Der Architekturvertrag muss den gemeinsamen Zwei-Skill-Standard beschreiben.",
+);
+
+const issueTemplate = readFileSync(join(root, ".github", "ISSUE_TEMPLATE", "fehler.yml"), "utf8");
+assert(issueTemplate.includes("npm-Einrichtung") && issueTemplate.includes("Portable Einrichtung"));
+assert(issueTemplate.includes(`v${JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version}`));
 
 process.stdout.write("Public Skills: 2 flache npx-kompatible, deutsche und portable Skill-Pakete bestanden\n");

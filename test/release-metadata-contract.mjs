@@ -39,13 +39,24 @@ assert(
     releaseNotes.includes(`${parallelSteps.length} konfliktfreie Haupttests`),
   "Release Notes nennen nicht den aktuellen vollständig bestandenen Suite-Plan.",
 );
-assert(security.includes(`v${packageJson.version}`), "Sicherheitsrichtlinie nennt den vorbereiteten Paketstand nicht.");
+assert(
+  security.includes(`\`v${packageJson.version}\` ist die aktuelle öffentlich`)
+    && !security.includes(`bereitet \`v${packageJson.version}\``),
+  "Sicherheitsrichtlinie muss den veröffentlichten Paketstand als aktuell unterstützt nennen.",
+);
 assert.match(security, /jeweils neueste vollständige\s+Release-Version/u, "Security nennt die unterstützte Release-Linie nicht.");
 assert.match(security, /@yadimon\/steuer-spar-erklaerung-api/u);
 assert.match(security, /@yadimon\/steuer-spar-erklaerung-mcp/u);
+assert(
+  releaseNotes.includes("`--timeout-ms 280000`")
+    && releaseNotes.includes("MCP-Tool `sse_launch`")
+    && releaseNotes.includes("Transportbudget von 120 Sekunden")
+    && releaseNotes.includes("gilt nicht\n  für den MCP-Transport"),
+  "Release Notes müssen den unterschiedlichen Kaltstartvertrag von CLI und MCP präzise beschreiben.",
+);
 assert.match(
   security,
-  /jeweils jüngste dort vollständige Release unterstützt/u,
+  /jeweils jüngste\s+dort vollständige Release maßgeblich/u,
   "Security bindet Support nicht dauerhaft an ein vollständiges ZIP-/SHA-Release.",
 );
 assert(!/bleibt `v0\.1\.0-beta\.\d+`/u.test(security), "Security enthält eine nach Veröffentlichung veraltende Vorversion.");
