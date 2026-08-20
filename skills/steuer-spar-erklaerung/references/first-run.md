@@ -24,7 +24,7 @@ die gleichwertige Bestätigung des unten beschriebenen Standardplans, gelten
 die beiden fachlichen Antworten und der Standardplan für diesen Auftrag als
 bestätigt. Frage sie nicht erneut. Eine allgemeine Bitte „prüfe meine
 Steuererklärung“ ohne diese Angaben ist keine solche Bestätigung.
-Die Formulierung „Standard-Prüflauf direkt ausführen“ ist eine solche
+`Standard-Prüflauf ausführen` ist eine solche
 gleichwertige Bestätigung. Sie umfasst nur die unten definierten sicheren
 Schritte mit hashverifizierter Prüffallkopie, sichtbarer read-only Navigation,
 Report, keinem Speichern und keiner ELSTER-Aktion.
@@ -122,9 +122,10 @@ Downloads und der lokalen Standard-Setup-Dateien. Sie sind keine Freigabe für
 spätere Steuerdatenänderungen, Connectoren, MCP-Konfigurationsänderungen,
 Autostart oder ELSTER.
 
-MCP bleibt optional. Erkläre auf Nachfrage in einem Satz: Die lokale API führt
-die Arbeit aus; MCP verbindet einen kompatiblen Agenten damit. Richte MCP nur
-auf ausdrücklichen Wunsch und nach gezeigtem Konfigurations-Diff ein.
+MCP ist eine optionale Produktfunktion: Die lokale API führt die Arbeit aus;
+MCP verbindet einen kompatiblen Agenten damit. Ein reines API-Setup lässt MCP
+weg. Ein ausdrücklich beauftragter vollständiger lokaler Standard mit „API plus
+MCP“ enthält es nach gezeigtem Konfigurations-Diff.
 
 ## Setup ausführen und Auftrag fortsetzen
 

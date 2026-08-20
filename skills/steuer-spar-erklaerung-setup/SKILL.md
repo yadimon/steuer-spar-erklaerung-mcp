@@ -96,15 +96,17 @@ einer widersprüchlichen vorhandenen Konfiguration oder einem zu ersetzenden
 Ziel ohne verifizierbares Backup.
 
 Verweist der aktuelle Auftrag auf die kanonische Installationsreferenz und
-fordert ausdrücklich, den „Standard-Setup direkt auszuführen“, gilt der dort
+enthält `Standard-Setup ausführen` samt dem gewünschten Transport, gilt der dort
 vollständig beschriebene Standardplan als gezeigt und gleichwertig mit
-`OK Standard` bestätigt. Die Formulierung gilt außerdem als bedingte Zustimmung
-für den unten definierten tokenfreien additiven MCP-Merge. Zeige Plan und Diff
-weiterhin, frage innerhalb dieser Grenzen aber nicht erneut.
+`OK Standard` bestätigt. Das autorisiert Download, persistente Installation
+und bei ausdrücklich gewünschtem MCP den unten definierten tokenfreien
+additiven Merge. Zeige Plan und Diff weiterhin, frage innerhalb dieser Grenzen
+aber nicht erneut.
 
-MCP bleibt optional. Erkläre bei Nachfrage kurz, dass die lokale API die
-SteuerSparErklärung bedient und MCP einen kompatiblen Agenten damit verbindet.
-Richte MCP nur auf ausdrücklichen Wunsch und nach gezeigtem Datei-Diff ein.
+MCP ist eine optionale Produktfunktion: Die lokale API bedient die
+SteuerSparErklärung, MCP verbindet einen kompatiblen Agenten damit. Ein reines
+API-Setup richtet MCP nicht ein. Ein ausdrücklich beauftragter vollständiger
+lokaler Standard mit „API plus MCP“ enthält MCP nach gezeigtem Datei-Diff.
 Eine bereits im aktuellen Auftrag enthaltene bedingte Zustimmung gilt ohne
 dritte Rückfrage, wenn sie ausschließlich Backup plus additiven Merge oder
 Update des einen tokenfreien Eintrags `steuer-spar-erklaerung` erlaubt und der
@@ -119,10 +121,12 @@ Lies vor der Ausführung
 1. Prüfe Version, Tag und Distributionsartefakt erst nach bestätigtem
    Standardplan oder einer gleichwertigen ausdrücklichen Zustimmung:
    - npm: installiere `@yadimon/steuer-spar-erklaerung-api@beta` persistent
-     mit `npm install --global`; installiere
+     unter Windows mit `npm.cmd install --global`; installiere
      `@yadimon/steuer-spar-erklaerung-mcp@beta` nur bei bestätigtem
-     MCP-Wunsch. Verwende weder `npx` noch einen temporären Paketcache zum
-     Start des Setup-Wizards.
+     MCP-Wunsch. Verwende in PowerShell auch für den Skill-Installer `npx.cmd`,
+     statt die Execution Policy für blockierte `.ps1`-Shims zu lockern.
+     Verwende weder `npx` noch einen temporären Paketcache zum Start des
+     Setup-Wizards.
      Läuft die eigenständig angemeldete Claude Code CLI, verwende den in der
      Installationsreferenz definierten npm-Präfix direkt unter
      `%USERPROFILE%\.steuer-spar-erklaerung` und `--config` auf denselben
@@ -174,6 +178,12 @@ Lies vor der Ausführung
    beim npm-Weg die tatsächlich laufende Node-Datei. Die Argumente müssen auf
    den dauerhaften MCP-Paketeinstieg zeigen. Sonst können Shim-Prozessketten,
    ungültige Cachepfade und schwarze `cmd.exe`-Fenster entstehen.
+   Ergänze bei Codex zusätzlich exakt die tokenfreien Felder `required`,
+   `startup_timeout_sec`, `tool_timeout_sec` und `enabled_tools` aus der
+   Installationsreferenz in derselben Server-Tabelle. Sie gehören zum
+   bestätigten Codex-Standard-Merge und begrenzen den Modellkatalog auf die
+   dort dokumentierten Kernwerkzeuge; erfinde keine eigene Allowlist. Bei
+   Claude Code und OpenCode diese Codex-TOML-Felder nicht ergänzen.
 5. Starte die API mit dem erzeugten fensterlosen Launcher. Registriere eine
    geplante Aufgabe nur nach separater Zustimmung.
    Für die einmalige Ergänzung zuvor leerer Fall-/Quellbindungen fordert der
@@ -197,15 +207,24 @@ Lies vor der Ausführung
    Argumentwerte nie direkt in die Kommandozeile schreiben. Schreibe eigene
    Diagnosezeilen niemals in stdout eines CLI-Aufrufs, dessen stdout als JSON
    geparst wird; lies das Journal getrennt.
-7. Bei MCP-Wunsch: verwende das vollständige **tokenfreie** Serverobjekt der Setup-Ausgabe,
-   prüfe darin nochmals den absoluten `node.exe`-Befehl und dauerhaften
-   MCP-Einstieg, lade den Client
-   neu, liste den Server und führe das MCP-Tool `sse_health` real aus. Erfolg
-   verlangt dessen strukturiertes Resultat mit `ok=true`; ein Servereintrag,
-   Status „connected“ oder erfolgreicher Handshake ist kein Ersatz. Für
-   Codex `codex mcp list`, für Claude Code `claude mcp list`, für OpenCode
-   `opencode mcp list` beziehungsweise `opencode mcp ls` verwenden. Bleibt das
-   unmöglich, direkte API als vollwertigen Fallback anbieten.
+7. Bei MCP-Wunsch: verwende das vollständige **tokenfreie** Serverobjekt der
+   Setup-Ausgabe und prüfe darin nochmals den absoluten `node.exe`-Befehl und
+   dauerhaften MCP-Einstieg. Nach einer neuen oder geänderten Skill-/MCP-
+   Installation kann die laufende Agentensession den neuen Server nicht als
+   echtes Tool beweisen. Beende diesen Lauf nach grünem `--check` mit
+   **„Technisches Setup bereit; Client-Verifikation nach Neustart offen.“** und
+   fordere genau einen Neustart des lokalen Clients an. Behaupte in der alten
+   Session weder `connected` noch einen erfolgreichen Tool-Aufruf.
+8. Im neu geladenen Client prüft der nächste Fachauftrag zuerst die Serverliste
+   und führt `sse_health` real aus. Erfolg verlangt das strukturierte Resultat
+   mit `ok=true`; ein Servereintrag, Status „connected“ oder erfolgreicher
+   Handshake ist kein Ersatz. Ein direkter API-CLI-Aufruf von `health` beweist
+   die API, aber nicht MCP, und darf diesen einen Tool-Aufruf nicht ersetzen.
+   Für Codex `codex mcp list`, für Claude Code
+   `claude mcp list`, für OpenCode `opencode mcp list` beziehungsweise
+   `opencode mcp ls` verwenden. Scheitert die Client-Verifikation, melde den
+   konkreten Stopp; nutze die direkte API nur, wenn der Nutzer kein MCP verlangt
+   oder sie ausdrücklich als Fallback akzeptiert.
 
 ## Erfolg und Stopps
 

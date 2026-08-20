@@ -3,11 +3,12 @@
 ## Unterstützte Version
 
 Während der öffentlichen Beta wird nur die jeweils neueste vollständige
-Release-Version unterstützt. Dieser Quellstand bereitet `v0.1.0-beta.9` für
-SteuerSparErklärung 2025 vor. Eine vorbereitete Version gilt erst dann als
-öffentlich unterstützt, wenn auf der GitHub-Release-Seite ihr Tag, das
-portable ZIP und die separate SHA-256-Datei gemeinsam veröffentlicht sind.
-Bis dahin bleibt das jeweils jüngste dort vollständige Release unterstützt.
+Release-Version unterstützt. `v0.1.0-beta.9` ist die aktuelle öffentlich
+unterstützte Version für SteuerSparErklärung 2025: Tag, portables ZIP und
+separate SHA-256-Datei sind gemeinsam auf der GitHub-Release-Seite
+veröffentlicht. Ein künftiger vorbereiteter Quellstand wird erst mit diesen
+drei Artefakten öffentlich unterstützt; bis dahin bleibt das jeweils jüngste
+dort vollständige Release maßgeblich.
 Quellstand, Tag oder automatisch erzeugtes GitHub-Quellarchiv allein gelten
 nicht als portables Release.
 

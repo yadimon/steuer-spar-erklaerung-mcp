@@ -511,11 +511,13 @@ Grenzen nicht überlaufen.
 Kleinbuchstaben/Ziffern/Bindestriche und tragen den eindeutigen Präfix
 `steuer-spar-erklaerung-`.
 
-Der Einstieg `steuer-spar-erklaerung` bleibt allein installierbar und enthält
-genug Setup- und Laufzeitlogik für den Standardfall. Zusätzliche direkte
-Einstiege, etwa `steuer-spar-erklaerung-setup`, sind Komfortoberflächen, keine
-zwingenden Abhängigkeiten. Agent-spezifische Metadaten sind optional; die
-eigentliche Anleitung bleibt mit Codex, Claude Code und anderen
+Der veröffentlichte Standard installiert `steuer-spar-erklaerung` und
+`steuer-spar-erklaerung-setup` gemeinsam. Nur der Setup-Skill installiert oder
+repariert Runtime, API und optional MCP; nur der Hauptskill öffnet danach eine
+hashverifizierte Prüffallkopie und führt die Fachprüfung aus. Fehlt einer der
+beiden Skills, stellt der Hauptskill den gemeinsamen Installationsstand nach der
+kanonischen öffentlichen Anleitung her. Agent-spezifische Metadaten sind
+optional; die eigentliche Anleitung bleibt mit Codex, Claude Code und anderen
 Agent-Skills-kompatiblen Agenten verwendbar.
 
 Skills enthalten nur Nutzer- und Laufzeitwissen:

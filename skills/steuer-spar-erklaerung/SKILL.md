@@ -181,17 +181,28 @@ technischen Defaults gemeinsam mit `OK Standard` bestätigen.
 Enthält der aktuelle Auftrag bereits absolute Pfade, deren
 Vollständigkeitsbestätigung und ausdrücklich `OK Standard` samt den dort
 definierten engen read-only Schritten, frage weder Pfade noch Standardplan
-erneut ab. Die Formulierung „Standard-Prüflauf direkt ausführen“ ist bei genau
+erneut ab. `Standard-Prüflauf ausführen` ist bei genau
 einem absoluten Steuerfallpfad und vollständigen absoluten Belegpfaden eine
 gleichwertige Bestätigung dieses engen Vertrags.
 
 Fehlt eine funktionierende Einrichtung, verwende anschließend
 `steuer-spar-erklaerung-setup`. Ist dieser Skill nicht installiert, installiere
-beide öffentlichen Skills nach dessen kanonischer
-`references/installation.md`, statt die Einrichtung frei zu improvisieren.
+beide öffentlichen Skills nach der kanonischen Anleitung
+`https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/skills/steuer-spar-erklaerung-setup/references/installation.md`,
+statt die Einrichtung frei zu improvisieren.
 Verlange nach Setup ein grünes `steuer-spar-erklaerung-setup --check` und bei
 MCP zusätzlich Serverliste plus echten Aufruf von `sse_health` mit
 strukturiertem `ok=true`; „connected“ oder ein Handshake allein genügt nicht.
+Dieser Nachweis muss ein tatsächlicher MCP-Tool-Aufruf sein. `health` über
+Shell oder direkte API-CLI ist kein Ersatz. Ist `sse_health` im neu gestarteten
+Client nicht als Tool verfügbar, stoppe vor jeder direkten API-Facharbeit und
+melde die fehlende Client-Verifikation.
+Wurden Skills oder MCP im aktuellen Lauf neu installiert oder geändert, melde
+statt eines vorgetäuschten Tool-Erfolgs „Technisches Setup bereit;
+Client-Verifikation nach Neustart offen.“ Fordere genau einen Client-Neustart
+an. Der danach gestartete Prüfauftrag führt Serverliste und den echten
+MCP-Aufruf `sse_health` vor jedem direkten API-Aufruf aus und setzt bei Erfolg
+ohne neue Bestätigungsfrage fort.
 Kehre danach automatisch
 zum ursprünglichen Prüfauftrag zurück; ein Auftrag wie „Prüfe meine
 Steuererklärung“ ist nicht schon durch die Einrichtung erfüllt. Bereits
@@ -326,7 +337,7 @@ Prüffallkopie und sichtbare read-only UI-Navigation in der entsperrten Sitzung
 nennt. Kündige die sichtbare Navigation trotzdem mit obigem Hinweis an und
 beginne dann. Eine allgemeine Bitte „prüfen“ reicht dafür nicht. Stoppe bei
 Nutzerinteraktion, unbekanntem Dialog, Fensterwechsel oder Sperrbildschirm.
-Die definierte Formulierung „Standard-Prüflauf direkt ausführen“ zählt hier als
+Die definierte Formulierung `Standard-Prüflauf ausführen` zählt hier als
 diese Zustimmung, wenn der Auftrag zugleich genau einen absoluten Fallpfad und
 die vollständigen absoluten Belegpfade nennt.
 

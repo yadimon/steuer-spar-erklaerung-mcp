@@ -48,9 +48,12 @@ Es gibt genau zwei unterstützte Installationswege:
 | Portable | nichts Zusätzliches | PCs ohne Node.js/npm |
 
 Für OpenCode ist der npm-Weg der einfache Standard, sobald `node --version`
-mindestens 22 meldet und `npm --version` funktioniert. Dann nicht parallel das
-Portable-Release herunterladen. Fehlt Node/npm, bleibt Portable unterstützt;
-Node.js wird nicht nur für dieses Produkt nachinstalliert.
+mindestens 22 meldet und `npm.cmd --version` funktioniert. Dann nicht parallel
+das Portable-Release herunterladen. Fehlt Node/npm, bleibt Portable unterstützt;
+Node.js wird nicht nur für dieses Produkt nachinstalliert. Verwende unter
+Windows in PowerShell `npm.cmd` und `npx.cmd`; ändere nicht die systemweite
+Execution Policy, nur weil die parallelen `npm.ps1`-/`npx.ps1`-Shims blockiert
+sind.
 
 OpenCode ist ein sekundärer, best-effort Client. Verwende dort einen Agenten,
 der PowerShell-Anweisungen zuverlässig ausführt. Für ein technisches Setup ohne
@@ -79,8 +82,8 @@ ein; nur der Hauptskill darf anschließend einen Steuerfall prüfen.
 Mit vorhandenem Node.js 22+ und npm:
 
 ```powershell
-npx -y skills add yadimon/steuer-spar-erklaerung-mcp --list
-npx -y skills add yadimon/steuer-spar-erklaerung-mcp `
+npx.cmd -y skills add yadimon/steuer-spar-erklaerung-mcp --list
+npx.cmd -y skills add yadimon/steuer-spar-erklaerung-mcp `
   --skill steuer-spar-erklaerung --skill steuer-spar-erklaerung-setup `
   --agent <codex|claude-code|opencode> --global --copy --yes
 ```
@@ -104,9 +107,9 @@ und zu einem vollständigen GitHub-Release mit Portable-ZIP und Sidecar-Hash
 gehören:
 
 ```powershell
-npm view @yadimon/steuer-spar-erklaerung-api@beta version
-npm view @yadimon/steuer-spar-erklaerung-mcp@beta version
-npm install --global @yadimon/steuer-spar-erklaerung-api@beta @yadimon/steuer-spar-erklaerung-mcp@beta
+npm.cmd view @yadimon/steuer-spar-erklaerung-api@beta version
+npm.cmd view @yadimon/steuer-spar-erklaerung-mcp@beta version
+npm.cmd install --global @yadimon/steuer-spar-erklaerung-api@beta @yadimon/steuer-spar-erklaerung-mcp@beta
 ```
 
 Setup nie direkt aus `npx` starten: dessen `_npx`-Cache ist flüchtig und darf
@@ -123,7 +126,7 @@ Ordner direkt im Benutzerprofil und eine explizite Konfiguration:
 $sseLocalRoot = Join-Path $env:USERPROFILE '.steuer-spar-erklaerung'
 $sseRuntimeRoot = Join-Path $sseLocalRoot 'npm'
 $sseConfigPath = Join-Path $sseLocalRoot 'config.json'
-npm install --global --prefix $sseRuntimeRoot `
+npm.cmd install --global --prefix $sseRuntimeRoot `
   @yadimon/steuer-spar-erklaerung-api@beta `
   @yadimon/steuer-spar-erklaerung-mcp@beta
 & (Join-Path $sseRuntimeRoot 'steuer-spar-erklaerung-setup.cmd') `
@@ -224,8 +227,36 @@ mergt oder aktualisiert und keine anderen Einträge löscht oder ersetzt. Niemal
 die ganze Datei ersetzen. Verwende `command` und `args` unverändert aus dem
 Serverobjekt `steuer-spar-erklaerung` der erzeugten Mergevorlage.
 
-- **Codex:** bevorzugt `codex mcp add ... -- <command> <args...>` verwenden,
-  danach `codex mcp list`; Codex Desktop/CLI neu starten und `/mcp` prüfen.
+- **Codex:** bevorzugt `codex mcp add ... -- <command> <args...>` verwenden.
+  Ergänze danach in genau derselben TOML-Tabelle die folgenden
+  client-spezifischen, tokenfreien Kontrollen. Aktuelle Codex-Versionen können
+  einen großen unbeschränkten MCP-Katalog sonst vollständig aus dem
+  Modellkontext ausblenden. Die begrenzte Kernliste deckt den Standard-Prüflauf
+  ab; alle übrigen veröffentlichten Operationen bleiben über die ausgelieferte
+  API-CLI erreichbar.
+
+  ```toml
+  required = true
+  startup_timeout_sec = 30
+  tool_timeout_sec = 300
+  enabled_tools = [
+    "sse_health", "sse_capabilities", "sse_product_info",
+    "sse_workspace_status", "sse_workspace_files",
+    "sse_workspace_read_text", "sse_workspace_write_text",
+    "sse_list_cases", "sse_case_hash", "sse_make_working_copy",
+    "sse_launch", "sse_windows", "sse_dialog_list", "sse_dialog_answer",
+    "sse_warning_popup_read", "sse_page", "sse_page_state",
+    "sse_page_objects", "sse_ui_state", "sse_collect", "sse_goto",
+    "sse_checker_results", "sse_checker_run", "sse_checker_open",
+    "sse_checker_close", "sse_screenshot", "sse_subpages",
+    "sse_table_read", "sse_find", "sse_positions", "sse_click",
+    "sse_click_point", "sse_read_full", "sse_result_details", "sse_close"
+  ]
+  ```
+
+  Diese vier Felder sind Bestandteil des bestätigten Codex-Standard-Merges;
+  `command` und `args` bleiben trotzdem unverändert aus der Setup-Vorlage.
+  Danach `codex mcp list`; Codex Desktop/CLI neu starten und `/mcp` prüfen.
 - **Claude Code:** `claude mcp add --transport stdio --scope user ... --
   <command> <args...>` verwenden, danach `claude mcp list` und `/mcp`.
 - **OpenCode:** zuerst `opencode mcp --help` lesen. Unterstützt die installierte
@@ -263,21 +294,28 @@ Erfolg verlangt `ok: true`, die veröffentlichte Version, freigegebenes Profil,
 API-Health, Discovery mit Operationszahl, passenden
 Konfigurationsfingerprint, bereiten Workspace und `containsToken: false` für
 die MCP-Vorlage. `clientVerificationRequired: true` bedeutet bewusst, dass
-anschließend noch der tatsächliche Client geprüft werden muss.
+anschließend noch der tatsächliche Client geprüft werden muss. Der Agent meldet
+dann präzise: **Technisches Setup bereit; Client-Verifikation nach Neustart
+offen.** Er behauptet in der alten Session keinen erfolgreichen MCP-Toolaufruf.
 
-Danach im neu geladenen Client:
+Nach genau einem Neustart des lokalen Clients prüft der nächste Auftrag vor der
+Facharbeit:
 
 1. Serverliste zeigt `steuer-spar-erklaerung` als verbunden;
 2. ein realer Aufruf des MCP-Tools `sse_health` liefert strukturiert `ok=true`;
 3. keine Ausgabe enthält Token, Steuerwerte oder lokale Steuerdateipfade.
 
 „Connected“, ein erfolgreicher Handshake oder nur die Serverliste ersetzen
-den Tool-Aufruf nicht.
+den Tool-Aufruf nicht. Auch der direkte API-CLI-Aufruf `health` ist kein Ersatz
+für dieses einmalige Client-Signal; im Codex-JSONL-Nachweis erscheint dafür ein
+`mcp_tool_call` des Servers `steuer-spar-erklaerung`.
 
-Erst diese drei Ebenen zusammen sind ein erfolgreiches Setup. Der Setup-Skill
-öffnet keinen Steuerfall. Für eine Prüfung muss er an den installierten
-Hauptskill übergeben; dieser erzeugt vor jeder UI-Navigation eine
-hashverifizierte Arbeitskopie und öffnet niemals den Originalfall.
+Erst diese drei Ebenen zusammen sind die abgeschlossene Client-Verifikation.
+Der zweite kopierbare Prompt unten übernimmt sie automatisch und fährt bei
+Erfolg mit der Fachprüfung fort; eine dritte Bestätigungsfrage ist nicht nötig.
+Der Setup-Skill öffnet keinen Steuerfall. Der Hauptskill erzeugt vor jeder
+UI-Navigation eine hashverifizierte Arbeitskopie und öffnet niemals den
+Originalfall.
 
 ## Zwei kopierbare Prompts
 
@@ -286,16 +324,18 @@ hashverifizierte Arbeitskopie und öffnet niemals den Originalfall.
 ```text
 Richte SteuerSparErklärung vollständig lokal nach
 https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/skills/steuer-spar-erklaerung-setup/references/installation.md
-ein. Installiere beide Skills sowie das neueste vollständige Release und führe
-den dort beschriebenen Standard-Setup mit lokaler API plus MCP direkt aus.
-Prüfe danach Setup und das echte MCP-Tool `sse_health`.
+ein. Installiere oder aktualisiere beide Skills und verwende das neueste
+vollständige Release.
+Standard-Setup ausführen: lokale API plus MCP.
 ```
 
-Die Formulierung „Standard-Setup direkt ausführen“ bestätigt den oben
-beschriebenen sicheren Plan einschließlich Download und des bedingten,
+`Standard-Setup ausführen` bestätigt den oben beschriebenen sicheren Plan
+einschließlich Download, persistenter Installation und des bedingten
 tokenfreien additiven MCP-Merges. Der Agent zeigt Plan und Diff weiterhin an,
 fragt innerhalb dieser Grenzen aber nicht erneut. Bei Löschungen, weiteren
-Servern, Token oder einem anderen Befehl stoppt er.
+Servern, Token oder einem anderen Befehl stoppt er. Nach einer neuen oder
+geänderten Skill-/MCP-Installation fordert er genau einen Client-Neustart an;
+Prompt 2 übernimmt danach die reale Client-Verifikation.
 
 ### Prompt 2: Steuerfall nur lesend prüfen
 
@@ -303,13 +343,16 @@ Servern, Token oder einem anderen Befehl stoppt er.
 Nutze $steuer-spar-erklaerung und prüfe meine Einkommensteuererklärung 2025.
 Steuerfall: <ABSOLUTER_PFAD_ZUR_ESt2025-DATEI>
 Belege: <ABSOLUTE_BELEGORDNER>
-Diese Pfade sind vollständig. Führe den Standard-Prüflauf direkt aus.
+Diese Pfade sind vollständig.
+Standard-Prüflauf ausführen.
 ```
 
-„Standard-Prüflauf direkt ausführen“ bestätigt bei vollständigen absoluten
+`Standard-Prüflauf ausführen` bestätigt bei vollständigen absoluten
 Pfaden den sicheren Prüfvertrag des Hauptskills: hashverifizierte Kopie,
 sichtbare rein lesende Navigation, Report sowie kein Speichern und kein ELSTER.
-Der Agent fragt innerhalb dieses Vertrags nicht erneut.
+Der neu geladene Agent prüft zuvor bei konfiguriertem MCP Serverliste und den
+echten Aufruf `sse_health` mit `ok=true`. Er fragt innerhalb dieses Vertrags
+nicht erneut.
 
 Die im Kalenderjahr 2026 abgegebene Einkommensteuererklärung betrifft in
 diesem Release das unterstützte Steuerjahr 2025. Ein Einkommensteuerfall 2026

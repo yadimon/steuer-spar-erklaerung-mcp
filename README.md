@@ -49,22 +49,32 @@ Cowork ersetzt diese CLI-Anmeldung nicht.
 ### 1. Lokal installieren
 
 Gib einem **lokalen** Agenten diesen Auftrag. Er wählt selbst npm oder das
-Portable-Release, installiert beide Skills und prüft API plus MCP:
+Portable-Release und richtet beide Skills, API und MCP ein:
 
 ```text
 Richte SteuerSparErklärung vollständig lokal nach
 https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/skills/steuer-spar-erklaerung-setup/references/installation.md
-ein. Installiere beide Skills sowie das neueste vollständige Release und führe
-den dort beschriebenen Standard-Setup mit lokaler API plus MCP direkt aus.
-Prüfe danach Setup und das echte MCP-Tool `sse_health`.
+ein. Installiere oder aktualisiere beide Skills und verwende das neueste
+vollständige Release.
+Standard-Setup ausführen: lokale API plus MCP.
 ```
 
-Die Formulierung „Standard-Setup direkt ausführen“ bestätigt den eng begrenzten
-sicheren Plan der verlinkten Anleitung. Der Agent zeigt Plan und tokenfreien
-Client-Diff weiterhin an, fragt bei einem rein additiven MCP-Eintrag aber nicht
-noch einmal. Das Setup verändert keinen Steuerfall. Erfolg bedeutet: `--check`
-ist grün, der neu geladene Client meldet den MCP-Server als verbunden und das
-MCP-Tool `sse_health` liefert wirklich `ok=true`.
+`Standard-Setup ausführen` bestätigt den eng begrenzten sicheren Plan der
+verlinkten Anleitung einschließlich Download, persistenter Installation und
+des bedingten tokenfreien additiven MCP-Merges. Der Agent zeigt Plan und Diff
+weiterhin an, fragt innerhalb dieser Grenzen aber nicht erneut. Das Setup
+verändert keinen Steuerfall.
+
+Nach einer neuen oder geänderten Skill-/MCP-Installation endet der erste Lauf
+mit grünem `--check` und dem Status, dass die Client-Verifikation nach einem
+Neustart noch offen ist. Starte den lokalen Agenten dann einmal neu und verwende
+Prompt 2. Der neu geladene Agent prüft Serverliste und das echte MCP-Tool
+`sse_health` mit `ok=true`, bevor er den Steuerfall bearbeitet. So bleiben es
+zwei Prompts; „connected“ oder ein Handshake allein gelten nicht als Nachweis.
+Für Codex begrenzt die Installationsanleitung den Modellkatalog auf die
+Kernwerkzeuge des Standard-Prüflaufs; alle 87 Operationen bleiben über die
+lokale API-CLI verfügbar. Das verhindert, dass aktuelle Codex-Versionen den
+großen unbeschränkten MCP-Katalog vollständig ausblenden.
 
 ### 2. Steuerfall prüfen
 
@@ -74,10 +84,11 @@ Danach genügt ein fachlicher Prompt mit den echten Pfaden:
 Nutze $steuer-spar-erklaerung und prüfe meine Einkommensteuererklärung 2025.
 Steuerfall: <ABSOLUTER_PFAD_ZUR_ESt2025-DATEI>
 Belege: <ABSOLUTE_BELEGORDNER>
-Diese Pfade sind vollständig. Führe den Standard-Prüflauf direkt aus.
+Diese Pfade sind vollständig.
+Standard-Prüflauf ausführen.
 ```
 
-„Standard-Prüflauf direkt ausführen“ steht im Skill bereits für die
+`Standard-Prüflauf ausführen` steht im Skill bereits für die
 hashverifizierte Prüffallkopie, sichtbare rein lesende Navigation, den Report
 und den Stopp ohne Speichern oder ELSTER. Diese Sicherheitsdetails müssen nicht
 in jedem Prompt wiederholt werden.
@@ -95,8 +106,8 @@ Die offene [`skills`-CLI](https://www.skills.sh/docs/cli) erkennt beide
 oder `opencode`:
 
 ```powershell
-npx -y skills add yadimon/steuer-spar-erklaerung-mcp --list
-npx -y skills add yadimon/steuer-spar-erklaerung-mcp `
+npx.cmd -y skills add yadimon/steuer-spar-erklaerung-mcp --list
+npx.cmd -y skills add yadimon/steuer-spar-erklaerung-mcp `
   --skill steuer-spar-erklaerung --skill steuer-spar-erklaerung-setup `
   --agent <agent> --global --copy --yes
 ```
@@ -104,16 +115,16 @@ npx -y skills add yadimon/steuer-spar-erklaerung-mcp `
 Die vollständigen nichtinteraktiven Varianten bleiben explizit dokumentiert:
 
 ```powershell
-npx -y skills add yadimon/steuer-spar-erklaerung-mcp --skill steuer-spar-erklaerung --skill steuer-spar-erklaerung-setup --agent codex --global --copy --yes
-npx -y skills add yadimon/steuer-spar-erklaerung-mcp --skill steuer-spar-erklaerung --skill steuer-spar-erklaerung-setup --agent claude-code --global --copy --yes
-npx -y skills add yadimon/steuer-spar-erklaerung-mcp --skill steuer-spar-erklaerung --skill steuer-spar-erklaerung-setup --agent opencode --global --copy --yes
+npx.cmd -y skills add yadimon/steuer-spar-erklaerung-mcp --skill steuer-spar-erklaerung --skill steuer-spar-erklaerung-setup --agent codex --global --copy --yes
+npx.cmd -y skills add yadimon/steuer-spar-erklaerung-mcp --skill steuer-spar-erklaerung --skill steuer-spar-erklaerung-setup --agent claude-code --global --copy --yes
+npx.cmd -y skills add yadimon/steuer-spar-erklaerung-mcp --skill steuer-spar-erklaerung --skill steuer-spar-erklaerung-setup --agent opencode --global --copy --yes
 ```
 
 OpenCode bleibt ein sekundärer, best-effort Client. Mit bereits vorhandenem
 Node.js/npm ist sein kurzer Runtime-Weg nach der Skill-Installation:
 
 ```powershell
-npm install --global @yadimon/steuer-spar-erklaerung-api@beta @yadimon/steuer-spar-erklaerung-mcp@beta
+npm.cmd install --global @yadimon/steuer-spar-erklaerung-api@beta @yadimon/steuer-spar-erklaerung-mcp@beta
 steuer-spar-erklaerung-setup --defaults --with-mcp
 ```
 
@@ -137,7 +148,7 @@ der PC-blinde MCP-Wrapper kann unabhängig installiert werden. Das empfohlene
 lokale Agenten-Setup installiert beide Pakete in exakt derselben Version:
 
 ```powershell
-npm install --global @yadimon/steuer-spar-erklaerung-api@beta @yadimon/steuer-spar-erklaerung-mcp@beta
+npm.cmd install --global @yadimon/steuer-spar-erklaerung-api@beta @yadimon/steuer-spar-erklaerung-mcp@beta
 steuer-spar-erklaerung-setup --with-mcp
 steuer-spar-erklaerung-setup --check
 ```
@@ -153,12 +164,16 @@ belastbarer MCP-Setup-Erfolg und dürfen nicht aus Cowork oder der Desktop-App
 als Host-Installation übernommen werden.
 
 Für einen bewusst später ergänzten MCP-Transport ist auch
-`npm install --global @yadimon/steuer-spar-erklaerung-mcp@beta` zulässig; vor
+`npm.cmd install --global @yadimon/steuer-spar-erklaerung-mcp@beta` zulässig; vor
 dem erneuten Setup muss seine Version exakt zum API-Paket passen.
 
 Setup nie direkt aus `npx` starten: Der temporäre `_npx`-Cache ist kein
 stabiler Ort für dauerhafte API-/MCP-Startpfade. Für Nutzer ohne Node/npm ist
 der Portable-Weg unten vollständig gleichwertig.
+
+Die Windows-Beispiele verwenden bewusst `npm.cmd` und `npx.cmd`. Damit bleibt
+eine frische PowerShell-Execution-Policy unverändert, auch wenn sie die parallel
+installierten Shim-Dateien `npm.ps1` oder `npx.ps1` blockiert.
 
 ## Beispiel
 
@@ -172,7 +187,8 @@ der Portable-Weg unten vollständig gleichwertig.
 | Belege abgleichen | „Vergleiche den Fall mit den Belegen in diesem Ordner.“ | Originale unverändert lassen |
 | Korrektur vorbereiten | „Schlage Korrekturen vor und ändere nach meiner Freigabe eine Arbeitskopie.“ | Vorher/nachher zurücklesen |
 | UStVA vorbereiten | „Bereite die UStVA für Juli vor und sende sie nicht ab.“ | Zeitraum und vorhandene Übermittlungen zuerst prüfen |
-| Nur einrichten | „Richte die lokale API ein und verwende empfohlene Antworten.“ | npm oder Portable; direkte API, MCP optional |
+| Nur API einrichten | „Richte nur die lokale API ein und verwende empfohlene Antworten.“ | npm oder Portable; kein MCP-Merge |
+| Vollständiges Agenten-Setup | „Richte lokale API plus MCP vollständig ein.“ | npm oder Portable; tokenfreier additiver MCP-Merge |
 
 Die Automation unterscheidet drei Betriebsarten:
 
@@ -343,10 +359,13 @@ steuer-spar-erklaerung-call workspace_status
 Operationen verwenden logische Ressourcen wie `cases:`, `documents:` und
 `results:`. Dadurch müssen API-Clients keine lokalen PC-Pfade kennen.
 
-## MCP optional anbinden
+## MCP als optionale Produktfunktion anbinden
 
 MCP ist ein dünner Wrapper über dieselbe API. Sein Prozess kennt nur URL und
 Token; SSE-, Fall- und Dokumentpfade bleiben in der lokalen API-Konfiguration.
+Ein reines API-Setup braucht MCP nicht. Der oben dokumentierte vollständige
+Agenten-Standard enthält MCP, weil Prompt 1 ausdrücklich „lokale API plus MCP“
+beauftragt.
 Die vom Setup erzeugte Servervorlage wird nach Prüfung in die Konfiguration des
 jeweiligen Clients gemergt:
 
