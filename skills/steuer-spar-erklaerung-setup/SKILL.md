@@ -248,6 +248,17 @@ ab, arbeite nicht darum herum: `config.json`, `setup-decisions.json`,
 installierte Runtime-Dateien und Prozesse weder lesen noch manuell ändern oder
 beenden. Melde den Wizard-Fehler als sicheren Stopp.
 
+Es gibt genau einen zugelassenen Reparaturweg, und er ändert keine Datei von
+Hand: Stammt die vorhandene Konfiguration aus einem NPX-Foreground-Start, ist
+sie unvollständig statt kaputt. `steuer-spar-erklaerung-setup --check` meldet
+das als `ok=false` mit `kind="foreground-only-config"`. Lasse dann zuerst die
+laufende Foreground-API vom Nutzer mit Strg+C beenden und führe danach
+`steuer-spar-erklaerung-setup --defaults` aus; das Token bleibt erhalten.
+Erst danach ist `--plan-file` wieder der richtige Weg. Läuft die Foreground-API
+noch, lehnt sie die sichere Neubindung wegen abweichendem
+Konfigurationsfingerprint mit HTTP 409 ab — das ist erwartetes Verhalten und
+kein Grund, etwas manuell zu erzwingen.
+
 Berichte konkrete Datei, letzten gelesenen Zustand, bereits erzeugte Dateien
 und genau eine nächste sichere Aktion. Lösche Konfigurationen oder geplante
 Aufgaben niemals ungefragt.

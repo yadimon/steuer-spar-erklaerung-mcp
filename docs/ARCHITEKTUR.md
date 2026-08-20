@@ -367,6 +367,17 @@ Dateitypen. In API-Antworten wird die stabile Referenz zurückgegeben; absolute
 Pfade bleiben lokal und werden nicht in MCP-Ergebnisse oder Szenarioartefakte
 übernommen.
 
+Für Fallbezüge gilt eine wichtige Einschränkung: Der Bereich `cases` und damit
+auch `--case-dir` ist die Auflösungs- und Schwärzungsgrenze für
+`cases:`-Referenzen sowie der Vorgabeordner für `list_cases`, `backup_cases`
+und `archive_cases`. Er ist **keine** Zugriffssperre der direkten lokalen API:
+Fallbezogene Operationen akzeptieren weiterhin ausdrücklich benannte absolute
+Windows-Pfade. Ohne konfigurierten `cases`-Bereich entfällt zusätzlich die
+Pfadschwärzung, sodass ein direkter API-Client übergebene absolute Pfade
+ungeschwärzt zurückerhält. Der MCP-Wrapper ist davon nicht betroffen; er kennt
+grundsätzlich keine Pfadfelder. Die Zusage „nur der bestätigte Fall, Original
+nie geöffnet“ ist deshalb eine Ablaufzusage der Skills, keine API-Sperre.
+
 ## Laufzeit und Installation
 
 ### Nutzerstandard

@@ -59,18 +59,44 @@ function verifyMcpTemplate(configPath: string, templatePath: string): {
   return { templatePath, command, launcher, entry, containsToken: false };
 }
 
-export async function runSetupCheck(configPathInput?: string): Promise<void> {
+/**
+ * Eine Konfiguration aus dem NPX-Foreground-Start ist absichtlich unvollstaendig:
+ * sie hat weder `sseExecutable` noch `setup-decisions.json`. Das ist kein Defekt,
+ * sondern "noch kein dauerhaftes Setup" und wird deshalb als maschinenlesbarer
+ * Status gemeldet statt als Fehler geworfen.
+ */
+function reportForegroundOnlyConfig(config: { configPath: string; caseDir?: string }, reason: string): void {
+  process.stdout.write(`${JSON.stringify({
+    schemaVersion: 1,
+    ok: false,
+    kind: "foreground-only-config",
+    version: SSE_PACKAGE_VERSION,
+    reason,
+    config: { path: config.configPath, tokenConfigured: true, caseDirectoryConfigured: Boolean(config.caseDir) },
+    hint: "Noch kein vollstaendiges Setup, nur eine NPX-Foreground-Konfiguration. " +
+      "Laufende Foreground-API zuerst mit Strg+C beenden, dann 'steuer-spar-erklaerung-setup --defaults' ausfuehren.",
+  }, null, 2)}\n`);
+}
+
+/** Gibt `true` zurueck, wenn ein vollstaendiges dauerhaftes Setup vorliegt. */
+export async function runSetupCheck(configPathInput?: string): Promise<boolean> {
   const here = dirname(fileURLToPath(import.meta.url));
   const configPath = resolve(configPathInput ?? defaultApiConfigPath());
   if (!existsSync(configPath)) throw new Error(`Lokale API-Konfiguration fehlt: ${configPath}`);
   const config = loadApiServerConfig(environmentForExplicitApiConfig(configPath));
   const profile = loadProductProfile(config.profileId);
   if (!isProductProfileReleased(profile)) throw new Error(`Produktprofil '${config.profileId}' ist nicht freigegeben.`);
-  if (!config.sseExecutable) throw new Error("SSE.exe ist in der lokalen Konfiguration nicht gesetzt.");
+  const preferences = loadStoredSetupPreferences(config.workspaceDir);
+  if (!config.sseExecutable) {
+    reportForegroundOnlyConfig(config, "SSE.exe ist in der lokalen Konfiguration nicht gesetzt.");
+    return false;
+  }
+  if (!preferences) {
+    reportForegroundOnlyConfig(config, `Setup-Entscheidungen fehlen im Arbeitsbereich: ${config.workspaceDir}`);
+    return false;
+  }
   validateSseExecutable(config.sseExecutable, config.profileId);
   const powershell = probeWindowsPowerShell();
-  const preferences = loadStoredSetupPreferences(config.workspaceDir);
-  if (!preferences) throw new Error(`Setup-Entscheidungen fehlen im Arbeitsbereich: ${config.workspaceDir}`);
   const api = await verifySetupApi({
     host: config.host,
     port: config.port,
@@ -101,4 +127,5 @@ export async function runSetupCheck(configPathInput?: string): Promise<void> {
       : "Direkte API ist der konfigurierte Transport.",
     runtimeRoot: resolve(here, ".."),
   }, null, 2)}\n`);
+  return true;
 }

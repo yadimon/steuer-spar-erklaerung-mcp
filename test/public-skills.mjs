@@ -36,9 +36,25 @@ const main = readFileSync(join(skillsRoot, "steuer-spar-erklaerung", "SKILL.md")
 assert(main.includes("kein globales Node.js/npm") && main.includes("kein Python") && main.includes("PowerShell 7"));
 assert(main.includes("MCP ist ein optionaler dünner Wrapper") && main.includes("API-Selbstbeschreibung"));
 assert(main.includes("NPX-Kurzweg ohne globale Runtime-Installation"));
-assert(main.includes("npx.cmd -y @yadimon/steuer-spar-erklaerung-api --case-dir"));
-assert(main.includes("npx.cmd -y -p @yadimon/steuer-spar-erklaerung-api steuer-spar-erklaerung-call"));
+assert(main.includes("npx.cmd -y @yadimon/steuer-spar-erklaerung-api@beta --case-dir"));
+assert(main.includes("npx.cmd -y -p @yadimon/steuer-spar-erklaerung-api@beta steuer-spar-erklaerung-call"));
 assert(main.includes("kein dauerhafter Launcher") && main.includes("Setup-Skill und MCP sind nicht erforderlich"));
+assert(
+  main.includes("keine Zugriffssperre der direkten API"),
+  "Hauptskill muss --case-dir ehrlich als Referenz-/Schwaerzungsgrenze beschreiben.",
+);
+assert(
+  main.includes("bereits eine SSE-API läuft, fahre") && main.includes("nicht fort"),
+  "Hauptskill muss den belegten Loopback-Port als Stopp benennen.",
+);
+assert(
+  main.includes("`case_hash` auf `cases:") && main.includes("Get-FileHash -Algorithm SHA256"),
+  "Hauptskill muss die Fallbindung ueber Dateiidentitaet statt ueber eine Ordnerangabe pruefen.",
+);
+assert(
+  main.includes('kind="foreground-only-config"'),
+  "Hauptskill muss den unvollstaendigen NPX-Stand vom kaputten Setup unterscheiden.",
+);
 assert(main.includes("ausdrücklich gewählten NPX-/API-Modus") && main.includes("fehlendes MCP ist dort kein Fehler"));
 assert(main.includes("Client-Konfiguration selbst bleibt tokenfrei") && main.includes("setup --check"));
 assert(main.includes("steuer-spar-erklaerung-call") && main.includes("--args-file -") && main.includes("Prozessliste"));
@@ -246,6 +262,16 @@ assert(readme.includes("## Schnellstart mit zwei Prompts") && readme.includes("s
 assert(readme.includes("## Schnell mit NPX, ohne MCP"));
 assert(readme.includes("Starte die lokale API über npx. Kein MCP und keine globale Runtime-Installation."));
 assert(readme.includes("keine globale Paketinstallation") && readme.includes("kein dauerhafter Startpfad"));
+assert(
+  readme.includes("Die lokale API erzwingt technisch:")
+    && readme.includes("Der Prüfablauf der Skills garantiert zusätzlich:")
+    && readme.includes("keine technische Sperre der API"),
+  "README muss API-Invarianten und Ablaufdisziplin getrennt ausweisen.",
+);
+assert(
+  readme.includes("keine Zugriffssperre der direkten API"),
+  "README darf --case-dir nicht als Sandbox darstellen.",
+);
 assert(readme.includes("Claude Cowork") && readme.includes("Git for Windows") && readme.includes("$steuer-spar-erklaerung"));
 assert(readme.includes("`Standard-Setup ausführen`") && readme.includes("`Standard-Prüflauf ausführen`"));
 assert(readme.includes("bedingten tokenfreien additiven MCP-Merges") && readme.includes("Stopp ohne Speichern oder ELSTER"));

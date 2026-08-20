@@ -57,17 +57,26 @@ Starte die lokale API über npx. Kein MCP und keine globale Runtime-Installation
 Prüfe meine Einkommensteuererklärung 2025.
 Steuerfall: <ABSOLUTER_PFAD_ZUR_ESt2025-DATEI>
 Belege: <ABSOLUTE_BELEGORDNER_ODER_KEINE_BELEGE>
-Diese Pfade sind vollständig.
 Standard-Prüflauf ausführen.
 ```
 
-Der Agent startet `@yadimon/steuer-spar-erklaerung-api` im Vordergrund, bindet
-den bestätigten Fallordner nur an diesen Prozess und verwendet die enthaltene
-CLI. Beim ersten Lauf entstehen eine token-geschützte Konfiguration und private
-Arbeitsordner im lokalen Benutzerprofil, aber keine globale Paketinstallation
-und kein dauerhafter Startpfad in den NPX-Cache. Nach dem Report beendet der
-Agent die API wieder. MCP und ein Agenten-Neustart sind für diesen Weg nicht
-nötig.
+`Standard-Prüflauf ausführen` bestätigt dabei zugleich, dass die genannten
+Belegpfade vollständig sind.
+
+Der Agent startet `@yadimon/steuer-spar-erklaerung-api@beta` im Vordergrund,
+bindet den bestätigten Fallordner nur an diesen Prozess und verwendet die
+enthaltene CLI mit derselben gepinnten Paketmarke. Beim ersten Lauf entstehen
+eine token-geschützte Konfiguration und private Arbeitsordner im lokalen
+Benutzerprofil, aber keine globale Paketinstallation
+und kein dauerhafter Startpfad in den NPX-Cache.
+Nach dem Report beendet der Agent die API wieder.
+MCP und ein Agenten-Neustart sind für diesen Weg nicht nötig.
+
+Läuft bereits eine dauerhaft installierte API auf demselben Loopback-Port,
+muss sie zuerst beendet werden; der npx-Start meldet den belegten Port dann
+ausdrücklich und arbeitet nicht still über die andere Instanz weiter. Soll aus
+diesem Kurzweg später ein dauerhaftes Setup werden, zuerst die npx-API mit
+Strg+C beenden und danach das Setup ausführen.
 
 ## Schnellstart mit zwei Prompts
 
@@ -109,7 +118,6 @@ Danach genügt ein fachlicher Prompt mit den echten Pfaden:
 Nutze $steuer-spar-erklaerung und prüfe meine Einkommensteuererklärung 2025.
 Steuerfall: <ABSOLUTER_PFAD_ZUR_ESt2025-DATEI>
 Belege: <ABSOLUTE_BELEGORDNER>
-Diese Pfade sind vollständig.
 Standard-Prüflauf ausführen.
 ```
 
@@ -425,14 +433,31 @@ prüfen. Ein bloßes „connected“ oder ein Handshake genügt nicht.
 
 ## Sicherheitsmodell
 
+Die lokale API erzwingt technisch:
+
 - ELSTER-, Versand- und Übermittlungsaktionen sind im Katalog gesperrt.
-- Lesen ist der Standard; Änderungen brauchen eine ausdrückliche Freigabe.
+- Die API ist nur über Loopback und mit lokalem Token erreichbar.
 - Schreiboperationen arbeiten mit PID/HWND, erwarteter Seite und
   Vorher-/Nachher-Prüfung.
-- Steuerdateien werden nur als hashgebundene Arbeitskopien bearbeitet.
-- Originale werden weder überschrieben noch gelöscht.
+- Arbeitskopien, Backups und Archive entstehen nur an neuen Zielen: ein
+  vorhandenes Ziel wird nie überschrieben, und die Kopie wird byteweise
+  zurückgelesen.
+- Speichern ist an den erwarteten Pfad und den erwarteten Hash gebunden.
+- Mehrdeutige SSE-Fenster brechen ab statt zu raten.
 - API-Logs enthalten keine Argumente, Ergebnisse oder Tokens.
 - MCP gibt keine lokalen PC-Pfade an den Client weiter.
+
+Der Prüfablauf der Skills garantiert zusätzlich:
+
+- Lesen ist der Standard; Änderungen brauchen eine ausdrückliche Freigabe.
+- Der Originalfall wird nicht geöffnet; gearbeitet wird auf einer
+  verifizierten Arbeitskopie.
+- Eine reine Prüfung endet ohne Speichern.
+
+Diese zweite Liste ist Ablaufdisziplin, keine technische Sperre der API: Die
+direkte lokale API kann jede ausdrücklich benannte Datei öffnen und speichern.
+Ebenso ist `--case-dir` die Auflösungs- und Schwärzungsgrenze für
+`cases:`-Referenzen und keine Zugriffssperre der direkten API.
 
 Die Automation kann fachliche Fehler nicht ausschließen. Vor einer Abgabe sind
 Steuerfall, Belege und Programmprüfung selbst zu kontrollieren. Details stehen

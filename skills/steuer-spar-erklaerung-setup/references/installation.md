@@ -201,6 +201,19 @@ oder ELSTER-Autorität. `--defaults` ist nur für bereits gespeicherte Pfade ode
 ein bewusst technisches Setup ohne Fall-/Belegbindung gedacht. `--no-start`
 erzeugt Dateien, prüft die laufende API aber nicht.
 
+Als bindungsfreie Ausgangslage zählt auch eine Konfiguration, die zuvor der
+NPX-Kurzweg `npx.cmd -y @yadimon/steuer-spar-erklaerung-api@beta` angelegt hat.
+Sie ist unvollständig, aber eine gültige Quelle für die einmalige Bindung.
+`steuer-spar-erklaerung-setup --check` meldet sie als `ok=false` mit
+`kind="foreground-only-config"` und nennt den nächsten Schritt; das ist keine
+kaputte Installation. Die Reihenfolge ist bindend: zuerst die laufende
+Foreground-API mit Strg+C beenden, danach das Setup ausführen. Andernfalls
+lehnt die laufende API die sichere Neubindung wegen abweichendem
+Konfigurationsfingerprint mit HTTP 409 ab. Bleibt `--plan-file` danach
+blockiert, ist `steuer-spar-erklaerung-setup --defaults` der einzige
+zugelassene Reparaturschritt; er wertet die NPX-Konfiguration auf und behält
+das Token bei.
+
 Bei einer vorhandenen technischen Konfiguration darf ein bestätigter Plan
 genau einmal zuvor leere `caseDir`-/`sourceFolders`-Bindungen ergänzen. Der
 Wizard behält Token, MCP-Transport und alle übrigen Einstellungen bei, fordert
@@ -345,7 +358,6 @@ Prompt 2 übernimmt danach die reale Client-Verifikation.
 Nutze $steuer-spar-erklaerung und prüfe meine Einkommensteuererklärung 2025.
 Steuerfall: <ABSOLUTER_PFAD_ZUR_ESt2025-DATEI>
 Belege: <ABSOLUTE_BELEGORDNER>
-Diese Pfade sind vollständig.
 Standard-Prüflauf ausführen.
 ```
 

@@ -29,6 +29,13 @@ gleichwertige Bestätigung. Sie umfasst nur die unten definierten sicheren
 Schritte mit hashverifizierter Prüffallkopie, sichtbarer read-only Navigation,
 Report, keinem Speichern und keiner ELSTER-Aktion.
 
+`Standard-Prüflauf ausführen` bestätigt zugleich, dass die im selben Auftrag
+genannten Belegpfade für diese Prüfung vollständig sind, einschließlich der
+Angabe „keine Belege“. Ein zusätzlicher Satz wie „Diese Pfade sind
+vollständig“ ist dann nicht nötig; frage die Vollständigkeit nicht erneut ab.
+Fehlt dagegen jede Belegangabe, ist die zweite fachliche Frage weiterhin
+offen und muss gestellt werden.
+
 ## Kandidaten nur oberflächlich suchen
 
 Suche vor den beiden Fragen kurz und ausschließlich anhand von Dateisystem-

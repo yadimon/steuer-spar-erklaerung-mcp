@@ -17,6 +17,7 @@ import {
   writeSetupArtifacts,
 } from "../dist/setup.js";
 import { loadApiServerConfig } from "../dist/api-config.js";
+import { ensureForegroundApiFirstRun } from "../dist/api-first-run.js";
 import { probeWindowsPowerShell } from "../dist/windows-runtime.js";
 
 const temporary = mkdtempSync(join(tmpdir(), "sse-setup-test-"));
@@ -257,6 +258,96 @@ try {
   assert.match(replacementSetup.stderr, /weicht von der vorhandenen Konfiguration ab/);
   assert.deepEqual(JSON.parse(readFileSync(technicalConfigPath, "utf8")), boundConfig);
   assert.deepEqual(loadStoredSetupPreferences(boundConfig.workspaceDir), boundPreferences);
+
+  // Eine vom NPX-Foreground-Start erzeugte Konfiguration hat absichtlich keine
+  // gespeicherten Setup-Entscheidungen. Sie muss trotzdem eine gueltige Quelle
+  // fuer die einmalige Fall-/Quellbindung sein, sonst endet der dokumentierte
+  // Weg vom NPX-Kurzstart zum dauerhaften Setup in einer Sackgasse.
+  const npxRoot = join(temporary, "npx-foreground-then-setup");
+  const npxEnvironment = { ...defaultsEnvironment, LOCALAPPDATA: join(npxRoot, "LocalAppData") };
+  const npxFirstRun = ensureForegroundApiFirstRun(undefined, npxEnvironment);
+  assert.equal(npxFirstRun.created, true);
+  const npxConfigBefore = JSON.parse(readFileSync(npxFirstRun.configPath, "utf8"));
+  assert.equal(npxConfigBefore.caseDir, undefined);
+  assert.equal(
+    npxConfigBefore.sseExecutable,
+    defaultsSse,
+    "Eindeutig erkannte SSE.exe gehoert bereits in die Foreground-Konfiguration.",
+  );
+  assert(
+    !loadStoredSetupPreferences(npxConfigBefore.workspaceDir),
+    "Foreground-First-Run darf keine Setup-Entscheidungen erfinden.",
+  );
+
+  const npxCaseDir = join(npxRoot, "Steuerfaelle", "2025");
+  const npxSourceDir = join(npxRoot, "Belege", "2025");
+  mkdirSync(npxCaseDir, { recursive: true });
+  mkdirSync(npxSourceDir, { recursive: true });
+  const npxPlanPath = join(npxRoot, "npx-binding-plan.json");
+  writeFileSync(npxPlanPath, JSON.stringify({
+    schemaVersion: 1,
+    profileId: "2025",
+    caseDir: npxCaseDir,
+    sourceFolders: [npxSourceDir],
+  }), "utf8");
+  const npxBinding = spawnSync(
+    process.execPath,
+    ["dist/setup-main.js", "--plan-file", npxPlanPath, "--no-start"],
+    { encoding: "utf8", env: npxEnvironment, windowsHide: true, timeout: 15_000 },
+  );
+  assert.equal(npxBinding.status, 0, npxBinding.stderr);
+  const npxConfigBound = JSON.parse(readFileSync(npxFirstRun.configPath, "utf8"));
+  assert.equal(npxConfigBound.caseDir, npxCaseDir);
+  assert.equal(
+    npxConfigBound.token,
+    npxConfigBefore.token,
+    "Aufwertung einer NPX-Konfiguration darf das Token nicht rotieren.",
+  );
+  assert.deepEqual(loadStoredSetupPreferences(npxConfigBound.workspaceDir).sourceFolders, [npxSourceDir]);
+
+  // Die eigentliche Zusage bleibt: eine vorhandene Bindung wird nie ersetzt.
+  const npxReplacementDir = join(npxRoot, "Belege", "ersatz");
+  mkdirSync(npxReplacementDir, { recursive: true });
+  const npxReplacementPlanPath = join(npxRoot, "npx-replacement-plan.json");
+  writeFileSync(npxReplacementPlanPath, JSON.stringify({
+    schemaVersion: 1,
+    profileId: "2025",
+    caseDir: npxCaseDir,
+    sourceFolders: [npxReplacementDir],
+  }), "utf8");
+  const npxReplacement = spawnSync(
+    process.execPath,
+    ["dist/setup-main.js", "--plan-file", npxReplacementPlanPath, "--no-start"],
+    { encoding: "utf8", env: npxEnvironment, windowsHide: true, timeout: 15_000 },
+  );
+  assert.notEqual(npxReplacement.status, 0);
+  assert.match(npxReplacement.stderr, /weicht von der vorhandenen Konfiguration ab/);
+  assert.deepEqual(JSON.parse(readFileSync(npxFirstRun.configPath, "utf8")), npxConfigBound);
+
+  // Dokumentierter Reparaturweg: `--defaults` wertet eine NPX-Konfiguration auf.
+  const repairRoot = join(temporary, "npx-foreground-then-defaults");
+  const repairEnvironment = { ...defaultsEnvironment, LOCALAPPDATA: join(repairRoot, "LocalAppData") };
+  const repairFirstRun = ensureForegroundApiFirstRun(undefined, repairEnvironment);
+  assert.equal(repairFirstRun.created, true);
+  const repairConfigBefore = JSON.parse(readFileSync(repairFirstRun.configPath, "utf8"));
+  const repairDefaults = spawnSync(process.execPath, ["dist/setup-main.js", "--defaults", "--no-start"], {
+    encoding: "utf8",
+    env: repairEnvironment,
+    windowsHide: true,
+    timeout: 15_000,
+  });
+  assert.equal(repairDefaults.status, 0, repairDefaults.stderr);
+  const repairConfigAfter = JSON.parse(readFileSync(repairFirstRun.configPath, "utf8"));
+  assert.equal(
+    repairConfigAfter.token,
+    repairConfigBefore.token,
+    "Reparatur per --defaults darf das Token nicht rotieren.",
+  );
+  assert.equal(repairConfigAfter.sseExecutable, defaultsSse);
+  assert(
+    loadStoredSetupPreferences(repairConfigAfter.workspaceDir),
+    "Nach --defaults muessen Setup-Entscheidungen vorliegen.",
+  );
 
   const planRoot = join(temporary, "plan-e2e");
   const planCaseDir = join(planRoot, "Steuerfaelle", "2025");
