@@ -65,6 +65,10 @@ keine eigenen HTTP-Aufrufe bauen; Setup-CLI und MCP laden das Token intern.
 Bei OpenCode mit vorhandenem npm den npm-Weg und für dieses technische Setup
 `steuer-spar-erklaerung-setup --defaults --with-mcp` verwenden; keine
 interaktive Eingabe automatisieren.
+Bei Claude Code aus der installierten Claude-Desktop-App den in der Anleitung
+definierten nicht virtualisierten Benutzerprofil-Pfad samt explizitem
+`--config` verwenden; keine Runtime- oder Konfigurationspfade unter
+`AppData\Local\Packages\Claude_*\LocalCache` akzeptieren.
 Nicht in einer Cloud-Umgebung ausführen, keinen Autostart oder Connector
 einrichten und noch keinen Steuerfall öffnen.
 ```
@@ -151,6 +155,15 @@ npm install --global @yadimon/steuer-spar-erklaerung-api@beta @yadimon/steuer-sp
 steuer-spar-erklaerung-setup --with-mcp
 steuer-spar-erklaerung-setup --check
 ```
+
+Claude Code aus der installierten Claude-Desktop-App erhält wegen der
+beobachteten MSIX-Dateivirtualisierung einen eigenen dauerhaften Präfix direkt
+unter `%USERPROFILE%\.steuer-spar-erklaerung`; Setup und `--check` verwenden
+dort zusätzlich denselben absoluten `--config`-Pfad. Die kanonische
+[Installationsanleitung](skills/steuer-spar-erklaerung-setup/references/installation.md)
+enthält die kopierbaren PowerShell-Befehle. Pfade unter
+`AppData\Local\Packages\Claude_*\LocalCache` sind kein clientübergreifend
+belastbarer MCP-Setup-Erfolg.
 
 Für einen bewusst später ergänzten MCP-Transport ist auch
 `npm install --global @yadimon/steuer-spar-erklaerung-mcp@beta` zulässig; vor
@@ -497,7 +510,7 @@ Weitere Unterlagen:
 - [API-/MCP-Vertrag](docs/API-MCP-VERTRAG.md)
 - [Verifikationsstand](docs/VERIFIKATION.md)
 - [Release-Prozess](docs/RELEASE.md)
-- [Release Notes v0.1.0-beta.8](docs/releases/v0.1.0-beta.8.md)
+- [Release Notes v0.1.0-beta.9](docs/releases/v0.1.0-beta.9.md)
 - [Entwicklungswissen](docs/entwicklung/README.md)
 - [Mitwirken](CONTRIBUTING.md)
 - [Haupt-Skill](skills/steuer-spar-erklaerung/SKILL.md)

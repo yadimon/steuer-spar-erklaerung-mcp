@@ -48,14 +48,33 @@ try {
     withMcp: false,
     planFile: "C:\\private\\setup-plan.json",
   });
+  assert.deepEqual(parseSetupArguments(["--config", "C:\\persistent\\config.json", "--defaults"]), {
+    help: false,
+    defaults: true,
+    startApi: true,
+    check: false,
+    withMcp: false,
+    configPath: "C:\\persistent\\config.json",
+  });
   assert.deepEqual(parseSetupArguments(["--check"]), { help: false, defaults: false, startApi: false, check: true, withMcp: false });
+  assert.deepEqual(parseSetupArguments(["--check", "--config", "C:\\persistent\\config.json"]), {
+    help: false,
+    defaults: false,
+    startApi: false,
+    check: true,
+    withMcp: false,
+    configPath: "C:\\persistent\\config.json",
+  });
   assert.deepEqual(parseSetupArguments(["--help"]), { help: true, defaults: false, startApi: false, check: false, withMcp: false });
   assert.deepEqual(parseSetupArguments(["-h"]), { help: true, defaults: false, startApi: false, check: false, withMcp: false });
   assert.throws(() => parseSetupArguments(["--unbekannt"]), /Ungueltige Setup-Argumente/);
   assert.throws(() => parseSetupArguments(["--plan-file"]), /Wert.*--plan-file/);
+  assert.throws(() => parseSetupArguments(["--config"]), /Wert.*--config/);
+  assert.throws(() => parseSetupArguments(["--config", "relative.json"]), /absoluter Dateipfad/);
+  assert.throws(() => parseSetupArguments(["--config", "C:\\a.json", "--config", "C:\\b.json"]), /nur einmal/);
   assert.throws(() => parseSetupArguments(["--plan-file", "a.json", "--plan-file", "b.json"]), /nur einmal/);
   assert.throws(() => parseSetupArguments(["--defaults", "--plan-file", "a.json"]), /nicht zusammen/);
-  assert.throws(() => parseSetupArguments(["--check", "--no-start"]), /Ungueltige Setup-Argumente/);
+  assert.throws(() => parseSetupArguments(["--check", "--no-start"]), /--check darf nur/);
   const helpStartedAt = performance.now();
   const help = spawnSync(process.execPath, ["dist/setup-main.js", "--help"], {
     encoding: "utf8",
@@ -68,6 +87,7 @@ try {
   assert.match(help.stdout, /--defaults/);
   assert.match(help.stdout, /--no-start/);
   assert.match(help.stdout, /--check/);
+  assert.match(help.stdout, /--config/);
   assert(!help.stdout.includes("Steuerjahr/Produktprofil"), "--help darf keinen interaktiven Prompt starten.");
   assert(helpMs < 2_500, `Setup-Hilfe lud zu viel Laufzeitcode (${helpMs.toFixed(0)} ms).`);
   const invalid = spawnSync(process.execPath, ["dist/setup-main.js", "--unbekannt"], {
@@ -120,6 +140,22 @@ try {
   assert.equal(defaultsConfigAfter.token, defaultsConfigBefore.token, "Default-Reparatur darf das Token nicht rotieren.");
   assert.equal(readFileSync(defaultsSettingsPath, "utf8"), "# Eigene Default-Einstellung\n");
 
+  const explicitConfigPath = join(defaultsRoot, "persistent-user-root", "config.json");
+  const explicitSetup = spawnSync(
+    process.execPath,
+    ["dist/setup-main.js", "--config", explicitConfigPath, "--defaults", "--with-mcp", "--no-start"],
+    { encoding: "utf8", env: defaultsEnvironment, windowsHide: true, timeout: 15_000 },
+  );
+  assert.equal(explicitSetup.status, 0, explicitSetup.stderr);
+  const explicitConfig = JSON.parse(readFileSync(explicitConfigPath, "utf8"));
+  assert.equal(explicitConfig.configPath, undefined);
+  const explicitTemplate = JSON.parse(readFileSync(join(defaultsRoot, "persistent-user-root", "mcp-client.config.json"), "utf8"));
+  assert.equal(
+    explicitTemplate.mcpServers["steuer-spar-erklaerung"].args[2],
+    explicitConfigPath,
+    "Expliziter persistenter Konfigurationspfad muss in der tokenfreien MCP-Vorlage gebunden bleiben.",
+  );
+
   const technicalRoot = join(temporary, "technical-then-case-binding");
   const technicalEnvironment = {
     ...defaultsEnvironment,
@@ -164,6 +200,16 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   assert.equal(technicalApiHealthy, true, technicalApiStderr);
+  const explicitCheck = spawnSync(
+    process.execPath,
+    ["dist/setup-main.js", "--check", "--config", technicalConfigPath],
+    { encoding: "utf8", env: technicalEnvironment, windowsHide: true, timeout: 15_000 },
+  );
+  assert.equal(explicitCheck.status, 0, explicitCheck.stderr);
+  const explicitCheckResult = JSON.parse(explicitCheck.stdout);
+  assert.equal(explicitCheckResult.ok, true);
+  assert.equal(explicitCheckResult.config.path, technicalConfigPath);
+  assert.equal(explicitCheckResult.mcp.containsToken, false);
   const boundCaseDir = join(technicalRoot, "cases", "2025");
   const boundSourceDir = join(technicalRoot, "documents", "2025");
   mkdirSync(boundCaseDir, { recursive: true });

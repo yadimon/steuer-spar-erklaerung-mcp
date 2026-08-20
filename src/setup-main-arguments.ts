@@ -1,3 +1,5 @@
+import { isAbsolute } from "node:path";
+
 export const SETUP_USAGE = [
   "SSE-API und MCP einrichten (deutsche Standardwerte)",
   "",
@@ -8,6 +10,7 @@ export const SETUP_USAGE = [
   "  steuer-spar-erklaerung-setup --with-mcp  Zusaetzlich eine tokenfreie MCP-Clientvorlage erzeugen",
   "  steuer-spar-erklaerung-setup --no-start  Dateien erzeugen, API aber noch nicht starten",
   "  steuer-spar-erklaerung-setup --check  Bestehendes lokales Setup ohne Aenderungen pruefen",
+  "  steuer-spar-erklaerung-setup --config <json>  Explizite dauerhafte API-Konfiguration verwenden",
   "  steuer-spar-erklaerung-setup --help  Diese Hilfe anzeigen",
 ].join("\n");
 
@@ -17,6 +20,7 @@ export interface SetupArguments {
   startApi: boolean;
   check: boolean;
   withMcp: boolean;
+  configPath?: string;
   planFile?: string;
 }
 
@@ -24,12 +28,11 @@ export function parseSetupArguments(args: readonly string[]): SetupArguments {
   if (args.length === 1 && ["--help", "-h"].includes(args[0]!)) {
     return { help: true, defaults: false, startApi: false, check: false, withMcp: false };
   }
-  if (args.length === 1 && args[0] === "--check") {
-    return { help: false, defaults: false, startApi: false, check: true, withMcp: false };
-  }
   let planFile: string | undefined;
+  let configPath: string | undefined;
   let defaults = false;
   let startApi = true;
+  let check = false;
   let withMcp = false;
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index]!;
@@ -48,6 +51,20 @@ export function parseSetupArguments(args: readonly string[]): SetupArguments {
       withMcp = true;
       continue;
     }
+    if (argument === "--check") {
+      if (check) throw new Error("--check darf nur einmal angegeben werden.");
+      check = true;
+      continue;
+    }
+    if (argument === "--config") {
+      if (configPath !== undefined) throw new Error("--config darf nur einmal angegeben werden.");
+      const value = args[index + 1];
+      if (!value || value.startsWith("--")) throw new Error("Wert fuer --config fehlt.");
+      if (!isAbsolute(value)) throw new Error("--config muss ein absoluter Dateipfad sein.");
+      configPath = value;
+      index += 1;
+      continue;
+    }
     if (argument === "--plan-file") {
       if (planFile !== undefined) throw new Error("--plan-file darf nur einmal angegeben werden.");
       const value = args[index + 1];
@@ -57,16 +74,30 @@ export function parseSetupArguments(args: readonly string[]): SetupArguments {
       continue;
     }
     throw new Error(
-      "Ungueltige Setup-Argumente. Erlaubt sind --defaults, --plan-file <json>, --with-mcp, --no-start, --check, --help oder -h.",
+      "Ungueltige Setup-Argumente. Erlaubt sind --defaults, --plan-file <json>, --with-mcp, --no-start, --check, --config <json>, --help oder -h.",
     );
   }
   if (defaults && planFile) throw new Error("--defaults und --plan-file duerfen nicht zusammen verwendet werden.");
+  if (check && (defaults || planFile || withMcp || !startApi)) {
+    throw new Error("--check darf nur mit --config <json> kombiniert werden.");
+  }
+  if (check) {
+    return {
+      help: false,
+      defaults: false,
+      startApi: false,
+      check: true,
+      withMcp: false,
+      ...(configPath ? { configPath } : {}),
+    };
+  }
   return {
     help: false,
     defaults,
     startApi,
-    check: false,
+    check,
     withMcp,
+    ...(configPath ? { configPath } : {}),
     ...(planFile ? { planFile } : {}),
   };
 }

@@ -101,6 +101,33 @@ npm install --global @yadimon/steuer-spar-erklaerung-api@beta @yadimon/steuer-sp
 Setup nie direkt aus `npx` starten: dessen `_npx`-Cache ist flüchtig und darf
 nicht in dauerhaften API- oder MCP-Startpfaden landen.
 
+**Claude Code aus der installierten Claude-Desktop-App:** Die Windows-App kann
+Schreibzugriffe unter `AppData` in ihr MSIX-Verzeichnis
+`Packages\Claude_*\LocalCache` virtualisieren. Das ist für einen MCP-Eintrag
+kein PC-weiter dauerhafter Pfad. Verwende für diesen Client deshalb immer einen
+nicht virtualisierten Ordner direkt im Benutzerprofil und eine explizite
+Konfiguration:
+
+```powershell
+$sseLocalRoot = Join-Path $env:USERPROFILE '.steuer-spar-erklaerung'
+$sseRuntimeRoot = Join-Path $sseLocalRoot 'npm'
+$sseConfigPath = Join-Path $sseLocalRoot 'config.json'
+npm install --global --prefix $sseRuntimeRoot `
+  @yadimon/steuer-spar-erklaerung-api@beta `
+  @yadimon/steuer-spar-erklaerung-mcp@beta
+& (Join-Path $sseRuntimeRoot 'steuer-spar-erklaerung-setup.cmd') `
+  --config $sseConfigPath --defaults --with-mcp
+```
+
+Nutze für einen bestätigten First-run-Plan an derselben Stelle `--plan-file`
+statt `--defaults`. Auch `--check` muss bei diesem Weg denselben absoluten
+`--config`-Pfad erhalten. Akzeptiere den Setup-Erfolg nur, wenn `command`,
+Bootstrap, MCP-Einstieg und Konfigurationspfad aus der tokenfreien Vorlage
+außerhalb von `AppData\Local\Packages\Claude_*\LocalCache` liegen und als reale
+Dateien existieren. Lies `config.json` dafür nicht. Eine bereits virtualisierte
+Beta-Installation gilt nicht als clientverifiziert; richte sie über diesen
+Benutzerprofil-Pfad neu ein, statt virtuelle Dateien manuell zu verschieben.
+
 ### Weg B: Portable
 
 Ermittle das aktuellste nicht als Draft markierte Release über die direkte
@@ -130,6 +157,12 @@ Interaktiv:
 ```powershell
 steuer-spar-erklaerung-setup --with-mcp
 ```
+
+`--config <absoluter-pfad>` bindet Setup, API-Launcher und tokenfreie
+MCP-Vorlage an eine ausdrücklich gewählte dauerhafte Konfiguration. Verwende
+denselben Parameter bei `--check` und bei direkten API-CLI-Aufrufen. Für Claude
+Desktop ist der oben gezeigte Benutzerprofil-Pfad Pflicht; der allgemeine
+Standard unter `LocalAppData` bleibt für nicht virtualisierte Clients zulässig.
 
 Beim Portable-Weg:
 
@@ -202,6 +235,13 @@ Zuerst die produktseitige Prüfung ausführen:
 steuer-spar-erklaerung-setup --check
 ```
 
+Beim expliziten Claude-Pfad:
+
+```powershell
+& (Join-Path $sseRuntimeRoot 'steuer-spar-erklaerung-setup.cmd') `
+  --config $sseConfigPath --check
+```
+
 Beim Portable-Weg:
 
 ```powershell
@@ -250,6 +290,10 @@ keine eigenen HTTP-Aufrufe bauen; Setup-CLI und MCP laden das Token intern.
 Bei OpenCode mit vorhandenem npm den npm-Weg und für dieses technische Setup
 `steuer-spar-erklaerung-setup --defaults --with-mcp` verwenden; keine
 interaktive Eingabe automatisieren.
+Bei Claude Code aus der installierten Claude-Desktop-App den in der Anleitung
+definierten nicht virtualisierten Benutzerprofil-Pfad samt explizitem
+`--config` verwenden; keine Runtime- oder Konfigurationspfade unter
+`AppData\Local\Packages\Claude_*\LocalCache` akzeptieren.
 Nicht in einer Cloud-Umgebung ausführen, keinen Autostart oder Connector
 einrichten und noch keinen Steuerfall öffnen.
 ```

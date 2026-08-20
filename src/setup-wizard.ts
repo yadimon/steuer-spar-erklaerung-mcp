@@ -46,7 +46,7 @@ export async function runSetupMain(args: readonly string[]): Promise<void> {
   }
   const here = dirname(fileURLToPath(import.meta.url));
   const repoRoot = resolve(here, "..");
-  const defaultsPath = defaultApiConfigPath();
+  const defaultsPath = resolve(options.configPath ?? defaultApiConfigPath());
   const confirmedPlan = options.planFile ? loadConfirmedSetupPlan(options.planFile) : undefined;
   const prompt = createInterface({ input: stdin, output: stdout });
   const ask = async (label: string, defaultValue = ""): Promise<string> => {
