@@ -112,8 +112,10 @@ npm.cmd view @yadimon/steuer-spar-erklaerung-mcp@beta version
 npm.cmd install --global @yadimon/steuer-spar-erklaerung-api@beta @yadimon/steuer-spar-erklaerung-mcp@beta
 ```
 
-Setup nie direkt aus `npx` starten: dessen `_npx`-Cache ist flüchtig und darf
-nicht in dauerhaften API- oder MCP-Startpfaden landen.
+Das persistente Setup nie direkt aus `npx` starten: dessen `_npx`-Cache ist
+flüchtig und darf nicht in dauerhaften API- oder MCP-Startpfaden landen. Der
+separate Foreground-NPX-Kurzweg des Hauptskills ist zulässig, weil er keinen
+Launcher und keine MCP-Clientkonfiguration in diesen Cache bindet.
 
 **Claude Code CLI unter Windows (nicht Cowork):** Führe diesen Weg aus der
 eigenständig angemeldeten CLI oder einem lokalen Terminal aus. Cowork und eine

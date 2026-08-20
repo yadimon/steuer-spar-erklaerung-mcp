@@ -88,6 +88,13 @@ MCP oder unterstützt der Agent kein MCP, verwende dieselben Operationen direkt
 über die API. Wechsel während einer möglicherweise begonnenen Schreiboperation
 nie still den Transport; bei unklarem Zustand stoppen.
 
+Hat der Nutzer ausdrücklich „über npx“, „ohne Installation“ oder „ohne MCP“
+verlangt, ist die direkte API-CLI der gewählte Transport. Versuche in diesem
+Lauf nicht zuerst MCP und verlange keinen MCP-Neustart. Wurde dagegen MCP
+ausdrücklich gewählt oder bereits für den Auftrag verwendet, ersetze einen
+fehlgeschlagenen oder abgebrochenen MCP-Aufruf nicht still durch die API-CLI;
+lies zuerst den frischen Zustand und stoppe bei möglicher Mutation.
+
 Lies oder parse `config.json` niemals, um das API-Token selbst zu extrahieren.
 Verwende für authentifizierte direkte Aufrufe ausschließlich die ausgelieferte
 CLI, die das Token intern lädt; baue keinen `curl`-, `Invoke-RestMethod`- oder
@@ -113,6 +120,52 @@ in eine private Datei schreiben, diese zurückparsen und ihren Pfad an
 Kommandozeile oder Prozessliste. Ist ein eigener Client sinnvoller, lies `openapi` und verwende
 ausschließlich die dort aktuell veröffentlichten Bearer-geschützten Verträge.
 Leite Anzahl und Namen immer aus der Laufzeitquelle ab.
+
+### NPX-Kurzweg ohne globale Runtime-Installation
+
+Verwende diesen Weg nur auf Windows x64 mit bereits vorhandenem Node.js 22+
+und npm, wenn der Nutzer ihn ausdrücklich gewählt oder den Paketabruf im
+gezeigten Standardplan bestätigt hat. Der Hauptskill kann dafür direkt aus der
+Repository-URL gelesen sein; der Setup-Skill und MCP sind nicht erforderlich.
+
+Leite aus dem bestätigten absoluten Steuerfallpfad dessen Ordner ab. Starte die
+API in einem eigenen laufenden Terminalprozess und halte ihn bis zum sicheren
+Ende des Auftrags offen:
+
+```powershell
+npx.cmd -y @yadimon/steuer-spar-erklaerung-api --case-dir "<ABSOLUTER_FALLORDNER>"
+```
+
+Der erste Start erzeugt bei fehlendem Standard-Setup nur eine lokale
+token-geschützte Konfiguration und private Arbeitsordner unter dem normalen
+Benutzerprofil. `--case-dir` bindet den bestätigten Fallordner ausschließlich
+an diesen laufenden Prozess. Es wird kein dauerhafter Launcher in den
+flüchtigen `_npx`-Cache geschrieben. Existiert eine benannte oder ungültige
+Konfiguration, ersetze sie nicht automatisch.
+
+Rufe aus einem zweiten Prozess dieselbe veröffentlichte Paketversion über die
+CLI auf, ohne das Token zu lesen:
+
+```powershell
+npx.cmd -y -p @yadimon/steuer-spar-erklaerung-api steuer-spar-erklaerung-call discovery
+npx.cmd -y -p @yadimon/steuer-spar-erklaerung-api steuer-spar-erklaerung-call workspace_status
+```
+
+Verwende für weitere Operationen denselben `-p`-Aufruf vor
+`steuer-spar-erklaerung-call`. Die API bleibt der einzige langlebige Prozess;
+die einzelnen CLI-Aufrufe enden jeweils selbst. Verifiziere vor Steuerdatenarbeit
+Discovery, Arbeitsbereich, `capabilities`, `health`, Produktprofil und
+Engine-Major. Fehlt die Fallbindung im Arbeitsbereich oder stimmt sie nicht,
+beende die API und starte sie höchstens einmal mit dem bestätigten richtigen
+Ordner neu; ändere `config.json` dafür nicht manuell.
+
+In diesem Kurzweg können `setup-decisions.json`, `settings.md` und ein altes
+Tracking fehlen. Verwende dann nur die im aktuellen Auftrag ausdrücklich
+bestätigten Fall- und Belegpfade sowie den bestätigten Modus; erfinde oder
+persistiere keine weiteren Präferenzen. Report und Prüffallkopie bleiben
+Pflicht. Beende nach positivem Close-/Hash-Readback auch die Foreground-API mit
+Strg+C. Falls der Agent keinen laufenden Prozess halten kann, biete stattdessen
+das persistente Setup an.
 
 Lege bei direkten Laufzeit- und UI-Aufrufen mit `--journal-file
 <neue-private-datei.jsonl>` immer eine neue Journaldatei im privaten
@@ -185,18 +238,21 @@ erneut ab. `Standard-Prüflauf ausführen` ist bei genau
 einem absoluten Steuerfallpfad und vollständigen absoluten Belegpfaden eine
 gleichwertige Bestätigung dieses engen Vertrags.
 
-Fehlt eine funktionierende Einrichtung, verwende anschließend
-`steuer-spar-erklaerung-setup`. Ist dieser Skill nicht installiert, installiere
+Fehlt eine funktionierende Einrichtung und wurde nicht ausdrücklich der
+NPX-Kurzweg gewählt, verwende anschließend `steuer-spar-erklaerung-setup`. Ist dieser Skill nicht installiert, installiere
 beide öffentlichen Skills nach der kanonischen Anleitung
 `https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/skills/steuer-spar-erklaerung-setup/references/installation.md`,
 statt die Einrichtung frei zu improvisieren.
-Verlange nach Setup ein grünes `steuer-spar-erklaerung-setup --check` und bei
-MCP zusätzlich Serverliste plus echten Aufruf von `sse_health` mit
+Verlange nach persistentem Setup ein grünes
+`steuer-spar-erklaerung-setup --check` und bei ausdrücklich gewähltem MCP
+zusätzlich Serverliste plus echten Aufruf von `sse_health` mit
 strukturiertem `ok=true`; „connected“ oder ein Handshake allein genügt nicht.
-Dieser Nachweis muss ein tatsächlicher MCP-Tool-Aufruf sein. `health` über
-Shell oder direkte API-CLI ist kein Ersatz. Ist `sse_health` im neu gestarteten
-Client nicht als Tool verfügbar, stoppe vor jeder direkten API-Facharbeit und
-melde die fehlende Client-Verifikation.
+Dieser Nachweis muss im MCP-Modus ein tatsächlicher MCP-Tool-Aufruf sein.
+`health` über Shell oder direkte API-CLI ist dort kein Ersatz. Ist `sse_health`
+im neu gestarteten MCP-Client nicht als Tool verfügbar, stoppe vor jeder
+Facharbeit in diesem MCP-Auftrag und melde die fehlende Client-Verifikation.
+Im ausdrücklich gewählten NPX-/API-Modus gilt stattdessen der oben definierte
+CLI-Readback; fehlendes MCP ist dort kein Fehler.
 Wurden Skills oder MCP im aktuellen Lauf neu installiert oder geändert, melde
 statt eines vorgetäuschten Tool-Erfolgs „Technisches Setup bereit;
 Client-Verifikation nach Neustart offen.“ Fordere genau einen Client-Neustart
@@ -211,11 +267,14 @@ Lehnt der Setup-Wizard einen `--plan-file`-Lauf oder den kontrollierten
 Neustart ab, ändere `config.json`, `setup-decisions.json`, Runtime-Dateien oder
 Prozesse niemals manuell als Umgehung. Melde den konkreten sicheren Stopp.
 
-Lies anschließend das in den Entscheidungen benannte Tracking. Mit direktem,
-freigegebenem Dateizugriff darf Markdown nach Hashprüfung und Backup aktualisiert
-werden. Über API/MCP sind Textdateien absichtlich create-only: lies den letzten
-Stand und schreibe einen neuen datierten Snapshot unter `workspace:tracking/`,
-statt eine Datei zu überschreiben. Bei einer vorhandenen `.xlsx`-Datei verwende
+Lies anschließend, sofern Setup-Entscheidungen vorhanden sind, das dort
+benannte Tracking. Im NPX-Kurzweg ohne Entscheidungen gibt es kein implizit
+freigegebenes Tracking; verwende nur eine im aktuellen Auftrag ausdrücklich
+genannte Datei. Mit direktem, freigegebenem Dateizugriff darf Markdown nach
+Hashprüfung und Backup aktualisiert werden. Über API/MCP sind Textdateien
+absichtlich create-only: lies den letzten Stand und schreibe einen neuen
+datierten Snapshot unter `workspace:tracking/`, statt eine Datei zu
+überschreiben. Bei einer vorhandenen `.xlsx`-Datei verwende
 eine verfügbare Tabellenkalkulations-Fähigkeit und erhalte ihre Struktur; die
 lokale API selbst liest oder schreibt XLSX nicht. Ist das nicht zuverlässig
 möglich, frage, ob zusätzlich Markdown-Snapshots angelegt werden dürfen.

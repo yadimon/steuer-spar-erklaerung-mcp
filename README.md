@@ -44,6 +44,31 @@ Die native Claude Code CLI unter Windows benötigt zusätzlich Git for Windows
 und eine eigene Anmeldung in `claude`; eine Anmeldung in Claude Desktop oder
 Cowork ersetzt diese CLI-Anmeldung nicht.
 
+## Schnell mit NPX, ohne MCP
+
+Wenn SteuerSparErklärung, Node.js 22+ und der lokale Agent schon installiert
+sind, reicht für einen einzelnen Prüflauf dieser Prompt:
+
+```text
+Nutze diese Anleitung:
+https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/skills/steuer-spar-erklaerung/SKILL.md
+
+Starte die lokale API über npx. Kein MCP und keine globale Runtime-Installation.
+Prüfe meine Einkommensteuererklärung 2025.
+Steuerfall: <ABSOLUTER_PFAD_ZUR_ESt2025-DATEI>
+Belege: <ABSOLUTE_BELEGORDNER_ODER_KEINE_BELEGE>
+Diese Pfade sind vollständig.
+Standard-Prüflauf ausführen.
+```
+
+Der Agent startet `@yadimon/steuer-spar-erklaerung-api` im Vordergrund, bindet
+den bestätigten Fallordner nur an diesen Prozess und verwendet die enthaltene
+CLI. Beim ersten Lauf entstehen eine token-geschützte Konfiguration und private
+Arbeitsordner im lokalen Benutzerprofil, aber keine globale Paketinstallation
+und kein dauerhafter Startpfad in den NPX-Cache. Nach dem Report beendet der
+Agent die API wieder. MCP und ein Agenten-Neustart sind für diesen Weg nicht
+nötig.
+
 ## Schnellstart mit zwei Prompts
 
 ### 1. Lokal installieren
@@ -167,9 +192,11 @@ Für einen bewusst später ergänzten MCP-Transport ist auch
 `npm.cmd install --global @yadimon/steuer-spar-erklaerung-mcp@beta` zulässig; vor
 dem erneuten Setup muss seine Version exakt zum API-Paket passen.
 
-Setup nie direkt aus `npx` starten: Der temporäre `_npx`-Cache ist kein
-stabiler Ort für dauerhafte API-/MCP-Startpfade. Für Nutzer ohne Node/npm ist
-der Portable-Weg unten vollständig gleichwertig.
+Das persistente Setup nie direkt aus `npx` starten: Der temporäre `_npx`-Cache
+ist kein stabiler Ort für dauerhafte API-/MCP-Startpfade. Der oben beschriebene
+Foreground-NPX-Start ist davon getrennt: Er schreibt keinen Launcher und endet
+mit dem Terminalprozess. Für Nutzer ohne Node/npm ist der Portable-Weg unten
+vollständig gleichwertig.
 
 Die Windows-Beispiele verwenden bewusst `npm.cmd` und `npx.cmd`. Damit bleibt
 eine frische PowerShell-Execution-Policy unverändert, auch wenn sie die parallel

@@ -46,6 +46,11 @@ assert.deepEqual(apiPackage.bin, {
   "steuer-spar-erklaerung-call": "dist/api-cli.js",
   "steuer-spar-erklaerung-setup": "dist/setup-main.js",
 });
+assert.equal(
+  Object.keys(apiPackage.bin)[0],
+  apiPackage.name.split("/").at(-1),
+  "Der erste API-Bin muss dem Paketnamen entsprechen, damit npx <paket> den Foreground-Start waehlt.",
+);
 assert.equal(mcpPackage.name, "@yadimon/steuer-spar-erklaerung-mcp");
 assert.match(mcpPackage.description, /MCP wrapper.*via the local API package/u);
 assert.equal(mcpPackage.os, undefined, "Der PC-blinde MCP-Wrapper soll plattformneutral installierbar bleiben.");
@@ -102,6 +107,7 @@ assert(api.manifest.size < 2 * 1024 * 1024, `API-Paket ist unerwartet gross: ${a
 for (const required of [
   "dist/api-main.js",
   "dist/api-main-arguments.js",
+  "dist/api-first-run.js",
   "dist/api-runtime.js",
   "dist/api-cli.js",
   "dist/local-http-transport.js",

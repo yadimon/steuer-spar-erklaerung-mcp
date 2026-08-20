@@ -35,6 +35,11 @@ for (const name of discovered) {
 const main = readFileSync(join(skillsRoot, "steuer-spar-erklaerung", "SKILL.md"), "utf8");
 assert(main.includes("kein globales Node.js/npm") && main.includes("kein Python") && main.includes("PowerShell 7"));
 assert(main.includes("MCP ist ein optionaler dünner Wrapper") && main.includes("API-Selbstbeschreibung"));
+assert(main.includes("NPX-Kurzweg ohne globale Runtime-Installation"));
+assert(main.includes("npx.cmd -y @yadimon/steuer-spar-erklaerung-api --case-dir"));
+assert(main.includes("npx.cmd -y -p @yadimon/steuer-spar-erklaerung-api steuer-spar-erklaerung-call"));
+assert(main.includes("kein dauerhafter Launcher") && main.includes("Setup-Skill und MCP sind nicht erforderlich"));
+assert(main.includes("ausdrücklich gewählten NPX-/API-Modus") && main.includes("fehlendes MCP ist dort kein Fehler"));
 assert(main.includes("Client-Konfiguration selbst bleibt tokenfrei") && main.includes("setup --check"));
 assert(main.includes("steuer-spar-erklaerung-call") && main.includes("--args-file -") && main.includes("Prozessliste"));
 assert(main.includes("`config.json` niemals") && main.includes("keinen `curl`-") && main.includes("Nur `/healthz`"));
@@ -92,6 +97,8 @@ assert(firstRun.includes("genau einmal") && /fingerprint/iu.test(firstRun));
 assert(firstRun.includes("Frage sie nicht erneut") && firstRun.includes("gleichwertige Bestätigung"));
 assert(firstRun.includes("Standard-Prüflauf ausführen") && firstRun.includes("keiner ELSTER-Aktion"));
 assert(firstRun.includes("Release-, Download-, Paket-, Skill-, Cache-"));
+assert(firstRun.includes("kurzen NPX-Lauf ohne globale Installation"));
+assert(firstRun.includes("keinen dauerhaften Launcher") && firstRun.includes("MCP, Setup-Skill"));
 const uiFallback = readFileSync(
   join(skillsRoot, "steuer-spar-erklaerung", "references", "ui-fallback.md"),
   "utf8",
@@ -236,6 +243,9 @@ assert(readme.includes("npm.cmd install --global @yadimon/steuer-spar-erklaerung
 assert(readme.includes("npx.cmd") && readme.includes("PowerShell-Execution-Policy"));
 assert(readme.toLowerCase().includes("installiere oder aktualisiere beide skills") && readme.includes("gecachte Webansicht"));
 assert(readme.includes("## Schnellstart mit zwei Prompts") && readme.includes("steuer-spar-erklaerung-setup --check"));
+assert(readme.includes("## Schnell mit NPX, ohne MCP"));
+assert(readme.includes("Starte die lokale API über npx. Kein MCP und keine globale Runtime-Installation."));
+assert(readme.includes("keine globale Paketinstallation") && readme.includes("kein dauerhafter Startpfad"));
 assert(readme.includes("Claude Cowork") && readme.includes("Git for Windows") && readme.includes("$steuer-spar-erklaerung"));
 assert(readme.includes("`Standard-Setup ausführen`") && readme.includes("`Standard-Prüflauf ausführen`"));
 assert(readme.includes("bedingten tokenfreien additiven MCP-Merges") && readme.includes("Stopp ohne Speichern oder ELSTER"));
@@ -254,7 +264,8 @@ assert(
     && setup.includes("`startup_timeout_sec`")
     && setup.includes("`tool_timeout_sec`")
     && setup.includes("`enabled_tools`")
-    && main.includes("Shell oder direkte API-CLI ist kein Ersatz"),
+    && main.includes("Shell oder direkte API-CLI ist dort kein Ersatz")
+    && main.includes("Im ausdrücklich gewählten NPX-/API-Modus"),
   "Setup- und Hauptskill müssen die Codex-Kataloggrenze und den echten MCP-Nachweis erzwingen.",
 );
 for (const source of [readme, installation, setup, main, firstRun]) {

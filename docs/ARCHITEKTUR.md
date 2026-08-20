@@ -415,8 +415,12 @@ Weg ohne globale Entwicklerwerkzeuge.
   privates oder globales PowerShell 7 gehört nicht zum Produkt.
 
 Der npm-Weg ist nicht der einzige Installationsweg und baut keinen Quellcode
-auf dem Nutzer-PC. Ein Setup aus dem flüchtigen `_npx`-Cache wird verweigert,
-weil API-Starter und MCP-Konfiguration dauerhafte absolute Pfade benötigen.
+auf dem Nutzer-PC. Ein persistentes Setup aus dem flüchtigen `_npx`-Cache wird
+verweigert, weil API-Starter und MCP-Konfiguration dauerhafte absolute Pfade
+benötigen. Davon getrennt darf die API für einen einzelnen Auftrag direkt über
+NPX im Vordergrund laufen: Sie legt bei Bedarf nur die token-geschützte lokale
+Konfiguration und Arbeitsordner an, bindet den bestätigten Fallordner an den
+Prozess und schreibt keinen Launcher in den Paketcache.
 Die MCP-Client-Konfiguration enthält kein Token. Sie startet einen kleinen
 Bootstrap aus dem API-/Portable-Paket; nur dieser liest die lokale
 API-Konfiguration und übergibt URL und Token im Prozessumfeld an den
@@ -424,12 +428,14 @@ PC-blinden MCP-Kindprozess.
 
 ### Betriebsarten
 
-1. **Standard:** API bei Bedarf fensterlos starten, Aufgabe ausführen, sauber
+1. **NPX-Kurzweg:** API ohne globale Runtime-Installation im Vordergrund
+   starten, direkte CLI verwenden und nach dem Auftrag beenden; kein MCP.
+2. **Standard:** API bei Bedarf fensterlos starten, Aufgabe ausführen, sauber
    beenden.
-2. **MCP-Komfort:** Agentkonfiguration verweist direkt auf den portablen oder
+3. **MCP-Komfort:** Agentkonfiguration verweist direkt auf den portablen oder
    separat installierten MCP-Einstieg; dieser spricht mit derselben API und
    kennt nur URL und Token.
-3. **Dauerbetrieb (opt-in):** Autostart oder geplante Aufgabe nur nach
+4. **Dauerbetrieb (opt-in):** Autostart oder geplante Aufgabe nur nach
    ausdrücklicher Zustimmung des Nutzers.
 
 ## Steuerjahrprofile

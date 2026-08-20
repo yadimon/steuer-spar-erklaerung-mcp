@@ -35,6 +35,27 @@ verwendet werden.
 
 ## Installation und direkte API-Nutzung
 
+Für einen einzelnen Lauf ist keine globale Paketinstallation nötig. Der erste
+Foreground-Start erzeugt eine lokale Standardkonfiguration, falls noch keine
+vorhanden ist. Der Fallordner gilt nur für diesen Prozess:
+
+```powershell
+npx.cmd -y @yadimon/steuer-spar-erklaerung-api --case-dir "C:\Pfad\zum\Fallordner"
+```
+
+Das Terminal bleibt offen. Aus einem zweiten Terminal ruft die mitgelieferte
+CLI die API auf, ohne das lokale Token anzuzeigen:
+
+```powershell
+npx.cmd -y -p @yadimon/steuer-spar-erklaerung-api steuer-spar-erklaerung-call discovery
+npx.cmd -y -p @yadimon/steuer-spar-erklaerung-api steuer-spar-erklaerung-call health
+```
+
+`Strg+C` beendet die API. Dieser kurze Weg registriert kein MCP und erzeugt
+keinen dauerhaften Launcher im NPX-Cache.
+
+Für eine dauerhafte Installation bleiben die drei Befehle global verfügbar:
+
 ```powershell
 npm install --global @yadimon/steuer-spar-erklaerung-api@beta
 steuer-spar-erklaerung-api --help

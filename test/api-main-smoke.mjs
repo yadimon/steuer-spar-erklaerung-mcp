@@ -3,11 +3,12 @@ import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { Agent, createServer as createHttpServer, request as httpRequest } from "node:http";
 import { createServer } from "node:net";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, truncateSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { withCombinedAbortSignal } from "../dist/abort.js";
+import { assertForegroundCaseDirectory, ensureForegroundApiFirstRun } from "../dist/api-first-run.js";
 import { API_MAIN_USAGE, parseApiMainArguments } from "../dist/api-main-arguments.js";
 import { SSE_API_OPERATIONS, SSE_API_VERSION } from "../dist/api-contract.js";
 import { attachScreenshotImage, installApiShutdown, MAX_SCREENSHOT_IMAGE_BYTES } from "../dist/api-runtime.js";
@@ -45,7 +46,50 @@ assert.deepEqual(parseApiMainArguments(["--config", "C:\\config.json"]), {
   help: false,
   configPath: "C:\\config.json",
 });
+assert.deepEqual(parseApiMainArguments(["--case-dir", "C:\\Steuerfaelle"]), {
+  help: false,
+  caseDir: "C:\\Steuerfaelle",
+});
+assert.deepEqual(parseApiMainArguments([
+  "--case-dir", "C:\\Steuerfaelle", "--config", "C:\\config.json",
+]), {
+  help: false,
+  configPath: "C:\\config.json",
+  caseDir: "C:\\Steuerfaelle",
+});
 assert.throws(() => parseApiMainArguments(["--config"]), /Ungueltige API-Startargumente/);
+assert.throws(() => parseApiMainArguments(["--case-dir", "relativ"]), /absoluter Pfad/);
+assert.throws(
+  () => parseApiMainArguments(["--case-dir", "C:\\a", "--case-dir", "C:\\b"]),
+  /nur einmal/,
+);
+
+const firstRunProbeRoot = mkdtempSync(join(tmpdir(), "sse-api-first-run-probe-"));
+try {
+  const validCaseDir = join(firstRunProbeRoot, "cases");
+  mkdirSync(validCaseDir, { recursive: true });
+  assert.doesNotThrow(() => assertForegroundCaseDirectory(validCaseDir));
+  assert.throws(() => assertForegroundCaseDirectory(join(firstRunProbeRoot, "missing")), /fehlt oder ist kein Ordner/);
+  const caseFile = join(firstRunProbeRoot, "case-file.txt");
+  writeFileSync(caseFile, "kein Ordner", "utf8");
+  assert.throws(() => assertForegroundCaseDirectory(caseFile), /fehlt oder ist kein Ordner/);
+  const namedConfig = join(firstRunProbeRoot, "named", "config.json");
+  const named = ensureForegroundApiFirstRun(undefined, {
+    LOCALAPPDATA: join(firstRunProbeRoot, "unused"),
+    SSE_API_CONFIG: namedConfig,
+  });
+  assert.equal(named.created, false, "Benannte fehlende Konfiguration darf nicht automatisch erzeugt werden.");
+  assert.equal(named.configPath, namedConfig);
+  assert.equal(existsSync(namedConfig), false);
+  const tokenOnly = ensureForegroundApiFirstRun(undefined, {
+    LOCALAPPDATA: join(firstRunProbeRoot, "token-only"),
+    SSE_API_TOKEN: "first-run-environment-token-with-24-characters",
+  });
+  assert.equal(tokenOnly.created, false, "Explizites Umgebungs-Setup darf nicht durch eine Datei ersetzt werden.");
+  assert.equal(existsSync(tokenOnly.configPath), false);
+} finally {
+  rmSync(firstRunProbeRoot, { recursive: true, force: true });
+}
 
 const shutdownEndpoint = {
   host: "127.0.0.1",
@@ -111,6 +155,86 @@ const invalidMain = spawnSync(process.execPath, ["dist/api-main.js", "--unknown"
 assert.equal(invalidMain.status, 1);
 assert.match(invalidMain.stderr, /SSE-API-Start fehlgeschlagen: Ungueltige API-Startargumente/);
 assert(!invalidMain.stderr.includes(process.cwd()), "Argumentfehler darf keinen lokalen Quellpfad ausgeben.");
+
+const quickRoot = mkdtempSync(join(tmpdir(), "sse-api-npx-quick-"));
+const quickLocalAppData = join(quickRoot, "local-app-data");
+const quickCaseDir = join(quickRoot, "cases");
+mkdirSync(quickCaseDir, { recursive: true });
+const quickPort = await reservePort();
+const quickEnvironment = {
+  ...process.env,
+  LOCALAPPDATA: quickLocalAppData,
+  SSE_API_PORT: String(quickPort),
+};
+for (const key of ["SSE_API_CONFIG", "SSE_API_TOKEN", "SSE_CASE_DIR", "SSE_WORKSPACE_DIR"]) {
+  delete quickEnvironment[key];
+}
+const quickChild = spawn(process.execPath, ["dist/api-main.js", "--case-dir", quickCaseDir], {
+  cwd: process.cwd(),
+  windowsHide: true,
+  env: quickEnvironment,
+  stdio: ["ignore", "pipe", "pipe"],
+});
+let quickStdout = "";
+let quickStderr = "";
+quickChild.stdout.on("data", (chunk) => { quickStdout += chunk.toString("utf8"); });
+quickChild.stderr.on("data", (chunk) => { quickStderr += chunk.toString("utf8"); });
+try {
+  const quickBaseUrl = `http://127.0.0.1:${quickPort}`;
+  let healthy = false;
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    try {
+      const response = await fetch(`${quickBaseUrl}/healthz`);
+      healthy = response.ok;
+      await response.body?.cancel();
+      if (healthy) break;
+    } catch {
+      // Foreground-API startet noch.
+    }
+    await new Promise((resolveWait) => setTimeout(resolveWait, 50));
+  }
+  assert.equal(healthy, true, `NPX-Kurzstart wurde nicht gesund: ${quickStderr}`);
+
+  const quickConfigPath = join(quickLocalAppData, "SteuerSparErklaerungApi", "config.json");
+  const quickConfig = JSON.parse(readFileSync(quickConfigPath, "utf8"));
+  assert.equal(quickConfig.caseDir, undefined, "Kurzstart darf die laufzeitgebundene Fallfreigabe nicht persistieren.");
+  assert.equal(typeof quickConfig.token, "string");
+  assert(quickConfig.token.length >= 24);
+  for (const path of [quickConfig.workspaceDir, quickConfig.documentsDir, quickConfig.resultDir, quickConfig.backupsDir]) {
+    assert.equal(existsSync(path), true, `First Run hat Ressourcenbereich nicht erzeugt: ${path}`);
+  }
+  assert.equal(
+    readdirSync(join(quickLocalAppData, "SteuerSparErklaerungApi"), { recursive: true })
+      .some((entry) => String(entry).toLowerCase().endsWith(".vbs")),
+    false,
+    "Foreground-NPX-Start darf keinen dauerhaften Launcher in den Paketcache binden.",
+  );
+
+  const discovery = spawnSync(process.execPath, ["dist/api-cli.js", "discovery"], {
+    cwd: process.cwd(),
+    windowsHide: true,
+    env: quickEnvironment,
+    encoding: "utf8",
+    timeout: 15_000,
+  });
+  assert.equal(discovery.status, 0, discovery.stderr || discovery.stdout);
+  assert.equal(JSON.parse(discovery.stdout).operations.length, SSE_API_OPERATIONS.length);
+} finally {
+  quickChild.kill("SIGTERM");
+  const [quickCode, quickSignal] = await once(quickChild, "exit");
+  assert(
+    quickCode === 0 || (process.platform === "win32" && quickSignal === "SIGTERM"),
+    `NPX-Kurzstart beendete sich unerwartet (Exit ${quickCode}, Signal ${quickSignal}): ${quickStderr}`,
+  );
+  assert.match(quickStdout, /Lokale Standardkonfiguration erstellt/);
+  assert.match(quickStdout, /SSE-API bereit/);
+  assert.match(quickStdout, /Strg\+C beendet die API/);
+  assert(!quickStdout.includes(JSON.parse(readFileSync(
+    join(quickLocalAppData, "SteuerSparErklaerungApi", "config.json"),
+    "utf8",
+  )).token), "Foreground-Ausgabe darf das Token nicht enthalten.");
+  rmSync(quickRoot, { recursive: true, force: true });
+}
 
 const temporary = mkdtempSync(join(tmpdir(), "sse-api-main-smoke-"));
 const workspaceDir = join(temporary, "workspace");
