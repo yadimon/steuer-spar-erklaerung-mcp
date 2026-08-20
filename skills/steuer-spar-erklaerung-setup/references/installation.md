@@ -214,6 +214,13 @@ blockiert, ist `steuer-spar-erklaerung-setup --defaults` der einzige
 zugelassene Reparaturschritt; er wertet die NPX-Konfiguration auf und behält
 das Token bei.
 
+Das Setup selbst darf nicht über `npx` ausgeführt werden. Eine Runtime aus dem
+flüchtigen npx-Cache erzeugt dauerhafte Startpfade, die anschließend ins Leere
+zeigen; der Wizard bricht dort mit einem entsprechenden Hinweis ab. Für den
+dauerhaften Stand also zuerst
+`npm.cmd install --global @yadimon/steuer-spar-erklaerung-api@beta` ausführen
+oder das portable Release verwenden und das Setup von dort starten.
+
 Bei einer vorhandenen technischen Konfiguration darf ein bestätigter Plan
 genau einmal zuvor leere `caseDir`-/`sourceFolders`-Bindungen ergänzen. Der
 Wizard behält Token, MCP-Transport und alle übrigen Einstellungen bei, fordert
