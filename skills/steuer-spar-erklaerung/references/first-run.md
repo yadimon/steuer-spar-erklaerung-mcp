@@ -24,6 +24,10 @@ die gleichwertige Bestätigung des unten beschriebenen Standardplans, gelten
 die beiden fachlichen Antworten und der Standardplan für diesen Auftrag als
 bestätigt. Frage sie nicht erneut. Eine allgemeine Bitte „prüfe meine
 Steuererklärung“ ohne diese Angaben ist keine solche Bestätigung.
+Die Formulierung „Standard-Prüflauf direkt ausführen“ ist eine solche
+gleichwertige Bestätigung. Sie umfasst nur die unten definierten sicheren
+Schritte mit hashverifizierter Prüffallkopie, sichtbarer read-only Navigation,
+Report, keinem Speichern und keiner ELSTER-Aktion.
 
 ## Kandidaten nur oberflächlich suchen
 

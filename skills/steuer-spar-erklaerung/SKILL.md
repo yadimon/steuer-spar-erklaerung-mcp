@@ -181,7 +181,9 @@ technischen Defaults gemeinsam mit `OK Standard` bestätigen.
 Enthält der aktuelle Auftrag bereits absolute Pfade, deren
 Vollständigkeitsbestätigung und ausdrücklich `OK Standard` samt den dort
 definierten engen read-only Schritten, frage weder Pfade noch Standardplan
-erneut ab.
+erneut ab. Die Formulierung „Standard-Prüflauf direkt ausführen“ ist bei genau
+einem absoluten Steuerfallpfad und vollständigen absoluten Belegpfaden eine
+gleichwertige Bestätigung dieses engen Vertrags.
 
 Fehlt eine funktionierende Einrichtung, verwende anschließend
 `steuer-spar-erklaerung-setup`. Ist dieser Skill nicht installiert, installiere
@@ -324,6 +326,9 @@ Prüffallkopie und sichtbare read-only UI-Navigation in der entsperrten Sitzung
 nennt. Kündige die sichtbare Navigation trotzdem mit obigem Hinweis an und
 beginne dann. Eine allgemeine Bitte „prüfen“ reicht dafür nicht. Stoppe bei
 Nutzerinteraktion, unbekanntem Dialog, Fensterwechsel oder Sperrbildschirm.
+Die definierte Formulierung „Standard-Prüflauf direkt ausführen“ zählt hier als
+diese Zustimmung, wenn der Auftrag zugleich genau einen absoluten Fallpfad und
+die vollständigen absoluten Belegpfade nennt.
 
 ## Wiederholungsgrenzen
 

@@ -4,7 +4,10 @@ Diese Anleitung ist der kanonische Einrichtungsvertrag. Ein Mensch kann die
 Befehle selbst ausführen; ein lokaler AI-Agent darf denselben Ablauf nach einem
 kurzen Plan übernehmen. Die SteuerSparErklärung-Automation läuft immer auf dem
 Windows-PC. Sie wird nicht in Codex Cloud, Claude Code on the web oder einem
-anderen Remote-Container eingerichtet.
+anderen Remote-Container eingerichtet. Claude Cowork führt Code in einer
+isolierten Umgebung aus und ist deshalb kein Installer für die host-lokale API-
+und MCP-Konfiguration. Verwende dafür die eigenständig angemeldete Claude Code
+CLI oder einen anderen lokalen Agenten mit echtem Host-PowerShell-Zugriff.
 
 ## Zielbild
 
@@ -26,6 +29,12 @@ mitgelieferte API-CLI vollwertig nutzbar.
 - ein **lokal** laufender Agent mit Datei- und Programmzugriff;
 - Internetzugriff während Download und Installation;
 - für sichtbare SSE-Bedienung eine entsperrte, unbenutzte Windows-Sitzung.
+
+Für die native Claude Code CLI unter Windows müssen außerdem Git for Windows
+und eine eigene Anmeldung in `claude` vorhanden sein. Eine Anmeldung in Claude
+Desktop oder Cowork authentifiziert die eigenständige CLI nicht. Verwende nie
+eine eingebettete Claude-Binärdatei oder Anmeldedaten aus
+`AppData\Local\Packages\Claude_*\LocalCache` als Umgehung.
 
 Nicht allgemein erforderlich sind Python, PowerShell 7, Docker oder ein
 Repository-Checkout. Windows PowerShell 5.1 gehört zu Windows und wird von der
@@ -54,10 +63,12 @@ und die API nicht mit selbst gebauten HTTP-Aufrufen prüfen. Setup-CLI und
 MCP-Bootstrap laden das Token intern; für die Prüfung genügen `--check`, die
 MCP-Serverliste und der echte MCP-Aufruf `sse_health`.
 
-`npx skills` selbst benötigt Node.js/npm. Git ist keine Produktvoraussetzung:
-ohne funktionierenden Skill-Installer darf der Agent die beiden Skillordner aus
-dem aktuellen Repository-ZIP kopieren oder die Skills aus dem verifizierten
-Portable-Release verwenden.
+`npx skills` selbst benötigt Node.js/npm und kann je nach Installationsweg Git
+verwenden. Git ist keine Voraussetzung der SteuerSparErklärung-Automation oder
+des Portable-Releases; die native Claude Code CLI unter Windows benötigt Git
+for Windows jedoch selbst. Ohne funktionierenden Skill-Installer darf der Agent
+die beiden Skillordner aus dem aktuellen Repository-ZIP kopieren oder die
+Skills aus dem verifizierten Portable-Release verwenden.
 
 ## 1. Beide Skills installieren
 
@@ -101,12 +112,12 @@ npm install --global @yadimon/steuer-spar-erklaerung-api@beta @yadimon/steuer-sp
 Setup nie direkt aus `npx` starten: dessen `_npx`-Cache ist flüchtig und darf
 nicht in dauerhaften API- oder MCP-Startpfaden landen.
 
-**Claude Code aus der installierten Claude-Desktop-App:** Die Windows-App kann
-Schreibzugriffe unter `AppData` in ihr MSIX-Verzeichnis
-`Packages\Claude_*\LocalCache` virtualisieren. Das ist für einen MCP-Eintrag
-kein PC-weiter dauerhafter Pfad. Verwende für diesen Client deshalb immer einen
-nicht virtualisierten Ordner direkt im Benutzerprofil und eine explizite
-Konfiguration:
+**Claude Code CLI unter Windows (nicht Cowork):** Führe diesen Weg aus der
+eigenständig angemeldeten CLI oder einem lokalen Terminal aus. Cowork und eine
+in der Claude-Desktop-App eingebettete Binärdatei können Schreibzugriffe unter
+`AppData` in das MSIX-Verzeichnis `Packages\Claude_*\LocalCache` virtualisieren;
+das ist keine PC-weite Host-Installation. Verwende deshalb einen dauerhaften
+Ordner direkt im Benutzerprofil und eine explizite Konfiguration:
 
 ```powershell
 $sseLocalRoot = Join-Path $env:USERPROFILE '.steuer-spar-erklaerung'
@@ -273,47 +284,32 @@ hashverifizierte Arbeitskopie und öffnet niemals den Originalfall.
 ### Prompt 1: installieren
 
 ```text
-Richte SteuerSparErklärung vollständig lokal auf diesem Windows-PC nach
+Richte SteuerSparErklärung vollständig lokal nach
 https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/skills/steuer-spar-erklaerung-setup/references/installation.md
-ein. Installiere oder aktualisiere beide Skills für diesen lokalen Agenten und
-verwende das neueste vollständige Release. Richte lokale API plus MCP ein.
-Dieser Auftrag gilt als `OK Standard` für den beschriebenen Setup-Plan samt
-Download aus der kanonischen Quelle: Führe ihn jetzt vollständig aus und frage
-nicht erneut nach Bestätigung. Zeige den tokenfreien Client-Diff. Wenn er ausschließlich
-den Server `steuer-spar-erklaerung` additiv hinzufügt oder aktualisiert, keinen
-anderen Eintrag löscht und kein Token enthält, sichere die Datei und wende ihn
-ohne weitere Rückfrage an; andernfalls stoppe. Prüfe danach mit
-`steuer-spar-erklaerung-setup --check`, der MCP-Serverliste und einem echten
-Aufruf des MCP-Tools `sse_health` mit `ok=true`; „connected“ allein genügt
-nicht. Die rohe API-Datei `config.json` weder öffnen, lesen noch parsen und
-keine eigenen HTTP-Aufrufe bauen; Setup-CLI und MCP laden das Token intern.
-Bei OpenCode mit vorhandenem npm den npm-Weg und für dieses technische Setup
-`steuer-spar-erklaerung-setup --defaults --with-mcp` verwenden; keine
-interaktive Eingabe automatisieren.
-Bei Claude Code aus der installierten Claude-Desktop-App den in der Anleitung
-definierten nicht virtualisierten Benutzerprofil-Pfad samt explizitem
-`--config` verwenden; keine Runtime- oder Konfigurationspfade unter
-`AppData\Local\Packages\Claude_*\LocalCache` akzeptieren.
-Nicht in einer Cloud-Umgebung ausführen, keinen Autostart oder Connector
-einrichten und noch keinen Steuerfall öffnen.
+ein. Installiere beide Skills sowie das neueste vollständige Release und führe
+den dort beschriebenen Standard-Setup mit lokaler API plus MCP direkt aus.
+Prüfe danach Setup und das echte MCP-Tool `sse_health`.
 ```
+
+Die Formulierung „Standard-Setup direkt ausführen“ bestätigt den oben
+beschriebenen sicheren Plan einschließlich Download und des bedingten,
+tokenfreien additiven MCP-Merges. Der Agent zeigt Plan und Diff weiterhin an,
+fragt innerhalb dieser Grenzen aber nicht erneut. Bei Löschungen, weiteren
+Servern, Token oder einem anderen Befehl stoppt er.
 
 ### Prompt 2: Steuerfall nur lesend prüfen
 
 ```text
-Nutze $steuer-spar-erklaerung und prüfe meine Einkommensteuererklärung 2025
-nur lesend. Steuerfall: <ABSOLUTER_PFAD_ZUM_FALL>. Belege:
-<ABSOLUTE_BELEGORDNER>. Diese Pfade sind richtig und für diese Prüfung
-vollständig; dieser Auftrag gilt als `OK Standard`. Falls die technische
-Einrichtung noch keine Fall-/Quellbindung hat, ergänze genau diese Pfade über
-den sicheren Setup-Plan. Erzeuge eine hashverifizierte Prüffallkopie, kündige
-die sichtbare Bedienung an und navigiere danach ohne weitere Rückfrage nur
-lesend in dieser Kopie. Gleiche Fall, Belege und SSE-Prüfer ab und schreibe
-einen Report in den konfigurierten Ergebnisordner. Belege nur am Ursprungsort
-lesen und nicht in `documents` kopieren. Original, Steuerwerte und Belege nicht
-ändern oder speichern; bei ungespeichertem Zustand stoppen und keine
-ELSTER-Übermittlung ausführen.
+Nutze $steuer-spar-erklaerung und prüfe meine Einkommensteuererklärung 2025.
+Steuerfall: <ABSOLUTER_PFAD_ZUR_ESt2025-DATEI>
+Belege: <ABSOLUTE_BELEGORDNER>
+Diese Pfade sind vollständig. Führe den Standard-Prüflauf direkt aus.
 ```
+
+„Standard-Prüflauf direkt ausführen“ bestätigt bei vollständigen absoluten
+Pfaden den sicheren Prüfvertrag des Hauptskills: hashverifizierte Kopie,
+sichtbare rein lesende Navigation, Report sowie kein Speichern und kein ELSTER.
+Der Agent fragt innerhalb dieses Vertrags nicht erneut.
 
 Die im Kalenderjahr 2026 abgegebene Einkommensteuererklärung betrifft in
 diesem Release das unterstützte Steuerjahr 2025. Ein Einkommensteuerfall 2026

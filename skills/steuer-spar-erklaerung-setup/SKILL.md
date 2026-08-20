@@ -9,7 +9,13 @@ Führe den Wizard auf Deutsch und mit möglichst wenigen Systemänderungen aus.
 Dieser Skill folgt dem kanonischen Vertrag unter
 [references/installation.md](references/installation.md) und richtet das
 Produkt ausschließlich auf dem lokalen Windows-PC ein, nie in einem Cloud-
-oder Remote-Agentencontainer.
+oder Remote-Agentencontainer. Claude Cowork und der Desktop-`local-agent-mode`
+sind wegen ihrer isolierten Ausführung keine Host-Installer für lokale API und
+MCP. Verwende bei Claude die eigenständig angemeldete Claude Code CLI mit
+echtem Host-PowerShell-Zugriff. Die native Windows-CLI setzt Git for Windows
+voraus; fehlt es, nenne diese Client-Voraussetzung und stoppe. Kopiere oder
+verschiebe nie Binärdateien oder Anmeldedaten aus
+`AppData\Local\Packages\Claude_*\LocalCache` als Umgehung.
 Installiere Node.js/npm, Python oder PowerShell 7 nicht eigens für dieses
 Produkt. Ist Node.js 22 oder neuer mit npm bereits vorhanden, darf der
 bestätigte Standardplan die getrennten npm-Pakete verwenden. Sonst nutze das
@@ -89,6 +95,13 @@ Frage nur bei einer echten Abweichung weiter, etwa mehreren SSE-Installationen,
 einer widersprüchlichen vorhandenen Konfiguration oder einem zu ersetzenden
 Ziel ohne verifizierbares Backup.
 
+Verweist der aktuelle Auftrag auf die kanonische Installationsreferenz und
+fordert ausdrücklich, den „Standard-Setup direkt auszuführen“, gilt der dort
+vollständig beschriebene Standardplan als gezeigt und gleichwertig mit
+`OK Standard` bestätigt. Die Formulierung gilt außerdem als bedingte Zustimmung
+für den unten definierten tokenfreien additiven MCP-Merge. Zeige Plan und Diff
+weiterhin, frage innerhalb dieser Grenzen aber nicht erneut.
+
 MCP bleibt optional. Erkläre bei Nachfrage kurz, dass die lokale API die
 SteuerSparErklärung bedient und MCP einen kompatiblen Agenten damit verbindet.
 Richte MCP nur auf ausdrücklichen Wunsch und nach gezeigtem Datei-Diff ein.
@@ -110,10 +123,11 @@ Lies vor der Ausführung
      `@yadimon/steuer-spar-erklaerung-mcp@beta` nur bei bestätigtem
      MCP-Wunsch. Verwende weder `npx` noch einen temporären Paketcache zum
      Start des Setup-Wizards.
-     Läuft Claude Code aus der installierten Claude-Desktop-App, verwende immer
-     den in der Installationsreferenz definierten npm-Präfix direkt unter
+     Läuft die eigenständig angemeldete Claude Code CLI, verwende den in der
+     Installationsreferenz definierten npm-Präfix direkt unter
      `%USERPROFILE%\.steuer-spar-erklaerung` und `--config` auf denselben
-     nicht virtualisierten Benutzerprofil-Baum. MSIX-Pfade unter
+     dauerhaften Benutzerprofil-Baum. Cowork, eingebettete Desktop-Binärdateien
+     und MSIX-Pfade unter
      `AppData\Local\Packages\Claude_*\LocalCache` sind keine PC-weit
      belastbare Runtime- oder MCP-Bindung und dürfen nicht übernommen werden.
    - Portable: prüfe Release-Hash und Tag, entpacke danach mit dem eingebauten
