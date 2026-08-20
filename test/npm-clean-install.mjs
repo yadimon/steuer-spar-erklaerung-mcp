@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -56,6 +56,17 @@ try {
     ? `${apiPackageName}@${expectedVersion}`
     : installSources.find((path) => basename(path).includes("-api-"));
   assert(apiSource, "API-Installationsquelle wurde nicht erzeugt.");
+
+  const npxRoot = join(temporary, "npx-working-directory");
+  mkdirSync(npxRoot, { recursive: true });
+  const npxApiHelp = npm([
+    "exec", "--yes", "--package", apiSource, "--", "steuer-spar-erklaerung-api", "--help",
+  ], { cwd: npxRoot });
+  assert.match(npxApiHelp, /Ohne --config wird beim ersten Foreground-Start/u);
+  const npxCliHelp = npm([
+    "exec", "--yes", "--package", apiSource, "--", "steuer-spar-erklaerung-call", "--help",
+  ], { cwd: npxRoot });
+  assert.match(npxCliHelp, /steuer-spar-erklaerung-call health/u);
 
   const installRoot = join(temporary, "installation");
   npm([
@@ -140,7 +151,7 @@ try {
 
   const sourceLabel = publishedMode ? "exakten npm-Registry-Paketen" : "zwei getrennten Tarballs";
   process.stdout.write(
-    `npm-${publishedMode ? "Registry-Smoke" : "Clean-install"}: ${commands.length} CLI-Einstiege und ` +
+    `npm-${publishedMode ? "Registry-Smoke" : "Clean-install"}: NPX-Kurzweg, ${commands.length} CLI-Einstiege und ` +
       `87-Tool-MCP-Vertrag aus ${sourceLabel} bestanden\n`,
   );
 } finally {

@@ -29,6 +29,15 @@ export interface ApiShutdownOptions {
   registerProcessSignals?: boolean;
 }
 
+export interface ApiRuntimeOverrides {
+  caseDir?: string;
+}
+
+export interface ApiRuntimeReady {
+  baseUrl: string;
+  configPath: string;
+}
+
 /**
  * Installiert genau einen kontrollierten Shutdown-Pfad fuer Prozesssignale.
  *
@@ -150,12 +159,16 @@ export function attachScreenshotImage(
   }
 }
 
-export async function runApiRuntime(configPath?: string): Promise<void> {
-  let explicitConfigEnvironment: NodeJS.ProcessEnv | undefined;
-  if (configPath) {
-    explicitConfigEnvironment = environmentForExplicitApiConfig(configPath);
-  }
-  const config = loadApiServerConfig(explicitConfigEnvironment ?? process.env);
+export async function runApiRuntime(
+  configPath?: string,
+  overrides: ApiRuntimeOverrides = {},
+): Promise<ApiRuntimeReady> {
+  const runtimeEnvironment = configPath
+    ? environmentForExplicitApiConfig(configPath)
+    : { ...process.env };
+  if (overrides.caseDir) runtimeEnvironment.SSE_CASE_DIR = overrides.caseDir;
+  const config = loadApiServerConfig(runtimeEnvironment);
+  const explicitConfigEnvironment = configPath ? runtimeEnvironment : undefined;
   if (explicitConfigEnvironment) {
     for (const key of SSE_API_CONFIG_ENVIRONMENT_KEYS) delete process.env[key];
     process.env.SSE_API_CONFIG = config.configPath;
@@ -186,4 +199,6 @@ export async function runApiRuntime(configPath?: string): Promise<void> {
   const shutdownLifecycle = installApiShutdown(server, shutdown, log);
   await listenSseApiServer(server, config.host, config.port);
   log({ event: "ready", host: config.host, port: config.port });
+  const host = config.host === "::1" ? "[::1]" : config.host;
+  return { baseUrl: `http://${host}:${config.port}`, configPath: config.configPath };
 }

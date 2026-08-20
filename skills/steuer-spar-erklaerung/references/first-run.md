@@ -127,11 +127,22 @@ MCP verbindet einen kompatiblen Agenten damit. Ein reines API-Setup lässt MCP
 weg. Ein ausdrücklich beauftragter vollständiger lokaler Standard mit „API plus
 MCP“ enthält es nach gezeigtem Konfigurations-Diff.
 
+Hat der Nutzer ausdrücklich einen kurzen NPX-Lauf ohne globale Installation
+verlangt und Node.js 22+ mit npm ist bereits vorhanden, ersetzt dieser die
+persistente npm-/Portable-Installation für den aktuellen Auftrag. Der Agent
+startet das API-Paket im Vordergrund mit dem bestätigten Fallordner, verwendet
+die CLI aus demselben Paket und beendet den Prozess nach dem Report wieder.
+MCP, Setup-Skill, Client-Merge und Neustart gehören nicht zu diesem Kurzweg.
+
 ## Setup ausführen und Auftrag fortsetzen
 
-Fehlt eine verifizierte API, verwende nun den Setup-Skill. Übernimm die bereits
-bestätigten Pfade und den Standardplan; frage sie nicht erneut. Ist der
-Setup-Skill nicht installiert, führe dieselben sicheren Schritte inline aus.
+Fehlt eine verifizierte API, verwende nun den Setup-Skill, außer der Nutzer hat
+ausdrücklich den NPX-Kurzweg bestätigt. Übernimm die bereits bestätigten Pfade
+und den Standardplan; frage sie nicht erneut. Ist der Setup-Skill nicht
+installiert, führe dieselben sicheren Schritte inline aus. Beim NPX-Kurzweg
+folge stattdessen dem Abschnitt „NPX-Kurzweg ohne globale
+Runtime-Installation“ im Hauptskill; schreibe dafür keine Setup-Plandatei und
+keinen dauerhaften Launcher.
 
 Schreibe dafür nach `OK Standard` eine neue, höchstens 64 KiB große UTF-8-
 JSON-Datei im privaten temporären Arbeitsbereich des Agenten. Sie enthält nur:

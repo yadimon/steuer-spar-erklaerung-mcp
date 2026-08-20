@@ -7,8 +7,16 @@ async function main(): Promise<void> {
     process.stdout.write(`${API_MAIN_USAGE}\n`);
     return;
   }
+  const { assertForegroundCaseDirectory, ensureForegroundApiFirstRun } = await import("./api-first-run.js");
+  if (args.caseDir) assertForegroundCaseDirectory(args.caseDir);
+  const firstRun = ensureForegroundApiFirstRun(args.configPath);
   const { runApiRuntime } = await import("./api-runtime.js");
-  await runApiRuntime(args.configPath);
+  const ready = await runApiRuntime(args.configPath, args.caseDir ? { caseDir: args.caseDir } : {});
+  if (firstRun.created) process.stdout.write(`Lokale Standardkonfiguration erstellt: ${firstRun.configPath}\n`);
+  process.stdout.write(
+    `SSE-API bereit: ${ready.baseUrl} (${args.caseDir ? "Fallordner fuer diesen Lauf gebunden" : "kein Fallordner gebunden"}).\n` +
+    "Dieses Terminal offen lassen; Strg+C beendet die API.\n",
+  );
 }
 
 process.on("unhandledRejection", (error) => {
