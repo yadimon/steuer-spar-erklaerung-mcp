@@ -9,7 +9,9 @@ async function main(args: readonly string[]): Promise<void> {
   }
   if (options.check) {
     const { runSetupCheck } = await import("./setup-check.js");
-    await runSetupCheck(options.configPath);
+    // Ein unvollstaendiges NPX-Setup meldet sich als JSON-Status auf stdout und
+    // bleibt trotzdem ungleich Erfolg; ein Defekt wirft weiterhin.
+    if (!await runSetupCheck(options.configPath)) process.exitCode = 1;
     return;
   }
   const { runSetupMain } = await import("./setup-wizard.js");

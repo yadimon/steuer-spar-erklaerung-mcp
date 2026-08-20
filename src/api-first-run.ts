@@ -4,6 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { createTextFileExclusive } from "./atomic-files.js";
 import { DEFAULT_API_HOST, DEFAULT_API_PORT } from "./api-contract.js";
 import { defaultApiConfigPath } from "./api-config.js";
+import { detectSseExecutables } from "./setup.js";
 
 export interface ForegroundApiFirstRun {
   configPath: string;
@@ -43,6 +44,11 @@ export function ensureForegroundApiFirstRun(
   for (const path of [dirname(configPath), workspaceDir, documentsDir, resultDir, backupsDir]) {
     mkdirSync(path, { recursive: true });
   }
+  // Nur eine eindeutige Installation wird uebernommen. Damit findet auch ein
+  // 32-Bit-Setup unter "Program Files (x86)" seine SSE.exe, ohne dass der
+  // Foreground-Start je zwischen mehreren Kandidaten raten muesste.
+  const detected = detectSseExecutables("2025", env);
+  const sseExecutable = detected.length === 1 ? detected[0] : undefined;
   const created = createTextFileExclusive({
     path: configPath,
     mode: 0o600,
@@ -51,6 +57,7 @@ export function ensureForegroundApiFirstRun(
       host: DEFAULT_API_HOST,
       port: DEFAULT_API_PORT,
       token: randomBytes(32).toString("base64url"),
+      ...(sseExecutable ? { sseExecutable } : {}),
       documentsDir,
       workspaceDir,
       resultDir,

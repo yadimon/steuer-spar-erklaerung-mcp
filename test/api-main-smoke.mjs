@@ -219,6 +219,45 @@ try {
   });
   assert.equal(discovery.status, 0, discovery.stderr || discovery.stdout);
   assert.equal(JSON.parse(discovery.stdout).operations.length, SSE_API_OPERATIONS.length);
+
+  // Ein belegter Port muss eindeutig benannt werden, damit kein Agent still
+  // ueber eine bereits laufende, anders konfigurierte API weiterarbeitet.
+  const portConflict = spawnSync(process.execPath, ["dist/api-main.js"], {
+    cwd: process.cwd(),
+    windowsHide: true,
+    env: quickEnvironment,
+    encoding: "utf8",
+    timeout: 15_000,
+  });
+  assert.equal(portConflict.status, 1, portConflict.stderr || portConflict.stdout);
+  assert.match(portConflict.stderr, /laeuft bereits eine SSE-API/);
+  assert(
+    portConflict.stderr.includes(`127.0.0.1:${quickPort}`),
+    `Portkonflikt muss Host und Port nennen: ${portConflict.stderr}`,
+  );
+  assert.match(portConflict.stderr, /Nicht fortfahren/);
+  assert(!portConflict.stderr.includes("EADDRINUSE"), "Portkonflikt darf nicht als roher Node-Fehler erscheinen.");
+
+  // Eine reine NPX-Foreground-Konfiguration ist unvollstaendig, aber nicht kaputt.
+  const foregroundCheck = spawnSync(
+    process.execPath,
+    ["dist/setup-main.js", "--check", "--config", quickConfigPath],
+    { cwd: process.cwd(), windowsHide: true, env: quickEnvironment, encoding: "utf8", timeout: 15_000 },
+  );
+  assert.equal(foregroundCheck.status, 1, foregroundCheck.stderr);
+  assert(
+    !foregroundCheck.stderr.includes("Setup fehlgeschlagen"),
+    `Foreground-Konfiguration darf nicht als kaputte Installation gemeldet werden: ${foregroundCheck.stderr}`,
+  );
+  const foregroundStatus = JSON.parse(foregroundCheck.stdout);
+  assert.equal(foregroundStatus.ok, false);
+  assert.equal(foregroundStatus.kind, "foreground-only-config");
+  assert.equal(foregroundStatus.config.path, quickConfigPath);
+  assert.match(foregroundStatus.hint, /--defaults/);
+  assert(
+    !foregroundCheck.stdout.includes(quickConfig.token),
+    "Setup-Status darf das Token nicht ausgeben.",
+  );
 } finally {
   quickChild.kill("SIGTERM");
   const [quickCode, quickSignal] = await once(quickChild, "exit");

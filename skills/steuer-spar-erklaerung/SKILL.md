@@ -133,31 +133,44 @@ API in einem eigenen laufenden Terminalprozess und halte ihn bis zum sicheren
 Ende des Auftrags offen:
 
 ```powershell
-npx.cmd -y @yadimon/steuer-spar-erklaerung-api --case-dir "<ABSOLUTER_FALLORDNER>"
+npx.cmd -y @yadimon/steuer-spar-erklaerung-api@beta --case-dir "<ABSOLUTER_FALLORDNER>"
 ```
 
 Der erste Start erzeugt bei fehlendem Standard-Setup nur eine lokale
 token-geschützte Konfiguration und private Arbeitsordner unter dem normalen
 Benutzerprofil. `--case-dir` bindet den bestätigten Fallordner ausschließlich
-an diesen laufenden Prozess. Es wird kein dauerhafter Launcher in den
-flüchtigen `_npx`-Cache geschrieben. Existiert eine benannte oder ungültige
-Konfiguration, ersetze sie nicht automatisch.
+an diesen laufenden Prozess. Es ist die Auflösungs- und Schwärzungsgrenze für
+`cases:`-Referenzen, keine Zugriffssperre der direkten API.
+Es wird kein dauerhafter Launcher in den flüchtigen `_npx`-Cache geschrieben.
+Existiert eine benannte oder ungültige Konfiguration, ersetze sie nicht
+automatisch.
 
-Rufe aus einem zweiten Prozess dieselbe veröffentlichte Paketversion über die
-CLI auf, ohne das Token zu lesen:
+Meldet der Start, dass auf dem Loopback-Port bereits eine SSE-API läuft, fahre
+nicht fort. Es kann eine anders konfigurierte Instanz sein. Verwende entweder
+bewusst die laufende Installation oder lasse den Nutzer sie zuerst beenden.
+
+Pinne in beiden Prozessen dieselbe Paketmarke, damit ein zwischenzeitliches
+Release API und CLI nicht auf verschiedene Versionen zieht. Rufe aus einem
+zweiten Prozess über die CLI auf, ohne das Token zu lesen:
 
 ```powershell
-npx.cmd -y -p @yadimon/steuer-spar-erklaerung-api steuer-spar-erklaerung-call discovery
-npx.cmd -y -p @yadimon/steuer-spar-erklaerung-api steuer-spar-erklaerung-call workspace_status
+npx.cmd -y -p @yadimon/steuer-spar-erklaerung-api@beta steuer-spar-erklaerung-call discovery
+npx.cmd -y -p @yadimon/steuer-spar-erklaerung-api@beta steuer-spar-erklaerung-call workspace_status
 ```
 
 Verwende für weitere Operationen denselben `-p`-Aufruf vor
 `steuer-spar-erklaerung-call`. Die API bleibt der einzige langlebige Prozess;
 die einzelnen CLI-Aufrufe enden jeweils selbst. Verifiziere vor Steuerdatenarbeit
 Discovery, Arbeitsbereich, `capabilities`, `health`, Produktprofil und
-Engine-Major. Fehlt die Fallbindung im Arbeitsbereich oder stimmt sie nicht,
-beende die API und starte sie höchstens einmal mit dem bestätigten richtigen
-Ordner neu; ändere `config.json` dafür nicht manuell.
+Engine-Major.
+
+Prüfe die Fallbindung über Dateiidentität statt über eine Ordnerangabe:
+`list_cases` muss den erwarteten Dateinamen des bestätigten Steuerfalls
+enthalten, und `case_hash` auf `cases:<Dateiname>` muss demselben SHA-256
+entsprechen wie `Get-FileHash -Algorithm SHA256` auf dem bestätigten absoluten
+Pfad. Stimmen Name oder Hash nicht überein oder fehlt die Bindung, beende die
+API und starte sie höchstens einmal mit dem bestätigten richtigen Ordner neu;
+ändere `config.json` dafür nicht manuell.
 
 In diesem Kurzweg können `setup-decisions.json`, `settings.md` und ein altes
 Tracking fehlen. Verwende dann nur die im aktuellen Auftrag ausdrücklich
@@ -166,6 +179,14 @@ persistiere keine weiteren Präferenzen. Report und Prüffallkopie bleiben
 Pflicht. Beende nach positivem Close-/Hash-Readback auch die Foreground-API mit
 Strg+C. Falls der Agent keinen laufenden Prozess halten kann, biete stattdessen
 das persistente Setup an.
+
+Soll aus diesem Kurzweg ein dauerhaftes Setup werden, ist die Reihenfolge
+bindend: zuerst die Foreground-API mit Strg+C beenden, danach
+`steuer-spar-erklaerung-setup` ausführen. Andernfalls lehnt die noch laufende
+API die sichere Neubindung wegen abweichendem Konfigurationsfingerprint ab.
+Eine reine NPX-Konfiguration meldet `steuer-spar-erklaerung-setup --check`
+als `ok=false` mit `kind="foreground-only-config"`. Das ist keine kaputte
+Installation, sondern „noch kein dauerhaftes Setup“.
 
 Lege bei direkten Laufzeit- und UI-Aufrufen mit `--journal-file
 <neue-private-datei.jsonl>` immer eine neue Journaldatei im privaten
@@ -235,8 +256,11 @@ Enthält der aktuelle Auftrag bereits absolute Pfade, deren
 Vollständigkeitsbestätigung und ausdrücklich `OK Standard` samt den dort
 definierten engen read-only Schritten, frage weder Pfade noch Standardplan
 erneut ab. `Standard-Prüflauf ausführen` ist bei genau
-einem absoluten Steuerfallpfad und vollständigen absoluten Belegpfaden eine
-gleichwertige Bestätigung dieses engen Vertrags.
+einem absoluten Steuerfallpfad und genannten absoluten Belegpfaden eine
+gleichwertige Bestätigung dieses engen Vertrags und bestätigt zugleich, dass
+diese Belegangabe vollständig ist; „keine Belege“ zählt als vollständige
+Angabe. Ein zusätzlicher Satz zur Vollständigkeit ist dann nicht nötig. Fehlt
+jede Belegangabe, stelle die zweite fachliche Frage trotzdem.
 
 Fehlt eine funktionierende Einrichtung und wurde nicht ausdrücklich der
 NPX-Kurzweg gewählt, verwende anschließend `steuer-spar-erklaerung-setup`. Ist dieser Skill nicht installiert, installiere

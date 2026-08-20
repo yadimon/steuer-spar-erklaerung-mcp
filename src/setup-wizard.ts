@@ -220,9 +220,11 @@ export async function runSetupMain(args: readonly string[]): Promise<void> {
         samePath(existingConfiguration.sseExecutable, confirmedPlan.sseExecutable);
       const explicitMcpUpgrade = options.withMcp && storedPreferences?.transport === "api";
       const sameTransport = !storedPreferences || storedPreferences.transport === transport || explicitMcpUpgrade;
-      const fillsEmptyBindings = Boolean(storedPreferences) &&
-        !existingConfiguration.caseDir &&
-        storedSources.length === 0;
+      // Auch eine bindungsfreie Konfiguration aus dem NPX-Foreground-Start ist eine
+      // gueltige Quelle fuer die einmalige Fallbindung. Ohne gespeicherte
+      // Entscheidungen ist `storedSources` bereits leer, die Zusage "eine
+      // vorhandene Bindung nie ersetzen" bleibt damit unveraendert.
+      const fillsEmptyBindings = !existingConfiguration.caseDir && storedSources.length === 0;
       if (
         existingConfiguration.profileId !== confirmedPlan.profileId ||
         !sameSseExecutable ||
