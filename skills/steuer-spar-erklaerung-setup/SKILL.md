@@ -110,6 +110,12 @@ Lies vor der Ausführung
      `@yadimon/steuer-spar-erklaerung-mcp@beta` nur bei bestätigtem
      MCP-Wunsch. Verwende weder `npx` noch einen temporären Paketcache zum
      Start des Setup-Wizards.
+     Läuft Claude Code aus der installierten Claude-Desktop-App, verwende immer
+     den in der Installationsreferenz definierten npm-Präfix direkt unter
+     `%USERPROFILE%\.steuer-spar-erklaerung` und `--config` auf denselben
+     nicht virtualisierten Benutzerprofil-Baum. MSIX-Pfade unter
+     `AppData\Local\Packages\Claude_*\LocalCache` sind keine PC-weit
+     belastbare Runtime- oder MCP-Bindung und dürfen nicht übernommen werden.
    - Portable: prüfe Release-Hash und Tag, entpacke danach mit dem eingebauten
      Windows-`tar.exe` in einen neuen leeren Zielordner und prüfe erst dort das
      Manifest. `Expand-Archive` kann bei den vielen kleinen Release-Dateien
@@ -163,7 +169,8 @@ Lies vor der Ausführung
    Antwortet auf demselben Port eine andere, alte oder nicht eindeutig
    gebundene API, stoppe. Ein beliebiger Port- oder Node-Prozess darf niemals
    pauschal beendet werden.
-6. Führe nach dem Start `steuer-spar-erklaerung-setup --check` aus; beim
+6. Führe nach dem Start `steuer-spar-erklaerung-setup --check` aus; bei einer
+   expliziten Konfiguration denselben absoluten `--config`-Pfad ergänzen; beim
    Portable-Weg `sse-setup.cmd --check`. Prüfe damit `/healthz`, Discovery,
    Produktprofil, Engine, Workspace und read-only
    Zustand. Lies danach `settings.md`, `setup-decisions.json` und das gewählte

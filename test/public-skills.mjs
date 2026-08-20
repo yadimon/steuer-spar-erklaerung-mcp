@@ -38,6 +38,7 @@ assert(main.includes("MCP ist ein optionaler dünner Wrapper") && main.includes(
 assert(main.includes("Client-Konfiguration selbst bleibt tokenfrei") && main.includes("setup --check"));
 assert(main.includes("steuer-spar-erklaerung-call") && main.includes("--args-file -") && main.includes("Prozessliste"));
 assert(main.includes("`config.json` niemals") && main.includes("keinen `curl`-") && main.includes("Nur `/healthz`"));
+assert(main.includes("tokenfreie MCP-Eintrag") && main.includes("expliziten `--config`-Pfad"));
 assert(main.includes("describe <operation>") && main.includes("discovery"));
 assert(main.includes("sse_capabilities") && main.includes("references/ui-fallback.md"));
 assert(main.includes("niemals über ELSTER") && main.includes("verifizierten Arbeitskopie"));
@@ -60,6 +61,21 @@ assert(main.includes("references/first-run.md") && main.includes("OK Standard"))
 assert(main.includes("echten Aufruf von `sse_health`") && main.includes("Handshake allein genügt nicht"));
 assert(main.includes("sichtbare read-only UI-Navigation") && main.includes("dritte Rückfrage"));
 assert(main.includes("Runtime-Dateien oder") && main.includes("niemals manuell als Umgehung"));
+assert(main.includes("ersten `launch` in einer VM") && main.includes("`--timeout-ms 280000`"));
+assert(
+  main.includes("`Prüfen und Abgeben`")
+    && main.includes('`direction="Weiter"`')
+    && main.includes("`checker_open`")
+    && main.includes("`checker_detail` nicht"),
+  "Der Runtime-Skill muss Claude den deterministischen Steuerprüfer-Pfad vorgeben.",
+);
+assert(
+  main.includes('`stopKind="no-table"`')
+    && main.includes("frische `rid`")
+    && main.includes("Zurück-/Historienaktion")
+    && main.includes("niemals mit `Out-Null`"),
+  "Der Runtime-Skill muss dynamische Listen mit frischem Readback statt Suchschleifen führen.",
+);
 const firstRun = readFileSync(
   join(skillsRoot, "steuer-spar-erklaerung", "references", "first-run.md"),
   "utf8",
@@ -105,6 +121,12 @@ assert(setup.includes("`--defaults` nur") && setup.includes("frage den Nutzer ni
 assert(setup.includes("internen Loopback-Setup-Endpunkt") && setup.includes("Konfigurationsfingerprint"));
 assert(setup.includes("zuvor leere Fall-/Quellbindungen") && setup.includes("Bereits nicht leere"));
 assert(setup.includes("MCP-Tool `sse_health`") && setup.includes("Handshake ist kein Ersatz"));
+assert(
+  setup.includes("%USERPROFILE%\\.steuer-spar-erklaerung")
+    && setup.includes("Packages\\Claude_*\\LocalCache")
+    && setup.includes("`--config`"),
+  "Der Setup-Skill muss Claude-Desktop-Dateivirtualisierung in einen dauerhaften Benutzerpfad lenken.",
+);
 assert(setup.includes("arbeite nicht darum herum") && setup.includes("Prozesse weder lesen noch manuell ändern"));
 assert(setup.includes("öffnet nie selbst einen Steuerfall") && setup.includes("hashverifizierte Prüffallkopie"));
 assert(setup.includes("Windows-`tar.exe`") && setup.includes("Teilordner darf nicht gestartet werden"));
@@ -127,6 +149,13 @@ assert(
 assert(installation.includes("--agent <codex|claude-code|opencode>"));
 assert(installation.includes("steuer-spar-erklaerung-setup --defaults --with-mcp") && installation.includes("niemals Antworten über `stdin`"));
 assert(installation.includes("steuer-spar-erklaerung-setup --check"));
+assert(
+  installation.includes("$sseRuntimeRoot")
+    && installation.includes("$sseConfigPath")
+    && installation.includes("--config $sseConfigPath --defaults --with-mcp")
+    && installation.includes("AppData\\Local\\Packages\\Claude_*\\LocalCache"),
+  "Die Installationsanleitung braucht einen kopierbaren nicht virtualisierten Claude-Desktop-Weg.",
+);
 assert(installation.includes("enthält **kein Token**") && installation.includes("containsToken: false"));
 assert(installation.includes("## Zwei kopierbare Prompts") && installation.includes("$steuer-spar-erklaerung"));
 assert(installation.includes("additiv hinzufügt oder aktualisiert") && installation.includes("ohne weitere Rückfrage"));

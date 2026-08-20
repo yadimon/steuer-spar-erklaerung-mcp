@@ -9,7 +9,7 @@ async function main(args: readonly string[]): Promise<void> {
   }
   if (options.check) {
     const { runSetupCheck } = await import("./setup-check.js");
-    await runSetupCheck();
+    await runSetupCheck(options.configPath);
     return;
   }
   const { runSetupMain } = await import("./setup-wizard.js");

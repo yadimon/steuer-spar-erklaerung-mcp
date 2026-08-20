@@ -59,9 +59,9 @@ function verifyMcpTemplate(configPath: string, templatePath: string): {
   return { templatePath, command, launcher, entry, containsToken: false };
 }
 
-export async function runSetupCheck(): Promise<void> {
+export async function runSetupCheck(configPathInput?: string): Promise<void> {
   const here = dirname(fileURLToPath(import.meta.url));
-  const configPath = defaultApiConfigPath();
+  const configPath = resolve(configPathInput ?? defaultApiConfigPath());
   if (!existsSync(configPath)) throw new Error(`Lokale API-Konfiguration fehlt: ${configPath}`);
   const config = loadApiServerConfig(environmentForExplicitApiConfig(configPath));
   const profile = loadProductProfile(config.profileId);

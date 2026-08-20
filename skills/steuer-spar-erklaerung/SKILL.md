@@ -93,6 +93,11 @@ Verwende für authentifizierte direkte Aufrufe ausschließlich die ausgelieferte
 CLI, die das Token intern lädt; baue keinen `curl`-, `Invoke-RestMethod`- oder
 eigenen HTTP-Befehl mit Bearer-Token. Nur `/healthz` darf ohne Token direkt
 geprüft werden.
+Nennt der tokenfreie MCP-Eintrag einen expliziten `--config`-Pfad, verwende
+genau diesen absoluten Pfad unverändert auch für `setup --check` und jeden
+direkten API-CLI-Aufruf. Prüfe nur, dass er als Datei existiert; öffne oder
+parse ihn nicht und suche nicht nach einer vermeintlichen Standardkopie unter
+`AppData`.
 
 Für direkte API-Aufrufe bevorzuge die ausgelieferte
 `steuer-spar-erklaerung-call`-CLI beziehungsweise im portablen Ordner
@@ -120,8 +125,11 @@ Abschlusseintrag oder leerer stdout bedeuten einen unbekannten Zustand: lies
 zuerst das Journal und danach frischen API-Zustand, starte dieselbe Aktion aber
 nicht erneut. Vermische eigene Diagnoseausgaben nicht mit dem JSON-stdout der
 CLI; lies das Journal in einem getrennten Schritt. Verwende für `launch`, `windows`, `collect`, `ui_state`, `close`
-und `health` auf langsamen PCs kein künstlich verkürztes Transportlimit; die
-CLI-Vorgabe beträgt 90 Sekunden.
+und `health` auf langsamen PCs kein künstlich verkürztes Transportlimit. Für
+den ersten `launch` in einer VM oder auf einem nachweislich langsamen PC direkt
+`--timeout-ms 280000` verwenden; die CLI-Vorgabe von 90 Sekunden kann einen
+noch laufenden Kaltstart sonst nur als unbekannten Transportzustand
+zurücklassen.
 Ein synchronisierter `complete`-Eintrag mit `exitCode=1` ist kein
 Transportfehler: lies `result`. Bei `result.ok=false` ist die fachliche
 Operation nachweislich fehlgeschlagen oder absichtlich unvollständig. Ein
@@ -235,6 +243,22 @@ Ersetze Excel niemals still.
    Kann die Agentensandbox lokale Ergebnisdateien nicht direkt öffnen, schwäche
    keine ACL. Fordere das Bild mit `includeImage: true` an und lies Textresultate
    über `sse_workspace_read_text` beziehungsweise `workspace_file_read_text`.
+   Den globalen Steuerprüfer deterministisch öffnen: zuerst den Navigationsknoten
+   `Prüfen und Abgeben`, dann per `goto` ohne Suche mit `direction="Weiter"` die
+   Seite `Steuererklärung prüfen`, danach genau einmal `checker_run`. Details
+   ausschließlich mit `checker_open` öffnen und lesen; `checker_detail` nicht
+   vorher probeweise auf eingeklappte Karten anwenden.
+   Auf dynamischen Übersichts- und Listenbereichen zuerst `subpages` verwenden.
+   Meldet `table_read` dort `stopKind="no-table"`, ist das kein Grund für freie
+   Suche nach Kindüberschriften: wähle einen nicht destruktiven, unmittelbar
+   zuvor gelesenen Hyperlink über seine frische `rid` und `click_point`. Vor dem
+   nächsten Geschwistereintrag über eine frisch gelesene, nicht destruktive
+   Zurück-/Historienaktion oder eine bereits kartierte übergeordnete Übersicht
+   zur exakten Liste zurückkehren. Suche nie direkt nach der Listen- oder
+   Geschwisterüberschrift; danach deren `subpages` neu lesen. Fehlt ein
+   eindeutig gebundener Rückweg, sicher stoppen. Verwerfe das Ergebnis einer
+   Navigationsoperation niemals mit `Out-Null`; prüfe `ok` und die erwartete
+   Überschrift, bevor der Ablauf fortgesetzt wird.
 3. Empfehle Kopien unter `documents`. Bei Ablehnung nur Quelle und Entscheidung
    dokumentieren; Originale nicht verändern.
 4. Identifiziere den Originalfall dateibasiert read-only. Vor jeder UI-
