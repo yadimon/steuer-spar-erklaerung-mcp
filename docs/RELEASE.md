@@ -164,12 +164,24 @@ npm view '@yadimon/steuer-spar-erklaerung-api' dist-tags --json
 ```
 
 `npm whoami` muss `yadimon` oder ein Konto mit Veröffentlichungsrecht im
-Scope `@yadimon` zeigen. Beide `beta`-Tags müssen exakt `$version` nennen;
-`latest` darf in der Beta nicht auf diese Version zeigen. Ein vorhandener,
-älterer `latest`-Tag darf bestehen bleiben: Installationen ohne expliziten Tag
-erhalten weiterhin diesen Stand, während die aktuelle Vorabversion bewusst mit
-`@beta` installiert wird. Für einen Beta-Release muss `latest` daher nicht
-gelöscht oder verschoben werden.
+Scope `@yadimon` zeigen. Beide `beta`-Tags müssen exakt `$version` nennen.
+
+Solange es keine stabile Linie gibt, führt `latest` den jeweils neuesten
+Beta-Stand mit. Andernfalls liefert ein ungepinntes `npm install` oder ein
+`npx`-Aufruf weiterhin die vorige Version, obwohl sie durch nichts geschützt
+werden muss. Beide Kanäle zeigen nach einem Release also auf dieselbe Version:
+
+```powershell
+npm dist-tag add '@yadimon/steuer-spar-erklaerung-mcp@0.1.0-beta.10' latest
+npm dist-tag add '@yadimon/steuer-spar-erklaerung-api@0.1.0-beta.10' latest
+```
+
+Trusted Publishing deckt nur `npm publish` ab, nicht `npm dist-tag`. Der
+Orchestrator setzt den Kanal deshalb lokal mit der Anmeldung des Maintainers
+und liest ihn zurück. Ist auf npmjs.com „disallow tokens“ aktiv, verlangt npm
+dafür einen OTP-Schritt; der Orchestrator nennt dann den exakten Befehl. Publish
+und Registry-Smoke sind zu diesem Zeitpunkt bereits bestanden, es fehlt nur noch
+der Kanal.
 
 Bei aktiviertem `auth-and-writes` verlangt npm dabei einen persönlichen OTP-
 Schritt; den Code ausschließlich direkt in der eigenen Konsole oder npm-
@@ -191,11 +203,10 @@ nicht OIDC. In GitHub weder ein klassisches npm-Token noch ein Secret
 
 Ab der nächsten vollständig vorbereiteten Version übernimmt der lokale
 Orchestrator die Reihenfolge. Er verlangt einen sauberen `main`, identische
-API-/MCP-Versionen und vorhandene Release Notes. Außerdem verhindert er, dass
-die aktuelle Betaversion zugleich als `latest` markiert ist. Danach führt er
-alle Gates aus, pusht Commit und annotierten Tag, erstellt und liest den
-GitHub-Prerelease zurück, startet erst danach Trusted Publishing und führt
-abschließend den Registry-Smoke aus:
+API-/MCP-Versionen und vorhandene Release Notes. Danach führt er alle Gates aus,
+pusht Commit und annotierten Tag, erstellt und liest den GitHub-Prerelease
+zurück, startet erst danach Trusted Publishing, führt den Registry-Smoke aus und
+hängt zuletzt `latest` auf die neue Version:
 
 ```powershell
 npm run release:current
