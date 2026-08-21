@@ -262,7 +262,12 @@ for (const packageName of packageNames) {
 npm(["run", "smoke:published"]);
 
 for (const packageName of packageNames) {
-  setDistTag(packageName, version, "latest");
+  // Der Publish-Workflow setzt `latest` bereits im selben Job. Nur wenn das
+  // ausgeblieben ist, wird lokal nachgezogen; sonst wuerde ein unnoetiger
+  // Registry-Schreibzugriff am OTP-Zwang scheitern.
+  if (registryTags(packageName).latest !== version) {
+    setDistTag(packageName, version, "latest");
+  }
   const tags = registryTags(packageName);
   if (tags.beta !== version || tags.latest !== version) {
     throw new Error(`Unerwartete dist-tags fuer ${packageName}: ${JSON.stringify(tags)}`);
