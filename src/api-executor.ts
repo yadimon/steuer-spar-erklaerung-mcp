@@ -77,7 +77,10 @@ export const API_RESOURCE_BINDINGS: Readonly<Partial<Record<SseApiOperation, rea
   ],
   make_working_copy: [
     { alias: "sourceRef", workerField: "source", allowedAreas: ["cases"] },
-    { alias: "targetRef", workerField: "target", allowedAreas: ["cases"] },
+    // backups: ist die Sicherung VOR einer Schreibaktion. Es ist dieselbe
+    // hashgepruefte Kopie wie eine Arbeitskopie - nur der Ablageort und damit
+    // der Zweck unterscheiden sich.
+    { alias: "targetRef", workerField: "target", allowedAreas: ["cases", "backups"] },
   ],
   backup_cases: [{ alias: "destinationRef", workerField: "dest", allowedAreas: ["backups"] }],
   archive_cases: [{ alias: "destinationRef", workerField: "dest", allowedAreas: ["backups"] }],

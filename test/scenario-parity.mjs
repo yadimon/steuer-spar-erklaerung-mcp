@@ -90,6 +90,14 @@ server.listen(0, "127.0.0.1");
 await once(server, "listening");
 const address = server.address();
 assert(address && typeof address === "object");
+// Ein Lauf ist hier schon einmal mit undicis undurchsichtigem 'bad port'
+// gescheitert. Reproduzieren liess er sich nicht. Diese Zusicherung nennt
+// beim naechsten Mal den tatsaechlichen Bindezustand, statt den Fehler tief
+// in der HTTP-Bibliothek entstehen zu lassen.
+assert(
+  Number.isInteger(address.port) && address.port > 0 && address.port <= 65_535,
+  `Testserver meldet keinen gueltigen Port: ${JSON.stringify(address)}`,
+);
 const baseUrl = `http://127.0.0.1:${address.port}`;
 
 let client;

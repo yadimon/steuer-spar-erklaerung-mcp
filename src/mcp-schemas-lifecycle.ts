@@ -3,6 +3,7 @@ import {
   SSE_START_MODE,
   RESOURCE_REF,
   CASE_REF,
+  CASE_COPY_TARGET_REF,
   BACKUP_REF,
   SHA256,
   SSE_OPERATION_LIMITS,
@@ -68,7 +69,7 @@ export const SSE_MCP_LIFECYCLE_SCHEMAS = {
   }).strict(),
   "sse_make_working_copy": z.object({
     sourceRef: CASE_REF(),
-    targetRef: CASE_REF(),
+    targetRef: CASE_COPY_TARGET_REF(),
     expectedSourceHash: SHA256(),
   }).strict(),
 } as const;
