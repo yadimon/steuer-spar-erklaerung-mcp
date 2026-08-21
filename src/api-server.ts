@@ -104,6 +104,30 @@ class ApiRequestError extends Error {
   }
 }
 
+/**
+ * Jede Operation steuert dieselbe sichtbare SteuerSparErklaerung. Zwei
+ * gleichzeitige Aufrufe wuerden zwei Arbeitsprozesse auf dasselbe Fenster
+ * setzen: Fokus, Seitenzustand und Dialoge waeren nicht mehr zuordenbar.
+ * Deshalb laeuft immer nur eine Operation, und die zweite wird sofort ehrlich
+ * abgelehnt statt still zu verzahnen.
+ *
+ * Bewusst ohne Warteschlange: Ein Aufrufer soll erfahren, dass gerade etwas
+ * anderes laeuft, statt unsichtbar Auftraege zu stapeln. Und bewusst ohne
+ * Zeitautomatik, die den laufenden Aufruf abwuergt - ein abgebrochener
+ * Schreibvorgang hinterlaesst einen unbekannten Zustand.
+ */
+interface InFlightOperation {
+  operation: string;
+  requestId: string;
+  startedAt: number;
+}
+
+let inFlight: InFlightOperation | null = null;
+
+function inFlightSnapshot(now = Date.now()): (InFlightOperation & { elapsedMs: number }) | null {
+  return inFlight ? { ...inFlight, elapsedMs: now - inFlight.startedAt } : null;
+}
+
 function apiError(requestId: string, code: string, message: string): ApiErrorEnvelope {
   return { apiVersion: SSE_API_VERSION, requestId, error: { code, message } };
 }
@@ -217,7 +241,10 @@ export function createSseApiServer(options: SseApiServerOptions): Server {
     }
 
     if (request.method === "GET" && url.pathname === "/healthz") {
-      sendJson(response, 200, { ok: true, apiVersion: SSE_API_VERSION });
+      // Antwortet auch waehrend einer laufenden Operation: Diese Route startet
+      // keinen Arbeitsprozess und ist damit die verlaessliche Lebendigkeits-
+      // und Fortschrittsauskunft.
+      sendJson(response, 200, { ok: true, apiVersion: SSE_API_VERSION, inFlight: inFlightSnapshot() });
       return;
     }
 
@@ -367,7 +394,27 @@ export function createSseApiServer(options: SseApiServerOptions): Server {
         }
         throw error;
       }
-      const rawResult = await execute(operationName, args, body.timeoutMs, controller.signal);
+      const running = inFlightSnapshot();
+      if (running) {
+        sendJson(response, 409, {
+          ...apiError(
+            requestId,
+            "busy",
+            `Es laeuft bereits die Operation '${running.operation}' seit ${running.elapsedMs} ms. ` +
+            "Es wird immer nur eine Operation gleichzeitig ausgefuehrt. Warte auf ihr Ergebnis, " +
+            "statt parallel erneut aufzurufen; /healthz meldet den Fortschritt ohne Token.",
+          ),
+          inFlight: running,
+        });
+        return;
+      }
+      inFlight = { operation: operationName, requestId, startedAt: Date.now() };
+      let rawResult: WorkerResult;
+      try {
+        rawResult = await execute(operationName, args, body.timeoutMs, controller.signal);
+      } finally {
+        inFlight = null;
+      }
       let result: WorkerResult;
       try {
         result = parseApiOperationResult(operationName, rawResult);

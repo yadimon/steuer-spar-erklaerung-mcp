@@ -113,6 +113,29 @@ export const SSE_CAPABILITIES = Object.freeze({
     warningAlsoRequiresBodyFingerprint: true,
   },
   fallbackStages,
+  // Ohne MCP ist die Selbstbeschreibung die einzige Quelle, aus der ein Agent
+  // Nebenlaeufigkeit und Buendelung erfahren kann.
+  concurrency: {
+    singleFlight: true,
+    rejectionCode: "busy",
+    rejectionStatus: 409,
+    progressRoute: "/healthz",
+    rule: "Es laeuft immer nur eine Operation. Ein zweiter Aufruf wird mit 'busy' abgelehnt, " +
+      "nicht eingereiht. Warte auf das Ergebnis statt parallel erneut aufzurufen; /healthz " +
+      "meldet ohne Token, welche Operation seit wann laeuft. Abbrechen geschieht ausschliesslich " +
+      "durch Trennen der HTTP-Verbindung, nie durch einen zweiten Aufruf.",
+  },
+  batching: {
+    rule: "Jeder Aufruf startet einen frischen Arbeitsprozess und laedt das Workerskript neu. " +
+      "Diese Fixkosten fallen pro Aufruf an, nicht pro Schritt. Buendele deshalb, statt Feld " +
+      "fuer Feld einzeln abzurufen.",
+    levels: [
+      { intent: "Einzelner Handgriff", operations: ["click", "click_point", "set_value", "read_page"] },
+      { intent: "Navigieren und lesen in einem Aufruf", operations: ["checker_open", "subpages", "table_read"] },
+      { intent: "Ganze Seitenstrecke", operations: ["collect", "read_full", "export_csv"] },
+      { intent: "Beliebige Schrittfolge in einem Arbeitsprozess", operations: ["scenario_run"] },
+    ],
+  },
   liveEvidence: SSE_LIVE_EVIDENCE,
   safety: {
     elsterAndSubmissionBlocked: true,
@@ -121,5 +144,6 @@ export const SSE_CAPABILITIES = Object.freeze({
     caseAndHashBindingAvailable: true,
     localPathsHiddenFromMcp: true,
     unknownOrAmbiguousStateFailsClosed: true,
+    singleFlightEnforced: true,
   },
 });

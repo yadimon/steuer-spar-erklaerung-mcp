@@ -56,6 +56,8 @@ export const SSE_API_DISCOVERY = Object.freeze({
     selectors: SSE_CAPABILITIES.selectors,
     click: SSE_CAPABILITIES.click,
     dialogs: SSE_CAPABILITIES.dialogs,
+    concurrency: SSE_CAPABILITIES.concurrency,
+    batching: SSE_CAPABILITIES.batching,
   }),
   limits: SSE_CAPABILITIES.limits,
   safety: SSE_CAPABILITIES.safety,
