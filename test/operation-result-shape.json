@@ -4750,6 +4750,96 @@
         }
       }
     },
+    "instances": {
+      "offline": {
+        "profiles": [],
+        "fields": {
+          "advice": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "ambiguous": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "count": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "foregroundHwnd": {
+            "types": [
+              "nonnegative-number",
+              "null"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "hashesIncluded": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "instances": {
+            "types": [
+              "array-empty",
+              "array-one:object"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "ok": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          }
+        }
+      },
+      "live": {
+        "profiles": [],
+        "fields": {}
+      }
+    },
     "known_page_state": {
       "offline": {
         "profiles": [],

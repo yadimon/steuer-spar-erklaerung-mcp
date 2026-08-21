@@ -52,7 +52,7 @@ assert.deepEqual(result.liveEvidence, SSE_LIVE_EVIDENCE);
 assert.equal(result.liveEvidence.affectsAvailability, false);
 assert.equal(result.liveEvidence.functionalCount, 81);
 assert.equal(result.liveEvidence.errorPathOnlyCount, 0);
-assert.equal(result.liveEvidence.untestedCount, 6);
+assert.equal(result.liveEvidence.untestedCount, 7);
 assert.equal(result.transport.directApiWithoutMcp, true);
 assert.equal(result.transport.directCliWithoutMcp, true);
 assert.equal(result.transport.discoveryPath, "/v1/operations");

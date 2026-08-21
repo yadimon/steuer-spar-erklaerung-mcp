@@ -88,6 +88,12 @@ const CORE_OPERATION_RESULT_FIELDS = {
   },
   health: { running: OPTIONAL_BOOLEAN, buildDrift: OPTIONAL_OBJECT, windows: OPTIONAL_ARRAY },
   windows: { windows: OPTIONAL_ARRAY },
+  instances: {
+    instances: OPTIONAL_ARRAY,
+    count: OPTIONAL_NON_NEGATIVE_NUMBER,
+    ambiguous: OPTIONAL_BOOLEAN,
+    advice: OPTIONAL_STRING,
+  },
   list_cases: {
     dir: OPTIONAL_STRING,
     cases: OPTIONAL_CASE_LIST,

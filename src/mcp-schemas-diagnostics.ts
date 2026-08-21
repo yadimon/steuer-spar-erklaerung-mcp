@@ -43,6 +43,10 @@ export const SSE_MCP_DIAGNOSTIC_SCHEMAS = {
     resultRef: RESULT_REF().optional(),
   }).strict(),
   "sse_health": z.object({}).strict(),
+  "sse_instances": z.object({
+    includeHash: z.boolean().optional()
+      .describe("SHA256 jeder gebundenen Falldatei mitlesen; Vorgabe false, weil es zusaetzliche Datei-E/A kostet"),
+  }).strict(),
   "sse_windows": z.object({
     process: z.enum(["SSE", "SteuertippsCenter"]).optional().describe("Vorgabe 'SSE'; optional 'SteuertippsCenter' fuer die Fallauswahl"),
   }).strict(),

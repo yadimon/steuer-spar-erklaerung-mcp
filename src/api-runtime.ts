@@ -11,6 +11,12 @@ import {
 import { createApiExecutor } from "./api-executor.js";
 import { createSseApiServer, listenSseApiServer } from "./api-server.js";
 import { callWorker } from "./worker.js";
+import {
+  enableWorkerPrewarm,
+  isWarmSpareReady,
+  lastPrewarmFailure,
+  shutdownWarmSpare,
+} from "./worker-prewarm.js";
 import { withCombinedAbortSignal } from "./abort.js";
 import { readFileBounded } from "./bounded-files.js";
 import { createRotatingJsonlLogger } from "./jsonl-logger.js";
@@ -194,10 +200,17 @@ export async function runApiRuntime(
     config,
     execute,
     log,
+    prewarmStatus: () => ({ ready: isWarmSpareReady(), failure: lastPrewarmFailure() }),
     requestSetupShutdown: () => shutdownLifecycle.requestShutdown(),
   });
   const shutdownLifecycle = installApiShutdown(server, shutdown, log);
   await listenSseApiServer(server, config.host, config.port);
+  // Der Reservearbeiter darf den beendeten Server nicht ueberleben.
+  shutdown.signal.addEventListener("abort", shutdownWarmSpare, { once: true });
+  // Erst nach dem erfolgreichen Binden vorwaermen: bei einem Portkonflikt
+  // waere der Reservearbeiter sofort wieder ueberfluessig. Die Umgebung
+  // (Profil-Id, Programmpfad, Fallordner) steht zu diesem Zeitpunkt fest.
+  enableWorkerPrewarm();
   log({ event: "ready", host: config.host, port: config.port });
   const host = config.host === "::1" ? "[::1]" : config.host;
   return { baseUrl: `http://${host}:${config.port}`, configPath: config.configPath };

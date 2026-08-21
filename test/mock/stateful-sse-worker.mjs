@@ -742,6 +742,35 @@ export function createStatefulSseWorker({ caseDir }) {
         const caseState = model.openCase();
         return { ok: true, windows: [{ pid, hwnd, title: caseTitle(caseState, openPath), w: 1200, h: 800, minimiert: minimised }] };
       }
+      case "instances": {
+        if (!openPath) {
+          return {
+            ok: true, count: 0, instances: [], ambiguous: false, foregroundHwnd: null,
+            advice: "Keine steuerbare Instanz von 'SteuerSparErklaerung 2025' offen.",
+          };
+        }
+        const caseState = model.openCase();
+        const title = caseTitle(caseState, openPath);
+        // Wie im echten Worker aus dem Dateinamen abgeleitet, nicht aus dem
+        // Startmodus geraten.
+        const suffix = /\.(?<type>[A-Za-z]+)(?<year>\d{4})(?:_Backup)?$/u.exec(basename(openPath));
+        const caseType = suffix ? suffix.groups.type : null;
+        const startMode = caseType === "ESt" ? "normal" : caseType === "GewErfass" ? "einurvor" : caseType === "Gew" ? "einur" : null;
+        return {
+          ok: true, count: 1, ambiguous: false, foregroundHwnd: hwnd,
+          instances: [{
+            hwnd, pid, title, titleFingerprint: sha256(title).toUpperCase(),
+            x: 0, y: 0, w: 1200, h: 800,
+            minimized: minimised, hung: false, foreground: !minimised,
+            casePath: openPath, caseName: basename(openPath), casePathSource: "title",
+            casePathFromTitle: openPath, casePathFromCommandLine: openPath,
+            caseType, caseYear: suffix ? Number(suffix.groups.year) : null, startMode,
+            caseSha256: null, caseFileMissing: false, recoveredState: false,
+          }],
+          hashesIncluded: args.includeHash === true,
+          advice: "Genau ein Steuerfall ist offen; hwnd ist optional, schadet aber nie.",
+        };
+      }
       case "dialog_list":
         return { ok: true, count: dialogs.length, dialogs: clone(dialogs), windows: clone(dialogs) };
       case "known_page_state": {

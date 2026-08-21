@@ -11,6 +11,7 @@ export const SSE_READ_ONLY_OPERATIONS = [
   "get_value",
   "health",
   "help",
+  "instances",
   "known_page_state",
   "list_cases",
   "page",

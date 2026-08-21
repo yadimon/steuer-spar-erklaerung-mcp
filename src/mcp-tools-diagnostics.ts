@@ -166,6 +166,22 @@ export function registerDiagnosticTools(registry: McpRegistry): void {
   );
 
   registerShapedApiTool(
+    "sse_instances",
+    {
+      title: "Offene Steuerfaelle unterscheiden",
+      description:
+        "Nennt jeden offenen Steuerfall mit Fenster-ID, Falldatei, Falltyp (z. B. ESt fuer Einkommensteuer, " +
+        "Gew fuer die Gewerbe-/EUER-Rechnung) und Jahr. IMMER zuerst aufrufen, wenn mehr als ein Steuerfall " +
+        "offen sein koennte: alle fallbezogenen Werkzeuge verlangen dann zu Recht ein hwnd, und dies ist die " +
+        "einzige Quelle dafuer. Laesst sich eine Falldatei weder aus dem Fenstertitel noch aus der " +
+        "Kommandozeile belegen, bleibt casePath null - es wird nichts geraten. recoveredState=true heisst: " +
+        "das Fenster zeigt einen wiederhergestellten Sitzungszustand, NICHT den Inhalt der Falldatei; " +
+        "darauf darf nicht berichtet werden. Aendert nichts und wechselt auch keinen Fokus.",
+    },
+    (r) => ({ ...r, instances: asArray(r.instances) }),
+  );
+
+  registerShapedApiTool(
     "sse_windows",
     {
       title: "Fenster auflisten",

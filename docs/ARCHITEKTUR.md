@@ -86,7 +86,7 @@ Agent oder eigenes Programm
   Gesamtkatalog und OpenAPI-Abruf selbst; es gibt keinen separat gepflegten
   oder permissiveren API-Vertrag. Wiederkehrende Blattverträge wie optionaler
   Text, Flag, SHA-256 und Guard-Objekt werden dort als gemeinsame Komponenten
-  referenziert. Auch der für alle 87 Operationen identische
+  referenziert. Auch der für alle 88 Operationen identische
   `ok/kind/error/ms`-Umschlag liegt einmal als `OperationResultEnvelope` vor;
   jedes `Result_<operation>` ergänzt per `allOf` seine eigenen Fachfelder. Das
   hält die vollständiger gewordenen Result-Schemas unter dem Größenbudget,
@@ -228,7 +228,7 @@ Agent oder eigenes Programm
   bleiben unverändert, damit ein separat installierter Wrapper weder Details
   des API-Rechners noch seines eigenen Hosts preisgibt.
 - Werkzeugnamen, API-Zuordnung, Eingaben und versionierte
-  Ergebnismindestverträge werden aus gemeinsamen Katalogen abgeleitet. Alle 87
+  Ergebnismindestverträge werden aus gemeinsamen Katalogen abgeleitet. Alle 88
   Werkzeuge deklarieren das operationsspezifische `outputSchema` und liefern
   das vollständige, pfadredigierte nicht-binäre Ergebnis als
   `structuredContent`. Bereits als MCP-Bildblock gelieferte Base64-Bytes werden
@@ -482,7 +482,7 @@ Gewinnaktualisierungsnotiz mit `OK` beschränkt; Recovery-Dateien werden nicht
 automatisch verworfen. Das Manifest trennt `status` von `operationAccess`:
 2025 trägt `full`, 2024 `verification-only`. Setup und voller Betriebsraum
 öffnen sich nur bei `supported` **und** `full`; eine reine Status-Promotion
-bleibt daher fail-closed. `capabilities.operationPolicy` klassifiziert alle 87
+bleibt daher fail-closed. `capabilities.operationPolicy` klassifiziert alle 88
 Operationen als Lesen, Navigation, bedingtes Focusless-Schreiben, Mutation,
 destruktiv oder Cleanup und nennt Opt-in- sowie Build-Drift-Gates. Ein zweiter
 MCP-Server pro Jahr ist nicht vorgesehen, solange sich nur Profildaten ändern.

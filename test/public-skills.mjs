@@ -278,7 +278,7 @@ assert(readme.includes("bedingten tokenfreien additiven MCP-Merges") && readme.i
 assert(readme.includes("OpenCode bleibt ein sekundärer, best-effort Client") && readme.includes("Claude Code CLI"));
 assert(readme.includes("Download, persistenter Installation") && readme.includes("Starte den lokalen Agenten dann einmal neu"));
 assert(readme.includes("MCP als optionale Produktfunktion") && readme.includes("Agenten-Standard enthält MCP"));
-assert(readme.includes("Kernwerkzeuge des Standard-Prüflaufs") && readme.includes("alle 87 Operationen"));
+assert(readme.includes("Kernwerkzeuge des Standard-Prüflaufs") && readme.includes("alle 88 Operationen"));
 assert(
   main.includes("https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/skills/steuer-spar-erklaerung-setup/references/installation.md")
     && main.includes("Technisches Setup bereit;")

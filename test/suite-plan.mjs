@@ -119,6 +119,7 @@ export const parallelSteps = Object.freeze([
   nodeFile("mcp-cancellation", "test/mcp-cancellation.mjs"),
   nodeFile("worker-timeout", "test/worker-timeout.mjs"),
   nodeFile("worker-inherited-pipe", "test/worker-inherited-pipe.mjs"),
+  nodeFile("worker-prewarm", "test/worker-prewarm.mjs"),
   nodeFile("worker-output-file-contract", "test/worker-output-file-contract.mjs"),
   nodeFile("direct-worker-identity-guard", "test/direct-worker-identity-guard.mjs"),
   nodeFile("direct-worker-native-guard", "test/direct-worker-native-guard.mjs"),

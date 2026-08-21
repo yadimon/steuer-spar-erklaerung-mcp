@@ -40,6 +40,7 @@ export const SSE_MCP_TOOL_OPERATIONS = {
   "sse_run_scenario": "scenario_run",
   "sse_health": "health",
   "sse_windows": "windows",
+  "sse_instances": "instances",
   "sse_center_cases": "center_cases",
   "sse_center_refresh": "center_refresh",
   "sse_window_close": "window_close",
