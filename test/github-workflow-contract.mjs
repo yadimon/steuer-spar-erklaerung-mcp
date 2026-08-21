@@ -148,6 +148,12 @@ const publishCommands = [
   "npm publish --workspace @yadimon/steuer-spar-erklaerung-mcp --ignore-scripts --tag beta --access public",
   "npm publish --workspace @yadimon/steuer-spar-erklaerung-api --ignore-scripts --tag beta --access public",
 ];
+assert(
+  publishWorkflow.includes('npm dist-tag add "@yadimon/steuer-spar-erklaerung-mcp@$version" latest')
+    && publishWorkflow.includes('npm dist-tag add "@yadimon/steuer-spar-erklaerung-api@$version" latest')
+    && publishWorkflow.indexOf("dist-tag add") > publishWorkflow.indexOf("Publish Windows API package"),
+  "Publish-Workflow muss latest im selben Job direkt nach dem Publish setzen; nur dort besteht die OIDC-Sitzung.",
+);
 let previousPublish = -1;
 for (const command of publishCommands) {
   const index = publishWorkflow.indexOf(`run: ${command}`);

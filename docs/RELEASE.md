@@ -176,12 +176,22 @@ npm dist-tag add '@yadimon/steuer-spar-erklaerung-mcp@0.1.0-beta.10' latest
 npm dist-tag add '@yadimon/steuer-spar-erklaerung-api@0.1.0-beta.10' latest
 ```
 
-Trusted Publishing deckt nur `npm publish` ab, nicht `npm dist-tag`. Der
-Orchestrator setzt den Kanal deshalb lokal mit der Anmeldung des Maintainers
-und liest ihn zurück. Ist auf npmjs.com „disallow tokens“ aktiv, verlangt npm
-dafür einen OTP-Schritt; der Orchestrator nennt dann den exakten Befehl. Publish
-und Registry-Smoke sind zu diesem Zeitpunkt bereits bestanden, es fehlt nur noch
-der Kanal.
+Diese beiden Befehle setzt der Publish-Workflow selbst, unmittelbar nach den
+`npm publish`-Schritten im selben Job. Das ist keine Stilfrage: Trusted
+Publishing baut die OIDC-Sitzung ausschließlich während `npm publish` auf. Ein
+späterer Job, ein Folgelauf oder ein separater dist-tag-Workflow hätte keine
+Anmeldung mehr und scheiterte an `ENEEDAUTH`.
+
+Der Orchestrator liest die Kanäle danach nur noch zurück und zieht lokal nach,
+falls die CI sie nicht gesetzt hat. Ist auf npmjs.com „disallow tokens“ aktiv,
+verlangt npm für diesen lokalen Nachzug einen OTP-Schritt; der Orchestrator
+nennt dann den exakten Befehl. Publish und Registry-Smoke sind zu diesem
+Zeitpunkt bereits bestanden, es fehlt nur noch der Kanal.
+
+Wichtig für einen bereits veröffentlichten Stand: Ist eine Version schon in der
+Registry, lässt sich ihr `latest`-Kanal **nicht** mehr über die CI nachziehen,
+weil ohne erneuten Publish keine OIDC-Sitzung entsteht. Dann bleibt nur der
+lokale `npm dist-tag add … --otp <code>` durch den Maintainer.
 
 Bei aktiviertem `auth-and-writes` verlangt npm dabei einen persönlichen OTP-
 Schritt; den Code ausschließlich direkt in der eigenen Konsole oder npm-
