@@ -72,6 +72,7 @@ const dotSourcedPowerShellFiles = [
   "powershell/akad-parser.ps1",
   "powershell/api-task-common.ps1",
   "powershell/desktop-marker.ps1",
+  "powershell/instance-identity.ps1",
   "powershell/load-native.ps1",
   "powershell/table-region.ps1",
   "powershell/table-values.ps1",

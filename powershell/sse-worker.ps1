@@ -635,6 +635,11 @@ if (-not (Test-Path -LiteralPath $windowScopeHelpers -PathType Leaf)) {
   Fail "Fensterbindungs-Helfer fehlt: $windowScopeHelpers" 'not-found'
 }
 . $windowScopeHelpers
+$instanceIdentityHelpers = Join-Path $PSScriptRoot 'instance-identity.ps1'
+if (-not (Test-Path -LiteralPath $instanceIdentityHelpers -PathType Leaf)) {
+  Fail "Instanz-Identitaets-Helfer fehlt: $instanceIdentityHelpers" 'not-found'
+}
+. $instanceIdentityHelpers
 $structureBindingHelpers = Join-Path $PSScriptRoot 'structure-binding.ps1'
 if (-not (Test-Path -LiteralPath $structureBindingHelpers -PathType Leaf)) {
   Fail "Strukturbindungs-Helfer fehlt: $structureBindingHelpers" 'not-found'
@@ -5183,16 +5188,21 @@ switch ($Op) {
 
     $liste = New-Object System.Collections.ArrayList
     foreach ($fenster in $hauptfenster) {
-      $titelPfad = Get-CasePathFromTitle ([string]$fenster.title)
+      # Welche Falldatei zu diesem Fenster BELEGT ist, entscheidet der reine
+      # Helfer. Er kennt insbesondere den mit '...' gekuerzten Fenstertitel.
+      $titelRoh = Get-CasePathFromTitle ([string]$fenster.title)
       $kommandoPfad = Get-CasePathFromCommandLineText ([string]$kommandozeilen[[int]$fenster.pid])
-      # Der Titel gewinnt: er zeigt den GERADE geladenen Fall, waehrend die
-      # Kommandozeile nur den beim Start uebergebenen nennt. Nach einem
-      # Fallwechsel im Programm waere die Kommandozeile veraltet.
-      $fallPfad = $(if ($titelPfad) { $titelPfad } elseif ($kommandoPfad) { $kommandoPfad } else { $null })
-      $pfadQuelle = $(if ($titelPfad) { 'title' } elseif ($kommandoPfad) { 'command-line' } else { $null })
+      $identitaet = Resolve-SSEInstanceCaseIdentity ([string]$titelRoh) ([string]$kommandoPfad)
+      $fallPfad = $identitaet.path
+      $pfadQuelle = $identitaet.source
+      $titelGekuerzt = [bool]$identitaet.titleTruncated
+      $titelPfad = $(if ($pfadQuelle -eq 'title') { $fallPfad } else { $null })
+      # Typ und Jahr stehen im Dateinamen. Der ist auch bei gekuerztem Titel
+      # vollstaendig - deshalb wird dafuer der Name statt des Pfades benutzt.
       $fallTyp = ''; $fallJahr = 0; $startModus = ''
-      if ($fallPfad) {
-        $treffer = Get-SSECaseFileMatch $fallPfad
+      $fallName = $identitaet.name
+      if ($fallName) {
+        $treffer = Get-SSECaseFileMatch $fallName
         if ($treffer -and $treffer.Success) {
           $fallTyp = [string]$treffer.Groups['type'].Value
           $fallJahr = [int]$treffer.Groups['year'].Value
@@ -5207,10 +5217,14 @@ switch ($Op) {
         x=[int]$fenster.x; y=[int]$fenster.y; w=[int]$fenster.w; h=[int]$fenster.h
         minimized=[bool]$fenster.minimiert; hung=[bool]$fenster.hung
         foreground=[bool]([int64]$fenster.hwnd -eq $vordergrundHwnd)
+        # casePath ist null, solange kein VOLLSTAENDIGER Pfad belegt ist.
+        # caseName bleibt trotzdem gefuellt: der Dateiname steht auch im
+        # gekuerzten Titel und reicht, um Faelle auseinanderzuhalten.
         casePath=$fallPfad
-        caseName=$(if ($fallPfad) { [IO.Path]::GetFileName($fallPfad) } else { $null })
+        caseName=$fallName
         casePathSource=$pfadQuelle
         casePathFromTitle=$titelPfad; casePathFromCommandLine=$kommandoPfad
+        titleTruncated=$titelGekuerzt
         caseType=$(if ($fallTyp) { $fallTyp } else { $null })
         caseYear=$(if ($fallJahr) { $fallJahr } else { $null })
         startMode=$(if ($startModus) { $startModus } else { $null })

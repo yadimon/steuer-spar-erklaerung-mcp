@@ -9,6 +9,7 @@ export const WORKER_RUNTIME_FILES = Object.freeze([
   "table-combobox.ps1",
   "window-scope.ps1",
   "structure-binding.ps1",
+  "instance-identity.ps1",
   "profile-verification.ps1",
   "ocr-image.ps1",
   "load-native.ps1",
