@@ -1111,6 +1111,52 @@ test("30 checker state and the bounded global search transaction stay readable",
   });
 });
 
+test("30b a verified safety copy lands in the backup area before any write", async () => {
+  await withHarness(async (harness) => {
+    // Vor einer Schreibaktion gehoert eine Sicherung in den Sicherungsbereich.
+    // Es ist dieselbe hashgepruefte Kopie wie eine Arbeitskopie; nur der
+    // Ablageort bestimmt den Zweck.
+    const backup = await harness.call("make_working_copy", {
+      sourceRef: "cases:synthetic.Gew2025",
+      targetRef: "backups:vor-aenderung.Gew2025",
+      expectedSourceHash: harness.seeded.freelancerHash,
+    });
+    assert.equal(backup.copied, true);
+    assert.equal(backup.verified, true);
+    assert.equal(backup.targetHash, harness.seeded.freelancerHash,
+      "Die Sicherung muss bytegleich zur Quelle sein.");
+    assert.deepEqual(backup.resourceRefs, {
+      sourceRef: "cases:synthetic.Gew2025",
+      targetRef: "backups:vor-aenderung.Gew2025",
+    });
+
+    // Das Original bleibt unberuehrt.
+    assert.equal(sha256File(harness.seeded.freelancerPath), harness.seeded.freelancerHash);
+
+    // Ein zweiter Lauf darf eine vorhandene Sicherung niemals ueberschreiben.
+    const wiederholt = await harness.request("make_working_copy", {
+      sourceRef: "cases:synthetic.Gew2025",
+      targetRef: "backups:vor-aenderung.Gew2025",
+      expectedSourceHash: harness.seeded.freelancerHash,
+    });
+    assert.equal(wiederholt.body.result.ok, false);
+    assert.equal(wiederholt.body.result.kind, "exists");
+
+    // Fremde Bereiche bleiben gesperrt: eine Sicherung gehoert nicht in den
+    // Ergebnisordner, aus dem Berichte an Menschen gehen. Das scheitert schon
+    // am Argumentschema, also VOR jedem Dateizugriff - deshalb kommt hier eine
+    // Fehlerhuelle zurueck und kein Operationsergebnis.
+    const fremd = await harness.request("make_working_copy", {
+      sourceRef: "cases:synthetic.Gew2025",
+      targetRef: "results:heimlich.Gew2025",
+      expectedSourceHash: harness.seeded.freelancerHash,
+    });
+    assert.equal(fremd.status, 400);
+    assert.equal(fremd.body.result, undefined,
+      "Ein am Schema abgewiesenes Ziel darf keine Operation ausgeloest haben.");
+  });
+});
+
 test("31 a working copy carries combo, toggle and lifecycle at the API boundary", async () => {
   await withHarness(async (harness) => {
     const copy = await harness.call("make_working_copy", {

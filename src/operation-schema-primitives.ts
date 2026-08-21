@@ -25,6 +25,17 @@ export const CASE_REF = () => z.string().regex(
   new RegExp(`^cases:${RESOURCE_PATH}$`),
   "Fallreferenz im Format cases:relativer/pfad erwartet",
 ).describe("Maschinenneutrale Falldateireferenz im Bereich cases:");
+/**
+ * Ziel einer verifizierten Falldateikopie.
+ *
+ * Zwei Zwecke, dieselbe gepruefte Mechanik: eine Arbeitskopie neben dem
+ * Original in cases:, oder eine SICHERUNG in backups: vor einer Schreibaktion.
+ * Der Bereich entscheidet die Rolle, nicht ein zweiter Codepfad.
+ */
+export const CASE_COPY_TARGET_REF = () => z.string().regex(
+  new RegExp(`^(?:cases|backups):${RESOURCE_PATH}$`),
+  "Zielreferenz im Format cases:relativer/pfad oder backups:relativer/pfad erwartet",
+).describe("Ziel der verifizierten Kopie: cases: fuer eine Arbeitskopie, backups: fuer eine Sicherung");
 export const RESULT_REF = () => z.string().regex(
   new RegExp(`^results:${RESOURCE_PATH}$`),
   "Ergebnisreferenz im Format results:relativer/pfad erwartet",

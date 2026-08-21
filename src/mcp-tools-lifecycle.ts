@@ -131,9 +131,12 @@ export function registerLifecycleTools(registry: McpRegistry): void {
   registerApiTool(
     "sse_make_working_copy",
     {
-      title: "Verifizierte Arbeitskopie erstellen",
+      title: "Verifizierte Kopie einer Steuerfalldatei",
       description:
-        "Erstellt eine neue, bytegleiche Arbeitskopie einer Steuerfalldatei ohne UI, Tastatur oder Dialog. " +
+        "Erstellt eine neue, bytegleiche Kopie einer Steuerfalldatei ohne UI, Tastatur oder Dialog. " +
+        "Der Zielbereich entscheidet den Zweck: 'cases:' erzeugt eine ARBEITSKOPIE zum Oeffnen, " +
+        "'backups:' erzeugt eine SICHERUNG. Vor jeder Schreibaktion an einem Steuerfall zuerst eine " +
+        "Sicherung nach 'backups:' anlegen - danach ist jeder Schreibfehler zurueckholbar. " +
         "Das Ziel darf nicht existieren; Quell-SHA256 und gleiche Dateiendung sind Pflicht. Danach werden " +
         "Quell- und Zielhash sowie Kopfdaten erneut geprueft. Bei einer Abweichung wird nur das neu erzeugte Ziel entfernt.",
     },

@@ -5436,6 +5436,7 @@
               "string-other"
             ],
             "labels": [
+              "stateful-mock",
               "worker"
             ],
             "outcomes": [
@@ -5460,6 +5461,7 @@
               "string-other"
             ],
             "labels": [
+              "stateful-mock",
               "worker"
             ],
             "outcomes": [

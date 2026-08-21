@@ -47,7 +47,8 @@ Diese Regeln gelten auch auf ausdrücklichen Wunsch:
   Ablauf und lege dem Menschen genau diese strukturierten Pfade zur Klärung
   vor; starte keine zweite Archivierung und verschiebe Recovery-Dateien nicht
   automatisch.
-- Ändere Steuerdaten nur in einer zuvor bytegleich verifizierten Arbeitskopie.
+- Ändere Steuerdaten nur in einer zuvor bytegleich verifizierten Arbeitskopie
+  und sichere sie vorher mit `sse_make_working_copy` nach `backups:`.
 - Arbeite nie mit einem wiederhergestellten Fall weiter. Hat SteuerSparErklärung
   nach einem unsauberen Ende eine Wiederherstellungsdatei geladen, stoppt
   `launch` mit `kind="recovered-state"`. Der geöffnete Inhalt entspricht dann
