@@ -63,9 +63,9 @@ Standard-Prüflauf ausführen.
 `Standard-Prüflauf ausführen` bestätigt dabei zugleich, dass die genannten
 Belegpfade vollständig sind.
 
-Der Agent startet `@yadimon/steuer-spar-erklaerung-api@beta` im Vordergrund,
+Der Agent startet `@yadimon/steuer-spar-erklaerung-api` im Vordergrund,
 bindet den bestätigten Fallordner nur an diesen Prozess und verwendet die
-enthaltene CLI mit derselben gepinnten Paketmarke. Beim ersten Lauf entstehen
+enthaltene CLI aus demselben Paket. Beim ersten Lauf entstehen
 eine token-geschützte Konfiguration und private Arbeitsordner im lokalen
 Benutzerprofil, aber keine globale Paketinstallation
 und kein dauerhafter Startpfad in den NPX-Cache.
@@ -157,7 +157,7 @@ OpenCode bleibt ein sekundärer, best-effort Client. Mit bereits vorhandenem
 Node.js/npm ist sein kurzer Runtime-Weg nach der Skill-Installation:
 
 ```powershell
-npm.cmd install --global @yadimon/steuer-spar-erklaerung-api@beta @yadimon/steuer-spar-erklaerung-mcp@beta
+npm.cmd install --global @yadimon/steuer-spar-erklaerung-api @yadimon/steuer-spar-erklaerung-mcp
 steuer-spar-erklaerung-setup --defaults --with-mcp
 ```
 
@@ -181,7 +181,7 @@ der PC-blinde MCP-Wrapper kann unabhängig installiert werden. Das empfohlene
 lokale Agenten-Setup installiert beide Pakete in exakt derselben Version:
 
 ```powershell
-npm.cmd install --global @yadimon/steuer-spar-erklaerung-api@beta @yadimon/steuer-spar-erklaerung-mcp@beta
+npm.cmd install --global @yadimon/steuer-spar-erklaerung-api @yadimon/steuer-spar-erklaerung-mcp
 steuer-spar-erklaerung-setup --with-mcp
 steuer-spar-erklaerung-setup --check
 ```
@@ -197,7 +197,7 @@ belastbarer MCP-Setup-Erfolg und dürfen nicht aus Cowork oder der Desktop-App
 als Host-Installation übernommen werden.
 
 Für einen bewusst später ergänzten MCP-Transport ist auch
-`npm.cmd install --global @yadimon/steuer-spar-erklaerung-mcp@beta` zulässig; vor
+`npm.cmd install --global @yadimon/steuer-spar-erklaerung-mcp` zulässig; vor
 dem erneuten Setup muss seine Version exakt zum API-Paket passen.
 
 Das persistente Setup nie direkt aus `npx` starten: Der temporäre `_npx`-Cache
@@ -278,11 +278,11 @@ Arbeitsgemeinschaft verbunden.
 
 ### npm-Pakete
 
-`@yadimon/steuer-spar-erklaerung-api@beta` ist der lokale Windows-x64-
+`@yadimon/steuer-spar-erklaerung-api` ist der lokale Windows-x64-
 API-Wrapper für SteuerSparErklärung. Er enthält HTTP-API, direkte CLI, Profile,
 Windows-/Native-Runtime und den technischen Konfigurationshelfer, den der
 Setup-Skill verwendet; er enthält keinen MCP-Server.
-`@yadimon/steuer-spar-erklaerung-mcp@beta` ist der PC-blinde MCP-Wrapper für
+`@yadimon/steuer-spar-erklaerung-mcp` ist der PC-blinde MCP-Wrapper für
 SteuerSparErklärung über dieses API-Paket. Er kennt ausschließlich API-URL und
 Token und automatisiert die Oberfläche nicht selbst. Beide Pakete müssen
 dieselbe Version tragen und zum vollständigen GitHub-Release gehören.

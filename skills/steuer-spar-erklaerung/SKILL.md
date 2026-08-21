@@ -133,7 +133,7 @@ API in einem eigenen laufenden Terminalprozess und halte ihn bis zum sicheren
 Ende des Auftrags offen:
 
 ```powershell
-npx.cmd -y @yadimon/steuer-spar-erklaerung-api@beta --case-dir "<ABSOLUTER_FALLORDNER>"
+npx.cmd -y @yadimon/steuer-spar-erklaerung-api --case-dir "<ABSOLUTER_FALLORDNER>"
 ```
 
 Der erste Start erzeugt bei fehlendem Standard-Setup nur eine lokale
@@ -149,13 +149,11 @@ Meldet der Start, dass auf dem Loopback-Port bereits eine SSE-API läuft, fahre
 nicht fort. Es kann eine anders konfigurierte Instanz sein. Verwende entweder
 bewusst die laufende Installation oder lasse den Nutzer sie zuerst beenden.
 
-Pinne in beiden Prozessen dieselbe Paketmarke, damit ein zwischenzeitliches
-Release API und CLI nicht auf verschiedene Versionen zieht. Rufe aus einem
-zweiten Prozess über die CLI auf, ohne das Token zu lesen:
+Rufe aus einem zweiten Prozess über die CLI auf, ohne das Token zu lesen:
 
 ```powershell
-npx.cmd -y -p @yadimon/steuer-spar-erklaerung-api@beta steuer-spar-erklaerung-call discovery
-npx.cmd -y -p @yadimon/steuer-spar-erklaerung-api@beta steuer-spar-erklaerung-call workspace_status
+npx.cmd -y -p @yadimon/steuer-spar-erklaerung-api steuer-spar-erklaerung-call discovery
+npx.cmd -y -p @yadimon/steuer-spar-erklaerung-api steuer-spar-erklaerung-call workspace_status
 ```
 
 Verwende für weitere Operationen denselben `-p`-Aufruf vor
@@ -191,7 +189,7 @@ Installation, sondern „noch kein dauerhaftes Setup“.
 Das Setup selbst darf dabei nicht über `npx` laufen. Eine Runtime aus dem
 flüchtigen npx-Cache würde dauerhafte Startpfade in ein Verzeichnis schreiben,
 das wieder verschwindet; der Wizard bricht deshalb bewusst ab und verlangt
-`npm.cmd install --global @yadimon/steuer-spar-erklaerung-api@beta` oder das
+`npm.cmd install --global @yadimon/steuer-spar-erklaerung-api` oder das
 portable Release. Der NPX-Kurzweg bleibt also bewusst der einmalige Prüflauf.
 
 Lege bei direkten Laufzeit- und UI-Aufrufen mit `--journal-file

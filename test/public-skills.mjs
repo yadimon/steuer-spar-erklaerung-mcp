@@ -36,8 +36,8 @@ const main = readFileSync(join(skillsRoot, "steuer-spar-erklaerung", "SKILL.md")
 assert(main.includes("kein globales Node.js/npm") && main.includes("kein Python") && main.includes("PowerShell 7"));
 assert(main.includes("MCP ist ein optionaler dünner Wrapper") && main.includes("API-Selbstbeschreibung"));
 assert(main.includes("NPX-Kurzweg ohne globale Runtime-Installation"));
-assert(main.includes("npx.cmd -y @yadimon/steuer-spar-erklaerung-api@beta --case-dir"));
-assert(main.includes("npx.cmd -y -p @yadimon/steuer-spar-erklaerung-api@beta steuer-spar-erklaerung-call"));
+assert(main.includes("npx.cmd -y @yadimon/steuer-spar-erklaerung-api --case-dir"));
+assert(main.includes("npx.cmd -y -p @yadimon/steuer-spar-erklaerung-api steuer-spar-erklaerung-call"));
 assert(main.includes("kein dauerhafter Launcher") && main.includes("Setup-Skill und MCP sind nicht erforderlich"));
 assert(
   main.includes("keine Zugriffssperre der direkten API"),
@@ -104,7 +104,7 @@ const firstRun = readFileSync(
 assert(firstRun.includes("der richtige Steuerfall") && firstRun.includes("vollständige Liste der Belegordner"));
 assert(firstRun.includes("höchstens 100") && firstRun.includes("Durchsuche niemals das gesamte Laufwerk"));
 assert(firstRun.includes("aktuellste") && firstRun.includes("passende veröffentlichte Portable-Release"));
-assert(firstRun.includes("`@beta`-Pakete persistent installieren"));
+assert(firstRun.includes("npm-Pakete persistent installieren"));
 assert(firstRun.includes("`OK`, `OK Standard` oder `OK Default`"));
 assert(firstRun.includes("hashverifizierte Prüffallkopie") && firstRun.includes("ausschließlich diese öffnen"));
 assert(firstRun.includes("Setup allein erfüllt") && firstRun.includes("capabilities"));
@@ -139,10 +139,10 @@ assert(setup.includes("settings.md") && setup.includes("tracking.md") && setup.i
 assert(setup.includes("Connector") && setup.includes("read-only Prüfung"));
 assert(setup.includes("aktuellste dort veröffentlichte") && setup.includes("OK Standard"));
 assert(setup.includes("`Standard-Setup ausführen`") && setup.includes("tokenfreien") && setup.includes("additiven Merge"));
-assert(setup.includes("npm.cmd install --global") && setup.includes("@yadimon/steuer-spar-erklaerung-api@beta"));
+assert(setup.includes("npm.cmd install --global") && setup.includes("@yadimon/steuer-spar-erklaerung-api"));
 assert(setup.includes("npx.cmd") && setup.includes("Execution Policy"));
 assert(setup.includes("Bei OpenCode") && setup.includes("npm der") && setup.includes("kurze Standardweg"));
-assert(setup.includes("@yadimon/steuer-spar-erklaerung-mcp@beta") && setup.includes("flüchtigen `npx`-Cache"));
+assert(setup.includes("@yadimon/steuer-spar-erklaerung-mcp") && setup.includes("flüchtigen `npx`-Cache"));
 assert(setup.includes("`--defaults` nur") && setup.includes("frage den Nutzer nicht erneut"));
 assert(setup.includes("internen Loopback-Setup-Endpunkt") && setup.includes("Konfigurationsfingerprint"));
 assert(setup.includes("zuvor leere Fall-/Quellbindungen") && setup.includes("Bereits nicht leere"));
@@ -254,8 +254,8 @@ for (const agent of ["codex", "claude-code", "opencode"]) {
 assert(readme.includes("https://www.skills.sh/docs/cli"), "README verlinkt die offizielle skills-CLI nicht.");
 assert(readme.includes("Get-FileHash -Algorithm SHA256"), "README erklärt die manuelle ZIP-Prüfsumme nicht.");
 assert.match(readme, /npx skills.*Node\.js 22\+ mit npm/su, "README verschweigt die npx-Voraussetzung.");
-assert(readme.includes("npm.cmd install --global @yadimon/steuer-spar-erklaerung-api@beta"));
-assert(readme.includes("npm.cmd install --global @yadimon/steuer-spar-erklaerung-mcp@beta"));
+assert(readme.includes("npm.cmd install --global @yadimon/steuer-spar-erklaerung-api"));
+assert(readme.includes("npm.cmd install --global @yadimon/steuer-spar-erklaerung-mcp"));
 assert(readme.includes("npx.cmd") && readme.includes("PowerShell-Execution-Policy"));
 assert(readme.toLowerCase().includes("installiere oder aktualisiere beide skills") && readme.includes("gecachte Webansicht"));
 assert(readme.includes("## Schnellstart mit zwei Prompts") && readme.includes("steuer-spar-erklaerung-setup --check"));

@@ -107,9 +107,9 @@ und zu einem vollständigen GitHub-Release mit Portable-ZIP und Sidecar-Hash
 gehören:
 
 ```powershell
-npm.cmd view @yadimon/steuer-spar-erklaerung-api@beta version
-npm.cmd view @yadimon/steuer-spar-erklaerung-mcp@beta version
-npm.cmd install --global @yadimon/steuer-spar-erklaerung-api@beta @yadimon/steuer-spar-erklaerung-mcp@beta
+npm.cmd view @yadimon/steuer-spar-erklaerung-api version
+npm.cmd view @yadimon/steuer-spar-erklaerung-mcp version
+npm.cmd install --global @yadimon/steuer-spar-erklaerung-api @yadimon/steuer-spar-erklaerung-mcp
 ```
 
 Das persistente Setup nie direkt aus `npx` starten: dessen `_npx`-Cache ist
@@ -129,8 +129,8 @@ $sseLocalRoot = Join-Path $env:USERPROFILE '.steuer-spar-erklaerung'
 $sseRuntimeRoot = Join-Path $sseLocalRoot 'npm'
 $sseConfigPath = Join-Path $sseLocalRoot 'config.json'
 npm.cmd install --global --prefix $sseRuntimeRoot `
-  @yadimon/steuer-spar-erklaerung-api@beta `
-  @yadimon/steuer-spar-erklaerung-mcp@beta
+  @yadimon/steuer-spar-erklaerung-api `
+  @yadimon/steuer-spar-erklaerung-mcp
 & (Join-Path $sseRuntimeRoot 'steuer-spar-erklaerung-setup.cmd') `
   --config $sseConfigPath --defaults --with-mcp
 ```
@@ -202,7 +202,7 @@ ein bewusst technisches Setup ohne Fall-/Belegbindung gedacht. `--no-start`
 erzeugt Dateien, prüft die laufende API aber nicht.
 
 Als bindungsfreie Ausgangslage zählt auch eine Konfiguration, die zuvor der
-NPX-Kurzweg `npx.cmd -y @yadimon/steuer-spar-erklaerung-api@beta` angelegt hat.
+NPX-Kurzweg `npx.cmd -y @yadimon/steuer-spar-erklaerung-api` angelegt hat.
 Sie ist unvollständig, aber eine gültige Quelle für die einmalige Bindung.
 `steuer-spar-erklaerung-setup --check` meldet sie als `ok=false` mit
 `kind="foreground-only-config"` und nennt den nächsten Schritt; das ist keine
@@ -218,7 +218,7 @@ Das Setup selbst darf nicht über `npx` ausgeführt werden. Eine Runtime aus dem
 flüchtigen npx-Cache erzeugt dauerhafte Startpfade, die anschließend ins Leere
 zeigen; der Wizard bricht dort mit einem entsprechenden Hinweis ab. Für den
 dauerhaften Stand also zuerst
-`npm.cmd install --global @yadimon/steuer-spar-erklaerung-api@beta` ausführen
+`npm.cmd install --global @yadimon/steuer-spar-erklaerung-api` ausführen
 oder das portable Release verwenden und das Setup von dort starten.
 
 Bei einer vorhandenen technischen Konfiguration darf ein bestätigter Plan

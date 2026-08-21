@@ -384,7 +384,7 @@ nie geöffnet“ ist deshalb eine Ablaufzusage der Skills, keine API-Sperre.
 
 Es gibt zwei gleich versionierte Distributionswege. Eine vorhandene passende
 Installation wird wiederverwendet. Mit bereits vorhandenem Node.js 22+ und npm
-kann der Setup-Skill die veröffentlichten `@beta`-Pakete persistent
+kann der Setup-Skill die veröffentlichten npm-Pakete persistent
 installieren; andernfalls bleibt das portable GitHub Release der vollständige
 Weg ohne globale Entwicklerwerkzeuge.
 

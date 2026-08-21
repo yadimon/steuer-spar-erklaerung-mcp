@@ -157,45 +157,34 @@ wurden, aus demselben sauberen Tag-Checkout einmalig ausführen:
 npm install --global npm@11.19.0
 npm login
 npm whoami
-npm publish --workspace @yadimon/steuer-spar-erklaerung-mcp --ignore-scripts --tag beta --access public
-npm publish --workspace @yadimon/steuer-spar-erklaerung-api --ignore-scripts --tag beta --access public
+npm publish --workspace @yadimon/steuer-spar-erklaerung-mcp --ignore-scripts --tag latest --access public
+npm publish --workspace @yadimon/steuer-spar-erklaerung-api --ignore-scripts --tag latest --access public
 npm view '@yadimon/steuer-spar-erklaerung-mcp' dist-tags --json
 npm view '@yadimon/steuer-spar-erklaerung-api' dist-tags --json
 ```
 
 `npm whoami` muss `yadimon` oder ein Konto mit Veröffentlichungsrecht im
-Scope `@yadimon` zeigen. Beide `beta`-Tags müssen exakt `$version` nennen.
+Scope `@yadimon` zeigen. Beide `latest`-Tags müssen exakt `$version` nennen.
 
-Solange es keine stabile Linie gibt, führt `latest` den jeweils neuesten
-Beta-Stand mit. Andernfalls liefert ein ungepinntes `npm install` oder ein
-`npx`-Aufruf weiterhin die vorige Version, obwohl sie durch nichts geschützt
-werden muss. Beide Kanäle zeigen nach einem Release also auf dieselbe Version:
+## Nur ein Kanal: `latest`
 
-```powershell
-npm run release:latest
-```
+Das Projekt führt bewusst genau einen npm-Kanal. Der Grund ist keine
+Geschmacksfrage, sondern eine Eigenschaft von Trusted Publishing: Laut
+npm-Dokumentation deckt OIDC ausschließlich `npm publish` und `npm stage publish`
+ab. `npm dist-tag` ist nicht enthalten und scheitert in der CI an `ENEEDAUTH`.
 
-Das Skript liest die aktuellen Kanäle, überspringt bereits korrekte Pakete,
-fragt genau einmal nach dem Einmalcode und liest anschließend zurück. Der Code
-wird nur über `npm_config_otp` weitergereicht und erscheint dadurch weder in der
-Prozessliste noch in einer Ausgabe oder Datei. Ohne Terminal bricht es mit einem
-Hinweis ab, statt stillschweigend nichts zu tun.
+Ein Kanal lässt sich ohne Zusatzanmeldung deshalb nur an genau einer Stelle
+setzen: beim Publish selbst über `npm publish --tag <kanal>`. Jeder weitere
+Kanal bräuchte eine eigene Anmeldung — entweder einen Einmalcode des
+Maintainers bei jedem Release oder ein langlebiges Write-Token. Token sind hier
+ausgeschlossen, und ein wiederkehrender Handgriff pro Release ist eine
+Fehlerquelle.
 
-Diese beiden Befehle kann die CI **nicht** übernehmen. Trusted Publishing deckt
-laut npm-Dokumentation ausschließlich `npm publish` und `npm stage publish` ab;
-`npm dist-tag` ist nicht enthalten und scheitert dort an `ENEEDAUTH`. Ein
-dist-tag-Schritt im Publish-Workflow wäre daher kein Komfort, sondern ein
-garantiert roter Job — der Workflow-Vertrag verbietet ihn deshalb ausdrücklich.
-
-Ein Kanal lässt sich ohne Zusatzanmeldung nur an genau einer Stelle setzen:
-beim Publish selbst über `npm publish --tag <kanal>`. Alles Weitere braucht eine
-eigene Anmeldung, also entweder den OTP des Maintainers oder ein langlebiges
-Token — und Token sind hier bewusst ausgeschlossen.
-
-Daraus folgt die Regel: Der beim Publish gesetzte Kanal ist der einzige, der
-dauerhaft kostenlos mitgeführt werden kann. Jeder zweite Kanal ist wiederkehrende
-Handarbeit. Ist eine Version bereits veröffentlicht, bleibt für ihren Kanal nur
-noch der lokale `npm dist-tag add … --otp <code>`.
+Daraus folgt: Der Publish setzt `latest`, und damit ist der Kanal erledigt.
+Installations- und `npx`-Befehle in README und Skills bleiben ungepinnt und
+treffen dadurch automatisch den jeweils veröffentlichten Stand. Der
+Workflow-Vertrag verbietet einen nachträglichen dist-tag-Schritt ausdrücklich,
+damit diese Eigenschaft nicht unbemerkt verlorengeht.
 
 Bei aktiviertem `auth-and-writes` verlangt npm dabei einen persönlichen OTP-
 Schritt; den Code ausschließlich direkt in der eigenen Konsole oder npm-
