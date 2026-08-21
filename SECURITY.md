@@ -3,7 +3,7 @@
 ## Unterstützte Version
 
 Während der öffentlichen Beta wird nur die jeweils neueste vollständige
-Release-Version unterstützt. `v0.1.0-beta.10` ist die aktuelle öffentlich
+Release-Version unterstützt. `v0.1.0-beta.11` ist die aktuelle öffentlich
 unterstützte Version für SteuerSparErklärung 2025: Tag, portables ZIP und
 separate SHA-256-Datei sind gemeinsam auf der GitHub-Release-Seite
 veröffentlicht. Ein künftiger vorbereiteter Quellstand wird erst mit diesen
@@ -13,11 +13,11 @@ Quellstand, Tag oder automatisch erzeugtes GitHub-Quellarchiv allein gelten
 nicht als portables Release.
 
 Die npm-Pakete `@yadimon/steuer-spar-erklaerung-api` und
-`@yadimon/steuer-spar-erklaerung-mcp` werden in der Beta ausschließlich über
-den Dist-Tag `beta` unterstützt. Beide npm-Pakete müssen dieselbe Version
-tragen, und diese Version muss dem jüngsten vollständigen GitHub-Release
-entsprechen. Ein einzelnes, abweichendes oder nur unter `latest`
-veröffentlichtes Paket gilt nicht als freigegebener Produktstand.
+`@yadimon/steuer-spar-erklaerung-mcp` haben genau einen Kanal: `latest`. Er
+wird beim Veröffentlichen gesetzt und zeigt auf den jüngsten unterstützten
+Stand. Beide npm-Pakete müssen dieselbe Version tragen, und diese Version muss
+dem jüngsten vollständigen GitHub-Release entsprechen. Ein einzelnes oder
+abweichend versioniertes Paket gilt nicht als freigegebener Produktstand.
 
 ## Sicherheitsproblem melden
 
