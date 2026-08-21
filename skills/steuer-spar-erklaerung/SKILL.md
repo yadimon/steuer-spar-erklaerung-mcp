@@ -48,6 +48,12 @@ Diese Regeln gelten auch auf ausdrücklichen Wunsch:
   vor; starte keine zweite Archivierung und verschiebe Recovery-Dateien nicht
   automatisch.
 - Ändere Steuerdaten nur in einer zuvor bytegleich verifizierten Arbeitskopie.
+- Arbeite nie mit einem wiederhergestellten Fall weiter. Hat SteuerSparErklärung
+  nach einem unsauberen Ende eine Wiederherstellungsdatei geladen, stoppt
+  `launch` mit `kind="recovered-state"`. Der geöffnete Inhalt entspricht dann
+  nicht mehr der Datei, deren Hash du verifiziert hast, und jeder Report daraus
+  wäre fachlich falsch. Schließe den Fall ohne Speichern, lass den Nutzer die
+  Wiederherstellung im Programm verwerfen und öffne danach erneut.
 - Öffne auch für eine UI-gebundene reine Prüfung niemals den Originalfall.
   SSE kann schon beim Navigieren die zuletzt besuchte Seite als ungespeicherte
   In-Memory-Änderung markieren. Erzeuge daher vor der ersten UI-Navigation mit

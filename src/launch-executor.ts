@@ -3,7 +3,16 @@ import { operationError } from "./executor-errors.js";
 import type { ScenarioExecutor } from "./scenario.js";
 
 const MINIMUM_LAUNCH_TIMEOUT_MS = 30_000;
-const MAXIMUM_LAUNCH_TIMEOUT_MS = 90_000;
+// Der Skill empfiehlt fuer den ersten sichtbaren Start auf langsamen PCs und in
+// VMs ausdruecklich 280 Sekunden. Eine Obergrenze darunter haette diesen Wert
+// stillschweigend gekappt und den dokumentierten Weg unerreichbar gemacht.
+const MAXIMUM_LAUNCH_TIMEOUT_MS = 300_000;
+
+/**
+ * SteuerSparErklaerung haengt nach einem unsauberen Ende `(Wiederhergestellt)`
+ * an den Fenstertitel, sobald es eine Wiederherstellungsdatei geladen hat.
+ */
+const RECOVERED_STATE_TITLE = /\(Wiederhergestellt\)/iu;
 
 export async function executeLaunchOperation(
   args: Record<string, unknown>,
@@ -159,6 +168,27 @@ export async function executeLaunchOperation(
               bindingMode: "launch-window",
             }
           : null;
+        // Laedt SteuerSparErklaerung nach einem unsauberen Ende eine
+        // Wiederherstellungsdatei, markiert es das im Fenstertitel. Der
+        // geoeffnete Inhalt entspricht dann nicht mehr der zuvor per Hash
+        // verifizierten Datei, und ein Report daraus waere fachlich falsch.
+        // Deshalb hier fail-closed statt ready=true.
+        if (instance && RECOVERED_STATE_TITLE.test(instance.title)) {
+          return {
+            ok: false,
+            kind: "recovered-state",
+            error:
+              "SteuerSparErklaerung hat eine Wiederherstellungsdatei geladen; der geoeffnete Fall entspricht " +
+              "nicht mehr der verifizierten Datei. Fall ohne Speichern schliessen, die Wiederherstellung im " +
+              "Programm verwerfen und danach erneut oeffnen.",
+            pid,
+            windows,
+            instance,
+            dialogs,
+            effectiveTimeoutMs: launchBudgetMs,
+            probeFailures,
+          };
+        }
         return {
           ...started,
           waitedSec: Math.round((Date.now() - startedAt) / 100) / 10,

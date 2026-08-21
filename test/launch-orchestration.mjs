@@ -103,6 +103,36 @@ try {
   }
 
   {
+    // Regression aus dem beta.10-VM-Lauf: SSE hatte eine Wiederherstellungsdatei
+    // geladen, meldete aber keinen Dialog. Nur der Fenstertitel verriet es, und
+    // der Ablauf lief mit ready=true auf nicht verifiziertem Inhalt weiter.
+    const pid = 4109;
+    const execute = createApiExecutor(config, async (operation) => {
+      if (operation === "launch") return { ok: true, launched: true, pid };
+      if (operation === "windows") {
+        return {
+          ok: true,
+          windows: [{
+            pid,
+            hwnd: 8109,
+            title: "Einkommensteuer 2025: SteuerSparErklärung für das Steuerjahr 2025 [31.30] - Steuerfall (Wiederhergestellt)",
+            w: 1200,
+            h: 800,
+            minimiert: false,
+          }],
+        };
+      }
+      if (operation === "dialog_list") return { ok: true, dialogs: [] };
+      return { ok: false, kind: "fixture", error: operation };
+    });
+    const result = await execute("launch", { mode: "normal" }, 30_000);
+    assert.equal(result.ok, false, "Ein wiederhergestellter Fall darf nicht als bereit gelten.");
+    assert.equal(result.kind, "recovered-state");
+    assert.match(result.error, /Wiederherstellungsdatei/u);
+    assert.equal(result.instance.hwnd, 8109, "Der Agent braucht das Fenster zum kontrollierten Schliessen.");
+  }
+
+  {
     const pid = 4103;
     const execute = createApiExecutor(config, async (operation) => {
       if (operation === "launch") return { ok: true, launched: true, pid };
