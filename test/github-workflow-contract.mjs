@@ -149,10 +149,8 @@ const publishCommands = [
   "npm publish --workspace @yadimon/steuer-spar-erklaerung-api --ignore-scripts --tag beta --access public",
 ];
 assert(
-  publishWorkflow.includes('npm dist-tag add "@yadimon/steuer-spar-erklaerung-mcp@$version" latest')
-    && publishWorkflow.includes('npm dist-tag add "@yadimon/steuer-spar-erklaerung-api@$version" latest')
-    && publishWorkflow.indexOf("dist-tag add") > publishWorkflow.indexOf("Publish Windows API package"),
-  "Publish-Workflow muss latest im selben Job direkt nach dem Publish setzen; nur dort besteht die OIDC-Sitzung.",
+  !publishWorkflow.includes("dist-tag"),
+  "Trusted Publishing deckt laut npm-Doku nur `npm publish` ab; ein dist-tag-Schritt im Workflow scheitert an ENEEDAUTH.",
 );
 let previousPublish = -1;
 for (const command of publishCommands) {

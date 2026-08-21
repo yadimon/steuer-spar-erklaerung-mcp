@@ -176,22 +176,21 @@ npm dist-tag add '@yadimon/steuer-spar-erklaerung-mcp@0.1.0-beta.10' latest
 npm dist-tag add '@yadimon/steuer-spar-erklaerung-api@0.1.0-beta.10' latest
 ```
 
-Diese beiden Befehle setzt der Publish-Workflow selbst, unmittelbar nach den
-`npm publish`-Schritten im selben Job. Das ist keine Stilfrage: Trusted
-Publishing baut die OIDC-Sitzung ausschließlich während `npm publish` auf. Ein
-späterer Job, ein Folgelauf oder ein separater dist-tag-Workflow hätte keine
-Anmeldung mehr und scheiterte an `ENEEDAUTH`.
+Diese beiden Befehle kann die CI **nicht** übernehmen. Trusted Publishing deckt
+laut npm-Dokumentation ausschließlich `npm publish` und `npm stage publish` ab;
+`npm dist-tag` ist nicht enthalten und scheitert dort an `ENEEDAUTH`. Ein
+dist-tag-Schritt im Publish-Workflow wäre daher kein Komfort, sondern ein
+garantiert roter Job — der Workflow-Vertrag verbietet ihn deshalb ausdrücklich.
 
-Der Orchestrator liest die Kanäle danach nur noch zurück und zieht lokal nach,
-falls die CI sie nicht gesetzt hat. Ist auf npmjs.com „disallow tokens“ aktiv,
-verlangt npm für diesen lokalen Nachzug einen OTP-Schritt; der Orchestrator
-nennt dann den exakten Befehl. Publish und Registry-Smoke sind zu diesem
-Zeitpunkt bereits bestanden, es fehlt nur noch der Kanal.
+Ein Kanal lässt sich ohne Zusatzanmeldung nur an genau einer Stelle setzen:
+beim Publish selbst über `npm publish --tag <kanal>`. Alles Weitere braucht eine
+eigene Anmeldung, also entweder den OTP des Maintainers oder ein langlebiges
+Token — und Token sind hier bewusst ausgeschlossen.
 
-Wichtig für einen bereits veröffentlichten Stand: Ist eine Version schon in der
-Registry, lässt sich ihr `latest`-Kanal **nicht** mehr über die CI nachziehen,
-weil ohne erneuten Publish keine OIDC-Sitzung entsteht. Dann bleibt nur der
-lokale `npm dist-tag add … --otp <code>` durch den Maintainer.
+Daraus folgt die Regel: Der beim Publish gesetzte Kanal ist der einzige, der
+dauerhaft kostenlos mitgeführt werden kann. Jeder zweite Kanal ist wiederkehrende
+Handarbeit. Ist eine Version bereits veröffentlicht, bleibt für ihren Kanal nur
+noch der lokale `npm dist-tag add … --otp <code>`.
 
 Bei aktiviertem `auth-and-writes` verlangt npm dabei einen persönlichen OTP-
 Schritt; den Code ausschließlich direkt in der eigenen Konsole oder npm-
