@@ -172,9 +172,14 @@ Beta-Stand mit. Andernfalls liefert ein ungepinntes `npm install` oder ein
 werden muss. Beide Kanäle zeigen nach einem Release also auf dieselbe Version:
 
 ```powershell
-npm dist-tag add '@yadimon/steuer-spar-erklaerung-mcp@0.1.0-beta.10' latest
-npm dist-tag add '@yadimon/steuer-spar-erklaerung-api@0.1.0-beta.10' latest
+npm run release:latest
 ```
+
+Das Skript liest die aktuellen Kanäle, überspringt bereits korrekte Pakete,
+fragt genau einmal nach dem Einmalcode und liest anschließend zurück. Der Code
+wird nur über `npm_config_otp` weitergereicht und erscheint dadurch weder in der
+Prozessliste noch in einer Ausgabe oder Datei. Ohne Terminal bricht es mit einem
+Hinweis ab, statt stillschweigend nichts zu tun.
 
 Diese beiden Befehle kann die CI **nicht** übernehmen. Trusted Publishing deckt
 laut npm-Dokumentation ausschließlich `npm publish` und `npm stage publish` ab;
