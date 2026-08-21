@@ -522,7 +522,7 @@ try {
       ...values,
       repoRoot: join(temporary, "npm-cache", "_npx", "1234abcd", "node_modules", "steuer-spar-erklaerung-mcp"),
     }),
-    /fluechtigen npx-Cache.*npm install --global.*@beta.*portable Release/,
+    /fluechtigen npx-Cache.*npm install --global.*portable Release/,
   );
   const apiOnlyRoot = join(temporary, "api-only-package");
   mkdirSync(join(apiOnlyRoot, "dist"), { recursive: true });

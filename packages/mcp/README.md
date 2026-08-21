@@ -21,8 +21,8 @@ AI-Agent -> MCP-Paket -> lokale API -> SteuerSparErklärung
 ```
 
 ```powershell
-npm install --global @yadimon/steuer-spar-erklaerung-api@beta
-npm install --global @yadimon/steuer-spar-erklaerung-mcp@beta
+npm install --global @yadimon/steuer-spar-erklaerung-api
+npm install --global @yadimon/steuer-spar-erklaerung-mcp
 steuer-spar-erklaerung-mcp --help
 ```
 

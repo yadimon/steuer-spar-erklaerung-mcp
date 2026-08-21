@@ -87,35 +87,16 @@ function assertRegistryState(version, expectedPublished) {
 }
 
 /**
- * Waehrend der oeffentlichen Beta fuehrt `latest` den jeweils neuesten Beta-Stand
- * mit. Ohne das liefert ein ungepinntes `npm install` oder `npx` weiterhin die
- * vorige Version, obwohl es keine stabile Linie gibt, die geschuetzt werden muss.
+ * Es gibt genau einen Kanal: `latest`. Der Publish-Workflow setzt ihn direkt
+ * beim Veroeffentlichen, und genau das deckt Trusted Publishing ab. Dadurch
+ * braucht kein Release einen zusaetzlichen dist-tag-Schritt und damit auch
+ * keine Zweitanmeldung per Token oder Einmalcode.
  */
 function reportDistTagState(version) {
   for (const packageName of packageNames) {
     const tags = registryTags(packageName);
     process.stdout.write(
-      `${packageName}: beta=${tags.beta ?? "(keiner)"}, latest=${tags.latest ?? "(keiner)"} -> beide werden auf ${version} gesetzt.\n`,
-    );
-  }
-}
-
-/**
- * Trusted Publishing deckt nur `npm publish` ab. Der dist-tag wird deshalb hier
- * mit der Anmeldung des Maintainers gesetzt und anschliessend zurueckgelesen.
- */
-function setDistTag(packageName, version, tagName) {
-  const result = npm(["dist-tag", "add", `${packageName}@${version}`, tagName], {
-    allowFailure: true,
-    capture: true,
-  });
-  if (result.status !== 0) {
-    throw new Error(
-      `dist-tag '${tagName}' fuer ${packageName}@${version} konnte nicht gesetzt werden: ` +
-      `${(result.stderr || result.stdout).trim()}\n` +
-      "Publish und Registry-Smoke sind bereits bestanden; nur der Kanal fehlt noch. " +
-      "npm verlangt dafuer einen Einmalcode. In einer eigenen Konsole ausfuehren:\n" +
-      "  npm run release:latest",
+      `${packageName}: latest=${tags.latest ?? "(keiner)"} -> wird beim Publish auf ${version} gesetzt.\n`,
     );
   }
 }
@@ -253,25 +234,13 @@ if (!alreadyPublished) {
 }
 
 for (const packageName of packageNames) {
-  if (registryTags(packageName).beta !== version) {
-    throw new Error(`Trusted Publishing hat den beta-Kanal von ${packageName} nicht auf ${version} gesetzt.`);
-  }
-}
-// Erst den veroeffentlichten Stand beweisen, dann die Kanaele umhaengen. Sonst
-// verdeckt ein fehlgeschlagener dist-tag einen bereits verifizierten Publish.
-npm(["run", "smoke:published"]);
-
-for (const packageName of packageNames) {
-  // Der Publish-Workflow setzt `latest` bereits im selben Job. Nur wenn das
-  // ausgeblieben ist, wird lokal nachgezogen; sonst wuerde ein unnoetiger
-  // Registry-Schreibzugriff am OTP-Zwang scheitern.
-  if (registryTags(packageName).latest !== version) {
-    setDistTag(packageName, version, "latest");
-  }
   const tags = registryTags(packageName);
-  if (tags.beta !== version || tags.latest !== version) {
-    throw new Error(`Unerwartete dist-tags fuer ${packageName}: ${JSON.stringify(tags)}`);
+  if (tags.latest !== version) {
+    throw new Error(
+      `Trusted Publishing hat latest von ${packageName} nicht auf ${version} gesetzt: ${JSON.stringify(tags)}`,
+    );
   }
-  process.stdout.write(`${packageName}: beta und latest zeigen auf ${version}.\n`);
+  process.stdout.write(`${packageName}: latest zeigt auf ${version}.\n`);
 }
+npm(["run", "smoke:published"]);
 process.stdout.write(`\nRelease ${tag} vollstaendig verifiziert: ${releaseUrl}\n`);

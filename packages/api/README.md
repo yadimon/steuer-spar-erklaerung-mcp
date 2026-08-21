@@ -57,7 +57,7 @@ keinen dauerhaften Launcher im NPX-Cache.
 Für eine dauerhafte Installation bleiben die drei Befehle global verfügbar:
 
 ```powershell
-npm install --global @yadimon/steuer-spar-erklaerung-api@beta
+npm install --global @yadimon/steuer-spar-erklaerung-api
 steuer-spar-erklaerung-api --help
 steuer-spar-erklaerung-call --help
 steuer-spar-erklaerung-setup --check

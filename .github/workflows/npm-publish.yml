@@ -53,7 +53,7 @@ jobs:
         run: npm run test:npm-clean-install
 
       - name: Publish PC-blind MCP package
-        run: npm publish --workspace @yadimon/steuer-spar-erklaerung-mcp --ignore-scripts --tag beta --access public
+        run: npm publish --workspace @yadimon/steuer-spar-erklaerung-mcp --ignore-scripts --tag latest --access public
 
       - name: Publish Windows API package
-        run: npm publish --workspace @yadimon/steuer-spar-erklaerung-api --ignore-scripts --tag beta --access public
+        run: npm publish --workspace @yadimon/steuer-spar-erklaerung-api --ignore-scripts --tag latest --access public

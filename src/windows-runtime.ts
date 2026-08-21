@@ -22,7 +22,7 @@ export function assertPersistentProductRoot(repoRoot: string): void {
   if (npxCacheIndex >= 0 && segments.slice(npxCacheIndex + 2).includes("node_modules")) {
     throw new Error(
       "Diese Installation liegt im fluechtigen npx-Cache und wuerde ungueltige dauerhafte Startpfade erzeugen. " +
-      "Bitte npm install --global @yadimon/steuer-spar-erklaerung-api@beta verwenden oder das portable Release nutzen.",
+      "Bitte npm install --global @yadimon/steuer-spar-erklaerung-api verwenden oder das portable Release nutzen.",
     );
   }
 }
@@ -48,7 +48,7 @@ export function resolveProductMcpEntry(repoRoot: string): string {
   }
   throw new Error(
     "MCP wurde angefordert, aber @yadimon/steuer-spar-erklaerung-mcp ist nicht dauerhaft installiert. " +
-    "Installieren Sie das MCP-Paket mit @beta oder waehlen Sie den direkten API-Transport.",
+    "Installieren Sie das MCP-Paket oder waehlen Sie den direkten API-Transport.",
   );
 }
 

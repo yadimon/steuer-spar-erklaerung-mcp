@@ -104,7 +104,7 @@ Erst nach beiden Antworten zeige kurz den tatsächlichen Plan. Standard ist:
 
 - eine funktionierende vorhandene Installation wiederverwenden; sonst bei
   bereits vorhandenem Node.js/npm die passenden veröffentlichten
-  `@beta`-Pakete persistent installieren oder als Fallback das aktuellste
+  npm-Pakete persistent installieren oder als Fallback das aktuellste
   passende veröffentlichte Portable-Release aus der kanonischen Repository-
   Releasequelle samt Prüfsumme verwenden;
 - Node.js/npm, Python, Git oder PowerShell 7 nicht eigens installieren; der

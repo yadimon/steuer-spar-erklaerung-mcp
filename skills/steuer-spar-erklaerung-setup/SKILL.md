@@ -75,7 +75,7 @@ Prüfung fortfahren.
 Ohne bestätigten First-Run-Plan zeige vor Änderungen einen kurzen Standardplan:
 
 - funktionierende Konfiguration wiederverwenden; sonst bei vorhandenem
-  Node.js/npm das passende API-Paket persistent mit `@beta` installieren,
+  Node.js/npm das passende API-Paket persistent installieren,
   andernfalls das aktuellste passende veröffentlichte Portable-Release samt
   Prüfsumme installieren;
 - `SSE.exe` automatisch erkennen; nur bei keinem oder mehreren Treffern fragen;
@@ -120,9 +120,9 @@ Lies vor der Ausführung
 
 1. Prüfe Version, Tag und Distributionsartefakt erst nach bestätigtem
    Standardplan oder einer gleichwertigen ausdrücklichen Zustimmung:
-   - npm: installiere `@yadimon/steuer-spar-erklaerung-api@beta` persistent
+   - npm: installiere `@yadimon/steuer-spar-erklaerung-api` persistent
      unter Windows mit `npm.cmd install --global`; installiere
-     `@yadimon/steuer-spar-erklaerung-mcp@beta` nur bei bestätigtem
+     `@yadimon/steuer-spar-erklaerung-mcp` nur bei bestätigtem
      MCP-Wunsch. Verwende in PowerShell auch für den Skill-Installer `npx.cmd`,
      statt die Execution Policy für blockierte `.ps1`-Shims zu lockern.
      Verwende weder `npx` noch einen temporären Paketcache zum Start des
@@ -155,7 +155,7 @@ Lies vor der Ausführung
    `--no-start` nur auf Wunsch.
    Führe keinen Build auf dem Nutzer-PC aus. Beim Portable-Weg keinen globalen
    `node`- oder `npm`-Befehl verwenden; beim npm-Weg ausschließlich die
-   veröffentlichten `@beta`-Pakete installieren, niemals Git-Quellcode bauen.
+   veröffentlichten npm-Pakete installieren, niemals Git-Quellcode bauen.
 3. Lass ein starkes Token und lokale Dateien außerhalb des Repositorys
    erzeugen. Dazu gehören `setup-decisions.json`, `settings.md` und ein neues
    `tracking.md` oder die Referenz auf eine vorhandene `.xlsx`-Datei. Token

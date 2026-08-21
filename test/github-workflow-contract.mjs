@@ -60,8 +60,7 @@ for (const required of [
   '["merge-base", "--is-ancestor", "origin/main", headSha]',
   "assertAnnotatedTag(tag)",
   "reportDistTagState(version)",
-  'setDistTag(packageName, version, "latest")',
-  "tags.beta !== version || tags.latest !== version",
+  "tags.latest !== version",
   'npm(["run", "release:check"])',
   '"--verify-tag", "--prerelease"',
   '"workflow", "run", workflow',
@@ -71,6 +70,10 @@ for (const required of [
   assert(releaseCurrent.includes(required), `release:current verschweigt Grenze: ${required}`);
 }
 assert(!/npm\(\["publish"/u.test(releaseCurrent), "release:current darf npm nicht lokal mit Langzeittoken publizieren.");
+assert(
+  !releaseCurrent.includes("dist-tag\", \"add") && !/setDistTag/u.test(releaseCurrent),
+  "Es gibt nur den Kanal latest; er wird beim Publish gesetzt, nicht nachtraeglich per dist-tag.",
+);
 
 assert.match(workflow, /^name: Windows CI$/mu);
 for (const trigger of ["push:", "pull_request:", "workflow_dispatch:"]) {
@@ -145,8 +148,8 @@ const publishCommands = [
   "npm audit --omit=dev --audit-level=high",
   "npm test",
   "npm run test:npm-clean-install",
-  "npm publish --workspace @yadimon/steuer-spar-erklaerung-mcp --ignore-scripts --tag beta --access public",
-  "npm publish --workspace @yadimon/steuer-spar-erklaerung-api --ignore-scripts --tag beta --access public",
+  "npm publish --workspace @yadimon/steuer-spar-erklaerung-mcp --ignore-scripts --tag latest --access public",
+  "npm publish --workspace @yadimon/steuer-spar-erklaerung-api --ignore-scripts --tag latest --access public",
 ];
 assert(
   !publishWorkflow.includes("dist-tag"),
@@ -201,8 +204,8 @@ for (const required of [
   "--verify-tag --prerelease",
   "gh release download",
   "npx skills add yadimon/steuer-spar-erklaerung-mcp --list",
-  "npm publish --workspace @yadimon/steuer-spar-erklaerung-mcp --ignore-scripts --tag beta --access public",
-  "npm publish --workspace @yadimon/steuer-spar-erklaerung-api --ignore-scripts --tag beta --access public",
+  "npm publish --workspace @yadimon/steuer-spar-erklaerung-mcp --ignore-scripts --tag latest --access public",
+  "npm publish --workspace @yadimon/steuer-spar-erklaerung-api --ignore-scripts --tag latest --access public",
   "npm-publish.yml",
 ]) {
   assert(releaseProcess.includes(required), `Release-Prozess verschweigt: ${required}`);
