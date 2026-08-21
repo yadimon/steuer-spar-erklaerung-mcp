@@ -114,8 +114,8 @@ function setDistTag(packageName, version, tagName) {
       `dist-tag '${tagName}' fuer ${packageName}@${version} konnte nicht gesetzt werden: ` +
       `${(result.stderr || result.stdout).trim()}\n` +
       "Publish und Registry-Smoke sind bereits bestanden; nur der Kanal fehlt noch. " +
-      "Bei aktivem 'disallow tokens' verlangt npm dafuer einen OTP-Schritt in der eigenen Konsole:\n" +
-      `  npm dist-tag add ${packageName}@${version} ${tagName} --otp <code>`,
+      "npm verlangt dafuer einen Einmalcode. In einer eigenen Konsole ausfuehren:\n" +
+      "  npm run release:latest",
     );
   }
 }
