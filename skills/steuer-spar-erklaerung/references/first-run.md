@@ -29,6 +29,22 @@ gleichwertige Bestätigung. Sie umfasst nur die unten definierten sicheren
 Schritte mit hashverifizierter Prüffallkopie, sichtbarer read-only Navigation,
 Report, keinem Speichern und keiner ELSTER-Aktion.
 
+Diese Formel legt zugleich den fachlichen Umfang fest und gilt damit als
+fachlicher Prüfauftrag. Sie verlangt mehr als das Auswerten des
+Programm-Prüfers:
+
+1. den Programm-Prüfer öffnen und auswerten;
+2. die Eingaben des Falls entlang des linearen Pfads lesen, nicht nur die vom
+   Prüfer gemeldeten Stellen;
+3. sie gegen die bestätigten Belege abgleichen;
+4. Fehlendes, Widersprüchliches und Auffälliges benennen, auch wenn der
+   Programm-Prüfer dazu schweigt;
+5. erkennbar ungenutzte Möglichkeiten nennen, sofern sie sich aus den
+   vorliegenden Daten und offiziellen Quellen ergeben.
+
+Ohne bestätigte Belege entfallen die Punkte 3 und 4 für den Belegabgleich; der
+Bericht muss das dann ausdrücklich sagen.
+
 `Standard-Prüflauf ausführen` bestätigt zugleich, dass die im selben Auftrag
 genannten Belegpfade für diese Prüfung vollständig sind, einschließlich der
 Angabe „keine Belege“. Ein zusätzlicher Satz wie „Diese Pfade sind

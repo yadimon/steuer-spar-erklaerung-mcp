@@ -396,9 +396,15 @@ Ersetze Excel niemals still.
    Schritt-IDs, dynamische `$steps.<id>.result...`-Referenzen und obligatorisches
    `finally`. Verwende `continueOnError` nur für rein lesende Diagnosen; danach
    darf keine Hauptmutation folgen.
-8. Prüfe steuerliche Werte nur bei einem fachlichen Prüfauftrag gegen aktuelle
-   deutsche Primärquellen und Herstellerhinweise. Markiere Unsicherheit und
-   empfehle bei hohem Risiko eine befugte Steuerfachperson.
+8. Bringe bei einem fachlichen Prüfauftrag dein Steuerwissen aktiv ein: benenne
+   Auffälligkeiten und schlage konkrete Verbesserungen vor, wenn du sicher bist.
+   Belege strittige oder betragsrelevante Punkte per Websuche an offiziellen
+   deutschen Quellen (Gesetz, BMF-Schreiben, amtliche Anleitungen,
+   Rechtsprechung, Herstellerhinweise), nicht an Ratgeberseiten oder Foren.
+   Ohne Webzugriff bleiben Prüferauswertung und Belegabgleich; die
+   steuerfachliche Bewertung erklärst du dann ausdrücklich für unterblieben,
+   statt sie still auf Erinnerungswissen zu stützen. Sag Unsicherheit offen und
+   empfiehl bei hohem Risiko eine befugte Steuerfachperson.
 9. Schreibe immer einen Ergebnis- oder Stoppreport unter `results` und lies ihn
    abschließend zurück.
 
@@ -468,6 +474,12 @@ Modus, Profil, Engine, Fallreferenz, Quelleninventar, geprüfte Punkte,
 Abweichungen, Änderungen mit Vorher/Nachher/Readback, Hashes, Transportwechsel,
 fachliche Quellen, Unsicherheiten, Stopps und manuelle Schritte. Entferne Token,
 Zugangsdaten und unnötige personenbezogene Daten.
+
+Enthält der Bericht fachliche Aussagen oder Vorschläge, schließe ihn genau so ab:
+
+> Dies ist keine Steuerberatung im Sinne des Steuerberatungsgesetzes und ersetzt
+> keine Beratung durch eine befugte Person. Diese Auswertung wurde mit KI
+> erstellt und kann Fehler enthalten; prüfen Sie alles vor der Abgabe selbst.
 
 Übergib einen mehrzeiligen Bericht ausschließlich über eine neue UTF-8-
 Argumentdatei an `workspace_file_write_text`, nie über eine PowerShell-stdin-
