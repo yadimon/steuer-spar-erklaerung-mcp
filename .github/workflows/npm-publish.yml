@@ -57,14 +57,3 @@ jobs:
 
       - name: Publish Windows API package
         run: npm publish --workspace @yadimon/steuer-spar-erklaerung-api --ignore-scripts --tag beta --access public
-
-      # Muss im selben Job direkt nach dem Publish stehen: Trusted Publishing
-      # baut die OIDC-Sitzung nur waehrend `npm publish` auf. Ein spaeterer Job
-      # oder ein erneuter Lauf ohne Publish haette keine Anmeldung mehr.
-      - name: Point latest at the published version
-        run: |
-          $version = node -p "require('./package.json').version"
-          npm dist-tag add "@yadimon/steuer-spar-erklaerung-mcp@$version" latest
-          npm dist-tag add "@yadimon/steuer-spar-erklaerung-api@$version" latest
-          npm view '@yadimon/steuer-spar-erklaerung-mcp' dist-tags --json
-          npm view '@yadimon/steuer-spar-erklaerung-api' dist-tags --json
