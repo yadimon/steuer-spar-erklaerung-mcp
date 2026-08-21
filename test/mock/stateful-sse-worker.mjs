@@ -765,7 +765,7 @@ export function createStatefulSseWorker({ caseDir }) {
             casePath: openPath, caseName: basename(openPath), casePathSource: "title",
             casePathFromTitle: openPath, casePathFromCommandLine: openPath,
             caseType, caseYear: suffix ? Number(suffix.groups.year) : null, startMode,
-            caseSha256: null, caseFileMissing: false, recoveredState: false,
+            caseSha256: null, caseFileMissing: false, recoveredState: false, titleTruncated: false,
           }],
           hashesIncluded: args.includeHash === true,
           advice: "Genau ein Steuerfall ist offen; hwnd ist optional, schadet aber nie.",

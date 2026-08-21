@@ -128,6 +128,7 @@ export const parallelSteps = Object.freeze([
   withApi("mcp-selftest", "dist/index.js", "--selftest"),
   psFile("table-region", "test/table-region-contract.ps1"),
   psFile("table-values", "test/table-values-contract.ps1"),
+  psFile("instance-identity", "test/instance-identity-contract.ps1"),
   psFile("window-scope", "test/window-scope-contract.ps1"),
   psFile("structure-binding", "test/structure-binding-contract.ps1"),
   psFile("snapshot-runtime-id", "test/snapshot-runtime-id-contract.ps1"),
