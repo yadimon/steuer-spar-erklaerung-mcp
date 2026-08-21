@@ -19,6 +19,19 @@
               "success"
             ]
           },
+          "batching": {
+            "types": [
+              "object:{\"levels\":\"array-many:object\",\"rule\":\"string-other\"}"
+            ],
+            "labels": [
+              "scenario-mock",
+              "stateful-mock",
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "buildDriftPolicy": {
             "types": [
               "string-other"
@@ -35,6 +48,19 @@
           "click": {
             "types": [
               "object:{\"blockedLegacyPatterns\":\"array-one:string-other\",\"genericToggleBlocked\":\"boolean\",\"observedMethods\":\"array-many:string-other\",\"patterns\":\"array-many:string-other\",\"safePatterns\":\"array-many:string-other\"}"
+            ],
+            "labels": [
+              "scenario-mock",
+              "stateful-mock",
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "concurrency": {
+            "types": [
+              "object:{\"progressRoute\":\"string-other\",\"rejectionCode\":\"string-other\",\"rejectionStatus\":\"nonnegative-number\",\"rule\":\"string-other\",\"singleFlight\":\"boolean\"}"
             ],
             "labels": [
               "scenario-mock",
@@ -138,7 +164,7 @@
           },
           "safety": {
             "types": [
-              "object:{\"caseAndHashBindingAvailable\":\"boolean\",\"directWorkerSubmissionBypass\":\"boolean\",\"elsterAndSubmissionBlocked\":\"boolean\",\"localPathsHiddenFromMcp\":\"boolean\",\"unknownOrAmbiguousStateFailsClosed\":\"boolean\",\"writesRequireReadback\":\"boolean\"}"
+              "object:{\"caseAndHashBindingAvailable\":\"boolean\",\"directWorkerSubmissionBypass\":\"boolean\",\"elsterAndSubmissionBlocked\":\"boolean\",\"localPathsHiddenFromMcp\":\"boolean\",\"singleFlightEnforced\":\"boolean\",\"unknownOrAmbiguousStateFailsClosed\":\"boolean\",\"writesRequireReadback\":\"boolean\"}"
             ],
             "labels": [
               "scenario-mock",
