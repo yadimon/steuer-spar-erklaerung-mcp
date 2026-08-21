@@ -119,8 +119,7 @@
     "publish:dry-run": "node scripts/npm-package-lifecycle.mjs publish:dry-run",
     "check": "node scripts/release-check.mjs",
     "release:check": "node scripts/release-check.mjs",
-    "release:current": "node scripts/release-current.mjs",
-    "release:latest": "node scripts/promote-latest.mjs"
+    "release:current": "node scripts/release-current.mjs"
   },
   "engines": {
     "node": ">=22"
