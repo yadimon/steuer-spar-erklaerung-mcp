@@ -52,6 +52,7 @@ export const EXPERIMENTAL_PROFILE_VERIFICATION_OPERATIONS = [
   "window_close",
   "window_restore",
   "windows",
+  "instances",
 ] as const satisfies readonly SseApiOperation[];
 
 const BASE = new Set<SseApiOperation>(EXPERIMENTAL_PROFILE_BASE_OPERATIONS);

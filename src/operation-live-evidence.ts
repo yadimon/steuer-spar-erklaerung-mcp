@@ -15,6 +15,7 @@ export const SSE_LIVE_ERROR_PATH_ONLY_OPERATIONS = Object.freeze(
 );
 
 export const SSE_LIVE_UNTESTED_OPERATIONS = Object.freeze([
+  "instances",
   "vast_apply",
   "vast_dialog_read",
   "vast_mapping_options",

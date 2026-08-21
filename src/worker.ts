@@ -5,10 +5,20 @@
  * SteuerSparErklaerung (Qt 6) vergiftet nach einem harten Fehler die gesamte
  * UIA-Verbindung des Prozesses - danach liefert jede weitere Abfrage still
  * "0 Treffer" statt einer Fehlermeldung. Ein frischer Prozess je Aufruf ist
- * die einzige verlaessliche Gegenmassnahme. Der gemessene Aufruf-Floor liegt
- * inklusive Windows-PowerShell- und nativer Hilfstyp-Initialisierung bei rund
- * 2 s; der persistente Node-MCP vermeidet nur den MCP-Handshake. Deshalb
- * werden fachliche Vorher/Nachher-Schritte in einer Worker-Action gebuendelt.
+ * die einzige verlaessliche Gegenmassnahme.
+ *
+ * Der Aufruf-Floor lag deshalb bei rund 2,5 s, wovon das blosse ZERLEGEN des
+ * 14000-Zeilen-Workerskripts den groessten Teil ausmachte. Dagegen hilft ein
+ * VORGEWAERMTER RESERVEARBEITER: ein Prozess, der Skript, Produktprofil,
+ * Assemblies und native Interop-DLL bereits geladen hat und dann auf genau
+ * einen Auftrag wartet. Er fuehrt ihn aus und endet - es bleibt also bei
+ * einem Auftrag je Prozess. Die Isolation ist unberuehrt, weil ein wartender
+ * Reservearbeiter noch keine einzige UIA-Abfrage gestellt hat und somit auch
+ * keine vergiftete UIA-Verbindung weiterreichen kann.
+ *
+ * Trotzdem bleibt das Buendeln fachlicher Vorher/Nachher-Schritte in einer
+ * Worker-Action richtig: gespart wird die Prozessvorbereitung, nicht die
+ * Arbeit am Fenster.
  */
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
@@ -22,6 +32,7 @@ import {
   DESKTOP_MARKER_PATH,
   resolveDesktopMarkerForOperation,
 } from "./desktop-marker.js";
+import { ensureWarmSpare, takeWarmSpare } from "./worker-prewarm.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const WORKER = join(HERE, "..", "powershell", "sse-worker.ps1");
@@ -149,6 +160,8 @@ interface QueuedWorkerCall {
 const workerQueue: QueuedWorkerCall[] = [];
 let workerRunning = false;
 
+
+
 function startNextWorkerCall(): void {
   if (workerRunning) return;
   const next = workerQueue.shift();
@@ -177,6 +190,9 @@ async function runQueuedWorkerCall(call: QueuedWorkerCall): Promise<void> {
   } finally {
     workerRunning = false;
     startNextWorkerCall();
+    // Erst jetzt vorwaermen: waehrend der Operation haette der PowerShell-Start
+    // dem Fernsteuern die CPU streitig gemacht.
+    if (!workerRunning && !workerRuntimeFailure) ensureWarmSpare();
   }
 }
 
@@ -263,6 +279,10 @@ async function callWorkerUnsynchronised(
        "-Op", op, "-ArgsFile", argsFile, "-Desktop", desk, "-TimeoutSec", String(Math.max(30, Math.floor(timeoutMs / 1000) - 5))]
     : ["-NoLogo", "-NoProfile", "-NonInteractive", "-File", WORKER, "-Op", op, "-ArgsFile", argsFile];
 
+  // Der Weg ueber den alternativen Desktop hat einen eigenen Prozessbaum und
+  // kann keinen Reservearbeiter des sichtbaren Desktops verwenden.
+  const spare = desk ? null : takeWarmSpare();
+
   return new Promise((resolve, reject) => {
     // Auch der Launcher fuer den alternativen Desktop bleibt unsichtbar. Der
     // aktuelle Launcher erzeugt den eigentlichen UIA-Arbeiter selbst mit
@@ -271,24 +291,44 @@ async function callWorkerUnsynchronised(
     // API-Aufruf weiterhin einen frischen UIA-Prozess, aber kein schwarzes
     // PowerShell-/Batch-Fenster auf dem Benutzer-Desktop.
     let child: ChildProcessWithoutNullStreams;
-    try {
-      child = spawn(
-        resolveWindowsPowerShell(),
-        ["-ExecutionPolicy", "Bypass", ...argv],
-        { windowsHide: true },
-      );
-    } catch (error) {
-      const spawnError = new WorkerError(`PowerShell liess sich nicht starten: ${String(error)}`, "spawn");
-      const cleanupError = removeWorkerArgumentsFile(argsFile);
-      reject(cleanupError
-        ? new WorkerError(`${spawnError.message} ${cleanupError.message}`, spawnError.kind)
-        : spawnError);
-      return;
+    if (spare) {
+      child = spare.child;
+      try {
+        // Genau eine Zeile: Operationsname und Argumentdatei. Der Arbeiter
+        // prueft beides mit derselben Transportgrenze wie beim Direktaufruf.
+        child.stdin.end(`${JSON.stringify({ op, argsFile })}\n`, "utf8");
+      } catch (error) {
+        const handoverError = new WorkerError(
+          `Auftrag liess sich nicht an den Reservearbeiter uebergeben: ${String(error)}`,
+          "spawn",
+        );
+        try { child.kill(); } catch { /* Prozess ist schon weg. */ }
+        const cleanupError = removeWorkerArgumentsFile(argsFile);
+        reject(cleanupError
+          ? new WorkerError(`${handoverError.message} ${cleanupError.message}`, handoverError.kind)
+          : handoverError);
+        return;
+      }
+    } else {
+      try {
+        child = spawn(
+          resolveWindowsPowerShell(),
+          ["-ExecutionPolicy", "Bypass", ...argv],
+          { windowsHide: true },
+        );
+      } catch (error) {
+        const spawnError = new WorkerError(`PowerShell liess sich nicht starten: ${String(error)}`, "spawn");
+        const cleanupError = removeWorkerArgumentsFile(argsFile);
+        reject(cleanupError
+          ? new WorkerError(`${spawnError.message} ${cleanupError.message}`, spawnError.kind)
+          : spawnError);
+        return;
+      }
     }
 
-    const outChunks: Buffer[] = [];
+    const outChunks: Buffer[] = spare ? [...spare.residualStdout] : [];
     const errChunks: Buffer[] = [];
-    let outBytes = 0;
+    let outBytes = outChunks.reduce((total, chunk) => total + chunk.length, 0);
     let errBytes = 0;
     let settled = false;
     let timeoutError: WorkerError | null = null;

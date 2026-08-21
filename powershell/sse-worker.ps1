@@ -12,9 +12,17 @@
  Ausgabe: genau EINE Zeile JSON auf stdout.
 ================================================================================
 #>
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName='Run')]
 param(
-  [Parameter(Mandatory)][string]$Op,
+  [Parameter(Mandatory, ParameterSetName='Run')][string]$Op,
+  # Vorgewaermter Arbeiter. Er laedt sofort alles Teure - das Zerlegen dieses
+  # Skripts, die Profildateien, die Assemblies und die native Interop-DLL -
+  # und wartet danach auf GENAU EINEN Auftrag auf seiner Standardeingabe.
+  # Nach dessen Ausfuehrung endet er wie jeder andere Arbeiter. Die Regel
+  # "ein Auftrag je Prozess" bleibt dadurch unangetastet: ein vorgewaermter
+  # Prozess hat vor seinem Auftrag noch keine einzige UIA-Abfrage gestellt
+  # und kann deshalb auch keine vergiftete UIA-Verbindung weiterreichen.
+  [Parameter(Mandatory, ParameterSetName='Prewarm')][switch]$Prewarm,
   [string]$B64 = '',
   [string]$ArgsFile = '',
   # Wird der Arbeiter auf einem eigenen Desktop gestartet, kommt seine
@@ -47,25 +55,30 @@ if (-not (Test-Path -LiteralPath $transportCommonPath -PathType Leaf)) {
 }
 . $transportCommonPath
 
-if ($B64 -and $ArgsFile) {
-  [Console]::Out.Write((@{ ok=$false; kind='bad-args'; error='B64 und ArgsFile duerfen nicht gemeinsam gesetzt sein.' } | ConvertTo-Json -Compress))
-  exit 1
-}
-if ($ArgsFile) {
-  try { $ArgsFile = Resolve-SSEWorkerArgsFile $ArgsFile }
-  catch {
-    [Console]::Out.Write((@{ ok=$false; kind='bad-args'; error=$_.Exception.Message } | ConvertTo-Json -Compress))
+# Die Transportgrenze gilt unveraendert fuer den direkten Aufruf UND fuer den
+# Auftrag, den ein vorgewaermter Arbeiter spaeter ueber seine Standardeingabe
+# entgegennimmt. Deshalb steht sie in einer Funktion statt einmalig im Rumpf.
+function Initialize-SSEWorkerTransport {
+  if ($B64 -and $ArgsFile) {
+    [Console]::Out.Write((@{ ok=$false; kind='bad-args'; error='B64 und ArgsFile duerfen nicht gemeinsam gesetzt sein.' } | ConvertTo-Json -Compress))
     exit 1
   }
-}
-
-if ($OutFile) {
-  try { $OutFile = Resolve-SSEWorkerOutputFile $OutFile }
-  catch {
-    [Console]::Out.Write((@{ ok=$false; kind='bad-args'; error=$_.Exception.Message } | ConvertTo-Json -Compress))
-    exit 1
+  if ($ArgsFile) {
+    try { $script:ArgsFile = Resolve-SSEWorkerArgsFile $ArgsFile }
+    catch {
+      [Console]::Out.Write((@{ ok=$false; kind='bad-args'; error=$_.Exception.Message } | ConvertTo-Json -Compress))
+      exit 1
+    }
+  }
+  if ($OutFile) {
+    try { $script:OutFile = Resolve-SSEWorkerOutputFile $OutFile }
+    catch {
+      [Console]::Out.Write((@{ ok=$false; kind='bad-args'; error=$_.Exception.Message } | ConvertTo-Json -Compress))
+      exit 1
+    }
   }
 }
+if (-not $Prewarm) { Initialize-SSEWorkerTransport }
 
 # ---------------------------------------------------------------- Hilfsmittel
 function Read-Args {
@@ -300,42 +313,49 @@ function Read-SSEJsonFileStrict([string]$Path, [long]$MaxBytes = 16MB) {
   $text = Read-SSEBoundedUtf8File $Path $MaxBytes
   $text | ConvertFrom-Json
 }
-try { $a = Read-Args }
-catch { Fail 'Worker-Argumente sind kein gueltiges Base64-/UTF-8-/JSON-Objekt.' 'bad-args' }
-$argumentNodes = 0
-Assert-SSEWorkerArgumentBudget $a 0 ([ref]$argumentNodes)
+# Argumente lesen und begrenzen. Ein vorgewaermter Arbeiter kennt seine
+# Argumente erst nach dem Auftrag; deshalb ist auch das eine Funktion. Die
+# Grenzen selbst sind unveraendert und greifen weiterhin vor Profil-, DLL-
+# und UI-Zugriff.
+function Initialize-SSEWorkerArguments {
+  try { $script:a = Read-Args }
+  catch { Fail 'Worker-Argumente sind kein gueltiges Base64-/UTF-8-/JSON-Objekt.' 'bad-args' }
+  $argumentNodes = 0
+  Assert-SSEWorkerArgumentBudget $a 0 ([ref]$argumentNodes)
 
-# Auch direkte Worker-Aufrufer duerfen Windows-Identitaeten nicht ueber
-# negative, gebrochene oder jenseits von JSON sicher darstellbare Zahlen
-# einschleusen. Diese gemeinsame Grenze greift vor Profil-, DLL- und UI-Start.
-if ($null -ne (Arg $a 'hwnd')) {
-  $a.hwnd = Get-SSEBoundedIntegerArg $a 'hwnd' 0 1 9007199254740991
-}
-if ($null -ne (Arg $a 'expectedMainHwnd')) {
-  $a.expectedMainHwnd = Get-SSEBoundedIntegerArg $a 'expectedMainHwnd' 0 1 9007199254740991
-}
-if ($null -ne (Arg $a 'pid')) {
-  $a.pid = Get-SSEBoundedIntegerArg $a 'pid' 0 1 2147483647
-}
-foreach ($occurrenceName in @('occurrence','sumOccurrence','seiteOccurrence','labelOccurrence')) {
-  if ($null -ne (Arg $a $occurrenceName)) {
-    $a.$occurrenceName = Get-SSEBoundedIntegerArg $a $occurrenceName 1 1 1000
+  # Auch direkte Worker-Aufrufer duerfen Windows-Identitaeten nicht ueber
+  # negative, gebrochene oder jenseits von JSON sicher darstellbare Zahlen
+  # einschleusen. Diese gemeinsame Grenze greift vor Profil-, DLL- und UI-Start.
+  if ($null -ne (Arg $a 'hwnd')) {
+    $a.hwnd = Get-SSEBoundedIntegerArg $a 'hwnd' 0 1 9007199254740991
+  }
+  if ($null -ne (Arg $a 'expectedMainHwnd')) {
+    $a.expectedMainHwnd = Get-SSEBoundedIntegerArg $a 'expectedMainHwnd' 0 1 9007199254740991
+  }
+  if ($null -ne (Arg $a 'pid')) {
+    $a.pid = Get-SSEBoundedIntegerArg $a 'pid' 0 1 2147483647
+  }
+  foreach ($occurrenceName in @('occurrence','sumOccurrence','seiteOccurrence','labelOccurrence')) {
+    if ($null -ne (Arg $a $occurrenceName)) {
+      $a.$occurrenceName = Get-SSEBoundedIntegerArg $a $occurrenceName 1 1 1000
+    }
+  }
+  foreach ($collectionLimit in @(
+    [pscustomobject]@{ name='types'; minimum=0; maximum=50 },
+    [pscustomobject]@{ name='werte'; minimum=1; maximum=100 },
+    [pscustomobject]@{ name='plan'; minimum=1; maximum=500 },
+    [pscustomobject]@{ name='erwartungen'; minimum=1; maximum=500 },
+    [pscustomobject]@{ name='sumChecks'; minimum=0; maximum=100 },
+    [pscustomobject]@{ name='resultLabels'; minimum=0; maximum=500 },
+    [pscustomobject]@{ name='cases'; minimum=1; maximum=2000 },
+    [pscustomobject]@{ name='expectedRemaining'; minimum=1; maximum=2000 }
+  )) {
+    if ($null -ne $a.PSObject.Properties[$collectionLimit.name]) {
+      $a.($collectionLimit.name) = @(Get-SSEBoundedArrayArg $a $collectionLimit.name $collectionLimit.minimum $collectionLimit.maximum)
+    }
   }
 }
-foreach ($collectionLimit in @(
-  [pscustomobject]@{ name='types'; minimum=0; maximum=50 },
-  [pscustomobject]@{ name='werte'; minimum=1; maximum=100 },
-  [pscustomobject]@{ name='plan'; minimum=1; maximum=500 },
-  [pscustomobject]@{ name='erwartungen'; minimum=1; maximum=500 },
-  [pscustomobject]@{ name='sumChecks'; minimum=0; maximum=100 },
-  [pscustomobject]@{ name='resultLabels'; minimum=0; maximum=500 },
-  [pscustomobject]@{ name='cases'; minimum=1; maximum=2000 },
-  [pscustomobject]@{ name='expectedRemaining'; minimum=1; maximum=2000 }
-)) {
-  if ($null -ne $a.PSObject.Properties[$collectionLimit.name]) {
-    $a.($collectionLimit.name) = @(Get-SSEBoundedArrayArg $a $collectionLimit.name $collectionLimit.minimum $collectionLimit.maximum)
-  }
-}
+if (-not $Prewarm) { Initialize-SSEWorkerArguments }
 
 function Test-SSEExactProperties($Value, [string[]]$Expected) {
   if ($null -eq $Value) { return $false }
@@ -653,6 +673,45 @@ $script:INIT_TIMINGS.nativeExpectedDllHash = $nativeLoad.expectedDllHash
 $script:INIT_TIMINGS.nativeDllHashMatch = $nativeLoad.dllHashMatch
 if ($nativeLoad.dllError) { $script:INIT_TIMINGS.nativeDllError = $nativeLoad.dllError }
 }
+# ------------------------------------------------------- Auftragsannahme (warm)
+# Ab hier ist alles Teure erledigt: dieses Skript ist zerlegt, das Produkt-
+# profil geladen, die Assemblies und die native Interop-DLL sind im Prozess.
+# Ein vorgewaermter Arbeiter meldet sich jetzt einmal als bereit und wartet
+# auf seinen einen Auftrag. Schliesst der Elternprozess die Standardeingabe,
+# endet der Arbeiter ohne Nebenwirkung.
+if ($Prewarm) {
+  [Console]::Out.WriteLine((@{ prewarm='ready'; pid=$PID } | ConvertTo-Json -Compress))
+  [Console]::Out.Flush()
+  $auftragszeile = $null
+  try { $auftragszeile = [Console]::In.ReadLine() }
+  catch { exit 0 }
+  # EOF heisst: der Elternprozess braucht diesen Reservearbeiter nicht mehr.
+  if ($null -eq $auftragszeile) { exit 0 }
+  $auftrag = $null
+  try { $auftrag = $auftragszeile | ConvertFrom-Json }
+  catch { $auftrag = $null }
+  if ($null -eq $auftrag -or $auftrag -isnot [pscustomobject]) {
+    [Console]::Out.Write((@{ ok=$false; kind='bad-args'; error='Auftragszeile ist kein JSON-Objekt.' } | ConvertTo-Json -Compress))
+    exit 1
+  }
+  $auftragsFelder = @($auftrag.PSObject.Properties.Name)
+  if (@($auftragsFelder | Where-Object { $_ -notin @('op','argsFile') }).Count) {
+    [Console]::Out.Write((@{ ok=$false; kind='bad-args'; error='Auftragszeile kennt nur op und argsFile.' } | ConvertTo-Json -Compress))
+    exit 1
+  }
+  $Op = [string]$auftrag.op
+  if ($Op -notmatch '^[a-z][a-z0-9_]{0,63}$') {
+    [Console]::Out.Write((@{ ok=$false; kind='bad-args'; error='Auftragszeile nennt keinen gueltigen Operationsnamen.' } | ConvertTo-Json -Compress))
+    exit 1
+  }
+  $ArgsFile = [string]$auftrag.argsFile
+  # Erst ab hier laeuft die Uhr des Auftrags. Die Wartezeit des Reserve-
+  # arbeiters gehoert nicht zur gemessenen Dauer der Operation.
+  $script:T0 = [Diagnostics.Stopwatch]::StartNew()
+  Initialize-SSEWorkerTransport
+  Initialize-SSEWorkerArguments
+}
+
 $desktopTempRoot = $(if ($env:TEMP) { $env:TEMP } elseif ($env:TMP) { $env:TMP } else { '.' })
 $script:DESKTOP_MARKE = Join-Path $desktopTempRoot 'sse-mcp-desktop.txt'
 $script:SSE_CENTER_TEST_OPERATIONS = @('center_cases','center_refresh')
@@ -863,16 +922,48 @@ function Get-CasePathFromTitle([string]$Title) {
   $null
 }
 
-function Get-CasePathFromCommandLine([int]$ProcessId) {
-  try { $cmd = [string](Get-CimInstance Win32_Process -Filter "ProcessId=$ProcessId").CommandLine }
-  catch { return $null }
-  if (-not $cmd) { return $null }
-  $matches = [regex]::Matches($cmd, '"(?<path>[A-Za-z]:\\[^\"]+)"')
-  $casePaths = @($matches | ForEach-Object { $_.Groups['path'].Value } | Where-Object {
+# Reine Textauswertung ohne eigene Prozessabfrage. So kann die Fensterliste
+# alle Kommandozeilen in EINER CIM-Abfrage holen, statt je Fenster erneut zu
+# fragen - bei mehreren offenen Steuerfaellen ist das der Unterschied
+# zwischen einer und fuenf Abfragen.
+function Get-CasePathFromCommandLineText([string]$CommandLine) {
+  if (-not $CommandLine) { return $null }
+  $zitierte = [regex]::Matches($CommandLine, '"(?<path>[A-Za-z]:\\[^\"]+)"')
+  $casePaths = @($zitierte | ForEach-Object { $_.Groups['path'].Value } | Where-Object {
     Test-SSEProfileCaseFileName $_ $true
   })
   if ($casePaths.Count) { return $casePaths[$casePaths.Count - 1] }
   $null
+}
+
+function Get-SSECommandLinesForProcessIds([int[]]$ProcessIds) {
+  $zuordnung = @{}
+  $eindeutige = @($ProcessIds | Where-Object { $_ -gt 0 } | Sort-Object -Unique)
+  if (-not $eindeutige.Count) { return $zuordnung }
+  $filter = ($eindeutige | ForEach-Object { "ProcessId=$_" }) -join ' OR '
+  try {
+    foreach ($prozess in @(Get-CimInstance Win32_Process -Filter $filter -ErrorAction Stop)) {
+      $zuordnung[[int]$prozess.ProcessId] = [string]$prozess.CommandLine
+    }
+  } catch { }
+  $zuordnung
+}
+
+function Get-CasePathFromCommandLine([int]$ProcessId) {
+  try { $cmd = [string](Get-CimInstance Win32_Process -Filter "ProcessId=$ProcessId").CommandLine }
+  catch { return $null }
+  Get-CasePathFromCommandLineText $cmd
+}
+
+# Der Falltyp aus dem Dateinamen zurueck auf den Startmodus des Profils.
+# Damit kann ein Aufrufer eine offene Instanz demselben Modus zuordnen, mit
+# dem er sie selbst starten wuerde.
+function Get-SSEStartModeForCaseType([string]$DocumentType) {
+  if (-not $DocumentType) { return '' }
+  foreach ($mode in @($script:SSE_PROFILE.startModes.PSObject.Properties)) {
+    if ([string]$mode.Value -ieq $DocumentType) { return [string]$mode.Name }
+  }
+  ''
 }
 
 function Test-CaseBinding($Window, [string]$ExpectedPath) {
@@ -4738,7 +4829,7 @@ $experimentalProfileVerificationOps = @(
   'read_page', 'read_table', 'result_details', 'scroll', 'scroll_page',
   'snapshot', 'snapshot_compare', 'subpages', 'table_read', 'tree_scroll',
   'tree_top', 'ui_state', 'ustva_read', 'warning_popup_read', 'window_close',
-  'window_restore', 'windows'
+  'window_restore', 'windows', 'instances'
 )
 $buildDriftBlockedOps = @(
   'checker_run', 'click', 'click_point', 'combo_select', 'dialog_answer',
@@ -5072,6 +5163,80 @@ switch ($Op) {
   'windows' {
     $listedWindows = @(Get-Windows ($(if ($a.process) { $a.process } else { 'SSE' })))
     Emit ([pscustomobject]@{ ok = $true; windows = @($listedWindows) })
+  }
+
+  'instances' {
+    # Mehrere Steuerfaelle koennen gleichzeitig offen sein - etwa Einkommen-
+    # steuer und Gewerbesteuer nebeneinander, oder derselbe Fall zweimal.
+    # Wer sie fernsteuern will, muss sie zuerst AUSEINANDERHALTEN koennen;
+    # alle fallbezogenen Operationen verlangen sonst zu Recht ein hwnd, ohne
+    # dass es eine Quelle fuer dieses hwnd gaebe. Genau die ist das hier.
+    #
+    # Bewusst nur BELEGTE Angaben: laesst sich die Falldatei weder aus dem
+    # Fenstertitel noch aus der Kommandozeile bestimmen, bleibt casePath
+    # null. Geraten wird nichts.
+    $alleFenster = @(Get-Windows 'SSE')
+    $hauptfenster = @(Get-SSEMainWindowCandidates $alleFenster)
+    $vordergrundHwnd = [int64][SW]::GetForegroundWindow()
+    $mitHash = ((Arg $a 'includeHash') -eq $true)
+    $kommandozeilen = Get-SSECommandLinesForProcessIds @($hauptfenster | ForEach-Object { [int]$_.pid })
+
+    $liste = New-Object System.Collections.ArrayList
+    foreach ($fenster in $hauptfenster) {
+      $titelPfad = Get-CasePathFromTitle ([string]$fenster.title)
+      $kommandoPfad = Get-CasePathFromCommandLineText ([string]$kommandozeilen[[int]$fenster.pid])
+      # Der Titel gewinnt: er zeigt den GERADE geladenen Fall, waehrend die
+      # Kommandozeile nur den beim Start uebergebenen nennt. Nach einem
+      # Fallwechsel im Programm waere die Kommandozeile veraltet.
+      $fallPfad = $(if ($titelPfad) { $titelPfad } elseif ($kommandoPfad) { $kommandoPfad } else { $null })
+      $pfadQuelle = $(if ($titelPfad) { 'title' } elseif ($kommandoPfad) { 'command-line' } else { $null })
+      $fallTyp = ''; $fallJahr = 0; $startModus = ''
+      if ($fallPfad) {
+        $treffer = Get-SSECaseFileMatch $fallPfad
+        if ($treffer -and $treffer.Success) {
+          $fallTyp = [string]$treffer.Groups['type'].Value
+          $fallJahr = [int]$treffer.Groups['year'].Value
+          $startModus = Get-SSEStartModeForCaseType $fallTyp
+        }
+      }
+      $fallHash = $null
+      if ($mitHash -and $fallPfad) { $fallHash = Get-Sha256 $fallPfad }
+      $null = $liste.Add([pscustomobject]@{
+        hwnd=[int64]$fenster.hwnd; pid=[int]$fenster.pid
+        title=[string]$fenster.title; titleFingerprint=[string]$fenster.titleFingerprint
+        x=[int]$fenster.x; y=[int]$fenster.y; w=[int]$fenster.w; h=[int]$fenster.h
+        minimized=[bool]$fenster.minimiert; hung=[bool]$fenster.hung
+        foreground=[bool]([int64]$fenster.hwnd -eq $vordergrundHwnd)
+        casePath=$fallPfad
+        caseName=$(if ($fallPfad) { [IO.Path]::GetFileName($fallPfad) } else { $null })
+        casePathSource=$pfadQuelle
+        casePathFromTitle=$titelPfad; casePathFromCommandLine=$kommandoPfad
+        caseType=$(if ($fallTyp) { $fallTyp } else { $null })
+        caseYear=$(if ($fallJahr) { $fallJahr } else { $null })
+        startMode=$(if ($startModus) { $startModus } else { $null })
+        caseSha256=$fallHash
+        caseFileMissing=$(if ($fallPfad) { -not (Test-Path -LiteralPath $fallPfad -PathType Leaf) } else { $null })
+        # Ein wiederhergestellter Sitzungszustand ist NICHT der Inhalt der
+        # Falldatei. Wer darauf liest, berichtet ueber ungeprueften Inhalt.
+        recoveredState=[bool]([string]$fenster.title -match '\(Wiederhergestellt\)')
+      })
+    }
+
+    $mehrdeutig = [bool]($liste.Count -gt 1)
+    Emit ([pscustomobject]@{
+      ok=$true; count=$liste.Count; instances=@($liste)
+      ambiguous=$mehrdeutig
+      foregroundHwnd=$(if ($vordergrundHwnd) { $vordergrundHwnd } else { $null })
+      profileId=$script:SSE_PROFILE_ID; product=[string]$script:SSE_PROFILE.product
+      taxYear=$script:SSE_TAX_YEAR
+      ignoredRunning=@(Get-SSEProcessIdentities | Where-Object { -not $_.supported })
+      hashesIncluded=$mitHash
+      advice=$(
+        if (-not $liste.Count) { "Keine steuerbare Instanz von '$($script:SSE_PROFILE.product)' offen." }
+        elseif ($mehrdeutig) { 'Mehrere Steuerfaelle sind offen. Jede fallbezogene Operation braucht jetzt hwnd aus dieser Liste.' }
+        else { 'Genau ein Steuerfall ist offen; hwnd ist optional, schadet aber nie.' }
+      )
+    })
   }
 
   'center_cases' {

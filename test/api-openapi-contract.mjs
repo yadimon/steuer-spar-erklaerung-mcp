@@ -101,7 +101,7 @@ for (const name of commonResultComponentNames) {
   assert(serialized.includes(`\"$ref\":\"#/components/schemas/${name}\"`),
     `Gemeinsame OpenAPI-Komponente '${name}' wird von keinem Result-Schema referenziert.`);
 }
-// 87 operationsspezifische Result-Schemas mit den realen stabilen Worker-
+// 88 operationsspezifische Result-Schemas mit den realen stabilen Worker-
 // Feldern brauchen knapp 265 KiB; die enge Reserve faengt unbeabsichtigte
 // Schema-Dopplung weiterhin ab.
 assert(Buffer.byteLength(serialized, "utf8") < 272 * 1024, "OpenAPI-Dokument ist unnoetig gross.");

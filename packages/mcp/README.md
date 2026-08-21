@@ -35,7 +35,7 @@ API-Prozess auf dem Steuer-PC.
 
 ## Vertrag
 
-- 87 fachliche MCP-Toolnamen über den versionierten API-Katalog;
+- 88 fachliche MCP-Toolnamen über den versionierten API-Katalog;
 - strikte Eingabeschemata und deklarierte Ausgabeschemata;
 - vollständiges `structuredContent` neben kompaktem Text;
 - rekursive Redaction lokaler PC-Pfade;

@@ -147,7 +147,7 @@ try {
   assert.equal(health.headers.get("cache-control"), "no-store");
   assert.equal(health.headers.get("cross-origin-resource-policy"), "same-origin");
   assert.equal(health.headers.get("x-content-type-options"), "nosniff");
-  assert.deepEqual(await health.json(), { ok: true, apiVersion: "v1", inFlight: null },
+  assert.deepEqual(await health.json(), { ok: true, apiVersion: "v1", inFlight: null, prewarm: null },
     "healthz muss ohne Token Lebendigkeit und laufende Operation melden.");
   const queryRejected = await fetch(`${baseUrl}/healthz?quiet=true`);
   assert.equal(queryRejected.status, 400);

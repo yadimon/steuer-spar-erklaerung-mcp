@@ -55,6 +55,7 @@ export const SSE_API_OPERATIONS = [
   "goto",
   "health",
   "help",
+  "instances",
   "known_page_state",
   "launch",
   "list_cases",

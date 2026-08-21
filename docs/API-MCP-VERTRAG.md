@@ -93,7 +93,7 @@ ersetzt.
 - API-Fehlerfelder werden nicht durch eine Fehler-Allowlist abgeschnitten;
   MCP markiert sie mit `isError=true`.
 - Erfolgreiche Antworten bleiben als JSON-Text verfügbar. Einige Werkzeuge
-  erzeugen darin aus Kompatibilitätsgründen eine kompakte Projektion. Alle 87
+  erzeugen darin aus Kompatibilitätsgründen eine kompakte Projektion. Alle 88
   MCP-Werkzeuge veröffentlichen parallel das vollständige, redigierte
   nicht-binäre API-Ergebnis als `structuredContent` mit einem deklarierten
   `outputSchema`.
@@ -105,7 +105,7 @@ ersetzt.
   `structuredContent`; die bereits als Bildinhalt übertragenen Base64-Bytes
   (`imageBase64`/`bildBase64`) werden dort nicht dupliziert.
 
-Alle 87 Operationen besitzen ein eigenes `Result_<operation>`-Schema der
+Alle 88 Operationen besitzen ein eigenes `Result_<operation>`-Schema der
 Ergebnisvertragsversion 1. Diese Schemata typisieren die stabile
 Transportfläche und ausgewählte fachliche Kernfelder, bleiben aber mit
 Zusatzfeldern vorwärtskompatibel. Sie sind deshalb ein versionierter

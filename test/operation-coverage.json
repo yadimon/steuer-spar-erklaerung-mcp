@@ -238,6 +238,13 @@
       ],
       "live": "functional"
     },
+    "instances": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "untested"
+    },
     "known_page_state": {
       "offline": "functional",
       "offlineLabels": [
@@ -314,6 +321,7 @@
     "product_info": {
       "offline": "functional",
       "offlineLabels": [
+        "stateful-mock",
         "worker"
       ],
       "live": "functional"

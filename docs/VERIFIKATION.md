@@ -83,8 +83,8 @@ Zeichen auskommt. Geformte Texte und Antworten mit ausgelagerten Binärfeldern
 bleiben getrennte Darstellungen.
 
 Der Laufzeitkatalog ist die Quelle für die aktuelle Anzahl und Benennung der
-Operationen. Am genannten Stand enthält er 87 API-Operationen und 87
-MCP-Werkzeugnamen. Das sind nicht 87 eindeutige Eins-zu-eins-Zuordnungen:
+Operationen. Am genannten Stand enthält er 88 API-Operationen und 88
+MCP-Werkzeugnamen. Das sind nicht 88 eindeutige Eins-zu-eins-Zuordnungen:
 `sse_change_field` und `sse_change_known_field` rufen beide
 `tracked_set_value` auf; `checker_detail` ist eine API-interne Komposition von
 `sse_checker_open`.
@@ -126,7 +126,7 @@ Trace-Dateien noch in die Bilanz geschrieben. Der Offline-Stand vom
 2026-08-16 enthält 645 Operation-Feld-Beobachtungen außerhalb des
 generischen Transportumschlags; 502 davon sind bereits explizit typisiert.
 Das ist eine sichtbare Ausbaubilanz, kein Prozentwert für praktische
-UI-Abdeckung. Alle 87 Operationen besitzen konkrete Fachfelder; darunter sind
+UI-Abdeckung. Alle 88 Operationen besitzen konkrete Fachfelder; darunter sind
 alle 23 destruktiv annotierten Operationen sowie der nicht destruktive, aber
 zustandsbehaftete `set_value`-Suchfeldpfad. 143 beobachtete Zusatz- und
 API-Grenzfelder bleiben vom offenen Mindestvertrag durchgelassen, ohne schon
@@ -157,7 +157,7 @@ bekannten Prüfer-Navigationszweig dreimal fail-closed an der Foreground-Lease.
 Die bis dahin echten, unverändernden Reads wurden über den vorgesehenen
 monotonen Live-Merge übernommen. Das ist eine partielle Ergebnisform-Evidenz,
 kein grüner strikter Live-Gate-Lauf und kein neuer 2024-Nachweis. Historische
-79/87-Live-Abdeckung und Ergebnisform-Spalte bleiben getrennte Messungen; die
+79/88-Live-Abdeckung und Ergebnisform-Spalte bleiben getrennte Messungen; die
 Feldformen werden niemals aus der Coverage-Zahl abgeleitet.
 
 Bewusste Regeneration nach einer getesteten Vertragsänderung:
@@ -186,14 +186,14 @@ Gezählt wird nur der API-Rand. Operationen, die eine Komposition oder ein
 Szenario intern aufruft, gelten damit nicht automatisch als geprüft; sie
 brauchen einen eigenen Aufruf über die HTTP-Grenze.
 
-Stand: alle 87 Operationen werden im Offline-Lauf mindestens einmal
+Stand: alle 88 Operationen werden im Offline-Lauf mindestens einmal
 erfolgreich ausgeführt – überwiegend gegen den zustandsbehafteten
 synthetischen Worker, der Seitengraph, Elementbaum, Tabelle, Menü, VaSt-Dialog
 und Fenster-/Desktopzustand modelliert. Das beweist Argumentbindung,
 Ressourcenauflösung, Komposition, Ergebnisvertrag und Redaktion über die
 gesamte Kette. Es beweist ausdrücklich **nicht** die proprietäre UIA-Schicht;
 dafür zählt allein die Live-Spalte derselben Bilanz, die echte Worker-Aufrufe
-gegen die installierte Anwendung füllen. Dort stehen am 2026-08-16 81 der 87
+gegen die installierte Anwendung füllen. Dort stehen am 2026-08-16 81 der 88
 Operationen: 78 aus dem letzten vollständig grünen Zwei-Profil-Gate, der
 anschließend gezielt ausgeführte `collect`-Erfolgspfad sowie die zwei separat
 auf einem privaten Desktop belegten Center-Operationen. `collect` ist auf der
@@ -203,9 +203,10 @@ hashgleicher Datei-Readback. Der getrennte Zwei-Seiten-Lauf belegt weiterhin
 `collection-incomplete`, `limit-reached` und den hashgebundenen Teilabgleich.
 „Vollständig" gilt dabei nur für den ab der jeweiligen Startseite erreichbaren
 Blätterpfad, nicht für den gesamten Steuerfall. Noch nie erfolgreich live
-aufgerufen sind damit nur die sechs VaSt-Wege: `vast_apply`,
+aufgerufen sind damit die sechs VaSt-Wege `vast_apply`,
 `vast_dialog_read`, `vast_mapping_options`, `vast_mapping_select`,
-`vast_row_details` und `vast_row_set_expanded`.
+`vast_row_details` und `vast_row_set_expanded` sowie die neue
+Mehrinstanz-Übersicht `instances`.
 
 Der Center-Nachweis startet ausschließlich den profilierten 2025-Center in
 einem neuen Windows-Desktop und bindet den gesamten Prozessbaum an einen
@@ -243,7 +244,7 @@ die erzeugte Bilanz bindet. `affectsAvailability=false` und
 `profileSpecific=false` benennen seine Grenzen maschinenlesbar. Ein Profil mit
 `status=supported` und `operationAccess=full` gibt alle Operationen frei –
 unabhängig davon, ob sie jemals erfolgreich gegen die echte Anwendung
-gelaufen sind. Gemessen am 2026-08-16 sind noch 6 der 87 Operationen nicht
+gelaufen sind. Gemessen am 2026-08-16 sind noch 7 der 88 Operationen nicht
 live-funktional belegt: die oben genannten, weiterhin ungetesteten VaSt-Wege.
 Damit sind 81 Operationen `functional` und keine ist derzeit nur als
 `error-path-only` belegt.
@@ -403,7 +404,7 @@ Der Lauf belegte in dieser Reihenfolge:
 - eine exakt vier Felder große, 181 Byte lange First-run-Datei und echten
   promptfreien Setup-Aufruf mit `--plan-file`;
 - Loopback-API, Profil `2025`/`supported`/`full`, Engine 31, Buildgleichheit,
-  87 Operationen, 81 funktionale und sechs als `untested` ausgewiesene
+  88 Operationen, 81 funktionale und sieben als `untested` ausgewiesene
   VaSt-Operationen;
 - CLI-Journal mit vor dem Setup geflushtem `pending` und abgeschlossenem
   lokalem Fehler, ohne eine Aktion blind zu wiederholen;
@@ -442,7 +443,7 @@ dem Listener lagen. Setup verwendet deshalb jetzt sechs begrenzte
 Startversuche und getrennte Diagnose für Health, Discovery und Workspace. Der
 erneute Lauf mit dem korrigierten exakten ZIP belegte PDF-Render-Exitcode 0,
 eine gültige PNG-Seite, `--plan-file`-Setup-Exitcode 0, Profil 2025,
-zurückgelesenen Fall-/Belegordner, API-Health, 87 Discovery-Operationen und ein
+zurückgelesenen Fall-/Belegordner, API-Health, 88 Discovery-Operationen und ein
 dauerhaftes Journal `pending` → `complete`.
 
 Der Lauf ist kein vollständiger steuerfachlicher Nachweis: Er stoppte bewusst

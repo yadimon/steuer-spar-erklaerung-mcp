@@ -83,7 +83,7 @@ Remove-Item Env:SSE_TEST_CONCURRENCY
 
 `verify:portable-release` muss Produkt, Version, Dateizahl, Bytezahl und
 SHA-256 des bereits gebauten ZIP als `ok: true` ausgeben. Der anschließende
-Clean-install-Smoke muss vier CLI-Einstiege und den 87-Tool-MCP-Vertrag aus
+Clean-install-Smoke muss vier CLI-Einstiege und den 88-Tool-MCP-Vertrag aus
 zwei getrennten Tarballs bestätigen. Danach nochmals prüfen, dass der Worktree
 sauber ist. Private Steuerdaten, lokale Konfigurationen und Test-Arbeitskopien
 dürfen nicht im Commit oder Artefakt liegen.

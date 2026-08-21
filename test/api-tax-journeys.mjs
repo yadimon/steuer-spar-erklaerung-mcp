@@ -902,6 +902,29 @@ test("24 window handles stay bound to the exact current title", async () => {
   });
 });
 
+test("24b open cases stay distinguishable by file, type and year", async () => {
+  await withHarness(async (harness) => {
+    const empty = await harness.call("instances", {});
+    assert.equal(empty.count, 0);
+    assert.deepEqual(empty.instances, []);
+
+    await launchFreelancer(harness);
+    const open = await harness.call("instances", {});
+    assert.equal(open.count, 1);
+    assert.equal(open.ambiguous, false);
+    const [instance] = open.instances;
+    // Der Fall muss ohne Rateschritt benannt sein: Pfadquelle, Typ und Jahr.
+    assert.equal(instance.casePathSource, "title");
+    assert.equal(instance.caseType, "Gew");
+    assert.equal(instance.caseYear, 2025);
+    assert.equal(instance.startMode, "einur");
+    assert.equal(instance.recoveredState, false);
+    // Genau diese Fenster-ID verlangen alle fallbezogenen Operationen.
+    assert.equal(typeof instance.hwnd, "number");
+    assert.equal((await harness.call("windows", {})).windows[0].hwnd, instance.hwnd);
+  });
+});
+
 test("25 diagnostics bind snapshot, comparison and probe to the same element", async () => {
   await withHarness(async (harness) => {
     await launchFreelancer(harness);

@@ -34,10 +34,18 @@ export type OperationExecutor = (
   signal?: AbortSignal,
 ) => Promise<WorkerResult>;
 
+/** Bereitschaft des vorgewaermten Arbeiters, ohne den API-Kern an den Worker zu binden. */
+export interface PrewarmStatus {
+  ready: boolean;
+  failure: string | null;
+}
+
 export interface SseApiServerOptions {
   config: SseApiServerConfig;
   execute: OperationExecutor;
   log?: (record: Record<string, unknown>) => void;
+  /** Optional; ohne diese Auskunft meldet /healthz das Feld schlicht nicht. */
+  prewarmStatus?: () => PrewarmStatus;
   requestSetupShutdown?: () => void;
 }
 type SendJsonOutcome = "sent" | "unavailable" | "too-large";
@@ -244,7 +252,15 @@ export function createSseApiServer(options: SseApiServerOptions): Server {
       // Antwortet auch waehrend einer laufenden Operation: Diese Route startet
       // keinen Arbeitsprozess und ist damit die verlaessliche Lebendigkeits-
       // und Fortschrittsauskunft.
-      sendJson(response, 200, { ok: true, apiVersion: SSE_API_VERSION, inFlight: inFlightSnapshot() });
+      // Steht kein Reservearbeiter bereit, ist der naechste Aufruf lediglich
+      // langsamer - nie falsch. Deshalb ist das eine Auskunft, kein Fehler.
+      const prewarm = options.prewarmStatus?.() ?? null;
+      sendJson(response, 200, {
+        ok: true,
+        apiVersion: SSE_API_VERSION,
+        inFlight: inFlightSnapshot(),
+        prewarm,
+      });
       return;
     }
 
