@@ -177,8 +177,29 @@ export const SSE_OPENAPI_DOCUMENT = Object.freeze({
               "application/json": {
                 schema: {
                   type: "object",
-                  required: ["ok", "apiVersion"],
-                  properties: { ok: { const: true }, apiVersion: { const: SSE_API_VERSION } },
+                  required: ["ok", "apiVersion", "inFlight"],
+                  properties: {
+                    ok: { const: true },
+                    apiVersion: { const: SSE_API_VERSION },
+                    inFlight: {
+                      description: "Laufende Operation oder null. Diese Route startet keinen " +
+                        "Arbeitsprozess und antwortet deshalb auch waehrend einer langen Operation.",
+                      oneOf: [
+                        { type: "null" },
+                        {
+                          type: "object",
+                          required: ["operation", "requestId", "startedAt", "elapsedMs"],
+                          properties: {
+                            operation: { type: "string" },
+                            requestId: { type: "string" },
+                            startedAt: { type: "integer" },
+                            elapsedMs: { type: "integer" },
+                          },
+                          additionalProperties: false,
+                        },
+                      ],
+                    },
+                  },
                   additionalProperties: false,
                 },
               },
