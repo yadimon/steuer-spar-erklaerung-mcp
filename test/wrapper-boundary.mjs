@@ -65,8 +65,8 @@ const mcpEnvironmentKeys = [...new Set(
 )].sort();
 assert.deepEqual(
   mcpEnvironmentKeys,
-  ["SSE_API_TOKEN", "SSE_API_URL"],
-  "MCP darf ausschliesslich die lokale API-Adresse und deren Token aus der PC-Umgebung lesen.",
+  ["SSE_API_URL"],
+  "MCP darf ausschliesslich die lokale API-Adresse aus der PC-Umgebung lesen.",
 );
 
 const toolNames = Object.keys(SSE_MCP_TOOL_SCHEMAS).sort();
@@ -86,7 +86,6 @@ const failedSelftest = spawnSync(process.execPath, ["dist/index.js", "--selftest
   env: {
     ...process.env,
     SSE_API_URL: "https://example.invalid",
-    SSE_API_TOKEN: "startup-redaction-token-with-at-least-24-characters",
   },
 });
 assert.equal(failedSelftest.status, 1);

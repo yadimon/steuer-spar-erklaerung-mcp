@@ -87,7 +87,7 @@ try {
   mkdirSync(join(temporary, "config"), { recursive: true });
   writeFileSync(
     configPath,
-    `${JSON.stringify({ token: "resource-test-token-with-at-least-24-characters", workspaceDir }, null, 2)}\n`,
+    `${JSON.stringify({ workspaceDir }, null, 2)}\n`,
   );
   const loaded = loadApiServerConfig({ SSE_API_CONFIG: configPath });
   assert.equal(loaded.documentsDir, join(workspaceDir, "documents"));
@@ -98,7 +98,6 @@ try {
     {
       host: "127.0.0.1",
       port: 43127,
-      token: "resource-test-token-with-at-least-24-characters",
       configPath,
       caseDir: roots.cases,
       documentsDir: roots.documents,
@@ -150,7 +149,6 @@ try {
     {
       host: "127.0.0.1",
       port: 43129,
-      token: "failed-export-token-with-at-least-24-characters",
       configPath,
       caseDir: roots.cases,
       documentsDir: roots.documents,
@@ -281,7 +279,6 @@ try {
     {
       host: "127.0.0.1",
       port: 43131,
-      token: "empty-list-token-with-at-least-24-characters",
       configPath,
       caseDir: emptyCaseDir,
       workspaceDir: join(temporary, "empty-list-workspace"),
@@ -437,7 +434,6 @@ try {
     {
       host: "127.0.0.1",
       port: 43128,
-      token: "late-root-token-with-at-least-24-characters",
       configPath,
       caseDir: lateCaseDir,
       workspaceDir: join(temporary, "late-workspace"),

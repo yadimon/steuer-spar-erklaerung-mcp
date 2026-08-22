@@ -4,8 +4,9 @@ Diese Anleitung ist der kanonische Einrichtungsvertrag. Ein Mensch kann die
 Befehle selbst ausführen; ein lokaler AI-Agent darf denselben Ablauf nach einem
 kurzen Plan übernehmen.
 
-Alles landet in **einem Ordner**. Danach ist jede Installation gleich
-aufgebaut, egal wer sie gemacht hat.
+Es gibt **kein Setup-Programm**. Installieren heißt: zwei npm-Pakete und einen
+Skill in einen Ordner legen, die API starten, den MCP-Server beim Client
+anmelden. Vier Befehle, alle in **einem Ordner**.
 
 Die Automation läuft immer auf dem Windows-PC. Sie wird nicht in Codex Cloud,
 Claude Code on the web oder einem anderen Remote-Container eingerichtet.
@@ -30,13 +31,34 @@ So sieht der Ordner am Ende aus:
 ```text
 C:\mein-steuer-ai\
   node_modules\            API und MCP
-  config.json              Token, Port, Pfade
-  mcp-client.config.json   fertiger tokenfreier MCP-Eintrag
+  logs\                    API-Protokoll
   workspace\
     settings.md            Belegquellen und Regeln in Prosa
     tracking.md            Belegprotokoll
     documents\ results\ backups\
 ```
+
+Eine `config.json` ist **optional**. Ohne sie gelten die Standardwerte:
+Loopback `127.0.0.1`, Port `43127`, Profil `2025`, Arbeitsbereich neben dem mit
+`--config` benannten Pfad. Nötig wird die Datei erst für einen abweichenden
+Port, ein festgepinntes `sseExecutable` oder einen festen `caseDir`.
+
+## Es gibt kein Token
+
+Die API kennt keine Anmeldung. Sie lauscht nur auf Loopback, und jeder lokale
+Prozess darf sie aufrufen — das ist dieselbe Vertrauensgrenze, in der auch die
+Steuersoftware selbst läuft.
+
+Wovor sie sich schützt, ist der eine Weg von außen: eine beliebige Webseite im
+Browser des Nutzers erreicht `127.0.0.1` genauso. Deshalb weist die API jede
+Anfrage mit **403** ab, die eine `Origin`- oder `Sec-Fetch-Site`-Kopfzeile
+trägt oder deren `Host` kein Loopback-Name ist. Ein Browser sendet mindestens
+eine davon zwingend und kann sie nicht fälschen; die letzte Regel schlägt
+DNS-Rebinding. Ein lokaler Klient sendet keine davon.
+
+Es gibt also nichts zu erzeugen, nichts zu speichern und nichts geheimzuhalten.
+Ältere Betas schrieben ein `token` in die Konfiguration; steht es noch da,
+nennt die API die Zeile beim Start und du löschst sie.
 
 ## Voraussetzungen
 
@@ -100,52 +122,51 @@ Ohne `npx skills` lädt der Agent das Repository-ZIP vom kanonischen Repository,
 prüft Quelle und Commit und kopiert nur den vollständigen Ordner
 `skills/steuer-spar-erklaerung` samt `references/`. Keine Spiegelquelle.
 
-## 3. Einrichten
+## 3. API starten
 
 ```powershell
-.\node_modules\.bin\steuer-spar-erklaerung-setup.cmd --config C:\mein-steuer-ai\config.json --with-mcp
+.\node_modules\.bin\steuer-spar-erklaerung-api.cmd --config C:\mein-steuer-ai\config.json
 ```
 
-`--config` verlangt einen **absoluten** Pfad; der Pfad landet im MCP-Eintrag
-und würde relativ brechen, sobald der Agent aus einem anderen Verzeichnis
-startet. Ohne `--config` schreibt das Setup in den Standardort unter
-`%LOCALAPPDATA%` — dann ist der Ordner nicht mehr eigenständig.
+Das ist der ganze Einrichtungsschritt. Beim ersten Start legt die API
+`workspace\` mit `documents\`, `results\`, `backups\` sowie `logs\` an und ist
+sofort erreichbar. Die Datei `config.json` muss dabei **nicht existieren** —
+`--config` benennt nur, wo der Ordner liegt, und verlangt einen **absoluten**
+Pfad. Ohne `--config` liegt der Arbeitsbereich unter `%LOCALAPPDATA%`, und der
+Ordner wäre nicht mehr eigenständig.
 
-Das Setup erzeugt Token, findet `SSE.exe`, legt Arbeitsordner an und schreibt
-die MCP-Mergevorlage. Weitere Schalter:
+Das Terminal bleibt offen; Strg+C beendet die API. Für einen bestimmten
+Steuerfall zusätzlich `--case-dir <absoluter Ordner>` anhängen.
 
-- `--defaults` für ein technisches Setup ohne Fall- und Belegbindung. Für
-  OpenCode exakt `steuer-spar-erklaerung-setup --defaults --with-mcp`
-  ausführen: den interaktiven Wizard dort nicht starten und
-  niemals Antworten über `stdin` zuführen;
-- `--plan-file <json>` für einen bereits bestätigten First-run-Plan;
-- `--no-start` erzeugt Dateien, startet die API aber nicht;
-- `--check` prüft ein bestehendes Setup ohne Änderung.
-
-Das Setup nie über `npx` aus dem flüchtigen `_npx`-Cache starten: dessen Pfade
-landen sonst in dauerhaften Startpunkten und zeigen später ins Leere.
-
-Die erzeugte `mcp-client.config.json` enthält **kein Token**: Sie startet einen
-lokalen Bootstrap, der das Token erst im Prozess aus `config.json` lädt.
-`config.json` niemals öffnen, lesen oder parsen; die Datei und ihr Token
-niemals in Chat, Log, Diff, Prozessargument oder einen eigenen `curl`-Aufruf
-übernehmen. Authentifizierte Prüfungen ausschließlich über Setup-CLI,
-API-CLI oder MCP.
+Die API nie über `npx` aus dem flüchtigen `_npx`-Cache dauerhaft anmelden:
+dessen Pfade landen sonst in Startpunkten und zeigen später ins Leere.
 
 ## 4. MCP an den Client binden
 
-Vor jeder Clientänderung den Dateipfad und einen tokenfreien Diff zeigen und
-Zustimmung einholen. Eine im Auftrag bereits enthaltene bedingte Zustimmung
-reicht, wenn der Diff ausschließlich den einen Server `steuer-spar-erklaerung`
-additiv mergt und keine anderen Einträge löscht. Niemals die ganze Datei
-ersetzen. `command` und `args` unverändert aus der Mergevorlage übernehmen.
+Der MCP-Eintrag ist eine einzige ausführbare Datei ohne Argumente und ohne
+Umgebungsvariablen. Der Wrapper findet die API über den Standardport.
 
-- **Claude Code:** `claude mcp add --scope project steuer-spar-erklaerung --
-  <command> <args...>` schreibt eine `.mcp.json` in den Ordner. Achtung: Der
-  von npm erzeugte PowerShell-Shim `claude.ps1` verschluckt den `--`-Trenner;
-  den Aufruf deshalb über `claude.cmd` oder Git Bash absetzen und mit
-  `claude mcp list` beweisen.
-- **Codex:** `codex mcp add steuer-spar-erklaerung -- <command> <args...>`.
+Vor jeder Clientänderung den Dateipfad und einen Diff zeigen und Zustimmung
+einholen. Eine im Auftrag bereits enthaltene bedingte Zustimmung reicht, wenn
+der Diff ausschließlich den einen Server `steuer-spar-erklaerung` additiv
+mergt und keine anderen Einträge löscht. Niemals die ganze Datei ersetzen.
+
+- **Claude Code:**
+
+  ```powershell
+  claude mcp add --scope project steuer-spar-erklaerung -- C:\mein-steuer-ai\node_modules\.bin\steuer-spar-erklaerung-mcp.cmd
+  ```
+
+  Das schreibt eine `.mcp.json` in den Ordner. Achtung: Der von npm erzeugte
+  PowerShell-Shim `claude.ps1` verschluckt den `--`-Trenner; den Aufruf deshalb
+  über `claude.cmd` oder Git Bash absetzen und mit `claude mcp list` beweisen.
+
+- **Codex:**
+
+  ```powershell
+  codex mcp add steuer-spar-erklaerung -- C:\mein-steuer-ai\node_modules\.bin\steuer-spar-erklaerung-mcp.cmd
+  ```
+
   Codex kennt nur eine globale Konfiguration. Wer den Eintrag nur im Ordner
   aktiv haben will, setzt in `~/.codex/config.toml` `enabled = false` und
   startet im Ordner mit
@@ -177,19 +198,15 @@ ersetzen. `command` und `args` unverändert aus der Mergevorlage übernehmen.
   ]
   ```
 
-Direkt gesetzte `node`, `node.cmd`, `npx` oder Batch-Wrapper sind falsch. Der
-Client muss die absolute `node.exe` und den Bootstrap aus der Vorlage starten.
 Die bloße Existenz einer JSON-Datei beweist keine geladene MCP-Verbindung.
 
 ## 5. Installation beweisen
 
-```powershell
-.\node_modules\.bin\steuer-spar-erklaerung-setup.cmd --config C:\mein-steuer-ai\config.json --check
-```
+Solange die API läuft, beweist ein Aufruf sie sofort:
 
-Erfolg verlangt `ok=true`, das erwartete Produktprofil, einen bereiten
-Workspace und `containsToken: false`. Ein nicht laufendes SSE mit
-`running=false` ist für den technischen Test zulässig.
+```powershell
+.\node_modules\.bin\steuer-spar-erklaerung-call.cmd health
+```
 
 Nach einer neuen oder geänderten Skill-/MCP-Installation kann die laufende
 Agentensession den Server nicht als echtes Tool beweisen. Beende den Lauf mit
@@ -216,9 +233,20 @@ ausdrücken kann — der Hauptskill liest sie bei jedem Lauf:
 - <ABSOLUTER_ORDNER>\Bank — nur Kontoauszüge, für den Zahlungsabgleich
 ```
 
-Die harte Grenze bleibt `config.json`: Was dort nicht als Quelle steht, liest
-die API gar nicht. `settings.md` verfeinert innerhalb des Erlaubten und kann
-nichts zusätzlich freischalten.
+Die harte Grenze bleibt die Ressourcentopologie der API: Was nicht als Quelle
+freigegeben ist, liest die API gar nicht. `settings.md` verfeinert innerhalb
+des Erlaubten und kann nichts zusätzlich freischalten.
+
+## Die API selbst dokumentiert sich
+
+Die laufende API beschreibt ihren eigenen Vertrag. Daraus lassen sich Klienten
+generieren; eine gepflegte Zweitbeschreibung gibt es bewusst nicht.
+
+```powershell
+curl.exe http://127.0.0.1:43127/v1/openapi.json      # OpenAPI 3.1, alle Operationen
+curl.exe http://127.0.0.1:43127/v1/operations        # Argument- und Ergebnisschemata
+curl.exe http://127.0.0.1:43127/healthz              # Lebendigkeit und laufende Operation
+```
 
 ## Kopierbare Prompts
 
@@ -238,9 +266,9 @@ Standard-Einrichtung und Prüflauf ausführen.
 des Hauptskills: hashverifizierte Kopie, sichtbare rein lesende Navigation,
 Report sowie kein Speichern und kein ELSTER. Es bestätigt den oben beschriebenen sicheren
 Plan einschließlich Download, Installation in den Ordner und des bedingten
-tokenfreien additiven MCP-Merges. Der Agent zeigt Plan und Diff weiterhin an,
+additiven MCP-Merges. Der Agent zeigt Plan und Diff weiterhin an,
 fragt innerhalb dieser Grenzen aber nicht erneut. Bei Löschungen, weiteren
-Servern, Token oder einem anderen Befehl stoppt er.
+Servern oder einem anderen Befehl stoppt er.
 
 Weil MCP-Werkzeuge erst nach einem Clientneustart geladen werden, läuft die
 Prüfung in derselben Sitzung über die lokale API-CLI; die MCP-Verifikation
@@ -273,20 +301,12 @@ Profil, fehlender Zustimmung, uneindeutiger Agenten-Konfiguration oder nicht
 erreichbarer API nach einem Erstversuch und höchstens zwei Wiederholungen im
 Abstand von je zwei Sekunden.
 
-Lehnt `--plan-file` eine vorhandene Bindung ab, arbeite nicht darum herum:
-`config.json`, `setup-decisions.json`, Runtime-Dateien und Prozesse weder
-manuell ändern noch beenden. Melde den Fehler als sicheren Stopp.
+Meldet der Start `Es laeuft bereits eine SSE-API`, läuft eine zweite Instanz
+auf demselben Port — vielleicht mit anderem Arbeitsbereich. Nicht fortfahren
+und nicht auf gut Glück beenden: erst klären, welche Instanz gemeint ist.
 
-Es gibt genau einen zugelassenen Reparaturweg, und er ändert keine Datei von
-Hand: Stammt die Konfiguration aus einem NPX-Foreground-Start, ist sie
-unvollständig statt kaputt. `--check` meldet das als `ok=false` mit
-`kind="foreground-only-config"`. Dann zuerst die laufende Foreground-API vom
-Nutzer mit Strg+C beenden lassen und danach `--defaults` ausführen; das Token
-bleibt erhalten. Läuft die Foreground-API noch, lehnt sie die Neubindung mit
-HTTP 409 ab — erwartetes Verhalten, kein Grund für manuelle Eingriffe.
-
-Berichte konkrete Datei, letzten gelesenen Zustand, erzeugte Dateien und genau
-eine nächste sichere Aktion. Lösche Konfigurationen niemals ungefragt.
+Konfigurationen niemals ungefragt löschen. Berichte konkrete Datei, letzten
+gelesenen Zustand, erzeugte Dateien und genau eine nächste sichere Aktion.
 
 ## FAQ
 
@@ -299,7 +319,8 @@ Codex eine eigene Konfiguration im Ordner. Kostet aber eine eigene Anmeldung,
 weil `auth.json` ebenfalls im CODEX_HOME liegt. Anmeldedaten nicht kopieren.
 
 **Mehrere Ordner?** Möglich; jeder braucht eine eigene `config.json` mit
-eigenem Port. Es läuft trotzdem immer nur eine Operation je API.
+eigenem Port und ein passendes `SSE_API_URL` im MCP-Eintrag. Es läuft trotzdem
+immer nur eine Operation je API.
 
 **Kein Node.js?** Dann ist dieses Produkt derzeit nicht installierbar. Node.js
 wird nicht eigens dafür installiert; das entscheidet der Mensch.

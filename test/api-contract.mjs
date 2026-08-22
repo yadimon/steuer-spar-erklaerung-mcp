@@ -12,7 +12,6 @@ import { SSE_API_DISCOVERY } from "../dist/api-discovery.js";
 import { createSseApiServer, listenSseApiServer } from "../dist/api-server.js";
 import { configurationFingerprint } from "../dist/workspace-status.js";
 
-const token = "test-token-with-at-least-24-characters";
 const calls = [];
 const logs = [];
 let throwOnLog = false;
@@ -20,7 +19,6 @@ const temporary = mkdtempSync(join(tmpdir(), "sse-api-contract-"));
 const config = {
   host: "127.0.0.1",
   port: 1,
-  token,
   configPath: "C:\\ApiConfig\\config.json",
   caseDir: "C:\\SSE-Cases",
   workspaceDir: join(temporary, "workspace"),
@@ -30,7 +28,6 @@ const config = {
   sseExecutable: "C:\\Program Files\\SSE 2025\\SSE.exe",
 };
 config.resultDir = join(temporary, "results");
-let setupShutdownRequested = false;
 let markAbortStarted;
 let markAbortObserved;
 const abortStarted = new Promise((resolve) => { markAbortStarted = resolve; });
@@ -119,19 +116,17 @@ const execute = createApiExecutor(config, async (operation, args, timeoutMs, sig
 });
 
 const server = createSseApiServer({
-  config,
   execute,
   log: (record) => {
     if (throwOnLog) throw new Error("synthetischer Logfehler");
     logs.push(record);
   },
-  requestSetupShutdown: () => { setupShutdownRequested = true; },
 });
 assert.equal(server.headersTimeout, 10_000);
 assert.equal(server.requestTimeout, 30_000);
 assert.equal(server.keepAliveTimeout, 5_000);
 assert.equal(server.maxHeadersCount, 64);
-const unsafeBindServer = createSseApiServer({ config, execute });
+const unsafeBindServer = createSseApiServer({ execute });
 await assert.rejects(listenSseApiServer(unsafeBindServer, "0.0.0.0", 43127), /Loopback/);
 await assert.rejects(listenSseApiServer(unsafeBindServer, "127.0.0.1", 0), /zwischen 1 und 65535/);
 
@@ -148,29 +143,48 @@ try {
   assert.equal(health.headers.get("cross-origin-resource-policy"), "same-origin");
   assert.equal(health.headers.get("x-content-type-options"), "nosniff");
   assert.deepEqual(await health.json(), { ok: true, apiVersion: "v1", inFlight: null, prewarm: null },
-    "healthz muss ohne Token Lebendigkeit und laufende Operation melden.");
+    "healthz muss Lebendigkeit und laufende Operation melden.");
   const queryRejected = await fetch(`${baseUrl}/healthz?quiet=true`);
   assert.equal(queryRejected.status, 400);
   assert.equal((await queryRejected.json()).error.code, "bad-request");
 
-  const unauthorized = await fetch(`${baseUrl}/v1/operations`);
-  assert.equal(unauthorized.status, 401);
-  assert.equal(unauthorized.headers.get("www-authenticate"), 'Bearer realm="steuer-spar-erklaerung-api"');
-  for (const authorization of [undefined, "Bearer wrong-token-with-at-least-24-characters"]) {
-    const unauthorizedPost = await fetch(`${baseUrl}/v1/operations/health`, {
+  // Ein Browser darf diese API nicht erreichen. Genau die Kopfzeilen, die ein
+  // Browser zwingend mitsendet und eine Webseite nicht faelschen kann, werden
+  // hier einzeln geprueft - inklusive DNS-Rebinding ueber einen fremden 'Host'.
+  for (const [label, headers] of [
+    ["Origin", { origin: "https://boese.example" }],
+    ["Sec-Fetch-Site", { "sec-fetch-site": "cross-site" }],
+  ]) {
+    const blocked = await fetch(`${baseUrl}/v1/operations`, { headers });
+    assert.equal(blocked.status, 403, `${label} muss abgewiesen werden.`);
+    assert.equal((await blocked.json()).error.code, "forbidden");
+    const blockedPost = await fetch(`${baseUrl}/v1/operations/health`, {
       method: "POST",
-      headers: {
-        ...(authorization ? { authorization } : {}),
-        "content-type": "application/json",
-      },
+      headers: { ...headers, "content-type": "application/json" },
       body: JSON.stringify({ args: {} }),
     });
-    assert.equal(unauthorizedPost.status, 401);
+    assert.equal(blockedPost.status, 403, `${label} muss auch bei POST abgewiesen werden.`);
+    const blockedHealth = await fetch(`${baseUrl}/healthz`, { headers });
+    assert.equal(blockedHealth.status, 403, `${label} darf nicht einmal /healthz erreichen.`);
   }
-
-  const listed = await fetch(`${baseUrl}/v1/operations`, {
-    headers: { authorization: `Bearer ${token}` },
+  // 'Host' laesst sich mit fetch nicht setzen - der rohe Klient zeigt, dass ein
+  // umgebogener Name (DNS-Rebinding) trotzdem nicht durchkommt.
+  const rebindStatus = await new Promise((resolve, reject) => {
+    const rebind = httpRequest(`${baseUrl}/healthz`, { headers: { host: "boese.example" } }, (response) => {
+      response.resume();
+      response.once("end", () => resolve(response.statusCode));
+    });
+    rebind.once("error", reject);
+    rebind.end();
   });
+  assert.equal(rebindStatus, 403, "Ein fremder Host-Name muss abgewiesen werden.");
+
+  // 'none' ist die Kennzeichnung einer direkt eingegebenen Adresse und der
+  // einzige Sec-Fetch-Wert, der keinen Seitenkontext bedeutet.
+  const directNavigation = await fetch(`${baseUrl}/healthz`, { headers: { "sec-fetch-site": "none" } });
+  assert.equal(directNavigation.status, 200);
+
+  const listed = await fetch(`${baseUrl}/v1/operations`);
   assert.equal(listed.status, 200);
   const catalog = await listed.json();
   assert.deepEqual(catalog, SSE_API_DISCOVERY);
@@ -184,9 +198,7 @@ try {
   assert(catalog.argumentSchemas.tracked_set_value.anyOf.length >= 2);
   assert(!catalog.operations.includes("keys"), "freie Tastatureingabe darf nicht in die API gelangen");
 
-  const singleDiscoveryResponse = await fetch(`${baseUrl}/v1/operations/find`, {
-    headers: { authorization: `Bearer ${token}` },
-  });
+  const singleDiscoveryResponse = await fetch(`${baseUrl}/v1/operations/find`);
   assert.equal(singleDiscoveryResponse.status, 200);
   const singleDiscovery = await singleDiscoveryResponse.json();
   assert.equal(singleDiscovery.operation, "find");
@@ -196,74 +208,38 @@ try {
   assert.equal(singleDiscovery.safety.elsterAndSubmissionBlocked, true);
   assert(Buffer.byteLength(JSON.stringify(singleDiscovery)) < Buffer.byteLength(JSON.stringify(catalog)) / 4);
 
-  const unauthorizedSingleDiscovery = await fetch(`${baseUrl}/v1/operations/find`);
-  assert.equal(unauthorizedSingleDiscovery.status, 401);
-  const unknownSingleDiscovery = await fetch(`${baseUrl}/v1/operations/keys`, {
-    headers: { authorization: `Bearer ${token}` },
-  });
+  const unknownSingleDiscovery = await fetch(`${baseUrl}/v1/operations/keys`);
   assert.equal(unknownSingleDiscovery.status, 404);
   assert.equal((await unknownSingleDiscovery.json()).error.code, "operation-not-allowed");
-  const invalidMethod = await fetch(`${baseUrl}/v1/operations/find`, {
-    method: "DELETE",
-    headers: { authorization: `Bearer ${token}` },
-  });
+  const invalidMethod = await fetch(`${baseUrl}/v1/operations/find`, { method: "DELETE" });
   assert.equal(invalidMethod.status, 405);
   assert.equal(invalidMethod.headers.get("allow"), "GET, POST");
   assert.equal((await invalidMethod.json()).error.code, "method-not-allowed");
 
-  const openApiResponse = await fetch(`${baseUrl}/v1/openapi.json`, {
-    headers: { authorization: `Bearer ${token}` },
-  });
+  const openApiResponse = await fetch(`${baseUrl}/v1/openapi.json`);
   assert.equal(openApiResponse.status, 200);
   const openApi = await openApiResponse.json();
   assert.equal(openApi.openapi, "3.1.0");
   assert.equal(Object.keys(openApi.paths).length, SSE_API_OPERATIONS.length + 3);
-  assert.equal(openApi.paths["/healthz"].get.security.length, 0);
+  assert.equal(openApi.security, undefined, "Ohne Anmeldung darf die Beschreibung kein Sicherheitsschema fordern.");
+  assert.equal(openApi.components.securitySchemes, undefined);
 
-  const unauthorizedOpenApi = await fetch(`${baseUrl}/v1/openapi.json`);
-  assert.equal(unauthorizedOpenApi.status, 401);
-
-  const unauthorizedSetupShutdown = await fetch(`${baseUrl}/v1/setup/shutdown`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ expectedConfigurationFingerprint: configurationFingerprint(config) }),
-  });
-  assert.equal(unauthorizedSetupShutdown.status, 401);
-  const mismatchedSetupShutdown = await fetch(`${baseUrl}/v1/setup/shutdown`, {
-    method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-    body: JSON.stringify({ expectedConfigurationFingerprint: "0".repeat(64) }),
-  });
-  assert.equal(mismatchedSetupShutdown.status, 409);
-  assert.equal((await mismatchedSetupShutdown.json()).error.code, "configuration-mismatch");
-  assert.equal(setupShutdownRequested, false);
-  const acceptedSetupShutdown = await fetch(`${baseUrl}/v1/setup/shutdown`, {
-    method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-    body: JSON.stringify({ expectedConfigurationFingerprint: configurationFingerprint(config) }),
-  });
-  assert.equal(acceptedSetupShutdown.status, 202);
-  assert.equal((await acceptedSetupShutdown.json()).ok, true);
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(setupShutdownRequested, true);
-
-  const clientDiscovery = await readApiDiscovery({ baseUrl, token });
+  const clientDiscovery = await readApiDiscovery({ baseUrl });
   assert.deepEqual(clientDiscovery.operations, SSE_API_OPERATIONS);
   assert.equal(Object.keys(clientDiscovery.argumentSchemas).length, SSE_API_OPERATIONS.length);
-  const clientSingleDiscovery = await readApiOperationDiscovery("find", { baseUrl, token });
+  const clientSingleDiscovery = await readApiOperationDiscovery("find", { baseUrl });
   assert.equal(clientSingleDiscovery.operation, "find");
   assert.deepEqual(clientSingleDiscovery.argumentSchema, clientDiscovery.argumentSchemas.find);
   await assert.rejects(
-    readApiOperationDiscovery("keys", { baseUrl, token, fetchImpl: async () => { throw new Error("darf nicht senden"); } }),
+    readApiOperationDiscovery("keys", { baseUrl, fetchImpl: async () => { throw new Error("darf nicht senden"); } }),
     (error) => error?.kind === "operation",
   );
-  const clientOpenApi = await readOpenApiDocument({ baseUrl, token });
+  const clientOpenApi = await readOpenApiDocument({ baseUrl });
   assert.equal(Object.keys(clientOpenApi.paths).length, SSE_API_OPERATIONS.length + 3);
 
   await assert.rejects(
     readApiDiscovery({
       baseUrl,
-      token,
       fetchImpl: async () => new Response(JSON.stringify({
         apiVersion: "v1",
         operations: ["health"],
@@ -281,7 +257,6 @@ try {
   await assert.rejects(
     readApiDiscovery({
       baseUrl,
-      token,
       fetchImpl: async () => new Response(JSON.stringify({
         ...catalog,
         argumentSchemas: { ...catalog.argumentSchemas, nicht_freigegeben: catalog.argumentSchemas.health },
@@ -295,7 +270,6 @@ try {
   await assert.rejects(
     readApiDiscovery({
       baseUrl,
-      token,
       fetchImpl: async () => new Response(JSON.stringify({
         ...catalog,
         planning: { ...catalog.planning, fallbackStages: [] },
@@ -309,7 +283,6 @@ try {
   await assert.rejects(
     readApiDiscovery({
       baseUrl,
-      token,
       fetchImpl: async () => new Response(JSON.stringify({
         ...catalog,
         argumentSchemas: { ...catalog.argumentSchemas, health: {} },
@@ -323,7 +296,6 @@ try {
   await assert.rejects(
     readOpenApiDocument({
       baseUrl,
-      token,
       fetchImpl: async () => new Response(JSON.stringify({ openapi: "3.1.0", info: {}, paths: {}, components: {} }), {
         status: 200,
         headers: { "content-type": "application/json" },
@@ -334,7 +306,6 @@ try {
   await assert.rejects(
     readOpenApiDocument({
       baseUrl,
-      token,
       fetchImpl: async () => new Response(JSON.stringify({
         ...openApi,
         paths: { ...openApi.paths, "/v1/operations/health": {} },
@@ -348,7 +319,7 @@ try {
 
   const oversizedResponse = await fetch(`${baseUrl}/v1/operations/find`, {
     method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    headers: { "content-type": "application/json" },
     body: JSON.stringify({ args: { name: "__oversized_response__" }, timeoutMs: 1_000 }),
   });
   assert.equal(oversizedResponse.status, 502);
@@ -358,7 +329,7 @@ try {
 
   const malformedResult = await fetch(`${baseUrl}/v1/operations/find`, {
     method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    headers: { "content-type": "application/json" },
     body: JSON.stringify({ args: { name: "__malformed_result__" }, timeoutMs: 1_000 }),
   });
   assert.equal(malformedResult.status, 502);
@@ -370,7 +341,7 @@ try {
 
   const blocked = await fetch(`${baseUrl}/v1/operations/keys`, {
     method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    headers: { "content-type": "application/json" },
     body: JSON.stringify({ args: {} }),
   });
   assert.equal(blocked.status, 404);
@@ -378,7 +349,7 @@ try {
 
   const direct = await fetch(`${baseUrl}/v1/operations/find`, {
     method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    headers: { "content-type": "application/json" },
     body: JSON.stringify({ args: { name: "private-tax-value-must-not-be-logged" }, timeoutMs: 1_000 }),
   });
   assert.equal(direct.status, 200);
@@ -386,13 +357,12 @@ try {
   assert.equal(directEnvelope.result.stable, "same-result");
   assert.equal(calls.at(-1).timeoutMs, 1_000);
 
-  const throughClient = await callApiOperation("health", {}, 1_000, { baseUrl, token });
+  const throughClient = await callApiOperation("health", {}, 1_000, { baseUrl });
   assert.equal(throughClient.stable, directEnvelope.result.stable);
   let invalidClientFetches = 0;
   await assert.rejects(
     callApiOperation("find", {}, 1_000, {
       baseUrl,
-      token,
       fetchImpl: async () => { invalidClientFetches += 1; throw new Error("darf nicht senden"); },
     }),
     (error) => error?.kind === "bad-args",
@@ -413,27 +383,25 @@ try {
       acknowledgeApply: true,
     }, 1_000, {
       baseUrl,
-      token,
       fetchImpl: async () => { invalidClientFetches += 1; throw new Error("darf nicht senden"); },
     }),
     (error) => error?.kind === "payload-too-large",
   );
   assert.equal(invalidClientFetches, 0, "Uebergrosse API-Anfrage darf den Loopback-Server nicht erreichen");
   throwOnLog = true;
-  const succeedsWithoutLog = await callApiOperation("health", {}, 1_000, { baseUrl, token });
+  const succeedsWithoutLog = await callApiOperation("health", {}, 1_000, { baseUrl });
   throwOnLog = false;
   assert.equal(succeedsWithoutLog.ok, true, "Logfehler darf eine gueltige API-Antwort nicht verhindern");
   for (const invalidTimeout of [199, MAX_OPERATION_TIMEOUT_MS + 1, 1_000.5]) {
     await assert.rejects(
-      callApiOperation("health", {}, invalidTimeout, { baseUrl, token }),
+      callApiOperation("health", {}, invalidTimeout, { baseUrl }),
       /Zeitlimit.*zwischen/,
     );
   }
   const externalAbort = new AbortController();
   const externallyCancelled = callApiOperation("health", {}, 1_000, {
     baseUrl,
-    token,
-    signal: externalAbort.signal,
+      signal: externalAbort.signal,
     fetchImpl: (_url, init) => new Promise((_, reject) => {
       const rejectWithReason = () => reject(init.signal.reason);
       if (init.signal.aborted) rejectWithReason();
@@ -443,16 +411,12 @@ try {
   externalAbort.abort(new Error("synthetischer Aufruferabbruch"));
   await assert.rejects(externallyCancelled, (error) => error?.kind === "aborted");
   await assert.rejects(
-    callApiOperation("health", {}, 1_000, { baseUrl: "http://192.0.2.10:43127", token }),
+    callApiOperation("health", {}, 1_000, { baseUrl: "http://192.0.2.10:43127" }),
     /Loopback/,
   );
   await assert.rejects(
-    callApiOperation("health", {}, 1_000, { baseUrl: `${baseUrl}/v1`, token }),
+    callApiOperation("health", {}, 1_000, { baseUrl: `${baseUrl}/v1` }),
     /Host und Port/,
-  );
-  await assert.rejects(
-    callApiOperation("health", {}, 1_000, { baseUrl, token: "ungueltig mit leerzeichen und lang genug" }),
-    /TOKEN fehlt oder ist ungueltig/,
   );
   const responseFor = (payload, body = JSON.stringify({ requestId: randomUUID(), durationMs: 0, ...payload })) => async () => new Response(body, {
     status: 200,
@@ -461,7 +425,6 @@ try {
   await assert.rejects(
     callApiOperation("health", {}, 1_000, {
       baseUrl,
-      token,
       fetchImpl: responseFor({ apiVersion: "v1", operation: "find", result: { ok: true } }),
     }),
     /andere Operation/,
@@ -469,19 +432,17 @@ try {
   await assert.rejects(
     callApiOperation("health", {}, 1_000, {
       baseUrl,
-      token,
       fetchImpl: responseFor({ apiVersion: "v2", operation: "health", result: { ok: true } }),
     }),
     /Version/,
   );
   await assert.rejects(
-    callApiOperation("health", {}, 1_000, { baseUrl, token, fetchImpl: responseFor({}, "kein-json") }),
+    callApiOperation("health", {}, 1_000, { baseUrl, fetchImpl: responseFor({}, "kein-json") }),
     /kein gueltiges JSON/,
   );
   await assert.rejects(
     callApiOperation("health", {}, 1_000, {
       baseUrl,
-      token,
       fetchImpl: async () => new Response("{}", { status: 200, headers: { "content-type": "text/plain" } }),
     }),
     /Content-Type application\/json/,
@@ -489,7 +450,6 @@ try {
   await assert.rejects(
     callApiOperation("health", {}, 1_000, {
       baseUrl,
-      token,
       fetchImpl: responseFor({
         apiVersion: "v1", requestId: "keine-uuid", durationMs: 0, operation: "health", result: { ok: true },
       }),
@@ -499,7 +459,6 @@ try {
   await assert.rejects(
     callApiOperation("health", {}, 1_000, {
       baseUrl,
-      token,
       fetchImpl: responseFor({
         apiVersion: "v1", requestId: randomUUID(), durationMs: -1, operation: "health", result: { ok: true },
       }),
@@ -509,8 +468,7 @@ try {
   let operationFetchInit;
   const transportChecked = await callApiOperation("health", {}, 1_000, {
     baseUrl,
-    token,
-    fetchImpl: async (_url, init) => {
+      fetchImpl: async (_url, init) => {
       operationFetchInit = init;
       return new Response(JSON.stringify({
         apiVersion: "v1",
@@ -527,7 +485,6 @@ try {
   await assert.rejects(
     callApiOperation("health", {}, 1_000, {
       baseUrl,
-      token,
       fetchImpl: async () => new Response(JSON.stringify({
         apiVersion: "v1",
         requestId: randomUUID(),
@@ -541,8 +498,7 @@ try {
   let discoveryFetchInit;
   await readApiDiscovery({
     baseUrl,
-    token,
-    fetchImpl: async (_url, init) => {
+      fetchImpl: async (_url, init) => {
       discoveryFetchInit = init;
       return new Response(JSON.stringify(SSE_API_DISCOVERY), {
         status: 200,
@@ -555,7 +511,6 @@ try {
   await assert.rejects(
     callApiOperation("health", {}, 1_000, {
       baseUrl,
-      token,
       fetchImpl: async () => new Response(JSON.stringify({
         apiVersion: "v1",
         error: { code: "busy", message: "Queue voll" },
@@ -566,7 +521,6 @@ try {
   await assert.rejects(
     callApiOperation("health", {}, 1_000, {
       baseUrl,
-      token,
       fetchImpl: async () => new Response(JSON.stringify({
         apiVersion: "v1",
         requestId: randomUUID(),
@@ -578,14 +532,13 @@ try {
   await assert.rejects(
     readApiDiscovery({
       baseUrl,
-      token,
       fetchImpl: async () => new Response(JSON.stringify({
         apiVersion: "v1",
         requestId: randomUUID(),
-        error: { code: "unauthorized", message: "Token falsch" },
-      }), { status: 401, headers: { "content-type": "application/json" } }),
+        error: { code: "forbidden", message: "Aufruf aus einem Browser" },
+      }), { status: 403, headers: { "content-type": "application/json" } }),
     }),
-    (error) => error?.kind === "unauthorized" && /Token falsch/.test(error.message),
+    (error) => error?.kind === "forbidden" && /Browser/.test(error.message),
   );
   await assert.rejects(
     readApiJsonResponse(new Response(Buffer.from([0x7b, 0x22, 0x80, 0x22, 0x7d]), {
@@ -609,13 +562,13 @@ try {
     /groesser als 8 Bytes/,
   );
 
-  await callApiOperation("list_cases", {}, 1_000, { baseUrl, token });
+  await callApiOperation("list_cases", {}, 1_000, { baseUrl });
   assert.equal(calls.at(-1).args.dir, config.caseDir, "API muss lokalen Fallordner injizieren");
 
-  await callApiOperation("list_cases", { dir: "D:\\Explicit" }, 1_000, { baseUrl, token });
+  await callApiOperation("list_cases", { dir: "D:\\Explicit" }, 1_000, { baseUrl });
   assert.equal(calls.at(-1).args.dir, "D:\\Explicit", "explizite kompatible Argumente bleiben erhalten");
 
-  const launched = await callApiOperation("launch", { mode: "einur" }, 30_000, { baseUrl, token });
+  const launched = await callApiOperation("launch", { mode: "einur" }, 30_000, { baseUrl });
   const launchCall = calls.findLast((entry) => entry.operation === "launch");
   assert.equal(launchCall.args.exe, config.sseExecutable, "nur die API kennt den lokalen SSE-Pfad");
   assert.deepEqual(
@@ -634,7 +587,7 @@ try {
   const callsBeforeRejectedExe = calls.length;
   const rejectedExe = await fetch(`${baseUrl}/v1/operations/launch`, {
     method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    headers: { "content-type": "application/json" },
     body: JSON.stringify({ args: { exe: "C:\\Other\\program.exe" }, timeoutMs: 1_000 }),
   });
   assert.equal(rejectedExe.status, 400);
@@ -657,7 +610,7 @@ try {
     "scenario_run",
     { scenarioRef: "config-injection.json" },
     5_000,
-    { baseUrl, token },
+    { baseUrl },
   );
   assert.equal(
     scenario.ok,
@@ -669,7 +622,7 @@ try {
     "Szenario muss den lokalen Fallordner nur bis zum Worker injizieren",
   );
 
-  const checker = await callApiOperation("checker_open", { name: "Pruefhinweis" }, 5_000, { baseUrl, token });
+  const checker = await callApiOperation("checker_open", { name: "Pruefhinweis" }, 5_000, { baseUrl });
   assert.equal(checker.ok, true);
   assert.equal(checker.text, "Detail");
   assert.equal(checker.kontrollbildEnthalten, true);
@@ -678,7 +631,7 @@ try {
   checkerState.active = true;
   checkerState.expanded = false;
   const collapsedStart = calls.length;
-  const expandedChecker = await callApiOperation("checker_open", { name: "Pruefhinweis" }, 5_000, { baseUrl, token });
+  const expandedChecker = await callApiOperation("checker_open", { name: "Pruefhinweis" }, 5_000, { baseUrl });
   assert.equal(expandedChecker.ok, true);
   const collapsedCalls = calls.slice(collapsedStart);
   assert(
@@ -690,7 +643,7 @@ try {
   checkerState.expanded = false;
   checkerState.page = "Prüfen und Abgeben";
   const inactiveStart = calls.length;
-  const startedChecker = await callApiOperation("checker_open", { name: "Pruefhinweis" }, 5_000, { baseUrl, token });
+  const startedChecker = await callApiOperation("checker_open", { name: "Pruefhinweis" }, 5_000, { baseUrl });
   assert.equal(startedChecker.ok, true);
   const inactiveEntries = calls.slice(inactiveStart);
   const inactiveCalls = inactiveEntries.map((entry) => entry.operation);
@@ -706,7 +659,7 @@ try {
   const abortController = new AbortController();
   const aborting = fetch(`${baseUrl}/v1/operations/find`, {
     method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    headers: { "content-type": "application/json" },
     body: JSON.stringify({ args: { name: "__wait_for_abort__" }, timeoutMs: 2_000 }),
     signal: abortController.signal,
   });
@@ -722,7 +675,7 @@ try {
 
   const badBody = await fetch(`${baseUrl}/v1/operations/health`, {
     method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    headers: { "content-type": "application/json" },
     body: JSON.stringify({ args: [] }),
   });
   assert.equal(badBody.status, 400);
@@ -730,7 +683,6 @@ try {
   const callsBeforeTransportRejections = calls.length;
   const missingContentType = await fetch(`${baseUrl}/v1/operations/health`, {
     method: "POST",
-    headers: { authorization: `Bearer ${token}` },
     body: JSON.stringify({ args: {} }),
   });
   assert.equal(missingContentType.status, 415);
@@ -738,7 +690,7 @@ try {
 
   const emptyJsonBody = await fetch(`${baseUrl}/v1/operations/health`, {
     method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    headers: { "content-type": "application/json" },
     body: "",
   });
   assert.equal(emptyJsonBody.status, 400);
@@ -746,7 +698,7 @@ try {
 
   const invalidUtf8 = await fetch(`${baseUrl}/v1/operations/find`, {
     method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json; charset=utf-8" },
+    headers: { "content-type": "application/json; charset=utf-8" },
     body: Buffer.concat([
       Buffer.from('{"args":{"name":"', "ascii"),
       Buffer.from([0x80]),
@@ -760,7 +712,7 @@ try {
   const callsBeforeUnknownArg = calls.length;
   const unknownArg = await fetch(`${baseUrl}/v1/operations/health`, {
     method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    headers: { "content-type": "application/json" },
     body: JSON.stringify({ args: { unexpected: true } }),
   });
   assert.equal(unknownArg.status, 400);
@@ -769,7 +721,7 @@ try {
 
   const unknownEnvelopeField = await fetch(`${baseUrl}/v1/operations/health`, {
     method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    headers: { "content-type": "application/json" },
     body: JSON.stringify({ args: {}, "private-field-name-must-not-be-logged": 5_000 }),
   });
   assert.equal(unknownEnvelopeField.status, 400);
@@ -780,14 +732,14 @@ try {
 
   const badTimeout = await fetch(`${baseUrl}/v1/operations/health`, {
     method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    headers: { "content-type": "application/json" },
     body: JSON.stringify({ args: {}, timeoutMs: 199 }),
   });
   assert.equal(badTimeout.status, 400);
 
   const oversized = await fetch(`${baseUrl}/v1/operations/health`, {
     method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    headers: { "content-type": "application/json" },
     body: JSON.stringify({ args: { value: "x".repeat(MAX_API_BODY_BYTES) } }),
   });
   assert.equal(oversized.status, 413);
@@ -804,10 +756,9 @@ try {
     request.once("error", reject);
     request.end();
   });
-  assert.equal(oddHostStatus, 200, "Ein ungewoehnlicher Host-Header darf die Loopback-API nicht beenden");
+  assert.equal(oddHostStatus, 403, "Ein ungewoehnlicher Host-Header ist kein Loopback-Name und wird abgewiesen");
 
   const serializedLogs = JSON.stringify(logs);
-  assert(!serializedLogs.includes(token));
   assert(!serializedLogs.includes("private-tax-value"));
   assert(!serializedLogs.includes("private-field-name-must-not-be-logged"));
   assert(logs.every((record) => !Object.hasOwn(record, "message")), "API-Log darf keine request-abgeleiteten Meldungen speichern");

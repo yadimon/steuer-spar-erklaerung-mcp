@@ -27,7 +27,7 @@ import { DESKTOP_MARKER_PATH } from "../dist/desktop-marker.js";
 assert.equal(process.platform, "win32", "Der Center-Livetest benoetigt Windows.");
 assert.equal(process.env.SSE_PROFILE_ID ?? "2025", "2025", "Center ist live bislang nur fuer Profil 2025 verifiziert.");
 assert.equal(process.env.SSE_CENTER_LIVE_TEST, "1", "Die Center-Test-Owner-Policy ist nicht explizit aktiviert.");
-assert(process.env.SSE_API_URL && process.env.SSE_API_TOKEN, "Der Test laeuft nur ueber test/with-api.mjs.");
+assert(process.env.SSE_API_URL, "Der Test laeuft nur ueber test/with-api.mjs.");
 
 const powershell = process.env.SSE_POWERSHELL_EXE ?? join(
   process.env.SystemRoot ?? process.env.WINDIR ?? "C:\\Windows",

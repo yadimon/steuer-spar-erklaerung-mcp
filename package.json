@@ -1,7 +1,7 @@
 {
   "name": "steuer-spar-erklaerung-mcp",
-  "version": "0.1.0-beta.18",
-  "description": "Workspace for the unofficial SteuerSparErklaerung API, MCP wrapper and portable Windows release",
+  "version": "0.1.0-beta.19",
+  "description": "Workspace for the unofficial SteuerSparErklaerung API and MCP wrapper",
   "license": "MIT",
   "private": true,
   "packageManager": "npm@10.9.2",
@@ -33,7 +33,6 @@
     "build:ts": "npm run prune:dist && tsc",
     "prune:dist": "node scripts/prune-dist.mjs",
     "watch": "tsc --watch",
-    "setup": "node dist/setup-main.js",
     "start": "node dist/index.js",
     "start:api": "node dist/api-main.js",
     "smoke": "node test/with-api.mjs node dist/index.js --selftest",

@@ -5,9 +5,7 @@
   },
   "files": [
     "src/api-main.ts",
-    "src/api-cli.ts",
-    "src/setup-main.ts",
-    "src/api-mcp-bootstrap.ts"
+    "src/api-cli.ts"
   ],
   "include": []
 }

@@ -9,7 +9,6 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { createApiExecutor } from "../dist/api-executor.js";
 import { createSseApiServer } from "../dist/api-server.js";
 
-const token = "mcp-cancellation-token-with-24-characters";
 const temporary = mkdtempSync(join(tmpdir(), "sse-mcp-cancellation-"));
 const workspaceDir = join(temporary, "workspace");
 const resultDir = join(temporary, "results");
@@ -20,7 +19,6 @@ writeFileSync(join(workspaceDir, "large.bin"), Buffer.alloc(16 * 1024 * 1024, 0x
 const config = {
   host: "127.0.0.1",
   port: 1,
-  token,
   configPath: join(temporary, "config.json"),
   workspaceDir,
   resultDir,
@@ -42,7 +40,6 @@ const execute = async (operation, args, timeoutMs, signal) => {
 };
 
 const api = createSseApiServer({
-  config,
   execute,
   log: (record) => {
     logs.push(record);
@@ -89,7 +86,6 @@ const transport = new StdioClientTransport({
   env: {
     ...process.env,
     SSE_API_URL: `http://127.0.0.1:${address.port}`,
-    SSE_API_TOKEN: token,
   },
 });
 const client = new Client({ name: "sse-mcp-cancellation", version: "1.0.0" });

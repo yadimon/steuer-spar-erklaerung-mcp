@@ -8,18 +8,9 @@ import { createSseApiServer } from "../dist/api-server.js";
 import { SSE_MCP_TOOL_OPERATIONS } from "../dist/operation-catalog.js";
 import { sampleJsonSchema } from "./json-schema-samples.mjs";
 
-const token = "mcp-api-all-token-with-at-least-24-characters";
 const expectedToolCount = Object.keys(SSE_MCP_TOOL_OPERATIONS).length;
 const calls = [];
 const api = createSseApiServer({
-  config: {
-    host: "127.0.0.1",
-    port: 1,
-    token,
-    configPath: "unused.json",
-    workspaceDir: process.cwd(),
-    resultDir: process.cwd(),
-  },
   execute: async (operation, args) => {
     calls.push({ operation, args });
     return {
@@ -57,7 +48,6 @@ const transport = new StdioClientTransport({
   env: {
     ...process.env,
     SSE_API_URL: `http://127.0.0.1:${address.port}`,
-    SSE_API_TOKEN: token,
   },
 });
 const client = new Client({ name: "sse-mcp-api-all", version: "1.0.0" });

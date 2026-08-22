@@ -1,6 +1,6 @@
 ---
 name: steuer-spar-erklaerung
-description: Prüft einen konkreten Steuerfall in einer vom lokalen Release unterstützten SteuerSparErklärung unter Windows, gleicht ihn mit Belegen ab, richtet bei Bedarf die lokale Automation über npm oder ein portables Release ein oder bearbeitet nach Freigabe eine verifizierte Arbeitskopie. Verwenden bei „meine Steuererklärung prüfen“, SteuerSparErklärung/SSE bedienen, Belege abgleichen sowie API- oder MCP-Einrichtung; nicht für allgemeine Steuerfragen ohne lokalen SSE-Fall und niemals für ELSTER-Versand.
+description: Prüft einen konkreten Steuerfall in einer vom lokalen Release unterstützten SteuerSparErklärung unter Windows, gleicht ihn mit Belegen ab, richtet bei Bedarf die lokale Automation über npm ein oder bearbeitet nach Freigabe eine verifizierte Arbeitskopie. Verwenden bei „meine Steuererklärung prüfen“, SteuerSparErklärung/SSE bedienen, Belege abgleichen sowie API- oder MCP-Einrichtung; nicht für allgemeine Steuerfragen ohne lokalen SSE-Fall und niemals für ELSTER-Versand.
 ---
 
 # SteuerSparErklärung sicher prüfen
@@ -20,7 +20,7 @@ Ordne den Auftrag ohne technische Rückfrage einem sicheren Modus zu:
 - „UStVA“, „Umsatzsteuer-Voranmeldung“, Monat oder Quartal vorbereiten:
   UStVA-Modus; Zieljahr, gesetzliche Frequenz und vorhandene Übermittlung
   zuerst prüfen, nur bei ausdrücklichem Auftrag in einer Arbeitskopie ändern;
-- „einrichten“ oder „Verbindung reparieren“: Setup-Modus, noch keine
+- „einrichten“ oder „Verbindung reparieren“: Einrichtungsmodus, noch keine
   Steuerdaten lesen.
 
 Bestätige den erkannten Modus in einem kurzen deutschen Satz. Erkläre API, MCP,
@@ -83,15 +83,32 @@ keine installierte Versionsabweichung. Nach einem erlaubten Launch muss
 `product_info` den laufenden Build erneut bestimmen; erst dessen nichtleerer
 `current`-Wert ist ein echter Gleich-/Driftnachweis.
 
+## Zuerst: ist ein Transport da?
+
+Beginne jeden Auftrag mit genau einem Aufruf von `sse_health`. Sein Ergebnis
+entscheidet den weiteren Weg, und zwar ohne Rückfrage:
+
+1. **`ok=true`** — MCP und API laufen. Arbeite normal weiter.
+2. **MCP-Tool existiert, meldet aber die API als nicht erreichbar** — die
+   API läuft nicht. Starte sie im Ordner in einem eigenen offenen Terminal
+   (`node_modules\.bin\steuer-spar-erklaerung-api.cmd --config <absolut>\config.json`)
+   und wiederhole `sse_health` höchstens zweimal im Abstand von zwei Sekunden.
+3. **Es gibt gar kein `sse_*`-Tool** — der MCP-Server ist beim Client nicht
+   angemeldet. Wechsle in den Einrichtungsmodus, arbeite `docs/INSTALLATION.md`
+   ab und komm danach hierher zurück. Lies in diesem Zustand keine Steuerdaten.
+
+Nach einer frischen MCP-Anmeldung lädt der laufende Client den Server nicht
+nach. Melde dann „Technisches Setup bereit; Client-Verifikation nach Neustart
+offen." und verlange genau einen Neustart, statt einen Tool-Erfolg zu behaupten.
+
 ## Architektur richtig verwenden
 
 Die lokale HTTP-API auf Loopback ist der universelle Kern. Nur sie kennt
 `SSE.exe`, lokale Pfade, Arbeitsbereich, Falldateien und UI Automation.
 
-MCP ist ein optionaler dünner Wrapper. Sein Prozess kennt nur API-URL und
-Token; die Client-Konfiguration selbst bleibt tokenfrei und startet den lokalen
-Bootstrap. Fehlt MCP oder unterstützt der Agent kein MCP, verwende dieselben
-Operationen direkt über die API. Wechsel während einer möglicherweise
+MCP ist ein dünner Wrapper darüber; sein Prozess kennt nur die API-URL.
+Fehlt MCP oder unterstützt der Agent kein MCP, verwende dieselben
+Operationen direkt über die API-CLI. Wechsel während einer möglicherweise
 begonnenen Schreiboperation nie still den Transport; bei unklarem Zustand stoppen.
 
 Hat der Nutzer ausdrücklich „über npx“, „ohne Installation“ oder „ohne MCP“
@@ -102,20 +119,17 @@ ausdrücklich gewählt oder bereits für den Auftrag verwendet, ersetze einen
 fehlgeschlagenen oder abgebrochenen MCP-Aufruf nicht still durch die API-CLI;
 lies zuerst den frischen Zustand und stoppe bei möglicher Mutation.
 
-Lies oder parse `config.json` niemals, um das API-Token selbst zu extrahieren.
-Verwende für authentifizierte direkte Aufrufe ausschließlich die ausgelieferte
-CLI, die das Token intern lädt; baue keinen `curl`-, `Invoke-RestMethod`- oder
-eigenen HTTP-Befehl mit Bearer-Token. Nur `/healthz` darf ohne Token direkt
-geprüft werden.
-Nennt der tokenfreie MCP-Eintrag einen expliziten `--config`-Pfad, verwende
-genau diesen absoluten Pfad unverändert auch für `setup --check` und jeden
-direkten API-CLI-Aufruf. Prüfe nur, dass er als Datei existiert; öffne oder
-parse ihn nicht und suche nicht nach einer vermeintlichen Standardkopie unter
-`AppData`.
+Die API kennt keine Anmeldung; es gibt kein Token zu lesen oder zu schützen.
+Sie weist stattdessen jede Anfrage mit `Origin`, `Sec-Fetch-Site` oder einem
+fremden `Host` mit 403 ab, damit keine Webseite im Browser des Nutzers die
+Steuersoftware steuern kann. Verwende trotzdem die ausgelieferte CLI statt
+eigener HTTP-Befehle: sie kennt Argumentschemata, Grenzen und Ergebnisverträge.
+
+Nennt der MCP-Eintrag einen expliziten `--config`-Pfad, verwende genau diesen
+absoluten Pfad unverändert auch für direkte API-CLI-Aufrufe.
 
 Für direkte API-Aufrufe bevorzuge die ausgelieferte
-`steuer-spar-erklaerung-call`-CLI beziehungsweise im portablen Ordner
-`runtime/node.exe dist/api-cli.js`. Beginne bei einer bekannten Einzelaktion
+`steuer-spar-erklaerung-call`-CLI. Beginne bei einer bekannten Einzelaktion
 mit `describe <operation>` und nur bei einer breiten Planung mit `discovery`; für komplexe
 Argumente bevorzugt eine neue begrenzte UTF-8-JSON-Datei per `--args-file`
 verwenden. `--args-file -` ist nur für kleine, im selben Prozess erzeugte
@@ -124,9 +138,9 @@ durch eine Windows-PowerShell-Pipeline an stdin reichen: deren implizite
 Codepage kann Umlaute unbemerkt durch `?` ersetzen. Dafür JSON UTF-8 ohne BOM
 in eine private Datei schreiben, diese zurückparsen und ihren Pfad an
 `--args-file` übergeben. Schreibe Steuerwerte nie als Inline-JSON in die
-Kommandozeile oder Prozessliste. Ist ein eigener Client sinnvoller, lies `openapi` und verwende
-ausschließlich die dort aktuell veröffentlichten Bearer-geschützten Verträge.
-Leite Anzahl und Namen immer aus der Laufzeitquelle ab.
+Kommandozeile oder Prozessliste. Ist ein eigener Client sinnvoller, lies `openapi` und verwende ausschließlich
+die dort aktuell veröffentlichten Verträge. Leite Anzahl und Namen immer aus
+der Laufzeitquelle ab.
 
 ### NPX-Kurzweg ohne globale Runtime-Installation
 
@@ -143,9 +157,8 @@ Ende des Auftrags offen:
 npx.cmd -y @yadimon/steuer-spar-erklaerung-api --case-dir "<ABSOLUTER_FALLORDNER>"
 ```
 
-Der erste Start erzeugt bei fehlendem Standard-Setup nur eine lokale
-token-geschützte Konfiguration und private Arbeitsordner unter dem normalen
-Benutzerprofil. `--case-dir` bindet den bestätigten Fallordner ausschließlich
+Der erste Start legt nur private Arbeitsordner unter dem normalen
+Benutzerprofil an. `--case-dir` bindet den bestätigten Fallordner ausschließlich
 an diesen laufenden Prozess. Es ist die Auflösungs- und Schwärzungsgrenze für
 `cases:`-Referenzen, keine Zugriffssperre der direkten API.
 Es wird kein dauerhafter Launcher in den flüchtigen `_npx`-Cache geschrieben.
@@ -156,7 +169,7 @@ Meldet der Start, dass auf dem Loopback-Port bereits eine SSE-API läuft, fahre
 nicht fort. Es kann eine anders konfigurierte Instanz sein. Verwende entweder
 bewusst die laufende Installation oder lasse den Nutzer sie zuerst beenden.
 
-Rufe aus einem zweiten Prozess über die CLI auf, ohne das Token zu lesen:
+Rufe aus einem zweiten Prozess über die CLI auf:
 
 ```powershell
 npx.cmd -y -p @yadimon/steuer-spar-erklaerung-api steuer-spar-erklaerung-call discovery
@@ -177,27 +190,17 @@ Pfad. Stimmen Name oder Hash nicht überein oder fehlt die Bindung, beende die
 API und starte sie höchstens einmal mit dem bestätigten richtigen Ordner neu;
 ändere `config.json` dafür nicht manuell.
 
-In diesem Kurzweg können `setup-decisions.json`, `settings.md` und ein altes
-Tracking fehlen. Verwende dann nur die im aktuellen Auftrag ausdrücklich
+In diesem Kurzweg können `settings.md` und ein altes Tracking fehlen. Verwende dann nur die im aktuellen Auftrag ausdrücklich
 bestätigten Fall- und Belegpfade sowie den bestätigten Modus; erfinde oder
 persistiere keine weiteren Präferenzen. Report und Prüffallkopie bleiben
 Pflicht. Beende nach positivem Close-/Hash-Readback auch die Foreground-API mit
 Strg+C. Falls der Agent keinen laufenden Prozess halten kann, biete stattdessen
 das persistente Setup an.
 
-Soll aus diesem Kurzweg ein dauerhaftes Setup werden, ist die Reihenfolge
-bindend: zuerst die Foreground-API mit Strg+C beenden, danach
-`steuer-spar-erklaerung-setup` ausführen. Andernfalls lehnt die noch laufende
-API die sichere Neubindung wegen abweichendem Konfigurationsfingerprint ab.
-Eine reine NPX-Konfiguration meldet `steuer-spar-erklaerung-setup --check`
-als `ok=false` mit `kind="foreground-only-config"`. Das ist keine kaputte
-Installation, sondern „noch kein dauerhaftes Setup“.
-
-Das Setup selbst darf dabei nicht über `npx` laufen. Eine Runtime aus dem
-flüchtigen npx-Cache würde dauerhafte Startpfade in ein Verzeichnis schreiben,
-das wieder verschwindet; der Wizard bricht deshalb bewusst ab und verlangt
-`npm.cmd install --global @yadimon/steuer-spar-erklaerung-api` oder das
-portable Release. Der NPX-Kurzweg bleibt also bewusst der einmalige Prüflauf.
+Soll aus diesem Kurzweg eine dauerhafte Installation im Ordner werden, beende
+zuerst die Foreground-API mit Strg+C — sonst belegt sie den Port — und arbeite
+danach `docs/INSTALLATION.md` ab. Der NPX-Kurzweg bleibt bewusst der einmalige
+Prüflauf ohne Ordnerbindung.
 
 Lege bei direkten Laufzeit- und UI-Aufrufen mit `--journal-file
 <neue-private-datei.jsonl>` immer eine neue Journaldatei im privaten
@@ -245,17 +248,15 @@ alle Jahresprofile aggregiert und kein Nachweis für das aktuell gebundene
 informativ; die tatsächliche Serversperre steht weiterhin ausschließlich in
 `operationPolicy`.
 
-Der Endnutzer braucht kein globales Node.js/npm, kein Python und kein
-PowerShell 7. Ist Node.js/npm schon vorhanden, darf der Setup-Skill die
-veröffentlichten npm-Pakete verwenden; andernfalls enthält das portable
-Release `runtime/node.exe`. Beide Wege verwenden Windows PowerShell 5.1.
+Vorausgesetzt sind Node.js 22+ mit npm; Python und PowerShell 7 nicht.
+Verwendet wird Windows PowerShell 5.1.
 
-## Einstieg und Wizard
+## Einstieg
 
-Prüfe zuerst nur nicht geheime Setup-Metadaten: Betriebssystem, Architektur,
-vorhandenes Release, Konfiguration, API-Health, Produktprofil und
-Arbeitsbereich. Lies danach `setup-decisions.json` und `settings.md` aus diesem
-Arbeitsbereich. Lies noch keine Belege, Connector-Inhalte oder Steuerdaten.
+Prüfe zuerst nur Metadaten: Betriebssystem, Architektur, vorhandenes Release,
+API-Health, Produktprofil und Arbeitsbereich. Lies danach `settings.md` aus
+diesem Arbeitsbereich. Lies noch keine Belege, Connector-Inhalte oder
+Steuerdaten.
 Ist die Einrichtung unvollständig oder sind Fall und Belegquellen noch nicht
 sicher bestätigt, lies
 [references/first-run.md](references/first-run.md) und führe den dortigen
@@ -274,13 +275,13 @@ Angabe. Ein zusätzlicher Satz zur Vollständigkeit ist dann nicht nötig. Fehlt
 jede Belegangabe, stelle die zweite fachliche Frage trotzdem.
 
 Fehlt eine funktionierende Einrichtung und wurde nicht ausdrücklich der
-NPX-Kurzweg gewählt, verwende anschließend `steuer-spar-erklaerung-setup`. Ist dieser Skill nicht installiert, installiere
-beide öffentlichen Skills nach der kanonischen Anleitung
-`https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md`,
-statt die Einrichtung frei zu improvisieren.
-Verlange nach persistentem Setup ein grünes
-`steuer-spar-erklaerung-setup --check` und bei ausdrücklich gewähltem MCP
-zusätzlich Serverliste plus echten Aufruf von `sse_health` mit
+NPX-Kurzweg gewählt, arbeite die kanonische Anleitung
+`https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md`
+ab, statt die Einrichtung frei zu improvisieren. Es gibt kein Setup-Programm:
+Ordner anlegen, zwei npm-Pakete und den Skill installieren, API starten,
+MCP-Server beim Client anmelden.
+Verlange danach einen grünen CLI-Aufruf `health` und bei ausdrücklich
+gewähltem MCP zusätzlich Serverliste plus echten Aufruf von `sse_health` mit
 strukturiertem `ok=true`; „connected“ oder ein Handshake allein genügt nicht.
 Dieser Nachweis muss im MCP-Modus ein tatsächlicher MCP-Tool-Aufruf sein.
 `health` über Shell oder direkte API-CLI ist dort kein Ersatz. Ist `sse_health`
@@ -298,14 +299,12 @@ Kehre danach automatisch
 zum ursprünglichen Prüfauftrag zurück; ein Auftrag wie „Prüfe meine
 Steuererklärung“ ist nicht schon durch die Einrichtung erfüllt. Bereits
 bestätigte Pfade und Entscheidungen nicht erneut erfragen.
-Lehnt der Setup-Wizard einen `--plan-file`-Lauf oder den kontrollierten
-Neustart ab, ändere `config.json`, `setup-decisions.json`, Runtime-Dateien oder
-Prozesse niemals manuell als Umgehung. Melde den konkreten sicheren Stopp.
+Scheitert der Start, ändere `config.json`, Runtime-Dateien oder Prozesse
+niemals manuell als Umgehung. Melde den konkreten sicheren Stopp.
 
-Lies anschließend, sofern Setup-Entscheidungen vorhanden sind, das dort
-benannte Tracking. Im NPX-Kurzweg ohne Entscheidungen gibt es kein implizit
-freigegebenes Tracking; verwende nur eine im aktuellen Auftrag ausdrücklich
-genannte Datei. Mit direktem, freigegebenem Dateizugriff darf Markdown nach
+Lies anschließend das in `settings.md` benannte Tracking. Ohne solche Angabe
+gibt es kein implizit freigegebenes Tracking; verwende nur eine im aktuellen
+Auftrag ausdrücklich genannte Datei. Mit direktem, freigegebenem Dateizugriff darf Markdown nach
 Hashprüfung und Backup aktualisiert werden. Über API/MCP sind Textdateien
 absichtlich create-only: lies den letzten Stand und schreibe einen neuen
 datierten Snapshot unter `workspace:tracking/`, statt eine Datei zu

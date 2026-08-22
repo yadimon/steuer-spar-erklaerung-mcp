@@ -4,11 +4,9 @@ import { createSseApiServer } from "../dist/api-server.js";
 import { SSE_API_DISCOVERY } from "../dist/api-discovery.js";
 import { SSE_OPENAPI_DOCUMENT } from "../dist/api-openapi.js";
 
-const token = "static-api-document-test-token";
 const config = {
   host: "127.0.0.1",
   port: 1,
-  token,
   configPath: "C:\\StaticApiDocumentTest\\config.json",
   caseDir: "C:\\StaticApiDocumentTest\\cases",
   workspaceDir: "C:\\StaticApiDocumentTest\\workspace",
@@ -16,7 +14,6 @@ const config = {
   sseExecutable: "C:\\StaticApiDocumentTest\\SSE.exe",
 };
 const server = createSseApiServer({
-  config,
   execute: async () => { throw new Error("Discovery-GET darf keinen Executor starten."); },
 });
 const discoverySchema = SSE_API_DISCOVERY.argumentSchemas.health;
@@ -37,7 +34,7 @@ try {
   const address = server.address();
   assert(address && typeof address === "object");
   const baseUrl = `http://127.0.0.1:${address.port}`;
-  const headers = { authorization: `Bearer ${token}` };
+  const headers = {};
 
   for (const [path, expected] of [
     ["/v1/operations", expectedDiscovery],

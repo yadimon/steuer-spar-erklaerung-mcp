@@ -1,7 +1,7 @@
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { DEFAULT_API_HOST, DEFAULT_API_PORT, isValidApiToken } from "./api-contract.js";
+import { DEFAULT_API_HOST, DEFAULT_API_PORT } from "./api-contract.js";
 import { loadProductProfile } from "./product-profiles.js";
 import { readJsonFileStrict } from "./json-files.js";
 
@@ -11,7 +11,6 @@ export interface SseApiServerConfig {
   profileId: string;
   host: string;
   port: number;
-  token: string;
   configPath: string;
   caseDir?: string;
   documentsDir: string;
@@ -27,7 +26,6 @@ interface ConfigFile {
   profileId?: unknown;
   host?: unknown;
   port?: unknown;
-  token?: unknown;
   caseDir?: unknown;
   documentsDir?: unknown;
   workspaceDir?: unknown;
@@ -38,7 +36,7 @@ interface ConfigFile {
 }
 
 const CONFIG_FIELDS = new Set<keyof ConfigFile>([
-  "profileId", "host", "port", "token", "caseDir", "documentsDir",
+  "profileId", "host", "port", "caseDir", "documentsDir",
   "workspaceDir", "resultDir", "backupsDir", "sseExecutable", "operateExperimental",
 ]);
 const STRING_CONFIG_FIELDS = [...CONFIG_FIELDS].filter(
@@ -49,7 +47,6 @@ export const SSE_API_CONFIG_ENVIRONMENT_KEYS = Object.freeze([
   "SSE_API_CONFIG",
   "SSE_API_HOST",
   "SSE_API_PORT",
-  "SSE_API_TOKEN",
   "SSE_API_URL",
   "SSE_PROFILE_ID",
   "SSE_CASE_DIR",
@@ -146,8 +143,8 @@ export function defaultApiConfigPath(env: NodeJS.ProcessEnv = process.env): stri
 
 /**
  * Eine ausdruecklich benannte Konfiguration ist autoritativ. Geerbte SSE_*
- * Werte duerfen weder Server noch CLI unbemerkt auf einen anderen Port, Token
- * oder Arbeitsbereich umlenken.
+ * Werte duerfen weder Server noch CLI unbemerkt auf einen anderen Port oder
+ * Arbeitsbereich umlenken.
  */
 export function environmentForExplicitApiConfig(
   configPath: string,
@@ -168,6 +165,15 @@ export function loadApiServerConfig(env: NodeJS.ProcessEnv = process.env): SseAp
       throw new Error(`API-Konfiguration ist kein JSON-Objekt: ${configPath}`);
     }
     file = parsed as ConfigFile;
+    if ("token" in file) {
+      // Aeltere Betas schrieben ein Bearer-Token. Die API schuetzt sich heute
+      // ueber die Herkunftspruefung, also ist das Feld nicht mehr nur unbekannt
+      // sondern ersatzlos entfallen - das darf die Meldung ruhig sagen.
+      throw new Error(
+        `API-Konfiguration enthaelt das entfallene Feld 'token': ${configPath}. ` +
+          "Zeile loeschen - die API braucht kein Token mehr.",
+      );
+    }
     const unknownFields = Object.keys(file).filter((field) => !CONFIG_FIELDS.has(field as keyof ConfigFile));
     if (unknownFields.length) {
       throw new Error(`Unbekanntes Feld in API-Konfiguration: '${unknownFields.sort()[0]}'.`);
@@ -194,14 +200,6 @@ export function loadApiServerConfig(env: NodeJS.ProcessEnv = process.env): SseAp
   const port = typeof rawPort === "number" ? rawPort : Number(rawPort);
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
     throw new Error("SSE_API_PORT muss eine ganze Zahl zwischen 1 und 65535 sein.");
-  }
-
-  const token = optionalString(env.SSE_API_TOKEN) ?? optionalString(file.token);
-  if (!token || !isValidApiToken(token)) {
-    throw new Error(
-      `API-Token fehlt oder ist ungueltig. '${configPath}' mit dem deutschen Setup-Wizard erzeugen ` +
-        "oder SSE_API_TOKEN mit 24 bis 512 transportierbaren Token-Zeichen setzen.",
-    );
   }
 
   const profileId = optionalString(env.SSE_PROFILE_ID) ?? optionalString(file.profileId) ?? "2025";
@@ -234,7 +232,6 @@ export function loadApiServerConfig(env: NodeJS.ProcessEnv = process.env): SseAp
     profileId,
     host,
     port,
-    token,
     configPath,
     ...(caseDir ? { caseDir } : {}),
     documentsDir,

@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdtempSync, mkdirSync } from "node:fs";
@@ -24,11 +23,9 @@ const resultDir = join(temporary, "results");
 mkdirSync(caseDir, { recursive: true });
 mkdirSync(workspaceDir, { recursive: true });
 mkdirSync(resultDir, { recursive: true });
-const token = randomBytes(32).toString("base64url");
 const config = {
   host: "127.0.0.1",
   port: 1,
-  token,
   configPath: join(temporary, "config.json"),
   workspaceDir,
   resultDir,
@@ -41,7 +38,7 @@ const config = {
   operateExperimental: process.env.SSE_OPERATE_EXPERIMENTAL === "1",
 };
 const execute = traceOperations("worker", createApiExecutor(config, callWorker));
-const server = createSseApiServer({ config, execute });
+const server = createSseApiServer({ execute });
 server.listen(0, "127.0.0.1");
 await once(server, "listening");
 const address = server.address();
@@ -54,7 +51,6 @@ try {
     env: {
       ...process.env,
       SSE_API_URL: `http://127.0.0.1:${address.port}`,
-      SSE_API_TOKEN: token,
       SSE_TEST_CASE_DIR: caseDir,
       SSE_TEST_WORKSPACE_DIR: workspaceDir,
       SSE_TEST_RESULT_DIR: resultDir,

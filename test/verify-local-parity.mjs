@@ -27,7 +27,6 @@ const execute = traceOperations("local-file", createApiExecutor(
   {
     host: "127.0.0.1",
     port: 43127,
-    token: "verify-local-parity-token-24-characters",
     configPath: join(temporary, "config.json"),
     profileId: "2025",
     caseDir: cases,

@@ -44,7 +44,6 @@ assert.deepEqual(apiPackage.cpu, ["x64"]);
 assert.deepEqual(apiPackage.bin, {
   "steuer-spar-erklaerung-api": "dist/api-main.js",
   "steuer-spar-erklaerung-call": "dist/api-cli.js",
-  "steuer-spar-erklaerung-setup": "dist/setup-main.js",
 });
 assert.equal(
   Object.keys(apiPackage.bin)[0],
@@ -63,9 +62,8 @@ for (const required of [
   "SteuerSparErklärung 2025 / Engine-Major 31",
   "@yadimon/steuer-spar-erklaerung-api",
   "API-Wrapper",
-  "Setup-Skill",
+  "Installationsanleitung",
   "ELSTER",
-  "GitHub Releases",
 ]) {
   assert(apiReadme.includes(required), `API-Paket-README verschweigt: ${required}`);
 }
@@ -76,7 +74,6 @@ for (const required of [
   "@yadimon/steuer-spar-erklaerung-mcp",
   "88 fachliche MCP-Toolnamen",
   "structuredContent",
-  "SSE_API_TOKEN",
   "ELSTER",
 ]) {
   assert(mcpReadme.includes(required), `MCP-Paket-README verschweigt: ${required}`);
@@ -114,11 +111,6 @@ for (const required of [
   "dist/api-discovery.js",
   "dist/api-openapi.js",
   "dist/jsonl-logger.js",
-  "dist/setup-main.js",
-  "dist/setup-main-arguments.js",
-  "dist/setup-check.js",
-  "dist/setup.js",
-  "dist/api-mcp-bootstrap.js",
   "dist/operation-catalog.js",
   ...WORKER_RUNTIME_FILES.map((name) => `powershell/${name}`),
   "powershell/api-task-common.ps1",

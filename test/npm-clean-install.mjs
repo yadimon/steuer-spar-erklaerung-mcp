@@ -100,7 +100,6 @@ try {
   const commands = [
     "steuer-spar-erklaerung-api",
     "steuer-spar-erklaerung-call",
-    "steuer-spar-erklaerung-setup",
     "steuer-spar-erklaerung-mcp",
   ];
   for (const command of commands) {

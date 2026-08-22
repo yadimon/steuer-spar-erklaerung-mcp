@@ -11,7 +11,6 @@ import { SSE_API_OPERATIONS } from "../dist/api-contract.js";
 import { createSseApiServer } from "../dist/api-server.js";
 
 const temporary = mkdtempSync(join(tmpdir(), "sse-api-cli-"));
-const token = "api-cli-contract-token-with-at-least-24-characters";
 const workspaceDir = join(temporary, "workspace");
 const resultDir = join(workspaceDir, "results");
 mkdirSync(resultDir, { recursive: true });
@@ -20,7 +19,6 @@ const config = {
   profileId: "2025",
   host: "127.0.0.1",
   port: 1,
-  token,
   configPath: join(temporary, "config.json"),
   documentsDir: join(workspaceDir, "documents"),
   workspaceDir,
@@ -31,7 +29,6 @@ let executeCalls = 0;
 let executeDelayMs = 0;
 let nextResult;
 const server = createSseApiServer({
-  config,
   execute: async (operation, args) => {
     executeCalls += 1;
     if (executeDelayMs > 0) {
@@ -55,7 +52,6 @@ writeFileSync(config.configPath, `${JSON.stringify({
   profileId: config.profileId,
   host: config.host,
   port: config.port,
-  token: config.token,
   documentsDir: config.documentsDir,
   workspaceDir: config.workspaceDir,
   resultDir: config.resultDir,
@@ -67,7 +63,6 @@ const spawnCli = (input, ...args) => {
     cwd: process.cwd(),
     env: {
       ...process.env,
-      SSE_API_TOKEN: "wrong-environment-token-with-at-least-24-characters",
       SSE_API_PORT: "9",
       SSE_API_URL: "http://127.0.0.1:9",
     },
@@ -227,7 +222,6 @@ try {
   const rejectedInline = await runCli("find", "--args-json", "{}", "--config", config.configPath);
   assert.equal(rejectedInline.code, 2);
   assert.match(rejectedInline.stderr, /Unbekannte Option '--args-json'/);
-  assert(!rejectedInline.stderr.includes(token));
 } finally {
   await new Promise((resolveClose) => server.close(resolveClose));
   rmSync(temporary, { recursive: true, force: true });

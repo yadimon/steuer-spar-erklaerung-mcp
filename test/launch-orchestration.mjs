@@ -8,7 +8,6 @@ const temporary = mkdtempSync(join(tmpdir(), "sse-launch-orchestration-"));
 const config = {
   host: "127.0.0.1",
   port: 1,
-  token: "launch-orchestration-token-at-least-24-characters",
   configPath: join(temporary, "config.json"),
   workspaceDir: join(temporary, "workspace"),
   resultDir: join(temporary, "results"),

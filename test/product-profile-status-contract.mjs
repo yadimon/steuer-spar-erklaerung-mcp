@@ -47,7 +47,7 @@ const {
   EXPERIMENTAL_PROFILE_VERIFICATION_OPERATIONS,
 } = await import("../dist/api-executor.js");
 const stubConfig = {
-  host: "127.0.0.1", port: 1, token: "t".repeat(43),
+  host: "127.0.0.1", port: 1,
   configPath: join(root, "config.json"),
   profileId: "2024",
   workspaceDir: join(root, "ws"), resultDir: join(root, "res"), caseDir: join(root, "cases"),

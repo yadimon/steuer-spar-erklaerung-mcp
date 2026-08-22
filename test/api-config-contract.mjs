@@ -7,14 +7,13 @@ import { readJsonFileStrict } from "../dist/json-files.js";
 
 const temporary = mkdtempSync(join(tmpdir(), "sse-api-config-"));
 const configPath = join(temporary, "config", "config.json");
-const token = "api-config-contract-token-with-at-least-24-characters";
 mkdirSync(join(temporary, "config"), { recursive: true });
 
 const writeConfig = (value) => writeFileSync(configPath, `${JSON.stringify(value)}\n`, "utf8");
 const load = (overrides = {}) => loadApiServerConfig({ SSE_API_CONFIG: configPath, ...overrides });
 
 try {
-  writeConfig({ token });
+  writeConfig({});
   const minimal = load();
   assert.equal(minimal.host, "127.0.0.1");
   assert.equal(minimal.port, 43127);
@@ -28,13 +27,11 @@ try {
   const overridden = load({
     SSE_API_HOST: "::1",
     SSE_API_PORT: "43210",
-    SSE_API_TOKEN: "environment-token-with-at-least-24-characters",
     SSE_WORKSPACE_DIR: environmentWorkspace,
   });
   assert.equal(overridden.host, "::1");
   assert.equal(overridden.port, 43210);
   assert.equal(overridden.workspaceDir, environmentWorkspace);
-  assert.equal(overridden.token, "environment-token-with-at-least-24-characters");
 
   for (const host of ["0.0.0.0", "localhost", "192.0.2.1"]) {
     assert.throws(() => load({ SSE_API_HOST: host }), /nur an Loopback/);
@@ -42,22 +39,23 @@ try {
   for (const port of ["0", "65536", "1.5", "kein-port"]) {
     assert.throws(() => load({ SSE_API_PORT: port }), /zwischen 1 und 65535/);
   }
-  for (const invalidToken of ["zu-kurz", "x".repeat(513), "ü".repeat(24), "token mit leerzeichen und ausreichender-laenge"]) {
-    assert.throws(() => load({ SSE_API_TOKEN: invalidToken }), /Token fehlt oder ist ungueltig/);
-  }
+  // Ein altes Token in der Datei muss ausdruecklich benannt werden, sonst
+  // wirkt der Wegfall wie ein Tippfehler in der Konfiguration.
+  writeConfig({ token: "irgendein-altes-token" });
+  assert.throws(() => load(), /entfallene Feld 'token'/);
 
   for (const field of ["caseDir", "documentsDir", "workspaceDir", "resultDir", "backupsDir", "sseExecutable"]) {
-    writeConfig({ token, [field]: "relativ" });
+    writeConfig({ [field]: "relativ" });
     assert.throws(() => load(), new RegExp(`${field} muss ein absoluter Windows-Pfad`));
   }
 
-  writeConfig({ token, unbekanntesFeld: true });
+  writeConfig({ unbekanntesFeld: true });
   assert.throws(() => load(), /Unbekanntes Feld.*unbekanntesFeld/);
-  writeConfig({ token, workspaceDir: 123 });
+  writeConfig({ workspaceDir: 123 });
   assert.throws(() => load(), /workspaceDir.*Zeichenkette/);
-  writeConfig({ token, port: true });
+  writeConfig({ port: true });
   assert.throws(() => load(), /port.*Zahl/);
-  writeConfig({ token, workspaceDir: `${temporary}\nsteuerzeichen` });
+  writeConfig({ workspaceDir: `${temporary}\nsteuerzeichen` });
   assert.throws(() => load(), /workspaceDir.*Steuerzeichen/);
   const topologyRoot = join(temporary, "topology");
   for (const unsafe of [
@@ -67,7 +65,7 @@ try {
     { workspaceDir: topologyRoot, caseDir: join(topologyRoot, "cases") },
     { workspaceDir: topologyRoot, documentsDir: join(topologyRoot, "shared"), resultDir: join(topologyRoot, "shared", "results") },
   ]) {
-    writeConfig({ token, ...unsafe });
+    writeConfig({ ...unsafe });
     assert.throws(() => load(), /Ressourcenbereich|Ressourcenbereiche/);
   }
   const junctionWorkspace = join(temporary, "junction-workspace");
@@ -75,11 +73,11 @@ try {
   mkdirSync(junctionWorkspace, { recursive: true });
   mkdirSync(junctionCases, { recursive: true });
   symlinkSync(junctionCases, join(junctionWorkspace, "results"), "junction");
-  writeConfig({ token, workspaceDir: junctionWorkspace, caseDir: junctionCases });
+  writeConfig({ workspaceDir: junctionWorkspace, caseDir: junctionCases });
   assert.throws(() => load(), /'cases'.*'results'|Ressourcenbereiche/);
   const fileInsteadOfDirectory = join(temporary, "kein-ordner.txt");
   writeFileSync(fileInsteadOfDirectory, "datei", "utf8");
-  writeConfig({ token, resultDir: fileInsteadOfDirectory });
+  writeConfig({ resultDir: fileInsteadOfDirectory });
   assert.throws(() => load(), /'results'.*Ordner/);
   writeConfig([]);
   assert.throws(() => load(), /kein JSON-Objekt/);
@@ -87,7 +85,7 @@ try {
   assert.throws(() => load(), /kein gueltiges JSON/);
   writeFileSync(configPath, Buffer.from([0x7b, 0x22, 0x78, 0x22, 0x3a, 0x22, 0x80, 0x22, 0x7d]));
   assert.throws(() => load(), /kein gueltiges UTF-8/);
-  writeConfig({ token });
+  writeConfig({});
   truncateSync(configPath, MAX_API_CONFIG_BYTES + 1);
   assert.throws(() => load(), /konnte nicht sicher gelesen werden.*groesser/);
   writeConfig({ ok: true });
@@ -100,7 +98,6 @@ try {
   );
   const explicitEnvironment = environmentForExplicitApiConfig(configPath, {
     PATH: "synthetic-path",
-    SSE_API_TOKEN: "stale-token-with-at-least-24-characters",
     SSE_API_PORT: "9",
     SSE_CASE_DIR: "C:\\stale",
     SSE_POWERSHELL_EXE: "C:\\managed\\powershell.exe",
@@ -108,12 +105,11 @@ try {
   });
   assert.equal(explicitEnvironment.PATH, "synthetic-path");
   assert.equal(explicitEnvironment.SSE_API_CONFIG, resolve(configPath));
-  assert.equal(explicitEnvironment.SSE_API_TOKEN, undefined);
   assert.equal(explicitEnvironment.SSE_API_PORT, undefined);
   assert.equal(explicitEnvironment.SSE_CASE_DIR, undefined);
   assert.equal(explicitEnvironment.SSE_POWERSHELL_EXE, "C:\\managed\\powershell.exe");
   assert.equal(explicitEnvironment.SSE_TEST_CONCURRENCY, "3");
-  process.stdout.write("API-Konfiguration: Defaults, Overrides, Loopback, Token, Typen, Pfade, UTF-8 und Dateilimits bestanden\n");
+  process.stdout.write("API-Konfiguration: Defaults, Overrides, Loopback, Typen, Pfade, UTF-8 und Dateilimits bestanden\n");
 } finally {
   rmSync(temporary, { recursive: true, force: true });
 }

@@ -79,7 +79,7 @@ export function registerDiagnosticTools(registry: McpRegistry): void {
       title: "Portablen SSE-Arbeitsbereich pruefen",
       description:
         "Prueft ueber die API, ob Arbeits-/Ergebnisbereich, Fallordner und optionaler SSE-Programmpfad " +
-        "eingerichtet sind. Liefert bewusst keine lokalen PC-Pfade; der MCP kennt nur API-URL und Token.",
+        "eingerichtet sind. Liefert bewusst keine lokalen PC-Pfade; der MCP kennt nur die API-URL.",
     },
   );
 

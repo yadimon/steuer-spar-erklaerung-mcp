@@ -7,7 +7,6 @@ import {
   SSE_API_OPERATIONS,
   SSE_API_VERSION,
   isSseApiOperation,
-  isValidApiToken,
   type SseApiOperation,
   type WorkerResult,
 } from "./api-contract.js";
@@ -23,7 +22,6 @@ export { ApiClientError } from "./api-client-error.js";
 
 export interface ApiClientOptions {
   baseUrl?: string;
-  token?: string;
   fetchImpl?: typeof fetch;
   signal?: AbortSignal;
 }
@@ -63,7 +61,6 @@ export interface OpenApiDocument {
 
 interface ApiClientSettings {
   baseUrl: string;
-  token: string;
   fetchImpl: typeof fetch;
   signal?: AbortSignal;
 }
@@ -88,16 +85,8 @@ function clientSettings(options: ApiClientOptions = {}): ApiClientSettings {
   ) {
     throw new ApiClientError("SSE_API_URL darf nur aus Loopback-Host und Port bestehen.", "setup");
   }
-  const token = options.token ?? process.env.SSE_API_TOKEN ?? "";
-  if (!token || !isValidApiToken(token)) {
-    throw new ApiClientError(
-      "SSE_API_TOKEN fehlt oder ist ungueltig. Zuerst den deutschen Setup-Wizard ausfuehren und den erzeugten tokenfreien MCP-Bootstrap verwenden.",
-      "setup",
-    );
-  }
   return {
     baseUrl: parsedUrl.origin,
-    token,
     fetchImpl: options.fetchImpl ?? localHttpFetch,
     ...(options.signal ? { signal: options.signal } : {}),
   };
@@ -281,7 +270,7 @@ export async function readApiJsonResponse(
 const MAX_API_DOCUMENT_BYTES = 1024 * 1024;
 const API_DOCUMENT_TIMEOUT_MS = 10_000;
 
-async function readAuthenticatedApiDocument(
+async function readApiDocument(
   path: string,
   options: ApiClientOptions,
 ): Promise<Record<string, unknown>> {
@@ -294,7 +283,7 @@ async function readAuthenticatedApiDocument(
       async (signal) => {
         const response = await settings.fetchImpl(`${settings.baseUrl}/${SSE_API_VERSION}/${path}`, {
           method: "GET",
-          headers: { accept: "application/json", authorization: `Bearer ${settings.token}` },
+          headers: { accept: "application/json" },
           redirect: "error",
           signal,
         });
@@ -342,7 +331,7 @@ async function readAuthenticatedApiDocument(
 }
 
 export async function readApiDiscovery(options: ApiClientOptions = {}): Promise<ApiDiscoveryDocument> {
-  const payload = await readAuthenticatedApiDocument("operations", options);
+  const payload = await readApiDocument("operations", options);
   const operations = Array.isArray(payload.operations) ? payload.operations : [];
   const argumentSchemas = isRecord(payload.argumentSchemas) ? payload.argumentSchemas : {};
   const resultSchemas = isRecord(payload.resultSchemas) ? payload.resultSchemas : {};
@@ -375,7 +364,7 @@ export async function readApiOperationDiscovery(
   if (!isSseApiOperation(operation)) {
     throw new ApiClientError(`Operation '${operation}' ist nicht Teil der freigegebenen SSE-API.`, "operation");
   }
-  const payload = await readAuthenticatedApiDocument(`operations/${operation}`, options);
+  const payload = await readApiDocument(`operations/${operation}`, options);
   if (
     payload.schemaVersion !== 1 ||
     payload.apiVersion !== SSE_API_VERSION ||
@@ -392,13 +381,11 @@ export async function readApiOperationDiscovery(
 }
 
 export async function readOpenApiDocument(options: ApiClientOptions = {}): Promise<OpenApiDocument> {
-  const payload = await readAuthenticatedApiDocument("openapi.json", options);
+  const payload = await readApiDocument("openapi.json", options);
   const info = isRecord(payload.info) ? payload.info : {};
   const paths = isRecord(payload.paths) ? payload.paths : {};
   const components = isRecord(payload.components) ? payload.components : {};
   const schemas = isRecord(components.schemas) ? components.schemas : {};
-  const securitySchemes = isRecord(components.securitySchemes) ? components.securitySchemes : {};
-  const bearerAuth = isRecord(securitySchemes.bearerAuth) ? securitySchemes.bearerAuth : {};
   const operationPaths = SSE_API_OPERATIONS.map((operation) => `/${SSE_API_VERSION}/operations/${operation}`);
   const metadataPaths = ["/healthz", `/${SSE_API_VERSION}/operations`, `/${SSE_API_VERSION}/openapi.json`];
   const exactPaths = Object.keys(paths).length === operationPaths.length + metadataPaths.length &&
@@ -413,9 +400,7 @@ export async function readOpenApiDocument(options: ApiClientOptions = {}): Promi
     payload.openapi !== "3.1.0" ||
     info.version !== SSE_API_VERSION ||
     !exactPaths ||
-    !SSE_API_OPERATIONS.every((operation) => isRecord(schemas[`Result_${operation}`])) ||
-    bearerAuth.type !== "http" ||
-    bearerAuth.scheme !== "bearer"
+    !SSE_API_OPERATIONS.every((operation) => isRecord(schemas[`Result_${operation}`]))
   ) {
     throw new ApiClientError("SSE-OpenAPI-Dokument hat nicht die erwartete 3.1-Struktur.", "protocol");
   }
@@ -467,7 +452,6 @@ export async function callApiOperation(
             method: "POST",
             headers: {
               accept: "application/json",
-              authorization: `Bearer ${settings.token}`,
               "content-type": "application/json",
             },
             body: requestBody,

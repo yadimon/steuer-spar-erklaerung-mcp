@@ -354,7 +354,7 @@ try {
   let workerCalls = 0;
   const execute = createApiExecutor(
     {
-      host: "127.0.0.1", port: 43127, token: "archive-local-parity-token-24",
+      host: "127.0.0.1", port: 43127,
       configPath: join(temporary, "config.json"), profileId: "2025", caseDir: apiCases,
       workspaceDir: workspace, resultDir: results, backupsDir: backups,
     },

@@ -7,7 +7,6 @@ import { setTimeout as delay } from "node:timers/promises";
 import { callApiOperation, readApiDiscovery } from "../dist/api-client.js";
 import { SSE_API_DISCOVERY } from "../dist/api-discovery.js";
 
-const token = "body-abort-token-with-at-least-24-characters";
 const baseUrl = "http://127.0.0.1:43127";
 
 function delayedJsonFetch(payload) {
@@ -71,7 +70,6 @@ await assertAbortAfterHeaders((signal) => {
     ...transport,
     pending: callApiOperation("health", {}, 1_000, {
       baseUrl,
-      token,
       signal,
       fetchImpl: transport.fetchImpl,
     }),
@@ -82,7 +80,7 @@ await assertAbortAfterHeaders((signal) => {
   const transport = delayedJsonFetch(SSE_API_DISCOVERY);
   return {
     ...transport,
-    pending: readApiDiscovery({ baseUrl, token, signal, fetchImpl: transport.fetchImpl }),
+    pending: readApiDiscovery({ baseUrl, signal, fetchImpl: transport.fetchImpl }),
   };
 }, "Discovery-Antwort muss nach Headern abbrechbar bleiben");
 
@@ -110,7 +108,7 @@ const wrongContentTypeAddress = wrongContentTypeServer.address();
 assert(wrongContentTypeAddress && typeof wrongContentTypeAddress === "object");
 const wrongContentTypeBaseUrl = `http://127.0.0.1:${wrongContentTypeAddress.port}`;
 await assert.rejects(
-  callApiOperation("health", {}, 1_000, { baseUrl: wrongContentTypeBaseUrl, token }),
+  callApiOperation("health", {}, 1_000, { baseUrl: wrongContentTypeBaseUrl }),
   (error) => error?.kind === "protocol" && /Content-Type application\/json/u.test(error.message),
   "Falscher Content-Type muss ein Protokollfehler bleiben.",
 );

@@ -65,7 +65,6 @@ const execute2025 = createApiExecutor(
   {
     host: "127.0.0.1",
     port: 43127,
-    token: "working-copy-local-parity-token",
     configPath: join(temporary, "config-2025.json"),
     profileId: "2025",
     caseDir: cases,
@@ -351,7 +350,6 @@ try {
     {
       host: "127.0.0.1",
       port: 43128,
-      token: "working-copy-local-parity-2024",
       configPath: join(temporary, "config-2024.json"),
       profileId: "2024",
       operateExperimental: true,

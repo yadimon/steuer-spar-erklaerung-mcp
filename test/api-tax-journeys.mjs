@@ -44,7 +44,6 @@ import {
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
-const token = "tax-journey-token-with-at-least-24-characters";
 
 async function createHarness({ includeNextYearUstva = false } = {}) {
   const temporary = mkdtempSync(join(tmpdir(), "sse-tax-journeys-"));
@@ -61,7 +60,6 @@ async function createHarness({ includeNextYearUstva = false } = {}) {
   const config = {
     host: "127.0.0.1",
     port: 1,
-    token,
     configPath: join(temporary, "config.json"),
     caseDir,
     workspaceDir,
@@ -75,13 +73,13 @@ async function createHarness({ includeNextYearUstva = false } = {}) {
     worker,
     { archiveHasRunningSseProcess: async () => false },
   ));
-  const server = createSseApiServer({ config, execute });
+  const server = createSseApiServer({ execute });
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const address = server.address();
   assert(address && typeof address === "object");
   const baseUrl = `http://127.0.0.1:${address.port}`;
-  const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+  const headers = { "content-type": "application/json" };
 
   const request = async (operation, args = {}, timeoutMs = 5_000) => {
     const response = await fetch(`${baseUrl}/v1/operations/${operation}`, {
@@ -602,7 +600,7 @@ test("17 MCP reads the same UStVA result from the mock-backed real API", async (
     const transport = new StdioClientTransport({
       command: process.execPath,
       args: [join(root, "dist", "index.js")],
-      env: { ...process.env, SSE_API_URL: harness.baseUrl, SSE_API_TOKEN: token },
+      env: { ...process.env, SSE_API_URL: harness.baseUrl },
     });
     const client = new Client({ name: "tax-journey-parity", version: "1.0.0" });
     try {
@@ -686,7 +684,7 @@ test("18 profile 2025 launches Gewinn-Erfassung 2026 and serves UStVA through HT
     const transport = new StdioClientTransport({
       command: process.execPath,
       args: [join(root, "dist", "index.js")],
-      env: { ...process.env, SSE_API_URL: harness.baseUrl, SSE_API_TOKEN: token },
+      env: { ...process.env, SSE_API_URL: harness.baseUrl },
     });
     const client = new Client({ name: "next-year-ustva-parity", version: "1.0.0" });
     try {

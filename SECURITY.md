@@ -3,7 +3,7 @@
 ## Unterstützte Version
 
 Während der öffentlichen Beta wird nur die jeweils neueste vollständige
-Release-Version unterstützt. `v0.1.0-beta.18` ist die aktuelle öffentlich
+Release-Version unterstützt. `v0.1.0-beta.19` ist die aktuelle öffentlich
 unterstützte Version für SteuerSparErklärung 2025: Tag, portables ZIP und
 separate SHA-256-Datei sind gemeinsam auf der GitHub-Release-Seite
 veröffentlicht. Ein künftiger vorbereiteter Quellstand wird erst mit diesen
@@ -30,7 +30,7 @@ Besonders relevant sind:
 - mögliche ELSTER-, Versand- oder Abschlusswege;
 - Umgehungen der Arbeitskopie-, Hash-, Pfad- oder Readback-Prüfungen;
 - Zugriff auf Pfade außerhalb des eingerichteten Arbeitsbereichs;
-- Offenlegung von API-Token, Steuerdaten oder lokalen Dateipfaden;
+- Offenlegung von Steuerdaten oder lokalen Dateipfaden;
 - falsche Fenster-, Dialog-, Feld- oder Tabellenbindung bei Schreibaktionen.
 
 ## Keine persönlichen Daten einsenden
@@ -43,25 +43,41 @@ unvermeidbar erscheinen, warte auf eine private Rückfrage des Maintainers.
 
 ## Betriebsgrenze
 
-Die lokale API bindet ausschließlich an Loopback. `/healthz` ist als einzige
-technische Zustandsroute ohne Token erreichbar; Discovery, OpenAPI und alle
-Operationen verlangen das Bearer-Token. Der MCP-Wrapper kennt keine lokalen
-PC-Pfade. Der Server darf keine Steuererklärung übermitteln und ersetzt weder
-fachliche Prüfung noch Steuerberatung.
-Die vom Setup erzeugte Client-Konfiguration enthält das Token nicht. Ein
-API-seitiger lokaler Bootstrap liest die geschützte Konfiguration erst beim
-Prozessstart und setzt URL und Token ausschließlich für den MCP-Kindprozess.
+Die lokale API bindet ausschließlich an Loopback und kennt **keine
+Anmeldung**. Jeder Prozess des angemeldeten Windows-Kontos darf sie aufrufen —
+dieselbe Vertrauensgrenze, in der auch die Steuersoftware selbst läuft. Ein
+Token hätte daran nichts geändert: Wer lokal Code ausführt, kann es lesen.
 
-Das Token erteilt volle Autorität für alle vom aktiven Profil serverseitig
-zugelassenen Operationen. Eine Freigabefrage im Agenten-Skill ist eine
-Bedienrichtlinie, keine zweite serverseitige Approval-Sperre. Deshalb:
+Was die API abwehrt, ist der eine Weg von außen in diese Grenze hinein: eine
+beliebige Webseite im Browser des Nutzers erreicht `127.0.0.1` ebenfalls.
+Deshalb beantwortet die API jede Anfrage mit `403`, die
+
+- eine `Origin`-Kopfzeile trägt — Browser senden sie bei fremder Herkunft und
+  können sie nicht fälschen;
+- eine `Sec-Fetch-Site`-Kopfzeile ungleich `none` trägt — aktuelle Browser
+  senden sie immer mit;
+- deren `Host` kein Loopback-Name ist — das schlägt DNS-Rebinding, bei dem eine
+  Seite ihren eigenen Namen auf `127.0.0.1` zeigen lässt und der Browser danach
+  ohne `Origin` sendet.
+
+Ergänzend verlangt jedes POST `Content-Type: application/json`, was ein
+HTML-Formular nicht erzeugen kann. Ein lokaler Klient sendet keine dieser
+Kopfzeilen; ein Browser mindestens eine.
+
+Der MCP-Wrapper kennt keine lokalen PC-Pfade. Der Server darf keine
+Steuererklärung übermitteln und ersetzt weder fachliche Prüfung noch
+Steuerberatung.
+
+Wer die API erreicht, hat volle Autorität für alle vom aktiven Profil
+serverseitig zugelassenen Operationen. Eine Freigabefrage im Agenten-Skill ist
+eine Bedienrichtlinie, keine zweite serverseitige Approval-Sperre. Deshalb:
 
 - API ausschließlich auf Loopback betreiben und niemals per Proxy, Tunnel,
-  Portweiterleitung oder gemeinsamem Remote-Desktop-Dienst veröffentlichen;
-- Konfigurationsdatei und MCP-Prozessumgebung wie ein lokales Geheimnis
-  schützen; Token nicht in Chat, Log, Prozessargumente oder Git kopieren;
-- Dateirechte des Konfigurationsordners auf das jeweilige Windows-Konto
-  begrenzen;
+  Portweiterleitung oder gemeinsamem Remote-Desktop-Dienst veröffentlichen —
+  ein Reverse-Proxy, der die Herkunftskopfzeilen entfernt, hebt genau den
+  Schutz auf, der hier beschrieben ist;
+- Dateirechte des Konfigurations- und Arbeitsordners auf das jeweilige
+  Windows-Konto begrenzen;
 - bei `buildDrift.drifted=true` keine Mutation ausführen, bis der neue Build
   gezielt verifiziert ist. API und direkter Worker erzwingen dies zusätzlich
   für die in `capabilities.operationPolicy[*].blockedOnBuildDrift`
@@ -75,6 +91,6 @@ unbekannten Zustand hinterlassen. Vor einer Wiederholung immer Fall, Fenster,
 Seite, Wert, Dirty-State und Datei-Hash neu lesen.
 
 Produktfreigabe besteht aus zwei unabhängigen Manifestwerten: Nur
-`status=supported` zusammen mit `operationAccess=full` darf vom Setup angeboten
-werden. Ein Profil mit `verification-only` bleibt auch nach einer versehentlichen
+`status=supported` zusammen mit `operationAccess=full` darf produktiv
+angeboten werden. Ein Profil mit `verification-only` bleibt auch nach einer versehentlichen
 reinen Statusänderung auf den expliziten Opt-in-Verifikationskatalog begrenzt.

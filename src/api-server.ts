@@ -18,14 +18,12 @@ import {
   type SseApiOperation,
   type WorkerResult,
   isSseApiOperation,
-  safeTokenEqual,
+  LOOPBACK_HOSTNAMES,
 } from "./api-contract.js";
-import type { SseApiServerConfig } from "./api-config.js";
 import { apiOperationDiscovery, SSE_API_DISCOVERY } from "./api-discovery.js";
 import { SSE_OPENAPI_DOCUMENT } from "./api-openapi.js";
 import { formatOperationArgumentError, parseApiOperationArgs } from "./operation-catalog.js";
 import { parseApiOperationResult } from "./result-contract.js";
-import { configurationFingerprint } from "./workspace-status.js";
 
 export type OperationExecutor = (
   operation: SseApiOperation,
@@ -41,12 +39,10 @@ export interface PrewarmStatus {
 }
 
 export interface SseApiServerOptions {
-  config: SseApiServerConfig;
   execute: OperationExecutor;
   log?: (record: Record<string, unknown>) => void;
   /** Optional; ohne diese Auskunft meldet /healthz das Feld schlicht nicht. */
   prewarmStatus?: () => PrewarmStatus;
-  requestSetupShutdown?: () => void;
 }
 type SendJsonOutcome = "sent" | "unavailable" | "too-large";
 
@@ -140,9 +136,36 @@ function apiError(requestId: string, code: string, message: string): ApiErrorEnv
   return { apiVersion: SSE_API_VERSION, requestId, error: { code, message } };
 }
 
-function bearerToken(request: IncomingMessage): string {
-  const authorization = request.headers.authorization ?? "";
-  return authorization.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : "";
+/**
+ * Diese API steuert die Steuersoftware und lauscht nur auf Loopback. Eine
+ * beliebige Webseite im Browser des Nutzers erreicht dieselbe Adresse - genau
+ * das und nur das wehrt diese Pruefung ab. Drei Kopfzeilen genuegen dafuer,
+ * weil ein lokaler Klient (MCP, CLI, curl) keine davon sendet:
+ *
+ *  - 'Host' muss ein Loopback-Name sein. Das schlaegt DNS-Rebinding, bei dem
+ *    eine Seite ihren eigenen Namen auf 127.0.0.1 zeigen laesst und der
+ *    Browser die Anfrage danach als gleichherkunft ganz ohne 'Origin' sendet.
+ *  - 'Origin' senden Browser bei jedem fremdherkunft-Aufruf und koennen es
+ *    nicht faelschen. Vorhanden heisst also: aus einer Webseite heraus.
+ *  - 'Sec-Fetch-Site' senden aktuelle Browser bei jedem Aufruf mit.
+ *
+ * Zusammen mit der bereits erzwungenen JSON-Inhaltsart - die ein HTML-Formular
+ * nicht erzeugen kann - bleibt kein Weg aus dem Browser in diese API.
+ */
+function foreignClientReason(request: IncomingMessage): string | null {
+  const host = typeof request.headers.host === "string" ? request.headers.host.trim().toLowerCase() : "";
+  const hostname = /^(\[[^\]]+\]|[^:]+)(?::\d{1,5})?$/u.exec(host)?.[1];
+  if (!hostname || !LOOPBACK_HOSTNAMES.has(hostname)) {
+    return "Die lokale SSE-API antwortet nur auf Loopback-Namen in der 'Host'-Kopfzeile.";
+  }
+  if (request.headers.origin !== undefined) {
+    return "Anfragen mit 'Origin' kommen aus einem Browser und duerfen die Steuersoftware nicht steuern.";
+  }
+  const fetchSite = request.headers["sec-fetch-site"];
+  if (typeof fetchSite === "string" && fetchSite !== "none") {
+    return "Anfragen mit 'Sec-Fetch-Site' kommen aus einem Browser und duerfen die Steuersoftware nicht steuern.";
+  }
+  return null;
 }
 
 function hasJsonContentType(request: IncomingMessage): boolean {
@@ -208,26 +231,8 @@ function parseOperationRequest(value: unknown): OperationRequest {
   };
 }
 
-function parseSetupShutdownRequest(value: unknown): { expectedConfigurationFingerprint: string } {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new ApiRequestError("Setup-Shutdown-Anfrage muss ein JSON-Objekt sein.");
-  }
-  const body = value as Record<string, unknown>;
-  const unknownFields = Object.keys(body).filter((key) => key !== "expectedConfigurationFingerprint");
-  if (unknownFields.length) {
-    throw new ApiRequestError(`Unbekanntes Setup-Shutdown-Feld: '${unknownFields.sort()[0]}'.`);
-  }
-  if (
-    typeof body.expectedConfigurationFingerprint !== "string" ||
-    !/^[a-f0-9]{64}$/u.test(body.expectedConfigurationFingerprint)
-  ) {
-    throw new ApiRequestError("expectedConfigurationFingerprint muss ein SHA-256-Fingerprint sein.");
-  }
-  return { expectedConfigurationFingerprint: body.expectedConfigurationFingerprint };
-}
-
 export function createSseApiServer(options: SseApiServerOptions): Server {
-  const { config, execute } = options;
+  const { execute } = options;
   const log = options.log ?? (() => undefined);
   const safeLog = (record: Record<string, unknown>): void => {
     try { log(record); } catch { /* Diagnose darf niemals API-Antworten verhindern. */ }
@@ -236,6 +241,11 @@ export function createSseApiServer(options: SseApiServerOptions): Server {
   const server = createServer(async (request, response) => {
     const requestId = randomUUID();
     const started = Date.now();
+    const foreignClient = foreignClientReason(request);
+    if (foreignClient) {
+      sendJson(response, 403, apiError(requestId, "forbidden", foreignClient));
+      return;
+    }
     let url: URL;
     try {
       url = new URL(request.url ?? "/", "http://127.0.0.1");
@@ -264,16 +274,6 @@ export function createSseApiServer(options: SseApiServerOptions): Server {
       return;
     }
 
-    if (!safeTokenEqual(bearerToken(request), config.token)) {
-      sendJson(
-        response,
-        401,
-        apiError(requestId, "unauthorized", "Gueltiges Bearer-Token erforderlich."),
-        { "www-authenticate": 'Bearer realm="steuer-spar-erklaerung-api"' },
-      );
-      return;
-    }
-
     if (request.method === "GET" && url.pathname === `/${SSE_API_VERSION}/operations`) {
       sendJsonBytes(response, 200, SSE_API_DISCOVERY_BYTES);
       return;
@@ -281,74 +281,6 @@ export function createSseApiServer(options: SseApiServerOptions): Server {
 
     if (request.method === "GET" && url.pathname === `/${SSE_API_VERSION}/openapi.json`) {
       sendJsonBytes(response, 200, SSE_OPENAPI_BYTES);
-      return;
-    }
-
-    if (url.pathname === `/${SSE_API_VERSION}/setup/shutdown`) {
-      if (!options.requestSetupShutdown) {
-        sendJson(response, 404, apiError(requestId, "not-found", "API-Endpunkt nicht gefunden."));
-        return;
-      }
-      if (request.method !== "POST") {
-        sendJson(
-          response,
-          405,
-          apiError(requestId, "method-not-allowed", "Fuer diese Route ist nur POST erlaubt."),
-          { allow: "POST" },
-        );
-        return;
-      }
-      if (!hasJsonContentType(request)) {
-        sendJson(
-          response,
-          415,
-          apiError(requestId, "unsupported-media-type", "POST-Anfragen muessen Content-Type application/json verwenden."),
-        );
-        return;
-      }
-      try {
-        let decoded: unknown;
-        try {
-          decoded = await readJson(request);
-        } catch (error) {
-          if (error instanceof SyntaxError) throw new ApiRequestError("Anfragekoerper ist kein gueltiges JSON.");
-          throw error;
-        }
-        const body = parseSetupShutdownRequest(decoded);
-        if (body.expectedConfigurationFingerprint !== configurationFingerprint(config)) {
-          throw new ApiRequestError(
-            "Laufende API verwendet nicht die fuer die Neubindung bestaetigte Konfiguration.",
-            409,
-            "configuration-mismatch",
-          );
-        }
-        response.once("finish", () => {
-          setImmediate(() => options.requestSetupShutdown?.());
-        });
-        sendJson(response, 202, {
-          ok: true,
-          apiVersion: SSE_API_VERSION,
-          configurationFingerprint: body.expectedConfigurationFingerprint,
-        });
-        safeLog({ event: "setup-shutdown-accepted", requestId });
-      } catch (error) {
-        const requestError = error instanceof ApiRequestError ? error : undefined;
-        safeLog({
-          event: "setup-shutdown-rejected",
-          requestId,
-          code: requestError?.code ?? "setup-shutdown-failed",
-          errorName: error instanceof Error ? error.name : "Error",
-        });
-        sendJson(
-          response,
-          requestError?.status ?? 502,
-          apiError(
-            requestId,
-            requestError?.code ?? "setup-shutdown-failed",
-            requestError?.message ?? "Kontrollierter API-Shutdown ist fehlgeschlagen.",
-          ),
-        );
-      }
       return;
     }
 
@@ -418,7 +350,7 @@ export function createSseApiServer(options: SseApiServerOptions): Server {
             "busy",
             `Es laeuft bereits die Operation '${running.operation}' seit ${running.elapsedMs} ms. ` +
             "Es wird immer nur eine Operation gleichzeitig ausgefuehrt. Warte auf ihr Ergebnis, " +
-            "statt parallel erneut aufzurufen; /healthz meldet den Fortschritt ohne Token.",
+            "statt parallel erneut aufzurufen; /healthz meldet den Fortschritt jederzeit.",
           ),
           inFlight: running,
         });

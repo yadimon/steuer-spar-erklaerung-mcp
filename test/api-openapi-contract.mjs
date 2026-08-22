@@ -5,15 +5,16 @@ import { SSE_API_DISCOVERY } from "../dist/api-discovery.js";
 import { SSE_OPENAPI_DOCUMENT } from "../dist/api-openapi.js";
 
 assert.equal(SSE_OPENAPI_DOCUMENT.openapi, "3.1.0");
-assert.deepEqual(SSE_OPENAPI_DOCUMENT.security, [{ bearerAuth: [] }]);
-assert.equal(SSE_OPENAPI_DOCUMENT.components.securitySchemes.bearerAuth.scheme, "bearer");
+// Die API kennt keine Anmeldung. Ein Sicherheitsschema in der Beschreibung
+// wuerde generierten Klienten ein Feld aufdraengen, das es nicht gibt.
+assert.equal(SSE_OPENAPI_DOCUMENT.security, undefined);
+assert.equal(SSE_OPENAPI_DOCUMENT.components.securitySchemes, undefined);
+assert.equal(SSE_OPENAPI_DOCUMENT.info.description.includes("Origin"), true);
 assert.equal(SSE_OPENAPI_DOCUMENT.info.description.includes("ELSTER"), true);
 assert.equal(Object.keys(SSE_OPENAPI_DOCUMENT.paths).length, SSE_API_OPERATIONS.length + 3);
-assert.deepEqual(SSE_OPENAPI_DOCUMENT.paths["/healthz"].get.security, []);
 assert.equal(SSE_OPENAPI_DOCUMENT.paths["/healthz"].get.operationId, "healthz");
 assert.equal(SSE_OPENAPI_DOCUMENT.paths[`/${SSE_API_VERSION}/operations`].get.operationId, "list_operations");
 assert.equal(SSE_OPENAPI_DOCUMENT.paths[`/${SSE_API_VERSION}/openapi.json`].get.operationId, "get_openapi");
-assert.equal(SSE_OPENAPI_DOCUMENT.paths[`/${SSE_API_VERSION}/operations`].get.security, undefined);
 
 for (const operation of SSE_API_OPERATIONS) {
   const path = `/${SSE_API_VERSION}/operations/${operation}`;
@@ -22,9 +23,9 @@ for (const operation of SSE_API_OPERATIONS) {
   assert(post, `${operation}: OpenAPI-Pfad fehlt.`);
   assert(get, `${operation}: Einzel-Discovery fehlt.`);
   assert.equal(get.operationId, `describe_${operation}`);
-  assert(get.responses["200"] && get.responses["401"] && get.responses["404"]);
+  assert(get.responses["200"] && get.responses["403"] && get.responses["404"]);
   assert.equal(post.operationId, operation);
-  assert.equal(post.security, undefined, `${operation}: globale Bearer-Sicherheit darf nicht ueberschrieben werden.`);
+  assert.equal(post.security, undefined, `${operation}: es darf kein Sicherheitsschema geben.`);
   assert.equal(post["x-sse-read-only"], SSE_API_DISCOVERY.operationTraits[operation].readOnlyHint);
   assert.equal(post["x-sse-destructive"], SSE_API_DISCOVERY.operationTraits[operation].destructiveHint);
   assert.equal(
