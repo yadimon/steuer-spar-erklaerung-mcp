@@ -248,7 +248,9 @@ try {
   // Der Reservearbeiter der soeben hart beendeten API laeuft noch aus dem
   // Bundle heraus; ohne Warten scheitert das Entfernen auf langsamen Rechnern.
   await removeDirectoryWhenFree(temporary);
-  await removeDirectoryWhenFree(bundle);
+  // CI-Runner brauchen fuer das Skriptladen des Arbeiters ein Mehrfaches
+  // eines Entwicklerrechners; 12 s Spielraum kosten im Normalfall nichts.
+  await removeDirectoryWhenFree(bundle, { attempts: 48, delayMs: 250 });
   rmSync(bundleZip, { force: true });
   rmSync(bundleChecksum, { force: true });
 }
