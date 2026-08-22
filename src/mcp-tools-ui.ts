@@ -135,7 +135,7 @@ export function registerUiTools(registry: McpRegistry): void {
         "deshalb auch auf dem versteckten Desktop. " +
         "'werte' folgt der sichtbaren Spaltenreihenfolge; null laesst eine Spalte unveraendert, ein leerer " +
         "String leert sie und 'true'/'false' setzt eine echte Toggle-Zelle. Exakte Seite sowie Seitensumme " +
-        "vorher und nachher sind Pflicht; im portablen Produktprofil an Seite, Summenregion und Spalte gebundene " +
+        "vorher und nachher sind Pflicht; im jeweiligen Produktprofil an Seite, Summenregion und Spalte gebundene " +
         "Tabellen-ComboBoxen werden auch bei UIA-ControlType DataItem per InvokePattern und exakt popupgebundenem " +
         "SelectionItemPattern gesetzt. comboExpectedBefore bindet den internen Vorwert; sichtbarer Text allein beweist " +
         "keinen Qt-Enum. Interner, visueller und Pruefer-Readback muessen vor den uebrigen Zellen bestehen. " +

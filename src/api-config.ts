@@ -19,7 +19,7 @@ export interface SseApiServerConfig {
   backupsDir: string;
   sseExecutable?: string;
   // Nur fuer Verifikationslaeufe und Fixture-Aufnahmen gegen ein
-  // experimentelles Jahr; der Setup-Wizard schreibt dieses Feld nie.
+  // experimentelles Jahr; kein normaler Betrieb setzt dieses Feld.
   operateExperimental?: boolean;
 }
 interface ConfigFile {
