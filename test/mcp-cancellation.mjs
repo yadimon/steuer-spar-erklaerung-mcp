@@ -52,6 +52,18 @@ const api = createSseApiServer({
   },
 });
 
+// Blockiert ein synchroner Lesezugriff (etwa durch einen Virenscanner auf dem
+// CI-Runner) den Eventloop, kann weder der Abbruch noch das Log eintreffen.
+// Die groesste gemessene Verzoegerung macht diesen Fall im Fehlertext sichtbar.
+let maxLoopLagMs = 0;
+let lagProbeAt = Date.now();
+const lagProbe = setInterval(() => {
+  const now = Date.now();
+  maxLoopLagMs = Math.max(maxLoopLagMs, now - lagProbeAt - 50);
+  lagProbeAt = now;
+}, 50);
+lagProbe.unref();
+
 async function waitForWithin(promise, timeoutMs, message) {
   let timer;
   try {
@@ -97,7 +109,8 @@ try {
   const cancelledRecord = await waitForWithin(
     abortedLog,
     5_000,
-    `API-Executor meldete nach MCP-Abbruch kein aborted-Ergebnis: ${JSON.stringify(logs)}`,
+    `API-Executor meldete nach MCP-Abbruch kein aborted-Ergebnis: ${JSON.stringify(logs)} ` +
+      `(groesste Eventloop-Verzoegerung ${maxLoopLagMs} ms)`,
   );
   assert.equal(cancelledRecord.ok, false);
   assert.equal(cancelledRecord.kind, "aborted");
