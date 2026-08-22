@@ -33,13 +33,11 @@ automatisiert nachvollziehbare Arbeitsschritte in der installierten Anwendung.
 - für sichtbare Bedienung eine entsperrte, währenddessen unbenutzte
   Windows-Sitzung.
 
-Das portable Release benötigt kein global installiertes Node.js, npm, Python
-oder PowerShell 7. Der optionale Weg über `npx skills` und die getrennten
-npm-Runtimepakete setzt ein bereits vorhandenes Node.js 22+ mit npm voraus.
-Docker und ein Repository-Checkout sind für Nutzer nicht erforderlich. Alle
-Voraussetzungen, beide Installationswege, Client-Anbindung und Erfolgskriterien
-stehen in der
-[Installationsanleitung für Menschen und AI-Agenten](skills/steuer-spar-erklaerung-setup/references/installation.md).
+Installiert wird ausschließlich aus der npm-Registry; das setzt Node.js 22+
+mit npm voraus. Python, PowerShell 7, Docker und ein Repository-Checkout sind
+nicht erforderlich. Alle Voraussetzungen, der Installationsweg,
+Client-Anbindung und Erfolgskriterien stehen in der
+[Installationsanleitung für Menschen und AI-Agenten](docs/INSTALLATION.md).
 Die native Claude Code CLI unter Windows benötigt zusätzlich Git for Windows
 und eine eigene Anmeldung in `claude`; eine Anmeldung in Claude Desktop oder
 Cowork ersetzt diese CLI-Anmeldung nicht.
@@ -99,14 +97,14 @@ lokale API; MCP wird nach dem nächsten Start des Agenten verifiziert.
 
 ### 1. Lokal installieren
 
-Gib einem **lokalen** Agenten diesen Auftrag. Er wählt selbst npm oder das
-Portable-Release und richtet beide Skills, API und MCP ein:
+Gib einem **lokalen** Agenten diesen Auftrag. Er installiert Skill, API und
+MCP in einen eigenen Ordner:
 
 ```text
 Richte SteuerSparErklärung vollständig lokal nach
-https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/skills/steuer-spar-erklaerung-setup/references/installation.md
-ein. Installiere oder aktualisiere beide Skills und verwende das neueste
-vollständige Release.
+https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md
+ein. Installiere oder aktualisiere den Skill und verwende die neueste
+veröffentlichte Version.
 Standard-Setup ausführen: lokale API plus MCP.
 ```
 
@@ -152,23 +150,22 @@ bearbeitet.
 
 ### Skills manuell mit `npx` installieren
 
-Die offene [`skills`-CLI](https://www.skills.sh/docs/cli) erkennt beide
-[Repository-Skills](skills/). Ersetze `<agent>` durch `codex`, `claude-code`
+Die offene [`skills`-CLI](https://www.skills.sh/docs/cli) erkennt den
+[Repository-Skill](skills/). Ersetze `<agent>` durch `codex`, `claude-code`
 oder `opencode`:
 
 ```powershell
 npx.cmd -y skills add yadimon/steuer-spar-erklaerung-mcp --list
 npx.cmd -y skills add yadimon/steuer-spar-erklaerung-mcp `
-  --skill steuer-spar-erklaerung --skill steuer-spar-erklaerung-setup `
-  --agent <agent> --global --copy --yes
+  --skill steuer-spar-erklaerung --agent <agent> --global --copy --yes
 ```
 
 Die vollständigen nichtinteraktiven Varianten bleiben explizit dokumentiert:
 
 ```powershell
-npx.cmd -y skills add yadimon/steuer-spar-erklaerung-mcp --skill steuer-spar-erklaerung --skill steuer-spar-erklaerung-setup --agent codex --global --copy --yes
-npx.cmd -y skills add yadimon/steuer-spar-erklaerung-mcp --skill steuer-spar-erklaerung --skill steuer-spar-erklaerung-setup --agent claude-code --global --copy --yes
-npx.cmd -y skills add yadimon/steuer-spar-erklaerung-mcp --skill steuer-spar-erklaerung --skill steuer-spar-erklaerung-setup --agent opencode --global --copy --yes
+npx.cmd -y skills add yadimon/steuer-spar-erklaerung-mcp --skill steuer-spar-erklaerung --agent codex --global --copy --yes
+npx.cmd -y skills add yadimon/steuer-spar-erklaerung-mcp --skill steuer-spar-erklaerung --agent claude-code --global --copy --yes
+npx.cmd -y skills add yadimon/steuer-spar-erklaerung-mcp --skill steuer-spar-erklaerung --agent opencode --global --copy --yes
 ```
 
 OpenCode bleibt ein sekundärer, best-effort Client. Mit bereits vorhandenem
@@ -185,12 +182,12 @@ Code CLI die belastbarer geprüften Clients. Cowork ist wegen seiner isolierten
 Ausführungsumgebung kein Host-Installer für lokale API und MCP.
 
 Eine nur geöffnete oder gecachte Webansicht ist keine lokale Skill-
-Installation; nach dem Kopieren den Agenten neu laden und beide Skills
+Installation; nach dem Kopieren den Agenten neu laden und den Skill
 auflisten.
 
-`npx skills` installiert nur die geprüften Agentenanweisungen. Ist Node.js 22+
-mit npm bereits vorhanden, installiert der Setup-Skill API und MCP persistent.
-Sonst führt er durch Download, Prüfsumme und Einrichtung des portablen Releases.
+`npx skills` installiert nur die geprüften Agentenanweisungen und setzt Node.js 22+ mit npm voraus.
+Danach installiert der Agent API und MCP nach der Anleitung persistent in den
+Ordner. Fehlt Node.js, nennt er es als Voraussetzung und stoppt.
 
 ### Runtime mit npm (optional)
 
@@ -208,7 +205,7 @@ Die eigenständig angemeldete Claude Code CLI erhält einen eigenen dauerhaften
 Präfix direkt unter `%USERPROFILE%\.steuer-spar-erklaerung`; Setup und
 `--check` verwenden dort zusätzlich denselben absoluten `--config`-Pfad. Die
 kanonische
-[Installationsanleitung](skills/steuer-spar-erklaerung-setup/references/installation.md)
+[Installationsanleitung](docs/INSTALLATION.md)
 enthält die kopierbaren PowerShell-Befehle. Pfade unter
 `AppData\Local\Packages\Claude_*\LocalCache` sind kein clientübergreifend
 belastbarer MCP-Setup-Erfolg und dürfen nicht aus Cowork oder der Desktop-App
@@ -221,7 +218,7 @@ dem erneuten Setup muss seine Version exakt zum API-Paket passen.
 Das persistente Setup nie direkt aus `npx` starten: Der temporäre `_npx`-Cache
 ist kein stabiler Ort für dauerhafte API-/MCP-Startpfade. Der oben beschriebene
 Foreground-NPX-Start ist davon getrennt: Er schreibt keinen Launcher und endet
-mit dem Terminalprozess. Für Nutzer ohne Node/npm ist der Portable-Weg unten
+mit dem Terminalprozess. Ohne Node/npm ist das Produkt nicht installierbar; der Weg unten
 vollständig gleichwertig.
 
 Die Windows-Beispiele verwenden bewusst `npm.cmd` und `npx.cmd`. Damit bleibt
@@ -240,8 +237,8 @@ installierten Shim-Dateien `npm.ps1` oder `npx.ps1` blockiert.
 | Belege abgleichen | „Vergleiche den Fall mit den Belegen in diesem Ordner.“ | Originale unverändert lassen |
 | Korrektur vorbereiten | „Schlage Korrekturen vor und ändere nach meiner Freigabe eine Arbeitskopie.“ | Vorher/nachher zurücklesen |
 | UStVA vorbereiten | „Bereite die UStVA für Juli vor und sende sie nicht ab.“ | Zeitraum und vorhandene Übermittlungen zuerst prüfen |
-| Nur API einrichten | „Richte nur die lokale API ein und verwende empfohlene Antworten.“ | npm oder Portable; kein MCP-Merge |
-| Vollständiges Agenten-Setup | „Richte lokale API plus MCP vollständig ein.“ | npm oder Portable; tokenfreier additiver MCP-Merge |
+| Nur API einrichten | „Richte nur die lokale API ein und verwende empfohlene Antworten.“ | npm-Installation; kein MCP-Merge |
+| Vollständiges Agenten-Setup | „Richte lokale API plus MCP vollständig ein.“ | npm-Installation; tokenfreier additiver MCP-Merge |
 
 Die Automation unterscheidet drei Betriebsarten:
 
@@ -272,7 +269,6 @@ Snapshot auch über die authentifizierte Operations-Discovery.
 
 - eine lokale, token-geschützte HTTP-API als Kern;
 - ein optionaler MCP-Wrapper, der ausschließlich die API aufruft;
-- ein portables Windows-x64-Paket mit eigener Node-Laufzeit;
 - lokale PDF-zu-PNG- und Bild-OCR-Helfer ohne Python-/Poppler-Pflicht;
 - getrennte npm-Pakete für Windows-API und PC-blinden MCP-Wrapper;
 - ein deutscher Setup-Skill mit geführtem First-Run und fensterlosem API-Start;
@@ -309,39 +305,7 @@ Die npm-Seiten besitzen eigene Einstiege für das
 [MCP-Wrapper](packages/mcp/README.md); diese erklären Voraussetzungen,
 Paketgrenzen und Sicherheitsregeln ohne einen lokalen Repository-Checkout.
 
-### Portables Release
-
-1. Von der [Release-Seite](https://github.com/yadimon/steuer-spar-erklaerung-mcp/releases)
-   `steuer-spar-erklaerung.zip` und die zugehörige `.sha256`-Datei laden.
-2. SHA-256 prüfen und das ZIP in einen neuen leeren lokalen Ordner entpacken.
-   Unter Windows ist `tar.exe` dafür deutlich schneller als `Expand-Archive`;
-   einen nach Timeout nur teilweise gefüllten Ordner nicht verwenden.
-3. `sse-setup.cmd` starten oder den
-   [Setup-Skill](skills/steuer-spar-erklaerung-setup/SKILL.md) verwenden.
-4. Die vorgeschlagenen sicheren Standardwerte übernehmen oder Pfade und
-   Arbeitsweise einzeln festlegen.
-
-Die Prüfsumme lässt sich im Downloadordner mit Windows PowerShell vergleichen:
-
-```powershell
-$actual = (Get-FileHash -Algorithm SHA256 '.\steuer-spar-erklaerung.zip').Hash.ToLowerInvariant()
-$expected = ((Get-Content '.\steuer-spar-erklaerung.zip.sha256' -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
-if ($actual -ne $expected) { throw 'SHA-256 stimmt nicht. ZIP nicht verwenden.' }
-"SHA-256 stimmt: $actual"
-```
-
-Nach erfolgreicher Prüfung beispielsweise so entpacken:
-
-```powershell
-$target = Join-Path $PWD 'steuer-spar-erklaerung'
-if (Test-Path -LiteralPath $target) { throw "Neues Ziel existiert bereits: $target" }
-New-Item -ItemType Directory -Path $target | Out-Null
-& "$env:SystemRoot\System32\tar.exe" -xf '.\steuer-spar-erklaerung.zip' -C $target
-if ($LASTEXITCODE -ne 0) { throw "Entpacken fehlgeschlagen: $LASTEXITCODE" }
-```
-
-Der Wizard erkennt eine vorhandene Konfiguration am Standardpfad, erzeugt bei
-Bedarf ein lokales Token und legt außerhalb des Repositorys an:
+Der Wizard erzeugt ausserhalb des Repositorys:
 
 - API-Konfiguration und fensterlosen Starter;
 - bei `--with-mcp` eine tokenfreie MCP-Mergevorlage;
@@ -422,7 +386,7 @@ beauftragt.
 Die vom Setup erzeugte Servervorlage wird nach Prüfung in die Konfiguration des
 jeweiligen Clients gemergt:
 
-`command` zeigt direkt auf die portable `runtime/node.exe`. Die Argumente
+`command` zeigt direkt auf die absolute `node.exe`. Die Argumente
 starten zuerst den lokalen Bootstrap; nur er liest das API-Token aus der
 geschützten Konfiguration und reicht es intern an den MCP-Prozess weiter:
 
@@ -430,11 +394,11 @@ geschützten Konfiguration und reicht es intern an den MCP-Prozess weiter:
 {
   "mcpServers": {
     "steuer-spar-erklaerung": {
-      "command": "<PORTABLE>/runtime/node.exe",
+      "command": "<ABSOLUTE>/node.exe",
       "args": [
-        "<PORTABLE>/dist/api-mcp-bootstrap.js",
+        "<ORDNER>/node_modules/@yadimon/steuer-spar-erklaerung-api/dist/api-mcp-bootstrap.js",
         "--config", "<LOCALAPPDATA>/SteuerSparErklaerungApi/config.json",
-        "--mcp-entry", "<PORTABLE>/dist/index.js"
+        "--mcp-entry", "<ORDNER>/node_modules/@yadimon/steuer-spar-erklaerung-mcp/dist/index.js"
       ]
     }
   }
@@ -510,7 +474,6 @@ npm ci
 npm run test:fast
 npm test
 npm run test:live
-npm run package:portable
 npm run pack
 npm run publish:dry-run
 npm run test:npm-clean-install
@@ -528,10 +491,7 @@ Jeder Build entfernt ausschließlich veraltete `dist/*.js`- und
 oder Links im Buildordner stoppen fail-closed. Die beiden npm-Paketverträge
 prüfen zusätzlich, dass kein quellloses Artefakt ausgeliefert wird, die API
 keinen MCP-Server enthält und der MCP-Tarball weder PowerShell noch Profile
-kennt. `package:portable` öffnet das erzeugte
-ZIP vor dem Schreiben der äußeren Prüfsumme erneut: Pfade, Windows-Kollisionen,
-Produkt/Version, Dateizahl, Bytezahl und SHA-256 jeder manifestierten Datei
-müssen exakt stimmen; Extra-Dateien stoppen den Build.
+kennt.
 
 Der Native-Build verwendet eine vorhandene `sse-native.dll` nur wieder, wenn
 striktes Manifest, aktueller C#-Quellhash, tatsächlicher DLL-Hash und die
@@ -586,11 +546,11 @@ Weitere Unterlagen:
 - [API-/MCP-Vertrag](docs/API-MCP-VERTRAG.md)
 - [Verifikationsstand](docs/VERIFIKATION.md)
 - [Release-Prozess](docs/RELEASE.md)
-- [Release Notes v0.1.0-beta.17](docs/releases/v0.1.0-beta.17.md)
+- [Release Notes v0.1.0-beta.18](docs/releases/v0.1.0-beta.18.md)
 - [Entwicklungswissen](docs/entwicklung/README.md)
 - [Mitwirken](CONTRIBUTING.md)
 - [Haupt-Skill](skills/steuer-spar-erklaerung/SKILL.md)
-- [Setup-Skill](skills/steuer-spar-erklaerung-setup/SKILL.md)
+- [Setup-Skill](docs/INSTALLATION.md)
 
 ## Feedback und Beiträge
 

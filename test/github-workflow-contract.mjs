@@ -19,7 +19,6 @@ for (const path of publicProcessFiles) {
 
 const workflow = readFileSync(workflowPath, "utf8");
 const nodeVersion = readFileSync(".node-version", "utf8").trim();
-const runtime = JSON.parse(readFileSync("portable/runtime.json", "utf8"));
 const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
 const releaseCheckPath = "scripts/release-check.mjs";
 const releaseCurrentPath = "scripts/release-current.mjs";
@@ -28,7 +27,7 @@ assert(existsSync(releaseCurrentPath), "Lokaler Release-Orchestrator fehlt.");
 const releaseCheck = readFileSync(releaseCheckPath, "utf8");
 const releaseCurrent = readFileSync(releaseCurrentPath, "utf8");
 
-assert.equal(nodeVersion, runtime.node.version, ".node-version und portable Runtime laufen auseinander.");
+assert.match(nodeVersion, /^\d+\.\d+\.\d+$/u, ".node-version muss eine exakt gepinnte Version nennen.");
 assert.equal(Number(nodeVersion.split(".")[0]), 22, "CI muss die freigegebene Node-22-Linie verwenden.");
 assert.match(packageJson.engines.node, />=22/u, "package.json nennt Node 22 nicht als Mindestversion.");
 assert.equal(packageJson.scripts.check, "node scripts/release-check.mjs");
@@ -40,8 +39,6 @@ for (const required of [
   '["audit", "--omit=dev", "--audit-level=high"]',
   '["test"]',
   '["run", "test:product"]',
-  '["run", "package:portable"]',
-  '["run", "verify:portable-release"]',
   '["run", "pack"]',
   '["run", "publish:dry-run"]',
   '["run", "test:npm-clean-install"]',
@@ -86,7 +83,6 @@ assert.match(workflow, /^    timeout-minutes: 20$/mu);
 const pinnedActions = {
   "actions/checkout": "3d3c42e5aac5ba805825da76410c181273ba90b1",
   "actions/setup-node": "820762786026740c76f36085b0efc47a31fe5020",
-  "actions/upload-artifact": "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
 };
 for (const [action, revision] of Object.entries(pinnedActions)) {
   assert(workflow.includes(`uses: ${action}@${revision}`), `${action} ist nicht auf den geprüften Commit gepinnt.`);
@@ -100,8 +96,6 @@ const commands = [
   "npm ci --ignore-scripts",
   "npm audit --omit=dev --audit-level=high",
   "npm test",
-  "npm run package:portable",
-  "npm run verify:portable-release",
 ];
 let previous = -1;
 for (const command of commands) {
@@ -109,14 +103,10 @@ for (const command of commands) {
   assert(index > previous, `CI-Befehl fehlt oder steht in falscher Reihenfolge: ${command}`);
   previous = index;
 }
-for (const artifact of [
-  "artifacts/portable/steuer-spar-erklaerung.zip",
-  "artifacts/portable/steuer-spar-erklaerung.zip.sha256",
-]) {
-  assert(workflow.includes(artifact), `CI-Artefakt fehlt: ${artifact}`);
-}
-assert.match(workflow, /if-no-files-found: error/u);
-assert.match(workflow, /retention-days: 7/u);
+assert(
+  !/upload-artifact|artifacts\//u.test(workflow),
+  "CI laedt keine Build-Artefakte mehr hoch; installiert wird aus der npm-Registry.",
+);
 assert(!/(?:gh\s+release|create-release|softprops|contents:\s*write|secrets\.)/iu.test(workflow),
   "CI darf weder veröffentlichen noch Schreibrechte oder Secrets verwenden.");
 
@@ -197,12 +187,9 @@ for (const required of [
   "npm audit --omit=dev --audit-level=high",
   "npm test",
   "npm run test:product",
-  "npm run package:portable",
-  "npm run verify:portable-release",
   "git tag -a",
   "gh release create",
   "--verify-tag --prerelease",
-  "gh release download",
   "npx skills add yadimon/steuer-spar-erklaerung-mcp --list",
   "npm publish --workspace @yadimon/steuer-spar-erklaerung-mcp --ignore-scripts --tag latest --access public",
   "npm publish --workspace @yadimon/steuer-spar-erklaerung-api --ignore-scripts --tag latest --access public",

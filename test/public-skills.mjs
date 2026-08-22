@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 
 const root = resolve(process.cwd());
 const skillsRoot = join(root, "skills");
-const expected = ["steuer-spar-erklaerung", "steuer-spar-erklaerung-setup"];
+const expected = ["steuer-spar-erklaerung"];
 const discovered = readdirSync(skillsRoot, { withFileTypes: true })
   .filter((entry) => entry.isDirectory() && existsSync(join(skillsRoot, entry.name, "SKILL.md")))
   .map((entry) => entry.name)
@@ -126,80 +126,41 @@ const ustva = readFileSync(
 );
 assert(ustva.includes("sse_ustva_read") && ustva.includes("sse_ustva_open_section"));
 assert(ustva.includes("*.GewErfass2026") && ustva.includes("ELSTER"));
-const setup = readFileSync(join(skillsRoot, "steuer-spar-erklaerung-setup", "SKILL.md"), "utf8");
-assert(setup.includes("runtime/node.exe dist/api-cli.js health") && setup.includes("discovery"));
-assert(setup.includes("`config.json` niemals") && setup.includes("keinen `curl`-") && setup.includes("Nur `/healthz`"));
-assert(setup.includes('command = "node"') && setup.includes("schwarze `cmd.exe`-Fenster"));
-assert(setup.includes("Windows x64") && setup.includes("Windows PowerShell 5.1"));
-assert(setup.includes("--defaults") && setup.includes("--no-start"));
-assert(setup.includes("--with-mcp") && setup.includes("setup --check"));
-assert(setup.includes("--plan-file") && setup.includes("automatisiere `stdin` dafür nicht"));
-assert(setup.includes("vollständige Dateiliste") && setup.includes("Manifest aus"));
-assert(setup.includes("settings.md") && setup.includes("tracking.md") && setup.includes(".xlsx"));
-assert(setup.includes("Connector") && setup.includes("read-only Prüfung"));
-assert(setup.includes("aktuellste dort veröffentlichte") && setup.includes("OK Standard"));
-assert(setup.includes("`Standard-Setup ausführen`") && setup.includes("tokenfreien") && setup.includes("additiven Merge"));
-assert(setup.includes("npm.cmd install --global") && setup.includes("@yadimon/steuer-spar-erklaerung-api"));
-assert(setup.includes("npx.cmd") && setup.includes("Execution Policy"));
-assert(setup.includes("Bei OpenCode") && setup.includes("npm der") && setup.includes("kurze Standardweg"));
-assert(setup.includes("@yadimon/steuer-spar-erklaerung-mcp") && setup.includes("flüchtigen `npx`-Cache"));
-assert(setup.includes("`--defaults` nur") && setup.includes("frage den Nutzer nicht erneut"));
-assert(setup.includes("internen Loopback-Setup-Endpunkt") && setup.includes("Konfigurationsfingerprint"));
-assert(setup.includes("zuvor leere Fall-/Quellbindungen") && setup.includes("Bereits nicht leere"));
-assert(setup.includes("führt `sse_health` real aus") && setup.includes("Handshake ist kein Ersatz"));
-assert(setup.includes("Technisches Setup bereit; Client-Verifikation nach Neustart offen."));
-assert(setup.includes("genau einen Neustart") && setup.includes("nächste Fachauftrag zuerst die Serverliste"));
-assert(
-  setup.includes("%USERPROFILE%\\.steuer-spar-erklaerung")
-    && setup.includes("Packages\\Claude_*\\LocalCache")
-    && setup.includes("eigenständig angemeldete Claude Code CLI")
-    && setup.includes("Git for Windows")
-    && setup.includes("Claude Cowork")
-    && setup.includes("`--config`"),
-  "Der Setup-Skill muss Claude Code CLI und Cowork trennen und einen dauerhaften Benutzerpfad verwenden.",
-);
-assert(setup.includes("arbeite nicht darum herum") && setup.includes("Prozesse weder lesen noch manuell ändern"));
-assert(setup.includes("öffnet nie selbst einen Steuerfall") && setup.includes("hashverifizierte Prüffallkopie"));
-assert(setup.includes("Windows-`tar.exe`") && setup.includes("Teilordner darf nicht gestartet werden"));
-const installation = readFileSync(
-  join(skillsRoot, "steuer-spar-erklaerung-setup", "references", "installation.md"),
-  "utf8",
-);
-assert(installation.includes("System32\\tar.exe") && installation.includes("nicht in denselben Ordner nachentpacken"));
-assert(installation.includes("WinRT") && installation.includes("Exitcode 0"));
+const installation = readFileSync(join(root, "docs", "INSTALLATION.md"), "utf8");
 assert(installation.includes("Installation für Menschen und AI-Agenten"));
 assert(installation.includes("Codex Cloud") && installation.includes("OpenCode") && installation.includes("Claude Cowork"));
-assert(installation.includes("Node.js 22+ mit npm") && installation.includes("Portable"));
-assert(installation.includes("Für OpenCode ist der npm-Weg der einfache Standard"));
 assert(installation.includes("OpenCode ist ein sekundärer, best-effort Client"));
-assert(
-  installation.includes("OpenCode darf die rohe API-Datei `config.json` weder öffnen, lesen noch parsen")
-    && installation.includes("Setup-CLI")
-    && installation.includes("MCP-Bootstrap laden das Token intern"),
-);
 assert(installation.includes("--agent <codex|claude-code|opencode>"));
-assert(installation.includes("steuer-spar-erklaerung-setup --defaults --with-mcp") && installation.includes("niemals Antworten über `stdin`"));
-assert(installation.includes("steuer-spar-erklaerung-setup --check"));
 assert(
-  installation.includes("$sseRuntimeRoot")
-    && installation.includes("$sseConfigPath")
-    && installation.includes("--config $sseConfigPath --defaults --with-mcp")
-    && installation.includes("AppData\\Local\\Packages\\Claude_*\\LocalCache")
+  installation.includes("steuer-spar-erklaerung-setup --defaults --with-mcp")
+    && installation.includes("niemals Antworten über `stdin`"),
+  "Die Anleitung muss den nichtinteraktiven OpenCode-Weg ohne stdin-Automatik nennen.",
+);
+assert(
+  installation.includes("AppData\\Local\\Packages\\Claude_*\\LocalCache")
     && installation.includes("Claude Code CLI unter Windows (nicht Cowork)")
     && installation.includes("Git for Windows"),
-  "Die Installationsanleitung braucht einen kopierbaren Host-Weg für die eigenständige Claude Code CLI.",
+  "Die Anleitung muss die MSIX-Virtualisierung und die eigenstaendige Claude-CLI benennen.",
 );
 assert(installation.includes("enthält **kein Token**") && installation.includes("containsToken: false"));
+assert(installation.includes("Windows x64") && installation.includes("Node.js 22 oder neuer"),
+  "Die Anleitung muss Plattform und Node-Voraussetzung nennen.");
+assert(installation.includes("--defaults") && installation.includes("--no-start")
+  && installation.includes("--with-mcp") && installation.includes("--plan-file"),
+  "Die Anleitung muss die Setup-Schalter nennen.");
+assert(installation.includes("`config.json` niemals") && installation.includes("settings.md"),
+  "Die Anleitung muss Tokenverbot und Prosa-Einstellungen nennen.");
+assert(installation.includes("_npx") && installation.includes("foreground-only-config")
+  && installation.includes("HTTP 409"),
+  "Die Anleitung muss npx-Cache-Falle und den einzigen Reparaturweg nennen.");
+assert(installation.includes("enabled_tools") && installation.includes("required = true"),
+  "Die Anleitung muss die Codex-Kataloggrenze nennen.");
+assert(installation.includes("npm i @yadimon/steuer-spar-erklaerung-api")
+  && installation.includes("Execution Policy"),
+  "Die Anleitung muss den npm-Weg und die PowerShell-Falle nennen.");
 assert(installation.includes("## Kopierbare Prompts") && installation.includes("$steuer-spar-erklaerung"));
 assert(installation.includes("tokenfreien additiven MCP-Merges") && installation.includes("fragt innerhalb dieser Grenzen aber nicht erneut"));
 assert(installation.includes("`Standard-Setup ausführen`") && installation.includes("`Standard-Prüflauf ausführen`"));
-assert(
-  installation.includes("Standard-Einrichtung und Prüflauf ausführen")
-    && firstRun.includes("Standard-Einrichtung und Prüflauf ausführen")
-    && setup.includes("Standard-Einrichtung und Prüflauf ausführen")
-    && main.includes("Standard-Einrichtung und Prüflauf ausführen"),
-  "Die kombinierte Setup-plus-Prüflauf-Formel muss in allen Vertragsdokumenten identisch stehen.",
-);
 assert(installation.includes("hashverifizierte Kopie") && installation.includes("kein Speichern und kein ELSTER"));
 assert(installation.includes("MCP-Tools `sse_health`") && installation.includes("`ok=true`"));
 assert(installation.includes("Technisches Setup bereit; Client-Verifikation nach Neustart") && installation.includes("Prompt 2 übernimmt"));
@@ -212,8 +173,7 @@ assert(
   "Die Codex-Einrichtung muss den getesteten Kernkatalog und belastbare MCP-Zeitbudgets setzen.",
 );
 assert(installation.includes("`mcp_tool_call`") && installation.includes("API-CLI-Aufruf `health` ist kein Ersatz"));
-assert(!setup.includes("Windows 10/11"), "Setup darf kompatible Windows-Versionen nicht nach Label sperren.");
-for (const source of [main, firstRun, setup]) {
+for (const source of [main, firstRun]) {
   assert(
     !/v\d+\.\d+\.\d+-beta\.\d+/iu.test(source),
     "Runtime-Skills dürfen keine konkrete Beta-Version als Installationsziel festschreiben.",
@@ -249,8 +209,8 @@ assert(
 assert(readme.includes("## Was die Beta kann") && readme.includes("## Voraussetzungen"));
 assert.match(
   readme,
-  /--skill steuer-spar-erklaerung --skill steuer-spar-erklaerung-setup/gu,
-  "README installiert nicht beide öffentlichen Skills gemeinsam.",
+  /--skill steuer-spar-erklaerung --agent/u,
+  "README nennt den Skill-Installer nicht mit dem einen öffentlichen Skill.",
 );
 for (const agent of ["codex", "claude-code", "opencode"]) {
   assert(
@@ -259,12 +219,11 @@ for (const agent of ["codex", "claude-code", "opencode"]) {
   );
 }
 assert(readme.includes("https://www.skills.sh/docs/cli"), "README verlinkt die offizielle skills-CLI nicht.");
-assert(readme.includes("Get-FileHash -Algorithm SHA256"), "README erklärt die manuelle ZIP-Prüfsumme nicht.");
 assert.match(readme, /npx skills.*Node\.js 22\+ mit npm/su, "README verschweigt die npx-Voraussetzung.");
 assert(readme.includes("npm.cmd install --global @yadimon/steuer-spar-erklaerung-api"));
 assert(readme.includes("npm.cmd install --global @yadimon/steuer-spar-erklaerung-mcp"));
 assert(readme.includes("npx.cmd") && readme.includes("PowerShell-Execution-Policy"));
-assert(readme.toLowerCase().includes("installiere oder aktualisiere beide skills") && readme.includes("gecachte Webansicht"));
+assert(readme.toLowerCase().includes("installiere oder aktualisiere den skill") && readme.includes("gecachte Webansicht"));
 assert(readme.includes("## Schnellstart mit zwei Prompts") && readme.includes("steuer-spar-erklaerung-setup --check"));
 assert(readme.includes("## Schnell mit NPX, ohne MCP"));
 assert(readme.includes("Starte die lokale API über npx. Kein MCP und keine globale Runtime-Installation."));
@@ -292,21 +251,12 @@ assert(readme.includes("Download, persistenter Installation") && readme.includes
 assert(readme.includes("MCP als optionale Produktfunktion") && readme.includes("Agenten-Standard enthält MCP"));
 assert(readme.includes("Kernwerkzeuge des Standard-Prüflaufs") && readme.includes("alle 88 Operationen"));
 assert(
-  main.includes("https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/skills/steuer-spar-erklaerung-setup/references/installation.md")
+  main.includes("https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md")
     && main.includes("Technisches Setup bereit;")
     && main.includes("Client-Verifikation nach Neustart offen."),
   "Der Hauptskill muss fehlendes Setup ohne zirkuläre lokale Referenz und ohne vorgetäuschte Client-Verifikation behandeln.",
 );
-assert(
-  setup.includes("`required`")
-    && setup.includes("`startup_timeout_sec`")
-    && setup.includes("`tool_timeout_sec`")
-    && setup.includes("`enabled_tools`")
-    && main.includes("Shell oder direkte API-CLI ist dort kein Ersatz")
-    && main.includes("Im ausdrücklich gewählten NPX-/API-Modus"),
-  "Setup- und Hauptskill müssen die Codex-Kataloggrenze und den echten MCP-Nachweis erzwingen.",
-);
-for (const source of [readme, installation, setup, main, firstRun]) {
+for (const source of [readme, installation, main, firstRun]) {
   assert(!source.includes("Standard-Setup direkt"), "Die alte abweichende Setup-Freigabeformulierung ist noch vorhanden.");
   assert(!source.includes("Standard-Prüflauf direkt"), "Die alte abweichende Prüflauf-Freigabeformulierung ist noch vorhanden.");
 }
@@ -320,7 +270,7 @@ assert(
 );
 
 const issueTemplate = readFileSync(join(root, ".github", "ISSUE_TEMPLATE", "fehler.yml"), "utf8");
-assert(issueTemplate.includes("npm-Einrichtung") && issueTemplate.includes("Portable Einrichtung"));
+assert(issueTemplate.includes("npm-Einrichtung"));
 assert(issueTemplate.includes(`v${JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version}`));
 
 process.stdout.write("Public Skills: 2 flache npx-kompatible, deutsche und portable Skill-Pakete bestanden\n");

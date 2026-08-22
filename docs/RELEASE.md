@@ -1,9 +1,8 @@
 # Release-Prozess
 
-Dieses Projekt veröffentlicht keinen gehosteten Dienst. Es hat drei bewusst
+Dieses Projekt veröffentlicht keinen gehosteten Dienst. Es hat zwei bewusst
 getrennte Distributionsartefakte:
 
-- ein portables Windows-x64-ZIP mit separater SHA-256-Datei auf GitHub;
 - `@yadimon/steuer-spar-erklaerung-api` für API, CLI und Setup;
 - `@yadimon/steuer-spar-erklaerung-mcp` als PC-blinden MCP-Wrapper.
 
@@ -57,8 +56,6 @@ npm ci --ignore-scripts
 npm audit --omit=dev --audit-level=high
 npm test
 npm run test:product
-npm run package:portable
-npm run verify:portable-release
 npm run pack
 npm run publish:dry-run
 npm run test:npm-clean-install
@@ -81,9 +78,7 @@ npm run check
 Remove-Item Env:SSE_TEST_CONCURRENCY
 ```
 
-`verify:portable-release` muss Produkt, Version, Dateizahl, Bytezahl und
-SHA-256 des bereits gebauten ZIP als `ok: true` ausgeben. Der anschließende
-Clean-install-Smoke muss vier CLI-Einstiege und den 88-Tool-MCP-Vertrag aus
+Der Clean-install-Smoke muss vier CLI-Einstiege und den 88-Tool-MCP-Vertrag aus
 zwei getrennten Tarballs bestätigen. Danach nochmals prüfen, dass der Worktree
 sauber ist. Private Steuerdaten, lokale Konfigurationen und Test-Arbeitskopien
 dürfen nicht im Commit oder Artefakt liegen.
@@ -98,47 +93,16 @@ git push origin $tag
 gh release create $tag `
   --repo yadimon/steuer-spar-erklaerung-mcp `
   --verify-tag --prerelease --title $tag `
-  --notes-file "docs/releases/$tag.md" `
-  'artifacts\portable\steuer-spar-erklaerung.zip' `
-  'artifacts\portable\steuer-spar-erklaerung.zip.sha256'
+  --notes-file "docs/releases/$tag.md"
 ```
 
-Nur `steuer-spar-erklaerung.zip` und
-`steuer-spar-erklaerung.zip.sha256` sind Produktartefakte. Die automatisch von
-GitHub angebotenen Quellarchive sind kein portables Release. Schlägt der
-Upload fehl, den vorhandenen Tag nicht neu erzeugen oder verschieben; Ursache
-beheben und denselben noch unveröffentlichten Releasevorgang fortsetzen.
+Das Release trägt bewusst **keine Anhänge**. Produktartefakte sind allein die
+beiden npm-Tarballs; die automatisch von GitHub angebotenen Quellarchive sind
+kein Release. Schlägt der Vorgang fehl, den vorhandenen Tag nicht neu erzeugen
+oder verschieben; Ursache beheben und denselben noch unveröffentlichten
+Releasevorgang fortsetzen.
 
-## 5. Veröffentlichte Bytes zurücklesen
-
-Die GitHub-Assets werden in einen neuen temporären Ordner heruntergeladen und
-gegen lokale Bytes sowie die veröffentlichte Sidecar-Datei geprüft:
-
-```powershell
-$verifyDir = Join-Path ([System.IO.Path]::GetTempPath()) "sse-release-$version"
-if (Test-Path -LiteralPath $verifyDir) { throw "Prüfordner existiert bereits: $verifyDir" }
-New-Item -ItemType Directory -Path $verifyDir | Out-Null
-gh release download $tag `
-  --repo yadimon/steuer-spar-erklaerung-mcp `
-  --dir $verifyDir `
-  --pattern 'steuer-spar-erklaerung.zip*'
-
-$localHash = (Get-FileHash -Algorithm SHA256 'artifacts\portable\steuer-spar-erklaerung.zip').Hash.ToLowerInvariant()
-$remoteZip = Join-Path $verifyDir 'steuer-spar-erklaerung.zip'
-$remoteSidecar = Join-Path $verifyDir 'steuer-spar-erklaerung.zip.sha256'
-$remoteHash = (Get-FileHash -Algorithm SHA256 $remoteZip).Hash.ToLowerInvariant()
-$publishedHash = ((Get-Content -LiteralPath $remoteSidecar -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
-if ($localHash -ne $remoteHash -or $remoteHash -ne $publishedHash) {
-  throw 'Lokales ZIP, GitHub-Asset und veröffentlichte SHA-256-Datei stimmen nicht überein.'
-}
-gh release view $tag --repo yadimon/steuer-spar-erklaerung-mcp
-```
-
-Den exakten Prüfordner erst nach erfolgreichem Vergleich entfernen. Zusätzlich
-muss der annotierte Tag auf dem geprüften `main`-Commit liegen und das Release
-als **Pre-release** sichtbar sein.
-
-## 6. npm erstmals veröffentlichen und Trusted Publishing verbinden
+## 5. npm erstmals veröffentlichen und Trusted Publishing verbinden
 
 Beide Paketnamen sind neu. Für ihre allererste Veröffentlichung muss der
 Maintainer lokal mit einem npm-Konto angemeldet sein, das den Scope
@@ -235,7 +199,7 @@ Artefakte geprüft:
 npm run smoke:published
 ```
 
-## 7. Öffentlichen Skill und Einstieg prüfen
+## 6. Öffentlichen Skill und Einstieg prüfen
 
 Nach Veröffentlichung und Aktualisierung von `main`:
 

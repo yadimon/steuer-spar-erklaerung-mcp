@@ -19,7 +19,7 @@ body:
     id: release
     attributes:
       label: Release-Version
-      description: Zum Beispiel v0.1.0-beta.17 aus Setup, Health, npm-Paket oder portablem Manifest.
+      description: Zum Beispiel v0.1.0-beta.18 aus Setup, Health oder npm-Paket.
       placeholder: v0.1.0-beta.x
     validations:
       required: true
@@ -39,7 +39,6 @@ body:
       label: Oberfläche
       options:
         - npm-Einrichtung
-        - Portable Einrichtung
         - Direkte HTTP-API oder CLI
         - MCP-Wrapper
         - Sichtbare SSE-Automation

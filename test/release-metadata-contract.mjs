@@ -11,7 +11,7 @@ const versionSource = readFileSync("src/version.ts", "utf8");
 const security = readFileSync("SECURITY.md", "utf8");
 const readme = readFileSync("README.md", "utf8");
 const mainSkill = readFileSync(join("skills", "steuer-spar-erklaerung", "SKILL.md"), "utf8");
-const setupSkill = readFileSync(join("skills", "steuer-spar-erklaerung-setup", "SKILL.md"), "utf8");
+const installationGuide = readFileSync(join("docs", "INSTALLATION.md"), "utf8");
 const releasePath = join("docs", "releases", `v${packageJson.version}.md`);
 
 assert.match(packageJson.version, /^0\.1\.0-beta\.\d+$/u, "Beta-Release braucht eine erwartete SemVer-Vorabversion.");
@@ -32,7 +32,10 @@ const releaseHeading = releaseNotes.split(/\r?\n/u, 1)[0];
 assert.equal(releaseHeading, `# v${packageJson.version}`, "Release Notes tragen nicht die Paketversion als H1.");
 assert.match(releaseNotes, /SteuerSparErklärung 2025/u, "Release Notes nennen das unterstützte Produktprofil nicht.");
 assert.match(releaseNotes, /ELSTER/iu, "Release Notes verschweigen die dauerhafte Übermittlungsgrenze.");
-assert.match(releaseNotes, /steuer-spar-erklaerung\.zip\.sha256/u, "Release Notes erklären die ZIP-Prüfsumme nicht.");
+assert(
+  !/steuer-spar-erklaerung\.zip/u.test(releaseNotes) || /entfallen|entfernt/u.test(releaseNotes),
+  "Release Notes duerfen kein Portable-ZIP mehr anpreisen; installiert wird aus der npm-Registry.",
+);
 const fullSuiteSteps = serialBuildSteps.length + parallelSteps.length + exclusiveSteps.length + finalSteps.length;
 assert(
   releaseNotes.includes(`alle ${fullSuiteSteps} geplanten Schritte`) &&
@@ -62,6 +65,6 @@ assert.match(
 assert(!/bleibt `v0\.1\.0-beta\.\d+`/u.test(security), "Security enthält eine nach Veröffentlichung veraltende Vorversion.");
 assert.match(readme, /`2024` \/ Engine 30 \| `experimental` \/ `verification-only`/u);
 assert.match(mainSkill, /Profil `2025` mit Engine-Major `31` freigegeben/u);
-assert.match(setupSkill, /derzeit `2025` \/ Engine-Major `31`/u);
+assert.match(installationGuide, /derzeit `2025` \/ Engine-Major `31`/u);
 
 process.stdout.write(`Release-Metadaten: v${packageJson.version}, Security, Notes und 2 Skills synchron\n`);

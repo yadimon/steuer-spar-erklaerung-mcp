@@ -18,7 +18,7 @@ Dieses Paket ist die lokale Ausführungsschicht:
 - technischer Konfigurationshelfer für den öffentlichen Setup-Skill.
 
 Der geführte Einrichtungs-Wizard ist der
-[`steuer-spar-erklaerung-setup`-Skill](https://github.com/yadimon/steuer-spar-erklaerung-mcp/tree/main/skills/steuer-spar-erklaerung-setup),
+[`steuer-spar-erklaerung-setup`-Skill](https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md),
 nicht die Produktrolle dieses npm-Pakets.
 Der MCP-Server ist bewusst **nicht** enthalten; er liegt im getrennten Paket
 [`@yadimon/steuer-spar-erklaerung-mcp`](https://www.npmjs.com/package/@yadimon/steuer-spar-erklaerung-mcp).

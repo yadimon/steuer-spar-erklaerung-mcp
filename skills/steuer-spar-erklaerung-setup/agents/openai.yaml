@@ -1,4 +1,0 @@
-interface:
-  display_name: "SteuerSparErklärung Setup"
-  short_description: "Lokale SSE-API und MCP sicher einrichten"
-  default_prompt: "Verwende $steuer-spar-erklaerung-setup, um beide lokalen Skills sowie die SteuerSparErklärung-2025-API und MCP mit deutschen Standardantworten einzurichten und die Installation vollständig zu prüfen."

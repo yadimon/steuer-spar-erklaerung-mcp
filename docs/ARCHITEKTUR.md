@@ -386,17 +386,13 @@ nie geöffnet“ ist deshalb eine Ablaufzusage der Skills, keine API-Sperre.
 
 ### Nutzerstandard
 
-Es gibt zwei gleich versionierte Distributionswege. Eine vorhandene passende
-Installation wird wiederverwendet. Mit bereits vorhandenem Node.js 22+ und npm
-kann der Setup-Skill die veröffentlichten npm-Pakete persistent
-installieren; andernfalls bleibt das portable GitHub Release der vollständige
-Weg ohne globale Entwicklerwerkzeuge.
+Es gibt genau einen Distributionsweg: die beiden gleich versionierten
+npm-Pakete. Eine vorhandene passende Installation wird wiederverwendet.
+Node.js 22+ mit npm ist damit Voraussetzung; eine fehlende Laufzeit wird nicht
+ungefragt nachinstalliert.
 
-- Portable wird entpackt statt installiert und braucht keine
-  Administratorrechte, Dienste, geplanten Aufgaben oder PATH-Änderungen;
-- die äußere SHA-256-Prüfung erfolgt vor dem Entpacken in einen neuen leeren
-  Ordner. Windows-`tar.exe` ist der Standardpfad; ein Timeout oder partielles
-  `Expand-Archive` ist keine lauffähige Installation;
+- installiert wird ohne Administratorrechte, Dienste, geplante Aufgaben oder
+  PATH-Änderungen — bevorzugt in einen eigenen Ordner je Einrichtung;
 - Start nur für die aktuelle Arbeit und kontrollierter Shutdown danach;
 - das Root-Manifest bleibt ein privater Build-Workspace. Das Windows-x64-
   Paket `@yadimon/steuer-spar-erklaerung-api` enthält API, CLI, Setup,
@@ -412,32 +408,23 @@ Weg ohne globale Entwicklerwerkzeuge.
   drittes Contract-Paket ist nicht Teil der Architektur;
 - vor TypeScript-Builds werden nur quelllose Compilerartefakte unter dem
   gebundenen `dist`-Ordner entfernt; unbekannte Dateien oder Links stoppen den
-  Build. npm- und Portable-Paketierung validieren danach erneut jedes
-  JavaScript-/Source-Map-Artefakt gegen seine TypeScript-Quelle und verlangen
+  Build. Die npm-Paketierung validiert danach erneut jedes
+  JavaScript-/Source-Map-Artefakt gegen seine TypeScript-Quelle und verlangt
   alle dokumentierten CLI-Einstiege;
-- das fertige Portable-ZIP wird vor seiner äußeren SHA256-Datei erneut unter
-  Windows PowerShell 5.1 geöffnet. Es darf nur eine gebundene Wurzel, sichere
-  kollisionsfreie Windows-Pfade und exakt die Manifestdateien enthalten;
-  Produkt/Version, Bytezahl und Datei-SHA256 werden aus den komprimierten
-  Streams geprüft. Ein ungültiges neu erzeugtes ZIP wird entfernt und der
-  Build stoppt;
 - Python wird aus dem Produkt entfernt;
-- eine benötigte Node-Laufzeit wird gebündelt oder das gebaute Programm als
-  ausführbares Artefakt ausgeliefert;
 - Windows PowerShell 5.1 wird nach vollständiger Kompatibilitätsprüfung als
-  Windows-Systembestandteil genutzt. Die portable Testmatrix prüft Parser,
+  Windows-Systembestandteil genutzt. Die Testmatrix prüft Parser,
   Worker, native DLL und Source-Fallback unter genau dieser Laufzeit. Ein
   privates oder globales PowerShell 7 gehört nicht zum Produkt.
 
-Der npm-Weg ist nicht der einzige Installationsweg und baut keinen Quellcode
-auf dem Nutzer-PC. Ein persistentes Setup aus dem flüchtigen `_npx`-Cache wird
+Der npm-Weg baut keinen Quellcode auf dem Nutzer-PC. Ein persistentes Setup aus dem flüchtigen `_npx`-Cache wird
 verweigert, weil API-Starter und MCP-Konfiguration dauerhafte absolute Pfade
 benötigen. Davon getrennt darf die API für einen einzelnen Auftrag direkt über
 NPX im Vordergrund laufen: Sie legt bei Bedarf nur die token-geschützte lokale
 Konfiguration und Arbeitsordner an, bindet den bestätigten Fallordner an den
 Prozess und schreibt keinen Launcher in den Paketcache.
 Die MCP-Client-Konfiguration enthält kein Token. Sie startet einen kleinen
-Bootstrap aus dem API-/Portable-Paket; nur dieser liest die lokale
+Bootstrap aus dem API-Paket; nur dieser liest die lokale
 API-Konfiguration und übergibt URL und Token im Prozessumfeld an den
 PC-blinden MCP-Kindprozess.
 
@@ -447,7 +434,7 @@ PC-blinden MCP-Kindprozess.
    starten, direkte CLI verwenden und nach dem Auftrag beenden; kein MCP.
 2. **Standard:** API bei Bedarf fensterlos starten, Aufgabe ausführen, sauber
    beenden.
-3. **MCP-Komfort:** Agentkonfiguration verweist direkt auf den portablen oder
+3. **MCP-Komfort:** Agentkonfiguration verweist direkt auf den
    separat installierten MCP-Einstieg; dieser spricht mit derselben API und
    kennt nur URL und Token.
 4. **Dauerbetrieb (opt-in):** Autostart oder geplante Aufgabe nur nach
@@ -503,7 +490,7 @@ werden kann.
 Ohne Antworten verwendet er sichere Defaults. Er speichert auch die
 Entscheidung „nichts kopieren“ in einem persistenten Arbeitsbereich. Er darf
 automatisch read-only prüfen, lokale Ordner anlegen, neue Arbeitskopien
-erzeugen und repo-/portable-eigene Dateien schreiben. Vor externen
+erzeugen und repo-eigene Dateien schreiben. Vor externen
 Kontoverbindungen, Massenkopien, globalen Installationen, Agentkonfiguration,
 Autostart oder Steuerdatenänderungen ist eine passende Bestätigung notwendig.
 
@@ -644,7 +631,7 @@ Eine Funktion gilt nur als lauffähig, wenn:
 - bei UI- oder Steuerdatenbezug ein readback-orientierter Realtest oder eine
   ausdrücklich benannte Fixture-Voraussetzung existiert.
 
-Der Gesamtstand ist erst produktiv, wenn die schnelle portable Testsuite, alle
+Der Gesamtstand ist erst produktiv, wenn die schnelle Testsuite, alle
 verfügbaren Real-Fixture-Tests, die Skill-Validierung, Datenschutzprüfung und
 der abschließende Anforderungsabgleich grün sind. Externe Reviews sind
 zusätzliche Evidenz und ersetzen diese Prüfungen nicht.

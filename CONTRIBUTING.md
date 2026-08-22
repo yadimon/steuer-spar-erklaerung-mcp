@@ -33,7 +33,7 @@ npm run build
 npm run test:fast
 ```
 
-Python und PowerShell 7 sind keine Laufzeitabhängigkeiten des portablen
+Python und PowerShell 7 sind keine Laufzeitabhängigkeiten des
 Produkts. PowerShell 7 kann lokal für robuste Entwickler-Skripte verwendet
 werden.
 
@@ -45,7 +45,7 @@ Commit-Nachrichten folgen Conventional Commits, zum Beispiel:
 ```text
 feat(api): add bounded operation discovery
 fix(worker): preserve window identity on retry
-docs(readme): clarify portable setup
+docs(readme): clarify local setup
 test(ustva): cover period selection rollback
 ```
 
@@ -59,7 +59,7 @@ Arbeitskopie, Vorher-/Nachher-Readback und getrennte reale Evidenz.
 | --- | --- |
 | Nur Dokumentation oder Skill-Text | `npm run test:fast` |
 | TypeScript, PowerShell, API, MCP, Profile oder Tests | `npm test` |
-| npm-/Portable-Laufzeit, Paketinhalt oder Release-Metadaten | `npm test`, `npm run pack`, `npm run publish:dry-run`, `npm run test:npm-clean-install`, `npm run package:portable`, `npm run verify:portable-release` |
+| npm-Laufzeit, Paketinhalt oder Release-Metadaten | `npm test`, `npm run pack`, `npm run publish:dry-run`, `npm run test:npm-clean-install` |
 | UI-Bindung oder Profilverhalten | vollständige Offline-Suite und, wenn Voraussetzungen vorhanden sind, der passende opt-in Live-Lauf |
 
 `npm test` bleibt auf einem neutralen Windows-Rechner ohne installierte SSE
@@ -103,7 +103,7 @@ Ein Pull Request soll:
    enthalten.
 
 Die read-only [Windows-CI](.github/workflows/windows-ci.yml) führt Audit,
-Volltest, portablen Paketbau und erneute Artefaktprüfung aus. Der getrennte
+Volltest und die Paketprüfungen aus. Der getrennte
 npm-Publish-Workflow ist manuell, taggebunden und verwendet OIDC ohne
 langlebiges npm-Token. Ein grüner
 Offline-Lauf allein macht ein neues UI-Verhalten nicht live-verifiziert.
