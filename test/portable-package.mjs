@@ -10,6 +10,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { SSE_API_OPERATIONS } from "../dist/api-contract.js";
 import { SSE_MCP_TOOL_OPERATIONS } from "../dist/operation-catalog.js";
+import { removeDirectoryWhenFree } from "./remove-when-free.mjs";
 
 const repoRoot = process.cwd();
 const bundle = resolve(repoRoot, "artifacts", "portable", "test-bundle");
@@ -244,8 +245,10 @@ try {
   if (client) await client.close();
   api.kill("SIGTERM");
   await once(api, "exit");
-  rmSync(temporary, { recursive: true, force: true });
-  rmSync(bundle, { recursive: true, force: true });
+  // Der Reservearbeiter der soeben hart beendeten API laeuft noch aus dem
+  // Bundle heraus; ohne Warten scheitert das Entfernen auf langsamen Rechnern.
+  await removeDirectoryWhenFree(temporary);
+  await removeDirectoryWhenFree(bundle);
   rmSync(bundleZip, { force: true });
   rmSync(bundleChecksum, { force: true });
 }
