@@ -147,7 +147,8 @@ der Laufzeitquelle ab.
 Verwende diesen Weg nur auf Windows x64 mit bereits vorhandenem Node.js 22+
 und npm, wenn der Nutzer ihn ausdrücklich gewählt oder den Paketabruf im
 gezeigten Standardplan bestätigt hat. Der Hauptskill kann dafür direkt aus der
-Repository-URL gelesen sein; der Setup-Skill und MCP sind nicht erforderlich.
+Repository-URL gelesen sein; eine Installation im Ordner und MCP sind dafuer
+nicht erforderlich.
 
 Leite aus dem bestätigten absoluten Steuerfallpfad dessen Ordner ab. Starte die
 API in einem eigenen laufenden Terminalprozess und halte ihn bis zum sicheren

@@ -38,7 +38,7 @@ assert(main.includes("MCP ist ein dünner Wrapper darüber") && main.includes("A
 assert(main.includes("NPX-Kurzweg ohne globale Runtime-Installation"));
 assert(main.includes("npx.cmd -y @yadimon/steuer-spar-erklaerung-api --case-dir"));
 assert(main.includes("npx.cmd -y -p @yadimon/steuer-spar-erklaerung-api steuer-spar-erklaerung-call"));
-assert(main.includes("kein dauerhafter Launcher") && main.includes("Setup-Skill und MCP sind nicht erforderlich"));
+assert(main.includes("kein dauerhafter Launcher") && main.includes("eine Installation im Ordner und MCP sind dafuer"));
 assert(
   main.includes("keine Zugriffssperre der direkten API"),
   "Hauptskill muss --case-dir ehrlich als Referenz-/Schwaerzungsgrenze beschreiben.",
@@ -105,18 +105,25 @@ const firstRun = readFileSync(
 );
 assert(firstRun.includes("der richtige Steuerfall") && firstRun.includes("vollständige Liste der Belegordner"));
 assert(firstRun.includes("höchstens 100") && firstRun.includes("Durchsuche niemals das gesamte Laufwerk"));
-assert(firstRun.includes("aktuellste") && firstRun.includes("passende veröffentlichte Portable-Release"));
-assert(firstRun.includes("npm-Pakete persistent installieren"));
+assert(
+  firstRun.includes("beiden veröffentlichten npm-Pakete in den Arbeitsordner installieren")
+    && !/Portable/u.test(firstRun),
+  "Der First-Run-Plan muss den npm-Weg nennen und darf kein Portable-Release mehr anbieten.",
+);
 assert(firstRun.includes("`OK`, `OK Standard` oder `OK Default`"));
 assert(firstRun.includes("hashverifizierte Prüffallkopie") && firstRun.includes("ausschließlich diese öffnen"));
 assert(firstRun.includes("Setup allein erfüllt") && firstRun.includes("capabilities"));
-assert(firstRun.includes("--plan-file") && firstRun.includes('"schemaVersion": 1'));
-assert(firstRun.includes("genau einmal") && /fingerprint/iu.test(firstRun));
+assert(
+  firstRun.includes("Es gibt kein Einrichtungsprogramm und keine Plandatei")
+    && firstRun.includes("docs/INSTALLATION.md")
+    && !firstRun.includes("setup-decisions.json"),
+  "Der First-Run muss auf die Anleitung zeigen statt auf ein entfallenes Setup.",
+);
 assert(firstRun.includes("Frage sie nicht erneut") && firstRun.includes("gleichwertige Bestätigung"));
 assert(firstRun.includes("Standard-Prüflauf ausführen") && firstRun.includes("keiner ELSTER-Aktion"));
 assert(firstRun.includes("Release-, Download-, Paket-, Skill-, Cache-"));
-assert(firstRun.includes("kurzen NPX-Lauf ohne globale Installation"));
-assert(firstRun.includes("keinen dauerhaften Launcher") && firstRun.includes("MCP, Setup-Skill"));
+assert(firstRun.includes("kurzen NPX-Lauf ohne Installation"));
+assert(firstRun.includes("Client-Merge und") && firstRun.includes("gehören nicht zu diesem Kurzweg"));
 const uiFallback = readFileSync(
   join(skillsRoot, "steuer-spar-erklaerung", "references", "ui-fallback.md"),
   "utf8",

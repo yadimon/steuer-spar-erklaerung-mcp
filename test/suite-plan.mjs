@@ -73,7 +73,7 @@ export const parallelSteps = Object.freeze([
   nodeFile("archive-cases-synthetic", "test/archive-cases-synthetic.mjs"),
   nodeFile("archive-local-parity", "test/archive-local-parity.mjs"),
   nodeFile("sse-process-guard", "test/sse-process-guard.mjs"),
-  psFile("setup-task", "test/setup-task-contract.ps1"),
+  psFile("desktop-launcher", "test/desktop-launcher-contract.ps1"),
   nodeFile("api-contract", "test/api-contract.mjs"),
   nodeFile("api-static-documents", "test/api-static-document-cache.mjs"),
   nodeFile("api-client-body-abort", "test/api-client-body-abort.mjs"),
