@@ -33,8 +33,8 @@ Diese Regeln gelten auch auf ausdrücklichen Wunsch:
 
 - Sende, übermittle, bestätige oder schließe niemals über ELSTER ab. Bereite
   keinen Versandklick und keinen Umgehungsweg vor.
-- Lösche, überschreibe oder benenne niemals Originalfälle oder bereits
-  übermittelte Falldateien um. Verschiebe Fälle im normalen Prüf- und
+- Lösche oder überschreibe Originalfälle und übermittelte Falldateien nie auf
+  Dateiebene, benenne sie nie um. Verschiebe Fälle im normalen Prüf- und
   Bearbeitungsablauf nicht. Die einzige enge Ausnahme ist ein ausdrücklich
   beauftragter Archivlauf für nachweislich nicht übermittelte Fälle über
   `sse_archive_cases`: vollständiges Inventar, Hashbindung und ausschließlich
@@ -47,8 +47,9 @@ Diese Regeln gelten auch auf ausdrücklichen Wunsch:
   Ablauf und lege dem Menschen genau diese strukturierten Pfade zur Klärung
   vor; starte keine zweite Archivierung und verschiebe Recovery-Dateien nicht
   automatisch.
-- Ändere Steuerdaten nur in einer zuvor bytegleich verifizierten Arbeitskopie
-  und sichere sie vorher mit `sse_make_working_copy` nach `backups:`.
+- Ändere Steuerdaten nur nach Sicherung über `sse_make_working_copy` nach
+  `backups:`: standardmäßig in einer bytegleich verifizierten Arbeitskopie, im
+  Original nur auf ausdrücklichen Nutzerwunsch (references/first-run.md).
 - Arbeite nie mit einem wiederhergestellten Fall weiter. Hat SteuerSparErklärung
   nach einem unsauberen Ende eine Wiederherstellungsdatei geladen, stoppt
   `launch` mit `kind="recovered-state"`. Der geöffnete Inhalt entspricht dann
@@ -56,11 +57,10 @@ Diese Regeln gelten auch auf ausdrücklichen Wunsch:
   wäre fachlich falsch. Schließe den Fall ohne Speichern, lass den Nutzer die
   Wiederherstellung im Programm verwerfen und öffne danach erneut.
 - Öffne auch für eine UI-gebundene reine Prüfung niemals den Originalfall.
-  SSE kann schon beim Navigieren die zuletzt besuchte Seite als ungespeicherte
-  In-Memory-Änderung markieren. Erzeuge daher vor der ersten UI-Navigation mit
-  `sse_make_working_copy` eine neue hashverifizierte Prüffallkopie im
-  konfigurierten Fallbereich und öffne ausschließlich diese. Ein Original darf
-  nur über dateibasierte Operationen wie Hash, Kopf und Inventar gelesen werden.
+  SSE markiert schon beim Navigieren die zuletzt besuchte Seite als
+  ungespeicherte In-Memory-Änderung. Erzeuge daher vor der ersten UI-Navigation
+  mit `sse_make_working_copy` eine hashverifizierte Prüffallkopie und öffne
+  nur diese. Für die reine Prüfung wird ein Original nur dateibasiert gelesen.
 - Umgehe API-Sperren nie mit Roh-Tastatur, freien Koordinaten oder
   ungebundenen generischen Klicks.
 - Installiere nichts still. Ändere weder Autostart noch Agenten-Konfiguration,
@@ -371,10 +371,10 @@ Ersetze Excel niemals still.
 4. Identifiziere den Originalfall dateibasiert read-only. Vor jeder UI-
    Navigation – auch bei einer reinen Prüfung – Hash berechnen, eine eindeutig
    neu benannte Prüffallkopie unter `cases` erzeugen, beide Hashes vergleichen
-   und vor dem Öffnen Bytegleichheit bestätigen. Öffne den Originalfall nicht.
+   und vor dem Öffnen Bytegleichheit bestätigen. Das Original öffnet nur der
+   ausdrücklich gewünschte Originalweg (references/first-run.md).
    Starte eine Einkommensteuerdatei `.ESt<jahr>` immer explizit mit
-   `mode="normal"`; verlasse dich dafür nicht auf die `einur`-Vorgabe für
-   Gewinnermittlungsdateien.
+   `mode="normal"` statt der `einur`-Vorgabe für Gewinnermittlungsdateien.
    Die Prüffallkopie bleibt bis zu einem später ausdrücklich beauftragten,
    inventargebundenen Archiv- oder Bereinigungsschritt bestehen; lösche sie
    nicht mit Roh-Dateibefehlen.

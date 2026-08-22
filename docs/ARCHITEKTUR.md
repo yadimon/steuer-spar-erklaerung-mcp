@@ -328,9 +328,13 @@ Agent oder eigenes Programm
 
 - ELSTER, Senden und sonstige Übermittlung ans Finanzamt bleiben immer
   gesperrt.
-- Originale und übermittelte Fälle werden nicht gelöscht oder überschrieben.
-- Fachliche Änderungen erfolgen nur an verifizierten Arbeitskopien und werden
-  unmittelbar zurückgelesen.
+- Originale und übermittelte Fälle werden nie gelöscht, umbenannt oder auf
+  Dateiebene überschrieben; übermittelte Fälle werden nie verändert.
+- Fachliche Änderungen erfolgen standardmäßig an verifizierten Arbeitskopien
+  und werden unmittelbar zurückgelesen. Das Original wird nur auf
+  ausdrücklichen Nutzerwunsch bearbeitet, und erst nachdem eine
+  hashverifizierte Sicherung im Backupbereich besteht und ihre Referenz dem
+  Nutzer genannt wurde.
 - UI-Navigation erfolgt auch für reine Prüfungen ausschließlich auf einer
   hashverifizierten Prüffallkopie. SSE kann bereits beim Wechsel zwischen
   Seiten `ungespeichert=true` setzen, obwohl kein Steuerwert eingegeben wurde.

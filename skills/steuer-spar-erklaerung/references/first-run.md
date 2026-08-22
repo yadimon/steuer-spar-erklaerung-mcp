@@ -70,6 +70,33 @@ Prüflauf dort nicht — er wechselt die Kopie:
    danach weiterhin, endet der Lauf mit einem ehrlichen Teilbericht, der die
    ungelesenen Abschnitte einzeln benennt.
 
+## Bearbeiten im Original auf ausdrücklichen Wunsch
+
+Standard bleibt die Arbeitskopie. Verlangt der Nutzer aber ausdrücklich, die
+Änderung im Originalfall selbst vorzunehmen („im Original, keine
+Arbeitskopie“), ist genau das zu tun — die Sicherheit kommt dann aus der
+Sicherung, nicht aus einer Verweigerung:
+
+1. Vorbedingungen: Der Fall ist laut `sse_list_cases` nicht übermittelt und
+   es liegt kein Recovery-Zustand vor. Ein bereits übermittelter Fall wird
+   nie bearbeitet, auch nicht auf Wunsch.
+2. Sicherung anlegen: `sse_make_working_copy` mit dem Original als Quelle und
+   einem neuen, datumseindeutigen Ziel in `backups:`. Der bestätigte
+   Hashvergleich der Sicherung ist der Rückweg; ohne bestandene Sicherung
+   wird das Original nicht geöffnet.
+3. Vor der ersten Änderung dem Nutzer in einem Satz nennen: was geändert
+   wird, dass es das Original ist, und unter welcher `backups:`-Referenz die
+   Sicherung liegt. Das ist die Warnung — nach dem ausdrücklichen Wunsch
+   braucht es keine weitere Rückfrage.
+4. Danach gilt unverändert der Schreibvertrag: je Änderung Hash-, Fenster-
+   und Zustandsbindung mit sofortigem Readback, Speichern nur hashgebunden
+   über `sse_save`, ELSTER bleibt gesperrt.
+5. Im Abschlussbericht beide Hashes nennen: den der Sicherung (Zustand vor
+   der Änderung) und den des gespeicherten Originals — damit der Rückweg
+   jederzeit belegt ist.
+
+Fehlt der ausdrückliche Wunsch, bleibt es beim Arbeitskopien-Standard.
+
 ## Kandidaten nur oberflächlich suchen
 
 Suche vor den beiden Fragen kurz und ausschließlich anhand von Dateisystem-
