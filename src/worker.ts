@@ -190,9 +190,9 @@ async function runQueuedWorkerCall(call: QueuedWorkerCall): Promise<void> {
   } finally {
     workerRunning = false;
     startNextWorkerCall();
-    // Erst jetzt vorwaermen: waehrend der Operation haette der PowerShell-Start
-    // dem Fernsteuern die CPU streitig gemacht.
-    if (!workerRunning && !workerRuntimeFailure) ensureWarmSpare();
+    // Sicherheitsnetz fuer die Wege ohne Reserve (alternativer Desktop,
+    // Kaltstart). Im Normalfall laeuft das Nachfuellen laengst.
+    if (!workerRuntimeFailure) ensureWarmSpare();
   }
 }
 
@@ -282,6 +282,11 @@ async function callWorkerUnsynchronised(
   // Der Weg ueber den alternativen Desktop hat einen eigenen Prozessbaum und
   // kann keinen Reservearbeiter des sichtbaren Desktops verwenden.
   const spare = desk ? null : takeWarmSpare();
+  // Sofort nachfuellen statt erst nach der Operation: Vorwaermen dauert rund
+  // 1,4 s und ueberlappt so mit der laufenden Arbeit, statt den naechsten
+  // Aufruf kalt zu treffen (gemessen 0,25 s gegen 2,2 s). Der wartende Prozess
+  // laeuft dafuer mit verminderter Prioritaet, siehe worker-prewarm.ts.
+  if (!workerRuntimeFailure) ensureWarmSpare();
 
   return new Promise((resolve, reject) => {
     // Auch der Launcher fuer den alternativen Desktop bleibt unsichtbar. Der
