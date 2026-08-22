@@ -6,7 +6,35 @@ kurzen Plan übernehmen.
 
 Es gibt **kein Setup-Programm**. Installieren heißt: zwei npm-Pakete und einen
 Skill in einen Ordner legen, die API starten, den MCP-Server beim Client
-anmelden. Vier Befehle, alle in **einem Ordner**.
+anmelden.
+
+## Die ganze Installation
+
+```powershell
+mkdir C:\mein-steuer-ai
+cd C:\mein-steuer-ai
+
+npm i @yadimon/steuer-spar-erklaerung-api
+npm i @yadimon/steuer-spar-erklaerung-mcp
+
+npx -y skills add yadimon/steuer-spar-erklaerung-mcp `
+  --skill steuer-spar-erklaerung --agent codex --copy --yes
+
+codex mcp add steuer-spar-erklaerung -- C:\mein-steuer-ai\node_modules\.bin\steuer-spar-erklaerung-mcp.cmd
+
+.\node_modules\.bin\steuer-spar-erklaerung-api.cmd --config C:\mein-steuer-ai\config.json
+```
+
+Der letzte Befehl bleibt im Vordergrund; das Terminal offen lassen. Danach den
+Client einmal neu starten, damit er den MCP-Server lädt.
+
+Für Claude Code statt Codex `--agent claude-code` und
+`claude mcp add --scope project steuer-spar-erklaerung -- <derselbe Pfad>`.
+
+Der Rest dieser Seite erklärt jeden Schritt, die Fallen und die Grenzen. Wer
+nur prüfen lassen will, springt zu [Kopierbare Prompts](#kopierbare-prompts).
+
+## Wo das läuft
 
 Die Automation läuft immer auf dem Windows-PC. Sie wird nicht in Codex Cloud,
 Claude Code on the web oder einem anderen Remote-Container eingerichtet.
