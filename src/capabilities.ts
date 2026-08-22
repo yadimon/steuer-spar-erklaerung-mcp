@@ -122,7 +122,7 @@ export const SSE_CAPABILITIES = Object.freeze({
     progressRoute: "/healthz",
     rule: "Es laeuft immer nur eine Operation. Ein zweiter Aufruf wird mit 'busy' abgelehnt, " +
       "nicht eingereiht. Warte auf das Ergebnis statt parallel erneut aufzurufen; /healthz " +
-      "meldet ohne Token, welche Operation seit wann laeuft. Abbrechen geschieht ausschliesslich " +
+      "meldet jederzeit, welche Operation seit wann laeuft. Abbrechen geschieht ausschliesslich " +
       "durch Trennen der HTTP-Verbindung, nie durch einen zweiten Aufruf.",
   },
   batching: {

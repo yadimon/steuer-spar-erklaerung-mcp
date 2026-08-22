@@ -1,6 +1,6 @@
 {
   "name": "@yadimon/steuer-spar-erklaerung-api",
-  "version": "0.1.0-beta.18",
+  "version": "0.1.0-beta.19",
   "description": "Unofficial local HTTP API wrapper and CLI for SteuerSparErklaerung on Windows",
   "license": "MIT",
   "type": "module",
@@ -21,8 +21,7 @@
   },
   "bin": {
     "steuer-spar-erklaerung-api": "dist/api-main.js",
-    "steuer-spar-erklaerung-call": "dist/api-cli.js",
-    "steuer-spar-erklaerung-setup": "dist/setup-main.js"
+    "steuer-spar-erklaerung-call": "dist/api-cli.js"
   },
   "exports": {
     "./package.json": "./package.json"

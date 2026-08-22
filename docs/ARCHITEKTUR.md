@@ -2,7 +2,7 @@
 
 Stand: 2026-08-16
 
-Dieses Dokument ist der überprüfbare Zielvertrag für API, MCP, Setup,
+Dieses Dokument ist der überprüfbare Zielvertrag für API, MCP,
 Steuerjahrprofile und öffentliche Skills. Es beschreibt das Produkt, nicht die
 Entstehungsgeschichte einzelner UIA-Lösungen.
 
@@ -70,7 +70,9 @@ Agent oder eigenes Programm
 - Der Client folgt keinen HTTP-Redirects und akzeptiert Erfolgs- oder
   Fehlerhüllen nur mit passender API-Version und gültiger Request-ID; bei
   Erfolgen sind zusätzlich Operation und nichtnegative Dauer gebunden.
-- Sie bindet ausschließlich an Loopback und verlangt ein lokales Token.
+- Sie bindet ausschließlich an Loopback und weist Aufrufe aus einem Browser
+  anhand von `Origin`, `Sec-Fetch-Site` und `Host` mit `403` ab. Eine
+  Anmeldung gibt es nicht; siehe [SECURITY.md](../SECURITY.md).
 - Sie besitzt Operationen, Schemas, Queue, Abbruch, Dateiverwaltung,
   Szenarioausführung und Auflösung maschinenneutraler Ressourcen.
 - Ihr authentifizierter Katalog `GET /v1/operations` veröffentlicht alle
@@ -218,7 +220,7 @@ Agent oder eigenes Programm
   Dateien selbst.
 - Der Grenzvertrag verfolgt alle transitiven Importe der 17 `mcp-*.ts`-Module.
   Er erlaubt aus der PC-Umgebung ausschließlich `SSE_API_URL` und
-  `SSE_API_TOKEN`; Worker-, Workspace-, Setup- und Produktpfadmodule sind von
+  `SSE_API_URL`; Worker-, Workspace- und Produktpfadmodule sind von
   dieser Abhängigkeitsfläche ausgeschlossen.
 - Öffentliche MCP-Schemas akzeptieren Ressourcenreferenzen wie
   `cases:arbeitsfall.Gew2025` oder `documents:rechnung.pdf`, keine absoluten
@@ -243,7 +245,7 @@ Agent oder eigenes Programm
 - Der Prozesseinstieg bleibt minimal; Werkzeugdefinitionen liegen exakt einmal
   in sechs fachlichen Modulen. Ein Quellvertrag begrenzt jedes Modul auf
   24 KiB, ohne den gemeinsamen Laufzeitkatalog zu duplizieren.
-- Ohne eingerichtete API liefert MCP eine kurze Setup-Diagnose statt lokaler
+- Ohne erreichbare API liefert MCP eine kurze Diagnose statt lokaler
   Eigenlogik.
 - Spezialwerkzeuge werden bevorzugt. Fehlen sie für ein Control, führt die
   veröffentlichte Fallback-Leiter von einem frischen Zustand über rein lesende
@@ -395,7 +397,7 @@ ungefragt nachinstalliert.
   PATH-Änderungen — bevorzugt in einen eigenen Ordner je Einrichtung;
 - Start nur für die aktuelle Arbeit und kontrollierter Shutdown danach;
 - das Root-Manifest bleibt ein privater Build-Workspace. Das Windows-x64-
-  Paket `@yadimon/steuer-spar-erklaerung-api` enthält API, CLI, Setup,
+  Paket `@yadimon/steuer-spar-erklaerung-api` enthält API, CLI,
   PowerShell-/Native-Runtime und Profile; das plattformneutrale Paket
   `@yadimon/steuer-spar-erklaerung-mcp` enthält nur den PC-blinden
   Clientgraphen;
@@ -417,16 +419,16 @@ ungefragt nachinstalliert.
   Worker, native DLL und Source-Fallback unter genau dieser Laufzeit. Ein
   privates oder globales PowerShell 7 gehört nicht zum Produkt.
 
-Der npm-Weg baut keinen Quellcode auf dem Nutzer-PC. Ein persistentes Setup aus dem flüchtigen `_npx`-Cache wird
-verweigert, weil API-Starter und MCP-Konfiguration dauerhafte absolute Pfade
-benötigen. Davon getrennt darf die API für einen einzelnen Auftrag direkt über
-NPX im Vordergrund laufen: Sie legt bei Bedarf nur die token-geschützte lokale
-Konfiguration und Arbeitsordner an, bindet den bestätigten Fallordner an den
-Prozess und schreibt keinen Launcher in den Paketcache.
-Die MCP-Client-Konfiguration enthält kein Token. Sie startet einen kleinen
-Bootstrap aus dem API-Paket; nur dieser liest die lokale
-API-Konfiguration und übergibt URL und Token im Prozessumfeld an den
-PC-blinden MCP-Kindprozess.
+Der npm-Weg baut keinen Quellcode auf dem Nutzer-PC. Eine dauerhafte Anmeldung
+aus dem flüchtigen `_npx`-Cache wäre falsch, weil ein MCP-Eintrag dauerhafte
+absolute Pfade braucht. Davon getrennt darf die API für einen einzelnen
+Auftrag direkt über NPX im Vordergrund laufen: Sie legt nur Arbeitsordner an,
+bindet den bestätigten Fallordner an den Prozess und schreibt keinen Launcher
+in den Paketcache.
+
+Der MCP-Eintrag beim Client ist eine einzige ausführbare Datei ohne Argumente
+und ohne Umgebungsvariablen. Ohne Token gibt es nichts weiterzureichen; der
+Wrapper findet die API über `SSE_API_URL` beziehungsweise den Standardport.
 
 ### Betriebsarten
 
@@ -436,7 +438,7 @@ PC-blinden MCP-Kindprozess.
    beenden.
 3. **MCP-Komfort:** Agentkonfiguration verweist direkt auf den
    separat installierten MCP-Einstieg; dieser spricht mit derselben API und
-   kennt nur URL und Token.
+   kennt nur deren URL.
 4. **Dauerbetrieb (opt-in):** Autostart oder geplante Aufgabe nur nach
    ausdrücklicher Zustimmung des Nutzers.
 
@@ -467,11 +469,11 @@ ein realer read-only Smoke für dieses Profil bestanden sind.
 Profil `2025` ist produktiv unterstützt. Profil `2024` ist experimentell: Der
 aktuelle Opt-in-Sweep belegt Lesen, Navigation, Ergebnisse, Prüfer und UStVA-
 Read auf Build `30.0.127.0`, aber keine allgemeine Schreibfreigabe und keinen
-Focusless-Commit. Der Setup-Wizard bietet ausschließlich `supported`-Profile
-an. Seine Dialogantwort ist zusätzlich auf eine exakt gebundene passive
+Focusless-Commit. Produktiv angeboten werden ausschließlich `supported`-Profile.
+Die Dialogantwort der Automation ist zusätzlich auf eine exakt gebundene passive
 Gewinnaktualisierungsnotiz mit `OK` beschränkt; Recovery-Dateien werden nicht
 automatisch verworfen. Das Manifest trennt `status` von `operationAccess`:
-2025 trägt `full`, 2024 `verification-only`. Setup und voller Betriebsraum
+2025 trägt `full`, 2024 `verification-only`. Freigabe und voller Betriebsraum
 öffnen sich nur bei `supported` **und** `full`; eine reine Status-Promotion
 bleibt daher fail-closed. `capabilities.operationPolicy` klassifiziert alle 88
 Operationen als Lesen, Navigation, bedingtes Focusless-Schreiben, Mutation,
@@ -480,37 +482,25 @@ MCP-Server pro Jahr ist nicht vorgesehen, solange sich nur Profildaten ändern.
 Erst eine nachgewiesene, grundlegende UI-/Protokollabweichung rechtfertigt
 einen separaten Worker-Adapter.
 
-## Setup-Wizard
+## Erster Start statt Einrichtungsprogramm
 
-Der Wizard ist deutsch, stellt jeweils nur eine Frage und nennt immer die
-empfohlene Standardantwort. Er prüft zunächst selbst und fragt nur, was nicht
-sicher erkannt oder automatisch innerhalb der Berechtigungsgrenze erledigt
-werden kann.
+Es gibt kein Setup-Programm. Beim Start liest die API ihre Konfiguration aus
+`--config` beziehungsweise dem Standardort, ergänzt jedes fehlende Feld durch
+einen Standardwert und legt die vier Ressourcenbereiche sowie das Logverzeichnis
+an. Fehlt die Datei vollständig, ist das kein Fehler, sondern der Normalfall:
+Ohne Token bleibt nichts Geheimes zu erzeugen, und alle übrigen Werte haben
+sichere Vorgaben. Eine ausdrücklich benannte Datei wird nie stillschweigend
+erfunden oder ersetzt.
 
-Ohne Antworten verwendet er sichere Defaults. Er speichert auch die
-Entscheidung „nichts kopieren“ in einem persistenten Arbeitsbereich. Er darf
-automatisch read-only prüfen, lokale Ordner anlegen, neue Arbeitskopien
-erzeugen und repo-eigene Dateien schreiben. Vor externen
-Kontoverbindungen, Massenkopien, globalen Installationen, Agentkonfiguration,
-Autostart oder Steuerdatenänderungen ist eine passende Bestätigung notwendig.
+Eine ältere Betakonfiguration mit `token` wird beim Laden nicht ignoriert,
+sondern mit einer Meldung abgelehnt, die die zu löschende Zeile nennt. Eine
+stillschweigend akzeptierte tote Einstellung wäre der schlechtere Weg.
 
-Nach dem fachlichen Zwei-Fragen-First-run kann der Agent die bereits
-bestätigten Werte über `--plan-file` statt über simulierte Terminaleingabe
-übergeben. Schema 1 akzeptiert ausschließlich Profil, absoluten Fallordner,
-höchstens 32 absolute Quellordner und optional die eindeutig erkannte SSE-
-Executable. Der höchstens 64 KiB große UTF-8-Plan kann weder Token noch
-Schreibmodus, Connector, MCP-Merge, Autostart oder ELSTER-Autorität setzen.
-Relative, unbekannte oder fehlende Pfade sowie Widersprüche zu einer
-vorhandenen Konfiguration stoppen fail-closed. Planläufe erzwingen direkte API,
-read-only, Reference-only, Markdown-Tracking und eine erste read-only Prüfung.
-
-Vor einem Überschreiben werden redigierte Backups inhaltlich verifiziert. Alle
-neuen Setup-Inhalte werden zuerst vollständig in exklusiven Nachbardateien
-geschrieben und erst danach pro Datei atomar umbenannt; ein Stagingfehler lässt
-sämtliche bisherigen Ziele unverändert. API-Konfigurationen, Produktprofile,
-vorhandene Setup-Dateien und Workspace-Texte werden strikt als UTF-8 und mit
-festen Größenlimits gelesen; ein während des Lesens wachsendes Ziel kann diese
-Grenzen nicht überlaufen.
+Die einzige verbleibende Erkennung ist die Suche nach `SSE.exe` in beiden
+Programmordnern; sie greift nur, wenn keine Executable konfiguriert ist.
+API-Konfigurationen, Produktprofile und Workspace-Texte werden strikt als UTF-8
+und mit festen Größenlimits gelesen; ein während des Lesens wachsendes Ziel kann
+diese Grenzen nicht überlaufen.
 
 ## Öffentliche Skills
 
@@ -519,12 +509,11 @@ Grenzen nicht überlaufen.
 Kleinbuchstaben/Ziffern/Bindestriche und tragen den eindeutigen Präfix
 `steuer-spar-erklaerung-`.
 
-Der veröffentlichte Standard installiert `steuer-spar-erklaerung` und
-`steuer-spar-erklaerung-setup` gemeinsam. Nur der Setup-Skill installiert oder
-repariert Runtime, API und optional MCP; nur der Hauptskill öffnet danach eine
-hashverifizierte Prüffallkopie und führt die Fachprüfung aus. Fehlt einer der
-beiden Skills, stellt der Hauptskill den gemeinsamen Installationsstand nach der
-kanonischen öffentlichen Anleitung her. Agent-spezifische Metadaten sind
+Der veröffentlichte Standard installiert genau einen Skill:
+`steuer-spar-erklaerung`. Er prüft zuerst über `sse_health`, ob überhaupt ein
+Transport da ist, stellt bei fehlendem MCP den Installationsstand nach der
+kanonischen öffentlichen Anleitung her und öffnet erst danach eine
+hashverifizierte Prüffallkopie für die Fachprüfung. Agent-spezifische Metadaten sind
 optional; die eigentliche Anleitung bleibt mit Codex, Claude Code und anderen
 Agent-Skills-kompatiblen Agenten verwendbar.
 

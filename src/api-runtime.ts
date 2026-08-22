@@ -197,13 +197,11 @@ export async function runApiRuntime(
   const { log } = createRotatingJsonlLogger({ logPath, maxBytes: maxLogBytes });
 
   const server = createSseApiServer({
-    config,
     execute,
     log,
     prewarmStatus: () => ({ ready: isWarmSpareReady(), failure: lastPrewarmFailure() }),
-    requestSetupShutdown: () => shutdownLifecycle.requestShutdown(),
   });
-  const shutdownLifecycle = installApiShutdown(server, shutdown, log);
+  installApiShutdown(server, shutdown, log);
   await listenSseApiServer(server, config.host, config.port);
   // Der Reservearbeiter darf den beendeten Server nicht ueberleben.
   shutdown.signal.addEventListener("abort", shutdownWarmSpare, { once: true });

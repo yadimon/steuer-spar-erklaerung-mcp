@@ -5,7 +5,7 @@
 
 Lokaler Windows-x64-API-Wrapper für SteuerSparErklärung. Das Paket stellt die
 installierte Desktop-Anwendung über eine ausschließlich an `127.0.0.1`
-gebundene, token-geschützte HTTP-API und eine direkte CLI bereit.
+gebundene HTTP-API und eine direkte CLI bereit.
 
 ## Rolle des Pakets
 
@@ -14,12 +14,12 @@ Dieses Paket ist die lokale Ausführungsschicht:
 - HTTP-API und direkte API-CLI;
 - Windows-PowerShell-5.1- und Native-Runtime;
 - versionierte Produktprofile für geprüfte SteuerSparErklärung-Builds;
-- Arbeitskopien, Backups, read-only Analyse und freigegebene UI-Automation;
-- technischer Konfigurationshelfer für den öffentlichen Setup-Skill.
+- Arbeitskopien, Backups, read-only Analyse und freigegebene UI-Automation.
 
-Der geführte Einrichtungs-Wizard ist der
-[`steuer-spar-erklaerung-setup`-Skill](https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md),
-nicht die Produktrolle dieses npm-Pakets.
+Ein Einrichtungsprogramm enthält dieses Paket nicht und braucht es nicht: Der
+erste Start legt die Arbeitsordner an, eine Konfigurationsdatei ist optional.
+Den Ablauf beschreibt die
+[Installationsanleitung](https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md).
 Der MCP-Server ist bewusst **nicht** enthalten; er liegt im getrennten Paket
 [`@yadimon/steuer-spar-erklaerung-mcp`](https://www.npmjs.com/package/@yadimon/steuer-spar-erklaerung-mcp).
 
@@ -29,22 +29,18 @@ Der MCP-Server ist bewusst **nicht** enthalten; er liegt im getrennten Paket
 - installierte SteuerSparErklärung 2025 / Engine-Major 31;
 - Node.js 22 oder neuer für diesen npm-Installationsweg.
 
-Ohne Node.js/npm kann stattdessen das vollständige portable Windows-Release
-aus den [GitHub Releases](https://github.com/yadimon/steuer-spar-erklaerung-mcp/releases)
-verwendet werden.
-
 ## Installation und direkte API-Nutzung
 
 Für einen einzelnen Lauf ist keine globale Paketinstallation nötig. Der erste
-Foreground-Start erzeugt eine lokale Standardkonfiguration, falls noch keine
-vorhanden ist. Der Fallordner gilt nur für diesen Prozess:
+Foreground-Start legt die Arbeitsordner an, falls sie noch fehlen. Der
+Fallordner gilt nur für diesen Prozess:
 
 ```powershell
 npx.cmd -y @yadimon/steuer-spar-erklaerung-api --case-dir "C:\Pfad\zum\Fallordner"
 ```
 
 Das Terminal bleibt offen. Aus einem zweiten Terminal ruft die mitgelieferte
-CLI die API auf, ohne das lokale Token anzuzeigen:
+CLI die API auf:
 
 ```powershell
 npx.cmd -y -p @yadimon/steuer-spar-erklaerung-api steuer-spar-erklaerung-call discovery
@@ -60,22 +56,23 @@ Für eine dauerhafte Installation bleiben die drei Befehle global verfügbar:
 npm install --global @yadimon/steuer-spar-erklaerung-api
 steuer-spar-erklaerung-api --help
 steuer-spar-erklaerung-call --help
-steuer-spar-erklaerung-setup --check
 ```
 
-Für die geführte Einrichtung sollte ein Agent den Setup-Skill verwenden. Er
-bestätigt Steuerfall und Belegordner, installiert bei Bedarf API und MCP in
-derselben Version und ruft den technischen Konfigurationshelfer dieses Pakets
-auf. Dadurch bleiben Nutzerführung und API-Runtime klar getrennt.
+Für eine ordnergebundene Installation `npm i` ohne `--global` verwenden und die
+API mit einem absoluten `--config`-Pfad in diesem Ordner starten; die
+Anleitung führt einen Agenten Schritt für Schritt durch Steuerfall,
+Belegordner und MCP-Anmeldung.
 
 ## Sicherheitsgrenzen
 
-- API nur auf Loopback mit Bearer-Token;
+- API nur auf Loopback; Anfragen mit `Origin`, `Sec-Fetch-Site` oder
+  fremdem `Host` werden mit `403` abgewiesen, damit keine Webseite im
+  Browser die Steuersoftware steuern kann;
 - lokale Pfade und Steuerdaten bleiben auf dem Windows-PC;
 - Originalfälle werden nicht überschrieben;
 - Änderungen nur an gebundenen Arbeitskopien und mit Readback;
 - ELSTER, Versand und sonstige Übermittlung ans Finanzamt sind gesperrt;
-- Profil 2024 bleibt experimentell und ist im Nutzer-Setup nicht freigegeben.
+- Profil 2024 bleibt experimentell und ist für Nutzer nicht freigegeben.
 
 Vollständiger Schnellstart, Skill-Installation, unterstützte Operationen und
 Verifikation stehen im

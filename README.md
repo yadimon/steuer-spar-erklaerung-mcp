@@ -63,9 +63,8 @@ Belegpfade vollständig sind.
 
 Der Agent startet `@yadimon/steuer-spar-erklaerung-api` im Vordergrund,
 bindet den bestätigten Fallordner nur an diesen Prozess und verwendet die
-enthaltene CLI aus demselben Paket. Beim ersten Lauf entstehen
-eine token-geschützte Konfiguration und private Arbeitsordner im lokalen
-Benutzerprofil, aber keine globale Paketinstallation
+enthaltene CLI aus demselben Paket. Beim ersten Lauf entstehen nur
+private Arbeitsordner im lokalen Benutzerprofil, aber keine globale Paketinstallation
 und kein dauerhafter Startpfad in den NPX-Cache.
 Nach dem Report beendet der Agent die API wieder.
 MCP und ein Agenten-Neustart sind für diesen Weg nicht nötig.
@@ -73,8 +72,8 @@ MCP und ein Agenten-Neustart sind für diesen Weg nicht nötig.
 Läuft bereits eine dauerhaft installierte API auf demselben Loopback-Port,
 muss sie zuerst beendet werden; der npx-Start meldet den belegten Port dann
 ausdrücklich und arbeitet nicht still über die andere Instanz weiter. Soll aus
-diesem Kurzweg später ein dauerhaftes Setup werden, zuerst die npx-API mit
-Strg+C beenden und danach das Setup ausführen.
+diesem Kurzweg später eine dauerhafte Installation im Ordner werden, zuerst
+die npx-API mit Strg+C beenden.
 
 ## Schnellstart mit einem Prompt
 
@@ -89,8 +88,8 @@ Belege: <ABSOLUTE_BELEGORDNER_ODER_KEINE_BELEGE>
 Standard-Einrichtung und Prüflauf ausführen.
 ```
 
-`Standard-Einrichtung und Prüflauf ausführen` bestätigt Setup (lokale API plus
-MCP) und Prüflauf zugleich. Die Prüfung läuft in derselben Sitzung über die
+`Standard-Einrichtung und Prüflauf ausführen` bestätigt Einrichtung (lokale
+API plus MCP) und Prüflauf zugleich. Die Prüfung läuft in derselben Sitzung über die
 lokale API; MCP wird nach dem nächsten Start des Agenten verifiziert.
 
 ## Schnellstart mit zwei Prompts
@@ -109,14 +108,14 @@ Standard-Setup ausführen: lokale API plus MCP.
 ```
 
 `Standard-Setup ausführen` bestätigt den eng begrenzten sicheren Plan der
-verlinkten Anleitung einschließlich Download, persistenter Installation und
-des bedingten tokenfreien additiven MCP-Merges. Der Agent zeigt Plan und Diff
-weiterhin an, fragt innerhalb dieser Grenzen aber nicht erneut. Das Setup
-verändert keinen Steuerfall.
+verlinkten Anleitung einschließlich Download, Installation in den Ordner und
+des bedingten additiven MCP-Merges. Der Agent zeigt Plan und Diff
+weiterhin an, fragt innerhalb dieser Grenzen aber nicht erneut. Die
+Einrichtung verändert keinen Steuerfall.
 
 Nach einer neuen oder geänderten Skill-/MCP-Installation endet der erste Lauf
-mit grünem `--check` und dem Status, dass die Client-Verifikation nach einem
-Neustart noch offen ist. Starte den lokalen Agenten dann einmal neu und verwende
+mit einem grünen `health` und dem Status, dass die Client-Verifikation nach
+einem Neustart noch offen ist. Starte den lokalen Agenten dann einmal neu und verwende
 Prompt 2. Der neu geladene Agent prüft Serverliste und das echte MCP-Tool
 `sse_health` mit `ok=true`, bevor er den Steuerfall bearbeitet. So bleiben es
 zwei Prompts; „connected“ oder ein Handshake allein gelten nicht als Nachweis.
@@ -173,11 +172,9 @@ Node.js/npm ist sein kurzer Runtime-Weg nach der Skill-Installation:
 
 ```powershell
 npm.cmd install --global @yadimon/steuer-spar-erklaerung-api @yadimon/steuer-spar-erklaerung-mcp
-steuer-spar-erklaerung-setup --defaults --with-mcp
 ```
 
-Den interaktiven Wizard dort nicht per `stdin` automatisieren. Für den
-empfohlenen Standardweg sind Codex oder die eigenständig angemeldete Claude
+Für den empfohlenen Standardweg sind Codex oder die eigenständig angemeldete Claude
 Code CLI die belastbarer geprüften Clients. Cowork ist wegen seiner isolierten
 Ausführungsumgebung kein Host-Installer für lokale API und MCP.
 
@@ -189,21 +186,19 @@ auflisten.
 Danach installiert der Agent API und MCP nach der Anleitung persistent in den
 Ordner. Fehlt Node.js, nennt er es als Voraussetzung und stoppt.
 
-### Runtime mit npm (optional)
+### Runtime mit npm
 
-Die npm-Pakete sind getrennt: API, Setup und CLI bleiben im Windows-Paket;
-der PC-blinde MCP-Wrapper kann unabhängig installiert werden. Das empfohlene
-lokale Agenten-Setup installiert beide Pakete in exakt derselben Version:
+Die npm-Pakete sind getrennt: API und CLI bleiben im Windows-Paket;
+der PC-blinde MCP-Wrapper kann unabhängig installiert werden. Der empfohlene
+Weg installiert beide Pakete in exakt derselben Version in einen Ordner:
 
 ```powershell
-npm.cmd install --global @yadimon/steuer-spar-erklaerung-api @yadimon/steuer-spar-erklaerung-mcp
-steuer-spar-erklaerung-setup --with-mcp
-steuer-spar-erklaerung-setup --check
+npm.cmd install @yadimon/steuer-spar-erklaerung-api @yadimon/steuer-spar-erklaerung-mcp
+.\node_modules\.bin\steuer-spar-erklaerung-api.cmd --config <ABSOLUTER_ORDNER>\config.json
 ```
 
-Die eigenständig angemeldete Claude Code CLI erhält einen eigenen dauerhaften
-Präfix direkt unter `%USERPROFILE%\.steuer-spar-erklaerung`; Setup und
-`--check` verwenden dort zusätzlich denselben absoluten `--config`-Pfad. Die
+Ein Einrichtungsprogramm gibt es nicht: Der erste Start legt die Arbeitsordner
+an, und die Konfigurationsdatei ist optional. Die
 kanonische
 [Installationsanleitung](docs/INSTALLATION.md)
 enthält die kopierbaren PowerShell-Befehle. Pfade unter
@@ -212,11 +207,11 @@ belastbarer MCP-Setup-Erfolg und dürfen nicht aus Cowork oder der Desktop-App
 als Host-Installation übernommen werden.
 
 Für einen bewusst später ergänzten MCP-Transport ist auch
-`npm.cmd install --global @yadimon/steuer-spar-erklaerung-mcp` zulässig; vor
-dem erneuten Setup muss seine Version exakt zum API-Paket passen.
+`npm.cmd install @yadimon/steuer-spar-erklaerung-mcp` zulässig; seine Version
+muss exakt zum API-Paket passen.
 
-Das persistente Setup nie direkt aus `npx` starten: Der temporäre `_npx`-Cache
-ist kein stabiler Ort für dauerhafte API-/MCP-Startpfade. Der oben beschriebene
+Die dauerhafte Installation nie direkt aus `npx` anmelden: Der temporäre
+`_npx`-Cache ist kein stabiler Ort für API-/MCP-Startpfade. Der oben beschriebene
 Foreground-NPX-Start ist davon getrennt: Er schreibt keinen Launcher und endet
 mit dem Terminalprozess. Ohne Node/npm ist das Produkt nicht installierbar; der Weg unten
 vollständig gleichwertig.
@@ -238,7 +233,7 @@ installierten Shim-Dateien `npm.ps1` oder `npx.ps1` blockiert.
 | Korrektur vorbereiten | „Schlage Korrekturen vor und ändere nach meiner Freigabe eine Arbeitskopie.“ | Vorher/nachher zurücklesen |
 | UStVA vorbereiten | „Bereite die UStVA für Juli vor und sende sie nicht ab.“ | Zeitraum und vorhandene Übermittlungen zuerst prüfen |
 | Nur API einrichten | „Richte nur die lokale API ein und verwende empfohlene Antworten.“ | npm-Installation; kein MCP-Merge |
-| Vollständiges Agenten-Setup | „Richte lokale API plus MCP vollständig ein.“ | npm-Installation; tokenfreier additiver MCP-Merge |
+| Vollständiges Agenten-Setup | „Richte lokale API plus MCP vollständig ein.“ | npm-Installation; additiver MCP-Merge |
 
 Die Automation unterscheidet drei Betriebsarten:
 
@@ -263,17 +258,16 @@ Build live verifiziert wurde.
 den releasegebundenen Live-Nachweis von bloßer Offline-Abdeckung. Diese Matrix
 ist informativ (`affectsAvailability=false`); nur `operationPolicy` entscheidet
 über die tatsächliche Laufzeitfreigabe. Reine API-Clients erhalten denselben
-Snapshot auch über die authentifizierte Operations-Discovery.
+Snapshot auch über die Operations-Discovery.
 
 ## Was enthalten ist
 
-- eine lokale, token-geschützte HTTP-API als Kern;
+- eine lokale HTTP-API auf Loopback als Kern, ohne Anmeldung und mit
+  Herkunftsprüfung gegen Aufrufe aus dem Browser;
 - ein optionaler MCP-Wrapper, der ausschließlich die API aufruft;
 - lokale PDF-zu-PNG- und Bild-OCR-Helfer ohne Python-/Poppler-Pflicht;
 - getrennte npm-Pakete für Windows-API und PC-blinden MCP-Wrapper;
-- ein deutscher Setup-Skill mit geführtem First-Run und fensterlosem API-Start;
-- öffentliche Skills für Prüfung und Einrichtung sowie technische
-  Konfigurationshelfer im API-Paket;
+- ein deutscher Skill für Prüfung und Einrichtung;
 - versionierte Produktprofile und gemeinsame API-/MCP-Vertragstests.
 
 | Profil | Status | Aktuell belegter Umfang |
@@ -282,7 +276,7 @@ Snapshot auch über die authentifizierte Operations-Discovery.
 | `2024` / Engine 30 | `experimental` / `verification-only` | derselbe read-only Muster-Sweep nur mit bewusstem Entwickler-Opt-in; keine allgemeine Schreibfreigabe und kein Focusless-Commit |
 
 Der veröffentlichte Beta-Release unterstützt weiterhin Profil `2025`. Der
-Quellstand enthält zusätzlich das experimentelle Profil `2024`; der Setup-Skill
+Quellstand enthält zusätzlich das experimentelle Profil `2024`; der Skill
 bietet es nicht produktiv an. Details und genaue Testgrenzen stehen im
 [Verifikationsstand](docs/VERIFIKATION.md). Das Projekt ist unabhängig und
 weder mit Wolters Kluwer, Steuertipps noch der Akademischen
@@ -294,38 +288,28 @@ Arbeitsgemeinschaft verbunden.
 
 `@yadimon/steuer-spar-erklaerung-api` ist der lokale Windows-x64-
 API-Wrapper für SteuerSparErklärung. Er enthält HTTP-API, direkte CLI, Profile,
-Windows-/Native-Runtime und den technischen Konfigurationshelfer, den der
-Setup-Skill verwendet; er enthält keinen MCP-Server.
+Windows-/Native-Runtime; er enthält keinen MCP-Server.
 `@yadimon/steuer-spar-erklaerung-mcp` ist der PC-blinde MCP-Wrapper für
-SteuerSparErklärung über dieses API-Paket. Er kennt ausschließlich API-URL und
-Token und automatisiert die Oberfläche nicht selbst. Beide Pakete müssen
+SteuerSparErklärung über dieses API-Paket. Er kennt ausschließlich die API-URL
+und automatisiert die Oberfläche nicht selbst. Beide Pakete müssen
 dieselbe Version tragen und zum vollständigen GitHub-Release gehören.
 Die npm-Seiten besitzen eigene Einstiege für das
 [API-Paket](packages/api/README.md) und den
 [MCP-Wrapper](packages/mcp/README.md); diese erklären Voraussetzungen,
 Paketgrenzen und Sicherheitsregeln ohne einen lokalen Repository-Checkout.
 
-Der Wizard erzeugt ausserhalb des Repositorys:
+Ein Einrichtungsprogramm gibt es nicht. Der erste API-Start legt neben dem
+angegebenen `--config`-Pfad an:
 
-- API-Konfiguration und fensterlosen Starter;
-- bei `--with-mcp` eine tokenfreie MCP-Mergevorlage;
-- `setup-decisions.json` für maschinenlesbare Entscheidungen;
-- `settings.md` für persönliche Prioritäten und Quellen;
-- `tracking.md` oder eine Referenz auf eine vorhandene `.xlsx`-Datei;
-- getrennte Ordner für Dokumentkopien, Ergebnisse und Backups.
+- getrennte Ordner für Dokumentkopien, Ergebnisse und Backups;
+- ein `logs`-Verzeichnis für das API-Protokoll.
 
-Mit `--defaults` läuft die technische Einrichtung mit sicheren Vorgaben.
-Nach den zwei First-run-Bestätigungen kann der Agent die bestätigten absoluten
-Fall- und Belegordner über eine kurze private JSON-Datei mit `--plan-file`
-übergeben; der Wizard akzeptiert daraus keine Tokens oder Schreibrechte und
-stellt keine Eingabeprompts erneut. Eine vorhandene technische Konfiguration
-mit leeren Fall-/Quellbindungen darf er damit genau einmal ergänzen; Token,
-MCP-Transport und sonstige Einstellungen bleiben erhalten, bereits nicht leere
-Bindungen werden abgelehnt. Eine laufende exakt gebundene API beendet und
-startet der Wizard dabei selbst kontrolliert neu. `--no-start` erzeugt nur die Dateien. Sonst fragt der Wizard, ob er die API
-jetzt fensterlos starten und Health, Discovery sowie Arbeitsbereich prüfen darf.
-Die API kann Markdown-Fortschritte als neue datierte Snapshots anlegen, ersetzt
-aber keine vorhandene Trackingdatei. Eine referenzierte XLSX-Datei wird nur über
+Die Konfigurationsdatei selbst ist **optional** und wird nur für einen
+abweichenden Port, ein festgepinntes `sseExecutable` oder einen festen
+`caseDir` gebraucht. `settings.md` für persönliche Prioritäten und Quellen
+sowie `tracking.md` legt der Nutzer beziehungsweise der Agent im Arbeitsbereich
+an. Die API kann Markdown-Fortschritte als neue datierte Snapshots anlegen,
+ersetzt aber keine vorhandene Trackingdatei. Eine referenzierte XLSX-Datei wird nur über
 eine separat verfügbare Tabellen-Fähigkeit des Agenten gelesen oder geändert.
 
 ### Aus dem Quellcode
@@ -336,7 +320,7 @@ oder neuer mit npm:
 ```powershell
 npm ci
 npm run build
-npm run setup -- --no-start
+npm run start:api
 ```
 
 Python und PowerShell 7 sind nicht erforderlich. Die Windows-Automation nutzt
@@ -344,8 +328,14 @@ Windows PowerShell 5.1.
 
 ## API verwenden
 
-Die API bindet ausschließlich an Loopback (`127.0.0.1` oder `::1`) und verlangt
-ein Bearer-Token. Sie beschreibt ihre freigegebenen Operationen selbst:
+Die API bindet ausschließlich an Loopback (`127.0.0.1` oder `::1`) und kennt
+keine Anmeldung: Jeder lokale Prozess darf sie aufrufen, ein Browser nicht.
+Anfragen mit `Origin` oder `Sec-Fetch-Site` sowie mit einem `Host` außerhalb
+von Loopback beantwortet sie mit `403`. Genau das trennt einen lokalen Klienten
+von einer Webseite, die dieselbe Adresse erreichen kann; die `Host`-Regel
+schlägt zusätzlich DNS-Rebinding.
+
+Sie beschreibt ihre freigegebenen Operationen selbst:
 
 ```powershell
 steuer-spar-erklaerung-call health
@@ -355,7 +345,7 @@ steuer-spar-erklaerung-call workspace_status
 ```
 
 Komplexe Argumente werden bevorzugt über eine begrenzte UTF-8-JSON-Datei
-übergeben, damit Token, Pfade und Nutzdaten nicht in der sichtbaren
+übergeben, damit Pfade und Nutzdaten nicht in der sichtbaren
 Prozesskommandozeile erscheinen. Mehrzeilige oder nicht-ASCII Texte gehören
 immer in diese Datei; eine Windows-PowerShell-stdin-Pipeline kann Umlaute durch
 `?` ersetzen. Für kleine ASCII-Objekte bleibt `--args-file -` verfügbar. Für
@@ -367,49 +357,32 @@ eigene Clients stehen zur Verfügung:
 - `GET /v1/openapi.json`
 - `POST /v1/operations/{operation}`
 
-Beispiel für einen authentifizierten Aufruf ohne Token in der Kommandozeile:
-
-```powershell
-steuer-spar-erklaerung-call workspace_status
-```
-
 Operationen verwenden logische Ressourcen wie `cases:`, `documents:` und
 `results:`. Dadurch müssen API-Clients keine lokalen PC-Pfade kennen.
 
 ## MCP als optionale Produktfunktion anbinden
 
-MCP ist ein dünner Wrapper über dieselbe API. Sein Prozess kennt nur URL und
-Token; SSE-, Fall- und Dokumentpfade bleiben in der lokalen API-Konfiguration.
-Ein reines API-Setup braucht MCP nicht. Der oben dokumentierte vollständige
+MCP ist ein dünner Wrapper über dieselbe API. Sein Prozess kennt nur die
+API-URL; SSE-, Fall- und Dokumentpfade bleiben in der lokalen API. Ein reines
+API-Setup braucht MCP nicht. Der oben dokumentierte vollständige
 Agenten-Standard enthält MCP, weil Prompt 1 ausdrücklich „lokale API plus MCP“
 beauftragt.
-Die vom Setup erzeugte Servervorlage wird nach Prüfung in die Konfiguration des
-jeweiligen Clients gemergt:
 
-`command` zeigt direkt auf die absolute `node.exe`. Die Argumente
-starten zuerst den lokalen Bootstrap; nur er liest das API-Token aus der
-geschützten Konfiguration und reicht es intern an den MCP-Prozess weiter:
+Der Servereintrag ist eine einzige ausführbare Datei ohne Argumente und ohne
+Umgebungsvariablen — der Wrapper findet die API über den Standardport:
 
 ```json
 {
   "mcpServers": {
     "steuer-spar-erklaerung": {
-      "command": "<ABSOLUTE>/node.exe",
-      "args": [
-        "<ORDNER>/node_modules/@yadimon/steuer-spar-erklaerung-api/dist/api-mcp-bootstrap.js",
-        "--config", "<LOCALAPPDATA>/SteuerSparErklaerungApi/config.json",
-        "--mcp-entry", "<ORDNER>/node_modules/@yadimon/steuer-spar-erklaerung-mcp/dist/index.js"
-      ]
+      "command": "<ORDNER>/node_modules/.bin/steuer-spar-erklaerung-mcp.cmd"
     }
   }
 }
 ```
 
-Die Client-Konfiguration enthält dadurch weder `SSE_API_TOKEN` noch einen
-Bearer-Wert. So werden außerdem Batch-/Shim-Prozesse und unnötige
-Konsolenfenster vermieden. Eine vorhandene Client-Konfiguration nie vollständig
-ersetzen; nur den bestätigten tokenfreien Servereintrag mergen. Danach
-`steuer-spar-erklaerung-setup --check`, die Serverliste des neu geladenen
+Eine vorhandene Client-Konfiguration nie vollständig ersetzen; nur den
+bestätigten Servereintrag mergen. Danach die Serverliste des neu geladenen
 Clients und einen echten Aufruf des MCP-Tools `sse_health` mit `ok=true`
 prüfen. Ein bloßes „connected“ oder ein Handshake genügt nicht.
 
@@ -418,7 +391,8 @@ prüfen. Ein bloßes „connected“ oder ein Handshake genügt nicht.
 Die lokale API erzwingt technisch:
 
 - ELSTER-, Versand- und Übermittlungsaktionen sind im Katalog gesperrt.
-- Die API ist nur über Loopback und mit lokalem Token erreichbar.
+- Die API ist nur über Loopback erreichbar und weist Anfragen aus einem
+  Browser anhand von `Origin`, `Sec-Fetch-Site` und `Host` ab.
 - Schreiboperationen arbeiten mit PID/HWND, erwarteter Seite und
   Vorher-/Nachher-Prüfung.
 - Arbeitskopien, Backups und Archive entstehen nur an neuen Zielen: ein
@@ -426,7 +400,7 @@ Die lokale API erzwingt technisch:
   zurückgelesen.
 - Speichern ist an den erwarteten Pfad und den erwarteten Hash gebunden.
 - Mehrdeutige SSE-Fenster brechen ab statt zu raten.
-- API-Logs enthalten keine Argumente, Ergebnisse oder Tokens.
+- API-Logs enthalten keine Argumente und keine Ergebnisse.
 - MCP gibt keine lokalen PC-Pfade an den Client weiter.
 
 Der Prüfablauf der Skills garantiert zusätzlich:
@@ -546,11 +520,11 @@ Weitere Unterlagen:
 - [API-/MCP-Vertrag](docs/API-MCP-VERTRAG.md)
 - [Verifikationsstand](docs/VERIFIKATION.md)
 - [Release-Prozess](docs/RELEASE.md)
-- [Release Notes v0.1.0-beta.18](docs/releases/v0.1.0-beta.18.md)
+- [Release Notes v0.1.0-beta.19](docs/releases/v0.1.0-beta.19.md)
 - [Entwicklungswissen](docs/entwicklung/README.md)
 - [Mitwirken](CONTRIBUTING.md)
 - [Haupt-Skill](skills/steuer-spar-erklaerung/SKILL.md)
-- [Setup-Skill](docs/INSTALLATION.md)
+- [Installationsanleitung](docs/INSTALLATION.md)
 
 ## Feedback und Beiträge
 

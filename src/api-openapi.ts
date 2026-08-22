@@ -89,7 +89,7 @@ const operationPaths = Object.freeze(Object.fromEntries(
           tags: ["discovery"],
           responses: {
             "200": { $ref: "#/components/responses/OperationDiscovery" },
-            "401": { $ref: "#/components/responses/ApiError" },
+            "403": { $ref: "#/components/responses/ApiError" },
             "404": { $ref: "#/components/responses/ApiError" },
           },
         },
@@ -139,7 +139,7 @@ const operationPaths = Object.freeze(Object.fromEntries(
               },
             },
             "400": { $ref: "#/components/responses/ApiError" },
-            "401": { $ref: "#/components/responses/ApiError" },
+            "403": { $ref: "#/components/responses/ApiError" },
             "404": { $ref: "#/components/responses/ApiError" },
             "405": { $ref: "#/components/responses/ApiError" },
             "413": { $ref: "#/components/responses/ApiError" },
@@ -159,17 +159,17 @@ export const SSE_OPENAPI_DOCUMENT = Object.freeze({
     title: "Unoffizielle lokale SteuerSparErklaerung API",
     version: SSE_API_VERSION,
     description:
-      "Loopback-only Windows-UI-Automation. ELSTER, Versand und Steueruebermittlung sind dauerhaft gesperrt.",
+      "Loopback-only Windows-UI-Automation. ELSTER, Versand und Steueruebermittlung sind dauerhaft gesperrt. " +
+      "Es gibt keine Anmeldung: Jeder lokale Prozess darf die API aufrufen, ein Browser nicht. Anfragen mit " +
+      "'Origin' oder 'Sec-Fetch-Site' sowie einer 'Host'-Kopfzeile ausserhalb von Loopback werden mit 403 abgelehnt.",
   },
   servers: [{ url: "/", description: "Aktueller lokaler API-Server" }],
-  security: [{ bearerAuth: [] }],
   paths: Object.freeze({
     "/healthz": {
       get: {
         operationId: "healthz",
         summary: "Lokale API-Erreichbarkeit und Version",
         tags: ["diagnostics"],
-        security: [],
         responses: {
           "200": {
             description: "API-Prozess ist erreichbar",
@@ -234,7 +234,7 @@ export const SSE_OPENAPI_DOCUMENT = Object.freeze({
             description: "Gesamter authentifizierter API-Katalog",
             content: { "application/json": { schema: { type: "object" } } },
           },
-          "401": { $ref: "#/components/responses/ApiError" },
+          "403": { $ref: "#/components/responses/ApiError" },
         },
       },
     },
@@ -248,16 +248,13 @@ export const SSE_OPENAPI_DOCUMENT = Object.freeze({
             description: "OpenAPI-3.1-Dokument",
             content: { "application/json": { schema: { type: "object" } } },
           },
-          "401": { $ref: "#/components/responses/ApiError" },
+          "403": { $ref: "#/components/responses/ApiError" },
         },
       },
     },
     ...operationPaths,
   }),
   components: {
-    securitySchemes: {
-      bearerAuth: { type: "http", scheme: "bearer" },
-    },
     schemas: {
       ...argumentComponents,
       ...resultValueComponents,

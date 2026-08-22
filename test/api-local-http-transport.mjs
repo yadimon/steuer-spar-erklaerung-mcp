@@ -6,9 +6,7 @@ import { SSE_API_OPERATIONS } from "../dist/api-contract.js";
 import { createSseApiServer } from "../dist/api-server.js";
 import { localHttpFetch } from "../dist/local-http-transport.js";
 
-const token = "local-http-transport-token-at-least-24-characters";
 const server = createSseApiServer({
-  config: { host: "127.0.0.1", port: 1, token },
   execute: async () => ({ ok: true, running: false }),
 });
 server.listen(0, "127.0.0.1");
@@ -24,9 +22,9 @@ globalThis.fetch = async () => {
   throw new Error("Globales fetch darf nicht der produktive SSE-Transport sein.");
 };
 try {
-  const result = await callApiOperation("health", {}, 1_000, { baseUrl, token });
+  const result = await callApiOperation("health", {}, 1_000, { baseUrl });
   assert.equal(result.ok, true);
-  const discovery = await readApiDiscovery({ baseUrl, token });
+  const discovery = await readApiDiscovery({ baseUrl });
   assert.deepEqual(discovery.operations, [...SSE_API_OPERATIONS]);
   assert.equal(globalFetchCalls, 0, "API-Client verwendete weiterhin globales fetch.");
 } finally {

@@ -26,12 +26,12 @@ npm install --global @yadimon/steuer-spar-erklaerung-mcp
 steuer-spar-erklaerung-mcp --help
 ```
 
-Der öffentliche Setup-Skill übernimmt Installation, Versionsabgleich und die
-Client-Konfiguration. Das erzeugte MCP-Serverobjekt enthält kein Token. Es
-startet eine absolute Node-Datei und einen lokalen API-Bootstrap, der
-`SSE_API_URL` und `SSE_API_TOKEN` erst im Kindprozess aus der geschützten
-API-Konfiguration setzt; Steuerfall-, Beleg- und Programmpfade verbleiben im
-API-Prozess auf dem Steuer-PC.
+Die [Installationsanleitung](https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md)
+beschreibt Installation, Versionsabgleich und Client-Konfiguration. Der
+MCP-Servereintrag ist eine einzige ausführbare Datei ohne Argumente und ohne
+Umgebungsvariablen; der Wrapper findet die lokale API über `SSE_API_URL`
+beziehungsweise den Standardport. Steuerfall-, Beleg- und Programmpfade
+verbleiben im API-Prozess auf dem Steuer-PC.
 
 ## Vertrag
 
@@ -45,14 +45,14 @@ API-Prozess auf dem Steuer-PC.
 ## Sicherheitsgrenzen
 
 - MCP erhält keine Steuerfall-, Dokument- oder Programmpfade;
-- `SSE_API_TOKEN` gehört weder in Client-Diffs noch in Prozessargumente oder
-  Agentenprotokolle;
-- API und Token dürfen nicht über Netzwerk-Proxys oder öffentliche Gateways
+- die API kennt keine Anmeldung und weist Anfragen mit `Origin`,
+  `Sec-Fetch-Site` oder fremdem `Host` mit `403` ab;
+- die API darf nicht über Netzwerk-Proxys oder öffentliche Gateways
   exponiert werden;
 - Originalfälle werden nicht überschrieben;
 - ELSTER, Versand und sonstige Übermittlung ans Finanzamt sind gesperrt.
 
-Vollständiger Schnellstart, Setup-Skill und Verifikation stehen im
+Vollständiger Schnellstart, Anleitung und Verifikation stehen im
 [Repository](https://github.com/yadimon/steuer-spar-erklaerung-mcp#readme).
 Sicherheitsprobleme bitte nach
 [`SECURITY.md`](https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/SECURITY.md)

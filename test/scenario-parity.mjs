@@ -18,11 +18,9 @@ mkdirSync(workspaceDir, { recursive: true });
 mkdirSync(resultDir, { recursive: true });
 cpSync(join(here, "scenarios"), join(workspaceDir, "scenarios"), { recursive: true });
 
-const token = "parity-token-with-at-least-24-characters";
 const config = {
   host: "127.0.0.1",
   port: 1,
-  token,
   configPath: join(temporary, "config.json"),
   workspaceDir,
   resultDir,
@@ -85,7 +83,7 @@ const worker = async (operation, args) => {
 };
 
 const execute = traceOperations("scenario-mock", createApiExecutor(config, worker));
-const server = createSseApiServer({ config, execute });
+const server = createSseApiServer({ execute });
 server.listen(0, "127.0.0.1");
 await once(server, "listening");
 const address = server.address();
@@ -104,7 +102,7 @@ let client;
 try {
   const directResponse = await fetch(`${baseUrl}/v1/operations/scenario_run`, {
     method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    headers: { "content-type": "application/json" },
     body: JSON.stringify({
       args: {
         scenarioRef: "workspace:scenarios/complex-wrapper/scenario.json",
@@ -120,7 +118,7 @@ try {
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [join(here, "..", "dist", "index.js")],
-    env: { ...process.env, SSE_API_URL: baseUrl, SSE_API_TOKEN: token },
+    env: { ...process.env, SSE_API_URL: baseUrl },
   });
   client = new Client({ name: "sse-scenario-parity", version: "1.0.0" });
   await client.connect(transport);
@@ -128,7 +126,7 @@ try {
   const callsBeforeCapabilities = workerCalls;
   const directCapabilitiesResponse = await fetch(`${baseUrl}/v1/operations/capabilities`, {
     method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    headers: { "content-type": "application/json" },
     body: JSON.stringify({ args: {} }),
   });
   assert.equal(directCapabilitiesResponse.status, 200);
@@ -174,7 +172,7 @@ try {
   const callsBeforeRepeat = workerCalls;
   const idempotentRepeat = await fetch(`${baseUrl}/v1/operations/scenario_run`, {
     method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    headers: { "content-type": "application/json" },
     body: JSON.stringify({
       args: { scenarioRef: "workspace:scenarios/complex-wrapper/scenario.json", resultRef: "results:direct.json" },
       timeoutMs: 300_000,
@@ -191,7 +189,7 @@ try {
   const callsBeforeLegacyOverwrite = workerCalls;
   const legacyOverwrite = await fetch(`${baseUrl}/v1/operations/scenario_run`, {
     method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    headers: { "content-type": "application/json" },
     body: JSON.stringify({
       args: {
         scenarioRef: "workspace:scenarios/complex-wrapper/scenario.json",

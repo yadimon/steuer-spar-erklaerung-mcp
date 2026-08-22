@@ -41,10 +41,8 @@ for (const args of [["--unknown"], ["--selftest", "extra"]]) {
   assert.equal(rejected.stdout, "", "Ungueltige Argumente duerfen keine API-Antwort erzeugen.");
 }
 
-const token = "mcp-main-selftest-token-with-at-least-24-characters";
 let selftestFails = false;
 const selftestApi = createServer((request, response) => {
-  assert.equal(request.headers.authorization, `Bearer ${token}`);
   if (selftestFails) {
     response.writeHead(502, { "content-type": "application/json" });
     response.end(JSON.stringify({
@@ -75,7 +73,7 @@ assert(selftestAddress && typeof selftestAddress === "object");
 const selftestStartedAt = performance.now();
 const selftest = spawn(process.execPath, ["dist/index.js", "--selftest"], {
   cwd: process.cwd(),
-  env: { ...process.env, SSE_API_URL: `http://127.0.0.1:${selftestAddress.port}`, SSE_API_TOKEN: token },
+  env: { ...process.env, SSE_API_URL: `http://127.0.0.1:${selftestAddress.port}` },
   windowsHide: true,
   stdio: ["ignore", "pipe", "pipe"],
 });
@@ -93,7 +91,7 @@ assert(selftestMs < 2_500, `MCP-Selftest lud unnoetigen Server-/Werkzeugcode (${
 selftestFails = true;
 const failedSelftest = spawn(process.execPath, ["dist/index.js", "--selftest"], {
   cwd: process.cwd(),
-  env: { ...process.env, SSE_API_URL: `http://127.0.0.1:${selftestAddress.port}`, SSE_API_TOKEN: token },
+  env: { ...process.env, SSE_API_URL: `http://127.0.0.1:${selftestAddress.port}` },
   windowsHide: true,
   stdio: ["ignore", "pipe", "pipe"],
 });

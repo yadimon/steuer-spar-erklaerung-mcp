@@ -4,7 +4,6 @@ import { createServer } from "node:http";
 import { callApiOperation, readApiDiscovery } from "../dist/api-client.js";
 import { MAX_OPERATION_TIMEOUT_MS } from "../dist/api-contract.js";
 
-const token = "transport-timeout-token-at-least-24-characters";
 const baseUrl = "http://127.0.0.1:43127";
 
 function failedFetch(code) {
@@ -23,7 +22,6 @@ for (const code of ["UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT"]) {
   await assert.rejects(
     callApiOperation("health", {}, MAX_OPERATION_TIMEOUT_MS, {
       baseUrl,
-      token,
       fetchImpl: failedFetch(code),
     }),
     (error) => error?.kind === "timeout" &&
@@ -34,7 +32,7 @@ for (const code of ["UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT"]) {
 }
 
 await assert.rejects(
-  readApiDiscovery({ baseUrl, token, fetchImpl: failedFetch("UND_ERR_HEADERS_TIMEOUT") }),
+  readApiDiscovery({ baseUrl, fetchImpl: failedFetch("UND_ERR_HEADERS_TIMEOUT") }),
   (error) => error?.kind === "timeout" && error.message.includes("UND_ERR_HEADERS_TIMEOUT"),
   "Discovery muss denselben Transporttimeout eindeutig klassifizieren.",
 );
@@ -42,7 +40,6 @@ await assert.rejects(
 await assert.rejects(
   callApiOperation("health", {}, 90_000, {
     baseUrl,
-    token,
     fetchImpl: failedFetch("ECONNREFUSED"),
   }),
   (error) => error?.kind === "network" && error.message.includes("ECONNREFUSED"),
@@ -68,7 +65,7 @@ const resetAddress = resetServer.address();
 assert(resetAddress && typeof resetAddress === "object");
 const resetBaseUrl = `http://127.0.0.1:${resetAddress.port}`;
 await assert.rejects(
-  callApiOperation("click", { name: "synthetische Mutation" }, 1_000, { baseUrl: resetBaseUrl, token }),
+  callApiOperation("click", { name: "synthetische Mutation" }, 1_000, { baseUrl: resetBaseUrl }),
   (error) => error?.kind === "transport-unknown" &&
     error.message.includes("ECONNRESET") &&
     /Zustand ist unbekannt/u.test(error.message),
@@ -79,7 +76,7 @@ resetServer.close();
 await once(resetServer, "close");
 
 await assert.rejects(
-  callApiOperation("health", {}, 1_000, { baseUrl: resetBaseUrl, token }),
+  callApiOperation("health", {}, 1_000, { baseUrl: resetBaseUrl }),
   (error) => error?.kind === "network" && error.message.includes("ECONNREFUSED"),
   "Der Defaulttransport muss einen echten Verbindungsfehler samt direktem Node-Fehlercode melden.",
 );

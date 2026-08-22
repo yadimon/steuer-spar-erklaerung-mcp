@@ -16,7 +16,6 @@ const discoveryTransport = new StdioClientTransport({
   env: {
     ...process.env,
     SSE_API_URL: "http://127.0.0.1:1",
-    SSE_API_TOKEN: "api-schema-discovery-token-with-24-characters",
   },
 });
 const discoveryClient = new Client({ name: "sse-api-all-operations", version: "1.0.0" });
@@ -30,17 +29,8 @@ for (const tool of tools) {
   if (operation && !schemasByOperation.has(operation)) schemasByOperation.set(operation, tool.inputSchema);
 }
 
-const token = "api-all-operations-token-with-24-characters";
 const calls = [];
 const server = createSseApiServer({
-  config: {
-    host: "127.0.0.1",
-    port: 1,
-    token,
-    configPath: "unused.json",
-    workspaceDir: process.cwd(),
-    resultDir: process.cwd(),
-  },
   execute: async (operation, args) => {
     calls.push({ operation, args });
     return { ok: true, operation, args };
@@ -51,7 +41,7 @@ await once(server, "listening");
 const address = server.address();
 assert(address && typeof address === "object");
 const baseUrl = `http://127.0.0.1:${address.port}`;
-const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+const headers = { "content-type": "application/json" };
 
 try {
   const listedResponse = await fetch(`${baseUrl}/v1/operations`, { headers });

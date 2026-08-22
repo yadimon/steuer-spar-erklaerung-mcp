@@ -11,13 +11,11 @@ import { localHttpFetch } from "../dist/local-http-transport.js";
  * erreichbar.
  */
 
-const token = "single-flight-token-at-least-24-characters";
 let releaseFirst;
 const firstReleased = new Promise((resolve) => { releaseFirst = resolve; });
 let started = 0;
 
 const server = createSseApiServer({
-  config: { host: "127.0.0.1", port: 1, token },
   execute: async () => {
     started += 1;
     await firstReleased;
@@ -31,7 +29,7 @@ const baseUrl = `http://127.0.0.1:${port}`;
 
 const post = (operation) => localHttpFetch(`${baseUrl}/v1/operations/${operation}`, {
   method: "POST",
-  headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+  headers: { "content-type": "application/json" },
   body: JSON.stringify({ args: {} }),
 });
 const health = () => localHttpFetch(`${baseUrl}/healthz`, { method: "GET" });

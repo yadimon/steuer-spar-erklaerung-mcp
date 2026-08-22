@@ -1,4 +1,3 @@
-import { timingSafeEqual } from "node:crypto";
 
 export const SSE_API_VERSION = "v1";
 export const DEFAULT_API_HOST = "127.0.0.1";
@@ -153,12 +152,5 @@ export function asArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [value as T];
 }
 
-export function safeTokenEqual(actual: string, expected: string): boolean {
-  const actualBytes = Buffer.from(actual, "utf8");
-  const expectedBytes = Buffer.from(expected, "utf8");
-  return actualBytes.length === expectedBytes.length && timingSafeEqual(actualBytes, expectedBytes);
-}
-
-export function isValidApiToken(value: string): boolean {
-  return value.length >= 24 && value.length <= 512 && /^[A-Za-z0-9._~+/-]+=*$/.test(value);
-}
+/** Namen, unter denen ein lokaler Klient diese API erreichen darf. */
+export const LOOPBACK_HOSTNAMES: ReadonlySet<string> = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);

@@ -38,7 +38,6 @@ const assertPropertyDescriptions = (schema, path) => {
 };
 const expectedToolCount = Object.keys(SSE_MCP_TOOL_OPERATIONS).length;
 
-const token = "all-tools-wrapper-token-with-at-least-24-characters";
 const calls = [];
 let forcedResult;
 let forceTransportReset = false;
@@ -49,10 +48,10 @@ const api = createServer(async (request, response) => {
   }
   const chunks = [];
   for await (const chunk of request) chunks.push(chunk);
-  const authorization = request.headers.authorization;
-  if (authorization !== `Bearer ${token}`) {
-    response.writeHead(401, { "content-type": "application/json" });
-    response.end(JSON.stringify({ error: { code: "unauthorized", message: "unauthorized" } }));
+  // Der MCP ist ein lokaler Prozess und darf keine Browser-Kopfzeilen senden.
+  if (request.headers.origin !== undefined || request.headers["sec-fetch-site"] !== undefined) {
+    response.writeHead(403, { "content-type": "application/json" });
+    response.end(JSON.stringify({ error: { code: "forbidden", message: "Browserkopfzeile" } }));
     return;
   }
   const operation = /\/v1\/operations\/([a-z_]+)$/.exec(request.url ?? "")?.[1];
@@ -121,7 +120,6 @@ const transport = new StdioClientTransport({
   env: {
     ...process.env,
     SSE_API_URL: `http://127.0.0.1:${address.port}`,
-    SSE_API_TOKEN: token,
   },
 });
 const client = new Client({ name: "sse-all-tools-wrapper", version: "1.0.0" });

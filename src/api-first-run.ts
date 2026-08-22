@@ -1,14 +1,29 @@
-import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { createTextFileExclusive } from "./atomic-files.js";
 import { DEFAULT_API_HOST, DEFAULT_API_PORT } from "./api-contract.js";
 import { defaultApiConfigPath } from "./api-config.js";
-import { detectSseExecutables } from "./setup.js";
+import { loadProductProfile } from "./product-profiles.js";
 
 export interface ForegroundApiFirstRun {
   configPath: string;
   created: boolean;
+}
+
+/**
+ * Sucht die installierte Steuersoftware an den Standardorten des Profils.
+ * Beide Programmordner werden geprueft, damit auch eine 32-Bit-Installation
+ * unter "Program Files (x86)" gefunden wird.
+ */
+export function detectSseExecutables(profileId = "2025", env: NodeJS.ProcessEnv = process.env): string[] {
+  const profile = loadProductProfile(profileId);
+  const systemDrive = (env.SystemDrive ?? "C:").replace(/[\\/]+$/u, "");
+  const configuredRoots = [env.ProgramFiles, env["ProgramFiles(x86)"]].filter((entry): entry is string => Boolean(entry));
+  const roots = configuredRoots.length ? configuredRoots : [resolve(`${systemDrive}\\`, "Program Files")];
+  const candidates = roots.map((root) => join(root, ...profile.executable.defaultRelativePath.split("/")));
+  return [...new Set(candidates.map((path) => resolve(path)))].filter((path) => {
+    try { return statSync(path).isFile(); } catch { return false; }
+  });
 }
 
 export function assertForegroundCaseDirectory(caseDir: string): void {
@@ -33,7 +48,7 @@ export function ensureForegroundApiFirstRun(
 ): ForegroundApiFirstRun {
   const namedEnvironmentConfig = env.SSE_API_CONFIG?.trim();
   const configPath = resolve(explicitConfigPath ?? namedEnvironmentConfig ?? defaultApiConfigPath(env));
-  if (explicitConfigPath || namedEnvironmentConfig || env.SSE_API_TOKEN?.trim() || existsSync(configPath)) {
+  if (explicitConfigPath || namedEnvironmentConfig || existsSync(configPath)) {
     return { configPath, created: false };
   }
 
@@ -56,7 +71,6 @@ export function ensureForegroundApiFirstRun(
       profileId: "2025",
       host: DEFAULT_API_HOST,
       port: DEFAULT_API_PORT,
-      token: randomBytes(32).toString("base64url"),
       ...(sseExecutable ? { sseExecutable } : {}),
       documentsDir,
       workspaceDir,

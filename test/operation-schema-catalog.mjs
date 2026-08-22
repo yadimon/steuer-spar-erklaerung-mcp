@@ -302,7 +302,6 @@ try {
   const execute = createApiExecutor({
     host: "127.0.0.1",
     port: 1,
-    token: "schema-catalog-token-with-at-least-24-characters",
     configPath: join(temporary, "config.json"),
     caseDir,
     workspaceDir,

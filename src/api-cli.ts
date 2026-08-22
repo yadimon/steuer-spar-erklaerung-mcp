@@ -79,13 +79,17 @@ function parseCliArguments(argv: readonly string[]): CliArguments {
   };
 }
 
+/**
+ * Eine ausdrueckliche SSE_API_URL ist die Adresse. Sonst wird die Konfiguration
+ * gelesen, damit auch ein abweichender Port gefunden wird.
+ */
 async function loadClientOptions(configPath?: string): Promise<ApiClientOptions> {
-  if (!configPath && process.env.SSE_API_TOKEN) return {};
+  if (!configPath && process.env.SSE_API_URL) return {};
   const { environmentForExplicitApiConfig, loadApiServerConfig } = await import("./api-config.js");
   const env = configPath ? environmentForExplicitApiConfig(configPath) : { ...process.env };
   const config = loadApiServerConfig(env);
   const host = config.host === "::1" ? "[::1]" : config.host;
-  return { baseUrl: `http://${host}:${config.port}`, token: config.token };
+  return { baseUrl: `http://${host}:${config.port}` };
 }
 
 export async function readCliInputBounded(

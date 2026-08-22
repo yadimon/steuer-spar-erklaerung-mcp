@@ -33,7 +33,6 @@ const calls = [];
 const execute = createApiExecutor({
   host: "127.0.0.1",
   port: 1,
-  token: "capabilities-contract-token-with-at-least-24-characters",
   configPath: "unused.json",
   workspaceDir: process.cwd(),
   resultDir: process.cwd(),

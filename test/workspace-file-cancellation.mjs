@@ -39,7 +39,6 @@ const execute = createApiExecutor(
   {
     host: "127.0.0.1",
     port: 1,
-    token: "workspace-cancellation-token",
     configPath: join(temporary, "config.json"),
     workspaceDir,
     resultDir,

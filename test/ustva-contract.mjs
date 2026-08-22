@@ -79,7 +79,6 @@ function overviewWorkerPage() {
 const execute = traceOperations("ustva-mock", createApiExecutor({
   host: "127.0.0.1",
   port: 1,
-  token: "ustva-contract-token-with-at-least-24-characters",
   configPath: join(temporary, "config.json"),
   caseDir: cases,
   workspaceDir,
@@ -184,7 +183,7 @@ try {
   const heading2025 = fields;
   fields.push();
   const read2026 = await createApiExecutor({
-    host: "127.0.0.1", port: 1, token: "ustva-contract-token-with-at-least-24-characters",
+    host: "127.0.0.1", port: 1,
     configPath: join(temporary, "config-2026.json"), caseDir: cases, workspaceDir, resultDir,
   }, async (operation, args) => {
     if (operation === "page") return {

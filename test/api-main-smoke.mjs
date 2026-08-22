@@ -9,20 +9,11 @@ import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { withCombinedAbortSignal } from "../dist/abort.js";
 import { assertForegroundCaseDirectory, ensureForegroundApiFirstRun } from "../dist/api-first-run.js";
+import { configurationFingerprint } from "../dist/workspace-status.js";
 import { API_MAIN_USAGE, parseApiMainArguments } from "../dist/api-main-arguments.js";
 import { SSE_API_OPERATIONS, SSE_API_VERSION } from "../dist/api-contract.js";
 import { attachScreenshotImage, installApiShutdown, MAX_SCREENSHOT_IMAGE_BYTES } from "../dist/api-runtime.js";
 import { readFileBounded } from "../dist/bounded-files.js";
-import {
-  SETUP_HEALTH_TIMEOUT_MS,
-  SETUP_SHUTDOWN_ATTEMPTS,
-  SETUP_START_ATTEMPTS,
-  SETUP_WORKSPACE_TIMEOUT_MS,
-  startAndVerifySetupApi,
-  stopSetupApiForRebind,
-  verifySetupApi,
-} from "../dist/setup-runtime.js";
-import { configurationFingerprint } from "../dist/workspace-status.js";
 
 const reservePort = async () => {
   const probe = createServer();
@@ -36,11 +27,6 @@ const reservePort = async () => {
 };
 
 assert.deepEqual(parseApiMainArguments([]), { help: false });
-assert(SETUP_HEALTH_TIMEOUT_MS >= 10_000, "Kaltes VM-Healthfenster wurde wieder zu kurz gesetzt.");
-assert(SETUP_WORKSPACE_TIMEOUT_MS >= SETUP_HEALTH_TIMEOUT_MS,
-  "Workspace-Verifikation darf nicht vor dem kalten Healthfenster abbrechen.");
-assert(SETUP_START_ATTEMPTS >= 5, "Kaltes VM-Listenerfenster deckt die gemessenen vier Sekunden nicht ab.");
-assert(SETUP_SHUTDOWN_ATTEMPTS >= 5, "Kontrollierter API-Shutdown braucht mehrere Readback-Versuche.");
 assert.deepEqual(parseApiMainArguments(["--help"]), { help: true });
 assert.deepEqual(parseApiMainArguments(["--config", "C:\\config.json"]), {
   help: false,
@@ -81,51 +67,10 @@ try {
   assert.equal(named.created, false, "Benannte fehlende Konfiguration darf nicht automatisch erzeugt werden.");
   assert.equal(named.configPath, namedConfig);
   assert.equal(existsSync(namedConfig), false);
-  const tokenOnly = ensureForegroundApiFirstRun(undefined, {
-    LOCALAPPDATA: join(firstRunProbeRoot, "token-only"),
-    SSE_API_TOKEN: "first-run-environment-token-with-24-characters",
-  });
-  assert.equal(tokenOnly.created, false, "Explizites Umgebungs-Setup darf nicht durch eine Datei ersetzt werden.");
-  assert.equal(existsSync(tokenOnly.configPath), false);
 } finally {
   rmSync(firstRunProbeRoot, { recursive: true, force: true });
 }
 
-const shutdownEndpoint = {
-  host: "127.0.0.1",
-  port: 43127,
-  token: "setup-runtime-test-token-with-24-characters",
-  expectedConfigurationFingerprint: "a".repeat(64),
-};
-let shutdownHealthReads = 0;
-let shutdownPosted = false;
-const controlledShutdown = await stopSetupApiForRebind(shutdownEndpoint, {
-  attempts: 2,
-  delayMs: 0,
-  fetchImpl: async (url, init) => {
-    if (String(url).endsWith("/healthz")) {
-      shutdownHealthReads += 1;
-      return new Response("{}", { status: shutdownHealthReads === 1 ? 200 : 503 });
-    }
-    assert.equal(String(url), "http://127.0.0.1:43127/v1/setup/shutdown");
-    assert.equal(init?.method, "POST");
-    assert.equal(init?.headers?.authorization, `Bearer ${shutdownEndpoint.token}`);
-    assert.deepEqual(JSON.parse(String(init?.body)), {
-      expectedConfigurationFingerprint: shutdownEndpoint.expectedConfigurationFingerprint,
-    });
-    shutdownPosted = true;
-    return new Response("{}", { status: 202 });
-  },
-});
-assert.equal(controlledShutdown, true);
-assert.equal(shutdownPosted, true);
-assert.equal(shutdownHealthReads, 2);
-await assert.rejects(
-  stopSetupApiForRebind({ ...shutdownEndpoint, expectedConfigurationFingerprint: undefined }, {
-    fetchImpl: async () => { throw new Error("darf nicht senden"); },
-  }),
-  /bisherigen Konfigurationsfingerprint/,
-);
 assert.throws(() => parseApiMainArguments(["--config", "a.json", "extra"]), /Ungueltige API-Startargumente/);
 assert.throws(() => parseApiMainArguments(["--unknown"]), /Ungueltige API-Startargumente/);
 
@@ -133,7 +78,6 @@ const helpStartedAt = performance.now();
 const helpChild = spawn(process.execPath, ["dist/api-main.js", "--help"], {
   cwd: process.cwd(),
   windowsHide: true,
-  env: { ...process.env, SSE_API_TOKEN: "" },
   stdio: ["ignore", "pipe", "pipe"],
 });
 let helpStdout = "";
@@ -166,7 +110,7 @@ const quickEnvironment = {
   LOCALAPPDATA: quickLocalAppData,
   SSE_API_PORT: String(quickPort),
 };
-for (const key of ["SSE_API_CONFIG", "SSE_API_TOKEN", "SSE_CASE_DIR", "SSE_WORKSPACE_DIR"]) {
+for (const key of ["SSE_API_CONFIG", "SSE_CASE_DIR", "SSE_WORKSPACE_DIR"]) {
   delete quickEnvironment[key];
 }
 const quickChild = spawn(process.execPath, ["dist/api-main.js", "--case-dir", quickCaseDir], {
@@ -198,8 +142,6 @@ try {
   const quickConfigPath = join(quickLocalAppData, "SteuerSparErklaerungApi", "config.json");
   const quickConfig = JSON.parse(readFileSync(quickConfigPath, "utf8"));
   assert.equal(quickConfig.caseDir, undefined, "Kurzstart darf die laufzeitgebundene Fallfreigabe nicht persistieren.");
-  assert.equal(typeof quickConfig.token, "string");
-  assert(quickConfig.token.length >= 24);
   for (const path of [quickConfig.workspaceDir, quickConfig.documentsDir, quickConfig.resultDir, quickConfig.backupsDir]) {
     assert.equal(existsSync(path), true, `First Run hat Ressourcenbereich nicht erzeugt: ${path}`);
   }
@@ -238,26 +180,6 @@ try {
   assert.match(portConflict.stderr, /Nicht fortfahren/);
   assert(!portConflict.stderr.includes("EADDRINUSE"), "Portkonflikt darf nicht als roher Node-Fehler erscheinen.");
 
-  // Eine reine NPX-Foreground-Konfiguration ist unvollstaendig, aber nicht kaputt.
-  const foregroundCheck = spawnSync(
-    process.execPath,
-    ["dist/setup-main.js", "--check", "--config", quickConfigPath],
-    { cwd: process.cwd(), windowsHide: true, env: quickEnvironment, encoding: "utf8", timeout: 15_000 },
-  );
-  assert.equal(foregroundCheck.status, 1, foregroundCheck.stderr);
-  assert(
-    !foregroundCheck.stderr.includes("Setup fehlgeschlagen"),
-    `Foreground-Konfiguration darf nicht als kaputte Installation gemeldet werden: ${foregroundCheck.stderr}`,
-  );
-  const foregroundStatus = JSON.parse(foregroundCheck.stdout);
-  assert.equal(foregroundStatus.ok, false);
-  assert.equal(foregroundStatus.kind, "foreground-only-config");
-  assert.equal(foregroundStatus.config.path, quickConfigPath);
-  assert.match(foregroundStatus.hint, /--defaults/);
-  assert(
-    !foregroundCheck.stdout.includes(quickConfig.token),
-    "Setup-Status darf das Token nicht ausgeben.",
-  );
 } finally {
   quickChild.kill("SIGTERM");
   const [quickCode, quickSignal] = await once(quickChild, "exit");
@@ -268,10 +190,6 @@ try {
   assert.match(quickStdout, /Lokale Standardkonfiguration erstellt/);
   assert.match(quickStdout, /SSE-API bereit/);
   assert.match(quickStdout, /Strg\+C beendet die API/);
-  assert(!quickStdout.includes(JSON.parse(readFileSync(
-    join(quickLocalAppData, "SteuerSparErklaerungApi", "config.json"),
-    "utf8",
-  )).token), "Foreground-Ausgabe darf das Token nicht enthalten.");
   rmSync(quickRoot, { recursive: true, force: true });
 }
 
@@ -279,13 +197,12 @@ const temporary = mkdtempSync(join(tmpdir(), "sse-api-main-smoke-"));
 const workspaceDir = join(temporary, "workspace");
 const resultDir = join(temporary, "results");
 const configPath = join(temporary, "config.json");
-const token = "api-main-smoke-token-with-at-least-24-characters";
 mkdirSync(workspaceDir, { recursive: true });
 mkdirSync(resultDir, { recursive: true });
 const port = await reservePort();
 writeFileSync(
   configPath,
-  `${JSON.stringify({ host: "127.0.0.1", port, token, workspaceDir, resultDir }, null, 2)}\n`,
+  `${JSON.stringify({ host: "127.0.0.1", port, workspaceDir, resultDir }, null, 2)}\n`,
   "utf8",
 );
 
@@ -448,7 +365,6 @@ const child = spawn(process.execPath, ["dist/api-main.js", "--config", configPat
   windowsHide: true,
   env: {
     ...process.env,
-    SSE_API_TOKEN: "stale-api-main-token-with-at-least-24-characters",
     SSE_API_PORT: "9",
     SSE_WORKSPACE_DIR: join(temporary, "stale-workspace"),
   },
@@ -479,34 +395,7 @@ try {
     resultDir,
     backupsDir: join(workspaceDir, "backups"),
   });
-  const setupVerification = await verifySetupApi(
-    { host: "127.0.0.1", port, token, expectedConfigurationFingerprint },
-    { attempts: 1 },
-  );
-  assert.equal(setupVerification.baseUrl, baseUrl);
-  assert.equal(setupVerification.operationCount, SSE_API_OPERATIONS.length);
-  assert.equal(setupVerification.workspaceReady, true);
-  assert.equal(setupVerification.startedBySetup, false);
-  await assert.rejects(
-    verifySetupApi(
-      { host: "127.0.0.1", port, token, expectedConfigurationFingerprint: "0".repeat(64) },
-      { attempts: 1 },
-    ),
-    /andere lokale Konfiguration/,
-  );
-  const occupiedPortStartedAt = performance.now();
-  await assert.rejects(
-    startAndVerifySetupApi(
-      { host: "127.0.0.1", port, token: "wrong-token-with-at-least-24-characters" },
-      join(temporary, "missing-launcher.vbs"),
-    ),
-    /Port .* bereits.*nicht zur Konfiguration passt/,
-  );
-  assert(performance.now() - occupiedPortStartedAt < 5_000, "Fremde API am Port wurde nicht schnell erkannt.");
-
-  const actualOpenApiResponse = await fetch(`${baseUrl}/v1/openapi.json`, {
-    headers: { authorization: `Bearer ${token}` },
-  });
+  const actualOpenApiResponse = await fetch(`${baseUrl}/v1/openapi.json`);
   assert.equal(actualOpenApiResponse.status, 200);
   const actualOpenApi = await actualOpenApiResponse.json();
   assert.equal(actualOpenApi.openapi, "3.1.0");
@@ -515,16 +404,17 @@ try {
   assert(actualOpenApi.paths[`/${SSE_API_VERSION}/operations`]?.get);
   assert(actualOpenApi.paths[`/${SSE_API_VERSION}/openapi.json`]?.get);
 
-  const unauthorized = await fetch(`${baseUrl}/v1/operations/workspace_status`, {
+  // Der produktive Prozess weist einen Browseraufruf ab, nicht nur der Testserver.
+  const fromBrowser = await fetch(`${baseUrl}/v1/operations/workspace_status`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", origin: "https://boese.example" },
     body: JSON.stringify({ args: {} }),
   });
-  assert.equal(unauthorized.status, 401);
+  assert.equal(fromBrowser.status, 403);
 
   const status = await fetch(`${baseUrl}/v1/operations/workspace_status`, {
     method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    headers: { "content-type": "application/json" },
     body: JSON.stringify({ args: {}, timeoutMs: 1_000 }),
   });
   assert.equal(status.status, 200);
@@ -540,7 +430,7 @@ try {
   writeFileSync(resultDir, "kein-ergebnisordner", "utf8");
   const brokenStatus = await fetch(`${baseUrl}/v1/operations/workspace_status`, {
     method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    headers: { "content-type": "application/json" },
     body: JSON.stringify({ args: {}, timeoutMs: 1_000 }),
   });
   assert.equal(brokenStatus.status, 200);
@@ -557,8 +447,7 @@ try {
   const log = readFileSync(join(temporary, "logs", "api.jsonl"), "utf8");
   assert.match(log, /"event":"ready"/);
   assert.match(log, /"operation":"workspace_status"/);
-  assert(!log.includes(token), "API-Log darf das Bearer-Token nicht enthalten");
   rmSync(temporary, { recursive: true, force: true });
 }
 
-process.stdout.write(`API-Main-Smoke: Hilfe in ${helpMs.toFixed(0)} ms, Bild, Shutdown, Abort, Start, Auth und Log bestanden\n`);
+process.stdout.write(`API-Main-Smoke: Hilfe in ${helpMs.toFixed(0)} ms, Bild, Shutdown, Abort, Start und Log bestanden\n`);

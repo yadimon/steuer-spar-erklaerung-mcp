@@ -25,7 +25,6 @@ try {
       {
         host: "127.0.0.1",
         port: 43127,
-        token: "page-objects-parity-token-24-characters",
         configPath: join(temporary, profileId, "config.json"),
         profileId,
         operateExperimental: profile.status !== "supported",
@@ -80,7 +79,6 @@ try {
     {
       host: "127.0.0.1",
       port: 43127,
-      token: "mutable-profile-token-24-characters",
       configPath: join(mutableConfigRoot, "config.json"),
       profileId: "2025",
       caseDir: join(mutableConfigRoot, "cases"),
