@@ -153,6 +153,15 @@ function apiError(requestId: string, code: string, message: string): ApiErrorEnv
  * nicht erzeugen kann - bleibt kein Weg aus dem Browser in diese API.
  */
 function foreignClientReason(request: IncomingMessage): string | null {
+  // Node behaelt bei mehreren 'Host'-Kopfzeilen stillschweigend die erste. Dann
+  // pruefte diese Funktion einen anderen Wert als ein zwischengeschalteter
+  // Vermittler laese. Eine widerspruechliche Anfrage wird abgelehnt, nicht
+  // interpretiert.
+  let hostHeaders = 0;
+  for (let index = 0; index < request.rawHeaders.length; index += 2) {
+    if (request.rawHeaders[index]?.toLowerCase() === "host") hostHeaders += 1;
+  }
+  if (hostHeaders > 1) return "Anfragen mit mehreren 'Host'-Kopfzeilen sind mehrdeutig.";
   const host = typeof request.headers.host === "string" ? request.headers.host.trim().toLowerCase() : "";
   const hostname = /^(\[[^\]]+\]|[^:]+)(?::\d{1,5})?$/u.exec(host)?.[1];
   if (!hostname || !LOOPBACK_HOSTNAMES.has(hostname)) {

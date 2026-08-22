@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { request as httpRequest } from "node:http";
+import { connect } from "node:net";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -178,6 +179,26 @@ try {
     rebind.end();
   });
   assert.equal(rebindStatus, 403, "Ein fremder Host-Name muss abgewiesen werden.");
+
+  // Node behaelt bei doppeltem 'Host' stillschweigend die erste Kopfzeile; die
+  // Anfrage bleibt trotzdem mehrdeutig und darf nicht interpretiert werden.
+  const duplicateHostStatus = await new Promise((resolve, reject) => {
+    const socket = connect(address.port, "127.0.0.1", () => {
+      socket.write([
+        "GET /healthz HTTP/1.1",
+        "Host: 127.0.0.1",
+        "Host: boese.example",
+        "Connection: close",
+        "",
+        "",
+      ].join("\r\n"));
+    });
+    let received = "";
+    socket.on("data", (chunk) => { received += chunk.toString("utf8"); });
+    socket.once("end", () => resolve(Number(/^HTTP\/1\.\d (\d{3})/u.exec(received)?.[1])));
+    socket.once("error", reject);
+  });
+  assert.equal(duplicateHostStatus, 403, "Mehrere Host-Kopfzeilen muessen abgewiesen werden.");
 
   // 'none' ist die Kennzeichnung einer direkt eingegebenen Adresse und der
   // einzige Sec-Fetch-Wert, der keinen Seitenkontext bedeutet.

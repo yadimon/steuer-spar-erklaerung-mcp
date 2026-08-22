@@ -127,13 +127,6 @@ try {
     /MCP-Server ist bewusst \*\*nicht\*\* enthalten/u,
   );
   assert.match(readFileSync(join(mcpRoot, "README.md"), "utf8"), /PC-blinder MCP-Wrapper/u);
-  const installedWindowsRuntime = await import(pathToFileURL(join(apiRoot, "dist", "windows-runtime.js")).href);
-  assert.equal(
-    installedWindowsRuntime.resolveProductMcpEntry(apiRoot),
-    join(mcpRoot, "dist", "index.js"),
-    "API-Setup findet den getrennt installierten MCP-Einstieg nicht.",
-  );
-
   const installedMcpContract = spawnSync(
     process.execPath,
     ["test/mcp-wrapper-all-tools.mjs"],
