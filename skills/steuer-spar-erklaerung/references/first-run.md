@@ -52,6 +52,24 @@ vollständig“ ist dann nicht nötig; frage die Vollständigkeit nicht erneut a
 Fehlt dagegen jede Belegangabe, ist die zweite fachliche Frage weiterhin
 offen und muss gestellt werden.
 
+## Weiterlesen nach einem Navigations-Stopp
+
+SSE kann beim bloßen Navigieren die zuletzt besuchte Seite als ungespeicherte
+Änderung markieren. Meldet die Prüffallkopie `ungespeichert=true`, endet der
+Prüflauf dort nicht — er wechselt die Kopie:
+
+1. Die Prüffallkopie mit `discardChanges=true` schließen.
+   `Standard-Prüflauf ausführen` bestätigt genau dieses Verwerfen bereits:
+   verworfen wird nur der reine Navigationszustand einer hashverifizierten
+   Kopie, nie der Originalfall und nie eine echte Eingabe. Nach dem Schließen
+   `stillRunning=false`, Fenster, Health sowie die unveränderten Hashes von
+   Original und Kopie zurücklesen.
+2. Dieselbe Kopie erneut öffnen und ausschließlich die noch ungelesenen
+   Abschnitte lesen. Bereits Gelesenes nicht wiederholen.
+3. Höchstens zwei solcher Neustarts je Prüflauf. Blockiert derselbe Zustand
+   danach weiterhin, endet der Lauf mit einem ehrlichen Teilbericht, der die
+   ungelesenen Abschnitte einzeln benennt.
+
 ## Kandidaten nur oberflächlich suchen
 
 Suche vor den beiden Fragen kurz und ausschließlich anhand von Dateisystem-
