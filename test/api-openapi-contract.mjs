@@ -103,11 +103,49 @@ for (const name of commonResultComponentNames) {
     `Gemeinsame OpenAPI-Komponente '${name}' wird von keinem Result-Schema referenziert.`);
 }
 // 88 operationsspezifische Result-Schemas mit den realen stabilen Worker-
-// Feldern brauchen knapp 265 KiB; die enge Reserve faengt unbeabsichtigte
-// Schema-Dopplung weiterhin ab.
-assert(Buffer.byteLength(serialized, "utf8") < 272 * 1024, "OpenAPI-Dokument ist unnoetig gross.");
+// Feldern brauchen rund 271 KiB. Die Grenze soll versehentlich verdoppelte
+// Schemas fangen - das kostet zweistellige KiB - und nicht schon bei einem
+// zusaetzlichen Beschreibungssatz zuschlagen.
+assert(Buffer.byteLength(serialized, "utf8") < 285 * 1024, "OpenAPI-Dokument ist unnoetig gross.");
 assert(!serialized.includes("C:\\development"));
 assert(!serialized.includes("allowSend") && !serialized.includes("confirmSend"));
+
+// Ein Codegenerator scheitert an genau einer unaufloesbaren Referenz. Die
+// Stichproben oben pruefen einzelne Stellen; hier muss jede einzelne $ref im
+// ganzen Dokument auf eine vorhandene Komponente zeigen.
+function collectRefs(value, pfad, gefunden) {
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => collectRefs(entry, `${pfad}[${index}]`, gefunden));
+    return gefunden;
+  }
+  if (!value || typeof value !== "object") return gefunden;
+  for (const [key, entry] of Object.entries(value)) {
+    if (key === "$ref") {
+      assert.equal(typeof entry, "string", `${pfad}: $ref muss eine Zeichenkette sein.`);
+      gefunden.push({ ref: entry, pfad });
+    } else {
+      collectRefs(entry, `${pfad}/${key}`, gefunden);
+    }
+  }
+  return gefunden;
+}
+
+function resolvePointer(zeiger) {
+  let ziel = SSE_OPENAPI_DOCUMENT;
+  for (const segment of zeiger.slice(2).split("/")) {
+    const name = segment.replaceAll("~1", "/").replaceAll("~0", "~");
+    if (!ziel || typeof ziel !== "object" || !Object.hasOwn(ziel, name)) return undefined;
+    ziel = ziel[name];
+  }
+  return ziel;
+}
+
+const refs = collectRefs(SSE_OPENAPI_DOCUMENT, "#", []);
+assert(refs.length > SSE_API_OPERATIONS.length, "Das Dokument sollte je Operation mindestens eine Referenz tragen.");
+for (const { ref, pfad } of refs) {
+  assert(ref.startsWith("#/"), `${pfad}: '${ref}' ist keine dokumentinterne Referenz.`);
+  assert.notEqual(resolvePointer(ref), undefined, `${pfad}: '${ref}' zeigt ins Leere.`);
+}
 
 process.stdout.write(
   `OpenAPI 3.1: ${SSE_API_OPERATIONS.length} Operationen plus 3 Infrastrukturpfade und gemeinsame Schemas (${Buffer.byteLength(serialized, "utf8")} Bytes)\n`,
