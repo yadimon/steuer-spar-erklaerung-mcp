@@ -24,7 +24,9 @@ Handgepflegte Operationszahlen in Prosa sind nicht normativ.
 - Die API bindet ausschließlich an `127.0.0.1` oder `::1`.
 - `GET /healthz` ist absichtlich ohne Token erreichbar und gibt nur
   technischen Zustand aus.
-- Discovery, OpenAPI und jede Operation benötigen das lokale Bearer-Token.
+- Es gibt keine Anmeldung. Discovery, OpenAPI und jede Operation antworten
+  jedem lokalen Prozess und weisen Aufrufe aus einem Browser anhand von
+  `Origin`, `Sec-Fetch-Site` und `Host` mit `403` ab.
 - Das Token gewährt volle Autorität der vom aktiven Profil zugelassenen API.
   Eine Nutzerfreigabe im Agenten-Skill ist keine serverseitige Approval-
   Sitzung.

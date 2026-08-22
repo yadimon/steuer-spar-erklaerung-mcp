@@ -76,7 +76,7 @@ export function registerDiagnosticTools(registry: McpRegistry): void {
   registerApiTool(
     "sse_workspace_status",
     {
-      title: "Portablen SSE-Arbeitsbereich pruefen",
+      title: "SSE-Arbeitsbereich pruefen",
       description:
         "Prueft ueber die API, ob Arbeits-/Ergebnisbereich, Fallordner und optionaler SSE-Programmpfad " +
         "eingerichtet sind. Liefert bewusst keine lokalen PC-Pfade; der MCP kennt nur die API-URL.",
