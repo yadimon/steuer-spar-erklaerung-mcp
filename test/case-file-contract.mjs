@@ -13,6 +13,18 @@ import {
 import { loadProductProfile } from "../dist/product-profiles.js";
 import { callWorker } from "../dist/worker.js";
 
+/** Fuehrt fn in jedem Eventloop-Durchlauf aus, bis die Rueckgabe aufgerufen wird. */
+function everyLoopTurn(fn) {
+  let stopped = false;
+  const tick = () => {
+    if (stopped) return;
+    fn();
+    setImmediate(tick);
+  };
+  setImmediate(tick);
+  return () => { stopped = true; };
+}
+
 const caseFileSource = readFileSync(join(process.cwd(), "src", "case-file.ts"), "utf8");
 const caseHashSource = caseFileSource.slice(caseFileSource.indexOf("export async function readCaseFileInfo"));
 assert.match(
@@ -234,18 +246,21 @@ try {
   writeFileSync(changing, fixture);
   truncateSync(changing, 128 * 1024 * 1024);
   let changingTimestampMs = Date.now() + 1_000;
-  const changingTimer = setInterval(() => {
+  // setImmediate statt setInterval(0): Windows-Timer haben ~15 ms Koernung,
+  // ein Lesen aus dem Cache kann davor fertig sein. setImmediate feuert in
+  // jedem Eventloop-Durchlauf und trifft damit sicher zwischen zwei Chunks.
+  const stopChanging = everyLoopTurn(() => {
     changingTimestampMs += 1_000;
     const changingTimestamp = new Date(changingTimestampMs);
     utimesSync(changing, changingTimestamp, changingTimestamp);
-  }, 0);
+  });
   try {
     await assert.rejects(
       readCaseFileInfo(changing, loadProductProfile("2025")),
       (error) => error?.kind === "resource-changed",
     );
   } finally {
-    clearInterval(changingTimer);
+    stopChanging();
   }
 
   await assert.rejects(
@@ -321,17 +336,17 @@ try {
   const changingListPath = join(changingListDirectory, "wechselnd.ESt2025");
   writeFileSync(changingListPath, largeEncryptedFixture);
   let changingSize = largeEncryptedFixture.length;
-  const changeTimer = setInterval(() => {
+  const stopChangingList = everyLoopTurn(() => {
     changingSize += 1;
     truncateSync(changingListPath, changingSize);
-  }, 0);
+  });
   try {
     await assert.rejects(
       listCaseFiles(changingListDirectory, loadProductProfile("2025")),
       (error) => error?.kind === "resource-changed",
     );
   } finally {
-    clearInterval(changeTimer);
+    stopChangingList();
   }
 
   const noEncryptedDirectory = join(temporary, "list-without-encrypted-record");

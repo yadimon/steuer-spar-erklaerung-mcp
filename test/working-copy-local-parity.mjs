@@ -332,7 +332,14 @@ try {
     },
   });
   assert.equal(lateOpen.kind, "timeout");
-  await new Promise((resolvePromise) => setTimeout(resolvePromise, 250));
+  // Die Aufraeumung des spaeten Opens ist bewusst nicht Teil des Timeout-
+  // Ergebnisses (es darf nicht an einem haengenden Open warten). Die Garantie
+  // lautet "wird entfernt", nicht "innerhalb von 250 ms" - auf einem
+  // ausgelasteten CI-Datentraeger brauchen die acht Datei-Roundtrips laenger.
+  const lateOpenDeadline = Date.now() + 10_000;
+  while (existsSync(lateOpenTarget) && Date.now() < lateOpenDeadline) {
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 50));
+  }
   assert.equal(existsSync(lateOpenTarget), false,
     "Ein nach Timeout spaet erfolgreiches wx+-Open liess ein leeres Ziel liegen.");
 
