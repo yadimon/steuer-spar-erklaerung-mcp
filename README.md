@@ -78,6 +78,23 @@ ausdrücklich und arbeitet nicht still über die andere Instanz weiter. Soll aus
 diesem Kurzweg später ein dauerhaftes Setup werden, zuerst die npx-API mit
 Strg+C beenden und danach das Setup ausführen.
 
+## Schnellstart mit einem Prompt
+
+Wenn SteuerSparErklärung und ein lokaler Agent da sind, reicht ein Prompt für
+Installation und Prüfung (Pfade anpassen):
+
+```text
+Nutze https://github.com/yadimon/steuer-spar-erklaerung-mcp
+Prüfe meine Einkommensteuer 2025.
+Steuerfall: <ABSOLUTER_PFAD_ZUR_ESt2025-DATEI>
+Belege: <ABSOLUTE_BELEGORDNER_ODER_KEINE_BELEGE>
+Standard-Einrichtung und Prüflauf ausführen.
+```
+
+`Standard-Einrichtung und Prüflauf ausführen` bestätigt Setup (lokale API plus
+MCP) und Prüflauf zugleich. Die Prüfung läuft in derselben Sitzung über die
+lokale API; MCP wird nach dem nächsten Start des Agenten verifiziert.
+
 ## Schnellstart mit zwei Prompts
 
 ### 1. Lokal installieren

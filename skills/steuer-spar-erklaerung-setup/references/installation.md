@@ -343,9 +343,28 @@ Der Setup-Skill öffnet keinen Steuerfall. Der Hauptskill erzeugt vor jeder
 UI-Navigation eine hashverifizierte Arbeitskopie und öffnet niemals den
 Originalfall.
 
-## Zwei kopierbare Prompts
+## Kopierbare Prompts
 
-### Prompt 1: installieren
+### Ein Prompt: installieren und prüfen
+
+```text
+Nutze https://github.com/yadimon/steuer-spar-erklaerung-mcp
+Prüfe meine Einkommensteuer 2025.
+Steuerfall: <ABSOLUTER_PFAD_ZUR_ESt2025-DATEI>
+Belege: <ABSOLUTE_BELEGORDNER_ODER_KEINE_BELEGE>
+Standard-Einrichtung und Prüflauf ausführen.
+```
+
+`Standard-Einrichtung und Prüflauf ausführen` steht für beides zugleich:
+`Standard-Setup ausführen: lokale API plus MCP.` und
+`Standard-Prüflauf ausführen.` Weil MCP-Werkzeuge erst nach einem Neustart
+des Clients geladen werden, läuft die Prüfung in derselben Sitzung direkt über
+die lokale API-CLI; die MCP-Verifikation per `sse_health` holt der nächste
+Start nach. Der Bericht endet mit genau dieser Neustart-Anforderung. Fehlen
+absolute Pfade, gilt die Formel nur für das Setup, und der Hauptskill stellt
+seine beiden fachlichen Fragen.
+
+### Prompt 1: nur installieren
 
 ```text
 Richte SteuerSparErklärung vollständig lokal nach

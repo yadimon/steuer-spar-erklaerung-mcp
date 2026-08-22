@@ -25,9 +25,12 @@ die beiden fachlichen Antworten und der Standardplan für diesen Auftrag als
 bestätigt. Frage sie nicht erneut. Eine allgemeine Bitte „prüfe meine
 Steuererklärung“ ohne diese Angaben ist keine solche Bestätigung.
 `Standard-Prüflauf ausführen` ist eine solche
-gleichwertige Bestätigung. Sie umfasst nur die unten definierten sicheren
-Schritte mit hashverifizierter Prüffallkopie, sichtbarer read-only Navigation,
-Report, keinem Speichern und keiner ELSTER-Aktion.
+gleichwertige Bestätigung, ebenso die kombinierte Formel
+`Standard-Einrichtung und Prüflauf ausführen` aus der Installationsanleitung;
+bei ihr läuft die Prüfung direkt nach dem Setup in derselben Sitzung über die
+lokale API-CLI, ohne auf den MCP-Neustart zu warten. Beide umfassen nur die
+unten definierten sicheren Schritte: hashverifizierte Prüffallkopie,
+sichtbare read-only Navigation, Report, kein Speichern, keiner ELSTER-Aktion.
 
 Diese Formel legt zugleich den fachlichen Umfang fest und gilt damit als
 fachlicher Prüfauftrag. Sie verlangt mehr als das Auswerten des
