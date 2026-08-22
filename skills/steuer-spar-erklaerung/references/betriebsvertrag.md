@@ -1,40 +1,35 @@
-# Betriebsvertrag des portablen Releases
+# Betriebsvertrag
 
 Lies konkrete Namen und Werte immer aus dem installierten Release. Diese
 Referenz beschreibt nur die stabilen Grenzen.
 
-## Release und Konfiguration
+## Erreichbarkeit und Konfiguration
 
-- `portable-manifest.json` nennt Plattform, gebündelte Runtime und unterstützte
-  Produktprofile. Prüfe die im Release veröffentlichte SHA-256-Prüfsumme.
-- `sse-setup.cmd` ist der manuelle Einmal-Einstieg. Ein Agent mit sicherem
-  Prozesswerkzeug kann dieselbe `runtime/node.exe dist/setup-main.js` ohne separates
-  Konsolenfenster starten.
-- Das Setup schreibt lokale API-Konfiguration, eine MCP-Mergevorlage und einen
-  fensterlosen VBS-API-Starter außerhalb des Repositorys. Token nie anzeigen.
-- Starte den erzeugten VBS-Starter mit Windows Script Host; starte nicht blind
-  eine zweite API. Prüfe zuerst `/healthz`.
-
-## Direkte API und MCP
-
-- API nur auf `127.0.0.1` oder `::1` verwenden.
-- URL, Token, Endpunkte, Operationen und Parameter aus Setup-Ausgabe und
-  API-Selbstbeschreibung lesen.
+- Die API läuft nur auf `127.0.0.1` oder `::1`. Prüfe vor allem anderen
+  `/healthz` beziehungsweise `sse_health`; starte nie blind eine zweite API.
+- Es gibt kein Token und keine Anmeldung. Die API weist Anfragen mit `Origin`,
+  `Sec-Fetch-Site` oder einem fremden `Host` mit `403` ab — das trennt einen
+  lokalen Klienten von einer Webseite im Browser des Nutzers.
+- Es gibt kein Einrichtungsprogramm. Der erste API-Start legt die
+  Ressourcenbereiche an; eine `config.json` ist optional und nur für einen
+  abweichenden Port, ein festgepinntes `sseExecutable` oder einen festen
+  `caseDir` nötig.
+- Endpunkte, Operationen und Parameter aus der API-Selbstbeschreibung lesen
+  (`discovery`, `describe <operation>`, `openapi`), nicht aus dieser Datei.
 - MCP nur verwenden, wenn der Agent den Server auflistet und ein echter
-  Health-/Workspace-Aufruf gelingt.
-- MCP-Konfiguration aus der vom Setup erzeugten vollständigen Mergevorlage
-  übernehmen. Vorhandene Client-JSON sichern und nur den Servereintrag mergen.
-- Kann der Agent nicht selbst mergen, zeige die vollständige Datei bzw. das
-  echte Fragment und bitte um genau eine Aktion: speichern und „Fertig“ melden.
-- Die direkte API ist vollständig nutzbar, auch wenn MCP nicht installiert ist.
+  Health-/Workspace-Aufruf gelingt. Die direkte API ist vollständig nutzbar,
+  auch wenn MCP nicht installiert ist.
+- MCP-Servereintrag beim Client additiv mergen: eine vorhandene Client-JSON nie
+  vollständig ersetzen. Kann der Agent nicht selbst mergen, zeige das echte
+  Fragment und bitte um genau eine Aktion: speichern und „Fertig“ melden.
 
 ## Arbeitsbereich
 
-Verwende die vom Setup zurückgelesenen Bereiche für `documents`, `results` und
-`backups`. Diese Bereiche dürfen getrennt außerhalb des Workspace liegen.
-Erzeuge bei Bedarf zusätzlich `cases` und `scenarios` innerhalb des Workspace.
-Alle API-Dateireferenzen bleiben relativ und dürfen den jeweils konfigurierten
-Ressourcenbereich nicht verlassen.
+Verwende die von `workspace_status` zurückgelesenen Bereiche für `documents`,
+`results` und `backups`. Diese Bereiche dürfen getrennt außerhalb des Workspace
+liegen. Erzeuge bei Bedarf zusätzlich `cases` und `scenarios` innerhalb des
+Workspace. Alle API-Dateireferenzen bleiben relativ und dürfen den jeweils
+konfigurierten Ressourcenbereich nicht verlassen.
 
 Textdateien immer unter einer neuen Referenz schreiben. Ein vorhandenes Ziel
 ist ein Stoppsignal, keine Aufforderung zum blinden Überschreiben.
@@ -45,10 +40,9 @@ Abschnitte und Qt-Elemente, die UIA nicht strukturiert liefert. Vertrauliche
 Rohbilder nicht ins Repository übernehmen. Ein Screenshot ersetzt weder den
 strukturierten Feld-/Tabellen-Readback noch den Summen- und Hashnachweis.
 
-Speichere eine nicht geheime `setup-decisions.json`, falls das Release keinen
-anderen Namen vorgibt. Erlaubt sind Profil, Engine, Workspace, Arbeitsmodus,
-freigegebene Quellarten, Kopierentscheidung und Zustimmungszeitpunkte. Verboten
-sind Token, Zugangsdaten, Steuerwerte und Dokumentinhalte.
+Dauerhafte Vorlieben gehören in `settings.md` im Arbeitsbereich: Belegquellen,
+Prioritäten, Arbeitsmodus. Verboten sind dort Zugangsdaten, Steuerwerte und
+Dokumentinhalte.
 
 ## Szenarien und Recovery
 

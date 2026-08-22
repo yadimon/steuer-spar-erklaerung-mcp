@@ -166,13 +166,10 @@ bestätigten Ordner; Connectoren und andere Quellen bleiben unberührt.
 
 Erst nach beiden Antworten zeige kurz den tatsächlichen Plan. Standard ist:
 
-- eine funktionierende vorhandene Installation wiederverwenden; sonst bei
-  bereits vorhandenem Node.js/npm die passenden veröffentlichten
-  npm-Pakete persistent installieren oder als Fallback das aktuellste
-  passende veröffentlichte Portable-Release aus der kanonischen Repository-
-  Releasequelle samt Prüfsumme verwenden;
-- Node.js/npm, Python, Git oder PowerShell 7 nicht eigens installieren; der
-  Portable-Weg bringt seine Node-Laufzeit mit;
+- eine funktionierende vorhandene Installation wiederverwenden; sonst die
+  beiden veröffentlichten npm-Pakete in den Arbeitsordner installieren;
+- Node.js/npm, Python, Git oder PowerShell 7 nicht eigens installieren; fehlt
+  Node.js, ist das eine Voraussetzung und ein Stopp, keine Aufgabe;
 - einen privaten Standard-Arbeitsbereich außerhalb von Git verwenden;
 - zunächst nur die direkte lokale Loopback-API und read-only arbeiten;
 - vor sichtbarer UI-Navigation eine neue hashverifizierte Prüffallkopie neben
@@ -198,51 +195,33 @@ MCP verbindet einen kompatiblen Agenten damit. Ein reines API-Setup lässt MCP
 weg. Ein ausdrücklich beauftragter vollständiger lokaler Standard mit „API plus
 MCP“ enthält es nach gezeigtem Konfigurations-Diff.
 
-Hat der Nutzer ausdrücklich einen kurzen NPX-Lauf ohne globale Installation
-verlangt und Node.js 22+ mit npm ist bereits vorhanden, ersetzt dieser die
-persistente npm-/Portable-Installation für den aktuellen Auftrag. Der Agent
-startet das API-Paket im Vordergrund mit dem bestätigten Fallordner, verwendet
-die CLI aus demselben Paket und beendet den Prozess nach dem Report wieder.
-MCP, Setup-Skill, Client-Merge und Neustart gehören nicht zu diesem Kurzweg.
+Hat der Nutzer ausdrücklich einen kurzen NPX-Lauf ohne Installation verlangt
+und Node.js 22+ mit npm ist bereits vorhanden, ersetzt dieser die Installation
+im Ordner für den aktuellen Auftrag. Der Agent startet das API-Paket im
+Vordergrund mit dem bestätigten Fallordner, verwendet die CLI aus demselben
+Paket und beendet den Prozess nach dem Report wieder. MCP, Client-Merge und
+Neustart gehören nicht zu diesem Kurzweg.
 
-## Setup ausführen und Auftrag fortsetzen
+## Einrichten und Auftrag fortsetzen
 
-Fehlt eine verifizierte API, verwende nun den Setup-Skill, außer der Nutzer hat
+Fehlt eine erreichbare API, richte sie jetzt ein, außer der Nutzer hat
 ausdrücklich den NPX-Kurzweg bestätigt. Übernimm die bereits bestätigten Pfade
-und den Standardplan; frage sie nicht erneut. Ist der Setup-Skill nicht
-installiert, führe dieselben sicheren Schritte inline aus. Beim NPX-Kurzweg
-folge stattdessen dem Abschnitt „NPX-Kurzweg ohne globale
-Runtime-Installation“ im Hauptskill; schreibe dafür keine Setup-Plandatei und
-keinen dauerhaften Launcher.
+und den Standardplan; frage sie nicht erneut.
 
-Schreibe dafür nach `OK Standard` eine neue, höchstens 64 KiB große UTF-8-
-JSON-Datei im privaten temporären Arbeitsbereich des Agenten. Sie enthält nur:
+Es gibt kein Einrichtungsprogramm und keine Plandatei. Die vier Schritte stehen
+in der kanonischen Anleitung
+`https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md`:
+Ordner anlegen, beide npm-Pakete und den Skill installieren, API mit absolutem
+`--config`-Pfad starten, MCP-Server beim Client anmelden. Der erste API-Start
+legt die Ressourcenbereiche selbst an; eine `config.json` ist optional.
 
-```json
-{
-  "schemaVersion": 1,
-  "profileId": "2025",
-  "caseDir": "<absoluter Ordner des bestätigten Steuerfalls>",
-  "sourceFolders": ["<absolut bestätigter Belegordner>"]
-}
-```
+Den bestätigten Fallordner bindest du über `--case-dir <absoluter Ordner>` an
+den laufenden Prozess, nicht über eine geschriebene Datei. Dauerhafte
+Vorlieben — Belegquellen, Prioritäten — gehören nach `settings.md` im
+Arbeitsbereich, und dorthin nur mit ausdrücklicher Zustimmung.
 
-Bei „keine Belege“ ist `sourceFolders` leer. Optional darf der bereits
-eindeutig erkannte absolute `sseExecutable` ergänzt werden. Token, Schreibmodus,
-Connectoren oder andere Autorität gehören niemals in diesen Plan. Übergib ihn
-dem veröffentlichten Setup mit `--plan-file <absoluter-planpfad>`; simuliere
-keine interaktive Standardeingabe und schreibe keine Pfade als einzelne
-Kommandozeilenargumente. Der Setup-Prozess validiert Schema, vorhandene Ordner
-und sichere read-only Defaults. Nach erfolgreichem Setup stehen die dauerhaften
-Entscheidungen in `setup-decisions.json`; die temporäre Plandatei darf danach
-gelöscht werden, wenn sie ausschließlich für diesen Lauf neu erzeugt wurde.
-
-Eine vorhandene rein technische Einrichtung ohne Fall- und Quellbindung darf
-der veröffentlichte Wizard genau einmal mit diesem bestätigten Plan ergänzen.
-Er muss vorhandenen Transport und sonstige Einstellungen bewahren und eine
-laufende, exakt fingerprint-gebundene API kontrolliert neu starten. Lehnt der
-Wizard die Bindung ab, ändere weder `config.json` noch
-`setup-decisions.json` manuell und beende keinen Prozess als Umgehung.
+Scheitert der Start, ändere `config.json` oder Runtime-Dateien nicht manuell
+als Umgehung und beende keinen fremden Prozess. Melde den konkreten Stopp.
 
 Nach erfolgreichem Setup kehre automatisch zum ursprünglichen Prüfauftrag
 zurück. Setup allein erfüllt einen Auftrag wie „Prüfe meine Steuererklärung“

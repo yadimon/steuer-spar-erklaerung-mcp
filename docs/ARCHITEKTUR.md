@@ -434,13 +434,17 @@ Wrapper findet die API über `SSE_API_URL` beziehungsweise den Standardport.
 
 1. **NPX-Kurzweg:** API ohne globale Runtime-Installation im Vordergrund
    starten, direkte CLI verwenden und nach dem Auftrag beenden; kein MCP.
-2. **Standard:** API bei Bedarf fensterlos starten, Aufgabe ausführen, sauber
-   beenden.
+2. **Standard:** API im Ordner in einem offenen Terminal starten, Aufgabe
+   ausführen, mit Strg+C beenden.
 3. **MCP-Komfort:** Agentkonfiguration verweist direkt auf den
    separat installierten MCP-Einstieg; dieser spricht mit derselben API und
    kennt nur deren URL.
-4. **Dauerbetrieb (opt-in):** Autostart oder geplante Aufgabe nur nach
-   ausdrücklicher Zustimmung des Nutzers.
+
+Einen Autostart oder eine geplante Aufgabe gibt es bewusst nicht. Die frühere
+Maschinerie dafür — VBS-Launcher, `install-api-task.ps1` und der fensterlose
+Starter — hing am entfallenen Einrichtungsprogramm und am portablen Release
+und ist ersatzlos entfernt. Ein Dienst, der die Steuersoftware dauerhaft
+fernsteuern kann, ist außerdem nichts, was nebenbei entstehen sollte.
 
 ## Steuerjahrprofile
 
