@@ -1,7 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync } from "node:fs";
+import { removeDirectoryWhenFree } from "./remove-when-free.mjs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApiExecutor } from "../dist/api-executor.js";
@@ -73,13 +74,6 @@ try {
   if (childFailed && preserveTemporaryOnFailure) {
     process.stderr.write(`Test-Sandbox zur Diagnose erhalten: ${temporary}\n`);
   } else {
-    for (let attempt = 0; attempt < 20 && existsSync(temporary); attempt++) {
-      try {
-        rmSync(temporary, { recursive: true, force: true, maxRetries: 2, retryDelay: 100 });
-      } catch (error) {
-        if (!error || !["EBUSY", "EPERM", "ENOTEMPTY"].includes(error.code) || attempt === 19) throw error;
-        await new Promise((resolve) => setTimeout(resolve, 250));
-      }
-    }
+    await removeDirectoryWhenFree(temporary);
   }
 }
