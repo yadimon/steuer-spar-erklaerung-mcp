@@ -281,6 +281,10 @@ Serverobjekt `steuer-spar-erklaerung` der erzeugten Mergevorlage.
   Danach `codex mcp list`; Codex Desktop/CLI neu starten und `/mcp` prüfen.
 - **Claude Code:** `claude mcp add --transport stdio --scope user ... --
   <command> <args...>` verwenden, danach `claude mcp list` und `/mcp`.
+  Achtung unter Windows: der PowerShell-Shim `claude.ps1` verschluckt den
+  `--`-Trenner, der Befehl scheint dann zu klappen und registriert doch
+  nichts oder das Falsche. Den Aufruf deshalb über `claude.cmd` oder eine
+  Git-Bash absetzen und das Ergebnis immer mit `claude mcp list` beweisen.
 - **OpenCode:** zuerst `opencode mcp --help` lesen. Unterstützt die installierte
   Version den nichtinteraktiven `mcp add`-Befehl, ihn verwenden; sonst den
   tokenfreien Server in das bestehende lokale/global verwendete JSON-Schema

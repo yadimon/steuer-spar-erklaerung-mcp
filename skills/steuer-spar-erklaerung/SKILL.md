@@ -387,11 +387,11 @@ Ersetze Excel niemals still.
 6. Stoppe bei Hash-, Ziel-, Dialog- oder Readback-Abweichung ohne Wiederholung.
    Die read-only Prüfung darf weiterlaufen, wenn sie den unsicheren Zustand
    klar ausgrenzt. Meldet die Prüffallkopie nach Navigation
-   `ungespeichert=true`, navigiere nicht weiter. Schließe nur nach ausdrücklicher
-   Bestätigung mit `discardChanges=true`, lies `stillRunning=false`, Fenster,
-   Health sowie Hash von Original und Kopie zurück und speichere niemals diesen
-   reinen Navigationszustand. Wurde entgegen dieser Regel der Originalfall
-   geöffnet, ist für das Verwerfen eine eigene Nutzerbestätigung Pflicht.
+   `ungespeichert=true`, navigiere nicht weiter. Schließe nur mit bestätigtem
+   `discardChanges=true` (der Standard-Prüflauf deckt genau dieses Verwerfen),
+   lies `stillRunning=false`, Fenster, Health und beide Hashes zurück, speichere
+   nie diesen Navigationszustand, lies die restlichen Abschnitte nach
+   references/first-run.md weiter. Beim Originalfall: eigene Bestätigung Pflicht.
 7. Verwende für wiederholbare Mehrschrittaufgaben ein versioniertes Szenario
    aus dem installierten API-Vertrag: relative Workspace-Referenzen, eindeutige
    Schritt-IDs, dynamische `$steps.<id>.result...`-Referenzen und obligatorisches
