@@ -26,23 +26,28 @@ UStVA-Änderung.
    korrekturbedürftig ausgewiesene ausländische Umsatzsteuer sowie nicht
    steuerbare EU-Ausgangsleistungen. Lies jede Zeile, die Seitensumme, die
    Betriebseinnahmen/-ausgaben-Übersicht und die Vorsteuer-Übersicht zurück.
-   Verwechsle Kostenart und Umsatzsteuerbehandlung nicht: Ein Software-Abo oder
-   Online-Dienst ist wirtschaftlich eine EDV-Ausgabe, kann aber bei einem
-   ausländischen Anbieter zugleich eine sonstige Leistung nach § 13b UStG
-   sein. In der SSE-Version 2025 bietet die Buchungsseite `EDV-Kosten` keine
-   §13b-Unterseite. Erfasse eine solche Rechnung deshalb **einmal** unter
-   `Fremdleistungen -> Rechnungen nach § 13b UStG` und wähle anhand des
-   Anbietersitzes `Sonst. Leistung EU` oder `Sonst. Leistung Drittland`.
-   Erfasse denselben Nettobetrag nicht zusätzlich unter `EDV-Kosten`, weil das
-   die Betriebsausgabe verdoppeln würde. Inländische Software-Rechnungen mit
-   deutscher Umsatzsteuer und ausländische Rechnungen ohne §13b verbleiben in
-   der fachlich passenden EDV-Kostenzeile.
+   Verwechsle Kostenart und Umsatzsteuerbehandlung nicht: Eine Rechnung gehört
+   wirtschaftlich in eine gewöhnliche Kostenart und kann bei einem
+   ausländischen Anbieter zugleich eine sonstige Leistung nach § 13b UStG sein.
+   Lies dann im geöffneten Fall, ob die fachlich passende Buchungsseite selbst
+   eine §13b-Erfassung anbietet. Fehlt sie dort, erfasse die Rechnung
+   **einmal** auf der Seite, die §13b abbildet, und wähle die Leistungsart
+   anhand des Anbietersitzes (EU oder Drittland). Erfasse denselben Nettobetrag
+   nicht zusätzlich auf der Kostenseite, weil das die Betriebsausgabe
+   verdoppeln würde. Rechnungen mit deutscher Umsatzsteuer und ausländische
+   Rechnungen ohne §13b verbleiben in der fachlich passenden Kostenzeile.
+   Beispiel: In der SSE-Version 2025 hat `EDV-Kosten` keine §13b-Unterseite,
+   ein Software-Abo eines ausländischen Anbieters gehört dort unter
+   `Fremdleistungen -> Rechnungen nach § 13b UStG`. Verlasse dich nicht auf
+   dieses Beispiel, sondern auf die tatsächlich vorhandenen Seiten.
    Eine Rechnung aus einem bereits übermittelten Zeitraum wird nicht still in
    den aktuellen Zeitraum verschoben; dokumentiere stattdessen den möglichen
    Berichtigungsbedarf.
-5. Behalte die belegte Meldefrequenz bei. „Juli“ allein ist keine Erlaubnis,
-   von vierteljährlich auf monatlich umzustellen. Bei fachlicher Unsicherheit
-   aktuelle Primärquellen prüfen und stoppen.
+5. Behalte die belegte Meldefrequenz bei. Ein im Auftrag genannter Monat oder
+   ein genanntes Quartal benennt nur den Zielzeitraum und erlaubt keinen
+   Frequenzwechsel, weder von vierteljährlich auf monatlich noch umgekehrt.
+   Stelle die Frequenz nur mit einer belegten Grundlage um. Bei fachlicher
+   Unsicherheit aktuelle Primärquellen prüfen und stoppen.
 6. Verwende `sse_ustva_read` vor und nach der Arbeit. Wähle Frequenz und
    Monat/Quartal mit getrennten `sse_ustva_select_period`-Aufrufen, jeweils mit
    Arbeitskopie, aktuellem Hash, PID/HWND sowie exaktem Vorwert.

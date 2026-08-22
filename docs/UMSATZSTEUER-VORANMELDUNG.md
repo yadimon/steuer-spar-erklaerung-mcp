@@ -1,6 +1,6 @@
 # Umsatzsteuer-Voranmeldung sicher vorbereiten
 
-Stand: 2026-08-17
+Stand: 2026-08-22
 
 Dieses Projekt kann eine Umsatzsteuer-Voranmeldung (UStVA) in
 SteuerSparErklärung lesen und in einer verifizierten Arbeitskopie vorbereiten.
@@ -11,11 +11,14 @@ hashgebundenen Auftrag und übermittelt niemals an das Finanzamt.
 
 ## Fachliche Grenze
 
-Der Voranmeldungszeitraum darf nicht aus dem gewünschten Monatsnamen erraten
-werden. Nach [§ 18 UStG](https://www.gesetze-im-internet.de/ustg_1980/__18.html)
+Der Voranmeldungszeitraum darf nicht aus dem im Auftrag genannten Zeitraumnamen
+erraten werden. Nach
+[§ 18 UStG](https://www.gesetze-im-internet.de/ustg_1980/__18.html)
 hängt die monatliche oder vierteljährliche Abgabe unter anderem von der Steuer
-des Vorjahres und Sonderfällen ab. Eine vorhandene, belegte Programmeinstellung
-wird deshalb beibehalten, bis gegenteilige Primärunterlagen vorliegen.
+des Vorjahres und Sonderfällen ab. Ein genannter Monat oder ein genanntes
+Quartal ist deshalb kein Grund, die Frequenz in die eine oder andere Richtung
+zu wechseln. Eine vorhandene, belegte Programmeinstellung wird beibehalten, bis
+gegenteilige Primärunterlagen vorliegen.
 
 Für Feldbezeichnungen und das 2026er Formular ist das
 [BMF-Schreiben zu den Vordrucken im Umsatzsteuer-Voranmeldungs- und
@@ -46,17 +49,21 @@ Steuerberatung.
    korrekturbedürftig ausgewiesene ausländische Umsatzsteuer und nicht
    steuerbare EU-Ausgangsleistungen getrennt behandeln. Jede Zeile sowie
    Seiten-, Einnahmen-/Ausgaben- und Vorsteuer-Summen zurücklesen. Eine Position
-   aus einem bereits übermittelten Zeitraum nicht still in den aktuellen Monat
-   verschieben, sondern als möglichen Berichtigungsfall dokumentieren.
-   Kostenart und Umsatzsteuerbehandlung getrennt beurteilen: Ein Software-Abo
-   oder Online-Dienst ist wirtschaftlich eine EDV-Ausgabe. Bei einem
-   ausländischen Anbieter kann es zugleich eine sonstige Leistung nach § 13b
-   UStG sein. Die SSE-Version 2025 hat unter `EDV-Kosten` keine
-   §13b-Unterseite; solche Rechnungen deshalb einmal unter
-   `Fremdleistungen -> Rechnungen nach § 13b UStG` als EU- oder
-   Drittlandsleistung erfassen. Nicht zusätzlich unter `EDV-Kosten` buchen,
-   weil das den Aufwand doppelt erfassen würde. Inländische Software mit
-   deutscher Umsatzsteuer bleibt in der EDV-Kostenzeile.
+   aus einem bereits übermittelten Zeitraum nicht still in den aktuellen
+   Zeitraum verschieben, sondern als möglichen Berichtigungsfall dokumentieren.
+   Kostenart und Umsatzsteuerbehandlung getrennt beurteilen: Eine Rechnung
+   gehört wirtschaftlich in eine gewöhnliche Kostenart und kann bei einem
+   ausländischen Anbieter zugleich eine sonstige Leistung nach § 13b UStG sein.
+   Bietet die fachlich passende Buchungsseite keine §13b-Erfassung, die
+   Rechnung einmal auf der Seite erfassen, die § 13b abbildet, und die
+   Leistungsart nach dem Anbietersitz als EU- oder Drittlandsleistung wählen.
+   Nicht zusätzlich auf der Kostenseite buchen, weil das den Aufwand doppelt
+   erfassen würde. Rechnungen mit deutscher Umsatzsteuer bleiben in der
+   fachlich passenden Kostenzeile. Beispiel: In der SSE-Version 2025 hat
+   `EDV-Kosten` keine §13b-Unterseite, ein Software-Abo eines ausländischen
+   Anbieters gehört dort unter `Fremdleistungen -> Rechnungen nach § 13b UStG`.
+   Welche Seiten und Unterseiten es wirklich gibt, aus dem geöffneten Fall
+   lesen.
    Für die anfängliche Bestandskarte kurze `collect`-/`sse_collect`-Segmente mit
    dem linearen `Weiter`-Pfad verwenden. Nur erkannte lange Tabellen zusätzlich
    mit `table_read`/`sse_table_read` vollständig lesen. Die globale Suche ist
