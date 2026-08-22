@@ -133,7 +133,7 @@ async function readOperationArgs(argsFile?: string): Promise<Record<string, unkn
   return parsed as Record<string, unknown>;
 }
 
-export async function runApiCli(argv: readonly string[]): Promise<number> {
+async function runApiCli(argv: readonly string[]): Promise<number> {
   if (argv[0] === "--help" || argv[0] === "-h") {
     process.stdout.write(`${usage}\n`);
     return 0;

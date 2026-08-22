@@ -5,7 +5,7 @@ const USTVA_PAGE_HEADING_PATTERN = /^Umsatzsteuer-Voranmeldungen (?<taxYear>\d{4
 export const USTVA_REVERSE_CHARGE_PAGE = "Steuerschuldnerschaft nach § 13b UStG";
 export const USTVA_INPUT_TAX_PAGE = "Abziehbare Vorsteuer";
 
-export function parseUstvaPageHeading(value: unknown): { page: string; taxYear: number } | null {
+function parseUstvaPageHeading(value: unknown): { page: string; taxYear: number } | null {
   if (typeof value !== "string") return null;
   const match = USTVA_PAGE_HEADING_PATTERN.exec(value);
   if (!match?.groups?.taxYear) return null;
@@ -240,7 +240,7 @@ function blockedPage(page: WorkerResult): WorkerResult | null {
   return null;
 }
 
-export function normalizeUstvaPage(page: WorkerResult): WorkerResult {
+function normalizeUstvaPage(page: WorkerResult): WorkerResult {
   const blocked = blockedPage(page);
   if (blocked) return blocked;
   const heading = parseUstvaPageHeading(page.ueberschrift);

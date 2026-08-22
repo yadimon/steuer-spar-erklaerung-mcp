@@ -193,10 +193,6 @@ export function createResourcePathRedactor(roots: ResourceRoots): <T>(value: T) 
   };
 }
 
-export function referenceForAbsolutePath(roots: ResourceRoots, value: string): string | undefined {
-  return referenceForPreparedRoots(prepareResourceRoots(roots), value);
-}
-
 export function redactResourcePaths<T>(roots: ResourceRoots, value: T): T {
   return createResourcePathRedactor(roots)(value);
 }

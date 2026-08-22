@@ -166,7 +166,7 @@ export function resolveWorkspacePath(root: string, ref: string, createParent = f
   return candidate;
 }
 
-export function validateWorkspaceTextWrite(
+function validateWorkspaceTextWrite(
   root: string,
   ref: string,
 ): void {

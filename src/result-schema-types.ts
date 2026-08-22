@@ -18,7 +18,7 @@ export const OPTIONAL_OBJECT = z.record(z.unknown()).nullable().optional().descr
 export const OPTIONAL_MUTATION_VALUE = z.union([z.string(), z.number().finite(), z.boolean()]).nullable().optional()
   .describe("Optionaler gelesener oder geschriebener Skalarwert");
 
-export const GUARDED_MUTATION_FIELDS = {
+const GUARDED_MUTATION_FIELDS = {
   verified: OPTIONAL_BOOLEAN,
   inputGuard: OPTIONAL_OBJECT,
   windowGuard: OPTIONAL_OBJECT,

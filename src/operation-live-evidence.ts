@@ -10,11 +10,11 @@ export const SSE_LIVE_EVIDENCE_STATUSES = Object.freeze([
 ] as const);
 export type OperationLiveEvidenceStatus = (typeof SSE_LIVE_EVIDENCE_STATUSES)[number];
 
-export const SSE_LIVE_ERROR_PATH_ONLY_OPERATIONS = Object.freeze(
+const SSE_LIVE_ERROR_PATH_ONLY_OPERATIONS = Object.freeze(
   [] as const satisfies readonly SseApiOperation[],
 );
 
-export const SSE_LIVE_UNTESTED_OPERATIONS = Object.freeze([
+const SSE_LIVE_UNTESTED_OPERATIONS = Object.freeze([
   "instances",
   "vast_apply",
   "vast_dialog_read",
