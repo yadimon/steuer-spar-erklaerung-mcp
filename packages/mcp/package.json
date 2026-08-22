@@ -1,6 +1,6 @@
 {
   "name": "@yadimon/steuer-spar-erklaerung-mcp",
-  "version": "0.1.0-beta.16",
+  "version": "0.1.0-beta.17",
   "description": "PC-blind MCP wrapper for SteuerSparErklaerung via the local API package",
   "license": "MIT",
   "type": "module",
