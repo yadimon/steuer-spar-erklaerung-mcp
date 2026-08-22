@@ -98,7 +98,10 @@ Ziel ohne verifizierbares Backup.
 Verweist der aktuelle Auftrag auf die kanonische Installationsreferenz und
 enthält `Standard-Setup ausführen` samt dem gewünschten Transport, gilt der dort
 vollständig beschriebene Standardplan als gezeigt und gleichwertig mit
-`OK Standard` bestätigt. Das autorisiert Download, persistente Installation
+`OK Standard` bestätigt. Die kombinierte Formel
+`Standard-Einrichtung und Prüflauf ausführen` bedeutet dasselbe mit dem
+Transport „lokale API plus MCP“ und bestätigt zusätzlich den Standard-Prüflauf
+des Hauptskills für den im selben Auftrag genannten Steuerfall. Das autorisiert Download, persistente Installation
 und bei ausdrücklich gewünschtem MCP den unten definierten tokenfreien
 additiven Merge. Zeige Plan und Diff weiterhin, frage innerhalb dieser Grenzen
 aber nicht erneut.
@@ -215,6 +218,10 @@ Lies vor der Ausführung
    **„Technisches Setup bereit; Client-Verifikation nach Neustart offen.“** und
    fordere genau einen Neustart des lokalen Clients an. Behaupte in der alten
    Session weder `connected` noch einen erfolgreichen Tool-Aufruf.
+   Enthält derselbe Auftrag bereits den Prüflauf (kombinierte Formel oder
+   `Standard-Prüflauf ausführen` samt Pfaden), ist dieser Satz kein Stopp:
+   Der Hauptskill prüft sofort über die lokale API-CLI weiter, und die
+   Neustart-Anforderung steht am Ende seines Berichts.
 8. Im neu geladenen Client prüft der nächste Fachauftrag zuerst die Serverliste
    und führt `sse_health` real aus. Erfolg verlangt das strukturierte Resultat
    mit `ok=true`; ein Servereintrag, Status „connected“ oder erfolgreicher

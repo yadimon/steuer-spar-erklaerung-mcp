@@ -190,9 +190,16 @@ assert(
   "Die Installationsanleitung braucht einen kopierbaren Host-Weg für die eigenständige Claude Code CLI.",
 );
 assert(installation.includes("enthält **kein Token**") && installation.includes("containsToken: false"));
-assert(installation.includes("## Zwei kopierbare Prompts") && installation.includes("$steuer-spar-erklaerung"));
+assert(installation.includes("## Kopierbare Prompts") && installation.includes("$steuer-spar-erklaerung"));
 assert(installation.includes("tokenfreien additiven MCP-Merges") && installation.includes("fragt innerhalb dieser Grenzen aber nicht erneut"));
 assert(installation.includes("`Standard-Setup ausführen`") && installation.includes("`Standard-Prüflauf ausführen`"));
+assert(
+  installation.includes("Standard-Einrichtung und Prüflauf ausführen")
+    && firstRun.includes("Standard-Einrichtung und Prüflauf ausführen")
+    && setup.includes("Standard-Einrichtung und Prüflauf ausführen")
+    && main.includes("Standard-Einrichtung und Prüflauf ausführen"),
+  "Die kombinierte Setup-plus-Prüflauf-Formel muss in allen Vertragsdokumenten identisch stehen.",
+);
 assert(installation.includes("hashverifizierte Kopie") && installation.includes("kein Speichern und kein ELSTER"));
 assert(installation.includes("MCP-Tools `sse_health`") && installation.includes("`ok=true`"));
 assert(installation.includes("Technisches Setup bereit; Client-Verifikation nach Neustart") && installation.includes("Prompt 2 übernimmt"));
@@ -274,6 +281,11 @@ assert(
 );
 assert(readme.includes("Claude Cowork") && readme.includes("Git for Windows") && readme.includes("$steuer-spar-erklaerung"));
 assert(readme.includes("`Standard-Setup ausführen`") && readme.includes("`Standard-Prüflauf ausführen`"));
+assert(
+  fencedPrompt(readme, "Nutze https://github.com/yadimon/steuer-spar-erklaerung-mcp")
+    .includes("Standard-Einrichtung und Prüflauf ausführen."),
+  "Der Ein-Prompt-Schnellstart muss die kombinierte Formel tragen.",
+);
 assert(readme.includes("bedingten tokenfreien additiven MCP-Merges") && readme.includes("Stopp ohne Speichern oder ELSTER"));
 assert(readme.includes("OpenCode bleibt ein sekundärer, best-effort Client") && readme.includes("Claude Code CLI"));
 assert(readme.includes("Download, persistenter Installation") && readme.includes("Starte den lokalen Agenten dann einmal neu"));

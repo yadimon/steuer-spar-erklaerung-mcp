@@ -90,14 +90,14 @@ Die lokale HTTP-API auf Loopback ist der universelle Kern. Nur sie kennt
 
 MCP ist ein optionaler dünner Wrapper. Sein Prozess kennt nur API-URL und
 Token; die Client-Konfiguration selbst bleibt tokenfrei und startet den lokalen
-Bootstrap. Fehlt
-MCP oder unterstützt der Agent kein MCP, verwende dieselben Operationen direkt
-über die API. Wechsel während einer möglicherweise begonnenen Schreiboperation
-nie still den Transport; bei unklarem Zustand stoppen.
+Bootstrap. Fehlt MCP oder unterstützt der Agent kein MCP, verwende dieselben
+Operationen direkt über die API. Wechsel während einer möglicherweise
+begonnenen Schreiboperation nie still den Transport; bei unklarem Zustand stoppen.
 
 Hat der Nutzer ausdrücklich „über npx“, „ohne Installation“ oder „ohne MCP“
 verlangt, ist die direkte API-CLI der gewählte Transport. Versuche in diesem
-Lauf nicht zuerst MCP und verlange keinen MCP-Neustart. Wurde dagegen MCP
+Lauf nicht zuerst MCP und verlange keinen MCP-Neustart; dasselbe gilt nach
+`Standard-Einrichtung und Prüflauf ausführen` im selben Auftrag. Wurde dagegen MCP
 ausdrücklich gewählt oder bereits für den Auftrag verwendet, ersetze einen
 fehlgeschlagenen oder abgebrochenen MCP-Aufruf nicht still durch die API-CLI;
 lies zuerst den frischen Zustand und stoppe bei möglicher Mutation.
@@ -266,7 +266,7 @@ technischen Defaults gemeinsam mit `OK Standard` bestätigen.
 Enthält der aktuelle Auftrag bereits absolute Pfade, deren
 Vollständigkeitsbestätigung und ausdrücklich `OK Standard` samt den dort
 definierten engen read-only Schritten, frage weder Pfade noch Standardplan
-erneut ab. `Standard-Prüflauf ausführen` ist bei genau
+erneut ab. `Standard-Prüflauf ausführen` oder `Standard-Einrichtung und Prüflauf ausführen` ist bei genau
 einem absoluten Steuerfallpfad und genannten absoluten Belegpfaden eine
 gleichwertige Bestätigung dieses engen Vertrags und bestätigt zugleich, dass
 diese Belegangabe vollständig ist; „keine Belege“ zählt als vollständige
