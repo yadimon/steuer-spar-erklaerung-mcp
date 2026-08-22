@@ -387,6 +387,39 @@ lief aber noch über den Worker. Der neue lokale API-/MCP-Pfad ist daher bis zum
 nächsten strikten Live-Gate als offline workerparitätisch, nicht als erneut live
 ausgeführt, belegt.
 
+## Herkunftsprüfung gegen einen echten Browser, 2026-08-23
+
+Die API kennt keine Anmeldung. Ihre einzige Zugangsgrenze ist die Annahme, dass
+ein Browser die Kopfzeilen `Origin`, `Sec-Fetch-Site` und `Host` zwingend setzt
+und eine Webseite sie nicht fälschen kann. Diese Annahme wurde nicht simuliert,
+sondern mit einer echten Seite in einem echten Browser geprüft.
+
+Aufbau: die laufende API auf `http://127.0.0.1:43127`, daneben eine Angriffsseite
+auf `http://127.0.0.1:8099` — ein anderer Port und damit eine echte fremde
+Herkunft. Die Seite versuchte fünf `fetch`-Varianten und zusätzlich einen
+HTML-Formular-POST auf `close`.
+
+Ergebnis aus dem Netzwerkprotokoll des Browsers:
+
+| Versuch | Ergebnis |
+| --- | --- |
+| `POST /v1/operations/close` per HTML-Formular | **403 vom Server** |
+| `GET /healthz` | `ERR_BLOCKED_BY_RESPONSE.NotSameOrigin` |
+| `POST /v1/operations/health` | Preflight abgewiesen |
+| `POST` mit `text/plain` ohne Preflight | abgewiesen |
+| `fetch` mit `mode: "no-cors"` | abgewiesen |
+
+Der Formular-POST ist der aussagekräftigste Fall: Er löst keinen Preflight aus,
+der Browser sendet ihn also wirklich ab, und keine CORS-Regel steht davor. Dass
+er mit `403` und `code: "forbidden"` beantwortet wird, belegt die Prüfung im
+Server selbst — nicht bloß eine Browserhöflichkeit. Die übrigen Zeilen zeigen,
+dass `cross-origin-resource-policy` und die CORS-Preflight-Ablehnung als
+zusätzliche, unabhängige Schichten davor liegen.
+
+Nicht belegt und ausdrücklich außerhalb dieser Grenze: ein anderer lokaler
+Prozess desselben Windows-Kontos, und ein vorgeschalteter Proxy, der die
+Herkunftskopfzeilen entfernt, bevor die API sie sieht.
+
 ## Isolierter First-Run-VM-Smoke vom 2026-08-18
 
 Ein realer Endnutzerlauf startete aus einem sauberen VirtualBox-Snapshot mit
