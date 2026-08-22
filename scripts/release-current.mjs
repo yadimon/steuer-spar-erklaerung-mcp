@@ -136,25 +136,10 @@ function verifyPublishedAssets(tag) {
   if (!release || release.isDraft || !release.isPrerelease || release.tagName !== tag) {
     throw new Error(`GitHub Release ${tag} ist nicht als vollstaendiger Prerelease sichtbar.`);
   }
-  const expectedNames = ["steuer-spar-erklaerung.zip", "steuer-spar-erklaerung.zip.sha256"];
-  const actualNames = release.assets.map((asset) => asset.name).sort();
-  if (JSON.stringify(actualNames) !== JSON.stringify(expectedNames.sort())) {
-    throw new Error(`GitHub Release Assets weichen ab: ${actualNames.join(", ")}`);
-  }
-
-  const readbackRoot = mkdtempSync(join(tmpdir(), "sse-release-readback-"));
-  try {
-    gh(["release", "download", tag, "--repo", repository, "--dir", readbackRoot, "--pattern", "steuer-spar-erklaerung.zip*"]);
-    const localZip = join(repoRoot, "artifacts", "portable", "steuer-spar-erklaerung.zip");
-    const remoteZip = join(readbackRoot, "steuer-spar-erklaerung.zip");
-    const remoteSidecar = join(readbackRoot, "steuer-spar-erklaerung.zip.sha256");
-    const expectedHash = readFileSync(remoteSidecar, "utf8").trim().split(/\s+/u)[0].toLowerCase();
-    if (sha256(localZip) !== sha256(remoteZip) || sha256(remoteZip) !== expectedHash) {
-      throw new Error("Lokales ZIP, GitHub-Asset und Sidecar haben unterschiedliche SHA-256-Werte.");
-    }
-    if (statSync(localZip).size !== statSync(remoteZip).size) throw new Error("GitHub-ZIP hat eine andere Bytezahl.");
-  } finally {
-    rmSync(readbackRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  // Das Release traegt bewusst keine Anhaenge mehr: installiert wird aus der
+  // npm-Registry, deren Tarballs der Clean-Install-Smoke separat beweist.
+  if (release.assets.length) {
+    throw new Error(`GitHub Release soll keine Anhaenge tragen, gefunden: ${release.assets.map((a) => a.name).join(", ")}`);
   }
   return release.url;
 }
@@ -215,8 +200,6 @@ if (!releaseDetails(tag)) {
   gh([
     "release", "create", tag, "--repo", repository, "--verify-tag", "--prerelease", "--title", tag,
     "--notes-file", notes,
-    join(repoRoot, "artifacts", "portable", "steuer-spar-erklaerung.zip"),
-    join(repoRoot, "artifacts", "portable", "steuer-spar-erklaerung.zip.sha256"),
   ]);
 }
 const releaseUrl = verifyPublishedAssets(tag);

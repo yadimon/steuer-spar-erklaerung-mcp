@@ -26,4 +26,4 @@ try {
   rmSync(traceDirectory, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
 }
 
-process.stdout.write("\nAlle portable API-/MCP-Tests bestanden.\n");
+process.stdout.write("\nAlle API-/MCP-Tests bestanden.\n");

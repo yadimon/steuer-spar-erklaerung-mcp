@@ -276,7 +276,7 @@ jede Belegangabe, stelle die zweite fachliche Frage trotzdem.
 Fehlt eine funktionierende Einrichtung und wurde nicht ausdrücklich der
 NPX-Kurzweg gewählt, verwende anschließend `steuer-spar-erklaerung-setup`. Ist dieser Skill nicht installiert, installiere
 beide öffentlichen Skills nach der kanonischen Anleitung
-`https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/skills/steuer-spar-erklaerung-setup/references/installation.md`,
+`https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md`,
 statt die Einrichtung frei zu improvisieren.
 Verlange nach persistentem Setup ein grünes
 `steuer-spar-erklaerung-setup --check` und bei ausdrücklich gewähltem MCP

@@ -156,7 +156,7 @@ großzügiger. Bekannt und gewollt:
   Insbesondere bleibt `case_hash.path` für vertrauenswürdige lokale
   Bestandsclients kompatibel und darf eine profilkonform benannte Falldatei
   auch außerhalb des konfigurierten Fallordners lesen. Für neue Aufrufer ist
-  `cases:` die begrenzte und portable Form; das Bearer-Token darf deshalb nie
+  `cases:` die begrenzte, PC-blinde Form; das Bearer-Token darf deshalb nie
   an nicht vollständig vertrauenswürdige lokale Prozesse weitergegeben werden.
 
 API-/MCP-Parität bedeutet damit:

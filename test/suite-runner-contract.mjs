@@ -21,7 +21,7 @@ import {
 
 const expectedNames = [
   "dist-prune", "native-build", "typescript-build", "npm-package-build", "suite-runner-contract", "public-skills", "repository-privacy", "repository-links", "github-workflow", "javascript-syntax", "powershell-syntax", "product-profiles", "page-objects-parity", "product-profile-status", "profile-operation-policy",
-  "akad-parser", "case-file", "setup-wizard", "pdf-render-helper", "atomic-files", "jsonl-logger", "dist-artifacts", "release-metadata", "native-build-cache", "portable-package", "npm-package", "portable-zip", "portable-archive-verification", "portable-release-verification", "workspace-containment", "workspace-file-cancellation",
+  "akad-parser", "case-file", "setup-wizard", "pdf-render-helper", "atomic-files", "jsonl-logger", "dist-artifacts", "release-metadata", "native-build-cache", "npm-package", "workspace-containment", "workspace-file-cancellation",
   "resource-references", "live-script-resource-contract", "backup-cases-contract", "backup-local-parity", "archive-cases-synthetic", "archive-local-parity", "sse-process-guard", "setup-task", "api-contract", "api-static-documents", "api-client-body-abort", "api-client-transport-timeout", "api-local-http-transport", "api-single-flight", "checker-open-contract", "api-discovery-contract", "api-openapi-contract", "api-cli-contract", "api-config-contract", "api-all-operations", "launch-orchestration", "operation-schema-catalog", "operation-coverage-merge", "verification-doc-coverage", "operation-result-shape-merge", "operation-trace", "live-profile-read-coverage", "operation-live-evidence", "live-core-read-contract", "result-contract", "result-field-worker-guard", "source-architecture", "no-year-conditionals", "mcp-module-boundaries", "mcp-main-contract",
   "mcp-registry-contract", "mcp-response-contract", "capabilities-contract", "ustva-contract", "api-tax-journeys", "api-main-smoke", "abort-contract", "wrapper-boundary", "mcp-wrapper-catalog", "mcp-api-all-operations", "mcp-cancellation", "mcp-launcher",
   "worker-timeout", "worker-inherited-pipe", "worker-prewarm", "worker-progress-contract", "worker-output-file-contract", "worker-input-file-contract", "direct-worker-guard", "direct-worker-experimental-guard", "experimental-dialog-policy", "startup-dialog-policy", "direct-worker-resource-guard", "direct-worker-identity-guard", "direct-worker-collection-guard", "direct-worker-file-guard", "direct-worker-native-guard", "scenario-parity", "scenario-control-flow", "mcp-selftest", "table-region",
@@ -30,9 +30,9 @@ const expectedNames = [
 const allSteps = [...serialBuildSteps, ...parallelSteps, ...exclusiveSteps, ...finalSteps];
 assert.deepEqual(allSteps.map((step) => step.name).sort(), expectedNames.sort());
 assert.equal(new Set(allSteps.map((step) => step.name)).size, allSteps.length, "Testnamen muessen eindeutig sein.");
-const portableProductGate = parallelSteps.find((step) => step.name === "product-gate");
-assert(portableProductGate && !portableProductGate.args.includes("--require-installed"),
-  "Der portable Volltest darf keine lokal installierte SSE voraussetzen.");
+const offlineProductGate = parallelSteps.find((step) => step.name === "product-gate");
+assert(offlineProductGate && !offlineProductGate.args.includes("--require-installed"),
+  "Der Offline-Volltest darf keine lokal installierte SSE voraussetzen.");
 const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
 assert.match(packageJson.scripts?.["test:product"] ?? "", /product-gate\.mjs --require-installed$/u,
   "Der explizite lokale Produkt-Test muss eine installierte SSE verlangen.");
@@ -58,7 +58,7 @@ for (const required of [
   "api-contract", "api-discovery-contract", "api-openapi-contract", "api-cli-contract", "api-all-operations", "mcp-wrapper-catalog", "github-workflow",
   "mcp-api-all-operations", "api-tax-journeys", "operation-schema-catalog", "verification-doc-coverage", "operation-live-evidence", "live-core-read-contract", "result-contract", "result-field-worker-guard", "source-architecture", "mcp-module-boundaries", "mcp-main-contract", "repository-privacy", "repository-links", "javascript-syntax", "powershell-syntax",
   "foreground-lease-contract", "focusless-commit-contract", "file-dialog-folder-contract", "desktop-enumeration", "desktop-marker-contract", "desktop-marker-write-contract", "checker-zero-results", "snapshot-runtime-id", "experimental-dialog-policy", "startup-dialog-policy", "table-delete-rebinding", "table-window-scope", "profile-operation-policy",
-  "case-file", "mcp-launcher", "live-script-resource-contract", "sse-process-guard", "workspace-file-cancellation", "api-static-documents", "api-client-body-abort", "api-client-transport-timeout", "api-local-http-transport", "api-single-flight", "dist-artifacts", "release-metadata", "portable-archive-verification", "portable-release-verification",
+  "case-file", "mcp-launcher", "live-script-resource-contract", "sse-process-guard", "workspace-file-cancellation", "api-static-documents", "api-client-body-abort", "api-client-transport-timeout", "api-local-http-transport", "api-single-flight", "dist-artifacts", "release-metadata",
 ]) {
   assert(fastSteps.some((step) => step.name === required), `${required} fehlt im schnellen Sicherheitsnetz.`);
 }
