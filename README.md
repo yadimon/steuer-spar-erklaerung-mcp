@@ -128,9 +128,10 @@ in jedem Prompt wiederholt werden.
 
 Eine im Kalenderjahr 2026 abgegebene Einkommensteuererklärung ist hier der
 unterstützte Steuerfall **2025**. Das Produktprofil 2026 ist nicht freigegeben.
-Vor sichtbarer Navigation erzeugt der Hauptskill eine neue, per SHA-256
-verifizierte Prüffallkopie und öffnet nur diese; der Originalfall bleibt
-ungeöffnet und unverändert.
+Für Prüfungen erzeugt der Hauptskill vor sichtbarer Navigation eine neue, per
+SHA-256 verifizierte Prüffallkopie und öffnet nur diese; der Originalfall wird
+nur auf ausdrücklichen Wunsch und erst nach einer hashverifizierten Sicherung
+bearbeitet.
 
 ### Skills manuell mit `npx` installieren
 
@@ -450,8 +451,8 @@ Die lokale API erzwingt technisch:
 Der Prüfablauf der Skills garantiert zusätzlich:
 
 - Lesen ist der Standard; Änderungen brauchen eine ausdrückliche Freigabe.
-- Der Originalfall wird nicht geöffnet; gearbeitet wird auf einer
-  verifizierten Arbeitskopie.
+- Gearbeitet wird standardmäßig auf einer verifizierten Arbeitskopie; das
+  Original nur auf ausdrücklichen Wunsch nach vorheriger Sicherung.
 - Eine reine Prüfung endet ohne Speichern.
 
 Diese zweite Liste ist Ablaufdisziplin, keine technische Sperre der API: Die
