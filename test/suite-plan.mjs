@@ -56,6 +56,7 @@ export const parallelSteps = Object.freeze([
   nodeFile("product-profile-status", "test/product-profile-status-contract.mjs"),
   nodeFile("profile-operation-policy", "test/profile-operation-policy.mjs"),
   psFile("akad-parser", "test/akad-parser-contract.ps1"),
+  nodeFile("table-combobox-guard", "test/table-combobox-guard.mjs"),
   nodeFile("case-file", "test/case-file-contract.mjs"),
   nodeFile("setup-wizard", "test/setup-wizard.mjs"),
   nodeFile("mcp-launcher", "test/mcp-launcher-contract.mjs"),
