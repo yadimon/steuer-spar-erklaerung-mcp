@@ -415,7 +415,9 @@ export function registerUiTools(registry: McpRegistry): void {
       title: "Feldwert lesen",
       description:
         "Liest den Inhalt genau eines Eingabefeldes samt Schreibschutz-Kennzeichen. " +
-        "Mehrdeutige Selektoren werden abgewiesen; fuer unbeschriftete Felder aid oder rid verwenden.",
+        "Mehrdeutige Selektoren werden abgewiesen; fuer unbeschriftete Felder aid oder rid verwenden. " +
+        "Trifft name nur die Beschriftung, wird dasselbe Eingabefeld gelesen, das sse_change_field " +
+        "unter diesem Namen beschreiben wuerde; aufgeloestUeber sagt, welcher Weg gegriffen hat.",
     },
   );
 }
