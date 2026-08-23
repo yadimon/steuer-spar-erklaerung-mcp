@@ -135,6 +135,17 @@ export function apiErrorResult(operation: string, result: Record<string, unknown
 }
 
 function apiErrorHint(operation: string, result: Record<string, unknown>): string | undefined {
+  if (result.kind === "network") {
+    // Der haeufigste Erstkontakt-Fehler: MCP ist eingerichtet, die lokale API
+    // laeuft aber nicht. Ohne diesen Satz bleibt dem Agenten nur ECONNREFUSED.
+    return "Die lokale SSE-API laeuft nicht. Im Arbeitsordner in einem eigenen Terminal " +
+      "'steuer-spar-erklaerung-api --config <ordner>\\config.json' starten und offen lassen, " +
+      "danach sse_health erneut aufrufen. Bleibt es dabei, der Installationsanleitung folgen.";
+  }
+  if (result.kind === "setup") {
+    return "Die konfigurierte API-Adresse ist unbrauchbar. SSE_API_URL muss eine reine " +
+      "Loopback-Adresse sein; sonst der Installationsanleitung folgen.";
+  }
   if (result.kind === "degraded") {
     return "Zuerst sse_dialog_list pruefen. Einen modalen Dialog gezielt beantworten; nur ohne Dialog sse_health und einen bewussten Neustart erwägen.";
   }
