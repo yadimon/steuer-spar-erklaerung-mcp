@@ -184,6 +184,53 @@ assert.deepEqual(dynamicEnvelopeViolations, [],
   "Berechnetes Worker-ok kann false werden, ohne einen vollstaendigen Fehlerumschlag zu liefern:\n  " +
   dynamicEnvelopeViolations.join("\n  "));
 
+/**
+ * Listenfelder duerfen nicht aus einem `$(...)`-Unterausdruck kommen.
+ *
+ * Hintergrund: `collect` baute `seiten=$(if ($ziel) { $null } else { @($seiten) })`.
+ * PowerShell gibt aus einem Unterausdruck genau ein Element als Objekt statt
+ * als Liste zurueck, also scheiterte jedes Einseitensegment am Ergebnisvertrag.
+ * `@(...)` oder eine vorher gefuellte Variable haelt die Liste eine Liste.
+ */
+function istListenSchema(schema) {
+  let current = schema;
+  for (let tiefe = 0; tiefe < 6 && current?._def; tiefe += 1) {
+    const typ = current._def.typeName;
+    if (typ === "ZodArray") return true;
+    if (typ !== "ZodOptional" && typ !== "ZodNullable" && typ !== "ZodDefault") return false;
+    current = current._def.innerType;
+  }
+  return false;
+}
+
+const unterausdruckFeld = (field) =>
+  new RegExp(`(^|[^A-Za-z0-9_$])${field.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}\\s*=\\s*\\$\\(`, "u");
+
+assert(unterausdruckFeld("seiten").test("Emit ([pscustomobject]@{ seiten=$(if ($z) { $null } else { @($s) }) })"),
+  "Der Listenwaechter muss die historische collect-Form erkennen.");
+assert(!unterausdruckFeld("seiten").test("Emit ([pscustomobject]@{ seiten=@($s) })"),
+  "Ein echtes Array-Literal darf der Listenwaechter nicht melden.");
+
+const unwrappedLists = [];
+let checkedLists = 0;
+for (const operation of SSE_API_OPERATIONS) {
+  if (API_INTERNAL_OPERATIONS.includes(operation)) continue;
+  const listFields = Object.entries(SSE_API_RESULT_OUTPUT_SCHEMAS[operation].shape)
+    .filter(([field, schema]) => !TRANSPORT_FIELDS.has(field) && istListenSchema(schema))
+    .map(([field]) => field);
+  if (listFields.length === 0) continue;
+  for (const result of emittedResultObjects(blockBody(operation))) {
+    for (const field of listFields) {
+      checkedLists += 1;
+      if (unterausdruckFeld(field).test(result.source)) unwrappedLists.push(`${operation}.${field}`);
+    }
+  }
+}
+assert(checkedLists > 0, "Der Listenwaechter hat kein einziges Listenfeld gesehen.");
+assert.deepEqual(unwrappedLists, [],
+  "Diese Listenfelder kommen aus einem $(...)-Unterausdruck und werden bei genau einem Element zum Objekt:\n  " +
+  unwrappedLists.join("\n  "));
+
 const phantoms = [];
 let checkedFields = 0;
 for (const operation of SSE_API_OPERATIONS) {

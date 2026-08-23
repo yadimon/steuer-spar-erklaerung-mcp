@@ -1658,6 +1658,10 @@ function Resolve-BoundWriteWindow($a) {
 # Nicht-modale Helfer, die man wegklicken darf, ohne dass Daten leiden.
 $script:HELFERFENSTER = @('Steuer-Spar-Tipps')
 
+# Titel des Werte-Info-Fensters. Genau eine Stelle, weil Lesen (result_details)
+# und Schreiben (tracked_set_value) dasselbe Fenster meinen muessen.
+$script:WERTE_INFO_TITEL = 'Werte-Info: Werte vergleichen - Was wäre wenn'
+
 # Eine sichtbare physische Eingabe erhaelt genau eine verschachtelbare Lease.
 # Der erste Aufrufer merkt sich Benutzerfenster und Mausposition. Weitere
 # Klicks auf dasselbe bereits aktive HWND ueberspringen das erneute Raise.
@@ -4176,50 +4180,120 @@ function Resolve-TrackedFieldNode($Tree, $CallArgs, [IntPtr]$Hwnd) {
   $direct
 }
 
+# Das fuehrende Komma haelt die Liste eine Liste: ohne das gibt PowerShell
+# genau einen Treffer als Einzelobjekt zurueck, `.Count` ist dann leer und
+# jeder Aufrufer haelt das offene Fenster faelschlich fuer geschlossen.
+function Get-SSEValueInfoWindows([int]$TargetPid) {
+  , @(Get-Windows 'SSE' | Where-Object { $_.title -eq $script:WERTE_INFO_TITEL -and [int]$_.pid -eq $TargetPid })
+}
+
+# Gemeinsamer Weg zur Werte-Info fuer Lesen und Schreiben.
+#
+# Qt oeffnet das Fenster asynchron. Frueher wartete jeder der beiden Aufrufer
+# einmalig eine feste Zeit (700 bzw. 900 ms) und pruefte dann genau einmal. Auf
+# einer langsamen Maschine war das zu kurz, und der erlaubte Schreibweg
+# scheiterte hart mit 'Werte-Info nicht eindeutig (0 Fenster)'. Deshalb wird
+# bis zu einer Frist gepollt statt geraten.
+function Open-SSEValueInfoWindow([IntPtr]$MainHwnd, [int]$TargetPid, [int]$TimeoutMs = 8000) {
+  $vorhandene = @(Get-SSEValueInfoWindows $TargetPid)
+  if ($vorhandene.Count) {
+    return [pscustomobject]@{
+      ok=($vorhandene.Count -eq 1); opened=$false; anzahl=$vorhandene.Count
+      window=$vorhandene[0]; error=$null; kind=$null
+    }
+  }
+  $tree = Walk-Tree $MainHwnd 5000 60 20 -WithValues
+  # Endstueck statt vollem Pfad: Engine 30 haengt den Knopf ohne das
+  # Zwischenstueck 'TaxResultsWidgetSSE' ein. Das Endstueck ist in
+  # beiden Engines eindeutig.
+  $buttons = @($tree.nodes | Where-Object { $_.type -eq 'Button' -and $_.aid -like '*hoverBtnMehrDetails' })
+  if ($buttons.Count -ne 1) {
+    return [pscustomobject]@{
+      ok=$false; opened=$false; anzahl=0; window=$null; kind='not-found'
+      error="Mehr-Details-Knopf der Ergebnisanzeige nicht eindeutig gefunden ($($buttons.Count) Treffer)."
+    }
+  }
+  $element = Get-LiveElement $MainHwnd $buttons[0].rid
+  $invoked = $false
+  try {
+    $invoke = $null
+    if ($element -and $element.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$invoke)) {
+      $invoke.Invoke(); $invoked = $true
+    }
+  } catch { }
+  if (-not $invoked) {
+    try { $null = Click-VerifiedPoint $MainHwnd $buttons[0]; $invoked = $true } catch { }
+  }
+  if (-not $invoked) {
+    return [pscustomobject]@{
+      ok=$false; opened=$false; anzahl=0; window=$null; kind='precondition-failed'
+      error='Mehr Details konnte nicht geoeffnet werden.'
+    }
+  }
+  $frist = [Diagnostics.Stopwatch]::StartNew()
+  do {
+    Start-Sleep -Milliseconds 200
+    $gefunden = @(Get-SSEValueInfoWindows $TargetPid)
+  } while ($gefunden.Count -eq 0 -and $frist.ElapsedMilliseconds -lt $TimeoutMs)
+  # Das Fenster erscheint vor seinem Inhalt: Qt fuellt die Vergleichstabelle
+  # erst danach. Ohne diese Nachlaufzeit liest der Aufrufer eine halbe Tabelle
+  # und meldet sie als unvollstaendig.
+  if ($gefunden.Count -eq 1) { Start-Sleep -Milliseconds 900 }
+  if ($gefunden.Count -ne 1) {
+    return [pscustomobject]@{
+      ok=$false; opened=$true; anzahl=$gefunden.Count; window=$null
+      kind=$(if ($gefunden.Count -eq 0) { 'precondition-failed' } else { 'ambiguous' })
+      error="Werte-Info nicht eindeutig ($($gefunden.Count) Fenster) nach $($frist.ElapsedMilliseconds) ms."
+    }
+  }
+  [pscustomobject]@{ ok=$true; opened=$true; anzahl=1; window=$gefunden[0]; error=$null; kind=$null }
+}
+
+function Test-SSEPointInRect([int]$X, [int]$Y, [int]$Left, [int]$Top, [int]$Width, [int]$Height) {
+  $X -ge $Left -and $X -lt ($Left + $Width) -and $Y -ge $Top -and $Y -lt ($Top + $Height)
+}
+
+# Die Werte-Info schwebt ueber dem Hauptfenster. Deckt sie ausgerechnet das
+# Zielfeld ab, bricht die Schreibtransaktion in der Mutationsepoche mit
+# 'epoch-obstructed' ab - und der Aufrufer kann daran nichts aendern, denn eine
+# Operation zum Verschieben von Fenstern gibt es bewusst nicht. Auf kleinen
+# Bildschirmen war der erlaubte Schreibweg damit unerreichbar. Deshalb raeumt
+# die Operation ihr eigenes Hilfsfenster vorher aus dem Weg; die Mutationsepoche
+# selbst bleibt unberuehrt und pruefungspflichtig.
+function Move-SSEValueInfoAside($Window, [IntPtr]$MainHwnd, $Node) {
+  if (-not $Window -or -not $Node) { return $null }
+  $px = [int]([double]$Node.x + [double]$Node.w / 2)
+  $py = [int]([double]$Node.y + [double]$Node.h / 2)
+  $infoHwnd = [IntPtr][int64]$Window.hwnd
+  $info = New-Object SW+RC
+  if (-not [SW]::GetWindowRect($infoHwnd, [ref]$info)) { return $null }
+  $breite = $info.R - $info.L
+  $hoehe = $info.B - $info.T
+  if (-not (Test-SSEPointInRect $px $py $info.L $info.T $breite $hoehe)) { return $null }
+  $main = New-Object SW+RC
+  if (-not [SW]::GetWindowRect($MainHwnd, [ref]$main)) { return $null }
+  $rand = 8
+  $ecken = @(
+    @(($main.L + $rand), ($main.B - $hoehe - $rand)),
+    @(($main.L + $rand), ($main.T + $rand)),
+    @(($main.R - $breite - $rand), ($main.B - $hoehe - $rand)),
+    @(($main.R - $breite - $rand), ($main.T + $rand))
+  )
+  foreach ($ecke in $ecken) {
+    if (Test-SSEPointInRect $px $py ([int]$ecke[0]) ([int]$ecke[1]) $breite $hoehe) { continue }
+    # SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE
+    $ok = [SW]::SetWindowPos($infoHwnd, [IntPtr]::Zero, [int]$ecke[0], [int]$ecke[1], 0, 0, 0x0015)
+    return [pscustomobject]@{ verschoben=[bool]$ok; x=[int]$ecke[0]; y=[int]$ecke[1]; grund='deckte-zielfeld' }
+  }
+  return [pscustomobject]@{ verschoben=$false; x=$null; y=$null; grund='keine-freie-ecke' }
+}
+
 function Open-TrackedResultWindow([IntPtr]$MainHwnd) {
-  $wins = @(Get-Windows 'SSE')
-  $main = @($wins | Where-Object { [int64]$_.hwnd -eq [int64]$MainHwnd })
+  $main = @(Get-Windows 'SSE' | Where-Object { [int64]$_.hwnd -eq [int64]$MainHwnd })
   if ($main.Count -ne 1) {
     return [pscustomobject]@{ ok=$false; error='SSE-Hauptfenster fuer Ergebnis-Tracking nicht mehr eindeutig.' }
   }
-  $valueWindows = @($wins | Where-Object {
-    $_.pid -eq $main[0].pid -and $_.title -eq 'Werte-Info: Werte vergleichen - Was wäre wenn'
-  })
-  $opened = $false
-  if (-not $valueWindows.Count) {
-    $tree = Walk-Tree $MainHwnd 2500 35 15 -WithValues
-    $buttons = @($tree.nodes | Where-Object {
-      # Endstueck statt vollem Pfad: Engine 30 haengt den Knopf ohne das
-      # Zwischenstueck 'TaxResultsWidgetSSE' ein. Das Endstueck ist in
-      # beiden Engines eindeutig.
-      $_.type -eq 'Button' -and $_.aid -like '*hoverBtnMehrDetails'
-    })
-    if ($buttons.Count -ne 1) {
-      return [pscustomobject]@{ ok=$false; error="Mehr-Details-Knopf nicht eindeutig ($($buttons.Count) Treffer)." }
-    }
-    $element = Get-LiveElement $MainHwnd $buttons[0].rid
-    $invoked = $false
-    try {
-      $invoke = $null
-      if ($element -and $element.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$invoke)) {
-        $invoke.Invoke(); $invoked = $true
-      }
-    } catch { }
-    if (-not $invoked) {
-      try { $null = Click-VerifiedPoint $MainHwnd $buttons[0]; $invoked = $true } catch { }
-    }
-    if (-not $invoked) { return [pscustomobject]@{ ok=$false; error='Mehr Details konnte nicht geoeffnet werden.' } }
-    Start-Sleep -Milliseconds 700
-    $opened = $true
-    $wins = @(Get-Windows 'SSE')
-    $valueWindows = @($wins | Where-Object {
-      $_.pid -eq $main[0].pid -and $_.title -eq 'Werte-Info: Werte vergleichen - Was wäre wenn'
-    })
-  }
-  if ($valueWindows.Count -ne 1) {
-    return [pscustomobject]@{ ok=$false; opened=$opened; error="Werte-Info nicht eindeutig ($($valueWindows.Count) Fenster)." }
-  }
-  [pscustomobject]@{ ok=$true; opened=$opened; window=$valueWindows[0] }
+  Open-SSEValueInfoWindow $MainHwnd ([int]$main[0].pid)
 }
 
 function Read-TrackedResultWindow($Window) {
@@ -5595,41 +5669,15 @@ switch ($Op) {
     $main = Resolve-SSEMainWindowDescriptor $a $wins -RestoreMinimized
     $targetPid = [int]$main.pid
     $mainHwnd = [IntPtr][int64]$main.hwnd
-    $wins = @(Get-Windows 'SSE')
-    $valueWindows = @($wins | Where-Object {
-      $_.title -eq 'Werte-Info: Werte vergleichen - Was wäre wenn' -and
-      [int]$_.pid -eq $targetPid
-    })
-    if (-not $valueWindows.Count -and $openIfNeeded) {
-      $tree = Walk-Tree $mainHwnd 5000 60 20 -WithValues
-      $buttons = @($tree.nodes | Where-Object {
-        # Endstueck statt vollem Pfad: Engine 30 haengt den Knopf ohne das
-      # Zwischenstueck 'TaxResultsWidgetSSE' ein. Das Endstueck ist in
-      # beiden Engines eindeutig.
-      $_.type -eq 'Button' -and $_.aid -like '*hoverBtnMehrDetails'
-      })
-      if ($buttons.Count -ne 1) {
-        Fail "Mehr-Details-Knopf der Ergebnisanzeige nicht eindeutig gefunden ($($buttons.Count) Treffer)." 'not-found'
-      }
-      $element = Get-LiveElement $mainHwnd $buttons[0].rid
-      $invoked = $false
-      try {
-        $invoke = $null
-        if ($element -and $element.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$invoke)) {
-          $invoke.Invoke(); $invoked = $true
-        }
-      } catch { }
-      if (-not $invoked) { $null = Click-VerifiedPoint $mainHwnd $buttons[0] }
-      Start-Sleep -Milliseconds 900
-      $opened = $true
-      $wins = @(Get-Windows 'SSE')
-      $valueWindows = @($wins | Where-Object {
-        $_.title -eq 'Werte-Info: Werte vergleichen - Was wäre wenn' -and
-        [int]$_.pid -eq $targetPid
-      })
+    $valueWindows = @(Get-SSEValueInfoWindows $targetPid)
+    if (-not $valueWindows.Count -and -not $openIfNeeded) {
+      Fail 'Werte-Info ist nicht offen. openIfNeeded=true verwenden oder rechts unten Mehr Details aufklappen.' 'precondition-failed'
     }
     if (-not $valueWindows.Count) {
-      Fail 'Werte-Info ist nicht offen. openIfNeeded=true verwenden oder rechts unten Mehr Details aufklappen.' 'precondition-failed'
+      $geoeffnet = Open-SSEValueInfoWindow $mainHwnd $targetPid
+      if (-not $geoeffnet.ok) { Fail $geoeffnet.error $geoeffnet.kind }
+      $opened = $geoeffnet.opened
+      $valueWindows = @($geoeffnet.window)
     }
     if ($valueWindows.Count -ne 1) {
       Fail "Werte-Info ist nicht eindeutig ($($valueWindows.Count) Fenster)." 'ambiguous'
@@ -6885,15 +6933,20 @@ switch ($Op) {
       })
     }
 
-    $tracking = $null; $resultBefore = $null
+    $tracking = $null; $resultBefore = $null; $ergebnisFensterVerschoben = $null
     if ($trackResults) {
       $tracking = Open-TrackedResultWindow $hwnd
-      if (-not $tracking.ok) { Fail "Ergebnis-Tracking nicht verfuegbar: $($tracking.error)" 'precondition-failed' }
+      if (-not $tracking.ok) {
+        Fail ("Ergebnis-Tracking nicht verfuegbar: $($tracking.error) " +
+          'Entweder die Werte-Info einmal mit result_details (MCP: sse_result_details) oeffnen ' +
+          'oder die Aenderung bewusst mit trackResults=false ohne Ergebnisvergleich schreiben.') 'precondition-failed'
+      }
       $resultBefore = Read-TrackedResultWindow $tracking.window
       if (-not $resultBefore.ok) {
         $null = Close-TrackedResultWindow $tracking
         Fail 'Ergebnisstand vor der Aenderung war nicht vollstaendig lesbar.' 'precondition-failed'
       }
+      $ergebnisFensterVerschoben = Move-SSEValueInfoAside $tracking.window $hwnd $node
     }
 
     # Nach dem Oeffnen von Werte-Info das Hauptfenster und Zielfeld frisch
@@ -6978,7 +7031,7 @@ switch ($Op) {
           geaendert=$windowSetChanged; fenster=@($interactionWindowsAfter.windows)
         }
         rollback=[pscustomobject]@{ versucht=$false; methode='not-attempted-after-interference'; ok=$null }
-        ergebnisFensterGeschlossen=$false
+        ergebnisFensterGeschlossen=$false; ergebnisFensterVerschoben=$ergebnisFensterVerschoben
         zeitmessung=$(Complete-SSEPhase $phaseLog 'interference'; Get-SSEPhaseReport $phaseLog)
       })
     }
@@ -7086,7 +7139,7 @@ switch ($Op) {
               versucht=$false; methode='not-attempted-after-interference'; ok=$null
               grund='Kein blinder Rollback nach Eingabe-, Fenster-, Seiten-, Binding- oder Fremdwertinterferenz.'
             }
-            ergebnisFensterGeschlossen=$resultWindowClosed
+            ergebnisFensterGeschlossen=$resultWindowClosed; ergebnisFensterVerschoben=$ergebnisFensterVerschoben
           })
         }
         $rollbackAttempted = $true
@@ -7161,7 +7214,7 @@ switch ($Op) {
           erwartet=$beforeDisplay; erwartetRaw=$beforeRaw
           ok=[bool]$rollbackOk; grund=$rollbackReason
         }
-        ergebnisFensterGeschlossen=[bool]$resultWindowClosed
+        ergebnisFensterGeschlossen=[bool]$resultWindowClosed; ergebnisFensterVerschoben=$ergebnisFensterVerschoben
         zeitmessung=$(Complete-SSEPhase $phaseLog 'rollback'; Get-SSEPhaseReport $phaseLog)
       })
     }
@@ -7195,7 +7248,7 @@ switch ($Op) {
         geaendert=$windowSetChanged
       }
       ungespeichert=$(if ($fastKnown) { Get-DirtyStateFast $hwnd } else { Get-DirtyState $afterTree })
-      ergebnisFensterGeschlossen=[bool]$resultWindowClosed
+      ergebnisFensterGeschlossen=[bool]$resultWindowClosed; ergebnisFensterVerschoben=$ergebnisFensterVerschoben
       zeitmessung=$(Complete-SSEPhase $phaseLog 'readback'; Get-SSEPhaseReport $phaseLog)
     })
   }
@@ -10504,6 +10557,11 @@ switch ($Op) {
         if (Test-Path -LiteralPath $tmpOutput) { Remove-Item -LiteralPath $tmpOutput -Force -ErrorAction SilentlyContinue }
       }
     }
+    # Kein $(...) um das Seitenfeld: die Unterausdruecke geben genau ein
+    # Element als Objekt statt als Liste zurueck, und ein Einseitensegment
+    # verletzt dann den Ergebnisvertrag.
+    $seitenFeld = $null
+    if (-not $ziel) { $seitenFeld = @($seiten) }
     $result = [pscustomobject]@{
       ok=$vollstaendig
       kind=$(if ($vollstaendig) { $null } else { 'collection-incomplete' })
@@ -10511,7 +10569,7 @@ switch ($Op) {
       vollstaendig=$vollstaendig; stopKind=$stopKind; stopReason=$stopReason
       anzahl=$seiten.Count; datei=$ziel; dateiHash=$dateiHash
       ueberschriften=@($seiten | ForEach-Object { $_.ueberschrift })
-      seiten=$(if ($ziel) { $null } else { @($seiten) })
+      seiten=$seitenFeld
       fortsetzenAb=$(if ($seiten.Count) { $seiten[-1].ueberschrift } else { $null })
       currentHeadingAfter=$currentHeadingAfter
       advancedAfterLastCaptured=$advancedAfterLastCaptured
@@ -14405,7 +14463,7 @@ switch ($Op) {
         })
         continue
       }
-      if ($w.title -eq 'Werte-Info: Werte vergleichen - Was wäre wenn' -and $w.w -le 900 -and $w.h -le 700) { $art = 'werte-info' }
+      if ($w.title -eq $script:WERTE_INFO_TITEL -and $w.w -le 900 -and $w.h -le 700) { $art = 'werte-info' }
       elseif ($w.title -eq 'Steuer-Spar-Tipps' -and $w.w -le 850 -and $w.h -le 650) { $art = 'steuer-tipps' }
       elseif ($w.cls -match '^UAC[ _]' -and $w.w -le 80 -and $w.h -le 80) { $art = 'system-overlay' }
       else { $art = $null }
