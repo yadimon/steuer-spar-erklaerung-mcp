@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { LAUNCH_OPERATION_TIMEOUT_MS } from "../dist/api-contract.js";
 import { exclusiveSteps, finalSteps, parallelSteps, serialBuildSteps } from "./suite-plan.mjs";
 
 const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
@@ -50,12 +51,14 @@ assert(
 assert.match(security, /jeweils neueste vollständige\s+Release-Version/u, "Security nennt die unterstützte Release-Linie nicht.");
 assert.match(security, /@yadimon\/steuer-spar-erklaerung-api/u);
 assert.match(security, /@yadimon\/steuer-spar-erklaerung-mcp/u);
+// Bis beta.19 hatten CLI und MCP verschiedene Kaltstartfristen, und die
+// Release Notes mussten den Unterschied nennen. Seit beta.20 gibt es genau
+// eine Frist; genannt werden muss sie weiterhin, denn sie ist der Unterschied
+// zwischen einem gelungenen und einem abgebrochenen ersten Programmstart.
 assert(
-  releaseNotes.includes("`--timeout-ms 280000`")
-    && releaseNotes.includes("MCP-Tool `sse_launch`")
-    && releaseNotes.includes("Transportbudget von 120 Sekunden")
-    && releaseNotes.includes("gilt nicht\n  für den MCP-Transport"),
-  "Release Notes müssen den unterschiedlichen Kaltstartvertrag von CLI und MCP präzise beschreiben.",
+  releaseNotes.includes("MCP-Tool `sse_launch`")
+    && new RegExp(`${LAUNCH_OPERATION_TIMEOUT_MS / 1000}\\s+Sekunden`, "u").test(releaseNotes),
+  "Release Notes müssen die geltende Kaltstartfrist von launch für CLI und MCP nennen.",
 );
 assert.match(
   security,
