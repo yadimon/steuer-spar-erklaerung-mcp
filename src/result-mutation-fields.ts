@@ -235,6 +235,7 @@ export const MUTATION_OPERATION_RESULT_FIELDS = {
     ergebnisVerfolgt: OPTIONAL_BOOLEAN,
     ergebnisVollstaendig: OPTIONAL_BOOLEAN,
     ergebnisFensterGeschlossen: OPTIONAL_BOOLEAN,
+    ergebnisFensterVerschoben: OPTIONAL_OBJECT,
     ungespeichert: OPTIONAL_BOOLEAN,
     commit: OPTIONAL_STRING,
     commitDetails: OPTIONAL_OBJECT,
