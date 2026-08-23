@@ -27,6 +27,7 @@ export const parallelSteps = Object.freeze([
   nodeFile("javascript-syntax", "test/javascript-syntax-contract.mjs"),
   psFile("powershell-syntax", "test/powershell-syntax-contract.ps1"),
   psFile("tracked-date-rollback", "test/tracked-date-rollback-contract.ps1"),
+  psFile("value-info-window", "test/value-info-window-contract.ps1"),
   psFile("desktop-enumeration", "test/desktop-enumeration-contract.ps1"),
   psFile("window-restore-contract", "test/window-restore-contract.ps1"),
   nodeFile("foreground-lease-contract", "test/foreground-lease-contract.mjs"),
