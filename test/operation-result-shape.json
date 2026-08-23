@@ -4409,7 +4409,7 @@
         "fields": {
           "buildDrift": {
             "types": [
-              "object:{\"current\":\"string-empty\",\"drifted\":\"boolean\",\"verified\":\"string-other\"}"
+              "object:{\"current\":\"string-other\",\"drifted\":\"boolean\",\"verified\":\"string-other\"}"
             ],
             "labels": [
               "worker"
