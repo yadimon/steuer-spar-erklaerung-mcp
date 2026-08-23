@@ -16,6 +16,23 @@ assert.equal(SSE_OPENAPI_DOCUMENT.paths["/healthz"].get.operationId, "healthz");
 assert.equal(SSE_OPENAPI_DOCUMENT.paths[`/${SSE_API_VERSION}/operations`].get.operationId, "list_operations");
 assert.equal(SSE_OPENAPI_DOCUMENT.paths[`/${SSE_API_VERSION}/openapi.json`].get.operationId, "get_openapi");
 
+// Ein Codegenerator macht aus jeder operationId einen Funktionsnamen. Zwei
+// gleiche Ids erzeugen still eine kaputte oder halbe Klientenbibliothek.
+const operationIds = [];
+for (const item of Object.values(SSE_OPENAPI_DOCUMENT.paths)) {
+  for (const methode of ["get", "post", "put", "delete", "patch"]) {
+    const id = item?.[methode]?.operationId;
+    if (id !== undefined) operationIds.push(id);
+  }
+}
+assert.equal(
+  new Set(operationIds).size,
+  operationIds.length,
+  "operationIds muessen im ganzen Dokument eindeutig sein, sonst scheitert die Client-Generierung.",
+);
+assert.equal(operationIds.length, SSE_API_OPERATIONS.length * 2 + 3,
+  "Je Operation genau ein POST und ein describe-GET, plus drei Infrastrukturpfade.");
+
 for (const operation of SSE_API_OPERATIONS) {
   const path = `/${SSE_API_VERSION}/operations/${operation}`;
   const post = SSE_OPENAPI_DOCUMENT.paths[path]?.post;
