@@ -19,7 +19,7 @@ body:
     id: release
     attributes:
       label: Release-Version
-      description: Zum Beispiel v0.1.0-beta.19 aus Health oder npm-Paket.
+      description: Zum Beispiel v0.1.0-beta.20 aus Health oder npm-Paket.
       placeholder: v0.1.0-beta.x
     validations:
       required: true
