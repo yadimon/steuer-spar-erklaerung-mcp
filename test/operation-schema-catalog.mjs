@@ -206,6 +206,41 @@ try {
   assert.match(formatOperationArgumentError(error), /caseRef.*file.*nicht gemeinsam/);
 }
 
+// Ein falsch geratener Feldname ist der haeufigste Aufruferfehler. Ohne die
+// erlaubten Namen kostet er eine zusaetzliche Runde ueber describe.
+try {
+  parseApiOperationArgs("close", { discardUnsaved: true });
+  assert.fail("Unbekanntes close-Argument muss scheitern");
+} catch (error) {
+  const ohneOperation = formatOperationArgumentError(error);
+  assert.match(ohneOperation, /discardUnsaved/);
+  assert.equal(ohneOperation.includes("Erlaubt sind"), false,
+    "Ohne Operation darf die Meldung keine Feldliste erfinden.");
+  const mitOperation = formatOperationArgumentError(error, "close");
+  assert.match(mitOperation, /Erlaubt sind: discardChanges, force, hwnd, pid, save$/);
+  assert.equal(mitOperation.includes(".."), false, "Kein doppelter Punkt vor der Feldliste.");
+}
+
+// Union-Operationen muessen die Namen aller Zweige nennen, sonst fehlt genau
+// der Name, den der Aufrufer eigentlich gesucht hat.
+try {
+  parseApiOperationArgs("tracked_set_value", { unbekannt: 1 });
+  assert.fail("Unbekanntes tracked_set_value-Argument muss scheitern");
+} catch (error) {
+  const meldung = formatOperationArgumentError(error, "tracked_set_value");
+  for (const name of ["expectedPage", "pageId", "fieldId", "rid", "trackResults"]) {
+    assert.match(meldung, new RegExp(`\\b${name}\\b`), `${name} fehlt in der Feldliste.`);
+  }
+}
+
+// Ein Wertfehler ohne unbekanntes Feld braucht die Liste nicht.
+try {
+  parseApiOperationArgs("collect", { maxPages: 99 });
+  assert.fail("Zu grosses maxPages muss scheitern");
+} catch (error) {
+  assert.equal(formatOperationArgumentError(error, "collect").includes("Erlaubt sind"), false);
+}
+
 assert.deepEqual(parseApiOperationArgs("case_hash", { ref: "cases:fall.Gew2025" }), {
   ref: "cases:fall.Gew2025",
 });

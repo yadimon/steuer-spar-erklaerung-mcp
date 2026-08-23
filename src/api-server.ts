@@ -347,7 +347,7 @@ export function createSseApiServer(options: SseApiServerOptions): Server {
         args = parseApiOperationArgs(operationName, body.args ?? {});
       } catch (error) {
         if (error instanceof ZodError) {
-          throw new ApiRequestError(formatOperationArgumentError(error), 400, "bad-args");
+          throw new ApiRequestError(formatOperationArgumentError(error, operationName), 400, "bad-args");
         }
         throw error;
       }
