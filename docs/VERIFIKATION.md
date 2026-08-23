@@ -1,6 +1,6 @@
 # Verifikationsstand
 
-Stand: 2026-08-18
+Stand: 2026-08-23
 
 Dieses Dokument trennt veröffentlichte Verträge, Mock-/Quelltests und echte
 SSE-Läufe. Ein grüner Vertragstest beweist nicht automatisch, dass jede
@@ -438,6 +438,39 @@ Microtask. Dass dieses Abgeben je Block wirklich stattfindet, prüft
 `test/workspace-file-cancellation.mjs` über den `hash-chunk`-Rückruf.
 
 Die Vermutung ist damit widerlegt und braucht keine Änderung.
+
+## Installations- und Live-Lauf in einer sauberen VM, 2026-08-23
+
+Ein zweiter VM-Lauf prüfte den heutigen, setup-freien Weg: sauberer
+VirtualBox-Snapshot, Windows 11 x64, SteuerSparErklärung 2025 Build `31.0.1.0`,
+Node 24.12.0, npm 11.6.2, git 2.55.0 — ohne vorbereitete API, ohne Token, ohne
+`config.json`. Die vier Befehle aus der Installationsanleitung liefen wörtlich
+durch: beide npm-Pakete, `skills add`, `claude mcp add`, API-Start. Die API
+antwortete zwei Sekunden nach dem Start auf `/healthz`, legte `workspace/` und
+`logs/` selbst an und brauchte keine Konfigurationsdatei.
+
+Live belegt wurden anschließend gegen einen offiziellen Musterfall auf einer
+hashverifizierten Arbeitskopie: `case_hash`, `make_working_copy`, `launch`
+(kalt 96 s bis bedienbar), `windows`, `ui_state`, `page`, `read_full`,
+`subpages`, `collect`, `result_details`, `instances` mit genau einer laufenden
+Instanz, ein geschützter Feldschreibvorgang über `tracked_set_value` samt
+Rückgängigmachen sowie `close` ohne Speichern. Derselbe Weg lief auch über den
+MCP-Server mit allen 88 Werkzeugen.
+
+Der Lauf deckte sechs Fehler auf, die kein Offline-Test zeigte:
+
+- `collect` verletzte den Ergebnisvertrag, sobald ein Segment genau eine Seite
+  erfasste; die Operation war über die API damit unbenutzbar.
+- Der einzige erlaubte Schreibweg für Steuerfelder scheiterte, weil nach dem
+  Öffnen der Werte-Info nur einmal fest gewartet wurde.
+- Deckte die Werte-Info das Zielfeld ab, brach der Schreibvorgang mit
+  „fremde Eingabe" ab, obwohl niemand eingegriffen hatte.
+- `health` meldete ohne laufendes Programm `drifted=true`.
+- `close` meldete einen Fehlschlag, obwohl das Programm regulär beendete.
+- `get_value` und der Schreibweg lösten denselben Feldnamen verschieden auf.
+
+Nicht geprüft: ein echter Agentenlauf — im Gast war Claude Code installierbar,
+aber nicht angemeldet; ferner die sechs VaSt-Wege und jeder ELSTER-Pfad.
 
 ## Isolierter First-Run-VM-Smoke vom 2026-08-18
 
