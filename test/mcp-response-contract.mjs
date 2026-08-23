@@ -113,6 +113,21 @@ assert.equal(isolation.structuredContent.ok, false);
 assert.equal(isolation.structuredContent.kind, "worker-isolation-lost");
 assert(isolation.structuredContent.hint.includes("API-Prozess neu starten"));
 
+// Haeufigster Erstkontakt-Fehler: MCP steht, die API laeuft nicht. Ohne diesen
+// Hinweis bekaeme der Agent nur ECONNREFUSED und keinen naechsten Schritt.
+const nichtErreichbar = apiErrorResult("health", {
+  ok: false,
+  kind: "network",
+  error: "SSE-API nicht erreichbar (ECONNREFUSED)",
+});
+assert.equal(nichtErreichbar.isError, true);
+assert(nichtErreichbar.structuredContent.hint.includes("steuer-spar-erklaerung-api --config"));
+assert(nichtErreichbar.structuredContent.hint.includes("Installationsanleitung"));
+assert(
+  !/[A-Z]:\\/u.test(nichtErreichbar.structuredContent.hint),
+  "Der Hinweis muss PC-blind bleiben und darf keinen echten Laufwerkspfad nennen.",
+);
+
 const redactedError = apiErrorResult("health", {
   ok: false,
   kind: "synthetic",
