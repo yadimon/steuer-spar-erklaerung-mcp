@@ -3,6 +3,12 @@ export const SSE_API_VERSION = "v1";
 export const DEFAULT_API_HOST = "127.0.0.1";
 export const DEFAULT_API_PORT = 43127;
 export const DEFAULT_OPERATION_TIMEOUT_MS = 90_000;
+// 'launch' startet ein fremdes Programm und wartet, bis es bedienbar ist. Auf
+// einem kalten Rechner gemessen: 96 s. Mit der allgemeinen Vorgabe von 90 s
+// scheitert damit ausgerechnet die erste Operation, die ein Nutzer aufruft.
+// Die Operation antwortet, sobald das Fenster bereit ist; die groessere Frist
+// kostet im Erfolgsfall nichts.
+export const LAUNCH_OPERATION_TIMEOUT_MS = 240_000;
 export const MAX_OPERATION_TIMEOUT_MS = 300_000;
 export const MAX_WORKER_QUEUE_DEPTH = 32;
 // Eine UTF-8-Textdatei darf 1 MiB gross sein. JSON-Escaping kann einzelne

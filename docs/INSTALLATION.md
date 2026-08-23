@@ -59,8 +59,10 @@ So sieht der Ordner am Ende aus:
 ```text
 C:\mein-steuer-ai\
   node_modules\            API und MCP
-  .agents\skills\          der Skill, vom Installer angelegt
+  .claude\skills\          der Skill bei --agent claude-code
+  .agents\skills\          der Skill bei --agent codex
   skills-lock.json         welche Skillversion installiert ist
+  .mcp.json                der MCP-Eintrag bei claude mcp add --scope project
   logs\                    API-Protokoll
   workspace\
     settings.md            Belegquellen und Regeln in Prosa

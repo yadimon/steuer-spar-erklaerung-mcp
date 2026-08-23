@@ -2,6 +2,7 @@
  * Programm-, Fall- und Lebenszykluswerkzeuge.
  */
 import { asArray } from "./api-client.js";
+import { LAUNCH_OPERATION_TIMEOUT_MS } from "./api-contract.js";
 import type { McpRegistry } from "./mcp-registry.js";
 
 export function registerLifecycleTools(registry: McpRegistry): void {
@@ -32,7 +33,7 @@ export function registerLifecycleTools(registry: McpRegistry): void {
       instance: r.instance, ready: r.ready, blockedByDialog: r.blockedByDialog,
       dialogs: asArray(r.dialogs), product: r.product, case: r.case,
     }),
-    { timeoutMs: 120_000 },
+    { timeoutMs: LAUNCH_OPERATION_TIMEOUT_MS },
   );
 
   registerApiTool(

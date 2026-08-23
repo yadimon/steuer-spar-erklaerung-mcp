@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ApiClientOptions } from "./api-client.js";
 import { ApiClientError } from "./api-client-error.js";
-import { MAX_API_BODY_BYTES } from "./api-contract.js";
+import { DEFAULT_OPERATION_TIMEOUT_MS, LAUNCH_OPERATION_TIMEOUT_MS, MAX_API_BODY_BYTES } from "./api-contract.js";
 import { parseJsonBytesStrict, readJsonFileStrict } from "./json-files.js";
 
 interface CliArguments {
@@ -37,7 +37,7 @@ function parseCliArguments(argv: readonly string[]): CliArguments {
   let argsFile: string | undefined;
   let configPath: string | undefined;
   let journalFile: string | undefined;
-  let timeoutMs = 90_000;
+  let timeoutMs = command === "launch" ? LAUNCH_OPERATION_TIMEOUT_MS : DEFAULT_OPERATION_TIMEOUT_MS;
   let targetOperation: string | undefined;
   let optionStart = 1;
   if (command === "describe") {
