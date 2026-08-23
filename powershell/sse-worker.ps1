@@ -4249,6 +4249,17 @@ function Open-SSEValueInfoWindow([IntPtr]$MainHwnd, [int]$TargetPid, [int]$Timeo
   [pscustomobject]@{ ok=$true; opened=$true; anzahl=1; window=$gefunden[0]; error=$null; kind=$null }
 }
 
+# Wartet bis zur Frist auf das Prozessende und meldet, ob danach noch etwas
+# laeuft. Frist 0 heisst: nur nachsehen, nicht warten.
+function Wait-SSEProcessExit([int]$ProcessId, [int]$TimeoutMs) {
+  $frist = [Diagnostics.Stopwatch]::StartNew()
+  while ($true) {
+    if (-not (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)) { return $false }
+    if ($frist.ElapsedMilliseconds -ge $TimeoutMs) { return $true }
+    Start-Sleep -Milliseconds 250
+  }
+}
+
 function Test-SSEPointInRect([int]$X, [int]$Y, [int]$Left, [int]$Top, [int]$Width, [int]$Height) {
   $X -ge $Left -and $X -lt ($Left + $Width) -and $Y -ge $Top -and $Y -lt ($Top + $Height)
 }
@@ -8662,14 +8673,17 @@ switch ($Op) {
       Start-Sleep -Seconds 2
     }
 
-    $still = Get-Process -Id $targetPid -ErrorAction SilentlyContinue
+    # SSE beendet sich nach der letzten Antwort nicht sofort. Ein einzelner
+    # Blick direkt danach meldete deshalb 'Programm laeuft noch', obwohl es
+    # Sekunden spaeter regulaer weg war - ein Fehlschlag, den es nicht gab.
+    $still = Wait-SSEProcessExit $targetPid 20000
     $killed = $false
     if ($still -and ($force -or $hung) -and $discard) {
       Stop-Process -InputObject $targetProcess -Force -ErrorAction SilentlyContinue
       try { $targetProcess.WaitForExit(5000) | Out-Null } catch { }
       $killed = $true
     }
-    $laeuftNoch = [bool](Get-Process -Id $targetPid -ErrorAction SilentlyContinue)
+    $laeuftNoch = Wait-SSEProcessExit $targetPid $(if ($killed) { 5000 } else { 0 })
     Emit ([pscustomobject]@{
       ok = (-not $laeuftNoch); wasHung = $hung; killed = $killed; stillRunning = $laeuftNoch
       kind = $(if ($laeuftNoch) { 'postcondition-failed' } else { $null })
