@@ -487,7 +487,35 @@ export function parseCheckerReadOnlyClickArgs(args: Record<string, unknown>): Re
   return parsed;
 }
 
-export function formatOperationArgumentError(error: z.ZodError): string {
+/** Alle Argumentnamen einer Operation, auch ueber Union-Zweige hinweg. */
+function acceptedArgumentKeys(schema: unknown, keys = new Set<string>()): Set<string> {
+  const def = (schema as { _def?: Record<string, unknown> } | undefined)?._def;
+  if (!def) return keys;
+  if (def.typeName === "ZodObject") {
+    for (const key of Object.keys((schema as z.AnyZodObject).shape)) keys.add(key);
+  } else if (def.typeName === "ZodUnion") {
+    for (const option of def.options as unknown[]) acceptedArgumentKeys(option, keys);
+  } else if (def.typeName === "ZodEffects") {
+    acceptedArgumentKeys(def.schema, keys);
+  } else if (def.typeName === "ZodIntersection") {
+    acceptedArgumentKeys(def.left, keys);
+    acceptedArgumentKeys(def.right, keys);
+  }
+  return keys;
+}
+
+function hasUnrecognizedKey(issues: readonly z.ZodIssue[]): boolean {
+  return issues.some((issue) =>
+    issue.code === z.ZodIssueCode.unrecognized_keys ||
+    (issue.code === z.ZodIssueCode.invalid_union && issue.unionErrors.some((entry) => hasUnrecognizedKey(entry.issues))));
+}
+
+/**
+ * Mit `operation` nennt die Meldung bei einem unbekannten Feld gleich die
+ * erlaubten Namen. Ohne das kostet jeder Tippfehler eine zusaetzliche Runde
+ * ueber `describe`, und genau diese Runde dreht ein Agent nicht immer.
+ */
+export function formatOperationArgumentError(error: z.ZodError, operation?: SseApiOperation): string {
   const containsCustomIssue = (issues: z.ZodIssue[]): boolean => issues.some((issue) =>
     issue.code === z.ZodIssueCode.custom ||
     (issue.code === z.ZodIssueCode.invalid_union && issue.unionErrors.some((entry) => containsCustomIssue(entry.issues))));
@@ -508,5 +536,9 @@ export function formatOperationArgumentError(error: z.ZodError): string {
     const path = issue.path.length ? `'${issue.path.join(".")}' ` : "";
     return [`${path}${issue.message}`];
   };
-  return [...new Set(error.issues.flatMap(formatIssue))].join("; ");
+  const message = [...new Set(error.issues.flatMap(formatIssue))].join("; ");
+  if (!operation || !hasUnrecognizedKey(error.issues)) return message;
+  const erlaubt = [...acceptedArgumentKeys(SSE_API_OPERATION_SCHEMAS[operation])].sort();
+  if (!erlaubt.length) return message;
+  return `${message.replace(/\.$/u, "")}. Erlaubt sind: ${erlaubt.join(", ")}`;
 }

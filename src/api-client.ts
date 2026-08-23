@@ -426,7 +426,7 @@ export async function callApiOperation(
   try {
     parseApiOperationArgs(operation, args);
   } catch (error) {
-    const message = error instanceof ZodError ? formatOperationArgumentError(error) : String(error);
+    const message = error instanceof ZodError ? formatOperationArgumentError(error, operation) : String(error);
     throw new ApiClientError(`Ungueltige Argumente fuer '${operation}': ${message}`, "bad-args");
   }
   // Die validierte Originalform bleibt auf dem Draht erhalten. Aliasfelder
