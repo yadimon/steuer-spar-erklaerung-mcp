@@ -7751,12 +7751,29 @@ switch ($Op) {
     if (-not $nodes.Count) { Fail "Feld '$(if ($name) { $name } elseif ($aid) { $aid } else { $rid })' nicht gefunden." 'not-found' }
     if ($nodes.Count -ne 1) { Fail "Feldselektor ist nicht eindeutig ($($nodes.Count) Treffer)." 'ambiguous' }
     $node = $nodes[0]
+    $herkunft = 'selektor'
     $el = Get-LiveElement $hwnd $node.rid $node.aid
     $vp = $null; $v = $null; $ro = $null
     if ($el -and $el.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$vp)) {
       $v = $vp.Current.Value; $ro = $vp.Current.IsReadOnly
     }
-    Emit ([pscustomobject]@{ ok = $true; node = $node; value = $v; readOnly = $ro })
+    # Eine Beschriftung traegt selbst keinen Wert. Frueher lieferte
+    # get_value auf 'Seit wann?' deshalb null, waehrend tracked_set_value
+    # mit demselben Namen das zugehoerige Eingabefeld beschrieb - derselbe
+    # Selektor bedeutete beim Lesen und beim Schreiben Verschiedenes. Der
+    # Rueckfall benutzt exakt die Zuordnung des Schreibwegs.
+    if ($null -eq $vp -and -not $aid -and -not $rid -and $name) {
+      $feld = Resolve-TrackedFieldNode $t $a $hwnd
+      if ($feld -and $feld.rid -ne $node.rid) {
+        $feldEl = Get-LiveElement $hwnd $feld.rid $feld.aid
+        $feldVp = $null
+        if ($feldEl -and $feldEl.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$feldVp)) {
+          $node = $feld; $herkunft = 'beschriftung'
+          $v = $feldVp.Current.Value; $ro = $feldVp.Current.IsReadOnly
+        }
+      }
+    }
+    Emit ([pscustomobject]@{ ok = $true; node = $node; value = $v; readOnly = $ro; aufgeloestUeber = $herkunft })
   }
 
   'scroll' {

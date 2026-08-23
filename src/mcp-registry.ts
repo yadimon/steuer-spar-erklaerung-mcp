@@ -96,7 +96,7 @@ export function createMcpRegistry(server: McpServer) {
           parseApiOperationArgs(SSE_MCP_TOOL_OPERATIONS[name], args);
         } catch (error) {
           const message = error instanceof z.ZodError
-            ? formatOperationArgumentError(error)
+            ? formatOperationArgumentError(error, SSE_MCP_TOOL_OPERATIONS[name])
             : error instanceof Error ? error.message : String(error);
           return errorResult(`Ungueltige MCP-Argumente: ${message}`);
         }

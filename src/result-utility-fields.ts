@@ -144,6 +144,7 @@ export const UTILITY_OPERATION_RESULT_FIELDS = {
     node: OPTIONAL_OBJECT,
     value: OPTIONAL_STRING,
     readOnly: OPTIONAL_BOOLEAN,
+    aufgeloestUeber: OPTIONAL_STRING,
   },
   help: {
     seite: OPTIONAL_STRING,
