@@ -13,6 +13,14 @@ const MAXIMUM_LAUNCH_TIMEOUT_MS = 300_000;
  * an den Fenstertitel, sobald es eine Wiederherstellungsdatei geladen hat.
  */
 const RECOVERED_STATE_TITLE = /\(Wiederhergestellt\)/iu;
+/**
+ * Ein Fallfenster ist breit. Schmaler als das ist entweder der Startbildschirm
+ * oder ein Qt-Meldungsfenster - beide tragen denselben Programmtitel wie ein
+ * Fallfenster und duerfen deshalb nie als Hauptfenster gebunden werden.
+ * Live gemessen: Startbildschirm 854 Pixel, Wiederherstellungsfrage 518 Pixel,
+ * Fallfenster 2062 Pixel.
+ */
+const MIN_MAIN_WINDOW_WIDTH = 900;
 
 export async function executeLaunchOperation(
   args: Record<string, unknown>,
@@ -84,6 +92,7 @@ export async function executeLaunchOperation(
 
   let lastProbeError: string | undefined;
   let probeFailures = 0;
+  let lastStartupPrompts: Record<string, unknown>[] = [];
   try {
     while (Date.now() < deadline) {
       if (signal?.aborted) {
@@ -123,14 +132,24 @@ export async function executeLaunchOperation(
       const windows = asArray<Record<string, unknown>>(observed.windows)
         .filter((window) => Number(window.pid) === pid && Number(window.hwnd) > 0);
       const hasCase = typeof args.file === "string" && args.file.length > 0;
-      const mainCandidates = windows
-        .filter((window) => {
-          const title = String(window.title ?? "");
-          if (hasCase) return title.includes("SteuerSparErklärung");
-          return title.includes("SteuerSparErklärung") ||
-            (title === "Steuerprogramm" && (Number(window.w) >= 900 || window.minimiert === true));
-        })
+      const titledLikeSse = windows.filter((window) => {
+        const title = String(window.title ?? "");
+        return title.includes("SteuerSparErklärung") || (!hasCase && title === "Steuerprogramm");
+      });
+      // Qts Meldungsfenster tragen denselben Programmtitel wie das Fallfenster.
+      // Die Startrueckfrage nach einer Wiederherstellungsdatei ist rund 520
+      // Pixel breit; ein Fallfenster ist es nie. Ohne diese Groessenpruefung
+      // band der Start diese Box als Hauptfenster und meldete ready=true,
+      // waehrend die Frage noch offen stand - genau der Zustand, vor dem der
+      // Skill warnt, denn ein 'Ja' laedt Daten, die zum geprueften Hash nicht
+      // mehr passen.
+      const mainCandidates = titledLikeSse
+        .filter((window) => Number(window.w) >= MIN_MAIN_WINDOW_WIDTH || window.minimiert === true)
         .sort((left, right) => Number(right.w) * Number(right.h) - Number(left.w) * Number(left.h));
+      // Der Startbildschirm verschwindet von selbst, eine Rueckfrage nicht.
+      // Beide sehen bis dahin gleich aus, deshalb wird hier nur gemerkt statt
+      // geraten; entschieden wird erst, wenn das Startbudget abgelaufen ist.
+      lastStartupPrompts = titledLikeSse.filter((window) => !mainCandidates.includes(window));
 
       let dialogs: Record<string, unknown>[] = [];
       if (windows.length > 0) {
@@ -202,6 +221,33 @@ export async function executeLaunchOperation(
         };
       }
       await waitForNextProbe();
+    }
+
+    // Blieb bis zuletzt nur ein schmales Fenster stehen, wartet SteuerSpar-
+    // Erklaerung auf eine Antwort - fast immer die Startfrage nach einer
+    // Wiederherstellungsdatei nach einem unsauberen Ende. Diesen Prozess zu
+    // beenden waere das Schlimmste: der harte Abbruch erzeugt die naechste
+    // Wiederherstellungsdatei, und der naechste Start endet genauso.
+    if (lastStartupPrompts.length > 0) {
+      return {
+        ok: false,
+        kind: "startup-question",
+        error:
+          "SteuerSparErklaerung zeigt statt des Fallfensters ein schmales Fenster und wartet auf eine Antwort. " +
+          "Meist ist das die Startfrage nach einer Wiederherstellungsdatei nach einem unsauberen Ende. Diese Frage " +
+          "im Programm beantworten - eine Wiederherstellung gehoert verworfen, weil ihr Inhalt nicht mehr zur " +
+          "geprueften Falldatei passt - und danach erneut oeffnen. Der gestartete Prozess laeuft absichtlich " +
+          "weiter; ihn hier zu beenden erzeugte die naechste Wiederherstellungsdatei.",
+        pid,
+        processStillRunning: true,
+        windows: lastStartupPrompts,
+        startupPrompts: lastStartupPrompts,
+        instance: null,
+        ready: false,
+        effectiveTimeoutMs: launchBudgetMs,
+        lastProbeError,
+        probeFailures,
+      };
     }
 
     const cleanupState = await cleanupStartedProcess();
