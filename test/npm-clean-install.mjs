@@ -88,8 +88,8 @@ try {
     apiSource,
   ]);
   assert(
-    existsSync(join(apiOnlyRoot, "node_modules", ".bin", "steuer-spar-erklaerung-setup.cmd")),
-    "API-only-Installation enthaelt den Setup-Einstieg nicht.",
+    existsSync(join(apiOnlyRoot, "node_modules", ".bin", "steuer-spar-erklaerung-api.cmd")),
+    "API-only-Installation enthaelt den API-Einstieg nicht.",
   );
   assert(
     !existsSync(join(apiOnlyRoot, "node_modules", "@yadimon", "steuer-spar-erklaerung-mcp")),
