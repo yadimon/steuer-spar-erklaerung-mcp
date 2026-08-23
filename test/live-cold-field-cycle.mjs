@@ -58,12 +58,30 @@ const transport = new StdioClientTransport({
 });
 const fullText = (result) => result?.content?.filter((part) => part.type === "text")
   .map((part) => part.text).join("\n") ?? "";
-const callRaw = async (name, args, timeout = 240_000) => {
-  const result = await client.callTool({ name, arguments: args }, undefined, { timeout, maxTotalTimeout: timeout });
-  return { istFehler: result?.isError === true, daten: JSON.parse(fullText(result)) };
+// Der Client muss laenger warten als das Werkzeug selbst rechnen darf, sonst
+// verliert er das Rennen gegen einen launch, der sein Budget ausschoepft.
+const CLIENT_ZUSCHLAG_MS = 90_000;
+const schrittProtokoll = [];
+const callRaw = async (name, args, budgetMs = 240_000) => {
+  const t0 = Date.now();
+  try {
+    const result = await client.callTool(
+      { name, arguments: args },
+      undefined,
+      { timeout: budgetMs + CLIENT_ZUSCHLAG_MS, maxTotalTimeout: budgetMs + CLIENT_ZUSCHLAG_MS },
+    );
+    schrittProtokoll.push(`${name} ${Date.now() - t0} ms`);
+    return { istFehler: result?.isError === true, daten: JSON.parse(fullText(result)) };
+  } catch (fehler) {
+    // Ohne diese Zeile sagt ein Timeout nicht, welcher Schritt haengen blieb.
+    schrittProtokoll.push(`${name} ${Date.now() - t0} ms ABBRUCH`);
+    process.stdout.write(`Schritte bis zum Abbruch: ${schrittProtokoll.join(' | ')}
+`);
+    throw fehler;
+  }
 };
-const call = async (name, args, timeout = 240_000) => {
-  const { istFehler, daten } = await callRaw(name, args, timeout);
+const call = async (name, args, budgetMs) => {
+  const { istFehler, daten } = await callRaw(name, args, budgetMs);
   assert.equal(istFehler, false, `${name}: ${JSON.stringify(daten)}`);
   return daten;
 };
@@ -169,6 +187,8 @@ try {
   assert.equal(geschlossen.stillRunning, false, "Nach dem Schliessen laeuft das Programm noch.");
   assert.equal(geschlossen.killed, false, "Das Programm musste hart beendet werden.");
 
+  process.stdout.write(`Schritte: ${schrittProtokoll.join(' | ')}
+`);
   process.stdout.write(
     `Kalter Feldzyklus (${profileId}): '${cycle.field}' ${vorher} -> ${ersatz} -> ${vorher}, ` +
     `collect inline mit ${gesammelt.anzahl} Seite(n), Werte-Info kalt mit ${ergebnis.zeilen.length} Zeilen, ` +
