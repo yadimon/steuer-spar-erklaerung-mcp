@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ApiClientOptions } from "./api-client.js";
@@ -171,7 +172,29 @@ async function runApiCli(argv: readonly string[]): Promise<number> {
   }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))) {
+/**
+ * Laeuft diese Datei als Programm oder wird sie nur importiert?
+ *
+ * Der reine Pfadvergleich reichte nicht: Bei einer Installation ueber Symlink
+ * oder Junction - npm mit lokalem Pfad, npm link, pnpm - laedt Node das Modul
+ * unter seinem aufgeloesten Pfad, waehrend argv[1] den verlinkten Pfad traegt.
+ * Die Weiche schlug dann fehl und die CLI beendete sich wortlos mit Exitcode 0.
+ * Genau dieser Befehl soll aber eine Installation beweisen; stiller Erfolg ist
+ * die schlechteste aller Antworten.
+ */
+function startedAsProgram(): boolean {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  const modulePath = fileURLToPath(import.meta.url);
+  if (resolve(entry) === resolve(modulePath)) return true;
+  try {
+    return realpathSync(entry) === realpathSync(modulePath);
+  } catch {
+    return false;
+  }
+}
+
+if (startedAsProgram()) {
   runApiCli(process.argv.slice(2)).then(
     (exitCode) => { process.exitCode = exitCode; },
     (error) => {
