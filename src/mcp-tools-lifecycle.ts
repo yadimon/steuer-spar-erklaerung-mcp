@@ -86,7 +86,11 @@ export function registerLifecycleTools(registry: McpRegistry): void {
         "force=true gesetzt, darf genau die gebundene PID nur mit discardChanges=true hart beendet werden. " +
         "Speichern gehoert in den hashgebundenen Schritt sse_save; sse_close save=true wird verweigert. " +
         "Ohne discardChanges=true wird kein neu auftauchender Speicherdialog mit Nein/Verwerfen beantwortet. " +
-        "Offene Dialoge muessen vorher separat gelesen und beantwortet werden.",
+        "Offene Dialoge muessen vorher separat gelesen und beantwortet werden. " +
+        "force ist teuer: ein hart beendetes Programm hinterlaesst eine Wiederherstellungsdatei, und der " +
+        "naechste Start fragt danach - sse_launch endet dann mit kind='startup-question' und laesst sich " +
+        "ohne Antwort im Programm nicht aufloesen. Deshalb erst ohne force schliessen und dem Programm " +
+        "Zeit lassen; force nur bei einem haengenden Fenster.",
     },
     { timeoutMs: 60_000 },
   );

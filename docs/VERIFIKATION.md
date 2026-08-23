@@ -439,6 +439,71 @@ Microtask. Dass dieses Abgeben je Block wirklich stattfindet, prüft
 
 Die Vermutung ist damit widerlegt und braucht keine Änderung.
 
+## Zustandsreise, 2026-08-24
+
+Alle bisherigen Livetests prüfen **eine Operation gegen ihre eigene Antwort**.
+Keiner prüfte, ob ein später gelesener Zustand noch zu dem passt, was vorher
+geschrieben wurde. `test/live-state-journey.mjs` schließt diese Lücke: Sie führt
+ein Erwartungsmodell mit und vergleicht es nach **jeder** Mutation und nach
+**jedem** Ortswechsel gegen einen frischen Readback.
+
+Ablauf auf der profilierten Tabellenseite, ohne jedes Speichern:
+
+1. fünf Zeilen anlegen, Kontrollsumme nach jeder Zeile binden;
+2. auf eine zweite katalogisierte Seite navigieren, dort lesen, zurück
+   navigieren — die Tabelle muss unverändert sein;
+3. sechste Zeile ergänzen, Werte-Info öffnen und lesen, Hilfespalte lesen —
+   jedes Mal die Tabelle erneut prüfen;
+4. eine Zeile löschen, erneut wegnavigieren und zurück;
+5. alle Zeilen zurückbauen, Ausgangssumme muss exakt wieder erreicht sein;
+6. ohne Speichern schließen, die Wegwerfkopie bleibt byteidentisch.
+
+Dabei werden **zwei unabhängige Lesewege** gegeneinander gehalten: die
+strukturierte Tabellensicht (`sse_table_read`) und die geometrische Suche
+(`sse_find`). Weichen sie voneinander ab, ist eine der beiden Seiten kaputt —
+eine Abweichung, die keine Einzeloperation je bemerken würde.
+
+Gemessen am 2026-08-24: 83 Operationen, gut vier Minuten, grün.
+
+Die Reise fand beim ersten Lauf zwei Fehler:
+
+- `table_delete` legte den Zeilentext in das Feld `geloescht`, das der Vertrag
+  als Wahrheitswert führt; für den Text gibt es `target`, das die übrigen
+  Emit-Pfade derselben Operation auch benutzen. **Jedes erfolgreiche Löschen kam
+  damit als `invalid-operation-result` zurück** — die Operation war über die API
+  unbenutzbar, und kein Livetest hatte je gelöscht.
+- `noKeys` verschwieg seine Folge: Es schaltet den Cursorlauf ab, und damit kann
+  `vollstaendig` nie wahr werden. Auch die große Schreibreise hatte deshalb nie
+  eine Tabelle als vollständig bewiesen.
+
+## Nebenfenster sind lesbar, aber nicht bedienbar, 2026-08-24
+
+In einer sauberen VM reproduziert und offen: Jede Interaktionsoperation bindet
+ausschließlich an das verifizierte Hauptfenster. Nebenfenster desselben
+verifizierten Prozesses liefern über `windows`, `dialog_list` und `snapshot`
+Text, Schalter, Optionsfelder, RuntimeIds und Fingerprint — ein Klick darauf
+scheitert aber mit `stale-window`.
+
+Zwei belegte Folgen:
+
+- **BelegManager** (eigenes Qt-Fenster im SSE-Prozess, über Extras erreichbar):
+  Der Startschirm mit „Neuen Beleg anlegen", „Mehrere Belege anlegen" und
+  „Alle Belege anzeigen" ist lesbar, aber nicht bedienbar. Belegverwaltung ist
+  über die API damit gar nicht erreichbar.
+- **Frische Installation**: SSE zeigt vor jedem Hauptfenster den
+  Einwilligungsdialog „Programm zur Verbesserung der Benutzerfreundlichkeit"
+  (zwei Optionsfelder, OK erst nach Auswahl aktiv). `dialog_list` liest ihn samt
+  Fingerprint, `dialog_answer` kann nur Schalter drücken und keine Option
+  wählen, `click` verweigert mangels Hauptfenster. `launch` meldet nur
+  `ready:false`. Ein neuer Nutzer steckt beim allerersten Start fest.
+
+Nebenbefund für Aufräumarbeiten: SteuerSparErklärung legt Wiederherstellungs­
+dateien als `Wiederhergestellt-*` im Ordner `%LOCALAPPDATA%\Steuertipps\SSE\<Engine-Major>`
+ab — im selben Ordner wie ihre Benutzerkonfiguration (`SSEKonf.user.ini`,
+`normal.user.ini`). Wer dort aufräumt, darf ausschließlich das Präfix treffen;
+löscht man die Konfiguration mit, verhält sich das Programm wie frisch
+installiert und zeigt wieder den Einwilligungsdialog.
+
 ## Kalter Feldzyklus, 2026-08-23
 
 Bis zu diesem Tag deckte kein einziger Livetest `sse_change_field`

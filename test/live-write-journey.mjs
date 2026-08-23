@@ -42,6 +42,7 @@ import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { fixtureCaseRef } from "./fixture-case-ref.mjs";
 import { profiledTablePage } from "./profiled-table-page.mjs";
+import { formatCents, parseCents } from "./currency-cents.mjs";
 
 const fixture = process.env.SSE_JOURNEY_FIXTURE;
 assert(fixture, "SSE_JOURNEY_FIXTURE mit einer positionierten Wegwerfkopie ist Pflicht.");
@@ -60,19 +61,6 @@ const ssePids = () => execFileSync(
   { encoding: "utf8", windowsHide: true },
 ).trim();
 const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
-
-/** SSE formatiert Betraege deutsch. Beide Richtungen bleiben exakt und ohne Gleitkomma. */
-const parseCents = (text) => {
-  assert.match(String(text), /^-?\d{1,3}(?:\.\d{3})*,\d{2}$|^-?\d+,\d{2}$/u,
-    `Kein eindeutiger deutscher Waehrungswert: ${JSON.stringify(text)}`);
-  const [euro, cent] = String(text).replace(/\./gu, "").split(",");
-  const sign = euro.startsWith("-") ? -1 : 1;
-  return sign * (Math.abs(Number(euro)) * 100 + Number(cent));
-};
-const formatCents = (cents) => {
-  const euro = String(Math.floor(Math.abs(cents) / 100)).replace(/\B(?=(?:\d{3})+(?!\d))/gu, ".");
-  return `${cents < 0 ? "-" : ""}${euro},${String(Math.abs(cents) % 100).padStart(2, "0")}`;
-};
 
 const here = dirname(fileURLToPath(import.meta.url));
 const client = new Client({ name: "sse-live-write-journey", version: "1.0.0" });

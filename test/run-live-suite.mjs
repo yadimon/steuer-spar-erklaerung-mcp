@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { extname, join, resolve } from "node:path";
 import { loadProductProfile } from "../dist/product-profiles.js";
@@ -15,6 +15,7 @@ if (process.platform !== "win32") throw new Error("Der SSE-Live-Runner benoetigt
 const root = resolve(process.cwd());
 const STEUERTIPPS_ROOT = "C:\\Program Files\\Steuertipps\\SteuerSparErklaerung";
 const sha256 = (path) => createHash("sha256").update(readFileSync(path)).digest("hex").toUpperCase();
+const profileEngineMajor = loadProductProfile("2025").engineFileMajor;
 const assertNoSse = (phase) => {
   const pids = ssePids();
   assert.equal(pids, "", `${phase}: Bereits laufende oder zurueckgebliebene SSE-Prozesse (${pids}). Nicht uebernehmen oder blind beenden.`);
@@ -436,7 +437,26 @@ function assertProfileReadCoverage(profileId) {
   assert.equal(check.status, 0, `${profileId}-Leseabdeckung scheiterte mit Exit ${check.status}.`);
 }
 
+/**
+ * SteuerSparErklaerung legt nach einem unsauberen Ende eine Wiederherstellungs-
+ * datei neben ihrer Benutzerkonfiguration ab. Der naechste Start fragt dann
+ * danach, und die Folgephase scheitert mit 'startup-question' - weit weg von
+ * der Phase, die den unsauberen Zustand hinterlassen hat. Deshalb nach jeder
+ * Phase nachsehen und die Verursacherin benennen. Geloescht wird hier nichts:
+ * eine Wiederherstellungsdatei kann echte Nutzerarbeit enthalten.
+ */
+function assertNoRecoveryFile(phase) {
+  const verzeichnis = join(process.env.LOCALAPPDATA ?? "", "Steuertipps", "SSE", String(profileEngineMajor));
+  if (!existsSync(verzeichnis)) return;
+  const uebrig = readdirSync(verzeichnis).filter((name) => name.startsWith("Wiederhergestellt-"));
+  assert.deepEqual(uebrig, [],
+    `${phase} hat eine Wiederherstellungsdatei hinterlassen: ${uebrig.join(", ")} in ${verzeichnis}. ` +
+    "Sie stammt aus einem unsauber beendeten SSE-Lauf und laesst jeden naechsten Start nachfragen. " +
+    "Inhalt pruefen und bewusst verwerfen, nicht blind loeschen.");
+}
+
 assertNoSse("Vor dem Live-Gate");
+assertNoRecoveryFile("Der Zustand vor dem Live-Gate");
 // Beide Profillaeufe schreiben in dasselbe Verzeichnis; die Bilanz prueft
 // danach, welche Operationen die echte Anwendung wirklich bedient hat.
 const traceDirectory = mkdtempSync(join(tmpdir(), "sse-live-trace-"));
@@ -446,7 +466,9 @@ try {
   for (const profileId of ["2025", "2024"]) {
     assertCaseFileParity(profileId);
     runProfile(profileId);
+    assertNoRecoveryFile(`Das strikte Live-Musterprofil ${profileId}`);
     runFixtureScripts(profileId);
+    assertNoRecoveryFile(`Die Fixture-Skripte des Profils ${profileId}`);
   }
   runCenterCoverage();
   for (const profileId of ["2025", "2024"]) assertProfileReadCoverage(profileId);

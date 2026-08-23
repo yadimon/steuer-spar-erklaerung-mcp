@@ -175,6 +175,30 @@ Zeilen: ${JSON.stringify(gelesen.zeilen)}`;
     assert.equal(geloescht.nochVorhanden, false, `${schritt}: die Zeile gilt weiterhin als vorhanden.`);
   }
 
+  /** Aendert den Betrag einer vorhandenen Zeile und fuehrt das Modell nach. */
+  async function zeileAendern(vonBetrag, nachBetrag, schritt) {
+    const gelesen = await call("sse_table_read", { sumLabel, sumOccurrence, hwnd });
+    const spaltenIndex = gelesen.kopf.indexOf(amountColumn);
+    const treffer = await call("sse_find", { name: vonBetrag, hwnd });
+    const sortiert = [...(treffer.hits ?? [])].sort((links, rechts) => links.x - rechts.x);
+    const betragsSpalten = gelesen.zeilen.flatMap((zeile) => zeile
+      .map((zelle, index) => ({ index, zelle: String(zelle ?? "") }))
+      .filter((eintrag) => eintrag.zelle === vonBetrag)
+      .map((eintrag) => eintrag.index));
+    const targetRid = sortiert[[...betragsSpalten].sort((a, b) => a - b).indexOf(spaltenIndex)]?.rid;
+    assert.equal(typeof targetRid, "string", `${schritt}: keine Runtime-ID fuer '${vonBetrag}'.`);
+
+    const vorher = formatCents(cents);
+    cents += parseCents(nachBetrag) - parseCents(vonBetrag);
+    const nachher = formatCents(cents);
+    const geaendert = await call("sse_table_update", {
+      expectedPage: heading, text: vonBetrag, targetRid,
+      werte: gelesen.kopf.map((spalte) => (spalte === amountColumn ? nachBetrag : null)),
+      sumLabel, sumOccurrence, expectedBefore: vorher, expectedAfter: nachher, hwnd,
+    }, 300_000);
+    assert.equal(geaendert.verified, true, `${schritt}: nicht verifiziert: ${JSON.stringify(geaendert)}`);
+  }
+
   /** Wechselt die Seite und kommt zurueck. Danach muss alles unveraendert sein. */
   async function ortswechsel(schritt) {
     const hin = await call("sse_goto", { name: andereSeite, hwnd }, 300_000);
@@ -213,6 +237,15 @@ Zeilen: ${JSON.stringify(gelesen.zeilen)}`;
   assert(hilfe, "Die Hilfespalte lieferte kein Ergebnis.");
   await pruefeModell("nach dem Lesen der Hilfespalte", MARKER, formatCents(cents));
 
+  // ---- eine vorhandene Zeile aendern, danach wieder von aussen nachlesen
+  const GEAENDERT = "77,77";
+  await zeileAendern(MARKER[2], GEAENDERT, "Aendern der dritten Zeile");
+  await pruefeModell("nach dem Aendern", [MARKER[0], MARKER[1], MARKER[3], MARKER[4], MARKER[5]], formatCents(cents));
+  await ortswechsel("Ortswechsel nach dem Aendern");
+  await pruefeModell("nach dem Ortswechsel", [MARKER[0], MARKER[1], MARKER[3], MARKER[4], MARKER[5]], formatCents(cents));
+  await zeileAendern(GEAENDERT, MARKER[2], "Aenderung zuruecknehmen");
+  await pruefeModell("nach der Ruecknahme", MARKER, formatCents(cents));
+
   // ---- eine loeschen, wieder wegnavigieren
   await zeileLoeschen(MARKER[5], "Loeschen 6");
   await pruefeModell("nach dem Loeschen", MARKER.slice(0, 5), formatCents(cents));
@@ -240,7 +273,7 @@ Zeilen: ${JSON.stringify(gelesen.zeilen)}`;
   process.stdout.write(`Schritte: ${protokoll.join(" | ")}\n`);
   process.stdout.write(
     `Zustandsreise (${profileId}): 6 Zeilen angelegt, 6 geloescht, zwei Ortswechsel nach ` +
-    `'${andereSeite}', Werte-Info und Hilfespalte dazwischen, Tabellensicht und Suche stimmten in jedem ` +
+    `'${andereSeite}', Werte-Info, Hilfespalte und eine Betragsaenderung dazwischen, Tabellensicht und Suche stimmten in jedem ` +
     `Schritt ueberein, Summe zurueck auf ${startSumme}, nichts gespeichert.\n`,
   );
 } finally {

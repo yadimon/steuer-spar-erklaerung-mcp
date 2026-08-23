@@ -355,6 +355,38 @@ Agent oder eigenes Programm
   „unbekannt“, nicht den Nachweis einer abweichend installierten Version. Nach
   dem Launch liefert `product_info` den eigentlichen Buildvergleich.
 
+## Nebenfenster: lesbar, nicht bedienbar
+
+SteuerSparErklärung hostet in **einem** Prozess mehrere Fenster: das
+Hauptfenster mit dem Fall, die Werte-Info, Dialoge, den BelegManager, den
+Einwilligungsdialog beim ersten Start — und ELSTER-, Versand-, Speicher- und
+Dateidialoge.
+
+Deshalb gilt: Nebenfenster desselben verifizierten Prozesses dürfen **gelesen**
+werden (`windows`, `dialog_list`, `snapshot`), aber jede Interaktionsoperation
+bindet ausschließlich an ein echtes Hauptfenster. „Gleiche PID" ist keine
+Berechtigung, und Breite allein ist keine Rollenprüfung: Der BelegManager ist
+963 px breit, die Wiederherstellungsfrage trägt den Produktnamen im Titel. Die
+Bindung verlangt daher Rolle **und** Geometrie
+(`Get-SSEMainWindowCandidates` plus Breitenschwelle), im Lese- wie im
+Schreibpfad.
+
+Das ist eine bewusste Einschränkung mit bekanntem Preis: Der BelegManager ist
+über die API nicht erreichbar, und auf einer frischen Installation lässt sich
+der Einwilligungsdialog nicht beantworten. Beides wird **nicht** dadurch
+gelöst, dass die allgemeine Bindung gelockert wird — ein „Klick auf ein
+beliebiges Fenster derselben PID" würde denselben Weg für Versand- und
+Speicherdialoge öffnen.
+
+Der vorgesehene Weg sind stattdessen eigene, eng gefasste Operationen je
+katalogisierter Fensterrolle. Eine solche Operation braucht mindestens:
+Prozessbindung an das profilierte Produkt, eine im Profil katalogisierte
+Fensterrolle mit Titel, Klasse und Pflichtsteuerelementen, eine vom Aufrufer
+benannte katalogisierte `actionId` statt eines freien Selektors, einen
+Zustandsfingerprint samt Aktivierungs- und Auswahlzuständen, Dialogfreiheit im
+Prozess, die vorhandene Klickprüfung unmittelbar vor der Eingabe und eine
+semantische Nachbedingung. Ohne all das entsteht kein neuer Pfad.
+
 ## Ressourcen statt PC-Pfade
 
 Die lokale Konfiguration ordnet logische Bereiche absoluten Verzeichnissen zu:

@@ -52,7 +52,12 @@ export function registerAnalysisTools(registry: McpRegistry): void {
         "Liest die rechte Spalte: Eingabehilfe, Steuertipps und Prueferhinweise zur aktuellen Seite. " +
         "Dort steht, WIE ein Feld gemeint ist und welche Betraege hineingehoeren - fuer korrektes " +
         "Ausfuellen oft wichtiger als die Feldbeschriftung. Der Inhalt wechselt mit dem angewaehlten " +
-        "Feld. Braucht weder Tastatur noch Maus.",
+        "Feld. Braucht weder Tastatur noch Maus. " +
+        "Die Abschnitte kommen getrennt: Eingabehilfe, Steuertipps, Pruefer, Steuer-Spar-Tipps, jeweils " +
+        "mit text, zeilen und verweise. Die verweise sind programminterne Links des Herstellers; sie " +
+        "lassen sich ueber diese API nicht oeffnen, weil sie in einem Nebenfenster landen. Als " +
+        "Rechtsquelle taugt der Inhalt ohnehin nicht - er gibt die Herstellerauffassung fuer dieses " +
+        "Produktjahr wieder.",
     },
     (r) => ({ seite: r.seite, abschnitte: r.abschnitte, hinweis: r.hinweis }),
   );
