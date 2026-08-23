@@ -1242,6 +1242,26 @@ function ConvertTo-SSEDialogButtonName([string]$Name) {
   $Name
 }
 
+# Rein rechnende Fingerprintbildung - ohne UIA, damit sie pruefbar bleibt.
+#
+# Der Aktivierungszustand gehoert hinein: sonst wechselt der Einwilligungsdialog
+# des ersten Starts von 'OK deaktiviert' zu 'OK aktiviert', ohne dass die
+# Bindung es bemerkt, und der Fingerprint bewiese Frische fuer einen Zustand,
+# den er nie gesehen hat. Reihenfolge und Leerraum duerfen dagegen nichts
+# aendern: dieselbe Frage bleibt dieselbe Frage.
+function Get-SSEDialogFingerprint([string]$Title, $Buttons, $UnsupportedButtons, $Texts) {
+  $body = @(
+    ([string]$Title -replace '\s+', ' ').Trim()
+    ((@($Buttons | ForEach-Object { "$($_.name)=$(if ($_.enabled) { 1 } else { 0 })" }) | Sort-Object) -join '|')
+    ((@($UnsupportedButtons) | Sort-Object) -join '|')
+    ((@($Texts) | Sort-Object) -join '|')
+  ) -join "`0"
+  $bytes = [Text.Encoding]::UTF8.GetBytes($body)
+  $sha = [Security.Cryptography.SHA256]::Create()
+  try { return ([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace('-', '') }
+  finally { $sha.Dispose() }
+}
+
 function Get-DialogDescriptor($Window, [IntPtr]$MainHwnd) {
   $kind = 'other'
   # Mehrere Fälle können gleichzeitig offen sein. Jeder breite SSE-Fall ist
@@ -1361,16 +1381,7 @@ function Get-DialogDescriptor($Window, [IntPtr]$MainHwnd) {
   }
   $fingerprint = $null
   if ($kind -in @('native-dialog','qt-dialog')) {
-    $body = @(
-      ([string]$Window.title -replace '\s+', ' ').Trim()
-      ((@($buttons | ForEach-Object { $_.name }) | Sort-Object) -join '|')
-      ((@($unsupportedButtons) | Sort-Object) -join '|')
-      ((@($texts) | Sort-Object) -join '|')
-    ) -join "`0"
-    $bytes = [Text.Encoding]::UTF8.GetBytes($body)
-    $sha = [Security.Cryptography.SHA256]::Create()
-    try { $fingerprint = ([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace('-', '') }
-    finally { $sha.Dispose() }
+    $fingerprint = Get-SSEDialogFingerprint $Window.title $buttons $unsupportedButtons $texts
   }
   [pscustomobject]@{
     hwnd = [int64]$Window.hwnd; pid = [int]$Window.pid; cls = $Window.cls; title = $Window.title
@@ -1618,7 +1629,14 @@ function Resolve-SteuertippsCenterWindow($a) {
 }
 
 function Resolve-BoundWriteWindow($a) {
-  $windows = @(Get-Windows 'SSE' | Where-Object { $_.w -ge 900 -or $_.minimiert })
+  # Die Breitenschwelle allein ist keine Hauptfensterpruefung. Der BelegManager
+  # ist 963 px breit und gehoert zum selben Prozess - er war damit ein
+  # gueltiger Kandidat fuer jede Schreibaktion, obwohl jede Fehlermeldung hier
+  # von 'Hauptfenster' spricht. Deshalb zuerst dieselbe Rollenpruefung wie im
+  # Lesepfad und erst danach die Breite: die Rolle haelt Hilfsfenster
+  # heraus, die Breite die gleichnamige schmale Wiederherstellungsfrage.
+  $windows = @(Get-SSEMainWindowCandidates (Get-Windows 'SSE') |
+    Where-Object { $_.w -ge 900 -or $_.minimiert })
   if (-not $windows.Count) { Fail 'Kein SSE-Hauptfenster fuer eine Schreibaktion gefunden.' 'no-window' }
   $wantedHwnd = Arg $a 'hwnd'
   $wantedPid = Arg $a 'pid'
@@ -5372,7 +5390,19 @@ switch ($Op) {
       $_.type -eq 'List' -and $_.aid -like '*.m_taxFilesView'
     })
     if ($pathNode.Count -ne 1 -or $listNode.Count -ne 1) {
-      Fail 'Steuertipps-Center zeigt nicht die erwartete Verzeichnis-Fallliste.' 'unexpected-page'
+      # Ohne diese Unterscheidung sagt die Meldung nicht, WAS das Center zeigt.
+      # Der haeufigste Fall ist der gemerkte Modus 'Zuletzt verwendet': dort
+      # fehlt die Pfadzeile. Dieser Weg schaltet bewusst nichts um, also muss
+      # er wenigstens sagen, was umzustellen ist.
+      $recentHier = @($nodes | Where-Object { $_.type -eq 'CheckBox' -and $_.aid -like '*.m_buttonStorageRecent' })
+      $verzeichnisHier = @($nodes | Where-Object { $_.type -eq 'CheckBox' -and $_.aid -like '*.m_buttonStorageDirectory' })
+      if ($recentHier.Count -eq 1 -and $recentHier[0].checked -eq $true) {
+        Fail ("Steuertipps-Center steht im Modus 'Zuletzt verwendet'; dort gibt es keine Verzeichnis-Fallliste. " +
+          "Dieser Weg schaltet den Modus bewusst nicht um - im Center einmal auf 'Verzeichnis' stellen.") 'unexpected-page'
+      }
+      Fail ("Steuertipps-Center zeigt nicht die erwartete Verzeichnis-Fallliste " +
+        "(Pfadzeile $($pathNode.Count), Fallliste $($listNode.Count), Umschalter Verzeichnis/Zuletzt " +
+        "$($verzeichnisHier.Count)/$($recentHier.Count)).") 'unexpected-page'
     }
     $directoryToggle = @($nodes | Where-Object {
       $_.type -eq 'CheckBox' -and $_.aid -like '*.m_buttonStorageDirectory'
