@@ -368,18 +368,23 @@ API-Setup braucht MCP nicht. Der oben dokumentierte vollständige
 Agenten-Standard enthält MCP, weil Prompt 1 ausdrücklich „lokale API plus MCP“
 beauftragt.
 
-Der Servereintrag ist eine einzige ausführbare Datei ohne Argumente und ohne
-Umgebungsvariablen — der Wrapper findet die API über den Standardport:
+Der Servereintrag besteht aus der absoluten `node.exe` und dem MCP-Einstieg,
+ohne weitere Argumente und ohne Umgebungsvariablen — der Wrapper findet die
+API über den Standardport:
 
 ```json
 {
   "mcpServers": {
     "steuer-spar-erklaerung": {
-      "command": "<ORDNER>/node_modules/.bin/steuer-spar-erklaerung-mcp.cmd"
+      "command": "<ABSOLUTE>/node.exe",
+      "args": ["<ORDNER>/node_modules/@yadimon/steuer-spar-erklaerung-mcp/dist/index.js"]
     }
   }
 }
 ```
+
+Kein `.cmd`-Shim, kein `npx`: Seit Node 20 verweigert `spawn` Batchdateien ohne
+Shell, und der Client meldet dann nur `EINVAL`.
 
 Eine vorhandene Client-Konfiguration nie vollständig ersetzen; nur den
 bestätigten Servereintrag mergen. Danach die Serverliste des neu geladenen
