@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import { Readable } from "node:stream";
 import { readCliInputBounded } from "../dist/api-cli.js";
@@ -222,6 +222,25 @@ try {
   const rejectedInline = await runCli("find", "--args-json", "{}", "--config", config.configPath);
   assert.equal(rejectedInline.code, 2);
   assert.match(rejectedInline.stderr, /Unbekannte Option '--args-json'/);
+
+  // Wird das Paket verlinkt statt kopiert - npm mit lokalem Pfad, npm link,
+  // pnpm -, laedt Node das Modul unter seinem aufgeloesten Pfad, waehrend
+  // argv[1] den verlinkten Pfad traegt. Vergleicht die Startweiche beides
+  // unaufgeloest, beendet sich die CLI wortlos mit Exitcode 0 - und genau
+  // dieser Befehl soll eine Installation beweisen.
+  const linkRoot = join(temporary, "verlinkt");
+  mkdirSync(linkRoot, { recursive: true });
+  const linkedDist = join(linkRoot, "dist");
+  symlinkSync(resolve("dist"), linkedDist, "junction");
+  const linkedHelp = spawnSync(process.execPath, [join(linkedDist, "api-cli.js"), "--help"], {
+    cwd: process.cwd(), encoding: "utf8", windowsHide: true, timeout: 20_000,
+  });
+  assert.equal(linkedHelp.status, 0, linkedHelp.stderr);
+  assert.match(
+    linkedHelp.stdout,
+    /steuer-spar-erklaerung-call health/u,
+    "Ueber einen verlinkten Pfad gestartet gab die CLI gar nichts aus und meldete trotzdem Erfolg.",
+  );
 } finally {
   await new Promise((resolveClose) => server.close(resolveClose));
   rmSync(temporary, { recursive: true, force: true });
