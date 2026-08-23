@@ -439,6 +439,34 @@ Microtask. Dass dieses Abgeben je Block wirklich stattfindet, prüft
 
 Die Vermutung ist damit widerlegt und braucht keine Änderung.
 
+## Kalter Feldzyklus, 2026-08-23
+
+Bis zu diesem Tag deckte kein einziger Livetest `sse_change_field`
+(`tracked_set_value`) ab — den einzigen erlaubten Weg, ein Steuerfeld zu
+ändern. Die große Schreibreise prüft Tabellen, UStVA, Speichern, Export und
+Dateiwege, aber nie ein schlichtes beschriftetes Feld. `sse_collect` lief live
+ausschließlich mit `resultRef`; dann liegen die Seiten in einer Datei und das
+Antwortfeld bleibt leer, also konnte der Vertragsbruch bei genau einer Seite
+dort nicht auftreten. Und alles lief auf einer vorpositionierten Kopie in einer
+längst warmen Anwendung, während die Fehler ausgerechnet beim ersten Öffnen der
+Werte-Info auf einer kalten Instanz auftraten.
+
+`test/live-cold-field-cycle.mjs` schließt diese Lücke und läuft im vollen
+Live-Gate vor dem Positionieren auf einer eigenen frischen Kopie:
+
+1. starten, Startseite gegen die Profilerwartung prüfen;
+2. `collect` **ohne** `resultRef` — die Seiten müssen als Liste kommen und ihre
+   Zahl muss zur gemeldeten Seitenzahl passen;
+3. `result_details` auf der kalten Instanz — vollständig und mit Zeilen;
+4. lesen, ändern, **erneut lesen**, falschen Vorwert abweisen lassen, erneut
+   lesen, zurückdrehen, **erneut lesen**;
+5. schließen ohne Speichern; die Kopie muss byteidentisch bleiben.
+
+Gegenprobe am selben Tag: Mit dem wieder eingebauten `collect`-Fehler bricht der
+Zyklus mit `invalid-operation-result` ab, mit der wieder eingebauten doppelten
+Listenverpackung mit `hwnd darf nicht IntPtr.Zero oder NULL sein`. Beide Fehler
+der Version beta.21 werden also gefangen.
+
 ## Installations- und Live-Lauf in einer sauberen VM, 2026-08-23
 
 Ein zweiter VM-Lauf prüfte den heutigen, setup-freien Weg: sauberer

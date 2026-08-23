@@ -116,6 +116,61 @@ function provisionDisposableCase(profileId, template = officialSampleCase(profil
 }
 
 /**
+ * Kalter Lese-/Aenderungs-/Lese-Zyklus auf einem gewoehnlichen Steuerfeld.
+ *
+ * Bewusst VOR dem Positionieren und auf einer eigenen frischen Kopie: Er soll
+ * genau den Zustand treffen, in dem ein Nutzer die Anwendung zum ersten Mal
+ * startet. Alles andere in diesem Gate laeuft auf einer vorpositionierten
+ * Vorlage in einer bereits warmen Anwendung - und genau dort blieben die
+ * Fehler unsichtbar, die den einzigen erlaubten Feldschreibweg blockierten.
+ * Die Kopie muss danach byteidentisch sein; der Zyklus speichert nie.
+ */
+function runColdFieldCycle(profileId) {
+  const profile = loadProductProfile(profileId);
+  const expectations = JSON.parse(readFileSync(join(profile.profileDir, "tests", "expectations.json"), "utf8"));
+  const definition = expectations.cases.find((entry) => entry.coldFieldCycle);
+  assert(definition, `Profil ${profileId} nennt keinen Musterfall mit coldFieldCycle.`);
+  const source = join(
+    STEUERTIPPS_ROOT,
+    profile.executable.installationFolderName,
+    expectations.musterDirRelative,
+    definition.file,
+  );
+  assert(existsSync(source), `Offizieller Musterfall fehlt: ${source}`);
+  const fixture = provisionDisposableCase(profileId, source);
+  process.stdout.write(`\n> Kalter Feldzyklus (${profileId})\n`);
+  try {
+    const run = spawnSync(
+      process.execPath,
+      ["test/with-api.mjs", process.execPath, "test/live-cold-field-cycle.mjs"],
+      {
+        cwd: root,
+        env: {
+          ...process.env,
+          SSE_PROFILE_ID: profileId,
+          SSE_CASE_DIR: fixture.directory,
+          SSE_COLD_FIXTURE: fixture.copy,
+        },
+        stdio: "inherit",
+        windowsHide: true,
+      },
+    );
+    const leakedPids = ssePids();
+    if (run.error) {
+      throw new Error(`Kalter Feldzyklus (${profileId}) konnte nicht ausgefuehrt werden: ${run.error.message}`,
+        { cause: run.error });
+    }
+    assert.equal(run.status, 0, `Kalter Feldzyklus (${profileId}) scheiterte mit Exit ${run.status}.`);
+    assert.equal(leakedPids, "", `Nach dem kalten Feldzyklus (${profileId}): verbliebene SSE-Prozesse (${leakedPids}).`);
+    assert.equal(sha256(source), fixture.sourceHash, `Kalter Feldzyklus (${profileId}): Musterfall veraendert.`);
+    assert.equal(sha256(fixture.copy), fixture.copyHash,
+      `Kalter Feldzyklus (${profileId}): die Kopie hat sich veraendert, es darf aber nichts gespeichert werden.`);
+  } finally {
+    rmSync(fixture.directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  }
+}
+
+/**
  * Stellt die Vorlage einmalig auf die profilierte Formularseite.
  *
  * Gemessen am Herstellermusterfall: Er oeffnet auf einer Uebersichtsseite ohne
@@ -317,6 +372,7 @@ function runFixtureScripts(profileId) {
   );
   // Einmal positionieren, danach je Test eine frische Kopie davon: das spart
   // pro Test einen kompletten sichtbaren Navigationslauf.
+  runColdFieldCycle(profileId);
   const template = provisionDisposableCase(profileId);
   try {
     positionTemplate(profileId, template);
