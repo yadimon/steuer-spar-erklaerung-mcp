@@ -4180,11 +4180,12 @@ function Resolve-TrackedFieldNode($Tree, $CallArgs, [IntPtr]$Hwnd) {
   $direct
 }
 
-# Das fuehrende Komma haelt die Liste eine Liste: ohne das gibt PowerShell
-# genau einen Treffer als Einzelobjekt zurueck, `.Count` ist dann leer und
-# jeder Aufrufer haelt das offene Fenster faelschlich fuer geschlossen.
+# Jeder Aufrufer schreibt @(...) um den Aufruf; PowerShell gibt sonst genau
+# einen Treffer als Einzelobjekt zurueck und `.Count` bleibt leer. Kein
+# fuehrendes Komma hier: zusammen mit dem @() der Aufrufer verpackt es die
+# Liste ein zweites Mal, und dann meldet `.Count` auch ohne Fenster eine Eins.
 function Get-SSEValueInfoWindows([int]$TargetPid) {
-  , @(Get-Windows 'SSE' | Where-Object { $_.title -eq $script:WERTE_INFO_TITEL -and [int]$_.pid -eq $TargetPid })
+  @(Get-Windows 'SSE' | Where-Object { $_.title -eq $script:WERTE_INFO_TITEL -and [int]$_.pid -eq $TargetPid })
 }
 
 # Gemeinsamer Weg zur Werte-Info fuer Lesen und Schreiben.
@@ -4305,6 +4306,20 @@ function Open-TrackedResultWindow([IntPtr]$MainHwnd) {
     return [pscustomobject]@{ ok=$false; error='SSE-Hauptfenster fuer Ergebnis-Tracking nicht mehr eindeutig.' }
   }
   Open-SSEValueInfoWindow $MainHwnd ([int]$main[0].pid)
+}
+
+# Qt fuellt die Vergleichstabelle erst nach dem Erscheinen des Fensters, und
+# nach einer Aenderung rechnet es sie neu. Ein einzelner Leseversuch traf sie
+# beim ersten Oeffnen oft halb gefuellt; der erlaubte Schreibweg scheiterte
+# dann an einer Vorbedingung, die eine Sekunde spaeter erfuellt war.
+function Read-TrackedResultWindowComplete($Window, [int]$TimeoutMs = 8000) {
+  $gelesen = Read-TrackedResultWindow $Window
+  $frist = [Diagnostics.Stopwatch]::StartNew()
+  while (-not $gelesen.ok -and $frist.ElapsedMilliseconds -lt $TimeoutMs) {
+    Start-Sleep -Milliseconds 400
+    $gelesen = Read-TrackedResultWindow $Window
+  }
+  $gelesen
 }
 
 function Read-TrackedResultWindow($Window) {
@@ -6956,10 +6971,15 @@ switch ($Op) {
           'Entweder die Werte-Info einmal mit result_details (MCP: sse_result_details) oeffnen ' +
           'oder die Aenderung bewusst mit trackResults=false ohne Ergebnisvergleich schreiben.') 'precondition-failed'
       }
-      $resultBefore = Read-TrackedResultWindow $tracking.window
+      $resultBefore = Read-TrackedResultWindowComplete $tracking.window
       if (-not $resultBefore.ok) {
         $null = Close-TrackedResultWindow $tracking
-        Fail 'Ergebnisstand vor der Aenderung war nicht vollstaendig lesbar.' 'precondition-failed'
+        # Ohne diese Zahlen ist die Meldung eine Sackgasse: Sie sagt nicht, ob
+        # Zeilen fehlen, unpositioniert sind oder die Kopfzeile fehlt.
+        Fail ("Ergebnisstand vor der Aenderung war nicht vollstaendig lesbar: " +
+          "$(@($resultBefore.rows).Count) Zeilen, $(@($resultBefore.malformed).Count) unvollstaendig, " +
+          "$($resultBefore.unpositioned) nicht positioniert, $(@($resultBefore.invariantErrors).Count) Invariantenfehler, " +
+          "$(@($resultBefore.headers).Count) Kopfzeilen.") 'precondition-failed'
       }
       $ergebnisFensterVerschoben = Move-SSEValueInfoAside $tracking.window $hwnd $node
     }
@@ -7081,7 +7101,7 @@ switch ($Op) {
     $resultAfter = $null; $resultDiff = @(); $resultOk = $true
     if ($trackResults) {
       Start-Sleep -Milliseconds 500
-      $resultAfter = Read-TrackedResultWindow $tracking.window
+      $resultAfter = Read-TrackedResultWindowComplete $tracking.window
       $resultOk = [bool]$resultAfter.ok
       if ($resultOk) {
         $labels = @((Arg $a 'resultLabels') | ForEach-Object { [string]$_ })
