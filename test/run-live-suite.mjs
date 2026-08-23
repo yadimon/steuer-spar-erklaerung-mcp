@@ -137,7 +137,14 @@ function runColdFieldCycle(profileId) {
     definition.file,
   );
   assert(existsSync(source), `Offizieller Musterfall fehlt: ${source}`);
-  const fixture = provisionDisposableCase(profileId, source);
+  // Eigene Kopie statt provisionDisposableCase: das baut den Dateinamen immer
+  // aus dem Gewinnermittlungs-Musterfall, und eine ESt-Datei unter .Gew2025
+  // weist die Startmodus-Pruefung zu Recht ab.
+  const sourceHash = sha256(source);
+  const directory = mkdtempSync(join(tmpdir(), `sse-cold-${profileId}-`));
+  const copy = join(directory, `kaltzyklus${extname(source)}`);
+  copyFileSync(source, copy);
+  const fixture = { directory, copy, sourceHash, copyHash: sha256(copy) };
   process.stdout.write(`\n> Kalter Feldzyklus (${profileId})\n`);
   try {
     const run = spawnSync(
