@@ -62,7 +62,7 @@ try {
   const npxApiHelp = npm([
     "exec", "--yes", "--package", apiSource, "--", "steuer-spar-erklaerung-api", "--help",
   ], { cwd: npxRoot });
-  assert.match(npxApiHelp, /Ohne --config wird beim ersten Foreground-Start/u);
+  assert.match(npxApiHelp, /Ohne --config liegt alles unter %LOCALAPPDATA%/u);
   const npxCliHelp = npm([
     "exec", "--yes", "--package", apiSource, "--", "steuer-spar-erklaerung-call", "--help",
   ], { cwd: npxRoot });
