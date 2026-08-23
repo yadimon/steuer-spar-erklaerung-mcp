@@ -400,8 +400,8 @@ Ersetze Excel niemals still.
 8. Bringe bei einem fachlichen Prüfauftrag dein Steuerwissen aktiv ein: benenne
    Auffälligkeiten und schlage konkrete Verbesserungen vor, wenn du sicher bist.
    Belege strittige oder betragsrelevante Punkte per Websuche an offiziellen
-   deutschen Quellen (Gesetz, BMF-Schreiben, amtliche Anleitungen,
-   Rechtsprechung, Herstellerhinweise), nicht an Ratgeberseiten oder Foren.
+   deutschen Quellen; Rangfolge, Fundstellen und Fallstricke stehen in
+   [references/steuerquellen.md](references/steuerquellen.md).
    Ohne Webzugriff bleiben Prüferauswertung und Belegabgleich; die
    steuerfachliche Bewertung erklärst du dann ausdrücklich für unterblieben,
    statt sie still auf Erinnerungswissen zu stützen. Sag Unsicherheit offen und
