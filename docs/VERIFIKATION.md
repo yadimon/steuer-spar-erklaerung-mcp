@@ -457,7 +457,7 @@ Instanz, ein geschützter Feldschreibvorgang über `tracked_set_value` samt
 Rückgängigmachen sowie `close` ohne Speichern. Derselbe Weg lief auch über den
 MCP-Server mit allen 88 Werkzeugen.
 
-Der Lauf deckte sechs Fehler auf, die kein Offline-Test zeigte:
+Der Lauf deckte fünf Fehler auf, die kein Offline-Test zeigte:
 
 - `collect` verletzte den Ergebnisvertrag, sobald ein Segment genau eine Seite
   erfasste; die Operation war über die API damit unbenutzbar.
@@ -465,7 +465,6 @@ Der Lauf deckte sechs Fehler auf, die kein Offline-Test zeigte:
   Öffnen der Werte-Info nur einmal fest gewartet wurde.
 - Deckte die Werte-Info das Zielfeld ab, brach der Schreibvorgang mit
   „fremde Eingabe" ab, obwohl niemand eingegriffen hatte.
-- `health` meldete ohne laufendes Programm `drifted=true`.
 - `close` meldete einen Fehlschlag, obwohl das Programm regulär beendete.
 - `get_value` und der Schreibweg lösten denselben Feldnamen verschieden auf.
 

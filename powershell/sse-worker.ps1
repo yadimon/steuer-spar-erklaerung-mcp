@@ -5215,16 +5215,15 @@ switch ($Op) {
     $processIdentities = @(Get-SSEProcessIdentities)
     $procs = @(Get-SSEProcesses)
     if (-not $procs) {
-      # Ohne laufenden Prozess gibt es keinen Prozess-Build. Frueher ging hier
-      # ein leerer Wert hinein, und die Antwort meldete drifted=true, obwohl
-      # gar nichts abgewichen war - ein Fehlalarm bei jedem Start. Der Build
-      # der installierten Datei ist die richtige Auskunft.
-      $ruhenderBuild = [string](Get-SSEExecutableIdentity $script:SSE_DEFAULT_EXE).fileVersion
+      # Ohne laufenden Prozess ist der Build absichtlich leer und drifted wahr:
+      # das heisst 'nicht messbar', nicht 'abweichend installiert'. Den Build
+      # der installierten Datei liefert product_info; health beschreibt nur den
+      # laufenden Prozess. Siehe docs/ARCHITEKTUR.md und den Hauptskill.
       Emit ([pscustomobject]@{
         ok = $true; running = $false; windows = @()
         profileId=$script:SSE_PROFILE_ID; product=[string]$script:SSE_PROFILE.product; taxYear=$script:SSE_TAX_YEAR
         ignoredRunning=@($processIdentities | Where-Object { -not $_.supported })
-        buildDrift=(Get-SSEBuildDrift ([string]$script:SSE_PROFILE.verifiedBuild) $ruhenderBuild)
+        buildDrift=(Get-SSEBuildDrift ([string]$script:SSE_PROFILE.verifiedBuild) '')
         note = $(if ($processIdentities.Count) { "Keine unterstuetzte Instanz von '$($script:SSE_PROFILE.product)'. Andere Produktprofile werden nicht gesteuert." }
                  else { "$($script:SSE_PROFILE.product) laeuft nicht." })
       })
