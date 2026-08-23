@@ -97,6 +97,7 @@
     "test:live": "npm run build && node test/run-live-suite.mjs",
     "test:live-core-read": "npm run build && node test/run-live-core-read.mjs",
     "test:live-journey": "npm run build && node test/run-live-journey.mjs",
+    "test:live-cold-cycle": "npm run build && node test/run-live-cold-cycle.mjs",
     "test:live-center": "npm run build && node test/run-live-center.mjs",
     "test:live-muster": "node test/with-api.mjs node test/live-muster-cases.mjs",
     "test:live-ustva-next-year": "npm run build && node test/with-api.mjs node test/live-ustva-next-year.mjs",

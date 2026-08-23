@@ -11,6 +11,11 @@
       "terminalCollect": {
         "headingAtLaunch": "Vorbereitung Steuererklärung 2025"
       },
+      "coldFieldCycle": {
+        "headingAtLaunch": "Vorbereitung Steuererklärung 2025",
+        "field": "Seit wann?",
+        "valueKind": "date"
+      },
       "expectedRows": [
         ["Erstattung", "3.540,63 €"],
         ["Werbungskosten Heinz", "2.140,00 €"],
