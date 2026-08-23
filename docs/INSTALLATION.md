@@ -20,7 +20,7 @@ npm i @yadimon/steuer-spar-erklaerung-mcp
 npx -y skills add yadimon/steuer-spar-erklaerung-mcp `
   --skill steuer-spar-erklaerung --agent codex --copy --yes
 
-codex mcp add steuer-spar-erklaerung -- C:\mein-steuer-ai\node_modules\.bin\steuer-spar-erklaerung-mcp.cmd
+codex mcp add steuer-spar-erklaerung -- (Get-Command node).Source C:\mein-steuer-ai\node_modules\@yadimon\steuer-spar-erklaerung-mcp\dist\index.js
 
 .\node_modules\.bin\steuer-spar-erklaerung-api.cmd --config C:\mein-steuer-ai\config.json
 ```
@@ -29,7 +29,7 @@ Der letzte Befehl bleibt im Vordergrund; das Terminal offen lassen. Danach den
 Client einmal neu starten, damit er den MCP-Server lädt.
 
 Für Claude Code statt Codex `--agent claude-code` und
-`claude mcp add --scope project steuer-spar-erklaerung -- <derselbe Pfad>`.
+`claude mcp add --scope project steuer-spar-erklaerung -- <node.exe> <derselbe index.js>`.
 
 Der Rest dieser Seite erklärt jeden Schritt, die Fallen und die Grenzen. Wer
 nur prüfen lassen will, springt zu [Kopierbare Prompts](#kopierbare-prompts).
@@ -171,8 +171,17 @@ dessen Pfade landen sonst in Startpunkten und zeigen später ins Leere.
 
 ## 4. MCP an den Client binden
 
-Der MCP-Eintrag ist eine einzige ausführbare Datei ohne Argumente und ohne
+Der MCP-Eintrag besteht aus der absoluten `node.exe` und dem absoluten Pfad zu
+`dist/index.js` des MCP-Pakets — ohne weitere Argumente und ohne
 Umgebungsvariablen. Der Wrapper findet die API über den Standardport.
+
+**Nicht den `.cmd`-Shim aus `node_modules\.bin` eintragen.** Seit Node 20
+verweigert `spawn` das Starten von `.cmd`- und `.bat`-Dateien ohne Shell
+(Absicherung gegen CVE-2024-27980); ein MCP-Client bekommt dabei nur `EINVAL`
+und meldet den Server als nicht startbar. Gemessen: über den Shim scheitert
+der Start, über `node` plus `index.js` antwortet der Server normal. Aus
+demselben Grund gehören auch `npx` und andere Wrapper nicht in den Eintrag.
+Den Pfad der Laufzeit liefert `(Get-Command node).Source`.
 
 Vor jeder Clientänderung den Dateipfad und einen Diff zeigen und Zustimmung
 einholen. Eine im Auftrag bereits enthaltene bedingte Zustimmung reicht, wenn
@@ -182,7 +191,7 @@ mergt und keine anderen Einträge löscht. Niemals die ganze Datei ersetzen.
 - **Claude Code:**
 
   ```powershell
-  claude mcp add --scope project steuer-spar-erklaerung -- C:\mein-steuer-ai\node_modules\.bin\steuer-spar-erklaerung-mcp.cmd
+  claude mcp add --scope project steuer-spar-erklaerung -- (Get-Command node).Source C:\mein-steuer-ai\node_modules\@yadimon\steuer-spar-erklaerung-mcp\dist\index.js
   ```
 
   Das schreibt eine `.mcp.json` in den Ordner. Achtung: Der von npm erzeugte
@@ -192,7 +201,7 @@ mergt und keine anderen Einträge löscht. Niemals die ganze Datei ersetzen.
 - **Codex:**
 
   ```powershell
-  codex mcp add steuer-spar-erklaerung -- C:\mein-steuer-ai\node_modules\.bin\steuer-spar-erklaerung-mcp.cmd
+  codex mcp add steuer-spar-erklaerung -- (Get-Command node).Source C:\mein-steuer-ai\node_modules\@yadimon\steuer-spar-erklaerung-mcp\dist\index.js
   ```
 
   Codex kennt nur eine globale Konfiguration. Wer den Eintrag nur im Ordner

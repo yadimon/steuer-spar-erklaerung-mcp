@@ -181,8 +181,13 @@ assert(installation.includes("hashverifizierte Kopie") && installation.includes(
 assert(installation.includes("MCP-Tools `sse_health`") && installation.includes("`ok=true`"));
 assert(installation.includes("Technisches Setup bereit; Client-Verifikation nach Neustart") && installation.includes("Prompt 2 übernimmt"));
 assert(
-  installation.includes("steuer-spar-erklaerung-api.cmd --config") && installation.includes("steuer-spar-erklaerung-mcp.cmd"),
-  "Die Anleitung muss den API-Start und den argumentfreien MCP-Eintrag zeigen.",
+  installation.includes("steuer-spar-erklaerung-api.cmd --config")
+    && /steuer-spar-erklaerung-mcp[\\/]dist[\\/]index\.js/u.test(installation),
+  "Die Anleitung muss den API-Start und den MCP-Einstieg als .js zeigen.",
+);
+assert(
+  installation.includes("CVE-2024-27980") && installation.includes("Nicht den `.cmd`-Shim"),
+  "Die Anleitung muss begruenden, warum der MCP-Eintrag kein Batch-Wrapper sein darf.",
 );
 assert(
   installation.includes("required = true")
@@ -274,6 +279,10 @@ assert(readme.includes("bedingten additiven MCP-Merges") && readme.includes("Sto
 assert(readme.includes("OpenCode bleibt ein sekundärer, best-effort Client") && readme.includes("Claude Code CLI"));
 assert(readme.includes("Download, Installation in den Ordner") && readme.includes("Starte den lokalen Agenten dann einmal neu"));
 assert(readme.includes("MCP als optionale Produktfunktion") && readme.includes("Agenten-Standard enthält MCP"));
+assert(
+  !/mcpServers[\s\S]{0,400}steuer-spar-erklaerung-mcp\.cmd/u.test(readme),
+  "Das README darf keinen .cmd-Shim als MCP-Befehl zeigen; ein Client kann ihn nicht starten.",
+);
 assert(readme.includes("Kernwerkzeuge des Standard-Prüflaufs") && readme.includes("alle 88 Operationen"));
 assert(
   main.includes("https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md")
