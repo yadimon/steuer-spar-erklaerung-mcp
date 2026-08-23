@@ -3,13 +3,14 @@
 Dieses Projekt veröffentlicht keinen gehosteten Dienst. Es hat zwei bewusst
 getrennte Distributionsartefakte:
 
-- `@yadimon/steuer-spar-erklaerung-api` für API, CLI und Setup;
+- `@yadimon/steuer-spar-erklaerung-api` für API und CLI;
 - `@yadimon/steuer-spar-erklaerung-mcp` als PC-blinden MCP-Wrapper.
 
 Das Root-`package.json` bleibt als Build-Workspace `private: true`. Nur die
-beiden Manifeste unter `packages/` sind veröffentlichbar. GitHub Releases
-bleiben der vollständige Weg für Nutzer ohne Node.js/npm und werden durch npm
-nicht ersetzt.
+beiden Manifeste unter `packages/` sind veröffentlichbar. Das GitHub-Release
+trägt keine Anhänge: Es hält Tag, Release Notes und die Verbindung zum
+Quellstand: die Produktartefakte sind allein die beiden npm-Tarballs. Ohne
+Node.js und npm ist das Produkt nicht installierbar.
 
 Die Windows-CI besitzt absichtlich nur Leserechte. Sie baut und prüft ein
 kurzlebiges Artefakt, veröffentlicht aber weder Tags noch Releases. Jeder
@@ -78,8 +79,8 @@ npm run check
 Remove-Item Env:SSE_TEST_CONCURRENCY
 ```
 
-Der Clean-install-Smoke muss vier CLI-Einstiege und den 88-Tool-MCP-Vertrag aus
-zwei getrennten Tarballs bestätigen. Danach nochmals prüfen, dass der Worktree
+Der Clean-install-Smoke muss die drei CLI-Einstiege und den 88-Tool-MCP-Vertrag
+aus zwei getrennten Tarballs bestätigen. Danach nochmals prüfen, dass der Worktree
 sauber ist. Private Steuerdaten, lokale Konfigurationen und Test-Arbeitskopien
 dürfen nicht im Commit oder Artefakt liegen.
 
@@ -207,11 +208,10 @@ Nach Veröffentlichung und Aktualisierung von `main`:
 npx skills add yadimon/steuer-spar-erklaerung-mcp --list
 ```
 
-Die Ausgabe muss `steuer-spar-erklaerung` und
-`steuer-spar-erklaerung-setup` mit den aktuellen Beschreibungen zeigen. Danach
-den README-Schnellstart, den direkten Skill-Link und den Release-Download in
-einer frischen Browser-Sitzung öffnen.
+Die Ausgabe muss den einen Skill `steuer-spar-erklaerung` mit seiner aktuellen
+Beschreibung zeigen. Danach den README-Schnellstart und den direkten Skill-Link
+in einer frischen Browser-Sitzung öffnen.
 
-Erst wenn Tag, Prerelease, beide Assets, Hash-Readback, Skill-Auflistung und
+Erst wenn Tag, Prerelease, beide Registry-Versionen, Skill-Auflistung und
 README gemeinsam stimmen, ist der Stand für eine öffentliche Ankündigung
 bereit.
