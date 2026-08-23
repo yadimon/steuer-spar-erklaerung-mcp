@@ -132,6 +132,50 @@ try {
   }
 
   {
+    // Vor dem Laden fragt SteuerSparErklaerung erst, ob die
+    // Wiederherstellungsdatei geladen werden soll. Diese Qt-Meldungsbox traegt
+    // denselben Programmtitel wie ein Fallfenster, ist aber nur rund 520 Pixel
+    // breit. Live beobachtet: ohne Groessenpruefung band der Start sie als
+    // Hauptfenster und meldete ready=true, waehrend die Frage offen stand.
+    const pid = 4111;
+    const closeCalls = [];
+    const execute = createApiExecutor(config, async (operation, args) => {
+      if (operation === "launch") return { ok: true, launched: true, pid };
+      if (operation === "windows") {
+        return {
+          ok: true,
+          windows: [{
+            pid,
+            hwnd: 8111,
+            title: "SteuerSparErklärung für das Steuerjahr 2025",
+            w: 518,
+            h: 260,
+            minimiert: false,
+          }],
+        };
+      }
+      if (operation === "dialog_list") return { ok: true, dialogs: [] };
+      if (operation === "close") { closeCalls.push(args); return { ok: true }; }
+      return { ok: false, kind: "fixture", error: operation };
+    });
+    // Kurzes Budget: die Entscheidung faellt bewusst erst nach Ablauf.
+    const result = await execute("launch", { mode: "normal" }, 30_000);
+    assert.equal(result.ok, false, "Eine offene Startrueckfrage darf nicht als bereit gelten.");
+    assert.equal(result.kind, "startup-question");
+    assert.equal(result.ready, false);
+    assert.equal(result.instance, null, "Eine Meldungsbox ist kein bindbares Hauptfenster.");
+    assert.equal(result.startupPrompts.length, 1);
+    assert.equal(result.startupPrompts[0].hwnd, 8111);
+    assert.match(result.error, /Wiederherstellungsdatei/u);
+    assert.equal(result.processStillRunning, true);
+    assert.deepEqual(
+      closeCalls,
+      [],
+      "Den Prozess hier zu beenden erzeugte die naechste Wiederherstellungsdatei und damit dieselbe Sackgasse.",
+    );
+  }
+
+  {
     const pid = 4103;
     const execute = createApiExecutor(config, async (operation) => {
       if (operation === "launch") return { ok: true, launched: true, pid };
