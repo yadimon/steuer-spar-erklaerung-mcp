@@ -59,6 +59,8 @@ So sieht der Ordner am Ende aus:
 ```text
 C:\mein-steuer-ai\
   node_modules\            API und MCP
+  .agents\skills\          der Skill, vom Installer angelegt
+  skills-lock.json         welche Skillversion installiert ist
   logs\                    API-Protokoll
   workspace\
     settings.md            Belegquellen und Regeln in Prosa
