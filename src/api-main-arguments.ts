@@ -7,9 +7,16 @@ export interface ApiMainArguments {
 }
 
 export const API_MAIN_USAGE = [
-  "Aufruf: steuer-spar-erklaerung-api [--config <config.json>] [--case-dir <Fallordner>]",
-  "Ohne --config wird beim ersten Foreground-Start eine lokale Standardkonfiguration erzeugt.",
+  "Aufruf: steuer-spar-erklaerung-api [--config <ordner>\\config.json] [--case-dir <Fallordner>]",
+  "",
+  "--config nennt den absoluten Pfad der Konfigurationsdatei und legt damit fest,",
+  "  wo Arbeitsbereich und Protokoll entstehen. Die Datei muss nicht existieren:",
+  "  jedes Feld hat einen Standardwert, und der erste Start legt die Ordner an.",
+  "  Ohne --config liegt alles unter %LOCALAPPDATA%\\SteuerSparErklaerungApi.",
   "--case-dir bindet nur den laufenden Prozess an einen bestaetigten absoluten Fallordner.",
+  "",
+  "Die API kennt keine Anmeldung. Sie lauscht nur auf Loopback und weist Aufrufe",
+  "aus einem Browser ueber 'Origin', 'Sec-Fetch-Site' und 'Host' mit 403 ab.",
 ].join("\n");
 
 export function parseApiMainArguments(argv: readonly string[]): ApiMainArguments {
