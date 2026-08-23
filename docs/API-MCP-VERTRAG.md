@@ -91,7 +91,14 @@ ersetzt.
 ## MCP-Abbildung
 
 - MCP validiert unbekannte, falsch typisierte und zu große Argumente vor dem
-  API-Aufruf.
+  API-Aufruf. Nennt eine Meldung einen unbekannten Feldnamen, listet sie die
+  erlaubten Namen der Operation gleich mit.
+- Fehlertexte des Arbeitsprozesses nennen **MCP-Werkzeugnamen** (`sse_…`), auch
+  wenn der Aufruf über die API oder die CLI kam. Ein Werkzeugname trägt dort
+  teils mehr Information als der Operationsname: `sse_change_field` und
+  `sse_change_known_field` sind beide `tracked_set_value`. Die vollständige
+  Zuordnung steht maschinenlesbar in
+  `capabilities.transport.mcpToolOperations`.
 - API-Fehlerfelder werden nicht durch eine Fehler-Allowlist abgeschnitten;
   MCP markiert sie mit `isError=true`.
 - Erfolgreiche Antworten bleiben als JSON-Text verfügbar. Einige Werkzeuge
