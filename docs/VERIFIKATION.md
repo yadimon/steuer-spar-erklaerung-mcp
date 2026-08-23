@@ -420,6 +420,25 @@ Nicht belegt und ausdrücklich außerhalb dieser Grenze: ein anderer lokaler
 Prozess desselben Windows-Kontos, und ein vorgeschalteter Proxy, der die
 Herkunftskopfzeilen entfernt, bevor die API sie sieht.
 
+## /healthz unter Hashlast, 2026-08-23
+
+Die API sagt zu, `/healthz` melde den Fortschritt jederzeit. Weil das
+Workspace-Hashing synchron mit `readSync` liest, stand die Vermutung im Raum,
+ein grosses Listing blockiere die Ereignisschleife und mache diese Zusage
+falsch. Gemessen statt vermutet:
+
+Bei 300 Dateien à 2 MiB im Arbeitsbereich hashte ein `workspace_file_list`
+innerhalb seines Gesamtbudgets 32 Dateien und lief 405 ms. Währenddessen
+antwortete `/healthz` 26-mal, im Median in 1,4 ms und im Maximum in 7,0 ms.
+
+Die Ereignisschleife bleibt also frei. Der Grund ist strukturell und nicht
+zufällig: Der Hashgenerator gibt nach jedem 64-KiB-Block ab, und der Treiber
+wartet zwischen zwei Arbeitseinheiten auf `setImmediate` statt auf eine blosse
+Microtask. Dass dieses Abgeben je Block wirklich stattfindet, prüft
+`test/workspace-file-cancellation.mjs` über den `hash-chunk`-Rückruf.
+
+Die Vermutung ist damit widerlegt und braucht keine Änderung.
+
 ## Isolierter First-Run-VM-Smoke vom 2026-08-18
 
 Ein realer Endnutzerlauf startete aus einem sauberen VirtualBox-Snapshot mit
