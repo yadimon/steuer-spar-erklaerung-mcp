@@ -319,6 +319,9 @@ const FIXTURE_SCRIPTS = [
   { label: "Toolbar-CheckBox", script: "test/toggle-transaction.mjs", fixtureVariable: "SSE_TOGGLE_FIXTURE" },
   { label: "Tabellen-Lebenszyklus", script: "test/table-lifecycle-transaction.mjs", fixtureVariable: "SSE_TABLE_FIXTURE" },
   { label: "Profilierter Focusless-Schreibweg", script: "test/hidden-wm-char-transaction.mjs", fixtureVariable: "SSE_FOCUSLESS_FIXTURE" },
+  // Legt an und loescht wieder, speichert aber nie - die Kopie bleibt also
+  // unveraendert und der Eintrag gehoert hierher und nicht zur Schreibreise.
+  { label: "Zustandsreise", script: "test/live-state-journey.mjs", fixtureVariable: "SSE_STATE_FIXTURE" },
 ];
 
 /**

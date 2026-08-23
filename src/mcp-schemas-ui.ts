@@ -44,7 +44,12 @@ export const SSE_MCP_UI_SCHEMAS = {
   }).strict(),
   "sse_table_read": z.object({
     maxRows: TABLE_MAX_ROWS.optional().describe("Obergrenze der Pfeiltastenschritte, Vorgabe 200, maximal 1000"),
-    noKeys: z.boolean().optional().describe("Nur sichtbare Zeilen, ohne Fenster nach vorn zu holen"),
+    noKeys: z.boolean().optional().describe(
+      "Nur sichtbare Zeilen, ohne Fenster nach vorn zu holen. Damit entfaellt der Cursorlauf, "
+      + "und der Vollstaendigkeitsbeweis ist unmoeglich: vollstaendig bleibt false und stopKind "
+      + "visible-only, auch wenn zufaellig alle Zeilen sichtbar waren. Fuer einen belastbaren "
+      + "Tabellenstand weglassen.",
+    ),
     sumLabel: z.string().optional().describe("Bei mehreren Tabellen: Beschriftung der zugehoerigen Kontrollsumme"),
     sumOccurrence: UI_OCCURRENCE.optional().describe("1-basierte Position der Kontrollsumme; Vorgabe 1"),
     hwnd: WINDOW_HANDLE.optional(),

@@ -14242,7 +14242,7 @@ switch ($Op) {
       $rolledBack = [bool](-not $rollbackInterference -and $targetRestored -and
         (Test-SSEScalarEqual $rollbackRead.value $expectedBefore))
       Emit ([pscustomobject]@{
-        ok = $false; kind = 'postcondition-failed'; geloescht = $text
+        ok = $false; kind = 'postcondition-failed'; geloescht = $false; target = $text
         error = $(if ($rolledBack) {
           'Nachbedingung verletzt; Aenderung automatisch rueckgaengig gemacht.'
         } elseif ($rollbackInterference) {
@@ -14269,7 +14269,7 @@ switch ($Op) {
       })
     }
     Emit ([pscustomobject]@{
-      ok = $true; geloescht = $text; nochVorhanden = $false
+      ok = $true; geloescht = $true; target = $text; nochVorhanden = $false
       expectedPage=$expectedPage; page=$headingAfter
       sumLabel = $sumLabel; sumOccurrence = $sumOccurrence; before = $before; after = $after
       expectedBefore = $expectedBefore; expectedAfter = $expectedAfter
