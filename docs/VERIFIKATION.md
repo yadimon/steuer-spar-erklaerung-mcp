@@ -564,6 +564,40 @@ Der Lauf deckte fünf Fehler auf, die kein Offline-Test zeigte:
 Nicht geprüft: ein echter Agentenlauf — im Gast war Claude Code installierbar,
 aber nicht angemeldet; ferner die sechs VaSt-Wege und jeder ELSTER-Pfad.
 
+## Eingeklappte Navigationsspalte, 2026-08-24
+
+Gemessen in derselben sauberen VM, nach einem Neuaufbau der SSE-Benutzerkonfiguration.
+Der Bildschirm war 1020 Pixel breit, das Programmfenster 1086 Pixel ab x = -8.
+
+`sse_page` lieferte auf „Vorbereitung Steuererklärung 2025" **sieben Felder mit
+korrekten Werten und ausnahmslos leerer Beschriftung**. Die Beschriftungen
+standen im Baum — „Wie ist Ihr Familienstand?" bei x = 98, „Seit wann?" bei
+x = 484 in derselben Bildschirmzeile wie ihr Feld. Ursache war nicht das Lesen
+der Knoten, sondern ihre Eingrenzung: Die Navigationsspalte war eingeklappt und
+erschien als Baum der Breite 0. `Get-ContentBounds` erkennt sie deshalb nicht
+und fällt auf 28 % der Fensterbreite zurück — hier x ≥ 296. Die
+Beschriftungsspalte lag links davon.
+
+Derselbe Rückfall trug drei Symptome:
+
+| Symptom | Messung vorher | Messung nachher |
+| --- | --- | --- |
+| `sse_page` | 0 von 7 Feldern beschriftet | 4 von 7 (drei Werkzeugleisten-Elemente tragen keine) |
+| `sse_get_value 'Seit wann?'` | leer, aufgelöst über `selektor` | der Wert des Musterfalls, aufgelöst über `beschriftung` |
+| `tracked_set_value` | `bad-target` | `interference` (siehe unten) |
+
+Der `get_value`-Treffer war nachweislich der Beschriftungsknoten
+(`…FamStandDatum.Caption`, Typ `Text`, ohne Wert). Der vorhandene Rückfall auf
+das zugehörige Eingabefeld sprang nicht an, weil er auf ein fehlendes
+ValuePattern prüfte statt auf die Rolle des Treffers.
+
+Das Schreiben scheitert in dieser VM weiterhin, jetzt aber mit `interference`:
+Das Fenster ist breiter als der Bildschirm, und der Interaktions-Guard
+verweigert den Klick. Der gelesene Wert blieb unverändert, ein Rückschreiben mit
+dem alten `expectedBefore` wurde korrekt abgewiesen, nichts wurde gespeichert.
+
+Festgehalten von `test/content-bounds-contract.ps1`.
+
 ## Isolierter First-Run-VM-Smoke vom 2026-08-18
 
 Ein realer Endnutzerlauf startete aus einem sauberen VirtualBox-Snapshot mit

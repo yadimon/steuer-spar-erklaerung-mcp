@@ -2344,7 +2344,24 @@ function Get-ContentBounds {
   if ($navTree) { $minX = $navTree.x + $navTree.w + 5 }
   $help = @($tree.nodes | Where-Object { $_.name -in @('Eingabehilfe','Steuertipps') -and $_.x -gt $minX } | Sort-Object x)[0]
   if ($help) { $maxX = $help.x - 10 }
-  [pscustomobject]@{ minX = $minX; maxX = $maxX; winX = $winX; winW = $winW }
+  # navErkannt sagt, ob die linke Grenze gemessen oder nur geraten ist. Eine
+  # eingeklappte Navigationsspalte liefert einen Tree mit Breite 0; dann greift
+  # der Anteilsrueckfall, und links davon steht Inhalt statt Navigation.
+  [pscustomobject]@{ minX = $minX; maxX = $maxX; winX = $winX; winW = $winW; navErkannt = [bool]$navTree }
+}
+
+# Linke Grenze fuer die Suche nach Beschriftungen.
+#
+# Ist die Navigationsspalte eingeklappt, hat sie die Breite 0 und wird nicht als
+# Baum erkannt; dann greift der Anteilsrueckfall, und die Beschriftungsspalte
+# liegt links der geratenen Grenze. Die Folge war ein einziger Fehler mit drei
+# Gesichtern: sse_page lieferte lauter unbeschriftete Felder, get_value gab zur
+# Beschriftung still einen leeren Wert zurueck, und jeder Schreibweg meldete
+# 'bad-target', obwohl das Feld sichtbar dastand. Links steht ohne erkannten
+# Baum keine Navigation, deren Eintraege man faelschlich einfinge.
+function Get-CaptionMinX($Bounds) {
+  if ($Bounds.navErkannt) { return $Bounds.minX }
+  $Bounds.winX
 }
 
 # Element per Namen finden - ohne FindAll, ueber den gelaufenen Baum.
@@ -4171,8 +4188,9 @@ function Resolve-TrackedFieldNode($Tree, $CallArgs, [IntPtr]$Hwnd) {
   if (-not $name) { return $direct }
   $contains = [bool](Arg $CallArgs 'contains' $false)
   $bounds = Get-ContentBounds $Tree $Hwnd
+  $labelMinX = Get-CaptionMinX $bounds
   $labels = @($Tree.nodes | Where-Object {
-    $_.type -eq 'Text' -and $_.name -and $_.x -ge $bounds.minX -and $_.x -le $bounds.maxX
+    $_.type -eq 'Text' -and $_.name -and $_.x -ge $labelMinX -and $_.x -le $bounds.maxX
   })
   if ($contains) { $labels = @($labels | Where-Object { $_.name -like "*$name*" }) }
   else           { $labels = @($labels | Where-Object { $_.name -eq $name }) }
@@ -7811,7 +7829,12 @@ switch ($Op) {
     # mit demselben Namen das zugehoerige Eingabefeld beschrieb - derselbe
     # Selektor bedeutete beim Lesen und beim Schreiben Verschiedenes. Der
     # Rueckfall benutzt exakt die Zuordnung des Schreibwegs.
-    if ($null -eq $vp -and -not $aid -and -not $rid -and $name) {
+    # Ob eine Beschriftung ein ValuePattern anbietet, ist keine verlaessliche
+    # Unterscheidung: Qt exponiert an Textknoten teils eines, das einen leeren
+    # Wert liefert. get_value gab dann still '' zurueck, waehrend das Feld
+    # daneben einen Wert trug - falsche Daten statt eines Fehlers. Entscheidend
+    # ist die Rolle des Treffers, nicht sein Musterangebot.
+    if (($null -eq $vp -or $node.type -eq 'Text') -and -not $aid -and -not $rid -and $name) {
       $feld = Resolve-TrackedFieldNode $t $a $hwnd
       if ($feld -and $feld.rid -ne $node.rid) {
         $feldEl = Get-LiveElement $hwnd $feld.rid $feld.aid
@@ -10166,7 +10189,11 @@ switch ($Op) {
     # --- Felder: alles Beschreibbare mit seiner Beschriftung ---------------
     # Die Beschriftung eines Feldes ist der naechste Text LINKS davon in
     # derselben Bildschirmzeile.
-    $texte = @($t.nodes | Where-Object { $_.type -eq 'Text' -and $_.name -and (& $imInhalt $_) })
+    # Die Suche bleibt additiv: Sie nimmt den naechsten Text links vom Feld, und
+    # ein weiter links stehender Text kann einen bereits gefundenen naeheren nie
+    # verdraengen. Beschriftete Felder behalten damit genau ihre Beschriftung.
+    $textMinX = Get-CaptionMinX $b
+    $texte = @($t.nodes | Where-Object { $_.type -eq 'Text' -and $_.name -and $_.x -ge $textMinX -and $_.x -le $b.maxX })
     $felder = New-Object System.Collections.ArrayList
     foreach ($f in ($t.nodes | Where-Object { $_.type -in @('Edit','ComboBox','CheckBox','RadioButton') -and (& $imInhalt $_) } | Sort-Object y, x)) {
       $label = ($texte | Where-Object { [Math]::Abs($_.y - $f.y) -le 14 -and $_.x -lt $f.x } |
@@ -10233,7 +10260,17 @@ switch ($Op) {
     } | ForEach-Object { $_.name } | Where-Object { $_ -notin @('Eingabehilfe','Steuertipps','Prüfer','Mehr Details','Zurzeit keine Hinweise zu diesem Dialog.') } | Select-Object -Unique)
     $pflichtLeer = @($felder | Where-Object { $_.typ -eq 'ComboBox' -and -not "$($_.wert)".Trim() })
 
+    # Bleibt trotzdem jedes Feld unbeschriftet, ist die Beschriftungsspalte
+    # nicht gefunden worden. Das darf nicht still passieren: Der Aufrufer haelt
+    # die Seite sonst fuer gelesen und laeuft danach in 'bad-target'.
+    $hinweis = $null
+    $ohneBeschriftung = @($felder | Where-Object { -not "$($_.label)".Trim() })
+    if ($felder.Count -and $ohneBeschriftung.Count -eq $felder.Count) {
+      $hinweis = 'Kein Feld dieser Seite hat eine Beschriftung - die Beschriftungsspalte liegt ausserhalb des erkannten Inhaltsbereichs. Felder hier nur ueber rid ansprechen; ein Zugriff ueber die Beschriftung scheitert mit bad-target. Abhilfe: Navigationsspalte einblenden oder das Fenster maximieren.'
+    }
+
     Emit ([pscustomobject]@{
+      hinweis = $hinweis
       ok = $true
       ueberschrift = $heading
       ueberschriftQuelle = $kopfzeile.quelle
