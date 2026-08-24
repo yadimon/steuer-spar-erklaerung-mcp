@@ -371,8 +371,25 @@ Bindung verlangt daher Rolle **und** Geometrie
 (`Get-SSEMainWindowCandidates` plus Breitenschwelle), im Lese- wie im
 Schreibpfad.
 
-Das ist eine bewusste Einschränkung mit bekanntem Preis: Der BelegManager ist
-über die API nicht erreichbar, und auf einer frischen Installation lässt sich
+### Öffnen und Schließen sind davon nicht betroffen
+
+Nicht bedienbar heißt nicht lebenszykluslos. Ein Nebenfenster, das die API
+öffnen kann, muss sie auch wieder schließen können — sonst gelingt eine
+Operation und lässt den Aufrufer in einer Sackgasse zurück. Genau das passierte
+mit dem BelegManager: `menu_click` öffnete ihn, aber Qt führt ihn als Dialog
+ohne einen einzigen Schalter, sodass weder `dialog_answer` noch `window_close`
+griffen und `close` dauerhaft mit `dialog-open` verweigerte.
+
+Ein Nebenfenster, dessen Öffnen die API anbietet, gehört deshalb in den
+Profilkatalog — mit exaktem Titel und `closePolicy`. Die Rolle
+`nonmodal-tool-window` steht für ein bedienbares Programmfenster, das diese API
+nur öffnen, lesen und schließen darf. Ihre Freigabe hängt allein am exakten,
+gross-/kleinschreibungsgenauen Titel, nicht an einer Größenschranke: Ein
+Werkzeugfenster wächst mit dem Bildschirm.
+
+Das ist eine bewusste Einschränkung mit bekanntem Preis: Belege lassen sich
+über die API nicht anlegen oder importieren, und auf einer frischen
+Installation lässt sich
 der Einwilligungsdialog nicht beantworten. Beides wird **nicht** dadurch
 gelöst, dass die allgemeine Bindung gelockert wird — ein „Klick auf ein
 beliebiges Fenster derselben PID" würde denselben Weg für Versand- und
