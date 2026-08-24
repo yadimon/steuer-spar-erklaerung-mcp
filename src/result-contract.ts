@@ -124,7 +124,7 @@ const CORE_OPERATION_RESULT_FIELDS = {
   workspace_file_list: { files: OPTIONAL_ARRAY, truncated: OPTIONAL_BOOLEAN },
   workspace_file_read_text: { text: OPTIONAL_STRING, sha256: OPTIONAL_STRING },
   workspace_file_write_text: { ref: OPTIONAL_STRING, sha256: OPTIONAL_STRING, bytes: OPTIONAL_NON_NEGATIVE_NUMBER },
-  page: { ueberschrift: OPTIONAL_STRING },
+  page: { ueberschrift: OPTIONAL_STRING, hinweis: OPTIONAL_STRING },
   known_page_state: {
     pageId: OPTIONAL_STRING,
     expectedHeading: OPTIONAL_STRING,

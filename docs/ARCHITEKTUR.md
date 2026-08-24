@@ -387,6 +387,32 @@ Zustandsfingerprint samt Aktivierungs- und Auswahlzuständen, Dialogfreiheit im
 Prozess, die vorhandene Klickprüfung unmittelbar vor der Eingabe und eine
 semantische Nachbedingung. Ohne all das entsteht kein neuer Pfad.
 
+## Der Inhaltsbereich einer Seite: gemessen oder geraten
+
+Jede Seitenlesung grenzt links die Navigationsspalte und rechts die Hilfespalte
+ab. Links wird die Grenze **gemessen**, wenn ein Navigationsbaum gefunden wird,
+und sonst auf einen Anteil der Fensterbreite **geraten**. Der Unterschied ist
+kein Detail: Eine eingeklappte Navigationsspalte erscheint als Baum der Breite
+0, wird nicht erkannt, und die geratene Grenze schnitt dann die
+Beschriftungsspalte ab — mit der Folge, dass Seiten ohne Beschriftungen
+zurückkamen, `get_value` still leere Werte lieferte und jeder Schreibweg
+`bad-target` meldete.
+
+Daraus folgen zwei Invarianten, die `Get-CaptionMinX` festhält und
+`test/content-bounds-contract.ps1` prüft:
+
+- Wo die Grenze **gemessen** ist, bleibt sie bindend. Navigationseinträge sind
+  keine Beschriftungen und dürfen nie in die Beschriftungssuche geraten.
+- Wo sie **geraten** ist, darf die Beschriftungssuche nach links ausweichen,
+  denn dort steht dann keine Navigation.
+
+Die Zuordnung Beschriftung → Feld bleibt dabei additiv: Sie nimmt den nächsten
+Text links vom Feld. Ein weiter links stehender Text kann einen bereits
+gefundenen näheren nie verdrängen, also behalten beschriftete Felder genau ihre
+Beschriftung. Lesepfad und Schreibpfad benutzen dieselbe Grenze; liefen sie
+auseinander, bedeutete derselbe Feldname beim Lesen und beim Schreiben
+Verschiedenes.
+
 ## Ressourcen statt PC-Pfade
 
 Die lokale Konfiguration ordnet logische Bereiche absoluten Verzeichnissen zu:
