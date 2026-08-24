@@ -21,7 +21,13 @@
       "role": "nonmodal-result-window",
       "closePolicy": "allow-exact-nonmodal-close"
     },
-    "taxTips": {
+    "receiptManager": {
+    "title": "BelegManager",
+    "role": "nonmodal-tool-window",
+    "closePolicy": "allow-exact-nonmodal-close",
+    "policy": "Qt fuehrt dieses Fenster als Dialog, es traegt aber keinen einzigen Schalter. Es laesst sich oeffnen (sse_menu_click 'BelegManager') und lesen (sse_snapshot, sse_windows), aber nicht bedienen: Klicks binden weiterhin ausschliesslich an das Hauptfenster. Katalogisiert ist es, damit sse_window_close es wieder schliessen kann - ohne diesen Eintrag blockiert es sse_close dauerhaft."
+  },
+  "taxTips": {
       "title": "Steuer-Spar-Tipps",
       "role": "nonmodal-help-window",
       "closePolicy": "allow-exact-nonmodal-close"

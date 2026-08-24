@@ -171,7 +171,7 @@ function Resolve-SSEClosableNonmodalWindowPolicy($Window) {
   foreach ($entry in @($catalog.windows.PSObject.Properties)) {
     $definition = $entry.Value
     $role = [string]$definition.role
-    if ($role -notin @('nonmodal-help-window','nonmodal-result-window') -or
+    if ($role -notin @('nonmodal-help-window','nonmodal-result-window','nonmodal-tool-window') -or
         [string]$definition.closePolicy -ne 'allow-exact-nonmodal-close' -or
         -not [string]$definition.title -or [string]$Window.title -cne [string]$definition.title) {
       continue
@@ -1510,6 +1510,15 @@ function Test-SSESafeAuxiliaryDescriptor($Descriptor) {
   if ($Descriptor.kind -eq 'tips' -and $Descriptor.w -le 850 -and $Descriptor.h -le 650) { return $true }
   if ($Descriptor.title -like 'Die Prüfung hat ergeben*' -and $Descriptor.w -le 850 -and $Descriptor.h -le 650) { return $true }
   if ($Descriptor.title -like 'Werte-Info:*' -and $Descriptor.w -le 900 -and $Descriptor.h -le 700) { return $true }
+  # Ein katalogisiertes Werkzeugfenster wird ueber seinen exakten Titel erkannt
+  # und nicht ueber eine Groessenschranke: Der BelegManager waechst mit dem
+  # Bildschirm und wurde auf 2304 x 1359 gemessen. Ohne diesen Zweig strandet
+  # jeder Aufrufer, der ihn oeffnet - Qt fuehrt ihn als Dialog ohne einen
+  # einzigen Schalter, also greift weder sse_dialog_answer noch das
+  # groessenbeschraenkte Nebenfensterrecht, und sse_close verweigert danach
+  # dauerhaft mit 'dialog-open'.
+  $werkzeug = Resolve-SSEClosableNonmodalWindowPolicy $Descriptor
+  if ($werkzeug -and $werkzeug.role -eq 'nonmodal-tool-window') { return $true }
   $false
 }
 
