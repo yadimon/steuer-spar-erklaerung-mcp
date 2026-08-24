@@ -27,6 +27,22 @@ try {
   [IO.File]::WriteAllText($path, '{broken', (New-Object Text.UTF8Encoding($false, $true)))
   Assert-True (-not (Remove-SSEDesktopMarkerIfOwned $path 'sse' 'SSEAuto' 1234)) 'Defekter Marker wurde entfernt.'
   Assert-True (Test-Path -LiteralPath $path -PathType Leaf) 'Defekter Marker muss zur manuellen Pruefung erhalten bleiben.'
+
+  [IO.File]::WriteAllBytes($path, [byte[]]@(0xc3, 0x28))
+  $invalidUtf8Failed = $false
+  try { Read-SSEDesktopMarker $path | Out-Null } catch { $invalidUtf8Failed = $true }
+  Assert-True $invalidUtf8Failed 'Ungueltiges UTF-8 wurde als Desktop-Marker gelesen.'
+
+  [IO.File]::WriteAllText($path, ('x' * 4097), (New-Object Text.UTF8Encoding($false, $true)))
+  $oversizedFailed = $false
+  try { Read-SSEDesktopMarker $path | Out-Null } catch { $oversizedFailed = $true }
+  Assert-True $oversizedFailed 'Uebergrosser Desktop-Marker wurde gelesen.'
+
+  Remove-Item -LiteralPath $path -Force
+  [IO.Directory]::CreateDirectory($path) | Out-Null
+  $directoryFailed = $false
+  try { Read-SSEDesktopMarker $path | Out-Null } catch { $directoryFailed = $true }
+  Assert-True $directoryFailed 'Ein Verzeichnis wurde als Desktop-Marker gelesen.'
 } finally {
   if (Test-Path -LiteralPath $directory) { Remove-Item -LiteralPath $directory -Recurse -Force }
 }
