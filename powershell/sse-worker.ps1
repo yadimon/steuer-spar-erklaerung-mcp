@@ -4301,6 +4301,28 @@ function Test-SSEPointInRect([int]$X, [int]$Y, [int]$Left, [int]$Top, [int]$Widt
   $X -ge $Left -and $X -lt ($Left + $Width) -and $Y -ge $Top -and $Y -lt ($Top + $Height)
 }
 
+# Die vier Ausweichecken fuer ein Hilfsfenster im Arbeitsbereich eines
+# Bildschirms. Reine Rechnung, damit sie ohne echten Bildschirm pruefbar ist:
+# Die Ecken waren frueher am Hauptfenster ausgerichtet, und weil dieses auf
+# kleinen Bildschirmen breiter als der Schirm ist, deckten alle vier dasselbe
+# Zielfeld weiter ab. Passt das Hilfsfenster nicht in den Arbeitsbereich, wird
+# die Ecke auf dessen Anfang geklemmt: lieber sichtbar stehen bleiben als aus
+# dem Bild rutschen.
+function Get-SSEAsideCorners([int]$Left, [int]$Top, [int]$Right, [int]$Bottom, [int]$Width, [int]$Height, [int]$Margin = 8) {
+  $links = $Left + $Margin
+  $oben = $Top + $Margin
+  $rechts = $Right - $Width - $Margin
+  $unten = $Bottom - $Height - $Margin
+  if ($rechts -lt $links) { $rechts = $links }
+  if ($unten -lt $oben) { $unten = $oben }
+  ,@(
+    @($links, $unten),
+    @($links, $oben),
+    @($rechts, $unten),
+    @($rechts, $oben)
+  )
+}
+
 # Die Werte-Info schwebt ueber dem Hauptfenster. Deckt sie ausgerechnet das
 # Zielfeld ab, bricht die Schreibtransaktion in der Mutationsepoche mit
 # 'epoch-obstructed' ab - und der Aufrufer kann daran nichts aendern, denn eine
@@ -4318,15 +4340,16 @@ function Move-SSEValueInfoAside($Window, [IntPtr]$MainHwnd, $Node) {
   $breite = $info.R - $info.L
   $hoehe = $info.B - $info.T
   if (-not (Test-SSEPointInRect $px $py $info.L $info.T $breite $hoehe)) { return $null }
-  $main = New-Object SW+RC
-  if (-not [SW]::GetWindowRect($MainHwnd, [ref]$main)) { return $null }
-  $rand = 8
-  $ecken = @(
-    @(($main.L + $rand), ($main.B - $hoehe - $rand)),
-    @(($main.L + $rand), ($main.T + $rand)),
-    @(($main.R - $breite - $rand), ($main.B - $hoehe - $rand)),
-    @(($main.R - $breite - $rand), ($main.T + $rand))
-  )
+  # Die Ecken richten sich nach dem Arbeitsbereich des Bildschirms, nicht nach
+  # dem Hauptfenster. Auf kleinen Bildschirmen ist das Hauptfenster breiter als
+  # der Schirm: Gemessen wurden 1086 Pixel Fenster auf 1020 Pixel Schirm, und
+  # alle vier fensterbezogenen Ecken deckten das Zielfeld weiterhin ab - die
+  # Ausweichbewegung gab mit 'keine-freie-ecke' auf, obwohl der Arbeitsbereich
+  # eine freie Ecke hergab. Passt das Hilfsfenster nirgends hin, bleibt es
+  # stehen und die Schreibaktion scheitert sichtbar, statt aus dem Bild zu
+  # rutschen.
+  $flaeche = [System.Windows.Forms.Screen]::FromHandle($MainHwnd).WorkingArea
+  $ecken = Get-SSEAsideCorners $flaeche.Left $flaeche.Top $flaeche.Right $flaeche.Bottom $breite $hoehe
   foreach ($ecke in $ecken) {
     if (Test-SSEPointInRect $px $py ([int]$ecke[0]) ([int]$ecke[1]) $breite $hoehe) { continue }
     # SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE
@@ -7094,9 +7117,16 @@ switch ($Op) {
         elseif (Test-SSETrackedValueEquivalent $observedAfterInterference $expectedAfter $valueKind) { 'requested-value-visible' }
         else { 'different-value-visible' }
       )
+      # 'epoch-obstructed' heisst gerade nicht 'fremde Eingabe': Ueber dem
+      # Zielpunkt lag ein anderes Fenster, deshalb wurde bewusst nicht geklickt.
+      # Wer nur die Sammelmeldung liest, sucht den Fehler bei sich.
+      $stoerung = 'Interaktions-Guard hat fremde Eingabe, ein verschobenes/ausgetauschtes Element oder eine blockierende Fensterlage erkannt. Zustand wurde nur gelesen; kein automatischer Rollback und kein Speichern. Mit sse_ui_state neu synchronisieren.'
+      if ($commitMethod -eq 'epoch-obstructed') {
+        $stoerung = 'Ueber dem Zielfeld lag ein anderes Fenster, deshalb wurde nicht geklickt. Zustand wurde nur gelesen; kein Rollback und kein Speichern. Welches Fenster es war, steht in commitDetails.hitWindow; sse_ui_state listet die offenen Nebenfenster.'
+      }
       Emit ([pscustomobject]@{
         ok=$false; kind='interference'
-        error='Interaktions-Guard hat fremde Eingabe, ein verschobenes/ausgetauschtes Element oder eine blockierende Fensterlage erkannt. Zustand wurde nur gelesen; kein automatischer Rollback und kein Speichern. Mit sse_ui_state neu synchronisieren.'
+        error=$stoerung
         seite=$heading; pageId=$pageId; fieldId=$fieldId; valueKind=$valueKind
         pid=[int]$boundWrite.window.pid; bindung=$boundWrite.bindingMode
         feld=[pscustomobject]@{
