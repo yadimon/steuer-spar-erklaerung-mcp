@@ -120,7 +120,7 @@ Prompt 2. Der neu geladene Agent prüft Serverliste und das echte MCP-Tool
 `sse_health` mit `ok=true`, bevor er den Steuerfall bearbeitet. So bleiben es
 zwei Prompts; „connected“ oder ein Handshake allein gelten nicht als Nachweis.
 Für Codex begrenzt die Installationsanleitung den Modellkatalog auf die
-Kernwerkzeuge des Standard-Prüflaufs; alle 88 Operationen bleiben über die
+Kernwerkzeuge des Standard-Prüflaufs; alle 93 Operationen bleiben über die
 lokale API-CLI verfügbar. Das verhindert, dass aktuelle Codex-Versionen den
 großen unbeschränkten MCP-Katalog vollständig ausblenden.
 
@@ -509,7 +509,7 @@ Felder oder Typvarianten brauchen `SSE_WRITE_OPERATION_SHAPE=1`. Die Bilanzen
 sind damit die verbindliche Antwort auf „welche API-Funktion und Ergebnisform
 ist wirklich belegt?" – Prosa ist es nicht.
 
-Alle 88 API-Operationen veröffentlichen mindestens ein eigenes fachliches
+Alle 93 API-Operationen veröffentlichen mindestens ein eigenes fachliches
 Ergebnisfeld. Die Schemas bleiben trotzdem vorwärtskompatible
 Mindestverträge: Nicht jedes optionale Worker-Feld und nicht jeder UI-Zustand
 ist bereits durch einen echten Live-Lauf erzeugt.

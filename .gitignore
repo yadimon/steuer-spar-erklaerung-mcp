@@ -34,6 +34,9 @@ docs/*.json
 *.NVBescheinigung20*
 *_Backup
 
+# Private lokale, vorerst rechner- und sitzungsspezifische Learnings
+/docs/ai-learning/
+
 # Private lokale Testdaten und VM-Smoke-Umgebung
 /.private/
 /.vm-provisioning/

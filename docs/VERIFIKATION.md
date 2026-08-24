@@ -83,8 +83,8 @@ Zeichen auskommt. Geformte Texte und Antworten mit ausgelagerten Binärfeldern
 bleiben getrennte Darstellungen.
 
 Der Laufzeitkatalog ist die Quelle für die aktuelle Anzahl und Benennung der
-Operationen. Am genannten Stand enthält er 88 API-Operationen und 88
-MCP-Werkzeugnamen. Das sind nicht 88 eindeutige Eins-zu-eins-Zuordnungen:
+Operationen. Am genannten Stand enthält er 93 API-Operationen und 93
+MCP-Werkzeugnamen. Das sind nicht 93 eindeutige Eins-zu-eins-Zuordnungen:
 `sse_change_field` und `sse_change_known_field` rufen beide
 `tracked_set_value` auf; `checker_detail` ist eine API-interne Komposition von
 `sse_checker_open`.
@@ -126,8 +126,8 @@ Trace-Dateien noch in die Bilanz geschrieben. Der Offline-Stand vom
 2026-08-16 enthält 645 Operation-Feld-Beobachtungen außerhalb des
 generischen Transportumschlags; 502 davon sind bereits explizit typisiert.
 Das ist eine sichtbare Ausbaubilanz, kein Prozentwert für praktische
-UI-Abdeckung. Alle 88 Operationen besitzen konkrete Fachfelder; darunter sind
-alle 23 destruktiv annotierten Operationen sowie der nicht destruktive, aber
+UI-Abdeckung. Alle 93 Operationen besitzen konkrete Fachfelder; darunter sind
+alle 24 destruktiv annotierten Operationen sowie der nicht destruktive, aber
 zustandsbehaftete `set_value`-Suchfeldpfad. 143 beobachtete Zusatz- und
 API-Grenzfelder bleiben vom offenen Mindestvertrag durchgelassen, ohne schon
 als stabile Einzelfelder zugesagt zu werden.
@@ -186,17 +186,18 @@ Gezählt wird nur der API-Rand. Operationen, die eine Komposition oder ein
 Szenario intern aufruft, gelten damit nicht automatisch als geprüft; sie
 brauchen einen eigenen Aufruf über die HTTP-Grenze.
 
-Stand: alle 88 Operationen werden im Offline-Lauf mindestens einmal
+Stand: alle 93 Operationen werden im Offline-Lauf mindestens einmal
 erfolgreich ausgeführt – überwiegend gegen den zustandsbehafteten
 synthetischen Worker, der Seitengraph, Elementbaum, Tabelle, Menü, VaSt-Dialog
 und Fenster-/Desktopzustand modelliert. Das beweist Argumentbindung,
 Ressourcenauflösung, Komposition, Ergebnisvertrag und Redaktion über die
 gesamte Kette. Es beweist ausdrücklich **nicht** die proprietäre UIA-Schicht;
 dafür zählt allein die Live-Spalte derselben Bilanz, die echte Worker-Aufrufe
-gegen die installierte Anwendung füllen. Dort stehen am 2026-08-16 81 der 88
+gegen die installierte Anwendung füllen. Dort stehen am 2026-08-24 86 der 93
 Operationen: 78 aus dem letzten vollständig grünen Zwei-Profil-Gate, der
-anschließend gezielt ausgeführte `collect`-Erfolgspfad sowie die zwei separat
-auf einem privaten Desktop belegten Center-Operationen. `collect` ist auf der
+anschließend gezielt ausgeführte `collect`-Erfolgspfad, die zwei separat
+auf einem privaten Desktop belegten Center-Operationen sowie fünf erfolgreich
+in einer Snapshot-VM ausgeführte BelegManager-Operationen. `collect` ist auf der
 profilierten ESt-2025-Startseite ohne `Weiter` erfolgreich mit `end-of-branch` belegt:
 genau eine Seite, kein Navigationsschritt hinter dem gespeicherten Stand und
 hashgleicher Datei-Readback. Der getrennte Zwei-Seiten-Lauf belegt weiterhin
@@ -205,8 +206,18 @@ hashgleicher Datei-Readback. Der getrennte Zwei-Seiten-Lauf belegt weiterhin
 Blätterpfad, nicht für den gesamten Steuerfall. Noch nie erfolgreich live
 aufgerufen sind damit die sechs VaSt-Wege `vast_apply`,
 `vast_dialog_read`, `vast_mapping_options`, `vast_mapping_select`,
-`vast_row_details` und `vast_row_set_expanded` sowie die neue
+`vast_row_details` und `vast_row_set_expanded` sowie die
 Mehrinstanz-Übersicht `instances`.
+
+Der BelegManager-Nachweis verwendete ausschließlich eine synthetische PDF und
+den direkten VM-Runner: `receipt_manager_list` las zunächst eine vollständige
+leere Liste, `receipt_manager_import` legte genau einen Entwurf an, hielt den
+Quell-SHA-256 stabil und bewies eine geänderte Vorschau, `receipt_manager_read`
+las die gebundenen Detailfelder, und `receipt_manager_delete` entfernte genau
+diese Zeile über den profilierten Bestätigungsdialog. Der abschließende
+Listen-Readback war wieder vollständig leer. `receipt_manager_action` bewies
+zusätzlich `list -> start -> list`. Der Steuerfall blieb bei jedem Schritt
+`ungespeichert=false`; es wurde nicht gespeichert und ELSTER nicht geöffnet.
 
 Der Center-Nachweis startet ausschließlich den profilierten 2025-Center in
 einem neuen Windows-Desktop und bindet den gesamten Prozessbaum an einen
@@ -244,9 +255,9 @@ die erzeugte Bilanz bindet. `affectsAvailability=false` und
 `profileSpecific=false` benennen seine Grenzen maschinenlesbar. Ein Profil mit
 `status=supported` und `operationAccess=full` gibt alle Operationen frei –
 unabhängig davon, ob sie jemals erfolgreich gegen die echte Anwendung
-gelaufen sind. Gemessen am 2026-08-16 sind noch 7 der 88 Operationen nicht
-live-funktional belegt: die oben genannten, weiterhin ungetesteten VaSt-Wege.
-Damit sind 81 Operationen `functional` und keine ist derzeit nur als
+gelaufen sind. Gemessen am 2026-08-24 sind noch 7 der 93 Operationen nicht
+live-funktional belegt: die oben genannten sechs VaSt-Wege und `instances`.
+Damit sind 86 Operationen `functional` und keine ist derzeit nur als
 `error-path-only` belegt.
 Zwei davon (`vast_apply`, `vast_mapping_select`) fallen in die
 Klasse `destructive`.
@@ -548,7 +559,7 @@ hashverifizierten Arbeitskopie: `case_hash`, `make_working_copy`, `launch`
 `subpages`, `collect`, `result_details`, `instances` mit genau einer laufenden
 Instanz, ein geschützter Feldschreibvorgang über `tracked_set_value` samt
 Rückgängigmachen sowie `close` ohne Speichern. Derselbe Weg lief auch über den
-MCP-Server mit allen 88 Werkzeugen.
+MCP-Server mit den damaligen 88 Werkzeugen.
 
 Der Lauf deckte fünf Fehler auf, die kein Offline-Test zeigte:
 

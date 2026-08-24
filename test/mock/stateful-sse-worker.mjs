@@ -338,6 +338,10 @@ const MENUS = [
     eintraege: [{ menu: "Ansicht", name: "Roter Faden" }],
   },
   {
+    name: "Extras",
+    eintraege: [{ menu: "Extras", name: "BelegManager", opens: "receipt-manager" }],
+  },
+  {
     name: "ELSTER",
     eintraege: [
       { menu: "ELSTER", name: "Anmeldungen versenden", blocked: true },
@@ -419,6 +423,10 @@ export function createStatefulSseWorker({ caseDir }) {
   let dialogs = [];
   let openMenu = null;
   let fileDialog = null;
+  let receiptManagerOpen = false;
+  let receiptManagerState = "start";
+  let receiptRows = [];
+  let nextReceiptId = 1;
   let vast = null;
   let minimised = false;
   let desktopName = null;
@@ -1351,6 +1359,7 @@ export function createStatefulSseWorker({ caseDir }) {
           fileDialog = { hwnd: 6161, title: "Steuerfall öffnen", fingerprint: sha256("synthetic-file-dialog") };
         }
         if (entry.opens === "vast") vast = createVastDialog();
+        if (entry.opens === "receipt-manager") receiptManagerOpen = true;
         return {
           ok: true,
           ausgeloest: name,
@@ -1364,6 +1373,167 @@ export function createStatefulSseWorker({ caseDir }) {
       case "menu_close":
         openMenu = null;
         return { ok: true, collapsed: ["synthetic-menu"], popupCountBefore: 1, popupCountAfter: 0, verified: true, warning: null };
+      case "receipt_manager_action": {
+        const caseState = requireOpenCase();
+        if (caseState.error) return caseState.error;
+        if (!receiptManagerOpen) return { ok: false, kind: "not-found", error: "BelegManager ist nicht offen." };
+        const actionId = String(args.actionId);
+        const transition = actionId === "showAllReceipts"
+          ? { from: "start", to: "list", aid: ".btn_alleBelegeAnzeigen", name: "Alle Belege anzeigen" }
+          : actionId === "goHome"
+            ? { from: "list", to: "start", aid: ".pushButton_home", name: "" }
+            : null;
+        if (!transition) return { ok: false, kind: "bad-args", error: "Unbekannte actionId." };
+        if (receiptManagerState !== transition.from) {
+          return { ok: false, kind: "precondition-failed", error: `Erwartet ${transition.from}, aktuell ${receiptManagerState}.` };
+        }
+        const stateBefore = receiptManagerState;
+        receiptManagerState = transition.to;
+        const windowSetFingerprint = sha256("synthetic-receipt-window-set");
+        return {
+          ok: true,
+          actionId,
+          pid,
+          hwnd: 5252,
+          controlAutomationId: `SSE_Application.BMMainWindow${transition.aid}`,
+          controlName: transition.name,
+          stateBefore,
+          stateAfter: receiptManagerState,
+          stateFingerprintBefore: sha256(`receipt-${stateBefore}`),
+          stateFingerprintAfter: sha256(`receipt-${receiptManagerState}`),
+          windowSetFingerprintBefore: windowSetFingerprint,
+          windowSetFingerprintAfter: windowSetFingerprint,
+          windowSetUnchanged: true,
+          ungespeichertVorher: caseState.value.dirty,
+          ungespeichertNachher: caseState.value.dirty,
+          dirtyStateUnchanged: true,
+          physicalInputUsed: true,
+          foregroundLeaseUsed: true,
+          verified: true,
+          clickBinding: { x: 1, y: 1 },
+        };
+      }
+      case "receipt_manager_list": {
+        const caseState = requireOpenCase();
+        if (caseState.error) return caseState.error;
+        if (!receiptManagerOpen) return { ok: false, kind: "not-found", error: "BelegManager ist nicht offen." };
+        if (receiptManagerState !== "list") {
+          return { ok: false, kind: "precondition-failed", error: `Erwartet list, aktuell ${receiptManagerState}.` };
+        }
+        const rows = receiptRows.map((row, index) => ({
+          index: index + 1,
+          rowRid: row.rowRid,
+          rowFingerprint: sha256(`${index + 1}:${row.rowRid}:${row.title}`),
+          contentFingerprint: sha256(row.title),
+          cells: [{ name: row.title, rid: row.rowRid, selected: false, x: 1, y: index + 1, w: 1, h: 1 }],
+          draft: row.draft,
+          selected: false,
+        }));
+        return {
+          ok: true,
+          pid,
+          hwnd: 5252,
+          state: "list",
+          stateFingerprint: sha256("receipt-list"),
+          count: rows.length,
+          countSource: "info-label",
+          headers: ["Bezeichnung", "Betrag"],
+          rows,
+          draftCount: rows.filter((row) => row.draft).length,
+          listFingerprint: sha256(JSON.stringify({ count: rows.length, rows: rows.map((row) => row.rowFingerprint) })),
+          rowsComplete: true,
+          ungespeichert: caseState.value.dirty,
+          physicalInputUsed: false,
+          hinweis: "Alle vom BelegManager gezaehlten Zeilen sind im UIA-Baum enthalten.",
+        };
+      }
+      case "receipt_manager_read": {
+        const caseState = requireOpenCase();
+        if (caseState.error) return caseState.error;
+        if (!receiptManagerOpen || receiptManagerState !== "list") {
+          return { ok: false, kind: "precondition-failed", error: "Belegliste ist nicht offen." };
+        }
+        const rows = receiptRows.map((row, index) => ({
+          index: index + 1,
+          rowRid: row.rowRid,
+          rowFingerprint: sha256(`${index + 1}:${row.rowRid}:${row.title}`),
+          contentFingerprint: sha256(row.title),
+          cells: [{ name: row.title }],
+          draft: row.draft,
+        }));
+        const listFingerprint = sha256(JSON.stringify({ count: rows.length, rows: rows.map((row) => row.rowFingerprint) }));
+        const row = rows.find((entry) => entry.rowRid === args.rowRid && entry.rowFingerprint === String(args.rowFingerprint).toUpperCase());
+        if (String(args.expectedListFingerprint).toUpperCase() !== listFingerprint || !row) {
+          return { ok: false, kind: "stale", error: "Belegbindung ist veraltet." };
+        }
+        const fields = [{ automationId: ".lineEdit_detailsTitle", name: "", type: "Edit", value: row.cells[0].name }];
+        return {
+          ok: true, pid, hwnd: 5252, row, fields, listFingerprint, listFingerprintBefore: listFingerprint,
+          detailFingerprint: sha256(JSON.stringify(fields)), semanticListUnchanged: true,
+          windowSetUnchanged: true, ungespeichertVorher: caseState.value.dirty,
+          ungespeichertNachher: caseState.value.dirty, dirtyStateUnchanged: true,
+          physicalInputUsed: true, foregroundLeaseUsed: true, verified: true,
+        };
+      }
+      case "receipt_manager_import": {
+        const caseState = requireOpenCase();
+        if (caseState.error) return caseState.error;
+        if (!receiptManagerOpen || receiptManagerState !== "list") {
+          return { ok: false, kind: "precondition-failed", error: "Belegliste ist nicht offen." };
+        }
+        const beforeRows = receiptRows.map((row, index) => sha256(`${index + 1}:${row.rowRid}:${row.title}`));
+        const beforeFingerprint = sha256(JSON.stringify({ count: receiptRows.length, rows: beforeRows }));
+        if (args.acknowledgeImport !== true) return { ok: false, kind: "acknowledgement-required", error: "Bestaetigung fehlt." };
+        if (Number(args.expectedCountBefore) !== receiptRows.length || String(args.expectedListFingerprint).toUpperCase() !== beforeFingerprint) {
+          return { ok: false, kind: "stale", error: "Belegliste ist veraltet." };
+        }
+        if (receiptRows.some((row) => row.draft)) return { ok: false, kind: "draft-exists", error: "Entwurf vorhanden." };
+        const row = { rowRid: `42.5252.4.${nextReceiptId++}`, title: "Neuer Beleg*", draft: true };
+        receiptRows.push(row);
+        const afterRows = receiptRows.map((entry, index) => sha256(`${index + 1}:${entry.rowRid}:${entry.title}`));
+        const afterFingerprint = sha256(JSON.stringify({ count: receiptRows.length, rows: afterRows }));
+        return {
+          ok: true, pid, hwnd: 5252, selected: args.expectedPath, sha256: String(args.expectedHash).toUpperCase(),
+          countBefore: receiptRows.length - 1, countAfter: receiptRows.length,
+          listFingerprintBefore: beforeFingerprint, listFingerprintAfter: afterFingerprint,
+          importedRow: { index: receiptRows.length, rowRid: row.rowRid, rowFingerprint: afterRows.at(-1), draft: true },
+          previewFingerprintBefore: sha256("blank-preview"), previewFingerprintAfter: sha256("attached-preview"),
+          previewChanged: true, sourceHashStable: true, existingRowsUnchanged: true, dialogClosed: true,
+          windowSetUnchanged: true, cleanupRequired: false, ungespeichertVorher: caseState.value.dirty,
+          ungespeichertNachher: caseState.value.dirty, dirtyStateUnchanged: true,
+          physicalInputUsed: true, foregroundLeaseUsed: true, verified: true,
+        };
+      }
+      case "receipt_manager_delete": {
+        const caseState = requireOpenCase();
+        if (caseState.error) return caseState.error;
+        if (!receiptManagerOpen || receiptManagerState !== "list") {
+          return { ok: false, kind: "precondition-failed", error: "Belegliste ist nicht offen." };
+        }
+        const rows = receiptRows.map((row, index) => ({
+          index: index + 1, rowRid: row.rowRid,
+          rowFingerprint: sha256(`${index + 1}:${row.rowRid}:${row.title}`),
+          contentFingerprint: sha256(row.title), draft: row.draft,
+        }));
+        const beforeFingerprint = sha256(JSON.stringify({ count: rows.length, rows: rows.map((row) => row.rowFingerprint) }));
+        if (args.acknowledgeDelete !== true) return { ok: false, kind: "acknowledgement-required", error: "Bestaetigung fehlt." };
+        const index = rows.findIndex((row) => row.rowRid === args.rowRid && row.rowFingerprint === String(args.rowFingerprint).toUpperCase());
+        if (Number(args.expectedCountBefore) !== rows.length || String(args.expectedListFingerprint).toUpperCase() !== beforeFingerprint || index < 0) {
+          return { ok: false, kind: "stale", error: "Belegbindung ist veraltet." };
+        }
+        const [deletedRow] = rows.splice(index, 1);
+        receiptRows.splice(index, 1);
+        const afterRows = receiptRows.map((row, rowIndex) => sha256(`${rowIndex + 1}:${row.rowRid}:${row.title}`));
+        return {
+          ok: true, pid, hwnd: 5252, deletedRow, countBefore: rows.length + 1, countAfter: rows.length,
+          listFingerprintBefore: beforeFingerprint,
+          listFingerprintAfter: sha256(JSON.stringify({ count: rows.length, rows: afterRows })),
+          confirmationFingerprint: sha256("delete-confirmation"), confirmationMethod: "invoke",
+          dialogClosed: true, remainingRowsUnchanged: true, windowSetUnchanged: true,
+          ungespeichertVorher: caseState.value.dirty, ungespeichertNachher: caseState.value.dirty,
+          dirtyStateUnchanged: true, physicalInputUsed: true, foregroundLeaseUsed: true, verified: true,
+        };
+      }
       case "dismiss":
         openMenu = null;
         fileDialog = null;

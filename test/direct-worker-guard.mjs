@@ -29,6 +29,9 @@ for (const operation of ["click", "click_point", "menu_click"]) {
   assert(destructive.ok === false && destructive.kind === "blocked" && /acknowledgeDestructive/.test(destructive.error ?? ""),
     `Destruktiver Direktaufruf '${operation}' wurde ohne Bestaetigung akzeptiert: ${JSON.stringify(destructive)}`);
 }
+const unknownReceiptAction = directWorker("receipt_manager_action", { actionId: "importReceipts" });
+assert(unknownReceiptAction.ok === false && unknownReceiptAction.kind === "bad-args",
+  `Nicht katalogisierte BelegManager-Aktion wurde akzeptiert: ${JSON.stringify(unknownReceiptAction)}`);
 assert.equal(ssePids(), pidsBefore, "Ein abgewiesener Direkt-Grenztest hat trotzdem eine SSE-PID erzeugt oder beendet.");
 const markerAfter = desktopMarkerState();
 assert.equal(markerAfter, markerBefore, "Ein abgewiesener Direkt-Grenztest hat den Desktop-Marker veraendert.");

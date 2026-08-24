@@ -11,7 +11,7 @@ import { SSE_BUILD_DRIFT_BLOCKED_OPERATIONS } from "../dist/operation-traits.js"
 
 const supported = createProfileOperationMatrix("supported", "full", false);
 assert.deepEqual(Object.keys(supported), SSE_API_OPERATIONS);
-assert.equal(Object.keys(supported).length, 88);
+assert.equal(Object.keys(supported).length, 93);
 for (const operation of SSE_API_OPERATIONS) {
   assert.equal(supported[operation].operation, operation);
   assert.equal(supported[operation].availability, "allowed");
@@ -73,4 +73,4 @@ for (const operation of ["checker_run", "goto", "set_value", "ustva_open_section
   );
 }
 
-process.stdout.write("Profil-Operationen: 88 Eintraege, Experimental-Opt-in und Build-Drift-Matrix bestanden\n");
+process.stdout.write("Profil-Operationen: 93 Eintraege, Experimental-Opt-in und Build-Drift-Matrix bestanden\n");

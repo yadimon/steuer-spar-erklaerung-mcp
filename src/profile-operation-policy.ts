@@ -37,6 +37,8 @@ export const EXPERIMENTAL_PROFILE_VERIFICATION_OPERATIONS = [
   "read_full",
   "read_page",
   "read_table",
+  "receipt_manager_list",
+  "receipt_manager_read",
   "result_details",
   "scroll",
   "scroll_page",
@@ -64,6 +66,10 @@ const BUILD_DRIFT_BLOCKED = new Set<SseApiOperation>(SSE_BUILD_DRIFT_BLOCKED_OPE
 const NAVIGATION = new Set<SseApiOperation>([
   "click", "click_point", "find", "goto", "scroll", "scroll_page", "set_value",
   "subpages", "tree_scroll", "tree_top", "ustva_open_section", "window_restore",
+  "receipt_manager_action",
+  "receipt_manager_delete",
+  "receipt_manager_import",
+  "receipt_manager_read",
 ]);
 
 export type ProfileOperationClass =
