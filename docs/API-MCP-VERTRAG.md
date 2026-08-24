@@ -6,7 +6,7 @@ Stand: 2026-08-18
 
 Die lokale HTTP-API ist der ausführende Kern. Sie besitzt Konfiguration,
 Ressourcenauflösung, Queue, Szenarien und den Windows-Worker. MCP ist ein
-PC-blinder Adapter: Er kennt nur Loopback-URL und Token und ruft für ein
+PC-blinder Adapter: Er kennt nur die Loopback-URL und ruft für ein
 Werkzeug genau die zugeordnete API-Operation oder eine dokumentierte
 API-Komposition auf.
 
@@ -19,17 +19,18 @@ Die normativen Laufzeitquellen sind:
 
 Handgepflegte Operationszahlen in Prosa sind nicht normativ.
 
-## Authentifizierung und Erreichbarkeit
+## Erreichbarkeit und Browser-Schutz
 
 - Die API bindet ausschließlich an `127.0.0.1` oder `::1`.
-- `GET /healthz` ist absichtlich ohne Token erreichbar und gibt nur
+- `GET /healthz` ist ohne Anmeldung erreichbar und gibt nur
   technischen Zustand aus.
-- Es gibt keine Anmeldung. Discovery, OpenAPI und jede Operation antworten
-  jedem lokalen Prozess und weisen Aufrufe aus einem Browser anhand von
-  `Origin`, `Sec-Fetch-Site` und `Host` mit `403` ab.
-- Das Token gewährt volle Autorität der vom aktiven Profil zugelassenen API.
-  Eine Nutzerfreigabe im Agenten-Skill ist keine serverseitige Approval-
-  Sitzung.
+- Es gibt keine Anmeldung und kein Token. Discovery, OpenAPI und jede
+  Operation sind für jeden lokalen Prozess erreichbar. Aufrufe aus einem
+  Browser werden anhand von `Origin`, `Sec-Fetch-Site` und `Host` mit `403`
+  abgewiesen.
+- Jeder lokale Prozess, der die API erreicht, hat die volle Autorität der vom
+  aktiven Profil zugelassenen Operationen. Eine Nutzerfreigabe im Agenten-Skill
+  ist keine serverseitige Approval-Sitzung.
 - Loopback darf nicht über Proxy, Tunnel oder Portweiterleitung veröffentlicht
   werden.
 
@@ -50,7 +51,7 @@ Ergebnis getrennt:
 
 Ein fachlich erwartbarer Fehlschlag kann als gültige Operationsantwort mit
 `result.ok=false`, `kind`, `error` und Readback-/Recovery-Feldern erscheinen.
-Fehler vor der Ausführung, etwa Authentifizierung, unbekannte Operation oder
+Fehler vor der Ausführung, etwa Herkunftsschutz, unbekannte Operation oder
 ungültige Argumente, verwenden eine HTTP-Fehlerhülle.
 
 ## Dauerhaftes CLI-Journal
@@ -165,14 +166,14 @@ großzügiger. Bekannt und gewollt:
   Insbesondere bleibt `case_hash.path` für vertrauenswürdige lokale
   Bestandsclients kompatibel und darf eine profilkonform benannte Falldatei
   auch außerhalb des konfigurierten Fallordners lesen. Für neue Aufrufer ist
-  `cases:` die begrenzte, PC-blinde Form; das Bearer-Token darf deshalb nie
-  an nicht vollständig vertrauenswürdige lokale Prozesse weitergegeben werden.
+  `cases:` die begrenzte, PC-blinde Form. Die API darf deshalb ausschließlich
+  lokalen, vollständig vertrauenswürdigen Prozessen zugänglich bleiben.
 
 API-/MCP-Parität bedeutet damit:
 
 1. derselbe Operationsvertrag und dieselbe Ausdrucksstärke der Eingaben, wobei
    MCP auf die eindeutige Referenzform beschränkt bleibt;
-2. genau ein authentifizierter API-Aufruf je einfachem MCP-Werkzeug;
+2. genau ein API-Aufruf je einfachem MCP-Werkzeug;
 3. keine verlorenen fachlichen Erfolgs- oder Fehlerfelder an der kanonischen
    MCP-Ergebnisgrenze;
 4. dokumentierte Aliase und Kompositionen;

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { defaultApiConfigPath, environmentForExplicitApiConfig, loadApiServerConfig, MAX_API_CONFIG_BYTES } from "../dist/api-config.js";
@@ -11,6 +11,30 @@ mkdirSync(join(temporary, "config"), { recursive: true });
 
 const writeConfig = (value) => writeFileSync(configPath, `${JSON.stringify(value)}\n`, "utf8");
 const load = (overrides = {}) => loadApiServerConfig({ SSE_API_CONFIG: configPath, ...overrides });
+
+function assertTokenlessPublicContract() {
+  const apiContract = readFileSync(join("docs", "API-MCP-VERTRAG.md"), "utf8");
+  const architecture = readFileSync(join("docs", "ARCHITEKTUR.md"), "utf8");
+  const mcpReadme = readFileSync(join("packages", "mcp", "README.md"), "utf8");
+
+  for (const staleClaim of [
+    /Loopback-URL und Token/u,
+    /Das Token gewaehrt|Das Token gewährt/u,
+    /Bearer-Token/u,
+    /authentifizierter API-Aufruf/u,
+    /Fehler vor der Ausfuehrung, etwa Authentifizierung|Fehler vor der Ausführung, etwa Authentifizierung/u,
+  ]) {
+    assert(!staleClaim.test(apiContract), `API-/MCP-Vertrag enthaelt veraltete Token-Aussage: ${staleClaim}`);
+  }
+  assert.match(apiContract, /keine Anmeldung/iu);
+  assert.match(apiContract, /kein Token/iu);
+  assert(!/Ihr authentifizierter Katalog|Auth, Queue/u.test(architecture),
+    "Architektur beschreibt eine nicht vorhandene Authentifizierungsschicht.");
+  assert.match(architecture, /Eine\s+Anmeldung gibt es nicht/iu);
+  assert(!/authentifizierter Loopback-Verbindung/u.test(mcpReadme),
+    "MCP-README beschreibt die lokale API-Verbindung faelschlich als authentifiziert.");
+  assert.match(mcpReadme, /API kennt keine Anmeldung/iu);
+}
 
 try {
   writeConfig({});
@@ -43,6 +67,7 @@ try {
   // wirkt der Wegfall wie ein Tippfehler in der Konfiguration.
   writeConfig({ token: "irgendein-altes-token" });
   assert.throws(() => load(), /entfallene Feld 'token'/);
+  assertTokenlessPublicContract();
 
   for (const field of ["caseDir", "documentsDir", "workspaceDir", "resultDir", "backupsDir", "sseExecutable"]) {
     writeConfig({ [field]: "relativ" });
@@ -109,7 +134,7 @@ try {
   assert.equal(explicitEnvironment.SSE_CASE_DIR, undefined);
   assert.equal(explicitEnvironment.SSE_POWERSHELL_EXE, "C:\\managed\\powershell.exe");
   assert.equal(explicitEnvironment.SSE_TEST_CONCURRENCY, "3");
-  process.stdout.write("API-Konfiguration: Defaults, Overrides, Loopback, Typen, Pfade, UTF-8 und Dateilimits bestanden\n");
+  process.stdout.write("API-Konfiguration: Defaults, tokenlose Dokumentation, Loopback, Typen, Pfade, UTF-8 und Dateilimits bestanden\n");
 } finally {
   rmSync(temporary, { recursive: true, force: true });
 }

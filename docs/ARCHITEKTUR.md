@@ -28,7 +28,7 @@ Agent oder eigenes Programm
         └── MCP (dünner Wrapper) ────┤
                                      ▼
                               lokale SSE-API
-                       Auth, Queue, Dateien/Hash,
+                       Herkunftsschutz, Queue, Dateien/Hash,
                          Szenarien, Konfiguration
                                      │
                                      ▼
@@ -75,7 +75,7 @@ Agent oder eigenes Programm
   Anmeldung gibt es nicht; siehe [SECURITY.md](../SECURITY.md).
 - Sie besitzt Operationen, Schemas, Queue, Abbruch, Dateiverwaltung,
   Szenarioausführung und Auflösung maschinenneutraler Ressourcen.
-- Ihr authentifizierter Katalog `GET /v1/operations` veröffentlicht alle
+- Ihr lokaler Katalog `GET /v1/operations` veröffentlicht alle
   Argumentverträge und die versionierten `Result_<operation>`-Mindestverträge
   als JSON Schema Draft 7 zusammen mit Traits, Grenzen, Fallback-Planung und
   Sicherheitsstatus. Reine API-Clients brauchen MCP daher weder zur Discovery
