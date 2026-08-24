@@ -359,8 +359,8 @@ export function registerUiTools(registry: McpRegistry): void {
       description:
         "Vollstaendiger Elementbaum des Fensters (schneller UIA-Bulk-Cache mit explizitem TreeWalker-Fallback). Fuer Fehlersuche und um " +
         "unbekannte Bedienelemente zu finden. Umfangreich - fuer normales Auslesen ist sse_read_page besser. " +
-        "Mit toolWindow wird statt des Hauptfensters ein katalogisiertes Werkzeugfenster gelesen, etwa der BelegManager; " +
-        "ohne diese Angabe bricht dessen Teilbaum ab und liefert nur seinen Titel.",
+        "Mit toolWindow wird statt des Hauptfensters ein katalogisiertes nichtmodales Nebenfenster gelesen - der " +
+        "BelegManager, die Steuer-Spar-Tipps oder die Werte-Info. Ohne diese Angabe kann deren Teilbaum abbrechen.",
     },
     (r) => ({ toolWindow: r.toolWindow, count: r.count, stats: r.stats, nodes: asArray(r.nodes) }),
   );

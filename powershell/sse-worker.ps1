@@ -183,28 +183,35 @@ function Resolve-SSEClosableNonmodalWindowPolicy($Window) {
   }
   $null
 }
-# Ein katalogisiertes Werkzeugfenster ist ein eigenes Top-Level-Fenster
-# desselben verifizierten Prozesses. Vom Hauptfenster aus gelesen bricht der
-# Baumlauf tief darin ab: Der BelegManager lieferte so nur seinen in zwei
-# Textknoten zerlegten Titel ("Beleg", "Manager") statt seiner 19 Schalter.
-# Gelesen wird deshalb an seinem eigenen Fenster. Bedient wird es nicht -
-# Klickwege binden unveraendert ausschliesslich an das Hauptfenster.
+# Ein katalogisiertes nichtmodales Nebenfenster ist ein eigenes Top-Level-
+# Fenster desselben verifizierten Prozesses. Vom Hauptfenster aus gelesen kann
+# der Baumlauf tief darin abbrechen - wie viel ankommt, haengt von Fenstergroesse
+# und Knotenbudget ab: Der BelegManager lieferte auf einem Rechner nur seinen in
+# zwei Textknoten zerlegten Titel ("Beleg", "Manager") statt seiner 19 Schalter,
+# auf einem anderen 76 Knoten. Gelesen wird deshalb an seinem eigenen Fenster;
+# das Ergebnis haengt dann nicht davon ab, wie tief es gerade sitzt.
+#
+# Zugelassen ist genau, was die Architektur als lesbar fuehrt: nichtmodale
+# Nebenfenster. Das Hauptfenster hat eigene Wege, modale Dialoge auch.
+# Bedient wird hier nichts - Klickwege binden unveraendert ausschliesslich an
+# das Hauptfenster.
 function Resolve-SSEToolWindowHandle([string]$Id, [int]$TargetPid) {
   $catalog = Get-SSEPageObjects
+  $lesbar = { param($Rolle) ([string]$Rolle).StartsWith('nonmodal-') }
   $eintrag = @($catalog.windows.PSObject.Properties | Where-Object { $_.Name -ceq $Id })
   if ($eintrag.Count -ne 1) {
     $bekannt = @($catalog.windows.PSObject.Properties |
-      Where-Object { [string]$_.Value.role -eq 'nonmodal-tool-window' } | ForEach-Object { $_.Name })
-    Fail "Unbekanntes Werkzeugfenster '$Id'. Katalogisiert: $($bekannt -join ', ')." 'bad-args'
+      Where-Object { & $lesbar $_.Value.role } | ForEach-Object { $_.Name })
+    Fail "Unbekanntes Nebenfenster '$Id'. Katalogisiert: $($bekannt -join ', ')." 'bad-args'
   }
   $definition = $eintrag[0].Value
-  if ([string]$definition.role -ne 'nonmodal-tool-window') {
-    Fail "'$Id' ist kein Werkzeugfenster, sondern '$([string]$definition.role)'." 'blocked'
+  if (-not (& $lesbar $definition.role)) {
+    Fail "'$Id' ist kein nichtmodales Nebenfenster, sondern '$([string]$definition.role)'." 'blocked'
   }
   $titel = [string]$definition.title
   $treffer = @(Get-Windows 'SSE' | Where-Object { [int]$_.pid -eq $TargetPid -and [string]$_.title -ceq $titel })
-  if (-not $treffer.Count) { Fail "Werkzeugfenster '$titel' ist nicht offen." 'not-found' }
-  if ($treffer.Count -gt 1) { Fail "Werkzeugfenster '$titel' ist mehrfach offen; das ist unerwartet." 'ambiguous' }
+  if (-not $treffer.Count) { Fail "Nebenfenster '$titel' ist nicht offen." 'not-found' }
+  if ($treffer.Count -gt 1) { Fail "Nebenfenster '$titel' ist mehrfach offen; das ist unerwartet." 'ambiguous' }
   [IntPtr][int64]$treffer[0].hwnd
 }
 
