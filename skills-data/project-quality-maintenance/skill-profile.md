@@ -7,26 +7,32 @@
 
 ## Stable Repo Facts
 
-- repo_type: single npm package, not a monorepo
-- workspace_shape: source package plus ignored portable/release copies
+- repo_type: npm workspace with two published packages and shared root source
+- workspace_shape: root build/test package plus `packages/api` and
+  `packages/mcp`; ignored generated copies are never source workspaces
 - major_components: TypeScript API/MCP, PowerShell 5.1 worker, C# helper DLL,
   German public skills and contract/integration tests
 
 ## Maintenance Defaults
 
 - preferred_baseline_commands:
+  - `npm run test:fast`
   - `npm test`
+  - `npm run test:product` when the supported product is installed
 - preferred_quality_gates:
   - `npm run build:ts`
   - impacted `node test/<contract>.mjs`
   - `npm test`
   - `git diff --check`
+  - `npm audit --audit-level=low`
 - known_hotspots:
   - `src/api-executor.ts`
+  - `src/api-server.ts`
   - `src/mcp-tools-*.ts`
   - `src/operation-catalog.ts`
   - `powershell/sse-worker.ps1`
   - `test/run-suite.mjs`
+  - `test/desktop-marker-contract.mjs`
 - do_not_touch_areas:
   - ELSTER/send hard blocks except to strengthen them
   - real tax cases or generated evidence outside disposable copies
@@ -46,3 +52,12 @@
 - PowerShell changes must remain Windows PowerShell 5.1 compatible.
 - External reviews are advisory evidence; local tests and the actual diff stay
   authoritative.
+- The global maintenance bootstrap scans ignored generated package copies; its
+  workspace findings must be filtered against tracked npm manifests before
+  they are written to Git.
+
+## Last Confirmed State
+
+- verified_at: 2026-08-25
+- notes: 120-step offline suite and installed-product gate pass; dependency
+  audit reports zero known vulnerabilities.

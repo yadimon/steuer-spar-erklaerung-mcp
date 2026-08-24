@@ -8,8 +8,9 @@
 
 ## Stable Project Facts
 
-- project_shape: one npm package with TypeScript orchestration and a
-  PowerShell 5.1-compatible Windows UI worker
+- project_shape: npm workspace with shared TypeScript orchestration, separate
+  API/MCP publication packages and a PowerShell 5.1-compatible Windows UI
+  worker
 - main_languages: TypeScript, JavaScript tests, PowerShell, C# helper
 - architecture_or_layering_rules:
   - MCP is a thin, PC-blind wrapper.
@@ -113,6 +114,13 @@
   - role: minimaler Startvertrag getrennt von Serverlaufzeit und Shutdown
   - keep_stable: Hilfe und Argumentfehler laden keine Worker-/Servermodule;
     der Runtimepfad behaelt Config-Sanitizing, Logging und Abort-Fan-out
+- `src/api-server.ts`:
+  - role: loopback HTTP transport, browser-origin guard and per-instance
+    operation serialization
+  - keep_stable: single-flight state and `/healthz` progress belong to exactly
+    one created server; separate embedded servers must not leak or block state
+  - extra_test_expectations: `test/api-single-flight.mjs`, API contract and
+    full suite after shared server changes
 - `src/desktop-marker.ts`, `powershell/desktop-marker.ps1`, `src/worker.ts`:
   - role: gemeinsame fail-closed Desktop-Routing- und Eigentumsgrenze vor dem
     UI-Workerstart
@@ -137,7 +145,7 @@
   - role: gemeinsamer operationsspezifischer Ergebnisvertrag fuer API,
     Discovery, OpenAPI und MCP getrennt von wiederverwendbaren Typen und
     Worker-verifizierten Feldtabellen
-  - keep_stable: jede der 87 Operationen hat eigene Fachfelder; Tabellen haben
+  - keep_stable: jede der 93 Operationen hat eigene Fachfelder; Tabellen haben
     disjunkte Operationsschluessel; Worker-Feldbelege gelten nur auf der
     aeusseren Emit-Ebene und UIA-Scrollwerte erlauben den negativen NoScroll-
     Sentinel
@@ -149,6 +157,13 @@
   - collect_end_guard: `end-of-branch` requires both the bound content snapshot
     and the separately bounded navigation snapshot to be untruncated
   - refactor_goals: only cohesive helpers backed by focused contracts
+- `test/desktop-marker-contract.mjs`,
+  `test/desktop-marker-parser-parity.ps1`:
+  - role: cross-runtime desktop ownership parity with bounded real Worker/API
+    probes
+  - keep_stable: batch pure parser fixtures in one PowerShell process; retain
+    representative end-to-end checks for valid routing, owner rejection,
+    diagnostics and API error transport
 - `powershell/build-native.ps1`:
   - role: PowerShell-5.1-kompatibler Build und Integritaetsbindung der
     vorkompilierten Win32-/MSAA-Bruecke
@@ -169,3 +184,9 @@
 - Real SSE controls can share names; stable automation IDs and expected pages
   are required.
 - UIA errors invalidate the worker process; never hide incomplete reads.
+
+## Last Confirmed State
+
+- verified_at: 2026-08-25
+- notes: API server isolation and desktop-marker test decomposition pass the
+  complete 120-step suite.
