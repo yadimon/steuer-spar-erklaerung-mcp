@@ -67,15 +67,22 @@ foreach ($fremd in @('belegmanager', 'BelegManager ', 'Beleg-Manager')) {
   Assert-True ((Fehler { Resolve-SSEToolWindowHandle 'receiptManager' 4711 }) -like '*not-found*') "Der Titel '$fremd' wurde als BelegManager akzeptiert."
 }
 
-# Andere Katalogrollen sind keine Werkzeugfenster.
+# Jedes katalogisierte nichtmodale Nebenfenster ist lesbar - so fuehrt es die
+# Architektur, und das Vorschlagsfenster der Steuer-Spar-Tipps war sonst ueber
+# keine Operation zu lesen.
 $script:Fenster = @($haupt, (Fenster 'Steuer-Spar-Tipps' 4711 666))
-Assert-True ((Fehler { Resolve-SSEToolWindowHandle 'taxTips' 4711 }) -like '*blocked*') 'Ein Hilfefenster wurde als Werkzeugfenster gelesen.'
-Assert-True ((Fehler { Resolve-SSEToolWindowHandle 'main' 4711 }) -like '*blocked*') 'Das Hauptfenster wurde als Werkzeugfenster gelesen.'
-Assert-True ((Fehler { Resolve-SSEToolWindowHandle 'vastAssignment' 4711 }) -like '*blocked*') 'Der modale VaSt-Dialog wurde als Werkzeugfenster gelesen.'
+Assert-True ([int64](Resolve-SSEToolWindowHandle 'taxTips' 4711) -eq 666) 'Das Hilfefenster der Steuer-Spar-Tipps ist nicht lesbar.'
+
+# Das Hauptfenster und modale Dialoge haben eigene Wege und bleiben gesperrt.
+Assert-True ((Fehler { Resolve-SSEToolWindowHandle 'main' 4711 }) -like '*blocked*') 'Das Hauptfenster wurde als Nebenfenster gelesen.'
+Assert-True ((Fehler { Resolve-SSEToolWindowHandle 'vastAssignment' 4711 }) -like '*blocked*') 'Der modale VaSt-Dialog wurde als Nebenfenster gelesen.'
 
 # Eine unbekannte Kennung nennt die katalogisierten Alternativen.
 $unbekannt = Fehler { Resolve-SSEToolWindowHandle 'gibtsNicht' 4711 }
 Assert-True ($unbekannt -like '*bad-args*') 'Eine unbekannte Kennung ergab keinen Argumentfehler.'
-Assert-True ($unbekannt -like '*receiptManager*') 'Der Argumentfehler nennt die katalogisierten Werkzeugfenster nicht.'
+foreach ($erwartet in @('receiptManager', 'taxTips', 'resultComparison')) {
+  Assert-True ($unbekannt -like "*$erwartet*") "Der Argumentfehler nennt '$erwartet' nicht."
+}
+Assert-True ($unbekannt -notlike '*vastAssignment*') 'Der Argumentfehler bietet den modalen VaSt-Dialog als Alternative an.'
 
-Write-Output 'Werkzeugfenster lesen: nur katalogisierte Rollen, nur im gebundenen Prozess, Titel exakt, Mehrdeutigkeit abgewiesen.'
+Write-Output 'Nebenfenster lesen: nichtmodale Katalogrollen ja, Hauptfenster und modale Dialoge nein, Prozess und Titel exakt gebunden.'
