@@ -183,6 +183,31 @@ function Resolve-SSEClosableNonmodalWindowPolicy($Window) {
   }
   $null
 }
+# Ein katalogisiertes Werkzeugfenster ist ein eigenes Top-Level-Fenster
+# desselben verifizierten Prozesses. Vom Hauptfenster aus gelesen bricht der
+# Baumlauf tief darin ab: Der BelegManager lieferte so nur seinen in zwei
+# Textknoten zerlegten Titel ("Beleg", "Manager") statt seiner 19 Schalter.
+# Gelesen wird deshalb an seinem eigenen Fenster. Bedient wird es nicht -
+# Klickwege binden unveraendert ausschliesslich an das Hauptfenster.
+function Resolve-SSEToolWindowHandle([string]$Id, [int]$TargetPid) {
+  $catalog = Get-SSEPageObjects
+  $eintrag = @($catalog.windows.PSObject.Properties | Where-Object { $_.Name -ceq $Id })
+  if ($eintrag.Count -ne 1) {
+    $bekannt = @($catalog.windows.PSObject.Properties |
+      Where-Object { [string]$_.Value.role -eq 'nonmodal-tool-window' } | ForEach-Object { $_.Name })
+    Fail "Unbekanntes Werkzeugfenster '$Id'. Katalogisiert: $($bekannt -join ', ')." 'bad-args'
+  }
+  $definition = $eintrag[0].Value
+  if ([string]$definition.role -ne 'nonmodal-tool-window') {
+    Fail "'$Id' ist kein Werkzeugfenster, sondern '$([string]$definition.role)'." 'blocked'
+  }
+  $titel = [string]$definition.title
+  $treffer = @(Get-Windows 'SSE' | Where-Object { [int]$_.pid -eq $TargetPid -and [string]$_.title -ceq $titel })
+  if (-not $treffer.Count) { Fail "Werkzeugfenster '$titel' ist nicht offen." 'not-found' }
+  if ($treffer.Count -gt 1) { Fail "Werkzeugfenster '$titel' ist mehrfach offen; das ist unerwartet." 'ambiguous' }
+  [IntPtr][int64]$treffer[0].hwnd
+}
+
 function Resolve-SSEPageObject([string]$PageId, [string]$FieldId = '') {
   $catalog = Get-SSEPageObjects
   $pageProperty = $catalog.pages.PSObject.Properties[$PageId]
@@ -6113,6 +6138,14 @@ switch ($Op) {
   'snapshot' {
     $maxNodes = Get-SSEBoundedIntegerArg $a 'maxNodes' 4000 1 5000
     $hwnd = Resolve-Window $a
+    # Das Werkzeugfenster wird erst nach der Bindung des Hauptfensters
+    # aufgeloest: Es muss zum selben verifizierten Prozess gehoeren.
+    $werkzeugfenster = [string](Arg $a 'toolWindow')
+    if ($werkzeugfenster) {
+      $hauptfenster = @(Get-Windows 'SSE' | Where-Object { [int64]$_.hwnd -eq [int64]$hwnd })
+      if ($hauptfenster.Count -ne 1) { Fail 'Das gebundene Hauptfenster ist nicht mehr eindeutig.' 'stale-window' }
+      $hwnd = Resolve-SSEToolWindowHandle $werkzeugfenster ([int]$hauptfenster[0].pid)
+    }
     $can = Test-Canary $hwnd
     if (-not $can.ok) { Fail "Kanarienvogel traege ($($can.ms) ms) - Programm ueberlastet, Ergebnisse waeren unzuverlaessig. Neu starten." 'degraded' }
     $t = Walk-Tree $hwnd $maxNodes -WithValues
@@ -6121,7 +6154,7 @@ switch ($Op) {
     if ($a.maxX -ne $null) { $nodes = @($nodes | Where-Object { $_.x -le [int]$a.maxX }) }
     if ($a.types)          { $nodes = @($nodes | Where-Object { $a.types -contains $_.type }) }
     if ($a.namedOnly)      { $nodes = @($nodes | Where-Object { $_.name }) }
-    Emit ([pscustomobject]@{ ok = $true; hwnd = [int64]$hwnd; canaryMs = $can.ms; stats = $t.stats; count = $nodes.Count; nodes = $nodes })
+    Emit ([pscustomobject]@{ ok = $true; hwnd = [int64]$hwnd; toolWindow = $werkzeugfenster; canaryMs = $can.ms; stats = $t.stats; count = $nodes.Count; nodes = $nodes })
   }
 
   'snapshot_compare' {
