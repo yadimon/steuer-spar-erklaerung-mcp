@@ -591,12 +591,21 @@ Der `get_value`-Treffer war nachweislich der Beschriftungsknoten
 das zugehörige Eingabefeld sprang nicht an, weil er auf ein fehlendes
 ValuePattern prüfte statt auf die Rolle des Treffers.
 
-Das Schreiben scheitert in dieser VM weiterhin, jetzt aber mit `interference`:
-Das Fenster ist breiter als der Bildschirm, und der Interaktions-Guard
-verweigert den Klick. Der gelesene Wert blieb unverändert, ein Rückschreiben mit
-dem alten `expectedBefore` wurde korrekt abgewiesen, nichts wurde gespeichert.
+Das Schreiben scheiterte danach an einer zweiten, davon unabhängigen Ursache:
+Das Ergebnisfenster (640 × 480 ab 370, 153) lag über dem Zielpunkt (621, 496),
+und die Ausweichbewegung meldete `keine-freie-ecke`. Ihre vier Kandidatenecken
+richteten sich nach dem Hauptfenster, das hier breiter ist als der Bildschirm,
+sodass alle vier das Feld weiterhin abdeckten. Seit die Ecken am Arbeitsbereich
+des Bildschirms ausgerichtet werden, läuft der Zyklus in dieser VM vollständig
+durch:
 
-Festgehalten von `test/content-bounds-contract.ps1`.
+    page 4/7 beschriftet -> get_value ueber Beschriftung -> schreiben ok
+    -> nachlesen zeigt den neuen Wert -> zuruecknehmen ok -> Endstand wie vorher
+
+Gespeichert wurde dabei nichts.
+
+Festgehalten von `test/content-bounds-contract.ps1` und
+`test/aside-corners-contract.ps1`.
 
 ## Isolierter First-Run-VM-Smoke vom 2026-08-18
 

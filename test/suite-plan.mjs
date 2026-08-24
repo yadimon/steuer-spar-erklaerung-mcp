@@ -31,6 +31,7 @@ export const parallelSteps = Object.freeze([
   psFile("write-window-binding", "test/write-window-binding-contract.ps1"),
   psFile("dialog-fingerprint", "test/dialog-fingerprint-contract.ps1"),
   psFile("content-bounds", "test/content-bounds-contract.ps1"),
+  psFile("aside-corners", "test/aside-corners-contract.ps1"),
   psFile("desktop-enumeration", "test/desktop-enumeration-contract.ps1"),
   psFile("window-restore-contract", "test/window-restore-contract.ps1"),
   nodeFile("foreground-lease-contract", "test/foreground-lease-contract.mjs"),
