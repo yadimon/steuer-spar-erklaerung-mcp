@@ -132,6 +132,11 @@ export const SSE_MCP_UI_SCHEMAS = {
   "sse_read_table": z.object({ hwnd: WINDOW_HANDLE.optional() }).strict(),
   "sse_snapshot": z.object({
     hwnd: WINDOW_HANDLE.optional(),
+    toolWindow: z.string().min(1).max(64).optional().describe(
+      "Statt des Hauptfensters ein katalogisiertes Werkzeugfenster lesen, z. B. 'receiptManager' fuer den BelegManager. "
+      + "Nur lesen: Dieses Fenster laesst sich nicht bedienen. Ohne diese Angabe wird es als tiefer Teilbaum des "
+      + "Hauptfensters abgeschnitten und liefert nur seinen Titel.",
+    ),
     types: z.array(z.string()).max(SSE_OPERATION_LIMITS.snapshotTypes).optional().describe("Nur diese Steuerelementtypen, z. B. ['Button','Edit']; maximal 50"),
     namedOnly: z.boolean().optional().describe("Nur Elemente mit Beschriftung"),
     maxNodes: SNAPSHOT_MAX_NODES.optional().describe("Maximale Knotenzahl; Vorgabe 2000, Maximum 5000"),

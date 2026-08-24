@@ -187,7 +187,7 @@ const CORE_OPERATION_RESULT_FIELDS = {
     summe: OPTIONAL_STRING,
   },
   result_details: { zeilen: OPTIONAL_ARRAY, vollstaendig: OPTIONAL_BOOLEAN, anzahl: OPTIONAL_NON_NEGATIVE_NUMBER },
-  snapshot: { nodes: OPTIONAL_ARRAY, count: OPTIONAL_NON_NEGATIVE_NUMBER, stats: OPTIONAL_OBJECT },
+  snapshot: { nodes: OPTIONAL_ARRAY, count: OPTIONAL_NON_NEGATIVE_NUMBER, stats: OPTIONAL_OBJECT, toolWindow: OPTIONAL_STRING },
   snapshot_compare: {
     equivalent: OPTIONAL_BOOLEAN,
     runtimeIdChurnCount: OPTIONAL_NON_NEGATIVE_NUMBER,
