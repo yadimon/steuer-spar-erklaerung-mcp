@@ -87,7 +87,7 @@ try {
     assert.equal(calls.length, beforeUnknown, `${tool.name} leitete ein unbekanntes Argument zur API.`);
   }
   assert.equal(calls.length, tools.length);
-  process.stdout.write(`MCP/API-End-to-End-Matrix: ${expectedToolCount} Werkzeuge authentifiziert, validiert, redigiert und ausgefuehrt\n`);
+  process.stdout.write(`MCP/API-End-to-End-Matrix: ${expectedToolCount} Werkzeuge validiert, redigiert und ausgefuehrt\n`);
 } finally {
   await client.close();
   await new Promise((resolve, reject) => api.close((error) => (error ? reject(error) : resolve())));

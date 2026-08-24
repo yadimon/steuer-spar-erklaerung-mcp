@@ -5,7 +5,7 @@
 
 PC-blinder MCP-Wrapper für SteuerSparErklärung über die lokale
 SteuerSparErklärung-API. Das Paket spricht per stdio mit dem AI-Agenten und per
-authentifizierter Loopback-Verbindung mit
+lokaler Loopback-Verbindung mit
 `@yadimon/steuer-spar-erklaerung-api`. Es greift niemals selbst auf die
 Desktop-Oberfläche oder lokale Steuerdateien zu.
 
