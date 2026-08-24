@@ -208,6 +208,12 @@ try {
     ["file_dialog_select", "resourceRef", "expectedPath", "documents:rechnung.txt", join(roots.documents, "rechnung.txt"), {
       expectedDialogTitle: "Öffnen",
     }],
+    ["receipt_manager_import", "resourceRef", "expectedPath", "documents:rechnung.txt", join(roots.documents, "rechnung.txt"), {
+      expectedHash: createHash("sha256").update("beleg\n").digest("hex").toUpperCase(),
+      expectedListFingerprint: "0".repeat(64),
+      expectedCountBefore: 0,
+      acknowledgeImport: true,
+    }],
     ["vast_apply", "expectedCaseRef", "expectedCasePath", "cases:arbeit.Gew2025", join(roots.cases, "arbeit.Gew2025"), {
       hwnd: 101,
       expectedMainHwnd: 102,

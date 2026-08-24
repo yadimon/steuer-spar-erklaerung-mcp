@@ -84,6 +84,11 @@ export const SSE_MCP_TOOL_OPERATIONS = {
   "sse_menu": "menu",
   "sse_menu_click": "menu_click",
   "sse_menu_close": "menu_close",
+  "sse_receipt_manager_action": "receipt_manager_action",
+  "sse_receipt_manager_delete": "receipt_manager_delete",
+  "sse_receipt_manager_import": "receipt_manager_import",
+  "sse_receipt_manager_list": "receipt_manager_list",
+  "sse_receipt_manager_read": "receipt_manager_read",
   "sse_ui_state": "ui_state",
   "sse_dismiss": "dismiss",
   "sse_screenshot": "screenshot",
@@ -400,6 +405,11 @@ schemasByOperation.verify = withLegacyAlias(SSE_MCP_TOOL_SCHEMAS.sse_verify, "so
 schemasByOperation.screenshot = withLegacyAlias(SSE_MCP_TOOL_SCHEMAS.sse_screenshot, "resultRef", "path");
 schemasByOperation.save = withLegacyAlias(SSE_MCP_TOOL_SCHEMAS.sse_save, "caseRef", "expectedPath");
 schemasByOperation.file_dialog_select = withLegacyAlias(SSE_MCP_TOOL_SCHEMAS.sse_file_dialog_select, "resourceRef", "expectedPath");
+schemasByOperation.receipt_manager_import = withLegacyAlias(
+  SSE_MCP_TOOL_SCHEMAS.sse_receipt_manager_import,
+  "resourceRef",
+  "expectedPath",
+);
 schemasByOperation.save_as = withLegacyAliases(SSE_MCP_TOOL_SCHEMAS.sse_save_as, [
   ["sourceRef", "expectedSourcePath"], ["targetRef", "targetPath"],
 ]);

@@ -31,7 +31,7 @@ assert.deepEqual(
 );
 
 const missingStart = verification.indexOf("Noch nie erfolgreich live");
-const missingEnd = verification.indexOf("Der Center-Nachweis", missingStart);
+const missingEnd = verification.indexOf("\n\n", missingStart);
 assert(missingStart >= 0 && missingEnd > missingStart, "Abschnitt mit fehlenden Live-Operationen ist nicht eindeutig");
 const documentedMissing = [...verification.slice(missingStart, missingEnd).matchAll(/`([a-z][a-z0-9_]*)`/gu)]
   .map((match) => match[1])

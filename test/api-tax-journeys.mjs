@@ -64,6 +64,7 @@ async function createHarness({ includeNextYearUstva = false } = {}) {
     caseDir,
     workspaceDir,
     resultDir,
+    documentsDir,
     backupsDir,
     documentsDir,
     sseExecutable: "C:\\Synthetic\\SSE.exe",
@@ -103,6 +104,7 @@ async function createHarness({ includeNextYearUstva = false } = {}) {
     caseDir,
     workspaceDir,
     resultDir,
+    documentsDir,
     baseUrl,
     headers,
     seeded,
@@ -879,6 +881,88 @@ test("23 menu keeps ELSTER closed and opens only safe dialogs", async () => {
     });
     assert.equal(selected.dialogClosed, true);
     assert.equal((await harness.call("dismiss", { hwnd: 4242 })).geschlossen, 1);
+  });
+});
+
+test("23b receipt manager navigates, imports, reads and deletes with fresh bindings", async () => {
+  await withHarness(async (harness) => {
+    await launchFreelancer(harness);
+    const closed = await harness.request("receipt_manager_action", { actionId: "showAllReceipts" });
+    assert.equal(closed.body.result.kind, "not-found");
+
+    await harness.call("menu_click", { name: "BelegManager" });
+    const wrongState = await harness.request("receipt_manager_list", {});
+    assert.equal(wrongState.body.result.kind, "precondition-failed");
+    const listed = await harness.call("receipt_manager_action", { actionId: "showAllReceipts", hwnd: 4242 });
+    assert.equal(listed.stateBefore, "start");
+    assert.equal(listed.stateAfter, "list");
+    assert.equal(listed.windowSetUnchanged, true);
+    assert.equal(listed.dirtyStateUnchanged, true);
+    assert.equal(listed.verified, true);
+
+    const receipts = await harness.call("receipt_manager_list", { hwnd: 4242 });
+    assert.equal(receipts.count, 0);
+    assert.equal(receipts.rowsComplete, true);
+    assert.equal(receipts.physicalInputUsed, false);
+    assert.match(receipts.listFingerprint, /^[A-Fa-f0-9]{64}$/u);
+
+    const receiptPath = join(harness.documentsDir, "synthetic-receipt.pdf");
+    writeFileSync(receiptPath, "%PDF-1.4 synthetic receipt\n", "utf8");
+    const receiptHash = sha256File(receiptPath);
+    const imported = await harness.call("receipt_manager_import", {
+      resourceRef: "documents:synthetic-receipt.pdf",
+      expectedHash: receiptHash,
+      expectedListFingerprint: receipts.listFingerprint,
+      expectedCountBefore: receipts.count,
+      acknowledgeImport: true,
+    });
+    assert.equal(imported.countBefore, 0);
+    assert.equal(imported.countAfter, 1);
+    assert.equal(imported.previewChanged, true);
+    assert.equal(imported.sourceHashStable, true);
+    assert.equal(imported.cleanupRequired, false);
+    assert.equal(imported.resourceRefs.resourceRef, "documents:synthetic-receipt.pdf");
+
+    const afterImport = await harness.call("receipt_manager_list", { hwnd: 4242 });
+    assert.equal(afterImport.count, 1);
+    assert.equal(afterImport.draftCount, 1);
+    const row = afterImport.rows[0];
+    const read = await harness.call("receipt_manager_read", {
+      rowRid: row.rowRid,
+      rowFingerprint: row.rowFingerprint,
+      expectedListFingerprint: afterImport.listFingerprint,
+    });
+    assert.equal(read.row.rowRid, row.rowRid);
+    assert.equal(read.semanticListUnchanged, true);
+    assert.equal(read.verified, true);
+
+    const staleDelete = await harness.call("receipt_manager_delete", {
+      rowRid: row.rowRid,
+      rowFingerprint: "A".repeat(64),
+      expectedListFingerprint: afterImport.listFingerprint,
+      expectedCountBefore: 1,
+      acknowledgeDelete: true,
+    });
+    assert.equal(staleDelete.kind, "stale");
+    const deleted = await harness.call("receipt_manager_delete", {
+      rowRid: row.rowRid,
+      rowFingerprint: row.rowFingerprint,
+      expectedListFingerprint: afterImport.listFingerprint,
+      expectedCountBefore: 1,
+      acknowledgeDelete: true,
+    });
+    assert.equal(deleted.countBefore, 1);
+    assert.equal(deleted.countAfter, 0);
+    assert.equal(deleted.remainingRowsUnchanged, true);
+    assert.equal(deleted.dialogClosed, true);
+    assert.equal((await harness.call("receipt_manager_list", { hwnd: 4242 })).count, 0);
+
+    const stale = await harness.request("receipt_manager_action", { actionId: "showAllReceipts" });
+    assert.equal(stale.body.result.kind, "precondition-failed");
+    const home = await harness.call("receipt_manager_action", { actionId: "goHome" });
+    assert.equal(home.stateBefore, "list");
+    assert.equal(home.stateAfter, "start");
+    assert.notEqual(home.stateFingerprintBefore, home.stateFingerprintAfter);
   });
 });
 

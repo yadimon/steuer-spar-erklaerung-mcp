@@ -2,7 +2,22 @@ import assert from "node:assert/strict";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
-const excludedDirectories = new Set([".git", ".tmp", "artifacts", "dist", "node_modules"]);
+const excludedDirectories = new Set([
+  ".git",
+  ".private",
+  ".tmp",
+  ".vm-provisioning",
+  "ai-learning",
+  "artifacts",
+  "backups",
+  "cases",
+  "dist",
+  "documents",
+  "node_modules",
+  "results",
+  "tmp",
+  "workspace",
+]);
 const markdownFiles = [];
 
 function collectMarkdown(path) {

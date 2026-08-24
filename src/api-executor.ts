@@ -67,6 +67,11 @@ export const API_RESOURCE_BINDINGS: Readonly<Partial<Record<SseApiOperation, rea
     workerField: "expectedPath",
     allowedAreas: ["cases", "documents", "workspace", "results", "backups"],
   }],
+  receipt_manager_import: [{
+    alias: "resourceRef",
+    workerField: "expectedPath",
+    allowedAreas: ["documents"],
+  }],
   vast_apply: [{ alias: "expectedCaseRef", workerField: "expectedCasePath", allowedAreas: ["cases"] }],
   tracked_set_value: [{ alias: "expectedCaseRef", workerField: "expectedCasePath", allowedAreas: ["cases"] }],
   combo_select: [{ alias: "expectedCaseRef", workerField: "expectedCasePath", allowedAreas: ["cases"] }],

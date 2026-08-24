@@ -5,6 +5,7 @@ import { SSE_MCP_DESKTOP_SCHEMAS } from "../dist/mcp-schemas-desktop.js";
 import { SSE_MCP_DIAGNOSTIC_SCHEMAS } from "../dist/mcp-schemas-diagnostics.js";
 import { SSE_MCP_INTERACTION_SCHEMAS } from "../dist/mcp-schemas-interaction.js";
 import { SSE_MCP_LIFECYCLE_SCHEMAS } from "../dist/mcp-schemas-lifecycle.js";
+import { SSE_MCP_RECEIPT_SCHEMAS } from "../dist/mcp-schemas-receipts.js";
 import { SSE_MCP_UI_SCHEMAS } from "../dist/mcp-schemas-ui.js";
 import { SSE_MCP_TOOL_OPERATIONS } from "../dist/operation-catalog.js";
 
@@ -14,6 +15,7 @@ const groups = [
   ["diagnostics", SSE_MCP_DIAGNOSTIC_SCHEMAS],
   ["interaction", SSE_MCP_INTERACTION_SCHEMAS],
   ["lifecycle", SSE_MCP_LIFECYCLE_SCHEMAS],
+  ["receipts", SSE_MCP_RECEIPT_SCHEMAS],
   ["ui", SSE_MCP_UI_SCHEMAS],
 ];
 const registrationPattern = /register(?:ApiTool|ShapedApiTool|StrictTool)\(\s*"(sse_[a-z0-9_]+)"/g;

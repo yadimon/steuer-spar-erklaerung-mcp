@@ -233,9 +233,13 @@ mergt und keine anderen Einträge löscht. Niemals die ganze Datei ersetzen.
     "sse_dialog_answer", "sse_warning_popup_read", "sse_page",
     "sse_page_state", "sse_page_objects", "sse_ui_state", "sse_collect",
     "sse_goto", "sse_checker_results", "sse_checker_run", "sse_checker_open",
-    "sse_checker_close", "sse_screenshot", "sse_subpages",
+    "sse_checker_close", "sse_screenshot", "sse_snapshot", "sse_subpages",
     "sse_table_read", "sse_find", "sse_positions", "sse_click",
-    "sse_click_point", "sse_read_full", "sse_result_details", "sse_close"
+    "sse_click_point", "sse_read_full", "sse_result_details",
+    "sse_menu", "sse_menu_click", "sse_receipt_manager_action",
+    "sse_receipt_manager_list", "sse_receipt_manager_read",
+    "sse_receipt_manager_import", "sse_receipt_manager_delete",
+    "sse_window_close", "sse_close"
   ]
   ```
 

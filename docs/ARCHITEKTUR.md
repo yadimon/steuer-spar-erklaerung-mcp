@@ -88,7 +88,7 @@ Agent oder eigenes Programm
   Gesamtkatalog und OpenAPI-Abruf selbst; es gibt keinen separat gepflegten
   oder permissiveren API-Vertrag. Wiederkehrende Blattverträge wie optionaler
   Text, Flag, SHA-256 und Guard-Objekt werden dort als gemeinsame Komponenten
-  referenziert. Auch der für alle 88 Operationen identische
+  referenziert. Auch der für alle 93 Operationen identische
   `ok/kind/error/ms`-Umschlag liegt einmal als `OperationResultEnvelope` vor;
   jedes `Result_<operation>` ergänzt per `allOf` seine eigenen Fachfelder. Das
   hält die vollständiger gewordenen Result-Schemas unter dem Größenbudget,
@@ -230,7 +230,7 @@ Agent oder eigenes Programm
   bleiben unverändert, damit ein separat installierter Wrapper weder Details
   des API-Rechners noch seines eigenen Hosts preisgibt.
 - Werkzeugnamen, API-Zuordnung, Eingaben und versionierte
-  Ergebnismindestverträge werden aus gemeinsamen Katalogen abgeleitet. Alle 88
+  Ergebnismindestverträge werden aus gemeinsamen Katalogen abgeleitet. Alle 93
   Werkzeuge deklarieren das operationsspezifische `outputSchema` und liefern
   das vollständige, pfadredigierte nicht-binäre Ergebnis als
   `structuredContent`. Bereits als MCP-Bildblock gelieferte Base64-Bytes werden
@@ -355,7 +355,7 @@ Agent oder eigenes Programm
   „unbekannt“, nicht den Nachweis einer abweichend installierten Version. Nach
   dem Launch liefert `product_info` den eigentlichen Buildvergleich.
 
-## Nebenfenster: lesbar, nicht bedienbar
+## Nebenfenster: allgemein lesbar, nur rollenbezogen bedienbar
 
 SteuerSparErklärung hostet in **einem** Prozess mehrere Fenster: das
 Hauptfenster mit dem Fall, die Werte-Info, Dialoge, den BelegManager, den
@@ -363,13 +363,14 @@ Einwilligungsdialog beim ersten Start — und ELSTER-, Versand-, Speicher- und
 Dateidialoge.
 
 Deshalb gilt: Nebenfenster desselben verifizierten Prozesses dürfen **gelesen**
-werden (`windows`, `dialog_list`, `snapshot`), aber jede Interaktionsoperation
-bindet ausschließlich an ein echtes Hauptfenster. „Gleiche PID" ist keine
-Berechtigung, und Breite allein ist keine Rollenprüfung: Der BelegManager ist
-963 px breit, die Wiederherstellungsfrage trägt den Produktnamen im Titel. Die
-Bindung verlangt daher Rolle **und** Geometrie
-(`Get-SSEMainWindowCandidates` plus Breitenschwelle), im Lese- wie im
-Schreibpfad.
+werden (`windows`, `dialog_list`, `snapshot`). Die allgemeinen Interaktions-
+operationen binden weiterhin ausschließlich an ein echtes Hauptfenster.
+„Gleiche PID" ist keine Berechtigung, und Breite allein ist keine
+Rollenprüfung: Der BelegManager ist 963 px breit, die
+Wiederherstellungsfrage trägt den Produktnamen im Titel. Die allgemeine Bindung
+verlangt daher Rolle **und** Geometrie (`Get-SSEMainWindowCandidates` plus
+Breitenschwelle), im Lese- wie im Schreibpfad. Nur eine eigene, profilierte
+Rollenoperation darf davon abweichen.
 
 ### Öffnen und Schließen sind davon nicht betroffen
 
@@ -382,18 +383,18 @@ griffen und `close` dauerhaft mit `dialog-open` verweigerte.
 
 Ein Nebenfenster, dessen Öffnen die API anbietet, gehört deshalb in den
 Profilkatalog — mit exaktem Titel und `closePolicy`. Die Rolle
-`nonmodal-tool-window` steht für ein bedienbares Programmfenster, das diese API
-nur öffnen, lesen und schließen darf. Ihre Freigabe hängt allein am exakten,
-gross-/kleinschreibungsgenauen Titel, nicht an einer Größenschranke: Ein
-Werkzeugfenster wächst mit dem Bildschirm.
+`nonmodal-tool-window` steht für ein eigenes Programmfenster, das die
+allgemeinen Werkzeuge nur öffnen, lesen und schließen dürfen. Seine Freigabe
+hängt allein am exakten, gross-/kleinschreibungsgenauen Titel, nicht an einer
+Größenschranke: Ein Werkzeugfenster wächst mit dem Bildschirm.
 
-Das ist eine bewusste Einschränkung mit bekanntem Preis: Belege lassen sich
-über die API nicht anlegen oder importieren, und auf einer frischen
-Installation lässt sich
-der Einwilligungsdialog nicht beantworten. Beides wird **nicht** dadurch
-gelöst, dass die allgemeine Bindung gelockert wird — ein „Klick auf ein
-beliebiges Fenster derselben PID" würde denselben Weg für Versand- und
-Speicherdialoge öffnen.
+Der BelegManager wird **nicht** durch eine gelockerte allgemeine Bindung
+bedienbar — ein „Klick auf ein beliebiges Fenster derselben PID" würde denselben
+Weg für Versand- und Speicherdialoge öffnen. Stattdessen besitzt er fünf
+spezialisierte Operationen: `receipt_manager_action` für zwei reversible
+Navigationen, `receipt_manager_list`, `receipt_manager_read`,
+`receipt_manager_import` und `receipt_manager_delete`. Auf einer frischen
+Installation lässt sich der Einwilligungsdialog weiterhin nicht beantworten.
 
 Der vorgesehene Weg sind stattdessen eigene, eng gefasste Operationen je
 katalogisierter Fensterrolle. Eine solche Operation braucht mindestens:
@@ -403,6 +404,21 @@ benannte katalogisierte `actionId` statt eines freien Selektors, einen
 Zustandsfingerprint samt Aktivierungs- und Auswahlzuständen, Dialogfreiheit im
 Prozess, die vorhandene Klickprüfung unmittelbar vor der Eingabe und eine
 semantische Nachbedingung. Ohne all das entsteht kein neuer Pfad.
+
+`receipt_manager_action` setzt diesen Vertrag für die zwei reversiblen
+Zustandswechsel `showAllReceipts` (`start` → `list`) und `goHome`
+(`list` → `start`) um. `receipt_manager_list` projiziert die vollständige
+sichtbare Liste und erzeugt Zeilen- und Listenfingerprints. `read` und `delete`
+akzeptieren nur solche frischen Zeilenbindungen; `delete` verlangt zusätzlich
+eine ausdrückliche Bestätigung und den exakt profilierten Löschdialog.
+`receipt_manager_import` legt nur bei vollständiger Liste ohne vorhandenen
+Entwurf einen neuen Beleg an, bindet die Quelle an `documents:` plus SHA-256,
+verifiziert den nativen Öffnen-Dialog und verlangt eine geänderte visuelle
+Vorschau bei unverändertem Quellhash. Der Profilkatalog nennt die exakten
+AutomationId-Suffixe, Dialogtexte und Fingerprints. Haupt- und Werkzeugfenster,
+Dialogfreiheit, physischer Klick, Top-Level-Fenstersatz und Dirty-State werden
+vor und nach jeder Mutation geprüft. Alle übrigen BelegManager-Schalter bleiben
+unerreichbar.
 
 ## Der Inhaltsbereich einer Seite: gemessen oder geraten
 
@@ -554,7 +570,7 @@ Gewinnaktualisierungsnotiz mit `OK` beschränkt; Recovery-Dateien werden nicht
 automatisch verworfen. Das Manifest trennt `status` von `operationAccess`:
 2025 trägt `full`, 2024 `verification-only`. Freigabe und voller Betriebsraum
 öffnen sich nur bei `supported` **und** `full`; eine reine Status-Promotion
-bleibt daher fail-closed. `capabilities.operationPolicy` klassifiziert alle 88
+bleibt daher fail-closed. `capabilities.operationPolicy` klassifiziert alle 93
 Operationen als Lesen, Navigation, bedingtes Focusless-Schreiben, Mutation,
 destruktiv oder Cleanup und nennt Opt-in- sowie Build-Drift-Gates. Ein zweiter
 MCP-Server pro Jahr ist nicht vorgesehen, solange sich nur Profildaten ändern.

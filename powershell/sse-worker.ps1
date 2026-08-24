@@ -215,6 +215,303 @@ function Resolve-SSEToolWindowHandle([string]$Id, [int]$TargetPid) {
   [IntPtr][int64]$treffer[0].hwnd
 }
 
+function Get-SSEReceiptManagerPolicy {
+  $catalog = Get-SSEPageObjects
+  $entry = @($catalog.windows.PSObject.Properties | Where-Object { $_.Name -ceq 'receiptManager' })
+  if ($entry.Count -ne 1) { Fail 'BelegManager fehlt im aktiven Page-Object-Katalog.' 'profile-contract' }
+  $policy = $entry[0].Value
+  if ([string]$policy.role -cne 'nonmodal-tool-window' -or -not [string]$policy.title -or
+      -not [string]$policy.classPattern -or -not $policy.states -or -not $policy.actions -or
+      -not $policy.controls -or -not $policy.deleteConfirmation -or -not $policy.importDialog -or
+      -not [string]$policy.list.tableAutomationIdSuffix -or
+      @($policy.list.countLabelAutomationIdSuffixes).Count -ne 3 -or
+      -not [string]$policy.list.draftMarker -or
+      -not [string]$policy.controls.newReceipt.automationIdSuffix -or
+      -not [string]$policy.controls.attachFile.automationIdSuffix -or
+      -not [string]$policy.controls.deleteReceipt.automationIdSuffix -or
+      -not [string]$policy.deleteConfirmation.title -or
+      -not [string]$policy.deleteConfirmation.text -or
+      -not [string]$policy.deleteConfirmation.confirmButton -or
+      [string]$policy.deleteConfirmation.fingerprint -notmatch '^[A-Fa-f0-9]{64}$' -or
+      -not [string]$policy.importDialog.title -or -not [string]$policy.importDialog.class -or
+      [string]$policy.importDialog.fingerprint -notmatch '^[A-Fa-f0-9]{64}$') {
+    Fail 'BelegManager-Katalog enthaelt keinen vollstaendigen Rollen-, Klassen-, Zustands- und Aktionsvertrag.' 'profile-contract'
+  }
+  $policy
+}
+
+function Get-SSEReceiptManagerState([IntPtr]$Window, $Policy) {
+  $tree = Walk-Tree $Window 800
+  $nodes = @($tree.nodes | Where-Object { $_.w -gt 0 -and $_.h -gt 0 })
+  $matchedStates = New-Object System.Collections.ArrayList
+  foreach ($stateProperty in @($Policy.states.PSObject.Properties)) {
+    $required = @($stateProperty.Value.requiredAutomationIdSuffixes | ForEach-Object { [string]$_ })
+    if (-not $required.Count) { Fail "BelegManager-Zustand '$($stateProperty.Name)' hat keine Pflichtsteuerelemente." 'profile-contract' }
+    $complete = $true
+    foreach ($suffix in $required) {
+      $matches = @($nodes | Where-Object {
+        [string]$_.aid -and ([string]$_.aid).EndsWith($suffix, [StringComparison]::Ordinal)
+      })
+      if ($matches.Count -ne 1 -or -not [bool]$matches[0].on) { $complete = $false; break }
+    }
+    if ($complete) { $null = $matchedStates.Add([string]$stateProperty.Name) }
+  }
+  if ($matchedStates.Count -ne 1) {
+    Fail "BelegManager-Zustand ist nicht eindeutig profiliert ($($matchedStates.Count) Treffer)." 'state-unknown'
+  }
+
+  $relevantSuffixes = @(
+    @($Policy.states.PSObject.Properties | ForEach-Object { @($_.Value.requiredAutomationIdSuffixes) }) +
+    @($Policy.actions.PSObject.Properties | ForEach-Object { [string]$_.Value.automationIdSuffix })
+  ) | ForEach-Object { [string]$_ } | Where-Object { $_ } | Select-Object -Unique
+  $stableNodes = @($nodes | Where-Object {
+    $aid = [string]$_.aid
+    @($relevantSuffixes | Where-Object { $aid.EndsWith($_, [StringComparison]::Ordinal) }).Count -gt 0
+  } | Sort-Object aid | ForEach-Object {
+    [pscustomobject][ordered]@{
+      aid=[string]$_.aid; name=[string]$_.name; type=[string]$_.type
+      enabled=[bool]$_.on; checked=$_.checked; selected=$_.selected
+      x=[int]$_.x; y=[int]$_.y; w=[int]$_.w; h=[int]$_.h
+    }
+  })
+  $state = [string]$matchedStates[0]
+  $fingerprintBody = [pscustomobject][ordered]@{
+    hwnd=[int64]$Window; state=$state; nodes=$stableNodes
+  }
+  [pscustomobject]@{
+    state=$state
+    fingerprint=Get-SSETextSha256 ($fingerprintBody | ConvertTo-Json -Depth 8 -Compress)
+    nodes=$nodes
+    stats=$tree.stats
+  }
+}
+
+function Get-SSEReceiptManagerWindowSet([int]$TargetPid) {
+  $windows = @(Get-Windows 'SSE' | Where-Object { [int]$_.pid -eq $TargetPid } | Sort-Object hwnd | ForEach-Object {
+    [pscustomobject][ordered]@{
+      hwnd=[int64]$_.hwnd; pid=[int]$_.pid; cls=[string]$_.cls
+      titleFingerprint=([string]$_.titleFingerprint).ToUpperInvariant()
+      minimiert=[bool]$_.minimiert; hung=[bool]$_.hung
+    }
+  })
+  [pscustomobject]@{
+    windows=$windows
+    fingerprint=Get-SSETextSha256 ($windows | ConvertTo-Json -Depth 5 -Compress)
+  }
+}
+
+function Get-SSEReceiptManagerListProjection($State, $Policy) {
+  if ([string]$State.state -cne 'list') {
+    Fail "BelegManager-Liste erwartet Zustand 'list', aktuell ist '$([string]$State.state)'." 'precondition-failed'
+  }
+  $tableSuffix = [string]$Policy.list.tableAutomationIdSuffix
+  $countSuffixes = @($Policy.list.countLabelAutomationIdSuffixes | ForEach-Object { [string]$_ })
+  $draftMarker = [string]$Policy.list.draftMarker
+  $tables = @($State.nodes | Where-Object {
+    $_.type -eq 'Table' -and [string]$_.aid -and
+    ([string]$_.aid).EndsWith($tableSuffix, [StringComparison]::Ordinal) -and
+    [bool]$_.on -and $_.w -gt 0 -and $_.h -gt 0
+  })
+  if ($tables.Count -ne 1) {
+    Fail "$($tables.Count) sichtbare BelegManager-Tabellen '$tableSuffix' gefunden." 'profile-contract'
+  }
+  $table = $tables[0]
+  $countLabels = New-Object System.Collections.ArrayList
+  for ($countSuffixIndex = 0; $countSuffixIndex -lt $countSuffixes.Count; $countSuffixIndex++) {
+    $suffix = [string]$countSuffixes[$countSuffixIndex]
+    $matches = @($State.nodes | Where-Object {
+      [string]$_.aid -and ([string]$_.aid).EndsWith($suffix, [StringComparison]::Ordinal)
+    })
+    if ($matches.Count -gt 1 -or ($countSuffixIndex -eq 0 -and $matches.Count -ne 1)) {
+      Fail "$($matches.Count) BelegManager-Zaehlerteile '$suffix' gefunden." 'profile-contract'
+    }
+    # Bei exakt null Belegen rendert Qt label_infoText2/3 ausserhalb der
+    # sichtbaren Flaeche; Walk-Tree liefert im Zustandsprojekt nur sichtbare
+    # Knoten. label_infoText1 enthaelt dann bereits die vollstaendige Form
+    # "MEINE BELEGE (0)". Fuer nichtleere/selektierte Listen wuerde ein
+    # fehlender Folgeteil am anschliessenden strikten Formatparser scheitern.
+    if ($matches.Count -eq 1) { $null = $countLabels.Add($matches[0]) }
+  }
+  $countText = ((@($countLabels | ForEach-Object { [string]$_.name }) -join ' ') -replace '\s+', ' ').Trim()
+  $countMatch = [regex]::Match(
+    $countText,
+    'MEINE BELEGE\s*\((?:(?<current>\d+)\s+von\s+)?(?<total>\d+)\)',
+    [Text.RegularExpressions.RegexOptions]::CultureInvariant
+  )
+  if (-not $countMatch.Success) {
+    Fail "BelegManager-Zaehler hat ein unbekanntes Format: '$countText'." 'profile-contract'
+  }
+  $count = [int]$countMatch.Groups['total'].Value
+  $tableAid = [string]$table.aid
+  $headerNames = @($State.nodes | Where-Object {
+    $_.type -in @('Header','HeaderItem') -and [string]$_.name -and
+    [string]$_.aid -ceq $tableAid -and $_.w -gt 0 -and $_.h -gt 0
+  } | Sort-Object x | ForEach-Object { [string]$_.name })
+  $dataCells = @($State.nodes | Where-Object {
+    $_.type -eq 'DataItem' -and [string]$_.aid -ceq $tableAid -and
+    $_.w -gt 0 -and $_.h -gt 0 -and $_.y -ge $table.y
+  })
+  $rows = New-Object System.Collections.ArrayList
+  $rowIndex = 0
+  foreach ($group in @($dataCells | Group-Object y | Sort-Object { [int]$_.Name })) {
+    $cells = @($group.Group | Sort-Object x | ForEach-Object {
+      [pscustomobject][ordered]@{
+        name=[string]$_.name; rid=[string]$_.rid; selected=$_.selected
+        x=[int]$_.x; y=[int]$_.y; w=[int]$_.w; h=[int]$_.h
+      }
+    })
+    if (-not $cells.Count) { continue }
+    $rowIndex++
+    $namedCells = @($cells | Where-Object { [string]$_.name })
+    $rowRid = $(if ($namedCells.Count) { [string]$namedCells[0].rid } else { [string]$cells[0].rid })
+    if (-not $rowRid) { Fail "BelegManager-Zeile $rowIndex hat keine Runtime-ID." 'profile-contract' }
+    $names = @($cells | ForEach-Object { [string]$_.name })
+    $rowBody = [pscustomobject][ordered]@{
+      index=$rowIndex; rid=$rowRid; cells=$names
+    }
+    $rowFingerprint = Get-SSETextSha256 ($rowBody | ConvertTo-Json -Depth 5 -Compress)
+    # Tabellenbreite und Detailansicht bestimmen, welche Zusatzspalten Qt
+    # gerade ueber UIA exponiert. Die fachliche Primaerbezeichnung bleibt
+    # dagegen stabil und eignet sich als Multiset-Readback der unberuehrten
+    # Restzeilen nach einer Loeschung.
+    $primaryText = $(if ($namedCells.Count) { [string]$namedCells[0].name } else { '' })
+    $contentFingerprint = Get-SSETextSha256 (([pscustomobject][ordered]@{
+      primaryText=$primaryText
+    }) | ConvertTo-Json -Depth 4 -Compress)
+    $isDraft = @($names | Where-Object { $_.EndsWith($draftMarker, [StringComparison]::Ordinal) }).Count -gt 0
+    $selected = @($cells | Where-Object { $null -ne $_.selected -and [bool]$_.selected }).Count -gt 0
+    $null = $rows.Add([pscustomobject][ordered]@{
+      index=$rowIndex; rowRid=$rowRid; rowFingerprint=$rowFingerprint
+      contentFingerprint=$contentFingerprint
+      cells=$cells; draft=[bool]$isDraft; selected=[bool]$selected
+    })
+  }
+  $rowFingerprints = @($rows | ForEach-Object { [string]$_.rowFingerprint })
+  $listFingerprint = Get-SSETextSha256 (([pscustomobject][ordered]@{
+    count=$count; rows=$rowFingerprints
+  }) | ConvertTo-Json -Depth 5 -Compress)
+  [pscustomobject][ordered]@{
+    count=$count; countSource='info-label'; countText=$countText
+    headers=$headerNames; rows=@($rows)
+    draftCount=@($rows | Where-Object { $_.draft }).Count
+    listFingerprint=$listFingerprint; rowsComplete=[bool]($rows.Count -eq $count)
+  }
+}
+
+function Get-SSEWindowRegionPixelFingerprint([IntPtr]$Window, $Node) {
+  $windowRect = New-Object SW+RC
+  if (-not [SW]::GetWindowRect($Window, [ref]$windowRect)) {
+    Fail 'Fenstergeometrie fuer den visuellen Beleg-Readback ist nicht lesbar.' 'window-unreadable'
+  }
+  $windowWidth = $windowRect.R - $windowRect.L
+  $windowHeight = $windowRect.B - $windowRect.T
+  $sourceX = [int]$Node.x - $windowRect.L
+  $sourceY = [int]$Node.y - $windowRect.T
+  $sourceWidth = [Math]::Min([int]$Node.w, $windowWidth - $sourceX)
+  $sourceHeight = [Math]::Min([int]$Node.h, $windowHeight - $sourceY)
+  if ($sourceX -lt 0 -or $sourceY -lt 0 -or $sourceWidth -lt 20 -or $sourceHeight -lt 20) {
+    Fail 'Belegvorschau liegt nicht vollstaendig im gebundenen BelegManager-Fenster.' 'precondition-failed'
+  }
+  $full = $null; $fullGraphics = $null; $hdc = [IntPtr]::Zero
+  $crop = $null; $cropGraphics = $null; $stream = $null; $sha = $null
+  try {
+    $full = New-Object System.Drawing.Bitmap($windowWidth, $windowHeight)
+    $fullGraphics = [System.Drawing.Graphics]::FromImage($full)
+    $hdc = $fullGraphics.GetHdc()
+    $shotOk = [SW]::PrintWindow($Window, $hdc, 2)
+    $fullGraphics.ReleaseHdc($hdc); $hdc = [IntPtr]::Zero
+    if (-not $shotOk) { Fail 'BelegManager konnte fuer den visuellen Vorschau-Readback nicht gerendert werden.' 'screenshot-failed' }
+    $crop = New-Object System.Drawing.Bitmap($sourceWidth, $sourceHeight)
+    $cropGraphics = [System.Drawing.Graphics]::FromImage($crop)
+    $destination = New-Object System.Drawing.Rectangle(0, 0, $sourceWidth, $sourceHeight)
+    $source = New-Object System.Drawing.Rectangle($sourceX, $sourceY, $sourceWidth, $sourceHeight)
+    $cropGraphics.DrawImage($full, $destination, $source, [System.Drawing.GraphicsUnit]::Pixel)
+    $stream = New-Object IO.MemoryStream
+    $crop.Save($stream, [System.Drawing.Imaging.ImageFormat]::Png)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    ([BitConverter]::ToString($sha.ComputeHash($stream.ToArray())) -replace '-', '').ToUpperInvariant()
+  } finally {
+    if ($hdc -ne [IntPtr]::Zero -and $fullGraphics) { $fullGraphics.ReleaseHdc($hdc) }
+    if ($sha) { $sha.Dispose() }
+    if ($stream) { $stream.Dispose() }
+    if ($cropGraphics) { $cropGraphics.Dispose() }
+    if ($crop) { $crop.Dispose() }
+    if ($fullGraphics) { $fullGraphics.Dispose() }
+    if ($full) { $full.Dispose() }
+  }
+}
+
+function Invoke-SSEReceiptManagerOpenFileDialog(
+  [int]$TargetPid,
+  [IntPtr]$MainHwnd,
+  [string]$ExpectedTitle,
+  [string]$ExpectedClass,
+  [string]$ExpectedFingerprint,
+  [string]$Path,
+  [string]$ExpectedHash,
+  [int]$WaitMs
+) {
+  $dialogs = @(Get-Windows 'SSE' | Where-Object {
+    [int]$_.pid -eq $TargetPid -and [string]$_.cls -ceq $ExpectedClass -and
+    [string]$_.title -ceq $ExpectedTitle
+  })
+  if ($dialogs.Count -ne 1) {
+    Fail "$($dialogs.Count) exakt passende Belegimport-Dialoge '$ExpectedTitle' gefunden." 'dialog-not-found'
+  }
+  $descriptor = Get-DialogDescriptor $dialogs[0] $MainHwnd
+  if ([string]$descriptor.fingerprint -cne $ExpectedFingerprint) {
+    Fail 'Belegimport-Dialog stimmt nicht mit dem gemessenen Fingerprint ueberein; NICHT bedient.' 'fingerprint-mismatch'
+  }
+  $dialogHwnd = [IntPtr][int64]$descriptor.hwnd
+  $tree = Walk-Tree $dialogHwnd 1500 -WithValues
+  $labels = @($tree.nodes | Where-Object {
+    $_.type -in @('Pane','Text') -and $_.aid -in @('1090','SaveDialogLabel') -and
+    $_.name -in @('Dateiname:','File name:')
+  })
+  if ($labels.Count -ne 1) { Fail "$($labels.Count) Dateiname-Beschriftungen im Belegimport-Dialog gefunden." 'dialog-unmapped' }
+  $label = $labels[0]
+  $fields = @($tree.nodes | Where-Object {
+    $_.type -eq 'Pane' -and $_.aid -in @('1148','1001') -and $_.w -gt 100 -and
+    $_.x -gt $label.x -and [Math]::Abs($_.y - $label.y) -lt 15
+  } | Sort-Object d -Descending)
+  if (-not $fields.Count) { Fail 'Kein Dateiname-Eingabefeld im Belegimport-Dialog gefunden.' 'dialog-unmapped' }
+  $field = $fields[0]
+  $null = Click-VerifiedPoint $dialogHwnd $field
+  [System.Windows.Forms.SendKeys]::SendWait('^a')
+  [System.Windows.Forms.SendKeys]::SendWait((ConvertTo-SendKeysLiteral $Path))
+  Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick)
+  Start-Sleep -Milliseconds 400
+  $treeAfterInput = Walk-Tree $dialogHwnd 1500 -WithValues
+  $fieldAfter = @($treeAfterInput.nodes | Where-Object {
+    $_.rid -eq $field.rid -or
+    ($_.type -eq 'Pane' -and $_.aid -eq $field.aid -and $_.x -eq $field.x -and $_.y -eq $field.y)
+  })[0]
+  $shown = $(if ($fieldAfter.val) { [string]$fieldAfter.val } else { [string]$fieldAfter.name })
+  $leaf = [IO.Path]::GetFileName($Path)
+  if ($shown -and $shown -cne $Path -and $shown -cne $leaf) {
+    Fail 'Dateiname-Feld zeigt nicht die gebundene Belegdatei; NICHT bestaetigt.' 'postcondition-failed'
+  }
+  $openButtons = @($treeAfterInput.nodes | Where-Object {
+    $_.type -eq 'Pane' -and $_.aid -eq '1' -and $_.name -in @('Oeffnen','Öffnen','Open') -and $_.on
+  })
+  if ($openButtons.Count -ne 1) {
+    Fail "$($openButtons.Count) aktive Oeffnen-Schaltflaechen im Belegimport-Dialog gefunden." 'dialog-unmapped'
+  }
+  $null = Click-VerifiedPoint $dialogHwnd $openButtons[0]
+  Start-Sleep -Milliseconds $WaitMs
+  if ([SW]::IsWindow($dialogHwnd)) {
+    Fail 'Belegimport-Dialog ist nach Oeffnen noch vorhanden; keine Wiederholung.' 'postcondition-failed'
+  }
+  $actualHashAfter = Get-Sha256 $Path
+  if ([string]$actualHashAfter -cne $ExpectedHash) {
+    Fail 'Quelldatei hat sich waehrend des Belegimports geaendert.' 'postcondition-failed'
+  }
+  [pscustomobject]@{
+    selected=$Path; sha256=$actualHashAfter; dialogTitle=$ExpectedTitle
+    dialogFingerprint=$ExpectedFingerprint; dialogClosed=$true; verified=$true
+  }
+}
+
 function Resolve-SSEPageObject([string]$PageId, [string]$FieldId = '') {
   $catalog = Get-SSEPageObjects
   $pageProperty = $catalog.pages.PSObject.Properties[$PageId]
@@ -5031,7 +5328,7 @@ $experimentalProfileVerificationOps = @(
   'click_point', 'close', 'combo_options', 'dialog_list',
   'find', 'get_value', 'goto', 'known_page_state', 'launch',
   'make_working_copy', 'page', 'page_objects', 'positions', 'read_full',
-  'read_page', 'read_table', 'result_details', 'scroll', 'scroll_page',
+  'read_page', 'read_table', 'receipt_manager_list', 'receipt_manager_read', 'result_details', 'scroll', 'scroll_page',
   'snapshot', 'snapshot_compare', 'subpages', 'table_read', 'tree_scroll',
   'tree_top', 'ui_state', 'ustva_read', 'warning_popup_read', 'window_close',
   'window_restore', 'windows', 'instances'
@@ -5039,6 +5336,7 @@ $experimentalProfileVerificationOps = @(
 $buildDriftBlockedOps = @(
   'checker_run', 'click', 'click_point', 'combo_select', 'dialog_answer',
   'file_dialog_select', 'goto', 'menu_click', 'save', 'save_as', 'set_value',
+  'receipt_manager_action', 'receipt_manager_delete', 'receipt_manager_import', 'receipt_manager_read',
   'table_add', 'table_delete', 'table_update', 'toggle',
   'tracked_set_value', 'ustva_change_value', 'ustva_open_section', 'ustva_select_period',
   'ustva_set_flag', 'vast_apply', 'vast_mapping_select',
@@ -14573,6 +14871,698 @@ switch ($Op) {
       popupCountBefore = $before.Count; popupCountAfter = $after.Count
       verified = $verified
       warning = $(if ($after.Count) { 'Menue-Popup ist noch sichtbar; keine Tasten gesendet.' } else { $null })
+    })
+  }
+
+  'receipt_manager_list' {
+    $policy = Get-SSEReceiptManagerPolicy
+    $mainWindow = Resolve-SSEMainWindowDescriptor $a
+    $mainHwnd = [IntPtr][int64]$mainWindow.hwnd
+    $targetPid = [int]$mainWindow.pid
+    $toolHwnd = Resolve-SSEToolWindowHandle 'receiptManager' $targetPid
+    $toolWindows = @(Get-Windows 'SSE' | Where-Object {
+      [int]$_.pid -eq $targetPid -and [int64]$_.hwnd -eq [int64]$toolHwnd
+    })
+    if ($toolWindows.Count -ne 1) { Fail 'BelegManager-Fenster ist nicht mehr eindeutig.' 'stale-window' }
+    $toolWindow = $toolWindows[0]
+    if ([string]$toolWindow.title -cne [string]$policy.title -or
+        [string]$toolWindow.cls -notmatch [string]$policy.classPattern -or
+        [bool]$toolWindow.minimiert -or [bool]$toolWindow.hung) {
+      Fail 'BelegManager stimmt nicht mit Titel, Qt-Klasse und sichtbarem Profilzustand ueberein.' 'precondition-failed'
+    }
+    $blocking = @(Get-DialogInventory $targetPid | Where-Object { $_.kind -in @('native-dialog','qt-dialog') })
+    if ($blocking.Count) { Fail 'Ein modaler SSE-Dialog blockiert die BelegManager-Lesung.' 'precondition-failed' }
+    $state = Get-SSEReceiptManagerState $toolHwnd $policy
+    $list = Get-SSEReceiptManagerListProjection $state $policy
+    $dirty = Get-DirtyStateFast $mainHwnd
+    if ($null -eq $dirty) { Fail 'Dirty-State des zugehoerigen Hauptfensters ist nicht lesbar.' 'precondition-failed' }
+    Emit ([pscustomobject]@{
+      ok=$true; pid=$targetPid; hwnd=[int64]$toolHwnd
+      state=[string]$state.state; stateFingerprint=[string]$state.fingerprint
+      count=[int]$list.count; countSource=[string]$list.countSource; headers=@($list.headers)
+      rows=@($list.rows); draftCount=[int]$list.draftCount
+      listFingerprint=[string]$list.listFingerprint; rowsComplete=[bool]$list.rowsComplete
+      ungespeichert=[bool]$dirty; physicalInputUsed=$false
+      hinweis=$(if ($list.rowsComplete) { 'Alle vom BelegManager gezaehlten Zeilen sind im UIA-Baum enthalten.' } else {
+        "BelegManager zaehlt $($list.count) Belege, aber UIA exponiert aktuell $(@($list.rows).Count) Zeilen; Ergebnis ist sichtbar, nicht vollstaendig."
+      })
+    })
+  }
+
+  'receipt_manager_read' {
+    $rowRid = [string](Arg $a 'rowRid')
+    $rowFingerprint = ([string](Arg $a 'rowFingerprint')).ToUpperInvariant()
+    $expectedListFingerprint = ([string](Arg $a 'expectedListFingerprint')).ToUpperInvariant()
+    $waitMs = Get-SSEBoundedIntegerArg $a 'waitMs' 2500 100 10000
+    if (-not $rowRid -or $rowFingerprint -notmatch '^[A-F0-9]{64}$' -or
+        $expectedListFingerprint -notmatch '^[A-F0-9]{64}$') {
+      Fail 'rowRid, rowFingerprint und expectedListFingerprint sind Pflicht.' 'bad-args'
+    }
+    $policy = Get-SSEReceiptManagerPolicy
+    $mainWindow = Resolve-SSEMainWindowDescriptor $a -RestoreMinimized
+    $mainHwnd = [IntPtr][int64]$mainWindow.hwnd
+    $targetPid = [int]$mainWindow.pid
+    $toolHwnd = Resolve-SSEToolWindowHandle 'receiptManager' $targetPid
+    $toolWindows = @(Get-Windows 'SSE' | Where-Object {
+      [int]$_.pid -eq $targetPid -and [int64]$_.hwnd -eq [int64]$toolHwnd
+    })
+    if ($toolWindows.Count -ne 1) { Fail 'BelegManager-Fenster ist nicht mehr eindeutig.' 'stale-window' }
+    $toolWindow = $toolWindows[0]
+    if ([string]$toolWindow.title -cne [string]$policy.title -or
+        [string]$toolWindow.cls -notmatch [string]$policy.classPattern -or
+        [bool]$toolWindow.minimiert -or [bool]$toolWindow.hung) {
+      Fail 'BelegManager stimmt nicht mit Titel, Qt-Klasse und sichtbarem Profilzustand ueberein.' 'precondition-failed'
+    }
+    $blockingBefore = @(Get-DialogInventory $targetPid | Where-Object { $_.kind -in @('native-dialog','qt-dialog') })
+    if ($blockingBefore.Count) { Fail 'Ein modaler SSE-Dialog blockiert die BelegManager-Lesung.' 'precondition-failed' }
+    $windowSetBefore = Get-SSEReceiptManagerWindowSet $targetPid
+    $stateBefore = Get-SSEReceiptManagerState $toolHwnd $policy
+    $listBefore = Get-SSEReceiptManagerListProjection $stateBefore $policy
+    if ([string]$listBefore.listFingerprint -cne $expectedListFingerprint) {
+      Fail 'BelegManager-Liste hat sich seit sse_receipt_manager_list geaendert; NICHT geklickt.' 'stale'
+    }
+    $rows = @($listBefore.rows | Where-Object {
+      [string]$_.rowRid -ceq $rowRid -and ([string]$_.rowFingerprint).ToUpperInvariant() -ceq $rowFingerprint
+    })
+    if ($rows.Count -ne 1) { Fail "$($rows.Count) exakt gebundene Belegzeilen gefunden; NICHT geklickt." 'stale' }
+    $contentFingerprintsBefore = @($listBefore.rows | ForEach-Object { [string]$_.contentFingerprint })
+    $dirtyBefore = Get-DirtyStateFast $mainHwnd
+    if ($null -eq $dirtyBefore) { Fail 'Dirty-State des zugehoerigen Hauptfensters ist nicht lesbar.' 'precondition-failed' }
+
+    $inputTick = Get-SSELastInputTick
+    $freshState = Get-SSEReceiptManagerState $toolHwnd $policy
+    $freshList = Get-SSEReceiptManagerListProjection $freshState $policy
+    if ([string]$freshState.fingerprint -cne [string]$stateBefore.fingerprint -or
+        [string]$freshList.listFingerprint -cne $expectedListFingerprint) {
+      Fail 'BelegManager-Zustand hat sich unmittelbar vor der Zeilenauswahl geaendert.' 'stale'
+    }
+    $targetNodes = @($freshState.nodes | Where-Object {
+      [string]$_.rid -ceq $rowRid -and $_.type -eq 'DataItem' -and
+      [string]$_.aid -and ([string]$_.aid).EndsWith([string]$policy.list.tableAutomationIdSuffix, [StringComparison]::Ordinal)
+    })
+    $freshTarget = $(if ($targetNodes.Count -eq 1) {
+      Convert-ExactElementToNode (Get-LiveElement $toolHwnd $targetNodes[0].rid)
+    } else { $null })
+    if (-not $freshTarget -or -not [bool]$freshTarget.on -or $freshTarget.w -le 0 -or $freshTarget.h -le 0) {
+      Fail 'Gebundene Belegzeile ist unmittelbar vor der Auswahl nicht mehr sichtbar und aktiv.' 'stale'
+    }
+    $clickBinding = Click-VerifiedPoint $toolHwnd $freshTarget $inputTick -RequireForeground
+
+    $deadline = [DateTime]::UtcNow.AddMilliseconds($waitMs)
+    $stateAfter = $null; $detailFields = @(); $noSelection = $true
+    do {
+      Start-Sleep -Milliseconds 200
+      try {
+        $stateAfter = Get-SSEReceiptManagerState $toolHwnd $policy
+        $noSelection = @($stateAfter.nodes | Where-Object {
+          $_.type -eq 'Text' -and [string]$_.name -ceq 'Kein Beleg ausgewählt' -and $_.w -gt 0 -and $_.h -gt 0
+        }).Count -gt 0
+        $detailFields = @($stateAfter.nodes | Where-Object {
+          [string]$_.aid -match '\.widget_detailPanel\.' -and $_.w -gt 0 -and $_.h -gt 0 -and
+          ($_.type -in @('Edit','Spinner','CheckBox','ComboBox','Button') -or [string]$_.name -or $null -ne $_.val)
+        } | Sort-Object aid | ForEach-Object {
+          [pscustomobject][ordered]@{
+            automationId=[string]$_.aid; name=[string]$_.name; type=[string]$_.type
+            value=$_.val; readOnly=$_.ro; enabled=[bool]$_.on; checked=$_.checked; selected=$_.selected
+          }
+        })
+      } catch { $stateAfter = $null; $detailFields = @(); $noSelection = $true }
+      if ($stateAfter -and -not $noSelection -and $detailFields.Count) { break }
+    } while ([DateTime]::UtcNow -lt $deadline)
+
+    $listAfter = $(if ($stateAfter) { Get-SSEReceiptManagerListProjection $stateAfter $policy } else { $null })
+    $windowSetAfter = Get-SSEReceiptManagerWindowSet $targetPid
+    $windowSetUnchanged = [bool]($windowSetAfter.fingerprint -eq $windowSetBefore.fingerprint)
+    $blockingAfter = @(Get-DialogInventory $targetPid | Where-Object { $_.kind -in @('native-dialog','qt-dialog') })
+    $dirtyAfter = Get-DirtyStateFast $mainHwnd
+    $dirtyStateUnchanged = [bool]($null -ne $dirtyAfter -and [bool]$dirtyAfter -eq [bool]$dirtyBefore)
+    $contentFingerprintsAfter = $(if ($listAfter) {
+      @($listAfter.rows | ForEach-Object { [string]$_.contentFingerprint })
+    } else { @() })
+    $semanticListUnchanged = [bool](
+      $listAfter -and [bool]$listAfter.rowsComplete -and
+      [int]$listAfter.count -eq [int]$listBefore.count -and
+      ($contentFingerprintsBefore | ConvertTo-Json -Compress) -ceq
+      ($contentFingerprintsAfter | ConvertTo-Json -Compress) -and
+      @($listAfter.rows | Where-Object { [string]$_.rowRid -ceq $rowRid }).Count -eq 1
+    )
+    $verified = [bool](
+      $stateAfter -and -not $noSelection -and $detailFields.Count -and $listAfter -and
+      $semanticListUnchanged -and
+      $windowSetUnchanged -and -not $blockingAfter.Count -and $dirtyStateUnchanged
+    )
+    $detailFingerprint = $(if ($detailFields.Count) {
+      Get-SSETextSha256 ($detailFields | ConvertTo-Json -Depth 8 -Compress)
+    } else { $null })
+    if (-not $verified) {
+      Emit ([pscustomobject]@{
+        ok=$false; kind='postcondition-failed'; error='Belegdetail, Listenbindung, Fenstersatz, Dialogfreiheit oder Dirty-State ist nach der Auswahl nicht vollstaendig bewiesen; keine Wiederholung.'
+        pid=$targetPid; hwnd=[int64]$toolHwnd; row=$rows[0]; fields=$detailFields
+        listFingerprint=$(if ($listAfter) { [string]$listAfter.listFingerprint } else { $null })
+        listFingerprintBefore=$expectedListFingerprint; semanticListUnchanged=$semanticListUnchanged
+        detailFingerprint=$detailFingerprint; windowSetUnchanged=$windowSetUnchanged
+        ungespeichertVorher=$dirtyBefore; ungespeichertNachher=$dirtyAfter; dirtyStateUnchanged=$dirtyStateUnchanged
+        physicalInputUsed=$true; foregroundLeaseUsed=$true; verified=$false; clickBinding=$clickBinding
+      })
+    }
+    Emit ([pscustomobject]@{
+      ok=$true; pid=$targetPid; hwnd=[int64]$toolHwnd; row=$rows[0]; fields=$detailFields
+      listFingerprint=[string]$listAfter.listFingerprint; detailFingerprint=$detailFingerprint
+      listFingerprintBefore=$expectedListFingerprint; semanticListUnchanged=$true
+      windowSetUnchanged=$true; ungespeichertVorher=$dirtyBefore; ungespeichertNachher=$dirtyAfter
+      dirtyStateUnchanged=$true; physicalInputUsed=$true; foregroundLeaseUsed=$true
+      verified=$true; clickBinding=$clickBinding
+    })
+  }
+
+  'receipt_manager_import' {
+    if ($script:DESKTOP_NAME) { Fail 'Belegimport braucht den sichtbaren Desktop.' 'hidden-desktop' }
+    $pathRaw = [string](Arg $a 'expectedPath')
+    $expectedHash = ([string](Arg $a 'expectedHash')).ToUpperInvariant()
+    $expectedListFingerprint = ([string](Arg $a 'expectedListFingerprint')).ToUpperInvariant()
+    $expectedCountBefore = Get-SSEBoundedIntegerArg $a 'expectedCountBefore' 0 0 100000
+    $acknowledgeImport = Arg $a 'acknowledgeImport' $false
+    $waitMs = Get-SSEBoundedIntegerArg $a 'waitMs' 3500 500 10000
+    if (-not $pathRaw -or $expectedHash -notmatch '^[A-F0-9]{64}$' -or
+        $expectedListFingerprint -notmatch '^[A-F0-9]{64}$') {
+      Fail 'expectedPath, expectedHash und expectedListFingerprint sind Pflicht.' 'bad-args'
+    }
+    if ($acknowledgeImport -ne $true) {
+      Fail 'Belegimport braucht acknowledgeImport=true fuer genau die hashgebundene Quelldatei.' 'acknowledgement-required'
+    }
+    $path = [IO.Path]::GetFullPath($pathRaw)
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { Fail "Belegdatei fehlt: $path" 'not-found' }
+    $sourceHashBefore = Get-Sha256 $path
+    if ([string]$sourceHashBefore -cne $expectedHash) {
+      Fail 'Belegdatei-Hash stimmt nicht; BelegManager wurde NICHT bedient.' 'precondition-failed'
+    }
+
+    $policy = Get-SSEReceiptManagerPolicy
+    $mainWindow = Resolve-SSEMainWindowDescriptor $a -RestoreMinimized
+    $mainHwnd = [IntPtr][int64]$mainWindow.hwnd
+    $targetPid = [int]$mainWindow.pid
+    $toolHwnd = Resolve-SSEToolWindowHandle 'receiptManager' $targetPid
+    $toolWindows = @(Get-Windows 'SSE' | Where-Object {
+      [int]$_.pid -eq $targetPid -and [int64]$_.hwnd -eq [int64]$toolHwnd
+    })
+    if ($toolWindows.Count -ne 1) { Fail 'BelegManager-Fenster ist nicht mehr eindeutig.' 'stale-window' }
+    $toolWindow = $toolWindows[0]
+    if ([string]$toolWindow.title -cne [string]$policy.title -or
+        [string]$toolWindow.cls -notmatch [string]$policy.classPattern -or
+        [bool]$toolWindow.minimiert -or [bool]$toolWindow.hung) {
+      Fail 'BelegManager stimmt nicht mit Titel, Qt-Klasse und sichtbarem Profilzustand ueberein.' 'precondition-failed'
+    }
+    $blockingBefore = @(Get-DialogInventory $targetPid | Where-Object { $_.kind -in @('native-dialog','qt-dialog') })
+    if ($blockingBefore.Count) { Fail 'Ein modaler SSE-Dialog blockiert den Belegimport.' 'precondition-failed' }
+    $windowSetBefore = Get-SSEReceiptManagerWindowSet $targetPid
+    $stateBefore = Get-SSEReceiptManagerState $toolHwnd $policy
+    $listBefore = Get-SSEReceiptManagerListProjection $stateBefore $policy
+    if (-not [bool]$listBefore.rowsComplete) {
+      Fail 'Belegliste ist nicht vollstaendig im UIA-Baum; NICHT importiert.' 'precondition-failed'
+    }
+    if ([string]$listBefore.listFingerprint -cne $expectedListFingerprint -or
+        [int]$listBefore.count -ne [int]$expectedCountBefore) {
+      Fail 'Belegliste oder Zaehler hat sich seit sse_receipt_manager_list geaendert; NICHT importiert.' 'stale'
+    }
+    if ([int]$listBefore.draftCount -ne 0) {
+      Fail 'Vor dem Import existiert mindestens ein Belegentwurf. Diesen zuerst bewusst lesen, vervollstaendigen oder loeschen.' 'draft-exists'
+    }
+    $dirtyBefore = Get-DirtyStateFast $mainHwnd
+    if ($null -eq $dirtyBefore) { Fail 'Dirty-State des zugehoerigen Hauptfensters ist nicht lesbar.' 'precondition-failed' }
+    $oldRowIds = @{}; foreach ($row in @($listBefore.rows)) { $oldRowIds[[string]$row.rowRid] = $true }
+    $oldContentFingerprints = @($listBefore.rows | ForEach-Object { [string]$_.contentFingerprint })
+
+    $newControlSuffix = [string]$policy.controls.newReceipt.automationIdSuffix
+    $newMatches = @($stateBefore.nodes | Where-Object {
+      $_.type -eq 'Button' -and [string]$_.aid -and
+      ([string]$_.aid).EndsWith($newControlSuffix, [StringComparison]::Ordinal) -and
+      [bool]$_.on -and $_.w -gt 0 -and $_.h -gt 0
+    })
+    if ($newMatches.Count -ne 1 -or
+        [string]$newMatches[0].name -cne [string]$policy.controls.newReceipt.expectedName) {
+      Fail 'Katalogisierte Schaltflaeche Neuer Beleg ist nicht genau einmal sichtbar und aktiv.' 'precondition-failed'
+    }
+    $freshState = Get-SSEReceiptManagerState $toolHwnd $policy
+    $freshList = Get-SSEReceiptManagerListProjection $freshState $policy
+    if ([string]$freshState.fingerprint -cne [string]$stateBefore.fingerprint -or
+        [string]$freshList.listFingerprint -cne $expectedListFingerprint) {
+      Fail 'BelegManager-Zustand hat sich unmittelbar vor dem Anlegen geaendert.' 'stale'
+    }
+    $freshNewMatches = @($freshState.nodes | Where-Object {
+      $_.type -eq 'Button' -and [string]$_.aid -and
+      ([string]$_.aid).EndsWith($newControlSuffix, [StringComparison]::Ordinal)
+    })
+    $freshNew = $(if ($freshNewMatches.Count -eq 1) {
+      Convert-ExactElementToNode (Get-LiveElement $toolHwnd $freshNewMatches[0].rid)
+    } else { $null })
+    if (-not $freshNew -or -not [bool]$freshNew.on -or
+        [string]$freshNew.name -cne [string]$policy.controls.newReceipt.expectedName) {
+      Fail 'Schaltflaeche Neuer Beleg ist unmittelbar vor dem Klick nicht mehr identisch.' 'stale'
+    }
+    $createClickBinding = Click-VerifiedPoint $toolHwnd $freshNew (Get-SSELastInputTick) -RequireForeground
+
+    $createDeadline = [DateTime]::UtcNow.AddMilliseconds($waitMs)
+    $createdState = $null; $createdList = $null; $createdRows = @(); $attachNode = $null
+    do {
+      Start-Sleep -Milliseconds 200
+      try {
+        $createdState = Get-SSEReceiptManagerState $toolHwnd $policy
+        $createdList = Get-SSEReceiptManagerListProjection $createdState $policy
+        $createdRows = @($createdList.rows | Where-Object { -not $oldRowIds.ContainsKey([string]$_.rowRid) })
+        $attachMatches = @($createdState.nodes | Where-Object {
+          [string]$_.aid -and ([string]$_.aid).EndsWith(
+            [string]$policy.controls.attachFile.automationIdSuffix,
+            [StringComparison]::Ordinal
+          ) -and [bool]$_.on -and $_.w -gt 0 -and $_.h -gt 0
+        })
+        if ($attachMatches.Count -eq 1) { $attachNode = $attachMatches[0] }
+      } catch { $createdState = $null; $createdList = $null; $createdRows = @(); $attachNode = $null }
+      if ($createdList -and [int]$createdList.count -eq ([int]$expectedCountBefore + 1) -and
+          $createdRows.Count -eq 1 -and $attachNode) { break }
+    } while ([DateTime]::UtcNow -lt $createDeadline)
+    if (-not $createdList -or -not [bool]$createdList.rowsComplete -or
+        [int]$createdList.count -ne ([int]$expectedCountBefore + 1) -or
+        $createdRows.Count -ne 1 -or -not [bool]$createdRows[0].draft -or -not $attachNode) {
+      Fail 'Neuer Beleg wurde nicht als genau ein gebundener Entwurf mit Dateiflaeche nachgewiesen; nicht erneut anlegen.' 'postcondition-failed'
+    }
+    $importedRow = $createdRows[0]
+    $previewFingerprintBefore = Get-SSEWindowRegionPixelFingerprint $toolHwnd $attachNode
+    $freshAttach = Convert-ExactElementToNode (Get-LiveElement $toolHwnd $attachNode.rid)
+    if (-not $freshAttach -or -not [bool]$freshAttach.on -or
+        [string]$freshAttach.aid -cne [string]$attachNode.aid) {
+      Fail 'Dateiflaeche des neuen Belegs ist unmittelbar vor dem Klick nicht mehr identisch.' 'stale'
+    }
+    $attachClickBinding = Click-VerifiedPoint $toolHwnd $freshAttach (Get-SSELastInputTick) -RequireForeground
+
+    $dialogDeadline = [DateTime]::UtcNow.AddMilliseconds($waitMs)
+    $importDialogReady = $false
+    do {
+      Start-Sleep -Milliseconds 150
+      $importDialogs = @(Get-Windows 'SSE' | Where-Object {
+        [int]$_.pid -eq $targetPid -and [string]$_.cls -ceq [string]$policy.importDialog.class -and
+        [string]$_.title -ceq [string]$policy.importDialog.title
+      })
+      if ($importDialogs.Count -eq 1) { $importDialogReady = $true; break }
+      if ($importDialogs.Count -gt 1) { break }
+    } while ([DateTime]::UtcNow -lt $dialogDeadline)
+    if (-not $importDialogReady) {
+      Fail 'Dateiflaeche oeffnete nicht genau einen profilierten Belegimport-Dialog; neuen Entwurf vor einem weiteren Versuch bewusst pruefen.' 'postcondition-failed'
+    }
+    $selection = Invoke-SSEReceiptManagerOpenFileDialog `
+      $targetPid $mainHwnd ([string]$policy.importDialog.title) ([string]$policy.importDialog.class) `
+      (([string]$policy.importDialog.fingerprint).ToUpperInvariant()) $path $expectedHash ([int]$waitMs)
+
+    Start-Sleep -Milliseconds 700
+    $stateAfter = Get-SSEReceiptManagerState $toolHwnd $policy
+    $listAfter = Get-SSEReceiptManagerListProjection $stateAfter $policy
+    $afterCreatedRows = @($listAfter.rows | Where-Object { [string]$_.rowRid -ceq [string]$importedRow.rowRid })
+    $attachAfterMatches = @($stateAfter.nodes | Where-Object {
+      [string]$_.aid -and ([string]$_.aid).EndsWith(
+        [string]$policy.controls.attachFile.automationIdSuffix,
+        [StringComparison]::Ordinal
+      ) -and [bool]$_.on -and $_.w -gt 0 -and $_.h -gt 0
+    })
+    $previewFingerprintAfter = $(if ($attachAfterMatches.Count -eq 1) {
+      Get-SSEWindowRegionPixelFingerprint $toolHwnd $attachAfterMatches[0]
+    } else { $null })
+    $previewChanged = [bool](
+      $previewFingerprintAfter -and [string]$previewFingerprintAfter -cne [string]$previewFingerprintBefore
+    )
+    $sourceHashAfter = Get-Sha256 $path
+    $sourceHashStable = [bool]([string]$sourceHashAfter -ceq $expectedHash)
+    $remainingContentAfter = @($listAfter.rows | Where-Object {
+      [string]$_.rowRid -cne [string]$importedRow.rowRid
+    } | ForEach-Object { [string]$_.contentFingerprint })
+    $existingRowsUnchanged = [bool](
+      ($oldContentFingerprints | ConvertTo-Json -Compress) -ceq
+      ($remainingContentAfter | ConvertTo-Json -Compress)
+    )
+    $blockingAfter = @(Get-DialogInventory $targetPid | Where-Object { $_.kind -in @('native-dialog','qt-dialog') })
+    $windowSetAfter = Get-SSEReceiptManagerWindowSet $targetPid
+    $windowSetUnchanged = [bool]($windowSetAfter.fingerprint -eq $windowSetBefore.fingerprint)
+    $dirtyAfter = Get-DirtyStateFast $mainHwnd
+    $dirtyStateUnchanged = [bool]($null -ne $dirtyAfter -and [bool]$dirtyAfter -eq [bool]$dirtyBefore)
+    $verified = [bool](
+      [bool]$selection.verified -and [bool]$selection.dialogClosed -and $sourceHashStable -and
+      $previewChanged -and [bool]$listAfter.rowsComplete -and
+      [int]$listAfter.count -eq ([int]$expectedCountBefore + 1) -and
+      $afterCreatedRows.Count -eq 1 -and $existingRowsUnchanged -and
+      -not $blockingAfter.Count -and $windowSetUnchanged -and $dirtyStateUnchanged
+    )
+    if (-not $verified) {
+      Emit ([pscustomobject]@{
+        ok=$false; kind='postcondition-failed'; error='Belegimport wurde ausgeloest, aber Datei-, Vorschau-, Listen-, Fenster-, Dialog- oder Dirty-State-Nachweis ist unvollstaendig; NICHT wiederholen. Den gemeldeten neuen Entwurf zuerst lesen oder loeschen.'
+        pid=$targetPid; hwnd=[int64]$toolHwnd; selected=$path; sha256=$sourceHashAfter
+        countBefore=[int]$expectedCountBefore; countAfter=[int]$listAfter.count
+        listFingerprintBefore=$expectedListFingerprint; listFingerprintAfter=[string]$listAfter.listFingerprint
+        importedRow=$importedRow; previewFingerprintBefore=$previewFingerprintBefore
+        previewFingerprintAfter=$previewFingerprintAfter; previewChanged=$previewChanged
+        sourceHashStable=$sourceHashStable; existingRowsUnchanged=$existingRowsUnchanged
+        dialogClosed=[bool]$selection.dialogClosed; windowSetUnchanged=$windowSetUnchanged
+        ungespeichertVorher=$dirtyBefore; ungespeichertNachher=$dirtyAfter; dirtyStateUnchanged=$dirtyStateUnchanged
+        physicalInputUsed=$true; foregroundLeaseUsed=$true; verified=$false
+        createClickBinding=$createClickBinding; attachClickBinding=$attachClickBinding; cleanupRequired=$true
+      })
+    }
+    Emit ([pscustomobject]@{
+      ok=$true; pid=$targetPid; hwnd=[int64]$toolHwnd; selected=$path; sha256=$sourceHashAfter
+      countBefore=[int]$expectedCountBefore; countAfter=[int]$listAfter.count
+      listFingerprintBefore=$expectedListFingerprint; listFingerprintAfter=[string]$listAfter.listFingerprint
+      importedRow=$afterCreatedRows[0]; previewFingerprintBefore=$previewFingerprintBefore
+      previewFingerprintAfter=$previewFingerprintAfter; previewChanged=$true
+      sourceHashStable=$true; existingRowsUnchanged=$true; dialogClosed=$true; windowSetUnchanged=$true
+      ungespeichertVorher=$dirtyBefore; ungespeichertNachher=$dirtyAfter; dirtyStateUnchanged=$true
+      physicalInputUsed=$true; foregroundLeaseUsed=$true; verified=$true
+      createClickBinding=$createClickBinding; attachClickBinding=$attachClickBinding; cleanupRequired=$false
+    })
+  }
+
+  'receipt_manager_delete' {
+    $rowRid = [string](Arg $a 'rowRid')
+    $rowFingerprint = ([string](Arg $a 'rowFingerprint')).ToUpperInvariant()
+    $expectedListFingerprint = ([string](Arg $a 'expectedListFingerprint')).ToUpperInvariant()
+    $expectedCountBefore = Get-SSEBoundedIntegerArg $a 'expectedCountBefore' 0 1 100000
+    $acknowledgeDelete = Arg $a 'acknowledgeDelete' $false
+    $waitMs = Get-SSEBoundedIntegerArg $a 'waitMs' 3500 500 10000
+    if (-not $rowRid -or $rowFingerprint -notmatch '^[A-F0-9]{64}$' -or
+        $expectedListFingerprint -notmatch '^[A-F0-9]{64}$') {
+      Fail 'rowRid, rowFingerprint und expectedListFingerprint sind Pflicht.' 'bad-args'
+    }
+    if ($acknowledgeDelete -ne $true) {
+      Fail 'Loeschen braucht acknowledgeDelete=true fuer genau die gebundene Belegzeile.' 'acknowledgement-required'
+    }
+
+    $policy = Get-SSEReceiptManagerPolicy
+    $mainWindow = Resolve-SSEMainWindowDescriptor $a -RestoreMinimized
+    $mainHwnd = [IntPtr][int64]$mainWindow.hwnd
+    $targetPid = [int]$mainWindow.pid
+    $toolHwnd = Resolve-SSEToolWindowHandle 'receiptManager' $targetPid
+    $toolWindows = @(Get-Windows 'SSE' | Where-Object {
+      [int]$_.pid -eq $targetPid -and [int64]$_.hwnd -eq [int64]$toolHwnd
+    })
+    if ($toolWindows.Count -ne 1) { Fail 'BelegManager-Fenster ist nicht mehr eindeutig.' 'stale-window' }
+    $toolWindow = $toolWindows[0]
+    if ([string]$toolWindow.title -cne [string]$policy.title -or
+        [string]$toolWindow.cls -notmatch [string]$policy.classPattern -or
+        [bool]$toolWindow.minimiert -or [bool]$toolWindow.hung) {
+      Fail 'BelegManager stimmt nicht mit Titel, Qt-Klasse und sichtbarem Profilzustand ueberein.' 'precondition-failed'
+    }
+    $blockingBefore = @(Get-DialogInventory $targetPid | Where-Object { $_.kind -in @('native-dialog','qt-dialog') })
+    if ($blockingBefore.Count) { Fail 'Ein modaler SSE-Dialog blockiert die Belegloeschung.' 'precondition-failed' }
+    $windowSetBefore = Get-SSEReceiptManagerWindowSet $targetPid
+    $stateBefore = Get-SSEReceiptManagerState $toolHwnd $policy
+    $listBefore = Get-SSEReceiptManagerListProjection $stateBefore $policy
+    if (-not [bool]$listBefore.rowsComplete) {
+      Fail 'Belegliste ist nicht vollstaendig im UIA-Baum; NICHT geloescht.' 'precondition-failed'
+    }
+    if ([string]$listBefore.listFingerprint -cne $expectedListFingerprint -or
+        [int]$listBefore.count -ne [int]$expectedCountBefore) {
+      Fail 'Belegliste oder Zaehler hat sich seit sse_receipt_manager_list geaendert; NICHT geloescht.' 'stale'
+    }
+    $rows = @($listBefore.rows | Where-Object {
+      [string]$_.rowRid -ceq $rowRid -and ([string]$_.rowFingerprint).ToUpperInvariant() -ceq $rowFingerprint
+    })
+    if ($rows.Count -ne 1) { Fail "$($rows.Count) exakt gebundene Belegzeilen gefunden; NICHT geloescht." 'stale' }
+    $deletedRow = $rows[0]
+    $remainingContentBefore = @($listBefore.rows | Where-Object {
+      [string]$_.rowRid -cne $rowRid
+    } | ForEach-Object { [string]$_.contentFingerprint })
+    $dirtyBefore = Get-DirtyStateFast $mainHwnd
+    if ($null -eq $dirtyBefore) { Fail 'Dirty-State des zugehoerigen Hauptfensters ist nicht lesbar.' 'precondition-failed' }
+
+    $inputTick = Get-SSELastInputTick
+    $freshState = Get-SSEReceiptManagerState $toolHwnd $policy
+    $freshList = Get-SSEReceiptManagerListProjection $freshState $policy
+    if ([string]$freshState.fingerprint -cne [string]$stateBefore.fingerprint -or
+        [string]$freshList.listFingerprint -cne $expectedListFingerprint) {
+      Fail 'BelegManager-Zustand hat sich unmittelbar vor der Zeilenauswahl geaendert.' 'stale'
+    }
+    $targetNodes = @($freshState.nodes | Where-Object {
+      [string]$_.rid -ceq $rowRid -and $_.type -eq 'DataItem' -and
+      [string]$_.aid -and ([string]$_.aid).EndsWith([string]$policy.list.tableAutomationIdSuffix, [StringComparison]::Ordinal)
+    })
+    $freshTarget = $(if ($targetNodes.Count -eq 1) {
+      Convert-ExactElementToNode (Get-LiveElement $toolHwnd $targetNodes[0].rid)
+    } else { $null })
+    if (-not $freshTarget -or -not [bool]$freshTarget.on -or $freshTarget.w -le 0 -or $freshTarget.h -le 0) {
+      Fail 'Gebundene Belegzeile ist unmittelbar vor der Loeschung nicht mehr sichtbar und aktiv.' 'stale'
+    }
+    $clickBinding = Click-VerifiedPoint $toolHwnd $freshTarget $inputTick -RequireForeground
+
+    $deadline = [DateTime]::UtcNow.AddMilliseconds($waitMs)
+    $selectedState = $null; $deleteNode = $null
+    do {
+      Start-Sleep -Milliseconds 200
+      try {
+        $selectedState = Get-SSEReceiptManagerState $toolHwnd $policy
+        $deleteMatches = @($selectedState.nodes | Where-Object {
+          [string]$_.aid -and ([string]$_.aid).EndsWith(
+            [string]$policy.controls.deleteReceipt.automationIdSuffix,
+            [StringComparison]::Ordinal
+          ) -and $_.type -eq 'Button' -and $_.w -gt 0 -and $_.h -gt 0 -and [bool]$_.on
+        })
+        if ($deleteMatches.Count -eq 1 -and
+            [string]$deleteMatches[0].name -ceq [string]$policy.controls.deleteReceipt.expectedName) {
+          $deleteNode = $deleteMatches[0]
+        }
+      } catch { $selectedState = $null; $deleteNode = $null }
+      if ($selectedState -and $deleteNode) { break }
+    } while ([DateTime]::UtcNow -lt $deadline)
+    if (-not $selectedState -or -not $deleteNode) {
+      Fail 'Gebundene Belegzeile wurde nicht mit einer exakt profilierten Loeschschaltflaeche angezeigt; keine Wiederholung.' 'postcondition-failed'
+    }
+    $selectedList = Get-SSEReceiptManagerListProjection $selectedState $policy
+    if ([string]$selectedList.listFingerprint -cne $expectedListFingerprint) {
+      Fail 'Belegliste hat sich waehrend der Zeilenauswahl geaendert; NICHT geloescht.' 'stale'
+    }
+    $freshDelete = Convert-ExactElementToNode (Get-LiveElement $toolHwnd $deleteNode.rid)
+    if (-not $freshDelete -or -not [bool]$freshDelete.on -or
+        [string]$freshDelete.aid -cne [string]$deleteNode.aid -or
+        [string]$freshDelete.name -cne [string]$policy.controls.deleteReceipt.expectedName) {
+      Fail 'Loeschschaltflaeche ist unmittelbar vor dem Klick nicht mehr identisch.' 'stale'
+    }
+    $null = Click-VerifiedPoint $toolHwnd $freshDelete (Get-SSELastInputTick) -RequireForeground
+
+    $dialogDeadline = [DateTime]::UtcNow.AddMilliseconds($waitMs)
+    $confirmation = $null
+    do {
+      Start-Sleep -Milliseconds 150
+      $dialogs = @(Get-DialogInventory $targetPid | Where-Object { $_.kind -in @('native-dialog','qt-dialog') })
+      if ($dialogs.Count -eq 1) { $confirmation = $dialogs[0]; break }
+      if ($dialogs.Count -gt 1) { break }
+    } while ([DateTime]::UtcNow -lt $dialogDeadline)
+    if (-not $confirmation -or $dialogs.Count -ne 1) {
+      Fail 'Nach dem Loeschklick erschien nicht genau ein gebundener Bestaetigungsdialog; keine Wiederholung.' 'postcondition-failed'
+    }
+    $expectedConfirmationFingerprint = ([string]$policy.deleteConfirmation.fingerprint).ToUpperInvariant()
+    $confirmationTexts = @($confirmation.texts | ForEach-Object { [string]$_ })
+    $confirmationButtons = @($confirmation.buttons | ForEach-Object { [string]$_.name })
+    if ([string]$confirmation.title -cne [string]$policy.deleteConfirmation.title -or
+        ([string]$confirmation.fingerprint).ToUpperInvariant() -cne $expectedConfirmationFingerprint -or
+        $confirmationTexts.Count -ne 1 -or
+        [string]$confirmationTexts[0] -cne [string]$policy.deleteConfirmation.text -or
+        @($confirmationButtons | Where-Object { $_ -ceq [string]$policy.deleteConfirmation.confirmButton }).Count -ne 1 -or
+        @($confirmationButtons | Where-Object { $_ -ceq [string]$policy.deleteConfirmation.cancelButton }).Count -ne 1) {
+      Fail 'Loeschdialog stimmt nicht exakt mit Titel, Text, Schaltern und Fingerprint des Produktprofils ueberein; NICHT bestaetigt.' 'dialog-mismatch'
+    }
+    $confirmButtons = @($confirmation.buttons | Where-Object {
+      [string]$_.name -ceq [string]$policy.deleteConfirmation.confirmButton -and [bool]$_.enabled
+    })
+    if ($confirmButtons.Count -ne 1) { Fail 'Loeschbestaetigung ist nicht genau einmal aktiv.' 'dialog-mismatch' }
+    try { $confirmationMethod = Invoke-DialogButtonInfo $confirmation $confirmButtons[0] }
+    catch { Fail "Loeschbestaetigung konnte nicht sicher ausgeloest werden: $($_.Exception.Message)" 'stale' }
+
+    $afterDeadline = [DateTime]::UtcNow.AddMilliseconds($waitMs)
+    $stateAfter = $null; $listAfter = $null
+    do {
+      Start-Sleep -Milliseconds 200
+      try {
+        if (-not [SW]::IsWindow([IntPtr][int64]$confirmation.hwnd)) {
+          $stateAfter = Get-SSEReceiptManagerState $toolHwnd $policy
+          $listAfter = Get-SSEReceiptManagerListProjection $stateAfter $policy
+        }
+      } catch { $stateAfter = $null; $listAfter = $null }
+      if ($listAfter -and [int]$listAfter.count -eq ([int]$expectedCountBefore - 1)) { break }
+    } while ([DateTime]::UtcNow -lt $afterDeadline)
+
+    $dialogClosed = -not [SW]::IsWindow([IntPtr][int64]$confirmation.hwnd)
+    $blockingAfter = @(Get-DialogInventory $targetPid | Where-Object { $_.kind -in @('native-dialog','qt-dialog') })
+    $windowSetAfter = Get-SSEReceiptManagerWindowSet $targetPid
+    $windowSetUnchanged = [bool]($windowSetAfter.fingerprint -eq $windowSetBefore.fingerprint)
+    $dirtyAfter = Get-DirtyStateFast $mainHwnd
+    $dirtyStateUnchanged = [bool]($null -ne $dirtyAfter -and [bool]$dirtyAfter -eq [bool]$dirtyBefore)
+    $remainingContentAfter = $(if ($listAfter) {
+      @($listAfter.rows | ForEach-Object { [string]$_.contentFingerprint })
+    } else { @() })
+    $remainingRowsUnchanged = [bool](
+      ($remainingContentBefore | ConvertTo-Json -Compress) -ceq
+      ($remainingContentAfter | ConvertTo-Json -Compress)
+    )
+    $deletedRowGone = [bool]($listAfter -and @($listAfter.rows | Where-Object {
+      [string]$_.rowRid -ceq $rowRid -and [string]$_.rowFingerprint -ceq $rowFingerprint
+    }).Count -eq 0)
+    $verified = [bool](
+      $dialogClosed -and -not $blockingAfter.Count -and $stateAfter -and $listAfter -and
+      [bool]$listAfter.rowsComplete -and [int]$listAfter.count -eq ([int]$expectedCountBefore - 1) -and
+      $remainingRowsUnchanged -and $deletedRowGone -and $windowSetUnchanged -and $dirtyStateUnchanged
+    )
+    if (-not $verified) {
+      Emit ([pscustomobject]@{
+        ok=$false; kind='postcondition-failed'; error='Loeschung wurde bestaetigt, aber Dialogfreiheit, Zaehler, Restzeilen, Fenster oder Dirty-State sind nicht vollstaendig bewiesen; NICHT wiederholen.'
+        pid=$targetPid; hwnd=[int64]$toolHwnd; deletedRow=$deletedRow
+        countBefore=[int]$expectedCountBefore; countAfter=$(if ($listAfter) { [int]$listAfter.count } else { $null })
+        listFingerprintBefore=$expectedListFingerprint; listFingerprintAfter=$(if ($listAfter) { [string]$listAfter.listFingerprint } else { $null })
+        confirmationFingerprint=$expectedConfirmationFingerprint; confirmationMethod=$confirmationMethod
+        dialogClosed=$dialogClosed; remainingRowsUnchanged=$remainingRowsUnchanged
+        windowSetUnchanged=$windowSetUnchanged; ungespeichertVorher=$dirtyBefore; ungespeichertNachher=$dirtyAfter
+        dirtyStateUnchanged=$dirtyStateUnchanged; physicalInputUsed=$true; foregroundLeaseUsed=$true
+        verified=$false; clickBinding=$clickBinding
+      })
+    }
+    Emit ([pscustomobject]@{
+      ok=$true; pid=$targetPid; hwnd=[int64]$toolHwnd; deletedRow=$deletedRow
+      countBefore=[int]$expectedCountBefore; countAfter=[int]$listAfter.count
+      listFingerprintBefore=$expectedListFingerprint; listFingerprintAfter=[string]$listAfter.listFingerprint
+      confirmationFingerprint=$expectedConfirmationFingerprint; confirmationMethod=$confirmationMethod
+      dialogClosed=$true; remainingRowsUnchanged=$true; windowSetUnchanged=$true
+      ungespeichertVorher=$dirtyBefore; ungespeichertNachher=$dirtyAfter; dirtyStateUnchanged=$true
+      physicalInputUsed=$true; foregroundLeaseUsed=$true; verified=$true; clickBinding=$clickBinding
+    })
+  }
+
+  'receipt_manager_action' {
+    # Einzige Bedienausnahme fuer ein nichtmodales Werkzeugfenster. Der
+    # Aufrufer benennt keine Beschriftung, RuntimeId oder AutomationId, sondern
+    # genau eine im aktiven Produktprofil katalogisierte Navigation. Anlegen,
+    # Importieren, Verknuepfen und Uebernehmen bleiben damit unerreichbar.
+    $actionId = [string](Arg $a 'actionId')
+    if (-not $actionId) { Fail 'actionId fehlt.' 'bad-args' }
+    $waitMs = Get-SSEBoundedIntegerArg $a 'waitMs' 2500 100 10000
+    $policy = Get-SSEReceiptManagerPolicy
+    $actionProperty = @($policy.actions.PSObject.Properties | Where-Object { $_.Name -ceq $actionId })
+    if ($actionProperty.Count -ne 1) {
+      $knownActions = @($policy.actions.PSObject.Properties | ForEach-Object { $_.Name })
+      Fail "Unbekannte BelegManager-actionId '$actionId'. Katalogisiert: $($knownActions -join ', ')." 'bad-args'
+    }
+    $action = $actionProperty[0].Value
+    $fromState = [string]$action.fromState
+    $toState = [string]$action.toState
+    $automationIdSuffix = [string]$action.automationIdSuffix
+    $expectedName = [string]$action.expectedName
+    if (-not $fromState -or -not $toState -or -not $automationIdSuffix) {
+      Fail "BelegManager-Aktion '$actionId' ist im Profil unvollstaendig." 'profile-contract'
+    }
+
+    $mainWindow = Resolve-SSEMainWindowDescriptor $a -RestoreMinimized
+    $mainHwnd = [IntPtr][int64]$mainWindow.hwnd
+    $targetPid = [int]$mainWindow.pid
+    $toolHwnd = Resolve-SSEToolWindowHandle 'receiptManager' $targetPid
+    $toolWindows = @(Get-Windows 'SSE' | Where-Object {
+      [int]$_.pid -eq $targetPid -and [int64]$_.hwnd -eq [int64]$toolHwnd
+    })
+    if ($toolWindows.Count -ne 1) { Fail 'BelegManager-Fenster ist nicht mehr eindeutig.' 'stale-window' }
+    $toolWindow = $toolWindows[0]
+    if ([string]$toolWindow.title -cne [string]$policy.title -or
+        [string]$toolWindow.cls -notmatch [string]$policy.classPattern -or
+        [bool]$toolWindow.minimiert -or [bool]$toolWindow.hung) {
+      Fail 'BelegManager stimmt nicht mit Titel, Qt-Klasse und sichtbarem Profilzustand ueberein.' 'precondition-failed'
+    }
+    if (Test-Versand ([string]$toolWindow.title)) { Fail 'BelegManager-Titel faellt unter die Versandgrenze.' 'blocked' }
+
+    $blockingBefore = @(Get-DialogInventory $targetPid | Where-Object { $_.kind -in @('native-dialog','qt-dialog') })
+    if ($blockingBefore.Count) { Fail 'Ein modaler SSE-Dialog blockiert die BelegManager-Navigation.' 'precondition-failed' }
+    $windowSetBefore = Get-SSEReceiptManagerWindowSet $targetPid
+    $stateBefore = Get-SSEReceiptManagerState $toolHwnd $policy
+    if ([string]$stateBefore.state -cne $fromState) {
+      Fail "BelegManager-Aktion '$actionId' erwartet Zustand '$fromState', aktuell ist '$($stateBefore.state)'." 'precondition-failed'
+    }
+
+    $targets = @($stateBefore.nodes | Where-Object {
+      [string]$_.aid -and ([string]$_.aid).EndsWith($automationIdSuffix, [StringComparison]::Ordinal)
+    })
+    if ($targets.Count -ne 1 -or -not [bool]$targets[0].on -or $targets[0].w -le 0 -or $targets[0].h -le 0) {
+      Fail "Katalogisiertes BelegManager-Ziel '$automationIdSuffix' ist nicht genau einmal sichtbar und aktiv." 'precondition-failed'
+    }
+    $target = $targets[0]
+    if ($expectedName -and [string]$target.name -cne $expectedName) {
+      Fail "BelegManager-Ziel hat die Beschriftung '$($target.name)' statt '$expectedName'." 'precondition-failed'
+    }
+    if (Test-Versand ([string]$target.name) -or Test-Versand $actionId) {
+      Fail "BelegManager-Aktion '$actionId' faellt unter die Versandgrenze." 'blocked'
+    }
+    $dirtyBefore = Get-DirtyStateFast $mainHwnd
+    if ($null -eq $dirtyBefore) { Fail 'Dirty-State des zugehoerigen Hauptfensters ist nicht lesbar.' 'precondition-failed' }
+
+    # Noch einmal ueber die profilierte AutomationId an derselben Fensterwurzel
+    # lesen. Erst dieser frische Knoten darf den unmittelbar folgenden,
+    # rootgebundenen physischen Klick liefern.
+    $inputTick = Get-SSELastInputTick
+    $freshState = Get-SSEReceiptManagerState $toolHwnd $policy
+    if ([string]$freshState.state -cne $fromState -or
+        [string]$freshState.fingerprint -cne [string]$stateBefore.fingerprint) {
+      Fail 'BelegManager-Zustand hat sich unmittelbar vor dem Klick geaendert.' 'stale'
+    }
+    $freshMatches = @($freshState.nodes | Where-Object {
+      [string]$_.aid -and ([string]$_.aid).EndsWith($automationIdSuffix, [StringComparison]::Ordinal)
+    })
+    $freshTarget = $(if ($freshMatches.Count -eq 1) {
+      Convert-ExactElementToNode (Get-LiveElement $toolHwnd $freshMatches[0].rid)
+    } else { $null })
+    if (-not $freshTarget -or -not [bool]$freshTarget.on -or
+        [string]$freshTarget.aid -cne [string]$target.aid -or
+        ($expectedName -and [string]$freshTarget.name -cne $expectedName)) {
+      Fail 'BelegManager-Ziel ist unmittelbar vor dem Klick nicht mehr identisch.' 'stale'
+    }
+    $clickBinding = Click-VerifiedPoint $toolHwnd $freshTarget $inputTick -RequireForeground
+
+    $deadline = [DateTime]::UtcNow.AddMilliseconds($waitMs)
+    $stateAfter = $null
+    do {
+      Start-Sleep -Milliseconds 200
+      try { $stateAfter = Get-SSEReceiptManagerState $toolHwnd $policy } catch { $stateAfter = $null }
+      if ($stateAfter -and [string]$stateAfter.state -ceq $toState) { break }
+    } while ([DateTime]::UtcNow -lt $deadline)
+
+    $windowsAfter = @(Get-Windows 'SSE' | Where-Object { [int]$_.pid -eq $targetPid })
+    $sameMain = @($windowsAfter | Where-Object {
+      [int64]$_.hwnd -eq [int64]$mainHwnd -and [string]$_.titleFingerprint -ceq [string]$mainWindow.titleFingerprint
+    }).Count -eq 1
+    $sameTool = @($windowsAfter | Where-Object {
+      [int64]$_.hwnd -eq [int64]$toolHwnd -and [string]$_.title -ceq [string]$policy.title -and
+      [string]$_.cls -match [string]$policy.classPattern
+    }).Count -eq 1
+    $windowSetAfter = Get-SSEReceiptManagerWindowSet $targetPid
+    $windowSetUnchanged = [bool]($windowSetAfter.fingerprint -eq $windowSetBefore.fingerprint)
+    $blockingAfter = @(Get-DialogInventory $targetPid | Where-Object { $_.kind -in @('native-dialog','qt-dialog') })
+    $dirtyAfter = Get-DirtyStateFast $mainHwnd
+    $dirtyStateUnchanged = [bool]($null -ne $dirtyAfter -and [bool]$dirtyAfter -eq [bool]$dirtyBefore)
+    $verified = [bool](
+      $stateAfter -and [string]$stateAfter.state -ceq $toState -and $sameMain -and $sameTool -and
+      $windowSetUnchanged -and -not $blockingAfter.Count -and $dirtyStateUnchanged
+    )
+    if (-not $verified) {
+      Emit ([pscustomobject]@{
+        ok=$false; kind='postcondition-failed'; error='BelegManager-Zielzustand, Fenstersatz, Dialogfreiheit oder Dirty-State ist nach dem Klick nicht vollstaendig bewiesen; keine Wiederholung.'
+        actionId=$actionId; pid=$targetPid; hwnd=[int64]$toolHwnd
+        controlAutomationId=[string]$freshTarget.aid; controlName=[string]$freshTarget.name
+        stateBefore=[string]$stateBefore.state; stateAfter=$(if ($stateAfter) { [string]$stateAfter.state } else { $null })
+        stateFingerprintBefore=[string]$stateBefore.fingerprint
+        stateFingerprintAfter=$(if ($stateAfter) { [string]$stateAfter.fingerprint } else { $null })
+        windowSetFingerprintBefore=[string]$windowSetBefore.fingerprint; windowSetFingerprintAfter=[string]$windowSetAfter.fingerprint
+        windowSetUnchanged=$windowSetUnchanged; sameMain=$sameMain; sameTool=$sameTool; dialogsAfter=$blockingAfter.Count
+        ungespeichertVorher=$dirtyBefore; ungespeichertNachher=$dirtyAfter; dirtyStateUnchanged=$dirtyStateUnchanged
+        physicalInputUsed=$true; foregroundLeaseUsed=$true; verified=$false; clickBinding=$clickBinding
+      })
+    }
+    Emit ([pscustomobject]@{
+      ok=$true; actionId=$actionId; pid=$targetPid; hwnd=[int64]$toolHwnd
+      controlAutomationId=[string]$freshTarget.aid; controlName=[string]$freshTarget.name
+      stateBefore=[string]$stateBefore.state; stateAfter=[string]$stateAfter.state
+      stateFingerprintBefore=[string]$stateBefore.fingerprint; stateFingerprintAfter=[string]$stateAfter.fingerprint
+      windowSetFingerprintBefore=[string]$windowSetBefore.fingerprint; windowSetFingerprintAfter=[string]$windowSetAfter.fingerprint
+      windowSetUnchanged=$true; ungespeichertVorher=$dirtyBefore; ungespeichertNachher=$dirtyAfter
+      dirtyStateUnchanged=$true; physicalInputUsed=$true; foregroundLeaseUsed=$true
+      verified=$true; clickBinding=$clickBinding
     })
   }
 

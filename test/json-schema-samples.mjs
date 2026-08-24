@@ -2,6 +2,7 @@ function stringSample(schema, property) {
   if (Array.isArray(schema.enum) && schema.enum.length) return schema.enum[0];
   if (schema.const !== undefined) return schema.const;
   if (/sha256|hash/i.test(property) || /\{64\}/.test(schema.pattern ?? "")) return "0".repeat(64);
+  if (/rowRid/i.test(property)) return "42.100.1.-2147481409";
   if (/desktop.*name/i.test(property)) return "SSEWrapperTest";
   if (/^\^results:/.test(schema.pattern ?? "")) return "results:fixture.json";
   if (/^\^workspace:/.test(schema.pattern ?? "")) return "workspace:fixture.json";

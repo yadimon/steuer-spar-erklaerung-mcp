@@ -102,7 +102,7 @@ ersetzt.
 - API-Fehlerfelder werden nicht durch eine Fehler-Allowlist abgeschnitten;
   MCP markiert sie mit `isError=true`.
 - Erfolgreiche Antworten bleiben als JSON-Text verfügbar. Einige Werkzeuge
-  erzeugen darin aus Kompatibilitätsgründen eine kompakte Projektion. Alle 88
+  erzeugen darin aus Kompatibilitätsgründen eine kompakte Projektion. Alle 93
   MCP-Werkzeuge veröffentlichen parallel das vollständige, redigierte
   nicht-binäre API-Ergebnis als `structuredContent` mit einem deklarierten
   `outputSchema`.
@@ -114,7 +114,7 @@ ersetzt.
   `structuredContent`; die bereits als Bildinhalt übertragenen Base64-Bytes
   (`imageBase64`/`bildBase64`) werden dort nicht dupliziert.
 
-Alle 88 Operationen besitzen ein eigenes `Result_<operation>`-Schema der
+Alle 93 Operationen besitzen ein eigenes `Result_<operation>`-Schema der
 Ergebnisvertragsversion 1. Diese Schemata typisieren die stabile
 Transportfläche und ausgewählte fachliche Kernfelder, bleiben aber mit
 Zusatzfeldern vorwärtskompatibel. Sie sind deshalb ein versionierter
@@ -131,7 +131,7 @@ berechnete `ok`-Ausgabe muss zusätzlich `kind` und `error` für ihren
 möglichen Fehlerzweig besitzen; damit wird ein fachliches `ok=false` nicht
 erst an der API-Grenze in einen HTTP-502-Vertragsfehler verwandelt.
 
-Alle 23 als destruktiv annotierten Operationen veröffentlichen inzwischen
+Alle 24 als destruktiv annotierten Operationen veröffentlichen inzwischen
 fachliche Erfolgs-, Guard- oder Recovery-Felder statt nur
 `ok/kind/error/ms`. Gemeinsame Zod-Bausteine verhindern dabei abweichende
 Typentscheidungen für Flag, Hash, Rollback und Fenster-/Eingabe-Guard. OpenAPI

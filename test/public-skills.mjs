@@ -171,6 +171,21 @@ assert(
 );
 assert(installation.includes("enabled_tools") && installation.includes("required = true"),
   "Die Anleitung muss die Codex-Kataloggrenze nennen.");
+for (const requiredReceiptTool of [
+  "sse_menu_click",
+  "sse_receipt_manager_action",
+  "sse_receipt_manager_list",
+  "sse_receipt_manager_read",
+  "sse_receipt_manager_import",
+  "sse_receipt_manager_delete",
+  "sse_snapshot",
+  "sse_window_close",
+]) {
+  assert(
+    installation.includes(`"${requiredReceiptTool}"`),
+    `Die Codex-Kernliste muss das fuer den BelegManager-Smoke erforderliche Werkzeug ${requiredReceiptTool} freigeben.`,
+  );
+}
 assert(installation.includes("npm i @yadimon/steuer-spar-erklaerung-api")
   && installation.includes("Execution Policy"),
   "Die Anleitung muss den npm-Weg und die PowerShell-Falle nennen.");
@@ -283,7 +298,7 @@ assert(
   !/mcpServers[\s\S]{0,400}steuer-spar-erklaerung-mcp\.cmd/u.test(readme),
   "Das README darf keinen .cmd-Shim als MCP-Befehl zeigen; ein Client kann ihn nicht starten.",
 );
-assert(readme.includes("Kernwerkzeuge des Standard-Prüflaufs") && readme.includes("alle 88 Operationen"));
+assert(readme.includes("Kernwerkzeuge des Standard-Prüflaufs") && readme.includes("alle 93 Operationen"));
 assert(
   main.includes("https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md")
     && main.includes("Technisches Setup bereit;")

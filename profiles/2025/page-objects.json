@@ -22,11 +22,75 @@
       "closePolicy": "allow-exact-nonmodal-close"
     },
     "receiptManager": {
-    "title": "BelegManager",
-    "role": "nonmodal-tool-window",
-    "closePolicy": "allow-exact-nonmodal-close",
-    "policy": "Qt fuehrt dieses Fenster als Dialog, es traegt aber keinen einzigen Schalter. Es laesst sich oeffnen (sse_menu_click 'BelegManager') und lesen (sse_snapshot, sse_windows), aber nicht bedienen: Klicks binden weiterhin ausschliesslich an das Hauptfenster. Katalogisiert ist es, damit sse_window_close es wieder schliessen kann - ohne diesen Eintrag blockiert es sse_close dauerhaft."
-  },
+      "title": "BelegManager",
+      "role": "nonmodal-tool-window",
+      "closePolicy": "allow-exact-nonmodal-close",
+      "classPattern": "^Qt[0-9]+QWindow$",
+      "states": {
+        "start": {
+          "requiredAutomationIdSuffixes": [
+            ".btn_neuenBelegAnlegen",
+            ".btn_mehrereBelegeAnlegen",
+            ".btn_alleBelegeAnzeigen"
+          ]
+        },
+        "list": {
+          "requiredAutomationIdSuffixes": [
+            ".btn_new",
+            ".btn_newPopup",
+            ".pushButton_home"
+          ]
+        }
+      },
+      "list": {
+        "tableAutomationIdSuffix": ".tableWidget_mainTabel",
+        "countLabelAutomationIdSuffixes": [
+          ".label_infoText1",
+          ".label_infoText2",
+          ".label_infoText3"
+        ],
+        "draftMarker": "*"
+      },
+      "controls": {
+        "newReceipt": {
+          "automationIdSuffix": ".btn_new",
+          "expectedName": "Neuer Beleg"
+        },
+        "attachFile": {
+          "automationIdSuffix": ".panel_asset.DetailPagePreview.panel_asset"
+        },
+        "deleteReceipt": {
+          "automationIdSuffix": ".btn_delete",
+          "expectedName": "Löschen"
+        }
+      },
+      "deleteConfirmation": {
+        "title": "Löschen bestätigen",
+        "text": "Es wurde ein Beleg ausgewählt, möchten Sie diesen wirklich löschen?",
+        "confirmButton": "Ja",
+        "cancelButton": "Nein",
+        "fingerprint": "846226D75C419CB55A6526073C34CD998AF13E09FC37DCBEC30DF62F5020B873"
+      },
+      "importDialog": {
+        "title": "Öffnen",
+        "class": "#32770",
+        "fingerprint": "6E6CF8C06EFE81CF96B96F4D8B0190A049862D7FF72607A6DD06269457F31321"
+      },
+      "actions": {
+        "showAllReceipts": {
+          "fromState": "start",
+          "toState": "list",
+          "automationIdSuffix": ".btn_alleBelegeAnzeigen",
+          "expectedName": "Alle Belege anzeigen"
+        },
+        "goHome": {
+          "fromState": "list",
+          "toState": "start",
+          "automationIdSuffix": ".pushButton_home"
+        }
+      },
+      "policy": "Das Fenster darf allgemein nur gelesen und geschlossen werden. Navigation, Lesen, dateihashgebundener Belegimport und das explizit bestaetigte Loeschen sind ausschliesslich ueber die spezialisierten sse_receipt_manager_* Operationen erlaubt. Freie Selektoren, Verknuepfen, Entknuepfen, Uebernehmen und Popup-Aktionen bleiben gesperrt."
+    },
   "taxTips": {
       "title": "Steuer-Spar-Tipps",
       "role": "nonmodal-help-window",
