@@ -22,10 +22,21 @@ const server = createSseApiServer({
     return { ok: true, running: false };
   },
 });
+let peerStarted = 0;
+const peerServer = createSseApiServer({
+  execute: async () => {
+    peerStarted += 1;
+    return { ok: true, running: false };
+  },
+});
+const listening = Promise.all([once(server, "listening"), once(peerServer, "listening")]);
 server.listen(0, "127.0.0.1");
-await once(server, "listening");
+peerServer.listen(0, "127.0.0.1");
+await listening;
 const { port } = server.address();
+const { port: peerPort } = peerServer.address();
 const baseUrl = `http://127.0.0.1:${port}`;
+const peerBaseUrl = `http://127.0.0.1:${peerPort}`;
 
 const post = (operation) => localHttpFetch(`${baseUrl}/v1/operations/${operation}`, {
   method: "POST",
@@ -33,9 +44,16 @@ const post = (operation) => localHttpFetch(`${baseUrl}/v1/operations/${operation
   body: JSON.stringify({ args: {} }),
 });
 const health = () => localHttpFetch(`${baseUrl}/healthz`, { method: "GET" });
+const peerPost = (operation) => localHttpFetch(`${peerBaseUrl}/v1/operations/${operation}`, {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ args: {} }),
+});
+const peerHealth = () => localHttpFetch(`${peerBaseUrl}/healthz`, { method: "GET" });
 
+let first;
 try {
-  const first = post("health");
+  first = post("health");
   // Warten, bis der Arbeitsprozess wirklich belegt ist; sonst misst der Test
   // nur eine Wettlaufsituation statt der Sperre.
   while (started === 0) await new Promise((resolve) => setTimeout(resolve, 5));
@@ -55,6 +73,17 @@ try {
   assert.equal(duringBody.inFlight.operation, "health");
   assert.equal(duringBody.inFlight.requestId, busyBody.inFlight.requestId);
 
+  // Die Sperre schuetzt genau die von dieser Serverinstanz gesteuerte
+  // Anwendung. Ein zweiter eingebetteter Server darf weder den Zustand sehen
+  // noch von ihm blockiert werden.
+  const peerDuring = await peerHealth();
+  assert.equal((await peerDuring.json()).inFlight, null, "Serverzustand darf nicht instanzuebergreifend durchsickern.");
+  const peerOperation = await peerPost("health");
+  await peerOperation.json();
+  assert.equal(peerOperation.status, 200,
+    "Unabhaengige API-Server duerfen sich nicht gegenseitig blockieren.");
+  assert.equal(peerStarted, 1);
+
   releaseFirst();
   assert.equal((await first).status, 200);
   assert.equal(started, 1, "Es darf nur ein Arbeitsprozess gestartet worden sein.");
@@ -66,8 +95,11 @@ try {
   assert.equal(started, 2);
 } finally {
   releaseFirst();
-  server.close();
-  await once(server, "close");
+  if (first) await first.then((response) => response.json()).catch(() => undefined);
+  await Promise.all([
+    new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))),
+    new Promise((resolve, reject) => peerServer.close((error) => (error ? reject(error) : resolve()))),
+  ]);
 }
 
-process.stdout.write("API-Single-Flight: Sperre, ehrliche Belegtmeldung und freie Fortschrittsauskunft bestanden\n");
+process.stdout.write("API-Single-Flight: instanzlokale Sperre, ehrliche Belegtmeldung und freie Fortschrittsauskunft bestanden\n");

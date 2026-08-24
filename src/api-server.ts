@@ -126,12 +126,6 @@ interface InFlightOperation {
   startedAt: number;
 }
 
-let inFlight: InFlightOperation | null = null;
-
-function inFlightSnapshot(now = Date.now()): (InFlightOperation & { elapsedMs: number }) | null {
-  return inFlight ? { ...inFlight, elapsedMs: now - inFlight.startedAt } : null;
-}
-
 function apiError(requestId: string, code: string, message: string): ApiErrorEnvelope {
   return { apiVersion: SSE_API_VERSION, requestId, error: { code, message } };
 }
@@ -243,6 +237,9 @@ function parseOperationRequest(value: unknown): OperationRequest {
 export function createSseApiServer(options: SseApiServerOptions): Server {
   const { execute } = options;
   const log = options.log ?? (() => undefined);
+  let inFlight: InFlightOperation | null = null;
+  const inFlightSnapshot = (now = Date.now()): (InFlightOperation & { elapsedMs: number }) | null =>
+    inFlight ? { ...inFlight, elapsedMs: now - inFlight.startedAt } : null;
   const safeLog = (record: Record<string, unknown>): void => {
     try { log(record); } catch { /* Diagnose darf niemals API-Antworten verhindern. */ }
   };
