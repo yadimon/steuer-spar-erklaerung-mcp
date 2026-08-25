@@ -40,6 +40,7 @@ import { executeLocalVerify } from "./verify-executor.js";
 import { executeLocalWorkingCopy } from "./working-copy-executor.js";
 import { executeLocalBackup } from "./backup-executor.js";
 import { executeLocalArchive } from "./archive-executor.js";
+import { executeReceiptManagerBulkUpsert } from "./receipt-manager-bulk-executor.js";
 
 interface ConfiguredArguments {
   args: Record<string, unknown>;
@@ -438,6 +439,9 @@ export function createApiExecutor(
       }
       if (isUstvaOperation(operation)) {
         return await executeUstvaOperation(operation, args, timeoutMs, signal, executeOperation);
+      }
+      if (operation === "receipt_manager_bulk_upsert") {
+        return await executeReceiptManagerBulkUpsert(args, timeoutMs, signal, executeOperation);
       }
       const configured = configuredArgs(operation, args, config);
       if (internalCheckerNavigation) {

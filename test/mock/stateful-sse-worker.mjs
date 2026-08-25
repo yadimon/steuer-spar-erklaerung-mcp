@@ -1466,7 +1466,16 @@ export function createStatefulSseWorker({ caseDir }) {
         if (String(args.expectedListFingerprint).toUpperCase() !== listFingerprint || !row) {
           return { ok: false, kind: "stale", error: "Belegbindung ist veraltet." };
         }
-        const fields = [{ automationId: ".lineEdit_detailsTitle", name: "", type: "Edit", value: row.cells[0].name }];
+        const sourceRow = receiptRows.find((entry) => entry.rowRid === row.rowRid);
+        const fields = [
+          { automationId: ".lineEdit_detailsTitle", name: "", type: "Edit", value: sourceRow.title },
+          { automationId: ".dateEdit_datum.AAVDateLineEdit", name: "", type: "Edit", value: sourceRow.date },
+          { automationId: ".lineEdit_belegNummer", name: "", type: "Edit", value: sourceRow.documentNumber },
+          { automationId: ".lineEdit_betrag", name: "", type: "Edit", value: sourceRow.amount },
+          { automationId: ".comboBox_umsatzsteuer.QLineEdit", name: "", type: "Edit", value: sourceRow.vatRate },
+          { automationId: ".checkBox_netto", name: "", type: "CheckBox", value: sourceRow.net },
+          { automationId: ".textEdit_notiz", name: "", type: "Edit", value: sourceRow.note },
+        ];
         return {
           ok: true, pid, hwnd: 5252, row, fields, listFingerprint, listFingerprintBefore: listFingerprint,
           detailFingerprint: sha256(JSON.stringify(fields)), semanticListUnchanged: true,
@@ -1488,7 +1497,10 @@ export function createStatefulSseWorker({ caseDir }) {
           return { ok: false, kind: "stale", error: "Belegliste ist veraltet." };
         }
         if (receiptRows.some((row) => row.draft)) return { ok: false, kind: "draft-exists", error: "Entwurf vorhanden." };
-        const row = { rowRid: `42.5252.4.${nextReceiptId++}`, title: "Neuer Beleg*", draft: true };
+        const row = {
+          rowRid: `42.5252.4.${nextReceiptId++}`, title: "Neuer Beleg*", draft: true,
+          date: "", documentNumber: "", amount: "0,00", vatRate: "19", net: false, note: "",
+        };
         receiptRows.push(row);
         const afterRows = receiptRows.map((entry, index) => sha256(`${index + 1}:${entry.rowRid}:${entry.title}`));
         const afterFingerprint = sha256(JSON.stringify({ count: receiptRows.length, rows: afterRows }));
@@ -1501,6 +1513,67 @@ export function createStatefulSseWorker({ caseDir }) {
           previewChanged: true, sourceHashStable: true, existingRowsUnchanged: true, dialogClosed: true,
           windowSetUnchanged: true, cleanupRequired: false, ungespeichertVorher: caseState.value.dirty,
           ungespeichertNachher: caseState.value.dirty, dirtyStateUnchanged: true,
+          physicalInputUsed: true, foregroundLeaseUsed: true, verified: true,
+        };
+      }
+      case "receipt_manager_update": {
+        const caseState = requireOpenCase();
+        if (caseState.error) return caseState.error;
+        if (!receiptManagerOpen || receiptManagerState !== "list") {
+          return { ok: false, kind: "precondition-failed", error: "Belegliste ist nicht offen." };
+        }
+        const projectRows = () => receiptRows.map((entry, index) => ({
+          index: index + 1,
+          rowRid: entry.rowRid,
+          rowFingerprint: sha256(`${index + 1}:${entry.rowRid}:${entry.title}`),
+          contentFingerprint: sha256(entry.title),
+          draft: entry.draft,
+        }));
+        const projectFields = (entry) => [
+          { automationId: ".lineEdit_detailsTitle", name: "", type: "Edit", value: entry.title },
+          { automationId: ".dateEdit_datum.AAVDateLineEdit", name: "", type: "Edit", value: entry.date },
+          { automationId: ".lineEdit_belegNummer", name: "", type: "Edit", value: entry.documentNumber },
+          { automationId: ".lineEdit_betrag", name: "", type: "Edit", value: entry.amount },
+          { automationId: ".comboBox_umsatzsteuer.QLineEdit", name: "", type: "Edit", value: entry.vatRate },
+          { automationId: ".checkBox_netto", name: "", type: "CheckBox", value: entry.net },
+          { automationId: ".textEdit_notiz", name: "", type: "Edit", value: entry.note },
+        ];
+        const rowsBefore = projectRows();
+        const listFingerprintBefore = sha256(JSON.stringify({ count: rowsBefore.length, rows: rowsBefore.map((entry) => entry.rowFingerprint) }));
+        const index = rowsBefore.findIndex((entry) => entry.rowRid === args.rowRid && entry.rowFingerprint === String(args.rowFingerprint).toUpperCase());
+        if (args.acknowledgeUpdate !== true) return { ok: false, kind: "acknowledgement-required", error: "Bestaetigung fehlt." };
+        if (String(args.expectedListFingerprint).toUpperCase() !== listFingerprintBefore || index < 0) {
+          return { ok: false, kind: "stale", error: "Belegbindung ist veraltet." };
+        }
+        const target = receiptRows[index];
+        const fieldsBefore = projectFields(target);
+        const detailFingerprintBefore = sha256(JSON.stringify(fieldsBefore));
+        if (String(args.expectedDetailFingerprint).toUpperCase() !== detailFingerprintBefore) {
+          return { ok: false, kind: "stale", error: "Detailbindung ist veraltet." };
+        }
+        const valuesBefore = {};
+        const requestedValues = {};
+        const changedFields = [];
+        for (const [name, raw] of Object.entries(args.values ?? {})) {
+          valuesBefore[name] = target[name];
+          const requested = name === "amount" ? String(raw).replace(".", ",") : raw;
+          requestedValues[name] = requested;
+          if (target[name] !== requested) changedFields.push(name);
+          target[name] = requested;
+        }
+        if (Object.prototype.hasOwnProperty.call(args.values ?? {}, "title")) target.draft = false;
+        const rowsAfter = projectRows();
+        const listFingerprintAfter = sha256(JSON.stringify({ count: rowsAfter.length, rows: rowsAfter.map((entry) => entry.rowFingerprint) }));
+        const fieldsAfter = projectFields(target);
+        return {
+          ok: true, pid, hwnd: 5252, rowBefore: rowsBefore[index], rowAfter: rowsAfter[index],
+          valuesBefore, valuesAfter: requestedValues, requestedValues, changedFields,
+          draftBefore: rowsBefore[index].draft, draftAfter: rowsAfter[index].draft,
+          listFingerprintBefore, listFingerprintAfter,
+          detailFingerprintBefore, detailFingerprintAfter: sha256(JSON.stringify(fieldsAfter)),
+          countUnchanged: true, otherRowsUnchanged: true, windowSetUnchanged: true,
+          ungespeichertVorher: caseState.value.dirty, ungespeichertNachher: caseState.value.dirty,
+          dirtyStateUnchanged: true, rollback: { attempted: false, ok: true },
           physicalInputUsed: true, foregroundLeaseUsed: true, verified: true,
         };
       }

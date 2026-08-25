@@ -13,8 +13,12 @@ assert.equal(live.length + missing.length, operations.length);
 assert.deepEqual(snapshotVm, [
   "instances",
   "receipt_manager_action",
+  "receipt_manager_bulk_upsert",
+  "receipt_manager_classification_options",
+  "receipt_manager_classify",
   "receipt_manager_delete",
   "receipt_manager_import",
+  "receipt_manager_link",
   "receipt_manager_list",
   "receipt_manager_read",
   "vast_apply",

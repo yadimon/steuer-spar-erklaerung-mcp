@@ -54,6 +54,12 @@ export function sampleJsonSchema(schema, property = "value") {
       if (property === "sse_center_refresh" || property === "center_refresh") {
         result.expectedMode = "Zuletzt verwendet";
       }
+      if (property === "values" && schema.properties?.title) {
+        result.title = "Synthetischer Beleg";
+      }
+      if (property === "values" && schema.properties?.categories) {
+        result.categories = [];
+      }
       return result;
     }
     case "array": {

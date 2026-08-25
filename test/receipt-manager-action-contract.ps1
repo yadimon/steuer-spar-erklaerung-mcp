@@ -1,5 +1,5 @@
 # Der BelegManager bleibt ohne freie Selektoren: zwei reversible Navigationen
-# sowie getrennte, gebundene Lese-, Import- und Loeschoperationen.
+# sowie getrennte, gebundene Lese-, Befuell-, Import- und Loeschoperationen.
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path $PSScriptRoot -Parent
@@ -52,6 +52,11 @@ Assert-True ($policy.deleteConfirmation.title -ceq $deleteTitle) 'Loeschdialogti
 Assert-True ([string]$policy.deleteConfirmation.fingerprint -match '^[A-Fa-f0-9]{64}$') 'Loeschdialogfingerprint fehlt.'
 Assert-True ($policy.importDialog.title -ceq $openTitle -and $policy.importDialog.class -ceq '#32770') 'Belegimport-Dialog ist nicht exakt profiliert.'
 Assert-True ([string]$policy.importDialog.fingerprint -match '^[A-Fa-f0-9]{64}$') 'Belegimport-Dialogfingerprint fehlt.'
+$editableFields = @($policy.controls.editableFields.PSObject.Properties.Name | Sort-Object)
+Assert-True (($editableFields -join ',') -ceq 'amount,date,documentNumber,net,note,title,vatRate') 'Editierbare Belegfelder sind nicht exakt allowlisted.'
+Assert-True ($policy.controls.editableFields.date.automationIdSuffix -ceq '.dateEdit_datum.AAVDateLineEdit') 'Datumfeld ist nicht exakt profiliert.'
+Assert-True ($policy.controls.editableFields.amount.valueKind -ceq 'currency') 'Betragsfeld hat nicht den erwarteten Werttyp.'
+Assert-True ($policy.controls.editableFields.net.controlType -ceq 'CheckBox') 'Nettofeld ist nicht als Checkbox gebunden.'
 
 function Get-SSETextSha256([string]$Text) { 'A' * 64 }
 function Walk-Tree([IntPtr]$Window, [int]$MaxNodes) {
@@ -99,10 +104,32 @@ foreach ($forbidden in @('Click-VerifiedPoint','SendKeys','Invoke-DialogButtonIn
 }
 
 $receiptReadStart = $listReadEnd
-$receiptReadEnd = $worker.IndexOf("  'receipt_manager_import' {", $receiptReadStart)
+$receiptReadEnd = $worker.IndexOf("  'receipt_manager_update' {", $receiptReadStart)
 Assert-True ($receiptReadStart -ge 0 -and $receiptReadEnd -gt $receiptReadStart) 'receipt_manager_read-Operationsblock ist nicht eindeutig abgrenzbar.'
 $receiptReadBlock = $worker.Substring($receiptReadStart, $receiptReadEnd - $receiptReadStart)
 Assert-True ($receiptReadBlock.Contains('Get-SSEReceiptManagerState $toolHwnd $policy -WithValues')) 'receipt_manager_read muss sichtbare Detailwerte und ReadOnly-Zustaende mit ValuePattern lesen.'
+
+$updateStart = $receiptReadEnd
+$updateEnd = $worker.IndexOf("  'receipt_manager_import' {", $updateStart)
+Assert-True ($updateStart -ge 0 -and $updateEnd -gt $updateStart) 'receipt_manager_update-Operationsblock ist nicht eindeutig abgrenzbar.'
+$updateBlock = $worker.Substring($updateStart, $updateEnd - $updateStart)
+foreach ($required in @(
+  "Arg `$a 'acknowledgeUpdate'",
+  'rowFingerprint',
+  'expectedListFingerprint',
+  'expectedDetailFingerprint',
+  'Resolve-SSEReceiptManagerEditableFieldNode',
+  'Commit-TrackedValue',
+  'Click-VerifiedPoint',
+  'rollbackEntries',
+  'otherRowsUnchanged',
+  'dirtyStateUnchanged'
+)) {
+  Assert-True ($updateBlock.Contains($required)) "receipt_manager_update enthaelt den Guard '$required' nicht."
+}
+foreach ($forbidden in @("Arg `$a 'name'", "Arg `$a 'aid'", "Arg `$a 'rid'", "Arg `$a 'x'", "Arg `$a 'y'")) {
+  Assert-True (-not $updateBlock.Contains($forbidden)) "receipt_manager_update akzeptiert den freien Selektor '$forbidden'."
+}
 
 $start = $worker.IndexOf("  'receipt_manager_action' {")
 $end = $worker.IndexOf("  'ui_state' {", $start)
@@ -151,6 +178,27 @@ foreach ($forbidden in @("Arg `$a 'name'", "Arg `$a 'aid'", "Arg `$a 'rid'", "Ar
 Assert-True (-not $importBlock.Contains('$oldRowIds')) 'Belegimport darf neue Entwuerfe nicht ueber fluechtige UIA-Runtime-IDs erkennen.'
 Assert-True ($importBlock.Contains('$createdRows = @($createdList.rows | Where-Object { [bool]$_.draft })')) 'Belegimport muss den nach der entwurfsfreien Vorbedingung eindeutigen neuen Entwurf binden.'
 Assert-True ($importBlock.Contains('$afterCreatedRows = @($listAfter.rows | Where-Object { [bool]$_.draft })')) 'Belegimport muss den Entwurf nach der Dateiauswahl erneut semantisch binden.'
+Assert-True ($importBlock.Contains('$oldContentFingerprints | Sort-Object | ConvertTo-Json -Compress')) 'Belegimport muss bestehende Inhalte als exaktes Multiset statt in fluechtiger visueller Reihenfolge vergleichen.'
+
+$classificationToggleStart = $worker.IndexOf('function Get-SSEReceiptManagerClassificationToggleElement(')
+$classificationToggleEnd = $worker.IndexOf('function Close-SSEReceiptManagerClassificationDialog(', $classificationToggleStart)
+Assert-True ($classificationToggleStart -ge 0 -and $classificationToggleEnd -gt $classificationToggleStart) 'Kategorien-Toggle-Bindung ist nicht eindeutig abgrenzbar.'
+$classificationToggleBlock = $worker.Substring($classificationToggleStart, $classificationToggleEnd - $classificationToggleStart)
+foreach ($required in @(
+  'ScrollItemPattern',
+  'ScrollPattern',
+  '[SW]::WindowFromPoint($point)',
+  '[SW]::mouse_event(0x0800',
+  'ist verdeckt; die Auswahltabelle wurde nicht gerollt'
+)) {
+  Assert-True ($classificationToggleBlock.Contains($required)) "Kategorien-Toggle fehlt der Sichtbarkeits-/Scroll-Guard '$required'."
+}
+
+Assert-True (@($policy.linkValueTransferDialog.fingerprints).Count -eq 2) 'Die zwei live gemessenen Belegwerte-Dialogvarianten fehlen im Profil.'
+Assert-True (-not @($policy.linkValueTransferDialog.fingerprints | Where-Object {
+  [string]$_ -notmatch '^[A-Fa-f0-9]{64}$'
+}).Count) 'Belegwerte-Dialogvarianten enthalten keinen gueltigen Fingerprintvertrag.'
+Assert-True ($worker.Contains('[string]$descriptor.fingerprint -cnotin $acceptedTransferFingerprints')) 'Link-Operation akzeptiert die profilierten Belegwerte-Dialogvarianten nicht fail-closed.'
 $dialogImportStart = $worker.IndexOf('function Invoke-SSEReceiptManagerOpenFileDialog(')
 $dialogImportEnd = $worker.IndexOf('function Resolve-SSEPageObject(', $dialogImportStart)
 Assert-True ($dialogImportStart -ge 0 -and $dialogImportEnd -gt $dialogImportStart) 'Gebundener Belegimport-Dialogweg ist nicht eindeutig abgrenzbar.'
@@ -179,4 +227,4 @@ foreach ($forbidden in @("Arg `$a 'name'", "Arg `$a 'aid'", "Arg `$a 'x'", "Arg 
   Assert-True (-not $deleteBlock.Contains($forbidden)) "receipt_manager_delete akzeptiert den freien Selektor '$forbidden'."
 }
 
-Write-Output 'BelegManager: zwei reversible Navigationen sowie gebundene Liste-, Lese-, Import- und Loeschvertraege.'
+Write-Output 'BelegManager: zwei reversible Navigationen sowie gebundene Liste-, Lese-, Befuell-, Import- und Loeschvertraege.'

@@ -14,15 +14,16 @@ optionalen, PC-blinden MCP-Wrapper.
 
 - SteuerSparErklärung 2025 / Engine 31: einen geöffneten Steuerfall
   strukturiert lesen, navigieren und den Programm-Prüfer auswerten;
-- BelegManager: lokale Belege auflisten, PDF-Dateien importieren, gebundene
-  Detailfelder lesen und kontrolliert bearbeiten;
+- BelegManager: lokale Belege auflisten, PDF-Dateien importieren und Titel,
+  Datum, Belegnummer, Betrag, USt-Satz, Netto-Kennzeichen sowie Notiz in einem
+  gebundenen Mehrfeld-Aufruf lesen und kontrolliert bearbeiten;
 - Angaben mit freigegebenen Belegen und einem Tracking abgleichen;
 - fehlende, widersprüchliche oder unklare Angaben als Report zusammenfassen;
 - nach ausdrücklicher Freigabe einzelne Korrekturen ausschließlich in einer
   verifizierten Arbeitskopie durchführen und zurücklesen;
 - Umsatzsteuer-Voranmeldung: UStVA-Zeiträume für 2025 sowie vorgesehene
   `GewErfass2026`-Fälle vorbereiten, ohne sie zu übermitteln;
-- 93 versionierte Operationen über lokale HTTP-API oder optional über den
+- 98 versionierte Operationen über lokale HTTP-API oder optional über den
   PC-blinden MCP-Wrapper für Codex, Claude Code und kompatible Agenten.
 
 Die Beta ersetzt weder SteuerSparErklärung noch eine fachliche Prüfung. Sie
@@ -152,7 +153,7 @@ Prompt 2. Der neu geladene Agent prüft Serverliste und das echte MCP-Tool
 `sse_health` mit `ok=true`, bevor er den Steuerfall bearbeitet. So bleiben es
 zwei Prompts; „connected“ oder ein Handshake allein gelten nicht als Nachweis.
 Für Codex begrenzt die Installationsanleitung den Modellkatalog auf die
-Kernwerkzeuge des Standard-Prüflaufs; alle 93 Operationen bleiben über die
+Kernwerkzeuge des Standard-Prüflaufs; alle 98 Operationen bleiben über die
 lokale API-CLI verfügbar. Das verhindert, dass aktuelle Codex-Versionen den
 großen unbeschränkten MCP-Katalog vollständig ausblenden.
 
@@ -547,7 +548,7 @@ Felder oder Typvarianten brauchen `SSE_WRITE_OPERATION_SHAPE=1`. Die Bilanzen
 sind damit die verbindliche Antwort auf „welche API-Funktion und Ergebnisform
 ist wirklich belegt?" – Prosa ist es nicht.
 
-Alle 93 API-Operationen veröffentlichen mindestens ein eigenes fachliches
+Alle 98 API-Operationen veröffentlichen mindestens ein eigenes fachliches
 Ergebnisfeld. Die Schemas bleiben trotzdem vorwärtskompatible
 Mindestverträge: Nicht jedes optionale Worker-Feld und nicht jeder UI-Zustand
 ist bereits durch einen echten Live-Lauf erzeugt.

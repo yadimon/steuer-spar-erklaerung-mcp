@@ -85,10 +85,15 @@ export const SSE_MCP_TOOL_OPERATIONS = {
   "sse_menu_click": "menu_click",
   "sse_menu_close": "menu_close",
   "sse_receipt_manager_action": "receipt_manager_action",
+  "sse_receipt_manager_bulk_upsert": "receipt_manager_bulk_upsert",
+  "sse_receipt_manager_classification_options": "receipt_manager_classification_options",
+  "sse_receipt_manager_classify": "receipt_manager_classify",
+  "sse_receipt_manager_link": "receipt_manager_link",
   "sse_receipt_manager_delete": "receipt_manager_delete",
   "sse_receipt_manager_import": "receipt_manager_import",
   "sse_receipt_manager_list": "receipt_manager_list",
   "sse_receipt_manager_read": "receipt_manager_read",
+  "sse_receipt_manager_update": "receipt_manager_update",
   "sse_ui_state": "ui_state",
   "sse_dismiss": "dismiss",
   "sse_screenshot": "screenshot",
@@ -124,7 +129,6 @@ export const SSE_MCP_TOOL_OPERATIONS = {
   "sse_make_working_copy": "make_working_copy",
 } as const satisfies Record<SseMcpToolName, SseApiOperation>;
 
-/** API-Operationen, die nur als interner Schritt eines MCP-Fachwerkzeugs erreichbar sind. */
 export const SSE_MCP_COMPOSITION_ONLY_OPERATIONS = [
   "checker_detail",
 ] as const satisfies readonly SseApiOperation[];

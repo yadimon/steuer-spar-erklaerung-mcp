@@ -139,12 +139,12 @@ try {
     },
   );
   assert.equal(installedMcpContract.status, 0, installedMcpContract.stderr || installedMcpContract.stdout);
-  assert.match(installedMcpContract.stdout, /93 Werkzeuge.*\d+ API-Roundtrips/u, "Installierter MCP-Vertrag ist unvollstaendig.");
+  assert.match(installedMcpContract.stdout, /98 Werkzeuge.*\d+ API-Roundtrips/u, "Installierter MCP-Vertrag ist unvollstaendig.");
 
   const sourceLabel = publishedMode ? "exakten npm-Registry-Paketen" : "zwei getrennten Tarballs";
   process.stdout.write(
     `npm-${publishedMode ? "Registry-Smoke" : "Clean-install"}: NPX-Kurzweg, ${commands.length} CLI-Einstiege und ` +
-      `93-Tool-MCP-Vertrag aus ${sourceLabel} bestanden\n`,
+      `98-Tool-MCP-Vertrag aus ${sourceLabel} bestanden\n`,
   );
 } finally {
   rmSync(resolve(temporary), { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });

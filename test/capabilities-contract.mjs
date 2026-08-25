@@ -49,7 +49,7 @@ assert.equal(result.safety.elsterAndSubmissionBlocked, true);
 assert.equal(result.safety.directWorkerSubmissionBypass, false);
 assert.deepEqual(result.liveEvidence, SSE_LIVE_EVIDENCE);
 assert.equal(result.liveEvidence.affectsAvailability, false);
-assert.equal(result.liveEvidence.functionalCount, 87);
+assert.equal(result.liveEvidence.functionalCount, 92);
 assert.equal(result.liveEvidence.errorPathOnlyCount, 6);
 assert.equal(result.liveEvidence.untestedCount, 0);
 assert.equal(result.transport.directApiWithoutMcp, true);
