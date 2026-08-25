@@ -224,7 +224,7 @@ try {
   const cleanAfterSave = await call("sse_ui_state", { hwnd: first.hwnd });
   assert.equal(cleanAfterSave.ungespeichert, false, "Nach dem Speichern blieb der Fall ungespeichert.");
 
-  await call("sse_close", { pid: first.pid, hwnd: first.hwnd, force: true, discardChanges: true }, 120_000);
+  await call("sse_close", { pid: first.pid, hwnd: first.hwnd, discardChanges: true }, 120_000);
   startedInstances.pop();
   await awaitShutdown("Nach dem ersten Speichern");
   assert.equal(sha256(fixture), hashAfterAdd, "Das Schliessen veraenderte die gespeicherte Datei.");
@@ -546,7 +546,7 @@ try {
   assert.match(String(secondCopyHash), /^[A-F0-9]{64}$/u, "save_as lieferte keinen Zielhash.");
   assert.equal(sha256(fixture), hashClean, "save_as veraenderte die Quelldatei.");
 
-  await call("sse_close", { pid: second.pid, hwnd: second.hwnd, force: true, discardChanges: true }, 120_000);
+  await call("sse_close", { pid: second.pid, hwnd: second.hwnd, discardChanges: true }, 120_000);
   startedInstances.pop();
   await awaitShutdown("Nach Speichern unter");
   assert.equal(sha256(fixture), hashClean, "Das Schliessen veraenderte die Ursprungskopie.");

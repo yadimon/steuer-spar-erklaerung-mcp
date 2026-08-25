@@ -95,7 +95,6 @@ try {
   await call("sse_close", {
     pid: instance.pid,
     hwnd: instance.hwnd,
-    force: true,
     discardChanges: true,
   }, 120_000);
   instance = null;

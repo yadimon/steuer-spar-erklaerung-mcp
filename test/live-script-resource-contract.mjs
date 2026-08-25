@@ -61,6 +61,35 @@ assert.throws(() => SSE_MCP_TOOL_SCHEMAS.sse_make_working_copy.parse({
   expectedSourceHash: "A".repeat(64),
 }));
 
+// Erfolgreiche Live-Laeufe muessen SSE regulaer schliessen. force=true laesst
+// der Worker absichtlich in Stop-Process laufen und erzeugt dadurch eine
+// Wiederherstellungsdatei, die den naechsten Produkttest blockiert.
+const positionCase = readCompact("position-case.mjs");
+assert.match(positionCase, /sse_close", \{ \.\.\.instance, discardChanges: true \}/u,
+  "Die positionierte Wegwerfvorlage muss regulaer und verwerfend geschlossen werden.");
+
+const writeJourney = readCompact("live-write-journey.mjs");
+assert.match(writeJourney,
+  /sse_close", \{ pid: first\.pid, hwnd: first\.hwnd, discardChanges: true \}/u,
+  "Der erste erfolgreiche Schreibreise-Lauf muss regulaer geschlossen werden.");
+assert.match(writeJourney,
+  /sse_close", \{ pid: second\.pid, hwnd: second\.hwnd, discardChanges: true \}/u,
+  "Der zweite erfolgreiche Schreibreise-Lauf muss regulaer geschlossen werden.");
+
+const tableLifecycle = readCompact("table-lifecycle-transaction.mjs");
+assert.match(tableLifecycle, /sse_close", \{ \.\.\.instance, discardChanges: true \}/u,
+  "Der Tabellen-Livevertrag muss seine Wegwerfkopie regulaer schliessen.");
+
+const visibleInputGuard = readCompact("visible-input-guard.mjs");
+assert.match(visibleInputGuard,
+  /pid: instance\.pid, hwnd: instance\.hwnd, discardChanges: true/u,
+  "Eine gebundene sichtbare Testinstanz muss regulaer geschlossen werden.");
+
+const ustvaNextYear = readCompact("live-ustva-next-year.mjs");
+assert.match(ustvaNextYear,
+  /pid: instance\.pid, hwnd: instance\.hwnd, discardChanges: true/u,
+  "Der erfolgreiche UStVA-Lesenachweis muss regulaer geschlossen werden.");
+
 const centerLive = readCompact("live-center-cases.mjs");
 assert(
   centerLive.indexOf("stopped = await waitForExit(launcher") < centerLive.indexOf("removeOwnedMarker(markerText)"),
