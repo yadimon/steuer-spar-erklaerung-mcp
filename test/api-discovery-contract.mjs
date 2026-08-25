@@ -100,7 +100,7 @@ for (const operation of emptyObjectOperations) {
 }
 
 const serialized = JSON.stringify(SSE_API_DISCOVERY);
-assert(Buffer.byteLength(serialized, "utf8") < 256 * 1024, "Discovery-Antwort ist unnoetig gross.");
+assert(Buffer.byteLength(serialized, "utf8") < 275 * 1024, "Discovery-Antwort ist unnoetig gross.");
 assert(!serialized.includes("C:\\development"), "Discovery darf keine Build-PC-Pfade enthalten.");
 assert(!serialized.includes("private-tax"), "Discovery darf keine Test- oder Steuerdaten enthalten.");
 

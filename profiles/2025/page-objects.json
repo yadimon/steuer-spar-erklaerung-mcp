@@ -62,6 +62,94 @@
         "deleteReceipt": {
           "automationIdSuffix": ".btn_delete",
           "expectedName": "Löschen"
+        },
+        "classification": {
+          "categories": {
+            "chooserAutomationIdSuffix": ".panel_kategorien.pushButton_chooseKategorien",
+            "chooserExpectedName": "Kategorien auswählen",
+            "listAutomationIdSuffix": ".panel_kategorien.listView_kategorien"
+          },
+          "persons": {
+            "chooserAutomationIdSuffix": ".panel_personenUndLinks.pushButton_choosePersonen",
+            "chooserExpectedName": "Personen auswählen",
+            "listAutomationIdSuffix": ".panel_personenUndLinks.listView_personen"
+          }
+        },
+        "linkManagement": {
+          "mainToolbarAutomationIdSuffix": ".DialogToolbar.tbs_belege_verknuepfen",
+          "startTargetAutomationIdSuffix": ".widget_linkInfos.label_belegVerknuepfen",
+          "rowToggleColumn": 1,
+          "footerCountAutomationIdSuffix": ".manageLinksContainer.label_belegeCount",
+          "footerTextAutomationIdSuffix": ".manageLinksContainer.label_belegeText",
+          "cancelAutomationIdSuffix": ".manageLinksContainer.btn_cancel",
+          "cancelExpectedName": "Abbrechen",
+          "applyAutomationIdSuffix": ".manageLinksContainer.btn_apply",
+          "applyExpectedName": "Übernehmen"
+        },
+        "editableFields": {
+          "title": {
+            "automationIdSuffix": ".lineEdit_detailsTitle",
+            "controlType": "Edit",
+            "valueKind": "text"
+          },
+          "date": {
+            "automationIdSuffix": ".dateEdit_datum.AAVDateLineEdit",
+            "controlType": "Edit",
+            "valueKind": "date"
+          },
+          "documentNumber": {
+            "automationIdSuffix": ".lineEdit_belegNummer",
+            "controlType": "Edit",
+            "valueKind": "text"
+          },
+          "amount": {
+            "automationIdSuffix": ".lineEdit_betrag",
+            "controlType": "Edit",
+            "valueKind": "currency"
+          },
+          "vatRate": {
+            "automationIdSuffix": ".comboBox_umsatzsteuer.QLineEdit",
+            "controlType": "Edit",
+            "valueKind": "vat-rate"
+          },
+          "net": {
+            "automationIdSuffix": ".checkBox_netto",
+            "controlType": "CheckBox",
+            "valueKind": "boolean"
+          },
+          "note": {
+            "automationIdSuffix": ".textEdit_notiz",
+            "controlType": "Edit",
+            "valueKind": "text"
+          }
+        }
+      },
+      "classificationDialogs": {
+        "categories": {
+          "title": "Kategorien auswählen",
+          "classPattern": "^Qt[0-9]+QWindow$",
+          "rootAutomationId": "SSE_Application.SelectDocumentsDialog",
+          "tableAutomationId": "SSE_Application.SelectDocumentsDialog.SelectDocumentsDialog.table_docList",
+          "toggleColumn": 0,
+          "labelColumn": 2,
+          "saveAutomationId": "SSE_Application.SelectDocumentsDialog.SelectDocumentsDialog.pushButton_save",
+          "cancelAutomationId": "SSE_Application.SelectDocumentsDialog.SelectDocumentsDialog.pushButton_cancel",
+          "manageAutomationId": "SSE_Application.SelectDocumentsDialog.SelectDocumentsDialog.pushButton_edit",
+          "manageExpectedName": "Kategorien verwalten",
+          "fingerprint": "41D673E5AA912D5043CB08472B3AE72AA808ABB17FE06EB9E455070F846DB11E"
+        },
+        "persons": {
+          "title": "Personen auswählen",
+          "classPattern": "^Qt[0-9]+QWindow$",
+          "rootAutomationId": "SSE_Application.SelectDocumentsDialog",
+          "tableAutomationId": "SSE_Application.SelectDocumentsDialog.SelectDocumentsDialog.table_docList",
+          "toggleColumn": 0,
+          "labelColumn": 2,
+          "saveAutomationId": "SSE_Application.SelectDocumentsDialog.SelectDocumentsDialog.pushButton_save",
+          "cancelAutomationId": "SSE_Application.SelectDocumentsDialog.SelectDocumentsDialog.pushButton_cancel",
+          "manageAutomationId": "SSE_Application.SelectDocumentsDialog.SelectDocumentsDialog.pushButton_edit",
+          "manageExpectedName": "Personen verwalten",
+          "fingerprint": "8A6CE69DAD268953449DB65320E75E9D1EB8EA3647D62FEDC3101F610A992737"
         }
       },
       "deleteConfirmation": {
@@ -74,7 +162,16 @@
       "importDialog": {
         "title": "Öffnen",
         "class": "#32770",
-        "fingerprint": "6E6CF8C06EFE81CF96B96F4D8B0190A049862D7FF72607A6DD06269457F31321"
+        "fingerprint": "2EFB0776929DC9E63FFFCB3A38F89255662BBB02EDA281B6C9D549F7BB427B22"
+      },
+      "linkValueTransferDialog": {
+        "title": "Belegwerte übernehmen",
+        "classPattern": "^Qt[0-9]+QWindow$",
+        "cancelButton": "Abbrechen",
+        "fingerprints": [
+          "27FFFC79D7FB549CBD2B124C0CB906416D2D0D447B612748DF34C75652E662C1",
+          "DA4976CF1C4F76E568324B2307402835D239481C45C03716B1CABEF9CED955A7"
+        ]
       },
       "actions": {
         "showAllReceipts": {
@@ -89,7 +186,7 @@
           "automationIdSuffix": ".pushButton_home"
         }
       },
-      "policy": "Das Fenster darf allgemein nur gelesen und geschlossen werden. Navigation, Lesen, dateihashgebundener Belegimport und das explizit bestaetigte Loeschen sind ausschliesslich ueber die spezialisierten sse_receipt_manager_* Operationen erlaubt. Freie Selektoren, Verknuepfen, Entknuepfen, Uebernehmen und Popup-Aktionen bleiben gesperrt."
+      "policy": "Das Fenster darf allgemein nur gelesen und geschlossen werden. Navigation, Lesen, kataloggebundenes Befuellen, dateihashgebundener Belegimport, exakt dialoggebundene Kategorie-/Personenzuordnung, zielseitig gebundenes Verknuepfen/Entknuepfen und das explizit bestaetigte Loeschen sind ausschliesslich ueber die spezialisierten sse_receipt_manager_* Operationen erlaubt. Freie Selektoren, freies Verknuepfen/Entknuepfen, ungebundenes Uebernehmen und Popup-Aktionen bleiben gesperrt."
     },
   "taxTips": {
       "title": "Steuer-Spar-Tipps",

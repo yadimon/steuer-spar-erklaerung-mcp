@@ -238,7 +238,10 @@ mergt und keine anderen Einträge löscht. Niemals die ganze Datei ersetzen.
     "sse_click_point", "sse_read_full", "sse_result_details",
     "sse_menu", "sse_menu_click", "sse_receipt_manager_action",
     "sse_receipt_manager_list", "sse_receipt_manager_read",
-    "sse_receipt_manager_import", "sse_receipt_manager_delete",
+    "sse_receipt_manager_update", "sse_receipt_manager_import",
+    "sse_receipt_manager_classification_options",
+    "sse_receipt_manager_classify", "sse_receipt_manager_bulk_upsert",
+    "sse_receipt_manager_link", "sse_receipt_manager_delete",
     "sse_window_close", "sse_close"
   ]
   ```

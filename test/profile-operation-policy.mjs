@@ -11,7 +11,7 @@ import { SSE_BUILD_DRIFT_BLOCKED_OPERATIONS } from "../dist/operation-traits.js"
 
 const supported = createProfileOperationMatrix("supported", "full", false);
 assert.deepEqual(Object.keys(supported), SSE_API_OPERATIONS);
-assert.equal(Object.keys(supported).length, 93);
+assert.equal(Object.keys(supported).length, SSE_API_OPERATIONS.length);
 for (const operation of SSE_API_OPERATIONS) {
   assert.equal(supported[operation].operation, operation);
   assert.equal(supported[operation].availability, "allowed");
@@ -36,7 +36,7 @@ for (const operation of EXPERIMENTAL_PROFILE_VERIFICATION_OPERATIONS) {
 }
 for (const operation of [
   "toggle", "tracked_set_value", "table_add", "table_update", "table_delete", "save", "save_as",
-  "vast_apply", "export_csv",
+  "vast_apply", "export_csv", "receipt_manager_update",
 ]) {
   assert.equal(experimentalOpen[operation].availability, "blocked", `${operation}: kein Generalschluessel`);
 }
@@ -58,6 +58,7 @@ assert.equal(disabled.launch.availability, "blocked");
 assert.equal(profileOperationClass("health"), "read");
 assert.equal(profileOperationClass("close"), "cleanup");
 assert.equal(profileOperationClass("goto"), "navigation");
+assert.equal(profileOperationClass("receipt_manager_update"), "navigation");
 assert.equal(profileOperationClass("tracked_set_value"), "focusless-write-conditional");
 assert.equal(profileOperationClass("table_update"), "destructive");
 assert.equal(
@@ -73,4 +74,4 @@ for (const operation of ["checker_run", "goto", "set_value", "ustva_open_section
   );
 }
 
-process.stdout.write("Profil-Operationen: 93 Eintraege, Experimental-Opt-in und Build-Drift-Matrix bestanden\n");
+process.stdout.write(`Profil-Operationen: ${SSE_API_OPERATIONS.length} Eintraege, Experimental-Opt-in und Build-Drift-Matrix bestanden\n`);

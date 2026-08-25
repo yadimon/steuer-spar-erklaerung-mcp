@@ -79,7 +79,7 @@ npm run check
 Remove-Item Env:SSE_TEST_CONCURRENCY
 ```
 
-Der Clean-install-Smoke muss die drei CLI-Einstiege und den 93-Tool-MCP-Vertrag
+Der Clean-install-Smoke muss die drei CLI-Einstiege und den 98-Tool-MCP-Vertrag
 aus zwei getrennten Tarballs bestätigen. Danach nochmals prüfen, dass der Worktree
 sauber ist. Private Steuerdaten, lokale Konfigurationen und Test-Arbeitskopien
 dürfen nicht im Commit oder Artefakt liegen.

@@ -39,6 +39,7 @@ export const EXPERIMENTAL_PROFILE_VERIFICATION_OPERATIONS = [
   "read_table",
   "receipt_manager_list",
   "receipt_manager_read",
+  "receipt_manager_classification_options",
   "result_details",
   "scroll",
   "scroll_page",
@@ -67,9 +68,14 @@ const NAVIGATION = new Set<SseApiOperation>([
   "click", "click_point", "find", "goto", "scroll", "scroll_page", "set_value",
   "subpages", "tree_scroll", "tree_top", "ustva_open_section", "window_restore",
   "receipt_manager_action",
+  "receipt_manager_bulk_upsert",
+  "receipt_manager_classification_options",
+  "receipt_manager_classify",
+  "receipt_manager_link",
   "receipt_manager_delete",
   "receipt_manager_import",
   "receipt_manager_read",
+  "receipt_manager_update",
 ]);
 
 export type ProfileOperationClass =

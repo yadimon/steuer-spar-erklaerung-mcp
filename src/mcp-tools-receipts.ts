@@ -17,7 +17,7 @@ export function registerReceiptTools(registry: McpRegistry): void {
         "prueft den profilierten Ausgangszustand sowie Dialogfreiheit, verifiziert den Klickpunkt unmittelbar " +
         "vor der physischen Eingabe und verlangt danach den profilierten Zielzustand bei unveraendertem " +
         "Fenstersatz und Dirty-State. Import und Loeschen besitzen separate, staerker gebundene Werkzeuge. " +
-        "Verknuepfen und Uebernehmen bleiben gesperrt. " +
+        "Verknuepfen ist nur ueber das separate zielgebundene Werkzeug freigegeben. " +
         "Der BelegManager muss vorher ueber sse_menu und sse_menu_click geoeffnet worden sein.",
     },
     (r) => ({
@@ -97,6 +97,45 @@ export function registerReceiptTools(registry: McpRegistry): void {
   );
 
   registerShapedApiTool(
+    "sse_receipt_manager_update",
+    {
+      title: "Belegfelder sicher befuellen",
+      description:
+        "Befuellt mehrere katalogisierte Felder eines unmittelbar zuvor gelesenen Belegs in einer gebundenen " +
+        "Transaktion. Runtime-ID, Zeilen-, Listen- und Detailfingerprint sowie acknowledgeUpdate=true sind Pflicht. " +
+        "Unterstuetzt werden Bezeichnung, Datum, Belegnummer, Betrag, Umsatzsteuersatz, Netto-Kennzeichen und Notiz. " +
+        "Die API bindet ausschliesslich profilierte AutomationIds, prueft jeden Vor- und Nachwert, haelt Anzahl und " +
+        "unberuehrte Zeilen stabil und versucht bei einer normalen Nachbedingungsverletzung den vollstaendigen " +
+        "Rollback. Freie Selektoren und ungebundene Dialog-/Verknuepfungsaktionen bleiben gesperrt.",
+    },
+    (r) => ({
+      pid: r.pid,
+      hwnd: r.hwnd,
+      rowBefore: r.rowBefore,
+      rowAfter: r.rowAfter,
+      valuesBefore: r.valuesBefore,
+      valuesAfter: r.valuesAfter,
+      requestedValues: r.requestedValues,
+      changedFields: r.changedFields,
+      draftBefore: r.draftBefore,
+      draftAfter: r.draftAfter,
+      listFingerprintBefore: r.listFingerprintBefore,
+      listFingerprintAfter: r.listFingerprintAfter,
+      detailFingerprintBefore: r.detailFingerprintBefore,
+      detailFingerprintAfter: r.detailFingerprintAfter,
+      countUnchanged: r.countUnchanged,
+      otherRowsUnchanged: r.otherRowsUnchanged,
+      windowSetUnchanged: r.windowSetUnchanged,
+      dirtyStateUnchanged: r.dirtyStateUnchanged,
+      rollback: r.rollback,
+      physicalInputUsed: r.physicalInputUsed,
+      foregroundLeaseUsed: r.foregroundLeaseUsed,
+      verified: r.verified,
+    }),
+    { timeoutMs: 120_000 },
+  );
+
+  registerShapedApiTool(
     "sse_receipt_manager_import",
     {
       title: "Belegdatei sicher importieren",
@@ -132,6 +171,127 @@ export function registerReceiptTools(registry: McpRegistry): void {
       verified: r.verified,
     }),
     { timeoutMs: 120_000 },
+  );
+
+  registerShapedApiTool(
+    "sse_receipt_manager_classification_options",
+    {
+      title: "BelegManager-Kategorien oder -Personen lesen",
+      description:
+        "Oeffnet fuer genau den zuvor gebundenen Beleg den profilierten Kategorie- oder Personendialog, " +
+        "liest alle Optionen ueber das Qt-Grid einschliesslich nicht sichtbarer Zeilen und schliesst den Dialog " +
+        "mit Abbrechen. Zeilen-, Listen- und Detailfingerprint sind Pflicht; es wird nichts gespeichert. " +
+        "Das Ergebnis liefert eine Optionsmenge und ihren Fingerprint fuer Planung und Nachweis.",
+    },
+    (r) => ({
+      pid: r.pid,
+      hwnd: r.hwnd,
+      kind: r.kind,
+      row: r.row,
+      options: r.options,
+      selected: r.selected,
+      optionsFingerprint: r.optionsFingerprint,
+      dialogFingerprint: r.dialogFingerprint,
+      dialogClosed: r.dialogClosed,
+      dirtyStateUnchanged: r.dirtyStateUnchanged,
+      physicalInputUsed: r.physicalInputUsed,
+      foregroundLeaseUsed: r.foregroundLeaseUsed,
+      verified: r.verified,
+    }),
+    { timeoutMs: 120_000 },
+  );
+
+  registerShapedApiTool(
+    "sse_receipt_manager_classify",
+    {
+      title: "Beleg sicher kategorisieren und Personen zuordnen",
+      description:
+        "Setzt fuer genau den unmittelbar zuvor gelesenen Beleg die vollstaendige Zielmenge vorhandener " +
+        "Kategorien und/oder Personen. Die Operation bindet Zeile, Liste, Detailansicht, profilierte " +
+        "Auswahldialoge und exakte Optionsnamen, schaltet nur echte TogglePattern-Zellen, speichert jeden " +
+        "Dialog einmal und liest die Detailanzeige zurueck. Unbekannte oder doppelte Optionen stoppen fail-closed; " +
+        "bei einer normalen Nachbedingungsverletzung wird die Ausgangsmenge wiederhergestellt.",
+    },
+    (r) => ({
+      pid: r.pid,
+      hwnd: r.hwnd,
+      rowBefore: r.rowBefore,
+      rowAfter: r.rowAfter,
+      requestedValues: r.requestedValues,
+      valuesBefore: r.valuesBefore,
+      valuesAfter: r.valuesAfter,
+      changedKinds: r.changedKinds,
+      listFingerprintBefore: r.listFingerprintBefore,
+      listFingerprintAfter: r.listFingerprintAfter,
+      detailFingerprintBefore: r.detailFingerprintBefore,
+      detailFingerprintAfter: r.detailFingerprintAfter,
+      rollback: r.rollback,
+      dirtyStateUnchanged: r.dirtyStateUnchanged,
+      physicalInputUsed: r.physicalInputUsed,
+      foregroundLeaseUsed: r.foregroundLeaseUsed,
+      verified: r.verified,
+    }),
+    { timeoutMs: 180_000 },
+  );
+
+  registerShapedApiTool(
+    "sse_receipt_manager_link",
+    {
+      title: "Beleg mit Steuerseite sicher verknuepfen",
+      description:
+        "Setzt oder entfernt genau eine Verknuepfung zwischen einem content-fingerprint-gebundenen Beleg und " +
+        "der exakt aktuellen Steuerseite. Seitenueberschrift, sichtbarer BelegManager-Zieltext, Belegtitel und " +
+        "Inhaltsfingerprint muessen gemeinsam passen; acknowledgeLinkChange=true ist Pflicht. Die Operation " +
+        "oeffnet den Verknuepfungsmodus selbst, schaltet ausschliesslich die profilierte Link-Spalte, uebernimmt " +
+        "einmal und oeffnet den Modus erneut fuer einen unabhaengigen Persistenz-Readback. Ein bereits erreichter " +
+        "Zielzustand wird ohne Mutation bestaetigt.",
+    },
+    (r) => ({
+      pid: r.pid,
+      hwnd: r.hwnd,
+      receipt: r.receipt,
+      expectedTargetPage: r.expectedTargetPage,
+      expectedLinkTarget: r.expectedLinkTarget,
+      linkedBefore: r.linkedBefore,
+      linkedAfter: r.linkedAfter,
+      noChanges: r.noChanges,
+      footerCountBefore: r.footerCountBefore,
+      footerCountAfter: r.footerCountAfter,
+      applied: r.applied,
+      persistenceVerified: r.persistenceVerified,
+      dirtyStateUnchangedBeforeApply: r.dirtyStateUnchangedBeforeApply,
+      cleanupRequired: r.cleanupRequired,
+      physicalInputUsed: r.physicalInputUsed,
+      foregroundLeaseUsed: r.foregroundLeaseUsed,
+      verified: r.verified,
+    }),
+    { timeoutMs: 180_000 },
+  );
+
+  registerShapedApiTool(
+    "sse_receipt_manager_bulk_upsert",
+    {
+      title: "Mehrere Belege importieren und vollstaendig befuellen",
+      description:
+        "Verarbeitet ein bis 20 unterschiedliche documents:-Dateien nacheinander. Jeder Eintrag wird " +
+        "SHA-256-gebunden importiert, mit allen angegebenen Metadaten befuellt, optional kategorisiert bzw. " +
+        "Personen zugeordnet und vollstaendig rueckgelesen. Der Batch stoppt beim ersten unklaren Schritt, " +
+        "meldet completedCount, failedIndex und einen eventuell bewusst zu bereinigenden Entwurf und wiederholt " +
+        "niemals blind. Bereits verifizierte Belege bleiben erhalten.",
+    },
+    (r) => ({
+      pid: r.pid,
+      hwnd: r.hwnd,
+      requestedCount: r.requestedCount,
+      completedCount: r.completedCount,
+      failedIndex: r.failedIndex,
+      items: r.items,
+      failure: r.failure,
+      cleanupRequired: r.cleanupRequired,
+      resourceRefs: r.resourceRefs,
+      verified: r.verified,
+    }),
+    { timeoutMs: 300_000 },
   );
 
   registerShapedApiTool(

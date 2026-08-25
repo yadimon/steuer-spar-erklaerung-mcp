@@ -302,7 +302,7 @@ assert(
   !/mcpServers[\s\S]{0,400}steuer-spar-erklaerung-mcp\.cmd/u.test(readme),
   "Das README darf keinen .cmd-Shim als MCP-Befehl zeigen; ein Client kann ihn nicht starten.",
 );
-assert(readme.includes("Kernwerkzeuge des Standard-Prüflaufs") && readme.includes("alle 93 Operationen"));
+assert(readme.includes("Kernwerkzeuge des Standard-Prüflaufs") && readme.includes("alle 98 Operationen"));
 assert(
   main.includes("https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md")
     && main.includes("Technisches Setup bereit;")

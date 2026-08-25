@@ -936,18 +936,56 @@ test("23b receipt manager navigates, imports, reads and deletes with fresh bindi
     assert.equal(read.semanticListUnchanged, true);
     assert.equal(read.verified, true);
 
-    const staleDelete = await harness.call("receipt_manager_delete", {
+    const staleUpdate = await harness.call("receipt_manager_update", {
       rowRid: row.rowRid,
-      rowFingerprint: "A".repeat(64),
+      rowFingerprint: row.rowFingerprint,
       expectedListFingerprint: afterImport.listFingerprint,
+      expectedDetailFingerprint: "A".repeat(64),
+      values: { title: "Amazon Testbeleg" },
+      acknowledgeUpdate: true,
+    });
+    assert.equal(staleUpdate.kind, "stale");
+    const updated = await harness.call("receipt_manager_update", {
+      rowRid: row.rowRid,
+      rowFingerprint: row.rowFingerprint,
+      expectedListFingerprint: afterImport.listFingerprint,
+      expectedDetailFingerprint: read.detailFingerprint,
+      values: {
+        title: "Amazon Testbeleg",
+        date: "2026-01-25",
+        documentNumber: "DE6RQH4WAEUD",
+        amount: "75.00",
+        vatRate: "19",
+        net: false,
+        note: "Amazon EU S.a r.l. - DJI Mic Mini",
+      },
+      acknowledgeUpdate: true,
+    });
+    assert.deepEqual(updated.changedFields.sort(), ["amount", "date", "documentNumber", "note", "title"].sort());
+    assert.equal(updated.valuesAfter.amount, "75,00");
+    assert.equal(updated.valuesAfter.date, "2026-01-25");
+    assert.equal(updated.draftBefore, true);
+    assert.equal(updated.draftAfter, false);
+    assert.equal(updated.countUnchanged, true);
+    assert.equal(updated.otherRowsUnchanged, true);
+    assert.equal(updated.verified, true);
+
+    const afterUpdate = await harness.call("receipt_manager_list", { hwnd: 4242 });
+    assert.equal(afterUpdate.rows[0].draft, false);
+    assert.notEqual(afterUpdate.rows[0].rowFingerprint, row.rowFingerprint);
+
+    const staleDelete = await harness.call("receipt_manager_delete", {
+      rowRid: afterUpdate.rows[0].rowRid,
+      rowFingerprint: "A".repeat(64),
+      expectedListFingerprint: afterUpdate.listFingerprint,
       expectedCountBefore: 1,
       acknowledgeDelete: true,
     });
     assert.equal(staleDelete.kind, "stale");
     const deleted = await harness.call("receipt_manager_delete", {
-      rowRid: row.rowRid,
-      rowFingerprint: row.rowFingerprint,
-      expectedListFingerprint: afterImport.listFingerprint,
+      rowRid: afterUpdate.rows[0].rowRid,
+      rowFingerprint: afterUpdate.rows[0].rowFingerprint,
+      expectedListFingerprint: afterUpdate.listFingerprint,
       expectedCountBefore: 1,
       acknowledgeDelete: true,
     });

@@ -55,7 +55,25 @@ try {
     const schema = schemasByOperation.get(operation);
     const args = operation === "checker_detail"
       ? { name: "Synthetischer Pruefhinweis" }
-      : sampleJsonSchema(schema, operation);
+      : operation === "receipt_manager_classify"
+        ? {
+          rowRid: "1.2.3",
+          rowFingerprint: "A".repeat(64),
+          expectedListFingerprint: "B".repeat(64),
+          expectedDetailFingerprint: "C".repeat(64),
+          values: { categories: [] },
+          acknowledgeClassification: true,
+        }
+        : operation === "receipt_manager_bulk_upsert"
+          ? {
+            items: [{
+              resourceRef: "documents:synthetic.pdf",
+              expectedHash: "D".repeat(64),
+              values: { title: "Synthetischer Beleg" },
+            }],
+            acknowledgeBulkUpsert: true,
+          }
+          : sampleJsonSchema(schema, operation);
     assert(args && typeof args === "object" && !Array.isArray(args), `Kein Argumentsample fuer '${operation}'.`);
 
     const response = await fetch(`${baseUrl}/v1/operations/${operation}`, {

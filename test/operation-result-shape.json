@@ -11861,6 +11861,46 @@
         }
       }
     },
+    "receipt_manager_bulk_upsert": {
+      "offline": {
+        "profiles": [],
+        "fields": {}
+      },
+      "live": {
+        "profiles": [],
+        "fields": {}
+      }
+    },
+    "receipt_manager_classification_options": {
+      "offline": {
+        "profiles": [],
+        "fields": {}
+      },
+      "live": {
+        "profiles": [],
+        "fields": {}
+      }
+    },
+    "receipt_manager_classify": {
+      "offline": {
+        "profiles": [],
+        "fields": {}
+      },
+      "live": {
+        "profiles": [],
+        "fields": {}
+      }
+    },
+    "receipt_manager_link": {
+      "offline": {
+        "profiles": [],
+        "fields": {}
+      },
+      "live": {
+        "profiles": [],
+        "fields": {}
+      }
+    },
     "receipt_manager_delete": {
       "offline": {
         "profiles": [],
@@ -13353,7 +13393,7 @@
           },
           "fields": {
             "types": [
-              "array-one:object"
+              "array-many:object"
             ],
             "labels": [
               "stateful-mock"
@@ -13722,6 +13762,315 @@
             ]
           }
         }
+      }
+    },
+    "receipt_manager_update": {
+      "offline": {
+        "profiles": [],
+        "fields": {
+          "changedFields": {
+            "types": [
+              "array-many:string-other"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "countUnchanged": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "detailFingerprintAfter": {
+            "types": [
+              "string-hex64"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "detailFingerprintBefore": {
+            "types": [
+              "string-hex64"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "dirtyStateUnchanged": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "draftAfter": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "draftBefore": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "error": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
+          "foregroundLeaseUsed": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "hwnd": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "kind": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
+          "listFingerprintAfter": {
+            "types": [
+              "string-hex64"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "listFingerprintBefore": {
+            "types": [
+              "string-hex64"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "ok": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "otherRowsUnchanged": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "physicalInputUsed": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "pid": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "requestedValues": {
+            "types": [
+              "object:{\"amount\":\"string-other\",\"date\":\"string-other\",\"documentNumber\":\"string-other\",\"net\":\"boolean\",\"note\":\"string-other\",\"title\":\"string-other\",\"vatRate\":\"string-other\"}"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "rollback": {
+            "types": [
+              "object:{\"attempted\":\"boolean\",\"ok\":\"boolean\"}"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "rowAfter": {
+            "types": [
+              "object:{\"contentFingerprint\":\"string-hex64\",\"draft\":\"boolean\",\"index\":\"nonnegative-number\",\"rowFingerprint\":\"string-hex64\",\"rowRid\":\"string-other\"}"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "rowBefore": {
+            "types": [
+              "object:{\"contentFingerprint\":\"string-hex64\",\"draft\":\"boolean\",\"index\":\"nonnegative-number\",\"rowFingerprint\":\"string-hex64\",\"rowRid\":\"string-other\"}"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "ungespeichertNachher": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "ungespeichertVorher": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "valuesAfter": {
+            "types": [
+              "object:{\"amount\":\"string-other\",\"date\":\"string-other\",\"documentNumber\":\"string-other\",\"net\":\"boolean\",\"note\":\"string-other\",\"title\":\"string-other\",\"vatRate\":\"string-other\"}"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "valuesBefore": {
+            "types": [
+              "object:{\"amount\":\"string-other\",\"date\":\"string-empty\",\"documentNumber\":\"string-empty\",\"net\":\"boolean\",\"note\":\"string-empty\",\"title\":\"string-other\",\"vatRate\":\"string-other\"}"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "verified": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "windowSetUnchanged": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          }
+        }
+      },
+      "live": {
+        "profiles": [],
+        "fields": {}
       }
     },
     "result_details": {

@@ -88,7 +88,7 @@ Agent oder eigenes Programm
   Gesamtkatalog und OpenAPI-Abruf selbst; es gibt keinen separat gepflegten
   oder permissiveren API-Vertrag. Wiederkehrende Blattverträge wie optionaler
   Text, Flag, SHA-256 und Guard-Objekt werden dort als gemeinsame Komponenten
-  referenziert. Auch der für alle 93 Operationen identische
+  referenziert. Auch der für alle 98 Operationen identische
   `ok/kind/error/ms`-Umschlag liegt einmal als `OperationResultEnvelope` vor;
   jedes `Result_<operation>` ergänzt per `allOf` seine eigenen Fachfelder. Das
   hält die vollständiger gewordenen Result-Schemas unter dem Größenbudget,
@@ -230,7 +230,7 @@ Agent oder eigenes Programm
   bleiben unverändert, damit ein separat installierter Wrapper weder Details
   des API-Rechners noch seines eigenen Hosts preisgibt.
 - Werkzeugnamen, API-Zuordnung, Eingaben und versionierte
-  Ergebnismindestverträge werden aus gemeinsamen Katalogen abgeleitet. Alle 93
+  Ergebnismindestverträge werden aus gemeinsamen Katalogen abgeleitet. Alle 98
   Werkzeuge deklarieren das operationsspezifische `outputSchema` und liefern
   das vollständige, pfadredigierte nicht-binäre Ergebnis als
   `structuredContent`. Bereits als MCP-Bildblock gelieferte Base64-Bytes werden
@@ -390,10 +390,11 @@ Größenschranke: Ein Werkzeugfenster wächst mit dem Bildschirm.
 
 Der BelegManager wird **nicht** durch eine gelockerte allgemeine Bindung
 bedienbar — ein „Klick auf ein beliebiges Fenster derselben PID" würde denselben
-Weg für Versand- und Speicherdialoge öffnen. Stattdessen besitzt er fünf
+Weg für Versand- und Speicherdialoge öffnen. Stattdessen besitzt er sechs
 spezialisierte Operationen: `receipt_manager_action` für zwei reversible
 Navigationen, `receipt_manager_list`, `receipt_manager_read`,
-`receipt_manager_import` und `receipt_manager_delete`. Auf einer frischen
+`receipt_manager_update`, `receipt_manager_import` und
+`receipt_manager_delete`. Auf einer frischen
 Installation lässt sich der Einwilligungsdialog weiterhin nicht beantworten.
 
 Der vorgesehene Weg sind stattdessen eigene, eng gefasste Operationen je
@@ -411,6 +412,13 @@ Zustandswechsel `showAllReceipts` (`start` → `list`) und `goHome`
 sichtbare Liste und erzeugt Zeilen- und Listenfingerprints. `read` und `delete`
 akzeptieren nur solche frischen Zeilenbindungen; `delete` verlangt zusätzlich
 eine ausdrückliche Bestätigung und den exakt profilierten Löschdialog.
+`receipt_manager_update` verlangt zusätzlich den frischen Detailfingerprint
+und `acknowledgeUpdate=true`. Ein Aufruf kann Titel, Datum, Belegnummer,
+Betrag, Umsatzsteuersatz, Netto-Kennzeichen und Notiz gemeinsam setzen. Er
+verwendet ausschließlich profilierte AutomationIds, prüft jeden Feldwert nach
+dem Commit und rollt bereits geänderte Felder bei einer eindeutigen normalen
+Nachbedingungsverletzung rückwärts zurück. Kategorie, Person, Verknüpfen und
+Übernehmen bleiben bewusst außerhalb dieses Vertrags.
 `receipt_manager_import` legt nur bei vollständiger Liste ohne vorhandenen
 Entwurf einen neuen Beleg an, bindet die Quelle an `documents:` plus SHA-256,
 verifiziert den nativen Öffnen-Dialog und verlangt eine geänderte visuelle
@@ -570,7 +578,7 @@ Gewinnaktualisierungsnotiz mit `OK` beschränkt; Recovery-Dateien werden nicht
 automatisch verworfen. Das Manifest trennt `status` von `operationAccess`:
 2025 trägt `full`, 2024 `verification-only`. Freigabe und voller Betriebsraum
 öffnen sich nur bei `supported` **und** `full`; eine reine Status-Promotion
-bleibt daher fail-closed. `capabilities.operationPolicy` klassifiziert alle 93
+bleibt daher fail-closed. `capabilities.operationPolicy` klassifiziert alle 98
 Operationen als Lesen, Navigation, bedingtes Focusless-Schreiben, Mutation,
 destruktiv oder Cleanup und nennt Opt-in- sowie Build-Drift-Gates. Ein zweiter
 MCP-Server pro Jahr ist nicht vorgesehen, solange sich nur Profildaten ändern.
