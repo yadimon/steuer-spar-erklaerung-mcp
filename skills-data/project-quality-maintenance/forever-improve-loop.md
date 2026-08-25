@@ -29,11 +29,15 @@ Verification mode: full-cycle
 ## 3) Baseline Snapshot (Run First)
 
 - Date: 2026-08-25.
-- Branch/commit after completed cycles: `main` / `3fae059`.
-- `npm run test:fast`: pass, 81 fast API/MCP contracts before changes.
+- Branch/code baseline after completed implementation cycles: `main` / `e197fa2`.
+- `npm run test:fast`: pass, 81 fast API/MCP contracts.
 - `npm test`: pass before changes and after every committed runtime/test cycle;
   final plan has 120 planned steps.
 - `npm run test:product`: pass against the installed supported 2025 product.
+- `npm run test:npm-clean-install`: pass for both packed packages and all public
+  entrypoints.
+- `npm run test:live`: pass with exit code 0; 86/93 catalog operations succeeded
+  across 452 calls, with no operation observed only on an error path.
 - `npm audit --omit=dev --audit-level=low`: 0 vulnerabilities.
 - `npm audit --audit-level=low`: 0 vulnerabilities.
 - `git diff --check`: pass for every committed cycle.
@@ -59,8 +63,11 @@ If the baseline is red, stop new improvements and repair the baseline first.
 | Q-001 | P0 | API isolation | `src/api-server.ts` | Keep single-flight state per server instance | API regression plus `npm test` | done (`aa0be98`) |
 | Q-002 | P1 | security docs | API/MCP docs | Keep tokenless loopback contract consistent | config/docs contract plus `npm test` | done (`a4e33ac`) |
 | Q-003 | P1 | performance | desktop-marker tests | Batch parser parity without weakening Worker/API probes | focused tests plus `npm test` | done (`3fae059`) |
-| Q-004 | P1 | healthcheck | project contract | Generate and run tracked `health-check.md` | documented health matrix | active |
-| Q-005 | P2 | live evidence | private opt-in suite | Run only with disposable manufacturer cases and keep evidence ignored | `npm run test:live` | pending |
+| Q-004 | P1 | healthcheck | project contract | Generate and run tracked `health-check.md` | documented health matrix | done |
+| Q-005 | P1 | live evidence | opt-in suite | Run only with disposable manufacturer cases and keep raw evidence ignored | `npm run test:live` | done |
+| Q-006 | P0 | native dialogs | Worker file dialogs | Bind the intended file-name controls and avoid PowerShell automatic-variable collisions | structural regressions, `npm test`, live receipt lifecycle | done |
+| Q-007 | P1 | Center contract | saved-case views | Accept both supported saved-case views and their observed result shapes | focused contracts plus live Center gate | done |
+| Q-008 | P1 | API result safety | live result schemas | Align runtime results and the recorded shape ledger with observed API responses | result-contract tests plus live shape gate | done |
 
 ## 6) Quality Tooling And Cleanup
 
@@ -117,6 +124,11 @@ If the baseline is red, stop new improvements and repair the baseline first.
 - `npm run test:live` only with disposable manufacturer cases and an unused
   desktop session.
 - Package/registry gates only when package or release behavior changed.
+
+The latest focusless write measurement completed the transaction in 12.58 s,
+used neither a foreground lease nor physical input, and never exposed the
+target process in 1,185 foreground samples. Treat this as a diagnostic baseline,
+not a cross-machine performance promise.
 
 ## 9) Commit Policy
 
