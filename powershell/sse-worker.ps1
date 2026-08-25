@@ -5547,6 +5547,10 @@ function Resolve-SSEDialogFieldHandle([IntPtr]$DialogHwnd, $Field) {
   $enumerator = [SW+EP]{
     param($childHwnd, $lparam)
     if ([SW]::GetDlgCtrlID($childHwnd) -ne $controlId) { return $true }
+    # Der Windows-Dateidialog verschachtelt ComboBoxEx32, ComboBox und Edit
+    # mit derselben Control-ID und nahezu identischer Geometrie. Nur das Edit-
+    # Leaf-Control traegt den tatsaechlich schreib- und lesbaren Dateinamen.
+    if ([string](Get-SSEWindowClassName $childHwnd) -notmatch '^Edit$') { return $true }
     $rect = New-Object SW+RC
     if (-not [SW]::GetWindowRect($childHwnd, [ref]$rect)) { return $true }
     $centerX = ($rect.L + $rect.R) / 2
