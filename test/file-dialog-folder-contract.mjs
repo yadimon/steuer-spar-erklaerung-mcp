@@ -2,10 +2,17 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const worker = readFileSync(new URL("../powershell/sse-worker.ps1", import.meta.url), "utf8");
+const resolverStart = worker.indexOf("function Resolve-SSEDialogFieldHandle(");
 const helperStart = worker.indexOf("function Set-SSEDialogFieldText(");
 const helperEnd = worker.indexOf("\n$experimentalCheckerNavigation", helperStart + 10);
+assert(resolverStart >= 0 && helperStart > resolverStart, "Nativer Dialogfeld-HWND-Resolver fehlt.");
 assert(helperStart >= 0 && helperEnd > helperStart, "Gemeinsamer nativer Dialogfeld-Schreibweg fehlt.");
+const resolver = worker.slice(resolverStart, helperStart);
 const helper = worker.slice(helperStart, helperEnd);
+assert.match(resolver, /Get-SSEWindowClassName \$childHwnd/u,
+  "Der Dialogfeld-Resolver muss verschachtelte Controls an ihrer nativen Klasse unterscheiden.");
+assert.match(resolver, /-notmatch '\^Edit\$'/u,
+  "Nur das echte native Edit-Leaf-Control darf die Control-ID-/Geometriebindung erfuellen.");
 const start = worker.indexOf("  'file_dialog_select' {");
 const end = worker.indexOf("\n  'save_as' {", start);
 assert(start >= 0 && end > start, "file_dialog_select-Block fehlt.");
