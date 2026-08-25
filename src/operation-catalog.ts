@@ -378,11 +378,19 @@ schemasByOperation.scenario_run = z.object({
 }).strict();
 
 schemasByOperation.case_hash = withLegacyAlias(SSE_MCP_TOOL_SCHEMAS.sse_case_hash, "ref", "path");
-schemasByOperation.center_refresh = withLegacyAlias(
-  SSE_MCP_TOOL_SCHEMAS.sse_center_refresh,
-  "expectedDirectoryRef",
-  "expectedDirectory",
-);
+schemasByOperation.center_refresh = z.object({
+  ...SSE_MCP_TOOL_SCHEMAS.sse_center_refresh.shape,
+  expectedDirectory: API_LOCAL_PATH.optional(),
+}).strict().superRefine((value, context) => {
+  const preconditions = [value.expectedDirectoryRef, value.expectedDirectory, value.expectedMode]
+    .filter((entry) => entry !== undefined);
+  if (preconditions.length !== 1) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Genau eines von 'expectedDirectoryRef', 'expectedDirectory' oder 'expectedMode' muss angegeben werden.",
+    });
+  }
+});
 schemasByOperation.window_close = z.object({
   pid: PROCESS_ID,
   hwnd: WINDOW_HANDLE,

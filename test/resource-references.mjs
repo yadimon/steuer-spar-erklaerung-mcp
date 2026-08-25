@@ -136,6 +136,13 @@ try {
   }, 1_000);
   assert.equal(calls.at(-1).args.expectedDirectory, roots.cases);
   assert.deepEqual(centerRefresh.resourceRefs, { expectedDirectoryRef: "cases:." });
+  const centerRecentRefresh = await execute("center_refresh", {
+    hwnd: 42,
+    expectedMode: "Zuletzt verwendet",
+  }, 1_000);
+  assert.equal(centerRecentRefresh.ok, true);
+  assert.deepEqual(calls.at(-1).args, { hwnd: 42, expectedMode: "Zuletzt verwendet" });
+  assert.equal(centerRecentRefresh.resourceRefs, undefined);
 
   const csvDirectory = join(roots.results, "csv-neu");
   assert.equal(existsSync(csvDirectory), false);

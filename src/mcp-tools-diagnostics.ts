@@ -198,22 +198,25 @@ export function registerDiagnosticTools(registry: McpRegistry): void {
     {
       title: "Fallliste im Steuertipps-Center lesen",
       description:
-        "Liest den Hauptbildschirm des Steuertipps-Centers im Modus 'Verzeichnis': aktiven Ordner, " +
-        "Such-/Sortierzustand und die dort angebotenen Steuerfaelle. Die UIA-Liste wird read-only mit " +
-        "den primaeren ESt-/Gew-Falldateien im angezeigten Ordner verglichen; Backup-, Protokoll- und " +
-        "GewErfass-Dateien werden nicht als Center-Faelle ausgegeben. Aendert, oeffnet oder loescht nichts.",
+        "Liest den Hauptbildschirm des Steuertipps-Centers in den Modi 'Verzeichnis' und 'Zuletzt verwendet'. " +
+        "Im Verzeichnismodus wird die UIA-Liste read-only mit den primaeren ESt-/Gew-Falldateien im angezeigten " +
+        "Ordner verglichen; Backup-, Protokoll- und GewErfass-Dateien werden nicht als Center-Faelle ausgegeben. " +
+        "'Zuletzt verwendet' liefert die sichtbare Liste ohne behaupteten Dateisystemvergleich. Aendert, oeffnet oder loescht nichts.",
     },
     (r) => {
       const { verzeichnis, ...rest } = r;
-      const verzeichnisRef = typeof verzeichnis === "string" && verzeichnis.startsWith("cases:")
+      const hasDirectory = typeof verzeichnis === "string" && rest.modus !== "Zuletzt verwendet";
+      const verzeichnisRef = hasDirectory && verzeichnis.startsWith("cases:")
         ? verzeichnis
         : null;
       return {
         ...rest,
         verzeichnisRef,
-        verzeichnisImFallbereich: verzeichnisRef !== null,
+        verzeichnisImFallbereich: hasDirectory ? verzeichnisRef !== null : null,
         ...(verzeichnisRef === null
-          ? { verzeichnisHinweis: "Das Center zeigt einen Ordner ausserhalb des konfigurierten Fallbereichs; zuerst den Center-Ordner korrigieren." }
+          ? { verzeichnisHinweis: hasDirectory
+            ? "Das Center zeigt einen Ordner ausserhalb des konfigurierten Fallbereichs; zuerst den Center-Ordner korrigieren."
+            : "Der Modus 'Zuletzt verwendet' ist nicht an einen einzelnen Fallordner gebunden." }
           : {}),
         faelle: asArray(r.faelle),
         dateisystemFaelle: asArray(r.dateisystemFaelle),
@@ -228,16 +231,16 @@ export function registerDiagnosticTools(registry: McpRegistry): void {
     {
       title: "Fallliste im Steuertipps-Center aktualisieren",
       description:
-        "Aktualisiert ausschliesslich die Ansicht der fingerprintgebundenen Center-Fallliste, indem kurz " +
-        "'Zuletzt verwendet' und danach wieder 'Verzeichnis' aktiviert werden. Exaktes Fenster und erwarteter " +
-        "Ordnerreferenz aus sse_center_cases sind Pflicht; danach werden Ordner, Filterzustand und Fallnamen zurueckgelesen. Es wird kein " +
-        "Steuerfall geoeffnet, gespeichert, verschoben oder geloescht.",
+        "Aktualisiert ausschliesslich die fingerprintgebundene Center-Fallliste, indem kurz in den jeweils anderen " +
+        "Modus und danach in den gelesenen Ausgangsmodus zurueckgeschaltet wird. Exaktes Fenster und entweder die " +
+        "erwartete Ordnerreferenz oder der erwartete Modus aus sse_center_cases sind Pflicht; Filterzustand und " +
+        "Fallnamen werden zurueckgelesen. Es wird kein Steuerfall geoeffnet, gespeichert, verschoben oder geloescht.",
     },
     (r) => {
       const { verzeichnis, ...rest } = r;
       return {
         ...rest,
-        verzeichnisRef: verzeichnis,
+        verzeichnisRef: typeof verzeichnis === "string" ? verzeichnis : null,
         vorher: asArray(r.vorher),
         nachher: asArray(r.nachher),
       };
