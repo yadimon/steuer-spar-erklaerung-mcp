@@ -142,6 +142,14 @@ foreach ($required in @(
 foreach ($forbidden in @("Arg `$a 'name'", "Arg `$a 'aid'", "Arg `$a 'rid'", "Arg `$a 'x'", "Arg `$a 'y'")) {
   Assert-True (-not $importBlock.Contains($forbidden)) "receipt_manager_import akzeptiert den freien Selektor '$forbidden'."
 }
+$dialogImportStart = $worker.IndexOf('function Invoke-SSEReceiptManagerOpenFileDialog(')
+$dialogImportEnd = $worker.IndexOf('function Resolve-SSEPageObject(', $dialogImportStart)
+Assert-True ($dialogImportStart -ge 0 -and $dialogImportEnd -gt $dialogImportStart) 'Gebundener Belegimport-Dialogweg ist nicht eindeutig abgrenzbar.'
+$dialogImportBlock = $worker.Substring($dialogImportStart, $dialogImportEnd - $dialogImportStart)
+Assert-True ($dialogImportBlock.Contains('Resolve-SSEDialogFieldHandle $dialogHwnd $field')) 'Belegimport muss das native Dateiname-Control binden.'
+Assert-True ($dialogImportBlock.Contains("Set-SSEDialogFieldText `$dialogHwnd `$fieldHandle `$field `$Path 'Dateiname-Feld'")) 'Belegimport muss den gemeinsamen Unicode- und Readback-gesicherten Dialogfeldweg verwenden.'
+Assert-True (-not $dialogImportBlock.Contains("SendKeys]::SendWait('^a')")) 'Belegimport darf Ctrl+A nicht zum Leeren des nativen Dateiname-Felds verwenden.'
+Assert-True (-not $dialogImportBlock.Contains('ConvertTo-SendKeysLiteral $Path')) 'Belegimport darf den Dateipfad nicht vom aktiven Tastaturlayout abhaengig eingeben.'
 
 $actionStart = $worker.IndexOf("  'receipt_manager_action' {", $deleteStart)
 Assert-True ($deleteStart -ge 0 -and $actionStart -gt $deleteStart) 'Loeschoperation ist nicht eindeutig abgrenzbar.'
