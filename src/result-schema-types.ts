@@ -65,6 +65,10 @@ export const CLICK_RESULT_FIELDS = {
   ueberschriftNachher: OPTIONAL_STRING,
   navigiert: OPTIONAL_BOOLEAN,
   verified: OPTIONAL_BOOLEAN,
+  ungespeichertVorher: OPTIONAL_BOOLEAN,
+  ungespeichertNachher: OPTIONAL_BOOLEAN,
+  dialoge: OPTIONAL_ARRAY,
+  node: OPTIONAL_OBJECT,
 } as const;
 
 const CASE_LIST_ENTRY = z.object({

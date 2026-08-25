@@ -24,7 +24,7 @@ const localExecutors = new Map([
 ]);
 
 /** Transportfelder, die jeder Vertrag traegt und die der Worker generisch setzt. */
-const TRANSPORT_FIELDS = new Set(["ok", "kind", "error", "ms"]);
+const TRANSPORT_FIELDS = new Set(["ok", "kind", "error", "ms", "focusTelemetry"]);
 
 /**
  * Operationen, die die API selbst beantwortet. Sie erreichen den PowerShell-

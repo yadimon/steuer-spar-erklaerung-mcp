@@ -2,11 +2,13 @@ export const RESULT_TYPE_TAGS = Object.freeze([
   "array-empty",
   "array-many:array",
   "array-many:boolean",
+  "array-many:finite-number",
   "array-many:mixed",
   "array-many:negative-number",
   "array-many:nonnegative-number",
   "array-many:null",
   "array-many:object",
+  "array-many:string",
   "array-many:string-empty",
   "array-many:string-hex64",
   "array-many:string-other",
@@ -156,18 +158,24 @@ function resultArrayTypeTag(value) {
   if (value.length === 0) return "array-empty";
   const elementTags = [...new Set(value.map(atomicTypeTag))].sort();
   const cardinality = value.length === 1 ? "one" : "many";
-  return `array-${cardinality}:${elementTags.length === 1 ? elementTags[0] : "mixed"}`;
+  let elementTag = elementTags.length === 1 ? elementTags[0] : "mixed";
+  if (elementTags.length > 1 && elementTags.every((tag) => tag.startsWith("string-"))) elementTag = "string";
+  if (elementTags.length > 1 && elementTags.every((tag) =>
+    tag === "negative-number" || tag === "nonnegative-number")) elementTag = "finite-number";
+  return `array-${cardinality}:${elementTag}`;
 }
 
 function sampleArrayElement(tag, alternate = false) {
   switch (tag) {
     case "array": return [];
     case "boolean": return alternate ? false : true;
+    case "finite-number": return alternate ? 1 : -1;
     case "mixed": return alternate ? { name: "synthetic" } : "synthetic";
     case "negative-number": return alternate ? -2 : -1;
     case "nonnegative-number": return alternate ? 1 : 0;
     case "null": return null;
     case "object": return { name: alternate ? "synthetic-2" : "synthetic" };
+    case "string": return alternate ? "synthetic" : "";
     case "string-empty": return "";
     case "string-hex64": return (alternate ? "B" : "A").repeat(64);
     case "string-other": return alternate ? "synthetic-2" : "synthetic";
