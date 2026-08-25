@@ -1,5 +1,7 @@
 # Inoffizielle API und MCP für SteuerSparErklärung
 
+[![Windows CI](https://github.com/yadimon/steuer-spar-erklaerung-mcp/actions/workflows/windows-ci.yml/badge.svg)](https://github.com/yadimon/steuer-spar-erklaerung-mcp/actions/workflows/windows-ci.yml)
+
 Steuerfälle mit einem KI-Agenten prüfen, mit Belegen abgleichen und nach
 Freigabe kontrolliert bearbeiten – über eine gemeinsame lokale API und einen
 optionalen, PC-blinden MCP-Wrapper.
@@ -8,18 +10,20 @@ optionalen, PC-blinden MCP-Wrapper.
 > anlegen und Ergebnisse selbst prüfen. Dieses Projekt ist keine
 > Steuerberatung und übermittelt nichts an das Finanzamt.
 
-## Was die Beta kann
+## Features
 
-- einen geöffneten Steuerfall strukturiert lesen und den Programm-Prüfer
-  auswerten;
+- SteuerSparErklärung 2025 / Engine 31: einen geöffneten Steuerfall
+  strukturiert lesen, navigieren und den Programm-Prüfer auswerten;
+- BelegManager: lokale Belege auflisten, PDF-Dateien importieren, gebundene
+  Detailfelder lesen und kontrolliert bearbeiten;
 - Angaben mit freigegebenen Belegen und einem Tracking abgleichen;
 - fehlende, widersprüchliche oder unklare Angaben als Report zusammenfassen;
 - nach ausdrücklicher Freigabe einzelne Korrekturen ausschließlich in einer
   verifizierten Arbeitskopie durchführen und zurücklesen;
-- UStVA-Zeiträume für 2025 sowie vorgesehene `GewErfass2026`-Fälle vorbereiten,
-  ohne sie zu übermitteln;
-- dieselben freigegebenen Funktionen über lokale HTTP-API oder optional MCP
-  für Codex, Claude Code und kompatible Agenten bereitstellen.
+- Umsatzsteuer-Voranmeldung: UStVA-Zeiträume für 2025 sowie vorgesehene
+  `GewErfass2026`-Fälle vorbereiten, ohne sie zu übermitteln;
+- 93 versionierte Operationen über lokale HTTP-API oder optional über den
+  PC-blinden MCP-Wrapper für Codex, Claude Code und kompatible Agenten.
 
 Die Beta ersetzt weder SteuerSparErklärung noch eine fachliche Prüfung. Sie
 automatisiert nachvollziehbare Arbeitsschritte in der installierten Anwendung.
@@ -42,20 +46,51 @@ Die native Claude Code CLI unter Windows benötigt zusätzlich Git for Windows
 und eine eigene Anmeldung in `claude`; eine Anmeldung in Claude Desktop oder
 Cowork ersetzt diese CLI-Anmeldung nicht.
 
-## Schnell mit NPX, ohne MCP
+## Prompts
 
-Wenn SteuerSparErklärung, Node.js 22+ und der lokale Agent schon installiert
-sind, reicht für einen einzelnen Prüflauf dieser Prompt:
+### Basic Prompt
+
+Für die normale lokale Einrichtung mit API und MCP reichen Ziel und Pfade:
 
 ```text
-Nutze diese Anleitung:
-https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/skills/steuer-spar-erklaerung/SKILL.md
-
-Starte die lokale API über npx. Kein MCP und keine globale Runtime-Installation.
-Prüfe meine Einkommensteuererklärung 2025.
+Nutze https://github.com/yadimon/steuer-spar-erklaerung-mcp und prüfe meine
+Einkommensteuererklärung 2025.
 Steuerfall: <ABSOLUTER_PFAD_ZUR_ESt2025-DATEI>
 Belege: <ABSOLUTE_BELEGORDNER_ODER_KEINE_BELEGE>
-Standard-Prüflauf ausführen.
+Standard-Einrichtung und Prüflauf ausführen. Nichts über ELSTER senden.
+```
+
+`Standard-Einrichtung und Prüflauf ausführen` bestätigt Einrichtung (lokale
+API plus MCP) und Prüflauf zugleich. Die Prüfung läuft in derselben Sitzung
+über die lokale API; MCP wird nach dem nächsten Start des Agenten verifiziert.
+
+### Robuster isolierter Prüflauf
+
+Wenn SteuerSparErklärung, Node.js 22+ und der lokale Agent schon installiert
+sind, verwendet dieser strengere Prompt nur eine temporäre NPX-API ohne MCP,
+globale Installation oder dauerhaften Launcher:
+
+```text
+Arbeite ausschließlich nach diesen Referenzen:
+https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/skills/steuer-spar-erklaerung/SKILL.md
+https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md
+
+Führe einen isolierten, temporären Nur-Lese-Prüflauf für
+SteuerSparErklärung 2025 aus. Starte die lokale API im Vordergrund über npx.
+Kein MCP, keine globale Installation und keine dauerhafte Konfiguration.
+Steuerfall: <ABSOLUTER_PFAD_ZUR_ESt2025-DATEI>
+Belege: <ABSOLUTE_BELEGORDNER_ODER_KEINE_BELEGE>
+
+Prüfe zuerst health, product_info und capabilities. Erzeuge vor sichtbarer
+Navigation eine neue SHA-256-verifizierte Arbeitskopie; öffne oder ändere nie
+den Originalfall. Führe Standard-Prüflauf, Belegabgleich und Programm-Prüfer
+aus. Nicht speichern und nichts über ELSTER senden. Bei unklarer Identität,
+Version, Bindung oder Beleglage fail-closed stoppen.
+
+Danach die Arbeitskopie ohne Speichern schließen, bestätigen, dass keine
+SteuerSparErklärung-Instanz offen ist, und die NPX-API beenden. Berichte die
+ausgeführten Prüfungen und verbleibenden Grenzen ohne private Pfade oder
+Steuerdaten auszugeben.
 ```
 
 `Standard-Prüflauf ausführen` bestätigt dabei zugleich, dass die genannten
@@ -75,24 +110,21 @@ ausdrücklich und arbeitet nicht still über die andere Instanz weiter. Soll aus
 diesem Kurzweg später eine dauerhafte Installation im Ordner werden, zuerst
 die npx-API mit Strg+C beenden.
 
-## Schnellstart mit einem Prompt
+Der isolierte Prüflauf isoliert Installation und Steuerfalländerungen, braucht
+aber weiterhin einen lokal auf Windows laufenden Agenten. Eine entfernte
+Sandbox ohne Zugriff auf die installierte Desktop-Anwendung kann ihn nicht
+ausführen.
 
-Wenn SteuerSparErklärung und ein lokaler Agent da sind, reicht ein Prompt für
-Installation und Prüfung (Pfade anpassen):
+### Referenzdokumente
 
-```text
-Nutze https://github.com/yadimon/steuer-spar-erklaerung-mcp
-Prüfe meine Einkommensteuer 2025.
-Steuerfall: <ABSOLUTER_PFAD_ZUR_ESt2025-DATEI>
-Belege: <ABSOLUTE_BELEGORDNER_ODER_KEINE_BELEGE>
-Standard-Einrichtung und Prüflauf ausführen.
-```
+- [Installation und Erfolgskriterien](docs/INSTALLATION.md)
+- [Haupt-Skill und sicherer Standardablauf](skills/steuer-spar-erklaerung/SKILL.md)
+- [Produktarchitektur](docs/ARCHITEKTUR.md)
+- [Versionierter API-/MCP-Vertrag](docs/API-MCP-VERTRAG.md)
+- [Umsatzsteuer-Voranmeldung](docs/UMSATZSTEUER-VORANMELDUNG.md)
+- [Verifikationsstand und Grenzen](docs/VERIFIKATION.md)
 
-`Standard-Einrichtung und Prüflauf ausführen` bestätigt Einrichtung (lokale
-API plus MCP) und Prüflauf zugleich. Die Prüfung läuft in derselben Sitzung über die
-lokale API; MCP wird nach dem nächsten Start des Agenten verifiziert.
-
-## Schnellstart mit zwei Prompts
+## Dauerhaftes Setup mit zwei Prompts
 
 ### 1. Lokal installieren
 
@@ -447,6 +479,12 @@ Der vollständige Ablauf ist unter
 [Umsatzsteuer-Voranmeldung](docs/UMSATZSTEUER-VORANMELDUNG.md) beschrieben.
 
 ## Entwicklung und Tests
+
+Jeder Push und Pull Request läuft durch das read-only Windows-Gate
+`Offline API/MCP and package gate`: gesperrte Installation, Produktions-Audit,
+komplette Offline-Suite und saubere Installation beider erzeugten npm-Pakete.
+Live-UI-Tests bleiben bewusst opt-in, weil sie eine installierte Anwendung und
+eine unbenutzte Windows-Sitzung benötigen.
 
 ```powershell
 npm ci

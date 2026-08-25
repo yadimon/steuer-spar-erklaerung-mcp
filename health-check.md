@@ -73,8 +73,8 @@ a replacement for live UI evidence.
 | check | result |
 | --- | --- |
 | `npm run build:ts` | pass |
-| `npm run test:fast` | pass, 81 planned contracts |
-| `npm test` | pass, 120 planned contracts |
+| `npm run test:fast` | pass, 82 planned contracts |
+| `npm test` | pass, 121 planned contracts |
 | `npm run test:product` | pass against the installed supported 2025 product |
 | `npm run test:npm-clean-install` | pass for both packed packages and all public entrypoints |
 | production and full dependency audits | pass, zero reported vulnerabilities |

@@ -2,6 +2,22 @@
 
 <!-- Problem, Lösung und Nutzerwirkung knapp beschreiben. -->
 
+## Art der Änderung
+
+- [ ] Fehlerbehebung
+- [ ] Feature
+- [ ] Refactoring oder Performance
+- [ ] Tests, CI oder Dokumentation
+
+## Betroffener Bereich
+
+- [ ] SteuerSparErklärung-2025-Profil oder allgemeine Fallbearbeitung
+- [ ] Umsatzsteuer-Voranmeldung (UStVA)
+- [ ] BelegManager
+- [ ] Lokale HTTP-API oder CLI
+- [ ] PC-blinder MCP-Wrapper
+- [ ] Installation, Pakete oder Release
+
 ## Sicherheits- und Supportgrenzen
 
 - [ ] Keine echten Steuerfälle, Belege, Namen, Steuer-IDs, Tokens, privaten Pfade oder ungeschwärzten Screenshots enthalten

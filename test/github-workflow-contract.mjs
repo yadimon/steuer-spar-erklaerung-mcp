@@ -77,8 +77,9 @@ for (const trigger of ["push:", "pull_request:", "workflow_dispatch:"]) {
   assert(workflow.includes(`  ${trigger}`), `CI-Trigger fehlt: ${trigger}`);
 }
 assert.match(workflow, /^permissions:\r?\n  contents: read$/mu, "CI braucht ausschließlich read-only Contents-Rechte.");
+assert.match(workflow, /^    name: Offline API\/MCP and package gate$/mu);
 assert.match(workflow, /^    runs-on: windows-2022$/mu);
-assert.match(workflow, /^    timeout-minutes: 20$/mu);
+assert.match(workflow, /^    timeout-minutes: 25$/mu);
 
 const pinnedActions = {
   "actions/checkout": "3d3c42e5aac5ba805825da76410c181273ba90b1",
@@ -96,6 +97,7 @@ const commands = [
   "npm ci --ignore-scripts",
   "npm audit --omit=dev --audit-level=high",
   "npm test",
+  "npm run test:npm-clean-install",
 ];
 let previous = -1;
 for (const command of commands) {
@@ -168,6 +170,10 @@ for (const required of [
 
 const pullRequestTemplate = readFileSync(".github/PULL_REQUEST_TEMPLATE.md", "utf8");
 assert.match(pullRequestTemplate, /Keine echten Steuerfälle/u);
+assert.match(pullRequestTemplate, /Art der Änderung/u);
+assert.match(pullRequestTemplate, /Feature/u);
+assert.match(pullRequestTemplate, /Betroffener Bereich/u);
+assert.match(pullRequestTemplate, /BelegManager/u);
 assert.match(pullRequestTemplate, /npm run test:fast/u);
 assert.match(pullRequestTemplate, /npm test/u);
 assert.match(pullRequestTemplate, /Live-Evidenz/u);
@@ -200,4 +206,6 @@ for (const required of [
 assert.match(releaseProcess, /Erst nach ausdrücklicher Freigabe/u);
 assert.match(releaseProcess, /kein öffentliches Release/u);
 
-process.stdout.write(`GitHub Windows-CI: Node ${nodeVersion}, read-only, 5 Gates und gepinnte Actions bestanden\n`);
+process.stdout.write(
+  `GitHub Windows-CI: Node ${nodeVersion}, read-only, Vollsuite und Clean-Install mit gepinnten Actions bestanden\n`,
+);
