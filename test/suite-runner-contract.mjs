@@ -45,12 +45,19 @@ const externalLiveOperations = Object.entries(coverage.operations ?? {})
   .map(([name]) => name)
   .sort();
 assert.deepEqual(externalLiveOperations, [
+  "instances",
   "receipt_manager_action",
   "receipt_manager_delete",
   "receipt_manager_import",
   "receipt_manager_list",
   "receipt_manager_read",
-], "Nur der BelegManager-Lebenszyklus darf auf den privaten Snapshot-VM-Nachweis angewiesen sein.");
+  "vast_apply",
+  "vast_dialog_read",
+  "vast_mapping_options",
+  "vast_mapping_select",
+  "vast_row_details",
+  "vast_row_set_expanded",
+], "Nur BelegManager, instances und VaSt duerfen auf den privaten Snapshot-VM-Nachweis angewiesen sein.");
 assert.deepEqual(exclusiveSteps.map((step) => step.name), ["no-console-window"]);
 assert(!parallelSteps.some((step) => step.name === "no-console-window"));
 // Die Abdeckungsbilanz wertet das Protokoll aller anderen Schritte aus und

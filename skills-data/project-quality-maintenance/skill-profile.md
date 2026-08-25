@@ -59,5 +59,5 @@
 ## Last Confirmed State
 
 - verified_at: 2026-08-25
-- notes: 120-step offline suite and installed-product gate pass; dependency
-  audit reports zero known vulnerabilities.
+- notes: 120-step offline suite, installed-product gate and clean package
+  install pass; dependency audits report zero known vulnerabilities.

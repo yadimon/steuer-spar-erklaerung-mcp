@@ -31,13 +31,13 @@ Verification mode: full-cycle
 - Date: 2026-08-25.
 - Branch/code baseline after completed implementation cycles: `main` / `e197fa2`.
 - `npm run test:fast`: pass, 81 fast API/MCP contracts.
-- `npm test`: pass before changes and after every committed runtime/test cycle;
-  final plan has 120 planned steps.
+- `npm test`: pass in the current runtime/test cycle; final plan has 120
+  planned steps.
 - `npm run test:product`: pass against the installed supported 2025 product.
 - `npm run test:npm-clean-install`: pass for both packed packages and all public
   entrypoints.
-- `npm run test:live`: pass with exit code 0; 86/93 catalog operations succeeded
-  across 452 calls, with no operation observed only on an error path.
+- Current aggregate live ledger: 87/93 catalog operations are functional, six
+  VaSt operations are `error-path-only`, and none remains completely untested.
 - `npm audit --omit=dev --audit-level=low`: 0 vulnerabilities.
 - `npm audit --audit-level=low`: 0 vulnerabilities.
 - `git diff --check`: pass for every committed cycle.
@@ -68,6 +68,7 @@ If the baseline is red, stop new improvements and repair the baseline first.
 | Q-006 | P0 | native dialogs | Worker file dialogs | Bind the intended file-name controls and avoid PowerShell automatic-variable collisions | structural regressions, `npm test`, live receipt lifecycle | done |
 | Q-007 | P1 | Center contract | saved-case views | Accept both supported saved-case views and their observed result shapes | focused contracts plus live Center gate | done |
 | Q-008 | P1 | API result safety | live result schemas | Align runtime results and the recorded shape ledger with observed API responses | result-contract tests plus live shape gate | done |
+| Q-009 | P0 | UI safety | receipt/VaSt dialogs | Bind imported drafts semantically, read detail values deliberately and allow only exact safe cancellation of a bound transmission dialog | focused contracts, full suite and disposable live readback | done |
 
 ## 6) Quality Tooling And Cleanup
 
@@ -150,3 +151,15 @@ not a cross-machine performance promise.
 - Re-run the full baseline after shared-runtime or cross-cutting changes.
 - Record only durable, public-safe evidence; raw logs and local paths do not
   belong in this file.
+
+## 12) Latest Cycle Evidence
+
+- `npm run test:fast`: pass, 81 planned contracts.
+- `npm test`: pass, 120 planned contracts; the intentional empty-live-gap
+  result shape was regenerated through the repository's guarded write mode.
+- `npm run test:product`: pass without launching a tax case.
+- `npm run test:npm-clean-install`: pass for two fresh tarballs, three public
+  CLI entries and the 93-tool MCP contract.
+- `npm audit --omit=dev --audit-level=low` and full-tree audit: zero reported
+  vulnerabilities.
+- Repository privacy, links and `git diff --check`: pass.

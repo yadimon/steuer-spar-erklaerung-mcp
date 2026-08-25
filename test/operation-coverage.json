@@ -243,7 +243,8 @@
       "offlineLabels": [
         "stateful-mock"
       ],
-      "live": "untested"
+      "live": "functional",
+      "liveEvidence": "snapshot-vm"
     },
     "known_page_state": {
       "offline": "functional",
@@ -572,42 +573,48 @@
       "offlineLabels": [
         "stateful-mock"
       ],
-      "live": "untested"
+      "live": "error-path-only",
+      "liveEvidence": "snapshot-vm"
     },
     "vast_dialog_read": {
       "offline": "functional",
       "offlineLabels": [
         "stateful-mock"
       ],
-      "live": "untested"
+      "live": "error-path-only",
+      "liveEvidence": "snapshot-vm"
     },
     "vast_mapping_options": {
       "offline": "functional",
       "offlineLabels": [
         "stateful-mock"
       ],
-      "live": "untested"
+      "live": "error-path-only",
+      "liveEvidence": "snapshot-vm"
     },
     "vast_mapping_select": {
       "offline": "functional",
       "offlineLabels": [
         "stateful-mock"
       ],
-      "live": "untested"
+      "live": "error-path-only",
+      "liveEvidence": "snapshot-vm"
     },
     "vast_row_details": {
       "offline": "functional",
       "offlineLabels": [
         "stateful-mock"
       ],
-      "live": "untested"
+      "live": "error-path-only",
+      "liveEvidence": "snapshot-vm"
     },
     "vast_row_set_expanded": {
       "offline": "functional",
       "offlineLabels": [
         "stateful-mock"
       ],
-      "live": "untested"
+      "live": "error-path-only",
+      "liveEvidence": "snapshot-vm"
     },
     "verify": {
       "offline": "functional",

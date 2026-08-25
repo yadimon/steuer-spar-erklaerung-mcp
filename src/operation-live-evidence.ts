@@ -11,18 +11,19 @@ export const SSE_LIVE_EVIDENCE_STATUSES = Object.freeze([
 export type OperationLiveEvidenceStatus = (typeof SSE_LIVE_EVIDENCE_STATUSES)[number];
 
 const SSE_LIVE_ERROR_PATH_ONLY_OPERATIONS = Object.freeze(
-  [] as const satisfies readonly SseApiOperation[],
+  [
+    "vast_apply",
+    "vast_dialog_read",
+    "vast_mapping_options",
+    "vast_mapping_select",
+    "vast_row_details",
+    "vast_row_set_expanded",
+  ] as const satisfies readonly SseApiOperation[],
 );
 
-const SSE_LIVE_UNTESTED_OPERATIONS = Object.freeze([
-  "instances",
-  "vast_apply",
-  "vast_dialog_read",
-  "vast_mapping_options",
-  "vast_mapping_select",
-  "vast_row_details",
-  "vast_row_set_expanded",
-] as const satisfies readonly SseApiOperation[]);
+const SSE_LIVE_UNTESTED_OPERATIONS = Object.freeze(
+  [] as const satisfies readonly SseApiOperation[],
+);
 
 const untested = new Set<SseApiOperation>(SSE_LIVE_UNTESTED_OPERATIONS);
 const errorPathOnly = new Set<SseApiOperation>(SSE_LIVE_ERROR_PATH_ONLY_OPERATIONS);

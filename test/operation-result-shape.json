@@ -112,7 +112,7 @@
           },
           "liveEvidence": {
             "types": [
-              "object:{\"affectsAvailability\":\"boolean\",\"basis\":\"string-other\",\"errorPathOnlyCount\":\"nonnegative-number\",\"functionalCount\":\"nonnegative-number\",\"operationStatus\":\"object\",\"profileSpecific\":\"boolean\",\"schemaVersion\":\"nonnegative-number\",\"scope\":\"string-other\",\"untestedCount\":\"nonnegative-number\",\"untestedOperations\":\"array-many:string-other\"}"
+              "object:{\"affectsAvailability\":\"boolean\",\"basis\":\"string-other\",\"errorPathOnlyCount\":\"nonnegative-number\",\"functionalCount\":\"nonnegative-number\",\"operationStatus\":\"object\",\"profileSpecific\":\"boolean\",\"schemaVersion\":\"nonnegative-number\",\"scope\":\"string-other\",\"untestedCount\":\"nonnegative-number\",\"untestedOperations\":\"array-empty\"}"
             ],
             "labels": [
               "scenario-mock",

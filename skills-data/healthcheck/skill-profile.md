@@ -29,7 +29,8 @@
   - exact registry/release assets only when publishing is in scope
 - accepted_non_blocking_warnings:
   - optional archive fixture unavailable outside its private test environment
-  - 2024 profile and unverified VaSt paths remain explicit product limits
+  - 2024 profile and the still-unverified successful VaSt workflow remain
+    explicit product limits
 
 ## Key Files
 
@@ -58,6 +59,6 @@
 
 - verified_at: 2026-08-25
 - verdict: `HEALTHY`
-- notes: all required repository, build, offline, package, installed-product and
-  live checks passed; live coverage reached 86/93 catalog operations across 452
-  calls with no error-only operation; no release action was in scope
+- notes: repository, build, offline, package and installed-product checks pass;
+  current live coverage is 87/93 functional plus six VaSt error paths, with no
+  completely untested operation; no release action was in scope

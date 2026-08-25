@@ -78,24 +78,25 @@ a replacement for live UI evidence.
 | `npm run test:product` | pass against the installed supported 2025 product |
 | `npm run test:npm-clean-install` | pass for both packed packages and all public entrypoints |
 | production and full dependency audits | pass, zero reported vulnerabilities |
-| `npm run test:live` | pass with exit code 0; both strict profiles, Center and cleanup gates completed without SKIP |
+| live UI evidence | same-day broad live gate remains green; the current receipt, dialog, instances and MCP delta passed in a disposable VM and cleanup left no owned SSE process |
 | privacy, links and pending-diff checks | pass |
 
-The live run executed 86 of 93 catalog operations successfully across 452
-recorded calls; no operation was observed only on an error path. The strict
-2025 and verification-only 2024 profiles contributed 57 and 46 semantic checks
-respectively. Result-shape evidence accepted 1,979 field-scope proofs and 2,077
-type observations. Temporary live evidence and machine-specific details were
-kept outside Git.
+The current aggregate ledger has 87 of 93 catalog operations functional. The
+six VaSt operations reached only their real fail-closed error paths because the
+required certificate PIN was not provided; no operation remains completely
+untested. The same-day broad live baseline still covers the unchanged strict
+2025, verification-only 2024 and Center journeys. Current changed UI paths were
+repeated separately in the disposable VM. Temporary evidence and
+machine-specific details stayed outside Git.
 
 ## 7. Known Weak Points
 
 - Profile 2025 / Engine 31 is supported. Profile 2024 / Engine 30 remains
   experimental and verification-only; this health check does not promote it.
-- ELSTER, transmission and send operations remain hard-blocked and are never
-  exercised by this playbook.
-- Six VaSt operations still lack successful live evidence; their static
-  contracts do not count as a successful real workflow.
+- ELSTER submission, transmission and send operations remain hard-blocked and
+  are never exercised by this playbook.
+- Six VaSt operations still lack successful live evidence. Their real
+  `not-found` paths prove safe refusal, not a successful VaSt workflow.
 - UI automation depends on an unlocked, unused Windows desktop and configured
   disposable fixtures. Missing prerequisites must be reported, not skipped as
   green.

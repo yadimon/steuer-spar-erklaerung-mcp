@@ -7,19 +7,28 @@ $errors = $null
 $ast = [Management.Automation.Language.Parser]::ParseFile($workerPath, [ref]$tokens, [ref]$errors)
 if ($errors.Count) { throw "Worker-Parserfehler: $($errors[0].Message)" }
 
-$definition = @($ast.FindAll({
+$experimentalDefinition = @($ast.FindAll({
   param($node)
   $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
     $node.Name -eq 'Test-SSEExperimentalDialogAnswerAllowed'
 }, $true))
-if ($definition.Count -ne 1) { throw 'Experimental-Dialogpolicy ist nicht eindeutig vorhanden.' }
-Invoke-Expression $definition[0].Extent.Text
+if ($experimentalDefinition.Count -ne 1) { throw 'Experimental-Dialogpolicy ist nicht eindeutig vorhanden.' }
+Invoke-Expression $experimentalDefinition[0].Extent.Text
+$cancellationDefinition = @($ast.FindAll({
+  param($node)
+  $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+    $node.Name -eq 'Test-SSESafeTransmissionDialogCancellation'
+}, $true))
+if ($cancellationDefinition.Count -ne 1) { throw 'Sicherer Abbruch fuer Uebermittlungsdialoge ist nicht eindeutig vorhanden.' }
+Invoke-Expression $cancellationDefinition[0].Extent.Text
 $workerSource = Get-Content -LiteralPath $workerPath -Raw
 $dialogBranch = $workerSource.IndexOf("  'dialog_answer' {")
 $policyCall = $workerSource.IndexOf('Test-SSEExperimentalDialogAnswerAllowed $dialog $buttonName', $dialogBranch)
+$cancellationCall = $workerSource.IndexOf('Test-SSESafeTransmissionDialogCancellation $buttonName', $dialogBranch)
 $buttonInvoke = $workerSource.IndexOf('Invoke-DialogButtonInfo $dialog $buttonInfo[0]', $dialogBranch)
-if ($dialogBranch -lt 0 -or $policyCall -lt $dialogBranch -or $buttonInvoke -lt 0 -or $policyCall -gt $buttonInvoke) {
-  throw 'Experimental-Dialogpolicy muss im dialog_answer-Zweig vor dem ersten Button-Invoke laufen.'
+if ($dialogBranch -lt 0 -or $policyCall -lt $dialogBranch -or $cancellationCall -lt $dialogBranch -or
+    $buttonInvoke -lt 0 -or $policyCall -gt $buttonInvoke -or $cancellationCall -gt $buttonInvoke) {
+  throw 'Dialogpolicy und sicherer Abbruch muessen vor dem ersten Button-Invoke laufen.'
 }
 
 function Dialog([string]$Title, [string[]]$Texts, [string[]]$Buttons) {
@@ -31,6 +40,13 @@ function Dialog([string]$Title, [string[]]$Texts, [string[]]$Buttons) {
 }
 function Assert-True([bool]$Condition, [string]$Message) {
   if (-not $Condition) { throw $Message }
+}
+
+Assert-True (Test-SSESafeTransmissionDialogCancellation 'Abbrechen') `
+  "Der exakte sichere Dialogabbruch 'Abbrechen' wurde gesperrt."
+foreach ($unsafeCancellation in @('OK', 'Ja', 'Nein', 'Schließen', 'Übernehmen')) {
+  Assert-True (-not (Test-SSESafeTransmissionDialogCancellation $unsafeCancellation)) `
+    "Die Dialogantwort '$unsafeCancellation' wurde als allgemeiner Uebermittlungsabbruch freigegeben."
 }
 
 $profitText = 'Der Gewinn des Betriebs {0}Muster{1} wurde aktualisiert.' -f [char]0x00BB, [char]0x00AB
@@ -54,4 +70,4 @@ foreach ($case in @(
     "Unbekannter oder mutierender Dialog '$($case.dialog.title)'/'$($case.button)' wurde freigegeben."
 }
 
-Write-Output 'Experimental-Dialogpolicy: nur die exakt bekannte passive Gewinnnotiz erlaubt.'
+Write-Output "Dialogpolicy: passive Gewinnnotiz und exaktes 'Abbrechen' eng freigegeben."

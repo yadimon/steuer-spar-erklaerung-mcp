@@ -595,6 +595,10 @@ try {
     dialogAnswerBlock.includes("Test-SSEKnownPassiveTransmissionNotice $dialog $buttonName $probe") &&
     workerSource.includes("$ButtonName -notin @('Schließen','Schliessen')"),
   "Passiver VaSt-Uebermittlungshinweis ist nicht eng auf exakten Dialog/Satz/Schliessen begrenzt.");
+  assert(workerSource.includes("function Test-SSESafeTransmissionDialogCancellation") &&
+    workerSource.includes("$ButtonName -ceq 'Abbrechen'") &&
+    dialogAnswerBlock.includes("Test-SSESafeTransmissionDialogCancellation $buttonName"),
+  "Ein fingerprintgebundener Uebermittlungsdialog kann nicht sicher mit dem exakten Button 'Abbrechen' verlassen werden.");
   const exportBlock = workerOpBlock("export_csv");
   assert(exportBlock.includes("$preexistingExport") &&
     exportBlock.includes("Get-SSEDeepestLastActivePopup $hwnd") &&
