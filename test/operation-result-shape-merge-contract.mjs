@@ -41,6 +41,9 @@ assert.equal(isResultTypeTag(objectTag), true);
 assert.deepEqual(samplesForResultTypeTag(objectTag), [{ h: 0, path: "synthetic", w: 0 }]);
 assert.equal(isResultTypeTag('object:{"private\\path":"string-other"}'), false);
 assert.equal(resultTypeTag([1, 2]), "array-many:nonnegative-number");
+assert.equal(resultTypeTag([-1, 2]), "array-many:finite-number");
+assert.equal(resultTypeTag(["", "Wert"]), "array-many:string");
+assert.equal(resultTypeTag(["Wert", { name: "Objekt" }]), "array-many:mixed");
 assert.equal(resultTypeTag({ rows: [1, 2] }), 'object:{"rows":"array-many:nonnegative-number"}');
 assert.deepEqual(samplesForResultTypeTag("unsupported"), []);
 

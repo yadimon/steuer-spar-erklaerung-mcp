@@ -355,6 +355,10 @@ function createOperationResultOutputSchema(operation: SseApiOperation): z.AnyZod
     kind: z.string().min(1).nullable().optional().describe("Fehlerart"),
     error: z.string().min(1).nullable().optional().describe("Fehlermeldung"),
     ms: z.number().finite().nonnegative().nullable().optional().describe("Worker-Laufzeit in ms"),
+    // Der Worker kann diese Telemetrie bei jeder Operation anhaengen, die den
+    // universellen Foreground-Lease tatsaechlich erwirbt. Sie gehoert deshalb
+    // zum gemeinsamen Ergebnisrand und nicht zu einzelnen Klickoperationen.
+    focusTelemetry: OPTIONAL_OBJECT,
     ...operationFields,
   }).passthrough().describe(`Result_${operation} Version ${SSE_API_RESULT_SCHEMA_VERSION}`);
 }
