@@ -476,17 +476,9 @@ function Invoke-SSEReceiptManagerOpenFileDialog(
   } | Sort-Object d -Descending)
   if (-not $fields.Count) { Fail 'Kein Dateiname-Eingabefeld im Belegimport-Dialog gefunden.' 'dialog-unmapped' }
   $field = $fields[0]
-  $null = Click-VerifiedPoint $dialogHwnd $field
-  [System.Windows.Forms.SendKeys]::SendWait('^a')
-  [System.Windows.Forms.SendKeys]::SendWait((ConvertTo-SendKeysLiteral $Path))
-  Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick)
-  Start-Sleep -Milliseconds 400
+  $fieldHandle = Resolve-SSEDialogFieldHandle $dialogHwnd $field
+  $shown = Set-SSEDialogFieldText $dialogHwnd $fieldHandle $field $Path 'Dateiname-Feld'
   $treeAfterInput = Walk-Tree $dialogHwnd 1500 -WithValues
-  $fieldAfter = @($treeAfterInput.nodes | Where-Object {
-    $_.rid -eq $field.rid -or
-    ($_.type -eq 'Pane' -and $_.aid -eq $field.aid -and $_.x -eq $field.x -and $_.y -eq $field.y)
-  })[0]
-  $shown = $(if ($fieldAfter.val) { [string]$fieldAfter.val } else { [string]$fieldAfter.name })
   $leaf = [IO.Path]::GetFileName($Path)
   if ($shown -and $shown -cne $Path -and $shown -cne $leaf) {
     Fail 'Dateiname-Feld zeigt nicht die gebundene Belegdatei; NICHT bestaetigt.' 'postcondition-failed'
