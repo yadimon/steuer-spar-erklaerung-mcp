@@ -5411,6 +5411,151 @@ function Assert-SSEVerifiedBuildForOperation([string]$Operation, $Args = $null) 
     ) 'build-drift'
   }
 }
+
+function Open-SSEMenuByName([IntPtr]$MainHwnd, [string]$MenuName) {
+  $tree = Walk-Tree $MainHwnd 1200
+  $menus = @($tree.nodes | Where-Object {
+    $_.type -eq 'MenuItem' -and $_.name -and $_.p -ge 0 -and
+    $tree.nodes[[int]$_.p].type -eq 'MenuBar'
+  } | Sort-Object x)
+  $menu = @($menus | Where-Object { $_.name -eq $MenuName })[0]
+  if (-not $menu) {
+    Fail "Menue '$MenuName' nicht gefunden. Vorhanden: $(($menus | ForEach-Object { $_.name }) -join ', ')" 'not-found'
+  }
+  $element = Get-LiveElement $MainHwnd $menu.rid
+  if (-not $element) { Fail "Menue '$MenuName' nicht mehr greifbar." 'stale' }
+  try {
+    $null = $element.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Expand()
+  } catch {
+    try { $null = $element.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() }
+    catch { Fail "Menue '$MenuName' liess sich nicht oeffnen: $($_.Exception.Message.Split("`n")[0])" 'pattern-failed' }
+  }
+  Start-Sleep -Milliseconds 700
+  $menu
+}
+
+function Get-SSEOpenMenuEntryMatches([IntPtr]$MainHwnd, [int]$TargetPid, [string]$EntryName) {
+  $matches = New-Object System.Collections.ArrayList
+  $seen = @{}
+  $wantedLabel = ConvertTo-MenuLabel $EntryName
+  # Qt stellt dasselbe Popup teilweise sowohl ueber sein echtes Popupfenster als
+  # auch ueber ein SysShadow-Fenster bereit. RuntimeId + normalisierte
+  # Beschriftung duerfen deshalb nur einmal zaehlen.
+  $menuWindows = @(Get-Windows 'SSE' | Where-Object { [int]$_.pid -eq $TargetPid } | Sort-Object @{ Expression = {
+    if ($_.cls -match 'PopupDropShadow') { 0 } elseif ($_.cls -eq 'SysShadow') { 2 } else { 1 }
+  } })
+  foreach ($window in $menuWindows) {
+    try {
+      $windowTree = Walk-Tree ([IntPtr][int64]$window.hwnd) 600 10
+      foreach ($node in @($windowTree.nodes | Where-Object {
+        $_.type -eq 'MenuItem' -and $_.name -and
+        ($_.name -eq $EntryName -or (ConvertTo-MenuLabel $_.name) -eq $wantedLabel)
+      })) {
+        $key = "$(ConvertTo-MenuLabel $node.name)|$($node.rid)"
+        if ($seen.ContainsKey($key)) { continue }
+        $seen[$key] = $true
+        $null = $matches.Add([pscustomobject]@{ hwnd = [IntPtr][int64]$window.hwnd; node = $node })
+      }
+    } catch { }
+  }
+  @($matches)
+}
+
+function Resolve-SSEDialogFieldHandle([IntPtr]$DialogHwnd, $Field) {
+  $controlId = 0
+  if (-not [int]::TryParse([string]$Field.aid, [ref]$controlId) -or $controlId -le 0) {
+    Fail "Dialogfeld hat keine native Control-ID ('$($Field.aid)')." 'dialog-unmapped'
+  }
+  $matches = New-Object System.Collections.ArrayList
+  $enumerator = [SW+EP]{
+    param($childHwnd, $lparam)
+    if ([SW]::GetDlgCtrlID($childHwnd) -ne $controlId) { return $true }
+    $rect = New-Object SW+RC
+    if (-not [SW]::GetWindowRect($childHwnd, [ref]$rect)) { return $true }
+    $centerX = ($rect.L + $rect.R) / 2
+    $centerY = ($rect.T + $rect.B) / 2
+    if ($centerX -ge ($Field.x - 2) -and $centerX -le ($Field.x + $Field.w + 2) -and
+        $centerY -ge ($Field.y - 2) -and $centerY -le ($Field.y + $Field.h + 2)) {
+      $null = $matches.Add($childHwnd)
+    }
+    return $true
+  }
+  [SW]::EnumChildWindows($DialogHwnd, $enumerator, [IntPtr]::Zero) | Out-Null
+  if ($matches.Count -ne 1) {
+    Fail "$($matches.Count) native Dialogfelder passen zu Control-ID $controlId und der verifizierten Geometrie." 'dialog-unmapped'
+  }
+  [IntPtr]$matches[0]
+}
+
+function Set-SSEDialogFieldText(
+  [IntPtr]$DialogHwnd,
+  [IntPtr]$FieldHandle,
+  $Field,
+  [string]$Text,
+  [string]$Label
+) {
+  # Get/SetWindowText kann fremde Edit-Controls nicht verlaesslich behandeln.
+  # WM_GETTEXT/WM_SETTEXT werden prozessuebergreifend marshalled; A/W richtet
+  # sich nach dem konkret gebundenen Control-HWND.
+  $isUnicodeField = [SW]::IsWindowUnicode($FieldHandle)
+  $readFieldText = {
+    param([int]$capacity)
+    $bytes = if ($isUnicodeField) { $capacity * 2 } else { $capacity }
+    $buffer = [Runtime.InteropServices.Marshal]::AllocHGlobal($bytes)
+    try {
+      [Runtime.InteropServices.Marshal]::WriteInt16($buffer, 0)
+      $readResult = [IntPtr]::Zero
+      $sent = if ($isUnicodeField) {
+        [SW]::SendMessageTimeoutW($FieldHandle, 0x000D, [IntPtr]$capacity, $buffer, 0x0002, 1500, [ref]$readResult)
+      } else {
+        [SW]::SendMessageTimeoutA($FieldHandle, 0x000D, [IntPtr]$capacity, $buffer, 0x0002, 1500, [ref]$readResult)
+      }
+      if ($sent -eq [IntPtr]::Zero) { Fail "$Label konnte nicht fristgerecht gelesen werden." 'timeout' }
+      if ($isUnicodeField) { return [Runtime.InteropServices.Marshal]::PtrToStringUni($buffer) }
+      return [Runtime.InteropServices.Marshal]::PtrToStringAnsi($buffer)
+    } finally {
+      [Runtime.InteropServices.Marshal]::FreeHGlobal($buffer)
+    }
+  }
+
+  $emptyBuffer = if ($isUnicodeField) {
+    [Runtime.InteropServices.Marshal]::StringToHGlobalUni('')
+  } else {
+    [Runtime.InteropServices.Marshal]::StringToHGlobalAnsi('')
+  }
+  try {
+    $clearResult = [IntPtr]::Zero
+    $cleared = if ($isUnicodeField) {
+      [SW]::SendMessageTimeoutW($FieldHandle, 0x000C, [IntPtr]::Zero, $emptyBuffer, 0x0002, 1500, [ref]$clearResult)
+    } else {
+      [SW]::SendMessageTimeoutA($FieldHandle, 0x000C, [IntPtr]::Zero, $emptyBuffer, 0x0002, 1500, [ref]$clearResult)
+    }
+    if ($cleared -eq [IntPtr]::Zero) { Fail "$Label konnte nicht fristgerecht geleert werden." 'timeout' }
+  } finally {
+    [Runtime.InteropServices.Marshal]::FreeHGlobal($emptyBuffer)
+  }
+  if ((& $readFieldText 32).Length -ne 0) { Fail "$Label ist nach dem Leeren nicht leer; NICHT eingegeben." 'postcondition-failed' }
+
+  $null = Click-VerifiedPoint $DialogHwnd $Field
+  $targetProcessId = [uint32]0
+  $targetThreadId = [SW]::GetWindowThreadProcessId($FieldHandle, [ref]$targetProcessId)
+  $guiInfo = New-Object SW+GUIINFO
+  $guiInfo.cbSize = [Runtime.InteropServices.Marshal]::SizeOf([type][SW+GUIINFO])
+  if (-not [SW]::GetGUIThreadInfo($targetThreadId, [ref]$guiInfo) -or $guiInfo.hwndFocus -ne $FieldHandle) {
+    Fail "Das exakt gebundene $Label hat den Tastaturfokus nicht erhalten; NICHT eingegeben." 'postcondition-failed'
+  }
+  if (-not [SW]::SendUnicodeText($Text)) { Fail "$Label konnte nicht vollstaendig eingegeben werden." 'pattern-failed' }
+  Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick)
+  Start-Sleep -Milliseconds 400
+  $fieldReadback = & $readFieldText ([Math]::Max(512, $Text.Length + 32))
+  if ($fieldReadback -cne $Text) {
+    Fail "$Label stimmt nicht exakt mit dem gebundenen Ziel ueberein; NICHT bestaetigt." 'postcondition-failed' ([pscustomobject]@{
+      expected=$Text; actual=$fieldReadback
+    })
+  }
+  $fieldReadback
+}
+
 $experimentalCheckerNavigation = [bool](
   $Op -eq 'click' -and
   (Arg $a 'experimentalCheckerNavigation') -eq $true -and
@@ -8741,66 +8886,7 @@ switch ($Op) {
         x=$buttonRect.L; y=$buttonRect.T; w=($buttonRect.R-$buttonRect.L); h=($buttonRect.B-$buttonRect.T)
         name=$buttonText.ToString(); aid='1'
       }
-      # Get/SetWindowText kann den Inhalt eines Edit-Controls in einem fremden
-      # Prozess nicht verlaesslich lesen oder leeren. WM_GETTEXT/WM_SETTEXT
-      # werden dagegen vom System prozessuebergreifend marshalled. A/W darf
-      # dabei nicht der P/Invoke-Vorgabe ueberlassen werden; die passende
-      # Pufferkodierung wird am konkreten Control-HWND ermittelt.
-      $isUnicodeField = [SW]::IsWindowUnicode($fieldHandle)
-      $readFieldText = {
-        param([int]$capacity)
-        $bytes = if ($isUnicodeField) { $capacity * 2 } else { $capacity }
-        $buffer = [Runtime.InteropServices.Marshal]::AllocHGlobal($bytes)
-        try {
-          [Runtime.InteropServices.Marshal]::WriteInt16($buffer, 0)
-          $readResult = [IntPtr]::Zero
-          $sent = if ($isUnicodeField) {
-            [SW]::SendMessageTimeoutW($fieldHandle, 0x000D, [IntPtr]$capacity, $buffer, 0x0002, 1500, [ref]$readResult)
-          } else {
-            [SW]::SendMessageTimeoutA($fieldHandle, 0x000D, [IntPtr]$capacity, $buffer, 0x0002, 1500, [ref]$readResult)
-          }
-          if ($sent -eq [IntPtr]::Zero) { Fail 'Gebundenes Ordnerfeld konnte nicht fristgerecht gelesen werden.' 'timeout' }
-          if ($isUnicodeField) { return [Runtime.InteropServices.Marshal]::PtrToStringUni($buffer) }
-          return [Runtime.InteropServices.Marshal]::PtrToStringAnsi($buffer)
-        } finally {
-          [Runtime.InteropServices.Marshal]::FreeHGlobal($buffer)
-        }
-      }
-      $emptyBuffer = if ($isUnicodeField) {
-        [Runtime.InteropServices.Marshal]::StringToHGlobalUni('')
-      } else {
-        [Runtime.InteropServices.Marshal]::StringToHGlobalAnsi('')
-      }
-      try {
-        $clearResult = [IntPtr]::Zero
-        $cleared = if ($isUnicodeField) {
-          [SW]::SendMessageTimeoutW($fieldHandle, 0x000C, [IntPtr]::Zero, $emptyBuffer, 0x0002, 1500, [ref]$clearResult)
-        } else {
-          [SW]::SendMessageTimeoutA($fieldHandle, 0x000C, [IntPtr]::Zero, $emptyBuffer, 0x0002, 1500, [ref]$clearResult)
-        }
-        if ($cleared -eq [IntPtr]::Zero) { Fail 'Gebundenes Ordnerfeld konnte nicht fristgerecht geleert werden.' 'timeout' }
-      } finally {
-        [Runtime.InteropServices.Marshal]::FreeHGlobal($emptyBuffer)
-      }
-      if ((& $readFieldText 32).Length -ne 0) { Fail 'Gebundenes Ordnerfeld ist nach dem Leeren nicht leer; NICHT getippt.' 'postcondition-failed' }
-
-      $null = Click-VerifiedPoint $dialogHwnd $field
-      $targetProcessId = [uint32]0
-      $targetThreadId = [SW]::GetWindowThreadProcessId($fieldHandle, [ref]$targetProcessId)
-      $guiInfo = New-Object SW+GUIINFO
-      $guiInfo.cbSize = [Runtime.InteropServices.Marshal]::SizeOf([type][SW+GUIINFO])
-      if (-not [SW]::GetGUIThreadInfo($targetThreadId, [ref]$guiInfo) -or $guiInfo.hwndFocus -ne $fieldHandle) {
-        Fail 'Das exakt gebundene Ordnerfeld hat den Tastaturfokus nicht erhalten; NICHT getippt.' 'postcondition-failed'
-      }
-      if (-not [SW]::SendUnicodeText($path)) { Fail 'Der gebundene Ordnerpfad konnte nicht vollstaendig eingegeben werden.' 'pattern-failed' }
-      Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick)
-      Start-Sleep -Milliseconds 400
-      $fieldReadback = & $readFieldText ([Math]::Max(512, $path.Length + 32))
-      if ($fieldReadback -cne $path) {
-        Fail "Ordnerfeld-Readback stimmt nicht exakt mit dem gebundenen Zielpfad ueberein; NICHT bestaetigt." 'postcondition-failed' ([pscustomobject]@{
-          expectedPath=$path; fieldReadback=$fieldReadback
-        })
-      }
+      $fieldReadback = Set-SSEDialogFieldText $dialogHwnd $fieldHandle $field $path 'Ordnerfeld'
 
       $null = Click-VerifiedPoint $dialogHwnd $folderButton
       Start-Sleep -Milliseconds ([int](Arg $a 'waitMs' 1800))
@@ -8828,17 +8914,10 @@ switch ($Op) {
       Emit ([pscustomobject]@{ ok=$false; kind='dialog-unmapped'; error='Kein Dateiname-Eingabefeld gefunden.'; dialog=$dialog; nodes=$tree.nodes })
     }
     $field = $fields[0]
-    $null = Click-VerifiedPoint $dialogHwnd $field
-    [System.Windows.Forms.SendKeys]::SendWait('^a')
-    [System.Windows.Forms.SendKeys]::SendWait((ConvertTo-SendKeysLiteral $path))
-    Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick)
-    Start-Sleep -Milliseconds 400
+    $fieldHandle = Resolve-SSEDialogFieldHandle $dialogHwnd $field
+    $shown = Set-SSEDialogFieldText $dialogHwnd $fieldHandle $field $path 'Dateiname-Feld'
 
     $treeAfterInput = Walk-Tree $dialogHwnd 1500 -WithValues
-    $fieldAfter = @($treeAfterInput.nodes | Where-Object {
-      $_.rid -eq $field.rid -or ($_.type -eq 'Pane' -and $_.aid -eq $field.aid -and $_.x -eq $field.x -and $_.y -eq $field.y)
-    })[0]
-    $shown = $(if ($fieldAfter.val) { [string]$fieldAfter.val } else { [string]$fieldAfter.name })
     $leaf = [IO.Path]::GetFileName($path)
     if ($shown -and $shown -ne $path -and $shown -ne $leaf) {
       Emit ([pscustomobject]@{ ok=$false; kind='postcondition-failed'; error='Dateiname-Feld zeigt nicht die erwartete Datei.'; expected=$path; actual=$shown })
@@ -8876,10 +8955,9 @@ switch ($Op) {
   }
 
   'save_as' {
-    # Strg+Alt+S ist der in SSE angezeigte Befehl "Speichern unter...".
-    # Anders als die generische Tastenfunktion darf nur diese eng begrenzte
-    # Operation die Alt-Kombination senden. Zielpfad und Quellpfad werden
-    # davor und danach verifiziert.
+    # Der sichtbare, aktive Menueeintrag wird exakt gebunden. Das angezeigte
+    # Strg+Alt+S-Kuerzel erwies sich im echten Qt-Fenster als unzuverlaessig;
+    # ein globaler Tastenversand darf hier keinen Erfolg vortaeuschen.
     if ($script:DESKTOP_NAME) { Fail 'Speichern unter braucht den sichtbaren Desktop.' 'hidden-desktop' }
     $sourcePathRaw = [string](Arg $a 'expectedSourcePath')
     $sourceHash = ([string](Arg $a 'expectedSourceHash')).ToUpperInvariant()
@@ -8897,27 +8975,35 @@ switch ($Op) {
 
     $hwnd = [IntPtr][int64](Resolve-SSEMainWindowDescriptor $a -RestoreMinimized).hwnd
     $main = @(Get-Windows 'SSE' | Where-Object { [int64]$_.hwnd -eq [int64]$hwnd })[0]
+    $targetPid = [int]$main.pid
     $sourceBinding = Test-CaseBinding $main $sourcePath
     if (-not $sourceBinding.ok) {
       Fail "Fensterpfad stimmt nicht mit '$sourcePath' ueberein." 'precondition-failed'
     }
-    $foreground = Show-SSEWindow $hwnd
-    if (-not $foreground) {
-      Hide-SSETopmost $hwnd
-      Fail 'Hauptfenster liess sich nicht sicher in den Vordergrund holen; Strg+Alt+S wurde NICHT gesendet.' 'no-foreground'
+    $null = Open-SSEMenuByName $hwnd 'Datei'
+    $saveAsMatches = @(Get-SSEOpenMenuEntryMatches $hwnd $targetPid 'Speichern unter...')
+    if ($saveAsMatches.Count -ne 1) {
+      Fail "$($saveAsMatches.Count) Menueeintraege passen zu 'Speichern unter...'; nichts ausgeloest." $(if ($saveAsMatches.Count) { 'ambiguous' } else { 'not-found' })
     }
-    Start-Sleep -Milliseconds 300
-    [System.Windows.Forms.SendKeys]::SendWait('^%s')
-    Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick)
-    Start-Sleep -Milliseconds 1200
-    Hide-SSETopmost $hwnd
+    $saveAsMatch = $saveAsMatches[0]
+    if (-not $saveAsMatch.node.on) { Fail "Menueeintrag 'Speichern unter...' ist nicht aktiv." 'precondition-failed' }
+    $null = Click-VerifiedPoint $saveAsMatch.hwnd $saveAsMatch.node
 
-    $dialogs = @(Get-Windows 'SSE' | Where-Object {
-      [int64]$_.hwnd -ne [int64]$hwnd -and $_.title -ne 'Steuer-Spar-Tipps'
-    } | Sort-Object { $_.w * $_.h } -Descending)
-    $dialog = @($dialogs | Where-Object { $_.title -match 'Speichern|Save' })[0]
-    if (-not $dialog) { $dialog = $dialogs[0] }
-    if (-not $dialog) { Fail "Nach Strg+Alt+S wurde kein Speichern-unter-Dialog gefunden." 'dialog-not-found' }
+    # Der native Dialog wird nach dem einmaligen, verifizierten Menueklick nur
+    # neu erfasst. Kein zweiter Klick und kein Tastenkürzel dürfen ein Rennen
+    # mit einem verspäteten Dialog erzeugen.
+    $dialogWait = [Diagnostics.Stopwatch]::StartNew()
+    $dialog = $null
+    while ($dialogWait.ElapsedMilliseconds -lt 5000) {
+      $dialogs = @(Get-Windows 'SSE' | Where-Object {
+        [int]$_.pid -eq $targetPid -and [int64]$_.hwnd -ne [int64]$hwnd -and
+        $_.cls -eq '#32770' -and $_.title -match 'Speichern|Save'
+      } | Sort-Object { $_.w * $_.h } -Descending)
+      if ($dialogs.Count -gt 1) { Fail "$($dialogs.Count) Speichern-unter-Dialoge gefunden; nichts bedient." 'ambiguous' }
+      if ($dialogs.Count -eq 1) { $dialog = $dialogs[0]; break }
+      Start-Sleep -Milliseconds 100
+    }
+    if (-not $dialog) { Fail "Nach dem verifizierten Menueweg wurde kein Speichern-unter-Dialog gefunden." 'dialog-not-found' }
     $dialogHwnd = [IntPtr][int64]$dialog.hwnd
     $dialogTree = Walk-Tree $dialogHwnd 1500 -WithValues
     $fileHosts = @($dialogTree.nodes | Where-Object { $_.aid -eq 'FileNameControlHost' -and $_.name -eq 'Dateiname:' })
@@ -8933,22 +9019,9 @@ switch ($Op) {
       Emit ([pscustomobject]@{ ok = $false; kind = 'dialog-unmapped'; error = "$($fileFields.Count) Dateiname-Felder im Host gefunden."; dialog = $dialog; nodes = $dialogTree.nodes })
     }
     $fileField = $fileFields[0]
-    $null = Click-VerifiedPoint $dialogHwnd $fileField
-    [System.Windows.Forms.SendKeys]::SendWait('^a')
-    [System.Windows.Forms.SendKeys]::SendWait((ConvertTo-SendKeysLiteral $targetPath))
-    Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick)
-    Start-Sleep -Milliseconds 350
+    $fieldHandle = Resolve-SSEDialogFieldHandle $dialogHwnd $fileField
+    $null = Set-SSEDialogFieldText $dialogHwnd $fieldHandle $fileField $targetPath 'Dateiname-Feld'
     $dialogTree2 = Walk-Tree $dialogHwnd 1500 -WithValues
-    $fileReadback = @($dialogTree2.nodes | Where-Object {
-      $_.type -eq 'Pane' -and $_.aid -eq '1001' -and $_.x -ge $fileHost.x -and $_.x -lt ($fileHost.x + $fileHost.w) -and
-      $_.y -ge $fileHost.y -and $_.y -lt ($fileHost.y + $fileHost.h)
-    })
-    if ($fileReadback.Count -ne 1 -or $fileReadback[0].name -ne $targetPath) {
-      Emit ([pscustomobject]@{
-        ok = $false; kind = 'postcondition-failed'; error = 'Zielpfad kam nicht exakt im Dateiname-Feld an.'
-        expected = $targetPath; actual = $(if ($fileReadback.Count) { $fileReadback[0].name } else { $null })
-      })
-    }
     $saveButtons = @($dialogTree2.nodes | Where-Object { $_.type -eq 'Pane' -and $_.name -in @('Speichern','Save') -and $_.aid -eq '1' -and $_.on })
     if ($saveButtons.Count -ne 1) {
       Emit ([pscustomobject]@{ ok = $false; kind = 'dialog-unmapped'; error = "$($saveButtons.Count) aktive Speichern-Schaltflaechen gefunden."; dialog = $dialog; nodes = $dialogTree2.nodes })
@@ -14744,18 +14817,8 @@ switch ($Op) {
       Emit ([pscustomobject]@{ ok = $true; menues = @($menues | ForEach-Object { $_.name })
         hinweis = "Mit name='Datei' oeffnen und die Eintraege lesen." })
     }
-    $m = @($menues | Where-Object { $_.name -eq $wunsch })[0]
-    if (-not $m) { Fail "Menue '$wunsch' nicht gefunden. Vorhanden: $(($menues | ForEach-Object { $_.name }) -join ', ')" 'not-found' }
     if (Test-Versand $wunsch) { Fail "GESPERRT: Menue '$wunsch'." 'blocked' }
-
-    $el = Get-LiveElement $hwnd $m.rid
-    if (-not $el) { Fail "Menue '$wunsch' nicht mehr greifbar." 'stale' }
-    try { $el.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Expand() }
-    catch {
-      try { $el.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() }
-      catch { Fail "Menue '$wunsch' liess sich nicht oeffnen: $($_.Exception.Message.Split("`n")[0])" 'pattern-failed' }
-    }
-    Start-Sleep -Milliseconds 700
+    $m = Open-SSEMenuByName $hwnd $wunsch
 
     # Die aufgeklappten Eintraege liegen in einem eigenen Popupfenster.
     $eintraege = New-Object System.Collections.ArrayList
@@ -14792,29 +14855,7 @@ switch ($Op) {
     $mainWindow = Resolve-SSEMainWindowDescriptor $a -RestoreMinimized
     $targetPid = [int]$mainWindow.pid
     $mainHwnd = [IntPtr][int64]$mainWindow.hwnd
-    $gefunden = New-Object System.Collections.ArrayList
-    $gesehen = @{}
-    $wantedLabel = ConvertTo-MenuLabel $eintrag
-    # Qt stellt dasselbe Popup teilweise sowohl ueber sein echtes Popupfenster als auch
-    # ueber ein SysShadow-Fenster bereit. RuntimeId + normalisierte Beschriftung sind
-    # dann identisch; nur das echte Popup darf als eigenstaendiger Treffer zaehlen.
-    $menuWindows = @(Get-Windows 'SSE' | Where-Object { [int]$_.pid -eq $targetPid } | Sort-Object @{ Expression = {
-      if ($_.cls -match 'PopupDropShadow') { 0 } elseif ($_.cls -eq 'SysShadow') { 2 } else { 1 }
-    } })
-    foreach ($w in $menuWindows) {
-      try {
-        $tw = Walk-Tree ([IntPtr][int64]$w.hwnd) 600 10
-        foreach ($n in @($tw.nodes | Where-Object {
-          $_.type -eq 'MenuItem' -and $_.name -and
-          ($_.name -eq $eintrag -or (ConvertTo-MenuLabel $_.name) -eq $wantedLabel)
-        })) {
-          $key = "$(ConvertTo-MenuLabel $n.name)|$($n.rid)"
-          if ($gesehen.ContainsKey($key)) { continue }
-          $gesehen[$key] = $true
-          $null = $gefunden.Add([pscustomobject]@{ hwnd = [IntPtr][int64]$w.hwnd; node = $n })
-        }
-      } catch { }
-    }
+    $gefunden = @(Get-SSEOpenMenuEntryMatches $mainHwnd $targetPid $eintrag)
     if (-not $gefunden.Count) { Fail "Menueeintrag '$eintrag' nicht gefunden. Vorher sse_menu aufrufen." 'not-found' }
     if ($gefunden.Count -ne 1) { Fail "$($gefunden.Count) Menueeintraege passen zu '$eintrag'; nichts ausgeloest." 'ambiguous' }
     $match = $gefunden[0]
