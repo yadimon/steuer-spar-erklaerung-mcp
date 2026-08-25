@@ -13,6 +13,10 @@ assert.match(resolver, /Get-SSEWindowClassName \$childHwnd/u,
   "Der Dialogfeld-Resolver muss verschachtelte Controls an ihrer nativen Klasse unterscheiden.");
 assert.match(resolver, /-notmatch '\^Edit\$'/u,
   "Nur das echte native Edit-Leaf-Control darf die Control-ID-/Geometriebindung erfuellen.");
+assert.doesNotMatch(resolver, /\$matches\b/iu,
+  "Der Resolver darf nicht mit der automatischen PowerShell-Variable $Matches kollidieren.");
+assert.match(resolver, /\$candidateHandles\.Add\(\$childHwnd\)/u,
+  "Passende native Edit-Handles muessen in einem eindeutig benannten Akkumulator landen.");
 const start = worker.indexOf("  'file_dialog_select' {");
 const end = worker.indexOf("\n  'save_as' {", start);
 assert(start >= 0 && end > start, "file_dialog_select-Block fehlt.");

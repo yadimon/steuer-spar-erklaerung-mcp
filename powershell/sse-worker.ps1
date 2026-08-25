@@ -5543,7 +5543,7 @@ function Resolve-SSEDialogFieldHandle([IntPtr]$DialogHwnd, $Field) {
   if (-not [int]::TryParse([string]$Field.aid, [ref]$controlId) -or $controlId -le 0) {
     Fail "Dialogfeld hat keine native Control-ID ('$($Field.aid)')." 'dialog-unmapped'
   }
-  $matches = New-Object System.Collections.ArrayList
+  $candidateHandles = New-Object System.Collections.ArrayList
   $enumerator = [SW+EP]{
     param($childHwnd, $lparam)
     if ([SW]::GetDlgCtrlID($childHwnd) -ne $controlId) { return $true }
@@ -5557,15 +5557,15 @@ function Resolve-SSEDialogFieldHandle([IntPtr]$DialogHwnd, $Field) {
     $centerY = ($rect.T + $rect.B) / 2
     if ($centerX -ge ($Field.x - 2) -and $centerX -le ($Field.x + $Field.w + 2) -and
         $centerY -ge ($Field.y - 2) -and $centerY -le ($Field.y + $Field.h + 2)) {
-      $null = $matches.Add($childHwnd)
+      $null = $candidateHandles.Add($childHwnd)
     }
     return $true
   }
   [SW]::EnumChildWindows($DialogHwnd, $enumerator, [IntPtr]::Zero) | Out-Null
-  if ($matches.Count -ne 1) {
-    Fail "$($matches.Count) native Dialogfelder passen zu Control-ID $controlId und der verifizierten Geometrie." 'dialog-unmapped'
+  if ($candidateHandles.Count -ne 1) {
+    Fail "$($candidateHandles.Count) native Dialogfelder passen zu Control-ID $controlId und der verifizierten Geometrie." 'dialog-unmapped'
   }
-  [IntPtr]$matches[0]
+  [IntPtr]$candidateHandles[0]
 }
 
 function Set-SSEDialogFieldText(
