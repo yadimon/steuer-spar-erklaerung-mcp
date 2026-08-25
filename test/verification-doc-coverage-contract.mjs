@@ -6,9 +6,17 @@ const verification = readFileSync(new URL("../docs/VERIFIKATION.md", import.meta
 const operations = Object.entries(coverage.operations ?? {});
 const live = operations.filter(([, value]) => value.live === "functional");
 const missing = operations.filter(([, value]) => value.live !== "functional").map(([name]) => name).sort();
+const snapshotVm = operations.filter(([, value]) => value.liveEvidence === "snapshot-vm").map(([name]) => name).sort();
 
 assert(operations.length > 0, "Operation-Coverage-Ledger ist leer");
 assert.equal(live.length + missing.length, operations.length);
+assert.deepEqual(snapshotVm, [
+  "receipt_manager_action",
+  "receipt_manager_delete",
+  "receipt_manager_import",
+  "receipt_manager_list",
+  "receipt_manager_read",
+], "Der externe Live-Nachweis muss auf die fuenf BelegManager-Operationen begrenzt bleiben.");
 
 const liveClaim = verification.match(
   /Dort stehen am \d{4}-\d{2}-\d{2} (\d+) der (\d+)\s+Operationen/u,
@@ -40,5 +48,6 @@ assert.deepEqual(documentedMissing, missing,
   "Dokumentierte Namen der Live-Restluecke widersprechen operation-coverage.json");
 
 process.stdout.write(
-  `Verifikationsdoku: ${live.length}/${operations.length} live, ${missing.length} Restoperationen ledgergebunden.\n`,
+  `Verifikationsdoku: ${live.length}/${operations.length} live, davon ${snapshotVm.length} aus der Snapshot-VM, ` +
+  `${missing.length} Restoperationen ledgergebunden.\n`,
 );

@@ -352,35 +352,40 @@
       "offlineLabels": [
         "stateful-mock"
       ],
-      "live": "functional"
+      "live": "functional",
+      "liveEvidence": "snapshot-vm"
     },
     "receipt_manager_delete": {
       "offline": "functional",
       "offlineLabels": [
         "stateful-mock"
       ],
-      "live": "functional"
+      "live": "functional",
+      "liveEvidence": "snapshot-vm"
     },
     "receipt_manager_import": {
       "offline": "functional",
       "offlineLabels": [
         "stateful-mock"
       ],
-      "live": "functional"
+      "live": "functional",
+      "liveEvidence": "snapshot-vm"
     },
     "receipt_manager_list": {
       "offline": "functional",
       "offlineLabels": [
         "stateful-mock"
       ],
-      "live": "functional"
+      "live": "functional",
+      "liveEvidence": "snapshot-vm"
     },
     "receipt_manager_read": {
       "offline": "functional",
       "offlineLabels": [
         "stateful-mock"
       ],
-      "live": "functional"
+      "live": "functional",
+      "liveEvidence": "snapshot-vm"
     },
     "result_details": {
       "offline": "functional",

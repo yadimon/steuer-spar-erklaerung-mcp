@@ -36,6 +36,21 @@ assert(offlineProductGate && !offlineProductGate.args.includes("--require-instal
 const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
 assert.match(packageJson.scripts?.["test:product"] ?? "", /product-gate\.mjs --require-installed$/u,
   "Der explizite lokale Produkt-Test muss eine installierte SSE verlangen.");
+const liveRunner = readFileSync("test/run-live-suite.mjs", "utf8");
+assert.doesNotMatch(liveRunner, /live-receipt-manager/u,
+  "Der benutzerspezifische BelegManager-Zyklus gehoert in das private VM-Gate, nicht auf den lokalen PC.");
+const coverage = JSON.parse(readFileSync("test/operation-coverage.json", "utf8"));
+const externalLiveOperations = Object.entries(coverage.operations ?? {})
+  .filter(([, value]) => value.liveEvidence === "snapshot-vm")
+  .map(([name]) => name)
+  .sort();
+assert.deepEqual(externalLiveOperations, [
+  "receipt_manager_action",
+  "receipt_manager_delete",
+  "receipt_manager_import",
+  "receipt_manager_list",
+  "receipt_manager_read",
+], "Nur der BelegManager-Lebenszyklus darf auf den privaten Snapshot-VM-Nachweis angewiesen sein.");
 assert.deepEqual(exclusiveSteps.map((step) => step.name), ["no-console-window"]);
 assert(!parallelSteps.some((step) => step.name === "no-console-window"));
 // Die Abdeckungsbilanz wertet das Protokoll aller anderen Schritte aus und
