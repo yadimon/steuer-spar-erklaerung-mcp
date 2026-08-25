@@ -64,7 +64,31 @@ If `LIVE-001` lacks its documented prerequisites, mark it `blocked` and use an
 `AT_RISK` verdict. A mock, schema test or offline product identity gate is not
 a replacement for live UI evidence.
 
-## 6. Known Weak Points
+## 6. Confirmed Result
+
+- verified-at: 2026-08-25
+- verdict: `HEALTHY`
+- release scope: none; no publish, push or ELSTER/send action was performed
+
+| check | result |
+| --- | --- |
+| `npm run build:ts` | pass |
+| `npm run test:fast` | pass, 81 planned contracts |
+| `npm test` | pass, 120 planned contracts |
+| `npm run test:product` | pass against the installed supported 2025 product |
+| `npm run test:npm-clean-install` | pass for both packed packages and all public entrypoints |
+| production and full dependency audits | pass, zero reported vulnerabilities |
+| `npm run test:live` | pass with exit code 0; both strict profiles, Center and cleanup gates completed without SKIP |
+| privacy, links and pending-diff checks | pass |
+
+The live run executed 86 of 93 catalog operations successfully across 452
+recorded calls; no operation was observed only on an error path. The strict
+2025 and verification-only 2024 profiles contributed 57 and 46 semantic checks
+respectively. Result-shape evidence accepted 1,979 field-scope proofs and 2,077
+type observations. Temporary live evidence and machine-specific details were
+kept outside Git.
+
+## 7. Known Weak Points
 
 - Profile 2025 / Engine 31 is supported. Profile 2024 / Engine 30 remains
   experimental and verification-only; this health check does not promote it.
@@ -78,7 +102,7 @@ a replacement for live UI evidence.
 - Ignored generated package copies are not workspace roots and must never be
   included in tracked maintenance or health evidence.
 
-## 7. Decision Policy
+## 8. Decision Policy
 
 - `HEALTHY`: every required repository and automated check passes, `LIVE-001`
   passes, and `MAN-001` finds no privacy or scope issue.
@@ -91,7 +115,7 @@ a replacement for live UI evidence.
 Optional release verification never lowers an otherwise valid verdict when no
 release is in scope.
 
-## 8. Failure Response Protocol
+## 9. Failure Response Protocol
 
 1. Stop further refactoring, release or publication work.
 2. Capture only the minimal non-private failure evidence.
@@ -102,7 +126,7 @@ release is in scope.
 5. Re-run the failed check, then `npm test` after shared API/MCP/Worker changes.
 6. Re-run all required checks before issuing a new verdict.
 
-## 9. Optional Automation Hooks
+## 10. Optional Automation Hooks
 
 No additional healthcheck script is created. The commands above are the
 authoritative project entrypoints.
