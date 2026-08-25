@@ -184,6 +184,19 @@ assert.deepEqual(parseCheckerReadOnlyClickArgs({ name: "Hinweis", checkerReadOnl
 assert.deepEqual(parseApiOperationArgs("center_refresh", { hwnd: 42, expectedDirectoryRef: "cases:." }), {
   hwnd: 42, expectedDirectoryRef: "cases:.",
 });
+assert.deepEqual(parseApiOperationArgs("center_refresh", { hwnd: 42, expectedMode: "Zuletzt verwendet" }), {
+  hwnd: 42, expectedMode: "Zuletzt verwendet",
+});
+assert.deepEqual(SSE_MCP_TOOL_SCHEMAS.sse_center_refresh.parse({
+  hwnd: 42, expectedMode: "Zuletzt verwendet",
+}), { hwnd: 42, expectedMode: "Zuletzt verwendet" });
+assert.throws(() => parseApiOperationArgs("center_refresh", { hwnd: 42 }));
+assert.throws(() => parseApiOperationArgs("center_refresh", {
+  hwnd: 42, expectedDirectoryRef: "cases:.", expectedMode: "Zuletzt verwendet",
+}));
+assert.throws(() => SSE_MCP_TOOL_SCHEMAS.sse_center_refresh.parse({
+  hwnd: 42, expectedMode: "Verzeichnis",
+}));
 assert.deepEqual(parseApiOperationArgs("window_close", { pid: 7, hwnd: 42, titleFingerprint: "0".repeat(64) }), {
   pid: 7, hwnd: 42, titleFingerprint: "0".repeat(64),
 });

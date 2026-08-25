@@ -41,7 +41,7 @@ nie automatisch verworfen.
 | Optionale Live-Skript-Verträge | `node test/live-script-resource-contract.mjs` | Mehrinstanz- und Suchdiagnose verwenden ausschließlich die aktuellen strikten MCP-ResourceRefs; zwei zufällig benannte Wegwerfkopien liegen im konfigurierten `cases:`-Bereich und nur bei unveränderter Dateiidentität plus Quellhash werden diese beiden exakten Dateien nach dem Schließen entfernt | tatsächlicher Zwei-Instanz-Lauf ohne gesetzte neutrale Fixture und installierte SSE |
 | Core-Read-Live-Gate | `npm run test:live-core-read` | beide Profile und ihre offiziellen Musterfälle über MCP→API und für UI-Leser weiter zum Worker: Produkt-/Arbeitsbereich, Hash/Arbeitskopie, Start/PID/HWND, Ergebnislesen, HTTP↔kanonisches-MCP, Seiten-/Hilfe-/Tabellen-/Snapshot-/Accessibility-Leser und gebundener Discard-Close | physische Bereichsnavigation, Prüfer, UStVA, Tiefensweep und Steuerfall-Schreibwege |
 | Striktes Live-Gate | `npm run test:live` | beide Profile nacheinander, jede vom Profil erlaubte Leseoperation, lokale-gegen-Worker-Falldateiparität, der profilierte Schreibweg, die große Schreibreise, Steuertipps-Center 2025 auf privatem Desktop, echter MCP→API→Worker-Weg für UI-Aktionen, direkter HTTP↔kanonischer MCP-Vergleich, Hash- und Cleanup-Invarianten; fehlende Voraussetzungen sind Fehler | vollständige Mutationsmatrix pro Jahresprofil; VaSt-Dialogwege |
-| Center-Live-Gate | `npm run test:live-center` | `center_cases` und `center_refresh` für Profil 2025 über die HTTP-API, exakte HWND-/Verzeichnisbindung, pfadredigierte Antworten, unveränderter Dateibestand und Kill-on-close-Cleanup auf einem privaten Desktop | Profil 2024; VaSt; fachliche Richtigkeit der realen Fallnamen |
+| Center-Live-Gate | `npm run test:live-center` | `center_cases` und `center_refresh` für Profil 2025 über die HTTP-API in „Verzeichnis“ oder „Zuletzt verwendet“, exakte HWND-/Zustandsbindung, Rückkehr in den Ausgangsmodus, pfadredigierte Antworten und Kill-on-close-Cleanup auf einem privaten Desktop; im Verzeichnismodus zusätzlich unveränderter Dateibestand | Profil 2024; VaSt; fachliche Richtigkeit der realen Fallnamen |
 | Falldatei-Liveparität | `npm run test:live-case-file` | lokale API-Implementierung und direkter PowerShell-Worker liefern denselben Fallhash sowie dieselbe vollständige Standard-Fallliste des offiziellen Musterordners; keine SSE-UI wird gestartet | ausführliche Parser-Metadaten und UI-Verhalten |
 | Workspace-Dateivertrag | `node test/workspace-file-cancellation.mjs` | synchrone/kooperative Listenparität, Abbruch vor und während der Liste sowie nach einem 64-KiB-Hashblock, Hashbudget auch bei verworfener I/O, Deadline ohne Teilergebnis, exakte Trunkierung samt Gleichheitsgrenze, Read-Post-Deadline, Write-Preflight und veröffentlichte Schemas | reales langsames Netzlaufwerk; Abbruch eines bereits laufenden synchronen 1-MiB-Textwrites |
 | MCP-Abbruchkette | `node test/mcp-cancellation.mjs` | echter `sse_workspace_files`-Aufruf über MCP-Prozess, HTTP-Client, API-Server und Workspace-Executor; Clientabbruch ergibt serverseitig `ok=false`, `kind=aborted`, `delivered=false`, danach gelingt ein vollständiger Folgeaufruf | harter Prozessabsturz während des Abbruchs; bereits gestartete synchrone Mutationen |
@@ -222,16 +222,25 @@ zusätzlich `list -> start -> list`. Der Steuerfall blieb bei jedem Schritt
 Der Center-Nachweis startet ausschließlich den profilierten 2025-Center in
 einem neuen Windows-Desktop und bindet den gesamten Prozessbaum an einen
 Kill-on-close-Job. Ein vorhandener Center-Prozess, Desktop oder Marker ist ein
-Fehler und wird niemals übernommen. Der intern gelesene absolute Ordner bleibt
-nur im Testprozess; API-Antwort und wertfreier Operation-Trace enthalten ihn
-nicht. Vor und nach `center_cases` → `center_refresh` → `center_cases` werden
-Name/Typ/Größe/Zeitstempel/Inhalt der angezeigten Top-Level-Dateien in eine
-nicht rückrechenbare Inventarsignatur überführt. Der echte Lauf belegte drei
-grüne API-Schritte, unveränderte Suche/Sortierung, identisches Inventar und
-null verbleibende Center-Prozesse. `center_refresh` wechselt die persistente
-Center-Ansicht technisch kurz zu „Zuletzt verwendet“ und danach zurück. Der
-Erfolgsvertrag beweist die Rückkehr; scheitert der zweite Toggle, bleibt die
-Operation fail-closed, kann den Ansichtsmodus aber nicht blind restaurieren.
+Fehler und wird niemals übernommen. `center_cases` liest sowohl „Verzeichnis“
+als auch „Zuletzt verwendet“. Nur der Verzeichnismodus besitzt einen einzelnen
+gebundenen Ordner; dort bleibt der intern gelesene absolute Pfad nur im
+Testprozess, API-Antwort und wertfreier Operation-Trace enthalten ihn nicht.
+Vor und nach `center_cases` → `center_refresh` → `center_cases` werden in diesem
+Modus Name/Typ/Größe/Zeitstempel/Inhalt der angezeigten Top-Level-Dateien in
+eine nicht rückrechenbare Inventarsignatur überführt. „Zuletzt verwendet“
+liefert dagegen ausdrücklich `dateisystemVerglichen=false` und behauptet keine
+Ordnerkonsistenz.
+
+Der echte Lauf am 2026-08-25 belegte drei grüne API-Schritte im persistenten
+Modus „Zuletzt verwendet“, zwei sichtbare Fälle, unveränderte Suche/Sortierung,
+die Rückkehr in denselben Modus und null verbleibende Center-Prozesse.
+`center_refresh` aktiviert kurz den jeweils anderen Modus über das tatsächlich
+seitenwirksame `InvokePattern` und danach wieder den exakt gelesenen
+Ausgangsmodus. Ein reines `TogglePattern` änderte im realen Qt-Center zwar den
+UIA-Haken, aber nicht die Seite und ist deshalb kein Erfolgsweg. Scheitert die
+zweite Aktivierung, bleibt die Operation fail-closed, kann den Ansichtsmodus
+aber nicht blind restaurieren.
 
 Das Endurteil ist doppelt fail-closed: Sowohl der inhaltsgebundene Seitenbaum
 als auch der kleinere Navigationsbaum müssen ungekürzt sein. Fehlt `Weiter`

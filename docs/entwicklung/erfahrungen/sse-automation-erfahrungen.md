@@ -549,6 +549,12 @@ verhindert werden.
   Kill-on-close-Job offen; beendet sich der Test oder seine Pipe, endet nur
   der exakt gestartete Center-Prozessbaum. Absolute Center-Pfade bleiben im
   Testprozess und erscheinen weder im API-Ergebnis noch im wertfreien Trace.
+- Qt-Schalter im Center können gleichzeitig `TogglePattern` und
+  `InvokePattern` anbieten. `TogglePattern` änderte live nur den zugänglichen
+  Haken, ohne die Fallansicht umzuschalten; erst `InvokePattern` erzeugte die
+  Pfadzeile der Verzeichnisansicht. Deshalb nach jeder Aktivierung die
+  semantischen Seitenknoten begrenzt pollen und den ursprünglichen Modus erneut
+  nachweisen, nicht nur den Toggle-State.
 - Ein liegengebliebener `center-test`-Marker sperrt alle normalen Aktionen,
   darf aber über `desktop_status` read-only als `markeVeraltet` diagnostiziert
   werden. Nur der Test entfernt ihn bei exakt gleichem Owner/Name/PID; sonst

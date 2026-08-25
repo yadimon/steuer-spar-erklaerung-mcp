@@ -491,6 +491,25 @@ try {
     "Center ausserhalb des Fallbereichs braucht einen expliziten fail-closed Hinweis");
   assert(!centerText.includes("FremdeFaelle"));
 
+  forcedResult = {
+    ok: true,
+    modus: "Zuletzt verwendet",
+    verzeichnis: null,
+    dateisystemVerglichen: false,
+    faelle: [{ name: "Synthetischer Fall" }],
+    dateisystemFaelle: [],
+    nurImCenter: [],
+    nurImDateisystem: [],
+  };
+  const recentCenter = await client.callTool({ name: "sse_center_cases", arguments: {} });
+  const recentCenterText = recentCenter.content
+    .filter((entry) => entry.type === "text").map((entry) => entry.text).join("\n");
+  assert.notEqual(recentCenter.isError, true);
+  assert(recentCenterText.includes('"dateisystemVerglichen": false') &&
+    recentCenterText.includes('"verzeichnisImFallbereich": null') &&
+    recentCenterText.includes("nicht an einen einzelnen Fallordner gebunden"),
+  "Center-MCP muss den fehlenden Ordnervergleich im Modus 'Zuletzt verwendet' ausdruecklich melden");
+
   const windowsText = toolTexts.get("sse_windows") ?? "";
   assert(windowsText.includes("f".repeat(64)), "Titel-Fingerprint muss PC-blind erhalten bleiben");
   const beforeWindowRoundtrip = calls.length;

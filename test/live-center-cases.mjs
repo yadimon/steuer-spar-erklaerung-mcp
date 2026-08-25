@@ -143,9 +143,14 @@ function directCenterCases(hwnd) {
   let result;
   try { result = JSON.parse(probe.stdout.trim()); }
   catch { throw new Error("Direkte private Center-Vorabpruefung lieferte kein JSON."); }
-  assert.equal(result.ok, true, `Center-Vorabpruefung scheiterte (${result.kind ?? "unknown"}).`);
-  assert.equal(result.modus, "Verzeichnis", "Center startet nicht im vorausgesetzten Verzeichnismodus; nichts umgeschaltet.");
-  assert.equal(typeof result.verzeichnis, "string", "Center-Vorabpruefung lieferte kein Verzeichnis.");
+  assert.equal(result.ok, true,
+    `Center-Vorabpruefung scheiterte (${result.kind ?? "unknown"}: ${result.error ?? "ohne Diagnose"}).`);
+  assert(["Verzeichnis", "Zuletzt verwendet"].includes(result.modus), "Center meldete keinen unterstuetzten Ansichtsmodus.");
+  if (result.modus === "Verzeichnis") {
+    assert.equal(typeof result.verzeichnis, "string", "Center-Vorabpruefung lieferte kein Verzeichnis.");
+  } else {
+    assert.equal(result.verzeichnis, null, "'Zuletzt verwendet' darf keinen ungebundenen Ordner behaupten.");
+  }
   return result;
 }
 
@@ -167,7 +172,8 @@ function directoryInventory(directory) {
 }
 
 function expectOk(result, operation) {
-  assert.equal(result?.ok, true, `${operation} scheiterte (${result?.kind ?? "unknown"}).`);
+  assert.equal(result?.ok, true,
+    `${operation} scheiterte (${result?.kind ?? "unknown"}: ${result?.error ?? "ohne Diagnose"}).`);
   return result;
 }
 
@@ -206,34 +212,45 @@ try {
   // Der direkte private Read liefert den Pfad nur in diesen Prozess. Weder
   // Trace noch API/MCP-Antwort erhalten ihn als lokalen Klartext.
   const privateCases = directCenterCases(ready.hwnd);
-  const directory = privateCases.verzeichnis;
-  const inventoryBefore = directoryInventory(directory);
+  const initialMode = privateCases.modus;
+  const directory = initialMode === "Verzeichnis" ? privateCases.verzeichnis : null;
+  const inventoryBefore = directory === null ? null : directoryInventory(directory);
 
   const listed = expectOk(await callApiOperation("center_cases", { hwnd: ready.hwnd }, 180_000), "center_cases");
   checks += 1;
-  assert.equal(listed.modus, "Verzeichnis");
+  assert.equal(listed.modus, initialMode);
   assert(Array.isArray(listed.faelle) && Array.isArray(listed.dateisystemFaelle));
-  assert(!JSON.stringify(listed).includes(directory), "API-Antwort enthaelt den absoluten Center-Pfad.");
+  assert.equal(listed.dateisystemVerglichen, initialMode === "Verzeichnis");
+  if (directory !== null) {
+    assert(!JSON.stringify(listed).includes(directory), "API-Antwort enthaelt den absoluten Center-Pfad.");
+  }
 
   const refreshed = expectOk(await callApiOperation(
     "center_refresh",
-    { hwnd: ready.hwnd, expectedDirectory: directory },
+    directory === null
+      ? { hwnd: ready.hwnd, expectedMode: "Zuletzt verwendet" }
+      : { hwnd: ready.hwnd, expectedDirectory: directory },
     180_000,
   ), "center_refresh");
   checks += 1;
+  assert.equal(refreshed.modus, initialMode);
   assert.equal(refreshed.sucheUnveraendert, true);
   assert.equal(refreshed.sortierungUnveraendert, true);
   assert(Array.isArray(refreshed.vorher) && Array.isArray(refreshed.nachher));
-  assert(!JSON.stringify(refreshed).includes(directory), "Refresh-Antwort enthaelt den absoluten Center-Pfad.");
+  if (directory !== null) {
+    assert(!JSON.stringify(refreshed).includes(directory), "Refresh-Antwort enthaelt den absoluten Center-Pfad.");
+  }
 
   const after = expectOk(await callApiOperation("center_cases", { hwnd: ready.hwnd }, 180_000), "center_cases nach Refresh");
   checks += 1;
-  assert.equal(after.modus, "Verzeichnis");
-  const inventoryAfter = directoryInventory(directory);
-  assert.equal(inventoryAfter, inventoryBefore, "Center-Lesetest veraenderte den angezeigten Dateibestand.");
+  assert.equal(after.modus, initialMode);
+  if (directory !== null) {
+    const inventoryAfter = directoryInventory(directory);
+    assert.equal(inventoryAfter, inventoryBefore, "Center-Lesetest veraenderte den angezeigten Dateibestand.");
+  }
 
   process.stdout.write(
-    `Center-Livevertrag: ${checks} API-Schritte, ${listed.faelle.length} sichtbare Faelle, private Desktop- und Datei-Invarianten bestanden\n`,
+    `Center-Livevertrag: ${checks} API-Schritte im Modus '${initialMode}', ${listed.faelle.length} sichtbare Faelle, private Desktop- und Datei-Invarianten bestanden\n`,
   );
 } catch (error) {
   mainFailure = error;

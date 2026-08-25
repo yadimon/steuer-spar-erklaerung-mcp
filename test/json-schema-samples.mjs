@@ -51,6 +51,9 @@ export function sampleJsonSchema(schema, property = "value") {
       ].includes(property)) {
         result.name = "Synthetisches Testelement";
       }
+      if (property === "sse_center_refresh" || property === "center_refresh") {
+        result.expectedMode = "Zuletzt verwendet";
+      }
       return result;
     }
     case "array": {

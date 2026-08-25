@@ -1966,6 +1966,91 @@ function Resolve-SteuertippsCenterWindow($a) {
   [IntPtr][int64]$wins[0].hwnd
 }
 
+function Get-SSECenterViewState([IntPtr]$hwnd, [switch]$WithScroll, [switch]$AllowInvalid) {
+  $tree = Walk-Tree $hwnd 3000 45 20 -WithValues -WithScroll:$WithScroll
+  $nodes = @($tree.nodes)
+  $path = @($nodes | Where-Object {
+    $_.type -eq 'Text' -and $_.aid -like '*.m_currentDataPathLabel'
+  })
+  $list = @($nodes | Where-Object {
+    $_.type -eq 'List' -and $_.aid -like '*.m_taxFilesView'
+  })
+  $directory = @($nodes | Where-Object {
+    $_.type -eq 'CheckBox' -and $_.aid -like '*.m_buttonStorageDirectory'
+  })
+  $recent = @($nodes | Where-Object {
+    $_.type -eq 'CheckBox' -and $_.aid -like '*.m_buttonStorageRecent'
+  })
+  $valid = [bool]($list.Count -eq 1 -and $directory.Count -eq 1 -and $recent.Count -eq 1)
+  $directoryActive = [bool]($valid -and $directory[0].checked -eq $true)
+  $recentActive = [bool]($valid -and $recent[0].checked -eq $true)
+  $pathCandidates = @($nodes | Where-Object {
+    $_.aid -and ($_.aid -like '*DataPath*' -or $_.aid -like '*dataPath*')
+  } | Select-Object -First 8 | ForEach-Object { "$($_.type):$($_.aid)" })
+  $valid = [bool]($valid -and ($directoryActive -ne $recentActive))
+  $mode = $(if (-not $valid) { 'unbekannt' } elseif ($directoryActive) { 'Verzeichnis' } else { 'Zuletzt verwendet' })
+  $valid = [bool]($valid -and $(if ($directoryActive) { $path.Count -eq 1 } else { $path.Count -le 1 }))
+  $diagnostic = ("Fallliste $($list.Count), Pfadzeile $($path.Count), Umschalter Verzeichnis/Zuletzt " +
+    "$($directory.Count)/$($recent.Count), Modus $mode, Pfadkandidaten $($pathCandidates -join ', ')")
+  if (-not $valid -and -not $AllowInvalid) {
+    Fail "Steuertipps-Center zeigt keine eindeutige Fallansicht ($diagnostic)." 'unexpected-page'
+  }
+  [pscustomobject]@{
+    valid = $valid
+    diagnostic = $diagnostic
+    tree = $tree
+    nodes = $nodes
+    mode = $mode
+    path = $path
+    list = $list
+    directoryToggle = $directory
+    recentToggle = $recent
+    search = @($nodes | Where-Object {
+      $_.type -eq 'Edit' -and $_.aid -like '*.m_searchTaxFilesLineEdit'
+    })
+    sort = @($nodes | Where-Object {
+      $_.type -eq 'ComboBox' -and $_.aid -like '*.m_sortTaxFilesComboBox'
+    })
+    caseNodes = @($nodes | Where-Object {
+      $_.type -eq 'ListItem' -and $_.aid -like '*.m_taxFilesView' -and $_.name
+    } | Sort-Object y, x)
+  }
+}
+
+function Set-SSECenterViewMode([IntPtr]$hwnd, $state, [string]$targetMode) {
+  if ($targetMode -notin @('Verzeichnis','Zuletzt verwendet')) {
+    Fail "Unbekannter Center-Ansichtsmodus '$targetMode'." 'bad-args'
+  }
+  if ([string]$state.mode -ceq $targetMode) { return $state }
+  $targetNode = $(if ($targetMode -ceq 'Verzeichnis') {
+    @($state.directoryToggle)[0]
+  } else {
+    @($state.recentToggle)[0]
+  })
+  $element = Get-LiveElement $hwnd $targetNode.rid
+  $supportedPatterns = @()
+  if ($element) {
+    try { $supportedPatterns = @($element.GetSupportedPatterns() | ForEach-Object { [string]$_.ProgrammaticName }) }
+    catch { $supportedPatterns = @('nicht-lesbar') }
+  }
+  $invoke = $null
+  if (-not $element -or -not $element.TryGetCurrentPattern([Windows.Automation.InvokePattern]::Pattern, [ref]$invoke)) {
+    Fail "Center-Schalter '$targetMode' bietet kein InvokePattern." 'unsupported'
+  }
+  $invoke.Invoke()
+  $deadline = [DateTime]::UtcNow.AddSeconds(8)
+  $after = $null
+  do {
+    Start-Sleep -Milliseconds 200
+    $after = Get-SSECenterViewState $hwnd -AllowInvalid
+  } while ((-not $after.valid -or [string]$after.mode -cne $targetMode) -and [DateTime]::UtcNow -lt $deadline)
+  if (-not $after.valid -or [string]$after.mode -cne $targetMode) {
+    Fail ("Center hat den Modus '$targetMode' nicht eindeutig aktiviert ($([string]$after.diagnostic)); " +
+      "Aktionsmuster $($supportedPatterns -join ', ').") 'postcondition-failed'
+  }
+  $after
+}
+
 function Resolve-BoundWriteWindow($a) {
   # Die Breitenschwelle allein ist keine Hauptfensterpruefung. Der BelegManager
   # ist 963 px breit und gehoert zum selben Prozess - er war damit ein
@@ -5906,97 +5991,80 @@ switch ($Op) {
     if (-not $canary.ok) {
       Fail "Steuertipps-Center antwortet zu langsam ($($canary.ms) ms); Fallliste waere unzuverlaessig." 'degraded'
     }
-    $tree = Walk-Tree $hwnd 3000 45 20 -WithValues -WithScroll
-    $nodes = @($tree.nodes)
-    $pathNode = @($nodes | Where-Object {
-      $_.type -eq 'Text' -and $_.aid -like '*.m_currentDataPathLabel'
-    })
-    $listNode = @($nodes | Where-Object {
-      $_.type -eq 'List' -and $_.aid -like '*.m_taxFilesView'
-    })
-    if ($pathNode.Count -ne 1 -or $listNode.Count -ne 1) {
-      # Ohne diese Unterscheidung sagt die Meldung nicht, WAS das Center zeigt.
-      # Der haeufigste Fall ist der gemerkte Modus 'Zuletzt verwendet': dort
-      # fehlt die Pfadzeile. Dieser Weg schaltet bewusst nichts um, also muss
-      # er wenigstens sagen, was umzustellen ist.
-      $recentHier = @($nodes | Where-Object { $_.type -eq 'CheckBox' -and $_.aid -like '*.m_buttonStorageRecent' })
-      $verzeichnisHier = @($nodes | Where-Object { $_.type -eq 'CheckBox' -and $_.aid -like '*.m_buttonStorageDirectory' })
-      if ($recentHier.Count -eq 1 -and $recentHier[0].checked -eq $true) {
-        Fail ("Steuertipps-Center steht im Modus 'Zuletzt verwendet'; dort gibt es keine Verzeichnis-Fallliste. " +
-          "Dieser Weg schaltet den Modus bewusst nicht um - im Center einmal auf 'Verzeichnis' stellen.") 'unexpected-page'
-      }
-      Fail ("Steuertipps-Center zeigt nicht die erwartete Verzeichnis-Fallliste " +
-        "(Pfadzeile $($pathNode.Count), Fallliste $($listNode.Count), Umschalter Verzeichnis/Zuletzt " +
-        "$($verzeichnisHier.Count)/$($recentHier.Count)).") 'unexpected-page'
-    }
-    $directoryToggle = @($nodes | Where-Object {
-      $_.type -eq 'CheckBox' -and $_.aid -like '*.m_buttonStorageDirectory'
-    })
-    $recentToggle = @($nodes | Where-Object {
-      $_.type -eq 'CheckBox' -and $_.aid -like '*.m_buttonStorageRecent'
-    })
-    $search = @($nodes | Where-Object {
-      $_.type -eq 'Edit' -and $_.aid -like '*.m_searchTaxFilesLineEdit'
-    })
-    $sort = @($nodes | Where-Object {
-      $_.type -eq 'ComboBox' -and $_.aid -like '*.m_sortTaxFilesComboBox'
-    })
+    $state = Get-SSECenterViewState $hwnd -WithScroll
+    $nodes = @($state.nodes)
     $viewRadios = @($nodes | Where-Object {
       $_.type -eq 'RadioButton' -and $_.aid -like '*.m_switchViewGroupBox.*'
     })
-    $caseNodes = @($nodes | Where-Object {
-      $_.type -eq 'ListItem' -and $_.aid -like '*.m_taxFilesView' -and $_.name
-    } | Sort-Object y, x)
-    $dir = [string]$pathNode[0].name
-    if (-not [IO.Directory]::Exists($dir)) {
-      Fail "Das im Center angezeigte Verzeichnis existiert nicht mehr: '$dir'." 'stale-directory'
-    }
+    $dir = $null
+    $diskCases = @()
+    $cases = @()
+    $onlyUi = @()
+    $onlyDisk = @()
+    $directoryMode = [bool]([string]$state.mode -ceq 'Verzeichnis')
+    if ($directoryMode) {
+      $dir = [string]@($state.path)[0].name
+      if (-not [IO.Directory]::Exists($dir)) {
+        Fail "Das im Center angezeigte Verzeichnis existiert nicht mehr: '$dir'." 'stale-directory'
+      }
 
-    # Das Center blendet Backups, Protokolle und Folgejahr-GewErfass aus. Der
-    # Kontrollbestand bildet deshalb nur dieselben primaeren ESt-/Gew-Faelle.
-    $centerTypes = @('ESt','Gew')
-    $diskFiles = @($centerTypes | ForEach-Object {
-      $centerGlob = '*.' + [string]$_ + [string]$script:SSE_TAX_YEAR
-      [IO.Directory]::GetFiles($dir, $centerGlob, [IO.SearchOption]::TopDirectoryOnly)
-    } | Where-Object { Test-SSEProfileCaseFileName $_ $false $centerTypes } | Sort-Object)
-    $diskCases = @($diskFiles | ForEach-Object {
-      $caseMatch = Get-SSECaseFileMatch $_
-      [pscustomobject]@{
-        name = [IO.Path]::GetFileNameWithoutExtension($_)
-        datei = [IO.Path]::GetFileName($_)
-        typ = $(if ([string]$caseMatch.Groups['type'].Value -ieq 'ESt') { 'Einkommensteuer' } else { 'Gewinn/Umsatz/Gewerbesteuer' })
-        pfad = $_
+      # Das Center blendet Backups, Protokolle und Folgejahr-GewErfass aus. Der
+      # Kontrollbestand bildet deshalb nur dieselben primaeren ESt-/Gew-Faelle.
+      $centerTypes = @('ESt','Gew')
+      $diskFiles = @($centerTypes | ForEach-Object {
+        $centerGlob = '*.' + [string]$_ + [string]$script:SSE_TAX_YEAR
+        [IO.Directory]::GetFiles($dir, $centerGlob, [IO.SearchOption]::TopDirectoryOnly)
+      } | Where-Object { Test-SSEProfileCaseFileName $_ $false $centerTypes } | Sort-Object)
+      $diskCases = @($diskFiles | ForEach-Object {
+        $caseMatch = Get-SSECaseFileMatch $_
+        [pscustomobject]@{
+          name = [IO.Path]::GetFileNameWithoutExtension($_)
+          datei = [IO.Path]::GetFileName($_)
+          typ = $(if ([string]$caseMatch.Groups['type'].Value -ieq 'ESt') { 'Einkommensteuer' } else { 'Gewinn/Umsatz/Gewerbesteuer' })
+          pfad = $_
+        }
+      })
+      $diskByName = @{}
+      foreach ($entry in $diskCases) {
+        $key = $entry.name.ToLowerInvariant()
+        if (-not $diskByName.ContainsKey($key)) { $diskByName[$key] = New-Object System.Collections.ArrayList }
+        $null = $diskByName[$key].Add($entry)
       }
-    })
-    $diskByName = @{}
-    foreach ($entry in $diskCases) {
-      $key = $entry.name.ToLowerInvariant()
-      if (-not $diskByName.ContainsKey($key)) { $diskByName[$key] = New-Object System.Collections.ArrayList }
-      $null = $diskByName[$key].Add($entry)
+      $cases = @(@($state.caseNodes) | ForEach-Object {
+        $caseKey = $_.name.ToLowerInvariant()
+        $matchedEntries = @()
+        if ($diskByName.ContainsKey($caseKey)) { $matchedEntries = @($diskByName[$caseKey]) }
+        [pscustomobject]@{
+          name = $_.name
+          datei = $(if ($matchedEntries.Count -eq 1) { $matchedEntries[0].datei } else { $null })
+          typ = $(if ($matchedEntries.Count -eq 1) { $matchedEntries[0].typ } else { $null })
+          ausgewaehlt = $_.selected
+          dateiEindeutig = [bool]($matchedEntries.Count -eq 1)
+        }
+      })
+      $uiNames = @($cases | ForEach-Object { $_.name.ToLowerInvariant() } | Sort-Object -Unique)
+      $diskNames = @($diskCases | ForEach-Object { $_.name.ToLowerInvariant() } | Sort-Object -Unique)
+      $onlyUi = @($uiNames | Where-Object { $_ -notin $diskNames })
+      $onlyDisk = @($diskNames | Where-Object { $_ -notin $uiNames })
+    } else {
+      # 'Zuletzt verwendet' hat absichtlich keinen einzelnen gebundenen Ordner.
+      # Die UI-Liste bleibt trotzdem als read-only Center-Zustand sinnvoll.
+      $cases = @(@($state.caseNodes) | ForEach-Object {
+        [pscustomobject]@{
+          name = $_.name
+          datei = $null
+          typ = $null
+          ausgewaehlt = $_.selected
+          dateiEindeutig = $null
+        }
+      })
     }
-    $cases = @($caseNodes | ForEach-Object {
-      $caseKey = $_.name.ToLowerInvariant()
-      $matchedEntries = @()
-      if ($diskByName.ContainsKey($caseKey)) { $matchedEntries = @($diskByName[$caseKey]) }
-      [pscustomobject]@{
-        name = $_.name
-        datei = $(if ($matchedEntries.Count -eq 1) { $matchedEntries[0].datei } else { $null })
-        typ = $(if ($matchedEntries.Count -eq 1) { $matchedEntries[0].typ } else { $null })
-        ausgewaehlt = $_.selected
-        dateiEindeutig = [bool]($matchedEntries.Count -eq 1)
-      }
-    })
-    $uiNames = @($cases | ForEach-Object { $_.name.ToLowerInvariant() } | Sort-Object -Unique)
-    $diskNames = @($diskCases | ForEach-Object { $_.name.ToLowerInvariant() } | Sort-Object -Unique)
-    $onlyUi = @($uiNames | Where-Object { $_ -notin $diskNames })
-    $onlyDisk = @($diskNames | Where-Object { $_ -notin $uiNames })
-    $directoryActive = [bool]($directoryToggle.Count -eq 1 -and $directoryToggle[0].checked -eq $true)
     Emit ([pscustomobject]@{
       ok = $true; hwnd = [int64]$hwnd; canaryMs = $canary.ms
-      modus = $(if ($directoryActive) { 'Verzeichnis' } elseif ($recentToggle.Count -eq 1 -and $recentToggle[0].checked -eq $true) { 'Zuletzt verwendet' } else { 'unbekannt' })
+      modus = [string]$state.mode
       verzeichnis = $dir
-      suche = $(if ($search.Count -eq 1) { [string]$search[0].val } else { $null })
-      sortierung = $(if ($sort.Count -eq 1) { [string]$sort[0].val } else { $null })
+      suche = $(if (@($state.search).Count -eq 1) { [string]@($state.search)[0].val } else { $null })
+      sortierung = $(if (@($state.sort).Count -eq 1) { [string]@($state.sort)[0].val } else { $null })
       ansicht = $(if (@($viewRadios | Where-Object { $_.selected -eq $true }).Count -eq 1) {
         $viewAid = @($viewRadios | Where-Object { $_.selected -eq $true })[0].aid
         if ($viewAid -like '*.m_activateTaxFilesIconListButton') { 'Symbole' }
@@ -6007,68 +6075,62 @@ switch ($Op) {
       dateisystemFaelle = $diskCases
       nurImCenter = $onlyUi
       nurImDateisystem = $onlyDisk
-      konsistent = [bool]($directoryActive -and -not $onlyUi.Count -and -not $onlyDisk.Count -and @($cases | Where-Object { -not $_.dateiEindeutig }).Count -eq 0)
-      snapshot = $tree.stats
-      hinweis = 'Read-only: Es wurde kein Fall geoeffnet, verschoben oder geloescht.'
+      dateisystemVerglichen = $directoryMode
+      konsistent = $(if ($directoryMode) {
+        [bool](-not $onlyUi.Count -and -not $onlyDisk.Count -and @($cases | Where-Object { -not $_.dateiEindeutig }).Count -eq 0)
+      } else { $null })
+      snapshot = $state.tree.stats
+      hinweis = $(if ($directoryMode) {
+        'Read-only: UI-Liste und angezeigter Ordner wurden verglichen; kein Fall wurde geoeffnet, verschoben oder geloescht.'
+      } else {
+        "Read-only: 'Zuletzt verwendet' hat keinen einzelnen Dateisystemordner; die sichtbare Liste wurde ohne Dateivergleich gelesen."
+      })
     })
   }
 
   'center_refresh' {
     $hwnd = Resolve-SteuertippsCenterWindow $a
-    $expectedDir = Get-NormalizedDirectoryPath ([string](Arg $a 'expectedDirectory'))
-    $before = Walk-Tree $hwnd 3000 45 20 -WithValues
-    $beforePath = @($before.nodes | Where-Object { $_.type -eq 'Text' -and $_.aid -like '*.m_currentDataPathLabel' })
-    $beforeDirectory = @($before.nodes | Where-Object { $_.type -eq 'CheckBox' -and $_.aid -like '*.m_buttonStorageDirectory' })
-    $beforeRecent = @($before.nodes | Where-Object { $_.type -eq 'CheckBox' -and $_.aid -like '*.m_buttonStorageRecent' })
-    if ($beforePath.Count -ne 1 -or $beforeDirectory.Count -ne 1 -or $beforeRecent.Count -ne 1) {
-      Fail 'Center-Verzeichnisumschalter sind nicht eindeutig erreichbar.' 'unexpected-page'
+    $expectedMode = [string](Arg $a 'expectedMode')
+    $expectedDirectory = [string](Arg $a 'expectedDirectory')
+    if ([bool]$expectedMode -eq [bool]$expectedDirectory) {
+      Fail "Genau expectedMode oder expectedDirectory ist erforderlich." 'bad-args'
     }
-    $actualDir = Get-NormalizedDirectoryPath ([string]$beforePath[0].name)
-    if (-not $actualDir.Equals($expectedDir, [StringComparison]::OrdinalIgnoreCase)) {
-      Fail "Center zeigt '$actualDir' statt des erwarteten Verzeichnisses '$expectedDir'." 'precondition-failed'
+    if ($expectedMode -and $expectedMode -cne 'Zuletzt verwendet') {
+      Fail "expectedMode muss exakt 'Zuletzt verwendet' sein." 'bad-args'
     }
-    if ($beforeDirectory[0].checked -ne $true) {
-      Fail "Center ist nicht im erwarteten Modus 'Verzeichnis'." 'precondition-failed'
+    $before = Get-SSECenterViewState $hwnd
+    if ($expectedMode) {
+      if ([string]$before.mode -cne $expectedMode) {
+        Fail "Center ist nicht mehr im erwarteten Modus '$expectedMode'." 'precondition-failed'
+      }
+      $expectedDir = $null
+      $intermediateMode = 'Verzeichnis'
+    } else {
+      if ([string]$before.mode -cne 'Verzeichnis') {
+        Fail "Center ist nicht im erwarteten Modus 'Verzeichnis'." 'precondition-failed'
+      }
+      $expectedDir = Get-NormalizedDirectoryPath $expectedDirectory
+      $actualDir = Get-NormalizedDirectoryPath ([string]@($before.path)[0].name)
+      if (-not $actualDir.Equals($expectedDir, [StringComparison]::OrdinalIgnoreCase)) {
+        Fail "Center zeigt '$actualDir' statt des erwarteten Verzeichnisses '$expectedDir'." 'precondition-failed'
+      }
+      $intermediateMode = 'Zuletzt verwendet'
     }
-    $searchBefore = @($before.nodes | Where-Object { $_.type -eq 'Edit' -and $_.aid -like '*.m_searchTaxFilesLineEdit' })
-    $sortBefore = @($before.nodes | Where-Object { $_.type -eq 'ComboBox' -and $_.aid -like '*.m_sortTaxFilesComboBox' })
-    $namesBefore = @($before.nodes | Where-Object { $_.type -eq 'ListItem' -and $_.aid -like '*.m_taxFilesView' -and $_.name } |
-      Sort-Object y, x | ForEach-Object { $_.name })
-
-    $recentElement = Get-LiveElement $hwnd $beforeRecent[0].rid
-    $recentToggle = $null
-    if (-not $recentElement -or -not $recentElement.TryGetCurrentPattern([Windows.Automation.TogglePattern]::Pattern, [ref]$recentToggle)) {
-      Fail "Center-Schalter 'Zuletzt verwendet' bietet kein TogglePattern." 'unsupported'
+    $namesBefore = @(@($before.caseNodes) | ForEach-Object { $_.name })
+    $mid = Set-SSECenterViewMode $hwnd $before $intermediateMode
+    $after = Set-SSECenterViewMode $hwnd $mid ([string]$before.mode)
+    $namesAfter = @(@($after.caseNodes) | ForEach-Object { $_.name })
+    $finalDir = $null
+    if ([string]$after.mode -ceq 'Verzeichnis') {
+      $finalDir = Get-NormalizedDirectoryPath ([string]@($after.path)[0].name)
+      if (-not $finalDir.Equals($expectedDir, [StringComparison]::OrdinalIgnoreCase)) {
+        Fail "Center-Verzeichnis hat sich unerwartet zu '$finalDir' geaendert." 'postcondition-failed'
+      }
     }
-    $recentToggle.Toggle()
-    Start-Sleep -Milliseconds 350
-    $mid = Walk-Tree $hwnd 3000 45 20 -WithValues
-    $midRecent = @($mid.nodes | Where-Object { $_.type -eq 'CheckBox' -and $_.aid -like '*.m_buttonStorageRecent' })
-    $midDirectory = @($mid.nodes | Where-Object { $_.type -eq 'CheckBox' -and $_.aid -like '*.m_buttonStorageDirectory' })
-    if ($midRecent.Count -ne 1 -or $midDirectory.Count -ne 1 -or $midRecent[0].checked -ne $true) {
-      Fail "Center hat 'Zuletzt verwendet' nicht eindeutig aktiviert; Verzeichnis nicht blind erneut geschaltet." 'postcondition-failed'
-    }
-    $directoryElement = Get-LiveElement $hwnd $midDirectory[0].rid
-    $directoryToggle = $null
-    if (-not $directoryElement -or -not $directoryElement.TryGetCurrentPattern([Windows.Automation.TogglePattern]::Pattern, [ref]$directoryToggle)) {
-      Fail "Center-Schalter 'Verzeichnis' bietet kein TogglePattern." 'unsupported'
-    }
-    $directoryToggle.Toggle()
-    Start-Sleep -Milliseconds 700
-    $after = Walk-Tree $hwnd 3000 45 20 -WithValues
-    $afterPath = @($after.nodes | Where-Object { $_.type -eq 'Text' -and $_.aid -like '*.m_currentDataPathLabel' })
-    $afterDirectory = @($after.nodes | Where-Object { $_.type -eq 'CheckBox' -and $_.aid -like '*.m_buttonStorageDirectory' })
-    $searchAfter = @($after.nodes | Where-Object { $_.type -eq 'Edit' -and $_.aid -like '*.m_searchTaxFilesLineEdit' })
-    $sortAfter = @($after.nodes | Where-Object { $_.type -eq 'ComboBox' -and $_.aid -like '*.m_sortTaxFilesComboBox' })
-    $namesAfter = @($after.nodes | Where-Object { $_.type -eq 'ListItem' -and $_.aid -like '*.m_taxFilesView' -and $_.name } |
-      Sort-Object y, x | ForEach-Object { $_.name })
-    if ($afterPath.Count -ne 1 -or $afterDirectory.Count -ne 1 -or $afterDirectory[0].checked -ne $true) {
-      Fail "Center ist nach der Aktualisierung nicht wieder sicher im Modus 'Verzeichnis'." 'postcondition-failed'
-    }
-    $finalDir = Get-NormalizedDirectoryPath ([string]$afterPath[0].name)
-    if (-not $finalDir.Equals($expectedDir, [StringComparison]::OrdinalIgnoreCase)) {
-      Fail "Center-Verzeichnis hat sich unerwartet zu '$finalDir' geaendert." 'postcondition-failed'
-    }
+    $searchBefore = @($before.search)
+    $searchAfter = @($after.search)
+    $sortBefore = @($before.sort)
+    $sortAfter = @($after.sort)
     $searchSame = [bool]($searchBefore.Count -eq $searchAfter.Count -and
       $(if ($searchBefore.Count -eq 1) { [string]$searchBefore[0].val -eq [string]$searchAfter[0].val } else { $true }))
     $sortSame = [bool]($sortBefore.Count -eq $sortAfter.Count -and
@@ -6078,11 +6140,12 @@ switch ($Op) {
     }
     Emit ([pscustomobject]@{
       ok=$true; hwnd=[int64]$hwnd; verzeichnis=$finalDir
+      modus=[string]$after.mode
       vorher=$namesBefore; nachher=$namesAfter
       entfernt=@($namesBefore | Where-Object { $_ -notin $namesAfter })
       hinzugekommen=@($namesAfter | Where-Object { $_ -notin $namesBefore })
       sucheUnveraendert=$searchSame; sortierungUnveraendert=$sortSame
-      hinweis="Die Center-Ansicht wechselte kurz zu 'Zuletzt verwendet' und erfolgreich zurueck zu 'Verzeichnis'; kein Steuerfall wurde geoeffnet oder veraendert. Scheitert der zweite Toggle, kann der Ansichtsmodus bis zur manuellen Rueckkehr abweichen."
+      hinweis="Die Center-Ansicht wechselte kurz zu '$intermediateMode' und erfolgreich zurueck zu '$([string]$after.mode)'; kein Steuerfall wurde geoeffnet oder veraendert. Scheitert der zweite Toggle, kann der Ansichtsmodus bis zur manuellen Rueckkehr abweichen."
     })
   }
 

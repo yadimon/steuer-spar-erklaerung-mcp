@@ -209,17 +209,23 @@ try {
   assert(centerCasesTool?.inputSchema?.properties?.hwnd,
     "sse_center_cases kann nicht an ein exaktes Steuertipps-Center-Fenster gebunden werden.");
   const centerRefreshRequired = centerRefreshTool?.inputSchema?.required ?? [];
-  assert(centerRefreshRequired.includes("hwnd") && centerRefreshRequired.includes("expectedDirectoryRef") &&
+  assert(centerRefreshRequired.includes("hwnd") &&
+    centerRefreshTool?.inputSchema?.properties?.expectedDirectoryRef &&
+    centerRefreshTool?.inputSchema?.properties?.expectedMode &&
     !centerRefreshTool?.inputSchema?.properties?.expectedDirectory,
-    "sse_center_refresh ist nicht an exaktes Center-Fenster und Verzeichnis gebunden.");
+    "sse_center_refresh ist nicht an exaktes Center-Fenster und gelesenen Ansichtsmodus gebunden.");
   const windowCloseRequired = windowCloseTool?.inputSchema?.required ?? [];
   assert(windowCloseRequired.includes("pid") && windowCloseRequired.includes("hwnd") && windowCloseRequired.includes("titleFingerprint") &&
     !windowCloseTool?.inputSchema?.properties?.expectedTitle,
   "sse_window_close ist nicht PC-blind an den gelesenen Titel-Fingerprint gebunden.");
   const centerCasesBlock = workerOpBlock("center_cases");
-  assert(centerCasesBlock.includes("Resolve-SteuertippsCenterWindow") &&
-    centerCasesBlock.includes("*.m_currentDataPathLabel") &&
-    centerCasesBlock.includes("*.m_taxFilesView") &&
+  assert(workerSource.includes("function Get-SSECenterViewState") &&
+    workerSource.includes("*.m_currentDataPathLabel") &&
+    workerSource.includes("*.m_taxFilesView") &&
+    workerSource.includes("*.m_buttonStorageRecent") &&
+    centerCasesBlock.includes("Resolve-SteuertippsCenterWindow") &&
+    centerCasesBlock.includes("Get-SSECenterViewState") &&
+    centerCasesBlock.includes("dateisystemVerglichen") &&
     centerCasesBlock.includes("$centerTypes = @('ESt','Gew')") &&
     centerCasesBlock.includes("[string]$script:SSE_TAX_YEAR") &&
     centerCasesBlock.includes("Test-SSEProfileCaseFileName $_ $false $centerTypes") &&
@@ -262,9 +268,12 @@ try {
   "Archivziele werden nicht exklusiv erstellt oder ein Rollback kann fremde Dateien rekursiv loeschen.");
   const centerRefreshBlock = workerOpBlock("center_refresh");
   assert(centerRefreshBlock.includes("Resolve-SteuertippsCenterWindow") &&
-    centerRefreshBlock.includes("*.m_buttonStorageRecent") &&
-    centerRefreshBlock.includes("*.m_buttonStorageDirectory") &&
-    centerRefreshBlock.includes("TogglePattern") &&
+    centerRefreshBlock.includes("expectedMode") &&
+    centerRefreshBlock.includes("Set-SSECenterViewMode") &&
+    workerSource.includes("function Set-SSECenterViewMode") &&
+    workerSource.includes("InvokePattern") &&
+    workerSource.includes("[DateTime]::UtcNow.AddSeconds(8)") &&
+    workerSource.includes("-AllowInvalid") &&
     centerRefreshBlock.includes("sucheUnveraendert") &&
     centerRefreshBlock.includes("sortierungUnveraendert") &&
     !centerRefreshBlock.includes("Move-Item") && !centerRefreshBlock.includes("Remove-Item"),

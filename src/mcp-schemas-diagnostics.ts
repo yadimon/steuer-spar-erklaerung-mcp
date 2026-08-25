@@ -55,7 +55,10 @@ export const SSE_MCP_DIAGNOSTIC_SCHEMAS = {
   }).strict(),
   "sse_center_refresh": z.object({
     hwnd: WINDOW_HANDLE,
-    expectedDirectoryRef: CASE_REF().describe("Vom vorigen sse_center_cases gelieferte verzeichnisRef"),
+    expectedDirectoryRef: CASE_REF().optional()
+      .describe("Im Modus 'Verzeichnis': vom vorigen sse_center_cases gelieferte verzeichnisRef"),
+    expectedMode: z.literal("Zuletzt verwendet").optional()
+      .describe("Im Modus 'Zuletzt verwendet': exakt dieser vom vorigen sse_center_cases gelieferte Modus"),
   }).strict(),
   "sse_window_close": z.object({
     pid: PROCESS_ID.describe("Vom vorigen sse_windows gelieferte PID desselben SSE-Fensters"),
