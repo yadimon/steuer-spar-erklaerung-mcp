@@ -43,6 +43,15 @@ assert.match(sweep, /omittedInCoreRead: liveMode === "core-read"/u,
   "Das Core-Read-Ergebnis muss seinen bewusst nicht erbrachten Umfang ausweisen.");
 assert.match(sweep, /async function closeOwnedLiveInstance\(instance, launchedPid\)/u,
   "Der Live-Sweep braucht einen zentralen, PID-gebundenen Cleanup-Pfad.");
+const closeOwnedStart = sweep.indexOf("async function closeOwnedLiveInstance");
+const closeOwnedEnd = sweep.indexOf("async function dismissBoundStartupDialogs", closeOwnedStart);
+assert(closeOwnedStart >= 0 && closeOwnedEnd > closeOwnedStart,
+  "Der gebundene Live-Cleanup muss als klar begrenzte Hilfsfunktion auffindbar bleiben.");
+const closeOwnedFunction = sweep.slice(closeOwnedStart, closeOwnedEnd);
+assert.match(closeOwnedFunction, /discardChanges:\s*true/u,
+  "Der Live-Cleanup muss Aenderungen an Wegwerfkopien ausdruecklich verwerfen.");
+assert.doesNotMatch(closeOwnedFunction, /force:\s*true/u,
+  "Ein erfolgreicher Live-Lauf darf SSE nicht hart beenden und dadurch eine Wiederherstellungsdatei erzeugen.");
 assert.match(sweep, /async function waitForOwnSseShutdown\(\)/u,
   "Der Live-Sweep muss den asynchronen Abschluss eines bereits gestarteten discard-close abwarten.");
 assert.match(sweep, /const cleanupError = await closeOwnedLiveInstance\(instance, launchedPid\);/u,

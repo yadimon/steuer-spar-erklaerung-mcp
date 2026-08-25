@@ -414,9 +414,13 @@ async function closeOwnedLiveInstance(instance, launchedPid) {
   const pid = instance?.pid ?? launchedPid;
   if (!pid) return waitForOwnSseShutdown();
 
+  // force=true ueberspringt den regulaeren WM_CLOSE-Pfad im Worker und endet
+  // nach dessen Wartefrist mit Stop-Process. Das erzeugt selbst bei einem
+  // erfolgreichen Test eine SSE-Wiederherstellungsdatei. Die Wegwerfkopie
+  // wird deshalb bewusst verworfen, aber die Anwendung regulaer geschlossen.
   const args = instance?.hwnd
-    ? { pid, hwnd: instance.hwnd, force: true, discardChanges: true }
-    : { pid, force: true, discardChanges: true };
+    ? { pid, hwnd: instance.hwnd, discardChanges: true }
+    : { pid, discardChanges: true };
   let closeError = null;
   try {
     const closed = await callRaw("sse_close", args, 90_000);
@@ -427,8 +431,8 @@ async function closeOwnedLiveInstance(instance, launchedPid) {
   }
 
   const shutdownError = await waitForOwnSseShutdown();
-  if (!shutdownError) return null;
-  return closeError ? `${closeError} ${shutdownError}` : shutdownError;
+  if (closeError && shutdownError) return `${closeError} ${shutdownError}`;
+  return closeError ?? shutdownError;
 }
 
 async function dismissBoundStartupDialogs(pid) {

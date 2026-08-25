@@ -73,7 +73,7 @@ try {
 } finally {
   try {
     for (const instance of started ? [started] : []) {
-      await call("sse_close", { ...instance, force: true, discardChanges: true }, 120_000);
+      await call("sse_close", { ...instance, discardChanges: true }, 120_000);
     }
   } finally {
     await client.close();

@@ -222,7 +222,7 @@ try {
   if (instance?.pid && instance?.hwnd) {
     try {
       await callRaw("sse_close", {
-        pid: instance.pid, hwnd: instance.hwnd, force: true, discardChanges: true,
+        pid: instance.pid, hwnd: instance.hwnd, discardChanges: true,
       }, 60_000);
     } catch { }
   } else if (launchedPid) {
