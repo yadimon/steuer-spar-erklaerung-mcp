@@ -24,6 +24,8 @@ import { COVERAGE_RANK, mergeCoverageLabels, retainHighestCoverageStatus } from 
 const here = dirname(fileURLToPath(import.meta.url));
 const ledgerPath = join(here, "operation-coverage.json");
 const scope = process.env.SSE_TEST_COVERAGE_SCOPE ?? "";
+const CURRENT_GATE_EVIDENCE = "current-gate";
+const SNAPSHOT_VM_EVIDENCE = "snapshot-vm";
 assert(
   scope === "offline" || scope === "live",
   "SSE_TEST_COVERAGE_SCOPE muss 'offline' oder 'live' sein; der Vertrag laeuft nur aus einem Suiterunner.",
@@ -75,16 +77,21 @@ if (process.env.SSE_WRITE_OPERATION_COVERAGE === "1") {
   const operations = {};
   for (const operation of SSE_API_OPERATIONS) {
     const carried = previous.operations?.[operation] ?? {};
+    const liveEvidence = carried.liveEvidence ?? CURRENT_GATE_EVIDENCE;
     operations[operation] = scope === "offline"
       ? {
         offline: retainHighestCoverageStatus(carried.offline, observedStatus(operation)),
         offlineLabels: mergeCoverageLabels(carried.offlineLabels, observedLabels(operation)),
         live: carried.live ?? "untested",
+        ...(carried.liveEvidence ? { liveEvidence: carried.liveEvidence } : {}),
       }
       : {
         offline: carried.offline ?? "untested",
         offlineLabels: carried.offlineLabels ?? [],
-        live: retainHighestCoverageStatus(carried.live, observedStatus(operation)),
+        live: liveEvidence === SNAPSHOT_VM_EVIDENCE
+          ? carried.live ?? "untested"
+          : retainHighestCoverageStatus(carried.live, observedStatus(operation)),
+        ...(carried.liveEvidence ? { liveEvidence: carried.liveEvidence } : {}),
       };
   }
   writeFileSync(
@@ -107,16 +114,39 @@ assert.deepEqual(
   [...SSE_API_OPERATIONS].sort(),
   "Die Abdeckungsbilanz muss genau die veroeffentlichten Operationen fuehren.",
 );
+for (const operation of SSE_API_OPERATIONS) {
+  const entry = ledger.operations[operation];
+  assert.deepEqual(
+    Object.keys(entry).filter((key) => !["offline", "offlineLabels", "live", "liveEvidence"].includes(key)),
+    [],
+    `${operation}: unbekanntes Coverage-Metadatum.`,
+  );
+  const liveEvidence = entry.liveEvidence ?? CURRENT_GATE_EVIDENCE;
+  assert(
+    [CURRENT_GATE_EVIDENCE, SNAPSHOT_VM_EVIDENCE].includes(liveEvidence),
+    `${operation}: unbekannte Live-Evidenzquelle '${liveEvidence}'.`,
+  );
+  if (liveEvidence === SNAPSHOT_VM_EVIDENCE) {
+    assert.equal(entry.live, "functional",
+      `${operation}: ein externer Snapshot-Nachweis darf keine fehlende Live-Funktion kaschieren.`);
+  }
+}
 
 const regressions = [];
 const upgrades = [];
 for (const operation of SSE_API_OPERATIONS) {
-  const claimed = ledger.operations[operation][scope];
+  const entry = ledger.operations[operation];
+  const claimed = entry[scope];
   assert(
     ["functional", "error-path-only", "untested"].includes(claimed),
     `Unbekannter Abdeckungsstatus '${claimed}' fuer '${operation}'.`,
   );
   const actual = observedStatus(operation);
+  // Benutzerbezogene Desktopdaten wie der BelegManager lassen sich auf dem
+  // Host nicht deterministisch zuruecksetzen, ohne fremde Daten anzufassen.
+  // Diese eng begrenzten Operationen werden in der sauberen Snapshot-VM
+  // erneut ausgefuehrt und gehoeren deshalb nicht zur Host-Trace-Ratsche.
+  if (scope === "live" && entry.liveEvidence === SNAPSHOT_VM_EVIDENCE) continue;
   if (actual === claimed) continue;
   if (COVERAGE_RANK[actual] < COVERAGE_RANK[claimed]) regressions.push(`${operation}: erwartet ${claimed}, beobachtet ${actual}`);
   else upgrades.push(`${operation}: beobachtet ${actual}, Bilanz sagt ${claimed}`);
@@ -135,9 +165,13 @@ assert.deepEqual(
 
 const functional = SSE_API_OPERATIONS.filter((operation) => ledger.operations[operation][scope] === "functional");
 const errorOnly = SSE_API_OPERATIONS.filter((operation) => ledger.operations[operation][scope] === "error-path-only");
+const external = scope === "live"
+  ? functional.filter((operation) => ledger.operations[operation].liveEvidence === SNAPSHOT_VM_EVIDENCE)
+  : [];
 process.stdout.write(
   `Abdeckungsbilanz ${scope}: ${functional.length}/${SSE_API_OPERATIONS.length} Operationen erfolgreich ausgefuehrt, ` +
-  `${errorOnly.length} nur auf Fehlerpfaden, ${recordCount} protokollierte Aufrufe\n`,
+  `${errorOnly.length} nur auf Fehlerpfaden, ${recordCount} protokollierte Aufrufe` +
+  (external.length ? `; ${external.length} Live-Nachweise stammen aus dem getrennten Snapshot-VM-Gate` : "") + "\n",
 );
 
 // Laufzeitbild statt Bauchgefuehl: Es wird berichtet, nie behauptet. Ein

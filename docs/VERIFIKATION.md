@@ -182,6 +182,14 @@ das Protokoll mit dem Katalog. Die Bilanz ist eine Ratsche in beide
 Richtungen – verschwundene Abdeckung ist eine Regression, neue Abdeckung muss
 mit `SSE_WRITE_OPERATION_COVERAGE=1` bewusst übernommen werden.
 
+Fünf ausdrücklich mit `liveEvidence: "snapshot-vm"` markierte BelegManager-
+Operationen bilden die einzige Ausnahme vom aktuellen Hostlauf: Der PC kann
+bereits benutzereigene Belegentwürfe enthalten, die ein Test weder löschen noch
+als Ausgangsfixture übernehmen darf. Diese fünf Nachweise stammen aus dem
+getrennten privaten Snapshot-VM-Gate; der Host importiert dafür keine alte
+Trace-Datei und behauptet nicht, sie in jedem `npm run test:live` wiederholt zu
+haben.
+
 Gezählt wird nur der API-Rand. Operationen, die eine Komposition oder ein
 Szenario intern aufruft, gelten damit nicht automatisch als geprüft; sie
 brauchen einen eigenen Aufruf über die HTTP-Grenze.
@@ -193,11 +201,10 @@ und Fenster-/Desktopzustand modelliert. Das beweist Argumentbindung,
 Ressourcenauflösung, Komposition, Ergebnisvertrag und Redaktion über die
 gesamte Kette. Es beweist ausdrücklich **nicht** die proprietäre UIA-Schicht;
 dafür zählt allein die Live-Spalte derselben Bilanz, die echte Worker-Aufrufe
-gegen die installierte Anwendung füllen. Dort stehen am 2026-08-24 86 der 93
-Operationen: 78 aus dem letzten vollständig grünen Zwei-Profil-Gate, der
-anschließend gezielt ausgeführte `collect`-Erfolgspfad, die zwei separat
-auf einem privaten Desktop belegten Center-Operationen sowie fünf erfolgreich
-in einer Snapshot-VM ausgeführte BelegManager-Operationen. `collect` ist auf der
+gegen die installierte Anwendung füllen. Dort stehen am 2026-08-25 86 der 93
+Operationen: 81 aus dem strikten Host-Gate einschließlich `collect` und der
+beiden Center-Operationen sowie fünf erfolgreich in einer Snapshot-VM
+ausgeführte BelegManager-Operationen. `collect` ist auf der
 profilierten ESt-2025-Startseite ohne `Weiter` erfolgreich mit `end-of-branch` belegt:
 genau eine Seite, kein Navigationsschritt hinter dem gespeicherten Stand und
 hashgleicher Datei-Readback. Der getrennte Zwei-Seiten-Lauf belegt weiterhin
