@@ -123,7 +123,18 @@ assert(commit.includes("while ($settleWatch.ElapsedMilliseconds -lt 700)") &&
 const saveAsStart = worker.indexOf("\n  'save_as' {");
 const saveAsEnd = worker.indexOf("\n  '", saveAsStart + 5);
 const saveAs = worker.slice(saveAsStart, saveAsEnd);
-assert.match(saveAs, /SendWait\('\^%s'\)[\s\S]*Set-SSEForegroundLeaseInputCheckpoint/);
+assert.doesNotMatch(saveAs, /SendWait\('\^%s'\)/u,
+  "save_as darf den unzuverlaessigen globalen Shortcut nicht mehr senden.");
+assert.match(saveAs, /Open-SSEMenuByName \$hwnd 'Datei'/u,
+  "save_as muss das exakt gebundene Datei-Menue ueber UI Automation oeffnen.");
+assert.match(saveAs, /Get-SSEOpenMenuEntryMatches \$hwnd \$targetPid 'Speichern unter\.\.\.'/u,
+  "save_as muss den sichtbaren Menueeintrag mit derselben Suche wie menu_click binden.");
+assert.match(saveAs, /Click-VerifiedPoint \$saveAsMatch\.hwnd \$saveAsMatch\.node/u,
+  "save_as muss ausschliesslich den unmittelbar verifizierten Menueeintrag ausloesen.");
+assert.match(saveAs, /\$dialogWait = \[Diagnostics\.Stopwatch\]::StartNew\(\)/u,
+  "save_as muss auf den nativen Dialog begrenzt warten statt ihn nach einer festen Pause nur einmal zu suchen.");
+assert.match(saveAs, /while \(\$dialogWait\.ElapsedMilliseconds -lt 5000\)[\s\S]*Get-Windows 'SSE'/u,
+  "Das begrenzte save_as-Polling muss den echten SSE-Dialog wiederholt neu erfassen.");
 
 const topmostCore = functionBlock("Set-SSEForegroundWindowCore(");
 assert.match(topmostCore, /if \(\$Topmost\).*SetWindowPos\(\$hwnd, \$HWND_TOPMOST/s);

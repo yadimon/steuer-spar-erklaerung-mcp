@@ -51,6 +51,11 @@ const API_LOCAL_RESULT_FIELDS = new Map([
   ["archive_cases", new Set(["recoveryFiles", "retainedTargets"])],
 ]);
 
+/** Ergebnisfelder aus gemeinsam genutzten Worker-Hilfsfunktionen. */
+const SHARED_WORKER_RESULT_FIELDS = new Map([
+  ["Set-SSEDialogFieldText", new Set(["expected", "actual"])],
+]);
+
 const blockStart = new Map();
 for (const [index, line] of lines.entries()) {
   const match = /^ {2}'([a-z_]+)' \{/.exec(line);
@@ -231,12 +236,28 @@ assert.deepEqual(unwrappedLists, [],
   "Diese Listenfelder kommen aus einem $(...)-Unterausdruck und werden bei genau einem Element zum Objekt:\n  " +
   unwrappedLists.join("\n  "));
 
+const workerSource = lines.join("\n");
+for (const [helper, fields] of SHARED_WORKER_RESULT_FIELDS) {
+  const helperStart = workerSource.indexOf(`function ${helper}(`);
+  const helperEnd = workerSource.indexOf("\nfunction ", helperStart + 10);
+  const helperBody = workerSource.slice(helperStart, helperEnd >= 0 ? helperEnd : workerSource.length);
+  assert(helperStart >= 0, `Gemeinsame Ergebnis-Hilfsfunktion '${helper}' fehlt.`);
+  for (const field of fields) {
+    assert(new RegExp(`\\b${field}\\s*=`, "u").test(helperBody),
+      `Gemeinsame Ergebnis-Hilfsfunktion '${helper}' setzt '${field}' nicht mehr.`);
+  }
+}
+
 const phantoms = [];
 let checkedFields = 0;
 for (const operation of SSE_API_OPERATIONS) {
   if (API_INTERNAL_OPERATIONS.includes(operation)) continue;
   const body = blockBody(operation);
   const emittedFields = emittedResultFields(body);
+  for (const [helper, fields] of SHARED_WORKER_RESULT_FIELDS) {
+    if (!body.includes(`${helper} `)) continue;
+    for (const field of fields) emittedFields.add(field);
+  }
   for (const field of Object.keys(SSE_API_RESULT_OUTPUT_SCHEMAS[operation].shape)) {
     if (TRANSPORT_FIELDS.has(field)) continue;
     checkedFields += 1;
