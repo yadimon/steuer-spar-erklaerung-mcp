@@ -14,8 +14,9 @@ concurrency:
 
 jobs:
   validate:
+    name: Offline API/MCP and package gate
     runs-on: windows-2022
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -38,3 +39,5 @@ jobs:
       - name: Run complete offline suite
         run: npm test
 
+      - name: Prove clean installation from both packages
+        run: npm run test:npm-clean-install

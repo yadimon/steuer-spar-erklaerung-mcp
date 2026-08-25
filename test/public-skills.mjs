@@ -246,7 +246,7 @@ assert(
     && fencedPrompt(readme, "Nutze $steuer-spar-erklaerung").length < 400,
   "Der öffentliche Prüfprompt muss kurz bleiben und einen exakten Steuerfallpfad verlangen.",
 );
-assert(readme.includes("## Was die Beta kann") && readme.includes("## Voraussetzungen"));
+assert(readme.includes("## Features") && readme.includes("## Voraussetzungen"));
 assert.match(
   readme,
   /--skill steuer-spar-erklaerung --agent/u,
@@ -269,9 +269,13 @@ assert(
 );
 assert(readme.includes("npx.cmd") && readme.includes("PowerShell-Execution-Policy"));
 assert(readme.toLowerCase().includes("installiere oder aktualisiere den skill") && readme.includes("gecachte Webansicht"));
-assert(readme.includes("## Schnellstart mit zwei Prompts") && readme.includes("einem grünen `health`"));
-assert(readme.includes("## Schnell mit NPX, ohne MCP"));
-assert(readme.includes("Starte die lokale API über npx. Kein MCP und keine globale Runtime-Installation."));
+assert(readme.includes("## Dauerhaftes Setup mit zwei Prompts") && readme.includes("einem grünen `health`"));
+assert(readme.includes("### Robuster isolierter Prüflauf"));
+assert(
+  readme.includes("Starte die lokale API im Vordergrund über npx.")
+    && readme.includes("Kein MCP, keine globale Installation und keine dauerhafte Konfiguration."),
+  "Der isolierte Prompt muss den prozesslokalen NPX-Weg ohne persistente Installation festlegen.",
+);
 assert(readme.includes("keine globale Paketinstallation") && readme.includes("kein dauerhafter Startpfad"));
 assert(
   readme.includes("Die lokale API erzwingt technisch:")
