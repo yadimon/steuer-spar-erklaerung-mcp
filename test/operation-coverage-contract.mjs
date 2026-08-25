@@ -127,8 +127,8 @@ for (const operation of SSE_API_OPERATIONS) {
     `${operation}: unbekannte Live-Evidenzquelle '${liveEvidence}'.`,
   );
   if (liveEvidence === SNAPSHOT_VM_EVIDENCE) {
-    assert.equal(entry.live, "functional",
-      `${operation}: ein externer Snapshot-Nachweis darf keine fehlende Live-Funktion kaschieren.`);
+    assert.notEqual(entry.live, "untested",
+      `${operation}: ein externer Snapshot-Nachweis muss mindestens einen echten Live-Fehlerpfad belegen.`);
   }
 }
 
@@ -142,10 +142,10 @@ for (const operation of SSE_API_OPERATIONS) {
     `Unbekannter Abdeckungsstatus '${claimed}' fuer '${operation}'.`,
   );
   const actual = observedStatus(operation);
-  // Benutzerbezogene Desktopdaten wie der BelegManager lassen sich auf dem
-  // Host nicht deterministisch zuruecksetzen, ohne fremde Daten anzufassen.
+  // Benutzerbezogene Desktopdaten und ELSTER-Voraussetzungen lassen sich auf
+  // dem Host nicht deterministisch pruefen, ohne fremde Daten anzufassen.
   // Diese eng begrenzten Operationen werden in der sauberen Snapshot-VM
-  // erneut ausgefuehrt und gehoeren deshalb nicht zur Host-Trace-Ratsche.
+  // ausgefuehrt und gehoeren deshalb nicht zur Host-Trace-Ratsche.
   if (scope === "live" && entry.liveEvidence === SNAPSHOT_VM_EVIDENCE) continue;
   if (actual === claimed) continue;
   if (COVERAGE_RANK[actual] < COVERAGE_RANK[claimed]) regressions.push(`${operation}: erwartet ${claimed}, beobachtet ${actual}`);

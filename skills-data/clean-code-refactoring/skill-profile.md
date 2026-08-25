@@ -154,6 +154,11 @@
 - `powershell/sse-worker.ps1`:
   - role: safety-critical UI side effects
   - keep_stable: ELSTER blocks, instance/case/hash/interference guards
+  - receipt_manager_binding: adding a draft can replace every Qt RuntimeId;
+    after the zero-draft precondition, bind the unique draft semantically and
+    request expensive ValuePattern reads only in `receipt_manager_read`
+  - transmission_dialog_cancel: only the exact `Abbrechen` button may bypass
+    content-based transmission blocking, after HWND and fingerprint binding
   - collect_end_guard: `end-of-branch` requires both the bound content snapshot
     and the separately bounded navigation snapshot to be untruncated
   - refactor_goals: only cohesive helpers backed by focused contracts
@@ -188,5 +193,5 @@
 ## Last Confirmed State
 
 - verified_at: 2026-08-25
-- notes: API server isolation and desktop-marker test decomposition pass the
-  complete 120-step suite.
+- notes: receipt binding, detail-value reads and safe dialog cancellation pass
+  focused live checks and the complete 120-step suite.

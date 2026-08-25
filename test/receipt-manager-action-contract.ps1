@@ -98,6 +98,12 @@ foreach ($forbidden in @('Click-VerifiedPoint','SendKeys','Invoke-DialogButtonIn
   Assert-True (-not $listReadBlock.Contains($forbidden)) "receipt_manager_list ist nicht rein lesend: '$forbidden'."
 }
 
+$receiptReadStart = $listReadEnd
+$receiptReadEnd = $worker.IndexOf("  'receipt_manager_import' {", $receiptReadStart)
+Assert-True ($receiptReadStart -ge 0 -and $receiptReadEnd -gt $receiptReadStart) 'receipt_manager_read-Operationsblock ist nicht eindeutig abgrenzbar.'
+$receiptReadBlock = $worker.Substring($receiptReadStart, $receiptReadEnd - $receiptReadStart)
+Assert-True ($receiptReadBlock.Contains('Get-SSEReceiptManagerState $toolHwnd $policy -WithValues')) 'receipt_manager_read muss sichtbare Detailwerte und ReadOnly-Zustaende mit ValuePattern lesen.'
+
 $start = $worker.IndexOf("  'receipt_manager_action' {")
 $end = $worker.IndexOf("  'ui_state' {", $start)
 Assert-True ($start -ge 0 -and $end -gt $start) 'receipt_manager_action-Operationsblock ist nicht eindeutig abgrenzbar.'
@@ -142,6 +148,9 @@ foreach ($required in @(
 foreach ($forbidden in @("Arg `$a 'name'", "Arg `$a 'aid'", "Arg `$a 'rid'", "Arg `$a 'x'", "Arg `$a 'y'")) {
   Assert-True (-not $importBlock.Contains($forbidden)) "receipt_manager_import akzeptiert den freien Selektor '$forbidden'."
 }
+Assert-True (-not $importBlock.Contains('$oldRowIds')) 'Belegimport darf neue Entwuerfe nicht ueber fluechtige UIA-Runtime-IDs erkennen.'
+Assert-True ($importBlock.Contains('$createdRows = @($createdList.rows | Where-Object { [bool]$_.draft })')) 'Belegimport muss den nach der entwurfsfreien Vorbedingung eindeutigen neuen Entwurf binden.'
+Assert-True ($importBlock.Contains('$afterCreatedRows = @($listAfter.rows | Where-Object { [bool]$_.draft })')) 'Belegimport muss den Entwurf nach der Dateiauswahl erneut semantisch binden.'
 $dialogImportStart = $worker.IndexOf('function Invoke-SSEReceiptManagerOpenFileDialog(')
 $dialogImportEnd = $worker.IndexOf('function Resolve-SSEPageObject(', $dialogImportStart)
 Assert-True ($dialogImportStart -ge 0 -and $dialogImportEnd -gt $dialogImportStart) 'Gebundener Belegimport-Dialogweg ist nicht eindeutig abgrenzbar.'

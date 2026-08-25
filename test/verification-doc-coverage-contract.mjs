@@ -11,12 +11,19 @@ const snapshotVm = operations.filter(([, value]) => value.liveEvidence === "snap
 assert(operations.length > 0, "Operation-Coverage-Ledger ist leer");
 assert.equal(live.length + missing.length, operations.length);
 assert.deepEqual(snapshotVm, [
+  "instances",
   "receipt_manager_action",
   "receipt_manager_delete",
   "receipt_manager_import",
   "receipt_manager_list",
   "receipt_manager_read",
-], "Der externe Live-Nachweis muss auf die fuenf BelegManager-Operationen begrenzt bleiben.");
+  "vast_apply",
+  "vast_dialog_read",
+  "vast_mapping_options",
+  "vast_mapping_select",
+  "vast_row_details",
+  "vast_row_set_expanded",
+], "Der externe Live-Nachweis muss auf BelegManager, instances und VaSt begrenzt bleiben.");
 
 const liveClaim = verification.match(
   /Dort stehen am \d{4}-\d{2}-\d{2} (\d+) der (\d+)\s+Operationen/u,

@@ -240,8 +240,8 @@ function Get-SSEReceiptManagerPolicy {
   $policy
 }
 
-function Get-SSEReceiptManagerState([IntPtr]$Window, $Policy) {
-  $tree = Walk-Tree $Window 800
+function Get-SSEReceiptManagerState([IntPtr]$Window, $Policy, [switch]$WithValues) {
+  $tree = Walk-Tree $Window 800 -WithValues:$WithValues
   $nodes = @($tree.nodes | Where-Object { $_.w -gt 0 -and $_.h -gt 0 })
   $matchedStates = New-Object System.Collections.ArrayList
   foreach ($stateProperty in @($Policy.states.PSObject.Properties)) {
@@ -1134,6 +1134,13 @@ function Test-SSEKnownPassiveTransmissionNotice($Dialog, [string]$ButtonName, [s
   if (([string]$Dialog.title).Trim() -ne 'Hinweise zur Datenübernahme der vorausgefüllten Steuererklärung') { return $false }
   $known = 'Beiträge für Wahlleistungen bei der Krankenkasse werden nicht immer per VaSt übermittelt.'
   [bool]((ConvertTo-Vergleichsform $Probe) -eq (ConvertTo-Vergleichsform $known))
+}
+
+function Test-SSESafeTransmissionDialogCancellation([string]$ButtonName) {
+  # Ein exakt beschriftetes Abbrechen beendet nur den bereits per Fingerprint
+  # gebundenen Dialog. Andere negative oder schliessende Antworten koennen je
+  # nach Dialog fachliche Entscheidungen sein und bleiben deshalb gesperrt.
+  [bool]($ButtonName -ceq 'Abbrechen')
 }
 
 # ------------------------------------------------------------------- Fenster
@@ -6459,7 +6466,8 @@ switch ($Op) {
     }
     foreach ($probe in @($dialog.title) + @($dialog.texts) + @($dialog.buttons | ForEach-Object { $_.name })) {
       if ($probe -and (Test-Versand $probe) -and
-          -not (Test-SSEKnownPassiveTransmissionNotice $dialog $buttonName $probe)) {
+          -not (Test-SSEKnownPassiveTransmissionNotice $dialog $buttonName $probe) -and
+          -not (Test-SSESafeTransmissionDialogCancellation $buttonName)) {
         Fail "GESPERRT: Dialoginhalt '$probe' hat Uebermittlungsbezug." 'blocked'
       }
     }
@@ -15073,7 +15081,7 @@ switch ($Op) {
     do {
       Start-Sleep -Milliseconds 200
       try {
-        $stateAfter = Get-SSEReceiptManagerState $toolHwnd $policy
+        $stateAfter = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
         $noSelection = @($stateAfter.nodes | Where-Object {
           $_.type -eq 'Text' -and [string]$_.name -ceq 'Kein Beleg ausgewählt' -and $_.w -gt 0 -and $_.h -gt 0
         }).Count -gt 0
@@ -15189,7 +15197,6 @@ switch ($Op) {
     }
     $dirtyBefore = Get-DirtyStateFast $mainHwnd
     if ($null -eq $dirtyBefore) { Fail 'Dirty-State des zugehoerigen Hauptfensters ist nicht lesbar.' 'precondition-failed' }
-    $oldRowIds = @{}; foreach ($row in @($listBefore.rows)) { $oldRowIds[[string]$row.rowRid] = $true }
     $oldContentFingerprints = @($listBefore.rows | ForEach-Object { [string]$_.contentFingerprint })
 
     $newControlSuffix = [string]$policy.controls.newReceipt.automationIdSuffix
@@ -15228,7 +15235,7 @@ switch ($Op) {
       try {
         $createdState = Get-SSEReceiptManagerState $toolHwnd $policy
         $createdList = Get-SSEReceiptManagerListProjection $createdState $policy
-        $createdRows = @($createdList.rows | Where-Object { -not $oldRowIds.ContainsKey([string]$_.rowRid) })
+        $createdRows = @($createdList.rows | Where-Object { [bool]$_.draft })
         $attachMatches = @($createdState.nodes | Where-Object {
           [string]$_.aid -and ([string]$_.aid).EndsWith(
             [string]$policy.controls.attachFile.automationIdSuffix,
@@ -15275,7 +15282,7 @@ switch ($Op) {
     Start-Sleep -Milliseconds 700
     $stateAfter = Get-SSEReceiptManagerState $toolHwnd $policy
     $listAfter = Get-SSEReceiptManagerListProjection $stateAfter $policy
-    $afterCreatedRows = @($listAfter.rows | Where-Object { [string]$_.rowRid -ceq [string]$importedRow.rowRid })
+    $afterCreatedRows = @($listAfter.rows | Where-Object { [bool]$_.draft })
     $attachAfterMatches = @($stateAfter.nodes | Where-Object {
       [string]$_.aid -and ([string]$_.aid).EndsWith(
         [string]$policy.controls.attachFile.automationIdSuffix,
@@ -15291,7 +15298,7 @@ switch ($Op) {
     $sourceHashAfter = Get-Sha256 $path
     $sourceHashStable = [bool]([string]$sourceHashAfter -ceq $expectedHash)
     $remainingContentAfter = @($listAfter.rows | Where-Object {
-      [string]$_.rowRid -cne [string]$importedRow.rowRid
+      -not [bool]$_.draft
     } | ForEach-Object { [string]$_.contentFingerprint })
     $existingRowsUnchanged = [bool](
       ($oldContentFingerprints | ConvertTo-Json -Compress) -ceq

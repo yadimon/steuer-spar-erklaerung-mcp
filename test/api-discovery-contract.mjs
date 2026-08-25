@@ -7,7 +7,7 @@ import { parseApiOperationArgs } from "../dist/operation-catalog.js";
 assert.equal(SSE_API_DISCOVERY.schemaVersion, 1);
 assert.equal(SSE_API_DISCOVERY.safety.elsterAndSubmissionBlocked, true);
 assert.equal(SSE_API_DISCOVERY.liveEvidence.affectsAvailability, false);
-assert.equal(SSE_API_DISCOVERY.liveEvidence.operationStatus.vast_apply, "untested");
+assert.equal(SSE_API_DISCOVERY.liveEvidence.operationStatus.vast_apply, "error-path-only");
 assert.deepEqual(SSE_API_DISCOVERY.operations, SSE_API_OPERATIONS);
 assert.deepEqual(Object.keys(SSE_API_DISCOVERY.argumentSchemas), SSE_API_OPERATIONS);
 assert.equal(SSE_API_DISCOVERY.resultSchemaVersion, 1);

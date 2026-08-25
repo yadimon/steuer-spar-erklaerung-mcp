@@ -201,20 +201,22 @@ und Fenster-/Desktopzustand modelliert. Das beweist Argumentbindung,
 Ressourcenauflösung, Komposition, Ergebnisvertrag und Redaktion über die
 gesamte Kette. Es beweist ausdrücklich **nicht** die proprietäre UIA-Schicht;
 dafür zählt allein die Live-Spalte derselben Bilanz, die echte Worker-Aufrufe
-gegen die installierte Anwendung füllen. Dort stehen am 2026-08-25 86 der 93
+gegen die installierte Anwendung füllen. Dort stehen am 2026-08-25 87 der 93
 Operationen: 81 aus dem strikten Host-Gate einschließlich `collect` und der
-beiden Center-Operationen sowie fünf erfolgreich in einer Snapshot-VM
-ausgeführte BelegManager-Operationen. `collect` ist auf der
+beiden Center-Operationen sowie fünf BelegManager-Operationen und `instances`,
+die erfolgreich in einer Snapshot-VM ausgeführt wurden. `collect` ist auf der
 profilierten ESt-2025-Startseite ohne `Weiter` erfolgreich mit `end-of-branch` belegt:
 genau eine Seite, kein Navigationsschritt hinter dem gespeicherten Stand und
 hashgleicher Datei-Readback. Der getrennte Zwei-Seiten-Lauf belegt weiterhin
 `collection-incomplete`, `limit-reached` und den hashgebundenen Teilabgleich.
 „Vollständig" gilt dabei nur für den ab der jeweiligen Startseite erreichbaren
 Blätterpfad, nicht für den gesamten Steuerfall. Noch nie erfolgreich live
-aufgerufen sind damit die sechs VaSt-Wege `vast_apply`,
+abgeschlossen sind damit die sechs VaSt-Wege `vast_apply`,
 `vast_dialog_read`, `vast_mapping_options`, `vast_mapping_select`,
-`vast_row_details` und `vast_row_set_expanded` sowie die
-Mehrinstanz-Übersicht `instances`.
+`vast_row_details` und `vast_row_set_expanded`. In der Snapshot-VM erreichte
+jeder davon ohne den erforderlichen Zertifikat-PIN kontrolliert den echten
+`not-found`-Fehlerpfad; die Mehrinstanz-Übersicht war mit genau einer Instanz
+funktional.
 
 Der BelegManager-Nachweis verwendete ausschließlich eine synthetische PDF und
 den direkten VM-Runner: `receipt_manager_list` las zunächst eine vollständige
@@ -271,10 +273,9 @@ die erzeugte Bilanz bindet. `affectsAvailability=false` und
 `profileSpecific=false` benennen seine Grenzen maschinenlesbar. Ein Profil mit
 `status=supported` und `operationAccess=full` gibt alle Operationen frei –
 unabhängig davon, ob sie jemals erfolgreich gegen die echte Anwendung
-gelaufen sind. Gemessen am 2026-08-24 sind noch 7 der 93 Operationen nicht
-live-funktional belegt: die oben genannten sechs VaSt-Wege und `instances`.
-Damit sind 86 Operationen `functional` und keine ist derzeit nur als
-`error-path-only` belegt.
+gelaufen sind. Gemessen am 2026-08-25 sind noch 6 der 93 Operationen nicht
+live-funktional belegt: die oben genannten sechs VaSt-Wege. Damit sind 87
+Operationen `functional`, sechs `error-path-only` und keine `untested`.
 Zwei davon (`vast_apply`, `vast_mapping_select`) fallen in die
 Klasse `destructive`.
 
