@@ -45,7 +45,13 @@ export function registerLifecycleTools(registry: McpRegistry): void {
         "sind Pflicht und muessen mit Fenstertitel und Datei uebereinstimmen. Sind mehrere Steuerfaelle offen, " +
         "muss das exakte Hauptfenster per hwnd gebunden werden. Danach werden Hashwechsel, " +
         "deaktivierte Sichern-Schaltflaeche und Dialogfreiheit geprueft. Nicht fuer Wiederherstellungsfaelle " +
-        "ohne Dateibindung verwenden.",
+        "ohne Dateibindung verwenden. Bereits uebermittelte oder unbekannte Faelle bleiben standardmaessig " +
+        "gesperrt. Nach ausdruecklicher menschlicher Freigabe kann correction ausschliesslich eine separat " +
+        "als Korrektur/Berichtigung benannte Arbeitskopie speichern: Zeitraum, Grund, unveraendertes " +
+        "uebermitteltes Original und dessen SHA256 sowie eine bytegleiche Vorzustands-Sicherung unter backups: " +
+        "sind Pflicht. Ein generisches force gibt es nicht, das Original bleibt unveraendert und sse_save " +
+        "loest niemals ELSTER aus. Bei einer UStVA-Berichtigung muss das fachliche Kennzeichen corrected " +
+        "separat im richtigen Zeitraum gesetzt und zurueckgelesen werden.",
     },
     { timeoutMs: 90_000 },
   );

@@ -270,6 +270,15 @@ installierten Shim-Dateien `npm.ps1` oder `npx.ps1` blockiert.
 
 Die Automation unterscheidet drei Betriebsarten:
 
+Für einen bereits übermittelten Fall erzeugt der Agent zuerst eine separat als
+`Korrektur` oder `Berichtigung` benannte Arbeitskopie und danach eine bytegleiche
+Sicherung ihres Vorzustands. `sse_save` akzeptiert diesen Stand nur mit
+ausdrücklicher Freigabe, exaktem Zeitraum und Grund sowie den erwarteten SHA256
+von Original und Sicherung. Ein allgemeines `force` existiert bewusst nicht.
+Bei einer UStVA-Berichtigung wird zusätzlich im ausgewählten Zeitraum
+`sse_ustva_set_flag` mit `flag="corrected"` gesetzt und zurückgelesen. Keine
+dieser Operationen übermittelt Daten an ELSTER.
+
 1. strukturierte UIA-Lesewege ohne Vordergrundwechsel;
 2. wenige ausdrücklich profilierte Focusless-Transaktionen mit Feld-, Summen-
    und Dirty-State-Readback;

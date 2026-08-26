@@ -4326,6 +4326,18 @@ function Get-KnownPageHeading([IntPtr]$Hwnd, $Known) {
 function Test-KnownPageHeading([string]$Heading, $Page) {
   if (-not $Heading -or -not $Page) { return $false }
   if ($Heading -eq [string]$Page.heading) { return $true }
+  $numberedLabelProperty = $Page.PSObject.Properties['headingNumberedLabel']
+  if ($numberedLabelProperty -and [string]$numberedLabelProperty.Value) {
+    $numberedMatch = [regex]::Match($Heading, '^(?<number>[1-9][0-9]*)\. (?<label>.+)$')
+    $numberedLabel = [string]$numberedMatch.Groups['label'].Value
+    $expectedNumberedLabel = [string]$numberedLabelProperty.Value
+    $expectedNumberedDetailPrefix = $expectedNumberedLabel + ': '
+    if ($numberedMatch.Success -and
+        ($numberedLabel -eq $expectedNumberedLabel -or
+         $numberedLabel.StartsWith($expectedNumberedDetailPrefix, [StringComparison]::Ordinal))) {
+      return $true
+    }
+  }
   $prefixProperty = $Page.PSObject.Properties['headingPrefix']
   if ($prefixProperty -and [string]$prefixProperty.Value) {
     return $Heading.StartsWith([string]$prefixProperty.Value, [StringComparison]::Ordinal)
@@ -7384,7 +7396,7 @@ switch ($Op) {
     $targetPid = 0
     [SW]::GetWindowThreadProcessId($hwnd, [ref]$targetPid) | Out-Null
     $dialogsBefore = @()
-    if ($isNavigation -or $hasPagePostcondition) {
+    if ($isNavigation -or ($hasPagePostcondition -and $pattern -ne 'select')) {
       $dialogsBefore = @(Get-DialogInventory | Where-Object {
         [int]$_.pid -eq $targetPid -and $_.kind -in @('native-dialog','qt-dialog')
       })
@@ -7470,7 +7482,14 @@ switch ($Op) {
               Fail ("Radio-Auswahl braucht einen verifizierten physischen Klick; auf dem versteckten " +
                     "Desktop '$($script:DESKTOP_NAME)' bleibt sie fail-closed.") 'hidden-desktop'
             }
-            $null = Click-VerifiedPoint $hwnd $node
+            # Qt exposes the text and the circular indicator as one wide
+            # RadioButton rectangle. Clicking the rectangle midpoint can hit
+            # only the label and leave SSE's domain state unchanged. Bind the
+            # physical click to the left indicator area while keeping the
+            # original PID/root, input-epoch and full-group readback guards.
+            $radioClickNode = $node.PSObject.Copy()
+            $radioClickNode.w = [math]::Min([double]$node.w, [math]::Max(18, [double]$node.h))
+            $null = Click-VerifiedPoint $hwnd $radioClickNode
             $radioSelectionMethod = 'verified-point'
             $radioInputBaseline = Get-SSELastInputTick
             Start-Sleep -Milliseconds 80
@@ -7622,7 +7641,11 @@ switch ($Op) {
     # Klick gelingt, die Seite bleibt, und es oeffnet sich ein Warnfenster.
     # Ohne diese Pruefung klickt ein Agent endlos weiter.
     $navigiert = $null; $nachher = $null; $dialogsAfter = @()
-    if ($isNavigation -or $hasPagePostcondition) {
+    # A radio selection is deliberately same-page and already verifies page
+    # stability together with the full exclusive group above. Do not feed it
+    # into the navigation-only postcondition, where an identical expected
+    # heading would otherwise be reported as a false navigation failure.
+    if ($isNavigation -or ($hasPagePostcondition -and $pattern -ne 'select')) {
       $t2 = Walk-Tree $hwnd 900
       $nachher = Get-CurrentHeading $hwnd $t2
       $navigiert = [bool]($nachher -and $nachher -ne $headingBefore)
@@ -9211,6 +9234,84 @@ switch ($Op) {
     $itemBefore = Get-Item -LiteralPath $expectedPath
     $summaryBefore = Get-CaseSummary $expectedPath
     if (-not $summaryBefore) { Fail 'Falldateikopf konnte vor dem Speichern nicht gelesen werden.' 'parse-failed' }
+    # A case-level ElsterTransferTime can describe an earlier UStVA period in
+    # a year-long Gewinn-Erfassung. A blanket lock would make later periods
+    # impossible to maintain. Nevertheless, an already transmitted ORIGINAL
+    # must never be overwritten. The only exception is therefore an explicit,
+    # period-bound correction WORKING COPY with a separately hash-bound source
+    # and a byte-identical pre-save backup. Keep all of these checks at the
+    # final worker boundary so neither the API nor a direct worker call can
+    # turn the correction contract into a generic force bypass.
+    $correctionResult = $null
+    $correction = Arg $a 'correction'
+    if ($summaryBefore.transmitted -ne $false) {
+      $transmissionReason = [string]$summaryBefore.transmittedReason
+      if (-not $transmissionReason) { $transmissionReason = 'Uebermittlungsstatus ist unbekannt' }
+      if (-not $correction) {
+        Fail ("Bereits uebermittelter oder nicht sicher als unuebermittelt erkannter Fall wird nicht gespeichert: " +
+              "$transmissionReason. Fuer eine Korrektur zuerst eine als Korrektur/Berichtigung benannte, " +
+              "hashverifizierte Arbeitskopie samt Sicherung erzeugen und correction explizit bestaetigen.") 'transmitted-case-locked'
+      }
+
+      $acknowledged = [bool](Arg $correction 'acknowledged' $false)
+      $period = [string](Arg $correction 'period')
+      $correctionReason = ([string](Arg $correction 'reason')).Trim()
+      $sourcePathRaw = [string](Arg $correction 'sourcePath')
+      $backupPathRaw = [string](Arg $correction 'backupPath')
+      $expectedSourceHash = ([string](Arg $correction 'expectedSourceHash')).ToUpperInvariant()
+      $expectedBackupHash = ([string](Arg $correction 'expectedBackupHash')).ToUpperInvariant()
+      if (-not $acknowledged -or $period -notmatch '^\d{4}-(?:0[1-9]|1[0-2]|Q[1-4]|YEAR)$' -or
+          $correctionReason.Length -lt 3 -or $correctionReason.Length -gt 500 -or
+          -not $sourcePathRaw -or -not $backupPathRaw -or
+          $expectedSourceHash -notmatch '^[A-F0-9]{64}$' -or
+          $expectedBackupHash -notmatch '^[A-F0-9]{64}$') {
+        Fail ('correction braucht acknowledged=true, einen Zeitraum YYYY-MM/YYYY-Qn/YYYY-YEAR, ' +
+              'einen Grund sowie gebundene Original- und Sicherungspfade mit SHA256.') 'bad-args'
+      }
+
+      $sourcePath = [IO.Path]::GetFullPath($sourcePathRaw)
+      $backupPath = [IO.Path]::GetFullPath($backupPathRaw)
+      $samePath = [StringComparer]::OrdinalIgnoreCase
+      if ($samePath.Equals($expectedPath, $sourcePath) -or
+          $samePath.Equals($expectedPath, $backupPath) -or
+          $samePath.Equals($sourcePath, $backupPath)) {
+        Fail 'Korrekturstand, uebermitteltes Original und Sicherung muessen drei verschiedene Dateien sein.' 'precondition-failed'
+      }
+      $targetStem = [IO.Path]::GetFileNameWithoutExtension($expectedPath)
+      if ($targetStem -notmatch '(?i)(korrektur|berichtigung)') {
+        Fail 'Ein uebermittelter Stand darf nur in einer als Korrektur oder Berichtigung benannten Arbeitskopie gespeichert werden.' 'precondition-failed'
+      }
+      $targetExtension = [IO.Path]::GetExtension($expectedPath)
+      if ([IO.Path]::GetExtension($sourcePath) -ne $targetExtension -or
+          [IO.Path]::GetExtension($backupPath) -ne $targetExtension) {
+        Fail 'Korrekturstand, Original und Sicherung muessen denselben Falldateityp haben.' 'precondition-failed'
+      }
+      if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) { Fail 'Korrektur-Original fehlt.' 'not-found' }
+      if (-not (Test-Path -LiteralPath $backupPath -PathType Leaf)) { Fail 'Korrektur-Sicherung fehlt.' 'not-found' }
+      $actualSourceHash = Get-Sha256 $sourcePath
+      $actualBackupHash = Get-Sha256 $backupPath
+      if ($actualSourceHash -ne $expectedSourceHash) {
+        Fail 'Das gebundene uebermittelte Original wurde veraendert; Korrektur nicht gespeichert.' 'resource-changed'
+      }
+      if ($actualBackupHash -ne $expectedBackupHash -or $actualBackupHash -ne $before) {
+        Fail 'Die Korrektur-Sicherung entspricht nicht bytegenau dem unmittelbar zu speichernden Vorzustand.' 'precondition-failed'
+      }
+      $sourceSummary = Get-CaseSummary $sourcePath
+      if (-not $sourceSummary -or $sourceSummary.transmitted -ne $true) {
+        Fail 'Die Korrekturquelle ist nicht eindeutig als uebermitteltes Original nachgewiesen.' 'precondition-failed'
+      }
+      $correctionResult = [pscustomobject]@{
+        acknowledged = $true
+        period = $period
+        reason = $correctionReason
+        sourceHash = $actualSourceHash
+        backupHash = $actualBackupHash
+        originalUntouchedBeforeSave = $true
+        elsterTransmissionTriggered = $false
+      }
+    } elseif ($correction) {
+      Fail 'correction ist nur fuer eine Korrektur-Arbeitskopie mit eindeutig uebermitteltem Quelloriginal zulaessig.' 'bad-args'
+    }
 
     $tree = Walk-Tree $hwnd 1200
     # Die Suchansicht ersetzt in Qt die normale Hauptsymbolleiste. Dann ist
@@ -9238,6 +9339,7 @@ switch ($Op) {
         ok = $true; saved = $false; noChanges = $true; path = $expectedPath
         hashBefore = $before; hashAfter = $before; binding = $binding; verified = $true
         searchClosedBeforeSave = $searchClosedBeforeSave
+        correction = $correctionResult
         note = 'Sichern ist deaktiviert; es gibt keine ungespeicherten Aenderungen.'
       })
     }
@@ -9331,6 +9433,7 @@ switch ($Op) {
       searchClosedBeforeSave = $searchClosedBeforeSave
       mtimeBeforeUtc = $itemBefore.LastWriteTimeUtc.ToString('o'); mtimeAfterUtc = $itemAfter.LastWriteTimeUtc.ToString('o')
       header = $summaryAfter.header; transmitted = $summaryAfter.transmitted
+      correction = $correctionResult
       fileSavedByChanged = ($summaryBefore.header.FileSavedBy -ne $summaryAfter.header.FileSavedBy)
     })
   }

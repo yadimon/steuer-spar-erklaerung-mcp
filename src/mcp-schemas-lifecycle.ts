@@ -27,6 +27,29 @@ export const SSE_MCP_LIFECYCLE_SCHEMAS = {
   "sse_save": z.object({
     caseRef: CASE_REF().describe("Exakte Referenz des aktuell geoeffneten Steuerfalls"),
     expectedHashBefore: SHA256().describe("SHA256 der Datei unmittelbar vor dem Speichern"),
+    correction: z.object({
+      acknowledged: z.literal(true).describe(
+        "Bestaetigt die ausdrueckliche menschliche Freigabe dieser Korrekturspeicherung",
+      ),
+      period: z.string().regex(
+        /^\d{4}-(?:0[1-9]|1[0-2]|Q[1-4]|YEAR)$/u,
+        "Zeitraum als YYYY-MM, YYYY-Q1 bis YYYY-Q4 oder YYYY-YEAR erwartet",
+      ).describe("Exakter fachlicher Korrekturzeitraum"),
+      reason: z.string().trim().min(3).max(500).describe("Nachvollziehbarer Grund fuer die Korrektur"),
+      sourceRef: CASE_REF().describe(
+        "Unveraendertes uebermitteltes Original, aus dem die Korrektur-Arbeitskopie erzeugt wurde",
+      ),
+      expectedSourceHash: SHA256().describe("Unveraenderter SHA256 des uebermittelten Originals"),
+      backupRef: BACKUP_REF().describe(
+        "Hashverifizierte Sicherung des unmittelbar vor dem Speichern bestehenden Korrekturstands",
+      ),
+      expectedBackupHash: SHA256().describe(
+        "SHA256 der Sicherung; muss expectedHashBefore des Korrekturstands entsprechen",
+      ),
+    }).strict().optional().describe(
+      "Expliziter Korrekturmodus fuer eine als Korrektur/Berichtigung benannte Arbeitskopie. " +
+      "Ohne dieses Objekt bleiben uebermittelte oder unbekannte Faelle gesperrt.",
+    ),
     hwnd: WINDOW_HANDLE.optional().describe("Exaktes SSE-Hauptfenster; bei mehreren offenen Steuerfaellen Pflicht"),
     waitMs: z.number().int().min(800).max(30000).optional().describe("Wartezeit auf Datei- und Hash-Readback"),
   }).strict(),

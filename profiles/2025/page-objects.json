@@ -415,6 +415,110 @@
           }
         }
       }
+    },
+    "gew.fahrzeug": {
+      "heading": "1. Fahrzeug",
+      "headingNumberedLabel": "Fahrzeug",
+      "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
+      "documentType": "Gew2025",
+      "fields": {
+        "bezeichnung": {
+          "label": "Bezeichnung",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Fahrzeug./.Fahrzeug.FahrzeugTyp./.Fahrzeug.FahrzeugTyp.Text",
+          "automationIdSuffix": ".Fahrzeug.FahrzeugTyp.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "kennzeichen": {
+          "label": "Kennzeichen",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Fahrzeug./.Fahrzeug.Kennzeichen./.Fahrzeug.Kennzeichen.Text",
+          "automationIdSuffix": ".Fahrzeug.Kennzeichen.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        }
+      }
+    },
+    "gew.fahrzeug_leasing": {
+      "heading": "1. Fahrzeug",
+      "headingNumberedLabel": "Fahrzeug",
+      "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
+      "documentType": "Gew2025",
+      "fields": {
+        "leasingbeginn": {
+          "label": "Leasingbeginn",
+          "controlType": "Edit",
+          "valueKind": "date",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Fahrzeug./.Fahrzeug.Betriebsvermoegen./.Fahrzeug.Betriebsvermoegen.LeasingBeginn./.Fahrzeug.Betriebsvermoegen.LeasingBeginn.GruppeDatum./.Fahrzeug.Betriebsvermoegen.LeasingBeginn.GruppeDatum.Datum",
+          "automationIdSuffix": ".Fahrzeug.Betriebsvermoegen.LeasingBeginn.GruppeDatum.Datum",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        }
+      }
+    },
+    "gew.fahrzeug_leasingkosten": {
+      "heading": "Leasingkosten:",
+      "headingPrefix": "Leasingkosten:",
+      "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
+      "documentType": "Gew2025",
+      "fields": {
+        "vertragsmonate": {
+          "label": "Anzahl der Monate",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Dauer./.Dauer.Dauer./.Dauer.Dauer.Wert",
+          "automationIdSuffix": ".Dauer.Dauer.Wert",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        }
+      }
+    },
+    "gew.fahrzeug_private_nutzung": {
+      "heading": "private Kfz-Nutzung:",
+      "headingPrefix": "private Kfz-Nutzung:",
+      "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
+      "documentType": "Gew2025",
+      "fields": {
+        "bruttolistenpreis": {
+          "label": "Listenpreis des Fahrzeuges (inkl. Umsatzsteuer und Sonderausstattung)",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.ProzentMethode./.ProzentMethode.grp1ProzMethode./.ProzentMethode.grp1ProzMethode.Bruttolistenpreis./.ProzentMethode.grp1ProzMethode.Bruttolistenpreis.Wert",
+          "automationIdSuffix": ".ProzentMethode.grp1ProzMethode.Bruttolistenpreis.Wert",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "nutzungsmonate": {
+          "label": "Monate der privaten Nutzung",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.ProzentMethode./.ProzentMethode.PrivatentnahmeEStG./.ProzentMethode.PrivatentnahmeEStG.ProzentVonListenpreisMalMonateElektrofahrzeug./.ProzentMethode.PrivatentnahmeEStG.ProzentVonListenpreisMalMonateElektrofahrzeug.Text1ProzentUndMonate./.ProzentMethode.PrivatentnahmeEStG.ProzentVonListenpreisMalMonateElektrofahrzeug.Text1ProzentUndMonate.MalMonate./.ProzentMethode.PrivatentnahmeEStG.ProzentVonListenpreisMalMonateElektrofahrzeug.Text1ProzentUndMonate.MalMonate.Wert",
+          "automationIdSuffix": ".ProzentMethode.PrivatentnahmeEStG.ProzentVonListenpreisMalMonateElektrofahrzeug.Text1ProzentUndMonate.MalMonate.Wert",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        }
+      }
     }
   }
 }
