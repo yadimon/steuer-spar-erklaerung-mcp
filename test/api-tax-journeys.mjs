@@ -1094,6 +1094,22 @@ test("23d fill_fields writes two profiled vehicle fields in one worker plan", as
   });
 });
 
+test("23e goto binds a dynamic vehicle heading through its stable pageId", async () => {
+  await withHarness(async (harness) => {
+    await launchFreelancer(harness);
+    await harness.call("click", {
+      name: "Fahrzeug",
+      expectedPageBefore: "Einnahmen/Ausgaben",
+      expectedPageAfter: "1. Fahrzeug",
+    });
+    const reached = await harness.call("goto", { pageId: "gew.fahrzeug", hwnd: 4242 });
+    assert.equal(reached.ok, true);
+    assert.equal(reached.pageId, "gew.fahrzeug");
+    assert.equal(reached.ueberschrift, "1. Fahrzeug");
+    assert.equal(reached.schritte, 0);
+  });
+});
+
 test("24 window handles stay bound to the exact current title", async () => {
   await withHarness(async (harness) => {
     await launchFreelancer(harness);

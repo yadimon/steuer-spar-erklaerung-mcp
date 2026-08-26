@@ -283,7 +283,7 @@ const CORE_OPERATION_RESULT_FIELDS = {
       h: z.number().finite().nonnegative().describe("Bildhoehe"),
     }).passthrough().nullable().optional().describe("Metadaten des erzeugten Kontrollbilds"),
   },
-  goto: { erreicht: OPTIONAL_BOOLEAN, ueberschrift: OPTIONAL_STRING, weg: OPTIONAL_ARRAY },
+  goto: { erreicht: OPTIONAL_BOOLEAN, pageId: OPTIONAL_STRING, ueberschrift: OPTIONAL_STRING, weg: OPTIONAL_ARRAY },
   launch: {
     pid: OPTIONAL_NON_NEGATIVE_NUMBER,
     instance: OPTIONAL_OBJECT,

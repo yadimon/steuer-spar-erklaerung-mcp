@@ -1,6 +1,6 @@
 # Verifikationsstand
 
-Stand: 2026-08-23
+Stand: 2026-08-27
 
 Dieses Dokument trennt veröffentlichte Verträge, Mock-/Quelltests und echte
 SSE-Läufe. Ein grüner Vertragstest beweist nicht automatisch, dass jede
@@ -44,7 +44,7 @@ nie automatisch verworfen.
 | Center-Live-Gate | `npm run test:live-center` | `center_cases` und `center_refresh` für Profil 2025 über die HTTP-API in „Verzeichnis“ oder „Zuletzt verwendet“, exakte HWND-/Zustandsbindung, Rückkehr in den Ausgangsmodus, pfadredigierte Antworten und Kill-on-close-Cleanup auf einem privaten Desktop; im Verzeichnismodus zusätzlich unveränderter Dateibestand | Profil 2024; VaSt; fachliche Richtigkeit der realen Fallnamen |
 | Falldatei-Liveparität | `npm run test:live-case-file` | lokale API-Implementierung und direkter PowerShell-Worker liefern denselben Fallhash sowie dieselbe vollständige Standard-Fallliste des offiziellen Musterordners; keine SSE-UI wird gestartet | ausführliche Parser-Metadaten und UI-Verhalten |
 | Workspace-Dateivertrag | `node test/workspace-file-cancellation.mjs` | synchrone/kooperative Listenparität, Abbruch vor und während der Liste sowie nach einem 64-KiB-Hashblock, Hashbudget auch bei verworfener I/O, Deadline ohne Teilergebnis, exakte Trunkierung samt Gleichheitsgrenze, Read-Post-Deadline, Write-Preflight und veröffentlichte Schemas | reales langsames Netzlaufwerk; Abbruch eines bereits laufenden synchronen 1-MiB-Textwrites |
-| MCP-Abbruchkette | `node test/mcp-cancellation.mjs` | echter `sse_workspace_files`-Aufruf über MCP-Prozess, HTTP-Client, API-Server und Workspace-Executor; Clientabbruch ergibt serverseitig `ok=false`, `kind=aborted`, `delivered=false`, danach gelingt ein vollständiger Folgeaufruf | harter Prozessabsturz während des Abbruchs; bereits gestartete synchrone Mutationen |
+| MCP-Abbruchkette | `node test/mcp-cancellation.mjs` | echter `sse_workspace_files`-Aufruf über MCP-Prozess, HTTP-Client, API-Server und Workspace-Executor; eine deterministische Barriere beweist das API-`AbortSignal`, danach ergeben sich serverseitig `ok=false`, `kind=aborted`, `delivered=false` und ein vollständiger Folgeaufruf | harter Prozessabsturz während des Abbruchs; bereits gestartete synchrone Mutationen |
 | Worker-Queue-Abbruch | `node test/worker-timeout.mjs` | Vorab-Abbruch auch bei voller Queue bleibt `aborted`; eine echte 32er-Belegung liefert `busy`; 31 abgebrochene wartende Aufträge geben ihre Plätze vor Abschluss des Vorderauftrags frei und starten keinen Worker | Betriebssystemstillstand innerhalb eines bereits gestarteten Worker-/Cleanup-Prozesses |
 | Worker-Prozessbaum-Cleanup | `node test/worker-inherited-pipe.mjs` | ein echter Windows-Enkelprozess hält nach beendetem Parent geerbte stdout/stderr-Handles offen; fehlendes `close` verriegelt nach beiden Cleanup-Wächtern die globale Worker-Laufzeit mit `worker-isolation-lost`, bevor selbst ein bereits abgebrochener Folgeaufruf die Queue betreten kann | Identifikation oder automatische Beseitigung eines bereits vom beendeten Parent entkoppelten fremden Prozessbaums |
 | HTTP-Body-Abbruch | `node test/api-client-body-abort.mjs` | Aufruferabbruch nach bereits gelieferten HTTP-Headern beendet verzögerte Operations- und Discovery-JSON-Streams; ein echter falscher `Content-Type` bleibt `protocol`, cancelt aber einen laufenden 64-MiB-Body und schließt den serverseitigen Socket innerhalb 500 ms | ein nicht abbrechbarer Kernel-/Netzwerkaufruf unterhalb des Node-Streams |
@@ -244,6 +244,21 @@ separater vollständiger Listenread nach Freigabe der Foreground-Lease mit
 hashgleichem semantischem Zeilen-Multiset hob den Zwischenzustand auf. Der
 synthetische Beleg wurde anschließend exakt gebunden gelöscht, die Liste auf
 vier vorhandene Zeilen zurückgeführt und SSE ohne Speichern geschlossen.
+
+Die lokale Vorher-/Nachher-Messung vom 2026-08-26 verwendete auf demselben
+Wegwerffall mit 21 Ausgangsbelegen zweimal dieselbe synthetische, SHA-gebundene
+PDF. Import, alle sieben Felder und unabhängiger Abschlussreadback waren beide
+Male `completed-verified`. Der erste Lauf benötigte 37,531 s; nach Ersatz der
+Feld-für-Feld-Vollbaumprojektionen durch exakt gebundene Live-Readbacks
+25,568 s (−31,9 %). Die neuen Phasenwerte wiesen 10,203 s Import, 6,609 s
+Update, 4,799 s Abschluss-Detailread und 2,520 s Listenreads aus. Ein weiterer
+Update-Lauf änderte einschließlich Netto-Checkbox zwei Werte in 15,009 s
+Gesamtzeit und blieb vollständig verifiziert. Beide Testbelege und ein durch
+einen absichtlich falschen Dateityp erzeugter Entwurf wurden exakt gebunden
+gelöscht; der Fall wurde ohne Speichern geschlossen und das Quellfixture blieb
+unter SHA-256
+`6C14AD6871F72E811B16FCB1CA65586FE95FBD99393A1648C5C8D19C64C4AA00`
+unverändert.
 
 `fill_fields` wurde am selben Tag lokal an einer verworfenen Kopie eines
 synthetischen Fahrzeugfalls erfolgreich live geprüft. Zwei Felder wurden mit
@@ -814,6 +829,16 @@ Vorbereitungszweig reproduzierbar nicht – der Doppelklick verpufft und `goto`
 meldet korrekt `not-found`. Der gleichnamige Eintrag im Navigationsbaum führt
 dagegen zuverlässig zum Ziel. Der Sweep nimmt deshalb diesen Weg; er ist damit
 zugleich der einzige Live-Beleg für `click_point`.
+
+Der lokale Fahrzeugfall vom 2026-08-26 belegt daneben den neuen semantischen
+`goto`-Pfad. Der alte exakte Zieltext `Fahrzeug` öffnete zwar tatsächlich
+`1. Fahrzeug: Chevrolet Camaro`, verwarf den dynamischen Titel aber und endete
+nach 19,916 s mit `not-found`. `pageId=gew.fahrzeug` erreichte dieselbe Seite
+vom identischen Startzustand in 12,724 s, bestätigte anschließend mit
+`known_page_state` Überschrift und beide Pflichtfelder und benötigte auf der
+bereits geöffneten Seite 1,956 s ohne Navigationsschritt. Die globale Suche
+bleibt nur Transport; Zielerfolg entsteht erst aus Page-Object-Überschrift und
+Pflichtfeldern.
 
 `snapshot_compare` kann auf Engine 30 über unmittelbar benachbarte
 Messpaare hinweg einen echten Leserunterschied melden. Das Profil verwendet
