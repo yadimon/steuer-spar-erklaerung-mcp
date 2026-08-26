@@ -32,7 +32,10 @@ export const SSE_MCP_UI_SCHEMAS = {
     hwnd: WINDOW_HANDLE.optional(),
   }).strict(),
   "sse_goto": z.object({
-    name: z.string().describe("Ueberschrift der Zielseite, z. B. 'Einnahmen: Freiberufler'"),
+    name: z.string().optional().describe("Ueberschrift der Zielseite, z. B. 'Einnahmen: Freiberufler'"),
+    pageId: z.string().min(1).max(200).optional().describe(
+      "Bevorzugte stabile pageId aus sse_page_objects; erkennt auch dynamische nummerierte Ueberschriften",
+    ),
     maxSteps: GOTO_MAX_STEPS.optional().describe("Hoechstzahl der Blaetterschritte, Vorgabe automatisch, maximal 200"),
     direction: z.enum(["Weiter", "Zurück"]).optional().describe(
       "Bei unbekannten Seiten die Suchrichtung fest vorgeben; verhindert einen langen Lauf in die falsche Richtung",

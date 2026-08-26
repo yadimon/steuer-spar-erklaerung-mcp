@@ -85,6 +85,10 @@ assert.equal(receiptResult.planKind, "receipt-manager-bulk-upsert");
 assert.equal(receiptResult.failedAction?.stage, "initial-list");
 assert.equal(receiptResult.performance?.workerProcessCount, 1);
 assert.equal(receiptResult.performance?.internalOperationCount, 1);
+assert.deepEqual(receiptResult.performance?.internalTimings?.map((entry) => entry.operation), ["receipt_manager_list"]);
+assert.equal(receiptResult.performance?.internalTimings?.reduce((sum, entry) => sum + entry.ms, 0),
+  receiptResult.performance?.sseActionMs,
+  "Phasenmessungen muessen die komplette gemessene interne Aktionszeit erklaeren.");
 assert(!JSON.stringify(receiptResult).includes("SSE_INTERNAL_OPERATION_RESULT_CAPTURED"));
 
 assert.equal(ssePids(), pidsBefore, "Der Bulk-Vertrag darf keine SSE-Instanz starten oder beenden.");

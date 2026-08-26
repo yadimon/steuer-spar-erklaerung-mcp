@@ -54,6 +54,9 @@ export function sampleJsonSchema(schema, property = "value") {
       if (property === "sse_center_refresh" || property === "center_refresh") {
         result.expectedMode = "Zuletzt verwendet";
       }
+      if (property === "sse_goto" || property === "goto") {
+        result.pageId = "gew.fahrzeug";
+      }
       if (property === "values" && schema.properties?.title) {
         result.title = "Synthetischer Beleg";
       }

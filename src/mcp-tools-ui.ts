@@ -44,7 +44,8 @@ export function registerUiTools(registry: McpRegistry): void {
     {
       title: "Seite ansteuern",
       description:
-        "Navigiert zu einer Eingabeseite ueber deren Ueberschrift. Versucht zuerst die globale Suche " +
+        "Navigiert bevorzugt ueber eine stabile pageId, alternativ ueber die exakte Ueberschrift. " +
+        "Die pageId erkennt auch dynamische nummerierte Seiten wie '1. Fahrzeug: ...'. Versucht zuerst die globale Suche " +
         "und blaettert danach mit den fokusfreien UIA-Schaltflaechen 'Weiter'/'Zurueck'. " +
         "Qt-Suchtreffer lassen sich auf einem versteckten Windows-Desktop zwar lesen, aber je nach " +
         "Programmseite nicht aktivieren; dann faellt das Werkzeug auf den Blaetterpfad zurueck. Bei " +
@@ -58,8 +59,15 @@ export function registerUiTools(registry: McpRegistry): void {
     async (a) =>
       run(
         "goto",
-        { ...a, ziel: a.name, viaSuche: a.useSearch },
-        (r) => ({ erreicht: r.erreicht, ueberschrift: r.ueberschrift, schritte: r.schritte, weg: asArray(r.weg), hinweis: r.hinweis }),
+        {
+          ...a,
+          ...(a.name !== undefined ? { ziel: a.name } : {}),
+          ...(a.useSearch !== undefined ? { viaSuche: a.useSearch } : {}),
+        },
+        (r) => ({
+          erreicht: r.erreicht, pageId: r.pageId, ueberschrift: r.ueberschrift,
+          schritte: r.schritte, weg: asArray(r.weg), hinweis: r.hinweis,
+        }),
         300_000,
       ),
   );

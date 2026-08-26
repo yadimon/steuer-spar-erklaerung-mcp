@@ -326,6 +326,26 @@ Agent oder eigenes Programm
   gemeldet. Nur die gemeinsame feste Allowlist ist ausführbar; ein Agent kann
   die Sperre nicht durch frei formulierten Buttontext umgehen.
 
+### Semantische Seitennavigation
+
+`goto` akzeptiert bevorzugt dieselbe stabile `pageId` wie
+`known_page_state`; die exakte Überschrift bleibt als kompatibler API-Pfad
+erhalten. Für eine katalogisierte Seite leitet der Worker den Suchbegriff aus
+dem Page Object ab und erkennt das Ziel über dessen Überschriftenvertrag plus
+alle profilierten Pflichtfelder. Damit bleibt beispielsweise
+`1. Fahrzeug: Chevrolet Camaro` an `gew.fahrzeug` gebunden, obwohl der
+fallabhängige Zusatz nicht vorher bekannt ist. Eine bloß ähnlich benannte
+Seite oder eine andere Fahrzeug-Unterseite mit derselben Überschrift reicht
+nicht aus.
+
+Der semantische Pfad liest Überschrift und Pflichtfelder direkt über ihre
+vollständigen AutomationIds. Er vermeidet den generischen 400-Knoten-Baum bei
+der Start-, Warte- und Zielprüfung, behält aber Suche, linearen Fallback,
+Dialogstopp und Schrittlimit unverändert. Im lokalen Wegwerffall sank der
+vollständige Sprung von `Beiträge, Gebühren und Abgaben` zum Fahrzeug von
+19,916 s mit einem falschen `not-found` auf 12,724 s mit verifiziertem Erfolg;
+auf der bereits geöffneten Zielseite benötigte der Nullschritt 1,956 s.
+
 ### Typisierte Ein-Worker-Pläne
 
 `fill_fields` validiert den vollständigen Plan bereits im API-Prozess gegen
@@ -364,10 +384,23 @@ Einzelworkern allein etwa 5,6 s Startoverhead. Ein Beleg ohne Klassifikation
 benötigte zuvor drei Worker, fünf Belege 15; der neue Plan startet jeweils
 genau einen. Der reale Zwei-Feld-Plan benötigte auf dem Entwicklungsrechner
 8,753 s Planzeit bei 8,735 s Worker-Aktionszeit. Der reale Beleg-Import in der
-Snapshot-VM benötigte trotz nur eines Workers 98,561 s; dort dominiert somit
-weiterhin die sichtbare Qt-Interaktion und Stabilisierung, nicht der
-Prozessstart. Ein separater langlebiger Worker oder C#-Bulk-Prozess ist nach
-diesen Messungen nicht gerechtfertigt.
+Snapshot-VM benötigte trotz nur eines Workers 98,561 s; dort dominierte die
+sichtbare Qt-Interaktion und Stabilisierung.
+
+Eine kontrollierte Vorher-/Nachher-Messung auf demselben lokalen Wegwerffall
+mit 21 vorhandenen Belegen verkürzte Import, sieben Feldwerte und unabhängigen
+Abschlussreadback von 37,531 auf 25,568 s (−31,9 %). Dafür liest
+`receipt_manager_update` zwischen den drei vollständigen Bindungs-/Abschluss-
+Snapshots jedes bereits gebundene Feld direkt über dessen exakte AutomationId
+und pollt den tatsächlichen Wert, statt vor und nach jedem Feld erneut bis zu
+800 UIA-Knoten zu projizieren. Der Update-Anteil benötigte noch 6,609 s.
+`performance.internalTimings` erklärt jede interne Operation einzeln; im
+erfolgreichen Nachlauf entfielen 10,203 s auf den nativen Importdialog,
+4,799 s auf den unabhängigen Detailreadback und zusammen 2,520 s auf die zwei
+vollständigen Listenreads. Diese Sicherheitsnachweise zu Liste, Dialogen,
+Fenstern und Dirty-State bleiben absichtlich erhalten. Ein separater
+langlebiger Worker oder C#-Bulk-Prozess ist nach diesen Messungen nicht
+gerechtfertigt.
 
 ### Harte Sicherheit
 
@@ -463,8 +496,11 @@ eine ausdrückliche Bestätigung und den exakt profilierten Löschdialog.
 und `acknowledgeUpdate=true`. Ein Aufruf kann Titel, Datum, Belegnummer,
 Betrag, Umsatzsteuersatz, Netto-Kennzeichen und Notiz gemeinsam setzen. Er
 verwendet ausschließlich profilierte AutomationIds, prüft jeden Feldwert nach
-dem Commit und rollt bereits geänderte Felder bei einer eindeutigen normalen
-Nachbedingungsverletzung rückwärts zurück.
+dem Commit am exakt gebundenen Live-Element und rollt bereits geänderte Felder
+bei einer eindeutigen normalen Nachbedingungsverletzung rückwärts zurück. Drei
+vollständige UIA-Projektionen bleiben als Ausgangs-, ausgewählte Detail- und
+Abschlussbindung erhalten; die wiederholten Vollbaum-Reads je Feld sind durch
+einen Quellvertrag gesperrt.
 `receipt_manager_import` legt nur bei vollständiger Liste ohne vorhandenen
 Entwurf einen neuen Beleg an, bindet die Quelle an `documents:` plus SHA-256,
 verifiziert den nativen Öffnen-Dialog und verlangt eine geänderte visuelle

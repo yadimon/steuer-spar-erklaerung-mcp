@@ -1108,7 +1108,14 @@ export function createStatefulSseWorker({ caseDir }) {
       case "goto": {
         const caseState = requireOpenCase();
         if (caseState.error) return caseState.error;
-        const target = String(args.ziel);
+        const pageIdTargets = { "gew.fahrzeug": "1. Fahrzeug" };
+        const target = args.pageId ? pageIdTargets[String(args.pageId)] : String(args.ziel);
+        if (!target) {
+          return { ok: false, kind: "unknown-page-object", error: `Unbekannte Page-Object-ID '${String(args.pageId)}'.` };
+        }
+        if (currentPage === target) {
+          return { ok: true, erreicht: true, pageId: args.pageId, ueberschrift: currentPage, weg: ["schon dort"], schritte: 0 };
+        }
         const sequence = pageSequence(caseState.value);
         const targetIndex = sequence.indexOf(target);
         if (targetIndex < 0) {
@@ -1124,7 +1131,7 @@ export function createStatefulSseWorker({ caseDir }) {
         }
         currentPage = target;
         verticalPercent = 0;
-        return { ok: true, erreicht: true, ueberschrift: currentPage, weg, schritte: weg.length - 1 };
+        return { ok: true, erreicht: true, pageId: args.pageId, ueberschrift: currentPage, weg, schritte: weg.length - 1 };
       }
       case "subpages": {
         const caseState = requireOpenCase();

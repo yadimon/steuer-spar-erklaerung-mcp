@@ -142,8 +142,14 @@ assert.deepEqual(parseApiOperationArgs("goto", { ziel: "Einnahmen", viaSuche: tr
   ziel: "Einnahmen",
   viaSuche: true,
 });
+assert.deepEqual(parseApiOperationArgs("goto", { pageId: "gew.fahrzeug", useSearch: true }), {
+  pageId: "gew.fahrzeug",
+  viaSuche: true,
+});
 assert.throws(() => parseApiOperationArgs("goto", { name: "A", ziel: "B" }));
 assert.throws(() => parseApiOperationArgs("goto", { name: "A", useSearch: true, viaSuche: false }));
+assert.throws(() => parseApiOperationArgs("goto", {}));
+assert.throws(() => parseApiOperationArgs("goto", { name: "Fahrzeug", pageId: "gew.fahrzeug" }));
 
 const trackedBySelector = {
   expectedPage: "Seite", expectedBefore: "", value: "15.07.2026", expectedAfter: "15.07.2026",

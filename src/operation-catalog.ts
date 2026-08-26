@@ -6,9 +6,9 @@ import {
 } from "./api-contract.js";
 import { SSE_MCP_TOOL_SCHEMAS } from "./mcp-operation-schemas.js";
 import { SSE_API_RECEIPT_MANAGER_LINK_SCHEMA } from "./mcp-schemas-receipts.js";
+import { SSE_API_GOTO_SCHEMA } from "./operation-schema-goto.js";
 import {
   BARE_RESOURCE_REF,
-  GOTO_MAX_STEPS,
   PROCESS_ID,
   RESOURCE_REF,
   RESULT_REF,
@@ -329,29 +329,7 @@ schemasByOperation.read_page = SSE_MCP_TOOL_SCHEMAS.sse_read_page.superRefine((v
 const checkerReadOnlyClickSchema = extendStrict(SSE_MCP_TOOL_SCHEMAS.sse_click_point, {
   checkerReadOnly: z.literal(true),
 });
-schemasByOperation.goto = z.object({
-  name: z.string().optional().describe("Moderner Alias fuer die exakte Zielseitenueberschrift"),
-  ziel: z.string().optional().describe("Exakte Zielseitenueberschrift; historischer API-Name"),
-  maxSteps: GOTO_MAX_STEPS.optional(),
-  direction: z.enum(["Weiter", "Zurück"]).optional().describe("Explizite lineare Suchrichtung"),
-  useSearch: z.boolean().optional().describe("Moderne Option fuer die globale Qt-Suche; Vorgabe true"),
-  viaSuche: z.boolean().optional().describe("Historischer Alias fuer useSearch"),
-  hwnd: WINDOW_HANDLE.optional(),
-}).strict().superRefine((value, context) => {
-  if (value.name === undefined && value.ziel === undefined) {
-    context.addIssue({ code: z.ZodIssueCode.custom, message: "'name' oder 'ziel' ist erforderlich." });
-  }
-  if (value.name !== undefined && value.ziel !== undefined && value.name !== value.ziel) {
-    context.addIssue({ code: z.ZodIssueCode.custom, message: "'name' und 'ziel' widersprechen sich." });
-  }
-  if (value.useSearch !== undefined && value.viaSuche !== undefined && value.useSearch !== value.viaSuche) {
-    context.addIssue({ code: z.ZodIssueCode.custom, message: "'useSearch' und 'viaSuche' widersprechen sich." });
-  }
-}).transform(({ name, useSearch, ...value }) => ({
-  ...value,
-  ziel: value.ziel ?? name,
-  ...(value.viaSuche === undefined && useSearch !== undefined ? { viaSuche: useSearch } : {}),
-})) as AnyOperationSchema;
+schemasByOperation.goto = SSE_API_GOTO_SCHEMA as AnyOperationSchema;
 
 schemasByOperation.workspace_file_list = z.object({
   ref: z.union([RESOURCE_REF(), BARE_RESOURCE_REF()]).optional()

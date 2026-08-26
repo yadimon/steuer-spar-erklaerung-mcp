@@ -7929,6 +7929,17 @@
               "success"
             ]
           },
+          "pageId": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "schritte": {
             "types": [
               "nonnegative-number"

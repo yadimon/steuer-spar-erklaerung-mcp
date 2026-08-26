@@ -595,6 +595,52 @@ function Get-SSEReceiptManagerFieldValue($ResolvedField) {
   [string]$value
 }
 
+function Get-SSEReceiptManagerLiveEditableField([IntPtr]$Window, $Binding) {
+  if (-not $Binding -or -not $Binding.node -or -not $Binding.policy) { return $null }
+  $element = Get-LiveElement $Window ([string]$Binding.node.rid) ([string]$Binding.node.aid)
+  $node = Convert-ExactElementToNode $element
+  if (-not $node -or -not [bool]$node.on -or $node.w -le 0 -or $node.h -le 0 -or
+      [string]$node.aid -cne [string]$Binding.node.aid -or
+      [string]$node.type -cne [string]$Binding.policy.controlType) {
+    return $null
+  }
+  if ([string]$Binding.policy.valueKind -ceq 'boolean') {
+    $toggle = $null
+    if (-not $element.TryGetCurrentPattern([Windows.Automation.TogglePattern]::Pattern, [ref]$toggle)) {
+      return $null
+    }
+    $node | Add-Member -NotePropertyName checked -NotePropertyValue (
+      $toggle.Current.ToggleState -eq [Windows.Automation.ToggleState]::On
+    ) -Force
+  }
+  [pscustomobject]@{ name=[string]$Binding.name; policy=$Binding.policy; node=$node }
+}
+
+function Wait-SSEReceiptManagerLiveFieldValue(
+  [IntPtr]$Window,
+  $Binding,
+  $Expected,
+  [string]$ValueKind,
+  [int]$TimeoutMs
+) {
+  $watch = [Diagnostics.Stopwatch]::StartNew()
+  $lastValue = $null; $resolved = $null
+  do {
+    $resolved = Get-SSEReceiptManagerLiveEditableField $Window $Binding
+    if ($resolved) {
+      $lastValue = Get-SSEReceiptManagerFieldValue $resolved
+      if (Test-SSEReceiptManagerFieldValue $lastValue $Expected $ValueKind) {
+        $watch.Stop()
+        return [pscustomobject]@{ ok=$true; resolved=$resolved; value=$lastValue; ms=$watch.ElapsedMilliseconds }
+      }
+    }
+    if ($watch.ElapsedMilliseconds -ge $TimeoutMs) { break }
+    Start-Sleep -Milliseconds 50
+  } while ($true)
+  $watch.Stop()
+  [pscustomobject]@{ ok=$false; resolved=$resolved; value=$lastValue; ms=$watch.ElapsedMilliseconds }
+}
+
 function Test-SSEReceiptManagerFieldValue($Actual, $Expected, [string]$ValueKind) {
   switch ($ValueKind) {
     'date' { return Test-SSETrackedValueEquivalent ([string]$Actual) ([string]$Expected) 'date' }
@@ -1167,6 +1213,13 @@ function Invoke-SSEMeasuredPlanOperation([string]$Operation, $Arguments, $Metric
   $watch.Stop()
   $Metrics.internalOperationCount = [int]$Metrics.internalOperationCount + 1
   $Metrics.sseActionMs = [int64]$Metrics.sseActionMs + $watch.ElapsedMilliseconds
+  if ($Metrics.PSObject.Properties['internalTimings']) {
+    $null = $Metrics.internalTimings.Add([pscustomobject][ordered]@{
+      index=[int]$Metrics.internalOperationCount - 1
+      operation=$Operation
+      ms=$watch.ElapsedMilliseconds
+    })
+  }
   if ($result.focusTelemetry) {
     $Metrics.foregroundRaiseCount = [int]$Metrics.foregroundRaiseCount + [int](Arg $result.focusTelemetry 'acquisitions' 0)
   }
@@ -13365,7 +13418,18 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     #   HistoryToolbarBtnSSE         - Verlauf zurueck/vor, entkommt Sackgassen
     # Darauf setzt dieses Werkzeug auf.
     $ziel = [string](Arg $a 'ziel')
-    if (-not $ziel) { Fail 'ziel fehlt (Ueberschrift der gewuenschten Seite)' 'bad-args' }
+    $pageId = [string](Arg $a 'pageId')
+    if ([bool]$ziel -eq [bool]$pageId) {
+      Fail 'Genau pageId oder ziel ist erforderlich.' 'bad-args'
+    }
+    $knownTarget = $(if ($pageId) { Resolve-SSEPageObject $pageId } else { $null })
+    if ($knownTarget) {
+      $numberedLabel = [string](Arg $knownTarget.page 'headingNumberedLabel')
+      $headingPrefix = [string](Arg $knownTarget.page 'headingPrefix')
+      $ziel = $(if ($numberedLabel) { $numberedLabel } elseif ($headingPrefix) { $headingPrefix } else {
+        [string]$knownTarget.page.heading
+      })
+    }
     $requestedMaxSteps = $(if ($null -ne (Arg $a 'maxSteps')) {
       Get-SSEBoundedIntegerArg $a 'maxSteps' 40 1 200
     } else { $null })
@@ -13408,9 +13472,20 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
 
     function AktuelleUeberschrift {
       param([IntPtr]$h)
+      if ($knownTarget) { return (Get-KnownPageHeading $h $knownTarget) }
       # 400 Knoten genuegen: die Ueberschrift steht weit oben im Baum.
       $t = Walk-Tree $h 400
       (Get-SSEHeading $t).text
+    }
+    function IstZielseite {
+      param([IntPtr]$h, [string]$heading)
+      if (-not $knownTarget) { return [bool]($heading -eq $ziel) }
+      if (-not (Test-KnownPageHeading $heading $knownTarget.page)) { return $false }
+      foreach ($fieldProperty in @($knownTarget.page.fields.PSObject.Properties)) {
+        $fieldKnown = [pscustomobject]@{ page=$knownTarget.page; field=$fieldProperty.Value }
+        if (-not (Resolve-KnownFieldNode $h $fieldKnown)) { return $false }
+      }
+      $true
     }
     function WarteAufUeberschrift {
       param(
@@ -13427,7 +13502,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $letzte = $null
       do {
         $letzte = AktuelleUeberschrift $h
-        if ($letzte -eq $erwartet -or ($letzte -and $letzte -ne $vorher)) {
+        if ((IstZielseite $h $letzte) -or ($letzte -and $letzte -ne $vorher)) {
           return $letzte
         }
         Start-Sleep -Milliseconds 200
@@ -13468,7 +13543,12 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $start = AktuelleUeberschrift $hwnd
     # 'weg' ist im Ergebnisvertrag eine Liste. Ein blosser Text hier liess jeden
     # goto-Aufruf auf die bereits offene Seite als invalid-operation-result enden.
-    if ($start -eq $ziel) { Emit ([pscustomobject]@{ ok = $true; erreicht = $true; ueberschrift = $start; schritte = 0; weg = @('schon dort') }) }
+    if (IstZielseite $hwnd $start) {
+      Emit ([pscustomobject]@{
+        ok=$true; erreicht=$true; pageId=$(if ($pageId) { $pageId } else { $null })
+        ueberschrift=$start; schritte=0; weg=@('schon dort')
+      })
+    }
     $weg = New-Object System.Collections.ArrayList
     $null = $weg.Add($start)
 
@@ -13579,7 +13659,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
                   else { $ge.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Expand() }
                   Start-Sleep -Milliseconds 900
                   $nachSuche = AktuelleUeberschrift $hwnd
-                  $aktiviert = ($nachSuche -eq $ziel)
+                  $aktiviert = IstZielseite $hwnd $nachSuche
                   $suchSeiteGeoeffnet = $aktiviert -or ($nachSuche -and $nachSuche -ne $start)
                   $null = $suchWeg.Add("Aktivierungsmuster $pat -> '$nachSuche'")
                 } catch { }
@@ -13604,7 +13684,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
                 # wie nach 'Suche schliessen'; sie kehrt sofort zurueck, sobald
                 # eine echte Seite sichtbar ist.
                 $nachSuche = WarteAufUeberschrift $hwnd $start $ziel 1500
-                $aktiviert = ($nachSuche -eq $ziel)
+                $aktiviert = IstZielseite $hwnd $nachSuche
                 $suchSeiteGeoeffnet = $aktiviert -or ($nachSuche -and $nachSuche -ne $start)
                 $null = $suchWeg.Add("PID-gepruefter Doppelklick -> '$nachSuche'")
               } catch {
@@ -13622,7 +13702,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
               $nachSuche = AktuelleUeberschrift $hwnd
               $null = $suchWeg.Add("Suchseite geöffnet: '$nachSuche'")
               if ($aktiviert) {
-                Emit ([pscustomobject]@{ ok = $true; erreicht = $true; ueberschrift = $nachSuche; schritte = 1
+                Emit ([pscustomobject]@{ ok = $true; erreicht = $true; pageId=$(if ($pageId) { $pageId } else { $null }); ueberschrift = $nachSuche; schritte = 1
                   richtung = 'Suche'; weg = @($suchWeg); fokusfrei = $true })
               }
               # Der Suchbegriff kann im Hilfetext einer anders benannten Seite
@@ -13636,9 +13716,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           $nachSuchschluss = WarteAufUeberschrift $hwnd $start $ziel 1800
           if ($nachSuchschluss) {
             $null = $suchWeg.Add("Nach Suchschluss -> '$nachSuchschluss'")
-            if ($nachSuchschluss -eq $ziel) {
+            if (IstZielseite $hwnd $nachSuchschluss) {
               foreach ($s in $suchWeg) { $null = $weg.Add($s) }
-              Emit ([pscustomobject]@{ ok = $true; erreicht = $true; ueberschrift = $nachSuchschluss; schritte = 1
+              Emit ([pscustomobject]@{ ok = $true; erreicht = $true; pageId=$(if ($pageId) { $pageId } else { $null }); ueberschrift = $nachSuchschluss; schritte = 1
                 richtung = 'Suche/Doppelklick'; weg = @($weg); fokusfrei = $false })
             }
             if ($nachSuchschluss -ne $start) { $start = $nachSuchschluss }
@@ -13728,7 +13808,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         # NICHT im Kreis, und der Verlaufspfeil fuehrt von dort auch nicht
         # heraus (gemessen: 90 Schritte ohne Erfolg). Sofort melden, statt
         # den Rest des Schrittkontingents zu verbrennen.
-        if ($jetzt -eq 'Gewinnermittlung beginnen' -and $ziel -ne $jetzt) {
+        if ($jetzt -eq 'Gewinnermittlung beginnen' -and -not (IstZielseite $hwnd $jetzt)) {
           Fail ("Der Blaetterpfad endet auf der Startseite 'Gewinnermittlung beginnen'; von dort fuehrt " +
                 "kein fokusfreier Weg zurueck ins Formular. '$ziel' liegt in der anderen Richtung. " +
                 "Abhilfe: entweder von einer Seite im Formular aus erneut starten, oder " +
@@ -13736,8 +13816,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
                 "oder das Programm mit sse_launch neu oeffnen - es startet dann wieder im Formular.") 'dead-end'
         }
 
-        if ($jetzt -eq $ziel) {
-          Emit ([pscustomobject]@{ ok = $true; erreicht = $true; ueberschrift = $jetzt; schritte = $weg.Count
+        if (IstZielseite $hwnd $jetzt) {
+          Emit ([pscustomobject]@{ ok = $true; erreicht = $true; pageId=$(if ($pageId) { $pageId } else { $null }); ueberschrift = $jetzt; schritte = $weg.Count
             richtung = $richtung; weg = @($weg); fokusfrei = $true })
         }
         if ($jetzt -eq $vorher) { $stillstand++ } else { $stillstand = 0 }
@@ -13757,9 +13837,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # Navigationsversuch fertig werden. Dann ist das Ziel erreicht und darf
     # nicht als not-found gemeldet werden.
     $spaet = WarteAufUeberschrift $hwnd '' $ziel 1200
-    if ($spaet -eq $ziel) {
+    if (IstZielseite $hwnd $spaet) {
       $null = $weg.Add("spaete Gegenprobe -> $spaet")
-      Emit ([pscustomobject]@{ ok = $true; ueberschrift = $spaet; schritte = $weg.Count
+      Emit ([pscustomobject]@{ ok = $true; erreicht=$true; pageId=$(if ($pageId) { $pageId } else { $null }); ueberschrift = $spaet; schritte = $weg.Count
         richtung = 'spaete Gegenprobe'; weg = @($weg); fokusfrei = $false })
     }
     Fail ("Seite '$ziel' in $($weg.Count) Schritten nicht erreicht. Zuletzt: '$spaet'. " +
@@ -15981,6 +16061,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $metrics = [pscustomobject]@{
       internalOperationCount=0; sseActionMs=[int64]0; foregroundRaiseCount=0
       immediateReadbackCount=0; affectedItemReadbackCount=0; fullUiReadbackCount=0
+      internalTimings=(New-Object System.Collections.ArrayList)
     }
     $common = [ordered]@{}
     if ($a.PSObject.Properties['hwnd']) { $common.hwnd = [int64]$a.hwnd }
@@ -16004,7 +16085,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           workerProcessCount=1; internalOperationCount=$metrics.internalOperationCount
           immediateReadbackCount=$metrics.immediateReadbackCount; fullUiReadbackCount=$metrics.fullUiReadbackCount
           affectedItemReadbackCount=0; foregroundRaiseCount=$metrics.foregroundRaiseCount
-          sseActionMs=$metrics.sseActionMs; planMs=$planWatch.ElapsedMilliseconds; initialization=$script:INIT_TIMINGS
+          sseActionMs=$metrics.sseActionMs; internalTimings=@($metrics.internalTimings)
+          planMs=$planWatch.ElapsedMilliseconds; initialization=$script:INIT_TIMINGS
         }
       })
     }
@@ -16329,6 +16411,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         immediateReadbackCount=$metrics.immediateReadbackCount; fullUiReadbackCount=$metrics.fullUiReadbackCount
         affectedItemReadbackCount=$metrics.affectedItemReadbackCount
         foregroundRaiseCount=$metrics.foregroundRaiseCount; sseActionMs=$metrics.sseActionMs
+        internalTimings=@($metrics.internalTimings)
         planMs=$planWatch.ElapsedMilliseconds; initialization=$script:INIT_TIMINGS
       }
     })
@@ -16679,15 +16762,18 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $requestedValues[$fieldName] = $requestedValue
       $null = $transactions.Add([pscustomobject]@{
         name=$fieldName; kind=[string]$resolved.policy.valueKind
-        before=$beforeValue; requested=$requestedValue; changed=$false
+        before=$beforeValue; requested=$requestedValue; changed=$false; binding=$resolved
       })
     }
 
     $changedFields = New-Object System.Collections.ArrayList
     $failedField = $null; $failedReason = $null
     foreach ($transaction in @($transactions)) {
-      $liveState = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
-      $resolved = Resolve-SSEReceiptManagerEditableFieldNode $liveState $policy $transaction.name
+      $resolved = Get-SSEReceiptManagerLiveEditableField $toolHwnd $transaction.binding
+      if (-not $resolved) {
+        $failedField = $transaction.name; $failedReason = 'Exakt gebundenes Feld wurde waehrend der Transaktion ungreifbar.'; break
+      }
+      $transaction.binding = $resolved
       $currentValue = Get-SSEReceiptManagerFieldValue $resolved
       if (-not (Test-SSEReceiptManagerFieldValue $currentValue $transaction.before $transaction.kind)) {
         $failedField = $transaction.name; $failedReason = 'Vorwert oder Feldbindung aenderte sich waehrend der Transaktion.'; break
@@ -16705,15 +16791,14 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           $failedField = $transaction.name; $failedReason = "Feldcommit meldete '$([string]$commit.method)'."; break
         }
       }
-      Start-Sleep -Milliseconds ([Math]::Min($waitMs, 700))
-      $afterFieldState = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
-      $afterResolved = Resolve-SSEReceiptManagerEditableFieldNode $afterFieldState $policy $transaction.name
-      $afterValue = Get-SSEReceiptManagerFieldValue $afterResolved
-      if (-not (Test-SSEReceiptManagerFieldValue $afterValue $transaction.requested $transaction.kind)) {
+      $afterField = Wait-SSEReceiptManagerLiveFieldValue `
+        $toolHwnd $resolved $transaction.requested $transaction.kind ([int]$waitMs)
+      if (-not $afterField.ok) {
         $failedField = $transaction.name
-        $failedReason = "Feld zeigt nach dem Commit '$afterValue' statt '$($transaction.requested)'."
+        $failedReason = "Feld zeigt nach dem Commit '$($afterField.value)' statt '$($transaction.requested)'."
         break
       }
+      $transaction.binding = $afterField.resolved
       $transaction.changed = $true
       $null = $changedFields.Add([string]$transaction.name)
     }
@@ -16724,11 +16809,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $changedTransactions = @($transactions | Where-Object { $_.changed })
       [array]::Reverse($changedTransactions)
       foreach ($transaction in $changedTransactions) {
-        $rollbackState = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
-        $resolved = Resolve-SSEReceiptManagerEditableFieldNode $rollbackState $policy $transaction.name
-        $currentValue = Get-SSEReceiptManagerFieldValue $resolved
+        $resolved = Get-SSEReceiptManagerLiveEditableField $toolHwnd $transaction.binding
+        $currentValue = $(if ($resolved) { Get-SSEReceiptManagerFieldValue $resolved } else { $null })
         $entryOk = $false; $method = 'not-attempted'
-        if (Test-SSEReceiptManagerFieldValue $currentValue $transaction.requested $transaction.kind) {
+        if ($resolved -and (Test-SSEReceiptManagerFieldValue $currentValue $transaction.requested $transaction.kind)) {
           if ($transaction.kind -ceq 'boolean') {
             $freshNode = Convert-ExactElementToNode (Get-LiveElement $toolHwnd $resolved.node.rid $resolved.node.aid)
             if ($freshNode -and [bool]$freshNode.on) {
@@ -16739,11 +16823,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
             $rollbackCommit = Commit-TrackedValue $toolHwnd $resolved.node ([string]$transaction.before) ([string]$currentValue)
             $method = [string]$rollbackCommit.method
           }
-          Start-Sleep -Milliseconds 350
-          $verifyRollbackState = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
-          $verifyResolved = Resolve-SSEReceiptManagerEditableFieldNode $verifyRollbackState $policy $transaction.name
-          $restored = Get-SSEReceiptManagerFieldValue $verifyResolved
-          $entryOk = Test-SSEReceiptManagerFieldValue $restored $transaction.before $transaction.kind
+          $rollbackReadback = Wait-SSEReceiptManagerLiveFieldValue `
+            $toolHwnd $resolved $transaction.before $transaction.kind ([int]$waitMs)
+          $entryOk = [bool]$rollbackReadback.ok
         }
         if (-not $entryOk) { $rollbackOk = $false }
         $null = $rollbackEntries.Add([pscustomobject]@{ field=$transaction.name; method=$method; ok=[bool]$entryOk })
@@ -16761,7 +16843,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       })
     }
 
-    Start-Sleep -Milliseconds ([Math]::Min($waitMs, 1000))
+    # Jeder geaenderte Wert wurde bereits am exakt gebundenen Live-Element
+    # gepollt. Diese kurze Qt-Renderphase dient nur noch der abschliessenden
+    # Listen-/Detailprojektion, nicht mehr der Feldverifikation.
+    Start-Sleep -Milliseconds ([Math]::Min($waitMs, 350))
     $finalState = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
     $finalList = Get-SSEReceiptManagerListProjection $finalState $policy
     $detailFieldsAfter = @(Get-SSEReceiptManagerDetailProjection $finalState)

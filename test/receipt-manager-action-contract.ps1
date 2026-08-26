@@ -124,6 +124,8 @@ foreach ($required in @(
   'expectedListFingerprint',
   'expectedDetailFingerprint',
   'Resolve-SSEReceiptManagerEditableFieldNode',
+  'Get-SSEReceiptManagerLiveEditableField',
+  'Wait-SSEReceiptManagerLiveFieldValue',
   'Commit-TrackedValue',
   'Click-VerifiedPoint',
   'rollbackEntries',
@@ -135,6 +137,11 @@ foreach ($required in @(
 foreach ($forbidden in @("Arg `$a 'name'", "Arg `$a 'aid'", "Arg `$a 'rid'", "Arg `$a 'x'", "Arg `$a 'y'")) {
   Assert-True (-not $updateBlock.Contains($forbidden)) "receipt_manager_update akzeptiert den freien Selektor '$forbidden'."
 }
+$updateOnlyEnd = $worker.IndexOf("  'receipt_manager_classification_options' {", $updateStart)
+$updateOnlyBlock = $worker.Substring($updateStart, $updateOnlyEnd - $updateStart)
+Assert-True (
+  ($updateOnlyBlock.Split(@('Get-SSEReceiptManagerState $toolHwnd $policy -WithValues'), [StringSplitOptions]::None).Count - 1) -eq 3
+) 'receipt_manager_update darf Vollbaum-Readbacks nur fuer Ausgangsbindung, Detailbindung und Abschlusszustand verwenden.'
 
 $start = $worker.IndexOf("  'receipt_manager_action' {")
 $end = $worker.IndexOf("  'ui_state' {", $start)
