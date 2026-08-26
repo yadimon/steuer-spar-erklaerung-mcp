@@ -272,6 +272,30 @@ assert.deepEqual(parseApiOperationArgs("save_as", {
   expectedSourceHash: "a".repeat(64),
   targetPath: "C:\\Faelle\\ziel.Gew2025",
 });
+const correctionSave = {
+  caseRef: "cases:arbeit-korrektur.Gew2025",
+  expectedHashBefore: "a".repeat(64),
+  correction: {
+    acknowledged: true,
+    period: "2026-08",
+    reason: "Berichtigung der Umsatzsteuer-Voranmeldung August",
+    sourceRef: "cases:arbeit.Gew2025",
+    expectedSourceHash: "b".repeat(64),
+    backupRef: "backups:arbeit-korrektur-vor-save.Gew2025",
+    expectedBackupHash: "a".repeat(64),
+  },
+};
+assert.deepEqual(parseApiOperationArgs("save", correctionSave), correctionSave);
+for (const invalidCorrection of [
+  { ...correctionSave, force: true },
+  { ...correctionSave, correction: { ...correctionSave.correction, acknowledged: false } },
+  { ...correctionSave, correction: { ...correctionSave.correction, period: "August 2026" } },
+  { ...correctionSave, correction: { ...correctionSave.correction, reason: "x" } },
+  { ...correctionSave, correction: { ...correctionSave.correction, sourceRef: "backups:original.Gew2025" } },
+  { ...correctionSave, correction: { ...correctionSave.correction, backupRef: "cases:sicherung.Gew2025" } },
+]) {
+  assert.throws(() => parseApiOperationArgs("save", invalidCorrection));
+}
 assert.throws(() => parseApiOperationArgs("save_as", {
   sourceRef: "cases:quelle.Gew2025",
   expectedSourcePath: "C:\\Faelle\\quelle.Gew2025",

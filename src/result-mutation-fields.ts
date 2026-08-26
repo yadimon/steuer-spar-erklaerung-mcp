@@ -248,6 +248,7 @@ export const MUTATION_OPERATION_RESULT_FIELDS = {
     transmittedReasonBefore: OPTIONAL_STRING,
     transmittedReasonAfter: OPTIONAL_STRING,
     binding: OPTIONAL_OBJECT,
+    correction: OPTIONAL_OBJECT,
     saveEnabledAfter: OPTIONAL_BOOLEAN,
     searchClosedBeforeSave: OPTIONAL_BOOLEAN,
     fileSavedByChanged: OPTIONAL_BOOLEAN,

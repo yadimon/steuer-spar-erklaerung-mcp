@@ -126,6 +126,38 @@ function resolveAlias(
   resourceRefs[alias] = resolved.ref;
 }
 
+function resolveSaveCorrectionReferences(
+  args: Record<string, unknown>,
+  resourceRefs: Record<string, string>,
+  roots: ResourceRoots,
+): void {
+  if (args.correction === undefined) return;
+  if (!args.correction || typeof args.correction !== "object" || Array.isArray(args.correction)) {
+    throw new ExecutorArgumentError("'correction' muss ein Objekt sein.");
+  }
+  const correction = { ...(args.correction as Record<string, unknown>) };
+  const bindings = [
+    ["sourceRef", "sourcePath", ["cases"]],
+    ["backupRef", "backupPath", ["backups"]],
+  ] as const;
+  for (const [alias, workerField, allowedAreas] of bindings) {
+    const value = correction[alias];
+    if (typeof value !== "string") {
+      throw new ExecutorArgumentError(`'correction.${alias}' muss eine Ressourcenreferenz sein.`);
+    }
+    let resolved: ResolvedResourceReference;
+    try {
+      resolved = resolveResourceReference(roots, value, allowedAreas);
+    } catch (error) {
+      throw new ExecutorArgumentError(error instanceof Error ? error.message : String(error));
+    }
+    delete correction[alias];
+    correction[workerField] = resolved.path;
+    resourceRefs[`correction.${alias}`] = resolved.ref;
+  }
+  args.correction = correction;
+}
+
 function configuredArgs(
   operation: SseApiOperation,
   args: Record<string, unknown>,
@@ -144,6 +176,7 @@ function configuredArgs(
       binding.allowedAreas,
     );
   }
+  if (operation === "save") resolveSaveCorrectionReferences(result, resourceRefs, roots);
   if (operation === "launch" || operation === "desktop_start") {
     if (result.exe !== undefined) {
       throw new ExecutorArgumentError("'exe' wird ausschliesslich in der lokalen API-Konfiguration festgelegt.");

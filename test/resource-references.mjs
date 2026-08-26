@@ -249,6 +249,37 @@ try {
     assert(!JSON.stringify(result).includes(expectedPath), `${operation} darf den lokalen Pfad nicht zurueckgeben`);
   }
 
+  writeFileSync(join(roots.cases, "arbeit-original.Gew2025"), "original-case");
+  writeFileSync(join(roots.cases, "arbeit-korrektur.Gew2025"), "correction-before-save");
+  writeFileSync(join(roots.backups, "arbeit-korrektur-vor-save.Gew2025"), "correction-before-save");
+  const correctionResult = await execute("save", {
+    caseRef: "cases:arbeit-korrektur.Gew2025",
+    expectedHashBefore: "a".repeat(64),
+    correction: {
+      acknowledged: true,
+      period: "2026-08",
+      reason: "Berichtigung der Umsatzsteuer-Voranmeldung August",
+      sourceRef: "cases:arbeit-original.Gew2025",
+      expectedSourceHash: "b".repeat(64),
+      backupRef: "backups:arbeit-korrektur-vor-save.Gew2025",
+      expectedBackupHash: "a".repeat(64),
+    },
+  }, 1_000);
+  const correctionCall = calls.at(-1);
+  assert.equal(correctionCall.operation, "save");
+  assert.equal(correctionCall.args.expectedPath, join(roots.cases, "arbeit-korrektur.Gew2025"));
+  assert.equal(correctionCall.args.correction.sourcePath, join(roots.cases, "arbeit-original.Gew2025"));
+  assert.equal(correctionCall.args.correction.backupPath, join(roots.backups, "arbeit-korrektur-vor-save.Gew2025"));
+  assert.equal(correctionCall.args.correction.sourceRef, undefined);
+  assert.equal(correctionCall.args.correction.backupRef, undefined);
+  assert.deepEqual(correctionResult.resourceRefs, {
+    caseRef: "cases:arbeit-korrektur.Gew2025",
+    "correction.sourceRef": "cases:arbeit-original.Gew2025",
+    "correction.backupRef": "backups:arbeit-korrektur-vor-save.Gew2025",
+  });
+  assert(!JSON.stringify(correctionResult).includes(roots.cases));
+  assert(!JSON.stringify(correctionResult).includes(roots.backups));
+
   const callsBeforeBackup = calls.length;
   const backup = await execute("backup_cases", { destinationRef: "backups:sicherung" }, 30_000);
   assert.equal(calls.length, callsBeforeBackup, "backup_cases muss ohne PowerShell-Worker auskommen");

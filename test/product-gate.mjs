@@ -440,14 +440,31 @@ try {
     workerSource.includes("Radio-Gruppe hat vor der Aenderung keinen eindeutig lesbaren Exklusivzustand") &&
     workerSource.includes("RadioButton zeigt vor Rollback nicht mehr exakt den selbst gesetzten Zustand") &&
     workerSource.includes("Radio-Auswahl braucht einen verifizierten physischen Klick") &&
-    workerSource.includes("$null = Click-VerifiedPoint $hwnd $node") &&
+    workerSource.includes("$null = Click-VerifiedPoint $hwnd $radioClickNode") &&
+    workerSource.includes("$pattern -ne 'select'") &&
     workerSource.includes("CheckBox zeigt vor Rollback nicht mehr exakt den selbst gesetzten Zustand") &&
     workerSource.includes("$rollbackWindows.fingerprint -eq $interactionBefore.fingerprint"),
   "sse_click kann Checkbox/Radio ungebunden aendern oder sse_toggle rollt nach Interferenz blind zurueck.");
   assert(workerSource.includes("function Test-KnownPageHeading") &&
+    workerSource.includes("$expectedNumberedDetailPrefix = $expectedNumberedLabel + ': '") &&
     workerSource.includes("@($knownStateBefore.fields | Where-Object { -not $_.present }).Count -eq 0") &&
-    catalog.pages?.["gew.anlagevermoegen_wirtschaftsgut"]?.headingPrefix === "1. ",
+    catalog.pages?.["gew.anlagevermoegen_wirtschaftsgut"]?.headingPrefix === "1. " &&
+    catalog.pages?.["gew.fahrzeug"]?.headingNumberedLabel === "Fahrzeug" &&
+    !catalog.pages?.["gew.fahrzeug"]?.headingPrefix &&
+    catalog.pages?.["gew.fahrzeug_leasingkosten"]?.fields?.vertragsmonate?.automationIdSuffix === ".Dauer.Dauer.Wert" &&
+    catalog.pages?.["gew.fahrzeug_private_nutzung"]?.fields?.bruttolistenpreis?.valueKind === "currency" &&
+    catalog.pages?.["gew.fahrzeug_private_nutzung"]?.fields?.nutzungsmonate?.valueKind === "text",
   "Dynamische Detailseitenkoepfe sind nicht zugleich an Praefix und alle exakten Page-Object-Felder gebunden.");
+  const saveBlock = workerOpBlock("save");
+  assert(workerSource.includes("if ($summaryBefore.transmitted -ne $false)") &&
+    saveBlock.includes("'transmitted-case-locked'") &&
+    saveBlock.includes("(?i)(korrektur|berichtigung)") &&
+    saveBlock.includes("Korrekturstand, uebermitteltes Original und Sicherung muessen drei verschiedene Dateien sein") &&
+    saveBlock.includes("$actualBackupHash -ne $before") &&
+    saveBlock.includes("$sourceSummary.transmitted -ne $true") &&
+    saveBlock.includes("elsterTransmissionTriggered = $false") &&
+    !saveBlock.includes("Arg $a 'force'"),
+  "Der Save-Worker besitzt keinen vollstaendig gebundenen Korrekturmodus oder eine generische Force-Luecke.");
   assert(SSE_MCP_TOOL_OPERATIONS.sse_page_objects === "page_objects" &&
     serverSource.includes('"sse_page_objects"') &&
     apiContractSource.includes('"page_objects"') &&
