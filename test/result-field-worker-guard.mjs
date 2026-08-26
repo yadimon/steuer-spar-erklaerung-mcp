@@ -21,7 +21,7 @@ const lines = readFileSync(workerPath, "utf8").split("\n");
 const localExecutors = new Map([
   ["backup_cases", readFileSync(join(here, "..", "src", "backup-executor.ts"), "utf8")],
   ["archive_cases", readFileSync(join(here, "..", "src", "archive-executor.ts"), "utf8")],
-  ["receipt_manager_bulk_upsert", readFileSync(join(here, "..", "src", "receipt-manager-bulk-executor.ts"), "utf8")],
+  ["fill_fields", readFileSync(join(here, "..", "src", "bulk-plan-executor.ts"), "utf8")],
 ]);
 
 /** Transportfelder, die jeder Vertrag traegt und die der Worker generisch setzt. */
@@ -34,7 +34,7 @@ const TRANSPORT_FIELDS = new Set(["ok", "kind", "error", "ms", "focusTelemetry"]
 const API_INTERNAL_OPERATIONS = [
   "capabilities",
   "checker_open",
-  "receipt_manager_bulk_upsert",
+  "fill_fields",
   "scenario_run",
   "ustva_change_value",
   "ustva_open_section",

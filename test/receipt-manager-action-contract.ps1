@@ -47,7 +47,9 @@ Assert-True ($policy.controls.attachFile.automationIdSuffix -ceq '.panel_asset.D
 $deleteName = 'L' + [char]0x00F6 + 'schen'
 $deleteTitle = $deleteName + ' best' + [char]0x00E4 + 'tigen'
 $openTitle = [char]0x00D6 + 'ffnen'
+$detailCloseName = 'Detailansicht  schlie' + [char]0x00DF + 'en'
 Assert-True ($policy.controls.deleteReceipt.automationIdSuffix -ceq '.btn_delete' -and $policy.controls.deleteReceipt.expectedName -ceq $deleteName) 'Loeschschalter-Bindung fehlt.'
+Assert-True ($policy.controls.detailClose.automationIdSuffix -ceq '.pushButton_detailsClose' -and $policy.controls.detailClose.expectedName -ceq $detailCloseName) 'Detailansicht-Schliessen-Bindung fehlt.'
 Assert-True ($policy.deleteConfirmation.title -ceq $deleteTitle) 'Loeschdialogtitel ist nicht exakt profiliert.'
 Assert-True ([string]$policy.deleteConfirmation.fingerprint -match '^[A-Fa-f0-9]{64}$') 'Loeschdialogfingerprint fehlt.'
 Assert-True ($policy.importDialog.title -ceq $openTitle -and $policy.importDialog.class -ceq '#32770') 'Belegimport-Dialog ist nicht exakt profiliert.'
@@ -108,6 +110,9 @@ $receiptReadEnd = $worker.IndexOf("  'receipt_manager_update' {", $receiptReadSt
 Assert-True ($receiptReadStart -ge 0 -and $receiptReadEnd -gt $receiptReadStart) 'receipt_manager_read-Operationsblock ist nicht eindeutig abgrenzbar.'
 $receiptReadBlock = $worker.Substring($receiptReadStart, $receiptReadEnd - $receiptReadStart)
 Assert-True ($receiptReadBlock.Contains('Get-SSEReceiptManagerState $toolHwnd $policy -WithValues')) 'receipt_manager_read muss sichtbare Detailwerte und ReadOnly-Zustaende mit ValuePattern lesen.'
+Assert-True ($receiptReadBlock.Contains('$expectedSemanticRows')) 'receipt_manager_read muss nach dem Schliessen Runtime-ID-Drift ueber fachliche Zeilenfingerprints tolerieren.'
+Assert-True ($receiptReadBlock.Contains('| Sort-Object')) 'receipt_manager_read muss eine reine Qt-Neusortierung als inhaltlich unveraendertes Multiset behandeln.'
+Assert-True ($receiptReadBlock.Contains('$rowAfterMatches.Count -eq 1')) 'receipt_manager_read muss die Zielzeile trotz semantischer Listenpruefung weiterhin exakt binden.'
 
 $updateStart = $receiptReadEnd
 $updateEnd = $worker.IndexOf("  'receipt_manager_import' {", $updateStart)
@@ -199,14 +204,49 @@ Assert-True (-not @($policy.linkValueTransferDialog.fingerprints | Where-Object 
   [string]$_ -notmatch '^[A-Fa-f0-9]{64}$'
 }).Count) 'Belegwerte-Dialogvarianten enthalten keinen gueltigen Fingerprintvertrag.'
 Assert-True ($worker.Contains('[string]$descriptor.fingerprint -cnotin $acceptedTransferFingerprints')) 'Link-Operation akzeptiert die profilierten Belegwerte-Dialogvarianten nicht fail-closed.'
+$linkStart = $worker.IndexOf("  'receipt_manager_link' {")
+$linkEnd = $worker.IndexOf("  'receipt_manager_import' {", $linkStart)
+Assert-True ($linkStart -ge 0 -and $linkEnd -gt $linkStart) 'Link-Operation ist nicht eindeutig abgrenzbar.'
+$linkBlock = $worker.Substring($linkStart, $linkEnd - $linkStart)
+foreach ($required in @(
+  '$linkItems.Count -gt 20',
+  '$projectionsBefore.Add',
+  'Select-Object -Unique',
+  'foreach ($itemIndex in $changes)',
+  '$applyClick = & $closeMode',
+  '$projectionsAfter.Add',
+  "'ambiguous'",
+  'changedCount=$changes.Count'
+)) {
+  Assert-True ($linkBlock.Contains($required)) "receipt_manager_link enthaelt den Batch-Guard '$required' nicht."
+}
+Assert-True (-not $linkBlock.Contains("Arg `$a 'force'")) 'Mehrdeutige Belegtitel duerfen nicht mit force umgangen werden.'
+Assert-True (($linkBlock.Split(@('$applyClick = & $closeMode'), [StringSplitOptions]::None).Count - 1) -eq 1) 'Batch-Link darf nur einmal Uebernehmen ausloesen.'
+Assert-True (($linkBlock.Split(@('$modeAfter = & $openMode'), [StringSplitOptions]::None).Count - 1) -eq 1) 'Batch-Link darf nur einen Persistenz-Readback-Zyklus oeffnen.'
 $dialogImportStart = $worker.IndexOf('function Invoke-SSEReceiptManagerOpenFileDialog(')
 $dialogImportEnd = $worker.IndexOf('function Resolve-SSEPageObject(', $dialogImportStart)
 Assert-True ($dialogImportStart -ge 0 -and $dialogImportEnd -gt $dialogImportStart) 'Gebundener Belegimport-Dialogweg ist nicht eindeutig abgrenzbar.'
 $dialogImportBlock = $worker.Substring($dialogImportStart, $dialogImportEnd - $dialogImportStart)
 Assert-True ($dialogImportBlock.Contains('Resolve-SSEDialogFieldHandle $dialogHwnd $field')) 'Belegimport muss das native Dateiname-Control binden.'
 Assert-True ($dialogImportBlock.Contains("Set-SSEDialogFieldText `$dialogHwnd `$fieldHandle `$field `$Path 'Dateiname-Feld'")) 'Belegimport muss den gemeinsamen Unicode- und Readback-gesicherten Dialogfeldweg verwenden.'
+Assert-True ($dialogImportBlock.Contains('dialogProfileFingerprintMatched=$profileFingerprintMatched')) 'Belegimport muss generische Windows-Dialogdrift im Readback ausweisen.'
+Assert-True (-not $dialogImportBlock.Contains("Fail 'Belegimport-Dialog stimmt nicht mit dem gemessenen Fingerprint ueberein")) 'Ordnerabhaengige Windows-Dialogdrift darf einen strukturell exakt gebundenen Import nicht technisch sperren.'
+Assert-True ($dialogImportBlock.Contains('TryGetCurrentPattern([Windows.Automation.InvokePattern]::Pattern')) 'Der native Oeffnen-Schalter muss vor dem physischen Fallback per InvokePattern bedient werden.'
+Assert-True ($dialogImportBlock.Contains('[SW]::GetDlgItem($dialogHwnd, 1)')) 'Der native Oeffnen-Fallback muss exakt an Control-ID 1 gebunden sein.'
+Assert-True ($dialogImportBlock.Contains('0x00F5')) 'Der geometrisch und textuell verifizierte native Oeffnen-Fallback muss BM_CLICK verwenden.'
+Assert-True (-not $dialogImportBlock.Contains('Click-VerifiedPoint $dialogHwnd $openButtons[0]')) 'Der Windows-Hit-Test darf den nativen Oeffnen-Schalter nicht erneut gegen das darunterliegende Qt-Fenster verwerfen.'
 Assert-True (-not $dialogImportBlock.Contains("SendKeys]::SendWait('^a')")) 'Belegimport darf Ctrl+A nicht zum Leeren des nativen Dateiname-Felds verwenden.'
 Assert-True (-not $dialogImportBlock.Contains('ConvertTo-SendKeysLiteral $Path')) 'Belegimport darf den Dateipfad nicht vom aktiven Tastaturlayout abhaengig eingeben.'
+
+$readStart = $worker.IndexOf("  'receipt_manager_read' {")
+$updateStart = $worker.IndexOf("  'receipt_manager_update' {", $readStart)
+Assert-True ($readStart -ge 0 -and $updateStart -gt $readStart) 'Beleglesung ist nicht eindeutig abgrenzbar.'
+$readBlock = $worker.Substring($readStart, $updateStart - $readStart)
+Assert-True ($readBlock.Contains('row=$rowAfterMatches[0]')) 'Beleglesung muss die post-selection Zeilenbindung zurueckgeben.'
+Assert-True ($readBlock.Contains('$policy.controls.detailClose')) 'Beleglesung muss die Detailansicht ueber den profilierten Schalter wieder schliessen.'
+Assert-True ($readBlock.Contains('[bool]$listAfter.rowsComplete')) 'Beleglesung muss vor dem Rueckgabebinding die vollstaendige Tabellenprojektion wiederherstellen.'
+Assert-True ($readBlock.Contains('($actualSemanticRows | ConvertTo-Json -Compress) -ceq')) 'Beleglesung muss nach dem Schliessen der Details das fachliche Listen-Multiset beweisen.'
+Assert-True ($readBlock.Contains('$rowAfterMatches.Count -eq 1')) 'Beleglesung muss nach dem Schliessen weiterhin exakt dieselbe Zielzeile binden.'
 
 $actionStart = $worker.IndexOf("  'receipt_manager_action' {", $deleteStart)
 Assert-True ($deleteStart -ge 0 -and $actionStart -gt $deleteStart) 'Loeschoperation ist nicht eindeutig abgrenzbar.'
@@ -227,4 +267,4 @@ foreach ($forbidden in @("Arg `$a 'name'", "Arg `$a 'aid'", "Arg `$a 'x'", "Arg 
   Assert-True (-not $deleteBlock.Contains($forbidden)) "receipt_manager_delete akzeptiert den freien Selektor '$forbidden'."
 }
 
-Write-Output 'BelegManager: zwei reversible Navigationen sowie gebundene Liste-, Lese-, Befuell-, Import- und Loeschvertraege.'
+Write-Output 'BelegManager: gebundene Navigation, Liste, Lesen, Befuellen, Batch-Link, Import und Loeschen.'

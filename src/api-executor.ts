@@ -11,6 +11,11 @@ import {
   readCaseFileInfo,
 } from "./case-file.js";
 import { executeCheckerOpen } from "./checker-executor.js";
+import {
+  executeFillFieldsPlan,
+  executeReceiptManagerBulkPlan,
+  resolveReceiptManagerBulkReferences,
+} from "./bulk-plan-executor.js";
 import { ExecutorArgumentError, operationError } from "./executor-errors.js";
 import { executeLaunchOperation } from "./launch-executor.js";
 import { parseApiOperationArgs, parseCheckerReadOnlyClickArgs } from "./operation-catalog.js";
@@ -40,7 +45,6 @@ import { executeLocalVerify } from "./verify-executor.js";
 import { executeLocalWorkingCopy } from "./working-copy-executor.js";
 import { executeLocalBackup } from "./backup-executor.js";
 import { executeLocalArchive } from "./archive-executor.js";
-import { executeReceiptManagerBulkUpsert } from "./receipt-manager-bulk-executor.js";
 
 interface ConfiguredArguments {
   args: Record<string, unknown>;
@@ -177,6 +181,9 @@ function configuredArgs(
     );
   }
   if (operation === "save") resolveSaveCorrectionReferences(result, resourceRefs, roots);
+  if (operation === "receipt_manager_bulk_upsert") {
+    resolveReceiptManagerBulkReferences(result, resourceRefs, roots);
+  }
   if (operation === "launch" || operation === "desktop_start") {
     if (result.exe !== undefined) {
       throw new ExecutorArgumentError("'exe' wird ausschliesslich in der lokalen API-Konfiguration festgelegt.");
@@ -473,8 +480,22 @@ export function createApiExecutor(
       if (isUstvaOperation(operation)) {
         return await executeUstvaOperation(operation, args, timeoutMs, signal, executeOperation);
       }
+      if (operation === "fill_fields") {
+        return await executeFillFieldsPlan(args, timeoutMs, signal, {
+          pageObjectsCatalog: profile.pageObjectsCatalog,
+          configure: (nestedOperation, nestedArgs) => configuredArgs(nestedOperation, nestedArgs, config),
+          worker,
+          finish: (result, resourceRefs) => withResourceIdentity(redactPaths, result, resourceRefs),
+          executionError,
+        });
+      }
       if (operation === "receipt_manager_bulk_upsert") {
-        return await executeReceiptManagerBulkUpsert(args, timeoutMs, signal, executeOperation);
+        const configured = configuredArgs(operation, args, config);
+        return await executeReceiptManagerBulkPlan(args, configured, timeoutMs, signal, {
+          worker,
+          finish: (result, resourceRefs) => withResourceIdentity(redactPaths, result, resourceRefs),
+          executionError,
+        });
       }
       const configured = configuredArgs(operation, args, config);
       if (internalCheckerNavigation) {

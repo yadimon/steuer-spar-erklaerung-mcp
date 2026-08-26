@@ -112,7 +112,7 @@
           },
           "liveEvidence": {
             "types": [
-              "object:{\"affectsAvailability\":\"boolean\",\"basis\":\"string-other\",\"errorPathOnlyCount\":\"nonnegative-number\",\"functionalCount\":\"nonnegative-number\",\"operationStatus\":\"object\",\"profileSpecific\":\"boolean\",\"schemaVersion\":\"nonnegative-number\",\"scope\":\"string-other\",\"untestedCount\":\"nonnegative-number\",\"untestedOperations\":\"array-empty\"}"
+              "object:{\"affectsAvailability\":\"boolean\",\"basis\":\"string-other\",\"errorPathOnlyCount\":\"nonnegative-number\",\"functionalCount\":\"nonnegative-number\",\"operationStatus\":\"object\",\"profileSpecific\":\"boolean\",\"schemaVersion\":\"nonnegative-number\",\"scope\":\"string-other\",\"untestedCount\":\"nonnegative-number\",\"untestedOperations\":\"array-one:string-other\"}"
             ],
             "labels": [
               "scenario-mock",
@@ -7425,6 +7425,171 @@
         }
       }
     },
+    "fill_fields": {
+      "offline": {
+        "profiles": [],
+        "fields": {
+          "cleanupRequired": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "completed": {
+            "types": [
+              "array-many:object"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "failedAction": {
+            "types": [
+              "null"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "failedIndex": {
+            "types": [
+              "null"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "finalReadback": {
+            "types": [
+              "object:{\"dirty\":\"boolean\",\"epoch\":\"string-hex64\",\"fields\":\"array-many:object\",\"heading\":\"string-other\",\"ok\":\"boolean\",\"pageId\":\"string-other\",\"privateValuesPersisted\":\"boolean\"}"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "finalReadbackVerified": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "ok": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "performance": {
+            "types": [
+              "object:{\"fullUiReadbackCount\":\"nonnegative-number\",\"internalOperationCount\":\"nonnegative-number\",\"workerProcessCount\":\"nonnegative-number\"}"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "planKind": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "resultingState": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "rollback": {
+            "types": [
+              "object:{\"attempted\":\"boolean\",\"entries\":\"array-empty\",\"mode\":\"string-other\",\"ok\":\"null\"}"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "schemaVersion": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "skipped": {
+            "types": [
+              "array-empty"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "verified": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          }
+        }
+      },
+      "live": {
+        "profiles": [],
+        "fields": {}
+      }
+    },
     "find": {
       "offline": {
         "profiles": [],
@@ -11864,7 +12029,250 @@
     "receipt_manager_bulk_upsert": {
       "offline": {
         "profiles": [],
-        "fields": {}
+        "fields": {
+          "cleanupRequired": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "completed": {
+            "types": [
+              "array-one:object"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "completedCount": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "failedAction": {
+            "types": [
+              "null"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "failure": {
+            "types": [
+              "null"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "finalReadback": {
+            "types": [
+              "object:{\"items\":\"array-one:object\"}"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "finalReadbackVerified": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "hwnd": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "items": {
+            "types": [
+              "array-one:object"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "mainHwnd": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "managerHwnd": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "ok": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "performance": {
+            "types": [
+              "object:{\"durationMs\":\"nonnegative-number\",\"internalOperationCount\":\"nonnegative-number\",\"workerProcessCount\":\"nonnegative-number\"}"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "pid": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "planKind": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "requestedCount": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "resourceRefs": {
+            "types": [
+              "object"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "resultingState": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "rollback": {
+            "types": [
+              "object:{\"actions\":\"array-empty\",\"attempted\":\"boolean\",\"ok\":\"boolean\"}"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "schemaVersion": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "skipped": {
+            "types": [
+              "array-empty"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "verified": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          }
+        }
       },
       "live": {
         "profiles": [],
@@ -11894,7 +12302,250 @@
     "receipt_manager_link": {
       "offline": {
         "profiles": [],
-        "fields": {}
+        "fields": {
+          "applied": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "changedCount": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "cleanupRequired": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "dirtyStateUnchangedBeforeApply": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "expectedLinkTarget": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "expectedTargetPage": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "footerCountAfter": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "footerCountBefore": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "foregroundLeaseUsed": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "hwnd": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "items": {
+            "types": [
+              "array-one:object"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "linkedAfter": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "linkedBefore": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "mainHwnd": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "managerHwnd": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "noChanges": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "ok": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "persistenceVerified": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "physicalInputUsed": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "pid": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "receipt": {
+            "types": [
+              "object:{\"contentFingerprint\":\"string-hex64\",\"draft\":\"boolean\",\"index\":\"nonnegative-number\",\"primaryText\":\"string-other\",\"rowFingerprint\":\"string-hex64\",\"rowRid\":\"string-other\"}"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "verified": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          }
+        }
       },
       "live": {
         "profiles": [],
@@ -12426,6 +13077,17 @@
               "success"
             ]
           },
+          "detailFingerprint": {
+            "types": [
+              "string-hex64"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "dialogClosed": {
             "types": [
               "boolean"
@@ -12451,6 +13113,17 @@
           "existingRowsUnchanged": {
             "types": [
               "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "fields": {
+            "types": [
+              "array-many:object"
             ],
             "labels": [
               "stateful-mock"
@@ -12506,6 +13179,28 @@
           "listFingerprintBefore": {
             "types": [
               "string-hex64"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "mainHwnd": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "managerHwnd": {
+            "types": [
+              "nonnegative-number"
             ],
             "labels": [
               "stateful-mock"
@@ -13089,6 +13784,62 @@
               "success"
             ]
           },
+          "mainHwnd": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "managerHwnd": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "matchedCount": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "matches": {
+            "types": [
+              "array-empty",
+              "array-one:object"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "matchesComplete": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "ok": {
             "types": [
               "boolean"
@@ -13446,6 +14197,28 @@
               "success"
             ]
           },
+          "mainHwnd": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "managerHwnd": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "ok": {
             "types": [
               "boolean"
@@ -13513,6 +14286,28 @@
             ]
           },
           "ungespeichertVorher": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "values": {
+            "types": [
+              "object:{\"amount\":\"string-other\",\"date\":\"string-empty\",\"documentNumber\":\"string-empty\",\"net\":\"boolean\",\"note\":\"string-empty\",\"title\":\"string-other\",\"vatRate\":\"string-other\"}"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "valuesComplete": {
             "types": [
               "boolean"
             ],
@@ -13903,6 +14698,28 @@
           "listFingerprintBefore": {
             "types": [
               "string-hex64"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "mainHwnd": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "managerHwnd": {
+            "types": [
+              "nonnegative-number"
             ],
             "labels": [
               "stateful-mock"

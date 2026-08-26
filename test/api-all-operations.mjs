@@ -69,10 +69,18 @@ try {
             items: [{
               resourceRef: "documents:synthetic.pdf",
               expectedHash: "D".repeat(64),
+              identity: { exactTitle: "Synthetischer Beleg", documentNumber: "SYN-1" },
               values: { title: "Synthetischer Beleg" },
             }],
             acknowledgeBulkUpsert: true,
           }
+          : operation === "receipt_manager_link"
+            ? {
+              items: [{ expectedReceiptTitle: "Synthetischer Beleg", linked: true }],
+              expectedTargetPage: "Synthetische Steuerseite",
+              expectedLinkTarget: "Synthetisches Ziel",
+              acknowledgeLinkChange: true,
+            }
           : sampleJsonSchema(schema, operation);
     assert(args && typeof args === "object" && !Array.isArray(args), `Kein Argumentsample fuer '${operation}'.`);
 

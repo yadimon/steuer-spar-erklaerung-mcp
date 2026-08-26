@@ -42,6 +42,9 @@ $script:SSE_CASE_FILE_REGEX = $null
 $script:SSE_INSTANCE_LABEL = $null
 $script:SSE_EXE_IDENTITY_CACHE = @{}
 $script:INIT_TIMINGS = [ordered]@{}
+$script:SSE_CAPTURE_OPERATION_RESULT = $false
+$script:SSE_CAPTURED_OPERATION_RESULT = $null
+$script:SSE_CAPTURE_SENTINEL = 'SSE_INTERNAL_OPERATION_RESULT_CAPTURED'
 
 # Ohne das hier landen Umlaute als '?' beim Aufrufer: bei umgeleiteter Ausgabe
 # benutzt die Konsole sonst die OEM-Codepage statt UTF-8.
@@ -229,6 +232,7 @@ function Get-SSEReceiptManagerPolicy {
       -not [string]$policy.controls.newReceipt.automationIdSuffix -or
       -not [string]$policy.controls.attachFile.automationIdSuffix -or
       -not [string]$policy.controls.deleteReceipt.automationIdSuffix -or
+      -not [string]$policy.controls.detailClose.automationIdSuffix -or
       -not $policy.controls.classification -or -not $policy.classificationDialogs -or
       -not $policy.controls.linkManagement -or
       -not $policy.controls.editableFields -or
@@ -434,7 +438,7 @@ function Get-SSEReceiptManagerListProjection($State, $Policy) {
     $selected = @($cells | Where-Object { $null -ne $_.selected -and [bool]$_.selected }).Count -gt 0
     $null = $rows.Add([pscustomobject][ordered]@{
       index=$rowIndex; rowRid=$rowRid; rowFingerprint=$rowFingerprint
-      contentFingerprint=$contentFingerprint
+      contentFingerprint=$contentFingerprint; primaryText=$primaryText
       cells=$cells; draft=[bool]$isDraft; selected=[bool]$selected
     })
   }
@@ -465,6 +469,77 @@ function Get-SSEReceiptManagerDetailProjection($State) {
 function Get-SSEReceiptManagerDetailFingerprint($Fields) {
   if (-not @($Fields).Count) { return $null }
   Get-SSETextSha256 (@($Fields) | ConvertTo-Json -Depth 8 -Compress)
+}
+
+function Get-SSEReceiptManagerEditableValues($State, $Policy) {
+  $values = [ordered]@{}
+  $complete = $true
+  foreach ($fieldName in @('title','date','documentNumber','amount','vatRate','net','note')) {
+    $fieldProperty = $Policy.controls.editableFields.PSObject.Properties[$fieldName]
+    if (-not $fieldProperty) { $complete = $false; continue }
+    $fieldPolicy = $fieldProperty.Value
+    $matches = @($State.nodes | Where-Object {
+      [string]$_.aid -and ([string]$_.aid).EndsWith([string]$fieldPolicy.automationIdSuffix, [StringComparison]::Ordinal) -and
+      [string]$_.type -ceq [string]$fieldPolicy.controlType -and $_.w -gt 0 -and $_.h -gt 0 -and [bool]$_.on
+    })
+    if ($matches.Count -ne 1) { $complete = $false; continue }
+    $resolved = [pscustomobject]@{ name=$fieldName; policy=$fieldPolicy; node=$matches[0] }
+    $values[$fieldName] = Get-SSEReceiptManagerFieldValue $resolved
+  }
+  [pscustomobject]@{ complete=$complete; values=$(if ($complete) { [pscustomobject]$values } else { $null }) }
+}
+
+function Get-SSEReceiptBulkRowTitle($Row) {
+  if ($Row -and $Row.PSObject.Properties['primaryText']) { return [string]$Row.primaryText }
+  $named = @($Row.cells | Where-Object { [string]$_.name } | Select-Object -First 1)
+  $(if ($named.Count) { [string]$named[0].name } else { '' })
+}
+
+function ConvertTo-SSEReceiptBulkDate($Value) {
+  $text = ([string]$Value).Trim()
+  $german = [regex]::Match($text, '^(?<day>\d{2})\.(?<month>\d{2})\.(?<year>\d{4})$')
+  if ($german.Success) {
+    return "$($german.Groups['year'].Value)-$($german.Groups['month'].Value)-$($german.Groups['day'].Value)"
+  }
+  $text
+}
+
+function ConvertTo-SSEReceiptBulkAmount($Value) {
+  $text = (([string]$Value).Trim() -replace '\s+', '')
+  if ($text.Contains(',')) { $text = $text.Replace('.', '').Replace(',', '.') }
+  $parsed = [decimal]0
+  if ([decimal]::TryParse($text, [Globalization.NumberStyles]::Number, [Globalization.CultureInfo]::InvariantCulture, [ref]$parsed)) {
+    return $parsed.ToString('0.00', [Globalization.CultureInfo]::InvariantCulture)
+  }
+  $text
+}
+
+function Test-SSEReceiptBulkIdentity($Values, $Identity) {
+  if (-not $Values -or -not $Identity -or [string]$Values.title -cne [string]$Identity.exactTitle) { return $false }
+  if ($Identity.PSObject.Properties['documentNumber']) {
+    return [bool]([string]$Values.documentNumber -ceq [string]$Identity.documentNumber)
+  }
+  [bool](
+    (ConvertTo-SSEReceiptBulkDate $Values.date) -ceq [string]$Identity.date -and
+    (ConvertTo-SSEReceiptBulkAmount $Values.amount) -ceq (ConvertTo-SSEReceiptBulkAmount $Identity.amount)
+  )
+}
+
+function Test-SSEReceiptBulkRequestedValues($Actual, $Requested) {
+  if (-not $Actual -or -not $Requested) { return $false }
+  foreach ($property in @($Requested.PSObject.Properties)) {
+    $name = [string]$property.Name
+    $expected = $property.Value
+    $observed = $Actual.PSObject.Properties[$name].Value
+    $matches = switch ($name) {
+      'date' { (ConvertTo-SSEReceiptBulkDate $observed) -ceq (ConvertTo-SSEReceiptBulkDate $expected); break }
+      'amount' { (ConvertTo-SSEReceiptBulkAmount $observed) -ceq (ConvertTo-SSEReceiptBulkAmount $expected); break }
+      'net' { [bool]$observed -eq [bool]$expected; break }
+      default { [string]$observed -ceq [string]$expected }
+    }
+    if (-not $matches) { return $false }
+  }
+  $true
 }
 
 function Resolve-SSEReceiptManagerEditableFieldNode($State, $Policy, [string]$FieldName) {
@@ -594,9 +669,15 @@ function Invoke-SSEReceiptManagerOpenFileDialog(
     Fail "$($dialogs.Count) exakt passende Belegimport-Dialoge '$ExpectedTitle' gefunden." 'dialog-not-found'
   }
   $descriptor = Get-DialogDescriptor $dialogs[0] $MainHwnd
-  if ([string]$descriptor.fingerprint -cne $ExpectedFingerprint) {
-    Fail 'Belegimport-Dialog stimmt nicht mit dem gemessenen Fingerprint ueberein; NICHT bedient.' 'fingerprint-mismatch'
-  }
+  # Der generische Dialog-Fingerprint enthaelt bewusst auch alle unbekannten
+  # Schalternamen. Beim Windows-Dateiauswahldialog gehoeren dazu jedoch
+  # shell-/ordnerabhaengige Toolbar-Elemente, sodass derselbe sichere Dialog
+  # nach einem Verzeichniswechsel einen anderen Fingerprint haben kann. Fuer
+  # den Import bindet deshalb die nachfolgende, engere Strukturpruefung Titel,
+  # Klasse, Dateiname-Label/-Control und genau eine aktive Oeffnen-Schaltflaeche.
+  # Der profilierte Fingerprint bleibt als Driftwarnung im Readback erhalten.
+  $observedFingerprint = ([string]$descriptor.fingerprint).ToUpperInvariant()
+  $profileFingerprintMatched = $observedFingerprint -ceq $ExpectedFingerprint
   $dialogHwnd = [IntPtr][int64]$descriptor.hwnd
   $tree = Walk-Tree $dialogHwnd 1500 -WithValues
   $labels = @($tree.nodes | Where-Object {
@@ -624,7 +705,44 @@ function Invoke-SSEReceiptManagerOpenFileDialog(
   if ($openButtons.Count -ne 1) {
     Fail "$($openButtons.Count) aktive Oeffnen-Schaltflaechen im Belegimport-Dialog gefunden." 'dialog-unmapped'
   }
-  $null = Click-VerifiedPoint $dialogHwnd $openButtons[0]
+  # Bei dem von Qt geoeffneten nativen Windows-Dateidialog kann
+  # WindowFromPoint am sichtbaren Oeffnen-Schalter faelschlich das darunter
+  # liegende Qt-BelegManager-Fenster liefern. Der exakt im gebundenen
+  # Dialogbaum aufgeloeste Schalter wird deshalb vorrangig ueber sein
+  # InvokePattern ausgeloest; nur wenn der Provider es nicht anbietet, bleibt
+  # der bewaehrte physische, hit-test-gesicherte Fallback.
+  $openElement = Get-LiveElement $dialogHwnd ([string]$openButtons[0].rid) ([string]$openButtons[0].aid)
+  $openInvoke = $null
+  $openMethod = 'verified-point'
+  if ($openElement -and $openElement.TryGetCurrentPattern([Windows.Automation.InvokePattern]::Pattern, [ref]$openInvoke)) {
+    $openInvoke.Invoke()
+    $openMethod = 'invoke'
+  } else {
+    $openButtonHandle = [SW]::GetDlgItem($dialogHwnd, 1)
+    if ($openButtonHandle -eq [IntPtr]::Zero) {
+      Fail 'Nativer Oeffnen-Schalter mit Control-ID 1 fehlt.' 'dialog-unmapped'
+    }
+    $openButtonRect = New-Object SW+RC
+    if (-not [SW]::GetWindowRect($openButtonHandle, [ref]$openButtonRect)) {
+      Fail 'Geometrie des nativen Oeffnen-Schalters ist nicht lesbar.' 'dialog-unmapped'
+    }
+    $openButtonText = New-Object Text.StringBuilder 64
+    [SW]::GetWindowTextW($openButtonHandle, $openButtonText, 64) | Out-Null
+    $openButtonLabel = $openButtonText.ToString().Replace('&', '')
+    $openButtonCenterX = ($openButtonRect.L + $openButtonRect.R) / 2
+    $openButtonCenterY = ($openButtonRect.T + $openButtonRect.B) / 2
+    if ($openButtonLabel -notin @('Oeffnen','Öffnen','Open') -or
+        $openButtonCenterX -lt $openButtons[0].x -or $openButtonCenterX -gt ($openButtons[0].x + $openButtons[0].w) -or
+        $openButtonCenterY -lt $openButtons[0].y -or $openButtonCenterY -gt ($openButtons[0].y + $openButtons[0].h)) {
+      Fail 'Control-ID 1 stimmt nicht mit der verifizierten Oeffnen-Schaltflaeche ueberein.' 'dialog-unmapped'
+    }
+    $buttonResult = [IntPtr]::Zero
+    $buttonSent = [SW]::SendMessageTimeout(
+      $openButtonHandle, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero, 0x0002, 3000, [ref]$buttonResult
+    )
+    if ($buttonSent -eq [IntPtr]::Zero) { Fail 'Nativer Oeffnen-Schalter antwortete nicht auf BM_CLICK.' 'timeout' }
+    $openMethod = 'native-bm-click'
+  }
   Start-Sleep -Milliseconds $WaitMs
   if ([SW]::IsWindow($dialogHwnd)) {
     Fail 'Belegimport-Dialog ist nach Oeffnen noch vorhanden; keine Wiederholung.' 'postcondition-failed'
@@ -635,7 +753,13 @@ function Invoke-SSEReceiptManagerOpenFileDialog(
   }
   [pscustomobject]@{
     selected=$Path; sha256=$actualHashAfter; dialogTitle=$ExpectedTitle
-    dialogFingerprint=$ExpectedFingerprint; dialogClosed=$true; verified=$true
+    dialogFingerprint=$observedFingerprint
+    dialogProfileFingerprintExpected=$ExpectedFingerprint
+    dialogProfileFingerprintMatched=$profileFingerprintMatched
+    warning=$(if ($profileFingerprintMatched) { $null } else {
+      'Windows-Dateidialog-Fingerprint ist gegenueber dem Profil gedriftet; die engere Importstruktur wurde vollstaendig verifiziert.'
+    })
+    openMethod=$openMethod; dialogClosed=$true; verified=$true
   }
 }
 
@@ -965,6 +1089,15 @@ function Emit($obj) {
     } catch { }
   }
   $obj | Add-Member -NotePropertyName ms -NotePropertyValue $script:T0.ElapsedMilliseconds -Force
+  # Zusammengesetzte, streng typisierte Plaene duerfen bestehende
+  # Operationspfade im selben frischen Worker wiederverwenden. In diesem
+  # internen Modus wird das kanonische Ergebnis abgefangen, statt den Prozess
+  # nach jedem Teilschritt zu beenden. Der Sentinel verlaesst niemals den
+  # Worker; der umgebende Dispatcher faengt ausschliesslich diese eine Instanz.
+  if ($script:SSE_CAPTURE_OPERATION_RESULT) {
+    $script:SSE_CAPTURED_OPERATION_RESULT = $obj
+    throw [InvalidOperationException]::new($script:SSE_CAPTURE_SENTINEL)
+  }
   # Depth hoch, damit verschachtelte Baeume nicht abgeschnitten werden
   $json = $obj | ConvertTo-Json -Depth 24 -Compress
   if ($OutFile) {
@@ -990,6 +1123,54 @@ function Fail($msg, $kind = 'error', $details = $null) {
     }
   }
   Emit ([pscustomobject]$payload)
+}
+
+$script:SSE_INTERNAL_PLAN_OPERATIONS = @(
+  'known_page_state', 'tracked_set_value',
+  'receipt_manager_list', 'receipt_manager_read', 'receipt_manager_update',
+  'receipt_manager_classification_options', 'receipt_manager_classify',
+  'receipt_manager_import', 'receipt_manager_delete'
+)
+
+function Invoke-SSECapturedOperation([string]$Operation, $Arguments) {
+  if ($script:SSE_CAPTURE_OPERATION_RESULT) {
+    throw 'Verschachtelte interne Operationsplaene sind gesperrt.'
+  }
+  if ($Operation -notin $script:SSE_INTERNAL_PLAN_OPERATIONS) {
+    return [pscustomobject]@{
+      ok=$false; kind='operation-not-allowed'
+      error="Operation '$Operation' ist nicht im internen Bulk-Katalog."
+    }
+  }
+
+  $script:SSE_CAPTURED_OPERATION_RESULT = $null
+  $script:SSE_CAPTURE_OPERATION_RESULT = $true
+  try {
+    Assert-SSEVerifiedBuildForOperation $Operation $Arguments
+    Invoke-SSEWorkerOperation $Operation $Arguments
+    throw "Interne Operation '$Operation' lieferte kein strukturiertes Ergebnis."
+  } catch {
+    $captured = $script:SSE_CAPTURED_OPERATION_RESULT
+    if ($_.Exception.Message -ceq $script:SSE_CAPTURE_SENTINEL -and $null -ne $captured) {
+      return $captured
+    }
+    throw
+  } finally {
+    $script:SSE_CAPTURE_OPERATION_RESULT = $false
+    $script:SSE_CAPTURED_OPERATION_RESULT = $null
+  }
+}
+
+function Invoke-SSEMeasuredPlanOperation([string]$Operation, $Arguments, $Metrics) {
+  $watch = [Diagnostics.Stopwatch]::StartNew()
+  $result = Invoke-SSECapturedOperation $Operation $Arguments
+  $watch.Stop()
+  $Metrics.internalOperationCount = [int]$Metrics.internalOperationCount + 1
+  $Metrics.sseActionMs = [int64]$Metrics.sseActionMs + $watch.ElapsedMilliseconds
+  if ($result.focusTelemetry) {
+    $Metrics.foregroundRaiseCount = [int]$Metrics.foregroundRaiseCount + [int](Arg $result.focusTelemetry 'acquisitions' 0)
+  }
+  $result
 }
 function Get-SSEBoundedIntegerArg(
   $obj,
@@ -5862,7 +6043,7 @@ $experimentalProfileVerificationOps = @(
 )
 $buildDriftBlockedOps = @(
   'checker_run', 'click', 'click_point', 'combo_select', 'dialog_answer',
-  'file_dialog_select', 'goto', 'menu_click', 'save', 'save_as', 'set_value',
+  'file_dialog_select', 'fill_fields', 'goto', 'menu_click', 'save', 'save_as', 'set_value',
   'receipt_manager_action', 'receipt_manager_bulk_upsert', 'receipt_manager_classification_options', 'receipt_manager_classify',
   'receipt_manager_delete', 'receipt_manager_import', 'receipt_manager_link', 'receipt_manager_read', 'receipt_manager_update',
   'table_add', 'table_delete', 'table_update', 'toggle',
@@ -6179,7 +6360,198 @@ if ($verificationOnlyProfile -and $Op -notin $experimentalProfileBaseOps) {
 
 Assert-SSEVerifiedBuildForOperation $Op $a
 
-switch ($Op) {
+function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
+  $Op = $Operation
+  $a = $Arguments
+  switch ($Op) {
+
+  'bulk_action' {
+    $schemaVersion = Get-SSEBoundedIntegerArg $a 'schemaVersion' 0 1 1
+    $planKind = [string](Arg $a 'planKind')
+    $actions = @(Get-SSEBoundedArrayArg $a 'actions' 1 20)
+    $stopOnError = Arg $a 'stopOnError' $null
+    $rollbackMode = [string](Arg $a 'rollback')
+    $finalReadbackRequested = Arg $a 'finalReadback' $null
+    $finalReadbackPlan = Arg $a 'finalReadbackPlan'
+    if ($schemaVersion -ne 1 -or $planKind -cne 'fill-fields' -or $stopOnError -ne $true -or
+        $rollbackMode -cne 'best-effort' -or $finalReadbackRequested -ne $true) {
+      Fail 'BulkPlan v1 braucht planKind=fill-fields, stopOnError=true, rollback=best-effort und finalReadback=true.' 'bad-args'
+    }
+    if (-not (Test-SSEExactProperties $a @(
+      'schemaVersion','planKind','actions','stopOnError','rollback','finalReadback','finalReadbackPlan'
+    ))) {
+      Fail 'BulkPlan enthaelt unbekannte Top-Level-Felder.' 'bad-args'
+    }
+    if (-not (Test-SSEExactProperties $finalReadbackPlan @('operation','args')) -or
+        [string]$finalReadbackPlan.operation -cne 'known_page_state') {
+      Fail 'BulkPlan braucht genau einen katalogisierten known_page_state-Abschlussreadback.' 'bad-args'
+    }
+
+    $allowedActionArgs = @(
+      'pageId','fieldId','expectedBefore','expectedEpoch','value','expectedAfter',
+      'sumChecks','trackResults','resultLabels','hwnd','pid','expectedCasePath','expectedCaseHash'
+    )
+    $seenActionIds = @{}
+    $expectedPageId = $null
+    foreach ($action in $actions) {
+      if (-not (Test-SSEExactProperties $action @('id','operation','args')) -or
+          [string]$action.operation -cne 'tracked_set_value' -or
+          -not [string]$action.id -or $seenActionIds.ContainsKey([string]$action.id) -or
+          @($action.args.PSObject.Properties | Where-Object { $_.Name -notin $allowedActionArgs }).Count -or
+          -not [string]$action.args.pageId -or -not [string]$action.args.fieldId -or
+          $null -eq (Arg $action.args 'expectedBefore') -or
+          $null -eq (Arg $action.args 'value') -or
+          $null -eq (Arg $action.args 'expectedAfter')) {
+        Fail 'Jede fill-fields-Aktion braucht eindeutige id, tracked_set_value und ausschliesslich katalogisierte pageId/fieldId-Argumente.' 'bad-args'
+      }
+      $seenActionIds[[string]$action.id] = $true
+      if ($null -eq $expectedPageId) { $expectedPageId = [string]$action.args.pageId }
+      elseif ([string]$action.args.pageId -cne $expectedPageId) {
+        Fail 'Ein fill-fields-Bulk darf nur Felder derselben bereits geoeffneten Page-Object-Seite enthalten.' 'bad-args'
+      }
+      $null = Resolve-SSEPageObject ([string]$action.args.pageId) ([string]$action.args.fieldId)
+    }
+    if (@($finalReadbackPlan.args.PSObject.Properties | Where-Object { $_.Name -notin @('pageId','hwnd','pid') }).Count -or
+        [string]$finalReadbackPlan.args.pageId -cne $expectedPageId) {
+      Fail 'Abschlussreadback muss exakt dieselbe katalogisierte Seite und nur pageId/hwnd/pid binden.' 'bad-args'
+    }
+
+    $planWatch = [Diagnostics.Stopwatch]::StartNew()
+    $completed = New-Object System.Collections.ArrayList
+    $actionRecords = New-Object System.Collections.ArrayList
+    $failedIndex = $null
+    $failedAction = $null
+    $internalOperationCount = 0
+    $immediateReadbackCount = 0
+    $foregroundRaiseCount = 0
+    $sseActionMs = 0
+    for ($index = 0; $index -lt $actions.Count; $index++) {
+      $action = $actions[$index]
+      $actionWatch = [Diagnostics.Stopwatch]::StartNew()
+      $result = Invoke-SSECapturedOperation ([string]$action.operation) $action.args
+      $actionWatch.Stop()
+      $internalOperationCount++
+      $immediateReadbackCount++
+      $sseActionMs += $actionWatch.ElapsedMilliseconds
+      if ($result.focusTelemetry) { $foregroundRaiseCount += [int](Arg $result.focusTelemetry 'acquisitions' 0) }
+      $record = [pscustomobject]@{
+        id=[string]$action.id; index=$index; operation=[string]$action.operation
+        status=$(if ($result.ok -eq $true -and $result.verified -eq $true) { 'completed' } else { 'failed' })
+        result=$result
+      }
+      $null = $actionRecords.Add($record)
+      if ($record.status -eq 'completed') {
+        $null = $completed.Add([pscustomobject]@{ action=$action; result=$result; index=$index })
+        continue
+      }
+      $failedIndex = $index
+      $failedAction = $record
+      break
+    }
+
+    $skipped = New-Object System.Collections.ArrayList
+    if ($null -ne $failedIndex) {
+      for ($index = ([int]$failedIndex + 1); $index -lt $actions.Count; $index++) {
+        $null = $skipped.Add([pscustomobject]@{
+          id=[string]$actions[$index].id; index=$index; operation=[string]$actions[$index].operation; status='skipped'
+        })
+      }
+    }
+
+    $rollbackEntries = New-Object System.Collections.ArrayList
+    $rollbackOk = $true
+    if ($null -ne $failedIndex -and $completed.Count) {
+      $reverse = @($completed)
+      [array]::Reverse($reverse)
+      foreach ($entry in $reverse) {
+        $originalArgs = $entry.action.args
+        $rollbackArgs = [ordered]@{
+          pageId=[string]$originalArgs.pageId
+          fieldId=[string]$originalArgs.fieldId
+          expectedBefore=[string]$originalArgs.expectedAfter
+          value=[string]$originalArgs.expectedBefore
+          expectedAfter=[string]$originalArgs.expectedBefore
+        }
+        foreach ($name in @('trackResults','resultLabels','hwnd','pid','expectedCasePath','expectedCaseHash')) {
+          if ($originalArgs.PSObject.Properties[$name]) { $rollbackArgs[$name] = $originalArgs.$name }
+        }
+        if ($originalArgs.PSObject.Properties['sumChecks']) {
+          $rollbackArgs.sumChecks = @($originalArgs.sumChecks | ForEach-Object {
+            [pscustomobject]@{
+              label=[string]$_.label
+              occurrence=[int](Arg $_ 'occurrence' 1)
+              before=[string]$_.after
+              after=[string]$_.before
+            }
+          })
+        }
+        $rollbackWatch = [Diagnostics.Stopwatch]::StartNew()
+        $rollbackResult = Invoke-SSECapturedOperation 'tracked_set_value' ([pscustomobject]$rollbackArgs)
+        $rollbackWatch.Stop()
+        $internalOperationCount++
+        $sseActionMs += $rollbackWatch.ElapsedMilliseconds
+        if ($rollbackResult.focusTelemetry) { $foregroundRaiseCount += [int](Arg $rollbackResult.focusTelemetry 'acquisitions' 0) }
+        $entryOk = [bool]($rollbackResult.ok -eq $true -and $rollbackResult.verified -eq $true)
+        if (-not $entryOk) { $rollbackOk = $false }
+        $null = $rollbackEntries.Add([pscustomobject]@{
+          id=[string]$entry.action.id; index=[int]$entry.index; ok=$entryOk; result=$rollbackResult
+        })
+      }
+    }
+
+    $readbackWatch = [Diagnostics.Stopwatch]::StartNew()
+    $finalReadback = Invoke-SSECapturedOperation 'known_page_state' $finalReadbackPlan.args
+    $readbackWatch.Stop()
+    $internalOperationCount++
+    $sseActionMs += $readbackWatch.ElapsedMilliseconds
+    if ($finalReadback.focusTelemetry) { $foregroundRaiseCount += [int](Arg $finalReadback.focusTelemetry 'acquisitions' 0) }
+    $readbackValuesVerified = [bool]($finalReadback.ok -eq $true -and $finalReadback.onExpectedPage -eq $true)
+    if ($readbackValuesVerified) {
+      foreach ($action in $actions) {
+        $expected = $(if ($null -eq $failedIndex) { [string]$action.args.expectedAfter } else { [string]$action.args.expectedBefore })
+        $valueKind = [string](Arg (Resolve-SSEPageObject ([string]$action.args.pageId) ([string]$action.args.fieldId)).field 'valueKind')
+        $matches = @($finalReadback.fields | Where-Object { [string]$_.fieldId -ceq [string]$action.args.fieldId })
+        if ($matches.Count -ne 1 -or -not [bool]$matches[0].present -or
+            -not (Test-SSETrackedValueEquivalent ([string]$matches[0].value) $expected $valueKind)) {
+          $readbackValuesVerified = $false
+          break
+        }
+      }
+    }
+
+    $resultingState = $(
+      if (-not $readbackValuesVerified) { 'unknown' }
+      elseif ($null -eq $failedIndex) { 'completed-verified' }
+      elseif (-not $completed.Count) { 'unchanged' }
+      elseif ($rollbackOk -and $rollbackEntries.Count -eq $completed.Count) { 'rolled-back-verified' }
+      else { 'partially-mutated-verified' }
+    )
+    $planWatch.Stop()
+    $ok = [bool]($null -eq $failedIndex -and $readbackValuesVerified)
+    Emit ([pscustomobject]@{
+      ok=$ok
+      kind=$(if ($ok) { $null } elseif ($resultingState -eq 'unknown') { 'state-unknown' } else { [string]$failedAction.result.kind })
+      error=$(if ($ok) { $null } elseif ($resultingState -eq 'unknown') {
+        'Bulk-Ausfuehrung oder Abschlussreadback ist unklar; vor einem Retry zuerst separat lesen.'
+      } else { "Bulk-Ausfuehrung stoppte bei Aktion $([int]$failedIndex + 1)." })
+      schemaVersion=1; planKind=$planKind; stopOnError=$true
+      completed=@($actionRecords | Where-Object { $_.status -eq 'completed' })
+      failedAction=$failedAction; failedIndex=$failedIndex; skipped=@($skipped)
+      rollback=[pscustomobject]@{
+        mode='best-effort'; attempted=[bool]($rollbackEntries.Count -gt 0); ok=$(if ($rollbackEntries.Count) { $rollbackOk } else { $null })
+        entries=@($rollbackEntries)
+      }
+      cleanupRequired=[bool]($resultingState -in @('partially-mutated-verified','unknown'))
+      finalReadback=$finalReadback; finalReadbackVerified=$readbackValuesVerified
+      resultingState=$resultingState; verified=[bool]($resultingState -ne 'unknown')
+      performance=[pscustomobject]@{
+        workerProcessCount=1; internalOperationCount=$internalOperationCount
+        immediateReadbackCount=$immediateReadbackCount; fullUiReadbackCount=1
+        foregroundRaiseCount=$foregroundRaiseCount; sseActionMs=$sseActionMs
+        planMs=$planWatch.ElapsedMilliseconds; initialization=$script:INIT_TIMINGS
+      }
+    })
+  }
 
   'focusless_write_probe' {
     # Private test-only operation. It is deliberately absent from the API/MCP
@@ -15566,6 +15938,401 @@ switch ($Op) {
     })
   }
 
+  'receipt_manager_bulk_upsert' {
+    $items = @(Get-SSEBoundedArrayArg $a 'items' 1 20)
+    $waitMs = Get-SSEBoundedIntegerArg $a 'waitMs' 3500 500 10000
+    if ((Arg $a 'acknowledgeBulkUpsert' $false) -ne $true -or (Arg $a 'stopOnError' $true) -ne $true) {
+      Fail 'Beleg-Bulk braucht acknowledgeBulkUpsert=true und stopOnError=true.' 'acknowledgement-required'
+    }
+    if (@($a.PSObject.Properties | Where-Object {
+      $_.Name -notin @('items','acknowledgeBulkUpsert','stopOnError','waitMs','hwnd')
+    }).Count) {
+      Fail 'Beleg-Bulk enthaelt unbekannte Top-Level-Felder.' 'bad-args'
+    }
+    $seenResources = @{}; $seenIdentities = @{}
+    foreach ($item in $items) {
+      if (@($item.PSObject.Properties | Where-Object {
+        $_.Name -notin @('resourceRef','expectedPath','expectedHash','identity','onExisting','values','classification')
+      }).Count -or -not [string]$item.resourceRef -or -not [string]$item.expectedPath -or
+          ([string]$item.expectedHash).ToUpperInvariant() -notmatch '^[A-F0-9]{64}$' -or
+          -not $item.identity -or -not [string]$item.identity.exactTitle -or -not $item.values) {
+        Fail 'Jeder Beleg braucht resourceRef, internen expectedPath, expectedHash, fachliche identity und values.' 'bad-args'
+      }
+      $identityHasNumber = [bool]$item.identity.PSObject.Properties['documentNumber']
+      $identityHasDateAmount = [bool](
+        $item.identity.PSObject.Properties['date'] -and $item.identity.PSObject.Properties['amount']
+      )
+      if ($identityHasNumber -eq $identityHasDateAmount -or
+          @($item.identity.PSObject.Properties | Where-Object {
+            $_.Name -notin @('exactTitle','documentNumber','date','amount')
+          }).Count -or
+          ([string](Arg $item 'onExisting' 'update')) -notin @('update','skip','error')) {
+        Fail 'Beleg-identity braucht exakt Titel+Belegnummer oder Titel+Datum+Betrag; onExisting ist update, skip oder error.' 'bad-args'
+      }
+      $resourceKey = [string]$item.resourceRef
+      $identityKey = $item.identity | ConvertTo-Json -Depth 5 -Compress
+      if ($seenResources.ContainsKey($resourceKey) -or $seenIdentities.ContainsKey($identityKey)) {
+        Fail 'resourceRef und fachliche identity muessen im Beleg-Bulk jeweils eindeutig sein.' 'bad-args'
+      }
+      $seenResources[$resourceKey] = $true; $seenIdentities[$identityKey] = $true
+    }
+
+    $planWatch = [Diagnostics.Stopwatch]::StartNew()
+    $metrics = [pscustomobject]@{
+      internalOperationCount=0; sseActionMs=[int64]0; foregroundRaiseCount=0
+      immediateReadbackCount=0; affectedItemReadbackCount=0; fullUiReadbackCount=0
+    }
+    $common = [ordered]@{}
+    if ($a.PSObject.Properties['hwnd']) { $common.hwnd = [int64]$a.hwnd }
+    $initialList = Invoke-SSEMeasuredPlanOperation 'receipt_manager_list' ([pscustomobject]$common) $metrics
+    $metrics.immediateReadbackCount++
+    if ($initialList.ok -ne $true -or $initialList.rowsComplete -ne $true) {
+      $planWatch.Stop()
+      Emit ([pscustomobject]@{
+        ok=$false; kind=$(if ($initialList.kind) { [string]$initialList.kind } else { 'precondition-failed' })
+        error='Beleg-Bulk konnte die vollstaendige Ausgangsliste nicht lesen.'
+        schemaVersion=1; planKind='receipt-manager-bulk-upsert'
+        requestedCount=$items.Count; completedCount=0; completed=@(); failedIndex=0
+        failedAction=[pscustomobject]@{ index=0; stage='initial-list'; result=$initialList }
+        skipped=@($items | ForEach-Object -Begin { $skipIndex=0 } -Process {
+          [pscustomobject]@{ index=$skipIndex; resourceRef=[string]$_.resourceRef; identity=$_.identity; status='skipped' }; $skipIndex++
+        })
+        rollback=[pscustomobject]@{ mode='best-effort'; attempted=$false; ok=$null; entries=@() }
+        cleanupRequired=$false; finalReadback=$initialList; finalReadbackVerified=$false
+        resultingState='unknown'; verified=$false
+        performance=[pscustomobject]@{
+          workerProcessCount=1; internalOperationCount=$metrics.internalOperationCount
+          immediateReadbackCount=$metrics.immediateReadbackCount; fullUiReadbackCount=$metrics.fullUiReadbackCount
+          affectedItemReadbackCount=0; foregroundRaiseCount=$metrics.foregroundRaiseCount
+          sseActionMs=$metrics.sseActionMs; planMs=$planWatch.ElapsedMilliseconds; initialization=$script:INIT_TIMINGS
+        }
+      })
+    }
+
+    $currentList = $initialList
+    $completed = New-Object System.Collections.ArrayList
+    $failedIndex = $null; $failedAction = $null; $failureCleanupRequired = $false
+    for ($index = 0; $index -lt $items.Count; $index++) {
+      $item = $items[$index]
+      $rows = @($currentList.rows)
+      $titleCandidates = @($rows | Where-Object { (Get-SSEReceiptBulkRowTitle $_) -ceq [string]$item.identity.exactTitle })
+      $identityMatches = New-Object System.Collections.ArrayList
+      foreach ($row in $titleCandidates) {
+        if (-not [string]$row.rowRid -or ([string]$row.rowFingerprint).ToUpperInvariant() -notmatch '^[A-F0-9]{64}$') {
+          $failedAction = [pscustomobject]@{ index=$index; stage='identity-binding'; result=[pscustomobject]@{
+            ok=$false; kind='stale'; error='Titel-Treffer besitzt keine frische Zeilenbindung.'
+          } }
+          break
+        }
+        $readArgs = [ordered]@{
+          rowRid=[string]$row.rowRid; rowFingerprint=[string]$row.rowFingerprint
+          expectedListFingerprint=[string]$currentList.listFingerprint; waitMs=$waitMs
+        }
+        foreach ($property in $common.GetEnumerator()) { $readArgs[$property.Key] = $property.Value }
+        $read = Invoke-SSEMeasuredPlanOperation 'receipt_manager_read' ([pscustomobject]$readArgs) $metrics
+        $metrics.immediateReadbackCount++
+        if ($read.ok -ne $true -or -not $read.values) {
+          $failedAction = [pscustomobject]@{ index=$index; stage='identity-read'; result=$read }
+          break
+        }
+        if (Test-SSEReceiptBulkIdentity $read.values $item.identity) {
+          $null = $identityMatches.Add([pscustomobject]@{ row=$row; read=$read })
+        }
+      }
+      if ($failedAction) { $failedIndex=$index; break }
+      if ($identityMatches.Count -gt 1) {
+        $failedIndex=$index
+        $failedAction=[pscustomobject]@{ index=$index; stage='identity-ambiguous'; result=[pscustomobject]@{
+          ok=$false; kind='ambiguous'; error="$($identityMatches.Count) Belege passen exakt zur fachlichen Identitaet; force ist gesperrt."
+        } }
+        break
+      }
+
+      $action = 'imported'; $imported=$null; $initialRead=$null; $boundRow=$null
+      if ($identityMatches.Count -eq 1) {
+        $existing = $identityMatches[0]
+        $onExisting = [string](Arg $item 'onExisting' 'update')
+        if ($onExisting -ceq 'error') {
+          $failedIndex=$index
+          $failedAction=[pscustomobject]@{ index=$index; stage='existing'; result=[pscustomobject]@{
+            ok=$false; kind='already-exists'; error='Der fachlich identische Beleg ist bereits vorhanden.'
+          } }
+          break
+        }
+        if ($onExisting -ceq 'skip') {
+          $null = $completed.Add([pscustomobject]@{
+            ok=$true; index=$index; action='skipped'; resourceRef=[string]$item.resourceRef
+            identity=$item.identity; row=$existing.row; verified=$true
+          })
+          if ($index -lt ($items.Count - 1)) {
+            $currentList = Invoke-SSEMeasuredPlanOperation 'receipt_manager_list' ([pscustomobject]$common) $metrics
+            $metrics.immediateReadbackCount++
+            if ($currentList.ok -ne $true -or $currentList.rowsComplete -ne $true) {
+              $failedIndex=$index
+              $failedAction=[pscustomobject]@{ index=$index; stage='list-between-items'; result=$currentList }
+              break
+            }
+          }
+          continue
+        }
+        $action='updated'; $initialRead=$existing.read
+        $boundRow=$(if ($existing.read.row -and [string]$existing.read.row.rowRid) { $existing.read.row } else { $existing.row })
+      } else {
+        $importArgs = [ordered]@{
+          expectedPath=[string]$item.expectedPath; expectedHash=[string]$item.expectedHash
+          expectedListFingerprint=[string]$currentList.listFingerprint; expectedCountBefore=[int]$currentList.count
+          acknowledgeImport=$true; waitMs=$waitMs
+        }
+        foreach ($property in $common.GetEnumerator()) { $importArgs[$property.Key] = $property.Value }
+        $imported = Invoke-SSEMeasuredPlanOperation 'receipt_manager_import' ([pscustomobject]$importArgs) $metrics
+        $metrics.immediateReadbackCount++
+        if ($imported.ok -ne $true -or -not $imported.importedRow -or -not [string]$imported.detailFingerprint) {
+          $failedIndex=$index; $failureCleanupRequired=[bool](Arg $imported 'cleanupRequired' $true)
+          $failedAction=[pscustomobject]@{ index=$index; stage='import'; resourceRef=[string]$item.resourceRef; result=$imported }
+          break
+        }
+        $boundRow=$imported.importedRow
+        $initialRead=[pscustomobject]@{
+          ok=$true; row=$boundRow; listFingerprint=[string]$imported.listFingerprintAfter
+          detailFingerprint=[string]$imported.detailFingerprint; verified=$true
+        }
+      }
+
+      $updateArgs = [ordered]@{
+        rowRid=[string]$boundRow.rowRid; rowFingerprint=[string]$boundRow.rowFingerprint
+        expectedListFingerprint=[string]$initialRead.listFingerprint
+        expectedDetailFingerprint=[string]$initialRead.detailFingerprint
+        values=$item.values; acknowledgeUpdate=$true; waitMs=$waitMs
+      }
+      foreach ($property in $common.GetEnumerator()) { $updateArgs[$property.Key] = $property.Value }
+      $updated = Invoke-SSEMeasuredPlanOperation 'receipt_manager_update' ([pscustomobject]$updateArgs) $metrics
+      $metrics.immediateReadbackCount++
+      if ($updated.ok -ne $true -or -not $updated.rowAfter) {
+        $failedIndex=$index; $failureCleanupRequired=[bool]($action -ceq 'imported' -or (Arg $updated 'cleanupRequired' $false))
+        $failedAction=[pscustomobject]@{ index=$index; stage='update'; resourceRef=[string]$item.resourceRef; result=$updated }
+        break
+      }
+
+      $row=$updated.rowAfter; $classification=$null
+      if ($item.PSObject.Properties['classification']) {
+        $classifyArgs = [ordered]@{
+          rowRid=[string]$row.rowRid; rowFingerprint=[string]$row.rowFingerprint
+          expectedListFingerprint=[string]$updated.listFingerprintAfter
+          expectedDetailFingerprint=[string]$updated.detailFingerprintAfter
+          values=$item.classification; acknowledgeClassification=$true; waitMs=$waitMs
+        }
+        foreach ($property in $common.GetEnumerator()) { $classifyArgs[$property.Key] = $property.Value }
+        $classification = Invoke-SSEMeasuredPlanOperation 'receipt_manager_classify' ([pscustomobject]$classifyArgs) $metrics
+        $metrics.immediateReadbackCount++
+        if ($classification.ok -ne $true -or -not $classification.rowAfter) {
+          $failedIndex=$index; $failureCleanupRequired=[bool]($action -ceq 'imported' -or (Arg $classification 'cleanupRequired' $false))
+          $failedAction=[pscustomobject]@{ index=$index; stage='classify'; resourceRef=[string]$item.resourceRef; result=$classification }
+          break
+        }
+        $row=$classification.rowAfter
+      }
+      $null = $completed.Add([pscustomobject]@{
+        ok=$true; index=$index; action=$action; resourceRef=[string]$item.resourceRef
+        sha256=([string]$item.expectedHash).ToUpperInvariant(); identity=$item.identity
+        import=$imported; update=$updated; classification=$classification; row=$row; verified=$true
+      })
+
+      if ($index -lt ($items.Count - 1)) {
+        $currentList = Invoke-SSEMeasuredPlanOperation 'receipt_manager_list' ([pscustomobject]$common) $metrics
+        $metrics.immediateReadbackCount++
+        if ($currentList.ok -ne $true -or $currentList.rowsComplete -ne $true) {
+          $failedIndex=$index
+          $failedAction=[pscustomobject]@{ index=$index; stage='list-between-items'; result=$currentList }
+          break
+        }
+      }
+    }
+
+    $skipped = New-Object System.Collections.ArrayList
+    if ($null -ne $failedIndex) {
+      for ($skipIndex=[int]$failedIndex + 1; $skipIndex -lt $items.Count; $skipIndex++) {
+        $null = $skipped.Add([pscustomobject]@{
+          index=$skipIndex; resourceRef=[string]$items[$skipIndex].resourceRef
+          identity=$items[$skipIndex].identity; status='skipped'
+        })
+      }
+    }
+
+    $rollbackEntries = New-Object System.Collections.ArrayList
+    $rollbackOk = $true
+    if ($null -ne $failedIndex -and $completed.Count) {
+      $reverse = @($completed); [array]::Reverse($reverse)
+      foreach ($entry in $reverse) {
+        if ([string]$entry.action -ceq 'skipped') { continue }
+        if ([string]$entry.action -cne 'imported') {
+          $rollbackOk=$false
+          $null = $rollbackEntries.Add([pscustomobject]@{
+            index=[int]$entry.index; action=[string]$entry.action; attempted=$false; ok=$false
+            reason='Ein bereits vorhandener Beleg hat keinen katalogisierten planweiten Reverse-Upsert; Zustand bleibt im Abschlussreadback sichtbar.'
+          })
+          continue
+        }
+        $rollbackList = Invoke-SSEMeasuredPlanOperation 'receipt_manager_list' ([pscustomobject]$common) $metrics
+        $matches = @($rollbackList.rows | Where-Object { [string]$_.rowRid -ceq [string]$entry.row.rowRid })
+        if ($rollbackList.ok -ne $true -or $rollbackList.rowsComplete -ne $true -or $matches.Count -ne 1) {
+          $rollbackOk=$false
+          $null = $rollbackEntries.Add([pscustomobject]@{
+            index=[int]$entry.index; action='imported'; attempted=$false; ok=$false
+            reason='Importierte Zeile ist fuer den best-effort Rollback nicht mehr eindeutig gebunden.'; list=$rollbackList
+          })
+          continue
+        }
+        $deleteArgs = [ordered]@{
+          rowRid=[string]$matches[0].rowRid; rowFingerprint=[string]$matches[0].rowFingerprint
+          expectedListFingerprint=[string]$rollbackList.listFingerprint; expectedCountBefore=[int]$rollbackList.count
+          acknowledgeDelete=$true; waitMs=$waitMs
+        }
+        foreach ($property in $common.GetEnumerator()) { $deleteArgs[$property.Key] = $property.Value }
+        $deleted = Invoke-SSEMeasuredPlanOperation 'receipt_manager_delete' ([pscustomobject]$deleteArgs) $metrics
+        $entryOk=[bool]($deleted.ok -eq $true -and $deleted.verified -eq $true)
+        if (-not $entryOk) { $rollbackOk=$false }
+        $null = $rollbackEntries.Add([pscustomobject]@{
+          index=[int]$entry.index; action='imported'; attempted=$true; ok=$entryOk; result=$deleted
+        })
+      }
+    }
+
+    $finalList = Invoke-SSEMeasuredPlanOperation 'receipt_manager_list' ([pscustomobject]$common) $metrics
+    $metrics.fullUiReadbackCount++
+    $finalAffected = New-Object System.Collections.ArrayList
+    $needsStabilization = $false
+    $finalVerified = [bool]($finalList.ok -eq $true -and $finalList.rowsComplete -eq $true)
+    if ($finalVerified -and $null -eq $failedIndex) {
+      foreach ($entry in @($completed)) {
+        $item = $items[[int]$entry.index]
+        $rowMatches = @($finalList.rows | Where-Object { [string]$_.rowRid -ceq [string]$entry.row.rowRid })
+        if ($rowMatches.Count -ne 1) {
+          $title = $(if ($item.values.PSObject.Properties['title']) { [string]$item.values.title } else { [string]$item.identity.exactTitle })
+          $rowMatches = @($finalList.rows | Where-Object { (Get-SSEReceiptBulkRowTitle $_) -ceq $title })
+        }
+        if ($rowMatches.Count -ne 1) { $finalVerified=$false; break }
+        $readArgs = [ordered]@{
+          rowRid=[string]$rowMatches[0].rowRid; rowFingerprint=[string]$rowMatches[0].rowFingerprint
+          expectedListFingerprint=[string]$finalList.listFingerprint; waitMs=$waitMs
+        }
+        foreach ($property in $common.GetEnumerator()) { $readArgs[$property.Key] = $property.Value }
+        $read = Invoke-SSEMeasuredPlanOperation 'receipt_manager_read' ([pscustomobject]$readArgs) $metrics
+        $metrics.affectedItemReadbackCount++
+        $readCandidateVerified = [bool](
+          $read.ok -eq $true -or (
+            [string]$read.kind -ceq 'postcondition-failed' -and
+            $read.valuesComplete -eq $true -and $read.targetRowRebound -eq $true -and
+            $read.windowSetUnchanged -eq $true -and $read.dialogFreeAfter -eq $true -and
+            $read.dirtyStateUnchanged -eq $true
+          )
+        )
+        $itemVerified = [bool]($readCandidateVerified -and (
+          [string]$entry.action -ceq 'skipped' -or (Test-SSEReceiptBulkRequestedValues $read.values $item.values)
+        ))
+        $itemNeedsStabilization = [bool]($itemVerified -and $read.ok -ne $true)
+        if ($itemNeedsStabilization) { $needsStabilization = $true }
+        $classificationReadbacks = New-Object System.Collections.ArrayList
+        if ($itemNeedsStabilization -and $item.PSObject.Properties['classification']) {
+          # Klassifikationsoptionen brauchen die voll verifizierte Detail- und
+          # Listenbindung des Read-Ergebnisses. Ein spaeter stabilisierter
+          # Werte-Readback reicht fuer diesen zusaetzlichen Dialog nicht aus.
+          $itemVerified=$false
+        } elseif ($itemVerified -and $item.PSObject.Properties['classification']) {
+          foreach ($kind in @('categories','persons')) {
+            if (-not $item.classification.PSObject.Properties[$kind]) { continue }
+            $optionArgs = [ordered]@{
+              rowRid=[string]$read.row.rowRid; rowFingerprint=[string]$read.row.rowFingerprint
+              expectedListFingerprint=[string]$read.listFingerprint
+              expectedDetailFingerprint=[string]$read.detailFingerprint; kind=$kind; waitMs=$waitMs
+            }
+            foreach ($property in $common.GetEnumerator()) { $optionArgs[$property.Key] = $property.Value }
+            $optionRead = Invoke-SSEMeasuredPlanOperation 'receipt_manager_classification_options' ([pscustomobject]$optionArgs) $metrics
+            $metrics.affectedItemReadbackCount++
+            $expectedSelection = @($item.classification.PSObject.Properties[$kind].Value | Sort-Object)
+            $actualSelection = @($optionRead.selected | Sort-Object)
+            $selectionVerified = [bool](
+              $optionRead.ok -eq $true -and
+              ($expectedSelection | ConvertTo-Json -Compress) -ceq ($actualSelection | ConvertTo-Json -Compress)
+            )
+            if (-not $selectionVerified) { $itemVerified=$false }
+            $null = $classificationReadbacks.Add([pscustomobject]@{ kind=$kind; verified=$selectionVerified; result=$optionRead })
+          }
+        }
+        if (-not $itemVerified) { $finalVerified=$false }
+        $null = $finalAffected.Add([pscustomobject]@{
+          index=[int]$entry.index; action=[string]$entry.action
+          verified=[bool]($itemVerified -and -not $itemNeedsStabilization)
+          candidateVerified=$itemVerified; requiresStabilization=$itemNeedsStabilization
+          read=$read; classifications=@($classificationReadbacks)
+        })
+      }
+    }
+
+    $stabilizationList = $null
+    if ($finalVerified -and $needsStabilization) {
+      # Invoke-SSECapturedOperation gibt den Foreground-Lease erst nach dem
+      # receipt_manager_read-Emit frei. Qt kann die Tabelle deshalb erst in
+      # der folgenden internen Operation vollstaendig stabilisieren. Dieser
+      # reine Listenread beweist anschliessend noch einmal die Gesamtmenge.
+      $stabilizationList = Invoke-SSEMeasuredPlanOperation 'receipt_manager_list' ([pscustomobject]$common) $metrics
+      $metrics.fullUiReadbackCount++
+      $expectedFinalRows = @($finalList.rows | ForEach-Object { [string]$_.contentFingerprint } | Sort-Object)
+      $actualFinalRows = @($(if ($stabilizationList) {
+        @($stabilizationList.rows | ForEach-Object { [string]$_.contentFingerprint } | Sort-Object)
+      } else { @() }))
+      $stabilized = [bool](
+        $stabilizationList.ok -eq $true -and $stabilizationList.rowsComplete -eq $true -and
+        [int]$stabilizationList.count -eq [int]$finalList.count -and
+        ($actualFinalRows | ConvertTo-Json -Compress) -ceq ($expectedFinalRows | ConvertTo-Json -Compress)
+      )
+      foreach ($affectedEntry in @($finalAffected | Where-Object { $_.requiresStabilization -eq $true })) {
+        $affectedEntry.verified = [bool]($stabilized -and $affectedEntry.candidateVerified)
+      }
+      if (-not $stabilized) { $finalVerified=$false }
+    }
+
+    $resultingState = $(
+      if (-not $finalVerified) { 'unknown' }
+      elseif ($null -eq $failedIndex) { 'completed-verified' }
+      elseif (-not $completed.Count -and -not $failureCleanupRequired -and [int]$finalList.count -eq [int]$initialList.count) { 'unchanged' }
+      elseif ($rollbackOk -and $rollbackEntries.Count -gt 0 -and
+              -not @($rollbackEntries | Where-Object { $_.ok -ne $true }).Count -and
+              [int]$finalList.count -eq [int]$initialList.count) { 'rolled-back-verified' }
+      else { 'partially-mutated-verified' }
+    )
+    $planWatch.Stop()
+    $ok=[bool]($null -eq $failedIndex -and $finalVerified)
+    Emit ([pscustomobject]@{
+      ok=$ok; kind=$(if ($ok) { $null } elseif ($resultingState -ceq 'unknown') { 'state-unknown' } else {
+        $(if ($failedAction.result.kind) { [string]$failedAction.result.kind } else { 'partial-failure' })
+      })
+      error=$(if ($ok) { $null } elseif ($resultingState -ceq 'unknown') {
+        'Beleg-Bulk oder Abschlussreadback ist unklar; vor einem Retry zuerst separat lesen.'
+      } else { "Beleg-Bulk stoppte bei Eintrag $([int]$failedIndex + 1) in Phase '$([string]$failedAction.stage)'." })
+      schemaVersion=1; planKind='receipt-manager-bulk-upsert'
+      pid=$finalList.pid; hwnd=$finalList.hwnd; mainHwnd=$finalList.mainHwnd; managerHwnd=$finalList.managerHwnd
+      requestedCount=$items.Count; completedCount=$completed.Count; completed=@($completed)
+      items=@($completed); failedIndex=$failedIndex; failedAction=$failedAction; failure=$failedAction; skipped=@($skipped)
+      rollback=[pscustomobject]@{
+        mode='best-effort'; attempted=[bool]($rollbackEntries.Count -gt 0)
+        ok=$(if ($rollbackEntries.Count) { $rollbackOk } else { $null }); entries=@($rollbackEntries)
+      }
+      cleanupRequired=[bool]($failureCleanupRequired -or $resultingState -in @('partially-mutated-verified','unknown'))
+      finalReadback=[pscustomobject]@{
+        list=$finalList; affected=@($finalAffected); stabilizationList=$stabilizationList; verified=$finalVerified
+      }
+      finalReadbackVerified=$finalVerified
+      resultingState=$resultingState; verified=[bool]($resultingState -cne 'unknown')
+      performance=[pscustomobject]@{
+        workerProcessCount=1; internalOperationCount=$metrics.internalOperationCount
+        immediateReadbackCount=$metrics.immediateReadbackCount; fullUiReadbackCount=$metrics.fullUiReadbackCount
+        affectedItemReadbackCount=$metrics.affectedItemReadbackCount
+        foregroundRaiseCount=$metrics.foregroundRaiseCount; sseActionMs=$metrics.sseActionMs
+        planMs=$planWatch.ElapsedMilliseconds; initialization=$script:INIT_TIMINGS
+      }
+    })
+  }
+
   'receipt_manager_list' {
     $policy = Get-SSEReceiptManagerPolicy
     $mainWindow = Resolve-SSEMainWindowDescriptor $a
@@ -15584,16 +16351,49 @@ switch ($Op) {
     }
     $blocking = @(Get-DialogInventory $targetPid | Where-Object { $_.kind -in @('native-dialog','qt-dialog') })
     if ($blocking.Count) { Fail 'Ein modaler SSE-Dialog blockiert die BelegManager-Lesung.' 'precondition-failed' }
+    $filter = Arg $a 'filter' $null
+    $limit = Get-SSEBoundedIntegerArg $a 'limit' 50 1 200
     $state = Get-SSEReceiptManagerState $toolHwnd $policy
     $list = Get-SSEReceiptManagerListProjection $state $policy
+    $matches = @($list.rows)
+    if ($filter) {
+      $filterProperties = @($filter.PSObject.Properties)
+      $unknownFilterProperties = @($filterProperties | Where-Object { $_.Name -notin @('exactTitle','titleContains','draft') })
+      if (-not $filterProperties.Count -or $unknownFilterProperties.Count) {
+        Fail 'filter braucht mindestens exactTitle, titleContains oder draft und akzeptiert keine anderen Felder.' 'bad-args'
+      }
+      if ($filter.PSObject.Properties['exactTitle']) {
+        $exactTitle = [string]$filter.exactTitle
+        $matches = @($matches | Where-Object { [string]$_.primaryText -ceq $exactTitle })
+      }
+      if ($filter.PSObject.Properties['titleContains']) {
+        $titleContains = [string]$filter.titleContains
+        $matches = @($matches | Where-Object {
+          ([string]$_.primaryText).IndexOf($titleContains, [StringComparison]::OrdinalIgnoreCase) -ge 0
+        })
+      }
+      if ($filter.PSObject.Properties['draft']) {
+        $expectedDraft = [bool]$filter.draft
+        $matches = @($matches | Where-Object { [bool]$_.draft -eq $expectedDraft })
+      }
+    }
+    $matchedCount = @($matches).Count
+    $compactMatches = @($matches | Select-Object -First $limit | ForEach-Object {
+      [pscustomobject][ordered]@{
+        index=[int]$_.index; title=[string]$_.primaryText; draft=[bool]$_.draft
+        rowRid=[string]$_.rowRid; rowFingerprint=[string]$_.rowFingerprint
+        contentFingerprint=[string]$_.contentFingerprint
+      }
+    })
     $dirty = Get-DirtyStateFast $mainHwnd
     if ($null -eq $dirty) { Fail 'Dirty-State des zugehoerigen Hauptfensters ist nicht lesbar.' 'precondition-failed' }
     Emit ([pscustomobject]@{
-      ok=$true; pid=$targetPid; hwnd=[int64]$toolHwnd
+      ok=$true; pid=$targetPid; hwnd=[int64]$toolHwnd; mainHwnd=[int64]$mainHwnd; managerHwnd=[int64]$toolHwnd
       state=[string]$state.state; stateFingerprint=[string]$state.fingerprint
       count=[int]$list.count; countSource=[string]$list.countSource; headers=@($list.headers)
       rows=@($list.rows); draftCount=[int]$list.draftCount
       listFingerprint=[string]$list.listFingerprint; rowsComplete=[bool]$list.rowsComplete
+      matchedCount=$matchedCount; matches=$compactMatches; matchesComplete=[bool]($matchedCount -le $limit)
       ungespeichert=[bool]$dirty; physicalInputUsed=$false
       hinweis=$(if ($list.rowsComplete) { 'Alle vom BelegManager gezaehlten Zeilen sind im UIA-Baum enthalten.' } else {
         "BelegManager zaehlt $($list.count) Belege, aber UIA exponiert aktuell $(@($list.rows).Count) Zeilen; Ergebnis ist sichtbar, nicht vollstaendig."
@@ -15637,7 +16437,6 @@ switch ($Op) {
       [string]$_.rowRid -ceq $rowRid -and ([string]$_.rowFingerprint).ToUpperInvariant() -ceq $rowFingerprint
     })
     if ($rows.Count -ne 1) { Fail "$($rows.Count) exakt gebundene Belegzeilen gefunden; NICHT geklickt." 'stale' }
-    $contentFingerprintsBefore = @($listBefore.rows | ForEach-Object { [string]$_.contentFingerprint })
     $dirtyBefore = Get-DirtyStateFast $mainHwnd
     if ($null -eq $dirtyBefore) { Fail 'Dirty-State des zugehoerigen Hauptfensters ist nicht lesbar.' 'precondition-failed' }
 
@@ -15674,46 +16473,115 @@ switch ($Op) {
       if ($stateAfter -and -not $noSelection -and $detailFields.Count) { break }
     } while ([DateTime]::UtcNow -lt $deadline)
 
-    $listAfter = $(if ($stateAfter) { Get-SSEReceiptManagerListProjection $stateAfter $policy } else { $null })
+    $detailFingerprint = Get-SSEReceiptManagerDetailFingerprint $detailFields
+    $editableProjection = $(if ($stateAfter -and $detailFields.Count) {
+      Get-SSEReceiptManagerEditableValues $stateAfter $policy
+    } else { [pscustomobject]@{ complete=$false; values=$null } })
+    $closePolicy = $policy.controls.detailClose
+    $closeNodes = @($(if ($stateAfter) { @($stateAfter.nodes | Where-Object {
+      $_.type -eq 'Button' -and [string]$_.aid -and
+      ([string]$_.aid).EndsWith([string]$closePolicy.automationIdSuffix, [StringComparison]::Ordinal) -and
+      [string]$_.name -ceq [string]$closePolicy.expectedName -and [bool]$_.on
+    }) } else { @() }))
+    if ($closeNodes.Count -ne 1) {
+      Fail "$($closeNodes.Count) exakt profilierte Schalter zum Schliessen der Belegdetails gefunden." 'postcondition-failed'
+    }
+    $freshClose = Convert-ExactElementToNode (Get-LiveElement $toolHwnd $closeNodes[0].rid $closeNodes[0].aid)
+    if (-not $freshClose -or -not [bool]$freshClose.on -or $freshClose.w -le 0 -or $freshClose.h -le 0) {
+      Fail 'Der profilierte Schalter zum Schliessen der Belegdetails ist nicht mehr sichtbar.' 'stale'
+    }
+    $closeBinding = Click-VerifiedPoint $toolHwnd $freshClose (Get-SSELastInputTick) -RequireForeground
+
+    # Qt entfernt bei offener Detailansicht insbesondere die letzte sichtbare
+    # Tabellenzeile aus der UIA-Projektion. Nach dem reinen Detail-Read wird die
+    # Ansicht deshalb wieder geschlossen und erst die vollstaendig restaurierte
+    # Tabelle als Binding fuer eine nachfolgende Update-Operation ausgegeben.
+    # Qt kann dieselbe sichtbare Belegmenge nach dem Oeffnen/Schliessen der
+    # Detailansicht neu sortieren. Der geordnete Runtime-ID-Fingerprint ist
+    # weiterhin der strikte Klick-Guard; fuer den post-action Readback zaehlt
+    # dagegen das vollstaendige Multiset der fachlichen Zeileninhalte.
+    $expectedSemanticRows = @($listBefore.rows | ForEach-Object {
+      [string]$_.contentFingerprint
+    } | Sort-Object)
+    $restoreDeadline = [DateTime]::UtcNow.AddMilliseconds($waitMs)
+    $restoredState = $null; $listAfter = $null
+    do {
+      Start-Sleep -Milliseconds 200
+      try {
+        $restoredState = Get-SSEReceiptManagerState $toolHwnd $policy
+        $listAfter = Get-SSEReceiptManagerListProjection $restoredState $policy
+      } catch { $restoredState = $null; $listAfter = $null }
+      $actualSemanticRows = @($(if ($listAfter) {
+        @($listAfter.rows | ForEach-Object { [string]$_.contentFingerprint } | Sort-Object)
+      } else { @() }))
+      if ($listAfter -and [bool]$listAfter.rowsComplete -and
+          [int]$listAfter.count -eq [int]$listBefore.count -and
+          ($actualSemanticRows | ConvertTo-Json -Compress) -ceq
+            ($expectedSemanticRows | ConvertTo-Json -Compress)) { break }
+    } while ([DateTime]::UtcNow -lt $restoreDeadline)
     $windowSetAfter = Get-SSEReceiptManagerWindowSet $targetPid
     $windowSetUnchanged = [bool]($windowSetAfter.fingerprint -eq $windowSetBefore.fingerprint)
     $blockingAfter = @(Get-DialogInventory $targetPid | Where-Object { $_.kind -in @('native-dialog','qt-dialog') })
     $dirtyAfter = Get-DirtyStateFast $mainHwnd
     $dirtyStateUnchanged = [bool]($null -ne $dirtyAfter -and [bool]$dirtyAfter -eq [bool]$dirtyBefore)
-    $contentFingerprintsAfter = $(if ($listAfter) {
-      @($listAfter.rows | ForEach-Object { [string]$_.contentFingerprint })
-    } else { @() })
+    $rowBefore = $rows[0]
+    $rowAfterMatches = @($(if ($listAfter) {
+      @($listAfter.rows | Where-Object {
+        [string]$_.rowRid -ceq [string]$rowBefore.rowRid -and
+        [string]$_.rowFingerprint -ceq [string]$rowBefore.rowFingerprint
+      })
+    } else { @() }))
+    $actualSemanticRows = @($(if ($listAfter) {
+      @($listAfter.rows | ForEach-Object { [string]$_.contentFingerprint } | Sort-Object)
+    } else { @() }))
     $semanticListUnchanged = [bool](
       $listAfter -and [bool]$listAfter.rowsComplete -and
       [int]$listAfter.count -eq [int]$listBefore.count -and
-      ($contentFingerprintsBefore | ConvertTo-Json -Compress) -ceq
-      ($contentFingerprintsAfter | ConvertTo-Json -Compress) -and
-      @($listAfter.rows | Where-Object { [string]$_.rowRid -ceq $rowRid }).Count -eq 1
+      ($actualSemanticRows | ConvertTo-Json -Compress) -ceq
+        ($expectedSemanticRows | ConvertTo-Json -Compress) -and
+      $rowAfterMatches.Count -eq 1
     )
     $verified = [bool](
       $stateAfter -and -not $noSelection -and $detailFields.Count -and $listAfter -and
       $semanticListUnchanged -and
       $windowSetUnchanged -and -not $blockingAfter.Count -and $dirtyStateUnchanged
     )
-    $detailFingerprint = Get-SSEReceiptManagerDetailFingerprint $detailFields
     if (-not $verified) {
       Emit ([pscustomobject]@{
         ok=$false; kind='postcondition-failed'; error='Belegdetail, Listenbindung, Fenstersatz, Dialogfreiheit oder Dirty-State ist nach der Auswahl nicht vollstaendig bewiesen; keine Wiederholung.'
-        pid=$targetPid; hwnd=[int64]$toolHwnd; row=$rows[0]; fields=$detailFields
+        pid=$targetPid; hwnd=[int64]$toolHwnd; mainHwnd=[int64]$mainHwnd; managerHwnd=[int64]$toolHwnd
+        row=$rows[0]; fields=$detailFields; values=$editableProjection.values; valuesComplete=[bool]$editableProjection.complete
         listFingerprint=$(if ($listAfter) { [string]$listAfter.listFingerprint } else { $null })
         listFingerprintBefore=$expectedListFingerprint; semanticListUnchanged=$semanticListUnchanged
+        targetRowRebound=[bool]($rowAfterMatches.Count -eq 1)
+        rowAfter=$(if ($rowAfterMatches.Count -eq 1) { $rowAfterMatches[0] } else { $null })
+        dialogFreeAfter=[bool](-not $blockingAfter.Count)
+        semanticReadback=[pscustomobject]@{
+          countBefore=[int]$listBefore.count
+          countAfter=$(if ($listAfter) { [int]$listAfter.count } else { $null })
+          rowsCompleteAfter=[bool]($listAfter -and [bool]$listAfter.rowsComplete)
+          rowsBefore=@($listBefore.rows | ForEach-Object { [pscustomobject]@{
+            title=[string]$_.primaryText; contentFingerprint=[string]$_.contentFingerprint
+          } })
+          rowsAfter=@($(if ($listAfter) { @($listAfter.rows | ForEach-Object { [pscustomobject]@{
+            title=[string]$_.primaryText; contentFingerprint=[string]$_.contentFingerprint
+          } }) } else { @() }))
+        }
         detailFingerprint=$detailFingerprint; windowSetUnchanged=$windowSetUnchanged
         ungespeichertVorher=$dirtyBefore; ungespeichertNachher=$dirtyAfter; dirtyStateUnchanged=$dirtyStateUnchanged
-        physicalInputUsed=$true; foregroundLeaseUsed=$true; verified=$false; clickBinding=$clickBinding
+        physicalInputUsed=$true; foregroundLeaseUsed=$true; verified=$false
+        clickBinding=$clickBinding; closeBinding=$closeBinding
       })
     }
     Emit ([pscustomobject]@{
-      ok=$true; pid=$targetPid; hwnd=[int64]$toolHwnd; row=$rows[0]; fields=$detailFields
+      ok=$true; pid=$targetPid; hwnd=[int64]$toolHwnd; mainHwnd=[int64]$mainHwnd; managerHwnd=[int64]$toolHwnd
+      row=$rowAfterMatches[0]; fields=$detailFields; values=$editableProjection.values; valuesComplete=[bool]$editableProjection.complete
       listFingerprint=[string]$listAfter.listFingerprint; detailFingerprint=$detailFingerprint
       listFingerprintBefore=$expectedListFingerprint; semanticListUnchanged=$true
+      targetRowRebound=$true; rowAfter=$rowAfterMatches[0]; dialogFreeAfter=$true
       windowSetUnchanged=$true; ungespeichertVorher=$dirtyBefore; ungespeichertNachher=$dirtyAfter
       dirtyStateUnchanged=$true; physicalInputUsed=$true; foregroundLeaseUsed=$true
-      verified=$true; clickBinding=$clickBinding
+      verified=$true; clickBinding=$clickBinding; closeBinding=$closeBinding
     })
   }
 
@@ -15782,9 +16650,9 @@ switch ($Op) {
     $selectedList = Get-SSEReceiptManagerListProjection $selectedState $policy
     $detailFieldsBefore = @(Get-SSEReceiptManagerDetailProjection $selectedState)
     $detailFingerprintBefore = Get-SSEReceiptManagerDetailFingerprint $detailFieldsBefore
-    if ([string]$selectedList.listFingerprint -cne $expectedListFingerprint -or
+    if ([int]$selectedList.count -ne [int]$listBefore.count -or
         [string]$detailFingerprintBefore -cne $expectedDetailFingerprint) {
-      Fail 'Listen- oder Detailfingerprint hat sich seit sse_receipt_manager_read geaendert; NICHT befuellt.' 'stale'
+      Fail 'Belegzaehler oder Detailfingerprint hat sich seit sse_receipt_manager_read geaendert; NICHT befuellt.' 'stale'
     }
 
     $orderedNames = @('title','date','documentNumber','amount','net','vatRate','note')
@@ -15873,7 +16741,7 @@ switch ($Op) {
       Emit ([pscustomobject]@{
         ok=$false; kind='postcondition-failed'
         error="Belegfeld '$failedField' konnte nicht verifiziert werden: $failedReason"
-        pid=$targetPid; hwnd=[int64]$toolHwnd; rowBefore=$rowBefore
+        pid=$targetPid; hwnd=[int64]$toolHwnd; mainHwnd=[int64]$mainHwnd; managerHwnd=[int64]$toolHwnd; rowBefore=$rowBefore
         valuesBefore=[pscustomobject]$valuesBefore; requestedValues=[pscustomobject]$requestedValues
         changedFields=@($changedFields); listFingerprintBefore=$expectedListFingerprint
         detailFingerprintBefore=$detailFingerprintBefore
@@ -15914,7 +16782,8 @@ switch ($Op) {
     if (-not $verified) {
       Emit ([pscustomobject]@{
         ok=$false; kind='postcondition-failed'; error='Belegwerte, Liste, Fenster, Dialogfreiheit oder Dirty-State konnten nach dem Befuellen nicht vollstaendig verifiziert werden.'
-        pid=$targetPid; hwnd=[int64]$toolHwnd; rowBefore=$rowBefore; rowAfter=$rowAfter
+        pid=$targetPid; hwnd=[int64]$toolHwnd; mainHwnd=[int64]$mainHwnd; managerHwnd=[int64]$toolHwnd
+        rowBefore=$rowBefore; rowAfter=$rowAfter
         valuesBefore=[pscustomobject]$valuesBefore; valuesAfter=[pscustomobject]$valuesAfter
         requestedValues=[pscustomobject]$requestedValues; changedFields=@($changedFields)
         draftBefore=[bool]$rowBefore.draft; draftAfter=$(if ($rowAfter) { [bool]$rowAfter.draft } else { $null })
@@ -15927,7 +16796,8 @@ switch ($Op) {
       })
     }
     Emit ([pscustomobject]@{
-      ok=$true; pid=$targetPid; hwnd=[int64]$toolHwnd; rowBefore=$rowBefore; rowAfter=$rowAfter
+      ok=$true; pid=$targetPid; hwnd=[int64]$toolHwnd; mainHwnd=[int64]$mainHwnd; managerHwnd=[int64]$toolHwnd
+      rowBefore=$rowBefore; rowAfter=$rowAfter
       valuesBefore=[pscustomobject]$valuesBefore; valuesAfter=[pscustomobject]$valuesAfter
       requestedValues=[pscustomobject]$requestedValues; changedFields=@($changedFields)
       draftBefore=[bool]$rowBefore.draft; draftAfter=[bool]$rowAfter.draft
@@ -16198,19 +17068,42 @@ switch ($Op) {
 
   'receipt_manager_link' {
     if ($script:DESKTOP_NAME) { Fail 'Belegverknuepfung braucht den sichtbaren Desktop.' 'hidden-desktop' }
-    $contentFingerprint = ([string](Arg $a 'receiptContentFingerprint')).ToUpperInvariant()
-    $expectedReceiptTitle = [string](Arg $a 'expectedReceiptTitle')
+    $rawItems = Arg $a 'items' $null
     $expectedTargetPage = [string](Arg $a 'expectedTargetPage')
     $expectedLinkTarget = [string](Arg $a 'expectedLinkTarget')
-    $linked = Arg $a 'linked' $null
     $acknowledge = Arg $a 'acknowledgeLinkChange' $false
     $waitMs = Get-SSEBoundedIntegerArg $a 'waitMs' 4000 500 10000
-    if ($contentFingerprint -notmatch '^[A-F0-9]{64}$' -or -not $expectedReceiptTitle -or
-        -not $expectedTargetPage -or -not $expectedLinkTarget -or $null -eq $linked) {
-      Fail 'receiptContentFingerprint, expectedReceiptTitle, expectedTargetPage, expectedLinkTarget und linked sind Pflicht.' 'bad-args'
+    $linkItems = @()
+    if ($rawItems) {
+      $linkItems = @($rawItems)
+      if ((Arg $a 'receiptContentFingerprint' $null) -or (Arg $a 'expectedReceiptTitle' $null) -or
+          $null -ne (Arg $a 'linked' $null)) {
+        Fail 'items und Legacy-Einzelfelder duerfen nicht gemeinsam angegeben werden.' 'bad-args'
+      }
+    } else {
+      $linkItems = @([pscustomobject]@{
+        receiptContentFingerprint=Arg $a 'receiptContentFingerprint' $null
+        expectedReceiptTitle=Arg $a 'expectedReceiptTitle' $null
+        linked=Arg $a 'linked' $null
+      })
+    }
+    if (-not $expectedTargetPage -or -not $expectedLinkTarget -or $linkItems.Count -lt 1 -or $linkItems.Count -gt 20) {
+      Fail 'expectedTargetPage, expectedLinkTarget und ein bis 20 Link-Eintraege sind Pflicht.' 'bad-args'
+    }
+    foreach ($item in $linkItems) {
+      $itemProperties = @($item.PSObject.Properties)
+      $unknownItemProperties = @($itemProperties | Where-Object {
+        $_.Name -notin @('receiptContentFingerprint','expectedReceiptTitle','linked')
+      })
+      $itemFingerprint = ([string]$item.receiptContentFingerprint).ToUpperInvariant()
+      if ($unknownItemProperties.Count -or -not [string]$item.expectedReceiptTitle -or
+          -not $item.PSObject.Properties['linked'] -or
+          ($itemFingerprint -and $itemFingerprint -notmatch '^[A-F0-9]{64}$')) {
+        Fail 'Jeder Link-Eintrag braucht expectedReceiptTitle und linked; receiptContentFingerprint ist optional SHA-256.' 'bad-args'
+      }
     }
     if ($acknowledge -ne $true) {
-      Fail 'Belegverknuepfung braucht acknowledgeLinkChange=true fuer genau dieses Ziel und diesen Beleg.' 'acknowledgement-required'
+      Fail 'Belegverknuepfung braucht acknowledgeLinkChange=true fuer genau dieses Ziel und alle genannten Belege.' 'acknowledgement-required'
     }
 
     $policy = Get-SSEReceiptManagerPolicy
@@ -16287,13 +17180,15 @@ switch ($Op) {
     }
 
     $readMode = {
-      param($Mode)
+      param($Mode, $Item)
+      $contentFingerprint = ([string]$Item.receiptContentFingerprint).ToUpperInvariant()
+      $expectedReceiptTitle = [string]$Item.expectedReceiptTitle
       $matches = @($Mode.list.rows | Where-Object {
-        [string]$_.contentFingerprint -ceq $contentFingerprint -and
-        @($_.cells | Where-Object { [string]$_.name } | Select-Object -First 1).Count -eq 1 -and
-        [string](@($_.cells | Where-Object { [string]$_.name } | Select-Object -First 1)[0].name) -ceq $expectedReceiptTitle
+        [string]$_.primaryText -ceq $expectedReceiptTitle -and
+        (-not $contentFingerprint -or [string]$_.contentFingerprint -ceq $contentFingerprint)
       })
-      if ($matches.Count -ne 1) { Fail "$($matches.Count) exakt inhalts- und titelgebundene Belege gefunden." 'stale' }
+      if ($matches.Count -eq 0) { Fail "Kein exakt titel- und optional inhaltsgebundener Beleg '$expectedReceiptTitle' gefunden." 'stale' }
+      if ($matches.Count -gt 1) { Fail "$($matches.Count) Belege mit dem exakten Titel '$expectedReceiptTitle' gefunden; keine Aenderung." 'ambiguous' }
       $row = $matches[0]
       $toggleColumn = [int]$linkPolicy.rowToggleColumn
       if (@($row.cells).Count -le $toggleColumn) { Fail 'Profilierte Link-Spalte fehlt in der Belegzeile.' 'profile-contract' }
@@ -16327,7 +17222,10 @@ switch ($Op) {
       if (-not $footerTextMatches) {
         Fail "Footer des Verknuepfungsmodus stimmt nicht mit Ziel und Zaehlervertrag ueberein (erwartet '$expectedFooterText', gelesen '$actualFooterText')." 'profile-contract'
       }
-      [pscustomobject]@{ row=$row; cell=$cell; linked=[bool]($toggleState -eq 'On'); footerCount=$footerCount }
+      [pscustomobject]@{
+        row=$row; cell=$cell; linked=[bool]($toggleState -eq 'On'); footerCount=$footerCount
+        expectedReceiptTitle=$expectedReceiptTitle; receiptContentFingerprint=$(if ($contentFingerprint) { $contentFingerprint } else { $null })
+      }
     }
 
     $closeMode = {
@@ -16390,37 +17288,69 @@ switch ($Op) {
     }
 
     $modeBefore = & $openMode
-    $projectionBefore = & $readMode $modeBefore
-    if ([bool]$projectionBefore.linked -eq [bool]$linked) {
+    $projectionsBefore = New-Object System.Collections.ArrayList
+    foreach ($item in $linkItems) { $null = $projectionsBefore.Add((& $readMode $modeBefore $item)) }
+    $resolvedRowIds = @($projectionsBefore | ForEach-Object { [string]$_.row.rowRid })
+    if (@($resolvedRowIds | Select-Object -Unique).Count -ne $resolvedRowIds.Count) {
+      $null = & $closeMode $modeBefore.hwnd $modeBefore.state 'cancel'
+      Fail 'Mehrere Link-Eintraege wurden auf dieselbe Belegzeile aufgeloest; keine Aenderung.' 'ambiguous'
+    }
+    $changes = @()
+    for ($itemIndex = 0; $itemIndex -lt $linkItems.Count; $itemIndex++) {
+      if ([bool]$projectionsBefore[$itemIndex].linked -ne [bool]$linkItems[$itemIndex].linked) {
+        $changes += $itemIndex
+      }
+    }
+    $footerCountBefore = [int]$projectionsBefore[0].footerCount
+    if (-not $changes.Count) {
       $cancelClick = & $closeMode $modeBefore.hwnd $modeBefore.state 'cancel'
+      $resultItems = @(for ($itemIndex = 0; $itemIndex -lt $linkItems.Count; $itemIndex++) {
+        [pscustomobject][ordered]@{
+          receipt=$projectionsBefore[$itemIndex].row; expectedReceiptTitle=[string]$linkItems[$itemIndex].expectedReceiptTitle
+          linkedBefore=[bool]$projectionsBefore[$itemIndex].linked; linkedAfter=[bool]$projectionsBefore[$itemIndex].linked
+          changed=$false; verified=$true
+        }
+      })
       Emit ([pscustomobject]@{
-        ok=$true; pid=$targetPid; hwnd=[int64]$mainHwnd; receipt=$projectionBefore.row
+        ok=$true; pid=$targetPid; hwnd=[int64]$mainHwnd; mainHwnd=[int64]$mainHwnd; managerHwnd=[int64]$modeBefore.hwnd
+        receipt=$projectionsBefore[0].row; items=$resultItems
         expectedTargetPage=$expectedTargetPage; expectedLinkTarget=$expectedLinkTarget
-        linkedBefore=[bool]$projectionBefore.linked; linkedAfter=[bool]$projectionBefore.linked
-        footerCountBefore=[int]$projectionBefore.footerCount; footerCountAfter=[int]$projectionBefore.footerCount
-        noChanges=$true; applied=$false; persistenceVerified=$true; cleanupRequired=$false
+        linkedBefore=[bool]$projectionsBefore[0].linked; linkedAfter=[bool]$projectionsBefore[0].linked
+        footerCountBefore=$footerCountBefore; footerCountAfter=$footerCountBefore
+        noChanges=$true; changedCount=0; applied=$false; persistenceVerified=$true; cleanupRequired=$false
         dirtyStateUnchangedBeforeApply=$true; physicalInputUsed=$true; foregroundLeaseUsed=$true
         openClick=$modeBefore.openClick; showClick=$modeBefore.showClick; cancelClick=$cancelClick; verified=$true
       })
     }
 
-    $toggleNode = Convert-ExactElementToNode (Get-LiveElement $modeBefore.hwnd ([string]$projectionBefore.cell.rid))
-    if (-not $toggleNode -or -not [bool]$toggleNode.on) { Fail 'Link-Zelle ist unmittelbar vor dem Klick nicht mehr sichtbar und aktiv.' 'stale' }
-    $toggleClick = Click-VerifiedPoint $modeBefore.hwnd $toggleNode (Get-SSELastInputTick) -RequireForeground
-    Start-Sleep -Milliseconds 500
-    $stagedState = Get-SSEReceiptManagerState $modeBefore.hwnd $policy
-    $stagedList = Get-SSEReceiptManagerListProjection $stagedState $policy
-    $stagedMode = [pscustomobject]@{ hwnd=$modeBefore.hwnd; state=$stagedState; list=$stagedList }
-    $projectionStaged = & $readMode $stagedMode
-    $expectedCount = [int]$projectionBefore.footerCount + $(if ([bool]$linked) { 1 } else { -1 })
-    if ([bool]$projectionStaged.linked -ne [bool]$linked -or [int]$projectionStaged.footerCount -ne $expectedCount) {
-      $null = & $closeMode $modeBefore.hwnd $stagedState 'cancel'
-      Fail 'Gestufte Belegverknuepfung bestaetigte weder Zielzustand noch Zielzaehler; Aenderung wurde abgebrochen.' 'postcondition-failed'
+    $stagedState = $modeBefore.state
+    $stagedList = $modeBefore.list
+    $toggleClicks = New-Object System.Collections.ArrayList
+    $expectedCount = $footerCountBefore
+    foreach ($itemIndex in $changes) {
+      $projectionBefore = $projectionsBefore[$itemIndex]
+      $item = $linkItems[$itemIndex]
+      $toggleNode = Convert-ExactElementToNode (Get-LiveElement $modeBefore.hwnd ([string]$projectionBefore.cell.rid))
+      if (-not $toggleNode -or -not [bool]$toggleNode.on) {
+        $null = & $closeMode $modeBefore.hwnd $stagedState 'cancel'
+        Fail 'Link-Zelle ist unmittelbar vor dem Klick nicht mehr sichtbar und aktiv.' 'stale'
+      }
+      $null = $toggleClicks.Add((Click-VerifiedPoint $modeBefore.hwnd $toggleNode (Get-SSELastInputTick) -RequireForeground))
+      Start-Sleep -Milliseconds 500
+      $stagedState = Get-SSEReceiptManagerState $modeBefore.hwnd $policy
+      $stagedList = Get-SSEReceiptManagerListProjection $stagedState $policy
+      $stagedMode = [pscustomobject]@{ hwnd=$modeBefore.hwnd; state=$stagedState; list=$stagedList }
+      $projectionStaged = & $readMode $stagedMode $item
+      $expectedCount += $(if ([bool]$item.linked) { 1 } else { -1 })
+      if ([bool]$projectionStaged.linked -ne [bool]$item.linked -or [int]$projectionStaged.footerCount -ne $expectedCount) {
+        $null = & $closeMode $modeBefore.hwnd $stagedState 'cancel'
+        Fail 'Gestufte Batch-Verknuepfung bestaetigte weder Zielzustand noch Zielzaehler; alle Aenderungen wurden abgebrochen.' 'postcondition-failed'
+      }
     }
     $dirtyBeforeApply = Get-DirtyStateFast $mainHwnd
     if ($null -eq $dirtyBeforeApply -or [bool]$dirtyBeforeApply -ne [bool]$dirtyBefore) {
       $null = & $closeMode $modeBefore.hwnd $stagedState 'cancel'
-      Fail 'Dirty-State aenderte sich bereits vor Uebernehmen; Verknuepfung wurde abgebrochen.' 'postcondition-failed'
+      Fail 'Dirty-State aenderte sich bereits vor Uebernehmen; Batch-Verknuepfung wurde abgebrochen.' 'postcondition-failed'
     }
     $applyClick = & $closeMode $modeBefore.hwnd $stagedState 'apply'
     if ((Get-CurrentHeading $mainHwnd) -cne $expectedTargetPage) {
@@ -16428,29 +17358,39 @@ switch ($Op) {
     }
 
     $modeAfter = & $openMode
-    $projectionAfter = & $readMode $modeAfter
+    $projectionsAfter = New-Object System.Collections.ArrayList
+    foreach ($item in $linkItems) { $null = $projectionsAfter.Add((& $readMode $modeAfter $item)) }
     $cancelAfterClick = & $closeMode $modeAfter.hwnd $modeAfter.state 'cancel'
     $dirtyAfter = Get-DirtyStateFast $mainHwnd
-    $verified = [bool]([bool]$projectionAfter.linked -eq [bool]$linked -and
-      [int]$projectionAfter.footerCount -eq $expectedCount -and
+    $itemsVerified = $true
+    $resultItems = @(for ($itemIndex = 0; $itemIndex -lt $linkItems.Count; $itemIndex++) {
+      $itemVerified = [bool]([bool]$projectionsAfter[$itemIndex].linked -eq [bool]$linkItems[$itemIndex].linked)
+      if (-not $itemVerified) { $itemsVerified = $false }
+      [pscustomobject][ordered]@{
+        receipt=$projectionsAfter[$itemIndex].row; expectedReceiptTitle=[string]$linkItems[$itemIndex].expectedReceiptTitle
+        linkedBefore=[bool]$projectionsBefore[$itemIndex].linked; linkedAfter=[bool]$projectionsAfter[$itemIndex].linked
+        changed=[bool]($itemIndex -in $changes); verified=$itemVerified
+      }
+    })
+    $verified = [bool]($itemsVerified -and [int]$projectionsAfter[0].footerCount -eq $expectedCount -and
       (Get-CurrentHeading $mainHwnd) -ceq $expectedTargetPage -and $null -ne $dirtyAfter)
     if (-not $verified) {
       Emit ([pscustomobject]@{
-        ok=$false; kind='postcondition-failed'; error='Verknuepfung wurde uebernommen, aber Persistenz-Readback ist unvollstaendig; nicht blind wiederholen.'
-        receipt=$projectionAfter.row; linkedBefore=[bool]$projectionBefore.linked; linkedAfter=[bool]$projectionAfter.linked
-        footerCountBefore=[int]$projectionBefore.footerCount; footerCountAfter=[int]$projectionAfter.footerCount
+        ok=$false; kind='postcondition-failed'; error='Batch-Verknuepfung wurde uebernommen, aber Persistenz-Readback ist unvollstaendig; nicht blind wiederholen.'
+        items=$resultItems; footerCountBefore=$footerCountBefore; footerCountAfter=[int]$projectionsAfter[0].footerCount
         cleanupRequired=$true; applied=$true; persistenceVerified=$false; verified=$false
       })
     }
     Emit ([pscustomobject]@{
-      ok=$true; pid=$targetPid; hwnd=[int64]$mainHwnd; receipt=$projectionAfter.row
+      ok=$true; pid=$targetPid; hwnd=[int64]$mainHwnd; mainHwnd=[int64]$mainHwnd; managerHwnd=[int64]$modeBefore.hwnd
+      receipt=$projectionsAfter[0].row; items=$resultItems
       expectedTargetPage=$expectedTargetPage; expectedLinkTarget=$expectedLinkTarget
-      linkedBefore=[bool]$projectionBefore.linked; linkedAfter=[bool]$projectionAfter.linked
-      footerCountBefore=[int]$projectionBefore.footerCount; footerCountAfter=[int]$projectionAfter.footerCount
-      noChanges=$false; applied=$true; persistenceVerified=$true; cleanupRequired=$false
+      linkedBefore=[bool]$projectionsBefore[0].linked; linkedAfter=[bool]$projectionsAfter[0].linked
+      footerCountBefore=$footerCountBefore; footerCountAfter=[int]$projectionsAfter[0].footerCount
+      noChanges=$false; changedCount=$changes.Count; applied=$true; persistenceVerified=$true; cleanupRequired=$false
       ungespeichertVorher=$dirtyBefore; ungespeichertNachher=$dirtyAfter
       dirtyStateUnchangedBeforeApply=$true; physicalInputUsed=$true; foregroundLeaseUsed=$true
-      openClick=$modeBefore.openClick; showClick=$modeBefore.showClick; toggleClick=$toggleClick
+      openClick=$modeBefore.openClick; showClick=$modeBefore.showClick; toggleClicks=@($toggleClicks)
       applyClick=$applyClick; cancelAfterClick=$cancelAfterClick; verified=$true
     })
   }
@@ -16592,8 +17532,10 @@ switch ($Op) {
       (([string]$policy.importDialog.fingerprint).ToUpperInvariant()) $path $expectedHash ([int]$waitMs)
 
     Start-Sleep -Milliseconds 700
-    $stateAfter = Get-SSEReceiptManagerState $toolHwnd $policy
+    $stateAfter = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
     $listAfter = Get-SSEReceiptManagerListProjection $stateAfter $policy
+    $detailFieldsAfterImport = @(Get-SSEReceiptManagerDetailProjection $stateAfter)
+    $detailFingerprintAfterImport = Get-SSEReceiptManagerDetailFingerprint $detailFieldsAfterImport
     $afterCreatedRows = @($listAfter.rows | Where-Object { [bool]$_.draft })
     $attachAfterMatches = @($stateAfter.nodes | Where-Object {
       [string]$_.aid -and ([string]$_.aid).EndsWith(
@@ -16631,11 +17573,13 @@ switch ($Op) {
     if (-not $verified) {
       Emit ([pscustomobject]@{
         ok=$false; kind='postcondition-failed'; error='Belegimport wurde ausgeloest, aber Datei-, Vorschau-, Listen-, Fenster-, Dialog- oder Dirty-State-Nachweis ist unvollstaendig; NICHT wiederholen. Den gemeldeten neuen Entwurf zuerst lesen oder loeschen.'
-        pid=$targetPid; hwnd=[int64]$toolHwnd; selected=$path; sha256=$sourceHashAfter
+        pid=$targetPid; hwnd=[int64]$toolHwnd; mainHwnd=[int64]$mainHwnd; managerHwnd=[int64]$toolHwnd
+        selected=$path; sha256=$sourceHashAfter
         countBefore=[int]$expectedCountBefore; countAfter=[int]$listAfter.count
         listFingerprintBefore=$expectedListFingerprint; listFingerprintAfter=[string]$listAfter.listFingerprint
         importedRow=$importedRow; previewFingerprintBefore=$previewFingerprintBefore
         previewFingerprintAfter=$previewFingerprintAfter; previewChanged=$previewChanged
+        detailFingerprint=$detailFingerprintAfterImport; fields=$detailFieldsAfterImport
         sourceHashStable=$sourceHashStable; existingRowsUnchanged=$existingRowsUnchanged
         dialogClosed=[bool]$selection.dialogClosed; windowSetUnchanged=$windowSetUnchanged
         ungespeichertVorher=$dirtyBefore; ungespeichertNachher=$dirtyAfter; dirtyStateUnchanged=$dirtyStateUnchanged
@@ -16644,11 +17588,13 @@ switch ($Op) {
       })
     }
     Emit ([pscustomobject]@{
-      ok=$true; pid=$targetPid; hwnd=[int64]$toolHwnd; selected=$path; sha256=$sourceHashAfter
+      ok=$true; pid=$targetPid; hwnd=[int64]$toolHwnd; mainHwnd=[int64]$mainHwnd; managerHwnd=[int64]$toolHwnd
+      selected=$path; sha256=$sourceHashAfter
       countBefore=[int]$expectedCountBefore; countAfter=[int]$listAfter.count
       listFingerprintBefore=$expectedListFingerprint; listFingerprintAfter=[string]$listAfter.listFingerprint
       importedRow=$afterCreatedRows[0]; previewFingerprintBefore=$previewFingerprintBefore
       previewFingerprintAfter=$previewFingerprintAfter; previewChanged=$true
+      detailFingerprint=$detailFingerprintAfterImport; fields=$detailFieldsAfterImport
       sourceHashStable=$true; existingRowsUnchanged=$true; dialogClosed=$true; windowSetUnchanged=$true
       ungespeichertVorher=$dirtyBefore; ungespeichertNachher=$dirtyAfter; dirtyStateUnchanged=$true
       physicalInputUsed=$true; foregroundLeaseUsed=$true; verified=$true
@@ -16751,8 +17697,8 @@ switch ($Op) {
       Fail 'Gebundene Belegzeile wurde nicht mit einer exakt profilierten Loeschschaltflaeche angezeigt; keine Wiederholung.' 'postcondition-failed'
     }
     $selectedList = Get-SSEReceiptManagerListProjection $selectedState $policy
-    if ([string]$selectedList.listFingerprint -cne $expectedListFingerprint) {
-      Fail 'Belegliste hat sich waehrend der Zeilenauswahl geaendert; NICHT geloescht.' 'stale'
+    if ([int]$selectedList.count -ne [int]$listBefore.count) {
+      Fail 'Belegzaehler hat sich waehrend der Zeilenauswahl geaendert; NICHT geloescht.' 'stale'
     }
     $freshDelete = Convert-ExactElementToNode (Get-LiveElement $toolHwnd $deleteNode.rid)
     if (-not $freshDelete -or -not [bool]$freshDelete.on -or
@@ -17236,5 +18182,8 @@ switch ($Op) {
     })
   }
 
-  default { Fail "Unbekannte Operation '$Op'" 'bad-args' }
+    default { Fail "Unbekannte Operation '$Op'" 'bad-args' }
+  }
 }
+
+Invoke-SSEWorkerOperation $Op $a

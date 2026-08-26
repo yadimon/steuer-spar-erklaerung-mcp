@@ -5,6 +5,7 @@ import {
   type SseApiOperation,
 } from "./api-contract.js";
 import { SSE_MCP_TOOL_SCHEMAS } from "./mcp-operation-schemas.js";
+import { SSE_API_RECEIPT_MANAGER_LINK_SCHEMA } from "./mcp-schemas-receipts.js";
 import {
   BARE_RESOURCE_REF,
   GOTO_MAX_STEPS,
@@ -121,6 +122,7 @@ export const SSE_MCP_TOOL_OPERATIONS = {
   "sse_launch": "launch",
   "sse_save": "save",
   "sse_file_dialog_select": "file_dialog_select",
+  "sse_fill_fields": "fill_fields",
   "sse_save_as": "save_as",
   "sse_close": "close",
   "sse_list_cases": "list_cases",
@@ -137,13 +139,12 @@ const RESOURCE_AREA = z.enum(["cases", "documents", "workspace", "results", "bac
   .describe("Lokal konfigurierter Ressourcenbereich fuer einen relativen ref-Wert");
 const API_TEXT_WRITE_AREA = z.enum(["workspace", "results"])
   .describe(
-    "Schreibbarer lokaler Ressourcenbereich fuer einen relativen ref-Wert; " +
-    "den Bereich nicht zusaetzlich als ersten Pfadteil in ref wiederholen",
+    "Schreibbarer Ressourcenbereich; den Bereich nicht im relativen ref wiederholen",
   );
 const API_LOCAL_PATH = z.string().min(1).refine(
   (value) => /^(?:[A-Za-z]:[\\/]|\\\\)/.test(value) && !/[\x00-\x1f*?"<>|]/.test(value),
-  "Absoluter lokaler Windows-Pfad ohne Platzhalter erwartet",
-).describe("API-only Kompatibilitaetspfad auf dem lokalen Windows-PC; Ressourcenreferenz bevorzugen");
+  "Absoluter Windows-Pfad ohne Platzhalter erwartet",
+).describe("API-only Windows-Pfad; Ressourcenreferenz bevorzugen");
 type AnyOperationSchema = z.ZodType<Record<string, unknown>>;
 
 function withLegacyAlias(schema: z.AnyZodObject, alias: string, legacy: string): AnyOperationSchema {
@@ -422,6 +423,7 @@ schemasByOperation.receipt_manager_import = withLegacyAlias(
   "resourceRef",
   "expectedPath",
 );
+schemasByOperation.receipt_manager_link = SSE_API_RECEIPT_MANAGER_LINK_SCHEMA;
 schemasByOperation.save_as = withLegacyAliases(SSE_MCP_TOOL_SCHEMAS.sse_save_as, [
   ["sourceRef", "expectedSourcePath"], ["targetRef", "targetPath"],
 ]);
@@ -509,7 +511,7 @@ export function parseCheckerReadOnlyClickArgs(args: Record<string, unknown>): Re
   return parsed;
 }
 
-/** Alle Argumentnamen einer Operation, auch ueber Union-Zweige hinweg. */
+/** Argumentnamen je Operation ueber alle Union-Zweige hinweg. */
 function acceptedArgumentKeys(schema: unknown, keys = new Set<string>()): Set<string> {
   const def = (schema as { _def?: Record<string, unknown> } | undefined)?._def;
   if (!def) return keys;
