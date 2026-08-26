@@ -19,8 +19,8 @@ body:
     id: release
     attributes:
       label: Release-Version
-      description: Zum Beispiel v0.1.0-beta.29 aus Health oder npm-Paket.
-      placeholder: v0.1.0-beta.x
+      description: Aktuelle Version aus sse_health oder dem installierten npm-Paket.
+      placeholder: "<Version aus sse_health oder npm>"
     validations:
       required: true
 
