@@ -209,7 +209,7 @@
         "stateful-mock",
         "worker"
       ],
-      "live": "untested"
+      "live": "functional"
     },
     "find": {
       "offline": "functional",
@@ -369,7 +369,7 @@
       "offlineLabels": [
         "stateful-mock"
       ],
-      "live": "error-path-only",
+      "live": "functional",
       "liveEvidence": "snapshot-vm"
     },
     "receipt_manager_classification_options": {

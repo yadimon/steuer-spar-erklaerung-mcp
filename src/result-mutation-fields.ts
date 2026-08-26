@@ -141,6 +141,8 @@ export const MUTATION_OPERATION_RESULT_FIELDS = {
     semanticListUnchanged: OPTIONAL_BOOLEAN,
     targetRowRebound: OPTIONAL_BOOLEAN,
     rowAfter: OPTIONAL_OBJECT,
+    targetSemanticRebound: OPTIONAL_BOOLEAN,
+    semanticRowAfter: OPTIONAL_OBJECT,
     dialogFreeAfter: OPTIONAL_BOOLEAN,
     semanticReadback: OPTIONAL_OBJECT,
     windowSetUnchanged: OPTIONAL_BOOLEAN,
