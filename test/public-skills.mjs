@@ -324,6 +324,9 @@ assert(
 
 const issueTemplate = readFileSync(join(root, ".github", "ISSUE_TEMPLATE", "fehler.yml"), "utf8");
 assert(issueTemplate.includes("npm-Einrichtung"));
-assert(issueTemplate.includes(`v${JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version}`));
+assert.match(issueTemplate, /Aktuelle Version aus sse_health oder dem installierten npm-Paket/u);
+assert.match(issueTemplate, /placeholder: "<Version aus sse_health oder npm>"/u);
+assert.doesNotMatch(issueTemplate, /v0\.1\.0-beta\.\d+/u,
+  "Das Issue-Formular darf keine bei jedem Release veraltende Beispielversion enthalten.");
 
 process.stdout.write(`Public Skills: ${discovered.length} flaches npx-kompatibles deutsches Skill-Paket bestanden\n`);
