@@ -203,6 +203,14 @@
       ],
       "live": "functional"
     },
+    "fill_fields": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock",
+        "worker"
+      ],
+      "live": "untested"
+    },
     "find": {
       "offline": "functional",
       "offlineLabels": [
@@ -357,9 +365,11 @@
       "liveEvidence": "snapshot-vm"
     },
     "receipt_manager_bulk_upsert": {
-      "offline": "untested",
-      "offlineLabels": [],
-      "live": "functional",
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "error-path-only",
       "liveEvidence": "snapshot-vm"
     },
     "receipt_manager_classification_options": {
@@ -375,8 +385,10 @@
       "liveEvidence": "snapshot-vm"
     },
     "receipt_manager_link": {
-      "offline": "untested",
-      "offlineLabels": [],
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
       "live": "functional",
       "liveEvidence": "snapshot-vm"
     },

@@ -53,6 +53,8 @@ export function registerReceiptTools(registry: McpRegistry): void {
     (r) => ({
       pid: r.pid,
       hwnd: r.hwnd,
+      mainHwnd: r.mainHwnd,
+      managerHwnd: r.managerHwnd,
       state: r.state,
       stateFingerprint: r.stateFingerprint,
       count: r.count,
@@ -62,6 +64,9 @@ export function registerReceiptTools(registry: McpRegistry): void {
       draftCount: r.draftCount,
       listFingerprint: r.listFingerprint,
       rowsComplete: r.rowsComplete,
+      matchedCount: r.matchedCount,
+      matches: r.matches,
+      matchesComplete: r.matchesComplete,
       ungespeichert: r.ungespeichert,
       physicalInputUsed: r.physicalInputUsed,
       hinweis: r.hinweis,
@@ -82,12 +87,20 @@ export function registerReceiptTools(registry: McpRegistry): void {
     (r) => ({
       pid: r.pid,
       hwnd: r.hwnd,
+      mainHwnd: r.mainHwnd,
+      managerHwnd: r.managerHwnd,
       row: r.row,
       fields: r.fields,
+      values: r.values,
+      valuesComplete: r.valuesComplete,
       listFingerprint: r.listFingerprint,
       listFingerprintBefore: r.listFingerprintBefore,
       detailFingerprint: r.detailFingerprint,
       semanticListUnchanged: r.semanticListUnchanged,
+      targetRowRebound: r.targetRowRebound,
+      rowAfter: r.rowAfter,
+      dialogFreeAfter: r.dialogFreeAfter,
+      semanticReadback: r.semanticReadback,
       dirtyStateUnchanged: r.dirtyStateUnchanged,
       physicalInputUsed: r.physicalInputUsed,
       foregroundLeaseUsed: r.foregroundLeaseUsed,
@@ -111,6 +124,8 @@ export function registerReceiptTools(registry: McpRegistry): void {
     (r) => ({
       pid: r.pid,
       hwnd: r.hwnd,
+      mainHwnd: r.mainHwnd,
+      managerHwnd: r.managerHwnd,
       rowBefore: r.rowBefore,
       rowAfter: r.rowAfter,
       valuesBefore: r.valuesBefore,
@@ -150,6 +165,8 @@ export function registerReceiptTools(registry: McpRegistry): void {
     (r) => ({
       pid: r.pid,
       hwnd: r.hwnd,
+      mainHwnd: r.mainHwnd,
+      managerHwnd: r.managerHwnd,
       resourceRefs: r.resourceRefs,
       sha256: r.sha256,
       countBefore: r.countBefore,
@@ -157,6 +174,8 @@ export function registerReceiptTools(registry: McpRegistry): void {
       listFingerprintBefore: r.listFingerprintBefore,
       listFingerprintAfter: r.listFingerprintAfter,
       importedRow: r.importedRow,
+      detailFingerprint: r.detailFingerprint,
+      fields: r.fields,
       previewFingerprintBefore: r.previewFingerprintBefore,
       previewFingerprintAfter: r.previewFingerprintAfter,
       previewChanged: r.previewChanged,
@@ -239,22 +258,25 @@ export function registerReceiptTools(registry: McpRegistry): void {
     {
       title: "Beleg mit Steuerseite sicher verknuepfen",
       description:
-        "Setzt oder entfernt genau eine Verknuepfung zwischen einem content-fingerprint-gebundenen Beleg und " +
-        "der exakt aktuellen Steuerseite. Seitenueberschrift, sichtbarer BelegManager-Zieltext, Belegtitel und " +
-        "Inhaltsfingerprint muessen gemeinsam passen; acknowledgeLinkChange=true ist Pflicht. Die Operation " +
-        "oeffnet den Verknuepfungsmodus selbst, schaltet ausschliesslich die profilierte Link-Spalte, uebernimmt " +
-        "einmal und oeffnet den Modus erneut fuer einen unabhaengigen Persistenz-Readback. Ein bereits erreichter " +
-        "Zielzustand wird ohne Mutation bestaetigt.",
+        "Setzt oder entfernt eine bis 20 Verknuepfungen zwischen exakt titelgebundenen Belegen und der aktuellen " +
+        "Steuerseite in einem einzigen Oeffnen-/Uebernehmen-/Readback-Zyklus. Ein optionaler Inhaltsfingerprint " +
+        "verstaerkt die Bindung; ein mehrdeutiger Titel stoppt immer fail-closed. Seitenueberschrift, sichtbarer " +
+        "BelegManager-Zieltext und acknowledgeLinkChange=true sind Pflicht. Bereits erreichte Zielzustaende werden " +
+        "nicht erneut geschaltet. Der Legacy-Einzelmodus bleibt kompatibel.",
     },
     (r) => ({
       pid: r.pid,
       hwnd: r.hwnd,
+      mainHwnd: r.mainHwnd,
+      managerHwnd: r.managerHwnd,
       receipt: r.receipt,
+      items: r.items,
       expectedTargetPage: r.expectedTargetPage,
       expectedLinkTarget: r.expectedLinkTarget,
       linkedBefore: r.linkedBefore,
       linkedAfter: r.linkedAfter,
       noChanges: r.noChanges,
+      changedCount: r.changedCount,
       footerCountBefore: r.footerCountBefore,
       footerCountAfter: r.footerCountAfter,
       applied: r.applied,
@@ -273,21 +295,33 @@ export function registerReceiptTools(registry: McpRegistry): void {
     {
       title: "Mehrere Belege importieren und vollstaendig befuellen",
       description:
-        "Verarbeitet ein bis 20 unterschiedliche documents:-Dateien nacheinander. Jeder Eintrag wird " +
-        "SHA-256-gebunden importiert, mit allen angegebenen Metadaten befuellt, optional kategorisiert bzw. " +
-        "Personen zugeordnet und vollstaendig rueckgelesen. Der Batch stoppt beim ersten unklaren Schritt, " +
-        "meldet completedCount, failedIndex und einen eventuell bewusst zu bereinigenden Entwurf und wiederholt " +
-        "niemals blind. Bereits verifizierte Belege bleiben erhalten.",
+        "Verarbeitet ein bis 20 fachlich identifizierte Belege. Exakter Titel plus Belegnummer oder Datum+Betrag " +
+        "entscheidet zwischen Update und Import; Mehrdeutigkeit stoppt immer und kann nicht mit force umgangen " +
+        "werden. onExisting steuert update, skip oder error. Redundante Zwischen-Readbacks wurden entfernt: Import, " +
+        "Update und Klassifikation liefern jeweils ihre verifizierten Bindungen. Der Batch stoppt beim ersten " +
+        "unklaren Schritt und wiederholt niemals blind.",
     },
     (r) => ({
+      schemaVersion: r.schemaVersion,
+      planKind: r.planKind,
       pid: r.pid,
       hwnd: r.hwnd,
+      mainHwnd: r.mainHwnd,
+      managerHwnd: r.managerHwnd,
       requestedCount: r.requestedCount,
       completedCount: r.completedCount,
+      completed: r.completed,
+      failedAction: r.failedAction,
       failedIndex: r.failedIndex,
+      skipped: r.skipped,
       items: r.items,
       failure: r.failure,
+      rollback: r.rollback,
       cleanupRequired: r.cleanupRequired,
+      finalReadback: r.finalReadback,
+      finalReadbackVerified: r.finalReadbackVerified,
+      resultingState: r.resultingState,
+      performance: r.performance,
       resourceRefs: r.resourceRefs,
       verified: r.verified,
     }),

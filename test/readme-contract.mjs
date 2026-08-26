@@ -18,7 +18,7 @@ for (const feature of [
   "BelegManager",
   "Umsatzsteuer-Voranmeldung",
   "verifizierten Arbeitskopie",
-  "98",
+  "99",
 ]) {
   assert(readme.includes(feature), `README-Feature fehlt: ${feature}`);
 }

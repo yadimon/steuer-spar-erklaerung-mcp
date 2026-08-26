@@ -177,6 +177,12 @@ function pageFields(model) {
       { label: "Summe der abziehbaren Vorsteuerbeträge", typ: "Edit", wert: formatCents(caseState.ustva.inputTax + 1_900), aid: "Wert" },
     ];
   }
+  if (caseState.kind === "freelancer" && model.currentPage === "1. Fahrzeug") {
+    return [
+      { label: "Bezeichnung", typ: "Edit", wert: String(caseState.values.vehicleDescription ?? ""), aid: "FahrzeugTyp.Text" },
+      { label: "Kennzeichen", typ: "Edit", wert: String(caseState.values.vehicleLicensePlate ?? ""), aid: "Kennzeichen.Text" },
+    ];
+  }
   if (caseState.kind === "income_tax") {
     return [
       { label: "Bruttoarbeitslohn", typ: "Edit", wert: formatCents(caseState.values.grossIncome), aid: "Brutto" },
@@ -427,6 +433,7 @@ export function createStatefulSseWorker({ caseDir }) {
   let receiptManagerState = "start";
   let receiptRows = [];
   let nextReceiptId = 1;
+  const receiptLinks = new Map();
   let vast = null;
   let minimised = false;
   let desktopName = null;
@@ -491,14 +498,22 @@ export function createStatefulSseWorker({ caseDir }) {
     if (dialogs.length) return { ok: false, kind: "precondition-failed", error: "Ein Dialog ist offen; nichts geschrieben." };
     const bindingError = requireCaseBinding(args, caseState);
     if (bindingError) return bindingError;
-    if (args.expectedPage !== currentPage) {
-      return { ok: false, kind: "precondition-failed", error: `Aktuelle Seite '${currentPage}', erwartet '${args.expectedPage}'.` };
+    const knownField = args.pageId === "gew.fahrzeug"
+      ? {
+        expectedPage: "1. Fahrzeug",
+        name: args.fieldId === "bezeichnung" ? "Bezeichnung" : args.fieldId === "kennzeichen" ? "Kennzeichen" : "",
+        aid: args.fieldId === "bezeichnung" ? ".Fahrzeug.FahrzeugTyp.Text" : args.fieldId === "kennzeichen" ? ".Fahrzeug.Kennzeichen.Text" : "",
+      }
+      : null;
+    const expectedPage = String(args.expectedPage ?? knownField?.expectedPage ?? "");
+    if (expectedPage !== currentPage) {
+      return { ok: false, kind: "precondition-failed", error: `Aktuelle Seite '${currentPage}', erwartet '${expectedPage}'.` };
     }
 
     const before = String(args.expectedBefore);
     const after = String(args.expectedAfter);
-    const name = String(args.name ?? "");
-    const aid = String(args.aid ?? "");
+    const name = String(args.name ?? knownField?.name ?? "");
+    const aid = String(args.aid ?? knownField?.aid ?? "");
     let actualBefore;
     let assign;
     if (caseState.kind === "income_tax" && name === "Werbungskosten") {
@@ -516,6 +531,12 @@ export function createStatefulSseWorker({ caseDir }) {
     } else if (caseState.kind === "freelancer" && name === "Betriebsausgaben") {
       actualBefore = formatCents(caseState.values.expenses);
       assign = () => { caseState.values.expenses = parseGermanCents(String(args.value)); };
+    } else if (caseState.kind === "freelancer" && currentPage === "1. Fahrzeug" && name === "Bezeichnung") {
+      actualBefore = String(caseState.values.vehicleDescription ?? "");
+      assign = () => { caseState.values.vehicleDescription = String(args.value); };
+    } else if (caseState.kind === "freelancer" && currentPage === "1. Fahrzeug" && name === "Kennzeichen") {
+      actualBefore = String(caseState.values.vehicleLicensePlate ?? "");
+      assign = () => { caseState.values.vehicleLicensePlate = String(args.value); };
     } else if (aid === ".RahmenWerteUebersicht.LieferungNorm.BetragEigen") {
       actualBefore = formatCents(caseState.ustva.taxable19Base);
       assign = () => {
@@ -781,6 +802,85 @@ export function createStatefulSseWorker({ caseDir }) {
       }
       case "dialog_list":
         return { ok: true, count: dialogs.length, dialogs: clone(dialogs), windows: clone(dialogs) };
+      case "bulk_action": {
+        const actions = Array.isArray(args.actions) ? args.actions : [];
+        const completed = [];
+        let failedAction = null;
+        for (let index = 0; index < actions.length; index += 1) {
+          const action = actions[index];
+          const result = action?.operation === "tracked_set_value"
+            ? applyTrackedValue(action.args ?? {})
+            : { ok: false, kind: "operation-not-allowed", error: "Synthetischer Bulk akzeptiert nur tracked_set_value." };
+          if (result.ok !== true) {
+            failedAction = { index, id: action?.id, operation: action?.operation, result };
+            break;
+          }
+          completed.push({ index, id: action.id, operation: action.operation, result });
+        }
+        const skipped = failedAction === null
+          ? []
+          : actions.slice(failedAction.index + 1).map((action, offset) => ({
+            index: failedAction.index + 1 + offset,
+            id: action.id,
+            operation: action.operation,
+            status: "skipped",
+          }));
+        const rollbackEntries = [];
+        if (failedAction !== null) {
+          for (const entry of [...completed].reverse()) {
+            const original = actions[entry.index].args;
+            const rollbackResult = applyTrackedValue({
+              ...original,
+              expectedBefore: original.expectedAfter,
+              value: original.expectedBefore,
+              expectedAfter: original.expectedBefore,
+              expectedEpoch: undefined,
+            });
+            rollbackEntries.push({ index: entry.index, attempted: true, ok: rollbackResult.ok === true, result: rollbackResult });
+          }
+        }
+        const caseState = model.openCase();
+        const fields = pageFields(model).map((field) => ({ id: field.aid, label: field.label, value: field.wert }));
+        const dirty = caseState?.dirty ?? null;
+        const finalReadback = {
+          ok: true,
+          pageId: args.finalReadbackPlan?.args?.pageId,
+          heading: currentPage,
+          dirty,
+          epoch: sha256(JSON.stringify({ hwnd, heading: currentPage, dirty, fields })),
+          fields,
+          privateValuesPersisted: false,
+        };
+        const rollbackOk = rollbackEntries.every((entry) => entry.ok);
+        const resultingState = failedAction === null
+          ? "completed-verified"
+          : rollbackOk ? "rolled-back-verified" : "unknown";
+        return {
+          ok: failedAction === null,
+          schemaVersion: 1,
+          planKind: "fill-fields",
+          completed,
+          failedAction,
+          failedIndex: failedAction?.index ?? null,
+          skipped,
+          rollback: {
+            mode: "best-effort",
+            attempted: rollbackEntries.length > 0,
+            ok: rollbackEntries.length ? rollbackOk : null,
+            entries: rollbackEntries,
+          },
+          cleanupRequired: resultingState === "unknown",
+          finalReadback,
+          finalReadbackVerified: true,
+          resultingState,
+          verified: resultingState !== "unknown",
+          performance: {
+            workerProcessCount: 1,
+            internalOperationCount: completed.length + (failedAction === null ? 1 : 2 + rollbackEntries.length),
+            fullUiReadbackCount: 1,
+          },
+        };
+      }
       case "known_page_state": {
         const caseState = model.openCase();
         const fields = pageFields(model).map((field) => ({ id: field.aid, label: field.label, value: field.wert }));
@@ -1413,6 +1513,113 @@ export function createStatefulSseWorker({ caseDir }) {
           clickBinding: { x: 1, y: 1 },
         };
       }
+      case "receipt_manager_bulk_upsert": {
+        const startedAt = Date.now();
+        const caseState = requireOpenCase();
+        if (caseState.error) return caseState.error;
+        if (!receiptManagerOpen || receiptManagerState !== "list") {
+          return { ok: false, kind: "precondition-failed", error: "Belegliste ist nicht offen." };
+        }
+        if (args.acknowledgeBulkUpsert !== true || !Array.isArray(args.items) || args.items.length === 0) {
+          return { ok: false, kind: "bad-args", error: "Ein bestaetigter, nicht leerer Belegplan ist erforderlich." };
+        }
+
+        const originalRows = clone(receiptRows);
+        const completed = [];
+        const skipped = [];
+        let failedAction = null;
+        const normalizedAmount = (value) => String(value ?? "").replace(",", ".");
+        const matchesIdentity = (row, identity) => {
+          if (row.title !== identity.exactTitle) return false;
+          if (identity.documentNumber !== undefined) return row.documentNumber === identity.documentNumber;
+          return row.date === identity.date && normalizedAmount(row.amount) === normalizedAmount(identity.amount);
+        };
+
+        for (let index = 0; index < args.items.length; index += 1) {
+          const item = args.items[index];
+          const matches = receiptRows.filter((row) => matchesIdentity(row, item.identity ?? {}));
+          if (matches.length > 1) {
+            failedAction = { index, kind: "ambiguous", error: "Die fachliche Belegidentitaet ist nicht eindeutig." };
+            break;
+          }
+          if (matches.length === 1 && (item.onExisting ?? "update") === "error") {
+            failedAction = { index, kind: "already-exists", error: "Der Beleg ist bereits vorhanden." };
+            break;
+          }
+          if (matches.length === 1 && item.onExisting === "skip") {
+            const result = { index, action: "skipped", rowRid: matches[0].rowRid, verified: true };
+            completed.push(result);
+            skipped.push(result);
+            continue;
+          }
+
+          const action = matches.length === 1 ? "updated" : "imported";
+          const row = matches[0] ?? {
+            rowRid: `42.5252.4.${nextReceiptId++}`,
+            title: "Neuer Beleg*",
+            draft: true,
+            date: "",
+            documentNumber: "",
+            amount: "0,00",
+            vatRate: "19",
+            net: false,
+            note: "",
+          };
+          if (matches.length === 0) receiptRows.push(row);
+          for (const [name, raw] of Object.entries(item.values ?? {})) {
+            row[name] = name === "amount" ? String(raw).replace(".", ",") : raw;
+          }
+          if (Object.prototype.hasOwnProperty.call(item.values ?? {}, "title")) row.draft = false;
+          completed.push({ index, action, rowRid: row.rowRid, values: clone(item.values ?? {}), verified: true });
+        }
+
+        let rollback = { attempted: false, ok: true, actions: [] };
+        if (failedAction && completed.some((item) => item.action !== "skipped")) {
+          receiptRows = originalRows;
+          rollback = {
+            attempted: true,
+            ok: true,
+            actions: completed.filter((item) => item.action !== "skipped").map((item) => ({ index: item.index, ok: true })),
+          };
+        }
+        const rolledBack = Boolean(failedAction && rollback.attempted && rollback.ok);
+        const finalItems = args.items.map((item, index) => {
+          const matches = receiptRows.filter((row) => matchesIdentity(row, item.identity ?? {}));
+          return { index, matchedCount: matches.length, verified: rolledBack ? matches.length === 0 : matches.length === 1 };
+        });
+        const finalReadbackVerified = finalItems.every((item) => item.verified);
+        const ok = failedAction === null && finalReadbackVerified;
+        return {
+          ok,
+          kind: ok ? undefined : failedAction?.kind ?? "verification-failed",
+          error: ok ? undefined : failedAction?.error ?? "Der abschliessende Beleg-Readback ist fehlgeschlagen.",
+          schemaVersion: 1,
+          planKind: "receipt-manager-bulk-upsert",
+          pid,
+          hwnd: 5252,
+          mainHwnd: 4242,
+          managerHwnd: 5252,
+          requestedCount: args.items.length,
+          completedCount: completed.length,
+          completed,
+          items: completed,
+          failedAction,
+          failedIndex: failedAction?.index,
+          failure: failedAction,
+          skipped,
+          rollback,
+          cleanupRequired: !ok && !rolledBack,
+          finalReadback: { items: finalItems },
+          finalReadbackVerified,
+          resultingState: ok ? "completed-verified" : rolledBack ? "rolled-back-verified" : "unknown",
+          performance: {
+            workerProcessCount: 1,
+            internalOperationCount: 2 + completed.length,
+            durationMs: Date.now() - startedAt,
+          },
+          verified: finalReadbackVerified,
+        };
+      }
       case "receipt_manager_list": {
         const caseState = requireOpenCase();
         if (caseState.error) return caseState.error;
@@ -1425,14 +1632,25 @@ export function createStatefulSseWorker({ caseDir }) {
           rowRid: row.rowRid,
           rowFingerprint: sha256(`${index + 1}:${row.rowRid}:${row.title}`),
           contentFingerprint: sha256(row.title),
+          primaryText: row.title,
           cells: [{ name: row.title, rid: row.rowRid, selected: false, x: 1, y: index + 1, w: 1, h: 1 }],
           draft: row.draft,
           selected: false,
         }));
+        let matches = rows;
+        if (args.filter?.exactTitle !== undefined) matches = matches.filter((row) => row.primaryText === args.filter.exactTitle);
+        if (args.filter?.titleContains !== undefined) {
+          const needle = String(args.filter.titleContains).toLocaleLowerCase("de-DE");
+          matches = matches.filter((row) => row.primaryText.toLocaleLowerCase("de-DE").includes(needle));
+        }
+        if (args.filter?.draft !== undefined) matches = matches.filter((row) => row.draft === args.filter.draft);
+        const limit = Number(args.limit ?? 50);
         return {
           ok: true,
           pid,
           hwnd: 5252,
+          mainHwnd: 4242,
+          managerHwnd: 5252,
           state: "list",
           stateFingerprint: sha256("receipt-list"),
           count: rows.length,
@@ -1442,9 +1660,76 @@ export function createStatefulSseWorker({ caseDir }) {
           draftCount: rows.filter((row) => row.draft).length,
           listFingerprint: sha256(JSON.stringify({ count: rows.length, rows: rows.map((row) => row.rowFingerprint) })),
           rowsComplete: true,
+          matchedCount: matches.length,
+          matches: matches.slice(0, limit).map((row) => ({
+            index: row.index, title: row.primaryText, draft: row.draft, rowRid: row.rowRid,
+            rowFingerprint: row.rowFingerprint, contentFingerprint: row.contentFingerprint,
+          })),
+          matchesComplete: matches.length <= limit,
           ungespeichert: caseState.value.dirty,
           physicalInputUsed: false,
           hinweis: "Alle vom BelegManager gezaehlten Zeilen sind im UIA-Baum enthalten.",
+        };
+      }
+      case "receipt_manager_link": {
+        const caseState = requireOpenCase();
+        if (caseState.error) return caseState.error;
+        if (currentPage !== String(args.expectedTargetPage)) {
+          return { ok: false, kind: "stale", error: "Steuerseite stimmt nicht mehr." };
+        }
+        const items = Array.isArray(args.items) ? args.items : [{
+          expectedReceiptTitle: args.expectedReceiptTitle,
+          receiptContentFingerprint: args.receiptContentFingerprint,
+          linked: args.linked,
+        }];
+        const resolved = [];
+        for (const item of items) {
+          const expectedFingerprint = item.receiptContentFingerprint
+            ? String(item.receiptContentFingerprint).toUpperCase()
+            : null;
+          const matches = receiptRows.map((row, index) => ({ row, index })).filter(({ row }) => (
+            row.title === item.expectedReceiptTitle
+            && (!expectedFingerprint || sha256(row.title) === expectedFingerprint)
+          ));
+          if (matches.length !== 1) {
+            return { ok: false, kind: matches.length ? "ambiguous" : "stale", error: "Beleg ist nicht eindeutig." };
+          }
+          resolved.push({ item, ...matches[0] });
+        }
+        const beforeCount = [...receiptLinks.values()].filter(Boolean).length;
+        let changedCount = 0;
+        const resultItems = resolved.map(({ item, row, index }) => {
+          const linkedBefore = receiptLinks.get(row.rowRid) === true;
+          const linkedAfter = Boolean(item.linked);
+          if (linkedBefore !== linkedAfter) changedCount += 1;
+          receiptLinks.set(row.rowRid, linkedAfter);
+          return {
+            receipt: {
+              index: index + 1,
+              rowRid: row.rowRid,
+              rowFingerprint: sha256(`${index + 1}:${row.rowRid}:${row.title}`),
+              contentFingerprint: sha256(row.title),
+              primaryText: row.title,
+              draft: row.draft,
+            },
+            expectedReceiptTitle: item.expectedReceiptTitle,
+            linkedBefore,
+            linkedAfter,
+            changed: linkedBefore !== linkedAfter,
+            verified: true,
+          };
+        });
+        const afterCount = [...receiptLinks.values()].filter(Boolean).length;
+        return {
+          ok: true, pid, hwnd: 4242, mainHwnd: 4242, managerHwnd: 5252,
+          receipt: resultItems[0].receipt, items: resultItems,
+          expectedTargetPage: args.expectedTargetPage, expectedLinkTarget: args.expectedLinkTarget,
+          linkedBefore: resultItems[0].linkedBefore, linkedAfter: resultItems[0].linkedAfter,
+          footerCountBefore: beforeCount, footerCountAfter: afterCount,
+          noChanges: changedCount === 0, changedCount, applied: changedCount > 0,
+          persistenceVerified: true, cleanupRequired: false,
+          dirtyStateUnchangedBeforeApply: true, physicalInputUsed: true,
+          foregroundLeaseUsed: true, verified: true,
         };
       }
       case "receipt_manager_read": {
@@ -1477,7 +1762,12 @@ export function createStatefulSseWorker({ caseDir }) {
           { automationId: ".textEdit_notiz", name: "", type: "Edit", value: sourceRow.note },
         ];
         return {
-          ok: true, pid, hwnd: 5252, row, fields, listFingerprint, listFingerprintBefore: listFingerprint,
+          ok: true, pid, hwnd: 5252, mainHwnd: 4242, managerHwnd: 5252, row, fields,
+          values: {
+            title: sourceRow.title, date: sourceRow.date, documentNumber: sourceRow.documentNumber,
+            amount: sourceRow.amount, vatRate: sourceRow.vatRate, net: sourceRow.net, note: sourceRow.note,
+          },
+          valuesComplete: true, listFingerprint, listFingerprintBefore: listFingerprint,
           detailFingerprint: sha256(JSON.stringify(fields)), semanticListUnchanged: true,
           windowSetUnchanged: true, ungespeichertVorher: caseState.value.dirty,
           ungespeichertNachher: caseState.value.dirty, dirtyStateUnchanged: true,
@@ -1504,11 +1794,22 @@ export function createStatefulSseWorker({ caseDir }) {
         receiptRows.push(row);
         const afterRows = receiptRows.map((entry, index) => sha256(`${index + 1}:${entry.rowRid}:${entry.title}`));
         const afterFingerprint = sha256(JSON.stringify({ count: receiptRows.length, rows: afterRows }));
+        const fields = [
+          { automationId: ".lineEdit_detailsTitle", name: "", type: "Edit", value: row.title },
+          { automationId: ".dateEdit_datum.AAVDateLineEdit", name: "", type: "Edit", value: row.date },
+          { automationId: ".lineEdit_belegNummer", name: "", type: "Edit", value: row.documentNumber },
+          { automationId: ".lineEdit_betrag", name: "", type: "Edit", value: row.amount },
+          { automationId: ".comboBox_umsatzsteuer.QLineEdit", name: "", type: "Edit", value: row.vatRate },
+          { automationId: ".checkBox_netto", name: "", type: "CheckBox", value: row.net },
+          { automationId: ".textEdit_notiz", name: "", type: "Edit", value: row.note },
+        ];
         return {
-          ok: true, pid, hwnd: 5252, selected: args.expectedPath, sha256: String(args.expectedHash).toUpperCase(),
+          ok: true, pid, hwnd: 5252, mainHwnd: 4242, managerHwnd: 5252,
+          selected: args.expectedPath, sha256: String(args.expectedHash).toUpperCase(),
           countBefore: receiptRows.length - 1, countAfter: receiptRows.length,
           listFingerprintBefore: beforeFingerprint, listFingerprintAfter: afterFingerprint,
           importedRow: { index: receiptRows.length, rowRid: row.rowRid, rowFingerprint: afterRows.at(-1), draft: true },
+          detailFingerprint: sha256(JSON.stringify(fields)), fields,
           previewFingerprintBefore: sha256("blank-preview"), previewFingerprintAfter: sha256("attached-preview"),
           previewChanged: true, sourceHashStable: true, existingRowsUnchanged: true, dialogClosed: true,
           windowSetUnchanged: true, cleanupRequired: false, ungespeichertVorher: caseState.value.dirty,
@@ -1566,7 +1867,8 @@ export function createStatefulSseWorker({ caseDir }) {
         const listFingerprintAfter = sha256(JSON.stringify({ count: rowsAfter.length, rows: rowsAfter.map((entry) => entry.rowFingerprint) }));
         const fieldsAfter = projectFields(target);
         return {
-          ok: true, pid, hwnd: 5252, rowBefore: rowsBefore[index], rowAfter: rowsAfter[index],
+          ok: true, pid, hwnd: 5252, mainHwnd: 4242, managerHwnd: 5252,
+          rowBefore: rowsBefore[index], rowAfter: rowsAfter[index],
           valuesBefore, valuesAfter: requestedValues, requestedValues, changedFields,
           draftBefore: rowsBefore[index].draft, draftAfter: rowsAfter[index].draft,
           listFingerprintBefore, listFingerprintAfter,

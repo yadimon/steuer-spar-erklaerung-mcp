@@ -43,6 +43,20 @@ const RECEIPT_CLASSIFICATION_VALUES = z.object({
 const RECEIPT_BULK_ITEM = z.object({
   resourceRef: RESOURCE_REF().describe("Vorhandene Belegdatei im documents:-Bereich"),
   expectedHash: SHA256().describe("SHA-256 der unveraenderten Quelldatei"),
+  identity: z.union([
+    z.object({
+      exactTitle: z.string().trim().min(1).max(200).describe("Exakte Bezeichnung zur Suche nach einem bereits vorhandenen Beleg"),
+      documentNumber: z.string().trim().min(1).max(128).describe("Exakte Rechnungs- oder Belegnummer als zweite Identitaetskomponente"),
+    }).strict(),
+    z.object({
+      exactTitle: z.string().trim().min(1).max(200).describe("Exakte Bezeichnung zur Suche nach einem bereits vorhandenen Beleg"),
+      date: RECEIPT_DATE.describe("Belegdatum als zweite Identitaetskomponente zusammen mit amount"),
+      amount: RECEIPT_AMOUNT.describe("Belegbetrag als zweite Identitaetskomponente zusammen mit date"),
+    }).strict(),
+  ]).describe("Stabile fachliche Identitaet; ein Titel allein reicht fuer Upsert nicht aus"),
+  onExisting: z.enum(["update", "skip", "error"]).optional().describe(
+    "Verhalten bei genau einem vorhandenen Identitaetstreffer; Vorgabe update",
+  ),
   values: RECEIPT_UPDATE_VALUES.describe("Nach dem Import vollstaendig rueckzulesende Belegfelder"),
   classification: RECEIPT_CLASSIFICATION_VALUES.optional().describe(
     "Optionale, exakt aus vorhandenen Dialogoptionen gesetzte Kategorien und Personen",
@@ -58,6 +72,14 @@ export const SSE_MCP_RECEIPT_SCHEMAS = {
     hwnd: WINDOW_HANDLE.optional().describe("Optionales HWND des zugehoerigen SSE-Hauptfensters bei mehreren offenen Faellen"),
   }).strict(),
   "sse_receipt_manager_list": z.object({
+    filter: z.object({
+      exactTitle: z.string().trim().min(1).max(200).optional().describe("Exakte Bezeichnung; Gross-/Kleinschreibung wird beachtet"),
+      titleContains: z.string().trim().min(1).max(200).optional().describe("Teil der Bezeichnung; Gross-/Kleinschreibung wird ignoriert"),
+      draft: z.boolean().optional().describe("Optional nur Entwuerfe oder nur vollstaendige Belege"),
+    }).strict().refine((value) => value.exactTitle !== undefined || value.titleContains !== undefined || value.draft !== undefined, {
+      message: "Mindestens ein Filter muss angegeben werden.",
+    }).optional().describe("Optionaler serverseitiger Kompaktfilter; die Listenbindung bleibt auf der vollstaendigen Liste"),
+    limit: z.number().int().min(1).max(200).optional().describe("Hoechstens so viele kompakte Treffer zurueckgeben; Vorgabe 50"),
     hwnd: WINDOW_HANDLE.optional().describe("Optionales HWND des zugehoerigen SSE-Hauptfensters bei mehreren offenen Faellen"),
   }).strict(),
   "sse_receipt_manager_read": z.object({
@@ -97,11 +119,16 @@ export const SSE_MCP_RECEIPT_SCHEMAS = {
     hwnd: WINDOW_HANDLE.optional().describe("Optionales HWND des zugehoerigen SSE-Hauptfensters bei mehreren offenen Faellen"),
   }).strict(),
   "sse_receipt_manager_link": z.object({
-    receiptContentFingerprint: SHA256().describe("Fensteruebergreifend stabiler Inhaltsfingerprint des exakt gemeinten Belegs"),
-    expectedReceiptTitle: z.string().trim().min(1).max(200).describe("Exakte Bezeichnung des Belegs als zusaetzliche sichtbare Bindung"),
+    items: z.array(z.object({
+      expectedReceiptTitle: z.string().trim().min(1).max(200).describe("Exakte sichtbare Bezeichnung; sie muss genau eine Zeile treffen"),
+      receiptContentFingerprint: SHA256().optional().describe("Optionale zusaetzliche Bindung; ersetzt niemals die Eindeutigkeitspruefung"),
+      linked: z.boolean().describe("Gewuenschter Verknuepfungszustand"),
+    }).strict()).min(1).max(20).refine(
+      (items) => new Set(items.map((item) => `${item.expectedReceiptTitle}\u0000${item.receiptContentFingerprint ?? ""}`)).size === items.length,
+      "Jeder Belegselektor darf nur einmal vorkommen.",
+    ).describe("Ein bis 20 Belege in einem Oeffnen-/Uebernehmen-/Readback-Zyklus"),
     expectedTargetPage: z.string().trim().min(1).max(300).describe("Exakte aktuelle Steuerseite, von der der Verknuepfungsmodus gestartet wird"),
     expectedLinkTarget: z.string().trim().min(1).max(200).describe("Exakter Zieltext im BelegManager, zum Beispiel Lotterie"),
-    linked: z.boolean().describe("true verknuepft den Beleg mit dem Ziel, false entfernt genau diese Verknuepfung"),
     acknowledgeLinkChange: z.literal(true).describe("Bestaetigt die ziel-, seiten- und beleggebundene Verknuepfungsaenderung"),
     waitMs: UI_WAIT_MS.optional().describe("Hoechste Wartezeit je UI-Phase; Vorgabe 4000 ms"),
     hwnd: WINDOW_HANDLE.optional().describe("Optionales HWND des zugehoerigen SSE-Hauptfensters bei mehreren offenen Faellen"),
@@ -110,7 +137,10 @@ export const SSE_MCP_RECEIPT_SCHEMAS = {
     items: z.array(RECEIPT_BULK_ITEM).min(1).max(20).refine(
       (items) => new Set(items.map((item) => item.resourceRef)).size === items.length,
       "Jede resourceRef darf in einem Batch nur einmal vorkommen.",
-    ).describe("Ein bis 20 Belege; jeder Beleg wird importiert, befuellt, optional klassifiziert und rueckgelesen"),
+    ).refine(
+      (items) => new Set(items.map((item) => JSON.stringify(item.identity))).size === items.length,
+      "Jede fachliche identity darf in einem Batch nur einmal vorkommen.",
+    ).describe("Ein bis 20 Belege; vorhandene Identitaeten werden aktualisiert oder uebersprungen, neue werden importiert"),
     acknowledgeBulkUpsert: z.literal(true).describe("Bestaetigt den gebundenen Import aller aufgefuehrten Dateien"),
     stopOnError: z.literal(true).optional().describe("Fail-closed ist fest: beim ersten unklaren Beleg wird gestoppt"),
     waitMs: UI_WAIT_MS.optional().describe("Hoechste Wartezeit je UI-Phase; Vorgabe 3500 ms"),
@@ -135,3 +165,18 @@ export const SSE_MCP_RECEIPT_SCHEMAS = {
     hwnd: WINDOW_HANDLE.optional().describe("Optionales HWND des zugehoerigen SSE-Hauptfensters bei mehreren offenen Faellen"),
   }).strict(),
 } as const;
+
+/** HTTP API compatibility: MCP exposes only the preferred batch shape. */
+export const SSE_API_RECEIPT_MANAGER_LINK_SCHEMA = z.union([
+  SSE_MCP_RECEIPT_SCHEMAS.sse_receipt_manager_link,
+  z.object({
+    receiptContentFingerprint: SHA256().describe("Legacy-Einzelmodus: Inhaltsfingerprint des exakt gemeinten Belegs"),
+    expectedReceiptTitle: z.string().trim().min(1).max(200).describe("Legacy-Einzelmodus: exakte sichtbare Bezeichnung"),
+    expectedTargetPage: z.string().trim().min(1).max(300).describe("Exakte aktuelle Steuerseite"),
+    expectedLinkTarget: z.string().trim().min(1).max(200).describe("Exakter Zieltext im BelegManager"),
+    linked: z.boolean().describe("Gewuenschter Verknuepfungszustand"),
+    acknowledgeLinkChange: z.literal(true).describe("Bestaetigt die ziel-, seiten- und beleggebundene Aenderung"),
+    waitMs: UI_WAIT_MS.optional().describe("Hoechste Wartezeit je UI-Phase"),
+    hwnd: WINDOW_HANDLE.optional().describe("Optionales HWND des zugehoerigen SSE-Hauptfensters"),
+  }).strict(),
+]);

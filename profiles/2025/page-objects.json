@@ -59,11 +59,15 @@
         "attachFile": {
           "automationIdSuffix": ".panel_asset.DetailPagePreview.panel_asset"
         },
-        "deleteReceipt": {
-          "automationIdSuffix": ".btn_delete",
-          "expectedName": "Löschen"
-        },
-        "classification": {
+      "deleteReceipt": {
+        "automationIdSuffix": ".btn_delete",
+        "expectedName": "Löschen"
+      },
+      "detailClose": {
+        "automationIdSuffix": ".pushButton_detailsClose",
+        "expectedName": "Detailansicht  schließen"
+      },
+      "classification": {
           "categories": {
             "chooserAutomationIdSuffix": ".panel_kategorien.pushButton_chooseKategorien",
             "chooserExpectedName": "Kategorien auswählen",

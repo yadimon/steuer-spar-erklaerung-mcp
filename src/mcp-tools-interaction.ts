@@ -138,6 +138,37 @@ export function registerInteractionTools(registry: McpRegistry): void {
   );
 
   registerShapedApiTool(
+    "sse_fill_fields",
+    {
+      title: "Mehrere bekannte Felder in einem Worker befuellen",
+      description:
+        "Befuellt ein bis 20 katalogisierte pageId/fieldId-Felder derselben bereits geoeffneten Seite in genau " +
+        "einem frischen PowerShell-Worker. Der komplette Plan wird vor dem ersten UI-Zugriff validiert; freie " +
+        "AutomationIds, Selektoren, Schaltertexte und Koordinaten sind nicht zulaessig. Jeder Schritt prueft " +
+        "seinen Vorwert und unmittelbaren Nachwert. Beim ersten Fehler werden weitere Mutationen uebersprungen, " +
+        "bereits abgeschlossene Felder best-effort rueckwaerts wiederhergestellt und die ganze katalogisierte " +
+        "Seite abschliessend gelesen. resultingState=unknown verbietet einen blinden Retry.",
+    },
+    (r) => ({
+      schemaVersion: r.schemaVersion,
+      planKind: r.planKind,
+      completed: asArray(r.completed),
+      failedAction: r.failedAction,
+      failedIndex: r.failedIndex,
+      skipped: asArray(r.skipped),
+      rollback: r.rollback,
+      cleanupRequired: r.cleanupRequired,
+      finalReadback: r.finalReadback,
+      finalReadbackVerified: r.finalReadbackVerified,
+      resultingState: r.resultingState,
+      performance: r.performance,
+      verified: r.verified,
+      resourceRefs: r.resourceRefs,
+    }),
+    { timeoutMs: 300_000 },
+  );
+
+  registerShapedApiTool(
     "sse_combo_options",
     {
       title: "Dropdown-Optionen sicher lesen",

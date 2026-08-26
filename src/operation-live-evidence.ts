@@ -12,6 +12,7 @@ export type OperationLiveEvidenceStatus = (typeof SSE_LIVE_EVIDENCE_STATUSES)[nu
 
 const SSE_LIVE_ERROR_PATH_ONLY_OPERATIONS = Object.freeze(
   [
+    "receipt_manager_bulk_upsert",
     "vast_apply",
     "vast_dialog_read",
     "vast_mapping_options",
@@ -22,7 +23,9 @@ const SSE_LIVE_ERROR_PATH_ONLY_OPERATIONS = Object.freeze(
 );
 
 const SSE_LIVE_UNTESTED_OPERATIONS = Object.freeze(
-  [] as const satisfies readonly SseApiOperation[],
+  [
+    "fill_fields",
+  ] as const satisfies readonly SseApiOperation[],
 );
 
 const untested = new Set<SseApiOperation>(SSE_LIVE_UNTESTED_OPERATIONS);

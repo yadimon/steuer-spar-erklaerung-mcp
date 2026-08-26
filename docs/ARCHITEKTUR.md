@@ -88,7 +88,7 @@ Agent oder eigenes Programm
   Gesamtkatalog und OpenAPI-Abruf selbst; es gibt keinen separat gepflegten
   oder permissiveren API-Vertrag. Wiederkehrende Blattverträge wie optionaler
   Text, Flag, SHA-256 und Guard-Objekt werden dort als gemeinsame Komponenten
-  referenziert. Auch der für alle 98 Operationen identische
+  referenziert. Auch der für alle 99 Operationen identische
   `ok/kind/error/ms`-Umschlag liegt einmal als `OperationResultEnvelope` vor;
   jedes `Result_<operation>` ergänzt per `allOf` seine eigenen Fachfelder. Das
   hält die vollständiger gewordenen Result-Schemas unter dem Größenbudget,
@@ -230,7 +230,7 @@ Agent oder eigenes Programm
   bleiben unverändert, damit ein separat installierter Wrapper weder Details
   des API-Rechners noch seines eigenen Hosts preisgibt.
 - Werkzeugnamen, API-Zuordnung, Eingaben und versionierte
-  Ergebnismindestverträge werden aus gemeinsamen Katalogen abgeleitet. Alle 98
+  Ergebnismindestverträge werden aus gemeinsamen Katalogen abgeleitet. Alle 99
   Werkzeuge deklarieren das operationsspezifische `outputSchema` und liefern
   das vollständige, pfadredigierte nicht-binäre Ergebnis als
   `structuredContent`. Bereits als MCP-Bildblock gelieferte Base64-Bytes werden
@@ -326,6 +326,45 @@ Agent oder eigenes Programm
   gemeldet. Nur die gemeinsame feste Allowlist ist ausführbar; ein Agent kann
   die Sperre nicht durch frei formulierten Buttontext umgehen.
 
+### Typisierte Ein-Worker-Pläne
+
+`fill_fields` validiert den vollständigen Plan bereits im API-Prozess gegen
+das aktive Page-Object-Profil. Zugelassen sind ein bis 20 eindeutige
+`pageId`/`fieldId`-Felder derselben bereits geöffneten Seite. Das API kompiliert
+sie ausschließlich in bestehende `tracked_set_value`-Operationen und genau
+einen abschließenden `known_page_state`-Readback. Erst danach startet ein
+frischer Worker. Der interne Name `bulk_action` ist weder ein frei befüllbares
+PowerShell- noch ein Selektor-API; der Worker akzeptiert nur diese Planform,
+einen geschlossenen Operationskatalog und exakte Argumentfelder.
+
+Innerhalb des Workers fängt der Planexecutor die kanonischen strukturierten
+Ergebnisse bestehender Operationen ab, statt nach jedem `Emit` den Prozess zu
+beenden. Jeder Feldschritt behält Vorwert-, Page-Object-, Build-, Case- und
+Nachwert-Guards. Nach dem ersten Fehler folgen keine weiteren Mutationen:
+restliche Schritte werden `skipped`, reversible Feldänderungen laufen in
+umgekehrter Reihenfolge best effort zurück, und ein vollständiger Readback
+bestimmt `unchanged`, `completed-verified`, `rolled-back-verified`,
+`partially-mutated-verified` oder `unknown`. Timeout und Cancellation werden
+immer als `unknown` ohne automatischen Retry zurückgegeben.
+
+`receipt_manager_bulk_upsert` nutzt denselben Ein-Prozess-Grundsatz für
+vollständige Liste, fachliche Identitätsprüfung, Import oder Update, optionale
+Klassifikation und Abschlussreadback. Die API löst alle `documents:`-Ressourcen
+und SHA-256-Bindungen vor dem Workerstart auf. Weil Qt die Tabelle erst nach
+Freigabe einer sichtbaren Foreground-Lease endgültig stabilisieren kann, folgt
+auf einen ansonsten exakten Detailread bei Bedarf ein weiterer reiner
+Listenread im selben Prozess. Nur ein vollständiges, hashgleiches semantisches
+Zeilen-Multiset hebt diesen Zwischenzustand auf; der öffentliche Einzelread
+bleibt unverändert fail-closed.
+
+Auf dem Entwicklungsrechner lag ein kalter API→PowerShell-Aufruf in fünf
+Messungen bei p50 2,112 s, davon p50 0,717 s im Worker und rund 1,395 s
+Prozess-/Transport-Overhead. Damit spart ein Fünf-Feld-Plan gegenüber fünf
+Einzelworkern allein etwa 5,6 s Startoverhead. Ein Beleg ohne Klassifikation
+benötigte zuvor drei Worker, fünf Belege 15; der neue Plan startet jeweils
+genau einen. Ein separater langlebiger Worker oder C#-Bulk-Prozess ist nach
+diesen Messungen nicht gerechtfertigt.
+
 ### Harte Sicherheit
 
 - ELSTER, Senden und sonstige Übermittlung ans Finanzamt bleiben immer
@@ -390,11 +429,12 @@ Größenschranke: Ein Werkzeugfenster wächst mit dem Bildschirm.
 
 Der BelegManager wird **nicht** durch eine gelockerte allgemeine Bindung
 bedienbar — ein „Klick auf ein beliebiges Fenster derselben PID" würde denselben
-Weg für Versand- und Speicherdialoge öffnen. Stattdessen besitzt er sechs
+Weg für Versand- und Speicherdialoge öffnen. Stattdessen besitzt er zehn
 spezialisierte Operationen: `receipt_manager_action` für zwei reversible
 Navigationen, `receipt_manager_list`, `receipt_manager_read`,
-`receipt_manager_update`, `receipt_manager_import` und
-`receipt_manager_delete`. Auf einer frischen
+`receipt_manager_update`, `receipt_manager_import`, `receipt_manager_delete`,
+die beiden Klassifikationsoperationen, `receipt_manager_link` und
+`receipt_manager_bulk_upsert`. Auf einer frischen
 Installation lässt sich der Einwilligungsdialog weiterhin nicht beantworten.
 
 Der vorgesehene Weg sind stattdessen eigene, eng gefasste Operationen je
@@ -409,7 +449,10 @@ semantische Nachbedingung. Ohne all das entsteht kein neuer Pfad.
 `receipt_manager_action` setzt diesen Vertrag für die zwei reversiblen
 Zustandswechsel `showAllReceipts` (`start` → `list`) und `goHome`
 (`list` → `start`) um. `receipt_manager_list` projiziert die vollständige
-sichtbare Liste und erzeugt Zeilen- und Listenfingerprints. `read` und `delete`
+sichtbare Liste und erzeugt Zeilen- und Listenfingerprints. Optional liefert
+dieselbe Operation ohne zusätzlichen UI-Durchlauf eine begrenzte, kompakte
+Treffermenge nach exaktem Titel, Titelbestandteil und Entwurfsstatus; die
+Mutation bleibt trotzdem an die vollständige Liste gebunden. `read` und `delete`
 akzeptieren nur solche frischen Zeilenbindungen; `delete` verlangt zusätzlich
 eine ausdrückliche Bestätigung und den exakt profilierten Löschdialog.
 `receipt_manager_update` verlangt zusätzlich den frischen Detailfingerprint
@@ -417,8 +460,7 @@ und `acknowledgeUpdate=true`. Ein Aufruf kann Titel, Datum, Belegnummer,
 Betrag, Umsatzsteuersatz, Netto-Kennzeichen und Notiz gemeinsam setzen. Er
 verwendet ausschließlich profilierte AutomationIds, prüft jeden Feldwert nach
 dem Commit und rollt bereits geänderte Felder bei einer eindeutigen normalen
-Nachbedingungsverletzung rückwärts zurück. Kategorie, Person, Verknüpfen und
-Übernehmen bleiben bewusst außerhalb dieses Vertrags.
+Nachbedingungsverletzung rückwärts zurück.
 `receipt_manager_import` legt nur bei vollständiger Liste ohne vorhandenen
 Entwurf einen neuen Beleg an, bindet die Quelle an `documents:` plus SHA-256,
 verifiziert den nativen Öffnen-Dialog und verlangt eine geänderte visuelle
@@ -427,6 +469,18 @@ AutomationId-Suffixe, Dialogtexte und Fingerprints. Haupt- und Werkzeugfenster,
 Dialogfreiheit, physischer Klick, Top-Level-Fenstersatz und Dirty-State werden
 vor und nach jeder Mutation geprüft. Alle übrigen BelegManager-Schalter bleiben
 unerreichbar.
+
+`receipt_manager_bulk_upsert` verwendet deshalb nicht nur den Dateipfad als
+Identität. Exakter Titel plus Belegnummer oder exakter Titel plus Datum und
+Betrag entscheiden, ob aktualisiert, übersprungen oder neu importiert wird.
+Mehrere exakte Treffer stoppen ohne `force`. Import, Update und Klassifikation
+liefern jeweils eine frische Bindung; überflüssige Zwischenlesungen entfallen.
+`receipt_manager_link` kann ein bis 20 exakte Titel auf der aktuellen
+Steuerseite auflösen, schaltet alle Zielzustände in einem geöffneten Manager,
+übernimmt einmal und öffnet einmal für den Persistenz-Readback. Erst nach dem
+Auflösen aller Selektoren beginnt die Mutation. Die davon getrennte
+Werteübernahme in Steuerzeilen wird weiterhin abgebrochen, weil dafür noch kein
+seiten- und tabellenspezifischer Buchungsvertrag nachgewiesen ist.
 
 ## Der Inhaltsbereich einer Seite: gemessen oder geraten
 
@@ -578,7 +632,7 @@ Gewinnaktualisierungsnotiz mit `OK` beschränkt; Recovery-Dateien werden nicht
 automatisch verworfen. Das Manifest trennt `status` von `operationAccess`:
 2025 trägt `full`, 2024 `verification-only`. Freigabe und voller Betriebsraum
 öffnen sich nur bei `supported` **und** `full`; eine reine Status-Promotion
-bleibt daher fail-closed. `capabilities.operationPolicy` klassifiziert alle 98
+bleibt daher fail-closed. `capabilities.operationPolicy` klassifiziert alle 99
 Operationen als Lesen, Navigation, bedingtes Focusless-Schreiben, Mutation,
 destruktiv oder Cleanup und nennt Opt-in- sowie Build-Drift-Gates. Ein zweiter
 MCP-Server pro Jahr ist nicht vorgesehen, solange sich nur Profildaten ändern.

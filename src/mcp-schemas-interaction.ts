@@ -129,6 +129,42 @@ export const SSE_MCP_INTERACTION_SCHEMAS = {
     expectedCaseRef: CASE_REF().optional(),
     expectedCaseHash: SHA256().optional(),
   }).strict(),
+  "sse_fill_fields": z.object({
+    pageId: z.string().min(1).max(200).describe(
+      "Stabile pageId der bereits geoeffneten katalogisierten Seite",
+    ),
+    fields: z.array(z.object({
+      fieldId: z.string().min(1).max(200).describe("Stabile fieldId derselben Page-Object-Seite"),
+      expectedBefore: z.string().describe("Exakter Vorwert dieses Feldes"),
+      value: z.string().describe("Zu setzender fachlicher Wert"),
+      expectedAfter: z.string().describe("Exakter Wert nach Qt-Commit und Readback"),
+      sumChecks: z.array(z.object({
+        label: z.string().describe("Exakte Beschriftung der Kontrollsumme"),
+        occurrence: UI_OCCURRENCE.optional(),
+        before: z.string().describe("Exakter Summenwert vor diesem Feld"),
+        after: z.string().describe("Exakter Summenwert nach diesem Feld"),
+      }).strict()).max(SSE_OPERATION_LIMITS.readbackChecks).optional().describe(
+        "Optionale Summenvertraege fuer diesen einzelnen Feldschritt",
+      ),
+    }).strict()).min(1).max(20).refine(
+      (fields) => new Set(fields.map((field) => field.fieldId)).size === fields.length,
+      "Jede fieldId darf im Plan nur einmal vorkommen.",
+    ).describe("Ein bis 20 katalogisierte Felder derselben bereits geoeffneten Seite"),
+    expectedEpoch: SHA256().optional().describe(
+      "Optionale Anfangsepoche aus sse_page_state; sie bindet den ersten Schritt, danach gelten dessen unmittelbare Readbacks",
+    ),
+    stopOnError: z.literal(true).optional().describe("Fail-fast ist fest; nach dem ersten Fehler folgen nur Rollback und Readback"),
+    rollback: z.literal("best-effort").optional().describe("Erfolgreiche vorherige Feldschritte werden in umgekehrter Reihenfolge zurueckgesetzt"),
+    finalReadback: z.literal(true).optional().describe("Vollstaendiger Page-Object-Readback ist verpflichtend"),
+    trackResults: z.boolean().optional().describe("Werte-Info je Feld verfolgen; Vorgabe wie bei sse_change_known_field"),
+    resultLabels: z.array(z.string()).max(SSE_OPERATION_LIMITS.resultLabels).optional().describe(
+      "Optional nur diese Werte-Info-Zeilen bei jedem Feldschritt vergleichen",
+    ),
+    hwnd: WINDOW_HANDLE.optional(),
+    pid: PROCESS_ID.optional(),
+    expectedCaseRef: CASE_REF().optional(),
+    expectedCaseHash: SHA256().optional(),
+  }).strict(),
   "sse_combo_options": z.object({
     name: z.string().optional().describe("Exakte sichtbare Beschriftung des Dropdowns"),
     aid: z.string().optional().describe("AutomationId oder eindeutiges Endstueck"),

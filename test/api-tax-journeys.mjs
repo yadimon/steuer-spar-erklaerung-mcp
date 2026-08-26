@@ -1004,6 +1004,96 @@ test("23b receipt manager navigates, imports, reads and deletes with fresh bindi
   });
 });
 
+test("23c receipt API smoke queries, upserts and links with independent readback", async () => {
+  await withHarness(async (harness) => {
+    await launchFreelancer(harness);
+    await harness.call("menu_click", { name: "BelegManager" });
+    await harness.call("receipt_manager_action", { actionId: "showAllReceipts", hwnd: 4242 });
+
+    const receiptPath = join(harness.documentsDir, "api-smoke.pdf");
+    writeFileSync(receiptPath, "%PDF-1.4 synthetic API smoke receipt\n", "utf8");
+    const title = "API Smoke Invoice";
+    const documentNumber = "API-SMOKE-1";
+    const upsert = await harness.call("receipt_manager_bulk_upsert", {
+      items: [{
+        resourceRef: "documents:api-smoke.pdf",
+        expectedHash: sha256File(receiptPath),
+        identity: { exactTitle: title, documentNumber },
+        values: {
+          title, date: "2026-08-26", documentNumber, amount: "12.34",
+          vatRate: "19", net: false, note: "one-call API smoke",
+        },
+      }],
+      acknowledgeBulkUpsert: true,
+      stopOnError: true,
+      hwnd: 4242,
+    }, 30_000);
+    assert.equal(upsert.ok, true);
+    assert.equal(upsert.completedCount, 1);
+    assert.equal(upsert.items[0].action, "imported");
+    assert.equal(upsert.items[0].verified, true);
+
+    const queried = await harness.call("receipt_manager_list", {
+      filter: { exactTitle: title, draft: false }, limit: 1, hwnd: 4242,
+    });
+    assert.equal(queried.matchedCount, 1);
+    assert.equal(queried.matchesComplete, true);
+    assert.equal(queried.matches[0].title, title);
+    assert.equal(queried.matches[0].draft, false);
+
+    const linked = await harness.call("receipt_manager_link", {
+      items: [{
+        expectedReceiptTitle: title,
+        receiptContentFingerprint: queried.matches[0].contentFingerprint,
+        linked: true,
+      }],
+      expectedTargetPage: "Einnahmen/Ausgaben",
+      expectedLinkTarget: "Synthetisches Ziel",
+      acknowledgeLinkChange: true,
+      hwnd: 4242,
+    }, 30_000);
+    assert.equal(linked.changedCount, 1);
+    assert.equal(linked.items[0].linkedAfter, true);
+    assert.equal(linked.persistenceVerified, true);
+    assert.equal(linked.verified, true);
+  });
+});
+
+test("23d fill_fields writes two profiled vehicle fields in one worker plan", async () => {
+  await withHarness(async (harness) => {
+    await launchFreelancer(harness);
+    await harness.call("click", {
+      name: "Fahrzeug",
+      expectedPageBefore: "Einnahmen/Ausgaben",
+      expectedPageAfter: "1. Fahrzeug",
+    });
+    const before = await harness.call("known_page_state", { pageId: "gew.fahrzeug", hwnd: 4242 });
+    const filled = await harness.call("fill_fields", {
+      pageId: "gew.fahrzeug",
+      fields: [
+        { fieldId: "bezeichnung", expectedBefore: "", value: "API Bulk Fahrzeug", expectedAfter: "API Bulk Fahrzeug" },
+        { fieldId: "kennzeichen", expectedBefore: "", value: "B-ULK 2026", expectedAfter: "B-ULK 2026" },
+      ],
+      expectedEpoch: before.epoch,
+      stopOnError: true,
+      rollback: "best-effort",
+      finalReadback: true,
+      hwnd: 4242,
+    }, 30_000);
+
+    assert.equal(filled.ok, true);
+    assert.equal(filled.resultingState, "completed-verified");
+    assert.equal(filled.completed.length, 2);
+    assert.equal(filled.performance.workerProcessCount, 1);
+    assert.equal(filled.performance.internalOperationCount, 3);
+    assert.equal(filled.finalReadbackVerified, true);
+    assert.deepEqual(
+      filled.finalReadback.fields.map((field) => [field.label, field.value]),
+      [["Bezeichnung", "API Bulk Fahrzeug"], ["Kennzeichen", "B-ULK 2026"]],
+    );
+  });
+});
+
 test("24 window handles stay bound to the exact current title", async () => {
   await withHarness(async (harness) => {
     await launchFreelancer(harness);

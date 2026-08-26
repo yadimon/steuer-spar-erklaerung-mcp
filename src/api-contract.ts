@@ -55,6 +55,7 @@ export const SSE_API_OPERATIONS = [
   "dismiss",
   "export_csv",
   "file_dialog_select",
+  "fill_fields",
   "find",
   "get_value",
   "goto",
