@@ -99,6 +99,8 @@ export function registerReceiptTools(registry: McpRegistry): void {
       semanticListUnchanged: r.semanticListUnchanged,
       targetRowRebound: r.targetRowRebound,
       rowAfter: r.rowAfter,
+      targetSemanticRebound: r.targetSemanticRebound,
+      semanticRowAfter: r.semanticRowAfter,
       dialogFreeAfter: r.dialogFreeAfter,
       semanticReadback: r.semanticReadback,
       dirtyStateUnchanged: r.dirtyStateUnchanged,

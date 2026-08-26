@@ -362,7 +362,11 @@ Messungen bei p50 2,112 s, davon p50 0,717 s im Worker und rund 1,395 s
 Prozess-/Transport-Overhead. Damit spart ein Fünf-Feld-Plan gegenüber fünf
 Einzelworkern allein etwa 5,6 s Startoverhead. Ein Beleg ohne Klassifikation
 benötigte zuvor drei Worker, fünf Belege 15; der neue Plan startet jeweils
-genau einen. Ein separater langlebiger Worker oder C#-Bulk-Prozess ist nach
+genau einen. Der reale Zwei-Feld-Plan benötigte auf dem Entwicklungsrechner
+8,753 s Planzeit bei 8,735 s Worker-Aktionszeit. Der reale Beleg-Import in der
+Snapshot-VM benötigte trotz nur eines Workers 98,561 s; dort dominiert somit
+weiterhin die sichtbare Qt-Interaktion und Stabilisierung, nicht der
+Prozessstart. Ein separater langlebiger Worker oder C#-Bulk-Prozess ist nach
 diesen Messungen nicht gerechtfertigt.
 
 ### Harte Sicherheit

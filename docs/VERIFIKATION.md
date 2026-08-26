@@ -201,21 +201,21 @@ und Fenster-/Desktopzustand modelliert. Das beweist Argumentbindung,
 Ressourcenauflösung, Komposition, Ergebnisvertrag und Redaktion über die
 gesamte Kette. Es beweist ausdrücklich **nicht** die proprietäre UIA-Schicht;
 dafür zählt allein die Live-Spalte derselben Bilanz, die echte Worker-Aufrufe
-gegen die installierte Anwendung füllen. Dort stehen am 2026-08-26 91 der 99
+gegen die installierte Anwendung füllen. Dort stehen am 2026-08-26 93 der 99
 Operationen: 81 aus dem strikten Host-Gate einschließlich `collect` und der
 beiden Center-Operationen sowie fünf BelegManager-Operationen und `instances`,
 die erfolgreich in einer Snapshot-VM ausgeführt wurden, plus die lokal
 ausgeführten BelegManager-Wege `receipt_manager_update`,
 `receipt_manager_classification_options`, `receipt_manager_classify`,
-und `receipt_manager_link`. `collect` ist auf der
+und `receipt_manager_link`, den lokal geprüften `fill_fields`-Plan sowie den
+grünen VM-Lauf von `receipt_manager_bulk_upsert`. `collect` ist auf der
 profilierten ESt-2025-Startseite ohne `Weiter` erfolgreich mit `end-of-branch` belegt:
 genau eine Seite, kein Navigationsschritt hinter dem gespeicherten Stand und
 hashgleicher Datei-Readback. Der getrennte Zwei-Seiten-Lauf belegt weiterhin
 `collection-incomplete`, `limit-reached` und den hashgebundenen Teilabgleich.
 „Vollständig" gilt dabei nur für den ab der jeweiligen Startseite erreichbaren
 Blätterpfad, nicht für den gesamten Steuerfall. Noch nie erfolgreich live
-abgeschlossen sind die neuen Ein-Prozess-Pfade `fill_fields` und
-`receipt_manager_bulk_upsert` sowie die sechs VaSt-Wege `vast_apply`,
+abgeschlossen sind die sechs VaSt-Wege `vast_apply`,
 `vast_dialog_read`, `vast_mapping_options`, `vast_mapping_select`,
 `vast_row_details` und `vast_row_set_expanded`. In der Snapshot-VM erreichte
 jeder davon ohne den erforderlichen Zertifikat-PIN kontrolliert den echten
@@ -232,18 +232,27 @@ Listen-Readback war wieder vollständig leer. `receipt_manager_action` bewies
 zusätzlich `list -> start -> list`. Der Steuerfall blieb bei jedem Schritt
 `ungespeichert=false`; es wurde nicht gespeichert und ELSTER nicht geöffnet.
 
-Der neue Ein-Prozess-`receipt_manager_bulk_upsert` wurde am 2026-08-26 mit
-derselben hashgebundenen synthetischen PDF gegen eine Einwegkopie ausgeführt.
-Import beziehungsweise Update und die betroffenen Werte wurden real
-verifiziert; der Plan startete genau einen Worker und benötigte je nach Pfad
-39,459 bis 73,479 Sekunden. Der unmittelbare Listenfingerprint nach dem
-Detailread blieb wegen Qt-Reprojektion jedoch nicht stabil, sodass der Worker
-korrekt `state-unknown` statt `ok=true` meldete. Der daraufhin ergänzte zweite
-reine Listenread nach Freigabe der Foreground-Lease ist lokal vertraglich
-abgedeckt, konnte wegen eines anschließenden VirtualBox-Guest-Control-Ausfalls
-aber noch nicht erneut live grün ausgeführt werden. Die neue Implementierung
-bleibt deshalb konservativ `error-path-only` statt den früheren komponierten
-Erfolg weiterzuverwenden.
+Der neue Ein-Prozess-`receipt_manager_bulk_upsert` wurde am 2026-08-26 nach
+Restore des sauberen VM-Snapshots mit derselben hashgebundenen synthetischen
+PDF gegen eine Einwegkopie grün ausgeführt. Import, alle sieben gesetzten
+Werte und der Abschlusszustand `completed-verified` wurden real verifiziert;
+der Plan startete genau einen Worker und benötigte 98,561 Sekunden. Der
+öffentliche Detailread blieb beim von Qt neu vergebenen technischen
+Zeilenfingerprint bewusst `postcondition-failed`. Für den Bulk-Plan band er die
+Zeile zusätzlich eindeutig an exakten Titel und Inhaltsfingerprint; erst ein
+separater vollständiger Listenread nach Freigabe der Foreground-Lease mit
+hashgleichem semantischem Zeilen-Multiset hob den Zwischenzustand auf. Der
+synthetische Beleg wurde anschließend exakt gebunden gelöscht, die Liste auf
+vier vorhandene Zeilen zurückgeführt und SSE ohne Speichern geschlossen.
+
+`fill_fields` wurde am selben Tag lokal an einer verworfenen Kopie eines
+synthetischen Fahrzeugfalls erfolgreich live geprüft. Zwei Felder wurden mit
+exakten Vorwerten und Seitenepoch in einem Worker geändert, gemeinsam als
+`completed-verified` zurückgelesen und in einem zweiten ebenso gebundenen Plan
+auf `Chevrolet Camaro` und `N-CC999` zurückgesetzt. Der Änderungsplan benötigte
+8,753 Sekunden, davon 8,735 Sekunden Worker-Aktionszeit, bei drei internen
+Operationen und genau einem Worker. Danach wurde die Kopie ohne Speichern
+geschlossen; ihr Quellfixture blieb SHA-256-identisch.
 
 Der lokale BelegManager-Nachweis vom 2026-08-25 band einen zuvor importierten
 Amazon-Beleg an Zeilen-, Listen- und Detailfingerprint. Ein einzelner
@@ -310,10 +319,9 @@ die erzeugte Bilanz bindet. `affectsAvailability=false` und
 `profileSpecific=false` benennen seine Grenzen maschinenlesbar. Ein Profil mit
 `status=supported` und `operationAccess=full` gibt alle Operationen frei –
 unabhängig davon, ob sie jemals erfolgreich gegen die echte Anwendung
-gelaufen sind. Gemessen am 2026-08-26 sind noch 8 der 99 Operationen nicht
-live-funktional belegt: `fill_fields`, der neue Ein-Prozess-
-`receipt_manager_bulk_upsert` und die oben genannten sechs VaSt-Wege. Damit
-sind 91 Operationen `functional`, sieben `error-path-only` und eine `untested`.
+gelaufen sind. Gemessen am 2026-08-26 sind noch 6 der 99 Operationen nicht
+live-funktional belegt: die oben genannten sechs VaSt-Wege. Damit sind 93
+Operationen `functional`, sechs `error-path-only` und keine `untested`.
 Zwei davon (`vast_apply`, `vast_mapping_select`) fallen in die
 Klasse `destructive`.
 
@@ -1060,8 +1068,8 @@ Sitzung prüfbar, ohne Fremdbedienung pauschal als Ursache zu behaupten.
 Für „jede praktische SSE-Aktion vollständig geprüft“ fehlen insbesondere:
 
 1. erfolgreiche Live-Läufe der sechs `vast_*`-Operationen mit einem neutralen
-   ELSTER-/VaSt-Dialog. Diese sechs Operationen sind offline funktional, aber
-   live weiterhin ungetestet;
+   ELSTER-/VaSt-Dialog. Diese sechs Operationen sind offline funktional, live
+   aber weiterhin nur durch kontrollierte Fehlerpfade belegt;
 2. eine fallweite Gesamterfassung. Der erfolgreiche `collect`-Lauf beweist
    exakt das Ende eines profilierten Ein-Seiten-Blätterpfads; der getrennte
    Zwei-Seiten-Lauf beweist den fortsetzbaren Teilstand. Wegen des absichtlichen

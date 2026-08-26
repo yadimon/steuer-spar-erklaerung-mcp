@@ -16221,7 +16221,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         $readCandidateVerified = [bool](
           $read.ok -eq $true -or (
             [string]$read.kind -ceq 'postcondition-failed' -and
-            $read.valuesComplete -eq $true -and $read.targetRowRebound -eq $true -and
+            $read.valuesComplete -eq $true -and
+            ($read.targetRowRebound -eq $true -or $read.targetSemanticRebound -eq $true) -and
             $read.windowSetUnchanged -eq $true -and $read.dialogFreeAfter -eq $true -and
             $read.dirtyStateUnchanged -eq $true
           )
@@ -16531,6 +16532,12 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         [string]$_.rowFingerprint -ceq [string]$rowBefore.rowFingerprint
       })
     } else { @() }))
+    $semanticRowAfterMatches = @($(if ($listAfter) {
+      @($listAfter.rows | Where-Object {
+        [string]$_.primaryText -ceq [string]$rowBefore.primaryText -and
+        [string]$_.contentFingerprint -ceq [string]$rowBefore.contentFingerprint
+      })
+    } else { @() }))
     $actualSemanticRows = @($(if ($listAfter) {
       @($listAfter.rows | ForEach-Object { [string]$_.contentFingerprint } | Sort-Object)
     } else { @() }))
@@ -16555,6 +16562,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         listFingerprintBefore=$expectedListFingerprint; semanticListUnchanged=$semanticListUnchanged
         targetRowRebound=[bool]($rowAfterMatches.Count -eq 1)
         rowAfter=$(if ($rowAfterMatches.Count -eq 1) { $rowAfterMatches[0] } else { $null })
+        targetSemanticRebound=[bool]($semanticRowAfterMatches.Count -eq 1)
+        semanticRowAfter=$(if ($semanticRowAfterMatches.Count -eq 1) { $semanticRowAfterMatches[0] } else { $null })
         dialogFreeAfter=[bool](-not $blockingAfter.Count)
         semanticReadback=[pscustomobject]@{
           countBefore=[int]$listBefore.count
@@ -16579,6 +16588,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       listFingerprint=[string]$listAfter.listFingerprint; detailFingerprint=$detailFingerprint
       listFingerprintBefore=$expectedListFingerprint; semanticListUnchanged=$true
       targetRowRebound=$true; rowAfter=$rowAfterMatches[0]; dialogFreeAfter=$true
+      targetSemanticRebound=$true; semanticRowAfter=$rowAfterMatches[0]
       windowSetUnchanged=$true; ungespeichertVorher=$dirtyBefore; ungespeichertNachher=$dirtyAfter
       dirtyStateUnchanged=$true; physicalInputUsed=$true; foregroundLeaseUsed=$true
       verified=$true; clickBinding=$clickBinding; closeBinding=$closeBinding

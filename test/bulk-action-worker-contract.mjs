@@ -64,10 +64,11 @@ const receiptWorkerText = receiptSource.toString("utf8");
 assert(receiptWorkerText.includes("$needsStabilization") &&
   receiptWorkerText.includes("$metrics.fullUiReadbackCount++"),
 "Beleg-Bulk muss einen separaten Listenread nach Freigabe des Read-Foreground-Lease vorsehen.");
-assert(receiptWorkerText.includes("$read.targetRowRebound -eq $true") &&
+assert(receiptWorkerText.includes("$read.targetRowRebound -eq $true -or $read.targetSemanticRebound -eq $true") &&
+  receiptWorkerText.includes("$semanticRowAfterMatches.Count -eq 1") &&
   receiptWorkerText.includes("$read.dialogFreeAfter -eq $true") &&
   receiptWorkerText.includes("$read.dirtyStateUnchanged -eq $true"),
-"Ein spaet stabilisierter Readback darf nur mit exakter Zielbindung, Dialogfreiheit und stabilem Dirty-State gelten.");
+"Ein spaet stabilisierter Readback darf nur mit eindeutiger exakter oder semantischer Zielbindung, Dialogfreiheit und stabilem Dirty-State gelten.");
 const receiptResult = directWorker("receipt_manager_bulk_upsert", {
   items: [{
     resourceRef: "documents:synthetic.pdf",
