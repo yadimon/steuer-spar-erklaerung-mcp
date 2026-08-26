@@ -14,7 +14,7 @@ const workspaceDir = join(temporary, "workspace");
 const resultDir = join(temporary, "results");
 mkdirSync(workspaceDir);
 mkdirSync(resultDir);
-writeFileSync(join(workspaceDir, "large.bin"), Buffer.alloc(16 * 1024 * 1024, 0x4d));
+writeFileSync(join(workspaceDir, "large.bin"), Buffer.alloc(64 * 1024, 0x4d));
 
 const config = {
   host: "127.0.0.1",
@@ -26,15 +26,25 @@ const config = {
 const baseExecute = createApiExecutor(config, async () => ({ ok: true }));
 let requestCount = 0;
 let resolveFirstStarted;
+let resolveApiAbortObserved;
 let resolveAbortedLog;
 const firstStarted = new Promise((resolve) => { resolveFirstStarted = resolve; });
+const apiAbortObserved = new Promise((resolve) => { resolveApiAbortObserved = resolve; });
 const abortedLog = new Promise((resolve) => { resolveAbortedLog = resolve; });
 const logs = [];
 
 const execute = async (operation, args, timeoutMs, signal) => {
   if (operation === "workspace_file_list") {
     requestCount += 1;
-    if (requestCount === 1) resolveFirstStarted();
+    if (requestCount === 1) {
+      resolveFirstStarted();
+      assert(signal, "Die echte API muss dem Executor ein Abbruchsignal uebergeben.");
+      await new Promise((resolve) => {
+        if (signal.aborted) resolve();
+        else signal.addEventListener("abort", resolve, { once: true });
+      });
+      resolveApiAbortObserved();
+    }
   }
   return await baseExecute(operation, args, timeoutMs, signal);
 };
@@ -101,6 +111,12 @@ try {
   await waitForWithin(firstStarted, 5_000, "MCP-Workspace-Anfrage erreichte die echte API nicht");
   controller.abort();
   await assert.rejects(cancelled, /abort/i);
+
+  await waitForWithin(
+    apiAbortObserved,
+    5_000,
+    "Der getrennte MCP-Aufruf erreichte das AbortSignal der echten API nicht",
+  );
 
   const cancelledRecord = await waitForWithin(
     abortedLog,

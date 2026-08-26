@@ -221,6 +221,15 @@ synthetischen Web-Stream abgebildet; 304 bleibt bei `redirect=error` dennoch
 vorher gesperrt. Dadurch entstehen an dieser Adaptergrenze keine internen
 WHATWG-`Response`-Konstruktorfehler.
 
+Der MCP-Abbruchvertrag wartet im Integrationstest nicht auf eine zufällig
+langsame Datei oder einen Virenscanner. Eine deterministische Executor-Barriere
+beweist nacheinander, dass der MCP-Client lokal abbricht, der bereits
+angekommene HTTP-Auftrag sein API-`AbortSignal` sieht, der Workspace-Executor
+`kind=aborted` liefert, die getrennte Antwort als `delivered=false` geloggt
+wird und ein zweiter Auftrag danach vollständig gelingt. Der kooperative
+Abbruch während eines echten 64-KiB-Hashblocks bleibt davon getrennt im
+Workspace-Dateivertrag geprüft.
+
 Die API serialisiert Windows-Worker- und damit UI-Aufträge. Rein lokale,
 read-only Pfade wie `case_hash`, das nicht-ausführliche `list_cases`, der
 öffentliche Profilkatalog `page_objects` und die hashgebundene
