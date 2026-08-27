@@ -70,5 +70,10 @@ try {
   // Der absichtlich entkoppelte Fixture-Enkel endet selbst; erst danach kann
   // Windows seine laufende EXE im Temp-Verzeichnis sicher entfernen.
   await delay(3_000);
-  rmSync(sandbox, { recursive: true, force: true });
+  rmSync(sandbox, {
+    recursive: true,
+    force: true,
+    maxRetries: 50,
+    retryDelay: 100,
+  });
 }
