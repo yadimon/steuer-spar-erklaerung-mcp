@@ -98,27 +98,30 @@ const readPage = await allowed("read_page", { hwnd: 123 }, 5000);
 assert.equal(readPage.ok, true, "Expliziter Leseweg muss den Worker erreichen");
 assert.deepEqual(reachedOperations, ["windows", "read_page"]);
 
-// checker_open darf seinen intern erzeugten, exakt gebundenen Weiter-Schritt
-// ausfuehren. Ein oeffentlicher click bleibt weiter unten trotzdem gesperrt.
+// checker_open darf genau seinen privaten, strikt typisierten Ein-Worker-Plan
+// erreichen. Ein oeffentlicher click bleibt weiter unten trotzdem gesperrt;
+// die festen internen Schritte prueft der Worker-Vertrag separat.
 const checkerCalls = [];
 const checkerExecutor = createApiExecutor(
   { ...stubConfig, operateExperimental: true },
   async (operation, args) => {
     checkerCalls.push({ operation, args });
-    if (operation === "checker_results") return { ok: true, aktiv: false };
-    if (operation === "page") return { ok: true, ueberschrift: "Prüfen und Abgeben" };
-    if (operation === "click") return { ok: false, kind: "checker-navigation-sentinel", error: "stop" };
+    if (operation === "checker_open_plan") {
+      return { ok: false, kind: "checker-navigation-sentinel", error: "stop" };
+    }
     return { ok: false, kind: "unexpected", error: operation };
   },
 );
 const checkerOpen = await checkerExecutor("checker_open", { name: "Testmeldung", hwnd: 123 }, 5000);
 assert.equal(checkerOpen.kind, "checker-navigation-sentinel");
-const checkerNavigation = checkerCalls.find(({ operation }) => operation === "click");
-assert(checkerNavigation, "checker_open muss den gebundenen Weiter-Schritt erreichen");
-assert.equal(checkerNavigation.args.experimentalCheckerNavigation, true,
-  "Der Worker braucht die nicht oeffentlich parsbare interne Navigationsmarke");
-assert.equal(checkerNavigation.args.expectedPageBefore, "Prüfen und Abgeben",
-  "Der interne Weiter-Schritt muss an die zuvor gelesene Ausgangsseite gebunden sein");
+assert.equal(checkerCalls.length, 1, "checker_open darf nur einen privaten Worker starten");
+assert.equal(checkerCalls[0].operation, "checker_open_plan");
+assert.deepEqual(checkerCalls[0].args, {
+  schemaVersion: 1,
+  planKind: "checker-open",
+  name: "Testmeldung",
+  hwnd: 123,
+});
 
 // Das Flag ist kein Generalschluessel. Unverifizierte Mutationen scheitern
 // vor Argumentvalidierung und Worker-Aufruf mit einer eigenen Fehlerart.

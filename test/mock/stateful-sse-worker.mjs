@@ -1005,6 +1005,83 @@ export function createStatefulSseWorker({ caseDir }) {
         caseState.dirty = false;
         return { ok: true, saved: true, noChanges: false, path: expectedPath, hashBefore: before, hashAfter: after, verified: true };
       }
+      case "checker_open_plan": {
+        const expectedKeys = args.hwnd === undefined
+          ? ["name", "planKind", "schemaVersion"]
+          : ["hwnd", "name", "planKind", "schemaVersion"];
+        if (JSON.stringify(Object.keys(args).sort()) !== JSON.stringify(expectedKeys) ||
+            args.schemaVersion !== 1 || args.planKind !== "checker-open" ||
+            typeof args.name !== "string" || !args.name.trim()) {
+          return { ok: false, kind: "bad-args", error: "Privater synthetischer Checkerplan ist ungueltig." };
+        }
+        const timings = [];
+        let reusedReadbackCount = 0;
+        const initial = await worker("checker_results", args.hwnd === undefined ? {} : { hwnd: args.hwnd });
+        timings.push({ operation: "checker_results", ms: 0 });
+        let current = initial;
+        if (current.aktiv !== true) {
+          const page = await worker("page", args.hwnd === undefined ? {} : { hwnd: args.hwnd });
+          timings.push({ operation: "page", ms: 0 });
+          if (page.ueberschrift === "Prüfen und Abgeben") {
+            await worker("click", {
+              name: "Weiter", type: "Button", expectedPageBefore: "Prüfen und Abgeben",
+              expectedPageAfter: "Steuererklärung prüfen", waitMs: 900,
+            });
+            timings.push({ operation: "click", ms: 0 });
+          }
+          const started = await worker("checker_run", args.hwnd === undefined ? {} : { hwnd: args.hwnd });
+          timings.push({ operation: "checker_run", ms: 0 });
+          current = {
+            ...started,
+            aktiv: true,
+            aufgeklappt: [],
+            fragenWarnungen: checkerMessages(model.openCase()),
+            tippsZusatzinfos: [],
+            sonstige: [],
+          };
+          reusedReadbackCount += 1;
+        }
+        const messages = [
+          ...(current.fragenWarnungen ?? []),
+          ...(current.tippsZusatzinfos ?? []),
+          ...(current.sonstige ?? []),
+        ];
+        if (!messages.some((message) => message.text === args.name)) {
+          return {
+            ok: false, kind: "checker-message", error: `Meldung nicht exakt gefunden: '${args.name}'`,
+            schemaVersion: 1, planKind: "checker-open", resultingState: "checker-active", cleanupRequired: false,
+            performance: { workerProcessCount: 1, internalOperationCount: timings.length, internalTimings: timings, reusedReadbackCount },
+          };
+        }
+        if (!(current.aufgeklappt ?? []).includes(args.name)) {
+          await worker("click_point", { name: args.name, type: "TreeItem", waitMs: 1200, checkerReadOnly: true });
+          timings.push({ operation: "click_point", ms: 0 });
+        }
+        const verified = await worker("checker_results", args.hwnd === undefined ? {} : { hwnd: args.hwnd });
+        timings.push({ operation: "checker_results", ms: 0 });
+        if (!verified.aufgeklappt.includes(args.name)) {
+          return {
+            ok: false, kind: "checker-message", error: "Meldung wurde nicht geoeffnet.",
+            schemaVersion: 1, planKind: "checker-open", resultingState: "unknown", cleanupRequired: true,
+            performance: { workerProcessCount: 1, internalOperationCount: timings.length, internalTimings: timings, reusedReadbackCount },
+          };
+        }
+        const detail = await worker("checker_detail", { name: args.name, ...(args.hwnd === undefined ? {} : { hwnd: args.hwnd }) });
+        timings.push({ operation: "checker_detail", ms: 0 });
+        return {
+          ...detail,
+          schemaVersion: 1,
+          planKind: "checker-open",
+          resultingState: "detail-verified",
+          cleanupRequired: false,
+          performance: {
+            workerProcessCount: 1,
+            internalOperationCount: timings.length,
+            internalTimings: timings,
+            reusedReadbackCount,
+          },
+        };
+      }
       case "checker_results": {
         const messages = checkerMessages(model.openCase());
         return {

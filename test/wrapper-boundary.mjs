@@ -43,6 +43,11 @@ for (const forbiddenModule of [
 const executorSource = ["api-executor.ts", "checker-executor.ts", "ustva-executor.ts"]
   .map((file) => readFileSync(new URL(`../src/${file}`, import.meta.url), "utf8"))
   .join("\n");
+const workerSource = readFileSync(new URL("../powershell/sse-worker.ps1", import.meta.url), "utf8");
+const checkerPlanSource = workerSource.slice(
+  workerSource.indexOf("  'checker_open_plan' {"),
+  workerSource.indexOf("  'bulk_action' {"),
+);
 const forbidden = [
   /from\s+["']\.\/worker(?:\.js)?["']/,
   /from\s+["']node:(?:fs|path|child_process)["']/,
@@ -96,8 +101,10 @@ const directOperations = new Set(Object.values(SSE_MCP_TOOL_OPERATIONS));
 for (const operation of SSE_MCP_COMPOSITION_ONLY_OPERATIONS) {
   assert(!directOperations.has(operation), `${operation} ist direkt und als composition-only katalogisiert.`);
   assert(
-    new RegExp(`\\b(?:executeOperation|step)\\(\\s*["']${operation}["']`).test(executorSource),
-    `Composition-only-Operation '${operation}' wird vom API-Executor nicht aufgerufen.`,
+    new RegExp(`\\b(?:executeOperation|step)(?:\\s*\\(|\\s+)\\s*["']${operation}["']`).test(
+      `${executorSource}\n${checkerPlanSource}`,
+    ),
+    `Composition-only-Operation '${operation}' wird weder vom API-Executor noch vom privaten Workerplan aufgerufen.`,
   );
 }
 const usedOperations = new Set([...directOperations, ...SSE_MCP_COMPOSITION_ONLY_OPERATIONS]);
