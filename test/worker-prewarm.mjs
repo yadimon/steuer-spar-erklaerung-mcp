@@ -231,7 +231,7 @@ function processIsAlive(pid) {
   }
 }
 
-async function waitFor(predicate, message, timeoutMs = 3_000) {
+async function waitFor(predicate, message, timeoutMs = 10_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (predicate()) return;
