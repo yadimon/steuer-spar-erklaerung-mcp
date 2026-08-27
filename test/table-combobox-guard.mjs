@@ -51,7 +51,13 @@ assert(worker.includes("function Resolve-SSETableProfile"));
 assert(worker.includes("function Invoke-SSETableComboSelection"));
 assert(worker.includes("automationIdSection"));
 assert(worker.includes("page+sumLabel+sumOccurrence+column"));
-assert(!worker.includes(".FindAll("), "Worker darf UIA Element.FindAll nicht verwenden");
+const findAllReceivers = [...worker.matchAll(/(\$[A-Za-z_][A-Za-z0-9_:]*)\.FindAll\(/g)]
+  .map((match) => match[1]);
+assert.deepEqual(
+  findAllReceivers,
+  ["$workerAst"],
+  "Worker darf FindAll nur fuer die lokale PowerShell-AST-Suche verwenden, nie fuer UIA-Elemente",
+);
 assert(!worker.includes("Get-SSETableCellSemantics"), "Heuristische ControlType-Erkennung darf nicht mehr entscheiden");
 assert(worker.includes("function Get-SSEPageCheckerMessages"));
 assert(worker.includes("function Compare-SSEPageCheckerMessages"));
