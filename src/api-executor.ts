@@ -454,28 +454,22 @@ export function createApiExecutor(
         });
       }
       if (operation === "checker_open") {
-        return await executeCheckerOpen(args, timeoutMs, signal, async (
-          nestedOperation,
-          nestedArgs,
-          nestedTimeoutMs,
-          nestedSignal,
-        ) => {
-          const checkerClick = nestedOperation === "click_point" && nestedArgs.checkerReadOnly === true;
-          const checkerNavigation =
-            nestedOperation === "click" &&
-            nestedArgs.name === "Weiter" &&
-            nestedArgs.type === "Button" &&
-            nestedArgs.expectedPageBefore === "Prüfen und Abgeben" &&
-            nestedArgs.expectedPageAfter === "Steuererklärung prüfen";
-          return await executeOperation(
-            nestedOperation,
-            nestedArgs,
-            nestedTimeoutMs,
-            nestedSignal,
-            checkerClick,
-            checkerNavigation,
-          );
-        });
+        // Die oeffentlichen Argumente sind an dieser Stelle bereits strikt
+        // geprueft. Erst danach kompiliert checker_open seinen privaten Plan,
+        // der in genau EINEM Worker ausgefuehrt wird und nie als API-Operation
+        // oder frei waehlbare Szenarioaktion erreichbar ist.
+        const configured = configuredArgs(operation, args, config);
+        return redactPaths(await executeCheckerOpen(
+          configured.args,
+          timeoutMs,
+          signal,
+          (privateOperation, privateArgs, privateTimeoutMs, privateSignal) => worker(
+            privateOperation as SseApiOperation,
+            privateArgs,
+            privateTimeoutMs,
+            privateSignal,
+          ),
+        ));
       }
       if (isUstvaOperation(operation)) {
         return await executeUstvaOperation(operation, args, timeoutMs, signal, executeOperation);

@@ -1173,6 +1173,8 @@ function Fail($msg, $kind = 'error', $details = $null) {
 
 $script:SSE_INTERNAL_PLAN_OPERATIONS = @(
   'known_page_state', 'tracked_set_value',
+  'checker_detail', 'checker_reset', 'checker_results', 'checker_run',
+  'click', 'click_point', 'page',
   'receipt_manager_list', 'receipt_manager_read', 'receipt_manager_update',
   'receipt_manager_classification_options', 'receipt_manager_classify',
   'receipt_manager_import', 'receipt_manager_delete'
@@ -6418,10 +6420,14 @@ $verificationOnlyProfile = [bool](
   [string]$script:SSE_PROFILE.status -ne 'supported' -or
   [string]$script:SSE_PROFILE.operationAccess -ne 'full'
 )
-# launch_probe ist kein API-Katalogeintrag, sondern der streng typisierte,
-# rein lesende zweite Worker eines launch-Aufrufs. Fuer Profilfreigaben erbt
-# er exakt die launch-Policy, ohne die oeffentliche Operationsmenge zu weiten.
-$profilePolicyOperation = $(if ($Op -eq 'launch_probe') { 'launch' } else { $Op })
+# launch_probe und checker_open_plan sind keine API-Katalogeintraege, sondern
+# streng typisierte private Workerplaene. Fuer Profil- und Buildfreigaben
+# erben sie exakt ihre oeffentliche Operation, ohne die API-Menge zu weiten.
+$profilePolicyOperation = $(
+  if ($Op -eq 'launch_probe') { 'launch' }
+  elseif ($Op -eq 'checker_open_plan') { 'checker_open' }
+  else { $Op }
+)
 if ([string]$script:SSE_PROFILE.status -eq 'disabled' -and $profilePolicyOperation -notin $experimentalProfileBaseOps) {
   Fail "Produktprofil '$($script:SSE_PROFILE_ID)' ist deaktiviert; Betriebsoperationen sind gesperrt." 'profile-disabled'
 }
@@ -6445,7 +6451,7 @@ if ($verificationOnlyProfile -and $profilePolicyOperation -notin $experimentalPr
   }
 }
 
-Assert-SSEVerifiedBuildForOperation $Op $a
+Assert-SSEVerifiedBuildForOperation $profilePolicyOperation $a
 
 # Der warme Dispatcher ist bereits vor seiner Bereitschaft registriert. Ihn
 # hier aufzurufen verhindert, dass PowerShell auf dem Aufrufpfad noch die
@@ -6461,6 +6467,211 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
   $Op = $Operation
   $a = $Arguments
   switch ($Op) {
+
+  'checker_open_plan' {
+    $expectedPlanProperties = @('schemaVersion','planKind','name')
+    if ($null -ne $a.PSObject.Properties['hwnd']) { $expectedPlanProperties += 'hwnd' }
+    if (-not (Test-SSEExactProperties $a $expectedPlanProperties) -or
+        (Get-SSEBoundedIntegerArg $a 'schemaVersion' 0 1 1) -ne 1 -or
+        [string](Arg $a 'planKind') -cne 'checker-open') {
+      Fail ('checker_open_plan braucht exakt schemaVersion=1, planKind=checker-open, ' +
+            'name und optional hwnd; freie Aktionen oder Selektoren sind gesperrt.') 'bad-args'
+    }
+    $wanted = [string](Arg $a 'name')
+    if (-not $wanted.Trim()) { Fail 'name ist Pflicht (exakter Meldungstext aus checker_results).' 'bad-args' }
+    $target = [ordered]@{}
+    if ($null -ne $a.PSObject.Properties['hwnd']) {
+      $target.hwnd = Get-SSEBoundedIntegerArg $a 'hwnd' 0 1 9007199254740991
+    }
+
+    $planWatch = [Diagnostics.Stopwatch]::StartNew()
+    $metrics = [pscustomobject]@{
+      internalOperationCount=0; sseActionMs=[int64]0; reusedReadbackCount=0
+      foregroundRaiseCount=0; internalTimings=(New-Object System.Collections.ArrayList)
+    }
+    $statefulAttempted = $false
+    $step = {
+      param([string]$NestedOperation, $NestedArguments)
+      Invoke-SSEMeasuredPlanOperation $NestedOperation ([pscustomobject]$NestedArguments) $metrics
+    }
+    $checkerMessages = {
+      param($Result)
+      @(
+        @($Result.fragenWarnungen) +
+        @($Result.tippsZusatzinfos) +
+        @($Result.sonstige)
+      )
+    }
+    $performance = {
+      [pscustomobject]@{
+        workerProcessCount=1
+        internalOperationCount=[int]$metrics.internalOperationCount
+        internalTimings=@($metrics.internalTimings)
+        reusedReadbackCount=[int]$metrics.reusedReadbackCount
+        foregroundRaiseCount=[int]$metrics.foregroundRaiseCount
+        sseActionMs=[int64]$metrics.sseActionMs
+        planMs=[int64]$planWatch.ElapsedMilliseconds
+        initialization=$script:INIT_TIMINGS
+      }
+    }
+    $emitFailure = {
+      param($Failure, [string]$ResultingState, [bool]$CleanupRequired)
+      $planWatch.Stop()
+      $payload = [ordered]@{}
+      foreach ($property in @($Failure.PSObject.Properties)) {
+        if ($property.Name -notin @('ms','performance','schemaVersion','planKind','resultingState','cleanupRequired')) {
+          $payload[$property.Name] = $property.Value
+        }
+      }
+      if (-not $payload.Contains('ok')) { $payload.ok = $false }
+      if (-not $payload.Contains('kind')) { $payload.kind = 'worker' }
+      if (-not $payload.Contains('error')) { $payload.error = 'checker_open_plan wurde ohne kanonischen Fehler beendet.' }
+      $payload.schemaVersion = 1
+      $payload.planKind = 'checker-open'
+      $payload.resultingState = $ResultingState
+      $payload.cleanupRequired = $CleanupRequired
+      $payload.performance = & $performance
+      Emit ([pscustomobject]$payload)
+    }
+
+    try {
+      $current = & $step 'checker_results' $target
+      if ($current.ok -eq $false) { & $emitFailure $current 'unchanged' $false }
+      $messages = @(& $checkerMessages $current)
+      if ($current.aktiv -eq $true -and $current.konsistent -ne $true -and
+          -not @($messages | Where-Object { [string]$_.text -ceq $wanted }).Count) {
+        # checker_reset gibt bereits den vollstaendigen Nachzustand aus. Ein
+        # sofortiges checker_results waere derselbe UI-Read in einem neuen
+        # Teilschritt und wird deshalb bewusst nicht wiederholt.
+        $statefulAttempted = $true
+        $reset = & $step 'checker_reset' $target
+        if ($reset.ok -eq $false) { & $emitFailure $reset 'unknown' $true }
+        if ($null -eq $reset.PSObject.Properties['aktiv']) {
+          $reset | Add-Member -NotePropertyName aktiv -NotePropertyValue $true
+        }
+        $current = $reset
+        $metrics.reusedReadbackCount++
+        $messages = @(& $checkerMessages $current)
+        if ($current.konsistent -ne $true -and
+            -not @($messages | Where-Object { [string]$_.text -ceq $wanted }).Count) {
+          & $emitFailure ([pscustomobject]@{
+            ok=$false; kind='checker-incomplete'
+            error='Der Qt-Prueferbaum blieb auch nach checker_reset unvollstaendig und die gewuenschte Meldung darin nicht sichtbar.'
+          }) 'checker-active' $false
+        }
+      }
+
+      if ($current.aktiv -ne $true) {
+        $page = & $step 'page' $target
+        if ($page.ok -eq $false) { & $emitFailure $page 'unchanged' $false }
+        if ([string]$page.ueberschrift -ceq 'Prüfen und Abgeben') {
+          $statefulAttempted = $true
+          $navigationArgs = [ordered]@{
+            name='Weiter'; type='Button'; pattern='invoke'
+            expectedPageBefore='Prüfen und Abgeben'
+            expectedPageAfter='Steuererklärung prüfen'
+            waitMs=900; experimentalCheckerNavigation=$true
+          }
+          if ($target.Contains('hwnd')) { $navigationArgs.hwnd = $target.hwnd }
+          $opened = & $step 'click' $navigationArgs
+          if ($opened.ok -eq $false) { & $emitFailure $opened 'unknown' $true }
+        } elseif ([string]$page.ueberschrift -cne 'Steuererklärung prüfen') {
+          & $emitFailure ([pscustomobject]@{
+            ok=$false; kind='checker-page'
+            error="checker_open braucht den Bereich 'Steuererklärung prüfen'; aktuell ist '$([string]$page.ueberschrift)' offen."
+          }) 'unchanged' $false
+        }
+
+        $statefulAttempted = $true
+        $started = & $step 'checker_run' $target
+        if ($started.ok -eq $false) { & $emitFailure $started 'unknown' $true }
+        # checker_run liefert die vollstaendigen Meldungslisten und deren
+        # Konsistenz bereits selbst. Nur die beiden fuer diesen frischen Start
+        # trivialen Zustandsfelder werden fuer den gemeinsamen Pfad ergaenzt.
+        if ($null -eq $started.PSObject.Properties['aktiv']) {
+          $started | Add-Member -NotePropertyName aktiv -NotePropertyValue $true
+        }
+        if ($null -eq $started.PSObject.Properties['aufgeklappt']) {
+          $started | Add-Member -NotePropertyName aufgeklappt -NotePropertyValue @()
+        }
+        $current = $started
+        $metrics.reusedReadbackCount++
+        if ($current.aktiv -ne $true -or $current.konsistent -ne $true) {
+          & $emitFailure ([pscustomobject]@{
+            ok=$false; kind='checker-incomplete'
+            error='Steuerpruefer wurde gestartet, aber der Ergebnisbaum ist nicht vollstaendig lesbar.'
+          }) 'checker-active' $false
+        }
+      }
+
+      $messages = @(& $checkerMessages $current)
+      if (-not @($messages | Where-Object { [string]$_.text -ceq $wanted }).Count) {
+        & $emitFailure ([pscustomobject]@{
+          ok=$false; kind='checker-message'
+          error="Meldung nicht exakt im aktuellen Steuerpruefer gefunden: '$wanted'"
+        }) 'checker-active' $false
+      }
+      if (-not (@($current.aufgeklappt) -ccontains $wanted)) {
+        $statefulAttempted = $true
+        $clickArgs = [ordered]@{ name=$wanted; type='TreeItem'; waitMs=1200; checkerReadOnly=$true }
+        if ($target.Contains('hwnd')) { $clickArgs.hwnd = $target.hwnd }
+        $clicked = & $step 'click_point' $clickArgs
+        if ($clicked.ok -eq $false) { & $emitFailure $clicked 'unknown' $true }
+      }
+
+      $verified = & $step 'checker_results' $target
+      if ($verified.ok -eq $false -or -not (@($verified.aufgeklappt) -ccontains $wanted)) {
+        $statefulAttempted = $true
+        $reset = & $step 'checker_reset' $target
+        if ($reset.ok -eq $false) { & $emitFailure $reset 'unknown' $true }
+        $metrics.reusedReadbackCount++
+        $resetMessages = @(& $checkerMessages $reset)
+        if (-not @($resetMessages | Where-Object { [string]$_.text -ceq $wanted }).Count) {
+          & $emitFailure ([pscustomobject]@{
+            ok=$false; kind='checker-message'
+            error="Meldung ist nach dem sicheren Reset nicht mehr sichtbar: '$wanted'"
+          }) 'checker-active' $false
+        }
+        $retryArgs = [ordered]@{ name=$wanted; type='TreeItem'; waitMs=1200; checkerReadOnly=$true }
+        if ($target.Contains('hwnd')) { $retryArgs.hwnd = $target.hwnd }
+        $retried = & $step 'click_point' $retryArgs
+        if ($retried.ok -eq $false) { & $emitFailure $retried 'unknown' $true }
+        $verified = & $step 'checker_results' $target
+        if ($verified.ok -eq $false -or -not (@($verified.aufgeklappt) -ccontains $wanted)) {
+          & $emitFailure ([pscustomobject]@{
+            ok=$false; kind='checker-message'
+            error="Meldung wurde auch nach sicherem Reset nicht geoeffnet: '$wanted'"
+          }) 'unknown' $true
+        }
+      }
+
+      $detailArgs = [ordered]@{ name=$wanted }
+      if ($target.Contains('hwnd')) { $detailArgs.hwnd = $target.hwnd }
+      $detail = & $step 'checker_detail' $detailArgs
+      if ($detail.ok -eq $false) { & $emitFailure $detail 'unknown' $true }
+      $planWatch.Stop()
+      $payload = [ordered]@{}
+      foreach ($property in @($detail.PSObject.Properties)) {
+        if ($property.Name -notin @('ms','performance','schemaVersion','planKind','resultingState','cleanupRequired')) {
+          $payload[$property.Name] = $property.Value
+        }
+      }
+      $payload.schemaVersion = 1
+      $payload.planKind = 'checker-open'
+      $payload.resultingState = 'detail-verified'
+      $payload.cleanupRequired = $false
+      $payload.performance = & $performance
+      Emit ([pscustomobject]$payload)
+    } catch {
+      # Kein interner Retry nach einer unerwarteten UIA-Ausnahme: derselbe
+      # Prozess koennte vergiftet sein. Der unbekannte Zustand wird ehrlich
+      # gemeldet und der Worker endet ueber den gemeinsamen Emit-Cleanup.
+      & $emitFailure ([pscustomobject]@{
+        ok=$false; kind='worker'
+        error="Unerwarteter checker_open-Planfehler: $($_.Exception.Message.Split("`n")[0])"
+      }) $(if ($statefulAttempted) { 'unknown' } else { 'unchanged' }) $statefulAttempted
+    }
+  }
 
   'bulk_action' {
     $schemaVersion = Get-SSEBoundedIntegerArg $a 'schemaVersion' 0 1 1

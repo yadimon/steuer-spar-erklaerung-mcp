@@ -2873,6 +2873,17 @@
               "success"
             ]
           },
+          "cleanupRequired": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "inAnsichtGerollt": {
             "types": [
               "boolean"
@@ -2953,6 +2964,50 @@
           "ok": {
             "types": [
               "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "performance": {
+            "types": [
+              "object:{\"internalOperationCount\":\"nonnegative-number\",\"internalTimings\":\"array-many:object\",\"reusedReadbackCount\":\"nonnegative-number\",\"workerProcessCount\":\"nonnegative-number\"}"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "planKind": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "resultingState": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "schemaVersion": {
+            "types": [
+              "nonnegative-number"
             ],
             "labels": [
               "stateful-mock"

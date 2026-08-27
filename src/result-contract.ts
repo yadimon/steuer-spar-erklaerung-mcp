@@ -274,7 +274,17 @@ const CORE_OPERATION_RESULT_FIELDS = {
   },
   checker_run: { gesamt: OPTIONAL_NON_NEGATIVE_NUMBER, konsistent: OPTIONAL_BOOLEAN },
   click: CLICK_RESULT_FIELDS,
-  checker_open: { meldung: OPTIONAL_STRING, text: OPTIONAL_STRING, ocrOk: OPTIONAL_BOOLEAN },
+  checker_open: {
+    meldung: OPTIONAL_STRING,
+    text: OPTIONAL_STRING,
+    ocrOk: OPTIONAL_BOOLEAN,
+    kontrollbildEnthalten: OPTIONAL_BOOLEAN,
+    schemaVersion: OPTIONAL_NON_NEGATIVE_NUMBER,
+    planKind: OPTIONAL_STRING,
+    resultingState: OPTIONAL_STRING,
+    cleanupRequired: OPTIONAL_BOOLEAN,
+    performance: OPTIONAL_OBJECT,
+  },
   warning_popup_read: { active: OPTIONAL_BOOLEAN, title: OPTIONAL_STRING, text: OPTIONAL_STRING },
   screenshot: {
     shot: z.object({

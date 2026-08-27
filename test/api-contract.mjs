@@ -51,6 +51,9 @@ const checkerState = {
   active: true,
   expanded: true,
   page: "Steuererklärung prüfen",
+  consistent: true,
+  messageVisible: true,
+  resetRecovers: false,
 };
 
 const execute = createApiExecutor(config, async (operation, args, timeoutMs, signal) => {
@@ -86,6 +89,75 @@ const execute = createApiExecutor(config, async (operation, args, timeoutMs, sig
   }
   if (operation === "find" && args.name === "__malformed_result__") {
     return { ok: "kein-boolean", leaked: "C:\\Privat\\darf-nicht-zum-client.txt" };
+  }
+  if (operation === "checker_open_plan") {
+    assert.deepEqual(
+      Object.keys(args).sort(),
+      ["name", "planKind", "schemaVersion"],
+      "Privater Checkerplan darf keine freien Aktionen oder Selektoren tragen",
+    );
+    assert.equal(args.schemaVersion, 1);
+    assert.equal(args.planKind, "checker-open");
+    assert.equal(typeof args.name, "string");
+    const internalTimings = [];
+    let reusedReadbackCount = 0;
+    internalTimings.push({ operation: "checker_results", ms: 1 });
+    if (checkerState.active && !checkerState.consistent && !checkerState.messageVisible) {
+      internalTimings.push({ operation: "checker_reset", ms: 1 });
+      reusedReadbackCount += 1;
+      if (checkerState.resetRecovers) {
+        checkerState.consistent = true;
+        checkerState.messageVisible = true;
+        checkerState.expanded = false;
+      }
+    }
+    if (!checkerState.active) {
+      if (checkerState.page === "Prüfen und Abgeben") {
+        checkerState.page = "Steuererklärung prüfen";
+        internalTimings.push({ operation: "click", ms: 1 });
+      }
+      checkerState.active = true;
+      internalTimings.push({ operation: "checker_run", ms: 1 });
+      reusedReadbackCount += 1;
+    }
+    if (!checkerState.messageVisible || args.name !== "Pruefhinweis") {
+      return {
+        ok: false,
+        kind: checkerState.consistent ? "checker-message" : "checker-incomplete",
+        error: "Meldung fehlt.",
+        schemaVersion: 1,
+        planKind: "checker-open",
+        resultingState: "checker-active",
+        cleanupRequired: false,
+        performance: {
+          workerProcessCount: 1,
+          internalOperationCount: internalTimings.length,
+          internalTimings,
+          reusedReadbackCount,
+        },
+      };
+    }
+    if (!checkerState.expanded) {
+      checkerState.expanded = true;
+      internalTimings.push({ operation: "click_point", ms: 1 });
+    }
+    internalTimings.push({ operation: "checker_detail", ms: 1 });
+    return {
+      ok: true,
+      schemaVersion: 1,
+      planKind: "checker-open",
+      resultingState: "detail-verified",
+      cleanupRequired: false,
+      meldung: args.name,
+      text: "Detail",
+      bildBase64: "aW1hZ2U=",
+      performance: {
+        workerProcessCount: 1,
+        internalOperationCount: internalTimings.length,
+        internalTimings,
+        reusedReadbackCount,
+      },
+    };
   }
   if (operation === "checker_results") {
     return {
@@ -651,7 +723,8 @@ try {
   assert.equal(checker.ok, true);
   assert.equal(checker.text, "Detail");
   assert.equal(checker.kontrollbildEnthalten, true);
-  assert.equal(calls.at(-1).operation, "checker_detail", "checker_open muss in der API komponiert werden");
+  assert.equal(calls.at(-1).operation, "checker_open_plan", "checker_open muss genau einen privaten Workerplan starten");
+  assert.equal(checker.performance.workerProcessCount, 1);
 
   checkerState.active = true;
   checkerState.expanded = false;
@@ -659,10 +732,9 @@ try {
   const expandedChecker = await callApiOperation("checker_open", { name: "Pruefhinweis" }, 5_000, { baseUrl });
   assert.equal(expandedChecker.ok, true);
   const collapsedCalls = calls.slice(collapsedStart);
-  assert(
-    collapsedCalls.some((entry) => entry.operation === "click_point" && entry.args.checkerReadOnly === true),
-    "checker_open muss eine eingeklappte Meldung katalogkonform read-only oeffnen",
-  );
+  assert.deepEqual(collapsedCalls.map((entry) => entry.operation), ["checker_open_plan"]);
+  assert.equal(expandedChecker.performance.internalTimings.some((entry) => entry.operation === "click_point"), true,
+    "Privater Plan muss eine eingeklappte Meldung intern katalogkonform oeffnen");
 
   checkerState.active = false;
   checkerState.expanded = false;
@@ -671,15 +743,46 @@ try {
   const startedChecker = await callApiOperation("checker_open", { name: "Pruefhinweis" }, 5_000, { baseUrl });
   assert.equal(startedChecker.ok, true);
   const inactiveEntries = calls.slice(inactiveStart);
-  const inactiveCalls = inactiveEntries.map((entry) => entry.operation);
-  for (const nestedOperation of ["page", "click", "checker_run", "click_point", "checker_detail"]) {
-    assert(inactiveCalls.includes(nestedOperation), `checker_open-Recovery muss '${nestedOperation}' validiert ausfuehren`);
+  assert.deepEqual(inactiveEntries.map((entry) => entry.operation), ["checker_open_plan"]);
+  assert.equal(startedChecker.performance.workerProcessCount, 1);
+  assert.equal(startedChecker.performance.reusedReadbackCount, 1,
+    "checker_run-Ergebnis muss ohne zusaetzliches checker_results weiterverwendet werden");
+  for (const nestedOperation of ["click", "checker_run", "click_point", "checker_detail"]) {
+    assert(startedChecker.performance.internalTimings.some((entry) => entry.operation === nestedOperation),
+      `Privater checker_open-Plan muss '${nestedOperation}' intern ausfuehren`);
   }
-  assert.equal(
-    inactiveEntries.find((entry) => entry.operation === "click")?.args.expectedPageAfter,
-    "Steuererklärung prüfen",
-    "checker_open muss den navigierenden Klick im selben Worker ruecklesen",
-  );
+
+  checkerState.active = true;
+  checkerState.expanded = false;
+  checkerState.consistent = false;
+  checkerState.messageVisible = false;
+  checkerState.resetRecovers = true;
+  const resetStart = calls.length;
+  const resetRecovered = await callApiOperation("checker_open", { name: "Pruefhinweis" }, 5_000, { baseUrl });
+  assert.equal(resetRecovered.ok, true);
+  assert.deepEqual(calls.slice(resetStart).map((entry) => entry.operation), ["checker_open_plan"]);
+  assert.equal(resetRecovered.performance.reusedReadbackCount, 1);
+  assert(resetRecovered.performance.internalTimings.some((entry) => entry.operation === "checker_reset"));
+
+  checkerState.expanded = false;
+  checkerState.consistent = false;
+  checkerState.messageVisible = false;
+  checkerState.resetRecovers = false;
+  const incompleteStart = calls.length;
+  const incompleteChecker = await callApiOperation("checker_open", { name: "Pruefhinweis" }, 5_000, { baseUrl });
+  assert.equal(incompleteChecker.ok, false);
+  assert.equal(incompleteChecker.kind, "checker-incomplete");
+  assert.equal(incompleteChecker.cleanupRequired, false);
+  assert.deepEqual(calls.slice(incompleteStart).map((entry) => entry.operation), ["checker_open_plan"]);
+
+  checkerState.consistent = true;
+  checkerState.messageVisible = true;
+  checkerState.resetRecovers = false;
+  const missingStart = calls.length;
+  const missingChecker = await callApiOperation("checker_open", { name: "Nicht vorhanden" }, 5_000, { baseUrl });
+  assert.equal(missingChecker.ok, false);
+  assert.equal(missingChecker.kind, "checker-message");
+  assert.deepEqual(calls.slice(missingStart).map((entry) => entry.operation), ["checker_open_plan"]);
 
   const abortController = new AbortController();
   const aborting = fetch(`${baseUrl}/v1/operations/find`, {
