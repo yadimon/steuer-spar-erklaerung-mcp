@@ -50,8 +50,8 @@ const configuredPoolTarget = (value) => Number(execFileSync(
     encoding: "utf8",
   },
 ));
-assert.equal(configuredPoolTarget("3"), 3, "Der schnelle Host darf drei Reserven konfigurieren.");
-assert.equal(configuredPoolTarget("999"), 3, "Der Reservevorrat muss nach oben auf drei begrenzt bleiben.");
+assert.equal(configuredPoolTarget("4"), 4, "Der schnelle Host darf vier Reserven konfigurieren.");
+assert.equal(configuredPoolTarget("999"), 4, "Der Reservevorrat muss nach oben auf vier begrenzt bleiben.");
 assert.equal(configuredPoolTarget("0"), 1, "Der Reservevorrat muss nach unten mindestens eins bleiben.");
 
 function newArgumentsFile() {
