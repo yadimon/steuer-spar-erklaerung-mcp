@@ -154,9 +154,11 @@ const fixtureExecutable = join(sandbox, "powershell.exe");
 const fixtureState = join(sandbox, "launches.txt");
 const managedEnvironment = [
   "SSE_POWERSHELL_EXE",
+  "SSE_WORKER_PREWARM_POOL_SIZE",
   "SSE_WORKER_PREWARM_STARTUP_TIMEOUT_MS",
   "SSE_WORKER_PREWARM_RETRY_DELAY_MS",
   "SSE_PREWARM_FIXTURE_STATE",
+  "SSE_PREWARM_FIXTURE_MUTEX",
 ];
 const previousEnvironment = new Map(managedEnvironment.map((name) => [name, process.env[name]]));
 let prewarmPool;
@@ -170,10 +172,19 @@ using System.Threading;
 public static class Program {
   public static int Main() {
     string state = Environment.GetEnvironmentVariable("SSE_PREWARM_FIXTURE_STATE");
-    int launch = File.Exists(state) ? File.ReadAllLines(state).Length + 1 : 1;
+    string mutexName = Environment.GetEnvironmentVariable("SSE_PREWARM_FIXTURE_MUTEX");
+    int launch;
     int pid = Process.GetCurrentProcess().Id;
-    File.AppendAllText(state, launch + "|" + pid + Environment.NewLine);
-    if ((launch % 2) == 1) {
+    using (var mutex = new Mutex(false, mutexName)) {
+      mutex.WaitOne();
+      try {
+        launch = File.Exists(state) ? File.ReadAllLines(state).Length + 1 : 1;
+        File.AppendAllText(state, launch + "|" + pid + Environment.NewLine);
+      } finally {
+        mutex.ReleaseMutex();
+      }
+    }
+    if (launch == 1 || launch == 4) {
       Thread.Sleep(Timeout.Infinite);
       return 0;
     }
@@ -218,28 +229,53 @@ try {
     stdio: "pipe",
   });
   process.env.SSE_POWERSHELL_EXE = fixtureExecutable;
+  process.env.SSE_WORKER_PREWARM_POOL_SIZE = "2";
   process.env.SSE_WORKER_PREWARM_STARTUP_TIMEOUT_MS = "120";
   process.env.SSE_WORKER_PREWARM_RETRY_DELAY_MS = "100";
   process.env.SSE_PREWARM_FIXTURE_STATE = fixtureState;
+  process.env.SSE_PREWARM_FIXTURE_MUTEX = `Local\\SSEPrewarmFixture${randomUUID().replaceAll("-", "")}`;
 
   prewarmPool = await import(`../dist/worker-prewarm.js?startup-timeout=${randomUUID()}`);
   prewarmPool.enableWorkerPrewarm();
-  await waitFor(() => fixtureLaunches().length === 1, "Der stumme Fixture-Prozess wurde nicht gestartet.");
+  await waitFor(() => fixtureLaunches().length === 2, "Die beiden Fixture-Prozesse wurden nicht gestartet.");
   const firstPid = fixtureLaunches()[0].pid;
+  await waitFor(
+    () => prewarmPool.warmSparePoolStatus().ready === 1,
+    "Der zweite Pool-Arbeiter wurde nicht bereit.",
+  );
   await waitFor(
     () => /nicht innerhalb von 120 ms bereit/.test(prewarmPool.lastPrewarmFailure() ?? ""),
     "Der Startup-Timeout wurde nicht als Prewarm-Fehler gemeldet.",
   );
   await waitFor(() => !processIsAlive(firstPid), "Der stumme Fixture-Prozess wurde nach Timeout nicht beendet.");
-  assert.equal(prewarmPool.isWarmSpareReady(), false);
+  assert.deepEqual(
+    prewarmPool.warmSparePoolStatus(),
+    { ready: 1, starting: 0, target: 2 },
+    "Der Timeout eines Starts darf die bereits bereite Reserve nicht verwerfen.",
+  );
+  assert.equal(
+    prewarmPool.isWarmSpareReady(),
+    true,
+    "Die Health-Anzeige muss eine trotz Teilfehler nutzbare Reserve melden.",
+  );
 
   prewarmPool.ensureWarmSpare();
   await delay(40);
-  assert.equal(fixtureLaunches().length, 1, "Die Retry-Sperre muss einen sofortigen Neustart verhindern.");
+  assert.equal(fixtureLaunches().length, 2, "Die Retry-Sperre muss einen sofortigen Neustart verhindern.");
+
+  const firstReadySpare = prewarmPool.takeWarmSpare();
+  assert(firstReadySpare, "Die trotz Teilfehler bereite Reserve muss entnehmbar bleiben.");
+  const firstReadyClose = once(firstReadySpare.child, "close");
+  firstReadySpare.child.stdin.end();
+  await firstReadyClose;
+
   await delay(80);
   prewarmPool.ensureWarmSpare();
-  await waitFor(() => prewarmPool.isWarmSpareReady(), "Nach der Retry-Sperre wurde kein Ersatzarbeiter bereit.");
-  assert.equal(fixtureLaunches().length, 2, "Nach der Retry-Sperre muss genau ein Ersatz starten.");
+  await waitFor(
+    () => fixtureLaunches().length === 4 && prewarmPool.warmSparePoolStatus().ready === 1,
+    "Nach der Retry-Sperre wurde der Pool nicht neu aufgebaut.",
+  );
+  assert.deepEqual(prewarmPool.warmSparePoolStatus(), { ready: 1, starting: 1, target: 2 });
   assert.equal(prewarmPool.lastPrewarmFailure(), null, "Ein erfolgreicher Retry muss den Timeout-Fehler loeschen.");
 
   const retriedSpare = prewarmPool.takeWarmSpare();
@@ -248,20 +284,39 @@ try {
   retriedSpare.child.stdin.end();
   await retriedClose;
 
-  prewarmPool.ensureWarmSpare();
-  await waitFor(() => fixtureLaunches().length === 3, "Der Cleanup-Fixture-Prozess wurde nicht gestartet.");
-  const cleanupPid = fixtureLaunches()[2].pid;
+  const cleanupPid = fixtureLaunches()[3].pid;
   prewarmPool.shutdownWarmSpare();
   await waitFor(() => !processIsAlive(cleanupPid), "Shutdown muss auch einen noch startenden Arbeiter beenden.");
+  assert.deepEqual(prewarmPool.warmSparePoolStatus(), { ready: 0, starting: 0, target: 2 });
 
   prewarmPool.enableWorkerPrewarm();
   await waitFor(
-    () => prewarmPool.isWarmSpareReady() && fixtureLaunches().length === 4,
+    () => fixtureLaunches().length === 6 && prewarmPool.warmSparePoolStatus().ready === 2,
     "Nach Cleanup blieb der Pool im Zustand starting haengen.",
   );
-  const restartedPid = fixtureLaunches()[3].pid;
+  assert.deepEqual(prewarmPool.warmSparePoolStatus(), { ready: 2, starting: 0, target: 2 });
+  prewarmPool.ensureWarmSpare();
+  prewarmPool.ensureWarmSpare();
+  await delay(40);
+  assert.equal(fixtureLaunches().length, 6, "Mehrfache Sicherung darf den Pool nicht ueber zwei Arbeiter vergroessern.");
+
+  const consumedSpare = prewarmPool.takeWarmSpare();
+  assert(consumedSpare, "Eine Reserve aus dem vollen Pool muss entnehmbar sein.");
+  const consumedClose = once(consumedSpare.child, "close");
+  consumedSpare.child.stdin.end();
+  await consumedClose;
+  prewarmPool.ensureWarmSpare();
+  await waitFor(
+    () => fixtureLaunches().length === 7 && prewarmPool.warmSparePoolStatus().ready === 2,
+    "Eine entnommene Reserve wurde nicht bis zur Poolgroesse zwei nachgefuellt.",
+  );
+
+  const restartedPids = fixtureLaunches().slice(4).map(({ pid }) => pid);
   prewarmPool.shutdownWarmSpare();
-  await waitFor(() => !processIsAlive(restartedPid), "Der neu aufgebaute Pool muss sauber herunterfahren.");
+  await waitFor(
+    () => restartedPids.every((pid) => !processIsAlive(pid)),
+    "Der neu aufgebaute Pool muss sauber herunterfahren.",
+  );
 } finally {
   prewarmPool?.shutdownWarmSpare();
   for (const [name, previous] of previousEnvironment) {
@@ -274,5 +329,5 @@ try {
 
 process.stdout.write(
   "Vorgewaermter Arbeiter: Bereitschaft, gleiches Ergebnis wie kalt, " +
-  `${rejected.length} abgewiesene Auftragszeilen, Startup-Timeout, Retry und Cleanup bestanden\n`,
+  `${rejected.length} abgewiesene Auftragszeilen, Poolgroesse 2, Startup-Timeout, Retry und Cleanup bestanden\n`,
 );
