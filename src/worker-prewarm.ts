@@ -56,7 +56,7 @@ const PREWARM_RETRY_DELAY_MS = positiveDurationFromEnvironment(
   "SSE_WORKER_PREWARM_RETRY_DELAY_MS",
   30_000,
 );
-/** Zwei Reserven ueberbruecken ihre eigene, laengere Nachfuellzeit. */
+/** Zwei Reserven sind der sparsame Default; schnelle Hosts duerfen drei halten. */
 const PREWARM_POOL_SIZE = boundedPoolSizeFromEnvironment();
 /** Ohne diesen Schalter liesse sich das Vorwaermen im Test nicht abschalten. */
 const PREWARM_DISABLED = process.env.SSE_WORKER_PREWARM === "0";
@@ -69,7 +69,7 @@ function positiveDurationFromEnvironment(name: string, fallback: number): number
 function boundedPoolSizeFromEnvironment(): number {
   const configured = Number(process.env.SSE_WORKER_PREWARM_POOL_SIZE);
   if (!Number.isInteger(configured)) return 2;
-  return Math.max(1, Math.min(2, configured));
+  return Math.max(1, Math.min(3, configured));
 }
 
 export interface WarmSpare {
