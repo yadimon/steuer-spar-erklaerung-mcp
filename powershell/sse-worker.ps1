@@ -1671,6 +1671,36 @@ if ($nativeLoad.dllError) { $script:INIT_TIMINGS.nativeDllError = $nativeLoad.dl
 # auf seinen einen Auftrag. Schliesst der Elternprozess die Standardeingabe,
 # endet der Arbeiter ohne Nebenwirkung.
 if ($Prewarm) {
+  # PowerShell zerlegt das gesamte Skript vor der ersten Anweisung, registriert
+  # eine Funktionsdeklaration aber erst, wenn ihre Anweisung ausgefuehrt wird.
+  # Der grosse Operationsdispatcher lag dadurch trotz prewarm=ready noch auf
+  # dem Aufrufpfad. Fuer den Reservearbeiter registrieren wir exakt die eine
+  # bereits geparste eigene Definition jetzt; eine allgemeine Auswertung
+  # fremden Texts darf an dieser Vertrauensgrenze nicht stattfinden.
+  $dispatcherProbe = [Diagnostics.Stopwatch]::StartNew()
+  $workerAst = $MyInvocation.MyCommand.ScriptBlock.Ast
+  $dispatcherDefinitions = @($(if ($workerAst) {
+    $workerAst.FindAll({
+      param($node)
+      $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -ceq 'Invoke-SSEWorkerOperation'
+    }, $true)
+  }))
+  if ($dispatcherDefinitions.Count -ne 1) {
+    Fail "Worker-AST enthaelt $($dispatcherDefinitions.Count) Dispatcherdefinitionen statt genau einer." 'worker-init'
+  }
+  try {
+    $dispatcherDefinition = [ScriptBlock]::Create($dispatcherDefinitions[0].Extent.Text)
+    . $dispatcherDefinition
+  } catch {
+    Fail "Dispatcherdefinition liess sich nicht aus dem eigenen Worker-AST registrieren: $($_.Exception.Message)" 'worker-init'
+  }
+  if (-not (Test-Path -LiteralPath 'Function:\Invoke-SSEWorkerOperation')) {
+    Fail 'Dispatcherdefinition wurde vor der Bereitschaft nicht registriert.' 'worker-init'
+  }
+  $dispatcherProbe.Stop()
+  $script:INIT_TIMINGS.dispatcherRegistrationMs = $dispatcherProbe.ElapsedMilliseconds
+
   [Console]::Out.WriteLine((@{ prewarm='ready'; pid=$PID } | ConvertTo-Json -Compress))
   [Console]::Out.Flush()
   $auftragszeile = $null
@@ -6417,6 +6447,16 @@ if ($verificationOnlyProfile -and $profilePolicyOperation -notin $experimentalPr
 
 Assert-SSEVerifiedBuildForOperation $Op $a
 
+# Der warme Dispatcher ist bereits vor seiner Bereitschaft registriert. Ihn
+# hier aufzurufen verhindert, dass PowerShell auf dem Aufrufpfad noch die
+# spaetere, sehr grosse Cold-Worker-Deklaration betreten muss. Jede Operation
+# endet ueber Emit/Fail; eine unerwartete Rueckkehr ist deshalb fail-closed.
+if ($Prewarm) {
+  Invoke-SSEWorkerOperation $Op $a
+  Fail 'Vorgewaermter Dispatcher kehrte ohne Ergebnis zurueck.' 'worker-init'
+}
+
+if (-not $Prewarm) {
 function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
   $Op = $Operation
   $a = $Arguments
@@ -18382,6 +18422,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
 
     default { Fail "Unbekannte Operation '$Op'" 'bad-args' }
   }
+}
 }
 
 Invoke-SSEWorkerOperation $Op $a

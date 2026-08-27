@@ -76,6 +76,8 @@ unlinkSync(coldArgumentsFile);
 assert.equal(cold.code, 0, `Kaltstart scheiterte: ${cold.stderr.slice(0, 400)}`);
 const coldResult = JSON.parse(cold.stdout.trim());
 assert.equal(coldResult.ok, true);
+assert.equal(coldResult.workerInitializationMs.dispatcherRegistrationMs, undefined,
+  "Der Cold-Worker darf den Prewarm-Dispatcherpfad nicht ausfuehren.");
 
 // ------------------------------------- 2) Vorgewaermt liefert dasselbe Ergebnis
 const warmArgumentsFile = newArgumentsFile();
@@ -93,8 +95,35 @@ assert.equal(warmResult.ok, true);
 assert.equal(warmResult.product, coldResult.product, "Warm und kalt muessen dasselbe Produktprofil melden.");
 assert.equal(warmResult.profileId, coldResult.profileId);
 assert.equal(warmResult.taxYear, coldResult.taxYear);
+const coldStable = { ...coldResult };
+const warmStable = { ...warmResult };
+delete coldStable.ms;
+delete coldStable.workerInitializationMs;
+delete warmStable.ms;
+delete warmStable.workerInitializationMs;
+assert.deepEqual(warmStable, coldStable,
+  "Warm und kalt muessen abseits ihrer Laufzeit-Telemetrie exakt dasselbe Ergebnis liefern.");
 // Die Uhr startet erst mit dem Auftrag; die Wartezeit gehoert nicht dazu.
 assert.equal(typeof warmResult.ms, "number");
+assert.equal(Number.isFinite(warmResult.workerInitializationMs.dispatcherRegistrationMs), true,
+  "Der warme Arbeiter muss die Dispatcherregistrierung vor seiner Bereitschaft messen.");
+assert(warmResult.workerInitializationMs.dispatcherRegistrationMs >= 0);
+
+// runWorker schreibt die Auftragszeile unmittelbar nach spawn, also lange vor
+// der spaeter eintreffenden Bereitschaft. Zusaetzlich bindet die Quellstruktur
+// den warmen Aufruf vor die ausschliessliche Cold-Worker-Deklaration.
+const workerSource = readFileSync(worker, "utf8");
+const preloadIndex = workerSource.indexOf("[ScriptBlock]::Create($dispatcherDefinitions[0].Extent.Text)");
+const readyIndex = workerSource.indexOf("prewarm='ready'", preloadIndex);
+const warmDispatchIndex = workerSource.indexOf("if ($Prewarm) {\n  Invoke-SSEWorkerOperation $Op $a", readyIndex);
+const coldDeclarationIndex = workerSource.indexOf(
+  "if (-not $Prewarm) {\nfunction Invoke-SSEWorkerOperation([string]$Operation, $Arguments)",
+  warmDispatchIndex,
+);
+assert(preloadIndex >= 0 && readyIndex > preloadIndex,
+  "Die exakt geparste Dispatcherdefinition muss vor prewarm=ready registriert werden.");
+assert(warmDispatchIndex > readyIndex && coldDeclarationIndex > warmDispatchIndex,
+  "Der Warm-Auftrag muss vor der nur fuer Cold-Worker ausgefuehrten Originaldeklaration dispatchen.");
 
 // --------------------------------- 3) Die Transportgrenze gilt auch fuer Auftraege
 const rejected = [
