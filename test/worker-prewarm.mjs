@@ -123,6 +123,9 @@ assert.equal(typeof warmResult.ms, "number");
 assert.equal(Number.isFinite(warmResult.workerInitializationMs.dispatcherRegistrationMs), true,
   "Der warme Arbeiter muss die Dispatcherregistrierung vor seiner Bereitschaft messen.");
 assert(warmResult.workerInitializationMs.dispatcherRegistrationMs >= 0);
+assert.equal(Number.isFinite(warmResult.workerInitializationMs.staticProfileCacheMs), true);
+assert(warmResult.workerInitializationMs.staticProfileCacheMs >= 0);
+assert.equal(coldResult.workerInitializationMs.staticProfileCacheMs, undefined);
 
 // runWorker schreibt die Auftragszeile unmittelbar nach spawn, also lange vor
 // der spaeter eintreffenden Bereitschaft. Zusaetzlich bindet die Quellstruktur

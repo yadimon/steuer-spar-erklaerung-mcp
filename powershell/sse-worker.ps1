@@ -1673,6 +1673,14 @@ if ($nativeLoad.dllError) { $script:INIT_TIMINGS.nativeDllError = $nativeLoad.dl
 # auf seinen einen Auftrag. Schliesst der Elternprozess die Standardeingabe,
 # endet der Arbeiter ohne Nebenwirkung.
 if ($Prewarm) {
+  # Statische, validierte Profilkataloge vor der Bereitschaft laden. Fast alle
+  # UI-Operationen erhalten danach dieselben cachegebundenen Objekte schneller.
+  $staticProfileProbe = [Diagnostics.Stopwatch]::StartNew()
+  $null = Get-SSEExecutableIdentity $script:SSE_DEFAULT_EXE
+  $null = Get-SSEPageObjects
+  $staticProfileProbe.Stop()
+  $script:INIT_TIMINGS.staticProfileCacheMs = $staticProfileProbe.ElapsedMilliseconds
+
   # PowerShell zerlegt das gesamte Skript vor der ersten Anweisung, registriert
   # eine Funktionsdeklaration aber erst, wenn ihre Anweisung ausgefuehrt wird.
   # Der grosse Operationsdispatcher lag dadurch trotz prewarm=ready noch auf
