@@ -525,8 +525,10 @@ try {
   assert(workerOpBlock("launch").includes("instance=$null") &&
     workerOpBlock("launch").includes("-WindowStyle Normal") &&
     apiExecutorSource.includes("executeLaunchOperation") &&
-    launchExecutorSource.includes('await worker("windows"') &&
-    launchExecutorSource.includes('{ pid },') &&
+    (launchExecutorSource.match(/await worker\("launch"/g) ?? []).length === 1 &&
+    launchExecutorSource.includes('await (worker as LaunchWorkerExecutor)("launch_probe"') &&
+    launchExecutorSource.includes('planKind: "launch-readiness"') &&
+    launchExecutorSource.includes("deadlineUnixMs: deadline") &&
     launchExecutorSource.includes('bindingMode: "launch-window"') &&
     launchExecutorSource.includes("cleanupStartedProcess") &&
     serverSource.includes("instance: r.instance, ready: r.ready") &&
