@@ -5,7 +5,9 @@
  * 14000-Zeilen-Workerskripts den groessten Teil ausmachte. Ein Reservearbeiter
  * erledigt genau diese Vorbereitung im Voraus - Skript zerlegen, Produktprofil
  * lesen, Assemblies und native Interop-DLL laden - und wartet dann auf GENAU
- * EINEN Auftrag auf seiner Standardeingabe.
+ * EINEN Auftrag auf seiner Standardeingabe. Zwei solcher Prozesse bilden
+ * einen kleinen Vorrat, damit ihre laengere Nachfuellzeit nicht jeden zweiten
+ * seriellen API-Aufruf wieder kalt starten laesst.
  *
  * Die Isolationsregel "ein Auftrag je Prozess" bleibt unangetastet: Der
  * wartende Prozess hat noch keine einzige UIA-Abfrage gestellt und kann
@@ -54,12 +56,20 @@ const PREWARM_RETRY_DELAY_MS = positiveDurationFromEnvironment(
   "SSE_WORKER_PREWARM_RETRY_DELAY_MS",
   30_000,
 );
+/** Zwei Reserven ueberbruecken ihre eigene, laengere Nachfuellzeit. */
+const PREWARM_POOL_SIZE = boundedPoolSizeFromEnvironment();
 /** Ohne diesen Schalter liesse sich das Vorwaermen im Test nicht abschalten. */
 const PREWARM_DISABLED = process.env.SSE_WORKER_PREWARM === "0";
 
 function positiveDurationFromEnvironment(name: string, fallback: number): number {
   const configured = Number(process.env[name]);
   return Number.isFinite(configured) && configured > 0 ? configured : fallback;
+}
+
+function boundedPoolSizeFromEnvironment(): number {
+  const configured = Number(process.env.SSE_WORKER_PREWARM_POOL_SIZE);
+  if (!Number.isInteger(configured)) return 2;
+  return Math.max(1, Math.min(2, configured));
 }
 
 export interface WarmSpare {
@@ -72,6 +82,7 @@ interface PooledSpare extends WarmSpare {
   environmentFingerprint: string;
   ready: boolean;
   discarded: boolean;
+  startupPending: boolean;
   release: () => void;
 }
 
@@ -81,8 +92,8 @@ interface PooledSpare extends WarmSpare {
  * starten, den niemand mehr abholt.
  */
 let enabled = false;
-let spare: PooledSpare | null = null;
-let starting = false;
+const spares: PooledSpare[] = [];
+let starting = 0;
 let blockedUntil = 0;
 let shuttingDown = false;
 let failureReason: string | null = null;
@@ -92,9 +103,18 @@ export function lastPrewarmFailure(): string | null {
   return failureReason;
 }
 
-/** Steht gerade ein einsatzbereiter Reservearbeiter bereit? */
+/** Steht mindestens ein einsatzbereiter Reservearbeiter bereit? */
 export function isWarmSpareReady(): boolean {
-  return Boolean(spare?.ready && !spare.discarded);
+  return spares.some((candidate) => candidate.ready && !candidate.discarded);
+}
+
+/** Begrenzte Pool-Telemetrie fuer Tests und spaetere Health-Ausgabe. */
+export function warmSparePoolStatus(): Readonly<{ ready: number; starting: number; target: number }> {
+  return {
+    ready: spares.filter((candidate) => candidate.ready && !candidate.discarded).length,
+    starting,
+    target: PREWARM_POOL_SIZE,
+  };
 }
 
 /**
@@ -115,10 +135,12 @@ function discard(candidate: PooledSpare, reason: string): void {
   if (candidate.discarded) return;
   candidate.discarded = true;
   candidate.release();
-  if (spare === candidate) {
-    spare = null;
-    starting = false;
+  if (candidate.startupPending) {
+    candidate.startupPending = false;
+    starting--;
   }
+  const index = spares.indexOf(candidate);
+  if (index >= 0) spares.splice(index, 1);
   failureReason = reason;
   try { candidate.child.stdin.end(); } catch { /* Pipe ist schon zu. */ }
   try { candidate.child.kill(); } catch { /* Prozess ist schon weg. */ }
@@ -131,12 +153,7 @@ function discard(candidate: PooledSpare, reason: string): void {
  * Prozess laeuft mit verminderter Prioritaet und nimmt der Fernsteuerung damit
  * auch auf einem schwachen Rechner keine CPU weg.
  */
-export function ensureWarmSpare(): void {
-  if (!enabled || PREWARM_DISABLED || shuttingDown) return;
-  if (spare || starting) return;
-  if (Date.now() < blockedUntil) return;
-
-  starting = true;
+function startWarmSpare(): boolean {
   let child: ChildProcessWithoutNullStreams;
   try {
     child = spawn(
@@ -145,10 +162,9 @@ export function ensureWarmSpare(): void {
       { windowsHide: true },
     );
   } catch (error) {
-    starting = false;
     blockedUntil = Date.now() + PREWARM_RETRY_DELAY_MS;
     failureReason = `Reservearbeiter liess sich nicht starten: ${String(error)}`;
-    return;
+    return false;
   }
   setSparePriority(child, osConstants.priority.PRIORITY_BELOW_NORMAL);
 
@@ -158,8 +174,10 @@ export function ensureWarmSpare(): void {
     residualStdout: [],
     ready: false,
     discarded: false,
+    startupPending: true,
     release: () => undefined,
   };
+  starting++;
 
   let handshake = "";
   let handshakeDone = false;
@@ -182,7 +200,6 @@ export function ensureWarmSpare(): void {
     if (newline < 0) {
       if (handshake.length > MAX_HANDSHAKE_BYTES) {
         handshakeDone = true;
-        starting = false;
         blockedUntil = Date.now() + PREWARM_RETRY_DELAY_MS;
         discard(candidate, "Reservearbeiter meldete keine gueltige Bereitschaftszeile.");
       }
@@ -193,7 +210,10 @@ export function ensureWarmSpare(): void {
     handshakeDone = true;
     clearStartupTimer();
     if (rest) candidate.residualStdout.push(Buffer.from(rest, "utf8"));
-    starting = false;
+    if (candidate.startupPending) {
+      candidate.startupPending = false;
+      starting--;
+    }
 
     let announcement: unknown;
     try { announcement = JSON.parse(line) as unknown; } catch { announcement = null; }
@@ -214,7 +234,6 @@ export function ensureWarmSpare(): void {
 
   const onExit = () => {
     clearStartupTimer();
-    starting = false;
     blockedUntil = Date.now() + PREWARM_RETRY_DELAY_MS;
     const diagnostic = stderrText.trim().slice(0, 400);
     discard(
@@ -225,7 +244,6 @@ export function ensureWarmSpare(): void {
 
   const onError = (error: Error) => {
     clearStartupTimer();
-    starting = false;
     blockedUntil = Date.now() + PREWARM_RETRY_DELAY_MS;
     discard(candidate, `Reservearbeiter meldete einen Prozessfehler: ${error.message}`);
   };
@@ -241,7 +259,6 @@ export function ensureWarmSpare(): void {
   startupTimer = setTimeout(() => {
     if (handshakeDone || candidate.discarded) return;
     handshakeDone = true;
-    starting = false;
     blockedUntil = Date.now() + PREWARM_RETRY_DELAY_MS;
     const diagnostic = stderrText.trim().slice(0, 400);
     discard(
@@ -257,25 +274,40 @@ export function ensureWarmSpare(): void {
   // Ein wartender Reservearbeiter darf den Node-Prozess nicht am Beenden
   // hindern; er ist reine Vorbereitung, kein Auftrag.
   child.unref();
-  spare = candidate;
+  spares.push(candidate);
+  return true;
+}
+
+export function ensureWarmSpare(): void {
+  if (!enabled || PREWARM_DISABLED || shuttingDown) return;
+  if (Date.now() < blockedUntil) return;
+  while (spares.length < PREWARM_POOL_SIZE) {
+    if (!startWarmSpare()) break;
+  }
 }
 
 /**
- * Den Reservearbeiter fuer genau diesen Aufruf uebernehmen. Danach ist der
- * Vorrat leer; der naechste wird erst nach dem Auftrag erzeugt.
+ * Einen Reservearbeiter fuer genau diesen Aufruf uebernehmen. Der Aufrufer
+ * stoesst unmittelbar danach das begrenzte Nachfuellen des Vorrats an.
  *
  * Der Aufrufer haengt seine eigenen Listener SYNCHRON an - zwischen dem
  * Abloesen hier und dem Anhaengen dort darf keine Ereignisschleifenrunde
  * liegen, sonst ginge Ausgabe verloren.
  */
 export function takeWarmSpare(): WarmSpare | null {
-  const candidate = spare;
-  if (!candidate || !candidate.ready || candidate.discarded) return null;
-  if (candidate.environmentFingerprint !== environmentFingerprint()) {
-    discard(candidate, "Reservearbeiter wurde mit einer anderen SSE-Umgebung vorgewaermt.");
-    return null;
+  let candidate: PooledSpare | undefined;
+  for (const pooled of [...spares]) {
+    if (!pooled.ready || pooled.discarded) continue;
+    if (pooled.environmentFingerprint !== environmentFingerprint()) {
+      discard(pooled, "Reservearbeiter wurde mit einer anderen SSE-Umgebung vorgewaermt.");
+      continue;
+    }
+    candidate = pooled;
+    break;
   }
-  spare = null;
+  if (!candidate) return null;
+  const index = spares.indexOf(candidate);
+  if (index >= 0) spares.splice(index, 1);
   candidate.release();
   candidate.child.ref();
   // Ab jetzt fuehrt dieser Prozess den echten Auftrag aus und darf nicht mehr
@@ -285,7 +317,7 @@ export function takeWarmSpare(): WarmSpare | null {
 }
 
 /**
- * Vorwaermen einschalten und sofort den ersten Reservearbeiter erzeugen.
+ * Vorwaermen einschalten und sofort den begrenzten Reservevorrat erzeugen.
  * Wird vom API-Server einmal nach dem erfolgreichen Binden aufgerufen.
  */
 export function enableWorkerPrewarm(): void {
@@ -298,5 +330,5 @@ export function enableWorkerPrewarm(): void {
 export function shutdownWarmSpare(): void {
   shuttingDown = true;
   enabled = false;
-  if (spare) discard(spare, "API wurde beendet.");
+  for (const candidate of [...spares]) discard(candidate, "API wurde beendet.");
 }
