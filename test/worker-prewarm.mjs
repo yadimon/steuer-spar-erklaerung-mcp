@@ -14,11 +14,13 @@
  * korrekter Reservearbeiter ist kein Fehler.
  */
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { once } from "node:events";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -30,6 +32,12 @@ const powershell = join(
   "v1.0",
   "powershell.exe",
 );
+const compilerCandidates = [
+  join(process.env.SystemRoot ?? "C:\\Windows", "Microsoft.NET", "Framework64", "v4.0.30319", "csc.exe"),
+  join(process.env.SystemRoot ?? "C:\\Windows", "Microsoft.NET", "Framework", "v4.0.30319", "csc.exe"),
+];
+const compiler = compilerCandidates.find((candidate) => existsSync(candidate));
+assert(compiler, "Der Windows-.NET-Framework-Compiler fuer den Prewarm-Pool-Test fehlt.");
 
 function newArgumentsFile() {
   const path = join(tmpdir(), `sse-args-${randomUUID().replaceAll("-", "")}.json`);
@@ -110,7 +118,132 @@ assert.equal(abandoned.code, 0, "Ein nicht abgeholter Reservearbeiter muss folge
 const { payload: nothing } = splitPrewarmOutput(abandoned.stdout);
 assert.equal(nothing, "", "Ohne Auftrag darf kein Ergebnis entstehen.");
 
+// -------------------- 5) Ein stummes Kind blockiert Start und Retry nicht
+const sandbox = mkdtempSync(join(tmpdir(), "sse-prewarm-startup-timeout-"));
+const fixtureSource = join(sandbox, "prewarm-fixture.cs");
+const fixtureExecutable = join(sandbox, "powershell.exe");
+const fixtureState = join(sandbox, "launches.txt");
+const managedEnvironment = [
+  "SSE_POWERSHELL_EXE",
+  "SSE_WORKER_PREWARM_STARTUP_TIMEOUT_MS",
+  "SSE_WORKER_PREWARM_RETRY_DELAY_MS",
+  "SSE_PREWARM_FIXTURE_STATE",
+];
+const previousEnvironment = new Map(managedEnvironment.map((name) => [name, process.env[name]]));
+let prewarmPool;
+
+writeFileSync(fixtureSource, `
+using System;
+using System.Diagnostics;
+using System.IO;
+using System.Threading;
+
+public static class Program {
+  public static int Main() {
+    string state = Environment.GetEnvironmentVariable("SSE_PREWARM_FIXTURE_STATE");
+    int launch = File.Exists(state) ? File.ReadAllLines(state).Length + 1 : 1;
+    int pid = Process.GetCurrentProcess().Id;
+    File.AppendAllText(state, launch + "|" + pid + Environment.NewLine);
+    if ((launch % 2) == 1) {
+      Thread.Sleep(Timeout.Infinite);
+      return 0;
+    }
+    Console.WriteLine("{\\\"prewarm\\\":\\\"ready\\\",\\\"pid\\\":" + pid + "}");
+    Console.Out.Flush();
+    Console.In.ReadLine();
+    return 0;
+  }
+}
+`, "utf8");
+
+function fixtureLaunches() {
+  if (!existsSync(fixtureState)) return [];
+  return readFileSync(fixtureState, "utf8").trim().split(/\r?\n/).filter(Boolean).map((line) => {
+    const [launch, pid] = line.split("|").map(Number);
+    return { launch, pid };
+  });
+}
+
+function processIsAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function waitFor(predicate, message, timeoutMs = 3_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await delay(10);
+  }
+  assert.fail(message);
+}
+
+try {
+  execFileSync(compiler, ["/nologo", "/target:exe", `/out:${fixtureExecutable}`, fixtureSource], {
+    cwd: sandbox,
+    windowsHide: true,
+    stdio: "pipe",
+  });
+  process.env.SSE_POWERSHELL_EXE = fixtureExecutable;
+  process.env.SSE_WORKER_PREWARM_STARTUP_TIMEOUT_MS = "120";
+  process.env.SSE_WORKER_PREWARM_RETRY_DELAY_MS = "100";
+  process.env.SSE_PREWARM_FIXTURE_STATE = fixtureState;
+
+  prewarmPool = await import(`../dist/worker-prewarm.js?startup-timeout=${randomUUID()}`);
+  prewarmPool.enableWorkerPrewarm();
+  await waitFor(() => fixtureLaunches().length === 1, "Der stumme Fixture-Prozess wurde nicht gestartet.");
+  const firstPid = fixtureLaunches()[0].pid;
+  await waitFor(
+    () => /nicht innerhalb von 120 ms bereit/.test(prewarmPool.lastPrewarmFailure() ?? ""),
+    "Der Startup-Timeout wurde nicht als Prewarm-Fehler gemeldet.",
+  );
+  await waitFor(() => !processIsAlive(firstPid), "Der stumme Fixture-Prozess wurde nach Timeout nicht beendet.");
+  assert.equal(prewarmPool.isWarmSpareReady(), false);
+
+  prewarmPool.ensureWarmSpare();
+  await delay(40);
+  assert.equal(fixtureLaunches().length, 1, "Die Retry-Sperre muss einen sofortigen Neustart verhindern.");
+  await delay(80);
+  prewarmPool.ensureWarmSpare();
+  await waitFor(() => prewarmPool.isWarmSpareReady(), "Nach der Retry-Sperre wurde kein Ersatzarbeiter bereit.");
+  assert.equal(fixtureLaunches().length, 2, "Nach der Retry-Sperre muss genau ein Ersatz starten.");
+  assert.equal(prewarmPool.lastPrewarmFailure(), null, "Ein erfolgreicher Retry muss den Timeout-Fehler loeschen.");
+
+  const retriedSpare = prewarmPool.takeWarmSpare();
+  assert(retriedSpare, "Der erfolgreiche Retry muss entnehmbar sein.");
+  const retriedClose = once(retriedSpare.child, "close");
+  retriedSpare.child.stdin.end();
+  await retriedClose;
+
+  prewarmPool.ensureWarmSpare();
+  await waitFor(() => fixtureLaunches().length === 3, "Der Cleanup-Fixture-Prozess wurde nicht gestartet.");
+  const cleanupPid = fixtureLaunches()[2].pid;
+  prewarmPool.shutdownWarmSpare();
+  await waitFor(() => !processIsAlive(cleanupPid), "Shutdown muss auch einen noch startenden Arbeiter beenden.");
+
+  prewarmPool.enableWorkerPrewarm();
+  await waitFor(
+    () => prewarmPool.isWarmSpareReady() && fixtureLaunches().length === 4,
+    "Nach Cleanup blieb der Pool im Zustand starting haengen.",
+  );
+  const restartedPid = fixtureLaunches()[3].pid;
+  prewarmPool.shutdownWarmSpare();
+  await waitFor(() => !processIsAlive(restartedPid), "Der neu aufgebaute Pool muss sauber herunterfahren.");
+} finally {
+  prewarmPool?.shutdownWarmSpare();
+  for (const [name, previous] of previousEnvironment) {
+    if (previous === undefined) delete process.env[name];
+    else process.env[name] = previous;
+  }
+  await delay(50);
+  rmSync(sandbox, { recursive: true, force: true });
+}
+
 process.stdout.write(
   "Vorgewaermter Arbeiter: Bereitschaft, gleiches Ergebnis wie kalt, " +
-  `${rejected.length} abgewiesene Auftragszeilen und folgenloses Ende ohne Auftrag bestanden\n`,
+  `${rejected.length} abgewiesene Auftragszeilen, Startup-Timeout, Retry und Cleanup bestanden\n`,
 );
