@@ -1,4 +1,4 @@
-import { asArray, type WorkerResult } from "./api-contract.js";
+import { asArray, type SseApiOperation, type WorkerResult } from "./api-contract.js";
 import { operationError } from "./executor-errors.js";
 import type { ScenarioExecutor } from "./scenario.js";
 
@@ -21,6 +21,22 @@ const RECOVERED_STATE_TITLE = /\(Wiederhergestellt\)/iu;
  * Fallfenster 2062 Pixel.
  */
 const MIN_MAIN_WINDOW_WIDTH = 900;
+
+interface LaunchProbePlan {
+  schemaVersion: 1;
+  planKind: "launch-readiness";
+  pid: number;
+  hasCase: boolean;
+  deadlineUnixMs: number;
+}
+
+/** Interne Worker-Oberflaeche; launch_probe ist absichtlich keine API-Operation. */
+type LaunchWorkerExecutor = (
+  operation: SseApiOperation | "launch_probe",
+  args: Record<string, unknown>,
+  timeoutMs: number | undefined,
+  signal?: AbortSignal,
+) => Promise<WorkerResult>;
 
 export async function executeLaunchOperation(
   args: Record<string, unknown>,
@@ -94,133 +110,134 @@ export async function executeLaunchOperation(
   let probeFailures = 0;
   let lastStartupPrompts: Record<string, unknown>[] = [];
   try {
-    while (Date.now() < deadline) {
-      if (signal?.aborted) {
-        const cleanupState = await cleanupStartedProcess();
-        return {
-          ok: false,
-          kind: cleanupState.stillRunning ? "startup-abort-cleanup" : "aborted",
-          error: cleanupState.stillRunning
-            ? `API-Client brach den Start ab; die exakt gestartete SSE-PID ${pid} laeuft trotz Cleanup noch.`
-            : "API-Client hat den Start abgebrochen; die exakt gestartete SSE-PID wurde ohne Speichern beendet.",
-          pid,
-          processStillRunning: cleanupState.stillRunning,
-          cleanup: cleanupState.cleanup,
-          cleanupError: cleanupState.cleanupError,
-          effectiveTimeoutMs: launchBudgetMs,
-        };
-      }
+    if (signal?.aborted) {
+      const cleanupState = await cleanupStartedProcess();
+      return {
+        ok: false,
+        kind: cleanupState.stillRunning ? "startup-abort-cleanup" : "aborted",
+        error: cleanupState.stillRunning
+          ? `API-Client brach den Start ab; die exakt gestartete SSE-PID ${pid} laeuft trotz Cleanup noch.`
+          : "API-Client hat den Start abgebrochen; die exakt gestartete SSE-PID wurde ohne Speichern beendet.",
+        pid,
+        processStillRunning: cleanupState.stillRunning,
+        cleanup: cleanupState.cleanup,
+        cleanupError: cleanupState.cleanupError,
+        effectiveTimeoutMs: launchBudgetMs,
+      };
+    }
 
+    let observed: WorkerResult = { ok: true, outcome: "deadline", windows: [], dialogs: [] };
+    while (Date.now() < deadline) {
       const remainingMs = deadline - Date.now();
       if (remainingMs < 1_000) break;
-      let observed: WorkerResult;
-      try {
-        observed = await worker("windows", {}, Math.min(15_000, Math.max(1_000, remainingMs)), signal);
-      } catch (error) {
-        lastProbeError = `windows: ${error instanceof Error ? error.message : String(error)}`;
-        probeFailures += 1;
-        if (!signal?.aborted) await waitForNextProbe();
-        continue;
-      }
+      const launchProbePlan = {
+        schemaVersion: 1,
+        planKind: "launch-readiness",
+        pid,
+        hasCase: typeof args.file === "string" && args.file.length > 0,
+        deadlineUnixMs: deadline,
+      } satisfies LaunchProbePlan;
+      // launch_probe ist ein privater Worker-Vertrag und deshalb bewusst kein
+      // SseApiOperation. Der Cast bleibt an genau dieser internen Grenze.
+      observed = await (worker as LaunchWorkerExecutor)("launch_probe", launchProbePlan, remainingMs, signal);
       if (observed.ok === false) {
-        lastProbeError = `windows: ${String(observed.error ?? observed.kind ?? "Fensterinventur fehlgeschlagen.")}`;
+        lastProbeError = `launch_probe: ${String(observed.error ?? observed.kind ?? "Startinventur fehlgeschlagen.")}`;
         probeFailures += 1;
-        await waitForNextProbe();
-        continue;
+        break;
+      }
+      const reportedFailures = Number(observed.probeFailures);
+      if (Number.isSafeInteger(reportedFailures) && reportedFailures >= 0) probeFailures += reportedFailures;
+      if (typeof observed.lastProbeError === "string" && observed.lastProbeError.length > 0) {
+        lastProbeError = observed.lastProbeError;
+      }
+      if (observed.outcome === "observed" || observed.outcome === "deadline") break;
+      if (observed.outcome !== "retry-fresh") {
+        lastProbeError = "launch_probe: Worker lieferte keinen bekannten Probe-Ausgang.";
+        probeFailures += 1;
+        observed = { ok: false, kind: "launch-probe-contract", error: lastProbeError };
+        break;
       }
 
-      const windows = asArray<Record<string, unknown>>(observed.windows)
-        .filter((window) => Number(window.pid) === pid && Number(window.hwnd) > 0);
-      const hasCase = typeof args.file === "string" && args.file.length > 0;
-      const titledLikeSse = windows.filter((window) => {
-        const title = String(window.title ?? "");
-        return title.includes("SteuerSparErklärung") || (!hasCase && title === "Steuerprogramm");
-      });
-      // Qts Meldungsfenster tragen denselben Programmtitel wie das Fallfenster.
-      // Die Startrueckfrage nach einer Wiederherstellungsdatei ist rund 520
-      // Pixel breit; ein Fallfenster ist es nie. Ohne diese Groessenpruefung
-      // band der Start diese Box als Hauptfenster und meldete ready=true,
-      // waehrend die Frage noch offen stand - genau der Zustand, vor dem der
-      // Skill warnt, denn ein 'Ja' laedt Daten, die zum geprueften Hash nicht
-      // mehr passen.
-      const mainCandidates = titledLikeSse
-        .filter((window) => Number(window.w) >= MIN_MAIN_WINDOW_WIDTH || window.minimiert === true)
-        .sort((left, right) => Number(right.w) * Number(right.h) - Number(left.w) * Number(left.h));
-      // Der Startbildschirm verschwindet von selbst, eine Rueckfrage nicht.
-      // Beide sehen bis dahin gleich aus, deshalb wird hier nur gemerkt statt
-      // geraten; entschieden wird erst, wenn das Startbudget abgelaufen ist.
+      // Nach einer UIA-Ausnahme gilt auch eine rein lesende Verbindung als
+      // vergiftet. Der Worker beendet sich deshalb selbst und nur ein neuer
+      // launch_probe darf innerhalb derselben absoluten Frist weiterpollten.
+      if (observed.windowProbeSucceeded === true) {
+        lastStartupPrompts = asArray<Record<string, unknown>>(observed.startupPrompts)
+          .filter((window) => Number(window.pid) === pid && Number(window.hwnd) > 0);
+      }
+      if (!signal?.aborted) await waitForNextProbe();
+    }
+
+    const terminalProbeResult = observed.ok === true && ["observed", "deadline"].includes(String(observed.outcome));
+    const windows = (terminalProbeResult ? asArray<Record<string, unknown>>(observed.windows) : [])
+      .filter((window) => Number(window.pid) === pid && Number(window.hwnd) > 0);
+    const hasCase = typeof args.file === "string" && args.file.length > 0;
+    const titledLikeSse = windows.filter((window) => {
+      const title = String(window.title ?? "");
+      return title.includes("SteuerSparErklärung") || (!hasCase && title === "Steuerprogramm");
+    });
+    // Qts Meldungsfenster tragen denselben Programmtitel wie das Fallfenster.
+    // Die Startrueckfrage nach einer Wiederherstellungsdatei ist rund 520
+    // Pixel breit; ein Fallfenster ist es nie. Ohne diese Groessenpruefung
+    // band der Start diese Box als Hauptfenster und meldete ready=true,
+    // waehrend die Frage noch offen stand - genau der Zustand, vor dem der
+    // Skill warnt, denn ein 'Ja' laedt Daten, die zum geprueften Hash nicht
+    // mehr passen.
+    const mainCandidates = titledLikeSse
+      .filter((window) => Number(window.w) >= MIN_MAIN_WINDOW_WIDTH || window.minimiert === true)
+      .sort((left, right) => Number(right.w) * Number(right.h) - Number(left.w) * Number(left.h));
+    // Der Startbildschirm verschwindet von selbst, eine Rueckfrage nicht.
+    // Beide sehen bis dahin gleich aus, deshalb wird hier nur gemerkt statt
+    // geraten; entschieden wird erst, wenn das Startbudget abgelaufen ist.
+    if (terminalProbeResult) {
       lastStartupPrompts = titledLikeSse.filter((window) => !mainCandidates.includes(window));
+    }
 
-      let dialogs: Record<string, unknown>[] = [];
-      if (windows.length > 0) {
-        let dialogResult: WorkerResult;
-        try {
-          dialogResult = await worker(
-            "dialog_list",
-            { pid },
-            Math.min(30_000, Math.max(1_000, deadline - Date.now())),
-            signal,
-          );
-        } catch (error) {
-          lastProbeError = `dialog_list: ${error instanceof Error ? error.message : String(error)}`;
-          probeFailures += 1;
-          if (!signal?.aborted) await waitForNextProbe();
-          continue;
-        }
-        if (dialogResult.ok === false) {
-          lastProbeError = `dialog_list: ${String(dialogResult.error ?? dialogResult.kind ?? "Dialoginventur fehlgeschlagen.")}`;
-          probeFailures += 1;
-          await waitForNextProbe();
-          continue;
-        }
-        dialogs = asArray<Record<string, unknown>>(dialogResult.dialogs)
-          .filter((dialog) => Number(dialog.pid) === pid && ["native-dialog", "qt-dialog"].includes(String(dialog.kind)));
-      }
+    const dialogs = (terminalProbeResult ? asArray<Record<string, unknown>>(observed.dialogs) : [])
+      .filter((dialog) => Number(dialog.pid) === pid && ["native-dialog", "qt-dialog"].includes(String(dialog.kind)));
 
-      if (mainCandidates.length > 0 || dialogs.length > 0) {
-        const mainCandidate = mainCandidates[0];
-        const instance = mainCandidates.length === 1
-          ? {
-              pid,
-              hwnd: Number(mainCandidate!.hwnd),
-              title: String(mainCandidate!.title ?? ""),
-              bindingMode: "launch-window",
-            }
-          : null;
-        // Laedt SteuerSparErklaerung nach einem unsauberen Ende eine
-        // Wiederherstellungsdatei, markiert es das im Fenstertitel. Der
-        // geoeffnete Inhalt entspricht dann nicht mehr der zuvor per Hash
-        // verifizierten Datei, und ein Report daraus waere fachlich falsch.
-        // Deshalb hier fail-closed statt ready=true.
-        if (instance && RECOVERED_STATE_TITLE.test(instance.title)) {
-          return {
-            ok: false,
-            kind: "recovered-state",
-            error:
-              "SteuerSparErklaerung hat eine Wiederherstellungsdatei geladen; der geoeffnete Fall entspricht " +
-              "nicht mehr der verifizierten Datei. Fall ohne Speichern schliessen, die Wiederherstellung im " +
-              "Programm verwerfen und danach erneut oeffnen.",
+    if (mainCandidates.length > 0 || dialogs.length > 0) {
+      const mainCandidate = mainCandidates[0];
+      const instance = mainCandidates.length === 1
+        ? {
             pid,
-            windows,
-            instance,
-            dialogs,
-            effectiveTimeoutMs: launchBudgetMs,
-            probeFailures,
-          };
-        }
+            hwnd: Number(mainCandidate!.hwnd),
+            title: String(mainCandidate!.title ?? ""),
+            bindingMode: "launch-window",
+          }
+        : null;
+      // Laedt SteuerSparErklaerung nach einem unsauberen Ende eine
+      // Wiederherstellungsdatei, markiert es das im Fenstertitel. Der
+      // geoeffnete Inhalt entspricht dann nicht mehr der zuvor per Hash
+      // verifizierten Datei, und ein Report daraus waere fachlich falsch.
+      // Deshalb hier fail-closed statt ready=true.
+      if (instance && RECOVERED_STATE_TITLE.test(instance.title)) {
         return {
-          ...started,
-          waitedSec: Math.round((Date.now() - startedAt) / 100) / 10,
+          ok: false,
+          kind: "recovered-state",
+          error:
+            "SteuerSparErklaerung hat eine Wiederherstellungsdatei geladen; der geoeffnete Fall entspricht " +
+            "nicht mehr der verifizierten Datei. Fall ohne Speichern schliessen, die Wiederherstellung im " +
+            "Programm verwerfen und danach erneut oeffnen.",
+          pid,
           windows,
           instance,
-          ready: instance !== null,
-          blockedByDialog: dialogs.length > 0,
           dialogs,
           effectiveTimeoutMs: launchBudgetMs,
           probeFailures,
         };
       }
-      await waitForNextProbe();
+      return {
+        ...started,
+        waitedSec: Math.round((Date.now() - startedAt) / 100) / 10,
+        windows,
+        instance,
+        ready: instance !== null,
+        blockedByDialog: dialogs.length > 0,
+        dialogs,
+        effectiveTimeoutMs: launchBudgetMs,
+        probeFailures,
+      };
     }
 
     // Blieb bis zuletzt nur ein schmales Fenster stehen, wartet SteuerSpar-
@@ -270,6 +287,20 @@ export async function executeLaunchOperation(
     const kind = error && typeof error === "object" && typeof (error as { kind?: unknown }).kind === "string"
       ? String((error as { kind: string }).kind)
       : "startup-probe";
+    if (signal?.aborted || kind === "aborted") {
+      return {
+        ok: false,
+        kind: cleanupState.stillRunning ? "startup-abort-cleanup" : "aborted",
+        error: cleanupState.stillRunning
+          ? `API-Client brach den Start ab; die exakt gestartete SSE-PID ${pid} laeuft trotz Cleanup noch.`
+          : "API-Client hat den Start abgebrochen; die exakt gestartete SSE-PID wurde ohne Speichern beendet.",
+        pid,
+        processStillRunning: cleanupState.stillRunning,
+        cleanup: cleanupState.cleanup,
+        cleanupError: cleanupState.cleanupError,
+        effectiveTimeoutMs: launchBudgetMs,
+      };
+    }
     return {
       ok: false,
       kind: cleanupState.stillRunning ? "startup-probe-cleanup" : kind,

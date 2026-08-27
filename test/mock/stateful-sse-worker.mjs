@@ -771,6 +771,16 @@ export function createStatefulSseWorker({ caseDir }) {
         const caseState = model.openCase();
         return { ok: true, windows: [{ pid, hwnd, title: caseTitle(caseState, openPath), w: 1200, h: 800, minimiert: minimised }] };
       }
+      case "launch_probe": {
+        if (!openPath) return { ok: true, outcome: "deadline", windows: [], dialogs: [] };
+        const caseState = model.openCase();
+        return {
+          ok: true,
+          outcome: "observed",
+          windows: [{ pid, hwnd, title: caseTitle(caseState, openPath), w: 1200, h: 800, minimiert: minimised }],
+          dialogs: [],
+        };
+      }
       case "instances": {
         if (!openPath) {
           return {

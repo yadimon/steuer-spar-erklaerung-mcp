@@ -6388,10 +6388,14 @@ $verificationOnlyProfile = [bool](
   [string]$script:SSE_PROFILE.status -ne 'supported' -or
   [string]$script:SSE_PROFILE.operationAccess -ne 'full'
 )
-if ([string]$script:SSE_PROFILE.status -eq 'disabled' -and $Op -notin $experimentalProfileBaseOps) {
+# launch_probe ist kein API-Katalogeintrag, sondern der streng typisierte,
+# rein lesende zweite Worker eines launch-Aufrufs. Fuer Profilfreigaben erbt
+# er exakt die launch-Policy, ohne die oeffentliche Operationsmenge zu weiten.
+$profilePolicyOperation = $(if ($Op -eq 'launch_probe') { 'launch' } else { $Op })
+if ([string]$script:SSE_PROFILE.status -eq 'disabled' -and $profilePolicyOperation -notin $experimentalProfileBaseOps) {
   Fail "Produktprofil '$($script:SSE_PROFILE_ID)' ist deaktiviert; Betriebsoperationen sind gesperrt." 'profile-disabled'
 }
-if ($verificationOnlyProfile -and $Op -notin $experimentalProfileBaseOps) {
+if ($verificationOnlyProfile -and $profilePolicyOperation -notin $experimentalProfileBaseOps) {
   if ($env:SSE_OPERATE_EXPERIMENTAL -ne '1') {
     Fail (
       "Produktprofil '$($script:SSE_PROFILE_ID)' ist nicht vollstaendig freigegeben " +
@@ -6400,7 +6404,7 @@ if ($verificationOnlyProfile -and $Op -notin $experimentalProfileBaseOps) {
       "operateExperimental: true in der API-Konfiguration setzen."
     ) 'profile-unverified'
   }
-  if ($Op -notin $experimentalProfileVerificationOps -and
+  if ($profilePolicyOperation -notin $experimentalProfileVerificationOps -and
       -not $experimentalCheckerNavigation -and
       -not $experimentalDialogAnswerCandidate) {
     Fail (
@@ -9628,6 +9632,105 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       ok = $true; launched = $true; pid=[int]$started.Id; args = $argl; waitedSec = 0
       windows=@(); instance=$null; ready=$false; blockedByDialog=$false; dialogs=@()
       product=$productIdentity; case=$caseIdentity
+    })
+  }
+
+  'launch_probe' {
+    # Interner, passiver Plan: Der eigentliche launch bleibt in seinem eigenen
+    # frischen Worker. Erst dieser zweite frische Worker pollt Top-Level-Fenster
+    # und gegebenenfalls Dialogdeskriptoren bis zur absoluten Node-Deadline.
+    # Dadurch sinkt die Zahl der Prozessstarts, ohne einen UIA-Arbeiter nach
+    # einer anderen Operation wiederzuverwenden.
+    if (-not (Test-SSEExactProperties $a @(
+      'schemaVersion','planKind','pid','hasCase','deadlineUnixMs'
+    ))) {
+      Fail 'LaunchProbePlan enthaelt unbekannte oder fehlende Felder.' 'bad-args'
+    }
+    $schemaVersion = Get-SSEBoundedIntegerArg $a 'schemaVersion' 0 1 1
+    $planKind = [string](Arg $a 'planKind')
+    $targetPid = Get-SSEBoundedIntegerArg $a 'pid' 0 1 ([int]::MaxValue)
+    $hasCaseRaw = Arg $a 'hasCase' $null
+    $deadlineUnixMs = Get-SSEBoundedIntegerArg $a 'deadlineUnixMs' 0 0 253402300799999
+    if ($schemaVersion -ne 1 -or $planKind -cne 'launch-readiness' -or $hasCaseRaw -isnot [bool]) {
+      Fail 'LaunchProbePlan v1 braucht planKind=launch-readiness, eine PID und hasCase als booleschen Wert.' 'bad-args'
+    }
+    $nowUnixMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    if ($deadlineUnixMs -gt ($nowUnixMs + 300000)) {
+      Fail 'LaunchProbePlan darf hoechstens 300 Sekunden in die Zukunft reichen.' 'bad-args'
+    }
+
+    $lastProbeError = $null
+    $probeFailures = 0
+    $lastStartupPrompts = @()
+    $windowProbeSucceeded = $false
+    while (([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() + 1000) -lt $deadlineUnixMs) {
+      $windows = @()
+      try {
+        $windows = @(Get-Windows 'SSE' | Where-Object {
+          [int]$_.pid -eq [int]$targetPid -and [int64]$_.hwnd -gt 0
+        })
+      } catch {
+        $lastProbeError = "windows: $($_.Exception.Message)"
+        $probeFailures++
+        Emit ([pscustomobject]@{
+          ok=$true; outcome='retry-fresh'; windows=@(); dialogs=@()
+          startupPrompts=$lastStartupPrompts; probeFailures=$probeFailures
+          lastProbeError=$lastProbeError; windowProbeSucceeded=$windowProbeSucceeded
+        })
+      }
+      $windowProbeSucceeded = $true
+
+      $titledLikeSse = @($windows | Where-Object {
+        ([string]$_.title).Contains('SteuerSparErklärung') -or
+        (-not [bool]$hasCaseRaw -and [string]$_.title -ceq 'Steuerprogramm')
+      })
+      $mainCandidates = @($titledLikeSse | Where-Object {
+        [int]$_.w -ge 900 -or $_.minimiert -eq $true
+      } | Sort-Object { [int64]$_.w * [int64]$_.h } -Descending)
+      $lastStartupPrompts = @($titledLikeSse | Where-Object {
+        $candidateHwnd = [int64]$_.hwnd
+        -not @($mainCandidates | Where-Object { [int64]$_.hwnd -eq $candidateHwnd }).Count
+      })
+
+      $dialogs = @()
+      if ($windows.Count) {
+        try {
+          $dialogs = @(Get-DialogInventory ([int]$targetPid) | Where-Object {
+            [int]$_.pid -eq [int]$targetPid -and $_.kind -in @('native-dialog','qt-dialog')
+          } | ForEach-Object {
+            [pscustomobject]@{
+              hwnd=$_.hwnd; pid=$_.pid; cls=$_.cls; title=$_.title; kind=$_.kind
+              x=$_.x; y=$_.y; w=$_.w; h=$_.h; minimiert=$_.minimiert
+              buttons=$_.buttons; texts=$_.texts; fingerprint=$_.fingerprint
+              uiaReadOk=$_.uiaReadOk; uiaError=$_.uiaError
+              msaaReadOk=$_.msaaReadOk; msaaError=$_.msaaError
+            }
+          })
+        } catch {
+          $lastProbeError = "dialog_list: $($_.Exception.Message)"
+          $probeFailures++
+          Emit ([pscustomobject]@{
+            ok=$true; outcome='retry-fresh'; windows=@(); dialogs=@()
+            startupPrompts=$lastStartupPrompts; probeFailures=$probeFailures
+            lastProbeError=$lastProbeError; windowProbeSucceeded=$windowProbeSucceeded
+          })
+        }
+      }
+
+      if ($mainCandidates.Count -or $dialogs.Count) {
+        Emit ([pscustomobject]@{
+          ok=$true; outcome='observed'; windows=$windows; dialogs=$dialogs
+          startupPrompts=$lastStartupPrompts; probeFailures=$probeFailures
+          lastProbeError=$lastProbeError; windowProbeSucceeded=$windowProbeSucceeded
+        })
+      }
+      Start-Sleep -Milliseconds 250
+    }
+
+    Emit ([pscustomobject]@{
+      ok=$true; outcome='deadline'; windows=$lastStartupPrompts; dialogs=@()
+      startupPrompts=$lastStartupPrompts; probeFailures=$probeFailures
+      lastProbeError=$lastProbeError; windowProbeSucceeded=$windowProbeSucceeded
     })
   }
 
