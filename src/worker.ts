@@ -22,7 +22,7 @@
  */
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, fsyncSync, openSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, openSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -67,7 +67,9 @@ function createWorkerArgumentsFile(args: Record<string, unknown>): string {
   let failure: unknown;
   try {
     writeFileSync(descriptor, bytes);
-    fsyncSync(descriptor);
+    // Der Worker liest diese fluechtige Datei unmittelbar nach dem Schliessen.
+    // Sichtbarkeit braucht kein dauerhaftes Flush auf den Datentraeger; ein
+    // Crash darf den noch nicht gestarteten Auftrag ohnehin verlieren.
   } catch (error) {
     failure = error;
   } finally {
