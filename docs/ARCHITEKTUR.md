@@ -255,6 +255,13 @@ Agent oder eigenes Programm
 
 - Jeder UIA-Aufruf läuft weiterhin in einem frischen Prozess. Das isoliert den
   bekannten Qt/UIA-Fehlerzustand, in dem spätere Reads still leer werden.
+- Der dauerhafte API-Server hält standardmäßig zwei vollständig initialisierte,
+  aber noch UIA-unbenutzte Reserveprozesse. Jeder davon übernimmt weiterhin
+  genau einen Auftrag und endet danach; die Prozessisolation wird also nicht
+  aufgeweicht. `SSE_WORKER_PREWARM_POOL_SIZE` begrenzt den Vorrat auf 1 bis 3.
+  Zwei sind der gemessene allgemeine Kompromiss; drei vermeiden auf einem
+  schnellen Host zusätzliche Kaltstarts bei Aufrufen ohne Denkpause, benötigen
+  dafür aber einen weiteren wartenden PowerShell-Prozess.
 - Was dieser Schnitt kostet, ist gemessen und nicht geschätzt. Ein weiterhin
   nötiger Workeraufruf braucht rund 1,1 s Wanduhrzeit, davon etwa 130 ms für den
   PowerShell-Start, **rund 560 ms allein für das Übersetzen des über 700 KB

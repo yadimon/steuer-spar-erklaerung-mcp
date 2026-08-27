@@ -39,6 +39,21 @@ const compilerCandidates = [
 const compiler = compilerCandidates.find((candidate) => existsSync(candidate));
 assert(compiler, "Der Windows-.NET-Framework-Compiler fuer den Prewarm-Pool-Test fehlt.");
 
+const poolTargetProbe =
+  'const m=await import("./dist/worker-prewarm.js");process.stdout.write(String(m.warmSparePoolStatus().target));';
+const configuredPoolTarget = (value) => Number(execFileSync(
+  process.execPath,
+  ["--input-type=module", "-e", poolTargetProbe],
+  {
+    cwd: root,
+    env: { ...process.env, SSE_WORKER_PREWARM_POOL_SIZE: value },
+    encoding: "utf8",
+  },
+));
+assert.equal(configuredPoolTarget("3"), 3, "Der schnelle Host darf drei Reserven konfigurieren.");
+assert.equal(configuredPoolTarget("999"), 3, "Der Reservevorrat muss nach oben auf drei begrenzt bleiben.");
+assert.equal(configuredPoolTarget("0"), 1, "Der Reservevorrat muss nach unten mindestens eins bleiben.");
+
 function newArgumentsFile() {
   const path = join(tmpdir(), `sse-args-${randomUUID().replaceAll("-", "")}.json`);
   writeFileSync(path, "{}", "utf8");
