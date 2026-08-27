@@ -228,6 +228,9 @@ function Get-SSEReceiptManagerPolicy {
       -not $policy.controls -or -not $policy.deleteConfirmation -or -not $policy.importDialog -or
       -not [string]$policy.list.tableAutomationIdSuffix -or
       @($policy.list.countLabelAutomationIdSuffixes).Count -ne 3 -or
+      -not [string]$policy.list.searchAutomationIdSuffix -or
+      [int]$policy.list.primaryTextColumn -ne 2 -or
+      [int]$policy.list.documentNumberColumn -ne 8 -or
       -not [string]$policy.list.draftMarker -or
       -not [string]$policy.controls.newReceipt.automationIdSuffix -or
       -not [string]$policy.controls.attachFile.automationIdSuffix -or
@@ -327,6 +330,7 @@ function Get-SSEReceiptManagerState([IntPtr]$Window, $Policy, [switch]$WithValue
     hwnd=[int64]$Window; state=$state; nodes=$stableNodes
   }
   [pscustomobject]@{
+    window=[int64]$Window
     state=$state
     fingerprint=Get-SSETextSha256 ($fingerprintBody | ConvertTo-Json -Depth 8 -Compress)
     nodes=$nodes
@@ -362,7 +366,9 @@ function Get-SSEReceiptManagerListProjection($State, $Policy) {
   }
   $tableSuffix = [string]$Policy.list.tableAutomationIdSuffix
   $countSuffixes = @($Policy.list.countLabelAutomationIdSuffixes | ForEach-Object { [string]$_ })
+  $documentNumberColumn = [int]$Policy.list.documentNumberColumn
   $draftMarker = [string]$Policy.list.draftMarker
+  $searchSuffix = [string]$Policy.list.searchAutomationIdSuffix
   $tables = @($State.nodes | Where-Object {
     $_.type -eq 'Table' -and [string]$_.aid -and
     ([string]$_.aid).EndsWith($tableSuffix, [StringComparison]::Ordinal) -and
@@ -408,11 +414,89 @@ function Get-SSEReceiptManagerListProjection($State, $Policy) {
     $_.w -gt 0 -and $_.h -gt 0 -and $_.y -ge $table.y
   })
   $rows = New-Object System.Collections.ArrayList
+  $visibleGroups = @($dataCells | Group-Object y | Sort-Object { [int]$_.Name })
+  $projectedCellGroups = New-Object 'System.Collections.Generic.List[object]'
+  $gridProjectionError = $null
+  $searchNodes = @($State.nodes | Where-Object {
+    $_.type -eq 'Edit' -and [string]$_.aid -and
+    ([string]$_.aid).EndsWith($searchSuffix, [StringComparison]::Ordinal)
+  })
+  $filterText = $(if ($searchNodes.Count -eq 1) { [string]$searchNodes[0].val } else { '' })
+  $projectionExpectedCount = $count
+  foreach ($visibleGroup in $visibleGroups) {
+    $projectedCellGroups.Add([object]@($visibleGroup.Group | Sort-Object x))
+  }
+
+  # QTableWidget begrenzt den normalen ControlView-Baum auf 30 Zeilen. Das
+  # GridPattern kennt dagegen auch die danach virtualisierten Modellzeilen und
+  # liefert sie read-only per GetItem, ohne die Tabelle zu rollen oder den
+  # sichtbaren Zustand zu veraendern. Nur wenn Zeilenzaehler und Grid exakt
+  # uebereinstimmen, ersetzt die vollstaendige Grid-Projektion den sichtbaren
+  # Ausschnitt; andernfalls bleibt rowsComplete absichtlich false.
+  if ($projectedCellGroups.Count -ne $count -and $State.window) {
+    try {
+      $liveTable = Get-LiveElement ([IntPtr][int64]$State.window) ([string]$table.rid) ([string]$table.aid)
+      $gridObject = $null
+      if ($liveTable -and $liveTable.TryGetCurrentPattern(
+          [Windows.Automation.GridPattern]::Pattern, [ref]$gridObject)) {
+        $grid = [Windows.Automation.GridPattern]$gridObject
+        $gridRowCount = [int]$grid.Current.RowCount
+        $gridColumnCount = [int]$grid.Current.ColumnCount
+        $gridMatchesProjection = $gridRowCount -eq $count -or
+          ($filterText.Length -gt 0 -and $gridRowCount -ge 0 -and $gridRowCount -le $count)
+        if ($gridMatchesProjection -and $gridColumnCount -gt 0) {
+          $projectionExpectedCount = $gridRowCount
+          $gridGroups = New-Object 'System.Collections.Generic.List[object]'
+          for ($gridRow = 0; $gridRow -lt $projectionExpectedCount; $gridRow++) {
+            $gridCells = New-Object System.Collections.ArrayList
+            for ($gridColumn = 0; $gridColumn -lt $gridColumnCount; $gridColumn++) {
+              $gridItem = $grid.GetItem($gridRow, $gridColumn)
+              if (-not $gridItem) { throw "Grid-Zeile $gridRow, Spalte $gridColumn fehlt." }
+              $rectangle = $gridItem.Current.BoundingRectangle
+              $selected = $null
+              $toggleState = $null
+              $selectionObject = $null
+              if ($gridItem.TryGetCurrentPattern(
+                  [Windows.Automation.SelectionItemPattern]::Pattern, [ref]$selectionObject)) {
+                $selected = [bool]([Windows.Automation.SelectionItemPattern]$selectionObject).Current.IsSelected
+              }
+              $toggleObject = $null
+              if ($gridItem.TryGetCurrentPattern(
+                  [Windows.Automation.TogglePattern]::Pattern, [ref]$toggleObject)) {
+                $toggleState = [string]([Windows.Automation.TogglePattern]$toggleObject).Current.ToggleState
+              }
+              $gridRid = ($gridItem.GetRuntimeId() -join '.')
+              if ($gridRid) { $script:UIAElementCache[$gridRid] = $gridItem }
+              $gridX = $(if ([double]::IsNaN([double]$rectangle.X) -or [double]::IsInfinity([double]$rectangle.X)) { 0 } else { [int]$rectangle.X })
+              $gridY = $(if ([double]::IsNaN([double]$rectangle.Y) -or [double]::IsInfinity([double]$rectangle.Y)) { 0 } else { [int]$rectangle.Y })
+              $gridWidth = $(if ([double]::IsNaN([double]$rectangle.Width) -or [double]::IsInfinity([double]$rectangle.Width)) { 0 } else { [int]$rectangle.Width })
+              $gridHeight = $(if ([double]::IsNaN([double]$rectangle.Height) -or [double]::IsInfinity([double]$rectangle.Height)) { 0 } else { [int]$rectangle.Height })
+              $null = $gridCells.Add([pscustomobject]@{
+                name=[string]$gridItem.Current.Name
+                rid=$gridRid
+                selected=$selected
+                toggleState=$toggleState
+                x=$gridX; y=$gridY; w=$gridWidth; h=$gridHeight
+              })
+            }
+            $gridGroups.Add([object]@($gridCells))
+          }
+          $projectedCellGroups = $gridGroups
+        }
+      }
+    } catch {
+      $gridProjectionError = $_.Exception.Message
+      # Die strikte rowsComplete-Nachbedingung der mutierenden Operationen
+      # verhindert jede Aenderung, falls der Provider waehrend des Reads driftet.
+    }
+  }
+
   $rowIndex = 0
-  foreach ($group in @($dataCells | Group-Object y | Sort-Object { [int]$_.Name })) {
-    $cells = @($group.Group | Sort-Object x | ForEach-Object {
+  foreach ($cellGroup in $projectedCellGroups) {
+    $cells = @($cellGroup | ForEach-Object {
       [pscustomobject][ordered]@{
         name=[string]$_.name; rid=[string]$_.rid; selected=$_.selected
+        toggleState=$_.toggleState
         x=[int]$_.x; y=[int]$_.y; w=[int]$_.w; h=[int]$_.h
       }
     })
@@ -431,6 +515,9 @@ function Get-SSEReceiptManagerListProjection($State, $Policy) {
     # dagegen stabil und eignet sich als Multiset-Readback der unberuehrten
     # Restzeilen nach einer Loeschung.
     $primaryText = $(if ($namedCells.Count) { [string]$namedCells[0].name } else { '' })
+    $documentNumber = $(if ($cells.Count -gt $documentNumberColumn) {
+      [string]$cells[$documentNumberColumn].name
+    } else { '' })
     $contentFingerprint = Get-SSETextSha256 (([pscustomobject][ordered]@{
       primaryText=$primaryText
     }) | ConvertTo-Json -Depth 4 -Compress)
@@ -439,6 +526,7 @@ function Get-SSEReceiptManagerListProjection($State, $Policy) {
     $null = $rows.Add([pscustomobject][ordered]@{
       index=$rowIndex; rowRid=$rowRid; rowFingerprint=$rowFingerprint
       contentFingerprint=$contentFingerprint; primaryText=$primaryText
+      documentNumber=$documentNumber
       cells=$cells; draft=[bool]$isDraft; selected=[bool]$selected
     })
   }
@@ -450,7 +538,8 @@ function Get-SSEReceiptManagerListProjection($State, $Policy) {
     count=$count; countSource='info-label'; countText=$countText
     headers=$headerNames; rows=@($rows)
     draftCount=@($rows | Where-Object { $_.draft }).Count
-    listFingerprint=$listFingerprint; rowsComplete=[bool]($rows.Count -eq $count)
+    listFingerprint=$listFingerprint; rowsComplete=[bool]($rows.Count -eq $projectionExpectedCount)
+    gridProjectionError=$gridProjectionError
   }
 }
 
@@ -5688,6 +5777,19 @@ function Commit-TrackedValue([IntPtr]$Hwnd, $Node, [string]$Value, [string]$Expe
     }
     if ($Value) {
       [System.Windows.Forms.SendKeys]::SendWait((ConvertTo-SendKeysLiteral $Value))
+      $afterValueInput = Get-SSELastInputTick
+      Set-SSEForegroundLeaseInputCheckpoint $afterValueInput ([pscustomobject]@{ x=$px; y=$py })
+      Start-Sleep -Milliseconds 60
+      if (-not (Test-SSELastInputUnchanged $afterValueInput) -or [SW]::GetForegroundWindow() -ne $Hwnd) {
+        $changedAt = Get-SSELastInputTick
+        Complete-SSEPhysicalSection $Hwnd
+        return New-SSECommitResult 'interference-after-value' $inputBefore $changedAt
+      }
+    } else {
+      # Ctrl+A allein veraendert den Qt-Wert nicht. Ein leerer Sollwert muss
+      # deshalb die markierte Eingabe explizit loeschen, bevor TAB das
+      # textChanged-/editingFinished-Signal ausloest.
+      [System.Windows.Forms.SendKeys]::SendWait('{BACKSPACE}')
       $afterValueInput = Get-SSELastInputTick
       Set-SSEForegroundLeaseInputCheckpoint $afterValueInput ([pscustomobject]@{ x=$px; y=$py })
       Start-Sleep -Milliseconds 60
@@ -16826,7 +16928,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $matchedCount = @($matches).Count
     $compactMatches = @($matches | Select-Object -First $limit | ForEach-Object {
       [pscustomobject][ordered]@{
-        index=[int]$_.index; title=[string]$_.primaryText; draft=[bool]$_.draft
+        index=[int]$_.index; title=[string]$_.primaryText; documentNumber=[string]$_.documentNumber; draft=[bool]$_.draft
         rowRid=[string]$_.rowRid; rowFingerprint=[string]$_.rowFingerprint
         contentFingerprint=[string]$_.contentFingerprint
       }
@@ -16839,6 +16941,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       count=[int]$list.count; countSource=[string]$list.countSource; headers=@($list.headers)
       rows=@($list.rows); draftCount=[int]$list.draftCount
       listFingerprint=[string]$list.listFingerprint; rowsComplete=[bool]$list.rowsComplete
+      gridProjectionError=[string]$list.gridProjectionError
       matchedCount=$matchedCount; matches=$compactMatches; matchesComplete=[bool]($matchedCount -le $limit)
       ungespeichert=[bool]$dirty; physicalInputUsed=$false
       hinweis=$(if ($list.rowsComplete) { 'Alle vom BelegManager gezaehlten Zeilen sind im UIA-Baum enthalten.' } else {
@@ -17534,6 +17637,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     if ($rawItems) {
       $linkItems = @($rawItems)
       if ((Arg $a 'receiptContentFingerprint' $null) -or (Arg $a 'expectedReceiptTitle' $null) -or
+          (Arg $a 'expectedDocumentNumber' $null) -or
           $null -ne (Arg $a 'linked' $null)) {
         Fail 'items und Legacy-Einzelfelder duerfen nicht gemeinsam angegeben werden.' 'bad-args'
       }
@@ -17541,6 +17645,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $linkItems = @([pscustomobject]@{
         receiptContentFingerprint=Arg $a 'receiptContentFingerprint' $null
         expectedReceiptTitle=Arg $a 'expectedReceiptTitle' $null
+        expectedDocumentNumber=Arg $a 'expectedDocumentNumber' $null
         linked=Arg $a 'linked' $null
       })
     }
@@ -17550,13 +17655,13 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     foreach ($item in $linkItems) {
       $itemProperties = @($item.PSObject.Properties)
       $unknownItemProperties = @($itemProperties | Where-Object {
-        $_.Name -notin @('receiptContentFingerprint','expectedReceiptTitle','linked')
+        $_.Name -notin @('receiptContentFingerprint','expectedReceiptTitle','expectedDocumentNumber','linked')
       })
       $itemFingerprint = ([string]$item.receiptContentFingerprint).ToUpperInvariant()
       if ($unknownItemProperties.Count -or -not [string]$item.expectedReceiptTitle -or
           -not $item.PSObject.Properties['linked'] -or
           ($itemFingerprint -and $itemFingerprint -notmatch '^[A-F0-9]{64}$')) {
-        Fail 'Jeder Link-Eintrag braucht expectedReceiptTitle und linked; receiptContentFingerprint ist optional SHA-256.' 'bad-args'
+        Fail 'Jeder Link-Eintrag braucht expectedReceiptTitle und linked; expectedDocumentNumber und receiptContentFingerprint sind optional.' 'bad-args'
       }
     }
     if ($acknowledge -ne $true) {
@@ -17594,9 +17699,17 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         [bool]$_.on -and $_.w -gt 0 -and $_.h -gt 0
       })
       if ($openButtons.Count -ne 1) { Fail "$($openButtons.Count) profilierte Belegverknuepfungs-Schaltflaechen gefunden." 'profile-contract' }
-      $freshOpen = Convert-ExactElementToNode (Get-LiveElement $mainHwnd ([string]$openButtons[0].rid))
+      $freshOpenElement = Get-LiveElement $mainHwnd ([string]$openButtons[0].rid) ([string]$openButtons[0].aid)
+      $freshOpen = Convert-ExactElementToNode $freshOpenElement
       if (-not $freshOpen -or -not [bool]$freshOpen.on) { Fail 'Belegverknuepfungs-Schaltflaeche ist nicht mehr aktiv.' 'stale' }
-      $openClick = Click-VerifiedPoint $mainHwnd $freshOpen (Get-SSELastInputTick) -RequireForeground
+      $openInvokeObject = $null
+      if ($freshOpenElement -and $freshOpenElement.TryGetCurrentPattern(
+          [Windows.Automation.InvokePattern]::Pattern, [ref]$openInvokeObject)) {
+        ([Windows.Automation.InvokePattern]$openInvokeObject).Invoke()
+        $openClick = [pscustomobject]@{ method='invoke-pattern'; hwnd=[int64]$mainHwnd }
+      } else {
+        $openClick = Click-VerifiedPoint $mainHwnd $freshOpen (Get-SSELastInputTick) -RequireForeground
+      }
       $deadline = [DateTime]::UtcNow.AddMilliseconds($waitMs)
       $toolWindow = $null
       do {
@@ -17626,10 +17739,34 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         [string]$_.name -ceq [string]$showPolicy.expectedName -and [bool]$_.on
       })
       if ($showButtons.Count -ne 1) { Fail 'Alle-Belege-Schaltflaeche ist im Verknuepfungsmodus nicht eindeutig.' 'profile-contract' }
-      $showClick = Click-VerifiedPoint $toolHwnd $showButtons[0] (Get-SSELastInputTick) -RequireForeground
-      Start-Sleep -Milliseconds $waitMs
-      $listState = Get-SSEReceiptManagerState $toolHwnd $policy
-      $list = Get-SSEReceiptManagerListProjection $listState $policy
+      $freshShow = Get-LiveElement $toolHwnd ([string]$showButtons[0].rid)
+      $showInvokeObject = $null
+      if ($freshShow -and $freshShow.TryGetCurrentPattern(
+          [Windows.Automation.InvokePattern]::Pattern, [ref]$showInvokeObject)) {
+        ([Windows.Automation.InvokePattern]$showInvokeObject).Invoke()
+        $showClick = [pscustomobject]@{ method='invoke-pattern'; hwnd=[int64]$toolHwnd }
+      } else {
+        $showClick = Click-VerifiedPoint $toolHwnd $showButtons[0] (Get-SSELastInputTick) -RequireForeground
+      }
+      $listDeadline = [DateTime]::UtcNow.AddMilliseconds($waitMs)
+      $listState = $null
+      $list = $null
+      do {
+        Start-Sleep -Milliseconds 100
+        try {
+          $candidateState = Get-SSEReceiptManagerState $toolHwnd $policy
+          if ([string]$candidateState.state -cne 'list') { continue }
+          $candidateList = Get-SSEReceiptManagerListProjection $candidateState $policy
+          if ([bool]$candidateList.rowsComplete -and [int]$candidateList.draftCount -eq 0) {
+            $listState = $candidateState
+            $list = $candidateList
+            break
+          }
+        } catch {
+          # Qt baut die Listenseite kurzzeitig um. Bis zum harten Deadline-
+          # Vertrag wird nur erneut gelesen; niemals wird hier blind geklickt.
+        }
+      } while ([DateTime]::UtcNow -lt $listDeadline)
       if (-not [bool]$list.rowsComplete -or [int]$list.draftCount -ne 0) {
         Fail 'Belegliste ist im Verknuepfungsmodus nicht vollstaendig oder enthaelt Entwuerfe.' 'precondition-failed'
       }
@@ -17640,11 +17777,13 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       param($Mode, $Item)
       $contentFingerprint = ([string]$Item.receiptContentFingerprint).ToUpperInvariant()
       $expectedReceiptTitle = [string]$Item.expectedReceiptTitle
+      $expectedDocumentNumber = [string]$Item.expectedDocumentNumber
       $matches = @($Mode.list.rows | Where-Object {
         [string]$_.primaryText -ceq $expectedReceiptTitle -and
+        (-not $expectedDocumentNumber -or [string]$_.documentNumber -ceq $expectedDocumentNumber) -and
         (-not $contentFingerprint -or [string]$_.contentFingerprint -ceq $contentFingerprint)
       })
-      if ($matches.Count -eq 0) { Fail "Kein exakt titel- und optional inhaltsgebundener Beleg '$expectedReceiptTitle' gefunden." 'stale' }
+      if ($matches.Count -eq 0) { Fail "Kein exakt titel-, belegnummer- und optional inhaltsgebundener Beleg '$expectedReceiptTitle' gefunden." 'stale' }
       if ($matches.Count -gt 1) { Fail "$($matches.Count) Belege mit dem exakten Titel '$expectedReceiptTitle' gefunden; keine Aenderung." 'ambiguous' }
       $row = $matches[0]
       $toggleColumn = [int]$linkPolicy.rowToggleColumn
@@ -17652,10 +17791,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $cell = $row.cells[$toggleColumn]
       $element = Get-LiveElement $Mode.hwnd ([string]$cell.rid)
       $toggleObject = $null
-      if (-not $element -or -not $element.TryGetCurrentPattern([Windows.Automation.TogglePattern]::Pattern, [ref]$toggleObject)) {
-        Fail 'Link-Zelle ist nicht mehr ueber TogglePattern gebunden.' 'stale'
+      $toggleState = [string]$cell.toggleState
+      if ($element -and $element.TryGetCurrentPattern([Windows.Automation.TogglePattern]::Pattern, [ref]$toggleObject)) {
+        $toggleState = [string]$toggleObject.Current.ToggleState
       }
-      $toggleState = [string]$toggleObject.Current.ToggleState
       if ($toggleState -notin @('On','Off')) { Fail "Link-Zelle meldet unerwarteten Zustand '$toggleState'." 'profile-contract' }
       $footerCountNodes = @($Mode.state.nodes | Where-Object {
         [string]$_.aid -and ([string]$_.aid).EndsWith([string]$linkPolicy.footerCountAutomationIdSuffix, [StringComparison]::Ordinal)
@@ -17681,7 +17820,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       }
       [pscustomobject]@{
         row=$row; cell=$cell; linked=[bool]($toggleState -eq 'On'); footerCount=$footerCount
-        expectedReceiptTitle=$expectedReceiptTitle; receiptContentFingerprint=$(if ($contentFingerprint) { $contentFingerprint } else { $null })
+        expectedReceiptTitle=$expectedReceiptTitle
+        expectedDocumentNumber=$(if ($expectedDocumentNumber) { $expectedDocumentNumber } else { $null })
+        receiptContentFingerprint=$(if ($contentFingerprint) { $contentFingerprint } else { $null })
       }
     }
 
@@ -17695,7 +17836,15 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         [string]$_.name -ceq $name -and [bool]$_.on
       })
       if ($buttons.Count -ne 1) { Fail "$($buttons.Count) aktive '$name'-Schaltflaechen im Verknuepfungsmodus gefunden." 'profile-contract' }
-      $click = Click-VerifiedPoint $ToolHwnd $buttons[0] (Get-SSELastInputTick) -RequireForeground
+      $freshButton = Get-LiveElement $ToolHwnd ([string]$buttons[0].rid) ([string]$buttons[0].aid)
+      $buttonInvokeObject = $null
+      if ($freshButton -and $freshButton.TryGetCurrentPattern(
+          [Windows.Automation.InvokePattern]::Pattern, [ref]$buttonInvokeObject)) {
+        ([Windows.Automation.InvokePattern]$buttonInvokeObject).Invoke()
+        $click = [pscustomobject]@{ method='invoke-pattern'; hwnd=[int64]$ToolHwnd; name=$name }
+      } else {
+        $click = Click-VerifiedPoint $ToolHwnd $buttons[0] (Get-SSELastInputTick) -RequireForeground
+      }
       $deadline = [DateTime]::UtcNow.AddMilliseconds($waitMs)
       while ([SW]::IsWindow($ToolHwnd) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 100 }
       if ([SW]::IsWindow($ToolHwnd)) { Fail "BelegManager blieb nach '$name' offen." 'postcondition-failed' }
@@ -17735,7 +17884,15 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           [bool]$_.on -and $_.w -gt 0 -and $_.h -gt 0
         })
         if ($cancelButtons.Count -ne 1) { Fail 'Belegwerte-Dialog hat nicht genau einen aktiven Abbrechen-Schalter.' 'dialog-unmapped' }
-        $transferCancelClick = Click-VerifiedPoint $transferHwnd $cancelButtons[0] (Get-SSELastInputTick) -RequireForeground
+        $freshTransferCancel = Get-LiveElement $transferHwnd ([string]$cancelButtons[0].rid) ([string]$cancelButtons[0].aid)
+        $transferCancelInvokeObject = $null
+        if ($freshTransferCancel -and $freshTransferCancel.TryGetCurrentPattern(
+            [Windows.Automation.InvokePattern]::Pattern, [ref]$transferCancelInvokeObject)) {
+          ([Windows.Automation.InvokePattern]$transferCancelInvokeObject).Invoke()
+          $transferCancelClick = [pscustomobject]@{ method='invoke-pattern'; hwnd=[int64]$transferHwnd; name=[string]$transferPolicy.cancelButton }
+        } else {
+          $transferCancelClick = Click-VerifiedPoint $transferHwnd $cancelButtons[0] (Get-SSELastInputTick) -RequireForeground
+        }
         $dialogCloseDeadline = [DateTime]::UtcNow.AddMilliseconds($waitMs)
         while ([SW]::IsWindow($transferHwnd) -and [DateTime]::UtcNow -lt $dialogCloseDeadline) { Start-Sleep -Milliseconds 100 }
         if ([SW]::IsWindow($transferHwnd)) { Fail 'Belegwerte-Dialog blieb nach Abbrechen offen.' 'postcondition-failed' }
@@ -17745,6 +17902,12 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     }
 
     $modeBefore = & $openMode
+    $listIdentityBefore = @($modeBefore.list.rows | ForEach-Object {
+      [pscustomobject][ordered]@{
+        title=[string]$_.primaryText
+        documentNumber=[string]$_.documentNumber
+      }
+    } | Sort-Object title, documentNumber | ConvertTo-Json -Depth 4 -Compress)
     $projectionsBefore = New-Object System.Collections.ArrayList
     foreach ($item in $linkItems) { $null = $projectionsBefore.Add((& $readMode $modeBefore $item)) }
     $resolvedRowIds = @($projectionsBefore | ForEach-Object { [string]$_.row.rowRid })
@@ -17780,29 +17943,402 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       })
     }
 
+    $stagedMode = $modeBefore
     $stagedState = $modeBefore.state
     $stagedList = $modeBefore.list
     $toggleClicks = New-Object System.Collections.ArrayList
     $expectedCount = $footerCountBefore
+    # SSE 31.0.1 exponiert TogglePattern, quittiert Toggle() live aber ohne
+    # Modell- oder Footer-Wirkung. Das Profil darf den Pfad erst nach einer
+    # neuen buildgebundenen Messung aktivieren.
+    $patternToggleAvailable = [bool]$linkPolicy.directToggleSupported
+    $cancelStagedMode = {
+      if (-not [SW]::IsWindow([IntPtr]$modeBefore.hwnd)) { return }
+      try {
+        try {
+          $cleanupState = Get-SSEReceiptManagerState $modeBefore.hwnd $policy -WithValues
+        } catch {
+          # Selbst wenn Qt waehrend eines Filterwechsels keinen eindeutigen
+          # Seitenzustand liefert, bleibt der exakt profilierte Abbrechen-
+          # Schalter bindbar. closeMode benoetigt nur den frischen Knotenbaum.
+          $cleanupTree = Walk-Tree $modeBefore.hwnd 1000
+          $cleanupState = [pscustomobject]@{ nodes=@($cleanupTree.nodes | Where-Object { $_.w -gt 0 -and $_.h -gt 0 }) }
+        }
+        $null = & $closeMode $modeBefore.hwnd $cleanupState 'cancel'
+      } catch {
+        # Den urspruenglichen fail-closed Fehler nicht verdecken. Ein noch
+        # offenes Toolfenster wird im Ergebnis als sichtbarer Cleanup-Bedarf
+        # erkannt und darf nicht als erfolgreicher Batch gelten.
+      }
+    }
+    $tryPatternToggle = {
+      param($Mode, $Projection, $Item)
+      $tables = @($Mode.state.nodes | Where-Object {
+        $_.type -eq 'Table' -and [string]$_.aid -and
+        ([string]$_.aid).EndsWith([string]$policy.list.tableAutomationIdSuffix, [StringComparison]::Ordinal)
+      })
+      if ($tables.Count -ne 1) { return $null }
+      $tableElement = Get-LiveElement $Mode.hwnd ([string]$tables[0].rid) ([string]$tables[0].aid)
+      $gridObject = $null
+      if (-not $tableElement -or -not $tableElement.TryGetCurrentPattern(
+          [Windows.Automation.GridPattern]::Pattern, [ref]$gridObject)) { return $null }
+      $grid = [Windows.Automation.GridPattern]$gridObject
+      $gridRow = [int]$Projection.row.index - 1
+      if ($gridRow -lt 0 -or $gridRow -ge [int]$grid.Current.RowCount) { return $null }
+      $titleCell = $grid.GetItem($gridRow, [int]$policy.list.primaryTextColumn)
+      if (-not $titleCell -or [string]$titleCell.Current.Name -cne [string]$Item.expectedReceiptTitle) { return $null }
+      if ([string]$Item.expectedDocumentNumber) {
+        $documentCell = $grid.GetItem($gridRow, [int]$policy.list.documentNumberColumn)
+        if (-not $documentCell -or [string]$documentCell.Current.Name -cne [string]$Item.expectedDocumentNumber) { return $null }
+      }
+      $toggleElement = $grid.GetItem($gridRow, [int]$linkPolicy.rowToggleColumn)
+      $toggleObject = $null
+      if (-not $toggleElement -or -not [bool]$toggleElement.Current.IsEnabled -or
+          -not $toggleElement.TryGetCurrentPattern(
+            [Windows.Automation.TogglePattern]::Pattern, [ref]$toggleObject)) { return $null }
+      $currentLinked = [bool]([string]([Windows.Automation.TogglePattern]$toggleObject).Current.ToggleState -ceq 'On')
+      if ($currentLinked -ne [bool]$Projection.linked) {
+        Fail 'Direkte Link-Zelle driftete unmittelbar vor TogglePattern.Toggle.' 'stale'
+      }
+      ([Windows.Automation.TogglePattern]$toggleObject).Toggle()
+      [pscustomobject]@{
+        method='toggle-pattern'; hwnd=[int64]$Mode.hwnd; gridRow=$gridRow
+        expectedReceiptTitle=[string]$Item.expectedReceiptTitle
+      }
+    }
+    $setListSearch = {
+      param($State, [string]$Text)
+      $searchNodes = @($State.nodes | Where-Object {
+        $_.type -eq 'Edit' -and [string]$_.aid -and
+        ([string]$_.aid).EndsWith([string]$policy.list.searchAutomationIdSuffix, [StringComparison]::Ordinal) -and
+        [bool]$_.on -and $_.w -gt 0 -and $_.h -gt 0
+      })
+      if ($searchNodes.Count -ne 1) { Fail 'Beleglisten-Suchfeld ist nicht exakt einmal sichtbar und aktiv.' 'profile-contract' }
+      $searchElement = Get-LiveElement $modeBefore.hwnd ([string]$searchNodes[0].rid) ([string]$searchNodes[0].aid)
+      $searchValueObject = $null
+      if (-not $searchElement -or -not $searchElement.TryGetCurrentPattern(
+          [Windows.Automation.ValuePattern]::Pattern, [ref]$searchValueObject) -or
+          [bool]([Windows.Automation.ValuePattern]$searchValueObject).Current.IsReadOnly) {
+        Fail 'Beleglisten-Suchfeld ist nicht mehr schreibbar ueber ValuePattern.' 'stale'
+      }
+      $currentSearchText = [string]([Windows.Automation.ValuePattern]$searchValueObject).Current.Value
+      $searchCommit = Commit-TrackedValue $modeBefore.hwnd $searchNodes[0] $Text $currentSearchText
+      if ([string]$searchCommit.method -cne 'verified-keyboard-replace') {
+        Fail "Beleglisten-Suchtext wurde nicht als verifizierte Tastatureingabe uebernommen: $([string]$searchCommit.method)." 'stale'
+      }
+      $readbackValueObject = $null
+      $readbackSearchElement = Get-LiveElement $modeBefore.hwnd ([string]$searchNodes[0].rid) ([string]$searchNodes[0].aid)
+      if (-not $readbackSearchElement -or -not $readbackSearchElement.TryGetCurrentPattern(
+          [Windows.Automation.ValuePattern]::Pattern, [ref]$readbackValueObject) -or
+          [string]([Windows.Automation.ValuePattern]$readbackValueObject).Current.Value -cne $Text) {
+        Fail 'Beleglisten-Suchfeld bestaetigte den exakt gesetzten Filtertext nicht.' 'stale'
+      }
+      $filterDeadline = [DateTime]::UtcNow.AddMilliseconds([Math]::Min($waitMs, 1500))
+      $filteredState = $null
+      $filteredList = $null
+      $filterReady = $false
+      do {
+        Start-Sleep -Milliseconds 50
+        $filteredState = Get-SSEReceiptManagerState $modeBefore.hwnd $policy -WithValues
+        $filteredList = Get-SSEReceiptManagerListProjection $filteredState $policy
+        if ([int]$filteredList.draftCount -ne 0 -or [string]$filteredList.gridProjectionError) {
+          Fail 'Gefilterte Belegliste enthaelt Entwuerfe oder einen Grid-Projektionsfehler.' 'stale'
+        }
+        if ($Text.Length -eq 0) {
+          $filterReady = [bool]$filteredList.rowsComplete
+        } else {
+          $filteredRows = @($filteredList.rows)
+          $filterReady = [bool]($filteredRows.Count -ge 1 -and $filteredRows.Count -le 20 -and
+            @($filteredRows | Where-Object { [string]$_.primaryText -ceq $Text }).Count -ge 1)
+        }
+        if ($filterReady) { break }
+      } while ([DateTime]::UtcNow -lt $filterDeadline)
+      if (-not $filterReady) {
+        Fail 'Beleglistenfilter erreichte den erwarteten titelgebundenen Grid-Zustand nicht rechtzeitig.' 'stale'
+      }
+      [pscustomobject]@{ hwnd=$modeBefore.hwnd; state=$filteredState; list=$filteredList }
+    }
     foreach ($itemIndex in $changes) {
-      $projectionBefore = $projectionsBefore[$itemIndex]
       $item = $linkItems[$itemIndex]
-      $toggleNode = Convert-ExactElementToNode (Get-LiveElement $modeBefore.hwnd ([string]$projectionBefore.cell.rid))
+      if ($patternToggleAvailable) {
+        try {
+          $projectionBefore = & $readMode $stagedMode $item
+          $patternToggle = & $tryPatternToggle $stagedMode $projectionBefore $item
+        if ($patternToggle) {
+          $null = $toggleClicks.Add($patternToggle)
+          $previousExpectedCount = $expectedCount
+          $expectedCount += $(if ([bool]$item.linked) { 1 } else { -1 })
+          $patternDeadline = [DateTime]::UtcNow.AddMilliseconds([Math]::Min($waitMs, 750))
+          $projectionStaged = $null
+          do {
+            Start-Sleep -Milliseconds 100
+            $stagedState = Get-SSEReceiptManagerState $modeBefore.hwnd $policy
+            $stagedList = Get-SSEReceiptManagerListProjection $stagedState $policy
+            if (-not [bool]$stagedList.rowsComplete -or [int]$stagedList.draftCount -ne 0) { continue }
+            $stagedMode = [pscustomobject]@{ hwnd=$modeBefore.hwnd; state=$stagedState; list=$stagedList }
+            $projectionStaged = & $readMode $stagedMode $item
+            if ([bool]$projectionStaged.linked -eq [bool]$item.linked -and
+                [int]$projectionStaged.footerCount -eq $expectedCount) { break }
+          } while ([DateTime]::UtcNow -lt $patternDeadline)
+          if (-not $projectionStaged -or [bool]$projectionStaged.linked -ne [bool]$item.linked -or
+              [int]$projectionStaged.footerCount -ne $expectedCount) {
+            if ($projectionStaged -and
+                [bool]$projectionStaged.linked -eq [bool]$projectionBefore.linked -and
+                [int]$projectionStaged.footerCount -eq $previousExpectedCount) {
+              # Qt exponiert TogglePattern auf der Linkspalte, der Provider kann
+              # Toggle() aber wirkungslos quittieren. Nur der exakt bewiesene
+              # Null-Effekt darf in demselben Batch auf den sichtbaren,
+              # verifizierten Such-/Klickpfad fallen.
+              $patternToggleAvailable = $false
+              $expectedCount = $previousExpectedCount
+              $patternToggle = $null
+            } else {
+              $null = & $closeMode $modeBefore.hwnd $stagedState 'cancel'
+              Fail ("TogglePattern bestaetigte Zielzustand/Zielzaehler nicht " +
+                "(count=$([int]$projectionStaged.footerCount)/$expectedCount); alle Aenderungen wurden abgebrochen.") 'postcondition-failed'
+            }
+          }
+          if ($patternToggle) {
+            continue
+          }
+        }
+        } catch {
+          & $cancelStagedMode
+          throw
+        }
+      }
+      try {
+        $stagedMode = & $setListSearch $stagedState ([string]$item.expectedReceiptTitle)
+        $stagedState = $stagedMode.state
+        $stagedList = $stagedMode.list
+        $projectionBefore = & $readMode $stagedMode $item
+      } catch {
+        & $cancelStagedMode
+        throw
+      }
+      $resolveGridToggle = {
+        param($Mode, $Projection, $Item)
+        $tables = @($Mode.state.nodes | Where-Object {
+          $_.type -eq 'Table' -and [string]$_.aid -and
+          ([string]$_.aid).EndsWith([string]$policy.list.tableAutomationIdSuffix, [StringComparison]::Ordinal)
+        })
+        if ($tables.Count -ne 1) { return $null }
+        $tableElement = Get-LiveElement $Mode.hwnd ([string]$tables[0].rid) ([string]$tables[0].aid)
+        $gridObject = $null
+        if (-not $tableElement -or -not $tableElement.TryGetCurrentPattern(
+            [Windows.Automation.GridPattern]::Pattern, [ref]$gridObject)) { return $null }
+        $grid = [Windows.Automation.GridPattern]$gridObject
+        $gridRow = [int]$Projection.row.index - 1
+        if ($gridRow -lt 0 -or $gridRow -ge [int]$grid.Current.RowCount) { return $null }
+        $titleCell = $grid.GetItem($gridRow, [int]$policy.list.primaryTextColumn)
+        if (-not $titleCell -or [string]$titleCell.Current.Name -cne [string]$Item.expectedReceiptTitle) { return $null }
+        if ([string]$Item.expectedDocumentNumber) {
+          $documentCell = $grid.GetItem($gridRow, [int]$policy.list.documentNumberColumn)
+          if (-not $documentCell -or [string]$documentCell.Current.Name -cne [string]$Item.expectedDocumentNumber) { return $null }
+        }
+        [pscustomobject]@{
+          table=$tableElement; grid=$grid; gridRow=$gridRow
+          titleCell=$titleCell
+          element=$grid.GetItem($gridRow, [int]$linkPolicy.rowToggleColumn)
+        }
+      }
+      $gridBinding = & $resolveGridToggle $stagedMode $projectionBefore $item
+      $toggleNode = $(if ($gridBinding) { Convert-ExactElementToNode $gridBinding.element } else { $null })
+      $pointBound = $false
+      if ($toggleNode -and [bool]$toggleNode.on -and [int]$toggleNode.w -gt 0 -and [int]$toggleNode.h -gt 0) {
+        $pointX = [int]($toggleNode.x + $toggleNode.w / 2)
+        $pointY = [int]($toggleNode.y + $toggleNode.h / 2)
+        $pointBound = [bool](Get-SSEPointObstruction $modeBefore.hwnd $pointX $pointY).isBoundTarget
+      }
+      if (-not $pointBound) {
+        $scrollObject = $null
+        $scrollItemObject = $null
+        if ($gridBinding -and $gridBinding.table.TryGetCurrentPattern(
+            [Windows.Automation.ScrollPattern]::Pattern, [ref]$scrollObject)) {
+          $rowCount = [int]$gridBinding.grid.Current.RowCount
+          $verticalPercent = $(if ($rowCount -le 1) { 0.0 } else {
+            [Math]::Min(100.0, [Math]::Max(0.0, (100.0 * [int]$gridBinding.gridRow / ($rowCount - 1))))
+          })
+          ([Windows.Automation.ScrollPattern]$scrollObject).SetScrollPercent(
+            [Windows.Automation.ScrollPattern]::NoScroll, $verticalPercent
+          )
+        } elseif ($gridBinding -and $gridBinding.titleCell.TryGetCurrentPattern(
+            [Windows.Automation.ScrollItemPattern]::Pattern, [ref]$scrollItemObject)) {
+          ([Windows.Automation.ScrollItemPattern]$scrollItemObject).ScrollIntoView()
+        } elseif ($gridBinding -and $gridBinding.element.TryGetCurrentPattern(
+            [Windows.Automation.ScrollItemPattern]::Pattern, [ref]$scrollItemObject)) {
+          ([Windows.Automation.ScrollItemPattern]$scrollItemObject).ScrollIntoView()
+        } elseif ($gridBinding) {
+          # Diese QTableWidget bietet live weder ScrollPattern noch
+          # ScrollItemPattern. Wheel-Scrolling ist ohne sicheren Fokus
+          # wirkungslos und kann eine hinter dem Header liegende Zelle treffen.
+          # Deshalb wird eine sichtbare Titelzelle selektiert, die Tabelle mit
+          # Ctrl+Home an einen beweisbaren Ausgangspunkt gesetzt und hoechstens
+          # viermal PageDown/PageUp gesendet. Nach jedem Schritt werden Grid,
+          # Titel, Belegnummer, ToggleState, Footer und Root-Hit neu gelesen.
+          $tableRect = $gridBinding.table.Current.BoundingRectangle
+          $tableCenterY = [double]$tableRect.Y + ([double]$tableRect.Height / 2)
+          $toolRect = ($AE::FromHandle($modeBefore.hwnd)).Current.BoundingRectangle
+          $safeTop = [Math]::Max([double]$tableRect.Y + 45.0, [double]$toolRect.Y + 120.0)
+          $safeBottom = [double]$toolRect.Y + [double]$toolRect.Height - 120.0
+          $keyboardScrollReady = $false
+          $selectionObject = $null
+          if ($gridBinding.titleCell.TryGetCurrentPattern(
+              [Windows.Automation.SelectionItemPattern]::Pattern, [ref]$selectionObject)) {
+            ([Windows.Automation.SelectionItemPattern]$selectionObject).Select()
+            Start-Sleep -Milliseconds 350
+            $stagedState = Get-SSEReceiptManagerState $modeBefore.hwnd $policy -WithValues
+            $stagedList = Get-SSEReceiptManagerListProjection $stagedState $policy
+            if ([bool]$stagedList.rowsComplete -and [int]$stagedList.draftCount -eq 0) {
+              $stagedMode = [pscustomobject]@{ hwnd=$modeBefore.hwnd; state=$stagedState; list=$stagedList }
+              $projectionBefore = & $readMode $stagedMode $item
+              $gridBinding = & $resolveGridToggle $stagedMode $projectionBefore $item
+              $toggleNode = $(if ($gridBinding) { Convert-ExactElementToNode $gridBinding.element } else { $null })
+              if ($toggleNode -and [bool]$toggleNode.on -and
+                  [double]$toggleNode.y -ge $safeTop -and
+                  ([double]$toggleNode.y + [double]$toggleNode.h) -le $safeBottom) {
+                $selectedTogglePoint = Get-SSEPointObstruction $modeBefore.hwnd `
+                  ([int]($toggleNode.x + $toggleNode.w / 2)) ([int]($toggleNode.y + $toggleNode.h / 2))
+                $keyboardScrollReady = [bool]$selectedTogglePoint.isBoundTarget
+              }
+            }
+          }
+          if (-not $keyboardScrollReady) {
+          $focusCandidates = New-Object System.Collections.ArrayList
+          for ($focusRow = 0; $focusRow -lt [int]$gridBinding.grid.Current.RowCount; $focusRow++) {
+            $focusCell = $gridBinding.grid.GetItem($focusRow, [int]$policy.list.primaryTextColumn)
+            $focusNode = Convert-ExactElementToNode $focusCell
+            if (-not $focusNode -or -not [bool]$focusNode.on -or
+                [double]$focusNode.y -lt $safeTop -or
+                ([double]$focusNode.y + [double]$focusNode.h) -gt $safeBottom) { continue }
+            $focusPoint = Get-SSEPointObstruction $modeBefore.hwnd `
+              ([int]($focusNode.x + $focusNode.w / 2)) ([int]($focusNode.y + $focusNode.h / 2))
+            if ([bool]$focusPoint.isBoundTarget) {
+              $null = $focusCandidates.Add([pscustomobject]@{
+                node=$focusNode; distance=[Math]::Abs(([double]$focusNode.y + [double]$focusNode.h / 2) - $tableCenterY)
+              })
+            }
+          }
+          $focusCandidate = @($focusCandidates | Sort-Object distance | Select-Object -First 1)
+          if ($focusCandidate.Count -ne 1) {
+            Hide-SSETopmost $modeBefore.hwnd
+            $null = & $closeMode $modeBefore.hwnd $stagedState 'cancel'
+            Fail 'Belegliste hat keine eindeutig sichtbare Titelzelle fuer den begrenzten Tastatur-Fokus.' 'stale'
+          }
+          $null = Click-VerifiedPoint $modeBefore.hwnd $focusCandidate[0].node (Get-SSELastInputTick) -RequireForeground
+          [Windows.Forms.SendKeys]::SendWait('^{HOME}')
+          Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick)
+          Start-Sleep -Milliseconds 300
+          for ($keyboardAttempt = 0; $keyboardAttempt -le 4; $keyboardAttempt++) {
+            $stagedState = Get-SSEReceiptManagerState $modeBefore.hwnd $policy -WithValues
+            $stagedList = Get-SSEReceiptManagerListProjection $stagedState $policy
+            if (-not [bool]$stagedList.rowsComplete -or [int]$stagedList.draftCount -ne 0) { break }
+            $stagedMode = [pscustomobject]@{ hwnd=$modeBefore.hwnd; state=$stagedState; list=$stagedList }
+            $projectionBefore = & $readMode $stagedMode $item
+            $gridBinding = & $resolveGridToggle $stagedMode $projectionBefore $item
+            $toggleNode = $(if ($gridBinding) { Convert-ExactElementToNode $gridBinding.element } else { $null })
+            if ($toggleNode -and [bool]$toggleNode.on -and
+                [double]$toggleNode.y -ge $safeTop -and
+                ([double]$toggleNode.y + [double]$toggleNode.h) -le $safeBottom) {
+              $togglePoint = Get-SSEPointObstruction $modeBefore.hwnd `
+                ([int]($toggleNode.x + $toggleNode.w / 2)) ([int]($toggleNode.y + $toggleNode.h / 2))
+              if ([bool]$togglePoint.isBoundTarget) { $keyboardScrollReady = $true; break }
+            }
+            if ($keyboardAttempt -eq 4) { break }
+            $scrollKey = $(if ($toggleNode -and [double]$toggleNode.y -lt $safeTop) { '{PGUP}' } else { '{PGDN}' })
+            [Windows.Forms.SendKeys]::SendWait($scrollKey)
+            Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick)
+            Start-Sleep -Milliseconds 300
+          }
+          }
+          if (-not $keyboardScrollReady) {
+            $null = & $closeMode $modeBefore.hwnd $stagedState 'cancel'
+            Fail ("Zielbeleg wurde nach dem begrenzten Tastatur-Scroll nicht sicher im Tabellen-Viewport sichtbar " +
+              "(cell=$([int]$toggleNode.x),$([int]$toggleNode.y),$([int]$toggleNode.w),$([int]$toggleNode.h), " +
+              "safeY=$([int]$safeTop)..$([int]$safeBottom)).") 'stale'
+          }
+        } else {
+          $null = & $closeMode $modeBefore.hwnd $stagedState 'cancel'
+          Fail ("Virtualisierte Link-Zelle '$([string]$item.expectedReceiptTitle)' ist nicht eindeutig " +
+            "ueber ScrollPattern erreichbar (gridBinding=$([bool]($null -ne $gridBinding))).") 'stale'
+        }
+        Start-Sleep -Milliseconds 350
+        $stagedState = Get-SSEReceiptManagerState $modeBefore.hwnd $policy -WithValues
+        $stagedList = Get-SSEReceiptManagerListProjection $stagedState $policy
+        if (-not [bool]$stagedList.rowsComplete -or [int]$stagedList.draftCount -ne 0) {
+          $null = & $closeMode $modeBefore.hwnd $stagedState 'cancel'
+          Fail 'Belegliste ist nach dem gebundenen Sichtbarrollen nicht mehr vollstaendig.' 'stale'
+        }
+        $stagedMode = [pscustomobject]@{ hwnd=$modeBefore.hwnd; state=$stagedState; list=$stagedList }
+        $projectionBefore = & $readMode $stagedMode $item
+        $gridBinding = & $resolveGridToggle $stagedMode $projectionBefore $item
+        $toggleNode = $(if ($gridBinding) { Convert-ExactElementToNode $gridBinding.element } else { $null })
+      }
       if (-not $toggleNode -or -not [bool]$toggleNode.on) {
         $null = & $closeMode $modeBefore.hwnd $stagedState 'cancel'
         Fail 'Link-Zelle ist unmittelbar vor dem Klick nicht mehr sichtbar und aktiv.' 'stale'
       }
-      $null = $toggleClicks.Add((Click-VerifiedPoint $modeBefore.hwnd $toggleNode (Get-SSELastInputTick) -RequireForeground))
-      Start-Sleep -Milliseconds 500
-      $stagedState = Get-SSEReceiptManagerState $modeBefore.hwnd $policy
+      $toggleMethod = Click-VerifiedPoint $modeBefore.hwnd $toggleNode (Get-SSELastInputTick) -RequireForeground
+      $null = $toggleClicks.Add($toggleMethod)
+      Start-Sleep -Milliseconds 300
+      $stagedState = Get-SSEReceiptManagerState $modeBefore.hwnd $policy -WithValues
       $stagedList = Get-SSEReceiptManagerListProjection $stagedState $policy
       $stagedMode = [pscustomobject]@{ hwnd=$modeBefore.hwnd; state=$stagedState; list=$stagedList }
       $projectionStaged = & $readMode $stagedMode $item
+      $previousExpectedCount = $expectedCount
       $expectedCount += $(if ([bool]$item.linked) { 1 } else { -1 })
+      if (([bool]$projectionStaged.linked -ne [bool]$item.linked -or
+          [int]$projectionStaged.footerCount -ne $expectedCount) -and
+          [bool]$projectionStaged.linked -eq [bool]$projectionBefore.linked -and
+          [int]$projectionStaged.footerCount -eq $previousExpectedCount) {
+        # Qt kann den ersten Klick direkt nach einem virtuellen Tabellen-Scroll
+        # nur zur Fokus-/Zeilenselektion verwenden. Ausschliesslich wenn der
+        # vollstaendige Readback beweist, dass weder Toggle noch Footer sich
+        # geaendert haben, ist genau ein frisch gebundener Wiederholklick
+        # erlaubt. Teilwirkung oder Drift wird niemals durch einen zweiten
+        # Klick kompensiert.
+        $retryGridBinding = & $resolveGridToggle $stagedMode $projectionStaged $item
+        $retryToggleNode = $(if ($retryGridBinding) { Convert-ExactElementToNode $retryGridBinding.element } else { $null })
+        if (-not $retryToggleNode -or -not [bool]$retryToggleNode.on) {
+          $null = & $closeMode $modeBefore.hwnd $stagedState 'cancel'
+          Fail 'Wirkungsloser erster Link-Klick konnte nicht exakt fuer den einzigen Wiederholklick neu gebunden werden.' 'stale'
+        }
+        $retryClick = Click-VerifiedPoint $modeBefore.hwnd $retryToggleNode (Get-SSELastInputTick) -RequireForeground
+        $null = $toggleClicks.Add($retryClick)
+        Start-Sleep -Milliseconds 300
+        $stagedState = Get-SSEReceiptManagerState $modeBefore.hwnd $policy -WithValues
+        $stagedList = Get-SSEReceiptManagerListProjection $stagedState $policy
+        $stagedMode = [pscustomobject]@{ hwnd=$modeBefore.hwnd; state=$stagedState; list=$stagedList }
+        $projectionStaged = & $readMode $stagedMode $item
+      }
       if ([bool]$projectionStaged.linked -ne [bool]$item.linked -or [int]$projectionStaged.footerCount -ne $expectedCount) {
         $null = & $closeMode $modeBefore.hwnd $stagedState 'cancel'
-        Fail 'Gestufte Batch-Verknuepfung bestaetigte weder Zielzustand noch Zielzaehler; alle Aenderungen wurden abgebrochen.' 'postcondition-failed'
+        Fail ("Gestufte Batch-Verknuepfung bestaetigte Zielzustand/Zielzaehler nicht " +
+          "(linked=$([bool]$projectionStaged.linked)/$([bool]$item.linked), " +
+          "count=$([int]$projectionStaged.footerCount)/$expectedCount, " +
+          "click=$([int]$toggleMethod.x),$([int]$toggleMethod.y), " +
+          "cell=$([int]$projectionStaged.cell.x),$([int]$projectionStaged.cell.y),$([int]$projectionStaged.cell.w),$([int]$projectionStaged.cell.h)); " +
+          'alle Aenderungen wurden abgebrochen.') 'postcondition-failed'
       }
+    }
+    try {
+      $stagedMode = & $setListSearch $stagedState ''
+    } catch {
+      & $cancelStagedMode
+      throw
+    }
+    $stagedState = $stagedMode.state
+    $stagedList = $stagedMode.list
+    $listIdentityStaged = @($stagedList.rows | ForEach-Object {
+      [pscustomobject][ordered]@{
+        title=[string]$_.primaryText
+        documentNumber=[string]$_.documentNumber
+      }
+    } | Sort-Object title, documentNumber | ConvertTo-Json -Depth 4 -Compress)
+    if ([int]$stagedList.count -ne [int]$modeBefore.list.count -or
+        [string]$listIdentityStaged -cne [string]$listIdentityBefore) {
+      $null = & $closeMode $modeBefore.hwnd $stagedState 'cancel'
+      Fail 'Vollstaendige Belegliste kehrte nach dem Batch nicht exakt zum Ausgangs-Identitaets-Multiset zurueck.' 'postcondition-failed'
     }
     $dirtyBeforeApply = Get-DirtyStateFast $mainHwnd
     if ($null -eq $dirtyBeforeApply -or [bool]$dirtyBeforeApply -ne [bool]$dirtyBefore) {

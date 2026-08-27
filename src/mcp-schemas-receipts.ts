@@ -121,10 +121,11 @@ export const SSE_MCP_RECEIPT_SCHEMAS = {
   "sse_receipt_manager_link": z.object({
     items: z.array(z.object({
       expectedReceiptTitle: z.string().trim().min(1).max(200).describe("Exakte sichtbare Bezeichnung; sie muss genau eine Zeile treffen"),
+      expectedDocumentNumber: z.string().trim().min(1).max(200).optional().describe("Optionale exakte Belegnummer zur eindeutigen Bindung gleichnamiger Belege"),
       receiptContentFingerprint: SHA256().optional().describe("Optionale zusaetzliche Bindung; ersetzt niemals die Eindeutigkeitspruefung"),
       linked: z.boolean().describe("Gewuenschter Verknuepfungszustand"),
     }).strict()).min(1).max(20).refine(
-      (items) => new Set(items.map((item) => `${item.expectedReceiptTitle}\u0000${item.receiptContentFingerprint ?? ""}`)).size === items.length,
+      (items) => new Set(items.map((item) => `${item.expectedReceiptTitle}\u0000${item.expectedDocumentNumber ?? ""}\u0000${item.receiptContentFingerprint ?? ""}`)).size === items.length,
       "Jeder Belegselektor darf nur einmal vorkommen.",
     ).describe("Ein bis 20 Belege in einem Oeffnen-/Uebernehmen-/Readback-Zyklus"),
     expectedTargetPage: z.string().trim().min(1).max(300).describe("Exakte aktuelle Steuerseite, von der der Verknuepfungsmodus gestartet wird"),
@@ -172,6 +173,7 @@ export const SSE_API_RECEIPT_MANAGER_LINK_SCHEMA = z.union([
   z.object({
     receiptContentFingerprint: SHA256().describe("Legacy-Einzelmodus: Inhaltsfingerprint des exakt gemeinten Belegs"),
     expectedReceiptTitle: z.string().trim().min(1).max(200).describe("Legacy-Einzelmodus: exakte sichtbare Bezeichnung"),
+    expectedDocumentNumber: z.string().trim().min(1).max(200).optional().describe("Legacy-Einzelmodus: optionale exakte Belegnummer"),
     expectedTargetPage: z.string().trim().min(1).max(300).describe("Exakte aktuelle Steuerseite"),
     expectedLinkTarget: z.string().trim().min(1).max(200).describe("Exakter Zieltext im BelegManager"),
     linked: z.boolean().describe("Gewuenschter Verknuepfungszustand"),

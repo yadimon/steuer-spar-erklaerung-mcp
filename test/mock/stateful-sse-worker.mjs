@@ -1727,6 +1727,7 @@ export function createStatefulSseWorker({ caseDir }) {
           rowFingerprint: sha256(`${index + 1}:${row.rowRid}:${row.title}`),
           contentFingerprint: sha256(row.title),
           primaryText: row.title,
+          documentNumber: row.documentNumber,
           cells: [{ name: row.title, rid: row.rowRid, selected: false, x: 1, y: index + 1, w: 1, h: 1 }],
           draft: row.draft,
           selected: false,
@@ -1757,6 +1758,7 @@ export function createStatefulSseWorker({ caseDir }) {
           matchedCount: matches.length,
           matches: matches.slice(0, limit).map((row) => ({
             index: row.index, title: row.primaryText, draft: row.draft, rowRid: row.rowRid,
+            documentNumber: row.documentNumber,
             rowFingerprint: row.rowFingerprint, contentFingerprint: row.contentFingerprint,
           })),
           matchesComplete: matches.length <= limit,
@@ -1773,6 +1775,7 @@ export function createStatefulSseWorker({ caseDir }) {
         }
         const items = Array.isArray(args.items) ? args.items : [{
           expectedReceiptTitle: args.expectedReceiptTitle,
+          expectedDocumentNumber: args.expectedDocumentNumber,
           receiptContentFingerprint: args.receiptContentFingerprint,
           linked: args.linked,
         }];
@@ -1783,6 +1786,7 @@ export function createStatefulSseWorker({ caseDir }) {
             : null;
           const matches = receiptRows.map((row, index) => ({ row, index })).filter(({ row }) => (
             row.title === item.expectedReceiptTitle
+            && (!item.expectedDocumentNumber || row.documentNumber === item.expectedDocumentNumber)
             && (!expectedFingerprint || sha256(row.title) === expectedFingerprint)
           ));
           if (matches.length !== 1) {
@@ -1804,9 +1808,11 @@ export function createStatefulSseWorker({ caseDir }) {
               rowFingerprint: sha256(`${index + 1}:${row.rowRid}:${row.title}`),
               contentFingerprint: sha256(row.title),
               primaryText: row.title,
+              documentNumber: row.documentNumber,
               draft: row.draft,
             },
             expectedReceiptTitle: item.expectedReceiptTitle,
+            expectedDocumentNumber: item.expectedDocumentNumber,
             linkedBefore,
             linkedAfter,
             changed: linkedBefore !== linkedAfter,
