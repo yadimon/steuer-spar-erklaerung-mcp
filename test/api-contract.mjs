@@ -58,9 +58,10 @@ const execute = createApiExecutor(config, async (operation, args, timeoutMs, sig
   if (operation === "launch") {
     return { ok: true, launched: true, pid: 4242, args: ["-meinur"], product: { supported: true }, case: null };
   }
-  if (operation === "windows") {
+  if (operation === "launch_probe") {
     return {
       ok: true,
+      outcome: "observed",
       windows: [{
         pid: 4242,
         hwnd: 2424,
@@ -69,9 +70,9 @@ const execute = createApiExecutor(config, async (operation, args, timeoutMs, sig
         h: 800,
         minimiert: false,
       }],
+      dialogs: [],
     };
   }
-  if (operation === "dialog_list") return { ok: true, dialogs: [] };
   if (operation === "product_info") return { ok: true, supportedRunning: [], ignoredRunning: [] };
   if (operation === "close") return { ok: true, killed: true, stillRunning: false };
   if (operation === "find" && args.name === "__wait_for_abort__") {
@@ -594,11 +595,14 @@ try {
   assert.equal(launchCall.args.exe, config.sseExecutable, "nur die API kennt den lokalen SSE-Pfad");
   assert.deepEqual(
     calls.slice(calls.indexOf(launchCall), calls.length).map((entry) => entry.operation),
-    ["launch", "windows", "dialog_list"],
-    "SSE-Start muss Prozessstart und Fenster-/Dialog-Readback ueber frische Worker trennen",
+    ["launch", "launch_probe"],
+    "SSE-Start muss Prozessstart und den intern pollenden Readback auf genau zwei frische Worker trennen",
   );
   assert.equal(launched.ready, true);
-  assert.equal(calls.findLast((entry) => entry.operation === "dialog_list").args.pid, 4242);
+  const launchProbeCall = calls.findLast((entry) => entry.operation === "launch_probe");
+  assert.equal(launchProbeCall.args.pid, 4242);
+  assert.equal(launchProbeCall.args.planKind, "launch-readiness");
+  assert.equal(launchProbeCall.args.schemaVersion, 1);
   assert.deepEqual(launched.instance, {
     pid: 4242,
     hwnd: 2424,

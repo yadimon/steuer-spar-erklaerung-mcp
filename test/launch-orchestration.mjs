@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApiExecutor } from "../dist/api-executor.js";
+import { directWorker } from "./direct-worker-helpers.mjs";
 
 const temporary = mkdtempSync(join(tmpdir(), "sse-launch-orchestration-"));
 const config = {
@@ -29,6 +30,12 @@ const waitUntil = async (predicate, timeoutMs = 2_000) => {
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
 };
+const waitForProbeAbort = (signal, onStart) => new Promise((_, reject) => {
+  onStart();
+  const abort = () => reject(Object.assign(new Error("Startprobe abgebrochen"), { kind: "aborted" }));
+  if (signal?.aborted) abort();
+  else signal?.addEventListener("abort", abort, { once: true });
+});
 
 try {
   {
@@ -53,19 +60,38 @@ try {
 
   {
     const pid = 4101;
-    let windowCalls = 0;
+    let probeCalls = 0;
     let closeCalls = 0;
-    const execute = createApiExecutor(config, async (operation, args) => {
+    const execute = createApiExecutor(config, async (operation, args, timeoutMs) => {
       if (operation === "launch") return { ok: true, launched: true, pid };
-      if (operation === "windows") {
-        windowCalls += 1;
-        return windowCalls === 1
-          ? { ok: false, kind: "transient", error: "UIA kurz nicht erreichbar" }
-          : { ok: true, windows: [mainWindow(pid)] };
-      }
-      if (operation === "dialog_list") {
-        assert.equal(args.pid, pid, "Dialogprobe muss vor dem Readback PID-begrenzt sein");
-        return { ok: true, dialogs: [] };
+      if (operation === "launch_probe") {
+        probeCalls += 1;
+        assert.deepEqual(Object.keys(args).sort(),
+          ["deadlineUnixMs", "hasCase", "pid", "planKind", "schemaVersion"].sort());
+        assert.equal(args.schemaVersion, 1);
+        assert.equal(args.planKind, "launch-readiness");
+        assert.equal(args.pid, pid, "Startprobe muss vor jedem Readback PID-begrenzt sein");
+        assert.equal(args.hasCase, false);
+        assert(args.deadlineUnixMs > Date.now());
+        assert(timeoutMs <= 30_000 && timeoutMs >= 29_000, "Workerfrist muss die absolute Startfrist fortsetzen");
+        return probeCalls === 1
+          ? {
+              ok: true,
+              outcome: "retry-fresh",
+              windows: [],
+              dialogs: [],
+              startupPrompts: [],
+              probeFailures: 1,
+              lastProbeError: "windows: UIA kurz nicht erreichbar",
+              windowProbeSucceeded: false,
+            }
+          : {
+              ok: true,
+              outcome: "observed",
+              windows: [mainWindow(pid)],
+              dialogs: [],
+              probeFailures: 0,
+            };
       }
       if (operation === "close") {
         closeCalls += 1;
@@ -77,7 +103,7 @@ try {
     assert.equal(result.ok, true);
     assert.equal(result.ready, true);
     assert.equal(result.probeFailures, 1);
-    assert.equal(windowCalls, 2, "Transiente Fensterprobe muss mit frischem Worker wiederholt werden");
+    assert.equal(probeCalls, 2, "Eine UIA-Ausnahme muss genau einen frischen Startprobe-Worker erzwingen");
     assert.equal(closeCalls, 0, "Transiente Probe darf gesunden Start nicht beenden");
   }
 
@@ -85,12 +111,14 @@ try {
     const pid = 4102;
     const execute = createApiExecutor(config, async (operation, args) => {
       if (operation === "launch") return { ok: true, launched: true, pid };
-      if (operation === "windows") {
-        return { ok: true, windows: [{ pid, hwnd: 7102, title: "Wiederherstellung", w: 518, h: 260 }] };
-      }
-      if (operation === "dialog_list") {
+      if (operation === "launch_probe") {
         assert.equal(args.pid, pid);
-        return { ok: true, dialogs: [{ pid, hwnd: 7102, title: "Wiederherstellung", kind: "native-dialog" }] };
+        return {
+          ok: true,
+          outcome: "observed",
+          windows: [{ pid, hwnd: 7102, title: "Wiederherstellung", w: 518, h: 260 }],
+          dialogs: [{ pid, hwnd: 7102, title: "Wiederherstellung", kind: "native-dialog" }],
+        };
       }
       return { ok: false, kind: "fixture", error: operation };
     });
@@ -108,9 +136,10 @@ try {
     const pid = 4109;
     const execute = createApiExecutor(config, async (operation) => {
       if (operation === "launch") return { ok: true, launched: true, pid };
-      if (operation === "windows") {
+      if (operation === "launch_probe") {
         return {
           ok: true,
+          outcome: "observed",
           windows: [{
             pid,
             hwnd: 8109,
@@ -119,9 +148,9 @@ try {
             h: 800,
             minimiert: false,
           }],
+          dialogs: [],
         };
       }
-      if (operation === "dialog_list") return { ok: true, dialogs: [] };
       return { ok: false, kind: "fixture", error: operation };
     });
     const result = await execute("launch", { mode: "normal" }, 30_000);
@@ -141,9 +170,10 @@ try {
     const closeCalls = [];
     const execute = createApiExecutor(config, async (operation, args) => {
       if (operation === "launch") return { ok: true, launched: true, pid };
-      if (operation === "windows") {
+      if (operation === "launch_probe") {
         return {
           ok: true,
+          outcome: "deadline",
           windows: [{
             pid,
             hwnd: 8111,
@@ -152,9 +182,9 @@ try {
             h: 260,
             minimiert: false,
           }],
+          dialogs: [],
         };
       }
-      if (operation === "dialog_list") return { ok: true, dialogs: [] };
       if (operation === "close") { closeCalls.push(args); return { ok: true }; }
       return { ok: false, kind: "fixture", error: operation };
     });
@@ -179,8 +209,9 @@ try {
     const pid = 4103;
     const execute = createApiExecutor(config, async (operation) => {
       if (operation === "launch") return { ok: true, launched: true, pid };
-      if (operation === "windows") return { ok: true, windows: [mainWindow(pid, 8101), mainWindow(pid, 8102)] };
-      if (operation === "dialog_list") return { ok: true, dialogs: [] };
+      if (operation === "launch_probe") {
+        return { ok: true, outcome: "observed", windows: [mainWindow(pid, 8101), mainWindow(pid, 8102)], dialogs: [] };
+      }
       return { ok: false, kind: "fixture", error: operation };
     });
     const result = await execute("launch", { mode: "normal" }, 30_000);
@@ -192,15 +223,12 @@ try {
 
   for (const cleanupStillRunning of [false, true]) {
     const pid = cleanupStillRunning ? 4105 : 4104;
-    let windowCalls = 0;
+    let probeCalls = 0;
     let closeCalls = 0;
     const controller = new AbortController();
-    const execute = createApiExecutor(config, async (operation) => {
+    const execute = createApiExecutor(config, async (operation, _args, _timeoutMs, signal) => {
       if (operation === "launch") return { ok: true, launched: true, pid };
-      if (operation === "windows") {
-        windowCalls += 1;
-        return { ok: true, windows: [] };
-      }
+      if (operation === "launch_probe") return waitForProbeAbort(signal, () => { probeCalls += 1; });
       if (operation === "close") {
         closeCalls += 1;
         return cleanupStillRunning
@@ -217,7 +245,7 @@ try {
       return { ok: false, kind: "fixture", error: operation };
     });
     const pending = execute("launch", { mode: "normal" }, 30_000, controller.signal);
-    await waitUntil(() => windowCalls > 0);
+    await waitUntil(() => probeCalls > 0);
     controller.abort();
     const result = await pending;
     assert.equal(closeCalls, 1);
@@ -228,26 +256,39 @@ try {
 
   {
     const pid = 4106;
-    let windowCalls = 0;
+    let probeCalls = 0;
     const controller = new AbortController();
-    const execute = createApiExecutor(config, async (operation) => {
+    const execute = createApiExecutor(config, async (operation, _args, _timeoutMs, signal) => {
       if (operation === "launch") return { ok: true, launched: true, pid };
-      if (operation === "windows") {
-        windowCalls += 1;
-        return { ok: true, windows: [] };
-      }
+      if (operation === "launch_probe") return waitForProbeAbort(signal, () => { probeCalls += 1; });
       if (operation === "close") throw new Error("Cleanup-Worker nicht startbar");
       if (operation === "product_info") return { ok: false, error: "Status unbekannt" };
       return { ok: false, kind: "fixture", error: operation };
     });
     const pending = execute("launch", { mode: "normal" }, 30_000, controller.signal);
-    await waitUntil(() => windowCalls > 0);
+    await waitUntil(() => probeCalls > 0);
     controller.abort();
     const result = await pending;
     assert.equal(result.kind, "startup-abort-cleanup");
     assert.equal(result.pid, pid);
     assert.equal(result.processStillRunning, true, "Unbekannter Cleanup-Status muss fail-closed sein");
     assert.match(result.cleanupError, /Cleanup-Worker|unvollstaendig/);
+  }
+
+  {
+    // Der private Worker-Vertrag bleibt streng typisiert und laeuft bei einer
+    // bereits erreichten absoluten Deadline garantiert ohne UI-Poll sofort aus.
+    const result = directWorker("launch_probe", {
+      schemaVersion: 1,
+      planKind: "launch-readiness",
+      pid: 2147483647,
+      hasCase: true,
+      deadlineUnixMs: Date.now() - 1,
+    }, { SSE_PROFILE_ID: "2024", SSE_OPERATE_EXPERIMENTAL: "1" });
+    assert.equal(result.ok, true);
+    assert.equal(result.outcome, "deadline");
+    assert.deepEqual(result.windows, []);
+    assert.deepEqual(result.dialogs, []);
   }
 
   process.stdout.write("Launch-Orchestrierung: PID-Scope, Retry, Dialog, Ambiguitaet und Cleanup-Gates bestanden\n");
