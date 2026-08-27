@@ -170,6 +170,12 @@ const sandbox = mkdtempSync(join(tmpdir(), "sse-prewarm-startup-timeout-"));
 const fixtureSource = join(sandbox, "prewarm-fixture.cs");
 const fixtureExecutable = join(sandbox, "powershell.exe");
 const fixtureState = join(sandbox, "launches.txt");
+// Ein frisch kompiliertes EXE kann auf einem ausgelasteten Hosted Runner erst
+// nach Virenscan und Prozessplanung anlaufen. 120 ms prueften dort eher den
+// Runner als unseren Timeout-Vertrag. Fuenf Sekunden bleiben deutlich unter
+// dem Produktionswert, geben dem Kind aber Zeit, seinen Start zu protokollieren.
+const fixtureStartupTimeoutMs = 5_000;
+const fixtureRetryDelayMs = 1_000;
 const managedEnvironment = [
   "SSE_POWERSHELL_EXE",
   "SSE_WORKER_PREWARM_POOL_SIZE",
@@ -248,8 +254,8 @@ try {
   });
   process.env.SSE_POWERSHELL_EXE = fixtureExecutable;
   process.env.SSE_WORKER_PREWARM_POOL_SIZE = "2";
-  process.env.SSE_WORKER_PREWARM_STARTUP_TIMEOUT_MS = "120";
-  process.env.SSE_WORKER_PREWARM_RETRY_DELAY_MS = "100";
+  process.env.SSE_WORKER_PREWARM_STARTUP_TIMEOUT_MS = String(fixtureStartupTimeoutMs);
+  process.env.SSE_WORKER_PREWARM_RETRY_DELAY_MS = String(fixtureRetryDelayMs);
   process.env.SSE_PREWARM_FIXTURE_STATE = fixtureState;
   process.env.SSE_PREWARM_FIXTURE_MUTEX = `Local\\SSEPrewarmFixture${randomUUID().replaceAll("-", "")}`;
 
@@ -262,7 +268,9 @@ try {
     "Der zweite Pool-Arbeiter wurde nicht bereit.",
   );
   await waitFor(
-    () => /nicht innerhalb von 120 ms bereit/.test(prewarmPool.lastPrewarmFailure() ?? ""),
+    () => new RegExp(`nicht innerhalb von ${fixtureStartupTimeoutMs} ms bereit`).test(
+      prewarmPool.lastPrewarmFailure() ?? "",
+    ),
     "Der Startup-Timeout wurde nicht als Prewarm-Fehler gemeldet.",
   );
   await waitFor(() => !processIsAlive(firstPid), "Der stumme Fixture-Prozess wurde nach Timeout nicht beendet.");
@@ -287,10 +295,11 @@ try {
   firstReadySpare.child.stdin.end();
   await firstReadyClose;
 
-  await delay(80);
-  prewarmPool.ensureWarmSpare();
   await waitFor(
-    () => fixtureLaunches().length === 4 && prewarmPool.warmSparePoolStatus().ready === 1,
+    () => {
+      prewarmPool.ensureWarmSpare();
+      return fixtureLaunches().length === 4 && prewarmPool.warmSparePoolStatus().ready === 1;
+    },
     "Nach der Retry-Sperre wurde der Pool nicht neu aufgebaut.",
   );
   assert.deepEqual(prewarmPool.warmSparePoolStatus(), { ready: 1, starting: 1, target: 2 });
