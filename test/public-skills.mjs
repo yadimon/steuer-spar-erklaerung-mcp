@@ -81,6 +81,11 @@ assert(main.includes("Get-CimInstance") && main.includes("beweist keine beendete
 assert(main.includes("SSE kann noch geöffnet sein") && main.includes("stillRunning=false"));
 assert(main.includes("kein laufender Build messbar") && main.includes('kind="collection-incomplete"'));
 assert(main.includes("references/first-run.md") && main.includes("OK Standard"));
+assert(
+  main.includes("references/belegmanager-backup.md")
+    && main.includes("Eine Falldatei-Sicherung ersetzt diese Sicherung nicht"),
+  "Hauptskill muss vor BelegManager-Mutationen die getrennte Datensicherung verlangen.",
+);
 assert(main.includes("echten Aufruf von `sse_health`") && main.includes("Handshake allein genügt nicht"));
 assert(main.includes("sichtbare read-only UI-Navigation") && main.includes("dritte Rückfrage"));
 assert(main.includes("Runtime-Dateien oder") && main.includes("niemals manuell als Umgehung"));
@@ -129,6 +134,22 @@ const uiFallback = readFileSync(
   "utf8",
 );
 assert(uiFallback.includes("unsupportedButtons") && uiFallback.includes("generischen Toggle-Klick"));
+const receiptBackup = readFileSync(
+  join(skillsRoot, "steuer-spar-erklaerung", "references", "belegmanager-backup.md"),
+  "utf8",
+);
+for (const requirement of [
+  "SSEKonf.user.ini",
+  "[BelegManager]",
+  "DataDir",
+  "BelegManager.db4",
+  "SQLite-Online-Backup-API",
+  "PRAGMA integrity_check",
+  "SHA-256",
+]) {
+  assert(receiptBackup.includes(requirement), `BelegManager-Sicherungswissen fehlt: ${requirement}`);
+}
+assert(receiptBackup.includes("außerhalb des Repositorys") && receiptBackup.includes("keine Quellpfade"));
 const ustva = readFileSync(
   join(skillsRoot, "steuer-spar-erklaerung", "references", "ustva.md"),
   "utf8",
