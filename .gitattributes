@@ -1,3 +1,4 @@
 * text=auto eol=lf
+src/worker-prewarm.ts text diff
 
 *.gif binary
