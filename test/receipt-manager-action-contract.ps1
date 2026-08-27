@@ -59,6 +59,10 @@ Assert-True (($editableFields -join ',') -ceq 'amount,date,documentNumber,net,no
 Assert-True ($policy.controls.editableFields.date.automationIdSuffix -ceq '.dateEdit_datum.AAVDateLineEdit') 'Datumfeld ist nicht exakt profiliert.'
 Assert-True ($policy.controls.editableFields.amount.valueKind -ceq 'currency') 'Betragsfeld hat nicht den erwarteten Werttyp.'
 Assert-True ($policy.controls.editableFields.net.controlType -ceq 'CheckBox') 'Nettofeld ist nicht als Checkbox gebunden.'
+Assert-True ([int]$policy.list.primaryTextColumn -eq 2) 'Primaertext-Spalte ist nicht auf den live gemessenen Grid-Index 2 profiliert.'
+Assert-True ([int]$policy.list.documentNumberColumn -eq 8) 'Belegnummer-Spalte ist nicht auf den live gemessenen Grid-Index 8 profiliert.'
+Assert-True ([string]$policy.list.searchAutomationIdSuffix -ceq '.widget_mainWindowInfoBar.frame_container.lineEdit_suche') 'Beleglisten-Suche ist nicht profiliert.'
+Assert-True ([bool]$policy.controls.linkManagement.directToggleSupported -eq $false) 'Wirkungsloses TogglePattern darf fuer SSE 31.0.1 nicht aktiviert sein.'
 
 function Get-SSETextSha256([string]$Text) { 'A' * 64 }
 function Walk-Tree([IntPtr]$Window, [int]$MaxNodes) {
@@ -76,6 +80,7 @@ Assert-True ($startState.state -ceq 'start') "Startzustand wurde als '$($startSt
 $script:ReceiptNodes = @($policy.states.list.requiredAutomationIdSuffixes | ForEach-Object { ReceiptNode ([string]$_) })
 $listState = Get-SSEReceiptManagerState ([IntPtr]5252) $policy
 Assert-True ($listState.state -ceq 'list') "Listenzustand wurde als '$($listState.state)' erkannt."
+Assert-True ([int64]$listState.window -eq 5252) 'BelegManager-Zustand behaelt das exakt gelesene Fenster nicht fuer die Grid-Projektion.'
 
 $tableAid = 'SSE_Application.BMMainWindow.BMMainWindow.frame.stackedWidget.page_mainTable.tableWidget_mainTabel'
 $listState.nodes = @(
@@ -93,6 +98,24 @@ Assert-True ($projection.draftCount -eq 1 -and $projection.rows[0].draft) 'Leere
 Assert-True ([string]$projection.rows[0].rowRid -ceq 'row-a') 'Zeilenbindung verwendet nicht die erste sichtbare Zelle.'
 Assert-True ([string]$projection.rows[0].rowFingerprint -match '^[A-Fa-f0-9]{64}$') 'Zeilenfingerprint fehlt.'
 Assert-True ([string]$projection.rows[0].contentFingerprint -match '^[A-Fa-f0-9]{64}$') 'Stabiler Inhaltsfingerprint fehlt.'
+
+$projectionStart = $worker.IndexOf('function Get-SSEReceiptManagerListProjection(')
+$projectionEnd = $worker.IndexOf('function Get-SSEReceiptManagerDetailProjection(', $projectionStart)
+Assert-True ($projectionStart -ge 0 -and $projectionEnd -gt $projectionStart) 'BelegManager-Listenprojektion ist nicht eindeutig abgrenzbar.'
+$projectionBlock = $worker.Substring($projectionStart, $projectionEnd - $projectionStart)
+foreach ($required in @(
+  '[Windows.Automation.GridPattern]::Pattern',
+  '$gridRowCount -eq $count',
+  '$filterText.Length -gt 0',
+  '$projectionExpectedCount = $gridRowCount',
+  '$grid.GetItem($gridRow, $gridColumn)',
+  '$projectedCellGroups.Count -ne $count'
+)) {
+  Assert-True ($projectionBlock.Contains($required)) "BelegManager-Listenprojektion enthaelt den Virtualisierungs-Guard '$required' nicht."
+}
+foreach ($forbidden in @('SetScrollPercent(', 'ScrollIntoView(', 'Click-VerifiedPoint')) {
+  Assert-True (-not $projectionBlock.Contains($forbidden)) "BelegManager-Gridprojektion ist nicht rein lesend: '$forbidden'."
+}
 
 $listReadStart = $worker.IndexOf("  'receipt_manager_list' {")
 $listReadEnd = $worker.IndexOf("  'receipt_manager_read' {", $listReadStart)
@@ -206,7 +229,7 @@ foreach ($required in @(
   Assert-True ($classificationToggleBlock.Contains($required)) "Kategorien-Toggle fehlt der Sichtbarkeits-/Scroll-Guard '$required'."
 }
 
-Assert-True (@($policy.linkValueTransferDialog.fingerprints).Count -eq 2) 'Die zwei live gemessenen Belegwerte-Dialogvarianten fehlen im Profil.'
+Assert-True (@($policy.linkValueTransferDialog.fingerprints).Count -eq 3) 'Die drei live gemessenen Belegwerte-Dialogvarianten fehlen im Profil.'
 Assert-True (-not @($policy.linkValueTransferDialog.fingerprints | Where-Object {
   [string]$_ -notmatch '^[A-Fa-f0-9]{64}$'
 }).Count) 'Belegwerte-Dialogvarianten enthalten keinen gueltigen Fingerprintvertrag.'
@@ -217,9 +240,32 @@ Assert-True ($linkStart -ge 0 -and $linkEnd -gt $linkStart) 'Link-Operation ist 
 $linkBlock = $worker.Substring($linkStart, $linkEnd - $linkStart)
 foreach ($required in @(
   '$linkItems.Count -gt 20',
+  'expectedDocumentNumber',
   '$projectionsBefore.Add',
+  '$setListSearch',
+  '$cancelStagedMode',
+  '[Windows.Automation.ValuePattern]::Pattern',
+  'Commit-TrackedValue $modeBefore.hwnd $searchNodes[0]',
+  'Get-SSEReceiptManagerState $modeBefore.hwnd $policy -WithValues',
+  'Vollstaendige Belegliste kehrte nach dem Batch nicht exakt',
+  '[Windows.Automation.InvokePattern]::Pattern',
+  "method='invoke-pattern'",
   'Select-Object -Unique',
   'foreach ($itemIndex in $changes)',
+  '[Windows.Automation.ScrollItemPattern]::Pattern',
+  '[Windows.Automation.ScrollPattern]::Pattern',
+  'SetScrollPercent(',
+  'ScrollIntoView()',
+  "[Windows.Forms.SendKeys]::SendWait('^{HOME}')",
+  "'{PGDN}'",
+  "'{PGUP}'",
+  '[Windows.Automation.SelectionItemPattern]::Pattern',
+  '$selectedTogglePoint',
+  '$focusCandidates',
+  'fuer den begrenzten Tastatur-Fokus',
+  '$previousExpectedCount',
+  '$retryClick = Click-VerifiedPoint',
+  '$projectionBefore = & $readMode $stagedMode $item',
   '$applyClick = & $closeMode',
   '$projectionsAfter.Add',
   "'ambiguous'",

@@ -1044,6 +1044,7 @@ test("23c receipt API smoke queries, upserts and links with independent readback
     const linked = await harness.call("receipt_manager_link", {
       items: [{
         expectedReceiptTitle: title,
+        expectedDocumentNumber: documentNumber,
         receiptContentFingerprint: queried.matches[0].contentFingerprint,
         linked: true,
       }],

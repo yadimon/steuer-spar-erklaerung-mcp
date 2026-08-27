@@ -49,6 +49,9 @@
           ".label_infoText2",
           ".label_infoText3"
         ],
+        "searchAutomationIdSuffix": ".widget_mainWindowInfoBar.frame_container.lineEdit_suche",
+        "primaryTextColumn": 2,
+        "documentNumberColumn": 8,
         "draftMarker": "*"
       },
       "controls": {
@@ -83,6 +86,7 @@
           "mainToolbarAutomationIdSuffix": ".DialogToolbar.tbs_belege_verknuepfen",
           "startTargetAutomationIdSuffix": ".widget_linkInfos.label_belegVerknuepfen",
           "rowToggleColumn": 1,
+          "directToggleSupported": false,
           "footerCountAutomationIdSuffix": ".manageLinksContainer.label_belegeCount",
           "footerTextAutomationIdSuffix": ".manageLinksContainer.label_belegeText",
           "cancelAutomationIdSuffix": ".manageLinksContainer.btn_cancel",
@@ -174,7 +178,8 @@
         "cancelButton": "Abbrechen",
         "fingerprints": [
           "27FFFC79D7FB549CBD2B124C0CB906416D2D0D447B612748DF34C75652E662C1",
-          "DA4976CF1C4F76E568324B2307402835D239481C45C03716B1CABEF9CED955A7"
+          "DA4976CF1C4F76E568324B2307402835D239481C45C03716B1CABEF9CED955A7",
+          "3C248953374C01ED94B76CAD99DB06C2E4535460B10B011BCB7ABEEFBDB8E0FB"
         ]
       },
       "actions": {

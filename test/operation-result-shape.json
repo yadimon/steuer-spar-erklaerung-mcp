@@ -12591,7 +12591,7 @@
           },
           "receipt": {
             "types": [
-              "object:{\"contentFingerprint\":\"string-hex64\",\"draft\":\"boolean\",\"index\":\"nonnegative-number\",\"primaryText\":\"string-other\",\"rowFingerprint\":\"string-hex64\",\"rowRid\":\"string-other\"}"
+              "object:{\"contentFingerprint\":\"string-hex64\",\"documentNumber\":\"string-other\",\"draft\":\"boolean\",\"index\":\"nonnegative-number\",\"primaryText\":\"string-other\",\"rowFingerprint\":\"string-hex64\",\"rowRid\":\"string-other\"}"
             ],
             "labels": [
               "stateful-mock"
