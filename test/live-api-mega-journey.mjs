@@ -1055,11 +1055,7 @@ try {
       },
       { mutationTimeoutMs: 120_000 },
     );
-    const baseline = await read("receipt_manager_list", { hwnd: currentHwnd }, (result) => {
-      assert.equal(result.rowsComplete, true);
-      assert.equal(result.count, 0, "Nichtleere Belegliste: keine vorhandenen Belege ansehen oder veraendern.");
-      assert.equal(result.draftCount, 0);
-    }, "receipt-baseline-list", 120_000);
+    let baseline;
     await mutateAndRead(
       "receipt-go-home",
       { actionId: "goHome", hwnd: currentHwnd },
@@ -1075,9 +1071,11 @@ try {
       (result) => assert.equal(result.stateAfter, "list"),
       { hwnd: currentHwnd },
       (result) => {
+        baseline = result;
         emptyList = result;
-        assert.equal(result.count, 0);
+        assert.equal(result.count, 0, "Nichtleere Belegliste: keine vorhandenen Belege ansehen oder veraendern.");
         assert.equal(result.rowsComplete, true);
+        assert.equal(result.draftCount, 0);
       },
       { mutationTimeoutMs: 120_000 },
     );
@@ -1458,6 +1456,17 @@ try {
         const state = await call("ui_state", { hwnd: currentHwnd }, 60_000, "failure-cleanup-state");
         cleanup.stateKnown = state.result.running === true && state.result.instance?.hwnd === currentHwnd;
         assert.equal(cleanup.stateKnown, true, "Entdeckte Wegwerf-Instanz ist nicht zustandsgebunden lesbar.");
+        const cleanupWindows = await call("windows", {}, 120_000, "failure-cleanup-windows");
+        const knownOwnedTools = (cleanupWindows.result.windows ?? []).filter((entry) =>
+          entry.pid === currentPid && entry.hwnd !== currentHwnd &&
+          (entry.title === "BelegManager" || String(entry.title ?? "").startsWith("Werte-Info:")));
+        for (const tool of knownOwnedTools) {
+          const closedTool = await call("window_close", {
+            pid: tool.pid, hwnd: tool.hwnd, titleFingerprint: tool.titleFingerprint, waitMs: 2_000,
+          }, 120_000, "failure-cleanup-known-tool-window");
+          assert.equal(closedTool.result.closed, true,
+            `Bekanntes Wegwerf-Toolfenster '${tool.title}' blieb im Failure-Cleanup offen.`);
+        }
         try {
           await call("close", { pid: currentPid, hwnd: currentHwnd, discardChanges: true }, 180_000,
             "failure-cleanup-close");
