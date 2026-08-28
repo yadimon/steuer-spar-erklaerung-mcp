@@ -556,6 +556,22 @@ function Get-SSEReceiptManagerStableCellNames($Row) {
   @($names)
 }
 
+function Test-SSEPointElementWithinExactReceiptTitle($Element, [string]$ExpectedRuntimeId, [string]$ExpectedName) {
+  if (-not $Element -or -not $ExpectedRuntimeId -or -not $ExpectedName) { return $false }
+  $current = $Element
+  for ($depth = 0; $depth -lt 6 -and $current; $depth++) {
+    try {
+      $runtimeId = @($current.GetRuntimeId()) -join '.'
+      if ($runtimeId -ceq $ExpectedRuntimeId -and
+          [string]$current.Current.Name -ceq $ExpectedName) {
+        return $true
+      }
+      $current = [Windows.Automation.TreeWalker]::RawViewWalker.GetParent($current)
+    } catch { return $false }
+  }
+  return $false
+}
+
 function Resolve-SSEReceiptManagerVisibleRowTarget(
   [IntPtr]$ToolHwnd,
   $State,
@@ -640,7 +656,8 @@ function Resolve-SSEReceiptManagerVisibleRowTarget(
     if ($pointBinding -and [bool]$pointBinding.isBoundTarget) {
       $pointElement = $null
       try { $pointElement = $AE::FromPoint((New-Object Windows.Point($targetCenterX,$targetCenterY))) } catch { }
-      if (-not $pointElement -or [string]$pointElement.Current.Name -cne [string]$Row.primaryText) {
+      if (-not (Test-SSEPointElementWithinExactReceiptTitle `
+          $pointElement ([string]$rowNow[0].rowRid) ([string]$Row.primaryText))) {
         throw 'UIA-Punktbindung stimmt nicht exakt mit der gebundenen Belegbezeichnung ueberein.'
       }
       $targetElement = Get-LiveElement $ToolHwnd ([string]$rowNow[0].rowRid)
@@ -729,7 +746,8 @@ function Resolve-SSEReceiptManagerVisibleRowTarget(
       $selectedPointElement = $null
       try { $selectedPointElement = $AE::FromPoint((New-Object Windows.Point($selectedCenterX,$selectedCenterY))) } catch { }
       if (-not $selectedBinding -or -not [bool]$selectedBinding.isBoundTarget -or
-          -not $selectedPointElement -or [string]$selectedPointElement.Current.Name -cne [string]$Row.primaryText) {
+          -not (Test-SSEPointElementWithinExactReceiptTitle `
+            $selectedPointElement ([string]$selectedRows[0].rowRid) ([string]$Row.primaryText))) {
         throw 'Vorbereitete Belegauswahl ist am frischen Klickpunkt nicht mehr exakt gebunden.'
       }
       return [pscustomobject]@{
