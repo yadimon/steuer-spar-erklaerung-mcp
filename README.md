@@ -6,8 +6,8 @@ Steuerfälle mit einem KI-Agenten prüfen, mit Belegen abgleichen und nach
 Freigabe kontrolliert bearbeiten – über eine gemeinsame lokale API und einen
 optionalen, PC-blinden MCP-Wrapper.
 
-> **Öffentliche Beta für Windows x64.** Vor Änderungen eine Sicherungskopie
-> anlegen und Ergebnisse selbst prüfen. Dieses Projekt ist keine
+> **Öffentliche Beta für Windows x64.** Vor der ersten Änderung den aktuellen
+> Dateistand einmal privat sichern und Ergebnisse selbst prüfen. Dieses Projekt ist keine
 > Steuerberatung und übermittelt nichts an das Finanzamt.
 
 ## Features
@@ -25,8 +25,9 @@ optionalen, PC-blinden MCP-Wrapper.
   verknüpfen;
 - Angaben mit freigegebenen Belegen und einem Tracking abgleichen;
 - fehlende, widersprüchliche oder unklare Angaben als Report zusammenfassen;
-- nach ausdrücklicher Freigabe einzelne Korrekturen ausschließlich in einer
-  verifizierten Arbeitskopie durchführen und zurücklesen;
+- den eindeutig geöffneten Fall nach einer hashverifizierten Sicherung des
+  aktuellen Dateistands kontrolliert ändern und zurücklesen, ohne ihn
+  automatisch zu speichern oder durch eine Arbeitskopie zu ersetzen;
 - Umsatzsteuer-Voranmeldung: UStVA-Zeiträume für 2025 sowie vorgesehene
   `GewErfass2026`-Fälle vorbereiten, ohne sie zu übermitteln;
 - 99 versionierte Operationen über lokale HTTP-API oder optional über den
@@ -55,6 +56,23 @@ Cowork ersetzt diese CLI-Anmeldung nicht.
 
 ## Prompts
 
+### Bereits geöffneten Fall bearbeiten
+
+Der normale Alltag braucht keine zusätzliche Falldatei:
+
+```text
+Ändere im bereits geöffneten Steuerfall <WERT/FELD>. Sichere den aktuellen
+Dateistand vorher einmal privat. Lass den Fall geöffnet und speichere ihn nicht.
+```
+
+Ist genau ein Fall offen, bleibt er der Arbeitsfall. Die Sicherung liegt im
+privaten `backups:`-Bereich und wird nie geöffnet. Solange der Dateihash in
+dieser Aufgabe unverändert bleibt, wird sie auch für mehrere Felder oder
+Folgeaufrufe wiederverwendet. Erst ein ausdrücklich beauftragtes und geprüftes
+Speichern erzeugt einen neuen Dateistand, der vor einer späteren Änderung neu
+gesichert wird. `Save As`, eine Arbeits-/Korrekturkopie, Schließen, Verwerfen
+oder ein Dateiwechsel sind keine impliziten Sicherheitsmaßnahmen.
+
 ### Basic Prompt
 
 Für die normale lokale Einrichtung mit API und MCP reichen Ziel und Pfade:
@@ -70,6 +88,9 @@ Standard-Einrichtung und Prüflauf ausführen. Nichts über ELSTER senden.
 `Standard-Einrichtung und Prüflauf ausführen` bestätigt Einrichtung (lokale
 API plus MCP) und Prüflauf zugleich. Die Prüfung läuft in derselben Sitzung
 über die lokale API; MCP wird nach dem nächsten Start des Agenten verifiziert.
+Ist bereits ein Fall offen, startet der isolierte Prüflauf keine zweite
+Instanz: Der Agent fragt zuerst, ob er den offenen Fall in-place lesen oder ihn
+auf ausdrücklichen Wunsch schließen soll.
 
 ### Robuster isolierter Prüflauf
 
@@ -99,6 +120,10 @@ SteuerSparErklärung-Instanz offen ist, und die NPX-API beenden. Berichte die
 ausgeführten Prüfungen und verbleibenden Grenzen ohne private Pfade oder
 Steuerdaten auszugeben.
 ```
+
+Dieser isolierte Prompt setzt voraus, dass `sse_instances` leer ist. Bei einem
+bereits offenen Fall muss der Agent vor Kopie, Schließen oder Dateiwechsel
+fragen und darf keine zweite SSE-Instanz öffnen.
 
 `Standard-Prüflauf ausführen` bestätigt dabei zugleich, dass die genannten
 Belegpfade vollständig sind.
@@ -176,15 +201,14 @@ Standard-Prüflauf ausführen.
 
 `Standard-Prüflauf ausführen` steht im Skill bereits für die
 hashverifizierte Prüffallkopie, sichtbare rein lesende Navigation, den Report
-und den Stopp ohne Speichern oder ELSTER. Diese Sicherheitsdetails müssen nicht
-in jedem Prompt wiederholt werden.
+und das Schließen genau dieser Prüffallkopie ohne Speichern sowie den Stopp ohne
+ELSTER. Diese Sicherheitsdetails müssen nicht in jedem Prompt wiederholt werden.
 
 Eine im Kalenderjahr 2026 abgegebene Einkommensteuererklärung ist hier der
 unterstützte Steuerfall **2025**. Das Produktprofil 2026 ist nicht freigegeben.
-Für Prüfungen erzeugt der Hauptskill vor sichtbarer Navigation eine neue, per
-SHA-256 verifizierte Prüffallkopie und öffnet nur diese; der Originalfall wird
-nur auf ausdrücklichen Wunsch und erst nach einer hashverifizierten Sicherung
-bearbeitet.
+Nur dieser ausdrücklich isolierte Standard-Prüflauf erzeugt vor sichtbarer
+Navigation eine SHA-256-verifizierte Prüffallkopie. Normale Aufträge am bereits
+geöffneten Fall erzeugen keine Kopie und speichern ihn nicht automatisch.
 
 ### Skills manuell mit `npx` installieren
 
@@ -269,16 +293,18 @@ installierten Shim-Dateien `npm.ps1` oder `npx.ps1` blockiert.
 | --- | --- | --- |
 | Steuerfall prüfen | „Prüfe den geöffneten Fall und liste Fehler, Warnungen und unklare Angaben.“ | Nur lesen |
 | Belege abgleichen | „Vergleiche den Fall mit den Belegen in diesem Ordner.“ | Originale unverändert lassen |
-| Korrektur vorbereiten | „Schlage Korrekturen vor und ändere nach meiner Freigabe eine Arbeitskopie.“ | Vorher/nachher zurücklesen |
+| Geöffneten Fall ändern | „Ändere diese Werte im geöffneten Fall, aber speichere noch nicht.“ | Einmal sichern, ändern, zurücklesen, offen lassen |
+| Separate Korrekturdatei | „Erzeuge ausdrücklich eine Korrekturkopie und ändere sie.“ | Neue Datei nur auf diesen Auftrag |
 | UStVA vorbereiten | „Bereite die UStVA für Juli vor und sende sie nicht ab.“ | Zeitraum und vorhandene Übermittlungen zuerst prüfen |
 | Nur API einrichten | „Richte nur die lokale API ein und verwende empfohlene Antworten.“ | npm-Installation; kein MCP-Merge |
 | Vollständiges Agenten-Setup | „Richte lokale API plus MCP vollständig ein.“ | npm-Installation; additiver MCP-Merge |
 
 Die Automation unterscheidet drei Betriebsarten:
 
-Für einen bereits übermittelten Fall erzeugt der Agent zuerst eine separat als
-`Korrektur` oder `Berichtigung` benannte Arbeitskopie und danach eine bytegleiche
-Sicherung ihres Vorzustands. `sse_save` akzeptiert diesen Stand nur mit
+Für einen bereits übermittelten Fall erzeugt der Agent **nicht automatisch**
+eine Korrekturdatei. Er erklärt die Sperre und wartet auf den ausdrücklichen
+Auftrag, eine separat als `Korrektur` oder `Berichtigung` benannte Datei
+anzulegen. `sse_save` akzeptiert diesen Stand nur mit
 ausdrücklicher Freigabe, exaktem Zeitraum und Grund sowie den erwarteten SHA256
 von Original und Sicherung. Ein allgemeines `force` existiert bewusst nicht.
 Bei einer UStVA-Berichtigung wird zusätzlich im ausgewählten Zeitraum
@@ -459,9 +485,15 @@ Die lokale API erzwingt technisch:
 Der Prüfablauf der Skills garantiert zusätzlich:
 
 - Lesen ist der Standard; Änderungen brauchen eine ausdrückliche Freigabe.
-- Gearbeitet wird standardmäßig auf einer verifizierten Arbeitskopie; das
-  Original nur auf ausdrücklichen Wunsch nach vorheriger Sicherung.
-- Eine reine Prüfung endet ohne Speichern.
+- Ein eindeutig geöffneter Fall bleibt der Arbeitsfall. Vor der ersten
+  potenziell dirty-machenden Navigation oder Mutation wird sein aktueller
+  Disk-Hash einmal nach `backups:` gesichert; dieselbe Sicherung gilt für
+  denselben unveränderten Dateistand der laufenden Aufgabe.
+- Ändern ist keine Speicherfreigabe. `sse_save`, `sse_save_as`, Schließen,
+  Verwerfen, Dateiwechsel und eine `cases:`-Kopie brauchen jeweils den dazu
+  passenden ausdrücklichen Auftrag.
+- Routineänderungen hinterlassen keine zusätzliche Report- oder Falldatei;
+  isolierte Prüfläufe und ausdrücklich bestellte Reports bleiben möglich.
 
 Diese zweite Liste ist Ablaufdisziplin, keine technische Sperre der API: Die
 direkte lokale API kann jede ausdrücklich benannte Datei öffnen und speichern.
@@ -486,9 +518,10 @@ unter `supportedCaseYears`; die UStVA-Lesung gibt den tatsächlichen Formularjah
 separat als `taxYear=2026` zurück.
 
 ```text
-Bereite meine Umsatzsteuer-Voranmeldung für Juli in einer verifizierten
-Arbeitskopie vor. Prüfe zuerst Jahr, Meldezeitraum, vorhandene Übermittlungen
-und Belege. Zeige jede Änderung und sende nichts über ELSTER ab.
+Bereite meine Umsatzsteuer-Voranmeldung für Juli im bereits geöffneten Fall
+vor. Sichere den aktuellen Dateistand einmal, speichere danach nicht. Prüfe
+zuerst Jahr, Meldezeitraum, vorhandene Übermittlungen und Belege. Zeige jede
+Änderung und sende nichts über ELSTER ab.
 ```
 
 Der vollständige Ablauf ist unter

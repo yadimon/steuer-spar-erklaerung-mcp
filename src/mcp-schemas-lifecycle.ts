@@ -25,7 +25,7 @@ export const SSE_MCP_LIFECYCLE_SCHEMAS = {
     exe: z.never().optional().describe("Nicht zulaessig; wird ausschliesslich in der lokalen API konfiguriert"),
   }).strict(),
   "sse_save": z.object({
-    caseRef: CASE_REF().describe("Exakte Referenz des aktuell geoeffneten Steuerfalls"),
+    caseRef: CASE_REF().describe("Exakte Referenz des aktuell geoeffneten Steuerfalls; der Aufruf impliziert keine Save-As-Kopie"),
     expectedHashBefore: SHA256().describe("SHA256 der Datei unmittelbar vor dem Speichern"),
     correction: z.object({
       acknowledged: z.literal(true).describe(
@@ -60,16 +60,18 @@ export const SSE_MCP_LIFECYCLE_SCHEMAS = {
     waitMs: z.number().int().min(500).max(30000).optional().describe("Wartezeit auf Dialog- und Datei-Readback"),
   }).strict(),
   "sse_save_as": z.object({
-    sourceRef: CASE_REF(),
+    sourceRef: CASE_REF().describe("Exakte Referenz des aktuell geoeffneten Quellfalls"),
     expectedSourceHash: SHA256(),
-    targetRef: CASE_REF(),
+    targetRef: CASE_REF().describe("Explizit vom Menschen verlangte neue Falldatei; kein automatischer Sicherheitsweg"),
     waitMs: z.number().int().min(800).max(30000).optional().describe("Wartezeit auf Ziel-, Hash- und Fenstertitel-Readback"),
   }).strict(),
   "sse_close": z.object({
     force: z.boolean().optional().describe("Nur die gebundene PID bei Haenger oder bewusstem Hart-Stopp beenden"),
     save: z.boolean().optional().describe("Veraltet und gesperrt: stattdessen zuerst sse_save hashgebunden aufrufen"),
-    discardChanges: z.boolean().optional().describe("Explizite Erlaubnis, ungespeicherte Aenderungen zu verwerfen."),
-    hwnd: WINDOW_HANDLE.optional().describe("Exaktes SSE-Hauptfenster; bei mehreren Instanzen Pflicht"),
+    discardChanges: z.boolean().optional().describe(
+      "Explizite menschliche Erlaubnis, die ungespeicherten Aenderungen genau des frisch per hwnd/pid gebundenen Falls zu verwerfen; eine Aenderungs- oder Pruefbitte reicht nicht",
+    ),
+    hwnd: WINDOW_HANDLE.describe("Exaktes, unmittelbar zuvor über sse_instances gebundenes SSE-Hauptfenster; immer Pflicht"),
     pid: PROCESS_ID.optional().describe("Exakte SSE-PID; bei mehreren Instanzen Pflicht"),
   }).strict(),
   "sse_list_cases": z.object({
@@ -91,8 +93,10 @@ export const SSE_MCP_LIFECYCLE_SCHEMAS = {
       .max(SSE_OPERATION_LIMITS.archiveCases).describe("Vollstaendiger erwarteter Restbestand nach dem Archivieren"),
   }).strict(),
   "sse_make_working_copy": z.object({
-    sourceRef: CASE_REF(),
-    targetRef: CASE_COPY_TARGET_REF(),
-    expectedSourceHash: SHA256(),
+    sourceRef: CASE_REF().describe("Exakte Falldatei des gesicherten aktuellen Dateistands"),
+    targetRef: CASE_COPY_TARGET_REF().describe(
+      "Normalerweise ein neues privates backups:-Ziel; cases: nur bei ausdruecklich verlangter Arbeitskopie",
+    ),
+    expectedSourceHash: SHA256().describe("Aktueller Quellhash; gleiche Fall/Hash-Kombination je Aufgabe nur einmal sichern"),
   }).strict(),
 } as const;

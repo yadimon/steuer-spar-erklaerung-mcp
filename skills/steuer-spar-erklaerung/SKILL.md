@@ -1,13 +1,13 @@
 ---
 name: steuer-spar-erklaerung
-description: Prüft einen konkreten Steuerfall in einer vom lokalen Release unterstützten SteuerSparErklärung unter Windows, gleicht ihn mit Belegen ab, richtet bei Bedarf die lokale Automation über npm ein oder bearbeitet nach Freigabe eine verifizierte Arbeitskopie. Verwenden bei „meine Steuererklärung prüfen“, SteuerSparErklärung/SSE bedienen, Belege abgleichen sowie API- oder MCP-Einrichtung; nicht für allgemeine Steuerfragen ohne lokalen SSE-Fall und niemals für ELSTER-Versand.
+description: Prüft oder bearbeitet einen konkret geöffneten Steuerfall in einer vom lokalen Release unterstützten SteuerSparErklärung unter Windows, gleicht ihn mit Belegen ab oder richtet bei Bedarf die lokale Automation über npm ein. Verwenden bei „meine Steuererklärung prüfen“, SteuerSparErklärung/SSE bedienen, Belege abgleichen sowie API- oder MCP-Einrichtung; nicht für allgemeine Steuerfragen ohne lokalen SSE-Fall und niemals für ELSTER-Versand.
 ---
 
 # SteuerSparErklärung sicher prüfen
 
 Führe technisch unerfahrene Nutzer standardmäßig auf Deutsch. Arbeite
-read-only, bis eine konkrete Änderung an einer verifizierten Arbeitskopie
-separat freigegeben wurde.
+read-only, bis eine konkrete Änderung freigegeben wurde. Ein bereits eindeutig
+geöffneter Fall ist der Arbeitsfall; öffne nicht still eine andere Datei.
 
 ## Nutzerziel zuerst erkennen
 
@@ -15,11 +15,12 @@ Ordne den Auftrag ohne technische Rückfrage einem sicheren Modus zu:
 
 - „prüfen“, „Schnellcheck“ oder „Fehler finden“: ausschließlich read-only;
 - „mit Belegen abgleichen“: read-only in Fall und freigegebenen Quellen;
-- „korrigieren“ oder „ändern“: zuerst Vorschläge, dann nur eine verifizierte
-  Arbeitskopie und jede einzelne Freigabe;
+- „korrigieren“ oder „ändern“: den eindeutig geöffneten Fall nach einmaliger
+  Sicherung des aktuellen Dateistands ändern und sofort zurücklesen, aber nur
+  auf ausdrücklichen Auftrag speichern;
 - „UStVA“, „Umsatzsteuer-Voranmeldung“, Monat oder Quartal vorbereiten:
   UStVA-Modus; Zieljahr, gesetzliche Frequenz und vorhandene Übermittlung
-  zuerst prüfen, nur bei ausdrücklichem Auftrag in einer Arbeitskopie ändern;
+  zuerst prüfen, nur bei ausdrücklichem Auftrag ändern;
 - „einrichten“ oder „Verbindung reparieren“: Einrichtungsmodus, noch keine
   Steuerdaten lesen.
 
@@ -47,20 +48,23 @@ Diese Regeln gelten auch auf ausdrücklichen Wunsch:
   Ablauf und lege dem Menschen genau diese strukturierten Pfade zur Klärung
   vor; starte keine zweite Archivierung und verschiebe Recovery-Dateien nicht
   automatisch.
-- Ändere Steuerdaten nur nach Sicherung über `sse_make_working_copy` nach
-  `backups:`: standardmäßig in einer bytegleich verifizierten Arbeitskopie, im Original nur auf ausdrücklichen Nutzerwunsch (references/first-run.md).
-  Vor jeder schreibenden BelegManager-Operation sichere zusätzlich dessen getrennte Datenablage nach [references/belegmanager-backup.md](references/belegmanager-backup.md). Eine Falldatei-Sicherung ersetzt diese Sicherung nicht.
+- Behandle den geöffneten Fall, die einmalige Sicherung je Disk-Hash,
+  Dateiwechsel und die strikte Trennung zwischen Ändern und Speichern nach
+  [references/case-session.md](references/case-session.md). Eine Arbeits- oder
+  Korrekturkopie ist kein Standard und braucht einen ausdrücklichen Auftrag.
+  Vor der ersten schreibenden BelegManager-Phase sichere zusätzlich dessen
+  getrennte Datenablage nach [references/belegmanager-backup.md](references/belegmanager-backup.md).
+  Eine Falldatei-Sicherung ersetzt diese Sicherung nicht.
 - Arbeite nie mit einem wiederhergestellten Fall weiter. Hat SteuerSparErklärung
   nach einem unsauberen Ende eine Wiederherstellungsdatei geladen, stoppt
   `launch` mit `kind="recovered-state"`. Der geöffnete Inhalt entspricht dann
   nicht mehr der Datei, deren Hash du verifiziert hast, und jeder Report daraus
   wäre fachlich falsch. Schließe den Fall ohne Speichern, lass den Nutzer die
   Wiederherstellung im Programm verwerfen und öffne danach erneut.
-- Öffne auch für eine UI-gebundene reine Prüfung niemals den Originalfall.
-  SSE markiert schon beim Navigieren die zuletzt besuchte Seite als
-  ungespeicherte In-Memory-Änderung. Erzeuge daher vor der ersten UI-Navigation
-  mit `sse_make_working_copy` eine hashverifizierte Prüffallkopie und öffne
-  nur diese. Für die reine Prüfung wird ein Original nur dateibasiert gelesen.
+- Nutze einen bereits geöffneten Fall auch für UI-gebundene Leseaufträge, ohne
+  ihn anschließend zu speichern oder zu schließen. Für einen ausdrücklich
+  isolierten Audit darf der bestätigte Plan stattdessen eine hashverifizierte
+  Prüffallkopie vorsehen; Details stehen in references/case-session.md.
 - Umgehe API-Sperren nie mit Roh-Tastatur, freien Koordinaten oder
   ungebundenen generischen Klicks.
 - Installiere nichts still. Ändere weder Autostart noch Agenten-Konfiguration,
@@ -193,10 +197,10 @@ API und starte sie höchstens einmal mit dem bestätigten richtigen Ordner neu;
 
 In diesem Kurzweg können `settings.md` und ein altes Tracking fehlen. Verwende dann nur die im aktuellen Auftrag ausdrücklich
 bestätigten Fall- und Belegpfade sowie den bestätigten Modus; erfinde oder
-persistiere keine weiteren Präferenzen. Report und Prüffallkopie bleiben
-Pflicht. Beende nach positivem Close-/Hash-Readback auch die Foreground-API mit
-Strg+C. Falls der Agent keinen laufenden Prozess halten kann, biete stattdessen
-das persistente Setup an.
+persistiere keine weiteren Präferenzen. Nur ein ausdrücklich isolierter
+Prüflauf erzeugt Prüffallkopie und Report. Beende nach positivem Abschluss auch
+die Foreground-API mit Strg+C. Falls der Agent keinen laufenden Prozess halten
+kann, biete stattdessen das persistente Setup an.
 
 Soll aus diesem Kurzweg eine dauerhafte Installation im Ordner werden, beende
 zuerst die Foreground-API mit Strg+C — sonst belegt sie den Port — und arbeite
@@ -321,7 +325,14 @@ Ersetze Excel niemals still.
    `capabilities` und den versionsgebundenen Operationskatalog aus der
    API-Selbstbeschreibung. Verifiziere danach API-Health, aktives Profil,
    Engine-Major und Arbeitsbereich.
-2. Inventarisiere freigegebene Quellen. Speichere für Dateien Quelle,
+2. Lies `sse_instances` vor jeder UI-Navigation. Binde den einen eindeutig
+   geöffneten Fall; starte keinen zweiten. Wenn die nächsten Schritte eine
+   dirty-fähige UI-Navigation oder Mutation brauchen, lies jetzt Fallreferenz,
+   `hwnd` und Disk-Hash und sichere diesen Stand genau einmal nach `backups:`
+   gemäß [references/case-session.md](references/case-session.md). Insbesondere
+   `sse_collect`, `sse_goto`, `sse_subpages`, navigierendes `sse_click_point`
+   und der Programm-Prüfer gelten bereits als dirty-fähig.
+3. Inventarisiere freigegebene Quellen. Speichere für Dateien Quelle,
    Dateiname, Größe, Änderungszeit soweit verfügbar, SHA-256 und relative
    Zielreferenz. Connectoren erst nach Zustimmung lesen.
    Für PDF-Belege verwende zuerst eine bereits verfügbare PDF-Fähigkeit. Fehlt
@@ -366,32 +377,20 @@ Ersetze Excel niemals still.
    eindeutig gebundener Rückweg, sicher stoppen. Verwerfe das Ergebnis einer
    Navigationsoperation niemals mit `Out-Null`; prüfe `ok` und die erwartete
    Überschrift, bevor der Ablauf fortgesetzt wird.
-3. Empfehle Kopien unter `documents`. Bei Ablehnung nur Quelle und Entscheidung
+4. Empfehle Kopien unter `documents`. Bei Ablehnung nur Quelle und Entscheidung
    dokumentieren; Originale nicht verändern.
-4. Identifiziere den Originalfall dateibasiert read-only. Vor jeder UI-
-   Navigation – auch bei einer reinen Prüfung – Hash berechnen, eine eindeutig
-   neu benannte Prüffallkopie unter `cases` erzeugen, beide Hashes vergleichen
-   und vor dem Öffnen Bytegleichheit bestätigen. Das Original öffnet nur der
-   ausdrücklich gewünschte Originalweg (references/first-run.md).
-   Starte eine Einkommensteuerdatei `.ESt<jahr>` immer explizit mit
-   `mode="normal"` statt der `einur`-Vorgabe für Gewinnermittlungsdateien.
-   Die Prüffallkopie bleibt bis zu einem später ausdrücklich beauftragten,
-   inventargebundenen Archiv- oder Bereinigungsschritt bestehen; lösche sie
-   nicht mit Roh-Dateibefehlen.
-5. Lies unmittelbar vor jeder Änderung Fallreferenz, Zustand, Fensterbindung
-   (`HWND`) und Hash neu. Führe genau eine eng gebundene Änderung aus und lies
+5. Prüfe vor der ersten Änderungsphase, dass Fallreferenz, Fensterbindung und
+   Disk-Hash weiterhin zum verifizierten Backup-Tupel passen. Eine neu zu
+   startende Einkommensteuerdatei `.ESt<jahr>` verwendet `mode="normal"`.
+   Führe jeweils eine eng gebundene Änderung aus und lies
    Wert sowie Zustand sofort zurück. Für eine Tabellenzeile liefert
    `sse_table_read` mit `sumLabel` die aktuelle Kontrollsumme als `summe`;
    genau dieser Wert gehört unverändert als `expectedBefore` in
    `sse_table_add`, `sse_table_update` oder `sse_table_delete`. Rate ihn nie.
 6. Stoppe bei Hash-, Ziel-, Dialog- oder Readback-Abweichung ohne Wiederholung.
-   Die read-only Prüfung darf weiterlaufen, wenn sie den unsicheren Zustand
-   klar ausgrenzt. Meldet die Prüffallkopie nach Navigation
-   `ungespeichert=true`, navigiere nicht weiter. Schließe nur mit bestätigtem
-   `discardChanges=true` (der Standard-Prüflauf deckt genau dieses Verwerfen),
-   lies `stillRunning=false`, Fenster, Health und beide Hashes zurück, speichere
-   nie diesen Navigationszustand, lies die restlichen Abschnitte nach
-   references/first-run.md weiter. Beim Originalfall: eigene Bestätigung Pflicht.
+   Speichere, schließe oder verwirf den geöffneten Fall nicht implizit. Nur bei
+   einer ausdrücklich isolierten Prüffallkopie gilt der in first-run.md
+   bestätigte Close-/Discard-Ablauf.
 7. Verwende für wiederholbare Mehrschrittaufgaben ein versioniertes Szenario
    aus dem installierten API-Vertrag: relative Workspace-Referenzen, eindeutige
    Schritt-IDs, dynamische `$steps.<id>.result...`-Referenzen und obligatorisches
@@ -406,8 +405,9 @@ Ersetze Excel niemals still.
    steuerfachliche Bewertung erklärst du dann ausdrücklich für unterblieben,
    statt sie still auf Erinnerungswissen zu stützen. Sag Unsicherheit offen und
    empfiehl bei hohem Risiko eine befugte Steuerfachperson.
-9. Schreibe immer einen Ergebnis- oder Stoppreport unter `results` und lies ihn
-   abschließend zurück.
+9. Nur wenn der bestätigte Standard-Prüflauf bereits einen Report umfasst oder
+   der Mensch ausdrücklich eine Datei verlangt, schreibe unter `results`.
+   Sonst antworte im Chat mit Readback und Speicherstatus.
 
 ## Bedarfsreferenzen
 
@@ -432,10 +432,10 @@ Kündige vor dem ersten sichtbaren Schritt an:
 > normaler Betriebszustand.
 
 Beginne erst nach Zustimmung. Eine Zustimmung im aktuellen Auftrag zählt ohne
-dritte Rückfrage, wenn sie genau den bestätigten Fall, eine hashverifizierte
-Prüffallkopie und sichtbare read-only UI-Navigation in der entsperrten Sitzung
-nennt. Kündige die sichtbare Navigation trotzdem mit obigem Hinweis an und
-beginne dann. Eine allgemeine Bitte „prüfen“ reicht dafür nicht. Stoppe bei
+dritte Rückfrage, wenn sie genau den geöffneten/bestätigten Fall und sichtbare
+UI-Navigation in der entsperrten Sitzung nennt. Eine ausdrücklich isolierte
+Prüfung nennt zusätzlich die Prüffallkopie. Kündige die sichtbare Navigation
+trotzdem mit obigem Hinweis an und beginne dann. Stoppe bei
 Nutzerinteraktion, unbekanntem Dialog, Fensterwechsel oder Sperrbildschirm.
 Die definierte Formulierung `Standard-Prüflauf ausführen` zählt hier als
 diese Zustimmung, wenn der Auftrag zugleich genau einen absoluten Fallpfad und
@@ -457,24 +457,21 @@ die vollständigen absoluten Belegpfade nennt.
 
 Stoppe insbesondere bei inkompatiblem OS/Profil, fehlender Vertragsquelle,
 unklarem API-Zugang, unsicherem Arbeitsbereich, fehlender Zustimmung,
-Connector-Anmeldung, ungeprüfter Arbeitskopie, abweichender Bindung, paralleler
+Connector-Anmeldung, ungeprüftem Backup, abweichender Bindung, paralleler
 Nutzerinteraktion, ausgeschöpftem Retry-Budget oder fachlicher Unsicherheit.
 
 Berichte bei jedem Stopp:
 
 1. blockierende Bedingung,
 2. letzten verifizierten Zustand,
-3. ob und welche Dateien oder Arbeitskopien bereits verändert sein können,
+3. ob der offene Fall oder Dateien bereits verändert sein können,
 4. genau eine nächste sichere Nutzeraktion.
 
-## Ergebnis
+## Ergebnisdatei nur im bestätigten Plan oder auf Wunsch
 
-Schreibe UTF-8-Markdown nach
-`results/YYYY-MM-DD_HH-mm-ss_<kurzer-zweck>.md`. Der Report enthält Auftrag,
-Modus, Profil, Engine, Fallreferenz, Quelleninventar, geprüfte Punkte,
-Abweichungen, Änderungen mit Vorher/Nachher/Readback, Hashes, Transportwechsel,
-fachliche Quellen, Unsicherheiten, Stopps und manuelle Schritte. Entferne Token,
-Zugangsdaten und unnötige personenbezogene Daten.
+Schreibe nur dann UTF-8-Markdown nach `results/YYYY-MM-DD_HH-mm-ss_<zweck>.md`.
+Der Report enthält Auftrag, Fallreferenz, Quellen, Änderungen/Readback, Hashes,
+Unsicherheiten und Stopps, aber keine Zugangsdaten oder unnötigen Personendaten.
 
 Enthält der Bericht fachliche Aussagen oder Vorschläge, schließe ihn genau so ab:
 
@@ -494,5 +491,5 @@ Verwende entweder eine vollständige Referenz wie `results:bericht.md` oder
 `area="results"` mit `ref="bericht.md"`; kombiniere `area="results"` nie mit
 `ref="results/bericht.md"`, weil das einen doppelten Unterordner erzeugt.
 
-Beende mit dem zurückgelesenen relativen Reportpfad und dem ausdrücklichen
-Hinweis, dass keine ELSTER-Übermittlung durchgeführt wurde.
+Beende dann mit dem zurückgelesenen relativen Reportpfad und dem Hinweis, dass
+keine ELSTER-Übermittlung durchgeführt wurde.

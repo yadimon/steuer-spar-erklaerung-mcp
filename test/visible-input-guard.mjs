@@ -226,10 +226,14 @@ try {
       }, 60_000);
     } catch { }
   } else if (launchedPid) {
-    // Ohne gebundenes Hauptfenster wird kein fremder Prozess beendet. Der
-    // Test startete nur bei leerer SSE-Prozessliste; PID ist damit test-eigen.
     try {
-      await callRaw("sse_close", { pid: launchedPid, force: true, discardChanges: true }, 60_000);
+      const instances = await call("sse_instances");
+      const owned = (instances.instances ?? []).find((entry) => entry.pid === launchedPid);
+      if (owned?.hwnd) {
+        await callRaw("sse_close", {
+          pid: launchedPid, hwnd: owned.hwnd, force: true, discardChanges: true,
+        }, 60_000);
+      }
     } catch { }
   }
   if (sourceHash) {

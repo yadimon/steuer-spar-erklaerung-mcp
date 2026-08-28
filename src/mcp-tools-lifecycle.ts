@@ -24,6 +24,10 @@ export function registerLifecycleTools(registry: McpRegistry): void {
         "fest=Feststellung, ermaess=Lohnsteuer-Ermaessigung, vorweg=Prognose. " +
         "UStVA im Profiljahr wird im Modus einur bearbeitet; die Gewinn-Erfassung des ausdruecklich " +
         "freigegebenen Folgejahres im Modus einurvor. Nicht von SSE.exe akzeptierte Zusatzmodi werden nicht angeboten. " +
+        "Vor einem Start mit caseRef immer sse_instances lesen. Ist genau ein Fall schon offen, bleibt er " +
+        "der Arbeitsfall; sse_launch darf ihn nicht still durch eine Kopie oder einen anderen Fall ersetzen. " +
+        "Nennt der Mensch einen anderen Fall und der offene Fall hat ungespeicherte Aenderungen, muss der Agent " +
+        "vor jedem Speichern, Verwerfen, Schliessen oder Wechseln nachfragen. " +
         "Nach dem Start kann eine Rueckfrage nach einer Wiederherstellungsdatei erscheinen - mit " +
         "sse_dialog_list lesen und ausschliesslich mit dem gelieferten Fingerprint ueber " +
         "sse_dialog_answer beantworten; niemals dafuer den generischen Klick verwenden.",
@@ -44,7 +48,9 @@ export function registerLifecycleTools(registry: McpRegistry): void {
         "Speichert nur den bereits geoeffneten, referenzierten Steuerfall. caseRef und expectedHashBefore " +
         "sind Pflicht und muessen mit Fenstertitel und Datei uebereinstimmen. Sind mehrere Steuerfaelle offen, " +
         "muss das exakte Hauptfenster per hwnd gebunden werden. Danach werden Hashwechsel, " +
-        "deaktivierte Sichern-Schaltflaeche und Dialogfreiheit geprueft. Nicht fuer Wiederherstellungsfaelle " +
+        "deaktivierte Sichern-Schaltflaeche und Dialogfreiheit geprueft. Eine Bitte, Werte zu aendern, erlaubt " +
+        "noch kein Speichern: sse_save nur verwenden, wenn der Mensch in diesem Auftrag ausdruecklich das " +
+        "Speichern verlangt. Nicht fuer Wiederherstellungsfaelle " +
         "ohne Dateibindung verwenden. Bereits uebermittelte oder unbekannte Faelle bleiben standardmaessig " +
         "gesperrt. Nach ausdruecklicher menschlicher Freigabe kann correction ausschliesslich eine separat " +
         "als Korrektur/Berichtigung benannte Arbeitskopie speichern: Zeitraum, Grund, unveraendertes " +
@@ -78,7 +84,9 @@ export function registerLifecycleTools(registry: McpRegistry): void {
         "Oeffnet den echten SSE-Dialog 'Speichern unter...' mit Strg+Alt+S, setzt den Zielpfad ueber " +
         "UI Automation und prueft anschliessend Zieldatei, SHA256 und Fenstertitel. Quelldateipfad und " +
         "Quell-Hash sind Pflicht. Das Ziel muss neu sein; vorhandene Ziele werden ausnahmslos vor jeder " +
-        "UI-Aktion abgelehnt und ein Ueberschreibdialog wird nie automatisch bestaetigt.",
+        "UI-Aktion abgelehnt und ein Ueberschreibdialog wird nie automatisch bestaetigt. Nur nach dem " +
+        "ausdruecklichen Wunsch nach einer neuen Datei/Kopie verwenden; niemals als automatische " +
+        "Sicherheitsmassnahme oder Korrektur-Ausweichweg.",
     },
     { timeoutMs: 120_000 },
   );
@@ -88,7 +96,9 @@ export function registerLifecycleTools(registry: McpRegistry): void {
     {
       title: "Programm beenden",
       description:
-        "Beendet das Programm. Versucht zuerst ein normales Schliessen; haengt das Fenster oder ist " +
+        "Beendet das Programm nur nach einem ausdruecklichen menschlichen Auftrag zum Schliessen. Eine " +
+        "Bitte, Werte zu aendern oder zu pruefen, erlaubt weder Schliessen noch Verwerfen. Vorher " +
+        "sse_instances frisch lesen und den exakten Fall per hwnd/pid binden. Versucht zuerst ein normales Schliessen; haengt das Fenster oder ist " +
         "force=true gesetzt, darf genau die gebundene PID nur mit discardChanges=true hart beendet werden. " +
         "Speichern gehoert in den hashgebundenen Schritt sse_save; sse_close save=true wird verweigert. " +
         "Ohne discardChanges=true wird kein neu auftauchender Speicherdialog mit Nein/Verwerfen beantwortet. " +
@@ -120,7 +130,9 @@ export function registerLifecycleTools(registry: McpRegistry): void {
       title: "Steuerfaelle sichern",
       description:
         "Kopiert alle Falldateien in einen Sicherungsordner und schreibt SHA256-Pruefsummen. " +
-        "VOR jeder Schreiboperation aufrufen.",
+        "Nur fuer einen ausdruecklichen Ordner-/Gesamtbackup-Auftrag verwenden. Fuer die normale Arbeit am " +
+        "bereits geoeffneten Einzelfall stattdessen einmal pro unveraendertem Dateistand " +
+        "sse_make_working_copy nach backups: verwenden.",
     },
     { timeoutMs: 180_000 },
   );
@@ -145,9 +157,13 @@ export function registerLifecycleTools(registry: McpRegistry): void {
       title: "Verifizierte Kopie einer Steuerfalldatei",
       description:
         "Erstellt eine neue, bytegleiche Kopie einer Steuerfalldatei ohne UI, Tastatur oder Dialog. " +
-        "Der Zielbereich entscheidet den Zweck: 'cases:' erzeugt eine ARBEITSKOPIE zum Oeffnen, " +
-        "'backups:' erzeugt eine SICHERUNG. Vor jeder Schreibaktion an einem Steuerfall zuerst eine " +
-        "Sicherung nach 'backups:' anlegen - danach ist jeder Schreibfehler zurueckholbar. " +
+        "Der Zielbereich entscheidet den Zweck: 'backups:' erzeugt die normale private SICHERUNG; " +
+        "'cases:' erzeugt eine ARBEITSKOPIE nur auf ausdruecklichen Wunsch des Menschen. Vor der ersten " +
+        "Aenderung oder einer UI-Navigation mit moeglichem Dirty-State den aktuellen Dateistand nach " +
+        "'backups:' sichern. Fuer denselben Fall und unveraenderten Quellhash wird die bereits in dieser " +
+        "Aufgabe verifizierte Sicherung wiederverwendet, statt vor jedem Tool-Aufruf eine neue anzulegen. " +
+        "Nach erfolgreichem Speichern muss der naechste Schreibabschnitt den neuen Hash erneut sichern. " +
+        "Eine Sicherung wird niemals mit sse_launch geoeffnet. " +
         "Das Ziel darf nicht existieren; Quell-SHA256 und gleiche Dateiendung sind Pflicht. Danach werden " +
         "Quell- und Zielhash sowie Kopfdaten erneut geprueft. Bei einer Abweichung wird nur das neu erzeugte Ziel entfernt.",
     },

@@ -260,13 +260,13 @@ Dateiidentität, Größe sowie Zeitstempel gebunden. Ein Abbruch oder Timeout
 entfernt eine Teilkopie nur, wenn Identität, Bytezahl und Teilhash weiterhin
 den eigenen Schreibstand beweisen; ein fremd verändertes Ziel bleibt erhalten.
 Nach dem Erzeugen eines Ziels gibt es niemals einen Worker-Fallback.
-Für UI-gebundene Prüfungen ist diese Operation auch ohne geplante fachliche
-Mutation die Sicherheitsgrenze: Erst Originalhash lesen, dann eine neue
-bytegleiche Prüffallkopie erstellen und ausschließlich deren `targetRef`
-starten. SSE kann reine Seitennavigation als `ungespeichert=true` markieren.
-Darum ist „read-only“ keine Zusage, dass ein direkt geöffnetes Original im
-Arbeitsspeicher clean bleibt; ein reiner UI-Audit darf das Original gar nicht
-öffnen und darf den Navigationszustand der Kopie nie speichern.
+Für einen ausdrücklich isolierten UI-Audit ist diese Operation auch ohne
+geplante fachliche Mutation die Sicherheitsgrenze: Erst Originalhash lesen,
+dann eine neue bytegleiche Prüffallkopie erstellen und ausschließlich deren
+`targetRef` starten. SSE kann reine Seitennavigation als
+`ungespeichert=true` markieren. Der normale Agentenauftrag verwendet dagegen
+den bereits eindeutig geöffneten Fall, sichert dessen aktuellen Disk-Hash
+einmal nach `backups:` und speichert den Navigationszustand nicht automatisch.
 Die beiden potenziell langsamen Dateiöffnungen sind an Clientabbruch und
 Deadline gebunden; ein spät erfolgreicher Ziel-Open schließt und entfernt sein
 leeres Eigenziel nachträglich. `FileHandle.read/write/stat/unlink` besitzen in
@@ -285,7 +285,7 @@ Rollback zwischen letzter Identitätsprüfung und `unlink` ein kleines
 Dateisystem-TOCTOU-Restfenster. Der direkte Worker bleibt für kompatible lokale
 Aufrufer und als Paritätsreferenz erhalten.
 `backup_cases` läuft über API und MCP ebenfalls vollständig im API-Prozess.
-Es verwendet für jede Falldatei den verifizierten Arbeitskopiepfad, teilt ein
+Es verwendet für jede Falldatei den verifizierten Einzelkopierpfad, teilt ein
 gemeinsames Client-Zeitbudget und prüft zusätzlich den exakten Quell- und
 Zielbestand. Das Zielverzeichnis, fehlende verschachtelte Eltern und jede
 Zieldatei müssen komponentenweise exklusiv neu sein;
@@ -296,6 +296,16 @@ Ziele werden nie gelöscht, sondern in `retainedTargets` zur manuellen Klärung
 ausgewiesen. Ein partiell geschriebenes Manifest wird nur bei unveränderter
 Dateiidentität und exaktem Präfix der beabsichtigten Bytes als eigener Stand
 entfernt. Nach dem ersten `mkdir` gibt es auch hier keinen Worker-Fallback.
+
+Der MCP-Ablauf unterscheidet Backup und Arbeitskopie trotz desselben
+Kopierprimitivs: `backups:` ist die normale private Sicherung des aktuellen
+Dateistands; ein `cases:`-Ziel entsteht nur auf ausdrücklichen Wunsch nach einer
+separaten Datei. Der Agent merkt in der laufenden Aufgabe Fallreferenz,
+Quellhash und verifizierte Backupreferenz und kopiert bei unverändertem Hash
+nicht vor jedem Tool-Aufruf neu. Nach einem ausdrücklich beauftragten
+`save`-Hashwechsel muss die nächste Mutationsphase neu sichern. Der Release
+besitzt keine automatische Backup-Retention und löscht deshalb nichts.
+
 `archive_cases` läuft über API und MCP ebenfalls lokal, während der direkte
 PowerShell-Aufruf als Kompatibilitäts- und Paritätsreferenz bestehen bleibt.
 Vor der ersten Mutation müssen `cases` plus `expectedRemaining` den

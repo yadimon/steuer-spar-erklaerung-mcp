@@ -6,16 +6,25 @@ BelegManager-Datenbank oder die dort abgelegten Dokumentkopien.
 
 ## Wann diese Sicherung Pflicht ist
 
-Lege unmittelbar vor jedem Import, Update, Löschen, Klassifizieren oder
-Verknüpfen von Belegen eine neue Sicherung an. Das gilt besonders für
-Sammeloperationen. Bei fallbezogener Arbeit sind zwei getrennte Sicherungen
-Pflicht:
+Lege unmittelbar vor der ersten zusammenhängenden BelegManager-Mutationsphase
+eine Sicherung des stabilen Ausgangsstands an. Ein bestätigter Batch darf
+danach beliebig viele eng gebundene Import-, Update-, Lösch-, Klassifizierungs-
+oder Verknüpfungsaufrufe verwenden, ohne vor jedem API-Aufruf neu zu sichern.
+Bei fallbezogener Arbeit sind zwei getrennte Sicherungen Pflicht:
 
 1. die hashverifizierte Steuerfalldatei nach dem normalen Fallvertrag;
 2. die vollständige BelegManager-Datenablage nach dieser Referenz.
 
 Ein unveränderter Hash der Falldatei beweist nicht, dass der BelegManager
 unverändert ist. Seine Daten können separat persistieren.
+
+Merke für die laufende Aufgabe Datenordner, Inventar-/Datenbankhash,
+Backupreferenz, Manifesthash und `integrity_check=ok`. Solange noch keine
+BelegManager-Mutation persistiert wurde und derselbe stabile Ausgangsstand
+vorliegt, wird diese Sicherung wiederverwendet. Nach Abschluss einer
+Mutationsphase ist der persistierte BelegManager-Stand neu; vor einer später
+separat beauftragten Mutationsphase ist daher eine neue Sicherung nötig. Das ist
+eine Phasengrenze, keine Sicherung vor jeder Zeile oder jedem Tool-Aufruf.
 
 ## Datenablage ermitteln
 
@@ -44,8 +53,18 @@ anzulegen.
 
 ## Konsistente Sicherung
 
-Verwende immer ein neues, privates und datumseindeutiges Ziel außerhalb des
-Repositorys. Überschreibe keine frühere Sicherung.
+Der aktuelle Release enthält noch keine dedizierte API-/MCP-Operation für diese
+SQLite-Sicherung. Der zulässige Weg ist deshalb eine bereits verfügbare lokale
+SQLite-Implementierung, welche die Online-Backup-API (zum Beispiel den
+SQLite-CLI-Befehl `.backup`) tatsächlich verwendet. Installiere dafür nichts
+still. Fehlt ein solcher Weg, stoppe vor der Belegmutation und frage nach der
+nächsten Aktion. Schließe oder verwirf den offenen Steuerfall nicht, nur um die
+Datenbank als normale Datei kopieren zu können.
+
+Verwende für jeden noch nicht gesicherten Ausgangsstand ein neues, privates und
+datumseindeutiges Ziel außerhalb des Repositorys. Überschreibe keine frühere
+Sicherung. Der aktuelle Release besitzt keine automatische Retention; lösche
+deshalb keine Sicherungen als Teil dieses Ablaufs.
 
 1. Bestätige den SQLite-Header und öffne die Quelldatenbank read-only.
 2. Sichere eine laufende Datenbank mit der SQLite-Online-Backup-API oder einer
@@ -73,11 +92,13 @@ absolute Pfade, Belegtitel, Beträge oder Steuerfalldaten in Git, npm-Pakete,
 Logs oder öffentliche Berichte auf. Temporäre Hilfsdateien bleiben in einem
 ignorierten privaten Bereich.
 
-Dokumentiere im privaten Ergebnisbericht nur:
+Wenn ein bestätigter Plan einen privaten Ergebnisbericht umfasst oder der
+Mensch ihn ausdrücklich verlangt, dokumentiere darin nur:
 
 - dass Fall- und BelegManager-Sicherung getrennt erstellt wurden;
 - die private Zielreferenz, soweit der Nutzer sie zur Wiederherstellung braucht;
 - Dateianzahl und Manifest-Hash;
 - das bestandene Datenbankergebnis `integrity_check=ok`.
 
-Erst danach darf die ausdrücklich freigegebene BelegManager-Operation beginnen.
+Erst danach darf die ausdrücklich freigegebene BelegManager-Mutationsphase
+beginnen.

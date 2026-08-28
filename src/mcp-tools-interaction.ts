@@ -213,7 +213,7 @@ export function registerInteractionTools(registry: McpRegistry): void {
       title: "UStVA-Zeitraum sicher auswaehlen",
       description:
         "Waehlt genau EIN UStVA-Dropdown ueber stabile semantische Schluessel: frequency, month oder quarter. " +
-        "AENDERT STEUERDATEN nur in der gebundenen, hashverifizierten Arbeitskopie und liest den exakten " +
+        "AENDERT STEUERDATEN nur im gebundenen, zuvor hashverifiziert gesicherten Arbeitsfall und liest den exakten " +
         "Nachwert zurueck. Frequenz und Monat/Quartal werden bewusst in getrennten Aufrufen gesetzt, damit " +
         "jeder Zwischenschritt sichtbar und pruefbar bleibt. Speichert und sendet nicht.",
     },
@@ -226,7 +226,8 @@ export function registerInteractionTools(registry: McpRegistry): void {
       description:
         "Setzt genau ein fachlich benanntes UStVA-Kennzeichen mit Vor-/Nachzustand, Fenster-, Fall- und " +
         "Hashbindung. Dazu gehoeren Berichtigung, Belege, Verrechnung, SEPA-Widerruf, ergaenzende Angaben " +
-        "und manuelle Erfassung. AENDERT STEUERDATEN in der Arbeitskopie, speichert und sendet aber nicht.",
+        "und manuelle Erfassung. AENDERT STEUERDATEN im gebundenen, zuvor gesicherten Arbeitsfall, " +
+        "speichert und sendet aber nicht.",
     },
   );
 
@@ -235,8 +236,8 @@ export function registerInteractionTools(registry: McpRegistry): void {
     {
       title: "UStVA-Wert transaktional aendern",
       description:
-        "Aendert ein katalogisiertes UStVA-Betrags- oder Korrekturfeld in einer hashverifizierten " +
-        "Arbeitskopie mit exaktem Vorwert, Qt-Commit und Readback. Normal berechnete Summen bleiben " +
+        "Aendert ein katalogisiertes UStVA-Betrags- oder Korrekturfeld im gebundenen, zuvor " +
+        "hashverifiziert gesicherten Arbeitsfall mit exaktem Vorwert, Qt-Commit und Readback. Normal berechnete Summen bleiben " +
         "geschuetzt; manuell erfassbare Hauptbetraege verlangen zusaetzlich manualInputConfirmed=true " +
         "und eine zuvor bewusst aktivierte manuelle Erfassung. Speichert und sendet nicht.",
     },

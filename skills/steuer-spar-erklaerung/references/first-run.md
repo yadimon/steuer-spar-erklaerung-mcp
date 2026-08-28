@@ -5,6 +5,12 @@ Einrichtung, Fall oder Belegquellen noch nicht sicher bestätigt sind. Das Ziel
 ist ein normaler Dialog für technisch unerfahrene Nutzer, kein technisches
 Interview.
 
+Ist bereits genau ein Steuerfall eindeutig geöffnet und bezieht sich der
+Auftrag erkennbar auf „meinen/geöffneten Fall“, ist er ohne Kandidatensuche der
+bestätigte Arbeitsfall. Für normale Lese- und Änderungsaufträge gilt dann
+[case-session.md](case-session.md). Der Wizard bleibt für fehlende Bindung,
+mehrere offene Fälle, Einrichtung oder einen ausdrücklich isolierten Prüflauf.
+
 ## Ergebnis des Wizards
 
 Vor der eigentlichen Prüfung müssen genau zwei fachliche Entscheidungen vom
@@ -55,16 +61,23 @@ vollständig“ ist dann nicht nötig; frage die Vollständigkeit nicht erneut a
 Fehlt dagegen jede Belegangabe, ist die zweite fachliche Frage weiterhin
 offen und muss gestellt werden.
 
-## Weiterlesen nach einem Navigations-Stopp
+## Isolierten Prüflauf nach einem Navigations-Stopp fortsetzen
+
+Ein isolierter Prüflauf beginnt nur bei leerem `sse_instances`. Ist bereits ein
+Fall offen, frage gemäß case-session.md nach in-place Lesen oder einem
+ausdrücklich erlaubten Schließen; starte keine zweite Instanz.
 
 SSE kann beim bloßen Navigieren die zuletzt besuchte Seite als ungespeicherte
 Änderung markieren. Meldet die Prüffallkopie `ungespeichert=true`, endet der
 Prüflauf dort nicht — er wechselt die Kopie:
 
-1. Die Prüffallkopie mit `discardChanges=true` schließen.
+1. Lies `sse_instances` frisch und binde exakt `caseRef`, `hwnd` und `pid` der
+   Prüffallkopie. Nur wenn keine andere Instanz offen ist und die Bindung stimmt,
+   schließe genau diese Kopie mit `discardChanges=true`.
    `Standard-Prüflauf ausführen` bestätigt genau dieses Verwerfen bereits:
-   verworfen wird nur der reine Navigationszustand einer hashverifizierten
-   Kopie, nie der Originalfall und nie eine echte Eingabe. Nach dem Schließen
+   Die Vorabfreigabe gilt ausschließlich für diese frisch gebundene Kopie und
+   ihren reinen Navigationszustand, nie für den Originalfall oder echte
+   Eingaben. Nach dem Schließen
    `stillRunning=false`, Fenster, Health sowie die unveränderten Hashes von
    Original und Kopie zurücklesen.
 2. Dieselbe Kopie erneut öffnen und ausschließlich die noch ungelesenen
@@ -73,32 +86,19 @@ Prüflauf dort nicht — er wechselt die Kopie:
    danach weiterhin, endet der Lauf mit einem ehrlichen Teilbericht, der die
    ungelesenen Abschnitte einzeln benennt.
 
-## Bearbeiten im Original auf ausdrücklichen Wunsch
+## Den geöffneten Fall bearbeiten
 
-Standard bleibt die Arbeitskopie. Verlangt der Nutzer aber ausdrücklich, die
-Änderung im Originalfall selbst vorzunehmen („im Original, keine
-Arbeitskopie“), ist genau das zu tun — die Sicherheit kommt dann aus der
-Sicherung, nicht aus einer Verweigerung:
+Der normale Änderungsweg ist der bereits eindeutig geöffnete persönliche Fall,
+nicht eine neue Arbeitskopie. Sichere seinen aktuellen Disk-Hash einmal nach
+`backups:`, ändere nur die freigegebenen Werte und lies sie zurück. Ändern
+erlaubt kein Speichern; lass den Fall danach offen. Der vollständige Vertrag
+einschließlich Folgefragen, Hashwechsel und Dateiwechsel steht in
+[case-session.md](case-session.md).
 
-1. Vorbedingungen: Der Fall ist laut `sse_list_cases` nicht übermittelt und
-   es liegt kein Recovery-Zustand vor. Ein bereits übermittelter Fall wird
-   nie bearbeitet, auch nicht auf Wunsch.
-2. Sicherung anlegen: `sse_make_working_copy` mit dem Original als Quelle und
-   einem neuen, datumseindeutigen Ziel in `backups:`. Der bestätigte
-   Hashvergleich der Sicherung ist der Rückweg; ohne bestandene Sicherung
-   wird das Original nicht geöffnet.
-3. Vor der ersten Änderung dem Nutzer in einem Satz nennen: was geändert
-   wird, dass es das Original ist, und unter welcher `backups:`-Referenz die
-   Sicherung liegt. Das ist die Warnung — nach dem ausdrücklichen Wunsch
-   braucht es keine weitere Rückfrage.
-4. Danach gilt unverändert der Schreibvertrag: je Änderung Hash-, Fenster-
-   und Zustandsbindung mit sofortigem Readback, Speichern nur hashgebunden
-   über `sse_save`, ELSTER bleibt gesperrt.
-5. Im Abschlussbericht beide Hashes nennen: den der Sicherung (Zustand vor
-   der Änderung) und den des gespeicherten Originals — damit der Rückweg
-   jederzeit belegt ist.
-
-Fehlt der ausdrückliche Wunsch, bleibt es beim Arbeitskopien-Standard.
+Ein übermittelter Fall oder unbekannter Recovery-Zustand bleibt für Mutation
+und Speichern gesperrt. Erzeuge dann keine Korrektur-/Berichtigungsdatei als
+stillen Ausweg, sondern frage, ob der Nutzer genau diese neue Datei ausdrücklich
+anlegen lassen will.
 
 ## Kandidaten nur oberflächlich suchen
 
@@ -172,10 +172,9 @@ Erst nach beiden Antworten zeige kurz den tatsächlichen Plan. Standard ist:
   Node.js, ist das eine Voraussetzung und ein Stopp, keine Aufgabe;
 - einen privaten Standard-Arbeitsbereich außerhalb von Git verwenden;
 - zunächst nur die direkte lokale Loopback-API und read-only arbeiten;
-- vor sichtbarer UI-Navigation eine neue hashverifizierte Prüffallkopie neben
-  dem Original erzeugen und ausschließlich diese öffnen; die Kopie bleibt als
-  klar benannte lokale Prüfkopie bestehen, bis der Nutzer später ihre
-  Archivierung oder Bereinigung beauftragt;
+- für diesen ausdrücklich isolierten Nur-Lese-Prüflauf eine neue
+  hashverifizierte Prüffallkopie neben dem Original erzeugen und ausschließlich
+  diese öffnen; normale Arbeit am bereits geöffneten Fall erzeugt keine Kopie;
 - bestätigte Quellen nur lesen und Originale unverändert lassen;
 - kein Connector-Zugriff, keine Agenten-Konfigurationsänderung, kein
   Autostart, keine Steuerdatenänderung und keine ELSTER-Aktion.

@@ -14,7 +14,8 @@ Dieses Paket ist die lokale Ausführungsschicht:
 - HTTP-API und direkte API-CLI;
 - Windows-PowerShell-5.1- und Native-Runtime;
 - versionierte Produktprofile für geprüfte SteuerSparErklärung-Builds;
-- Arbeitskopien, Backups, read-only Analyse und freigegebene UI-Automation.
+- private Backups, ausdrücklich verlangte Arbeitskopien, read-only Analyse und
+  freigegebene UI-Automation.
 
 Ein Einrichtungsprogramm enthält dieses Paket nicht und braucht es nicht: Der
 erste Start legt die Arbeitsordner an, eine Konfigurationsdatei ist optional.
@@ -69,8 +70,10 @@ Belegordner und MCP-Anmeldung.
   fremdem `Host` werden mit `403` abgewiesen, damit keine Webseite im
   Browser die Steuersoftware steuern kann;
 - lokale Pfade und Steuerdaten bleiben auf dem Windows-PC;
-- Originalfälle werden nicht überschrieben;
-- Änderungen nur an gebundenen Arbeitskopien und mit Readback;
+- Originalfälle werden auf Dateiebene nicht überschrieben;
+- der eindeutig geöffnete Fall kann nach privater, hashverifizierter Sicherung
+  kontrolliert geändert werden; Persistieren ist ein separater Auftrag;
+- Arbeitskopie und `save_as` nur auf ausdrücklichen Wunsch, nie automatisch;
 - ELSTER, Versand und sonstige Übermittlung ans Finanzamt sind gesperrt;
 - Profil 2024 bleibt experimentell und ist für Nutzer nicht freigegeben.
 

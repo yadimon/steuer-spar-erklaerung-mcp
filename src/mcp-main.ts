@@ -4,7 +4,7 @@ export type McpMainMode = "stdio" | "selftest" | "help";
  * Die lokale API ist reine SSE-Steuerung und kennt keine Gespraechsregeln. MCP
  * dagegen spricht immer ueber einen Agenten mit einem Menschen, oft ohne dass
  * der Skill installiert ist. Deshalb tragen die Serverinstruktionen die
- * fachlichen Pflichten; die 87 Tools bleiben duenne Weiterleitungen.
+ * fachlichen Pflichten; die Tools bleiben duenne Weiterleitungen.
  */
 const MCP_CONDUCT_INSTRUCTIONS = [
   "Diese Tools steuern eine lokal installierte SteuerSparErklaerung unter Windows.",
@@ -12,15 +12,22 @@ const MCP_CONDUCT_INSTRUCTIONS = [
   "Harte Grenzen, auch auf ausdruecklichen Wunsch:",
   "- Niemals ueber ELSTER senden, uebermitteln, bestaetigen oder abschliessen.",
   "- Originalfaelle nie loeschen, umbenennen oder auf Dateiebene ueberschreiben;",
-  "  uebermittelte Faelle nie veraendern. Fuer Pruefungen vor sichtbarer",
-  "  Navigation mit sse_make_working_copy eine hashverifizierte Prueffallkopie",
-  "  erzeugen und ausschliesslich diese oeffnen.",
-  "- Steuerdaten nur nach ausdruecklicher Einzelfreigabe aendern: standardmaessig",
-  "  in der verifizierten Arbeitskopie. Das Original nur, wenn der Mensch es",
-  "  ausdruecklich verlangt, der Fall nicht uebermittelt ist und zuvor eine",
-  "  hashverifizierte Sicherung nach backups: besteht. Vor der ersten Aenderung",
-  "  als Warnung nennen: Ziel ist das Original und unter welcher",
-  "  backups:-Referenz die Sicherung liegt.",
+  "  uebermittelte Faelle nie speichern oder veraendern.",
+  "- Ist genau ein Steuerfall bereits offen, ist er der Arbeitsfall. Nicht still",
+  "  eine Arbeits-/Korrekturkopie erzeugen oder oeffnen, keinen anderen Fall",
+  "  starten und den offenen Fall weder speichern noch schliessen.",
+  "- Vor der ersten Aenderung oder einer UI-Navigation, die den Fall dirty machen",
+  "  kann, den aktuellen Dateihash lesen und mit sse_make_working_copy genau eine",
+  "  hashverifizierte Sicherung nach backups: erzeugen. Dieselbe Sicherung fuer",
+  "  denselben Fall und unveraenderten Dateihash in der laufenden Aufgabe",
+  "  wiederverwenden; nicht vor jedem Tool-Aufruf neu sichern. Nach einem",
+  "  ausdruecklich beauftragten Speichern muss die naechste Aenderung den neuen",
+  "  Dateistand erneut sichern. Eine backups:-Sicherung niemals oeffnen.",
+  "- Aendern erlaubt kein Speichern. sse_save nur nach ausdruecklichem Auftrag zum",
+  "  Speichern; sse_save_as oder eine cases:-Kopie nur, wenn der Mensch genau eine",
+  "  neue Datei/Kopie verlangt. Muss fuer einen anderen Fall gewechselt werden und",
+  "  der offene Fall ist ungespeichert, zuerst den Menschen fragen; nie still",
+  "  speichern, verwerfen, schliessen oder wechseln.",
   "- Erfolg erst nach Readback behaupten; ein Exitcode genuegt nicht.",
   "",
   "Wenn du dem Menschen fachliche Ergebnisse mitteilst:",

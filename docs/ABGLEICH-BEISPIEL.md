@@ -6,10 +6,12 @@ Arbeitsordner, nicht in dieses Repository.
 
 ## Quellen und Schutz
 
-- Steuerfall: `<WORKING_COPY>`
+- Steuerfall: `<OPEN_BOUND_CASE>`
 - Gegenquelle: `<VERIFIED_LEDGER>`
 - Originaldatei vor und nach der Arbeit per SHA256 prüfen.
-- Nur eine Arbeitskopie verändern.
+- Den geöffneten Fall vor der ersten dirty-fähigen UI-Navigation oder Mutation
+  einmal privat sichern; eine separate Arbeitskopie nur auf ausdrücklichen
+  Wunsch anlegen.
 - Übermittlungsstatus vor und nach der Arbeit lesen.
 - Niemals ELSTER-, Abschluss- oder Versandaktionen auslösen.
 
@@ -49,9 +51,9 @@ Nach jedem Schreibschritt:
 1. den Wert oder die Tabellenzeile über MCP zurücklesen;
 2. Summen und Zeilenzahl gegen die erwartete Änderung prüfen;
 3. `sse_check_page` ausführen;
-4. erst danach speichern;
-5. gespeicherte Datei erneut hashen;
-6. Originalhash und Übermittlungsstatus unverändert nachweisen.
+4. nur auf ausdrücklichen Speicherauftrag `sse_save` aufrufen;
+5. dann die gespeicherte Datei erneut hashen;
+6. andernfalls den In-Memory-Stand offen und klar als ungespeichert melden.
 
 ## Offene Punkte
 

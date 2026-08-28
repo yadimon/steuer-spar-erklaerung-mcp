@@ -3,7 +3,8 @@
 Stand: 2026-08-22
 
 Dieses Projekt kann eine Umsatzsteuer-Voranmeldung (UStVA) in
-SteuerSparErklärung lesen und in einer verifizierten Arbeitskopie vorbereiten.
+SteuerSparErklärung lesen und im eindeutig geöffneten, zuvor gesicherten Fall
+vorbereiten.
 Das Produktprofil 2025 unterstützt dabei neben 2025 ausdrücklich den vom
 Hersteller vorgesehenen Folgejahr-Fall `*.GewErfass2026`; andere 2026er
 Fallarten bleiben gesperrt. Es speichert nur nach einem getrennten,
@@ -36,14 +37,15 @@ Steuerberatung.
    getrennte Merkmale. Fehlt der Zahlungsabgleich, lautet der Status
    `vorläufig - Zahlungsabgleich ausstehend`; insbesondere EÜR- und
    Istversteuerungs-Zeitpunkte gelten dann noch nicht als abschließend geprüft.
-3. Für Änderungen eine neue Arbeitskopie erzeugen und Bytegleichheit zum
-   Ausgangsfall bestätigen.
+3. Für Änderungen den eindeutig geöffneten Fall binden und seinen aktuellen
+   Disk-Hash einmal als bytegleiche Sicherung nach `backups:` schreiben. Eine
+   Arbeitskopie entsteht nur auf ausdrücklichen Wunsch.
    Auch ein ausschließlich gelesener `*.GewErfass2026`-Fall kann beim Öffnen
    der automatisch erzeugten UStVA-Seite von SSE als `ungespeichert` markiert
    werden. Dieser UI-Status ist deshalb kein Beweis für einen API-Schreibzugriff:
    Zustand unmittelbar vor `ustva_read` festhalten, die Lesung darf ihn nicht
-   weiter verändern, anschließend ohne Speichern schließen und die
-   Bytegleichheit per SHA-256 erneut beweisen.
+   weiter verändern und wird ohne ausdrücklichen Auftrag weder gespeichert
+   noch geschlossen.
 4. Belegte Einnahmen und Ausgaben zuerst in den fachlich passenden Tabellen der
    Gewinn-Erfassung erfassen. Deutsche Vorsteuer, EU-/Drittlands-§13b,
    korrekturbedürftig ausgewiesene ausländische Umsatzsteuer und nicht
@@ -129,7 +131,7 @@ behandelt eine verbleibende SSE-Instanz als Fehler.
 - Meldefrequenz oder Beleglage ist unklar.
 - Das Rechnungsinventar ist unvollständig oder die automatisch erzeugte UStVA
   lässt sich nicht auf die zuvor zurückgelesenen Buchungen zurückführen.
-- Original statt Arbeitskopie, Hashabweichung, falsche Seite, unbekannter
-  Dialog, fremde Nutzereingabe oder fehlgeschlagener Readback.
+- Fehlende Sicherung des gebundenen Arbeitsfalls, Hashabweichung, falsche Seite,
+  unbekannter Dialog, fremde Nutzereingabe oder fehlgeschlagener Readback.
 - Ein Schritt würde ELSTER, Senden, Abschließen oder eine andere Übermittlung
   auslösen.

@@ -33,6 +33,11 @@ for (const name of discovered) {
 }
 
 const main = readFileSync(join(skillsRoot, "steuer-spar-erklaerung", "SKILL.md"), "utf8");
+const openAiMetadata = readFileSync(
+  join(skillsRoot, "steuer-spar-erklaerung", "agents", "openai.yaml"),
+  "utf8",
+);
+assert(openAiMetadata.includes("kündige sichtbare Bedienung trotzdem an"));
 assert(main.includes("Node.js 22+ mit npm") && main.includes("Python und PowerShell 7 nicht"));
 assert(main.includes("MCP ist ein dünner Wrapper darüber") && main.includes("API-Selbstbeschreibung"));
 assert(main.includes("NPX-Kurzweg ohne globale Runtime-Installation"));
@@ -64,9 +69,12 @@ assert(main.includes("Die API kennt keine Anmeldung") && main.includes("mit 403 
 assert(main.includes("MCP-Eintrag") && main.includes("expliziten `--config`-Pfad"));
 assert(main.includes("describe <operation>") && main.includes("discovery"));
 assert(main.includes("sse_capabilities") && main.includes("references/ui-fallback.md"));
-assert(main.includes("niemals über ELSTER") && main.includes("verifizierten Arbeitskopie"));
-assert(main.includes("UI-gebundene reine Prüfung niemals den Originalfall"));
-assert(main.includes("sse_make_working_copy") && main.includes("discardChanges=true"));
+assert(main.includes("niemals über ELSTER") && main.includes("Ein bereits eindeutig"));
+assert(main.includes("references/case-session.md") && main.includes("Eine Arbeits- oder"));
+assert(main.includes("Sonst antworte im Chat") && main.includes("Speicherstatus"));
+assert(main.includes("dirty-fähige UI-Navigation oder Mutation")
+  && main.includes("genau einmal nach `backups:`")
+  && main.includes("Disk-Hash weiterhin zum verifizierten Backup-Tupel passen"));
 assert(main.includes("references/ustva.md"));
 assert(main.includes("settings.md"));
 assert(main.includes("powershell/render-pdf.ps1") && main.includes("ocr-image.ps1"));
@@ -87,7 +95,7 @@ assert(
   "Hauptskill muss vor BelegManager-Mutationen die getrennte Datensicherung verlangen.",
 );
 assert(main.includes("echten Aufruf von `sse_health`") && main.includes("Handshake allein genügt nicht"));
-assert(main.includes("sichtbare read-only UI-Navigation") && main.includes("dritte Rückfrage"));
+assert(main.includes("geöffneten/bestätigten Fall") && main.includes("dritte Rückfrage"));
 assert(main.includes("Runtime-Dateien oder") && main.includes("niemals manuell als Umgehung"));
 assert(main.includes("ersten `launch` in einer VM") && main.includes("`--timeout-ms 280000`"));
 assert(
@@ -116,7 +124,11 @@ assert(
   "Der First-Run-Plan muss den npm-Weg nennen und darf kein Portable-Release mehr anbieten.",
 );
 assert(firstRun.includes("`OK`, `OK Standard` oder `OK Default`"));
-assert(firstRun.includes("hashverifizierte Prüffallkopie") && firstRun.includes("ausschließlich diese öffnen"));
+assert(firstRun.includes("bereits genau ein Steuerfall eindeutig geöffnet")
+  && firstRun.includes("ohne Kandidatensuche"));
+assert(firstRun.includes("hashverifizierte Prüffallkopie") && firstRun.includes("ausdrücklich isolierten"));
+assert(firstRun.includes("Nur wenn keine andere Instanz offen ist und die Bindung stimmt")
+  && firstRun.includes("frisch gebundene Kopie"));
 assert(firstRun.includes("Setup allein erfüllt") && firstRun.includes("capabilities"));
 assert(
   firstRun.includes("Es gibt kein Einrichtungsprogramm und keine Plandatei")
@@ -150,12 +162,59 @@ for (const requirement of [
   assert(receiptBackup.includes(requirement), `BelegManager-Sicherungswissen fehlt: ${requirement}`);
 }
 assert(receiptBackup.includes("außerhalb des Repositorys") && receiptBackup.includes("keine Quellpfade"));
+assert(receiptBackup.includes("zusammenhängenden BelegManager-")
+  && receiptBackup.includes("Mutationsphase")
+  && receiptBackup.includes("keine Sicherung vor jeder Zeile oder jedem Tool-Aufruf"));
+const caseSession = readFileSync(
+  join(skillsRoot, "steuer-spar-erklaerung", "references", "case-session.md"),
+  "utf8",
+);
+for (const requirement of [
+  "Der offene Fall ist maßgeblich",
+  "Eine Sicherung je unverändertem Dateistand",
+  "Ändern ist nicht Speichern",
+  "sse_instances",
+  "sse_make_working_copy",
+  "sse_save_as",
+  "muss `sse_instances` leer sein",
+  "Öffnen einer zweiten SSE-Instanz",
+  "Erzeuge keinen separaten",
+]) {
+  assert(caseSession.includes(requirement), `Arbeitssitzungs-Vertrag fehlt: ${requirement}`);
+}
+assert(caseSession.includes("Erzeuge weder pro MCP/API-Aufruf")
+  && caseSession.includes("erzeuge nicht automatisch eine")
+  && caseSession.includes("Bei ungespeicherten")
+  && caseSession.includes("frage, ob er gespeichert, verworfen oder")
+  && caseSession.includes("Verwirf das gemerkte Tupel")
+  && caseSession.includes("genügt ein gleicher Hash")
+  && caseSession.includes("Behandle lineare Navigation vorsorglich immer als dirty-fähig"));
+const mcpConduct = readFileSync(join(root, "src", "mcp-main.ts"), "utf8");
+assert(mcpConduct.includes("Ist genau ein Steuerfall bereits offen")
+  && mcpConduct.includes("Aendern erlaubt kein Speichern")
+  && mcpConduct.includes("unveraenderten Dateihash")
+  && mcpConduct.includes("Eine backups:-Sicherung niemals oeffnen")
+  && mcpConduct.includes("speichern, verwerfen, schliessen oder wechseln"),
+"MCP-Serverinstruktionen müssen offenen Fall, Speicherfreigabe und Backup-Reuse festschreiben.");
+const lifecycleTools = readFileSync(join(root, "src", "mcp-tools-lifecycle.ts"), "utf8");
+assert(lifecycleTools.includes("ausdruecklichen Wunsch nach einer neuen Datei/Kopie")
+  && lifecycleTools.includes("statt vor jedem Tool-Aufruf")
+  && lifecycleTools.includes("erlaubt weder Schliessen noch Verwerfen")
+  && lifecycleTools.includes("sse_instances frisch lesen"),
+"Lifecycle-Tools dürfen Save As oder Backups pro Aufruf nicht als Standard nahelegen.");
+const apiPackageReadme = readFileSync(join(root, "packages", "api", "README.md"), "utf8");
+const mcpPackageReadme = readFileSync(join(root, "packages", "mcp", "README.md"), "utf8");
+assert(apiPackageReadme.includes("Arbeitskopie und `save_as` nur auf ausdrücklichen Wunsch"));
+assert(mcpPackageReadme.includes("dirty-fähigen UI-Navigation oder Mutation")
+  && mcpPackageReadme.includes("`save` oder `save_as` wird nie still"));
 const ustva = readFileSync(
   join(skillsRoot, "steuer-spar-erklaerung", "references", "ustva.md"),
   "utf8",
 );
 assert(ustva.includes("sse_ustva_read") && ustva.includes("sse_ustva_open_section"));
 assert(ustva.includes("*.GewErfass2026") && ustva.includes("ELSTER"));
+assert(ustva.includes("vor jeder UStVA-Lesung oder Navigation einmal")
+  && ustva.indexOf("nach `backups:`") < ustva.indexOf("Lies Fallkopf"));
 const installation = readFileSync(join(root, "docs", "INSTALLATION.md"), "utf8");
 assert(installation.includes("Installation für Menschen und AI-Agenten"));
 assert(installation.includes("Codex Cloud") && installation.includes("OpenCode") && installation.includes("Claude Cowork"));
@@ -315,7 +374,9 @@ assert(
     .includes("Standard-Einrichtung und Prüflauf ausführen."),
   "Der Ein-Prompt-Schnellstart muss die kombinierte Formel tragen.",
 );
-assert(readme.includes("bedingten additiven MCP-Merges") && readme.includes("Stopp ohne Speichern oder ELSTER"));
+assert(readme.includes("bedingten additiven MCP-Merges")
+  && readme.includes("Schließen genau dieser Prüffallkopie ohne Speichern")
+  && readme.includes("ohne Speichern sowie den Stopp ohne"));
 assert(readme.includes("OpenCode bleibt ein sekundärer, best-effort Client") && readme.includes("Claude Code CLI"));
 assert(readme.includes("Download, Installation in den Ordner") && readme.includes("Starte den lokalen Agenten dann einmal neu"));
 assert(readme.includes("MCP als optionale Produktfunktion") && readme.includes("Agenten-Standard enthält MCP"));
