@@ -100,7 +100,7 @@ Assert-True ([string]$projection.rows[0].rowFingerprint -match '^[A-Fa-f0-9]{64}
 Assert-True ([string]$projection.rows[0].contentFingerprint -match '^[A-Fa-f0-9]{64}$') 'Stabiler Inhaltsfingerprint fehlt.'
 
 $projectionStart = $worker.IndexOf('function Get-SSEReceiptManagerListProjection(')
-$projectionEnd = $worker.IndexOf('function Get-SSEReceiptManagerDetailProjection(', $projectionStart)
+$projectionEnd = $worker.IndexOf('function Resolve-SSEReceiptManagerVisibleRowTarget(', $projectionStart)
 Assert-True ($projectionStart -ge 0 -and $projectionEnd -gt $projectionStart) 'BelegManager-Listenprojektion ist nicht eindeutig abgrenzbar.'
 $projectionBlock = $worker.Substring($projectionStart, $projectionEnd - $projectionStart)
 foreach ($required in @(
@@ -135,7 +135,34 @@ $receiptReadBlock = $worker.Substring($receiptReadStart, $receiptReadEnd - $rece
 Assert-True ($receiptReadBlock.Contains('Get-SSEReceiptManagerState $toolHwnd $policy -WithValues')) 'receipt_manager_read muss sichtbare Detailwerte und ReadOnly-Zustaende mit ValuePattern lesen.'
 Assert-True ($receiptReadBlock.Contains('$expectedSemanticRows')) 'receipt_manager_read muss nach dem Schliessen Runtime-ID-Drift ueber fachliche Zeilenfingerprints tolerieren.'
 Assert-True ($receiptReadBlock.Contains('| Sort-Object')) 'receipt_manager_read muss eine reine Qt-Neusortierung als inhaltlich unveraendertes Multiset behandeln.'
-Assert-True ($receiptReadBlock.Contains('$rowAfterMatches.Count -eq 1')) 'receipt_manager_read muss die Zielzeile trotz semantischer Listenpruefung weiterhin exakt binden.'
+Assert-True ($receiptReadBlock.Contains('$semanticRowAfterMatches.Count -eq 1')) 'receipt_manager_read muss die Zielzeile nach einer Qt-Neusortierung ueber die exakte fachliche Identitaet rebound binden.'
+Assert-True ($receiptReadBlock.Contains('$detailIdentityMatchesTarget')) 'receipt_manager_read darf Detailwerte nur fuer exakt denselben Titel und dieselbe Belegnummer bestaetigen.'
+Assert-True ($receiptReadBlock.Contains('Resolve-SSEReceiptManagerVisibleRowTarget')) 'receipt_manager_read muss virtualisierte Offscreen-Belege vor dem Klick sicher sichtbar binden.'
+
+$visibleRowStart = $worker.IndexOf('function Resolve-SSEReceiptManagerVisibleRowTarget(')
+$visibleRowEnd = $worker.IndexOf('function Get-SSEReceiptManagerDetailProjection(', $visibleRowStart)
+Assert-True ($visibleRowStart -ge 0 -and $visibleRowEnd -gt $visibleRowStart) 'Offscreen-Belegbindung ist nicht eindeutig abgrenzbar.'
+$visibleRowBlock = $worker.Substring($visibleRowStart, $visibleRowEnd - $visibleRowStart)
+foreach ($required in @(
+  '[Windows.Automation.GridPattern]::Pattern',
+  '[Windows.Automation.ScrollItemPattern]::Pattern',
+  '[Windows.Automation.SelectionItemPattern]::Pattern',
+  '[Windows.Automation.SelectionPattern]::Pattern',
+  'Current.IsSelected',
+  'Current.CanSelectMultiple',
+  '$preparationClickBinding = Click-VerifiedPoint',
+  'detailOpened=$true',
+  '$projectedSelectedRows.Count -ne 1',
+  '$AE::FromPoint',
+  '[SW]::WindowFromPoint($point)',
+  '[SW]::mouse_event(0x0800',
+  'Get-SSEPointObstruction $ToolHwnd',
+  '$expectedRowsJson',
+  '$expectedTargetCellsJson',
+  "`$scrollMethod = 'verified-wheel'"
+)) {
+  Assert-True ($visibleRowBlock.Contains($required)) "Offscreen-Belegbindung fehlt der Guard '$required'."
+}
 
 $updateStart = $receiptReadEnd
 $updateEnd = $worker.IndexOf("  'receipt_manager_import' {", $updateStart)
@@ -295,11 +322,11 @@ $readStart = $worker.IndexOf("  'receipt_manager_read' {")
 $updateStart = $worker.IndexOf("  'receipt_manager_update' {", $readStart)
 Assert-True ($readStart -ge 0 -and $updateStart -gt $readStart) 'Beleglesung ist nicht eindeutig abgrenzbar.'
 $readBlock = $worker.Substring($readStart, $updateStart - $readStart)
-Assert-True ($readBlock.Contains('row=$rowAfterMatches[0]')) 'Beleglesung muss die post-selection Zeilenbindung zurueckgeben.'
+Assert-True ($readBlock.Contains('row=$semanticRowAfterMatches[0]')) 'Beleglesung muss die semantisch reboundene post-selection Zeilenbindung zurueckgeben.'
 Assert-True ($readBlock.Contains('$policy.controls.detailClose')) 'Beleglesung muss die Detailansicht ueber den profilierten Schalter wieder schliessen.'
 Assert-True ($readBlock.Contains('[bool]$listAfter.rowsComplete')) 'Beleglesung muss vor dem Rueckgabebinding die vollstaendige Tabellenprojektion wiederherstellen.'
 Assert-True ($readBlock.Contains('($actualSemanticRows | ConvertTo-Json -Compress) -ceq')) 'Beleglesung muss nach dem Schliessen der Details das fachliche Listen-Multiset beweisen.'
-Assert-True ($readBlock.Contains('$rowAfterMatches.Count -eq 1')) 'Beleglesung muss nach dem Schliessen weiterhin exakt dieselbe Zielzeile binden.'
+Assert-True ($readBlock.Contains('$semanticRowAfterMatches.Count -eq 1')) 'Beleglesung muss nach dem Schliessen weiterhin exakt dieselbe fachliche Zielzeile binden.'
 
 $actionStart = $worker.IndexOf("  'receipt_manager_action' {", $deleteStart)
 Assert-True ($deleteStart -ge 0 -and $actionStart -gt $deleteStart) 'Loeschoperation ist nicht eindeutig abgrenzbar.'
@@ -312,6 +339,8 @@ foreach ($required in @(
   'deleteConfirmation.fingerprint',
   'Invoke-DialogButtonInfo',
   'remainingRowsUnchanged',
+  'Resolve-SSEReceiptManagerVisibleRowTarget',
+  '$visibleTarget.detailOpened',
   'NICHT wiederholen'
 )) {
   Assert-True ($deleteBlock.Contains($required)) "receipt_manager_delete enthaelt den Guard '$required' nicht."
