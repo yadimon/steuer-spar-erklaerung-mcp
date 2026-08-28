@@ -158,7 +158,8 @@ export function registerReceiptTools(registry: McpRegistry): void {
       title: "Belegdatei sicher importieren",
       description:
         "Legt in der bereits geoeffneten, vollstaendig gelesenen Belegliste genau einen neuen Beleg an und " +
-        "importiert eine documents:-Datei mit gebundenem SHA-256. Der Aufruf verlangt den frischen Listenfingerprint, " +
+        "importiert eine documents:-PDF-Datei mit gebundenem SHA-256. Andere Formate werden vor jeder UI-Aktion abgewiesen. " +
+        "Der Aufruf verlangt den frischen Listenfingerprint, " +
         "den exakten Vorzaehler und acknowledgeImport=true; vorhandene Entwuerfe blockieren den Import. Die API " +
         "bindet den neu hinzugekommenen Datensatz, den nativen Oeffnen-Dialog und eine visuelle Aenderung des " +
         "Vorschaufelds. Die Quelldatei wird weder verschoben noch veraendert. Wenn ein Nachweis nach dem Anlegen " +

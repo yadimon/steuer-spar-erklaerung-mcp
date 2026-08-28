@@ -20,14 +20,17 @@ foreach ($functionName in @(
   'Get-SSEReceiptManagerPolicy',
   'Get-SSEReceiptManagerState',
   'Get-SSEReceiptManagerListProjection',
-  'Get-SSEReceiptManagerWindowSet'
+  'Get-SSEReceiptManagerWindowSet',
+  'ConvertTo-SSEReceiptManagerInputValue',
+  'Get-SSEReceiptManagerDetailIdentityTitle',
+  'Test-SSEReceiptManagerPdfHeader'
 )) {
   $definitions = @($ast.FindAll({
     param($node)
     $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $functionName
   }, $true))
   Assert-True ($definitions.Count -eq 1) "$functionName ist nicht eindeutig vorhanden."
-  if ($functionName -in @('Get-SSEReceiptManagerState','Get-SSEReceiptManagerListProjection')) {
+  if ($functionName -in @('Get-SSEReceiptManagerState','Get-SSEReceiptManagerListProjection','ConvertTo-SSEReceiptManagerInputValue','Get-SSEReceiptManagerDetailIdentityTitle','Test-SSEReceiptManagerPdfHeader')) {
     Invoke-Expression $definitions[0].Extent.Text
   }
 }
@@ -59,9 +62,20 @@ Assert-True (($editableFields -join ',') -ceq 'amount,date,documentNumber,net,no
 Assert-True ($policy.controls.editableFields.date.automationIdSuffix -ceq '.dateEdit_datum.AAVDateLineEdit') 'Datumfeld ist nicht exakt profiliert.'
 Assert-True ($policy.controls.editableFields.amount.valueKind -ceq 'currency') 'Betragsfeld hat nicht den erwarteten Werttyp.'
 Assert-True ($policy.controls.editableFields.net.controlType -ceq 'CheckBox') 'Nettofeld ist nicht als Checkbox gebunden.'
+Assert-True ((ConvertTo-SSEReceiptManagerInputValue 'vatRate' '19' 'vat-rate') -ceq '19 %') 'USt-ComboBox erhaelt nicht den vollstaendigen Qt-Anzeigetext.'
 Assert-True ([int]$policy.list.primaryTextColumn -eq 2) 'Primaertext-Spalte ist nicht auf den live gemessenen Grid-Index 2 profiliert.'
 Assert-True ([int]$policy.list.documentNumberColumn -eq 8) 'Belegnummer-Spalte ist nicht auf den live gemessenen Grid-Index 8 profiliert.'
 Assert-True ([string]$policy.list.searchAutomationIdSuffix -ceq '.widget_mainWindowInfoBar.frame_container.lineEdit_suche') 'Beleglisten-Suche ist nicht profiliert.'
+Assert-True ((@($policy.importDialog.supportedExtensions) -join ',') -ceq '.pdf') 'Belegimport muss auf das live belegte PDF-Format begrenzt bleiben.'
+$pdfProbe = [IO.Path]::GetTempFileName()
+try {
+  [IO.File]::WriteAllBytes($pdfProbe, [Text.Encoding]::ASCII.GetBytes("%PDF-1.4`n%%EOF`n"))
+  Assert-True (Test-SSEReceiptManagerPdfHeader $pdfProbe) 'Ein PDF-Header wurde nicht erkannt.'
+  [IO.File]::WriteAllBytes($pdfProbe, [Text.Encoding]::ASCII.GetBytes("plain text`n"))
+  Assert-True (-not (Test-SSEReceiptManagerPdfHeader $pdfProbe)) 'Eine Nicht-PDF-Datei wurde als PDF akzeptiert.'
+} finally {
+  Remove-Item -LiteralPath $pdfProbe -Force -ErrorAction SilentlyContinue
+}
 Assert-True ([bool]$policy.controls.linkManagement.directToggleSupported -eq $false) 'Wirkungsloses TogglePattern darf fuer SSE 31.0.1 nicht aktiviert sein.'
 
 function Get-SSETextSha256([string]$Text) { 'A' * 64 }
@@ -95,6 +109,7 @@ $listState.nodes = @(
 $projection = Get-SSEReceiptManagerListProjection $listState $policy
 Assert-True ($projection.count -eq 1 -and $projection.rows.Count -eq 1 -and $projection.rowsComplete) 'BelegManager-Liste wurde nicht vollstaendig projiziert.'
 Assert-True ($projection.draftCount -eq 1 -and $projection.rows[0].draft) 'Leerer Belegentwurf wurde nicht markiert.'
+Assert-True ((Get-SSEReceiptManagerDetailIdentityTitle $projection.rows[0] $policy) -ceq 'Neuer Beleg') 'Profilierter Draft-Marker wurde fuer die Detailidentitaet nicht exakt entfernt.'
 Assert-True ([string]$projection.rows[0].rowRid -ceq 'row-a') 'Zeilenbindung verwendet nicht die erste sichtbare Zelle.'
 Assert-True ([string]$projection.rows[0].rowFingerprint -match '^[A-Fa-f0-9]{64}$') 'Zeilenfingerprint fehlt.'
 Assert-True ([string]$projection.rows[0].contentFingerprint -match '^[A-Fa-f0-9]{64}$') 'Stabiler Inhaltsfingerprint fehlt.'
@@ -139,6 +154,14 @@ Assert-True ($receiptReadBlock.Contains('$semanticRowAfterMatches.Count -eq 1'))
 Assert-True ($receiptReadBlock.Contains('$detailIdentityMatchesTarget')) 'receipt_manager_read darf Detailwerte nur fuer exakt denselben Titel und dieselbe Belegnummer bestaetigen.'
 Assert-True ($receiptReadBlock.Contains('Resolve-SSEReceiptManagerVisibleRowTarget')) 'receipt_manager_read muss virtualisierte Offscreen-Belege vor dem Klick sicher sichtbar binden.'
 
+$updateStart = $receiptReadEnd
+$updateEnd = $worker.IndexOf("  'receipt_manager_import' {", $updateStart)
+Assert-True ($updateStart -ge 0 -and $updateEnd -gt $updateStart) 'receipt_manager_update-Operationsblock ist nicht eindeutig abgrenzbar.'
+$updateBlock = $worker.Substring($updateStart, $updateEnd - $updateStart)
+Assert-True ($updateBlock.Contains("[string]`$transaction.name -ceq 'vatRate'")) 'USt-Feld muss eine eigene typisierte Auswahl verwenden.'
+Assert-True ($updateBlock.Contains('Set-SSEReceiptManagerVatRateSelection')) 'USt-Feld muss ueber die profilierte ComboBox-Option statt freien Text gesetzt werden.'
+Assert-True ($updateBlock.Contains("Resolve-SSEReceiptManagerEditableFieldNode `$vatState `$policy 'vatRate'")) 'USt-Feld muss vor der Auswahl aus einem frischen Zustandsbaum aufgeloest werden.'
+
 $visibleRowStart = $worker.IndexOf('function Resolve-SSEReceiptManagerVisibleRowTarget(')
 $visibleRowEnd = $worker.IndexOf('function Get-SSEReceiptManagerDetailProjection(', $visibleRowStart)
 Assert-True ($visibleRowStart -ge 0 -and $visibleRowEnd -gt $visibleRowStart) 'Offscreen-Belegbindung ist nicht eindeutig abgrenzbar.'
@@ -168,10 +191,6 @@ foreach ($required in @(
   Assert-True ($visibleRowBlock.Contains($required)) "Offscreen-Belegbindung fehlt der Guard '$required'."
 }
 
-$updateStart = $receiptReadEnd
-$updateEnd = $worker.IndexOf("  'receipt_manager_import' {", $updateStart)
-Assert-True ($updateStart -ge 0 -and $updateEnd -gt $updateStart) 'receipt_manager_update-Operationsblock ist nicht eindeutig abgrenzbar.'
-$updateBlock = $worker.Substring($updateStart, $updateEnd - $updateStart)
 foreach ($required in @(
   "Arg `$a 'acknowledgeUpdate'",
   'rowFingerprint',
@@ -194,8 +213,8 @@ foreach ($forbidden in @("Arg `$a 'name'", "Arg `$a 'aid'", "Arg `$a 'rid'", "Ar
 $updateOnlyEnd = $worker.IndexOf("  'receipt_manager_classification_options' {", $updateStart)
 $updateOnlyBlock = $worker.Substring($updateStart, $updateOnlyEnd - $updateStart)
 Assert-True (
-  ($updateOnlyBlock.Split(@('Get-SSEReceiptManagerState $toolHwnd $policy -WithValues'), [StringSplitOptions]::None).Count - 1) -eq 3
-) 'receipt_manager_update darf Vollbaum-Readbacks nur fuer Ausgangsbindung, Detailbindung und Abschlusszustand verwenden.'
+  ($updateOnlyBlock.Split(@('Get-SSEReceiptManagerState $toolHwnd $policy -WithValues'), [StringSplitOptions]::None).Count - 1) -eq 5
+) 'receipt_manager_update darf Vollbaum-Readbacks nur fuer Ausgangsbindung, typisierte USt-Auswahl/Rollback, Detailbindung und Abschlusszustand verwenden.'
 
 $start = $worker.IndexOf("  'receipt_manager_action' {")
 $end = $worker.IndexOf("  'ui_state' {", $start)
@@ -228,6 +247,9 @@ foreach ($required in @(
   "Arg `$a 'acknowledgeImport'",
   'expectedListFingerprint',
   'expectedCountBefore',
+  'supportedExtensions',
+  'Test-SSEReceiptManagerPdfHeader',
+  "'unsupported-format'",
   'draftCount',
   'Get-SSEWindowRegionPixelFingerprint',
   'Invoke-SSEReceiptManagerOpenFileDialog',
@@ -238,6 +260,7 @@ foreach ($required in @(
 )) {
   Assert-True ($importBlock.Contains($required)) "receipt_manager_import enthaelt den Guard '$required' nicht."
 }
+Assert-True ($importBlock.IndexOf('supportedExtensions') -lt $importBlock.IndexOf('Resolve-SSEMainWindowDescriptor')) 'Nicht unterstuetzte Belegformate muessen vor jeder UI-Bindung abgewiesen werden.'
 foreach ($forbidden in @("Arg `$a 'name'", "Arg `$a 'aid'", "Arg `$a 'rid'", "Arg `$a 'x'", "Arg `$a 'y'")) {
   Assert-True (-not $importBlock.Contains($forbidden)) "receipt_manager_import akzeptiert den freien Selektor '$forbidden'."
 }
@@ -297,6 +320,8 @@ foreach ($required in @(
   '$focusCandidates',
   'fuer den begrenzten Tastatur-Fokus',
   '$previousExpectedCount',
+  '$actualStartText',
+  "gelesen '`$actualStartText'",
   '$retryClick = Click-VerifiedPoint',
   '$projectionBefore = & $readMode $stagedMode $item',
   '$applyClick = & $closeMode',

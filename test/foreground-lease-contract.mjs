@@ -99,6 +99,12 @@ assert(semanticClickStart >= 0 && semanticClickEnd > semanticClickStart, "click-
 const semanticClick = worker.slice(semanticClickStart, semanticClickEnd);
 assert.match(semanticClick, /\$activationMethod = \$\(if \(\$radioSelectionMethod\) \{ \$radioSelectionMethod \} else \{ "uia-\$pattern" \}\)/u,
   "sse_click muss im Erfolgsresultat das tatsaechlich ausgefuehrte UIA-Pattern melden.");
+assert.match(semanticClick, /\$requiresHyperlinkPageChange = \[bool\]\([\s\S]*\[string\]\$erfolg\.type -ceq 'Hyperlink'/u,
+  "Ein gebundener Qt-Hyperlink muss auch ohne bekannte Zielueberschrift einen Seitenwechselvertrag erhalten.");
+assert.match(semanticClick, /\$hasNavigationPostcondition[\s\S]*uia-invoke\+verified-point-fallback/u,
+  "Ein wirkungsloses Qt-Hyperlink-Invoke muss den verifizierten Point-Fallback verwenden.");
+assert.match(semanticClick, /\$isNavigation -or \$hasNavigationPostcondition/u,
+  "Ein Hyperlink-Erfolg darf erst nach bestaetigtem Seitenwechsel als verified gelten.");
 assert.match(semanticClick, /'expand'\s+\{ \$el\.GetCurrentPattern\(\[System\.Windows\.Automation\.ExpandCollapsePattern\]::Pattern\)\.Expand\(\) \}/u,
   "expand muss das ExpandCollapsePattern ausfuehren.");
 assert.match(semanticClick, /'collapse'\s+\{ \$el\.GetCurrentPattern\(\[System\.Windows\.Automation\.ExpandCollapsePattern\]::Pattern\)\.Collapse\(\) \}/u,
