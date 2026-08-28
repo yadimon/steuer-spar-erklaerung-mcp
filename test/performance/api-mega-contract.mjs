@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { SSE_API_OPERATIONS } from "../../dist/api-contract.js";
-import { classifyPassiveExportDialog } from "../export-dialog-policy.mjs";
+import {
+  classifyPassiveExportDialog,
+  classifyPassiveExportSuccessDialog,
+} from "../export-dialog-policy.mjs";
 import {
   SSE_FOREGROUND_REQUIRED_RECEIPT_OPERATIONS,
 } from "../../dist/receipt-interaction-policy.js";
@@ -182,9 +185,23 @@ const exactExport = {
   ],
 };
 assert.equal(classifyPassiveExportDialog(structuredClone(exactExport), exactExport), "Schließen");
+const exportWithMedium = { ...exactExport, texts: ["Bitte auf einem externen Speichermedium sichern."] };
+assert.equal(classifyPassiveExportDialog(structuredClone(exportWithMedium), exportWithMedium), "Schließen");
 assert.equal(classifyPassiveExportDialog({ ...exactExport, title: "Steuerfall speichern?" }, exactExport), null);
 assert.equal(classifyPassiveExportDialog({ ...exactExport, texts: ["Export abgeschlossen."] }, exactExport), null);
 assert.equal(classifyPassiveExportDialog({ ...exactExport, buttons: [{ name: "OK", enabled: true }] }, exactExport), null);
+const exactExportSuccess = {
+  hwnd: 702,
+  title: "Export erfolgreich durchgeführt!",
+  texts: ["Die Dateien finden Sie im Verzeichnis: C:/safe/disposable/result"],
+  buttons: [{ name: "OK", enabled: true }],
+};
+assert.equal(classifyPassiveExportSuccessDialog(exactExportSuccess), "OK");
+assert.equal(classifyPassiveExportSuccessDialog({ ...exactExportSuccess, title: "Export fehlgeschlagen!" }), null);
+assert.equal(classifyPassiveExportSuccessDialog({ ...exactExportSuccess, texts: ["Export abgeschlossen."] }), null);
+assert.equal(classifyPassiveExportSuccessDialog({
+  ...exactExportSuccess, buttons: [...exactExportSuccess.buttons, { name: "Abbrechen", enabled: true }],
+}), null);
 assert.match(journey, /no-post-export-dialog-present/u,
   "Ein fehlender optionaler Post-Export-Dialog muss als Skip protokolliert werden.");
 assert.match(runner, /terminalCollect: entry\.definition\.terminalCollect \?\? null/u,
