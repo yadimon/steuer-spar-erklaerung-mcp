@@ -17675,15 +17675,13 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       Fail 'BelegManager-Zustand hat sich unmittelbar vor der Zeilenauswahl geaendert.' 'stale'
     }
     $openDetail = $null
-    if (@(Get-SSEReceiptManagerDetailProjection $freshState).Count) {
-      $detailState = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
-      $detailList = Get-SSEReceiptManagerListProjection $detailState $policy
-      $detailFields = @(Get-SSEReceiptManagerDetailProjection $detailState)
-      $detailFingerprint = Get-SSEReceiptManagerDetailFingerprint $detailFields
-      if ([string]$detailList.listFingerprint -ceq $expectedListFingerprint) {
-        $openDetail = Get-SSEReceiptManagerOpenDetailBinding `
-          $detailState $policy $rows[0] $detailFingerprint
-      }
+    $detailState = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
+    $detailList = Get-SSEReceiptManagerListProjection $detailState $policy
+    $detailFields = @(Get-SSEReceiptManagerDetailProjection $detailState)
+    $detailFingerprint = Get-SSEReceiptManagerDetailFingerprint $detailFields
+    if ([string]$detailList.listFingerprint -ceq $expectedListFingerprint -and $detailFingerprint) {
+      $openDetail = Get-SSEReceiptManagerOpenDetailBinding `
+        $detailState $policy $rows[0] $detailFingerprint
     }
     if ($openDetail) {
       $visibleTarget = [pscustomobject]@{
