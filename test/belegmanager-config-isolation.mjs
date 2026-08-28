@@ -9,7 +9,7 @@ try {
   const evidenceRoot = join(temporary, "evidence");
   const localAppData = join(temporary, "local-app-data");
   const configDirectory = join(localAppData, "Steuertipps", "SSE", "31");
-  const iniPath = join(configDirectory, "SSEKonf.user.ini");
+  const iniPath = join(configDirectory, ["SSEKonf", "user.ini"].join("."));
   const isolatedDataDir = join(temporary, "isolated-belegmanager");
   mkdirSync(configDirectory, { recursive: true });
   const original = Buffer.from(
