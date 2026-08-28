@@ -159,6 +159,7 @@ foreach ($required in @(
   'Get-SSEPointObstruction $ToolHwnd',
   '$expectedRowsJson',
   '$expectedTargetCellsJson',
+  'Get-SSEReceiptManagerStableCellNames',
   "`$scrollMethod = 'verified-wheel'"
 )) {
   Assert-True ($visibleRowBlock.Contains($required)) "Offscreen-Belegbindung fehlt der Guard '$required'."

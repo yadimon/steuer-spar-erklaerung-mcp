@@ -70,6 +70,7 @@ assert(receiptWorkerText.includes("$read.targetRowRebound -eq $true -or $read.ta
   receiptWorkerText.includes("$read.dirtyStateUnchanged -eq $true"),
 "Ein spaet stabilisierter Readback darf nur mit eindeutiger exakter oder semantischer Zielbindung, Dialogfreiheit und stabilem Dirty-State gelten.");
 assert(receiptWorkerText.includes("Get-SSEReceiptManagerOpenDetailBinding") &&
+  receiptWorkerText.includes("Close-SSEReceiptManagerDetailView") &&
   receiptWorkerText.includes("method='already-open-detail'") &&
   receiptWorkerText.includes("$action -in @('imported','updated')") &&
   receiptWorkerText.includes("$expectedVat -ceq '0' -and -not $observedVat"),
