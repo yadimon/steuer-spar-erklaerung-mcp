@@ -14,7 +14,8 @@ try {
   mkdirSync(configDirectory, { recursive: true });
   const original = Buffer.from(
     "[Allgemein]\r\nWert=1\r\n[BelegManager]\r\nDataDir=C:\\private\\original\r\nBreite=42\r\n" +
-    "[Files]\r\nLastWorkDir=C:\\private\\work\r\n",
+    "[Files]\r\nLastWorkDir=C:\\private\\work\r\n" +
+    "[WerteInfoPos]\r\nSize3=100\r\nSize4=200\r\n",
     "utf8",
   );
   writeFileSync(iniPath, original);
@@ -27,7 +28,7 @@ try {
   writeFileSync(iniPath, readFileSync(iniPath, "utf8").replace(
     "LastWorkDir=C:\\private\\work",
     "LastWorkDir=C:\\synthetic\\runtime",
-  ));
+  ).replace("Size3=100", "Size3=348").replace("Size4=200", "Size4=93"));
   first.restore();
   assert.deepEqual(readFileSync(iniPath), original);
   assert.equal(existsSync(join(evidenceRoot, ".api-mega-belegmanager-config-original.bin")), false);
