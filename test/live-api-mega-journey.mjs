@@ -380,7 +380,6 @@ try {
       assert.equal(result.workspaceReady, true);
       assert.equal(result.caseDirectoryReady, true);
     });
-    await read("help", {}, (result) => assert(result.ok === true));
     const cases = await read("list_cases", {}, (result) => {
       const names = new Set((result.cases ?? []).map((entry) => `cases:${entry.name}`));
       assert(names.has(fixtures.gew.sourceRef) && names.has(fixtures.est.sourceRef));
@@ -457,6 +456,12 @@ try {
     await maybeDismissStartupDialog("launch-gew-startup-dialog", launchedGew.readback);
     await assertBoundUiState("launch-gew");
     await read("page", { hwnd: currentHwnd }, (result) => assert(result.ueberschrift));
+    await read("help", { hwnd: currentHwnd }, (result) => {
+      assert.equal(typeof result.seite, "string");
+      assert(result.seite.length > 0, "Gebundene Eingabehilfe nennt keine Seite.");
+      assert(result.abschnitte && typeof result.abschnitte === "object",
+        "Gebundene Eingabehilfe liefert keine strukturierten Abschnitte.");
+    });
     await read("read_full", { hwnd: currentHwnd }, (result) => assert(Array.isArray(result.elemente ?? result.elements ?? [])));
     await read("read_page", { hwnd: currentHwnd }, (result) => assert(Array.isArray(result.felder ?? result.fields ?? [])));
     await read("page_objects", { pageId: "gew.fahrzeug" }, (result) => assert.equal(result.pageId, "gew.fahrzeug"));
