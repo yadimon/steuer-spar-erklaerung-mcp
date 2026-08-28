@@ -877,13 +877,22 @@ function Get-SSEReceiptManagerEditableValues($State, $Policy) {
   [pscustomobject]@{ complete=$complete; values=$(if ($complete) { [pscustomobject]$values } else { $null }) }
 }
 
+function Get-SSEReceiptManagerDetailIdentityTitle($Row, $Policy) {
+  $title = [string]$Row.primaryText
+  $marker = [string]$Policy.list.draftMarker
+  if ([bool]$Row.draft -and $marker -and $title.EndsWith($marker, [StringComparison]::Ordinal)) {
+    return $title.Substring(0, $title.Length - $marker.Length)
+  }
+  $title
+}
+
 function Get-SSEReceiptManagerOpenDetailBinding($State, $Policy, $Row, [string]$ExpectedDetailFingerprint) {
   $fields = @(Get-SSEReceiptManagerDetailProjection $State)
   $fingerprint = Get-SSEReceiptManagerDetailFingerprint $fields
   if (-not $fingerprint -or [string]$fingerprint -cne [string]$ExpectedDetailFingerprint) { return $null }
   $editable = Get-SSEReceiptManagerEditableValues $State $Policy
   if (-not [bool]$editable.complete -or
-      [string]$editable.values.title -cne [string]$Row.primaryText -or
+      [string]$editable.values.title -cne (Get-SSEReceiptManagerDetailIdentityTitle $Row $Policy) -or
       [string]$editable.values.documentNumber -cne [string]$Row.documentNumber) {
     return $null
   }
@@ -1031,7 +1040,11 @@ function ConvertTo-SSEReceiptManagerInputValue([string]$FieldName, $Value, [stri
     'vat-rate' {
       $rate = [string]$Value
       if ($rate -notin @('0','7','19')) { Fail "Umsatzsteuersatz '$Value' ist nicht freigegeben." 'bad-args' }
-      return $rate
+      # Das editierbare Qt-ComboBox-Feld akzeptiert bei einem echten Wechsel
+      # nur den vollstaendigen Anzeigetext. Ein nacktes "19" erscheint kurz
+      # im QLineEdit, wird beim Tab-Commit aber wieder auf den alten Eintrag
+      # zurueckgesetzt. Der Readback bleibt ueber Test-* numerisch kanonisch.
+      return "$rate %"
     }
     'boolean' { return [bool]$Value }
     default { return [string]$Value }
@@ -1091,13 +1104,181 @@ function Wait-SSEReceiptManagerLiveFieldValue(
   [pscustomobject]@{ ok=$false; resolved=$resolved; value=$lastValue; ms=$watch.ElapsedMilliseconds }
 }
 
+function Set-SSEReceiptManagerVatRateSelection(
+  [IntPtr]$ToolHwnd,
+  [int]$TargetPid,
+  $State,
+  $Policy,
+  $ResolvedField,
+  [AllowEmptyString()][string]$ExpectedCurrent,
+  [AllowEmptyString()][string]$Wanted,
+  [int]$WaitMs
+) {
+  $normalizeRate = {
+    param([AllowEmptyString()][string]$Value)
+    $digits = ($Value -replace '[^0-9]', '')
+    if (-not $digits) { return '0' }
+    [string]$digits
+  }
+  $expectedRate = & $normalizeRate $ExpectedCurrent
+  $wantedRate = & $normalizeRate $Wanted
+  if ($expectedRate -notin @('0','7','19') -or $wantedRate -notin @('0','7','19')) {
+    return [pscustomobject]@{ ok=$false; error='USt-Auswahl liegt ausserhalb der profilierten Saetze 0, 7 und 19.'; mutationStarted=$false }
+  }
+  if ($expectedRate -ceq $wantedRate) {
+    return [pscustomobject]@{ ok=$true; method='noop-already-target'; before=$expectedRate; after=$wantedRate; mutationStarted=$false }
+  }
+  if ($wantedRate -ceq '0') {
+    # SSE 31 stellt "keine abziehbare USt" als leeren Editwert dar; das
+    # Popup bietet nur 7 und 19. Der Nullsatz wird deshalb streng als leerer
+    # QLineEdit-Wert committed und kanonisch als 0 gelesen.
+    $clearCommit = Commit-TrackedValue $ToolHwnd $ResolvedField.node '' $ExpectedCurrent
+    if ([string]$clearCommit.method -cne 'verified-keyboard-replace') {
+      return [pscustomobject]@{
+        ok=$false; error="USt-Nullsatz-Commit meldete '$([string]$clearCommit.method)'."
+        method=[string]$clearCommit.method; before=$expectedRate; requested='0'; mutationStarted=$false
+      }
+    }
+    $clearReadback = Wait-SSEReceiptManagerLiveFieldValue `
+      $ToolHwnd $ResolvedField '' 'vat-rate' ([Math]::Min([Math]::Max($WaitMs, 300), 1200))
+    return [pscustomobject]@{
+      ok=[bool]$clearReadback.ok
+      error=$(if ($clearReadback.ok) { $null } else { 'USt-Nullsatz blieb nach dem Commit nicht leer.' })
+      method='verified-keyboard-clear'; before=$expectedRate; requested='0'
+      after=$(if ($clearReadback.ok) { '0' } else { & $normalizeRate ([string]$clearReadback.value) })
+      mutationStarted=[bool]$clearReadback.ok
+    }
+  }
+
+  $childSuffix = [string]$ResolvedField.policy.automationIdSuffix
+  $comboSuffix = $childSuffix -replace '\.QLineEdit$', ''
+  if (-not $comboSuffix -or $comboSuffix -ceq $childSuffix) {
+    return [pscustomobject]@{ ok=$false; error='USt-QLineEdit besitzt keine profilierte ComboBox-Elternbindung.'; mutationStarted=$false }
+  }
+  $comboNodes = @($State.nodes | Where-Object {
+    $_.type -eq 'ComboBox' -and [string]$_.aid -and
+    ([string]$_.aid).EndsWith($comboSuffix, [StringComparison]::Ordinal) -and
+    [bool]$_.on -and $_.w -gt 0 -and $_.h -gt 0
+  })
+  if ($comboNodes.Count -ne 1) {
+    return [pscustomobject]@{ ok=$false; error="$($comboNodes.Count) sichtbare profilierte USt-ComboBoxen gefunden."; mutationStarted=$false }
+  }
+  $comboElement = Get-LiveElement $ToolHwnd ([string]$comboNodes[0].rid) ([string]$comboNodes[0].aid)
+  $expandObject = $null
+  if (-not $comboElement -or -not $comboElement.TryGetCurrentPattern(
+      [Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$expandObject)) {
+    return [pscustomobject]@{ ok=$false; error='USt-ComboBox bietet kein ExpandCollapsePattern.'; mutationStarted=$false }
+  }
+  $windowIdsBefore = @((Get-Windows 'SSE' | Where-Object { [int]$_.pid -eq $TargetPid }) |
+    ForEach-Object { [int64]$_.hwnd })
+  try { ([Windows.Automation.ExpandCollapsePattern]$expandObject).Expand() }
+  catch {
+    return [pscustomobject]@{ ok=$false; error="USt-ComboBox liess sich nicht oeffnen: $($_.Exception.Message)"; mutationStarted=$false }
+  }
+  Start-Sleep -Milliseconds 300
+
+  $sources = @(Get-SSETableComboPopupSources $TargetPid $ToolHwnd $windowIdsBefore)
+  $options = New-Object System.Collections.ArrayList
+  $taxOptionDiagnostics = New-Object System.Collections.ArrayList
+  foreach ($source in $sources) {
+    foreach ($node in @($source.tree.nodes | Where-Object { [string]$_.name })) {
+      $taxMatch = [regex]::Match([string]$node.name, '^\s*(0|7|19)(?:[\.,]0+)?(?:\s*%)?\s*$')
+      if (-not $taxMatch.Success) { continue }
+      $null = $taxOptionDiagnostics.Add([pscustomobject]@{
+        name=[string]$node.name; type=[string]$node.type; sourceHwnd=[int64]$source.hwnd
+        sourceIsNewPopup=[bool]$source.isNewPopup
+      })
+      if ([string]$node.type -cne 'ListItem') { continue }
+      $rate = [string]$taxMatch.Groups[1].Value
+      $null = $options.Add([pscustomobject]@{
+        rate=$rate; sourceHwnd=[int64]$source.hwnd; sourceIsNewPopup=[bool]$source.isNewPopup; node=$node
+      })
+    }
+  }
+  $popupOptions = @($options | Where-Object { [bool]$_.sourceIsNewPopup })
+  $selectionOptions = $(if ($popupOptions.Count) { $popupOptions } else { @($options) })
+  $targetOptions = @($selectionOptions | Where-Object { [string]$_.rate -ceq $wantedRate })
+  if ($targetOptions.Count -ne 1) {
+    try { ([Windows.Automation.ExpandCollapsePattern]$expandObject).Collapse() } catch { }
+    return [pscustomobject]@{
+      ok=$false; error='USt-ComboBox-Popup enthaelt den Zielsatz nicht exakt einmal.'
+      mutationStarted=$false; optionRates=@($options | ForEach-Object { [string]$_.rate })
+      sourceCount=$sources.Count; taxOptionDiagnostics=@($taxOptionDiagnostics)
+    }
+  }
+  $targetElement = Get-LiveElement ([IntPtr][int64]$targetOptions[0].sourceHwnd) `
+    ([string]$targetOptions[0].node.rid) ([string]$targetOptions[0].node.aid)
+  $selectionObject = $null
+  if (-not $targetElement -or -not [bool]$targetElement.Current.IsEnabled -or
+      -not $targetElement.TryGetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern, [ref]$selectionObject)) {
+    try { ([Windows.Automation.ExpandCollapsePattern]$expandObject).Collapse() } catch { }
+    return [pscustomobject]@{ ok=$false; error='USt-Zieloption bietet kein aktives SelectionItemPattern.'; mutationStarted=$false }
+  }
+  $selectionError = $null
+  try { ([Windows.Automation.SelectionItemPattern]$selectionObject).Select() }
+  catch { $selectionError = $_.Exception.Message }
+  Start-Sleep -Milliseconds ([Math]::Min([Math]::Max($WaitMs, 300), 1200))
+  $readState = Get-SSEReceiptManagerState $ToolHwnd $Policy -WithValues
+  $readField = Resolve-SSEReceiptManagerEditableFieldNode $readState $Policy 'vatRate'
+  $afterRate = & $normalizeRate ([string](Get-SSEReceiptManagerFieldValue $readField))
+  $selected = $(try { [bool]([Windows.Automation.SelectionItemPattern]$selectionObject).Current.IsSelected } catch { $false })
+  $commitMethod = 'expand+selection-item'
+  $physicalCommit = $null
+  if ($afterRate -cne $wantedRate) {
+    # Qt bestaetigt SelectionItem.IsSelected im Popup teilweise nur intern.
+    # Ausschliesslich wenn der sichtbare, neue Popup-ListItem-Knoten noch
+    # exakt einmal gebunden ist, darf ein einzelner physischer Commit folgen.
+    $postSources = @(Get-SSETableComboPopupSources $TargetPid $ToolHwnd $windowIdsBefore)
+    $postTargets = New-Object System.Collections.ArrayList
+    foreach ($source in @($postSources | Where-Object { [bool]$_.isNewPopup })) {
+      foreach ($node in @($source.tree.nodes | Where-Object { $_.type -eq 'ListItem' -and [string]$_.name })) {
+        $match = [regex]::Match([string]$node.name, '^\s*(0|7|19)(?:[\.,]0+)?(?:\s*%)?\s*$')
+        if ($match.Success -and [string]$match.Groups[1].Value -ceq $wantedRate) {
+          $null = $postTargets.Add([pscustomobject]@{ sourceHwnd=[int64]$source.hwnd; node=$node })
+        }
+      }
+    }
+    if ($postTargets.Count -eq 1) {
+      $targetNode = $postTargets[0].node
+      $targetX = [int]($targetNode.x + $targetNode.w / 2)
+      $targetY = [int]($targetNode.y + $targetNode.h / 2)
+      $obstruction = Get-SSEPointObstruction ([IntPtr][int64]$postTargets[0].sourceHwnd) $targetX $targetY
+      if ([bool]$obstruction.isBoundTarget -and [int]$obstruction.boundPid -eq $TargetPid) {
+        $click = Click-VerifiedPoint ([IntPtr][int64]$postTargets[0].sourceHwnd) $targetNode `
+          (Get-SSELastInputTick) -RequireForeground
+        Start-Sleep -Milliseconds ([Math]::Min([Math]::Max($WaitMs, 300), 1200))
+        $readState = Get-SSEReceiptManagerState $ToolHwnd $Policy -WithValues
+        $readField = Resolve-SSEReceiptManagerEditableFieldNode $readState $Policy 'vatRate'
+        $afterRate = & $normalizeRate ([string](Get-SSEReceiptManagerFieldValue $readField))
+        $commitMethod = 'expand+selection-item+verified-list-item-point'
+        $physicalCommit = [pscustomobject]@{
+          x=[int]$click.x; y=[int]$click.y; sourceHwnd=[int64]$postTargets[0].sourceHwnd
+          obstruction=$obstruction; after=$afterRate
+        }
+      }
+    }
+  }
+  try { ([Windows.Automation.ExpandCollapsePattern]$expandObject).Collapse() } catch { }
+  $ok = [bool]($afterRate -ceq $wantedRate -and ($selected -or -not $selectionError -or $physicalCommit))
+  [pscustomobject]@{
+    ok=$ok; error=$(if ($ok) { $null } else { "USt-Auswahl blieb bei '$afterRate' statt '$wantedRate'." })
+    method=$commitMethod; before=$expectedRate; requested=$wantedRate; after=$afterRate
+    semanticSelected=$selected; selectionError=$selectionError; mutationStarted=[bool]($afterRate -ne $expectedRate)
+    optionRates=@($options | ForEach-Object { [string]$_.rate }); physicalCommit=$physicalCommit
+    taxOptionDiagnostics=@($taxOptionDiagnostics)
+  }
+}
+
 function Test-SSEReceiptManagerFieldValue($Actual, $Expected, [string]$ValueKind) {
   switch ($ValueKind) {
     'date' { return Test-SSETrackedValueEquivalent ([string]$Actual) ([string]$Expected) 'date' }
     'currency' { return Test-SSETrackedValueEquivalent ([string]$Actual) ([string]$Expected) 'currency' }
     'vat-rate' {
       $actualDigits = ([string]$Actual -replace '[^0-9]', '')
-      return $actualDigits -ceq ([string]$Expected)
+      $expectedDigits = ([string]$Expected -replace '[^0-9]', '')
+      if (-not $actualDigits) { $actualDigits = '0' }
+      if (-not $expectedDigits) { $expectedDigits = '0' }
+      return $actualDigits -ceq $expectedDigits
     }
     'boolean' { return [bool]$Actual -eq [bool]$Expected }
     default { return [string]$Actual -ceq [string]$Expected }
@@ -1256,6 +1437,21 @@ function Invoke-SSEReceiptManagerOpenFileDialog(
       'Windows-Dateidialog-Fingerprint ist gegenueber dem Profil gedriftet; die engere Importstruktur wurde vollstaendig verifiziert.'
     })
     openMethod=$openMethod; dialogClosed=$true; verified=$true
+  }
+}
+
+function Test-SSEReceiptManagerPdfHeader([string]$Path) {
+  $stream = $null
+  try {
+    $stream = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+    if ($stream.Length -lt 5) { return $false }
+    $header = New-Object byte[] 5
+    if ($stream.Read($header, 0, $header.Length) -ne $header.Length) { return $false }
+    [Text.Encoding]::ASCII.GetString($header) -ceq '%PDF-'
+  } catch {
+    return $false
+  } finally {
+    if ($stream) { $stream.Dispose() }
   }
 }
 
@@ -8550,7 +8746,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $targetPid = 0
     [SW]::GetWindowThreadProcessId($hwnd, [ref]$targetPid) | Out-Null
     $dialogsBefore = @()
-    if ($isNavigation -or ($hasPagePostcondition -and $pattern -ne 'select')) {
+    if ($isNavigation -or (($hasPagePostcondition -or ($expectedPageBefore -and $pattern -eq 'invoke')) -and $pattern -ne 'select')) {
       $dialogsBefore = @(Get-DialogInventory | Where-Object {
         [int]$_.pid -eq $targetPid -and $_.kind -in @('native-dialog','qt-dialog')
       })
@@ -8670,6 +8866,16 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     if (-not $erfolg) {
       Fail "Pattern '$pattern' bei '$name' fehlgeschlagen ($($cands.Count) Kandidaten geprueft): $letzterFehler" 'pattern-failed'
     }
+    # Ein eindeutig auf der gebundenen Ausgangsseite aktivierter Hyperlink ist
+    # fachlich immer Navigation, auch wenn der Aufrufer die dynamische
+    # Zielueberschrift noch nicht kennen kann. Qt meldet InvokePattern.Invoke
+    # teilweise erfolgreich, ohne die Seite zu wechseln. Dieser Fall braucht
+    # deshalb denselben verifizierten Point-Fallback und Seitenwechselvertrag
+    # wie eine Navigation mit expliziter expectedPageAfter-Nachbedingung.
+    $requiresHyperlinkPageChange = [bool](
+      $pattern -eq 'invoke' -and $expectedPageBefore -and [string]$erfolg.type -ceq 'Hyperlink'
+    )
+    $hasNavigationPostcondition = [bool]($hasPagePostcondition -or $requiresHyperlinkPageChange)
     Start-Sleep -Milliseconds $waitMs
 
     # Manche Qt-Schaltflaechen melden ein erfolgreiches InvokePattern, fuehren
@@ -8682,7 +8888,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # besonders fuer TreeItems wichtig: expand/collapse aendert nur den Ast,
     # es behauptet keine Seitennavigation.
     $activationMethod = $(if ($radioSelectionMethod) { $radioSelectionMethod } else { "uia-$pattern" })
-    if ($hasPagePostcondition -and -not $isNavigation -and $pattern -eq 'invoke') {
+    if ($hasNavigationPostcondition -and -not $isNavigation -and $pattern -eq 'invoke') {
       $probeTree = Walk-Tree $hwnd 900
       $probeHeading = Get-CurrentHeading $hwnd $probeTree
       if ($probeHeading -ne $expectedPageAfter) {
@@ -8799,7 +9005,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # stability together with the full exclusive group above. Do not feed it
     # into the navigation-only postcondition, where an identical expected
     # heading would otherwise be reported as a false navigation failure.
-    if ($isNavigation -or ($hasPagePostcondition -and $pattern -ne 'select')) {
+    if ($isNavigation -or ($hasNavigationPostcondition -and $pattern -ne 'select')) {
       $t2 = Walk-Tree $hwnd 900
       $nachher = Get-CurrentHeading $hwnd $t2
       $navigiert = [bool]($nachher -and $nachher -ne $headingBefore)
@@ -8839,7 +9045,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     Emit ([pscustomobject]@{
       ok = $true; clicked = $(if($erfolg.name){$erfolg.name}else{$name}); pattern = $pattern; kandidaten = $cands.Count; method=$activationMethod
       ueberschriftVorher=$headingBefore; ueberschriftNachher=$nachher
-      navigiert=$navigiert; verified=$(if ($isNavigation) { $true } elseif ($pattern -eq 'select') { $radioVerified } else { $null })
+      navigiert=$navigiert; verified=$(if ($isNavigation -or $hasNavigationPostcondition) { $true } elseif ($pattern -eq 'select') { $radioVerified } else { $null })
       ungespeichertVorher=$dirtyBefore; ungespeichertNachher=$(Get-DirtyStateFast $hwnd)
       dialoge=@($dialogsAfter); node = $erfolg
     })
@@ -17117,7 +17323,6 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $finalList = Invoke-SSEMeasuredPlanOperation 'receipt_manager_list' ([pscustomobject]$common) $metrics
     $metrics.fullUiReadbackCount++
     $finalAffected = New-Object System.Collections.ArrayList
-    $needsStabilization = $false
     $finalVerified = [bool]($finalList.ok -eq $true -and $finalList.rowsComplete -eq $true)
     if ($finalVerified -and $null -eq $failedIndex) {
       foreach ($entry in @($completed)) {
@@ -17125,89 +17330,40 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         $rowMatches = @($finalList.rows | Where-Object { [string]$_.rowRid -ceq [string]$entry.row.rowRid })
         if ($rowMatches.Count -ne 1) {
           $title = $(if ($item.values.PSObject.Properties['title']) { [string]$item.values.title } else { [string]$item.identity.exactTitle })
-          $rowMatches = @($finalList.rows | Where-Object { (Get-SSEReceiptBulkRowTitle $_) -ceq $title })
+          $documentNumber = $(if ($item.values.PSObject.Properties['documentNumber']) {
+            [string]$item.values.documentNumber
+          } elseif ($item.identity.PSObject.Properties['documentNumber']) {
+            [string]$item.identity.documentNumber
+          } else { '' })
+          $rowMatches = @($finalList.rows | Where-Object {
+            (Get-SSEReceiptBulkRowTitle $_) -ceq $title -and
+            (-not $documentNumber -or [string]$_.documentNumber -ceq $documentNumber)
+          })
         }
-        if ($rowMatches.Count -ne 1) { $finalVerified=$false; break }
-        $readArgs = [ordered]@{
-          rowRid=[string]$rowMatches[0].rowRid; rowFingerprint=[string]$rowMatches[0].rowFingerprint
-          expectedListFingerprint=[string]$finalList.listFingerprint; waitMs=$waitMs
-        }
-        foreach ($property in $common.GetEnumerator()) { $readArgs[$property.Key] = $property.Value }
-        $read = Invoke-SSEMeasuredPlanOperation 'receipt_manager_read' ([pscustomobject]$readArgs) $metrics
-        $metrics.affectedItemReadbackCount++
-        $readCandidateVerified = [bool](
-          $read.ok -eq $true -or (
-            [string]$read.kind -ceq 'postcondition-failed' -and
-            $read.valuesComplete -eq $true -and
-            ($read.targetRowRebound -eq $true -or $read.targetSemanticRebound -eq $true) -and
-            $read.windowSetUnchanged -eq $true -and $read.dialogFreeAfter -eq $true -and
-            $read.dirtyStateUnchanged -eq $true
-          )
+        $expectedContentFingerprint = ([string]$entry.row.contentFingerprint).ToUpperInvariant()
+        $actualContentFingerprint = $(if ($rowMatches.Count -eq 1) {
+          ([string]$rowMatches[0].contentFingerprint).ToUpperInvariant()
+        } else { '' })
+        # update/classify/import haben ihre Werte und Auswahl bereits direkt
+        # nach der Mutation vollstaendig verifiziert. Der abschliessende reine
+        # Voll-Listenread beweist nun, dass exakt dieselbe fachliche Zeile bis
+        # zum Planende unveraendert persistiert und eindeutig reboundbar ist.
+        $itemVerified = [bool](
+          $rowMatches.Count -eq 1 -and
+          $expectedContentFingerprint -match '^[A-F0-9]{64}$' -and
+          $actualContentFingerprint -ceq $expectedContentFingerprint
         )
-        $itemVerified = [bool]($readCandidateVerified -and (
-          [string]$entry.action -ceq 'skipped' -or (Test-SSEReceiptBulkRequestedValues $read.values $item.values)
-        ))
-        $itemNeedsStabilization = [bool]($itemVerified -and $read.ok -ne $true)
-        if ($itemNeedsStabilization) { $needsStabilization = $true }
-        $classificationReadbacks = New-Object System.Collections.ArrayList
-        if ($itemNeedsStabilization -and $item.PSObject.Properties['classification']) {
-          # Klassifikationsoptionen brauchen die voll verifizierte Detail- und
-          # Listenbindung des Read-Ergebnisses. Ein spaeter stabilisierter
-          # Werte-Readback reicht fuer diesen zusaetzlichen Dialog nicht aus.
-          $itemVerified=$false
-        } elseif ($itemVerified -and $item.PSObject.Properties['classification']) {
-          foreach ($kind in @('categories','persons')) {
-            if (-not $item.classification.PSObject.Properties[$kind]) { continue }
-            $optionArgs = [ordered]@{
-              rowRid=[string]$read.row.rowRid; rowFingerprint=[string]$read.row.rowFingerprint
-              expectedListFingerprint=[string]$read.listFingerprint
-              expectedDetailFingerprint=[string]$read.detailFingerprint; kind=$kind; waitMs=$waitMs
-            }
-            foreach ($property in $common.GetEnumerator()) { $optionArgs[$property.Key] = $property.Value }
-            $optionRead = Invoke-SSEMeasuredPlanOperation 'receipt_manager_classification_options' ([pscustomobject]$optionArgs) $metrics
-            $metrics.affectedItemReadbackCount++
-            $expectedSelection = @($item.classification.PSObject.Properties[$kind].Value | Sort-Object)
-            $actualSelection = @($optionRead.selected | Sort-Object)
-            $selectionVerified = [bool](
-              $optionRead.ok -eq $true -and
-              ($expectedSelection | ConvertTo-Json -Compress) -ceq ($actualSelection | ConvertTo-Json -Compress)
-            )
-            if (-not $selectionVerified) { $itemVerified=$false }
-            $null = $classificationReadbacks.Add([pscustomobject]@{ kind=$kind; verified=$selectionVerified; result=$optionRead })
-          }
-        }
         if (-not $itemVerified) { $finalVerified=$false }
         $null = $finalAffected.Add([pscustomobject]@{
           index=[int]$entry.index; action=[string]$entry.action
-          verified=[bool]($itemVerified -and -not $itemNeedsStabilization)
-          candidateVerified=$itemVerified; requiresStabilization=$itemNeedsStabilization
-          read=$read; classifications=@($classificationReadbacks)
+          verified=$itemVerified; row=$(if ($rowMatches.Count -eq 1) { $rowMatches[0] } else { $null })
+          expectedContentFingerprint=$expectedContentFingerprint
+          actualContentFingerprint=$actualContentFingerprint
         })
       }
     }
 
     $stabilizationList = $null
-    if ($finalVerified -and $needsStabilization) {
-      # Invoke-SSECapturedOperation gibt den Foreground-Lease erst nach dem
-      # receipt_manager_read-Emit frei. Qt kann die Tabelle deshalb erst in
-      # der folgenden internen Operation vollstaendig stabilisieren. Dieser
-      # reine Listenread beweist anschliessend noch einmal die Gesamtmenge.
-      $stabilizationList = Invoke-SSEMeasuredPlanOperation 'receipt_manager_list' ([pscustomobject]$common) $metrics
-      $metrics.fullUiReadbackCount++
-      $expectedFinalRows = @($finalList.rows | ForEach-Object { [string]$_.contentFingerprint } | Sort-Object)
-      $actualFinalRows = @($(if ($stabilizationList) {
-        @($stabilizationList.rows | ForEach-Object { [string]$_.contentFingerprint } | Sort-Object)
-      } else { @() }))
-      $stabilized = [bool](
-        $stabilizationList.ok -eq $true -and $stabilizationList.rowsComplete -eq $true -and
-        [int]$stabilizationList.count -eq [int]$finalList.count -and
-        ($actualFinalRows | ConvertTo-Json -Compress) -ceq ($expectedFinalRows | ConvertTo-Json -Compress)
-      )
-      foreach ($affectedEntry in @($finalAffected | Where-Object { $_.requiresStabilization -eq $true })) {
-        $affectedEntry.verified = [bool]($stabilized -and $affectedEntry.candidateVerified)
-      }
-      if (-not $stabilized) { $finalVerified=$false }
-    }
 
     $resultingState = $(
       if (-not $finalVerified) { 'unknown' }
@@ -17474,8 +17630,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         ($expectedSemanticRows | ConvertTo-Json -Compress) -and
       $semanticRowAfterMatches.Count -eq 1
     )
+    $expectedDetailTitle = Get-SSEReceiptManagerDetailIdentityTitle $rowBefore $policy
     $detailIdentityMatchesTarget = [bool]($editableProjection.complete -and
-      [string]$editableProjection.values.title -ceq [string]$rowBefore.primaryText -and
+      [string]$editableProjection.values.title -ceq [string]$expectedDetailTitle -and
       [string]$editableProjection.values.documentNumber -ceq [string]$rowBefore.documentNumber)
     $verified = [bool](
       $stateAfter -and -not $noSelection -and $detailFields.Count -and $listAfter -and
@@ -17630,7 +17787,27 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         $failedField = $transaction.name; $failedReason = 'Vorwert oder Feldbindung aenderte sich waehrend der Transaktion.'; break
       }
       if (Test-SSEReceiptManagerFieldValue $currentValue $transaction.requested $transaction.kind) { continue }
-      if ($transaction.kind -ceq 'boolean') {
+      if ([string]$transaction.name -ceq 'vatRate') {
+        # QComboBox verwirft freie Texteingaben beim Fokuswechsel. Der Satz
+        # muss als typisierte Popup-Option gewaehlt und danach frisch gelesen
+        # werden; das gilt insbesondere nach einer Netto-Umschaltung.
+        $vatState = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
+        $resolved = Resolve-SSEReceiptManagerEditableFieldNode $vatState $policy 'vatRate'
+        $currentValue = Get-SSEReceiptManagerFieldValue $resolved
+        if (-not (Test-SSEReceiptManagerFieldValue $currentValue $transaction.before $transaction.kind)) {
+          $failedField = $transaction.name; $failedReason = 'Vorwert aenderte sich vor der typisierten USt-Auswahl.'; break
+        }
+        $vatCommit = Set-SSEReceiptManagerVatRateSelection `
+          $toolHwnd $targetPid $vatState $policy $resolved ([string]$currentValue) ([string]$transaction.requested) ([int]$waitMs)
+        if (-not $vatCommit.ok) {
+          $vatDiagnostics = @($vatCommit.taxOptionDiagnostics | Where-Object { $_ } | ForEach-Object {
+            "$([string]$_.type):$([string]$_.name):new=$([bool]$_.sourceIsNewPopup)"
+          }) -join ', '
+          $failedField = $transaction.name
+          $failedReason = [string]$vatCommit.error + $(if ($vatDiagnostics) { " Beobachtet: $vatDiagnostics" } else { '' })
+          break
+        }
+      } elseif ($transaction.kind -ceq 'boolean') {
         $freshNode = Convert-ExactElementToNode (Get-LiveElement $toolHwnd $resolved.node.rid $resolved.node.aid)
         if (-not $freshNode -or -not [bool]$freshNode.on) {
           $failedField = $transaction.name; $failedReason = 'Checkbox wurde unmittelbar vor dem Klick ungreifbar.'; break
@@ -17664,7 +17841,14 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         $currentValue = $(if ($resolved) { Get-SSEReceiptManagerFieldValue $resolved } else { $null })
         $entryOk = $false; $method = 'not-attempted'
         if ($resolved -and (Test-SSEReceiptManagerFieldValue $currentValue $transaction.requested $transaction.kind)) {
-          if ($transaction.kind -ceq 'boolean') {
+          if ([string]$transaction.name -ceq 'vatRate') {
+            $rollbackState = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
+            $resolved = Resolve-SSEReceiptManagerEditableFieldNode $rollbackState $policy 'vatRate'
+            $currentValue = Get-SSEReceiptManagerFieldValue $resolved
+            $vatRollback = Set-SSEReceiptManagerVatRateSelection `
+              $toolHwnd $targetPid $rollbackState $policy $resolved ([string]$currentValue) ([string]$transaction.before) ([int]$waitMs)
+            $method = [string]$vatRollback.method
+          } elseif ($transaction.kind -ceq 'boolean') {
             $freshNode = Convert-ExactElementToNode (Get-LiveElement $toolHwnd $resolved.node.rid $resolved.node.aid)
             if ($freshNode -and [bool]$freshNode.on) {
               $null = Click-VerifiedPoint $toolHwnd $freshNode (Get-SSELastInputTick) -RequireForeground
@@ -18175,8 +18359,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $targetLabels = @($startState.nodes | Where-Object {
         [string]$_.aid -and ([string]$_.aid).EndsWith([string]$linkPolicy.startTargetAutomationIdSuffix, [StringComparison]::Ordinal)
       })
-      if ($targetLabels.Count -ne 1 -or [string]$targetLabels[0].name -cne $expectedStartText) {
-        Fail 'BelegManager-Zieltext stimmt nicht exakt mit dem bestaetigten Verknuepfungsziel ueberein.' 'postcondition-failed'
+      $actualStartText = $(if ($targetLabels.Count -eq 1) { [string]$targetLabels[0].name } else { '' })
+      if ($targetLabels.Count -ne 1 -or $actualStartText -cne $expectedStartText) {
+        Fail ("BelegManager-Zieltext stimmt nicht exakt mit dem bestaetigten Verknuepfungsziel ueberein " +
+              "(erwartet '$expectedStartText', gelesen '$actualStartText').") 'postcondition-failed'
       }
       $showPolicy = $policy.actions.showAllReceipts
       $showButtons = @($startState.nodes | Where-Object {
@@ -18851,12 +19037,22 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     }
     $path = [IO.Path]::GetFullPath($pathRaw)
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { Fail "Belegdatei fehlt: $path" 'not-found' }
+    $policy = Get-SSEReceiptManagerPolicy
+    $supportedExtensions = @($policy.importDialog.supportedExtensions | ForEach-Object {
+      ([string]$_).ToLowerInvariant()
+    })
+    $extension = [IO.Path]::GetExtension($path).ToLowerInvariant()
+    if (-not $supportedExtensions.Count -or $extension -cnotin $supportedExtensions) {
+      Fail 'Der BelegManager-Import unterstuetzt ausschliesslich PDF-Dateien; die UI wurde NICHT bedient.' 'unsupported-format'
+    }
+    if (-not (Test-SSEReceiptManagerPdfHeader $path)) {
+      Fail 'Die Belegdatei besitzt trotz PDF-Endung keinen gueltigen PDF-Header; die UI wurde NICHT bedient.' 'unsupported-format'
+    }
     $sourceHashBefore = Get-Sha256 $path
     if ([string]$sourceHashBefore -cne $expectedHash) {
       Fail 'Belegdatei-Hash stimmt nicht; BelegManager wurde NICHT bedient.' 'precondition-failed'
     }
 
-    $policy = Get-SSEReceiptManagerPolicy
     $mainWindow = Resolve-SSEMainWindowDescriptor $a -RestoreMinimized
     $mainHwnd = [IntPtr][int64]$mainWindow.hwnd
     $targetPid = [int]$mainWindow.pid

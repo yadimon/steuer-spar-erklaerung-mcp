@@ -170,6 +170,9 @@
       "importDialog": {
         "title": "Öffnen",
         "class": "#32770",
+        "supportedExtensions": [
+          ".pdf"
+        ],
         "fingerprint": "2EFB0776929DC9E63FFFCB3A38F89255662BBB02EDA281B6C9D549F7BB427B22"
       },
       "linkValueTransferDialog": {

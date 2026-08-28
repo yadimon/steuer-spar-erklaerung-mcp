@@ -508,8 +508,10 @@ bei einer eindeutigen normalen Nachbedingungsverletzung rückwärts zurück. Dre
 vollständige UIA-Projektionen bleiben als Ausgangs-, ausgewählte Detail- und
 Abschlussbindung erhalten; die wiederholten Vollbaum-Reads je Feld sind durch
 einen Quellvertrag gesperrt.
-`receipt_manager_import` legt nur bei vollständiger Liste ohne vorhandenen
-Entwurf einen neuen Beleg an, bindet die Quelle an `documents:` plus SHA-256,
+`receipt_manager_import` lehnt nicht profilierte Dateiendungen und Dateien ohne
+PDF-Header bereits vor jeder UI-Bindung ab. Erst danach legt die Operation bei
+vollständiger Liste ohne vorhandenen Entwurf einen neuen Beleg an, bindet die
+Quelle an `documents:` plus SHA-256,
 verifiziert den nativen Öffnen-Dialog und verlangt eine geänderte visuelle
 Vorschau bei unverändertem Quellhash. Der Profilkatalog nennt die exakten
 AutomationId-Suffixe, Dialogtexte und Fingerprints. Haupt- und Werkzeugfenster,
