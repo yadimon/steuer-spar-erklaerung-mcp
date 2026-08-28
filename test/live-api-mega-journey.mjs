@@ -762,19 +762,26 @@ try {
   await phase("artifacts", async () => {
     let collected;
     let collectReportedHash;
+    let collectReportedCount;
     await mutateAndRead(
       "collect-result",
-      { resultRef: "results:api-mega-collect.json", maxPages: 1, hwnd: currentHwnd },
+      { resultRef: "results:api-mega-collect.json", maxPages: 5, hwnd: currentHwnd },
       (result) => {
-        assert.equal(result.anzahl, 1);
+        assert.equal(result.vollstaendig, true);
+        assert.equal(result.stopKind, "end-of-branch");
+        assert(result.anzahl >= 1 && result.anzahl <= 5);
+        collectReportedCount = result.anzahl;
         assert.match(result.dateiHash, /^[A-F0-9]{64}$/u);
         collectReportedHash = result.dateiHash;
       },
       { ref: "results:api-mega-collect.json" },
       (result) => {
         collected = JSON.parse(result.text);
-        assert.equal(collected.anzahl, 1);
+        assert.equal(collected.vollstaendig, true);
+        assert.equal(collected.stopKind, "end-of-branch");
+        assert.equal(collected.anzahl, collectReportedCount);
         assert(Array.isArray(collected.seiten));
+        assert.equal(collected.seiten.length, collected.anzahl);
       },
     );
     const fields = collected.seiten.flatMap((page) => (page.felder ?? []).map((field) => ({ page, field })));
@@ -789,7 +796,7 @@ try {
     await read("verify", {
       sourceRef: "results:api-mega-collect.json",
       expectedSourceHash: listedCollectHash,
-      allowIncompleteSource: collected.vollstaendig !== true,
+      allowIncompleteSource: false,
       erwartungen: [{
         seite: unique.page.ueberschrift, label: unique.field.label, wert: unique.field.wert,
       }],

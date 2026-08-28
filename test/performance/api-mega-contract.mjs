@@ -187,6 +187,10 @@ assert.equal(classifyPassiveExportDialog({ ...exactExport, texts: ["Export abges
 assert.equal(classifyPassiveExportDialog({ ...exactExport, buttons: [{ name: "OK", enabled: true }] }, exactExport), null);
 assert.match(journey, /no-post-export-dialog-present/u,
   "Ein fehlender optionaler Post-Export-Dialog muss als Skip protokolliert werden.");
+assert.match(journey, /"collect-result"[\s\S]+?maxPages: 5[\s\S]+?result\.vollstaendig, true/u,
+  "Der kanonische Collect-Schritt muss bis zum bewiesenen Zweigende sammeln.");
+assert.match(journey, /allowIncompleteSource: false/u,
+  "Verify darf den kanonischen Collect-Bericht nicht als unvollstaendigen Teilstand akzeptieren.");
 assert.doesNotMatch(journey, /\["OK", "Schließen", "Schliessen", "Abbrechen"\]/u,
   "Die Mega-Reise darf keinen beliebigen SSE-Dialog anhand eines generischen Schliessbuttons beantworten.");
 assert.match(journey, /failure-cleanup-instances/u);
