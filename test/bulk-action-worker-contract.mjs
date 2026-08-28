@@ -69,6 +69,11 @@ assert(receiptWorkerText.includes("$read.targetRowRebound -eq $true -or $read.ta
   receiptWorkerText.includes("$read.dialogFreeAfter -eq $true") &&
   receiptWorkerText.includes("$read.dirtyStateUnchanged -eq $true"),
 "Ein spaet stabilisierter Readback darf nur mit eindeutiger exakter oder semantischer Zielbindung, Dialogfreiheit und stabilem Dirty-State gelten.");
+assert(receiptWorkerText.includes("Get-SSEReceiptManagerOpenDetailBinding") &&
+  receiptWorkerText.includes("method='already-open-detail'") &&
+  receiptWorkerText.includes("$action -in @('imported','updated')") &&
+  receiptWorkerText.includes("$expectedVat -ceq '0' -and -not $observedVat"),
+"Beleg-Bulk muss die offene Nach-Update-Detailbindung wiederverwenden, einen danach scheiternden vorhandenen Beleg als Teilmutation melden und Qt-leer als kanonischen Null-USt-Satz lesen.");
 const receiptResult = directWorker("receipt_manager_bulk_upsert", {
   items: [{
     resourceRef: "documents:synthetic.pdf",
