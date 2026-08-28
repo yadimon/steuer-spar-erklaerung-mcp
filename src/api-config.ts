@@ -21,6 +21,12 @@ export interface SseApiServerConfig {
   // Nur fuer Verifikationslaeufe und Fixture-Aufnahmen gegen ein
   // experimentelles Jahr; kein normaler Betrieb setzt dieses Feld.
   operateExperimental?: boolean;
+  /**
+   * Ephemeral test-runner capability. It is deliberately absent from
+   * ConfigFile and loadApiServerConfig, so installed/background API servers
+   * cannot enable foreground receipt operations through configuration.
+   */
+  interactiveReceiptLeaseToken?: string;
 }
 interface ConfigFile {
   profileId?: unknown;

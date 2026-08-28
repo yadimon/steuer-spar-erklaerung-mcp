@@ -275,6 +275,7 @@ export function createApiExecutor(
   ensureWorkspace(roots.documents!);
   ensureWorkspace(roots.backups!);
   const redactPaths = createResourcePathRedactor(roots);
+  const receiptLease = /^[A-F0-9]{64}$/u.test(config.interactiveReceiptLeaseToken ?? "");
 
   const executeWorkerFallback = async (
     operation: SseApiOperation,
@@ -311,7 +312,7 @@ export function createApiExecutor(
           "profile-disabled",
         );
       }
-      const block = receiptBlock(operation, args);
+      const block = receiptBlock(operation, args, receiptLease);
       if (block) return block;
       const verificationOnlyProfile =
         profile.status !== "supported" || profile.operationAccess !== "full";
@@ -338,9 +339,6 @@ export function createApiExecutor(
           );
         }
       }
-      // HTTP-Aufrufe wurden bereits am Serverrand geprueft. Dieser zweite
-      // Einstieg ist absichtlich noetig, weil Szenarien und komponierte
-      // Operationen den Executor direkt aufrufen.
       args = internalCheckerClick
         ? parseCheckerReadOnlyClickArgs(args)
         : parseApiOperationArgs(operation, args);
@@ -353,11 +351,13 @@ export function createApiExecutor(
             status: profile.status,
             operationAccess: profile.operationAccess,
             operateExperimental: config.operateExperimental === true,
+            interactiveReceiptLeaseActive: receiptLease,
           },
           operationPolicy: createProfileOperationMatrix(
             profile.status,
             profile.operationAccess,
             config.operateExperimental === true,
+            receiptLease,
           ),
           buildDriftPolicy: "block-ui-tax-mutations",
         };

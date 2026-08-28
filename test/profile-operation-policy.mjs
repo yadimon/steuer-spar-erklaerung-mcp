@@ -13,6 +13,7 @@ import {
 } from "../dist/receipt-interaction-policy.js";
 
 const supported = createProfileOperationMatrix("supported", "full", false);
+const supportedWithInteractiveReceiptLease = createProfileOperationMatrix("supported", "full", false, true);
 assert.deepEqual(Object.keys(supported), SSE_API_OPERATIONS);
 assert.equal(Object.keys(supported).length, SSE_API_OPERATIONS.length);
 for (const operation of SSE_API_OPERATIONS) {
@@ -44,6 +45,10 @@ for (const operation of EXPERIMENTAL_PROFILE_VERIFICATION_OPERATIONS) {
 for (const operation of SSE_FOREGROUND_REQUIRED_RECEIPT_OPERATIONS) {
   assert.equal(supported[operation].interactionRequirement, "foreground-required");
   assert.match(supported[operation].reason, /Vordergrund.*physische Eingabe/u);
+  assert.equal(supportedWithInteractiveReceiptLease[operation].availability, "conditional");
+  assert.equal(supportedWithInteractiveReceiptLease[operation].requiresInteractiveReceiptLease, true);
+  assert.match(supportedWithInteractiveReceiptLease[operation].reason,
+    /lokalen Test-API-Servermodus.*Worker.*Nonce.*sichtbaren Vordergrund/u);
 }
 assert.equal(supported.receipt_manager_list.interactionRequirement, "focusless-read");
 for (const operation of [

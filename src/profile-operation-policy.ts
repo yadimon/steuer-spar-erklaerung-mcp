@@ -97,6 +97,7 @@ export interface ProfileOperationCapability {
   class: ProfileOperationClass;
   availability: ProfileOperationAvailability;
   requiresExperimentalOptIn: boolean;
+  requiresInteractiveReceiptLease?: boolean;
   blockedOnBuildDrift: boolean;
   interactionRequirement?: ReceiptInteractionRequirement;
   reason: string;
@@ -116,6 +117,7 @@ export function createProfileOperationCapability(
   operationAccess: ProductProfile["operationAccess"],
   operateExperimental: boolean,
   operation: SseApiOperation,
+  interactiveReceiptLeaseActive = false,
 ): ProfileOperationCapability {
   const interactionRequirement = receiptInteractionRequirement(operation);
   const common = {
@@ -143,11 +145,13 @@ export function createProfileOperationCapability(
   if (interactionRequirement === "foreground-required") {
     return {
       ...common,
-      availability: "blocked",
+      availability: interactiveReceiptLeaseActive ? "conditional" : "blocked",
       requiresExperimentalOptIn: false,
-      reason:
-        "Der verifizierte BelegManager-Weg benoetigt Vordergrund- oder globale physische Eingabe; " +
-        "Hintergrundaufrufe stoppen vor jeder UI-Aenderung.",
+      requiresInteractiveReceiptLease: true,
+      reason: interactiveReceiptLeaseActive
+        ? "Nur im kurzlebigen lokalen Test-API-Servermodus freigegeben; der Worker prueft Nonce, Ablauf, Besitzer, Sitzung und sichtbaren Vordergrund je Aufruf erneut."
+        : "Der verifizierte BelegManager-Weg benoetigt Vordergrund- oder globale physische Eingabe; " +
+          "Hintergrundaufrufe stoppen vor jeder UI-Aenderung.",
     };
   }
   if (profileStatus === "supported" && operationAccess === "full") {
@@ -190,11 +194,18 @@ export function createProfileOperationMatrix(
   profileStatus: ProductProfile["status"],
   operationAccess: ProductProfile["operationAccess"],
   operateExperimental: boolean,
+  interactiveReceiptLeaseActive = false,
 ): Readonly<Record<SseApiOperation, ProfileOperationCapability>> {
   return Object.freeze(Object.fromEntries(
     SSE_API_OPERATIONS.map((operation) => [
       operation,
-      Object.freeze(createProfileOperationCapability(profileStatus, operationAccess, operateExperimental, operation)),
+      Object.freeze(createProfileOperationCapability(
+        profileStatus,
+        operationAccess,
+        operateExperimental,
+        operation,
+        interactiveReceiptLeaseActive,
+      )),
     ]),
   ) as Record<SseApiOperation, ProfileOperationCapability>);
 }

@@ -10,6 +10,7 @@ import {
   SSE_FOCUSLESS_RECEIPT_OPERATIONS,
   SSE_FOREGROUND_REQUIRED_RECEIPT_OPERATIONS,
   SSE_RECEIPT_MANAGER_OPERATIONS,
+  receiptBlock,
   receiptInteractionRequirement,
 } from "../dist/receipt-interaction-policy.js";
 
@@ -83,6 +84,10 @@ for (const operation of SSE_RECEIPT_MANAGER_OPERATIONS) {
   );
 }
 assert.equal(receiptInteractionRequirement("health"), null);
+for (const operation of SSE_FOREGROUND_REQUIRED_RECEIPT_OPERATIONS) {
+  assert.equal(receiptBlock(operation, foregroundArguments[operation], true), null,
+    `${operation}: eine intern verifizierte Lease darf nur den zentralen API-Block oeffnen.`);
+}
 
 const temporary = mkdtempSync(join(tmpdir(), "sse-receipt-interaction-"));
 let workerCalls = 0;
@@ -158,6 +163,27 @@ try {
     assert.equal(capabilities.operationPolicy[operation].interactionRequirement, "foreground-required");
     assert.equal(capabilities.operationPolicy[operation].requiresExperimentalOptIn, false);
   }
+
+  let leasedWorkerCalls = 0;
+  const leased = createApiExecutor({ ...config, interactiveReceiptLeaseToken: hash }, async (operation) => {
+    leasedWorkerCalls += 1;
+    return { ok: false, kind: "synthetic-worker", error: `lease reached worker for ${operation}` };
+  });
+  const leasedAction = await leased("receipt_manager_action", foregroundArguments.receipt_manager_action, 30_000);
+  assert.equal(leasedAction.kind, "synthetic-worker");
+  assert.equal(leasedWorkerCalls, 1, "Die interne Lease oeffnet den API-Pfad bis zum weiterhin separat pruefenden Worker.");
+  const leasedCapabilities = await leased("capabilities", {}, 30_000);
+  assert.equal(leasedCapabilities.profile.interactiveReceiptLeaseActive, true);
+  for (const operation of SSE_FOREGROUND_REQUIRED_RECEIPT_OPERATIONS) {
+    assert.equal(leasedCapabilities.operationPolicy[operation].availability, "conditional");
+    assert.equal(leasedCapabilities.operationPolicy[operation].requiresInteractiveReceiptLease, true);
+  }
+  const malformedLease = createApiExecutor({ ...config, interactiveReceiptLeaseToken: hash.toLowerCase() }, async () => {
+    assert.fail("Eine ungueltige Lease darf den Worker nicht erreichen.");
+  });
+  assert.equal((await malformedLease(
+    "receipt_manager_action", foregroundArguments.receipt_manager_action, 30_000,
+  )).kind, "blocked");
 
   for (const operateExperimental of [false, true]) {
     let experimentalWorkerCalls = 0;
