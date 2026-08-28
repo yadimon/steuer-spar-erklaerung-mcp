@@ -302,6 +302,7 @@
     },
     "est.sonstige_werbungskosten_fahrten": {
       "heading": "Sonstige Werbungskosten/Fahrten",
+      "headingPrefix": "Sonstige Werbungskosten/Fahrten",
       "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
       "documentType": "ESt2025",
       "fields": {

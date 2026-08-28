@@ -27,6 +27,8 @@ assert.equal(profile.pageObjectsCatalog.schemaVersion, 1);
 assert.equal(profile.pageObjectsCatalog.taxYear, 2025);
 assert(Object.hasOwn(profile.pageObjectsCatalog.pages, "est.sonstige_werbungskosten_fahrten"));
 const firstPage = profile.pageObjectsCatalog.pages["est.sonstige_werbungskosten_fahrten"];
+assert.equal(firstPage.headingPrefix, "Sonstige Werbungskosten/Fahrten",
+  "Die personengebundene ESt-Seite muss dynamische Ueberschrift-Suffixe akzeptieren.");
 const ambiguousCatalog = {
   ...profile.pageObjectsCatalog,
   pages: { Beispiel: firstPage, bEISPIEL: firstPage },

@@ -496,92 +496,6 @@ try {
     }, (result) => assert.equal(result.node?.rid, probeNode.rid));
   });
 
-  let vehicleOriginal;
-  await phase("vehicle", async () => {
-    let vehicleState;
-    await mutateAndRead(
-      "goto-vehicle",
-      { pageId: "gew.fahrzeug", hwnd: currentHwnd },
-      (result) => assert.equal(result.pageId, "gew.fahrzeug"),
-      { pageId: "gew.fahrzeug", hwnd: currentHwnd },
-      (result) => {
-        vehicleState = result;
-        assert.equal(result.pageId, "gew.fahrzeug");
-        assert.match(result.epoch, /^[A-F0-9]{64}$/u);
-      },
-    );
-    const values = fieldMap(vehicleState);
-    const description = values.get("bezeichnung") ?? values.get("Bezeichnung");
-    const plate = values.get("kennzeichen") ?? values.get("Kennzeichen");
-    assert.equal(typeof description, "string");
-    assert.equal(typeof plate, "string");
-    vehicleOriginal = { description, plate };
-    await read("get_value", { name: "Bezeichnung", hwnd: currentHwnd }, (result) => assert.equal(result.value, description));
-    await read("find", { name: "Kennzeichen", hwnd: currentHwnd }, (result) => assert((result.hits ?? []).length >= 1));
-    const temporaryDescription = `API Mega ${process.pid}`;
-    const temporaryPlate = `M-EGA ${String(process.pid).slice(-4)}`;
-    let afterWrite;
-    await mutateAndRead(
-      "vehicle-write",
-      {
-        pageId: "gew.fahrzeug",
-        fields: [
-          { fieldId: "bezeichnung", expectedBefore: description, value: temporaryDescription, expectedAfter: temporaryDescription },
-          { fieldId: "kennzeichen", expectedBefore: plate, value: temporaryPlate, expectedAfter: temporaryPlate },
-        ],
-        expectedEpoch: vehicleState.epoch, stopOnError: true, rollback: "best-effort", finalReadback: true, hwnd: currentHwnd,
-      },
-      (result) => {
-        assert.equal(result.resultingState, "completed-verified");
-        assert.equal(result.finalReadbackVerified, true);
-      },
-      { pageId: "gew.fahrzeug", hwnd: currentHwnd },
-      (result) => {
-        afterWrite = result;
-        const readback = fieldMap(result);
-        assert.equal(readback.get("bezeichnung") ?? readback.get("Bezeichnung"), temporaryDescription);
-        assert.equal(readback.get("kennzeichen") ?? readback.get("Kennzeichen"), temporaryPlate);
-      },
-    );
-    const correctedDescription = `${temporaryDescription} corrected`;
-    let afterCorrection;
-    await mutateAndRead(
-      "vehicle-correction",
-      {
-        pageId: "gew.fahrzeug",
-        fields: [{
-          fieldId: "bezeichnung", expectedBefore: temporaryDescription,
-          value: correctedDescription, expectedAfter: correctedDescription,
-        }],
-        expectedEpoch: afterWrite.epoch, stopOnError: true, rollback: "best-effort", finalReadback: true, hwnd: currentHwnd,
-      },
-      (result) => assert.equal(result.finalReadbackVerified, true),
-      { pageId: "gew.fahrzeug", hwnd: currentHwnd },
-      (result) => {
-        afterCorrection = result;
-        assert.equal(fieldMap(result).get("bezeichnung") ?? fieldMap(result).get("Bezeichnung"), correctedDescription);
-      },
-    );
-    await mutateAndRead(
-      "vehicle-restore",
-      {
-        pageId: "gew.fahrzeug",
-        fields: [
-          { fieldId: "bezeichnung", expectedBefore: correctedDescription, value: description, expectedAfter: description },
-          { fieldId: "kennzeichen", expectedBefore: temporaryPlate, value: plate, expectedAfter: plate },
-        ],
-        expectedEpoch: afterCorrection.epoch, stopOnError: true, rollback: "best-effort", finalReadback: true, hwnd: currentHwnd,
-      },
-      (result) => assert.equal(result.finalReadbackVerified, true),
-      { pageId: "gew.fahrzeug", hwnd: currentHwnd },
-      (result) => {
-        const restored = fieldMap(result);
-        assert.equal(restored.get("bezeichnung") ?? restored.get("Bezeichnung"), description);
-        assert.equal(restored.get("kennzeichen") ?? restored.get("Kennzeichen"), plate);
-      },
-    );
-  });
-
   let gewHash;
   await phase("table-and-persistence", async () => {
     let tableStart;
@@ -979,11 +893,7 @@ try {
     );
   });
 
-  await phase("receipts", async () => {
-    leaseEvidence.remainingBeforeReceiptMs = leaseExpiresAt - Date.now();
-    assert(leaseEvidence.remainingBeforeReceiptMs >= minimumReceiptLeaseMarginMs,
-      `Receipt-Phase startet mit nur ${leaseEvidence.remainingBeforeReceiptMs} ms Lease-Restzeit; ` +
-      `${minimumReceiptLeaseMarginMs} ms sind Pflicht. Keine Receipt-Mutation begonnen.`);
+  await phase("known-fields", async () => {
     await mutateAndRead(
       "close-gew",
       { pid: currentPid, hwnd: currentHwnd, discardChanges: true },
@@ -1002,6 +912,82 @@ try {
     );
     await maybeDismissStartupDialog("launch-est-startup-dialog", launchedEst.readback);
     await assertBoundUiState("launch-est");
+    const pageId = "est.sonstige_werbungskosten_fahrten";
+    const fieldId = "kontofuehrungsgebuehren_pauschal";
+    const fieldLabel = "Kontoführungsgebühren (pauschal)";
+    let fieldState;
+    await mutateAndRead(
+      "goto-known-field",
+      { pageId, hwnd: currentHwnd },
+      (result) => assert.equal(result.pageId, pageId),
+      { pageId, hwnd: currentHwnd },
+      (result) => {
+        fieldState = result;
+        assert.equal(result.pageId, pageId);
+        assert.equal(result.onExpectedPage, true);
+        assert.match(result.epoch, /^[A-F0-9]{64}$/u);
+      },
+    );
+    const originalValue = fieldMap(fieldState).get(fieldId) ?? fieldMap(fieldState).get(fieldLabel);
+    assert.equal(typeof originalValue, "string");
+    await read("get_value", { name: fieldLabel, hwnd: currentHwnd },
+      (result) => assert.equal(result.value, originalValue));
+    await read("find", { name: fieldLabel, hwnd: currentHwnd },
+      (result) => assert((result.hits ?? []).length >= 1));
+    const temporaryValue = originalValue === "17,00" ? "18,00" : "17,00";
+    const correctedValue = ["19,00", "20,00"].find((value) => value !== originalValue && value !== temporaryValue);
+    assert(correctedValue, "Kein eindeutiger synthetischer Korrekturwert verfuegbar.");
+    let afterWrite;
+    await mutateAndRead(
+      "known-field-write",
+      {
+        pageId,
+        fields: [{ fieldId, expectedBefore: originalValue, value: temporaryValue, expectedAfter: temporaryValue }],
+        expectedEpoch: fieldState.epoch, stopOnError: true, rollback: "best-effort", finalReadback: true, hwnd: currentHwnd,
+      },
+      (result) => {
+        assert.equal(result.resultingState, "completed-verified");
+        assert.equal(result.finalReadbackVerified, true);
+      },
+      { pageId, hwnd: currentHwnd },
+      (result) => {
+        afterWrite = result;
+        assert.equal(fieldMap(result).get(fieldId) ?? fieldMap(result).get(fieldLabel), temporaryValue);
+      },
+    );
+    let afterCorrection;
+    await mutateAndRead(
+      "known-field-correction",
+      {
+        pageId,
+        fields: [{ fieldId, expectedBefore: temporaryValue, value: correctedValue, expectedAfter: correctedValue }],
+        expectedEpoch: afterWrite.epoch, stopOnError: true, rollback: "best-effort", finalReadback: true, hwnd: currentHwnd,
+      },
+      (result) => assert.equal(result.finalReadbackVerified, true),
+      { pageId, hwnd: currentHwnd },
+      (result) => {
+        afterCorrection = result;
+        assert.equal(fieldMap(result).get(fieldId) ?? fieldMap(result).get(fieldLabel), correctedValue);
+      },
+    );
+    await mutateAndRead(
+      "known-field-restore",
+      {
+        pageId,
+        fields: [{ fieldId, expectedBefore: correctedValue, value: originalValue, expectedAfter: originalValue }],
+        expectedEpoch: afterCorrection.epoch, stopOnError: true, rollback: "best-effort", finalReadback: true, hwnd: currentHwnd,
+      },
+      (result) => assert.equal(result.finalReadbackVerified, true),
+      { pageId, hwnd: currentHwnd },
+      (result) => assert.equal(fieldMap(result).get(fieldId) ?? fieldMap(result).get(fieldLabel), originalValue),
+    );
+  });
+
+  await phase("receipts", async () => {
+    leaseEvidence.remainingBeforeReceiptMs = leaseExpiresAt - Date.now();
+    assert(leaseEvidence.remainingBeforeReceiptMs >= minimumReceiptLeaseMarginMs,
+      `Receipt-Phase startet mit nur ${leaseEvidence.remainingBeforeReceiptMs} ms Lease-Restzeit; ` +
+      `${minimumReceiptLeaseMarginMs} ms sind Pflicht. Keine Receipt-Mutation begonnen.`);
     await mutateAndRead(
       "menu-open",
       { name: "Extras", hwnd: currentHwnd },
