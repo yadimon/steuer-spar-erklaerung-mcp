@@ -54,6 +54,7 @@ const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, mill
 const operationRecords = [];
 const mutationRecords = [];
 const phaseRecords = [];
+const ownedLaunchPids = new Set();
 let controlledRunStartedAt = 0;
 let journeyEndedAt = 0;
 let controlledRunEndedAt = 0;
@@ -276,6 +277,19 @@ function assertKnownLaunchDialogs(listed) {
   return dialogs;
 }
 
+function bindLaunchProcess(result, label) {
+  assert(Number.isInteger(result.pid) && result.pid > 0, `${label}: Launch lieferte keine positive PID.`);
+  currentPid = result.pid;
+  ownedLaunchPids.add(currentPid);
+  currentHwnd = Number.isInteger(result.instance?.hwnd) ? result.instance.hwnd : 0;
+}
+
+function assertReadyLaunchReadback(listed, launched, label) {
+  assertKnownLaunchDialogs(listed);
+  assert.equal(launched.ready, true, `${label}: Launch blieb ohne verifiziertes Produktfenster.`);
+  assert(Number.isInteger(currentHwnd) && currentHwnd > 0, `${label}: Launch lieferte kein gebundenes HWND.`);
+}
+
 async function maybeDismissStartupDialog(id, launchReadback) {
   const declaration = mutationDeclarations.get(id);
   assert(declaration, `Nicht deklarierte optionale Startdialog-Mutation '${id}'.`);
@@ -443,15 +457,9 @@ try {
     const launchedGew = await mutateAndRead(
       "launch-gew",
       { caseRef: fixtures.gew.targetRef, mode: fixtures.gew.mode },
-      (result) => {
-        assert.equal(result.ready, true);
-        currentHwnd = result.instance?.hwnd;
-        currentPid = result.pid;
-        assert(Number.isInteger(currentHwnd) && currentHwnd > 0);
-        assert(Number.isInteger(currentPid) && currentPid > 0);
-      },
-      () => ({ pid: currentPid }),
-      (result) => assertKnownLaunchDialogs(result),
+      (result) => bindLaunchProcess(result, "launch-gew"),
+      (result) => ({ pid: result.pid }),
+      (result, changed) => assertReadyLaunchReadback(result, changed, "launch-gew"),
     );
     await maybeDismissStartupDialog("launch-gew-startup-dialog", launchedGew.readback);
     await assertBoundUiState("launch-gew");
@@ -662,9 +670,9 @@ try {
     const reopenedGew = await mutateAndRead(
       "reopen-gew",
       { caseRef: fixtures.gew.targetRef, mode: fixtures.gew.mode },
-      (result) => { currentHwnd = result.instance?.hwnd; currentPid = result.pid; },
-      () => ({ pid: currentPid }),
-      (result) => assertKnownLaunchDialogs(result),
+      (result) => bindLaunchProcess(result, "reopen-gew"),
+      (result) => ({ pid: result.pid }),
+      (result, changed) => assertReadyLaunchReadback(result, changed, "reopen-gew"),
     );
     await maybeDismissStartupDialog("reopen-gew-startup-dialog", reopenedGew.readback);
     await assertBoundUiState("reopen-gew");
@@ -988,9 +996,9 @@ try {
     const launchedEst = await mutateAndRead(
       "launch-est",
       { caseRef: fixtures.est.targetRef, mode: fixtures.est.mode },
-      (result) => { currentHwnd = result.instance?.hwnd; currentPid = result.pid; },
-      () => ({ pid: currentPid }),
-      (result) => assertKnownLaunchDialogs(result),
+      (result) => bindLaunchProcess(result, "launch-est"),
+      (result) => ({ pid: result.pid }),
+      (result, changed) => assertReadyLaunchReadback(result, changed, "launch-est"),
     );
     await maybeDismissStartupDialog("launch-est-startup-dialog", launchedEst.readback);
     await assertBoundUiState("launch-est");
@@ -1410,31 +1418,47 @@ try {
     if (health.result.running) {
       const discovered = await call("instances", { includeHash: true }, 120_000, "failure-cleanup-instances");
       const owned = findOwnedInstances(discovered.result);
-      assert.equal(owned.length, 1,
-        `Laufende SSE-Instanz ist nicht eindeutig einer Wegwerfkopie zuordenbar; nichts blind geschlossen: ` +
-        `${JSON.stringify((discovered.result.instances ?? []).map((instance) => ({
-          pid: instance.pid, hwnd: instance.hwnd, caseName: instance.caseName,
-        })))}`);
-      currentPid = owned[0].pid;
-      currentHwnd = owned[0].hwnd;
-      const state = await call("ui_state", { hwnd: currentHwnd }, 60_000, "failure-cleanup-state");
-      cleanup.stateKnown = state.result.running === true && state.result.instance?.hwnd === currentHwnd;
-      assert.equal(cleanup.stateKnown, true, "Entdeckte Wegwerf-Instanz ist nicht zustandsgebunden lesbar.");
-      try {
-        await call("close", { pid: currentPid, hwnd: currentHwnd, discardChanges: true }, 180_000,
-          "failure-cleanup-close");
-      } catch (closeError) {
-        if (!/dialog-open/iu.test(String(closeError?.message))) throw closeError;
+      if (owned.length === 1) {
+        currentPid = owned[0].pid;
+        currentHwnd = owned[0].hwnd;
+        const state = await call("ui_state", { hwnd: currentHwnd }, 60_000, "failure-cleanup-state");
+        cleanup.stateKnown = state.result.running === true && state.result.instance?.hwnd === currentHwnd;
+        assert.equal(cleanup.stateKnown, true, "Entdeckte Wegwerf-Instanz ist nicht zustandsgebunden lesbar.");
+        try {
+          await call("close", { pid: currentPid, hwnd: currentHwnd, discardChanges: true }, 180_000,
+            "failure-cleanup-close");
+        } catch (closeError) {
+          if (!/dialog-open/iu.test(String(closeError?.message))) throw closeError;
+          const forced = await call(
+            "close",
+            { pid: currentPid, hwnd: currentHwnd, discardChanges: true, force: true },
+            180_000,
+            "failure-cleanup-force-close-unanswered-dialog",
+          );
+          assert.equal(forced.result.killed, true,
+            "Unklassifizierter Dialog wurde nicht beantwortet; exakt gebundener Wegwerfprozess liess sich auch nicht sicher beenden.");
+          cleanup.forcedTermination = true;
+          cleanup.forceReason = "unclassified-dialog-was-not-answered";
+        }
+      } else if (owned.length === 0 && Number.isInteger(currentPid) && ownedLaunchPids.has(currentPid)) {
         const forced = await call(
           "close",
-          { pid: currentPid, hwnd: currentHwnd, discardChanges: true, force: true },
+          { pid: currentPid, discardChanges: true, force: true },
           180_000,
-          "failure-cleanup-force-close-unanswered-dialog",
+          "failure-cleanup-force-close-owned-launch-pid",
         );
         assert.equal(forced.result.killed, true,
-          "Unklassifizierter Dialog wurde nicht beantwortet; exakt gebundener Wegwerfprozess liess sich auch nicht sicher beenden.");
+          "Exakt aus dem Launch gebundene Wegwerf-PID ohne Hauptfenster liess sich nicht sicher beenden.");
+        cleanup.stateKnown = true;
         cleanup.forcedTermination = true;
-        cleanup.forceReason = "unclassified-dialog-was-not-answered";
+        cleanup.forceReason = "owned-launch-pid-without-main-instance";
+      } else {
+        assert.fail(
+          `Laufende SSE-Instanz ist nicht eindeutig einer Wegwerfkopie zuordenbar; nichts blind geschlossen: ` +
+          `${JSON.stringify((discovered.result.instances ?? []).map((instance) => ({
+            pid: instance.pid, hwnd: instance.hwnd, caseName: instance.caseName,
+          })))}`,
+        );
       }
     }
     const finalInstances = await call("instances", { includeHash: true }, 120_000, "failure-cleanup-final-instances");
