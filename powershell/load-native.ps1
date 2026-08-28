@@ -47,7 +47,7 @@ function Read-SSENativeBoundedUtf8([string]$Path, [long]$MaxBytes) {
 }
 
 function Test-SSENativeSurface {
-  $types = @('DSK','SW','SSEAccessible','SSEAccNode')
+  $types = @('DSK','SW','SSEAccessible','SSEAccNode','SSEWorkerControllerLease')
   foreach ($name in $types) {
     if (-not ($name -as [type])) { return $false }
   }
@@ -63,6 +63,7 @@ function Test-SSENativeSurface {
       'SendMessage','GetForegroundWindow','GetLastActivePopup','GetLastInputInfo','IsIconic','AttachThreadInput',
       'GetGUIThreadInfo','GetCurrentThreadId','SendUnicodeText')
     SSEAccessible=@('Describe','DescribePoint','Invoke')
+    SSEWorkerControllerLease=@('Acquire','ReleaseAndClose')
   }
   foreach ($typeName in $required.Keys) {
     $type = $typeName -as [type]

@@ -116,6 +116,76 @@ for (const operation of SSE_FOREGROUND_REQUIRED_RECEIPT_OPERATIONS) {
   );
 }
 
+const controllerBusy = parseApiOperationResult("health", {
+  ok: false,
+  kind: "busy",
+  error: "Sitzungscontroller belegt.",
+  reason: "session-controller-busy",
+  retryable: true,
+  waited: false,
+  mutationStarted: false,
+  resultingState: "unchanged",
+  cleanupRequired: false,
+  physicalInputUsed: false,
+  foregroundLeaseUsed: false,
+});
+assert.equal(controllerBusy.reason, "session-controller-busy");
+assert.equal(controllerBusy.waited, false);
+for (const [field, invalid] of [
+  ["retryable", false], ["waited", true], ["mutationStarted", true],
+  ["resultingState", "unknown"], ["cleanupRequired", true],
+  ["physicalInputUsed", true], ["foregroundLeaseUsed", true],
+]) {
+  assert.throws(
+    () => parseApiOperationResult("health", { ...controllerBusy, [field]: invalid }),
+    new RegExp(`session-controller-busy.*${field}|${field}.*session-controller-busy`, "i"),
+    `${field}: Controller-Busy-Semantik darf nicht driften.`,
+  );
+}
+
+for (const reason of ["controller-lock-abandoned", "controller-lock-unavailable", "controller-lock-reentered"]) {
+  const isolationLost = parseApiOperationResult("health", {
+    ok: false,
+    kind: "worker-isolation-lost",
+    error: "Controllerzustand ist unbekannt.",
+    reason,
+    retryable: false,
+    mutationStarted: false,
+    resultingState: "unknown",
+    cleanupRequired: true,
+    physicalInputUsed: false,
+    foregroundLeaseUsed: false,
+  });
+  for (const [field, invalid] of [
+    ["retryable", true], ["mutationStarted", true], ["resultingState", "unchanged"],
+    ["cleanupRequired", false], ["physicalInputUsed", true], ["foregroundLeaseUsed", true],
+  ]) {
+    assert.throws(
+      () => parseApiOperationResult("health", { ...isolationLost, [field]: invalid }),
+      new RegExp(`${reason}.*${field}|${field}.*${reason}`, "i"),
+      `${reason}/${field}: Pre-Dispatch-Isolationsverlust muss fail-closed bleiben.`,
+    );
+  }
+}
+
+for (const reason of [
+  "controller-lock-thread-changed", "controller-lock-release-failed", "controller-lock-dispose-failed",
+]) {
+  const releaseLost = parseApiOperationResult("health", {
+    ok: false,
+    kind: "worker-isolation-lost",
+    error: "Controller konnte nicht sicher freigegeben werden.",
+    reason,
+    retryable: false,
+    resultingState: "unknown",
+    cleanupRequired: true,
+  });
+  assert.throws(
+    () => parseApiOperationResult("health", { ...releaseLost, cleanupRequired: false }),
+    new RegExp(`${reason}.*cleanupRequired|cleanupRequired.*${reason}`, "i"),
+  );
+}
+
 for (const value of [null, [], {}, { ok: "true" }, { ok: true, ms: Number.POSITIVE_INFINITY }]) {
   assert.throws(() => parseApiOperationResult("health", value), /invalid|Expected|Required|finite/i);
 }

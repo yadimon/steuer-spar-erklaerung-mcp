@@ -120,6 +120,20 @@ export const SSE_CAPABILITIES = Object.freeze({
     rejectionCode: "busy",
     rejectionStatus: 409,
     progressRoute: "/healthz",
+    workerController: {
+      scope: "windows-session",
+      includesDirectWorker: true,
+      policy: "zero-wait",
+      idlePrewarmHoldsLease: false,
+      bypassOperations: ["page_objects", "product_info"],
+      contentionKind: "busy",
+      contentionReason: "session-controller-busy",
+      contentionTransport: "operation-result",
+      contentionHttpStatus: 200,
+      observedAbandonmentKind: "worker-isolation-lost",
+      observedAbandonmentReason: "controller-lock-abandoned",
+      durableCrashDetection: false,
+    },
     rule: "Es laeuft immer nur eine Operation. Ein zweiter Aufruf wird mit 'busy' abgelehnt, " +
       "nicht eingereiht. Warte auf das Ergebnis statt parallel erneut aufzurufen; /healthz " +
       "meldet jederzeit, welche Operation seit wann laeuft. Abbrechen geschieht ausschliesslich " +

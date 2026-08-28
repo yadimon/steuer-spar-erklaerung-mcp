@@ -10,6 +10,18 @@ const psFile = (name, file) => ({
 });
 const nodeFile = (name, file, ...args) => ({ name, command: node, args: [file, ...args] });
 const withApi = (name, file, ...args) => nodeFile(name, "test/with-api.mjs", node, file, ...args);
+export const WORKER_CONTROLLER_CONFLICT_KEY = "windows-session-worker-controller";
+const workerControllerSteps = new Set([
+  "archive-cases", "archive-cases-synthetic", "archive-local-parity",
+  "backup-cases-contract", "backup-local-parity", "bulk-action-worker-contract",
+  "case-file", "checker-open-contract", "direct-worker-collection-guard",
+  "desktop-marker-contract",
+  "direct-worker-experimental-guard", "direct-worker-file-guard", "direct-worker-guard",
+  "direct-worker-identity-guard", "direct-worker-resource-guard", "file-operations-worker",
+  "launch-orchestration", "mcp-selftest", "product-gate", "verify-collect",
+  "verify-local-parity", "worker-inherited-pipe", "worker-input-file-contract",
+  "worker-output-file-contract", "worker-timeout", "working-copy-local-parity",
+]);
 
 export const serialBuildSteps = Object.freeze([
   nodeFile("dist-prune", "scripts/prune-dist.mjs"),
@@ -143,9 +155,12 @@ export const parallelSteps = Object.freeze([
   psFile("build-drift", "test/build-drift-contract.ps1"),
   withApi("product-gate", "test/product-gate.mjs"),
   withApi("archive-cases", "test/archive-cases.mjs"),
-]);
+].map((step) => workerControllerSteps.has(step.name)
+  ? { ...step, conflictKey: WORKER_CONTROLLER_CONFLICT_KEY }
+  : step));
 
 export const exclusiveSteps = Object.freeze([
+  { ...nodeFile("worker-controller-lock", "test/worker-controller-lock-contract.mjs"), timeoutMs: 420_000 },
   withApi("no-console-window", "test/no-console-window.mjs"),
 ]);
 

@@ -30,7 +30,10 @@ process.env.SSE_TEST_COVERAGE_SCOPE = "offline";
 
 try {
   const concurrency = resolveConcurrency(process.env.SSE_TEST_CONCURRENCY);
-  process.stdout.write(`\n> ${parallelSteps.length} konfliktfreie Tests mit maximal ${concurrency} Prozessen\n`);
+  process.stdout.write(
+    `\n> ${parallelSteps.length} parallele Tests mit konfliktbewusster Worker-Serialisierung ` +
+      `und maximal ${concurrency} Prozessen\n`,
+  );
   await runWithConcurrency(parallelSteps, concurrency, runStep);
 
   // Dieser Sentinel muss allein laufen: parallele Kindprozesse koennten sonst

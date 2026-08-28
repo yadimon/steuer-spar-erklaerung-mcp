@@ -45,6 +45,8 @@ $script:INIT_TIMINGS = [ordered]@{}
 $script:SSE_CAPTURE_OPERATION_RESULT = $false
 $script:SSE_CAPTURED_OPERATION_RESULT = $null
 $script:SSE_CAPTURE_SENTINEL = 'SSE_INTERNAL_OPERATION_RESULT_CAPTURED'
+$script:SSE_WORKER_CONTROLLER_MUTEX_NAME = 'Local\SteuerSparErklaerungApi.SseWorkerController'
+$script:SSE_WORKER_CONTROLLER_LEASE = $null
 
 # Ohne das hier landen Umlaute als '?' beim Aufrufer: bei umgeleiteter Ausgabe
 # benutzt die Konsole sonst die OEM-Codepage statt UTF-8.
@@ -1767,6 +1769,7 @@ function Resolve-SSEPageObject([string]$PageId, [string]$FieldId = '') {
   }
   [pscustomobject]@{ catalog=$catalog; page=$page; field=$field; pageId=$PageId; fieldId=$FieldId }
 }
+
 function Emit($obj) {
   # Physische Eingabe darf das zuvor aktive Benutzerfenster, den Mauszeiger
   # oder ein dauerhaftes TOPMOST-Bit niemals als Seiteneffekt zuruecklassen.
@@ -1792,6 +1795,28 @@ function Emit($obj) {
   if ($script:SSE_CAPTURE_OPERATION_RESULT) {
     $script:SSE_CAPTURED_OPERATION_RESULT = $obj
     throw [InvalidOperationException]::new($script:SSE_CAPTURE_SENTINEL)
+  }
+  $controllerReleaseReason = $null
+  if ($null -ne $script:SSE_WORKER_CONTROLLER_LEASE) {
+    try {
+      $controllerReleaseReason = [SSEWorkerControllerLease]::ReleaseAndClose($script:SSE_WORKER_CONTROLLER_LEASE)
+    } catch {
+      $controllerReleaseReason = 'controller-lock-release-failed'
+    } finally {
+      $script:SSE_WORKER_CONTROLLER_LEASE = $null
+    }
+  }
+  if ($controllerReleaseReason) {
+    $obj = [pscustomobject][ordered]@{
+      ok=$false
+      kind='worker-isolation-lost'
+      error='Sitzungsweiter SSE-Controller konnte nicht sicher freigegeben werden. Vor weiteren Operationen Prozess- und Produktzustand kontrollieren.'
+      reason=[string]$controllerReleaseReason
+      retryable=$false
+      resultingState='unknown'
+      cleanupRequired=$true
+      ms=$script:T0.ElapsedMilliseconds
+    }
   }
   # Depth hoch, damit verschachtelte Baeume nicht abgeschnitten werden
   $json = $obj | ConvertTo-Json -Depth 24 -Compress
@@ -2398,32 +2423,6 @@ $script:SSE_CENTER_TEST_OPERATIONS = @('center_cases','center_refresh')
 $script:DESKTOP_NAME  = $null
 $script:DESKTOP_PID   = 0
 $script:DESKTOP_OWNER = $null
-if (Test-Path -LiteralPath $script:DESKTOP_MARKE) {
-  try {
-    $loadedDesktopMarker = Read-SSEDesktopMarker $script:DESKTOP_MARKE
-  } catch {
-    Fail 'Desktop-Marker ist ungueltig; sichtbarer Desktop wird nicht ersatzweise verwendet.' 'desktop-marker-invalid'
-  }
-  if ($loadedDesktopMarker.owner -ceq 'center-test' -and $Op -ne 'desktop_status' -and
-      ($env:SSE_CENTER_LIVE_TEST -ne '1' -or $Op -notin $script:SSE_CENTER_TEST_OPERATIONS)) {
-    Fail 'Desktop-Marker gehoert dem isolierten Center-Test; Operation wurde nicht dorthin geroutet.' 'desktop-marker-owner'
-  }
-  if ($loadedDesktopMarker.owner -ceq 'sse' -and $Op -in $script:SSE_CENTER_TEST_OPERATIONS) {
-    Fail 'SSE-Desktop-Marker besitzt keinen Steuertipps-Center; Center-Operation wurde nicht dorthin geroutet.' 'desktop-marker-owner'
-  }
-  $script:DESKTOP_NAME = [string]$loadedDesktopMarker.name
-  $script:DESKTOP_PID = [uint32]$loadedDesktopMarker.pid
-  $script:DESKTOP_OWNER = [string]$loadedDesktopMarker.owner
-  # Die Marke allein ist massgeblich. SetThreadDesktop kann NICHT als
-  # Nachweis dienen: es scheitert mit Fehler 170, sobald der Thread ein
-  # Fenster besitzt - und PowerShell hat beim Start eines. Wird der
-  # Arbeiter ueber run-on-desktop.ps1 gestartet, ist er ohnehin schon
-  # dort geboren; der Aufruf unten ist nur der Fall fuer Direktstarts.
-  if ($Op -ne 'desktop_start') {
-    $h = [DSK]::OpenDesktop($script:DESKTOP_NAME, 0, $false, 0x10000000)   # GENERIC_ALL
-    if ($h -ne [IntPtr]::Zero) { [DSK]::SetThreadDesktop($h) | Out-Null }
-  }
-}
 
 # Qt 6 exposes some application-modal message boxes through MSAA (oleacc), but
 # not through UI Automation: AutomationElement.FromHandle then has no children.
@@ -7151,6 +7150,82 @@ if ($verificationOnlyProfile -and $profilePolicyOperation -notin $experimentalPr
   }
 }
 
+$controllerLease = if (@('page_objects','product_info') -ccontains $profilePolicyOperation) {
+  [pscustomobject]@{ status='bypass' }
+} elseif ($null -ne $script:SSE_WORKER_CONTROLLER_LEASE) {
+  [pscustomobject]@{ status='unavailable'; reason='controller-lock-reentered' }
+} else {
+  try { [SSEWorkerControllerLease]::Acquire($script:SSE_WORKER_CONTROLLER_MUTEX_NAME) }
+  catch { [pscustomobject]@{ status='unavailable'; reason='controller-lock-unavailable' } }
+}
+switch -CaseSensitive ([string]$controllerLease.status) {
+  'acquired' { $script:SSE_WORKER_CONTROLLER_LEASE = $controllerLease }
+  'bypass' { }
+  'busy' {
+    Fail 'Ein anderer Prozess steuert die SteuerSparErklaerung in dieser Windows-Sitzung. Ohne Warten abgebrochen; nach dessen Abschluss mit frischen Bindungen erneut aufrufen.' 'busy' ([pscustomobject][ordered]@{
+      reason='session-controller-busy'
+      retryable=$true
+      waited=$false
+      mutationStarted=$false
+      resultingState='unchanged'
+      cleanupRequired=$false
+      physicalInputUsed=$false
+      foregroundLeaseUsed=$false
+    })
+  }
+  'abandoned' {
+    # WAIT_ABANDONED uebertraegt den Mutex bereits an diesen Thread. Emit muss
+    # den beobachteten Lease freigeben, darf aber niemals in SSE dispatchen.
+    $script:SSE_WORKER_CONTROLLER_LEASE = $controllerLease
+    Fail 'Ein abgebrochener Controller wurde in dieser Windows-Sitzung erkannt. Produktzustand ist unbekannt; vor weiteren Aenderungen zuerst gezielt lesen und sse_health pruefen.' 'worker-isolation-lost' ([pscustomobject][ordered]@{
+      reason='controller-lock-abandoned'
+      retryable=$false
+      mutationStarted=$false
+      resultingState='unknown'
+      cleanupRequired=$true
+      physicalInputUsed=$false
+      foregroundLeaseUsed=$false
+    })
+  }
+  default {
+    Fail 'Sitzungsweiter SSE-Controller konnte nicht sicher gebunden werden. Vor weiteren Operationen Prozess- und Produktzustand kontrollieren.' 'worker-isolation-lost' ([pscustomobject][ordered]@{
+      reason=[string]$controllerLease.reason
+      retryable=$false
+      mutationStarted=$false
+      resultingState='unknown'
+      cleanupRequired=$true
+      physicalInputUsed=$false
+      foregroundLeaseUsed=$false
+    })
+  }
+}
+
+if (Test-Path -LiteralPath $script:DESKTOP_MARKE) {
+  try {
+    $loadedDesktopMarker = Read-SSEDesktopMarker $script:DESKTOP_MARKE
+  } catch {
+    Fail 'Desktop-Marker ist ungueltig; sichtbarer Desktop wird nicht ersatzweise verwendet.' 'desktop-marker-invalid'
+  }
+  if ($loadedDesktopMarker.owner -ceq 'center-test' -and $Op -ne 'desktop_status' -and
+      ($env:SSE_CENTER_LIVE_TEST -ne '1' -or $Op -notin $script:SSE_CENTER_TEST_OPERATIONS)) {
+    Fail 'Desktop-Marker gehoert dem isolierten Center-Test; Operation wurde nicht dorthin geroutet.' 'desktop-marker-owner'
+  }
+  if ($loadedDesktopMarker.owner -ceq 'sse' -and $Op -in $script:SSE_CENTER_TEST_OPERATIONS) {
+    Fail 'SSE-Desktop-Marker besitzt keinen Steuertipps-Center; Center-Operation wurde nicht dorthin geroutet.' 'desktop-marker-owner'
+  }
+  $script:DESKTOP_NAME = [string]$loadedDesktopMarker.name
+  $script:DESKTOP_PID = [uint32]$loadedDesktopMarker.pid
+  $script:DESKTOP_OWNER = [string]$loadedDesktopMarker.owner
+  # Die Marke allein ist massgeblich. SetThreadDesktop kann NICHT als
+  # Nachweis dienen: es scheitert mit Fehler 170, sobald der Thread ein
+  # Fenster besitzt - und PowerShell hat beim Start eines. Wird der
+  # Arbeiter ueber run-on-desktop.ps1 gestartet, ist er ohnehin schon
+  # dort geboren; der Aufruf unten ist nur der Fall fuer Direktstarts.
+  if ($Op -ne 'desktop_start') {
+    $h = [DSK]::OpenDesktop($script:DESKTOP_NAME, 0, $false, 0x10000000)   # GENERIC_ALL
+    if ($h -ne [IntPtr]::Zero) { [DSK]::SetThreadDesktop($h) | Out-Null }
+  }
+}
 Assert-SSEVerifiedBuildForOperation $profilePolicyOperation $a
 
 # Der warme Dispatcher ist bereits vor seiner Bereitschaft registriert. Ihn
@@ -19859,3 +19934,4 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
 }
 
 Invoke-SSEWorkerOperation $Op $a
+Fail 'Kalter Dispatcher kehrte ohne Ergebnis zurueck.' 'worker-init'

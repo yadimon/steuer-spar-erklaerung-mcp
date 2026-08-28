@@ -304,6 +304,16 @@ Worker gibt das zuvor aktive Fenster und den Mauszeiger best effort zurück,
 sofern keine fremde Eingabe erkannt wurde. Die Sicherheits-Telemetrie bleibt
 im vollständigen API-Ergebnis und bei den gemeinsamen API-Werkzeugen im
 kanonischen MCP-Strukturergebnis erhalten.
+
+Lock-pflichtige PowerShell-Worker mehrerer API-Prozesse oder direkte Worker in
+derselben Windows-Sitzung teilen zusätzlich genau einen SSE-/UIA-Controller. Ein
+konkurrierender Workerabschnitt wartet nicht, sondern liefert strukturiert
+`busy`/`session-controller-busy`; erst nach Abschluss mit frischen Bindungen
+wiederholen. Lokale API-Pfade und die Lücken zwischen mehreren Worker-Schritten
+einer zusammengesetzten Operation sind nicht von diesem Mutex umfasst.
+`product_info` und `page_objects` umgehen ihn, weil sie keine Produktfenster
+oder UIA berühren. Diese technische Serialisierung ersetzt nicht die Eingabe-,
+Vordergrund- und Interferenzwächter gegenüber einem Menschen.
 Bei einem vom Profil abweichenden Minor-/Patch-Build bleiben Lesen, Diagnose
 und sicherer Cleanup erreichbar. Die in
 `capabilities.operationPolicy[*].blockedOnBuildDrift` ausgewiesenen
