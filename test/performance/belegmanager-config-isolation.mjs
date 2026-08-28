@@ -38,24 +38,39 @@ function replaceSectionKeyLine(text, sectionName, keyName, replacementLine) {
     text.slice(absoluteMatchStart + match[0].length);
 }
 
+function sectionKeyLine(text, sectionName, keyName) {
+  const sectionPattern = new RegExp(`^[ \\t]*\\[${sectionName}\\][ \\t]*$`, "imu");
+  const sectionStart = text.search(sectionPattern);
+  assert(sectionStart >= 0, `SSEKonf.user.ini enthaelt keinen [${sectionName}]-Abschnitt.`);
+  const afterSection = text.slice(sectionStart);
+  const nextSectionOffset = afterSection.slice(1).search(/^[ \t]*\[[^\]]+\][ \t]*$/mu);
+  const sectionEnd = nextSectionOffset < 0 ? text.length : sectionStart + 1 + nextSectionOffset;
+  const keyPattern = new RegExp(`^[ \\t]*${keyName}[ \\t]*=[ \\t]*[^\\r\\n]*$`, "gimu");
+  const matches = [...text.slice(sectionStart, sectionEnd).matchAll(keyPattern)];
+  assert.equal(matches.length, 1, `[${sectionName}] braucht genau einen ${keyName}-Eintrag.`);
+  return matches[0][0];
+}
+
 function assertOnlyKnownRuntimeDrift(current, swapped) {
   const decoder = new TextDecoder("utf-8", { fatal: true });
   const currentText = decoder.decode(current);
   const swappedText = decoder.decode(swapped);
   assert.deepEqual(Buffer.from(currentText, "utf8"), current);
   assert.deepEqual(Buffer.from(swappedText, "utf8"), swapped);
-  const expectedLastWorkDir = /^([ \t]*LastWorkDir[ \t]*=[ \t]*)([^\r\n]*)$/gimu.exec(
-    swappedText.slice(swappedText.search(/^[ \t]*\[Files\][ \t]*$/imu)),
-  );
-  assert(expectedLastWorkDir, "[Files] braucht genau einen LastWorkDir-Eintrag.");
-  const normalized = replaceSectionKeyLine(
-    currentText,
-    "Files",
-    "LastWorkDir",
-    expectedLastWorkDir[0],
-  );
+  const allowedRuntimeFields = [
+    ["Files", "LastWorkDir"],
+    ["WerteInfoPos", "Size3"],
+    ["WerteInfoPos", "Size4"],
+  ];
+  const normalized = allowedRuntimeFields.reduce((text, [sectionName, keyName]) =>
+    replaceSectionKeyLine(
+      text,
+      sectionName,
+      keyName,
+      sectionKeyLine(swappedText, sectionName, keyName),
+    ), currentText);
   assert.deepEqual(Buffer.from(normalized, "utf8"), swapped,
-    "SSEKonf.user.ini driftete ausserhalb des bekannten Files::LastWorkDir-Laufzeitwerts; nichts ueberschrieben.");
+    "SSEKonf.user.ini driftete ausserhalb der bekannten SSE-Laufzeitwerte; nichts ueberschrieben.");
 }
 
 function restoreExistingIsolation(options) {
