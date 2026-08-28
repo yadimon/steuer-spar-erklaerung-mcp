@@ -543,6 +543,261 @@ function Get-SSEReceiptManagerListProjection($State, $Policy) {
   }
 }
 
+function Resolve-SSEReceiptManagerVisibleRowTarget(
+  [IntPtr]$ToolHwnd,
+  $State,
+  $List,
+  $Row,
+  $Policy
+) {
+  $tableNodes = @($State.nodes | Where-Object {
+    $_.type -eq 'Table' -and [string]$_.aid -and
+    ([string]$_.aid).EndsWith([string]$Policy.list.tableAutomationIdSuffix, [StringComparison]::Ordinal)
+  })
+  if ($tableNodes.Count -ne 1) { throw "$($tableNodes.Count) profilierte Belegtabellen gefunden." }
+  $table = Get-LiveElement $ToolHwnd ([string]$tableNodes[0].rid) ([string]$tableNodes[0].aid)
+  $gridObject = $null
+  if (-not $table -or -not $table.TryGetCurrentPattern(
+      [Windows.Automation.GridPattern]::Pattern, [ref]$gridObject)) {
+    throw 'Profilierte Belegtabelle bietet kein GridPattern.'
+  }
+  $grid = [Windows.Automation.GridPattern]$gridObject
+  $gridRow = [int]$Row.index - 1
+  $titleColumn = [int]$Policy.list.primaryTextColumn
+  $documentNumberColumn = [int]$Policy.list.documentNumberColumn
+  if ($gridRow -lt 0 -or $gridRow -ge [int]$grid.Current.RowCount -or
+      $titleColumn -lt 0 -or $titleColumn -ge [int]$grid.Current.ColumnCount -or
+      $documentNumberColumn -lt 0 -or $documentNumberColumn -ge [int]$grid.Current.ColumnCount) {
+    throw 'Gebundene Belegzeile liegt ausserhalb des aktuellen Qt-Grids.'
+  }
+  $titleCell = $grid.GetItem($gridRow, $titleColumn)
+  $documentNumberCell = $grid.GetItem($gridRow, $documentNumberColumn)
+  if (-not $titleCell -or -not $documentNumberCell -or
+      [string]$titleCell.Current.Name -cne [string]$Row.primaryText -or
+      [string]$documentNumberCell.Current.Name -cne [string]$Row.documentNumber) {
+    throw 'Gebundene Belegidentitaet stimmt nicht mehr mit derselben Grid-Zeile ueberein.'
+  }
+
+  $expectedRowsJson = @($List.rows | ForEach-Object {
+    [pscustomobject][ordered]@{
+      primaryText=[string]$_.primaryText; documentNumber=[string]$_.documentNumber
+      cells=@($_.cells | ForEach-Object { [string]$_.name })
+    } | ConvertTo-Json -Depth 5 -Compress
+  } | Sort-Object) | ConvertTo-Json -Compress
+  $expectedTargetCellsJson = @($Row.cells | ForEach-Object { [string]$_.name }) | ConvertTo-Json -Compress
+  $scrollMethod = 'already-visible'
+  $scrollAttempts = 0
+
+  for ($attempt = 0; $attempt -lt 3; $attempt++) {
+    $scrollAttempts = $attempt
+    $stateNow = $(if ($attempt -eq 0) { $State } else { Get-SSEReceiptManagerState $ToolHwnd $Policy })
+    $listNow = $(if ($attempt -eq 0) { $List } else { Get-SSEReceiptManagerListProjection $stateNow $Policy })
+    if (-not [bool]$listNow.rowsComplete -or [int]$listNow.count -ne [int]$List.count) {
+      throw 'Belegliste ist waehrend der Sichtbarkeitsbindung unvollstaendig oder geaendert.'
+    }
+    $actualRowsJson = @($listNow.rows | ForEach-Object {
+      [pscustomobject][ordered]@{
+        primaryText=[string]$_.primaryText; documentNumber=[string]$_.documentNumber
+        cells=@($_.cells | ForEach-Object { [string]$_.name })
+      } | ConvertTo-Json -Depth 5 -Compress
+    } | Sort-Object) | ConvertTo-Json -Compress
+    if ($actualRowsJson -cne $expectedRowsJson) {
+      throw 'Beleglisteninhalt hat sich waehrend der Sichtbarkeitsbindung geaendert.'
+    }
+    $rowNow = @($listNow.rows | Where-Object {
+      [string]$_.primaryText -ceq [string]$Row.primaryText -and
+      [string]$_.documentNumber -ceq [string]$Row.documentNumber -and
+      ((@($_.cells | ForEach-Object { [string]$_.name }) | ConvertTo-Json -Compress) -ceq $expectedTargetCellsJson)
+    })
+    if ($rowNow.Count -ne 1) { throw 'Gebundene Belegzeile konnte nach dem Scrollen nicht exakt semantisch rebound werden.' }
+    $gridRowNow = [int]$rowNow[0].index - 1
+    $target = Convert-ExactElementToNode (Get-LiveElement $ToolHwnd ([string]$rowNow[0].rowRid))
+    $toolRectNow = ($AE::FromHandle($ToolHwnd)).Current.BoundingRectangle
+    $targetCenterX = $(if ($target) { [double]$target.x + ([double]$target.w / 2) } else { -1.0 })
+    $targetCenterY = $(if ($target) { [double]$target.y + ([double]$target.h / 2) } else { -1.0 })
+    $insideToolWindow = [bool]($target -and
+      $targetCenterX -ge [double]$toolRectNow.X -and
+      $targetCenterX -lt ([double]$toolRectNow.X + [double]$toolRectNow.Width) -and
+      $targetCenterY -ge [double]$toolRectNow.Y -and
+      $targetCenterY -lt ([double]$toolRectNow.Y + [double]$toolRectNow.Height))
+    $pointBinding = $(if ($target -and [bool]$target.on -and
+        $target.w -gt 0 -and $target.h -gt 0 -and $insideToolWindow) {
+      Get-SSEPointObstruction $ToolHwnd ([int]$targetCenterX) ([int]$targetCenterY)
+    } else { $null })
+    if ($pointBinding -and [bool]$pointBinding.isBoundTarget) {
+      $pointElement = $null
+      try { $pointElement = $AE::FromPoint((New-Object Windows.Point($targetCenterX,$targetCenterY))) } catch { }
+      if (-not $pointElement -or [string]$pointElement.Current.Name -cne [string]$Row.primaryText) {
+        throw 'UIA-Punktbindung stimmt nicht exakt mit der gebundenen Belegbezeichnung ueberein.'
+      }
+      $targetElement = Get-LiveElement $ToolHwnd ([string]$rowNow[0].rowRid)
+      $selectionItemObject = $null
+      if (-not $targetElement -or -not $targetElement.TryGetCurrentPattern(
+          [Windows.Automation.SelectionItemPattern]::Pattern, [ref]$selectionItemObject)) {
+        throw 'Gebundene Belegzeile bietet kein SelectionItemPattern fuer die vorbereitende exklusive Auswahl.'
+      }
+      if (-not [bool]([Windows.Automation.SelectionItemPattern]$selectionItemObject).Current.IsSelected) {
+        ([Windows.Automation.SelectionItemPattern]$selectionItemObject).Select()
+        Start-Sleep -Milliseconds 300
+      }
+      $selectedElement = Get-LiveElement $ToolHwnd ([string]$rowNow[0].rowRid)
+      $selectedItemObject = $null
+      $selectionConfirmedByPattern = [bool]($selectedElement -and
+        $selectedElement.TryGetCurrentPattern(
+          [Windows.Automation.SelectionItemPattern]::Pattern, [ref]$selectedItemObject) -and
+        [bool]([Windows.Automation.SelectionItemPattern]$selectedItemObject).Current.IsSelected)
+      $preparationClickBinding = $null
+      if (-not $selectionConfirmedByPattern) {
+        # Qt 6 exponiert SelectionItemPattern auf virtualisierten Zellen,
+        # ignoriert Select() dort aber teilweise. Ein exakt punktgebundener
+        # erster Klick ist dann der einzige wirksame Selektionsweg. Oeffnet er
+        # bereits die Detailansicht, prueft receipt_manager_read deren
+        # Titel/Belegnummer und darf den sonst noetigen zweiten Klick auslassen.
+        $preparationClickBinding = Click-VerifiedPoint `
+          $ToolHwnd $target (Get-SSELastInputTick) -RequireForeground
+        Start-Sleep -Milliseconds 300
+      }
+      $selectedState = Get-SSEReceiptManagerState $ToolHwnd $Policy
+      if (-not $selectionConfirmedByPattern -and [string]$selectedState.state -eq 'detail') {
+        return [pscustomobject]@{
+          state=$selectedState; list=$listNow; row=$rowNow[0]; node=$null
+          method="$scrollMethod+verified-point-open"; attempts=$scrollAttempts
+          selectionPrepared=$true; detailOpened=$true
+          preparationClickBinding=$preparationClickBinding
+        }
+      }
+      $selectedList = Get-SSEReceiptManagerListProjection $selectedState $Policy
+      $selectedRowsJson = @($selectedList.rows | ForEach-Object {
+        [pscustomobject][ordered]@{
+          primaryText=[string]$_.primaryText; documentNumber=[string]$_.documentNumber
+          cells=@($_.cells | ForEach-Object { [string]$_.name })
+        } | ConvertTo-Json -Depth 5 -Compress
+      } | Sort-Object) | ConvertTo-Json -Compress
+      if (-not [bool]$selectedList.rowsComplete -or [int]$selectedList.count -ne [int]$List.count -or
+          $selectedRowsJson -cne $expectedRowsJson) {
+        throw 'Belegliste driftete waehrend der vorbereitenden exklusiven Auswahl.'
+      }
+      $selectedRows = @($selectedList.rows | Where-Object {
+        [string]$_.primaryText -ceq [string]$Row.primaryText -and
+        [string]$_.documentNumber -ceq [string]$Row.documentNumber -and
+        ((@($_.cells | ForEach-Object { [string]$_.name }) | ConvertTo-Json -Compress) -ceq $expectedTargetCellsJson)
+      })
+      if ($selectedRows.Count -ne 1) {
+        throw 'Gebundene Belegzeile wurde nach der vorbereitenden Auswahl nicht exakt semantisch rebound gebunden.'
+      }
+      # Qt meldet die DataGrid-Zellen im frisch projizierten Baum teilweise
+      # weiterhin selected=false, obwohl SelectionItemPattern die Auswahl
+      # bereits bestaetigt. Die profilierte Tabelle erlaubt keine
+      # Mehrfachauswahl; deshalb bindet IsSelected=true am exakt reboundeten
+      # Titelknoten die Auswahl trotzdem eindeutig, ohne einen weiteren Klick.
+      if ($selectionConfirmedByPattern) {
+        $selectionContainer = ([Windows.Automation.SelectionItemPattern]$selectedItemObject).Current.SelectionContainer
+        $selectionObject = $null
+        if (-not $selectionContainer -or -not $selectionContainer.TryGetCurrentPattern(
+            [Windows.Automation.SelectionPattern]::Pattern, [ref]$selectionObject) -or
+            [bool]([Windows.Automation.SelectionPattern]$selectionObject).Current.CanSelectMultiple) {
+          throw 'Belegtabelle bestaetigt keine eindeutige Einzelauswahl.'
+        }
+      } else {
+        $projectedSelectedRows = @($selectedList.rows | Where-Object { [bool]$_.selected })
+        if ($projectedSelectedRows.Count -ne 1 -or
+            [string]$projectedSelectedRows[0].primaryText -cne [string]$Row.primaryText -or
+            [string]$projectedSelectedRows[0].documentNumber -cne [string]$Row.documentNumber) {
+          throw 'Physisch gebundener Selektionsklick wurde nicht exklusiv am Zielbeleg bestaetigt.'
+        }
+      }
+      $selectedTarget = Convert-ExactElementToNode (Get-LiveElement $ToolHwnd ([string]$selectedRows[0].rowRid))
+      $selectedCenterX = $(if ($selectedTarget) { [double]$selectedTarget.x + ([double]$selectedTarget.w / 2) } else { -1.0 })
+      $selectedCenterY = $(if ($selectedTarget) { [double]$selectedTarget.y + ([double]$selectedTarget.h / 2) } else { -1.0 })
+      $selectedBinding = $(if ($selectedTarget -and [bool]$selectedTarget.on -and
+          $selectedTarget.w -gt 0 -and $selectedTarget.h -gt 0) {
+        Get-SSEPointObstruction $ToolHwnd ([int]$selectedCenterX) ([int]$selectedCenterY)
+      } else { $null })
+      $selectedPointElement = $null
+      try { $selectedPointElement = $AE::FromPoint((New-Object Windows.Point($selectedCenterX,$selectedCenterY))) } catch { }
+      if (-not $selectedBinding -or -not [bool]$selectedBinding.isBoundTarget -or
+          -not $selectedPointElement -or [string]$selectedPointElement.Current.Name -cne [string]$Row.primaryText) {
+        throw 'Vorbereitete Belegauswahl ist am frischen Klickpunkt nicht mehr exakt gebunden.'
+      }
+      return [pscustomobject]@{
+        state=$selectedState; list=$selectedList; row=$selectedRows[0]; node=$selectedTarget
+        method=$(if ($selectionConfirmedByPattern) { "$scrollMethod+selection-item" } else { "$scrollMethod+verified-point-select" })
+        attempts=$scrollAttempts; selectionPrepared=$true; detailOpened=$false
+        preparationClickBinding=$preparationClickBinding
+      }
+    }
+    if ($attempt -ge 2) { break }
+
+    $table = Get-LiveElement $ToolHwnd ([string]$tableNodes[0].rid) ([string]$tableNodes[0].aid)
+    $gridObject = $null
+    if (-not $table -or -not $table.TryGetCurrentPattern(
+        [Windows.Automation.GridPattern]::Pattern, [ref]$gridObject)) {
+      throw 'Belegtabelle verlor vor dem sicheren Scrollen ihr GridPattern.'
+    }
+    $grid = [Windows.Automation.GridPattern]$gridObject
+    $titleCell = $grid.GetItem($gridRowNow, $titleColumn)
+    $documentNumberCell = $grid.GetItem($gridRowNow, $documentNumberColumn)
+    if (-not $titleCell -or -not $documentNumberCell -or
+        [string]$titleCell.Current.Name -cne [string]$Row.primaryText -or
+        [string]$documentNumberCell.Current.Name -cne [string]$Row.documentNumber) {
+      throw 'Belegidentitaet driftete unmittelbar vor dem sicheren Scrollen.'
+    }
+    $scrollItemObject = $null
+    if ($titleCell.TryGetCurrentPattern(
+        [Windows.Automation.ScrollItemPattern]::Pattern, [ref]$scrollItemObject)) {
+      ([Windows.Automation.ScrollItemPattern]$scrollItemObject).ScrollIntoView()
+      $scrollMethod = 'scroll-item-pattern'
+      Start-Sleep -Milliseconds 350
+      continue
+    }
+
+    # Qt exponiert fuer die Belegliste live weder ScrollItemPattern noch
+    # ScrollPattern. Der begrenzte Fallback rollt ausschliesslich innerhalb
+    # der frisch ueber GridPattern gebundenen Tabelle. Fensterwurzel und PID
+    # werden vor jedem Wheel-Block erneut am echten Bildschirmtreffer geprueft.
+    $tableRect = $table.Current.BoundingRectangle
+    $toolRoot = $AE::FromHandle($ToolHwnd)
+    $toolRect = $toolRoot.Current.BoundingRectangle
+    $wheelX = [int]([double]$tableRect.X + ([double]$tableRect.Width / 2))
+    $wheelY = [int][Math]::Min(
+      [double]$toolRect.Y + [double]$toolRect.Height - 120.0,
+      [Math]::Max([double]$toolRect.Y + 160.0, [double]$tableRect.Y + ([double]$tableRect.Height / 2))
+    )
+    $null = Show-SSEWindow $ToolHwnd
+    Start-Sleep -Milliseconds 200
+    $point = New-Object SW+PT; $point.X = $wheelX; $point.Y = $wheelY
+    $hitWindow = [SW]::WindowFromPoint($point)
+    $hitRoot = [SW]::GetAncestor($hitWindow, 2)
+    $toolPid = 0; [SW]::GetWindowThreadProcessId($ToolHwnd, [ref]$toolPid) | Out-Null
+    $hitPid = 0; [SW]::GetWindowThreadProcessId($hitWindow, [ref]$hitPid) | Out-Null
+    if ($hitPid -ne $toolPid -or [int64]$hitRoot -ne [int64]$ToolHwnd) {
+      Hide-SSETopmost $ToolHwnd
+      throw 'Belegliste ist verdeckt; der sichere Wheel-Scroll wurde nicht ausgefuehrt.'
+    }
+    $oldCursor = New-Object SW+PT; [SW]::GetCursorPos([ref]$oldCursor) | Out-Null
+    [SW]::SetCursorPos($wheelX, $wheelY) | Out-Null
+    Start-Sleep -Milliseconds 100
+    $targetRect = $titleCell.Current.BoundingRectangle
+    $targetCenterY = [double]$targetRect.Y + ([double]$targetRect.Height / 2)
+    $below = $targetCenterY -ge ([double]$toolRect.Y + [double]$toolRect.Height - 100.0)
+    $distance = $(if ($below) {
+      $targetCenterY - ([double]$toolRect.Y + [double]$toolRect.Height - 100.0)
+    } else { ([double]$toolRect.Y + 100.0) - $targetCenterY })
+    $wheelSteps = [Math]::Min(24, [Math]::Max(2, [int][Math]::Ceiling($distance / 38.0) + 2))
+    $wheelDelta = $(if ($below) { [uint32]([int64]0x100000000 - 120) } else { [uint32]120 })
+    for ($wheelStep = 0; $wheelStep -lt $wheelSteps; $wheelStep++) {
+      [SW]::mouse_event(0x0800, 0, 0, $wheelDelta, [IntPtr]::Zero)
+    }
+    Start-Sleep -Milliseconds 500
+    [SW]::SetCursorPos($oldCursor.X, $oldCursor.Y) | Out-Null
+    Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick) `
+      ([pscustomobject]@{ x=$oldCursor.X; y=$oldCursor.Y })
+    Hide-SSETopmost $ToolHwnd
+    $scrollMethod = 'verified-wheel'
+  }
+  throw 'Gebundene Belegzeile wurde nach dem begrenzten sicheren Scrollen nicht sichtbar und aktiv.'
+}
+
 function Get-SSEReceiptManagerDetailProjection($State) {
   @($State.nodes | Where-Object {
     [string]$_.aid -match '\.widget_detailPanel\.' -and $_.w -gt 0 -and $_.h -gt 0 -and
@@ -16996,17 +17251,21 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         [string]$freshList.listFingerprint -cne $expectedListFingerprint) {
       Fail 'BelegManager-Zustand hat sich unmittelbar vor der Zeilenauswahl geaendert.' 'stale'
     }
-    $targetNodes = @($freshState.nodes | Where-Object {
-      [string]$_.rid -ceq $rowRid -and $_.type -eq 'DataItem' -and
-      [string]$_.aid -and ([string]$_.aid).EndsWith([string]$policy.list.tableAutomationIdSuffix, [StringComparison]::Ordinal)
-    })
-    $freshTarget = $(if ($targetNodes.Count -eq 1) {
-      Convert-ExactElementToNode (Get-LiveElement $toolHwnd $targetNodes[0].rid)
-    } else { $null })
-    if (-not $freshTarget -or -not [bool]$freshTarget.on -or $freshTarget.w -le 0 -or $freshTarget.h -le 0) {
-      Fail 'Gebundene Belegzeile ist unmittelbar vor der Auswahl nicht mehr sichtbar und aktiv.' 'stale'
+    try {
+      $visibleTarget = Resolve-SSEReceiptManagerVisibleRowTarget `
+        $toolHwnd $freshState $freshList $rows[0] $policy
+    } catch {
+      Fail "Gebundene Belegzeile konnte nicht sicher sichtbar gemacht werden: $($_.Exception.Message)" 'stale'
     }
-    $clickBinding = Click-VerifiedPoint $toolHwnd $freshTarget $inputTick -RequireForeground
+    $freshState = $visibleTarget.state
+    $freshList = $visibleTarget.list
+    $freshTarget = $visibleTarget.node
+    if ([bool]$visibleTarget.detailOpened) {
+      $clickBinding = $visibleTarget.preparationClickBinding
+    } else {
+      $inputTick = Get-SSELastInputTick
+      $clickBinding = Click-VerifiedPoint $toolHwnd $freshTarget $inputTick -RequireForeground
+    }
 
     $deadline = [DateTime]::UtcNow.AddMilliseconds($waitMs)
     $stateAfter = $null; $detailFields = @(); $noSelection = $true
@@ -17074,6 +17333,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $dirtyAfter = Get-DirtyStateFast $mainHwnd
     $dirtyStateUnchanged = [bool]($null -ne $dirtyAfter -and [bool]$dirtyAfter -eq [bool]$dirtyBefore)
     $rowBefore = $rows[0]
+    $rowBeforeCellsJson = @($rowBefore.cells | ForEach-Object { [string]$_.name }) | ConvertTo-Json -Compress
     $rowAfterMatches = @($(if ($listAfter) {
       @($listAfter.rows | Where-Object {
         [string]$_.rowRid -ceq [string]$rowBefore.rowRid -and
@@ -17083,7 +17343,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $semanticRowAfterMatches = @($(if ($listAfter) {
       @($listAfter.rows | Where-Object {
         [string]$_.primaryText -ceq [string]$rowBefore.primaryText -and
-        [string]$_.contentFingerprint -ceq [string]$rowBefore.contentFingerprint
+        [string]$_.documentNumber -ceq [string]$rowBefore.documentNumber -and
+        [string]$_.contentFingerprint -ceq [string]$rowBefore.contentFingerprint -and
+        ((@($_.cells | ForEach-Object { [string]$_.name }) | ConvertTo-Json -Compress) -ceq $rowBeforeCellsJson)
       })
     } else { @() }))
     $actualSemanticRows = @($(if ($listAfter) {
@@ -17094,11 +17356,14 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       [int]$listAfter.count -eq [int]$listBefore.count -and
       ($actualSemanticRows | ConvertTo-Json -Compress) -ceq
         ($expectedSemanticRows | ConvertTo-Json -Compress) -and
-      $rowAfterMatches.Count -eq 1
+      $semanticRowAfterMatches.Count -eq 1
     )
+    $detailIdentityMatchesTarget = [bool]($editableProjection.complete -and
+      [string]$editableProjection.values.title -ceq [string]$rowBefore.primaryText -and
+      [string]$editableProjection.values.documentNumber -ceq [string]$rowBefore.documentNumber)
     $verified = [bool](
       $stateAfter -and -not $noSelection -and $detailFields.Count -and $listAfter -and
-      $semanticListUnchanged -and
+      $detailIdentityMatchesTarget -and $semanticListUnchanged -and
       $windowSetUnchanged -and -not $blockingAfter.Count -and $dirtyStateUnchanged
     )
     if (-not $verified) {
@@ -17108,6 +17373,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         row=$rows[0]; fields=$detailFields; values=$editableProjection.values; valuesComplete=[bool]$editableProjection.complete
         listFingerprint=$(if ($listAfter) { [string]$listAfter.listFingerprint } else { $null })
         listFingerprintBefore=$expectedListFingerprint; semanticListUnchanged=$semanticListUnchanged
+        detailIdentityMatchesTarget=$detailIdentityMatchesTarget
         targetRowRebound=[bool]($rowAfterMatches.Count -eq 1)
         rowAfter=$(if ($rowAfterMatches.Count -eq 1) { $rowAfterMatches[0] } else { $null })
         targetSemanticRebound=[bool]($semanticRowAfterMatches.Count -eq 1)
@@ -17127,18 +17393,22 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         detailFingerprint=$detailFingerprint; windowSetUnchanged=$windowSetUnchanged
         ungespeichertVorher=$dirtyBefore; ungespeichertNachher=$dirtyAfter; dirtyStateUnchanged=$dirtyStateUnchanged
         physicalInputUsed=$true; foregroundLeaseUsed=$true; verified=$false
+        rowVisibilityMethod=[string]$visibleTarget.method; rowVisibilityAttempts=[int]$visibleTarget.attempts
         clickBinding=$clickBinding; closeBinding=$closeBinding
       })
     }
     Emit ([pscustomobject]@{
       ok=$true; pid=$targetPid; hwnd=[int64]$toolHwnd; mainHwnd=[int64]$mainHwnd; managerHwnd=[int64]$toolHwnd
-      row=$rowAfterMatches[0]; fields=$detailFields; values=$editableProjection.values; valuesComplete=[bool]$editableProjection.complete
+      row=$semanticRowAfterMatches[0]; fields=$detailFields; values=$editableProjection.values; valuesComplete=[bool]$editableProjection.complete
       listFingerprint=[string]$listAfter.listFingerprint; detailFingerprint=$detailFingerprint
       listFingerprintBefore=$expectedListFingerprint; semanticListUnchanged=$true
-      targetRowRebound=$true; rowAfter=$rowAfterMatches[0]; dialogFreeAfter=$true
-      targetSemanticRebound=$true; semanticRowAfter=$rowAfterMatches[0]
+      targetRowRebound=[bool]($rowAfterMatches.Count -eq 1)
+      rowAfter=$(if ($rowAfterMatches.Count -eq 1) { $rowAfterMatches[0] } else { $null })
+      targetSemanticRebound=$true; semanticRowAfter=$semanticRowAfterMatches[0]
+      detailIdentityMatchesTarget=$true; dialogFreeAfter=$true
       windowSetUnchanged=$true; ungespeichertVorher=$dirtyBefore; ungespeichertNachher=$dirtyAfter
       dirtyStateUnchanged=$true; physicalInputUsed=$true; foregroundLeaseUsed=$true
+      rowVisibilityMethod=[string]$visibleTarget.method; rowVisibilityAttempts=[int]$visibleTarget.attempts
       verified=$true; clickBinding=$clickBinding; closeBinding=$closeBinding
     })
   }
@@ -18655,17 +18925,21 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         [string]$freshList.listFingerprint -cne $expectedListFingerprint) {
       Fail 'BelegManager-Zustand hat sich unmittelbar vor der Zeilenauswahl geaendert.' 'stale'
     }
-    $targetNodes = @($freshState.nodes | Where-Object {
-      [string]$_.rid -ceq $rowRid -and $_.type -eq 'DataItem' -and
-      [string]$_.aid -and ([string]$_.aid).EndsWith([string]$policy.list.tableAutomationIdSuffix, [StringComparison]::Ordinal)
-    })
-    $freshTarget = $(if ($targetNodes.Count -eq 1) {
-      Convert-ExactElementToNode (Get-LiveElement $toolHwnd $targetNodes[0].rid)
-    } else { $null })
-    if (-not $freshTarget -or -not [bool]$freshTarget.on -or $freshTarget.w -le 0 -or $freshTarget.h -le 0) {
-      Fail 'Gebundene Belegzeile ist unmittelbar vor der Loeschung nicht mehr sichtbar und aktiv.' 'stale'
+    try {
+      $visibleTarget = Resolve-SSEReceiptManagerVisibleRowTarget `
+        $toolHwnd $freshState $freshList $rows[0] $policy
+    } catch {
+      Fail "Gebundene Belegzeile konnte vor der Loeschung nicht sicher sichtbar gemacht werden: $($_.Exception.Message)" 'stale'
     }
-    $clickBinding = Click-VerifiedPoint $toolHwnd $freshTarget $inputTick -RequireForeground
+    $freshState = $visibleTarget.state
+    $freshList = $visibleTarget.list
+    $freshTarget = $visibleTarget.node
+    if ([bool]$visibleTarget.detailOpened) {
+      $clickBinding = $visibleTarget.preparationClickBinding
+    } else {
+      $inputTick = Get-SSELastInputTick
+      $clickBinding = Click-VerifiedPoint $toolHwnd $freshTarget $inputTick -RequireForeground
+    }
 
     $deadline = [DateTime]::UtcNow.AddMilliseconds($waitMs)
     $selectedState = $null; $deleteNode = $null
@@ -18775,6 +19049,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         windowSetUnchanged=$windowSetUnchanged; ungespeichertVorher=$dirtyBefore; ungespeichertNachher=$dirtyAfter
         dirtyStateUnchanged=$dirtyStateUnchanged; physicalInputUsed=$true; foregroundLeaseUsed=$true
         verified=$false; clickBinding=$clickBinding
+        rowVisibilityMethod=[string]$visibleTarget.method; rowVisibilityAttempts=[int]$visibleTarget.attempts
       })
     }
     Emit ([pscustomobject]@{
@@ -18785,6 +19060,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       dialogClosed=$true; remainingRowsUnchanged=$true; windowSetUnchanged=$true
       ungespeichertVorher=$dirtyBefore; ungespeichertNachher=$dirtyAfter; dirtyStateUnchanged=$true
       physicalInputUsed=$true; foregroundLeaseUsed=$true; verified=$true; clickBinding=$clickBinding
+      rowVisibilityMethod=[string]$visibleTarget.method; rowVisibilityAttempts=[int]$visibleTarget.attempts
     })
   }
 
