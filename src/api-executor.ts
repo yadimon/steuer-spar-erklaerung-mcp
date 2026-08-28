@@ -19,6 +19,7 @@ import {
 import { ExecutorArgumentError, operationError } from "./executor-errors.js";
 import { executeLaunchOperation } from "./launch-executor.js";
 import { parseApiOperationArgs, parseCheckerReadOnlyClickArgs } from "./operation-catalog.js";
+import { receiptBlock } from "./receipt-interaction-policy.js";
 import {
   createProfileOperationMatrix,
   EXPERIMENTAL_PROFILE_BASE_OPERATIONS,
@@ -274,6 +275,7 @@ export function createApiExecutor(
   ensureWorkspace(roots.documents!);
   ensureWorkspace(roots.backups!);
   const redactPaths = createResourcePathRedactor(roots);
+  const receiptLease = /^[A-F0-9]{64}$/u.test(config.interactiveReceiptLeaseToken ?? "");
 
   const executeWorkerFallback = async (
     operation: SseApiOperation,
@@ -310,6 +312,8 @@ export function createApiExecutor(
           "profile-disabled",
         );
       }
+      const block = receiptBlock(operation, args, receiptLease);
+      if (block) return block;
       const verificationOnlyProfile =
         profile.status !== "supported" || profile.operationAccess !== "full";
       if (verificationOnlyProfile && !EXPERIMENTAL_PROFILE_BASE.has(operation)) {
@@ -335,9 +339,6 @@ export function createApiExecutor(
           );
         }
       }
-      // HTTP-Aufrufe wurden bereits am Serverrand geprueft. Dieser zweite
-      // Einstieg ist absichtlich noetig, weil Szenarien und komponierte
-      // Operationen den Executor direkt aufrufen.
       args = internalCheckerClick
         ? parseCheckerReadOnlyClickArgs(args)
         : parseApiOperationArgs(operation, args);
@@ -350,11 +351,13 @@ export function createApiExecutor(
             status: profile.status,
             operationAccess: profile.operationAccess,
             operateExperimental: config.operateExperimental === true,
+            interactiveReceiptLeaseActive: receiptLease,
           },
           operationPolicy: createProfileOperationMatrix(
             profile.status,
             profile.operationAccess,
             config.operateExperimental === true,
+            receiptLease,
           ),
           buildDriftPolicy: "block-ui-tax-mutations",
         };

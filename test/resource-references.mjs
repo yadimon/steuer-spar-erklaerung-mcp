@@ -215,12 +215,6 @@ try {
     ["file_dialog_select", "resourceRef", "expectedPath", "documents:rechnung.txt", join(roots.documents, "rechnung.txt"), {
       expectedDialogTitle: "Öffnen",
     }],
-    ["receipt_manager_import", "resourceRef", "expectedPath", "documents:rechnung.txt", join(roots.documents, "rechnung.txt"), {
-      expectedHash: createHash("sha256").update("beleg\n").digest("hex").toUpperCase(),
-      expectedListFingerprint: "0".repeat(64),
-      expectedCountBefore: 0,
-      acknowledgeImport: true,
-    }],
     ["vast_apply", "expectedCaseRef", "expectedCasePath", "cases:arbeit.Gew2025", join(roots.cases, "arbeit.Gew2025"), {
       hwnd: 101,
       expectedMainHwnd: 102,
@@ -248,6 +242,24 @@ try {
     assert.equal(result.resourceRefs[alias], ref);
     assert(!JSON.stringify(result).includes(expectedPath), `${operation} darf den lokalen Pfad nicht zurueckgeben`);
   }
+
+  const callsBeforeReceiptImport = calls.length;
+  const blockedReceiptImport = await execute("receipt_manager_import", {
+    resourceRef: "documents:rechnung.txt",
+    expectedHash: createHash("sha256").update("beleg\n").digest("hex").toUpperCase(),
+    expectedListFingerprint: "0".repeat(64),
+    expectedCountBefore: 0,
+    acknowledgeImport: true,
+  }, 1_000);
+  assert.equal(blockedReceiptImport.kind, "blocked");
+  assert.equal(blockedReceiptImport.reason, "foreground-required-operation-disabled");
+  assert.equal(blockedReceiptImport.mutationStarted, false);
+  assert.equal(calls.length, callsBeforeReceiptImport,
+    "Gesperrter Belegimport darf weder Ressourcen aufloesen noch den Worker erreichen.");
+  assert.equal(blockedReceiptImport.resourceRefs, undefined,
+    "Vor dem Interaktionsblock darf keine lokale Ressourcenidentitaet entstehen.");
+  assert(!JSON.stringify(blockedReceiptImport).includes(roots.documents),
+    "Der Interaktionsblock darf den Dokumentordner nicht preisgeben.");
 
   writeFileSync(join(roots.cases, "arbeit-original.Gew2025"), "original-case");
   writeFileSync(join(roots.cases, "arbeit-korrektur.Gew2025"), "correction-before-save");
@@ -404,6 +416,7 @@ try {
   const bindingOperationsCovered = new Set([
     ...aliasCases.map(([operation]) => operation),
     "case_hash", "verify", "tracked_set_value", "save_as", "make_working_copy", "backup_cases", "archive_cases",
+    "receipt_manager_import",
   ]);
   assert.deepEqual(
     Object.keys(API_RESOURCE_BINDINGS).sort(),

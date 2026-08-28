@@ -19,7 +19,7 @@ import {
 import {
   isResultTypeTag,
   mergeScopeEvidence,
-  samplesForResultTypeTag,
+  samplesForResultTypeTagWithSchemaLiteral,
 } from "./operation-result-shape-lib.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -142,7 +142,8 @@ for (const operation of SSE_API_OPERATIONS) {
       if (evidence.labels.length > 0 && evidence.labels.every((label) => label.endsWith("mock"))) mockOnlyFields += 1;
       for (const tag of evidence.types) {
         observations += 1;
-        const samples = samplesForResultTypeTag(tag);
+        const fieldSchema = SSE_API_RESULT_OUTPUT_SCHEMAS[operation].shape[field];
+        const samples = samplesForResultTypeTagWithSchemaLiteral(tag, fieldSchema);
         assert(samples.length > 0, `${operation}.${field}: nicht pruefbarer Ergebnis-Typ '${tag}'.`);
         assert(samples.some((sample) =>
           SSE_API_RESULT_OUTPUT_SCHEMAS[operation].safeParse({ ok: true, [field]: sample }).success),

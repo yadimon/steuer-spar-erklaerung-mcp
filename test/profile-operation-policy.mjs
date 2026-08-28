@@ -8,13 +8,20 @@ import {
   profileOperationClass,
 } from "../dist/profile-operation-policy.js";
 import { SSE_BUILD_DRIFT_BLOCKED_OPERATIONS } from "../dist/operation-traits.js";
+import {
+  SSE_FOREGROUND_REQUIRED_RECEIPT_OPERATIONS,
+} from "../dist/receipt-interaction-policy.js";
 
 const supported = createProfileOperationMatrix("supported", "full", false);
+const supportedWithInteractiveReceiptLease = createProfileOperationMatrix("supported", "full", false, true);
 assert.deepEqual(Object.keys(supported), SSE_API_OPERATIONS);
 assert.equal(Object.keys(supported).length, SSE_API_OPERATIONS.length);
 for (const operation of SSE_API_OPERATIONS) {
   assert.equal(supported[operation].operation, operation);
-  assert.equal(supported[operation].availability, "allowed");
+  assert.equal(
+    supported[operation].availability,
+    SSE_FOREGROUND_REQUIRED_RECEIPT_OPERATIONS.includes(operation) ? "blocked" : "allowed",
+  );
   assert.equal(supported[operation].requiresExperimentalOptIn, false);
   assert.equal(
     supported[operation].blockedOnBuildDrift,
@@ -30,10 +37,20 @@ for (const operation of EXPERIMENTAL_PROFILE_BASE_OPERATIONS) {
   assert.equal(experimentalClosed[operation].requiresExperimentalOptIn, false);
 }
 for (const operation of EXPERIMENTAL_PROFILE_VERIFICATION_OPERATIONS) {
+  const foregroundRequired = SSE_FOREGROUND_REQUIRED_RECEIPT_OPERATIONS.includes(operation);
   assert.equal(experimentalClosed[operation].availability, "blocked", `${operation}: ohne Opt-in`);
-  assert.equal(experimentalOpen[operation].availability, "allowed", `${operation}: mit Opt-in`);
-  assert.equal(experimentalOpen[operation].requiresExperimentalOptIn, true);
+  assert.equal(experimentalOpen[operation].availability, foregroundRequired ? "blocked" : "allowed", `${operation}: mit Opt-in`);
+  assert.equal(experimentalOpen[operation].requiresExperimentalOptIn, !foregroundRequired);
 }
+for (const operation of SSE_FOREGROUND_REQUIRED_RECEIPT_OPERATIONS) {
+  assert.equal(supported[operation].interactionRequirement, "foreground-required");
+  assert.match(supported[operation].reason, /Vordergrund.*physische Eingabe/u);
+  assert.equal(supportedWithInteractiveReceiptLease[operation].availability, "conditional");
+  assert.equal(supportedWithInteractiveReceiptLease[operation].requiresInteractiveReceiptLease, true);
+  assert.match(supportedWithInteractiveReceiptLease[operation].reason,
+    /lokalen Test-API-Servermodus.*Worker.*Nonce.*sichtbaren Vordergrund/u);
+}
+assert.equal(supported.receipt_manager_list.interactionRequirement, "focusless-read");
 for (const operation of [
   "toggle", "tracked_set_value", "table_add", "table_update", "table_delete", "save", "save_as",
   "vast_apply", "export_csv", "receipt_manager_update",

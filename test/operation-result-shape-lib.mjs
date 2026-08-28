@@ -95,6 +95,15 @@ export function samplesForResultTypeTag(tag) {
   return [array[1] === "one" ? [one] : [one, sampleArrayElement(array[2], true)]];
 }
 
+export function samplesForResultTypeTagWithSchemaLiteral(tag, schema) {
+  const samples = samplesForResultTypeTag(tag);
+  const literal = unwrappedSchemaLiteral(schema);
+  if (literal.found && resultTypeTag(literal.value) === tag && !samples.some((sample) => Object.is(sample, literal.value))) {
+    samples.push(literal.value);
+  }
+  return samples;
+}
+
 export function isResultTypeTag(tag) {
   return RESULT_TYPE_TAGS.includes(tag) || parseResultObjectTag(tag) !== null;
 }
@@ -182,4 +191,16 @@ function sampleArrayElement(tag, alternate = false) {
     case "string-unknown": return "unknown";
     default: return undefined;
   }
+}
+
+function unwrappedSchemaLiteral(schema) {
+  let current = schema;
+  const seen = new Set();
+  while (current && typeof current === "object" && !seen.has(current)) {
+    seen.add(current);
+    if (current._def?.typeName === "ZodLiteral") return { found: true, value: current._def.value };
+    if (current._def?.typeName !== "ZodOptional" && current._def?.typeName !== "ZodNullable") break;
+    current = current._def.innerType;
+  }
+  return { found: false };
 }

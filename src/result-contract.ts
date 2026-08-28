@@ -15,6 +15,7 @@ import {
   OPTIONAL_STRING_ARRAY,
   OPTIONAL_STRING_OR_BOOLEAN,
   OPTIONAL_TRANSMISSION_STATE,
+  RECEIPT_FOREGROUND_BLOCK_RESULT_FIELDS,
 } from "./result-schema-types.js";
 
 export const SSE_API_RESULT_SCHEMA_VERSION = 1;
@@ -218,6 +219,7 @@ const CORE_OPERATION_RESULT_FIELDS = {
     hinweis: OPTIONAL_STRING,
   },
   receipt_manager_classification_options: {
+    ...RECEIPT_FOREGROUND_BLOCK_RESULT_FIELDS,
     pid: OPTIONAL_NON_NEGATIVE_NUMBER,
     hwnd: OPTIONAL_NON_NEGATIVE_NUMBER,
     kind: OPTIONAL_STRING,
@@ -233,6 +235,7 @@ const CORE_OPERATION_RESULT_FIELDS = {
     verified: OPTIONAL_BOOLEAN,
   },
   receipt_manager_import: {
+    ...RECEIPT_FOREGROUND_BLOCK_RESULT_FIELDS,
     pid: OPTIONAL_NON_NEGATIVE_NUMBER,
     hwnd: OPTIONAL_NON_NEGATIVE_NUMBER,
     mainHwnd: OPTIONAL_NON_NEGATIVE_NUMBER,
@@ -394,7 +397,7 @@ function createOperationResultOutputSchema(operation: SseApiOperation): z.AnyZod
     // zum gemeinsamen Ergebnisrand und nicht zu einzelnen Klickoperationen.
     focusTelemetry: OPTIONAL_OBJECT,
     ...operationFields,
-  }).passthrough().describe(`Result_${operation} Version ${SSE_API_RESULT_SCHEMA_VERSION}`);
+  }).passthrough().describe(`Result_${operation} v${SSE_API_RESULT_SCHEMA_VERSION}`);
 }
 
 export const SSE_API_RESULT_OUTPUT_SCHEMAS = Object.freeze(Object.fromEntries(
@@ -409,6 +412,51 @@ function createOperationResultSchema(operation: SseApiOperation): z.ZodType<Work
       }
       if (typeof result.error !== "string" || !result.error) {
         context.addIssue({ code: z.ZodIssueCode.custom, path: ["error"], message: "Fehlerergebnis braucht error." });
+      }
+    }
+    if (result.ok === false && result.kind === "busy" && result.reason === "session-controller-busy") {
+      const exactControllerFields = {
+        retryable: true,
+        waited: false,
+        mutationStarted: false,
+        resultingState: "unchanged",
+        cleanupRequired: false,
+        physicalInputUsed: false,
+        foregroundLeaseUsed: false,
+      } as const;
+      for (const [field, expected] of Object.entries(exactControllerFields)) {
+        if (result[field] !== expected) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [field],
+            message: `session-controller-busy braucht ${field}=${String(expected)}.`,
+          });
+        }
+      }
+    }
+    if (result.ok === false && result.kind === "worker-isolation-lost" &&
+        typeof result.reason === "string" && result.reason.startsWith("controller-lock-")) {
+      const exactIsolationFields: Record<string, unknown> = {
+        retryable: false,
+        resultingState: "unknown",
+        cleanupRequired: true,
+      };
+      if (["controller-lock-abandoned", "controller-lock-unavailable", "controller-lock-reentered"]
+        .includes(result.reason)) {
+        Object.assign(exactIsolationFields, {
+          mutationStarted: false,
+          physicalInputUsed: false,
+          foregroundLeaseUsed: false,
+        });
+      }
+      for (const [field, expected] of Object.entries(exactIsolationFields)) {
+        if (result[field] !== expected) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [field],
+            message: `${String(result.reason)} braucht ${field}=${String(expected)}.`,
+          });
+        }
       }
     }
   }) as unknown as z.ZodType<WorkerResult>;

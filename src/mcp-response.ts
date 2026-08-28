@@ -135,6 +135,14 @@ export function apiErrorResult(operation: string, result: Record<string, unknown
 }
 
 function apiErrorHint(operation: string, result: Record<string, unknown>): string | undefined {
+  if (result.reason === "foreground-required-operation-disabled") {
+    return "Nicht wiederholen und keinen Fokus-, Maus- oder Tastatur-Workaround verwenden. " +
+      "Nur die focusless Belegliste bleibt im Hintergrund verfuegbar.";
+  }
+  if (result.kind === "busy" && result.reason === "session-controller-busy") {
+    return "Ein anderer lokaler API- oder Direkt-Worker steuert SSE in dieser Windows-Sitzung. " +
+      "Dessen Abschluss abwarten und danach mit frischen Bindungen erneut aufrufen; keine parallelen Retries starten.";
+  }
   if (result.kind === "network") {
     // Der haeufigste Erstkontakt-Fehler: MCP ist eingerichtet, die lokale API
     // laeuft aber nicht. Ohne diesen Satz bleibt dem Agenten nur ECONNREFUSED.

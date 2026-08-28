@@ -2,7 +2,6 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { exclusiveSteps, finalSteps, parallelSteps, serialBuildSteps } from "./suite-plan.mjs";
-import { OPERATION_TRACE_DIRECTORY_KEY } from "./operation-trace.mjs";
 import { resolveConcurrency, runSeries, runWithConcurrency, runStep } from "./suite-runner.mjs";
 import { ssePids } from "./direct-worker-helpers.mjs";
 
@@ -22,6 +21,11 @@ if (laufendeInstanzen) {
 
 await runSeries(serialBuildSteps, runStep);
 
+// operation-trace imports policy constants from dist. Load it only after the
+// serial build so `npm test` also works after a clean install without a stale
+// pre-existing dist directory.
+const { OPERATION_TRACE_DIRECTORY_KEY } = await import("./operation-trace.mjs");
+
 // Jeder instrumentierte Harnisch legt hier seine eigene Protokolldatei ab.
 // Der letzte Schritt vergleicht das Ergebnis mit der Abdeckungsbilanz.
 const traceDirectory = mkdtempSync(join(tmpdir(), "sse-operation-trace-"));
@@ -30,7 +34,10 @@ process.env.SSE_TEST_COVERAGE_SCOPE = "offline";
 
 try {
   const concurrency = resolveConcurrency(process.env.SSE_TEST_CONCURRENCY);
-  process.stdout.write(`\n> ${parallelSteps.length} konfliktfreie Tests mit maximal ${concurrency} Prozessen\n`);
+  process.stdout.write(
+    `\n> ${parallelSteps.length} parallele Tests mit konfliktbewusster Worker-Serialisierung ` +
+      `und maximal ${concurrency} Prozessen\n`,
+  );
   await runWithConcurrency(parallelSteps, concurrency, runStep);
 
   // Dieser Sentinel muss allein laufen: parallele Kindprozesse koennten sonst

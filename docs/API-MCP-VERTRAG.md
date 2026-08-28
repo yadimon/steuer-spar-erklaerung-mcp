@@ -154,6 +154,15 @@ byteidentischen Snapshot, statt die rund 200–270 KiB großen Vertragsbäume pr
 Request erneut zu durchlaufen. Die kleine Einzeloperations-Discovery bleibt
 dynamisch, weil ihre Serialisierung im gemessenen Pfad vernachlässigbar ist.
 
+Der Operationsvertrag trennt Registrierung von aktueller Interaktionsfreigabe.
+Beim BelegManager ist nur `receipt_manager_list` als `focusless-read` erlaubt.
+Die neun weiteren registrierten Operationen melden in
+`capabilities.operationPolicy` `foreground-required`/`blocked` und liefern bei
+gueltigen Aufrufen denselben nicht wiederholbaren strukturierten Block ueber
+HTTP und MCP. Die Pruefung liegt nach der Argumentschema-Validierung, aber vor
+Ressourcenaufloesung, Workerstart und UI; auch der direkte Worker besitzt den
+identischen Guard.
+
 Die MCP-Eingaben dürfen strenger sein als die der lokalen API, nie
 großzügiger. Bekannt und gewollt:
 
@@ -235,6 +244,28 @@ read-only Pfade wie `case_hash`, das nicht-ausführliche `list_cases`, der
 öffentliche Profilkatalog `page_objects` und die hashgebundene
 `verify`-Auswertung laufen ohne PowerShell-Prozess und beachten denselben
 Abbruch und Timeout.
+Diese API-Sperre ist pro Prozess. Ein zweiter API-Prozess auf einem anderen
+Loopback-Port oder ein direkter Worker wird deshalb zusaetzlich fuer jeden
+lock-pflichtigen PowerShell-Workerabschnitt ueber einen festen Windows-
+Sitzungsmutex koordiniert. Der Versuch wartet nicht:
+`kind=busy`, `reason=session-controller-busy`, `retryable=true`,
+`waited=false`, `mutationStarted=false` und `resultingState=unchanged` kommen im
+normalen HTTP-200-Operationsergebnis zurueck. Das unterscheidet sich vom
+prozesslokalen HTTP-409-Single-Flight. Nur `page_objects` und `product_info`
+umgehen den Mutex; vorgewaermte Reserveworker halten ihn erst ab ihrem Auftrag.
+`unchanged` bedeutet hier ausschliesslich: Der abgewiesene Aufruf selbst hat
+nichts mutiert. Der laufende Besitzer kann den gemeinsamen Produktzustand
+waehrenddessen aendern; ein spaeterer Retry braucht deshalb frische Bindungen.
+Lokale API-Pfade halten den Mutex nicht. Eine zusammengesetzte API-Operation mit
+mehreren Workeraufrufen erwirbt ihn fuer jeden Schritt neu und kann dazwischen
+mit einem anderen Prozess verzahnt werden; frische Bindungen und Postconditions
+lassen einen solchen Schritt weiterhin fail-closed abbrechen. Dies ist daher
+eine Serialisierung der SSE-/UIA-Kritischen Abschnitte, keine sitzungsweite
+Transaktion um einen vollstaendigen API-Aufruf.
+Eine beobachtete Aufgabe oder eine nicht sicher bind-/freigebbare Sperre liefert
+`worker-isolation-lost` und unbekannten Zustand. Der Mutex speichert einen
+bereits beendeten Crash nicht dauerhaft; Abbruch-/Timeout- und Readbackregeln
+bleiben deshalb unveraendert.
 Die Worker-Queue zählt höchstens 32 tatsächlich laufende oder noch wartende
 Aufträge. Ein bereits abgebrochener Aufruf wird nicht eingereiht; ein erst in
 der Queue abgebrochener Aufruf gibt seinen Kapazitätsplatz sofort frei und

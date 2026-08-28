@@ -162,21 +162,44 @@ export async function runWithConcurrency(items, concurrency, execute) {
   if (!Number.isInteger(concurrency) || concurrency < 1) {
     throw new Error("concurrency muss eine positive ganze Zahl sein.");
   }
-  let cursor = 0;
-  let firstFailure;
-  const worker = async () => {
-    while (!firstFailure) {
-      const index = cursor;
-      cursor += 1;
-      if (index >= items.length) return;
-      try {
-        await execute(items[index]);
-      } catch (error) {
-        firstFailure ??= error;
-      }
+  const pending = items.map((item) => {
+    const conflictKey = item && typeof item === "object" ? item.conflictKey : undefined;
+    if (conflictKey !== undefined && (typeof conflictKey !== "string" || conflictKey.length === 0)) {
+      throw new Error("conflictKey muss eine nichtleere Zeichenfolge sein.");
     }
-  };
-  const workerCount = Math.min(concurrency, items.length);
-  await Promise.all(Array.from({ length: workerCount }, () => worker()));
-  if (firstFailure) throw firstFailure;
+    return { item, conflictKey };
+  });
+  let failed = false;
+  let firstFailure;
+  let active = 0;
+  const activeConflictKeys = new Set();
+
+  await new Promise((resolve) => {
+    const schedule = () => {
+      while (!failed && active < concurrency) {
+        const index = pending.findIndex(({ conflictKey }) =>
+          conflictKey === undefined || !activeConflictKeys.has(conflictKey));
+        if (index < 0) break;
+        const [{ item, conflictKey }] = pending.splice(index, 1);
+        active += 1;
+        if (conflictKey !== undefined) activeConflictKeys.add(conflictKey);
+        Promise.resolve()
+          .then(() => execute(item))
+          .catch((error) => {
+            if (!failed) {
+              failed = true;
+              firstFailure = error;
+            }
+          })
+          .finally(() => {
+            active -= 1;
+            if (conflictKey !== undefined) activeConflictKeys.delete(conflictKey);
+            schedule();
+          });
+      }
+      if (active === 0 && (failed || pending.length === 0)) resolve();
+    };
+    schedule();
+  });
+  if (failed) throw firstFailure;
 }

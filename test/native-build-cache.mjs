@@ -47,7 +47,12 @@ const publicStaticMethods = (sourceText, classMarker, nextClassMarker) => {
     .sort();
 };
 const completeSurface = {
-  DSK: publicStaticMethods(originalNativeSource, "public class DSK", "public class SW"),
+  DSK: publicStaticMethods(originalNativeSource, "public class DSK", "public sealed class SSEWorkerControllerLease"),
+  SSEWorkerControllerLease: publicStaticMethods(
+    originalNativeSource,
+    "public sealed class SSEWorkerControllerLease",
+    "public class SW",
+  ),
   SW: publicStaticMethods(originalNativeSource, "public class SW", "public sealed class SSEAccNode"),
   SSEAccessible: publicStaticMethods(originalNativeSource, "public static class SSEAccessible", null),
 };

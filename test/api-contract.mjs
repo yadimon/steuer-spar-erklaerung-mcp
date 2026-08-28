@@ -87,6 +87,21 @@ const execute = createApiExecutor(config, async (operation, args, timeoutMs, sig
   if (operation === "find" && args.name === "__oversized_response__") {
     return { ok: true, value: "x".repeat(MAX_API_RESPONSE_BYTES) };
   }
+  if (operation === "find" && args.name === "__session_controller_busy__") {
+    return {
+      ok: false,
+      kind: "busy",
+      error: "Controller belegt.",
+      reason: "session-controller-busy",
+      retryable: true,
+      waited: false,
+      mutationStarted: false,
+      resultingState: "unchanged",
+      cleanupRequired: false,
+      physicalInputUsed: false,
+      foregroundLeaseUsed: false,
+    };
+  }
   if (operation === "find" && args.name === "__malformed_result__") {
     return { ok: "kein-boolean", leaked: "C:\\Privat\\darf-nicht-zum-client.txt" };
   }
@@ -450,6 +465,18 @@ try {
   const directEnvelope = await direct.json();
   assert.equal(directEnvelope.result.stable, "same-result");
   assert.equal(calls.at(-1).timeoutMs, 1_000);
+
+  const crossProcessBusy = await fetch(`${baseUrl}/v1/operations/find`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ args: { name: "__session_controller_busy__" } }),
+  });
+  assert.equal(crossProcessBusy.status, 200,
+    "Worker-Controller-Busy bleibt ein strukturiertes Operationsergebnis, nicht API-prozesslokales HTTP 409.");
+  const crossProcessBusyEnvelope = await crossProcessBusy.json();
+  assert.equal(crossProcessBusyEnvelope.result.kind, "busy");
+  assert.equal(crossProcessBusyEnvelope.result.reason, "session-controller-busy");
+  assert.equal(crossProcessBusyEnvelope.result.waited, false);
 
   const throughClient = await callApiOperation("health", {}, 1_000, { baseUrl });
   assert.equal(throughClient.stable, directEnvelope.result.stable);

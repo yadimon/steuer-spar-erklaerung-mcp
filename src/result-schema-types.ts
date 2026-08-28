@@ -18,6 +18,19 @@ export const OPTIONAL_OBJECT = z.record(z.unknown()).nullable().optional().descr
 export const OPTIONAL_MUTATION_VALUE = z.union([z.string(), z.number().finite(), z.boolean()]).nullable().optional()
   .describe("Optionaler gelesener oder geschriebener Skalarwert");
 
+/** Strukturierter Nachweis eines Blocks vor Worker, UI, Mutation oder Lease. */
+export const RECEIPT_FOREGROUND_BLOCK_RESULT_FIELDS = {
+  reason: z.string().nullable().optional().describe("Grund"),
+  retryable: z.boolean().nullable().optional().describe("Retry"),
+  interactionRequirement: z.literal("foreground-required").nullable().optional()
+    .describe("Interaktion"),
+  mutationStarted: z.boolean().nullable().optional().describe("Mutation"),
+  resultingState: z.string().nullable().optional().describe("Zustand"),
+  cleanupRequired: z.boolean().nullable().optional().describe("Cleanup"),
+  physicalInputUsed: z.boolean().nullable().optional().describe("Eingabe"),
+  foregroundLeaseUsed: z.boolean().nullable().optional().describe("Lease"),
+} as const;
+
 const GUARDED_MUTATION_FIELDS = {
   verified: OPTIONAL_BOOLEAN,
   inputGuard: OPTIONAL_OBJECT,

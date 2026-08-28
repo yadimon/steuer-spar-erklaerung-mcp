@@ -20,12 +20,12 @@ import {
 } from "./suite-runner.mjs";
 
 const expectedNames = [
-  "dist-prune", "native-build", "typescript-build", "npm-package-build", "suite-runner-contract", "public-skills", "repository-privacy", "repository-links", "readme-contract", "github-workflow", "javascript-syntax", "powershell-syntax", "product-profiles", "page-objects-parity", "product-profile-status", "profile-operation-policy",
+  "dist-prune", "native-build", "typescript-build", "npm-package-build", "suite-runner-contract", "public-skills", "repository-privacy", "repository-links", "readme-contract", "github-workflow", "javascript-syntax", "powershell-syntax", "product-profiles", "page-objects-parity", "product-profile-status", "profile-operation-policy", "receipt-interaction-policy", "api-mega-contract",
   "akad-parser", "table-combobox-guard", "case-file", "pdf-render-helper", "atomic-files", "jsonl-logger", "dist-artifacts", "release-metadata", "native-build-cache", "npm-package", "workspace-containment", "workspace-file-cancellation",
   "resource-references", "live-script-resource-contract", "backup-cases-contract", "backup-local-parity", "archive-cases-synthetic", "archive-local-parity", "sse-process-guard", "desktop-launcher", "api-contract", "api-static-documents", "api-client-body-abort", "api-client-transport-timeout", "api-local-http-transport", "api-single-flight", "checker-open-contract", "api-discovery-contract", "api-openapi-contract", "api-cli-contract", "api-config-contract", "api-all-operations", "launch-orchestration", "operation-schema-catalog", "operation-coverage-merge", "verification-doc-coverage", "operation-result-shape-merge", "operation-trace", "live-profile-read-coverage", "operation-live-evidence", "live-core-read-contract", "result-contract", "result-field-worker-guard", "source-architecture", "no-year-conditionals", "mcp-module-boundaries", "mcp-main-contract",
   "mcp-registry-contract", "mcp-response-contract", "capabilities-contract", "ustva-contract", "api-tax-journeys", "api-main-smoke", "abort-contract", "wrapper-boundary", "mcp-wrapper-catalog", "mcp-api-all-operations", "mcp-cancellation",
   "worker-timeout", "worker-inherited-pipe", "worker-prewarm", "worker-progress-contract", "worker-output-file-contract", "worker-input-file-contract", "direct-worker-guard", "direct-worker-experimental-guard", "experimental-dialog-policy", "startup-dialog-policy", "direct-worker-resource-guard", "direct-worker-identity-guard", "direct-worker-collection-guard", "direct-worker-file-guard", "direct-worker-native-guard", "scenario-parity", "scenario-control-flow", "mcp-selftest", "table-region",
-  "product-gate", "verify-collect", "verify-local-parity", "working-copy-local-parity", "file-operations-worker", "archive-cases", "table-values", "instance-identity", "table-add-rollback-contract", "table-delete-rebinding", "table-window-scope", "tracked-date-rollback", "value-info-window", "write-window-binding", "dialog-fingerprint", "content-bounds", "aside-corners", "tool-window-close", "tool-window-read", "receipt-manager-action", "bulk-action-executor", "bulk-action-worker-contract", "desktop-enumeration", "desktop-marker-contract", "desktop-marker-write-contract", "window-restore-contract", "window-scope", "structure-binding", "snapshot-runtime-id", "checker-zero-results", "build-drift", "foreground-lease-contract", "focusless-commit-contract", "file-dialog-folder-contract", "no-console-window", "operation-coverage", "operation-result-shape",
+  "product-gate", "verify-collect", "verify-local-parity", "working-copy-local-parity", "file-operations-worker", "archive-cases", "table-values", "instance-identity", "table-add-rollback-contract", "table-delete-rebinding", "table-window-scope", "tracked-date-rollback", "value-info-window", "write-window-binding", "dialog-fingerprint", "content-bounds", "aside-corners", "tool-window-close", "tool-window-read", "receipt-manager-action", "bulk-action-executor", "bulk-action-worker-contract", "desktop-enumeration", "desktop-marker-contract", "desktop-marker-write-contract", "window-restore-contract", "window-scope", "structure-binding", "snapshot-runtime-id", "checker-zero-results", "build-drift", "foreground-lease-contract", "focusless-commit-contract", "file-dialog-folder-contract", "worker-controller-lock", "no-console-window", "operation-coverage", "operation-result-shape",
 ];
 const allSteps = [...serialBuildSteps, ...parallelSteps, ...exclusiveSteps, ...finalSteps];
 assert.deepEqual(allSteps.map((step) => step.name).sort(), expectedNames.sort());
@@ -36,6 +36,12 @@ assert(offlineProductGate && !offlineProductGate.args.includes("--require-instal
 const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
 assert.match(packageJson.scripts?.["test:product"] ?? "", /product-gate\.mjs --require-installed$/u,
   "Der explizite lokale Produkt-Test muss eine installierte SSE verlangen.");
+const suiteRunnerSource = readFileSync("test/run-suite.mjs", "utf8");
+assert.doesNotMatch(suiteRunnerSource, /^import .*operation-trace\.mjs.*$/mu,
+  "Der Volltest darf das dist-abhaengige Operation-Trace-Modul nicht vor dem Build importieren.");
+assert(suiteRunnerSource.indexOf("await runSeries(serialBuildSteps, runStep);") <
+  suiteRunnerSource.indexOf('await import("./operation-trace.mjs")'),
+"Der Operation-Trace muss erst nach dem seriellen Build geladen werden.");
 const liveRunner = readFileSync("test/run-live-suite.mjs", "utf8");
 assert.doesNotMatch(liveRunner, /live-receipt-manager/u,
   "Der benutzerspezifische BelegManager-Zyklus gehoert in das private VM-Gate, nicht auf den lokalen PC.");
@@ -62,7 +68,21 @@ assert.deepEqual(externalLiveOperations, [
   "vast_row_details",
   "vast_row_set_expanded",
 ], "Nur BelegManager, instances und VaSt duerfen auf den privaten Snapshot-VM-Nachweis angewiesen sein.");
-assert.deepEqual(exclusiveSteps.map((step) => step.name), ["no-console-window"]);
+assert.deepEqual(exclusiveSteps.map((step) => step.name), ["worker-controller-lock", "no-console-window"]);
+assert.equal(exclusiveSteps[0].timeoutMs, 420_000);
+const controllerConflictSteps = parallelSteps.filter((step) => step.conflictKey !== undefined);
+assert.deepEqual(controllerConflictSteps.map((step) => step.name).sort(), [
+  "archive-cases", "archive-cases-synthetic", "archive-local-parity",
+  "backup-cases-contract", "backup-local-parity", "bulk-action-worker-contract",
+  "case-file", "checker-open-contract", "desktop-marker-contract",
+  "direct-worker-collection-guard", "direct-worker-experimental-guard",
+  "direct-worker-file-guard", "direct-worker-guard", "direct-worker-identity-guard",
+  "direct-worker-resource-guard", "file-operations-worker", "launch-orchestration",
+  "mcp-selftest", "product-gate", "verify-collect", "verify-local-parity",
+  "worker-inherited-pipe", "worker-input-file-contract", "worker-output-file-contract",
+  "worker-timeout", "working-copy-local-parity",
+].sort(), "Der vollstaendige aktuelle Katalog lock-pflichtiger Worker-Tests muss explizit bleiben.");
+assert(controllerConflictSteps.every((step) => step.conflictKey === "windows-session-worker-controller"));
 assert(!parallelSteps.some((step) => step.name === "no-console-window"));
 // Die Abdeckungsbilanz wertet das Protokoll aller anderen Schritte aus und
 // darf deshalb weder parallel noch vor ihnen laufen.
@@ -83,7 +103,7 @@ for (const heavyweight of [
 for (const required of [
   "api-contract", "api-discovery-contract", "api-openapi-contract", "api-cli-contract", "api-all-operations", "mcp-wrapper-catalog", "github-workflow",
   "mcp-api-all-operations", "api-tax-journeys", "operation-schema-catalog", "verification-doc-coverage", "operation-live-evidence", "live-core-read-contract", "result-contract", "result-field-worker-guard", "source-architecture", "mcp-module-boundaries", "mcp-main-contract", "repository-privacy", "repository-links", "readme-contract", "javascript-syntax", "powershell-syntax",
-  "foreground-lease-contract", "focusless-commit-contract", "file-dialog-folder-contract", "desktop-enumeration", "desktop-marker-contract", "desktop-marker-write-contract", "checker-zero-results", "snapshot-runtime-id", "experimental-dialog-policy", "startup-dialog-policy", "table-delete-rebinding", "table-window-scope", "profile-operation-policy", "receipt-manager-action", "bulk-action-executor", "bulk-action-worker-contract",
+  "foreground-lease-contract", "focusless-commit-contract", "file-dialog-folder-contract", "desktop-enumeration", "desktop-marker-contract", "desktop-marker-write-contract", "checker-zero-results", "snapshot-runtime-id", "experimental-dialog-policy", "startup-dialog-policy", "table-delete-rebinding", "table-window-scope", "profile-operation-policy", "receipt-interaction-policy", "api-mega-contract", "receipt-manager-action", "bulk-action-executor", "bulk-action-worker-contract",
   "case-file", "live-script-resource-contract", "sse-process-guard", "workspace-file-cancellation", "api-static-documents", "api-client-body-abort", "api-client-transport-timeout", "api-local-http-transport", "api-single-flight", "dist-artifacts", "release-metadata",
 ]) {
   assert(fastSteps.some((step) => step.name === required), `${required} fehlt im schnellen Sicherheitsnetz.`);
@@ -166,6 +186,31 @@ await runWithConcurrency([1, 2, 3, 4, 5, 6], 3, async (value) => {
 assert.equal(maximumActive, 3);
 assert.deepEqual(completed.sort(), [1, 2, 3, 4, 5, 6]);
 
+let keyedActive = 0;
+let maximumKeyedActive = 0;
+let otherOverlapped = false;
+await runWithConcurrency([
+  { id: "controller-1", conflictKey: "worker-controller" },
+  { id: "controller-2", conflictKey: "worker-controller" },
+  { id: "other-1", conflictKey: "other" },
+  { id: "free" },
+], 3, async (item) => {
+  if (item.conflictKey === "worker-controller") {
+    keyedActive += 1;
+    maximumKeyedActive = Math.max(maximumKeyedActive, keyedActive);
+  } else if (keyedActive > 0) {
+    otherOverlapped = true;
+  }
+  await new Promise((resolve) => setTimeout(resolve, 15));
+  if (item.conflictKey === "worker-controller") keyedActive -= 1;
+});
+assert.equal(maximumKeyedActive, 1, "Gleiche Konfliktressourcen duerfen nie ueberlappen.");
+assert.equal(otherOverlapped, true, "Unabhaengige Arbeit soll die Konfliktressource weiterhin ueberlappen.");
+await assert.rejects(
+  runWithConcurrency([{ conflictKey: "" }], 1, async () => undefined),
+  /conflictKey.*nichtleere Zeichenfolge/,
+);
+
 const visited = [];
 await assert.rejects(
   runWithConcurrency([1, 2, 3], 1, async (value) => {
@@ -175,6 +220,38 @@ await assert.rejects(
   /synthetischer Fehler/,
 );
 assert.deepEqual(visited, [1, 2], "Nach einem Fehler duerfen keine neuen seriellen Schritte starten.");
+
+let falsyFailureObserved = false;
+try {
+  await runWithConcurrency([1, 2], 1, async () => Promise.reject(undefined));
+} catch (error) {
+  falsyFailureObserved = true;
+  assert.equal(error, undefined, "Der erste Ablehnungswert muss auch dann unveraendert bleiben, wenn er falsy ist.");
+}
+assert.equal(falsyFailureObserved, true, "Eine Promise-Ablehnung mit undefined darf nicht als Erfolg gelten.");
+
+const keyedOrder = [];
+await runWithConcurrency([1, 2, 3].map((id) => ({ id, conflictKey: "fifo" })), 3, async ({ id }) => {
+  keyedOrder.push(id);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+});
+assert.deepEqual(keyedOrder, [1, 2, 3], "Schritte derselben Konfliktressource muessen FIFO starten.");
+
+const drained = [];
+await assert.rejects(
+  runWithConcurrency([1, 2, 3], 2, async (value) => {
+    if (value === 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      throw new Error("erster paralleler Fehler");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    drained.push(value);
+    if (value === 2) throw new Error("spaeter paralleler Fehler");
+  }),
+  /erster paralleler Fehler/,
+);
+assert.deepEqual(drained, [2], "Bereits gestartete Arbeit muss ablaufen; nach Fehler darf Schritt 3 nicht starten.");
+await runWithConcurrency([], 8, async () => { throw new Error("Leere Eingabe darf nichts starten."); });
 
 const serial = [];
 await runSeries(["a", "b", "c"], async (value) => { serial.push(value); });
@@ -209,5 +286,5 @@ await assert.rejects(
 );
 
 process.stdout.write(
-  "Testsuite-Runner: vollstaendiger Plan, exklusive Sentinel-Grenze, Timeout, Ausgabelimit und begrenzte Parallelitaet bestanden\n",
+  "Testsuite-Runner: vollstaendiger Plan, Konfliktressourcen, exklusive Sentinel-Grenze, Timeout, Ausgabelimit und begrenzte Parallelitaet bestanden\n",
 );

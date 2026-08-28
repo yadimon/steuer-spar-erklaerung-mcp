@@ -16,6 +16,10 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { resultTypeTag } from "./operation-result-shape-lib.mjs";
+import {
+  RECEIPT_FOREGROUND_BLOCK_REASON,
+  SSE_FOREGROUND_REQUIRED_RECEIPT_OPERATIONS,
+} from "../dist/receipt-interaction-policy.js";
 
 export const OPERATION_TRACE_DIRECTORY_KEY = "SSE_TEST_OPERATION_TRACE_DIR";
 
@@ -34,6 +38,22 @@ export function operationTraceDirectory(env = process.env) {
 }
 
 export const OPERATION_RESULT_FIELD_PATTERN = /^[A-Za-z][A-Za-z0-9_]{0,63}$/u;
+const FOREGROUND_RECEIPT_OPERATIONS = new Set(SSE_FOREGROUND_REQUIRED_RECEIPT_OPERATIONS);
+
+/** Ein erwarteter Policy-Block ist die vollstaendige aktuelle Funktion, kein beliebiger Fehlerpfad. */
+export function isFunctionalPolicyBlock(operation, result) {
+  return FOREGROUND_RECEIPT_OPERATIONS.has(operation) &&
+    result?.ok === false &&
+    result.kind === "blocked" &&
+    result.reason === RECEIPT_FOREGROUND_BLOCK_REASON &&
+    result.retryable === false &&
+    result.interactionRequirement === "foreground-required" &&
+    result.mutationStarted === false &&
+    result.resultingState === "unchanged" &&
+    result.cleanupRequired === false &&
+    result.physicalInputUsed === false &&
+    result.foregroundLeaseUsed === false;
+}
 
 /** Nur Feldnamen und wertfreie Typklassen, niemals Werte oder tiefer verschachtelte Nutzdaten. */
 export function operationResultShape(result) {
@@ -65,13 +85,16 @@ export function traceOperations(label, execute, env = process.env) {
   const file = join(directory, `${label}-${process.pid}-${randomUUID().replaceAll("-", "")}.jsonl`);
   const record = (operation, result, failed, elapsedMs) => {
     const profileId = env.SSE_PROFILE_ID ?? null;
+    const policyBlocked = !failed && isFunctionalPolicyBlock(operation, result);
     const line = JSON.stringify({
       label,
       operation,
       profileId,
       ok: failed ? false : result?.ok === true,
+      contractOk: failed ? false : result?.ok === true || policyBlocked,
       ms: elapsedMs,
       ...(failed ? { threw: true } : {}),
+      ...(policyBlocked ? { contractOutcome: "policy-blocked" } : {}),
       ...(typeof result?.kind === "string" && result.kind ? { kind: result.kind } : {}),
       fields: operationResultShape(result),
     });
