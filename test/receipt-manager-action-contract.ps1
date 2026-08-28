@@ -179,6 +179,7 @@ Assert-True ($receiptReadBlock.Contains('| Sort-Object')) 'receipt_manager_read 
 Assert-True ($receiptReadBlock.Contains('$semanticRowAfterMatches.Count -eq 1')) 'receipt_manager_read muss die Zielzeile nach einer Qt-Neusortierung ueber die exakte fachliche Identitaet rebound binden.'
 Assert-True ($receiptReadBlock.Contains('$detailIdentityMatchesTarget')) 'receipt_manager_read darf Detailwerte nur fuer exakt denselben Titel und dieselbe Belegnummer bestaetigen.'
 Assert-True ($receiptReadBlock.Contains('Resolve-SSEReceiptManagerVisibleRowTarget')) 'receipt_manager_read muss virtualisierte Offscreen-Belege vor dem Klick sicher sichtbar binden.'
+Assert-True ($receiptReadBlock.Contains("method='already-open-detail'")) 'receipt_manager_read muss eine exakt gebundene bereits offene Detailansicht ohne erneuten Zeilenklick lesen.'
 
 $updateStart = $receiptReadEnd
 $updateEnd = $worker.IndexOf("  'receipt_manager_import' {", $updateStart)
