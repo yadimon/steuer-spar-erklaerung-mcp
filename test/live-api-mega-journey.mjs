@@ -1449,7 +1449,8 @@ try {
         );
         assert.equal(forced.result.killed, true,
           "Exakt aus dem Launch gebundene Wegwerf-PID ohne Hauptfenster liess sich nicht sicher beenden.");
-        cleanup.stateKnown = true;
+        cleanup.stateKnown = false;
+        cleanup.processStateVerifiedOnly = true;
         cleanup.forcedTermination = true;
         cleanup.forceReason = "owned-launch-pid-without-main-instance";
       } else {
@@ -1463,7 +1464,7 @@ try {
     }
     const finalInstances = await call("instances", { includeHash: true }, 120_000, "failure-cleanup-final-instances");
     const finalHealth = await call("health", {}, 30_000, "failure-cleanup-final-health");
-    cleanup.stateKnown = true;
+    cleanup.processStateKnown = true;
     cleanup.zeroOwnedProcesses = findOwnedInstances(finalInstances.result).length === 0;
     cleanup.closed = finalHealth.result.running === false && finalInstances.result.count === 0;
     assert.equal(cleanup.closed, true, "Failure-Cleanup endete mit einer weiterhin laufenden SSE-Instanz.");

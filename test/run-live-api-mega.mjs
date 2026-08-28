@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { basename, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import { loadProductProfile } from "../dist/product-profiles.js";
-import { ssePids } from "./direct-worker-helpers.mjs";
+import { desktopMarkerState, ssePids } from "./direct-worker-helpers.mjs";
 import {
   assertFreshMegaDist,
   megaMachineMetadata,
@@ -32,6 +32,10 @@ const generatedAt = new Date().toISOString();
 const timestamp = generatedAt.replaceAll(":", "-").replaceAll(".", "-");
 
 const sha256File = (path) => createHash("sha256").update(readFileSync(path)).digest("hex").toUpperCase();
+const markerEvidence = (state) => ({
+  present: state !== null,
+  contentSha256: state === null ? null : createHash("sha256").update(state, "utf8").digest("hex").toUpperCase(),
+});
 const rounded = (value) => Math.round(Number(value) * 1_000) / 1_000;
 const writeExclusive = (path, text) => writeFileSync(path, text, { encoding: "utf8", flag: "wx" });
 const updateStatus = (lines) => writeFileSync(statusPath, `# API Mega Journey Status\n\n${lines.join("\n")}\n`, "utf8");
@@ -88,6 +92,8 @@ const official = Object.fromEntries(Object.entries(definitions).map(([id, defini
 }));
 
 assert.equal(ssePids(), "", "Die API-Mega-Reise startet nur ohne vorhandene SSE-Prozesse.");
+const markerBeforeState = desktopMarkerState();
+const markerBefore = markerEvidence(markerBeforeState);
 const caseDirectory = mkdtempSync(join(tmpdir(), `sse-api-mega-${profileId}-`));
 const fixtures = Object.fromEntries(Object.entries(official).map(([id, entry]) => {
   const stagedName = `official-${id}-template${extname(entry.path)}`;
@@ -116,30 +122,34 @@ updateStatus([
 
 let raw = null;
 let child = null;
-let setupFailure = null;
+let setupFailure = markerBefore.present
+  ? new Error("Die API-Mega-Reise startet nicht mit vorhandenem Hidden-Desktop-Marker.")
+  : null;
 try {
-  child = spawnSync(process.execPath, [
-    "test/with-api.mjs", process.execPath, "test/live-api-mega-journey.mjs",
-  ], {
-    cwd: MEGA_REPOSITORY_ROOT,
-    env: {
-      ...process.env,
-      SSE_PROFILE_ID: profileId,
-      SSE_CASE_DIR: caseDirectory,
-      SSE_PRESERVE_TEST_SANDBOX_ON_FAILURE: "1",
-      SSE_TEST_INTERACTIVE_RECEIPTS: "1",
-      SSE_TEST_API_PREWARM: "1",
-      SSE_MEGA_CLASSIFICATION: classification,
-      SSE_MEGA_RAW_REPORT: rawPath,
-      SSE_MEGA_STATUS_PATH: statusPath,
-      SSE_MEGA_EXPECTED_SOURCE_FINGERPRINT: sourceBefore.fingerprint,
-      SSE_MEGA_EXPECTED_RUNTIME_FINGERPRINT: runtimeBefore.fingerprint,
-      SSE_MEGA_FIXTURES_JSON: JSON.stringify(fixtures),
-    },
-    stdio: "inherit",
-    windowsHide: true,
-  });
-  if (child.error) setupFailure = child.error;
+  if (!setupFailure) {
+    child = spawnSync(process.execPath, [
+      "test/with-api.mjs", process.execPath, "test/live-api-mega-journey.mjs",
+    ], {
+      cwd: MEGA_REPOSITORY_ROOT,
+      env: {
+        ...process.env,
+        SSE_PROFILE_ID: profileId,
+        SSE_CASE_DIR: caseDirectory,
+        SSE_PRESERVE_TEST_SANDBOX_ON_FAILURE: "1",
+        SSE_TEST_INTERACTIVE_RECEIPTS: "1",
+        SSE_TEST_API_PREWARM: "1",
+        SSE_MEGA_CLASSIFICATION: classification,
+        SSE_MEGA_RAW_REPORT: rawPath,
+        SSE_MEGA_STATUS_PATH: statusPath,
+        SSE_MEGA_EXPECTED_SOURCE_FINGERPRINT: sourceBefore.fingerprint,
+        SSE_MEGA_EXPECTED_RUNTIME_FINGERPRINT: runtimeBefore.fingerprint,
+        SSE_MEGA_FIXTURES_JSON: JSON.stringify(fixtures),
+      },
+      stdio: "inherit",
+      windowsHide: true,
+    });
+    if (child.error) setupFailure = child.error;
+  }
 } catch (error) {
   setupFailure = error;
 }
@@ -153,6 +163,10 @@ const postflightVerificationStartedAt = performance.now();
 const sourceAfter = megaSourceFingerprint();
 const runtimeAfter = megaRuntimeFingerprint();
 const pidsAfter = ssePids();
+const markerAfterState = desktopMarkerState();
+const markerAfter = markerEvidence(markerAfterState);
+const markerUnchanged = markerAfterState === markerBeforeState;
+const markerSafe = !markerBefore.present && !markerAfter.present && markerUnchanged;
 const officialAfter = Object.fromEntries(Object.entries(official).map(([id, entry]) => [id, sha256File(entry.path)]));
 const officialUnchanged = Object.entries(official).every(([id, entry]) => officialAfter[id] === entry.hashBefore);
 const fingerprintStable =
@@ -160,7 +174,7 @@ const fingerprintStable =
   runtimeAfter.fingerprint === runtimeBefore.fingerprint;
 const fingerprintVerificationWallMs = rounded(performance.now() - postflightVerificationStartedAt);
 const childSucceeded = !setupFailure && child?.status === 0 && child?.signal === null && raw?.status === "passed";
-const cleanupSafe = childSucceeded && pidsAfter === "" && officialUnchanged && fingerprintStable;
+const cleanupSafe = childSucceeded && pidsAfter === "" && markerSafe && officialUnchanged && fingerprintStable;
 let disposableCleanup = { attempted: false, removed: false, preserved: true };
 let disposableCleanupWallMs = 0;
 if (cleanupSafe) {
@@ -185,6 +199,9 @@ const failureReasons = [
   ...(child && child.status !== 0 ? [`child-exit-${child.status}`] : []),
   ...(child?.signal ? [`child-signal-${child.signal}`] : []),
   ...(pidsAfter ? ["owned-sse-process-remained"] : []),
+  ...(markerBefore.present ? ["hidden-desktop-marker-present-before"] : []),
+  ...(markerAfter.present ? ["hidden-desktop-marker-present-after"] : []),
+  ...(!markerUnchanged ? ["hidden-desktop-marker-changed"] : []),
   ...(!officialUnchanged ? ["official-musterfall-hash-changed"] : []),
   ...(!fingerprintStable ? ["source-or-runtime-fingerprint-drift"] : []),
   ...(!raw ? ["journey-report-missing"] : []),
@@ -212,9 +229,11 @@ const report = {
     comparableWholeJourneyBaselineExists: previousReports.length > 0,
     baselineOrdinal,
     previousSuccessfulReports: previousReports.map((entry) => entry.name),
-    note: previousReports.length
-      ? `This is canonical whole-journey baseline #${baselineOrdinal}; prior canonical reports are eligible for explicit comparison when their fingerprints and run evidence match.`
-      : "This is the first canonical whole-journey baseline; historical numbers are component-only and are not deltas for this report.",
+    note: !passed
+      ? "This failed run is not a canonical whole-journey baseline; historical numbers remain component-only context."
+      : previousReports.length
+        ? `This is canonical whole-journey baseline #${baselineOrdinal}; prior canonical reports are eligible for explicit comparison when their fingerprints and run evidence match.`
+        : "This is the first canonical whole-journey baseline; historical numbers are component-only and are not deltas for this report.",
     componentContextMs: {
       semanticNavigationBefore: 19_916,
       semanticNavigationAfter: 12_724,
@@ -250,6 +269,12 @@ const report = {
     officialHashesAfter: officialAfter,
     officialHashesUnchanged: officialUnchanged,
     ssePidsAfter: pidsAfter ? pidsAfter.split(",").length : 0,
+    hiddenDesktopMarker: {
+      before: markerBefore,
+      after: markerAfter,
+      unchanged: markerUnchanged,
+      safe: markerSafe,
+    },
     disposableCleanup,
   },
   timings: {
@@ -329,12 +354,13 @@ const markdown = `# Canonical live API mega journey — ${classification}\n\n` +
   `- API calls: ${report.operations?.count ?? "n/a"}; distinct executed operations: ${report.operations?.distinctCount ?? "n/a"}; call failures=${report.operations?.failureCount ?? "n/a"}\n` +
   `- Catalog coverage: executed=${report.catalogCoverage?.coveredExecutedCount ?? 0}/${report.catalogCoverage?.coveredDeclaredCount ?? 0} declared covered; catalog total=${report.catalogCoverage?.operationCount ?? 99}\n` +
   `- Mutation/readback assertions: passed=${report.mutationCoverage?.passed ?? 0}; skipped=${report.mutationCoverage?.skipped ?? 0}; failed=${report.mutationCoverage?.failed ?? 0}; unexecuted=${report.mutationCoverage?.unexecuted ?? 0}; declared=${report.mutationCoverage?.declared ?? 0}\n` +
-  `- Cleanup: zero SSE processes=${pidsAfter === ""}; official hashes unchanged=${officialUnchanged}; disposable copies removed=${disposableCleanup.removed}\n\n` +
+  `- Cleanup: zero SSE processes=${pidsAfter === ""}; hidden-desktop marker safe=${markerSafe}; official hashes unchanged=${officialUnchanged}; disposable copies removed=${disposableCleanup.removed}\n\n` +
   "## Environment and stability\n\n" +
   `- Runtime fingerprint: \`${runtimeBefore.fingerprint}\` (stable: ${runtimeAfter.fingerprint === runtimeBefore.fingerprint})\n` +
   `- Node/npm: ${report.runtime.node} / ${report.runtime.npm}; SSE build: ${md(report.runtime.sse?.currentBuild ?? "n/a")}\n` +
   `- Machine: ${md(report.runtime.cpuModel)}, ${report.runtime.logicalCpuCount} logical CPUs, ${report.runtime.totalMemoryBytes} bytes RAM\n` +
   `- Worker prewarm: requested=${report.safety.workerPrewarm?.requested ?? false}, ready-before-first-operation=${report.safety.workerPrewarm?.readyBeforeFirstCatalogOperation ?? false}, pool=${report.safety.workerPrewarm?.configuredPoolSize ?? "n/a"}\n` +
+  `- Hidden-desktop marker: before-present=${markerBefore.present}, after-present=${markerAfter.present}, unchanged=${markerUnchanged}, safe=${markerSafe}\n` +
   `- Official fixture identities: ${report.fixtures.map((entry) => `${entry.id}/${entry.mode}/${entry.officialSourceHash}`).join(", ")}\n\n` +
   "## Timings\n\n| Measure | Seconds |\n| --- | ---: |\n" + timingRows + "\n\n" +
   "| Phase | Status | Seconds |\n| --- | --- | ---: |\n" + (phaseRows || "| n/a | n/a | n/a |") + "\n\n" +
@@ -362,6 +388,7 @@ updateStatus([
   `- JSON report: \`${jsonPath}\``,
   `- Markdown summary: \`${markdownPath}\``,
   `- Zero SSE processes: ${pidsAfter === ""}`,
+  `- Hidden-desktop marker absent and unchanged: ${markerSafe}`,
   `- Official Musterfall hashes unchanged: ${officialUnchanged}`,
   `- Disposable copies: ${disposableCleanup.removed ? "removed" : "preserved for diagnosis"}`,
   ...(passed ? [`- Baseline note: canonical whole-journey baseline #${baselineOrdinal}; historical component figures remain non-comparable.`]
