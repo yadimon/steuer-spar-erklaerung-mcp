@@ -373,14 +373,18 @@
       "liveEvidence": "snapshot-vm"
     },
     "receipt_manager_classification_options": {
-      "offline": "untested",
-      "offlineLabels": [],
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
       "live": "functional",
       "liveEvidence": "snapshot-vm"
     },
     "receipt_manager_classify": {
-      "offline": "untested",
-      "offlineLabels": [],
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
       "live": "functional",
       "liveEvidence": "snapshot-vm"
     },

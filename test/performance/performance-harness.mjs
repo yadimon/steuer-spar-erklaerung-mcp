@@ -14,6 +14,14 @@ import { arch, availableParallelism, cpus, platform, release, totalmem } from "n
 import { basename, dirname, join, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
+import { OPERATION_TRACE_LABELS } from "../operation-trace.mjs";
+import {
+  percentile,
+  summarizeDurations,
+  summarizeOutcomes,
+} from "./performance-statistics.mjs";
+
+export { percentile, summarizeDurations, summarizeOutcomes } from "./performance-statistics.mjs";
 
 export const PERFORMANCE_SCHEMA_VERSION = 1;
 export const BENCHMARK_ID = "synthetic-api-tax-journeys";
@@ -24,6 +32,9 @@ const here = dirname(fileURLToPath(import.meta.url));
 export const REPOSITORY_ROOT = resolve(here, "..", "..");
 const JOURNEY_FILE = "test/api-tax-journeys.mjs";
 const MAX_RUNS = 1_000;
+const TRACE_PHASES = new Set(["warmup", "measurement"]);
+const TRACE_OPERATION_PATTERN = /^[a-z][a-z0-9_]{0,63}$/u;
+const TRACE_KIND_PATTERN = /^[a-z][a-z0-9-]{0,63}$/u;
 
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
@@ -38,31 +49,8 @@ function stableJson(value) {
 }
 
 function rounded(value) {
-  return Math.round(value * 1_000) / 1_000;
-}
-
-/** Nearest-rank percentile: deterministic even for deliberately small smoke runs. */
-export function percentile(values, probability) {
-  if (!Array.isArray(values) || values.length === 0) return null;
-  if (!(probability > 0 && probability <= 1)) throw new RangeError("percentile probability must be in (0, 1].");
-  const sorted = [...values].sort((left, right) => left - right);
-  return sorted[Math.max(0, Math.ceil(probability * sorted.length) - 1)];
-}
-
-export function summarizeDurations(values) {
-  if (!Array.isArray(values) || values.length === 0) {
-    return { count: 0, min: null, max: null, mean: null, p50: null, p95: null, p99: null };
-  }
-  const sum = values.reduce((total, value) => total + value, 0);
-  return {
-    count: values.length,
-    min: rounded(Math.min(...values)),
-    max: rounded(Math.max(...values)),
-    mean: rounded(sum / values.length),
-    p50: rounded(percentile(values, 0.50)),
-    p95: rounded(percentile(values, 0.95)),
-    p99: rounded(percentile(values, 0.99)),
-  };
+  const scaled = value * 1_000;
+  return Number.isFinite(scaled) ? Math.round(scaled) / 1_000 : value;
 }
 
 function parseBoundedInteger(value, name, { minimum }) {
@@ -185,10 +173,13 @@ export function aggregateOperationTraces(records) {
 
   for (const record of records) {
     labels.set(record.label, (labels.get(record.label) ?? 0) + 1);
-    const current = operations.get(record.operation) ?? { durations: [], count: 0, okCount: 0, threwCount: 0 };
+    const current = operations.get(record.operation) ?? {
+      durations: [], records: [], count: 0, okCount: 0, threwCount: 0,
+    };
     current.count += 1;
     current.okCount += record.ok === true ? 1 : 0;
     current.threwCount += record.threw === true ? 1 : 0;
+    current.records.push(record);
     if (Number.isFinite(record.ms) && record.ms >= 0) current.durations.push(record.ms);
     operations.set(record.operation, current);
     okCount += record.ok === true ? 1 : 0;
@@ -201,6 +192,7 @@ export function aggregateOperationTraces(records) {
     okCount,
     nonOkCount: records.length - okCount,
     threwCount,
+    outcomes: summarizeOutcomes(records),
     labels: Object.fromEntries([...labels].sort(([left], [right]) => left.localeCompare(right))),
     operations: [...operations]
       .sort(([left], [right]) => left.localeCompare(right))
@@ -210,8 +202,54 @@ export function aggregateOperationTraces(records) {
         okCount: data.okCount,
         nonOkCount: data.count - data.okCount,
         threwCount: data.threwCount,
+        outcomes: summarizeOutcomes(data.records),
         durationMs: summarizeDurations(data.durations),
       })),
+  };
+}
+
+function traceToken(value, label, pattern) {
+  if (typeof value !== "string" || !pattern.test(value)) {
+    throw new Error(`Unsafe ${label} in operation trace.`);
+  }
+  return value;
+}
+
+export function sanitizeOperationTraceRecord(record, { phase, index, sequence }) {
+  if (!record || typeof record !== "object" || Array.isArray(record)) {
+    throw new Error("Operation trace record must be an object.");
+  }
+  if (!OPERATION_TRACE_LABELS.includes(record.label)) {
+    throw new Error("Unknown operation trace label.");
+  }
+  if (!Number.isSafeInteger(index) || index < 1 || !Number.isSafeInteger(sequence) || sequence < 1) {
+    throw new Error("Operation trace index and sequence must be positive integers.");
+  }
+  if (!Number.isFinite(record.ms) || record.ms < 0) {
+    throw new Error("Operation trace duration must be finite and nonnegative.");
+  }
+  if (typeof record.ok !== "boolean") throw new Error("Operation trace ok must be boolean.");
+  const threw = record.threw === true;
+  if (record.threw !== undefined && typeof record.threw !== "boolean") {
+    throw new Error("Operation trace threw must be boolean when present.");
+  }
+  if (!TRACE_PHASES.has(phase)) throw new Error("Unsafe phase in operation trace.");
+  const kind = record.kind === undefined
+    ? undefined
+    : traceToken(record.kind, "kind", TRACE_KIND_PATTERN);
+  return {
+    schemaVersion: PERFORMANCE_SCHEMA_VERSION,
+    type: "operation",
+    benchmark: BENCHMARK_ID,
+    phase,
+    runIndex: index,
+    sequence,
+    label: record.label,
+    operation: traceToken(record.operation, "operation", TRACE_OPERATION_PATTERN),
+    ok: record.ok,
+    ms: rounded(record.ms),
+    ...(threw ? { threw: true } : {}),
+    ...(kind ? { kind } : {}),
   };
 }
 
@@ -268,24 +306,33 @@ export async function runBenchmark(options) {
   const runtime = runtimeFingerprint();
   const outputDirectory = options.output || defaultOutputDirectory(source, generatedAt);
   const samplesPath = join(outputDirectory, "samples.jsonl");
+  const operationsPath = join(outputDirectory, "operations.jsonl");
   const summaryPath = join(outputDirectory, "summary.json");
-  if (existsSync(samplesPath) || existsSync(summaryPath)) {
+  const traceRoot = join(outputDirectory, ".trace");
+  if (existsSync(samplesPath) || existsSync(operationsPath) || existsSync(summaryPath) || existsSync(traceRoot)) {
     throw new Error("Das Ausgabeverzeichnis enthaelt bereits Performance-Ergebnisse.");
   }
   mkdirSync(outputDirectory, { recursive: true });
+  writeFileSync(samplesPath, "", { encoding: "utf8", flag: "wx" });
+  writeFileSync(operationsPath, "", { encoding: "utf8", flag: "wx" });
 
   const samples = [];
   const measurementTraceRecords = [];
+  let operationSequence = 0;
   const totalRuns = options.warmup + options.iterations;
   for (let run = 0; run < totalRuns; run += 1) {
     const phase = run < options.warmup ? "warmup" : "measurement";
     const phaseIndex = phase === "warmup" ? run + 1 : run - options.warmup + 1;
-    const traceDirectory = join(outputDirectory, ".trace", `${phase}-${String(phaseIndex).padStart(4, "0")}`);
+    const traceDirectory = join(traceRoot, `${phase}-${String(phaseIndex).padStart(4, "0")}`);
     mkdirSync(traceDirectory, { recursive: true });
     const startedAt = performance.now();
     await runJourneyProcess(traceDirectory);
     const wallTimeMs = rounded(performance.now() - startedAt);
-    const traceRecords = readTraceRecords(traceDirectory);
+    const traceRecords = readTraceRecords(traceDirectory).map((record) => sanitizeOperationTraceRecord(record, {
+      phase,
+      index: phaseIndex,
+      sequence: operationSequence += 1,
+    }));
     const sample = {
       schemaVersion: PERFORMANCE_SCHEMA_VERSION,
       type: "sample",
@@ -295,15 +342,19 @@ export async function runBenchmark(options) {
       sourceFingerprint: source.fingerprint,
       runtimeFingerprint: runtime.fingerprint,
       wallTimeMs,
+      rawOperationCount: traceRecords.length,
       operationTrace: aggregateOperationTraces(traceRecords),
     };
     appendFileSync(samplesPath, `${JSON.stringify(sample)}\n`, "utf8");
+    if (traceRecords.length) {
+      appendFileSync(operationsPath, `${traceRecords.map((record) => JSON.stringify(record)).join("\n")}\n`, "utf8");
+    }
     samples.push(sample);
     if (phase === "measurement") measurementTraceRecords.push(...traceRecords);
     rmSync(traceDirectory, { recursive: true, force: true });
     process.stdout.write(`${phase} ${phaseIndex}/${phase === "warmup" ? options.warmup : options.iterations}: ${wallTimeMs} ms\n`);
   }
-  rmSync(join(outputDirectory, ".trace"), { recursive: true, force: true });
+  rmSync(traceRoot, { recursive: true, force: true });
 
   const measurements = samples.filter((sample) => sample.phase === "measurement");
   const summary = {
@@ -316,11 +367,12 @@ export async function runBenchmark(options) {
     source,
     runtime,
     wallTimeMs: summarizeDurations(measurements.map((sample) => sample.wallTimeMs)),
+    rawOperationCount: measurementTraceRecords.length,
     operationTrace: aggregateOperationTraces(measurementTraceRecords),
-    artifacts: { samples: "samples.jsonl", summary: "summary.json" },
+    artifacts: { samples: "samples.jsonl", operations: "operations.jsonl", summary: "summary.json" },
   };
   writeJsonAtomic(summaryPath, summary);
-  return { outputDirectory, samplesPath, summaryPath, summary };
+  return { outputDirectory, samplesPath, operationsPath, summaryPath, summary };
 }
 
 export const HELP = `Synthetischer API-Tax-Journey-Performance-Harness

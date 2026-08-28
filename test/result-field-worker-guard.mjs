@@ -14,10 +14,13 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SSE_API_OPERATIONS } from "../dist/api-contract.js";
 import { SSE_API_RESULT_OUTPUT_SCHEMAS } from "../dist/result-contract.js";
+import { SSE_FOREGROUND_REQUIRED_RECEIPT_OPERATIONS } from "../dist/receipt-interaction-policy.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const workerPath = join(here, "..", "powershell", "sse-worker.ps1");
 const lines = readFileSync(workerPath, "utf8").split("\n");
+const workerSource = lines.join("\n");
+const receiptPolicySource = readFileSync(join(here, "..", "src", "receipt-interaction-policy.ts"), "utf8");
 const localExecutors = new Map([
   ["backup_cases", readFileSync(join(here, "..", "src", "backup-executor.ts"), "utf8")],
   ["archive_cases", readFileSync(join(here, "..", "src", "archive-executor.ts"), "utf8")],
@@ -26,6 +29,16 @@ const localExecutors = new Map([
 
 /** Transportfelder, die jeder Vertrag traegt und die der Worker generisch setzt. */
 const TRANSPORT_FIELDS = new Set(["ok", "kind", "error", "ms", "focusTelemetry"]);
+const RECEIPT_FOREGROUND_BLOCK_FIELDS = new Set([
+  "reason", "retryable", "interactionRequirement", "mutationStarted", "resultingState",
+  "cleanupRequired", "physicalInputUsed", "foregroundLeaseUsed",
+]);
+for (const field of RECEIPT_FOREGROUND_BLOCK_FIELDS) {
+  assert(new RegExp(`\\b${field}\\s*=`, "u").test(workerSource),
+    `Gemeinsamer Worker-Vordergrundblock setzt '${field}' nicht.`);
+  assert(new RegExp(`\\b${field}\\s*:`, "u").test(receiptPolicySource),
+    `Gemeinsamer API-Vordergrundblock setzt '${field}' nicht.`);
+}
 
 /**
  * Operationen, die die API selbst beantwortet. Sie erreichen den PowerShell-
@@ -238,7 +251,6 @@ assert.deepEqual(unwrappedLists, [],
   "Diese Listenfelder kommen aus einem $(...)-Unterausdruck und werden bei genau einem Element zum Objekt:\n  " +
   unwrappedLists.join("\n  "));
 
-const workerSource = lines.join("\n");
 for (const [helper, fields] of SHARED_WORKER_RESULT_FIELDS) {
   const helperStart = workerSource.indexOf(`function ${helper}(`);
   const helperEnd = workerSource.indexOf("\nfunction ", helperStart + 10);
@@ -262,6 +274,12 @@ for (const operation of SSE_API_OPERATIONS) {
   }
   for (const field of Object.keys(SSE_API_RESULT_OUTPUT_SCHEMAS[operation].shape)) {
     if (TRANSPORT_FIELDS.has(field)) continue;
+    if (
+      SSE_FOREGROUND_REQUIRED_RECEIPT_OPERATIONS.includes(operation) &&
+      RECEIPT_FOREGROUND_BLOCK_FIELDS.has(field)
+    ) {
+      continue;
+    }
     checkedFields += 1;
     const localField = API_LOCAL_RESULT_FIELDS.get(operation)?.has(field) === true;
     const assignedLocally = new RegExp(`(^|[^A-Za-z0-9_$])${field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*=`, "m");

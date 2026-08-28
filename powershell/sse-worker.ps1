@@ -45,6 +45,8 @@ $script:INIT_TIMINGS = [ordered]@{}
 $script:SSE_CAPTURE_OPERATION_RESULT = $false
 $script:SSE_CAPTURED_OPERATION_RESULT = $null
 $script:SSE_CAPTURE_SENTINEL = 'SSE_INTERNAL_OPERATION_RESULT_CAPTURED'
+$script:SSE_WORKER_CONTROLLER_MUTEX_NAME = 'Local\SteuerSparErklaerungApi.SseWorkerController'
+$script:SSE_WORKER_CONTROLLER_LEASE = $null
 
 # Ohne das hier landen Umlaute als '?' beim Aufrufer: bei umgeleiteter Ausgabe
 # benutzt die Konsole sonst die OEM-Codepage statt UTF-8.
@@ -1767,6 +1769,7 @@ function Resolve-SSEPageObject([string]$PageId, [string]$FieldId = '') {
   }
   [pscustomobject]@{ catalog=$catalog; page=$page; field=$field; pageId=$PageId; fieldId=$FieldId }
 }
+
 function Emit($obj) {
   # Physische Eingabe darf das zuvor aktive Benutzerfenster, den Mauszeiger
   # oder ein dauerhaftes TOPMOST-Bit niemals als Seiteneffekt zuruecklassen.
@@ -1792,6 +1795,28 @@ function Emit($obj) {
   if ($script:SSE_CAPTURE_OPERATION_RESULT) {
     $script:SSE_CAPTURED_OPERATION_RESULT = $obj
     throw [InvalidOperationException]::new($script:SSE_CAPTURE_SENTINEL)
+  }
+  $controllerReleaseReason = $null
+  if ($null -ne $script:SSE_WORKER_CONTROLLER_LEASE) {
+    try {
+      $controllerReleaseReason = [SSEWorkerControllerLease]::ReleaseAndClose($script:SSE_WORKER_CONTROLLER_LEASE)
+    } catch {
+      $controllerReleaseReason = 'controller-lock-release-failed'
+    } finally {
+      $script:SSE_WORKER_CONTROLLER_LEASE = $null
+    }
+  }
+  if ($controllerReleaseReason) {
+    $obj = [pscustomobject][ordered]@{
+      ok=$false
+      kind='worker-isolation-lost'
+      error='Sitzungsweiter SSE-Controller konnte nicht sicher freigegeben werden. Vor weiteren Operationen Prozess- und Produktzustand kontrollieren.'
+      reason=[string]$controllerReleaseReason
+      retryable=$false
+      resultingState='unknown'
+      cleanupRequired=$true
+      ms=$script:T0.ElapsedMilliseconds
+    }
   }
   # Depth hoch, damit verschachtelte Baeume nicht abgeschnitten werden
   $json = $obj | ConvertTo-Json -Depth 24 -Compress
@@ -2398,32 +2423,6 @@ $script:SSE_CENTER_TEST_OPERATIONS = @('center_cases','center_refresh')
 $script:DESKTOP_NAME  = $null
 $script:DESKTOP_PID   = 0
 $script:DESKTOP_OWNER = $null
-if (Test-Path -LiteralPath $script:DESKTOP_MARKE) {
-  try {
-    $loadedDesktopMarker = Read-SSEDesktopMarker $script:DESKTOP_MARKE
-  } catch {
-    Fail 'Desktop-Marker ist ungueltig; sichtbarer Desktop wird nicht ersatzweise verwendet.' 'desktop-marker-invalid'
-  }
-  if ($loadedDesktopMarker.owner -ceq 'center-test' -and $Op -ne 'desktop_status' -and
-      ($env:SSE_CENTER_LIVE_TEST -ne '1' -or $Op -notin $script:SSE_CENTER_TEST_OPERATIONS)) {
-    Fail 'Desktop-Marker gehoert dem isolierten Center-Test; Operation wurde nicht dorthin geroutet.' 'desktop-marker-owner'
-  }
-  if ($loadedDesktopMarker.owner -ceq 'sse' -and $Op -in $script:SSE_CENTER_TEST_OPERATIONS) {
-    Fail 'SSE-Desktop-Marker besitzt keinen Steuertipps-Center; Center-Operation wurde nicht dorthin geroutet.' 'desktop-marker-owner'
-  }
-  $script:DESKTOP_NAME = [string]$loadedDesktopMarker.name
-  $script:DESKTOP_PID = [uint32]$loadedDesktopMarker.pid
-  $script:DESKTOP_OWNER = [string]$loadedDesktopMarker.owner
-  # Die Marke allein ist massgeblich. SetThreadDesktop kann NICHT als
-  # Nachweis dienen: es scheitert mit Fehler 170, sobald der Thread ein
-  # Fenster besitzt - und PowerShell hat beim Start eines. Wird der
-  # Arbeiter ueber run-on-desktop.ps1 gestartet, ist er ohnehin schon
-  # dort geboren; der Aufruf unten ist nur der Fall fuer Direktstarts.
-  if ($Op -ne 'desktop_start') {
-    $h = [DSK]::OpenDesktop($script:DESKTOP_NAME, 0, $false, 0x10000000)   # GENERIC_ALL
-    if ($h -ne [IntPtr]::Zero) { [DSK]::SetThreadDesktop($h) | Out-Null }
-  }
-}
 
 # Qt 6 exposes some application-modal message boxes through MSAA (oleacc), but
 # not through UI Automation: AutomationElement.FromHandle then has no children.
@@ -6806,6 +6805,12 @@ $buildDriftBlockedOps = @(
   'ustva_set_flag', 'vast_apply', 'vast_mapping_select',
   'vast_row_set_expanded'
 )
+$foregroundRequiredReceiptOps = @(
+  'receipt_manager_action', 'receipt_manager_bulk_upsert',
+  'receipt_manager_classification_options', 'receipt_manager_classify',
+  'receipt_manager_delete', 'receipt_manager_import', 'receipt_manager_link',
+  'receipt_manager_read', 'receipt_manager_update'
+)
 
 function Resolve-SSEBuildIdentityForOperation([string]$Operation, $Args) {
   # Launch besitzt noch kein gebundenes Fenster; alle anderen UI-/Steuerfall-
@@ -7101,6 +7106,75 @@ $profilePolicyOperation = $(
 if ([string]$script:SSE_PROFILE.status -eq 'disabled' -and $profilePolicyOperation -notin $experimentalProfileBaseOps) {
   Fail "Produktprofil '$($script:SSE_PROFILE_ID)' ist deaktiviert; Betriebsoperationen sind gesperrt." 'profile-disabled'
 }
+
+# Diese Pfade sind weiterhin implementiert und statisch verifiziert, aber der
+# normale Produktvertrag kann sie nur ueber sichtbaren Vordergrund oder
+# globale physische Eingabe ausfuehren. Der kanonische Live-Benchmark darf sie
+# ausschliesslich ueber eine kurzlebige, nicht konfigurierbare Test-Lease
+# erreichen. API und Worker pruefen die Lease getrennt; der Worker bindet sie
+# zusaetzlich an Besitzerprozess, Ablaufzeit, aktive Benutzersitzung und das
+# tatsaechliche Vordergrundfenster derselben Sitzung. Direkte/background
+# Aufrufe ohne diese interne Bindung bleiben vor Dispatcher und UIA gesperrt.
+$interactiveReceiptLeaseActive = $false
+if ($profilePolicyOperation -in $foregroundRequiredReceiptOps) {
+  $presentedLease = [string](Arg $a '__interactiveReceiptLease')
+  if ($presentedLease) {
+    $expectedLease = [string]$env:SSE_TEST_INTERACTIVE_RECEIPT_TOKEN
+    $ownerPid = 0
+    $expiresAt = [DateTime]::MinValue
+    $owner = $null
+    $foreground = [SW]::GetForegroundWindow()
+    $foregroundPid = 0
+    if ($foreground -ne [IntPtr]::Zero) {
+      [SW]::GetWindowThreadProcessId($foreground, [ref]$foregroundPid) | Out-Null
+    }
+    $foregroundOwner = $(if ($foregroundPid -gt 0) {
+      Get-Process -Id $foregroundPid -ErrorAction SilentlyContinue
+    } else { $null })
+    $ownerPidOk = [int]::TryParse([string]$env:SSE_TEST_INTERACTIVE_RECEIPT_OWNER_PID, [ref]$ownerPid)
+    if ($ownerPidOk -and $ownerPid -gt 0) {
+      $owner = Get-Process -Id $ownerPid -ErrorAction SilentlyContinue
+    }
+    $expiresOk = [DateTime]::TryParse(
+      [string]$env:SSE_TEST_INTERACTIVE_RECEIPT_EXPIRES_AT,
+      [Globalization.CultureInfo]::InvariantCulture,
+      [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal,
+      [ref]$expiresAt
+    )
+    $now = [DateTime]::UtcNow
+    $currentSession = (Get-Process -Id $PID).SessionId
+    $interactiveReceiptLeaseActive = [bool](
+      $env:SSE_TEST_INTERACTIVE_RECEIPTS -ceq '1' -and
+      $presentedLease -cmatch '^[A-F0-9]{64}$' -and
+      $presentedLease -ceq $expectedLease -and
+      $owner -and [int]$owner.SessionId -eq [int]$currentSession -and
+      $expiresOk -and $expiresAt -gt $now -and $expiresAt -le $now.AddHours(1) -and
+      [Environment]::UserInteractive -and
+      -not (Test-Path -LiteralPath $script:DESKTOP_MARKE) -and
+      $foreground -ne [IntPtr]::Zero -and $foregroundOwner -and
+      [int]$foregroundOwner.SessionId -eq [int]$currentSession
+    )
+    # Der interne Transportwert darf die strikten fachlichen Operations-
+    # argumente nicht erweitern und nie in Ergebnis/Trace gelangen.
+    $a.PSObject.Properties.Remove('__interactiveReceiptLease')
+  }
+  if (-not $interactiveReceiptLeaseActive) {
+  Fail (
+    "Operation '$profilePolicyOperation' ist im Hintergrund gesperrt, weil der verifizierte BelegManager-Weg " +
+    'Vordergrund- oder globale physische Eingabe benoetigt. Keine UI wurde geaendert; nicht automatisch wiederholen.'
+  ) 'blocked' ([pscustomobject][ordered]@{
+    reason='foreground-required-operation-disabled'
+    retryable=$false
+    interactionRequirement='foreground-required'
+    mutationStarted=$false
+    resultingState='unchanged'
+    cleanupRequired=$false
+    physicalInputUsed=$false
+    foregroundLeaseUsed=$false
+  })
+  }
+}
+
 if ($verificationOnlyProfile -and $profilePolicyOperation -notin $experimentalProfileBaseOps) {
   if ($env:SSE_OPERATE_EXPERIMENTAL -ne '1') {
     Fail (
@@ -7121,6 +7195,82 @@ if ($verificationOnlyProfile -and $profilePolicyOperation -notin $experimentalPr
   }
 }
 
+$controllerLease = if (@('page_objects','product_info') -ccontains $profilePolicyOperation) {
+  [pscustomobject]@{ status='bypass' }
+} elseif ($null -ne $script:SSE_WORKER_CONTROLLER_LEASE) {
+  [pscustomobject]@{ status='unavailable'; reason='controller-lock-reentered' }
+} else {
+  try { [SSEWorkerControllerLease]::Acquire($script:SSE_WORKER_CONTROLLER_MUTEX_NAME) }
+  catch { [pscustomobject]@{ status='unavailable'; reason='controller-lock-unavailable' } }
+}
+switch -CaseSensitive ([string]$controllerLease.status) {
+  'acquired' { $script:SSE_WORKER_CONTROLLER_LEASE = $controllerLease }
+  'bypass' { }
+  'busy' {
+    Fail 'Ein anderer Prozess steuert die SteuerSparErklaerung in dieser Windows-Sitzung. Ohne Warten abgebrochen; nach dessen Abschluss mit frischen Bindungen erneut aufrufen.' 'busy' ([pscustomobject][ordered]@{
+      reason='session-controller-busy'
+      retryable=$true
+      waited=$false
+      mutationStarted=$false
+      resultingState='unchanged'
+      cleanupRequired=$false
+      physicalInputUsed=$false
+      foregroundLeaseUsed=$false
+    })
+  }
+  'abandoned' {
+    # WAIT_ABANDONED uebertraegt den Mutex bereits an diesen Thread. Emit muss
+    # den beobachteten Lease freigeben, darf aber niemals in SSE dispatchen.
+    $script:SSE_WORKER_CONTROLLER_LEASE = $controllerLease
+    Fail 'Ein abgebrochener Controller wurde in dieser Windows-Sitzung erkannt. Produktzustand ist unbekannt; vor weiteren Aenderungen zuerst gezielt lesen und sse_health pruefen.' 'worker-isolation-lost' ([pscustomobject][ordered]@{
+      reason='controller-lock-abandoned'
+      retryable=$false
+      mutationStarted=$false
+      resultingState='unknown'
+      cleanupRequired=$true
+      physicalInputUsed=$false
+      foregroundLeaseUsed=$false
+    })
+  }
+  default {
+    Fail 'Sitzungsweiter SSE-Controller konnte nicht sicher gebunden werden. Vor weiteren Operationen Prozess- und Produktzustand kontrollieren.' 'worker-isolation-lost' ([pscustomobject][ordered]@{
+      reason=[string]$controllerLease.reason
+      retryable=$false
+      mutationStarted=$false
+      resultingState='unknown'
+      cleanupRequired=$true
+      physicalInputUsed=$false
+      foregroundLeaseUsed=$false
+    })
+  }
+}
+
+if (Test-Path -LiteralPath $script:DESKTOP_MARKE) {
+  try {
+    $loadedDesktopMarker = Read-SSEDesktopMarker $script:DESKTOP_MARKE
+  } catch {
+    Fail 'Desktop-Marker ist ungueltig; sichtbarer Desktop wird nicht ersatzweise verwendet.' 'desktop-marker-invalid'
+  }
+  if ($loadedDesktopMarker.owner -ceq 'center-test' -and $Op -ne 'desktop_status' -and
+      ($env:SSE_CENTER_LIVE_TEST -ne '1' -or $Op -notin $script:SSE_CENTER_TEST_OPERATIONS)) {
+    Fail 'Desktop-Marker gehoert dem isolierten Center-Test; Operation wurde nicht dorthin geroutet.' 'desktop-marker-owner'
+  }
+  if ($loadedDesktopMarker.owner -ceq 'sse' -and $Op -in $script:SSE_CENTER_TEST_OPERATIONS) {
+    Fail 'SSE-Desktop-Marker besitzt keinen Steuertipps-Center; Center-Operation wurde nicht dorthin geroutet.' 'desktop-marker-owner'
+  }
+  $script:DESKTOP_NAME = [string]$loadedDesktopMarker.name
+  $script:DESKTOP_PID = [uint32]$loadedDesktopMarker.pid
+  $script:DESKTOP_OWNER = [string]$loadedDesktopMarker.owner
+  # Die Marke allein ist massgeblich. SetThreadDesktop kann NICHT als
+  # Nachweis dienen: es scheitert mit Fehler 170, sobald der Thread ein
+  # Fenster besitzt - und PowerShell hat beim Start eines. Wird der
+  # Arbeiter ueber run-on-desktop.ps1 gestartet, ist er ohnehin schon
+  # dort geboren; der Aufruf unten ist nur der Fall fuer Direktstarts.
+  if ($Op -ne 'desktop_start') {
+    $h = [DSK]::OpenDesktop($script:DESKTOP_NAME, 0, $false, 0x10000000)   # GENERIC_ALL
+    if ($h -ne [IntPtr]::Zero) { [DSK]::SetThreadDesktop($h) | Out-Null }
+  }
+}
 Assert-SSEVerifiedBuildForOperation $profilePolicyOperation $a
 
 # Der warme Dispatcher ist bereits vor seiner Bereitschaft registriert. Ihn
@@ -11225,10 +11375,16 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $targetProcess = Get-Process -Id $targetPid -ErrorAction SilentlyContinue
     if (-not (Test-SSEProcess $targetProcess)) { Fail "PID $targetPid ist keine verifizierte Instanz von '$($script:SSE_PROFILE.product)'." 'ownership' }
     $wins = @($allWins | Where-Object { [int]$_.pid -eq $targetPid })
-    if ($requestedPid -and $force -and $discard -and -not $wins.Count) {
-      # Interner Fail-Closed-Cleanup fuer einen gestarteten Prozess, der noch
-      # kein Fenster erzeugt hat. Nur die explizite, erneut als SSE-2025
-      # verifizierte PID darf beendet werden.
+    if ($requestedHwnd) {
+      $mainWindow = @($wins | Where-Object { [int64]$_.hwnd -eq [int64]$requestedHwnd })
+    } else {
+      $mainWindow = @(Get-SSEMainWindowCandidates $wins)
+    }
+    if ($requestedPid -and $force -and $discard -and $mainWindow.Count -eq 0) {
+      # Fail-Closed-Cleanup fuer eine exakt gebundene Start-PID, die noch kein
+      # verifiziertes Hauptfenster besitzt. Das umfasst auch einen unbekannten
+      # Start-/Aktivierungsdialog: er wird nie beantwortet; nur der erneut als
+      # passendes SSE-Profil verifizierte Prozess wird beendet.
       Stop-Process -InputObject $targetProcess -Force -ErrorAction SilentlyContinue
       try { $targetProcess.WaitForExit(5000) | Out-Null } catch { }
       $stillRunning = [bool](Get-Process -Id $targetPid -ErrorAction SilentlyContinue)
@@ -11236,17 +11392,12 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         ok=(-not $stillRunning); killed=(-not $stillRunning); stillRunning=$stillRunning
         kind=$(if ($stillRunning) { 'postcondition-failed' } else { $null })
         discardChanges=$true; pid=$targetPid
-        error=$(if ($stillRunning) { 'Fensterlos gestartete SSE-PID konnte nicht sicher beendet werden.' } else { $null })
-        note='Exakt gebundene fensterlose Start-PID wurde ohne Speichern beendet.'
+        error=$(if ($stillRunning) { 'SSE-Start-PID ohne verifiziertes Hauptfenster konnte nicht sicher beendet werden.' } else { $null })
+        note='Exakt gebundene SSE-Start-PID ohne verifiziertes Hauptfenster wurde ohne Speichern beendet.'
       })
     }
-    if ($requestedHwnd) {
-      $mainWindow = @($wins | Where-Object { [int64]$_.hwnd -eq [int64]$requestedHwnd })
-    } else {
-      $mainWindow = @($wins | Where-Object { $_.w -ge 900 -and $_.h -ge 600 -and $_.title -match 'SteuerSparErklärung' })
-      if ($mainWindow.Count -ne 1) {
-        Fail "PID $targetPid besitzt $($mainWindow.Count) breite SSE-Hauptfenster; exaktes hwnd ist Pflicht." 'ambiguous'
-      }
+    if ($mainWindow.Count -ne 1) {
+      Fail "PID $targetPid besitzt $($mainWindow.Count) breite SSE-Hauptfenster; exaktes hwnd ist Pflicht." 'ambiguous'
     }
     $hung = [bool]($wins | Where-Object { $_.hung } | Select-Object -First 1)
     if ($hung -and -not $discard) {
@@ -19829,3 +19980,4 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
 }
 
 Invoke-SSEWorkerOperation $Op $a
+Fail 'Kalter Dispatcher kehrte ohne Ergebnis zurueck.' 'worker-init'

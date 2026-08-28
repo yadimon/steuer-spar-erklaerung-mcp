@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -118,11 +117,7 @@ test("fill_fields reports unknown after worker cancellation instead of allowing 
   assert.equal(workerCalls, 1);
 });
 
-test("receipt bulk reports timeout as unknown and never starts a retry worker", async () => {
-  const receipt = Buffer.from("%PDF-1.4 timeout receipt\n", "utf8");
-  const receiptPath = join(config.documentsDir, "timeout.pdf");
-  writeFileSync(receiptPath, receipt);
-  const expectedHash = createHash("sha256").update(receipt).digest("hex");
+test("receipt bulk blocks before a timeout-capable worker can start", async () => {
   let workerCalls = 0;
   const execute = createApiExecutor(config, async () => {
     workerCalls += 1;
@@ -133,7 +128,7 @@ test("receipt bulk reports timeout as unknown and never starts a retry worker", 
   const result = await execute("receipt_manager_bulk_upsert", {
     items: [{
       resourceRef: "documents:timeout.pdf",
-      expectedHash,
+      expectedHash: "A".repeat(64),
       identity: { exactTitle: "Timeout", documentNumber: "T-1" },
       values: { title: "Timeout", documentNumber: "T-1" },
     }],
@@ -142,51 +137,34 @@ test("receipt bulk reports timeout as unknown and never starts a retry worker", 
   }, 1_000);
 
   assert.equal(result.ok, false);
-  assert.equal(result.kind, "timeout");
-  assert.equal(result.resultingState, "unknown");
-  assert.equal(result.cleanupRequired, true);
-  assert.equal(result.finalReadbackVerified, false);
-  assert.equal(workerCalls, 1);
+  assert.equal(result.kind, "blocked");
+  assert.equal(result.reason, "foreground-required-operation-disabled");
+  assert.equal(result.retryable, false);
+  assert.equal(result.mutationStarted, false);
+  assert.equal(result.resultingState, "unchanged");
+  assert.equal(result.cleanupRequired, false);
+  assert.equal(workerCalls, 0);
 });
 
-test("receipt bulk resolves every document and starts exactly one worker", async () => {
-  const receipt = Buffer.from("%PDF-1.4 synthetic bulk receipt\n", "utf8");
-  const receiptPath = join(config.documentsDir, "bulk.pdf");
-  writeFileSync(receiptPath, receipt);
-  const expectedHash = createHash("sha256").update(receipt).digest("hex");
-  const calls = [];
-  const execute = createApiExecutor(config, async (operation, args) => {
-    calls.push({ operation, args });
-    return {
-      ok: true,
-      requestedCount: 1,
-      completedCount: 1,
-      completed: [],
-      failedIndex: null,
-      skipped: [],
-      rollback: { mode: "best-effort", attempted: false, ok: null, entries: [] },
-      cleanupRequired: false,
-      finalReadback: { verified: true },
-      resultingState: "completed-verified",
-      verified: true,
-      performance: { workerProcessCount: 1 },
-    };
+test("receipt bulk still rejects malformed public arguments before the policy block", async () => {
+  let workerCalls = 0;
+  const execute = createApiExecutor(config, async () => {
+    workerCalls += 1;
+    return { ok: true };
   });
   const result = await execute("receipt_manager_bulk_upsert", {
     items: [{
       resourceRef: "documents:bulk.pdf",
-      expectedHash,
+      expectedHash: "A".repeat(64),
       identity: { exactTitle: "Bulk", documentNumber: "B-1" },
       values: { title: "Bulk", documentNumber: "B-1", amount: "12.34" },
     }],
     acknowledgeBulkUpsert: true,
     stopOnError: true,
+    freeSelector: "never-accepted",
   }, 60_000);
 
-  assert.equal(result.ok, true);
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].operation, "receipt_manager_bulk_upsert");
-  assert.equal(calls[0].args.items[0].expectedPath, receiptPath);
-  assert.equal(result.resourceRefs["items.0.resourceRef"], "documents:bulk.pdf");
-  assert.equal(JSON.stringify(result).includes(receiptPath), false);
+  assert.equal(result.ok, false);
+  assert.equal(result.kind, "bad-args");
+  assert.equal(workerCalls, 0);
 });

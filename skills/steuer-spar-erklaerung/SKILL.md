@@ -52,9 +52,10 @@ Diese Regeln gelten auch auf ausdrücklichen Wunsch:
   Dateiwechsel und die strikte Trennung zwischen Ändern und Speichern nach
   [references/case-session.md](references/case-session.md). Eine Arbeits- oder
   Korrekturkopie ist kein Standard und braucht einen ausdrücklichen Auftrag.
-  Vor der ersten schreibenden BelegManager-Phase sichere zusätzlich dessen
-  getrennte Datenablage nach [references/belegmanager-backup.md](references/belegmanager-backup.md).
-  Eine Falldatei-Sicherung ersetzt diese Sicherung nicht.
+  Sichere vor der ersten schreibenden BelegManager-Phase dessen getrennte
+  Datenablage nach [references/belegmanager-backup.md](references/belegmanager-backup.md); Eine Falldatei-Sicherung ersetzt diese Sicherung nicht.
+  Aktuell ist nur `sse_receipt_manager_list` freigegeben; umgehe die neun
+  fail-closed gesperrten Vordergrundwerkzeuge nie per Maus, Tastatur, direktem Worker oder Retry.
 - Arbeite nie mit einem wiederhergestellten Fall weiter. Hat SteuerSparErklärung
   nach einem unsauberen Ende eine Wiederherstellungsdatei geladen, stoppt
   `launch` mit `kind="recovered-state"`. Der geöffnete Inhalt entspricht dann
@@ -379,10 +380,11 @@ Ersetze Excel niemals still.
    Überschrift, bevor der Ablauf fortgesetzt wird.
 4. Empfehle Kopien unter `documents`. Bei Ablehnung nur Quelle und Entscheidung
    dokumentieren; Originale nicht verändern.
-5. Prüfe vor der ersten Änderungsphase, dass Fallreferenz, Fensterbindung und
+5. Prüfe unmittelbar vor jeder Änderung, dass Fallreferenz, Zustand,
+   Fensterbindung (`HWND`) und
    Disk-Hash weiterhin zum verifizierten Backup-Tupel passen. Eine neu zu
    startende Einkommensteuerdatei `.ESt<jahr>` verwendet `mode="normal"`.
-   Führe jeweils eine eng gebundene Änderung aus und lies
+   Führe genau eine eng gebundene Änderung aus und lies
    Wert sowie Zustand sofort zurück. Für eine Tabellenzeile liefert
    `sse_table_read` mit `sumLabel` die aktuelle Kontrollsumme als `summe`;
    genau dieser Wert gehört unverändert als `expectedBefore` in

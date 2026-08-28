@@ -85,14 +85,17 @@ const receiptResult = directWorker("receipt_manager_bulk_upsert", {
   stopOnError: true,
 });
 assert.equal(receiptResult.ok, false);
-assert.equal(receiptResult.planKind, "receipt-manager-bulk-upsert");
-assert.equal(receiptResult.failedAction?.stage, "initial-list");
-assert.equal(receiptResult.performance?.workerProcessCount, 1);
-assert.equal(receiptResult.performance?.internalOperationCount, 1);
-assert.deepEqual(receiptResult.performance?.internalTimings?.map((entry) => entry.operation), ["receipt_manager_list"]);
-assert.equal(receiptResult.performance?.internalTimings?.reduce((sum, entry) => sum + entry.ms, 0),
-  receiptResult.performance?.sseActionMs,
-  "Phasenmessungen muessen die komplette gemessene interne Aktionszeit erklaeren.");
+assert.equal(receiptResult.kind, "blocked");
+assert.equal(receiptResult.reason, "foreground-required-operation-disabled");
+assert.equal(receiptResult.retryable, false);
+assert.equal(receiptResult.interactionRequirement, "foreground-required");
+assert.equal(receiptResult.mutationStarted, false);
+assert.equal(receiptResult.resultingState, "unchanged");
+assert.equal(receiptResult.cleanupRequired, false);
+assert.equal(receiptResult.physicalInputUsed, false);
+assert.equal(receiptResult.foregroundLeaseUsed, false);
+assert.equal(receiptResult.performance, undefined,
+  "Der globale BelegManager-Guard muss vor dem internen Plan und jeder Worker-Aktionsmessung greifen.");
 assert(!JSON.stringify(receiptResult).includes("SSE_INTERNAL_OPERATION_RESULT_CAPTURED"));
 
 assert.equal(ssePids(), pidsBefore, "Der Bulk-Vertrag darf keine SSE-Instanz starten oder beenden.");

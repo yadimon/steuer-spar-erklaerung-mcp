@@ -36,6 +36,32 @@ foreach ($functionName in @(
 }
 
 $policy = $catalog.windows.receiptManager
+$foregroundCatalogStart = $worker.IndexOf('$foregroundRequiredReceiptOps = @(')
+$foregroundGateStart = $worker.IndexOf('$profilePolicyOperation -in $foregroundRequiredReceiptOps')
+$buildGateStart = $worker.IndexOf('Assert-SSEVerifiedBuildForOperation $profilePolicyOperation $a', $foregroundGateStart)
+$dispatcherStart = $worker.IndexOf('function Invoke-SSEWorkerOperation(', $foregroundGateStart)
+Assert-True ($foregroundCatalogStart -ge 0) 'Der Worker besitzt keinen zentralen BelegManager-Interaktionskatalog.'
+Assert-True ($foregroundGateStart -gt $foregroundCatalogStart) 'Der BelegManager-Interaktionsguard fehlt.'
+Assert-True ($buildGateStart -gt $foregroundGateStart) 'Der BelegManager-Interaktionsguard muss vor der Buildaufloesung stoppen.'
+Assert-True ($dispatcherStart -gt $buildGateStart) 'Der BelegManager-Interaktionsguard muss vor dem Operationsdispatcher stoppen.'
+$foregroundGateEnd = $buildGateStart
+Assert-True ($foregroundGateEnd -gt $foregroundGateStart) 'Der BelegManager-Interaktionsguard ist nicht eindeutig abgrenzbar.'
+$foregroundGate = $worker.Substring($foregroundGateStart, $foregroundGateEnd - $foregroundGateStart)
+foreach ($required in @(
+  "'blocked'",
+  "reason='foreground-required-operation-disabled'",
+  'retryable=$false',
+  "interactionRequirement='foreground-required'",
+  'mutationStarted=$false',
+  "resultingState='unchanged'",
+  'cleanupRequired=$false',
+  'physicalInputUsed=$false',
+  'foregroundLeaseUsed=$false'
+)) {
+  Assert-True ($foregroundGate.Contains($required)) "Der globale BelegManager-Interaktionsguard enthaelt '$required' nicht."
+}
+Assert-True ($foregroundGate.Contains('nicht automatisch wiederholen')) 'Der Block muss automatische Wiederholung ausdruecklich ausschliessen.'
+
 Assert-True ($policy.role -ceq 'nonmodal-tool-window') 'BelegManager hat nicht die erwartete Werkzeugfensterrolle.'
 Assert-True ('Qt692QWindow' -match [string]$policy.classPattern) 'Die gemessene Qt-Klasse passt nicht zur Profilbindung.'
 Assert-True ('Qt692QWindowIcon' -notmatch [string]$policy.classPattern) 'Das Hauptfenster passt faelschlich zur BelegManager-Klasse.'
@@ -380,4 +406,4 @@ foreach ($forbidden in @("Arg `$a 'name'", "Arg `$a 'aid'", "Arg `$a 'x'", "Arg 
   Assert-True (-not $deleteBlock.Contains($forbidden)) "receipt_manager_delete akzeptiert den freien Selektor '$forbidden'."
 }
 
-Write-Output 'BelegManager: gebundene Navigation, Liste, Lesen, Befuellen, Batch-Link, Import und Loeschen.'
+Write-Output 'BelegManager: focusless Liste aktiv; neun historische Vordergrundpfade vor Dispatcher und UI blockiert.'

@@ -27,6 +27,10 @@ import { SSE_API_OPERATIONS } from "../dist/api-contract.js";
 import { createApiExecutor } from "../dist/api-executor.js";
 import { createSseApiServer } from "../dist/api-server.js";
 import { loadProductProfile } from "../dist/product-profiles.js";
+import {
+  RECEIPT_FOREGROUND_BLOCK_REASON,
+  SSE_FOREGROUND_REQUIRED_RECEIPT_OPERATIONS,
+} from "../dist/receipt-interaction-policy.js";
 import { traceOperations } from "./operation-trace.mjs";
 import { createSyntheticAkadCase } from "./synthetic-akad-fixture.mjs";
 import {
@@ -44,8 +48,87 @@ import {
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
+const receiptHash = "A".repeat(64);
+const foregroundReceiptArguments = {
+  receipt_manager_action: { actionId: "showAllReceipts" },
+  receipt_manager_bulk_upsert: {
+    items: [{
+      resourceRef: "documents:not-created.pdf",
+      expectedHash: receiptHash,
+      identity: { exactTitle: "Beleg", documentNumber: "B-1" },
+      values: { title: "Beleg", documentNumber: "B-1" },
+    }],
+    acknowledgeBulkUpsert: true,
+    stopOnError: true,
+  },
+  receipt_manager_classification_options: {
+    rowRid: "1.2.3",
+    rowFingerprint: receiptHash,
+    expectedListFingerprint: receiptHash,
+    expectedDetailFingerprint: receiptHash,
+    kind: "categories",
+  },
+  receipt_manager_classify: {
+    rowRid: "1.2.3",
+    rowFingerprint: receiptHash,
+    expectedListFingerprint: receiptHash,
+    expectedDetailFingerprint: receiptHash,
+    values: { categories: ["Reisekosten"] },
+    acknowledgeClassification: true,
+  },
+  receipt_manager_delete: {
+    rowRid: "1.2.3",
+    rowFingerprint: receiptHash,
+    expectedListFingerprint: receiptHash,
+    expectedCountBefore: 1,
+    acknowledgeDelete: true,
+  },
+  receipt_manager_import: {
+    resourceRef: "documents:not-created.pdf",
+    expectedHash: receiptHash,
+    expectedListFingerprint: receiptHash,
+    expectedCountBefore: 0,
+    acknowledgeImport: true,
+  },
+  receipt_manager_link: {
+    items: [{ expectedReceiptTitle: "Beleg", linked: true }],
+    expectedTargetPage: "Einnahmen/Ausgaben",
+    expectedLinkTarget: "Reisekosten",
+    acknowledgeLinkChange: true,
+  },
+  receipt_manager_read: {
+    rowRid: "1.2.3",
+    rowFingerprint: receiptHash,
+    expectedListFingerprint: receiptHash,
+  },
+  receipt_manager_update: {
+    rowRid: "1.2.3",
+    rowFingerprint: receiptHash,
+    expectedListFingerprint: receiptHash,
+    expectedDetailFingerprint: receiptHash,
+    values: { title: "Neu" },
+    acknowledgeUpdate: true,
+  },
+};
 
-async function createHarness({ includeNextYearUstva = false } = {}) {
+function assertForegroundReceiptBlock(result, operation) {
+  assert.equal(result.ok, false, `${operation}: muss blockieren`);
+  assert.equal(result.kind, "blocked", `${operation}: Fehlerart`);
+  assert.equal(result.reason, RECEIPT_FOREGROUND_BLOCK_REASON, `${operation}: Blockgrund`);
+  assert.equal(result.retryable, false, `${operation}: kein automatischer Retry`);
+  assert.equal(result.interactionRequirement, "foreground-required", `${operation}: Interaktionsklasse`);
+  assert.equal(result.mutationStarted, false, `${operation}: keine Mutation`);
+  assert.equal(result.resultingState, "unchanged", `${operation}: Zustand`);
+  assert.equal(result.cleanupRequired, false, `${operation}: kein Cleanup`);
+  assert.equal(result.physicalInputUsed, false, `${operation}: keine physische Eingabe`);
+  assert.equal(result.foregroundLeaseUsed, false, `${operation}: keine Vordergrundlease`);
+}
+
+async function createHarness({
+  includeNextYearUstva = false,
+  initialReceiptManagerState = "closed",
+  initialReceiptRows = [],
+} = {}) {
   const temporary = mkdtempSync(join(tmpdir(), "sse-tax-journeys-"));
   const caseDir = join(temporary, "cases");
   const workspaceDir = join(temporary, "workspace");
@@ -56,7 +139,7 @@ async function createHarness({ includeNextYearUstva = false } = {}) {
     mkdirSync(path, { recursive: true });
   }
   const seeded = seedSyntheticCases(caseDir, { includeNextYearUstva });
-  const { worker, model } = createStatefulSseWorker({ caseDir });
+  const { worker, model } = createStatefulSseWorker({ caseDir, initialReceiptManagerState, initialReceiptRows });
   const config = {
     host: "127.0.0.1",
     port: 1,
@@ -884,179 +967,87 @@ test("23 menu keeps ELSTER closed and opens only safe dialogs", async () => {
   });
 });
 
-test("23b receipt manager navigates, imports, reads and deletes with fresh bindings", async () => {
+test("23b foreground-required receipt operations stop before worker and state access", async () => {
   await withHarness(async (harness) => {
     await launchFreelancer(harness);
-    const closed = await harness.request("receipt_manager_action", { actionId: "showAllReceipts" });
-    assert.equal(closed.body.result.kind, "not-found");
+    const journalBefore = harness.model.journal.length;
+    for (const operation of SSE_FOREGROUND_REQUIRED_RECEIPT_OPERATIONS) {
+      const result = await harness.call(operation, foregroundReceiptArguments[operation], 30_000);
+      assertForegroundReceiptBlock(result, operation);
+    }
+    assert.equal(
+      harness.model.journal.length,
+      journalBefore,
+      "Kein gesperrter BelegManager-Aufruf darf den synthetischen Worker oder seinen Zustand erreichen.",
+    );
 
-    await harness.call("menu_click", { name: "BelegManager" });
-    const wrongState = await harness.request("receipt_manager_list", {});
-    assert.equal(wrongState.body.result.kind, "precondition-failed");
-    const listed = await harness.call("receipt_manager_action", { actionId: "showAllReceipts", hwnd: 4242 });
-    assert.equal(listed.stateBefore, "start");
-    assert.equal(listed.stateAfter, "list");
-    assert.equal(listed.windowSetUnchanged, true);
-    assert.equal(listed.dirtyStateUnchanged, true);
-    assert.equal(listed.verified, true);
+    const invalid = await harness.request("receipt_manager_action", { actionId: "free-selector" });
+    assert.equal(invalid.status, 400);
+    assert.equal(invalid.body.error.code, "bad-args");
+    assert.equal(harness.model.journal.length, journalBefore);
 
-    const receipts = await harness.call("receipt_manager_list", { hwnd: 4242 });
-    assert.equal(receipts.count, 0);
-    assert.equal(receipts.rowsComplete, true);
-    assert.equal(receipts.physicalInputUsed, false);
-    assert.match(receipts.listFingerprint, /^[A-Fa-f0-9]{64}$/u);
+    const list = await harness.call("receipt_manager_list", {});
+    assert.equal(list.ok, true, "Die focusless Liste muss weiterhin erfolgreich lesbar bleiben.");
+    assert.equal(list.state, "list");
+    assert.equal(list.count, 1);
+    assert.equal(list.matches[0].title, "Synthetischer Listenbeleg");
+    assert.equal(list.physicalInputUsed, false);
+    assert.equal(harness.model.journal.length, journalBefore + 1);
+  }, {
+    initialReceiptManagerState: "list",
+    initialReceiptRows: [{
+      rowRid: "42.5252.4.9001",
+      title: "Synthetischer Listenbeleg",
+      draft: false,
+      date: "2026-08-28",
+      documentNumber: "SYN-LIST-1",
+      amount: "12,34",
+      vatRate: "19",
+      net: false,
+      note: "Nur deterministische Testdaten",
+    }],
+  });
 
-    const receiptPath = join(harness.documentsDir, "synthetic-receipt.pdf");
-    writeFileSync(receiptPath, "%PDF-1.4 synthetic receipt\n", "utf8");
-    const receiptHash = sha256File(receiptPath);
-    const imported = await harness.call("receipt_manager_import", {
-      resourceRef: "documents:synthetic-receipt.pdf",
-      expectedHash: receiptHash,
-      expectedListFingerprint: receipts.listFingerprint,
-      expectedCountBefore: receipts.count,
-      acknowledgeImport: true,
-    });
-    assert.equal(imported.countBefore, 0);
-    assert.equal(imported.countAfter, 1);
-    assert.equal(imported.previewChanged, true);
-    assert.equal(imported.sourceHashStable, true);
-    assert.equal(imported.cleanupRequired, false);
-    assert.equal(imported.resourceRefs.resourceRef, "documents:synthetic-receipt.pdf");
+  await withHarness(async (harness) => {
+    await launchFreelancer(harness);
+    const empty = await harness.call("receipt_manager_list", {});
+    assert.equal(empty.ok, true);
+    assert.deepEqual(empty.rows, []);
+    assert.deepEqual(empty.matches, []);
+  }, { initialReceiptManagerState: "list" });
 
-    const afterImport = await harness.call("receipt_manager_list", { hwnd: 4242 });
-    assert.equal(afterImport.count, 1);
-    assert.equal(afterImport.draftCount, 1);
-    const row = afterImport.rows[0];
-    const read = await harness.call("receipt_manager_read", {
-      rowRid: row.rowRid,
-      rowFingerprint: row.rowFingerprint,
-      expectedListFingerprint: afterImport.listFingerprint,
-    });
-    assert.equal(read.row.rowRid, row.rowRid);
-    assert.equal(read.semanticListUnchanged, true);
-    assert.equal(read.verified, true);
-
-    const staleUpdate = await harness.call("receipt_manager_update", {
-      rowRid: row.rowRid,
-      rowFingerprint: row.rowFingerprint,
-      expectedListFingerprint: afterImport.listFingerprint,
-      expectedDetailFingerprint: "A".repeat(64),
-      values: { title: "Amazon Testbeleg" },
-      acknowledgeUpdate: true,
-    });
-    assert.equal(staleUpdate.kind, "stale");
-    const updated = await harness.call("receipt_manager_update", {
-      rowRid: row.rowRid,
-      rowFingerprint: row.rowFingerprint,
-      expectedListFingerprint: afterImport.listFingerprint,
-      expectedDetailFingerprint: read.detailFingerprint,
-      values: {
-        title: "Amazon Testbeleg",
-        date: "2026-01-25",
-        documentNumber: "DE6RQH4WAEUD",
-        amount: "75.00",
-        vatRate: "19",
-        net: false,
-        note: "Amazon EU S.a r.l. - DJI Mic Mini",
-      },
-      acknowledgeUpdate: true,
-    });
-    assert.deepEqual(updated.changedFields.sort(), ["amount", "date", "documentNumber", "note", "title"].sort());
-    assert.equal(updated.valuesAfter.amount, "75,00");
-    assert.equal(updated.valuesAfter.date, "2026-01-25");
-    assert.equal(updated.draftBefore, true);
-    assert.equal(updated.draftAfter, false);
-    assert.equal(updated.countUnchanged, true);
-    assert.equal(updated.otherRowsUnchanged, true);
-    assert.equal(updated.verified, true);
-
-    const afterUpdate = await harness.call("receipt_manager_list", { hwnd: 4242 });
-    assert.equal(afterUpdate.rows[0].draft, false);
-    assert.notEqual(afterUpdate.rows[0].rowFingerprint, row.rowFingerprint);
-
-    const staleDelete = await harness.call("receipt_manager_delete", {
-      rowRid: afterUpdate.rows[0].rowRid,
-      rowFingerprint: "A".repeat(64),
-      expectedListFingerprint: afterUpdate.listFingerprint,
-      expectedCountBefore: 1,
-      acknowledgeDelete: true,
-    });
-    assert.equal(staleDelete.kind, "stale");
-    const deleted = await harness.call("receipt_manager_delete", {
-      rowRid: afterUpdate.rows[0].rowRid,
-      rowFingerprint: afterUpdate.rows[0].rowFingerprint,
-      expectedListFingerprint: afterUpdate.listFingerprint,
-      expectedCountBefore: 1,
-      acknowledgeDelete: true,
-    });
-    assert.equal(deleted.countBefore, 1);
-    assert.equal(deleted.countAfter, 0);
-    assert.equal(deleted.remainingRowsUnchanged, true);
-    assert.equal(deleted.dialogClosed, true);
-    assert.equal((await harness.call("receipt_manager_list", { hwnd: 4242 })).count, 0);
-
-    const stale = await harness.request("receipt_manager_action", { actionId: "showAllReceipts" });
-    assert.equal(stale.body.result.kind, "precondition-failed");
-    const home = await harness.call("receipt_manager_action", { actionId: "goHome" });
-    assert.equal(home.stateBefore, "list");
-    assert.equal(home.stateAfter, "start");
-    assert.notEqual(home.stateFingerprintBefore, home.stateFingerprintAfter);
+  await withHarness(async (harness) => {
+    await launchFreelancer(harness);
+    const closed = await harness.call("receipt_manager_list", {});
+    assert.equal(closed.ok, false);
+    assert.equal(closed.kind, "not-found", "Die focusless Liste darf einen geschlossenen Manager nicht oeffnen.");
   });
 });
 
-test("23c receipt API smoke queries, upserts and links with independent readback", async () => {
+test("23c MCP returns the same non-retryable receipt block without touching state", async () => {
   await withHarness(async (harness) => {
-    await launchFreelancer(harness);
-    await harness.call("menu_click", { name: "BelegManager" });
-    await harness.call("receipt_manager_action", { actionId: "showAllReceipts", hwnd: 4242 });
-
-    const receiptPath = join(harness.documentsDir, "api-smoke.pdf");
-    writeFileSync(receiptPath, "%PDF-1.4 synthetic API smoke receipt\n", "utf8");
-    const title = "API Smoke Invoice";
-    const documentNumber = "API-SMOKE-1";
-    const upsert = await harness.call("receipt_manager_bulk_upsert", {
-      items: [{
-        resourceRef: "documents:api-smoke.pdf",
-        expectedHash: sha256File(receiptPath),
-        identity: { exactTitle: title, documentNumber },
-        values: {
-          title, date: "2026-08-26", documentNumber, amount: "12.34",
-          vatRate: "19", net: false, note: "one-call API smoke",
-        },
-      }],
-      acknowledgeBulkUpsert: true,
-      stopOnError: true,
-      hwnd: 4242,
-    }, 30_000);
-    assert.equal(upsert.ok, true);
-    assert.equal(upsert.completedCount, 1);
-    assert.equal(upsert.items[0].action, "imported");
-    assert.equal(upsert.items[0].verified, true);
-
-    const queried = await harness.call("receipt_manager_list", {
-      filter: { exactTitle: title, draft: false }, limit: 1, hwnd: 4242,
+    const journalBefore = harness.model.journal.length;
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [join(root, "dist", "index.js")],
+      env: { ...process.env, SSE_API_URL: harness.baseUrl },
     });
-    assert.equal(queried.matchedCount, 1);
-    assert.equal(queried.matchesComplete, true);
-    assert.equal(queried.matches[0].title, title);
-    assert.equal(queried.matches[0].draft, false);
-
-    const linked = await harness.call("receipt_manager_link", {
-      items: [{
-        expectedReceiptTitle: title,
-        expectedDocumentNumber: documentNumber,
-        receiptContentFingerprint: queried.matches[0].contentFingerprint,
-        linked: true,
-      }],
-      expectedTargetPage: "Einnahmen/Ausgaben",
-      expectedLinkTarget: "Synthetisches Ziel",
-      acknowledgeLinkChange: true,
-      hwnd: 4242,
-    }, 30_000);
-    assert.equal(linked.changedCount, 1);
-    assert.equal(linked.items[0].linkedAfter, true);
-    assert.equal(linked.persistenceVerified, true);
-    assert.equal(linked.verified, true);
+    const client = new Client({ name: "receipt-interaction-boundary", version: "1.0.0" });
+    try {
+      await client.connect(transport);
+      const response = await client.callTool({
+        name: "sse_receipt_manager_update",
+        arguments: foregroundReceiptArguments.receipt_manager_update,
+      });
+      assert.equal(response.isError, true, JSON.stringify(response));
+      assertForegroundReceiptBlock(response.structuredContent, "receipt_manager_update");
+      const text = response.content.filter((entry) => entry.type === "text").map((entry) => entry.text).join("\n");
+      assert.match(text, /nicht wiederholen/iu);
+      assert(!text.includes(harness.temporary), "Der MCP-Block darf keinen lokalen Pfad ausgeben.");
+    } finally {
+      await client.close();
+    }
+    assert.equal(harness.model.journal.length, journalBefore, "MCP darf den Worker nicht erreichen.");
   });
 });
 

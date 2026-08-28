@@ -417,7 +417,15 @@ export function seedSyntheticCases(caseDir, { includeNextYearUstva = false } = {
   };
 }
 
-export function createStatefulSseWorker({ caseDir }) {
+export function createStatefulSseWorker({
+  caseDir,
+  initialReceiptManagerState = "closed",
+  initialReceiptRows = [],
+  initialReceiptLinks = [],
+}) {
+  if (!["closed", "start", "list"].includes(initialReceiptManagerState)) {
+    throw new Error(`Unbekannter synthetischer BelegManager-Zustand '${initialReceiptManagerState}'.`);
+  }
   const journal = [];
   const cases = new Map();
   let openPath = null;
@@ -429,11 +437,14 @@ export function createStatefulSseWorker({ caseDir }) {
   let dialogs = [];
   let openMenu = null;
   let fileDialog = null;
-  let receiptManagerOpen = false;
-  let receiptManagerState = "start";
-  let receiptRows = [];
-  let nextReceiptId = 1;
-  const receiptLinks = new Map();
+  let receiptManagerOpen = initialReceiptManagerState !== "closed";
+  let receiptManagerState = initialReceiptManagerState === "list" ? "list" : "start";
+  let receiptRows = clone(initialReceiptRows);
+  let nextReceiptId = receiptRows.reduce((maximum, row) => {
+    const suffix = /(?:^|\.)(\d+)$/u.exec(String(row.rowRid))?.[1];
+    return suffix === undefined ? maximum : Math.max(maximum, Number(suffix) + 1);
+  }, 1);
+  const receiptLinks = new Map(initialReceiptLinks.map((entry) => [String(entry.rowRid), entry.linked === true]));
   let vast = null;
   let minimised = false;
   let desktopName = null;
@@ -470,6 +481,17 @@ export function createStatefulSseWorker({ caseDir }) {
     get searchValue() { return searchValue; },
     get dialogs() { return dialogs; },
     openCase: () => openPath ? readCase(openPath) : null,
+    receiptSnapshot: () => ({
+      open: receiptManagerOpen,
+      state: receiptManagerState,
+      nextReceiptId,
+      rows: clone(receiptRows).map((row) => ({
+        ...row,
+        categories: [...(row.categories ?? [])],
+        persons: [...(row.persons ?? [])],
+        linked: receiptLinks.get(row.rowRid) === true,
+      })),
+    }),
     openWarning() {
       dialogs = [{
         hwnd: 7777,
@@ -1619,6 +1641,7 @@ export function createStatefulSseWorker({ caseDir }) {
         }
 
         const originalRows = clone(receiptRows);
+        const originalNextReceiptId = nextReceiptId;
         const completed = [];
         const skipped = [];
         let failedAction = null;
@@ -1631,6 +1654,14 @@ export function createStatefulSseWorker({ caseDir }) {
 
         for (let index = 0; index < args.items.length; index += 1) {
           const item = args.items[index];
+          if (
+            typeof item.expectedPath !== "string" ||
+            !existsSync(item.expectedPath) ||
+            sha256File(item.expectedPath) !== String(item.expectedHash).toUpperCase()
+          ) {
+            failedAction = { index, kind: "stale", error: "Die gebundene Belegquelldatei ist veraltet." };
+            break;
+          }
           const matches = receiptRows.filter((row) => matchesIdentity(row, item.identity ?? {}));
           if (matches.length > 1) {
             failedAction = { index, kind: "ambiguous", error: "Die fachliche Belegidentitaet ist nicht eindeutig." };
@@ -1641,7 +1672,14 @@ export function createStatefulSseWorker({ caseDir }) {
             break;
           }
           if (matches.length === 1 && item.onExisting === "skip") {
-            const result = { index, action: "skipped", rowRid: matches[0].rowRid, verified: true };
+            const result = {
+              index,
+              action: "skipped",
+              rowRid: matches[0].rowRid,
+              preservedStateFingerprint: sha256(JSON.stringify(matches[0])),
+              sourceHashStable: sha256File(item.expectedPath) === String(item.expectedHash).toUpperCase(),
+              verified: true,
+            };
             completed.push(result);
             skipped.push(result);
             continue;
@@ -1658,18 +1696,32 @@ export function createStatefulSseWorker({ caseDir }) {
             vatRate: "19",
             net: false,
             note: "",
+            categories: [],
+            persons: [],
           };
           if (matches.length === 0) receiptRows.push(row);
           for (const [name, raw] of Object.entries(item.values ?? {})) {
             row[name] = name === "amount" ? String(raw).replace(".", ",") : raw;
           }
+          for (const name of ["categories", "persons"]) {
+            if (item.classification?.[name] !== undefined) row[name] = clone(item.classification[name]);
+          }
           if (Object.prototype.hasOwnProperty.call(item.values ?? {}, "title")) row.draft = false;
-          completed.push({ index, action, rowRid: row.rowRid, values: clone(item.values ?? {}), verified: true });
+          completed.push({
+            index,
+            action,
+            rowRid: row.rowRid,
+            values: clone(item.values ?? {}),
+            classification: clone(item.classification ?? {}),
+            sourceHashStable: sha256File(item.expectedPath) === String(item.expectedHash).toUpperCase(),
+            verified: true,
+          });
         }
 
         let rollback = { attempted: false, ok: true, actions: [] };
         if (failedAction && completed.some((item) => item.action !== "skipped")) {
           receiptRows = originalRows;
+          nextReceiptId = originalNextReceiptId;
           rollback = {
             attempted: true,
             ok: true,
@@ -1677,12 +1729,37 @@ export function createStatefulSseWorker({ caseDir }) {
           };
         }
         const rolledBack = Boolean(failedAction && rollback.attempted && rollback.ok);
+        const rolledBackStateVerified = !rolledBack || (
+          JSON.stringify(receiptRows) === JSON.stringify(originalRows) && nextReceiptId === originalNextReceiptId
+        );
         const finalItems = args.items.map((item, index) => {
-          const matches = receiptRows.filter((row) => matchesIdentity(row, item.identity ?? {}));
-          return { index, matchedCount: matches.length, verified: rolledBack ? matches.length === 0 : matches.length === 1 };
+          const completedItem = completed.find((entry) => entry.index === index);
+          const matches = completedItem
+            ? receiptRows.filter((row) => row.rowRid === completedItem.rowRid)
+            : receiptRows.filter((row) => matchesIdentity(row, item.identity ?? {}));
+          const match = matches[0];
+          const skippedStateMatches = completedItem?.action === "skipped" && matches.length === 1 &&
+            sha256(JSON.stringify(match)) === completedItem.preservedStateFingerprint;
+          const valuesMatch = skippedStateMatches || (matches.length === 1 &&
+            Object.entries(item.values ?? {}).every(([name, raw]) => (
+              match[name] === (name === "amount" ? String(raw).replace(".", ",") : raw)
+            )));
+          const classificationMatches = skippedStateMatches || (matches.length === 1 &&
+            ["categories", "persons"].every((name) => (
+              item.classification?.[name] === undefined ||
+              JSON.stringify(match[name] ?? []) === JSON.stringify(item.classification[name])
+            )));
+          const sourceHashStable = completedItem?.sourceHashStable === true;
+          return {
+            index,
+            matchedCount: matches.length,
+            verified: rolledBack ? rolledBackStateVerified : valuesMatch && classificationMatches && sourceHashStable,
+          };
         });
         const finalReadbackVerified = finalItems.every((item) => item.verified);
         const ok = failedAction === null && finalReadbackVerified;
+        const mutationStarted = completed.some((item) => item.action !== "skipped");
+        const failedBeforeMutation = failedAction !== null && !mutationStarted;
         return {
           ok,
           kind: ok ? undefined : failedAction?.kind ?? "verification-failed",
@@ -1702,10 +1779,11 @@ export function createStatefulSseWorker({ caseDir }) {
           failure: failedAction,
           skipped,
           rollback,
-          cleanupRequired: !ok && !rolledBack,
+          cleanupRequired: !ok && !rolledBack && !failedBeforeMutation,
           finalReadback: { items: finalItems },
           finalReadbackVerified,
-          resultingState: ok ? "completed-verified" : rolledBack ? "rolled-back-verified" : "unknown",
+          resultingState: ok ? "completed-verified" : rolledBack ? "rolled-back-verified" :
+            failedBeforeMutation ? "unchanged" : "unknown",
           performance: {
             workerProcessCount: 1,
             internalOperationCount: 2 + completed.length,

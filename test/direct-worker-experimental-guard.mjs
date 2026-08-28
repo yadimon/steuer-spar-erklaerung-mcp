@@ -5,6 +5,7 @@ import {
   EXPERIMENTAL_PROFILE_VERIFICATION_OPERATIONS,
 } from "../dist/api-executor.js";
 import { SSE_BUILD_DRIFT_BLOCKED_OPERATIONS } from "../dist/operation-traits.js";
+import { SSE_FOREGROUND_REQUIRED_RECEIPT_OPERATIONS } from "../dist/receipt-interaction-policy.js";
 import { directWorker, worker } from "./direct-worker-helpers.mjs";
 
 const workerSource = readFileSync(worker, "utf8");
@@ -31,12 +32,25 @@ assert.deepEqual(
   sorted(SSE_BUILD_DRIFT_BLOCKED_OPERATIONS),
   "TS- und PowerShell-Build-Drift-Katalog muessen identisch sein",
 );
-const buildGateCall = workerSource.lastIndexOf("Assert-SSEVerifiedBuildForOperation $Op");
-const operationSwitch = workerSource.indexOf("switch ($Op) {");
+assert.deepEqual(
+  sorted(parsePowerShellCatalog("foregroundRequiredReceiptOps")),
+  sorted(SSE_FOREGROUND_REQUIRED_RECEIPT_OPERATIONS),
+  "TS- und PowerShell-Vordergrundkatalog muessen identisch sein",
+);
+const interactionGateCall = workerSource.indexOf("$profilePolicyOperation -in $foregroundRequiredReceiptOps");
+const verificationGateCall = workerSource.indexOf("if ($verificationOnlyProfile");
+const buildGateCall = workerSource.indexOf(
+  "Assert-SSEVerifiedBuildForOperation $profilePolicyOperation $a",
+  interactionGateCall,
+);
+const operationSwitch = workerSource.indexOf("switch ($Op) {", interactionGateCall);
+assert(interactionGateCall > 0 && interactionGateCall < buildGateCall,
+  "Vordergrundpflichtige Belegoperationen muessen vor Buildaufloesung und Dispatcher stoppen");
+assert(interactionGateCall < verificationGateCall,
+  "Der unveraenderliche BelegManager-Block darf nicht vom Experimental-Opt-in abhaengen");
 assert(buildGateCall > 0 && buildGateCall < operationSwitch,
   "Build-Drift-Gate muss vor jeder Operationsausfuehrung liegen");
 const disabledGateCall = workerSource.indexOf("status -eq 'disabled'");
-const verificationGateCall = workerSource.indexOf("if ($verificationOnlyProfile");
 assert(disabledGateCall > 0 && disabledGateCall < verificationGateCall,
   "Deaktivierte Profile muessen vor dem Experimental-Opt-in fail-closed stoppen");
 
@@ -58,6 +72,17 @@ const allowedHealth = directWorker(
   "health", {}, { SSE_PROFILE_ID: "2024", SSE_OPERATE_EXPERIMENTAL: "" },
 );
 assert.equal(allowedHealth.ok, true, "Erlaubte Statusabfrage muss auch ohne operateExperimental erreichbar sein");
+
+for (const experimental of ["", "1"]) {
+  const blockedReceipt = directWorker(
+    "receipt_manager_action",
+    { actionId: "showAllReceipts" },
+    { SSE_PROFILE_ID: "2024", SSE_OPERATE_EXPERIMENTAL: experimental },
+  );
+  assert.equal(blockedReceipt.kind, "blocked");
+  assert.equal(blockedReceipt.reason, "foreground-required-operation-disabled");
+  assert.equal(blockedReceipt.mutationStarted, false);
+}
 
 const overriddenWindows = directWorker(
   "windows", {}, { SSE_PROFILE_ID: "2024", SSE_OPERATE_EXPERIMENTAL: "1" },

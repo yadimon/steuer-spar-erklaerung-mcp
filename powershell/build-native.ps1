@@ -77,6 +77,7 @@ function Assert-SSENativeAssemblySurface([Reflection.Assembly]$Assembly) {
       'GetGUIThreadInfo','GetCurrentThreadId','SendUnicodeText')
     SSEAccessible=@('Describe','DescribePoint','Invoke')
     SSEAccNode=@()
+    SSEWorkerControllerLease=@('Acquire','ReleaseAndClose')
   }
   $missingTypes = @()
   $missingMethods = @()

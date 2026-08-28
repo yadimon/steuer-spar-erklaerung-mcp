@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import { SSE_API_OPERATIONS } from "../dist/api-contract.js";
 import { apiOperationDiscovery, SSE_API_DISCOVERY } from "../dist/api-discovery.js";
+import { SSE_CAPABILITIES } from "../dist/capabilities.js";
 import { parseApiOperationArgs } from "../dist/operation-catalog.js";
 
 assert.equal(SSE_API_DISCOVERY.schemaVersion, 1);
@@ -17,6 +18,11 @@ assert(SSE_API_DISCOVERY.planning.fallbackStages.length >= 4);
 assert.deepEqual(SSE_API_DISCOVERY.planning.selectors.preferred, ["aid", "rid", "name"]);
 assert.equal(SSE_API_DISCOVERY.planning.click.genericToggleBlocked, true);
 assert.equal(SSE_API_DISCOVERY.planning.dialogs.requiresWindowAndFingerprint, true);
+assert.deepEqual(
+  SSE_API_DISCOVERY.planning.concurrency.workerController,
+  SSE_CAPABILITIES.concurrency.workerController,
+  "Discovery muss die maschinenlesbare Worker-Controller-Semantik vollstaendig veroeffentlichen.",
+);
 
 let describedPropertyCount = 0;
 function assertPropertyDescriptions(schema, path) {
@@ -100,9 +106,10 @@ for (const operation of emptyObjectOperations) {
 }
 
 const serialized = JSON.stringify(SSE_API_DISCOVERY);
-// Ein vollstaendig beschriebenes, typisiertes Batch-Schema kostet rund 5 KiB;
-// zweistellige KiB Zuwachs bleiben weiterhin ein Regressionstreffer.
-assert(Buffer.byteLength(serialized, "utf8") < 285 * 1024, "Discovery-Antwort ist unnoetig gross.");
+// Die zusammengefuehrte Worker-Controller-Policy liegt 29 Bytes ueber 285 KiB.
+// 286 KiB lassen weniger als 1 KiB Reserve; zweistellige KiB-Zuwaechse bleiben
+// damit weiterhin ein Regressionstreffer, ohne maschinenlesbare Semantik zu streichen.
+assert(Buffer.byteLength(serialized, "utf8") < 286 * 1024, "Discovery-Antwort ist unnoetig gross.");
 assert(!serialized.includes("C:\\development"), "Discovery darf keine Build-PC-Pfade enthalten.");
 assert(!serialized.includes("private-tax"), "Discovery darf keine Test- oder Steuerdaten enthalten.");
 

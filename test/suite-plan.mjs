@@ -10,6 +10,18 @@ const psFile = (name, file) => ({
 });
 const nodeFile = (name, file, ...args) => ({ name, command: node, args: [file, ...args] });
 const withApi = (name, file, ...args) => nodeFile(name, "test/with-api.mjs", node, file, ...args);
+export const WORKER_CONTROLLER_CONFLICT_KEY = "windows-session-worker-controller";
+const workerControllerSteps = new Set([
+  "archive-cases", "archive-cases-synthetic", "archive-local-parity",
+  "backup-cases-contract", "backup-local-parity", "bulk-action-worker-contract",
+  "case-file", "checker-open-contract", "direct-worker-collection-guard",
+  "desktop-marker-contract",
+  "direct-worker-experimental-guard", "direct-worker-file-guard", "direct-worker-guard",
+  "direct-worker-identity-guard", "direct-worker-resource-guard", "file-operations-worker",
+  "launch-orchestration", "mcp-selftest", "product-gate", "verify-collect",
+  "verify-local-parity", "worker-inherited-pipe", "worker-input-file-contract",
+  "worker-output-file-contract", "worker-timeout", "working-copy-local-parity",
+]);
 
 export const serialBuildSteps = Object.freeze([
   nodeFile("dist-prune", "scripts/prune-dist.mjs"),
@@ -66,6 +78,8 @@ export const parallelSteps = Object.freeze([
   nodeFile("page-objects-parity", "test/page-objects-parity.mjs"),
   nodeFile("product-profile-status", "test/product-profile-status-contract.mjs"),
   nodeFile("profile-operation-policy", "test/profile-operation-policy.mjs"),
+  nodeFile("receipt-interaction-policy", "test/receipt-interaction-policy.mjs"),
+  nodeFile("api-mega-contract", "test/performance/api-mega-contract.mjs"),
   psFile("akad-parser", "test/akad-parser-contract.ps1"),
   nodeFile("table-combobox-guard", "test/table-combobox-guard.mjs"),
   nodeFile("case-file", "test/case-file-contract.mjs"),
@@ -142,9 +156,12 @@ export const parallelSteps = Object.freeze([
   psFile("build-drift", "test/build-drift-contract.ps1"),
   withApi("product-gate", "test/product-gate.mjs"),
   withApi("archive-cases", "test/archive-cases.mjs"),
-]);
+].map((step) => workerControllerSteps.has(step.name)
+  ? { ...step, conflictKey: WORKER_CONTROLLER_CONFLICT_KEY }
+  : step));
 
 export const exclusiveSteps = Object.freeze([
+  { ...nodeFile("worker-controller-lock", "test/worker-controller-lock-contract.mjs"), timeoutMs: 420_000 },
   withApi("no-console-window", "test/no-console-window.mjs"),
 ]);
 
@@ -205,6 +222,8 @@ const FAST_STEP_NAMES = new Set([
   "api-config-contract",
   "product-profile-status",
   "profile-operation-policy",
+  "receipt-interaction-policy",
+  "api-mega-contract",
   "direct-worker-experimental-guard",
   "experimental-dialog-policy",
   "startup-dialog-policy",

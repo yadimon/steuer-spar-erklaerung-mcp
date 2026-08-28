@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { createServer as createHttpServer } from "node:http";
-import { callApiOperation, readApiDiscovery } from "../dist/api-client.js";
+import { callApiOperation, callApiOperationEnvelope, readApiDiscovery, readApiHealthz } from "../dist/api-client.js";
 import { SSE_API_OPERATIONS } from "../dist/api-contract.js";
 import { createSseApiServer } from "../dist/api-server.js";
 import { localHttpFetch } from "../dist/local-http-transport.js";
 
 const server = createSseApiServer({
   execute: async () => ({ ok: true, running: false }),
+  prewarmStatus: () => ({ ready: true, failure: null }),
 });
 server.listen(0, "127.0.0.1");
 await once(server, "listening");
@@ -24,8 +25,16 @@ globalThis.fetch = async () => {
 try {
   const result = await callApiOperation("health", {}, 1_000, { baseUrl });
   assert.equal(result.ok, true);
+  const envelope = await callApiOperationEnvelope("health", {}, 1_000, { baseUrl });
+  assert.equal(envelope.operation, "health");
+  assert.match(envelope.requestId, /^[a-f0-9-]{16,}$/iu);
+  assert(Number.isFinite(envelope.durationMs) && envelope.durationMs >= 0);
+  assert.equal(envelope.result.ok, true);
   const discovery = await readApiDiscovery({ baseUrl });
   assert.deepEqual(discovery.operations, [...SSE_API_OPERATIONS]);
+  const healthz = await readApiHealthz({ baseUrl });
+  assert.equal(healthz.ok, true);
+  assert.equal(healthz.prewarm?.ready, true);
   assert.equal(globalFetchCalls, 0, "API-Client verwendete weiterhin globales fetch.");
 } finally {
   globalThis.fetch = originalFetch;

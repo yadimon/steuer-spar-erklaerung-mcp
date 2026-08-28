@@ -76,6 +76,9 @@ try {
 
   writeConfig({ unbekanntesFeld: true });
   assert.throws(() => load(), /Unbekanntes Feld.*unbekanntesFeld/);
+  writeConfig({ interactiveReceiptLeaseToken: "A".repeat(64) });
+  assert.throws(() => load(), /Unbekanntes Feld.*interactiveReceiptLeaseToken/,
+    "Die interaktive Test-Lease darf nicht persistierbar konfiguriert werden.");
   writeConfig({ workspaceDir: 123 });
   assert.throws(() => load(), /workspaceDir.*Zeichenkette/);
   writeConfig({ port: true });
