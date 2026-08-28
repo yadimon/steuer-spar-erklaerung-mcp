@@ -225,6 +225,12 @@ try {
   assert.match(formatOperationArgumentError(error), /caseRef.*file.*nicht gemeinsam/);
 }
 
+assert.throws(
+  () => parseApiOperationArgs("close", { pid: 7, discardChanges: true }),
+  /hwnd/u,
+  "close darf ungespeicherte Daten nie ohne exakte Fensterbindung verwerfen.",
+);
+
 // Ein falsch geratener Feldname ist der haeufigste Aufruferfehler. Ohne die
 // erlaubten Namen kostet er eine zusaetzliche Runde ueber describe.
 try {

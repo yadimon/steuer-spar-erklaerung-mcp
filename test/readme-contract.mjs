@@ -17,7 +17,8 @@ for (const feature of [
   "SteuerSparErklärung 2025",
   "BelegManager",
   "Umsatzsteuer-Voranmeldung",
-  "verifizierten Arbeitskopie",
+  "Bereits geöffneten Fall bearbeiten",
+  "aktuellen Dateistands kontrolliert ändern",
   "99",
 ]) {
   assert(readme.includes(feature), `README-Feature fehlt: ${feature}`);
@@ -36,5 +37,9 @@ for (const reference of [
 
 assert.match(readme, /npx.+ohne MCP/isu, "Der isolierte Prompt muss den temporären NPX-Weg ohne MCP erklären.");
 assert.match(readme, /ELSTER.+(?:nicht|nichts|keine)/isu, "Die Prompt-Dokumentation muss die ELSTER-Grenze nennen.");
+assert.match(readme, /Dateihash.+unverändert.+wiederverwendet/isu,
+  "Der normale Ablauf muss die einmalige Sicherung je Dateistand erklären.");
+assert.match(readme, /Save As.+keine impliziten Sicherheitsmaßnahmen/isu,
+  "README darf Save As oder Arbeitskopien nicht still als Sicherheitsweg vorgeben.");
 
 process.stdout.write("README: Features, zwei Prompts und Kernreferenzen bestanden\n");

@@ -655,7 +655,7 @@ try {
   await expectError(client, "sse_launch", { file: "C:\\__sse_mcp_tests__\\fixture.ESt2025", mode: "einur" }, "Unrecognized key");
   await expectError(client, "sse_launch", { file: "C:\\__sse_mcp_tests__\\fixture.txt", mode: "einur" }, "Unrecognized key");
   await expectError(client, "sse_health", { unexpected: true }, "Unrecognized key");
-  await expectError(client, "sse_close", { pid: process.pid, discardChanges: true }, "verifiziert");
+  await expectError(client, "sse_close", { pid: process.pid, hwnd: 1, discardChanges: true }, "verifiziert");
 
   assert(ssePids() === pidsBefore, "Ein abgewiesener Grenztest hat trotzdem eine SSE-PID erzeugt oder beendet.");
   const markerAfter = existsSync(markerPath) ? readFileSync(markerPath, "utf8") : null;

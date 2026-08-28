@@ -73,6 +73,7 @@ const transport = new StdioClientTransport({ command: process.execPath, args: [s
 const client = new Client({ name: "sse-multi-instance-binding", version: "1.0.0" });
 let firstPid = null;
 let secondPid = null;
+let secondHwnd = null;
 let firstIdentity = null;
 let secondIdentity = null;
 const retainedTargets = [];
@@ -127,6 +128,7 @@ try {
   const secondMain = (windows.windows ?? []).find((window) => window.pid === secondPid && /SteuerSparErklärung/.test(window.title ?? ""));
   assert(Number.isInteger(firstMain?.hwnd), `Erstes Hauptfenster fehlt: ${JSON.stringify(windows.windows)}`);
   assert(Number.isInteger(secondMain?.hwnd), `Zweites Hauptfenster fehlt: ${JSON.stringify(windows.windows)}`);
+  secondHwnd = secondMain.hwnd;
 
   await expectAmbiguous("sse_save", {
     caseRef: secondRef,
@@ -185,8 +187,8 @@ try {
     `Explizit gebundener Suchfeld-Reset scheiterte: ${JSON.stringify(searchReset)}`);
 } finally {
   try {
-    if (secondPid) {
-      try { await callRaw("sse_close", { pid: secondPid, force: true, discardChanges: true }, 90_000); } catch { }
+    if (secondPid && secondHwnd) {
+      try { await callRaw("sse_close", { pid: secondPid, hwnd: secondHwnd, force: true, discardChanges: true }, 90_000); } catch { }
     }
     if (firstPid || existsSync(markerPath)) {
       try { await callRaw("sse_desktop_stop", { discardChanges: true }, 120_000); } catch { }

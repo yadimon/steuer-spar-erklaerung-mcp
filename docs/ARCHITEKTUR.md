@@ -142,7 +142,9 @@ Agent oder eigenes Programm
   fallen mit demselben Restbudget auf den Worker zurück, statt lokal einen
   möglicherweise großzügigeren Treffer zu bestätigen.
 - `make_working_copy` kopiert profilkonforme Falldateien direkt im API-Prozess
-  in ein atomar neues `cases:`-Ziel. Quelle und Ziel bleiben bis zum
+  in ein atomar neues `cases:`- oder `backups:`-Ziel. Der Bereich entscheidet
+  zwischen ausdrücklich verlangter Arbeitskopie und privater Sicherung. Quelle
+  und Ziel bleiben bis zum
   vollständigen Doppel-Readback geöffnet; SHA-256, Geräte-/Dateiidentität,
   Größe und Zeitstempel müssen konsistent bleiben. Abort/Timeout räumt nur
   nach erneut bewiesener Eigentümerschaft auf, fremder Zielinhalt wird nie
@@ -219,8 +221,8 @@ Agent oder eigenes Programm
 - MCP startet keine UI-Worker, durchsucht keinen PC und liest keine lokalen
   Dateien selbst.
 - Der Grenzvertrag verfolgt alle transitiven Importe der 17 `mcp-*.ts`-Module.
-  Er erlaubt aus der PC-Umgebung ausschließlich `SSE_API_URL` und
-  `SSE_API_URL`; Worker-, Workspace- und Produktpfadmodule sind von
+  Er erlaubt aus der PC-Umgebung ausschließlich `SSE_API_URL`; Worker-,
+  Workspace- und Produktpfadmodule sind von
   dieser Abhängigkeitsfläche ausgeschlossen.
 - Öffentliche MCP-Schemas akzeptieren Ressourcenreferenzen wie
   `cases:arbeitsfall.Gew2025` oder `documents:rechnung.pdf`, keine absoluten
@@ -415,17 +417,17 @@ gerechtfertigt.
   gesperrt.
 - Originale und übermittelte Fälle werden nie gelöscht, umbenannt oder auf
   Dateiebene überschrieben; übermittelte Fälle werden nie verändert.
-- Fachliche Änderungen erfolgen standardmäßig an verifizierten Arbeitskopien
-  und werden unmittelbar zurückgelesen. Das Original wird nur auf
-  ausdrücklichen Nutzerwunsch bearbeitet, und erst nachdem eine
-  hashverifizierte Sicherung im Backupbereich besteht und ihre Referenz dem
-  Nutzer genannt wurde.
-- UI-Navigation erfolgt auch für reine Prüfungen ausschließlich auf einer
-  hashverifizierten Prüffallkopie. SSE kann bereits beim Wechsel zwischen
-  Seiten `ungespeichert=true` setzen, obwohl kein Steuerwert eingegeben wurde.
-  Das Original bleibt deshalb auf dateibasierte Hash-/Inventarleser begrenzt;
-  ein reiner Navigationszustand wird nach ausdrücklicher Bestätigung verworfen,
-  nie gespeichert.
+- Ein eindeutig geöffneter Fall ist der normale Arbeitsfall. Vor der ersten
+  Mutation oder UI-Navigation mit möglichem Dirty-State wird sein aktueller
+  Disk-Hash einmal als bytegleiche Sicherung im privaten Backupbereich
+  geschützt; dieselbe Sicherung wird für denselben Fall und unveränderten Hash
+  innerhalb der laufenden Aufgabe wiederverwendet.
+- Mutation, Persistenz und Dateiauswahl sind getrennte Freigaben. Ohne
+  ausdrücklichen Speicherauftrag bleibt der geänderte Fall offen und
+  ungespeichert; Arbeits-/Korrekturkopie, `save_as`, Schließen, Verwerfen oder
+  Wechseln sind keine automatischen Sicherheitswege.
+- Eine hashverifizierte Prüffallkopie bleibt für einen ausdrücklich isolierten
+  Audit verfügbar. Sie ist nicht der Standard für den bereits geöffneten Fall.
 - UStVA-Frequenz, Monat/Quartal, Kennzeichen und Betragsfelder sind
   semantisch katalogisiert. Gleich benannte UI-Aktionen dürfen nicht generisch
   erraten werden; ein bereits übermittelter Zeitraum wird nie still dupliziert.
@@ -718,8 +720,9 @@ Kleinbuchstaben/Ziffern/Bindestriche und tragen den eindeutigen Präfix
 Der veröffentlichte Standard installiert genau einen Skill:
 `steuer-spar-erklaerung`. Er prüft zuerst über `sse_health`, ob überhaupt ein
 Transport da ist, stellt bei fehlendem MCP den Installationsstand nach der
-kanonischen öffentlichen Anleitung her und öffnet erst danach eine
-hashverifizierte Prüffallkopie für die Fachprüfung. Agent-spezifische Metadaten sind
+kanonischen öffentlichen Anleitung her und bindet danach den bereits geöffneten
+Arbeitsfall; nur ein ausdrücklich isolierter Audit öffnet eine hashverifizierte
+Prüffallkopie. Agent-spezifische Metadaten sind
 optional; die eigentliche Anleitung bleibt mit Codex, Claude Code und anderen
 Agent-Skills-kompatiblen Agenten verwendbar.
 
@@ -736,12 +739,12 @@ Refactoring-Entscheidungen gehören nicht in installierte Skills.
 
 ## Szenario- und Paritätsvertrag
 
-Ein produktiver Szenariolauf muss dynamische Ausgaben vorheriger Schritte
-referenzieren und garantierte Cleanup-Schritte besitzen. Der komplexe
-Referenzfall umfasst mindestens:
+Ein Szenario muss dynamische Ausgaben vorheriger Schritte referenzieren und
+garantierte Cleanup-Schritte besitzen. Der komplexe Test-Referenzfall umfasst
+mindestens:
 
 1. Eingabedateien inventarisieren und hashen;
-2. eine neue Arbeitskopie erzeugen;
+2. eine ausdrücklich als Testfixture vorgesehene Arbeitskopie erzeugen;
 3. Fall und SSE-Version verifizieren;
 4. SSE starten und PID/HWND binden;
 5. aktuellen Zustand lesen;

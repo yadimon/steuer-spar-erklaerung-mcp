@@ -379,9 +379,9 @@ const main = async () => {
   await check(client, "sse_click_point", { name: "Anmeldungen versenden" }, mustError("GESPERRT"));
   // Ohne Bezeichner darf nicht geklickt werden.
   await check(client, "sse_click_point", {}, mustError("Bezeichner"));
-  await check(client, "sse_close", { force: true, save: true }, mustError("unvereinbar"));
-  await check(client, "sse_close", { force: true }, mustError("discardChanges=true"));
-  await check(client, "sse_close", { save: true }, mustError("sse_save"));
+  await check(client, "sse_close", { hwnd: 1, force: true, save: true }, mustError("unvereinbar"));
+  await check(client, "sse_close", { hwnd: 1, force: true }, mustError("discardChanges=true"));
+  await check(client, "sse_close", { hwnd: 1, save: true }, mustError("sse_save"));
   await check(client, "sse_desktop_stop", { save: true }, mustError("sse_save"));
 
   // --- Navigation (veraendert nur die Ansicht) --------------------------
@@ -412,8 +412,29 @@ const main = async () => {
   }
 
   if (RESTART) {
-    await check(client, "sse_close", { force: true, discardChanges: true }, okIf(() => true, ""));
-    await check(client, "sse_launch", { mode: "einur" }, okIf(() => true, ""));
+    const instancesResult = await check(
+      client,
+      "sse_instances",
+      {},
+      okIf((text) => text.includes('"instances"'), "keine Instanzliste"),
+    );
+    let restartInstance = null;
+    try {
+      const parsed = JSON.parse(fullText(instancesResult));
+      if (Array.isArray(parsed.instances) && parsed.instances.length === 1) restartInstance = parsed.instances[0];
+    } catch { /* wird unten als unsichere Bindung gemeldet */ }
+    if (restartInstance?.hwnd && restartInstance?.pid) {
+      await check(client, "sse_close", {
+        hwnd: restartInstance.hwnd,
+        pid: restartInstance.pid,
+        force: true,
+        discardChanges: true,
+      }, okIf(() => true, ""));
+      await check(client, "sse_launch", { mode: "einur" }, okIf(() => true, ""));
+    } else {
+      fail++;
+      failures.push("sse_close: --restart verlangt genau eine frisch gebundene SSE-Instanz mit hwnd/pid.");
+    }
   } else {
     process.stdout.write("(uebersprungen: sse_close, sse_launch — mit --restart aktivieren)\n");
   }

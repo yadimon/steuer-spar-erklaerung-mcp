@@ -50,6 +50,11 @@ verbleiben im API-Prozess auf dem Steuer-PC.
 - die API darf nicht über Netzwerk-Proxys oder öffentliche Gateways
   exponiert werden;
 - Originalfälle werden nicht überschrieben;
+- ein bereits geöffneter Fall bleibt der Arbeitsfall; eine Arbeitskopie,
+  `save` oder `save_as` wird nie still als Sicherheitsmaßnahme ausgelöst;
+- vor der ersten dirty-fähigen UI-Navigation oder Mutation sichert der Agent
+  den aktuellen Dateistand einmal im privaten Backupbereich und verwendet ihn
+  bei unverändertem Hash weiter;
 - ELSTER, Versand und sonstige Übermittlung ans Finanzamt sind gesperrt.
 
 Vollständiger Schnellstart, Anleitung und Verifikation stehen im
