@@ -1,5 +1,7 @@
 const EXPORT_TITLE = /^Export für das Finanzamt \(\*\.csv\).*$/u;
-const FORBIDDEN_CONTEXT = /(?:ELSTER|Versand|Übermitt|Send|Aktivier|Lizenz|Wiederherstell|Speicher|Überschreib)/iu;
+const EXPORT_SUCCESS_TITLE = "Export erfolgreich durchgeführt!";
+const EXPORT_SUCCESS_TEXT = /^Die Dateien finden Sie im Verzeichnis: .+$/u;
+const FORBIDDEN_CONTEXT = /(?:ELSTER|Versand|Übermitt|Send|Aktivier|Lizenz|Wiederherstell|Speicher(?:n|abfrage)|Überschreib)/iu;
 const CLOSE_BUTTONS = new Set(["Schließen", "Schliessen"]);
 
 const textVector = (dialog) => (dialog?.texts ?? []).map((entry) => String(entry));
@@ -27,6 +29,15 @@ export function classifyPassiveExportDialog(dialog, expectedExportDialog) {
   if (FORBIDDEN_CONTEXT.test([dialog.title, ...actualTexts].join(" "))) return null;
   const closes = actualButtons.filter((entry) => entry.enabled && CLOSE_BUTTONS.has(entry.name));
   return closes.length === 1 ? closes[0].name : null;
+}
+
+export function classifyPassiveExportSuccessDialog(dialog) {
+  if (!dialog || dialog.title !== EXPORT_SUCCESS_TITLE) return null;
+  const texts = textVector(dialog);
+  const buttons = buttonVector(dialog);
+  if (texts.length !== 1 || !EXPORT_SUCCESS_TEXT.test(texts[0])) return null;
+  if (FORBIDDEN_CONTEXT.test([dialog.title, ...texts].join(" "))) return null;
+  return buttons.length === 1 && buttons[0].name === "OK" && buttons[0].enabled ? "OK" : null;
 }
 
 export function exportDialogEvidence(dialog) {

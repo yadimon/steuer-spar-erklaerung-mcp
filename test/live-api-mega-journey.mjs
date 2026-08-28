@@ -6,7 +6,11 @@ import { callApiOperationEnvelope, readApiHealthz } from "../dist/api-client.js"
 import { loadProductProfile } from "../dist/product-profiles.js";
 import { USTVA_PERIOD_SELECTORS } from "../dist/ustva.js";
 import { formatCents, parseCents } from "./currency-cents.mjs";
-import { classifyPassiveExportDialog, exportDialogEvidence } from "./export-dialog-policy.mjs";
+import {
+  classifyPassiveExportDialog,
+  classifyPassiveExportSuccessDialog,
+  exportDialogEvidence,
+} from "./export-dialog-policy.mjs";
 import { profiledTablePage } from "./profiled-table-page.mjs";
 import { classifyPassiveStartupDialog } from "./startup-dialog-policy.mjs";
 import {
@@ -336,17 +340,50 @@ async function maybeCloseExactExportDialog(pid, expectedExportDialog) {
   const before = await read("dialog_list", { pid }, null, "export-post-dialogs");
   const dialogs = before.dialogs ?? [];
   if (!dialogs.length) {
+    recordMutationSkip("export-success-dialog", "no-post-export-dialog-present");
     recordMutationSkip("export-dialog-cleanup", "no-post-export-dialog-present");
     return { result: "skipped", evidence: [] };
   }
-  const classified = dialogs.map((dialog) => ({
+  const exportDialogs = dialogs.map((dialog) => ({
     dialog,
     button: classifyPassiveExportDialog(dialog, expectedExportDialog),
   })).filter((entry) => entry.button);
-  assert.equal(classified.length, 1,
+  const successDialogs = dialogs.map((dialog) => ({
+    dialog,
+    button: classifyPassiveExportSuccessDialog(dialog),
+  })).filter((entry) => entry.button);
+  assert.equal(exportDialogs.length, 1,
     `Post-Export-Dialoge sind nicht exakt klassifiziert; nichts beantwortet: ${JSON.stringify(dialogs.map(exportDialogEvidence))}`);
-  assert.equal(dialogs.length, 1,
-    `Neben dem exakt klassifizierten Exportfenster ist ein unbekannter Dialog offen; nichts beantwortet: ${JSON.stringify(dialogs.map(exportDialogEvidence))}`);
+  assert(successDialogs.length <= 1 && dialogs.length === exportDialogs.length + successDialogs.length,
+    `Neben den exakt klassifizierten Exportfenstern ist ein unbekannter Dialog offen; nichts beantwortet: ${JSON.stringify(dialogs.map(exportDialogEvidence))}`);
+  let remainingDialogs = dialogs;
+  if (successDialogs.length === 1) {
+    const { dialog, button } = successDialogs[0];
+    const closedSuccess = await mutateAndRead(
+      "export-success-dialog",
+      { hwnd: dialog.hwnd, fingerprint: dialog.fingerprint, button, waitMs: 2_000 },
+      (result) => assert.equal(result.closed, true),
+      { pid },
+      (after) => {
+        assert(!(after.dialogs ?? []).some((entry) => entry.hwnd === dialog.hwnd),
+          "Exakt klassifizierter Export-Erfolgsdialog blieb offen.");
+        const parent = (after.dialogs ?? []).find((entry) => entry.hwnd === expectedExportDialog.hwnd);
+        assert(classifyPassiveExportDialog(parent, expectedExportDialog),
+          "Das Export-Stammfenster driftete nach dem Schliessen des Erfolgsdialogs.");
+      },
+      { mutationTimeoutMs: 120_000, readbackTimeoutMs: 120_000 },
+    );
+    remainingDialogs = closedSuccess.readback.dialogs ?? [];
+  } else {
+    recordMutationSkip("export-success-dialog", "no-exact-export-success-dialog-present");
+  }
+  const classified = remainingDialogs.map((dialog) => ({
+    dialog,
+    button: classifyPassiveExportDialog(dialog, expectedExportDialog),
+  })).filter((entry) => entry.button);
+  assert.equal(classified.length, 1);
+  assert.equal(remainingDialogs.length, 1,
+    `Nach dem Erfolgsdialog blieb neben dem Exportfenster ein unbekannter Dialog offen: ${JSON.stringify(remainingDialogs.map(exportDialogEvidence))}`);
   const { dialog, button } = classified[0];
   await mutateAndRead(
     "export-dialog-cleanup",

@@ -153,6 +153,7 @@ export const MEGA_MUTATION_READBACKS = Object.freeze([
   mutation("export-open", "artifacts", "export_csv", "dialog_list", "the profiled export dialog is explicitly listed"),
   mutation("export-trigger", "artifacts", "dialog_answer", "dialog_list", "the profiled native folder dialog is explicitly listed"),
   mutation("export-folder", "artifacts", "file_dialog_select", "dialog_list", "the native folder dialog is closed after the bound selection"),
+  mutation("export-success-dialog", "artifacts", "dialog_answer", "dialog_list", "the exact export-success dialog is closed before its parent export window"),
   mutation("export-dialog-cleanup", "artifacts", "dialog_answer", "dialog_list", "the exact unchanged export window is closed, or its absence is recorded as a skip"),
   mutation("result-details-open", "artifacts", "result_details", "windows", "Werte-Info tool window is explicitly listed"),
   mutation("result-details-close", "artifacts", "window_close", "windows", "the bound Werte-Info tool window is absent"),
