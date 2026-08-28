@@ -9,6 +9,7 @@ import { basename, extname, isAbsolute, join, relative, resolve } from "node:pat
 import { performance } from "node:perf_hooks";
 import { loadProductProfile } from "../dist/product-profiles.js";
 import { desktopMarkerState, ssePids } from "./direct-worker-helpers.mjs";
+import { beginBelegManagerConfigIsolation } from "./performance/belegmanager-config-isolation.mjs";
 import {
   assertFreshMegaDist,
   megaMachineMetadata,
@@ -123,11 +124,26 @@ updateStatus([
 
 let raw = null;
 let child = null;
+let receiptConfigIsolation = null;
+const receiptConfigIsolationEvidence = {
+  active: false,
+  recoveredStaleIsolation: false,
+  restored: false,
+};
 let setupFailure = markerBefore.present
   ? new Error("Die API-Mega-Reise startet nicht mit vorhandenem Hidden-Desktop-Marker.")
   : null;
 try {
   if (!setupFailure) {
+    receiptConfigIsolation = beginBelegManagerConfigIsolation({
+      evidenceRoot,
+      localAppData: process.env.LOCALAPPDATA,
+      engineMajor: profile.engineFileMajor,
+      isolatedDataDir: join(caseDirectory, "belegmanager-data"),
+    });
+    receiptConfigIsolationEvidence.active = true;
+    receiptConfigIsolationEvidence.recoveredStaleIsolation =
+      receiptConfigIsolation.recoveredStaleIsolation;
     child = spawnSync(process.execPath, [
       "test/with-api.mjs", process.execPath, "test/live-api-mega-journey.mjs",
     ], {
@@ -139,6 +155,7 @@ try {
         SSE_PRESERVE_TEST_SANDBOX_ON_FAILURE: "1",
         SSE_TEST_INTERACTIVE_RECEIPTS: "1",
         SSE_TEST_API_PREWARM: "1",
+        SSE_MEGA_BELEGMANAGER_ISOLATED: "1",
         SSE_MEGA_CLASSIFICATION: classification,
         SSE_MEGA_RAW_REPORT: rawPath,
         SSE_MEGA_STATUS_PATH: statusPath,
@@ -164,6 +181,14 @@ const postflightVerificationStartedAt = performance.now();
 const sourceAfter = megaSourceFingerprint();
 const runtimeAfter = megaRuntimeFingerprint();
 const pidsAfter = ssePids();
+if (receiptConfigIsolation && pidsAfter === "") {
+  try {
+    receiptConfigIsolation.restore();
+    receiptConfigIsolationEvidence.restored = true;
+  } catch (error) {
+    setupFailure ??= new Error(`BelegManager-Konfiguration wurde nicht restauriert: ${error.message}`);
+  }
+}
 const markerAfterState = desktopMarkerState();
 const markerAfter = markerEvidence(markerAfterState);
 const markerUnchanged = markerAfterState === markerBeforeState;
@@ -175,7 +200,8 @@ const fingerprintStable =
   runtimeAfter.fingerprint === runtimeBefore.fingerprint;
 const fingerprintVerificationWallMs = rounded(performance.now() - postflightVerificationStartedAt);
 const childSucceeded = !setupFailure && child?.status === 0 && child?.signal === null && raw?.status === "passed";
-const cleanupSafe = childSucceeded && pidsAfter === "" && markerSafe && officialUnchanged && fingerprintStable;
+const cleanupSafe = childSucceeded && pidsAfter === "" && receiptConfigIsolationEvidence.restored &&
+  markerSafe && officialUnchanged && fingerprintStable;
 let disposableCleanup = { attempted: false, removed: false, preserved: true };
 let disposableCleanupWallMs = 0;
 if (cleanupSafe) {
@@ -200,6 +226,8 @@ const failureReasons = [
   ...(child && child.status !== 0 ? [`child-exit-${child.status}`] : []),
   ...(child?.signal ? [`child-signal-${child.signal}`] : []),
   ...(pidsAfter ? ["owned-sse-process-remained"] : []),
+  ...(!receiptConfigIsolationEvidence.active ? ["belegmanager-config-isolation-not-active"] : []),
+  ...(!receiptConfigIsolationEvidence.restored ? ["belegmanager-config-not-restored"] : []),
   ...(markerBefore.present ? ["hidden-desktop-marker-present-before"] : []),
   ...(markerAfter.present ? ["hidden-desktop-marker-present-after"] : []),
   ...(!markerUnchanged ? ["hidden-desktop-marker-changed"] : []),
@@ -266,6 +294,7 @@ const report = {
     runtimeEvidence: raw?.safety?.runtimeEvidence ?? null,
     receiptLease: raw?.safety?.receiptLease ?? null,
     workerPrewarm: raw?.safety?.workerPrewarm ?? null,
+    belegManagerConfigIsolation: receiptConfigIsolationEvidence,
     officialHashesBefore: Object.fromEntries(Object.entries(official).map(([id, entry]) => [id, entry.hashBefore])),
     officialHashesAfter: officialAfter,
     officialHashesUnchanged: officialUnchanged,
@@ -355,7 +384,7 @@ const markdown = `# Canonical live API mega journey — ${classification}\n\n` +
   `- API calls: ${report.operations?.count ?? "n/a"}; distinct executed operations: ${report.operations?.distinctCount ?? "n/a"}; call failures=${report.operations?.failureCount ?? "n/a"}\n` +
   `- Catalog coverage: executed=${report.catalogCoverage?.coveredExecutedCount ?? 0}/${report.catalogCoverage?.coveredDeclaredCount ?? 0} declared covered; catalog total=${report.catalogCoverage?.operationCount ?? 99}\n` +
   `- Mutation/readback assertions: passed=${report.mutationCoverage?.passed ?? 0}; skipped=${report.mutationCoverage?.skipped ?? 0}; failed=${report.mutationCoverage?.failed ?? 0}; unexecuted=${report.mutationCoverage?.unexecuted ?? 0}; declared=${report.mutationCoverage?.declared ?? 0}\n` +
-  `- Cleanup: zero SSE processes=${pidsAfter === ""}; hidden-desktop marker safe=${markerSafe}; official hashes unchanged=${officialUnchanged}; disposable copies removed=${disposableCleanup.removed}\n\n` +
+  `- Cleanup: zero SSE processes=${pidsAfter === ""}; BelegManager config restored=${receiptConfigIsolationEvidence.restored}; hidden-desktop marker safe=${markerSafe}; official hashes unchanged=${officialUnchanged}; disposable copies removed=${disposableCleanup.removed}\n\n` +
   "## Environment and stability\n\n" +
   `- Runtime fingerprint: \`${runtimeBefore.fingerprint}\` (stable: ${runtimeAfter.fingerprint === runtimeBefore.fingerprint})\n` +
   `- Node/npm: ${report.runtime.node} / ${report.runtime.npm}; SSE build: ${md(report.runtime.sse?.currentBuild ?? "n/a")}\n` +

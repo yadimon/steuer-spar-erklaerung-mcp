@@ -32,6 +32,8 @@ assert(rawReportPath && !existsSync(rawReportPath), "Neuer create-only Rohberich
 assert(statusPath, "MEGA_STATUS.md-Pfad fehlt.");
 assert.equal(process.env.SSE_TEST_INTERACTIVE_RECEIPT_LEASE_ACTIVE, "1", "Interaktive Test-Lease ist nicht aktiv.");
 assert.equal(process.env.SSE_TEST_API_PREWARM, "1", "Der kanonische Lauf braucht den normalen API-Worker-Prewarm.");
+assert.equal(process.env.SSE_MEGA_BELEGMANAGER_ISOLATED, "1",
+  "Der kanonische Lauf braucht einen leeren, isolierten BelegManager-DataDir.");
 assert(!process.env.SSE_TEST_INTERACTIVE_RECEIPT_TOKEN, "Der API-Client darf den internen Receipt-Lease-Nonce nicht sehen.");
 
 const fixtures = JSON.parse(process.env.SSE_MEGA_FIXTURES_JSON ?? "null");
@@ -1365,6 +1367,8 @@ try {
         assert.equal(result.count, baseline.count);
         assert.equal(result.rowsComplete, true);
         assert.equal(result.draftCount, 0);
+        assert.equal(result.listFingerprint, baseline.listFingerprint,
+          "Die synthetische Belegreise muss die Ausgangsliste semantisch exakt restaurieren.");
       },
       { mutationTimeoutMs: 180_000, readbackTimeoutMs: 120_000 },
     );
