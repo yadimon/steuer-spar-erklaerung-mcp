@@ -11375,10 +11375,16 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $targetProcess = Get-Process -Id $targetPid -ErrorAction SilentlyContinue
     if (-not (Test-SSEProcess $targetProcess)) { Fail "PID $targetPid ist keine verifizierte Instanz von '$($script:SSE_PROFILE.product)'." 'ownership' }
     $wins = @($allWins | Where-Object { [int]$_.pid -eq $targetPid })
-    if ($requestedPid -and $force -and $discard -and -not $wins.Count) {
-      # Interner Fail-Closed-Cleanup fuer einen gestarteten Prozess, der noch
-      # kein Fenster erzeugt hat. Nur die explizite, erneut als SSE-2025
-      # verifizierte PID darf beendet werden.
+    if ($requestedHwnd) {
+      $mainWindow = @($wins | Where-Object { [int64]$_.hwnd -eq [int64]$requestedHwnd })
+    } else {
+      $mainWindow = @($wins | Where-Object { $_.w -ge 900 -and $_.h -ge 600 -and $_.title -match 'SteuerSparErklärung' })
+    }
+    if ($requestedPid -and $force -and $discard -and $mainWindow.Count -eq 0) {
+      # Fail-Closed-Cleanup fuer eine exakt gebundene Start-PID, die noch kein
+      # verifiziertes Hauptfenster besitzt. Das umfasst auch einen unbekannten
+      # Start-/Aktivierungsdialog: er wird nie beantwortet; nur der erneut als
+      # passendes SSE-Profil verifizierte Prozess wird beendet.
       Stop-Process -InputObject $targetProcess -Force -ErrorAction SilentlyContinue
       try { $targetProcess.WaitForExit(5000) | Out-Null } catch { }
       $stillRunning = [bool](Get-Process -Id $targetPid -ErrorAction SilentlyContinue)
@@ -11386,17 +11392,12 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         ok=(-not $stillRunning); killed=(-not $stillRunning); stillRunning=$stillRunning
         kind=$(if ($stillRunning) { 'postcondition-failed' } else { $null })
         discardChanges=$true; pid=$targetPid
-        error=$(if ($stillRunning) { 'Fensterlos gestartete SSE-PID konnte nicht sicher beendet werden.' } else { $null })
-        note='Exakt gebundene fensterlose Start-PID wurde ohne Speichern beendet.'
+        error=$(if ($stillRunning) { 'SSE-Start-PID ohne verifiziertes Hauptfenster konnte nicht sicher beendet werden.' } else { $null })
+        note='Exakt gebundene SSE-Start-PID ohne verifiziertes Hauptfenster wurde ohne Speichern beendet.'
       })
     }
-    if ($requestedHwnd) {
-      $mainWindow = @($wins | Where-Object { [int64]$_.hwnd -eq [int64]$requestedHwnd })
-    } else {
-      $mainWindow = @($wins | Where-Object { $_.w -ge 900 -and $_.h -ge 600 -and $_.title -match 'SteuerSparErklärung' })
-      if ($mainWindow.Count -ne 1) {
-        Fail "PID $targetPid besitzt $($mainWindow.Count) breite SSE-Hauptfenster; exaktes hwnd ist Pflicht." 'ambiguous'
-      }
+    if ($mainWindow.Count -ne 1) {
+      Fail "PID $targetPid besitzt $($mainWindow.Count) breite SSE-Hauptfenster; exaktes hwnd ist Pflicht." 'ambiguous'
     }
     $hung = [bool]($wins | Where-Object { $_.hung } | Select-Object -First 1)
     if ($hung -and -not $discard) {

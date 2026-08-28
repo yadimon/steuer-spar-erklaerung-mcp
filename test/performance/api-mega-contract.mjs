@@ -182,7 +182,16 @@ assert.doesNotMatch(journey, /\["OK", "Schließen", "Schliessen", "Abbrechen"\]/
   "Die Mega-Reise darf keinen beliebigen SSE-Dialog anhand eines generischen Schliessbuttons beantworten.");
 assert.match(journey, /failure-cleanup-instances/u);
 assert.match(journey, /findOwnedInstances/u);
+assert.match(journey, /const ownedLaunchPids = new Set/u);
+assert.equal((journey.match(/\(result\) => \(\{ pid: result\.pid \}\)/gu) ?? []).length, 3,
+  "Alle drei Launch-Readbacks muessen ihre PID direkt aus dem Mutationsergebnis binden.");
+assert.doesNotMatch(journey, /\(\) => \(\{ pid: currentPid \}\)/u,
+  "Launch-Readback darf nicht von einer erst nachgelagert gesetzten Umgebungs-PID abhaengen.");
 assert.match(journey, /currentPhase = "failure-cleanup"/u);
+assert.match(journey, /ownedLaunchPids\.has\(currentPid\)[\s\S]+failure-cleanup-force-close-owned-launch-pid/u,
+  "Failure-Cleanup muss auch eine exakt aus dem Launch belegte PID ohne Hauptinstanz schliessen.");
+assert.match(worker, /Exakt gebundene SSE-Start-PID ohne verifiziertes Hauptfenster wurde ohne Speichern beendet/u,
+  "Der API-Close-Pfad muss eine unbekannte Startdialog-PID ohne Dialogantwort hart und exakt beenden koennen.");
 assert.match(journey, /cleanup\.closed = finalHealth\.result\.running === false && finalInstances\.result\.count === 0/u);
 assert.match(journey, /"receipt-link"[\s\S]+?noChanges, true[\s\S]+?linkedAfter, true/u);
 assert.match(journey, /"receipt-unlink"[\s\S]+?noChanges, true[\s\S]+?linkedAfter, false/u);
