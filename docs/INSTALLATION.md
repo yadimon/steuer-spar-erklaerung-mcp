@@ -246,6 +246,13 @@ mergt und keine anderen Einträge löscht. Niemals die ganze Datei ersetzen.
   ]
   ```
 
+Die neun BelegManager-Werkzeuge ausser `sse_receipt_manager_list` bleiben aus
+Vertrags- und Discovery-Kompatibilitaetsgruenden in dieser Liste. Im aktuellen
+Hintergrundbetrieb weist `sse_capabilities` sie als
+`interactionRequirement="foreground-required"` und `availability="blocked"`
+aus. Sie stoppen vor Workerstart und UI-Aenderung; es gibt keinen Opt-in und
+keinen zulässigen Maus-/Tastatur-Workaround.
+
 Die bloße Existenz einer JSON-Datei beweist keine geladene MCP-Verbindung.
 
 ## 5. Installation beweisen

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   OPERATION_RESULT_FIELD_PATTERN,
   OPERATION_TRACE_LABELS,
+  isFunctionalPolicyBlock,
   operationResultShape,
   traceOperations,
 } from "./operation-trace.mjs";
@@ -26,6 +27,20 @@ try {
     SSE_PROFILE_ID: "2024",
   });
   await execute("page", {}, 1, undefined);
+  const blocked = traceOperations("stateful-mock", async () => ({
+    ok: false,
+    kind: "blocked",
+    error: "synthetischer Policy-Block",
+    reason: "foreground-required-operation-disabled",
+    retryable: false,
+    interactionRequirement: "foreground-required",
+    mutationStarted: false,
+    resultingState: "unchanged",
+    cleanupRequired: false,
+    physicalInputUsed: false,
+    foregroundLeaseUsed: false,
+  }), { SSE_TEST_OPERATION_TRACE_DIR: directory, SSE_PROFILE_ID: "2025" });
+  await blocked("receipt_manager_action", { actionId: "showAllReceipts" }, 1, undefined);
   const failing = traceOperations("worker", async () => {
     throw new Error("synthetischer Executorfehler");
   }, { SSE_TEST_OPERATION_TRACE_DIR: directory, SSE_PROFILE_ID: "2024" });
@@ -46,6 +61,12 @@ try {
   });
   assert(!JSON.stringify(record).includes("nicht protokollieren"));
   assert(!JSON.stringify(record).includes("Privat"));
+  const blockedRecord = records.find((entry) => entry.operation === "receipt_manager_action");
+  assert.equal(blockedRecord.ok, false);
+  assert.equal(blockedRecord.contractOk, true);
+  assert.equal(blockedRecord.contractOutcome, "policy-blocked");
+  assert.equal(blockedRecord.kind, "blocked");
+  assert(!JSON.stringify(blockedRecord).includes("foreground-required-operation-disabled"));
   const failedRecord = records.find((entry) => entry.operation === "health");
   assert.equal(failedRecord.threw, true);
   assert.deepEqual(failedRecord.fields, {});
@@ -78,5 +99,18 @@ assert.equal(operationResultShape({ invalid: Number.POSITIVE_INFINITY }).invalid
 assert(OPERATION_RESULT_FIELD_PATTERN.test("configurationFingerprint"));
 assert.throws(() => operationResultShape({ "C:\\Privat\\fall": true }), /Unsicherer Ergebnisfeldname/u);
 assert.throws(() => operationResultShape({ ["A".repeat(65)]: true }), /Unsicherer Ergebnisfeldname/u);
+assert.equal(isFunctionalPolicyBlock("health", { ok: false, kind: "blocked" }), false);
+assert.equal(isFunctionalPolicyBlock("receipt_manager_action", {
+  ok: false,
+  kind: "blocked",
+  reason: "foreground-required-operation-disabled",
+  retryable: false,
+  interactionRequirement: "foreground-required",
+  mutationStarted: false,
+  resultingState: "unchanged",
+  cleanupRequired: false,
+  physicalInputUsed: false,
+  foregroundLeaseUsed: false,
+}), true);
 
 process.stdout.write("OK: Operation-Traces enthalten Profil und wertfreie Ergebnisformen.\n");

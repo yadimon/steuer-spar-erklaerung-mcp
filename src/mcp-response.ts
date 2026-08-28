@@ -135,6 +135,10 @@ export function apiErrorResult(operation: string, result: Record<string, unknown
 }
 
 function apiErrorHint(operation: string, result: Record<string, unknown>): string | undefined {
+  if (result.reason === "foreground-required-operation-disabled") {
+    return "Nicht wiederholen und keinen Fokus-, Maus- oder Tastatur-Workaround verwenden. " +
+      "Nur die focusless Belegliste bleibt im Hintergrund verfuegbar.";
+  }
   if (result.kind === "network") {
     // Der haeufigste Erstkontakt-Fehler: MCP ist eingerichtet, die lokale API
     // laeuft aber nicht. Ohne diesen Satz bleibt dem Agenten nur ECONNREFUSED.

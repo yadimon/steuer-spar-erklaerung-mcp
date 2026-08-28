@@ -49,7 +49,7 @@ Diese Regeln gelten auch auf ausdrücklichen Wunsch:
   automatisch.
 - Ändere Steuerdaten nur nach Sicherung über `sse_make_working_copy` nach
   `backups:`: standardmäßig in einer bytegleich verifizierten Arbeitskopie, im Original nur auf ausdrücklichen Nutzerwunsch (references/first-run.md).
-  Vor jeder schreibenden BelegManager-Operation sichere zusätzlich dessen getrennte Datenablage nach [references/belegmanager-backup.md](references/belegmanager-backup.md). Eine Falldatei-Sicherung ersetzt diese Sicherung nicht.
+  Vor jeder schreibenden BelegManager-Operation sichere zusätzlich dessen getrennte Datenablage nach [references/belegmanager-backup.md](references/belegmanager-backup.md). Eine Falldatei-Sicherung ersetzt diese Sicherung nicht. Aktuell ist nur `sse_receipt_manager_list` freigegeben; umgehe die neun fail-closed gesperrten Vordergrundwerkzeuge nie per Maus, Tastatur, direktem Worker oder Retry.
 - Arbeite nie mit einem wiederhergestellten Fall weiter. Hat SteuerSparErklärung
   nach einem unsauberen Ende eine Wiederherstellungsdatei geladen, stoppt
   `launch` mit `kind="recovered-state"`. Der geöffnete Inhalt entspricht dann

@@ -2,9 +2,11 @@
  * Abdeckungsbilanz aus echter Ausfuehrung.
  *
  * Der Katalog `test/operation-coverage.json` behauptet fuer jede der
- * veroeffentlichten API-Operationen, ob sie in einem Suitelauf tatsaechlich
- * erfolgreich ausgefuehrt wird. Dieser Vertrag vergleicht die Behauptung mit
- * dem Laufzeitprotokoll aus `operation-trace.mjs`.
+ * veroeffentlichten API-Operationen, ob ihr aktueller Vertrag in einem
+ * Suitelauf tatsaechlich funktional ausgeuebt wird. Dazu zaehlt ein Erfolg
+ * oder ein vollstaendig passender, beabsichtigter globaler Policy-Block;
+ * beliebige Fehler zaehlen weiterhin nur als Fehlerpfad. Dieser Vertrag
+ * vergleicht die Behauptung mit dem Laufzeitprotokoll aus `operation-trace.mjs`.
  *
  * Die Bilanz ist eine Ratsche in beide Richtungen:
  * - Verschwundene Abdeckung ist eine Regression.
@@ -57,7 +59,7 @@ for (const name of traceFiles) {
     const state = observed.get(entry.operation) ??
       { ok: new Set(), seen: new Set(), calls: 0, totalMs: 0, slowestMs: 0 };
     state.seen.add(entry.label);
-    if (entry.ok === true) state.ok.add(entry.label);
+    if (entry.contractOk === true) state.ok.add(entry.label);
     state.calls += 1;
     state.totalMs += Number(entry.ms ?? 0);
     state.slowestMs = Math.max(state.slowestMs, Number(entry.ms ?? 0));
@@ -169,7 +171,7 @@ const external = scope === "live"
   ? functional.filter((operation) => ledger.operations[operation].liveEvidence === SNAPSHOT_VM_EVIDENCE)
   : [];
 process.stdout.write(
-  `Abdeckungsbilanz ${scope}: ${functional.length}/${SSE_API_OPERATIONS.length} Operationen erfolgreich ausgefuehrt, ` +
+  `Abdeckungsbilanz ${scope}: ${functional.length}/${SSE_API_OPERATIONS.length} Operationsvertraege funktional ausgeuebt, ` +
   `${errorOnly.length} nur auf Fehlerpfaden, ${recordCount} protokollierte Aufrufe` +
   (external.length ? `; ${external.length} Live-Nachweise stammen aus dem getrennten Snapshot-VM-Gate` : "") + "\n",
 );

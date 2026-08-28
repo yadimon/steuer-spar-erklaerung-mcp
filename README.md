@@ -17,12 +17,11 @@ optionalen, PC-blinden MCP-Wrapper.
 - ein bis 20 katalogisierte Felder derselben geöffneten Seite mit
   `fill_fields` in einem frischen Worker sequenziell schreiben, unmittelbar
   prüfen, bei Fehler best effort zurückrollen und gemeinsam zurücklesen;
-- BelegManager: lokale Belege auflisten, PDF-Dateien importieren und Titel,
-  Datum, Belegnummer, Betrag, USt-Satz, Netto-Kennzeichen sowie Notiz in einem
-  gebundenen Mehrfeld-Aufruf lesen und kontrolliert bearbeiten; kompakt nach
-  Titel suchen, fachlich identifizierte Belege ohne Doppelimport aktualisieren
-  und bis zu 20 Belege in einem Fensterzyklus mit der aktuellen Steuerseite
-  verknüpfen;
+- BelegManager: eine bereits geoeffnete Belegliste focusless und strukturiert
+  lesen; die neun katalogisierten Wege fuer Navigation, Detailauswahl, Import,
+  Bearbeitung, Klassifikation, Verknuepfung und Loeschen sind im aktuellen
+  Hintergrundbetrieb fail-closed gesperrt, weil ihre verifizierte Umsetzung
+  sichtbaren Vordergrund oder globale physische Eingabe benoetigt;
 - Angaben mit freigegebenen Belegen und einem Tracking abgleichen;
 - fehlende, widersprüchliche oder unklare Angaben als Report zusammenfassen;
 - nach ausdrücklicher Freigabe einzelne Korrekturen ausschließlich in einer
@@ -290,6 +289,14 @@ dieser Operationen übermittelt Daten an ELSTER.
    und Dirty-State-Readback;
 3. sichtbare Vordergrund-Leases für Controls, die Qt nicht sicher im
    Hintergrund bedienbar macht.
+
+Die dritte Betriebsart ist kein Freischalter fuer den BelegManager: Dort ist
+nur `receipt_manager_list` als `focusless-read` verfuegbar. Die neun uebrigen
+BelegManager-Operationen bleiben registriert, werden aber in
+`capabilities.operationPolicy` als `foreground-required` und `blocked`
+ausgewiesen und enden vor Workerstart und UI-Aenderung. Es gibt dafuer weder
+API- noch MCP-Opt-in und ein solcher Fehler darf nicht automatisch wiederholt
+oder durch Maus-/Tastaturautomation umgangen werden.
 
 Für sichtbare Bedienung muss Windows entsperrt bleiben. Während der Agent
 klickt oder schreibt, nicht gleichzeitig Maus oder Tastatur verwenden. Der

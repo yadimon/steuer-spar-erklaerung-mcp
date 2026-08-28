@@ -6806,6 +6806,12 @@ $buildDriftBlockedOps = @(
   'ustva_set_flag', 'vast_apply', 'vast_mapping_select',
   'vast_row_set_expanded'
 )
+$foregroundRequiredReceiptOps = @(
+  'receipt_manager_action', 'receipt_manager_bulk_upsert',
+  'receipt_manager_classification_options', 'receipt_manager_classify',
+  'receipt_manager_delete', 'receipt_manager_import', 'receipt_manager_link',
+  'receipt_manager_read', 'receipt_manager_update'
+)
 
 function Resolve-SSEBuildIdentityForOperation([string]$Operation, $Args) {
   # Launch besitzt noch kein gebundenes Fenster; alle anderen UI-/Steuerfall-
@@ -7101,6 +7107,30 @@ $profilePolicyOperation = $(
 if ([string]$script:SSE_PROFILE.status -eq 'disabled' -and $profilePolicyOperation -notin $experimentalProfileBaseOps) {
   Fail "Produktprofil '$($script:SSE_PROFILE_ID)' ist deaktiviert; Betriebsoperationen sind gesperrt." 'profile-disabled'
 }
+
+# Diese Pfade sind weiterhin implementiert und statisch verifiziert, aber der
+# aktuelle Produktvertrag kann sie nur ueber sichtbaren Vordergrund oder
+# globale physische Eingabe ausfuehren. Es gibt keinen API-/MCP-Opt-in, der
+# diese Hintergrundgrenze lockert. Der Guard steht vor Experimental- und
+# Buildaufloesung, Dispatcher und jeder UIA-/Fensterabfrage; direkte
+# Worker-Aufrufe bleiben deshalb ebenso fail-closed wie API-, MCP- und
+# Szenarioaufrufe.
+if ($profilePolicyOperation -in $foregroundRequiredReceiptOps) {
+  Fail (
+    "Operation '$profilePolicyOperation' ist im Hintergrund gesperrt, weil der verifizierte BelegManager-Weg " +
+    'Vordergrund- oder globale physische Eingabe benoetigt. Keine UI wurde geaendert; nicht automatisch wiederholen.'
+  ) 'blocked' ([pscustomobject][ordered]@{
+    reason='foreground-required-operation-disabled'
+    retryable=$false
+    interactionRequirement='foreground-required'
+    mutationStarted=$false
+    resultingState='unchanged'
+    cleanupRequired=$false
+    physicalInputUsed=$false
+    foregroundLeaseUsed=$false
+  })
+}
+
 if ($verificationOnlyProfile -and $profilePolicyOperation -notin $experimentalProfileBaseOps) {
   if ($env:SSE_OPERATE_EXPERIMENTAL -ne '1') {
     Fail (

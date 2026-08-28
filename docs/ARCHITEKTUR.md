@@ -324,6 +324,14 @@ Agent oder eigenes Programm
   Dirty-State-Readback erlaubt; nicht strukturiert bedienbare Qt-Controls
   benötigen eine sichtbare Vordergrund-Lease und Nutzerzustimmung. Ein privater
   Desktop ist Fokus-/UX-Isolation, keine Security-Sandbox.
+- Fuer den BelegManager gilt eine engere aktuelle Laufzeitgrenze: Nur
+  `receipt_manager_list` ist als `focusless-read` freigegeben. Alle neun Wege,
+  die Detailauswahl, Navigation oder Mutation ueber sichtbaren Vordergrund
+  beziehungsweise globale physische Eingabe benoetigen, stoppen nach der
+  oeffentlichen Argumentpruefung, aber vor Ressourcenaufloesung, Workerstart,
+  Buildpruefung und UIA. Derselbe Katalog und Block liegen zusaetzlich direkt
+  im Worker; ein direkter Aufruf oder eine Komposition kann die API-Grenze
+  daher nicht umgehen.
 - Feld-, Tabellen- und UStVA-Beträge werden mit gemeinsam getesteter deutscher
   Gruppierung und exakter Dezimalgleichheit zurückgelesen. Präfixe sowie
   mehrdeutige Punktfolgen gelten nicht als Übereinstimmung.
@@ -480,6 +488,16 @@ Navigationen, `receipt_manager_list`, `receipt_manager_read`,
 die beiden Klassifikationsoperationen, `receipt_manager_link` und
 `receipt_manager_bulk_upsert`. Auf einer frischen
 Installation lässt sich der Einwilligungsdialog weiterhin nicht beantworten.
+
+**Aktuelle Verfuegbarkeit:** Von diesen zehn Operationen ist ausschließlich
+`receipt_manager_list` aktiv. Die neun anderen Implementierungen bleiben als
+historisch verifizierter, statisch gepruefter Vertrag im Worker erhalten, sind
+aber unerreichbar: API und Worker liefern
+`reason=foreground-required-operation-disabled`, `retryable=false`,
+`mutationStarted=false` und `resultingState=unchanged`, bevor ein Fenster
+gelesen oder veraendert wird. Die folgenden Abschnitte beschreiben diesen
+dormanten Vertrag und seine damaligen Bindungs-/Readback-Invarianten; sie sind
+keine aktuelle Freigabe.
 
 Der vorgesehene Weg sind stattdessen eigene, eng gefasste Operationen je
 katalogisierter Fensterrolle. Eine solche Operation braucht mindestens:

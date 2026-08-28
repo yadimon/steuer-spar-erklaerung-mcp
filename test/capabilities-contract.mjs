@@ -28,6 +28,7 @@ import {
   SSE_READ_ONLY_OPERATIONS,
   SSE_STATEFUL_OPERATIONS,
 } from "../dist/operation-traits.js";
+import { SSE_FOREGROUND_REQUIRED_RECEIPT_OPERATIONS } from "../dist/receipt-interaction-policy.js";
 
 const calls = [];
 const execute = createApiExecutor({
@@ -72,11 +73,19 @@ assert.equal(result.buildDriftPolicy, "block-ui-tax-mutations");
 assert.deepEqual(Object.keys(result.operationPolicy), SSE_API_OPERATIONS);
 for (const operation of SSE_API_OPERATIONS) {
   assert.equal(result.operationPolicy[operation].operation, operation);
-  assert.equal(result.operationPolicy[operation].availability, "allowed");
+  assert.equal(
+    result.operationPolicy[operation].availability,
+    SSE_FOREGROUND_REQUIRED_RECEIPT_OPERATIONS.includes(operation) ? "blocked" : "allowed",
+  );
   assert.equal(
     result.operationPolicy[operation].blockedOnBuildDrift,
     SSE_BUILD_DRIFT_BLOCKED_OPERATIONS.includes(operation),
   );
+}
+assert.equal(result.operationPolicy.receipt_manager_list.interactionRequirement, "focusless-read");
+for (const operation of SSE_FOREGROUND_REQUIRED_RECEIPT_OPERATIONS) {
+  assert.equal(result.operationPolicy[operation].interactionRequirement, "foreground-required");
+  assert.equal(result.operationPolicy[operation].requiresExperimentalOptIn, false);
 }
 assert.deepEqual(result.limits, {
   apiRequestBytes: MAX_API_BODY_BYTES,

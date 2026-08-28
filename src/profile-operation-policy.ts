@@ -6,6 +6,10 @@ import {
   SSE_READ_ONLY_OPERATIONS,
 } from "./operation-traits.js";
 import type { ProductProfile } from "./product-profiles.js";
+import {
+  receiptInteractionRequirement,
+  type ReceiptInteractionRequirement,
+} from "./receipt-interaction-policy.js";
 
 export const EXPERIMENTAL_PROFILE_BASE_OPERATIONS = [
   "capabilities", "health", "help", "product_info", "workspace_status",
@@ -94,6 +98,7 @@ export interface ProfileOperationCapability {
   availability: ProfileOperationAvailability;
   requiresExperimentalOptIn: boolean;
   blockedOnBuildDrift: boolean;
+  interactionRequirement?: ReceiptInteractionRequirement;
   reason: string;
 }
 
@@ -112,10 +117,12 @@ export function createProfileOperationCapability(
   operateExperimental: boolean,
   operation: SseApiOperation,
 ): ProfileOperationCapability {
+  const interactionRequirement = receiptInteractionRequirement(operation);
   const common = {
     operation,
     class: profileOperationClass(operation),
     blockedOnBuildDrift: BUILD_DRIFT_BLOCKED.has(operation),
+    ...(interactionRequirement ? { interactionRequirement } : {}),
   };
   if (BASE.has(operation)) {
     return {
@@ -131,6 +138,16 @@ export function createProfileOperationCapability(
       availability: "blocked",
       requiresExperimentalOptIn: false,
       reason: "Das Produktprofil ist deaktiviert; Betriebsoperationen sind gesperrt.",
+    };
+  }
+  if (interactionRequirement === "foreground-required") {
+    return {
+      ...common,
+      availability: "blocked",
+      requiresExperimentalOptIn: false,
+      reason:
+        "Der verifizierte BelegManager-Weg benoetigt Vordergrund- oder globale physische Eingabe; " +
+        "Hintergrundaufrufe stoppen vor jeder UI-Aenderung.",
     };
   }
   if (profileStatus === "supported" && operationAccess === "full") {
