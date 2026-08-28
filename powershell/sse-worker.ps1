@@ -543,6 +543,19 @@ function Get-SSEReceiptManagerListProjection($State, $Policy) {
   }
 }
 
+function Get-SSEReceiptManagerStableCellNames($Row) {
+  # Spalten 5 und 6 sind interne Erzeugt-/Geaendert-Zeitstempel. Qt kann den
+  # Geaendert-Wert allein durch eine Auswahlbindung nachziehen. Fuer den
+  # post-action Rebind bleiben alle fachlichen Spalten einschliesslich Titel,
+  # Datum, Belegnummer, Betrag, USt, Netto, Notiz und Klassifikation strikt.
+  $names = New-Object System.Collections.ArrayList
+  for ($cellIndex = 0; $cellIndex -lt @($Row.cells).Count; $cellIndex++) {
+    if ($cellIndex -in @(5,6)) { continue }
+    $null = $names.Add([string]$Row.cells[$cellIndex].name)
+  }
+  @($names)
+}
+
 function Resolve-SSEReceiptManagerVisibleRowTarget(
   [IntPtr]$ToolHwnd,
   $State,
@@ -581,10 +594,10 @@ function Resolve-SSEReceiptManagerVisibleRowTarget(
   $expectedRowsJson = @($List.rows | ForEach-Object {
     [pscustomobject][ordered]@{
       primaryText=[string]$_.primaryText; documentNumber=[string]$_.documentNumber
-      cells=@($_.cells | ForEach-Object { [string]$_.name })
+      cells=@(Get-SSEReceiptManagerStableCellNames $_)
     } | ConvertTo-Json -Depth 5 -Compress
   } | Sort-Object) | ConvertTo-Json -Compress
-  $expectedTargetCellsJson = @($Row.cells | ForEach-Object { [string]$_.name }) | ConvertTo-Json -Compress
+  $expectedTargetCellsJson = @(Get-SSEReceiptManagerStableCellNames $Row) | ConvertTo-Json -Compress
   $scrollMethod = 'already-visible'
   $scrollAttempts = 0
 
@@ -598,7 +611,7 @@ function Resolve-SSEReceiptManagerVisibleRowTarget(
     $actualRowsJson = @($listNow.rows | ForEach-Object {
       [pscustomobject][ordered]@{
         primaryText=[string]$_.primaryText; documentNumber=[string]$_.documentNumber
-        cells=@($_.cells | ForEach-Object { [string]$_.name })
+        cells=@(Get-SSEReceiptManagerStableCellNames $_)
       } | ConvertTo-Json -Depth 5 -Compress
     } | Sort-Object) | ConvertTo-Json -Compress
     if ($actualRowsJson -cne $expectedRowsJson) {
@@ -607,7 +620,7 @@ function Resolve-SSEReceiptManagerVisibleRowTarget(
     $rowNow = @($listNow.rows | Where-Object {
       [string]$_.primaryText -ceq [string]$Row.primaryText -and
       [string]$_.documentNumber -ceq [string]$Row.documentNumber -and
-      ((@($_.cells | ForEach-Object { [string]$_.name }) | ConvertTo-Json -Compress) -ceq $expectedTargetCellsJson)
+      ((@(Get-SSEReceiptManagerStableCellNames $_) | ConvertTo-Json -Compress) -ceq $expectedTargetCellsJson)
     })
     if ($rowNow.Count -ne 1) { throw 'Gebundene Belegzeile konnte nach dem Scrollen nicht exakt semantisch rebound werden.' }
     $gridRowNow = [int]$rowNow[0].index - 1
@@ -670,7 +683,7 @@ function Resolve-SSEReceiptManagerVisibleRowTarget(
       $selectedRowsJson = @($selectedList.rows | ForEach-Object {
         [pscustomobject][ordered]@{
           primaryText=[string]$_.primaryText; documentNumber=[string]$_.documentNumber
-          cells=@($_.cells | ForEach-Object { [string]$_.name })
+          cells=@(Get-SSEReceiptManagerStableCellNames $_)
         } | ConvertTo-Json -Depth 5 -Compress
       } | Sort-Object) | ConvertTo-Json -Compress
       if (-not [bool]$selectedList.rowsComplete -or [int]$selectedList.count -ne [int]$List.count -or
@@ -680,7 +693,7 @@ function Resolve-SSEReceiptManagerVisibleRowTarget(
       $selectedRows = @($selectedList.rows | Where-Object {
         [string]$_.primaryText -ceq [string]$Row.primaryText -and
         [string]$_.documentNumber -ceq [string]$Row.documentNumber -and
-        ((@($_.cells | ForEach-Object { [string]$_.name }) | ConvertTo-Json -Compress) -ceq $expectedTargetCellsJson)
+        ((@(Get-SSEReceiptManagerStableCellNames $_) | ConvertTo-Json -Compress) -ceq $expectedTargetCellsJson)
       })
       if ($selectedRows.Count -ne 1) {
         throw 'Gebundene Belegzeile wurde nach der vorbereitenden Auswahl nicht exakt semantisch rebound gebunden.'
@@ -844,6 +857,44 @@ function Get-SSEReceiptManagerOpenDetailBinding($State, $Policy, $Row, [string]$
     return $null
   }
   [pscustomobject]@{ fields=$fields; fingerprint=$fingerprint; values=$editable.values }
+}
+
+function Close-SSEReceiptManagerDetailView([IntPtr]$ToolHwnd, $State, $Policy, [int]$WaitMs) {
+  $closePolicy = $Policy.controls.detailClose
+  $closeNodes = @($State.nodes | Where-Object {
+    $_.type -eq 'Button' -and [string]$_.aid -and
+    ([string]$_.aid).EndsWith([string]$closePolicy.automationIdSuffix, [StringComparison]::Ordinal) -and
+    [string]$_.name -ceq [string]$closePolicy.expectedName -and [bool]$_.on
+  })
+  if ($closeNodes.Count -ne 1) {
+    throw "$($closeNodes.Count) exakt profilierte Schalter zum Schliessen der Belegdetails gefunden."
+  }
+  $freshClose = Convert-ExactElementToNode (
+    Get-LiveElement $ToolHwnd ([string]$closeNodes[0].rid) ([string]$closeNodes[0].aid)
+  )
+  if (-not $freshClose -or -not [bool]$freshClose.on -or $freshClose.w -le 0 -or $freshClose.h -le 0) {
+    throw 'Der profilierte Schalter zum Schliessen der Belegdetails ist nicht mehr sichtbar.'
+  }
+  $clickBinding = Click-VerifiedPoint $ToolHwnd $freshClose (Get-SSELastInputTick) -RequireForeground
+  $deadline = [DateTime]::UtcNow.AddMilliseconds($WaitMs)
+  $restoredState = $null; $restoredList = $null; $remainingCloseCount = 1
+  do {
+    Start-Sleep -Milliseconds 200
+    try {
+      $restoredState = Get-SSEReceiptManagerState $ToolHwnd $Policy
+      $restoredList = Get-SSEReceiptManagerListProjection $restoredState $Policy
+      $remainingCloseCount = @($restoredState.nodes | Where-Object {
+        $_.type -eq 'Button' -and [string]$_.aid -and
+        ([string]$_.aid).EndsWith([string]$closePolicy.automationIdSuffix, [StringComparison]::Ordinal) -and
+        $_.w -gt 0 -and $_.h -gt 0 -and [bool]$_.on
+      }).Count
+    } catch { $restoredState = $null; $restoredList = $null; $remainingCloseCount = 1 }
+    if ($restoredList -and [bool]$restoredList.rowsComplete -and $remainingCloseCount -eq 0) { break }
+  } while ([DateTime]::UtcNow -lt $deadline)
+  if (-not $restoredList -or -not [bool]$restoredList.rowsComplete -or $remainingCloseCount -ne 0) {
+    throw 'Belegdetails wurden nicht als vollstaendige stabile Listenansicht geschlossen.'
+  }
+  [pscustomobject]@{ state=$restoredState; list=$restoredList; clickBinding=$clickBinding }
 }
 
 function Get-SSEReceiptBulkRowTitle($Row) {
@@ -17364,7 +17415,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $dirtyAfter = Get-DirtyStateFast $mainHwnd
     $dirtyStateUnchanged = [bool]($null -ne $dirtyAfter -and [bool]$dirtyAfter -eq [bool]$dirtyBefore)
     $rowBefore = $rows[0]
-    $rowBeforeCellsJson = @($rowBefore.cells | ForEach-Object { [string]$_.name }) | ConvertTo-Json -Compress
+    $rowBeforeCellsJson = @(Get-SSEReceiptManagerStableCellNames $rowBefore) | ConvertTo-Json -Compress
     $rowAfterMatches = @($(if ($listAfter) {
       @($listAfter.rows | Where-Object {
         [string]$_.rowRid -ceq [string]$rowBefore.rowRid -and
@@ -17376,7 +17427,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         [string]$_.primaryText -ceq [string]$rowBefore.primaryText -and
         [string]$_.documentNumber -ceq [string]$rowBefore.documentNumber -and
         [string]$_.contentFingerprint -ceq [string]$rowBefore.contentFingerprint -and
-        ((@($_.cells | ForEach-Object { [string]$_.name }) | ConvertTo-Json -Compress) -ceq $rowBeforeCellsJson)
+        ((@(Get-SSEReceiptManagerStableCellNames $_) | ConvertTo-Json -Compress) -ceq $rowBeforeCellsJson)
       })
     } else { @() }))
     $actualSemanticRows = @($(if ($listAfter) {
@@ -17747,10 +17798,13 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       }
       Fail "Klassifikationsoptionen konnten nicht sicher gelesen werden: $($_.Exception.Message)" 'postcondition-failed'
     }
-    $finalState = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
-    $finalList = Get-SSEReceiptManagerListProjection $finalState $policy
-    $finalDetail = @(Get-SSEReceiptManagerDetailProjection $finalState)
+    $detailStateAfter = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
+    $finalDetail = @(Get-SSEReceiptManagerDetailProjection $detailStateAfter)
     $finalDetailFingerprint = Get-SSEReceiptManagerDetailFingerprint $finalDetail
+    try { $closedDetail = Close-SSEReceiptManagerDetailView $toolHwnd $detailStateAfter $policy ([int]$waitMs) }
+    catch { Fail "Klassifikationsoptionen wurden gelesen, aber die Detailansicht blieb offen: $($_.Exception.Message)" 'postcondition-failed' }
+    $finalState = $closedDetail.state
+    $finalList = $closedDetail.list
     $windowSetAfter = Get-SSEReceiptManagerWindowSet $targetPid
     $dirtyAfter = Get-DirtyStateFast $mainHwnd
     $selected = @($options.options | Where-Object { [bool]$_.selected } | ForEach-Object { [string]$_.name })
@@ -17771,6 +17825,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       ungespeichertVorher=$dirtyBefore; ungespeichertNachher=$dirtyAfter; dirtyStateUnchanged=$true
       physicalInputUsed=$true; foregroundLeaseUsed=$true; verified=$true
       selectionBinding=$selectionBinding; chooserBinding=$dialog.clickBinding
+      detailCloseBinding=$closedDetail.clickBinding
     })
   }
 
@@ -17818,8 +17873,12 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     if ($rows.Count -ne 1) { Fail "$($rows.Count) exakt gebundene Belegzeilen gefunden." 'stale' }
     $rowBefore = $rows[0]
     $targetIndex = [int]$rowBefore.index
-    $otherRowsBefore = @($listBefore.rows | Where-Object { [int]$_.index -ne $targetIndex } |
-      ForEach-Object { [string]$_.contentFingerprint })
+    $otherRowsBefore = @($listBefore.rows | Where-Object { [int]$_.index -ne $targetIndex } | ForEach-Object {
+      [pscustomobject][ordered]@{
+        primaryText=[string]$_.primaryText; documentNumber=[string]$_.documentNumber
+        cells=@(Get-SSEReceiptManagerStableCellNames $_)
+      } | ConvertTo-Json -Depth 5 -Compress
+    } | Sort-Object)
     $openDetail = Get-SSEReceiptManagerOpenDetailBinding `
       $stateBefore $policy $rowBefore $expectedDetailFingerprint
     if ($openDetail) {
@@ -17897,10 +17956,24 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       })
     }
 
-    $finalState = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
-    $finalList = Get-SSEReceiptManagerListProjection $finalState $policy
-    $rowAfterMatches = @($finalList.rows | Where-Object { [int]$_.index -eq $targetIndex })
-    $detailFingerprintAfter = Get-SSEReceiptManagerDetailFingerprint @(Get-SSEReceiptManagerDetailProjection $finalState)
+    $detailStateAfter = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
+    $detailFingerprintAfter = Get-SSEReceiptManagerDetailFingerprint @(Get-SSEReceiptManagerDetailProjection $detailStateAfter)
+    try { $closedDetail = Close-SSEReceiptManagerDetailView $toolHwnd $detailStateAfter $policy ([int]$waitMs) }
+    catch {
+      Emit ([pscustomobject]@{
+        ok=$false; kind='postcondition-failed'; error="Klassifikation wurde gesetzt, aber die Detailansicht blieb offen: $($_.Exception.Message)"
+        pid=$targetPid; hwnd=[int64]$toolHwnd; rowBefore=$rowBefore
+        listFingerprintBefore=$expectedListFingerprint; detailFingerprintBefore=$expectedDetailFingerprint
+        rollback=[pscustomobject]@{ attempted=$false; ok=$null; entries=@() }
+        cleanupRequired=$true; physicalInputUsed=$true; foregroundLeaseUsed=$true; verified=$false
+      })
+    }
+    $finalState = $closedDetail.state
+    $finalList = $closedDetail.list
+    $rowAfterMatches = @($finalList.rows | Where-Object {
+      [string]$_.primaryText -ceq [string]$rowBefore.primaryText -and
+      [string]$_.documentNumber -ceq [string]$rowBefore.documentNumber
+    })
     $valuesBefore = [ordered]@{}; $valuesAfter = [ordered]@{}; $requestedValues = [ordered]@{}
     $readbackOk = $true
     foreach ($transaction in @($transactions)) {
@@ -17912,8 +17985,15 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         $readbackOk = $false
       }
     }
-    $otherRowsAfter = @($finalList.rows | Where-Object { [int]$_.index -ne $targetIndex } |
-      ForEach-Object { [string]$_.contentFingerprint })
+    $otherRowsAfter = @($finalList.rows | Where-Object {
+      -not ([string]$_.primaryText -ceq [string]$rowBefore.primaryText -and
+        [string]$_.documentNumber -ceq [string]$rowBefore.documentNumber)
+    } | ForEach-Object {
+      [pscustomobject][ordered]@{
+        primaryText=[string]$_.primaryText; documentNumber=[string]$_.documentNumber
+        cells=@(Get-SSEReceiptManagerStableCellNames $_)
+      } | ConvertTo-Json -Depth 5 -Compress
+    } | Sort-Object)
     $windowSetAfter = Get-SSEReceiptManagerWindowSet $targetPid
     $dirtyAfter = Get-DirtyStateFast $mainHwnd
     $verified = [bool](
@@ -17945,6 +18025,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       rollback=[pscustomobject]@{ attempted=$false; ok=$null; entries=@() }
       ungespeichertVorher=$dirtyBefore; ungespeichertNachher=$dirtyAfter; dirtyStateUnchanged=$true
       physicalInputUsed=$true; foregroundLeaseUsed=$true; verified=$true; selectionBinding=$selectionBinding
+      detailCloseBinding=$closedDetail.clickBinding
     })
   }
 
