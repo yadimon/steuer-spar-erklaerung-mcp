@@ -180,6 +180,8 @@ Assert-True ($receiptReadBlock.Contains('$semanticRowAfterMatches.Count -eq 1'))
 Assert-True ($receiptReadBlock.Contains('$detailIdentityMatchesTarget')) 'receipt_manager_read darf Detailwerte nur fuer exakt denselben Titel und dieselbe Belegnummer bestaetigen.'
 Assert-True ($receiptReadBlock.Contains('Resolve-SSEReceiptManagerVisibleRowTarget')) 'receipt_manager_read muss virtualisierte Offscreen-Belege vor dem Klick sicher sichtbar binden.'
 Assert-True ($receiptReadBlock.Contains("method='already-open-detail'")) 'receipt_manager_read muss eine exakt gebundene bereits offene Detailansicht ohne erneuten Zeilenklick lesen.'
+Assert-True ($receiptReadBlock.IndexOf('$detailState = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues') -lt
+  $receiptReadBlock.IndexOf('Resolve-SSEReceiptManagerVisibleRowTarget')) 'receipt_manager_read muss eine offene Detailansicht mit vollstaendigen Werten pruefen, bevor es die Tabellenzeile erneut bindet.'
 
 $updateStart = $receiptReadEnd
 $updateEnd = $worker.IndexOf("  'receipt_manager_import' {", $updateStart)
