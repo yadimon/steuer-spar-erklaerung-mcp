@@ -12,16 +12,26 @@ try {
   const iniPath = join(configDirectory, "SSEKonf.user.ini");
   const isolatedDataDir = join(temporary, "isolated-belegmanager");
   mkdirSync(configDirectory, { recursive: true });
-  const original = Buffer.from("[Allgemein]\r\nWert=1\r\n[BelegManager]\r\nDataDir=C:\\private\\original\r\nBreite=42\r\n", "utf8");
+  const original = Buffer.from(
+    "[Allgemein]\r\nWert=1\r\n[BelegManager]\r\nDataDir=C:\\private\\original\r\nBreite=42\r\n" +
+    "[Files]\r\nLastWorkDir=C:\\private\\work\r\n",
+    "utf8",
+  );
   writeFileSync(iniPath, original);
   const options = { evidenceRoot, localAppData, engineMajor: 31, isolatedDataDir };
   const first = beginBelegManagerConfigIsolation(options);
   assert.match(readFileSync(iniPath, "utf8"), /DataDir=.*isolated-belegmanager/u);
   assert.equal(existsSync(join(evidenceRoot, ".api-mega-belegmanager-config-original.bin")), true);
+  assert.equal(existsSync(join(evidenceRoot, ".api-mega-belegmanager-config-swapped.bin")), true);
   assert.equal(existsSync(join(evidenceRoot, ".api-mega-belegmanager-config-recovery.json")), true);
+  writeFileSync(iniPath, readFileSync(iniPath, "utf8").replace(
+    "LastWorkDir=C:\\private\\work",
+    "LastWorkDir=C:\\synthetic\\runtime",
+  ));
   first.restore();
   assert.deepEqual(readFileSync(iniPath), original);
   assert.equal(existsSync(join(evidenceRoot, ".api-mega-belegmanager-config-original.bin")), false);
+  assert.equal(existsSync(join(evidenceRoot, ".api-mega-belegmanager-config-swapped.bin")), false);
   assert.equal(existsSync(join(evidenceRoot, ".api-mega-belegmanager-config-recovery.json")), false);
 
   rmSync(isolatedDataDir, { recursive: true, force: true });

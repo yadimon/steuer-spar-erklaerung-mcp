@@ -17674,35 +17674,56 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         [string]$freshList.listFingerprint -cne $expectedListFingerprint) {
       Fail 'BelegManager-Zustand hat sich unmittelbar vor der Zeilenauswahl geaendert.' 'stale'
     }
-    try {
-      $visibleTarget = Resolve-SSEReceiptManagerVisibleRowTarget `
-        $toolHwnd $freshState $freshList $rows[0] $policy
-    } catch {
-      Fail "Gebundene Belegzeile konnte nicht sicher sichtbar gemacht werden: $($_.Exception.Message)" 'stale'
+    $openDetail = $null
+    if (@(Get-SSEReceiptManagerDetailProjection $freshState).Count) {
+      $detailState = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
+      $detailList = Get-SSEReceiptManagerListProjection $detailState $policy
+      $detailFields = @(Get-SSEReceiptManagerDetailProjection $detailState)
+      $detailFingerprint = Get-SSEReceiptManagerDetailFingerprint $detailFields
+      if ([string]$detailList.listFingerprint -ceq $expectedListFingerprint) {
+        $openDetail = Get-SSEReceiptManagerOpenDetailBinding `
+          $detailState $policy $rows[0] $detailFingerprint
+      }
     }
-    $freshState = $visibleTarget.state
-    $freshList = $visibleTarget.list
-    $freshTarget = $visibleTarget.node
-    if ([bool]$visibleTarget.detailOpened) {
-      $clickBinding = $visibleTarget.preparationClickBinding
+    if ($openDetail) {
+      $visibleTarget = [pscustomobject]@{
+        state=$detailState; list=$detailList; node=$null; detailOpened=$true
+        method='already-open-detail'; attempts=0; preparationClickBinding=$null
+      }
+      $freshState = $detailState; $freshList = $detailList
+      $clickBinding = [pscustomobject]@{ method='already-open-detail'; clickCount=0 }
+      $stateAfter = $detailState; $detailFields = @($openDetail.fields); $noSelection = $false
     } else {
-      $inputTick = Get-SSELastInputTick
-      $clickBinding = Click-VerifiedPoint $toolHwnd $freshTarget $inputTick -RequireForeground
-    }
-
-    $deadline = [DateTime]::UtcNow.AddMilliseconds($waitMs)
-    $stateAfter = $null; $detailFields = @(); $noSelection = $true
-    do {
-      Start-Sleep -Milliseconds 200
       try {
-        $stateAfter = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
-        $noSelection = @($stateAfter.nodes | Where-Object {
-          $_.type -eq 'Text' -and [string]$_.name -ceq 'Kein Beleg ausgewählt' -and $_.w -gt 0 -and $_.h -gt 0
-        }).Count -gt 0
-        $detailFields = @(Get-SSEReceiptManagerDetailProjection $stateAfter)
-      } catch { $stateAfter = $null; $detailFields = @(); $noSelection = $true }
-      if ($stateAfter -and -not $noSelection -and $detailFields.Count) { break }
-    } while ([DateTime]::UtcNow -lt $deadline)
+        $visibleTarget = Resolve-SSEReceiptManagerVisibleRowTarget `
+          $toolHwnd $freshState $freshList $rows[0] $policy
+      } catch {
+        Fail "Gebundene Belegzeile konnte nicht sicher sichtbar gemacht werden: $($_.Exception.Message)" 'stale'
+      }
+      $freshState = $visibleTarget.state
+      $freshList = $visibleTarget.list
+      $freshTarget = $visibleTarget.node
+      if ([bool]$visibleTarget.detailOpened) {
+        $clickBinding = $visibleTarget.preparationClickBinding
+      } else {
+        $inputTick = Get-SSELastInputTick
+        $clickBinding = Click-VerifiedPoint $toolHwnd $freshTarget $inputTick -RequireForeground
+      }
+
+      $deadline = [DateTime]::UtcNow.AddMilliseconds($waitMs)
+      $stateAfter = $null; $detailFields = @(); $noSelection = $true
+      do {
+        Start-Sleep -Milliseconds 200
+        try {
+          $stateAfter = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
+          $noSelection = @($stateAfter.nodes | Where-Object {
+            $_.type -eq 'Text' -and [string]$_.name -ceq 'Kein Beleg ausgewählt' -and $_.w -gt 0 -and $_.h -gt 0
+          }).Count -gt 0
+          $detailFields = @(Get-SSEReceiptManagerDetailProjection $stateAfter)
+        } catch { $stateAfter = $null; $detailFields = @(); $noSelection = $true }
+        if ($stateAfter -and -not $noSelection -and $detailFields.Count) { break }
+      } while ([DateTime]::UtcNow -lt $deadline)
+    }
 
     $detailFingerprint = Get-SSEReceiptManagerDetailFingerprint $detailFields
     $editableProjection = $(if ($stateAfter -and $detailFields.Count) {
