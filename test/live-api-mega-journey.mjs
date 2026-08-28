@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { callApiOperationEnvelope, readApiHealthz } from "../dist/api-client.js";
 import { loadProductProfile } from "../dist/product-profiles.js";
+import { USTVA_PERIOD_SELECTORS } from "../dist/ustva.js";
 import { formatCents, parseCents } from "./currency-cents.mjs";
 import { classifyPassiveExportDialog, exportDialogEvidence } from "./export-dialog-policy.mjs";
 import { profiledTablePage } from "./profiled-table-page.mjs";
@@ -648,21 +649,14 @@ try {
         assert.equal(result.pageKind, "overview");
       },
     );
-    const ustvaPageRead = await read("read_page", { hwnd: currentHwnd }, (result) => {
-      assert(Array.isArray(result.felder ?? result.fields ?? []));
-    }, "ustva-period-selector-read");
-    const ustvaFields = ustvaPageRead.felder ?? ustvaPageRead.fields ?? [];
-    const periodSelectorFields = ustvaFields.filter((field) =>
-      (field.typ ?? field.type) === "ComboBox" &&
-      (field.label ?? field.name) !== "Voranmeldezeitraum");
-    assert.equal(periodSelectorFields.length, 1,
-      `UStVA-${original.period.frequency}-Zeitraumselektor ist nicht eindeutig strukturiert lesbar.`);
-    const periodSelectorName = periodSelectorFields[0].label ?? periodSelectorFields[0].name;
-    await read("combo_options", { name: periodSelectorName, hwnd: currentHwnd }, (result) => {
+    const selector = original.period.frequency === "quarterly" ? "quarter" : "month";
+    const periodSelector = USTVA_PERIOD_SELECTORS[selector];
+    assert(periodSelector, `UStVA-${original.period.frequency}-Zeitraumselektor ist nicht profiliert.`);
+    await read("combo_options", { aid: periodSelector.aid, hwnd: currentHwnd }, (result) => {
       assert((result.options ?? []).length > 0);
       assert.equal(typeof result.current, "string");
+      assert.equal(result.current, periodSelector.values[original.period.key]);
     });
-    const selector = original.period.frequency === "quarterly" ? "quarter" : "month";
     const alternate = selector === "quarter" ? (original.period.key === "q1" ? "q2" : "q1")
       : (original.period.key === "january" ? "february" : "january");
     await mutateAndRead(
