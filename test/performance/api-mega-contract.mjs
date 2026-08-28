@@ -227,6 +227,8 @@ assert.equal((journey.match(/\(result\) => \(\{ pid: result\.pid \}\)/gu) ?? [])
 assert.doesNotMatch(journey, /\(\) => \(\{ pid: currentPid \}\)/u,
   "Launch-Readback darf nicht von einer erst nachgelagert gesetzten Umgebungs-PID abhaengen.");
 assert.match(journey, /currentPhase = "failure-cleanup"/u);
+assert.match(journey, /failure-cleanup-windows[\s\S]+?failure-cleanup-known-tool-window[\s\S]+?failure-cleanup-close/u,
+  "Failure-Cleanup muss bekannte gebundene Toolfenster vor dem Hauptfenster schliessen.");
 assert.match(journey, /ownedLaunchPids\.has\(currentPid\)[\s\S]+failure-cleanup-force-close-owned-launch-pid/u,
   "Failure-Cleanup muss auch eine exakt aus dem Launch belegte PID ohne Hauptinstanz schliessen.");
 const processOnlyCleanupStart = journey.indexOf("} else if (owned.length === 0 && Number.isInteger(currentPid)");
