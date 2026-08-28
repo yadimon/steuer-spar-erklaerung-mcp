@@ -3,6 +3,13 @@ const EXPORT_SUCCESS_TITLE = "Export erfolgreich durchgeführt!";
 const EXPORT_SUCCESS_TEXT = /^Die Dateien finden Sie im Verzeichnis: .+$/u;
 const FORBIDDEN_CONTEXT = /(?:ELSTER|Versand|Übermitt|Send|Aktivier|Lizenz|Wiederherstell|Speicher(?:n|abfrage)|Überschreib)/iu;
 const CLOSE_BUTTONS = new Set(["Schließen", "Schliessen"]);
+export const EXPORT_COMPLETED_TEXTS = Object.freeze([
+  "Exportieren Sie hier Ihre Daten für das Finanzamt im Rahmen der »Grundsätze zum Datenzugriff und zur Prüfbarkeit digitaler Unterlagen«. Die exportierten Daten können im Rahmen einer Betriebsprüfung von der Analysesoftware IDEA eingelesen und ausgewertet werden.",
+  "Beim Datenexport werden mehrere Dateien erstellt. Sie können das Verzeichnis, in das die Dateien exportiert werden sollen, frei wählen. Beachten Sie bitte, dass das Verzeichnis leer sein muss.",
+  "Wir empfehlen Ihnen, die Dateien nach erfolgtem Export auf einem externen Speichermedium (z.B. CD-ROM) zu sichern.",
+  "Informationen zur Datenträgerüberlassung",
+  "Informationen zu den exportierten Dateien",
+]);
 
 const textVector = (dialog) => (dialog?.texts ?? []).map((entry) => String(entry));
 const buttonVector = (dialog) => (dialog?.buttons ?? []).map((entry) => ({
@@ -24,7 +31,10 @@ export function classifyPassiveExportDialog(dialog, expectedExportDialog) {
   const expectedTexts = textVector(expectedExportDialog);
   const actualButtons = buttonVector(dialog);
   const expectedButtons = buttonVector(expectedExportDialog);
-  if (JSON.stringify(actualTexts) !== JSON.stringify(expectedTexts) ||
+  const textStable = JSON.stringify(actualTexts) === JSON.stringify(expectedTexts);
+  const completedTextTransition = expectedTexts.length === 0 &&
+    JSON.stringify(actualTexts) === JSON.stringify(EXPORT_COMPLETED_TEXTS);
+  if ((!textStable && !completedTextTransition) ||
       JSON.stringify(actualButtons) !== JSON.stringify(expectedButtons)) return null;
   if (FORBIDDEN_CONTEXT.test([dialog.title, ...actualTexts].join(" "))) return null;
   const closes = actualButtons.filter((entry) => entry.enabled && CLOSE_BUTTONS.has(entry.name));

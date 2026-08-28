@@ -4,6 +4,7 @@ import { SSE_API_OPERATIONS } from "../../dist/api-contract.js";
 import {
   classifyPassiveExportDialog,
   classifyPassiveExportSuccessDialog,
+  EXPORT_COMPLETED_TEXTS,
 } from "../export-dialog-policy.mjs";
 import {
   SSE_FOREGROUND_REQUIRED_RECEIPT_OPERATIONS,
@@ -187,6 +188,12 @@ const exactExport = {
 assert.equal(classifyPassiveExportDialog(structuredClone(exactExport), exactExport), "Schließen");
 const exportWithMedium = { ...exactExport, texts: ["Bitte auf einem externen Speichermedium sichern."] };
 assert.equal(classifyPassiveExportDialog(structuredClone(exportWithMedium), exportWithMedium), "Schließen");
+const completedExport = { ...exactExport, texts: [...EXPORT_COMPLETED_TEXTS] };
+assert.equal(classifyPassiveExportDialog(completedExport, { ...exactExport, texts: [] }), "Schließen");
+assert.equal(classifyPassiveExportDialog(
+  { ...completedExport, texts: [...EXPORT_COMPLETED_TEXTS.slice(0, -1), "Unbekannter Zusatz"] },
+  { ...exactExport, texts: [] },
+), null);
 assert.equal(classifyPassiveExportDialog({ ...exactExport, title: "Steuerfall speichern?" }, exactExport), null);
 assert.equal(classifyPassiveExportDialog({ ...exactExport, texts: ["Export abgeschlossen."] }, exactExport), null);
 assert.equal(classifyPassiveExportDialog({ ...exactExport, buttons: [{ name: "OK", enabled: true }] }, exactExport), null);
