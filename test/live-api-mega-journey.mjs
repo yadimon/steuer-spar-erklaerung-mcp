@@ -760,47 +760,6 @@ try {
   });
 
   await phase("artifacts", async () => {
-    let collected;
-    let collectReportedHash;
-    let collectReportedCount;
-    await mutateAndRead(
-      "collect-result",
-      { resultRef: "results:api-mega-collect.json", maxPages: 5, hwnd: currentHwnd },
-      (result) => {
-        assert.equal(result.vollstaendig, true);
-        assert.equal(result.stopKind, "end-of-branch");
-        assert(result.anzahl >= 1 && result.anzahl <= 5);
-        collectReportedCount = result.anzahl;
-        assert.match(result.dateiHash, /^[A-F0-9]{64}$/u);
-        collectReportedHash = result.dateiHash;
-      },
-      { ref: "results:api-mega-collect.json" },
-      (result) => {
-        collected = JSON.parse(result.text);
-        assert.equal(collected.vollstaendig, true);
-        assert.equal(collected.stopKind, "end-of-branch");
-        assert.equal(collected.anzahl, collectReportedCount);
-        assert(Array.isArray(collected.seiten));
-        assert.equal(collected.seiten.length, collected.anzahl);
-      },
-    );
-    const fields = collected.seiten.flatMap((page) => (page.felder ?? []).map((field) => ({ page, field })));
-    const unique = fields.find(({ page, field }) =>
-      field.label && typeof field.wert === "string" &&
-      fields.filter((entry) => entry.page.ueberschrift === page.ueberschrift && entry.field.label === field.label).length === 1);
-    assert(unique, "Collect-Bericht enthaelt kein eindeutiges Feld fuer verify.");
-    const fileRead = await read("workspace_file_list", { ref: "results:.", includeHashes: true },
-      (result) => assert((result.files ?? []).some((entry) => entry.ref === "results:api-mega-collect.json")));
-    const listedCollectHash = fileRead.files.find((entry) => entry.ref === "results:api-mega-collect.json").sha256;
-    assert.equal(listedCollectHash, collectReportedHash);
-    await read("verify", {
-      sourceRef: "results:api-mega-collect.json",
-      expectedSourceHash: listedCollectHash,
-      allowIncompleteSource: false,
-      erwartungen: [{
-        seite: unique.page.ueberschrift, label: unique.field.label, wert: unique.field.wert,
-      }],
-    }, (result) => assert.equal(result.vergleichOk, true));
     await mutateAndRead(
       "screenshot-result",
       { resultRef: "results:api-mega.png", includeImage: false, hwnd: currentHwnd },
@@ -894,7 +853,7 @@ try {
     );
   });
 
-  await phase("known-fields", async () => {
+  await phase("est-and-collect", async () => {
     await mutateAndRead(
       "close-gew",
       { pid: currentPid, hwnd: currentHwnd, discardChanges: true },
@@ -913,6 +872,56 @@ try {
     );
     await maybeDismissStartupDialog("launch-est-startup-dialog", launchedEst.readback);
     await assertBoundUiState("launch-est");
+    const terminalHeading = fixtures.est.terminalCollect?.headingAtLaunch;
+    assert.equal(typeof terminalHeading, "string", "ESt-Fixture braucht eine profilierte Collect-Endseite.");
+    await read("page", { hwnd: currentHwnd }, (result) => assert.equal(result.ueberschrift, terminalHeading));
+    await read("find", { name: "Weiter", contains: true, hwnd: currentHwnd }, (result) => {
+      assert.equal(result.incomplete, false, "UIA-Suche nach 'Weiter' blieb unvollstaendig.");
+      const forwardControls = (result.hits ?? []).filter((hit) =>
+        ["Button", "Hyperlink"].includes(hit.type) && /^Weiter\b/u.test(hit.name?.trim() ?? ""));
+      assert.deepEqual(forwardControls, [], `Profilseite '${terminalHeading}' ist keine bewiesene Collect-Endseite.`);
+    }, "terminal-forward-proof");
+    let collected;
+    let collectReportedHash;
+    await mutateAndRead(
+      "collect-result",
+      { resultRef: "results:api-mega-collect.json", maxPages: 2, hwnd: currentHwnd },
+      (result) => {
+        assert.equal(result.vollstaendig, true);
+        assert.equal(result.stopKind, "end-of-branch");
+        assert.equal(result.anzahl, 1);
+        assert.equal(result.advancedAfterLastCaptured, false);
+        assert.equal(result.currentHeadingAfter, terminalHeading);
+        assert.match(result.dateiHash, /^[A-F0-9]{64}$/u);
+        collectReportedHash = result.dateiHash;
+      },
+      { ref: "results:api-mega-collect.json" },
+      (result) => {
+        collected = JSON.parse(result.text);
+        assert.equal(collected.vollstaendig, true);
+        assert.equal(collected.stopKind, "end-of-branch");
+        assert.equal(collected.anzahl, 1);
+        assert.equal(collected.seiten?.length, 1);
+        assert.equal(collected.seiten[0].ueberschrift, terminalHeading);
+      },
+    );
+    const fields = collected.seiten.flatMap((page) => (page.felder ?? []).map((field) => ({ page, field })));
+    const unique = fields.find(({ page, field }) =>
+      field.label && typeof field.wert === "string" &&
+      fields.filter((entry) => entry.page.ueberschrift === page.ueberschrift && entry.field.label === field.label).length === 1);
+    assert(unique, "Collect-Bericht enthaelt kein eindeutiges Feld fuer verify.");
+    const fileRead = await read("workspace_file_list", { ref: "results:.", includeHashes: true },
+      (result) => assert((result.files ?? []).some((entry) => entry.ref === "results:api-mega-collect.json")));
+    const listedCollectHash = fileRead.files.find((entry) => entry.ref === "results:api-mega-collect.json").sha256;
+    assert.equal(listedCollectHash, collectReportedHash);
+    await read("verify", {
+      sourceRef: "results:api-mega-collect.json",
+      expectedSourceHash: listedCollectHash,
+      allowIncompleteSource: false,
+      erwartungen: [{
+        seite: unique.page.ueberschrift, label: unique.field.label, wert: unique.field.wert,
+      }],
+    }, (result) => assert.equal(result.vergleichOk, true));
     const pageId = "est.sonstige_werbungskosten_fahrten";
     const fieldId = "kontofuehrungsgebuehren_pauschal";
     const fieldLabel = "Kontoführungsgebühren (pauschal)";
