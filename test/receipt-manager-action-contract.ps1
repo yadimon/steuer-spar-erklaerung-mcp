@@ -250,6 +250,8 @@ $classificationToggleBlock = $worker.Substring($classificationToggleStart, $clas
 foreach ($required in @(
   'ScrollItemPattern',
   'ScrollPattern',
+  '$outsideTable',
+  '$cellY -ge ([double]$tableRect.Y + [double]$tableRect.Height)',
   '[SW]::WindowFromPoint($point)',
   '[SW]::mouse_event(0x0800',
   'ist verdeckt; die Auswahltabelle wurde nicht gerollt'
