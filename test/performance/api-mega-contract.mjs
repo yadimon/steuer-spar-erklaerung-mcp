@@ -55,6 +55,17 @@ const harness = readFileSync("test/with-api.mjs", "utf8");
 const fingerprint = readFileSync("test/performance/api-mega-fingerprint.mjs", "utf8");
 const worker = readFileSync("powershell/sse-worker.ps1", "utf8");
 const apiConfig = readFileSync("src/api-config.ts", "utf8");
+const safetyPhaseStart = journey.indexOf('await phase("safety"');
+const launchPhaseStart = journey.indexOf('await phase("launch-and-reads"');
+assert(safetyPhaseStart >= 0 && launchPhaseStart > safetyPhaseStart,
+  "Safety- und Launchphase muessen eindeutig geordnet sein.");
+assert.doesNotMatch(journey.slice(safetyPhaseStart, launchPhaseStart), /read\(\s*["']help["']/u,
+  "Fensterabhaengige Eingabehilfe darf nicht vor dem ersten verifizierten SSE-Start gelesen werden.");
+const firstLaunch = journey.indexOf('"launch-gew"', launchPhaseStart);
+const firstBoundUiState = journey.indexOf('await assertBoundUiState("launch-gew")', firstLaunch);
+const firstBoundHelp = journey.indexOf('await read("help", { hwnd: currentHwnd }', firstBoundUiState);
+assert(firstLaunch >= launchPhaseStart && firstBoundUiState > firstLaunch && firstBoundHelp > firstBoundUiState,
+  "Eingabehilfe muss nach Launch und gebundenem UI-State mit dem verifizierten HWND gelesen werden.");
 const invokedMutationIds = [...journey.matchAll(/(?:mutateAndRead|maybeDismissStartupDialog)\(\s*["']([^"']+)["']/gu)]
   .map((match) => match[1]);
 assert.deepEqual([...new Set(invokedMutationIds)].sort(), [...declaredIds].sort(),
