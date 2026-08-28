@@ -833,6 +833,19 @@ function Get-SSEReceiptManagerEditableValues($State, $Policy) {
   [pscustomobject]@{ complete=$complete; values=$(if ($complete) { [pscustomobject]$values } else { $null }) }
 }
 
+function Get-SSEReceiptManagerOpenDetailBinding($State, $Policy, $Row, [string]$ExpectedDetailFingerprint) {
+  $fields = @(Get-SSEReceiptManagerDetailProjection $State)
+  $fingerprint = Get-SSEReceiptManagerDetailFingerprint $fields
+  if (-not $fingerprint -or [string]$fingerprint -cne [string]$ExpectedDetailFingerprint) { return $null }
+  $editable = Get-SSEReceiptManagerEditableValues $State $Policy
+  if (-not [bool]$editable.complete -or
+      [string]$editable.values.title -cne [string]$Row.primaryText -or
+      [string]$editable.values.documentNumber -cne [string]$Row.documentNumber) {
+    return $null
+  }
+  [pscustomobject]@{ fields=$fields; fingerprint=$fingerprint; values=$editable.values }
+}
+
 function Get-SSEReceiptBulkRowTitle($Row) {
   if ($Row -and $Row.PSObject.Properties['primaryText']) { return [string]$Row.primaryText }
   $named = @($Row.cells | Where-Object { [string]$_.name } | Select-Object -First 1)
@@ -878,6 +891,17 @@ function Test-SSEReceiptBulkRequestedValues($Actual, $Requested) {
     $matches = switch ($name) {
       'date' { (ConvertTo-SSEReceiptBulkDate $observed) -ceq (ConvertTo-SSEReceiptBulkDate $expected); break }
       'amount' { (ConvertTo-SSEReceiptBulkAmount $observed) -ceq (ConvertTo-SSEReceiptBulkAmount $expected); break }
+      # Qt zeigt den persistent gespeicherten Satz 0 % nach erneutem Oeffnen
+      # als leeren ComboBox-Text an, waehrend die Tabellenprojektion weiterhin
+      # kanonisch "0" liefert. Nur fuer den angeforderten Nullsatz sind diese
+      # beiden Darstellungen deshalb semantisch gleich.
+      'vatRate' {
+        $expectedVat = ([string]$expected).Trim().TrimEnd('%').Trim()
+        $observedVat = ([string]$observed).Trim().TrimEnd('%').Trim()
+        if ($expectedVat -ceq '0' -and -not $observedVat) { $observedVat = '0' }
+        $observedVat -ceq $expectedVat
+        break
+      }
       'net' { [bool]$observed -eq [bool]$expected; break }
       default { [string]$observed -ceq [string]$expected }
     }
@@ -16926,7 +16950,14 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         $classification = Invoke-SSEMeasuredPlanOperation 'receipt_manager_classify' ([pscustomobject]$classifyArgs) $metrics
         $metrics.immediateReadbackCount++
         if ($classification.ok -ne $true -or -not $classification.rowAfter) {
-          $failedIndex=$index; $failureCleanupRequired=[bool]($action -ceq 'imported' -or (Arg $classification 'cleanupRequired' $false))
+          # Das Feld-Update ist zu diesem Zeitpunkt bereits verifiziert und
+          # kann bei einem vorhandenen Beleg nicht planweit zurueckgerollt
+          # werden. Der Abschluss darf diesen Zustand daher nie als
+          # unveraendert melden, auch wenn die Klassifikation fail-closed
+          # stoppt.
+          $failedIndex=$index; $failureCleanupRequired=[bool](
+            $action -in @('imported','updated') -or (Arg $classification 'cleanupRequired' $false)
+          )
           $failedAction=[pscustomobject]@{ index=$index; stage='classify'; resourceRef=[string]$item.resourceRef; result=$classification }
           break
         }
@@ -17674,20 +17705,33 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       [string]$_.rowRid -ceq $rowRid -and ([string]$_.rowFingerprint).ToUpperInvariant() -ceq $rowFingerprint
     })
     if ($rows.Count -ne 1) { Fail "$($rows.Count) exakt gebundene Belegzeilen gefunden." 'stale' }
-    $targetNodes = @($stateBefore.nodes | Where-Object {
-      [string]$_.rid -ceq $rowRid -and $_.type -eq 'DataItem' -and [string]$_.aid -and
-      ([string]$_.aid).EndsWith([string]$policy.list.tableAutomationIdSuffix, [StringComparison]::Ordinal)
-    })
-    $freshTarget = $(if ($targetNodes.Count -eq 1) {
-      Convert-ExactElementToNode (Get-LiveElement $toolHwnd $targetNodes[0].rid $targetNodes[0].aid)
-    } else { $null })
-    if (-not $freshTarget -or -not [bool]$freshTarget.on) { Fail 'Gebundene Belegzeile ist nicht mehr aktiv.' 'stale' }
-    $selectionBinding = Click-VerifiedPoint $toolHwnd $freshTarget (Get-SSELastInputTick) -RequireForeground
-    Start-Sleep -Milliseconds 350
-    $selectedState = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
-    $selectedList = Get-SSEReceiptManagerListProjection $selectedState $policy
-    $detailFields = @(Get-SSEReceiptManagerDetailProjection $selectedState)
-    $detailFingerprint = Get-SSEReceiptManagerDetailFingerprint $detailFields
+    $rowBefore = $rows[0]
+    $openDetail = Get-SSEReceiptManagerOpenDetailBinding `
+      $stateBefore $policy $rowBefore $expectedDetailFingerprint
+    if ($openDetail) {
+      # receipt_manager_update laesst die exakt gebundene Detailansicht offen.
+      # Ein erneuter Zeilenklick kann Qt neu rendern und macht die soeben
+      # ausgegebenen Fingerprints kuenstlich stale. Die bereits bewiesene
+      # Titel-/Belegnummer-/Detailbindung ist hier der strengere Guard.
+      $selectionBinding = [pscustomobject]@{ method='already-open-detail'; clickCount=0 }
+      $selectedState = $stateBefore; $selectedList = $listBefore
+      $detailFields = @($openDetail.fields); $detailFingerprint = [string]$openDetail.fingerprint
+    } else {
+      $targetNodes = @($stateBefore.nodes | Where-Object {
+        [string]$_.rid -ceq $rowRid -and $_.type -eq 'DataItem' -and [string]$_.aid -and
+        ([string]$_.aid).EndsWith([string]$policy.list.tableAutomationIdSuffix, [StringComparison]::Ordinal)
+      })
+      $freshTarget = $(if ($targetNodes.Count -eq 1) {
+        Convert-ExactElementToNode (Get-LiveElement $toolHwnd $targetNodes[0].rid $targetNodes[0].aid)
+      } else { $null })
+      if (-not $freshTarget -or -not [bool]$freshTarget.on) { Fail 'Gebundene Belegzeile ist nicht mehr aktiv.' 'stale' }
+      $selectionBinding = Click-VerifiedPoint $toolHwnd $freshTarget (Get-SSELastInputTick) -RequireForeground
+      Start-Sleep -Milliseconds 350
+      $selectedState = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
+      $selectedList = Get-SSEReceiptManagerListProjection $selectedState $policy
+      $detailFields = @(Get-SSEReceiptManagerDetailProjection $selectedState)
+      $detailFingerprint = Get-SSEReceiptManagerDetailFingerprint $detailFields
+    }
     if ([string]$selectedList.listFingerprint -cne $expectedListFingerprint -or
         [string]$detailFingerprint -cne $expectedDetailFingerprint) {
       Fail 'Listen- oder Detailfingerprint ist vor dem Dialog veraltet.' 'stale'
@@ -17776,19 +17820,27 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $targetIndex = [int]$rowBefore.index
     $otherRowsBefore = @($listBefore.rows | Where-Object { [int]$_.index -ne $targetIndex } |
       ForEach-Object { [string]$_.contentFingerprint })
-    $targetNodes = @($stateBefore.nodes | Where-Object {
-      [string]$_.rid -ceq $rowRid -and $_.type -eq 'DataItem' -and [string]$_.aid -and
-      ([string]$_.aid).EndsWith([string]$policy.list.tableAutomationIdSuffix, [StringComparison]::Ordinal)
-    })
-    $freshTarget = $(if ($targetNodes.Count -eq 1) {
-      Convert-ExactElementToNode (Get-LiveElement $toolHwnd $targetNodes[0].rid $targetNodes[0].aid)
-    } else { $null })
-    if (-not $freshTarget -or -not [bool]$freshTarget.on) { Fail 'Gebundene Belegzeile ist nicht mehr aktiv.' 'stale' }
-    $selectionBinding = Click-VerifiedPoint $toolHwnd $freshTarget (Get-SSELastInputTick) -RequireForeground
-    Start-Sleep -Milliseconds 350
-    $selectedState = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
-    $selectedList = Get-SSEReceiptManagerListProjection $selectedState $policy
-    $detailFingerprintBefore = Get-SSEReceiptManagerDetailFingerprint @(Get-SSEReceiptManagerDetailProjection $selectedState)
+    $openDetail = Get-SSEReceiptManagerOpenDetailBinding `
+      $stateBefore $policy $rowBefore $expectedDetailFingerprint
+    if ($openDetail) {
+      $selectionBinding = [pscustomobject]@{ method='already-open-detail'; clickCount=0 }
+      $selectedState = $stateBefore; $selectedList = $listBefore
+      $detailFingerprintBefore = [string]$openDetail.fingerprint
+    } else {
+      $targetNodes = @($stateBefore.nodes | Where-Object {
+        [string]$_.rid -ceq $rowRid -and $_.type -eq 'DataItem' -and [string]$_.aid -and
+        ([string]$_.aid).EndsWith([string]$policy.list.tableAutomationIdSuffix, [StringComparison]::Ordinal)
+      })
+      $freshTarget = $(if ($targetNodes.Count -eq 1) {
+        Convert-ExactElementToNode (Get-LiveElement $toolHwnd $targetNodes[0].rid $targetNodes[0].aid)
+      } else { $null })
+      if (-not $freshTarget -or -not [bool]$freshTarget.on) { Fail 'Gebundene Belegzeile ist nicht mehr aktiv.' 'stale' }
+      $selectionBinding = Click-VerifiedPoint $toolHwnd $freshTarget (Get-SSELastInputTick) -RequireForeground
+      Start-Sleep -Milliseconds 350
+      $selectedState = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
+      $selectedList = Get-SSEReceiptManagerListProjection $selectedState $policy
+      $detailFingerprintBefore = Get-SSEReceiptManagerDetailFingerprint @(Get-SSEReceiptManagerDetailProjection $selectedState)
+    }
     if ([string]$selectedList.listFingerprint -cne $expectedListFingerprint -or
         [string]$detailFingerprintBefore -cne $expectedDetailFingerprint) {
       Fail 'Listen- oder Detailfingerprint ist vor der Klassifikation veraltet.' 'stale'
