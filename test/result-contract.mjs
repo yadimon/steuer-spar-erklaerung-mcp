@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { SSE_API_OPERATIONS } from "../dist/api-contract.js";
 import { SSE_DESTRUCTIVE_OPERATIONS } from "../dist/operation-traits.js";
 import {
+  RECEIPT_FOREGROUND_BLOCK_REASON,
+  SSE_FOREGROUND_REQUIRED_RECEIPT_OPERATIONS,
+} from "../dist/receipt-interaction-policy.js";
+import {
   parseApiOperationResult,
   SSE_API_RESULT_OUTPUT_SCHEMAS,
   SSE_API_RESULT_SCHEMAS,
@@ -81,6 +85,35 @@ for (const operation of SSE_API_OPERATIONS) {
   const failure = parseApiOperationResult(operation, { ok: false, kind: "synthetic", error: "synthetisch" });
   assert.equal(failure.kind, "synthetic");
   assert.match(SSE_API_RESULT_OUTPUT_SCHEMAS[operation].description ?? "", new RegExp(`Result_${operation}`));
+}
+
+for (const operation of SSE_FOREGROUND_REQUIRED_RECEIPT_OPERATIONS) {
+  const blocked = parseApiOperationResult(operation, {
+    ok: false,
+    kind: "blocked",
+    error: "Keine UI wurde geaendert.",
+    reason: RECEIPT_FOREGROUND_BLOCK_REASON,
+    retryable: false,
+    interactionRequirement: "foreground-required",
+    mutationStarted: false,
+    resultingState: "unchanged",
+    cleanupRequired: false,
+    physicalInputUsed: false,
+    foregroundLeaseUsed: false,
+  });
+  assert.equal(blocked.reason, RECEIPT_FOREGROUND_BLOCK_REASON, `${operation}: Blockgrund`);
+  assert.equal(blocked.interactionRequirement, "foreground-required", `${operation}: Interaktionsklasse`);
+  assert.equal(blocked.mutationStarted, false, `${operation}: Mutationsnachweis`);
+  assert.throws(
+    () => parseApiOperationResult(operation, { ...blocked, retryable: "false" }),
+    /boolean/i,
+    `${operation}: retryable muss boolesch bleiben`,
+  );
+  assert.throws(
+    () => parseApiOperationResult(operation, { ...blocked, interactionRequirement: "interactive-opt-in" }),
+    /foreground-required|literal/i,
+    `${operation}: Interaktionsklasse darf keinen Opt-in erfinden`,
+  );
 }
 
 for (const value of [null, [], {}, { ok: "true" }, { ok: true, ms: Number.POSITIVE_INFINITY }]) {

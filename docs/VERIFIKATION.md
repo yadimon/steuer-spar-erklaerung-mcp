@@ -182,6 +182,21 @@ das Protokoll mit dem Katalog. Die Bilanz ist eine Ratsche in beide
 Richtungen – verschwundene Abdeckung ist eine Regression, neue Abdeckung muss
 mit `SSE_WRITE_OPERATION_COVERAGE=1` bewusst übernommen werden.
 
+Seit 2026-08-28 trennt die Laufzeitverfuegbarkeit diese historischen
+Funktionsnachweise ausdruecklich von einer aktuellen Freigabe. Nur
+`receipt_manager_list` ist `focusless-read` und erreichbar. Die neun
+BelegManager-Wege fuer Navigation, Detailauswahl und Mutation sind als
+`foreground-required` klassifiziert und sowohl an der API- als auch an der
+direkten Worker-Grenze gesperrt. Ein gueltiger Aufruf liefert strukturiert
+`foreground-required-operation-disabled` und ist nicht wiederholbar. API und
+MCP starten dafuer weder Worker noch UIA; ein direkter Worker-Aufruf stoppt vor
+Dispatcher und UIA. An API und MCP bleibt ein ungueltiger Aufruf ein normaler
+`bad-args`-Fehler; der direkte Worker prueft an dieser aeusseren Grenze nur den
+Transport und blockiert vor der dormanten semantischen Operationsvalidierung.
+Die nachstehenden Snapshot-/VM-Nachweise belegen die
+historische Implementierung und ihre Guards, nicht ihre heutige
+Laufzeitverfuegbarkeit.
+
 Fünf ausdrücklich mit `liveEvidence: "snapshot-vm"` markierte BelegManager-
 Operationen bilden die einzige Ausnahme vom aktuellen Hostlauf: Der PC kann
 bereits benutzereigene Belegentwürfe enthalten, die ein Test weder löschen noch
@@ -194,8 +209,10 @@ Gezählt wird nur der API-Rand. Operationen, die eine Komposition oder ein
 Szenario intern aufruft, gelten damit nicht automatisch als geprüft; sie
 brauchen einen eigenen Aufruf über die HTTP-Grenze.
 
-Stand: 97 der 99 Operationen werden im Offline-Lauf mindestens einmal
-erfolgreich ausgeführt – überwiegend gegen den zustandsbehafteten
+Stand: 99 der 99 Operationsvertraege werden im Offline-Lauf mindestens einmal
+funktional ausgeuebt – als erfolgreicher Aufruf oder, bei den neun aktuell
+gesperrten BelegManager-Wegen, als vollstaendig passender globaler Policy-Block
+mit unveraendertem Zustand. Das geschieht überwiegend gegen den zustandsbehafteten
 synthetischen Worker, der Seitengraph, Elementbaum, Tabelle, Menü, VaSt-Dialog
 und Fenster-/Desktopzustand modelliert. Das beweist Argumentbindung,
 Ressourcenauflösung, Komposition, Ergebnisvertrag und Redaktion über die

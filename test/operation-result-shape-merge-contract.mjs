@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { z } from "zod";
 import {
   isResultTypeTag,
   mergeFieldEvidence,
@@ -6,6 +7,7 @@ import {
   resultObjectTypeTag,
   resultTypeTag,
   samplesForResultTypeTag,
+  samplesForResultTypeTagWithSchemaLiteral,
 } from "./operation-result-shape-lib.mjs";
 
 assert.deepEqual(
@@ -35,6 +37,20 @@ assert.deepEqual(
 assert.deepEqual(samplesForResultTypeTag("negative-number"), [-1]);
 assert.deepEqual(samplesForResultTypeTag("array-one:string-other"), [["synthetic"]]);
 assert.deepEqual(samplesForResultTypeTag("array-many:object"), [[{ name: "synthetic" }, { name: "synthetic-2" }]]);
+assert.deepEqual(
+  samplesForResultTypeTagWithSchemaLiteral("string-other", z.literal("foreground-required").nullable().optional()),
+  ["synthetic", "foreground-required"],
+);
+assert.deepEqual(
+  samplesForResultTypeTagWithSchemaLiteral("string-other", z.literal("")),
+  ["synthetic"],
+  "Ein Literal darf nur den wertfreien Typ ergaenzen, dem sein Laufzeitwert entspricht.",
+);
+assert.deepEqual(
+  samplesForResultTypeTagWithSchemaLiteral("string-other", z.string()),
+  ["synthetic"],
+  "Offene String-Schemas brauchen keine schemaabhaengigen Werte.",
+);
 const objectTag = resultObjectTypeTag({ path: "results:synthetic.png", w: 1, h: 2 });
 assert.equal(objectTag, 'object:{"h":"nonnegative-number","path":"string-other","w":"nonnegative-number"}');
 assert.equal(isResultTypeTag(objectTag), true);

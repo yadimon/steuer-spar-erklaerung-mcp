@@ -2,6 +2,7 @@
  * Sicher gebundene BelegManager-Lese-, Import- und Loeschwerkzeuge.
  */
 import { type McpRegistry } from "./mcp-registry.js";
+import { RECEIPT_FOREGROUND_BLOCK_DESCRIPTION } from "./receipt-interaction-policy.js";
 
 export function registerReceiptTools(registry: McpRegistry): void {
   const { registerShapedApiTool } = registry;
@@ -9,9 +10,10 @@ export function registerReceiptTools(registry: McpRegistry): void {
   registerShapedApiTool(
     "sse_receipt_manager_action",
     {
-      title: "BelegManager sicher navigieren",
+      title: "BelegManager-Navigation (gesperrt)",
       description:
-        "Fuehrt genau eine katalogisierte, reversible Navigation im bereits geoeffneten BelegManager aus: " +
+        RECEIPT_FOREGROUND_BLOCK_DESCRIPTION +
+        "Der historische Vordergrundvertrag fuehrt genau eine katalogisierte, reversible Navigation aus: " +
         "showAllReceipts wechselt von der Startseite zur Belegliste, goHome von der Liste zur Startseite. " +
         "Es gibt keinen freien Selektor. Die API bindet Prozess, Hauptfenster, exakten Titel und Qt-Klasse, " +
         "prueft den profilierten Ausgangszustand sowie Dialogfreiheit, verifiziert den Klickpunkt unmittelbar " +
@@ -48,7 +50,8 @@ export function registerReceiptTools(registry: McpRegistry): void {
         "Das Ergebnis enthaelt den angezeigten Gesamtzaehler, sichtbare Spalten und Zeilen, Entwurfsmarkierungen, " +
         "frische Zeilenbindungen sowie einen Listenfingerprint fuer nachfolgende exakt gebundene Aktionen. " +
         "Wenn Qt nicht alle Belege im UIA-Baum exponiert, wird rowsComplete=false gemeldet; es wird keine " +
-        "Vollstaendigkeit behauptet. Vorher bei Bedarf showAllReceipts ausfuehren.",
+        "Vollstaendigkeit behauptet. Die Listenansicht muss ein Mensch vorher im BelegManager geoeffnet haben; " +
+        "die gesperrte Navigation darf dafuer nicht automatisch aufgerufen werden.",
     },
     (r) => ({
       pid: r.pid,
@@ -77,9 +80,10 @@ export function registerReceiptTools(registry: McpRegistry): void {
   registerShapedApiTool(
     "sse_receipt_manager_read",
     {
-      title: "Belegdetails sicher lesen",
+      title: "Belegdetails auswaehlen (gesperrt)",
       description:
-        "Waehlt genau die unmittelbar zuvor gelesene Belegzeile anhand Runtime-ID, Zeilenfingerprint und " +
+        RECEIPT_FOREGROUND_BLOCK_DESCRIPTION +
+        "Der historische Vordergrundvertrag waehlt die unmittelbar zuvor gelesene Belegzeile anhand Runtime-ID, Zeilenfingerprint und " +
         "Gesamtlistenfingerprint aus und liest ihre sichtbare Detailansicht strukturiert. Es gibt keinen freien " +
         "Selektor und keine Feldmutation. Die Operation verifiziert, dass Liste, Fenster, Dialogfreiheit und " +
         "Dirty-State unveraendert bleiben; bei veralteter Bindung wird nichts geklickt.",
@@ -114,9 +118,10 @@ export function registerReceiptTools(registry: McpRegistry): void {
   registerShapedApiTool(
     "sse_receipt_manager_update",
     {
-      title: "Belegfelder sicher befuellen",
+      title: "Belegfelder befuellen (gesperrt)",
       description:
-        "Befuellt mehrere katalogisierte Felder eines unmittelbar zuvor gelesenen Belegs in einer gebundenen " +
+        RECEIPT_FOREGROUND_BLOCK_DESCRIPTION +
+        "Der historische Vordergrundvertrag befuellt mehrere katalogisierte Felder eines zuvor gelesenen Belegs in einer gebundenen " +
         "Transaktion. Runtime-ID, Zeilen-, Listen- und Detailfingerprint sowie acknowledgeUpdate=true sind Pflicht. " +
         "Unterstuetzt werden Bezeichnung, Datum, Belegnummer, Betrag, Umsatzsteuersatz, Netto-Kennzeichen und Notiz. " +
         "Die API bindet ausschliesslich profilierte AutomationIds, prueft jeden Vor- und Nachwert, haelt Anzahl und " +
@@ -155,11 +160,11 @@ export function registerReceiptTools(registry: McpRegistry): void {
   registerShapedApiTool(
     "sse_receipt_manager_import",
     {
-      title: "Belegdatei sicher importieren",
+      title: "Belegdatei importieren (gesperrt)",
       description:
-        "Legt in der bereits geoeffneten, vollstaendig gelesenen Belegliste genau einen neuen Beleg an und " +
-        "importiert eine documents:-PDF-Datei mit gebundenem SHA-256. Andere Formate werden vor jeder UI-Aktion abgewiesen. " +
-        "Der Aufruf verlangt den frischen Listenfingerprint, " +
+        RECEIPT_FOREGROUND_BLOCK_DESCRIPTION +
+        "Der historische Vordergrundvertrag legt in der vollstaendig gelesenen Belegliste genau einen neuen Beleg an und " +
+        "importiert eine documents:-PDF-Datei mit gebundenem SHA-256. Andere Formate werden vor jeder UI-Aktion abgewiesen. Der Aufruf verlangt den frischen Listenfingerprint, " +
         "den exakten Vorzaehler und acknowledgeImport=true; vorhandene Entwuerfe blockieren den Import. Die API " +
         "bindet den neu hinzugekommenen Datensatz, den nativen Oeffnen-Dialog und eine visuelle Aenderung des " +
         "Vorschaufelds. Die Quelldatei wird weder verschoben noch veraendert. Wenn ein Nachweis nach dem Anlegen " +
@@ -198,9 +203,10 @@ export function registerReceiptTools(registry: McpRegistry): void {
   registerShapedApiTool(
     "sse_receipt_manager_classification_options",
     {
-      title: "BelegManager-Kategorien oder -Personen lesen",
+      title: "BelegManager-Klassifikation waehlen (gesperrt)",
       description:
-        "Oeffnet fuer genau den zuvor gebundenen Beleg den profilierten Kategorie- oder Personendialog, " +
+        RECEIPT_FOREGROUND_BLOCK_DESCRIPTION +
+        "Der historische Vordergrundvertrag oeffnet fuer den gebundenen Beleg den profilierten Kategorie- oder Personendialog, " +
         "liest alle Optionen ueber das Qt-Grid einschliesslich nicht sichtbarer Zeilen und schliesst den Dialog " +
         "mit Abbrechen. Zeilen-, Listen- und Detailfingerprint sind Pflicht; es wird nichts gespeichert. " +
         "Das Ergebnis liefert eine Optionsmenge und ihren Fingerprint fuer Planung und Nachweis.",
@@ -226,9 +232,10 @@ export function registerReceiptTools(registry: McpRegistry): void {
   registerShapedApiTool(
     "sse_receipt_manager_classify",
     {
-      title: "Beleg sicher kategorisieren und Personen zuordnen",
+      title: "Beleg klassifizieren (gesperrt)",
       description:
-        "Setzt fuer genau den unmittelbar zuvor gelesenen Beleg die vollstaendige Zielmenge vorhandener " +
+        RECEIPT_FOREGROUND_BLOCK_DESCRIPTION +
+        "Der historische Vordergrundvertrag setzt fuer den zuvor gelesenen Beleg die vollstaendige Zielmenge vorhandener " +
         "Kategorien und/oder Personen. Die Operation bindet Zeile, Liste, Detailansicht, profilierte " +
         "Auswahldialoge und exakte Optionsnamen, schaltet nur echte TogglePattern-Zellen, speichert jeden " +
         "Dialog einmal und liest die Detailanzeige zurueck. Unbekannte oder doppelte Optionen stoppen fail-closed; " +
@@ -259,9 +266,10 @@ export function registerReceiptTools(registry: McpRegistry): void {
   registerShapedApiTool(
     "sse_receipt_manager_link",
     {
-      title: "Beleg mit Steuerseite sicher verknuepfen",
+      title: "Beleg mit Steuerseite verknuepfen (gesperrt)",
       description:
-        "Setzt oder entfernt eine bis 20 Verknuepfungen zwischen exakt titelgebundenen Belegen und der aktuellen " +
+        RECEIPT_FOREGROUND_BLOCK_DESCRIPTION +
+        "Der historische Vordergrundvertrag setzt oder entfernt eine bis 20 Verknuepfungen zwischen exakt titelgebundenen Belegen und der aktuellen " +
         "Steuerseite in einem einzigen Oeffnen-/Uebernehmen-/Readback-Zyklus. Ein optionaler Inhaltsfingerprint " +
         "verstaerkt die Bindung; ein mehrdeutiger Titel stoppt immer fail-closed. Seitenueberschrift, sichtbarer " +
         "BelegManager-Zieltext und acknowledgeLinkChange=true sind Pflicht. Bereits erreichte Zielzustaende werden " +
@@ -296,9 +304,10 @@ export function registerReceiptTools(registry: McpRegistry): void {
   registerShapedApiTool(
     "sse_receipt_manager_bulk_upsert",
     {
-      title: "Mehrere Belege importieren und vollstaendig befuellen",
+      title: "Belege gesammelt importieren (gesperrt)",
       description:
-        "Verarbeitet ein bis 20 fachlich identifizierte Belege. Exakter Titel plus Belegnummer oder Datum+Betrag " +
+        RECEIPT_FOREGROUND_BLOCK_DESCRIPTION +
+        "Der historische Vordergrundvertrag verarbeitet ein bis 20 fachlich identifizierte Belege. Exakter Titel plus Belegnummer oder Datum+Betrag " +
         "entscheidet zwischen Update und Import; Mehrdeutigkeit stoppt immer und kann nicht mit force umgangen " +
         "werden. onExisting steuert update, skip oder error. Redundante Zwischen-Readbacks wurden entfernt: Import, " +
         "Update und Klassifikation liefern jeweils ihre verifizierten Bindungen. Der Batch stoppt beim ersten " +
@@ -334,9 +343,10 @@ export function registerReceiptTools(registry: McpRegistry): void {
   registerShapedApiTool(
     "sse_receipt_manager_delete",
     {
-      title: "Beleg sicher loeschen",
+      title: "Beleg loeschen (gesperrt)",
       description:
-        "Loescht genau eine unmittelbar zuvor gelesene Belegzeile. Runtime-ID, Zeilenfingerprint, " +
+        RECEIPT_FOREGROUND_BLOCK_DESCRIPTION +
+        "Der historische Vordergrundvertrag loescht genau eine zuvor gelesene Belegzeile. Runtime-ID, Zeilenfingerprint, " +
         "Gesamtlistenfingerprint, Vorzaehler und acknowledgeDelete=true sind Pflicht. Die Operation waehlt die " +
         "gebundene Zeile, akzeptiert ausschliesslich den profilierten Loeschdialog und verifiziert danach Zaehler, " +
         "Restzeilen, Dialogfreiheit, Fenster und Dirty-State. Bei einer veralteten Bindung wird nichts geloescht.",

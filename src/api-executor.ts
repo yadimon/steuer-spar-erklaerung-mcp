@@ -19,6 +19,7 @@ import {
 import { ExecutorArgumentError, operationError } from "./executor-errors.js";
 import { executeLaunchOperation } from "./launch-executor.js";
 import { parseApiOperationArgs, parseCheckerReadOnlyClickArgs } from "./operation-catalog.js";
+import { receiptBlock } from "./receipt-interaction-policy.js";
 import {
   createProfileOperationMatrix,
   EXPERIMENTAL_PROFILE_BASE_OPERATIONS,
@@ -310,6 +311,8 @@ export function createApiExecutor(
           "profile-disabled",
         );
       }
+      const block = receiptBlock(operation, args);
+      if (block) return block;
       const verificationOnlyProfile =
         profile.status !== "supported" || profile.operationAccess !== "full";
       if (verificationOnlyProfile && !EXPERIMENTAL_PROFILE_BASE.has(operation)) {

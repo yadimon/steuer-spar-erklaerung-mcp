@@ -417,7 +417,10 @@ export function seedSyntheticCases(caseDir, { includeNextYearUstva = false } = {
   };
 }
 
-export function createStatefulSseWorker({ caseDir }) {
+export function createStatefulSseWorker({ caseDir, initialReceiptManagerState = "closed", initialReceiptRows = [] }) {
+  if (!["closed", "start", "list"].includes(initialReceiptManagerState)) {
+    throw new Error(`Unbekannter synthetischer BelegManager-Zustand '${initialReceiptManagerState}'.`);
+  }
   const journal = [];
   const cases = new Map();
   let openPath = null;
@@ -429,9 +432,9 @@ export function createStatefulSseWorker({ caseDir }) {
   let dialogs = [];
   let openMenu = null;
   let fileDialog = null;
-  let receiptManagerOpen = false;
-  let receiptManagerState = "start";
-  let receiptRows = [];
+  let receiptManagerOpen = initialReceiptManagerState !== "closed";
+  let receiptManagerState = initialReceiptManagerState === "list" ? "list" : "start";
+  let receiptRows = clone(initialReceiptRows);
   let nextReceiptId = 1;
   const receiptLinks = new Map();
   let vast = null;

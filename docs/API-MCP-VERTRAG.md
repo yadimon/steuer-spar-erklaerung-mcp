@@ -154,6 +154,15 @@ byteidentischen Snapshot, statt die rund 200–270 KiB großen Vertragsbäume pr
 Request erneut zu durchlaufen. Die kleine Einzeloperations-Discovery bleibt
 dynamisch, weil ihre Serialisierung im gemessenen Pfad vernachlässigbar ist.
 
+Der Operationsvertrag trennt Registrierung von aktueller Interaktionsfreigabe.
+Beim BelegManager ist nur `receipt_manager_list` als `focusless-read` erlaubt.
+Die neun weiteren registrierten Operationen melden in
+`capabilities.operationPolicy` `foreground-required`/`blocked` und liefern bei
+gueltigen Aufrufen denselben nicht wiederholbaren strukturierten Block ueber
+HTTP und MCP. Die Pruefung liegt nach der Argumentschema-Validierung, aber vor
+Ressourcenaufloesung, Workerstart und UI; auch der direkte Worker besitzt den
+identischen Guard.
+
 Die MCP-Eingaben dürfen strenger sein als die der lokalen API, nie
 großzügiger. Bekannt und gewollt:
 

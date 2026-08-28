@@ -113,6 +113,29 @@ assert.equal(isolation.structuredContent.ok, false);
 assert.equal(isolation.structuredContent.kind, "worker-isolation-lost");
 assert(isolation.structuredContent.hint.includes("API-Prozess neu starten"));
 
+const foregroundBlocked = apiErrorResult("receipt_manager_update", {
+  ok: false,
+  kind: "blocked",
+  error: "Keine UI wurde geaendert; C:\\Privat\\beleg.pdf blieb unangetastet.",
+  reason: "foreground-required-operation-disabled",
+  retryable: false,
+  interactionRequirement: "foreground-required",
+  mutationStarted: false,
+  resultingState: "unchanged",
+  cleanupRequired: false,
+  physicalInputUsed: false,
+  foregroundLeaseUsed: false,
+});
+assert.equal(foregroundBlocked.isError, true);
+assert.equal(foregroundBlocked.structuredContent.reason, "foreground-required-operation-disabled");
+assert.equal(foregroundBlocked.structuredContent.retryable, false);
+assert.equal(foregroundBlocked.structuredContent.mutationStarted, false);
+assert.equal(foregroundBlocked.structuredContent.physicalInputUsed, false);
+assert.equal(foregroundBlocked.structuredContent.foregroundLeaseUsed, false);
+assert(foregroundBlocked.structuredContent.hint.includes("Nicht wiederholen"));
+assert(foregroundBlocked.structuredContent.hint.includes("keinen Fokus-, Maus- oder Tastatur-Workaround"));
+assert(!JSON.stringify(foregroundBlocked.structuredContent).includes("Privat"));
+
 // Haeufigster Erstkontakt-Fehler: MCP steht, die API laeuft nicht. Ohne diesen
 // Hinweis bekaeme der Agent nur ECONNREFUSED und keinen naechsten Schritt.
 const nichtErreichbar = apiErrorResult("health", {
