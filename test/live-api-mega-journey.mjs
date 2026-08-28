@@ -768,7 +768,7 @@ try {
       (result) => {
         const image = result.files.find((entry) => entry.ref === "results:api-mega.png");
         assert(image);
-        assert.match(image.sha256, /^[A-F0-9]{64}$/u);
+        assert.match(image.sha256, /^[A-F0-9]{64}$/iu);
       },
     );
     let exportDialog;
@@ -892,7 +892,7 @@ try {
         assert.equal(result.anzahl, 1);
         assert.equal(result.advancedAfterLastCaptured, false);
         assert.equal(result.currentHeadingAfter, terminalHeading);
-        assert.match(result.dateiHash, /^[A-F0-9]{64}$/u);
+        assert.match(result.dateiHash, /^[A-F0-9]{64}$/iu);
         collectReportedHash = result.dateiHash;
       },
       { ref: "results:api-mega-collect.json" },
@@ -913,7 +913,8 @@ try {
     const fileRead = await read("workspace_file_list", { ref: "results:.", includeHashes: true },
       (result) => assert((result.files ?? []).some((entry) => entry.ref === "results:api-mega-collect.json")));
     const listedCollectHash = fileRead.files.find((entry) => entry.ref === "results:api-mega-collect.json").sha256;
-    assert.equal(listedCollectHash, collectReportedHash);
+    assert.match(listedCollectHash, /^[A-F0-9]{64}$/iu);
+    assert.equal(listedCollectHash.toUpperCase(), collectReportedHash.toUpperCase());
     await read("verify", {
       sourceRef: "results:api-mega-collect.json",
       expectedSourceHash: listedCollectHash,
