@@ -414,6 +414,51 @@ function createOperationResultSchema(operation: SseApiOperation): z.ZodType<Work
         context.addIssue({ code: z.ZodIssueCode.custom, path: ["error"], message: "Fehlerergebnis braucht error." });
       }
     }
+    if (result.ok === false && result.kind === "busy" && result.reason === "session-controller-busy") {
+      const exactControllerFields = {
+        retryable: true,
+        waited: false,
+        mutationStarted: false,
+        resultingState: "unchanged",
+        cleanupRequired: false,
+        physicalInputUsed: false,
+        foregroundLeaseUsed: false,
+      } as const;
+      for (const [field, expected] of Object.entries(exactControllerFields)) {
+        if (result[field] !== expected) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [field],
+            message: `session-controller-busy braucht ${field}=${String(expected)}.`,
+          });
+        }
+      }
+    }
+    if (result.ok === false && result.kind === "worker-isolation-lost" &&
+        typeof result.reason === "string" && result.reason.startsWith("controller-lock-")) {
+      const exactIsolationFields: Record<string, unknown> = {
+        retryable: false,
+        resultingState: "unknown",
+        cleanupRequired: true,
+      };
+      if (["controller-lock-abandoned", "controller-lock-unavailable", "controller-lock-reentered"]
+        .includes(result.reason)) {
+        Object.assign(exactIsolationFields, {
+          mutationStarted: false,
+          physicalInputUsed: false,
+          foregroundLeaseUsed: false,
+        });
+      }
+      for (const [field, expected] of Object.entries(exactIsolationFields)) {
+        if (result[field] !== expected) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [field],
+            message: `${String(result.reason)} braucht ${field}=${String(expected)}.`,
+          });
+        }
+      }
+    }
   }) as unknown as z.ZodType<WorkerResult>;
 }
 

@@ -113,6 +113,25 @@ assert.equal(isolation.structuredContent.ok, false);
 assert.equal(isolation.structuredContent.kind, "worker-isolation-lost");
 assert(isolation.structuredContent.hint.includes("API-Prozess neu starten"));
 
+const controllerBusy = apiErrorResult("health", {
+  ok: false,
+  kind: "busy",
+  error: "Controller belegt.",
+  reason: "session-controller-busy",
+  retryable: true,
+  waited: false,
+  mutationStarted: false,
+  resultingState: "unchanged",
+  cleanupRequired: false,
+  physicalInputUsed: false,
+  foregroundLeaseUsed: false,
+});
+assert.equal(controllerBusy.isError, true);
+assert.equal(controllerBusy.structuredContent.reason, "session-controller-busy");
+assert.equal(controllerBusy.structuredContent.waited, false);
+assert(controllerBusy.structuredContent.hint.includes("frischen Bindungen"));
+assert(controllerBusy.structuredContent.hint.includes("keine parallelen Retries"));
+
 const foregroundBlocked = apiErrorResult("receipt_manager_update", {
   ok: false,
   kind: "blocked",

@@ -60,7 +60,7 @@
           },
           "concurrency": {
             "types": [
-              "object:{\"progressRoute\":\"string-other\",\"rejectionCode\":\"string-other\",\"rejectionStatus\":\"nonnegative-number\",\"rule\":\"string-other\",\"singleFlight\":\"boolean\"}"
+              "object:{\"progressRoute\":\"string-other\",\"rejectionCode\":\"string-other\",\"rejectionStatus\":\"nonnegative-number\",\"rule\":\"string-other\",\"singleFlight\":\"boolean\",\"workerController\":\"object\"}"
             ],
             "labels": [
               "scenario-mock",

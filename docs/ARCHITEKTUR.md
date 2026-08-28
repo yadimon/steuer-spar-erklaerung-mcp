@@ -281,6 +281,20 @@ Agent oder eigenes Programm
   werden vorheriges Vordergrundfenster und eigener Mauszeiger best effort
   wiederhergestellt. `focusTelemetry` macht Raise-Zahl, Haltezeit und Restore
   in API und MCP messbar.
+- API-Single-Flight bleibt pro Node-Prozess. Zusaetzlich erwirbt jeder
+  lock-pflichtige aeussere Worker einen festen `Local\`-Mutex der Windows-
+  Sitzung ueber den vorab integritaetsgeprueften nativen Helfer mit
+  `WaitForSingleObject(..., 0)`, bevor Desktopmarker, Build/PID/HWND und Dispatcher
+  beruehrt werden. Damit koennen ein zweiter API-Prozess und ein direkter Worker
+  nicht gleichzeitig SSE/UIA steuern. Lokale API-Arbeit liegt ausserhalb; auch
+  zwischen mehreren aeusseren Worker-Schritten einer zusammengesetzten
+  API-Operation besteht keine sitzungsweite Transaktion. Jeder Schritt bindet
+  deshalb den Produktzustand frisch. Interne Planoperationen im selben Worker
+  erben den Lease; wartende Reserveworker halten ihn nicht. Nur `page_objects`
+  und `product_info` umgehen ihn. Belegung liefert sofort strukturiertes `busy`
+  statt einer zweiten Queue. Beobachtete Mutex-Aufgabe stoppt als
+  `worker-isolation-lost`; sie ist kein dauerhaftes Crashgedaechtnis, weil ein
+  Kernelobjekt nach dem letzten geschlossenen Handle verschwinden kann.
 - Prozesse werden fensterlos gestartet, an eine Queue gebunden und bei
   Timeout oder API-Shutdown als eigener Prozessbaum beendet. Ein Exitcode des
   direkten Parents genügt nicht als Cleanup-Beweis: Erst Nodes `close` nach
@@ -790,10 +804,13 @@ bereits ausgeführten UI-Schritten weiterhin eine Ergebnisdatei entsteht.
 ## Testsuite
 
 Der Suite-Plan enthält drei Phasen: quellgebundenes `dist`-Pruning und Builds
-laufen seriell, voneinander
-unabhängige Vertragstests mit begrenzter Parallelität und globale Sentinels
-exklusiv. Der No-Console-Test darf nie parallel zu Prozessen anderer Tests
-laufen. Jeder Schritt behält eigenen Namen, Dauer, begrenzte Diagnoseausgabe und
+laufen seriell, voneinander unabhängige Vertragstests mit begrenzter
+Parallelität und globale Sentinels exklusiv. Schritte, die einen echten
+lock-pflichtigen Worker starten, teilen im parallelen Scheduler einen
+Konfliktschlüssel; untereinander laufen sie seriell, während reine Quell- und
+lokale Tests weiter parallel bleiben. Der Controller-Mutex-Vertrag und der
+No-Console-Test laufen exklusiv. Jeder Schritt behält eigenen Namen, Dauer,
+begrenzte Diagnoseausgabe und
 Fehlerzuordnung. Erfolgreiche Unterausgabe ist nur mit `SSE_TEST_VERBOSE=1`
 sichtbar; Fehler liefern stets einen kompakten Auszug.
 `SSE_TEST_CONCURRENCY` darf die Parallelität für Diagnose oder

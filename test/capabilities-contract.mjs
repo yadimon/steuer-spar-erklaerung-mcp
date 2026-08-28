@@ -63,6 +63,20 @@ assert.equal(result.transport.mcpCancellationPropagatesToApi, true);
 assert.equal(result.transport.workerArguments, "exclusive-bounded-temp-json");
 assert.equal(result.transport.workerArgumentsVisibleInProcessList, false);
 assert.equal(result.transport.workerQueueDepth, 32);
+assert.deepEqual(result.concurrency.workerController, {
+  scope: "windows-session",
+  includesDirectWorker: true,
+  policy: "zero-wait",
+  idlePrewarmHoldsLease: false,
+  bypassOperations: ["page_objects", "product_info"],
+  contentionKind: "busy",
+  contentionReason: "session-controller-busy",
+  contentionTransport: "operation-result",
+  contentionHttpStatus: 200,
+  observedAbandonmentKind: "worker-isolation-lost",
+  observedAbandonmentReason: "controller-lock-abandoned",
+  durableCrashDetection: false,
+});
 assert.deepEqual(result.profile, {
   id: "2025",
   status: "supported",
@@ -170,6 +184,8 @@ assert.equal(SSE_PACKAGE_NAME, packageJson.name);
 assert.equal(SSE_PACKAGE_VERSION, packageJson.version);
 assert.equal(SSE_CAPABILITIES.transport.packageName, packageJson.name);
 assert.equal(SSE_CAPABILITIES.transport.packageVersion, packageJson.version);
+const workerBypass = /@\('page_objects','product_info'\) -ccontains \$profilePolicyOperation/u.exec(worker);
+assert(workerBypass, "Capability- und Worker-Bypasskatalog muessen exakt uebereinstimmen.");
 const buttonBlock = /\$script:DIALOG_BUTTONS\s*=\s*@\(([\s\S]*?)\)\s*\r?\n/.exec(worker)?.[1];
 assert(buttonBlock, "PowerShell-Dialogbutton-Allowlist fehlt.");
 const workerButtons = [...buttonBlock.matchAll(/'([^']+)'/g)].map((match) => match[1]);

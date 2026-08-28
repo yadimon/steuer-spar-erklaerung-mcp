@@ -73,6 +73,87 @@ public class DSK {
   }
 }
 
+// Fixed-session worker-controller ownership lives in the already precompiled
+// native helper. Keeping the lifecycle here avoids registering a large pair of
+// PowerShell functions in every replacement prewarm worker while preserving
+// Win32's thread-affine mutex and abandonment semantics.
+public sealed class SSEWorkerControllerLease {
+  const uint WAIT_OBJECT_0 = 0x00000000;
+  const uint WAIT_ABANDONED = 0x00000080;
+  const uint WAIT_TIMEOUT = 0x00000102;
+  IntPtr handle;
+  bool owned;
+  uint ownerThreadId;
+
+  public string Status { get; private set; }
+  public string Reason { get; private set; }
+
+  SSEWorkerControllerLease(string status, string reason, IntPtr handle, bool owned, uint ownerThreadId) {
+    Status = status;
+    Reason = reason;
+    this.handle = handle;
+    this.owned = owned;
+    this.ownerThreadId = ownerThreadId;
+  }
+
+  [DllImport("kernel32.dll", SetLastError=true, CharSet=CharSet.Unicode)]
+  static extern IntPtr CreateMutex(IntPtr attributes, bool initialOwner, string name);
+  [DllImport("kernel32.dll", SetLastError=true)]
+  static extern bool ReleaseMutex(IntPtr mutex);
+
+  static SSEWorkerControllerLease Result(string status, string reason) {
+    return new SSEWorkerControllerLease(status, reason, IntPtr.Zero, false, 0);
+  }
+
+  public static SSEWorkerControllerLease Acquire(string name) {
+    IntPtr handle = IntPtr.Zero;
+    try {
+      handle = CreateMutex(IntPtr.Zero, false, name);
+      if (handle == IntPtr.Zero) return Result("unavailable", "controller-lock-unavailable");
+      uint wait = DSK.WaitForSingleObject(handle, 0);
+      if (wait == WAIT_TIMEOUT) {
+        if (!DSK.CloseHandle(handle)) return Result("unavailable", "controller-lock-unavailable");
+        return Result("busy", "session-controller-busy");
+      }
+      if (wait == WAIT_OBJECT_0 || wait == WAIT_ABANDONED) {
+        return new SSEWorkerControllerLease(
+          wait == WAIT_ABANDONED ? "abandoned" : "acquired",
+          wait == WAIT_ABANDONED ? "controller-lock-abandoned" : null,
+          handle,
+          true,
+          DSK.GetCurrentThreadId());
+      }
+      DSK.CloseHandle(handle);
+      return Result("unavailable", "controller-lock-unavailable");
+    } catch {
+      if (handle != IntPtr.Zero) DSK.CloseHandle(handle);
+      return Result("unavailable", "controller-lock-unavailable");
+    }
+  }
+
+  public static string ReleaseAndClose(SSEWorkerControllerLease lease) {
+    if (lease == null || lease.handle == IntPtr.Zero) return null;
+    string failure = null;
+    try {
+      if (lease.owned) {
+        if (DSK.GetCurrentThreadId() != lease.ownerThreadId) {
+          failure = "controller-lock-thread-changed";
+        } else if (!ReleaseMutex(lease.handle)) {
+          failure = "controller-lock-release-failed";
+        }
+      }
+    } finally {
+      if (!DSK.CloseHandle(lease.handle) && failure == null) {
+        failure = "controller-lock-dispose-failed";
+      }
+      lease.handle = IntPtr.Zero;
+      lease.owned = false;
+      lease.ownerThreadId = 0;
+    }
+    return failure;
+  }
+}
+
 public class SW {
   [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h,IntPtr hdc,uint f);
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h,out RC r);

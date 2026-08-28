@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import { SSE_API_OPERATIONS } from "../dist/api-contract.js";
 import { apiOperationDiscovery, SSE_API_DISCOVERY } from "../dist/api-discovery.js";
+import { SSE_CAPABILITIES } from "../dist/capabilities.js";
 import { parseApiOperationArgs } from "../dist/operation-catalog.js";
 
 assert.equal(SSE_API_DISCOVERY.schemaVersion, 1);
@@ -17,6 +18,11 @@ assert(SSE_API_DISCOVERY.planning.fallbackStages.length >= 4);
 assert.deepEqual(SSE_API_DISCOVERY.planning.selectors.preferred, ["aid", "rid", "name"]);
 assert.equal(SSE_API_DISCOVERY.planning.click.genericToggleBlocked, true);
 assert.equal(SSE_API_DISCOVERY.planning.dialogs.requiresWindowAndFingerprint, true);
+assert.deepEqual(
+  SSE_API_DISCOVERY.planning.concurrency.workerController,
+  SSE_CAPABILITIES.concurrency.workerController,
+  "Discovery muss die maschinenlesbare Worker-Controller-Semantik vollstaendig veroeffentlichen.",
+);
 
 let describedPropertyCount = 0;
 function assertPropertyDescriptions(schema, path) {

@@ -40,7 +40,8 @@ assert(
 const fullSuiteSteps = serialBuildSteps.length + parallelSteps.length + exclusiveSteps.length + finalSteps.length;
 assert(
   releaseNotes.includes(`alle ${fullSuiteSteps} geplanten Schritte`) &&
-    releaseNotes.includes(`${parallelSteps.length} konfliktfreie Haupttests`),
+    releaseNotes.includes(`${parallelSteps.length} parallele Haupttests`) &&
+    releaseNotes.includes("konfliktbewusster Worker-Serialisierung"),
   "Release Notes nennen nicht den aktuellen vollständig bestandenen Suite-Plan.",
 );
 assert(
