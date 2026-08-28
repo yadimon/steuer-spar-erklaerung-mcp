@@ -1,0 +1,40 @@
+import assert from "node:assert/strict";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { beginBelegManagerConfigIsolation } from "./performance/belegmanager-config-isolation.mjs";
+
+const temporary = mkdtempSync(join(tmpdir(), "sse-belegmanager-config-isolation-"));
+try {
+  const evidenceRoot = join(temporary, "evidence");
+  const localAppData = join(temporary, "local-app-data");
+  const configDirectory = join(localAppData, "Steuertipps", "SSE", "31");
+  const iniPath = join(configDirectory, "SSEKonf.user.ini");
+  const isolatedDataDir = join(temporary, "isolated-belegmanager");
+  mkdirSync(configDirectory, { recursive: true });
+  const original = Buffer.from("[Allgemein]\r\nWert=1\r\n[BelegManager]\r\nDataDir=C:\\private\\original\r\nBreite=42\r\n", "utf8");
+  writeFileSync(iniPath, original);
+  const options = { evidenceRoot, localAppData, engineMajor: 31, isolatedDataDir };
+  const first = beginBelegManagerConfigIsolation(options);
+  assert.match(readFileSync(iniPath, "utf8"), /DataDir=.*isolated-belegmanager/u);
+  assert.equal(existsSync(join(evidenceRoot, ".api-mega-belegmanager-config-original.bin")), true);
+  assert.equal(existsSync(join(evidenceRoot, ".api-mega-belegmanager-config-recovery.json")), true);
+  first.restore();
+  assert.deepEqual(readFileSync(iniPath), original);
+  assert.equal(existsSync(join(evidenceRoot, ".api-mega-belegmanager-config-original.bin")), false);
+  assert.equal(existsSync(join(evidenceRoot, ".api-mega-belegmanager-config-recovery.json")), false);
+
+  rmSync(isolatedDataDir, { recursive: true, force: true });
+  const stale = beginBelegManagerConfigIsolation(options);
+  void stale;
+  rmSync(isolatedDataDir, { recursive: true, force: true });
+  mkdirSync(isolatedDataDir, { recursive: true });
+  const recovered = beginBelegManagerConfigIsolation(options);
+  assert.equal(recovered.recoveredStaleIsolation, true);
+  recovered.restore();
+  assert.deepEqual(readFileSync(iniPath), original);
+} finally {
+  rmSync(temporary, { recursive: true, force: true });
+}
+
+process.stdout.write("BelegManager-Konfigurationsisolation: create-only Recovery, stale Restore und Byte-Paritaet bestanden\n");

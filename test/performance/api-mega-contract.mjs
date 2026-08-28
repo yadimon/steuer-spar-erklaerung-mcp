@@ -126,6 +126,12 @@ assert.doesNotMatch(journey, /@modelcontextprotocol|StdioClientTransport|callWor
   "Die Reise darf weder MCP noch den PowerShell-Worker direkt steuern.");
 assert.match(runner, /test\/with-api\.mjs/u);
 assert.match(runner, /SSE_TEST_API_PREWARM: "1"/u);
+assert.match(runner, /beginBelegManagerConfigIsolation/u);
+assert.match(runner, /SSE_MEGA_BELEGMANAGER_ISOLATED: "1"/u);
+assert.match(runner, /receiptConfigIsolationEvidence\.restored/u);
+assert.match(runner, /safety:\s*\{[\s\S]+?belegManagerConfigIsolation: receiptConfigIsolationEvidence/u);
+assert.match(journey, /SSE_MEGA_BELEGMANAGER_ISOLATED/u);
+assert.match(journey, /result\.listFingerprint, baseline\.listFingerprint/u);
 assert.match(harness, /enableWorkerPrewarm\(\)/u);
 assert.match(harness, /shutdownWarmSpare\(\)/u);
 assert.doesNotMatch(runner, /run-live-(?:journey|state-journey|suite)\.mjs/u);
