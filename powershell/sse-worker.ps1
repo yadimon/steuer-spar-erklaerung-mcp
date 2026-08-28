@@ -11378,7 +11378,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     if ($requestedHwnd) {
       $mainWindow = @($wins | Where-Object { [int64]$_.hwnd -eq [int64]$requestedHwnd })
     } else {
-      $mainWindow = @($wins | Where-Object { $_.w -ge 900 -and $_.h -ge 600 -and $_.title -match 'SteuerSparErklärung' })
+      $mainWindow = @(Get-SSEMainWindowCandidates $wins)
     }
     if ($requestedPid -and $force -and $discard -and $mainWindow.Count -eq 0) {
       # Fail-Closed-Cleanup fuer eine exakt gebundene Start-PID, die noch kein

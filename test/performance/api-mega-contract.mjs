@@ -88,6 +88,15 @@ assert.match(journey, /cleanupWallMs/u);
 assert.match(runner, /previousReports[\s\S]+?sameFingerprintReports/u);
 assert.doesNotMatch(runner, /comparableWholeJourneyBaselineExists:\s*false/u,
   "Erste-/Folgebaseline darf nicht dauerhaft hart codiert sein.");
+assert.match(runner, /note:\s*!passed[\s\S]+?failed run is not a canonical whole-journey baseline/u,
+  "Ein fehlgeschlagener Lauf darf sich im maschinenlesbaren Bericht nicht als Baseline bezeichnen.");
+assert.match(runner, /desktopMarkerState[\s\S]+?markerBeforeState[\s\S]+?markerAfterState/u,
+  "Der Runner muss den Hidden-Desktop-Marker vor und nach dem Live-Lauf lesen.");
+assert.match(runner, /const markerSafe = !markerBefore\.present && !markerAfter\.present && markerUnchanged/u);
+assert.match(runner, /const cleanupSafe = [^;]+markerSafe/u,
+  "Ein erfolgreicher Cleanup darf einen verbliebenen oder veraenderten Hidden-Desktop-Marker nicht akzeptieren.");
+assert.match(runner, /hiddenDesktopMarker:\s*\{[\s\S]+?before: markerBefore,[\s\S]+?after: markerAfter,[\s\S]+?unchanged: markerUnchanged,[\s\S]+?safe: markerSafe/u,
+  "Der kanonische Bericht muss die Marker-Vorher-/Nachher-Evidenz enthalten.");
 assert.match(fingerprint, /ComSpec[\s\S]+?npm\.cmd --version/u,
   "npm-Version muss unter Windows ueber einen aufloesbaren cmd-Host gelesen werden.");
 assert.match(runner, /Per-call direct API timings/u);
@@ -190,9 +199,36 @@ assert.doesNotMatch(journey, /\(\) => \(\{ pid: currentPid \}\)/u,
 assert.match(journey, /currentPhase = "failure-cleanup"/u);
 assert.match(journey, /ownedLaunchPids\.has\(currentPid\)[\s\S]+failure-cleanup-force-close-owned-launch-pid/u,
   "Failure-Cleanup muss auch eine exakt aus dem Launch belegte PID ohne Hauptinstanz schliessen.");
+const processOnlyCleanupStart = journey.indexOf("} else if (owned.length === 0 && Number.isInteger(currentPid)");
+const processOnlyCleanupEnd = journey.indexOf("} else {", processOnlyCleanupStart + 1);
+assert(processOnlyCleanupStart >= 0 && processOnlyCleanupEnd > processOnlyCleanupStart,
+  "Der prozessgebundene Cleanup-Zweig muss eindeutig auffindbar sein.");
+const processOnlyCleanup = journey.slice(processOnlyCleanupStart, processOnlyCleanupEnd);
+assert.match(processOnlyCleanup, /cleanup\.stateKnown = false/u,
+  "Prozessgebundener Cleanup ohne Hauptfenster darf keinen gelesenen UI-State behaupten.");
+assert.match(processOnlyCleanup, /cleanup\.processStateVerifiedOnly = true/u,
+  "Prozessgebundener Cleanup muss seine eingeschraenkte Evidenz explizit ausweisen.");
+assert.doesNotMatch(processOnlyCleanup, /cleanup\.stateKnown = true/u);
+assert.match(journey, /cleanup\.processStateKnown = true/u,
+  "Finale instances-/health-Readbacks muessen den Prozesszustand separat ausweisen.");
 assert.match(worker, /Exakt gebundene SSE-Start-PID ohne verifiziertes Hauptfenster wurde ohne Speichern beendet/u,
   "Der API-Close-Pfad muss eine unbekannte Startdialog-PID ohne Dialogantwort hart und exakt beenden koennen.");
+const closeOperationStart = worker.indexOf("  'close' {");
+const closeOperationEnd = worker.indexOf("\n  '", closeOperationStart + 10);
+assert(closeOperationStart >= 0 && closeOperationEnd > closeOperationStart,
+  "Der Worker-Close-Zweig muss eindeutig auffindbar sein.");
+const closeOperation = worker.slice(closeOperationStart, closeOperationEnd);
+assert.match(closeOperation,
+  /\$mainWindow = @\(Get-SSEMainWindowCandidates \$wins\)/u,
+  "PID-only Force-Close muss dieselbe Hauptfensterklassifikation wie die kanonischen Resolver verwenden.");
+assert.match(worker, /function Get-SSEMainWindowCandidates[\s\S]+?\$_.title -eq 'Steuerprogramm' -and \(\$_.w -ge 900 -or \$_.minimiert\)/u,
+  "Die kanonische Hauptfensterklassifikation muss minimierte Start-Hauptfenster akzeptieren.");
 assert.match(journey, /cleanup\.closed = finalHealth\.result\.running === false && finalInstances\.result\.count === 0/u);
+for (const id of ["launch-gew", "reopen-gew", "launch-est"]) {
+  assert.match(MEGA_MUTATION_READBACKS.find((entry) => entry.id === id)?.assertion ?? "",
+    /ready with a bound main HWND and has no unknown startup dialog/u,
+    `${id}: Manifest muss Readiness, HWND-Bindung und Dialogfreiheit benennen.`);
+}
 assert.match(journey, /"receipt-link"[\s\S]+?noChanges, true[\s\S]+?linkedAfter, true/u);
 assert.match(journey, /"receipt-unlink"[\s\S]+?noChanges, true[\s\S]+?linkedAfter, false/u);
 assert(!MEGA_MUTATION_READBACKS.some((entry) => entry.id === "receipt-options"),
