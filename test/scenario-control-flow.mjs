@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runScenario } from "../dist/scenario.js";
+import { parseApiOperationResult } from "../dist/result-contract.js";
 import { MAX_TEXT_FILE_BYTES } from "../dist/workspace.js";
 
 const temporary = mkdtempSync(join(tmpdir(), "sse-scenario-flow-"));
@@ -190,6 +191,9 @@ try {
   );
   assert.deepEqual(mainFailure.calls.map((call) => call.operation), ["launch", "health", "close"]);
   assert.equal(mainFailure.result.result.mainOk, false);
+  assert.equal(mainFailure.result.kind, "scenario-failed");
+  assert.match(mainFailure.result.error, /main-failure.*main/);
+  assert.doesNotThrow(() => parseApiOperationResult("scenario_run", mainFailure.result));
   assert.equal(mainFailure.result.result.cleanupOk, true);
   assert.equal(mainFailure.result.result.status, "main-failed");
   assert.equal(mainFailure.result.result.cleanup[0].ok, true);
@@ -218,6 +222,9 @@ try {
   );
   assert.deepEqual(cleanupFailure.calls.map((call) => call.operation), ["health", "close", "health"]);
   assert.equal(cleanupFailure.result.result.mainOk, true);
+  assert.equal(cleanupFailure.result.kind, "scenario-failed");
+  assert.match(cleanupFailure.result.error, /cleanup-failure.*cleanup-close/);
+  assert.doesNotThrow(() => parseApiOperationResult("scenario_run", cleanupFailure.result));
   assert.equal(cleanupFailure.result.result.cleanupOk, false);
   assert.equal(cleanupFailure.result.result.status, "cleanup-failed");
   assert.equal(cleanupFailure.result.result.cleanup[0].kind, "cleanup-fixture");

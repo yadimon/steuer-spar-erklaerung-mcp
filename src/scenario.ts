@@ -584,8 +584,14 @@ export async function runScenario(
       }
     }
   }
+  const firstFailedRecord = [...steps, ...cleanup].find((record) => record.ok !== true);
+  const failureError = firstFailedRecord
+    ? `Szenario '${scenario.name}' scheiterte in Schritt '${String(firstFailedRecord.id)}'` +
+      (typeof firstFailedRecord.error === "string" ? `: ${firstFailedRecord.error}` : ".")
+    : `Szenario '${scenario.name}' wurde nicht erfolgreich abgeschlossen.`;
   return {
     ok: finalResult.ok,
+    ...(!finalResult.ok ? { kind: "scenario-failed", error: recordedError(failureError) } : {}),
     scenario: scenario.name,
     scenarioRef,
     resultRef: actualResultRef,
