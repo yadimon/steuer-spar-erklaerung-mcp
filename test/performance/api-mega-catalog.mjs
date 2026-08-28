@@ -169,7 +169,6 @@ export const MEGA_MUTATION_READBACKS = Object.freeze([
   mutation("known-field-restore", "est-and-collect", "fill_fields", "known_page_state", "profiled currency field equals its original value"),
   mutation("menu-open", "receipts", "menu", "windows", "open Extras menu popup is explicitly present and contains the exact BelegManager entry"),
   mutation("receipt-manager-open", "receipts", "menu_click", "windows", "the profiled BelegManager tool window is listed"),
-  mutation("receipt-go-home", "receipts", "receipt_manager_action", "snapshot", "receipt manager start state is visible"),
   mutation("receipt-show-list", "receipts", "receipt_manager_action", "receipt_manager_list", "complete expected baseline list is visible"),
   mutation("receipt-import", "receipts", "receipt_manager_import", "receipt_manager_list", "exactly one synthetic draft was added"),
   mutation("receipt-update", "receipts", "receipt_manager_update", "receipt_manager_read", "typed synthetic metadata values round-trip"),

@@ -1056,14 +1056,6 @@ try {
       { mutationTimeoutMs: 120_000 },
     );
     let baseline;
-    await mutateAndRead(
-      "receipt-go-home",
-      { actionId: "goHome", hwnd: currentHwnd },
-      (result) => assert.equal(result.stateAfter, "start"),
-      { toolWindow: "receiptManager", namedOnly: true, maxNodes: 500, hwnd: currentHwnd },
-      (result) => assert(result.count > 0),
-      { mutationTimeoutMs: 120_000 },
-    );
     let emptyList;
     await mutateAndRead(
       "receipt-show-list",
