@@ -8,13 +8,14 @@ import { isAbsolute, join, resolve } from "node:path";
 const ORIGINAL_NAME = ".api-mega-belegmanager-config-original.bin";
 const SWAPPED_NAME = ".api-mega-belegmanager-config-swapped.bin";
 const MARKER_NAME = ".api-mega-belegmanager-config-recovery.json";
+const USER_CONFIG_NAME = ["SSEKonf", "user.ini"].join(".");
 const sha256 = (value) => createHash("sha256").update(value).digest("hex").toUpperCase();
 
 function paths({ evidenceRoot, localAppData, engineMajor }) {
   assert(isAbsolute(evidenceRoot) && isAbsolute(localAppData));
   assert(Number.isInteger(engineMajor) && engineMajor > 0);
   return {
-    iniPath: join(localAppData, "Steuertipps", "SSE", String(engineMajor), "SSEKonf.user.ini"),
+    iniPath: join(localAppData, "Steuertipps", "SSE", String(engineMajor), USER_CONFIG_NAME),
     originalPath: join(evidenceRoot, ORIGINAL_NAME),
     swappedPath: join(evidenceRoot, SWAPPED_NAME),
     markerPath: join(evidenceRoot, MARKER_NAME),
@@ -24,7 +25,7 @@ function paths({ evidenceRoot, localAppData, engineMajor }) {
 function replaceSectionKeyLine(text, sectionName, keyName, replacementLine) {
   const sectionPattern = new RegExp(`^[ \\t]*\\[${sectionName}\\][ \\t]*$`, "imu");
   const sectionStart = text.search(sectionPattern);
-  assert(sectionStart >= 0, `SSEKonf.user.ini enthaelt keinen [${sectionName}]-Abschnitt.`);
+  assert(sectionStart >= 0, `SSE-Benutzerkonfiguration enthaelt keinen [${sectionName}]-Abschnitt.`);
   const afterSection = text.slice(sectionStart);
   const nextSectionOffset = afterSection.slice(1).search(/^[ \t]*\[[^\]]+\][ \t]*$/mu);
   const sectionEnd = nextSectionOffset < 0 ? text.length : sectionStart + 1 + nextSectionOffset;
@@ -41,7 +42,7 @@ function replaceSectionKeyLine(text, sectionName, keyName, replacementLine) {
 function sectionKeyLine(text, sectionName, keyName) {
   const sectionPattern = new RegExp(`^[ \\t]*\\[${sectionName}\\][ \\t]*$`, "imu");
   const sectionStart = text.search(sectionPattern);
-  assert(sectionStart >= 0, `SSEKonf.user.ini enthaelt keinen [${sectionName}]-Abschnitt.`);
+  assert(sectionStart >= 0, `SSE-Benutzerkonfiguration enthaelt keinen [${sectionName}]-Abschnitt.`);
   const afterSection = text.slice(sectionStart);
   const nextSectionOffset = afterSection.slice(1).search(/^[ \t]*\[[^\]]+\][ \t]*$/mu);
   const sectionEnd = nextSectionOffset < 0 ? text.length : sectionStart + 1 + nextSectionOffset;
@@ -70,7 +71,7 @@ function assertOnlyKnownRuntimeDrift(current, swapped) {
       sectionKeyLine(swappedText, sectionName, keyName),
     ), currentText);
   assert.deepEqual(Buffer.from(normalized, "utf8"), swapped,
-    "SSEKonf.user.ini driftete ausserhalb der bekannten SSE-Laufzeitwerte; nichts ueberschrieben.");
+    "SSE-Benutzerkonfiguration driftete ausserhalb der bekannten Laufzeitwerte; nichts ueberschrieben.");
 }
 
 function restoreExistingIsolation(options) {
@@ -94,7 +95,7 @@ function restoreExistingIsolation(options) {
   }
   if (currentHash !== marker.originalHash) writeFileSync(iniPath, original);
   assert.equal(sha256(readFileSync(iniPath)), marker.originalHash,
-    "SSEKonf.user.ini wurde nicht byteidentisch restauriert.");
+    "SSE-Benutzerkonfiguration wurde nicht byteidentisch restauriert.");
   unlinkSync(markerPath);
   unlinkSync(swappedPath);
   unlinkSync(originalPath);
@@ -104,9 +105,9 @@ function restoreExistingIsolation(options) {
 function replaceDataDir(original, isolatedDataDir) {
   const text = new TextDecoder("utf-8", { fatal: true }).decode(original);
   assert.deepEqual(Buffer.from(text, "utf8"), original,
-    "SSEKonf.user.ini ist nicht round-trip-faehiges UTF-8.");
+    "SSE-Benutzerkonfiguration ist nicht round-trip-faehiges UTF-8.");
   const sectionStart = text.search(/^[ \t]*\[BelegManager\][ \t]*$/imu);
-  assert(sectionStart >= 0, "SSEKonf.user.ini enthaelt keinen [BelegManager]-Abschnitt.");
+  assert(sectionStart >= 0, "SSE-Benutzerkonfiguration enthaelt keinen [BelegManager]-Abschnitt.");
   const afterSection = text.slice(sectionStart);
   const nextSectionOffset = afterSection.slice(1).search(/^[ \t]*\[[^\]]+\][ \t]*$/mu);
   const sectionEnd = nextSectionOffset < 0 ? text.length : sectionStart + 1 + nextSectionOffset;

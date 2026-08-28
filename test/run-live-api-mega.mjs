@@ -26,7 +26,7 @@ const classificationArg = process.argv.find((argument) => argument.startsWith("-
 const classification = classificationArg?.slice("--classification=".length) ?? "cold";
 assert(["cold", "warm"].includes(classification), "--classification muss cold oder warm sein.");
 
-const evidenceRoot = resolve(process.env.SSE_MEGA_EVIDENCE_DIR ?? "C:\\sse-lab\\evidence\\perf\\api-mega");
+const evidenceRoot = resolve(process.env.SSE_MEGA_EVIDENCE_DIR ?? join(tmpdir(), "sse-api-mega-evidence"));
 mkdirSync(evidenceRoot, { recursive: true });
 const statusPath = join(evidenceRoot, "MEGA_STATUS.md");
 const generatedAt = new Date().toISOString();

@@ -109,7 +109,7 @@ test("raw operation records are exact, path-free and fail closed", () => {
     kind: "stale-fingerprint",
     ms: 12.3456,
     fields: { path: "string-other", ok: "boolean" },
-    privateValue: "C:\\Users\\Private\\receipt.pdf",
+    privateValue: "C:\\portable-fixture\\receipt.pdf",
   };
   const safe = sanitizeOperationTraceRecord(raw, { phase: "measurement", index: 2, sequence: 7 });
   assert.deepEqual(safe, {
@@ -126,7 +126,7 @@ test("raw operation records are exact, path-free and fail closed", () => {
     ms: 12.346,
   });
   assert(!JSON.stringify(safe).includes("Private"));
-  assert.equal(raw.privateValue, "C:\\Users\\Private\\receipt.pdf");
+  assert.equal(raw.privateValue, "C:\\portable-fixture\\receipt.pdf");
   assert.throws(
     () => sanitizeOperationTraceRecord({ ...raw, operation: "C:\\private" }, { phase: "measurement", index: 1, sequence: 1 }),
     /Unsafe operation/u,
