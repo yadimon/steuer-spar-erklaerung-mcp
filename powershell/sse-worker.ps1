@@ -1381,15 +1381,19 @@ function Get-SSEReceiptManagerClassificationToggleElement($Dialog, $DialogPolicy
   }
   $element = $matches[0]
   $cellRect = $element.Current.BoundingRectangle
-  $dialogRect = $Dialog.root.Current.BoundingRectangle
+  $tableRect = $tables[0].Current.BoundingRectangle
   $cellX = [double]$cellRect.X + ([double]$cellRect.Width / 2)
   $cellY = [double]$cellRect.Y + ([double]$cellRect.Height / 2)
-  $outsideDialog = [bool](
+  # Qt kann Offscreen-Zellen mit plausiblen Koordinaten innerhalb des ganzen
+  # Dialogs melden, obwohl sie unterhalb des tatsaechlichen Grid-Viewports
+  # liegen. Fuer einen physischen Toggle ist ausschliesslich die sichtbare
+  # Tabellenflaeche die belastbare Grenze.
+  $outsideTable = [bool](
     [bool]$element.Current.IsOffscreen -or
-    $cellX -lt [double]$dialogRect.X -or $cellX -ge ([double]$dialogRect.X + [double]$dialogRect.Width) -or
-    $cellY -lt [double]$dialogRect.Y -or $cellY -ge ([double]$dialogRect.Y + [double]$dialogRect.Height)
+    $cellX -lt [double]$tableRect.X -or $cellX -ge ([double]$tableRect.X + [double]$tableRect.Width) -or
+    $cellY -lt [double]$tableRect.Y -or $cellY -ge ([double]$tableRect.Y + [double]$tableRect.Height)
   )
-  if ($outsideDialog) {
+  if ($outsideTable) {
     $scrollItemObject = $null
     if ($element.TryGetCurrentPattern(
         [Windows.Automation.ScrollItemPattern]::Pattern, [ref]$scrollItemObject)) {
@@ -1401,7 +1405,6 @@ function Get-SSEReceiptManagerClassificationToggleElement($Dialog, $DialogPolicy
         # Qt stellt fuer diese QTableView weder ScrollItemPattern noch
         # ScrollPattern bereit. Der begrenzte Fallback rollt nur innerhalb der
         # frisch gebundenen Tabelle und prueft vorher HWND, Root und PID.
-        $tableRect = $tables[0].Current.BoundingRectangle
         $wheelX = [int]([double]$tableRect.X + ([double]$tableRect.Width / 2))
         $wheelY = [int]([double]$tableRect.Y + ([double]$tableRect.Height / 2))
         $null = Show-SSEWindow $Dialog.hwnd
@@ -1418,10 +1421,10 @@ function Get-SSEReceiptManagerClassificationToggleElement($Dialog, $DialogPolicy
         $oldCursor = New-Object SW+PT; [SW]::GetCursorPos([ref]$oldCursor) | Out-Null
         [SW]::SetCursorPos($wheelX, $wheelY) | Out-Null
         Start-Sleep -Milliseconds 100
-        $below = $cellY -ge ([double]$dialogRect.Y + [double]$dialogRect.Height)
+        $below = $cellY -ge ([double]$tableRect.Y + [double]$tableRect.Height)
         $distance = $(if ($below) {
-          $cellY - ([double]$dialogRect.Y + [double]$dialogRect.Height)
-        } else { [double]$dialogRect.Y - $cellY })
+          $cellY - ([double]$tableRect.Y + [double]$tableRect.Height)
+        } else { [double]$tableRect.Y - $cellY })
         $wheelSteps = [Math]::Min(20, [Math]::Max(2, [int][Math]::Ceiling($distance / 38.0) + 2))
         $wheelDelta = $(if ($below) { [uint32]([int64]0x100000000 - 120) } else { [uint32]120 })
         for ($wheelStep = 0; $wheelStep -lt $wheelSteps; $wheelStep++) {
@@ -17947,12 +17950,21 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           $null = $rollbackEntries.Add([pscustomobject]@{ kind=$transaction.kind; ok=$false; error=$_.Exception.Message })
         }
       }
+      $failedDetailClose = $null; $failedCleanupError = $null
+      try {
+        $failedDetailState = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
+        $failedDetailClose = Close-SSEReceiptManagerDetailView `
+          $toolHwnd $failedDetailState $policy ([int]$waitMs)
+      } catch { $failedCleanupError = $_.Exception.Message }
       Emit ([pscustomobject]@{
         ok=$false; kind='postcondition-failed'; error="Belegklassifikation scheiterte: $failedReason"
         pid=$targetPid; hwnd=[int64]$toolHwnd; rowBefore=$rowBefore
         listFingerprintBefore=$expectedListFingerprint; detailFingerprintBefore=$expectedDetailFingerprint
         rollback=[pscustomobject]@{ attempted=[bool]$transactions.Count; ok=$rollbackOk; entries=@($rollbackEntries) }
-        cleanupRequired=[bool](-not $rollbackOk); physicalInputUsed=$true; foregroundLeaseUsed=$true; verified=$false
+        cleanupRequired=[bool](-not $rollbackOk -or $failedCleanupError)
+        cleanupError=$failedCleanupError
+        detailCloseBinding=$(if ($failedDetailClose) { $failedDetailClose.clickBinding } else { $null })
+        physicalInputUsed=$true; foregroundLeaseUsed=$true; verified=$false
       })
     }
 
