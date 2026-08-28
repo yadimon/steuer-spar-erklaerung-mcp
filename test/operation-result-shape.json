@@ -151,7 +151,7 @@
           },
           "profile": {
             "types": [
-              "object:{\"id\":\"string-other\",\"operateExperimental\":\"boolean\",\"operationAccess\":\"string-other\",\"status\":\"string-other\"}"
+              "object:{\"id\":\"string-other\",\"interactiveReceiptLeaseActive\":\"boolean\",\"operateExperimental\":\"boolean\",\"operationAccess\":\"string-other\",\"status\":\"string-other\"}"
             ],
             "labels": [
               "scenario-mock",
@@ -22660,7 +22660,8 @@
         "fields": {
           "files": {
             "types": [
-              "array-many:object"
+              "array-many:object",
+              "array-one:object"
             ],
             "labels": [
               "stateful-mock",

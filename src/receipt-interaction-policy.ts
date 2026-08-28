@@ -52,9 +52,11 @@ export function receiptInteractionRequirement(
 export function receiptBlock(
   operation: SseApiOperation,
   args: Record<string, unknown>,
+  interactiveLeaseActive = false,
 ): WorkerResult | null {
   if (receiptInteractionRequirement(operation) !== "foreground-required") return null;
   parseApiOperationArgs(operation, args);
+  if (interactiveLeaseActive) return null;
   return {
     ok: false,
     kind: "blocked",

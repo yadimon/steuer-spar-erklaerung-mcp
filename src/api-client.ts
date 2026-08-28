@@ -7,6 +7,7 @@ import {
   SSE_API_OPERATIONS,
   SSE_API_VERSION,
   isSseApiOperation,
+  type OperationEnvelope,
   type SseApiOperation,
   type WorkerResult,
 } from "./api-contract.js";
@@ -57,6 +58,13 @@ export interface OpenApiDocument {
   info: Readonly<Record<string, unknown>>;
   paths: Readonly<Record<string, unknown>>;
   components: Readonly<Record<string, unknown>>;
+}
+
+export interface ApiHealthDocument {
+  ok: true;
+  apiVersion: string;
+  inFlight: Readonly<Record<string, unknown>> | null;
+  prewarm: Readonly<Record<string, unknown>> | null;
 }
 
 interface ApiClientSettings {
@@ -273,6 +281,7 @@ const API_DOCUMENT_TIMEOUT_MS = 10_000;
 async function readApiDocument(
   path: string,
   options: ApiClientOptions,
+  versioned = true,
 ): Promise<Record<string, unknown>> {
   const settings = clientSettings(options);
   const controller = new AbortController();
@@ -281,7 +290,10 @@ async function readApiDocument(
     const { response, payload } = await withCombinedAbortSignal(
       [controller.signal, settings.signal],
       async (signal) => {
-        const response = await settings.fetchImpl(`${settings.baseUrl}/${SSE_API_VERSION}/${path}`, {
+        const documentUrl = versioned
+          ? `${settings.baseUrl}/${SSE_API_VERSION}/${path}`
+          : `${settings.baseUrl}/${path}`;
+        const response = await settings.fetchImpl(documentUrl, {
           method: "GET",
           headers: { accept: "application/json" },
           redirect: "error",
@@ -328,6 +340,19 @@ async function readApiDocument(
   } finally {
     clearTimeout(timer);
   }
+}
+
+export async function readApiHealthz(options: ApiClientOptions = {}): Promise<ApiHealthDocument> {
+  const payload = await readApiDocument("healthz", options, false);
+  if (
+    payload.ok !== true ||
+    payload.apiVersion !== SSE_API_VERSION ||
+    !(payload.inFlight === null || isRecord(payload.inFlight)) ||
+    !(payload.prewarm === null || isRecord(payload.prewarm))
+  ) {
+    throw new ApiClientError("SSE-API-Healthz hat nicht die erwartete Struktur oder Version.", "protocol");
+  }
+  return payload as unknown as ApiHealthDocument;
 }
 
 export async function readApiDiscovery(options: ApiClientOptions = {}): Promise<ApiDiscoveryDocument> {
@@ -407,12 +432,12 @@ export async function readOpenApiDocument(options: ApiClientOptions = {}): Promi
   return payload as unknown as OpenApiDocument;
 }
 
-export async function callApiOperation(
+export async function callApiOperationEnvelope(
   operation: string,
   args: Record<string, unknown> = {},
   timeoutMs = 90_000,
   options: ApiClientOptions = {},
-): Promise<WorkerResult> {
+): Promise<OperationEnvelope> {
   if (!isSseApiOperation(operation)) {
     throw new ApiClientError(`Operation '${operation}' ist nicht Teil der freigegebenen SSE-API.`, "operation");
   }
@@ -484,7 +509,14 @@ export async function callApiOperation(
       throw new ApiClientError("SSE-API-Ergebnis hat keinen gueltigen ok-Status.", "protocol");
     }
     try {
-      return parseApiOperationResult(operation, payload.result);
+      const result = parseApiOperationResult(operation, payload.result);
+      return {
+        apiVersion: SSE_API_VERSION,
+        requestId: String(payload.requestId),
+        operation,
+        durationMs: Number(payload.durationMs),
+        result,
+      };
     } catch {
       throw new ApiClientError(
         `SSE-API-Ergebnis fuer '${operation}' verletzt den versionierten Ergebnisvertrag.`,
@@ -495,7 +527,7 @@ export async function callApiOperation(
     if (error instanceof ApiClientError) throw error;
     if (settings.signal?.aborted) {
       throw new ApiClientError(
-        "MCP-Anfrage wurde abgebrochen. Der lokale Auftrag wird gestoppt; vor einer Wiederholung Zustand lesen.",
+        "API-Anfrage wurde abgebrochen. Der lokale Auftrag wird gestoppt; vor einer Wiederholung Zustand lesen.",
         "aborted",
       );
     }
@@ -525,4 +557,18 @@ export async function callApiOperation(
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Preferred compatibility helper for callers that only need the typed worker
+ * result. Benchmarks use callApiOperationEnvelope so the server-side envelope
+ * duration is preserved next to their own end-to-end wall measurement.
+ */
+export async function callApiOperation(
+  operation: string,
+  args: Record<string, unknown> = {},
+  timeoutMs = 90_000,
+  options: ApiClientOptions = {},
+): Promise<WorkerResult> {
+  return (await callApiOperationEnvelope(operation, args, timeoutMs, options)).result;
 }

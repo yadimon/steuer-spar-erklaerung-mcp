@@ -7108,13 +7108,57 @@ if ([string]$script:SSE_PROFILE.status -eq 'disabled' -and $profilePolicyOperati
 }
 
 # Diese Pfade sind weiterhin implementiert und statisch verifiziert, aber der
-# aktuelle Produktvertrag kann sie nur ueber sichtbaren Vordergrund oder
-# globale physische Eingabe ausfuehren. Es gibt keinen API-/MCP-Opt-in, der
-# diese Hintergrundgrenze lockert. Der Guard steht vor Experimental- und
-# Buildaufloesung, Dispatcher und jeder UIA-/Fensterabfrage; direkte
-# Worker-Aufrufe bleiben deshalb ebenso fail-closed wie API-, MCP- und
-# Szenarioaufrufe.
+# normale Produktvertrag kann sie nur ueber sichtbaren Vordergrund oder
+# globale physische Eingabe ausfuehren. Der kanonische Live-Benchmark darf sie
+# ausschliesslich ueber eine kurzlebige, nicht konfigurierbare Test-Lease
+# erreichen. API und Worker pruefen die Lease getrennt; der Worker bindet sie
+# zusaetzlich an Besitzerprozess, Ablaufzeit, aktive Benutzersitzung und das
+# tatsaechliche Vordergrundfenster derselben Sitzung. Direkte/background
+# Aufrufe ohne diese interne Bindung bleiben vor Dispatcher und UIA gesperrt.
+$interactiveReceiptLeaseActive = $false
 if ($profilePolicyOperation -in $foregroundRequiredReceiptOps) {
+  $presentedLease = [string](Arg $a '__interactiveReceiptLease')
+  if ($presentedLease) {
+    $expectedLease = [string]$env:SSE_TEST_INTERACTIVE_RECEIPT_TOKEN
+    $ownerPid = 0
+    $expiresAt = [DateTime]::MinValue
+    $owner = $null
+    $foreground = [SW]::GetForegroundWindow()
+    $foregroundPid = 0
+    if ($foreground -ne [IntPtr]::Zero) {
+      [SW]::GetWindowThreadProcessId($foreground, [ref]$foregroundPid) | Out-Null
+    }
+    $foregroundOwner = $(if ($foregroundPid -gt 0) {
+      Get-Process -Id $foregroundPid -ErrorAction SilentlyContinue
+    } else { $null })
+    $ownerPidOk = [int]::TryParse([string]$env:SSE_TEST_INTERACTIVE_RECEIPT_OWNER_PID, [ref]$ownerPid)
+    if ($ownerPidOk -and $ownerPid -gt 0) {
+      $owner = Get-Process -Id $ownerPid -ErrorAction SilentlyContinue
+    }
+    $expiresOk = [DateTime]::TryParse(
+      [string]$env:SSE_TEST_INTERACTIVE_RECEIPT_EXPIRES_AT,
+      [Globalization.CultureInfo]::InvariantCulture,
+      [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal,
+      [ref]$expiresAt
+    )
+    $now = [DateTime]::UtcNow
+    $currentSession = (Get-Process -Id $PID).SessionId
+    $interactiveReceiptLeaseActive = [bool](
+      $env:SSE_TEST_INTERACTIVE_RECEIPTS -ceq '1' -and
+      $presentedLease -cmatch '^[A-F0-9]{64}$' -and
+      $presentedLease -ceq $expectedLease -and
+      $owner -and [int]$owner.SessionId -eq [int]$currentSession -and
+      $expiresOk -and $expiresAt -gt $now -and $expiresAt -le $now.AddHours(1) -and
+      [Environment]::UserInteractive -and
+      -not (Test-Path -LiteralPath $script:DESKTOP_MARKE) -and
+      $foreground -ne [IntPtr]::Zero -and $foregroundOwner -and
+      [int]$foregroundOwner.SessionId -eq [int]$currentSession
+    )
+    # Der interne Transportwert darf die strikten fachlichen Operations-
+    # argumente nicht erweitern und nie in Ergebnis/Trace gelangen.
+    $a.PSObject.Properties.Remove('__interactiveReceiptLease')
+  }
+  if (-not $interactiveReceiptLeaseActive) {
   Fail (
     "Operation '$profilePolicyOperation' ist im Hintergrund gesperrt, weil der verifizierte BelegManager-Weg " +
     'Vordergrund- oder globale physische Eingabe benoetigt. Keine UI wurde geaendert; nicht automatisch wiederholen.'
@@ -7128,6 +7172,7 @@ if ($profilePolicyOperation -in $foregroundRequiredReceiptOps) {
     physicalInputUsed=$false
     foregroundLeaseUsed=$false
   })
+  }
 }
 
 if ($verificationOnlyProfile -and $profilePolicyOperation -notin $experimentalProfileBaseOps) {

@@ -82,6 +82,7 @@ assert.deepEqual(result.profile, {
   status: "supported",
   operationAccess: "full",
   operateExperimental: false,
+  interactiveReceiptLeaseActive: false,
 });
 assert.equal(result.buildDriftPolicy, "block-ui-tax-mutations");
 assert.deepEqual(Object.keys(result.operationPolicy), SSE_API_OPERATIONS);
@@ -100,6 +101,7 @@ assert.equal(result.operationPolicy.receipt_manager_list.interactionRequirement,
 for (const operation of SSE_FOREGROUND_REQUIRED_RECEIPT_OPERATIONS) {
   assert.equal(result.operationPolicy[operation].interactionRequirement, "foreground-required");
   assert.equal(result.operationPolicy[operation].requiresExperimentalOptIn, false);
+  assert.equal(result.operationPolicy[operation].requiresInteractiveReceiptLease, true);
 }
 assert.deepEqual(result.limits, {
   apiRequestBytes: MAX_API_BODY_BYTES,
