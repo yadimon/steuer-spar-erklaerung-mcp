@@ -149,6 +149,7 @@ foreach ($required in @(
   '[Windows.Automation.SelectionItemPattern]::Pattern',
   '[Windows.Automation.SelectionPattern]::Pattern',
   'Current.IsSelected',
+  '$postClickSelectionObject',
   'Current.CanSelectMultiple',
   '$preparationClickBinding = Click-VerifiedPoint',
   'detailOpened=$true',
