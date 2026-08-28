@@ -715,6 +715,19 @@ function Resolve-SSEReceiptManagerVisibleRowTarget(
       if ($selectedRows.Count -ne 1) {
         throw 'Gebundene Belegzeile wurde nach der vorbereitenden Auswahl nicht exakt semantisch rebound gebunden.'
       }
+      if (-not $selectionConfirmedByPattern) {
+        # Der physische Fallback kann die Auswahl korrekt setzen, waehrend die
+        # aus allen Grid-Zellen gebildete Qt-Projektion weiterhin stale bleibt.
+        # Deshalb das SelectionItemPattern am exakt semantisch reboundeten
+        # Titelknoten nach dem Klick noch einmal frisch lesen.
+        $postClickElement = Get-LiveElement $ToolHwnd ([string]$selectedRows[0].rowRid)
+        $postClickSelectionObject = $null
+        $selectionConfirmedByPattern = [bool]($postClickElement -and
+          $postClickElement.TryGetCurrentPattern(
+            [Windows.Automation.SelectionItemPattern]::Pattern, [ref]$postClickSelectionObject) -and
+          [bool]([Windows.Automation.SelectionItemPattern]$postClickSelectionObject).Current.IsSelected)
+        if ($selectionConfirmedByPattern) { $selectedItemObject = $postClickSelectionObject }
+      }
       # Qt meldet die DataGrid-Zellen im frisch projizierten Baum teilweise
       # weiterhin selected=false, obwohl SelectionItemPattern die Auswahl
       # bereits bestaetigt. Die profilierte Tabelle erlaubt keine
