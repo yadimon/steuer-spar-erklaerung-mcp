@@ -22,7 +22,8 @@ werden erst nach Verifikation als kurze aktuelle Regel in einen Skill
 ## Aktueller Inhalt
 
 - `erfahrungen/sse-automation-erfahrungen.md`: sanitisierte Qt/UIA-Fehler,
-  verifizierte Gegenmaßnahmen, Sicherheitsnachbedingungen und offene Grenzen.
+  verifizierte Gegenmaßnahmen, Fall-/Backup-Sitzungsgrenzen,
+  BelegManager-Bindungen, Sicherheitsnachbedingungen und offene Grenzen.
 
 Historische Kopien öffentlicher Skills, agentenspezifische Arbeitspläne und
 Werkzeugprotokolle gehören nicht hierher. Der aktuelle Nutzervertrag liegt
