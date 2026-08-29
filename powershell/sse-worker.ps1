@@ -6951,7 +6951,25 @@ function Open-SSEMenuByName([IntPtr]$MainHwnd, [string]$MenuName) {
     try { $null = $element.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() }
     catch { Fail "Menue '$MenuName' liess sich nicht oeffnen: $($_.Exception.Message.Split("`n")[0])" 'pattern-failed' }
   }
-  Start-Sleep -Milliseconds 700
+  $targetPid = 0
+  [SW]::GetWindowThreadProcessId($MainHwnd, [ref]$targetPid) | Out-Null
+  $openDeadline = [DateTime]::UtcNow.AddMilliseconds(700)
+  do {
+    $expanded = $false
+    try {
+      $freshElement = Get-LiveElement $MainHwnd $menu.rid
+      $freshPattern = $null
+      if ($freshElement -and
+          $freshElement.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$freshPattern)) {
+        $expanded = [bool]($freshPattern.Current.ExpandCollapseState -eq [System.Windows.Automation.ExpandCollapseState]::Expanded)
+      }
+    } catch { }
+    $popupReady = [bool](@(Get-Windows 'SSE' | Where-Object {
+      [int]$_.pid -eq $targetPid -and $_.cls -match 'PopupDropShadow|SysShadow'
+    }).Count -gt 0)
+    if (($expanded -and $popupReady) -or [DateTime]::UtcNow -ge $openDeadline) { break }
+    Start-Sleep -Milliseconds 50
+  } while ($true)
   $menu
 }
 
@@ -11490,39 +11508,46 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     if (-not $force -and -not $hung -and $wins.Count) {
       $res = [IntPtr]::Zero
       [SW]::SendMessageTimeout([IntPtr][int64]$mainWindow[0].hwnd, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero, 0x0002, 8000, [ref]$res) | Out-Null
-      Start-Sleep -Milliseconds 1500
 
       # Rueckfrage "Aenderungen speichern?" beantworten - bis zu drei Runden,
       # denn es koennen mehrere Dialoge nacheinander kommen.
       for ($runde = 1; $runde -le 3; $runde++) {
-        $offen = @(Get-Windows 'SSE' | Where-Object { [int]$_.pid -eq $targetPid })
-        if (-not $offen.Count) { break }
         $wunsch = $(if ($discard) { @('Nein','Nicht speichern','Verwerfen') } else { @() })
         if (-not $wunsch.Count) { break }
         $btn = $null
         $h = [IntPtr]::Zero
-        # Neben dem echten Speicherdialog haelt SSE dauerhaft ein kleines
-        # Vorschlagsfenster offen. Das erste kleine Fenster ist daher nicht
-        # zwingend der Dialog. Alle Kandidaten pruefen und nur ein Fenster
-        # mit einer passenden Antwortschaltflaeche bedienen.
-        foreach ($candidate in ($offen | Where-Object { $_.w -lt 900 -and $_.w -gt 100 } | Sort-Object { $_.w * $_.h })) {
-          $candidateHwnd = [IntPtr][int64]$candidate.hwnd
-          $td = $null
-          try { $td = Walk-Tree $candidateHwnd 400 10 } catch { continue }
-          foreach ($w in $wunsch) {
-            $btn = @($td.nodes | Where-Object { $_.name -eq $w -and $_.type -in @('Button','Pane') })[0]
-            if ($btn) { $h = $candidateHwnd; break }
+        $dialogDeadline = [DateTime]::UtcNow.AddMilliseconds(1800)
+        do {
+          $offen = @(Get-Windows 'SSE' | Where-Object { [int]$_.pid -eq $targetPid })
+          if (-not $offen.Count) { break }
+          # Neben dem echten Speicherdialog haelt SSE dauerhaft ein kleines
+          # Vorschlagsfenster offen. Das erste kleine Fenster ist daher nicht
+          # zwingend der Dialog. Alle Kandidaten pruefen und nur ein Fenster
+          # mit einer passenden Antwortschaltflaeche bedienen.
+          foreach ($candidate in ($offen | Where-Object { $_.w -lt 900 -and $_.w -gt 100 } | Sort-Object { $_.w * $_.h })) {
+            $candidateHwnd = [IntPtr][int64]$candidate.hwnd
+            $td = $null
+            try { $td = Walk-Tree $candidateHwnd 400 10 } catch { continue }
+            foreach ($w in $wunsch) {
+              $btn = @($td.nodes | Where-Object { $_.name -eq $w -and $_.type -in @('Button','Pane') })[0]
+              if ($btn) { $h = $candidateHwnd; break }
+            }
+            if ($btn) { break }
           }
-          if ($btn) { break }
-        }
+          if ($btn -or [DateTime]::UtcNow -ge $dialogDeadline) { break }
+          Start-Sleep -Milliseconds 100
+        } while ($true)
         if (-not $btn) { break }
         $el = Get-LiveElement $h $btn.rid
         if ($el) {
           try { $el.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); $antwort = $btn.name } catch { }
         }
-        Start-Sleep -Milliseconds 1800
+        $dismissDeadline = [DateTime]::UtcNow.AddMilliseconds(1800)
+        do {
+          if (-not [SW]::IsWindow($h) -or [DateTime]::UtcNow -ge $dismissDeadline) { break }
+          Start-Sleep -Milliseconds 100
+        } while ($true)
       }
-      Start-Sleep -Seconds 2
     }
 
     # SSE beendet sich nach der letzten Antwort nicht sofort. Ein einzelner
@@ -17147,13 +17172,13 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $mainWindow = Resolve-SSEMainWindowDescriptor $a -RestoreMinimized
     $hwnd = [IntPtr][int64]$mainWindow.hwnd
     $targetPid = [int]$mainWindow.pid
-    $t = Walk-Tree $hwnd 1200
-    $menues = @($t.nodes | Where-Object {
-      $_.type -eq 'MenuItem' -and $_.name -and $_.p -ge 0 -and
-      $t.nodes[[int]$_.p].type -eq 'MenuBar'
-    } | Sort-Object x)
     $wunsch = [string](Arg $a 'name')
     if (-not $wunsch) {
+      $t = Walk-Tree $hwnd 1200
+      $menues = @($t.nodes | Where-Object {
+        $_.type -eq 'MenuItem' -and $_.name -and $_.p -ge 0 -and
+        $t.nodes[[int]$_.p].type -eq 'MenuBar'
+      } | Sort-Object x)
       Emit ([pscustomobject]@{ ok = $true; menues = @($menues | ForEach-Object { $_.name })
         hinweis = "Mit name='Datei' oeffnen und die Eintraege lesen." })
     }
@@ -17209,7 +17234,22 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # und die SSE-Prozess-ID gebunden.
     $dirtyBefore = Get-DirtyStateFast $mainHwnd
     $null = Click-VerifiedPoint $match.hwnd $match.node
-    Start-Sleep -Milliseconds $waitMs
+    $receiptPolicy = Get-SSEReceiptManagerPolicy
+    if ([string]$match.node.name -ceq [string]$receiptPolicy.title) {
+      $toolDeadline = [DateTime]::UtcNow.AddMilliseconds($waitMs)
+      do {
+        $toolMatches = @(Get-Windows 'SSE' | Where-Object {
+          [int]$_.pid -eq $targetPid -and
+          [string]$_.title -ceq [string]$receiptPolicy.title -and
+          [string]$_.cls -match [string]$receiptPolicy.classPattern -and
+          -not [bool]$_.minimiert -and -not [bool]$_.hung
+        })
+        if ($toolMatches.Count -eq 1 -or [DateTime]::UtcNow -ge $toolDeadline) { break }
+        Start-Sleep -Milliseconds 100
+      } while ($true)
+    } else {
+      Start-Sleep -Milliseconds $waitMs
+    }
     Emit ([pscustomobject]@{
       ok = $true; ausgeloest = $match.node.name; angefordert = $eintrag
       method = 'verified-point'; fenster = (@(Get-Windows 'SSE')).Count
@@ -17240,10 +17280,14 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         }
       }
     }
-    Start-Sleep -Milliseconds 500
-    $after = @(Get-Windows 'SSE' | Where-Object {
-      [int]$_.pid -eq $targetPid -and $_.cls -match 'PopupDropShadow|SysShadow'
-    })
+    $closeDeadline = [DateTime]::UtcNow.AddMilliseconds(500)
+    do {
+      $after = @(Get-Windows 'SSE' | Where-Object {
+        [int]$_.pid -eq $targetPid -and $_.cls -match 'PopupDropShadow|SysShadow'
+      })
+      if (-not $after.Count -or [DateTime]::UtcNow -ge $closeDeadline) { break }
+      Start-Sleep -Milliseconds 50
+    } while ($true)
     $verified = [bool]($after.Count -eq 0)
     Emit ([pscustomobject]@{
       ok = $verified; collapsed = $collapsed
@@ -18143,39 +18187,44 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $expectedDocumentNumberAfter = $(if ([bool]$editableAfter.complete) { [string]$editableAfter.values.documentNumber } else { '' })
     $identityDeadline = [DateTime]::UtcNow.AddMilliseconds($waitMs)
     $rowAfterMatches = @()
+    $titleIdentityMatchCount = 0
+    $documentNumberIdentityMatchCount = 0
+    $documentNumberCellIndices = @()
     do {
       $rowAfterMatches = @($finalList.rows | Where-Object {
         (Get-SSEReceiptManagerDetailIdentityTitle $_ $policy) -ceq $expectedTitleAfter -and
         [string]$_.documentNumber -ceq $expectedDocumentNumberAfter
       })
+      $titleIdentityMatches = @($finalList.rows | Where-Object {
+        (Get-SSEReceiptManagerDetailIdentityTitle $_ $policy) -ceq $expectedTitleAfter
+      })
+      $titleIdentityMatchCount = $titleIdentityMatches.Count
+      $documentNumberIdentityMatchCount = @($finalList.rows | Where-Object {
+        [string]$_.documentNumber -ceq $expectedDocumentNumberAfter
+      }).Count
+      $documentNumberCellIndices = @($finalList.rows | ForEach-Object {
+        for ($cellIndex = 0; $cellIndex -lt @($_.cells).Count; $cellIndex++) {
+          if ([string]$_.cells[$cellIndex].name -ceq $expectedDocumentNumberAfter) { $cellIndex }
+        }
+      } | Sort-Object -Unique)
       if ($rowAfterMatches.Count -eq 1) { break }
+      # SSE 31 exponiert die editierbare Belegnummer im Detail, aber auf
+      # dieser Installation in keiner Grid-Zelle. Die Liste ist nach dem
+      # verifizierten Detailschliessen bereits vollstaendig. Wenn der neue
+      # Titel darin exakt einmal vorkommt und die Nummer im gesamten Grid
+      # fehlt, kann kein weiteres Polling diese zusaetzliche Listenidentitaet
+      # sichtbar machen. Der titelgebundene Rebind ist derselbe fail-closed
+      # Fallback wie bisher, nur ohne den nutzlosen vollen waitMs-Zyklus.
+      if ([bool]$finalList.rowsComplete -and $titleIdentityMatchCount -eq 1 -and
+          -not $documentNumberCellIndices.Count) {
+        $rowAfterMatches = $titleIdentityMatches
+        break
+      }
       if ([DateTime]::UtcNow -ge $identityDeadline) { break }
       Start-Sleep -Milliseconds 200
       $finalState = Get-SSEReceiptManagerState $toolHwnd $policy
       $finalList = Get-SSEReceiptManagerListProjection $finalState $policy
     } while ($true)
-    $titleIdentityMatchCount = @($finalList.rows | Where-Object {
-      (Get-SSEReceiptManagerDetailIdentityTitle $_ $policy) -ceq $expectedTitleAfter
-    }).Count
-    $documentNumberIdentityMatchCount = @($finalList.rows | Where-Object {
-      [string]$_.documentNumber -ceq $expectedDocumentNumberAfter
-    }).Count
-    $documentNumberCellIndices = @($finalList.rows | ForEach-Object {
-      for ($cellIndex = 0; $cellIndex -lt @($_.cells).Count; $cellIndex++) {
-        if ([string]$_.cells[$cellIndex].name -ceq $expectedDocumentNumberAfter) { $cellIndex }
-      }
-    } | Sort-Object -Unique)
-    # SSE 31 exponiert die editierbare Belegnummer im Detail, aber auf dieser
-    # Installation in keiner Grid-Zelle. Nur wenn der neue Titel exakt einmal
-    # vorkommt UND die Belegnummer im gesamten Grid nachweislich fehlt, darf
-    # die bereits rowRid-/Fingerprint-gebundene Zeile ohne diesen zusaetzlichen
-    # Listenwert rebound werden. Mehrdeutige Titel bleiben fail-closed.
-    if ($rowAfterMatches.Count -ne 1 -and $titleIdentityMatchCount -eq 1 -and
-        -not $documentNumberCellIndices.Count) {
-      $rowAfterMatches = @($finalList.rows | Where-Object {
-        (Get-SSEReceiptManagerDetailIdentityTitle $_ $policy) -ceq $expectedTitleAfter
-      })
-    }
     $rowAfter = $(if ($rowAfterMatches.Count -eq 1) { $rowAfterMatches[0] } else { $null })
     $otherRowsBefore = @($listBefore.rows | Where-Object {
       [string]$_.rowRid -cne [string]$rowBefore.rowRid -or

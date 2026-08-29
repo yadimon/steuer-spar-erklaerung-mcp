@@ -63,6 +63,74 @@ foreach ($required in @(
 }
 Assert-True ($foregroundGate.Contains('nicht automatisch wiederholen')) 'Der Block muss automatische Wiederholung ausdruecklich ausschliessen.'
 
+$menuClickStart = $worker.IndexOf("  'menu_click' {")
+$menuClickEnd = $worker.IndexOf("  'menu_close' {", $menuClickStart)
+Assert-True ($menuClickStart -ge 0 -and $menuClickEnd -gt $menuClickStart) `
+  'menu_click-Operationsblock ist nicht eindeutig abgrenzbar.'
+$menuClickBlock = $worker.Substring($menuClickStart, $menuClickEnd - $menuClickStart)
+foreach ($required in @(
+  '$receiptPolicy = Get-SSEReceiptManagerPolicy',
+  '[string]$match.node.name -ceq [string]$receiptPolicy.title',
+  '[int]$_.pid -eq $targetPid',
+  '[string]$_.cls -match [string]$receiptPolicy.classPattern',
+  '$toolMatches.Count -eq 1',
+  'Start-Sleep -Milliseconds 100',
+  'else {',
+  'Start-Sleep -Milliseconds $waitMs'
+)) {
+  Assert-True ($menuClickBlock.Contains($required)) "menu_click fehlt der BelegManager-Wartevertrag '$required'."
+}
+
+$menuStart = $worker.IndexOf("  'menu' {")
+$menuEnd = $worker.IndexOf("  'menu_click' {", $menuStart)
+Assert-True ($menuStart -ge 0 -and $menuEnd -gt $menuStart) `
+  'menu-Operationsblock ist nicht eindeutig abgrenzbar.'
+$menuBlock = $worker.Substring($menuStart, $menuEnd - $menuStart)
+$namedMenuIndex = $menuBlock.IndexOf("`$wunsch = [string](Arg `$a 'name')")
+$listOnlyIndex = $menuBlock.IndexOf('if (-not $wunsch) {')
+$listWalkIndex = $menuBlock.IndexOf('$t = Walk-Tree $hwnd 1200')
+$openNamedIndex = $menuBlock.IndexOf('$m = Open-SSEMenuByName $hwnd $wunsch')
+Assert-True ($namedMenuIndex -ge 0 -and $listOnlyIndex -gt $namedMenuIndex -and $listWalkIndex -gt $listOnlyIndex) `
+  'Die Menuezeilen-Ermittlung ist nicht auf den namenlosen Listenmodus begrenzt.'
+Assert-True ($openNamedIndex -gt $listWalkIndex) `
+  'Der benannte Menuepfad ist nicht eindeutig hinter dem optionalen Listenmodus gebunden.'
+Assert-True (([regex]::Matches($menuBlock, [regex]::Escape('$t = Walk-Tree $hwnd 1200'))).Count -eq 1) `
+  'Der menu-Block enthaelt mehr als einen Menuezeilen-Walk.'
+
+$menuOpenStart = $worker.IndexOf('function Open-SSEMenuByName(')
+$menuOpenEnd = $worker.IndexOf('function Get-SSEOpenMenuEntryMatches(', $menuOpenStart)
+Assert-True ($menuOpenStart -ge 0 -and $menuOpenEnd -gt $menuOpenStart) `
+  'Open-SSEMenuByName ist nicht eindeutig abgrenzbar.'
+$menuOpenBlock = $worker.Substring($menuOpenStart, $menuOpenEnd - $menuOpenStart)
+foreach ($required in @(
+  '$openDeadline = [DateTime]::UtcNow.AddMilliseconds(700)',
+  'ExpandCollapseState]::Expanded',
+  "`$_.cls -match 'PopupDropShadow|SysShadow'",
+  'if (($expanded -and $popupReady) -or [DateTime]::UtcNow -ge $openDeadline) { break }',
+  'Start-Sleep -Milliseconds 50'
+)) {
+  Assert-True ($menuOpenBlock.Contains($required)) "Open-SSEMenuByName fehlt der Popup-Bereitschaftsvertrag '$required'."
+}
+Assert-True (-not $menuOpenBlock.Contains('Start-Sleep -Milliseconds 700')) `
+  'Open-SSEMenuByName wartet weiterhin fest statt bis zum beobachteten Popup-Zustand.'
+
+$menuCloseStart = $worker.IndexOf("  'menu_close' {")
+$menuCloseEnd = $worker.IndexOf("  'receipt_manager_bulk_upsert' {", $menuCloseStart)
+Assert-True ($menuCloseStart -ge 0 -and $menuCloseEnd -gt $menuCloseStart) `
+  'menu_close-Operationsblock ist nicht eindeutig abgrenzbar.'
+$menuCloseBlock = $worker.Substring($menuCloseStart, $menuCloseEnd - $menuCloseStart)
+foreach ($required in @(
+  '$closeDeadline = [DateTime]::UtcNow.AddMilliseconds(500)',
+  "`$_.cls -match 'PopupDropShadow|SysShadow'",
+  'if (-not $after.Count -or [DateTime]::UtcNow -ge $closeDeadline) { break }',
+  'Start-Sleep -Milliseconds 50',
+  '$verified = [bool]($after.Count -eq 0)'
+)) {
+  Assert-True ($menuCloseBlock.Contains($required)) "menu_close fehlt der Popup-Postcondition-Vertrag '$required'."
+}
+Assert-True (-not $menuCloseBlock.Contains('Start-Sleep -Milliseconds 500')) `
+  'menu_close wartet weiterhin fest statt bis zur beobachteten Popup-Postcondition.'
+
 Assert-True ($policy.role -ceq 'nonmodal-tool-window') 'BelegManager hat nicht die erwartete Werkzeugfensterrolle.'
 Assert-True ('Qt692QWindow' -match [string]$policy.classPattern) 'Die gemessene Qt-Klasse passt nicht zur Profilbindung.'
 Assert-True ('Qt692QWindowIcon' -notmatch [string]$policy.classPattern) 'Das Hauptfenster passt faelschlich zur BelegManager-Klasse.'
@@ -250,6 +318,15 @@ foreach ($required in @(
 foreach ($forbidden in @("Arg `$a 'name'", "Arg `$a 'aid'", "Arg `$a 'rid'", "Arg `$a 'x'", "Arg `$a 'y'")) {
   Assert-True (-not $updateBlock.Contains($forbidden)) "receipt_manager_update akzeptiert den freien Selektor '$forbidden'."
 }
+$missingGridNumberFallback = $updateBlock.IndexOf(
+  'if ([bool]$finalList.rowsComplete -and $titleIdentityMatchCount -eq 1 -and')
+$identityDeadlineCheck = $updateBlock.IndexOf(
+  'if ([DateTime]::UtcNow -ge $identityDeadline) { break }', $missingGridNumberFallback)
+$identityRepoll = $updateBlock.IndexOf(
+  '$finalState = Get-SSEReceiptManagerState $toolHwnd $policy', $identityDeadlineCheck)
+Assert-True ($missingGridNumberFallback -ge 0 -and
+  $identityDeadlineCheck -gt $missingGridNumberFallback -and $identityRepoll -gt $identityDeadlineCheck) `
+  'Eine vollstaendige, eindeutig titelgebundene Liste ohne exponierte Belegnummer muss vor Deadline und Vollbaum-Repoll rebound werden.'
 $updateOnlyEnd = $worker.IndexOf("  'receipt_manager_classification_options' {", $updateStart)
 $updateOnlyBlock = $worker.Substring($updateStart, $updateOnlyEnd - $updateStart)
 Assert-True (
