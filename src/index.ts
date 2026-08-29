@@ -9,7 +9,7 @@ import { runMcpMain } from "./mcp-main.js";
 import { redactLocalPathText } from "./mcp-response.js";
 
 runMcpMain(process.argv.slice(2)).catch((error: unknown) => {
-  const detail = error instanceof Error ? (error.stack ?? error.message) : String(error);
+  const detail = error instanceof Error ? error.message : String(error);
   process.stderr.write(`Start fehlgeschlagen: ${redactLocalPathText(detail)}\n`);
   process.exitCode = 1;
 });

@@ -17,6 +17,8 @@ import { ApiClientError } from "./api-client-error.js";
 import { localHttpFetch } from "./local-http-transport.js";
 import { formatOperationArgumentError, parseApiOperationArgs } from "./operation-catalog.js";
 import { parseApiOperationResult, SSE_API_RESULT_SCHEMA_VERSION } from "./result-contract.js";
+import { SSE_API_PACKAGE_NAME, SSE_PACKAGE_VERSION } from "./version.js";
+import { SSE_API_INSTANCE_HEADER } from "./api-supervisor-contract.js";
 
 export { asArray, type WorkerResult } from "./api-contract.js";
 export { ApiClientError } from "./api-client-error.js";
@@ -25,6 +27,7 @@ export interface ApiClientOptions {
   baseUrl?: string;
   fetchImpl?: typeof fetch;
   signal?: AbortSignal;
+  expectedInstanceId?: string;
 }
 
 export interface ApiDiscoveryDocument {
@@ -63,6 +66,11 @@ export interface OpenApiDocument {
 export interface ApiHealthDocument {
   ok: true;
   apiVersion: string;
+  packageName: string;
+  packageVersion: string;
+  processId: number;
+  instanceId: string;
+  configurationFingerprint: string;
   inFlight: Readonly<Record<string, unknown>> | null;
   prewarm: Readonly<Record<string, unknown>> | null;
 }
@@ -71,6 +79,7 @@ interface ApiClientSettings {
   baseUrl: string;
   fetchImpl: typeof fetch;
   signal?: AbortSignal;
+  expectedInstanceId?: string;
 }
 
 function clientSettings(options: ApiClientOptions = {}): ApiClientSettings {
@@ -97,6 +106,7 @@ function clientSettings(options: ApiClientOptions = {}): ApiClientSettings {
     baseUrl: parsedUrl.origin,
     fetchImpl: options.fetchImpl ?? localHttpFetch,
     ...(options.signal ? { signal: options.signal } : {}),
+    ...(options.expectedInstanceId ? { expectedInstanceId: options.expectedInstanceId } : {}),
   };
 }
 
@@ -347,10 +357,23 @@ export async function readApiHealthz(options: ApiClientOptions = {}): Promise<Ap
   if (
     payload.ok !== true ||
     payload.apiVersion !== SSE_API_VERSION ||
+    payload.packageName !== SSE_API_PACKAGE_NAME ||
+    payload.packageVersion !== SSE_PACKAGE_VERSION ||
+    !Number.isSafeInteger(payload.processId) || Number(payload.processId) < 1 || Number(payload.processId) > 0xffff_ffff ||
+    typeof payload.instanceId !== "string" || !UUID_V4.test(payload.instanceId) ||
+    typeof payload.configurationFingerprint !== "string" ||
+    !/^[0-9a-f]{64}$/u.test(payload.configurationFingerprint) ||
     !(payload.inFlight === null || isRecord(payload.inFlight)) ||
     !(payload.prewarm === null || isRecord(payload.prewarm))
   ) {
-    throw new ApiClientError("SSE-API-Healthz hat nicht die erwartete Struktur oder Version.", "protocol");
+    const reportedIdentity = typeof payload.packageName === "string" && typeof payload.packageVersion === "string"
+      ? `${payload.packageName}@${payload.packageVersion}`
+      : "nicht eindeutig identifizierbar";
+    throw new ApiClientError(
+      `SSE-API-Healthz ist inkompatibel: erwartet ${SSE_API_PACKAGE_NAME}@${SSE_PACKAGE_VERSION}, ` +
+        `erhalten ${reportedIdentity}.`,
+      "protocol",
+    );
   }
   return payload as unknown as ApiHealthDocument;
 }
@@ -478,6 +501,9 @@ export async function callApiOperationEnvelope(
             headers: {
               accept: "application/json",
               "content-type": "application/json",
+              ...(settings.expectedInstanceId
+                ? { [SSE_API_INSTANCE_HEADER]: settings.expectedInstanceId }
+                : {}),
             },
             body: requestBody,
             redirect: "error",

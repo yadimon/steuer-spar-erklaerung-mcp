@@ -79,10 +79,12 @@ npm run check
 Remove-Item Env:SSE_TEST_CONCURRENCY
 ```
 
-Der Clean-install-Smoke muss die drei CLI-Einstiege und den 99-Tool-MCP-Vertrag
-aus zwei getrennten Tarballs bestätigen. Danach nochmals prüfen, dass der Worktree
-sauber ist. Private Steuerdaten, lokale Konfigurationen und Test-Arbeitskopien
-dürfen nicht im Commit oder Artefakt liegen.
+Der Clean-install-Smoke installiert nur den MCP-Tarball aus der isolierten
+lokalen Fixture-Registry. Er muss dabei die exakte API-Dependency automatisch
+auflösen sowie die drei CLI-Einstiege und den 99-Tool-MCP-Vertrag bestätigen.
+Danach nochmals prüfen, dass der Worktree sauber ist. Private Steuerdaten,
+lokale Konfigurationen und Test-Arbeitskopien dürfen nicht im Commit oder
+Artefakt liegen.
 
 ## 4. Annotierten Tag und GitHub-Prerelease veröffentlichen
 
@@ -124,8 +126,8 @@ zurückgelesen wurden, aus demselben sauberen Tag-Checkout einmalig ausführen:
 npm install --global npm@11.19.0
 npm login
 npm whoami
-npm publish --workspace @yadimon/steuer-spar-erklaerung-mcp --ignore-scripts --tag latest --access public
 npm publish --workspace @yadimon/steuer-spar-erklaerung-api --ignore-scripts --tag latest --access public
+npm publish --workspace @yadimon/steuer-spar-erklaerung-mcp --ignore-scripts --tag latest --access public
 npm view '@yadimon/steuer-spar-erklaerung-mcp' dist-tags --json
 npm view '@yadimon/steuer-spar-erklaerung-api' dist-tags --json
 ```
@@ -194,10 +196,11 @@ gh workflow run npm-publish.yml --repo yadimon/steuer-spar-erklaerung-mcp --ref 
 
 Der Workflow akzeptiert nur `refs/tags/v<package-version>`, baut auf einem
 GitHub-gehosteten Windows-Runner die Native-Runtime, führt Vollsuite und echten
-Tarball-Clean-install aus und veröffentlicht zuerst MCP, danach API. Bei einem
-Teilfehler nie eine bereits veröffentlichte Paketversion wiederverwenden oder
-den Tag verschieben. Das fehlende Paket aus demselben Tag-Checkout gezielt
-fertigstellen und anschließend beide Registry-Versionen zurücklesen. Der
+Tarball-Clean-install aus und veröffentlicht zuerst die API, wartet auf die
+Registry-Sichtbarkeit dieser exakten Dependency und veröffentlicht danach MCP.
+Beide Publish-Schritte überspringen eine bereits vorhandene exakte Version, so
+dass derselbe Tag-Workflow eine Teilpublikation idempotent fertigstellen kann.
+Nie eine veröffentlichte Paketversion ersetzen oder den Tag verschieben. Der
 veröffentlichte Installationsvertrag wird separat gegen die echten Registry-
 Artefakte geprüft:
 

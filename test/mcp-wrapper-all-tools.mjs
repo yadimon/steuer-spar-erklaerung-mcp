@@ -8,6 +8,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { MAX_API_ARGUMENT_STRING_BYTES, SSE_MCP_TOOL_OPERATIONS } from "../dist/operation-catalog.js";
 import { operationAnnotations } from "../dist/operation-traits.js";
+import { SSE_API_PACKAGE_NAME, SSE_PACKAGE_VERSION } from "../dist/version.js";
 import {
   enumChoices,
   invalidTypeValue,
@@ -39,13 +40,31 @@ const assertPropertyDescriptions = (schema, path) => {
 const expectedToolCount = Object.keys(SSE_MCP_TOOL_OPERATIONS).length;
 
 const calls = [];
+const API_INSTANCE_ID = "44444444-4444-4444-8444-444444444444";
 let forcedResult;
 let forceTransportReset = false;
 const api = createServer(async (request, response) => {
+  if (request.url === "/healthz") {
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({
+      ok: true,
+      apiVersion: "v1",
+      packageName: SSE_API_PACKAGE_NAME,
+      packageVersion: SSE_PACKAGE_VERSION,
+      processId: process.pid,
+      instanceId: API_INSTANCE_ID,
+      configurationFingerprint: "0".repeat(64),
+      inFlight: null,
+      prewarm: null,
+    }));
+    return;
+  }
   if (forceTransportReset) {
     request.socket.destroy();
     return;
   }
+  assert.equal(request.headers["x-sse-api-instance-id"], API_INSTANCE_ID,
+    "MCP-Operations-POST ist nicht atomar an die zuvor gepruefte API-Instanz gebunden.");
   const chunks = [];
   for await (const chunk of request) chunks.push(chunk);
   // Der MCP ist ein lokaler Prozess und darf keine Browser-Kopfzeilen senden.

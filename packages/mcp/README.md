@@ -3,7 +3,7 @@
 > **Beta und inoffiziell.** Dieses Projekt ist nicht mit Wolters Kluwer
 > verbunden. Es sendet keine Steuererklärung und ersetzt keine Steuerberatung.
 
-PC-blinder MCP-Wrapper für SteuerSparErklärung über die lokale
+PC-blinder MCP-Wrapper für Windows x64 und SteuerSparErklärung über die lokale
 SteuerSparErklärung-API. Das Paket spricht per stdio mit dem AI-Agenten und per
 lokaler Loopback-Verbindung mit
 `@yadimon/steuer-spar-erklaerung-api`. Es greift niemals selbst auf die
@@ -12,28 +12,41 @@ Desktop-Oberfläche oder lokale Steuerdateien zu.
 ## Architektur und Voraussetzungen
 
 Das API-Paket ist die Ausführungsschicht auf dem Windows-PC; dieses MCP-Paket
-übersetzt MCP-Aufrufe in deren versionierten HTTP-Vertrag. Für den
-unterstützten Produktstand müssen API und MCP exakt dieselbe Paketversion
-tragen. Die Laufzeit prüft zusätzlich den API-Protokollvertrag; eine bloß
-protokollkompatible abweichende Paketversion ist trotzdem nicht freigegeben.
+übersetzt MCP-Aufrufe in deren versionierten HTTP-Vertrag. Es besitzt eine
+normale, exakte Dependency auf dieselbe Releaseversion der API. npm installiert
+sie automatisch, ohne `postinstall` und ohne Installation zur Laufzeit. Weil
+die Dependency Windows-x64-nativ ist, ist auch dieses MCP-Paket auf Windows x64
+begrenzt.
+API und MCP tragen dadurch exakt dieselbe Paketversion.
 
 ```text
 AI-Agent -> MCP-Paket -> lokale API -> SteuerSparErklärung
 ```
 
 ```powershell
-npm install --global @yadimon/steuer-spar-erklaerung-api
 npm install --global @yadimon/steuer-spar-erklaerung-mcp
 steuer-spar-erklaerung-mcp --help
 ```
+
+Beim Start prüft MCP zuerst die konfigurierte Loopback-Adresse. Eine bereits
+laufende API wird nur bei exakt passendem Paketnamen, Release, API-Vertrag und
+bei verwalteter Konfiguration identischer Ressourcenbindung als Singleton
+übernommen. Ist der Port frei, startet MCP die mitinstallierte
+API unsichtbar, wartet auf Readiness und lässt sie für spätere MCP-Clients
+weiterlaufen. Parallelstarts konvergieren auf genau eine API. Ein fremder
+Dienst oder eine unklare/abweichende API führt fail-closed zum Startabbruch und
+wird niemals beendet oder ersetzt.
 
 Die [Installationsanleitung](https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md)
 beschreibt Installation, Versionsabgleich und Client-Konfiguration. Der
 MCP-Servereintrag startet die absolute `node.exe` mit dem absoluten
 `dist/index.js` dieses Pakets als einzigem Argument. Beim Standardport braucht
-er keine Umgebungsvariable; für einen bewusst abweichenden API-Port wird
-`SSE_API_URL` im Client-Eintrag gesetzt. Steuerfall-, Beleg- und Programmpfade
-verbleiben im API-Prozess auf dem Steuer-PC.
+er keine Umgebungsvariable. `SSE_API_CONFIG` darf auf eine absolute
+Konfigurationsdatei für einen eigenen API-Arbeitsbereich zeigen.
+`SSE_API_URL` bindet dagegen autoritativ eine bewusst separat verwaltete
+Loopback-API: Ist sie nicht erreichbar oder inkompatibel, gibt es keinen
+Fallback und keinen Autostart am Standardport. Steuerfall-, Beleg- und
+Programmpfade verbleiben im API-Prozess auf dem Steuer-PC.
 
 ## Vertrag
 
@@ -43,6 +56,12 @@ verbleiben im API-Prozess auf dem Steuer-PC.
 - rekursive Redaction lokaler PC-Pfade;
 - Cancellation bis zum lokalen API-Auftrag;
 - Größenlimits und fail-closed Fehlerantworten.
+
+API-Ausgaben sind vom MCP-stdout getrennt; der Hintergrundprozess erhält keine
+sichtbare Konsole. `--selftest` verwendet denselben Singleton- und
+Identitätsprüfpfad wie der normale stdio-Start. Vor jedem späteren
+API-Werkzeugaufruf wird die Identität erneut geprüft, sodass ein am Port
+ausgetauschter oder umkonfigurierter Prozess fail-closed gestoppt wird.
 
 Alle 99 Werkzeugnamen sind registriert. Im normalen öffentlichen Betrieb ist
 von den zehn BelegManager-Werkzeugen nur `sse_receipt_manager_list` aktiv; die

@@ -1,29 +1,9 @@
-import { createHash } from "node:crypto";
 import { accessSync, constants, statSync } from "node:fs";
-import { resolve } from "node:path";
-import type { SseApiServerConfig } from "./api-config.js";
-
-export type WorkspaceStatusIdentity = Pick<
-  SseApiServerConfig,
-  "profileId" | "caseDir" | "documentsDir" | "workspaceDir" | "resultDir" | "backupsDir" | "sseExecutable"
->;
-
-function optionalResolved(path: string | undefined): string | null {
-  return path ? resolve(path) : null;
-}
-
-export function configurationFingerprint(config: WorkspaceStatusIdentity): string {
-  const stable = {
-    profileId: config.profileId,
-    caseDir: optionalResolved(config.caseDir),
-    documentsDir: resolve(config.documentsDir),
-    workspaceDir: resolve(config.workspaceDir),
-    resultDir: resolve(config.resultDir),
-    backupsDir: resolve(config.backupsDir),
-    sseExecutable: optionalResolved(config.sseExecutable),
-  };
-  return createHash("sha256").update(JSON.stringify(stable), "utf8").digest("hex");
-}
+import {
+  configurationFingerprint,
+  type ConfigurationFingerprintIdentity,
+} from "./configuration-fingerprint.js";
+export { configurationFingerprint } from "./configuration-fingerprint.js";
 
 function directoryReady(path: string): boolean {
   try {
@@ -35,7 +15,7 @@ function directoryReady(path: string): boolean {
   }
 }
 
-export function readWorkspaceStatus(config: SseApiServerConfig) {
+export function readWorkspaceStatus(config: ConfigurationFingerprintIdentity) {
   return {
     ok: true,
     profileId: config.profileId,

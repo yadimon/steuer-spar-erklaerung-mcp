@@ -9,8 +9,8 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repository = "yadimon/steuer-spar-erklaerung-mcp";
 const workflow = "npm-publish.yml";
 const packageNames = [
-  "@yadimon/steuer-spar-erklaerung-mcp",
   "@yadimon/steuer-spar-erklaerung-api",
+  "@yadimon/steuer-spar-erklaerung-mcp",
 ];
 const npmCli = process.env.npm_execpath ?? join(dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
 
@@ -77,8 +77,11 @@ function registryPublicationState(version) {
 
 function assertRegistryState(version, expectedPublished) {
   const { versions, published } = registryPublicationState(version);
-  if (published !== 0 && published !== packageNames.length) {
-    throw new Error(`Teilpublikation fuer ${version}: ${JSON.stringify(Object.fromEntries(packageNames.map((name, index) => [name, versions[index] ?? null])))}`);
+  if (!expectedPublished && published !== 0 && published !== packageNames.length) {
+    process.stdout.write(
+      `Teilpublikation fuer ${version} wird idempotent fortgesetzt: ` +
+        `${JSON.stringify(Object.fromEntries(packageNames.map((name, index) => [name, versions[index] ?? null])))}\n`,
+    );
   }
   if (expectedPublished && published !== packageNames.length) {
     throw new Error(`Trusted Publishing hat ${version} nicht vollstaendig in npm bereitgestellt.`);

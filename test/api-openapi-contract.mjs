@@ -13,6 +13,20 @@ assert.equal(SSE_OPENAPI_DOCUMENT.info.description.includes("Origin"), true);
 assert.equal(SSE_OPENAPI_DOCUMENT.info.description.includes("ELSTER"), true);
 assert.equal(Object.keys(SSE_OPENAPI_DOCUMENT.paths).length, SSE_API_OPERATIONS.length + 3);
 assert.equal(SSE_OPENAPI_DOCUMENT.paths["/healthz"].get.operationId, "healthz");
+assert.deepEqual(
+  SSE_OPENAPI_DOCUMENT.paths["/healthz"].get.responses["200"].content["application/json"].schema.required,
+  ["ok", "apiVersion", "packageName", "packageVersion", "processId", "instanceId", "configurationFingerprint", "inFlight", "prewarm"],
+);
+assert.equal(
+  SSE_OPENAPI_DOCUMENT.paths["/healthz"].get.responses["200"].content["application/json"].schema
+    .properties.processId.maximum,
+  4294967295,
+);
+assert.equal(
+  SSE_OPENAPI_DOCUMENT.paths["/healthz"].get.responses["200"].content["application/json"].schema
+    .properties.configurationFingerprint.pattern,
+  "^[0-9a-f]{64}$",
+);
 assert.equal(SSE_OPENAPI_DOCUMENT.paths[`/${SSE_API_VERSION}/operations`].get.operationId, "list_operations");
 assert.equal(SSE_OPENAPI_DOCUMENT.paths[`/${SSE_API_VERSION}/openapi.json`].get.operationId, "get_openapi");
 

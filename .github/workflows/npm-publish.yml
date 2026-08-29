@@ -52,8 +52,39 @@ jobs:
       - name: Prove clean installation from both tarballs
         run: npm run test:npm-clean-install
 
-      - name: Publish PC-blind MCP package
-        run: npm publish --workspace @yadimon/steuer-spar-erklaerung-mcp --ignore-scripts --tag latest --access public
-
       - name: Publish Windows API package
-        run: npm publish --workspace @yadimon/steuer-spar-erklaerung-api --ignore-scripts --tag latest --access public
+        run: |
+          $version = node -p "require('./package.json').version"
+          $existing = (& npm view "@yadimon/steuer-spar-erklaerung-api@$version" version --json 2>&1 | Out-String)
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "API $version ist bereits veröffentlicht; überspringe den idempotenten Wiederanlauf."
+          } elseif ($existing -match 'E404|not in this registry') {
+            npm publish --workspace @yadimon/steuer-spar-erklaerung-api --ignore-scripts --tag latest --access public
+            if ($LASTEXITCODE -ne 0) { throw "API-Publish fehlgeschlagen." }
+          } else {
+            throw "API-Registrystatus konnte nicht sicher gelesen werden: $existing"
+          }
+
+      - name: Wait for exact API dependency in registry
+        run: |
+          $version = node -p "require('./package.json').version"
+          $ready = $false
+          foreach ($attempt in 1..30) {
+            $visible = (& npm view "@yadimon/steuer-spar-erklaerung-api@$version" version --json 2>$null | Out-String).Trim('"', "`r", "`n", ' ')
+            if ($LASTEXITCODE -eq 0 -and $visible -eq $version) { $ready = $true; break }
+            Start-Sleep -Seconds 2
+          }
+          if (-not $ready) { throw "Exakte API-Dependency $version wurde nicht rechtzeitig sichtbar." }
+
+      - name: Publish MCP package with exact API dependency
+        run: |
+          $version = node -p "require('./package.json').version"
+          $existing = (& npm view "@yadimon/steuer-spar-erklaerung-mcp@$version" version --json 2>&1 | Out-String)
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "MCP $version ist bereits veröffentlicht; überspringe den idempotenten Wiederanlauf."
+          } elseif ($existing -match 'E404|not in this registry') {
+            npm publish --workspace @yadimon/steuer-spar-erklaerung-mcp --ignore-scripts --tag latest --access public
+            if ($LASTEXITCODE -ne 0) { throw "MCP-Publish fehlgeschlagen." }
+          } else {
+            throw "MCP-Registrystatus konnte nicht sicher gelesen werden: $existing"
+          }

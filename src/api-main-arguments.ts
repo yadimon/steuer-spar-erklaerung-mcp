@@ -32,7 +32,10 @@ export function parseApiMainArguments(argv: readonly string[]): ApiMainArguments
     }
     if (option === "--config") {
       if (configPath) throw new Error(`--config darf nur einmal angegeben werden. ${API_MAIN_USAGE}`);
-      configPath = value;
+      if (!isAbsolute(value) || /[\u0000-\u001f]/u.test(value)) {
+        throw new Error(`Ungueltige API-Startargumente: --config muss ein absoluter Pfad ohne Steuerzeichen sein. ${API_MAIN_USAGE}`);
+      }
+      configPath = resolve(value);
     } else {
       if (caseDir) throw new Error(`--case-dir darf nur einmal angegeben werden. ${API_MAIN_USAGE}`);
       if (!isAbsolute(value) || /[\u0000-\u001f]/u.test(value)) {

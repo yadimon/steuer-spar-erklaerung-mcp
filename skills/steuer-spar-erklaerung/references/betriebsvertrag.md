@@ -5,15 +5,17 @@ Referenz beschreibt nur die stabilen Grenzen.
 
 ## Erreichbarkeit und Konfiguration
 
-- Die API läuft nur auf `127.0.0.1` oder `::1`. Prüfe vor allem anderen
-  `/healthz` beziehungsweise `sse_health`; starte nie blind eine zweite API.
+- Die API läuft nur auf `127.0.0.1` oder `::1`. Der MCP-Start übernimmt eine
+  exakt passende Singleton-Identität oder startet seine API-Dependency selbst.
+  Bei fremder/unklarer Identität stoppen; nie einen Prozess nach Namen beenden.
 - Es gibt kein Token und keine Anmeldung. Die API weist Anfragen mit `Origin`,
   `Sec-Fetch-Site` oder einem fremden `Host` mit `403` ab — das trennt einen
   lokalen Klienten von einer Webseite im Browser des Nutzers.
 - Es gibt kein Einrichtungsprogramm. Der erste API-Start legt die
-  Ressourcenbereiche an; eine `config.json` ist optional und nur für einen
-  abweichenden Port, ein festgepinntes `sseExecutable` oder einen festen
-  `caseDir` nötig.
+  Ressourcenbereiche an; ohne Konfiguration liegt der sichere Arbeitsbereich
+  unter `%LOCALAPPDATA%`. Ein eigener Bereich verwendet am MCP-Eintrag einen
+  absoluten `SSE_API_CONFIG`-Pfad. `SSE_API_URL` ist autoritativ und erlaubt
+  weder Autostart noch Fallback.
 - Endpunkte, Operationen und Parameter aus der API-Selbstbeschreibung lesen
   (`discovery`, `describe <operation>`, `openapi`), nicht aus dieser Datei.
 - MCP nur verwenden, wenn der Agent den Server auflistet und ein echter

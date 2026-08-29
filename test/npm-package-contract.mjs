@@ -28,7 +28,7 @@ for (const [directory, manifest] of [["packages/api", apiPackage], ["packages/mc
   } else {
     assert.deepEqual(manifest.exports, { "./cli": "./dist/index.js", "./package.json": "./package.json" });
   }
-  for (const lifecycle of ["prepare", "prepack", "prepublish", "prepublishOnly", "postinstall"]) {
+  for (const lifecycle of ["preinstall", "install", "postinstall", "prepare", "prepack", "prepublish", "prepublishOnly"]) {
     assert.equal(manifest.scripts?.[lifecycle], undefined, `Consumer-Lifecycle darf nicht definiert sein: ${directory}/${lifecycle}`);
   }
   const lockEntry = packageLock.packages[directory];
@@ -54,8 +54,13 @@ assert.equal(
 );
 assert.equal(mcpPackage.name, "@yadimon/steuer-spar-erklaerung-mcp");
 assert.match(mcpPackage.description, /MCP wrapper.*via the local API package/u);
-assert.equal(mcpPackage.os, undefined, "Der PC-blinde MCP-Wrapper soll plattformneutral installierbar bleiben.");
-assert.equal(mcpPackage.cpu, undefined, "Der PC-blinde MCP-Wrapper soll keine CPU-Einschraenkung tragen.");
+assert.deepEqual(mcpPackage.os, ["win32"], "Die gebuendelte API-Dependency ist auf Windows begrenzt.");
+assert.deepEqual(mcpPackage.cpu, ["x64"], "Die gebuendelte API-Dependency ist auf x64 begrenzt.");
+assert.equal(
+  mcpPackage.dependencies?.[apiPackage.name],
+  mcpPackage.version,
+  "MCP muss exakt dieselbe API-Paketversion als normale npm-Dependency installieren.",
+);
 assert.deepEqual(mcpPackage.bin, { "steuer-spar-erklaerung-mcp": "dist/index.js" });
 
 for (const required of [
@@ -139,6 +144,7 @@ for (const required of [
   "dist/api-client.js",
   "dist/local-http-transport.js",
   "dist/mcp-main.js",
+  "dist/mcp-api-supervisor.js",
   "dist/mcp-registry.js",
   "dist/mcp-response.js",
   "dist/mcp-tools.js",

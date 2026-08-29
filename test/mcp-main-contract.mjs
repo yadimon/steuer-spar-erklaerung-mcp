@@ -5,6 +5,7 @@ import { once } from "node:events";
 import { createServer } from "node:http";
 import { performance } from "node:perf_hooks";
 import { mcpMainUsage, parseMcpMainArguments } from "../dist/mcp-main.js";
+import { SSE_API_PACKAGE_NAME, SSE_PACKAGE_VERSION } from "../dist/version.js";
 
 assert.equal(parseMcpMainArguments([]), "stdio");
 assert.equal(parseMcpMainArguments(["--selftest"]), "selftest");
@@ -43,6 +44,21 @@ for (const args of [["--unknown"], ["--selftest", "extra"]]) {
 
 let selftestFails = false;
 const selftestApi = createServer((request, response) => {
+  if (request.url === "/healthz") {
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({
+      ok: true,
+      apiVersion: "v1",
+      packageName: SSE_API_PACKAGE_NAME,
+      packageVersion: SSE_PACKAGE_VERSION,
+      processId: process.pid,
+      instanceId: "33333333-3333-4333-8333-333333333333",
+      configurationFingerprint: "0".repeat(64),
+      inFlight: null,
+      prewarm: null,
+    }));
+    return;
+  }
   if (selftestFails) {
     response.writeHead(502, { "content-type": "application/json" });
     response.end(JSON.stringify({

@@ -166,8 +166,9 @@ bestätigten Ordner; Connectoren und andere Quellen bleiben unberührt.
 
 Erst nach beiden Antworten zeige kurz den tatsächlichen Plan. Standard ist:
 
-- eine funktionierende vorhandene Installation wiederverwenden; sonst die
-  beiden veröffentlichten npm-Pakete in den Arbeitsordner installieren;
+- eine funktionierende vorhandene Installation wiederverwenden; sonst nur das
+  veröffentlichte MCP-Paket in den Arbeitsordner installieren – dessen exakte
+  API-Dependency installiert npm automatisch;
 - Node.js/npm, Python, Git oder PowerShell 7 nicht eigens installieren; fehlt
   Node.js, ist das eine Voraussetzung und ein Stopp, keine Aufgabe;
 - einen privaten Standard-Arbeitsbereich außerhalb von Git verwenden;
@@ -176,8 +177,10 @@ Erst nach beiden Antworten zeige kurz den tatsächlichen Plan. Standard ist:
   hashverifizierte Prüffallkopie neben dem Original erzeugen und ausschließlich
   diese öffnen; normale Arbeit am bereits geöffneten Fall erzeugt keine Kopie;
 - bestätigte Quellen nur lesen und Originale unverändert lassen;
-- kein Connector-Zugriff, keine Agenten-Konfigurationsänderung, kein
-  Autostart, keine Steuerdatenänderung und keine ELSTER-Aktion.
+- kein Connector-Zugriff, keine unerwartete Agenten-Konfigurationsänderung,
+  kein System-/Login-Autostart, keine Steuerdatenänderung und keine
+  ELSTER-Aktion. Der bedingte unsichtbare API-Start durch MCP gehört dagegen
+  zum ausdrücklich beschriebenen Standardweg.
 
 Frage danach:
 
@@ -210,14 +213,22 @@ und den Standardplan; frage sie nicht erneut.
 Es gibt kein Einrichtungsprogramm und keine Plandatei. Die vier Schritte stehen
 in der kanonischen Anleitung
 `https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md`:
-Ordner anlegen, beide npm-Pakete und den Skill installieren, API mit absolutem
-`--config`-Pfad starten, MCP-Server beim Client anmelden. Der erste API-Start
-legt die Ressourcenbereiche selbst an; eine `config.json` ist optional.
+Ordner anlegen, das MCP-Paket und den Skill installieren und den MCP-Server
+beim Client anmelden. npm installiert die exakt passende API-Dependency
+automatisch; beim MCP-Start wird eine kompatible API übernommen oder die
+Dependency unsichtbar gestartet. Ein separates API-Terminal gehört nicht zum
+Standardweg. Der erste API-Start legt die Ressourcenbereiche selbst an; eine
+`config.json` ist optional, ein eigener Arbeitsbereich wird über einen
+absoluten `SSE_API_CONFIG`-Pfad am MCP-Eintrag gewählt.
 
-Den bestätigten Fallordner bindest du über `--case-dir <absoluter Ordner>` an
-den laufenden Prozess, nicht über eine geschriebene Datei. Dauerhafte
-Vorlieben — Belegquellen, Prioritäten — gehören nach `settings.md` im
-Arbeitsbereich, und dorthin nur mit ausdrücklicher Zustimmung.
+Soll ein dauerhafter Fallordner gebunden werden, trage dessen absoluten Pfad
+vor dem MCP-Start als `caseDir` in der ausdrücklich gewählten
+`SSE_API_CONFIG` ein. Eine bereits laufende Singleton-API wird nicht
+nachträglich auf einen anderen Arbeitsbereich umgebunden; beende sie dafür
+bewusst und starte MCP mit der bestätigten Konfiguration neu. `--case-dir`
+gehört nur zum separat gestarteten API-/NPX-Kurzweg. Dauerhafte Vorlieben —
+Belegquellen, Prioritäten — gehören nach `settings.md` im Arbeitsbereich, und
+dorthin nur mit ausdrücklicher Zustimmung.
 
 Scheitert der Start, ändere `config.json` oder Runtime-Dateien nicht manuell
 als Umgehung und beende keinen fremden Prozess. Melde den konkreten Stopp.

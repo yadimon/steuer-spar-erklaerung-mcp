@@ -46,8 +46,10 @@ assert.match(readme, /GewErfass2026.+ausschließlich lesen/isu,
   "README muss den derzeit read-only belegten Folgejahr-UStVA-Weg begrenzen.");
 assert.doesNotMatch(readme, /npm\.cmd install --global @yadimon\/steuer-spar-erklaerung-api/u,
   "Die lokale manuelle Installation darf nicht global beginnen und danach lokale Bins voraussetzen.");
-assert.match(readme, /npm\.cmd install @yadimon\/steuer-spar-erklaerung-api@latest @yadimon\/steuer-spar-erklaerung-mcp@latest/u,
-  "Der kopierbare lokale Installationsblock muss beide Pakete enthalten.");
+assert.match(readme, /npm\.cmd install @yadimon\/steuer-spar-erklaerung-mcp@latest/u,
+  "Der kopierbare lokale Installationsblock muss das MCP-Paket enthalten.");
+assert.match(readme, /npm\s+installiert sie automatisch/u,
+  "README muss die automatisch installierte exakte API-Dependency erklären.");
 assert.match(readme, /github\.com\/yadimon\/steuer-spar-erklaerung-mcp\/releases/u,
   "README muss auf die stabile Releases-Übersicht statt auf eine einzelne Beta zeigen.");
 assert.doesNotMatch(readme, /docs\/releases\/v\d+\.\d+\.\d+(?:-[^)\s]+)?\.md/iu,

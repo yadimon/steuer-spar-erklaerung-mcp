@@ -14,6 +14,10 @@ import { API_MAIN_USAGE, parseApiMainArguments } from "../dist/api-main-argument
 import { SSE_API_OPERATIONS, SSE_API_VERSION } from "../dist/api-contract.js";
 import { attachScreenshotImage, installApiShutdown, MAX_SCREENSHOT_IMAGE_BYTES } from "../dist/api-runtime.js";
 import { readFileBounded } from "../dist/bounded-files.js";
+import {
+  SSE_EXPECTED_API_BASE_URL,
+  SSE_EXPECTED_API_CONFIGURATION_FINGERPRINT,
+} from "../dist/api-supervisor-contract.js";
 
 const reservePort = async () => {
   const probe = createServer();
@@ -44,6 +48,7 @@ assert.deepEqual(parseApiMainArguments([
   caseDir: "C:\\Steuerfaelle",
 });
 assert.throws(() => parseApiMainArguments(["--config"]), /Ungueltige API-Startargumente/);
+assert.throws(() => parseApiMainArguments(["--config", "relativ.json"]), /absoluter Pfad/);
 assert.throws(() => parseApiMainArguments(["--case-dir", "relativ"]), /absoluter Pfad/);
 assert.throws(
   () => parseApiMainArguments(["--case-dir", "C:\\a", "--case-dir", "C:\\b"]),
@@ -359,6 +364,22 @@ await hangingClosed;
 forceLifecycle.dispose();
 assert(forceEvents.some((event) => event.event === "shutdown-forced"));
 assert(forceEvents.some((event) => event.event === "shutdown-complete"));
+
+const rejectedSupervisorContract = spawnSync(process.execPath, ["dist/api-main.js", "--config", configPath], {
+  cwd: process.cwd(),
+  encoding: "utf8",
+  windowsHide: true,
+  timeout: 15_000,
+  env: {
+    ...process.env,
+    [SSE_EXPECTED_API_BASE_URL]: `http://127.0.0.1:${port}`,
+    [SSE_EXPECTED_API_CONFIGURATION_FINGERPRINT]: "a".repeat(64),
+  },
+});
+assert.equal(rejectedSupervisorContract.status, 1);
+assert.match(rejectedSupervisorContract.stderr, /Supervisor-Startvertrag/iu);
+await assert.rejects(fetch(`http://127.0.0.1:${port}/healthz`),
+  "API lauschte trotz abweichendem Supervisor-Konfigurationsvertrag.");
 
 const child = spawn(process.execPath, ["dist/api-main.js", "--config", configPath], {
   cwd: process.cwd(),
