@@ -58,6 +58,7 @@
 
 ## Last Confirmed State
 
-- verified_at: 2026-08-25
-- notes: 120-step offline suite, installed-product gate and clean package
-  install pass; dependency audits report zero known vulnerabilities.
+- verified_at: derive from the latest explicitly executed maintenance run
+- notes: suite size and operation coverage are intentionally not cached here;
+  read `test/suite-plan.mjs`, `test/operation-coverage.json` and
+  `docs/VERIFIKATION.md` before issuing a current verdict.

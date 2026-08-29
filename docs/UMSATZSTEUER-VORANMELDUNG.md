@@ -1,7 +1,5 @@
 # Umsatzsteuer-Voranmeldung sicher vorbereiten
 
-Stand: 2026-08-22
-
 Dieses Projekt kann eine Umsatzsteuer-Voranmeldung (UStVA) in
 SteuerSparErklärung lesen und im eindeutig geöffneten, zuvor gesicherten Fall
 vorbereiten.

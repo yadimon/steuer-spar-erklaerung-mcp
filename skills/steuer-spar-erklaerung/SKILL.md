@@ -99,7 +99,7 @@ entscheidet den weiteren Weg, und zwar ohne Rückfrage:
    (`node_modules\.bin\steuer-spar-erklaerung-api.cmd --config <absolut>\config.json`)
    und wiederhole `sse_health` höchstens zweimal im Abstand von zwei Sekunden.
 3. **Es gibt gar kein `sse_*`-Tool** — der MCP-Server ist beim Client nicht
-   angemeldet. Wechsle in den Einrichtungsmodus, arbeite `docs/INSTALLATION.md`
+   angemeldet. Wechsle in den Einrichtungsmodus, arbeite die kanonische Anleitung `https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md`
    ab und komm danach hierher zurück. Lies in diesem Zustand keine Steuerdaten.
 
 Nach einer frischen MCP-Anmeldung lädt der laufende Client den Server nicht
@@ -130,8 +130,8 @@ fremden `Host` mit 403 ab, damit keine Webseite im Browser des Nutzers die
 Steuersoftware steuern kann. Verwende trotzdem die ausgelieferte CLI statt
 eigener HTTP-Befehle: sie kennt Argumentschemata, Grenzen und Ergebnisverträge.
 
-Nennt der MCP-Eintrag einen expliziten `--config`-Pfad, verwende genau diesen
-absoluten Pfad unverändert auch für direkte API-CLI-Aufrufe.
+Der MCP-Eintrag enthält keinen `--config`-Pfad: Er startet `node.exe` mit dem MCP-`dist/index.js` und kennt nur die API-URL. `--config` gehört ausschließlich zum separat gestarteten API-Prozess. Erfinde bei einem unbekannten Arbeitsbereich
+keinen Konfigurationspfad; lies `health` und `workspace_status`.
 
 Für direkte API-Aufrufe bevorzuge die ausgelieferte
 `steuer-spar-erklaerung-call`-CLI. Beginne bei einer bekannten Einzelaktion
@@ -205,8 +205,9 @@ kann, biete stattdessen das persistente Setup an.
 
 Soll aus diesem Kurzweg eine dauerhafte Installation im Ordner werden, beende
 zuerst die Foreground-API mit Strg+C — sonst belegt sie den Port — und arbeite
-danach `docs/INSTALLATION.md` ab. Der NPX-Kurzweg bleibt bewusst der einmalige
-Prüflauf ohne Ordnerbindung.
+danach die kanonische Anleitung
+`https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md`
+ab. Der NPX-Kurzweg bleibt bewusst der einmalige Prüflauf ohne Ordnerbindung.
 
 Lege bei direkten Laufzeit- und UI-Aufrufen mit `--journal-file
 <neue-private-datei.jsonl>` immer eine neue Journaldatei im privaten

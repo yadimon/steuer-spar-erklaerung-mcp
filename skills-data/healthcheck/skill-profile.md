@@ -57,8 +57,7 @@
 
 ## Last Confirmed State
 
-- verified_at: 2026-08-25
-- verdict: `HEALTHY`
-- notes: repository, build, offline, package and installed-product checks pass;
-  current live coverage is 87/93 functional plus six VaSt error paths, with no
-  completely untested operation; no release action was in scope
+- verified_at: derive from the latest explicitly executed health run
+- verdict: never reuse a stored verdict; recompute from `health-check.md`
+- notes: derive suite size from `test/suite-plan.mjs` and live coverage from
+  `test/operation-coverage.json`; do not copy release-bound counts into this profile

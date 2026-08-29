@@ -36,11 +36,11 @@
   ],
   "scripts": {
     "pack": "npm pack --dry-run --ignore-scripts",
-    "publish:dry-run": "npm publish --dry-run --ignore-scripts --tag beta --access public"
+    "publish:dry-run": "npm publish --dry-run --ignore-scripts --tag latest --access public"
   },
   "publishConfig": {
     "access": "public",
-    "tag": "beta"
+    "tag": "latest"
   },
   "os": [
     "win32"

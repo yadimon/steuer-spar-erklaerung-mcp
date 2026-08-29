@@ -63,5 +63,9 @@ Nur Fakten eintragen, keine Vermutungen:
 |---|---|---|---|
 | `<FRAGE>` | `<DATEI/BELEGART>` | `<WAS FEHLT>` | ja/nein |
 
-Die technischen Einzelheiten und bekannten SSE-Grenzen stehen in
-[`docs/entwicklung/erfahrungen/sse-automation-erfahrungen.md`](entwicklung/erfahrungen/sse-automation-erfahrungen.md).
+Aktuelle Laufzeitgrenzen stehen im
+[Verifikationsstand](VERIFIKATION.md) und in der
+[Produktarchitektur](ARCHITEKTUR.md). Das
+[Entwicklungsprotokoll](entwicklung/erfahrungen/sse-automation-erfahrungen.md)
+erklärt historische UIA-Befunde und verworfene Ansätze, ist aber keine
+Bedienungsanweisung.

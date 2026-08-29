@@ -1,6 +1,6 @@
 # Kontinuierliche Qualitätswartung
 
-Last verified: 2026-08-25
+Verification state: recompute for every cycle
 Verification mode: full-cycle
 
 ## 1) Scope And Guardrails
@@ -28,19 +28,15 @@ Verification mode: full-cycle
 
 ## 3) Baseline Snapshot (Run First)
 
-- Date: 2026-08-25.
-- Branch/code baseline after completed implementation cycles: `main` / `e197fa2`.
-- `npm run test:fast`: pass, 81 fast API/MCP contracts.
-- `npm test`: pass in the current runtime/test cycle; final plan has 120
-  planned steps.
-- `npm run test:product`: pass against the installed supported 2025 product.
-- `npm run test:npm-clean-install`: pass for both packed packages and all public
-  entrypoints.
-- Current aggregate live ledger: 87/93 catalog operations are functional, six
-  VaSt operations are `error-path-only`, and none remains completely untested.
-- `npm audit --omit=dev --audit-level=low`: 0 vulnerabilities.
-- `npm audit --audit-level=low`: 0 vulnerabilities.
-- `git diff --check`: pass for every committed cycle.
+- Record the current date, branch, commit and initial `git status --short`.
+- Derive the fast and complete plans from `test/suite-plan.mjs`; do not reuse a
+  stored step count.
+- Derive operation and live-evidence counts from `src/api-contract.ts` and
+  `test/operation-coverage.json`; do not reuse a stored catalog count.
+- Run `npm run test:fast`, `npm test` and, when prerequisites exist,
+  `npm run test:product`.
+- For package or release work, also run `npm run test:npm-clean-install`.
+- Run both dependency audits and `git diff --check`.
 
 If the baseline is red, stop new improvements and repair the baseline first.
 
@@ -152,14 +148,15 @@ not a cross-machine performance promise.
 - Record only durable, public-safe evidence; raw logs and local paths do not
   belong in this file.
 
-## 12) Latest Cycle Evidence
+## 12) Cycle Evidence
 
-- `npm run test:fast`: pass, 81 planned contracts.
-- `npm test`: pass, 120 planned contracts; the intentional empty-live-gap
-  result shape was regenerated through the repository's guarded write mode.
-- `npm run test:product`: pass without launching a tax case.
-- `npm run test:npm-clean-install`: pass for two fresh tarballs, three public
-  CLI entries and the 93-tool MCP contract.
-- `npm audit --omit=dev --audit-level=low` and full-tree audit: zero reported
-  vulnerabilities.
-- Repository privacy, links and `git diff --check`: pass.
+Record evidence in the current task or pull request, not as a permanent
+"latest" snapshot in this playbook. The record must contain:
+
+- exact commit and dirty-state fingerprint;
+- commands actually run and their outcomes;
+- current plan and catalog counts read from their machine sources;
+- product/live prerequisites and any blocked evidence;
+- package, audit, privacy, link and diff results when relevant.
+
+An older green cycle is historical evidence, not proof for the current tree.

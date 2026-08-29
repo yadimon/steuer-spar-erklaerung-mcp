@@ -103,20 +103,22 @@ kein Release. Schlägt der Vorgang fehl, den vorhandenen Tag nicht neu erzeugen
 oder verschieben; Ursache beheben und denselben noch unveröffentlichten
 Releasevorgang fortsetzen.
 
-## 5. npm erstmals veröffentlichen und Trusted Publishing verbinden
+## 5. Einmaliger npm-Bootstrap (bereits abgeschlossen)
 
-Beide Paketnamen sind neu. Für ihre allererste Veröffentlichung muss der
-Maintainer lokal mit einem npm-Konto angemeldet sein, das den Scope
-`@yadimon` besitzt oder darin Veröffentlichungsrecht hat. Existiert der npm-
-Nutzer beziehungsweise die Organisation `yadimon` noch nicht unter eigener
-Kontrolle, zuerst diesen Scope einrichten oder die beiden Paketnamen vor dem
-Release gemeinsam ändern. Ein freier Paketname allein verleiht kein Recht am
-Scope. npm braucht keine separate Freigabe des GitHub-Repositorys und GitHub
-braucht keinen `NPM_TOKEN`. Die Verbindung zum Repository entsteht nach dem
-Bootstrap über Trusted Publishing.
+Die beiden Paketnamen sind veröffentlicht und Trusted Publishing ist
+eingerichtet. Diesen Abschnitt bei normalen Releases **nicht** wiederholen;
+dafür ist ausschließlich `npm run release:current` maßgeblich. Die folgenden
+Schritte bleiben nur als Wiederherstellungsreferenz für einen neuen npm-Scope
+oder einen vollständig neuen Paketnamen erhalten.
 
-Erst nachdem die GitHub-Assets aus Abschnitt 5 vollständig zurückgelesen
-wurden, aus demselben sauberen Tag-Checkout einmalig ausführen:
+Für eine echte Erstveröffentlichung muss der Maintainer lokal mit einem
+npm-Konto angemeldet sein, das den Scope `@yadimon` besitzt oder darin
+Veröffentlichungsrecht hat. npm braucht keine separate Freigabe des
+GitHub-Repositorys und GitHub braucht keinen `NPM_TOKEN`. Die Verbindung zum
+Repository entsteht danach über Trusted Publishing.
+
+Erst nachdem Tag und GitHub-Prerelease aus Abschnitt 4 vollständig
+zurückgelesen wurden, aus demselben sauberen Tag-Checkout einmalig ausführen:
 
 ```powershell
 npm install --global npm@11.19.0
@@ -131,10 +133,12 @@ npm view '@yadimon/steuer-spar-erklaerung-api' dist-tags --json
 `npm whoami` muss `yadimon` oder ein Konto mit Veröffentlichungsrecht im
 Scope `@yadimon` zeigen. Beide `latest`-Tags müssen exakt `$version` nennen.
 
-## Nur ein Kanal: `latest`
+## Ein unterstützter Kanal: `latest`
 
-Das Projekt führt bewusst genau einen npm-Kanal. Der Grund ist keine
-Geschmacksfrage, sondern eine Eigenschaft von Trusted Publishing: Laut
+Das Projekt veröffentlicht und unterstützt bewusst nur den npm-Kanal
+`latest`. Historische dist-tags können in der Registry noch sichtbar sein;
+sie sind weder Installationsziel noch Supportzusage und werden nicht bei jedem
+OIDC-Release nachträglich verwaltet. Der Grund ist eine Eigenschaft von Trusted Publishing: Laut
 npm-Dokumentation deckt OIDC ausschließlich `npm publish` und `npm stage publish`
 ab. `npm dist-tag` ist nicht enthalten und scheitert in der CI an `ENEEDAUTH`.
 
@@ -145,7 +149,8 @@ Maintainers bei jedem Release oder ein langlebiges Write-Token. Token sind hier
 ausgeschlossen, und ein wiederkehrender Handgriff pro Release ist eine
 Fehlerquelle.
 
-Daraus folgt: Der Publish setzt `latest`, und damit ist der Kanal erledigt.
+Daraus folgt: Jeder Publish setzt `latest`; auch `publishConfig` und der
+Publish-Dry-run der beiden Paketmanifeste müssen diesen Tag tragen.
 Installations- und `npx`-Befehle in README und Skills bleiben ungepinnt und
 treffen dadurch automatisch den jeweils veröffentlichten Stand. Der
 Workflow-Vertrag verbietet einen nachträglichen dist-tag-Schritt ausdrücklich,

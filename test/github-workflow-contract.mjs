@@ -113,7 +113,7 @@ assert(!/(?:gh\s+release|create-release|softprops|contents:\s*write|secrets\.)/i
   "CI darf weder veröffentlichen noch Schreibrechte oder Secrets verwenden.");
 
 const publishWorkflow = readFileSync(publishWorkflowPath, "utf8");
-assert.match(publishWorkflow, /^name: Publish npm beta$/mu);
+assert.match(publishWorkflow, /^name: Publish npm prerelease$/mu);
 assert.match(publishWorkflow, /^  workflow_dispatch:$/mu, "npm-Publish muss bewusst manuell gestartet werden.");
 assert(!/^  push:$/mu.test(publishWorkflow), "npm-Publish darf nicht automatisch auf einen Tag-Push reagieren.");
 assert.match(

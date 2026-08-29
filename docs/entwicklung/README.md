@@ -4,6 +4,9 @@ Dieser Ordner ist bewusst **kein installierter Agent Skill**. Er sammelt
 sanitisierte Entwicklungsbeobachtungen, verworfene Ansätze, Ursachen früherer
 Fehler, Messungen und Architekturentscheidungen.
 
+Zur aktuellen Nutzer- und Vertragsdokumentation führt der
+[Dokumentationsindex](../README.md).
+
 ## Trennregel
 
 | Gehört hierher | Gehört in `skills/` |
