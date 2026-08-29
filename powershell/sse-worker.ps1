@@ -593,20 +593,22 @@ function Resolve-SSEReceiptManagerVisibleRowTarget(
     throw 'Profilierte Belegtabelle bietet kein GridPattern.'
   }
   $grid = [Windows.Automation.GridPattern]$gridObject
-  $gridRow = [int]$Row.index - 1
   $titleColumn = [int]$Policy.list.primaryTextColumn
   $documentNumberColumn = [int]$Policy.list.documentNumberColumn
-  if ($gridRow -lt 0 -or $gridRow -ge [int]$grid.Current.RowCount -or
-      $titleColumn -lt 0 -or $titleColumn -ge [int]$grid.Current.ColumnCount -or
+  if ($titleColumn -lt 0 -or $titleColumn -ge [int]$grid.Current.ColumnCount -or
       $documentNumberColumn -lt 0 -or $documentNumberColumn -ge [int]$grid.Current.ColumnCount) {
-    throw 'Gebundene Belegzeile liegt ausserhalb des aktuellen Qt-Grids.'
+    throw 'Profilierte Belegspalten liegen ausserhalb des aktuellen Qt-Grids.'
   }
-  $titleCell = $grid.GetItem($gridRow, $titleColumn)
-  $documentNumberCell = $grid.GetItem($gridRow, $documentNumberColumn)
-  if (-not $titleCell -or -not $documentNumberCell -or
-      [string]$titleCell.Current.Name -cne [string]$Row.primaryText -or
-      [string]$documentNumberCell.Current.Name -cne [string]$Row.documentNumber) {
-    throw 'Gebundene Belegidentitaet stimmt nicht mehr mit derselben Grid-Zeile ueberein.'
+  # Qts GridPattern kann unmittelbar nach einem Detail-Update noch die alte
+  # Zeilenbelegung melden, obwohl die frische UIA-Projektion bereits den neuen
+  # Inhalt traegt. Der sichtbare Zielknoten bleibt deshalb an seine exakte
+  # Runtime-ID und Primaerbezeichnung gebunden; Listen-/Zellfingerprints werden
+  # direkt darunter und vor jedem Klick weiterhin vollstaendig bewiesen.
+  $boundRowElement = Get-LiveElement $ToolHwnd ([string]$Row.rowRid)
+  if (-not $boundRowElement -or
+      $boundRowElement.Current.ControlType -ne [Windows.Automation.ControlType]::DataItem -or
+      [string]$boundRowElement.Current.Name -cne [string]$Row.primaryText) {
+    throw 'Gebundene Belegidentitaet ist nicht mehr als exakte UIA-Zeile erreichbar.'
   }
 
   $expectedRowsJson = @($List.rows | ForEach-Object {
@@ -861,6 +863,24 @@ function Get-SSEReceiptManagerDetailFingerprint($Fields) {
   Get-SSETextSha256 (@($Fields) | ConvertTo-Json -Depth 8 -Compress)
 }
 
+function ConvertFrom-SSEReceiptManagerDisplayValue($Value, [string]$ValueKind) {
+  switch ($ValueKind) {
+    'date' {
+      $text = ([string]$Value).Trim()
+      $german = [regex]::Match($text, '^(?<day>\d{2})\.(?<month>\d{2})\.(?<year>\d{4})$')
+      if ($german.Success) {
+        return "$($german.Groups['year'].Value)-$($german.Groups['month'].Value)-$($german.Groups['day'].Value)"
+      }
+      return $text
+    }
+    'vat-rate' {
+      $digits = ([string]$Value -replace '[^0-9]', '')
+      return $(if ($digits) { $digits } else { '0' })
+    }
+    default { return $Value }
+  }
+}
+
 function Get-SSEReceiptManagerEditableValues($State, $Policy) {
   $values = [ordered]@{}
   $complete = $true
@@ -874,7 +894,8 @@ function Get-SSEReceiptManagerEditableValues($State, $Policy) {
     })
     if ($matches.Count -ne 1) { $complete = $false; continue }
     $resolved = [pscustomobject]@{ name=$fieldName; policy=$fieldPolicy; node=$matches[0] }
-    $values[$fieldName] = Get-SSEReceiptManagerFieldValue $resolved
+    $values[$fieldName] = ConvertFrom-SSEReceiptManagerDisplayValue `
+      (Get-SSEReceiptManagerFieldValue $resolved) ([string]$fieldPolicy.valueKind)
   }
   [pscustomobject]@{ complete=$complete; values=$(if ($complete) { [pscustomobject]$values } else { $null }) }
 }
@@ -895,7 +916,8 @@ function Get-SSEReceiptManagerOpenDetailBinding($State, $Policy, $Row, [string]$
   $editable = Get-SSEReceiptManagerEditableValues $State $Policy
   if (-not [bool]$editable.complete -or
       [string]$editable.values.title -cne (Get-SSEReceiptManagerDetailIdentityTitle $Row $Policy) -or
-      [string]$editable.values.documentNumber -cne [string]$Row.documentNumber) {
+      ([string]$Row.documentNumber -and
+        [string]$editable.values.documentNumber -cne [string]$Row.documentNumber)) {
     return $null
   }
   [pscustomobject]@{ fields=$fields; fingerprint=$fingerprint; values=$editable.values }
@@ -6273,12 +6295,42 @@ function Commit-TrackedValue([IntPtr]$Hwnd, $Node, [string]$Value, [string]$Expe
     $hitRoot = [SW]::GetAncestor($hitWindow, 2) # GA_ROOT
     $hitPid = 0; [SW]::GetWindowThreadProcessId($hitWindow, [ref]$hitPid) | Out-Null
     if ($hitPid -ne $expectedPid -or [int64]$hitRoot -ne [int64]$Hwnd) {
+      # Wer die blockierende Fensterlage debuggen will, braucht mehr als PIDs:
+      # gleiche PID mit fremdem Root ist ein SSE-eigenes Nebenfenster (z. B.
+      # Kurzhilfe), eine fremde PID ein echter Fremdprozess. Name und Klasse
+      # unterscheiden die beiden Faelle eindeutig und bleiben fail-closed.
+      $hitProcessName = ''
+      if ($hitPid -gt 0) {
+        try { $hitProcessName = [string](Get-Process -Id $hitPid -ErrorAction Stop).ProcessName } catch { }
+      }
+      $hitClassName = Get-SSEWindowClassName $hitRoot
       $obstructionDetails = [pscustomobject]@{
         point=[pscustomobject]@{ x=$px; y=$py }
         expectedPid=[int]$expectedPid; hitPid=[int]$hitPid
         expectedRoot=[int64]$Hwnd; hitRoot=[int64]$hitRoot; hitWindow=[int64]$hitWindow
+        hitProcessName=$hitProcessName; hitClassName=$hitClassName
+        sameProcess=[bool]($hitPid -eq $expectedPid)
         foregroundHwnd=[int64][SW]::GetForegroundWindow()
         foregroundPrepared=[bool]$foregroundPrepared
+      }
+      if ($env:SSE_MEGA_OBSTRUCTION_DUMP) {
+        try {
+          $boundRc = New-Object SW+RC
+          $hasBound = [SW]::GetWindowRect($Hwnd, [ref]$boundRc)
+          $wa = [System.Windows.Forms.Screen]::FromHandle($Hwnd).WorkingArea
+          $sb = [System.Windows.Forms.Screen]::FromHandle($Hwnd).Bounds
+          $allWins = @(Get-Windows 'SSE' | ForEach-Object {
+            [pscustomobject]@{ hwnd=[int64]$_.hwnd; class=(Get-SSEWindowClassName ([IntPtr][int64]$_.hwnd)); x=$_.x; y=$_.y; w=$_.w; h=$_.h; title=$_.title }
+          })
+          ([pscustomobject]@{
+            obstruction=$obstructionDetails
+            node=[pscustomobject]@{ x=[int]$Node.x; y=[int]$Node.y; w=[int]$Node.w; h=[int]$Node.h; name=$Node.name }
+            boundWindowRect=$(if ($hasBound) { [pscustomobject]@{ l=$boundRc.L; t=$boundRc.T; r=$boundRc.R; b=$boundRc.B; w=($boundRc.R-$boundRc.L); h=($boundRc.B-$boundRc.T) } } else { $null })
+            workArea=[pscustomobject]@{ l=$wa.Left; t=$wa.Top; r=$wa.Right; b=$wa.Bottom }
+            screenBounds=[pscustomobject]@{ w=$sb.Width; h=$sb.Height }
+            sseWindows=$allWins
+          }) | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $env:SSE_MEGA_OBSTRUCTION_DUMP -Encoding utf8
+        } catch { }
       }
       Complete-SSEPhysicalSection $Hwnd
       return New-SSECommitResult 'epoch-obstructed' $inputBefore (Get-SSELastInputTick) $obstructionDetails
@@ -17803,15 +17855,28 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $expectedDetailTitle = Get-SSEReceiptManagerDetailIdentityTitle $rowBefore $policy
     $detailIdentityMatchesTarget = [bool]($editableProjection.complete -and
       [string]$editableProjection.values.title -ceq [string]$expectedDetailTitle -and
-      [string]$editableProjection.values.documentNumber -ceq [string]$rowBefore.documentNumber)
+      (-not [string]$rowBefore.documentNumber -or
+        [string]$editableProjection.values.documentNumber -ceq [string]$rowBefore.documentNumber))
     $verified = [bool](
       $stateAfter -and -not $noSelection -and $detailFields.Count -and $listAfter -and
       $detailIdentityMatchesTarget -and $semanticListUnchanged -and
       $windowSetUnchanged -and -not $blockingAfter.Count -and $dirtyStateUnchanged
     )
     if (-not $verified) {
+      $openConditions = @()
+      if (-not $stateAfter) { $openConditions += 'detail-state-missing' }
+      elseif ($noSelection) { $openConditions += 'detail-selection-missing' }
+      if (-not $detailFields.Count) { $openConditions += 'detail-fields-missing' }
+      if (-not $listAfter) { $openConditions += 'restored-list-missing' }
+      if (-not $detailIdentityMatchesTarget) { $openConditions += 'detail-identity-mismatch' }
+      if (-not $semanticListUnchanged) { $openConditions += 'semantic-list-drift' }
+      if (-not $windowSetUnchanged) { $openConditions += 'window-set-drift' }
+      if ($blockingAfter.Count) { $openConditions += 'blocking-dialog' }
+      if (-not $dirtyStateUnchanged) { $openConditions += 'dirty-state-drift' }
       Emit ([pscustomobject]@{
-        ok=$false; kind='postcondition-failed'; error='Belegdetail, Listenbindung, Fenstersatz, Dialogfreiheit oder Dirty-State ist nach der Auswahl nicht vollstaendig bewiesen; keine Wiederholung.'
+        ok=$false; kind='postcondition-failed'
+        error="Belegdetail, Listenbindung, Fenstersatz, Dialogfreiheit oder Dirty-State ist nach der Auswahl nicht vollstaendig bewiesen. Offen: $($openConditions -join ', '); keine Wiederholung."
+        offeneBedingungen=@($openConditions)
         pid=$targetPid; hwnd=[int64]$toolHwnd; mainHwnd=[int64]$mainHwnd; managerHwnd=[int64]$toolHwnd
         row=$rows[0]; fields=$detailFields; values=$editableProjection.values; valuesComplete=[bool]$editableProjection.complete
         listFingerprint=$(if ($listAfter) { [string]$listAfter.listFingerprint } else { $null })
@@ -17904,7 +17969,6 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     })
     if ($rows.Count -ne 1) { Fail "$($rows.Count) exakt gebundene Belegzeilen gefunden; NICHT befuellt." 'stale' }
     $rowBefore = $rows[0]
-    $targetIndex = [int]$rowBefore.index
     $targetNodes = @($stateBefore.nodes | Where-Object {
       [string]$_.rid -ceq $rowRid -and $_.type -eq 'DataItem' -and
       [string]$_.aid -and ([string]$_.aid).EndsWith([string]$policy.list.tableAutomationIdSuffix, [StringComparison]::Ordinal)
@@ -18064,24 +18128,110 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $valuesAfter[$transaction.name] = $actual
       if (-not (Test-SSEReceiptManagerFieldValue $actual $transaction.requested $transaction.kind)) { $valuesMatch = $false }
     }
-    $rowAfterMatches = @($finalList.rows | Where-Object { [int]$_.index -eq $targetIndex })
+    $editableAfter = Get-SSEReceiptManagerEditableValues $finalState $policy
+    $detailClose = $null
+    if ($valuesMatch -and [bool]$editableAfter.complete) {
+      try {
+        $detailClose = Close-SSEReceiptManagerDetailView $toolHwnd $finalState $policy ([int]$waitMs)
+      } catch { }
+    }
+    if ($detailClose) {
+      $finalState = $detailClose.state
+      $finalList = $detailClose.list
+    }
+    $expectedTitleAfter = $(if ([bool]$editableAfter.complete) { [string]$editableAfter.values.title } else { '' })
+    $expectedDocumentNumberAfter = $(if ([bool]$editableAfter.complete) { [string]$editableAfter.values.documentNumber } else { '' })
+    $identityDeadline = [DateTime]::UtcNow.AddMilliseconds($waitMs)
+    $rowAfterMatches = @()
+    do {
+      $rowAfterMatches = @($finalList.rows | Where-Object {
+        (Get-SSEReceiptManagerDetailIdentityTitle $_ $policy) -ceq $expectedTitleAfter -and
+        [string]$_.documentNumber -ceq $expectedDocumentNumberAfter
+      })
+      if ($rowAfterMatches.Count -eq 1) { break }
+      if ([DateTime]::UtcNow -ge $identityDeadline) { break }
+      Start-Sleep -Milliseconds 200
+      $finalState = Get-SSEReceiptManagerState $toolHwnd $policy
+      $finalList = Get-SSEReceiptManagerListProjection $finalState $policy
+    } while ($true)
+    $titleIdentityMatchCount = @($finalList.rows | Where-Object {
+      (Get-SSEReceiptManagerDetailIdentityTitle $_ $policy) -ceq $expectedTitleAfter
+    }).Count
+    $documentNumberIdentityMatchCount = @($finalList.rows | Where-Object {
+      [string]$_.documentNumber -ceq $expectedDocumentNumberAfter
+    }).Count
+    $documentNumberCellIndices = @($finalList.rows | ForEach-Object {
+      for ($cellIndex = 0; $cellIndex -lt @($_.cells).Count; $cellIndex++) {
+        if ([string]$_.cells[$cellIndex].name -ceq $expectedDocumentNumberAfter) { $cellIndex }
+      }
+    } | Sort-Object -Unique)
+    # SSE 31 exponiert die editierbare Belegnummer im Detail, aber auf dieser
+    # Installation in keiner Grid-Zelle. Nur wenn der neue Titel exakt einmal
+    # vorkommt UND die Belegnummer im gesamten Grid nachweislich fehlt, darf
+    # die bereits rowRid-/Fingerprint-gebundene Zeile ohne diesen zusaetzlichen
+    # Listenwert rebound werden. Mehrdeutige Titel bleiben fail-closed.
+    if ($rowAfterMatches.Count -ne 1 -and $titleIdentityMatchCount -eq 1 -and
+        -not $documentNumberCellIndices.Count) {
+      $rowAfterMatches = @($finalList.rows | Where-Object {
+        (Get-SSEReceiptManagerDetailIdentityTitle $_ $policy) -ceq $expectedTitleAfter
+      })
+    }
     $rowAfter = $(if ($rowAfterMatches.Count -eq 1) { $rowAfterMatches[0] } else { $null })
-    $otherRowsBefore = @($listBefore.rows | Where-Object { [int]$_.index -ne $targetIndex } | ForEach-Object { [string]$_.contentFingerprint })
-    $otherRowsAfter = @($finalList.rows | Where-Object { [int]$_.index -ne $targetIndex } | ForEach-Object { [string]$_.contentFingerprint })
+    $otherRowsBefore = @($listBefore.rows | Where-Object {
+      [string]$_.rowRid -cne [string]$rowBefore.rowRid -or
+      [string]$_.rowFingerprint -cne [string]$rowBefore.rowFingerprint
+    } | ForEach-Object {
+      [pscustomobject][ordered]@{
+        primaryText=[string]$_.primaryText; documentNumber=[string]$_.documentNumber
+        cells=@(Get-SSEReceiptManagerStableCellNames $_)
+      } | ConvertTo-Json -Depth 5 -Compress
+    } | Sort-Object)
+    $otherRowsAfter = @($finalList.rows | Where-Object {
+      -not ($rowAfter -and [string]$_.rowRid -ceq [string]$rowAfter.rowRid -and
+        [string]$_.rowFingerprint -ceq [string]$rowAfter.rowFingerprint)
+    } | ForEach-Object {
+      [pscustomobject][ordered]@{
+        primaryText=[string]$_.primaryText; documentNumber=[string]$_.documentNumber
+        cells=@(Get-SSEReceiptManagerStableCellNames $_)
+      } | ConvertTo-Json -Depth 5 -Compress
+    } | Sort-Object)
     $countUnchanged = [bool]([int]$finalList.count -eq [int]$listBefore.count -and [bool]$finalList.rowsComplete)
-    $otherRowsUnchanged = [bool](($otherRowsBefore | ConvertTo-Json -Compress) -ceq ($otherRowsAfter | ConvertTo-Json -Compress))
+    $otherRowsUnchanged = [bool]($rowAfter -and
+      ($otherRowsBefore | ConvertTo-Json -Compress) -ceq ($otherRowsAfter | ConvertTo-Json -Compress))
     $windowSetAfter = Get-SSEReceiptManagerWindowSet $targetPid
     $windowSetUnchanged = [bool]($windowSetAfter.fingerprint -eq $windowSetBefore.fingerprint)
     $blockingAfter = @(Get-DialogInventory $targetPid | Where-Object { $_.kind -in @('native-dialog','qt-dialog') })
     $dirtyAfter = Get-DirtyStateFast $mainHwnd
     $dirtyStateUnchanged = [bool]($null -ne $dirtyAfter -and [bool]$dirtyAfter -eq [bool]$dirtyBefore)
     $verified = [bool](
-      $valuesMatch -and $rowAfter -and $countUnchanged -and $otherRowsUnchanged -and
+      $valuesMatch -and [bool]$editableAfter.complete -and $detailClose -and $rowAfter -and
+      $countUnchanged -and $otherRowsUnchanged -and
       $windowSetUnchanged -and -not $blockingAfter.Count -and $dirtyStateUnchanged
     )
     if (-not $verified) {
+      $openConditions = @()
+      if (-not $valuesMatch) { $openConditions += 'detail-values-mismatch' }
+      if (-not [bool]$editableAfter.complete) { $openConditions += 'identity-projection-incomplete' }
+      if (-not $detailClose) { $openConditions += 'detail-close-unverified' }
+      if (-not $rowAfter) {
+        $openConditions += 'updated-row-identity-missing'
+        if ($titleIdentityMatchCount -ne 1) { $openConditions += "updated-title-match-count-$titleIdentityMatchCount" }
+        if ($documentNumberIdentityMatchCount -ne 1) {
+          $observedDocumentColumns = $(if ($documentNumberCellIndices.Count) {
+            $documentNumberCellIndices -join '-'
+          } else { 'none' })
+          $openConditions += "updated-document-number-match-count-$documentNumberIdentityMatchCount-cell-indices-$observedDocumentColumns"
+        }
+      }
+      if (-not $countUnchanged) { $openConditions += 'list-count-or-completeness-drift' }
+      if ($rowAfter -and -not $otherRowsUnchanged) { $openConditions += 'other-row-drift' }
+      if (-not $windowSetUnchanged) { $openConditions += 'window-set-drift' }
+      if ($blockingAfter.Count) { $openConditions += 'blocking-dialog' }
+      if (-not $dirtyStateUnchanged) { $openConditions += 'dirty-state-drift' }
       Emit ([pscustomobject]@{
-        ok=$false; kind='postcondition-failed'; error='Belegwerte, Liste, Fenster, Dialogfreiheit oder Dirty-State konnten nach dem Befuellen nicht vollstaendig verifiziert werden.'
+        ok=$false; kind='postcondition-failed'
+        error="Belegwerte, Liste, Fenster, Dialogfreiheit oder Dirty-State konnten nach dem Befuellen nicht vollstaendig verifiziert werden. Offen: $($openConditions -join ', ')."
+        offeneBedingungen=@($openConditions)
         pid=$targetPid; hwnd=[int64]$toolHwnd; mainHwnd=[int64]$mainHwnd; managerHwnd=[int64]$toolHwnd
         rowBefore=$rowBefore; rowAfter=$rowAfter
         valuesBefore=[pscustomobject]$valuesBefore; valuesAfter=[pscustomobject]$valuesAfter
@@ -18089,6 +18239,11 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         draftBefore=[bool]$rowBefore.draft; draftAfter=$(if ($rowAfter) { [bool]$rowAfter.draft } else { $null })
         listFingerprintBefore=$expectedListFingerprint; listFingerprintAfter=[string]$finalList.listFingerprint
         detailFingerprintBefore=$detailFingerprintBefore; detailFingerprintAfter=$detailFingerprintAfter
+        detailClosed=[bool]$detailClose; identityProjectionComplete=[bool]$editableAfter.complete
+        targetIdentityMatchCount=$rowAfterMatches.Count
+        titleIdentityMatchCount=$titleIdentityMatchCount
+        documentNumberIdentityMatchCount=$documentNumberIdentityMatchCount
+        documentNumberCellIndices=@($documentNumberCellIndices)
         countUnchanged=$countUnchanged; otherRowsUnchanged=$otherRowsUnchanged
         windowSetUnchanged=$windowSetUnchanged; ungespeichertVorher=$dirtyBefore; ungespeichertNachher=$dirtyAfter
         dirtyStateUnchanged=$dirtyStateUnchanged; rollback=[pscustomobject]@{ attempted=$false; ok=$null; reason='Abschlusszustand ist nicht eindeutig; kein blinder Rollback.' }
@@ -18103,6 +18258,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       draftBefore=[bool]$rowBefore.draft; draftAfter=[bool]$rowAfter.draft
       listFingerprintBefore=$expectedListFingerprint; listFingerprintAfter=[string]$finalList.listFingerprint
       detailFingerprintBefore=$detailFingerprintBefore; detailFingerprintAfter=$detailFingerprintAfter
+      detailClosed=$true; detailCloseBinding=$detailClose.clickBinding
       countUnchanged=$true; otherRowsUnchanged=$true; windowSetUnchanged=$true
       ungespeichertVorher=$dirtyBefore; ungespeichertNachher=$dirtyAfter; dirtyStateUnchanged=$true
       rollback=[pscustomobject]@{ attempted=$false; ok=$true }

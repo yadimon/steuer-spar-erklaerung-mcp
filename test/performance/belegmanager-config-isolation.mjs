@@ -22,34 +22,66 @@ function paths({ evidenceRoot, localAppData, engineMajor }) {
   };
 }
 
-function replaceSectionKeyLine(text, sectionName, keyName, replacementLine) {
+function sectionRange(text, sectionName) {
   const sectionPattern = new RegExp(`^[ \\t]*\\[${sectionName}\\][ \\t]*$`, "imu");
-  const sectionStart = text.search(sectionPattern);
-  assert(sectionStart >= 0, `SSE-Benutzerkonfiguration enthaelt keinen [${sectionName}]-Abschnitt.`);
-  const afterSection = text.slice(sectionStart);
-  const nextSectionOffset = afterSection.slice(1).search(/^[ \t]*\[[^\]]+\][ \t]*$/mu);
-  const sectionEnd = nextSectionOffset < 0 ? text.length : sectionStart + 1 + nextSectionOffset;
-  const sectionText = text.slice(sectionStart, sectionEnd);
+  const start = text.search(sectionPattern);
+  if (start < 0) return null;
+  const nextSectionOffset = text.slice(start).slice(1).search(/^[ \t]*\[[^\]]+\][ \t]*$/mu);
+  return { start, end: nextSectionOffset < 0 ? text.length : start + 1 + nextSectionOffset };
+}
+
+function replaceSectionKeyLine(text, sectionName, keyName, replacementLine) {
+  const range = sectionRange(text, sectionName);
+  assert(range, `SSE-Benutzerkonfiguration enthaelt keinen [${sectionName}]-Abschnitt.`);
   const keyPattern = new RegExp(`^([ \\t]*${keyName}[ \\t]*=[ \\t]*)([^\\r\\n]*)$`, "gimu");
-  const matches = [...sectionText.matchAll(keyPattern)];
+  const matches = [...text.slice(range.start, range.end).matchAll(keyPattern)];
   assert.equal(matches.length, 1, `[${sectionName}] braucht genau einen ${keyName}-Eintrag.`);
   const match = matches[0];
-  const absoluteMatchStart = sectionStart + match.index;
+  const absoluteMatchStart = range.start + match.index;
   return text.slice(0, absoluteMatchStart) + replacementLine +
     text.slice(absoluteMatchStart + match[0].length);
 }
 
 function sectionKeyLine(text, sectionName, keyName) {
-  const sectionPattern = new RegExp(`^[ \\t]*\\[${sectionName}\\][ \\t]*$`, "imu");
-  const sectionStart = text.search(sectionPattern);
-  assert(sectionStart >= 0, `SSE-Benutzerkonfiguration enthaelt keinen [${sectionName}]-Abschnitt.`);
-  const afterSection = text.slice(sectionStart);
-  const nextSectionOffset = afterSection.slice(1).search(/^[ \t]*\[[^\]]+\][ \t]*$/mu);
-  const sectionEnd = nextSectionOffset < 0 ? text.length : sectionStart + 1 + nextSectionOffset;
+  const line = optionalSectionKeyLine(text, sectionName, keyName);
+  assert(line !== null, `SSE-Benutzerkonfiguration enthaelt keinen [${sectionName}]-Abschnitt.`);
+  return line;
+}
+
+/** Wie sectionKeyLine, aber fehlender Abschnitt/Eintrag ist kein Fehler. */
+function optionalSectionKeyLine(text, sectionName, keyName) {
+  const range = sectionRange(text, sectionName);
+  if (!range) return null;
   const keyPattern = new RegExp(`^[ \\t]*${keyName}[ \\t]*=[ \\t]*[^\\r\\n]*$`, "gimu");
-  const matches = [...text.slice(sectionStart, sectionEnd).matchAll(keyPattern)];
-  assert.equal(matches.length, 1, `[${sectionName}] braucht genau einen ${keyName}-Eintrag.`);
+  const matches = [...text.slice(range.start, range.end).matchAll(keyPattern)];
+  if (matches.length === 0) return null;
+  assert.equal(matches.length, 1, `[${sectionName}] braucht hoechstens einen ${keyName}-Eintrag.`);
   return matches[0][0];
+}
+
+/**
+ * Einen erlaubten Laufzeiteintrag entfernen, den die Vergleichskonfiguration
+ * noch gar nicht kannte. Bleibt sein Abschnitt dadurch leer, faellt auch die
+ * Ueberschrift weg - sonst verglichen wir eine leere Ueberschrift gegen ihr
+ * vollstaendiges Fehlen. Alles andere bleibt byteweise bestehen und faellt
+ * weiterhin fail-closed auf.
+ */
+function dropSectionKeyLine(text, sectionName, keyName) {
+  const range = sectionRange(text, sectionName);
+  if (!range) return text;
+  const keyPattern = new RegExp(`^[ \\t]*${keyName}[ \\t]*=[ \\t]*[^\\r\\n]*(\\r?\\n)?`, "gimu");
+  const matches = [...text.slice(range.start, range.end).matchAll(keyPattern)];
+  if (matches.length === 0) return text;
+  assert.equal(matches.length, 1, `[${sectionName}] braucht hoechstens einen ${keyName}-Eintrag.`);
+  const match = matches[0];
+  const absoluteMatchStart = range.start + match.index;
+  const withoutKey = text.slice(0, absoluteMatchStart) +
+    text.slice(absoluteMatchStart + match[0].length);
+  const remaining = sectionRange(withoutKey, sectionName);
+  if (!remaining) return withoutKey;
+  const body = withoutKey.slice(remaining.start, remaining.end).split(/\r?\n/).slice(1);
+  if (!body.every((line) => line.trim() === "")) return withoutKey;
+  return withoutKey.slice(0, remaining.start) + withoutKey.slice(remaining.end);
 }
 
 function assertOnlyKnownRuntimeDrift(current, swapped) {
@@ -58,18 +90,21 @@ function assertOnlyKnownRuntimeDrift(current, swapped) {
   const swappedText = decoder.decode(swapped);
   assert.deepEqual(Buffer.from(currentText, "utf8"), current);
   assert.deepEqual(Buffer.from(swappedText, "utf8"), swapped);
+  // SSE darf diese Laufzeitwerte waehrend eines Laufs anlegen ODER aendern.
+  // Fehlte der Eintrag in der Vergleichskonfiguration (frische Installation
+  // schreibt [Files] erst beim ersten Fallkontakt), wird der neue Eintrag
+  // entfernt statt ersetzt. Jede andere Abweichung bleibt fail-closed.
   const allowedRuntimeFields = [
     ["Files", "LastWorkDir"],
+    ["License", "LastCheck"],
     ["WerteInfoPos", "Size3"],
     ["WerteInfoPos", "Size4"],
   ];
-  const normalized = allowedRuntimeFields.reduce((text, [sectionName, keyName]) =>
-    replaceSectionKeyLine(
-      text,
-      sectionName,
-      keyName,
-      sectionKeyLine(swappedText, sectionName, keyName),
-    ), currentText);
+  const normalized = allowedRuntimeFields.reduce((text, [sectionName, keyName]) => {
+    const swappedLine = optionalSectionKeyLine(swappedText, sectionName, keyName);
+    if (swappedLine === null) return dropSectionKeyLine(text, sectionName, keyName);
+    return replaceSectionKeyLine(text, sectionName, keyName, swappedLine);
+  }, currentText);
   assert.deepEqual(Buffer.from(normalized, "utf8"), swapped,
     "SSE-Benutzerkonfiguration driftete ausserhalb der bekannten Laufzeitwerte; nichts ueberschrieben.");
 }

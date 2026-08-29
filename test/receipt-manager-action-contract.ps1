@@ -22,6 +22,7 @@ foreach ($functionName in @(
   'Get-SSEReceiptManagerListProjection',
   'Get-SSEReceiptManagerWindowSet',
   'ConvertTo-SSEReceiptManagerInputValue',
+  'ConvertFrom-SSEReceiptManagerDisplayValue',
   'Get-SSEReceiptManagerDetailIdentityTitle',
   'Test-SSEReceiptManagerPdfHeader'
 )) {
@@ -30,7 +31,7 @@ foreach ($functionName in @(
     $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $functionName
   }, $true))
   Assert-True ($definitions.Count -eq 1) "$functionName ist nicht eindeutig vorhanden."
-  if ($functionName -in @('Get-SSEReceiptManagerState','Get-SSEReceiptManagerListProjection','ConvertTo-SSEReceiptManagerInputValue','Get-SSEReceiptManagerDetailIdentityTitle','Test-SSEReceiptManagerPdfHeader')) {
+  if ($functionName -in @('Get-SSEReceiptManagerState','Get-SSEReceiptManagerListProjection','ConvertTo-SSEReceiptManagerInputValue','ConvertFrom-SSEReceiptManagerDisplayValue','Get-SSEReceiptManagerDetailIdentityTitle','Test-SSEReceiptManagerPdfHeader')) {
     Invoke-Expression $definitions[0].Extent.Text
   }
 }
@@ -89,6 +90,9 @@ Assert-True ($policy.controls.editableFields.date.automationIdSuffix -ceq '.date
 Assert-True ($policy.controls.editableFields.amount.valueKind -ceq 'currency') 'Betragsfeld hat nicht den erwarteten Werttyp.'
 Assert-True ($policy.controls.editableFields.net.controlType -ceq 'CheckBox') 'Nettofeld ist nicht als Checkbox gebunden.'
 Assert-True ((ConvertTo-SSEReceiptManagerInputValue 'vatRate' '19' 'vat-rate') -ceq '19 %') 'USt-ComboBox erhaelt nicht den vollstaendigen Qt-Anzeigetext.'
+Assert-True ((ConvertFrom-SSEReceiptManagerDisplayValue '15.01.2025' 'date') -ceq '2025-01-15') 'Belegdatum wird am API-Rand nicht kanonisch als ISO-Datum gelesen.'
+Assert-True ((ConvertFrom-SSEReceiptManagerDisplayValue '19 %' 'vat-rate') -ceq '19') 'USt-Satz wird am API-Rand nicht kanonisch ohne Anzeigezeichen gelesen.'
+Assert-True ((ConvertFrom-SSEReceiptManagerDisplayValue '' 'vat-rate') -ceq '0') 'Leerer Qt-USt-Satz wird am API-Rand nicht kanonisch als Nullsatz gelesen.'
 Assert-True ([int]$policy.list.primaryTextColumn -eq 2) 'Primaertext-Spalte ist nicht auf den live gemessenen Grid-Index 2 profiliert.'
 Assert-True ([int]$policy.list.documentNumberColumn -eq 8) 'Belegnummer-Spalte ist nicht auf den live gemessenen Grid-Index 8 profiliert.'
 Assert-True ([string]$policy.list.searchAutomationIdSuffix -ceq '.widget_mainWindowInfoBar.frame_container.lineEdit_suche') 'Beleglisten-Suche ist nicht profiliert.'
@@ -178,6 +182,7 @@ Assert-True ($receiptReadBlock.Contains('$expectedSemanticRows')) 'receipt_manag
 Assert-True ($receiptReadBlock.Contains('| Sort-Object')) 'receipt_manager_read muss eine reine Qt-Neusortierung als inhaltlich unveraendertes Multiset behandeln.'
 Assert-True ($receiptReadBlock.Contains('$semanticRowAfterMatches.Count -eq 1')) 'receipt_manager_read muss die Zielzeile nach einer Qt-Neusortierung ueber die exakte fachliche Identitaet rebound binden.'
 Assert-True ($receiptReadBlock.Contains('$detailIdentityMatchesTarget')) 'receipt_manager_read darf Detailwerte nur fuer exakt denselben Titel und dieselbe Belegnummer bestaetigen.'
+Assert-True ($receiptReadBlock.Contains('-not [string]$rowBefore.documentNumber')) 'Eine im Grid nachweislich nicht exponierte Belegnummer darf die exakte Titel-/Zeilenbindung nicht kuenstlich stale machen.'
 Assert-True ($receiptReadBlock.Contains('Resolve-SSEReceiptManagerVisibleRowTarget')) 'receipt_manager_read muss virtualisierte Offscreen-Belege vor dem Klick sicher sichtbar binden.'
 Assert-True ($receiptReadBlock.Contains("method='already-open-detail'")) 'receipt_manager_read muss eine exakt gebundene bereits offene Detailansicht ohne erneuten Zeilenklick lesen.'
 Assert-True ($receiptReadBlock.IndexOf('$detailState = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues') -lt
@@ -212,6 +217,7 @@ foreach ($required in @(
   'Get-SSEPointObstruction $ToolHwnd',
   '$expectedRowsJson',
   '$expectedTargetCellsJson',
+  'Get-LiveElement $ToolHwnd ([string]$Row.rowRid)',
   'Get-SSEReceiptManagerStableCellNames',
   'Test-SSEPointElementWithinExactReceiptTitle',
   '([string]$rowNow[0].rowRid)',
@@ -230,7 +236,12 @@ foreach ($required in @(
   'Wait-SSEReceiptManagerLiveFieldValue',
   'Commit-TrackedValue',
   'Click-VerifiedPoint',
+  'Close-SSEReceiptManagerDetailView',
+  'Get-SSEReceiptManagerDetailIdentityTitle',
+  '$titleIdentityMatchCount -eq 1',
+  '-not $documentNumberCellIndices.Count',
   'rollbackEntries',
+  'offeneBedingungen=@($openConditions)',
   'otherRowsUnchanged',
   'dirtyStateUnchanged'
 )) {
@@ -387,6 +398,7 @@ Assert-True ($readBlock.Contains('$policy.controls.detailClose')) 'Beleglesung m
 Assert-True ($readBlock.Contains('[bool]$listAfter.rowsComplete')) 'Beleglesung muss vor dem Rueckgabebinding die vollstaendige Tabellenprojektion wiederherstellen.'
 Assert-True ($readBlock.Contains('($actualSemanticRows | ConvertTo-Json -Compress) -ceq')) 'Beleglesung muss nach dem Schliessen der Details das fachliche Listen-Multiset beweisen.'
 Assert-True ($readBlock.Contains('$semanticRowAfterMatches.Count -eq 1')) 'Beleglesung muss nach dem Schliessen weiterhin exakt dieselbe fachliche Zielzeile binden.'
+Assert-True ($readBlock.Contains('offeneBedingungen=@($openConditions)')) 'Beleglesung muss gerissene Sammelpostconditions einzeln und wertfrei diagnostizieren.'
 
 $actionStart = $worker.IndexOf("  'receipt_manager_action' {", $deleteStart)
 Assert-True ($deleteStart -ge 0 -and $actionStart -gt $deleteStart) 'Loeschoperation ist nicht eindeutig abgrenzbar.'

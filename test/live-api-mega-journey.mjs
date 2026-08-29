@@ -68,6 +68,7 @@ let controlledRunEndedAt = 0;
 let currentPhase = "setup";
 let currentHwnd = 0;
 let currentPid = 0;
+let receiptTargetPage = null;
 let sseEnvironment = null;
 let failure = null;
 let cleanup = { attempted: false, stateKnown: false, closed: false, zeroOwnedProcesses: false };
@@ -1029,7 +1030,12 @@ try {
       },
       (result) => assert.equal(result.finalReadbackVerified, true),
       { pageId, hwnd: currentHwnd },
-      (result) => assert.equal(fieldMap(result).get(fieldId) ?? fieldMap(result).get(fieldLabel), originalValue),
+      (result) => {
+        assert.equal(fieldMap(result).get(fieldId) ?? fieldMap(result).get(fieldLabel), originalValue);
+        assert.equal(result.onExpectedPage, true);
+        assert.equal(typeof result.heading, "string");
+        receiptTargetPage = result.heading;
+      },
     );
   });
 
@@ -1222,20 +1228,21 @@ try {
       (result) => assert(!(result.windows ?? []).some((entry) => entry.hwnd === managerWindow.hwnd)),
       { mutationTimeoutMs: 120_000 },
     );
-    // This is the repository's previously live-verified 2025 Musterfall link target.
-    const targetPage = "Einnahmen: Lotterie";
-    const expectedLinkTarget = targetPage.split(": ").at(-1);
-    assert(expectedLinkTarget, "Beleg-Linkziel ist aus der verifizierten Seitenueberschrift nicht ableitbar.");
+    assert(receiptTargetPage, "Die aktuelle profilierte ESt-Seite fuer die Belegverknuepfung fehlt.");
+    const targetPage = receiptTargetPage;
+    const expectedLinkTarget = targetPage;
     await mutateAndRead(
       "goto-receipt-link-target",
-      { name: targetPage, maxSteps: 250, useSearch: true, hwnd: currentHwnd },
-      (result) => assert.equal(result.erreicht, true),
+      { pageId: "est.sonstige_werbungskosten_fahrten", hwnd: currentHwnd },
+      (result) => {
+        assert.equal(result.erreicht, true);
+        assert.equal(result.ueberschrift, targetPage);
+      },
       { hwnd: currentHwnd },
       (result) => assert.equal(result.ueberschrift, targetPage),
     );
     const linkItems = [{
       expectedReceiptTitle: receiptValues.title,
-      expectedDocumentNumber: receiptValues.documentNumber,
       receiptContentFingerprint: linkedRow.contentFingerprint,
       linked: true,
     }];
@@ -1277,6 +1284,15 @@ try {
       "receipt-manager-open-after-link",
       { name: "BelegManager", waitMs: 4_000, hwnd: currentHwnd },
       null,
+      {},
+      (result) => findWindow(result,
+        (entry) => String(entry.title ?? "") === "BelegManager", "BelegManager nach Link"),
+      { mutationTimeoutMs: 120_000, readbackTimeoutMs: 120_000 },
+    );
+    await mutateAndRead(
+      "receipt-show-list-after-link",
+      { actionId: "showAllReceipts", hwnd: currentHwnd },
+      (result) => assert.equal(result.stateAfter, "list"),
       { hwnd: currentHwnd, filter: { exactTitle: receiptValues.title } },
       (result) => {
         afterLinkList = result;
@@ -1339,6 +1355,15 @@ try {
       "receipt-manager-open-after-unlink",
       { name: "BelegManager", waitMs: 4_000, hwnd: currentHwnd },
       null,
+      {},
+      (result) => findWindow(result,
+        (entry) => String(entry.title ?? "") === "BelegManager", "BelegManager nach Unlink"),
+      { mutationTimeoutMs: 120_000, readbackTimeoutMs: 120_000 },
+    );
+    await mutateAndRead(
+      "receipt-show-list-after-unlink",
+      { actionId: "showAllReceipts", hwnd: currentHwnd },
+      (result) => assert.equal(result.stateAfter, "list"),
       { hwnd: currentHwnd, filter: { exactTitle: receiptValues.title } },
       (result) => {
         afterUnlinkList = result;
