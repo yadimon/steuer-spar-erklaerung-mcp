@@ -3,7 +3,7 @@
 ## Unterstützte Version
 
 Während der öffentlichen Beta wird nur die jeweils neueste vollständige
-Release-Version unterstützt. `v0.1.0-beta.30` ist die aktuelle öffentlich
+Release-Version unterstützt. `v0.1.0-beta.31` ist die aktuelle öffentlich
 unterstützte Version für SteuerSparErklärung 2025: Release-Tag und die beiden
 gleichnamigen npm-Pakete gehören zusammen. Ein künftiger vorbereiteter
 Quellstand wird erst öffentlich unterstützt, wenn beide Pakete unter dieser
