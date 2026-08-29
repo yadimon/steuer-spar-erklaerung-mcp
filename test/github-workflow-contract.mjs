@@ -140,8 +140,8 @@ const publishCommands = [
   "npm audit --omit=dev --audit-level=high",
   "npm test",
   "npm run test:npm-clean-install",
-  "npm publish --workspace @yadimon/steuer-spar-erklaerung-mcp --ignore-scripts --tag latest --access public",
   "npm publish --workspace @yadimon/steuer-spar-erklaerung-api --ignore-scripts --tag latest --access public",
+  "npm publish --workspace @yadimon/steuer-spar-erklaerung-mcp --ignore-scripts --tag latest --access public",
 ];
 assert(
   !publishWorkflow.includes("dist-tag"),
@@ -149,10 +149,14 @@ assert(
 );
 let previousPublish = -1;
 for (const command of publishCommands) {
-  const index = publishWorkflow.indexOf(`run: ${command}`);
+  const index = publishWorkflow.indexOf(command);
   assert(index > previousPublish, `npm-Publish-Befehl fehlt oder steht in falscher Reihenfolge: ${command}`);
   previousPublish = index;
 }
+assert.match(publishWorkflow, /Wait for exact API dependency in registry/u);
+assert.match(publishWorkflow, /API .*bereits veröffentlicht; überspringe den idempotenten Wiederanlauf/u);
+assert.match(publishWorkflow, /MCP .*bereits veröffentlicht; überspringe den idempotenten Wiederanlauf/u);
+assert.match(publishWorkflow, /foreach \(\$attempt in 1\.\.30\)/u);
 
 const contributing = readFileSync("CONTRIBUTING.md", "utf8");
 for (const required of [
@@ -197,8 +201,8 @@ for (const required of [
   "gh release create",
   "--verify-tag --prerelease",
   "npx skills add yadimon/steuer-spar-erklaerung-mcp --list",
-  "npm publish --workspace @yadimon/steuer-spar-erklaerung-mcp --ignore-scripts --tag latest --access public",
   "npm publish --workspace @yadimon/steuer-spar-erklaerung-api --ignore-scripts --tag latest --access public",
+  "npm publish --workspace @yadimon/steuer-spar-erklaerung-mcp --ignore-scripts --tag latest --access public",
   "npm-publish.yml",
 ]) {
   assert(releaseProcess.includes(required), `Release-Prozess verschweigt: ${required}`);

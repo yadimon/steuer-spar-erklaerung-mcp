@@ -15,9 +15,13 @@
 
 Die lokale HTTP-API ist der ausführende Kern. Sie besitzt Konfiguration,
 Ressourcenauflösung, Queue, Szenarien und den Windows-Worker. MCP ist ein
-PC-blinder Adapter: Er kennt nur die Loopback-URL und ruft für ein
-Werkzeug genau die zugeordnete API-Operation oder eine dokumentierte
-API-Komposition auf.
+PC-blinder fachlicher Adapter: Er ruft für ein Werkzeug genau die zugeordnete
+API-Operation oder eine dokumentierte API-Komposition auf. Nur sein Supervisor
+kennt Loopback-URL, optionale absolute `SSE_API_CONFIG` und die eigene exakte
+API-Dependency. Für die Identitätsprüfung liest er aus der begrenzten
+Konfigurationsdatei auch die Ressourcenpfade und hasht sie; Inhalte aus
+Steuerfällen, Belegen oder Arbeitsbereichen liest er nicht und gibt die Pfade
+nicht über MCP aus.
 
 Die normativen Laufzeitquellen sind:
 
@@ -31,8 +35,14 @@ Handgepflegte Operationszahlen in Prosa sind nicht normativ.
 ## Erreichbarkeit und Browser-Schutz
 
 - Die API bindet ausschließlich an `127.0.0.1` oder `::1`.
-- `GET /healthz` ist ohne Anmeldung erreichbar und gibt nur
-  technischen Zustand aus.
+- `GET /healthz` ist ohne Anmeldung erreichbar und gibt nur technischen
+  Zustand sowie `packageName`, `packageVersion`, `processId`, die zufällige
+  `instanceId` und den pfadfreien `configurationFingerprint` für die strikte
+  lokale Singleton-Identität aus. MCP sendet die geprüfte `instanceId` bei
+  jedem Operations-POST mit; eine inzwischen ausgetauschte API lehnt den
+  Auftrag vor dem Executor ab.
+  Bei einem verwalteten `SSE_API_CONFIG` muss auch dieser Fingerprint exakt zur
+  erwarteten Ressourcenbindung passen.
 - Es gibt keine Anmeldung und kein Token. Discovery, OpenAPI und jede
   Operation sind für jeden lokalen Prozess erreichbar. Aufrufe aus einem
   Browser werden anhand von `Origin`, `Sec-Fetch-Site` und `Host` mit `403`
@@ -99,6 +109,12 @@ API-Hash, physischer Hash und Hash des zurückgelesenen UTF-8-Texts müssen
 ersetzt.
 
 ## MCP-Abbildung
+
+Vor dieser Abbildung übernimmt der MCP-Start ausschließlich eine exakt passende
+API-Identität oder startet bei freiem Ziel seine installierte Dependency. Eine
+explizite `SSE_API_URL` deaktiviert Start und Fallback. Parallelstarts
+konvergieren über das Port-Rennen; fremde oder unklare Prozesse werden nie
+beendet oder ersetzt. API-stdio bleibt vollständig vom MCP-stdout getrennt.
 
 - MCP validiert unbekannte, falsch typisierte und zu große Argumente vor dem
   API-Aufruf. Nennt eine Meldung einen unbekannten Feldnamen, listet sie die

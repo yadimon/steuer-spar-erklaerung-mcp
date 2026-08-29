@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -20,6 +20,7 @@ const apiPackageName = "@yadimon/steuer-spar-erklaerung-api";
 const npmCli = process.env.npm_execpath ?? join(dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
 assert(existsSync(npmCli), `npm CLI fehlt: ${npmCli}`);
 const temporary = mkdtempSync(join(tmpdir(), "sse-npm-install-"));
+let fixtureRegistry;
 
 function npm(args, options = {}) {
   const { env: optionEnv = {}, ...spawnOptions } = options;
@@ -56,6 +57,10 @@ try {
     ? `${apiPackageName}@${expectedVersion}`
     : installSources.find((path) => basename(path).includes("-api-"));
   assert(apiSource, "API-Installationsquelle wurde nicht erzeugt.");
+  const mcpSource = publishedMode
+    ? `${mcpPackageName}@${expectedVersion}`
+    : installSources.find((path) => basename(path).includes("-mcp-"));
+  assert(mcpSource, "MCP-Installationsquelle wurde nicht erzeugt.");
 
   const npxRoot = join(temporary, "npx-working-directory");
   mkdirSync(npxRoot, { recursive: true });
@@ -69,13 +74,30 @@ try {
   assert.match(npxCliHelp, /steuer-spar-erklaerung-call health/u);
 
   const installRoot = join(temporary, "installation");
+  mkdirSync(installRoot, { recursive: true });
+  if (!publishedMode) {
+    const readyPath = join(temporary, "fixture-registry-ready.json");
+    fixtureRegistry = spawn(
+      process.execPath,
+      ["test/npm-fixture-registry.mjs", "packages/api/package.json", apiSource, readyPath],
+      { cwd: process.cwd(), windowsHide: true, stdio: "ignore" },
+    );
+    const waitArray = new Int32Array(new SharedArrayBuffer(4));
+    const deadline = Date.now() + 5_000;
+    while (!existsSync(readyPath) && fixtureRegistry.exitCode === null && Date.now() < deadline) {
+      Atomics.wait(waitArray, 0, 0, 25);
+    }
+    assert(existsSync(readyPath), "Lokale npm-Fixture-Registry wurde nicht bereit.");
+    const { baseUrl } = JSON.parse(readFileSync(readyPath, "utf8"));
+    writeFileSync(join(installRoot, ".npmrc"), `@yadimon:registry=${baseUrl}\n`, "utf8");
+  }
   npm([
     "install",
     "--prefix", installRoot,
     "--ignore-scripts",
     "--no-audit",
     "--no-fund",
-    ...installSources,
+    mcpSource,
   ]);
 
   const apiOnlyRoot = join(temporary, "api-only-installation");
@@ -141,11 +163,19 @@ try {
   assert.equal(installedMcpContract.status, 0, installedMcpContract.stderr || installedMcpContract.stdout);
   assert.match(installedMcpContract.stdout, /99 Werkzeuge.*\d+ API-Roundtrips/u, "Installierter MCP-Vertrag ist unvollstaendig.");
 
-  const sourceLabel = publishedMode ? "exakten npm-Registry-Paketen" : "zwei getrennten Tarballs";
+  const sourceLabel = publishedMode
+    ? "dem exakten MCP-Registry-Paket samt API-Dependency"
+    : "einem MCP-Tarball samt automatisch aufgeloester API-Dependency";
   process.stdout.write(
     `npm-${publishedMode ? "Registry-Smoke" : "Clean-install"}: NPX-Kurzweg, ${commands.length} CLI-Einstiege und ` +
       `99-Tool-MCP-Vertrag aus ${sourceLabel} bestanden\n`,
   );
 } finally {
+  if (fixtureRegistry?.pid) {
+    spawnSync("taskkill.exe", ["/PID", String(fixtureRegistry.pid), "/T", "/F"], {
+      windowsHide: true,
+      stdio: "ignore",
+    });
+  }
   rmSync(resolve(temporary), { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
 }

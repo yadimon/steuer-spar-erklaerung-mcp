@@ -72,7 +72,7 @@ Die vollständigen Voraussetzungen und Erfolgskriterien stehen in der
 
 | Situation | Weg | Ergebnis |
 | --- | --- | --- |
-| Regelmäßig mit Steuerfällen arbeiten | [Dauerhaftes Setup](#dauerhaftes-setup-mit-zwei-prompts) **(empfohlen)** | Skill, API und MCP in einem festen Ordner; einmaliger Client-Neustart |
+| Regelmäßig mit Steuerfällen arbeiten | [Dauerhaftes Setup](#dauerhaftes-setup-mit-zwei-prompts) **(empfohlen)** | Skill und MCP samt passender API-Dependency in einem festen Ordner; einmaliger Client-Neustart |
 | Einmalig isoliert prüfen | [NPX-Prüflauf](#robuster-isolierter-prüflauf) | temporäre API im Vordergrund; kein MCP und keine dauerhafte Installation |
 | Einen bereits geöffneten Fall ändern | [Geöffneten Fall bearbeiten](#bereits-geöffneten-fall-bearbeiten) | einmal sichern, ändern, zurücklesen und offen lassen |
 
@@ -85,14 +85,14 @@ Richte SteuerSparErklärung vollständig lokal nach
 https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md
 ein. Installiere oder aktualisiere den Skill und verwende die neueste
 veröffentlichte Version.
-Standard-Setup ausführen: lokale API plus MCP.
+Standard-Setup ausführen: MCP mit automatisch verwalteter lokaler API.
 ```
 
 `Standard-Setup ausführen` bestätigt den Plan einschließlich des Downloads, der
 Installation in den Ordner und des bedingten additiven MCP-Merges. Der Agent
 zeigt Plan und Diff weiterhin an. Der erste Lauf endet mit einem grünen
-`health`; die Client-Verifikation bleibt bis zum Neustart offen. Starte den
-lokalen Agenten dann einmal neu.
+`dist/index.js --selftest`; die Client-Verifikation bleibt bis zum Neustart
+offen. Starte den lokalen Agenten dann einmal neu.
 
 Für Codex konfiguriert die Installationsanleitung eine begrenzte Kernliste, die
 den Standard-Prüflauf abdeckt. Der vollständige Katalog mit 99 Operationen
@@ -121,26 +121,35 @@ unterstützte Steuerfall **2025**. Das Produktprofil 2026 ist nicht freigegeben.
 
 Ein Einrichtungsprogramm gibt es nicht. Der kanonische Weg steht vollständig
 in [docs/INSTALLATION.md](docs/INSTALLATION.md); hier die kurze lokale Variante.
-Im Zielordner zuerst prüfen, dass beide Registry-Versionen gleich sind:
+Das MCP-Paket hängt exakt von derselben Releaseversion des API-Pakets ab. npm
+installiert sie automatisch; eine getrennte Versionswahl ist nicht nötig:
 
 ```powershell
-npm.cmd view @yadimon/steuer-spar-erklaerung-api version
 npm.cmd view @yadimon/steuer-spar-erklaerung-mcp version
 ```
 
-Dann beide Pakete lokal installieren und bei der offenen
+Dann das MCP-Paket lokal installieren und bei der offenen
 [`skills`-CLI](https://www.skills.sh/docs/cli) genau den verwendeten Agenten wählen:
 Eine nur geöffnete oder gecachte Webansicht ist keine installierte Skill-Version.
 
 ```powershell
-npm.cmd install @yadimon/steuer-spar-erklaerung-api@latest @yadimon/steuer-spar-erklaerung-mcp@latest
+mkdir C:\mein-steuer-ai
+cd C:\mein-steuer-ai
+npm.cmd install @yadimon/steuer-spar-erklaerung-mcp@latest
 npx.cmd -y skills add yadimon/steuer-spar-erklaerung-mcp --skill steuer-spar-erklaerung --agent <codex|claude-code|opencode> --copy --yes
-.\node_modules\.bin\steuer-spar-erklaerung-api.cmd --config <ABSOLUTER_ORDNER>\config.json
+codex mcp add steuer-spar-erklaerung -- (Get-Command node).Source C:\mein-steuer-ai\node_modules\@yadimon\steuer-spar-erklaerung-mcp\dist\index.js
 ```
+
+Der letzte Befehl ist die Codex-Variante. Die entsprechenden Claude-Code- und
+OpenCode-Einträge sowie optionale `SSE_API_CONFIG`-/`SSE_API_URL`-Beispiele
+stehen in der [Installationsanleitung](docs/INSTALLATION.md).
 
 Die Windows-Beispiele verwenden bewusst `npm.cmd` und `npx.cmd`, damit keine
 Änderung der PowerShell-Execution-Policy nötig ist. Den dauerhaften MCP-Eintrag
-nie auf einen flüchtigen `_npx`-Cache oder einen `.cmd`-Shim richten.
+nie auf einen flüchtigen `_npx`-Cache oder einen `.cmd`-Shim richten. Beim
+ersten MCP-Start wird die exakt passende API unsichtbar gestartet; eine schon
+laufende kompatible API wird wiederverwendet. Ein separates API-Terminal ist
+nicht erforderlich.
 
 </details>
 
@@ -258,9 +267,11 @@ nicht freigegeben. Der vollständige Ablauf steht unter
 
 ## MCP als optionale Produktfunktion anbinden
 
-MCP ist ein dünner, PC-blinder Wrapper über dieselbe lokale API. Ein reines
-API-Setup braucht MCP nicht; der oben beschriebene Agenten-Standard enthält MCP,
-weil Prompt 1 ausdrücklich „lokale API plus MCP“ beauftragt.
+MCP ist ein dünner, PC-blinder Wrapper über dieselbe lokale API. Das Paket
+installiert die passende API als exakte Dependency und startet sie bei Bedarf;
+eine bereits laufende kompatible API wird als lokaler Singleton
+wiederverwendet. Ein reines API-Setup braucht MCP weiterhin nicht, denn das
+API-Paket bleibt für direkte Nutzung separat installierbar.
 
 Servereintrag, `.cmd`-Falle, begrenzter Codex-Katalog und additiver Merge stehen
 in der [Installationsanleitung](docs/INSTALLATION.md). Ein Servereintrag oder

@@ -12,9 +12,11 @@ import { createApiExecutor } from "../dist/api-executor.js";
 import { SSE_API_DISCOVERY } from "../dist/api-discovery.js";
 import { createSseApiServer, listenSseApiServer } from "../dist/api-server.js";
 import { configurationFingerprint } from "../dist/workspace-status.js";
+import { SSE_PACKAGE_VERSION } from "../dist/version.js";
 
 const calls = [];
 const logs = [];
+const API_INSTANCE_ID = "11111111-1111-4111-8111-111111111111";
 let throwOnLog = false;
 const temporary = mkdtempSync(join(tmpdir(), "sse-api-contract-"));
 const config = {
@@ -206,6 +208,7 @@ const execute = createApiExecutor(config, async (operation, args, timeoutMs, sig
 
 const server = createSseApiServer({
   execute,
+  instanceId: API_INSTANCE_ID,
   log: (record) => {
     if (throwOnLog) throw new Error("synthetischer Logfehler");
     logs.push(record);
@@ -231,7 +234,17 @@ try {
   assert.equal(health.headers.get("cache-control"), "no-store");
   assert.equal(health.headers.get("cross-origin-resource-policy"), "same-origin");
   assert.equal(health.headers.get("x-content-type-options"), "nosniff");
-  assert.deepEqual(await health.json(), { ok: true, apiVersion: "v1", inFlight: null, prewarm: null },
+  assert.deepEqual(await health.json(), {
+    ok: true,
+    apiVersion: "v1",
+    packageName: "@yadimon/steuer-spar-erklaerung-api",
+    packageVersion: SSE_PACKAGE_VERSION,
+    processId: process.pid,
+    instanceId: API_INSTANCE_ID,
+    configurationFingerprint: "0".repeat(64),
+    inFlight: null,
+    prewarm: null,
+  },
     "healthz muss Lebendigkeit und laufende Operation melden.");
   const queryRejected = await fetch(`${baseUrl}/healthz?quiet=true`);
   assert.equal(queryRejected.status, 400);
@@ -480,6 +493,16 @@ try {
 
   const throughClient = await callApiOperation("health", {}, 1_000, { baseUrl });
   assert.equal(throughClient.stable, directEnvelope.result.stable);
+  const callsBeforeInstanceMismatch = calls.length;
+  await assert.rejects(
+    callApiOperation("health", {}, 1_000, {
+      baseUrl,
+      expectedInstanceId: "22222222-2222-4222-8222-222222222222",
+    }),
+    /Instanz|Health-Bindung/iu,
+  );
+  assert.equal(calls.length, callsBeforeInstanceMismatch,
+    "Falsche API-Instanzbindung erreichte unerwartet den Executor.");
   let invalidClientFetches = 0;
   await assert.rejects(
     callApiOperation("find", {}, 1_000, {

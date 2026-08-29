@@ -9,13 +9,26 @@ import { createSseApiServer } from "../dist/api-server.js";
 import { SSE_MCP_TOOL_OPERATIONS } from "../dist/operation-catalog.js";
 import { enumChoices, sampleJsonSchema } from "./json-schema-samples.mjs";
 
+const calls = [];
+const server = createSseApiServer({
+  execute: async (operation, args) => {
+    calls.push({ operation, args });
+    return { ok: true, operation, args };
+  },
+});
+server.listen(0, "127.0.0.1");
+await once(server, "listening");
+const address = server.address();
+assert(address && typeof address === "object");
+const baseUrl = `http://127.0.0.1:${address.port}`;
+
 const here = dirname(fileURLToPath(import.meta.url));
 const discoveryTransport = new StdioClientTransport({
   command: process.execPath,
   args: [join(here, "..", "dist", "index.js")],
   env: {
     ...process.env,
-    SSE_API_URL: "http://127.0.0.1:1",
+    SSE_API_URL: baseUrl,
   },
 });
 const discoveryClient = new Client({ name: "sse-api-all-operations", version: "1.0.0" });
@@ -29,18 +42,6 @@ for (const tool of tools) {
   if (operation && !schemasByOperation.has(operation)) schemasByOperation.set(operation, tool.inputSchema);
 }
 
-const calls = [];
-const server = createSseApiServer({
-  execute: async (operation, args) => {
-    calls.push({ operation, args });
-    return { ok: true, operation, args };
-  },
-});
-server.listen(0, "127.0.0.1");
-await once(server, "listening");
-const address = server.address();
-assert(address && typeof address === "object");
-const baseUrl = `http://127.0.0.1:${address.port}`;
 const headers = { "content-type": "application/json" };
 
 try {

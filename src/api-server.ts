@@ -24,6 +24,8 @@ import { apiOperationDiscovery, SSE_API_DISCOVERY } from "./api-discovery.js";
 import { SSE_OPENAPI_DOCUMENT } from "./api-openapi.js";
 import { formatOperationArgumentError, parseApiOperationArgs } from "./operation-catalog.js";
 import { parseApiOperationResult } from "./result-contract.js";
+import { SSE_API_PACKAGE_NAME, SSE_PACKAGE_VERSION } from "./version.js";
+import { SSE_API_INSTANCE_HEADER } from "./api-supervisor-contract.js";
 
 export type OperationExecutor = (
   operation: SseApiOperation,
@@ -41,6 +43,10 @@ export interface PrewarmStatus {
 export interface SseApiServerOptions {
   execute: OperationExecutor;
   log?: (record: Record<string, unknown>) => void;
+  /** Gebundene Arbeitsbereichs-/Profilidentitaet; Testserver verwenden den Nullfingerprint. */
+  configurationFingerprint?: string;
+  /** Eindeutige Laufzeitinstanz fuer atomar an health gebundene MCP-POSTs. */
+  instanceId?: string;
   /** Optional; ohne diese Auskunft meldet /healthz das Feld schlicht nicht. */
   prewarmStatus?: () => PrewarmStatus;
 }
@@ -236,6 +242,7 @@ function parseOperationRequest(value: unknown): OperationRequest {
 
 export function createSseApiServer(options: SseApiServerOptions): Server {
   const { execute } = options;
+  const instanceId = options.instanceId ?? randomUUID();
   const log = options.log ?? (() => undefined);
   let inFlight: InFlightOperation | null = null;
   const inFlightSnapshot = (now = Date.now()): (InFlightOperation & { elapsedMs: number }) | null =>
@@ -274,6 +281,11 @@ export function createSseApiServer(options: SseApiServerOptions): Server {
       sendJson(response, 200, {
         ok: true,
         apiVersion: SSE_API_VERSION,
+        packageName: SSE_API_PACKAGE_NAME,
+        packageVersion: SSE_PACKAGE_VERSION,
+        processId: process.pid,
+        instanceId,
+        configurationFingerprint: options.configurationFingerprint ?? "0".repeat(64),
         inFlight: inFlightSnapshot(),
         prewarm,
       });
@@ -311,6 +323,18 @@ export function createSseApiServer(options: SseApiServerOptions): Server {
         405,
         apiError(requestId, "method-not-allowed", "Fuer diese Route sind nur GET und POST erlaubt."),
         { allow: "GET, POST" },
+      );
+      return;
+    }
+    const expectedInstance = request.headers[SSE_API_INSTANCE_HEADER];
+    if (
+      expectedInstance !== undefined &&
+      (typeof expectedInstance !== "string" || expectedInstance !== instanceId)
+    ) {
+      sendJson(
+        response,
+        409,
+        apiError(requestId, "api-instance-mismatch", "SSE-API-Instanz stimmt nicht mit der Health-Bindung ueberein."),
       );
       return;
     }

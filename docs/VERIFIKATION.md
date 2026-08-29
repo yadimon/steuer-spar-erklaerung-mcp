@@ -60,6 +60,7 @@ nie automatisch verworfen.
 | Falldatei-Liveparität | `npm run test:live-case-file` | lokale API-Implementierung und direkter PowerShell-Worker liefern denselben Fallhash sowie dieselbe vollständige Standard-Fallliste des offiziellen Musterordners; keine SSE-UI wird gestartet | ausführliche Parser-Metadaten und UI-Verhalten |
 | Workspace-Dateivertrag | `node test/workspace-file-cancellation.mjs` | synchrone/kooperative Listenparität, Abbruch vor und während der Liste sowie nach einem 64-KiB-Hashblock, Hashbudget auch bei verworfener I/O, Deadline ohne Teilergebnis, exakte Trunkierung samt Gleichheitsgrenze, Read-Post-Deadline, Write-Preflight und veröffentlichte Schemas | reales langsames Netzlaufwerk; Abbruch eines bereits laufenden synchronen 1-MiB-Textwrites |
 | MCP-Abbruchkette | `node test/mcp-cancellation.mjs` | echter `sse_workspace_files`-Aufruf über MCP-Prozess, HTTP-Client, API-Server und Workspace-Executor; eine deterministische Barriere beweist das API-`AbortSignal`, danach ergeben sich serverseitig `ok=false`, `kind=aborted`, `delivered=false` und ein vollständiger Folgeaufruf | harter Prozessabsturz während des Abbruchs; bereits gestartete synchrone Mutationen |
+| MCP/API-Singleton | `node test/mcp-api-supervisor.mjs` | fehlende API wird aus der exakten installierten Dependency gestartet und erreicht Readiness; vorhandene kompatible API und zwei parallele MCP-Starts verwenden dieselbe PID; fremder Portinhaber, andere Paketversion und unerreichbares autoritatives `SSE_API_URL` stoppen fail-closed; stdout bleibt ein echter MCP-stdio-Kanal | absichtlich manipulierter npm-Cache nach abgeschlossener Installation; Betriebssystemstillstand unterhalb von Node-Netzwerkaufrufen |
 | Worker-Queue-Abbruch | `node test/worker-timeout.mjs` | Vorab-Abbruch auch bei voller Queue bleibt `aborted`; eine echte 32er-Belegung liefert `busy`; 31 abgebrochene wartende Aufträge geben ihre Plätze vor Abschluss des Vorderauftrags frei und starten keinen Worker | Betriebssystemstillstand innerhalb eines bereits gestarteten Worker-/Cleanup-Prozesses |
 | Worker-Prozessbaum-Cleanup | `node test/worker-inherited-pipe.mjs` | ein echter Windows-Enkelprozess hält nach beendetem Parent geerbte stdout/stderr-Handles offen; fehlendes `close` verriegelt nach beiden Cleanup-Wächtern die globale Worker-Laufzeit mit `worker-isolation-lost`, bevor selbst ein bereits abgebrochener Folgeaufruf die Queue betreten kann | Identifikation oder automatische Beseitigung eines bereits vom beendeten Parent entkoppelten fremden Prozessbaums |
 | Sitzungsweiter Worker-Controller | `node test/worker-controller-lock-contract.mjs` | fester `Local\`-Mutex, zero-wait `busy` vor Desktop/Build/Dispatch, exakte statische Bypaesse, Policy-Praezedenz, graceful Release, Typkollision fail-closed, beobachtete Aufgabe mit offenem Peer-Handle und die bewusst nicht behauptete dauerhafte Crash-Erkennung ohne Peer-Handle | persistente Crash-Taint ueber das Ende aller Kernel-Handles; menschliche Interferenz (separate Input-/Foreground-Waechter) |
@@ -72,9 +73,9 @@ nie automatisch verworfen.
 | Statische API-Vertragsdokumente | `node test/api-static-document-cache.mjs` | Discovery und OpenAPI werden beim Serverstart je einmal größenbegrenzt als UTF-8 serialisiert; wiederholte GETs bleiben byteidentisch und selbst eine spätere interne Mutation eines nur flach eingefrorenen Schemaobjekts verändert den veröffentlichten Snapshot nicht | Signatur oder langfristiges HTTP-Caching über Prozessneustarts; Einzeloperations-Discovery bleibt dynamisch serialisiert |
 | UStVA-Kompositionsbudget | `node test/ustva-contract.mjs` | Seiten-Read und gebundene Mutation verwenden eine deterministisch geprüfte absolute Deadline; verbrauchtes Restbudget und Vorab-Abbruch verhindern jeden Folge-Workerstart | Scheduler-/Kernelstillstand innerhalb eines bereits gestarteten Workeraufrufs |
 | Folgejahr-UStVA-Live | `npm run test:live-ustva-next-year` | Profil 2025 öffnet eine bytegleiche `GewErfass2026`-Wegwerfkopie ausschließlich mit `einurvor`; MCP→HTTP-API→Worker liefert die UStVA-Übersicht 2026, lässt ELSTER gesperrt, verändert den Dirty-State beim reinen `ustva_read` nicht weiter und hält die Testkopie über SHA-256 unverändert | UStVA-Mutationen 2026, Speichern, ELSTER oder andere 2026er Fallarten; die Navigation zur automatisch erzeugten UStVA kann SSE-intern bereits `ungespeichert` setzen |
-| Windows-CI und npm-Publish | `node test/github-workflow-contract.mjs` | `.node-version` entspricht der gepinnten Build-Runtime; die normale CI bleibt read-only. Der getrennte manuelle npm-Workflow ist an `v<version>` gebunden, verwendet nur Contents-Lesen plus OIDC, keine npm-Secrets, npm 11.19.0, Vollsuite und Clean-install und veröffentlicht MCP vor API | ein grüner GitHub-Hosted-Windows-Lauf für den tatsächlich zu mergenden SHA; erster manueller npm-Bootstrap und danach echter OIDC-Publish vom Release-Tag |
-| Release-Artefakte | `node test/dist-artifacts-contract.mjs`, `node test/native-build-cache.mjs`, `node test/npm-package-contract.mjs` | quellbasiertes Pruning stoppt vor Fremddateien; der Native-Build verwendet nur eine quell-, DLL-hash- und vollständig oberflächengeprüfte Binärdatei wieder und baut nach Quelländerung, DLL-Manipulation, unvollständiger Assembly, strengem Schemafehler oder fehlender DLL rückstandsfrei neu; der API-Tarball enthält Windows-Runtime/Profile, aber keinen MCP-Server, der MCP-Tarball weder PowerShell noch Profile | byteidentischer frischer Native-Neubau auf unterschiedlichen Build-Hosts; Signatur/Authentizität veröffentlichter Registry-Artefakte |
-| npm-Clean-install | `npm run test:npm-clean-install` | packt API und MCP als echte Tarballs, installiert beide in einen neuen Windows-x64-Präfix, prüft die Trennung und startet alle drei npm-Bin-Einstiege mit `--help` | veröffentlichter Registry-Download und echter Lauf mit installierter SSE |
+| Windows-CI und npm-Publish | `node test/github-workflow-contract.mjs` | `.node-version` entspricht der gepinnten Build-Runtime; die normale CI bleibt read-only. Der getrennte manuelle npm-Workflow ist an `v<version>` gebunden, verwendet nur Contents-Lesen plus OIDC, keine npm-Secrets, npm 11.19.0, Vollsuite und Clean-install und veröffentlicht die API vor dem von ihr exakt abhängigen MCP | ein grüner GitHub-Hosted-Windows-Lauf für den tatsächlich zu mergenden SHA; erster manueller npm-Bootstrap und danach echter OIDC-Publish vom Release-Tag |
+| Release-Artefakte | `node test/dist-artifacts-contract.mjs`, `node test/native-build-cache.mjs`, `node test/npm-package-contract.mjs` | quellbasiertes Pruning stoppt vor Fremddateien; der Native-Build verwendet nur eine quell-, DLL-hash- und vollständig oberflächengeprüfte Binärdatei wieder und baut nach Quelländerung, DLL-Manipulation, unvollständiger Assembly, strengem Schemafehler oder fehlender DLL rückstandsfrei neu; der API-Tarball enthält Windows-Runtime/Profile, aber keinen MCP-Server; der Windows-x64-MCP-Tarball enthält den Supervisor, keine Runtime-Duplikate und eine exakte normale API-Dependency | byteidentischer frischer Native-Neubau auf unterschiedlichen Build-Hosts; Signatur/Authentizität veröffentlichter Registry-Artefakte |
+| npm-Clean-install | `npm run test:npm-clean-install` | packt beide Tarballs, installiert in einem neuen Windows-x64-Präfix aber nur das MCP-Tarball und beweist über eine lokale Registry, dass npm die exakt passende API automatisch installiert; direkte API-Installation bleibt separat geprüft; alle Bin-Einstiege starten mit `--help` | veröffentlichter Registry-Download und echter Lauf mit installierter SSE |
 | Große Schreibreise | `npm run test:live-journey` | eine zusammenhängende Reise auf einer Wegwerfkopie: Tabellenschreibzyklus mit Kontrollsummen-Readback, hashgebundenes Speichern mit Datei- und Neustart-Persistenzbeweis, UStVA-Schreibquartett mit Zahllast-Kontrolle, CSV-Export bis zur Datei, Menü-/Fenster-/Dialogverwaltung, Speichern unter und Archiv | VaSt-Dialogwege, Steuertipps-Center |
 | Einzelprofil-Live | `npm run test:live-muster` | gezielter profilabhängiger Musterlauf für Diagnose | das jeweils andere Profil |
 | Focusless | `npm run test:hidden-focusless` | ein konkret profiliertes 2025-Feld mit Feld-/Summen-/Dirty-State-Readback; im strikten Gate enthalten | andere Felder; 2024; sichtbare Tabellen-/Combo-Pfade |
@@ -545,6 +546,18 @@ Herkunftskopfzeilen entfernt, bevor die API sie sieht.
 
 ## /healthz unter Hashlast, 2026-08-23
 
+Der aktuelle Health-Vertrag enthält neben `ok`, `apiVersion`, `inFlight` und
+`prewarm` auch `packageName`, `packageVersion`, `processId`, die zufällige
+`instanceId` und den pfadfreien `configurationFingerprint`. API-Vertrags-
+und OpenAPI-Tests binden diese Pflichtfelder; der MCP-Supervisortest weist
+falschen Namen, falsche Releaseversion, unvollständige Identität und fremde
+Nicht-API-Antworten ab. Supervisor-Tests belegen zusätzlich die Ablehnung einer
+anderen Ressourcenbindung, einen vom Default-Config gewählten Port und den
+erneuten Identitätscheck nach einem Prozesswechsel am selben Port. Ein falscher
+Instanz-Header wird vor dem Executor mit Konflikt abgewiesen. Die PID ist nur
+Identitätsinformation und wird in der Produktion nie automatisch zum Beenden
+verwendet.
+
 Die API sagt zu, `/healthz` melde den Fortschritt jederzeit. Weil das
 Workspace-Hashing synchron mit `readSync` liest, stand die Vermutung im Raum,
 ein grosses Listing blockiere die Ereignisschleife und mache diese Zusage
@@ -657,10 +670,10 @@ der Version beta.21 werden also gefangen.
 
 ## Installations- und Live-Lauf in einer sauberen VM, 2026-08-23
 
-Ein zweiter VM-Lauf prüfte den heutigen, setup-freien Weg: sauberer
+Ein zweiter VM-Lauf prüfte den damaligen, setup-freien Installationsweg: sauberer
 VirtualBox-Snapshot, Windows 11 x64, SteuerSparErklärung 2025 Build `31.0.1.0`,
 Node 24.12.0, npm 11.6.2, git 2.55.0 — ohne vorbereitete API, ohne Token, ohne
-`config.json`. Die vier Befehle aus der Installationsanleitung liefen wörtlich
+`config.json`. Die damals dokumentierten vier Befehle liefen wörtlich
 durch: beide npm-Pakete, `skills add`, `claude mcp add`, API-Start. Die API
 antwortete zwei Sekunden nach dem Start auf `/healthz`, legte `workspace/` und
 `logs/` selbst an und brauchte keine Konfigurationsdatei.

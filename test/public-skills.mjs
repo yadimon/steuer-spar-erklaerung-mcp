@@ -67,8 +67,8 @@ assert(main.includes("steuer-spar-erklaerung-call") && main.includes("--args-fil
 assert(main.includes("Die API kennt keine Anmeldung") && main.includes("mit 403 ab"),
   "Hauptskill muss die Herkunftspruefung statt eines Tokens nennen.");
 assert(
-  main.includes("Der MCP-Eintrag enthält keinen `--config`-Pfad")
-    && main.includes("`--config` gehört ausschließlich"),
+  main.includes("Der MCP-Eintrag enthält keinen `--config`-Parameter")
+    && main.includes("`SSE_API_CONFIG`") && main.includes("bleibt autoritativ"),
   "Der Hauptskill muss API-Konfiguration und MCP-Startargumente sauber trennen.",
 );
 assert(main.includes("describe <operation>") && main.includes("discovery"));
@@ -123,7 +123,8 @@ const firstRun = readFileSync(
 assert(firstRun.includes("der richtige Steuerfall") && firstRun.includes("vollständige Liste der Belegordner"));
 assert(firstRun.includes("höchstens 100") && firstRun.includes("Durchsuche niemals das gesamte Laufwerk"));
 assert(
-  firstRun.includes("beiden veröffentlichten npm-Pakete in den Arbeitsordner installieren")
+  firstRun.includes("nur das\n  veröffentlichte MCP-Paket in den Arbeitsordner installieren")
+    && firstRun.includes("API-Dependency installiert npm automatisch")
     && !/Portable/u.test(firstRun),
   "Der First-Run-Plan muss den npm-Weg nennen und darf kein Portable-Release mehr anbieten.",
 );
@@ -246,8 +247,9 @@ assert(installation.includes("Es gibt **kein Setup-Programm**"),
   "Die Anleitung muss den Wegfall des Setups ausdruecklich sagen.");
 assert(installation.includes("Eine `config.json` ist **optional**") && installation.includes("settings.md"),
   "Die Anleitung muss die optionale Konfiguration und die Prosa-Einstellungen nennen.");
-assert(installation.includes("_npx") && installation.includes("Es laeuft bereits eine SSE-API"),
-  "Die Anleitung muss npx-Cache-Falle und den Portkonflikt als Stopp nennen.");
+assert(installation.includes("_npx") && installation.includes("fremde API")
+  && installation.includes("niemals beenden, ersetzen oder übergehen"),
+  "Die Anleitung muss npx-Cache-Falle und fremden Portinhaber als Stopp nennen.");
 assert(
   installation.includes("/v1/openapi.json") && installation.includes("/v1/operations")
     && installation.includes("Die API selbst dokumentiert sich"),
@@ -255,24 +257,37 @@ assert(
 );
 assert(installation.includes("enabled_tools") && installation.includes("required = true"),
   "Die Anleitung muss die Codex-Kataloggrenze nennen.");
+const enabledToolsBlock = /enabled_tools = \[([\s\S]*?)\n  \]/u.exec(installation)?.[1] ?? "";
 for (const requiredReceiptTool of [
   "sse_menu_click",
-  "sse_receipt_manager_action",
   "sse_receipt_manager_list",
-  "sse_receipt_manager_read",
-  "sse_receipt_manager_import",
-  "sse_receipt_manager_delete",
   "sse_snapshot",
   "sse_window_close",
 ]) {
   assert(
-    installation.includes(`"${requiredReceiptTool}"`),
-    `Die Codex-Kernliste muss das fuer den BelegManager-Smoke erforderliche Werkzeug ${requiredReceiptTool} freigeben.`,
+    enabledToolsBlock.includes(`"${requiredReceiptTool}"`),
+    `Die Codex-Kernliste muss das aktive BelegManager-Werkzeug ${requiredReceiptTool} freigeben.`,
   );
 }
-assert(installation.includes("npm i @yadimon/steuer-spar-erklaerung-api")
-  && installation.includes("Execution Policy"),
-  "Die Anleitung muss den npm-Weg und die PowerShell-Falle nennen.");
+for (const blockedReceiptTool of [
+  "sse_receipt_manager_action",
+  "sse_receipt_manager_read",
+  "sse_receipt_manager_update",
+  "sse_receipt_manager_import",
+  "sse_receipt_manager_classification_options",
+  "sse_receipt_manager_classify",
+  "sse_receipt_manager_bulk_upsert",
+  "sse_receipt_manager_link",
+  "sse_receipt_manager_delete",
+]) {
+  assert(
+    !enabledToolsBlock.includes(`"${blockedReceiptTool}"`),
+    `Die Codex-Kernliste darf das gesperrte Werkzeug ${blockedReceiptTool} nicht in den Modellkontext laden.`,
+  );
+}
+assert(installation.includes("npm i @yadimon/steuer-spar-erklaerung-mcp")
+  && installation.includes("exakte Dependency") && installation.includes("Execution Policy"),
+  "Die Anleitung muss den MCP-Dependency-Weg und die PowerShell-Falle nennen.");
 assert(installation.includes("## Kopierbare Prompts") && installation.includes("$steuer-spar-erklaerung"));
 assert(installation.includes("additiven MCP-Merges") && installation.includes("fragt innerhalb dieser Grenzen aber nicht erneut"));
 assert(installation.includes("`Standard-Setup ausführen`") && installation.includes("`Standard-Prüflauf ausführen`"));
@@ -280,9 +295,9 @@ assert(installation.includes("hashverifizierte Kopie") && installation.includes(
 assert(installation.includes("MCP-Tool `sse_health`") && installation.includes("`ok=true`"));
 assert(installation.includes("Technisches Setup bereit; Client-Verifikation nach Neustart") && installation.includes("Prompt 2 übernimmt"));
 assert(
-  installation.includes("steuer-spar-erklaerung-api.cmd --config")
+  installation.includes("--selftest")
     && /steuer-spar-erklaerung-mcp[\\/]dist[\\/]index\.js/u.test(installation),
-  "Die Anleitung muss den API-Start und den MCP-Einstieg als .js zeigen.",
+  "Die Anleitung muss Singleton-Selftest und MCP-Einstieg als .js zeigen.",
 );
 assert(
   installation.includes("CVE-2024-27980") && installation.includes("Nicht den `.cmd`-Shim"),
@@ -314,7 +329,7 @@ assert.equal(
   "README und kanonische Anleitung enthalten unterschiedliche Installationsprompts.",
 );
 assert(
-  fencedPrompt(readme, "Richte SteuerSparErklärung").includes("Standard-Setup ausführen: lokale API plus MCP.")
+  fencedPrompt(readme, "Richte SteuerSparErklärung").includes("Standard-Setup ausführen: MCP mit automatisch verwalteter lokaler API.")
     && !fencedPrompt(readme, "Richte SteuerSparErklärung").includes("sse_health")
     && fencedPrompt(readme, "Richte SteuerSparErklärung").length < 600,
   "Der öffentliche Installationsprompt muss kurz bleiben und darf keine unmögliche Tool-Verifikation vor dem Neustart verlangen.",
@@ -342,15 +357,16 @@ assert(!readme.includes("--global --copy --yes"),
   "README darf den globalen Skill-Weg nicht als kopierbaren Standard ausgeben.");
 assert(readme.includes("https://www.skills.sh/docs/cli"), "README verlinkt die offizielle skills-CLI nicht.");
 assert(readme.includes("Node.js 22 oder neuer mit npm"), "README verschweigt die npx-Voraussetzung.");
-assert(readme.includes("npm.cmd install @yadimon/steuer-spar-erklaerung-api@latest @yadimon/steuer-spar-erklaerung-mcp@latest"));
+assert(readme.includes("npm.cmd install @yadimon/steuer-spar-erklaerung-mcp@latest")
+  && readme.includes("installiert sie automatisch"));
 assert(
-  readme.includes("steuer-spar-erklaerung-api.cmd --config")
+  readme.includes("exakt passende API unsichtbar gestartet")
     && readme.includes("Ein Einrichtungsprogramm gibt es nicht"),
-  "README muss den API-Start statt eines Setup-Programms zeigen.",
+  "README muss den API-Singleton statt eines Setup-Programms zeigen.",
 );
 assert(readme.includes("npx.cmd") && readme.includes("PowerShell-Execution-Policy"));
 assert(readme.toLowerCase().includes("installiere oder aktualisiere den skill") && readme.includes("gecachte Webansicht"));
-assert(readme.includes("### Dauerhaftes Setup mit zwei Prompts") && /einem grünen\s+`health`/u.test(readme));
+assert(readme.includes("### Dauerhaftes Setup mit zwei Prompts") && /grünen\s+`dist\/index\.js --selftest`/u.test(readme));
 assert(readme.includes("### Robuster isolierter Prüflauf"));
 assert(
   readme.includes("Starte die lokale API im Vordergrund über npx.")
@@ -378,7 +394,8 @@ assert(readme.includes("bedingten additiven MCP-Merges")
 assert(readme.includes("OpenCode bleibt ein sekundärer, best-effort Client") && readme.includes("Claude Code CLI"));
 assert(/des Downloads, der\s+Installation in den Ordner/u.test(readme)
   && /Starte den\s+lokalen Agenten dann einmal neu/u.test(readme));
-assert(readme.includes("MCP als optionale Produktfunktion") && readme.includes("Agenten-Standard enthält MCP"));
+assert(readme.includes("MCP als optionale Produktfunktion")
+  && readme.includes("installiert die passende API als exakte Dependency"));
 assert(
   !/mcpServers[\s\S]{0,400}steuer-spar-erklaerung-mcp\.cmd/u.test(readme),
   "Das README darf keinen .cmd-Shim als MCP-Befehl zeigen; ein Client kann ihn nicht starten.",
@@ -394,7 +411,7 @@ assert(
 );
 assert(
   installation.includes("## Aktualisieren")
-    && installation.includes("@yadimon/steuer-spar-erklaerung-api@latest")
+    && installation.includes("@yadimon/steuer-spar-erklaerung-mcp@latest")
     && installation.includes("## Entfernen")
     && installation.includes("Nutzerdaten"),
   "Die kanonische Anleitung muss Update und datenerhaltende Deinstallation abdecken.",

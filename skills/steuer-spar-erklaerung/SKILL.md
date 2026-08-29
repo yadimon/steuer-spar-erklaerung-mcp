@@ -94,10 +94,8 @@ Beginne jeden Auftrag mit genau einem Aufruf von `sse_health`. Sein Ergebnis
 entscheidet den weiteren Weg, und zwar ohne Rückfrage:
 
 1. **`ok=true`** — MCP und API laufen. Arbeite normal weiter.
-2. **MCP-Tool existiert, meldet aber die API als nicht erreichbar** — die
-   API läuft nicht. Starte sie im Ordner in einem eigenen offenen Terminal
-   (`node_modules\.bin\steuer-spar-erklaerung-api.cmd --config <absolut>\config.json`)
-   und wiederhole `sse_health` höchstens zweimal im Abstand von zwei Sekunden.
+2. **MCP-Tool existiert, meldet aber einen API-Startfehler** — MCP übernimmt oder startet seine exakte API-Dependency selbst. Melde den redigierten Fehler.
+   Starte keine zweite API und beende keinen Prozess anhand seines Namens. Bei autoritativem `SSE_API_URL` gibt es keinen Fallback.
 3. **Es gibt gar kein `sse_*`-Tool** — der MCP-Server ist beim Client nicht
    angemeldet. Wechsle in den Einrichtungsmodus, arbeite die kanonische Anleitung `https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md`
    ab und komm danach hierher zurück. Lies in diesem Zustand keine Steuerdaten.
@@ -107,11 +105,12 @@ nach. Melde dann „Technisches Setup bereit; Client-Verifikation nach Neustart
 offen." und verlange genau einen Neustart, statt einen Tool-Erfolg zu behaupten.
 
 ## Architektur richtig verwenden
-
 Die lokale HTTP-API auf Loopback ist der universelle Kern. Nur sie kennt
 `SSE.exe`, lokale Pfade, Arbeitsbereich, Falldateien und UI Automation.
 
-MCP ist ein dünner Wrapper darüber; sein Prozess kennt nur die API-URL.
+MCP ist ein dünner Wrapper darüber. Nur sein Supervisor kennt die eigene exakte
+API-Dependency und `SSE_API_CONFIG`; Pfade daraus hasht er nur zur Identität.
+Er liest keine Ressourceninhalte und gibt die Pfade nicht über MCP aus.
 Fehlt MCP oder unterstützt der Agent kein MCP, verwende dieselben
 Operationen direkt über die API-CLI. Wechsel während einer möglicherweise
 begonnenen Schreiboperation nie still den Transport; bei unklarem Zustand stoppen.
@@ -130,8 +129,9 @@ fremden `Host` mit 403 ab, damit keine Webseite im Browser des Nutzers die
 Steuersoftware steuern kann. Verwende trotzdem die ausgelieferte CLI statt
 eigener HTTP-Befehle: sie kennt Argumentschemata, Grenzen und Ergebnisverträge.
 
-Der MCP-Eintrag enthält keinen `--config`-Pfad: Er startet `node.exe` mit dem MCP-`dist/index.js` und kennt nur die API-URL. `--config` gehört ausschließlich zum separat gestarteten API-Prozess. Erfinde bei einem unbekannten Arbeitsbereich
-keinen Konfigurationspfad; lies `health` und `workspace_status`.
+Der MCP-Eintrag enthält keinen `--config`-Parameter. Für einen eigenen Arbeitsbereich erhält er einen absoluten `SSE_API_CONFIG`-Pfad;
+`SSE_API_URL` ist nur für eine separat verwaltete Loopback-API und bleibt autoritativ.
+Erfinde keinen Konfigurationspfad; lies `health` und `workspace_status`.
 
 Für direkte API-Aufrufe bevorzuge die ausgelieferte
 `steuer-spar-erklaerung-call`-CLI. Beginne bei einer bekannten Einzelaktion
@@ -285,9 +285,9 @@ Fehlt eine funktionierende Einrichtung und wurde nicht ausdrücklich der
 NPX-Kurzweg gewählt, arbeite die kanonische Anleitung
 `https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md`
 ab, statt die Einrichtung frei zu improvisieren. Es gibt kein Setup-Programm:
-Ordner anlegen, zwei npm-Pakete und den Skill installieren, API starten,
-MCP-Server beim Client anmelden.
-Verlange danach einen grünen CLI-Aufruf `health` und bei ausdrücklich
+Ordner anlegen, MCP samt exakter API-Dependency und den Skill installieren,
+MCP beim Client anmelden. Ein API-Terminal gehört nicht zum Standardweg.
+Verlange danach einen grünen `--selftest` und bei ausdrücklich
 gewähltem MCP zusätzlich Serverliste plus echten Aufruf von `sse_health` mit
 strukturiertem `ok=true`; „connected“ oder ein Handshake allein genügt nicht.
 Dieser Nachweis muss im MCP-Modus ein tatsächlicher MCP-Tool-Aufruf sein.

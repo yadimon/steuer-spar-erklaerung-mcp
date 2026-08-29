@@ -4,9 +4,10 @@ Diese Anleitung ist der kanonische Einrichtungsvertrag. Ein Mensch kann die
 Befehle selbst ausführen; ein lokaler AI-Agent darf denselben Ablauf nach einem
 kurzen Plan übernehmen.
 
-Es gibt **kein Setup-Programm**. Installieren heißt: zwei npm-Pakete und einen
-Skill in einen Ordner legen, die API starten, den MCP-Server beim Client
-anmelden.
+Es gibt **kein Setup-Programm**. Im Standardweg installierst du ein npm-Paket
+und einen Skill und meldest den MCP-Server beim Client an. Das MCP-Paket bringt
+die exakt passende API als normale npm-Dependency mit und startet sie bei
+Bedarf; eine bereits laufende kompatible API wird wiederverwendet.
 
 ## Die ganze Installation
 
@@ -14,19 +15,16 @@ anmelden.
 mkdir C:\mein-steuer-ai
 cd C:\mein-steuer-ai
 
-npm i @yadimon/steuer-spar-erklaerung-api
 npm i @yadimon/steuer-spar-erklaerung-mcp
 
 npx -y skills add yadimon/steuer-spar-erklaerung-mcp `
   --skill steuer-spar-erklaerung --agent codex --copy --yes
 
 codex mcp add steuer-spar-erklaerung -- (Get-Command node).Source C:\mein-steuer-ai\node_modules\@yadimon\steuer-spar-erklaerung-mcp\dist\index.js
-
-.\node_modules\.bin\steuer-spar-erklaerung-api.cmd --config C:\mein-steuer-ai\config.json
 ```
 
-Der letzte Befehl bleibt im Vordergrund; das Terminal offen lassen. Danach den
-Client einmal neu starten, damit er den MCP-Server lädt.
+Danach den Client einmal neu starten. Ein separates API-Terminal ist im
+Standardweg nicht nötig.
 
 Für Claude Code statt Codex `--agent claude-code` und
 `claude mcp add --scope project steuer-spar-erklaerung -- <node.exe> <derselbe index.js>`.
@@ -58,22 +56,23 @@ So sieht der Ordner am Ende aus:
 
 ```text
 C:\mein-steuer-ai\
-  node_modules\            API und MCP
+  node_modules\            MCP und seine exakt passende API-Dependency
   .claude\skills\          der Skill bei --agent claude-code
   .agents\skills\          der Skill bei --agent codex
   skills-lock.json         welche Skillversion installiert ist
   .mcp.json                der MCP-Eintrag bei claude mcp add --scope project
-  logs\                    API-Protokoll
-  workspace\
+  config.json              nur bei bewusst eigenem Arbeitsbereich
+  workspace\               nur bei bewusst eigenem Arbeitsbereich
     settings.md            Belegquellen und Regeln in Prosa
     tracking.md            Belegprotokoll
     documents\ results\ backups\
 ```
 
-Eine `config.json` ist **optional**. Ohne sie gelten die Standardwerte:
-Loopback `127.0.0.1`, Port `43127`, Profil `2025`, Arbeitsbereich neben dem mit
-`--config` benannten Pfad. Nötig wird die Datei erst für einen abweichenden
-Port, ein festgepinntes `sseExecutable` oder einen festen `caseDir`.
+Eine `config.json` ist **optional**. Ohne sie gelten Loopback `127.0.0.1`, Port
+`43127`, Profil `2025` und der sichere Arbeitsbereich unter `%LOCALAPPDATA%`.
+Für einen eigenen Arbeitsbereich setzt du beim MCP-Server `SSE_API_CONFIG` auf
+einen **absoluten** Konfigurationspfad. Die Datei darf beim ersten Start fehlen;
+der benannte Ordner bestimmt dann Arbeitsbereich und Logs.
 
 ## Es gibt kein Token
 
@@ -118,23 +117,26 @@ eigene Anmeldung in `claude` voraus — eine Anmeldung in Claude Desktop
 authentifiziert sie nicht. Kopiere nie Binärdateien oder Anmeldedaten aus
 `LocalCache` als Umgehung.
 
-## 1. Ordner anlegen und Runtime installieren
+## 1. Ordner anlegen und MCP installieren
 
 ```powershell
 mkdir C:\mein-steuer-ai
 cd C:\mein-steuer-ai
 
-npm i @yadimon/steuer-spar-erklaerung-api
 npm i @yadimon/steuer-spar-erklaerung-mcp
 ```
 
 Meckert PowerShell über blockierte Skripte, `npm.cmd` statt `npm` verwenden;
 ändere dafür nicht die systemweite Execution Policy.
 
-Vor der Installation beide Registry-Versionen lesen — sie müssen gleich sein:
+Die API nicht zusätzlich installieren: npm löst die exakte Dependency des
+MCP-Pakets automatisch auf. Das MCP-Manifest und der Start prüfen denselben
+Paketnamen und exakt dieselbe Releaseversion; `postinstall` und
+Laufzeitinstallation gibt es nicht.
+
+Die veröffentlichte MCP-Version lässt sich vorab so lesen:
 
 ```powershell
-npm view @yadimon/steuer-spar-erklaerung-api version
 npm view @yadimon/steuer-spar-erklaerung-mcp version
 ```
 
@@ -154,31 +156,69 @@ Ohne `npx skills` lädt der Agent das Repository-ZIP vom kanonischen Repository,
 prüft Quelle und Commit und kopiert nur den vollständigen Ordner
 `skills/steuer-spar-erklaerung` samt `references/`. Keine Spiegelquelle.
 
-## 3. API starten
+## 3. API-Lebenszyklus im Standardweg
 
-```powershell
-.\node_modules\.bin\steuer-spar-erklaerung-api.cmd --config C:\mein-steuer-ai\config.json
-```
+Beim ersten MCP-Start wird zuerst die konfigurierte Loopback-Adresse geprüft.
+Läuft dort bereits die exakt passende SSE-API, verwendet MCP diesen lokalen
+Singleton. Ist der Port frei, startet MCP die mitinstallierte API unsichtbar,
+wartet auf Readiness und hält stdout vollständig für das MCP-stdio-Protokoll
+frei. Auch zwei gleichzeitige MCP-Starts hinterlassen höchstens diese eine API.
 
-Das ist der ganze Einrichtungsschritt. Beim ersten Start legt die API
-`workspace\` mit `documents\`, `results\`, `backups\` sowie `logs\` an und ist
-sofort erreichbar. Die Datei `config.json` muss dabei **nicht existieren** —
-`--config` benennt nur, wo der Ordner liegt, und verlangt einen **absoluten**
-Pfad. Ohne `--config` liegt der Arbeitsbereich unter `%LOCALAPPDATA%`, und der
-Ordner wäre nicht mehr eigenständig.
+Eine fremde, nicht eindeutig identifizierbare oder anders versionierte API auf
+dem Port ist ein klarer Startfehler. MCP beendet oder ersetzt sie nie. Die
+automatisch gestartete API darf nach dem Ende eines MCP-Clients weiterlaufen
+und wird beim nächsten Start wiederverwendet.
 
-Das Terminal bleibt offen; Strg+C beendet die API. Für einen bestimmten
-Steuerfall zusätzlich `--case-dir <absoluter Ordner>` anhängen.
+`SSE_API_URL` ist autoritativ: Ist sie ausdrücklich gesetzt, wird genau diese
+Loopback-URL übernommen oder der Start bricht ab. Es gibt dann keinen stillen
+Fallback auf Port `43127` und keinen Autostart an einer anderen Adresse.
 
-Die API nie über `npx` aus dem flüchtigen `_npx`-Cache dauerhaft anmelden:
-dessen Pfade landen sonst in Startpunkten und zeigen später ins Leere.
+Für direkte API-Nutzung bleibt das API-Paket separat installierbar. Dieser
+bewusste Vordergrundweg und der NPX-Kurzweg stehen im
+[API-Paket-README](../packages/api/README.md); einen MCP-Eintrag nie auf den
+flüchtigen `_npx`-Cache richten.
 
 ## 4. MCP an den Client binden
 
 Der MCP-Eintrag besteht aus der absoluten `node.exe` und dem absoluten Pfad zu
 `dist/index.js` des MCP-Pakets — ohne weitere Argumente. Am Standardport
-`43127` braucht er keine Umgebungsvariable; nur für einen ausdrücklich
-abweichenden API-Port erhält dieser Eintrag ein passendes `SSE_API_URL`.
+`43127` braucht er keine Umgebungsvariable. Optional erhält er genau eine der
+beiden Einstellungen:
+
+- `SSE_API_CONFIG=C:\mein-steuer-ai\config.json` wählt einen absoluten
+  Konfigurationspfad für die automatisch gestartete API;
+- `SSE_API_URL=http://127.0.0.1:<port>` bindet autoritativ eine bewusst separat
+  verwaltete API und deaktiviert jeden MCP-Autostart.
+
+Ein minimales optionales `C:\mein-steuer-ai\config.json` für einen eigenen
+Arbeitsbereich sieht so aus; nicht genannte Dokument-, Ergebnis- und
+Backupordner liegen getrennt unter `workspaceDir`:
+
+```json
+{
+  "profileId": "2025",
+  "host": "127.0.0.1",
+  "port": 43127,
+  "workspaceDir": "C:\\mein-steuer-ai\\workspace"
+}
+```
+
+Die Einstellung wird direkt am stdio-Eintrag übergeben. Für Codex lautet die
+Variante des unten stehenden Befehls:
+
+```powershell
+codex mcp add --env SSE_API_CONFIG=C:\mein-steuer-ai\config.json steuer-spar-erklaerung -- (Get-Command node).Source C:\mein-steuer-ai\node_modules\@yadimon\steuer-spar-erklaerung-mcp\dist\index.js
+```
+
+Für Claude Code:
+
+```powershell
+claude.cmd mcp add --scope project steuer-spar-erklaerung -e SSE_API_CONFIG=C:\mein-steuer-ai\config.json -- (Get-Command node).Source C:\mein-steuer-ai\node_modules\@yadimon\steuer-spar-erklaerung-mcp\dist\index.js
+```
+
+Für eine bewusst separat verwaltete API kann in denselben Befehlen stattdessen
+`SSE_API_URL=http://127.0.0.1:<port>` stehen. Nie beide Einstellungen
+gleichzeitig verwenden.
 
 **Nicht den `.cmd`-Shim aus `node_modules\.bin` eintragen.** Seit Node 20
 verweigert `spawn` das Starten von `.cmd`- und `.bat`-Dateien ohne Shell
@@ -237,31 +277,29 @@ mergt und keine anderen Einträge löscht. Niemals die ganze Datei ersetzen.
     "sse_checker_close", "sse_screenshot", "sse_snapshot", "sse_subpages",
     "sse_table_read", "sse_find", "sse_positions", "sse_click",
     "sse_click_point", "sse_read_full", "sse_result_details",
-    "sse_menu", "sse_menu_click", "sse_receipt_manager_action",
-    "sse_receipt_manager_list", "sse_receipt_manager_read",
-    "sse_receipt_manager_update", "sse_receipt_manager_import",
-    "sse_receipt_manager_classification_options",
-    "sse_receipt_manager_classify", "sse_receipt_manager_bulk_upsert",
-    "sse_receipt_manager_link", "sse_receipt_manager_delete",
+    "sse_menu", "sse_menu_click", "sse_receipt_manager_list",
     "sse_window_close", "sse_close"
   ]
   ```
 
-Die neun BelegManager-Werkzeuge ausser `sse_receipt_manager_list` bleiben aus
-Vertrags- und Discovery-Kompatibilitaetsgruenden in dieser Liste. Im aktuellen
-Hintergrundbetrieb weist `sse_capabilities` sie als
+Die neun BelegManager-Werkzeuge ausser `sse_receipt_manager_list` gehören
+bewusst nicht in diese Kernliste. Aus Vertrags- und Discovery-Kompatibilität
+bleiben sie im vollständigen Katalog sichtbar. Im aktuellen Hintergrundbetrieb
+weist `sse_capabilities` sie als
 `interactionRequirement="foreground-required"` und `availability="blocked"`
-aus. Sie stoppen vor Workerstart und UI-Aenderung; es gibt keinen Opt-in und
+aus. Sie stoppen vor Workerstart und UI-Änderung; es gibt keinen Opt-in und
 keinen zulässigen Maus-/Tastatur-Workaround.
 
 Die bloße Existenz einer JSON-Datei beweist keine geladene MCP-Verbindung.
 
 ## 5. Installation beweisen
 
-Solange die API läuft, beweist ein Aufruf sie sofort:
+`--selftest` verwendet denselben Singleton-Pfad wie ein normaler MCP-Start: Es
+übernimmt die exakt passende API oder startet sie bei Bedarf und prüft danach
+deren Health-Vertrag.
 
 ```powershell
-.\node_modules\.bin\steuer-spar-erklaerung-call.cmd health
+node .\node_modules\@yadimon\steuer-spar-erklaerung-mcp\dist\index.js --selftest
 ```
 
 Nach einer neuen oder geänderten Skill-/MCP-Installation kann die laufende
@@ -295,38 +333,33 @@ des Erlaubten und kann nichts zusätzlich freischalten.
 
 ## Aktualisieren
 
-API zuerst mit Strg+C beenden. Danach im Installationsordner die beiden
-Registry-Versionen lesen; sie müssen gleich sein:
+Beende eine laufende Singleton-API bewusst wie unten beschrieben. Aktualisiere
+danach im Installationsordner nur das MCP-Paket; npm ersetzt seine exakt
+gepinnten API-Dependency automatisch:
 
 ```powershell
-npm.cmd view @yadimon/steuer-spar-erklaerung-api version
 npm.cmd view @yadimon/steuer-spar-erklaerung-mcp version
-```
-
-Sind sie gleich, beide Pakete gemeinsam über den unterstützten Kanal
-aktualisieren und den Skill mit demselben Installationsweg erneut kopieren:
-
-```powershell
-npm.cmd install @yadimon/steuer-spar-erklaerung-api@latest @yadimon/steuer-spar-erklaerung-mcp@latest
+npm.cmd install @yadimon/steuer-spar-erklaerung-mcp@latest
 npx.cmd -y skills add yadimon/steuer-spar-erklaerung-mcp `
   --skill steuer-spar-erklaerung --agent <codex|claude-code|opencode> --copy --yes
 ```
 
-Anschließend API und Client neu starten und die Nachweise aus
+Anschließend den Client neu starten und die Nachweise aus
 [Installation beweisen](#5-installation-beweisen) wiederholen. Der absolute
 MCP-Pfad bleibt bei einer lokalen Installation stabil; vor einer Änderung
-des Client-Eintrags trotzdem den tatsächlichen Pfad prüfen. Nicht nur eines
-der beiden npm-Pakete aktualisieren.
+des Client-Eintrags trotzdem den tatsächlichen Pfad prüfen.
 
 ## Entfernen
 
-Zuerst die API beenden. Dann den Server `steuer-spar-erklaerung` mit der
+Zuerst die Singleton-API bewusst beenden. Dann den Server
+`steuer-spar-erklaerung` mit der
 aktuellen Remove-Funktion des jeweiligen Clients entfernen und den erzeugten
 Diff prüfen: Andere MCP-Server müssen unverändert bleiben. Anschließend können
-die beiden Pakete im Installationsordner entfernt werden:
+MCP-Paket im Installationsordner entfernt werden; npm entfernt die API-
+Dependency, wenn kein anderes Paket sie benötigt:
 
 ```powershell
-npm.cmd uninstall @yadimon/steuer-spar-erklaerung-api @yadimon/steuer-spar-erklaerung-mcp
+npm.cmd uninstall @yadimon/steuer-spar-erklaerung-mcp
 ```
 
 Den Installationsordner nicht pauschal löschen. `workspace\`, `logs\`,
@@ -346,6 +379,32 @@ curl.exe http://127.0.0.1:43127/v1/operations        # Argument- und Ergebnissch
 curl.exe http://127.0.0.1:43127/healthz              # Lebendigkeit und laufende Operation
 ```
 
+`/healthz` nennt zusätzlich den exakten Paketnamen, die Paketversion, die
+Prozess-ID, eine zufällige Instanz-ID und einen pfadfreien Fingerprint der
+wirksamen API-Konfiguration. MCP bindet jeden Operations-POST an diese
+Instanz-ID, damit ein Prozesswechsel zwischen Prüfung und Auftrag fail-closed
+endet.
+Der Singleton wird nur bei identischem Release und – sofern MCP ihn über eine
+Konfigurationsdatei verwaltet – identischem Arbeitsbereich übernommen. Eine
+geänderte Konfiguration erfordert das bewusste Beenden der alten API und einen
+neuen MCP-Start.
+
+## Singleton-API bewusst beenden
+
+Beende nie Prozesse anhand eines bloßen Namens wie `node` oder `SSE`. Lies
+zuerst `/healthz`, prüfe dort Paketname und erwartete Releaseversion und notiere
+`processId`. Prüfe anschließend genau diesen PID über
+`Get-CimInstance Win32_Process` und verifiziere, dass seine Kommandozeile auf
+das installierte `@yadimon/steuer-spar-erklaerung-api\dist\api-main.js` zeigt.
+Erst danach ist der gezielte Befehl zulässig:
+
+```powershell
+Stop-Process -Id <VERIFIZIERTE_PROCESS_ID>
+```
+
+Bei fehlender oder widersprüchlicher Identität nicht beenden. Ein direkt im
+Vordergrund gestartetes API-Terminal wird stattdessen mit Strg+C beendet.
+
 ## Kopierbare Prompts
 
 ### Ein Prompt: installieren und prüfen
@@ -359,7 +418,8 @@ Standard-Einrichtung und Prüflauf ausführen.
 ```
 
 `Standard-Einrichtung und Prüflauf ausführen` steht für beides zugleich:
-`Standard-Setup ausführen` mit dem Transport „lokale API plus MCP" und
+`Standard-Setup ausführen` mit dem Transport „MCP mit automatisch verwalteter
+lokaler API" und
 `Standard-Prüflauf ausführen`. Letzteres bestätigt den sicheren Prüfvertrag
 des Hauptskills: hashverifizierte Kopie, sichtbare rein lesende Navigation,
 Report sowie kein Speichern und kein ELSTER. Es bestätigt den oben beschriebenen sicheren
@@ -380,7 +440,7 @@ Richte SteuerSparErklärung vollständig lokal nach
 https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md
 ein. Installiere oder aktualisiere den Skill und verwende die neueste
 veröffentlichte Version.
-Standard-Setup ausführen: lokale API plus MCP.
+Standard-Setup ausführen: MCP mit automatisch verwalteter lokaler API.
 ```
 
 ### Nur prüfen, wenn schon eingerichtet
@@ -395,13 +455,9 @@ Standard-Prüflauf ausführen.
 ## Stopps
 
 Stoppe bei inkompatiblem System, unbekannter Releasequelle, unfreigegebenem
-Profil, fehlender Zustimmung, uneindeutiger Agenten-Konfiguration oder nicht
-erreichbarer API nach einem Erstversuch und höchstens zwei Wiederholungen im
-Abstand von je zwei Sekunden.
-
-Meldet der Start `Es laeuft bereits eine SSE-API`, läuft eine zweite Instanz
-auf demselben Port — vielleicht mit anderem Arbeitsbereich. Nicht fortfahren
-und nicht auf gut Glück beenden: erst klären, welche Instanz gemeint ist.
+Profil, fehlender Zustimmung, uneindeutiger Agenten-Konfiguration oder einem
+redigierten Identitäts-/Versionsfehler. Eine fremde API oder einen fremden
+Portinhaber niemals beenden, ersetzen oder übergehen.
 
 Konfigurationen niemals ungefragt löschen. Berichte konkrete Datei, letzten
 gelesenen Zustand, erzeugte Dateien und genau eine nächste sichere Aktion.
@@ -416,9 +472,9 @@ eigene Anweisung dafür gibt es nicht.
 Codex eine eigene Konfiguration im Ordner. Kostet aber eine eigene Anmeldung,
 weil `auth.json` ebenfalls im CODEX_HOME liegt. Anmeldedaten nicht kopieren.
 
-**Mehrere Ordner?** Möglich; jeder braucht eine eigene `config.json` mit
-eigenem Port und ein passendes `SSE_API_URL` im MCP-Eintrag. Es läuft trotzdem
-immer nur eine Operation je API.
+**Mehrere Ordner?** Möglich; jeder braucht eine absolute `SSE_API_CONFIG` mit
+eigenem Port. `SSE_API_URL` ist nur für eine bewusst separat gestartete API und
+schaltet den Autostart aus. Es läuft trotzdem immer nur eine Operation je API.
 
 **Kein Node.js?** Dann ist dieses Produkt derzeit nicht installierbar. Node.js
 wird nicht eigens dafür installiert; das entscheidet der Mensch.

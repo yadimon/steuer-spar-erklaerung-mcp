@@ -227,15 +227,20 @@ Agent oder eigenes Programm
 
 ### MCP
 
-- MCP ist ausschließlich ein Adapter zur laufenden API.
+- MCP ist fachlich ausschließlich Adapter zur API. Sein eng begrenzter
+  Supervisor darf jedoch die eigene, exakt gepinnte API-Dependency auflösen,
+  identifizieren und bei freiem Loopback-Port starten.
 - Ein MCP-Abbruch wird über den HTTP-Client zur API propagiert, damit deren
   Abort-/Prozessbaum-Cleanup greift; der nächste mutierende Versuch verlangt
   erneut einen gezielten Zustands-Readback.
-- MCP startet keine UI-Worker, durchsucht keinen PC und liest keine lokalen
-  Dateien selbst.
+- MCP startet keine UI-Worker, durchsucht keinen PC und liest keine Steuerfall-
+  oder Arbeitsinhalte. Nur `mcp-api-supervisor.ts` darf das eigene API-Manifest
+  sowie eine ausdrücklich benannte, begrenzte `SSE_API_CONFIG` lesen. Deren
+  Ressourcenpfade werden ausschließlich für den pfadfreien
+  Konfigurationsfingerprint verarbeitet und nie als MCP-Ergebnis ausgegeben.
 - Der Grenzvertrag verfolgt alle transitiven Importe der 17 `mcp-*.ts`-Module.
-  Er erlaubt aus der PC-Umgebung ausschließlich `SSE_API_URL`; Worker-,
-  Workspace- und Produktpfadmodule sind von
+  Er erlaubt aus der PC-Umgebung ausschließlich `SSE_API_URL` und
+  `SSE_API_CONFIG`; Worker-, Workspace- und Produktpfadmodule sind von
   dieser Abhängigkeitsfläche ausgeschlossen.
 - Öffentliche MCP-Schemas akzeptieren Ressourcenreferenzen wie
   `cases:arbeitsfall.Gew2025` oder `documents:rechnung.pdf`, keine absoluten
@@ -260,8 +265,21 @@ Agent oder eigenes Programm
 - Der Prozesseinstieg bleibt minimal; Werkzeugdefinitionen liegen exakt einmal
   in sechs fachlichen Modulen. Ein Quellvertrag begrenzt jedes Modul auf
   24 KiB, ohne den gemeinsamen Laufzeitkatalog zu duplizieren.
-- Ohne erreichbare API liefert MCP eine kurze Diagnose statt lokaler
-  Eigenlogik.
+- Vor dem stdio-Handshake, bei `--selftest` und vor jedem späteren API-Aufruf
+  prüft MCP `/healthz` auf exakten Paketnamen, Releaseversion, API-Version,
+  Prozess-/Instanz-ID und eine syntaktisch gültige Konfigurationsidentität.
+  Jeder POST trägt die unmittelbar geprüfte Instanz-ID, die der Server noch
+  vor dem Executor vergleicht. Bei einer
+  von MCP verwalteten Konfiguration muss deren pfadfreier Fingerprint außerdem
+  exakt zur erwarteten Ressourcenbindung passen. Ist die
+  Standardadresse frei, startet er die Dependency direkt mit `node`,
+  `detached`, `windowsHide` und vollständig ignoriertem stdio. Der Port ist die
+  Rennentscheidung: Ein paralleler Verlierer wartet auf den Sieger und übernimmt
+  ihn. MCP beendet niemals einen Prozess, weder anhand eines Namens noch nach
+  einem verlorenen Rennen.
+- Ein erreichbarer fremder Dienst, eine nicht eindeutige Health-Antwort oder
+  eine andere Paketversion stoppt redigiert und fail-closed. Eine ausdrücklich
+  gesetzte `SSE_API_URL` ist autoritativ und deaktiviert Autostart und Fallback.
 - Spezialwerkzeuge werden bevorzugt. Fehlen sie für ein Control, führt die
   veröffentlichte Fallback-Leiter von einem frischen Zustand über rein lesende
   Entdeckung zu genau einer gebundenen Interaktion samt Readback.
@@ -637,19 +655,23 @@ nie geöffnet“ ist deshalb eine Ablaufzusage der Skills, keine API-Sperre.
 
 ### Nutzerstandard
 
-Es gibt genau einen Distributionsweg: die beiden gleich versionierten
-npm-Pakete. Eine vorhandene passende Installation wird wiederverwendet.
+Es gibt genau einen MCP-Standardweg: Das MCP-Paket besitzt eine normale exakte
+Dependency auf dieselbe Releaseversion des API-Pakets. npm installiert beides
+in einem Schritt; es gibt weder `postinstall` noch Laufzeitinstallation. Eine
+vorhandene passende API-Instanz wird wiederverwendet.
 Node.js 22+ mit npm ist damit Voraussetzung; eine fehlende Laufzeit wird nicht
 ungefragt nachinstalliert.
 
 - installiert wird ohne Administratorrechte, Dienste, geplante Aufgaben oder
   PATH-Änderungen — bevorzugt in einen eigenen Ordner je Einrichtung;
-- Start nur für die aktuelle Arbeit und kontrollierter Shutdown danach;
+- die automatisch gestartete API bleibt als lokaler Singleton über das Ende
+  eines MCP-Clients hinaus wiederverwendbar; bewusster Shutdown erfolgt nur
+  nach Paket-/Versions- und Kommandozeilenprüfung über die exakte Health-PID;
 - das Root-Manifest bleibt ein privater Build-Workspace. Das Windows-x64-
   Paket `@yadimon/steuer-spar-erklaerung-api` enthält API, CLI,
-  PowerShell-/Native-Runtime und Profile; das plattformneutrale Paket
-  `@yadimon/steuer-spar-erklaerung-mcp` enthält nur den PC-blinden
-  Clientgraphen;
+  PowerShell-/Native-Runtime und Profile. Da das MCP-Paket genau davon abhängt,
+  ist auch `@yadimon/steuer-spar-erklaerung-mcp` auf Windows x64 begrenzt; sein
+  fachlicher Toolgraph bleibt PC-blind;
 - der native PDF-Helfer läuft als eigener Windows-PowerShell-Prozess. Er
   flusht das kompakte JSON vor dem direkten Prozessabschluss, damit ein auf
   einzelnen Windows-Builds beobachteter WinRT-Restcode einen erfolgreichen
@@ -677,25 +699,27 @@ in den Paketcache.
 
 Der MCP-Eintrag beim Client startet die absolute `node.exe` mit dem absoluten
 `dist/index.js` des MCP-Pakets als einzigem Argument. Beim Standardport braucht
-der Eintrag keine Umgebungsvariable. Für einen bewusst abweichenden API-Port
-wird `SSE_API_URL` im Client-Eintrag gesetzt; Steuerfall- und Dokumentpfade
-bleiben trotzdem ausschließlich im API-Prozess.
+der Eintrag keine Umgebungsvariable. `SSE_API_CONFIG` ist ein optionaler
+absoluter Pfad für einen eigenen Arbeitsbereich. `SSE_API_URL` benennt dagegen
+eine autoritative, separat verwaltete Loopback-API und verhindert jeden
+Autostart. Der Supervisor sieht Pfadwerte aus `SSE_API_CONFIG` nur für die
+Identitätsbildung; Steuerfall- und Dokumentinhalte bleiben ausschließlich im
+API-Prozess.
 
 ### Betriebsarten
 
 1. **NPX-Kurzweg:** API ohne globale Runtime-Installation im Vordergrund
    starten, direkte CLI verwenden und nach dem Auftrag beenden; kein MCP.
-2. **Standard:** API im Ordner in einem offenen Terminal starten, Aufgabe
-   ausführen, mit Strg+C beenden.
-3. **MCP-Komfort:** Agentkonfiguration verweist direkt auf den
-   separat installierten MCP-Einstieg; dieser spricht mit derselben API und
-   kennt nur deren URL.
+2. **MCP-Standard:** Agentkonfiguration verweist auf den installierten
+   MCP-Einstieg. Er übernimmt eine exakt passende API oder startet seine eigene
+   Dependency unsichtbar und wartet auf Readiness.
+3. **Direkte API:** Das API-Paket separat installieren, bewusst im Vordergrund
+   starten und CLI/HTTP ohne MCP verwenden.
 
-Einen Autostart oder eine geplante Aufgabe gibt es bewusst nicht. Die frühere
-Maschinerie dafür — VBS-Launcher, `install-api-task.ps1` und der fensterlose
-Starter — hing am entfallenen Einrichtungsprogramm und am portablen Release
-und ist ersatzlos entfernt. Ein Dienst, der die Steuersoftware dauerhaft
-fernsteuern kann, ist außerdem nichts, was nebenbei entstehen sollte.
+Der Singleton ist kein Windows-Dienst, keine geplante Aufgabe und kein
+allgemeiner Autostart: Er entsteht nur beim MCP-/Selftest-Start, lauscht nur auf
+Loopback und startet weder SteuerSparErklärung noch eine fachliche Operation von
+sich aus. VBS-Launcher und `install-api-task.ps1` bleiben entfernt.
 
 ## Steuerjahrprofile
 

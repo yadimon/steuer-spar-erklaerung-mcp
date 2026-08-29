@@ -60,7 +60,7 @@ export function mcpMainUsage(): string {
     "",
     "Aufruf:",
     "  steuer-spar-erklaerung-mcp             MCP ueber stdio starten",
-    "  steuer-spar-erklaerung-mcp --selftest  API-Verbindung pruefen",
+    "  steuer-spar-erklaerung-mcp --selftest  API-Singleton pruefen oder starten",
     "  steuer-spar-erklaerung-mcp --help      Diese Hilfe anzeigen",
     "",
   ].join("\n");
@@ -81,21 +81,25 @@ export async function runMcpMain(args: readonly string[]): Promise<void> {
   }
 
   if (mode === "selftest") {
-    const [{ callApiOperation }, responseBoundary] = await Promise.all([
+    const [{ callApiOperation }, { ensureApiSingleton }, responseBoundary] = await Promise.all([
       import("./api-client.js"),
+      import("./mcp-api-supervisor.js"),
       import("./mcp-response.js"),
     ]);
-    const result = await callApiOperation("health");
+    const health = await ensureApiSingleton();
+    const result = await callApiOperation("health", {}, undefined, { expectedInstanceId: health.instanceId });
     process.stdout.write(`${JSON.stringify(responseBoundary.redactPcLocalPaths(result), null, 2)}\n`);
     return;
   }
 
-  const [{ McpServer }, { StdioServerTransport }, { registerSseTools }, version] = await Promise.all([
+  const [{ ensureApiSingleton }, { McpServer }, { StdioServerTransport }, { registerSseTools }, version] = await Promise.all([
+    import("./mcp-api-supervisor.js"),
     import("@modelcontextprotocol/sdk/server/mcp.js"),
     import("@modelcontextprotocol/sdk/server/stdio.js"),
     import("./mcp-tools.js"),
     import("./version.js"),
   ]);
+  await ensureApiSingleton();
   const server = new McpServer({
     name: version.SSE_PACKAGE_NAME,
     version: version.SSE_PACKAGE_VERSION,

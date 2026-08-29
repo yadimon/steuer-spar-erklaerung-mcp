@@ -11,6 +11,8 @@ alte Release Notes sind niemals eine aktuelle Bedienungsanweisung.
   Auswahl des Arbeitswegs und kurze Einstiege;
 - [Installation](INSTALLATION.md) — kanonischer Setup-, Update- und
   Client-Vertrag;
+- [Öffentlicher Post](OEFFENTLICHER-POST.md) — kurzer kopierbarer Ersatztext
+  zum vereinfachten MCP-/API-Setup;
 - [Haupt-Skill](../skills/steuer-spar-erklaerung/SKILL.md) — verbindlicher
   Ablauf für Prüfung und kontrollierte Bearbeitung;
 - [Umsatzsteuer-Voranmeldung](UMSATZSTEUER-VORANMELDUNG.md) — fachlicher und

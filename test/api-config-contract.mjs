@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { defaultApiConfigPath, environmentForExplicitApiConfig, loadApiServerConfig, MAX_API_CONFIG_BYTES } from "../dist/api-config.js";
 import { readJsonFileStrict } from "../dist/json-files.js";
 
@@ -124,6 +124,12 @@ try {
     defaultApiConfigPath({ LOCALAPPDATA: resolve(temporary, "local") }),
     join(resolve(temporary, "local"), "SteuerSparErklaerungApi", "config.json"),
   );
+  assert.equal(
+    defaultApiConfigPath({ LOCALAPPDATA: "relative", APPDATA: resolve(temporary, "roaming") }),
+    join(resolve(temporary, "roaming"), "SteuerSparErklaerungApi", "config.json"),
+  );
+  assert(isAbsolute(defaultApiConfigPath({ LOCALAPPDATA: "", APPDATA: "relative" })),
+    "Leere oder relative Windows-Datenpfade duerfen keinen relativen API-Standardpfad erzeugen.");
   const explicitEnvironment = environmentForExplicitApiConfig(configPath, {
     PATH: "synthetic-path",
     SSE_API_PORT: "9",

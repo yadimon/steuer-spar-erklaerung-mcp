@@ -5,6 +5,7 @@ import {
   type SseApiOperation,
 } from "./api-contract.js";
 import { SSE_API_DISCOVERY } from "./api-discovery.js";
+import { SSE_API_PACKAGE_NAME, SSE_PACKAGE_VERSION } from "./version.js";
 
 const schemaName = (operation: SseApiOperation): string => `Args_${operation}`;
 const resultSchemaName = (operation: SseApiOperation): string => `Result_${operation}`;
@@ -177,10 +178,15 @@ export const SSE_OPENAPI_DOCUMENT = Object.freeze({
               "application/json": {
                 schema: {
                   type: "object",
-                  required: ["ok", "apiVersion", "inFlight", "prewarm"],
+          required: ["ok", "apiVersion", "packageName", "packageVersion", "processId", "instanceId", "configurationFingerprint", "inFlight", "prewarm"],
                   properties: {
                     ok: { const: true },
                     apiVersion: { const: SSE_API_VERSION },
+                    packageName: { const: SSE_API_PACKAGE_NAME },
+                    packageVersion: { const: SSE_PACKAGE_VERSION },
+                    processId: { type: "integer", minimum: 1, maximum: 4294967295 },
+                    instanceId: { type: "string", format: "uuid" },
+            configurationFingerprint: { type: "string", pattern: "^[0-9a-f]{64}$" },
                     prewarm: {
                       description: "Bereitschaft des vorgewaermten Arbeiters. Fehlt er, ist der " +
                         "naechste Aufruf nur langsamer, nie falsch.",

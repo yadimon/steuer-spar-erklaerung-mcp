@@ -163,6 +163,7 @@ export const parallelSteps = Object.freeze([
 
 export const exclusiveSteps = Object.freeze([
   { ...nodeFile("worker-controller-lock", "test/worker-controller-lock-contract.mjs"), timeoutMs: 420_000 },
+  nodeFile("mcp-api-supervisor", "test/mcp-api-supervisor.mjs"),
   withApi("no-console-window", "test/no-console-window.mjs"),
 ]);
 

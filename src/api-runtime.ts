@@ -17,6 +17,11 @@ import {
   lastPrewarmFailure,
   shutdownWarmSpare,
 } from "./worker-prewarm.js";
+import { configurationFingerprint } from "./workspace-status.js";
+import {
+  SSE_EXPECTED_API_BASE_URL,
+  SSE_EXPECTED_API_CONFIGURATION_FINGERPRINT,
+} from "./api-supervisor-contract.js";
 import { withCombinedAbortSignal } from "./abort.js";
 import { readFileBounded } from "./bounded-files.js";
 import { createRotatingJsonlLogger } from "./jsonl-logger.js";
@@ -174,6 +179,23 @@ export async function runApiRuntime(
     : { ...process.env };
   if (overrides.caseDir) runtimeEnvironment.SSE_CASE_DIR = overrides.caseDir;
   const config = loadApiServerConfig(runtimeEnvironment);
+  const expectedConfigurationFingerprint = process.env[SSE_EXPECTED_API_CONFIGURATION_FINGERPRINT];
+  const expectedBaseUrl = process.env[SSE_EXPECTED_API_BASE_URL];
+  delete process.env[SSE_EXPECTED_API_CONFIGURATION_FINGERPRINT];
+  delete process.env[SSE_EXPECTED_API_BASE_URL];
+  const configIdentity = configurationFingerprint(config);
+  const configuredHost = config.host === "::1" ? "[::1]" : config.host;
+  const configuredBaseUrl = `http://${configuredHost}:${config.port}`;
+  if (
+    expectedConfigurationFingerprint !== undefined &&
+    (!/^[0-9a-f]{64}$/u.test(expectedConfigurationFingerprint) ||
+      expectedConfigurationFingerprint !== configIdentity)
+  ) {
+    throw new Error("Supervisor-Startvertrag stimmt nicht mit der gelesenen API-Konfiguration ueberein.");
+  }
+  if (expectedBaseUrl !== undefined && expectedBaseUrl !== configuredBaseUrl) {
+    throw new Error("Supervisor-Startvertrag stimmt nicht mit dem gelesenen API-Endpunkt ueberein.");
+  }
   const explicitConfigEnvironment = configPath ? runtimeEnvironment : undefined;
   if (explicitConfigEnvironment) {
     for (const key of SSE_API_CONFIG_ENVIRONMENT_KEYS) delete process.env[key];
@@ -199,6 +221,7 @@ export async function runApiRuntime(
   const server = createSseApiServer({
     execute,
     log,
+    configurationFingerprint: configIdentity,
     prewarmStatus: () => ({ ready: isWarmSpareReady(), failure: lastPrewarmFailure() }),
   });
   installApiShutdown(server, shutdown, log);
@@ -210,6 +233,5 @@ export async function runApiRuntime(
   // (Profil-Id, Programmpfad, Fallordner) steht zu diesem Zeitpunkt fest.
   enableWorkerPrewarm();
   log({ event: "ready", host: config.host, port: config.port });
-  const host = config.host === "::1" ? "[::1]" : config.host;
-  return { baseUrl: `http://${host}:${config.port}`, configPath: config.configPath };
+  return { baseUrl: configuredBaseUrl, configPath: config.configPath };
 }

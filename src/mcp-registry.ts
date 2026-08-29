@@ -16,6 +16,7 @@ import {
 } from "./operation-catalog.js";
 import { operationAnnotations } from "./operation-traits.js";
 import { SSE_API_RESULT_OUTPUT_SCHEMAS } from "./result-contract.js";
+import { assertApiSingletonIdentity } from "./mcp-api-supervisor.js";
 
 type ToolConfig = { title: string; description: string; };
 type ApiResultShape = (result: Record<string, unknown>) => unknown;
@@ -31,13 +32,17 @@ export function apiResultOutputSchema(operation: SseApiOperation): z.ZodTypeAny 
 export function createMcpRegistry(server: McpServer) {
   const requestAbortSignal = new AsyncLocalStorage<AbortSignal>();
 
-  function callApiOperation(
+  async function callApiOperation(
     operation: SseApiOperation,
     args: Record<string, unknown> = {},
     timeoutMs?: number,
   ) {
     const signal = requestAbortSignal.getStore();
-    return callApiOperationDirect(operation, args, timeoutMs, signal ? { signal } : {});
+    const health = await assertApiSingletonIdentity();
+    return callApiOperationDirect(operation, args, timeoutMs, {
+      expectedInstanceId: health.instanceId,
+      ...(signal ? { signal } : {}),
+    });
   }
 
   function caughtErrorResult(operation: SseApiOperation, error: unknown): CallToolResult {

@@ -50,9 +50,7 @@ const checkerPlanSource = workerSource.slice(
 );
 const forbidden = [
   /from\s+["']\.\/worker(?:\.js)?["']/,
-  /from\s+["']node:(?:fs|path|child_process)["']/,
   /\bcallWorker\b/,
-  /\bspawn(?:Sync)?\s*\(/,
   /process\.env\.SSE_(?:CASE_DIR|EXECUTABLE)/,
   /from\s+["']\.\/(?:worker|api-executor|checker-executor|launch-executor|workspace-executor|ustva-executor|scenario|workspace|resources|setup|windows-runtime|product-profiles)(?:\.js)?["']/,
 ];
@@ -62,16 +60,46 @@ for (const pattern of forbidden) {
     assert(!pattern.test(source), `MCP-Grenze verletzt: ${pattern}`);
   }
 }
+const supervisorSource = sourceByFile.get("mcp-api-supervisor.ts") ?? "";
+const supervisorLocalReadModules = new Set([
+  "api-config-file.ts",
+  "bounded-files.ts",
+  "configuration-fingerprint.ts",
+  "json-files.ts",
+  "mcp-api-supervisor.ts",
+]);
+for (const sourceFile of reachableSources) {
+  if (supervisorLocalReadModules.has(sourceFile)) continue;
+  const source = sourceByFile.get(sourceFile) ?? "";
+  assert(!/from\s+["']node:(?:fs|path|child_process|module)["']/.test(source),
+    `Nur der MCP-API-Supervisor darf lokale Startmodule importieren: ${sourceFile}`);
+  assert(!/\bspawn(?:Sync)?\s*\(/.test(source),
+    `Nur der MCP-API-Supervisor darf einen Prozess starten: ${sourceFile}`);
+}
+for (const sourceFile of supervisorLocalReadModules) {
+  if (sourceFile === "mcp-api-supervisor.ts") continue;
+  const source = sourceByFile.get(sourceFile) ?? "";
+  assert(!/\bspawn(?:Sync)?\s*\(/.test(source),
+    `Supervisor-Hilfsmodul darf keinen Prozess starten: ${sourceFile}`);
+}
+assert.match(supervisorSource, /spawn\(process\.execPath/u,
+  "Supervisor muss Node direkt mit dem API-Einstieg starten.");
+assert.match(supervisorSource, /windowsHide:\s*true/u);
+assert.match(supervisorSource, /detached:\s*true/u);
+assert.match(supervisorSource, /stdio:\s*["']ignore["']/u);
+assert.match(supervisorSource, /shell:\s*false/u);
+assert.doesNotMatch(supervisorSource, /taskkill|Stop-Process|\.cmd\b|stdio:\s*["']inherit["']/iu,
+  "Supervisor darf weder Prozesse beenden noch Shell-Shims oder geerbtes stdio verwenden.");
 const reachableSourceText = [...reachableSources]
   .map((sourceFile) => sourceByFile.get(sourceFile) ?? "")
   .join("\n");
 const mcpEnvironmentKeys = [...new Set(
-  [...reachableSourceText.matchAll(/process\.env(?:\.|\[["'])(SSE_[A-Z0-9_]+)/gu)].map((match) => match[1]),
+  [...reachableSourceText.matchAll(/(?:process\.env|\benv)\.(SSE_[A-Z0-9_]+)/gu)].map((match) => match[1]),
 )].sort();
 assert.deepEqual(
   mcpEnvironmentKeys,
-  ["SSE_API_URL"],
-  "MCP darf ausschliesslich die lokale API-Adresse aus der PC-Umgebung lesen.",
+  ["SSE_API_CONFIG", "SSE_API_URL"],
+  "MCP darf ausschliesslich API-Adresse und optionale API-Konfiguration aus der PC-Umgebung lesen.",
 );
 
 const toolNames = Object.keys(SSE_MCP_TOOL_SCHEMAS).sort();
