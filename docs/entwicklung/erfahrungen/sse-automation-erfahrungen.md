@@ -17,11 +17,12 @@ Screenshots oder Fallpfade enthalten.
 5. [Dialoge und Wiederherstellung](#dialoge-und-wiederherstellung)
 6. [Lesen und Navigieren](#lesen-und-navigieren)
 7. [Felder, Auswahl und Tabellen](#felder-auswahl-und-tabellen)
-8. [Speichern, Kopien und Hashes](#speichern-kopien-und-hashes)
-9. [Prüfer, Hinweise und OCR](#prüfer-hinweise-und-ocr)
-10. [Bekannte Fehlwege](#bekannte-fehlwege)
-11. [Verifikationsmuster](#verifikationsmuster)
-12. [Backlog](#backlog)
+8. [BelegManager: Fenster, Bindungen und Pläne](#belegmanager-fenster-bindungen-und-pläne)
+9. [Speichern, Kopien und Hashes](#speichern-kopien-und-hashes)
+10. [Prüfer, Hinweise und OCR](#prüfer-hinweise-und-ocr)
+11. [Bekannte Fehlwege](#bekannte-fehlwege)
+12. [Verifikationsmuster](#verifikationsmuster)
+13. [Backlog](#backlog)
 
 ## Datenschutz und Falltrennung
 
@@ -51,8 +52,14 @@ Screenshots oder Fallpfade enthalten.
   den fokussierten Schalter oder die Menüzeile aktivieren.
 - USt-Voranmeldungen nur bearbeiten, wenn der Auftrag das ausdrücklich
   umfasst. Eine Jahreserklärung autorisiert keine Quartalsänderungen.
-- Originalfälle nicht verändern. Zuerst Hash, Übermittlungsstatus, Sicherung
-  und Arbeitskopie herstellen.
+- Ein eindeutig geöffneter Fall ist der normale Arbeitsfall. Vor der ersten
+  dirty-fähigen Navigation oder Mutation dessen aktuellen Disk-Hash einmal als
+  bytegleiche private Sicherung schützen; die Sicherung nie öffnen und für
+  denselben unveränderten Hash innerhalb der Aufgabe wiederverwenden.
+- Mutation, Speichern, `Save As`, Fallwechsel, Schließen und Verwerfen sind
+  getrennte Freigaben. Eine Arbeits- oder Korrekturkopie entsteht nur auf einen
+  ausdrücklichen Auftrag. Einen übermittelten oder unbekannt gebundenen Stand
+  weder verändern noch speichern.
 
 ### UStVA-spezifische Erkenntnisse
 
@@ -65,14 +72,15 @@ Screenshots oder Fallpfade enthalten.
   getrennten Transaktionen mit Vor-/Nachwert setzen.
 - Eine Umstellung von vierteljährlich auf monatlich verändert sofort den
   UStVA-Zustand und die berechneten Beträge. Das ist keine neutrale Navigation;
-  nur in einer Wegwerf- oder verifizierten Arbeitskopie und nie allein aus dem
-  Wort „Juli“ ableiten.
+  nur im eindeutig gebundenen, zuvor gesicherten Arbeitsfall oder in einer
+  ausdrücklich verlangten Prüfkopie ausführen und nie allein aus dem Wort
+  „Juli“ ableiten.
 - Die Übersicht berechnet Kernbeträge standardmäßig aus den Buchungen. Direkte
   manuelle Hauptbeträge sind ein eigener bewusster Modus; Korrekturfelder wie
   Sondervorauszahlung oder §15a-Berichtigung bleiben davon getrennt.
-- Nach jedem Erkundungslauf Änderungen verwerfen und Original-/Kopienhash
-  erneut vergleichen. Reale Fallwerte, Steuerdaten und Screenshots bleiben in
-  ignorierten lokalen Artefakten.
+- Nach jedem Erkundungslauf Werte, Dirty-State und Disk-Hash erneut lesen.
+  Nicht automatisch speichern, verwerfen oder schließen. Reale Fallwerte,
+  Steuerdaten und Screenshots bleiben in ignorierten lokalen Artefakten.
 
 ## Arbeitsmodell
 
@@ -85,7 +93,9 @@ Die zuverlässige Schleife lautet:
 4. Genau eine kleine Änderung ausführen.
 5. Wert, Summen, Zeilenzahl und Prüfermeldung zurücklesen.
 6. Nur bei erfüllter Nachbedingung fortfahren.
-7. Speichern und Dateihash außerhalb der UI gegenprüfen.
+7. Nur auf ausdrücklichen Auftrag speichern und dann den Dateihash außerhalb
+   der UI gegenprüfen; andernfalls den geöffneten In-Memory-Stand unverändert
+   offen lassen und als ungespeichert melden.
 
 Nicht mehrere Seiten oder Tabellenänderungen blind stapeln. SSE degradiert
 unter vielen UIA-Abfragen und kann dann leere oder unvollständige Ergebnisse
@@ -371,10 +381,45 @@ verhindert werden.
   Undo-Stack könnte inzwischen eine Nutzeraktion enthalten. Zustand melden,
   nicht speichern und neu synchronisieren.
 
+## BelegManager: Fenster, Bindungen und Pläne
+
+- Der BelegManager ist ein eigenes Top-Level-Werkzeugfenster. Ein kurzer Baum
+  vom SSE-Hauptfenster oder `buttons: []` beweist keine leere Oberfläche; bei
+  unbekanntem Zustand Screenshot, Fensterliste und UIA-Baum an seiner eigenen
+  HWND-Wurzel gemeinsam auswerten.
+- Nach dem Lesen einer Detailansicht diese ausschließlich über den profilierten
+  Schalter mit AutomationId-Suffix `.pushButton_detailsClose` schließen. Erst
+  eine wieder vollständige Listenprojektion, dasselbe semantische Zeilen-Multiset
+  und genau eine erneut gebundene Zielzeile belegen den erfolgreichen Read.
+  RuntimeIds und visuelle Reihenfolge dürfen sich durch Qt dabei ändern.
+- Jede Mutation bindet die vollständige frische Liste, `rowRid`, Zeilen- und
+  Listenfingerprint sowie bei Detailänderungen den Detailfingerprint. Nach dem
+  Commit Werte, Fenster-/Dialogsatz, Dirty-State, Zeilenanzahl und unveränderte
+  Fremdzeilen erneut prüfen; bei Mehrdeutigkeit oder Interferenz fail-closed
+  abbrechen und nicht automatisch wiederholen.
+- Mehrere Felder oder Belege als typisierten, vor dem Workerstart vollständig
+  validierten Ein-Worker-Plan ausführen. Nach dem ersten Fehler folgen keine
+  weiteren Mutationen; Abschlussreadback und strukturierter Zustand entscheiden
+  zwischen verifiziertem Erfolg, verifiziertem Rollback, Teiländerung und
+  unbekanntem Stand. Timeout und Cancellation sind unbekannt, kein Retry-Signal.
+- Performance erst pro Phase messen. Nach dem Wechsel auf typisierte
+  Ein-Worker-Pläne dominierten native Qt-Interaktion, Listenstabilisierung und
+  unabhängiger Readback; ein langlebiger Worker oder C#-Neubau ist ohne neue
+  reproduzierbare Messung keine begründete Optimierung.
+
 ## Speichern, Kopien und Hashes
 
-### Arbeitskopie
+### Sicherung und separate Arbeitskopie
 
+- Vor der ersten dirty-fähigen Navigation oder Mutation `caseRef`, `hwnd` und
+  aktuellen Disk-SHA-256 binden und eine neue bytegleiche Sicherung unter
+  `backups:` verifizieren. Diese Sicherung nicht starten oder als Arbeitsfall
+  verwenden.
+- Innerhalb derselben Aufgabe reicht eine verifizierte Sicherung für exakt
+  denselben Fall und unveränderten Disk-Hash. Nach einem ausdrücklich
+  beauftragten Save oder fremder Hashänderung neu binden und neu sichern.
+- Ein Ziel unter `cases:` ist eine separate Arbeits-, Prüf- oder Korrekturkopie
+  und wird nur auf ausdrücklichen Wunsch erzeugt.
 - Quellhash vor dem Kopieren prüfen.
 - Ziel darf nicht existieren und muss dieselbe Fallendung haben.
 - Nach dem Kopieren Quellhash erneut lesen und Zielhash mit der Quelle
@@ -396,6 +441,8 @@ verhindert werden.
 
 ### Speichern
 
+- „Ändern“ erlaubt kein Speichern. `sse_save` nur nach einem ausdrücklichen
+  Speicherauftrag für den frisch gebundenen Fall ausführen.
 - Vor `sse_save` erwarteten Pfad und optional Vorhash angeben.
 - Nach dem Speichern Pfad, Änderungszeit und Hash prüfen.
 - Eine offene Suchansicht blendet in Qt die normale Hauptsymbolleiste und
@@ -411,8 +458,9 @@ verhindert werden.
 - Ein aktivierter Sicherungsbutton ist ein Hinweis, aber kein alleiniger
   Beweis für steuerliche Änderungen: Navigation oder Prüferansicht kann den
   UI-Zustand ebenfalls „dirty“ erscheinen lassen.
-- Bei reinem Prüfer-/Navigationszustand normal schließen und im Speicherdialog
-  bewusst „Nein“ wählen, wenn die zuvor gespeicherte Datei per Hash feststeht.
+- Bei reinem Prüfer-/Navigationszustand nicht automatisch schließen oder im
+  Speicherdialog „Nein“ wählen. Offen lassen oder die Entscheidung zum
+  Speichern, Verwerfen beziehungsweise Schließen ausdrücklich einholen.
 
 ### Speichern unter / Dateidialoge
 
@@ -928,13 +976,16 @@ verhindert werden.
 
 ### Schreiboperation
 
+- eindeutiger Fall mit `caseRef`, `hwnd` und aktuellem Disk-Hash;
+- verifizierte private Sicherung dieses unveränderten Dateistands;
 - eindeutiger Zielknoten;
 - Vorwert und erwartete Änderung;
 - unmittelbares Read-back;
 - Summen-/Zeilenzahl-Nachbedingung;
 - Seitenprüfer;
-- Speichern;
-- Dateihash und Originalschutz.
+- ohne ausdrücklichen Speicherauftrag offen und ungespeichert lassen;
+- bei ausdrücklichem Speichern neuen Dateihash und neuen Sicherungsbedarf
+  feststellen.
 
 ### Dialogoperation
 
