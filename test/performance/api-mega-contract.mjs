@@ -72,6 +72,10 @@ assert(firstLaunch >= launchPhaseStart && firstBoundUiState > firstLaunch && fir
   "Eingabehilfe muss nach Launch und gebundenem UI-State mit dem verifizierten HWND gelesen werden.");
 const invokedMutationIds = [...journey.matchAll(/(?:mutateAndRead|maybeDismissStartupDialog)\(\s*["']([^"']+)["']/gu)]
   .map((match) => match[1]);
+for (const match of journey.matchAll(/maxSteps:\s*(\d+)/gu)) {
+  assert(Number(match[1]) <= 200,
+    `Mega-Journey ueberschreitet das oeffentliche goto-Limit: maxSteps=${match[1]}`);
+}
 assert.deepEqual([...new Set(invokedMutationIds)].sort(), [...declaredIds].sort(),
   "Implementierung und maschinenlesbares Mutations-/Readback-Manifest muessen deckungsgleich sein.");
 assert.equal(new Set(invokedMutationIds).size, invokedMutationIds.length,
@@ -269,6 +273,20 @@ for (const id of ["launch-gew", "reopen-gew", "launch-est"]) {
 }
 assert.match(journey, /"receipt-link"[\s\S]+?noChanges, true[\s\S]+?linkedAfter, true/u);
 assert.match(journey, /"receipt-unlink"[\s\S]+?noChanges, true[\s\S]+?linkedAfter, false/u);
+assert.match(journey, /receiptTargetPage = result\.heading/u,
+  "Das Beleg-Linkziel muss an die im selben ESt-Lauf gelesene profilierte Seite gebunden sein.");
+assert.match(journey, /pageId: "est\.sonstige_werbungskosten_fahrten"/u,
+  "Die Belegverknuepfung muss per stabilem ESt-pageId auf ihre Zielseite gebunden bleiben.");
+assert.doesNotMatch(journey, /Einnahmen: Lotterie/u,
+  "Ein Linkziel aus einem anderen Musterfall darf nicht in den ESt-Belegablauf gelangen.");
+const linkItemsStart = journey.indexOf("const linkItems = [{");
+const linkItemsEnd = journey.indexOf("}];", linkItemsStart);
+assert(linkItemsStart >= 0 && linkItemsEnd > linkItemsStart,
+  "Der gebundene Link-Selektor muss eindeutig auffindbar sein.");
+const linkItemsBlock = journey.slice(linkItemsStart, linkItemsEnd);
+assert.match(linkItemsBlock, /expectedReceiptTitle[\s\S]+?receiptContentFingerprint/u);
+assert.doesNotMatch(linkItemsBlock, /expectedDocumentNumber/u,
+  "Die live nicht exponierte Belegnummer darf den bereits eindeutig titel- und fingerprintgebundenen Link-Selektor nicht unauffindbar machen.");
 assert(!MEGA_MUTATION_READBACKS.some((entry) => entry.id === "receipt-options"),
   "Klassifikationsoptionen sind eine Lease-gebundene Lesung, keine Mutation.");
 assert.equal(MEGA_MUTATION_READBACKS.find((entry) => entry.id === "receipt-classify")?.readbackOperation,
