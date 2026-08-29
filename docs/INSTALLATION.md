@@ -176,8 +176,9 @@ dessen Pfade landen sonst in Startpunkten und zeigen später ins Leere.
 ## 4. MCP an den Client binden
 
 Der MCP-Eintrag besteht aus der absoluten `node.exe` und dem absoluten Pfad zu
-`dist/index.js` des MCP-Pakets — ohne weitere Argumente und ohne
-Umgebungsvariablen. Der Wrapper findet die API über den Standardport.
+`dist/index.js` des MCP-Pakets — ohne weitere Argumente. Am Standardport
+`43127` braucht er keine Umgebungsvariable; nur für einen ausdrücklich
+abweichenden API-Port erhält dieser Eintrag ein passendes `SSE_API_URL`.
 
 **Nicht den `.cmd`-Shim aus `node_modules\.bin` eintragen.** Seit Node 20
 verweigert `spawn` das Starten von `.cmd`- und `.bat`-Dateien ohne Shell
@@ -271,7 +272,7 @@ Verifikation. Behaupte in der alten Sitzung weder `connected` noch einen
 erfolgreichen Tool-Aufruf.
 
 Der neu geladene Client prüft zuerst die Serverliste und ruft dann das echte
-MCP-Tools `sse_health` als `mcp_tool_call` auf. Erfolg verlangt das
+MCP-Tool `sse_health` als `mcp_tool_call` auf. Erfolg verlangt das
 strukturierte Resultat mit `ok=true`; ein Servereintrag, Status „connected"
 oder ein erfolgreicher Handshake genügt nicht. Ein direkter
 API-CLI-Aufruf `health` ist kein Ersatz — er beweist die API, nicht MCP.
@@ -291,6 +292,48 @@ ausdrücken kann — der Hauptskill liest sie bei jedem Lauf:
 Die harte Grenze bleibt die Ressourcentopologie der API: Was nicht als Quelle
 freigegeben ist, liest die API gar nicht. `settings.md` verfeinert innerhalb
 des Erlaubten und kann nichts zusätzlich freischalten.
+
+## Aktualisieren
+
+API zuerst mit Strg+C beenden. Danach im Installationsordner die beiden
+Registry-Versionen lesen; sie müssen gleich sein:
+
+```powershell
+npm.cmd view @yadimon/steuer-spar-erklaerung-api version
+npm.cmd view @yadimon/steuer-spar-erklaerung-mcp version
+```
+
+Sind sie gleich, beide Pakete gemeinsam über den unterstützten Kanal
+aktualisieren und den Skill mit demselben Installationsweg erneut kopieren:
+
+```powershell
+npm.cmd install @yadimon/steuer-spar-erklaerung-api@latest @yadimon/steuer-spar-erklaerung-mcp@latest
+npx.cmd -y skills add yadimon/steuer-spar-erklaerung-mcp `
+  --skill steuer-spar-erklaerung --agent <codex|claude-code|opencode> --copy --yes
+```
+
+Anschließend API und Client neu starten und die Nachweise aus
+[Installation beweisen](#5-installation-beweisen) wiederholen. Der absolute
+MCP-Pfad bleibt bei einer lokalen Installation stabil; vor einer Änderung
+des Client-Eintrags trotzdem den tatsächlichen Pfad prüfen. Nicht nur eines
+der beiden npm-Pakete aktualisieren.
+
+## Entfernen
+
+Zuerst die API beenden. Dann den Server `steuer-spar-erklaerung` mit der
+aktuellen Remove-Funktion des jeweiligen Clients entfernen und den erzeugten
+Diff prüfen: Andere MCP-Server müssen unverändert bleiben. Anschließend können
+die beiden Pakete im Installationsordner entfernt werden:
+
+```powershell
+npm.cmd uninstall @yadimon/steuer-spar-erklaerung-api @yadimon/steuer-spar-erklaerung-mcp
+```
+
+Den Installationsordner nicht pauschal löschen. `workspace\`, `logs\`,
+`config.json`, Reports und Backups sind Nutzerdaten; sie bleiben erhalten,
+bis der Mensch ihre gesicherte oder endgültige Entfernung ausdrücklich
+beauftragt. Ein global installierter Skill wird separat über den verwendeten
+Skill-Manager entfernt.
 
 ## Die API selbst dokumentiert sich
 
@@ -320,8 +363,8 @@ Standard-Einrichtung und Prüflauf ausführen.
 `Standard-Prüflauf ausführen`. Letzteres bestätigt den sicheren Prüfvertrag
 des Hauptskills: hashverifizierte Kopie, sichtbare rein lesende Navigation,
 Report sowie kein Speichern und kein ELSTER. Es bestätigt den oben beschriebenen sicheren
-Plan einschließlich Download, Installation in den Ordner und des bedingten
-additiven MCP-Merges. Der Agent zeigt Plan und Diff weiterhin an,
+Plan einschließlich des Downloads, der Installation in den Ordner und des
+bedingten additiven MCP-Merges. Der Agent zeigt Plan und Diff weiterhin an,
 fragt innerhalb dieser Grenzen aber nicht erneut. Bei Löschungen, weiteren
 Servern oder einem anderen Befehl stoppt er.
 

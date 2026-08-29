@@ -1,133 +1,113 @@
-# Health Check
+# Repository Health Check
 
-## 1. Scope
+Dieser Playbook liefert ein reproduzierbares Gesundheitsurteil für API,
+PC-blinden MCP-Wrapper, Windows-Worker, npm-Pakete und das unterstützte
+SteuerSparErklärung-Profil. Er enthält bewusst keine eingefrorenen Test- oder
+Operationszahlen: Diese werden bei jedem Lauf aus den maschinenlesbaren Quellen
+ermittelt.
 
-- repository: SteuerSparErklärung API/MCP workspace
-- generated-at: 2026-08-25
-- baseline branch: `main`
-- objective: determine whether the tracked API, PC-blind MCP wrapper, Windows
-  worker, package artifacts and supported SSE-2025 integration are healthy
+Der Health Check sendet nichts über ELSTER und verwendet keine echten
+Steuerdaten. Live-Prüfungen laufen ausschließlich auf konfigurierten
+herstellereigenen Wegwerfkopien; Rohberichte, lokale Pfade, Screenshots und
+VM-Evidenz bleiben außerhalb von Git.
 
-The health check never sends through ELSTER and never uses real tax data.
-Environment-dependent UI checks use only configured disposable manufacturer
-cases. Raw reports, local paths, screenshots and VM evidence stay gitignored.
+## Maßgebliche Quellen
 
-## 2. Prerequisites
+- `package.json` und `test/suite-plan.mjs` für Build- und Testplan;
+- `src/api-contract.ts` für den aktuellen Operationskatalog;
+- `test/operation-coverage.json` und `docs/VERIFIKATION.md` für Live-Evidenz;
+- `profiles/*/profile.json` für Produktfreigabe und Buildbindung;
+- `SECURITY.md` und `docs/RELEASE.md` für Support- und Releasegrenzen.
 
-- Windows x64 with the Node.js version from `.node-version` and npm.
-- Windows PowerShell 5.1 for the product worker boundary.
-- Dependencies installed from the tracked lockfile.
-- For `LIVE-001`: supported SteuerSparErklärung 2025, configured manufacturer
-  sample cases, an unlocked otherwise unused desktop session and no open case
-  that must be preserved.
-- No API, MCP or SSE process from another test may own the configured fixtures.
+Gezählte Werte werden aus diesen Dateien gelesen und nicht in diesem Playbook
+dupliziert. Release Notes bleiben historische Evidenz und sind keine aktuelle
+Health-Quelle.
 
-## 3. Repository Invariants
+## Voraussetzungen
 
-| id | check | required | severity | how to run | pass condition |
-| --- | --- | --- | --- | --- | --- |
-| STRUCT-001 | tracked files contain no private paths, secrets or forbidden artifacts | yes | critical | `npm run test:privacy` | exit code 0 |
-| STRUCT-002 | tracked Markdown links and anchors resolve | yes | major | `npm run test:links` | exit code 0 |
-| STRUCT-003 | pending diff has no whitespace errors | yes | major | `git diff --check` | exit code 0 |
+- Windows x64 mit der Node.js-Version aus `.node-version` und npm;
+- Windows PowerShell 5.1 für die produktive Worker-Grenze;
+- Abhängigkeiten aus dem eingecheckten Lockfile;
+- für Produkt- und Live-Prüfungen die unterstützte
+  SteuerSparErklärung-Installation;
+- für UI-Läufe eine entsperrte, ansonsten unbenutzte Windows-Sitzung und
+  ausschließlich Wegwerffälle;
+- keine fremde API-, MCP- oder SSE-Instanz, die Testressourcen besitzt.
 
-## 4. Automated Checks
+## Repository-Invarianten
 
-| id | command | required | severity | expected |
-| --- | --- | --- | --- | --- |
-| AUTO-001 | `npm run build:ts` | yes | critical | strict TypeScript build exits 0 without compiler errors |
-| AUTO-002 | `npm run test:fast` | yes | major | fast API/MCP contract plan exits 0 |
-| AUTO-003 | `npm test` | yes | critical | all planned offline API/MCP, Worker, privacy and package contracts exit 0 |
-| AUTO-004 | `npm run test:product` | yes | major | installed supported SSE-2025 identity, mode, process and catalog gates exit 0 |
-| AUTO-005 | `npm run test:npm-clean-install` | yes | major | freshly packed API and MCP packages install and all public entries start successfully |
-| AUTO-006 | `npm audit --omit=dev --audit-level=low` | yes | major | exit code 0 and zero production vulnerabilities |
-| AUTO-007 | `npm audit --audit-level=low` | yes | major | exit code 0 and zero full-tree vulnerabilities |
+| Prüfung | Befehl | Erfolg |
+| --- | --- | --- |
+| Datenschutz und verbotene Artefakte | `npm run test:privacy` | Exitcode 0 |
+| Markdown-Ziele und Anker | `npm run test:links` | Exitcode 0 |
+| TypeScript | `npm run build:ts` | Exitcode 0 ohne Compilerfehler |
+| Arbeitsbaum | `git diff --check` und `git status --short` | nur beabsichtigte Änderungen |
+| Produktionsabhängigkeiten | `npm audit --omit=dev --audit-level=low` | keine gemeldete Schwachstelle |
+| Vollständiger Abhängigkeitsbaum | `npm audit --audit-level=low` | keine gemeldete Schwachstelle |
 
-### 4.1 Notes
+Ein Registry-Ausfall ist `BLOCKED`, niemals ein grüner Audit.
 
-- Run `AUTO-002` and `AUTO-003` serially; overlapping large suites create
-  misleading timing/port failures.
-- `AUTO-003` may report an archive integration fixture as unavailable only
-  where the test explicitly treats that private fixture as optional. It must
-  not hide any required contract failure.
-- Dependency audit needs registry access. A registry outage is `blocked`, not
-  a pass.
+## Automatische Gates
 
-## 5. Environment-Dependent And Manual Checks
+| Umfang | Befehl | Bedeutung |
+| --- | --- | --- |
+| schneller Vertrag | `npm run test:fast` | portable API-/MCP-, Skill-, Link-, Schema- und Metadatenverträge |
+| vollständiger Offline-Vertrag | `npm test` | gesamter in `test/suite-plan.mjs` deklarierter Releaseplan |
+| installiertes Produkt | `npm run test:product` | Identität, Modus, Profil und Katalog der lokalen Installation |
+| saubere npm-Installation | `npm run test:npm-clean-install` | beide neu gebauten Pakete und alle öffentlichen Einstiegspunkte |
+| Release-Metadaten | `npm run test:release-metadata` | Versionen, Security und aktuelle Release Notes synchron |
 
-| id | procedure | required | severity | pass condition |
-| --- | --- | --- | --- | --- |
-| LIVE-001 | Run `npm run test:live` on configured disposable manufacturer cases in the unused desktop session | yes | major | exit code 0; both supported live journeys finish; no ELSTER/send; cleanup reports no owned SSE process left |
-| MAN-001 | Inspect the final Git status and staged diff before any push or publication | yes | major | only intentional tracked files; no `.private`, `.tmp`, `artifacts`, local configs, screenshots or reports |
-| MAN-002 | Verify published registry packages and GitHub release assets | no | major | only when a release is in scope; exact versions and package boundaries match |
+Große Suites seriell ausführen. Ein optional fehlendes privates Archiv-Fixture
+darf nur dort übersprungen werden, wo der konkrete Vertrag es ausdrücklich als
+optional behandelt; andere fehlende Voraussetzungen bleiben Fehler oder
+`BLOCKED`.
 
-If `LIVE-001` lacks its documented prerequisites, mark it `blocked` and use an
-`AT_RISK` verdict. A mock, schema test or offline product identity gate is not
-a replacement for live UI evidence.
+## Live- und manuelle Prüfungen
 
-## 6. Confirmed Result
+| Prüfung | Befehl oder Handlung | Erfolg |
+| --- | --- | --- |
+| Live-UI-Gate | `npm run test:live` | vollständiger Exitcode 0, kein SKIP und keine besessene SSE-Instanz übrig |
+| Scope-/Privacy-Review | finalen Status und Diff lesen | keine privaten oder unbeabsichtigten Dateien |
+| Release-Review | Registry-Versionen, dist-tags, Tag und GitHub-Prerelease vergleichen | nur wenn Veröffentlichung im Scope liegt |
 
-- verified-at: 2026-08-25
-- verdict: `HEALTHY`
-- release scope: none; no publish, push or ELSTER/send action was performed
+Fehlen Voraussetzungen des Live-Gates, lautet das Gesamturteil höchstens
+`AT_RISK`. Mock-, Schema- und Produktidentitätstests ersetzen keine echte
+UI-Evidenz.
 
-| check | result |
-| --- | --- |
-| `npm run build:ts` | pass |
-| `npm run test:fast` | pass, 82 planned contracts |
-| `npm test` | pass, 121 planned contracts |
-| `npm run test:product` | pass against the installed supported 2025 product |
-| `npm run test:npm-clean-install` | pass for both packed packages and all public entrypoints |
-| production and full dependency audits | pass, zero reported vulnerabilities |
-| live UI evidence | same-day broad live gate remains green; the current receipt, dialog, instances and MCP delta passed in a disposable VM and cleanup left no owned SSE process |
-| privacy, links and pending-diff checks | pass |
+## Bekannte Produktgrenzen
 
-The current aggregate ledger has 87 of 93 catalog operations functional. The
-six VaSt operations reached only their real fail-closed error paths because the
-required certificate PIN was not provided; no operation remains completely
-untested. The same-day broad live baseline still covers the unchanged strict
-2025, verification-only 2024 and Center journeys. Current changed UI paths were
-repeated separately in the disposable VM. Temporary evidence and
-machine-specific details stayed outside Git.
+- Unterstützt ist das in `profiles/2025/profile.json` als `supported/full`
+  ausgewiesene Profil; 2024 bleibt experimentell und verification-only.
+- ELSTER-, Versand- und Übermittlungswege sind gesperrt und werden durch diesen
+  Playbook nie freigeschaltet.
+- Die erfolgreichen und nur im Fehlerpfad belegten Operationen werden aus
+  `test/operation-coverage.json` abgeleitet; dort als `error-path-only`
+  markierte VaSt-Wege besitzen keinen erfolgreichen zertifikatgebundenen
+  Live-Nachweis.
+- Von den zehn BelegManager-Operationen ist öffentlich nur
+  `receipt_manager_list` aktiv; die übrigen neun benötigen eine nicht
+  öffentlich aktivierbare Test-Lease und bleiben fail-closed gesperrt.
+- UI-Automation setzt einen entsperrten, unbenutzten Desktop und
+  Wegwerf-Fixtures voraus.
 
-## 7. Known Weak Points
+## Urteil
 
-- Profile 2025 / Engine 31 is supported. Profile 2024 / Engine 30 remains
-  experimental and verification-only; this health check does not promote it.
-- ELSTER submission, transmission and send operations remain hard-blocked and
-  are never exercised by this playbook.
-- Six VaSt operations still lack successful live evidence. Their real
-  `not-found` paths prove safe refusal, not a successful VaSt workflow.
-- UI automation depends on an unlocked, unused Windows desktop and configured
-  disposable fixtures. Missing prerequisites must be reported, not skipped as
-  green.
-- Ignored generated package copies are not workspace roots and must never be
-  included in tracked maintenance or health evidence.
+- `HEALTHY`: alle erforderlichen Repository-, Offline-, Produkt- und
+  Live-Prüfungen bestanden; manueller Scope-Review ist sauber.
+- `AT_RISK`: kein erforderlicher Vertrag ist rot, aber Live-Gate, Registry oder
+  eine andere externe Voraussetzung ist blockiert.
+- `UNHEALTHY`: ein erforderlicher kritischer Vertrag scheitert oder mehrere
+  kontrollierbare Voraussetzungen fehlen.
 
-## 8. Decision Policy
+Optionale Release-Prüfungen senken ein sonst gültiges Urteil nicht, wenn keine
+Veröffentlichung beauftragt ist.
 
-- `HEALTHY`: every required repository and automated check passes, `LIVE-001`
-  passes, and `MAN-001` finds no privacy or scope issue.
-- `AT_RISK`: no required check fails, but `LIVE-001`, dependency audit or
-  another required environment-dependent check is blocked.
-- `UNHEALTHY`: any required critical check fails, any required major contract
-  fails, or multiple required checks cannot be executed for reasons controlled
-  by the repository.
+## Fehlerprotokoll
 
-Optional release verification never lowers an otherwise valid verdict when no
-release is in scope.
-
-## 9. Failure Response Protocol
-
-1. Stop further refactoring, release or publication work.
-2. Capture only the minimal non-private failure evidence.
-3. Classify code regression, stale test/playbook, missing environment or
-   external outage.
-4. Add or tighten the closest regression test before changing shared runtime
-   code where feasible.
-5. Re-run the failed check, then `npm test` after shared API/MCP/Worker changes.
-6. Re-run all required checks before issuing a new verdict.
-
-## 10. Optional Automation Hooks
-
-No additional healthcheck script is created. The commands above are the
-authoritative project entrypoints.
+1. Weitere Refactorings, Releases und Publikationen stoppen.
+2. Nur minimale, nicht private Evidenz sichern.
+3. Regression, veralteten Vertrag, fehlende Umgebung oder externen Ausfall
+   unterscheiden.
+4. Nach Möglichkeit zuerst den nächsten Regressionstest ergänzen.
+5. Betroffenen Check und danach den vollständigen relevanten Gate wiederholen.
+6. Erst nach grünem Scope-Review ein neues Urteil ausgeben.

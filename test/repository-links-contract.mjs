@@ -98,6 +98,33 @@ for (const markdownFile of markdownFiles.sort()) {
 
 assert(localLinkCount >= 10, "Zu wenige lokale Dokumentationslinks wurden geprueft.");
 assert(anchorLinkCount >= 10, "Zu wenige Markdown-Anker wurden geprueft.");
+
+const currentDocumentationPaths = [
+  "README.md",
+  "health-check.md",
+  "docs/README.md",
+  "docs/INSTALLATION.md",
+  "docs/ARCHITEKTUR.md",
+  "docs/API-MCP-VERTRAG.md",
+  "docs/VERIFIKATION.md",
+  "skills/steuer-spar-erklaerung/SKILL.md",
+  "skills-data/healthcheck/skill-profile.md",
+  "skills-data/project-quality-maintenance/skill-profile.md",
+  "skills-data/project-quality-maintenance/forever-improve-loop.md",
+];
+const currentDocumentation = currentDocumentationPaths
+  .map((path) => readFileSync(path, "utf8"))
+  .join("\n");
+for (const staleCounter of [/82\/121/u, /87\/93/u, /\b120 (?:Tests|Schritte)\b/iu]) {
+  assert.doesNotMatch(currentDocumentation, staleCounter,
+    `Aktuelle Dokumentation enthält einen eingefrorenen alten Zähler: ${staleCounter}`);
+}
+assert.match(readFileSync("health-check.md", "utf8"), /keine eingefrorenen Test- oder\s+Operationszahlen/iu,
+  "Health Check muss Zähler aus Quellen ableiten statt einen alten Grünstand zu konservieren.");
+assert.doesNotMatch(readFileSync("docs/RELEASE.md", "utf8"), /GitHub-Assets aus Abschnitt 5/u,
+  "Release-Anleitung verweist auf den falschen Abschnitt.");
+assert.match(readFileSync("docs/releases/v0.1.0-beta.31.md", "utf8"), /foreground-required-operation-disabled/u,
+  "Aktuelle Release Notes müssen die öffentliche BelegManager-Sperre offenlegen.");
 process.stdout.write(
   `Repository-Links: ${markdownFiles.length} Markdown-Dateien, ${localLinkCount} lokale Ziele und ${anchorLinkCount} Anker bestanden\n`,
 );

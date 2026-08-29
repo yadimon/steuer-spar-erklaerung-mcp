@@ -1,6 +1,15 @@
 # API-/MCP-Vertrag
 
-Stand: 2026-08-18
+## Inhalt
+
+- [Rollen](#rollen)
+- [Erreichbarkeit und Browser-Schutz](#erreichbarkeit-und-browser-schutz)
+- [HTTP-Hüllen](#http-hüllen)
+- [Dauerhaftes CLI-Journal](#dauerhaftes-cli-journal)
+- [MCP-Abbildung](#mcp-abbildung)
+- [Aliase und Kompositionen](#aliase-und-kompositionen)
+- [Queue, Abbruch und Timeout](#queue-abbruch-und-timeout)
+- [Ergebnisgrenze und Evidenz](#ergebnisgrenze-und-evidenz)
 
 ## Rollen
 

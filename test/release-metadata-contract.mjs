@@ -22,6 +22,12 @@ assert.equal(apiPackage.version, packageJson.version, "API-npm-Paket hat eine an
 assert.equal(mcpPackage.version, packageJson.version, "MCP-npm-Paket hat eine andere Version.");
 assert.equal(packageLock.packages?.["packages/api"]?.version, packageJson.version, "API-Lockfile hat eine andere Version.");
 assert.equal(packageLock.packages?.["packages/mcp"]?.version, packageJson.version, "MCP-Lockfile hat eine andere Version.");
+for (const manifest of [apiPackage, mcpPackage]) {
+  assert.deepEqual(manifest.publishConfig, { access: "public", tag: "latest" },
+    `${manifest.name} muss ausschließlich über den unterstützten latest-Kanal veröffentlichen.`);
+  assert.match(manifest.scripts?.["publish:dry-run"] ?? "", /--tag latest/u,
+    `${manifest.name} verwendet im Publish-Dry-Run nicht latest.`);
+}
 assert(
   versionSource.includes(`SSE_PACKAGE_VERSION = "${packageJson.version}"`),
   "Kompilierte Runtimeversion und package.json laufen auseinander.",

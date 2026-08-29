@@ -13,10 +13,11 @@ Ein Quellstand, ein Tag oder ein automatisch erzeugtes GitHub-Quellarchiv
 allein ist kein unterstütztes Release.
 
 Die npm-Pakete `@yadimon/steuer-spar-erklaerung-api` und
-`@yadimon/steuer-spar-erklaerung-mcp` haben genau einen Kanal: `latest`. Er
-wird beim Veröffentlichen gesetzt und zeigt auf den jüngsten unterstützten
-Stand. Beide npm-Pakete müssen dieselbe Version tragen, und diese Version muss
-dem jüngsten vollständigen GitHub-Release entsprechen. Ein einzelnes oder
+`@yadimon/steuer-spar-erklaerung-mcp` werden ausschließlich über `latest`
+veröffentlicht und unterstützt. Historische dist-tags in der Registry sind
+keine Supportkanäle. `latest` muss auf den jüngsten unterstützten Stand zeigen;
+beide Pakete müssen dieselbe Version tragen, und diese Version muss dem
+jüngsten vollständigen GitHub-Release entsprechen. Ein einzelnes oder
 abweichend versioniertes Paket gilt nicht als freigegebener Produktstand.
 
 ## Sicherheitsproblem melden

@@ -1,10 +1,25 @@
 # Verifikationsstand
 
-Stand: 2026-08-27
-
 Dieses Dokument trennt veröffentlichte Verträge, Mock-/Quelltests und echte
 SSE-Läufe. Ein grüner Vertragstest beweist nicht automatisch, dass jede
 UI-Operation auf jeder Jahresversion praktisch funktioniert.
+
+## Inhalt
+
+- [Produkt- und Supportmatrix](#produkt--und-supportmatrix)
+- [Was die Tests beweisen](#was-die-tests-beweisen)
+- [Abdeckungsbilanz aus echter Ausführung](#abdeckungsbilanz-aus-echter-ausführung)
+- [Browser-Herkunftsprüfung](#herkunftsprüfung-gegen-einen-echten-browser-2026-08-23)
+- [`/healthz` unter Hashlast](#healthz-unter-hashlast-2026-08-23)
+- [Zustandsreise](#zustandsreise-2026-08-24)
+- [Nebenfenster](#nebenfenster-sind-lesbar-aber-nicht-bedienbar-2026-08-24)
+- [Kalter Feldzyklus](#kalter-feldzyklus-2026-08-23)
+- [Saubere VM](#installations--und-live-lauf-in-einer-sauberen-vm-2026-08-23)
+- [Aktuelle Live-Muster-Evidenz](#aktuelle-live-muster-evidenz)
+- [Wegwerfkopien](#wegwerfkopien-statt-privater-fixtures)
+- [Profilierter Schreibweg](#profilierter-schreibweg)
+- [Große Schreibreise](#große-schreibreise)
+- [Noch nicht freigegeben](#noch-nicht-freigegeben)
 
 ## Produkt- und Supportmatrix
 
@@ -350,9 +365,10 @@ niemals `test/operation-coverage.json`; `capabilities.liveEvidence` liefert
 stattdessen einen fest kompilierten Release-Snapshot, den ein Vertragstest an
 die erzeugte Bilanz bindet. `affectsAvailability=false` und
 `profileSpecific=false` benennen seine Grenzen maschinenlesbar. Ein Profil mit
-`status=supported` und `operationAccess=full` gibt alle Operationen frei –
-unabhängig davon, ob sie jemals erfolgreich gegen die echte Anwendung
-gelaufen sind. Gemessen am 2026-08-26 sind noch 6 der 99 Operationen nicht
+`status=supported` und `operationAccess=full` gibt den Profilkatalog frei;
+zusätzliche globale Laufzeitregeln wie die oben dokumentierte
+BelegManager-Sperre bleiben vorrangig. Die Live-Evidenz allein schaltet keine
+Operation frei oder aus. Gemessen am 2026-08-26 sind noch 6 der 99 Operationen nicht
 live-funktional belegt: die oben genannten sechs VaSt-Wege. Damit sind 93
 Operationen `functional`, sechs `error-path-only` und keine `untested`.
 Zwei davon (`vast_apply`, `vast_mapping_select`) fallen in die

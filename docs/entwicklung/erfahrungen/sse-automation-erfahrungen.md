@@ -20,9 +20,13 @@ Screenshots oder Fallpfade enthalten.
 8. [BelegManager: Fenster, Bindungen und Pläne](#belegmanager-fenster-bindungen-und-pläne)
 9. [Speichern, Kopien und Hashes](#speichern-kopien-und-hashes)
 10. [Prüfer, Hinweise und OCR](#prüfer-hinweise-und-ocr)
-11. [Bekannte Fehlwege](#bekannte-fehlwege)
-12. [Verifikationsmuster](#verifikationsmuster)
-13. [Backlog](#backlog)
+11. [Produkt-, Jahres- und Prozessgrenze](#produkt--jahres--und-prozessgrenze)
+12. [Schnelle Page-Objects und atomare Feldtransaktionen](#schnelle-page-objects-und-atomare-feldtransaktionen)
+13. [Lange Gates und dauerhafte Evidenz](#lange-gates-und-dauerhafte-evidenz)
+14. [Focusless: Navigation, Messung und offene Grenze](#focusless-navigation-messung-und-offene-grenze)
+15. [Bekannte Fehlwege](#bekannte-fehlwege)
+16. [Verifikationsmuster](#verifikationsmuster)
+17. [Backlog](#backlog)
 
 ## Datenschutz und Falltrennung
 

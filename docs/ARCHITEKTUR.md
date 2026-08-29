@@ -1,7 +1,5 @@
 # Produktarchitektur
 
-Stand: 2026-08-16
-
 Dieses Dokument ist der überprüfbare Zielvertrag für API, MCP,
 Steuerjahrprofile und öffentliche Skills. Es beschreibt das Produkt, nicht die
 Entstehungsgeschichte einzelner UIA-Lösungen.
@@ -10,6 +8,21 @@ Entstehungsgeschichte einzelner UIA-Lösungen.
 > vollständig erreicht sind. Der aktuell belegte Produktstand und offene Gates
 > stehen in [VERIFIKATION.md](VERIFIKATION.md); Transportdetails stehen in
 > [API-MCP-VERTRAG.md](API-MCP-VERTRAG.md).
+
+## Inhalt
+
+- [Produktziel](#produktziel)
+- [Verbindliche Grenzen](#verbindliche-grenzen)
+- [Nebenfenster](#nebenfenster-allgemein-lesbar-nur-rollenbezogen-bedienbar)
+- [Inhaltsbereich einer Seite](#der-inhaltsbereich-einer-seite-gemessen-oder-geraten)
+- [Ressourcen statt PC-Pfade](#ressourcen-statt-pc-pfade)
+- [Laufzeit und Installation](#laufzeit-und-installation)
+- [Steuerjahrprofile](#steuerjahrprofile)
+- [Erster Start](#erster-start-statt-einrichtungsprogramm)
+- [Öffentliche Skills](#öffentliche-skills)
+- [Szenario- und Paritätsvertrag](#szenario--und-paritätsvertrag)
+- [Testsuite](#testsuite)
+- [Definition of Done](#definition-of-done-ziel-noch-nicht-vollständig-erreicht)
 
 ## Produktziel
 
@@ -662,9 +675,11 @@ Auftrag direkt über NPX im Vordergrund laufen: Sie legt nur Arbeitsordner an,
 bindet den bestätigten Fallordner an den Prozess und schreibt keinen Launcher
 in den Paketcache.
 
-Der MCP-Eintrag beim Client ist eine einzige ausführbare Datei ohne Argumente
-und ohne Umgebungsvariablen. Ohne Token gibt es nichts weiterzureichen; der
-Wrapper findet die API über `SSE_API_URL` beziehungsweise den Standardport.
+Der MCP-Eintrag beim Client startet die absolute `node.exe` mit dem absoluten
+`dist/index.js` des MCP-Pakets als einzigem Argument. Beim Standardport braucht
+der Eintrag keine Umgebungsvariable. Für einen bewusst abweichenden API-Port
+wird `SSE_API_URL` im Client-Eintrag gesetzt; Steuerfall- und Dokumentpfade
+bleiben trotzdem ausschließlich im API-Prozess.
 
 ### Betriebsarten
 

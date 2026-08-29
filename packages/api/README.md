@@ -70,7 +70,9 @@ Belegordner und MCP-Anmeldung.
   fremdem `Host` werden mit `403` abgewiesen, damit keine Webseite im
   Browser die Steuersoftware steuern kann;
 - lokale Pfade und Steuerdaten bleiben auf dem Windows-PC;
-- Originalfälle werden auf Dateiebene nicht überschrieben;
+- Dateioperationen für Kopien, Backups und Archive überschreiben keine
+  vorhandenen Ziele; ein ausdrücklich beauftragtes `save` darf dagegen den
+  exakt gebundenen geöffneten Fall über SteuerSparErklärung speichern;
 - der eindeutig geöffnete Fall kann nach privater, hashverifizierter Sicherung
   kontrolliert geändert werden; Persistieren ist ein separater Auftrag;
 - Arbeitskopie und `save_as` nur auf ausdrücklichen Wunsch, nie automatisch;

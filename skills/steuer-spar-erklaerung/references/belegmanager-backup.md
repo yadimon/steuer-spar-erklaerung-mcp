@@ -4,6 +4,13 @@ Der BelegManager speichert seine Daten getrennt von der Steuerfalldatei. Eine
 Sicherung unter `backups:` schützt daher den Fall, aber nicht automatisch die
 BelegManager-Datenbank oder die dort abgelegten Dokumentkopien.
 
+> **Aktuelle Laufzeitgrenze:** Im öffentlichen Betrieb ist nur
+> `sse_receipt_manager_list` freigegeben. Die neun Navigations-, Detail- und
+> Mutationswege sind fail-closed gesperrt. Diese Referenz dokumentiert die
+> zusätzliche Sicherungspflicht für eine künftig ausdrücklich freigegebene
+> Mutationsphase; sie ist keine Aktivierungsanweisung und erlaubt keinen
+> direkten Worker-, Maus- oder Tastatur-Workaround.
+
 ## Wann diese Sicherung Pflicht ist
 
 Lege unmittelbar vor der ersten zusammenhängenden BelegManager-Mutationsphase

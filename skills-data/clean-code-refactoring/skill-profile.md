@@ -145,7 +145,7 @@
   - role: gemeinsamer operationsspezifischer Ergebnisvertrag fuer API,
     Discovery, OpenAPI und MCP getrennt von wiederverwendbaren Typen und
     Worker-verifizierten Feldtabellen
-  - keep_stable: jede der 93 Operationen hat eigene Fachfelder; Tabellen haben
+  - keep_stable: jede katalogisierte Operation hat eigene Fachfelder; Tabellen haben
     disjunkte Operationsschluessel; Worker-Feldbelege gelten nur auf der
     aeusseren Emit-Ebene und UIA-Scrollwerte erlauben den negativen NoScroll-
     Sentinel
@@ -192,6 +192,6 @@
 
 ## Last Confirmed State
 
-- verified_at: 2026-08-25
-- notes: receipt binding, detail-value reads and safe dialog cancellation pass
-  focused live checks and the complete 120-step suite.
+- verified_at: derive from the latest explicitly executed refactoring run
+- notes: do not cache suite size or live-coverage counts in this profile;
+  verify the current catalogs and gates before reporting completion.

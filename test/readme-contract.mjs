@@ -6,9 +6,9 @@ const readme = readFileSync("README.md", "utf8");
 for (const heading of [
   "## Features",
   "## Prompts",
-  "### Basic Prompt",
+  "### Dauerhaftes Setup mit zwei Prompts",
   "### Robuster isolierter Prüflauf",
-  "### Referenzdokumente",
+  "## Referenzdokumente",
 ]) {
   assert(readme.includes(heading), `README-Abschnitt fehlt: ${heading}`);
 }
@@ -25,6 +25,7 @@ for (const feature of [
 }
 
 for (const reference of [
+  "docs/README.md",
   "docs/INSTALLATION.md",
   "docs/ARCHITEKTUR.md",
   "docs/API-MCP-VERTRAG.md",
@@ -41,5 +42,19 @@ assert.match(readme, /Dateihash.+unverändert.+wiederverwendet/isu,
   "Der normale Ablauf muss die einmalige Sicherung je Dateistand erklären.");
 assert.match(readme, /Save As.+keine impliziten Sicherheitsmaßnahmen/isu,
   "README darf Save As oder Arbeitskopien nicht still als Sicherheitsweg vorgeben.");
+assert.match(readme, /GewErfass2026.+ausschließlich lesen/isu,
+  "README muss den derzeit read-only belegten Folgejahr-UStVA-Weg begrenzen.");
+assert.doesNotMatch(readme, /npm\.cmd install --global @yadimon\/steuer-spar-erklaerung-api/u,
+  "Die lokale manuelle Installation darf nicht global beginnen und danach lokale Bins voraussetzen.");
+assert.match(readme, /npm\.cmd install @yadimon\/steuer-spar-erklaerung-api@latest @yadimon\/steuer-spar-erklaerung-mcp@latest/u,
+  "Der kopierbare lokale Installationsblock muss beide Pakete enthalten.");
+assert.match(readme, /github\.com\/yadimon\/steuer-spar-erklaerung-mcp\/releases/u,
+  "README muss auf die stabile Releases-Übersicht statt auf eine einzelne Beta zeigen.");
+assert.doesNotMatch(readme, /docs\/releases\/v\d+\.\d+\.\d+(?:-[^)\s]+)?\.md/iu,
+  "README darf keine bei jedem Release veraltende Release-Note direkt verlinken.");
+assert.doesNotMatch(readme, /v\d+\.\d+\.\d+-beta\.\d+/iu,
+  "README darf keine konkrete Beta als aktuellen Einstieg festschreiben.");
+assert.match(readme, /neun Vordergrundwege.+gelten für API-CLI und MCP gleichermaßen/isu,
+  "README muss Laufzeitsperren für MCP und API-CLI gleich beschreiben.");
 
 process.stdout.write("README: Features, zwei Prompts und Kernreferenzen bestanden\n");

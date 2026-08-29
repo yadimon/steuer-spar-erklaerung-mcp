@@ -19,7 +19,9 @@ assert.equal(rootPackage.version, mcpPackage.version);
 
 for (const [directory, manifest] of [["packages/api", apiPackage], ["packages/mcp", mcpPackage]]) {
   assert.equal(manifest.private, undefined, `${directory} darf nicht private sein.`);
-  assert.deepEqual(manifest.publishConfig, { access: "public", tag: "beta" });
+  assert.deepEqual(manifest.publishConfig, { access: "public", tag: "latest" });
+  assert.match(manifest.scripts?.["publish:dry-run"] ?? "", /--tag latest/u,
+    `${directory} muss denselben unterstützten npm-Kanal im Dry-Run verwenden.`);
   assert.equal(manifest.main, undefined, `${directory} ist ein CLI-Paket ohne nebenwirkenden JS-Haupteinstieg.`);
   if (directory === "packages/api") {
     assert.deepEqual(manifest.exports, { "./package.json": "./package.json" });
@@ -70,7 +72,7 @@ for (const required of [
 for (const required of [
   "Beta und inoffiziell",
   "PC-blinder MCP-Wrapper",
-  "exakt dieselbe Version",
+  "exakt dieselbe Paketversion",
   "@yadimon/steuer-spar-erklaerung-mcp",
   "99 fachliche MCP-Toolnamen",
   "structuredContent",

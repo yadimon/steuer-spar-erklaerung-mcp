@@ -12,9 +12,10 @@ Desktop-Oberfläche oder lokale Steuerdateien zu.
 ## Architektur und Voraussetzungen
 
 Das API-Paket ist die Ausführungsschicht auf dem Windows-PC; dieses MCP-Paket
-übersetzt MCP-Aufrufe in deren versionierten HTTP-Vertrag. API und MCP müssen
-exakt dieselbe Version tragen. Ohne laufende, passend versionierte API ist der
-Wrapper absichtlich nicht nutzbar.
+übersetzt MCP-Aufrufe in deren versionierten HTTP-Vertrag. Für den
+unterstützten Produktstand müssen API und MCP exakt dieselbe Paketversion
+tragen. Die Laufzeit prüft zusätzlich den API-Protokollvertrag; eine bloß
+protokollkompatible abweichende Paketversion ist trotzdem nicht freigegeben.
 
 ```text
 AI-Agent -> MCP-Paket -> lokale API -> SteuerSparErklärung
@@ -28,9 +29,10 @@ steuer-spar-erklaerung-mcp --help
 
 Die [Installationsanleitung](https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md)
 beschreibt Installation, Versionsabgleich und Client-Konfiguration. Der
-MCP-Servereintrag ist eine einzige ausführbare Datei ohne Argumente und ohne
-Umgebungsvariablen; der Wrapper findet die lokale API über `SSE_API_URL`
-beziehungsweise den Standardport. Steuerfall-, Beleg- und Programmpfade
+MCP-Servereintrag startet die absolute `node.exe` mit dem absoluten
+`dist/index.js` dieses Pakets als einzigem Argument. Beim Standardport braucht
+er keine Umgebungsvariable; für einen bewusst abweichenden API-Port wird
+`SSE_API_URL` im Client-Eintrag gesetzt. Steuerfall-, Beleg- und Programmpfade
 verbleiben im API-Prozess auf dem Steuer-PC.
 
 ## Vertrag
@@ -42,6 +44,11 @@ verbleiben im API-Prozess auf dem Steuer-PC.
 - Cancellation bis zum lokalen API-Auftrag;
 - Größenlimits und fail-closed Fehlerantworten.
 
+Alle 99 Werkzeugnamen sind registriert. Im normalen öffentlichen Betrieb ist
+von den zehn BelegManager-Werkzeugen nur `sse_receipt_manager_list` aktiv; die
+neun Vordergrundwege stoppen vor Workerstart und UI-Änderung strukturiert als
+`foreground-required-operation-disabled`.
+
 ## Sicherheitsgrenzen
 
 - MCP erhält keine Steuerfall-, Dokument- oder Programmpfade;
@@ -49,7 +56,9 @@ verbleiben im API-Prozess auf dem Steuer-PC.
   `Sec-Fetch-Site` oder fremdem `Host` mit `403` ab;
 - die API darf nicht über Netzwerk-Proxys oder öffentliche Gateways
   exponiert werden;
-- Originalfälle werden nicht überschrieben;
+- Kopien, Backups und Archive überschreiben keine vorhandenen Ziele; ein
+  ausdrücklich beauftragtes `save` kann den exakt gebundenen geöffneten Fall
+  über SteuerSparErklärung speichern;
 - ein bereits geöffneter Fall bleibt der Arbeitsfall; eine Arbeitskopie,
   `save` oder `save_as` wird nie still als Sicherheitsmaßnahme ausgelöst;
 - vor der ersten dirty-fähigen UI-Navigation oder Mutation sichert der Agent
