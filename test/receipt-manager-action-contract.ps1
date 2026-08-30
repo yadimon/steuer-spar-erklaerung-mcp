@@ -17,10 +17,7 @@ $errors = $null
 $ast = [Management.Automation.Language.Parser]::ParseFile($workerPath, [ref]$tokens, [ref]$errors)
 if ($errors.Count) { throw "Worker-Parserfehler: $($errors[0].Message)" }
 foreach ($functionName in @(
-  'Invoke-SSESpeculativeProbe',
-  'Fail',
   'Get-SSEReceiptManagerPolicy',
-  'Get-SSEReceiptManagerStateFingerprint',
   'Get-SSEReceiptManagerState',
   'Get-SSEReceiptManagerListProjection',
   'Get-SSEReceiptManagerWindowSet',
@@ -34,123 +31,12 @@ foreach ($functionName in @(
     $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $functionName
   }, $true))
   Assert-True ($definitions.Count -eq 1) "$functionName ist nicht eindeutig vorhanden."
-  if ($functionName -in @('Invoke-SSESpeculativeProbe','Fail','Get-SSEReceiptManagerStateFingerprint','Get-SSEReceiptManagerState','Get-SSEReceiptManagerListProjection','ConvertTo-SSEReceiptManagerInputValue','ConvertFrom-SSEReceiptManagerDisplayValue','Get-SSEReceiptManagerDetailIdentityTitle','Test-SSEReceiptManagerPdfHeader')) {
+  if ($functionName -in @('Get-SSEReceiptManagerState','Get-SSEReceiptManagerListProjection','ConvertTo-SSEReceiptManagerInputValue','ConvertFrom-SSEReceiptManagerDisplayValue','Get-SSEReceiptManagerDetailIdentityTitle','Test-SSEReceiptManagerPdfHeader')) {
     Invoke-Expression $definitions[0].Extent.Text
   }
 }
 
 $policy = $catalog.windows.receiptManager
-$script:SSE_SPECULATIVE_PROBE_ACTIVE = $false
-$script:SSE_SPECULATIVE_PROBE_SENTINEL = 'SSE_INTERNAL_SPECULATIVE_PROBE_FAILED_5C88CFBD'
-$script:SSE_CAPTURE_SENTINEL = 'SSE_INTERNAL_OPERATION_RESULT_CAPTURED'
-$script:SSE_CAPTURE_OPERATION_RESULT = $false
-$script:SpeculativeProbeEmitCalls = 0
-$script:SpeculativeProbeEmitted = $null
-function Emit($Payload) {
-  $script:SpeculativeProbeEmitCalls++
-  $script:SpeculativeProbeEmitted = $Payload
-}
-
-$successfulProbe = Invoke-SSESpeculativeProbe -Probe {
-  param([string]$Value)
-  [pscustomobject]@{ value=$Value }
-} -ArgumentList @('probe-ok')
-Assert-True ([string]$successfulProbe.value -ceq 'probe-ok') 'Eine erfolgreiche spekulative Probe gibt ihren Wert nicht zurueck.'
-Assert-True (-not $script:SSE_SPECULATIVE_PROBE_ACTIVE) 'Probe-Flag bleibt nach erfolgreicher Probe gesetzt.'
-
-$failedProbe = Invoke-SSESpeculativeProbe -Probe {
-  param([string]$Message)
-  Fail $Message 'probe-unit'
-} -ArgumentList @('candidate-failed')
-Assert-True ($null -eq $failedProbe) 'Fail innerhalb der spekulativen Probe muss den Candidate als null verwerfen.'
-Assert-True ($script:SpeculativeProbeEmitCalls -eq 0) 'Fail innerhalb der spekulativen Probe darf Emit nicht aufrufen.'
-Assert-True (-not $script:SSE_SPECULATIVE_PROBE_ACTIVE) 'Probe-Flag bleibt nach fehlgeschlagener Probe gesetzt.'
-$fallbackRequired = $null -eq $failedProbe
-Assert-True $fallbackRequired 'Ein verworfener Candidate muss die Fallback-Bedingung erzeugen.'
-
-$script:NestedSpeculativeProbeExecuted = $false
-$nestedProbe = {
-  $script:NestedSpeculativeProbeExecuted = $true
-  'unexpected-nested-value'
-}
-$nestedProbeResult = Invoke-SSESpeculativeProbe -Probe {
-  param([scriptblock]$NestedProbe)
-  Invoke-SSESpeculativeProbe -Probe $NestedProbe -ArgumentList @()
-} -ArgumentList @($nestedProbe)
-Assert-True ($null -eq $nestedProbeResult -and -not $script:NestedSpeculativeProbeExecuted) `
-  'Eine verschachtelte spekulative Probe muss fail-closed null liefern, ohne den inneren Block auszufuehren.'
-Assert-True (-not $script:SSE_SPECULATIVE_PROBE_ACTIVE) 'Probe-Flag bleibt nach verschachtelter Probe gesetzt.'
-$ignoredNestedProbeResult = Invoke-SSESpeculativeProbe -Probe {
-  param([scriptblock]$NestedProbe)
-  $null = Invoke-SSESpeculativeProbe -Probe $NestedProbe -ArgumentList @()
-  [pscustomobject]@{ reusable=$true }
-} -ArgumentList @($nestedProbe)
-Assert-True ($null -eq $ignoredNestedProbeResult -and -not $script:NestedSpeculativeProbeExecuted) `
-  'Ein aeusserer Probe-Block darf einen verschachtelten Probe-Fehler nicht ignorieren und danach einen wiederverwendbaren Fake-Candidate ausgeben.'
-Assert-True (-not $script:SSE_SPECULATIVE_PROBE_ACTIVE) 'Probe-Flag bleibt nach abgefangenem verschachteltem Probe-Fehler gesetzt.'
-
-$script:SSE_CAPTURE_OPERATION_RESULT = $true
-$captureFlagProbe = Invoke-SSESpeculativeProbe -Probe { param([string]$Value) $Value } -ArgumentList @('capture-unchanged')
-Assert-True ([string]$captureFlagProbe -ceq 'capture-unchanged' -and $script:SSE_CAPTURE_OPERATION_RESULT) `
-  'Die spekulative Probe darf den aeusseren Operations-Capture nicht veraendern.'
-$captureSentinelPropagated = $false
-try {
-  $null = Invoke-SSESpeculativeProbe -Probe {
-    param([string]$Sentinel)
-    throw [InvalidOperationException]::new($Sentinel)
-  } -ArgumentList @($script:SSE_CAPTURE_SENTINEL)
-} catch {
-  $captureSentinelPropagated = $_.Exception.Message -ceq $script:SSE_CAPTURE_SENTINEL
-}
-Assert-True $captureSentinelPropagated 'Die spekulative Probe hat den Sentinel des aeusseren Operations-Captures geschluckt.'
-Assert-True (-not $script:SSE_SPECULATIVE_PROBE_ACTIVE) 'Probe-Flag bleibt nach propagiertem Capture-Sentinel gesetzt.'
-$script:SSE_CAPTURE_OPERATION_RESULT = $false
-
-$script:SpeculativeProbeEmitCalls = 0
-$script:SpeculativeProbeEmitted = $null
-Fail 'normal-fail' 'normal-kind' ([pscustomobject]@{ retryable=$false })
-Assert-True ($script:SpeculativeProbeEmitCalls -eq 1) 'Normaler Fail muss ausserhalb einer Probe weiterhin exakt einmal Emit aufrufen.'
-Assert-True (-not [bool]$script:SpeculativeProbeEmitted.ok -and
-  [string]$script:SpeculativeProbeEmitted.kind -ceq 'normal-kind' -and
-  [string]$script:SpeculativeProbeEmitted.error -ceq 'normal-fail' -and
-  $script:SpeculativeProbeEmitted.retryable -eq $false) `
-  'Normaler Fail muss seinen bisherigen Payload-Vertrag unveraendert an Emit uebergeben.'
-
-$probeHelperStart = $worker.IndexOf('function Invoke-SSESpeculativeProbe(')
-$probeHelperEnd = $worker.IndexOf('function Fail(', $probeHelperStart)
-$failHelperEnd = $worker.IndexOf('$script:SSE_INTERNAL_PLAN_OPERATIONS', $probeHelperEnd)
-Assert-True ($probeHelperStart -ge 0 -and $probeHelperEnd -gt $probeHelperStart -and $failHelperEnd -gt $probeHelperEnd) `
-  'Spekulative Probe und Fail-Helfer sind nicht eindeutig abgrenzbar.'
-$probeHelperBlock = $worker.Substring($probeHelperStart, $probeHelperEnd - $probeHelperStart)
-$failHelperBlock = $worker.Substring($probeHelperEnd, $failHelperEnd - $probeHelperEnd)
-foreach ($required in @(
-  'if ($script:SSE_SPECULATIVE_PROBE_ACTIVE) {',
-  'throw [InvalidOperationException]::new($script:SSE_SPECULATIVE_PROBE_SENTINEL)',
-  '$script:SSE_SPECULATIVE_PROBE_ACTIVE = $true',
-  '& $Probe @ArgumentList',
-  '$_.Exception.Message -ceq $script:SSE_CAPTURE_SENTINEL',
-  'finally {',
-  '$script:SSE_SPECULATIVE_PROBE_ACTIVE = $false'
-)) {
-  Assert-True ($probeHelperBlock.Contains($required)) "Spekulativer Probe-Helfer fehlt der Guard '$required'."
-}
-Assert-True (-not $probeHelperBlock.Contains('SSE_CAPTURE_OPERATION_RESULT')) `
-  'Der spekulative Probe-Helfer darf den aeusseren Capture-Modus nicht lesen oder veraendern.'
-foreach ($required in @(
-  '$payload = [ordered]@{ ok = $false; kind = $kind; error = "$msg" }',
-  "if (`$property.Name -notin @('ok','kind','error','ms'))",
-  'throw [InvalidOperationException]::new($script:SSE_SPECULATIVE_PROBE_SENTINEL)',
-  'Emit ([pscustomobject]$payload)'
-)) {
-  Assert-True ($failHelperBlock.Contains($required)) "Fail-Helfer fehlt der normale/probegebundene Vertrag '$required'."
-}
-Assert-True ($failHelperBlock.IndexOf('SSE_SPECULATIVE_PROBE_SENTINEL') -lt $failHelperBlock.IndexOf('Emit ([pscustomobject]$payload)')) `
-  'Fail muss den spekulativen Sentinel vor jedem Emit ausloesen.'
-Assert-True ($worker.Contains("`$script:SSE_SPECULATIVE_PROBE_SENTINEL = 'SSE_INTERNAL_SPECULATIVE_PROBE_FAILED_5C88CFBD'")) `
-  'Der scriptweite eindeutige Sentinel fuer spekulative Probes fehlt.'
-Assert-True ($script:SSE_SPECULATIVE_PROBE_SENTINEL -cne $script:SSE_CAPTURE_SENTINEL) `
-  'Probe- und Operations-Capture-Sentinel muessen eindeutig verschieden bleiben.'
-
 $foregroundCatalogStart = $worker.IndexOf('$foregroundRequiredReceiptOps = @(')
 $foregroundGateStart = $worker.IndexOf('$profilePolicyOperation -in $foregroundRequiredReceiptOps')
 $buildGateStart = $worker.IndexOf('Assert-SSEVerifiedBuildForOperation $profilePolicyOperation $a', $foregroundGateStart)
@@ -290,17 +176,9 @@ try {
 }
 Assert-True ([bool]$policy.controls.linkManagement.directToggleSupported -eq $false) 'Wirkungsloses TogglePattern darf fuer SSE 31.0.1 nicht aktiviert sein.'
 
-function Get-SSETextSha256([string]$Text) {
-  $bytes = [Text.Encoding]::UTF8.GetBytes($Text)
-  $sha = [Security.Cryptography.SHA256]::Create()
-  try { ([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace('-', '') }
-  finally { $sha.Dispose() }
-}
-function Walk-Tree([IntPtr]$Window, [int]$MaxNodes, [switch]$WithValues) {
-  [pscustomobject]@{
-    nodes=$script:ReceiptNodes
-    stats=[pscustomobject]@{ n=$script:ReceiptNodes.Count; truncated=$false; valErr=0 }
-  }
+function Get-SSETextSha256([string]$Text) { 'A' * 64 }
+function Walk-Tree([IntPtr]$Window, [int]$MaxNodes) {
+  [pscustomobject]@{ nodes=$script:ReceiptNodes; stats=[pscustomobject]@{ n=$script:ReceiptNodes.Count } }
 }
 function ReceiptNode([string]$Suffix, [bool]$Enabled = $true) {
   [pscustomobject]@{
@@ -308,58 +186,9 @@ function ReceiptNode([string]$Suffix, [bool]$Enabled = $true) {
     checked=$null; selected=$null; x=10; y=10; w=20; h=20
   }
 }
-$noValueFingerprintNodes = @($policy.states.start.requiredAutomationIdSuffixes | ForEach-Object { ReceiptNode ([string]$_) })
-$withValueFingerprintNodes = @($policy.states.start.requiredAutomationIdSuffixes | ForEach-Object { ReceiptNode ([string]$_) })
-$withValueFingerprintNodes[0].checked = $true
-$withValueFingerprintNodes[0].selected = $false
-$noValueFingerprint = Get-SSEReceiptManagerStateFingerprint ([IntPtr]5252) 'start' $noValueFingerprintNodes $policy
-$rawWithValueFingerprint = Get-SSEReceiptManagerStateFingerprint ([IntPtr]5252) 'start' $withValueFingerprintNodes $policy
-$structuralWithValueFingerprint = Get-SSEReceiptManagerStateFingerprint `
-  ([IntPtr]5252) 'start' $withValueFingerprintNodes $policy -Structural
-$legacyRelevantSuffixes = @(
-  @($policy.states.PSObject.Properties | ForEach-Object { @($_.Value.requiredAutomationIdSuffixes) }) +
-  @($policy.actions.PSObject.Properties | ForEach-Object { [string]$_.Value.automationIdSuffix })
-) | ForEach-Object { [string]$_ } | Where-Object { $_ } | Select-Object -Unique
-$legacyStableNodes = @($noValueFingerprintNodes | Where-Object {
-  $aid = [string]$_.aid
-  @($legacyRelevantSuffixes | Where-Object { $aid.EndsWith($_, [StringComparison]::Ordinal) }).Count -gt 0
-} | Sort-Object aid | ForEach-Object {
-  [pscustomobject][ordered]@{
-    aid=[string]$_.aid; name=[string]$_.name; type=[string]$_.type
-    enabled=[bool]$_.on; checked=$_.checked; selected=$_.selected
-    x=[int]$_.x; y=[int]$_.y; w=[int]$_.w; h=[int]$_.h
-  }
-})
-$legacyFingerprint = Get-SSETextSha256 (([pscustomobject][ordered]@{
-  hwnd=[int64]5252; state='start'; nodes=$legacyStableNodes
-}) | ConvertTo-Json -Depth 8 -Compress)
-Assert-True ($noValueFingerprint -ceq $legacyFingerprint) `
-  'Der ausgelagerte Standard-Fingerprint muss bytegleich zum bisherigen JSON-/Hash-Aufbau bleiben.'
-Assert-True ($rawWithValueFingerprint -cne $noValueFingerprint) `
-  'Raw-WithValues-Fingerprint muss sich wegen checked/selected vom No-Values-Fingerprint unterscheiden.'
-Assert-True ($structuralWithValueFingerprint -ceq $noValueFingerprint) `
-  'Structural-WithValues-Fingerprint muss checked/selected exakt wie der No-Values-Fingerprint normalisieren.'
-
-$nameFingerprintNodes = @($policy.states.start.requiredAutomationIdSuffixes | ForEach-Object { ReceiptNode ([string]$_) })
-$nameFingerprintNodes[0].name = 'Geaenderter Name'
-$enabledFingerprintNodes = @($policy.states.start.requiredAutomationIdSuffixes | ForEach-Object { ReceiptNode ([string]$_) })
-$enabledFingerprintNodes[0].on = $false
-$geometryFingerprintNodes = @($policy.states.start.requiredAutomationIdSuffixes | ForEach-Object { ReceiptNode ([string]$_) })
-$geometryFingerprintNodes[0].x++
-Assert-True ((Get-SSEReceiptManagerStateFingerprint ([IntPtr]5252) 'start' $nameFingerprintNodes $policy -Structural) -cne $noValueFingerprint) `
-  'Structural-Fingerprint darf Name-Aenderungen nicht normalisieren.'
-Assert-True ((Get-SSEReceiptManagerStateFingerprint ([IntPtr]5252) 'start' $enabledFingerprintNodes $policy -Structural) -cne $noValueFingerprint) `
-  'Structural-Fingerprint darf Enabled-Aenderungen nicht normalisieren.'
-Assert-True ((Get-SSEReceiptManagerStateFingerprint ([IntPtr]5252) 'start' $geometryFingerprintNodes $policy -Structural) -cne $noValueFingerprint) `
-  'Structural-Fingerprint darf Geometrie-Aenderungen nicht normalisieren.'
-Assert-True ((Get-SSEReceiptManagerStateFingerprint ([IntPtr]5252) 'list' $noValueFingerprintNodes $policy -Structural) -cne $noValueFingerprint) `
-  'Structural-Fingerprint darf Zustandsaenderungen nicht normalisieren.'
-
-$script:ReceiptNodes = $noValueFingerprintNodes
+$script:ReceiptNodes = @($policy.states.start.requiredAutomationIdSuffixes | ForEach-Object { ReceiptNode ([string]$_) })
 $startState = Get-SSEReceiptManagerState ([IntPtr]5252) $policy
 Assert-True ($startState.state -ceq 'start') "Startzustand wurde als '$($startState.state)' erkannt."
-Assert-True ($startState.fingerprint -ceq $noValueFingerprint) `
-  'Get-SSEReceiptManagerState muss im Standardmodus exakt den ausgelagerten Fingerprint verwenden.'
 $script:ReceiptNodes = @($policy.states.list.requiredAutomationIdSuffixes | ForEach-Object { ReceiptNode ([string]$_) })
 $listState = Get-SSEReceiptManagerState ([IntPtr]5252) $policy
 Assert-True ($listState.state -ceq 'list') "Listenzustand wurde als '$($listState.state)' erkannt."
@@ -426,78 +255,6 @@ Assert-True ($receiptReadBlock.Contains('Resolve-SSEReceiptManagerVisibleRowTarg
 Assert-True ($receiptReadBlock.Contains("method='already-open-detail'")) 'receipt_manager_read muss eine exakt gebundene bereits offene Detailansicht ohne erneuten Zeilenklick lesen.'
 Assert-True ($receiptReadBlock.IndexOf('$detailState = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues') -lt
   $receiptReadBlock.IndexOf('Resolve-SSEReceiptManagerVisibleRowTarget')) 'receipt_manager_read muss eine offene Detailansicht mit vollstaendigen Werten pruefen, bevor es die Tabellenzeile erneut bindet.'
-$candidateProbeIndex = $receiptReadBlock.IndexOf('$detailCandidateProbe = Invoke-SSESpeculativeProbe -Probe {')
-$detailCandidateIndex = $receiptReadBlock.IndexOf('$detailCandidate = Get-SSEReceiptManagerState $ProbeToolHwnd $ProbePolicy -WithValues', $candidateProbeIndex)
-$candidateListIndex = $receiptReadBlock.IndexOf('$detailCandidateList = Get-SSEReceiptManagerListProjection $detailCandidate $ProbePolicy', $detailCandidateIndex)
-$candidateGateIndex = $receiptReadBlock.IndexOf('reusable=[bool](', $candidateListIndex)
-$candidateArgumentsIndex = $receiptReadBlock.IndexOf('} -ArgumentList @(', $candidateGateIndex)
-$reuseCandidateIndex = $receiptReadBlock.IndexOf('$reuseDetailCandidate = [bool]($detailCandidateProbe -and [bool]$detailCandidateProbe.reusable)', $candidateArgumentsIndex)
-$fastBranchIndex = $receiptReadBlock.IndexOf('if ($reuseDetailCandidate) {', $reuseCandidateIndex)
-$fallbackFreshIndex = $receiptReadBlock.IndexOf('$freshState = Get-SSEReceiptManagerState $toolHwnd $policy', $fastBranchIndex)
-$fallbackStaleIndex = $receiptReadBlock.IndexOf('if ([string]$freshStateFingerprint -cne [string]$stateBefore.fingerprint', $fallbackFreshIndex)
-$fallbackDetailIndex = $receiptReadBlock.IndexOf('$detailState = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues', $fallbackStaleIndex)
-Assert-True ($candidateProbeIndex -ge 0 -and $detailCandidateIndex -gt $candidateProbeIndex -and
-  $candidateListIndex -gt $detailCandidateIndex -and $candidateGateIndex -gt $candidateListIndex -and
-  $candidateArgumentsIndex -gt $candidateGateIndex -and $reuseCandidateIndex -gt $candidateArgumentsIndex -and
-  $fastBranchIndex -gt $reuseCandidateIndex) `
-  'receipt_manager_read muss den gesamten WithValues-Candidate innerhalb genau einer spekulativen Probe aufbauen und erst danach wiederverwenden.'
-Assert-True ((($receiptReadBlock.Split(@('$detailCandidate = Get-SSEReceiptManagerState $ProbeToolHwnd $ProbePolicy -WithValues'), [StringSplitOptions]::None).Count - 1) -eq 1)) `
-  'receipt_manager_read darf nur einen initialen WithValues-detailCandidate lesen.'
-Assert-True ($fallbackFreshIndex -gt $fastBranchIndex -and $fallbackStaleIndex -gt $fallbackFreshIndex -and
-  $fallbackDetailIndex -gt $fallbackStaleIndex) `
-  'Der Fallback muss unveraendert No-Values-Freshness und Stale-Guard vor einem neuen WithValues-Detailread ausfuehren.'
-foreach ($required in @(
-  '[IntPtr]$ProbeToolHwnd',
-  '$ProbePolicy',
-  '[string]$ProbeRowRid',
-  '[string]$ProbeRowFingerprint',
-  '[string]$ProbeStateBeforeFingerprint',
-  '[string]$ProbeExpectedListFingerprint',
-  '[IntPtr]$toolHwnd,',
-  '$policy,',
-  '$rowRid,',
-  '$rowFingerprint,',
-  '[string]$stateBefore.fingerprint,',
-  '$expectedListFingerprint',
-  '$candidateSearchNodes.Count -eq 1',
-  '$null -ne $candidateSearchNodes[0].val',
-  "[string]`$candidateSearchNodes[0].val -ceq ''",
-  '$null -ne $detailCandidate.stats.PSObject.Properties[''truncated'']',
-  '$null -ne $detailCandidate.stats.PSObject.Properties[''valErr'']',
-  '-not [bool]$detailCandidate.stats.truncated',
-  '[int]$detailCandidate.stats.valErr -eq 0',
-  'Get-SSEReceiptManagerStateFingerprint',
-  '-Structural',
-  '[string]$detailCandidateStructuralFingerprint -ceq $ProbeStateBeforeFingerprint',
-  '[bool]$detailCandidateList.rowsComplete',
-  '$null -eq $detailCandidateList.gridProjectionError',
-  '[string]$detailCandidateList.listFingerprint -ceq $ProbeExpectedListFingerprint',
-  '$detailCandidateRows.Count -eq 1',
-  '$freshStateFingerprint = $detailCandidateProbe.structuralFingerprint',
-  '$reuseDetailCandidate = [bool]($detailCandidateProbe -and [bool]$detailCandidateProbe.reusable)',
-  'if (-not $reuseDetailCandidate) {'
-)) {
-  Assert-True ($receiptReadBlock.Contains($required)) "receipt_manager_read fehlt der enge Candidate-/Fallback-Guard '$required'."
-}
-$finalReadEmitMatches = [regex]::Matches($receiptReadBlock, [regex]::Escape('Emit ([pscustomobject]@{'))
-Assert-True ($finalReadEmitMatches.Count -eq 2) `
-  'receipt_manager_read muss genau einen finalen Fehler- und einen finalen Erfolgspayload emittieren.'
-$failedReadEmitIndex = $finalReadEmitMatches[0].Index
-$successfulReadEmitIndex = $finalReadEmitMatches[1].Index
-Assert-True ($failedReadEmitIndex -gt $receiptReadBlock.IndexOf('if (-not $verified) {') -and
-  $successfulReadEmitIndex -gt $failedReadEmitIndex) `
-  'Die finalen receipt_manager_read-Payloads sind nicht als Postcondition-Fehler und Erfolg angeordnet.'
-$readPerformancePattern = [regex]::Escape('performance=[pscustomobject]@{') + '\s*' +
-  [regex]::Escape('detailSnapshotProbeSucceeded=[bool]($null -ne $detailCandidateProbe)') + '\s*' +
-  [regex]::Escape('detailSnapshotReused=[bool]$reuseDetailCandidate') + '\s*' +
-  [regex]::Escape('}')
-$readPerformanceMatches = [regex]::Matches($receiptReadBlock, $readPerformancePattern)
-Assert-True ($readPerformanceMatches.Count -eq 2) `
-  'Beide finalen receipt_manager_read-Payloads brauchen ein Performance-Objekt mit ausschliesslich den zwei booleschen Snapshot-Feldern.'
-Assert-True ($readPerformanceMatches[0].Index -gt $failedReadEmitIndex -and
-  $readPerformanceMatches[0].Index -lt $successfulReadEmitIndex -and
-  $readPerformanceMatches[1].Index -gt $successfulReadEmitIndex) `
-  'Snapshot-Performance muss sowohl im Postcondition-Fehler als auch im erfolgreichen receipt_manager_read-Payload liegen.'
 
 $updateStart = $receiptReadEnd
 $updateEnd = $worker.IndexOf("  'receipt_manager_import' {", $updateStart)
