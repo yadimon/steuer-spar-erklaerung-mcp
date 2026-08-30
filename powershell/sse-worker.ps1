@@ -45,6 +45,8 @@ $script:INIT_TIMINGS = [ordered]@{}
 $script:SSE_CAPTURE_OPERATION_RESULT = $false
 $script:SSE_CAPTURED_OPERATION_RESULT = $null
 $script:SSE_CAPTURE_SENTINEL = 'SSE_INTERNAL_OPERATION_RESULT_CAPTURED'
+$script:SSE_SPECULATIVE_PROBE_ACTIVE = $false
+$script:SSE_SPECULATIVE_PROBE_SENTINEL = 'SSE_INTERNAL_SPECULATIVE_PROBE_FAILED_5C88CFBD'
 $script:SSE_WORKER_CONTROLLER_MUTEX_NAME = 'Local\SteuerSparErklaerungApi.SseWorkerController'
 $script:SSE_WORKER_CONTROLLER_LEASE = $null
 
@@ -1867,6 +1869,21 @@ function Emit($obj) {
   else          { [Console]::Out.Write($json) }
   exit 0
 }
+function Invoke-SSESpeculativeProbe([scriptblock]$Probe, [object[]]$ArgumentList = @()) {
+  if ($script:SSE_SPECULATIVE_PROBE_ACTIVE) { return $null }
+  $script:SSE_SPECULATIVE_PROBE_ACTIVE = $true
+  try {
+    & $Probe @ArgumentList
+  } catch {
+    # Der Sentinel des uebergeordneten Operations-Captures ist kein
+    # spekulativer Lesefehler und muss seinen kanonischen Empfaenger erreichen.
+    if ($_.Exception.Message -ceq $script:SSE_CAPTURE_SENTINEL) { throw }
+    return $null
+  } finally {
+    $script:SSE_SPECULATIVE_PROBE_ACTIVE = $false
+  }
+}
+
 function Fail($msg, $kind = 'error', $details = $null) {
   $payload = [ordered]@{ ok = $false; kind = $kind; error = "$msg" }
   if ($null -ne $details) {
@@ -1875,6 +1892,9 @@ function Fail($msg, $kind = 'error', $details = $null) {
         $payload[$property.Name] = $property.Value
       }
     }
+  }
+  if ($script:SSE_SPECULATIVE_PROBE_ACTIVE) {
+    throw [InvalidOperationException]::new($script:SSE_SPECULATIVE_PROBE_SENTINEL)
   }
   Emit ([pscustomobject]$payload)
 }
@@ -17776,40 +17796,63 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     if ($null -eq $dirtyBefore) { Fail 'Dirty-State des zugehoerigen Hauptfensters ist nicht lesbar.' 'precondition-failed' }
 
     $inputTick = Get-SSELastInputTick
-    $detailCandidate = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
-    $detailCandidateList = Get-SSEReceiptManagerListProjection $detailCandidate $policy
-    $candidateSearchSuffix = [string]$policy.list.searchAutomationIdSuffix
-    $candidateSearchNodes = @($detailCandidate.nodes | Where-Object {
-      $_.type -eq 'Edit' -and [string]$_.aid -and
-      ([string]$_.aid).EndsWith($candidateSearchSuffix, [StringComparison]::Ordinal)
-    })
-    $detailCandidateStructuralFingerprint = Get-SSEReceiptManagerStateFingerprint `
-      $toolHwnd ([string]$detailCandidate.state) $detailCandidate.nodes $policy -Structural
-    $detailCandidateRows = @($detailCandidateList.rows | Where-Object {
-      [string]$_.rowRid -ceq $rowRid -and
-      ([string]$_.rowFingerprint).ToUpperInvariant() -ceq $rowFingerprint
-    })
-    $reuseDetailCandidate = [bool](
-      $candidateSearchNodes.Count -eq 1 -and
-      $null -ne $candidateSearchNodes[0].val -and
-      [string]$candidateSearchNodes[0].val -ceq '' -and
-      $detailCandidate.stats -and
-      $null -ne $detailCandidate.stats.PSObject.Properties['truncated'] -and
-      $null -ne $detailCandidate.stats.PSObject.Properties['valErr'] -and
-      -not [bool]$detailCandidate.stats.truncated -and
-      [int]$detailCandidate.stats.valErr -eq 0 -and
-      [string]$detailCandidateStructuralFingerprint -ceq [string]$stateBefore.fingerprint -and
-      [bool]$detailCandidateList.rowsComplete -and
-      $null -eq $detailCandidateList.gridProjectionError -and
-      [string]$detailCandidateList.listFingerprint -ceq $expectedListFingerprint -and
-      $detailCandidateRows.Count -eq 1
+    $detailCandidateProbe = Invoke-SSESpeculativeProbe -Probe {
+      param(
+        [IntPtr]$ProbeToolHwnd,
+        $ProbePolicy,
+        [string]$ProbeRowRid,
+        [string]$ProbeRowFingerprint,
+        [string]$ProbeStateBeforeFingerprint,
+        [string]$ProbeExpectedListFingerprint
+      )
+      $detailCandidate = Get-SSEReceiptManagerState $ProbeToolHwnd $ProbePolicy -WithValues
+      $detailCandidateList = Get-SSEReceiptManagerListProjection $detailCandidate $ProbePolicy
+      $candidateSearchSuffix = [string]$ProbePolicy.list.searchAutomationIdSuffix
+      $candidateSearchNodes = @($detailCandidate.nodes | Where-Object {
+        $_.type -eq 'Edit' -and [string]$_.aid -and
+        ([string]$_.aid).EndsWith($candidateSearchSuffix, [StringComparison]::Ordinal)
+      })
+      $detailCandidateStructuralFingerprint = Get-SSEReceiptManagerStateFingerprint `
+        $ProbeToolHwnd ([string]$detailCandidate.state) $detailCandidate.nodes $ProbePolicy -Structural
+      $detailCandidateRows = @($detailCandidateList.rows | Where-Object {
+        [string]$_.rowRid -ceq $ProbeRowRid -and
+        ([string]$_.rowFingerprint).ToUpperInvariant() -ceq $ProbeRowFingerprint
+      })
+      [pscustomobject][ordered]@{
+        reusable=[bool](
+          $candidateSearchNodes.Count -eq 1 -and
+          $null -ne $candidateSearchNodes[0].val -and
+          [string]$candidateSearchNodes[0].val -ceq '' -and
+          $detailCandidate.stats -and
+          $null -ne $detailCandidate.stats.PSObject.Properties['truncated'] -and
+          $null -ne $detailCandidate.stats.PSObject.Properties['valErr'] -and
+          -not [bool]$detailCandidate.stats.truncated -and
+          [int]$detailCandidate.stats.valErr -eq 0 -and
+          [string]$detailCandidateStructuralFingerprint -ceq $ProbeStateBeforeFingerprint -and
+          [bool]$detailCandidateList.rowsComplete -and
+          $null -eq $detailCandidateList.gridProjectionError -and
+          [string]$detailCandidateList.listFingerprint -ceq $ProbeExpectedListFingerprint -and
+          $detailCandidateRows.Count -eq 1
+        )
+        state=$detailCandidate
+        list=$detailCandidateList
+        structuralFingerprint=[string]$detailCandidateStructuralFingerprint
+      }
+    } -ArgumentList @(
+      [IntPtr]$toolHwnd,
+      $policy,
+      $rowRid,
+      $rowFingerprint,
+      [string]$stateBefore.fingerprint,
+      $expectedListFingerprint
     )
+    $reuseDetailCandidate = [bool]($detailCandidateProbe -and [bool]$detailCandidateProbe.reusable)
     if ($reuseDetailCandidate) {
-      $freshState = $detailCandidate
-      $freshList = $detailCandidateList
-      $freshStateFingerprint = $detailCandidateStructuralFingerprint
-      $detailState = $detailCandidate
-      $detailList = $detailCandidateList
+      $freshState = $detailCandidateProbe.state
+      $freshList = $detailCandidateProbe.list
+      $freshStateFingerprint = $detailCandidateProbe.structuralFingerprint
+      $detailState = $detailCandidateProbe.state
+      $detailList = $detailCandidateProbe.list
     } else {
       # Ein aktiver oder nicht eindeutig lesbarer Suchfilter sowie jede
       # unvollstaendige Candidate-Projektion bleiben auf dem bewaehrten Pfad.
