@@ -1870,7 +1870,9 @@ function Emit($obj) {
   exit 0
 }
 function Invoke-SSESpeculativeProbe([scriptblock]$Probe, [object[]]$ArgumentList = @()) {
-  if ($script:SSE_SPECULATIVE_PROBE_ACTIVE) { return $null }
+  if ($script:SSE_SPECULATIVE_PROBE_ACTIVE) {
+    throw [InvalidOperationException]::new($script:SSE_SPECULATIVE_PROBE_SENTINEL)
+  }
   $script:SSE_SPECULATIVE_PROBE_ACTIVE = $true
   try {
     & $Probe @ArgumentList
@@ -18043,6 +18045,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         physicalInputUsed=$true; foregroundLeaseUsed=$true; verified=$false
         rowVisibilityMethod=[string]$visibleTarget.method; rowVisibilityAttempts=[int]$visibleTarget.attempts
         clickBinding=$clickBinding; closeBinding=$closeBinding
+        performance=[pscustomobject]@{
+          detailSnapshotProbeSucceeded=[bool]($null -ne $detailCandidateProbe)
+          detailSnapshotReused=[bool]$reuseDetailCandidate
+        }
       })
     }
     Emit ([pscustomobject]@{
@@ -18058,6 +18064,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       dirtyStateUnchanged=$true; physicalInputUsed=$true; foregroundLeaseUsed=$true
       rowVisibilityMethod=[string]$visibleTarget.method; rowVisibilityAttempts=[int]$visibleTarget.attempts
       verified=$true; clickBinding=$clickBinding; closeBinding=$closeBinding
+      performance=[pscustomobject]@{
+        detailSnapshotProbeSucceeded=[bool]($null -ne $detailCandidateProbe)
+        detailSnapshotReused=[bool]$reuseDetailCandidate
+      }
     })
   }
 
