@@ -45,8 +45,6 @@ $script:INIT_TIMINGS = [ordered]@{}
 $script:SSE_CAPTURE_OPERATION_RESULT = $false
 $script:SSE_CAPTURED_OPERATION_RESULT = $null
 $script:SSE_CAPTURE_SENTINEL = 'SSE_INTERNAL_OPERATION_RESULT_CAPTURED'
-$script:SSE_SPECULATIVE_PROBE_ACTIVE = $false
-$script:SSE_SPECULATIVE_PROBE_SENTINEL = 'SSE_INTERNAL_SPECULATIVE_PROBE_FAILED_5C88CFBD'
 $script:SSE_WORKER_CONTROLLER_MUTEX_NAME = 'Local\SteuerSparErklaerungApi.SseWorkerController'
 $script:SSE_WORKER_CONTROLLER_LEASE = $null
 
@@ -295,35 +293,6 @@ function Get-SSEReceiptManagerPolicy {
   $policy
 }
 
-function Get-SSEReceiptManagerStateFingerprint(
-  [IntPtr]$Window,
-  [string]$State,
-  $Nodes,
-  $Policy,
-  [switch]$Structural
-) {
-  $relevantSuffixes = @(
-    @($Policy.states.PSObject.Properties | ForEach-Object { @($_.Value.requiredAutomationIdSuffixes) }) +
-    @($Policy.actions.PSObject.Properties | ForEach-Object { [string]$_.Value.automationIdSuffix })
-  ) | ForEach-Object { [string]$_ } | Where-Object { $_ } | Select-Object -Unique
-  $stableNodes = @($Nodes | Where-Object {
-    $aid = [string]$_.aid
-    @($relevantSuffixes | Where-Object { $aid.EndsWith($_, [StringComparison]::Ordinal) }).Count -gt 0
-  } | Sort-Object aid | ForEach-Object {
-    [pscustomobject][ordered]@{
-      aid=[string]$_.aid; name=[string]$_.name; type=[string]$_.type
-      enabled=[bool]$_.on
-      checked=$(if ($Structural) { $null } else { $_.checked })
-      selected=$(if ($Structural) { $null } else { $_.selected })
-      x=[int]$_.x; y=[int]$_.y; w=[int]$_.w; h=[int]$_.h
-    }
-  })
-  $fingerprintBody = [pscustomobject][ordered]@{
-    hwnd=[int64]$Window; state=$State; nodes=$stableNodes
-  }
-  Get-SSETextSha256 ($fingerprintBody | ConvertTo-Json -Depth 8 -Compress)
-}
-
 function Get-SSEReceiptManagerState([IntPtr]$Window, $Policy, [switch]$WithValues) {
   $tree = Walk-Tree $Window 800 -WithValues:$WithValues
   $nodes = @($tree.nodes | Where-Object { $_.w -gt 0 -and $_.h -gt 0 })
@@ -344,11 +313,28 @@ function Get-SSEReceiptManagerState([IntPtr]$Window, $Policy, [switch]$WithValue
     Fail "BelegManager-Zustand ist nicht eindeutig profiliert ($($matchedStates.Count) Treffer)." 'state-unknown'
   }
 
+  $relevantSuffixes = @(
+    @($Policy.states.PSObject.Properties | ForEach-Object { @($_.Value.requiredAutomationIdSuffixes) }) +
+    @($Policy.actions.PSObject.Properties | ForEach-Object { [string]$_.Value.automationIdSuffix })
+  ) | ForEach-Object { [string]$_ } | Where-Object { $_ } | Select-Object -Unique
+  $stableNodes = @($nodes | Where-Object {
+    $aid = [string]$_.aid
+    @($relevantSuffixes | Where-Object { $aid.EndsWith($_, [StringComparison]::Ordinal) }).Count -gt 0
+  } | Sort-Object aid | ForEach-Object {
+    [pscustomobject][ordered]@{
+      aid=[string]$_.aid; name=[string]$_.name; type=[string]$_.type
+      enabled=[bool]$_.on; checked=$_.checked; selected=$_.selected
+      x=[int]$_.x; y=[int]$_.y; w=[int]$_.w; h=[int]$_.h
+    }
+  })
   $state = [string]$matchedStates[0]
+  $fingerprintBody = [pscustomobject][ordered]@{
+    hwnd=[int64]$Window; state=$state; nodes=$stableNodes
+  }
   [pscustomobject]@{
     window=[int64]$Window
     state=$state
-    fingerprint=Get-SSEReceiptManagerStateFingerprint $Window $state $nodes $Policy
+    fingerprint=Get-SSETextSha256 ($fingerprintBody | ConvertTo-Json -Depth 8 -Compress)
     nodes=$nodes
     stats=$tree.stats
   }
@@ -1869,23 +1855,6 @@ function Emit($obj) {
   else          { [Console]::Out.Write($json) }
   exit 0
 }
-function Invoke-SSESpeculativeProbe([scriptblock]$Probe, [object[]]$ArgumentList = @()) {
-  if ($script:SSE_SPECULATIVE_PROBE_ACTIVE) {
-    throw [InvalidOperationException]::new($script:SSE_SPECULATIVE_PROBE_SENTINEL)
-  }
-  $script:SSE_SPECULATIVE_PROBE_ACTIVE = $true
-  try {
-    & $Probe @ArgumentList
-  } catch {
-    # Der Sentinel des uebergeordneten Operations-Captures ist kein
-    # spekulativer Lesefehler und muss seinen kanonischen Empfaenger erreichen.
-    if ($_.Exception.Message -ceq $script:SSE_CAPTURE_SENTINEL) { throw }
-    return $null
-  } finally {
-    $script:SSE_SPECULATIVE_PROBE_ACTIVE = $false
-  }
-}
-
 function Fail($msg, $kind = 'error', $details = $null) {
   $payload = [ordered]@{ ok = $false; kind = $kind; error = "$msg" }
   if ($null -ne $details) {
@@ -1894,9 +1863,6 @@ function Fail($msg, $kind = 'error', $details = $null) {
         $payload[$property.Name] = $property.Value
       }
     }
-  }
-  if ($script:SSE_SPECULATIVE_PROBE_ACTIVE) {
-    throw [InvalidOperationException]::new($script:SSE_SPECULATIVE_PROBE_SENTINEL)
   }
   Emit ([pscustomobject]$payload)
 }
@@ -17798,79 +17764,15 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     if ($null -eq $dirtyBefore) { Fail 'Dirty-State des zugehoerigen Hauptfensters ist nicht lesbar.' 'precondition-failed' }
 
     $inputTick = Get-SSELastInputTick
-    $detailCandidateProbe = Invoke-SSESpeculativeProbe -Probe {
-      param(
-        [IntPtr]$ProbeToolHwnd,
-        $ProbePolicy,
-        [string]$ProbeRowRid,
-        [string]$ProbeRowFingerprint,
-        [string]$ProbeStateBeforeFingerprint,
-        [string]$ProbeExpectedListFingerprint
-      )
-      $detailCandidate = Get-SSEReceiptManagerState $ProbeToolHwnd $ProbePolicy -WithValues
-      $detailCandidateList = Get-SSEReceiptManagerListProjection $detailCandidate $ProbePolicy
-      $candidateSearchSuffix = [string]$ProbePolicy.list.searchAutomationIdSuffix
-      $candidateSearchNodes = @($detailCandidate.nodes | Where-Object {
-        $_.type -eq 'Edit' -and [string]$_.aid -and
-        ([string]$_.aid).EndsWith($candidateSearchSuffix, [StringComparison]::Ordinal)
-      })
-      $detailCandidateStructuralFingerprint = Get-SSEReceiptManagerStateFingerprint `
-        $ProbeToolHwnd ([string]$detailCandidate.state) $detailCandidate.nodes $ProbePolicy -Structural
-      $detailCandidateRows = @($detailCandidateList.rows | Where-Object {
-        [string]$_.rowRid -ceq $ProbeRowRid -and
-        ([string]$_.rowFingerprint).ToUpperInvariant() -ceq $ProbeRowFingerprint
-      })
-      [pscustomobject][ordered]@{
-        reusable=[bool](
-          $candidateSearchNodes.Count -eq 1 -and
-          $null -ne $candidateSearchNodes[0].val -and
-          [string]$candidateSearchNodes[0].val -ceq '' -and
-          $detailCandidate.stats -and
-          $null -ne $detailCandidate.stats.PSObject.Properties['truncated'] -and
-          $null -ne $detailCandidate.stats.PSObject.Properties['valErr'] -and
-          -not [bool]$detailCandidate.stats.truncated -and
-          [int]$detailCandidate.stats.valErr -eq 0 -and
-          [string]$detailCandidateStructuralFingerprint -ceq $ProbeStateBeforeFingerprint -and
-          [bool]$detailCandidateList.rowsComplete -and
-          $null -eq $detailCandidateList.gridProjectionError -and
-          [string]$detailCandidateList.listFingerprint -ceq $ProbeExpectedListFingerprint -and
-          $detailCandidateRows.Count -eq 1
-        )
-        state=$detailCandidate
-        list=$detailCandidateList
-        structuralFingerprint=[string]$detailCandidateStructuralFingerprint
-      }
-    } -ArgumentList @(
-      [IntPtr]$toolHwnd,
-      $policy,
-      $rowRid,
-      $rowFingerprint,
-      [string]$stateBefore.fingerprint,
-      $expectedListFingerprint
-    )
-    $reuseDetailCandidate = [bool]($detailCandidateProbe -and [bool]$detailCandidateProbe.reusable)
-    if ($reuseDetailCandidate) {
-      $freshState = $detailCandidateProbe.state
-      $freshList = $detailCandidateProbe.list
-      $freshStateFingerprint = $detailCandidateProbe.structuralFingerprint
-      $detailState = $detailCandidateProbe.state
-      $detailList = $detailCandidateProbe.list
-    } else {
-      # Ein aktiver oder nicht eindeutig lesbarer Suchfilter sowie jede
-      # unvollstaendige Candidate-Projektion bleiben auf dem bewaehrten Pfad.
-      $freshState = Get-SSEReceiptManagerState $toolHwnd $policy
-      $freshList = Get-SSEReceiptManagerListProjection $freshState $policy
-      $freshStateFingerprint = $freshState.fingerprint
-    }
-    if ([string]$freshStateFingerprint -cne [string]$stateBefore.fingerprint -or
+    $freshState = Get-SSEReceiptManagerState $toolHwnd $policy
+    $freshList = Get-SSEReceiptManagerListProjection $freshState $policy
+    if ([string]$freshState.fingerprint -cne [string]$stateBefore.fingerprint -or
         [string]$freshList.listFingerprint -cne $expectedListFingerprint) {
       Fail 'BelegManager-Zustand hat sich unmittelbar vor der Zeilenauswahl geaendert.' 'stale'
     }
     $openDetail = $null
-    if (-not $reuseDetailCandidate) {
-      $detailState = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
-      $detailList = Get-SSEReceiptManagerListProjection $detailState $policy
-    }
+    $detailState = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
+    $detailList = Get-SSEReceiptManagerListProjection $detailState $policy
     $detailFields = @(Get-SSEReceiptManagerDetailProjection $detailState)
     $detailFingerprint = Get-SSEReceiptManagerDetailFingerprint $detailFields
     if ([string]$detailList.listFingerprint -ceq $expectedListFingerprint -and $detailFingerprint) {
@@ -18045,10 +17947,6 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         physicalInputUsed=$true; foregroundLeaseUsed=$true; verified=$false
         rowVisibilityMethod=[string]$visibleTarget.method; rowVisibilityAttempts=[int]$visibleTarget.attempts
         clickBinding=$clickBinding; closeBinding=$closeBinding
-        performance=[pscustomobject]@{
-          detailSnapshotProbeSucceeded=[bool]($null -ne $detailCandidateProbe)
-          detailSnapshotReused=[bool]$reuseDetailCandidate
-        }
       })
     }
     Emit ([pscustomobject]@{
@@ -18064,10 +17962,6 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       dirtyStateUnchanged=$true; physicalInputUsed=$true; foregroundLeaseUsed=$true
       rowVisibilityMethod=[string]$visibleTarget.method; rowVisibilityAttempts=[int]$visibleTarget.attempts
       verified=$true; clickBinding=$clickBinding; closeBinding=$closeBinding
-      performance=[pscustomobject]@{
-        detailSnapshotProbeSucceeded=[bool]($null -ne $detailCandidateProbe)
-        detailSnapshotReused=[bool]$reuseDetailCandidate
-      }
     })
   }
 
