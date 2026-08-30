@@ -203,8 +203,8 @@ test("compact real HTTP/MCP workload proves arrivals, lifecycle, telemetry and c
     arrivalRounds: 1,
     fairJobsPerCaller: 2,
     soakOperations: 32,
-    soakDurationMs: 200,
-    observerIntervalMs: 1_000,
+    soakDurationMs: 1_500,
+    observerIntervalMs: 2_000,
     quiescenceGapMs: 1_000,
     normalDelayMs: 1,
     controlTimeoutMs: 100,
@@ -239,7 +239,7 @@ test("compact real HTTP/MCP workload proves arrivals, lifecycle, telemetry and c
   assert.equal(summary.soak.busy, 0);
   assert.equal(summary.soak.completionFairness.jain, 1);
   assert.equal(summary.soak.completionOrder.exactRoundRobin, true);
-  assert(summary.soak.elapsedMs >= 200);
+  assert(summary.soak.elapsedMs >= 1_500);
   assert(summary.soak.throughputOperationsPerSecond > 0);
   assert.equal(summary.soak.serviceTimeMs.count, 32);
   assert.equal(summary.soak.apiDurationMs.count, 16);
@@ -276,7 +276,11 @@ test("compact real HTTP/MCP workload proves arrivals, lifecycle, telemetry and c
   assert(Number.isFinite(summary.resources.observedCpuLowerBoundMs));
   assert.equal(summary.resources.desktopScope, "current-process-window-station-default-enumwindows");
   assert(summary.resources.finalTracked.every((entry) => entry.role === "runner" || entry.alive === false));
-  assert.equal(summary.stabilityGate.passed, true);
+  assert.equal(
+    summary.stabilityGate.passed,
+    true,
+    `unexpected compact workload stability falsifiers: ${JSON.stringify(summary.stabilityGate.falsifiers)}`,
+  );
   assert(Object.values(summary.stabilityGate.falsifiers).every((value) => value === false));
   assert(Number.isFinite(summary.stabilityGate.observed.maximumClientQueueWaitMs));
   assert.equal(summary.stabilityGate.thresholds.maximumClientQueueWaitMs, 1_000);
