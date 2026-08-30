@@ -20,7 +20,7 @@ const workerPath = join(root, "powershell", "sse-worker.ps1");
 const workerSource = readFileSync(workerPath, "utf8");
 const nativeSource = readFileSync(join(root, "powershell", "sse-native.cs"), "utf8");
 const mutexName = "Local\\SteuerSparErklaerungApi.SseWorkerController";
-const spawnedChildPids = new Set();
+const spawnedChildren = new Set();
 const controllerProcessIds = () => {
   const output = execFileSync(powershell, [
     "-NoLogo", "-NoProfile", "-NonInteractive", "-Command",
@@ -156,7 +156,7 @@ const startPeer = async (mode) => {
     "-File", peerScript, "-Mode", mode,
   ], { cwd: root, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
   assert(Number.isInteger(child.pid) && child.pid > 0, `${mode}-Peer hat keinen Prozessbezeichner.`);
-  spawnedChildPids.add(child.pid);
+  spawnedChildren.add(child);
   let stdout = "";
   let stderr = "";
   child.stdout.setEncoding("utf8");
@@ -199,7 +199,7 @@ const runPrewarmJob = async (operation) => {
     "-File", workerPath, "-Prewarm",
   ], { cwd: root, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
   assert(Number.isInteger(child.pid) && child.pid > 0, "Prewarm-Testworker hat keinen Prozessbezeichner.");
-  spawnedChildPids.add(child.pid);
+  spawnedChildren.add(child);
   let stdout = "";
   let stderr = "";
   child.stdout.setEncoding("utf8");
@@ -428,12 +428,9 @@ try {
   try {
     assert.equal(desktopMarkerState(), markerBefore, "Controllervertrag darf den Desktop-Marker nicht veraendern.");
     assert.equal(ssePids(), "", "Controllervertrag darf keinen SSE-Prozess hinterlassen.");
-    for (const pid of spawnedChildPids) {
-      const alive = execFileSync(powershell, [
-        "-NoLogo", "-NoProfile", "-NonInteractive", "-Command",
-        `$p = Get-Process -Id ${pid} -ErrorAction SilentlyContinue; if ($p) { 'alive' }; exit 0`,
-      ], { windowsHide: true, encoding: "utf8" }).trim();
-      assert.equal(alive, "", `Vom Controllervertrag gestarteter PID ${pid} blieb zurueck.`);
+    for (const child of spawnedChildren) {
+      const exited = child.exitCode !== null || child.signalCode !== null;
+      assert.equal(exited, true, `Vom Controllervertrag gestarteter PID ${child.pid} blieb zurueck.`);
     }
     const newControllerChildren = [...controllerProcessIds()].filter((pid) => !controllerProcessesBefore.has(pid));
     assert.deepEqual(newControllerChildren, [],

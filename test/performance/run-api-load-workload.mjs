@@ -1,7 +1,9 @@
 #!/usr/bin/env node
+import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
+import { globalAgent } from "node:http";
 import {
   appendFileSync,
   existsSync,
@@ -301,10 +303,16 @@ export async function inspectWindowsProcessIdentity(pid) {
 }
 
 function sameProcessIdentity(left, right) {
-  return left !== null && right !== null &&
+  return left != null && right != null &&
     left.creationTimeUtcTicks === right.creationTimeUtcTicks &&
     left.imageNameLower === right.imageNameLower &&
     left.imagePathTextSha256 === right.imagePathTextSha256;
+}
+
+function sampleEntryHasImmutableIdentity(entry) {
+  return /^\d{10,20}$/u.test(entry.identity?.creationTimeUtcTicks ?? "") &&
+    /^[A-F0-9]{64}$/u.test(entry.identity?.imagePathTextSha256 ?? "") &&
+    typeof entry.identity?.imageNameLower === "string" && entry.identity.imageNameLower.length > 0;
 }
 
 async function expectedProcessIsAlive(pid, expectedIdentity) {
@@ -340,6 +348,9 @@ function startResourceObserver({ scratchRoot, intervalMs, beforeStopSignal }) {
   const registryPath = join(scratchRoot, "observed-processes.jsonl");
   const stopPath = join(scratchRoot, "stop-observer");
   writeFileSync(registryPath, `${JSON.stringify({ pid: process.pid, role: "runner" })}\n`, { encoding: "utf8", flag: "wx" });
+  const explicitlyRegisteredPids = new Set([process.pid]);
+  const identityBoundPids = new Set();
+  const pendingUnboundExitRaces = new Map();
   const child = spawn(POWERSHELL, [
     "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
     "-File", OBSERVER,
@@ -360,8 +371,35 @@ function startResourceObserver({ scratchRoot, intervalMs, beforeStopSignal }) {
     if (!line.trim()) return;
     try {
       const value = JSON.parse(line);
-      if (value?.type === "windows-resource-sample") samples.push(value);
-      else parseErrors.push(value?.type ?? "unknown-record");
+      if (value?.type !== "windows-resource-sample") {
+        parseErrors.push(value?.type ?? "unknown-record");
+        return;
+      }
+      const currentByPid = new Map(value.tracked.map((entry) => [entry.pid, entry]));
+      for (const entry of value.tracked) {
+        if (sampleEntryHasImmutableIdentity(entry)) identityBoundPids.add(entry.pid);
+      }
+      // Windows can keep an exiting process addressable by PID after its identity
+      // getters fail. Reconcile only a never-bound, unregistered one-sample child.
+      for (const [pid, pending] of pendingUnboundExitRaces) {
+        const current = currentByPid.get(pid);
+        if (current?.alive === false && !explicitlyRegisteredPids.has(pid) && !identityBoundPids.has(pid) &&
+            Number.isSafeInteger(pending.sample.sampleErrorCount) && pending.sample.sampleErrorCount > 0) {
+          pending.entry.alive = false;
+          pending.entry.observation = "exited-before-next-sample";
+          delete pending.entry.sampleError;
+          pending.sample.sampleErrorCount -= 1;
+        }
+      }
+      pendingUnboundExitRaces.clear();
+      for (const entry of value.tracked) {
+        if (entry.role === "owned-descendant" && entry.alive === true &&
+            entry.sampleError === "InvalidOperationException" && !sampleEntryHasImmutableIdentity(entry) &&
+            !explicitlyRegisteredPids.has(entry.pid) && !identityBoundPids.has(entry.pid)) {
+          pendingUnboundExitRaces.set(entry.pid, { sample: value, entry });
+        }
+      }
+      samples.push(value);
     } catch (error) {
       parseErrors.push(error instanceof Error ? error.name : "parse-error");
     }
@@ -395,6 +433,7 @@ function startResourceObserver({ scratchRoot, intervalMs, beforeStopSignal }) {
         throw new Error("Unsafe observed-process registration.");
       }
       appendFileSync(registryPath, `${JSON.stringify({ pid, role })}\n`, "utf8");
+      explicitlyRegisteredPids.add(pid);
     },
     async waitForSample(predicate, timeoutMs = Math.max(15_000, intervalMs * 4), minimumSequence = 0) {
       return await waitForCondition(
@@ -476,9 +515,7 @@ function summarizeResourceSamples(samples, { expectedIntervalMs }) {
   }
   const alive = samples.flatMap((sample) => sample.tracked.filter((entry) => entry.alive));
   for (const entry of alive) {
-    if (!/^\d{10,20}$/u.test(entry.identity?.creationTimeUtcTicks ?? "") ||
-        !/^[A-F0-9]{64}$/u.test(entry.identity?.imagePathTextSha256 ?? "") ||
-        typeof entry.identity?.imageNameLower !== "string" || !entry.identity.imageNameLower) {
+    if (!sampleEntryHasImmutableIdentity(entry)) {
       throw new Error("Windows resource sample has no immutable process identity.");
     }
   }
@@ -1212,9 +1249,25 @@ export async function runApiLoadWorkload(options, testOnly = {}) {
 
     failureStage = "api-restart-control";
     await stopApi();
+    // Drop this harness process' keep-alive sockets before reusing the same port.
+    // A persistent MCP client remains instance-bound and is restarted below.
+    globalAgent.destroy();
     await startApi(fixedPort);
+    const executorCallsBeforeStaleMcpProbe = executor.snapshot().journal.length;
+    const staleMcpProbe = await mcp.client.callTool({
+      name: "sse_find",
+      arguments: { name: "must-not-reach-replaced-api" },
+    });
+    assert.equal(staleMcpProbe.isError, true, "Stale MCP binding accepted a replaced API instance.");
+    assert.deepEqual(staleMcpProbe.structuredContent, {
+      ok: false,
+      kind: "protocol",
+      error: "SSE-API-Healthz ist inkompatibel: Die Instanz am konfigurierten Port wurde ausgetauscht.",
+    });
+    assert.equal(executor.snapshot().journal.length, executorCallsBeforeStaleMcpProbe,
+      "Stale MCP binding reached the executor after an API instance replacement.");
     nextLifecycle("api-restart", "same-port-restored");
-    assertSuccessfulRecord(await dispatch(nextJob("api-restart", "control", 1, "mcp")), "Same-port API restart");
+    assertSuccessfulRecord(await dispatch(nextJob("api-restart", "control", 1, "http")), "Same-port API restart");
 
     failureStage = "mcp-restart-control";
     await stopMcp();
