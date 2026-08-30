@@ -80,6 +80,14 @@ $nestedProbeResult = Invoke-SSESpeculativeProbe -Probe {
 Assert-True ($null -eq $nestedProbeResult -and -not $script:NestedSpeculativeProbeExecuted) `
   'Eine verschachtelte spekulative Probe muss fail-closed null liefern, ohne den inneren Block auszufuehren.'
 Assert-True (-not $script:SSE_SPECULATIVE_PROBE_ACTIVE) 'Probe-Flag bleibt nach verschachtelter Probe gesetzt.'
+$ignoredNestedProbeResult = Invoke-SSESpeculativeProbe -Probe {
+  param([scriptblock]$NestedProbe)
+  $null = Invoke-SSESpeculativeProbe -Probe $NestedProbe -ArgumentList @()
+  [pscustomobject]@{ reusable=$true }
+} -ArgumentList @($nestedProbe)
+Assert-True ($null -eq $ignoredNestedProbeResult -and -not $script:NestedSpeculativeProbeExecuted) `
+  'Ein aeusserer Probe-Block darf einen verschachtelten Probe-Fehler nicht ignorieren und danach einen wiederverwendbaren Fake-Candidate ausgeben.'
+Assert-True (-not $script:SSE_SPECULATIVE_PROBE_ACTIVE) 'Probe-Flag bleibt nach abgefangenem verschachteltem Probe-Fehler gesetzt.'
 
 $script:SSE_CAPTURE_OPERATION_RESULT = $true
 $captureFlagProbe = Invoke-SSESpeculativeProbe -Probe { param([string]$Value) $Value } -ArgumentList @('capture-unchanged')
@@ -116,7 +124,8 @@ Assert-True ($probeHelperStart -ge 0 -and $probeHelperEnd -gt $probeHelperStart 
 $probeHelperBlock = $worker.Substring($probeHelperStart, $probeHelperEnd - $probeHelperStart)
 $failHelperBlock = $worker.Substring($probeHelperEnd, $failHelperEnd - $probeHelperEnd)
 foreach ($required in @(
-  'if ($script:SSE_SPECULATIVE_PROBE_ACTIVE) { return $null }',
+  'if ($script:SSE_SPECULATIVE_PROBE_ACTIVE) {',
+  'throw [InvalidOperationException]::new($script:SSE_SPECULATIVE_PROBE_SENTINEL)',
   '$script:SSE_SPECULATIVE_PROBE_ACTIVE = $true',
   '& $Probe @ArgumentList',
   '$_.Exception.Message -ceq $script:SSE_CAPTURE_SENTINEL',
@@ -470,6 +479,25 @@ foreach ($required in @(
 )) {
   Assert-True ($receiptReadBlock.Contains($required)) "receipt_manager_read fehlt der enge Candidate-/Fallback-Guard '$required'."
 }
+$finalReadEmitMatches = [regex]::Matches($receiptReadBlock, [regex]::Escape('Emit ([pscustomobject]@{'))
+Assert-True ($finalReadEmitMatches.Count -eq 2) `
+  'receipt_manager_read muss genau einen finalen Fehler- und einen finalen Erfolgspayload emittieren.'
+$failedReadEmitIndex = $finalReadEmitMatches[0].Index
+$successfulReadEmitIndex = $finalReadEmitMatches[1].Index
+Assert-True ($failedReadEmitIndex -gt $receiptReadBlock.IndexOf('if (-not $verified) {') -and
+  $successfulReadEmitIndex -gt $failedReadEmitIndex) `
+  'Die finalen receipt_manager_read-Payloads sind nicht als Postcondition-Fehler und Erfolg angeordnet.'
+$readPerformancePattern = [regex]::Escape('performance=[pscustomobject]@{') + '\s*' +
+  [regex]::Escape('detailSnapshotProbeSucceeded=[bool]($null -ne $detailCandidateProbe)') + '\s*' +
+  [regex]::Escape('detailSnapshotReused=[bool]$reuseDetailCandidate') + '\s*' +
+  [regex]::Escape('}')
+$readPerformanceMatches = [regex]::Matches($receiptReadBlock, $readPerformancePattern)
+Assert-True ($readPerformanceMatches.Count -eq 2) `
+  'Beide finalen receipt_manager_read-Payloads brauchen ein Performance-Objekt mit ausschliesslich den zwei booleschen Snapshot-Feldern.'
+Assert-True ($readPerformanceMatches[0].Index -gt $failedReadEmitIndex -and
+  $readPerformanceMatches[0].Index -lt $successfulReadEmitIndex -and
+  $readPerformanceMatches[1].Index -gt $successfulReadEmitIndex) `
+  'Snapshot-Performance muss sowohl im Postcondition-Fehler als auch im erfolgreichen receipt_manager_read-Payload liegen.'
 
 $updateStart = $receiptReadEnd
 $updateEnd = $worker.IndexOf("  'receipt_manager_import' {", $updateStart)
