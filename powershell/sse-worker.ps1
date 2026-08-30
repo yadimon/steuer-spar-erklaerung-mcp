@@ -4079,12 +4079,17 @@ $script:SSE_MAIN_WINDOW_SELECTORS = $null
 function Get-SSEMainWindowSelectors {
   if ($null -eq $script:SSE_MAIN_WINDOW_SELECTORS) {
     $haupt = (Get-SSEPageObjects).windows.main
+    $headingRelative = [string]$haupt.headingAutomationIdRelative
     $heading = [string]$haupt.headingContainerAutomationIdSuffix
     $search = [string]$haupt.searchContainerAutomationIdSuffix
     if (-not $heading -or -not $search) {
       Fail 'Page-Object-Katalog nennt keine Containerendungen fuer Ueberschrift und Suchfeld.' 'invalid-catalog'
     }
-    $script:SSE_MAIN_WINDOW_SELECTORS = [pscustomobject]@{ heading = $heading; search = $search }
+    $script:SSE_MAIN_WINDOW_SELECTORS = [pscustomobject]@{
+      headingRelative = $headingRelative
+      heading = $heading
+      search = $search
+    }
   }
   $script:SSE_MAIN_WINDOW_SELECTORS
 }
@@ -5228,6 +5233,40 @@ function Find-ExactAutomationElement([IntPtr]$Hwnd, [string]$RelativeAutomationI
   try { $root.FindFirst($script:TS::Descendants, $condition) } catch { $null }
 }
 
+# Die Engine-31-Ueberschrift ueber das exakt profilierte QLabel-Blatt lesen.
+# Nur das 2025-Profil optiert in diesen Pfad ein: Engine 30 bleibt auf dem
+# bewaehrten strukturellen Snapshot, weil dort die Blatt-Id fehlt. Jeder
+# unklare UIA-Befund faellt ebenfalls auf den Snapshot zurueck; eine
+# Ueberschrift wird hier nie aus Geometrie oder einem beliebigen Text-
+# Nachfahren geraten.
+function Get-SSEHeadingFast([IntPtr]$Hwnd) {
+  $relative = [string](Get-SSEMainWindowSelectors).headingRelative
+  if (-not $relative) { return $null }
+  $text = Find-ExactAutomationElement $Hwnd $relative
+  if (-not $text) { return $null }
+  try {
+    $current = $text.Current
+    if ($current.ControlType -ne [System.Windows.Automation.ControlType]::Text -or
+        -not $current.IsEnabled -or $current.IsOffscreen) { return $null }
+    $name = ("$($current.Name)" -replace "`r|`n|`t", ' ').Trim()
+    if ($name) { return $name }
+  } catch { }
+  $null
+}
+
+function Find-SSEButtonByName([IntPtr]$Hwnd, [string]$Name) {
+  if (-not $Name) { return $null }
+  try {
+    $root = $script:AE::FromHandle($Hwnd)
+    $nameCondition = New-Object System.Windows.Automation.PropertyCondition($script:AE::NameProperty, $Name)
+    $typeCondition = New-Object System.Windows.Automation.PropertyCondition(
+      $script:AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button
+    )
+    $condition = New-Object System.Windows.Automation.AndCondition($nameCondition, $typeCondition)
+    $root.FindFirst($script:TS::Descendants, $condition)
+  } catch { $null }
+}
+
 function Convert-ExactElementToNode($Element) {
   if (-not $Element) { return $null }
   try {
@@ -5326,8 +5365,50 @@ function Get-KnownPageState([IntPtr]$Hwnd, $Known) {
 }
 
 function Get-CurrentHeading([IntPtr]$Hwnd, $Tree = $null) {
-  if ($null -eq $Tree) { $Tree = Walk-Tree $Hwnd 1200 25 12 -WithValues }
+  if ($null -eq $Tree) {
+    $fast = Get-SSEHeadingFast $Hwnd
+    if ($fast) { return $fast }
+    $Tree = Walk-Tree $Hwnd 1200 25 12 -WithValues
+  }
   (Get-SSEHeading $Tree).text
+}
+
+# Nach einer Navigation nur den billigen, exakt gebundenen Header pollen.
+# Profile ohne verifizierte exakte Container-ID behalten die alte Wartezeit.
+# Nach Timeout wird hier absichtlich noch kein Baum gelesen: Der Aufrufer
+# prueft zuerst Prozess, Speicher, Benutzereingabe und Dialoge und verwendet
+# erst danach Get-CurrentHeading als strukturelles Safety Net. Damit bleibt
+# die bisherige process-lost-/dialog-open-Reihenfolge erhalten.
+function Wait-SSEHeadingChange {
+  param(
+    [IntPtr]$Hwnd,
+    [string]$Before,
+    [int]$TimeoutMs = 950,
+    [int]$PollMs = 100
+  )
+  if (-not [string](Get-SSEMainWindowSelectors).headingRelative) {
+    Start-Sleep -Milliseconds $TimeoutMs
+    return $null
+  }
+  $watch = [Diagnostics.Stopwatch]::StartNew()
+  $candidate = $null
+  do {
+    $heading = Get-SSEHeadingFast $Hwnd
+    if ($heading -and $heading -ne $Before) {
+      # Qt kann das QLabel bereits vor dem restlichen Seiteninhalt umstellen.
+      # Erst zwei identische aufeinanderfolgende Exact-Leaf-Reads bestaetigen
+      # den Wechsel; ein leerer, alter oder nochmals wechselnder Wert setzt die
+      # Stabilitaetsprobe zurueck.
+      if ($candidate -ceq $heading) { return $heading }
+      $candidate = $heading
+    } else {
+      $candidate = $null
+    }
+    $remaining = $TimeoutMs - [int]$watch.ElapsedMilliseconds
+    if ($remaining -le 0) { break }
+    Start-Sleep -Milliseconds ([Math]::Min($PollMs, $remaining))
+  } while ($watch.ElapsedMilliseconds -lt $TimeoutMs)
+  $null
 }
 
 function Read-LabeledValueFromTree($Tree, [IntPtr]$Hwnd, [string]$Label, [int]$Occurrence = 1) {
@@ -13340,11 +13421,23 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
 
       $gesehenWege[$seitenWeg] = $true
 
-      $navigationTree = Walk-Tree $hwnd 1200
-      $wtr = @($navigationTree.nodes | Where-Object {
-        $_.name -eq 'Weiter' -and $_.type -eq 'Button'
-      })[0]
-      if (-not $wtr -or -not $wtr.on) {
+      # Der aktive Weiter-Schalter ist per Name+ControlType eindeutig und
+      # steht direkt ueber FindFirst bereit. Nur ein fehlender, deaktivierter
+      # oder unlesbarer Direktfund geht durch den bisherigen Snapshot-Pfad,
+      # der insbesondere das abgeschnittene-Ende-Signal bewahrt.
+      $navigationElement = Find-SSEButtonByName $hwnd 'Weiter'
+      try {
+        if ($navigationElement -and -not $navigationElement.Current.IsEnabled) { $navigationElement = $null }
+      } catch { $navigationElement = $null }
+      $navigationTree = $null
+      $wtr = $null
+      if (-not $navigationElement) {
+        $navigationTree = Walk-Tree $hwnd 1200
+        $wtr = @($navigationTree.nodes | Where-Object {
+          $_.name -eq 'Weiter' -and $_.type -eq 'Button'
+        })[0]
+      }
+      if (-not $navigationElement -and (-not $wtr -or -not $wtr.on)) {
         if ($navigationTree.stats.truncated -or $t.stats.truncated) {
           $stopKind = 'snapshot-truncated'
           $stopReason = "Auf '$head' war ein UIA-Snapshot abgeschnitten; das Ende des Blaetterpfads ist nicht bewiesen."
@@ -13355,7 +13448,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         }
         break
       }
-      $el = Get-LiveElement $hwnd $wtr.rid
+      $el = $(if ($navigationElement) { $navigationElement } else { Get-LiveElement $hwnd $wtr.rid })
       if (-not $el) {
         $stopKind = 'stale-navigation'
         $stopReason = "Der Weiter-Schalter auf '$head' war vor dem Invoke nicht mehr greifbar."
@@ -13372,7 +13465,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       # nicht faelschlich die alte Seite als aktuelle Lage ausgegeben werden.
       $currentHeadingAfter = $null
       $advancedAfterLastCaptured = $false
-      Start-Sleep -Milliseconds 950
+      $polledHeading = Wait-SSEHeadingChange $hwnd $head 950 100
       try {
         $collectProcess = Get-Process -Id $targetPid -ErrorAction Stop
         $collectProcess.Refresh()
@@ -13410,7 +13503,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         $stopDialoge = $dialogsAfter
         break
       }
-      $afterHeading = Get-CurrentHeading $hwnd
+      $afterHeading = $(if ($polledHeading) { $polledHeading } else { Get-CurrentHeading $hwnd })
       if (-not $afterHeading) {
         $stopKind = 'no-progress'
         $stopReason = "Weiter auf '$head' ergab keinen bestaetigten Seitenwechsel. Keine automatische Wiederholung."
@@ -14735,7 +14828,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     function AktuelleUeberschrift {
       param([IntPtr]$h)
       if ($knownTarget) { return (Get-KnownPageHeading $h $knownTarget) }
-      # 400 Knoten genuegen: die Ueberschrift steht weit oben im Baum.
+      # Generischer Rueckfall wie vor dem Heading-Fast-Path: genau der kleine
+      # 400-Knoten-Snapshot ohne ValuePattern-Abfragen. Engine 30 verwendet
+      # diesen Pfad nach EINER Wartezeit genau einmal; Engine 31 nur, wenn die
+      # exakt profilierte Header-Abfrage nichts Belastbares geliefert hat.
       $t = Walk-Tree $h 400
       (Get-SSEHeading $t).text
     }
@@ -14756,6 +14852,15 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         [string]$erwartet,
         [int]$timeoutMs = 3000
       )
+      # Generische Ziele verwenden den globalen profilgesteuerten Helfer:
+      # Engine 31 pollt nur das exakte Header-QLabel; Engine 30 wartet das
+      # Timeout ab und liefert $null. Danach folgt in beiden Faellen hoechstens
+      # ein struktureller 400-Knoten-Readback ueber AktuelleUeberschrift.
+      if (-not $knownTarget) {
+        $gewechselt = Wait-SSEHeadingChange $h $vorher $timeoutMs 100
+        if ($gewechselt) { return $gewechselt }
+        return (AktuelleUeberschrift $h)
+      }
       # Qt bestaetigt den Doppelklick deutlich vor dem eigentlichen
       # Seitenaufbau. Ein einzelner Readback nach fester Wartezeit lieferte
       # deshalb leer, obwohl die Zielseite kurz danach sichtbar war. Polling
@@ -14777,20 +14882,15 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       # das den Unterschied zwischen 8 s und ueber einer Minute - vorher lief
       # goto deshalb in den Timeout.
       if ($name) {
-        $root = $script:AE::FromHandle($h)
         # Name UND Typ: eine Suche nur ueber den Namen trifft auch das
         # Textelement 'Weiter' statt der Schaltflaeche - Invoke schlaegt dann
         # fehl und die Seite bleibt stehen.
-        $cName = New-Object System.Windows.Automation.PropertyCondition($script:AE::NameProperty, $name)
-        $cTyp  = New-Object System.Windows.Automation.PropertyCondition($script:AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)
-        $c = New-Object System.Windows.Automation.AndCondition($cName, $cTyp)
-        $el = $null
-        try { $el = $root.FindFirst($script:TS::Descendants, $c) } catch { return $false }
+        $el = Find-SSEButtonByName $h $name
         if (-not $el) { return $false }
         # AKTIV pruefen: 'Zurueck' ist an Zweiggrenzen deaktiviert. Ohne das
         # klickt der Aufrufer dort endlos ins Leere, statt die Richtung zu wechseln.
         try { if (-not $el.Current.IsEnabled) { return $false } } catch { return $false }
-        try { $el.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); Start-Sleep -Milliseconds 900; return $true }
+        try { $el.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); return $true }
         catch { return $false }
       }
       $t = Walk-Tree $h 1200
@@ -14798,7 +14898,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       if (-not $k) { return $false }
       $el = Get-LiveElement $h $k.rid
       if (-not $el) { return $false }
-      try { $el.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); Start-Sleep -Milliseconds 900; return $true }
+      try { $el.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); return $true }
       catch { return $false }
     }
 
@@ -14919,8 +15019,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
                   elseif ($pat -eq 'SelectionItem') { $ge.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select() }
                   elseif ($pat -eq 'LegacyDefault') { $ge.GetCurrentPattern([System.Windows.Automation.LegacyIAccessiblePattern]::Pattern).DoDefaultAction() }
                   else { $ge.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Expand() }
-                  Start-Sleep -Milliseconds 900
-                  $nachSuche = AktuelleUeberschrift $hwnd
+                  $nachSuche = WarteAufUeberschrift $hwnd $start $ziel 900
                   $aktiviert = IstZielseite $hwnd $nachSuche
                   $suchSeiteGeoeffnet = $aktiviert -or ($nachSuche -and $nachSuche -ne $start)
                   $null = $suchWeg.Add("Aktivierungsmuster $pat -> '$nachSuche'")
@@ -15033,6 +15132,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           $andereDa = @($tK.nodes | Where-Object { $_.name -eq $andere -and $_.type -eq 'Button' -and $_.on }).Count -gt 0
           if (-not $andereDa) {
             if (DrueckeKnopf $hwnd '' 'HistoryToolbarBtnSSE') {
+              $null = WarteAufUeberschrift $hwnd $vorher $ziel 900
               $null = $weg.Add('Sackgasse - Verlauf zurück')
               continue
             }
@@ -15040,7 +15140,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           $null = $weg.Add("$richtung nicht verfuegbar")
           break
         }
-        $jetzt = AktuelleUeberschrift $hwnd
+        $jetzt = WarteAufUeberschrift $hwnd $vorher $ziel 900
         $null = $weg.Add("$richtung -> $jetzt")
 
         # Ein automatischer Pruefhinweis blockiert den Seitenwechsel. Ohne
