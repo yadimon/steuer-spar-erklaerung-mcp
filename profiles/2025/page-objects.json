@@ -13,6 +13,7 @@
     "main": {
       "process": "SSE",
       "role": "main",
+      "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
       "headingContainerAutomationIdSuffix": ".ClientFrameSSE.ClientHeader",
       "searchContainerAutomationIdSuffix": "SearchSSE"
     },
