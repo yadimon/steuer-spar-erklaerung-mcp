@@ -293,6 +293,35 @@ function Get-SSEReceiptManagerPolicy {
   $policy
 }
 
+function Get-SSEReceiptManagerStateFingerprint(
+  [IntPtr]$Window,
+  [string]$State,
+  $Nodes,
+  $Policy,
+  [switch]$Structural
+) {
+  $relevantSuffixes = @(
+    @($Policy.states.PSObject.Properties | ForEach-Object { @($_.Value.requiredAutomationIdSuffixes) }) +
+    @($Policy.actions.PSObject.Properties | ForEach-Object { [string]$_.Value.automationIdSuffix })
+  ) | ForEach-Object { [string]$_ } | Where-Object { $_ } | Select-Object -Unique
+  $stableNodes = @($Nodes | Where-Object {
+    $aid = [string]$_.aid
+    @($relevantSuffixes | Where-Object { $aid.EndsWith($_, [StringComparison]::Ordinal) }).Count -gt 0
+  } | Sort-Object aid | ForEach-Object {
+    [pscustomobject][ordered]@{
+      aid=[string]$_.aid; name=[string]$_.name; type=[string]$_.type
+      enabled=[bool]$_.on
+      checked=$(if ($Structural) { $null } else { $_.checked })
+      selected=$(if ($Structural) { $null } else { $_.selected })
+      x=[int]$_.x; y=[int]$_.y; w=[int]$_.w; h=[int]$_.h
+    }
+  })
+  $fingerprintBody = [pscustomobject][ordered]@{
+    hwnd=[int64]$Window; state=$State; nodes=$stableNodes
+  }
+  Get-SSETextSha256 ($fingerprintBody | ConvertTo-Json -Depth 8 -Compress)
+}
+
 function Get-SSEReceiptManagerState([IntPtr]$Window, $Policy, [switch]$WithValues) {
   $tree = Walk-Tree $Window 800 -WithValues:$WithValues
   $nodes = @($tree.nodes | Where-Object { $_.w -gt 0 -and $_.h -gt 0 })
@@ -313,28 +342,11 @@ function Get-SSEReceiptManagerState([IntPtr]$Window, $Policy, [switch]$WithValue
     Fail "BelegManager-Zustand ist nicht eindeutig profiliert ($($matchedStates.Count) Treffer)." 'state-unknown'
   }
 
-  $relevantSuffixes = @(
-    @($Policy.states.PSObject.Properties | ForEach-Object { @($_.Value.requiredAutomationIdSuffixes) }) +
-    @($Policy.actions.PSObject.Properties | ForEach-Object { [string]$_.Value.automationIdSuffix })
-  ) | ForEach-Object { [string]$_ } | Where-Object { $_ } | Select-Object -Unique
-  $stableNodes = @($nodes | Where-Object {
-    $aid = [string]$_.aid
-    @($relevantSuffixes | Where-Object { $aid.EndsWith($_, [StringComparison]::Ordinal) }).Count -gt 0
-  } | Sort-Object aid | ForEach-Object {
-    [pscustomobject][ordered]@{
-      aid=[string]$_.aid; name=[string]$_.name; type=[string]$_.type
-      enabled=[bool]$_.on; checked=$_.checked; selected=$_.selected
-      x=[int]$_.x; y=[int]$_.y; w=[int]$_.w; h=[int]$_.h
-    }
-  })
   $state = [string]$matchedStates[0]
-  $fingerprintBody = [pscustomobject][ordered]@{
-    hwnd=[int64]$Window; state=$state; nodes=$stableNodes
-  }
   [pscustomobject]@{
     window=[int64]$Window
     state=$state
-    fingerprint=Get-SSETextSha256 ($fingerprintBody | ConvertTo-Json -Depth 8 -Compress)
+    fingerprint=Get-SSEReceiptManagerStateFingerprint $Window $state $nodes $Policy
     nodes=$nodes
     stats=$tree.stats
   }
@@ -17764,15 +17776,56 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     if ($null -eq $dirtyBefore) { Fail 'Dirty-State des zugehoerigen Hauptfensters ist nicht lesbar.' 'precondition-failed' }
 
     $inputTick = Get-SSELastInputTick
-    $freshState = Get-SSEReceiptManagerState $toolHwnd $policy
-    $freshList = Get-SSEReceiptManagerListProjection $freshState $policy
-    if ([string]$freshState.fingerprint -cne [string]$stateBefore.fingerprint -or
+    $detailCandidate = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
+    $detailCandidateList = Get-SSEReceiptManagerListProjection $detailCandidate $policy
+    $candidateSearchSuffix = [string]$policy.list.searchAutomationIdSuffix
+    $candidateSearchNodes = @($detailCandidate.nodes | Where-Object {
+      $_.type -eq 'Edit' -and [string]$_.aid -and
+      ([string]$_.aid).EndsWith($candidateSearchSuffix, [StringComparison]::Ordinal)
+    })
+    $detailCandidateStructuralFingerprint = Get-SSEReceiptManagerStateFingerprint `
+      $toolHwnd ([string]$detailCandidate.state) $detailCandidate.nodes $policy -Structural
+    $detailCandidateRows = @($detailCandidateList.rows | Where-Object {
+      [string]$_.rowRid -ceq $rowRid -and
+      ([string]$_.rowFingerprint).ToUpperInvariant() -ceq $rowFingerprint
+    })
+    $reuseDetailCandidate = [bool](
+      $candidateSearchNodes.Count -eq 1 -and
+      $null -ne $candidateSearchNodes[0].val -and
+      [string]$candidateSearchNodes[0].val -ceq '' -and
+      $detailCandidate.stats -and
+      $null -ne $detailCandidate.stats.PSObject.Properties['truncated'] -and
+      $null -ne $detailCandidate.stats.PSObject.Properties['valErr'] -and
+      -not [bool]$detailCandidate.stats.truncated -and
+      [int]$detailCandidate.stats.valErr -eq 0 -and
+      [string]$detailCandidateStructuralFingerprint -ceq [string]$stateBefore.fingerprint -and
+      [bool]$detailCandidateList.rowsComplete -and
+      $null -eq $detailCandidateList.gridProjectionError -and
+      [string]$detailCandidateList.listFingerprint -ceq $expectedListFingerprint -and
+      $detailCandidateRows.Count -eq 1
+    )
+    if ($reuseDetailCandidate) {
+      $freshState = $detailCandidate
+      $freshList = $detailCandidateList
+      $freshStateFingerprint = $detailCandidateStructuralFingerprint
+      $detailState = $detailCandidate
+      $detailList = $detailCandidateList
+    } else {
+      # Ein aktiver oder nicht eindeutig lesbarer Suchfilter sowie jede
+      # unvollstaendige Candidate-Projektion bleiben auf dem bewaehrten Pfad.
+      $freshState = Get-SSEReceiptManagerState $toolHwnd $policy
+      $freshList = Get-SSEReceiptManagerListProjection $freshState $policy
+      $freshStateFingerprint = $freshState.fingerprint
+    }
+    if ([string]$freshStateFingerprint -cne [string]$stateBefore.fingerprint -or
         [string]$freshList.listFingerprint -cne $expectedListFingerprint) {
       Fail 'BelegManager-Zustand hat sich unmittelbar vor der Zeilenauswahl geaendert.' 'stale'
     }
     $openDetail = $null
-    $detailState = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
-    $detailList = Get-SSEReceiptManagerListProjection $detailState $policy
+    if (-not $reuseDetailCandidate) {
+      $detailState = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
+      $detailList = Get-SSEReceiptManagerListProjection $detailState $policy
+    }
     $detailFields = @(Get-SSEReceiptManagerDetailProjection $detailState)
     $detailFingerprint = Get-SSEReceiptManagerDetailFingerprint $detailFields
     if ([string]$detailList.listFingerprint -ceq $expectedListFingerprint -and $detailFingerprint) {

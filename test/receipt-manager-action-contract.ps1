@@ -18,6 +18,7 @@ $ast = [Management.Automation.Language.Parser]::ParseFile($workerPath, [ref]$tok
 if ($errors.Count) { throw "Worker-Parserfehler: $($errors[0].Message)" }
 foreach ($functionName in @(
   'Get-SSEReceiptManagerPolicy',
+  'Get-SSEReceiptManagerStateFingerprint',
   'Get-SSEReceiptManagerState',
   'Get-SSEReceiptManagerListProjection',
   'Get-SSEReceiptManagerWindowSet',
@@ -31,7 +32,7 @@ foreach ($functionName in @(
     $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $functionName
   }, $true))
   Assert-True ($definitions.Count -eq 1) "$functionName ist nicht eindeutig vorhanden."
-  if ($functionName -in @('Get-SSEReceiptManagerState','Get-SSEReceiptManagerListProjection','ConvertTo-SSEReceiptManagerInputValue','ConvertFrom-SSEReceiptManagerDisplayValue','Get-SSEReceiptManagerDetailIdentityTitle','Test-SSEReceiptManagerPdfHeader')) {
+  if ($functionName -in @('Get-SSEReceiptManagerStateFingerprint','Get-SSEReceiptManagerState','Get-SSEReceiptManagerListProjection','ConvertTo-SSEReceiptManagerInputValue','ConvertFrom-SSEReceiptManagerDisplayValue','Get-SSEReceiptManagerDetailIdentityTitle','Test-SSEReceiptManagerPdfHeader')) {
     Invoke-Expression $definitions[0].Extent.Text
   }
 }
@@ -176,9 +177,17 @@ try {
 }
 Assert-True ([bool]$policy.controls.linkManagement.directToggleSupported -eq $false) 'Wirkungsloses TogglePattern darf fuer SSE 31.0.1 nicht aktiviert sein.'
 
-function Get-SSETextSha256([string]$Text) { 'A' * 64 }
-function Walk-Tree([IntPtr]$Window, [int]$MaxNodes) {
-  [pscustomobject]@{ nodes=$script:ReceiptNodes; stats=[pscustomobject]@{ n=$script:ReceiptNodes.Count } }
+function Get-SSETextSha256([string]$Text) {
+  $bytes = [Text.Encoding]::UTF8.GetBytes($Text)
+  $sha = [Security.Cryptography.SHA256]::Create()
+  try { ([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace('-', '') }
+  finally { $sha.Dispose() }
+}
+function Walk-Tree([IntPtr]$Window, [int]$MaxNodes, [switch]$WithValues) {
+  [pscustomobject]@{
+    nodes=$script:ReceiptNodes
+    stats=[pscustomobject]@{ n=$script:ReceiptNodes.Count; truncated=$false; valErr=0 }
+  }
 }
 function ReceiptNode([string]$Suffix, [bool]$Enabled = $true) {
   [pscustomobject]@{
@@ -186,9 +195,58 @@ function ReceiptNode([string]$Suffix, [bool]$Enabled = $true) {
     checked=$null; selected=$null; x=10; y=10; w=20; h=20
   }
 }
-$script:ReceiptNodes = @($policy.states.start.requiredAutomationIdSuffixes | ForEach-Object { ReceiptNode ([string]$_) })
+$noValueFingerprintNodes = @($policy.states.start.requiredAutomationIdSuffixes | ForEach-Object { ReceiptNode ([string]$_) })
+$withValueFingerprintNodes = @($policy.states.start.requiredAutomationIdSuffixes | ForEach-Object { ReceiptNode ([string]$_) })
+$withValueFingerprintNodes[0].checked = $true
+$withValueFingerprintNodes[0].selected = $false
+$noValueFingerprint = Get-SSEReceiptManagerStateFingerprint ([IntPtr]5252) 'start' $noValueFingerprintNodes $policy
+$rawWithValueFingerprint = Get-SSEReceiptManagerStateFingerprint ([IntPtr]5252) 'start' $withValueFingerprintNodes $policy
+$structuralWithValueFingerprint = Get-SSEReceiptManagerStateFingerprint `
+  ([IntPtr]5252) 'start' $withValueFingerprintNodes $policy -Structural
+$legacyRelevantSuffixes = @(
+  @($policy.states.PSObject.Properties | ForEach-Object { @($_.Value.requiredAutomationIdSuffixes) }) +
+  @($policy.actions.PSObject.Properties | ForEach-Object { [string]$_.Value.automationIdSuffix })
+) | ForEach-Object { [string]$_ } | Where-Object { $_ } | Select-Object -Unique
+$legacyStableNodes = @($noValueFingerprintNodes | Where-Object {
+  $aid = [string]$_.aid
+  @($legacyRelevantSuffixes | Where-Object { $aid.EndsWith($_, [StringComparison]::Ordinal) }).Count -gt 0
+} | Sort-Object aid | ForEach-Object {
+  [pscustomobject][ordered]@{
+    aid=[string]$_.aid; name=[string]$_.name; type=[string]$_.type
+    enabled=[bool]$_.on; checked=$_.checked; selected=$_.selected
+    x=[int]$_.x; y=[int]$_.y; w=[int]$_.w; h=[int]$_.h
+  }
+})
+$legacyFingerprint = Get-SSETextSha256 (([pscustomobject][ordered]@{
+  hwnd=[int64]5252; state='start'; nodes=$legacyStableNodes
+}) | ConvertTo-Json -Depth 8 -Compress)
+Assert-True ($noValueFingerprint -ceq $legacyFingerprint) `
+  'Der ausgelagerte Standard-Fingerprint muss bytegleich zum bisherigen JSON-/Hash-Aufbau bleiben.'
+Assert-True ($rawWithValueFingerprint -cne $noValueFingerprint) `
+  'Raw-WithValues-Fingerprint muss sich wegen checked/selected vom No-Values-Fingerprint unterscheiden.'
+Assert-True ($structuralWithValueFingerprint -ceq $noValueFingerprint) `
+  'Structural-WithValues-Fingerprint muss checked/selected exakt wie der No-Values-Fingerprint normalisieren.'
+
+$nameFingerprintNodes = @($policy.states.start.requiredAutomationIdSuffixes | ForEach-Object { ReceiptNode ([string]$_) })
+$nameFingerprintNodes[0].name = 'Geaenderter Name'
+$enabledFingerprintNodes = @($policy.states.start.requiredAutomationIdSuffixes | ForEach-Object { ReceiptNode ([string]$_) })
+$enabledFingerprintNodes[0].on = $false
+$geometryFingerprintNodes = @($policy.states.start.requiredAutomationIdSuffixes | ForEach-Object { ReceiptNode ([string]$_) })
+$geometryFingerprintNodes[0].x++
+Assert-True ((Get-SSEReceiptManagerStateFingerprint ([IntPtr]5252) 'start' $nameFingerprintNodes $policy -Structural) -cne $noValueFingerprint) `
+  'Structural-Fingerprint darf Name-Aenderungen nicht normalisieren.'
+Assert-True ((Get-SSEReceiptManagerStateFingerprint ([IntPtr]5252) 'start' $enabledFingerprintNodes $policy -Structural) -cne $noValueFingerprint) `
+  'Structural-Fingerprint darf Enabled-Aenderungen nicht normalisieren.'
+Assert-True ((Get-SSEReceiptManagerStateFingerprint ([IntPtr]5252) 'start' $geometryFingerprintNodes $policy -Structural) -cne $noValueFingerprint) `
+  'Structural-Fingerprint darf Geometrie-Aenderungen nicht normalisieren.'
+Assert-True ((Get-SSEReceiptManagerStateFingerprint ([IntPtr]5252) 'list' $noValueFingerprintNodes $policy -Structural) -cne $noValueFingerprint) `
+  'Structural-Fingerprint darf Zustandsaenderungen nicht normalisieren.'
+
+$script:ReceiptNodes = $noValueFingerprintNodes
 $startState = Get-SSEReceiptManagerState ([IntPtr]5252) $policy
 Assert-True ($startState.state -ceq 'start') "Startzustand wurde als '$($startState.state)' erkannt."
+Assert-True ($startState.fingerprint -ceq $noValueFingerprint) `
+  'Get-SSEReceiptManagerState muss im Standardmodus exakt den ausgelagerten Fingerprint verwenden.'
 $script:ReceiptNodes = @($policy.states.list.requiredAutomationIdSuffixes | ForEach-Object { ReceiptNode ([string]$_) })
 $listState = Get-SSEReceiptManagerState ([IntPtr]5252) $policy
 Assert-True ($listState.state -ceq 'list') "Listenzustand wurde als '$($listState.state)' erkannt."
@@ -255,6 +313,41 @@ Assert-True ($receiptReadBlock.Contains('Resolve-SSEReceiptManagerVisibleRowTarg
 Assert-True ($receiptReadBlock.Contains("method='already-open-detail'")) 'receipt_manager_read muss eine exakt gebundene bereits offene Detailansicht ohne erneuten Zeilenklick lesen.'
 Assert-True ($receiptReadBlock.IndexOf('$detailState = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues') -lt
   $receiptReadBlock.IndexOf('Resolve-SSEReceiptManagerVisibleRowTarget')) 'receipt_manager_read muss eine offene Detailansicht mit vollstaendigen Werten pruefen, bevor es die Tabellenzeile erneut bindet.'
+$detailCandidateIndex = $receiptReadBlock.IndexOf('$detailCandidate = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues')
+$candidateListIndex = $receiptReadBlock.IndexOf('$detailCandidateList = Get-SSEReceiptManagerListProjection $detailCandidate $policy', $detailCandidateIndex)
+$reuseCandidateIndex = $receiptReadBlock.IndexOf('$reuseDetailCandidate = [bool](', $candidateListIndex)
+$fastBranchIndex = $receiptReadBlock.IndexOf('if ($reuseDetailCandidate) {', $reuseCandidateIndex)
+$fallbackFreshIndex = $receiptReadBlock.IndexOf('$freshState = Get-SSEReceiptManagerState $toolHwnd $policy', $fastBranchIndex)
+$fallbackStaleIndex = $receiptReadBlock.IndexOf('if ([string]$freshStateFingerprint -cne [string]$stateBefore.fingerprint', $fallbackFreshIndex)
+$fallbackDetailIndex = $receiptReadBlock.IndexOf('$detailState = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues', $fallbackStaleIndex)
+Assert-True ($detailCandidateIndex -ge 0 -and $candidateListIndex -gt $detailCandidateIndex -and
+  $reuseCandidateIndex -gt $candidateListIndex -and $fastBranchIndex -gt $reuseCandidateIndex) `
+  'receipt_manager_read muss genau einen WithValues-Candidate vor seiner Wiederverwendungsentscheidung vollstaendig projizieren.'
+Assert-True ((($receiptReadBlock.Split(@('$detailCandidate = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues'), [StringSplitOptions]::None).Count - 1) -eq 1)) `
+  'receipt_manager_read darf nur einen initialen WithValues-detailCandidate lesen.'
+Assert-True ($fallbackFreshIndex -gt $fastBranchIndex -and $fallbackStaleIndex -gt $fallbackFreshIndex -and
+  $fallbackDetailIndex -gt $fallbackStaleIndex) `
+  'Der Fallback muss unveraendert No-Values-Freshness und Stale-Guard vor einem neuen WithValues-Detailread ausfuehren.'
+foreach ($required in @(
+  '$candidateSearchNodes.Count -eq 1',
+  '$null -ne $candidateSearchNodes[0].val',
+  "[string]`$candidateSearchNodes[0].val -ceq ''",
+  '$null -ne $detailCandidate.stats.PSObject.Properties[''truncated'']',
+  '$null -ne $detailCandidate.stats.PSObject.Properties[''valErr'']',
+  '-not [bool]$detailCandidate.stats.truncated',
+  '[int]$detailCandidate.stats.valErr -eq 0',
+  'Get-SSEReceiptManagerStateFingerprint',
+  '-Structural',
+  '[string]$detailCandidateStructuralFingerprint -ceq [string]$stateBefore.fingerprint',
+  '[bool]$detailCandidateList.rowsComplete',
+  '$null -eq $detailCandidateList.gridProjectionError',
+  '[string]$detailCandidateList.listFingerprint -ceq $expectedListFingerprint',
+  '$detailCandidateRows.Count -eq 1',
+  '$freshStateFingerprint = $detailCandidateStructuralFingerprint',
+  'if (-not $reuseDetailCandidate) {'
+)) {
+  Assert-True ($receiptReadBlock.Contains($required)) "receipt_manager_read fehlt der enge Candidate-/Fallback-Guard '$required'."
+}
 
 $updateStart = $receiptReadEnd
 $updateEnd = $worker.IndexOf("  'receipt_manager_import' {", $updateStart)
