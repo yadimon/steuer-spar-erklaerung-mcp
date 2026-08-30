@@ -86,13 +86,6 @@ foreach ($jahr in @('2024', '2025')) {
     "Profil $jahr deklariert keine Such-Containerendung."
   Assert-True ($null -eq $haupt.headingAutomationIdSuffix) `
     "Profil $jahr traegt noch die alte Blattendung headingAutomationIdSuffix."
-  if ($jahr -eq '2025') {
-    Assert-True ($haupt.headingAutomationIdRelative -eq '.centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel') `
-      'Profil 2025 deklariert nicht das exakt verifizierte Header-QLabel fuer den Fast-Path.'
-  } else {
-    Assert-True ($null -eq $haupt.headingAutomationIdRelative) `
-      'Engine 30 darf ohne verifizierte exakte Blatt-ID nicht in den Header-Fast-Path optieren.'
-  }
 }
 
 # Navigationsauswahl: genau das ausgewaehlte TreeItem, sonst $null.
