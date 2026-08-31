@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import {
   appendFileSync,
   copyFileSync,
+  existsSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -100,6 +101,18 @@ try {
       `Add-Type -TypeDefinition 'public static class DSK {}' -OutputAssembly (Join-Path $PSScriptRoot 'sse-native.dll') -OutputType Library\n`,
     "utf8",
   );
+
+  const coreBuild = spawnSync(
+    "pwsh.exe",
+    ["-NoLogo", "-NoProfile", "-NonInteractive", "-File", buildScript],
+    { cwd: sandbox, encoding: "utf8", windowsHide: true },
+  );
+  if (coreBuild.error?.code !== "ENOENT") {
+    assert.equal(coreBuild.error, undefined, coreBuild.error?.message);
+    assert.notEqual(coreBuild.status, 0, "PowerShell Core darf keine Produkt-DLL bauen.");
+    assert.match(`${coreBuild.stdout}${coreBuild.stderr}`, /Windows PowerShell 5\.1/u);
+    assert.equal(existsSync(dll), false, "Abgewiesener Core-Build darf keine DLL hinterlassen.");
+  }
 
   assert.match(build(), /^Built powershell\/sse-native\.dll /);
   const firstDllHash = sha256(dll);

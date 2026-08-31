@@ -6,6 +6,17 @@
 param()
 
 $ErrorActionPreference = 'Stop'
+
+# Das veroeffentlichte Runtime-Ziel ist Windows PowerShell 5.1/.NET Framework.
+# PowerShell Core kompiliert gegen eine andere .NET-Laufzeit; eine dort erzeugte
+# DLL kann im Produkt-Worker nicht geladen werden. Der npm-Einstieg verwendet
+# deshalb bewusst powershell.exe, und direkte Aufrufe muessen dasselbe tun.
+if ($PSVersionTable.PSEdition -ne 'Desktop' -or
+    $PSVersionTable.PSVersion.Major -ne 5 -or
+    $PSVersionTable.PSVersion.Minor -lt 1) {
+  throw 'Native helper must be built with Windows PowerShell 5.1. Use npm run build:native.'
+}
+
 $source = Join-Path $PSScriptRoot 'sse-native.cs'
 $target = Join-Path $PSScriptRoot 'sse-native.dll'
 $hashTarget = Join-Path $PSScriptRoot 'sse-native.sha256'
