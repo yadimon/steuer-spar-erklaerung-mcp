@@ -6313,25 +6313,6 @@ function Commit-TrackedValue([IntPtr]$Hwnd, $Node, [string]$Value, [string]$Expe
         foregroundHwnd=[int64][SW]::GetForegroundWindow()
         foregroundPrepared=[bool]$foregroundPrepared
       }
-      if ($env:SSE_MEGA_OBSTRUCTION_DUMP) {
-        try {
-          $boundRc = New-Object SW+RC
-          $hasBound = [SW]::GetWindowRect($Hwnd, [ref]$boundRc)
-          $wa = [System.Windows.Forms.Screen]::FromHandle($Hwnd).WorkingArea
-          $sb = [System.Windows.Forms.Screen]::FromHandle($Hwnd).Bounds
-          $allWins = @(Get-Windows 'SSE' | ForEach-Object {
-            [pscustomobject]@{ hwnd=[int64]$_.hwnd; class=(Get-SSEWindowClassName ([IntPtr][int64]$_.hwnd)); x=$_.x; y=$_.y; w=$_.w; h=$_.h; title=$_.title }
-          })
-          ([pscustomobject]@{
-            obstruction=$obstructionDetails
-            node=[pscustomobject]@{ x=[int]$Node.x; y=[int]$Node.y; w=[int]$Node.w; h=[int]$Node.h; name=$Node.name }
-            boundWindowRect=$(if ($hasBound) { [pscustomobject]@{ l=$boundRc.L; t=$boundRc.T; r=$boundRc.R; b=$boundRc.B; w=($boundRc.R-$boundRc.L); h=($boundRc.B-$boundRc.T) } } else { $null })
-            workArea=[pscustomobject]@{ l=$wa.Left; t=$wa.Top; r=$wa.Right; b=$wa.Bottom }
-            screenBounds=[pscustomobject]@{ w=$sb.Width; h=$sb.Height }
-            sseWindows=$allWins
-          }) | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $env:SSE_MEGA_OBSTRUCTION_DUMP -Encoding utf8
-        } catch { }
-      }
       Complete-SSEPhysicalSection $Hwnd
       return New-SSECommitResult 'epoch-obstructed' $inputBefore (Get-SSELastInputTick) $obstructionDetails
     }
