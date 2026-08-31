@@ -67,7 +67,10 @@ assertNoLinks(join(root, "profiles"));
 
 cpSync(join(root, "powershell"), join(apiRoot, "powershell"), {
   recursive: true,
-  filter: (source) => !basename(source).startsWith(".sse-native-"),
+  filter: (source) => {
+    const name = basename(source);
+    return !name.startsWith(".sse-native-") && name !== "build-native.ps1";
+  },
 });
 cpSync(join(root, "profiles"), join(apiRoot, "profiles"), { recursive: true });
 for (const packageRoot of [apiRoot, mcpRoot]) {

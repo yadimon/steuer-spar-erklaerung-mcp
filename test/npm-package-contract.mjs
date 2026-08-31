@@ -132,6 +132,7 @@ for (const required of [
   assert(api.paths.has(required), `API-Paket enthaelt Pflichtdatei nicht: ${required}`);
 }
 for (const path of api.paths) {
+  assert.notEqual(path, "powershell/build-native.ps1", "API-Paket darf den Dev-only Native-Builder nicht enthalten.");
   assert(!/^dist\/(?:index|mcp-(?:main|registry|response|tools))/u.test(path), `API-Paket enthaelt MCP-Runtime: ${path}`);
 }
 
