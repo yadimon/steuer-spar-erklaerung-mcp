@@ -108,6 +108,8 @@ assert(workerBridgeSource.includes('"-ArgsFile", argsFile') &&
   workerSource.includes("Get-SSEBoundedArrayArg") &&
   workerSource.includes("vor Profil-, DLL- und UI-Start"),
 "Worker-Argumente werden nicht dateibasiert oder erst nach teurer Produkt-/Native-Initialisierung begrenzt.");
+assert(!workerSource.includes("SSE_MEGA_OBSTRUCTION_DUMP"),
+  "Der Produkt-Worker darf keinen Debug-Dump auf einen beliebigen Environment-Pfad schreiben.");
 assert(desktopLauncherSource.includes("$maxWorkerOutputBytes = 32MB") &&
   desktopLauncherSource.includes("Read-SSEBoundedUtf8File $aus $maxWorkerOutputBytes") &&
   desktopLauncherSource.includes("kind = 'output-too-large'") &&
