@@ -4,6 +4,11 @@ artifacts/
 .tmp/
 *.log
 *.tsbuildinfo
+coverage/
+.nyc_output/
+bin/
+obj/
+*.pdb
 packages/api/powershell/
 packages/api/profiles/
 packages/*/LICENSE
@@ -14,6 +19,43 @@ powershell/.sse-native-*.sha256
 powershell/.sse-native-*.replace.dll
 powershell/.sse-native-*.replace.sha256
 
+# Lokale Editoren, Betriebssystem-Metadaten und Agenten-Arbeitsbereiche
+/.vs/
+/.vscode/
+/.idea/
+/.agents/
+/.claude/
+/.codex/
+/.superpowers/
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Lokale Umgebungen und Schluesselmaterial
+.env
+.env.*
+!.env.example
+!.env.*.example
+.npmrc
+!.npmrc.example
+auth.json
+credentials.json
+guest-password.txt
+id_rsa
+id_ed25519
+*.bundle
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+*.kdbx
+*.ovpn
+
 # Arbeitsdateien der Erkundung
 *.png
 akad.json
@@ -23,16 +65,25 @@ docs/seiten-roh/
 docs/*.json
 
 # Niemals Steuerdaten ins Repo
-*.ESt20*
-*.Gew20*
-*.GewErfass20*
-*.Fest20*
-*.Erm20*
-*.Vorweg20*
-*.KonsUst20*
-*.Zulage20*
-*.NVBescheinigung20*
-*_Backup
+*.[Ee][Ss][Tt]20*
+*.[Gg][Ee][Ww]20*
+*.[Gg][Ee][Ww][Ee][Rr][Ff][Aa][Ss][Ss]20*
+*.[Ff][Ee][Ss][Tt]20*
+*.[Ee][Rr][Mm]20*
+*.[Vv][Oo][Rr][Ww][Ee][Gg]20*
+*.[Kk][Oo][Nn][Ss][Uu][Ss][Tt]20*
+*.[Zz][Uu][Ll][Aa][Gg][Ee]20*
+*.[Nn][Vv][Bb][Ee][Ss][Cc][Hh][Ee][Ii][Nn][Ii][Gg][Uu][Nn][Gg]20*
+*_[Bb][Aa][Cc][Kk][Uu][Pp]
+*.$[Ee][Ss][Tt]20*$
+*.$[Gg][Ee][Ww]20*$
+*.$[Gg][Ee][Ww][Ee][Rr][Ff][Aa][Ss][Ss]20*$
+*.$[Ff][Ee][Ss][Tt]20*$
+*.$[Ee][Rr][Mm]20*$
+*.$[Vv][Oo][Rr][Ww][Ee][Gg]20*$
+*.$[Kk][Oo][Nn][Ss][Uu][Ss][Tt]20*$
+*.$[Zz][Uu][Ll][Aa][Gg][Ee]20*$
+*.$[Nn][Vv][Bb][Ee][Ss][Cc][Hh][Ee][Ii][Nn][Ii][Gg][Uu][Nn][Gg]20*$
 
 # Private lokale, vorerst rechner- und sitzungsspezifische Learnings
 /docs/ai-learning/

@@ -27,7 +27,16 @@ const forbiddenPaths = [
   { label: "lokale Agenten-Arbeitsdatei", pattern: /^(?:\.agents|\.claude|\.codex|\.superpowers)(?:\/|$)/iu },
   { label: "agentenspezifischer Arbeitsplan", pattern: /^docs\/(?:superpowers|CODEX-|CLAUDE-)/iu },
   { label: "lokale Umgebungsdatei", pattern: /(?:^|\/)\.env(?:\..+)?$/iu },
+  { label: "lokale npm-Konfiguration", pattern: /(?:^|\/)\.npmrc$/iu },
+  { label: "lokale Zugangsdaten", pattern: /(?:^|\/)(?:auth|credentials)\.json$/iu },
+  { label: "lokales VM-Passwort", pattern: /(?:^|\/)guest-password\.txt$/iu },
+  { label: "lokaler SSH-Schluessel", pattern: /(?:^|\/)id_(?:rsa|ed25519)$/iu },
+  { label: "lokales Git-Historienbundle", pattern: /\.bundle$/iu },
   { label: "mögliche Schlüsseldatei", pattern: /\.(?:key|pem|p12|pfx|jks|kdbx|ovpn)$/iu },
+  {
+    label: "Steuerfall- oder Wiederherstellungsdatei",
+    pattern: /\.\$?(?:ESt|Gew|GewErfass|Fest|Erm|Vorweg|KonsUst|Zulage|NVBescheinigung)20\d{2}\$?(?:_Backup)?$/iu,
+  },
 ];
 const violations = [];
 let checked = 0;
