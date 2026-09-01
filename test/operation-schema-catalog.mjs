@@ -6,6 +6,7 @@ import { SSE_API_OPERATIONS } from "../dist/api-contract.js";
 import { createApiExecutor } from "../dist/api-executor.js";
 import {
   SSE_API_OPERATION_SCHEMAS,
+  SSE_MCP_COMPOSED_TOOL_OPERATIONS,
   SSE_MCP_TOOL_OPERATIONS,
   SSE_MCP_TOOL_SCHEMAS,
   assertApiArgumentBudget,
@@ -16,8 +17,15 @@ import {
   parseCheckerReadOnlyClickArgs,
 } from "../dist/operation-catalog.js";
 
-assert.equal(Object.keys(SSE_MCP_TOOL_SCHEMAS).length, SSE_API_OPERATIONS.length);
+assert.equal(
+  Object.keys(SSE_MCP_TOOL_SCHEMAS).length,
+  SSE_API_OPERATIONS.length + Object.keys(SSE_MCP_COMPOSED_TOOL_OPERATIONS).length,
+);
 assert.equal(Object.keys(SSE_MCP_TOOL_OPERATIONS).length, SSE_API_OPERATIONS.length);
+assert.deepEqual(
+  Object.keys(SSE_MCP_TOOL_SCHEMAS).sort(),
+  [...Object.keys(SSE_MCP_TOOL_OPERATIONS), ...Object.keys(SSE_MCP_COMPOSED_TOOL_OPERATIONS)].sort(),
+);
 assert.deepEqual(Object.keys(SSE_API_OPERATION_SCHEMAS).sort(), [...SSE_API_OPERATIONS].sort());
 
 const hasUnknownKeyIssue = (issues) => issues.some((issue) =>

@@ -5,10 +5,14 @@ import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { createSseApiServer } from "../dist/api-server.js";
-import { SSE_MCP_TOOL_OPERATIONS } from "../dist/operation-catalog.js";
+import {
+  SSE_MCP_COMPOSED_TOOL_OPERATIONS,
+  SSE_MCP_TOOL_OPERATIONS,
+  SSE_MCP_TOOL_SCHEMAS,
+} from "../dist/operation-catalog.js";
 import { sampleJsonSchema } from "./json-schema-samples.mjs";
 
-const expectedToolCount = Object.keys(SSE_MCP_TOOL_OPERATIONS).length;
+const expectedToolCount = Object.keys(SSE_MCP_TOOL_SCHEMAS).length;
 const calls = [];
 const api = createSseApiServer({
   execute: async (operation, args) => {
@@ -54,9 +58,16 @@ const client = new Client({ name: "sse-mcp-api-all", version: "1.0.0" });
 
 try {
   await client.connect(transport);
+  const instructions = client.getInstructions() ?? "";
+  assert.match(instructions, /Als ersten fachlichen Tool-Aufruf sse_preflight/u);
+  assert.match(instructions, /Niemals ueber ELSTER/u);
+  assert.match(instructions, /hashverifizierte Sicherung nach backups:/u);
+  assert.match(instructions, /Aendern erlaubt kein Speichern/u);
   const tools = (await client.listTools()).tools;
   assert.equal(tools.length, expectedToolCount);
-  for (const tool of tools) {
+  const directTools = tools.filter((tool) => tool.name in SSE_MCP_TOOL_OPERATIONS);
+  assert.equal(directTools.length, Object.keys(SSE_MCP_TOOL_OPERATIONS).length);
+  for (const tool of directTools) {
     const args = sampleJsonSchema(tool.inputSchema, tool.name);
     const before = calls.length;
     const result = await client.callTool(
@@ -86,7 +97,24 @@ try {
     assert.equal(unknown.isError, true, `${tool.name} akzeptierte ein unbekanntes MCP-Argument.`);
     assert.equal(calls.length, beforeUnknown, `${tool.name} leitete ein unbekanntes Argument zur API.`);
   }
-  assert.equal(calls.length, tools.length);
+  const beforePreflight = calls.length;
+  const preflight = await client.callTool({ name: "sse_preflight", arguments: {} });
+  assert.notEqual(preflight.isError, true);
+  assert.equal(preflight.structuredContent?.ok, true);
+  assert.deepEqual(
+    calls.slice(beforePreflight).map((entry) => entry.operation),
+    [...SSE_MCP_COMPOSED_TOOL_OPERATIONS.sse_preflight],
+    "Preflight muss genau seine drei read-only API-Operationen in Reihenfolge ausfuehren.",
+  );
+  assert(!JSON.stringify(preflight.structuredContent).includes("C:\\Privat"));
+  const beforeUnknownPreflight = calls.length;
+  const unknownPreflight = await client.callTool({
+    name: "sse_preflight",
+    arguments: { nichtImVertrag: true },
+  });
+  assert.equal(unknownPreflight.isError, true);
+  assert.equal(calls.length, beforeUnknownPreflight);
+  assert.equal(calls.length, directTools.length + SSE_MCP_COMPOSED_TOOL_OPERATIONS.sse_preflight.length);
   process.stdout.write(`MCP/API-End-to-End-Matrix: ${expectedToolCount} Werkzeuge validiert, redigiert und ausgefuehrt\n`);
 } finally {
   await client.close();

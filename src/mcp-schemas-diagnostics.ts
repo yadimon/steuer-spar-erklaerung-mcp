@@ -14,6 +14,7 @@ import {
 } from "./operation-schema-primitives.js";
 
 export const SSE_MCP_DIAGNOSTIC_SCHEMAS = {
+  "sse_preflight": z.object({}).strict(),
   "sse_product_info": z.object({}).strict(),
   "sse_capabilities": z.object({}).strict(),
   "sse_page_objects": z.object({

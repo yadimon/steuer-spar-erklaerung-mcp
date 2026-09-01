@@ -10,7 +10,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { SSE_MCP_TOOL_OPERATIONS } from "../dist/operation-catalog.js";
+import { SSE_MCP_TOOL_OPERATIONS, SSE_MCP_TOOL_SCHEMAS } from "../dist/operation-catalog.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
@@ -202,7 +202,7 @@ try {
       if (value && typeof value === "object") catalogKeyStack.push(value);
     }
   }
-  const catalogTools = Object.keys(SSE_MCP_TOOL_OPERATIONS).sort();
+  const catalogTools = Object.keys(SSE_MCP_TOOL_SCHEMAS).sort();
   const runtimeTools = listedTools.tools.map((tool) => tool.name).sort();
   assert(JSON.stringify(catalogTools) === JSON.stringify(runtimeTools) && catalogTools.length > 0,
     `Katalog und MCP-Laufzeit laufen auseinander: ${catalogTools.length} statt ${runtimeTools.length}.`);

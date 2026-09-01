@@ -4,6 +4,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { SSE_API_OPERATIONS } from "../dist/api-contract.js";
 import {
   SSE_MCP_COMPOSITION_ONLY_OPERATIONS,
+  SSE_MCP_COMPOSED_TOOL_OPERATIONS,
   SSE_MCP_TOOL_OPERATIONS,
   SSE_MCP_TOOL_SCHEMAS,
 } from "../dist/operation-catalog.js";
@@ -103,7 +104,11 @@ assert.deepEqual(
 );
 
 const toolNames = Object.keys(SSE_MCP_TOOL_SCHEMAS).sort();
-assert.deepEqual(Object.keys(SSE_MCP_TOOL_OPERATIONS).sort(), toolNames, "Jedes MCP-Schema braucht genau ein API-Mapping.");
+assert.deepEqual(
+  [...Object.keys(SSE_MCP_TOOL_OPERATIONS), ...Object.keys(SSE_MCP_COMPOSED_TOOL_OPERATIONS)].sort(),
+  toolNames,
+  "Jedes MCP-Schema braucht genau ein direktes oder komponiertes API-Mapping.",
+);
 assert(toolNames.length >= 85, `Zu wenige MCP-Werkzeuge gefunden: ${toolNames.length}`);
 const documentedToolReferences = [...new Set(mcpSourceText.match(/\bsse_[a-z_]+\b/g) ?? [])].sort();
 assert.deepEqual(
@@ -126,6 +131,12 @@ assert.match(failedSelftest.stderr, /Start fehlgeschlagen/);
 assert(!/[A-Za-z]:[\\/]|file:\/\/\//u.test(failedSelftest.stderr), "MCP-Startfehler enthaelt lokalen Installationspfad.");
 
 const directOperations = new Set(Object.values(SSE_MCP_TOOL_OPERATIONS));
+for (const [tool, operations] of Object.entries(SSE_MCP_COMPOSED_TOOL_OPERATIONS)) {
+  assert(operations.length > 1, `${tool} ist keine echte Komposition.`);
+  for (const operation of operations) {
+    assert(SSE_API_OPERATIONS.includes(operation), `${tool} referenziert unbekanntes ${operation}.`);
+  }
+}
 for (const operation of SSE_MCP_COMPOSITION_ONLY_OPERATIONS) {
   assert(!directOperations.has(operation), `${operation} ist direkt und als composition-only katalogisiert.`);
   assert(

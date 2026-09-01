@@ -6,7 +6,12 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { MAX_API_ARGUMENT_STRING_BYTES, SSE_MCP_TOOL_OPERATIONS } from "../dist/operation-catalog.js";
+import {
+  MAX_API_ARGUMENT_STRING_BYTES,
+  SSE_MCP_COMPOSED_TOOL_OPERATIONS,
+  SSE_MCP_TOOL_OPERATIONS,
+  SSE_MCP_TOOL_SCHEMAS,
+} from "../dist/operation-catalog.js";
 import { operationAnnotations } from "../dist/operation-traits.js";
 import { SSE_API_PACKAGE_NAME, SSE_PACKAGE_VERSION } from "../dist/version.js";
 import {
@@ -37,7 +42,19 @@ const assertPropertyDescriptions = (schema, path) => {
     }
   }
 };
-const expectedToolCount = Object.keys(SSE_MCP_TOOL_OPERATIONS).length;
+const expectedToolCount = Object.keys(SSE_MCP_TOOL_SCHEMAS).length;
+const operationsForTool = (name) => name in SSE_MCP_TOOL_OPERATIONS
+  ? [SSE_MCP_TOOL_OPERATIONS[name]]
+  : SSE_MCP_COMPOSED_TOOL_OPERATIONS[name];
+const annotationsForTool = (name) => {
+  const traits = operationsForTool(name).map((operation) => operationAnnotations(operation));
+  return {
+    readOnlyHint: traits.every((entry) => entry.readOnlyHint),
+    destructiveHint: traits.some((entry) => entry.destructiveHint),
+    idempotentHint: traits.every((entry) => entry.idempotentHint),
+    openWorldHint: false,
+  };
+};
 
 const calls = [];
 const API_INSTANCE_ID = "44444444-4444-4444-8444-444444444444";
@@ -183,7 +200,7 @@ try {
   for (const tool of catalog.tools) {
     assert.deepEqual(
       tool.annotations,
-      operationAnnotations(SSE_MCP_TOOL_OPERATIONS[tool.name]),
+      annotationsForTool(tool.name),
       `${tool.name} hat driftende MCP-Sicherheitshinweise.`,
     );
   }
@@ -220,7 +237,10 @@ try {
     assert(!text.includes("C:\\Temp\\synthetic.png") && !text.includes("/home/person") && !text.includes("/Users/person"),
       `${tool.name} darf keinen lokalen API-/Wrapper-Pfad ausgeben`);
   }
-  assert.equal(calls.length, expectedToolCount, `Erwartet wurde genau ein API-Aufruf je MCP-Werkzeug, erhalten: ${calls.length}`);
+  const expectedInitialApiCalls = Object.keys(SSE_MCP_TOOL_OPERATIONS).length +
+    Object.values(SSE_MCP_COMPOSED_TOOL_OPERATIONS).reduce((sum, operations) => sum + operations.length, 0);
+  assert.equal(calls.length, expectedInitialApiCalls,
+    `Direkte und komponierte MCP-Aufrufe erzeugten unerwartet ${calls.length} API-Aufrufe.`);
 
   forcedResult = {
     ok: true,

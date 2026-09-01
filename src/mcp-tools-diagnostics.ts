@@ -11,6 +11,7 @@ import {
   type Content,
 } from "./mcp-response.js";
 import { apiResultOutputSchema, type McpRegistry } from "./mcp-registry.js";
+import { evaluateMcpPreflight, MCP_PREFLIGHT_OUTPUT_SCHEMA } from "./mcp-preflight.js";
 import { SSE_MCP_TOOL_SCHEMAS } from "./operation-catalog.js";
 
 export function registerDiagnosticTools(registry: McpRegistry): void {
@@ -18,12 +19,53 @@ export function registerDiagnosticTools(registry: McpRegistry): void {
     callApiOperation,
     caughtErrorResult,
     registerApiTool,
+    registerComposedTool,
     registerShapedApiTool,
     registerStrictTool,
     run,
   } = registry;
 
   /* ------------------------------------------------------------- Diagnose */
+
+  registerComposedTool(
+    "sse_preflight",
+    {
+      title: "Installation und Laufzeit in einem Schritt pruefen",
+      description:
+        "Fuehrt vor der ersten fachlichen Arbeit genau einmal die drei read-only Pruefungen " +
+        "sse_workspace_status, sse_product_info und sse_health in dieser Reihenfolge aus. " +
+        "Liefert stabile Blockercodes, aber keine Pfade, Fenstertexte oder Prozessdaten. " +
+        "Startet keinen Steuerfall, beantwortet keinen Dialog und aendert keine Konfiguration. " +
+        "Nach einem gruenen Ergebnis mit sse_instances den geoeffneten Fall eindeutig binden.",
+      inputSchema: SSE_MCP_TOOL_SCHEMAS.sse_preflight.shape,
+      outputSchema: MCP_PREFLIGHT_OUTPUT_SCHEMA,
+    },
+    async () => {
+      let workspace: Record<string, unknown>;
+      let product: Record<string, unknown>;
+      let health: Record<string, unknown>;
+      try {
+        workspace = await callApiOperation("workspace_status");
+      } catch (error) {
+        return caughtErrorResult("workspace_status", error);
+      }
+      if (workspace.ok === false) return apiErrorResult("workspace_status", workspace);
+      try {
+        product = await callApiOperation("product_info");
+      } catch (error) {
+        return caughtErrorResult("product_info", error);
+      }
+      if (product.ok === false) return apiErrorResult("product_info", product);
+      try {
+        health = await callApiOperation("health");
+      } catch (error) {
+        return caughtErrorResult("health", error);
+      }
+      if (health.ok === false) return apiErrorResult("health", health);
+      const result = evaluateMcpPreflight(workspace, product, health);
+      return apiSuccessResult(result, result);
+    },
+  );
 
   registerApiTool(
     "sse_capabilities",

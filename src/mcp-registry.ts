@@ -10,8 +10,11 @@ import {
   assertApiArgumentBudget,
   formatOperationArgumentError,
   parseApiOperationArgs,
+  SSE_MCP_COMPOSED_TOOL_OPERATIONS,
   SSE_MCP_TOOL_OPERATIONS,
   SSE_MCP_TOOL_SCHEMAS,
+  type SseMcpComposedToolName,
+  type SseMcpDirectToolName,
   type SseMcpToolName,
 } from "./operation-catalog.js";
 import { operationAnnotations } from "./operation-traits.js";
@@ -78,8 +81,9 @@ export function createMcpRegistry(server: McpServer) {
    * Der SDK-Pfad fuer ein rohes Zod-Shape entfernt unbekannte Argumente zur
    * Laufzeit still. Das strikte Objekt verhindert dadurch riskante Defaults.
    */
-  function registerStrictTool<Shape extends z.ZodRawShape>(
+  function registerToolWithOperations<Shape extends z.ZodRawShape>(
     name: SseMcpToolName,
+    operations: readonly SseApiOperation[],
     config: {
       title?: string;
       description?: string;
@@ -88,34 +92,72 @@ export function createMcpRegistry(server: McpServer) {
     },
     callback: (args: z.infer<z.ZodObject<Shape>>) => CallToolResult | Promise<CallToolResult>,
   ) {
+    const firstOperation = operations[0];
+    if (!firstOperation) throw new Error(`MCP-Werkzeug '${name}' besitzt keine API-Basisoperation.`);
+    const traits = operations.map((operation) => operationAnnotations(operation));
     return server.registerTool(
       name,
       {
         ...config,
         inputSchema: z.object(config.inputSchema).strict(),
-        annotations: operationAnnotations(SSE_MCP_TOOL_OPERATIONS[name]),
+        annotations: {
+          readOnlyHint: traits.every((entry) => entry.readOnlyHint),
+          destructiveHint: traits.some((entry) => entry.destructiveHint),
+          idempotentHint: traits.every((entry) => entry.idempotentHint),
+          openWorldHint: false,
+        },
       },
       (args, extra) => requestAbortSignal.run(extra.signal, async () => {
+        let validationOperation = firstOperation;
         try {
-          assertApiArgumentBudget(SSE_MCP_TOOL_OPERATIONS[name], args);
-          parseApiOperationArgs(SSE_MCP_TOOL_OPERATIONS[name], args);
+          for (const operation of operations) {
+            validationOperation = operation;
+            assertApiArgumentBudget(operation, args);
+            parseApiOperationArgs(operation, args);
+          }
         } catch (error) {
           const message = error instanceof z.ZodError
-            ? formatOperationArgumentError(error, SSE_MCP_TOOL_OPERATIONS[name])
+            ? formatOperationArgumentError(error, validationOperation)
             : error instanceof Error ? error.message : String(error);
           return errorResult(`Ungueltige MCP-Argumente: ${message}`);
         }
         try {
           return await callback(args);
         } catch (error) {
-          return caughtErrorResult(SSE_MCP_TOOL_OPERATIONS[name], error);
+          return caughtErrorResult(firstOperation, error);
         }
       }),
     );
   }
 
+  function registerStrictTool<Shape extends z.ZodRawShape>(
+    name: SseMcpDirectToolName,
+    config: {
+      title?: string;
+      description?: string;
+      inputSchema: Shape;
+      outputSchema?: z.ZodTypeAny;
+    },
+    callback: (args: z.infer<z.ZodObject<Shape>>) => CallToolResult | Promise<CallToolResult>,
+  ) {
+    return registerToolWithOperations(name, [SSE_MCP_TOOL_OPERATIONS[name]], config, callback);
+  }
+
+  function registerComposedTool<Shape extends z.ZodRawShape>(
+    name: SseMcpComposedToolName,
+    config: {
+      title?: string;
+      description?: string;
+      inputSchema: Shape;
+      outputSchema?: z.ZodTypeAny;
+    },
+    callback: (args: z.infer<z.ZodObject<Shape>>) => CallToolResult | Promise<CallToolResult>,
+  ) {
+    return registerToolWithOperations(name, SSE_MCP_COMPOSED_TOOL_OPERATIONS[name], config, callback);
+  }
+
   function registerApiTool(
-    name: SseMcpToolName,
+    name: SseMcpDirectToolName,
     config: ToolConfig,
     options: { timeoutMs?: number; } = {},
   ) {
@@ -128,7 +170,7 @@ export function createMcpRegistry(server: McpServer) {
   }
 
   function registerShapedApiTool(
-    name: SseMcpToolName,
+    name: SseMcpDirectToolName,
     config: ToolConfig,
     shape: ApiResultShape,
     options: { timeoutMs?: number; } = {},
@@ -145,6 +187,7 @@ export function createMcpRegistry(server: McpServer) {
     callApiOperation,
     caughtErrorResult,
     registerApiTool,
+    registerComposedTool,
     registerShapedApiTool,
     registerStrictTool,
     run,

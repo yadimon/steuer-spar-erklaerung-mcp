@@ -77,8 +77,14 @@ function endpointFromConfig(
 
 function configuredEndpoint(env: NodeJS.ProcessEnv): ApiEndpoint {
   const explicitUrl = env.SSE_API_URL?.trim();
-  if (explicitUrl) return { baseUrl: loopbackBaseUrl(explicitUrl), explicitUrl: true };
   const rawConfigPath = env.SSE_API_CONFIG?.trim();
+  if (explicitUrl && rawConfigPath) {
+    throw new Error(
+      "SSE_API_URL und SSE_API_CONFIG duerfen nicht gleichzeitig gesetzt sein; " +
+      "die API-Identitaet waere sonst mehrdeutig.",
+    );
+  }
+  if (explicitUrl) return { baseUrl: loopbackBaseUrl(explicitUrl), explicitUrl: true };
   const configPath = rawConfigPath ? absoluteConfigPath(rawConfigPath) : defaultApiConfigPath(env);
   return { ...endpointFromConfig(configPath), explicitUrl: false, configPath };
 }

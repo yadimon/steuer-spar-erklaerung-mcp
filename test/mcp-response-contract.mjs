@@ -155,15 +155,16 @@ assert(foregroundBlocked.structuredContent.hint.includes("Nicht wiederholen"));
 assert(foregroundBlocked.structuredContent.hint.includes("keinen Fokus-, Maus- oder Tastatur-Workaround"));
 assert(!JSON.stringify(foregroundBlocked.structuredContent).includes("Privat"));
 
-// Haeufigster Erstkontakt-Fehler: MCP steht, die API laeuft nicht. Ohne diesen
-// Hinweis bekaeme der Agent nur ECONNREFUSED und keinen naechsten Schritt.
+// Im MCP-Weg startet der Supervisor seine exakte API-Dependency selbst. Ein
+// Netzwerkfehler darf deshalb nicht mehr zu einem zweiten API-Terminal raten.
 const nichtErreichbar = apiErrorResult("health", {
   ok: false,
   kind: "network",
   error: "SSE-API nicht erreichbar (ECONNREFUSED)",
 });
 assert.equal(nichtErreichbar.isError, true);
-assert(nichtErreichbar.structuredContent.hint.includes("steuer-spar-erklaerung-api --config"));
+assert(nichtErreichbar.structuredContent.hint.includes("Keinen zweiten API-Prozess"));
+assert(nichtErreichbar.structuredContent.hint.includes("keinen Namens-basierten Prozessstopp"));
 assert(nichtErreichbar.structuredContent.hint.includes("Installationsanleitung"));
 assert(
   !/[A-Z]:\\/u.test(nichtErreichbar.structuredContent.hint),

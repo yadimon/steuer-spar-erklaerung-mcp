@@ -1,5 +1,16 @@
 export type McpMainMode = "stdio" | "selftest" | "help";
 
+const SELFTEST_BUSY_TIMEOUT_MS = 60_000;
+const SELFTEST_BUSY_POLL_MS = 50;
+
+function isBusyApiError(error: unknown): boolean {
+  return error instanceof Error && (error as Error & { kind?: unknown }).kind === "busy";
+}
+
+async function delay(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /**
  * Die lokale API ist reine SSE-Steuerung und kennt keine Gespraechsregeln. MCP
  * dagegen spricht immer ueber einen Agenten mit einem Menschen, oft ohne dass
@@ -8,6 +19,8 @@ export type McpMainMode = "stdio" | "selftest" | "help";
  */
 const MCP_CONDUCT_INSTRUCTIONS = [
   "Diese Tools steuern eine lokal installierte SteuerSparErklaerung unter Windows.",
+  "Als ersten fachlichen Tool-Aufruf sse_preflight verwenden und",
+  "dessen Blocker befolgen. Nur bei ready=true danach mit sse_instances den Arbeitsfall binden.",
   "",
   "Harte Grenzen, auch auf ausdruecklichen Wunsch:",
   "- Niemals ueber ELSTER senden, uebermitteln, bestaetigen oder abschliessen.",
@@ -81,13 +94,33 @@ export async function runMcpMain(args: readonly string[]): Promise<void> {
   }
 
   if (mode === "selftest") {
-    const [{ callApiOperation }, { ensureApiSingleton }, responseBoundary] = await Promise.all([
+    const [{ callApiOperation }, supervisor, responseBoundary] = await Promise.all([
       import("./api-client.js"),
       import("./mcp-api-supervisor.js"),
       import("./mcp-response.js"),
     ]);
-    const health = await ensureApiSingleton();
-    const result = await callApiOperation("health", {}, undefined, { expectedInstanceId: health.instanceId });
+    const health = await supervisor.ensureApiSingleton();
+    const deadline = Date.now() + SELFTEST_BUSY_TIMEOUT_MS;
+    let result: Awaited<ReturnType<typeof callApiOperation>>;
+    while (true) {
+      try {
+        const candidate = await callApiOperation("health", {}, undefined, { expectedInstanceId: health.instanceId });
+        if (!(candidate.ok === false && candidate.kind === "busy")) {
+          result = candidate;
+          break;
+        }
+        if (Date.now() >= deadline) {
+          throw new Error("API-Selftest fehlgeschlagen: health blieb laenger als 60 Sekunden belegt.");
+        }
+      } catch (error) {
+        if (!isBusyApiError(error) || Date.now() >= deadline) throw error;
+      }
+      await supervisor.assertApiSingletonIdentity();
+      await delay(SELFTEST_BUSY_POLL_MS);
+    }
+    if (result.ok !== true) {
+      throw new Error("API-Selftest fehlgeschlagen: health lieferte kein ok=true.");
+    }
     process.stdout.write(`${JSON.stringify(responseBoundary.redactPcLocalPaths(result), null, 2)}\n`);
     return;
   }
