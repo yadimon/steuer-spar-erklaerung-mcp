@@ -89,7 +89,7 @@ function Assert-SSENativeAssemblySurface([Reflection.Assembly]$Assembly) {
     SSEWindowEnumerator=@('Describe')
     SSEProcessCommandLine=@('TryGet')
     SSEWindowNode=@()
-    SSEAccessible=@('Describe','DescribePoint','Invoke')
+    SSEAccessible=@('Describe','DescribePoint','DescribePointBasic','Invoke')
     SSEAccNode=@()
     SSEWorkerControllerLease=@('Acquire','ReleaseAndClose')
   }

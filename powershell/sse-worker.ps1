@@ -2879,7 +2879,7 @@ function Click-VerifiedPoint(
       ([pscustomobject]@{ obstruction=$obstruction })
   }
   if ($Node.source -eq 'msaa-point') {
-    $fresh = [SSEAccessible]::DescribePoint($px, $py)
+    $fresh = [SSEAccessible]::DescribePointBasic($px, $py)
     if (-not $fresh -or [int]$fresh.Role -ne 43 -or [string]$fresh.Name -ne [string]$Node.name) {
       Hide-SSETopmost $Window
       Fail "MSAA-Schaltflaeche '$($Node.name)' ist unmittelbar vor dem Klick nicht mehr identisch. NICHT geklickt." 'stale'
@@ -3017,7 +3017,7 @@ function Get-DialogDescriptor($Window, [IntPtr]$MainHwnd) {
       )) {
         $px = [int]($Window.x + $Window.w * $relative.x)
         $py = [int]($Window.y + $Window.h * $relative.y)
-        $item = [SSEAccessible]::DescribePoint($px, $py)
+        $item = [SSEAccessible]::DescribePointBasic($px, $py)
         if ($item -and $item.Role -eq 43 -and $item.Name -in $script:DIALOG_BUTTONS -and
             $item.W -gt 0 -and $item.H -gt 0 -and
             $px -ge $item.X -and $py -ge $item.Y -and $px -lt ($item.X + $item.W) -and $py -lt ($item.Y + $item.H)) {
@@ -3075,7 +3075,7 @@ function Get-DialogDescriptor($Window, [IntPtr]$MainHwnd) {
         $stepY = [Math]::Max(18, [int]($Window.h / 18))
         for ($px = $Window.x + 8; $px -lt ($Window.x + $Window.w - 7); $px += $stepX) {
           for ($py = $Window.y + 8; $py -lt ($Window.y + $Window.h - 7); $py += $stepY) {
-            $item = [SSEAccessible]::DescribePoint([int]$px, [int]$py)
+            $item = [SSEAccessible]::DescribePointBasic([int]$px, [int]$py)
             if (-not $item) { continue }
             $key = "$($item.Role)|$($item.X)|$($item.Y)|$($item.W)|$($item.H)|$($item.Name)|$($item.Value)"
             if ($seen.Add($key)) { $null = $acc.Add($item) }

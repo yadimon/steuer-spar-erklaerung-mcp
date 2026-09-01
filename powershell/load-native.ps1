@@ -68,7 +68,7 @@ function Test-SSENativeSurface {
     SSEWindowEnumerator=@('Describe')
     SSEProcessCommandLine=@('TryGet')
     SSEWindowNode=@()
-    SSEAccessible=@('Describe','DescribePoint','Invoke')
+    SSEAccessible=@('Describe','DescribePoint','DescribePointBasic','Invoke')
     SSEWorkerControllerLease=@('Acquire','ReleaseAndClose')
   }
   foreach ($typeName in $required.Keys) {
