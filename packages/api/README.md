@@ -35,7 +35,7 @@ separat unterstützt.
 - private Backups, ausdrücklich verlangte Arbeitskopien, read-only Analyse und
   freigegebene UI-Automation.
 
-Der getrennte MCP-Wrapper liegt in
+Der MCP-Server ist bewusst **nicht** enthalten. Der getrennte MCP-Wrapper liegt in
 [`@yadimon/steuer-spar-erklaerung-mcp`](https://www.npmjs.com/package/@yadimon/steuer-spar-erklaerung-mcp)
 und hängt exakt von derselben API-Releaseversion ab.
 

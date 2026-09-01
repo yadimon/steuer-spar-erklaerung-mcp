@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { SSE_MCP_TOOL_SCHEMAS } from "../dist/operation-catalog.js";
 
 if (process.platform !== "win32" || process.arch !== "x64") {
   throw new Error("Der Clean-install-Smoke fuer das API-Paket braucht Windows x64.");
@@ -16,6 +17,7 @@ const rootPackage = JSON.parse(readFileSync("package.json", "utf8"));
 const expectedVersion = rootPackage.version;
 const mcpPackageName = "@yadimon/steuer-spar-erklaerung-mcp";
 const apiPackageName = "@yadimon/steuer-spar-erklaerung-api";
+const expectedMcpToolCount = Object.keys(SSE_MCP_TOOL_SCHEMAS).length;
 
 const npmCli = process.env.npm_execpath ?? join(dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
 assert(existsSync(npmCli), `npm CLI fehlt: ${npmCli}`);
@@ -161,14 +163,18 @@ try {
     },
   );
   assert.equal(installedMcpContract.status, 0, installedMcpContract.stderr || installedMcpContract.stdout);
-  assert.match(installedMcpContract.stdout, /99 Werkzeuge.*\d+ API-Roundtrips/u, "Installierter MCP-Vertrag ist unvollstaendig.");
+  assert.match(
+    installedMcpContract.stdout,
+    new RegExp(`${expectedMcpToolCount} Werkzeuge.*\\d+ API-Roundtrips`, "u"),
+    "Installierter MCP-Vertrag ist unvollstaendig.",
+  );
 
   const sourceLabel = publishedMode
     ? "dem exakten MCP-Registry-Paket samt API-Dependency"
     : "einem MCP-Tarball samt automatisch aufgeloester API-Dependency";
   process.stdout.write(
     `npm-${publishedMode ? "Registry-Smoke" : "Clean-install"}: NPX-Kurzweg, ${commands.length} CLI-Einstiege und ` +
-      `99-Tool-MCP-Vertrag aus ${sourceLabel} bestanden\n`,
+      `${expectedMcpToolCount}-Tool-MCP-Vertrag aus ${sourceLabel} bestanden\n`,
   );
 } finally {
   if (fixtureRegistry?.pid) {
