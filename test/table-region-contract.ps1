@@ -1,6 +1,7 @@
 ﻿$ErrorActionPreference = 'Stop'
 
-. (Join-Path $PSScriptRoot '..\powershell\table-region.ps1')
+$tableRegionPath = Join-Path $PSScriptRoot '..\powershell\table-region.ps1'
+. $tableRegionPath
 
 function Assert-True([bool]$Condition, [string]$Message) {
   if (-not $Condition) { throw $Message }
@@ -31,60 +32,45 @@ function Get-LegacyFieldLabelBindings($Nodes, $Bounds, $FieldMaxX) {
   }
 }
 
-function Select-LegacySummary($Nodes, $Bounds, [string]$Label, [int]$Occurrence) {
-  $found = New-Object System.Collections.ArrayList
-  $bindings = @(Get-LegacyFieldLabelBindings $Nodes $Bounds $Bounds.maxX)
-  foreach ($binding in ($bindings | Sort-Object y, x)) {
-    $field = $binding.field
-    $lab = $(if ($binding.labelNode) { $binding.labelNode.name } else { $null })
-    if ($lab -and ($lab -eq $Label -or $lab.StartsWith($Label))) {
-      $value = [string]$field.val
-      if (-not $value) { $value = [string]$field.name }
-      $null = $found.Add([pscustomobject]@{
-        label=$lab; value=$value; y=$field.y; rid=$field.rid; aid=$field.aid
-      })
-    }
-  }
-  $exactFound = @($found | Where-Object { $_.label -eq $Label })
-  $selectedFound = $(if ($exactFound.Count) { $exactFound } else { @($found) })
-  $unique = @($selectedFound | Group-Object { "$($_.y)|$($_.value)" } |
-    ForEach-Object { $_.Group[0] } | Sort-Object y)
-  if ($Occurrence -lt 1 -or $Occurrence -gt $unique.Count) {
-    return [pscustomobject]@{ value=$null; selected=$null; candidateCount=$unique.Count; candidates=$unique }
-  }
-  $selected = $unique[$Occurrence - 1]
-  [pscustomobject]@{ value=$selected.value; selected=$selected; candidateCount=$unique.Count; candidates=$unique }
+# Nur der ersetzte quadratische Label-Scan ist eingefroren. Die umgebende
+# Summen- und Regionslogik stammt per AST aus der aktuellen Produktivdatei;
+# so kann die Differentialreferenz nicht unbemerkt bei Fehlern, Shapes oder
+# dem AutomationId-Fast-Path von der Produktion wegdriften.
+$tokens = $null
+$parseErrors = $null
+$tableRegionAst = [Management.Automation.Language.Parser]::ParseFile(
+  $tableRegionPath, [ref]$tokens, [ref]$parseErrors
+)
+Assert-True (-not $parseErrors.Count) "table-region.ps1 ist syntaktisch ungueltig: $($parseErrors[0].Message)"
+
+function Get-LegacyFunctionDefinition(
+  [string]$CurrentName,
+  [string]$LegacyName
+) {
+  $definitions = @($tableRegionAst.FindAll({
+    param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+      $node.Name -eq $CurrentName
+  }, $true))
+  Assert-True ($definitions.Count -eq 1) "$CurrentName ist nicht eindeutig vorhanden."
+
+  $definition = [string]$definitions[0].Extent.Text
+  $scanName = 'Get-SSEFieldLabelBindings'
+  $scanMatches = [regex]::Matches($definition, [regex]::Escape($scanName))
+  Assert-True ($scanMatches.Count -eq 1) "$CurrentName besitzt nicht genau einen ersetzten Label-Scan."
+  $scanOffset = $scanMatches[0].Index
+  $definition = $definition.Substring(0, $scanOffset) +
+    'Get-LegacyFieldLabelBindings' +
+    $definition.Substring($scanOffset + $scanName.Length)
+
+  $functionMarker = "function $CurrentName"
+  $functionOffset = $definition.IndexOf($functionMarker, [StringComparison]::Ordinal)
+  Assert-True ($functionOffset -eq 0) "$CurrentName beginnt nicht mit der erwarteten Funktionssignatur."
+  "function $LegacyName" + $definition.Substring($functionMarker.Length)
 }
 
-function Get-LegacyGeometryRegion($Nodes, $Bounds, $TargetSumRead) {
-  if (-not $TargetSumRead -or -not $TargetSumRead.selected) {
-    return [pscustomobject]@{
-      ok=$false; error='Die gewaehlte Summenzeile ist nicht sichtbar oder nicht eindeutig.'
-      cells=@(); targetSumY=$null; previousSummaryY=$null
-    }
-  }
-  $targetSumY = [int]$TargetSumRead.selected.y
-  $summaryYs = New-Object System.Collections.ArrayList
-  foreach ($binding in @(Get-LegacyFieldLabelBindings $Nodes $Bounds ($Bounds.maxX + 200))) {
-    $label = $(if ($binding.labelNode) { $binding.labelNode.name } else { $null })
-    if ($label -match '^(?:Summe|Gesamtsumme)\b') { $null = $summaryYs.Add([int]$binding.field.y) }
-  }
-  $previousSummary = @($summaryYs | Where-Object { $_ -lt $targetSumY } |
-    Sort-Object -Descending | Select-Object -First 1)
-  $previousSummaryY = $(if ($previousSummary.Count) { [int]$previousSummary[0] } else { [int]::MinValue })
-  $cells = @($Nodes | Where-Object {
-    $_.type -eq 'DataItem' -and $_.w -gt 0 -and
-    $_.x -ge $Bounds.minX -and $_.x -le ($Bounds.maxX + 200) -and
-    $_.y -gt $previousSummaryY -and $_.y -lt $targetSumY
-  } | Sort-Object y, x)
-  [pscustomobject]@{
-    ok=[bool]$cells.Count
-    error=$(if ($cells.Count) { $null } else { 'Zwischen der vorherigen und der gewaehlten Summenzeile wurden keine Tabellenzellen gefunden.' })
-    cells=$cells; targetSumY=$targetSumY
-    previousSummaryY=$(if ($previousSummary.Count) { $previousSummaryY } else { $null })
-    selectionMethod='geometry'; scopePrefix=$null
-  }
-}
+Invoke-Expression (Get-LegacyFunctionDefinition 'Select-SSESummaryFromNodes' 'Select-LegacySummary')
+Invoke-Expression (Get-LegacyFunctionDefinition 'Get-SSETableRegionFromNodes' 'Get-LegacyTableRegionFromNodes')
 
 function Json($Value) { ConvertTo-Json $Value -Depth 8 -Compress }
 
@@ -182,10 +168,13 @@ $zmNodes = @(
 )
 $zmSum = Select-SSESummaryFromNodes $zmNodes $bounds 'Summe' 1
 $zmRegion = Get-SSETableRegionFromNodes $zmNodes $bounds $zmSum
+$legacyZmRegion = Get-LegacyTableRegionFromNodes $zmNodes $bounds $zmSum
 $zmIds = @($zmRegion.cells | ForEach-Object rid)
 Assert-True $zmRegion.ok 'AutomationId-gebundene ZM-Tabelle blieb leer.'
 Assert-True ($zmRegion.selectionMethod -eq 'automation-id-scope') 'ZM-Tabelle fiel unerwartet auf Geometrie zurueck.'
 Assert-True (($zmIds -join ',') -eq 'zm-date,zm-land,zm-id,zm-amount') "ZM-Scope vermischte Tabellenzellen: $($zmIds -join ',')"
+Assert-True ((Json $legacyZmRegion) -ceq (Json $zmRegion)) `
+  'AutomationId-Scope weicht ausserhalb des ersetzten Label-Scans von der Produktivlogik ab.'
 
 # Der Sweep bewahrt alle harten Geometriegrenzen: Text-Y +/-14 ist inklusiv,
 # +/-15 nicht, Label muessen strikt links stehen und Text/Feld-X bleiben in
@@ -280,7 +269,11 @@ $geometryNodes = @(
 )
 $directTarget = [pscustomobject]@{ selected=[pscustomobject]@{ y=200; aid=''; rid='target' } }
 $geometryRegion = Get-SSETableRegionFromNodes $geometryNodes $bounds $directTarget
+$legacyGeometryRegion = Get-LegacyTableRegionFromNodes $geometryNodes $bounds $directTarget
 Assert-PropertyNames $geometryRegion 'ok,error,cells,targetSumY,previousSummaryY,selectionMethod,scopePrefix' 'Geometrieregion'
+Assert-True ($geometryRegion.selectionMethod -eq 'geometry') 'Direkte Geometriefixture uebte nicht den Geometry-Pfad aus.'
+Assert-True ((Json $legacyGeometryRegion) -ceq (Json $geometryRegion)) `
+  'Geometry-Pfad weicht ausserhalb des ersetzten Label-Scans von der Produktivlogik ab.'
 Assert-True ($geometryRegion.previousSummaryY -eq 100) 'Feld bei maxX+200 wurde nicht als vorherige Summe erkannt.'
 Assert-True (($geometryRegion.cells | ForEach-Object rid) -join ',' -eq 'inside-low,inside-high') 'Strikte Y-, inklusive X- oder w>0-Zellgrenzen wurden veraendert.'
 Assert-True ([object]::ReferenceEquals($geometryRegion.cells[0], $insideLow)) 'Geometriezelle wurde kopiert statt referenziert.'
@@ -303,7 +296,7 @@ foreach ($orderNodes in @(
   $legacyOrderSummary = Select-LegacySummary $orderNodes $bounds 'Summe' 1
   $indexedOrderSummary = Select-SSESummaryFromNodes $orderNodes $bounds 'Summe' 1
   Assert-True ((Json $legacyOrderSummary) -eq (Json $indexedOrderSummary)) 'Equal-y/x-Felder aenderten ihre Legacy-Reihenfolge.'
-  $legacyOrderRegion = Get-LegacyGeometryRegion $orderNodes $bounds $directTarget
+  $legacyOrderRegion = Get-LegacyTableRegionFromNodes $orderNodes $bounds $directTarget
   $indexedOrderRegion = Get-SSETableRegionFromNodes $orderNodes $bounds $directTarget
   Assert-True ((@($legacyOrderRegion.cells | ForEach-Object rid) -join ',') -eq (@($indexedOrderRegion.cells | ForEach-Object rid) -join ',')) 'Equal-y/x-Zellen aenderten ihre Legacy-Reihenfolge.'
   for ($cellIndex = 0; $cellIndex -lt $indexedOrderRegion.cells.Count; $cellIndex++) {
@@ -371,7 +364,7 @@ for ($caseIndex = 0; $caseIndex -lt $caseCount; $caseIndex++) {
   if ((Json $legacySummary) -ne (Json $indexedSummary)) {
     throw "Summary-Differenz seed=$caseSeed label=$label occurrence=$occurrence bounds=$(Json $bounds) nodes=$(Json @($nodes))"
   }
-  $legacyRegion = Get-LegacyGeometryRegion $nodes $bounds $legacySummary
+  $legacyRegion = Get-LegacyTableRegionFromNodes $nodes $bounds $legacySummary
   $indexedRegion = Get-SSETableRegionFromNodes $nodes $bounds $indexedSummary
   if ((Json $legacyRegion) -ne (Json $indexedRegion)) {
     throw "Region-Differenz seed=$caseSeed label=$label occurrence=$occurrence bounds=$(Json $bounds) nodes=$(Json @($nodes))"
