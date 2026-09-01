@@ -30,7 +30,7 @@ for (const feature of [
 
 const codexInstall = "npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target codex --scope project --yes";
 const codexActivate = "codex plugin add steuer-spar-erklaerung@plugins-cli --json";
-const claudeInstall = "npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target claude-code --scope project --yes";
+const claudeInstall = "npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target claude-code --scope user --yes";
 assert(readme.includes(codexInstall), "Codex-Plugin-Quickstart fehlt.");
 assert(readme.includes(codexActivate), "Target-native Codex-Aktivierung fehlt.");
 assert(readme.includes(claudeInstall), "Claude-Code-Plugin-Quickstart fehlt.");
@@ -47,6 +47,7 @@ assert.doesNotMatch(codexSection, /codex plugin list --json.+(?:installiert|änd
   "README darf den beobachtet zustandsbildenden Readback nicht als seiteneffektfrei behaupten.");
 assert(claudeSection.includes(claudeInstall)
   && claudeSection.includes("`enabled`")
+  && claudeSection.includes("User-Scope")
   && !claudeSection.includes(codexActivate),
   "Claude Code darf keinen Codex-Aktivierungsbefehl erhalten.");
 assert(normalized.includes("automatische Clienterkennung") && normalized.includes("unter Windows nicht empfohlen"));

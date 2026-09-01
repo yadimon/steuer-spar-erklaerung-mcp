@@ -74,12 +74,13 @@ materialisieren.
 ```powershell
 mkdir C:\mein-steuer-ai
 cd C:\mein-steuer-ai
-npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target claude-code --scope project --yes
+npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target claude-code --scope user --yes
 ```
 
-Claude Code benötigt keinen zusätzlichen Codex-Befehl; der isolierte
-Client-Probelauf zeigte den Eintrag nach diesem einen Installeraufruf als
-`enabled`. Danach den gewählten Client in `C:\mein-steuer-ai` neu starten oder
+Claude Code benötigt keinen zusätzlichen Codex-Befehl; der Windows-VM-Lauf mit
+Claude Code 2.1.252 zeigte den Eintrag nach diesem einen Installeraufruf als
+`enabled` und bestätigte die target-native Entfernung mit demselben User-Scope.
+Danach den gewählten Client in `C:\mein-steuer-ai` neu starten oder
 seine Plugins neu laden. Git wird nur vom einmaligen Installer zum Klonen
 benötigt. Zur Laufzeit ist Node.js 22+ die einzige zusätzliche Voraussetzung:
 Es ist kein `npm install`, kein separates API-Terminal und kein weiterer
@@ -87,12 +88,15 @@ Runtime-Download nötig. Beim MCP-Start laufen weder npm noch npx und es wird
 kein Netzwerkzugriff benötigt.
 
 `plugins@1.3.4` ignoriert den Scope bei Codex und schreibt bei beiden Zielen in
-clientverwaltete Benutzer-Caches beziehungsweise Benutzerkonfiguration. Das
-vom Nutzer gewünschte `--scope project` ist derzeit **keine physische
-Projektisolation**. Der geöffnete Ordner begrenzt weiterhin den
-Auftragskontext; für strikt getrennte Arbeitsdaten wird zusätzlich ein eigener
-absoluter `SSE_API_CONFIG`-Pfad konfiguriert. Details, Update und sichere
-Entfernung stehen in der [Installationsanleitung](docs/INSTALLATION.md).
+clientverwaltete Benutzer-Caches beziehungsweise Benutzerkonfiguration. Beim
+Claude-Code-Ziel ist `--scope user` absichtlich gewählt: Der VM-Test zeigte,
+dass der vom Installer als `project` registrierte Zustand target-nativ nicht
+entfernbar war, während `user` vollständig gelesen und entfernt werden konnte.
+Damit gibt es keine physische Projektisolation. Der geöffnete Ordner begrenzt
+weiterhin den Auftragskontext; für strikt getrennte Arbeitsdaten wird
+zusätzlich ein eigener absoluter `SSE_API_CONFIG`-Pfad konfiguriert. Details,
+Update und sichere Entfernung stehen in der
+[Installationsanleitung](docs/INSTALLATION.md).
 
 ## Erster Auftrag
 

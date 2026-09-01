@@ -272,16 +272,19 @@ Installeraufruf wiederholen:
 ```powershell
 mkdir C:\mein-steuer-ai
 cd C:\mein-steuer-ai
-npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target claude-code --scope project --yes
+npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target claude-code --scope user --yes
 ```
 
-Die target-native Claude-Code-Anzeige muss danach den Eintrag als `enabled`
-ausweisen; dort keinen `codex plugin add`-Befehl ausführen.
+Die target-native Claude-Code-Anzeige muss danach den Eintrag mit `Scope: user`
+als `enabled` ausweisen; dort keinen `codex plugin add`-Befehl ausführen. Der
+User-Scope ist Teil des verifizierten Vertrags: `plugins@1.3.4 --scope project`
+erzeugte mit Claude Code 2.1.252 einen Zustand, den der Client nicht
+target-nativ entfernen konnte.
 
-Weil `plugins@1.3.4` den Scope bei Codex ignoriert und bei beiden Zielen trotz
-`--scope project` in clientverwaltete User-Caches und Konfiguration schreibt,
-beweist der Test keine physische Projektisolation. Die Evidenz muss die
-tatsächlich geschriebenen Ziele und diesen Scope-Hinweis festhalten.
+Weil `plugins@1.3.4` den Scope bei Codex ignoriert und beide Ziele in
+clientverwaltete User-Caches und Konfiguration schreiben, beweist der Test
+keine physische Projektisolation. Die Evidenz muss die tatsächlich
+geschriebenen Ziele und diesen Scope-Hinweis festhalten.
 
 Für jedes Ziel belegen:
 
@@ -299,10 +302,16 @@ Für jedes Ziel belegen:
 - Codex-Entfernung wird mit
   `codex plugin remove steuer-spar-erklaerung@plugins-cli` und anschließendem
   Readback über `codex plugin list --json` belegt. Die Claude-Code-ID erst
-  target-nativ zurücklesen
-  und dann den dort verifizierten Weg verwenden. Keine erfundenen `plugins`-
+  target-nativ zurücklesen und für den verifizierten beta.33-Weg
+  `claude plugin uninstall steuer-spar-erklaerung@steuer-spar-erklaerung --scope user`
+  verwenden. Keine erfundenen `plugins`-
   Kommandos verwenden: Version 1.3.4 bietet nur `add`, `discover` und
   `targets`.
+
+Da beta.33 das erste veröffentlichte Agent Plugin ist, existiert keine
+beta.32-Pluginversion für einen echten Zwei-Versionen-Updatepfad. Für beta.33
+zählt deshalb die idempotente Neuinstallation derselben Version; ab dem
+Nachfolger ist der Update-Lauf von beta.33 auf die neue Version Pflicht.
 
 OpenCode nicht als unterstützt nennen, solange kein eigener vollständiger
 Clientlauf Bestandteil dieser Matrix ist.

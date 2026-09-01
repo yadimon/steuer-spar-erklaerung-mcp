@@ -71,12 +71,16 @@ und bewerte Statusausgaben nur in einem bekannten Ausgangszustand.
 ```powershell
 mkdir C:\mein-steuer-ai
 cd C:\mein-steuer-ai
-npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target claude-code --scope project --yes
+npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target claude-code --scope user --yes
 ```
 
 Claude Code benötigt keinen zusätzlichen Codex-Befehl. Dort muss die
-target-native Pluginanzeige nach dem einen `plugins@1 add` den Eintrag als
-`enabled` ausweisen.
+target-native Pluginanzeige nach dem einen `plugins@1 add` den Eintrag mit
+`Scope: user` als `enabled` ausweisen. Der User-Scope ist absichtlich: Mit
+`plugins@1.3.4 --scope project` zeigte Claude Code 2.1.252 zwar einen
+`project`-Eintrag, konnte ihn aber weder aus dem Installationsordner noch aus
+dem Benutzerprofil target-nativ entfernen. Die Wiederholung mit `--scope user`
+ließ sich eindeutig lesen und wieder entfernen.
 
 Der Installationsaufruf darf GitHub erreichen und verwendet Git auf `PATH`, um
 das Repository zu klonen. Danach ist der MCP-Start offline: `mcp.json` startet
@@ -84,15 +88,14 @@ Node direkt gegen einen Pfad unter `${PLUGIN_ROOT}`. Ein Runtime-Eintrag mit
 `npx @yadimon/steuer-spar-erklaerung-mcp`, `npm install` oder einem
 Postinstall-Download ist fehlerhaft.
 
-### Was `--scope project` hier bedeutet
+### Was die Scopes hier bedeuten
 
-Für `plugins@1.3.4` ist `--scope project` bei Codex und Claude Code derzeit
-**keine physische Projektisolation**. Der Installer ignoriert den Scope bei
-Codex vollständig und schreibt bei beiden Zielen in clientverwaltete
-Benutzer-Caches beziehungsweise Benutzerkonfiguration. Der Flag bleibt im
-Befehl, weil der Nutzer diese Begrenzung ausdrücklich wünscht und zukünftige
-Installer sie umsetzen können; aktuell hat er keine verlässliche
-Isolationswirkung.
+`plugins@1.3.4` ignoriert den Scope bei Codex vollständig. `--scope project`
+ist dort derzeit **keine physische Projektisolation**; der Installer schreibt in
+clientverwaltete Benutzer-Caches beziehungsweise Benutzerkonfiguration. Bei
+Claude Code wird deshalb der tatsächlich funktionierende `--scope user`
+dokumentiert. Beide Wege sind benutzerweit verwaltet; nur der Claude-Weg lässt
+sich mit demselben zurückgelesenen Scope target-nativ entfernen.
 
 Trennung entsteht auf zwei anderen Ebenen:
 
@@ -209,10 +212,12 @@ codex plugin list --json
 ```
 
 Für Claude Code stattdessen wieder den einzelnen `plugins@1 add`-Befehl mit
-`--target claude-code` verwenden und dessen target-native Anzeige
-zurücklesen. Der vollständige Update-/Wiederholungslauf bleibt bis zur
-sauberen VM-Matrix offen; ein erfolgreicher Installer-Exitcode allein beweist
-kein Update. Danach den Client neu starten und `sse_preflight` erneut aufrufen.
+`--target claude-code --scope user` verwenden und dessen target-native Anzeige
+zurücklesen. Der VM-Lauf belegt die idempotente Wiederholung derselben
+beta.33; ein Update über zwei Plugin-Versionen ist für diesen ersten
+Agent-Plugin-Release nicht möglich und wird erstmals beim Nachfolger geprüft.
+Ein erfolgreicher Installer-Exitcode allein beweist kein Update. Danach den
+Client neu starten und `sse_preflight` erneut aufrufen.
 Nicht gleichzeitig alte und neue Client-Sitzungen offen lassen; eine alte
 API-Version am Port bleibt absichtlich ein sicherer Stopp.
 
@@ -234,9 +239,20 @@ codex plugin list --json
 ```
 
 Die Entfernung ist erst bestätigt, wenn `codex plugin list --json` genau diesen
-Eintrag nicht mehr als installiert oder aktiviert ausweist. Für Claude Code
-erst die exakte Plugin-ID aus dem tatsächlich installierten Client
-zurücklesen; bis zum VM-Nachweis wird hier keine ID geraten.
+Eintrag nicht mehr als installiert oder aktiviert ausweist. Für den in der VM
+mit Claude Code 2.1.252 zurückgelesenen Eintrag gilt:
+
+```powershell
+cd C:\mein-steuer-ai
+claude plugin list
+claude plugin uninstall steuer-spar-erklaerung@steuer-spar-erklaerung --scope user
+claude plugin list
+```
+
+Der erste Readback muss Version, `Scope: user` und `Status: enabled` zeigen;
+der zweite darf die Plugin-ID nicht mehr aufführen. Den Befehl im zugehörigen
+Auftragsordner ausführen und bei einer anderen Clientversion ID und Scope
+erneut target-nativ zurücklesen.
 
 Bietet die installierte Clientversion für den zurückgelesenen Eintrag keine
 Entfernung an, beende den Client und entferne manuell nur:
