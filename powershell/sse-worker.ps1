@@ -2710,7 +2710,7 @@ function Get-SSECommandLinesForProcessIds([int[]]$ProcessIds) {
   foreach ($processId in $eindeutige) {
     try { $commandLine = Get-SSENativeProcessCommandLine ([int]$processId) }
     catch { $commandLine = $null }
-    if ($null -ne $commandLine) {
+    if (-not [string]::IsNullOrEmpty([string]$commandLine)) {
       $zuordnung[[int]$processId] = [string]$commandLine
     } else {
       $null = $cimIds.Add([int]$processId)
@@ -2729,7 +2729,7 @@ function Get-SSECommandLinesForProcessIds([int[]]$ProcessIds) {
 function Get-CasePathFromCommandLine([int]$ProcessId) {
   try { $cmd = Get-SSENativeProcessCommandLine $ProcessId }
   catch { $cmd = $null }
-  if ($null -eq $cmd) {
+  if ([string]::IsNullOrEmpty([string]$cmd)) {
     try { $cmd = [string](Get-CimInstance Win32_Process -Filter "ProcessId=$ProcessId").CommandLine }
     catch { return $null }
   }
@@ -6175,16 +6175,55 @@ function Open-SSEValueInfoWindow([IntPtr]$MainHwnd, [int]$TargetPid, [int]$Timeo
   [pscustomobject]@{ ok=$true; opened=$true; anzahl=1; window=$gefunden[0]; error=$null; kind=$null }
 }
 
+# Erzwingt vor jeder Schliessmutation einen lesbaren, noch offenen Kernel-
+# Handle. Windows PowerShell 5.1 liefert fuer ein ungebundenes oder bereits
+# disposed Process-Objekt bei .SafeHandle still $null statt eine Exception;
+# ein blosses try/catch wuerde diesen unsicheren Zustand deshalb akzeptieren.
+function Get-SSEPinnedProcessHandle([Diagnostics.Process]$Process) {
+  if ($null -eq $Process) { return $null }
+  try {
+    $processHandle = $Process.SafeHandle
+    if ($null -eq $processHandle -or $processHandle.IsInvalid -or $processHandle.IsClosed) { return $null }
+    return $processHandle
+  } catch {
+    return $null
+  }
+}
+
 # Wartet bis zur Frist auf das Prozessende und meldet, ob danach noch etwas
-# laeuft. Frist 0 heisst: nur nachsehen, nicht warten.
-function Wait-SSEProcessExit([Diagnostics.Process]$Process, [int]$TimeoutMs) {
-  # Das verifizierte Process-Objekt besitzt vor jeder Mutation bereits einen
-  # gepinnten SafeHandle. WaitForExit bleibt dadurch an genau diesen
-  # Kernelprozess gebunden und kann nicht auf eine wiederverwendete PID
-  # wechseln. Negative Altwerte bedeuteten bisher ebenfalls nur eine
-  # Sofortprobe; -1 darf deshalb niemals zum unendlichen Wait werden.
+# laeuft. Frist 0 heisst: nur nachsehen, nicht warten. Der festgehaltene
+# SafeHandle wird direkt signalgeprueft; dadurch kann kein .NET-Fallback den
+# Prozess nach einer inzwischen wiederverwendeten PID neu oeffnen.
+function Wait-SSEProcessExit([Microsoft.Win32.SafeHandles.SafeProcessHandle]$ProcessHandle, [int]$TimeoutMs) {
+  if ($null -eq $ProcessHandle -or $ProcessHandle.IsInvalid -or $ProcessHandle.IsClosed) {
+    throw [InvalidOperationException]::new('Der gepinnte Prozess-Handle ist nicht mehr beobachtbar.')
+  }
+  # Negative Altwerte bedeuteten bisher ebenfalls nur eine Sofortprobe; -1
+  # darf deshalb niemals zum unendlichen Wait werden.
   $effectiveTimeoutMs = [Math]::Max(0, $TimeoutMs)
-  return (-not $Process.WaitForExit($effectiveTimeoutMs))
+  $handleReferenceAdded = $false
+  try {
+    $ProcessHandle.DangerousAddRef([ref]$handleReferenceAdded)
+    if (-not $handleReferenceAdded) {
+      throw [InvalidOperationException]::new('Der gepinnte Prozess-Handle liess sich nicht referenzieren.')
+    }
+    $rawHandle = $ProcessHandle.DangerousGetHandle()
+    if ($rawHandle -eq [IntPtr]::Zero -or $rawHandle -eq [IntPtr](-1)) {
+      throw [InvalidOperationException]::new('Der gepinnte Prozess-Handle ist ungueltig.')
+    }
+    $waitResult = [DSK]::WaitForSingleObject($rawHandle, [uint32]$effectiveTimeoutMs)
+    if ([uint32]$waitResult -eq [uint32]::MaxValue) {
+      $lastError = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+      throw [ComponentModel.Win32Exception]::new($lastError, 'Der gepinnte Prozess-Handle konnte nicht beobachtet werden.')
+    }
+    switch ([uint32]$waitResult) {
+      0 { return $false }
+      0x00000102 { return $true }
+      default { throw [InvalidOperationException]::new("Unerwartetes Prozess-Wait-Ergebnis: $waitResult") }
+    }
+  } finally {
+    if ($handleReferenceAdded) { $ProcessHandle.DangerousRelease() }
+  }
 }
 
 function Test-SSEPointInRect([int]$X, [int]$Y, [int]$Left, [int]$Top, [int]$Width, [int]$Height) {
@@ -11505,8 +11544,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $targetPid = [int]$candidatePids[0]
     }
     $targetProcess = Get-Process -Id $targetPid -ErrorAction SilentlyContinue
-    try { $null = $targetProcess.SafeHandle }
-    catch { Fail "PID $targetPid besitzt keinen exakt bindbaren Prozess-Handle; nichts geschlossen." 'ownership' }
+    $targetProcessHandle = Get-SSEPinnedProcessHandle $targetProcess
+    if ($null -eq $targetProcessHandle) {
+      Fail "PID $targetPid besitzt keinen exakt bindbaren Prozess-Handle; nichts geschlossen." 'ownership'
+    }
     if (-not (Test-SSEProcess $targetProcess)) { Fail "PID $targetPid ist keine verifizierte Instanz von '$($script:SSE_PROFILE.product)'." 'ownership' }
     $wins = @($allWins | Where-Object { [int]$_.pid -eq $targetPid })
     if ($requestedHwnd) {
@@ -11520,7 +11561,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       # Start-/Aktivierungsdialog: er wird nie beantwortet; nur der erneut als
       # passendes SSE-Profil verifizierte Prozess wird beendet.
       Stop-Process -InputObject $targetProcess -Force -ErrorAction SilentlyContinue
-      $stillRunning = Wait-SSEProcessExit $targetProcess 5000
+      $stillRunning = Wait-SSEProcessExit $targetProcessHandle 5000
       Emit ([pscustomobject]@{
         ok=(-not $stillRunning); killed=(-not $stillRunning); stillRunning=$stillRunning
         kind=$(if ($stillRunning) { 'postcondition-failed' } else { $null })
@@ -11616,14 +11657,14 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # SSE beendet sich nach der letzten Antwort nicht sofort. Ein einzelner
     # Blick direkt danach meldete deshalb 'Programm laeuft noch', obwohl es
     # Sekunden spaeter regulaer weg war - ein Fehlschlag, den es nicht gab.
-    $still = Wait-SSEProcessExit $targetProcess 20000
+    $still = Wait-SSEProcessExit $targetProcessHandle 20000
     $killed = $false
     if ($still -and ($force -or $hung) -and $discard) {
       Stop-Process -InputObject $targetProcess -Force -ErrorAction SilentlyContinue
-      try { $targetProcess.WaitForExit(5000) | Out-Null } catch { }
+      try { Wait-SSEProcessExit $targetProcessHandle 5000 | Out-Null } catch { }
       $killed = $true
     }
-    $laeuftNoch = Wait-SSEProcessExit $targetProcess $(if ($killed) { 5000 } else { 0 })
+    $laeuftNoch = Wait-SSEProcessExit $targetProcessHandle $(if ($killed) { 5000 } else { 0 })
     Emit ([pscustomobject]@{
       ok = (-not $laeuftNoch); wasHung = $hung; killed = $killed; stillRunning = $laeuftNoch
       kind = $(if ($laeuftNoch) { 'postcondition-failed' } else { $null })

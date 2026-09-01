@@ -468,13 +468,21 @@ try {
     !saveBlock.includes("Arg $a 'force'"),
   "Der Save-Worker besitzt keinen vollstaendig gebundenen Korrekturmodus oder eine generische Force-Luecke.");
   const closeBlock = workerOpBlock("close");
-  assert(closeBlock.includes("$dialogDeadline = [DateTime]::UtcNow.AddMilliseconds(1800)") &&
+  assert(workerSource.includes("function Get-SSEPinnedProcessHandle([Diagnostics.Process]$Process)") &&
+    workerSource.includes("function Wait-SSEProcessExit([Microsoft.Win32.SafeHandles.SafeProcessHandle]$ProcessHandle") &&
+    workerSource.includes("$ProcessHandle.DangerousAddRef([ref]$handleReferenceAdded)") &&
+    workerSource.includes("[DSK]::WaitForSingleObject($rawHandle, [uint32]$effectiveTimeoutMs)") &&
+    closeBlock.includes("$targetProcessHandle = Get-SSEPinnedProcessHandle $targetProcess") &&
+    closeBlock.includes("if ($null -eq $targetProcessHandle)") &&
+    closeBlock.indexOf("$targetProcessHandle = Get-SSEPinnedProcessHandle $targetProcess") < closeBlock.indexOf("[SW]::SendMessageTimeout") &&
+    closeBlock.includes("$dialogDeadline = [DateTime]::UtcNow.AddMilliseconds(1800)") &&
     closeBlock.includes("$dismissDeadline = [DateTime]::UtcNow.AddMilliseconds(1800)") &&
     closeBlock.includes("[SW]::IsWindow($h)") &&
-    closeBlock.includes("Wait-SSEProcessExit $targetProcess 20000") &&
+    closeBlock.includes("Wait-SSEProcessExit $targetProcessHandle 20000") &&
+    !closeBlock.includes("$targetProcess.WaitForExit(") &&
     !closeBlock.includes("Start-Sleep -Milliseconds 1500") &&
     !closeBlock.includes("Start-Sleep -Seconds 2"),
-  "Der Close-Pfad wartet weiterhin blind statt Dialog und Prozess begrenzt zu pollen.");
+  "Der Close-Pfad pinnt den Prozess nicht fail-closed vor der Mutation oder wartet weiterhin blind/per PID.");
   assert(SSE_MCP_TOOL_OPERATIONS.sse_page_objects === "page_objects" &&
     serverSource.includes('"sse_page_objects"') &&
     apiContractSource.includes('"page_objects"') &&
