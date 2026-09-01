@@ -15,16 +15,17 @@
  */
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { once } from "node:events";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const worker = join(root, "powershell", "sse-worker.ps1");
+const ownedProcessIdentityHelper = join(root, "test", "performance", "owned-process-identity.ps1");
 const powershell = join(
   process.env.SystemRoot ?? "C:\\Windows",
   "System32",
@@ -287,6 +288,71 @@ async function waitFor(predicate, message, timeoutMs = 10_000) {
   assert.fail(message);
 }
 
+function assignedFixturePids(statePath) {
+  if (!existsSync(statePath)) return [];
+  const pids = new Set();
+  for (const line of readFileSync(statePath, "utf8").split(/\r?\n/u)) {
+    const match = /^launch\|[1-9]\d{0,9}\|([1-9]\d{0,9})$/u.exec(line);
+    if (!match) continue;
+    const pid = Number(match[1]);
+    if (Number.isSafeInteger(pid) && pid <= 2_147_483_647) pids.add(pid);
+  }
+  return [...pids];
+}
+
+function invokeOwnedProcessIdentity(mode, pid, identity) {
+  const args = [
+    "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+    "-File", ownedProcessIdentityHelper,
+    "-Mode", mode,
+    "-TargetProcessId", String(pid),
+  ];
+  if (identity) {
+    args.push(
+      "-ExpectedCreationTimeUtcTicks", identity.creationTimeUtcTicks,
+      "-ExpectedImageNameLower", identity.imageNameLower,
+      "-ExpectedImagePathTextSha256", identity.imagePathTextSha256,
+    );
+  }
+  return JSON.parse(execFileSync(powershell, args, {
+    cwd: root,
+    windowsHide: true,
+    encoding: "utf8",
+    timeout: 15_000,
+  }));
+}
+
+function cleanupAssignedFixtureProcesses(statePath, executablePath) {
+  const expectedName = basename(executablePath, ".exe").toLowerCase();
+  const expectedPathHash = createHash("sha256")
+    .update(resolve(executablePath).toLowerCase(), "utf8")
+    .digest("hex")
+    .toUpperCase();
+  const cleanupErrors = [];
+  for (const pid of assignedFixturePids(statePath)) {
+    try {
+      const inspected = invokeOwnedProcessIdentity("Inspect", pid);
+      if (inspected.outcome === "not-running") continue;
+      const identity = inspected.identity;
+      const identityIsSafe = identity &&
+        /^\d{10,20}$/u.test(identity.creationTimeUtcTicks ?? "") &&
+        /^[a-z0-9._-]{1,128}$/u.test(identity.imageNameLower ?? "") &&
+        /^[A-F0-9]{64}$/u.test(identity.imagePathTextSha256 ?? "");
+      if (!identityIsSafe) throw new Error(`Fixture PID ${pid} has no complete immutable identity.`);
+      if (identity.imageNameLower !== expectedName || identity.imagePathTextSha256 !== expectedPathHash) {
+        continue;
+      }
+      const terminated = invokeOwnedProcessIdentity("Terminate", pid, identity);
+      if (!["terminated", "not-running", "identity-mismatch"].includes(terminated.outcome)) {
+        throw new Error(`Fixture PID ${pid} was not terminated safely (${terminated.outcome ?? "unknown"}).`);
+      }
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+  }
+  return cleanupErrors;
+}
+
 try {
   execFileSync(compiler, ["/nologo", "/target:exe", `/out:${fixtureExecutable}`, fixtureSource], {
     cwd: sandbox,
@@ -294,29 +360,40 @@ try {
     stdio: "pipe",
   });
   const assignedState = join(sandbox, "assigned-job-state.txt");
-  const assignedOutput = execFileSync(
-    process.execPath,
-    [join(root, "test", "fixtures", "worker-warm-assigned-timeout.mjs")],
-    {
-      cwd: root,
-      windowsHide: true,
-      timeout: 30_000,
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        TEMP: sandbox,
-        TMP: sandbox,
-        SSE_POWERSHELL_EXE: fixtureExecutable,
-        SSE_WORKER_PREWARM_POOL_SIZE: "1",
-        SSE_WORKER_PREWARM_STARTUP_TIMEOUT_MS: "5000",
-        SSE_WORKER_PREWARM_RETRY_DELAY_MS: "1000",
-        SSE_PREWARM_FIXTURE_STATE: assignedState,
-        SSE_PREWARM_FIXTURE_MUTEX: `Local\\SSEAssignedTimeout${randomUUID().replaceAll("-", "")}`,
-        SSE_PREWARM_FIXTURE_MODE: "assigned-timeout",
+  try {
+    const assignedOutput = execFileSync(
+      process.execPath,
+      [join(root, "test", "fixtures", "worker-warm-assigned-timeout.mjs")],
+      {
+        cwd: root,
+        windowsHide: true,
+        timeout: 90_000,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          TEMP: sandbox,
+          TMP: sandbox,
+          SSE_POWERSHELL_EXE: fixtureExecutable,
+          SSE_WORKER_PREWARM_POOL_SIZE: "1",
+          SSE_WORKER_PREWARM_STARTUP_TIMEOUT_MS: "5000",
+          SSE_WORKER_PREWARM_RETRY_DELAY_MS: "1000",
+          SSE_PREWARM_FIXTURE_STATE: assignedState,
+          SSE_PREWARM_FIXTURE_MUTEX: `Local\\SSEAssignedTimeout${randomUUID().replaceAll("-", "")}`,
+          SSE_PREWARM_FIXTURE_MODE: "assigned-timeout",
+        },
       },
-    },
-  );
-  assert.match(assignedOutput, /Warm assigned-job timeout: exact child cleanup/u);
+    );
+    assert.match(assignedOutput, /Warm assigned-job timeout: exact child cleanup/u);
+  } catch (error) {
+    const cleanupErrors = cleanupAssignedFixtureProcesses(assignedState, fixtureExecutable);
+    if (cleanupErrors.length > 0) {
+      throw new AggregateError(
+        [error, ...cleanupErrors],
+        "Assigned warm-timeout fixture and exact process cleanup both failed.",
+      );
+    }
+    throw error;
+  }
 
   process.env.SSE_POWERSHELL_EXE = fixtureExecutable;
   process.env.SSE_WORKER_PREWARM_POOL_SIZE = "2";
