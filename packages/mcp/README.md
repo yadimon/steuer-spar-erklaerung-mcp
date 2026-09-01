@@ -28,8 +28,14 @@ mkdir C:\mein-steuer-ai
 cd C:\mein-steuer-ai
 npm.cmd init -y
 npm.cmd install --save-exact @yadimon/steuer-spar-erklaerung-mcp@latest
-node .\node_modules\@yadimon\steuer-spar-erklaerung-mcp\dist\index.js --help
+$ApiConfig = Join-Path (Get-Location).Path 'config.json'
+$env:SSE_API_CONFIG = $ApiConfig
+node .\node_modules\@yadimon\steuer-spar-erklaerung-mcp\dist\index.js --selftest
 ```
+
+Die Umgebungsvariable gilt nur in dieser PowerShell-Sitzung. Ein eigener
+Arbeitsbereich muss beim Selftest und im späteren Client denselben absoluten
+`SSE_API_CONFIG`-Wert erhalten.
 
 Beim Start prüft MCP zuerst die konfigurierte Loopback-Adresse. Eine bereits
 laufende API wird nur bei exakt passendem Paketnamen, Release, API-Vertrag und

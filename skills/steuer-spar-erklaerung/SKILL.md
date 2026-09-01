@@ -133,7 +133,7 @@ lies stattdessen `sse_preflight`.
 ### Direkte API nur als bewusster Fallback
 
 Der Skill ist eine Komfortschicht. Fehlt MCP und hat der Nutzer ausdrücklich direkte API-Nutzung gewählt, folge
-der [API-Paketdokumentation](../../packages/api/README.md) und dem installierten
+der [API-Paketdokumentation](https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/packages/api/README.md) und dem installierten
 `discovery`-/`describe`-Vertrag. Wechsle während einer möglicherweise
 begonnenen Mutation nie still den Transport. Ein fehlender oder fremder
 Loopback-Dienst bleibt ein sicherer Stopp; beende niemals Prozesse anhand
@@ -189,8 +189,8 @@ Fehlt eine funktionierende Einrichtung, arbeite die kanonische Anleitung
 ab, statt die Einrichtung frei zu improvisieren. Es gibt kein Setup-Programm:
 Ordner anlegen, MCP samt exakter API-Dependency und optional den Skill installieren,
 MCP beim Client anmelden. Ein API-Terminal gehört nicht zum Standardweg.
-Verlange danach einen grünen `--selftest` und zusätzlich Serverliste plus
-echten Aufruf von `sse_preflight` mit
+Verlange danach einen grünen `--selftest` mit demselben gesetzten
+`SSE_API_CONFIG` wie im Client, zusätzlich Serverliste plus echten Aufruf von `sse_preflight` mit
 strukturiertem `ok=true`; „connected“ oder ein Handshake allein genügt nicht.
 Dieser Nachweis muss im MCP-Modus ein tatsächlicher MCP-Tool-Aufruf sein.
 `health` über Shell oder direkte API-CLI ist dort kein Ersatz. Ist `sse_preflight`

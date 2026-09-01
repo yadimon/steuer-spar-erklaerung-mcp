@@ -44,6 +44,8 @@ assert.match(readme, /Save As.+keine impliziten Sicherheitsmaßnahmen/isu,
 assert.match(readme, /GewErfass2026.+ausschließlich.+Leseweg/isu,
   "README muss den Folgejahr-UStVA-Weg begrenzen.");
 assert.match(readme, /npm\.cmd install --save-exact @yadimon\/steuer-spar-erklaerung-mcp@latest/u);
+assert(readme.includes("$env:SSE_API_CONFIG = $ApiConfig"));
+assert(readme.includes("--selftest mit genau diesem gesetzten SSE_API_CONFIG"));
 assert.match(readme, /npm.+MCP und API.+node_modules/isu,
   "README muss die automatisch installierte API-Dependency erklären.");
 assert.match(readme, /github\.com\/yadimon\/steuer-spar-erklaerung-mcp\/releases/u);

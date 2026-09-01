@@ -43,6 +43,13 @@ assert(main.includes("stabilen `nextTool`") && main.includes("Es gibt gar kein `
 assert(main.includes("Direkte API nur als bewusster Fallback") && main.includes("Skill ist eine Komfortschicht"));
 assert(!main.includes("NPX-Kurzweg ohne globale Runtime-Installation"));
 assert(main.includes("MCP ist ein dünner Wrapper darüber") && main.includes("API-Selbstbeschreibung"));
+for (const match of main.matchAll(/\]\(([^)]+)\)/gu)) {
+  const target = match[1];
+  assert(
+    target.startsWith("https://") || target.startsWith("references/") || target.startsWith("#"),
+    `Installierter Skill enthaelt einen nicht aufloesbaren Cross-Tree-Link: ${target}`,
+  );
+}
 assert(main.includes("Der MCP-Eintrag enthält keinen `--config`-Parameter"));
 assert(main.includes("`SSE_API_CONFIG`") && main.includes("bleibt autoritativ") && main.includes("niemals gleichzeitig"));
 assert(main.includes("echten Aufruf von `sse_preflight`") && main.includes("Handshake allein genügt nicht"));
@@ -125,6 +132,9 @@ for (const requirement of [
 }
 assert(!installation.includes("Codex kennt nur eine globale Konfiguration"));
 assert(installation.includes("`SSE_API_URL` und `SSE_API_CONFIG` dürfen nicht gleichzeitig"));
+assert((installation.match(/\$env:SSE_API_CONFIG = \$ApiConfig/gu) ?? []).length >= 3,
+  "Installations-, Proof- und Updatepfad muessen denselben Projekt-Singleton binden.");
+assert(installation.includes("--selftest mit genau diesem gesetzten SSE_API_CONFIG"));
 assert(installation.includes("fremde, alte oder nicht eindeutig") && installation.includes("niemals beenden, ersetzen oder übergehen"));
 assert(installation.includes("/v1/openapi.json") && installation.includes("/v1/operations"));
 assert(installation.includes("## Update") && installation.includes("## Deinstallation") && installation.includes("Nutzerdaten"));
@@ -178,6 +188,10 @@ const apiPackageReadme = readFileSync(join(root, "packages", "api", "README.md")
 const mcpPackageReadme = readFileSync(join(root, "packages", "mcp", "README.md"), "utf8");
 assert(apiPackageReadme.includes("`--case-dir` öffnet keinen Steuerfall")
   && /keine\s+Dateisystem-Sandbox/u.test(apiPackageReadme));
+assert(apiPackageReadme.includes("$Root = 'C:\\mein-steuer-api'")
+  && apiPackageReadme.includes("npm.cmd install --save-exact @yadimon/steuer-spar-erklaerung-api@latest")
+  && apiPackageReadme.includes("& $Node $Api --config $ApiConfig")
+  && apiPackageReadme.includes("& $Node $Call discovery --config $ApiConfig"));
 assert(mcpPackageReadme.includes("`sse_preflight`") && mcpPackageReadme.includes("optionale Komfortschicht"));
 assert(mcpPackageReadme.includes("dirty-fähigen UI-Navigation oder Mutation")
   && mcpPackageReadme.includes("`save` oder `save_as` wird nie still"));

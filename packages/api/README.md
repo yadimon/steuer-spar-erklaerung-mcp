@@ -36,38 +36,72 @@ unterstützt.
 
 ## Installation und direkte API-Nutzung
 
-Für einen einzelnen Lauf ist keine globale Paketinstallation nötig. Der erste
-Foreground-Start legt die Arbeitsordner an, falls sie noch fehlen. Der
-Fallordner gilt nur für diesen Prozess. Läuft am gewählten Port bereits ein
-vom MCP gestarteter API-Singleton, beende ihn vorher bewusst nach der Installationsanleitung oder
-wähle per absolutem `--config` einen anderen Loopback-Port:
+### Ordnergebunden
+
+Dieser Weg hält Paket und Arbeitsbereich in `C:\mein-steuer-api`. Läuft am
+gewählten Port bereits ein vom MCP gestarteter API-Singleton, beende ihn vorher
+bewusst nach der Installationsanleitung oder trage in `config.json` einen
+anderen Loopback-Port ein:
 
 ```powershell
-npx.cmd -y @yadimon/steuer-spar-erklaerung-api --case-dir "C:\Pfad\zum\Fallordner"
+$Root = 'C:\mein-steuer-api'
+New-Item -ItemType Directory -Force -Path $Root | Out-Null
+Set-Location $Root
+
+npm.cmd init -y
+npm.cmd install --save-exact @yadimon/steuer-spar-erklaerung-api@latest
+
+$Node = (Get-Command node).Source
+$Api = Join-Path $Root 'node_modules\@yadimon\steuer-spar-erklaerung-api\dist\api-main.js'
+$ApiConfig = Join-Path $Root 'config.json'
+& $Node $Api --config $ApiConfig
 ```
 
 Das Terminal bleibt offen. Aus einem zweiten Terminal ruft die mitgelieferte
 CLI die API auf:
 
 ```powershell
-npx.cmd -y -p @yadimon/steuer-spar-erklaerung-api steuer-spar-erklaerung-call discovery
-npx.cmd -y -p @yadimon/steuer-spar-erklaerung-api steuer-spar-erklaerung-call health
+$Root = 'C:\mein-steuer-api'
+$Node = (Get-Command node).Source
+$Call = Join-Path $Root 'node_modules\@yadimon\steuer-spar-erklaerung-api\dist\api-cli.js'
+$ApiConfig = Join-Path $Root 'config.json'
+& $Node $Call discovery --config $ApiConfig
+& $Node $Call health --config $ApiConfig
 ```
 
-`Strg+C` beendet die API. Dieser kurze Weg registriert kein MCP und erzeugt
-keinen dauerhaften Launcher im NPX-Cache.
+`Strg+C` beendet die API. Dieser direkte API-only-Weg registriert kein MCP.
+Der absolute `--config`-Pfad bestimmt den Arbeitsbereich; die Datei selbst darf
+beim ersten Start noch fehlen.
 
-Für eine dauerhafte Installation bleiben die drei Befehle global verfügbar:
+### Einmaliger NPX-Lauf
+
+Ohne dauerhafte Paketinstallation geht derselbe direkte Modus auch über NPX:
+
+```powershell
+npx.cmd -y @yadimon/steuer-spar-erklaerung-api `
+  --config "C:\mein-steuer-api\config.json"
+```
+
+Aus einem zweiten Terminal:
+
+```powershell
+npx.cmd -y -p @yadimon/steuer-spar-erklaerung-api `
+  steuer-spar-erklaerung-call discovery `
+  --config "C:\mein-steuer-api\config.json"
+```
+
+Dieser Lauf erzeugt keinen dauerhaften Launcher im NPX-Cache.
+
+### Optional systemweit, nur API-only
+
+Wer die direkte API bewusst systemweit statt projektlokal betreiben will, kann
+die drei Befehle global verfügbar machen. Das gehört nicht zum MCP-Standardweg:
 
 ```powershell
 npm.cmd install --global @yadimon/steuer-spar-erklaerung-api
 steuer-spar-erklaerung-api.cmd --help
 steuer-spar-erklaerung-call.cmd --help
 ```
-
-Für eine ordnergebundene Installation `npm i` ohne `--global` verwenden und die
-API mit einem absoluten `--config`-Pfad in diesem Ordner starten; die
-Anleitung zeigt dafür einen getrennten API-only-Weg.
 
 `--case-dir` öffnet keinen Steuerfall und wählt auch keinen Fall automatisch.
 Der Wert bestimmt ausschließlich, gegen welchen bestätigten Ordner relative

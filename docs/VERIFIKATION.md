@@ -101,7 +101,8 @@ OpenCode war im VM-Image nicht installiert, daher wurde sein Projektweg nur
 strukturell geprüft.
 
 Zwei gleichzeitig gestartete `--selftest`-Prozesse verwendeten nach einem
-absichtlich provozierten Start-Rennen denselben API-PID; eine exakte
+absichtlich provozierten Start-Rennen denselben ausdrücklich gesetzten
+projektlokalen `SSE_API_CONFIG`-Pfad und denselben API-PID; eine exakte
 Kommandozeilenabfrage fand danach genau einen passenden `node.exe`-Prozess. Ein
 echter MCP-SDK-Handshake listete 100 Werkzeuge, rief `sse_preflight` auf und
 hielt stdout protokollrein. Der erwartete Preflight-Blocker `SSE_NOT_RUNNING`

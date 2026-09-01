@@ -65,7 +65,8 @@ diesem Ordner. Installiere die API nicht separat; sie muss als exakt passende
 Dependency des MCP-Pakets kommen. Setze SSE_API_CONFIG auf
 C:\mein-steuer-ai\config.json. Vorhandene Konfiguration nur additiv mergen,
 nichts global installieren und keine Anmeldedaten kopieren. Führe danach
---selftest aus und sage mir klar, ob ich den Client neu starten muss.
+--selftest mit genau diesem gesetzten SSE_API_CONFIG aus und sage mir klar, ob
+ich den Client neu starten muss.
 ```
 
 Nach dem verlangten Neustart zum Beispiel:
@@ -94,12 +95,16 @@ npm.cmd install --save-exact @yadimon/steuer-spar-erklaerung-mcp@latest
 $Node = (Get-Command node).Source
 $Mcp = Join-Path $Root 'node_modules\@yadimon\steuer-spar-erklaerung-mcp\dist\index.js'
 $ApiConfig = Join-Path $Root 'config.json'
+$env:SSE_API_CONFIG = $ApiConfig
 ```
 
 npm legt MCP und API beide unter `C:\mein-steuer-ai\node_modules\@yadimon`
 ab. Arbeitsdaten liegen durch `SSE_API_CONFIG` ebenfalls im gewählten Ordner.
 Ohne diese Variable verwendet die API ihren sicheren Standard unter
 `%LOCALAPPDATA%`.
+Die Zuweisung an `$env:SSE_API_CONFIG` gilt nur für die aktuelle
+PowerShell-Sitzung und sorgt dafür, dass auch der Selftest denselben
+Projekt-Singleton wie der Client prüft.
 
 Der Skill ist optional. Genau einen Client einsetzen:
 

@@ -34,7 +34,8 @@ diesem Ordner. Installiere die API nicht separat; sie muss als exakt passende
 Dependency des MCP-Pakets kommen. Setze SSE_API_CONFIG auf
 C:\mein-steuer-ai\config.json. Vorhandene Konfiguration nur additiv mergen,
 nichts global installieren und keine Anmeldedaten kopieren. Führe danach
---selftest aus und sage mir klar, ob ich den Client neu starten muss.
+--selftest mit genau diesem gesetzten SSE_API_CONFIG aus und sage mir klar, ob
+ich den Client neu starten muss.
 ```
 
 Der Agent darf innerhalb dieses Auftrags den Ordner anlegen, das veröffentlichte
@@ -68,11 +69,17 @@ npm.cmd install --save-exact @yadimon/steuer-spar-erklaerung-mcp@latest
 $Node = (Get-Command node).Source
 $Mcp = Join-Path $Root 'node_modules\@yadimon\steuer-spar-erklaerung-mcp\dist\index.js'
 $ApiConfig = Join-Path $Root 'config.json'
+$env:SSE_API_CONFIG = $ApiConfig
 ```
 
 npm installiert unter `node_modules\@yadimon` sowohl MCP als auch dessen
 exakte API-Dependency. Es gibt kein `postinstall` und keine Installation zur
 Laufzeit.
+
+`$env:SSE_API_CONFIG` gilt nur in der aktuellen PowerShell-Sitzung. Dadurch
+verwenden der direkte Selftest und der später konfigurierte Client denselben
+projektlokalen API-Singleton statt versehentlich zweier Arbeitsbereiche am
+gleichen Port.
 
 Der MCP funktioniert ohne Skill. Der Skill ist der bequemere Wizard für
 längere Steuerfall- und Belegabläufe. Genau den verwendeten Client wählen:
@@ -185,6 +192,7 @@ Zuerst Paketauflösung und technischer MCP-/API-Start:
 
 ```powershell
 npm.cmd ls @yadimon/steuer-spar-erklaerung-mcp @yadimon/steuer-spar-erklaerung-api
+$env:SSE_API_CONFIG = $ApiConfig
 & $Node $Mcp --selftest
 ```
 
@@ -238,6 +246,12 @@ gesetzt sein.
 Im Installationsordner:
 
 ```powershell
+$Root = (Get-Location).Path
+$Node = (Get-Command node).Source
+$Mcp = Join-Path $Root 'node_modules\@yadimon\steuer-spar-erklaerung-mcp\dist\index.js'
+$ApiConfig = Join-Path $Root 'config.json'
+$env:SSE_API_CONFIG = $ApiConfig
+
 npm.cmd install --save-exact @yadimon/steuer-spar-erklaerung-mcp@latest
 & $Node $Mcp --selftest
 ```
@@ -281,6 +295,11 @@ Stop-Process -Id <VERIFIZIERTE_PROCESS_ID>
 ```
 
 Bei fehlender oder widersprüchlicher Identität nicht beenden.
+Ein bereits verbundener MCP-Server startet nach diesem bewussten Stopp nicht
+still neu. Den Client beziehungsweise seinen MCP-Server anschließend bewusst
+neu starten, erneut `sse_preflight` ausführen und den Arbeitsfall frisch
+binden. Eine möglicherweise unterbrochene Mutation niemals automatisch
+wiederholen; zuerst den Zustand zurücklesen.
 
 ## Direkte API-Nutzung (separat)
 
@@ -307,6 +326,10 @@ lies das Ergebnis zurück, speichere nicht und sende nichts über ELSTER.
   fail-closed Startfehler ist beabsichtigt.
 - **Explizite URL unerreichbar:** `SSE_API_URL` korrigieren oder bewusst aus der
   Projektkonfiguration entfernen. Es gibt keinen stillen Fallback.
+- **API endet während einer verbundenen MCP-Sitzung:** keinen zweiten
+  API-Prozess starten und keinen Prozess nach Namen beenden. Den MCP-Server über
+  den Client neu starten, `sse_preflight` erneut ausführen und nach einer
+  möglicherweise begonnenen Mutation zuerst den Zustand zurücklesen.
 - **Arbeitsdaten landen unter `%LOCALAPPDATA%`:** prüfen, ob der Client den
   absoluten `SSE_API_CONFIG`-Wert wirklich an den MCP-Prozess übergibt.
 - **Claude startet einen `.ps1`-Shim nicht:** die dokumentierten `npm.cmd` und
