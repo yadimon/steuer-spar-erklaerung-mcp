@@ -78,4 +78,102 @@ try {
   [DSK]::CloseDesktop($input) | Out-Null
 }
 
-Write-Output 'OK: Leerer Privatdesktop enumeriert leer, ungueltiges Handle bleibt fail-closed.'
+# Get-Windows bleibt im Worker unter Controller-/Desktop-Bindung, aber die
+# teure EnumWindows-Callbackschleife laeuft nativ. Zwei transparente
+# Testfenster pruefen die Ergebnisparitaet gegen den frueheren PowerShell-Weg,
+# ohne auf eine installierte SteuerSparErklaerung angewiesen zu sein.
+Add-Type -AssemblyName System.Drawing, System.Windows.Forms
+$forms = New-Object System.Collections.ArrayList
+function Get-TextSha256([string]$Text) {
+  $algorithm = [Security.Cryptography.SHA256]::Create()
+  try {
+    $bytes = [Text.Encoding]::UTF8.GetBytes($Text)
+    ([BitConverter]::ToString($algorithm.ComputeHash($bytes))).Replace('-', '')
+  } finally { $algorithm.Dispose() }
+}
+function Get-LegacyWindowProjection([int[]]$AllowedProcessIds) {
+  $allowed = @($AllowedProcessIds)
+  $records = New-Object System.Collections.ArrayList
+  $callback = [SW+EP]{
+    param($hwnd, $context)
+    $ownerPid = 0
+    [SW]::GetWindowThreadProcessId($hwnd, [ref]$ownerPid) | Out-Null
+    if ($allowed -contains [int]$ownerPid -and [SW]::IsWindowVisible($hwnd)) {
+      $title = New-Object Text.StringBuilder 512
+      $className = New-Object Text.StringBuilder 256
+      $rectangle = New-Object SW+RC
+      [SW]::GetWindowTextW($hwnd, $title, 512) | Out-Null
+      [SW]::GetClassNameW($hwnd, $className, 256) | Out-Null
+      [SW]::GetWindowRect($hwnd, [ref]$rectangle) | Out-Null
+      $titleText = $title.ToString()
+      $null = $records.Add([pscustomobject][ordered]@{
+        hwnd=[int64]$hwnd; pid=[int]$ownerPid
+        x=[int]$rectangle.L; y=[int]$rectangle.T
+        w=[int]($rectangle.R - $rectangle.L); h=[int]($rectangle.B - $rectangle.T)
+        cls=$className.ToString(); title=$titleText
+        titleFingerprint=Get-TextSha256 $titleText
+        hung=[bool][SW]::IsHungAppWindow($hwnd); minimiert=[bool][SW]::IsIconic($hwnd)
+      })
+    }
+    $true
+  }
+  [SW]::EnumWindows($callback, [IntPtr]::Zero) | Out-Null
+  @($records)
+}
+try {
+  $unicodeTitle = "SSE native enumeration $([char]0x2013) SteuerSparErkl$([char]0x00E4)rung $PID"
+  foreach ($specification in @(
+    @{ title=$unicodeTitle; width=211; height=137 },
+    @{ title="SSE native enumeration large $PID"; width=347; height=229 }
+  )) {
+    $form = New-Object Windows.Forms.Form
+    $form.Text = $specification.title
+    $form.StartPosition = [Windows.Forms.FormStartPosition]::Manual
+    $form.Location = New-Object Drawing.Point -ArgumentList -10000, -10000
+    $form.Size = New-Object Drawing.Size -ArgumentList $specification.width, $specification.height
+    $form.ShowInTaskbar = $false
+    $form.Opacity = 0
+    $form.Show()
+    $null = $forms.Add($form)
+  }
+  [Windows.Forms.Application]::DoEvents()
+
+  $allowedIds = [int[]]@($PID)
+  $fixtureHandles = @($forms | ForEach-Object { [int64]$_.Handle })
+  $legacy = @(Get-LegacyWindowProjection $allowedIds |
+    Where-Object { [int64]$_.hwnd -in $fixtureHandles } | Sort-Object hwnd)
+  $nativeRaw = @([SSEWindowEnumerator]::Describe($allowedIds))
+  $native = @($nativeRaw | ForEach-Object {
+    [pscustomobject][ordered]@{
+      hwnd=[int64]$_.Hwnd; pid=[int]$_.Pid
+      x=[int]$_.X; y=[int]$_.Y; w=[int]$_.W; h=[int]$_.H
+      cls=[string]$_.ClassName; title=[string]$_.Title
+      titleFingerprint=[string]$_.TitleFingerprint
+      hung=[bool]$_.Hung; minimiert=[bool]$_.Minimized
+    }
+  } | Where-Object { [int64]$_.hwnd -in $fixtureHandles } | Sort-Object hwnd)
+  Assert-True ($legacy.Count -eq 2) 'Die transparenten Fenster wurden vom Referenzweg nicht exakt enumeriert.'
+  Assert-True (($legacy | ConvertTo-Json -Depth 3 -Compress) -ceq ($native | ConvertTo-Json -Depth 3 -Compress)) `
+    'Native Fensterenumeration weicht in Inhalt oder Typen vom bisherigen PowerShell-Weg ab.'
+  foreach ($title in @($unicodeTitle, "SSE native enumeration large $PID")) {
+    Assert-True (@($native | Where-Object title -CEQ $title).Count -eq 1) `
+      "Natives Ergebnis enthaelt Testfenster '$title' nicht exakt einmal."
+  }
+  for ($index = 1; $index -lt $nativeRaw.Count; $index++) {
+    $previousArea = [int64]$nativeRaw[$index - 1].W * [int64]$nativeRaw[$index - 1].H
+    $currentArea = [int64]$nativeRaw[$index].W * [int64]$nativeRaw[$index].H
+    Assert-True ($previousArea -ge $currentArea) 'Native Fenster sind nicht absteigend nach Flaeche sortiert.'
+  }
+  Assert-True (@([SSEWindowEnumerator]::Describe([int[]]@())).Count -eq 0) `
+    'Eine leere PID-Freigabe darf keine Fenster liefern.'
+  $duplicatePidWindows = @([SSEWindowEnumerator]::Describe([int[]]@($PID, $PID)) |
+    Where-Object { [int64]$_.Hwnd -in $fixtureHandles })
+  Assert-True ($duplicatePidWindows.Count -eq 2) `
+    'Doppelte freigegebene PIDs duerfen keine Fenster duplizieren.'
+} finally {
+  foreach ($form in @($forms)) {
+    try { $form.Close() } finally { $form.Dispose() }
+  }
+}
+
+Write-Output 'OK: Desktop- und native Fensterenumeration bleiben leer-/fehler-/paritaetssicher.'

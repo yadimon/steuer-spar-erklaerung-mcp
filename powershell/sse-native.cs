@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 
 public class DSK {
@@ -233,6 +234,67 @@ public class SW {
   [StructLayout(LayoutKind.Sequential)]
   public struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }
   public delegate bool EP(IntPtr h,IntPtr l);
+}
+
+// Plain records returned to PowerShell after the native callback has finished.
+// Keeping the callback and its per-window work in managed C# avoids one
+// PowerShell delegate transition for every top-level window on the desktop.
+public sealed class SSEWindowNode {
+  public long Hwnd;
+  public int Pid;
+  public int X, Y, W, H;
+  public string ClassName;
+  public string Title;
+  public string TitleFingerprint;
+  public bool Hung;
+  public bool Minimized;
+  internal int EnumerationOrder;
+}
+
+public static class SSEWindowEnumerator {
+  static string Sha256(string value) {
+    using (SHA256 algorithm = SHA256.Create()) {
+      return BitConverter.ToString(algorithm.ComputeHash(Encoding.UTF8.GetBytes(value))).Replace("-", "");
+    }
+  }
+
+  public static SSEWindowNode[] Describe(int[] allowedProcessIds) {
+    if (allowedProcessIds == null || allowedProcessIds.Length == 0) return new SSEWindowNode[0];
+    var allowed = new HashSet<int>(allowedProcessIds);
+    var output = new List<SSEWindowNode>();
+    int order = 0;
+    SW.EP callback = delegate(IntPtr hwnd, IntPtr context) {
+      uint processId = 0;
+      SW.GetWindowThreadProcessId(hwnd, out processId);
+      if (!allowed.Contains(unchecked((int)processId)) || !SW.IsWindowVisible(hwnd)) return true;
+
+      var title = new StringBuilder(512);
+      var className = new StringBuilder(256);
+      SW.GetWindowTextW(hwnd, title, title.Capacity);
+      SW.GetClassNameW(hwnd, className, className.Capacity);
+      SW.RC rectangle;
+      SW.GetWindowRect(hwnd, out rectangle);
+      string titleText = title.ToString();
+      output.Add(new SSEWindowNode {
+        Hwnd = hwnd.ToInt64(), Pid = unchecked((int)processId),
+        X = rectangle.L, Y = rectangle.T,
+        W = rectangle.R - rectangle.L, H = rectangle.B - rectangle.T,
+        ClassName = className.ToString(), Title = titleText,
+        TitleFingerprint = Sha256(titleText),
+        Hung = SW.IsHungAppWindow(hwnd), Minimized = SW.IsIconic(hwnd),
+        EnumerationOrder = order++
+      });
+      return true;
+    };
+    SW.EnumWindows(callback, IntPtr.Zero);
+    output.Sort(delegate(SSEWindowNode left, SSEWindowNode right) {
+      long leftArea = (long)left.W * left.H;
+      long rightArea = (long)right.W * right.H;
+      int byArea = rightArea.CompareTo(leftArea);
+      return byArea != 0 ? byArea : left.EnumerationOrder.CompareTo(right.EnumerationOrder);
+    });
+    return output.ToArray();
+  }
 }
 
 public sealed class SSEAccNode {
