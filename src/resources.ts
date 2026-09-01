@@ -176,6 +176,12 @@ export function createResourcePathRedactor(roots: ResourceRoots): <T>(value: T) 
         ) as V;
       }
       if (typeof entry !== "string") return entry;
+      // Absolute Laufwerks- und Ressourcenreferenzen enthalten `:`, UNC-,
+      // Device- und laufwerksrelative Windows-Pfade einen Separator. Der sehr
+      // haeufige UI-Text ohne `:`, `\\` oder `/` kann daher keine der
+      // nachfolgenden Pfadregeln treffen. Das spart bei grossen UIA-Baeumen
+      // sechs case-insensitive Regexlaeufe pro unkritischem String.
+      if (!entry.includes(":") && !entry.includes("\\") && !entry.includes("/")) return entry;
       const exactRef = referenceForPreparedRoots(prepared, entry);
       if (exactRef) return exactRef as V;
 
