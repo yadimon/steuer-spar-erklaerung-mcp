@@ -125,7 +125,7 @@ function Get-LegacyWindowProjection([int[]]$AllowedProcessIds) {
 # Die private Auswertung der Win32-Rueckgabe ist absichtlich kein oeffentlicher
 # API-Vertrag. Per Reflection lassen sich die ansonsten schwer deterministisch
 # provozierbaren Fehlerpfade trotzdem pruefen: Callback-Abbruch, Win32-Fehler
-# und jedes FALSE duerfen nie als leeres oder partielles Ergebnis zurueckkehren.
+# und FALSE nach begonnenem Callback duerfen nie als Teilergebnis zurueckkehren.
 $completionCheck = [SSEWindowEnumerator].GetMethod(
   'EnsureEnumerationCompleted',
   [Reflection.BindingFlags]'Static, NonPublic')
@@ -135,7 +135,7 @@ Assert-True ($null -ne $completionCheck) `
 $callbackFailure = [InvalidOperationException]::new('deterministic-callback-failure')
 $observedCallbackFailure = $null
 try {
-  $completionCheck.Invoke($null, [object[]]@($false, [int]5, $callbackFailure))
+  $completionCheck.Invoke($null, [object[]]@($false, [int]5, [int]1, $callbackFailure))
 } catch {
   $observedCallbackFailure = $_.Exception
   while ($null -ne $observedCallbackFailure.InnerException) {
@@ -148,7 +148,7 @@ Assert-True ($observedCallbackFailure -is [InvalidOperationException] -and
 
 $observedNativeFailure = $null
 try {
-  $completionCheck.Invoke($null, [object[]]@($false, [int]5, $null))
+  $completionCheck.Invoke($null, [object[]]@($false, [int]5, [int]0, $null))
 } catch {
   $observedNativeFailure = $_.Exception
   while ($null -ne $observedNativeFailure.InnerException) {
@@ -162,7 +162,7 @@ Assert-True ($observedNativeFailure.NativeErrorCode -eq 5) `
 
 $observedUnexplainedFailure = $null
 try {
-  $completionCheck.Invoke($null, [object[]]@($false, [int]0, $null))
+  $completionCheck.Invoke($null, [object[]]@($false, [int]0, [int]1, $null))
 } catch {
   $observedUnexplainedFailure = $_.Exception
   while ($null -ne $observedUnexplainedFailure.InnerException) {
@@ -174,16 +174,93 @@ Assert-True ($observedUnexplainedFailure -is [InvalidOperationException]) `
 Assert-True ($observedUnexplainedFailure.Message -ceq 'window-enumeration-failed') `
   'Eine partielle EnumWindows-Rueckgabe liefert keinen stabilen, redigierten Fehler.'
 
-# Erfolg darf einen vorigen/stalen Threadfehler ignorieren.
-$completionCheck.Invoke($null, [object[]]@($true, [int]5, $null))
+# Ein wirklich leerer privater Desktop liefert FALSE/0 ohne Callback und ist
+# kein Fehler. Erfolg darf ausserdem einen vorigen/stalen Threadfehler ignorieren.
+$completionCheck.Invoke($null, [object[]]@($false, [int]0, [int]0, $null))
+$completionCheck.Invoke($null, [object[]]@($true, [int]5, [int]2, $null))
 
 # Der Quellvertrag bindet die synthetisch gepruefte Auswertung an den echten
-# P/Invoke-Pfad; der positive/leeere Pfad wird oben end-to-end ausgefuehrt.
+# P/Invoke-Pfad.
 $nativeSource = Get-Content (Join-Path $PSScriptRoot '..\powershell\sse-native.cs') -Raw
 Assert-True ($nativeSource.Contains('bool completed = SW.EnumWindows(callback, IntPtr.Zero);') -and
   $nativeSource.Contains('int nativeError = Marshal.GetLastWin32Error();') -and
-  $nativeSource.Contains('EnsureEnumerationCompleted(completed, nativeError, callbackFailure);')) `
+  $nativeSource.Contains('EnsureEnumerationCompleted(completed, nativeError, callbacksVisited, callbackFailure);')) `
   'Describe bindet EnumWindows-Rueckgabe, LastError oder Callbackfehler nicht an die fail-closed Auswertung.'
+
+# End-to-end gegen den Produktionspfad: Ein frischer managed Thread bindet
+# sich an einen eben erzeugten Privatdesktop, auf dem garantiert noch kein
+# Top-Level-Fenster existiert. Describe erhaelt trotzdem eine nichtleere
+# PID-Freigabe und muss den realen EnumWindows-FALSE/0/0-Fall als leer melden.
+$emptyDesktopProbeSource = @'
+using System;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Threading;
+
+public sealed class SSEEmptyDesktopDescribeResult {
+  public int Count;
+  public string ErrorType;
+  public string ErrorMessage;
+}
+
+public static class SSEEmptyDesktopDescribeProbe {
+  [DllImport("user32.dll", SetLastError=true, CharSet=CharSet.Unicode)]
+  static extern IntPtr CreateDesktop(string name, IntPtr device, IntPtr devMode,
+    int flags, uint access, IntPtr securityAttributes);
+  [DllImport("user32.dll", SetLastError=true)]
+  static extern bool CloseDesktop(IntPtr desktop);
+  [DllImport("user32.dll", SetLastError=true)]
+  static extern bool SetThreadDesktop(IntPtr desktop);
+  [DllImport("user32.dll", SetLastError=true)]
+  static extern IntPtr GetThreadDesktop(uint threadId);
+  [DllImport("kernel32.dll")]
+  static extern uint GetCurrentThreadId();
+
+  public static SSEEmptyDesktopDescribeResult Run(Type enumeratorType, int allowedProcessId) {
+    var result = new SSEEmptyDesktopDescribeResult { Count = -1 };
+    Exception setupFailure = null;
+    var thread = new Thread(delegate() {
+      IntPtr desktop = IntPtr.Zero;
+      IntPtr previousDesktop = IntPtr.Zero;
+      try {
+        desktop = CreateDesktop("SSEDescribeProbe" + Guid.NewGuid().ToString("N"),
+          IntPtr.Zero, IntPtr.Zero, 0, 0x10000000, IntPtr.Zero);
+        if (desktop == IntPtr.Zero) {
+          throw new InvalidOperationException("create-desktop-" + Marshal.GetLastWin32Error());
+        }
+        previousDesktop = GetThreadDesktop(GetCurrentThreadId());
+        if (previousDesktop == IntPtr.Zero || !SetThreadDesktop(desktop)) {
+          throw new InvalidOperationException("bind-desktop-" + Marshal.GetLastWin32Error());
+        }
+        try {
+          MethodInfo describe = enumeratorType.GetMethod("Describe", BindingFlags.Public | BindingFlags.Static);
+          Array windows = (Array)describe.Invoke(null, new object[] { new int[] { allowedProcessId } });
+          result.Count = windows.Length;
+        } catch (TargetInvocationException failure) {
+          Exception cause = failure.InnerException ?? failure;
+          result.ErrorType = cause.GetType().FullName;
+          result.ErrorMessage = cause.Message;
+        }
+      } catch (Exception failure) {
+        setupFailure = failure;
+      } finally {
+        if (previousDesktop != IntPtr.Zero) SetThreadDesktop(previousDesktop);
+        if (desktop != IntPtr.Zero) CloseDesktop(desktop);
+      }
+    });
+    thread.Start();
+    thread.Join();
+    if (setupFailure != null) throw setupFailure;
+    return result;
+  }
+}
+'@
+Add-Type -TypeDefinition $emptyDesktopProbeSource
+$emptyDesktopProbe = [SSEEmptyDesktopDescribeProbe]::Run([SSEWindowEnumerator], [int]$PID)
+Assert-True ($null -eq $emptyDesktopProbe.ErrorType) `
+  "Describe lehnte einen echten leeren Privatdesktop ab: $($emptyDesktopProbe.ErrorType): $($emptyDesktopProbe.ErrorMessage)"
+Assert-True ($emptyDesktopProbe.Count -eq 0) `
+  "Describe lieferte auf einem echten leeren Privatdesktop $($emptyDesktopProbe.Count) Fenster statt null."
 
 try {
   $unicodeTitle = "SSE native enumeration $([char]0x2013) SteuerSparErkl$([char]0x00E4)rung $PID"
