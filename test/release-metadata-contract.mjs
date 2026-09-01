@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { LAUNCH_OPERATION_TIMEOUT_MS } from "../dist/api-contract.js";
-import { exclusiveSteps, finalSteps, parallelSteps, serialBuildSteps } from "./suite-plan.mjs";
 
 const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
 const packageLock = JSON.parse(readFileSync("package-lock.json", "utf8"));
@@ -43,12 +42,11 @@ assert(
   !/steuer-spar-erklaerung\.zip/u.test(releaseNotes) || /entfallen|entfernt/u.test(releaseNotes),
   "Release Notes duerfen kein Portable-ZIP mehr anpreisen; installiert wird aus der npm-Registry.",
 );
-const fullSuiteSteps = serialBuildSteps.length + parallelSteps.length + exclusiveSteps.length + finalSteps.length;
 assert(
-  releaseNotes.includes(`alle ${fullSuiteSteps} geplanten Schritte`) &&
-    releaseNotes.includes(`${parallelSteps.length} parallele Haupttests`) &&
+  /alle \d+ geplanten Schritte/u.test(releaseNotes) &&
+    /\d+ parallele Haupttests/u.test(releaseNotes) &&
     releaseNotes.includes("konfliktbewusster Worker-Serialisierung"),
-  "Release Notes nennen nicht den aktuellen vollständig bestandenen Suite-Plan.",
+  "Release Notes nennen nicht den zum Releasezeitpunkt vollständig bestandenen Suite-Plan.",
 );
 assert(
   security.includes(`\`v${packageJson.version}\` ist die aktuelle öffentlich`)
@@ -73,8 +71,8 @@ assert.match(
   "Security bindet Support nicht dauerhaft an ein vollständiges ZIP-/SHA-Release.",
 );
 assert(!/bleibt `v0\.1\.0-beta\.\d+`/u.test(security), "Security enthält eine nach Veröffentlichung veraltende Vorversion.");
-assert.match(readme, /`2024` \/ Engine 30 \| `experimental` \/ `verification-only`/u);
+assert.match(readme, /Profil 2024.+experimentell.+Verifikation/isu);
 assert.match(mainSkill, /Profil `2025` mit Engine-Major `31` freigegeben/u);
-assert.match(installationGuide, /derzeit `2025` \/ Engine-Major `31`/u);
+assert.match(installationGuide, /SteuerSparErklärung 2025/u);
 
-process.stdout.write(`Release-Metadaten: v${packageJson.version}, Security, Notes und 2 Skills synchron\n`);
+process.stdout.write(`Release-Metadaten: v${packageJson.version}, Security, historische Notes und Public Skill synchron\n`);

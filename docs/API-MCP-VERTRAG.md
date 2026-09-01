@@ -114,7 +114,8 @@ Vor dieser Abbildung übernimmt der MCP-Start ausschließlich eine exakt passend
 API-Identität oder startet bei freiem Ziel seine installierte Dependency. Eine
 explizite `SSE_API_URL` deaktiviert Start und Fallback. Parallelstarts
 konvergieren über das Port-Rennen; fremde oder unklare Prozesse werden nie
-beendet oder ersetzt. API-stdio bleibt vollständig vom MCP-stdout getrennt.
+beendet oder ersetzt. `SSE_API_URL` und `SSE_API_CONFIG` gemeinsam sind als
+mehrdeutige Wahl gesperrt. API-stdio bleibt vollständig vom MCP-stdout getrennt.
 
 - MCP validiert unbekannte, falsch typisierte und zu große Argumente vor dem
   API-Aufruf. Nennt eine Meldung einen unbekannten Feldnamen, listet sie die
@@ -128,10 +129,11 @@ beendet oder ersetzt. API-stdio bleibt vollständig vom MCP-stdout getrennt.
 - API-Fehlerfelder werden nicht durch eine Fehler-Allowlist abgeschnitten;
   MCP markiert sie mit `isError=true`.
 - Erfolgreiche Antworten bleiben als JSON-Text verfügbar. Einige Werkzeuge
-  erzeugen darin aus Kompatibilitätsgründen eine kompakte Projektion. Alle 99
-  MCP-Werkzeuge veröffentlichen parallel das vollständige, redigierte
-  nicht-binäre API-Ergebnis als `structuredContent` mit einem deklarierten
-  `outputSchema`.
+  erzeugen darin aus Kompatibilitätsgründen eine kompakte Projektion. Alle 100
+  MCP-Werkzeuge veröffentlichen parallel ein vollständiges, redigiertes
+  `structuredContent` mit einem deklarierten `outputSchema`. Bei den 99
+  direkten Werkzeugen ist es das API-Ergebnis; `sse_preflight` besitzt einen
+  eigenen PC-blinden Kompositionsvertrag.
 - Lokale Windows-, UNC-, Datei-URL- und typische POSIX-Pfade werden an der
   MCP-Ausgabegrenze redigiert. Deshalb kann die öffentliche MCP-Antwort nicht
   bytegleich mit einem unredigierten lokalen API-Objekt sein.
@@ -218,6 +220,14 @@ API-/MCP-Parität bedeutet damit:
 
 Die Zahl der Werkzeugnamen ist nicht die Zahl eindeutiger API-Ziele.
 Beispielsweise bilden zwei Feldwerkzeuge auf `tracked_set_value` ab.
+`sse_preflight` bildet bewusst nicht auf eine erfundene API-Operation ab: Es
+ruft sequenziell `workspace_status`, `product_info` und `health` auf, stoppt bei
+einem Komponentenfehler und gibt ansonsten nur stabile Bereitschaftsflags und
+Blockercodes aus. Es startet oder konfiguriert nichts und gilt nicht als
+Mutationsfreigabe. `ready=true` verlangt sowohl für die geprüfte Installation
+als auch für den tatsächlich laufenden Prozess einen expliziten
+`buildDrift.drifted=false`-Nachweis; fehlende oder abweichende Runtime-Evidenz
+endet mit `SSE_BUILD_DRIFT`.
 `checker_open` komponiert intern Prüferlesen und einen eng gebundenen
 read-only Detailklick. UStVA-Werkzeuge komponieren profilierte Seiten- und
 Feldoperationen in der API, nicht im MCP-Prozess. Ihr Seiten-Read und die

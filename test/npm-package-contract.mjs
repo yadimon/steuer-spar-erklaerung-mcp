@@ -79,7 +79,8 @@ for (const required of [
   "PC-blinder MCP-Wrapper",
   "exakt dieselbe Paketversion",
   "@yadimon/steuer-spar-erklaerung-mcp",
-  "99 fachliche MCP-Toolnamen",
+  "99 fachliche API-Toolnamen plus den komponierten MCP-Preflight",
+  "Alle 100 MCP-Werkzeugnamen",
   "structuredContent",
   "ELSTER",
 ]) {

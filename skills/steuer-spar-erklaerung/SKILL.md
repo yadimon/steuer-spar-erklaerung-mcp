@@ -5,9 +5,8 @@ description: Prüft oder bearbeitet einen konkret geöffneten Steuerfall in eine
 
 # SteuerSparErklärung sicher prüfen
 
-Führe technisch unerfahrene Nutzer standardmäßig auf Deutsch. Arbeite
-read-only, bis eine konkrete Änderung freigegeben wurde. Ein bereits eindeutig
-geöffneter Fall ist der Arbeitsfall; öffne nicht still eine andere Datei.
+Führe technisch unerfahrene Nutzer standardmäßig auf Deutsch und arbeite read-only,
+bis eine konkrete Änderung freigegeben wurde. Ein bereits eindeutig geöffneter Fall ist der Arbeitsfall; öffne nicht still eine andere Datei.
 
 ## Nutzerziel zuerst erkennen
 
@@ -88,15 +87,20 @@ keine installierte Versionsabweichung. Nach einem erlaubten Launch muss
 `product_info` den laufenden Build erneut bestimmen; erst dessen nichtleerer
 `current`-Wert ist ein echter Gleich-/Driftnachweis.
 
-## Zuerst: ist ein Transport da?
+## Zuerst im MCP-Modus: MCP-Preflight
 
-Beginne jeden Auftrag mit genau einem Aufruf von `sse_health`. Sein Ergebnis
-entscheidet den weiteren Weg, und zwar ohne Rückfrage:
+Beginne jeden Auftrag im MCP-Modus mit `sse_preflight`. Er bündelt
+Arbeitsbereich, Produktprofil und Laufzeit PC-blind und entscheidet den
+weiteren Weg ohne technische Rückfrage:
 
-1. **`ok=true`** — MCP und API laufen. Arbeite normal weiter.
-2. **MCP-Tool existiert, meldet aber einen API-Startfehler** — MCP übernimmt oder startet seine exakte API-Dependency selbst. Melde den redigierten Fehler.
+1. **`ok=true` und `ready=true`** — arbeite normal weiter und binde mit
+   `sse_instances` den eindeutig geöffneten Fall.
+2. **`ok=true`, aber Blocker vorhanden** — folge dem stabilen `nextTool` und
+   rate weder Pfade noch Prozesse. Ein nicht konfigurierter Fallordner ist nur
+   ein Hinweis, solange genau ein Fall bereits eindeutig geöffnet ist.
+3. **MCP-Tool existiert, meldet aber einen API-Startfehler** — MCP übernimmt oder startet seine exakte API-Dependency selbst. Melde den redigierten Fehler.
    Starte keine zweite API und beende keinen Prozess anhand seines Namens. Bei autoritativem `SSE_API_URL` gibt es keinen Fallback.
-3. **Es gibt gar kein `sse_*`-Tool** — der MCP-Server ist beim Client nicht
+4. **Es gibt gar kein `sse_*`-Tool** — der MCP-Server ist beim Client nicht
    angemeldet. Wechsle in den Einrichtungsmodus, arbeite die kanonische Anleitung `https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md`
    ab und komm danach hierher zurück. Lies in diesem Zustand keine Steuerdaten.
 
@@ -111,17 +115,10 @@ Die lokale HTTP-API auf Loopback ist der universelle Kern. Nur sie kennt
 MCP ist ein dünner Wrapper darüber. Nur sein Supervisor kennt die eigene exakte
 API-Dependency und `SSE_API_CONFIG`; Pfade daraus hasht er nur zur Identität.
 Er liest keine Ressourceninhalte und gibt die Pfade nicht über MCP aus.
-Fehlt MCP oder unterstützt der Agent kein MCP, verwende dieselben
-Operationen direkt über die API-CLI. Wechsel während einer möglicherweise
+Fehlt MCP oder unterstützt der Agent kein MCP, stoppe zunächst. Verwende
+dieselben Operationen nur dann direkt über die API-CLI, wenn der Nutzer diesen
+separaten Modus ausdrücklich gewählt hat. Wechsel während einer möglicherweise
 begonnenen Schreiboperation nie still den Transport; bei unklarem Zustand stoppen.
-
-Hat der Nutzer ausdrücklich „über npx“, „ohne Installation“ oder „ohne MCP“
-verlangt, ist die direkte API-CLI der gewählte Transport. Versuche in diesem
-Lauf nicht zuerst MCP und verlange keinen MCP-Neustart; dasselbe gilt nach
-`Standard-Einrichtung und Prüflauf ausführen` im selben Auftrag. Wurde dagegen MCP
-ausdrücklich gewählt oder bereits für den Auftrag verwendet, ersetze einen
-fehlgeschlagenen oder abgebrochenen MCP-Aufruf nicht still durch die API-CLI;
-lies zuerst den frischen Zustand und stoppe bei möglicher Mutation.
 
 Die API kennt keine Anmeldung; es gibt kein Token zu lesen oder zu schützen.
 Sie weist stattdessen jede Anfrage mit `Origin`, `Sec-Fetch-Site` oder einem
@@ -130,115 +127,18 @@ Steuersoftware steuern kann. Verwende trotzdem die ausgelieferte CLI statt
 eigener HTTP-Befehle: sie kennt Argumentschemata, Grenzen und Ergebnisverträge.
 
 Der MCP-Eintrag enthält keinen `--config`-Parameter. Für einen eigenen Arbeitsbereich erhält er einen absoluten `SSE_API_CONFIG`-Pfad;
-`SSE_API_URL` ist nur für eine separat verwaltete Loopback-API und bleibt autoritativ.
-Erfinde keinen Konfigurationspfad; lies `health` und `workspace_status`.
+`SSE_API_URL` ist nur für eine separat verwaltete Loopback-API und bleibt autoritativ. Setze beide Variablen niemals gleichzeitig. Erfinde keinen Konfigurationspfad;
+lies stattdessen `sse_preflight`.
 
-Für direkte API-Aufrufe bevorzuge die ausgelieferte
-`steuer-spar-erklaerung-call`-CLI. Beginne bei einer bekannten Einzelaktion
-mit `describe <operation>` und nur bei einer breiten Planung mit `discovery`; für komplexe
-Argumente bevorzugt eine neue begrenzte UTF-8-JSON-Datei per `--args-file`
-verwenden. `--args-file -` ist nur für kleine, im selben Prozess erzeugte
-ASCII-Objekte geeignet. Mehrzeiligen Text oder Nicht-ASCII-Zeichen niemals
-durch eine Windows-PowerShell-Pipeline an stdin reichen: deren implizite
-Codepage kann Umlaute unbemerkt durch `?` ersetzen. Dafür JSON UTF-8 ohne BOM
-in eine private Datei schreiben, diese zurückparsen und ihren Pfad an
-`--args-file` übergeben. Schreibe Steuerwerte nie als Inline-JSON in die
-Kommandozeile oder Prozessliste. Ist ein eigener Client sinnvoller, lies `openapi` und verwende ausschließlich
-die dort aktuell veröffentlichten Verträge. Leite Anzahl und Namen immer aus
-der Laufzeitquelle ab.
+### Direkte API nur als bewusster Fallback
 
-### NPX-Kurzweg ohne globale Runtime-Installation
-
-Verwende diesen Weg nur auf Windows x64 mit bereits vorhandenem Node.js 22+
-und npm, wenn der Nutzer ihn ausdrücklich gewählt oder den Paketabruf im
-gezeigten Standardplan bestätigt hat. Der Hauptskill kann dafür direkt aus der
-Repository-URL gelesen sein; eine Installation im Ordner und MCP sind dafuer
-nicht erforderlich.
-
-Leite aus dem bestätigten absoluten Steuerfallpfad dessen Ordner ab. Starte die
-API in einem eigenen laufenden Terminalprozess und halte ihn bis zum sicheren
-Ende des Auftrags offen:
-
-```powershell
-npx.cmd -y @yadimon/steuer-spar-erklaerung-api --case-dir "<ABSOLUTER_FALLORDNER>"
-```
-
-Der erste Start legt nur private Arbeitsordner unter dem normalen
-Benutzerprofil an. `--case-dir` bindet den bestätigten Fallordner ausschließlich
-an diesen laufenden Prozess. Es ist die Auflösungs- und Schwärzungsgrenze für
-`cases:`-Referenzen, keine Zugriffssperre der direkten API.
-Es wird kein dauerhafter Launcher in den flüchtigen `_npx`-Cache geschrieben.
-Existiert eine benannte oder ungültige Konfiguration, ersetze sie nicht
-automatisch.
-
-Meldet der Start, dass auf dem Loopback-Port bereits eine SSE-API läuft, fahre
-nicht fort. Es kann eine anders konfigurierte Instanz sein. Verwende entweder
-bewusst die laufende Installation oder lasse den Nutzer sie zuerst beenden.
-
-Rufe aus einem zweiten Prozess über die CLI auf:
-
-```powershell
-npx.cmd -y -p @yadimon/steuer-spar-erklaerung-api steuer-spar-erklaerung-call discovery
-npx.cmd -y -p @yadimon/steuer-spar-erklaerung-api steuer-spar-erklaerung-call workspace_status
-```
-
-Verwende für weitere Operationen denselben `-p`-Aufruf vor
-`steuer-spar-erklaerung-call`. Die API bleibt der einzige langlebige Prozess;
-die einzelnen CLI-Aufrufe enden jeweils selbst. Verifiziere vor Steuerdatenarbeit
-Discovery, Arbeitsbereich, `capabilities`, `health`, Produktprofil und
-Engine-Major.
-
-Prüfe die Fallbindung über Dateiidentität statt über eine Ordnerangabe:
-`list_cases` muss den erwarteten Dateinamen des bestätigten Steuerfalls
-enthalten, und `case_hash` auf `cases:<Dateiname>` muss demselben SHA-256
-entsprechen wie `Get-FileHash -Algorithm SHA256` auf dem bestätigten absoluten
-Pfad. Stimmen Name oder Hash nicht überein oder fehlt die Bindung, beende die
-API und starte sie höchstens einmal mit dem bestätigten richtigen Ordner neu;
-ändere `config.json` dafür nicht manuell.
-
-In diesem Kurzweg können `settings.md` und ein altes Tracking fehlen. Verwende dann nur die im aktuellen Auftrag ausdrücklich
-bestätigten Fall- und Belegpfade sowie den bestätigten Modus; erfinde oder
-persistiere keine weiteren Präferenzen. Nur ein ausdrücklich isolierter
-Prüflauf erzeugt Prüffallkopie und Report. Beende nach positivem Abschluss auch
-die Foreground-API mit Strg+C. Falls der Agent keinen laufenden Prozess halten
-kann, biete stattdessen das persistente Setup an.
-
-Soll aus diesem Kurzweg eine dauerhafte Installation im Ordner werden, beende
-zuerst die Foreground-API mit Strg+C — sonst belegt sie den Port — und arbeite
-danach die kanonische Anleitung
-`https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md`
-ab. Der NPX-Kurzweg bleibt bewusst der einmalige Prüflauf ohne Ordnerbindung.
-
-Lege bei direkten Laufzeit- und UI-Aufrufen mit `--journal-file
-<neue-private-datei.jsonl>` immer eine neue Journaldatei im privaten
-Arbeitsbereich des Agenten an. Die CLI schreibt vor dem API-Aufruf dauerhaft
-einen JSONL-Eintrag mit `status="pending"`, `command`, `invocationId` und
-`startedAt` und danach `status="complete"`, `exitCode` und vollständigem
-`result` oder `status="error"` samt Fehlertext.
-Existierende Dateien werden nie überschrieben. `pending`, ein fehlender
-Abschlusseintrag oder leerer stdout bedeuten einen unbekannten Zustand: lies
-zuerst das Journal und danach frischen API-Zustand, starte dieselbe Aktion aber
-nicht erneut. Vermische eigene Diagnoseausgaben nicht mit dem JSON-stdout der
-CLI; lies das Journal in einem getrennten Schritt. Verwende für `launch`, `windows`, `collect`, `ui_state`, `close`
-und `health` auf langsamen PCs kein künstlich verkürztes Transportlimit. Für
-den ersten `launch` in einer VM oder auf einem nachweislich langsamen PC direkt
-`--timeout-ms 280000` verwenden; die CLI-Vorgabe von 90 Sekunden kann einen
-noch laufenden Kaltstart sonst nur als unbekannten Transportzustand
-zurücklassen.
-Ein synchronisierter `complete`-Eintrag mit `exitCode=1` ist kein
-Transportfehler: lies `result`. Bei `result.ok=false` ist die fachliche
-Operation nachweislich fehlgeschlagen oder absichtlich unvollständig. Ein
-`collect` mit `kind="collection-incomplete"` und `stopKind="limit-reached"`
-darf seine gelesenen Seiten als klar begrenzten Teilstand liefern, aber niemals
-als vollständige Prüfung gelten.
-
-Eine Agentensandbox darf die API-Wahrheit nicht durch lokale Prozessproben
-ersetzen. Unterdrücktes oder verweigertes `Get-CimInstance`, `Get-Process` oder
-`tasklist` beweist keine beendete SSE-PID. Melden `close` nicht gleichzeitig
-`ok=true` und `stillRunning=false`, bleibt nur die Aussage: „Meine Automation
-ist beendet; SSE kann noch geöffnet sein.“ Behaupte „SSE ist geschlossen“ erst
-nach diesem positiven Close-Readback und einer frischen API-Abfrage von
-`windows` oder `health`, in der die gebundene PID/HWND nicht mehr läuft.
+Der Skill ist eine Komfortschicht. Fehlt MCP und hat der Nutzer ausdrücklich direkte API-Nutzung gewählt, folge
+der [API-Paketdokumentation](../../packages/api/README.md) und dem installierten
+`discovery`-/`describe`-Vertrag. Wechsle während einer möglicherweise
+begonnenen Mutation nie still den Transport. Ein fehlender oder fremder
+Loopback-Dienst bleibt ein sicherer Stopp; beende niemals Prozesse anhand
+eines bloßen Namens. Steuerwerte gehören nicht als Inline-JSON in die
+Prozessliste.
 
 Rufe nach erfolgreicher Verbindung zuerst `sse_capabilities` beziehungsweise
 die API-Operation `capabilities` auf. Diese PC-neutrale Selbstbeschreibung ist
@@ -255,8 +155,11 @@ alle Jahresprofile aggregiert und kein Nachweis für das aktuell gebundene
 informativ; die tatsächliche Serversperre steht weiterhin ausschließlich in
 `operationPolicy`.
 
-Vorausgesetzt sind Node.js 22+ mit npm; Python und PowerShell 7 nicht.
-Verwendet wird Windows PowerShell 5.1.
+Im ausdrücklich gewählten direkten API-Modus ersetzt die read-only Folge
+`workspace_status`, `product_info`, `health` den MCP-Preflight. Fahre nur fort,
+wenn sie eindeutig dasselbe freigegebene Profil und Steuerjahr belegen, der
+laufende Build keinen Drift meldet und kein Dialog offen ist; danach
+`capabilities` lesen.
 
 ## Einstieg
 
@@ -281,26 +184,23 @@ diese Belegangabe vollständig ist; „keine Belege“ zählt als vollständige
 Angabe. Ein zusätzlicher Satz zur Vollständigkeit ist dann nicht nötig. Fehlt
 jede Belegangabe, stelle die zweite fachliche Frage trotzdem.
 
-Fehlt eine funktionierende Einrichtung und wurde nicht ausdrücklich der
-NPX-Kurzweg gewählt, arbeite die kanonische Anleitung
+Fehlt eine funktionierende Einrichtung, arbeite die kanonische Anleitung
 `https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md`
 ab, statt die Einrichtung frei zu improvisieren. Es gibt kein Setup-Programm:
-Ordner anlegen, MCP samt exakter API-Dependency und den Skill installieren,
+Ordner anlegen, MCP samt exakter API-Dependency und optional den Skill installieren,
 MCP beim Client anmelden. Ein API-Terminal gehört nicht zum Standardweg.
-Verlange danach einen grünen `--selftest` und bei ausdrücklich
-gewähltem MCP zusätzlich Serverliste plus echten Aufruf von `sse_health` mit
+Verlange danach einen grünen `--selftest` und zusätzlich Serverliste plus
+echten Aufruf von `sse_preflight` mit
 strukturiertem `ok=true`; „connected“ oder ein Handshake allein genügt nicht.
 Dieser Nachweis muss im MCP-Modus ein tatsächlicher MCP-Tool-Aufruf sein.
-`health` über Shell oder direkte API-CLI ist dort kein Ersatz. Ist `sse_health`
+`health` über Shell oder direkte API-CLI ist dort kein Ersatz. Ist `sse_preflight`
 im neu gestarteten MCP-Client nicht als Tool verfügbar, stoppe vor jeder
 Facharbeit in diesem MCP-Auftrag und melde die fehlende Client-Verifikation.
-Im ausdrücklich gewählten NPX-/API-Modus gilt stattdessen der oben definierte
-CLI-Readback; fehlendes MCP ist dort kein Fehler.
 Wurden Skills oder MCP im aktuellen Lauf neu installiert oder geändert, melde
 statt eines vorgetäuschten Tool-Erfolgs „Technisches Setup bereit;
 Client-Verifikation nach Neustart offen.“ Fordere genau einen Client-Neustart
-an. Der danach gestartete Prüfauftrag führt Serverliste und den echten
-MCP-Aufruf `sse_health` vor jedem direkten API-Aufruf aus und setzt bei Erfolg
+an. Der danach gestartete Prüfauftrag führt Serverliste und genau einmal den
+echten MCP-Aufruf `sse_preflight` aus und setzt bei Erfolg
 ohne neue Bestätigungsfrage fort.
 Kehre danach automatisch
 zum ursprünglichen Prüfauftrag zurück; ein Auftrag wie „Prüfe meine

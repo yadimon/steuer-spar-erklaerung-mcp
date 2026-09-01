@@ -172,7 +172,7 @@ Erst nach beiden Antworten zeige kurz den tatsächlichen Plan. Standard ist:
 - Node.js/npm, Python, Git oder PowerShell 7 nicht eigens installieren; fehlt
   Node.js, ist das eine Voraussetzung und ein Stopp, keine Aufgabe;
 - einen privaten Standard-Arbeitsbereich außerhalb von Git verwenden;
-- zunächst nur die direkte lokale Loopback-API und read-only arbeiten;
+- zunächst über MCP und dessen lokale Loopback-API read-only arbeiten;
 - für diesen ausdrücklich isolierten Nur-Lese-Prüflauf eine neue
   hashverifizierte Prüffallkopie neben dem Original erzeugen und ausschließlich
   diese öffnen; normale Arbeit am bereits geöffneten Fall erzeugt keine Kopie;
@@ -192,41 +192,31 @@ Downloads und der lokalen Standard-Setup-Dateien. Sie sind keine Freigabe für
 spätere Steuerdatenänderungen, Connectoren, MCP-Konfigurationsänderungen,
 Autostart oder ELSTER.
 
-MCP ist eine optionale Produktfunktion: Die lokale API führt die Arbeit aus;
-MCP verbindet einen kompatiblen Agenten damit. Ein reines API-Setup lässt MCP
-weg. Ein ausdrücklich beauftragter vollständiger lokaler Standard mit „API plus
-MCP“ enthält es nach gezeigtem Konfigurations-Diff.
-
-Hat der Nutzer ausdrücklich einen kurzen NPX-Lauf ohne Installation verlangt
-und Node.js 22+ mit npm ist bereits vorhanden, ersetzt dieser die Installation
-im Ordner für den aktuellen Auftrag. Der Agent startet das API-Paket im
-Vordergrund mit dem bestätigten Fallordner, verwendet die CLI aus demselben
-Paket und beendet den Prozess nach dem Report wieder. MCP, Client-Merge und
-Neustart gehören nicht zu diesem Kurzweg.
+MCP ist der Standardtransport; die lokale API führt die Arbeit aus. Der Skill
+ist nur eine optionale Komfortschicht. Eine ausdrücklich beauftragte direkte
+API-Integration bleibt separat nach dem API-Paket-README möglich.
 
 ## Einrichten und Auftrag fortsetzen
 
-Fehlt eine erreichbare API, richte sie jetzt ein, außer der Nutzer hat
-ausdrücklich den NPX-Kurzweg bestätigt. Übernimm die bereits bestätigten Pfade
-und den Standardplan; frage sie nicht erneut.
+Fehlt eine erreichbare API, richte den projektlokalen MCP-Standard ein. Übernimm
+die bereits bestätigten Pfade und den Standardplan; frage sie nicht erneut.
 
 Es gibt kein Einrichtungsprogramm und keine Plandatei. Die vier Schritte stehen
 in der kanonischen Anleitung
 `https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md`:
-Ordner anlegen, das MCP-Paket und den Skill installieren und den MCP-Server
-beim Client anmelden. npm installiert die exakt passende API-Dependency
+Ordner anlegen, das MCP-Paket und optional den Skill installieren und den
+MCP-Server projektlokal beim Client anmelden. npm installiert die exakt passende API-Dependency
 automatisch; beim MCP-Start wird eine kompatible API übernommen oder die
 Dependency unsichtbar gestartet. Ein separates API-Terminal gehört nicht zum
-Standardweg. Der erste API-Start legt die Ressourcenbereiche selbst an; eine
-`config.json` ist optional, ein eigener Arbeitsbereich wird über einen
-absoluten `SSE_API_CONFIG`-Pfad am MCP-Eintrag gewählt.
+Standardweg. Der erste API-Start legt die Ressourcenbereiche selbst an; für
+die dokumentierte Ordnerisolation zeigt ein absoluter `SSE_API_CONFIG`-Pfad am
+MCP-Eintrag auf `config.json` im gewählten Projektordner.
 
-Soll ein dauerhafter Fallordner gebunden werden, trage dessen absoluten Pfad
-vor dem MCP-Start als `caseDir` in der ausdrücklich gewählten
-`SSE_API_CONFIG` ein. Eine bereits laufende Singleton-API wird nicht
+`caseDir` ist keine Fallauswahl und öffnet nichts. Trage es nur dann in die
+ausdrücklich gewählte `SSE_API_CONFIG` ein, wenn `cases:`-Referenzen dauerhaft
+gegen genau diesen bestätigten Ordner aufgelöst werden sollen. Eine bereits laufende Singleton-API wird nicht
 nachträglich auf einen anderen Arbeitsbereich umgebunden; beende sie dafür
-bewusst und starte MCP mit der bestätigten Konfiguration neu. `--case-dir`
-gehört nur zum separat gestarteten API-/NPX-Kurzweg. Dauerhafte Vorlieben —
+bewusst und starte MCP mit der bestätigten Konfiguration neu. Dauerhafte Vorlieben —
 Belegquellen, Prioritäten — gehören nach `settings.md` im Arbeitsbereich, und
 dorthin nur mit ausdrücklicher Zustimmung.
 
