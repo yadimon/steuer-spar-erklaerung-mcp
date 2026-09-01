@@ -54,7 +54,17 @@ const completeSurface = {
     "public sealed class SSEWorkerControllerLease",
     "public class SW",
   ),
-  SW: publicStaticMethods(originalNativeSource, "public class SW", "public sealed class SSEAccNode"),
+  SW: publicStaticMethods(originalNativeSource, "public class SW", "public sealed class SSEWindowNode"),
+  SSEWindowNode: publicStaticMethods(
+    originalNativeSource,
+    "public sealed class SSEWindowNode",
+    "public static class SSEWindowEnumerator",
+  ),
+  SSEWindowEnumerator: publicStaticMethods(
+    originalNativeSource,
+    "public static class SSEWindowEnumerator",
+    "public sealed class SSEAccNode",
+  ),
   SSEAccessible: publicStaticMethods(originalNativeSource, "public static class SSEAccessible", null),
 };
 for (const [typeName, methods] of Object.entries(completeSurface)) {

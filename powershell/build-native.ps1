@@ -86,6 +86,8 @@ function Assert-SSENativeAssemblySurface([Reflection.Assembly]$Assembly) {
       'WindowFromPoint','GetAncestor','ShowWindow','SetWindowPos','BringWindowToTop','ScreenToClient','PostMessage',
       'SendMessage','GetForegroundWindow','GetLastActivePopup','GetLastInputInfo','IsIconic','AttachThreadInput',
       'GetGUIThreadInfo','GetCurrentThreadId','SendUnicodeText')
+    SSEWindowEnumerator=@('Describe')
+    SSEWindowNode=@()
     SSEAccessible=@('Describe','DescribePoint','Invoke')
     SSEAccNode=@()
     SSEWorkerControllerLease=@('Acquire','ReleaseAndClose')

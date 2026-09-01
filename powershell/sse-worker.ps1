@@ -2529,31 +2529,20 @@ function Get-AllowedWindowProcesses([string]$ProcName) {
 function Get-Windows([string]$ProcName = 'SSE') {
   $procs = @(Get-AllowedWindowProcesses $ProcName)
   if (-not $procs) { return @() }
-  $ids = @($procs | ForEach-Object { $_.Id })
-  $list = New-Object System.Collections.ArrayList
-  $cb = [SW+EP]{
-    param($h, $l)
-    $ppid = 0
-    [SW]::GetWindowThreadProcessId($h, [ref]$ppid) | Out-Null
-    if ($ids -contains [int]$ppid -and [SW]::IsWindowVisible($h)) {
-      $t = New-Object Text.StringBuilder 512; [SW]::GetWindowTextW($h, $t, 512) | Out-Null
-      $c = New-Object Text.StringBuilder 256; [SW]::GetClassNameW($h, $c, 256) | Out-Null
-      $r = New-Object SW+RC; [SW]::GetWindowRect($h, [ref]$r) | Out-Null
-      $null = $list.Add([pscustomobject]@{
-        hwnd = [int64]$h; pid = [int]$ppid
-        x = $r.L; y = $r.T; w = $r.R - $r.L; h = $r.B - $r.T
-        cls = $c.ToString(); title = $t.ToString(); titleFingerprint = Get-SSETextSha256 ($t.ToString())
-        hung = [SW]::IsHungAppWindow($h)
-        # Minimierte Fenster meldet Windows bei -32000,-32000 mit Winzgroesse.
-        # Ohne diese Kennzeichnung rechnet alles Weitere mit Unsinn:
-        # Spaltengrenzen werden negativ, jede Zuordnung ist falsch.
-        minimiert = [bool]([SW]::IsIconic($h))
-      })
+  $ids = [int[]]@($procs | ForEach-Object { [int]$_.Id })
+  @([SSEWindowEnumerator]::Describe($ids) | ForEach-Object {
+    [pscustomobject][ordered]@{
+      hwnd=[int64]$_.Hwnd; pid=[int]$_.Pid
+      x=[int]$_.X; y=[int]$_.Y; w=[int]$_.W; h=[int]$_.H
+      cls=[string]$_.ClassName; title=[string]$_.Title
+      titleFingerprint=[string]$_.TitleFingerprint
+      hung=[bool]$_.Hung
+      # Minimierte Fenster meldet Windows bei -32000,-32000 mit Winzgroesse.
+      # Ohne diese Kennzeichnung rechnet alles Weitere mit Unsinn:
+      # Spaltengrenzen werden negativ, jede Zuordnung ist falsch.
+      minimiert=[bool]$_.Minimized
     }
-    return $true
-  }
-  [SW]::EnumWindows($cb, [IntPtr]::Zero) | Out-Null
-  @($list | Sort-Object { $_.w * $_.h } -Descending)
+  })
 }
 
 # EnumWindows sieht nur den Desktop des aufrufenden Threads. Der Worker fuer
