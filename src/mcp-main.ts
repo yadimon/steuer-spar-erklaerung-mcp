@@ -2,6 +2,7 @@ export type McpMainMode = "stdio" | "selftest" | "help";
 
 const SELFTEST_BUSY_TIMEOUT_MS = 60_000;
 const SELFTEST_BUSY_POLL_MS = 50;
+const SELFTEST_BUSY_MAX_POLL_MS = 1_000;
 
 function isBusyApiError(error: unknown): boolean {
   return error instanceof Error && (error as Error & { kind?: unknown }).kind === "busy";
@@ -101,6 +102,7 @@ export async function runMcpMain(args: readonly string[]): Promise<void> {
     ]);
     const health = await supervisor.ensureApiSingleton();
     const deadline = Date.now() + SELFTEST_BUSY_TIMEOUT_MS;
+    let busyPollMs = SELFTEST_BUSY_POLL_MS;
     let result: Awaited<ReturnType<typeof callApiOperation>>;
     while (true) {
       try {
@@ -116,10 +118,19 @@ export async function runMcpMain(args: readonly string[]): Promise<void> {
         if (!isBusyApiError(error) || Date.now() >= deadline) throw error;
       }
       await supervisor.assertApiSingletonIdentity();
-      await delay(SELFTEST_BUSY_POLL_MS);
+      await delay(busyPollMs);
+      busyPollMs = Math.min(busyPollMs * 2, SELFTEST_BUSY_MAX_POLL_MS);
     }
     if (result.ok !== true) {
-      throw new Error("API-Selftest fehlgeschlagen: health lieferte kein ok=true.");
+      const detail = responseBoundary.redactPcLocalPaths({
+        kind: result.kind ?? null,
+        reason: result.reason ?? null,
+        error: result.error ?? null,
+        retryable: result.retryable ?? null,
+      });
+      throw new Error(
+        `API-Selftest fehlgeschlagen: health lieferte kein ok=true. ${JSON.stringify(detail)}`,
+      );
     }
     process.stdout.write(`${JSON.stringify(responseBoundary.redactPcLocalPaths(result), null, 2)}\n`);
     return;

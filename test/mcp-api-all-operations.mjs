@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { createSseApiServer } from "../dist/api-server.js";
+import { MCP_PREFLIGHT_OUTPUT_SCHEMA } from "../dist/mcp-preflight.js";
 import {
   SSE_MCP_COMPOSED_TOOL_OPERATIONS,
   SSE_MCP_TOOL_OPERATIONS,
@@ -98,9 +99,12 @@ try {
     assert.equal(calls.length, beforeUnknown, `${tool.name} leitete ein unbekanntes Argument zur API.`);
   }
   const beforePreflight = calls.length;
+  const preflightTool = tools.find((tool) => tool.name === "sse_preflight");
+  assert(preflightTool?.outputSchema, "sse_preflight muss ein deklariertes outputSchema veroeffentlichen.");
   const preflight = await client.callTool({ name: "sse_preflight", arguments: {} });
   assert.notEqual(preflight.isError, true);
   assert.equal(preflight.structuredContent?.ok, true);
+  MCP_PREFLIGHT_OUTPUT_SCHEMA.parse(preflight.structuredContent);
   assert.deepEqual(
     calls.slice(beforePreflight).map((entry) => entry.operation),
     [...SSE_MCP_COMPOSED_TOOL_OPERATIONS.sse_preflight],
