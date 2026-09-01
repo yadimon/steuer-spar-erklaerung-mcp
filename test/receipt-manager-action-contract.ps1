@@ -35,7 +35,6 @@ foreach ($functionName in @(
     Invoke-Expression $definitions[0].Extent.Text
   }
 }
-
 $policy = $catalog.windows.receiptManager
 $foregroundCatalogStart = $worker.IndexOf('$foregroundRequiredReceiptOps = @(')
 $foregroundGateStart = $worker.IndexOf('$profilePolicyOperation -in $foregroundRequiredReceiptOps')
@@ -176,16 +175,129 @@ try {
 }
 Assert-True ([bool]$policy.controls.linkManagement.directToggleSupported -eq $false) 'Wirkungsloses TogglePattern darf fuer SSE 31.0.1 nicht aktiviert sein.'
 
-function Get-SSETextSha256([string]$Text) { 'A' * 64 }
-function Walk-Tree([IntPtr]$Window, [int]$MaxNodes) {
-  [pscustomobject]@{ nodes=$script:ReceiptNodes; stats=[pscustomobject]@{ n=$script:ReceiptNodes.Count } }
+function Get-SSETextSha256([string]$Text) {
+  $sha = [Security.Cryptography.SHA256]::Create()
+  try {
+    $bytes = [Text.Encoding]::UTF8.GetBytes($Text)
+    ([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace('-', '')
+  } finally { $sha.Dispose() }
 }
-function ReceiptNode([string]$Suffix, [bool]$Enabled = $true) {
+function Fail([string]$Message, [string]$Kind) { throw "$Kind::$Message" }
+function Walk-Tree([IntPtr]$Window, [int]$MaxNodes, [switch]$WithValues) {
+  $script:ReceiptWalkWithValues = $WithValues.IsPresent
   [pscustomobject]@{
-    aid="SSE_Application.BMMainWindow$Suffix"; name=''; type='Button'; on=$Enabled
-    checked=$null; selected=$null; x=10; y=10; w=20; h=20
+    nodes=$script:ReceiptNodes
+    stats=[pscustomobject][ordered]@{ n=$script:ReceiptNodes.Count; fixture='receipt-state' }
   }
 }
+function ReceiptNode(
+  [string]$Suffix,
+  [bool]$Enabled = $true,
+  [int]$X = 10,
+  [int]$Y = 10,
+  [int]$Width = 20,
+  [int]$Height = 20,
+  [string]$Name = '',
+  [string]$Type = 'Button',
+  $Checked = $null,
+  $Selected = $null
+) {
+  [pscustomobject]@{
+    aid="SSE_Application.BMMainWindow$Suffix"; name=$Name; type=$Type; on=$Enabled
+    checked=$Checked; selected=$Selected; x=$X; y=$Y; w=$Width; h=$Height
+  }
+}
+
+# Eingefrorene Referenz der bisherigen Mehrfachscan-Implementierung. Die
+# gerichteten und randomisierten Differentialfaelle darunter muessen nicht nur
+# den Zustand, sondern auch Fehler, Node-/Stats-Shape und exakte Fingerprint-
+# Bytes beibehalten.
+function Get-LegacySSEReceiptManagerState([IntPtr]$Window, $Policy, [switch]$WithValues) {
+  $tree = Walk-Tree $Window 800 -WithValues:$WithValues
+  $nodes = @($tree.nodes | Where-Object { $_.w -gt 0 -and $_.h -gt 0 })
+  $matchedStates = New-Object System.Collections.ArrayList
+  foreach ($stateProperty in @($Policy.states.PSObject.Properties)) {
+    $required = @($stateProperty.Value.requiredAutomationIdSuffixes | ForEach-Object { [string]$_ })
+    if (-not $required.Count) { Fail "BelegManager-Zustand '$($stateProperty.Name)' hat keine Pflichtsteuerelemente." 'profile-contract' }
+    $complete = $true
+    foreach ($suffix in $required) {
+      $matches = @($nodes | Where-Object {
+        [string]$_.aid -and ([string]$_.aid).EndsWith($suffix, [StringComparison]::Ordinal)
+      })
+      if ($matches.Count -ne 1 -or -not [bool]$matches[0].on) { $complete = $false; break }
+    }
+    if ($complete) { $null = $matchedStates.Add([string]$stateProperty.Name) }
+  }
+  if ($matchedStates.Count -ne 1) {
+    Fail "BelegManager-Zustand ist nicht eindeutig profiliert ($($matchedStates.Count) Treffer)." 'state-unknown'
+  }
+
+  $relevantSuffixes = @(
+    @($Policy.states.PSObject.Properties | ForEach-Object { @($_.Value.requiredAutomationIdSuffixes) }) +
+    @($Policy.actions.PSObject.Properties | ForEach-Object { [string]$_.Value.automationIdSuffix })
+  ) | ForEach-Object { [string]$_ } | Where-Object { $_ } | Select-Object -Unique
+  $stableNodes = @($nodes | Where-Object {
+    $aid = [string]$_.aid
+    @($relevantSuffixes | Where-Object { $aid.EndsWith($_, [StringComparison]::Ordinal) }).Count -gt 0
+  } | Sort-Object aid | ForEach-Object {
+    [pscustomobject][ordered]@{
+      aid=[string]$_.aid; name=[string]$_.name; type=[string]$_.type
+      enabled=[bool]$_.on; checked=$_.checked; selected=$_.selected
+      x=[int]$_.x; y=[int]$_.y; w=[int]$_.w; h=[int]$_.h
+    }
+  })
+  $state = [string]$matchedStates[0]
+  $fingerprintBody = [pscustomobject][ordered]@{
+    hwnd=[int64]$Window; state=$state; nodes=$stableNodes
+  }
+  [pscustomobject]@{
+    window=[int64]$Window
+    state=$state
+    fingerprint=Get-SSETextSha256 ($fingerprintBody | ConvertTo-Json -Depth 8 -Compress)
+    nodes=$nodes
+    stats=$tree.stats
+  }
+}
+
+function Invoke-ReceiptStateOutcome(
+  [string]$CommandName,
+  [object[]]$Nodes,
+  $StatePolicy,
+  [bool]$WithValues = $false
+) {
+  $script:ReceiptNodes = @($Nodes)
+  $script:ReceiptWalkWithValues = $false
+  try {
+    $result = & $CommandName ([IntPtr]5252) $StatePolicy -WithValues:$WithValues
+    [pscustomobject][ordered]@{
+      ok=$true
+      withValues=[bool]$script:ReceiptWalkWithValues
+      json=($result | ConvertTo-Json -Depth 12 -Compress)
+      result=$result
+    }
+  } catch {
+    [pscustomobject][ordered]@{
+      ok=$false
+      withValues=[bool]$script:ReceiptWalkWithValues
+      error=[string]$_.Exception.Message
+      result=$null
+    }
+  }
+}
+
+function Assert-ReceiptStateParity([object[]]$Nodes, $StatePolicy, [string]$CaseName, [bool]$WithValues = $false) {
+  $legacy = Invoke-ReceiptStateOutcome 'Get-LegacySSEReceiptManagerState' $Nodes $StatePolicy $WithValues
+  $indexed = Invoke-ReceiptStateOutcome 'Get-SSEReceiptManagerState' $Nodes $StatePolicy $WithValues
+  Assert-True ($legacy.ok -eq $indexed.ok) "$CaseName hat ein abweichendes Erfolgs-/Fehlerergebnis."
+  Assert-True ($legacy.withValues -eq $indexed.withValues) "$CaseName reicht WithValues abweichend an Walk-Tree weiter."
+  if ($legacy.ok) {
+    Assert-True ($legacy.json -ceq $indexed.json) "$CaseName veraendert Zustand, Shape oder Fingerprint."
+  } else {
+    Assert-True ($legacy.error -ceq $indexed.error) "$CaseName veraendert den fail-closed Fehler: '$($legacy.error)' / '$($indexed.error)'."
+  }
+  $indexed
+}
+
 $script:ReceiptNodes = @($policy.states.start.requiredAutomationIdSuffixes | ForEach-Object { ReceiptNode ([string]$_) })
 $startState = Get-SSEReceiptManagerState ([IntPtr]5252) $policy
 Assert-True ($startState.state -ceq 'start') "Startzustand wurde als '$($startState.state)' erkannt."
@@ -193,6 +305,224 @@ $script:ReceiptNodes = @($policy.states.list.requiredAutomationIdSuffixes | ForE
 $listState = Get-SSEReceiptManagerState ([IntPtr]5252) $policy
 Assert-True ($listState.state -ceq 'list') "Listenzustand wurde als '$($listState.state)' erkannt."
 Assert-True ([int64]$listState.window -eq 5252) 'BelegManager-Zustand behaelt das exakt gelesene Fenster nicht fuer die Grid-Projektion.'
+
+$startNodes = @($policy.states.start.requiredAutomationIdSuffixes | ForEach-Object { ReceiptNode ([string]$_) })
+$listNodes = @($policy.states.list.requiredAutomationIdSuffixes | ForEach-Object { ReceiptNode ([string]$_) })
+$duplicateNodes = @($startNodes) + @(ReceiptNode ([string]$policy.states.start.requiredAutomationIdSuffixes[0]))
+$enabledDisabledDuplicateNodes = @($startNodes) + @(
+  ReceiptNode ([string]$policy.states.start.requiredAutomationIdSuffixes[0]) $false
+)
+$disabledNodes = @($startNodes | ForEach-Object {
+  if ([string]$_.aid -ceq [string]$startNodes[0].aid) {
+    ReceiptNode ([string]$policy.states.start.requiredAutomationIdSuffixes[0]) $false
+  } else { $_ }
+})
+$ambiguousNodes = @($startNodes) + @($listNodes)
+$caseDistinctNodes = @($startNodes) + @(
+  ReceiptNode ([string]$policy.states.start.requiredAutomationIdSuffixes[0]).ToUpperInvariant()
+)
+$hiddenAndNoiseNodes = @($startNodes) + @(
+  ReceiptNode ([string]$policy.states.start.requiredAutomationIdSuffixes[0]) $true 10 10 0 20 'hidden duplicate'
+  ReceiptNode '.UNRELATED' $true 40 40 20 20 'visible noise' 'Text'
+)
+
+$null = Assert-ReceiptStateParity $startNodes $policy 'start'
+$null = Assert-ReceiptStateParity $listNodes $policy 'list-with-values' $true
+$null = Assert-ReceiptStateParity $duplicateNodes $policy 'duplicate-required-control'
+$null = Assert-ReceiptStateParity $enabledDisabledDuplicateNodes $policy 'enabled-disabled-duplicate-control'
+$null = Assert-ReceiptStateParity $disabledNodes $policy 'disabled-required-control'
+$null = Assert-ReceiptStateParity $ambiguousNodes $policy 'ambiguous-state'
+$null = Assert-ReceiptStateParity $caseDistinctNodes $policy 'ordinal-case-distinct-control'
+$hiddenOutcome = Assert-ReceiptStateParity $hiddenAndNoiseNodes $policy 'hidden-duplicate-and-visible-noise'
+Assert-True ($hiddenOutcome.ok -and $hiddenOutcome.result.nodes.Count -eq 4) `
+  'Nur sichtbare Knoten duerfen im Rueckgabezustand verbleiben; sichtbares Rauschen bleibt fuer Folgeprojektionen erhalten.'
+
+# State- und Action-Suffix koennen denselben oder ueberlappende Knoten treffen.
+# Der Fingerprint projiziert jeden sichtbaren Knoten dennoch exakt einmal.
+$overlapPolicy = $policy | ConvertTo-Json -Depth 30 | ConvertFrom-Json
+$overlapPolicy.actions | Add-Member -NotePropertyName overlappingHome -NotePropertyValue ([pscustomobject]@{
+  automationIdSuffix='home'; expectedName=''; fromState='list'; toState='start'
+})
+$overlapNodes = @($listNodes | ForEach-Object {
+  if ([string]$_.aid -like '*.pushButton_home') {
+    ReceiptNode '.pushButton_home' $true 31 32 33 34 'Home' 'Button' 'On' $true
+  } else { $_ }
+})
+$overlapOutcome = Assert-ReceiptStateParity $overlapNodes $overlapPolicy 'overlapping-suffix-dedupe'
+$expectedStableNodes = @($overlapNodes | Sort-Object aid | ForEach-Object {
+  [pscustomobject][ordered]@{
+    aid=[string]$_.aid; name=[string]$_.name; type=[string]$_.type
+    enabled=[bool]$_.on; checked=$_.checked; selected=$_.selected
+    x=[int]$_.x; y=[int]$_.y; w=[int]$_.w; h=[int]$_.h
+  }
+})
+$expectedFingerprintBody = [pscustomobject][ordered]@{ hwnd=[int64]5252; state='list'; nodes=$expectedStableNodes }
+$expectedFingerprint = Get-SSETextSha256 ($expectedFingerprintBody | ConvertTo-Json -Depth 8 -Compress)
+Assert-True ([string]$overlapOutcome.result.fingerprint -ceq $expectedFingerprint) `
+  'Ueberlappende State-/Action-Suffixe duplizieren einen Knoten im exakten Fingerprint.'
+
+$shuffledNodes = @($overlapNodes[2],$overlapNodes[0],$overlapNodes[1])
+$shuffledOutcome = Assert-ReceiptStateParity $shuffledNodes $overlapPolicy 'shuffled-input'
+Assert-True ([string]$shuffledOutcome.result.fingerprint -ceq [string]$overlapOutcome.result.fingerprint) `
+  'Der Fingerprint haengt trotz eindeutiger AutomationIds von der Eingabereihenfolge ab.'
+
+$casePolicy = [pscustomobject]@{
+  states=[pscustomobject]@{
+    exactCase=[pscustomobject]@{ requiredAutomationIdSuffixes=@('.CaseControl','.caseControl') }
+  }
+  actions=[pscustomobject]@{}
+}
+$casePolicyNodes = @(ReceiptNode '.CaseControl'; ReceiptNode '.caseControl')
+$casePolicyOutcome = Assert-ReceiptStateParity $casePolicyNodes $casePolicy 'case-distinct-policy-suffixes'
+Assert-True ($casePolicyOutcome.ok -and [string]$casePolicyOutcome.result.state -ceq 'exactCase') `
+  'Case-verschiedene Ordinal-Suffixe werden im Index nicht getrennt gehalten.'
+
+$requiredOverlapPolicy = [pscustomobject]@{
+  states=[pscustomobject]@{
+    overlap=[pscustomobject]@{ requiredAutomationIdSuffixes=@('.button_home','home') }
+  }
+  actions=[pscustomobject]@{}
+}
+$requiredOverlapOutcome = Assert-ReceiptStateParity `
+  @(ReceiptNode '.button_home') $requiredOverlapPolicy 'overlapping-required-suffixes'
+Assert-True ($requiredOverlapOutcome.ok -and [string]$requiredOverlapOutcome.result.state -ceq 'overlap') `
+  'Ein Knoten darf nicht nach dem ersten passenden Required-Suffix aus der Klassifikation fallen.'
+
+$multiFingerprintNodes = @($startNodes) + @(
+  ReceiptNode '.left.pushButton_home' $true 51 52 53 54 'Home left'
+  ReceiptNode '.right.pushButton_home' $false 61 62 63 64 'Home right'
+)
+$null = Assert-ReceiptStateParity $multiFingerprintNodes $policy 'multiple-action-fingerprint-nodes'
+
+$emptyRequiredPolicy = [pscustomobject]@{
+  states=[pscustomobject]@{ empty=[pscustomobject]@{ requiredAutomationIdSuffixes=[object[]]@() } }
+  actions=[pscustomobject]@{}
+}
+$null = Assert-ReceiptStateParity $startNodes $emptyRequiredPolicy 'empty-required-array'
+$emptySuffixPolicy = [pscustomobject]@{
+  states=[pscustomobject]@{ emptySuffix=[pscustomobject]@{ requiredAutomationIdSuffixes=@('') } }
+  actions=[pscustomobject]@{}
+}
+$emptySuffixOutcome = Assert-ReceiptStateParity @(ReceiptNode '.anything') $emptySuffixPolicy 'empty-required-suffix'
+Assert-True ($emptySuffixOutcome.ok -and [string]$emptySuffixOutcome.result.state -ceq 'emptySuffix') `
+  'Der historische leere Required-Suffix wurde unbeabsichtigt gehaertet.'
+
+# Der Guard misst das beobachtbare Arbeitsvolumen, ohne die konkrete
+# Indeximplementierung festzuschreiben: jedes aid darf fuer Klassifikation und
+# die kleine stabile Fingerprint-Projektion nur linear gelesen werden.
+$readCountNodes = New-Object System.Collections.ArrayList
+$readCountPlainNodes = New-Object System.Collections.ArrayList
+$readCountSuffixes = New-Object System.Collections.ArrayList
+foreach ($suffix in @($policy.states.start.requiredAutomationIdSuffixes)) { $null = $readCountSuffixes.Add([string]$suffix) }
+for ($noiseIndex = 0; $noiseIndex -lt 100; $noiseIndex++) { $null = $readCountSuffixes.Add(".linear_noise_$noiseIndex") }
+foreach ($suffix in $readCountSuffixes) {
+  $plainNode = ReceiptNode ([string]$suffix)
+  $null = $readCountPlainNodes.Add($plainNode)
+  $countedNode = [pscustomobject]@{
+    aidValue=[string]$plainNode.aid; name=''; type='Button'; on=$true
+    checked=$null; selected=$null; x=10; y=10; w=20; h=20
+  }
+  $countedNode | Add-Member -MemberType ScriptProperty -Name aid -Value {
+    $script:ReceiptAidReads++
+    [string]$this.aidValue
+  }
+  $null = $readCountNodes.Add($countedNode)
+}
+$legacyLinear = Invoke-ReceiptStateOutcome `
+  'Get-LegacySSEReceiptManagerState' ([object[]]$readCountPlainNodes) $policy
+$script:ReceiptNodes = [object[]]$readCountNodes
+$script:ReceiptAidReads = 0
+$indexedLinear = Get-SSEReceiptManagerState ([IntPtr]5252) $policy
+$indexedAidReads = [int]$script:ReceiptAidReads
+Assert-True ($legacyLinear.ok -and [string]$indexedLinear.state -ceq [string]$legacyLinear.result.state -and
+  [string]$indexedLinear.fingerprint -ceq [string]$legacyLinear.result.fingerprint) `
+  'Der lineare Zugriffsguard veraendert Zustand oder Fingerprint.'
+Assert-True ($indexedAidReads -le (2 * $readCountNodes.Count)) `
+  "Get-SSEReceiptManagerState liest aid nicht linear ($indexedAidReads Zugriffe fuer $($readCountNodes.Count) Knoten)."
+Assert-True ($indexedLinear.nodes.Count -eq $readCountNodes.Count -and
+  [object]::ReferenceEquals($indexedLinear.nodes[0], $readCountNodes[0])) `
+  'Der lineare Zugriffsguard veraendert Node-Shape oder Traversalidentitaet.'
+
+$random = [Random]::new(20260901)
+for ($caseIndex = 0; $caseIndex -lt 32; $caseIndex++) {
+  $fixtureNodes = New-Object System.Collections.ArrayList
+  $base = $(if (($caseIndex % 2) -eq 0) { $startNodes } else { $listNodes })
+  foreach ($node in $base) { $null = $fixtureNodes.Add($node) }
+  for ($noiseIndex = 0; $noiseIndex -lt $random.Next(4,28); $noiseIndex++) {
+    $noiseSuffix = ".noise_$caseIndex`_$noiseIndex"
+    if (($noiseIndex % 9) -eq 0) { $noiseSuffix += ([string]$base[0].aid).ToUpperInvariant() }
+    $null = $fixtureNodes.Add((ReceiptNode $noiseSuffix ([bool]($noiseIndex % 3)) `
+      ($random.Next(-20,500)) ($random.Next(-20,500)) ($random.Next(0,50)) ($random.Next(0,50)) `
+      "noise-$noiseIndex" $(if (($noiseIndex % 2) -eq 0) { 'Text' } else { 'Button' })))
+  }
+  switch ($caseIndex % 6) {
+    2 { $null = $fixtureNodes.Add((ReceiptNode ([string]$(if (($caseIndex % 2) -eq 0) {
+          $policy.states.start.requiredAutomationIdSuffixes[0]
+        } else { $policy.states.list.requiredAutomationIdSuffixes[0]
+        })))) }
+    3 {
+      $disabledAid = [string]$base[0].aid
+      for ($nodeIndex = 0; $nodeIndex -lt $fixtureNodes.Count; $nodeIndex++) {
+        if ([string]$fixtureNodes[$nodeIndex].aid -ceq $disabledAid) {
+          $original = $fixtureNodes[$nodeIndex]
+          $fixtureNodes[$nodeIndex] = [pscustomobject]@{
+            aid=[string]$original.aid; name=[string]$original.name; type=[string]$original.type; on=$false
+            checked=$original.checked; selected=$original.selected
+            x=[int]$original.x; y=[int]$original.y; w=[int]$original.w; h=[int]$original.h
+          }
+          break
+        }
+      }
+    }
+    4 {
+      $other = $(if (($caseIndex % 2) -eq 0) { $listNodes } else { $startNodes })
+      foreach ($node in $other) { $null = $fixtureNodes.Add($node) }
+    }
+    5 { $fixtureNodes.RemoveAt(0) }
+  }
+  for ($left = $fixtureNodes.Count - 1; $left -gt 0; $left--) {
+    $right = $random.Next(0, $left + 1)
+    $swap = $fixtureNodes[$left]; $fixtureNodes[$left] = $fixtureNodes[$right]; $fixtureNodes[$right] = $swap
+  }
+  $null = Assert-ReceiptStateParity ([object[]]$fixtureNodes) $policy "random-$caseIndex" ([bool]($caseIndex % 3))
+}
+
+if ($env:SSE_RECEIPT_STATE_BENCHMARK -eq '1') {
+  $benchmarkNodes = New-Object System.Collections.ArrayList
+  foreach ($node in $listNodes) { $null = $benchmarkNodes.Add($node) }
+  for ($nodeIndex = $benchmarkNodes.Count; $nodeIndex -lt 800; $nodeIndex++) {
+    $null = $benchmarkNodes.Add((ReceiptNode ".benchmark_noise_$nodeIndex" $true `
+      ($nodeIndex % 1600) ([Math]::Floor($nodeIndex / 20)) 20 20 "noise-$nodeIndex" 'Text'))
+  }
+  $script:ReceiptNodes = [object[]]$benchmarkNodes
+  $benchmarkCommands = @('Get-LegacySSEReceiptManagerState','Get-SSEReceiptManagerState')
+  $benchmarkSamples = New-Object 'System.Collections.Generic.Dictionary[string,object]' ([StringComparer]::Ordinal)
+  foreach ($commandName in $benchmarkCommands) {
+    $benchmarkSamples.Add($commandName, (New-Object System.Collections.ArrayList))
+    for ($warmup = 0; $warmup -lt 3; $warmup++) { $null = & $commandName ([IntPtr]5252) $policy }
+  }
+  for ($sampleIndex = 0; $sampleIndex -lt 31; $sampleIndex++) {
+    $sampleCommands = $(if (($sampleIndex % 2) -eq 0) {
+      $benchmarkCommands
+    } else {
+      @($benchmarkCommands[1],$benchmarkCommands[0])
+    })
+    foreach ($commandName in $sampleCommands) {
+      $watch = [Diagnostics.Stopwatch]::StartNew()
+      $null = & $commandName ([IntPtr]5252) $policy
+      $watch.Stop()
+      $null = ([Collections.ArrayList]$benchmarkSamples[$commandName]).Add($watch.Elapsed.TotalMilliseconds)
+    }
+  }
+  foreach ($commandName in $benchmarkCommands) {
+    $samples = [Collections.ArrayList]$benchmarkSamples[$commandName]
+    $ordered = @($samples | Sort-Object)
+    $p50 = $ordered[[int]([Math]::Ceiling($ordered.Count * 0.50) - 1)]
+    $p95 = $ordered[[int]([Math]::Ceiling($ordered.Count * 0.95) - 1)]
+    Write-Output ("RECEIPT_STATE_BENCH {0} p50={1:N3}ms p95={2:N3}ms n={3}" -f `
+      $commandName,$p50,$p95,$ordered.Count)
+  }
+}
 
 $tableAid = 'SSE_Application.BMMainWindow.BMMainWindow.frame.stackedWidget.page_mainTable.tableWidget_mainTabel'
 $listState.nodes = @(

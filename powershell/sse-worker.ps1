@@ -296,31 +296,62 @@ function Get-SSEReceiptManagerPolicy {
 function Get-SSEReceiptManagerState([IntPtr]$Window, $Policy, [switch]$WithValues) {
   $tree = Walk-Tree $Window 800 -WithValues:$WithValues
   $nodes = @($tree.nodes | Where-Object { $_.w -gt 0 -and $_.h -gt 0 })
-  $matchedStates = New-Object System.Collections.ArrayList
+
+  # Ein lokaler, ordinaler Suffixindex ersetzt die wiederholten Vollscans des
+  # UIA-Baums. Er lebt nur fuer diesen Snapshot: keine UIA-Knoten oder
+  # Zustandsannahmen werden ueber einen frischen Walk hinaus wiederverwendet.
+  $stateRequirements = New-Object System.Collections.ArrayList
+  $querySuffixes = New-Object System.Collections.ArrayList
+  $suffixMatches = New-Object 'System.Collections.Generic.Dictionary[string,object]' ([StringComparer]::Ordinal)
   foreach ($stateProperty in @($Policy.states.PSObject.Properties)) {
     $required = @($stateProperty.Value.requiredAutomationIdSuffixes | ForEach-Object { [string]$_ })
     if (-not $required.Count) { Fail "BelegManager-Zustand '$($stateProperty.Name)' hat keine Pflichtsteuerelemente." 'profile-contract' }
-    $complete = $true
     foreach ($suffix in $required) {
-      $matches = @($nodes | Where-Object {
-        [string]$_.aid -and ([string]$_.aid).EndsWith($suffix, [StringComparison]::Ordinal)
-      })
+      if (-not $suffixMatches.ContainsKey($suffix)) {
+        $suffixMatches.Add($suffix, (New-Object System.Collections.ArrayList))
+        $null = $querySuffixes.Add($suffix)
+      }
+    }
+    $null = $stateRequirements.Add([pscustomobject]@{
+      name=[string]$stateProperty.Name
+      required=$required
+    })
+  }
+  foreach ($actionProperty in @($Policy.actions.PSObject.Properties)) {
+    $suffix = [string]$actionProperty.Value.automationIdSuffix
+    if (-not $suffix) { continue }
+    if (-not $suffixMatches.ContainsKey($suffix)) {
+      $suffixMatches.Add($suffix, (New-Object System.Collections.ArrayList))
+      $null = $querySuffixes.Add($suffix)
+    }
+  }
+  $fingerprintNodes = New-Object System.Collections.ArrayList
+  foreach ($node in $nodes) {
+    $aid = [string]$node.aid
+    if (-not $aid) { continue }
+    $fingerprintNode = $false
+    foreach ($suffix in $querySuffixes) {
+      if (-not $aid.EndsWith([string]$suffix, [StringComparison]::Ordinal)) { continue }
+      $null = ([Collections.ArrayList]$suffixMatches[[string]$suffix]).Add($node)
+      if ($suffix) { $fingerprintNode = $true }
+    }
+    if ($fingerprintNode) { $null = $fingerprintNodes.Add($node) }
+  }
+
+  $matchedStates = New-Object System.Collections.ArrayList
+  foreach ($stateRequirement in $stateRequirements) {
+    $complete = $true
+    foreach ($suffix in @($stateRequirement.required)) {
+      $matches = [Collections.ArrayList]$suffixMatches[[string]$suffix]
       if ($matches.Count -ne 1 -or -not [bool]$matches[0].on) { $complete = $false; break }
     }
-    if ($complete) { $null = $matchedStates.Add([string]$stateProperty.Name) }
+    if ($complete) { $null = $matchedStates.Add([string]$stateRequirement.name) }
   }
   if ($matchedStates.Count -ne 1) {
     Fail "BelegManager-Zustand ist nicht eindeutig profiliert ($($matchedStates.Count) Treffer)." 'state-unknown'
   }
 
-  $relevantSuffixes = @(
-    @($Policy.states.PSObject.Properties | ForEach-Object { @($_.Value.requiredAutomationIdSuffixes) }) +
-    @($Policy.actions.PSObject.Properties | ForEach-Object { [string]$_.Value.automationIdSuffix })
-  ) | ForEach-Object { [string]$_ } | Where-Object { $_ } | Select-Object -Unique
-  $stableNodes = @($nodes | Where-Object {
-    $aid = [string]$_.aid
-    @($relevantSuffixes | Where-Object { $aid.EndsWith($_, [StringComparison]::Ordinal) }).Count -gt 0
-  } | Sort-Object aid | ForEach-Object {
+  $stableNodes = @($fingerprintNodes | Sort-Object aid | ForEach-Object {
     [pscustomobject][ordered]@{
       aid=[string]$_.aid; name=[string]$_.name; type=[string]$_.type
       enabled=[bool]$_.on; checked=$_.checked; selected=$_.selected
