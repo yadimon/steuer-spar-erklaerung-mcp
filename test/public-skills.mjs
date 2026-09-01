@@ -114,7 +114,7 @@ for (const requirement of [
   "Node.js 22 oder neuer",
   "Git auf `PATH`",
   "--target codex --scope project --yes",
-  "--target claude-code --scope project --yes",
+  "--target claude-code --scope user --yes",
   "codex plugin add steuer-spar-erklaerung@plugins-cli --json",
   "codex plugin list --json",
   "codex plugin remove steuer-spar-erklaerung@plugins-cli",
@@ -137,15 +137,16 @@ assert(normalizedInstallation.includes("kein `node_modules`")
 assert.match(normalizedInstallation, /nach dem ersten Befehl.+`not installed`.+target-native.+`installed, enabled`/iu);
 const installationCodexStart = installation.indexOf("### Codex");
 const installationClaudeStart = installation.indexOf("### Claude Code");
-const installationScopeStart = installation.indexOf("### Was `--scope project` hier bedeutet");
+const installationScopeStart = installation.indexOf("### Was die Scopes hier bedeuten");
 const installationCodex = installation.slice(installationCodexStart, installationClaudeStart);
 const installationClaude = installation.slice(installationClaudeStart, installationScopeStart);
 const codexClone = "npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target codex --scope project --yes";
 const codexActivate = "codex plugin add steuer-spar-erklaerung@plugins-cli --json";
-const claudeInstall = "npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target claude-code --scope project --yes";
+const claudeInstall = "npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target claude-code --scope user --yes";
 assert(installationCodex.indexOf(codexClone) < installationCodex.indexOf(codexActivate),
   "Codex-Installation muss als externe plus target-native Stufe dokumentiert sein.");
 assert(installationClaude.includes(claudeInstall)
+  && installationClaude.includes("`Scope: user`")
   && installationClaude.includes("`enabled`")
   && !installationClaude.includes(codexActivate),
   "Claude Code bleibt ein zielgenauer Ein-Schritt-Pfad.");
@@ -159,7 +160,7 @@ assert(installationUpdate.includes("plugins@1 add")
   && installationUpdate.includes(codexActivate)
   && /Zeigt Codex danach.+nicht als `installed, enabled`/su.test(installationUpdate),
 "Der Updatepfad muss externes add, Codex-Readback und bedingte target-native Aktivierung enthalten.");
-assert.match(normalizedInstallation, /Claude Code.+exakte Plugin-ID.+zurücklesen/iu);
+assert.match(normalizedInstallation, /claude plugin uninstall steuer-spar-erklaerung@steuer-spar-erklaerung --scope user/iu);
 assert.doesNotMatch(installation, /^\s*(?:npx(?:\.cmd)?\s+[^\r\n]*\s+)?plugins\s+(?:remove|uninstall)\b/gimu,
   "Nicht existente plugins-Kommandos duerfen nicht als Anleitung erscheinen.");
 assert.match(normalizedInstallation, /Nutzerdaten nur nach separater Prüfung und ausdrücklichem Auftrag/iu);
@@ -168,7 +169,7 @@ assert.doesNotMatch(installation, /--target opencode|OpenCode projektlokal/iu);
 
 const readme = readFileSync(join(root, "README.md"), "utf8");
 assert(readme.includes("--target codex --scope project --yes"));
-assert(readme.includes("--target claude-code --scope project --yes"));
+assert(readme.includes("--target claude-code --scope user --yes"));
 assert(readme.includes("codex plugin add steuer-spar-erklaerung@plugins-cli --json")
   && readme.includes("`not installed`")
   && readme.includes("`installed, enabled`"));
@@ -197,7 +198,9 @@ assert(verification.includes("0.151.0-alpha.7.2")
   && verification.includes("`064048Z`")
   && verification.includes("`064512Z`")
   && verification.includes("materialisierte")
-  && verification.includes("VM-Ende-zu-Ende offen"));
+  && verification.includes("c7874f26834142cf17ff0ec451341188149311d87b53e53bc31a21a953676410")
+  && verification.includes("keine Release-Sperre mehr")
+  && verification.includes("`SSE_NOT_RUNNING`"));
 
 const apiPackageReadme = readFileSync(join(root, "packages", "api", "README.md"), "utf8");
 const mcpPackageReadme = readFileSync(join(root, "packages", "mcp", "README.md"), "utf8");
@@ -214,7 +217,7 @@ assert(normalizedMcpPackageReadme.includes("`sse_preflight`")
   && normalizedMcpPackageReadme.includes("kein `node_modules`")
   && normalizedMcpPackageReadme.includes("weder npm noch npx"));
 assert(mcpPackageReadme.includes("codex plugin add steuer-spar-erklaerung@plugins-cli --json")
-  && mcpPackageReadme.includes("--target claude-code --scope project --yes")
+  && mcpPackageReadme.includes("--target claude-code --scope user --yes")
   && normalizedMcpPackageReadme.includes("API kennt keine Anmeldung"));
 assert(mcpPackageReadme.includes("vor dirty-fähiger Navigation oder Mutation")
   && mcpPackageReadme.includes("`save` und `save_as` brauchen"));

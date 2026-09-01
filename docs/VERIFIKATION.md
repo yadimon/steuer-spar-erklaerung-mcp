@@ -9,7 +9,7 @@ UI-Operation auf jeder Jahresversion praktisch funktioniert.
 - [Produkt- und Supportmatrix](#produkt--und-supportmatrix)
 - [Was die Tests beweisen](#was-die-tests-beweisen)
 - [Einmalige Leistungsbeobachtungen](#einmalige-leistungsbeobachtungen)
-- [Agent-Plugin-VM-Matrix](#agent-plugin-vm-matrix-offen)
+- [Agent-Plugin-VM-Matrix](#agent-plugin-vm-matrix-2026-09-01)
 - [Aktueller projektlokaler Clean-install](#projektlokaler-clean-install-in-einer-frischen-vm-2026-09-01)
 - [Abdeckungsbilanz aus echter Ausführung](#abdeckungsbilanz-aus-echter-ausführung)
 - [Browser-Herkunftsprüfung](#herkunftsprüfung-gegen-einen-echten-browser-2026-08-23)
@@ -115,15 +115,21 @@ historischen Zeitwerte.
 | BelegManager-Zustand | optionaler diagnostischer A/B/BA-Lauf mit 800 synthetischen Knoten, drei Warmups und 31 Messpaaren; aktivierbar mit `$env:SSE_RECEIPT_STATE_BENCHMARK='1'; powershell -File test/receipt-manager-action-contract.ps1` | historischer Median: 61,4 auf 4,5 ms (13,6×) | dieselbe Beschleunigung beim realen UIA-Walk; der Diagnosemodus gibt aktuelle Hostwerte aus, prüft aber keinen Grenzwert |
 | BelegManager-Liste | optionaler diagnostischer A/B/BA-Lauf mit 800 synthetischen Knoten und 30 Zeilen, drei Warmups und 31 Messpaaren; aktivierbar mit `$env:SSE_RECEIPT_LIST_BENCHMARK='1'; powershell -File test/receipt-manager-action-contract.ps1` | historischer Median: 47,2 auf 23,8 ms (1,98×) | Zeit eines live virtualisierten GridPattern-/COM-Pfads; der Diagnosemodus gibt aktuelle Hostwerte aus, prüft aber keinen Grenzwert |
 
-## Agent-Plugin-VM-Matrix (offen)
+## Agent-Plugin-VM-Matrix, 2026-09-01
 
-Die Plugin-First-Anleitung ist inzwischen in einer unabhängigen vollständigen
-Windows-11-x64-VM-Kopie aus kaltem Zustand online geprüft. Die VM hatte keine
-Shared Folder; Credentials wurden weder in das Transferarchiv aufgenommen noch
-in die VM kopiert. Das übertragene Auditarchiv wurde vor der Ausführung mit dem
-gekürzt wiedergegebenen SHA-256 `3ee62c...419d3` gebunden. Die Online-Kaltphase
-ist grün, die anschließende Offline-MCP-Phase jedoch noch nicht. Damit bleibt das
-VM-Ende-zu-Ende offen und die Matrix insgesamt eine Release-Sperre.
+Die Plugin-First-Anleitung ist in der unabhängigen vollständigen
+Windows-11-x64-VM-Kopie `CleanWin11-SSE-agent-plugin-20260901-root` aus kaltem
+Snapshot vollständig geprüft. Die VM hatte keine Shared Folder; Credentials
+wurden weder in das Transferarchiv aufgenommen noch in die VM kopiert. Das aus
+Commit `56b86bd27755a8d043019ef4e9dee0ea6c915411` erstellte Archiv enthielt 53
+Einträge, kein `node_modules` und keine Credentials. Host- und Guest-Hash waren
+identisch: `c7874f26834142cf17ff0ec451341188149311d87b53e53bc31a21a953676410`.
+
+Nur die Installationsphase hatte einen verbundenen virtuellen NIC. Vor dem
+Runtime-Lauf wurde der Link über VirtualBox auf `off` gesetzt; im Gast waren
+null Adapter `Up` und ein ausgehender TCP-Probeversuch scheiterte. Online- und
+Offline-Phase sind grün. Die Agent-Plugin-VM-Matrix ist damit für den ersten
+Plugin-Release beta.33 keine Release-Sperre mehr.
 
 Ein isolierter realer Client-Probelauf belegt bereits einen engeren
 Registrierungsvertrag. Mit `plugins@1.3.4` und Codex CLI
@@ -135,9 +141,11 @@ anschließend trotzdem
 `codex plugin add steuer-spar-erklaerung@plugins-cli --json` registrierte
 v0.1.0-beta.33 als `installed, enabled`. Beim Claude-Code-Ziel zeigte der
 einzelne zielgenaue `plugins@1 add`-Lauf den Eintrag als `enabled`. Diese
-Evidenz war der Vorläufer des nun grünen Online-Kaltlaufs; sie ersetzt weiterhin
-keinen abgeschlossenen Offline-, Preflight-, Runtime-, Update- oder
-Entfernungsnachweis.
+Evidenz war der Vorläufer des nun grünen Online-Kaltlaufs. Der abschließende
+Lauf ergänzt Offline-Preflight, Runtime, idempotente Wiederholung, Entfernung,
+Singleton und Portkonflikte. Ein Update über zwei Plugin-Versionen ist für
+beta.33 nicht anwendbar, weil beta.32 noch kein Agent Plugin enthielt; dieser
+Nachweis wird erstmals für den Nachfolger von beta.33 Pflicht.
 
 Ein älteres Probe-Home wurde verworfen, weil
 `codex plugin list --json` dort beim vermeintlichen Readback unerwartet selbst
@@ -148,13 +156,13 @@ dieser Alpha-Version aber auch nicht als garantiert seiteneffektfrei gelten.
 
 | Ziel | Nachweis | Stand |
 | --- | --- | --- |
-| Codex | `plugins@1.3.4 add` mit explizitem `--target codex`, danach target-nativ `codex plugin add steuer-spar-erklaerung@plugins-cli --json`; dieselbe zweistufige Folge ein zweites Mal | Online-Kaltphase grün: beide Folgen liefen für v0.1.0-beta.33 durch und lieferten stabile Installationsbelege; echter Offline-`sse_preflight` noch offen |
-| Claude Code | zielgenaues `plugins@1.3.4 add --target claude-code`, danach dieselbe einstufige Installation ein zweites Mal | Online-Kaltphase grün: beide Läufe für v0.1.0-beta.33 mit stabilen Installationsbelegen; echter Offline-`sse_preflight` noch offen |
+| Codex | `plugins@1.3.4 add` mit explizitem `--target codex`, danach target-nativ `codex plugin add steuer-spar-erklaerung@plugins-cli --json`; dieselbe zweistufige Folge ein zweites Mal | grün: beide Folgen stabil; `installed, enabled`; native Entfernung und Readback erfolgreich |
+| Claude Code | zielgenaues `plugins@1.3.4 add --target claude-code --scope user`; native Anzeige und Entfernung mit Claude Code 2.1.252 | grün: `Version: 0.1.0-beta.33`, `Scope: user`, `Status: enabled`; Offline-Selftest aus dem nativen Cache und anschließender User-Scope-Uninstall erfolgreich |
 | Audit-Hygiene | Abschlussinventur nach den Online-Installationen | grün: keine hinterlassenen Runtime-/Auditprozesse und keine Credential-Dateien |
-| Self-contained Runtime | Workspace ohne `node_modules`; MCP-Start ohne npm, npx und Netzwerk; kein separates API-Terminal; stdout protokollrein | offline vertraglich belegt; VM-Lauf beim ersten echten Toolaufruf noch offen |
-| Wiederholung und Update | erneutes zielgenaues `plugins@1 add`; bei Codex zusätzlich der target-native zweite Schritt; danach Versions- und Preflight-Readback | Wiederholung online für beide Ziele grün; Update über zwei verschiedene Versionen und Offline-Readback offen |
-| Entfernung | Codex target-nativ mit `codex plugin remove steuer-spar-erklaerung@plugins-cli`; Claude Code erst mit der dort zurückgelesenen exakten Plugin-ID; Nutzerdaten bleiben erhalten | offen |
-| Singleton und Konflikte | zwei parallele Starts verwenden dieselbe PID; fremder Portinhaber und alte API stoppen fail-closed | offline vertraglich belegt, VM offen |
+| Self-contained Runtime | Workspace ohne `node_modules`; MCP-Start ohne npm, npx und Netzwerk; kein separates API-Terminal; stdout protokollrein | grün: beide installierten Cachekopien listeten je 100 Tools; beide echten `sse_preflight`-Aufrufe meldeten ausschließlich `SSE_NOT_RUNNING` als erwarteten Produktblocker |
+| Wiederholung und Update | erneutes zielgenaues `plugins@1 add`; bei Codex zusätzlich der target-native zweite Schritt; danach Versions- und Preflight-Readback | grün für idempotente beta.33-Wiederholung; Zwei-Versionen-Update für den ersten Plugin-Release nicht anwendbar und ab beta.34 Pflicht |
+| Entfernung | Codex target-nativ; Claude Code mit zurückgelesener ID und `--scope user`; Nutzerdaten bleiben erhalten | grün: beide Client-Readbacks zeigen den Eintrag danach nicht mehr als installiert; nur verifizierte API-PIDs wurden beendet |
+| Singleton und Konflikte | zwei parallele Starts verwenden dieselbe PID; fremder Portinhaber und alte API stoppen fail-closed | grün: genau eine beta.33-API PID 7088; fremder Listener blieb erhalten; eine beta.32-API PID 6656 wurde abgelehnt und unverändert weiter bedient |
 
 Der VM-Lauf lieferte außerdem drei reproduzierbare rote Befunde, aus denen
 bereits Korrekturen entstanden:
@@ -168,24 +176,30 @@ bereits Korrekturen entstanden:
 3. Der Harness brach `tools/call` nach 180 Sekunden ab, obwohl der etablierte
    MCP-Vertrag 300 Sekunden vorsieht. Der Harness verwendet nun dieses Budget.
 
-Beim späteren Offline-Versuch meldete `sse_preflight` einen MCP-Fehler. Sein
-Inhalt konnte nicht mehr beweissicher erfasst werden: Die VM wurde von außen
-pausiert und der VirtualBox-Aufruf brach per RPC ab. Anschließend blockierte das
-WSL-Backend des VM-Laufwerks die Wiederaufnahme mit `CreateInstance`
-`0x800705b4` beziehungsweise `VERR_WRITE_PROTECT`; ohne administrative Rechte
-ließ sich das Backend nicht neu starten. Das ist ein Infrastrukturblocker und
-weder ein grüner Offline-Nachweis noch eine inhaltliche Klassifikation des
-`sse_preflight`-Fehlers.
+Ein früherer Offline-Versuch war nach einer externen VM-Pause am WSL-Backend
+abgebrochen. Der abschließende Lauf startete den kalten Snapshot neu und
+klassifizierte den damaligen scheinbaren MCP-Fehler: Beide Preflights waren
+transportseitig erfolgreich und nannten nur den erwarteten fachlichen Blocker
+`SSE_NOT_RUNNING`. Die API blieb dabei in v0.1.0-beta.33, wurde von beiden
+stdio-Probes unter derselben PID wiederverwendet und danach exakt beendet.
 
-Der Lauf muss außerdem die aktuelle Installergrenze festhalten:
+Der Claude-Entfernungstest deckte außerdem eine Installergrenze auf:
+`plugins@1.3.4 --scope project` erzeugte einen als `project` angezeigten
+Zustand, den Claude Code 2.1.252 target-nativ weder aus dem Installationsordner
+noch aus dem Benutzerprofil entfernen konnte. Die Wiederholung mit
+`--scope user` war vollständig symmetrisch: native Anzeige `enabled`, echter
+Offline-Runtime-Start aus dem Cache und erfolgreicher
+`claude plugin uninstall ... --scope user`. Der öffentliche Claude-Quickstart
+verwendet deshalb den verifizierten User-Scope.
+
+Der Lauf hält außerdem die aktuelle Installergrenze fest:
 `plugins@1.3.4` benötigt für das einmalige Klonen Git auf `PATH`, ignoriert den
-Scope bei Codex und schreibt bei beiden Zielen trotz `--scope project` in
-clientverwaltete Benutzer-Caches beziehungsweise Konfiguration. Das ist kein
-Nachweis physischer Projektisolation. OpenCode gehört nicht zu dieser Matrix.
-
-Die belegten Online-Zellen dürfen deshalb grün sein; die Release-Matrix bleibt
-bis zum vollständig zurückgelesenen Offline-Lauf offen. Ein gebautes Plugin,
-ein Installer-Exitcode oder ein MCP-Handshake allein genügt dafür nicht.
+Scope bei Codex und schreibt für beide Ziele in clientverwaltete
+Benutzer-Caches beziehungsweise Konfiguration. Das ist kein Nachweis physischer
+Projektisolation. OpenCode gehört nicht zu dieser Matrix. Ein gebautes Plugin,
+ein Installer-Exitcode oder ein MCP-Handshake allein hätte weiterhin nicht
+genügt; grün ist die Matrix erst durch den vollständigen Runtime- und
+Client-Readback.
 
 ## Projektlokaler Clean-install in einer frischen VM, 2026-09-01
 

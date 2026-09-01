@@ -33,10 +33,11 @@ Erst der zweite target-native Schritt ergab `installed, enabled`.
 Für Claude Code genügt dagegen dieser eine Installerbefehl:
 
 ```powershell
-npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target claude-code --scope project --yes
+npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target claude-code --scope user --yes
 ```
 
-Der isolierte Client-Probelauf zeigte ihn danach als `enabled`. Anschließend
+Der Windows-VM-Lauf mit Claude Code 2.1.252 zeigte ihn danach mit `Scope: user`
+als `enabled` und bestätigte die target-native Entfernung. Anschließend
 den jeweiligen Client neu starten und zum Beispiel schreiben:
 
 > Prüfe meinen bereits geöffneten Steuerfall 2025 zunächst nur lesend. Beginne
@@ -45,9 +46,10 @@ den jeweiligen Client neu starten und zum Beispiel schreiben:
 
 Git wird danach nicht für den MCP-Start gebraucht. Es gibt kein separates
 API-Terminal, kein `npm install` im Arbeitsordner und keinen Netzwerkzugriff
-beim MCP-Start. `plugins@1.3.4` ignoriert den Scope bei Codex und schreibt bei
-beiden Zielen trotz `--scope project` in clientverwaltete Benutzer-Caches; der
-Flag ist aktuell keine physische Projektisolation. Wer Arbeitsdaten strikt
+beim MCP-Start. `plugins@1.3.4` ignoriert den Scope bei Codex; für Claude Code
+ist der VM-verifizierte User-Scope dokumentiert. Beide Ziele verwenden
+clientverwaltete Benutzer-Caches und bieten damit keine physische
+Projektisolation. Wer Arbeitsdaten strikt
 trennen möchte, verwendet zusätzlich einen eigenen absoluten
 `SSE_API_CONFIG`-Pfad.
 

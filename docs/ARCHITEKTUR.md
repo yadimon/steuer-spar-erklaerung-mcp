@@ -766,9 +766,10 @@ Codex-Alpha kann dabei dennoch Cache-/Konfigurationszustand materialisieren;
 Readback-Evidenz braucht deshalb einen isolierten bekannten Ausgangszustand.
 
 Das aktuell verwendete `plugins@1.3.4` ignoriert den Scope bei Codex und
-schreibt bei beiden dokumentierten Zielen trotz `--scope project` in
-clientverwaltete Benutzer-Caches beziehungsweise Konfiguration. Dieser Flag
-ist daher keine physische Projektisolation. Der gewählte Ordner trennt den
+schreibt bei beiden dokumentierten Zielen in clientverwaltete Benutzer-Caches
+beziehungsweise Konfiguration. Claude Code verwendet bewusst `--scope user`,
+weil nur dieser Zustand im Windows-VM-Lauf target-nativ gelesen und entfernt
+werden konnte. Beide Wege sind daher keine physische Projektisolation. Der gewählte Ordner trennt den
 Agentenkontext; ein eigener absoluter `SSE_API_CONFIG`-Pfad trennt zusätzlich
 die API-Arbeitsdaten. Ohne ihn gilt der private Standard unter
 `%LOCALAPPDATA%\SteuerSparErklaerungApi`.
