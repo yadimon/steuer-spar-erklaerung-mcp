@@ -25,6 +25,7 @@ import {
   SSE_STATEFUL_OPERATIONS,
 } from "./operation-traits.js";
 import { SSE_LIVE_EVIDENCE } from "./operation-live-evidence.js";
+import { SSE_WORKER_CONTROLLER_BYPASS_OPERATIONS } from "./worker-operation-policy.js";
 import { SSE_PACKAGE_NAME, SSE_PACKAGE_VERSION } from "./version.js";
 
 type FallbackStage = {
@@ -127,7 +128,7 @@ export const SSE_CAPABILITIES = Object.freeze({
       includesDirectWorker: true,
       policy: "zero-wait",
       idlePrewarmHoldsLease: false,
-      bypassOperations: ["page_objects", "product_info"],
+      bypassOperations: SSE_WORKER_CONTROLLER_BYPASS_OPERATIONS,
       contentionKind: "busy",
       contentionReason: "session-controller-busy",
       contentionTransport: "operation-result",
