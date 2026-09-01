@@ -32,7 +32,7 @@ function Arg($a, [string]$name, $fallback = $null) {
   return $fallback
 }
 function Fail([string]$Message, [string]$Kind = 'error') { throw "FAIL[$Kind] $Message" }
-function Test-CaseBinding($window, $path) { [pscustomobject]@{ ok = $false } }
+function Test-CaseBinding($window, $path, [switch]$DecisionOnly) { [pscustomobject]@{ ok = $false } }
 function Get-Sha256($path) { $null }
 
 function Assert-True([bool]$Condition, [string]$Message) {

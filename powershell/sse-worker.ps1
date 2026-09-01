@@ -2663,14 +2663,21 @@ function Get-SSEStartModeForCaseType([string]$DocumentType) {
   ''
 }
 
-function Test-CaseBinding($Window, [string]$ExpectedPath) {
+function Test-CaseBinding($Window, [string]$ExpectedPath, [switch]$DecisionOnly) {
   $expectedFull = [IO.Path]::GetFullPath($ExpectedPath)
   $titlePath = Get-CasePathFromTitle ([string]$Window.title)
-  $commandPath = Get-CasePathFromCommandLine ([int]$Window.pid)
   $exactTitle = $titlePath -and -not $titlePath.Contains('...') -and
     [IO.Path]::GetFullPath($titlePath).Equals($expectedFull, [StringComparison]::OrdinalIgnoreCase)
-  $exactCommand = $commandPath -and
-    [IO.Path]::GetFullPath($commandPath).Equals($expectedFull, [StringComparison]::OrdinalIgnoreCase)
+  $commandPath = $null
+  $exactCommand = $false
+  # Ein vollstaendiger exakter Titel beweist die interne Entscheidung bereits.
+  # Oeffentliche Save-Evidenz bleibt dagegen vollstaendig; ebenso brauchen ein
+  # gekuerzter Titel und der schwache title-leaf-Fallback weiterhin CIM.
+  if (-not ($DecisionOnly -and $exactTitle)) {
+    $commandPath = Get-CasePathFromCommandLine ([int]$Window.pid)
+    $exactCommand = $commandPath -and
+      [IO.Path]::GetFullPath($commandPath).Equals($expectedFull, [StringComparison]::OrdinalIgnoreCase)
+  }
   $leaf = [IO.Path]::GetFileName($expectedFull)
   $titleLeaf = ([string]$Window.title).Replace('/', '\').EndsWith("\$leaf", [StringComparison]::OrdinalIgnoreCase)
   [pscustomobject]@{
@@ -3434,7 +3441,7 @@ function Resolve-BoundWriteWindow($a) {
   if ($expectedCasePath) {
     $bound = New-Object System.Collections.ArrayList
     foreach ($window in $windows) {
-      $candidate = Test-CaseBinding $window $expectedCasePath
+      $candidate = Test-CaseBinding $window $expectedCasePath -DecisionOnly
       if ($candidate.ok) { $null = $bound.Add([pscustomobject]@{ window=$window; binding=$candidate }) }
     }
     if ($bound.Count -eq 1) { $windows = @($bound[0].window); $binding = $bound[0].binding }
@@ -12681,7 +12688,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     if ([int64]$main.hwnd -ne $expectedMainHwnd) {
       Fail "VaSt-Dialog gehoert zu Hauptfenster $([int64]$main.hwnd), erwartet war $expectedMainHwnd; nichts uebernommen." 'case-mismatch'
     }
-    $binding = Test-CaseBinding $main $expectedCasePath
+    $binding = Test-CaseBinding $main $expectedCasePath -DecisionOnly
     if (-not $binding.ok) {
       Fail "VaSt-Hauptfenster ist nicht an den erwarteten Steuerfall gebunden; nichts uebernommen." 'case-mismatch'
     }
@@ -12803,7 +12810,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         applied=$true; newDialogs=$newDialogs; diskHashBefore=$diskHashBefore; diskHashAfter=$diskHashAfter
       })
     }
-    $bindingAfter = Test-CaseBinding $mainAfter[0] $expectedCasePath
+    $bindingAfter = Test-CaseBinding $mainAfter[0] $expectedCasePath -DecisionOnly
     if (-not $bindingAfter.ok -or $diskHashAfter -ne $diskHashBefore) {
       Emit ([pscustomobject]@{
         ok=$false; kind='postcondition-failed'
