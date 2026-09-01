@@ -52,6 +52,7 @@ try {
   [DSK]::SetLastError(6)
   $again = @([DSK]::ListDesktopWindows($desktop))
   Assert-True ($again.Count -eq 0) 'Wiederholte Enumeration des leeren Desktops war nicht stabil.'
+
 } finally {
   [DSK]::CloseDesktop($desktop) | Out-Null
 }
@@ -124,7 +125,7 @@ function Get-LegacyWindowProjection([int[]]$AllowedProcessIds) {
 # Die private Auswertung der Win32-Rueckgabe ist absichtlich kein oeffentlicher
 # API-Vertrag. Per Reflection lassen sich die ansonsten schwer deterministisch
 # provozierbaren Fehlerpfade trotzdem pruefen: Callback-Abbruch, Win32-Fehler
-# und FALSE nach begonnenem Callback duerfen nie als Teilergebnis zurueckkehren.
+# und jedes FALSE duerfen nie als leeres oder partielles Ergebnis zurueckkehren.
 $completionCheck = [SSEWindowEnumerator].GetMethod(
   'EnsureEnumerationCompleted',
   [Reflection.BindingFlags]'Static, NonPublic')
@@ -134,7 +135,7 @@ Assert-True ($null -ne $completionCheck) `
 $callbackFailure = [InvalidOperationException]::new('deterministic-callback-failure')
 $observedCallbackFailure = $null
 try {
-  $completionCheck.Invoke($null, [object[]]@($false, [int]5, [int]1, $callbackFailure))
+  $completionCheck.Invoke($null, [object[]]@($false, [int]5, $callbackFailure))
 } catch {
   $observedCallbackFailure = $_.Exception
   while ($null -ne $observedCallbackFailure.InnerException) {
@@ -147,7 +148,7 @@ Assert-True ($observedCallbackFailure -is [InvalidOperationException] -and
 
 $observedNativeFailure = $null
 try {
-  $completionCheck.Invoke($null, [object[]]@($false, [int]5, [int]0, $null))
+  $completionCheck.Invoke($null, [object[]]@($false, [int]5, $null))
 } catch {
   $observedNativeFailure = $_.Exception
   while ($null -ne $observedNativeFailure.InnerException) {
@@ -161,7 +162,7 @@ Assert-True ($observedNativeFailure.NativeErrorCode -eq 5) `
 
 $observedUnexplainedFailure = $null
 try {
-  $completionCheck.Invoke($null, [object[]]@($false, [int]0, [int]1, $null))
+  $completionCheck.Invoke($null, [object[]]@($false, [int]0, $null))
 } catch {
   $observedUnexplainedFailure = $_.Exception
   while ($null -ne $observedUnexplainedFailure.InnerException) {
@@ -173,10 +174,16 @@ Assert-True ($observedUnexplainedFailure -is [InvalidOperationException]) `
 Assert-True ($observedUnexplainedFailure.Message -ceq 'window-enumeration-failed') `
   'Eine partielle EnumWindows-Rueckgabe liefert keinen stabilen, redigierten Fehler.'
 
-# Ein wirklich leerer privater Desktop liefert FALSE/0 ohne Callback und ist
-# kein Fehler. Erfolg darf ausserdem einen vorigen/stalen Threadfehler ignorieren.
-$completionCheck.Invoke($null, [object[]]@($false, [int]0, [int]0, $null))
-$completionCheck.Invoke($null, [object[]]@($true, [int]5, [int]2, $null))
+# Erfolg darf einen vorigen/stalen Threadfehler ignorieren.
+$completionCheck.Invoke($null, [object[]]@($true, [int]5, $null))
+
+# Der Quellvertrag bindet die synthetisch gepruefte Auswertung an den echten
+# P/Invoke-Pfad; der positive/leeere Pfad wird oben end-to-end ausgefuehrt.
+$nativeSource = Get-Content (Join-Path $PSScriptRoot '..\powershell\sse-native.cs') -Raw
+Assert-True ($nativeSource.Contains('bool completed = SW.EnumWindows(callback, IntPtr.Zero);') -and
+  $nativeSource.Contains('int nativeError = Marshal.GetLastWin32Error();') -and
+  $nativeSource.Contains('EnsureEnumerationCompleted(completed, nativeError, callbackFailure);')) `
+  'Describe bindet EnumWindows-Rueckgabe, LastError oder Callbackfehler nicht an die fail-closed Auswertung.'
 
 try {
   $unicodeTitle = "SSE native enumeration $([char]0x2013) SteuerSparErkl$([char]0x00E4)rung $PID"
