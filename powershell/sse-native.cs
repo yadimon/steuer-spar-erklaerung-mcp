@@ -259,17 +259,17 @@ public static class SSEWindowEnumerator {
   }
 
   static void EnsureEnumerationCompleted(
-    bool completed, int nativeError, int callbacksVisited, Exception callbackFailure) {
+    bool completed, int nativeError, Exception callbackFailure) {
     // EnumWindows returns FALSE both for a native failure and when its callback
     // aborts enumeration. Preserve a managed callback failure as the primary
-    // exception. Like EnumDesktopWindows, EnumWindows returns FALSE with no
-    // error and no callback for a genuinely empty private desktop; only that
-    // exact empty case is safe. FALSE after a callback would be a partial
-    // snapshot and must fail closed even if Win32 omitted an error code.
+    // exception. Unlike EnumDesktopWindows, a successful EnumWindows call on
+    // an empty current desktop returns TRUE without invoking the callback.
+    // Every FALSE is therefore a failure and must never expose a partial or
+    // apparently empty snapshot, even if Win32 omitted an error code.
     if (callbackFailure != null) {
       System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(callbackFailure).Throw();
     }
-    if (completed || (nativeError == 0 && callbacksVisited == 0)) return;
+    if (completed) return;
     if (nativeError != 0) {
       throw new System.ComponentModel.Win32Exception(nativeError, "window-enumeration-failed");
     }
@@ -281,11 +281,9 @@ public static class SSEWindowEnumerator {
     var allowed = new HashSet<int>(allowedProcessIds);
     var output = new List<SSEWindowNode>();
     int order = 0;
-    int callbacksVisited = 0;
     Exception callbackFailure = null;
     SW.EP callback = delegate(IntPtr hwnd, IntPtr context) {
       try {
-        callbacksVisited++;
         uint processId = 0;
         SW.GetWindowThreadProcessId(hwnd, out processId);
         if (!allowed.Contains(unchecked((int)processId)) || !SW.IsWindowVisible(hwnd)) return true;
@@ -315,7 +313,7 @@ public static class SSEWindowEnumerator {
     DSK.SetLastError(0);
     bool completed = SW.EnumWindows(callback, IntPtr.Zero);
     int nativeError = Marshal.GetLastWin32Error();
-    EnsureEnumerationCompleted(completed, nativeError, callbacksVisited, callbackFailure);
+    EnsureEnumerationCompleted(completed, nativeError, callbackFailure);
     output.Sort(delegate(SSEWindowNode left, SSEWindowNode right) {
       long leftArea = (long)left.W * left.H;
       long rightArea = (long)right.W * right.H;
