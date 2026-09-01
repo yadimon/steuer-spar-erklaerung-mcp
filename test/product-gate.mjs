@@ -471,7 +471,7 @@ try {
   assert(closeBlock.includes("$dialogDeadline = [DateTime]::UtcNow.AddMilliseconds(1800)") &&
     closeBlock.includes("$dismissDeadline = [DateTime]::UtcNow.AddMilliseconds(1800)") &&
     closeBlock.includes("[SW]::IsWindow($h)") &&
-    closeBlock.includes("Wait-SSEProcessExit $targetPid 20000") &&
+    closeBlock.includes("Wait-SSEProcessExit $targetProcess 20000") &&
     !closeBlock.includes("Start-Sleep -Milliseconds 1500") &&
     !closeBlock.includes("Start-Sleep -Seconds 2"),
   "Der Close-Pfad wartet weiterhin blind statt Dialog und Prozess begrenzt zu pollen.");
