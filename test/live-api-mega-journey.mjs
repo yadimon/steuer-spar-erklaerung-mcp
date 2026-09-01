@@ -811,6 +811,7 @@ try {
         assert.match(image.sha256, /^[A-F0-9]{64}$/iu);
       },
     );
+    const exportButton = "Klicken Sie hier, um Ihre Daten zu exportieren";
     let exportDialog;
     await mutateAndRead(
       "export-open",
@@ -818,12 +819,18 @@ try {
       (result) => {
         assert.equal(result.offeneDialoge, 1);
         exportDialog = result.dialog;
+        assert((exportDialog.buttons ?? []).some((button) => button.name === exportButton));
       },
       { pid: currentPid },
-      (result) => assert((result.dialogs ?? []).some((dialog) => dialog.hwnd === exportDialog.hwnd)),
+      (result) => {
+        const matchingDialogs = (result.dialogs ?? []).filter((dialog) =>
+          dialog.hwnd === exportDialog.hwnd && dialog.title === exportDialog.title &&
+          (dialog.buttons ?? []).some((button) => button.name === exportButton && button.enabled !== false));
+        assert.equal(matchingDialogs.length, 1,
+          "Der Exportdialog ist beim unmittelbaren Readback nicht mehr eindeutig gebunden.");
+        exportDialog = matchingDialogs[0];
+      },
     );
-    const exportButton = "Klicken Sie hier, um Ihre Daten zu exportieren";
-    assert((exportDialog.buttons ?? []).some((button) => button.name === exportButton));
     await mutateAndRead(
       "export-trigger",
       { hwnd: exportDialog.hwnd, fingerprint: exportDialog.fingerprint, button: exportButton, waitMs: 3_000 },
