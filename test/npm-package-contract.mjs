@@ -81,6 +81,7 @@ for (const required of [
   "@yadimon/steuer-spar-erklaerung-mcp",
   "99 fachliche API-Toolnamen plus den komponierten MCP-Preflight",
   "Alle 100 MCP-Werkzeugnamen",
+  "$env:SSE_API_CONFIG",
   "structuredContent",
   "ELSTER",
 ]) {

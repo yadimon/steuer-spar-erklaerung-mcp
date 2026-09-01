@@ -27,7 +27,8 @@ diesem Ordner. Installiere die API nicht separat; sie muss als exakt passende
 Dependency des MCP-Pakets kommen. Setze SSE_API_CONFIG auf
 C:\mein-steuer-ai\config.json. Vorhandene Konfiguration nur additiv mergen,
 nichts global installieren und keine Anmeldedaten kopieren. Führe danach
---selftest aus und sage mir klar, ob ich den Client neu starten muss.
+--selftest mit genau diesem gesetzten SSE_API_CONFIG aus und sage mir klar, ob
+ich den Client neu starten muss.
 ```
 
 Für Leute, die die Befehle selbst kontrollieren wollen, stehen die kurzen
