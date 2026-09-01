@@ -6093,13 +6093,14 @@ function Open-SSEValueInfoWindow([IntPtr]$MainHwnd, [int]$TargetPid, [int]$Timeo
 
 # Wartet bis zur Frist auf das Prozessende und meldet, ob danach noch etwas
 # laeuft. Frist 0 heisst: nur nachsehen, nicht warten.
-function Wait-SSEProcessExit([int]$ProcessId, [int]$TimeoutMs) {
-  $frist = [Diagnostics.Stopwatch]::StartNew()
-  while ($true) {
-    if (-not (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)) { return $false }
-    if ($frist.ElapsedMilliseconds -ge $TimeoutMs) { return $true }
-    Start-Sleep -Milliseconds 250
-  }
+function Wait-SSEProcessExit([Diagnostics.Process]$Process, [int]$TimeoutMs) {
+  # Das verifizierte Process-Objekt besitzt vor jeder Mutation bereits einen
+  # gepinnten SafeHandle. WaitForExit bleibt dadurch an genau diesen
+  # Kernelprozess gebunden und kann nicht auf eine wiederverwendete PID
+  # wechseln. Negative Altwerte bedeuteten bisher ebenfalls nur eine
+  # Sofortprobe; -1 darf deshalb niemals zum unendlichen Wait werden.
+  $effectiveTimeoutMs = [Math]::Max(0, $TimeoutMs)
+  return (-not $Process.WaitForExit($effectiveTimeoutMs))
 }
 
 function Test-SSEPointInRect([int]$X, [int]$Y, [int]$Left, [int]$Top, [int]$Width, [int]$Height) {
@@ -11420,6 +11421,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $targetPid = [int]$candidatePids[0]
     }
     $targetProcess = Get-Process -Id $targetPid -ErrorAction SilentlyContinue
+    try { $null = $targetProcess.SafeHandle }
+    catch { Fail "PID $targetPid besitzt keinen exakt bindbaren Prozess-Handle; nichts geschlossen." 'ownership' }
     if (-not (Test-SSEProcess $targetProcess)) { Fail "PID $targetPid ist keine verifizierte Instanz von '$($script:SSE_PROFILE.product)'." 'ownership' }
     $wins = @($allWins | Where-Object { [int]$_.pid -eq $targetPid })
     if ($requestedHwnd) {
@@ -11433,8 +11436,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       # Start-/Aktivierungsdialog: er wird nie beantwortet; nur der erneut als
       # passendes SSE-Profil verifizierte Prozess wird beendet.
       Stop-Process -InputObject $targetProcess -Force -ErrorAction SilentlyContinue
-      try { $targetProcess.WaitForExit(5000) | Out-Null } catch { }
-      $stillRunning = [bool](Get-Process -Id $targetPid -ErrorAction SilentlyContinue)
+      $stillRunning = Wait-SSEProcessExit $targetProcess 5000
       Emit ([pscustomobject]@{
         ok=(-not $stillRunning); killed=(-not $stillRunning); stillRunning=$stillRunning
         kind=$(if ($stillRunning) { 'postcondition-failed' } else { $null })
@@ -11530,14 +11532,14 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # SSE beendet sich nach der letzten Antwort nicht sofort. Ein einzelner
     # Blick direkt danach meldete deshalb 'Programm laeuft noch', obwohl es
     # Sekunden spaeter regulaer weg war - ein Fehlschlag, den es nicht gab.
-    $still = Wait-SSEProcessExit $targetPid 20000
+    $still = Wait-SSEProcessExit $targetProcess 20000
     $killed = $false
     if ($still -and ($force -or $hung) -and $discard) {
       Stop-Process -InputObject $targetProcess -Force -ErrorAction SilentlyContinue
       try { $targetProcess.WaitForExit(5000) | Out-Null } catch { }
       $killed = $true
     }
-    $laeuftNoch = Wait-SSEProcessExit $targetPid $(if ($killed) { 5000 } else { 0 })
+    $laeuftNoch = Wait-SSEProcessExit $targetProcess $(if ($killed) { 5000 } else { 0 })
     Emit ([pscustomobject]@{
       ok = (-not $laeuftNoch); wasHung = $hung; killed = $killed; stillRunning = $laeuftNoch
       kind = $(if ($laeuftNoch) { 'postcondition-failed' } else { $null })
