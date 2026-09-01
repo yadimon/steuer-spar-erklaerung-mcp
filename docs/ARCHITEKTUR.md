@@ -369,11 +369,15 @@ Agent oder eigenes Programm
   dieses Lifecycle-Signal auch nach beiden Cleanup-Wächtern aus, wird der
   aktuelle Platz nur im global verriegelten Zustand freigegeben;
   `worker-isolation-lost` sperrt alle weiteren Workerstarts bis zum API-Neustart.
-- Beim fachlichen `close` wird der verifizierte SSE-Prozess vor der ersten
-  Schließaktion an seinen exakten Kernel-Handle gebunden. Das Ende wird über
-  diesen Handle signalgesteuert statt per PID/`Get-Process` im 250-ms-Raster
-  gepollt; PID-Wiederverwendung kann dadurch weder Erfolg noch Fortbestand
-  eines anderen Prozesses vortäuschen.
+- Beim fachlichen `close` muss der verifizierte SSE-Prozess vor der ersten
+  Schließaktion einen lesbaren, gültigen und offenen `SafeProcessHandle`
+  liefern. Fehlende, ungebundene oder bereits freigegebene Prozessobjekte
+  stoppen ohne Mutation. Das Ende wird mit gehaltener SafeHandle-Referenz
+  direkt über `WaitForSingleObject` beobachtet, nicht per PID/`Get-Process`
+  oder `.WaitForExit`. Timeout bedeutet ausschließlich „läuft noch“;
+  ungültige Handles, Wait-Fehler und unbekannte Rückgabewerte bleiben
+  fail-closed. PID-Wiederverwendung kann dadurch weder Erfolg noch den
+  Fortbestand eines anderen Prozesses vortäuschen.
 - Operationsargumente liegen in einer exklusiven, auf 8 MiB begrenzten
   UTF-8-Tempdatei. Dadurch gelten weder Windows' Kommandozeilenlimit noch
   Base64-Steuerwerte in der Prozessliste; die Node-Brücke entfernt die Datei
