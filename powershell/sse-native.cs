@@ -462,7 +462,7 @@ public static class SSEAccessible {
     return output.ToArray();
   }
 
-  public static SSEAccNode DescribePoint(int x, int y) {
+  static SSEAccNode DescribePointCore(int x, int y, bool includeExtended) {
     object accessible = null, childId = null;
     POINT point = new POINT { X = x, Y = y };
     int hr = AccessibleObjectFromPoint(point, out accessible, out childId);
@@ -475,10 +475,12 @@ public static class SSEAccessible {
     try { c.accLocation(out left, out top, out width, out height, id); } catch { }
     try { name = Convert.ToString(c.accName(id)) ?? ""; } catch { }
     try { value = Convert.ToString(c.accValue(id)) ?? ""; } catch { }
-    try { description = Convert.ToString(c.accDescription(id)) ?? ""; } catch { }
-    try { help = Convert.ToString(c.accHelp(id)) ?? ""; } catch { }
-    try { shortcut = Convert.ToString(c.accKeyboardShortcut(id)) ?? ""; } catch { }
-    try { action = Convert.ToString(c.accDefaultAction(id)) ?? ""; } catch { }
+    if (includeExtended) {
+      try { description = Convert.ToString(c.accDescription(id)) ?? ""; } catch { }
+      try { help = Convert.ToString(c.accHelp(id)) ?? ""; } catch { }
+      try { shortcut = Convert.ToString(c.accKeyboardShortcut(id)) ?? ""; } catch { }
+      try { action = Convert.ToString(c.accDefaultAction(id)) ?? ""; } catch { }
+    }
     try { role = Convert.ToInt32(c.accRole(id)); } catch { }
     try { state = Convert.ToInt32(c.accState(id)); } catch { }
     return new SSEAccNode {
@@ -486,6 +488,14 @@ public static class SSEAccessible {
       KeyboardShortcut = shortcut, DefaultAction = action, Role = role, State = state,
       X = left, Y = top, W = width, H = height, Path = new int[0]
     };
+  }
+
+  public static SSEAccNode DescribePoint(int x, int y) {
+    return DescribePointCore(x, y, true);
+  }
+
+  public static SSEAccNode DescribePointBasic(int x, int y) {
+    return DescribePointCore(x, y, false);
   }
 
   public static void Invoke(long hwnd, int[] path) {

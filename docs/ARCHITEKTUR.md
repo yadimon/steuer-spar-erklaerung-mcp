@@ -396,6 +396,10 @@ Agent oder eigenes Programm
   keine byteidentische Ausgabe; Integrität und Archive binden daher die
   tatsächlich erzeugten Bytes statt compilerübergreifende Reproduzierbarkeit
   zu behaupten.
+- Drei interne MSAA-Punktproben für Klickbindung und Dialogerkennung lesen nur
+  Name, Wert, Rolle, Status und Rechteck. Der öffentliche Accessibility-
+  Diagnosepfad behält zusätzlich Beschreibung, Hilfe, Tastenkürzel und
+  Standardaktion; Sicherheitsbindung und Ergebnisform bleiben identisch.
 - UI-Mutationen bleiben an PID, HWND, Seite, Element, Vorwert und
   Nachbedingungen gebunden.
 - Weicht der installierte Minor-/Patch-Build vom `verifiedBuild` des Profils
