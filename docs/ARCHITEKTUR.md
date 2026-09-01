@@ -328,6 +328,12 @@ Agent oder eigenes Programm
   nur durch eine fachliche Skriptaufteilung senken, sodass ein Aufruf weniger
   Code übersetzt – nicht durch einen langlebigen UIA-Prozess. Letzteres
   verbietet der oben genannte Qt/UIA-Fehlerzustand.
+- Interne Schreib- und VaSt-Entscheidungen überspringen die teure
+  Prozess-Kommandozeilenabfrage nur dann, wenn bereits ein vollständiger,
+  nicht gekürzter Fenstertitel den erwarteten Fallpfad exakt beweist.
+  Gekürzte Titel, der schwächere `title-leaf`-Fallback und die öffentlich
+  zurückgegebenen `save`-/`save_as`-Bindungsbelege fragen die Kommandozeile
+  weiterhin ab; Annahmemenge und öffentliche Evidenz bleiben dadurch gleich.
 - Sichtbare physische Eingabe ist in einer verschachtelbaren Vordergrund-Lease
   gekapselt. Innerhalb einer atomaren Action wird dasselbe SSE-Fenster nur
   einmal angehoben. Erfolg, Fachfehler und globaler Trap laufen vor der
