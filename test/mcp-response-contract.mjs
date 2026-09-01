@@ -165,6 +165,7 @@ const nichtErreichbar = apiErrorResult("health", {
 assert.equal(nichtErreichbar.isError, true);
 assert(nichtErreichbar.structuredContent.hint.includes("Keinen zweiten API-Prozess"));
 assert(nichtErreichbar.structuredContent.hint.includes("keinen Namens-basierten Prozessstopp"));
+assert(nichtErreichbar.structuredContent.hint.includes("MCP-Server ueber den Client neu starten"));
 assert(nichtErreichbar.structuredContent.hint.includes("Installationsanleitung"));
 assert(
   !/[A-Z]:\\/u.test(nichtErreichbar.structuredContent.hint),

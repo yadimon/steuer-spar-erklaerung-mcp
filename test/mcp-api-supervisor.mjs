@@ -43,6 +43,18 @@ async function health(port) {
   return payload;
 }
 
+async function waitForPortClosed(port) {
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    try {
+      await fetch(`http://127.0.0.1:${port}/healthz`);
+    } catch {
+      return;
+    }
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 50));
+  }
+  assert.fail(`Port ${port} blieb nach dem exakten Prozessstopp erreichbar.`);
+}
+
 async function connectMcp(env) {
   const transport = new StdioClientTransport({
     command: process.execPath,
@@ -153,6 +165,34 @@ try {
   assert.equal(reusedHealth.processId, firstHealth.processId,
     "Zweiter MCP-Start ersetzte den kompatiblen Singleton.");
   await secondClient.close();
+
+  const deathPort = await freePort();
+  const deathConfig = configFor("mid-session-death", deathPort);
+  const deathClient = await connectMcp({
+    ...process.env,
+    SSE_API_URL: "",
+    SSE_API_CONFIG: deathConfig,
+  });
+  const deathHealth = await health(deathPort);
+  ownedApiPids.add(deathHealth.processId);
+  const stopped = spawnSync("taskkill.exe", ["/PID", String(deathHealth.processId), "/T", "/F"], {
+    windowsHide: true,
+    stdio: "ignore",
+  });
+  assert.equal(stopped.status, 0, "Der exakt identifizierte Test-API-Prozess konnte nicht beendet werden.");
+  ownedApiPids.delete(deathHealth.processId);
+  await waitForPortClosed(deathPort);
+  const deathResult = await deathClient.callTool({ name: "sse_health", arguments: {} });
+  const deathText = deathResult.content
+    ?.filter((entry) => entry.type === "text")
+    .map((entry) => entry.text)
+    .join("\n") ?? "";
+  assert.equal(deathResult.isError, true, "Ein API-Tod waehrend der Sitzung muss fail-closed stoppen.");
+  assert.equal(deathResult.structuredContent?.kind, "network");
+  assert.match(deathText, /MCP-Server ueber den Client neu starten/u);
+  await assert.rejects(fetch(`http://127.0.0.1:${deathPort}/healthz`),
+    "Ein API-Tod waehrend der Sitzung startete unerwartet einen Ersatzprozess.");
+  await deathClient.close();
 
   const conflictingConfig = resolve(temporary, "singleton-conflict.json");
   writeFileSync(conflictingConfig, `${JSON.stringify({
@@ -337,7 +377,7 @@ try {
     "API-Konfigurationsfehler gab den lokalen Testpfad aus.");
 
   process.stdout.write(
-    "MCP-API-Supervisor: Autostart, Wiederverwendung, Config-Identitaet, eindeutige Umgebungswahl, Default-Config-Port, Zwei-Start-Race, Fremddienst, Versionsdrift, Prozesswechsel und URL-No-Fallback bestanden\n",
+    "MCP-API-Supervisor: Autostart, Wiederverwendung, Config-Identitaet, eindeutige Umgebungswahl, Default-Config-Port, Zwei-Start-Race, API-Tod, Fremddienst, Versionsdrift, Prozesswechsel und URL-No-Fallback bestanden\n",
   );
 } finally {
   for (const pid of new Set([...ownedApiPids, ...discoverOwnedApiPids()])) {

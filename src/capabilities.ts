@@ -14,6 +14,7 @@ import {
   MAX_API_ARGUMENT_STRING_BYTES,
   SSE_CLICK_PATTERNS,
   SSE_DIALOG_BUTTONS,
+  SSE_MCP_COMPOSED_TOOL_OPERATIONS,
   SSE_MCP_TOOL_OPERATIONS,
   SSE_OPERATION_LIMITS,
 } from "./operation-catalog.js";
@@ -78,6 +79,7 @@ export const SSE_CAPABILITIES = Object.freeze({
     workerQueueDepth: MAX_WORKER_QUEUE_DEPTH,
     apiOperations: SSE_API_OPERATIONS,
     mcpToolOperations: SSE_MCP_TOOL_OPERATIONS,
+    mcpComposedToolOperations: SSE_MCP_COMPOSED_TOOL_OPERATIONS,
     readOnlyOperations: SSE_READ_ONLY_OPERATIONS,
     statefulOperations: SSE_STATEFUL_OPERATIONS,
     nonDestructiveStatefulOperations: SSE_NON_DESTRUCTIVE_STATEFUL_OPERATIONS,

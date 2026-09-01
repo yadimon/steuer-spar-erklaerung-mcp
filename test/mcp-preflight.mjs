@@ -1,5 +1,29 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { evaluateMcpPreflight, MCP_PREFLIGHT_OUTPUT_SCHEMA } from "../dist/mcp-preflight.js";
+import { SSE_MCP_TOOL_SCHEMAS } from "../dist/operation-catalog.js";
+
+for (const nextTool of MCP_PREFLIGHT_OUTPUT_SCHEMA.shape.nextTool.options) {
+  assert(nextTool in SSE_MCP_TOOL_SCHEMAS, `Preflight-nextTool ist nicht registriert: ${nextTool}`);
+}
+
+const resultShape = JSON.parse(readFileSync("test/operation-result-shape.json", "utf8"));
+for (const [operation, mode, fields] of [
+  ["workspace_status", "offline", [
+    "profileId", "workspaceReady", "resultAreaReady", "caseDirectoryConfigured",
+    "caseDirectoryReady", "documentAreaReady", "backupAreaReady",
+  ]],
+  ["product_info", "offline", [
+    "profileId", "profileStatus", "operationAccess", "product", "taxYear",
+    "defaultExecutable", "catalogCompatibility", "buildDrift",
+  ]],
+  ["health", "live", ["profileId", "taxYear", "running", "buildDrift", "canaryOk", "dialogs"]],
+]) {
+  const observed = resultShape.operations?.[operation]?.[mode]?.fields ?? {};
+  for (const field of fields) {
+    assert(field in observed, `Preflight-Feld fehlt in der Ergebnis-Shape: ${operation}.${field}`);
+  }
+}
 
 const readyWorkspace = {
   ok: true,
@@ -149,12 +173,18 @@ for (const malformedProduct of [
 for (const malformedHealth of [
   { ...readyHealth, dialogs: undefined },
   { ...readyHealth, dialogs: {} },
-  { ...readyHealth, advice: "Fenster haengt." },
 ]) {
   const unknownHealth = evaluateMcpPreflight(readyWorkspace, readyProduct, malformedHealth);
   assert.equal(unknownHealth.ready, false, "Unvollstaendiger Health-Nachweis muss fail-closed bleiben.");
   assert(unknownHealth.blockers.some((entry) => entry.code === "SSE_UNHEALTHY"));
 }
+
+const translatedAdvice = evaluateMcpPreflight(
+  readyWorkspace,
+  readyProduct,
+  { ...readyHealth, advice: "healthy" },
+);
+assert.equal(translatedAdvice.ready, true, "Freigabe darf nicht von einem uebersetzten Hinweistext abhaengen.");
 
 const incompatibleInstallation = evaluateMcpPreflight(
   readyWorkspace,

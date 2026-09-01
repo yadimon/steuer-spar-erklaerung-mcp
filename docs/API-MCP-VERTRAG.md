@@ -124,8 +124,10 @@ mehrdeutige Wahl gesperrt. API-stdio bleibt vollständig vom MCP-stdout getrennt
   wenn der Aufruf über die API oder die CLI kam. Ein Werkzeugname trägt dort
   teils mehr Information als der Operationsname: `sse_change_field` und
   `sse_change_known_field` sind beide `tracked_set_value`. Die vollständige
-  Zuordnung steht maschinenlesbar in
-  `capabilities.transport.mcpToolOperations`.
+  direkte Zuordnung steht maschinenlesbar in
+  `capabilities.transport.mcpToolOperations`; komponierte Werkzeuge stehen mit
+  ihren geordneten API-Basisoperationen daneben in
+  `capabilities.transport.mcpComposedToolOperations`.
 - API-Fehlerfelder werden nicht durch eine Fehler-Allowlist abgeschnitten;
   MCP markiert sie mit `isError=true`.
 - Erfolgreiche Antworten bleiben als JSON-Text verfügbar. Einige Werkzeuge

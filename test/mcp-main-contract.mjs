@@ -202,6 +202,8 @@ const [failedResultCode] = await once(failedResultSelftest, "exit");
 assert.equal(failedResultCode, 1);
 assert.equal(failedResultStdout, "");
 assert.match(failedResultStderr, /health lieferte kein ok=true/u);
+assert.match(failedResultStderr, /worker-failed/u);
+assert.match(failedResultStderr, /Lokaler PC-Pfad/u);
 assert(!failedResultStderr.includes("PrivateFixture") && !failedResultStderr.includes(process.cwd()));
 selftestResultFails = false;
 

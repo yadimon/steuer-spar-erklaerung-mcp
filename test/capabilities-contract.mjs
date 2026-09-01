@@ -15,7 +15,9 @@ import {
   MAX_API_ARGUMENT_STRING_BYTES,
   SSE_CLICK_PATTERNS,
   SSE_DIALOG_BUTTONS,
+  SSE_MCP_COMPOSED_TOOL_OPERATIONS,
   SSE_MCP_TOOL_OPERATIONS,
+  SSE_MCP_TOOL_SCHEMAS,
   SSE_OPERATION_LIMITS,
 } from "../dist/operation-catalog.js";
 import { SSE_PACKAGE_NAME, SSE_PACKAGE_VERSION } from "../dist/version.js";
@@ -116,6 +118,12 @@ assert.deepEqual(result.limits, {
 });
 assert.deepEqual(result.transport.apiOperations, SSE_API_OPERATIONS);
 assert.deepEqual(result.transport.mcpToolOperations, SSE_MCP_TOOL_OPERATIONS);
+assert.deepEqual(result.transport.mcpComposedToolOperations, SSE_MCP_COMPOSED_TOOL_OPERATIONS);
+assert.deepEqual(
+  [...Object.keys(result.transport.mcpToolOperations), ...Object.keys(result.transport.mcpComposedToolOperations)].sort(),
+  Object.keys(SSE_MCP_TOOL_SCHEMAS).sort(),
+  "Direkte und komponierte Capabilities muessen die ganze MCP-Oberflaeche abdecken.",
+);
 assert.deepEqual(result.transport.readOnlyOperations, SSE_READ_ONLY_OPERATIONS);
 assert.deepEqual(result.transport.statefulOperations, SSE_STATEFUL_OPERATIONS);
 assert.deepEqual(result.transport.nonDestructiveStatefulOperations, SSE_NON_DESTRUCTIVE_STATEFUL_OPERATIONS);

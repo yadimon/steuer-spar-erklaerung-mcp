@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { SseMcpToolName } from "./operation-catalog.js";
 
 const PREFLIGHT_BLOCKER_CODES = [
   "WORKSPACE_NOT_READY",
@@ -25,7 +26,7 @@ const PREFLIGHT_NEXT_TOOLS = [
   "sse_list_cases",
   "sse_launch",
   "sse_instances",
-] as const;
+] as const satisfies readonly SseMcpToolName[];
 
 const PREFLIGHT_ISSUE_SCHEMA = z.object({
   code: z.enum(PREFLIGHT_BLOCKER_CODES),
@@ -142,7 +143,6 @@ export function evaluateMcpPreflight(
   const runtimeSignalsHealthy = running &&
     dialogInventoryKnown &&
     health.canaryOk === true &&
-    health.advice === "gesund" &&
     !dialogOpen;
   const healthy = runtimeSignalsHealthy && runtimeBuildCompatible;
 
