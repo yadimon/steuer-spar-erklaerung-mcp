@@ -422,6 +422,10 @@ Agent oder eigenes Programm
   Buildpruefung und UIA. Derselbe Katalog und Block liegen zusaetzlich direkt
   im Worker; ein direkter Aufruf oder eine Komposition kann die API-Grenze
   daher nicht umgehen.
+- Seine Zustandsprüfung klassifiziert die sechs profilierten, ordinalen
+  AutomationId-Suffixe einmal je frischem UIA-Snapshot. Doppelte oder
+  deaktivierte Treffer bleiben fail-closed; Knotenmenge und Fingerprint werden
+  nicht zwischen zwei Reads wiederverwendet.
 - Feld-, Tabellen- und UStVA-Beträge werden mit gemeinsam getesteter deutscher
   Gruppierung und exakter Dezimalgleichheit zurückgelesen. Präfixe sowie
   mehrdeutige Punktfolgen gelten nicht als Übereinstimmung.
