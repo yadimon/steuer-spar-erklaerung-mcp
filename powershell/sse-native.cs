@@ -159,7 +159,7 @@ public class SW {
   [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h,IntPtr hdc,uint f);
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h,out RC r);
   [DllImport("user32.dll")] public static extern IntPtr GetDlgItem(IntPtr h,int id);
-  [DllImport("user32.dll")] public static extern bool EnumWindows(EP cb,IntPtr l);
+  [DllImport("user32.dll", SetLastError=true)] public static extern bool EnumWindows(EP cb,IntPtr l);
   [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr parent,EP cb,IntPtr l);
   [DllImport("user32.dll")] public static extern int GetDlgCtrlID(IntPtr h);
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h,out uint pid);
@@ -258,35 +258,64 @@ public static class SSEWindowEnumerator {
     }
   }
 
+  static void EnsureEnumerationCompleted(
+    bool completed, int nativeError, int callbacksVisited, Exception callbackFailure) {
+    // EnumWindows returns FALSE both for a native failure and when its callback
+    // aborts enumeration. Preserve a managed callback failure as the primary
+    // exception. Like EnumDesktopWindows, EnumWindows returns FALSE with no
+    // error and no callback for a genuinely empty private desktop; only that
+    // exact empty case is safe. FALSE after a callback would be a partial
+    // snapshot and must fail closed even if Win32 omitted an error code.
+    if (callbackFailure != null) {
+      System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(callbackFailure).Throw();
+    }
+    if (completed || (nativeError == 0 && callbacksVisited == 0)) return;
+    if (nativeError != 0) {
+      throw new System.ComponentModel.Win32Exception(nativeError, "window-enumeration-failed");
+    }
+    throw new InvalidOperationException("window-enumeration-failed");
+  }
+
   public static SSEWindowNode[] Describe(int[] allowedProcessIds) {
     if (allowedProcessIds == null || allowedProcessIds.Length == 0) return new SSEWindowNode[0];
     var allowed = new HashSet<int>(allowedProcessIds);
     var output = new List<SSEWindowNode>();
     int order = 0;
+    int callbacksVisited = 0;
+    Exception callbackFailure = null;
     SW.EP callback = delegate(IntPtr hwnd, IntPtr context) {
-      uint processId = 0;
-      SW.GetWindowThreadProcessId(hwnd, out processId);
-      if (!allowed.Contains(unchecked((int)processId)) || !SW.IsWindowVisible(hwnd)) return true;
+      try {
+        callbacksVisited++;
+        uint processId = 0;
+        SW.GetWindowThreadProcessId(hwnd, out processId);
+        if (!allowed.Contains(unchecked((int)processId)) || !SW.IsWindowVisible(hwnd)) return true;
 
-      var title = new StringBuilder(512);
-      var className = new StringBuilder(256);
-      SW.GetWindowTextW(hwnd, title, title.Capacity);
-      SW.GetClassNameW(hwnd, className, className.Capacity);
-      SW.RC rectangle;
-      SW.GetWindowRect(hwnd, out rectangle);
-      string titleText = title.ToString();
-      output.Add(new SSEWindowNode {
-        Hwnd = hwnd.ToInt64(), Pid = unchecked((int)processId),
-        X = rectangle.L, Y = rectangle.T,
-        W = rectangle.R - rectangle.L, H = rectangle.B - rectangle.T,
-        ClassName = className.ToString(), Title = titleText,
-        TitleFingerprint = Sha256(titleText),
-        Hung = SW.IsHungAppWindow(hwnd), Minimized = SW.IsIconic(hwnd),
-        EnumerationOrder = order++
-      });
-      return true;
+        var title = new StringBuilder(512);
+        var className = new StringBuilder(256);
+        SW.GetWindowTextW(hwnd, title, title.Capacity);
+        SW.GetClassNameW(hwnd, className, className.Capacity);
+        SW.RC rectangle;
+        SW.GetWindowRect(hwnd, out rectangle);
+        string titleText = title.ToString();
+        output.Add(new SSEWindowNode {
+          Hwnd = hwnd.ToInt64(), Pid = unchecked((int)processId),
+          X = rectangle.L, Y = rectangle.T,
+          W = rectangle.R - rectangle.L, H = rectangle.B - rectangle.T,
+          ClassName = className.ToString(), Title = titleText,
+          TitleFingerprint = Sha256(titleText),
+          Hung = SW.IsHungAppWindow(hwnd), Minimized = SW.IsIconic(hwnd),
+          EnumerationOrder = order++
+        });
+        return true;
+      } catch (Exception failure) {
+        callbackFailure = failure;
+        return false;
+      }
     };
-    SW.EnumWindows(callback, IntPtr.Zero);
+    DSK.SetLastError(0);
+    bool completed = SW.EnumWindows(callback, IntPtr.Zero);
+    int nativeError = Marshal.GetLastWin32Error();
+    EnsureEnumerationCompleted(completed, nativeError, callbacksVisited, callbackFailure);
     output.Sort(delegate(SSEWindowNode left, SSEWindowNode right) {
       long leftArea = (long)left.W * left.H;
       long rightArea = (long)right.W * right.H;
