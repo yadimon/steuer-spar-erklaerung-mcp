@@ -1,16 +1,22 @@
 # Release-Prozess
 
-Dieses Projekt veröffentlicht keinen gehosteten Dienst. Es hat zwei bewusst
-getrennte Distributionsartefakte:
+Dieses Projekt veröffentlicht keinen gehosteten Dienst. Der primäre
+Nutzereinstieg ist das Agent Plugin im Repository. Zwei getrennte npm-Pakete
+bleiben für standalone-Nutzung und als versionsgebundene Releaseartefakte
+erhalten:
 
+- Agent Plugin mit Skill, MCP, API, Windows-Runtime, Profilen, Assets und
+  JavaScript-Dependencies;
 - `@yadimon/steuer-spar-erklaerung-api` für API und CLI;
 - `@yadimon/steuer-spar-erklaerung-mcp` als PC-blinden MCP-Wrapper.
 
 Das Root-`package.json` bleibt als Build-Workspace `private: true`. Nur die
 beiden Manifeste unter `packages/` sind veröffentlichbar. Das GitHub-Release
 trägt keine Anhänge: Es hält Tag, Release Notes und die Verbindung zum
-Quellstand: die Produktartefakte sind allein die beiden npm-Tarballs. Ohne
-Node.js und npm ist das Produkt nicht installierbar.
+Quellstand. Die standalone-Produktartefakte sind die beiden npm-Tarballs; das
+Plugin wird aus demselben versionierten Quellstand installiert und darf beim
+Start keine Registry mehr benötigen. Node.js 22+ bleibt die einzige
+zusätzliche Nutzer-Runtime.
 
 Die Windows-CI besitzt absichtlich nur Leserechte. Sie baut und prüft ein
 kurzlebiges Artefakt, veröffentlicht aber weder Tags noch Releases. Jeder
@@ -24,6 +30,8 @@ Für eine neue Beta müssen gemeinsam aktualisiert werden:
 - beide `packages/*/package.json`-Versionen;
 - `src/version.ts`;
 - `docs/releases/v<version>.md`;
+- die zentrale Plugin-Metadatenquelle und daraus generierte Root-, MCP- und
+  target-spezifische Manifeste;
 - `SECURITY.md`, Skills und README, soweit sich Supportgrenzen ändern;
 - Profile, Evidenzmatrix und Verträge, wenn Operationen betroffen sind.
 
@@ -62,7 +70,10 @@ npm run publish:dry-run
 npm run test:npm-clean-install
 ```
 
-Die identische lokale Gatefolge kann als ein Befehl ausgeführt werden:
+Die vollständige Gatefolge muss zusätzlich den generierten Manifest-Drift, die
+exakt gleiche Plugin-/MCP-/API-/Runtimeversion, die self-contained
+Plugin-Dateiliste und einen MCP-Start ohne npm/npx/Netzwerk prüfen. Die
+identische lokale Gatefolge kann als ein Befehl ausgeführt werden:
 
 ```powershell
 npm run check
@@ -79,12 +90,15 @@ npm run check
 Remove-Item Env:SSE_TEST_CONCURRENCY
 ```
 
-Der Clean-install-Smoke installiert nur den MCP-Tarball aus der isolierten
+Der npm-Clean-install-Smoke installiert nur den MCP-Tarball aus der isolierten
 lokalen Fixture-Registry. Er muss dabei die exakte API-Dependency automatisch
-auflösen sowie die drei CLI-Einstiege und den 99-Tool-MCP-Vertrag bestätigen.
-Danach nochmals prüfen, dass der Worktree sauber ist. Private Steuerdaten,
-lokale Konfigurationen und Test-Arbeitskopien dürfen nicht im Commit oder
-Artefakt liegen.
+auflösen sowie die CLI-Einstiege und den versionsgebundenen MCP-Vertrag
+bestätigen. Der getrennte Plugin-Smoke startet dagegen ausschließlich aus dem
+gebauten Plugin-Root und einem Workspace ohne `node_modules`; jeder npm-,
+npx- oder Netzwerkzugriff während dieses Starts ist ein Fehler. Danach nochmals
+prüfen, dass der Worktree sauber ist. Private Steuerdaten, lokale
+Konfigurationen und Test-Arbeitskopien dürfen nicht im Commit oder Artefakt
+liegen.
 
 ## 4. Annotierten Tag und GitHub-Prerelease veröffentlichen
 
@@ -208,18 +222,91 @@ Artefakte geprüft:
 npm run smoke:published
 ```
 
-## 6. Öffentlichen Skill und Einstieg prüfen
+## 6. Agent Plugin in sauberer VM prüfen
 
-Nach Veröffentlichung und Aktualisierung von `main`:
+Vor der öffentlichen Ankündigung auf einer frischen Windows-11-x64-VM mit
+Node.js 22+, Git auf `PATH` für das einmalige Klonen des Plugin-Repositories
+durch `plugins@1.3.4` und installierter SteuerSparErklärung 2025 beide
+dokumentierten Ziele getrennt prüfen. Keine Host-Credentials oder Host-Caches
+als Evidenz übernehmen.
 
 ```powershell
-npx skills add yadimon/steuer-spar-erklaerung-mcp --list
+mkdir C:\mein-steuer-ai
+cd C:\mein-steuer-ai
+npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target codex --scope project --yes
 ```
 
-Die Ausgabe muss den einen Skill `steuer-spar-erklaerung` mit seiner aktuellen
-Beschreibung zeigen. Danach den README-Schnellstart und den direkten Skill-Link
-in einer frischen Browser-Sitzung öffnen.
+Den bekannten Zwischenstand als Status zurücklesen, nicht als vorgesehenen
+Installationsschritt:
 
-Erst wenn Tag, Prerelease, beide Registry-Versionen, Skill-Auflistung und
-README gemeinsam stimmen, ist der Stand für eine öffentliche Ankündigung
-bereit.
+```powershell
+codex plugin list --json
+```
+
+Die beobachtete Codex-0.151-Alpha kann bei diesem Readback dennoch nativen
+Cache-/Konfigurationszustand materialisieren. Deshalb einen isolierten
+Ausgangszustand verwenden und Vorher-/Nachher-Evidenz sichern.
+
+Danach target-nativ installieren:
+
+```powershell
+codex plugin add steuer-spar-erklaerung@plugins-cli --json
+```
+
+Zum Abschluss wieder den Status zurücklesen:
+
+```powershell
+codex plugin list --json
+```
+
+Der erste Readback muss die bekannte Installergrenze sichtbar machen: Ein
+isolierter Probelauf mit `plugins@1.3.4` und Codex CLI 0.151 ergab nach dem externen
+`add` noch `not installed`; erst der target-native zweite Installationsbefehl
+ergab v0.1.0-beta.33 als `installed, enabled`. Der VM-Lauf muss diese Folge
+erneut zurücklesen und darf den Installer-Exitcode nicht als Codex-
+Installation behandeln.
+
+Den Lauf in einem frischen VM-Zustand für Claude Code mit genau einem
+Installeraufruf wiederholen:
+
+```powershell
+mkdir C:\mein-steuer-ai
+cd C:\mein-steuer-ai
+npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target claude-code --scope project --yes
+```
+
+Die target-native Claude-Code-Anzeige muss danach den Eintrag als `enabled`
+ausweisen; dort keinen `codex plugin add`-Befehl ausführen.
+
+Weil `plugins@1.3.4` den Scope bei Codex ignoriert und bei beiden Zielen trotz
+`--scope project` in clientverwaltete User-Caches und Konfiguration schreibt,
+beweist der Test keine physische Projektisolation. Die Evidenz muss die
+tatsächlich geschriebenen Ziele und diesen Scope-Hinweis festhalten.
+
+Für jedes Ziel belegen:
+
+- Codex ist erst nach beiden Installationsschritten `installed, enabled`,
+  Claude Code nach seinem einzelnen zielgenauen Installeraufruf `enabled`;
+- Skill und MCP sind danach nach Reload/Neustart sichtbar;
+- ein echter `sse_preflight` startet die API ohne weitere npm-Installation,
+  ohne API-Terminal und mit protokollreinem stdout;
+- im Workspace existiert kein `node_modules`, und der MCP-Start benötigt weder
+  npm, npx noch Netzwerk;
+- paralleler Start, fremder Portinhaber und alte API-Version verhalten sich
+  fail-closed beziehungsweise singleton-konvergent;
+- beim Update wird `plugins@1 add` erneut ausgeführt; Codex liest anschließend
+  Version und Status zurück und wiederholt `codex plugin add`, falls nötig;
+- Codex-Entfernung wird mit
+  `codex plugin remove steuer-spar-erklaerung@plugins-cli` und anschließendem
+  Readback über `codex plugin list --json` belegt. Die Claude-Code-ID erst
+  target-nativ zurücklesen
+  und dann den dort verifizierten Weg verwenden. Keine erfundenen `plugins`-
+  Kommandos verwenden: Version 1.3.4 bietet nur `add`, `discover` und
+  `targets`.
+
+OpenCode nicht als unterstützt nennen, solange kein eigener vollständiger
+Clientlauf Bestandteil dieser Matrix ist.
+
+Erst wenn Tag, Prerelease, beide Registry-Versionen, Plugin-Manifestdrift,
+Codex-/Claude-Code-VM-Matrix und README gemeinsam stimmen, ist der Stand für
+eine öffentliche Ankündigung bereit.

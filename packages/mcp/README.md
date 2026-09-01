@@ -3,108 +3,127 @@
 > **Beta und inoffiziell.** Dieses Projekt ist nicht mit Wolters Kluwer
 > verbunden. Es sendet keine Steuererklärung und ersetzt keine Steuerberatung.
 
-PC-blinder MCP-Wrapper für Windows x64 und SteuerSparErklärung über die lokale
-SteuerSparErklärung-API. Das Paket spricht per stdio mit dem AI-Agenten und per
-lokaler Loopback-Verbindung mit
-`@yadimon/steuer-spar-erklaerung-api`. Es greift niemals selbst auf die
-Desktop-Oberfläche oder lokale Steuerdateien zu.
+PC-blinder MCP-Wrapper für Windows x64 und SteuerSparErklärung 2025. Er spricht
+per stdio mit dem Agenten und über die lokale SteuerSparErklärung-API;
+Steuerfall- und Dokumentpfade bleiben im API-Prozess.
 
-## Architektur und Voraussetzungen
+## Empfohlener Weg: Agent Plugin
 
-Das API-Paket ist die Ausführungsschicht auf dem Windows-PC; dieses MCP-Paket
-übersetzt MCP-Aufrufe in deren versionierten HTTP-Vertrag. Es besitzt eine
-normale, exakte Dependency auf dieselbe Releaseversion der API. npm installiert
-sie automatisch, ohne `postinstall` und ohne Installation zur Laufzeit. Weil
-die Dependency Windows-x64-nativ ist, ist auch dieses MCP-Paket auf Windows x64
-begrenzt.
-API und MCP tragen dadurch exakt dieselbe Paketversion.
+Das Agent Plugin enthält Skill, MCP, exakt passende API,
+PowerShell-/Native-Runtime, Profile und JavaScript-Dependencies. Im
+Auftragsordner entsteht kein `node_modules`; beim MCP-Start laufen weder npm
+noch npx und es ist kein Netzwerkzugriff nötig.
 
-```text
-AI-Agent -> MCP-Paket -> lokale API -> SteuerSparErklärung
-```
+`plugins@1.3.4` benötigt Git auf `PATH`, weil es das Plugin-Repository einmalig
+klont. Danach bleibt Node.js 22+ die einzige zusätzliche Plugin-Runtime.
+
+Für Codex:
 
 ```powershell
 mkdir C:\mein-steuer-ai
 cd C:\mein-steuer-ai
-npm.cmd init -y
-npm.cmd install --save-exact @yadimon/steuer-spar-erklaerung-mcp@latest
-$ApiConfig = Join-Path (Get-Location).Path 'config.json'
-$env:SSE_API_CONFIG = $ApiConfig
-node .\node_modules\@yadimon\steuer-spar-erklaerung-mcp\dist\index.js --selftest
+npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target codex --scope project --yes
+codex plugin add steuer-spar-erklaerung@plugins-cli --json
 ```
 
-Die Umgebungsvariable gilt nur in dieser PowerShell-Sitzung. Ein eigener
-Arbeitsbereich muss beim Selftest und im späteren Client denselben absoluten
-`SSE_API_CONFIG`-Wert erhalten.
+Der erste Befehl allein erzeugte mit `plugins@1.3.4` und Codex CLI 0.151 zwar
+Cache-, Marketplace- und Konfigurationseinträge, blieb laut Status-Readback
+`codex plugin list --json` aber `not installed`. Der zweite, target-native Befehl ist
+daher zwingend; erst `installed, enabled` ist ein erfolgreicher Codex-Stand.
+Danach `codex plugin list --json` als Status-Readback verwenden, nicht als
+vorgesehenen Installationsschritt. Die beobachtete Codex-0.151-Alpha kann bei
+diesem Readback dennoch Cache-/Konfigurationszustand materialisieren.
 
-Beim Start prüft MCP zuerst die konfigurierte Loopback-Adresse. Eine bereits
-laufende API wird nur bei exakt passendem Paketnamen, Release, API-Vertrag und
-bei verwalteter Konfiguration identischer Ressourcenbindung als Singleton
-übernommen. Ist der Port frei, startet MCP die mitinstallierte
-API unsichtbar, wartet auf Readiness und lässt sie für spätere MCP-Clients
-weiterlaufen. Parallelstarts konvergieren auf genau eine API. Ein fremder
-Dienst oder eine unklare/abweichende API führt fail-closed zum Startabbruch und
-wird niemals beendet oder ersetzt.
+Für Claude Code genügt der eine zielgenaue Installeraufruf:
 
-Die [Installationsanleitung](https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md)
-beschreibt Installation, Versionsabgleich und Client-Konfiguration. Der
-MCP-Servereintrag startet die absolute `node.exe` mit dem absoluten
-`dist/index.js` dieses Pakets als einzigem Argument. Beim Standardport braucht
-er keine Umgebungsvariable. `SSE_API_CONFIG` darf auf eine absolute
-Konfigurationsdatei für einen eigenen API-Arbeitsbereich zeigen.
-`SSE_API_URL` bindet dagegen autoritativ eine bewusst separat verwaltete
-Loopback-API: Ist sie nicht erreichbar oder inkompatibel, gibt es keinen
-Fallback und keinen Autostart am Standardport. Steuerfall-, Beleg- und
-Programmpfade verbleiben im API-Prozess auf dem Steuer-PC. `SSE_API_URL` und
-`SSE_API_CONFIG` dürfen nicht gleichzeitig gesetzt sein.
+```powershell
+npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target claude-code --scope project --yes
+```
+
+Der isolierte Claude-Code-Probelauf zeigte den Eintrag danach als `enabled`.
+Anschließend den jeweiligen Client neu starten beziehungsweise seine Plugins
+neu laden und das echte Tool `sse_preflight` aufrufen. Die automatische
+Target-Erkennung wird unter Windows nicht empfohlen.
+
+`plugins@1.3.4` ignoriert den Scope bei Codex und schreibt bei beiden Zielen
+trotz `--scope project` in clientverwaltete Benutzer-Caches/config. Das vom
+Nutzer gewünschte Flag bedeutet daher keine physische Projektisolation.
+Details zu getrennten Arbeitsdaten, Update und sicherer Entfernung stehen in der
+[Installationsanleitung](https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md).
 
 ## Vertrag
 
-- 99 fachliche API-Toolnamen plus den komponierten MCP-Preflight
+- versionsgebundener Operationskatalog plus komponierter MCP-Preflight
   `sse_preflight`;
-- strikte Eingabeschemata und deklarierte Ausgabeschemata;
+- strikte Eingabe- und deklarierte Ausgabeschemata;
 - vollständiges `structuredContent` neben kompaktem Text;
 - rekursive Redaction lokaler PC-Pfade;
 - Cancellation bis zum lokalen API-Auftrag;
-- Größenlimits und fail-closed Fehlerantworten.
+- Größenlimits, protokollreines stdout und fail-closed Fehlerantworten.
 
-API-Ausgaben sind vom MCP-stdout getrennt; der Hintergrundprozess erhält keine
-sichtbare Konsole. `--selftest` verwendet denselben Singleton- und
-Identitätsprüfpfad wie der normale stdio-Start. Vor jedem späteren
-API-Werkzeugaufruf wird die Identität erneut geprüft, sodass ein am Port
-ausgetauschter oder umkonfigurierter Prozess fail-closed gestoppt wird.
+Der Katalog umfasst **99 fachliche API-Toolnamen plus den komponierten MCP-Preflight**.
+Alle 100 MCP-Werkzeugnamen werden aus dem versionierten Vertrag abgeleitet und
+als strukturierte Werkzeuge registriert.
 
 Vor der ersten Facharbeit bündelt `sse_preflight` nacheinander
-`workspace_status`, `product_info` und `health` zu stabilen Blockercodes. Er
-startet keinen Steuerfall und ist keine Freigabe für spätere Mutationen. Die
-Installation und der tatsächlich laufende Build müssen beide explizit ohne
-Build-Drift belegt sein. Die
-MCP-Server-Instruktionen tragen diesen Ablauf auch ohne installierten Skill;
-der Skill bleibt eine optionale Komfortschicht für längere Wizards.
+`workspace_status`, `product_info` und `health`. Er startet keinen Steuerfall
+und erteilt keine Mutationsfreigabe. Der Skill ergänzt einen kurzen Wizard;
+harte Grenzen liegen zusätzlich in den MCP-Server-Instruktionen.
 
-Alle 100 MCP-Werkzeugnamen sind registriert. Im normalen öffentlichen Betrieb ist
-von den zehn BelegManager-Werkzeugen nur `sse_receipt_manager_list` aktiv; die
-neun Vordergrundwege stoppen vor Workerstart und UI-Änderung strukturiert als
-`foreground-required-operation-disabled`.
+## API-Singleton
+
+Der Supervisor übernimmt nur eine Loopback-API mit passendem Paketnamen,
+derselben exakten Releaseversion, passendem API-Vertrag und bei verwalteter
+Konfiguration identischer Ressourcenbindung. Ist der Port frei, startet er die
+mitgelieferte API unsichtbar und wartet auf Readiness. Parallele MCP-Starts
+konvergieren auf dieselbe PID.
+
+Ein fremder Dienst, eine alte Version oder eine unklare Identität stoppt den
+Start. Nichts wird automatisch beendet oder ersetzt. `SSE_API_URL` ist eine
+autoritative, bewusst separat verwaltete Loopback-API und verhindert Fallback
+und Autostart. `SSE_API_CONFIG` wählt optional einen absoluten eigenen
+Arbeitsbereich. Beide Variablen dürfen nicht gleichzeitig gesetzt sein.
+
+## Fortgeschritten: standalone npm-MCP
+
+Dieser Weg ist für eigene Clientkonfigurationen und Diagnosen gedacht, nicht
+für den normalen Plugin-Einstieg:
+
+```powershell
+$Root = 'C:\mein-steuer-mcp-standalone'
+New-Item -ItemType Directory -Force -Path $Root | Out-Null
+Set-Location $Root
+npm.cmd init -y
+npm.cmd install --save-exact @yadimon/steuer-spar-erklaerung-mcp@latest
+
+$Node = (Get-Command node).Source
+$Mcp = Join-Path $Root 'node_modules\@yadimon\steuer-spar-erklaerung-mcp\dist\index.js'
+$ApiConfig = Join-Path $Root 'sse-api-config.json'
+$env:SSE_API_CONFIG = $ApiConfig
+& $Node $Mcp --selftest
+```
+
+npm installiert die exakt passende API als normale Dependency; das MCP-Paket
+bindet dabei exakt dieselbe Paketversion. Es gibt kein `postinstall` und keine
+Installation zur Laufzeit. Der target-native
+MCP-Eintrag muss die absolute `node.exe` mit dem absoluten `dist\index.js` als
+einzigem Skriptargument starten und denselben optionalen
+`SSE_API_CONFIG`-Wert erhalten. Ein Runtime-`npx`-Befehl ist nicht unterstützt.
 
 ## Sicherheitsgrenzen
 
 - MCP erhält keine Steuerfall-, Dokument- oder Programmpfade;
-- die API kennt keine Anmeldung und weist Anfragen mit `Origin`,
-  `Sec-Fetch-Site` oder fremdem `Host` mit `403` ab;
-- die API darf nicht über Netzwerk-Proxys oder öffentliche Gateways
-  exponiert werden;
-- Kopien, Backups und Archive überschreiben keine vorhandenen Ziele; ein
-  ausdrücklich beauftragtes `save` kann den exakt gebundenen geöffneten Fall
-  über SteuerSparErklärung speichern;
-- ein bereits geöffneter Fall bleibt der Arbeitsfall; eine Arbeitskopie,
-  `save` oder `save_as` wird nie still als Sicherheitsmaßnahme ausgelöst;
-- vor der ersten dirty-fähigen UI-Navigation oder Mutation sichert der Agent
-  den aktuellen Dateistand einmal im privaten Backupbereich und verwendet ihn
-  bei unverändertem Hash weiter;
+- Die API kennt keine Anmeldung und bleibt deshalb strikt auf Loopback; sie
+  weist Browserherkunft beziehungsweise
+  fremden `Host` mit `403` ab;
+- Originale und übermittelte Fälle werden nicht still ersetzt oder gelöscht;
+- vor dirty-fähiger Navigation oder Mutation wird der aktuelle Dateistand
+  einmal je unverändertem Hash privat gesichert;
+- `save` und `save_as` brauchen einen separaten ausdrücklichen Auftrag;
+- jede Änderung braucht unmittelbaren Readback;
 - ELSTER, Versand und sonstige Übermittlung ans Finanzamt sind gesperrt.
 
-Vollständiger Schnellstart, Anleitung und Verifikation stehen im
+Vollständiger Schnellstart und Verifikation stehen im
 [Repository](https://github.com/yadimon/steuer-spar-erklaerung-mcp#readme).
 Sicherheitsprobleme bitte nach
 [`SECURITY.md`](https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/SECURITY.md)

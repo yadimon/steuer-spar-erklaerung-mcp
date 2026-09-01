@@ -1,5 +1,10 @@
 node_modules/
 dist/
+# Nur die self-contained Agent-Plugin-Runtime ist ein versioniertes
+# Distributionsartefakt. Andere dist-Baeume bleiben generiert/ignoriert.
+!/plugin/steuer-spar-erklaerung/runtime/dist/
+!/plugin/steuer-spar-erklaerung/runtime/dist/api.js
+!/plugin/steuer-spar-erklaerung/runtime/dist/mcp.js
 artifacts/
 .tmp/
 *.log

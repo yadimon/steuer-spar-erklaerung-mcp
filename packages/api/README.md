@@ -3,45 +3,54 @@
 > **Beta und inoffiziell.** Dieses Projekt ist nicht mit Wolters Kluwer
 > verbunden. Es sendet keine Steuererklärung und ersetzt keine Steuerberatung.
 
-Lokaler Windows-x64-API-Wrapper für SteuerSparErklärung. Das Paket stellt die
-installierte Desktop-Anwendung über eine ausschließlich an Loopback
-(`127.0.0.1` oder `::1`) gebundene HTTP-API und eine direkte CLI bereit.
+Lokaler Windows-x64-API-Wrapper für SteuerSparErklärung 2025. Das Paket stellt
+die Desktop-Anwendung über eine ausschließlich an Loopback gebundene HTTP-API
+und eine direkte CLI bereit.
+
+## Nutzerstandard ist das Agent Plugin
+
+Normale Codex-/Claude-Code-Nutzer installieren nicht dieses Paket separat. Das
+[Agent Plugin](https://github.com/yadimon/steuer-spar-erklaerung-mcp#schnellstart)
+enthält Skill, MCP, exakt diese API-Version, PowerShell-/Native-Runtime,
+Profile und alle JavaScript-Dependencies. Es startet die API als geprüften
+lokalen Singleton, ohne separates Terminal, Runtime-npm/npx oder
+Netzwerkdownload.
+
+`plugins@1.3.4` benötigt Git auf `PATH`, weil es das Plugin-Repository einmalig
+klont; danach bleibt Node.js 22+ die einzige zusätzliche Plugin-Runtime.
+Bei Codex umfasst die Installation zusätzlich den target-nativen
+`codex plugin add steuer-spar-erklaerung@plugins-cli --json`-Schritt; der
+externe Installer allein registriert das Plugin dort derzeit nicht als
+installiert. Der vollständige, überprüfbare Ablauf steht im
+[Quickstart](https://github.com/yadimon/steuer-spar-erklaerung-mcp#schnellstart).
+
+Dieses npm-Paket bleibt für eigene HTTP-/CLI-Integrationen und tiefe Diagnosen
+separat unterstützt.
 
 ## Rolle des Pakets
 
-Dieses Paket ist die lokale Ausführungsschicht:
-
-- HTTP-API und direkte API-CLI;
+- lokale HTTP-API und direkte API-CLI;
 - Windows-PowerShell-5.1- und Native-Runtime;
-- versionierte Produktprofile für geprüfte SteuerSparErklärung-Builds;
+- versionierte Profile für geprüfte SteuerSparErklärung-Builds;
 - private Backups, ausdrücklich verlangte Arbeitskopien, read-only Analyse und
   freigegebene UI-Automation.
 
-Ein Einrichtungsprogramm enthält dieses Paket nicht und braucht es nicht: Der
-erste Start legt die Arbeitsordner an, eine Konfigurationsdatei ist optional.
-Den Ablauf beschreibt die
-[Installationsanleitung](https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md).
-Der MCP-Server ist bewusst **nicht** enthalten; er liegt im getrennten Paket
-[`@yadimon/steuer-spar-erklaerung-mcp`](https://www.npmjs.com/package/@yadimon/steuer-spar-erklaerung-mcp).
-Dieses MCP-Paket hängt exakt von derselben API-Releaseversion ab, installiert
-sie automatisch und startet sie bei Bedarf als lokalen Singleton. Für die hier
-beschriebene direkte API-Nutzung bleibt die separate Installation vollständig
-unterstützt.
+Der getrennte MCP-Wrapper liegt in
+[`@yadimon/steuer-spar-erklaerung-mcp`](https://www.npmjs.com/package/@yadimon/steuer-spar-erklaerung-mcp)
+und hängt exakt von derselben API-Releaseversion ab.
 
 ## Voraussetzungen
 
 - Windows x64;
 - installierte SteuerSparErklärung 2025 / Engine-Major 31;
-- Node.js 22 oder neuer für diesen npm-Installationsweg.
+- Node.js 22 oder neuer für die standalone npm-Nutzung.
 
-## Installation und direkte API-Nutzung
+## Fortgeschritten: direkte API und CLI
 
-### Ordnergebunden
-
-Dieser Weg hält Paket und Arbeitsbereich in `C:\mein-steuer-api`. Läuft am
-gewählten Port bereits ein vom MCP gestarteter API-Singleton, beende ihn vorher
-bewusst nach der Installationsanleitung oder trage in `config.json` einen
-anderen Loopback-Port ein:
+Dieser bewusste API-only-Weg hält Paket und Arbeitsbereich in einem eigenen
+Ordner. Läuft am Zielport bereits ein API-Singleton, diesen nicht nach Namen
+beenden; zuerst dessen `/healthz`-Identität prüfen oder einen anderen
+Loopback-Port konfigurieren.
 
 ```powershell
 $Root = 'C:\mein-steuer-api'
@@ -57,8 +66,8 @@ $ApiConfig = Join-Path $Root 'config.json'
 & $Node $Api --config $ApiConfig
 ```
 
-Das Terminal bleibt offen. Aus einem zweiten Terminal ruft die mitgelieferte
-CLI die API auf:
+Dieses ausdrücklich gestartete API-Terminal bleibt für den standalone
+API-only-Modus offen. Aus einem zweiten Terminal:
 
 ```powershell
 $Root = 'C:\mein-steuer-api'
@@ -69,71 +78,47 @@ $ApiConfig = Join-Path $Root 'config.json'
 & $Node $Call health --config $ApiConfig
 ```
 
-`Strg+C` beendet die API. Dieser direkte API-only-Weg registriert kein MCP.
-Der absolute `--config`-Pfad bestimmt den Arbeitsbereich; die Datei selbst darf
-beim ersten Start noch fehlen.
+`Strg+C` beendet diese bewusst gestartete standalone API. Der absolute
+`--config`-Pfad bestimmt den Arbeitsbereich; die Datei darf beim ersten Start
+noch fehlen. Ohne Konfigurationspfad verwendet die API ihren sicheren Standard
+unter `%LOCALAPPDATA%\SteuerSparErklaerungApi`.
 
-### Einmaliger NPX-Lauf
+`--case-dir` öffnet keinen Steuerfall und wählt keinen Fall automatisch. Der
+Wert bestimmt nur die Auflösung und Redaction relativer `cases:`-Referenzen. Er
+ist keine Dateisystem-Sandbox. Jede tatsächliche Lese- oder Schreibaktion
+braucht danach eine ausdrücklich aufgerufene, streng gebundene Operation.
 
-Ohne dauerhafte Paketinstallation geht derselbe direkte Modus auch über NPX:
+## Identität und Singleton
 
-```powershell
-npx.cmd -y @yadimon/steuer-spar-erklaerung-api `
-  --config "C:\mein-steuer-api\config.json"
-```
+`/healthz` liefert API-Version, Paketname, exakte Paketversion,
+Prozess-/Instanz-ID und einen pfadfreien Fingerprint der Ressourcenbindung. Der
+MCP-Supervisor verwendet diese Felder zur sicheren Wiederverwendung. Eine
+anders versionierte oder nicht eindeutig erkennbare API wird nie übernommen,
+beendet oder ersetzt.
 
-Aus einem zweiten Terminal:
-
-```powershell
-npx.cmd -y -p @yadimon/steuer-spar-erklaerung-api `
-  steuer-spar-erklaerung-call discovery `
-  --config "C:\mein-steuer-api\config.json"
-```
-
-Dieser Lauf erzeugt keinen dauerhaften Launcher im NPX-Cache.
-
-### Optional systemweit, nur API-only
-
-Wer die direkte API bewusst systemweit statt projektlokal betreiben will, kann
-die drei Befehle global verfügbar machen. Das gehört nicht zum MCP-Standardweg:
-
-```powershell
-npm.cmd install --global @yadimon/steuer-spar-erklaerung-api
-steuer-spar-erklaerung-api.cmd --help
-steuer-spar-erklaerung-call.cmd --help
-```
-
-`--case-dir` öffnet keinen Steuerfall und wählt auch keinen Fall automatisch.
-Der Wert bestimmt ausschließlich, gegen welchen bestätigten Ordner relative
-`cases:`-Referenzen aufgelöst und in Antworten redigiert werden. Er ist keine
-Dateisystem-Sandbox; geöffnet oder geändert wird nur über einen danach
-ausdrücklich aufgerufenen, streng gebundenen API-Befehl.
-
-`/healthz` liefert neben API-Version und Betriebszustand den Paketnamen, die
-exakte Paketversion, die Prozess-/Instanz-ID und einen pfadfreien Fingerprint der
-wirksamen Ressourcenbindung. MCP verwendet diese Identität für die sichere
-Wiederverwendung. Bei einer von MCP verwalteten/default Konfiguration muss der
-Fingerprint exakt passen; bei autoritativem `SSE_API_URL` kann MCP nur seine
-syntaktische Gültigkeit prüfen. Eine anders versionierte oder nicht eindeutig
-erkennbare API wird nie übernommen oder beendet.
+Zum bewussten Stopp eines Hintergrund-Singletons zuerst diese Identität lesen
+und danach die exakte `processId` mit `Get-CimInstance Win32_Process`
+verifizieren. Die Kommandozeile muss auf das erwartete `api-main.js` zeigen.
+Nur dann die genaue PID stoppen; niemals einen Prozessname-Sweep ausführen.
 
 ## Sicherheitsgrenzen
 
-- API nur auf Loopback; Anfragen mit `Origin`, `Sec-Fetch-Site` oder
-  fremdem `Host` werden mit `403` abgewiesen, damit keine Webseite im
-  Browser die Steuersoftware steuern kann;
+- API nur auf `127.0.0.1` beziehungsweise `::1`;
+- Anfragen mit `Origin`, fremdem `Host` oder unpassendem `Sec-Fetch-Site`
+  werden mit `403` abgewiesen;
 - lokale Pfade und Steuerdaten bleiben auf dem Windows-PC;
-- Dateioperationen für Kopien, Backups und Archive überschreiben keine
-  vorhandenen Ziele; ein ausdrücklich beauftragtes `save` darf dagegen den
-  exakt gebundenen geöffneten Fall über SteuerSparErklärung speichern;
-- der eindeutig geöffnete Fall kann nach privater, hashverifizierter Sicherung
-  kontrolliert geändert werden; Persistieren ist ein separater Auftrag;
-- Arbeitskopie und `save_as` nur auf ausdrücklichen Wunsch, nie automatisch;
+- Originale und übermittelte Fälle werden nicht still überschrieben,
+  verschoben oder gelöscht;
+- der eindeutig geöffnete Fall kann nur nach privater hashverifizierter
+  Sicherung kontrolliert geändert werden;
+- Persistieren, Arbeitskopie und `save_as` brauchen einen separaten
+  ausdrücklichen Auftrag und unmittelbaren Readback;
 - ELSTER, Versand und sonstige Übermittlung ans Finanzamt sind gesperrt;
 - Profil 2024 bleibt experimentell und ist für Nutzer nicht freigegeben.
 
-Vollständiger Schnellstart, Skill-Installation, unterstützte Operationen und
-Verifikation stehen im
+Installation des Agent Plugins steht in der
+[Installationsanleitung](https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md);
+unterstützte Operationen und Verifikation stehen im
 [Repository](https://github.com/yadimon/steuer-spar-erklaerung-mcp#readme).
 Sicherheitsprobleme bitte nach
 [`SECURITY.md`](https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/SECURITY.md)

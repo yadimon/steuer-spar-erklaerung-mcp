@@ -1,0 +1,18 @@
+{
+  "name": "steuer-spar-erklaerung",
+  "version": "0.1.0-beta.33",
+  "description": "Lokale, inoffizielle Windows-Automation für SteuerSparErklärung mit einem gebündelten MCP-Server und wiederverwendbaren Arbeitsabläufen.",
+  "author": {
+    "name": "yadimon",
+    "url": "https://github.com/yadimon"
+  },
+  "homepage": "https://github.com/yadimon/steuer-spar-erklaerung-mcp",
+  "repository": "https://github.com/yadimon/steuer-spar-erklaerung-mcp",
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "steuererklaerung",
+    "windows",
+    "steuer-spar-erklaerung"
+  ]
+}

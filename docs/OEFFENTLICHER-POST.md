@@ -1,50 +1,62 @@
-# Ersatztext für den öffentlichen Post
+# Öffentlicher Artikeltext
 
 Ich wette, der Agent findet etwas 🙂
 
 Bei mir war es zumindest so – nicht wegen der Software.
 
-Halb vibecoded, aber getestet: eine inoffizielle lokale API samt MCP und
-optionalem Skill für SteuerSparErklärung:
-https://github.com/yadimon/steuer-spar-erklaerung-mcp
+Ich habe eine inoffizielle lokale Schnittstelle für SteuerSparErklärung 2025
+gebaut. Als Agent Plugin bringt sie Skill, MCP, API, Windows-Runtime, Profile
+und alle JavaScript-Abhängigkeiten gemeinsam mit. Codex oder Claude Code kann
+damit einen bereits geöffneten Steuerfall prüfen, mit bestätigten Belegen
+abgleichen und freigegebene Änderungen direkt zurücklesen.
 
-Das MCP-Paket installiert automatisch die exakt passende lokale API und startet
-sie bei Bedarf. Ein separates API-Terminal ist im normalen Weg nicht mehr
-nötig. Der Agent kann einen geöffneten Steuerfall prüfen, mit bestätigten
-Belegen abgleichen und freigegebene Änderungen zurücklesen. Gespeichert oder
-ans Finanzamt übermittelt wird nichts automatisch; ELSTER bleibt gesperrt.
+Gespeichert oder ans Finanzamt übermittelt wird nichts automatisch. ELSTER
+bleibt technisch gesperrt. Vor dirty-fähiger Bedienung wird der aktuelle
+Dateistand privat und hashgebunden gesichert; Originale und übermittelte Fälle
+werden nicht still ersetzt.
 
-Wenn du keine Installationsdetails sehen willst, gib einem lokal laufenden
-Codex, Claude Code oder OpenCode einfach diesen Prompt:
+Für Codex brauchst du unter Windows Node.js 22+, Git auf `PATH` für das
+einmalige Klonen des Plugin-Repositories durch `plugins@1.3.4` und aktuell
+zwei Befehle:
 
-```text
-Richte SteuerSparErklärung API/MCP und optional den Skill vollständig lokal im
-Ordner C:\mein-steuer-ai ein. Folge dabei genau dieser Anleitung:
-https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md
-
-Erkenne meinen lokalen Client und ändere nur dessen Projektkonfiguration in
-diesem Ordner. Installiere die API nicht separat; sie muss als exakt passende
-Dependency des MCP-Pakets kommen. Setze SSE_API_CONFIG auf
-C:\mein-steuer-ai\config.json. Vorhandene Konfiguration nur additiv mergen,
-nichts global installieren und keine Anmeldedaten kopieren. Führe danach
---selftest mit genau diesem gesetzten SSE_API_CONFIG aus und sage mir klar, ob
-ich den Client neu starten muss.
+```powershell
+mkdir C:\mein-steuer-ai
+cd C:\mein-steuer-ai
+npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target codex --scope project --yes
+codex plugin add steuer-spar-erklaerung@plugins-cli --json
 ```
 
-Für Leute, die die Befehle selbst kontrollieren wollen, stehen die kurzen
-projektlokalen Varianten für Codex, Claude Code und OpenCode direkt in der
-Installationsanleitung.
+Beide Codex-Befehle sind derzeit nötig: Der erste schreibt Cache, Marketplace
+und Konfiguration, Codex CLI 0.151 zeigte danach aber noch `not installed`.
+Erst der zweite target-native Schritt ergab `installed, enabled`.
 
-Danach zum Beispiel:
+Für Claude Code genügt dagegen dieser eine Installerbefehl:
 
-> Prüfe meine Einkommensteuererklärung 2025 und vergleiche sie mit allen von
-> mir bestätigten Belegen. Beginne mit `sse_preflight`, speichere nichts und
-> sende nichts über ELSTER.
+```powershell
+npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target claude-code --scope project --yes
+```
+
+Der isolierte Client-Probelauf zeigte ihn danach als `enabled`. Anschließend
+den jeweiligen Client neu starten und zum Beispiel schreiben:
+
+> Prüfe meinen bereits geöffneten Steuerfall 2025 zunächst nur lesend. Beginne
+> mit `sse_preflight`, speichere und schließe ihn nicht und sende nichts über
+> ELSTER.
+
+Git wird danach nicht für den MCP-Start gebraucht. Es gibt kein separates
+API-Terminal, kein `npm install` im Arbeitsordner und keinen Netzwerkzugriff
+beim MCP-Start. `plugins@1.3.4` ignoriert den Scope bei Codex und schreibt bei
+beiden Zielen trotz `--scope project` in clientverwaltete Benutzer-Caches; der
+Flag ist aktuell keine physische Projektisolation. Wer Arbeitsdaten strikt
+trennen möchte, verwendet zusätzlich einen eigenen absoluten
+`SSE_API_CONFIG`-Pfad.
 
 Öffentliche Beta für Windows x64, Open Source, keine Steuerberatung und noch
-nicht alles abgedeckt. Testen, Fehler melden oder mitmachen: alle willkommen!
+nicht jeder praktische Weg ist live belegt. Repository, Installation und
+offene Verifikation:
+https://github.com/yadimon/steuer-spar-erklaerung-mcp
 
 Und an [Wolters Kluwer Steuertipps](https://www.linkedin.com/company/steuertipps-de/):
 Mit einer offiziellen API oder geöffneten relevanten Schnittstellen könnte das
-sehr viel schneller, zuverlässiger und vollständiger werden. Die AI-Nutzer
-sind längst da.
+noch schneller, zuverlässiger und vollständiger werden. Die AI-Nutzer sind
+längst da.

@@ -12,17 +12,29 @@ const listed = execFileSync("git", ["ls-files", "--cached", "--others", "--exclu
 const textExtensions = new Set([
   ".cmd", ".cs", ".js", ".json", ".md", ".mjs", ".ps1", ".ts", ".txt", ".vbs", ".yaml", ".yml",
 ]);
+const sha256TokenPattern = /(?<![0-9A-Fa-f])[0-9A-Fa-f]{64}(?![0-9A-Fa-f])/gu;
+const taxIdPattern = /(?<!\d)\d{11}(?!\d)/u;
 const rules = [
   { label: "privater Windows-Benutzerpfad", pattern: /[A-Za-z]:[\\/]Users[\\/](?!Public(?:[\\/]|$))/iu },
   { label: "privater Ablagepfad", pattern: /Meine\s+Ablage|Google\s+Drive|OneDrive[\\/](?:Personal|Privat)/iu },
   { label: "E-Mail-Adresse", pattern: /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/iu },
   { label: "deutsche IBAN", pattern: /\bDE\d{20}\b/u },
-  { label: "elfstellige Steuer-ID", pattern: /(?<!\d)\d{11}(?!\d)/u },
+  {
+    label: "elfstellige Steuer-ID",
+    pattern: taxIdPattern,
+    sanitize: (source) => source.replace(sha256TokenPattern, ""),
+    historyPattern: String.raw`(?:[0-9A-Fa-f]{64})(*SKIP)(*F)|(?<!\d)\d{11}(?!\d)`,
+  },
   { label: "privater Schlüssel", pattern: /-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----/u },
   { label: "GitHub-Zugriffstoken", pattern: /\b(?:github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,})\b/u },
   { label: "Cloud-Zugriffsschlüssel", pattern: /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/u },
   { label: "OpenAI-Zugriffstoken", pattern: /\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b/u },
 ];
+assert.match(["SteuerID", "12345", "678901"].join(""), taxIdPattern,
+  "Eine Steuer-ID muss auch direkt neben einem Hex-Buchstaben erkannt werden.");
+const syntheticSha256 = "a4a6daee01c00a0cd0a59fde3a16f997f35981003677cfb135bed2c97db51779";
+assert.equal(syntheticSha256.replace(sha256TokenPattern, ""), "",
+  "Ein vollstaendiges SHA-256-Token muss vor dem Steuer-ID-Scan entfernt werden.");
 const forbiddenPaths = [
   { label: "lokale Agenten-Arbeitsdatei", pattern: /^(?:\.agents|\.claude|\.codex|\.superpowers)(?:\/|$)/iu },
   { label: "agentenspezifischer Arbeitsplan", pattern: /^docs\/(?:superpowers|CODEX-|CLAUDE-)/iu },
@@ -51,7 +63,8 @@ for (const file of listed.split("\0").filter(Boolean)) {
   const source = readFileSync(absolute, "utf8");
   checked += 1;
   for (const rule of rules) {
-    if (rule.pattern.test(source)) violations.push(`${relative(root, absolute)}: ${rule.label}`);
+    const inspected = rule.sanitize ? rule.sanitize(source) : source;
+    if (rule.pattern.test(inspected)) violations.push(`${relative(root, absolute)}: ${rule.label}`);
   }
   if (
     file.replaceAll("\\", "/").startsWith("docs/entwicklung/erfahrungen/") &&
@@ -69,7 +82,9 @@ const revisions = execFileSync("git", ["rev-list", "--all"], {
 }).trim().split(/\r?\n/u).filter(Boolean);
 assert(revisions.length > 0, "Git-Historie ist für den Privacy-Scan nicht verfügbar.");
 
-const historyPattern = rules.map(({ pattern }) => `(?:${pattern.source})`).join("|");
+const historyPattern = rules
+  .map(({ pattern, historyPattern: override }) => `(?:${override ?? pattern.source})`)
+  .join("|");
 const historyViolations = [];
 for (let offset = 0; offset < revisions.length; offset += 100) {
   const historyScan = spawnSync(

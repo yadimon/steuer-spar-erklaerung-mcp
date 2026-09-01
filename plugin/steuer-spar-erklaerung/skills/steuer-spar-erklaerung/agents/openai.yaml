@@ -1,0 +1,4 @@
+interface:
+  display_name: "SteuerSparErklärung"
+  short_description: "Steuerfall sicher prüfen und abgleichen"
+  default_prompt: "Verwende $steuer-spar-erklaerung, um meinen bereits geöffneten Steuerfall zunächst nur lesend zu prüfen. Lass ihn geöffnet, speichere nicht und frage nur nach, wenn mehrere Fälle offen sind oder Belegquellen fehlen; kündige sichtbare Bedienung trotzdem an."

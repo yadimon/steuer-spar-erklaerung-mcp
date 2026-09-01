@@ -13,6 +13,8 @@ const releaseEnvironment = {
 const steps = [
   ["Dependency-Audit", ["audit", "--omit=dev", "--audit-level=high"]],
   ["vollstaendige Offline-Suite", ["test"]],
+  ["Agent-Plugin-Drift", ["run", "check:plugin"]],
+  ["Release-Metadaten fuer Publish", ["run", "test:release-metadata:publish"]],
   ["installiertes Produkt-Gate", ["run", "test:product"]],
   ["npm-Packlisten", ["run", "pack"]],
   ["npm-Publish-Dry-run", ["run", "publish:dry-run"]],

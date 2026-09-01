@@ -9,6 +9,7 @@ UI-Operation auf jeder Jahresversion praktisch funktioniert.
 - [Produkt- und Supportmatrix](#produkt--und-supportmatrix)
 - [Was die Tests beweisen](#was-die-tests-beweisen)
 - [Einmalige Leistungsbeobachtungen](#einmalige-leistungsbeobachtungen)
+- [Agent-Plugin-VM-Matrix](#agent-plugin-vm-matrix-offen)
 - [Aktueller projektlokaler Clean-install](#projektlokaler-clean-install-in-einer-frischen-vm-2026-09-01)
 - [Abdeckungsbilanz aus echter Ausführung](#abdeckungsbilanz-aus-echter-ausführung)
 - [Browser-Herkunftsprüfung](#herkunftsprüfung-gegen-einen-echten-browser-2026-08-23)
@@ -92,6 +93,8 @@ Sie sind weder Ausgabe des Standardbefehls noch CI-Grenzwert.
 | Windows-CI und npm-Publish | `node test/github-workflow-contract.mjs` | `.node-version` entspricht der gepinnten Build-Runtime; die normale CI bleibt read-only. Der getrennte manuelle npm-Workflow ist an `v<version>` gebunden, verwendet nur Contents-Lesen plus OIDC, keine npm-Secrets, npm 11.19.0, Vollsuite und Clean-install und veröffentlicht die API vor dem von ihr exakt abhängigen MCP | ein grüner GitHub-Hosted-Windows-Lauf für den tatsächlich zu mergenden SHA; erster manueller npm-Bootstrap und danach echter OIDC-Publish vom Release-Tag |
 | Release-Artefakte | `node test/dist-artifacts-contract.mjs`, `node test/native-build-cache.mjs`, `node test/npm-package-contract.mjs` | quellbasiertes Pruning stoppt vor Fremddateien; der Native-Build verwendet nur eine quell-, DLL-hash- und vollständig oberflächengeprüfte Binärdatei wieder und baut nach Quelländerung, DLL-Manipulation, unvollständiger Assembly, strengem Schemafehler oder fehlender DLL rückstandsfrei neu; der API-Tarball enthält Windows-Runtime/Profile, aber keinen MCP-Server; der Windows-x64-MCP-Tarball enthält den Supervisor, keine Runtime-Duplikate und eine exakte normale API-Dependency | byteidentischer frischer Native-Neubau auf unterschiedlichen Build-Hosts; Signatur/Authentizität veröffentlichter Registry-Artefakte |
 | npm-Clean-install | `npm run test:npm-clean-install` | packt beide Tarballs, installiert in einem neuen Windows-x64-Präfix aber nur das MCP-Tarball und beweist über eine lokale Registry, dass npm die exakt passende API automatisch installiert; direkte API-Installation bleibt separat geprüft; alle Bin-Einstiege starten mit `--help` | veröffentlichter Registry-Download und echter Lauf mit installierter SSE |
+| Agent-Plugin-Manifeste | `node test/agent-plugin-contract.mjs` | generierte Agent-Plugins-1.0-, MCP-, Marketplace-, Codex- und Claude-Kompatibilitätsmanifeste stimmen mit einer Metadatenquelle überein; Skill, Runtime-Lock, Dateien, Hashes, Drittanbieterlizenzen und exakte Versionen sind driftgebunden; der MCP-Eintrag enthält weder Paketmanager noch Netzwerkziel | Verhalten der installierten Codex-/Claude-Code-Clients und ihre tatsächlichen Cache-/Scope-Regeln |
+| Agent-Plugin-Runtime | `node test/agent-plugin-runtime.mjs` | kopierte self-contained Runtime startet auf Windows x64 ohne `node_modules`, Paketmanager-PATH oder Registry; echter MCP-Handshake, gebündelter API-Autostart, Singleton-Wiederverwendung, protokollreines Fehler-stdout sowie Hash-, Containment- und Versions-Fail-closed sind geprüft | einmaliger Git-Download, target-spezifische Plugin-Sichtbarkeit, Update und Entfernung in einem echten Client |
 | Große Schreibreise | `npm run test:live-journey` | eine zusammenhängende Reise auf einer Wegwerfkopie: Tabellenschreibzyklus mit Kontrollsummen-Readback, hashgebundenes Speichern mit Datei- und Neustart-Persistenzbeweis, UStVA-Schreibquartett mit Zahllast-Kontrolle, CSV-Export bis zur Datei, Menü-/Fenster-/Dialogverwaltung, Speichern unter und Archiv | VaSt-Dialogwege, Steuertipps-Center |
 | Einzelprofil-Live | `npm run test:live-muster` | gezielter profilabhängiger Musterlauf für Diagnose | das jeweils andere Profil |
 | Focusless | `npm run test:hidden-focusless` | ein konkret profiliertes 2025-Feld mit Feld-/Summen-/Dirty-State-Readback; im strikten Gate enthalten | andere Felder; 2024; sichtbare Tabellen-/Combo-Pfade |
@@ -112,6 +115,78 @@ historischen Zeitwerte.
 | BelegManager-Zustand | optionaler diagnostischer A/B/BA-Lauf mit 800 synthetischen Knoten, drei Warmups und 31 Messpaaren; aktivierbar mit `$env:SSE_RECEIPT_STATE_BENCHMARK='1'; powershell -File test/receipt-manager-action-contract.ps1` | historischer Median: 61,4 auf 4,5 ms (13,6×) | dieselbe Beschleunigung beim realen UIA-Walk; der Diagnosemodus gibt aktuelle Hostwerte aus, prüft aber keinen Grenzwert |
 | BelegManager-Liste | optionaler diagnostischer A/B/BA-Lauf mit 800 synthetischen Knoten und 30 Zeilen, drei Warmups und 31 Messpaaren; aktivierbar mit `$env:SSE_RECEIPT_LIST_BENCHMARK='1'; powershell -File test/receipt-manager-action-contract.ps1` | historischer Median: 47,2 auf 23,8 ms (1,98×) | Zeit eines live virtualisierten GridPattern-/COM-Pfads; der Diagnosemodus gibt aktuelle Hostwerte aus, prüft aber keinen Grenzwert |
 
+## Agent-Plugin-VM-Matrix (offen)
+
+Die Plugin-First-Anleitung ist inzwischen in einer unabhängigen vollständigen
+Windows-11-x64-VM-Kopie aus kaltem Zustand online geprüft. Die VM hatte keine
+Shared Folder; Credentials wurden weder in das Transferarchiv aufgenommen noch
+in die VM kopiert. Das übertragene Auditarchiv wurde vor der Ausführung mit dem
+gekürzt wiedergegebenen SHA-256 `3ee62c...419d3` gebunden. Die Online-Kaltphase
+ist grün, die anschließende Offline-MCP-Phase jedoch noch nicht. Damit bleibt das
+VM-Ende-zu-Ende offen und die Matrix insgesamt eine Release-Sperre.
+
+Ein isolierter realer Client-Probelauf belegt bereits einen engeren
+Registrierungsvertrag. Mit `plugins@1.3.4` und Codex CLI
+0.151.0-alpha.7.2 schrieb
+`plugins@1 add ... --target codex --scope project --yes` Cache, Marketplace und
+Konfiguration; der reine Readback `codex plugin list --json` meldete
+anschließend trotzdem
+`not installed`. Erst
+`codex plugin add steuer-spar-erklaerung@plugins-cli --json` registrierte
+v0.1.0-beta.33 als `installed, enabled`. Beim Claude-Code-Ziel zeigte der
+einzelne zielgenaue `plugins@1 add`-Lauf den Eintrag als `enabled`. Diese
+Evidenz war der Vorläufer des nun grünen Online-Kaltlaufs; sie ersetzt weiterhin
+keinen abgeschlossenen Offline-, Preflight-, Runtime-, Update- oder
+Entfernungsnachweis.
+
+Ein älteres Probe-Home wurde verworfen, weil
+`codex plugin list --json` dort beim vermeintlichen Readback unerwartet selbst
+nativen Cache-/Konfigurationszustand materialisierte. Belastbar sind deshalb
+nur der unveränderte Failure-Lauf `064048Z` und der native Success-Lauf
+`064512Z`. Der Readback ist kein vorgesehener Installationsschritt, darf bei
+dieser Alpha-Version aber auch nicht als garantiert seiteneffektfrei gelten.
+
+| Ziel | Nachweis | Stand |
+| --- | --- | --- |
+| Codex | `plugins@1.3.4 add` mit explizitem `--target codex`, danach target-nativ `codex plugin add steuer-spar-erklaerung@plugins-cli --json`; dieselbe zweistufige Folge ein zweites Mal | Online-Kaltphase grün: beide Folgen liefen für v0.1.0-beta.33 durch und lieferten stabile Installationsbelege; echter Offline-`sse_preflight` noch offen |
+| Claude Code | zielgenaues `plugins@1.3.4 add --target claude-code`, danach dieselbe einstufige Installation ein zweites Mal | Online-Kaltphase grün: beide Läufe für v0.1.0-beta.33 mit stabilen Installationsbelegen; echter Offline-`sse_preflight` noch offen |
+| Audit-Hygiene | Abschlussinventur nach den Online-Installationen | grün: keine hinterlassenen Runtime-/Auditprozesse und keine Credential-Dateien |
+| Self-contained Runtime | Workspace ohne `node_modules`; MCP-Start ohne npm, npx und Netzwerk; kein separates API-Terminal; stdout protokollrein | offline vertraglich belegt; VM-Lauf beim ersten echten Toolaufruf noch offen |
+| Wiederholung und Update | erneutes zielgenaues `plugins@1 add`; bei Codex zusätzlich der target-native zweite Schritt; danach Versions- und Preflight-Readback | Wiederholung online für beide Ziele grün; Update über zwei verschiedene Versionen und Offline-Readback offen |
+| Entfernung | Codex target-nativ mit `codex plugin remove steuer-spar-erklaerung@plugins-cli`; Claude Code erst mit der dort zurückgelesenen exakten Plugin-ID; Nutzerdaten bleiben erhalten | offen |
+| Singleton und Konflikte | zwei parallele Starts verwenden dieselbe PID; fremder Portinhaber und alte API stoppen fail-closed | offline vertraglich belegt, VM offen |
+
+Der VM-Lauf lieferte außerdem drei reproduzierbare rote Befunde, aus denen
+bereits Korrekturen entstanden:
+
+1. Der ausgelieferte Runtimebaum enthielt zunächst sechs Fixture-/Testdateien,
+   die nicht im Runtime-Lock standen. Der Produkt-Build schließt sie inzwischen
+   aus und prüft Baum und Lock auf exakte Gleichheit.
+2. Der Selftest-Harness erwartete für einen CLI-Readback fälschlich genau eine
+   Ausgabezeile, obwohl die CLI valides Pretty-JSON schreibt. Diese
+   Harnessannahme ist korrigiert.
+3. Der Harness brach `tools/call` nach 180 Sekunden ab, obwohl der etablierte
+   MCP-Vertrag 300 Sekunden vorsieht. Der Harness verwendet nun dieses Budget.
+
+Beim späteren Offline-Versuch meldete `sse_preflight` einen MCP-Fehler. Sein
+Inhalt konnte nicht mehr beweissicher erfasst werden: Die VM wurde von außen
+pausiert und der VirtualBox-Aufruf brach per RPC ab. Anschließend blockierte das
+WSL-Backend des VM-Laufwerks die Wiederaufnahme mit `CreateInstance`
+`0x800705b4` beziehungsweise `VERR_WRITE_PROTECT`; ohne administrative Rechte
+ließ sich das Backend nicht neu starten. Das ist ein Infrastrukturblocker und
+weder ein grüner Offline-Nachweis noch eine inhaltliche Klassifikation des
+`sse_preflight`-Fehlers.
+
+Der Lauf muss außerdem die aktuelle Installergrenze festhalten:
+`plugins@1.3.4` benötigt für das einmalige Klonen Git auf `PATH`, ignoriert den
+Scope bei Codex und schreibt bei beiden Zielen trotz `--scope project` in
+clientverwaltete Benutzer-Caches beziehungsweise Konfiguration. Das ist kein
+Nachweis physischer Projektisolation. OpenCode gehört nicht zu dieser Matrix.
+
+Die belegten Online-Zellen dürfen deshalb grün sein; die Release-Matrix bleibt
+bis zum vollständig zurückgelesenen Offline-Lauf offen. Ein gebautes Plugin,
+ein Installer-Exitcode oder ein MCP-Handshake allein genügt dafür nicht.
+
 ## Projektlokaler Clean-install in einer frischen VM, 2026-09-01
 
 Ein eigener Windows-11-x64-VM-Klon mit Node 24.12.0 und npm 11.6.2 erhielt
@@ -120,15 +195,15 @@ dabei die noch unveröffentlichte, exakt passende API-Version bereit. Der Lauf
 belegte, dass npm die API als normale exakte Dependency transitiv installiert,
 kein `postinstall` benötigt wird und beide Pakete dieselbe Version tragen.
 
-Die optionale `skills add`-Installation lief projektlokal für Codex, Claude
-Code und OpenCode durch. Ein isoliertes `CODEX_HOME`, das ausschließlich das
-exakte Auditprojekt als vertrauenswürdig kannte, schloss eine Übernahme globaler
-MCP-Einträge aus. Die Codex CLI listete den Server aus `.codex/config.toml` und
-bestätigte dessen exakte Node- und MCP-Pfade. Claude Code 2.1.252 wurde ohne
-Anmeldedaten installiert; `claude mcp add --scope project` erzeugte eine
-`.mcp.json` mit den erwarteten absoluten Pfaden und der API-Konfiguration.
-OpenCode war im VM-Image nicht installiert, daher wurde sein Projektweg nur
-strukturell geprüft.
+Die damalige optionale `skills add`-Installation lief für Codex und Claude Code
+durch. Ein isoliertes `CODEX_HOME`, das ausschließlich das exakte Auditprojekt
+als vertrauenswürdig kannte, schloss eine Übernahme globaler MCP-Einträge aus.
+Die Codex CLI listete den Server aus `.codex/config.toml` und bestätigte dessen
+exakte Node- und MCP-Pfade. Claude Code 2.1.252 wurde ohne Anmeldedaten
+installiert; `claude mcp add --scope project` erzeugte eine `.mcp.json` mit den
+erwarteten absoluten Pfaden und der API-Konfiguration. OpenCode war nicht
+installiert, wurde nicht als Client getestet und wird nicht als unterstützt
+beansprucht.
 
 Zwei gleichzeitig gestartete `--selftest`-Prozesse verwendeten nach einem
 absichtlich provozierten Start-Rennen denselben ausdrücklich gesetzten

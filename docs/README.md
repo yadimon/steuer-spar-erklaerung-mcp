@@ -1,73 +1,62 @@
 # Dokumentation
 
-Dieser Index trennt aktuelle Nutzeranleitungen, technische Verträge,
-Entwicklungswissen und historische Evidenz. Bei einem Widerspruch gelten die
-maschinenlesbaren Runtime-Verträge und die hier benannten kanonischen Quellen;
-alte Release Notes sind niemals eine aktuelle Bedienungsanweisung.
+Der Nutzerstandard ist das selbstenthaltene Agent Plugin. Alte Release Notes
+und historische VM-Berichte beschreiben ihren damaligen Stand und sind keine
+aktuelle Installationsanweisung.
 
-## Für Nutzer und Agenten
+## Einstieg
 
-- [Projektüberblick und sichere Prompts](../README.md) — unterstützter Umfang,
-  Auswahl des Arbeitswegs und kurze Einstiege;
-- [Installation](INSTALLATION.md) — kanonischer Setup-, Update- und
-  Client-Vertrag;
-- [Öffentlicher Post](OEFFENTLICHER-POST.md) — kurzer kopierbarer Ersatztext
-  zum vereinfachten MCP-/API-Setup;
-- [Optionaler Haupt-Skill](../skills/steuer-spar-erklaerung/SKILL.md) —
-  Komfort-Wizard für Prüfung und kontrollierte Bearbeitung; MCP-Preflight und
-  harte Server-Instruktionen funktionieren auch ohne ihn;
+- [Projektüberblick und Schnellstart](../README.md) — Fähigkeit, Grenzen,
+  target-spezifische Installationsfolge und erste Aufträge;
+- [Installation](INSTALLATION.md) — Codex-/Claude-Code-Setup, First run,
+  Datenablage, Update, sichere Entfernung und Fehlerbehebung;
+- [Skill](../skills/steuer-spar-erklaerung/SKILL.md) — kurzer Router für
+  wiederverwendbare Prüf-, Beleg-, Änderungs- und UStVA-Abläufe;
+- [Öffentlicher Artikel](OEFFENTLICHER-POST.md) — kopierbarer Ankündigungstext.
+
+## Produkt- und Sicherheitsverträge
+
+- [Architektur](ARCHITEKTUR.md) — Agent Plugin, MCP/API-Singleton, Worker und
+  Produktprofile;
+- [API-/MCP-Vertrag](API-MCP-VERTRAG.md) — Transport, Schemas, Queue, Abbruch
+  und Evidenzgrenze;
 - [Umsatzsteuer-Voranmeldung](UMSATZSTEUER-VORANMELDUNG.md) — fachlicher und
   technischer UStVA-Ablauf;
-- [Abgleichvorlage](ABGLEICH-BEISPIEL.md) — strukturierter Vergleich mit einer
-  externen Belegaufstellung;
-- [Sicherheitsrichtlinie](../SECURITY.md) — Support-, Melde- und Betriebsgrenze.
+- [Verifikationsstand](VERIFIKATION.md) — Offline-/Live-Abdeckung, historische
+  Evidenz und die ausdrücklich offene Plugin-VM-Matrix;
+- [Sicherheitsrichtlinie](../SECURITY.md) — Support-, Melde- und
+  Betriebsgrenze.
 
-## Produkt- und Transportverträge
+## Fortgeschrittene Nutzung
 
-- [Produktarchitektur](ARCHITEKTUR.md) — Zielbild, Schichten, Profile und
-  harte Grenzen;
-- [API-/MCP-Vertrag](API-MCP-VERTRAG.md) — Transport, Schemas, Queue,
-  Abbruch und Evidenzgrenze;
-- [Verifikationsstand](VERIFIKATION.md) — aktuelle Offline-/Live-Abdeckung und
-  ausdrücklich offene Nachweise;
-- [API-Paket](../packages/api/README.md) und
-  [MCP-Paket](../packages/mcp/README.md) — npm-spezifische Einstiege und
-  Paketgrenzen.
+- [API-Paket](../packages/api/README.md) — direkte HTTP-/CLI-Nutzung ohne
+  Agent Plugin;
+- [MCP-Paket](../packages/mcp/README.md) — standalone npm-MCP-Installation;
+- [Abgleichvorlage](ABGLEICH-BEISPIEL.md) — strukturierter Vergleich mit
+  einer externen Belegaufstellung.
 
-## Für Mitwirkende und Maintainer
+Diese Wege bleiben unterstützt, sind aber nicht der normale Einstieg.
 
-- [Mitwirken](../CONTRIBUTING.md) — Entwicklungsumgebung, Tests, Datenschutz
-  und Pull Requests;
-- [Release-Prozess](RELEASE.md) — aktueller tag-, npm- und
-  Trusted-Publishing-Ablauf;
-- [Repository Health Check](../health-check.md) — reproduzierbarer
-  Gesundheits-Playbook ohne eingefrorene Zähler;
-- [Entwicklungswissen](entwicklung/README.md) — historische Ursachen,
-  Messungen und verworfene Ansätze;
-- [Performance-Harness](../test/performance/README.md) — synthetische,
-  produktfreie Benchmarks und ihre Beweisgrenzen.
+## Für Mitwirkende
 
-## Historische und interne Unterlagen
-
-- [`releases/`](releases/) enthält versionierte Release Notes. Aussagen über
-  frühere Tokens, ZIPs, Operationszahlen oder Supportgrenzen beschreiben nur
-  den damaligen Stand.
-- `skills-data/` im Repository enthält interne Profile für Wartungsabläufe.
-  Diese Dateien dürfen keine eigenen Release-Zähler oder dauerhaften
-  Gesundheitsurteile führen; aktuelle Werte werden aus Suite, Katalog und
-  Coverage-Ledger abgeleitet.
-- Datierte Abschnitte in [VERIFIKATION.md](VERIFIKATION.md) sind
-  Beobachtungsnachweise. Die aktuelle Laufzeitfreigabe steht dagegen in
-  `capabilities.operationPolicy`.
+- [Mitwirken](../CONTRIBUTING.md) — Entwicklung, Tests und Datenschutz;
+- [Release-Prozess](RELEASE.md) — versionsgleicher Plugin-/npm-Release und
+  verifizierte Registry-/VM-Gates;
+- [Repository Health Check](../health-check.md) — reproduzierbares Playbook;
+- [Entwicklungswissen](entwicklung/README.md) — historische Ursachen und
+  verworfene Ansätze;
+- [Performance-Harness](../test/performance/README.md) — produktfreie
+  Benchmarks und ihre Beweisgrenzen.
 
 ## Quellen der Wahrheit
 
 | Frage | Maßgebliche Quelle |
 | --- | --- |
+| Welche Version gehört zusammen? | zentrales Release-Metadatum und generierte Manifeste |
 | Was ist installiert und unterstützt? | `package.json`, `SECURITY.md`, `profiles/*/profile.json` |
 | Welche Operationen existieren? | `src/api-contract.ts`, laufendes `discovery` |
-| Welche Operation ist aktuell erreichbar? | laufendes `capabilities.operationPolicy` |
-| Wie wird installiert? | `docs/INSTALLATION.md` |
-| Was ist live belegt? | `test/operation-coverage.json`, `docs/VERIFIKATION.md` |
+| Welche Operation ist erreichbar? | laufendes `capabilities.operationPolicy` |
+| Wie wird installiert? | [INSTALLATION.md](INSTALLATION.md) |
+| Was ist live belegt? | `test/operation-coverage.json`, [VERIFIKATION.md](VERIFIKATION.md) |
 | Welche Tests gehören zum Gate? | `test/suite-plan.mjs` |
-| Wie wird veröffentlicht? | `docs/RELEASE.md`, npm-Publish-Workflow |
+| Wie wird veröffentlicht? | [RELEASE.md](RELEASE.md), npm-Publish-Workflow |
