@@ -139,6 +139,12 @@ try {
     () => resolveDesktopMarkerForOperation(markerPath, "snapshot", true),
     "desktop-marker-owner",
   );
+  expectMarkerError(
+    () => resolveDesktopMarkerForOperation(markerPath, "product_info", true),
+    "desktop-marker-owner",
+  );
+  assert.equal(runPowerShellWorker("product_info", { SSE_CENTER_LIVE_TEST: "1" }).kind, "desktop-marker-owner",
+    "Auch der Worker muss einen Center-Testmarker fuer statische SSE-Reads erneut ablehnen.");
   assert.equal(resolveDesktopMarkerForOperation(markerPath, "center_cases", true)?.name, "SSECenterTest");
   assert.equal(resolveDesktopMarkerForOperation(markerPath, "center_refresh", true)?.pid, 4321);
 

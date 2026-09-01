@@ -308,6 +308,15 @@ Agent oder eigenes Programm
   Zwei sind der gemessene allgemeine Kompromiss; drei vermeiden auf einem
   schnellen Host zusätzliche Kaltstarts bei Aufrufen ohne Denkpause, benötigen
   dafür aber einen weiteren wartenden PowerShell-Prozess.
+- Ein gesetzter Privatdesktop-Marker wird vor dem Routing in Node und nach der
+  Auftragsannahme im Worker weiterhin fail-closed auf Format und Eigentum
+  geprüft. Nur die beiden statischen, mutexfreien Reads `page_objects` und
+  `product_info` dürfen danach eine schon bereite Reserve übernehmen. Ist keine
+  Reserve bereit, bleibt für sie der bisherige Kaltstart auf dem markierten
+  Desktop erhalten. Alle übrigen Operationen behalten ihre bisherigen engen
+  Marker-Routingregeln; insbesondere umgehen UI-, Health-, Fenster- und
+  Center-Wege diese Grenze nicht. `desktop_start` und `desktop_status` behalten
+  ihre bereits dokumentierten Sonderwege.
 - Was dieser Schnitt kostet, ist gemessen und nicht geschätzt. Ein weiterhin
   nötiger Workeraufruf braucht rund 1,1 s Wanduhrzeit, davon etwa 130 ms für den
   PowerShell-Start, **rund 560 ms allein für das Übersetzen des über 700 KB

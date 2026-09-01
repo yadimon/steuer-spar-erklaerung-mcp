@@ -127,6 +127,16 @@ assert.equal(Number.isFinite(warmResult.workerInitializationMs.staticProfileCach
 assert(warmResult.workerInitializationMs.staticProfileCacheMs >= 0);
 assert.equal(coldResult.workerInitializationMs.staticProfileCacheMs, undefined);
 
+// Ein gueltiger Privatdesktop darf statische, controllerfreie Reads nicht auf
+// den kalten Launcherpfad zwingen. Der Unterprozess isoliert TEMP, Modulcache
+// und Poolzustand vom nachfolgenden Timeout-/Retry-Fixture.
+const staticMarkerOutput = execFileSync(
+  process.execPath,
+  [join(root, "test", "worker-static-marker-prewarm.mjs")],
+  { cwd: root, encoding: "utf8", windowsHide: true, timeout: 90_000 },
+);
+assert.match(staticMarkerOutput, /gueltiger Privatdesktop-Marker nutzt den Warm-Pool/u);
+
 // runWorker schreibt die Auftragszeile unmittelbar nach spawn, also lange vor
 // der spaeter eintreffenden Bereitschaft. Zusaetzlich bindet die Quellstruktur
 // den warmen Aufruf vor die ausschliessliche Cold-Worker-Deklaration.

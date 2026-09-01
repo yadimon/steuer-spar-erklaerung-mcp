@@ -290,6 +290,11 @@ Sitzungsmutex koordiniert. Der Versuch wartet nicht:
 normalen HTTP-200-Operationsergebnis zurueck. Das unterscheidet sich vom
 prozesslokalen HTTP-409-Single-Flight. Nur `page_objects` und `product_info`
 umgehen den Mutex; vorgewaermte Reserveworker halten ihn erst ab ihrem Auftrag.
+Bei einem gültigen SSE-Privatdesktop-Marker dürfen genau diese zwei
+desktopunabhängigen Reads eine bereits bereite Reserve verwenden. Node und
+Worker prüfen den Marker trotzdem jeweils selbst; ein fremder Center-Marker
+bleibt gesperrt, und ohne bereite Reserve gilt weiterhin der markierte
+Kaltstart.
 `unchanged` bedeutet hier ausschliesslich: Der abgewiesene Aufruf selbst hat
 nichts mutiert. Der laufende Besitzer kann den gemeinsamen Produktzustand
 waehrenddessen aendern; ein spaeterer Retry braucht deshalb frische Bindungen.

@@ -33,6 +33,7 @@ import {
   resolveDesktopMarkerForOperation,
 } from "./desktop-marker.js";
 import { ensureWarmSpare, takeWarmSpare } from "./worker-prewarm.js";
+import { workerOperationNeedsMarkedDesktop } from "./worker-operation-policy.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const WORKER = join(HERE, "..", "powershell", "sse-worker.ps1");
@@ -261,6 +262,12 @@ async function callWorkerUnsynchronised(
         process.env.SSE_CENTER_LIVE_TEST === "1",
       );
   const desk = marker?.name ?? null;
+  // page_objects und product_info sind die exakt katalogisierten statischen
+  // Controller-Bypaesse. Der Marker wurde oberhalb bereits fail-closed auf
+  // Format und Eigentum geprueft; eine vorhandene Reserve darf diese beiden
+  // Reads deshalb ausfuehren. Fehlt eine Reserve, bleibt der konservative
+  // Kaltstart auf dem markierten Desktop unveraendert erhalten.
+  const markerAllowsWarmSpare = marker?.owner === "sse" && !workerOperationNeedsMarkedDesktop(op);
 
   // JSON in einer exklusiven Tempdatei vermeidet Windows' Kommandozeilenlimit
   // und legt Steuerwerte nicht als Base64 im Prozessargument offen.
@@ -283,7 +290,7 @@ async function callWorkerUnsynchronised(
 
   // Der Weg ueber den alternativen Desktop hat einen eigenen Prozessbaum und
   // kann keinen Reservearbeiter des sichtbaren Desktops verwenden.
-  const spare = desk ? null : takeWarmSpare();
+  const spare = !desk || markerAllowsWarmSpare ? takeWarmSpare() : null;
   // Sofort nachfuellen statt erst nach der Operation: Vorwaermen dauert rund
   // 1,4 s und ueberlappt so mit der laufenden Arbeit, statt den naechsten
   // Aufruf kalt zu treffen (gemessen 0,25 s gegen 2,2 s). Der wartende Prozess

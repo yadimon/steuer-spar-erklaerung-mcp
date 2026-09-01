@@ -31,6 +31,11 @@ import {
   SSE_STATEFUL_OPERATIONS,
 } from "../dist/operation-traits.js";
 import { SSE_FOREGROUND_REQUIRED_RECEIPT_OPERATIONS } from "../dist/receipt-interaction-policy.js";
+import {
+  SSE_DESKTOP_INDEPENDENT_STATIC_WORKER_OPERATIONS,
+  SSE_WORKER_CONTROLLER_BYPASS_OPERATIONS,
+  workerOperationNeedsMarkedDesktop,
+} from "../dist/worker-operation-policy.js";
 
 const calls = [];
 const execute = createApiExecutor({
@@ -70,7 +75,7 @@ assert.deepEqual(result.concurrency.workerController, {
   includesDirectWorker: true,
   policy: "zero-wait",
   idlePrewarmHoldsLease: false,
-  bypassOperations: ["page_objects", "product_info"],
+  bypassOperations: SSE_WORKER_CONTROLLER_BYPASS_OPERATIONS,
   contentionKind: "busy",
   contentionReason: "session-controller-busy",
   contentionTransport: "operation-result",
@@ -196,6 +201,18 @@ assert.equal(SSE_CAPABILITIES.transport.packageName, packageJson.name);
 assert.equal(SSE_CAPABILITIES.transport.packageVersion, packageJson.version);
 const workerBypass = /@\('page_objects','product_info'\) -ccontains \$profilePolicyOperation/u.exec(worker);
 assert(workerBypass, "Capability- und Worker-Bypasskatalog muessen exakt uebereinstimmen.");
+assert.deepEqual(SSE_WORKER_CONTROLLER_BYPASS_OPERATIONS, ["page_objects", "product_info"]);
+assert.equal(Object.isFrozen(SSE_DESKTOP_INDEPENDENT_STATIC_WORKER_OPERATIONS), true);
+assert.equal(SSE_WORKER_CONTROLLER_BYPASS_OPERATIONS, SSE_DESKTOP_INDEPENDENT_STATIC_WORKER_OPERATIONS,
+  "Controller-Bypass und Desktop-Unabhaengigkeit sind heute bewusst derselbe enge Katalog.");
+for (const operation of SSE_DESKTOP_INDEPENDENT_STATIC_WORKER_OPERATIONS) {
+  assert.equal(workerOperationNeedsMarkedDesktop(operation), false,
+    `${operation} darf nach validiertem Marker den sichtbaren Warm-Pool verwenden.`);
+}
+for (const operation of ["health", "windows", "desktop_stop", "center_cases"]) {
+  assert.equal(workerOperationNeedsMarkedDesktop(operation), true,
+    `${operation} muss weiterhin auf den markierten Desktop geroutet werden.`);
+}
 const buttonBlock = /\$script:DIALOG_BUTTONS\s*=\s*@\(([\s\S]*?)\)\s*\r?\n/.exec(worker)?.[1];
 assert(buttonBlock, "PowerShell-Dialogbutton-Allowlist fehlt.");
 const workerButtons = [...buttonBlock.matchAll(/'([^']+)'/g)].map((match) => match[1]);
