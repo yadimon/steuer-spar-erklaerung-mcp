@@ -7,7 +7,13 @@ $tokens = $null; $errors = $null
 $ast = [Management.Automation.Language.Parser]::ParseFile($workerPath, [ref]$tokens, [ref]$errors)
 if ($errors.Count) { throw "Worker-Parserfehler: $($errors[0].Message)" }
 
-$functionNames = @('Get-SSETextSha256','Get-SSEPeerWindowSet','Get-DialogDescriptor')
+$functionNames = @(
+  'Get-SSETextSha256',
+  'Get-SSEPeerWindowSet',
+  'Test-SSERecoveryPromptWindowCandidate',
+  'Test-SSERecoveryPromptDescriptor',
+  'Get-DialogDescriptor'
+)
 foreach ($functionName in $functionNames) {
   $definition = @($ast.FindAll({
     param($node)

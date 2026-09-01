@@ -279,7 +279,7 @@ function assertKnownLaunchDialogs(listed) {
     dialog.kind === "native-dialog" || dialog.kind === "qt-dialog");
   assert(dialogs.length <= 1, `Mehrdeutige Startdialoge: ${dialogs.length}.`);
   if (dialogs.length === 1) {
-    assert(classifyPassiveStartupDialog(dialogs[0]),
+    assert(dialogs[0].recoveryPrompt === true || classifyPassiveStartupDialog(dialogs[0]),
       `Unerwarteter Startdialog '${dialogs[0].title ?? "ohne Titel"}'; nichts beantworten.`);
   }
   return dialogs;
@@ -292,10 +292,63 @@ function bindLaunchProcess(result, label) {
   currentHwnd = Number.isInteger(result.instance?.hwnd) ? result.instance.hwnd : 0;
 }
 
-function assertReadyLaunchReadback(listed, launched, label) {
-  assertKnownLaunchDialogs(listed);
+function assertLaunchReadback(listed, launched, label) {
+  const dialogs = assertKnownLaunchDialogs(listed);
+  const recoveryDialogs = dialogs.filter((dialog) =>
+    dialog.recoveryPrompt === true && dialog.requiresCaseBinding === true);
+  if (recoveryDialogs.length === 1) {
+    assert.equal(dialogs.length, 1, `${label}: Recovery-Frage ist nicht der einzige Dialog.`);
+    assert.equal(launched.ready, false, `${label}: Recovery-Frage darf nicht ready=true liefern.`);
+    assert.equal(launched.blockedByDialog, true, `${label}: Recovery-Frage ist nicht als Blocker markiert.`);
+    assert.equal(launched.instance, null, `${label}: Recovery-Frage wurde als Hauptfenster gebunden.`);
+    assert.equal(currentHwnd, 0, `${label}: Recovery-Frage lieferte ein Hauptfenster-HWND.`);
+    return;
+  }
+  assert.equal(recoveryDialogs.length, 0, `${label}: Recovery-Frage ist mehrdeutig.`);
   assert.equal(launched.ready, true, `${label}: Launch blieb ohne verifiziertes Produktfenster.`);
   assert(Number.isInteger(currentHwnd) && currentHwnd > 0, `${label}: Launch lieferte kein gebundenes HWND.`);
+}
+
+async function maybeDiscardRecoveryPrompt(id, launched, launchReadback, expectedCaseRef, expectedCaseHash) {
+  const declaration = mutationDeclarations.get(id);
+  assert(declaration, `Nicht deklarierte optionale Recovery-Mutation '${id}'.`);
+  const dialogs = assertKnownLaunchDialogs(launchReadback);
+  const recoveryDialogs = dialogs.filter((dialog) =>
+    dialog.recoveryPrompt === true && dialog.requiresCaseBinding === true);
+  if (!recoveryDialogs.length) {
+    recordMutationSkip(id, "no-recovery-prompt-present");
+    return launchReadback;
+  }
+  assert.equal(recoveryDialogs.length, 1, `${id}: Recovery-Frage ist nicht eindeutig.`);
+  assert.equal(launched.ready, false, `${id}: Recovery-Frage wurde parallel als bereit gemeldet.`);
+  const dialog = recoveryDialogs[0];
+  await mutateAndRead(
+    id,
+    {
+      hwnd: dialog.hwnd,
+      fingerprint: dialog.fingerprint,
+      button: "Nein",
+      expectedCaseRef,
+      expectedCaseHash,
+      waitMs: 8_000,
+    },
+    (result) => {
+      assert.equal(result.closed, true);
+      assert.equal(result.recoveryDiscarded, true);
+      assert.equal(result.caseHashUnchanged, true);
+    },
+    { includeHash: true },
+    (result) => {
+      const owned = (result.instances ?? []).filter((instance) => instance.pid === currentPid);
+      assert.equal(owned.length, 1, `${id}: Nach Recovery-Nein fehlt die exakt gestartete PID.`);
+      assert.equal(owned[0].caseName, expectedCaseRef.split("/").at(-1).split(":").at(-1));
+      assert.equal(owned[0].caseSha256, expectedCaseHash);
+      assert(!/\(Wiederhergestellt\)/iu.test(owned[0].title ?? ""));
+      currentHwnd = owned[0].hwnd;
+    },
+    { mutationTimeoutMs: 120_000, readbackTimeoutMs: 120_000 },
+  );
+  return await read("dialog_list", { pid: currentPid }, null, `${id}:fresh-dialogs`, 120_000);
 }
 
 async function maybeDismissStartupDialog(id, launchReadback) {
@@ -500,9 +553,16 @@ try {
       { caseRef: fixtures.gew.targetRef, mode: fixtures.gew.mode },
       (result) => bindLaunchProcess(result, "launch-gew"),
       (result) => ({ pid: result.pid }),
-      (result, changed) => assertReadyLaunchReadback(result, changed, "launch-gew"),
+      (result, changed) => assertLaunchReadback(result, changed, "launch-gew"),
     );
-    await maybeDismissStartupDialog("launch-gew-startup-dialog", launchedGew.readback);
+    const launchGewDialogs = await maybeDiscardRecoveryPrompt(
+      "launch-gew-recovery-discard",
+      launchedGew.mutation,
+      launchedGew.readback,
+      fixtures.gew.targetRef,
+      fixtures.gew.sourceHash,
+    );
+    await maybeDismissStartupDialog("launch-gew-startup-dialog", launchGewDialogs);
     await assertBoundUiState("launch-gew");
     await read("page", { hwnd: currentHwnd }, (result) => assert(result.ueberschrift));
     await read("help", { hwnd: currentHwnd }, (result) => {
@@ -627,9 +687,16 @@ try {
       { caseRef: fixtures.gew.targetRef, mode: fixtures.gew.mode },
       (result) => bindLaunchProcess(result, "reopen-gew"),
       (result) => ({ pid: result.pid }),
-      (result, changed) => assertReadyLaunchReadback(result, changed, "reopen-gew"),
+      (result, changed) => assertLaunchReadback(result, changed, "reopen-gew"),
     );
-    await maybeDismissStartupDialog("reopen-gew-startup-dialog", reopenedGew.readback);
+    const reopenGewDialogs = await maybeDiscardRecoveryPrompt(
+      "reopen-gew-recovery-discard",
+      reopenedGew.mutation,
+      reopenedGew.readback,
+      fixtures.gew.targetRef,
+      gewHash,
+    );
+    await maybeDismissStartupDialog("reopen-gew-startup-dialog", reopenGewDialogs);
     await assertBoundUiState("reopen-gew");
     let persistedTable;
     await mutateAndRead(
@@ -915,9 +982,16 @@ try {
       { caseRef: fixtures.est.targetRef, mode: fixtures.est.mode },
       (result) => bindLaunchProcess(result, "launch-est"),
       (result) => ({ pid: result.pid }),
-      (result, changed) => assertReadyLaunchReadback(result, changed, "launch-est"),
+      (result, changed) => assertLaunchReadback(result, changed, "launch-est"),
     );
-    await maybeDismissStartupDialog("launch-est-startup-dialog", launchedEst.readback);
+    const launchEstDialogs = await maybeDiscardRecoveryPrompt(
+      "launch-est-recovery-discard",
+      launchedEst.mutation,
+      launchedEst.readback,
+      fixtures.est.targetRef,
+      fixtures.est.sourceHash,
+    );
+    await maybeDismissStartupDialog("launch-est-startup-dialog", launchEstDialogs);
     await assertBoundUiState("launch-est");
     const terminalHeading = fixtures.est.terminalCollect?.headingAtLaunch;
     assert.equal(typeof terminalHeading, "string", "ESt-Fixture braucht eine profilierte Collect-Endseite.");

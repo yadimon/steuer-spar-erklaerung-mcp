@@ -88,6 +88,21 @@ Wert bestimmt nur die Auflösung und Redaction relativer `cases:`-Referenzen. Er
 ist keine Dateisystem-Sandbox. Jede tatsächliche Lese- oder Schreibaktion
 braucht danach eine ausdrücklich aufgerufene, streng gebundene Operation.
 
+### Wiederherstellungsfrage
+
+Nach einem unsauberen SSE-Ende kann `launch` früh mit `ready=false` und
+`blockedByDialog=true` zurückkehren. `dialog_list` beschreibt die exakt erkannte
+Frage dann mit `recoveryPrompt=true`, `requiresCaseBinding=true`, HWND, PID,
+Texten, Schaltern und Fingerprint. Sie wird nie automatisch beantwortet.
+
+Zum bewussten Verwerfen der alten Recovery-Datei zuerst die reguläre
+`cases:`-Datei mit `case_hash` prüfen. Danach akzeptiert `dialog_answer`
+ausschließlich `button="Nein"` zusammen mit demselben Dialog-Fingerprint,
+`expectedCaseRef` und `expectedCaseHash`. Unmittelbar vor dem Klick werden
+PID/Command-Line und Dateihash erneut gebunden; danach müssen genau ein
+reguläres, nicht als wiederhergestellt markiertes Fallfenster und derselbe
+Dateihash sichtbar sein. `Ja` bleibt gesperrt.
+
 ## Identität und Singleton
 
 `/healthz` liefert API-Version, Paketname, exakte Paketversion,

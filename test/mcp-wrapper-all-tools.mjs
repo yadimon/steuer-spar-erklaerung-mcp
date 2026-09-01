@@ -207,7 +207,7 @@ try {
   const pathBearingTools = new Set([
     "sse_case_hash", "sse_center_refresh", "sse_window_close", "sse_vast_apply", "sse_desktop_start",
     "sse_export_csv", "sse_collect", "sse_verify",
-    "sse_screenshot", "sse_launch", "sse_save", "sse_file_dialog_select", "sse_save_as",
+    "sse_screenshot", "sse_launch", "sse_save", "sse_dialog_answer", "sse_file_dialog_select", "sse_save_as",
     "sse_change_field", "sse_change_known_field", "sse_list_cases", "sse_backup_cases",
     "sse_archive_cases", "sse_make_working_copy",
     "sse_ustva_select_period", "sse_ustva_set_flag", "sse_ustva_change_value",

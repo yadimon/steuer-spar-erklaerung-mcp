@@ -303,6 +303,9 @@ try {
   assert(dialogButtonEnum.includes("Klicken Sie hier, um Ihre Daten zu exportieren") &&
     !dialogButtonEnum.includes("Exportieren") && !dialogButtonEnum.includes("*"),
   "sse_dialog_answer veroeffentlicht nicht den exakten CSV-Export-Schalter oder erlaubt einen generischen Export-Button.");
+  assert(dialogAnswerTool?.inputSchema?.properties?.expectedCaseRef &&
+    dialogAnswerTool?.inputSchema?.properties?.expectedCaseHash,
+  "sse_dialog_answer kann die regulaere Falldatei fuer Recovery-Nein nicht referenz-/hashbinden.");
   const vastApplyRequired = vastApplyTool?.inputSchema?.required ?? [];
   assert(vastApplyTool &&
     ["hwnd", "expectedMainHwnd", "expectedCaseRef", "expectedCaseHash", "mappingFingerprint", "plan", "acknowledgeApply"]
@@ -526,7 +529,8 @@ try {
   "sse_checker_close ist nicht an exakte Leiste sowie Seiten-/Dirty-Invariante gebunden.");
   assert(workerSource.includes("$wins = @($Windows | Where-Object { $null -ne $_ })"),
     "Strenger Hauptfensterresolver behandelt @($null) weiterhin als vorhandene Fensterliste.");
-  assert(workerSource.includes("$loadedCases = @($wins | Where-Object { $_.title -match 'SteuerSparErklärung' })") &&
+  assert(workerSource.includes("$loadedCases = @($wins | Where-Object {") &&
+    workerSource.includes("$_.title -match 'SteuerSparErklärung' -and ($_.w -ge 900 -or $_.minimiert)") &&
     workerSource.includes("Sobald ein konkreter Fall existiert, ist dieses kein zweiter Fall"),
   "Generisches Startfenster wird parallel zu einem geladenen Fall weiterhin als zweiter Steuerfall gewertet.");
   const collectBlock = workerOpBlock("collect");
@@ -636,6 +640,14 @@ try {
     workerSource.includes("$ButtonName -ceq 'Abbrechen'") &&
     dialogAnswerBlock.includes("Test-SSESafeTransmissionDialogCancellation $buttonName"),
   "Ein fingerprintgebundener Uebermittlungsdialog kann nicht sicher mit dem exakten Button 'Abbrechen' verlassen werden.");
+  assert(workerSource.includes("function Test-SSERecoveryPromptDescriptor") &&
+    dialogAnswerBlock.includes("$buttonName -cne 'Nein'") &&
+    dialogAnswerBlock.includes("Test-CaseBinding $targetWindows[0] $expectedCasePath") &&
+    dialogAnswerBlock.includes("$recoveryHashBefore = Get-Sha256 $expectedCasePath") &&
+    dialogAnswerBlock.includes("$recoveryHashAfter -ne $expectedCaseHash") &&
+    dialogAnswerBlock.includes("\\(Wiederhergestellt\\)") &&
+    dialogAnswerBlock.includes("recoveryDiscarded = [bool]$isRecoveryPrompt"),
+  "Recovery-Nein ist nicht exakt an Dialog, PID/Command-Line, regulaeren Fallhash und Main-Window-Readback gebunden.");
   const exportBlock = workerOpBlock("export_csv");
   assert(exportBlock.includes("$preexistingExport") &&
     exportBlock.includes("Get-SSEDeepestLastActivePopup $hwnd") &&

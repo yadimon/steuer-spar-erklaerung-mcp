@@ -212,6 +212,12 @@ try {
     ["save", "caseRef", "expectedPath", "cases:arbeit.Gew2025", join(roots.cases, "arbeit.Gew2025"), {
       expectedHashBefore: "0".repeat(64),
     }],
+    ["dialog_answer", "expectedCaseRef", "expectedCasePath", "cases:arbeit.Gew2025", join(roots.cases, "arbeit.Gew2025"), {
+      hwnd: 42,
+      fingerprint: "1".repeat(64),
+      button: "Nein",
+      expectedCaseHash: "0".repeat(64),
+    }],
     ["file_dialog_select", "resourceRef", "expectedPath", "documents:rechnung.txt", join(roots.documents, "rechnung.txt"), {
       expectedDialogTitle: "Öffnen",
     }],

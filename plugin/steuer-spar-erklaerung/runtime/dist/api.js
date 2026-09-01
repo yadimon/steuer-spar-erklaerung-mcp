@@ -5139,6 +5139,12 @@ var init_mcp_schemas_diagnostics = __esm({
         hwnd: WINDOW_HANDLE,
         fingerprint: SHA256(),
         bodyFingerprint: SHA256().optional().describe("Bei automatischen Pruefhinweisen Pflicht; bindet auch den OCR-Fliesstext"),
+        expectedCaseRef: CASE_REF().optional().describe(
+          "Nur bei recoveryPrompt=true Pflicht: regulaer gespeicherte Falldatei, die exakt an die gestartete SSE-PID gebunden sein muss"
+        ),
+        expectedCaseHash: SHA256().optional().describe(
+          "Nur bei recoveryPrompt=true Pflicht: aktueller SHA256 der regulaer gespeicherten Falldatei"
+        ),
         button: external_exports.enum(SSE_DIALOG_BUTTONS).describe("Exakter freigegebener Buttonname aus sse_dialog_list"),
         waitMs: external_exports.number().int().min(200).max(1e4).optional().describe("Wartezeit auf den Dialog-Readback in Millisekunden")
       }).strict(),
@@ -12043,6 +12049,7 @@ var init_api_executor = __esm({
       verify: [{ alias: "sourceRef", workerField: "from", allowedAreas: ["results", "workspace"] }],
       screenshot: [{ alias: "resultRef", workerField: "path", allowedAreas: ["results"] }],
       save: [{ alias: "caseRef", workerField: "expectedPath", allowedAreas: ["cases"] }],
+      dialog_answer: [{ alias: "expectedCaseRef", workerField: "expectedCasePath", allowedAreas: ["cases"] }],
       file_dialog_select: [{
         alias: "resourceRef",
         workerField: "expectedPath",
@@ -12063,9 +12070,7 @@ var init_api_executor = __esm({
       ],
       make_working_copy: [
         { alias: "sourceRef", workerField: "source", allowedAreas: ["cases"] },
-        // backups: ist die Sicherung VOR einer Schreibaktion. Es ist dieselbe
-        // hashgepruefte Kopie wie eine Arbeitskopie - nur der Ablageort und damit
-        // der Zweck unterscheiden sich.
+        // Backups sind hashgepruefte Arbeitskopien mit eigenem Ablagezweck.
         { alias: "targetRef", workerField: "target", allowedAreas: ["cases", "backups"] }
       ],
       backup_cases: [{ alias: "destinationRef", workerField: "dest", allowedAreas: ["backups"] }],
@@ -14911,7 +14916,13 @@ var init_result_contract = __esm({
       },
       desktop_stop: { hartBeendet: OPTIONAL_BOOLEAN, desktopMarkeEntfernt: OPTIONAL_BOOLEAN },
       dialog_list: { dialogs: OPTIONAL_ARRAY, windows: OPTIONAL_ARRAY, count: OPTIONAL_NON_NEGATIVE_NUMBER },
-      dialog_answer: { closed: OPTIONAL_BOOLEAN, answered: OPTIONAL_STRING_OR_BOOLEAN },
+      dialog_answer: {
+        closed: OPTIONAL_BOOLEAN,
+        answered: OPTIONAL_STRING_OR_BOOLEAN,
+        recoveryDiscarded: OPTIONAL_BOOLEAN,
+        caseHashUnchanged: OPTIONAL_BOOLEAN,
+        caseBindingModeAfter: OPTIONAL_STRING
+      },
       ui_state: { running: OPTIONAL_BOOLEAN, heading: OPTIONAL_STRING, blockiert: OPTIONAL_BOOLEAN },
       ustva_read: {
         page: OPTIONAL_STRING,
