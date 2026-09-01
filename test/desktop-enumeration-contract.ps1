@@ -120,11 +120,71 @@ function Get-LegacyWindowProjection([int[]]$AllowedProcessIds) {
   [SW]::EnumWindows($callback, [IntPtr]::Zero) | Out-Null
   @($records)
 }
+
+# Die private Auswertung der Win32-Rueckgabe ist absichtlich kein oeffentlicher
+# API-Vertrag. Per Reflection lassen sich die ansonsten schwer deterministisch
+# provozierbaren Fehlerpfade trotzdem pruefen: Callback-Abbruch, Win32-Fehler
+# und FALSE nach begonnenem Callback duerfen nie als Teilergebnis zurueckkehren.
+$completionCheck = [SSEWindowEnumerator].GetMethod(
+  'EnsureEnumerationCompleted',
+  [Reflection.BindingFlags]'Static, NonPublic')
+Assert-True ($null -ne $completionCheck) `
+  'Die fail-closed Auswertung von EnumWindows ist nicht auffindbar.'
+
+$callbackFailure = [InvalidOperationException]::new('deterministic-callback-failure')
+$observedCallbackFailure = $null
+try {
+  $completionCheck.Invoke($null, [object[]]@($false, [int]5, [int]1, $callbackFailure))
+} catch {
+  $observedCallbackFailure = $_.Exception
+  while ($null -ne $observedCallbackFailure.InnerException) {
+    $observedCallbackFailure = $observedCallbackFailure.InnerException
+  }
+}
+Assert-True ($observedCallbackFailure -is [InvalidOperationException] -and
+  $observedCallbackFailure.Message -ceq $callbackFailure.Message) `
+  'Ein Callback-Abbruch wurde vom gleichzeitig gesetzten Win32-Fehler verdeckt.'
+
+$observedNativeFailure = $null
+try {
+  $completionCheck.Invoke($null, [object[]]@($false, [int]5, [int]0, $null))
+} catch {
+  $observedNativeFailure = $_.Exception
+  while ($null -ne $observedNativeFailure.InnerException) {
+    $observedNativeFailure = $observedNativeFailure.InnerException
+  }
+}
+Assert-True ($observedNativeFailure -is [ComponentModel.Win32Exception]) `
+  'Ein EnumWindows-Win32-Fehler wurde nicht typisiert weitergereicht.'
+Assert-True ($observedNativeFailure.NativeErrorCode -eq 5) `
+  "EnumWindows meldete den falschen nativen Fehlercode '$($observedNativeFailure.NativeErrorCode)'."
+
+$observedUnexplainedFailure = $null
+try {
+  $completionCheck.Invoke($null, [object[]]@($false, [int]0, [int]1, $null))
+} catch {
+  $observedUnexplainedFailure = $_.Exception
+  while ($null -ne $observedUnexplainedFailure.InnerException) {
+    $observedUnexplainedFailure = $observedUnexplainedFailure.InnerException
+  }
+}
+Assert-True ($observedUnexplainedFailure -is [InvalidOperationException]) `
+  'Eine partielle EnumWindows-Rueckgabe wurde faelschlich als Ergebnis akzeptiert.'
+Assert-True ($observedUnexplainedFailure.Message -ceq 'window-enumeration-failed') `
+  'Eine partielle EnumWindows-Rueckgabe liefert keinen stabilen, redigierten Fehler.'
+
+# Ein wirklich leerer privater Desktop liefert FALSE/0 ohne Callback und ist
+# kein Fehler. Erfolg darf ausserdem einen vorigen/stalen Threadfehler ignorieren.
+$completionCheck.Invoke($null, [object[]]@($false, [int]0, [int]0, $null))
+$completionCheck.Invoke($null, [object[]]@($true, [int]5, [int]2, $null))
+
 try {
   $unicodeTitle = "SSE native enumeration $([char]0x2013) SteuerSparErkl$([char]0x00E4)rung $PID"
+  $equalAreaTitle = "SSE native enumeration equal area $PID"
   foreach ($specification in @(
     @{ title=$unicodeTitle; width=211; height=137 },
-    @{ title="SSE native enumeration large $PID"; width=347; height=229 }
+    @{ title="SSE native enumeration large $PID"; width=347; height=229 },
+    @{ title=$equalAreaTitle; width=211; height=137 }
   )) {
     $form = New-Object Windows.Forms.Form
     $form.Text = $specification.title
@@ -140,8 +200,9 @@ try {
 
   $allowedIds = [int[]]@($PID)
   $fixtureHandles = @($forms | ForEach-Object { [int64]$_.Handle })
-  $legacy = @(Get-LegacyWindowProjection $allowedIds |
-    Where-Object { [int64]$_.hwnd -in $fixtureHandles } | Sort-Object hwnd)
+  $legacyRaw = @(Get-LegacyWindowProjection $allowedIds |
+    Where-Object { [int64]$_.hwnd -in $fixtureHandles })
+  $legacy = @($legacyRaw | Sort-Object hwnd)
   $nativeRaw = @([SSEWindowEnumerator]::Describe($allowedIds))
   $native = @($nativeRaw | ForEach-Object {
     [pscustomobject][ordered]@{
@@ -152,13 +213,30 @@ try {
       hung=[bool]$_.Hung; minimiert=[bool]$_.Minimized
     }
   } | Where-Object { [int64]$_.hwnd -in $fixtureHandles } | Sort-Object hwnd)
-  Assert-True ($legacy.Count -eq 2) 'Die transparenten Fenster wurden vom Referenzweg nicht exakt enumeriert.'
+  Assert-True ($legacy.Count -eq $forms.Count) 'Die transparenten Fenster wurden vom Referenzweg nicht exakt enumeriert.'
   Assert-True (($legacy | ConvertTo-Json -Depth 3 -Compress) -ceq ($native | ConvertTo-Json -Depth 3 -Compress)) `
     'Native Fensterenumeration weicht in Inhalt oder Typen vom bisherigen PowerShell-Weg ab.'
-  foreach ($title in @($unicodeTitle, "SSE native enumeration large $PID")) {
+  foreach ($title in @($unicodeTitle, "SSE native enumeration large $PID", $equalAreaTitle)) {
     Assert-True (@($native | Where-Object title -CEQ $title).Count -eq 1) `
       "Natives Ergebnis enthaelt Testfenster '$title' nicht exakt einmal."
   }
+
+  $equalAreaHandles = @([int64]$forms[0].Handle, [int64]$forms[2].Handle)
+  $equalAreaNative = @($nativeRaw |
+    Where-Object { [int64]$_.Hwnd -in $equalAreaHandles })
+  Assert-True ($equalAreaNative.Count -eq 2) `
+    'Die beiden gleich grossen Fenster fehlen im nativen Ergebnis.'
+  $firstArea = [int64]$equalAreaNative[0].W * [int64]$equalAreaNative[0].H
+  $secondArea = [int64]$equalAreaNative[1].W * [int64]$equalAreaNative[1].H
+  Assert-True ($firstArea -eq $secondArea) `
+    'Die Tie-Break-Probe erzeugte keine Fenster mit exakt gleicher Flaeche.'
+  $legacyEqualOrder = @($legacyRaw |
+    Where-Object { [int64]$_.hwnd -in $equalAreaHandles } |
+    ForEach-Object { [int64]$_.hwnd })
+  $nativeEqualOrder = @($equalAreaNative | ForEach-Object { [int64]$_.Hwnd })
+  Assert-True (($legacyEqualOrder | ConvertTo-Json -Compress) -ceq ($nativeEqualOrder | ConvertTo-Json -Compress)) `
+    'Fenster mit gleicher Flaeche behalten nicht ihre EnumWindows-Reihenfolge.'
+
   for ($index = 1; $index -lt $nativeRaw.Count; $index++) {
     $previousArea = [int64]$nativeRaw[$index - 1].W * [int64]$nativeRaw[$index - 1].H
     $currentArea = [int64]$nativeRaw[$index].W * [int64]$nativeRaw[$index].H
@@ -168,7 +246,7 @@ try {
     'Eine leere PID-Freigabe darf keine Fenster liefern.'
   $duplicatePidWindows = @([SSEWindowEnumerator]::Describe([int[]]@($PID, $PID)) |
     Where-Object { [int64]$_.Hwnd -in $fixtureHandles })
-  Assert-True ($duplicatePidWindows.Count -eq 2) `
+  Assert-True ($duplicatePidWindows.Count -eq $forms.Count) `
     'Doppelte freigegebene PIDs duerfen keine Fenster duplizieren.'
 } finally {
   foreach ($form in @($forms)) {
