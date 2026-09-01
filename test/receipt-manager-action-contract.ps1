@@ -35,6 +35,76 @@ foreach ($functionName in @(
     Invoke-Expression $definitions[0].Extent.Text
   }
 }
+
+# Die bisherige Eingangsklassifikation bleibt als Differentialreferenz
+# eingefroren; der komplette nachfolgende Projektor stammt aus derselben
+# Funktionsdefinition und kann dadurch nicht zwischen Alt und Neu driften.
+$listProjectionDefinition = @($ast.FindAll({
+  param($node)
+  $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+    $node.Name -eq 'Get-SSEReceiptManagerListProjection'
+}, $true))[0].Extent.Text
+$indexedClassificationStart = $listProjectionDefinition.IndexOf('  # Dieser Index gilt nur fuer den aktuellen')
+$classificationEnd = $listProjectionDefinition.IndexOf('  $filterText =', $indexedClassificationStart)
+Assert-True ($indexedClassificationStart -ge 0 -and $classificationEnd -gt $indexedClassificationStart) `
+  'Die Beleglisten-Eingangsklassifikation ist nicht eindeutig abgrenzbar.'
+$legacyListClassification = @'
+  $tables = @($State.nodes | Where-Object {
+    $_.type -eq 'Table' -and [string]$_.aid -and
+    ([string]$_.aid).EndsWith($tableSuffix, [StringComparison]::Ordinal) -and
+    [bool]$_.on -and $_.w -gt 0 -and $_.h -gt 0
+  })
+  if ($tables.Count -ne 1) {
+    Fail "$($tables.Count) sichtbare BelegManager-Tabellen '$tableSuffix' gefunden." 'profile-contract'
+  }
+  $table = $tables[0]
+  $countLabels = New-Object System.Collections.ArrayList
+  for ($countSuffixIndex = 0; $countSuffixIndex -lt $countSuffixes.Count; $countSuffixIndex++) {
+    $suffix = [string]$countSuffixes[$countSuffixIndex]
+    $matches = @($State.nodes | Where-Object {
+      [string]$_.aid -and ([string]$_.aid).EndsWith($suffix, [StringComparison]::Ordinal)
+    })
+    if ($matches.Count -gt 1 -or ($countSuffixIndex -eq 0 -and $matches.Count -ne 1)) {
+      Fail "$($matches.Count) BelegManager-Zaehlerteile '$suffix' gefunden." 'profile-contract'
+    }
+    if ($matches.Count -eq 1) { $null = $countLabels.Add($matches[0]) }
+  }
+  $countText = ((@($countLabels | ForEach-Object { [string]$_.name }) -join ' ') -replace '\s+', ' ').Trim()
+  $countMatch = [regex]::Match(
+    $countText,
+    'MEINE BELEGE\s*\((?:(?<current>\d+)\s+von\s+)?(?<total>\d+)\)',
+    [Text.RegularExpressions.RegexOptions]::CultureInvariant
+  )
+  if (-not $countMatch.Success) {
+    Fail "BelegManager-Zaehler hat ein unbekanntes Format: '$countText'." 'profile-contract'
+  }
+  $count = [int]$countMatch.Groups['total'].Value
+  $tableAid = [string]$table.aid
+  $headerNames = @($State.nodes | Where-Object {
+    $_.type -in @('Header','HeaderItem') -and [string]$_.name -and
+    [string]$_.aid -ceq $tableAid -and $_.w -gt 0 -and $_.h -gt 0
+  } | Sort-Object x | ForEach-Object { [string]$_.name })
+  $dataCells = @($State.nodes | Where-Object {
+    $_.type -eq 'DataItem' -and [string]$_.aid -ceq $tableAid -and
+    $_.w -gt 0 -and $_.h -gt 0 -and $_.y -ge $table.y
+  })
+  $rows = New-Object System.Collections.ArrayList
+  $visibleGroups = @($dataCells | Group-Object y | Sort-Object { [int]$_.Name })
+  $projectedCellGroups = New-Object 'System.Collections.Generic.List[object]'
+  $gridProjectionError = $null
+  $searchNodes = @($State.nodes | Where-Object {
+    $_.type -eq 'Edit' -and [string]$_.aid -and
+    ([string]$_.aid).EndsWith($searchSuffix, [StringComparison]::Ordinal)
+  })
+'@
+$legacyListDefinition = $listProjectionDefinition.Substring(0, $indexedClassificationStart) +
+  $legacyListClassification + "`r`n" + $listProjectionDefinition.Substring($classificationEnd)
+$legacyListDefinition = $legacyListDefinition.Replace(
+  'function Get-SSEReceiptManagerListProjection(',
+  'function Get-LegacySSEReceiptManagerListProjection('
+)
+Invoke-Expression $legacyListDefinition
+
 $policy = $catalog.windows.receiptManager
 $foregroundCatalogStart = $worker.IndexOf('$foregroundRequiredReceiptOps = @(')
 $foregroundGateStart = $worker.IndexOf('$profilePolicyOperation -in $foregroundRequiredReceiptOps')
@@ -541,6 +611,217 @@ Assert-True ((Get-SSEReceiptManagerDetailIdentityTitle $projection.rows[0] $poli
 Assert-True ([string]$projection.rows[0].rowRid -ceq 'row-a') 'Zeilenbindung verwendet nicht die erste sichtbare Zelle.'
 Assert-True ([string]$projection.rows[0].rowFingerprint -match '^[A-Fa-f0-9]{64}$') 'Zeilenfingerprint fehlt.'
 Assert-True ([string]$projection.rows[0].contentFingerprint -match '^[A-Fa-f0-9]{64}$') 'Stabiler Inhaltsfingerprint fehlt.'
+
+function New-ReceiptListFixture($ListPolicy, [int]$NodeCount = 800, [int]$RowCount = 30) {
+  $fixtureNodes = New-Object System.Collections.ArrayList
+  $fixtureTableAid = "SSE_Application.BMMainWindow$([string]$ListPolicy.list.tableAutomationIdSuffix)"
+  $null = $fixtureNodes.Add([pscustomobject]@{
+    aid=$fixtureTableAid; name=''; type='Table'; rid='table'; on=$true; val=''
+    checked=$null; selected=$null; toggleState=$null; x=80; y=233; w=900; h=600
+  })
+  for ($suffixIndex = 0; $suffixIndex -lt @($ListPolicy.list.countLabelAutomationIdSuffixes).Count; $suffixIndex++) {
+    $null = $fixtureNodes.Add([pscustomobject]@{
+      aid="SSE_Application.BMMainWindow$([string]$ListPolicy.list.countLabelAutomationIdSuffixes[$suffixIndex])"
+      name=$(if ($suffixIndex -eq 0) { "MEINE BELEGE ($RowCount)" } else { '' })
+      type='Text'; rid="count-$suffixIndex"; on=$true; val=''
+      checked=$null; selected=$null; toggleState=$null; x=60; y=(130 + $suffixIndex); w=200; h=30
+    })
+  }
+  $null = $fixtureNodes.Add([pscustomobject]@{
+    aid="SSE_Application.BMMainWindow$([string]$ListPolicy.list.searchAutomationIdSuffix)"
+    name=''; type='Edit'; rid='search'; on=$true; val=''
+    checked=$null; selected=$null; toggleState=$null; x=500; y=130; w=220; h=30
+  })
+  for ($columnIndex = 0; $columnIndex -lt 9; $columnIndex++) {
+    $null = $fixtureNodes.Add([pscustomobject]@{
+      aid=$fixtureTableAid; name="Header $columnIndex"; type='HeaderItem'; rid="header-$columnIndex"; on=$true; val=''
+      checked=$null; selected=$null; toggleState=$null; x=(100 + 70 * $columnIndex); y=233; w=70; h=30
+    })
+  }
+  for ($rowIndex = 0; $rowIndex -lt $RowCount; $rowIndex++) {
+    for ($columnIndex = 0; $columnIndex -lt 9; $columnIndex++) {
+      $cellName = $(if ($columnIndex -eq 2) { "Beleg $rowIndex" } elseif ($columnIndex -eq 8) { "R-$rowIndex" } else { '' })
+      $null = $fixtureNodes.Add([pscustomobject]@{
+        aid=$fixtureTableAid; name=$cellName; type='DataItem'; rid="row-$rowIndex-cell-$columnIndex"; on=$true; val=''
+        checked=$null; selected=$(if ($rowIndex -eq 0 -and $columnIndex -eq 2) { $true } else { $null })
+        toggleState=$null; x=(100 + 70 * $columnIndex); y=(270 + 30 * $rowIndex); w=70; h=30
+      })
+    }
+  }
+  for ($noiseIndex = $fixtureNodes.Count; $noiseIndex -lt $NodeCount; $noiseIndex++) {
+    $noiseType = @('Text','Button','Edit','HeaderItem','DataItem')[$noiseIndex % 5]
+    $null = $fixtureNodes.Add([pscustomobject]@{
+      aid="SSE_Application.Noise.noise_$noiseIndex"; name="noise-$noiseIndex"; type=$noiseType
+      rid="noise-$noiseIndex"; on=[bool]($noiseIndex % 3); val='noise'
+      checked=$null; selected=$null; toggleState=$null
+      x=($noiseIndex % 1200); y=(2000 + $noiseIndex); w=20; h=20
+    })
+  }
+  [pscustomobject]@{ state='list'; window=0; nodes=[object[]]$fixtureNodes; stats=[pscustomobject]@{ n=$fixtureNodes.Count } }
+}
+
+function Invoke-ReceiptListOutcome([string]$CommandName, $FixtureState, $ListPolicy) {
+  try {
+    $result = & $CommandName $FixtureState $ListPolicy
+    [pscustomobject]@{ ok=$true; json=($result | ConvertTo-Json -Depth 12 -Compress); result=$result; error=$null }
+  } catch {
+    [pscustomobject]@{ ok=$false; json=$null; result=$null; error=[string]$_.Exception.Message }
+  }
+}
+
+function Assert-ReceiptListParity($FixtureState, $ListPolicy, [string]$CaseName) {
+  $legacy = Invoke-ReceiptListOutcome 'Get-LegacySSEReceiptManagerListProjection' $FixtureState $ListPolicy
+  $indexed = Invoke-ReceiptListOutcome 'Get-SSEReceiptManagerListProjection' $FixtureState $ListPolicy
+  Assert-True ($legacy.ok -eq $indexed.ok) "$CaseName hat ein abweichendes Erfolgs-/Fehlerergebnis."
+  if ($legacy.ok) {
+    Assert-True ($legacy.json -ceq $indexed.json) "$CaseName veraendert Projektion oder Fingerprint."
+  } else {
+    Assert-True ($legacy.error -ceq $indexed.error) "$CaseName veraendert den fail-closed Fehler."
+  }
+  $indexed
+}
+
+$listFixture0 = New-ReceiptListFixture $policy 24 0
+$listFixture1 = New-ReceiptListFixture $policy 40 1
+$listFixture30 = New-ReceiptListFixture $policy 800 30
+$null = Assert-ReceiptListParity $listFixture0 $policy 'zero-row-list'
+$listFixture1Outcome = Assert-ReceiptListParity $listFixture1 $policy 'one-row-list'
+$null = Assert-ReceiptListParity $listFixture30 $policy 'thirty-row-list'
+Assert-True ($listFixture1Outcome.ok -and $listFixture1Outcome.result.rowsComplete -and
+  $listFixture1Outcome.result.rows.Count -eq 1) 'Die kleine Beleglistenprojektion ist unvollstaendig.'
+
+$countSuffixesForTest = @($policy.list.countLabelAutomationIdSuffixes | ForEach-Object { [string]$_ })
+$countNodes = @($listFixture1.nodes | Where-Object {
+  $aid = [string]$_.aid
+  @($countSuffixesForTest | Where-Object { $aid.EndsWith($_, [StringComparison]::Ordinal) }).Count
+})
+$countNodes[0].name = 'MEINE'
+$countNodes[1].name = 'BELEGE'
+$countNodes[2].name = '(1)'
+$nonCountNodes = @($listFixture1.nodes | Where-Object { $_ -notin $countNodes })
+$reorderedCountState = [pscustomobject]@{
+  state='list'; window=0
+  nodes=@($countNodes[2],$countNodes[0],$countNodes[1]) + $nonCountNodes
+  stats=$listFixture1.stats
+}
+$reorderedOutcome = Assert-ReceiptListParity $reorderedCountState $policy 'count-profile-order'
+Assert-True ($reorderedOutcome.json -ceq $listFixture1Outcome.json) `
+  'Belegzaehler werden in Traversal- statt Profilreihenfolge zusammengesetzt.'
+
+$duplicateCountState = [pscustomobject]@{
+  state='list'; window=0; stats=$listFixture1.stats
+  nodes=@($listFixture1.nodes) + @([pscustomobject]@{
+    aid=[string]$countNodes[0].aid; name='hidden disabled duplicate'; type='Pane'; rid='count-duplicate'
+    on=$false; val=''; checked=$null; selected=$null; toggleState=$null; x=0; y=0; w=0; h=0
+  })
+}
+$duplicateCountOutcome = Assert-ReceiptListParity $duplicateCountState $policy 'count-cardinality-without-geometry-gate'
+Assert-True (-not $duplicateCountOutcome.ok) 'Ein verborgenes/deaktiviertes Zaehlerduplikat wurde nicht fail-closed erkannt.'
+
+$caseCountPolicy = $policy | ConvertTo-Json -Depth 30 | ConvertFrom-Json
+$caseCountPolicy.list.countLabelAutomationIdSuffixes = @('.countPart','.COUNTPART','.countPart')
+$caseCountState = New-ReceiptListFixture $caseCountPolicy 40 1
+$caseCountState.nodes = @($caseCountState.nodes | Where-Object {
+  [string]$_.aid -cne 'SSE_Application.BMMainWindow.countPart' -or [string]$_.rid -ceq 'count-0'
+})
+$caseCountOutcome = Assert-ReceiptListParity $caseCountState $caseCountPolicy 'overlapping-case-distinct-count-suffixes'
+Assert-True ($caseCountOutcome.ok) 'Case-verschiedene oder doppelte Zaehler-Suffixe wurden vermischt.'
+
+$classificationDecoys = @(
+  [pscustomobject]@{ aid=([string]$listFixture1.nodes[0].aid); name='disabled'; type='Table'; rid='disabled-table'; on=$false; val=''; x=0; y=0; w=20; h=20 },
+  [pscustomobject]@{ aid=([string]$listFixture1.nodes[0].aid); name='hidden'; type='Table'; rid='hidden-table'; on=$true; val=''; x=0; y=0; w=0; h=20 },
+  [pscustomobject]@{ aid=([string]$listFixture1.nodes[0].aid).ToUpperInvariant(); name='foreign header'; type='HeaderItem'; rid='foreign-header'; on=$true; val=''; x=1; y=233; w=20; h=20 },
+  [pscustomobject]@{ aid=([string]$listFixture1.nodes[0].aid).ToUpperInvariant(); name='foreign data'; type='DataItem'; rid='foreign-data'; on=$true; val=''; x=1; y=270; w=20; h=20 },
+  [pscustomobject]@{ aid=([string]$listFixture1.nodes[0].aid); name='above table'; type='DataItem'; rid='above-table'; on=$true; val=''; x=1; y=232; w=20; h=20 }
+)
+$decoyState = [pscustomobject]@{
+  state='list'; window=0; stats=$listFixture1.stats; nodes=@($listFixture1.nodes) + $classificationDecoys
+}
+$decoyOutcome = Assert-ReceiptListParity $decoyState $policy 'table-header-data-gates'
+Assert-True ($decoyOutcome.json -ceq $listFixture1Outcome.json) `
+  'Tabellen-, Header-, DataItem- oder Y-Grenzen veraendern die Projektion.'
+
+$caseTypeState = $listFixture1 | ConvertTo-Json -Depth 12 | ConvertFrom-Json
+foreach ($node in @($caseTypeState.nodes)) {
+  if ([string]$node.type -in @('Table','HeaderItem','DataItem','Edit')) {
+    $node.type = ([string]$node.type).ToLowerInvariant()
+  }
+}
+$null = Assert-ReceiptListParity $caseTypeState $policy 'case-insensitive-control-types'
+
+$random = [Random]::new(31001)
+for ($shuffleIndex = 0; $shuffleIndex -lt 8; $shuffleIndex++) {
+  $nodes = New-Object System.Collections.ArrayList
+  foreach ($node in $listFixture1.nodes) { $null = $nodes.Add($node) }
+  for ($left = $nodes.Count - 1; $left -gt 0; $left--) {
+    $right = $random.Next(0, $left + 1)
+    $swap = $nodes[$left]; $nodes[$left] = $nodes[$right]; $nodes[$right] = $swap
+  }
+  $shuffledState = [pscustomobject]@{ state='list'; window=0; nodes=[object[]]$nodes; stats=$listFixture1.stats }
+  $shuffledOutcome = Assert-ReceiptListParity $shuffledState $policy "list-shuffle-$shuffleIndex"
+  Assert-True ($shuffledOutcome.json -ceq $listFixture1Outcome.json) `
+    "Eindeutige Listenprojektion driftet nach Shuffle $shuffleIndex."
+}
+
+# ScriptProperty-Zugriffe begrenzen das beobachtbare Node-Property-Arbeitsvolumen,
+# ohne eine konkrete Collection- oder Indeximplementierung festzuschreiben.
+$countedListNodes = New-Object System.Collections.ArrayList
+foreach ($node in $listFixture30.nodes) {
+  $counted = [pscustomobject]@{ aidValue=[string]$node.aid }
+  foreach ($property in @($node.PSObject.Properties | Where-Object { $_.Name -cne 'aid' })) {
+    $counted | Add-Member -NotePropertyName $property.Name -NotePropertyValue $property.Value
+  }
+  $counted | Add-Member -MemberType ScriptProperty -Name aid -Value {
+    $script:ReceiptListAidReads++
+    [string]$this.aidValue
+  }
+  $null = $countedListNodes.Add($counted)
+}
+$countedListState = [pscustomobject]@{
+  state='list'; window=0; nodes=[object[]]$countedListNodes; stats=$listFixture30.stats
+}
+$legacyList30 = Invoke-ReceiptListOutcome 'Get-LegacySSEReceiptManagerListProjection' $listFixture30 $policy
+$script:ReceiptListAidReads = 0
+$indexedCounted30 = Get-SSEReceiptManagerListProjection $countedListState $policy
+$indexedListAidReads = [int]$script:ReceiptListAidReads
+Assert-True ($legacyList30.ok -and
+  (($indexedCounted30 | ConvertTo-Json -Depth 12 -Compress) -ceq $legacyList30.json)) `
+  'Der lineare Listen-Zugriffsguard veraendert Projektion oder Fingerprint.'
+Assert-True ($indexedListAidReads -le (2 * $countedListNodes.Count)) `
+  "Beleglisten-Klassifikation liest aid nicht linear ($indexedListAidReads Zugriffe fuer $($countedListNodes.Count) Knoten)."
+
+if ($env:SSE_RECEIPT_LIST_BENCHMARK -eq '1') {
+  $benchmarkListState = New-ReceiptListFixture $policy 800 30
+  $benchmarkCommands = @(
+    'Get-LegacySSEReceiptManagerListProjection',
+    'Get-SSEReceiptManagerListProjection'
+  )
+  $benchmarkSamples = New-Object 'System.Collections.Generic.Dictionary[string,object]' ([StringComparer]::Ordinal)
+  foreach ($commandName in $benchmarkCommands) {
+    $benchmarkSamples.Add($commandName, (New-Object System.Collections.ArrayList))
+    for ($warmup = 0; $warmup -lt 3; $warmup++) {
+      $null = & $commandName $benchmarkListState $policy
+    }
+  }
+  for ($sampleIndex = 0; $sampleIndex -lt 31; $sampleIndex++) {
+    $sampleCommands = $(if (($sampleIndex % 2) -eq 0) {
+      $benchmarkCommands
+    } else { @($benchmarkCommands[1],$benchmarkCommands[0]) })
+    foreach ($commandName in $sampleCommands) {
+      $watch = [Diagnostics.Stopwatch]::StartNew()
+      $null = & $commandName $benchmarkListState $policy
+      $watch.Stop()
+      $null = ([Collections.ArrayList]$benchmarkSamples[$commandName]).Add($watch.Elapsed.TotalMilliseconds)
+    }
+  }
+  foreach ($commandName in $benchmarkCommands) {
+    $ordered = @(([Collections.ArrayList]$benchmarkSamples[$commandName]) | Sort-Object)
+    $p50 = $ordered[[int]([Math]::Ceiling($ordered.Count * 0.50) - 1)]
+    $p95 = $ordered[[int]([Math]::Ceiling($ordered.Count * 0.95) - 1)]
+    Write-Output ("RECEIPT_LIST_BENCH {0} p50={1:N3}ms p95={2:N3}ms n={3}" -f `
+      $commandName,$p50,$p95,$ordered.Count)
+  }
+}
 
 $projectionStart = $worker.IndexOf('function Get-SSEReceiptManagerListProjection(')
 $projectionEnd = $worker.IndexOf('function Resolve-SSEReceiptManagerVisibleRowTarget(', $projectionStart)

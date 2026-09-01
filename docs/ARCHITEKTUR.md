@@ -425,7 +425,9 @@ Agent oder eigenes Programm
 - Seine Zustandsprüfung klassifiziert die sechs profilierten, ordinalen
   AutomationId-Suffixe einmal je frischem UIA-Snapshot. Doppelte oder
   deaktivierte Treffer bleiben fail-closed; Knotenmenge und Fingerprint werden
-  nicht zwischen zwei Reads wiederverwendet.
+  nicht zwischen zwei Reads wiederverwendet. Auch die Listenprojektion ordnet
+  Tabelle, Zähler, Header, Zellen und Suche in einem Snapshot-Durchlauf zu;
+  Sortierung, Gruppierung und GridPattern-Fallback bleiben nachgelagert.
 - Feld-, Tabellen- und UStVA-Beträge werden mit gemeinsam getesteter deutscher
   Gruppierung und exakter Dezimalgleichheit zurückgelesen. Präfixe sowie
   mehrdeutige Punktfolgen gelten nicht als Übereinstimmung.
