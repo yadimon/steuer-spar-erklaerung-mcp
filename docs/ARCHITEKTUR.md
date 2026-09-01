@@ -227,9 +227,12 @@ Agent oder eigenes Programm
 
 ### MCP
 
-- MCP ist fachlich ausschließlich Adapter zur API. Sein eng begrenzter
-  Supervisor darf jedoch die eigene, exakt gepinnte API-Dependency auflösen,
-  identifizieren und bei freiem Loopback-Port starten.
+- MCP ist die PC-blinde fachliche Orientierungs- und Orchestrierungsschicht
+  über der API. Seine Werkzeuge bleiben dünne Adapter; die einzige Komposition
+  ist der read-only Preflight. Sein eng begrenzter Supervisor darf außerdem die
+  eigene, exakt gepinnte API-Dependency auflösen, identifizieren und bei freiem
+  Loopback-Port starten. Lokale Ausführung und Einzeloperationsguards bleiben
+  ausschließlich in der API.
 - Ein MCP-Abbruch wird über den HTTP-Client zur API propagiert, damit deren
   Abort-/Prozessbaum-Cleanup greift; der nächste mutierende Versuch verlangt
   erneut einen gezielten Zustands-Readback.
@@ -238,7 +241,7 @@ Agent oder eigenes Programm
   sowie eine ausdrücklich benannte, begrenzte `SSE_API_CONFIG` lesen. Deren
   Ressourcenpfade werden ausschließlich für den pfadfreien
   Konfigurationsfingerprint verarbeitet und nie als MCP-Ergebnis ausgegeben.
-- Der Grenzvertrag verfolgt alle transitiven Importe der 17 `mcp-*.ts`-Module.
+- Der Grenzvertrag verfolgt alle transitiven Importe der `mcp-*.ts`-Module.
   Er erlaubt aus der PC-Umgebung ausschließlich `SSE_API_URL` und
   `SSE_API_CONFIG`; Worker-, Workspace- und Produktpfadmodule sind von
   dieser Abhängigkeitsfläche ausgeschlossen.
@@ -250,8 +253,8 @@ Agent oder eigenes Programm
   bleiben unverändert, damit ein separat installierter Wrapper weder Details
   des API-Rechners noch seines eigenen Hosts preisgibt.
 - Werkzeugnamen, API-Zuordnung, Eingaben und versionierte
-  Ergebnismindestverträge werden aus gemeinsamen Katalogen abgeleitet. Alle 99
-  Werkzeuge deklarieren das operationsspezifische `outputSchema` und liefern
+  Ergebnismindestverträge werden aus gemeinsamen Katalogen abgeleitet. Alle 100
+  Werkzeuge deklarieren ein `outputSchema` und liefern
   das vollständige, pfadredigierte nicht-binäre Ergebnis als
   `structuredContent`. Bereits als MCP-Bildblock gelieferte Base64-Bytes werden
   nicht dupliziert. Die offenen Zusatzfelder halten neue fachliche Readbacks
@@ -263,7 +266,7 @@ Agent oder eigenes Programm
   nicht-destruktiv-zustandsbehaftete und potenziell destruktive Gruppen aus
   derselben typisierten Quelle. Beide Partitionen sind lückenlos.
 - Der Prozesseinstieg bleibt minimal; Werkzeugdefinitionen liegen exakt einmal
-  in sechs fachlichen Modulen. Ein Quellvertrag begrenzt jedes Modul auf
+  in sieben fachlichen Modulen. Ein Quellvertrag begrenzt jedes Modul auf
   24 KiB, ohne den gemeinsamen Laufzeitkatalog zu duplizieren.
 - Vor dem stdio-Handshake, bei `--selftest` und vor jedem späteren API-Aufruf
   prüft MCP `/healthz` auf exakten Paketnamen, Releaseversion, API-Version,
@@ -279,7 +282,17 @@ Agent oder eigenes Programm
   einem verlorenen Rennen.
 - Ein erreichbarer fremder Dienst, eine nicht eindeutige Health-Antwort oder
   eine andere Paketversion stoppt redigiert und fail-closed. Eine ausdrücklich
-  gesetzte `SSE_API_URL` ist autoritativ und deaktiviert Autostart und Fallback.
+  gesetzte `SSE_API_URL` ist autoritativ und deaktiviert Autostart und Fallback;
+  gemeinsam mit `SSE_API_CONFIG` ist sie als mehrdeutige Wahl gesperrt.
+- `sse_preflight` ist die einzige MCP-Komposition ohne eigene API-Operation.
+  Sie liest sequenziell `workspace_status`, `product_info` und `health`,
+  projiziert nur PC-blinde Fakten und stabile Blockercodes und startet weder
+  Anwendung noch Fall. Neben der Installation muss auch der tatsächlich
+  laufende Build explizit `buildDrift.drifted=false` melden; unbekannte oder
+  abweichende Runtime-Evidenz bleibt fail-closed. Server-Instruktionen verlangen
+  sie als ersten fachlichen Tool-Aufruf. Die API-Identitäts- und Operationsguards bleiben trotzdem
+  bei jedem einzelnen Folgeaufruf maßgeblich; ein Preflight-Ergebnis ist keine
+  Mutationsfreigabe.
 - Spezialwerkzeuge werden bevorzugt. Fehlen sie für ein Control, führt die
   veröffentlichte Fallback-Leiter von einem frischen Zustand über rein lesende
   Entdeckung zu genau einer gebundenen Interaktion samt Readback.
@@ -692,28 +705,26 @@ ungefragt nachinstalliert.
 
 Der npm-Weg baut keinen Quellcode auf dem Nutzer-PC. Eine dauerhafte Anmeldung
 aus dem flüchtigen `_npx`-Cache wäre falsch, weil ein MCP-Eintrag dauerhafte
-absolute Pfade braucht. Davon getrennt darf die API für einen einzelnen
-Auftrag direkt über NPX im Vordergrund laufen: Sie legt nur Arbeitsordner an,
-bindet den bestätigten Fallordner an den Prozess und schreibt keinen Launcher
-in den Paketcache.
+absolute Pfade braucht. Direkte API-Nutzung bleibt davon getrennt ein
+Expertenweg des API-Pakets und ist kein dritter MCP-Installationsstandard.
 
 Der MCP-Eintrag beim Client startet die absolute `node.exe` mit dem absoluten
 `dist/index.js` des MCP-Pakets als einzigem Argument. Beim Standardport braucht
 der Eintrag keine Umgebungsvariable. `SSE_API_CONFIG` ist ein optionaler
 absoluter Pfad für einen eigenen Arbeitsbereich. `SSE_API_URL` benennt dagegen
 eine autoritative, separat verwaltete Loopback-API und verhindert jeden
-Autostart. Der Supervisor sieht Pfadwerte aus `SSE_API_CONFIG` nur für die
+Autostart. Beide Variablen gleichzeitig sind als mehrdeutige Identität
+gesperrt. Der Supervisor sieht Pfadwerte aus `SSE_API_CONFIG` nur für die
 Identitätsbildung; Steuerfall- und Dokumentinhalte bleiben ausschließlich im
 API-Prozess.
 
 ### Betriebsarten
 
-1. **NPX-Kurzweg:** API ohne globale Runtime-Installation im Vordergrund
-   starten, direkte CLI verwenden und nach dem Auftrag beenden; kein MCP.
-2. **MCP-Standard:** Agentkonfiguration verweist auf den installierten
+1. **MCP-Standard:** Die Projektkonfiguration des gewählten Clients verweist
+   auf den im selben Ordner installierten
    MCP-Einstieg. Er übernimmt eine exakt passende API oder startet seine eigene
    Dependency unsichtbar und wartet auf Readiness.
-3. **Direkte API:** Das API-Paket separat installieren, bewusst im Vordergrund
+2. **Direkte API:** Das API-Paket separat installieren, bewusst im Vordergrund
    starten und CLI/HTTP ohne MCP verwenden.
 
 Der Singleton ist kein Windows-Dienst, keine geplante Aufgabe und kein
@@ -788,14 +799,16 @@ diese Grenzen nicht überlaufen.
 Kleinbuchstaben/Ziffern/Bindestriche und tragen den eindeutigen Präfix
 `steuer-spar-erklaerung-`.
 
-Der veröffentlichte Standard installiert genau einen Skill:
-`steuer-spar-erklaerung`. Er prüft zuerst über `sse_health`, ob überhaupt ein
-Transport da ist, stellt bei fehlendem MCP den Installationsstand nach der
+Der optionale veröffentlichte Skill heißt `steuer-spar-erklaerung`. Er prüft
+zuerst über `sse_preflight` Arbeitsbereich, Produkt und Laufzeit, stellt bei
+fehlendem MCP den Installationsstand nach der
 kanonischen öffentlichen Anleitung her und bindet danach den bereits geöffneten
 Arbeitsfall; nur ein ausdrücklich isolierter Audit öffnet eine hashverifizierte
 Prüffallkopie. Agent-spezifische Metadaten sind
 optional; die eigentliche Anleitung bleibt mit Codex, Claude Code und anderen
-Agent-Skills-kompatiblen Agenten verwendbar.
+Agent-Skills-kompatiblen Agenten verwendbar. Für den sicheren MCP-Grundbetrieb
+ist er nicht erforderlich: dieselbe Preflight-Pflicht und die harten
+Fachgrenzen liegen zusätzlich in den MCP-Server-Instruktionen.
 
 Skills enthalten nur Nutzer- und Laufzeitwissen:
 

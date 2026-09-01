@@ -39,7 +39,7 @@ unterstützt.
 Für einen einzelnen Lauf ist keine globale Paketinstallation nötig. Der erste
 Foreground-Start legt die Arbeitsordner an, falls sie noch fehlen. Der
 Fallordner gilt nur für diesen Prozess. Läuft am gewählten Port bereits ein
-MCP-Singleton, beende ihn vorher bewusst nach der Installationsanleitung oder
+vom MCP gestarteter API-Singleton, beende ihn vorher bewusst nach der Installationsanleitung oder
 wähle per absolutem `--config` einen anderen Loopback-Port:
 
 ```powershell
@@ -60,15 +60,20 @@ keinen dauerhaften Launcher im NPX-Cache.
 Für eine dauerhafte Installation bleiben die drei Befehle global verfügbar:
 
 ```powershell
-npm install --global @yadimon/steuer-spar-erklaerung-api
-steuer-spar-erklaerung-api --help
-steuer-spar-erklaerung-call --help
+npm.cmd install --global @yadimon/steuer-spar-erklaerung-api
+steuer-spar-erklaerung-api.cmd --help
+steuer-spar-erklaerung-call.cmd --help
 ```
 
 Für eine ordnergebundene Installation `npm i` ohne `--global` verwenden und die
 API mit einem absoluten `--config`-Pfad in diesem Ordner starten; die
-Anleitung führt einen Agenten Schritt für Schritt durch Steuerfall,
-Belegordner und MCP-Anmeldung.
+Anleitung zeigt dafür einen getrennten API-only-Weg.
+
+`--case-dir` öffnet keinen Steuerfall und wählt auch keinen Fall automatisch.
+Der Wert bestimmt ausschließlich, gegen welchen bestätigten Ordner relative
+`cases:`-Referenzen aufgelöst und in Antworten redigiert werden. Er ist keine
+Dateisystem-Sandbox; geöffnet oder geändert wird nur über einen danach
+ausdrücklich aufgerufenen, streng gebundenen API-Befehl.
 
 `/healthz` liefert neben API-Version und Betriebszustand den Paketnamen, die
 exakte Paketversion, die Prozess-/Instanz-ID und einen pfadfreien Fingerprint der

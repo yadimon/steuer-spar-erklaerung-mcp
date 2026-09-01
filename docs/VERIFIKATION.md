@@ -8,6 +8,7 @@ UI-Operation auf jeder Jahresversion praktisch funktioniert.
 
 - [Produkt- und Supportmatrix](#produkt--und-supportmatrix)
 - [Was die Tests beweisen](#was-die-tests-beweisen)
+- [Aktueller projektlokaler Clean-install](#projektlokaler-clean-install-in-einer-frischen-vm-2026-09-01)
 - [Abdeckungsbilanz aus echter Ausführung](#abdeckungsbilanz-aus-echter-ausführung)
 - [Browser-Herkunftsprüfung](#herkunftsprüfung-gegen-einen-echten-browser-2026-08-23)
 - [`/healthz` unter Hashlast](#healthz-unter-hashlast-2026-08-23)
@@ -60,7 +61,8 @@ nie automatisch verworfen.
 | Falldatei-Liveparität | `npm run test:live-case-file` | lokale API-Implementierung und direkter PowerShell-Worker liefern denselben Fallhash sowie dieselbe vollständige Standard-Fallliste des offiziellen Musterordners; keine SSE-UI wird gestartet | ausführliche Parser-Metadaten und UI-Verhalten |
 | Workspace-Dateivertrag | `node test/workspace-file-cancellation.mjs` | synchrone/kooperative Listenparität, Abbruch vor und während der Liste sowie nach einem 64-KiB-Hashblock, Hashbudget auch bei verworfener I/O, Deadline ohne Teilergebnis, exakte Trunkierung samt Gleichheitsgrenze, Read-Post-Deadline, Write-Preflight und veröffentlichte Schemas | reales langsames Netzlaufwerk; Abbruch eines bereits laufenden synchronen 1-MiB-Textwrites |
 | MCP-Abbruchkette | `node test/mcp-cancellation.mjs` | echter `sse_workspace_files`-Aufruf über MCP-Prozess, HTTP-Client, API-Server und Workspace-Executor; eine deterministische Barriere beweist das API-`AbortSignal`, danach ergeben sich serverseitig `ok=false`, `kind=aborted`, `delivered=false` und ein vollständiger Folgeaufruf | harter Prozessabsturz während des Abbruchs; bereits gestartete synchrone Mutationen |
-| MCP/API-Singleton | `node test/mcp-api-supervisor.mjs` | fehlende API wird aus der exakten installierten Dependency gestartet und erreicht Readiness; vorhandene kompatible API und zwei parallele MCP-Starts verwenden dieselbe PID; fremder Portinhaber, andere Paketversion und unerreichbares autoritatives `SSE_API_URL` stoppen fail-closed; stdout bleibt ein echter MCP-stdio-Kanal | absichtlich manipulierter npm-Cache nach abgeschlossener Installation; Betriebssystemstillstand unterhalb von Node-Netzwerkaufrufen |
+| MCP/API-Singleton | `node test/mcp-api-supervisor.mjs` | fehlende API wird aus der exakten installierten Dependency gestartet und erreicht Readiness; vorhandene kompatible API und zwei parallele MCP-Starts verwenden dieselbe PID; fremder Portinhaber, andere Paketversion, gleichzeitig gesetztes `SSE_API_URL`/`SSE_API_CONFIG` und unerreichbares autoritatives `SSE_API_URL` stoppen fail-closed; stdout bleibt ein echter MCP-stdio-Kanal | absichtlich manipulierter npm-Cache nach abgeschlossener Installation; Betriebssystemstillstand unterhalb von Node-Netzwerkaufrufen |
+| MCP-Preflight | `node test/mcp-preflight.mjs`, `node test/mcp-api-all-operations.mjs` | genau die read-only Folge `workspace_status` → `product_info` → `health`, stabile Setup-/Runtime-Blockercodes, exakter negativer Build-Drift-Nachweis für Installation und laufenden Prozess, kein Auto-Launch und keine Projektion lokaler Pfade; der direkte Operationskatalog bleibt bei 99 | reale Produktinstallation und reale Clientauswahl |
 | Worker-Queue-Abbruch | `node test/worker-timeout.mjs` | Vorab-Abbruch auch bei voller Queue bleibt `aborted`; eine echte 32er-Belegung liefert `busy`; 31 abgebrochene wartende Aufträge geben ihre Plätze vor Abschluss des Vorderauftrags frei und starten keinen Worker | Betriebssystemstillstand innerhalb eines bereits gestarteten Worker-/Cleanup-Prozesses |
 | Worker-Prozessbaum-Cleanup | `node test/worker-inherited-pipe.mjs` | ein echter Windows-Enkelprozess hält nach beendetem Parent geerbte stdout/stderr-Handles offen; fehlendes `close` verriegelt nach beiden Cleanup-Wächtern die globale Worker-Laufzeit mit `worker-isolation-lost`, bevor selbst ein bereits abgebrochener Folgeaufruf die Queue betreten kann | Identifikation oder automatische Beseitigung eines bereits vom beendeten Parent entkoppelten fremden Prozessbaums |
 | Sitzungsweiter Worker-Controller | `node test/worker-controller-lock-contract.mjs` | fester `Local\`-Mutex, zero-wait `busy` vor Desktop/Build/Dispatch, exakte statische Bypaesse, Policy-Praezedenz, graceful Release, Typkollision fail-closed, beobachtete Aufgabe mit offenem Peer-Handle und die bewusst nicht behauptete dauerhafte Crash-Erkennung ohne Peer-Handle | persistente Crash-Taint ueber das Ende aller Kernel-Handles; menschliche Interferenz (separate Input-/Foreground-Waechter) |
@@ -79,6 +81,41 @@ nie automatisch verworfen.
 | Große Schreibreise | `npm run test:live-journey` | eine zusammenhängende Reise auf einer Wegwerfkopie: Tabellenschreibzyklus mit Kontrollsummen-Readback, hashgebundenes Speichern mit Datei- und Neustart-Persistenzbeweis, UStVA-Schreibquartett mit Zahllast-Kontrolle, CSV-Export bis zur Datei, Menü-/Fenster-/Dialogverwaltung, Speichern unter und Archiv | VaSt-Dialogwege, Steuertipps-Center |
 | Einzelprofil-Live | `npm run test:live-muster` | gezielter profilabhängiger Musterlauf für Diagnose | das jeweils andere Profil |
 | Focusless | `npm run test:hidden-focusless` | ein konkret profiliertes 2025-Feld mit Feld-/Summen-/Dirty-State-Readback; im strikten Gate enthalten | andere Felder; 2024; sichtbare Tabellen-/Combo-Pfade |
+
+## Projektlokaler Clean-install in einer frischen VM, 2026-09-01
+
+Ein eigener Windows-11-x64-VM-Klon mit Node 24.12.0 und npm 11.6.2 erhielt
+nur das gepackte MCP-Release-Artefakt. Eine lokale Fixture-Registry stellte
+dabei die noch unveröffentlichte, exakt passende API-Version bereit. Der Lauf
+belegte, dass npm die API als normale exakte Dependency transitiv installiert,
+kein `postinstall` benötigt wird und beide Pakete dieselbe Version tragen.
+
+Die optionale `skills add`-Installation lief projektlokal für Codex, Claude
+Code und OpenCode durch. Ein isoliertes `CODEX_HOME`, das ausschließlich das
+exakte Auditprojekt als vertrauenswürdig kannte, schloss eine Übernahme globaler
+MCP-Einträge aus. Die Codex CLI listete den Server aus `.codex/config.toml` und
+bestätigte dessen exakte Node- und MCP-Pfade. Claude Code 2.1.252 wurde ohne
+Anmeldedaten installiert; `claude mcp add --scope project` erzeugte eine
+`.mcp.json` mit den erwarteten absoluten Pfaden und der API-Konfiguration.
+OpenCode war im VM-Image nicht installiert, daher wurde sein Projektweg nur
+strukturell geprüft.
+
+Zwei gleichzeitig gestartete `--selftest`-Prozesse verwendeten nach einem
+absichtlich provozierten Start-Rennen denselben API-PID; eine exakte
+Kommandozeilenabfrage fand danach genau einen passenden `node.exe`-Prozess. Ein
+echter MCP-SDK-Handshake listete 100 Werkzeuge, rief `sse_preflight` auf und
+hielt stdout protokollrein. Der erwartete Preflight-Blocker `SSE_NOT_RUNNING`
+bestätigte, dass die Produktanwendung im Installationsaudit nicht still
+gestartet wurde. Zum Abschluss wurde ausschließlich der zuvor über Paketname,
+Version und Kommandozeile identifizierte API-PID beendet. Danach waren der Port
+geschlossen und kein passender API-Prozess mehr vorhanden; der readonly Share
+wurde entfernt und der eigene VM-Klon regulär heruntergefahren.
+
+Dieser Lauf beweist den Kandidaten-Tarball sowie die projektlokale Konfiguration
+der echten Codex- und Claude-Code-CLIs. Er beweist nicht den späteren Download
+aus der öffentlichen npm-Registry, einen modellgesteuerten Tool-Aufruf aus
+Codex oder Claude Code, einen OpenCode-Clientstart oder die Bedienung eines
+realen Steuerfalls.
 
 Die lokale Orientierungsmessung vom 2026-08-17 nutzte nach fünf Warmups 100
 sequenzielle Loopback-GETs je Gesamtdokument. Der Discovery-Mittelwert sank von
@@ -100,11 +137,12 @@ Zeichen auskommt. Geformte Texte und Antworten mit ausgelagerten Binärfeldern
 bleiben getrennte Darstellungen.
 
 Der Laufzeitkatalog ist die Quelle für die aktuelle Anzahl und Benennung der
-Operationen. Am genannten Stand enthält er 99 API-Operationen und 99
-MCP-Werkzeugnamen. Das sind nicht 99 eindeutige Eins-zu-eins-Zuordnungen:
+Operationen. Am genannten Stand enthält er 99 API-Operationen und 100
+MCP-Werkzeugnamen. Das sind keine eindeutigen Eins-zu-eins-Zuordnungen:
 `sse_change_field` und `sse_change_known_field` rufen beide
 `tracked_set_value` auf; `checker_detail` ist eine API-interne Komposition von
-`sse_checker_open`.
+`sse_checker_open`. Zusätzlich komponiert `sse_preflight` drei bereits
+vorhandene read-only API-Operationen, ohne den API-Katalog zu erweitern.
 
 Fixture-gesteuerte Diagnoseprogramme sind ebenfalls Teil des wartbaren
 Vertrags: Sie dürfen nicht jahrelang erfolgreich `SKIP` melden, während ihre

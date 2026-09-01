@@ -24,8 +24,11 @@ AI-Agent -> MCP-Paket -> lokale API -> SteuerSparErklärung
 ```
 
 ```powershell
-npm install --global @yadimon/steuer-spar-erklaerung-mcp
-steuer-spar-erklaerung-mcp --help
+mkdir C:\mein-steuer-ai
+cd C:\mein-steuer-ai
+npm.cmd init -y
+npm.cmd install --save-exact @yadimon/steuer-spar-erklaerung-mcp@latest
+node .\node_modules\@yadimon\steuer-spar-erklaerung-mcp\dist\index.js --help
 ```
 
 Beim Start prüft MCP zuerst die konfigurierte Loopback-Adresse. Eine bereits
@@ -46,11 +49,13 @@ Konfigurationsdatei für einen eigenen API-Arbeitsbereich zeigen.
 `SSE_API_URL` bindet dagegen autoritativ eine bewusst separat verwaltete
 Loopback-API: Ist sie nicht erreichbar oder inkompatibel, gibt es keinen
 Fallback und keinen Autostart am Standardport. Steuerfall-, Beleg- und
-Programmpfade verbleiben im API-Prozess auf dem Steuer-PC.
+Programmpfade verbleiben im API-Prozess auf dem Steuer-PC. `SSE_API_URL` und
+`SSE_API_CONFIG` dürfen nicht gleichzeitig gesetzt sein.
 
 ## Vertrag
 
-- 99 fachliche MCP-Toolnamen über den versionierten API-Katalog;
+- 99 fachliche API-Toolnamen plus den komponierten MCP-Preflight
+  `sse_preflight`;
 - strikte Eingabeschemata und deklarierte Ausgabeschemata;
 - vollständiges `structuredContent` neben kompaktem Text;
 - rekursive Redaction lokaler PC-Pfade;
@@ -63,7 +68,15 @@ Identitätsprüfpfad wie der normale stdio-Start. Vor jedem späteren
 API-Werkzeugaufruf wird die Identität erneut geprüft, sodass ein am Port
 ausgetauschter oder umkonfigurierter Prozess fail-closed gestoppt wird.
 
-Alle 99 Werkzeugnamen sind registriert. Im normalen öffentlichen Betrieb ist
+Vor der ersten Facharbeit bündelt `sse_preflight` nacheinander
+`workspace_status`, `product_info` und `health` zu stabilen Blockercodes. Er
+startet keinen Steuerfall und ist keine Freigabe für spätere Mutationen. Die
+Installation und der tatsächlich laufende Build müssen beide explizit ohne
+Build-Drift belegt sein. Die
+MCP-Server-Instruktionen tragen diesen Ablauf auch ohne installierten Skill;
+der Skill bleibt eine optionale Komfortschicht für längere Wizards.
+
+Alle 100 MCP-Werkzeugnamen sind registriert. Im normalen öffentlichen Betrieb ist
 von den zehn BelegManager-Werkzeugen nur `sse_receipt_manager_list` aktiv; die
 neun Vordergrundwege stoppen vor Workerstart und UI-Änderung strukturiert als
 `foreground-required-operation-disabled`.

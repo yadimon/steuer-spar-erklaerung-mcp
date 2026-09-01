@@ -4,306 +4,197 @@
 
 Steuerfälle mit einem lokalen KI-Agenten prüfen, mit Belegen abgleichen und
 nach Freigabe kontrolliert bearbeiten – über eine lokale API und einen
-optionalen, PC-blinden MCP-Wrapper.
+PC-blinden MCP-Server.
 
-> **Öffentliche Beta für Windows x64.** Vor der ersten Änderung den aktuellen
-> Dateistand einmal privat sichern und Ergebnisse selbst prüfen. Dieses Projekt
-> ist keine Steuerberatung und übermittelt nichts an das Finanzamt.
+> **Öffentliche Beta für Windows x64.** Ergebnisse selbst prüfen und den
+> aktuellen Dateistand vor der ersten Änderung privat sichern. Das Projekt ist
+> keine Steuerberatung und übermittelt nichts an das Finanzamt.
 
-## Status heute
+## Was kann es?
 
-| Profil | Status | Aktuell belegter Umfang |
-| --- | --- | --- |
-| `2025` / Engine 31 | `supported` / `full` | Lesen, Navigation, Ergebnis und Prüfer live geprüft; UStVA-Read für 2025 sowie `GewErfass2026` live geprüft; Schreibpfade nur einzeln freigegeben |
-| `2024` / Engine 30 | `experimental` / `verification-only` | derselbe read-only Muster-Sweep nur mit bewusstem Entwickler-Opt-in; keine allgemeine Schreibfreigabe und kein Focusless-Commit |
+- SteuerSparErklärung 2025 lesen, navigieren und mit dem Programm-Prüfer
+  auswerten;
+- Belege mit einem geöffneten Steuerfall abgleichen;
+- freigegebene Felder und Tabellen gebunden ändern und sofort zurücklesen;
+- Umsatzsteuer-Voranmeldungen vorbereiten, ohne sie zu übermitteln;
+- den aktuellen Dateistand kontrolliert ändern, ohne automatisch zu speichern;
+- 99 versionierte API-Operationen plus den MCP-Preflight `sse_preflight`
+  bereitstellen.
 
-- **ELSTER, Versand und jede Übermittlung ans Finanzamt sind gesperrt.**
-- **BelegManager:** Freigegeben ist allein `receipt_manager_list` als
-  `focusless-read`. Die neun übrigen Wege für Navigation, Detailauswahl,
-  Import, Bearbeitung, Klassifikation, Verknüpfung und Löschen sind im
-  normalen Hintergrundbetrieb fail-closed gesperrt. Es gibt keinen Opt-in über
-  Konfiguration, API oder MCP und keinen zulässigen Maus-/Tastatur-Workaround.
-- **Ändern ist keine Speicherfreigabe.** Der geöffnete Fall wird nie
-  automatisch gespeichert, geschlossen oder durch eine Kopie ersetzt.
-- Das Projekt ist unabhängig und weder mit Wolters Kluwer, Steuertipps noch
-  der Akademischen Arbeitsgemeinschaft verbunden.
+Profil 2025 / Engine 31 ist freigegeben. Profil 2024 bleibt experimentell und
+auf Verifikation begrenzt. `GewErfass2026` ist derzeit ausschließlich für den
+belegten Leseweg freigegeben. Im BelegManager ist nur die focusless Leseliste
+allgemein aktiv; die neun Vordergrundwege bleiben für API-CLI und MCP
+gleichermaßen fail-closed gesperrt.
 
-## Features
+## Voraussetzungen und harte Grenzen
 
-- einen geöffneten Steuerfall in SteuerSparErklärung 2025 strukturiert lesen,
-  navigieren und mit dem Programm-Prüfer auswerten;
-- freigegebene Felder und Tabellen gebunden ändern und unmittelbar
-  zurücklesen;
-- Belege und Tracking mit den Angaben im Steuerfall abgleichen;
-- fehlende, widersprüchliche oder unklare Angaben als Report zusammenfassen;
-- den geöffneten Fall nach hashverifizierter Sicherung des aktuellen Dateistands kontrolliert ändern,
-  ohne ihn automatisch zu speichern;
-- Umsatzsteuer-Voranmeldungen für 2025 vorbereiten, ohne sie zu übermitteln;
-  vorgesehene `GewErfass2026`-Fälle ausschließlich lesen;
-- 99 versionierte Operationen über die lokale HTTP-API oder optional über den
-  PC-blinden MCP-Wrapper. Die aktuelle Verfügbarkeit jeder Operation steht
-  maschinenlesbar in `capabilities.operationPolicy`.
+- Windows x64, Node.js 22 oder neuer mit npm;
+- installierte SteuerSparErklärung 2025;
+- Codex, Claude Code oder – best effort – OpenCode lokal auf demselben PC;
+- für sichtbare Bedienung eine entsperrte, unbenutzte Windows-Sitzung.
 
-Die Beta ersetzt weder SteuerSparErklärung noch eine fachliche Prüfung. Sie
-automatisiert nachvollziehbare Arbeitsschritte in der installierten Anwendung.
+Es gibt keinen ELSTER-Versand, kein automatisches Speichern und keine
+ungebundene Steuerfallbearbeitung. Ein bereits eindeutig geöffneter Fall bleibt
+der Arbeitsfall. Save As, Schließen, Verwerfen oder eine Arbeitskopie sind
+keine impliziten Sicherheitsmaßnahmen.
 
-## Beispiel
+Das MCP-Paket installiert die exakt passende API als normale npm-Dependency
+und startet sie bei Bedarf unsichtbar. Eine bereits laufende kompatible API
+wird wiederverwendet. Ein separates API-Terminal ist im Standardweg nicht
+nötig.
 
-![Ein Agent bedient einen Musterfall über die lokale API und den MCP-Wrapper](docs/assets/demo/steuer-spar-erklaerung-demo.gif)
+## Installation
 
-## Voraussetzungen
+Es gibt zwei Wege. Weder Plugin noch `AGENTS.md` oder `CLAUDE.md` sind nötig.
+Der Skill ist eine optionale Komfortschicht; MCP enthält Preflight und harte
+Server-Instruktionen bereits selbst.
 
-- Windows x64 mit installierter SteuerSparErklärung 2025;
-- Node.js 22 oder neuer mit npm;
-- ein lokal laufender Agent mit Datei- und Programmzugriff, bevorzugt Codex
-  oder die eigenständig angemeldete Claude Code CLI;
-- für sichtbare Bedienung eine entsperrte, währenddessen unbenutzte
-  Windows-Sitzung.
+### Ich nix ITler
 
-Claude Cowork und andere entfernte Sandboxes können die host-lokale Anwendung
-nicht bedienen. Die native Claude Code CLI benötigt unter Windows zusätzlich
-Git for Windows und eine eigene Anmeldung. OpenCode bleibt ein sekundärer, best-effort Client.
-Python, PowerShell 7, Docker und ein Repository-Checkout sind nicht erforderlich.
-
-Die vollständigen Voraussetzungen und Erfolgskriterien stehen in der
-[Installationsanleitung für Menschen und AI-Agenten](docs/INSTALLATION.md).
-
-## Prompts
-
-| Situation | Weg | Ergebnis |
-| --- | --- | --- |
-| Regelmäßig mit Steuerfällen arbeiten | [Dauerhaftes Setup](#dauerhaftes-setup-mit-zwei-prompts) **(empfohlen)** | Skill und MCP samt passender API-Dependency in einem festen Ordner; einmaliger Client-Neustart |
-| Einmalig isoliert prüfen | [NPX-Prüflauf](#robuster-isolierter-prüflauf) | temporäre API im Vordergrund; kein MCP und keine dauerhafte Installation |
-| Einen bereits geöffneten Fall ändern | [Geöffneten Fall bearbeiten](#bereits-geöffneten-fall-bearbeiten) | einmal sichern, ändern, zurücklesen und offen lassen |
-
-### Dauerhaftes Setup mit zwei Prompts
-
-#### 1. Lokal installieren
+Diesen Prompt in einem **lokal laufenden** Codex, Claude Code oder OpenCode
+einfügen:
 
 ```text
-Richte SteuerSparErklärung vollständig lokal nach
-https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md
-ein. Installiere oder aktualisiere den Skill und verwende die neueste
-veröffentlichte Version.
-Standard-Setup ausführen: MCP mit automatisch verwalteter lokaler API.
-```
-
-`Standard-Setup ausführen` bestätigt den Plan einschließlich des Downloads, der
-Installation in den Ordner und des bedingten additiven MCP-Merges. Der Agent
-zeigt Plan und Diff weiterhin an. Der erste Lauf endet mit einem grünen
-`dist/index.js --selftest`; die Client-Verifikation bleibt bis zum Neustart
-offen. Starte den lokalen Agenten dann einmal neu.
-
-Für Codex konfiguriert die Installationsanleitung eine begrenzte Kernliste, die
-den Standard-Prüflauf abdeckt. Der vollständige Katalog mit 99 Operationen
-bleibt in `discovery` und `describe` sichtbar; aktuelle Laufzeitsperren wie die
-neun Vordergrundwege des BelegManagers gelten für API-CLI und MCP gleichermaßen.
-
-#### 2. Steuerfall prüfen
-
-```text
-Nutze $steuer-spar-erklaerung und prüfe meine Einkommensteuererklärung 2025.
-Steuerfall: <ABSOLUTER_PFAD_ZUR_ESt2025-DATEI>
-Belege: <ABSOLUTE_BELEGORDNER>
-Standard-Prüflauf ausführen.
-```
-
-Der neu geladene Agent prüft zuerst Serverliste und das echte MCP-Tool
-`sse_health` mit `ok=true`. Der Standard-Prüflauf umfasst Prüffallkopie,
-rein lesende Navigation, Report und das Schließen genau dieser Prüffallkopie
-ohne Speichern sowie den Stopp ohne ELSTER.
-
-Eine im Kalenderjahr 2026 abgegebene Einkommensteuererklärung bleibt hier der
-unterstützte Steuerfall **2025**. Das Produktprofil 2026 ist nicht freigegeben.
-
-<details>
-<summary>Manuelle Installation ohne Agent</summary>
-
-Ein Einrichtungsprogramm gibt es nicht. Der kanonische Weg steht vollständig
-in [docs/INSTALLATION.md](docs/INSTALLATION.md); hier die kurze lokale Variante.
-Das MCP-Paket hängt exakt von derselben Releaseversion des API-Pakets ab. npm
-installiert sie automatisch; eine getrennte Versionswahl ist nicht nötig:
-
-```powershell
-npm.cmd view @yadimon/steuer-spar-erklaerung-mcp version
-```
-
-Dann das MCP-Paket lokal installieren und bei der offenen
-[`skills`-CLI](https://www.skills.sh/docs/cli) genau den verwendeten Agenten wählen:
-Eine nur geöffnete oder gecachte Webansicht ist keine installierte Skill-Version.
-
-```powershell
-mkdir C:\mein-steuer-ai
-cd C:\mein-steuer-ai
-npm.cmd install @yadimon/steuer-spar-erklaerung-mcp@latest
-npx.cmd -y skills add yadimon/steuer-spar-erklaerung-mcp --skill steuer-spar-erklaerung --agent <codex|claude-code|opencode> --copy --yes
-codex mcp add steuer-spar-erklaerung -- (Get-Command node).Source C:\mein-steuer-ai\node_modules\@yadimon\steuer-spar-erklaerung-mcp\dist\index.js
-```
-
-Der letzte Befehl ist die Codex-Variante. Die entsprechenden Claude-Code- und
-OpenCode-Einträge sowie optionale `SSE_API_CONFIG`-/`SSE_API_URL`-Beispiele
-stehen in der [Installationsanleitung](docs/INSTALLATION.md).
-
-Die Windows-Beispiele verwenden bewusst `npm.cmd` und `npx.cmd`, damit keine
-Änderung der PowerShell-Execution-Policy nötig ist. Den dauerhaften MCP-Eintrag
-nie auf einen flüchtigen `_npx`-Cache oder einen `.cmd`-Shim richten. Beim
-ersten MCP-Start wird die exakt passende API unsichtbar gestartet; eine schon
-laufende kompatible API wird wiederverwendet. Ein separates API-Terminal ist
-nicht erforderlich.
-
-</details>
-
-### Bereits geöffneten Fall bearbeiten
-
-```text
-Ändere im bereits geöffneten Steuerfall <WERT/FELD>. Sichere den aktuellen
-Dateistand vorher einmal privat. Lass den Fall geöffnet und speichere ihn nicht.
-```
-
-Ist genau ein Fall offen, bleibt er der Arbeitsfall. Solange der Dateihash in
-dieser Aufgabe unverändert bleibt, wird die verifizierte Sicherung auch für
-mehrere Felder oder Folgeaufrufe wiederverwendet. Erst ein ausdrücklich
-beauftragtes und geprüftes Speichern erzeugt einen neuen Dateistand.
-`Save As`, eine Arbeits-/Korrekturkopie, Schließen, Verwerfen oder ein
-Dateiwechsel sind keine impliziten Sicherheitsmaßnahmen.
-
-### Robuster isolierter Prüflauf
-
-Für eine einmalige Nur-Lese-Prüfung ohne dauerhaftes Setup. Der NPX-Weg läuft
-ohne MCP und endet zusammen mit dem Vordergrund-Terminal:
-
-```text
-Arbeite ausschließlich nach diesen Referenzen:
-https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/skills/steuer-spar-erklaerung/SKILL.md
+Richte SteuerSparErklärung API/MCP und optional den Skill vollständig lokal im
+Ordner C:\mein-steuer-ai ein. Folge dabei genau dieser Anleitung:
 https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md
 
-Führe einen isolierten, temporären Nur-Lese-Prüflauf für
-SteuerSparErklärung 2025 aus. Starte die lokale API im Vordergrund über npx.
-Kein MCP, keine globale Installation und keine dauerhafte Konfiguration.
+Erkenne meinen lokalen Client und ändere nur dessen Projektkonfiguration in
+diesem Ordner. Installiere die API nicht separat; sie muss als exakt passende
+Dependency des MCP-Pakets kommen. Setze SSE_API_CONFIG auf
+C:\mein-steuer-ai\config.json. Vorhandene Konfiguration nur additiv mergen,
+nichts global installieren und keine Anmeldedaten kopieren. Führe danach
+--selftest aus und sage mir klar, ob ich den Client neu starten muss.
+```
+
+Nach dem verlangten Neustart zum Beispiel:
+
+```text
+Nutze das konfigurierte SteuerSparErklärung-MCP und prüfe meine
+Einkommensteuererklärung 2025. Falls der optionale Skill installiert ist,
+verwende zusätzlich $steuer-spar-erklaerung als Wizard.
 Steuerfall: <ABSOLUTER_PFAD_ZUR_ESt2025-DATEI>
 Belege: <ABSOLUTE_BELEGORDNER_ODER_KEINE_BELEGE>
-
-Prüfe zuerst health, product_info und capabilities. Erzeuge vor sichtbarer
-Navigation eine neue SHA-256-verifizierte Arbeitskopie; öffne oder ändere nie
-den Originalfall. Standard-Prüflauf ausführen. Gleiche die Belege ab und führe
-den Programm-Prüfer aus. Nicht speichern und nichts über ELSTER senden. Bei unklarer Identität,
-Version, Bindung oder Beleglage fail-closed stoppen.
-
-Danach die Arbeitskopie ohne Speichern schließen, bestätigen, dass keine
-SteuerSparErklärung-Instanz offen ist, und die NPX-API beenden. Berichte die
-ausgeführten Prüfungen und verbleibenden Grenzen ohne private Pfade oder
-Steuerdaten auszugeben.
+Beginne mit sse_preflight. Speichere nichts und sende nichts über ELSTER.
 ```
 
-Dieser Weg setzt voraus, dass kein anderer Fall geöffnet ist. Es entsteht
-keine globale Paketinstallation. Im NPX-Cache bleibt kein dauerhafter Startpfad.
-Die API bleibt nur im Vordergrund-Terminal aktiv und wird nach dem Report beendet.
-`Standard-Prüflauf ausführen` bestätigt zugleich, dass die genannten
-Belegpfade vollständig sind.
+### Ich bin ITler
 
-## Typische Aufgaben
-
-| Ziel | Auftrag an den Agenten | Standard |
-| --- | --- | --- |
-| Steuerfall prüfen | „Prüfe den geöffneten Fall und liste Fehler, Warnungen und unklare Angaben.“ | Nur lesen |
-| Belege abgleichen | „Vergleiche den Fall mit den Belegen in diesem Ordner.“ | Originale unverändert lassen |
-| Geöffneten Fall ändern | „Ändere diese Werte im geöffneten Fall, aber speichere noch nicht.“ | Einmal sichern, ändern, zurücklesen, offen lassen |
-| Separate Korrekturdatei | „Erzeuge ausdrücklich eine Korrekturkopie und ändere sie.“ | Neue Datei nur auf diesen Auftrag |
-| UStVA vorbereiten | „Bereite die UStVA für Juli vor und sende sie nicht ab.“ | Zeitraum und vorhandene Übermittlungen zuerst prüfen |
-
-Für bereits übermittelte Fälle wird nicht automatisch eine Korrekturdatei
-erzeugt. Eine separat benannte Korrektur oder Berichtigung braucht eine eigene
-Freigabe; ein allgemeines `force` existiert nicht.
-
-## Sicherheitsmodell
-
-Die lokale API erzwingt technisch:
-
-- ausschließlich Loopback; Browserherkunft und fremde Hosts werden abgewiesen;
-- gesperrte ELSTER-, Versand- und Übermittlungsaktionen;
-- gebundene Schreiboperationen mit Vorher-/Nachher-Prüfung;
-- neue Ziele für Kopien, Backups und Archive statt Überschreiben vorhandener
-  Dateien;
-- hash- und pfadgebundenes Speichern;
-- pfadfreie MCP-Antworten und argumentfreie API-Logs.
-
-Der Prüfablauf der Skills garantiert zusätzlich:
-
-- Lesen ist der Standard; Änderungen brauchen einen ausdrücklichen Auftrag;
-- vor der ersten dirty-fähigen Navigation oder Mutation wird der aktuelle
-  Dateistand einmal privat gesichert;
-- Ändern erlaubt weder `sse_save` noch `sse_save_as`, Schließen oder Verwerfen;
-- isolierte Prüfläufe verwenden eine verifizierte Kopie und schließen nur
-  diese ohne Speichern.
-
-Diese Ablaufdisziplin ist keine technische Sperre der API: Ein direkter lokaler
-API-Client kann ausdrücklich benannte Dateien öffnen und speichern.
-`--case-dir` ist die Auflösungs- und Schwärzungsgrenze für `cases:` und keine Zugriffssperre der direkten API.
-
-Für sichtbare Bedienung muss Windows entsperrt und unbenutzt bleiben. Bei
-unklarer Fenster-, Datei-, Dialog- oder Feldbindung stoppt die Automation,
-statt zu raten. Details stehen in der
-[Produktarchitektur](docs/ARCHITEKTUR.md) und im
-[Betriebsvertrag](skills/steuer-spar-erklaerung/references/betriebsvertrag.md).
-
-## Umsatzsteuer-Voranmeldung
-
-Die UStVA-Werkzeuge wählen Zeitraum und Formularabschnitt über stabile
-Fachschlüssel. Sie prüfen vorhandene Übermittlungen, lesen Werte zurück und
-speichern oder senden nicht automatisch.
-
-```text
-Bereite meine Umsatzsteuer-Voranmeldung für Juli im bereits geöffneten Fall
-vor. Sichere den aktuellen Dateistand einmal, speichere danach nicht. Prüfe
-zuerst Jahr, Meldezeitraum, vorhandene Übermittlungen und Belege. Zeige jede
-Änderung und sende nichts über ELSTER ab.
-```
-
-Für `*.GewErfass2026` wird die installierte Anwendung für das Steuerjahr 2025
-mit `mode=einurvor` verwendet. Dafür ist derzeit nur der gebundene Leseweg bis
-`ustva_read` live belegt; Änderungen, Speichern und Übermittlung für 2026 sind
-nicht freigegeben. Der vollständige Ablauf steht unter
-[Umsatzsteuer-Voranmeldung](docs/UMSATZSTEUER-VORANMELDUNG.md).
-
-## MCP als optionale Produktfunktion anbinden
-
-MCP ist ein dünner, PC-blinder Wrapper über dieselbe lokale API. Das Paket
-installiert die passende API als exakte Dependency und startet sie bei Bedarf;
-eine bereits laufende kompatible API wird als lokaler Singleton
-wiederverwendet. Ein reines API-Setup braucht MCP weiterhin nicht, denn das
-API-Paket bleibt für direkte Nutzung separat installierbar.
-
-Servereintrag, `.cmd`-Falle, begrenzter Codex-Katalog und additiver Merge stehen
-in der [Installationsanleitung](docs/INSTALLATION.md). Ein Servereintrag oder
-Handshake genügt nicht: Erfolg verlangt nach dem Client-Neustart einen echten
-Aufruf von `sse_health` mit `ok=true`.
-
-## API verwenden
-
-Die API bindet ausschließlich an Loopback und beschreibt ihren Vertrag selbst:
+Der gemeinsame projektlokale Teil in PowerShell:
 
 ```powershell
-steuer-spar-erklaerung-call health
-steuer-spar-erklaerung-call discovery
-steuer-spar-erklaerung-call describe workspace_status
+$Root = 'C:\mein-steuer-ai'
+New-Item -ItemType Directory -Force -Path $Root | Out-Null
+Set-Location $Root
+
+npm.cmd init -y
+npm.cmd install --save-exact @yadimon/steuer-spar-erklaerung-mcp@latest
+
+$Node = (Get-Command node).Source
+$Mcp = Join-Path $Root 'node_modules\@yadimon\steuer-spar-erklaerung-mcp\dist\index.js'
+$ApiConfig = Join-Path $Root 'config.json'
 ```
 
-Argument- und Ergebnisschemata, Queue, Abbruch, Timeouts und Ressourcen stehen
-im [API-/MCP-Vertrag](docs/API-MCP-VERTRAG.md). Lokale Pfade werden über
-Ressourcen wie `cases:`, `documents:` und `results:` referenziert.
+npm legt MCP und API beide unter `C:\mein-steuer-ai\node_modules\@yadimon`
+ab. Arbeitsdaten liegen durch `SSE_API_CONFIG` ebenfalls im gewählten Ordner.
+Ohne diese Variable verwendet die API ihren sicheren Standard unter
+`%LOCALAPPDATA%`.
 
-## Referenzdokumente
+Der Skill ist optional. Genau einen Client einsetzen:
 
-- [Dokumentationsindex](docs/README.md) — alle aktuellen Nutzer-, Vertrags-
-  und Maintainer-Dokumente;
-- [Installation und Erfolgskriterien](docs/INSTALLATION.md);
-- [Haupt-Skill und sicherer Standardablauf](skills/steuer-spar-erklaerung/SKILL.md);
-- [Release Notes](https://github.com/yadimon/steuer-spar-erklaerung-mcp/releases);
-- [Sicherheitsprobleme privat melden](SECURITY.md).
+```powershell
+$SkillAgent = 'codex' # Fuer Claude Code: claude-code; fuer OpenCode: opencode
+npx.cmd -y skills add yadimon/steuer-spar-erklaerung-mcp `
+  --skill steuer-spar-erklaerung --agent $SkillAgent --copy --yes
+```
 
-## Mitwirken und Lizenz
+Die [`skills`-CLI](https://www.skills.sh/docs/cli) schreibt ohne `--global` in
+das aktuelle Projekt.
 
-Für Entwicklung aus dem Quellcode:
+#### Codex
+
+Codex liest in einem vertrauenswürdigen Projekt `.codex/config.toml`. Der
+globale Befehl `codex mcp add` ist dafür nicht nötig. Die fertige additive
+Konfiguration steht in der
+[Installationsanleitung](docs/INSTALLATION.md#codex-projektlokal).
+
+#### Claude Code
+
+Aus `C:\mein-steuer-ai`:
+
+```powershell
+$Claude = Get-Command -Name 'claude.exe','claude.cmd' -CommandType Application `
+  -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source
+if (-not $Claude) { throw 'Claude Code CLI wurde nicht gefunden.' }
+
+& $Claude mcp add --transport stdio --scope project `
+  steuer-spar-erklaerung `
+  --env "SSE_API_CONFIG=$ApiConfig" -- $Node $Mcp
+```
+
+Das erzeugt den projektlokalen Eintrag in `.mcp.json`.
+
+#### OpenCode
+
+OpenCode verwendet projektlokal `opencode.json`. Das aktuelle, kopierbare
+JSON steht in der
+[Installationsanleitung](docs/INSTALLATION.md#opencode-projektlokal).
+
+Zum Schluss:
+
+```powershell
+& $Node $Mcp --selftest
+```
+
+Danach den Client einmal neu starten und das echte MCP-Tool `sse_preflight`
+aufrufen. Ein Handshake oder ein Shell-Aufruf von `health` genügt nicht.
+
+## Beispielaufträge
+
+```text
+Prüfe den bereits geöffneten Fall und liste Fehler, Warnungen und unklare
+Angaben. Speichere und schließe ihn nicht.
+```
+
+```text
+Nimm die Belege für August und bereite meine UStVA vor. Sichere den aktuellen
+Dateistand einmal, speichere danach nicht und sende nichts über ELSTER.
+```
+
+```text
+Ändere im bereits geöffneten Fall <FELD> auf <WERT>. Sichere den aktuellen
+Dateistand vorher einmal, lies die Änderung zurück und speichere noch nicht.
+```
+
+## Architektur und Sicherheit
+
+Die API ist der lokale Ausführungskern: Pfade, Allowlist, Prozesse und UI
+Automation. MCP liefert die fachliche Orientierung, prüft beim Start die exakte
+API-Identität und bündelt mit `sse_preflight` Arbeitsbereich, Produkt und
+Laufzeit. Der optionale Skill führt als Wizard durch längere Abläufe.
+
+Jeder API-Aufruf prüft weiterhin seine eigenen Bindungen und Grenzen. Der
+Preflight ist keine Freigabe für spätere Mutationen. Lokale Pfade werden über
+Ressourcen wie `cases:`, `documents:` und `results:` referenziert und an der
+MCP-Grenze redigiert. `--case-dir` ist bei direkter API-Nutzung eine
+Auflösungs- und Schwärzungsgrenze, keine Dateisystem-Sandbox.
+
+Direkte API-Nutzung ohne MCP bleibt möglich und ist im
+[API-Paket-README](packages/api/README.md) dokumentiert.
+
+## Dokumentation
+
+- [Installation, Updates und Fehlerbehebung](docs/INSTALLATION.md)
+- [Dokumentationsindex](docs/README.md)
+- [Produktarchitektur](docs/ARCHITEKTUR.md)
+- [API-/MCP-Vertrag](docs/API-MCP-VERTRAG.md)
+- [Umsatzsteuer-Voranmeldung](docs/UMSATZSTEUER-VORANMELDUNG.md)
+- [Verifikationsstand](docs/VERIFIKATION.md)
+- [Optionale Skill-Anleitung](skills/steuer-spar-erklaerung/SKILL.md)
+- [Releases](https://github.com/yadimon/steuer-spar-erklaerung-mcp/releases)
+
+## Mitwirken
 
 ```powershell
 npm ci
@@ -311,14 +202,9 @@ npm run test:fast
 npm test
 ```
 
-Live-UI-Tests bleiben opt-in und benötigen herstellereigene Wegwerfkopien und
-eine unbenutzte Windows-Sitzung. Details stehen im
-[Beitragsleitfaden](CONTRIBUTING.md) und im
-[Verifikationsstand](docs/VERIFIKATION.md).
-
 Fehlerberichte und Pull Requests sind willkommen. Niemals echte Steuerfälle,
 Belege, Namen, Steuer-IDs, Tokens, lokale Pfade oder ungeschwärzte Screenshots
-öffentlich hochladen. Sicherheitsprobleme gehören in GitHubs privaten Bereich
-**Report a vulnerability**.
+öffentlich hochladen. Sicherheitsprobleme bitte privat über
+[Report a vulnerability](SECURITY.md) melden.
 
 Lizenz: [MIT](LICENSE)
