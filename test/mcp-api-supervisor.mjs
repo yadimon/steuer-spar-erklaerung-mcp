@@ -305,9 +305,18 @@ try {
 
   const noFallbackPort = await freePort();
   const untouchedConfigPort = await freePort();
+  const ambiguousResult = await runMcp(["--selftest"], {
+    ...process.env,
+    SSE_API_CONFIG: configFor("ambiguous", untouchedConfigPort),
+    SSE_API_URL: `http://127.0.0.1:${noFallbackPort}`,
+  });
+  assert.equal(ambiguousResult.code, 1);
+  assert.equal(ambiguousResult.stdout, "");
+  assert.match(ambiguousResult.stderr, /SSE_API_URL und SSE_API_CONFIG duerfen nicht gleichzeitig/iu);
+
   const explicitResult = await runMcp(["--selftest"], {
     ...process.env,
-    SSE_API_CONFIG: configFor("must-not-start", untouchedConfigPort),
+    SSE_API_CONFIG: "",
     SSE_API_URL: `http://127.0.0.1:${noFallbackPort}`,
   });
   assert.equal(explicitResult.code, 1);
@@ -328,7 +337,7 @@ try {
     "API-Konfigurationsfehler gab den lokalen Testpfad aus.");
 
   process.stdout.write(
-    "MCP-API-Supervisor: Autostart, Wiederverwendung, Config-Identitaet, Default-Config-Port, Zwei-Start-Race, Fremddienst, Versionsdrift, Prozesswechsel und URL-No-Fallback bestanden\n",
+    "MCP-API-Supervisor: Autostart, Wiederverwendung, Config-Identitaet, eindeutige Umgebungswahl, Default-Config-Port, Zwei-Start-Race, Fremddienst, Versionsdrift, Prozesswechsel und URL-No-Fallback bestanden\n",
   );
 } finally {
   for (const pid of new Set([...ownedApiPids, ...discoverOwnedApiPids()])) {

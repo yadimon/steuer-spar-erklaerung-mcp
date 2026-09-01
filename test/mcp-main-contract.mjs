@@ -43,6 +43,9 @@ for (const args of [["--unknown"], ["--selftest", "extra"]]) {
 }
 
 let selftestFails = false;
+let selftestResultFails = false;
+let selftestResultBusyRemaining = 0;
+let selftestInFlight = false;
 const selftestApi = createServer((request, response) => {
   if (request.url === "/healthz") {
     response.writeHead(200, { "content-type": "application/json" });
@@ -54,7 +57,9 @@ const selftestApi = createServer((request, response) => {
       processId: process.pid,
       instanceId: "33333333-3333-4333-8333-333333333333",
       configurationFingerprint: "0".repeat(64),
-      inFlight: null,
+      inFlight: selftestInFlight
+        ? { operation: "health", requestId: "44444444-4444-4444-8444-444444444444", startedAt: Date.now(), elapsedMs: 1 }
+        : null,
       prewarm: null,
     }));
     return;
@@ -68,19 +73,63 @@ const selftestApi = createServer((request, response) => {
     }));
     return;
   }
-  response.writeHead(200, { "content-type": "application/json" });
-  response.end(JSON.stringify({
-    apiVersion: "v1",
-    requestId: randomUUID(),
-    operation: "health",
-    durationMs: 1,
-    result: {
-      ok: true,
-      running: false,
-      installPath: "C:\\PrivateFixture\\SSE.exe",
-      posixPath: "/home/person/sse.log",
-    },
-  }));
+  if (selftestResultBusyRemaining > 0) {
+    selftestResultBusyRemaining -= 1;
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({
+      apiVersion: "v1",
+      requestId: randomUUID(),
+      operation: "health",
+      durationMs: 1,
+      result: {
+        ok: false,
+        kind: "busy",
+        error: "Synthetischer Session-Controller-Konflikt",
+        reason: "session-controller-busy",
+        retryable: true,
+        waited: false,
+        mutationStarted: false,
+        resultingState: "unchanged",
+        cleanupRequired: false,
+        physicalInputUsed: false,
+        foregroundLeaseUsed: false,
+      },
+    }));
+    return;
+  }
+  if (selftestInFlight) {
+    response.writeHead(409, { "content-type": "application/json" });
+    response.end(JSON.stringify({
+      apiVersion: "v1",
+      requestId: randomUUID(),
+      error: { code: "busy", message: "Synthetische Selftest-Kollision" },
+      inFlight: { operation: "health", requestId: randomUUID(), startedAt: Date.now(), elapsedMs: 1 },
+    }));
+    return;
+  }
+  selftestInFlight = true;
+  setTimeout(() => {
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({
+      apiVersion: "v1",
+      requestId: randomUUID(),
+      operation: "health",
+      durationMs: 100,
+      result: selftestResultFails
+        ? {
+            ok: false,
+            kind: "worker-failed",
+            error: "C:\\PrivateFixture\\operation-failure.log",
+          }
+        : {
+            ok: true,
+            running: false,
+            installPath: "C:\\PrivateFixture\\SSE.exe",
+            posixPath: "/home/person/sse.log",
+          },
+    }));
+    selftestInFlight = false;
+  }, 100);
 });
 selftestApi.listen(0, "127.0.0.1");
 await once(selftestApi, "listening");
@@ -103,6 +152,58 @@ assert.equal(selftestCode, 0, selftestStderr);
 assert(!selftestStdout.includes("PrivateFixture") && !selftestStdout.includes("/home/person"));
 assert.match(selftestStdout, /Lokaler PC-Pfad/);
 assert(selftestMs < 2_500, `MCP-Selftest lud unnoetigen Server-/Werkzeugcode (${selftestMs.toFixed(0)} ms).`);
+
+const concurrentSelftests = [0, 1].map(() => spawn(process.execPath, ["dist/index.js", "--selftest"], {
+  cwd: process.cwd(),
+  env: { ...process.env, SSE_API_URL: `http://127.0.0.1:${selftestAddress.port}` },
+  windowsHide: true,
+  stdio: ["ignore", "pipe", "pipe"],
+}));
+const concurrentOutputs = concurrentSelftests.map((child) => {
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk) => { stdout += chunk.toString("utf8"); });
+  child.stderr.on("data", (chunk) => { stderr += chunk.toString("utf8"); });
+  return once(child, "exit").then(([code]) => ({ code, stdout, stderr }));
+});
+for (const result of await Promise.all(concurrentOutputs)) {
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).ok, true);
+}
+
+selftestResultBusyRemaining = 1;
+const workerBusySelftest = spawn(process.execPath, ["dist/index.js", "--selftest"], {
+  cwd: process.cwd(),
+  env: { ...process.env, SSE_API_URL: `http://127.0.0.1:${selftestAddress.port}` },
+  windowsHide: true,
+  stdio: ["ignore", "pipe", "pipe"],
+});
+let workerBusyStdout = "";
+let workerBusyStderr = "";
+workerBusySelftest.stdout.on("data", (chunk) => { workerBusyStdout += chunk.toString("utf8"); });
+workerBusySelftest.stderr.on("data", (chunk) => { workerBusyStderr += chunk.toString("utf8"); });
+const [workerBusyCode] = await once(workerBusySelftest, "exit");
+assert.equal(workerBusyCode, 0, workerBusyStderr);
+assert.equal(workerBusyStderr, "");
+assert.equal(JSON.parse(workerBusyStdout).ok, true);
+
+selftestResultFails = true;
+const failedResultSelftest = spawn(process.execPath, ["dist/index.js", "--selftest"], {
+  cwd: process.cwd(),
+  env: { ...process.env, SSE_API_URL: `http://127.0.0.1:${selftestAddress.port}` },
+  windowsHide: true,
+  stdio: ["ignore", "pipe", "pipe"],
+});
+let failedResultStdout = "";
+let failedResultStderr = "";
+failedResultSelftest.stdout.on("data", (chunk) => { failedResultStdout += chunk.toString("utf8"); });
+failedResultSelftest.stderr.on("data", (chunk) => { failedResultStderr += chunk.toString("utf8"); });
+const [failedResultCode] = await once(failedResultSelftest, "exit");
+assert.equal(failedResultCode, 1);
+assert.equal(failedResultStdout, "");
+assert.match(failedResultStderr, /health lieferte kein ok=true/u);
+assert(!failedResultStderr.includes("PrivateFixture") && !failedResultStderr.includes(process.cwd()));
+selftestResultFails = false;
 
 selftestFails = true;
 const failedSelftest = spawn(process.execPath, ["dist/index.js", "--selftest"], {

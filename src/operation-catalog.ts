@@ -29,6 +29,18 @@ export { SSE_MCP_TOOL_SCHEMAS } from "./mcp-operation-schemas.js";
 
 export type SseMcpToolName = keyof typeof SSE_MCP_TOOL_SCHEMAS;
 
+/**
+ * MCP-Werkzeuge, die mehrere read-only API-Wahrheiten zu genau einer
+ * Orientierung zusammenfassen. Sie bleiben getrennt vom direkten Mapping,
+ * damit der Katalog keine erfundene 1:1-API-Operation behauptet.
+ */
+export const SSE_MCP_COMPOSED_TOOL_OPERATIONS = {
+  "sse_preflight": ["workspace_status", "product_info", "health"],
+} as const satisfies Partial<Record<SseMcpToolName, readonly SseApiOperation[]>>;
+
+export type SseMcpComposedToolName = keyof typeof SSE_MCP_COMPOSED_TOOL_OPERATIONS;
+export type SseMcpDirectToolName = Exclude<SseMcpToolName, SseMcpComposedToolName>;
+
 export const SSE_MCP_TOOL_OPERATIONS = {
   "sse_product_info": "product_info",
   "sse_capabilities": "capabilities",
@@ -129,7 +141,7 @@ export const SSE_MCP_TOOL_OPERATIONS = {
   "sse_backup_cases": "backup_cases",
   "sse_archive_cases": "archive_cases",
   "sse_make_working_copy": "make_working_copy",
-} as const satisfies Record<SseMcpToolName, SseApiOperation>;
+} as const satisfies Record<SseMcpDirectToolName, SseApiOperation>;
 
 export const SSE_MCP_COMPOSITION_ONLY_OPERATIONS = [
   "checker_detail",
