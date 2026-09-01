@@ -333,7 +333,13 @@ Agent oder eigenes Programm
   nicht gekürzter Fenstertitel den erwarteten Fallpfad exakt beweist.
   Gekürzte Titel, der schwächere `title-leaf`-Fallback und die öffentlich
   zurückgegebenen `save`-/`save_as`-Bindungsbelege fragen die Kommandozeile
-  weiterhin ab; Annahmemenge und öffentliche Evidenz bleiben dadurch gleich.
+  weiterhin ab. Der Worker versucht dafür zuerst einen eng begrenzten,
+  read-only Native-Leser für genau die PID. Schlägt der interne Windows-Aufruf
+  fehl oder ist er auf dem Host nicht verfügbar, bleibt `Win32_Process` über
+  CIM der unveränderte Kompatibilitäts-Fallback. Annahmemenge und öffentliche
+  Evidenz bleiben dadurch gleich: Die gelesene Zeichenfolge durchläuft
+  unverändert denselben profilergebundenen Pfad- und Bindungsvertrag; Fehler
+  erweitern die Annahmemenge nicht.
 - Sichtbare physische Eingabe ist in einer verschachtelbaren Vordergrund-Lease
   gekapselt. Innerhalb einer atomaren Action wird dasselbe SSE-Fenster nur
   einmal angehoben. Erfolg, Fachfehler und globaler Trap laufen vor der

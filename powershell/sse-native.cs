@@ -297,6 +297,75 @@ public static class SSEWindowEnumerator {
   }
 }
 
+// Read-only process command-line lookup for the common same-user path. The
+// PowerShell worker deliberately keeps CIM as its compatibility fallback: an
+// access-denied, exited or otherwise unsupported process is reported as null
+// here rather than weakening the existing evidence rules.
+public static class SSEProcessCommandLine {
+  const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+  const int ProcessCommandLineInformation = 60;
+  const int MaxBufferBytes = 128 * 1024;
+  const int STATUS_SUCCESS = 0;
+  const int STATUS_INFO_LENGTH_MISMATCH = unchecked((int)0xC0000004);
+
+  [DllImport("kernel32.dll", SetLastError=true)]
+  static extern IntPtr OpenProcess(uint access, bool inheritHandle, int processId);
+
+  [DllImport("ntdll.dll")]
+  static extern int NtQueryInformationProcess(
+    IntPtr processHandle,
+    int processInformationClass,
+    IntPtr processInformation,
+    int processInformationLength,
+    out int returnLength);
+
+  public static string TryGet(int processId) {
+    if (processId <= 0) return null;
+    IntPtr process = IntPtr.Zero;
+    IntPtr buffer = IntPtr.Zero;
+    try {
+      process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, processId);
+      if (process == IntPtr.Zero) return null;
+
+      int requiredLength;
+      int sizeStatus = NtQueryInformationProcess(
+        process, ProcessCommandLineInformation, IntPtr.Zero, 0, out requiredLength);
+      if (sizeStatus != STATUS_INFO_LENGTH_MISMATCH) return null;
+      int headerBytes = IntPtr.Size == 8 ? 16 : 8;
+      if (requiredLength < headerBytes || requiredLength > MaxBufferBytes) return null;
+
+      buffer = Marshal.AllocHGlobal(requiredLength);
+      int returnedLength;
+      int status = NtQueryInformationProcess(
+        process, ProcessCommandLineInformation, buffer, requiredLength, out returnedLength);
+      if (status != STATUS_SUCCESS || returnedLength < headerBytes || returnedLength > requiredLength) return null;
+
+      int textBytes = unchecked((ushort)Marshal.ReadInt16(buffer, 0));
+      int maximumTextBytes = unchecked((ushort)Marshal.ReadInt16(buffer, 2));
+      if ((textBytes & 1) != 0 || (maximumTextBytes & 1) != 0 ||
+          textBytes > maximumTextBytes || maximumTextBytes > MaxBufferBytes) return null;
+      IntPtr textPointer = Marshal.ReadIntPtr(buffer, IntPtr.Size == 8 ? 8 : 4);
+      if (textPointer == IntPtr.Zero) return null;
+
+      long allocationStart = buffer.ToInt64();
+      long allocationEnd = allocationStart + returnedLength;
+      long textStart = textPointer.ToInt64();
+      long textEnd = textStart + textBytes;
+      long maximumTextEnd = textStart + maximumTextBytes;
+      if (allocationEnd < allocationStart || textEnd < textStart || maximumTextEnd < textStart ||
+          (textStart & 1) != 0 || textStart < allocationStart + headerBytes ||
+          textEnd > allocationEnd || maximumTextEnd > allocationEnd) return null;
+      string commandLine = Marshal.PtrToStringUni(textPointer, textBytes / 2);
+      return commandLine != null && commandLine.IndexOf('\0') < 0 ? commandLine : null;
+    } catch {
+      return null;
+    } finally {
+      if (buffer != IntPtr.Zero) Marshal.FreeHGlobal(buffer);
+      if (process != IntPtr.Zero) DSK.CloseHandle(process);
+    }
+  }
+}
+
 public sealed class SSEAccNode {
   public string Name;
   public string Value;
