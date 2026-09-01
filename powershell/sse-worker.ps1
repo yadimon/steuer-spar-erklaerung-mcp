@@ -402,11 +402,48 @@ function Get-SSEReceiptManagerListProjection($State, $Policy) {
   $documentNumberColumn = [int]$Policy.list.documentNumberColumn
   $draftMarker = [string]$Policy.list.draftMarker
   $searchSuffix = [string]$Policy.list.searchAutomationIdSuffix
-  $tables = @($State.nodes | Where-Object {
-    $_.type -eq 'Table' -and [string]$_.aid -and
-    ([string]$_.aid).EndsWith($tableSuffix, [StringComparison]::Ordinal) -and
-    [bool]$_.on -and $_.w -gt 0 -and $_.h -gt 0
-  })
+
+  # Dieser Index gilt nur fuer den aktuellen, bereits gelesenen Zustandsbaum.
+  # Alle Rollen werden in derselben Traversalreihenfolge klassifiziert; die
+  # nachfolgenden Sortier-, Gruppier- und GridPattern-Vertraege bleiben davon
+  # unberuehrt.
+  $tableCandidates = New-Object System.Collections.ArrayList
+  $countMatchesByIndex = New-Object System.Collections.ArrayList
+  $headerCandidates = New-Object System.Collections.ArrayList
+  $dataCandidates = New-Object System.Collections.ArrayList
+  $searchCandidates = New-Object System.Collections.ArrayList
+  for ($countSuffixIndex = 0; $countSuffixIndex -lt $countSuffixes.Count; $countSuffixIndex++) {
+    $null = $countMatchesByIndex.Add((New-Object System.Collections.ArrayList))
+  }
+  foreach ($node in @($State.nodes)) {
+    $type = [string]$node.type
+    $aid = [string]$node.aid
+    if ($type -eq 'Table' -and $aid -and
+        $aid.EndsWith($tableSuffix, [StringComparison]::Ordinal) -and
+        [bool]$node.on -and $node.w -gt 0 -and $node.h -gt 0) {
+      $null = $tableCandidates.Add($node)
+    }
+    if ($aid) {
+      for ($countSuffixIndex = 0; $countSuffixIndex -lt $countSuffixes.Count; $countSuffixIndex++) {
+        $suffix = [string]$countSuffixes[$countSuffixIndex]
+        if ($aid.EndsWith([string]$suffix, [StringComparison]::Ordinal)) {
+          $null = ([Collections.ArrayList]$countMatchesByIndex[$countSuffixIndex]).Add($node)
+        }
+      }
+    }
+    if ($type -in @('Header','HeaderItem') -and [string]$node.name) {
+      $null = $headerCandidates.Add($node)
+    }
+    if ($type -eq 'DataItem') {
+      $null = $dataCandidates.Add($node)
+    }
+    if ($type -eq 'Edit' -and $aid -and
+        $aid.EndsWith($searchSuffix, [StringComparison]::Ordinal)) {
+      $null = $searchCandidates.Add($node)
+    }
+  }
+
+  $tables = [object[]]$tableCandidates
   if ($tables.Count -ne 1) {
     Fail "$($tables.Count) sichtbare BelegManager-Tabellen '$tableSuffix' gefunden." 'profile-contract'
   }
@@ -414,9 +451,7 @@ function Get-SSEReceiptManagerListProjection($State, $Policy) {
   $countLabels = New-Object System.Collections.ArrayList
   for ($countSuffixIndex = 0; $countSuffixIndex -lt $countSuffixes.Count; $countSuffixIndex++) {
     $suffix = [string]$countSuffixes[$countSuffixIndex]
-    $matches = @($State.nodes | Where-Object {
-      [string]$_.aid -and ([string]$_.aid).EndsWith($suffix, [StringComparison]::Ordinal)
-    })
+    $matches = [Collections.ArrayList]$countMatchesByIndex[$countSuffixIndex]
     if ($matches.Count -gt 1 -or ($countSuffixIndex -eq 0 -and $matches.Count -ne 1)) {
       Fail "$($matches.Count) BelegManager-Zaehlerteile '$suffix' gefunden." 'profile-contract'
     }
@@ -438,22 +473,18 @@ function Get-SSEReceiptManagerListProjection($State, $Policy) {
   }
   $count = [int]$countMatch.Groups['total'].Value
   $tableAid = [string]$table.aid
-  $headerNames = @($State.nodes | Where-Object {
-    $_.type -in @('Header','HeaderItem') -and [string]$_.name -and
+  $headerNames = @($headerCandidates | Where-Object {
     [string]$_.aid -ceq $tableAid -and $_.w -gt 0 -and $_.h -gt 0
   } | Sort-Object x | ForEach-Object { [string]$_.name })
-  $dataCells = @($State.nodes | Where-Object {
-    $_.type -eq 'DataItem' -and [string]$_.aid -ceq $tableAid -and
+  $dataCells = @($dataCandidates | Where-Object {
+    [string]$_.aid -ceq $tableAid -and
     $_.w -gt 0 -and $_.h -gt 0 -and $_.y -ge $table.y
   })
   $rows = New-Object System.Collections.ArrayList
   $visibleGroups = @($dataCells | Group-Object y | Sort-Object { [int]$_.Name })
   $projectedCellGroups = New-Object 'System.Collections.Generic.List[object]'
   $gridProjectionError = $null
-  $searchNodes = @($State.nodes | Where-Object {
-    $_.type -eq 'Edit' -and [string]$_.aid -and
-    ([string]$_.aid).EndsWith($searchSuffix, [StringComparison]::Ordinal)
-  })
+  $searchNodes = [object[]]$searchCandidates
   $filterText = $(if ($searchNodes.Count -eq 1) { [string]$searchNodes[0].val } else { '' })
   $projectionExpectedCount = $count
   foreach ($visibleGroup in $visibleGroups) {
