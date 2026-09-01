@@ -474,6 +474,18 @@ try {
     redactResourcePaths(roots, join(roots.results, "erfassung.json")),
     "results:erfassung.json",
   );
+  const rootRelativeRoot = join(process.cwd(), ".sse-resource-redaction-contract");
+  const rootRelativeResultPath = join(rootRelativeRoot, "erfassung.json").slice(2);
+  assert.equal(
+    redactResourcePaths({ ...roots, results: rootRelativeRoot }, rootRelativeResultPath),
+    "results:erfassung.json",
+    "Auch ein laufwerkswurzelrelativer Windows-Pfad muss die schnelle Textgrenze passieren.",
+  );
+  assert.deepEqual(
+    redactResourcePaths(roots, { [join(roots.results, "erfassung.json")]: "Wert ohne Pfad" }),
+    { "results:erfassung.json": "Wert ohne Pfad" },
+    "Die schnelle Textgrenze darf die Redaktion eines Objektkeys nicht ueberspringen.",
+  );
   assert.equal(
     redactResourcePaths(roots, join(roots.backups, "archiv", "pruefsummen.csv")),
     "backups:archiv/pruefsummen.csv",
