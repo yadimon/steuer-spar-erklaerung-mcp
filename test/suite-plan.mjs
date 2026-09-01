@@ -28,6 +28,7 @@ export const serialBuildSteps = Object.freeze([
   psFile("native-build", "powershell/build-native.ps1"),
   nodeFile("typescript-build", "node_modules/typescript/bin/tsc"),
   nodeFile("npm-package-build", "scripts/build-npm-packages.mjs"),
+  nodeFile("agent-plugin-build", "scripts/build-agent-plugin.mjs", "--check"),
 ]);
 
 export const parallelSteps = Object.freeze([
@@ -94,6 +95,7 @@ export const parallelSteps = Object.freeze([
   nodeFile("jsonl-logger", "test/jsonl-logger.mjs"),
   nodeFile("dist-artifacts", "test/dist-artifacts-contract.mjs"),
   nodeFile("release-metadata", "test/release-metadata-contract.mjs"),
+  nodeFile("agent-plugin-contract", "test/agent-plugin-contract.mjs"),
   nodeFile("npm-package", "test/npm-package-contract.mjs"),
   nodeFile("workspace-containment", "test/workspace-containment.mjs"),
   nodeFile("workspace-file-cancellation", "test/workspace-file-cancellation.mjs"),
@@ -170,6 +172,7 @@ export const parallelSteps = Object.freeze([
 export const exclusiveSteps = Object.freeze([
   { ...nodeFile("worker-controller-lock", "test/worker-controller-lock-contract.mjs"), timeoutMs: 420_000 },
   nodeFile("mcp-api-supervisor", "test/mcp-api-supervisor.mjs"),
+  nodeFile("agent-plugin-runtime", "test/agent-plugin-runtime.mjs"),
   withApi("no-console-window", "test/no-console-window.mjs"),
 ]);
 
@@ -216,6 +219,7 @@ const FAST_STEP_NAMES = new Set([
   "jsonl-logger",
   "dist-artifacts",
   "release-metadata",
+  "agent-plugin-contract",
   "workspace-containment",
   "workspace-file-cancellation",
   "resource-references",

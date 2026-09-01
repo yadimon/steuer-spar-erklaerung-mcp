@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "steuer-spar-erklaerung": {
+      "command": "node",
+      "args": [
+        "${PLUGIN_ROOT}/runtime/dist/mcp.js"
+      ],
+      "cwd": "${PLUGIN_ROOT}"
+    }
+  }
+}

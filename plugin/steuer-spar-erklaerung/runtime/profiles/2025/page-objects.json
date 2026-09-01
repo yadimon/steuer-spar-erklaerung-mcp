@@ -1,0 +1,537 @@
+{
+  "schemaVersion": 1,
+  "product": "SteuerSparErklaerung 2025",
+  "taxYear": 2025,
+  "engineFileMajor": 31,
+  "compatibility": {
+    "executableName": "SSE.exe",
+    "installationFolderName": "Steuerjahr 2025",
+    "policy": "Fail closed. Other tax-year installations, case years, and incompatible start modes are never controlled."
+  },
+  "privacy": "Only public UI metadata. Never store case values, names, tax IDs, file paths, or calculation results here.",
+  "windows": {
+    "main": {
+      "process": "SSE",
+      "role": "main",
+      "headingContainerAutomationIdSuffix": ".ClientFrameSSE.ClientHeader",
+      "searchContainerAutomationIdSuffix": "SearchSSE"
+    },
+    "resultComparison": {
+      "title": "Werte-Info: Werte vergleichen - Was wäre wenn",
+      "role": "nonmodal-result-window",
+      "closePolicy": "allow-exact-nonmodal-close"
+    },
+    "receiptManager": {
+      "title": "BelegManager",
+      "role": "nonmodal-tool-window",
+      "closePolicy": "allow-exact-nonmodal-close",
+      "classPattern": "^Qt[0-9]+QWindow$",
+      "states": {
+        "start": {
+          "requiredAutomationIdSuffixes": [
+            ".btn_neuenBelegAnlegen",
+            ".btn_mehrereBelegeAnlegen",
+            ".btn_alleBelegeAnzeigen"
+          ]
+        },
+        "list": {
+          "requiredAutomationIdSuffixes": [
+            ".btn_new",
+            ".btn_newPopup",
+            ".pushButton_home"
+          ]
+        }
+      },
+      "list": {
+        "tableAutomationIdSuffix": ".tableWidget_mainTabel",
+        "countLabelAutomationIdSuffixes": [
+          ".label_infoText1",
+          ".label_infoText2",
+          ".label_infoText3"
+        ],
+        "searchAutomationIdSuffix": ".widget_mainWindowInfoBar.frame_container.lineEdit_suche",
+        "primaryTextColumn": 2,
+        "documentNumberColumn": 8,
+        "draftMarker": "*"
+      },
+      "controls": {
+        "newReceipt": {
+          "automationIdSuffix": ".btn_new",
+          "expectedName": "Neuer Beleg"
+        },
+        "attachFile": {
+          "automationIdSuffix": ".panel_asset.DetailPagePreview.panel_asset"
+        },
+      "deleteReceipt": {
+        "automationIdSuffix": ".btn_delete",
+        "expectedName": "Löschen"
+      },
+      "detailClose": {
+        "automationIdSuffix": ".pushButton_detailsClose",
+        "expectedName": "Detailansicht  schließen"
+      },
+      "classification": {
+          "categories": {
+            "chooserAutomationIdSuffix": ".panel_kategorien.pushButton_chooseKategorien",
+            "chooserExpectedName": "Kategorien auswählen",
+            "listAutomationIdSuffix": ".panel_kategorien.listView_kategorien"
+          },
+          "persons": {
+            "chooserAutomationIdSuffix": ".panel_personenUndLinks.pushButton_choosePersonen",
+            "chooserExpectedName": "Personen auswählen",
+            "listAutomationIdSuffix": ".panel_personenUndLinks.listView_personen"
+          }
+        },
+        "linkManagement": {
+          "mainToolbarAutomationIdSuffix": ".DialogToolbar.tbs_belege_verknuepfen",
+          "startTargetAutomationIdSuffix": ".widget_linkInfos.label_belegVerknuepfen",
+          "rowToggleColumn": 1,
+          "directToggleSupported": false,
+          "footerCountAutomationIdSuffix": ".manageLinksContainer.label_belegeCount",
+          "footerTextAutomationIdSuffix": ".manageLinksContainer.label_belegeText",
+          "cancelAutomationIdSuffix": ".manageLinksContainer.btn_cancel",
+          "cancelExpectedName": "Abbrechen",
+          "applyAutomationIdSuffix": ".manageLinksContainer.btn_apply",
+          "applyExpectedName": "Übernehmen"
+        },
+        "editableFields": {
+          "title": {
+            "automationIdSuffix": ".lineEdit_detailsTitle",
+            "controlType": "Edit",
+            "valueKind": "text"
+          },
+          "date": {
+            "automationIdSuffix": ".dateEdit_datum.AAVDateLineEdit",
+            "controlType": "Edit",
+            "valueKind": "date"
+          },
+          "documentNumber": {
+            "automationIdSuffix": ".lineEdit_belegNummer",
+            "controlType": "Edit",
+            "valueKind": "text"
+          },
+          "amount": {
+            "automationIdSuffix": ".lineEdit_betrag",
+            "controlType": "Edit",
+            "valueKind": "currency"
+          },
+          "vatRate": {
+            "automationIdSuffix": ".comboBox_umsatzsteuer.QLineEdit",
+            "controlType": "Edit",
+            "valueKind": "vat-rate"
+          },
+          "net": {
+            "automationIdSuffix": ".checkBox_netto",
+            "controlType": "CheckBox",
+            "valueKind": "boolean"
+          },
+          "note": {
+            "automationIdSuffix": ".textEdit_notiz",
+            "controlType": "Edit",
+            "valueKind": "text"
+          }
+        }
+      },
+      "classificationDialogs": {
+        "categories": {
+          "title": "Kategorien auswählen",
+          "classPattern": "^Qt[0-9]+QWindow$",
+          "rootAutomationId": "SSE_Application.SelectDocumentsDialog",
+          "tableAutomationId": "SSE_Application.SelectDocumentsDialog.SelectDocumentsDialog.table_docList",
+          "toggleColumn": 0,
+          "labelColumn": 2,
+          "saveAutomationId": "SSE_Application.SelectDocumentsDialog.SelectDocumentsDialog.pushButton_save",
+          "cancelAutomationId": "SSE_Application.SelectDocumentsDialog.SelectDocumentsDialog.pushButton_cancel",
+          "manageAutomationId": "SSE_Application.SelectDocumentsDialog.SelectDocumentsDialog.pushButton_edit",
+          "manageExpectedName": "Kategorien verwalten",
+          "fingerprint": "41D673E5AA912D5043CB08472B3AE72AA808ABB17FE06EB9E455070F846DB11E"
+        },
+        "persons": {
+          "title": "Personen auswählen",
+          "classPattern": "^Qt[0-9]+QWindow$",
+          "rootAutomationId": "SSE_Application.SelectDocumentsDialog",
+          "tableAutomationId": "SSE_Application.SelectDocumentsDialog.SelectDocumentsDialog.table_docList",
+          "toggleColumn": 0,
+          "labelColumn": 2,
+          "saveAutomationId": "SSE_Application.SelectDocumentsDialog.SelectDocumentsDialog.pushButton_save",
+          "cancelAutomationId": "SSE_Application.SelectDocumentsDialog.SelectDocumentsDialog.pushButton_cancel",
+          "manageAutomationId": "SSE_Application.SelectDocumentsDialog.SelectDocumentsDialog.pushButton_edit",
+          "manageExpectedName": "Personen verwalten",
+          "fingerprint": "8A6CE69DAD268953449DB65320E75E9D1EB8EA3647D62FEDC3101F610A992737"
+        }
+      },
+      "deleteConfirmation": {
+        "title": "Löschen bestätigen",
+        "text": "Es wurde ein Beleg ausgewählt, möchten Sie diesen wirklich löschen?",
+        "confirmButton": "Ja",
+        "cancelButton": "Nein",
+        "fingerprint": "846226D75C419CB55A6526073C34CD998AF13E09FC37DCBEC30DF62F5020B873"
+      },
+      "importDialog": {
+        "title": "Öffnen",
+        "class": "#32770",
+        "supportedExtensions": [
+          ".pdf"
+        ],
+        "fingerprint": "2EFB0776929DC9E63FFFCB3A38F89255662BBB02EDA281B6C9D549F7BB427B22"
+      },
+      "linkValueTransferDialog": {
+        "title": "Belegwerte übernehmen",
+        "classPattern": "^Qt[0-9]+QWindow$",
+        "cancelButton": "Abbrechen",
+        "fingerprints": [
+          "27FFFC79D7FB549CBD2B124C0CB906416D2D0D447B612748DF34C75652E662C1",
+          "DA4976CF1C4F76E568324B2307402835D239481C45C03716B1CABEF9CED955A7",
+          "3C248953374C01ED94B76CAD99DB06C2E4535460B10B011BCB7ABEEFBDB8E0FB"
+        ]
+      },
+      "actions": {
+        "showAllReceipts": {
+          "fromState": "start",
+          "toState": "list",
+          "automationIdSuffix": ".btn_alleBelegeAnzeigen",
+          "expectedName": "Alle Belege anzeigen"
+        },
+        "goHome": {
+          "fromState": "list",
+          "toState": "start",
+          "automationIdSuffix": ".pushButton_home"
+        }
+      },
+      "policy": "Das Fenster darf allgemein nur gelesen und geschlossen werden. Navigation, Lesen, kataloggebundenes Befuellen, dateihashgebundener Belegimport, exakt dialoggebundene Kategorie-/Personenzuordnung, zielseitig gebundenes Verknuepfen/Entknuepfen und das explizit bestaetigte Loeschen sind ausschliesslich ueber die spezialisierten sse_receipt_manager_* Operationen erlaubt. Freie Selektoren, freies Verknuepfen/Entknuepfen, ungebundenes Uebernehmen und Popup-Aktionen bleiben gesperrt."
+    },
+  "taxTips": {
+      "title": "Steuer-Spar-Tipps",
+      "role": "nonmodal-help-window",
+      "closePolicy": "allow-exact-nonmodal-close"
+    },
+    "vastAssignment": {
+      "title": "Daten der vorausgefüllten Steuererklärung",
+      "role": "modal-certificate-assignment",
+      "automationIds": {
+        "tree": "SSE_Application.AssignVaStDlg.QWidget.QTreeWidget",
+        "markDifferences": "SSE_Application.AssignVaStDlg.QWidget.QCheckBox",
+        "close": "SSE_Application.AssignVaStDlg.QWidget.m_pbtnCancel",
+        "apply": "SSE_Application.AssignVaStDlg.QWidget.m_pbtnOK"
+      },
+      "columns": ["Bescheinigung", "Daten", "Eingabefenster / Daten"],
+      "policy": "Read and map with the sse_vast_* tools. Applying mapped data requires sse_vast_apply with the complete plan, mapping fingerprint, exact case/hash and explicit acknowledgement; it is never implied by changing a mapping."
+    }
+  },
+  "focuslessCommits": {
+    "gew.beitraege_gebuehren_abgaben.betrag": {
+      "heading": "Beiträge, Gebühren und Abgaben",
+      "controlType": "DataItem",
+      "valueKind": "currency",
+      "automationIdSuffix": ".Bankgebuehren.Tab",
+      "columnHeader": "Betrag",
+      "commitMethod": "value-pattern-plus-posted-tab",
+      "resultTracking": false,
+      "requiredSumChecks": [
+        {
+          "label": "Summe",
+          "occurrence": 1
+        }
+      ],
+      "verification": [
+        "exact-runtime-id-and-automation-id",
+        "selected-item-with-focused-table",
+        "field-readback",
+        "page-total-readback",
+        "dirty-state",
+        "rollback-on-postcondition-failure"
+      ],
+      "reason": "Live-tested on a disposable hidden Gew2025 copy with a 10 ms visible-foreground watcher."
+    }
+  },
+  "pages": {
+    "gew.innergem_erwerb_13b_einfuhr": {
+      "heading": "Innergem. Erwerb, § 13b UStG und Einfuhr",
+      "fields": {},
+      "tables": {
+        "kostenkategorie_13b": {
+          "sumLabel": "Summe",
+          "sumOccurrence": 1,
+          "automationIdSection": "grpEmpf13b",
+          "bindingPolicy": "Bind the repeated cost-category §13b subpage by heading, first Summe occurrence and the exact grpEmpf13b automation-ID section; reject a material-page grp13bErwerb first table.",
+          "columns": [
+            {
+              "index": 3,
+              "header": "Kategorie",
+              "controlType": "ComboBox",
+              "valueKind": "enum",
+              "writePolicy": "typed-selection-required",
+              "emptyRowDefault": "Sonst. Leistung EU",
+              "openPattern": "InvokeThenVerifiedPointVisibleDesktop",
+              "optionControlType": "ListItem",
+              "optionSelectPattern": "SelectionItem",
+              "readback": [
+                "SelectionItem.IsSelected",
+                "ValuePattern.Value",
+                "checker-diff"
+              ],
+              "reason": "SSE repeats this §13b table below multiple cost categories. The exact profiled value may already be selected; otherwise only a popup-bound SelectionItem is allowed."
+            }
+          ]
+        },
+        "sonstige_leistung_eu": {
+          "sumLabel": "Summe",
+          "sumOccurrence": 2,
+          "automationIdSection": "grpEmpf13b",
+          "bindingPolicy": "Prefer automationIdSection from the selected summary region; if the snapshot does not expose it, fail closed by heading, sumLabel, sumOccurrence and column index.",
+          "columns": [
+            {
+              "index": 3,
+              "header": "Kategorie",
+              "controlType": "ComboBox",
+              "valueKind": "enum",
+              "writePolicy": "typed-selection-required",
+              "openPattern": "InvokeThenVerifiedPointVisibleDesktop",
+              "optionControlType": "ListItem",
+              "optionSelectPattern": "SelectionItem",
+              "readback": [
+                "SelectionItem.IsSelected",
+                "ValuePattern.Value",
+                "checker-diff"
+              ],
+              "reason": "Qt exposes this semantic selector as DataItem. Only an exact, popup-bound SelectionItem is allowed; ValuePattern text alone is never a commit proof."
+            }
+          ]
+        }
+      }
+    },
+    "est.sonstige_werbungskosten_fahrten": {
+      "heading": "Sonstige Werbungskosten/Fahrten",
+      "headingPrefix": "Sonstige Werbungskosten/Fahrten",
+      "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
+      "documentType": "ESt2025",
+      "fields": {
+        "kontofuehrungsgebuehren_pauschal": {
+          "label": "Kontoführungsgebühren (pauschal)",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.SonstigeWKKonto./.SonstigeWKKonto.KontoBetrag./.SonstigeWKKonto.KontoBetrag.Wert",
+          "automationIdSuffix": ".SonstigeWKKonto.KontoBetrag.Wert",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": [],
+            "note": "This field is separate from the page totals for other expenses and trips; those totals are not dependent checks for it."
+          }
+        }
+      }
+    },
+    "gew.anlagevermoegen_wirtschaftsgut": {
+      "heading": "1. Wirtschaftsgut",
+      "headingPrefix": "1. ",
+      "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
+      "documentType": "Gew2025",
+      "fields": {
+        "bezeichnung": {
+          "label": "Bezeichnung",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Wirtschaftsgut./.Wirtschaftsgut.Bezeichnung./.Wirtschaftsgut.Bezeichnung.Text",
+          "automationIdSuffix": ".Wirtschaftsgut.Bezeichnung.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "belegnummer": {
+          "label": "Beleg-Nr.",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Wirtschaftsgut./.Wirtschaftsgut.BelegNr./.Wirtschaftsgut.BelegNr.Text",
+          "automationIdSuffix": ".Wirtschaftsgut.BelegNr.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "kaufdatum": {
+          "label": "Kaufdatum",
+          "controlType": "Edit",
+          "valueKind": "date",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Wirtschaftsgut./.Wirtschaftsgut.Kaufdatum./.Wirtschaftsgut.Kaufdatum.Date",
+          "automationIdSuffix": ".Wirtschaftsgut.Kaufdatum.Date",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "kaufpreis": {
+          "label": "Kaufpreis",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Wirtschaftsgut./.Wirtschaftsgut.KaufpreisVJahr./.Wirtschaftsgut.KaufpreisVJahr.ZeileKaufpreis./.Wirtschaftsgut.KaufpreisVJahr.ZeileKaufpreis.Kaufpreis./.Wirtschaftsgut.KaufpreisVJahr.ZeileKaufpreis.Kaufpreis.Wert",
+          "automationIdSuffix": ".Wirtschaftsgut.KaufpreisVJahr.ZeileKaufpreis.Kaufpreis.Wert",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "preisart": {
+          "label": "Brutto/Netto",
+          "controlType": "ComboBox",
+          "valueKind": "enum",
+          "writeTool": "sse_combo_select",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Wirtschaftsgut./.Wirtschaftsgut.KaufpreisVJahr./.Wirtschaftsgut.KaufpreisVJahr.ZeileKaufpreis./.Wirtschaftsgut.KaufpreisVJahr.ZeileKaufpreis.BetragNettoOderBrutto",
+          "automationIdSuffix": ".Wirtschaftsgut.KaufpreisVJahr.ZeileKaufpreis.BetragNettoOderBrutto",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "umsatzsteuersatz": {
+          "label": "Umsatzsteuersatz",
+          "controlType": "ComboBox",
+          "valueKind": "enum",
+          "writeTool": "sse_combo_select",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Wirtschaftsgut./.Wirtschaftsgut.KaufpreisVJahr./.Wirtschaftsgut.KaufpreisVJahr.ZeileKaufpreis./.Wirtschaftsgut.KaufpreisVJahr.ZeileKaufpreis.UStSatz",
+          "automationIdSuffix": ".Wirtschaftsgut.KaufpreisVJahr.ZeileKaufpreis.UStSatz",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "vorsteuer": {
+          "label": "Vorsteuer",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "readOnly": true,
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Wirtschaftsgut./.Wirtschaftsgut.KaufpreisVJahr./.Wirtschaftsgut.KaufpreisVJahr.VostManuell./.Wirtschaftsgut.KaufpreisVJahr.VostManuell.Vost",
+          "automationIdSuffix": ".Wirtschaftsgut.KaufpreisVJahr.VostManuell.Vost",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "abschreibung_aktuelles_jahr": {
+          "label": "Abschreibung im aktuellen Veranlagungsjahr",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "readOnly": true,
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Abschreibung./.Abschreibung.AfA",
+          "automationIdSuffix": ".Abschreibung.AfA",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        }
+      }
+    },
+    "gew.fahrzeug": {
+      "heading": "1. Fahrzeug",
+      "headingNumberedLabel": "Fahrzeug",
+      "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
+      "documentType": "Gew2025",
+      "fields": {
+        "bezeichnung": {
+          "label": "Bezeichnung",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Fahrzeug./.Fahrzeug.FahrzeugTyp./.Fahrzeug.FahrzeugTyp.Text",
+          "automationIdSuffix": ".Fahrzeug.FahrzeugTyp.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "kennzeichen": {
+          "label": "Kennzeichen",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Fahrzeug./.Fahrzeug.Kennzeichen./.Fahrzeug.Kennzeichen.Text",
+          "automationIdSuffix": ".Fahrzeug.Kennzeichen.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        }
+      }
+    },
+    "gew.fahrzeug_leasing": {
+      "heading": "1. Fahrzeug",
+      "headingNumberedLabel": "Fahrzeug",
+      "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
+      "documentType": "Gew2025",
+      "fields": {
+        "leasingbeginn": {
+          "label": "Leasingbeginn",
+          "controlType": "Edit",
+          "valueKind": "date",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Fahrzeug./.Fahrzeug.Betriebsvermoegen./.Fahrzeug.Betriebsvermoegen.LeasingBeginn./.Fahrzeug.Betriebsvermoegen.LeasingBeginn.GruppeDatum./.Fahrzeug.Betriebsvermoegen.LeasingBeginn.GruppeDatum.Datum",
+          "automationIdSuffix": ".Fahrzeug.Betriebsvermoegen.LeasingBeginn.GruppeDatum.Datum",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        }
+      }
+    },
+    "gew.fahrzeug_leasingkosten": {
+      "heading": "Leasingkosten:",
+      "headingPrefix": "Leasingkosten:",
+      "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
+      "documentType": "Gew2025",
+      "fields": {
+        "vertragsmonate": {
+          "label": "Anzahl der Monate",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Dauer./.Dauer.Dauer./.Dauer.Dauer.Wert",
+          "automationIdSuffix": ".Dauer.Dauer.Wert",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        }
+      }
+    },
+    "gew.fahrzeug_private_nutzung": {
+      "heading": "private Kfz-Nutzung:",
+      "headingPrefix": "private Kfz-Nutzung:",
+      "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
+      "documentType": "Gew2025",
+      "fields": {
+        "bruttolistenpreis": {
+          "label": "Listenpreis des Fahrzeuges (inkl. Umsatzsteuer und Sonderausstattung)",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.ProzentMethode./.ProzentMethode.grp1ProzMethode./.ProzentMethode.grp1ProzMethode.Bruttolistenpreis./.ProzentMethode.grp1ProzMethode.Bruttolistenpreis.Wert",
+          "automationIdSuffix": ".ProzentMethode.grp1ProzMethode.Bruttolistenpreis.Wert",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "nutzungsmonate": {
+          "label": "Monate der privaten Nutzung",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.ProzentMethode./.ProzentMethode.PrivatentnahmeEStG./.ProzentMethode.PrivatentnahmeEStG.ProzentVonListenpreisMalMonateElektrofahrzeug./.ProzentMethode.PrivatentnahmeEStG.ProzentVonListenpreisMalMonateElektrofahrzeug.Text1ProzentUndMonate./.ProzentMethode.PrivatentnahmeEStG.ProzentVonListenpreisMalMonateElektrofahrzeug.Text1ProzentUndMonate.MalMonate./.ProzentMethode.PrivatentnahmeEStG.ProzentVonListenpreisMalMonateElektrofahrzeug.Text1ProzentUndMonate.MalMonate.Wert",
+          "automationIdSuffix": ".ProzentMethode.PrivatentnahmeEStG.ProzentVonListenpreisMalMonateElektrofahrzeug.Text1ProzentUndMonate.MalMonate.Wert",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        }
+      }
+    }
+  }
+}

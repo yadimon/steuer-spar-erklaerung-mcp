@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { LAUNCH_OPERATION_TIMEOUT_MS } from "../dist/api-contract.js";
+import { assertReleaseNotesReady } from "../scripts/release-current.mjs";
 
 const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
 const packageLock = JSON.parse(readFileSync("package-lock.json", "utf8"));
@@ -12,7 +13,29 @@ const security = readFileSync("SECURITY.md", "utf8");
 const readme = readFileSync("README.md", "utf8");
 const mainSkill = readFileSync(join("skills", "steuer-spar-erklaerung", "SKILL.md"), "utf8");
 const installationGuide = readFileSync(join("docs", "INSTALLATION.md"), "utf8");
-const releasePath = join("docs", "releases", `v${packageJson.version}.md`);
+const releaseMode = process.argv.includes("--release");
+const unknownArguments = process.argv.slice(2).filter((argument) => argument !== "--release");
+assert.deepEqual(unknownArguments, [], `Unbekannte Release-Metadaten-Argumente: ${unknownArguments.join(" ")}`);
+
+const fixtureRoot = join("test", "fixtures", "release-metadata");
+const fixture = (name) => readFileSync(join(fixtureRoot, name), "utf8");
+assert.doesNotThrow(
+  () => assertReleaseNotesReady(fixture("ready.md"), "0.1.0-beta.99", "ready.md"),
+  "Vollständige Notes mit einem fachlich offenen Steuerfall müssen releasebereit sein.",
+);
+for (const [name, expectedError] of [
+  ["draft.md", /Entwurfsmarker/u],
+  ["wrong-version.md", /versionsgenau/u],
+  ["open-matrix.md", /offene Pflichtmatrix/u],
+  ["open-verification.md", /offenen Pflichtstatus/u],
+  ["unchecked-task.md", /offenen Pflichtmarker/u],
+]) {
+  assert.throws(
+    () => assertReleaseNotesReady(fixture(name), "0.1.0-beta.99", name),
+    expectedError,
+    `${name} muss das Publish-Gate fail-closed sperren.`,
+  );
+}
 
 assert.match(packageJson.version, /^0\.1\.0-beta\.\d+$/u, "Beta-Release braucht eine erwartete SemVer-Vorabversion.");
 assert.equal(packageLock.version, packageJson.version, "Lockfile und package.json haben unterschiedliche Versionen.");
@@ -31,11 +54,25 @@ assert(
   versionSource.includes(`SSE_PACKAGE_VERSION = "${packageJson.version}"`),
   "Kompilierte Runtimeversion und package.json laufen auseinander.",
 );
-assert(existsSync(releasePath), `Release Notes fehlen: ${releasePath}`);
+const publicVersionMatch = security.match(/`v(0\.1\.0-beta\.\d+)` ist die aktuelle öffentlich\s+unterstützte Version/u);
+assert(publicVersionMatch, "Sicherheitsrichtlinie nennt keine eindeutig aktuelle öffentliche Version.");
+const publicVersion = publicVersionMatch[1];
+const notesVersion = releaseMode ? packageJson.version : publicVersion;
+const releasePath = join("docs", "releases", `v${notesVersion}.md`);
+assert(
+  existsSync(releasePath),
+  `Release Notes der ${releaseMode ? "zu veröffentlichenden Quellversion" : "aktuellen öffentlichen Version"} fehlen: ${releasePath}`,
+);
 
 const releaseNotes = readFileSync(releasePath, "utf8");
-const releaseHeading = releaseNotes.split(/\r?\n/u, 1)[0];
-assert.equal(releaseHeading, `# v${packageJson.version}`, "Release Notes tragen nicht die Paketversion als H1.");
+assertReleaseNotesReady(releaseNotes, notesVersion, releasePath);
+if (releaseMode) {
+  assert.equal(
+    publicVersion,
+    packageJson.version,
+    "Vor einer Veröffentlichung muss SECURITY.md die zu veröffentlichende Quellversion als aktuell öffentlich nennen.",
+  );
+}
 assert.match(releaseNotes, /SteuerSparErklärung 2025/u, "Release Notes nennen das unterstützte Produktprofil nicht.");
 assert.match(releaseNotes, /ELSTER/iu, "Release Notes verschweigen die dauerhafte Übermittlungsgrenze.");
 assert(
@@ -49,9 +86,9 @@ assert(
   "Release Notes nennen nicht den zum Releasezeitpunkt vollständig bestandenen Suite-Plan.",
 );
 assert(
-  security.includes(`\`v${packageJson.version}\` ist die aktuelle öffentlich`)
-    && !security.includes(`bereitet \`v${packageJson.version}\``),
-  "Sicherheitsrichtlinie muss den veröffentlichten Paketstand als aktuell unterstützt nennen.",
+  security.includes(`\`v${publicVersion}\` ist die aktuelle öffentlich`)
+    && !security.includes(`bereitet \`v${publicVersion}\``),
+  "Sicherheitsrichtlinie muss den tatsaechlich veröffentlichten Paketstand als aktuell unterstützt nennen.",
 );
 assert.match(security, /jeweils neueste vollständige\s+Release-Version/u, "Security nennt die unterstützte Release-Linie nicht.");
 assert.match(security, /@yadimon\/steuer-spar-erklaerung-api/u);
@@ -75,4 +112,7 @@ assert.match(readme, /Profil 2024.+experimentell.+Verifikation/isu);
 assert.match(mainSkill, /Profil `2025` mit Engine-Major `31` freigegeben/u);
 assert.match(installationGuide, /SteuerSparErklärung 2025/u);
 
-process.stdout.write(`Release-Metadaten: v${packageJson.version}, Security, historische Notes und Public Skill synchron\n`);
+process.stdout.write(
+  `Release-Metadaten: Quellstand v${packageJson.version}, öffentlich v${publicVersion}, ` +
+  `Security, historische Notes und Public Skill synchron${releaseMode ? " (Publish-Gate)" : ""}\n`,
+);

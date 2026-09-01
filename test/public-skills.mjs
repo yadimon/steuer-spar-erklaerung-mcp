@@ -9,7 +9,7 @@ const discovered = readdirSync(skillsRoot, { withFileTypes: true })
   .filter((entry) => entry.isDirectory() && existsSync(join(skillsRoot, entry.name, "SKILL.md")))
   .map((entry) => entry.name)
   .sort();
-assert.deepEqual(discovered, expected, "Public skills muessen flach und ohne --full-depth auffindbar sein.");
+assert.deepEqual(discovered, expected, "Oeffentliche Skills muessen im Standardlayout auffindbar sein.");
 assert.equal(existsSync(join(root, "skill")), false, "Veralteter singulaerer skill/-Container ist noch vorhanden.");
 
 for (const name of discovered) {
@@ -20,7 +20,7 @@ for (const name of discovered) {
   assert.deepEqual(keys, ["description", "name"]);
   assert.match(frontmatter, new RegExp(`^name: ${name}$`, "mu"));
   assert.match(frontmatter, /^description: \S.+$/mu);
-  assert(source.split(/\r?\n/u).length < 400, `${name}/SKILL.md ist nicht progressiv genug.`);
+  assert(source.split(/\r?\n/u).length < 200, `${name}/SKILL.md ist nicht progressiv genug.`);
   assert(!source.includes("docs/entwicklung/erfahrungen"));
 
   const openAi = readFileSync(join(directory, "agents", "openai.yaml"), "utf8");
@@ -30,63 +30,66 @@ for (const name of discovered) {
   }
 }
 
-const main = readFileSync(join(skillsRoot, "steuer-spar-erklaerung", "SKILL.md"), "utf8");
-const openAiMetadata = readFileSync(
-  join(skillsRoot, "steuer-spar-erklaerung", "agents", "openai.yaml"),
-  "utf8",
-);
-assert(openAiMetadata.includes("kündige sichtbare Bedienung trotzdem an"));
-assert(main.includes("## Zuerst im MCP-Modus: MCP-Preflight"));
-assert(main.includes("Beginne jeden Auftrag im MCP-Modus mit `sse_preflight`"));
-assert(main.includes("`workspace_status`, `product_info`, `health` den MCP-Preflight"));
-assert(main.includes("stabilen `nextTool`") && main.includes("Es gibt gar kein `sse_*`-Tool"));
-assert(main.includes("Direkte API nur als bewusster Fallback") && main.includes("Skill ist eine Komfortschicht"));
-assert(!main.includes("NPX-Kurzweg ohne globale Runtime-Installation"));
-assert(main.includes("MCP ist ein dünner Wrapper darüber") && main.includes("API-Selbstbeschreibung"));
-for (const match of main.matchAll(/\]\(([^)]+)\)/gu)) {
-  const target = match[1];
-  assert(
-    target.startsWith("https://") || target.startsWith("references/") || target.startsWith("#"),
-    `Installierter Skill enthaelt einen nicht aufloesbaren Cross-Tree-Link: ${target}`,
-  );
+const skillRoot = join(skillsRoot, "steuer-spar-erklaerung");
+const main = readFileSync(join(skillRoot, "SKILL.md"), "utf8");
+const normalizedMain = main.replace(/\s+/gu, " ");
+
+for (const requirement of [
+  "## Immer zuerst: MCP-Preflight",
+  "Beginne jeden Auftrag mit dem echten MCP-Tool `sse_preflight`",
+  "Setze danach den ursprünglichen Auftrag fort",
+  "höchstens eine Frage pro Nachricht",
+  "Ein bereits eindeutig geöffneter Fall ist der Arbeitsfall",
+  "Profil `2025` mit Engine-Major `31` freigegeben",
+  "Ändern ist nicht Speichern",
+  "Erfolg nur nach strukturiertem Readback",
+  "MCP ist der Standardtransport",
+]) {
+  assert(normalizedMain.includes(requirement), `Hauptskill-Vertrag fehlt: ${requirement}`);
 }
-assert(main.includes("Der MCP-Eintrag enthält keinen `--config`-Parameter"));
-assert(main.includes("`SSE_API_CONFIG`") && main.includes("bleibt autoritativ") && main.includes("niemals gleichzeitig"));
-assert(main.includes("echten Aufruf von `sse_preflight`") && main.includes("Handshake allein genügt nicht"));
-assert(main.includes("Technisches Setup bereit;") && main.includes("Client-Verifikation nach Neustart offen."));
-assert(main.includes("niemals über ELSTER") && main.includes("Ein bereits eindeutig"));
-assert(main.includes("references/case-session.md") && main.includes("Eine Arbeits- oder"));
-assert(main.includes("dirty-fähige UI-Navigation oder Mutation"));
-assert(main.includes("genau einmal nach `backups:`") && main.includes("Disk-Hash weiterhin zum verifizierten Backup-Tupel passen"));
-assert(main.includes("references/belegmanager-backup.md")
-  && main.includes("Eine Falldatei-Sicherung ersetzt diese Sicherung nicht"));
-assert(main.includes("references/ustva.md") && main.includes("references/ui-fallback.md"));
-assert(main.includes("powershell/render-pdf.ps1") && main.includes("ocr-image.ps1"));
-assert(main.includes("Tracking") && main.includes(".xlsx") && main.includes("Excel niemals still"));
-assert(main.includes("Sonst antworte im Chat") && main.includes("Speicherstatus"));
-assert(main.includes("`Prüfen und Abgeben`") && main.includes('`direction="Weiter"`'));
-assert(main.includes("`checker_open`") && main.includes("`checker_detail` nicht"));
-assert(main.includes('`stopKind="no-table"') && main.includes("frische `rid`") && main.includes("niemals mit `Out-Null`"));
-assert(!/v\d+\.\d+\.\d+-beta\.\d+/iu.test(main), "Runtime-Skill darf keine konkrete Beta festschreiben.");
 
-const firstRun = readFileSync(
-  join(skillsRoot, "steuer-spar-erklaerung", "references", "first-run.md"),
-  "utf8",
-);
-assert(firstRun.includes("der richtige Steuerfall") && firstRun.includes("vollständige Liste der Belegordner"));
+assert.match(normalizedMain, /Fehlt jedes `sse_\*`-Tool.+nichts installieren.+Installationsanleitung/iu);
+assert.match(normalizedMain, /Niemals über ELSTER/iu);
+assert.match(normalizedMain, /Originale und übermittelte Falldateien niemals löschen, überschreiben/iu);
+assert(normalizedMain.includes("Eine Arbeitskopie, `save_as`, Schließen oder Verwerfen ist keine implizite"));
+assert.match(normalizedMain, /vor der ersten dirty-fähigen Navigation oder Mutation.+Disk-Hash/iu);
+assert(normalizedMain.includes("keinen Prozess nach Namen beenden. Fremde, alte"));
+assert.doesNotMatch(main, /npx\s|npm\s+(?:install|add)|plugins@/iu,
+  "Der Fachskill darf keine Installerbefehle als Standardaktion enthalten.");
+assert.doesNotMatch(main, /v\d+\.\d+\.\d+-beta\.\d+/iu,
+  "Der Runtime-Skill darf keine konkrete Beta festschreiben.");
+
+for (const reference of [
+  "references/first-run.md",
+  "references/case-session.md",
+  "references/ustva.md",
+  "references/steuerquellen.md",
+  "references/ui-fallback.md",
+  "references/belegmanager-backup.md",
+]) {
+  assert(main.includes(reference), `Situationsbezogene Skill-Route fehlt: ${reference}`);
+}
+assert.equal(existsSync(join(skillRoot, "references", "betriebsvertrag.md")), false,
+  "Der redundante Betriebsvertrag wurde nicht aus der Skill-IA entfernt.");
+
+const firstRun = readFileSync(join(skillRoot, "references", "first-run.md"), "utf8");
+const normalizedFirstRun = firstRun.replace(/\s+/gu, " ");
+for (const requirement of [
+  "Merke dir diesen Auftrag unverändert",
+  "höchstens **eine Frage pro Nachricht**",
+  "Rufe zuerst das echte MCP-Tool `sse_preflight` auf",
+  "Ist genau ein Fall vollständig und eindeutig geöffnet, gewinnt dieser Fall",
+  "vollständigen Liste der freigegebenen Belegordner",
+  "Sicheren Plan gemeinsam bestätigen",
+  "Ursprünglichen Auftrag fortsetzen",
+]) {
+  assert(normalizedFirstRun.includes(requirement), `First-run-Vertrag fehlt: ${requirement}`);
+}
+assert.match(normalizedFirstRun, /keine Installerbefehle ausführen.+keine Clientdatei verändern/iu);
 assert(firstRun.includes("höchstens 100") && firstRun.includes("Durchsuche niemals das gesamte Laufwerk"));
-assert(firstRun.includes("API-Dependency installiert npm automatisch") && !/Portable/u.test(firstRun));
-assert(firstRun.includes("MCP ist der Standardtransport") && /Der Skill\s+ist nur eine optionale Komfortschicht/u.test(firstRun));
-assert(!firstRun.includes("NPX-Kurzweg"));
-assert(firstRun.includes("`caseDir` ist keine Fallauswahl und öffnet nichts"));
-assert(firstRun.includes("Es gibt kein Einrichtungsprogramm und keine Plandatei"));
-assert(firstRun.includes("docs/INSTALLATION.md") && !firstRun.includes("setup-decisions.json"));
-assert(firstRun.includes("hashverifizierte Prüffallkopie") && firstRun.includes("ausdrücklich isolierten"));
+assert(firstRun.includes("`caseDir` ist eine Ressourcen-/Redaktionsgrenze, keine Fallauswahl"));
 
-const caseSession = readFileSync(
-  join(skillsRoot, "steuer-spar-erklaerung", "references", "case-session.md"),
-  "utf8",
-);
+const caseSession = readFileSync(join(skillRoot, "references", "case-session.md"), "utf8");
 for (const requirement of [
   "Der offene Fall ist maßgeblich",
   "Eine Sicherung je unverändertem Dateistand",
@@ -99,72 +102,77 @@ for (const requirement of [
   assert(caseSession.includes(requirement), `Arbeitssitzungs-Vertrag fehlt: ${requirement}`);
 }
 
-const receiptBackup = readFileSync(
-  join(skillsRoot, "steuer-spar-erklaerung", "references", "belegmanager-backup.md"),
-  "utf8",
-);
+const receiptBackup = readFileSync(join(skillRoot, "references", "belegmanager-backup.md"), "utf8");
 for (const requirement of ["SSEKonf.user.ini", "DataDir", "BelegManager.db4", "PRAGMA integrity_check", "SHA-256"]) {
   assert(receiptBackup.includes(requirement), `BelegManager-Sicherungswissen fehlt: ${requirement}`);
 }
 
 const installation = readFileSync(join(root, "docs", "INSTALLATION.md"), "utf8");
+const normalizedInstallation = installation.replace(/\s+/gu, " ");
 for (const requirement of [
-  "## Ich nix ITler",
-  "## Ich bin ITler",
   "Windows x64",
   "Node.js 22 oder neuer",
-  "npm.cmd install --save-exact @yadimon/steuer-spar-erklaerung-mcp@latest",
-  "$SkillAgent = 'codex'",
-  "--agent $SkillAgent",
-  "#### Codex projektlokal",
-  ".codex/config.toml",
-  "#### Claude Code projektlokal",
-  "--scope project",
-  "#### OpenCode projektlokal",
-  "opencode.json",
-  "SSE_API_CONFIG",
-  "--selftest",
+  "Git auf `PATH`",
+  "--target codex --scope project --yes",
+  "--target claude-code --scope project --yes",
+  "codex plugin add steuer-spar-erklaerung@plugins-cli --json",
+  "codex plugin list --json",
+  "codex plugin remove steuer-spar-erklaerung@plugins-cli",
   "sse_preflight",
-  "## Direkte API-Nutzung (separat)",
+  "%LOCALAPPDATA%\\SteuerSparErklaerungApi",
+  "SSE_API_CONFIG",
+  "## Update",
+  "## Entfernung",
   "## API-Singleton bewusst beenden",
+  "## Fortgeschrittene standalone-Nutzung",
 ]) {
   assert(installation.includes(requirement), `Installationsvertrag fehlt: ${requirement}`);
 }
-assert(!installation.includes("Codex kennt nur eine globale Konfiguration"));
-assert(installation.includes("`SSE_API_URL` und `SSE_API_CONFIG` dürfen nicht gleichzeitig"));
-assert((installation.match(/\$env:SSE_API_CONFIG = \$ApiConfig/gu) ?? []).length >= 3,
-  "Installations-, Proof- und Updatepfad muessen denselben Projekt-Singleton binden.");
-assert(installation.includes("--selftest mit genau diesem gesetzten SSE_API_CONFIG"));
-assert(installation.includes("fremde, alte oder nicht eindeutig") && installation.includes("niemals beenden, ersetzen oder übergehen"));
-assert(installation.includes("/v1/openapi.json") && installation.includes("/v1/operations"));
-assert(installation.includes("## Update") && installation.includes("## Deinstallation") && installation.includes("Nutzerdaten"));
-assert(!/npx\.cmd -y @yadimon\/steuer-spar-erklaerung-api --case-dir/u.test(installation),
-  "Der konkurrierende NPX-Prueflauf gehoert nicht mehr in den MCP-Installationsstandard.");
-assert(!/npm(?:\.cmd)? install --global/u.test(installation), "Der Standard darf nichts global installieren.");
+assert.match(normalizedInstallation, /automatische Zielerkennung.+nicht zuverlässig/iu);
+assert.match(normalizedInstallation, /ignoriert den Scope bei Codex vollständig/iu);
+assert(normalizedInstallation.includes("keine physische Projektisolation"));
+assert(normalizedInstallation.includes("kein `node_modules`")
+  && normalizedInstallation.includes("weder npm noch npx")
+  && normalizedInstallation.includes("keinen Netzwerkdownload"));
+assert.match(normalizedInstallation, /nach dem ersten Befehl.+`not installed`.+target-native.+`installed, enabled`/iu);
+const installationCodexStart = installation.indexOf("### Codex");
+const installationClaudeStart = installation.indexOf("### Claude Code");
+const installationScopeStart = installation.indexOf("### Was `--scope project` hier bedeutet");
+const installationCodex = installation.slice(installationCodexStart, installationClaudeStart);
+const installationClaude = installation.slice(installationClaudeStart, installationScopeStart);
+const codexClone = "npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target codex --scope project --yes";
+const codexActivate = "codex plugin add steuer-spar-erklaerung@plugins-cli --json";
+const claudeInstall = "npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target claude-code --scope project --yes";
+assert(installationCodex.indexOf(codexClone) < installationCodex.indexOf(codexActivate),
+  "Codex-Installation muss als externe plus target-native Stufe dokumentiert sein.");
+assert(installationClaude.includes(claudeInstall)
+  && installationClaude.includes("`enabled`")
+  && !installationClaude.includes(codexActivate),
+  "Claude Code bleibt ein zielgenauer Ein-Schritt-Pfad.");
+assert.match(normalizedInstallation, /kein eigenes `update`-Kommando/iu);
+assert.match(normalizedInstallation, /kein `remove`-Kommando/iu);
+assert.match(normalizedInstallation, /Readback.+Cache-\/Konfigurationszustand materialisieren/iu);
+assert.doesNotMatch(normalizedInstallation, /codex plugin list --json.+(?:installiert|ändert) nichts/iu,
+  "Der Codex-Readback darf nicht als garantiert seiteneffektfrei dokumentiert sein.");
+const installationUpdate = installation.slice(installation.indexOf("## Update"), installation.indexOf("## Entfernung"));
+assert(installationUpdate.includes("plugins@1 add")
+  && installationUpdate.includes(codexActivate)
+  && /Zeigt Codex danach.+nicht als `installed, enabled`/su.test(installationUpdate),
+"Der Updatepfad muss externes add, Codex-Readback und bedingte target-native Aktivierung enthalten.");
+assert.match(normalizedInstallation, /Claude Code.+exakte Plugin-ID.+zurücklesen/iu);
+assert.doesNotMatch(installation, /^\s*(?:npx(?:\.cmd)?\s+[^\r\n]*\s+)?plugins\s+(?:remove|uninstall)\b/gimu,
+  "Nicht existente plugins-Kommandos duerfen nicht als Anleitung erscheinen.");
+assert.match(normalizedInstallation, /Nutzerdaten nur nach separater Prüfung und ausdrücklichem Auftrag/iu);
+assert.match(normalizedInstallation, /Niemals Prozesse pauschal nach `node`, `SSE`/iu);
+assert.doesNotMatch(installation, /--target opencode|OpenCode projektlokal/iu);
 
 const readme = readFileSync(join(root, "README.md"), "utf8");
-const fencedPrompt = (source, prefix) => [...source.matchAll(/```text\r?\n([\s\S]*?)\r?\n```/gu)]
-  .map((match) => match[1])
-  .find((text) => text.startsWith(prefix));
-assert.equal(
-  fencedPrompt(readme, "Richte SteuerSparErklärung"),
-  fencedPrompt(installation, "Richte SteuerSparErklärung"),
-  "README und kanonische Anleitung enthalten unterschiedliche Installationsprompts.",
-);
-assert.equal(
-  fencedPrompt(readme, "Nutze $steuer-spar-erklaerung"),
-  fencedPrompt(installation, "Nutze $steuer-spar-erklaerung"),
-  "README und kanonische Anleitung enthalten unterschiedliche Anwendungs-Prompts.",
-);
-assert(readme.includes("### Ich nix ITler") && readme.includes("### Ich bin ITler"));
-assert(!readme.includes("Robuster isolierter Prüflauf") && !readme.includes("Dauerhaftes Setup mit zwei Prompts"));
-assert(readme.includes("Der Skill ist eine optionale Komfortschicht"));
-assert(readme.includes("npm.cmd install --save-exact @yadimon/steuer-spar-erklaerung-mcp@latest"));
-assert(readme.includes("--agent $SkillAgent --copy --yes"));
-assert(readme.includes(".codex/config.toml") && readme.includes("--scope project") && readme.includes("opencode.json"));
-assert(readme.includes("exakt passende API") && readme.includes("separates API-Terminal"));
-assert(readme.includes("keine Dateisystem-Sandbox") && readme.includes("sse_preflight"));
-assert(!/v\d+\.\d+\.\d+-beta\.\d+/iu.test(readme));
+assert(readme.includes("--target codex --scope project --yes"));
+assert(readme.includes("--target claude-code --scope project --yes"));
+assert(readme.includes("codex plugin add steuer-spar-erklaerung@plugins-cli --json")
+  && readme.includes("`not installed`")
+  && readme.includes("`installed, enabled`"));
+assert.doesNotMatch(readme, /npm\.cmd install --save-exact @yadimon\/steuer-spar-erklaerung-mcp/iu);
 
 for (const reference of [
   "docs/README.md",
@@ -179,21 +187,36 @@ for (const reference of [
 }
 
 const architecture = readFileSync(join(root, "docs", "ARCHITEKTUR.md"), "utf8");
-assert(architecture.includes("optionale veröffentlichte Skill")
+assert(architecture.includes("Agent Plugin")
+  && architecture.includes("`${PLUGIN_ROOT}/runtime/dist/mcp.js`")
   && architecture.includes("`sse_preflight`")
-  && architecture.includes("Preflight-Ergebnis ist keine")
-  && !architecture.includes("prüft zuerst über `sse_health`"));
+  && architecture.includes("keine physische Projektisolation"));
+
+const verification = readFileSync(join(root, "docs", "VERIFIKATION.md"), "utf8");
+assert(verification.includes("0.151.0-alpha.7.2")
+  && verification.includes("`064048Z`")
+  && verification.includes("`064512Z`")
+  && verification.includes("materialisierte")
+  && verification.includes("VM-Ende-zu-Ende offen"));
 
 const apiPackageReadme = readFileSync(join(root, "packages", "api", "README.md"), "utf8");
 const mcpPackageReadme = readFileSync(join(root, "packages", "mcp", "README.md"), "utf8");
+const normalizedMcpPackageReadme = mcpPackageReadme.replace(/\s+/gu, " ");
+assert(apiPackageReadme.includes("Nutzerstandard ist das Agent Plugin"));
 assert(apiPackageReadme.includes("`--case-dir` öffnet keinen Steuerfall")
-  && /keine\s+Dateisystem-Sandbox/u.test(apiPackageReadme));
+  && /keine Dateisystem-Sandbox/u.test(apiPackageReadme));
 assert(apiPackageReadme.includes("$Root = 'C:\\mein-steuer-api'")
   && apiPackageReadme.includes("npm.cmd install --save-exact @yadimon/steuer-spar-erklaerung-api@latest")
   && apiPackageReadme.includes("& $Node $Api --config $ApiConfig")
   && apiPackageReadme.includes("& $Node $Call discovery --config $ApiConfig"));
-assert(mcpPackageReadme.includes("`sse_preflight`") && mcpPackageReadme.includes("optionale Komfortschicht"));
-assert(mcpPackageReadme.includes("dirty-fähigen UI-Navigation oder Mutation")
-  && mcpPackageReadme.includes("`save` oder `save_as` wird nie still"));
+assert(mcpPackageReadme.includes("Empfohlener Weg: Agent Plugin"));
+assert(normalizedMcpPackageReadme.includes("`sse_preflight`")
+  && normalizedMcpPackageReadme.includes("kein `node_modules`")
+  && normalizedMcpPackageReadme.includes("weder npm noch npx"));
+assert(mcpPackageReadme.includes("codex plugin add steuer-spar-erklaerung@plugins-cli --json")
+  && mcpPackageReadme.includes("--target claude-code --scope project --yes")
+  && normalizedMcpPackageReadme.includes("API kennt keine Anmeldung"));
+assert(mcpPackageReadme.includes("vor dirty-fähiger Navigation oder Mutation")
+  && mcpPackageReadme.includes("`save` und `save_as` brauchen"));
 
-process.stdout.write("Public Skill: optionaler Wizard, MCP-Preflight und zwei lokale Installationswege bestanden\n");
+process.stdout.write("Public Skill: knapper Router, First run, Plugin-Installation und harte Grenzen bestanden\n");

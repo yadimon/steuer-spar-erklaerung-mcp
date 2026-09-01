@@ -49,6 +49,12 @@ jobs:
       - name: Run complete release suite
         run: npm test
 
+      - name: Verify deterministic Agent Plugin bundle
+        run: npm run check:plugin
+
+      - name: Bind public release metadata to source version
+        run: npm run test:release-metadata:publish
+
       - name: Prove clean installation from both tarballs
         run: npm run test:npm-clean-install
 

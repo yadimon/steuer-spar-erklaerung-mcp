@@ -1,13 +1,20 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
-import { readFileSync, realpathSync, statSync } from "node:fs";
+import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   defaultApiConfigPath,
   resolveApiConfigValues,
 } from "./api-config-file.js";
 import { ApiClientError, readApiHealthz, type ApiHealthDocument } from "./api-client.js";
-import { SSE_API_PACKAGE_NAME, SSE_PACKAGE_VERSION } from "./version.js";
+import {
+  SSE_API_PACKAGE_NAME,
+  SSE_PACKAGE_NAME,
+  SSE_PACKAGE_VERSION,
+  SSE_PLUGIN_NAME,
+} from "./version.js";
 import { configurationFingerprint } from "./configuration-fingerprint.js";
 import {
   SSE_EXPECTED_API_BASE_URL,
@@ -15,6 +22,7 @@ import {
 } from "./api-supervisor-contract.js";
 
 const MAX_API_MANIFEST_BYTES = 64 * 1024;
+const MAX_PLUGIN_RUNTIME_LOCK_BYTES = 1024 * 1024;
 const INITIAL_PROBE_TIMEOUT_MS = 1_500;
 const READINESS_PROBE_TIMEOUT_MS = 750;
 const READINESS_TIMEOUT_MS = 15_000;
@@ -37,6 +45,24 @@ interface ApiPackageManifest {
   name?: unknown;
   version?: unknown;
   bin?: unknown;
+}
+
+interface PluginRuntimeFile {
+  path?: unknown;
+  sha256?: unknown;
+  size?: unknown;
+}
+
+interface PluginRuntimeLock {
+  schemaVersion?: unknown;
+  packageName?: unknown;
+  packageVersion?: unknown;
+  apiPackageName?: unknown;
+  mcpPackageName?: unknown;
+  pluginName?: unknown;
+  pluginVersion?: unknown;
+  entries?: unknown;
+  files?: unknown;
 }
 
 function loopbackBaseUrl(raw: string): string {
@@ -120,13 +146,121 @@ async function probe(
   }
 }
 
+function containedPath(root: string, path: string): boolean {
+  const fromRoot = relative(root, path);
+  return fromRoot !== "" && !fromRoot.startsWith("..") && !isAbsolute(fromRoot);
+}
+
+function validRuntimeRelativePath(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= 1024 &&
+    !value.includes("\\") && !value.includes("\0") && !isAbsolute(value) &&
+    !value.split("/").some((part) => !part || part === "." || part === "..");
+}
+
+interface AdjacentPluginRuntime {
+  runtimeRoot: string;
+  lockPath: string;
+}
+
+function adjacentPluginRuntime(): AdjacentPluginRuntime | undefined {
+  let runtimeRoot: string;
+  try {
+    runtimeRoot = realpathSync(resolve(dirname(fileURLToPath(import.meta.url)), ".."));
+  } catch {
+    // `import.meta.url` ist in Node immer eine file:-URL. Diese Fallback-Grenze
+    // bleibt absichtlich generisch, damit keine lokale Pfadangabe nach aussen geht.
+    throw new Error("Die MCP-Runtime konnte nicht sicher aufgeloest werden.");
+  }
+  const lockPath = resolve(runtimeRoot, "runtime-lock.json");
+  try {
+    if (!containedPath(runtimeRoot, lockPath)) throw new Error();
+    const lockStat = lstatSync(lockPath);
+    if (lockStat.isSymbolicLink() || realpathSync(lockPath) !== lockPath) throw new Error();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw new Error("Die benachbarte Plugin-Runtime besitzt kein sicher gebundenes Runtime-Lock.");
+  }
+  return { runtimeRoot, lockPath };
+}
+
+function readBundledPluginApiEntry(runtime: AdjacentPluginRuntime): string {
+  const { runtimeRoot, lockPath } = runtime;
+  let lockStat;
+  try {
+    lockStat = statSync(lockPath);
+  } catch {
+    throw new Error("Die gebuendelte Plugin-Runtime konnte nicht sicher gelesen werden.");
+  }
+  if (!lockStat.isFile() || lockStat.size <= 0 || lockStat.size > MAX_PLUGIN_RUNTIME_LOCK_BYTES) {
+    throw new Error("Die gebuendelte Plugin-Runtime besitzt ungueltige Metadaten.");
+  }
+  let lock: PluginRuntimeLock;
+  try {
+    lock = JSON.parse(readFileSync(lockPath, "utf8")) as PluginRuntimeLock;
+  } catch {
+    throw new Error("Die gebuendelte Plugin-Runtime besitzt kein gueltiges Runtime-Lock.");
+  }
+  if (
+    lock.schemaVersion !== 1 ||
+    lock.packageName !== SSE_PACKAGE_NAME ||
+    lock.packageVersion !== SSE_PACKAGE_VERSION ||
+    lock.apiPackageName !== SSE_API_PACKAGE_NAME ||
+    lock.mcpPackageName !== "@yadimon/steuer-spar-erklaerung-mcp" ||
+    lock.pluginName !== SSE_PLUGIN_NAME ||
+    lock.pluginVersion !== SSE_PACKAGE_VERSION ||
+    !lock.entries || typeof lock.entries !== "object" || Array.isArray(lock.entries) ||
+    !Array.isArray(lock.files)
+  ) {
+    throw new Error("Die gebuendelte Plugin-Runtime ist nicht versionsgleich.");
+  }
+  const apiRelative = (lock.entries as Record<string, unknown>).api;
+  if (!validRuntimeRelativePath(apiRelative)) {
+    throw new Error("Die gebuendelte Plugin-API besitzt keinen sicheren Einstieg.");
+  }
+  const matchingFiles = (lock.files as PluginRuntimeFile[]).filter((file) => file?.path === apiRelative);
+  if (matchingFiles.length !== 1) {
+    throw new Error("Die gebuendelte Plugin-API ist im Runtime-Lock nicht eindeutig gebunden.");
+  }
+  const record = matchingFiles[0];
+  if (!record || typeof record.sha256 !== "string" || !/^[0-9a-f]{64}$/u.test(record.sha256) ||
+      !Number.isSafeInteger(record.size) || (record.size as number) <= 0) {
+    throw new Error("Die gebuendelte Plugin-API besitzt ungueltige Integritaetsmetadaten.");
+  }
+  let entry: string;
+  let content: Buffer;
+  try {
+    const candidate = resolve(runtimeRoot, apiRelative);
+    if (!containedPath(runtimeRoot, candidate) || lstatSync(candidate).isSymbolicLink()) throw new Error();
+    entry = realpathSync(candidate);
+    if (!containedPath(runtimeRoot, entry) ||
+        relative(runtimeRoot, entry).replaceAll("\\", "/") !== apiRelative ||
+        !statSync(entry).isFile()) throw new Error();
+    content = readFileSync(entry);
+  } catch {
+    throw new Error("Der gebuendelte Plugin-API-Einstieg ist nicht sicher enthalten.");
+  }
+  if (content.length !== record.size || createHash("sha256").update(content).digest("hex") !== record.sha256) {
+    throw new Error("Der gebuendelte Plugin-API-Einstieg stimmt nicht mit dem Runtime-Lock ueberein.");
+  }
+  return entry;
+}
+
 function readApiPackageEntry(): string {
+  // Ein vorhandenes benachbartes Runtime-Lock kennzeichnet die selbstenthaltene
+  // Plugin-Auslieferung. Es ist autoritativ: Weder ein ancestor node_modules noch
+  // ein ungueltiges Lock darf die hashgebundene Plugin-API umgehen.
+  const bundledRuntime = adjacentPluginRuntime();
+  if (bundledRuntime) return readBundledPluginApiEntry(bundledRuntime);
+
   const require = createRequire(import.meta.url);
   let manifestPath: string;
   try {
     manifestPath = require.resolve(`${SSE_API_PACKAGE_NAME}/package.json`);
-  } catch {
-    throw new Error("Die exakte installierte API-Dependency fehlt.");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "MODULE_NOT_FOUND") {
+      throw new Error("Die exakte installierte API-Dependency konnte nicht sicher aufgeloest werden.");
+    }
+    throw new Error("Die exakte installierte API-Dependency fehlt und es ist keine Plugin-Runtime gebunden.");
   }
   let manifestStat;
   try {

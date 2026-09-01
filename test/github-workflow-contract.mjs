@@ -38,6 +38,8 @@ assert.equal(packageJson.scripts["smoke:published"], "node test/npm-clean-instal
 for (const required of [
   '["audit", "--omit=dev", "--audit-level=high"]',
   '["test"]',
+  '["run", "check:plugin"]',
+  '["run", "test:release-metadata:publish"]',
   '["run", "test:product"]',
   '["run", "pack"]',
   '["run", "publish:dry-run"]',
@@ -97,6 +99,7 @@ const commands = [
   "npm ci --ignore-scripts",
   "npm audit --omit=dev --audit-level=high",
   "npm test",
+  "npm run check:plugin",
   "npm run test:npm-clean-install",
 ];
 let previous = -1;
@@ -139,6 +142,8 @@ const publishCommands = [
   "npm ci --ignore-scripts",
   "npm audit --omit=dev --audit-level=high",
   "npm test",
+  "npm run check:plugin",
+  "npm run test:release-metadata:publish",
   "npm run test:npm-clean-install",
   "npm publish --workspace @yadimon/steuer-spar-erklaerung-api --ignore-scripts --tag latest --access public",
   "npm publish --workspace @yadimon/steuer-spar-erklaerung-mcp --ignore-scripts --tag latest --access public",
@@ -200,7 +205,7 @@ for (const required of [
   "git tag -a",
   "gh release create",
   "--verify-tag --prerelease",
-  "npx skills add yadimon/steuer-spar-erklaerung-mcp --list",
+  "npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target codex --scope project --yes",
   "npm publish --workspace @yadimon/steuer-spar-erklaerung-api --ignore-scripts --tag latest --access public",
   "npm publish --workspace @yadimon/steuer-spar-erklaerung-mcp --ignore-scripts --tag latest --access public",
   "npm-publish.yml",

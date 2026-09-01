@@ -20,12 +20,12 @@ import {
 } from "./suite-runner.mjs";
 
 const expectedNames = [
-  "dist-prune", "native-build", "typescript-build", "npm-package-build", "suite-runner-contract", "public-skills", "repository-privacy", "repository-links", "readme-contract", "github-workflow", "javascript-syntax", "powershell-syntax", "product-profiles", "page-objects-parity", "product-profile-status", "profile-operation-policy", "receipt-interaction-policy", "belegmanager-config-isolation", "api-mega-contract",
-  "akad-parser", "table-combobox-contract", "table-combobox-guard", "case-file", "pdf-render-helper", "atomic-files", "jsonl-logger", "dist-artifacts", "release-metadata", "native-build-cache", "npm-package", "workspace-containment", "workspace-file-cancellation",
+  "dist-prune", "native-build", "typescript-build", "npm-package-build", "agent-plugin-build", "suite-runner-contract", "public-skills", "repository-privacy", "repository-links", "readme-contract", "github-workflow", "javascript-syntax", "powershell-syntax", "product-profiles", "page-objects-parity", "product-profile-status", "profile-operation-policy", "receipt-interaction-policy", "belegmanager-config-isolation", "api-mega-contract",
+  "akad-parser", "table-combobox-contract", "table-combobox-guard", "case-file", "pdf-render-helper", "atomic-files", "jsonl-logger", "dist-artifacts", "release-metadata", "agent-plugin-contract", "native-build-cache", "npm-package", "workspace-containment", "workspace-file-cancellation",
   "resource-references", "live-script-resource-contract", "backup-cases-contract", "backup-local-parity", "archive-cases-synthetic", "archive-local-parity", "sse-process-guard", "desktop-launcher", "api-contract", "api-static-documents", "api-client-body-abort", "api-client-transport-timeout", "api-local-http-transport", "api-single-flight", "checker-open-contract", "api-discovery-contract", "api-openapi-contract", "api-cli-contract", "api-config-contract", "api-all-operations", "launch-orchestration", "operation-schema-catalog", "operation-coverage-merge", "verification-doc-coverage", "operation-result-shape-merge", "operation-trace", "live-profile-read-coverage", "operation-live-evidence", "live-core-read-contract", "result-contract", "result-field-worker-guard", "source-architecture", "no-year-conditionals", "mcp-module-boundaries", "mcp-main-contract", "mcp-preflight",
   "mcp-registry-contract", "mcp-response-contract", "capabilities-contract", "ustva-contract", "api-tax-journeys", "api-main-smoke", "abort-contract", "wrapper-boundary", "mcp-wrapper-catalog", "mcp-api-all-operations", "mcp-cancellation",
   "worker-timeout", "worker-inherited-pipe", "worker-prewarm", "worker-progress-contract", "worker-output-file-contract", "worker-input-file-contract", "direct-worker-guard", "direct-worker-experimental-guard", "experimental-dialog-policy", "startup-dialog-policy", "direct-worker-resource-guard", "direct-worker-identity-guard", "direct-worker-collection-guard", "direct-worker-file-guard", "direct-worker-native-guard", "scenario-parity", "scenario-control-flow", "mcp-selftest", "table-region",
-  "product-gate", "verify-collect", "verify-local-parity", "working-copy-local-parity", "file-operations-worker", "archive-cases", "table-values", "instance-identity", "table-add-rollback-contract", "table-delete-rebinding", "table-window-scope", "tracked-date-rollback", "value-info-window", "write-window-binding", "case-binding", "process-command-line", "process-exit-wait", "describe-point-basic", "dialog-fingerprint", "content-bounds", "aside-corners", "tool-window-close", "tool-window-read", "receipt-manager-action", "bulk-action-executor", "bulk-action-worker-contract", "desktop-enumeration", "desktop-marker-contract", "desktop-marker-write-contract", "window-restore-contract", "window-scope", "structure-binding", "snapshot-runtime-id", "checker-zero-results", "build-drift", "foreground-lease-contract", "focusless-commit-contract", "file-dialog-folder-contract", "worker-controller-lock", "mcp-api-supervisor", "no-console-window", "operation-coverage", "operation-result-shape",
+  "product-gate", "verify-collect", "verify-local-parity", "working-copy-local-parity", "file-operations-worker", "archive-cases", "table-values", "instance-identity", "table-add-rollback-contract", "table-delete-rebinding", "table-window-scope", "tracked-date-rollback", "value-info-window", "write-window-binding", "case-binding", "process-command-line", "process-exit-wait", "describe-point-basic", "dialog-fingerprint", "content-bounds", "aside-corners", "tool-window-close", "tool-window-read", "receipt-manager-action", "bulk-action-executor", "bulk-action-worker-contract", "desktop-enumeration", "desktop-marker-contract", "desktop-marker-write-contract", "window-restore-contract", "window-scope", "structure-binding", "snapshot-runtime-id", "checker-zero-results", "build-drift", "foreground-lease-contract", "focusless-commit-contract", "file-dialog-folder-contract", "worker-controller-lock", "mcp-api-supervisor", "agent-plugin-runtime", "no-console-window", "operation-coverage", "operation-result-shape",
 ];
 const allSteps = [...serialBuildSteps, ...parallelSteps, ...exclusiveSteps, ...finalSteps];
 assert.deepEqual(allSteps.map((step) => step.name).sort(), expectedNames.sort());
@@ -68,7 +68,9 @@ assert.deepEqual(externalLiveOperations, [
   "vast_row_details",
   "vast_row_set_expanded",
 ], "Nur BelegManager, instances und VaSt duerfen auf den privaten Snapshot-VM-Nachweis angewiesen sein.");
-assert.deepEqual(exclusiveSteps.map((step) => step.name), ["worker-controller-lock", "mcp-api-supervisor", "no-console-window"]);
+assert.deepEqual(exclusiveSteps.map((step) => step.name), [
+  "worker-controller-lock", "mcp-api-supervisor", "agent-plugin-runtime", "no-console-window",
+]);
 assert.equal(exclusiveSteps[0].timeoutMs, 420_000);
 const controllerConflictSteps = parallelSteps.filter((step) => step.conflictKey !== undefined);
 assert.deepEqual(controllerConflictSteps.map((step) => step.name).sort(), [
@@ -85,6 +87,7 @@ assert.deepEqual(controllerConflictSteps.map((step) => step.name).sort(), [
 assert(controllerConflictSteps.every((step) => step.conflictKey === "windows-session-worker-controller"));
 assert(!parallelSteps.some((step) => step.name === "no-console-window"));
 assert(!parallelSteps.some((step) => step.name === "mcp-api-supervisor"));
+assert(!parallelSteps.some((step) => step.name === "agent-plugin-runtime"));
 // Die Abdeckungsbilanz wertet das Protokoll aller anderen Schritte aus und
 // darf deshalb weder parallel noch vor ihnen laufen.
 assert.deepEqual(finalSteps.map((step) => step.name), ["operation-coverage", "operation-result-shape"]);
@@ -105,7 +108,7 @@ for (const required of [
   "api-contract", "api-discovery-contract", "api-openapi-contract", "api-cli-contract", "api-all-operations", "mcp-wrapper-catalog", "github-workflow",
   "mcp-api-all-operations", "api-tax-journeys", "operation-schema-catalog", "verification-doc-coverage", "operation-live-evidence", "live-core-read-contract", "result-contract", "result-field-worker-guard", "source-architecture", "mcp-module-boundaries", "mcp-main-contract", "mcp-preflight", "repository-privacy", "repository-links", "readme-contract", "javascript-syntax", "powershell-syntax",
   "foreground-lease-contract", "focusless-commit-contract", "file-dialog-folder-contract", "desktop-enumeration", "desktop-marker-contract", "desktop-marker-write-contract", "checker-zero-results", "snapshot-runtime-id", "experimental-dialog-policy", "startup-dialog-policy", "table-delete-rebinding", "table-window-scope", "profile-operation-policy", "receipt-interaction-policy", "belegmanager-config-isolation", "api-mega-contract", "receipt-manager-action", "bulk-action-executor", "bulk-action-worker-contract",
-  "case-binding", "process-exit-wait", "describe-point-basic", "case-file", "live-script-resource-contract", "sse-process-guard", "workspace-file-cancellation", "api-static-documents", "api-client-body-abort", "api-client-transport-timeout", "api-local-http-transport", "api-single-flight", "dist-artifacts", "release-metadata",
+  "case-binding", "process-exit-wait", "describe-point-basic", "case-file", "live-script-resource-contract", "sse-process-guard", "workspace-file-cancellation", "api-static-documents", "api-client-body-abort", "api-client-transport-timeout", "api-local-http-transport", "api-single-flight", "dist-artifacts", "release-metadata", "agent-plugin-contract",
 ]) {
   assert(fastSteps.some((step) => step.name === required), `${required} fehlt im schnellen Sicherheitsnetz.`);
 }

@@ -1,0 +1,48 @@
+{
+  "name": "steuer-spar-erklaerung",
+  "displayName": "SteuerSparErklärung",
+  "description": "Lokale, inoffizielle Windows-Automation für SteuerSparErklärung mit einem gebündelten MCP-Server und wiederverwendbaren Arbeitsabläufen.",
+  "longDescription": "SteuerSparErklärung lokal über einen fail-closed MCP-Server bedienen. Das Plugin bündelt die versionsgleiche API, Windows-Runtime, Produktprofile und sichere Arbeitsabläufe; eine Übermittlung an ELSTER oder das Finanzamt ist dauerhaft gesperrt.",
+  "author": {
+    "name": "yadimon",
+    "url": "https://github.com/yadimon"
+  },
+  "homepage": "https://github.com/yadimon/steuer-spar-erklaerung-mcp",
+  "repository": "https://github.com/yadimon/steuer-spar-erklaerung-mcp",
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "steuererklaerung",
+    "windows",
+    "steuer-spar-erklaerung"
+  ],
+  "skill": {
+    "name": "steuer-spar-erklaerung",
+    "source": "skills/steuer-spar-erklaerung"
+  },
+  "mcpServer": {
+    "name": "steuer-spar-erklaerung",
+    "entry": "runtime/dist/mcp.js"
+  },
+  "runtime": {
+    "apiEntry": "runtime/dist/api.js"
+  },
+  "marketplace": {
+    "name": "steuer-spar-erklaerung",
+    "displayName": "SteuerSparErklärung",
+    "category": "Productivity"
+  },
+  "interface": {
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Prüfe, ob SteuerSparErklärung lokal bereit ist.",
+      "Öffne meinen Steuerfall sicher und zeige den aktuellen Status.",
+      "Führe die Plausibilitätsprüfung aus, ohne Daten zu übermitteln."
+    ]
+  }
+}

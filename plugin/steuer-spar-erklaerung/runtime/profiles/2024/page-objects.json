@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "product": "SteuerSparErklaerung 2024",
+  "taxYear": 2024,
+  "engineFileMajor": 30,
+  "compatibility": {
+    "executableName": "SSE.exe",
+    "installationFolderName": "Steuerjahr 2024",
+    "policy": "Fail closed. Other tax-year installations, case years, and incompatible start modes are never controlled."
+  },
+  "privacy": "Only public UI metadata. Never store case values, names, tax IDs, file paths, or calculation results here.",
+  "windows": {
+    "main": {
+      "process": "SSE",
+      "role": "main",
+      "headingContainerAutomationIdSuffix": ".ClientFrameSSE.ClientHeader",
+      "searchContainerAutomationIdSuffix": "SearchSSE"
+    },
+    "resultComparison": {
+      "title": "Werte-Info: Werte vergleichen - Was wäre wenn",
+      "role": "nonmodal-result-window",
+      "closePolicy": "allow-exact-nonmodal-close"
+    },
+    "taxTips": {
+      "title": "Steuer-Spar-Tipps",
+      "role": "nonmodal-help-window",
+      "closePolicy": "allow-exact-nonmodal-close"
+    }
+  },
+  "focuslessCommits": {},
+  "pages": {
+    "est.abgabe_der_steuererklaerung": {
+      "heading": "Abgabe der Steuererklärung",
+      "documentType": "ESt2024",
+      "fields": {}
+    }
+  }
+}

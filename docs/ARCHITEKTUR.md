@@ -26,21 +26,26 @@ Entstehungsgeschichte einzelner UIA-Lösungen.
 
 ## Produktziel
 
-Ein Windows-Nutzer soll die SteuerSparErklärung mit einem Agenten prüfen und
-kontrolliert bearbeiten können, ohne Node.js, npm, Python oder PowerShell 7
-global installieren zu müssen. Sichtbar bleibt die SteuerSparErklärung selbst;
-API-, MCP- und Worker-Prozesse dürfen keine schwarzen Konsolenfenster öffnen.
+Ein Windows-Nutzer soll die SteuerSparErklärung nach einer target-spezifischen
+Plugin-Installationsfolge mit einem Agenten prüfen und kontrolliert bearbeiten
+können.
+Node.js 22+ ist die einzige zusätzliche Plugin-Runtime; Git wird nur beim
+einmaligen Klonen benötigt. npm, npx, Python oder PowerShell 7 dürfen beim
+MCP-Start nicht benötigt werden. Sichtbar bleibt die SteuerSparErklärung
+selbst; API-, MCP- und Worker-Prozesse dürfen keine schwarzen Konsolenfenster
+öffnen.
 
 Das Produkt besteht aus vier klaren Schichten:
 
 ```text
-Agent oder eigenes Programm
+Codex / Claude Code
         │
-        ├── HTTP/JSON ───────────────┐
-        │                            │
-        └── MCP (dünner Wrapper) ────┤
-                                     ▼
-                              lokale SSE-API
+        ├── Skill (First run und sichere Workflows)
+        └── MCP-Bundle (stdio, PC-blind) ─────┐
+                                              │
+Eigenes Programm ── HTTP/JSON ────────────────┤
+                                              ▼
+                                 lokale SSE-API (Singleton)
                        Herkunftsschutz, Queue, Dateien/Hash,
                          Szenarien, Konfiguration
                                      │
@@ -717,63 +722,77 @@ nie geöffnet“ ist deshalb eine Ablaufzusage der Skills, keine API-Sperre.
 
 ### Nutzerstandard
 
-Es gibt genau einen MCP-Standardweg: Das MCP-Paket besitzt eine normale exakte
-Dependency auf dieselbe Releaseversion des API-Pakets. npm installiert beides
-in einem Schritt; es gibt weder `postinstall` noch Laufzeitinstallation. Eine
-vorhandene passende API-Instanz wird wiederverwendet.
-Node.js 22+ mit npm ist damit Voraussetzung; eine fehlende Laufzeit wird nicht
-ungefragt nachinstalliert.
+Es gibt genau einen normalen Agentenweg: Das Agent Plugin enthält den Skill,
+den MCP-Server, die exakt passende API, Windows-PowerShell-/Native-Runtime,
+Profile, Hilfsassets und alle JavaScript-Dependencies. Eine zentrale
+Metadatenquelle erzeugt `plugin.json`, `mcp.json`, Marketplace- und tatsächlich
+getestete Zielmanifeste. Build und Release stoppen bei Manifestdrift oder
+abweichender Plugin-/MCP-/API-/Runtimeversion.
 
-- installiert wird ohne Administratorrechte, Dienste, geplante Aufgaben oder
-  PATH-Änderungen — bevorzugt in einen eigenen Ordner je Einrichtung;
-- die automatisch gestartete API bleibt als lokaler Singleton über das Ende
-  eines MCP-Clients hinaus wiederverwendbar; bewusster Shutdown erfolgt nur
-  nach Paket-/Versions- und Kommandozeilenprüfung über die exakte Health-PID;
-- das Root-Manifest bleibt ein privater Build-Workspace. Das Windows-x64-
-  Paket `@yadimon/steuer-spar-erklaerung-api` enthält API, CLI,
-  PowerShell-/Native-Runtime und Profile. Da das MCP-Paket genau davon abhängt,
-  ist auch `@yadimon/steuer-spar-erklaerung-mcp` auf Windows x64 begrenzt; sein
-  fachlicher Toolgraph bleibt PC-blind;
-- der native PDF-Helfer läuft als eigener Windows-PowerShell-Prozess. Er
-  flusht das kompakte JSON vor dem direkten Prozessabschluss, damit ein auf
-  einzelnen Windows-Builds beobachteter WinRT-Restcode einen erfolgreichen
-  Render nicht als Fehler maskiert;
-- beide npm-Pakete werden aus derselben TypeScript-Quelle mit getrennten
-  Einstieggraphen gebaut. Ein generischer OpenAPI-Proxy oder ein dupliziertes
-  drittes Contract-Paket ist nicht Teil der Architektur;
-- vor TypeScript-Builds werden nur quelllose Compilerartefakte unter dem
-  gebundenen `dist`-Ordner entfernt; unbekannte Dateien oder Links stoppen den
-  Build. Die npm-Paketierung validiert danach erneut jedes
-  JavaScript-/Source-Map-Artefakt gegen seine TypeScript-Quelle und verlangt
-  alle dokumentierten CLI-Einstiege;
-- Python wird aus dem Produkt entfernt;
-- Windows PowerShell 5.1 wird nach vollständiger Kompatibilitätsprüfung als
-  Windows-Systembestandteil genutzt. Die Testmatrix prüft Parser,
-  Worker, native DLL und Source-Fallback unter genau dieser Laufzeit. Ein
-  privates oder globales PowerShell 7 gehört nicht zum Produkt.
+Der einmalige `plugins@1.3.4 add`-Aufruf benötigt Git auf `PATH`, weil er das
+Repository klont. Danach ist Node.js 22+ die einzige zusätzliche Runtime. Der
+MCP-Eintrag startet `node` direkt mit
+`${PLUGIN_ROOT}/runtime/dist/mcp.js`, Arbeitsverzeichnis `${PLUGIN_ROOT}`. Ein
+Runtime-`npx`, `npm install`, `postinstall` oder Netzwerkdownload ist verboten;
+im Auftragsworkspace wird kein `node_modules` vorausgesetzt.
 
-Der npm-Weg baut keinen Quellcode auf dem Nutzer-PC. Eine dauerhafte Anmeldung
-aus dem flüchtigen `_npx`-Cache wäre falsch, weil ein MCP-Eintrag dauerhafte
-absolute Pfade braucht. Direkte API-Nutzung bleibt davon getrennt ein
-Expertenweg des API-Pakets und ist kein dritter MCP-Installationsstandard.
+Externer Plugin-Cache und target-native Registrierung sind bei Codex zwei
+getrennte Zustände. Mit Codex CLI 0.151 schreibt `plugins@1.3.4 add` Cache,
+Marketplace und Konfiguration, lässt den Status-Readback
+`codex plugin list --json` aber auf
+`not installed`. Deshalb gehört
+`codex plugin add steuer-spar-erklaerung@plugins-cli --json` zwingend zum
+Codex-Installationsvertrag; erst der zurückgelesene Status
+`installed, enabled` erlaubt Neustart und Preflight. Claude Code registriert
+den Eintrag dagegen mit dem einzelnen zielgenauen `plugins@1 add`-Aufruf als
+`enabled`.
 
-Der MCP-Eintrag beim Client startet die absolute `node.exe` mit dem absoluten
-`dist/index.js` des MCP-Pakets als einzigem Argument. Beim Standardport braucht
-der Eintrag keine Umgebungsvariable. `SSE_API_CONFIG` ist ein optionaler
-absoluter Pfad für einen eigenen Arbeitsbereich. `SSE_API_URL` benennt dagegen
-eine autoritative, separat verwaltete Loopback-API und verhindert jeden
-Autostart. Beide Variablen gleichzeitig sind als mehrdeutige Identität
-gesperrt. Der Supervisor sieht Pfadwerte aus `SSE_API_CONFIG` nur für die
-Identitätsbildung; Steuerfall- und Dokumentinhalte bleiben ausschließlich im
+`codex plugin list --json` ist in diesem Ablauf als Zustands-Readback und nicht
+als vorgesehener dritter Installationsschritt dokumentiert. Die beobachtete
+Codex-Alpha kann dabei dennoch Cache-/Konfigurationszustand materialisieren;
+Readback-Evidenz braucht deshalb einen isolierten bekannten Ausgangszustand.
+
+Das aktuell verwendete `plugins@1.3.4` ignoriert den Scope bei Codex und
+schreibt bei beiden dokumentierten Zielen trotz `--scope project` in
+clientverwaltete Benutzer-Caches beziehungsweise Konfiguration. Dieser Flag
+ist daher keine physische Projektisolation. Der gewählte Ordner trennt den
+Agentenkontext; ein eigener absoluter `SSE_API_CONFIG`-Pfad trennt zusätzlich
+die API-Arbeitsdaten. Ohne ihn gilt der private Standard unter
+`%LOCALAPPDATA%\SteuerSparErklaerungApi`.
+
+Der gebündelte MCP bleibt PC-blind. Sein Supervisor übernimmt eine vorhandene
+API nur bei exakt passender Identität und Ressourcenbindung oder startet die
+mitgelieferte API unsichtbar. Der Singleton darf über das Ende eines Clients
+hinaus weiterlaufen. Bewusster Shutdown ist nur nach Paket-, Versions- und
+Kommandozeilenprüfung der exakten Health-PID zulässig; Prozessname-Sweeps sind
+kein Teil der Architektur.
+
+`SSE_API_URL` benennt eine autoritative separat verwaltete Loopback-API und
+verhindert jeden Autostart. `SSE_API_CONFIG` benennt dagegen einen absoluten
+eigenen Arbeitsbereich. Beide Variablen gleichzeitig sind als mehrdeutige
+Identität gesperrt. Steuerfall- und Dokumentinhalte bleiben ausschließlich im
 API-Prozess.
+
+Das Root-Manifest bleibt ein privater Build-Workspace. Das Windows-x64-npm-
+Paket `@yadimon/steuer-spar-erklaerung-api` enthält API, CLI,
+PowerShell-/Native-Runtime und Profile; das npm-MCP-Paket hängt exakt von
+derselben Version ab. Diese standalone-Pakete bleiben fortgeschrittene Wege,
+nicht der Plugin-Quickstart. Beide und das Plugin werden aus derselben
+TypeScript-/Profilquelle gebaut. Python und PowerShell 7 gehören nicht zur
+Produkt-Runtime; Windows PowerShell 5.1 wird als Windows-Systembestandteil
+genutzt.
 
 ### Betriebsarten
 
-1. **MCP-Standard:** Die Projektkonfiguration des gewählten Clients verweist
-   auf den im selben Ordner installierten
-   MCP-Einstieg. Er übernimmt eine exakt passende API oder startet seine eigene
-   Dependency unsichtbar und wartet auf Readiness.
-2. **Direkte API:** Das API-Paket separat installieren, bewusst im Vordergrund
+1. **Agent-Plugin-Standard:** Für Codex erst target-spezifisch mit `plugins@1`
+   klonen und danach target-nativ mit `codex plugin add` registrieren; für
+   Claude Code genügt der zielgenaue `plugins@1`-Aufruf. Den jeweiligen
+   Aktivstatus zurücklesen, erst dann den Client neu laden und `sse_preflight`
+   als echtes MCP-Tool ausführen. Der MCP-Start braucht danach nur die
+   gebündelten Dateien und Node.js 22+.
+2. **Standalone MCP:** Das npm-MCP-Paket in einen bewussten Paketordner
+   installieren und target-nativ anbinden.
+3. **Direkte API:** Das API-Paket separat installieren, bewusst im Vordergrund
    starten und CLI/HTTP ohne MCP verwenden.
 
 Der Singleton ist kein Windows-Dienst, keine geplante Aufgabe und kein
@@ -823,13 +842,19 @@ einen separaten Worker-Adapter.
 
 ## Erster Start statt Einrichtungsprogramm
 
-Es gibt kein Setup-Programm. Beim Start liest die API ihre Konfiguration aus
-`--config` beziehungsweise dem Standardort, ergänzt jedes fehlende Feld durch
-einen Standardwert und legt die vier Ressourcenbereiche sowie das Logverzeichnis
-an. Fehlt die Datei vollständig, ist das kein Fehler, sondern der Normalfall:
-Ohne Token bleibt nichts Geheimes zu erzeugen, und alle übrigen Werte haben
-sichere Vorgaben. Eine ausdrücklich benannte Datei wird nie stillschweigend
-erfunden oder ersetzt.
+Es gibt kein separates Setup-Programm und keine versteckte Systemänderung. Nach
+Plugin-Installation lädt der neu gestartete Client Skill und MCP. Der Skill
+merkt sich den ursprünglichen Auftrag, ruft `sse_preflight` auf und stellt
+höchstens eine Frage pro Nachricht. Ein bereits eindeutig geöffneter Fall
+gewinnt; andernfalls werden Fall und vollständige Belegquellen bestätigt. Erst
+nach einem gemeinsam bestätigten sicheren Plan setzt er den ursprünglichen
+Auftrag fort.
+
+Beim MCP-Start liest die API ihre Konfiguration aus dem optionalen absoluten
+`SSE_API_CONFIG`-Pfad beziehungsweise dem Standardort, ergänzt fehlende Felder
+durch sichere Vorgaben und legt Ressourcenbereiche sowie Logverzeichnis an.
+Fehlt die Datei vollständig, ist das der Normalfall. Eine ausdrücklich benannte
+Datei wird nie stillschweigend durch eine andere ersetzt.
 
 Eine ältere Betakonfiguration mit `token` wird beim Laden nicht ignoriert,
 sondern mit einer Meldung abgelehnt, die die zu löschende Zeile nennt. Eine
@@ -843,29 +868,25 @@ diese Grenzen nicht überlaufen.
 
 ## Öffentliche Skills
 
-Öffentliche Skills liegen im von `npx skills` auffindbaren Layout
-`skills/<name>/SKILL.md`. Namen und Verzeichnis stimmen überein, verwenden nur
-Kleinbuchstaben/Ziffern/Bindestriche und tragen den eindeutigen Präfix
-`steuer-spar-erklaerung-`.
+Der Plugin-Skill liegt im Standardlayout
+`skills/steuer-spar-erklaerung/SKILL.md`. Der kurze Einstieg enthält nur
+Preflight, harte Grenzen, den wiederverwendbaren Hauptablauf und eine
+situationsbezogene Referenzroute. First run, Fallsitzung, UStVA,
+steuerfachliche Quellen, UI-Fallback und die getrennte BelegManager-Sicherung
+bleiben fokussierte Referenzen.
 
-Der optionale veröffentlichte Skill heißt `steuer-spar-erklaerung`. Er prüft
-zuerst über `sse_preflight` Arbeitsbereich, Produkt und Laufzeit, stellt bei
-fehlendem MCP den Installationsstand nach der
-kanonischen öffentlichen Anleitung her und bindet danach den bereits geöffneten
-Arbeitsfall; nur ein ausdrücklich isolierter Audit öffnet eine hashverifizierte
-Prüffallkopie. Agent-spezifische Metadaten sind
-optional; die eigentliche Anleitung bleibt mit Codex, Claude Code und anderen
-Agent-Skills-kompatiblen Agenten verwendbar. Für den sicheren MCP-Grundbetrieb
-ist er nicht erforderlich: dieselbe Preflight-Pflicht und die harten
-Fachgrenzen liegen zusätzlich in den MCP-Server-Instruktionen.
+Der Skill installiert nichts, ändert keine Clientkonfiguration und behandelt
+fehlendes MCP als sichtbaren Blocker mit Verweis auf die öffentliche
+Installationsanleitung. Dieselbe Preflight-Pflicht und die harten Fachgrenzen
+liegen zusätzlich in den MCP-Server-Instruktionen, damit der sichere
+Grundbetrieb nicht allein von der Skillauswahl abhängt.
 
-Skills enthalten nur Nutzer- und Laufzeitwissen:
+Skills enthalten nur:
 
-- Erkennen, einrichten und verbinden;
 - Berechtigungs- und Sicherheitsgrenzen;
-- Arbeitsablauf und Rückleseverträge;
-- verständliche Fragen mit deutschen Defaults;
-- Fehlerdiagnose und sichere Recovery.
+- First-run-Dialog und wiederverwendbare Fachabläufe;
+- Backup-, Bindungs-, Readback- und Speicherverträge;
+- situationsbezogene Fehlerdiagnose und sichere Recovery.
 
 Gescheiterte Entwicklungsversuche, historische Bugs, Messprotokolle und
 Refactoring-Entscheidungen gehören nicht in installierte Skills.

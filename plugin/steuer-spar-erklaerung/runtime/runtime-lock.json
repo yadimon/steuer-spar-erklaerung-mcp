@@ -1,0 +1,185 @@
+{
+  "schemaVersion": 1,
+  "packageName": "steuer-spar-erklaerung-mcp",
+  "packageVersion": "0.1.0-beta.33",
+  "apiPackageName": "@yadimon/steuer-spar-erklaerung-api",
+  "mcpPackageName": "@yadimon/steuer-spar-erklaerung-mcp",
+  "pluginName": "steuer-spar-erklaerung",
+  "pluginVersion": "0.1.0-beta.33",
+  "entries": {
+    "mcp": "dist/mcp.js",
+    "api": "dist/api.js"
+  },
+  "files": [
+    {
+      "path": "LICENSE",
+      "sha256": "aefc1ac8c417f9fef659ee4d3ce4808bd16747d0c3e0818a611b3a0ef9856cdf",
+      "size": 1094
+    },
+    {
+      "path": "dist/api.js",
+      "sha256": "49b9cfbe0a00f8286ca488cb773b56dda3f8d13632ee172aa91a8ae224f4f3ab",
+      "size": 686361
+    },
+    {
+      "path": "dist/mcp.js",
+      "sha256": "6149e62c4fb7674f8844c4ee4e34e158ce5f5a7b3db10ceb9f1ed17f438b440c",
+      "size": 1141441
+    },
+    {
+      "path": "powershell/akad-parser.ps1",
+      "sha256": "281ddc49322ed6ebbcb27170727bd36805c881ffdaf57d977fa3d095083aa7aa",
+      "size": 10054
+    },
+    {
+      "path": "powershell/desktop-marker.ps1",
+      "sha256": "36e34f512e1a516b6d88558dfbeca187d29b3a7fe5e5cf21457fbe208f5de687",
+      "size": 4389
+    },
+    {
+      "path": "powershell/instance-identity.ps1",
+      "sha256": "1be957fc2f2e4bb2947d36498c8c7e9906a9b9edb56a840bcb8965469ce07afa",
+      "size": 2236
+    },
+    {
+      "path": "powershell/load-native.ps1",
+      "sha256": "a26fe42f9b9c81346d749ff8d493ef47864aaf983d766cd6e3d0897ec3614159",
+      "size": 8119
+    },
+    {
+      "path": "powershell/ocr-image.ps1",
+      "sha256": "1f7e010513ed2f1edc4d1494f60980979220453fb639afd5dd835449bb5361de",
+      "size": 3326
+    },
+    {
+      "path": "powershell/profile-verification.ps1",
+      "sha256": "b0c0bc87a0e9f7368d0396f251e385b58487b39a059b97a03990af1fa792526b",
+      "size": 811
+    },
+    {
+      "path": "powershell/render-pdf.ps1",
+      "sha256": "4b66535793b2df327e6831bfbce7e541b3de53bb333518ce619a22694f403f66",
+      "size": 4768
+    },
+    {
+      "path": "powershell/run-on-desktop.ps1",
+      "sha256": "94a791304dc82d371a90a930b0db7b55d7edb2d3642ede611bd70677b862fef5",
+      "size": 9642
+    },
+    {
+      "path": "powershell/sse-native.cs",
+      "sha256": "cbad9a013cfd12f930e3d3686fcee04a94ace450615d0c7911b8da588dfc23b8",
+      "size": 26937
+    },
+    {
+      "path": "powershell/sse-native.dll",
+      "sha256": "408e710e0010861923379cb09869d81cd3c62ed24a07611228a15f4d8d4b63c6",
+      "size": 26624
+    },
+    {
+      "path": "powershell/sse-native.sha256",
+      "sha256": "8c1291ba48df85a690954f5679455fa17360971f123fe2384c8911486fa40f3d",
+      "size": 181
+    },
+    {
+      "path": "powershell/sse-worker.ps1",
+      "sha256": "7df5dc28f3facb10a7c462f9cec8d7181f7cbad120678fd48c91052bad669ead",
+      "size": 1110526
+    },
+    {
+      "path": "powershell/structure-binding.ps1",
+      "sha256": "592c30c920c6d11ef7d0369a356ce81783a1474ea9da77c524fc242fe3c5674b",
+      "size": 3959
+    },
+    {
+      "path": "powershell/table-combobox.ps1",
+      "sha256": "a4a6daee01c00a0cd0a59fde3a16f997f35981003677cfb135bed2c97db51779",
+      "size": 19012
+    },
+    {
+      "path": "powershell/table-region.ps1",
+      "sha256": "327339931b84c8d75f98eb3bb71683c8db9854d2b28dacb459b0d2ec1e279626",
+      "size": 8322
+    },
+    {
+      "path": "powershell/table-values.ps1",
+      "sha256": "05f8ebf99883a4f564d38716a66777ccc89f1b9d1cad6f6750c5a1fc1ce82817",
+      "size": 2393
+    },
+    {
+      "path": "powershell/window-scope.ps1",
+      "sha256": "a82b1f716eb9855ce4bad3fd023987f15b3474d0735697ab77677135d37af19b",
+      "size": 2806
+    },
+    {
+      "path": "powershell/worker-transport-common.ps1",
+      "sha256": "4c146bd9bf9f3d1a054eec08c315871882915fc54a1e58531caa057ca9429fa9",
+      "size": 2426
+    },
+    {
+      "path": "profiles/2024/page-objects.json",
+      "sha256": "5d04433383f4a86239962af6125c5be3a8baa2ab3a8511bb0ab1e61339183c09",
+      "size": 1208
+    },
+    {
+      "path": "profiles/2024/profile.json",
+      "sha256": "f82455adbdbef99f336c157b4416bbd11aa4bd6140920038dc58dd149529116c",
+      "size": 855
+    },
+    {
+      "path": "profiles/2025/page-objects.json",
+      "sha256": "c50441cd2eb32ab1d90ade9c2bb01404dd6ebc68ae0914d48f4750cdcd704e5d",
+      "size": 25167
+    },
+    {
+      "path": "profiles/2025/profile.json",
+      "sha256": "279787d6af48a7824272593ee0e3cc11d4928c6a813b0474dce6875c615bd487",
+      "size": 837
+    },
+    {
+      "path": "third-party/@modelcontextprotocol__sdk/LICENSE",
+      "sha256": "5e13dbbc1d120fc2a03cecde7c91424ae2d7de11b63d58ded2f4431e261ee50d",
+      "size": 1071
+    },
+    {
+      "path": "third-party/NOTICE.json",
+      "sha256": "0f699217a5e888439bb117858cd8e4f9a445ff8a21a09caf6fdac06f6cfb5d05",
+      "size": 1808
+    },
+    {
+      "path": "third-party/ajv-formats/LICENSE",
+      "sha256": "9df3bb69929a3b650ed73b3bfa1756725aaff0ac296461605753547004eafeaf",
+      "size": 1074
+    },
+    {
+      "path": "third-party/ajv/LICENSE",
+      "sha256": "9b6a90e9be78799534e4030d71b6817271fb99aa10e261f9f9f6dec1cff4177a",
+      "size": 1089
+    },
+    {
+      "path": "third-party/fast-deep-equal/LICENSE",
+      "sha256": "7bf9b2de73a6b356761c948d0e9eeb4be6c1270bd04c79cd489c1e400ffdfc1a",
+      "size": 1074
+    },
+    {
+      "path": "third-party/fast-uri/LICENSE",
+      "sha256": "df7464922225c9b286167fa692d305e5ba98bf71613525d4d031649a344a3f3f",
+      "size": 1814
+    },
+    {
+      "path": "third-party/json-schema-traverse/LICENSE",
+      "sha256": "7bf9b2de73a6b356761c948d0e9eeb4be6c1270bd04c79cd489c1e400ffdfc1a",
+      "size": 1074
+    },
+    {
+      "path": "third-party/zod-to-json-schema/LICENSE",
+      "sha256": "7beaa85b57d7211f6684af6c1d97e6d9ef7ec1851f779152043a47a8700306a9",
+      "size": 746
+    },
+    {
+      "path": "third-party/zod/LICENSE",
+      "sha256": "3f1189b28e3866e0d979968d466b78f813f76827cfdca1fbb124cc0a5c8841f8",
+      "size": 1072
+    }
+  ]
+}

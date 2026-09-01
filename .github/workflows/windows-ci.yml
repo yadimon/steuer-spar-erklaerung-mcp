@@ -39,5 +39,8 @@ jobs:
       - name: Run complete offline suite
         run: npm test
 
+      - name: Verify deterministic Agent Plugin bundle
+        run: npm run check:plugin
+
       - name: Prove clean installation from both packages
         run: npm run test:npm-clean-install
