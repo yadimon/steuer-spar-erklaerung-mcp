@@ -425,6 +425,10 @@ Agent oder eigenes Programm
 - Feld-, Tabellen- und UStVA-Beträge werden mit gemeinsam getesteter deutscher
   Gruppierung und exakter Dezimalgleichheit zurückgelesen. Präfixe sowie
   mehrdeutige Punktfolgen gelten nicht als Übereinstimmung.
+- Die Zuordnung sichtbarer Summenlabels zu Tabellenfeldern baut pro bereits
+  gelesenem UIA-Snapshot einen kurzlebigen X-Sweep-Index. AutomationId-Scope
+  bleibt vorrangig; Geometrie bindet nur das nächste strikt links liegende
+  Label innerhalb von ±14 Pixeln und hält keine UI-Knoten über den Aufruf.
 - Roh-Tastatur, generische Lösch- oder Versandwege sind keine öffentliche
   Operation.
 - Unbekannte Dialogbuttons werden inventarisiert und als nicht unterstützt
