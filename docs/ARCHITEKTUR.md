@@ -369,9 +369,10 @@ Agent oder eigenes Programm
   dieses Lifecycle-Signal auch nach beiden Cleanup-Wächtern aus, wird der
   aktuelle Platz nur im global verriegelten Zustand freigegeben;
   `worker-isolation-lost` sperrt alle weiteren Workerstarts bis zum API-Neustart.
-- Die native Top-Level-Fensterenumeration akzeptiert nur einen erfolgreichen
-  `EnumWindows`-Durchlauf. Callback-Ausnahmen, Win32-Fehler und jeder
-  abgebrochene Durchlauf liefern niemals ein leeres oder partielles Inventar;
+- Die native Top-Level-Fensterenumeration akzeptiert nur einen vollständigen
+  `EnumWindows`-Durchlauf oder den belegten leeren Privatdesktop ohne Callback
+  und Fehlercode. Callback-Ausnahmen, Win32-Fehler und ein Abbruch nach bereits
+  besuchten Fenstern liefern niemals ein leeres oder partielles Inventar;
   gleich große Fenster behalten ihre native Enumerationsreihenfolge.
 - Beim fachlichen `close` muss der verifizierte SSE-Prozess vor der ersten
   Schließaktion einen lesbaren, gültigen und offenen `SafeProcessHandle`
