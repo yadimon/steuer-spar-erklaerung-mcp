@@ -190,6 +190,25 @@ assert.throws(() => parseApiOperationArgs("dialog_answer", { hwnd: 42, fingerpri
 assert.deepEqual(parseApiOperationArgs("dialog_answer", {
   hwnd: 42, fingerprint: "a".repeat(64), button: "OK",
 }), { hwnd: 42, fingerprint: "a".repeat(64), button: "OK" });
+assert.deepEqual(parseApiOperationArgs("dialog_answer", {
+  hwnd: 42,
+  fingerprint: "a".repeat(64),
+  button: "Nein",
+  expectedCaseRef: "cases:fall.Gew2025",
+  expectedCaseHash: "b".repeat(64),
+}), {
+  hwnd: 42,
+  fingerprint: "a".repeat(64),
+  button: "Nein",
+  expectedCaseRef: "cases:fall.Gew2025",
+  expectedCaseHash: "b".repeat(64),
+});
+assert.throws(() => parseApiOperationArgs("dialog_answer", {
+  hwnd: 42, fingerprint: "a".repeat(64), button: "Nein", expectedCaseRef: "C:\\fall.Gew2025",
+}));
+assert.throws(() => parseApiOperationArgs("dialog_answer", {
+  hwnd: 42, fingerprint: "a".repeat(64), button: "Nein", expectedCaseHash: "kurz",
+}));
 
 assert.throws(() => parseApiOperationArgs("click_point", { name: "Hinweis", checkerReadOnly: true }));
 assert.deepEqual(parseCheckerReadOnlyClickArgs({ name: "Hinweis", checkerReadOnly: true }), {

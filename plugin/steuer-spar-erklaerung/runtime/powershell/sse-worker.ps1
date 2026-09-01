@@ -3045,6 +3045,38 @@ function Get-SSEDialogFingerprint([string]$Title, $Buttons, $UnsupportedButtons,
   finally { $sha.Dispose() }
 }
 
+function Test-SSERecoveryPromptWindowCandidate($Dialog) {
+  if (-not $Dialog) { return $false }
+  $expectedTitle = "SteuerSparErklärung für das Steuerjahr $($script:SSE_TAX_YEAR)"
+  [bool](
+    [string]$Dialog.title -ceq $expectedTitle -and [string]$Dialog.cls -match '^Qt' -and
+    [int]$Dialog.w -ge 450 -and [int]$Dialog.w -le 650 -and
+    [int]$Dialog.h -ge 180 -and [int]$Dialog.h -le 400
+  )
+}
+
+function Test-SSERecoveryPromptDescriptor($Dialog) {
+  if (-not (Test-SSERecoveryPromptWindowCandidate $Dialog) -or [string]$Dialog.kind -cne 'qt-dialog') {
+    return $false
+  }
+  if (@($Dialog.unsupportedButtons).Count) { return $false }
+  $buttons = @($Dialog.buttons | ForEach-Object {
+    [pscustomobject]@{ name=[string]$_.name; enabled=[bool]$_.enabled }
+  })
+  if ($buttons.Count -ne 2 -or
+      @($buttons | Where-Object { $_.name -ceq 'Ja' -and $_.enabled }).Count -ne 1 -or
+      @($buttons | Where-Object { $_.name -ceq 'Nein' -and $_.enabled }).Count -ne 1) {
+    return $false
+  }
+  $text = ((@($Dialog.texts | ForEach-Object { [string]$_ }) -join ' ') -replace '\s+', ' ').Trim()
+  $expectedText = (
+    'Es wurde eine Wiederherstellungsdatei gefunden. ' +
+    'Vermutlich wurde das Programm zuvor nicht ordnungsgemäss beendet. ' +
+    'Möchten Sie diese Wiederherstellungsdatei jetzt laden?'
+  )
+  [bool]($text -ceq $expectedText)
+}
+
 function Get-DialogDescriptor($Window, [IntPtr]$MainHwnd) {
   $kind = 'other'
   # Mehrere Fälle können gleichzeitig offen sein. Jeder breite SSE-Fall ist
@@ -3166,13 +3198,17 @@ function Get-DialogDescriptor($Window, [IntPtr]$MainHwnd) {
   if ($kind -in @('native-dialog','qt-dialog')) {
     $fingerprint = Get-SSEDialogFingerprint $Window.title $buttons $unsupportedButtons $texts
   }
-  [pscustomobject]@{
+  $descriptor = [pscustomobject]@{
     hwnd = [int64]$Window.hwnd; pid = [int]$Window.pid; cls = $Window.cls; title = $Window.title
     titleFingerprint = $Window.titleFingerprint; kind = $kind
     x = $Window.x; y = $Window.y; w = $Window.w; h = $Window.h; minimiert = [bool]$Window.minimiert
     buttons = $buttons; unsupportedButtons = $unsupportedButtons; texts = $texts; fingerprint = $fingerprint; tree = $tree
     uiaReadOk = $uiaReadOk; uiaError = $uiaError; msaaReadOk = $msaaReadOk; msaaError = $msaaError
   }
+  $isRecoveryPrompt = Test-SSERecoveryPromptDescriptor $descriptor
+  $descriptor | Add-Member -NotePropertyName recoveryPrompt -NotePropertyValue ([bool]$isRecoveryPrompt)
+  $descriptor | Add-Member -NotePropertyName requiresCaseBinding -NotePropertyValue ([bool]$isRecoveryPrompt)
+  $descriptor
 }
 
 function Get-DialogInventory([int]$TargetPid = 0) {
@@ -3181,7 +3217,7 @@ function Get-DialogInventory([int]$TargetPid = 0) {
   if (-not $windows.Count) { return @() }
   # Der gemeinsame Hauptfensterresolver erkennt auch minimierte Fallfenster,
   # deren Ersatzgeometrie bei -32000 sonst wie ein kompakter Qt-Dialog wirkt.
-  # Der 518x260-Startdialog "Steuerprogramm" bleibt dagegen bewusst draussen.
+  # Die 518x260-Recovery-Frage mit Produkt-/Jahrestitel bleibt dagegen bewusst draussen.
   $main = @(Get-SSEMainWindowCandidates $windows | Select-Object -First 1)
   $mainHwnd = $(if ($main.Count) { [IntPtr][int64]$main[0].hwnd } else { [IntPtr]::Zero })
   @($windows | ForEach-Object { Get-DialogDescriptor $_ $mainHwnd })
@@ -3208,7 +3244,9 @@ function Get-SSEMainWindowCandidates($Windows) {
   # Start aber kurz parallel ein breites generisches Fenster "Steuerprogramm"
   # stehen. Sobald ein konkreter Fall existiert, ist dieses kein zweiter Fall.
   # Mehrere konkret betitelte Fallfenster bleiben dagegen strikt mehrdeutig.
-  $loadedCases = @($wins | Where-Object { $_.title -match 'SteuerSparErklärung' })
+  $loadedCases = @($wins | Where-Object {
+    $_.title -match 'SteuerSparErklärung' -and ($_.w -ge 900 -or $_.minimiert)
+  })
   if ($loadedCases.Count) {
     return @($loadedCases | Sort-Object { $_.w * $_.h } -Descending)
   }
@@ -8551,6 +8589,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         hwnd = $_.hwnd; pid = $_.pid; cls = $_.cls; title = $_.title; kind = $_.kind
         x = $_.x; y = $_.y; w = $_.w; h = $_.h; minimiert = $_.minimiert
         buttons = $_.buttons; texts = $_.texts; fingerprint = $_.fingerprint
+        recoveryPrompt = [bool]$_.recoveryPrompt; requiresCaseBinding = [bool]$_.requiresCaseBinding
         uiaReadOk = $_.uiaReadOk; uiaError = $_.uiaError; msaaReadOk = $_.msaaReadOk; msaaError = $_.msaaError
       }
     })
@@ -8588,6 +8627,41 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         expectedFingerprint = $fingerprint; actualFingerprint = $dialog.fingerprint
         title = $dialog.title; buttons = $dialog.buttons; texts = $dialog.texts
       })
+    }
+    $isRecoveryWindowCandidate = Test-SSERecoveryPromptWindowCandidate $dialog
+    $isRecoveryPrompt = Test-SSERecoveryPromptDescriptor $dialog
+    if ($isRecoveryWindowCandidate -and -not $isRecoveryPrompt) {
+      Fail 'Die Wiederherstellungsfrage ist sichtbar, aber Text oder Schalter entsprechen nicht dem exakten Vertrag; NICHT geklickt.' 'dialog-unreadable'
+    }
+    $expectedCasePath = [string](Arg $a 'expectedCasePath')
+    $expectedCaseHash = ([string](Arg $a 'expectedCaseHash')).ToUpperInvariant()
+    $recoveryBindingBefore = $null
+    $recoveryHashBefore = $null
+    if ($isRecoveryPrompt) {
+      if ($buttonName -cne 'Nein') {
+        Fail "Die Wiederherstellungsfrage erlaubt ausschliesslich 'Nein'; Wiederherstellungsdaten werden nie automatisch geladen." 'blocked'
+      }
+      if (-not $expectedCasePath -or $expectedCaseHash -notmatch '^[A-F0-9]{64}$') {
+        Fail 'Recovery-Nein braucht expectedCaseRef und expectedCaseHash der regulaer gespeicherten Falldatei.' 'bad-args'
+      }
+      $expectedCasePath = [IO.Path]::GetFullPath($expectedCasePath)
+      if (-not (Test-SSEProfileCaseFileName $expectedCasePath $false) -or
+          -not (Test-Path -LiteralPath $expectedCasePath -PathType Leaf)) {
+        Fail 'Die gebundene regulaere Falldatei fehlt oder gehoert nicht zum Produktprofil.' 'case-mismatch'
+      }
+      $recoveryBindingBefore = Test-CaseBinding $targetWindows[0] $expectedCasePath
+      if (-not $recoveryBindingBefore.ok -or [string]$recoveryBindingBefore.mode -cne 'exact-command-line') {
+        Fail 'Recovery-Fenster und regulaere Falldatei sind nicht exakt ueber die gestartete PID/Command-Line gebunden.' 'case-mismatch'
+      }
+      $recoveryHashBefore = Get-Sha256 $expectedCasePath
+      if ($recoveryHashBefore -ne $expectedCaseHash) {
+        Fail "Hashvertrag verletzt: '$recoveryHashBefore', erwartet '$expectedCaseHash'. Recovery-Frage NICHT beantwortet." 'case-mismatch'
+      }
+      if (-not (Get-CaseSummary $expectedCasePath)) {
+        Fail 'Die regulaere Falldatei konnte vor dem Verwerfen der Recovery-Datei nicht vollstaendig geprueft werden.' 'parse-failed'
+      }
+    } elseif ($expectedCasePath -or $expectedCaseHash) {
+      Fail 'expectedCaseRef/expectedCaseHash sind ausschliesslich fuer die exakt erkannte Wiederherstellungsfrage zulaessig.' 'bad-args'
     }
     # Nie einen verdeckten Eltern-Dialog beantworten. Besonders der CSV-Export
     # behaelt sein Qt-Fenster offen, waehrend ein nativer Ordnerdialog obenauf
@@ -8674,7 +8748,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $beforeHandles = @{}; foreach ($w in $windowsBefore) { $beforeHandles[[int64]$w.hwnd] = $true }
     try { $method = Invoke-DialogButtonInfo $dialog $buttonInfo[0] }
     catch { Fail "Dialogschaltflaeche konnte nicht sicher ausgeloest werden: $($_.Exception.Message)" 'stale' }
-    Start-Sleep -Milliseconds ([int](Arg $a 'waitMs' 900))
+    $defaultAnswerWaitMs = $(if ($isRecoveryPrompt) { 5000 } else { 900 })
+    Start-Sleep -Milliseconds ([int](Arg $a 'waitMs' $defaultAnswerWaitMs))
     $closed = -not [SW]::IsWindow([IntPtr][int64]$dialog.hwnd)
     $windowsAfter = @(Get-Windows 'SSE')
     $newWindows = @($windowsAfter | Where-Object { -not $beforeHandles.ContainsKey([int64]$_.hwnd) })
@@ -8693,6 +8768,32 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     })
     $dirtyAfter = $(if ($mainAfterWindow.Count) { Get-DirtyStateFast $mainBeforeHwnd } else { $null })
     $dirtyIntroduced = $(if ($null -ne $dirtyBefore -and $null -ne $dirtyAfter) { -not [bool]$dirtyBefore -and [bool]$dirtyAfter } else { $null })
+    $recoveryBindingModeAfter = $null
+    $recoveryHashAfter = $null
+    if ($isRecoveryPrompt) {
+      $recoveryMainAfter = @((Get-SSEMainWindowCandidates $windowsAfter) | Where-Object {
+        [int]$_.pid -eq [int]$dialog.pid
+      })
+      if ($recoveryMainAfter.Count -ne 1 -or
+          ([string]$recoveryMainAfter[0].title) -match '\(Wiederhergestellt\)') {
+        Emit ([pscustomobject]@{
+          ok=$false; kind='postcondition-failed'
+          error='Recovery-Frage wurde geschlossen, aber genau ein regulaeres, nicht wiederhergestelltes Fallfenster fehlt; keine Wiederholung.'
+          hwnd=[int64]$dialog.hwnd; pid=[int]$dialog.pid; closed=[bool]$closed
+        })
+      }
+      $recoveryBindingAfter = Test-CaseBinding $recoveryMainAfter[0] $expectedCasePath
+      $recoveryHashAfter = Get-Sha256 $expectedCasePath
+      if (-not $recoveryBindingAfter.ok -or $recoveryHashAfter -ne $expectedCaseHash) {
+        Emit ([pscustomobject]@{
+          ok=$false; kind='postcondition-failed'
+          error='Regulaeres Fallfenster oder Falldatei-Hash ist nach Recovery-Nein nicht mehr exakt gebunden; keine Wiederholung.'
+          hwnd=[int64]$dialog.hwnd; pid=[int]$dialog.pid; closed=[bool]$closed
+          hashUnchanged=[bool]($recoveryHashAfter -eq $expectedCaseHash)
+        })
+      }
+      $recoveryBindingModeAfter = [string]$recoveryBindingAfter.mode
+    }
     $allowsChildDialog = ($dialog.title -like 'Export für das Finanzamt (*.csv)*' -and
       $buttonName -eq 'Klicken Sie hier, um Ihre Daten zu exportieren')
     if (-not $closed -and -not ($allowsChildDialog -and $newDialogs.Count -eq 1)) {
@@ -8722,6 +8823,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     Emit ([pscustomobject]@{
       ok = $true; answered = $buttonName; requestedAnswer = $requestedButtonName; method = $method; hwnd = [int64]$dialog.hwnd
       closed = [bool]$closed; advancedToChildDialog = [bool](-not $closed -and $allowsChildDialog); verified = $true
+      recoveryDiscarded = [bool]$isRecoveryPrompt; caseHashUnchanged = $(if ($isRecoveryPrompt) { [bool]($recoveryHashAfter -eq $expectedCaseHash) } else { $null })
+      caseBindingModeAfter = $recoveryBindingModeAfter
       ungespeichertVorher = $dirtyBefore; ungespeichertNachher = $dirtyAfter; ungespeichertEingefuehrt = $dirtyIntroduced
       newDialogs = $newDialogs
       windows = $lightWindows
@@ -10954,6 +11057,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
               hwnd=$_.hwnd; pid=$_.pid; cls=$_.cls; title=$_.title; kind=$_.kind
               x=$_.x; y=$_.y; w=$_.w; h=$_.h; minimiert=$_.minimiert
               buttons=$_.buttons; texts=$_.texts; fingerprint=$_.fingerprint
+              recoveryPrompt=[bool]$_.recoveryPrompt; requiresCaseBinding=[bool]$_.requiresCaseBinding
               uiaReadOk=$_.uiaReadOk; uiaError=$_.uiaError
               msaaReadOk=$_.msaaReadOk; msaaError=$_.msaaError
             }

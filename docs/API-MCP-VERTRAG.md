@@ -108,6 +108,18 @@ API-Hash, physischer Hash und Hash des zurückgelesenen UTF-8-Texts müssen
 überschrieben, sondern durch einen neuen, ausdrücklich korrigierenden Snapshot
 ersetzt.
 
+### Wiederherstellungsdialog
+
+Eine exakt erkannte SSE-Wiederherstellungsfrage erscheint in `dialog_list` mit
+`recoveryPrompt=true` und `requiresCaseBinding=true`. Ihr Fingerprint allein
+reicht nicht: `dialog_answer` akzeptiert nur `Nein` sowie `expectedCaseRef` und
+`expectedCaseHash`. API und MCP lösen die Referenz innerhalb des konfigurierten
+`cases:`-Bereichs auf; der Worker bindet dieselbe Datei erneut an PID und
+Command-Line, prüft SHA256 und Parser, klickt fingerprintgebunden und verifiziert
+anschließend reguläres Fallfenster und unveränderten Hash. `Ja`, unvollständige
+Bindings, abweichende Texte/Schalter oder ein nachträglich veränderter Dialog
+enden ohne Klick.
+
 ## MCP-Abbildung
 
 Vor dieser Abbildung übernimmt der MCP-Start ausschließlich eine exakt passende

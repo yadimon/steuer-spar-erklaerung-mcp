@@ -131,14 +131,14 @@ $decision = Invoke-Binding $foreignPath $foreignTitle '' $true $true
 Assert-FullParity $default $decision 'Command-line-Abfragefehler'
 Assert-True ($decision.nativeCalls -eq 1 -and $decision.cimCalls -eq 1 -and -not $decision.result.ok -and $null -eq $decision.result.commandPath) 'Native- und CIM-Fehler blieben nicht fail-closed.'
 
-# Die drei internen Entscheidungswege duerfen optimieren. save und save_as
-# liefern ihre vollstaendigen Objekte oeffentlich und bleiben deshalb eager.
+# Die drei internen Entscheidungswege duerfen optimieren. save, save_as und
+# beide Recovery-Grenzen brauchen dagegen vollstaendige Command-Line-Evidenz.
 $calls = @($ast.FindAll({
   param($node)
   $node -is [Management.Automation.Language.CommandAst] -and
     $node.GetCommandName() -ceq 'Test-CaseBinding'
 }, $true) | ForEach-Object { $_.Extent.Text.Trim() })
-Assert-True ($calls.Count -eq 6) "Erwartet waren sechs Test-CaseBinding-Aufrufe, gefunden wurden $($calls.Count)."
+Assert-True ($calls.Count -eq 8) "Erwartet waren acht Test-CaseBinding-Aufrufe, gefunden wurden $($calls.Count)."
 
 $expectedDecisionCalls = @(
   'Test-CaseBinding $window $expectedCasePath -DecisionOnly',
@@ -146,6 +146,8 @@ $expectedDecisionCalls = @(
   'Test-CaseBinding $mainAfter[0] $expectedCasePath -DecisionOnly'
 )
 $expectedEvidenceCalls = @(
+  'Test-CaseBinding $targetWindows[0] $expectedCasePath',
+  'Test-CaseBinding $recoveryMainAfter[0] $expectedCasePath',
   'Test-CaseBinding $main $expectedPath',
   'Test-CaseBinding $main $sourcePath',
   'Test-CaseBinding $mainAfter $targetPath'
@@ -155,4 +157,4 @@ foreach ($call in @($expectedDecisionCalls + $expectedEvidenceCalls)) {
 }
 Assert-True (@($calls | Where-Object { $_ -match '(?i)-DecisionOnly' }).Count -eq 3) 'DecisionOnly muss exakt auf drei interne Bindungsentscheidungen begrenzt bleiben.'
 
-Write-Output 'Steuerfallbindung: exakter Decision-only-Titel ohne Kommandozeilenabfrage; Native-/CIM-Fallbacks und Save-Evidenz unveraendert.'
+Write-Output 'Steuerfallbindung: exakter Decision-only-Titel ohne Kommandozeilenabfrage; Native-/CIM-Fallbacks sowie Save-/Recovery-Evidenz unveraendert.'

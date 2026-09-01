@@ -313,7 +313,13 @@ const CORE_OPERATION_RESULT_FIELDS = {
   },
   desktop_stop: { hartBeendet: OPTIONAL_BOOLEAN, desktopMarkeEntfernt: OPTIONAL_BOOLEAN },
   dialog_list: { dialogs: OPTIONAL_ARRAY, windows: OPTIONAL_ARRAY, count: OPTIONAL_NON_NEGATIVE_NUMBER },
-  dialog_answer: { closed: OPTIONAL_BOOLEAN, answered: OPTIONAL_STRING_OR_BOOLEAN },
+  dialog_answer: {
+    closed: OPTIONAL_BOOLEAN,
+    answered: OPTIONAL_STRING_OR_BOOLEAN,
+    recoveryDiscarded: OPTIONAL_BOOLEAN,
+    caseHashUnchanged: OPTIONAL_BOOLEAN,
+    caseBindingModeAfter: OPTIONAL_STRING,
+  },
   ui_state: { running: OPTIONAL_BOOLEAN, heading: OPTIONAL_STRING, blockiert: OPTIONAL_BOOLEAN },
   ustva_read: {
     page: OPTIONAL_STRING,

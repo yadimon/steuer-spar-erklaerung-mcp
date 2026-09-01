@@ -70,7 +70,7 @@ const firstBoundUiState = journey.indexOf('await assertBoundUiState("launch-gew"
 const firstBoundHelp = journey.indexOf('await read("help", { hwnd: currentHwnd }', firstBoundUiState);
 assert(firstLaunch >= launchPhaseStart && firstBoundUiState > firstLaunch && firstBoundHelp > firstBoundUiState,
   "Eingabehilfe muss nach Launch und gebundenem UI-State mit dem verifizierten HWND gelesen werden.");
-const invokedMutationIds = [...journey.matchAll(/(?:mutateAndRead|maybeDismissStartupDialog)\(\s*["']([^"']+)["']/gu)]
+const invokedMutationIds = [...journey.matchAll(/(?:mutateAndRead|maybeDiscardRecoveryPrompt|maybeDismissStartupDialog)\(\s*["']([^"']+)["']/gu)]
   .map((match) => match[1]);
 for (const match of journey.matchAll(/maxSteps:\s*(\d+)/gu)) {
   assert(Number(match[1]) <= 200,
@@ -232,6 +232,16 @@ assert.doesNotMatch(journey, /\["OK", "Schließen", "Schliessen", "Abbrechen"\]/
 assert.match(journey,
   /matchingDialogs[\s\S]+?dialog\.hwnd === exportDialog\.hwnd[\s\S]+?dialog\.title === exportDialog\.title[\s\S]+?exportDialog = matchingDialogs\[0\][\s\S]+?fingerprint: exportDialog\.fingerprint/u,
   "Der Export-Trigger muss den unmittelbar vor dialog_answer gelesenen Dialog-Fingerprint verwenden.");
+assert.match(journey,
+  /maybeDiscardRecoveryPrompt[\s\S]+?recoveryPrompt === true[\s\S]+?button: "Nein"[\s\S]+?expectedCaseRef[\s\S]+?expectedCaseHash/u,
+  "Die Mega-Reise muss eine Recovery-Frage ausschliesslich mit exakter Klassifikation und Fall-/Hash-Bindung verwerfen.");
+for (const recoveryId of [
+  "launch-gew-recovery-discard",
+  "reopen-gew-recovery-discard",
+  "launch-est-recovery-discard",
+]) {
+  assert(declaredIds.has(recoveryId), `${recoveryId}: Recovery-Mutation fehlt im maschinenlesbaren Manifest.`);
+}
 assert.match(journey, /failure-cleanup-instances/u);
 assert.match(journey, /findOwnedInstances/u);
 assert.match(journey, /const ownedLaunchPids = new Set/u);

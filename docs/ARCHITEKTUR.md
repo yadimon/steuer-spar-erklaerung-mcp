@@ -577,6 +577,19 @@ verlangt daher Rolle **und** Geometrie (`Get-SSEMainWindowCandidates` plus
 Breitenschwelle), im Lese- wie im Schreibpfad. Nur eine eigene, profilierte
 Rollenoperation darf davon abweichen.
 
+Die schmale Wiederherstellungsfrage ist ein eigener fail-closed Sonderfall im
+Dialogvertrag. `dialog_list` klassifiziert sie nur bei exakt passendem
+Produkt-/Jahrestitel, Qt-Klasse, gemessener Geometrie, vollständigem Textvektor
+und genau den aktiven Schaltern `Ja`/`Nein`; sonst bleibt sie unbedienbar.
+`dialog_answer` erlaubt für diese Rolle ausschließlich `Nein` und verlangt
+zusätzlich eine `cases:`-Referenz samt aktuellem SHA256. Der Worker beweist vor
+dem Klick, dass die gestartete PID laut Command-Line genau diese reguläre Datei
+geöffnet hat und ihr Parser sie lesen kann. Danach werden geschlossenes
+Recovery-Fenster, unveränderter Disk-Hash und genau ein reguläres, nicht mit
+`(Wiederhergestellt)` markiertes Fallfenster erneut gelesen. Dadurch kann
+`launch` den Dialog früh als `blockedByDialog` melden, statt fünf Minuten auf
+einen unbedienbaren `startup-question`-Timeout zu warten.
+
 ### Öffnen und Schließen sind davon nicht betroffen
 
 Nicht bedienbar heißt nicht lebenszykluslos. Ein Nebenfenster, das die API

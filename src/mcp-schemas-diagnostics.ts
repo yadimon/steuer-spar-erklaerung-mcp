@@ -81,6 +81,12 @@ export const SSE_MCP_DIAGNOSTIC_SCHEMAS = {
     hwnd: WINDOW_HANDLE,
     fingerprint: SHA256(),
     bodyFingerprint: SHA256().optional().describe("Bei automatischen Pruefhinweisen Pflicht; bindet auch den OCR-Fliesstext"),
+    expectedCaseRef: CASE_REF().optional().describe(
+      "Nur bei recoveryPrompt=true Pflicht: regulaer gespeicherte Falldatei, die exakt an die gestartete SSE-PID gebunden sein muss",
+    ),
+    expectedCaseHash: SHA256().optional().describe(
+      "Nur bei recoveryPrompt=true Pflicht: aktueller SHA256 der regulaer gespeicherten Falldatei",
+    ),
     button: z.enum(SSE_DIALOG_BUTTONS).describe("Exakter freigegebener Buttonname aus sse_dialog_list"),
     waitMs: z.number().int().min(200).max(10000).optional().describe("Wartezeit auf den Dialog-Readback in Millisekunden"),
   }).strict(),

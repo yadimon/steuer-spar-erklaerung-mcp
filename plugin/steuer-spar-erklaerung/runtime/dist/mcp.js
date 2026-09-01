@@ -4708,6 +4708,12 @@ var init_mcp_schemas_diagnostics = __esm({
         hwnd: WINDOW_HANDLE,
         fingerprint: SHA256(),
         bodyFingerprint: SHA256().optional().describe("Bei automatischen Pruefhinweisen Pflicht; bindet auch den OCR-Fliesstext"),
+        expectedCaseRef: CASE_REF().optional().describe(
+          "Nur bei recoveryPrompt=true Pflicht: regulaer gespeicherte Falldatei, die exakt an die gestartete SSE-PID gebunden sein muss"
+        ),
+        expectedCaseHash: SHA256().optional().describe(
+          "Nur bei recoveryPrompt=true Pflicht: aktueller SHA256 der regulaer gespeicherten Falldatei"
+        ),
         button: external_exports.enum(SSE_DIALOG_BUTTONS).describe("Exakter freigegebener Buttonname aus sse_dialog_list"),
         waitMs: external_exports.number().int().min(200).max(1e4).optional().describe("Wartezeit auf den Dialog-Readback in Millisekunden")
       }).strict(),
@@ -7307,7 +7313,13 @@ var init_result_contract = __esm({
       },
       desktop_stop: { hartBeendet: OPTIONAL_BOOLEAN, desktopMarkeEntfernt: OPTIONAL_BOOLEAN },
       dialog_list: { dialogs: OPTIONAL_ARRAY, windows: OPTIONAL_ARRAY, count: OPTIONAL_NON_NEGATIVE_NUMBER },
-      dialog_answer: { closed: OPTIONAL_BOOLEAN, answered: OPTIONAL_STRING_OR_BOOLEAN },
+      dialog_answer: {
+        closed: OPTIONAL_BOOLEAN,
+        answered: OPTIONAL_STRING_OR_BOOLEAN,
+        recoveryDiscarded: OPTIONAL_BOOLEAN,
+        caseHashUnchanged: OPTIONAL_BOOLEAN,
+        caseBindingModeAfter: OPTIONAL_STRING
+      },
       ui_state: { running: OPTIONAL_BOOLEAN, heading: OPTIONAL_STRING, blockiert: OPTIONAL_BOOLEAN },
       ustva_read: {
         page: OPTIONAL_STRING,
@@ -27526,14 +27538,14 @@ function registerDiagnosticTools(registry2) {
     "sse_dialog_list",
     {
       title: "Dialoge sicher lesen",
-      description: "Listet alle SSE-Fenster, klassifiziert native und Qt-Dialoge und liefert Texte, erlaubte Antwortschaltflaechen sowie einen SHA256-Fingerprint. Mit pid wird die aufwendige Inventur vor dem UIA-/MSAA-Readback auf genau eine zuvor gelieferte SSE-PID begrenzt. Den Fingerprint unveraendert an sse_dialog_answer geben; er verhindert, dass versehentlich ein inzwischen ausgetauschter Dialog beantwortet wird."
+      description: "Listet alle SSE-Fenster, klassifiziert native und Qt-Dialoge und liefert Texte, erlaubte Antwortschaltflaechen sowie einen SHA256-Fingerprint. Mit pid wird die aufwendige Inventur vor dem UIA-/MSAA-Readback auf genau eine zuvor gelieferte SSE-PID begrenzt. Den Fingerprint unveraendert an sse_dialog_answer geben; er verhindert, dass versehentlich ein inzwischen ausgetauschter Dialog beantwortet wird. Die exakt erkannte Wiederherstellungsfrage traegt recoveryPrompt=true und requiresCaseBinding=true."
     }
   );
   registerApiTool(
     "sse_dialog_answer",
     {
       title: "Dialog sicher beantworten",
-      description: "Beantwortet genau einen zuvor gelesenen Dialog. hwnd, Fingerprint und eine eng begrenzte Antwort sind Pflicht. Vor dem Klick wird der Fingerprint erneut berechnet und der gesamte Dialog auf ELSTER-/Uebermittlungsbezug geprueft. Neu erscheinende Folgedialoge werden nur gemeldet und niemals automatisch beantwortet. Der Dirty-State des Hauptfalls wird vor und nach der Antwort mitgeliefert. Automatische Pruefhinweise verlangen zusaetzlich den bodyFingerprint; ihr OCR-Fliesstext wird unmittelbar vor der Antwort erneut gebunden. Beim lokalen Finanzamt-CSV-Export ist nur der exakt gelesene Schalter 'Klicken Sie hier, um Ihre Daten zu exportieren' freigegeben; der folgende Ordnerdialog bleibt ein separat zu pruefender Dialog."
+      description: "Beantwortet genau einen zuvor gelesenen Dialog. hwnd, Fingerprint und eine eng begrenzte Antwort sind Pflicht. Vor dem Klick wird der Fingerprint erneut berechnet und der gesamte Dialog auf ELSTER-/Uebermittlungsbezug geprueft. Neu erscheinende Folgedialoge werden nur gemeldet und niemals automatisch beantwortet. Der Dirty-State des Hauptfalls wird vor und nach der Antwort mitgeliefert. Automatische Pruefhinweise verlangen zusaetzlich den bodyFingerprint; ihr OCR-Fliesstext wird unmittelbar vor der Antwort erneut gebunden. Bei recoveryPrompt=true ist nur 'Nein' erlaubt und expectedCaseRef plus expectedCaseHash sind Pflicht; PID/Command-Line, Dateihash und das anschliessende regulaere Fallfenster werden verifiziert. Beim lokalen Finanzamt-CSV-Export ist nur der exakt gelesene Schalter 'Klicken Sie hier, um Ihre Daten zu exportieren' freigegeben; der folgende Ordnerdialog bleibt ein separat zu pruefender Dialog."
     },
     { timeoutMs: 9e4 }
   );

@@ -69,6 +69,9 @@ Assert-True ($null -ne $fehler) 'Ein ausdrueckliches hwnd auf den BelegManager w
 # Die schmale Wiederherstellungsfrage traegt den Produktnamen, ist aber kein
 # Hauptfenster und darf nie beschrieben werden.
 $script:FensterStub = @($startfrage)
+$startfrageKandidaten = @(Get-SSEMainWindowCandidates $script:FensterStub)
+Assert-True ($startfrageKandidaten.Count -eq 0) `
+  'Die schmale Wiederherstellungsfrage wurde im gemeinsamen Resolver als Hauptfenster klassifiziert.'
 $fehler = $null
 try { Resolve-BoundWriteWindow ([pscustomobject]@{}) } catch { $fehler = "$_" }
 Assert-True ($fehler -like '*no-window*') "Die Startfrage wurde als Schreibziel akzeptiert: $fehler"
