@@ -201,22 +201,53 @@ writeFileSync(fixtureSource, `
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Text;
 using System.Threading;
 
 public static class Program {
+  static void Append(string state, string mutexName, string line) {
+    using (var mutex = new Mutex(false, mutexName)) {
+      mutex.WaitOne();
+      try {
+        File.AppendAllText(state, line + Environment.NewLine);
+      } finally {
+        mutex.ReleaseMutex();
+      }
+    }
+  }
+
   public static int Main() {
     string state = Environment.GetEnvironmentVariable("SSE_PREWARM_FIXTURE_STATE");
     string mutexName = Environment.GetEnvironmentVariable("SSE_PREWARM_FIXTURE_MUTEX");
+    string mode = Environment.GetEnvironmentVariable("SSE_PREWARM_FIXTURE_MODE") ?? "pool";
     int launch;
     int pid = Process.GetCurrentProcess().Id;
     using (var mutex = new Mutex(false, mutexName)) {
       mutex.WaitOne();
       try {
         launch = File.Exists(state) ? File.ReadAllLines(state).Length + 1 : 1;
-        File.AppendAllText(state, launch + "|" + pid + Environment.NewLine);
+        string launchLine = mode == "assigned-timeout"
+          ? "launch|" + launch + "|" + pid
+          : launch + "|" + pid;
+        File.AppendAllText(state, launchLine + Environment.NewLine);
       } finally {
         mutex.ReleaseMutex();
       }
+    }
+    if (mode == "assigned-timeout") {
+      Console.WriteLine("{\\\"prewarm\\\":\\\"ready\\\",\\\"pid\\\":" + pid + "}");
+      Console.Out.Flush();
+      string job = Console.ReadLine();
+      if (job == null) return 0;
+      Append(state, mutexName, "job|" + launch + "|" + pid + "|" +
+        Convert.ToBase64String(Encoding.UTF8.GetBytes(job)));
+      if (launch == 1) {
+        Thread.Sleep(Timeout.Infinite);
+        return 0;
+      }
+      Console.WriteLine("{\\\"ok\\\":true,\\\"fixture\\\":\\\"replacement\\\"}");
+      Console.Out.Flush();
+      return 0;
     }
     if (launch == 1 || launch == 4) {
       Thread.Sleep(Timeout.Infinite);
@@ -262,6 +293,31 @@ try {
     windowsHide: true,
     stdio: "pipe",
   });
+  const assignedState = join(sandbox, "assigned-job-state.txt");
+  const assignedOutput = execFileSync(
+    process.execPath,
+    [join(root, "test", "fixtures", "worker-warm-assigned-timeout.mjs")],
+    {
+      cwd: root,
+      windowsHide: true,
+      timeout: 30_000,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        TEMP: sandbox,
+        TMP: sandbox,
+        SSE_POWERSHELL_EXE: fixtureExecutable,
+        SSE_WORKER_PREWARM_POOL_SIZE: "1",
+        SSE_WORKER_PREWARM_STARTUP_TIMEOUT_MS: "5000",
+        SSE_WORKER_PREWARM_RETRY_DELAY_MS: "1000",
+        SSE_PREWARM_FIXTURE_STATE: assignedState,
+        SSE_PREWARM_FIXTURE_MUTEX: `Local\\SSEAssignedTimeout${randomUUID().replaceAll("-", "")}`,
+        SSE_PREWARM_FIXTURE_MODE: "assigned-timeout",
+      },
+    },
+  );
+  assert.match(assignedOutput, /Warm assigned-job timeout: exact child cleanup/u);
+
   process.env.SSE_POWERSHELL_EXE = fixtureExecutable;
   process.env.SSE_WORKER_PREWARM_POOL_SIZE = "2";
   process.env.SSE_WORKER_PREWARM_STARTUP_TIMEOUT_MS = String(fixtureStartupTimeoutMs);
