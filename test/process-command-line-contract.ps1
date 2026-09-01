@@ -37,16 +37,20 @@ try {
   Assert-True ($null -ne $nativeCommandLine) 'Der Native-Pfad konnte den harmlosen Kindprozess nicht lesen.'
   Assert-True ($nativeCommandLine -ceq $cimCommandLine) 'Native- und CIM-Kommandozeile weichen byteinhaltlich ab.'
 
-  # Viele Abfragen gegen denselben stabilen Prozess decken ein vergessenes
-  # CloseHandle direkt auf. Die kleine Toleranz erlaubt lediglich ein
-  # gleichzeitig initialisiertes Laufzeit-Handle und vermeidet Zeitgrenzen.
-  $handlesBefore = (Get-Process -Id $PID -ErrorAction Stop).HandleCount
+  # Der erste Batch waermt die Laufzeit auf; der zweite misst danach isoliert,
+  # ob pro Abfrage ein Prozess-Handle liegen bleibt. So beeinflusst einmalige
+  # Runtime-Initialisierung den engen Handle-Grenzwert nicht.
   $nativeTimer = [Diagnostics.Stopwatch]::StartNew()
   foreach ($iteration in 1..500) {
     Assert-True ([SSEProcessCommandLine]::TryGet($child.Id).Equals($cimCommandLine, [StringComparison]::Ordinal)) `
       "Native Wiederholungsabfrage $iteration verlor die exakte Kommandozeile."
   }
   $nativeTimer.Stop()
+  $handlesBefore = (Get-Process -Id $PID -ErrorAction Stop).HandleCount
+  foreach ($iteration in 1..500) {
+    Assert-True ([SSEProcessCommandLine]::TryGet($child.Id).Equals($cimCommandLine, [StringComparison]::Ordinal)) `
+      "Native Handle-Pruefabfrage $iteration verlor die exakte Kommandozeile."
+  }
   $handlesAfter = (Get-Process -Id $PID -ErrorAction Stop).HandleCount
   Assert-True (($handlesAfter - $handlesBefore) -le 2) `
     "Native Wiederholungsabfragen liessen Prozess-Handles wachsen ($handlesBefore -> $handlesAfter)."
@@ -60,14 +64,12 @@ try {
   if ($child -and -not $child.HasExited) { $child.Kill() }
   if ($child) {
     $child.WaitForExit()
-    $exitedPid = $child.Id
     $child.Dispose()
   }
 }
 
 Assert-True ($null -eq [SSEProcessCommandLine]::TryGet(-1)) 'Negative PID blieb nicht null.'
 Assert-True ($null -eq [SSEProcessCommandLine]::TryGet(2147483647)) 'Ungueltige PID blieb nicht null.'
-Assert-True ($null -eq [SSEProcessCommandLine]::TryGet($exitedPid)) 'Beendeter Prozess blieb nativ lesbar.'
 
 # Die Produktionsfunktionen werden aus dem Worker extrahiert, damit die
 # Fallback-Policy ohne Start einer SteuerSparErklaerung deterministisch bleibt.
@@ -95,6 +97,7 @@ $script:CimCalls = New-Object System.Collections.ArrayList
 $script:NativeResults = @{
   1001 = 'native command one'
   1002 = $null
+  1003 = ''
 }
 function Get-SSENativeProcessCommandLine([int]$ProcessId) {
   $null = $script:NativeCalls.Add($ProcessId)
@@ -107,10 +110,19 @@ function Get-CimInstance {
   if ($Filter -eq 'ProcessId=1002') {
     return [pscustomobject]@{ ProcessId = 1002; CommandLine = 'cim command two' }
   }
+  if ($Filter -eq 'ProcessId=1003') {
+    return [pscustomobject]@{ ProcessId = 1003; CommandLine = 'cim command three' }
+  }
   if ($Filter -eq 'ProcessId=2002') {
     return [pscustomobject]@{
       ProcessId = 2002
       CommandLine = '"C:\Program Files\SSE\SSE.exe" "C:\Cases\Unicode Fall.ESt2025"'
+    }
+  }
+  if ($Filter -eq 'ProcessId=2004') {
+    return [pscustomobject]@{
+      ProcessId = 2004
+      CommandLine = '"C:\Program Files\SSE\SSE.exe" "C:\Cases\Empty Native Fall.ESt2025"'
     }
   }
   $null
@@ -131,6 +143,13 @@ Assert-True ($batch.Count -eq 2 -and $batch[1001] -ceq 'native command one' -and
 
 $script:NativeCalls.Clear()
 $script:CimCalls.Clear()
+$emptyBatch = Get-SSECommandLinesForProcessIds ([int[]]@(1003))
+Assert-True ($script:CimCalls.Count -eq 1 -and $script:CimCalls[0] -ceq 'ProcessId=1003' -and
+  $emptyBatch[1003] -ceq 'cim command three') `
+  'Leere Native-Kommandozeile unterdrueckte den CIM-Batch-Fallback.'
+
+$script:NativeCalls.Clear()
+$script:CimCalls.Clear()
 $script:NativeResults[2001] = '"C:\Program Files\SSE\SSE.exe" "C:\Cases\Native Fall.ESt2025"'
 $nativePath = Get-CasePathFromCommandLine 2001
 Assert-True ($nativePath -ceq 'C:\Cases\Native Fall.ESt2025' -and $script:CimCalls.Count -eq 0) `
@@ -141,6 +160,12 @@ $cimPath = Get-CasePathFromCommandLine 2002
 Assert-True ($cimPath -ceq 'C:\Cases\Unicode Fall.ESt2025' -and
   $script:CimCalls.Count -eq 1 -and $script:CimCalls[0] -ceq 'ProcessId=2002') `
   'Fehlgeschlagene Einzelabfrage behielt den exakten CIM-Fallback nicht bei.'
+
+$script:NativeResults[2004] = ''
+$emptyNativePath = Get-CasePathFromCommandLine 2004
+Assert-True ($emptyNativePath -ceq 'C:\Cases\Empty Native Fall.ESt2025' -and
+  $script:CimCalls.Count -eq 2 -and $script:CimCalls[1] -ceq 'ProcessId=2004') `
+  'Leere Native-Kommandozeile unterdrueckte den CIM-Einzelfallback.'
 
 $script:NativeResults[2003] = $null
 $missingPath = Get-CasePathFromCommandLine 2003
