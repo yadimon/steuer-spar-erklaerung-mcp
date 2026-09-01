@@ -229,6 +229,9 @@ assert.match(journey, /allowIncompleteSource: false/u,
   "Verify darf den kanonischen Collect-Bericht nicht als unvollstaendigen Teilstand akzeptieren.");
 assert.doesNotMatch(journey, /\["OK", "Schließen", "Schliessen", "Abbrechen"\]/u,
   "Die Mega-Reise darf keinen beliebigen SSE-Dialog anhand eines generischen Schliessbuttons beantworten.");
+assert.match(journey,
+  /matchingDialogs[\s\S]+?dialog\.hwnd === exportDialog\.hwnd[\s\S]+?dialog\.title === exportDialog\.title[\s\S]+?exportDialog = matchingDialogs\[0\][\s\S]+?fingerprint: exportDialog\.fingerprint/u,
+  "Der Export-Trigger muss den unmittelbar vor dialog_answer gelesenen Dialog-Fingerprint verwenden.");
 assert.match(journey, /failure-cleanup-instances/u);
 assert.match(journey, /findOwnedInstances/u);
 assert.match(journey, /const ownedLaunchPids = new Set/u);
