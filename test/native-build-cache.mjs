@@ -63,6 +63,11 @@ const completeSurface = {
   SSEWindowEnumerator: publicStaticMethods(
     originalNativeSource,
     "public static class SSEWindowEnumerator",
+    "public static class SSEProcessCommandLine",
+  ),
+  SSEProcessCommandLine: publicStaticMethods(
+    originalNativeSource,
+    "public static class SSEProcessCommandLine",
     "public sealed class SSEAccNode",
   ),
   SSEAccessible: publicStaticMethods(originalNativeSource, "public static class SSEAccessible", null),

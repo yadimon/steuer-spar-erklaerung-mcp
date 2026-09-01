@@ -48,7 +48,7 @@ function Read-SSENativeBoundedUtf8([string]$Path, [long]$MaxBytes) {
 
 function Test-SSENativeSurface {
   $types = @(
-    'DSK','SW','SSEWindowNode','SSEWindowEnumerator',
+    'DSK','SW','SSEWindowNode','SSEWindowEnumerator','SSEProcessCommandLine',
     'SSEAccessible','SSEAccNode','SSEWorkerControllerLease'
   )
   foreach ($name in $types) {
@@ -66,6 +66,7 @@ function Test-SSENativeSurface {
       'SendMessage','GetForegroundWindow','GetLastActivePopup','GetLastInputInfo','IsIconic','AttachThreadInput',
       'GetGUIThreadInfo','GetCurrentThreadId','SendUnicodeText')
     SSEWindowEnumerator=@('Describe')
+    SSEProcessCommandLine=@('TryGet')
     SSEWindowNode=@()
     SSEAccessible=@('Describe','DescribePoint','Invoke')
     SSEWorkerControllerLease=@('Acquire','ReleaseAndClose')

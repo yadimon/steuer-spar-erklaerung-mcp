@@ -2633,11 +2633,29 @@ function Get-CasePathFromCommandLineText([string]$CommandLine) {
   $null
 }
 
+function Get-SSENativeProcessCommandLine([int]$ProcessId) {
+  [SSEProcessCommandLine]::TryGet($ProcessId)
+}
+
 function Get-SSECommandLinesForProcessIds([int[]]$ProcessIds) {
   $zuordnung = @{}
   $eindeutige = @($ProcessIds | Where-Object { $_ -gt 0 } | Sort-Object -Unique)
   if (-not $eindeutige.Count) { return $zuordnung }
-  $filter = ($eindeutige | ForEach-Object { "ProcessId=$_" }) -join ' OR '
+  # OpenProcess + NtQueryInformationProcess ist fuer gleichberechtigte lokale
+  # Prozesse deutlich billiger als Win32_Process. CIM bleibt pro PID der
+  # unveraenderte Fallback fuer beendete, geschuetzte oder fremde Prozesse.
+  $cimIds = New-Object System.Collections.ArrayList
+  foreach ($processId in $eindeutige) {
+    try { $commandLine = Get-SSENativeProcessCommandLine ([int]$processId) }
+    catch { $commandLine = $null }
+    if ($null -ne $commandLine) {
+      $zuordnung[[int]$processId] = [string]$commandLine
+    } else {
+      $null = $cimIds.Add([int]$processId)
+    }
+  }
+  if (-not $cimIds.Count) { return $zuordnung }
+  $filter = (@($cimIds) | ForEach-Object { "ProcessId=$_" }) -join ' OR '
   try {
     foreach ($prozess in @(Get-CimInstance Win32_Process -Filter $filter -ErrorAction Stop)) {
       $zuordnung[[int]$prozess.ProcessId] = [string]$prozess.CommandLine
@@ -2647,8 +2665,12 @@ function Get-SSECommandLinesForProcessIds([int[]]$ProcessIds) {
 }
 
 function Get-CasePathFromCommandLine([int]$ProcessId) {
-  try { $cmd = [string](Get-CimInstance Win32_Process -Filter "ProcessId=$ProcessId").CommandLine }
-  catch { return $null }
+  try { $cmd = Get-SSENativeProcessCommandLine $ProcessId }
+  catch { $cmd = $null }
+  if ($null -eq $cmd) {
+    try { $cmd = [string](Get-CimInstance Win32_Process -Filter "ProcessId=$ProcessId").CommandLine }
+    catch { return $null }
+  }
   Get-CasePathFromCommandLineText $cmd
 }
 
