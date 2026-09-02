@@ -23,8 +23,8 @@
     },
     {
       "path": "dist/mcp.js",
-      "sha256": "764c034a9140f67063a406cfe8404b044efdc765fd85101ae01a397e3b139763",
-      "size": 1142271
+      "sha256": "bb395c4501b32a32be826babf78c03cef07f964875986c2f1162545c1e3dd7bd",
+      "size": 1156000
     },
     {
       "path": "powershell/akad-parser.ps1",
@@ -143,7 +143,7 @@
     },
     {
       "path": "third-party/NOTICE.json",
-      "sha256": "0f699217a5e888439bb117858cd8e4f9a445ff8a21a09caf6fdac06f6cfb5d05",
+      "sha256": "0357a6fb3589aec6fc82aa767e0e5000277ddfa6fdb56dbab4056932ec59cf68",
       "size": 1808
     },
     {
