@@ -69,23 +69,36 @@ $proxies = @([AppDomain]::CurrentDomain.GetAssemblies() | Where-Object { $_.GetN
 $childPath = Join-Path $env:TEMP ('sse-uia-proxy-child-' + [guid]::NewGuid().ToString('N') + '.ps1')
 [IO.File]::WriteAllText($childPath, $childScript, [Text.UTF8Encoding]::new($false))
 
+# Die Ausgabe wird ueber Pipes gelesen, nicht ueber -RedirectStandardOutput in
+# eine Datei: Start-Process haelt unter Windows PowerShell 5.1 das Handle der
+# Umleitungsdatei bis zum naechsten Garbage-Collect offen, und das Loeschen der
+# Datei scheiterte dadurch gelegentlich mit "wird von einem anderen Prozess
+# verwendet". Waehrend das Kind laeuft, pumpt diese Schleife weiter Nachrichten
+# fuer das Testfenster; die Leser laufen asynchron auf dem Threadpool.
 function Invoke-Child([string]$Mode) {
-  $outputPath = Join-Path $env:TEMP ('sse-uia-proxy-out-' + [guid]::NewGuid().ToString('N') + '.txt')
-  $process = Start-Process -FilePath 'powershell.exe' -PassThru -WindowStyle Hidden `
-    -RedirectStandardOutput $outputPath `
-    -ArgumentList @('-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
-      '-File', $childPath, '-Hwnd', $hwnd, '-Mode', $Mode, '-Dll', $nativeDll)
-  # Ohne diesen Zugriff bleibt ExitCode nach dem Ende leer (Start-Process-Falle).
-  $null = $process.Handle
+  $startInfo = [Diagnostics.ProcessStartInfo]::new()
+  $startInfo.FileName = 'powershell.exe'
+  $startInfo.UseShellExecute = $false
+  $startInfo.CreateNoWindow = $true
+  $startInfo.RedirectStandardOutput = $true
+  $startInfo.RedirectStandardError = $true
+  $startInfo.Arguments = (@('-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+      '-File', ('"' + $childPath + '"'), '-Hwnd', $hwnd, '-Mode', $Mode, '-Dll', ('"' + $nativeDll + '"')) -join ' ')
+  $process = [Diagnostics.Process]::Start($startInfo)
+  $outputTask = $process.StandardOutput.ReadToEndAsync()
+  $errorTask = $process.StandardError.ReadToEndAsync()
   $deadline = [DateTime]::UtcNow.AddSeconds(90)
   while (-not $process.HasExited) {
     [System.Windows.Forms.Application]::DoEvents()
     Start-Sleep -Milliseconds 30
     if ([DateTime]::UtcNow -gt $deadline) { try { $process.Kill() } catch { }; throw "Kindprozess ($Mode) antwortete nicht innerhalb von 90 s." }
   }
-  $raw = (Get-Content -LiteralPath $outputPath -Raw).Trim()
-  Remove-Item -LiteralPath $outputPath -Force
-  Assert-True ($process.ExitCode -eq 0) "Kindprozess ($Mode) endete mit Exit $($process.ExitCode): $raw"
+  $process.WaitForExit()
+  $raw = $outputTask.GetAwaiter().GetResult().Trim()
+  $errorText = $errorTask.GetAwaiter().GetResult().Trim()
+  $exitCode = $process.ExitCode
+  $process.Dispose()
+  Assert-True ($exitCode -eq 0) "Kindprozess ($Mode) endete mit Exit ${exitCode}: $raw $errorText"
   $parts = $raw.Split(';')
   Assert-True ($parts.Count -eq 3) "Kindprozess ($Mode) lieferte keine drei Werte: $raw"
   [pscustomobject]@{ nodes=[int]$parts[0]; titleBars=[int]$parts[1]; proxies=[int]$parts[2] }
