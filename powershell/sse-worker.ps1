@@ -4029,140 +4029,73 @@ function Walk-TreeLegacy {
   [pscustomobject]@{ nodes = @($out); stats = $st }
 }
 
-# Eigenschaften werden pro TreeWalker-Schritt gecacht. Ein frueherer
-# GetUpdatedCache(TreeScope.Subtree)-Aufruf war auf normalen Seiten sehr
-# schnell, konnte bei einem zyklischen Qt-Providerbaum jedoch nicht von
-# unserer eigenen RuntimeId-Sperre unterbrochen werden: SSE wuchs dann bis in
-# den Multi-GB-Bereich und hing. Mit Element-Scope bleibt jeder Provideraufruf
-# klein; die RuntimeId-Sperre greift zwischen zwei Schritten. Die Rueckgabe
-# bleibt formgleich zu Walk-TreeLegacy.
+# Der Baumlauf selbst liegt im nativen Helfer: derselbe Lauf kostete in
+# PowerShell im Median 328 ms je frischem Arbeiter, nativ 212 ms. Die
+# Sicherheitsregeln sind unveraendert - Element-Scope statt
+# GetUpdatedCache(TreeScope.Subtree) (das liess SSE bei einem zyklischen
+# Qt-Providerbaum bis in den Multi-GB-Bereich wachsen), RuntimeId-Zyklussperre
+# zwischen zwei Schritten, Knoten-/Tiefen-/Fristgrenzen. Hier wird nur noch auf
+# die bisherige Ergebnisform abgebildet; sie bleibt formgleich zu
+# Walk-TreeLegacy, das weiterhin der Rueckfallweg ist.
 $script:UIAElementCache = @{}
 function Get-UiSnapshot {
   param([IntPtr]$hwnd, [int]$MaxNodes = 4000, [int]$TimeoutSec = 45, [int]$MaxDepth = 16,
         [switch]$WithValues, [switch]$WithScroll)
   $snapshotWatch = [Diagnostics.Stopwatch]::StartNew()
   try {
-    $root = $AE::FromHandle($hwnd)
-    $request = New-Object System.Windows.Automation.CacheRequest
-    foreach ($property in @(
-      $AE::NameProperty,
-      $AE::AutomationIdProperty,
-      $AE::ControlTypeProperty,
-      $AE::BoundingRectangleProperty,
-      $AE::IsEnabledProperty,
-      $AE::RuntimeIdProperty
-    )) { $request.Add($property) }
-    $request.TreeScope = [System.Windows.Automation.TreeScope]::Element
-    $request.TreeFilter = [System.Windows.Automation.Automation]::ControlViewCondition
-    $request.AutomationElementMode = [System.Windows.Automation.AutomationElementMode]::Full
-    $cachedRoot = $root.GetUpdatedCache($request)
-    if (-not $cachedRoot) { throw 'GetUpdatedCache lieferte keinen Wurzelknoten.' }
+    # Der ERSTE UIA-Aufruf eines Arbeitsprozesses muss aus PowerShell kommen.
+    #
+    # Der verwaltete UIA-Client (UIAutomationClient.dll des .NET Framework)
+    # laedt seine Client-Side-Proxies beim ersten Aufruf ueber einen Stack-
+    # Walk in ProxyManager.LoadDefaultProxies. Liegt dabei ein PowerShell-
+    # Scriptblock-Frame ohne ReflectedType auf dem Stack, endet das in einer
+    # still verschluckten NullReferenceException - und weil das Einmal-Flag
+    # vorher schon zurueckgesetzt wurde, bleiben die Proxies fuer den Rest
+    # des Prozesses aus, egal wer spaeter aufruft. Kommt der erste Aufruf
+    # dagegen aus kompiliertem Code wie diesem Helfer, werden sie geladen:
+    # jedes Fenster mit Titelleiste erhaelt dann einen TitleBar-Teilbaum
+    # (Systemmenue, Schliessen, Minimieren, ...), und native Dialoge zeigen
+    # statt opaker Panes die vollen Teilbaeume ihrer Win32-Steuerelemente
+    # (Ordnerdialog: 54 statt 98 Knoten).
+    #
+    # Alle Ergebnisvertraege dieses Workers - Dialogschalter, Fingerprints,
+    # Seitenlesungen - sind auf die proxyfreie Sicht festgezurrt. Sie laesst
+    # sich nicht nachtraeglich herausfiltern, weil native Dialoge damit eine
+    # andere Baumstruktur bekommen. Deshalb sorgt dieser eine PowerShell-
+    # Aufruf dafuer, dass der native Lauf exakt dieselbe Sicht bekommt wie
+    # der bisherige PowerShell-Lauf. test/uia-proxy-state-contract.ps1 haelt
+    # beide Seiten dieses Verhaltens fest.
+    $null = $AE::FromHandle($hwnd)
+    $native = [SSEUiaTree]::Describe(
+      $hwnd, $MaxNodes, ($TimeoutSec * 1000), $MaxDepth, [bool]$WithValues, [bool]$WithScroll)
 
     $out = New-Object System.Collections.ArrayList
-    $seen = New-Object 'System.Collections.Generic.HashSet[string]'
+    foreach ($node in $native.Nodes) {
+      $scroll = $null
+      if ($null -ne $node.Scroll) {
+        $scroll = [pscustomobject]@{
+          vScrollable=$node.Scroll.VerticallyScrollable; vPercent=$node.Scroll.VerticalScrollPercent
+          vView=$node.Scroll.VerticalViewSize; hScrollable=$node.Scroll.HorizontallyScrollable
+          hPercent=$node.Scroll.HorizontalScrollPercent
+        }
+      }
+      $null = $out.Add([pscustomobject]@{
+        i=$node.Index; p=$node.ParentIndex; d=$node.Depth; type=$node.ControlType
+        name=$node.Name; aid=$node.AutomationId
+        x=$node.X; y=$node.Y; w=$node.W; h=$node.H
+        on=$node.Enabled; val=$node.Value; ro=$node.ReadOnly; checked=$node.Checked
+        selected=$node.Selected; scroll=$scroll; rid=$node.RuntimeId
+      })
+      # Spaetere Operationen greifen ueber die RuntimeId auf genau dieses
+      # lebende Element zurueck, statt den Baum erneut zu durchlaufen.
+      if ($node.RuntimeId) { $script:UIAElementCache[$node.RuntimeId] = $node.Element }
+    }
     $st = [pscustomobject]@{
-      n=0; err=0; cyc=0; cycleRid=''; cycleName=''
-      truncated=$false; valErr=0; scrollErr=0
+      n=$native.NodeCount; err=$native.WalkErrors; cyc=$native.CycleHits
+      cycleRid=[string]$native.CycleRuntimeId; cycleName=''
+      truncated=$native.Truncated; valErr=$native.ValueErrors; scrollErr=$native.ScrollErrors
       source='cache'; fallbackReason=''; snapshotMs=0
     }
-    $valueTypes = @('Edit', 'ComboBox', 'Spinner')
-    $toggleTypes = @('CheckBox')
-    $selectionTypes = @('RadioButton', 'TreeItem')
-    $scrollTypes = @('Pane', 'Custom', 'Group', 'Table', 'List', 'Tree', 'Document')
-
-    $walkCached = {
-      param($element, [int]$depth, [int]$parentIndex)
-      if ($st.n -ge $MaxNodes -or $snapshotWatch.Elapsed.TotalSeconds -gt $TimeoutSec) {
-        $st.truncated = $true; return
-      }
-      try { $child = $WLK.GetFirstChild($element, $request) } catch { $st.err++; return }
-      while ($child) {
-        if ($st.n -ge $MaxNodes -or $snapshotWatch.Elapsed.TotalSeconds -gt $TimeoutSec) {
-          $st.truncated = $true; return
-        }
-        $rid = $null
-        try {
-          $ridParts = $child.GetCachedPropertyValue($AE::RuntimeIdProperty)
-          if ($ridParts) { $rid = (@($ridParts) -join '.') }
-          if (-not $rid) { $rid = ($child.GetRuntimeId() -join '.') }
-        } catch { $st.err++ }
-        if ($rid -and -not $seen.Add($rid)) {
-          $st.cyc++
-          if (-not $st.cycleRid) { $st.cycleRid = $rid }
-          return
-        }
-        $myIndex = $st.n
-        $st.n++
-        try {
-          $cached = $child.Cached
-          $name = [string]$cached.Name
-          $aid = [string]$cached.AutomationId
-          $controlType = $cached.ControlType
-          $rectangle = $cached.BoundingRectangle
-          $enabled = $cached.IsEnabled
-          $ctype = $controlType.ProgrammaticName.Replace('ControlType.','')
-          $infinite = [double]::IsInfinity($rectangle.X)
-          $value = $null; $readOnly = $null; $checked = $null; $selected = $null; $scroll = $null
-          if ($WithValues -and $valueTypes -contains $ctype) {
-            $pattern = $null
-            try {
-              if ($child.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$pattern)) {
-                $value = $pattern.Current.Value
-                $readOnly = [bool]$pattern.Current.IsReadOnly
-              }
-            } catch { $st.valErr++ }
-          }
-          if ($WithValues -and $toggleTypes -contains $ctype) {
-            $pattern = $null
-            try {
-              if ($child.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$pattern)) {
-                $checked = switch ([string]$pattern.Current.ToggleState) {
-                  'On' { $true }; 'Off' { $false }; default { 'unbestimmt' }
-                }
-              }
-            } catch { $st.valErr++ }
-          }
-          if ($WithValues -and $selectionTypes -contains $ctype) {
-            $pattern = $null
-            try {
-              if ($child.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$pattern)) {
-                $selected = [bool]$pattern.Current.IsSelected
-              }
-            } catch { $st.valErr++ }
-          }
-          if ($WithScroll -and $scrollTypes -contains $ctype) {
-            $pattern = $null
-            try {
-              if ($child.TryGetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern, [ref]$pattern)) {
-                $current = $pattern.Current
-                $scroll = [pscustomobject]@{
-                  vScrollable=[bool]$current.VerticallyScrollable; vPercent=$current.VerticalScrollPercent
-                  vView=$current.VerticalViewSize; hScrollable=[bool]$current.HorizontallyScrollable
-                  hPercent=$current.HorizontalScrollPercent
-                }
-              }
-            } catch { $st.scrollErr++ }
-          }
-          $null = $out.Add([pscustomobject]@{
-            i=$myIndex; p=$parentIndex; d=$depth; type=$ctype
-            name=($name -replace "`r|`n|`t", ' ').Trim(); aid=$aid
-            x=$(if ($infinite) { -1 } else { [int]$rectangle.X })
-            y=$(if ($infinite) { -1 } else { [int]$rectangle.Y })
-            w=$(if ($infinite) { 0 } else { [int]$rectangle.Width })
-            h=$(if ($infinite) { 0 } else { [int]$rectangle.Height })
-            on=[bool]$enabled; val=$value; ro=$readOnly; checked=$checked
-            selected=$selected; scroll=$scroll; rid=$rid
-          })
-          if ($rid) { $script:UIAElementCache[$rid] = $child }
-        } catch { $st.err++ }
-        if ($depth -lt $MaxDepth) { & $walkCached $child ($depth + 1) $myIndex }
-        if ($st.n -ge $MaxNodes -or $snapshotWatch.Elapsed.TotalSeconds -gt $TimeoutSec) {
-          $st.truncated = $true; return
-        }
-        try { $child = $WLK.GetNextSibling($child, $request) } catch { $st.err++; return }
-      }
-    }
-    & $walkCached $cachedRoot 0 -1
     $st.snapshotMs = $snapshotWatch.ElapsedMilliseconds
     if (-not $out.Count) { throw 'Bulk-Snapshot war unerwartet leer.' }
     return [pscustomobject]@{ nodes=@($out); stats=$st }

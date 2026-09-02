@@ -50,6 +50,7 @@ export const parallelSteps = Object.freeze([
   psFile("dialog-fingerprint", "test/dialog-fingerprint-contract.ps1"),
   psFile("content-bounds", "test/content-bounds-contract.ps1"),
   psFile("aside-corners", "test/aside-corners-contract.ps1"),
+  psFile("uia-proxy-state", "test/uia-proxy-state-contract.ps1"),
   psFile("tool-window-close", "test/tool-window-close-contract.ps1"),
   psFile("tool-window-read", "test/tool-window-read-contract.ps1"),
   psFile("receipt-manager-action", "test/receipt-manager-action-contract.ps1"),

@@ -70,7 +70,27 @@ const completeSurface = {
     "public static class SSEProcessCommandLine",
     "public sealed class SSEAccNode",
   ),
-  SSEAccessible: publicStaticMethods(originalNativeSource, "public static class SSEAccessible", null),
+  SSEAccessible: publicStaticMethods(
+    originalNativeSource,
+    "public static class SSEAccessible",
+    "public sealed class SSEUiaScrollState",
+  ),
+  SSEUiaScrollState: publicStaticMethods(
+    originalNativeSource,
+    "public sealed class SSEUiaScrollState",
+    "public sealed class SSEUiaNode",
+  ),
+  SSEUiaNode: publicStaticMethods(
+    originalNativeSource,
+    "public sealed class SSEUiaNode",
+    "public sealed class SSEUiaSnapshot",
+  ),
+  SSEUiaSnapshot: publicStaticMethods(
+    originalNativeSource,
+    "public sealed class SSEUiaSnapshot",
+    "public static class SSEUiaTree",
+  ),
+  SSEUiaTree: publicStaticMethods(originalNativeSource, "public static class SSEUiaTree", null),
 };
 for (const [typeName, methods] of Object.entries(completeSurface)) {
   assert.deepEqual(requiredMethods(originalBuildSource, typeName), methods, `Build prueft ${typeName} nicht vollstaendig.`);

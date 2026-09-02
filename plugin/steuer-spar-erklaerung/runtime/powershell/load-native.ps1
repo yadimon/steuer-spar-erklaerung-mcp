@@ -46,10 +46,25 @@ function Read-SSENativeBoundedUtf8([string]$Path, [long]$MaxBytes) {
   }
 }
 
+function Get-SSENativeReferencedAssemblies {
+  # Der Baumlauf im Helfer nutzt die UI-Automation-Typen. Der
+  # .NET-Framework-Compiler findet sie NICHT ueber ihren blossen Namen, weil
+  # sie nur im GAC liegen; deshalb werden sie geladen und mit vollem Pfad
+  # referenziert. `dynamic` fuer MSAA/COM braucht zusaetzlich seinen Binder.
+  Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, WindowsBase -ErrorAction Stop
+  @(
+    'Microsoft.CSharp.dll',
+    [System.Windows.Automation.AutomationElement].Assembly.Location,
+    [System.Windows.Automation.ControlType].Assembly.Location,
+    [System.Windows.Rect].Assembly.Location
+  )
+}
+
 function Test-SSENativeSurface {
   $types = @(
     'DSK','SW','SSEWindowNode','SSEWindowEnumerator','SSEProcessCommandLine',
-    'SSEAccessible','SSEAccNode','SSEWorkerControllerLease'
+    'SSEAccessible','SSEAccNode','SSEWorkerControllerLease',
+    'SSEUiaTree','SSEUiaNode','SSEUiaScrollState','SSEUiaSnapshot'
   )
   foreach ($name in $types) {
     if (-not ($name -as [type])) { return $false }
@@ -70,6 +85,10 @@ function Test-SSENativeSurface {
     SSEWindowNode=@()
     SSEAccessible=@('Describe','DescribePoint','DescribePointBasic','Invoke')
     SSEWorkerControllerLease=@('Acquire','ReleaseAndClose')
+    SSEUiaTree=@('Describe')
+    SSEUiaNode=@()
+    SSEUiaScrollState=@()
+    SSEUiaSnapshot=@()
   }
   foreach ($typeName in $required.Keys) {
     $type = $typeName -as [type]
@@ -173,7 +192,7 @@ function Import-SSENativeInterop {
 
   $sourceLoad = @{ Path=$sourcePath; ErrorAction='Stop' }
   if ($PSVersionTable.PSEdition -eq 'Desktop') {
-    $sourceLoad.ReferencedAssemblies = @('Microsoft.CSharp.dll')
+    $sourceLoad.ReferencedAssemblies = Get-SSENativeReferencedAssemblies
   }
   Add-Type @sourceLoad
   if (-not (Test-SSENativeSurface)) {
