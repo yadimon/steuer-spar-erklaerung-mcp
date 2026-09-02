@@ -74,6 +74,20 @@ function Read-SSEBoundedFileBytes([string]$Path, [long]$MaxBytes) {
   }
 }
 
+function Get-SSENativeReferencedAssemblies {
+  # Der Baumlauf im Helfer nutzt die UI-Automation-Typen. Der
+  # .NET-Framework-Compiler findet sie NICHT ueber ihren blossen Namen, weil
+  # sie nur im GAC liegen; deshalb werden sie geladen und mit vollem Pfad
+  # referenziert. `dynamic` fuer MSAA/COM braucht zusaetzlich seinen Binder.
+  Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, WindowsBase -ErrorAction Stop
+  @(
+    'Microsoft.CSharp.dll',
+    [System.Windows.Automation.AutomationElement].Assembly.Location,
+    [System.Windows.Automation.ControlType].Assembly.Location,
+    [System.Windows.Rect].Assembly.Location
+  )
+}
+
 function Assert-SSENativeAssemblySurface([Reflection.Assembly]$Assembly) {
   $required = @{
     DSK=@('CreateDesktop','OpenDesktop','EnumDesktopWindows','ListDesktopWindows','SetLastError',
@@ -92,6 +106,10 @@ function Assert-SSENativeAssemblySurface([Reflection.Assembly]$Assembly) {
     SSEAccessible=@('Describe','DescribePoint','DescribePointBasic','Invoke')
     SSEAccNode=@()
     SSEWorkerControllerLease=@('Acquire','ReleaseAndClose')
+    SSEUiaTree=@('Describe')
+    SSEUiaNode=@()
+    SSEUiaScrollState=@()
+    SSEUiaSnapshot=@()
   }
   $missingTypes = @()
   $missingMethods = @()
@@ -174,10 +192,9 @@ try {
     ErrorAction = 'Stop'
   }
   if ($PSVersionTable.PSEdition -eq 'Desktop') {
-    # Windows PowerShell 5.1 nutzt den .NET-Framework-Compiler. Der native
-    # Helfer verwendet `dynamic` fuer MSAA/COM und braucht dessen Binder dort
-    # explizit. Dieselbe so erzeugte DLL kann auch unter PowerShell 7 laden.
-    $compile.ReferencedAssemblies = @('Microsoft.CSharp.dll')
+    # Windows PowerShell 5.1 nutzt den .NET-Framework-Compiler. Dieselbe so
+    # erzeugte DLL kann auch unter PowerShell 7 laden.
+    $compile.ReferencedAssemblies = Get-SSENativeReferencedAssemblies
   }
   Add-Type @compile
   if (-not (Test-Path -LiteralPath $temporary -PathType Leaf)) {

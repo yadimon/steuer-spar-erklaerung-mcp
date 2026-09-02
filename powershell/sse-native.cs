@@ -2,9 +2,12 @@
 // Kept in one compilation unit so Add-Type invokes the compiler only once.
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
+using System.Windows;
+using System.Windows.Automation;
 
 public class DSK {
   public delegate bool EP(IntPtr h, IntPtr l);
@@ -541,5 +544,267 @@ public static class SSEAccessible {
     }
     dynamic target = current;
     target.accDoDefaultAction(0);
+  }
+}
+
+// ------------------------------------------------------------ UIA-Baumlauf
+// Derselbe Lauf lief bisher in PowerShell: ein frischer Arbeiter brauchte
+// dafuer im Median 328 ms fuer 160 Knoten, hier sind es 237 ms. Gespart wird
+// ausschliesslich der Interpreteraufwand je Knoten; die Folge der
+// Provideraufrufe ist Schritt fuer Schritt dieselbe wie vorher.
+//
+// Das ist eine bewusste Entscheidung gegen den schnelleren Weg. Eine Fassung
+// mit FindAll(TreeScope.Children) holte eine ganze Geschwisterreihe in EINEM
+// Provideraufruf und war noch einmal 25 ms schneller - sie hat die
+// UStVA-Phase der Live-Reise aber zum Haengen gebracht: SSE stand danach mit
+// 2,26 GB und Responding=False, weil ein einzelner laufender Provideraufruf
+// von unserer RuntimeId-Sperre nicht unterbrochen werden kann. Dasselbe war
+// zuvor schon bei GetUpdatedCache(TreeScope.Subtree) beobachtet worden.
+// Deshalb: CacheRequest auf TreeScope.Element, ein Provideraufruf je Knoten,
+// und die Zyklussperre greift zwischen zwei Schritten.
+public sealed class SSEUiaScrollState {
+  public bool VerticallyScrollable;
+  public double VerticalScrollPercent;
+  public double VerticalViewSize;
+  public bool HorizontallyScrollable;
+  public double HorizontalScrollPercent;
+}
+
+public sealed class SSEUiaNode {
+  public int Index;
+  public int ParentIndex;
+  public int Depth;
+  public string ControlType;
+  public string Name;
+  public string AutomationId;
+  public int X, Y, W, H;
+  public bool Enabled;
+  // null, wenn der Knotentyp keinen Wert traegt oder nicht danach gefragt wurde.
+  public object Value;
+  public object ReadOnly;
+  // true, false, "unbestimmt" oder null - wie der bisherige PowerShell-Lauf.
+  public object Checked;
+  public object Selected;
+  public SSEUiaScrollState Scroll;
+  public string RuntimeId;
+  // Lebendes Element fuer den RuntimeId-Zwischenspeicher des Arbeiters.
+  public AutomationElement Element;
+}
+
+public sealed class SSEUiaSnapshot {
+  public SSEUiaNode[] Nodes;
+  public int NodeCount;
+  public int WalkErrors;
+  public int CycleHits;
+  public int ValueErrors;
+  public int ScrollErrors;
+  public string CycleRuntimeId = "";
+  public bool Truncated;
+}
+
+public static class SSEUiaTree {
+  static readonly HashSet<string> ValueTypes =
+    new HashSet<string>(new string[] { "Edit", "ComboBox", "Spinner" }, StringComparer.Ordinal);
+  static readonly HashSet<string> ToggleTypes =
+    new HashSet<string>(new string[] { "CheckBox" }, StringComparer.Ordinal);
+  static readonly HashSet<string> SelectionTypes =
+    new HashSet<string>(new string[] { "RadioButton", "TreeItem" }, StringComparer.Ordinal);
+  static readonly HashSet<string> ScrollTypes =
+    new HashSet<string>(
+      new string[] { "Pane", "Custom", "Group", "Table", "List", "Tree", "Document" },
+      StringComparer.Ordinal);
+
+  sealed class WalkState {
+    public List<SSEUiaNode> Output = new List<SSEUiaNode>();
+    public HashSet<string> Seen = new HashSet<string>(StringComparer.Ordinal);
+    public SSEUiaSnapshot Result = new SSEUiaSnapshot();
+    public Stopwatch Watch = Stopwatch.StartNew();
+    public int MaxNodes;
+    public int TimeoutMs;
+    public int MaxDepth;
+    public bool WithValues;
+    public bool WithScroll;
+    public CacheRequest Request;
+    public TreeWalker Walker;
+  }
+
+  static string Normalize(string value) {
+    if (string.IsNullOrEmpty(value)) return "";
+    return value.Replace('\r', ' ').Replace('\n', ' ').Replace('\t', ' ').Trim();
+  }
+
+  static bool LimitReached(WalkState state) {
+    if (state.Result.NodeCount >= state.MaxNodes || state.Watch.ElapsedMilliseconds > state.TimeoutMs) {
+      state.Result.Truncated = true;
+      return true;
+    }
+    return false;
+  }
+
+  static string JoinRuntimeId(int[] parts) {
+    if (parts == null || parts.Length == 0) return null;
+    var text = new StringBuilder();
+    for (int index = 0; index < parts.Length; index++) {
+      if (index > 0) text.Append('.');
+      text.Append(parts[index]);
+    }
+    return text.ToString();
+  }
+
+  static string RuntimeIdOf(WalkState state, AutomationElement element) {
+    try {
+      string cached = JoinRuntimeId(element.GetCachedPropertyValue(AutomationElement.RuntimeIdProperty) as int[]);
+      if (cached != null) return cached;
+      return JoinRuntimeId(element.GetRuntimeId());
+    } catch {
+      state.Result.WalkErrors++;
+      return null;
+    }
+  }
+
+  static CacheRequest BuildRequest() {
+    var request = new CacheRequest();
+    request.Add(AutomationElement.NameProperty);
+    request.Add(AutomationElement.AutomationIdProperty);
+    request.Add(AutomationElement.ControlTypeProperty);
+    request.Add(AutomationElement.BoundingRectangleProperty);
+    request.Add(AutomationElement.IsEnabledProperty);
+    request.Add(AutomationElement.RuntimeIdProperty);
+    request.TreeScope = TreeScope.Element;
+    request.TreeFilter = Automation.ControlViewCondition;
+    request.AutomationElementMode = AutomationElementMode.Full;
+    return request;
+  }
+
+  static void FillPatterns(WalkState state, AutomationElement element, string controlType, SSEUiaNode node) {
+    object pattern;
+    if (state.WithValues && ValueTypes.Contains(controlType)) {
+      try {
+        if (element.TryGetCurrentPattern(ValuePattern.Pattern, out pattern)) {
+          ValuePattern value = (ValuePattern)pattern;
+          node.Value = value.Current.Value;
+          node.ReadOnly = value.Current.IsReadOnly;
+        }
+      } catch {
+        // NICHT verschlucken: ein fehlgeschlagener Wertabruf saehe sonst wie
+        // ein leeres Feld aus. Bei Betraegen waere das ein Datenfehler.
+        state.Result.ValueErrors++;
+      }
+    }
+    if (state.WithValues && ToggleTypes.Contains(controlType)) {
+      try {
+        if (element.TryGetCurrentPattern(TogglePattern.Pattern, out pattern)) {
+          ToggleState toggle = ((TogglePattern)pattern).Current.ToggleState;
+          if (toggle == ToggleState.On) node.Checked = true;
+          else if (toggle == ToggleState.Off) node.Checked = false;
+          else node.Checked = "unbestimmt";
+        }
+      } catch { state.Result.ValueErrors++; }
+    }
+    if (state.WithValues && SelectionTypes.Contains(controlType)) {
+      try {
+        if (element.TryGetCurrentPattern(SelectionItemPattern.Pattern, out pattern)) {
+          node.Selected = ((SelectionItemPattern)pattern).Current.IsSelected;
+        }
+      } catch { state.Result.ValueErrors++; }
+    }
+    if (state.WithScroll && ScrollTypes.Contains(controlType)) {
+      try {
+        if (element.TryGetCurrentPattern(ScrollPattern.Pattern, out pattern)) {
+          ScrollPattern.ScrollPatternInformation current = ((ScrollPattern)pattern).Current;
+          node.Scroll = new SSEUiaScrollState {
+            VerticallyScrollable = current.VerticallyScrollable,
+            VerticalScrollPercent = current.VerticalScrollPercent,
+            VerticalViewSize = current.VerticalViewSize,
+            HorizontallyScrollable = current.HorizontallyScrollable,
+            HorizontalScrollPercent = current.HorizontalScrollPercent,
+          };
+        }
+      } catch { state.Result.ScrollErrors++; }
+    }
+  }
+
+  static SSEUiaNode BuildNode(
+    WalkState state, AutomationElement element, int index, int parentIndex, int depth, string runtimeId) {
+    AutomationElement.AutomationElementInformation cached = element.Cached;
+    string controlType = cached.ControlType.ProgrammaticName.Replace("ControlType.", "");
+    Rect rectangle = cached.BoundingRectangle;
+    // Ein unsichtbarer Knoten meldet eine unendliche Flaeche. Ohne diese
+    // Umsetzung rechnet jede Spalten-/Zuordnungslogik danach mit Unsinn.
+    bool infinite = double.IsInfinity(rectangle.X);
+    var node = new SSEUiaNode {
+      Index = index,
+      ParentIndex = parentIndex,
+      Depth = depth,
+      ControlType = controlType,
+      Name = Normalize(cached.Name),
+      AutomationId = cached.AutomationId == null ? "" : cached.AutomationId,
+      X = infinite ? -1 : (int)rectangle.X,
+      Y = infinite ? -1 : (int)rectangle.Y,
+      W = infinite ? 0 : (int)rectangle.Width,
+      H = infinite ? 0 : (int)rectangle.Height,
+      Enabled = cached.IsEnabled,
+      RuntimeId = runtimeId,
+      Element = element,
+    };
+    FillPatterns(state, element, controlType, node);
+    return node;
+  }
+
+  static void Walk(WalkState state, AutomationElement element, int depth, int parentIndex) {
+    if (LimitReached(state)) return;
+    AutomationElement child;
+    try { child = state.Walker.GetFirstChild(element, state.Request); }
+    catch {
+      state.Result.WalkErrors++;
+      return;
+    }
+    while (child != null) {
+      if (LimitReached(state)) return;
+      string runtimeId = RuntimeIdOf(state, child);
+      // Ein wiedergesehener Knoten beendet die ganze Geschwisterreihe, genau
+      // wie im bisherigen Lauf: GetNextSibling liefert auf einem zyklischen
+      // Providerbaum sonst unbegrenzt denselben Knoten nach.
+      if (runtimeId != null && !state.Seen.Add(runtimeId)) {
+        state.Result.CycleHits++;
+        if (state.Result.CycleRuntimeId.Length == 0) state.Result.CycleRuntimeId = runtimeId;
+        return;
+      }
+      int index = state.Result.NodeCount;
+      state.Result.NodeCount++;
+      try { state.Output.Add(BuildNode(state, child, index, parentIndex, depth, runtimeId)); }
+      catch { state.Result.WalkErrors++; }
+      if (depth < state.MaxDepth) Walk(state, child, depth + 1, index);
+      if (LimitReached(state)) return;
+      try { child = state.Walker.GetNextSibling(child, state.Request); }
+      catch {
+        state.Result.WalkErrors++;
+        return;
+      }
+    }
+  }
+
+  public static SSEUiaSnapshot Describe(
+    IntPtr hwnd, int maxNodes, int timeoutMs, int maxDepth, bool withValues, bool withScroll) {
+    if (hwnd == IntPtr.Zero) throw new ArgumentException("hwnd fehlt.");
+    if (maxNodes <= 0) throw new ArgumentException("maxNodes muss positiv sein.");
+    if (timeoutMs <= 0) throw new ArgumentException("timeoutMs muss positiv sein.");
+    if (maxDepth <= 0) throw new ArgumentException("maxDepth muss positiv sein.");
+    CacheRequest request = BuildRequest();
+    var state = new WalkState {
+      MaxNodes = maxNodes,
+      TimeoutMs = timeoutMs,
+      MaxDepth = maxDepth,
+      WithValues = withValues,
+      WithScroll = withScroll,
+      Request = request,
+      Walker = TreeWalker.ControlViewWalker,
+    };
+    AutomationElement root = AutomationElement.FromHandle(hwnd);
+    AutomationElement cachedRoot = root.GetUpdatedCache(request);
+    if (cachedRoot == null) throw new InvalidOperationException("GetUpdatedCache lieferte keinen Wurzelknoten.");
+    Walk(state, cachedRoot, 0, -1);
+    state.Result.Nodes = state.Output.ToArray();
+    return state.Result;
   }
 }
