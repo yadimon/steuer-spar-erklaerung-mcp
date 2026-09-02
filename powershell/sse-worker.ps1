@@ -45,6 +45,10 @@ $script:INIT_TIMINGS = [ordered]@{}
 $script:SSE_CAPTURE_OPERATION_RESULT = $false
 $script:SSE_CAPTURED_OPERATION_RESULT = $null
 $script:SSE_CAPTURE_SENTINEL = 'SSE_INTERNAL_OPERATION_RESULT_CAPTURED'
+# Operationsname, den der Vorwaermlauf dem Dispatcher gibt, um dessen Rumpf
+# uebersetzen zu lassen. Er kann kein echter Auftrag sein: die Auftragszeile
+# laesst nur '^[a-z][a-z0-9_]{0,63}$' zu, dieser Name faellt bewusst heraus.
+$script:SSE_DISPATCHER_WARMUP = '-dispatcher-warmup-'
 $script:SSE_WORKER_CONTROLLER_MUTEX_NAME = 'Local\SteuerSparErklaerungApi.SseWorkerController'
 $script:SSE_WORKER_CONTROLLER_LEASE = $null
 
@@ -2468,6 +2472,13 @@ if ($Prewarm) {
   }
   $dispatcherProbe.Stop()
   $script:INIT_TIMINGS.dispatcherRegistrationMs = $dispatcherProbe.ElapsedMilliseconds
+
+  # Registriert ist der Dispatcher damit, uebersetzt aber noch nicht. Genau
+  # dieser Schritt lag bisher im Aufrufpfad; hier gehoert er hin.
+  $dispatcherWarmupProbe = [Diagnostics.Stopwatch]::StartNew()
+  Invoke-SSEWorkerOperation $script:SSE_DISPATCHER_WARMUP $null
+  $dispatcherWarmupProbe.Stop()
+  $script:INIT_TIMINGS.dispatcherWarmupMs = $dispatcherWarmupProbe.ElapsedMilliseconds
 
   [Console]::Out.WriteLine((@{ prewarm='ready'; pid=$PID } | ConvertTo-Json -Compress))
   [Console]::Out.Flush()
@@ -7493,6 +7504,12 @@ if ($Prewarm) {
 
 if (-not $Prewarm) {
 function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
+  # PowerShell uebersetzt den Rumpf eines Scriptblocks erst bei seinem ERSTEN
+  # Aufruf in ausfuehrbaren Code. Bei diesem sehr grossen Dispatcher kostete
+  # das rund 0,6 s - bisher auf dem Aufrufpfad jeder einzelnen Operation. Der
+  # Vorwaermlauf ruft die Funktion deshalb einmal mit diesem Namen auf; sie
+  # kehrt sofort zurueck, der Rumpf ist danach uebersetzt.
+  if ($Operation -ceq $script:SSE_DISPATCHER_WARMUP) { return }
   $Op = $Operation
   $a = $Arguments
   switch ($Op) {
