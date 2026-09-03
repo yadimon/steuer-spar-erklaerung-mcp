@@ -35,8 +35,10 @@
       "live": "functional"
     },
     "case_create": {
-      "offline": "untested",
-      "offlineLabels": [],
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
       "live": "functional"
     },
     "case_hash": {
