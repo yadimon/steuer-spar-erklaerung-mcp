@@ -640,8 +640,19 @@ try {
     workerSource.includes("$ButtonName -ceq 'Abbrechen'") &&
     dialogAnswerBlock.includes("Test-SSESafeTransmissionDialogCancellation $buttonName"),
   "Ein fingerprintgebundener Uebermittlungsdialog kann nicht sicher mit dem exakten Button 'Abbrechen' verlassen werden.");
+  // Die Antwortentscheidung liegt in der reinen Policy-Funktion; der Block
+  // ruft sie mit Dialogart, Button, Bindung, Flag und Kommandozeile auf.
+  const recoveryPolicySource = workerSource.slice(
+    workerSource.indexOf("function Resolve-SSERecoveryAnswerPolicy"),
+    workerSource.indexOf("function Get-DialogDescriptor"),
+  );
   assert(workerSource.includes("function Test-SSERecoveryPromptDescriptor") &&
-    dialogAnswerBlock.includes("$buttonName -cne 'Nein'") &&
+    recoveryPolicySource.includes("$ButtonName -cne 'Nein'") &&
+    recoveryPolicySource.includes("$ExpectedCaseHash -notmatch '^[A-F0-9]{64}$'") &&
+    recoveryPolicySource.includes("if ($CommandLineCasePath)") &&
+    dialogAnswerBlock.includes("Resolve-SSERecoveryAnswerPolicy $isRecoveryPrompt $buttonName $expectedCasePath") &&
+    dialogAnswerBlock.includes("Get-CasePathFromCommandLine ([int]$targetWindows[0].pid)") &&
+    dialogAnswerBlock.includes("$recoveryBindingModeAfter = 'file-less-start'") &&
     dialogAnswerBlock.includes("Test-CaseBinding $targetWindows[0] $expectedCasePath") &&
     dialogAnswerBlock.includes("$recoveryHashBefore = Get-Sha256 $expectedCasePath") &&
     dialogAnswerBlock.includes("$recoveryHashAfter -ne $expectedCaseHash") &&
