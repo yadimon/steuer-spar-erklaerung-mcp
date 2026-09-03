@@ -20,6 +20,8 @@ aktuelle Installationsanweisung.
   Produktprofile;
 - [API-/MCP-Vertrag](API-MCP-VERTRAG.md) — Transport, Schemas, Queue, Abbruch
   und Evidenzgrenze;
+- [API-Referenz](API-REFERENZ.md) — alle Operationen mit MCP-Werkzeug, Art,
+  Build-Drift-Sperre und Verifikationsstand; wird aus den Quellen erzeugt;
 - [Umsatzsteuer-Voranmeldung](UMSATZSTEUER-VORANMELDUNG.md) — fachlicher und
   technischer UStVA-Ablauf;
 - [Verifikationsstand](VERIFIKATION.md) — Offline-/Live-Abdeckung, historische
@@ -40,6 +42,8 @@ Diese Wege bleiben unterstützt, sind aber nicht der normale Einstieg.
 ## Für Mitwirkende
 
 - [Mitwirken](../CONTRIBUTING.md) — Entwicklung, Tests und Datenschutz;
+- [Fähigkeiten und offene Lücken](ROADMAP.md) — was fertig ist, was fehlt und
+  auf welchem Bauweg es zu schließen wäre;
 - [Release-Prozess](RELEASE.md) — versionsgleicher Plugin-/npm-Release und
   verifizierte Registry-/VM-Gates;
 - [Repository Health Check](../health-check.md) — reproduzierbares Playbook;
@@ -55,6 +59,8 @@ Diese Wege bleiben unterstützt, sind aber nicht der normale Einstieg.
 | Welche Version gehört zusammen? | zentrales Release-Metadatum und generierte Manifeste |
 | Was ist installiert und unterstützt? | `package.json`, `SECURITY.md`, `profiles/*/profile.json` |
 | Welche Operationen existieren? | `src/api-contract.ts`, laufendes `discovery` |
+| Welche Operation kann was, und wie belegt? | [API-REFERENZ.md](API-REFERENZ.md), erzeugt aus Katalog, Merkmalen und Ledger |
+| Was fehlt noch, und auf welchem Weg? | [ROADMAP.md](ROADMAP.md) |
 | Welche Operation ist erreichbar? | laufendes `capabilities.operationPolicy` |
 | Wie wird installiert? | [INSTALLATION.md](INSTALLATION.md) |
 | Was ist live belegt? | `test/operation-coverage.json`, [VERIFIKATION.md](VERIFIKATION.md) |

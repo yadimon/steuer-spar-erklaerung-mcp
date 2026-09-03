@@ -29,6 +29,7 @@ export const serialBuildSteps = Object.freeze([
   nodeFile("typescript-build", "node_modules/typescript/bin/tsc"),
   nodeFile("npm-package-build", "scripts/build-npm-packages.mjs"),
   nodeFile("agent-plugin-build", "scripts/build-agent-plugin.mjs", "--check"),
+  nodeFile("api-docs", "scripts/build-api-docs.mjs", "--check"),
 ]);
 
 export const parallelSteps = Object.freeze([
