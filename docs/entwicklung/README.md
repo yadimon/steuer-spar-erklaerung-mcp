@@ -36,6 +36,20 @@ werden erst nach Verifikation als kurze aktuelle Regel in einen Skill
   verifizierte Gegenmaßnahmen, Fall-/Backup-Sitzungsgrenzen,
   BelegManager-Bindungen, Sicherheitsnachbedingungen und offene Grenzen.
 
+## Wie diese Dokumente ehrlich bleiben
+
+Zwei Skripte halten die Dokumentation an den Quellen fest:
+
+| Skript | Befehl | Was es sichert |
+|---|---|---|
+| `scripts/build-api-docs.mjs` | `npm run docs:build` | erzeugt `docs/API-REFERENZ.md` aus dem laufenden MCP-Server, den Operationsmerkmalen und dem Abdeckungsledger; `--check` schlägt an, sobald der Text abweicht |
+| `scripts/check-docs-consistency.mjs` | `npm run docs:check` | prüft die **handgeschriebenen** Dokumente: keine toten Operationsnamen, jede live belegte Operation irgendwo genannt, kein `fertig` für etwas, das nur auf dem Fehlerpfad belegt ist |
+
+Beide laufen in `npm test`. Die zweite Prüfung ist bewusst grob — Seiten- und
+Menünamen des Produkts lassen sich nicht auf Operationsnamen abbilden. Sie
+fängt die Abweichung, die tatsächlich passiert: eine gebaute und belegte
+Operation, von der kein Dokument erzählt.
+
 Historische Kopien öffentlicher Skills, agentenspezifische Arbeitspläne und
 Werkzeugprotokolle gehören nicht hierher. Der aktuelle Nutzervertrag liegt
 ausschließlich unter `skills/`; Architektur und Verifikation liegen in den

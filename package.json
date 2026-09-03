@@ -62,6 +62,8 @@
     "test:package": "npm run build:npm-packages && node test/npm-package-contract.mjs",
     "test:npm-clean-install": "npm run build:npm-packages && node test/npm-clean-install.mjs",
     "smoke:published": "node test/npm-clean-install.mjs --published",
+    "docs:build": "node scripts/build-api-docs.mjs",
+    "docs:check": "node scripts/check-docs-consistency.mjs",
     "test:release-metadata": "node test/release-metadata-contract.mjs",
     "test:release-metadata:publish": "node test/release-metadata-contract.mjs --release",
     "test:plugin-contract": "node test/agent-plugin-contract.mjs",
