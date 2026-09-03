@@ -29,6 +29,38 @@ assert(Object.hasOwn(profile.pageObjectsCatalog.pages, "est.sonstige_werbungskos
 const firstPage = profile.pageObjectsCatalog.pages["est.sonstige_werbungskosten_fahrten"];
 assert.equal(firstPage.headingPrefix, "Sonstige Werbungskosten/Fahrten",
   "Die personengebundene ESt-Seite muss dynamische Ueberschrift-Suffixe akzeptieren.");
+// Die Stammdatenseiten eines neu angelegten Folgejahr-Falls sind katalogisiert,
+// damit sse_fill_fields sie ohne Bildschirmsuche schreibt; RadioButtons bleiben
+// als Hinweis fuer sse_click pattern=select dokumentiert.
+for (const [pageId, heading, expectedFields] of [
+  ["gew_erfass.allgemeine_angaben_unternehmen", "Allgemeine Angaben zum Unternehmen",
+    ["name_unternehmer", "vorname_unternehmer", "firmenname", "postleitzahl", "ort", "rechtsform", "einkunftsart", "gruendungsdatum", "kommentar"]],
+  ["gew_erfass.themenfilter_umsatzsteuer", "Themenfilter/Angaben zur Umsatzsteuer",
+    ["umsatzsteuererklaerung_voranmeldungen", "lohnsteueranmeldungen", "umsatz_vorjahr", "unternehmereigenschaft_von"]],
+]) {
+  const page = profile.pageObjectsCatalog.pages[pageId];
+  assert(page, `Stammdatenseite ${pageId} fehlt im Katalog.`);
+  assert.equal(page.heading, heading);
+  assert.equal(page.documentType, "GewErfass2026");
+  for (const fieldId of expectedFields) {
+    const field = page.fields[fieldId];
+    assert(field, `${pageId}.${fieldId} fehlt.`);
+    assert.match(field.automationIdRelative, /^\.centralWidget\./u, `${pageId}.${fieldId} braucht einen fensterrelativen Pfad.`);
+    assert(field.automationIdRelative.endsWith(field.automationIdSuffix), `${pageId}.${fieldId}: Suffix passt nicht zum Pfad.`);
+  }
+  assert(Array.isArray(page.notes.radioButtons) && page.notes.radioButtons.length >= 2,
+    `${pageId} muss die nicht katalogisierbaren RadioButtons als Hinweis fuehren.`);
+}
+const masterData = profile.pageObjectsCatalog.pages["gew_erfass.allgemeine_angaben_unternehmen"];
+assert.equal(masterData.fields.einkunftsart.controlType, "ComboBox");
+assert.deepEqual(masterData.fields.einkunftsart.options, ["Gewerbebetrieb", "selbstständige Tätigkeit", "Land- u. Forstwirtschaft"]);
+assert.equal(masterData.fields.gruendungsdatum.valueKind, "date");
+const vatPage = profile.pageObjectsCatalog.pages["gew_erfass.themenfilter_umsatzsteuer"];
+assert.equal(vatPage.fields.lohnsteueranmeldungen.controlType, "CheckBox");
+assert.equal(vatPage.fields.lohnsteueranmeldungen.valueKind, "boolean");
+assert.equal(vatPage.fields.umsatz_vorjahr.valueKind, "currency");
+assert(vatPage.notes.radioButtons.some((entry) => entry.automationIdSuffixNein === ".AngabenUmsatzsteuer.Besteuerungsart.JaNein.Nein"),
+  "Die Soll-/Ist-Entscheidung muss als RadioButton-Hinweis auffindbar sein.");
 const ambiguousCatalog = {
   ...profile.pageObjectsCatalog,
   pages: { Beispiel: firstPage, bEISPIEL: firstPage },
