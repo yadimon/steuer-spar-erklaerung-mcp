@@ -3105,6 +3105,31 @@ function Test-SSERecoveryPromptDescriptor($Dialog) {
   [bool]($text -ceq $expectedText)
 }
 
+# Das Online-Update-Angebot von SteuerSparErklaerung erkennen.
+#
+# Es erscheint beim Programmstart, wenn der Hersteller eine neue Version
+# bereitstellt, und blockiert den geladenen Fall. Der Dialog traegt den Titel
+# 'Online Update', den Hinweis auf die neue Programmversion und die Schalter
+# 'Abbrechen' und 'Weiter'.
+#
+# Diese Kennzeichnung ist rein informativ und erweitert KEINE Rechte: 'Weiter'
+# steht nicht in $script:DIALOG_BUTTONS, laesst sich also ohnehin nicht
+# beantworten - ein Programmupdate startet die Anwendung neu und tauscht sie
+# aus, das bleibt die Entscheidung des Benutzers. Ohne diese Kennzeichnung
+# meldet die API nur einen namenlosen Qt-Dialog, und der Aufrufer muesste den
+# deutschen Fliesstext auswerten, um zu verstehen, warum der Start haengt.
+function Test-SSEUpdatePromptDescriptor($Dialog) {
+  if ([string]$Dialog.kind -cne 'qt-dialog') { return $false }
+  if ([string]$Dialog.title -cne 'Online Update') { return $false }
+  # 'Weiter' ist kein unterstuetzter Schalter und landet deshalb in
+  # unsupportedButtons; 'Abbrechen' ist der einzige bedienbare Ausweg.
+  $buttons = @($Dialog.buttons | ForEach-Object { [string]$_.name })
+  if (@($buttons | Where-Object { $_ -ceq 'Abbrechen' }).Count -ne 1) { return $false }
+  if (@($Dialog.unsupportedButtons | Where-Object { [string]$_ -ceq 'Weiter' }).Count -ne 1) { return $false }
+  $text = ((@($Dialog.texts | ForEach-Object { [string]$_ }) -join ' ') -replace '\s+', ' ').Trim()
+  [bool]($text -cmatch 'Eine neue Programmversion ist verf')
+}
+
 # Die Wiederherstellungsfrage kennt genau zwei sichere Antworten: 'Nein' mit
 # exakt gebundener regulaerer Falldatei - oder 'Nein' fuer einen Prozess, der
 # nachweislich ohne Falldatei gestartet wurde und dessen Recovery-Datei daher
@@ -3277,6 +3302,7 @@ function Get-DialogDescriptor($Window, [IntPtr]$MainHwnd) {
   $isRecoveryPrompt = Test-SSERecoveryPromptDescriptor $descriptor
   $descriptor | Add-Member -NotePropertyName recoveryPrompt -NotePropertyValue ([bool]$isRecoveryPrompt)
   $descriptor | Add-Member -NotePropertyName requiresCaseBinding -NotePropertyValue ([bool]$isRecoveryPrompt)
+  $descriptor | Add-Member -NotePropertyName updatePrompt -NotePropertyValue ([bool](Test-SSEUpdatePromptDescriptor $descriptor))
   $descriptor
 }
 
@@ -8610,6 +8636,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         x = $_.x; y = $_.y; w = $_.w; h = $_.h; minimiert = $_.minimiert
         buttons = $_.buttons; texts = $_.texts; fingerprint = $_.fingerprint
         recoveryPrompt = [bool]$_.recoveryPrompt; requiresCaseBinding = [bool]$_.requiresCaseBinding
+        updatePrompt = [bool]$_.updatePrompt
         uiaReadOk = $_.uiaReadOk; uiaError = $_.uiaError; msaaReadOk = $_.msaaReadOk; msaaError = $_.msaaError
       }
     })
@@ -11092,6 +11119,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
               x=$_.x; y=$_.y; w=$_.w; h=$_.h; minimiert=$_.minimiert
               buttons=$_.buttons; texts=$_.texts; fingerprint=$_.fingerprint
               recoveryPrompt=[bool]$_.recoveryPrompt; requiresCaseBinding=[bool]$_.requiresCaseBinding
+              updatePrompt=[bool]$_.updatePrompt
               uiaReadOk=$_.uiaReadOk; uiaError=$_.uiaError
               msaaReadOk=$_.msaaReadOk; msaaError=$_.msaaError
             }
