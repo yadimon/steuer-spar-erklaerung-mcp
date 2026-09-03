@@ -532,6 +532,381 @@
           }
         }
       }
+    },
+    "gew_erfass.allgemeine_angaben_unternehmen": {
+      "heading": "Allgemeine Angaben zum Unternehmen",
+      "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
+      "documentType": "GewErfass2026",
+      "reachedBy": "Erste Seite nach dem Startassistenten eines neuen Falls (sse_case_create) oder ueber den Navigator.",
+      "fields": {
+        "name_unternehmer": {
+          "label": "Name Unternehmer",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.AngabenUnternehmen./.AngabenUnternehmen.NameUnternehmen./.AngabenUnternehmen.NameUnternehmen.Text",
+          "automationIdSuffix": ".AngabenUnternehmen.NameUnternehmen.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "vorname_unternehmer": {
+          "label": "Vorname Unternehmer",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.AngabenUnternehmen./.AngabenUnternehmen.Vorname./.AngabenUnternehmen.Vorname.Text",
+          "automationIdSuffix": ".AngabenUnternehmen.Vorname.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "firmenname": {
+          "label": "Firmenname",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.AngabenUnternehmen./.AngabenUnternehmen.Firmenname./.AngabenUnternehmen.Firmenname.Text",
+          "automationIdSuffix": ".AngabenUnternehmen.Firmenname.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "art_des_unternehmens": {
+          "label": "Art des Unternehmens",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.AngabenUnternehmen./.AngabenUnternehmen.ArtUnternehmen./.AngabenUnternehmen.ArtUnternehmen.Text",
+          "automationIdSuffix": ".AngabenUnternehmen.ArtUnternehmen.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "strasse": {
+          "label": "Straße, Hausnr., -zusatz",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.AngabenUnternehmen./.AngabenUnternehmen.Adresse./.AngabenUnternehmen.Adresse.AngabenStrasse./.AngabenUnternehmen.Adresse.AngabenStrasse.Text",
+          "automationIdSuffix": ".AngabenUnternehmen.Adresse.AngabenStrasse.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "hausnummer": {
+          "label": "Straße, Hausnr., -zusatz",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.AngabenUnternehmen./.AngabenUnternehmen.Adresse./.AngabenUnternehmen.Adresse.AngabenStrasse./.AngabenUnternehmen.Adresse.AngabenStrasse.Nr",
+          "automationIdSuffix": ".AngabenUnternehmen.Adresse.AngabenStrasse.Nr",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "hausnummer_zusatz": {
+          "label": "Straße, Hausnr., -zusatz",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.AngabenUnternehmen./.AngabenUnternehmen.Adresse./.AngabenUnternehmen.Adresse.AngabenStrasse./.AngabenUnternehmen.Adresse.AngabenStrasse.Zusatz",
+          "automationIdSuffix": ".AngabenUnternehmen.Adresse.AngabenStrasse.Zusatz",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "adressergaenzung": {
+          "label": "Adressergänzung",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.AngabenUnternehmen./.AngabenUnternehmen.Adresse./.AngabenUnternehmen.Adresse.Adressergaenzung./.AngabenUnternehmen.Adresse.Adressergaenzung.Text",
+          "automationIdSuffix": ".AngabenUnternehmen.Adresse.Adressergaenzung.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "postleitzahl": {
+          "label": "Postleitzahl, Ort",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.AngabenUnternehmen./.AngabenUnternehmen.Adresse./.AngabenUnternehmen.Adresse.AngabenOrt./.AngabenUnternehmen.Adresse.AngabenOrt.Text",
+          "automationIdSuffix": ".AngabenUnternehmen.Adresse.AngabenOrt.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "ort": {
+          "label": "Postleitzahl, Ort",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.AngabenUnternehmen./.AngabenUnternehmen.Adresse./.AngabenUnternehmen.Adresse.AngabenOrt./.AngabenUnternehmen.Adresse.AngabenOrt.Ort",
+          "automationIdSuffix": ".AngabenUnternehmen.Adresse.AngabenOrt.Ort",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "telefon": {
+          "label": "Telefon",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.AngabenUnternehmen./.AngabenUnternehmen.Kontakt./.AngabenUnternehmen.Kontakt.Telefon./.AngabenUnternehmen.Kontakt.Telefon.Text",
+          "automationIdSuffix": ".AngabenUnternehmen.Kontakt.Telefon.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "fax": {
+          "label": "Fax",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.AngabenUnternehmen./.AngabenUnternehmen.Kontakt./.AngabenUnternehmen.Kontakt.Fax./.AngabenUnternehmen.Kontakt.Fax.Text",
+          "automationIdSuffix": ".AngabenUnternehmen.Kontakt.Fax.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "email": {
+          "label": "E-Mail",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.AngabenUnternehmen./.AngabenUnternehmen.Kontakt./.AngabenUnternehmen.Kontakt.Mail./.AngabenUnternehmen.Kontakt.Mail.Text",
+          "automationIdSuffix": ".AngabenUnternehmen.Kontakt.Mail.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "rechtsform": {
+          "label": "Rechtsform",
+          "controlType": "ComboBox",
+          "valueKind": "enum",
+          "writeTool": "sse_combo_select",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.AngabenUnternehmen./.AngabenUnternehmen.GruppeNichtInModusKonsUSt./.AngabenUnternehmen.GruppeNichtInModusKonsUSt.Rechtsform./.AngabenUnternehmen.GruppeNichtInModusKonsUSt.Rechtsform.Combobox",
+          "automationIdSuffix": ".AngabenUnternehmen.GruppeNichtInModusKonsUSt.Rechtsform.Combobox",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "einkunftsart": {
+          "label": "Einkunftsart",
+          "controlType": "ComboBox",
+          "valueKind": "enum",
+          "writeTool": "sse_combo_select",
+          "options": [
+            "Gewerbebetrieb",
+            "selbstständige Tätigkeit",
+            "Land- u. Forstwirtschaft"
+          ],
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.AngabenUnternehmen./.AngabenUnternehmen.GruppeNichtInModusKonsUSt./.AngabenUnternehmen.GruppeNichtInModusKonsUSt.Einkunftsart./.AngabenUnternehmen.GruppeNichtInModusKonsUSt.Einkunftsart.Combobox",
+          "automationIdSuffix": ".AngabenUnternehmen.GruppeNichtInModusKonsUSt.Einkunftsart.Combobox",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "gruendungsdatum": {
+          "label": "Gründungsdatum",
+          "controlType": "Edit",
+          "valueKind": "date",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.AngabenUnternehmen./.AngabenUnternehmen.BeginnUndEndeBetrieb./.AngabenUnternehmen.BeginnUndEndeBetrieb.BeginnBetrieb./.AngabenUnternehmen.BeginnUndEndeBetrieb.BeginnBetrieb.Date",
+          "automationIdSuffix": ".AngabenUnternehmen.BeginnUndEndeBetrieb.BeginnBetrieb.Date",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "kommentar": {
+          "label": "Kommentar",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.grpKommentar./.grpKommentar.TextFeld",
+          "automationIdSuffix": ".grpKommentar.TextFeld",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        }
+      },
+      "notes": {
+        "behaviour": [
+          "Die Postleitzahl fuellt den Ort automatisch; ein expectedBefore='' auf ort scheitert danach korrekt mit precondition-failed.",
+          "Steuernummer/Finanzamt und mitwirkende Person liegen auf eigenen Unterseiten hinter den Schaltern AngabenUnternehmen.GotosFAundMitwirk.*.Button.",
+          "Der Schalter AngabenUnternehmen.Steuerarten.Button fuehrt zur Seite gew_erfass.themenfilter_umsatzsteuer."
+        ],
+        "radioButtons": [
+          {
+            "question": "Gleiche Steuernummer wie bei der Einkommensteuer?",
+            "automationIdSuffixJa": ".AngabenUnternehmen.GruppeNichtInModusKonsUSt.GleicheSteuernummerBeiBetriebUndESt.JaNein.Ja",
+            "automationIdSuffixNein": ".AngabenUnternehmen.GruppeNichtInModusKonsUSt.GleicheSteuernummerBeiBetriebUndESt.JaNein.Nein",
+            "meaning": "Ja = dieselbe Steuernummer",
+            "writeTool": "sse_click (pattern=select, aid=<Endstueck>)"
+          },
+          {
+            "question": "Betrieb beendet?",
+            "automationIdSuffixJa": ".AngabenUnternehmen.BeginnUndEndeBetrieb.BetriebBeendet.JaNein.Ja",
+            "automationIdSuffixNein": ".AngabenUnternehmen.BeginnUndEndeBetrieb.BetriebBeendet.JaNein.Nein",
+            "meaning": "Nein = Betrieb laeuft weiter",
+            "writeTool": "sse_click (pattern=select, aid=<Endstueck>)"
+          }
+        ]
+      }
+    },
+    "gew_erfass.themenfilter_umsatzsteuer": {
+      "heading": "Themenfilter/Angaben zur Umsatzsteuer",
+      "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
+      "documentType": "GewErfass2026",
+      "reachedBy": "Von gew_erfass.allgemeine_angaben_unternehmen ueber sse_click aid=AngabenUnternehmen.Steuerarten.Button.",
+      "fields": {
+        "umsatzsteuererklaerung_voranmeldungen": {
+          "label": "Umsatzsteuererklärung/-Voranmeldungen",
+          "controlType": "CheckBox",
+          "valueKind": "boolean",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.WeitereAngabenUnternehmen./.WeitereAngabenUnternehmen.Umsatzsteuer",
+          "automationIdSuffix": ".WeitereAngabenUnternehmen.Umsatzsteuer",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "zusammenfassende_meldung": {
+          "label": "Zusammenfassende Meldung",
+          "controlType": "CheckBox",
+          "valueKind": "boolean",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.WeitereAngabenUnternehmen./.WeitereAngabenUnternehmen.ZusammenfassendeMeldung",
+          "automationIdSuffix": ".WeitereAngabenUnternehmen.ZusammenfassendeMeldung",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "gewerbesteuererklaerung": {
+          "label": "Gewerbesteuererklärung",
+          "controlType": "CheckBox",
+          "valueKind": "boolean",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.WeitereAngabenUnternehmen./.WeitereAngabenUnternehmen.Gewerbesteuer",
+          "automationIdSuffix": ".WeitereAngabenUnternehmen.Gewerbesteuer",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "lohnsteueranmeldungen": {
+          "label": "Lohnsteueranmeldungen",
+          "controlType": "CheckBox",
+          "valueKind": "boolean",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.WeitereAngabenUnternehmen./.WeitereAngabenUnternehmen.Lohnsteuer",
+          "automationIdSuffix": ".WeitereAngabenUnternehmen.Lohnsteuer",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "umsatz_vorjahr": {
+          "label": "Umsatz Vorjahr",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.AngabenUmsatzsteuer./.AngabenUmsatzsteuer.UmsaetzeKleinU./.AngabenUmsatzsteuer.UmsaetzeKleinU.umsatzVorjahr./.AngabenUmsatzsteuer.UmsaetzeKleinU.umsatzVorjahr.Wert",
+          "automationIdSuffix": ".AngabenUmsatzsteuer.UmsaetzeKleinU.umsatzVorjahr.Wert",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "wechsel_zur_regelbesteuerung": {
+          "label": "Wechsel zur Regelbesteuerung",
+          "controlType": "Edit",
+          "valueKind": "date",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.AngabenUmsatzsteuer./.AngabenUmsatzsteuer.WechselZurRegelbesteuerung./.AngabenUmsatzsteuer.WechselZurRegelbesteuerung.Date",
+          "automationIdSuffix": ".AngabenUmsatzsteuer.WechselZurRegelbesteuerung.Date",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "unternehmereigenschaft_von": {
+          "label": "Unternehmereigenschaft von",
+          "controlType": "Edit",
+          "valueKind": "date",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.AngabenUmsatzsteuer./.AngabenUmsatzsteuer.Unternehmen./.AngabenUmsatzsteuer.Unternehmen.DateEditVonBisShort./.AngabenUmsatzsteuer.Unternehmen.DateEditVonBisShort.DateVon",
+          "automationIdSuffix": ".AngabenUmsatzsteuer.Unternehmen.DateEditVonBisShort.DateVon",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "unternehmereigenschaft_bis": {
+          "label": "Unternehmereigenschaft bis",
+          "controlType": "Edit",
+          "valueKind": "date",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.AngabenUmsatzsteuer./.AngabenUmsatzsteuer.Unternehmen./.AngabenUmsatzsteuer.Unternehmen.DateEditVonBisShort./.AngabenUmsatzsteuer.Unternehmen.DateEditVonBisShort.DateBis",
+          "automationIdSuffix": ".AngabenUmsatzsteuer.Unternehmen.DateEditVonBisShort.DateBis",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        }
+      },
+      "notes": {
+        "behaviour": [
+          "Soll-/Istversteuerung wird ausschliesslich hier gesetzt; sie ist eine bewusste Nutzerentscheidung und kein Standardwert.",
+          "Kleinunternehmer Ja blendet die Umsatzsteuer-Voranmeldungen im Fall aus."
+        ],
+        "radioButtons": [
+          {
+            "question": "Kleinunternehmer nach § 19 UStG?",
+            "automationIdSuffixJa": ".AngabenUmsatzsteuer.KleinU.JaNein.Ja",
+            "automationIdSuffixNein": ".AngabenUmsatzsteuer.KleinU.JaNein.Nein",
+            "meaning": "Nein = Regelbesteuerung",
+            "writeTool": "sse_click (pattern=select, aid=<Endstueck>)"
+          },
+          {
+            "question": "Besteuerung nach vereinbarten Entgelten?",
+            "automationIdSuffixJa": ".AngabenUmsatzsteuer.Besteuerungsart.JaNein.Ja",
+            "automationIdSuffixNein": ".AngabenUmsatzsteuer.Besteuerungsart.JaNein.Nein",
+            "meaning": "Nein = Istversteuerung (vereinnahmte Entgelte), Ja = Sollversteuerung",
+            "writeTool": "sse_click (pattern=select, aid=<Endstueck>)"
+          },
+          {
+            "question": "Umsatzsteuersatz geaendert?",
+            "automationIdSuffixJa": ".AngabenUmsatzsteuer.AngabeUStSatzAenderungen.UmsatzsteuersatzAendern.JaNein.Ja",
+            "automationIdSuffixNein": ".AngabenUmsatzsteuer.AngabeUStSatzAenderungen.UmsatzsteuersatzAendern.JaNein.Nein",
+            "meaning": "Nein = keine Satzaenderung",
+            "writeTool": "sse_click (pattern=select, aid=<Endstueck>)"
+          }
+        ]
+      }
     }
   }
 }
