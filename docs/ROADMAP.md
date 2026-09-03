@@ -18,11 +18,22 @@ Hier steht nur, was sich daraus **nicht** ablesen laesst: die Absicht.
 ihrem Fehlerpfad. Als MCP-Werkzeuge veroeffentlicht sind alle 100, dazu ein
 zusammengesetztes Werkzeug fuer den Einstieg.
 
-Das ist keine Vollstaendigkeit gegenueber dem Produkt. SteuerSparErklaerung hat
-weit mehr Oberflaeche, als hier automatisiert ist; die 100 Operationen decken
-den Weg ab, den eine Steuererklaerung tatsaechlich braucht: Fall oeffnen und
-binden, navigieren, lesen, schreiben, Tabellen fuehren, Belege verwalten,
-Umsatzsteuer-Voranmeldung, Pruefer, sichern und archivieren.
+Das ist keine Vollstaendigkeit gegenueber dem Produkt, und die Zahl 100 ist
+irrefuehrend, wenn man sie allein liest. **Operationen sind Mechanismen, keine
+Flaeche.** `page`, `table_read` oder `goto` arbeiten auf jeder Seite; fokusloses
+Schreiben und Zustandsvergleiche brauchen dagegen ein katalogisiertes
+Seitenobjekt.
+
+Und der Katalog ist klein. `profiles/2025/page-objects.json` enthaelt heute
+**neun Seiten und fuenf Fenster**, davon genau **eine** Seite aus der
+Einkommensteuer (`est.sonstige_werbungskosten_fahrten`); sechs Seiten gehoeren
+zur Gewinnermittlung, zwei zur Gewinn-Erfassung. Es gibt genau **einen**
+profilierten fokuslosen Schreibpfad.
+
+Wer also fragt „koennen wir SSE vollstaendig steuern?", bekommt zwei
+verschiedene Antworten: Die *Mechanik* traegt weit; die *Kenntnis der
+Oberflaeche* endet nach neun Seiten. Der groesste Zuwachs an echter Faehigkeit
+kaeme nicht aus neuen Operationen, sondern aus mehr katalogisierten Seiten.
 
 ## 2. Die Bauwege
 
@@ -54,6 +65,54 @@ im Repository belegt sind.
 | **Steuerjahr 2026** | es gibt kein Profil | vorhandene Wege, neues Profil | das Produkt muss erscheinen; danach Katalog, Profil und Live-Verifikation |
 | **Ausgabe ausser CSV** | es gibt genau `export_csv` | Vordergrund-Lease fuer den Druckdialog, danach PDF-Aufbereitung | Entscheidung, ob ein Druck-nach-PDF-Weg die Mutationsgrenze beruehrt |
 | **Schnellere Bedienung ueber typisierte Kommandos** | der Herstellerweg ist geschlossen | Hersteller-IPC | siehe Abschnitt 4 |
+
+### 3.1 SSEs eigene Kommandoflaeche
+
+Aus den statischen Belegen im Repository lassen sich **vierzehn** Kommandonamen
+von SSE selbst belegen (Quellen: `static-analysis-partial/targeted-strings.json`
+und der in `codex-static-events.jsonl` eingebettete Kommando-Index). Davon deckt
+die API vier funktional ab, drei teilweise, sieben gar nicht.
+
+| Kommando | Stand bei uns |
+| --- | --- |
+| `FileOpen`, `FileClose`, `FileSaveAsCopy`, `ShowBelegManager` | abgedeckt |
+| `FileOpenFromDir` | teilweise – wir listen Faelle, oeffnen aber nicht aus einem Verzeichnis |
+| `DeleteBelegeOfDialog` | teilweise – wir loeschen Belege einzeln, nicht dialogweise |
+| `SteuerSparTipps` | teilweise – das Fenster ist nur lesend profiliert |
+| `CommandList`, `ExportCommands`, `StartCommandAsync` | nicht abgedeckt |
+| `WriteToDM` | nicht abgedeckt, und das mit Absicht: wir schreiben ausschliesslich ueber profilierte Feldpfade mit Readback |
+| `CopyDMNode`, `CopyDMNodeToDMExplorer` | nicht abgedeckt |
+| `GenerateNavtreeXML` | nicht abgedeckt |
+
+Zwei Einschraenkungen gehoeren dazu. Erstens ist diese Liste **nicht
+vollstaendig**: Der zugrundeliegende Zeichenkettenscan war auf ein Suchmuster
+begrenzt, und dass SSE ueberhaupt ein `ExportCommands` kennt, zeigt, dass das
+Programm selbst einen groesseren Katalog fuehrt. Zweitens ist ein Literal
+`Goto` in den vorliegenden Belegen **nicht** nachweisbar; belegt ist nur eine
+Parametersignatur `STRING GotoExpression`.
+
+### 3.2 Programmbereiche ohne Profil
+
+Die Methodennamen von `DMSession` im dekompilierten `Dm.dll`-Index nennen
+Faehigkeiten, zu denen es bei uns keinerlei Gegenstueck gibt:
+
+| Bereich | Beleg | Weg |
+| --- | --- | --- |
+| Fast die gesamte Einkommensteuer | genau ein `est.`-Seitenobjekt im Katalog | UI, je Seite ein Profil |
+| Optionen, Datenuebernahme, Steuerrechner, Musterbriefe, Service, Ansicht | Menuezeile bekannt, kein einziges Objekt daraus katalogisiert | UI, `menu`/`menu_click` sind generisch |
+| Druck- und Ausgabefenster | kein Fensterobjekt | UI plus PDF-Aufbereitung |
+| Passwortgeschuetzte Falldateien | `setPassword`, `checkPassword`, `activePassword` | UI, sofern es einen Dialog gibt |
+| Anonymisierter Export | `writeAnonymizedDataFile` | UI, sofern im Menue erreichbar |
+| VLH-Import und -Export | `vlhImport`, `vlhExport` | UI |
+| Fremdformat-Import | `importDataFile`, `callImportScript` | UI |
+| Autosave und Wiederherstellung | `autoSave`, `restoreAutoSaved` | heute bewusst nur die Wiederherstellungsfrage, und dort ist ausschliesslich `Nein` erlaubt |
+| Ehegatten-/Partnersicht | `isSpouseVisible` | UI |
+| DMExplorer als eigenes Programm | als IPC-Partner belegt | ausserhalb der Prozessgrenze der API |
+| **Kommandoregistry als JSON** | `getCommandRegistryAsJson` | waere der autoritative Katalog – nur ueber den Herstellerweg erreichbar |
+
+Der letzte Eintrag ist der interessanteste: SSE kann seinen eigenen
+Kommandokatalog maschinenlesbar ausgeben. Waere er erreichbar, muesste niemand
+mehr Zeichenketten aus Binaerdateien lesen, um diese Liste zu fuehren.
 
 ## 4. Der Hersteller-IPC-Weg und warum er zu ist
 
