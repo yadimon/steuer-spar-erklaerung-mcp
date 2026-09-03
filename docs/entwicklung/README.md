@@ -24,6 +24,8 @@ werden erst nach Verifikation als kurze aktuelle Regel in einen Skill
 
 ## Aktueller Inhalt
 
+- `aktionsinventar.md`: die aus dem laufenden Programm ausgelesene Menüstruktur
+  mit der Zuordnung, welche Aktion eine Operation hat und welche nicht;
 - `erfahrungen/sse-automation-erfahrungen.md`: sanitisierte Qt/UIA-Fehler,
   verifizierte Gegenmaßnahmen, Fall-/Backup-Sitzungsgrenzen,
   BelegManager-Bindungen, Sicherheitsnachbedingungen und offene Grenzen.
