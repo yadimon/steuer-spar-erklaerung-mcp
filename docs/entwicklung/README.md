@@ -24,6 +24,9 @@ werden erst nach Verifikation als kurze aktuelle Regel in einen Skill
 
 ## Aktueller Inhalt
 
+- `status.md`: **eine Tafel für alles** — jede bekannte Fähigkeit mit Stand
+  (fertig / teils / offen / bewusst zu), Beleg und Bauweg. Der Einstieg, wenn
+  die Frage lautet „haben wir das schon?";
 - `funktionskatalog.md`: die fachliche Landkarte — sieben Programmmodule mit
   gemessenen Navigationsbäumen, Funktionsgruppen aus dem Herstellerhandbuch und
   der Abgleich, was davon eine Operation hat;
