@@ -311,7 +311,11 @@ const CORE_OPERATION_RESULT_FIELDS = {
     sseLaeuft: OPTIONAL_BOOLEAN,
     markeVeraltet: OPTIONAL_BOOLEAN,
   },
-  desktop_stop: { hartBeendet: OPTIONAL_BOOLEAN, desktopMarkeEntfernt: OPTIONAL_BOOLEAN },
+  desktop_stop: {
+    hartBeendet: OPTIONAL_BOOLEAN,
+    desktopMarkeEntfernt: OPTIONAL_BOOLEAN,
+    hauptfensterVorher: OPTIONAL_NON_NEGATIVE_NUMBER,
+  },
   dialog_list: { dialogs: OPTIONAL_ARRAY, windows: OPTIONAL_ARRAY, count: OPTIONAL_NON_NEGATIVE_NUMBER },
   dialog_answer: {
     closed: OPTIONAL_BOOLEAN,

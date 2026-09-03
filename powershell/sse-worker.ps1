@@ -2801,6 +2801,23 @@ function Get-NormalizedDirectoryPath([string]$Path) {
   $full.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
 }
 
+# desktop_stop bindet nur die eigene markierte PID. Zeigt sie kein breites
+# Hauptfenster mehr (z. B. nur noch die Wiederherstellungsfrage eines nie
+# gespeicherten Falls oder das Startbild), ist ein sanftes Schliessen
+# unmoeglich. Mit discardChanges darf genau diese PID hart enden; ohne bleibt
+# es fail-closed. Reine Funktion fuer den Vertragstest.
+function Resolve-SSEDesktopStopPolicy([int]$MainWindowCount, [bool]$Discard) {
+  if ($MainWindowCount -eq 1) { return [pscustomobject]@{ action = 'graceful'; kind = $null; error = $null } }
+  if ($MainWindowCount -gt 1) {
+    return [pscustomobject]@{ action = 'fail'; kind = 'ambiguous'
+      error = "Gebundene PID besitzt $MainWindowCount breite SSE-Hauptfenster; nichts beendet." }
+  }
+  if ($Discard) { return [pscustomobject]@{ action = 'hard-kill'; kind = $null; error = $null } }
+  [pscustomobject]@{ action = 'fail'; kind = 'confirmation-required'
+    error = ('Gebundene PID besitzt kein breites SSE-Hauptfenster mehr (nur Dialog oder Startbild). ' +
+      'Mit discardChanges=true wird genau diese markierte PID ohne Speichern hart beendet; ohne bleibt sie erhalten.') }
+}
+
 function Complete-FailedDesktopStart([IntPtr]$ProcessHandle, [string]$DesktopName, [int]$ProcessId) {
   $errors = New-Object System.Collections.ArrayList
   $WAIT_OBJECT_0 = 0
@@ -14601,9 +14618,13 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     if (-not $wins.Count) {
       Fail "Gebundene SSE-Fenster sind im aktuellen Desktopkontext nicht sichtbar; nichts beendet." 'ownership'
     }
-    if ($wins.Count) {
-      $mainCandidates = @($wins | Where-Object { $_.w -ge 900 -and $_.h -ge 600 -and $_.title -match 'SteuerSparErklärung' })
-      if ($mainCandidates.Count -ne 1) { Fail "Gebundene PID besitzt $($mainCandidates.Count) breite SSE-Hauptfenster; nichts beendet." 'ambiguous' }
+    $mainCandidates = @($wins | Where-Object { $_.w -ge 900 -and $_.h -ge 600 -and $_.title -match 'SteuerSparErklärung' })
+    $stopPolicy = Resolve-SSEDesktopStopPolicy ([int]$mainCandidates.Count) $discard
+    if ([string]$stopPolicy.action -eq 'fail') { Fail ([string]$stopPolicy.error) ([string]$stopPolicy.kind) }
+    $hauptfensterVorher = [int]$mainCandidates.Count
+    # Ohne Hauptfenster gibt es nichts sanft zu schliessen; der harte Stop der
+    # markierten PID folgt unten im gemeinsamen discardChanges-Pfad.
+    if ([string]$stopPolicy.action -eq 'graceful') {
       $main = $mainCandidates[0]
       $dirtyBeforeStop = Get-DirtyStateFast ([IntPtr][int64]$main.hwnd)
       if ($dirtyBeforeStop -eq $true -and -not $discard) {
@@ -14737,8 +14758,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     Emit ([pscustomobject]@{ ok = $true; hartBeendet = $beendet; desktopMarkeEntfernt = $markerRemoved
       pid = $ownedPid; speichernAntwort = $antwort; antwortMethode = $antwortMethode
       dialogFehler = $dialogFehler; gracefulWaitMs = $gracefulWaitMs; discardChanges = $discard
+      hauptfensterVorher = $hauptfensterVorher
       hilfsfenster = @($auxiliaryClosed)
-      note = 'Der versteckte Desktop wird vom System aufgeraeumt, sobald kein Prozess mehr darauf laeuft.' })
+      note = $(if ($hauptfensterVorher -eq 0) { 'Markierte Instanz ohne Hauptfenster wurde ohne Speichern hart beendet; der versteckte Desktop wird vom System aufgeraeumt.' }
+               else { 'Der versteckte Desktop wird vom System aufgeraeumt, sobald kein Prozess mehr darauf laeuft.' }) })
   }
 
   'desktop_status' {

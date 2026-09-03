@@ -42,7 +42,10 @@ export function registerDesktopTools(registry: McpRegistry): void {
         "Speichern gehoert vorher in den hashgebundenen Schritt sse_save; save=true ist hier gesperrt. " +
         "Ohne discardChanges=true wird kein Speicherdialog mit Nein/Verwerfen beantwortet. Der Stop verlangt Markername, " +
         "eigene SSE-PID und deren Fenster auf genau diesem Desktop. Bei unsicherem Dirty-/Dialogzustand " +
-        "bleiben Prozess und Marker zur bewussten Klaerung erhalten.",
+        "bleiben Prozess und Marker zur bewussten Klaerung erhalten. Hat die markierte PID kein breites " +
+        "Hauptfenster mehr (nur Dialog oder Startbild, etwa nach einem nie gespeicherten Fall), beendet " +
+        "discardChanges=true genau diese PID hart und raeumt den Marker ab; ohne discardChanges bleibt sie " +
+        "mit confirmation-required erhalten. Das Ergebnis meldet hauptfensterVorher.",
     },
     { timeoutMs: 120_000 },
   );
