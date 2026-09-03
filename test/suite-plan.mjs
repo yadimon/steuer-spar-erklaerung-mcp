@@ -30,6 +30,7 @@ export const serialBuildSteps = Object.freeze([
   nodeFile("npm-package-build", "scripts/build-npm-packages.mjs"),
   nodeFile("agent-plugin-build", "scripts/build-agent-plugin.mjs", "--check"),
   nodeFile("api-docs", "scripts/build-api-docs.mjs", "--check"),
+  nodeFile("docs-consistency", "scripts/check-docs-consistency.mjs"),
 ]);
 
 export const parallelSteps = Object.freeze([
