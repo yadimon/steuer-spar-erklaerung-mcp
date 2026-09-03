@@ -20,7 +20,7 @@ assert.equal(profile.engineFileMajor, 31);
 assert.equal(profile.status, "supported");
 assert.equal(profile.operationAccess, "full");
 assert.equal(isProductProfileReleased(profile), true);
-assert.equal(profile.verifiedBuild, "31.0.1.0");
+assert.equal(profile.verifiedBuild, "31.0.2.0");
 assert.equal(profile.executable.name, "SSE.exe");
 assert.equal(profile.pageObjectsPath, join(root, "profiles", "2025", "page-objects.json"));
 assert.equal(profile.pageObjectsCatalog.schemaVersion, 1);
