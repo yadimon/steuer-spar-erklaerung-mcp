@@ -5145,6 +5145,9 @@ var init_mcp_schemas_diagnostics = __esm({
         expectedCaseHash: SHA256().optional().describe(
           "Nur bei recoveryPrompt=true Pflicht: aktueller SHA256 der regulaer gespeicherten Falldatei"
         ),
+        discardUnsavedRecovery: external_exports.literal(true).optional().describe(
+          "Nur bei recoveryPrompt=true und Antwort 'Nein': verwirft die Wiederherstellungsdatei einer SSE-PID, die nachweislich ohne Falldatei gestartet wurde (nie gespeicherter Fall); schliesst expectedCaseRef/expectedCaseHash aus"
+        ),
         button: external_exports.enum(SSE_DIALOG_BUTTONS).describe("Exakter freigegebener Buttonname aus sse_dialog_list"),
         waitMs: external_exports.number().int().min(200).max(1e4).optional().describe("Wartezeit auf den Dialog-Readback in Millisekunden")
       }).strict(),
@@ -14921,7 +14924,8 @@ var init_result_contract = __esm({
         answered: OPTIONAL_STRING_OR_BOOLEAN,
         recoveryDiscarded: OPTIONAL_BOOLEAN,
         caseHashUnchanged: OPTIONAL_BOOLEAN,
-        caseBindingModeAfter: OPTIONAL_STRING
+        caseBindingModeAfter: OPTIONAL_STRING,
+        startedWithoutCaseFile: OPTIONAL_BOOLEAN
       },
       ui_state: { running: OPTIONAL_BOOLEAN, heading: OPTIONAL_STRING, blockiert: OPTIONAL_BOOLEAN },
       ustva_read: {

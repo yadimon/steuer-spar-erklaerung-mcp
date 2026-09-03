@@ -319,6 +319,7 @@ const CORE_OPERATION_RESULT_FIELDS = {
     recoveryDiscarded: OPTIONAL_BOOLEAN,
     caseHashUnchanged: OPTIONAL_BOOLEAN,
     caseBindingModeAfter: OPTIONAL_STRING,
+    startedWithoutCaseFile: OPTIONAL_BOOLEAN,
   },
   ui_state: { running: OPTIONAL_BOOLEAN, heading: OPTIONAL_STRING, blockiert: OPTIONAL_BOOLEAN },
   ustva_read: {

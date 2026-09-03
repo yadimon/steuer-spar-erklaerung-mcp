@@ -349,6 +349,9 @@ export function registerDiagnosticTools(registry: McpRegistry): void {
         "bodyFingerprint; ihr OCR-Fliesstext wird unmittelbar vor der Antwort erneut gebunden. " +
         "Bei recoveryPrompt=true ist nur 'Nein' erlaubt und expectedCaseRef plus expectedCaseHash sind Pflicht; " +
         "PID/Command-Line, Dateihash und das anschliessende regulaere Fallfenster werden verifiziert. " +
+        "Wurde die SSE-PID ohne Falldatei gestartet (nie gespeicherter Fall), ersetzt discardUnsavedRecovery=true " +
+        "die Dateibindung: der Worker beweist die Kommandozeile ohne Fall, verlangt danach genau ein regulaeres " +
+        "Fallfenster und meldet caseBindingModeAfter='file-less-start'. " +
         "Beim lokalen Finanzamt-CSV-Export ist nur der exakt gelesene Schalter " +
         "'Klicken Sie hier, um Ihre Daten zu exportieren' freigegeben; der folgende Ordnerdialog " +
         "bleibt ein separat zu pruefender Dialog.",
