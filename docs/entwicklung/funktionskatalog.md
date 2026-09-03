@@ -26,7 +26,7 @@ Navigationsbaum. Die folgenden Baeume sind gemessen.
 
 | Modul | Endung | Rubriken | Bei uns |
 | --- | --- | --- | --- |
-| **Einkommensteuer** | `.ESt2025` | 9 | die einzige live gefahrene Fallart; **ein** Seitenobjekt |
+| **Einkommensteuer** | `.ESt2025` | 9 | die einzige live gefahrene Fallart; **ein** Seitenobjekt von 672 Programmseiten |
 | **Gewinnermittlung** | `.Gew2025` | 15 | sechs Seitenobjekte (`gew.*`), UStVA ausgebaut |
 | **Gewinn-Erfassung** | `.GewErfass2026` | 12 | zwei Seitenobjekte (`gew_erfass.*`) |
 | **Gesonderte Feststellung** | `.GesondFest2025` | 11 | **nichts** |
@@ -95,16 +95,46 @@ festhaelt: Die Qt-Elemente des Navigationsbaums bieten UIA-Muster an, die
 zusagen und nichts tun. Deshalb navigiert `goto` ueber das Suchfeld und einen
 echten Doppelklick.
 
-**Konsequenz:** Die Seitenflaeche ist ohne physische Eingabe nicht aufzaehlbar.
-Ein vollstaendiger Seitenkatalog entsteht nur, indem man jede Seite tatsaechlich
-ansteuert und von Hand profiliert. Dass der Katalog neun Seiten hat, ist also
-keine Nachlaessigkeit, sondern der Preis dieser Eigenschaft. Wer die Flaeche
-erweitern will, plant pro Seite einen Navigations- und einen Profilierungslauf
-ein - nicht einen Generator.
+**Konsequenz fuer die Bedienung:** Zu einer Seite zu *gelangen* geht nur ueber
+physische Eingabe. Deshalb navigiert `goto` ueber Suchfeld und Doppelklick, und
+deshalb kostet jede neu profilierte Seite einen echten Navigationslauf.
 
-Der einzige billige Weg waere `GenerateNavtreeXML`, ein Kommando von SSE selbst,
-das den Navigationsbaum als XML ausgibt. Es ist nur ueber den Herstellerweg
-erreichbar, und der ist geschlossen.
+**Aber die Seiten aufzuzaehlen geht doch** - nur nicht ueber die Oberflaeche.
+Siehe naechster Abschnitt.
+
+### Gemessener Befund: das Programm bringt seinen Katalog als Dateien mit
+
+Die Installation enthaelt die Struktur in lesbarer Form. Gezaehlt im
+Programmordner von SSE `31.0.2.0`:
+
+| Was | Menge | Bedeutung |
+| --- | --- | --- |
+| `Dialogs\*.dialog` | **672** Dateien, 30,4 MB | die Seiten des Programms. Binaerformat mit Kennung `DMLDLG`, im Klartext lesbare Feld- und Beschriftungsnamen |
+| `*.frb` | **994** Dateien | Formular- und Blankovorlagen - der Ausgabeweg, den wir nicht abdecken (`blanko_*`, `bescheid`, `belegecheckliste`, `anlagen_aus`) |
+| `*.ddb` | **7** Dateien | das Datenmodell je Modul, gebaut aus `ddf`-Quellen. Die Namen sind exakt die Startmodi: `normal`, `einur`, `einurvor`, `fest`, `ermaess`, `konsust`, `vorweg` |
+| `*.idx` | 2 Dateien | die Stichwortverzeichnisse der Suche (`steuererklaerung.idx`, `gewinn.idx`), reiner Text |
+
+Damit steht die Zahl, um die es die ganze Zeit ging: **672 Seiten im Produkt,
+neun bei uns profiliert.**
+
+Die Dateinamen sind sprechend und lassen sich Modulen zuordnen. Die groessten
+Gruppen: `eur_*` (110, Einnahmen-Ueberschuss-Rechnung), `fe_*` (24,
+Feststellung), `konsust*`/`konsustva*` (17), `ust*`/`ustva*` (10). Dazu
+Einzelseiten mit klaren fachlichen Namen - `rente`, `arbeitszimmeraufteil`,
+`arbeitvonzuhause`, `kindertagespflege`, `haushaltsnahdienstl`. Die
+`abgabe_*`-Dateien tragen den Modulnamen im Namen (`abgabe_normal`,
+`abgabe_fest`, `abgabe_ermaess`, `abgabe_einur_*`) und bestaetigen die
+Modulzuordnung.
+
+Die vollstaendige Namensliste steht hier bewusst nicht: sie ist Herstellermaterial,
+und sie ist mit einem Befehl reproduzierbar
+(`Get-ChildItem '<Programmordner>\Dialogs' -Filter *.dialog`).
+
+**Und daraus folgt ein praktischer Weg**, den ich vorher nicht gesehen habe: Die
+`idx`-Dateien enthalten genau das Vokabular, das die programmeigene Suche
+kennt - und `goto` navigiert ueber diese Suche. Eine Seitenaufnahme muss also
+nicht raten, wonach sie suchen soll; sie kann die Stichwortliste abarbeiten.
+Das macht das Profilieren nicht billig, aber planbar.
 
 ## Achse 2: Funktionsgruppen
 
