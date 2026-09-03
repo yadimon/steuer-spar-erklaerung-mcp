@@ -26,9 +26,9 @@ Navigationsbaum. Die folgenden Baeume sind gemessen.
 
 | Modul | Endung | Rubriken | Bei uns |
 | --- | --- | --- | --- |
-| **Einkommensteuer** | `.ESt2025` | 9 | die einzige live gefahrene Fallart; **ein** Seitenobjekt von 672 Programmseiten |
+| **Einkommensteuer** | `.ESt2025` | 9 | Hauptmodul der Live-Reisen; **ein** Seitenobjekt von 672 Programmseiten |
 | **Gewinnermittlung** | `.Gew2025` | 15 | sechs Seitenobjekte (`gew.*`), UStVA ausgebaut |
-| **Gewinn-Erfassung** | `.GewErfass2026` | 12 | zwei Seitenobjekte (`gew_erfass.*`) |
+| **Gewinn-Erfassung** | `.GewErfass2026` | 12 | zwei Seitenobjekte (`gew_erfass.*`); live gefahren mit `case_create` und der Folgejahr-UStVA |
 | **Gesonderte Feststellung** | `.GesondFest2025` | 11 | **nichts** |
 | **Lohnsteuer-Ermaessigung** | `.Freib2026` | 14 | **nichts** |
 | **Prognose** | `.EStProg2026` | 4 | **nichts** |
@@ -185,7 +185,7 @@ Das macht das Profilieren nicht billig, aber planbar.
 
 | Gruppe | Hersteller nennt | Bei uns |
 | --- | --- | --- |
-| **Eingabe Einkommensteuer** | alle Einkuenfte und Anlagen: nichtselbstaendige Arbeit, Renten, V+V, Kapitalertraege, Kinder, Unterhalt, Immobilien, Handwerker | **ein** Seitenobjekt. Generische Mechanik (`goto`, `page`, `read_page`, `table_read`) traegt ueberall, fokusloses Schreiben nur dort |
+| **Eingabe Einkommensteuer** | alle Einkuenfte und Anlagen: nichtselbstaendige Arbeit, Renten, V+V, Kapitalertraege, Kinder, Unterhalt, Immobilien, Handwerker | **ein** Seitenobjekt. Generische Mechanik (`goto`, `page`, `read_page`, `table_read`) traegt ueberall; der einzige profilierte Focusless-Schreibpfad liegt dagegen in der **Gewinnermittlung** (`gew.beitraege_gebuehren_abgaben.betrag`) |
 | **Selbstaendige** | EUeR, Summenerfassung, USt-Jahreserklaerung, UStVA, Dauerfristverlaengerung, Lohnsteuer-Anmeldung, Gewerbesteuer, Anlagenverzeichnis, Fahrzeugkosten | UStVA gut ausgebaut (fuenf Operationen), Anlagevermoegen und Fahrzeug profiliert. **Fehlen:** Gewerbesteuer, USt-Jahreserklaerung, Lohnsteuer-Anmeldung, Dauerfristverlaengerung |
 | **Datenuebernahme und Import** | Vorjahr (auch aus MeinElster-Versandnachweis), VaSt-Abruf, Ehepartner B, Nebenkostenabrechnung, Gewinnermittlung nach Anlage G/S, Fremdformate SSX/QIF/CSV/SDI | **fast nichts.** VaSt existiert, ist live aber nur auf dem Fehlerpfad belegt |
 | **Ausgabe** | Druckauswahl mit Filter, Belegempfehler, Checkliste, Druckvorschau, Formulardruck in amtliche Formulare, PDF, RTF, GoBD-CSV, neun Musterbrief-Typen | **genau eine** Entsprechung: `export_csv` (GoBD). Sonst nichts |

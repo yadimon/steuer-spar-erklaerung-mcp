@@ -22,8 +22,8 @@ ist, nicht was fehlt.
 
 | | Produkt | Bei uns |
 | --- | --- | --- |
-| Module (Fallarten) | 7 | 3 angefasst, davon 1 live gefahren |
-| Seiten (`.dialog`-Dateien) | 672 | **alle lesbar und beschreibbar**, 9 katalogisiert – siehe unten |
+| Module (Fallarten) | 7 | 3 angefasst, davon 2 live gefahren |
+| Seiten (`.dialog`-Dateien) | 672 | **alle lesbar**, mit sichtbarem Vordergrund auch beschreibbar; 9 katalogisiert – siehe unten |
 | Menueeintraege | 64 | 11 fertig, 9 teils, 4 zu |
 | Formularvorlagen (`.frb`) | 994 | 0 |
 | Operationen | – | 100, davon 94 live belegt |
@@ -51,6 +51,14 @@ Alles Uebrige arbeitet auf **jeder** der 672 Seiten:
 - **Tabellen** kennen gar keine `pageId`: `table_add`, `table_update` und
   `table_delete` binden ueber `expectedPage` als Zeichenkette.
 
+**Eine Grenze bleibt, und sie ist wichtig:** Das gilt fuer Schreibwege mit
+sichtbarem Vordergrund. Auf einem privaten Desktop laesst der Worker nur
+profilierte Focusless-Pfade zu - heute genau **einen** - und stoppt sonst
+fail-closed mit `hidden-desktop`. Und dass jede der 672 Seiten per `goto`
+erreichbar ist, folgt aus der Bauart, ist aber nicht gemessen: `goto`
+navigiert ueber die Programmsuche, und was nicht im Stichwortverzeichnis
+steht, ist unbelegt.
+
 Ein Katalogeintrag bringt also: benannte, stabile `pageId`/`fieldId` statt
 selbst gebauter Selektoren, hinterlegte Beschriftung, Wertart und Ueberschrift,
 Zustandsvergleiche und den geplanten Mehrfeld-Schreibweg mit Rollback.
@@ -63,9 +71,9 @@ Ergebnis-Diff und Seitenobjekte umgehen wuerde.
 
 | Modul | Endung | Rubriken | Stand | Weg |
 | --- | --- | --- | --- | --- |
-| Einkommensteuer | `.ESt2025` | 9 | **teils** – einziges live gefahrenes Modul, 1 Seitenobjekt | Seiten profilieren |
+| Einkommensteuer | `.ESt2025` | 9 | **teils** – Hauptmodul der Live-Reisen, 1 Seitenobjekt | Seiten profilieren |
 | Gewinnermittlung | `.Gew2025` | 15 | **teils** – 6 Seitenobjekte, UStVA ausgebaut | Seiten profilieren |
-| Gewinn-Erfassung | `.GewErfass2026` | 12 | **teils** – 2 Seitenobjekte | Seiten profilieren |
+| Gewinn-Erfassung | `.GewErfass2026` | 12 | **teils** – 2 Seitenobjekte, live gefahren (`case_create`, Folgejahr-UStVA) | Seiten profilieren |
 | Gesonderte Feststellung | `.GesondFest2025` | 11 | **offen** | Profil, dann Seiten |
 | Lohnsteuer-Ermaessigung | `.Freib2026` | 14 | **offen** | Profil, dann Seiten |
 | Prognose | `.EStProg2026` | 4 | **offen** | Profil, dann Seiten |
