@@ -74,6 +74,38 @@ Kosten · Werbungskosten · Sonderausgaben · und weitere
 
 **Prognose (4):** Vorbereitung · Datenuebernahme · Steuerprognose · beenden
 
+### Gemessener Befund: die Seitenflaeche laesst sich nicht aufzaehlen
+
+Der naheliegende Wunsch, den vollstaendigen Seitenkatalog einfach auszulesen,
+scheitert am Navigationsbaum. Gemessen am Einkommensteuer-Musterfall:
+
+- Der Baum hat **neun** Eintraege. Fuenf davon bieten `ExpandCollapse` an, vier
+  nicht.
+- **`Expand()` meldet Erfolg und bewirkt nichts.** Fuenfzehn Runden mit je vier
+  Aufklappversuchen, keine einzige Ausnahme - der Zustand bleibt `Collapsed`,
+  die Zahl der Eintraege bleibt neun.
+- **`SelectionItem.Select()` meldet ebenfalls Erfolg und navigiert nicht.** Ueber
+  alle neun Rubriken hinweg blieb die Seitenueberschrift unveraendert.
+- Die Hierarchie steckt ausserdem **nicht im UIA-Baum**: alle Eintraege sind
+  Geschwister, die Ebene ist allein ueber die X-Koordinate kodiert (107 fuer die
+  oberste Ebene, 127 fuer die zweite).
+
+Das ist dieselbe Klasse von Befund, die der Worker fuer `goto` bereits
+festhaelt: Die Qt-Elemente des Navigationsbaums bieten UIA-Muster an, die
+zusagen und nichts tun. Deshalb navigiert `goto` ueber das Suchfeld und einen
+echten Doppelklick.
+
+**Konsequenz:** Die Seitenflaeche ist ohne physische Eingabe nicht aufzaehlbar.
+Ein vollstaendiger Seitenkatalog entsteht nur, indem man jede Seite tatsaechlich
+ansteuert und von Hand profiliert. Dass der Katalog neun Seiten hat, ist also
+keine Nachlaessigkeit, sondern der Preis dieser Eigenschaft. Wer die Flaeche
+erweitern will, plant pro Seite einen Navigations- und einen Profilierungslauf
+ein - nicht einen Generator.
+
+Der einzige billige Weg waere `GenerateNavtreeXML`, ein Kommando von SSE selbst,
+das den Navigationsbaum als XML ausgibt. Es ist nur ueber den Herstellerweg
+erreichbar, und der ist geschlossen.
+
 ## Achse 2: Funktionsgruppen
 
 | Gruppe | Hersteller nennt | Bei uns |
