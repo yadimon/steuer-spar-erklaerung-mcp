@@ -209,6 +209,12 @@ assert.throws(() => parseApiOperationArgs("dialog_answer", {
 assert.throws(() => parseApiOperationArgs("dialog_answer", {
   hwnd: 42, fingerprint: "a".repeat(64), button: "Nein", expectedCaseHash: "kurz",
 }));
+assert.deepEqual(parseApiOperationArgs("dialog_answer", {
+  hwnd: 42, fingerprint: "a".repeat(64), button: "Nein", discardUnsavedRecovery: true,
+}), { hwnd: 42, fingerprint: "a".repeat(64), button: "Nein", discardUnsavedRecovery: true });
+assert.throws(() => parseApiOperationArgs("dialog_answer", {
+  hwnd: 42, fingerprint: "a".repeat(64), button: "Nein", discardUnsavedRecovery: false,
+}), "discardUnsavedRecovery akzeptiert nur das Literal true");
 
 assert.throws(() => parseApiOperationArgs("click_point", { name: "Hinweis", checkerReadOnly: true }));
 assert.deepEqual(parseCheckerReadOnlyClickArgs({ name: "Hinweis", checkerReadOnly: true }), {

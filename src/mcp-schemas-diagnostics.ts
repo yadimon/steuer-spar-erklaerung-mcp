@@ -87,6 +87,10 @@ export const SSE_MCP_DIAGNOSTIC_SCHEMAS = {
     expectedCaseHash: SHA256().optional().describe(
       "Nur bei recoveryPrompt=true Pflicht: aktueller SHA256 der regulaer gespeicherten Falldatei",
     ),
+    discardUnsavedRecovery: z.literal(true).optional().describe(
+      "Nur bei recoveryPrompt=true und Antwort 'Nein': verwirft die Wiederherstellungsdatei einer SSE-PID, die " +
+      "nachweislich ohne Falldatei gestartet wurde (nie gespeicherter Fall); schliesst expectedCaseRef/expectedCaseHash aus",
+    ),
     button: z.enum(SSE_DIALOG_BUTTONS).describe("Exakter freigegebener Buttonname aus sse_dialog_list"),
     waitMs: z.number().int().min(200).max(10000).optional().describe("Wartezeit auf den Dialog-Readback in Millisekunden"),
   }).strict(),

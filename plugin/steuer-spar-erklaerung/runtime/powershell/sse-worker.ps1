@@ -3088,6 +3088,47 @@ function Test-SSERecoveryPromptDescriptor($Dialog) {
   [bool]($text -ceq $expectedText)
 }
 
+# Die Wiederherstellungsfrage kennt genau zwei sichere Antworten: 'Nein' mit
+# exakt gebundener regulaerer Falldatei - oder 'Nein' fuer einen Prozess, der
+# nachweislich ohne Falldatei gestartet wurde und dessen Recovery-Datei daher
+# nur einen nie gespeicherten Fall enthalten kann. 'Ja' bleibt immer gesperrt.
+# Reine Funktion ohne Seiteneffekte, damit der Vertragstest jede Kombination
+# deterministisch prueft.
+function Resolve-SSERecoveryAnswerPolicy(
+  [bool]$IsRecoveryPrompt, [string]$ButtonName, [string]$ExpectedCasePath,
+  [string]$ExpectedCaseHash, [bool]$DiscardUnsavedRecovery, [string]$CommandLineCasePath
+) {
+  $hasBinding = [bool]$ExpectedCasePath -or [bool]$ExpectedCaseHash
+  if (-not $IsRecoveryPrompt) {
+    if ($DiscardUnsavedRecovery) {
+      return [pscustomobject]@{ mode = 'not-recovery'; ok = $false; kind = 'bad-args'
+        error = 'discardUnsavedRecovery ist ausschliesslich fuer die exakt erkannte Wiederherstellungsfrage zulaessig.' }
+    }
+    return [pscustomobject]@{ mode = 'not-recovery'; ok = $true; kind = $null; error = $null }
+  }
+  if ($ButtonName -cne 'Nein') {
+    return [pscustomobject]@{ mode = 'file-bound'; ok = $false; kind = 'blocked'
+      error = "Die Wiederherstellungsfrage erlaubt ausschliesslich 'Nein'; Wiederherstellungsdaten werden nie automatisch geladen." }
+  }
+  if ($DiscardUnsavedRecovery -and $hasBinding) {
+    return [pscustomobject]@{ mode = 'file-less'; ok = $false; kind = 'bad-args'
+      error = 'discardUnsavedRecovery und expectedCaseRef/expectedCaseHash schliessen sich aus.' }
+  }
+  if ($DiscardUnsavedRecovery) {
+    if ($CommandLineCasePath) {
+      return [pscustomobject]@{ mode = 'file-less'; ok = $false; kind = 'case-mismatch'
+        error = 'Der SSE-Prozess wurde mit einer Falldatei gestartet; expectedCaseRef und expectedCaseHash dieser Datei verwenden.' }
+    }
+    return [pscustomobject]@{ mode = 'file-less'; ok = $true; kind = $null; error = $null }
+  }
+  if (-not $ExpectedCasePath -or $ExpectedCaseHash -notmatch '^[A-F0-9]{64}$') {
+    return [pscustomobject]@{ mode = 'file-bound'; ok = $false; kind = 'bad-args'
+      error = ('Recovery-Nein braucht expectedCaseRef und expectedCaseHash der regulaer gespeicherten Falldatei ' +
+        '- oder discardUnsavedRecovery=true fuer einen nie gespeicherten Fall, dessen Prozess ohne Falldatei gestartet wurde.') }
+  }
+  [pscustomobject]@{ mode = 'file-bound'; ok = $true; kind = $null; error = $null }
+}
+
 function Get-DialogDescriptor($Window, [IntPtr]$MainHwnd) {
   $kind = 'other'
   # Mehrere Fälle können gleichzeitig offen sein. Jeder breite SSE-Fall ist
@@ -8585,15 +8626,21 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     }
     $expectedCasePath = [string](Arg $a 'expectedCasePath')
     $expectedCaseHash = ([string](Arg $a 'expectedCaseHash')).ToUpperInvariant()
+    $discardUnsavedRecovery = ((Arg $a 'discardUnsavedRecovery') -eq $true)
+    # Der dateilose Weg ist nur fuer einen Prozess erlaubt, dessen Kommandozeile
+    # beweist, dass nie eine Falldatei geladen war. Die Abfrage laeuft nur dann,
+    # sonst bleibt der bisherige dateigebundene Weg unveraendert.
+    $commandLineCasePath = ''
+    if ($isRecoveryPrompt -and $discardUnsavedRecovery) {
+      $commandLineCasePath = [string](Get-CasePathFromCommandLine ([int]$targetWindows[0].pid))
+    }
+    $recoveryPolicy = Resolve-SSERecoveryAnswerPolicy $isRecoveryPrompt $buttonName $expectedCasePath `
+      $expectedCaseHash $discardUnsavedRecovery $commandLineCasePath
+    if (-not $recoveryPolicy.ok) { Fail ([string]$recoveryPolicy.error) ([string]$recoveryPolicy.kind) }
+    $recoveryFileLess = ([string]$recoveryPolicy.mode -eq 'file-less')
     $recoveryBindingBefore = $null
     $recoveryHashBefore = $null
-    if ($isRecoveryPrompt) {
-      if ($buttonName -cne 'Nein') {
-        Fail "Die Wiederherstellungsfrage erlaubt ausschliesslich 'Nein'; Wiederherstellungsdaten werden nie automatisch geladen." 'blocked'
-      }
-      if (-not $expectedCasePath -or $expectedCaseHash -notmatch '^[A-F0-9]{64}$') {
-        Fail 'Recovery-Nein braucht expectedCaseRef und expectedCaseHash der regulaer gespeicherten Falldatei.' 'bad-args'
-      }
+    if ($isRecoveryPrompt -and -not $recoveryFileLess) {
       $expectedCasePath = [IO.Path]::GetFullPath($expectedCasePath)
       if (-not (Test-SSEProfileCaseFileName $expectedCasePath $false) -or
           -not (Test-Path -LiteralPath $expectedCasePath -PathType Leaf)) {
@@ -8732,17 +8779,23 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           hwnd=[int64]$dialog.hwnd; pid=[int]$dialog.pid; closed=[bool]$closed
         })
       }
-      $recoveryBindingAfter = Test-CaseBinding $recoveryMainAfter[0] $expectedCasePath
-      $recoveryHashAfter = Get-Sha256 $expectedCasePath
-      if (-not $recoveryBindingAfter.ok -or $recoveryHashAfter -ne $expectedCaseHash) {
-        Emit ([pscustomobject]@{
-          ok=$false; kind='postcondition-failed'
-          error='Regulaeres Fallfenster oder Falldatei-Hash ist nach Recovery-Nein nicht mehr exakt gebunden; keine Wiederholung.'
-          hwnd=[int64]$dialog.hwnd; pid=[int]$dialog.pid; closed=[bool]$closed
-          hashUnchanged=[bool]($recoveryHashAfter -eq $expectedCaseHash)
-        })
+      if ($recoveryFileLess) {
+        # Ohne Falldatei gibt es keinen Hash und keine Kommandozeilenbindung;
+        # das einzige regulaere Fallfenster oben ist die vollstaendige Nachbedingung.
+        $recoveryBindingModeAfter = 'file-less-start'
+      } else {
+        $recoveryBindingAfter = Test-CaseBinding $recoveryMainAfter[0] $expectedCasePath
+        $recoveryHashAfter = Get-Sha256 $expectedCasePath
+        if (-not $recoveryBindingAfter.ok -or $recoveryHashAfter -ne $expectedCaseHash) {
+          Emit ([pscustomobject]@{
+            ok=$false; kind='postcondition-failed'
+            error='Regulaeres Fallfenster oder Falldatei-Hash ist nach Recovery-Nein nicht mehr exakt gebunden; keine Wiederholung.'
+            hwnd=[int64]$dialog.hwnd; pid=[int]$dialog.pid; closed=[bool]$closed
+            hashUnchanged=[bool]($recoveryHashAfter -eq $expectedCaseHash)
+          })
+        }
+        $recoveryBindingModeAfter = [string]$recoveryBindingAfter.mode
       }
-      $recoveryBindingModeAfter = [string]$recoveryBindingAfter.mode
     }
     $allowsChildDialog = ($dialog.title -like 'Export für das Finanzamt (*.csv)*' -and
       $buttonName -eq 'Klicken Sie hier, um Ihre Daten zu exportieren')
@@ -8773,8 +8826,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     Emit ([pscustomobject]@{
       ok = $true; answered = $buttonName; requestedAnswer = $requestedButtonName; method = $method; hwnd = [int64]$dialog.hwnd
       closed = [bool]$closed; advancedToChildDialog = [bool](-not $closed -and $allowsChildDialog); verified = $true
-      recoveryDiscarded = [bool]$isRecoveryPrompt; caseHashUnchanged = $(if ($isRecoveryPrompt) { [bool]($recoveryHashAfter -eq $expectedCaseHash) } else { $null })
+      recoveryDiscarded = [bool]$isRecoveryPrompt
+      caseHashUnchanged = $(if ($isRecoveryPrompt -and -not $recoveryFileLess) { [bool]($recoveryHashAfter -eq $expectedCaseHash) } else { $null })
       caseBindingModeAfter = $recoveryBindingModeAfter
+      startedWithoutCaseFile = $(if ($isRecoveryPrompt) { [bool]$recoveryFileLess } else { $null })
       ungespeichertVorher = $dirtyBefore; ungespeichertNachher = $dirtyAfter; ungespeichertEingefuehrt = $dirtyIntroduced
       newDialogs = $newDialogs
       windows = $lightWindows

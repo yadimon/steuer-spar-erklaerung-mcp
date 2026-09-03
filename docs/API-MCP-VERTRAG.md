@@ -120,6 +120,17 @@ anschließend reguläres Fallfenster und unveränderten Hash. `Ja`, unvollständ
 Bindings, abweichende Texte/Schalter oder ein nachträglich veränderter Dialog
 enden ohne Klick.
 
+Für einen Prozess, der ohne Falldatei gestartet wurde (etwa ein nie gespeicherter
+neuer Fall), gibt es keine reguläre Datei, an die sich `Nein` binden ließe.
+`dialog_answer` akzeptiert dann `Nein` mit `discardUnsavedRecovery=true`: Der
+Worker beweist über die Prozess-Kommandozeile, dass keine Falldatei geladen war,
+verlangt nach dem Klick genau ein reguläres, nicht wiederhergestelltes Fallfenster
+und meldet `caseBindingModeAfter=file-less-start` sowie
+`startedWithoutCaseFile=true`. Das Flag ist mit `expectedCaseRef` und
+`expectedCaseHash` unvereinbar und außerhalb der Wiederherstellungsfrage
+verboten; ein mit Falldatei gestarteter Prozess wird mit `case-mismatch`
+abgewiesen.
+
 ## MCP-Abbildung
 
 Vor dieser Abbildung übernimmt der MCP-Start ausschließlich eine exakt passende
