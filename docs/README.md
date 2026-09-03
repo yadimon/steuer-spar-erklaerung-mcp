@@ -47,8 +47,10 @@ Diese Wege bleiben unterstützt, sind aber nicht der normale Einstieg.
 - [Release-Prozess](RELEASE.md) — versionsgleicher Plugin-/npm-Release und
   verifizierte Registry-/VM-Gates;
 - [Repository Health Check](../health-check.md) — reproduzierbares Playbook;
-- [Entwicklungswissen](entwicklung/README.md) — historische Ursachen und
-  verworfene Ansätze;
+- [Statustafel](entwicklung/status.md) — jede bekannte Fähigkeit des Produkts
+  mit ihrem Stand bei uns; der Einstieg für „haben wir das schon?";
+- [Entwicklungswissen](entwicklung/README.md) — Funktionskatalog,
+  Aktionsinventar, historische Ursachen und verworfene Ansätze;
 - [Performance-Harness](../test/performance/README.md) — produktfreie
   Benchmarks und ihre Beweisgrenzen.
 

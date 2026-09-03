@@ -77,7 +77,12 @@ const handwrittenPaths = [
   "README.md",
   "docs/README.md",
   "docs/ROADMAP.md",
+  "docs/ARCHITEKTUR.md",
   "docs/API-MCP-VERTRAG.md",
+  "docs/VERIFIKATION.md",
+  "docs/INSTALLATION.md",
+  "docs/UMSATZSTEUER-VORANMELDUNG.md",
+  "health-check.md",
   "docs/entwicklung/README.md",
   "docs/entwicklung/status.md",
   "docs/entwicklung/aktionsinventar.md",
@@ -160,6 +165,36 @@ assert.deepEqual(
   undocumented,
   [],
   `Diese Operationen sind live belegt, aber in keinem handgepflegten Dokument genannt. Was die API kann, muss auch dort stehen:\n  ${undocumented.join(", ")}`,
+);
+
+/**
+ * Gesamtzahlen im Fliesstext. Eine Formulierung mit „alle" ist eine
+ * Vollstaendigkeitsaussage und muss stimmen; als eine Operation dazukam, blieben
+ * drei solcher Saetze auf 99 stehen. Zeilenumbrueche werden vorher geglaettet,
+ * damit „alle 100\nOperationen" nicht durch die Maschen faellt.
+ */
+const directToolCount = Object.keys(SSE_MCP_TOOL_OPERATIONS).length;
+const totals = [
+  [/alle\s+(\d+)\s+Operationen/gu, operations.size, "Operationen"],
+  [/(\d+)\s+Operationen\s+sind\s+katalogisiert/gu, operations.size, "katalogisierte Operationen"],
+  [/Operationskatalog\s+bleibt\s+bei\s+(\d+)/gu, operations.size, "direkter Operationskatalog"],
+  [/alle\s+(\d+)\s+MCP-Werkzeuge/gu, toolNames.size, "MCP-Werkzeugnamen"],
+  [/(\d+)\s+direkten?\s+(?:MCP-)?Werkzeuge(?:n|namen)?/gu, directToolCount, "direkte Werkzeuge"],
+];
+const wrongTotals = [];
+for (const { path, text } of handwritten) {
+  const prose = text.replace(/\s+/gu, " ");
+  for (const [pattern, expected, label] of totals) {
+    for (const match of prose.matchAll(pattern)) {
+      if (Number(match[1]) === expected) continue;
+      wrongTotals.push(`${path}: „${match[0]}" - es sind ${expected} ${label}`);
+    }
+  }
+}
+assert.deepEqual(
+  wrongTotals,
+  [],
+  `Diese Gesamtzahlen stimmen nicht mehr mit dem Katalog ueberein:\n  ${wrongTotals.join("\n  ")}`,
 );
 
 /** Statustafel: gueltiger Stand je Zeile, und `fertig` muss halten. */

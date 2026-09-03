@@ -847,7 +847,7 @@ Gewinnaktualisierungsnotiz mit `OK` beschränkt; Recovery-Dateien werden nicht
 automatisch verworfen. Das Manifest trennt `status` von `operationAccess`:
 2025 trägt `full`, 2024 `verification-only`. Freigabe und voller Betriebsraum
 öffnen sich nur bei `supported` **und** `full`; eine reine Status-Promotion
-bleibt daher fail-closed. `capabilities.operationPolicy` klassifiziert alle 99
+bleibt daher fail-closed. `capabilities.operationPolicy` klassifiziert alle 100
 Operationen als Lesen, Navigation, bedingtes Focusless-Schreiben, Mutation,
 destruktiv oder Cleanup und nennt Opt-in- sowie Build-Drift-Gates. Ein zweiter
 MCP-Server pro Jahr ist nicht vorgesehen, solange sich nur Profildaten ändern.

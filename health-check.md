@@ -56,7 +56,8 @@ Ein Registry-Ausfall ist `BLOCKED`, niemals ein grüner Audit.
 | installiertes Produkt | `npm run test:product` | Identität, Modus, Profil und Katalog der lokalen Installation |
 | saubere npm-Installation | `npm run test:npm-clean-install` | beide neu gebauten Pakete und alle öffentlichen Einstiegspunkte |
 | Release-Metadaten | `npm run test:release-metadata` | Versionen, Security und aktuelle Release Notes synchron |
-| Dokumentation | `npm run docs:check` | erzeugte Referenz vollständig, keine toten Operationsnamen, jede live belegte Operation in der Statustafel genannt |
+| erzeugte Referenz | `npm run docs:build -- --check` | `docs/API-REFERENZ.md` entspricht Katalog, Merkmalen und Abdeckungsledger |
+| handgeschriebene Doku | `npm run docs:check` | keine toten Operationsnamen, jede live belegte Operation genannt, Gesamtzahlen und `fertig`-Zeilen belegt |
 
 Große Suites seriell ausführen. Ein optional fehlendes privates Archiv-Fixture
 darf nur dort übersprungen werden, wo der konkrete Vertrag es ausdrücklich als

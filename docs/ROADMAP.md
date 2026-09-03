@@ -19,8 +19,10 @@ ihrem Stand steht - fertig, teils, offen oder bewusst zu -, findet sie in der
 ## 1. Stand in Zahlen
 
 100 Operationen sind katalogisiert. 94 davon sind live belegt, sechs nur auf
-ihrem Fehlerpfad. Als MCP-Werkzeuge veroeffentlicht sind alle 100, dazu ein
-zusammengesetztes Werkzeug fuer den Einstieg.
+ihrem Fehlerpfad. Dazu gibt es 100 direkte MCP-Werkzeugnamen und ein
+zusammengesetztes fuer den Einstieg, zusammen 101. Sie decken 99 Operationen
+ab: `checker_detail` hat kein eigenes Werkzeug, und `tracked_set_value` traegt
+deren zwei (`sse_change_field`, `sse_change_known_field`).
 
 Das ist keine Vollstaendigkeit gegenueber dem Produkt, und die Zahl 100 ist
 irrefuehrend, wenn man sie allein liest. **Operationen sind Mechanismen, keine
@@ -51,8 +53,10 @@ zur Gewinnermittlung, zwei zur Gewinn-Erfassung. Es gibt genau **einen**
 profilierten fokuslosen Schreibpfad.
 
 Wer also fragt „koennen wir SSE vollstaendig steuern?", bekommt eine
-zweigeteilte Antwort: Die *Reichweite* ist voll – jede Seite ist les- und
-beschreibbar. Was fehlt, ist *hinterlegtes Wissen ueber die Oberflaeche*:
+zweigeteilte Antwort: Die *Reichweite* ist gross – jede Seite ist lesbar, und
+mit sichtbarem Vordergrund auch beschreibbar. Auf einem privaten Desktop
+schreibt dagegen nur der eine profilierte Focusless-Pfad; alles andere stoppt
+dort fail-closed mit `hidden-desktop`. Was fehlt, ist *hinterlegtes Wissen ueber die Oberflaeche*:
 stabile Namen, Beschriftungen, Wertarten, Sollzustaende und der geplante
 Mehrfeld-Schreibweg. Ein Katalogeintrag verwandelt „der Aufrufer muss die
 Seite kennen" in „die API kennt sie".
