@@ -71,6 +71,7 @@ var init_api_contract = __esm({
       "accessibility_probe",
       "archive_cases",
       "backup_cases",
+      "case_create",
       "case_hash",
       "center_cases",
       "center_refresh",
@@ -5033,6 +5034,14 @@ var init_mcp_schemas_lifecycle = __esm({
         ),
         exe: external_exports.never().optional().describe("Nicht zulaessig; wird ausschliesslich in der lokalen API konfiguriert")
       }).strict(),
+      "sse_case_create": external_exports.object({
+        targetRef: CASE_REF().describe(
+          "Neue, noch nicht vorhandene Falldatei im Bereich cases:; die Endung muss zum Startmodus passen (einurvor im Profil 2025 -> .GewErfass2026)"
+        ),
+        mode: external_exports.enum(["einurvor"]).describe(
+          "Startmodus des neuen Falls; derzeit nur einurvor (Gewinn-Erfassung des freigegebenen Folgejahres) live verifiziert"
+        )
+      }).strict(),
       "sse_save": external_exports.object({
         caseRef: CASE_REF().describe("Exakte Referenz des aktuell geoeffneten Steuerfalls; der Aufruf impliziert keine Save-As-Kopie"),
         expectedHashBefore: SHA256().describe("SHA256 der Datei unmittelbar vor dem Speichern"),
@@ -5790,6 +5799,7 @@ var init_operation_catalog = __esm({
       "sse_ustva_open_section": "ustva_open_section",
       "sse_scroll": "scroll",
       "sse_launch": "launch",
+      "sse_case_create": "case_create",
       "sse_save": "save",
       "sse_file_dialog_select": "file_dialog_select",
       "sse_fill_fields": "fill_fields",
@@ -5955,6 +5965,7 @@ var init_operation_catalog = __esm({
     });
     schemasByOperation.desktop_start = optionalAliasWithLegacy(SSE_MCP_TOOL_SCHEMAS.sse_desktop_start, "caseRef", "file");
     schemasByOperation.launch = optionalAliasWithLegacy(SSE_MCP_TOOL_SCHEMAS.sse_launch, "caseRef", "file");
+    schemasByOperation.case_create = withLegacyAlias(SSE_MCP_TOOL_SCHEMAS.sse_case_create, "targetRef", "targetPath");
     schemasByOperation.collect = optionalAliasWithLegacy(SSE_MCP_TOOL_SCHEMAS.sse_collect, "resultRef", "path");
     schemasByOperation.export_csv = optionalAliasWithLegacy(SSE_MCP_TOOL_SCHEMAS.sse_export_csv, "resultRef", "dir");
     schemasByOperation.verify = withLegacyAlias(SSE_MCP_TOOL_SCHEMAS.sse_verify, "sourceRef", "from");
@@ -6386,6 +6397,24 @@ var init_result_mutation_fields = __esm({
         openWindows: OPTIONAL_ARRAY,
         warning: OPTIONAL_STRING,
         note: OPTIONAL_STRING
+      },
+      case_create: {
+        created: OPTIONAL_BOOLEAN,
+        caseRef: OPTIONAL_STRING,
+        sha256: OPTIONAL_SHA256,
+        caseHashSource: OPTIONAL_STRING,
+        pid: OPTIONAL_NON_NEGATIVE_NUMBER,
+        hwnd: OPTIONAL_NON_NEGATIVE_NUMBER,
+        mode: OPTIONAL_STRING,
+        taxYear: OPTIONAL_NON_NEGATIVE_NUMBER,
+        heading: OPTIONAL_STRING,
+        steps: OPTIONAL_STRING_ARRAY,
+        failedStep: OPTIONAL_STRING,
+        effects: OPTIONAL_OBJECT,
+        note: OPTIONAL_STRING,
+        cleanup: OPTIONAL_OBJECT,
+        cleanupError: OPTIONAL_STRING,
+        processStillRunning: OPTIONAL_BOOLEAN
       },
       save_as: {
         savedAs: OPTIONAL_BOOLEAN,
@@ -26850,6 +26879,7 @@ var init_operation_traits = __esm({
     ];
     SSE_DESTRUCTIVE_OPERATIONS = [
       "archive_cases",
+      "case_create",
       "click",
       "click_point",
       "close",
@@ -28134,6 +28164,14 @@ function registerLifecycleTools(registry2) {
       case: r.case
     }),
     { timeoutMs: LAUNCH_OPERATION_TIMEOUT_MS }
+  );
+  registerApiTool(
+    "sse_case_create",
+    {
+      title: "Neuen Steuerfall anlegen",
+      description: "Legt einen neuen, leeren Steuerfall an: startet die SteuerSparErklaerung ohne Datei auf dem SICHTBAREN Desktop, fuehrt den echten Startassistenten (Jetzt beginnen -> Navigator-Modus -> Weiter) bis zur ersten Stammdatenseite und speichert den Fall sofort ueber den Programmdialog 'Speichern unter' unter targetRef. Voraussetzungen: sse_instances meldet keine Instanz, kein aktiver versteckter Desktop, das Ziel ist neu und traegt die zum Modus passende Endung. Danach bleibt der Fall geoeffnet; das Ergebnis liefert pid, hwnd, caseRef und sha256 fuer die weitere Bindung. Stammdaten anschliessend ueber die katalogisierten Seiten gew_erfass.allgemeine_angaben_unternehmen und gew_erfass.themenfilter_umsatzsteuer schreiben: Text- und Datumsfelder mit sse_fill_fields, Auswahlfelder (Rechtsform, Einkunftsart) mit sse_combo_select, Kontrollkaestchen mit sse_toggle, RadioButtons wie Kleinunternehmer oder Soll-/Istversteuerung mit sse_click pattern=select; die Einkunftsart vor dem Verlassen der ersten Seite setzen, sonst meldet der Programm-Pruefer einen gesperrten ELSTER-Hinweis. Vor der ersten weiteren Mutation den Dateistand mit sse_make_working_copy nach backups: sichern. Steuernummer, Finanzamt und mitwirkende Person sind eigene Unterseiten und kein Teil dieser Operation. Scheitert ein Schritt vor dem Speichern, wird die gestartete PID ohne Speichern beendet; nach dem Speichern wird nie geloescht. Nur den ausdruecklichen Auftrag 'neuen Fall anlegen' damit umsetzen; niemals ELSTER."
+    },
+    { timeoutMs: MAX_OPERATION_TIMEOUT_MS }
   );
   registerApiTool(
     "sse_save",

@@ -53,12 +53,16 @@ for (const [pageId, heading, expectedFields] of [
 }
 const masterData = profile.pageObjectsCatalog.pages["gew_erfass.allgemeine_angaben_unternehmen"];
 assert.equal(masterData.fields.einkunftsart.controlType, "ComboBox");
+assert.equal(masterData.fields.einkunftsart.writeTool, "sse_combo_select",
+  "Auswahlfelder schreibt nicht fill_fields, sondern der typisierte Combo-Weg.");
 assert.deepEqual(masterData.fields.einkunftsart.options, ["Gewerbebetrieb", "selbstständige Tätigkeit", "Land- u. Forstwirtschaft"]);
 assert.equal(masterData.fields.gruendungsdatum.valueKind, "date");
 const vatPage = profile.pageObjectsCatalog.pages["gew_erfass.themenfilter_umsatzsteuer"];
 assert.equal(vatPage.fields.lohnsteueranmeldungen.controlType, "CheckBox");
 assert.equal(vatPage.fields.lohnsteueranmeldungen.valueKind, "boolean");
 assert.equal(vatPage.fields.umsatz_vorjahr.valueKind, "currency");
+assert.equal(vatPage.fields.lohnsteueranmeldungen.writeTool, "sse_toggle",
+  "Kontrollkaestchen schreibt nicht fill_fields, sondern der typisierte Toggle-Weg.");
 assert(vatPage.notes.radioButtons.some((entry) => entry.automationIdSuffixNein === ".AngabenUmsatzsteuer.Besteuerungsart.JaNein.Nein"),
   "Die Soll-/Ist-Entscheidung muss als RadioButton-Hinweis auffindbar sein.");
 const ambiguousCatalog = {

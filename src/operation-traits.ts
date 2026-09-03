@@ -41,6 +41,7 @@ export const SSE_READ_ONLY_OPERATIONS = [
 
 export const SSE_DESTRUCTIVE_OPERATIONS = [
   "archive_cases",
+  "case_create",
   "click",
   "click_point",
   "close",
@@ -96,6 +97,7 @@ export const SSE_CLEANUP_OPERATIONS = [
 
 /** UI-/Steuerfallmutationen, die bei einem nicht erneut verifizierten SSE-Build fail-closed stoppen. */
 export const SSE_BUILD_DRIFT_BLOCKED_OPERATIONS = [
+  "case_create",
   "checker_run",
   "click",
   "click_point",

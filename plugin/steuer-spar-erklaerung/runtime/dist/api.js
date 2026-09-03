@@ -60,7 +60,7 @@ function asArray(value) {
   if (value === null || value === void 0) return [];
   return Array.isArray(value) ? value : [value];
 }
-var SSE_API_VERSION, DEFAULT_API_HOST, DEFAULT_API_PORT, DEFAULT_OPERATION_TIMEOUT_MS, MAX_OPERATION_TIMEOUT_MS, MAX_WORKER_QUEUE_DEPTH, MAX_API_BODY_BYTES, MAX_WORKSPACE_TEXT_BYTES, MAX_API_RESPONSE_BYTES, SSE_API_OPERATIONS, OPERATION_SET, LOOPBACK_HOSTNAMES;
+var SSE_API_VERSION, DEFAULT_API_HOST, DEFAULT_API_PORT, DEFAULT_OPERATION_TIMEOUT_MS, LAUNCH_OPERATION_TIMEOUT_MS, MAX_OPERATION_TIMEOUT_MS, MAX_WORKER_QUEUE_DEPTH, MAX_API_BODY_BYTES, MAX_WORKSPACE_TEXT_BYTES, MAX_API_RESPONSE_BYTES, SSE_API_OPERATIONS, OPERATION_SET, LOOPBACK_HOSTNAMES;
 var init_api_contract = __esm({
   "src/api-contract.ts"() {
     "use strict";
@@ -68,6 +68,7 @@ var init_api_contract = __esm({
     DEFAULT_API_HOST = "127.0.0.1";
     DEFAULT_API_PORT = 43127;
     DEFAULT_OPERATION_TIMEOUT_MS = 9e4;
+    LAUNCH_OPERATION_TIMEOUT_MS = 24e4;
     MAX_OPERATION_TIMEOUT_MS = 3e5;
     MAX_WORKER_QUEUE_DEPTH = 32;
     MAX_API_BODY_BYTES = 8 * 1024 * 1024;
@@ -78,6 +79,7 @@ var init_api_contract = __esm({
       "accessibility_probe",
       "archive_cases",
       "backup_cases",
+      "case_create",
       "case_hash",
       "center_cases",
       "center_refresh",
@@ -5464,6 +5466,14 @@ var init_mcp_schemas_lifecycle = __esm({
         ),
         exe: external_exports.never().optional().describe("Nicht zulaessig; wird ausschliesslich in der lokalen API konfiguriert")
       }).strict(),
+      "sse_case_create": external_exports.object({
+        targetRef: CASE_REF().describe(
+          "Neue, noch nicht vorhandene Falldatei im Bereich cases:; die Endung muss zum Startmodus passen (einurvor im Profil 2025 -> .GewErfass2026)"
+        ),
+        mode: external_exports.enum(["einurvor"]).describe(
+          "Startmodus des neuen Falls; derzeit nur einurvor (Gewinn-Erfassung des freigegebenen Folgejahres) live verifiziert"
+        )
+      }).strict(),
       "sse_save": external_exports.object({
         caseRef: CASE_REF().describe("Exakte Referenz des aktuell geoeffneten Steuerfalls; der Aufruf impliziert keine Save-As-Kopie"),
         expectedHashBefore: SHA256().describe("SHA256 der Datei unmittelbar vor dem Speichern"),
@@ -6226,6 +6236,7 @@ var init_operation_catalog = __esm({
       "sse_ustva_open_section": "ustva_open_section",
       "sse_scroll": "scroll",
       "sse_launch": "launch",
+      "sse_case_create": "case_create",
       "sse_save": "save",
       "sse_file_dialog_select": "file_dialog_select",
       "sse_fill_fields": "fill_fields",
@@ -6391,6 +6402,7 @@ var init_operation_catalog = __esm({
     });
     schemasByOperation.desktop_start = optionalAliasWithLegacy(SSE_MCP_TOOL_SCHEMAS.sse_desktop_start, "caseRef", "file");
     schemasByOperation.launch = optionalAliasWithLegacy(SSE_MCP_TOOL_SCHEMAS.sse_launch, "caseRef", "file");
+    schemasByOperation.case_create = withLegacyAlias(SSE_MCP_TOOL_SCHEMAS.sse_case_create, "targetRef", "targetPath");
     schemasByOperation.collect = optionalAliasWithLegacy(SSE_MCP_TOOL_SCHEMAS.sse_collect, "resultRef", "path");
     schemasByOperation.export_csv = optionalAliasWithLegacy(SSE_MCP_TOOL_SCHEMAS.sse_export_csv, "resultRef", "dir");
     schemasByOperation.verify = withLegacyAlias(SSE_MCP_TOOL_SCHEMAS.sse_verify, "sourceRef", "from");
@@ -6490,6 +6502,7 @@ var init_operation_traits = __esm({
     ];
     SSE_DESTRUCTIVE_OPERATIONS = [
       "archive_cases",
+      "case_create",
       "click",
       "click_point",
       "close",
@@ -6537,6 +6550,7 @@ var init_operation_traits = __esm({
       "window_close"
     ];
     SSE_BUILD_DRIFT_BLOCKED_OPERATIONS = [
+      "case_create",
       "checker_run",
       "click",
       "click_point",
@@ -7618,6 +7632,280 @@ var init_bulk_plan_executor = __esm({
   }
 });
 
+// src/api-resource-bindings.ts
+var API_RESOURCE_BINDINGS;
+var init_api_resource_bindings = __esm({
+  "src/api-resource-bindings.ts"() {
+    "use strict";
+    API_RESOURCE_BINDINGS = Object.freeze({
+      case_hash: [{ alias: "ref", workerField: "path", allowedAreas: ["cases"] }],
+      case_create: [{ alias: "targetRef", workerField: "targetPath", allowedAreas: ["cases"] }],
+      center_refresh: [{ alias: "expectedDirectoryRef", workerField: "expectedDirectory", allowedAreas: ["cases"] }],
+      launch: [{ alias: "caseRef", workerField: "file", allowedAreas: ["cases"] }],
+      desktop_start: [{ alias: "caseRef", workerField: "file", allowedAreas: ["cases"] }],
+      collect: [{ alias: "resultRef", workerField: "path", allowedAreas: ["results"] }],
+      export_csv: [{ alias: "resultRef", workerField: "dir", allowedAreas: ["results"] }],
+      verify: [{ alias: "sourceRef", workerField: "from", allowedAreas: ["results", "workspace"] }],
+      screenshot: [{ alias: "resultRef", workerField: "path", allowedAreas: ["results"] }],
+      save: [{ alias: "caseRef", workerField: "expectedPath", allowedAreas: ["cases"] }],
+      dialog_answer: [{ alias: "expectedCaseRef", workerField: "expectedCasePath", allowedAreas: ["cases"] }],
+      file_dialog_select: [{
+        alias: "resourceRef",
+        workerField: "expectedPath",
+        allowedAreas: ["cases", "documents", "workspace", "results", "backups"]
+      }],
+      receipt_manager_import: [{
+        alias: "resourceRef",
+        workerField: "expectedPath",
+        allowedAreas: ["documents"]
+      }],
+      vast_apply: [{ alias: "expectedCaseRef", workerField: "expectedCasePath", allowedAreas: ["cases"] }],
+      tracked_set_value: [{ alias: "expectedCaseRef", workerField: "expectedCasePath", allowedAreas: ["cases"] }],
+      combo_select: [{ alias: "expectedCaseRef", workerField: "expectedCasePath", allowedAreas: ["cases"] }],
+      toggle: [{ alias: "expectedCaseRef", workerField: "expectedCasePath", allowedAreas: ["cases"] }],
+      save_as: [
+        { alias: "sourceRef", workerField: "expectedSourcePath", allowedAreas: ["cases"] },
+        { alias: "targetRef", workerField: "targetPath", allowedAreas: ["cases"] }
+      ],
+      make_working_copy: [
+        { alias: "sourceRef", workerField: "source", allowedAreas: ["cases"] },
+        // Backups sind hashgepruefte Arbeitskopien mit eigenem Ablagezweck.
+        { alias: "targetRef", workerField: "target", allowedAreas: ["cases", "backups"] }
+      ],
+      backup_cases: [{ alias: "destinationRef", workerField: "dest", allowedAreas: ["backups"] }],
+      archive_cases: [{ alias: "destinationRef", workerField: "dest", allowedAreas: ["backups"] }]
+    });
+  }
+});
+
+// src/case-create-executor.ts
+import { createHash as createHash2 } from "node:crypto";
+import { existsSync as existsSync7, readFileSync } from "node:fs";
+import { basename as basename3 } from "node:path";
+async function cleanupStartedProcess(worker, pid) {
+  let cleanup = { ok: false, kind: "cleanup-not-run", error: "Cleanup wurde nicht ausgefuehrt." };
+  const errors = [];
+  try {
+    cleanup = await worker("close", { pid, force: true, discardChanges: true }, 3e4);
+  } catch (error) {
+    errors.push(`close: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  let processStillRunning = true;
+  try {
+    const status = await worker("product_info", {}, 3e4);
+    if (status.ok === true && Object.hasOwn(status, "supportedRunning") && Object.hasOwn(status, "ignoredRunning")) {
+      const running = [
+        ...asArray(status.supportedRunning),
+        ...asArray(status.ignoredRunning)
+      ];
+      processStillRunning = running.some((entry) => Number(entry.pid) === pid);
+    } else {
+      errors.push("product_info: Prozessstatus war unvollstaendig.");
+    }
+  } catch (error) {
+    errors.push(`product_info: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return { cleanup, processStillRunning, ...errors.length ? { cleanupError: errors.join(" ") } : {} };
+}
+function expectedFileSuffix(profile, mode, wizard) {
+  const documentType = profile.startModes[mode];
+  const taxYear = profile.taxYear + wizard.yearOffset;
+  const released = profile.additionalCaseYears?.[mode] ?? [];
+  if (!documentType || !released.includes(taxYear)) {
+    fail("bad-args", `Startmodus '${mode}' ist im aktiven Produktprofil nicht fuer einen neuen Fall des Jahres ${taxYear} freigegeben.`);
+  }
+  return { suffix: `.${documentType}${taxYear}`, taxYear };
+}
+async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
+  const now = dependencies.now ?? Date.now;
+  const budgetMs = Math.min(timeoutMs ?? LAUNCH_OPERATION_TIMEOUT_MS, MAX_OPERATION_TIMEOUT_MS);
+  const deadline = now() + budgetMs;
+  const steps = [];
+  let pid = 0;
+  let hwnd = 0;
+  let target;
+  const step = async (operation, stepArgs, ceilingMs = budgetMs) => {
+    if (signal?.aborted) fail("aborted", "API-Client hat die Fallanlage abgebrochen.");
+    const remaining = deadline - now();
+    if (remaining < MIN_STEP_MS) fail("timeout", `Zeitbudget der Fallanlage ist vor '${operation}' erschoepft.`);
+    steps.push(operation);
+    const result = await dependencies.execute(operation, stepArgs, Math.min(remaining, ceilingMs), signal);
+    if (result.ok !== true) throw new StepFailure({ ...result, failedStep: operation });
+    return result;
+  };
+  const wait = (ms) => new Promise((resolve16) => setTimeout(resolve16, ms));
+  try {
+    const mode = String(args.mode ?? "");
+    const wizard = CASE_CREATE_WIZARDS[mode] ?? fail("bad-args", `Startmodus '${mode}' besitzt keinen live verifizierten Assistentenweg fuer neue Faelle.`);
+    target = dependencies.resolveTarget(args);
+    const { suffix, taxYear } = expectedFileSuffix(dependencies.profile, mode, wizard);
+    const fileName = basename3(target.path);
+    if (!fileName.endsWith(suffix) || fileName.length <= suffix.length) {
+      fail("bad-args", `Zieldatei muss auf '${suffix}' enden und einen Namen davor tragen; '${fileName}' passt nicht.`);
+    }
+    if (existsSync7(target.path)) fail("target-exists", "Zieldatei existiert bereits; case_create ueberschreibt niemals.");
+    const instances = await step("instances", {});
+    if (Number(instances.count) !== 0) {
+      fail("confirmation-required", "Es ist bereits eine SSE-Instanz offen. case_create startet nur ohne offene Instanz; den offenen Fall zuerst bewusst schliessen oder sichern.");
+    }
+    const desktop = await step("desktop_status", {});
+    if (desktop.aktiv === true) {
+      fail("hidden-desktop", "Der versteckte Desktop ist aktiv; der Startassistent braucht den sichtbaren Desktop.");
+    }
+    const launchBudget = Math.max(MIN_LAUNCH_MS, deadline - now() - WIZARD_RESERVE_MS);
+    const launched = await step("launch", { mode }, launchBudget);
+    pid = Number(launched.pid);
+    if (!Number.isInteger(pid) || pid <= 0) fail("startup-pid", "Der Start lieferte keine verifizierbare PID.");
+    let startHeading = "";
+    for (; ; ) {
+      const bound2 = await step("instances", {});
+      const instance = asArray(bound2.instances).find((entry2) => Number(entry2.pid) === pid);
+      if (instance && Number(bound2.count) === 1 && instance.hung !== true && instance.recoveredState !== true) {
+        hwnd = Number(instance.hwnd);
+        const state = await step("ui_state", { hwnd });
+        const heading = String(state.heading ?? "");
+        const match = wizard.startHeading.exec(heading);
+        if (match) {
+          if (Number(match[1]) !== taxYear) {
+            fail("wizard-page", `Der Assistent bietet das Jahr ${match[1]} an, das Profil erlaubt fuer '${mode}' nur ${taxYear}.`);
+          }
+          startHeading = heading;
+          break;
+        }
+      }
+      if (deadline - now() < WIZARD_RESERVE_MS / 2) {
+        fail("wizard-page", "Die Startseite des Assistenten erschien nicht rechtzeitig nach dem Programmstart.");
+      }
+      await wait(START_PAGE_POLL_MS);
+    }
+    const subpages = await step("subpages", { hwnd });
+    const begin = asArray(subpages.unterseiten).find((entry2) => String(entry2.schalter ?? "") === wizard.beginLink && typeof entry2.rid === "string" && entry2.rid);
+    if (!begin) fail("wizard-page", `Der Startlink '${wizard.beginLink}' fehlt auf '${startHeading}'.`);
+    const began = await step("click", {
+      rid: begin.rid,
+      hwnd,
+      expectedPageBefore: startHeading,
+      expectedPageAfter: wizard.modeChoiceHeading,
+      waitMs: 6e3
+    });
+    if (String(began.ueberschriftNachher ?? "") !== wizard.modeChoiceHeading) {
+      fail("wizard-page", `Nach '${wizard.beginLink}' steht '${String(began.ueberschriftNachher ?? "")}' statt '${wizard.modeChoiceHeading}'.`);
+    }
+    await step("click", { aid: wizard.modeChoiceAid, hwnd, expectedPageBefore: wizard.modeChoiceHeading, waitMs: 3e3 });
+    const master = await step("click", {
+      name: wizard.nextButton,
+      hwnd,
+      expectedPageBefore: wizard.modeChoiceHeading,
+      expectedPageAfter: wizard.masterDataHeading,
+      waitMs: 9e3
+    });
+    if (String(master.ueberschriftNachher ?? "") !== wizard.masterDataHeading) {
+      fail("wizard-page", `Nach '${wizard.nextButton}' steht '${String(master.ueberschriftNachher ?? "")}' statt '${wizard.masterDataHeading}'.`);
+    }
+    const menu = await step("menu", { name: wizard.saveMenu, hwnd });
+    const entry = asArray(menu.eintraege).find((candidate) => String(candidate.name ?? "") === wizard.saveMenuEntry);
+    if (!entry || entry.gesperrt === true || entry.aktiv === false) {
+      fail("menu-entry", `Menueeintrag '${wizard.saveMenuEntry}' ist nicht aktiv verfuegbar.`);
+    }
+    try {
+      await step("menu_click", { name: wizard.saveMenuEntry, hwnd, waitMs: 5e3 });
+      const dialogs = await step("dialog_list", { pid });
+      const saveDialogs = asArray(dialogs.dialogs).filter((dialog) => String(dialog.kind ?? "") === "native-dialog" && String(dialog.title ?? "") === wizard.saveDialogTitle);
+      if (saveDialogs.length !== 1) {
+        fail("save-dialog", `Erwartet genau einen nativen Dialog '${wizard.saveDialogTitle}', gefunden ${saveDialogs.length}.`);
+      }
+    } catch (error) {
+      await dependencies.execute("menu_close", { hwnd }, MIN_STEP_MS * 5, signal).catch(() => void 0);
+      throw error;
+    }
+    const saved = await step("file_dialog_select", {
+      expectedDialogTitle: wizard.saveDialogTitle,
+      expectedPath: target.path,
+      waitMs: 15e3
+    });
+    const sha256 = String(saved.sha256 ?? "");
+    if (saved.mode !== "save-new" || saved.verified !== true || !/^[A-F0-9]{64}$/iu.test(sha256)) {
+      throw new StepFailure(operationError("Der Speicherdialog schloss ohne verifizierten save-new-Readback.", "postcondition-failed"));
+    }
+    const readback = await step("instances", { includeHash: true });
+    const bound = asArray(readback.instances).find((entry2) => Number(entry2.pid) === pid);
+    if (!bound || String(bound.caseName ?? "") !== fileName || bound.recoveredState === true) {
+      throw new StepFailure(operationError("Die gespeicherte Datei ist nicht exakt an das offene Fallfenster gebunden.", "postcondition-failed"));
+    }
+    const instanceHash = typeof bound.caseSha256 === "string" ? bound.caseSha256.toUpperCase() : null;
+    const diskHash = instanceHash ?? createHash2("sha256").update(readFileSync(target.path)).digest("hex").toUpperCase();
+    if (diskHash !== sha256.toUpperCase()) {
+      throw new StepFailure(operationError("Der Dateihash nach dem Speichern weicht vom Dialog-Readback ab.", "postcondition-failed"));
+    }
+    return {
+      ok: true,
+      created: true,
+      caseRef: target.ref || target.path,
+      sha256: sha256.toUpperCase(),
+      pid,
+      hwnd: Number(bound.hwnd),
+      caseHashSource: instanceHash ? "instances" : "local-file",
+      mode,
+      taxYear,
+      heading: wizard.masterDataHeading,
+      steps,
+      effects: { ...EFFECTS },
+      note: "Der neue Fall ist geoeffnet und leer gespeichert. Stammdaten jetzt mit fill_fields fuellen; vor der ersten weiteren Mutation den Dateistand nach backups: sichern."
+    };
+  } catch (error) {
+    const failure = error instanceof StepFailure ? error.result : operationError(error instanceof Error ? error.message : String(error), signal?.aborted ? "aborted" : "case-create");
+    const created = target !== void 0 && existsSync7(target.path);
+    if (pid > 0 && !created) {
+      const cleanupState = await cleanupStartedProcess(dependencies.worker, pid);
+      return { ...failure, created: false, steps, pid, ...cleanupState };
+    }
+    return {
+      ...failure,
+      created,
+      steps,
+      ...pid > 0 ? { pid, processStillRunning: true } : {},
+      ...created ? { caseRef: target.ref || target.path } : {}
+    };
+  }
+}
+var CASE_CREATE_WIZARDS, MIN_STEP_MS, MIN_LAUNCH_MS, WIZARD_RESERVE_MS, START_PAGE_POLL_MS, EFFECTS, StepFailure, fail;
+var init_case_create_executor = __esm({
+  "src/case-create-executor.ts"() {
+    "use strict";
+    init_api_contract();
+    init_executor_errors();
+    CASE_CREATE_WIZARDS = Object.freeze({
+      einurvor: {
+        startHeading: /^Gewinn-Erfassung für das Jahr (\d{4})$/u,
+        beginLink: "Jetzt beginnen",
+        modeChoiceHeading: "Beginn der Datenbearbeitung",
+        modeChoiceAid: "btnNavigatormodusEinURVor",
+        nextButton: "Weiter",
+        masterDataHeading: "Allgemeine Angaben zum Unternehmen",
+        saveMenu: "Datei",
+        saveMenuEntry: "Speichern unter... Strg+Alt+S",
+        saveDialogTitle: "Gewinn-Erfassung speichern",
+        yearOffset: 1
+      }
+    });
+    MIN_STEP_MS = 2e3;
+    MIN_LAUNCH_MS = 3e4;
+    WIZARD_RESERVE_MS = 6e4;
+    START_PAGE_POLL_MS = 1500;
+    EFFECTS = Object.freeze({ taxDataChanged: false, savePerformed: true, submissionPerformed: false });
+    StepFailure = class extends Error {
+      constructor(result) {
+        super(String(result.error ?? result.kind ?? "Schritt scheiterte."));
+        this.result = result;
+      }
+      result;
+    };
+    fail = (kind, error) => {
+      throw new StepFailure(operationError(error, kind));
+    };
+  }
+});
+
 // src/launch-executor.ts
 async function executeLaunchOperation(args, timeoutMs, signal, worker) {
   if (timeoutMs !== void 0 && timeoutMs < MINIMUM_LAUNCH_TIMEOUT_MS) {
@@ -7638,7 +7926,7 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
       "startup-pid"
     );
   }
-  const cleanupStartedProcess = async () => {
+  const cleanupStartedProcess2 = async () => {
     let cleanup = { ok: false, kind: "cleanup-not-run", error: "Cleanup wurde nicht ausgefuehrt." };
     const errors = [];
     try {
@@ -7672,7 +7960,7 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
   let lastStartupPrompts = [];
   try {
     if (signal?.aborted) {
-      const cleanupState2 = await cleanupStartedProcess();
+      const cleanupState2 = await cleanupStartedProcess2();
       return {
         ok: false,
         kind: cleanupState2.stillRunning ? "startup-abort-cleanup" : "aborted",
@@ -7779,7 +8067,7 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
         probeFailures
       };
     }
-    const cleanupState = await cleanupStartedProcess();
+    const cleanupState = await cleanupStartedProcess2();
     return {
       ok: false,
       kind: cleanupState.stillRunning ? "startup-timeout-cleanup" : "startup-timeout",
@@ -7793,7 +8081,7 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
       probeFailures
     };
   } catch (error) {
-    const cleanupState = await cleanupStartedProcess();
+    const cleanupState = await cleanupStartedProcess2();
     const kind = error && typeof error === "object" && typeof error.kind === "string" ? String(error.kind) : "startup-probe";
     if (signal?.aborted || kind === "aborted") {
       return {
@@ -8672,9 +8960,9 @@ var init_ustva_executor = __esm({
 });
 
 // src/workspace.ts
-import { createHash as createHash2, randomUUID as randomUUID2 } from "node:crypto";
+import { createHash as createHash3, randomUUID as randomUUID2 } from "node:crypto";
 import {
-  existsSync as existsSync7,
+  existsSync as existsSync8,
   closeSync as closeSync2,
   fstatSync as fstatSync2,
   linkSync as linkSync2,
@@ -8690,7 +8978,7 @@ import {
 import { dirname as dirname6, isAbsolute as isAbsolute5, relative as relative3, resolve as resolve10 } from "node:path";
 import { performance as performance2 } from "node:perf_hooks";
 function hash(buffer) {
-  return createHash2("sha256").update(buffer).digest("hex");
+  return createHash3("sha256").update(buffer).digest("hex");
 }
 function decodeUtf8(buffer) {
   try {
@@ -8702,7 +8990,7 @@ function decodeUtf8(buffer) {
 function* hashFile(path, bytes, budget) {
   if (bytes > MAX_LIST_HASH_BYTES) return null;
   const descriptor = openSync2(path, "r");
-  const digest = createHash2("sha256");
+  const digest = createHash3("sha256");
   const buffer = Buffer.allocUnsafe(64 * 1024);
   try {
     const opened = fstatSync2(descriptor);
@@ -8738,7 +9026,7 @@ function resolveWorkspacePath(root, ref, createParent = false) {
   const realRoot = realpathSync3(root);
   const candidate = resolve10(realRoot, ref);
   if (!inside2(realRoot, candidate)) throw new Error("Dateireferenz verlaesst den konfigurierten Arbeitsbereich.");
-  if (existsSync7(candidate)) {
+  if (existsSync8(candidate)) {
     const realCandidate = realpathSync3(candidate);
     if (!inside2(realRoot, realCandidate)) throw new Error("Dateireferenz folgt einem Link ausserhalb des Arbeitsbereichs.");
     return realCandidate;
@@ -8746,7 +9034,7 @@ function resolveWorkspacePath(root, ref, createParent = false) {
   const parent = dirname6(candidate);
   if (createParent) {
     let ancestor = parent;
-    while (!existsSync7(ancestor)) {
+    while (!existsSync8(ancestor)) {
       const next = dirname6(ancestor);
       if (next === ancestor) throw new Error("Zielordner liegt ausserhalb des konfigurierten Arbeitsbereichs.");
       ancestor = next;
@@ -8756,20 +9044,20 @@ function resolveWorkspacePath(root, ref, createParent = false) {
     }
     mkdirSync2(parent, { recursive: true });
   }
-  if (!existsSync7(parent) || !inside2(realRoot, realpathSync3(parent))) {
+  if (!existsSync8(parent) || !inside2(realRoot, realpathSync3(parent))) {
     throw new Error("Zielordner liegt ausserhalb des konfigurierten Arbeitsbereichs.");
   }
   return candidate;
 }
 function validateWorkspaceTextWrite(root, ref) {
   const path = resolveWorkspacePath(root, ref, true);
-  if (existsSync7(path)) {
+  if (existsSync8(path)) {
     throw new Error("Textdatei existiert bereits; eine neue Dateireferenz verwenden.");
   }
 }
 function validateWorkspaceTextTarget(root, ref) {
   const path = resolveWorkspacePath(root, ref, true);
-  if (!existsSync7(path)) return;
+  if (!existsSync8(path)) return;
   const stats = statSync3(path);
   if (!stats.isFile()) throw new Error("Dateireferenz bezeichnet keine regulaere Datei.");
   if (stats.size > MAX_TEXT_FILE_BYTES) throw new Error(`Textdatei ist groesser als ${MAX_TEXT_FILE_BYTES} Bytes.`);
@@ -8799,7 +9087,7 @@ function writeWorkspaceText(root, ref, text) {
     writeFileSync2(temporary, buffer, { flag: "wx" });
     linkSync2(temporary, path);
   } finally {
-    if (existsSync7(temporary)) unlinkSync2(temporary);
+    if (existsSync8(temporary)) unlinkSync2(temporary);
   }
   return { ref, bytes: buffer.length, sha256: hash(buffer) };
 }
@@ -8968,8 +9256,8 @@ var init_workspace = __esm({
 
 // src/scenario.ts
 import { isDeepStrictEqual } from "node:util";
-import { createHash as createHash3 } from "node:crypto";
-import { basename as basename3, dirname as dirname7, extname, join as join5 } from "node:path";
+import { createHash as createHash4 } from "node:crypto";
+import { basename as basename4, dirname as dirname7, extname, join as join5 } from "node:path";
 function requireAllowedScenarioOperations(groups, context) {
   for (const [phase, steps] of groups) {
     steps.forEach((step, index) => {
@@ -9041,7 +9329,7 @@ function summarizedValue(value, force = false) {
   return {
     omitted: true,
     bytes,
-    sha256: createHash3("sha256").update(serialized).digest("hex")
+    sha256: createHash4("sha256").update(serialized).digest("hex")
   };
 }
 function capture(result, paths) {
@@ -9049,7 +9337,7 @@ function capture(result, paths) {
 }
 function recordedError(error) {
   if (error.length <= MAX_RECORDED_ERROR_CHARS) return error;
-  const sha256 = createHash3("sha256").update(error).digest("hex");
+  const sha256 = createHash4("sha256").update(error).digest("hex");
   return `${error.slice(0, MAX_RECORDED_ERROR_CHARS)}… [gekuerzt; sha256=${sha256}]`;
 }
 function compactStepRecord(record) {
@@ -9210,7 +9498,7 @@ async function executeScenarioStep(step, workspaceDir, priorResults, deadline, s
 }
 function fallbackResultRef(requestedRef, sha256) {
   const extension = extname(requestedRef);
-  const stem = basename3(requestedRef, extension);
+  const stem = basename4(requestedRef, extension);
   const fallbackName = `${stem}.conflict-${sha256}${extension || ".json"}`;
   const parent = dirname7(requestedRef);
   return (parent === "." ? fallbackName : join5(parent, fallbackName)).replaceAll("\\", "/");
@@ -9322,7 +9610,7 @@ async function runScenario(workspaceDir, resultDir, scenarioRef, resultRefOverri
       };
       json = `${JSON.stringify(finalResult, null, 2)}
 `;
-      const jsonSha256 = createHash3("sha256").update(json).digest("hex");
+      const jsonSha256 = createHash4("sha256").update(json).digest("hex");
       actualResultRef = fallbackResultRef(resultRef, jsonSha256);
       try {
         info = writeWorkspaceText(resultDir, actualResultRef, json);
@@ -9577,7 +9865,7 @@ var init_workspace_executor = __esm({
 });
 
 // src/configuration-fingerprint.ts
-import { createHash as createHash4 } from "node:crypto";
+import { createHash as createHash5 } from "node:crypto";
 import { resolve as resolve11 } from "node:path";
 function optionalResolved(path) {
   return path ? resolve11(path) : null;
@@ -9593,7 +9881,7 @@ function configurationFingerprint(config) {
     sseExecutable: optionalResolved(config.sseExecutable),
     operateExperimental: config.operateExperimental === true
   };
-  return createHash4("sha256").update(JSON.stringify(stable), "utf8").digest("hex");
+  return createHash5("sha256").update(JSON.stringify(stable), "utf8").digest("hex");
 }
 var init_configuration_fingerprint = __esm({
   "src/configuration-fingerprint.ts"() {
@@ -9949,7 +10237,7 @@ var init_collect_verification = __esm({
 });
 
 // src/verify-executor.ts
-import { createHash as createHash5 } from "node:crypto";
+import { createHash as createHash6 } from "node:crypto";
 import { open as open2, stat as stat2 } from "node:fs/promises";
 import { extname as extname2 } from "node:path";
 import { performance as performance4 } from "node:perf_hooks";
@@ -9964,7 +10252,7 @@ async function readStableJsonFile(path, signal, includeBytes) {
       throw new VerifyFileError(`Collect-JSON ist nicht lesbar: Datei ist groesser als ${MAX_JSON_FILE_BYTES} Bytes.`, "invalid-source");
     }
     const chunks = [];
-    const digest = createHash5("sha256");
+    const digest = createHash6("sha256");
     let total = 0;
     const stream = handle.createReadStream({ autoClose: false, signal });
     stream.on("error", () => void 0);
@@ -10122,7 +10410,7 @@ var init_verify_executor = __esm({
 
 // src/owned-file.ts
 import { lstat, open as open3, stat as stat3, unlink } from "node:fs/promises";
-import { createHash as createHash6 } from "node:crypto";
+import { createHash as createHash7 } from "node:crypto";
 function errorCode(error) {
   return error && typeof error === "object" && "code" in error ? String(error.code) : "";
 }
@@ -10136,7 +10424,7 @@ async function pathExists(path) {
   }
 }
 async function hashHandle(handle) {
-  const digest = createHash6("sha256");
+  const digest = createHash7("sha256");
   const buffer = Buffer.allocUnsafe(HASH_CHUNK_BYTES);
   let position = 0;
   while (true) {
@@ -10206,7 +10494,7 @@ var init_owned_file = __esm({
 });
 
 // src/working-copy-executor.ts
-import { createHash as createHash7 } from "node:crypto";
+import { createHash as createHash8 } from "node:crypto";
 import { lstat as lstat2, open as open4, stat as stat4 } from "node:fs/promises";
 import { dirname as dirname8, extname as extname3, resolve as resolve12 } from "node:path";
 import { performance as performance5 } from "node:perf_hooks";
@@ -10223,7 +10511,7 @@ async function pathExists2(path) {
   }
 }
 async function hashHandle2(handle, checkStopped) {
-  const digest = createHash7("sha256");
+  const digest = createHash8("sha256");
   const buffer = Buffer.allocUnsafe(COPY_CHUNK_BYTES);
   let position = 0;
   while (true) {
@@ -10326,7 +10614,7 @@ async function executeLocalWorkingCopy(options) {
   let targetPath;
   let targetCreated = false;
   let bytesWritten = 0;
-  const writtenDigest = createHash7("sha256");
+  const writtenDigest = createHash8("sha256");
   try {
     const sourceRaw = options.args.source;
     const targetRaw = options.args.target;
@@ -10532,7 +10820,7 @@ var init_working_copy_executor = __esm({
     init_file_identity();
     init_owned_file();
     COPY_CHUNK_BYTES = 1024 * 1024;
-    EMPTY_SHA256 = createHash7("sha256").digest("hex").toUpperCase();
+    EMPTY_SHA256 = createHash8("sha256").digest("hex").toUpperCase();
     WorkingCopyFileError = class extends Error {
       constructor(message, kind) {
         super(message);
@@ -10703,7 +10991,7 @@ var init_local_file_transaction = __esm({
 });
 
 // src/backup-executor.ts
-import { createHash as createHash8 } from "node:crypto";
+import { createHash as createHash9 } from "node:crypto";
 import { open as open5, readdir as readdir3, stat as stat6 } from "node:fs/promises";
 import { join as join6, resolve as resolve13 } from "node:path";
 import { performance as performance6 } from "node:perf_hooks";
@@ -10858,7 +11146,7 @@ async function executeLocalBackup(options) {
     const hashes = copied.map((entry) => ({ file: entry.name, sha256: entry.sha256 }));
     const manifestPath = join6(destination, "pruefsummen.csv");
     const manifestBytes = csvManifest(hashes);
-    const manifestHash = createHash8("sha256").update(manifestBytes).digest("hex").toUpperCase();
+    const manifestHash = createHash9("sha256").update(manifestBytes).digest("hex").toUpperCase();
     manifestHandle = await open5(manifestPath, "wx+");
     const manifestIdentity = await manifestHandle.stat({ bigint: true });
     manifest = {
@@ -10977,10 +11265,10 @@ var init_backup_executor = __esm({
 });
 
 // src/archive-file-copy.ts
-import { createHash as createHash9 } from "node:crypto";
+import { createHash as createHash10 } from "node:crypto";
 import { open as open6, stat as stat7, unlink as unlink2, utimes } from "node:fs/promises";
 async function hashOpenFile(handle) {
-  const digest = createHash9("sha256");
+  const digest = createHash10("sha256");
   const buffer = Buffer.allocUnsafe(HASH_CHUNK_BYTES2);
   let position = 0;
   while (true) {
@@ -11064,7 +11352,7 @@ async function copyOpenFileToArchive(source, target, expectedHash, expectedBytes
   let targetHandle;
   let targetIdentity;
   let writtenBytes = 0;
-  const intended = createHash9("sha256");
+  const intended = createHash10("sha256");
   try {
     targetHandle = await open6(target, "wx+");
     targetIdentity = await targetHandle.stat({ bigint: true });
@@ -11168,9 +11456,9 @@ var init_sse_process_guard = __esm({
 });
 
 // src/archive-executor.ts
-import { createHash as createHash10 } from "node:crypto";
+import { createHash as createHash11 } from "node:crypto";
 import { open as open7, readdir as readdir4, stat as stat8, unlink as unlink3 } from "node:fs/promises";
-import { basename as basename4, join as join8, resolve as resolve14 } from "node:path";
+import { basename as basename5, join as join8, resolve as resolve14 } from "node:path";
 import { performance as performance7 } from "node:perf_hooks";
 function asArchiveArguments(value) {
   if (!Array.isArray(value) || !value.length) return void 0;
@@ -11237,7 +11525,7 @@ async function caseInventory(directory, profile) {
 async function writeVerifiedManifest(destination, rows, writeManifest) {
   const path = join8(destination, "pruefsummen.csv");
   const content = csvManifest(rows);
-  const sha256 = createHash10("sha256").update(content).digest("hex").toUpperCase();
+  const sha256 = createHash11("sha256").update(content).digest("hex").toUpperCase();
   const handle = await open7(path, "wx+");
   const identity = await handle.stat({ bigint: true });
   const manifest = {
@@ -11351,7 +11639,7 @@ async function executeLocalArchive(options) {
     const seen = /* @__PURE__ */ new Set();
     for (const entry of allArguments) {
       const key = entry.name.toLowerCase();
-      if (!entry.name || basename4(entry.name) !== entry.name || !isProfileCaseFileName(entry.name, options.profile, true)) {
+      if (!entry.name || basename5(entry.name) !== entry.name || !isProfileCaseFileName(entry.name, options.profile, true)) {
         return localResult(operationError(`Ungueltiger Fallname '${entry.name}'. Nur ein einfacher Falldateiname ist erlaubt.`, "bad-args"));
       }
       if (!/^[0-9A-F]{64}$/u.test(entry.expectedSha256)) {
@@ -11634,7 +11922,7 @@ var init_archive_executor = __esm({
 });
 
 // src/api-executor.ts
-import { existsSync as existsSync8, mkdirSync as mkdirSync3, readdirSync as readdirSync3, rmdirSync } from "node:fs";
+import { existsSync as existsSync9, mkdirSync as mkdirSync3, readdirSync as readdirSync3, rmdirSync } from "node:fs";
 import { dirname as dirname10, join as join9 } from "node:path";
 import { performance as performance8 } from "node:perf_hooks";
 function resourceRoots(config) {
@@ -11914,6 +12202,17 @@ function createApiExecutor(config, worker, dependencies = {}) {
       if (isUstvaOperation(operation)) {
         return await executeUstvaOperation(operation, args, timeoutMs, signal, executeOperation);
       }
+      if (operation === "case_create") {
+        return redactPaths(await executeCaseCreate(args, timeoutMs, signal, {
+          execute: executeOperation,
+          worker,
+          resolveTarget: (raw) => {
+            const configured2 = configuredArgs("case_create", raw, config);
+            return { path: String(configured2.args.targetPath ?? ""), ref: configured2.resourceRefs.targetRef ?? "" };
+          },
+          profile
+        }));
+      }
       if (operation === "fill_fields") {
         return await executeFillFieldsPlan(args, timeoutMs, signal, {
           pageObjectsCatalog: profile.pageObjectsCatalog,
@@ -11935,7 +12234,7 @@ function createApiExecutor(config, worker, dependencies = {}) {
       if (internalCheckerNavigation) {
         configured.args.experimentalCheckerNavigation = true;
       }
-      if (operation === "screenshot" && typeof configured.args.path === "string" && existsSync8(configured.args.path)) {
+      if (operation === "screenshot" && typeof configured.args.path === "string" && existsSync9(configured.args.path)) {
         throw new ExecutorArgumentError(
           "Screenshot-Zieldatei existiert bereits; fuer Kontrollbilder immer eine neue results:-Referenz verwenden."
         );
@@ -11944,7 +12243,7 @@ function createApiExecutor(config, worker, dependencies = {}) {
         const result2 = await executeLaunchOperation(configured.args, timeoutMs, signal, worker);
         return withResourceIdentity4(redactPaths, result2, configured.resourceRefs);
       }
-      if (operation === "list_cases" && configured.args.verbose !== true && typeof configured.args.dir === "string" && existsSync8(configured.args.dir)) {
+      if (operation === "list_cases" && configured.args.verbose !== true && typeof configured.args.dir === "string" && existsSync9(configured.args.dir)) {
         const effectiveTimeoutMs = timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS;
         const localStartedAt = performance8.now();
         try {
@@ -11982,7 +12281,7 @@ function createApiExecutor(config, worker, dependencies = {}) {
         }
       }
       let createdExportDirectory;
-      if (operation === "export_csv" && typeof configured.args.dir === "string" && configured.resourceRefs.resultRef?.startsWith("results:") && !existsSync8(configured.args.dir)) {
+      if (operation === "export_csv" && typeof configured.args.dir === "string" && configured.resourceRefs.resultRef?.startsWith("results:") && !existsSync9(configured.args.dir)) {
         const firstCreatedDirectory = mkdirSync3(configured.args.dir, { recursive: true });
         if (firstCreatedDirectory === void 0) {
           throw new ExecutorArgumentError(
@@ -11998,7 +12297,7 @@ function createApiExecutor(config, worker, dependencies = {}) {
         if (createdExportDirectory && result?.ok !== true) {
           try {
             let candidate = configured.args.dir;
-            while (typeof candidate === "string" && existsSync8(candidate) && readdirSync3(candidate).length === 0) {
+            while (typeof candidate === "string" && existsSync9(candidate) && readdirSync3(candidate).length === 0) {
               rmdirSync(candidate);
               if (candidate === createdExportDirectory) break;
               candidate = dirname10(candidate);
@@ -12015,7 +12314,7 @@ function createApiExecutor(config, worker, dependencies = {}) {
   const execute = (operation, args, timeoutMs, signal) => executeOperation(operation, args, timeoutMs, signal, false, false);
   return execute;
 }
-var API_RESOURCE_BINDINGS, MIN_WORKER_FALLBACK_TIMEOUT_MS, EXPERIMENTAL_PROFILE_BASE, EXPERIMENTAL_PROFILE_VERIFICATION;
+var MIN_WORKER_FALLBACK_TIMEOUT_MS, EXPERIMENTAL_PROFILE_BASE, EXPERIMENTAL_PROFILE_VERIFICATION;
 var init_api_executor = __esm({
   "src/api-executor.ts"() {
     "use strict";
@@ -12025,6 +12324,8 @@ var init_api_executor = __esm({
     init_case_file();
     init_checker_executor();
     init_bulk_plan_executor();
+    init_api_resource_bindings();
+    init_case_create_executor();
     init_executor_errors();
     init_launch_executor();
     init_operation_catalog();
@@ -12041,44 +12342,8 @@ var init_api_executor = __esm({
     init_working_copy_executor();
     init_backup_executor();
     init_archive_executor();
+    init_api_resource_bindings();
     init_profile_operation_policy();
-    API_RESOURCE_BINDINGS = Object.freeze({
-      case_hash: [{ alias: "ref", workerField: "path", allowedAreas: ["cases"] }],
-      center_refresh: [{ alias: "expectedDirectoryRef", workerField: "expectedDirectory", allowedAreas: ["cases"] }],
-      launch: [{ alias: "caseRef", workerField: "file", allowedAreas: ["cases"] }],
-      desktop_start: [{ alias: "caseRef", workerField: "file", allowedAreas: ["cases"] }],
-      collect: [{ alias: "resultRef", workerField: "path", allowedAreas: ["results"] }],
-      export_csv: [{ alias: "resultRef", workerField: "dir", allowedAreas: ["results"] }],
-      verify: [{ alias: "sourceRef", workerField: "from", allowedAreas: ["results", "workspace"] }],
-      screenshot: [{ alias: "resultRef", workerField: "path", allowedAreas: ["results"] }],
-      save: [{ alias: "caseRef", workerField: "expectedPath", allowedAreas: ["cases"] }],
-      dialog_answer: [{ alias: "expectedCaseRef", workerField: "expectedCasePath", allowedAreas: ["cases"] }],
-      file_dialog_select: [{
-        alias: "resourceRef",
-        workerField: "expectedPath",
-        allowedAreas: ["cases", "documents", "workspace", "results", "backups"]
-      }],
-      receipt_manager_import: [{
-        alias: "resourceRef",
-        workerField: "expectedPath",
-        allowedAreas: ["documents"]
-      }],
-      vast_apply: [{ alias: "expectedCaseRef", workerField: "expectedCasePath", allowedAreas: ["cases"] }],
-      tracked_set_value: [{ alias: "expectedCaseRef", workerField: "expectedCasePath", allowedAreas: ["cases"] }],
-      combo_select: [{ alias: "expectedCaseRef", workerField: "expectedCasePath", allowedAreas: ["cases"] }],
-      toggle: [{ alias: "expectedCaseRef", workerField: "expectedCasePath", allowedAreas: ["cases"] }],
-      save_as: [
-        { alias: "sourceRef", workerField: "expectedSourcePath", allowedAreas: ["cases"] },
-        { alias: "targetRef", workerField: "targetPath", allowedAreas: ["cases"] }
-      ],
-      make_working_copy: [
-        { alias: "sourceRef", workerField: "source", allowedAreas: ["cases"] },
-        // Backups sind hashgepruefte Arbeitskopien mit eigenem Ablagezweck.
-        { alias: "targetRef", workerField: "target", allowedAreas: ["cases", "backups"] }
-      ],
-      backup_cases: [{ alias: "destinationRef", workerField: "dest", allowedAreas: ["backups"] }],
-      archive_cases: [{ alias: "destinationRef", workerField: "dest", allowedAreas: ["backups"] }]
-    });
     MIN_WORKER_FALLBACK_TIMEOUT_MS = 2e3;
     EXPERIMENTAL_PROFILE_BASE = new Set(EXPERIMENTAL_PROFILE_BASE_OPERATIONS);
     EXPERIMENTAL_PROFILE_VERIFICATION = new Set(
@@ -14055,6 +14320,24 @@ var init_result_mutation_fields = __esm({
         warning: OPTIONAL_STRING,
         note: OPTIONAL_STRING
       },
+      case_create: {
+        created: OPTIONAL_BOOLEAN,
+        caseRef: OPTIONAL_STRING,
+        sha256: OPTIONAL_SHA256,
+        caseHashSource: OPTIONAL_STRING,
+        pid: OPTIONAL_NON_NEGATIVE_NUMBER,
+        hwnd: OPTIONAL_NON_NEGATIVE_NUMBER,
+        mode: OPTIONAL_STRING,
+        taxYear: OPTIONAL_NON_NEGATIVE_NUMBER,
+        heading: OPTIONAL_STRING,
+        steps: OPTIONAL_STRING_ARRAY,
+        failedStep: OPTIONAL_STRING,
+        effects: OPTIONAL_OBJECT,
+        note: OPTIONAL_STRING,
+        cleanup: OPTIONAL_OBJECT,
+        cleanupError: OPTIONAL_STRING,
+        processStillRunning: OPTIONAL_BOOLEAN
+      },
       save_as: {
         savedAs: OPTIONAL_BOOLEAN,
         verified: OPTIONAL_BOOLEAN,
@@ -15864,8 +16147,8 @@ var init_api_server = __esm({
 });
 
 // src/windows-runtime.ts
-import { existsSync as existsSync9 } from "node:fs";
-import { basename as basename5, join as join10, resolve as resolve15 } from "node:path";
+import { existsSync as existsSync10 } from "node:fs";
+import { basename as basename6, join as join10, resolve as resolve15 } from "node:path";
 function resolveWindowsPowerShell(env = process.env) {
   if (process.platform !== "win32") {
     throw new Error("SteuerSparErklaerung-Automation wird nur unter Windows unterstuetzt.");
@@ -15878,7 +16161,7 @@ function resolveWindowsPowerShell(env = process.env) {
   ].filter((entry) => Boolean(entry));
   for (const candidate of candidates) {
     const absolute = resolve15(candidate);
-    if (basename5(absolute).toLowerCase() === "powershell.exe" && existsSync9(absolute)) return absolute;
+    if (basename6(absolute).toLowerCase() === "powershell.exe" && existsSync10(absolute)) return absolute;
   }
   throw new Error(
     "Windows PowerShell (powershell.exe) wurde im Windows-Systemordner nicht gefunden. Es wird keine globale PowerShell-7-Installation benoetigt."
@@ -16217,7 +16500,7 @@ var init_worker_prewarm = __esm({
 
 // src/worker.ts
 import { spawn as spawn2 } from "node:child_process";
-import { createHash as createHash11, randomUUID as randomUUID4 } from "node:crypto";
+import { createHash as createHash12, randomUUID as randomUUID4 } from "node:crypto";
 import { closeSync as closeSync3, openSync as openSync3, unlinkSync as unlinkSync3, writeFileSync as writeFileSync3 } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
@@ -16271,7 +16554,7 @@ function removeWorkerArgumentsFile(path) {
 function summarizeWorkerDiagnostic(value) {
   if (value.length <= MAX_WORKER_DIAGNOSTIC_CHARACTERS) return value;
   const bytes = Buffer.from(value, "utf8");
-  const digest = createHash11("sha256").update(bytes).digest("hex");
+  const digest = createHash12("sha256").update(bytes).digest("hex");
   return `${value.slice(0, MAX_WORKER_DIAGNOSTIC_CHARACTERS)}
 [Diagnose gekuerzt: ${bytes.length} UTF-8-Bytes, sha256=${digest}]`;
 }
@@ -16628,7 +16911,7 @@ var init_abort = __esm({
 // src/jsonl-logger.ts
 import {
   appendFileSync,
-  existsSync as existsSync10,
+  existsSync as existsSync11,
   lstatSync as lstatSync2,
   mkdirSync as mkdirSync4,
   renameSync as renameSync2,
@@ -16642,7 +16925,7 @@ function requirePositiveInteger(value, name) {
   }
 }
 function assertRegularFile(path) {
-  if (!existsSync10(path)) return;
+  if (!existsSync11(path)) return;
   const info = lstatSync2(path);
   if (!info.isFile() || info.isSymbolicLink()) {
     throw new Error(`Logpfad ist keine regulaere Datei: ${path}`);
@@ -16688,18 +16971,18 @@ function createRotatingJsonlLogger(options) {
   const rotate = () => {
     assertRegularFile(options.logPath);
     assertRegularFile(previousPath);
-    if (existsSync10(previousPath)) unlinkSync4(previousPath);
-    if (existsSync10(options.logPath)) renameSync2(options.logPath, previousPath);
+    if (existsSync11(previousPath)) unlinkSync4(previousPath);
+    if (existsSync11(options.logPath)) renameSync2(options.logPath, previousPath);
     logBytes = 0;
   };
   try {
     mkdirSync4(dirname13(options.logPath), { recursive: true });
     assertRegularFile(previousPath);
-    if (existsSync10(previousPath) && statSync5(previousPath).size > options.maxBytes) {
+    if (existsSync11(previousPath) && statSync5(previousPath).size > options.maxBytes) {
       unlinkSync4(previousPath);
     }
     assertRegularFile(options.logPath);
-    logBytes = existsSync10(options.logPath) ? statSync5(options.logPath).size : 0;
+    logBytes = existsSync11(options.logPath) ? statSync5(options.logPath).size : 0;
     if (logBytes > options.maxBytes) {
       const oversizedBytes = logBytes;
       unlinkSync4(options.logPath);

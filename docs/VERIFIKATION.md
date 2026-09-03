@@ -17,6 +17,7 @@ UI-Operation auf jeder Jahresversion praktisch funktioniert.
 - [Zustandsreise](#zustandsreise-2026-08-24)
 - [Nebenfenster](#nebenfenster-sind-lesbar-aber-nicht-bedienbar-2026-08-24)
 - [Kalter Feldzyklus](#kalter-feldzyklus-2026-08-23)
+- [Fallanlage live](#fallanlage-live-2026-09-03)
 - [Saubere VM](#installations--und-live-lauf-in-einer-sauberen-vm-2026-08-23)
 - [Aktuelle Live-Muster-Evidenz](#aktuelle-live-muster-evidenz)
 - [Wegwerfkopien](#wegwerfkopien-statt-privater-fixtures)
@@ -74,6 +75,9 @@ Sie sind weder Ausgabe des Standardbefehls noch CI-Grenzwert.
 | Worker-Prewarm und Desktopmarker | `node test/worker-prewarm.mjs` | ein echter leerer Privatdesktop mit gültigem SSE-Marker lässt ausschließlich `product_info` und `page_objects` eine bereite Einmal-Reserve übernehmen; `health` bleibt markiert, Center-Eigentum stoppt in Node und Worker fail-closed. Startup-Timeout, Retry und Cleanup bleiben gebunden; zusätzlich beendet die autoritative Node-Frist einen bereits zugewiesenen blockierenden Warm-Worker an seiner exakten PID, entfernt dessen Argumentdatei, ersetzt ihn und hinterlässt nach Shutdown keinen eigenen Fixture-Prozess | Beschleunigung einer realen UI-Operation oder ein allgemeiner Laufzeitgrenzwert; harter Node-Absturz beziehungsweise Eventloop-Stillstand nach der Warm-Zuweisung |
 | Native Fensterenumeration | `powershell -File test/desktop-enumeration-contract.ps1` | Unicode-Inhalt und Ergebnistypen stimmen für drei echte Fenster mit dem bisherigen Weg überein; leere PID-Freigabe und doppelte PID bleiben stabil. Ein frischer C#-Thread bindet sich an einen neu erzeugten leeren Privatdesktop und belegt direkt über `SSEWindowEnumerator.Describe` mit nichtleerer PID-Freigabe den legitimen `FALSE`/Fehlercode-0/kein-Callback-Pfad. Callback-Ausnahme, Win32-Fehler und ein Abbruch nach begonnenem Callback sind deterministisch fail-closed und statisch an den produktiven P/Invoke-Pfad gebunden; zwei gleich große Fenster behalten die rohe `EnumWindows`-Reihenfolge | ein echter Betriebssystemfehler während einer produktiven Enumeration oder fremde Fensteränderung zwischen zwei getrennten Snapshots |
 | Steuerfall-Bindungsentscheidung | `powershell -File test/case-binding-contract.ps1` | nur ein vollständiger exakter Titel darf bei internen Decision-only-Aufrufern die Kommandozeilenabfrage überspringen; gekürzte Titel, Command-line-Fallback und Abfragefehler fragen sie weiterhin ab und behalten ihre bisherige Entscheidungssemantik, `save`/`save_as` behalten ihre vollständige öffentliche Bindungsevidenz | ein nach der Bindung wechselnder Fenstertitel |
+| Recovery-Antwort-Policy | `powershell -File test/recovery-answer-policy-contract.ps1` | die reine Entscheidung hinter `dialog_answer` erlaubt `Nein` nur dateigebunden (Pfad plus 64-stelliger Hash) oder mit `discardUnsavedRecovery=true` für eine nachweislich ohne Falldatei gestartete PID; `Ja`, halbe Bindungen, das Flag außerhalb der Wiederherstellungsfrage, Flag plus Bindung und Flag bei Dateistart scheitern mit festen `kind`-Werten | ein Prozess, dessen Kommandozeile den Fall verschweigt |
+| desktop_stop-Policy | `powershell -File test/desktop-stop-policy-contract.ps1` | genau ein Hauptfenster bleibt der sanfte Weg, mehrere bleiben `ambiguous`; ohne Hauptfenster beendet nur `discardChanges=true` die markierte PID hart, sonst `confirmation-required` | der eigentliche Prozessstop und die Markerentfernung |
+| Fallanlage-Komposition | `node test/case-create-contract.mjs` | `case_create` ruft gegen einen Skript-Worker exakt die Folge `instances, desktop_status, launch, instances, ui_state, subpages, click×3, menu, menu_click, dialog_list, file_dialog_select, instances`; offene Instanz, versteckter Desktop, vorhandenes Ziel, falsche Endung und Abbruch starten nichts; falsche Assistentenseite, gesperrter Menüeintrag, fehlender nativer Dialog und gescheiterter Speicherdialog beenden die gestartete PID ohne Speichern; nach einer existierenden Datei wird nie geschlossen oder gelöscht; ein gekürzter Fenstertitel ohne Worker-Hash wird lokal gegen den Dialog-Readback geprüft | die echten Klick- und Dialogwege des Produkts |
 | Prozess-Kommandozeile | `powershell -File test/process-command-line-contract.ps1` | der begrenzte read-only Native-Pfad liefert für einen echten Unicode-Prozess exakt dieselbe Kommandozeile wie CIM, verliert bei Wiederholung keine Handles und fällt bei nicht lesbaren PIDs, leerem Ergebnis, `null` oder Ausnahmen nur für die betroffenen PIDs auf den bestehenden CIM-Weg zurück | zukünftige Windows-Version ohne die interne Informationsklasse; fremde oder geschützte Prozesse mit abweichenden Zugriffsregeln |
 | Prozessende beim Schließen | `powershell -File test/process-exit-wait-contract.ps1` | fehlende, ungebundene und bereits freigegebene Prozessobjekte sowie `null`, ungültige oder geschlossene Handles werden abgelehnt; lebend, Exit während des Waits, bereits beendet und Timeout 0/negativ bleiben unter Windows PowerShell 5.1 signalgesteuert. Alle Close-Wege verwenden denselben gepinnten SafeHandle direkt über `WaitForSingleObject`; `WAIT_FAILED` wird dynamisch und jeder andere unbekannte Rückgabewert im Quellvertrag fail-closed geprüft | ein tatsächlich von einem produktiven Prozess-Handle gelieferter unbekannter Kernel-Rückgabewert, Kernelstillstand in `WaitForSingleObject` oder das fachliche Verhalten eines realen SSE-Speicherdialogs |
 | Begrenzte MSAA-Punktprojektion | `powershell -File test/describe-point-basic-contract.ps1` | exakt die drei internen Klick-/Dialogproben verwenden den begrenzten Native-Pfad; Ergebnisform, gemeinsame Felder und vollständiger Diagnosepfad bleiben statisch und per Reflection gebunden | reale Qt-/Accessibility-Provider-Parität und Laufzeit; andere Accessibility-Provider und zukünftige Qt-Versionen |
@@ -225,7 +229,7 @@ Zwei gleichzeitig gestartete `--selftest`-Prozesse verwendeten nach einem
 absichtlich provozierten Start-Rennen denselben ausdrücklich gesetzten
 projektlokalen `SSE_API_CONFIG`-Pfad und denselben API-PID; eine exakte
 Kommandozeilenabfrage fand danach genau einen passenden `node.exe`-Prozess. Ein
-echter MCP-SDK-Handshake listete 100 Werkzeuge, rief `sse_preflight` auf und
+echter MCP-SDK-Handshake listete 101 Werkzeuge, rief `sse_preflight` auf und
 hielt stdout protokollrein. Der erwartete Preflight-Blocker `SSE_NOT_RUNNING`
 bestätigte, dass die Produktanwendung im Installationsaudit nicht still
 gestartet wurde. Zum Abschluss wurde ausschließlich der zuvor über Paketname,
@@ -259,7 +263,7 @@ Zeichen auskommt. Geformte Texte und Antworten mit ausgelagerten Binärfeldern
 bleiben getrennte Darstellungen.
 
 Der Laufzeitkatalog ist die Quelle für die aktuelle Anzahl und Benennung der
-Operationen. Am genannten Stand enthält er 99 API-Operationen und 100
+Operationen. Am genannten Stand enthält er 100 API-Operationen und 101
 MCP-Werkzeugnamen. Das sind keine eindeutigen Eins-zu-eins-Zuordnungen:
 `sse_change_field` und `sse_change_known_field` rufen beide
 `tracked_set_value` auf; `checker_detail` ist eine API-interne Komposition von
@@ -303,8 +307,8 @@ Trace-Dateien noch in die Bilanz geschrieben. Der Offline-Stand vom
 2026-08-16 enthält 645 Operation-Feld-Beobachtungen außerhalb des
 generischen Transportumschlags; 502 davon sind bereits explizit typisiert.
 Das ist eine sichtbare Ausbaubilanz, kein Prozentwert für praktische
-UI-Abdeckung. Alle 99 Operationen besitzen konkrete Fachfelder; darunter sind
-alle 29 destruktiv annotierten Operationen sowie der nicht destruktive, aber
+UI-Abdeckung. Alle 100 Operationen besitzen konkrete Fachfelder; darunter sind
+alle 30 destruktiv annotierten Operationen sowie der nicht destruktive, aber
 zustandsbehaftete `set_value`-Suchfeldpfad. 143 beobachtete Zusatz- und
 API-Grenzfelder bleiben vom offenen Mindestvertrag durchgelassen, ohne schon
 als stabile Einzelfelder zugesagt zu werden.
@@ -386,7 +390,7 @@ Gezählt wird nur der API-Rand. Operationen, die eine Komposition oder ein
 Szenario intern aufruft, gelten damit nicht automatisch als geprüft; sie
 brauchen einen eigenen Aufruf über die HTTP-Grenze.
 
-Stand: 99 der 99 Operationsvertraege werden im Offline-Lauf mindestens einmal
+Stand: 100 der 100 Operationsvertraege werden im Offline-Lauf mindestens einmal
 funktional ausgeuebt – als erfolgreicher Aufruf oder, bei den neun aktuell
 gesperrten BelegManager-Wegen, als vollstaendig passender globaler Policy-Block
 mit unveraendertem Zustand. Das geschieht überwiegend gegen den zustandsbehafteten
@@ -395,7 +399,7 @@ und Fenster-/Desktopzustand modelliert. Das beweist Argumentbindung,
 Ressourcenauflösung, Komposition, Ergebnisvertrag und Redaktion über die
 gesamte Kette. Es beweist ausdrücklich **nicht** die proprietäre UIA-Schicht;
 dafür zählt allein die Live-Spalte derselben Bilanz, die echte Worker-Aufrufe
-gegen die installierte Anwendung füllen. Dort stehen am 2026-08-26 93 der 99
+gegen die installierte Anwendung füllen. Dort stehen am 2026-09-03 94 der 100
 Operationen: 81 aus dem strikten Host-Gate einschließlich `collect` und der
 beiden Center-Operationen sowie fünf BelegManager-Operationen und `instances`,
 die erfolgreich in einer Snapshot-VM ausgeführt wurden, plus die lokal
@@ -529,8 +533,8 @@ die erzeugte Bilanz bindet. `affectsAvailability=false` und
 `status=supported` und `operationAccess=full` gibt den Profilkatalog frei;
 zusätzliche globale Laufzeitregeln wie die oben dokumentierte
 BelegManager-Sperre bleiben vorrangig. Die Live-Evidenz allein schaltet keine
-Operation frei oder aus. Gemessen am 2026-08-26 sind noch 6 der 99 Operationen nicht
-live-funktional belegt: die oben genannten sechs VaSt-Wege. Damit sind 93
+Operation frei oder aus. Gemessen am 2026-09-03 sind noch 6 der 100 Operationen nicht
+live-funktional belegt: die oben genannten sechs VaSt-Wege. Damit sind 94
 Operationen `functional`, sechs `error-path-only` und keine `untested`.
 Zwei davon (`vast_apply`, `vast_mapping_select`) fallen in die
 Klasse `destructive`.
@@ -827,6 +831,49 @@ Gegenprobe am selben Tag: Mit dem wieder eingebauten `collect`-Fehler bricht der
 Zyklus mit `invalid-operation-result` ab, mit der wieder eingebauten doppelten
 Listenverpackung mit `hwnd darf nicht IntPtr.Zero oder NULL sein`. Beide Fehler
 der Version beta.21 werden also gefangen.
+
+## Fallanlage live, 2026-09-03
+
+`case_create` ist die erste Operation, die einen Steuerfall ohne vorhandene
+Datei erzeugt. Sie komponiert ausschließlich einzeln verifizierte Operationen:
+Start ohne Datei, Startseite des Assistenten, `Jetzt beginnen` per `rid`,
+Navigator-Modus, `Weiter`, `Datei → Speichern unter…`, nativer Dialog
+„Gewinn-Erfassung speichern“, `file_dialog_select` im Modus `save-new` und der
+`instances`-Readback. `npm run test:live-case-create` beweist sie auf dem
+sichtbaren Desktop gegen die installierte Anwendung und übernimmt mit
+`--write` die Live-Ledger:
+
+1. `product_info`, `instances` (leer) und `desktop_status` (kein versteckter
+   Desktop) als Vorbedingungen;
+2. `case_create` mit `cases:neuer-fall.GewErfass2026` — rund 78 Sekunden
+   inklusive Kaltstart; die Datei existiert danach mit dem gemeldeten SHA-256;
+3. `case_hash`, `instances` und `ui_state` binden Datei, PID, Fenster und die
+   Stammdatenseite;
+4. `make_working_copy` nach `backups:`, dann `fill_fields` (Name, Vorname) und
+   `combo_select` (Einkunftsart) auf `gew_erfass.allgemeine_angaben_unternehmen`
+   mit Readback über `known_page_state`;
+5. `click` auf den Themenfilter-Schalter, `toggle` eines Kontrollkästchens auf
+   `gew_erfass.themenfilter_umsatzsteuer` mit Readback;
+6. `close` mit `discardChanges` — die Datei bleibt byteidentisch zum Stand nach
+   der Anlage, keine SSE-Instanz und keine Wiederherstellungsdatei verbleiben.
+
+Vier Befunde aus den ersten Läufen desselben Tages sind in Worker, Vertrag,
+Mock und Skill eingeflossen: der exakte Katalog-Readback (`known_page_state`)
+las Kontrollkästchen als leeren Text, weil Qt ihnen ein leeres `ValuePattern`
+gibt — bei leerem Wert liest er jetzt das `TogglePattern` als `True`/`False`;
+`menu` liefert mit
+`name` die Einträge flach unter
+`eintraege`, nicht verschachtelt; ein ohne Datei gestarteter Prozess trägt den
+Fallpfad weder in der Kommandozeile noch — bei langem Pfad — vollständig im
+Fenstertitel, sodass `instances` nur `caseName` (`casePathSource=title-leaf`)
+und keinen Hash liefern kann, weshalb `case_create` den Dateihash lokal gegen
+den Dialog-Readback prüft und `caseHashSource=local-file` meldet; und beim
+Verlassen der Stammdatenseite ohne Einkunftsart zeigt der Programm-Prüfer den
+Hinweis „ELSTER: Einkunftsart fehlt!“, den `dialog_answer` wegen
+Übermittlungsbezug bewusst sperrt — der Weg ist, die Einkunftsart per
+`combo_select` zu setzen, nicht der Klick. `fill_fields` schreibt nur Text,
+Betrag und Datum; Auswahlfelder und Kontrollkästchen nennen im Katalog ihr
+`writeTool` (`sse_combo_select`, `sse_toggle`).
 
 ## Installations- und Live-Lauf in einer sauberen VM, 2026-08-23
 
