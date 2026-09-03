@@ -24,20 +24,38 @@ zusammengesetztes Werkzeug fuer den Einstieg.
 
 Das ist keine Vollstaendigkeit gegenueber dem Produkt, und die Zahl 100 ist
 irrefuehrend, wenn man sie allein liest. **Operationen sind Mechanismen, keine
-Flaeche.** `page`, `table_read` oder `goto` arbeiten auf jeder Seite; fokusloses
-Schreiben und Zustandsvergleiche brauchen dagegen ein katalogisiertes
-Seitenobjekt.
+Flaeche.**
 
-Und der Katalog ist klein. `profiles/2025/page-objects.json` enthaelt heute
+Wichtig ist, was der Seitenkatalog tatsaechlich absperrt – naemlich sehr wenig.
+Von hundert Operationen verlangen genau **zwei** einen Katalogeintrag:
+`fill_fields` (geplante Feldtransaktion mit Rollback) und `known_page_state`
+(Vergleich gegen einen hinterlegten Sollzustand). Alles andere arbeitet auf
+jeder der 672 Seiten:
+
+- **Lesen** ist durchgehend generisch – `page`, `read_page`, `table_read`,
+  `positions`, `collect`, `snapshot`.
+- **Schreiben** geht auch ohne Katalog: `tracked_set_value` nimmt statt
+  `pageId`/`fieldId` auch `name`, `aid` oder `rid`; der Aufrufer liefert dann
+  Seitenueberschrift und Erwartungswerte selbst.
+- **Tabellen** kennen gar keine `pageId`: `table_add`, `table_update` und
+  `table_delete` binden ueber `expectedPage` als Zeichenkette.
+
+`set_value` ist die Ausnahme in die andere Richtung: absichtlich auf das globale
+Suchfeld beschraenkt, weil ein direkter ValuePattern-Write Qt-Commit,
+Ergebnis-Diff und Seitenobjekte umgehen wuerde.
+
+Der Katalog ist trotzdem klein. `profiles/2025/page-objects.json` enthaelt heute
 **neun Seiten und fuenf Fenster**, davon genau **eine** Seite aus der
 Einkommensteuer (`est.sonstige_werbungskosten_fahrten`); sechs Seiten gehoeren
 zur Gewinnermittlung, zwei zur Gewinn-Erfassung. Es gibt genau **einen**
 profilierten fokuslosen Schreibpfad.
 
-Wer also fragt „koennen wir SSE vollstaendig steuern?", bekommt zwei
-verschiedene Antworten: Die *Mechanik* traegt weit; die *Kenntnis der
-Oberflaeche* endet nach neun Seiten. Der groesste Zuwachs an echter Faehigkeit
-kaeme nicht aus neuen Operationen, sondern aus mehr katalogisierten Seiten.
+Wer also fragt „koennen wir SSE vollstaendig steuern?", bekommt eine
+zweigeteilte Antwort: Die *Reichweite* ist voll – jede Seite ist les- und
+beschreibbar. Was fehlt, ist *hinterlegtes Wissen ueber die Oberflaeche*:
+stabile Namen, Beschriftungen, Wertarten, Sollzustaende und der geplante
+Mehrfeld-Schreibweg. Ein Katalogeintrag verwandelt „der Aufrufer muss die
+Seite kennen" in „die API kennt sie".
 
 ## 2. Die Bauwege
 
@@ -47,7 +65,7 @@ Risiko und ob der Benutzer dabei zusehen muss.
 | Weg | Was er kann | Was er kostet | Wo er heute traegt |
 | --- | --- | --- | --- |
 | **Fokusloses UIA-Lesen** | Baum und Einzelwerte lesen, ohne den Vordergrund anzufassen | ein Baumlauf ist teuer, gezielte Bindung ueber AutomationId ist billig | Seitenlesen, Tabellen, Pruefer, Fallbindung |
-| **Fokusloses Schreiben** | Werte in profilierte Feldpfade schreiben, mit Feld-, Summen- und Dirty-State-Readback | nur fuer katalogisierte Felder; jede neue Seite braucht ein Profil | `fill_fields`, `set_value`, `tracked_set_value` |
+| **Fokusloses Schreiben** | Werte in Feldpfade schreiben, mit Feld-, Summen- und Dirty-State-Readback | ohne Katalog traegt der Aufrufer die Bindung; nur `fill_fields` verlangt ein Seitenobjekt | `tracked_set_value` (generisch), `fill_fields` (katalogisiert) |
 | **Vordergrund-Lease mit physischer Eingabe** | Qt-Steuerelemente bedienen, die kein brauchbares UIA-Muster anbieten | der Benutzer sieht es und darf nicht dazwischenfunken; braucht ausdrueckliche Zustimmung | `click`, `combo_select`, neun der zehn BelegManager-Wege |
 | **Nativer Helfer (`sse-native.dll`)** | Fensteraufzaehlung, Prozesskommandozeile, MSAA-Punktprobe, UIA-Baumlauf, Controller-Lease | C#-Code mit Hash-Bindung und Oberflaechenvertrag; jede Erweiterung ist ein eigener Vertrag | der gesamte heisse Lesepfad |
 | **Dateiebene** | Falldateien hashen, sichern, archivieren, Kopien binden | keine UI noetig, aber auch kein Blick in den Inhalt | `case_hash`, `backup_cases`, `archive_cases` |
@@ -113,7 +131,7 @@ Faehigkeiten, zu denen es bei uns keinerlei Gegenstueck gibt:
 
 | Bereich | Beleg | Weg |
 | --- | --- | --- |
-| Fast die gesamte Einkommensteuer | genau ein `est.`-Seitenobjekt im Katalog | UI, je Seite ein Profil |
+| Fast die gesamte Einkommensteuer | genau ein `est.`-Seitenobjekt im Katalog – erreichbar sind die Seiten, benannt sind sie nicht | UI, je Seite ein Profil |
 | Optionen, Datenuebernahme, Steuerrechner, Musterbriefe, Service, Ansicht | Menuezeile bekannt, kein einziges Objekt daraus katalogisiert | UI, `menu`/`menu_click` sind generisch |
 | Druck- und Ausgabefenster | kein Fensterobjekt | UI plus PDF-Aufbereitung |
 | Passwortgeschuetzte Falldateien | `setPassword`, `checkPassword`, `activePassword` | UI, sofern es einen Dialog gibt |
