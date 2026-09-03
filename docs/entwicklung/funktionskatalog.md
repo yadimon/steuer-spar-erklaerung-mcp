@@ -114,8 +114,14 @@ Programmordner von SSE `31.0.2.0`:
 | `*.ddb` | **7** Dateien | das Datenmodell je Modul, gebaut aus `ddf`-Quellen. Die Namen sind exakt die Startmodi: `normal`, `einur`, `einurvor`, `fest`, `ermaess`, `konsust`, `vorweg` |
 | `*.idx` | 2 Dateien | die Stichwortverzeichnisse der Suche (`steuererklaerung.idx`, `gewinn.idx`), reiner Text |
 
-Damit steht die Zahl, um die es die ganze Zeit ging: **672 Seiten im Produkt,
-neun bei uns profiliert.**
+Damit steht die Zahl: **672 Seiten im Produkt, neun katalogisiert.** Sie sagt
+aber nicht, was viele darin lesen. Erreichbar sind alle 672 - lesend
+durchgehend, schreibend ueber `tracked_set_value` mit selbst gelieferter
+Bindung, und die Tabellenoperationen kennen ohnehin keine `pageId`. Genau
+**zwei** Operationen verlangen einen Katalogeintrag: `fill_fields` und
+`known_page_state`. Der Katalog ist eine Bequemlichkeits- und
+Sicherheitsschicht, keine Zugangsschranke. Die Aufschluesselung steht in der
+[Statustafel](status.md).
 
 Die Dateinamen sind sprechend und lassen sich Modulen zuordnen. Die groessten
 Gruppen: `eur_*` (110, Einnahmen-Ueberschuss-Rechnung), `fe_*` (24,
@@ -125,6 +131,45 @@ Einzelseiten mit klaren fachlichen Namen - `rente`, `arbeitszimmeraufteil`,
 `abgabe_*`-Dateien tragen den Modulnamen im Namen (`abgabe_normal`,
 `abgabe_fest`, `abgabe_ermaess`, `abgabe_einur_*`) und bestaetigen die
 Modulzuordnung.
+
+### Und wo liegt was? Die Seiten stecken **nicht** in Modulen
+
+Die naheliegende Annahme - jedes Modul bringt seinen eigenen Seitensatz mit -
+ist falsch. Gemessen an der Installation:
+
+- Es gibt **einen** flachen Ordner `Dialogs` mit allen 672 Seiten. Keine
+  Unterordner, keine Aufteilung nach Modul.
+- Es gibt **sieben** Datenmodelle (`*.ddb`), eines je Startmodus.
+
+Die Module sind also sieben Sichten auf **einen gemeinsamen Seitenvorrat**, nicht
+sieben getrennte Seitensammlungen. Nur ein Teil der Namen traegt ueberhaupt eine
+Modulkennung:
+
+| Praefix | Seiten | Modul |
+| --- | --- | --- |
+| `eur_*` | 110 | Gewinnermittlung (Einnahmen-Ueberschuss-Rechnung) |
+| `fe_*` | 24 | Gesonderte Feststellung |
+| `konsust*` | 17 | Konsolidierte Umsatzsteuer |
+| `ust*`, `ustva*` | 11 | Umsatzsteuer |
+| `abgabe_*` | 7 | modulweise Abgabe (`abgabe_normal`, `abgabe_fest`, `abgabe_ermaess`, `abgabe_einur_*`) |
+| `sseonline*` | 6 | Online-Dienste |
+| ohne Modulkennung | **497** | fachliche Einzelseiten, ueberwiegend Einkommensteuer |
+
+Die 497 ohne Kennung sind nach ihren Namen Themenseiten der
+Einkommensteuererklaerung - `arbeitszimmeraufteil`, `auswtaetigkverpfl`,
+`ausbildreisekfahrt`, `rente`, `kindertagespflege`. Sie sagen nichts darueber,
+in welchem Modul sie erscheinen; das entscheidet erst das Datenmodell zur
+Laufzeit.
+
+**Folge fuer die Planung:** „Modul X profilieren" ist keine sinnvolle Einheit.
+Profiliert wird eine *Seite*, und dieselbe Seite kann in mehreren Modulen
+auftauchen. Der Aufwand skaliert mit Seiten, nicht mit Modulen - und der
+Zaehler von 672 ist die Obergrenze fuer alle sieben Module zusammen, nicht je
+Modul.
+
+Diese Zuordnung ist aus Dateinamen und Dateilage gelesen, nicht aus dem Programm
+gemessen. Welche Seiten ein Modul tatsaechlich zeigt, steht im `.ddb` und ist
+von aussen nicht aufgezaehlt.
 
 Die vollstaendige Namensliste steht hier bewusst nicht: sie ist Herstellermaterial,
 und sie ist mit einem Befehl reproduzierbar

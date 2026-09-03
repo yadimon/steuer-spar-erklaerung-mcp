@@ -23,10 +23,41 @@ ist, nicht was fehlt.
 | | Produkt | Bei uns |
 | --- | --- | --- |
 | Module (Fallarten) | 7 | 3 angefasst, davon 1 live gefahren |
-| Seiten (`.dialog`-Dateien) | 672 | 9 profiliert |
+| Seiten (`.dialog`-Dateien) | 672 | **alle lesbar und beschreibbar**, 9 katalogisiert – siehe unten |
 | Menueeintraege | 64 | 11 fertig, 9 teils, 4 zu |
 | Formularvorlagen (`.frb`) | 994 | 0 |
 | Operationen | – | 100, davon 94 live belegt |
+
+## Was „9 katalogisierte Seiten" wirklich heisst
+
+Die Zahl neun wird leicht falsch gelesen. Der Seitenkatalog ist **keine
+Zugangsschranke**, sondern eine Bequemlichkeits- und Sicherheitsschicht.
+
+Von hundert Operationen brauchen genau **zwei** einen Katalogeintrag:
+
+| Operation | warum |
+| --- | --- |
+| `fill_fields` | plant eine Feldtransaktion ueber `pageId` und `fieldId` und rollt bei verletzten Nachbedingungen zurueck |
+| `known_page_state` | vergleicht gegen einen hinterlegten Sollzustand |
+
+Alles Uebrige arbeitet auf **jeder** der 672 Seiten:
+
+- **Lesen** ist durchgehend generisch: `page`, `read_page`, `table_read`,
+  `positions`, `collect`, `snapshot`.
+- **Schreiben** geht auch ohne Katalog: `tracked_set_value` nimmt statt
+  `pageId`/`fieldId` auch `name`, `aid` oder `rid` - der Aufrufer liefert dann
+  Erwartungswerte und Seitenueberschrift selbst und traegt die Verantwortung
+  fuer die Bindung.
+- **Tabellen** kennen gar keine `pageId`: `table_add`, `table_update` und
+  `table_delete` binden ueber `expectedPage` als Zeichenkette.
+
+Ein Katalogeintrag bringt also: benannte, stabile `pageId`/`fieldId` statt
+selbst gebauter Selektoren, hinterlegte Beschriftung, Wertart und Ueberschrift,
+Zustandsvergleiche und den geplanten Mehrfeld-Schreibweg mit Rollback.
+
+`set_value` ist die eine Ausnahme in die andere Richtung: absichtlich auf das
+globale Suchfeld beschraenkt, weil ein direkter Schreibzugriff Qt-Commit,
+Ergebnis-Diff und Seitenobjekte umgehen wuerde.
 
 ## Module
 
@@ -39,6 +70,11 @@ ist, nicht was fehlt.
 | Lohnsteuer-Ermaessigung | `.Freib2026` | 14 | **offen** | Profil, dann Seiten |
 | Prognose | `.EStProg2026` | 4 | **offen** | Profil, dann Seiten |
 | Konsolidierte Umsatzsteuer | `.KonsUSt2025` | – | **offen** – laesst sich per Dateiargument gar nicht oeffnen („Ungueltiger Modus") | erst den Startweg klaeren |
+
+Die 672 Seiten liegen in **einem** flachen Ordner, nicht je Modul getrennt; die
+sieben Module sind sieben Datenmodelle ueber demselben Seitenvorrat. „Ein Modul
+profilieren" ist deshalb keine sinnvolle Einheit - profiliert wird eine Seite.
+Belege in der [Seitenlandkarte](funktionskatalog.md).
 
 ## Fall und Datei
 
@@ -65,13 +101,16 @@ ist, nicht was fehlt.
 | Unterseiten finden | **fertig** | `subpages` – „Erfassen"-Verweise sind echte Schaltflaechen |
 | Baum blaettern | **teils** | `tree_top`, `tree_scroll` – Aufzaehlen der Seiten geht darueber nicht |
 | Suche als eigene Operation | **offen** | `goto` nutzt die Suche intern; es gibt keinen direkten Zugriff |
+| Einzelwerte und Elemente lesen | **fertig** | `find`, `get_value`, `read_full`, `accessibility_probe` |
+| Rollen und Bildschirmfoto | **fertig** | `scroll`, `scroll_page`, `screenshot` |
+| Seitenkatalog abfragen | **fertig** | `page_objects` – gibt aus, welche Seiten und Felder benannt sind |
 | Ansicht umschalten (Anlage, Formular, Darstellung) | **offen** | Menue Ansicht |
 
 ## Schreiben
 
 | Faehigkeit | Stand | Beleg / Detail |
 | --- | --- | --- |
-| Profilierte Felder schreiben | **teils** | `fill_fields`, `set_value`, `tracked_set_value` – **ein** profilierter fokusloser Schreibpfad |
+| Felder schreiben | **fertig** | `tracked_set_value` auf jeder Seite ueber `name`/`aid`/`rid`; `fill_fields` nur auf katalogisierten Seiten. Fokusloses Schreiben ist fuer **einen** Feldpfad profiliert. `set_value` bleibt auf das Suchfeld beschraenkt |
 | Tabellenzeilen fuehren | **fertig** | `table_add`, `table_update`, `table_delete` |
 | Auswahlfelder | **fertig** | `combo_options`, `combo_select`, `toggle` |
 | Klicken | **fertig** | `click`, `click_point` – mit sichtbarer Vordergrund-Lease |
@@ -85,7 +124,7 @@ ist, nicht was fehlt.
 | Faehigkeit | Stand | Beleg / Detail |
 | --- | --- | --- |
 | Belege auflisten | **fertig** | `receipt_manager_list` – der einzige fokuslose Weg |
-| Lesen, Aendern, Klassifizieren, Importieren, Loeschen, Verknuepfen, Massenpflege | **teils** | neun Operationen, alle nur mit sichtbarem Vordergrund |
+| Lesen, Aendern, Klassifizieren, Importieren, Loeschen, Verknuepfen, Massenpflege | **teils** | `receipt_manager_*` – neun weitere Operationen, alle nur mit sichtbarem Vordergrund |
 | Belege entknuepfen | **offen** | Gegenrichtung zu `receipt_manager_link` fehlt |
 | Belegempfehler und Checkliste | **offen** | gehoert zum Druckweg |
 
@@ -108,6 +147,8 @@ ist, nicht was fehlt.
 | Steuerpruefer | **fertig** | sechs `checker_*`-Operationen |
 | Ergebnis und Vergleich | **teils** | `result_details`, Fenster `resultComparison` profiliert |
 | Steuer-Spar-Tipps | **teils** | Fenster `taxTips` nur lesend |
+| Sollwerte abgleichen | **fertig** | `verify`, `snapshot_compare` |
+| Automatische Pruefhinweise | **fertig** | `warning_popup_read` |
 | Sparpotenzial | **offen** | vermutet Teil des Ergebnisbereichs, nicht gemessen |
 | Szenarien „Was waere wenn" | **offen** | **Namensfalle:** unser `scenario_run` ist ein Arbeitsbereichs-Skriptlauf, nicht diese Funktion |
 
@@ -143,7 +184,8 @@ ist, nicht was fehlt.
 
 | Faehigkeit | Stand | Beleg / Detail |
 | --- | --- | --- |
-| Instanzen, Fenster, Dialoge | **fertig** | `instances`, `windows`, `dialog_list`, `dialog_answer`, `window_close`, `window_restore` |
+| Instanzen, Fenster, Dialoge | **fertig** | `instances`, `windows`, `dialog_list`, `dialog_answer`, `dismiss`, `window_close`, `window_restore` |
+| Steuertipps-Center | **fertig** | `center_cases`, `center_refresh` |
 | Diagnose, Arbeitsbereich | **fertig** | `health`, `product_info`, `capabilities`, `workspace_*` |
 | Privater Desktop | **fertig** | `desktop_start`, `desktop_status`, `desktop_stop` |
 | Menuezeile bedienen | **fertig** | `menu`, `menu_click`, `menu_close` |
