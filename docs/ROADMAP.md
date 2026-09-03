@@ -12,6 +12,10 @@ wiederholt sie nicht:
 
 Hier steht nur, was sich daraus **nicht** ablesen laesst: die Absicht.
 
+Wer stattdessen eine einzelne Tafel sucht, auf der jede bekannte Faehigkeit mit
+ihrem Stand steht - fertig, teils, offen oder bewusst zu -, findet sie in der
+[Statustafel](entwicklung/status.md).
+
 ## 1. Stand in Zahlen
 
 100 Operationen sind katalogisiert. 94 davon sind live belegt, sechs nur auf
