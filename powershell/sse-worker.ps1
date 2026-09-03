@@ -5483,9 +5483,44 @@ function Get-KnownPageState([IntPtr]$Hwnd, $Known) {
   }
 }
 
+# Vollstaendige AutomationId des Ueberschriftenknotens je Fenster, nur fuer die
+# Lebensdauer dieses Prozesses. Ein Worker bedient genau einen Auftrag, der
+# Merker ueberlebt ihn also nicht.
+$script:SSE_HEADING_NODE_AID = @{}
+
 function Get-CurrentHeading([IntPtr]$Hwnd, $Tree = $null) {
-  if ($null -eq $Tree) { $Tree = Walk-Tree $Hwnd 1200 25 12 -WithValues }
-  (Get-SSEHeading $Tree).text
+  # Hat der Aufrufer den Baum ohnehin gelesen, bleibt alles wie bisher.
+  if ($null -ne $Tree) { return (Get-SSEHeading $Tree).text }
+
+  # Ohne Baum kostete jede Lesung einen vollstaendigen Lauf - an zwoelf
+  # Aufrufstellen, davon fuenf in Warteschleifen, also einen Lauf je Pollrunde.
+  # Die Ueberschrift haengt aber an einem einzelnen Knoten mit stabiler,
+  # vollstaendiger AutomationId. Der Suffixweg findet ihn nur ueber den Baum,
+  # weil der Container tief unter den Splittern liegt und `Wurzel + Endung`
+  # nichts trifft; die vollstaendige Id laesst sich danach gezielt abfragen.
+  $key = [string][int64]$Hwnd
+  $cachedAid = [string]$script:SSE_HEADING_NODE_AID[$key]
+  if ($cachedAid) {
+    $node = Find-ExactAutomationElement $Hwnd $cachedAid
+    # Der Merker gilt nur, solange er denselben Knotentyp bindet. Wechselt die
+    # Seite ihre Struktur, wird er verworfen und der Baumlauf entscheidet neu -
+    # geraten wird nichts.
+    if ($node) {
+      $current = $null
+      try { $current = $node.Current } catch { $current = $null }
+      if ($current -and $current.ControlType -eq [System.Windows.Automation.ControlType]::Text) {
+        return ("$($current.Name)" -replace "`r|`n|`t", ' ').Trim()
+      }
+    }
+    $script:SSE_HEADING_NODE_AID.Remove($key)
+  }
+
+  $walked = Walk-Tree $Hwnd 1200 25 12 -WithValues
+  $headingNode = Get-SSEContainerChild $walked.nodes (Get-SSEMainWindowSelectors).heading 'Text'
+  if ($headingNode -and [string]$headingNode.aid) {
+    $script:SSE_HEADING_NODE_AID[$key] = [string]$headingNode.aid
+  }
+  (Get-SSEHeading $walked).text
 }
 
 function Read-LabeledValueFromTree($Tree, [IntPtr]$Hwnd, [string]$Label, [int]$Occurrence = 1) {
