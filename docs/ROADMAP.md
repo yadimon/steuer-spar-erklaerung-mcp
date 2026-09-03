@@ -96,7 +96,8 @@ im Repository belegt sind.
 
 Aus den statischen Belegen im Repository lassen sich **vierzehn** Kommandonamen
 von SSE selbst belegen (Quellen: `static-analysis-partial/targeted-strings.json`
-und der in `codex-static-events.jsonl` eingebettete Kommando-Index). Davon deckt
+und der in `codex-static-events.jsonl` eingebettete Kommando-Index; beide liegen
+im privaten Analyseordner ausserhalb von Git). Davon deckt
 die API vier funktional ab, drei teilweise, sieben gar nicht.
 
 | Kommando | Stand bei uns |

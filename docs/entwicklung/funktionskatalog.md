@@ -11,7 +11,7 @@ hier geht es um die fachliche Landkarte.
 
 | Quelle | Wie belastbar |
 | --- | --- |
-| **Messung in der Forschungs-VM**, 2026-09-03, SSE `31.0.2.0` / `[31.31]` | belastbar. Sieben Musterfaelle geoeffnet, je der Navigationsbaum ueber UIA aufgeklappt und gelesen. Nichts geklickt, nichts gespeichert. Rohdaten: `fallarten-katalog.json`, Job `43-alle-fallarten.ps1` |
+| **Messung in der Forschungs-VM**, 2026-09-03, SSE `31.0.2.0` / `[31.31]` | belastbar. Sieben Musterfaelle geoeffnet, je der Navigationsbaum ueber UIA aufgeklappt und gelesen. Nichts geklickt, nichts gespeichert. Rohdaten: `fallarten-katalog.json`, Job `43-alle-fallarten.ps1` – beides liegt im Laborordner **ausserhalb von Git** |
 | **Herstellerhandbuch** | eingeschraenkt. Oeffentlich zugaenglich ist nur das Handbuch zum Steuerjahr **2023**; fuer 2025 gibt es keine oeffentliche Fassung. Die Kapitelstruktur ist ueber Jahrgaenge hinweg stabil, Einzelaussagen sind fuer unser Profiljahr aber nur wahrscheinlich |
 | **Unser Repository** | belastbar. Operationsliste, Seitenkatalog, Verifikationsstand |
 

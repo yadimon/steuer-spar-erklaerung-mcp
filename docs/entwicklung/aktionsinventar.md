@@ -12,7 +12,7 @@ Programm ausgelesen worden (SSE `31.0.2.0`, Titel `[31.31]`, geoeffneter
 Musterfall `MusterSteuer1.ESt2025`). Jedes Menue wurde ueber UIA aufgeklappt,
 seine Eintraege samt Aktivierungszustand gelesen und wieder geschlossen; es
 wurde kein Eintrag geklickt. Rohdaten: `menu-inventar.json` im Laborordner,
-Job `40-menu-inventar.ps1`.
+Job `40-menu-inventar.ps1`; beides liegt ausserhalb von Git.
 
 **7 Menues, 64 Eintraege.** Der Aktivierungszustand gilt fuer genau diesen
 Zustand (Einkommensteuerfall, nichts markiert, nichts geaendert) und ist
