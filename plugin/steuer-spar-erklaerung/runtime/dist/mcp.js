@@ -7314,7 +7314,11 @@ var init_result_contract = __esm({
         sseLaeuft: OPTIONAL_BOOLEAN,
         markeVeraltet: OPTIONAL_BOOLEAN
       },
-      desktop_stop: { hartBeendet: OPTIONAL_BOOLEAN, desktopMarkeEntfernt: OPTIONAL_BOOLEAN },
+      desktop_stop: {
+        hartBeendet: OPTIONAL_BOOLEAN,
+        desktopMarkeEntfernt: OPTIONAL_BOOLEAN,
+        hauptfensterVorher: OPTIONAL_NON_NEGATIVE_NUMBER
+      },
       dialog_list: { dialogs: OPTIONAL_ARRAY, windows: OPTIONAL_ARRAY, count: OPTIONAL_NON_NEGATIVE_NUMBER },
       dialog_answer: {
         closed: OPTIONAL_BOOLEAN,
@@ -27244,7 +27248,7 @@ function registerDesktopTools(registry2) {
     "sse_desktop_stop",
     {
       title: "Unsichtbare Instanz beenden",
-      description: "Beendet die Instanz auf dem versteckten Desktop und raeumt ihn auf. Speichern gehoert vorher in den hashgebundenen Schritt sse_save; save=true ist hier gesperrt. Ohne discardChanges=true wird kein Speicherdialog mit Nein/Verwerfen beantwortet. Der Stop verlangt Markername, eigene SSE-PID und deren Fenster auf genau diesem Desktop. Bei unsicherem Dirty-/Dialogzustand bleiben Prozess und Marker zur bewussten Klaerung erhalten."
+      description: "Beendet die Instanz auf dem versteckten Desktop und raeumt ihn auf. Speichern gehoert vorher in den hashgebundenen Schritt sse_save; save=true ist hier gesperrt. Ohne discardChanges=true wird kein Speicherdialog mit Nein/Verwerfen beantwortet. Der Stop verlangt Markername, eigene SSE-PID und deren Fenster auf genau diesem Desktop. Bei unsicherem Dirty-/Dialogzustand bleiben Prozess und Marker zur bewussten Klaerung erhalten. Hat die markierte PID kein breites Hauptfenster mehr (nur Dialog oder Startbild, etwa nach einem nie gespeicherten Fall), beendet discardChanges=true genau diese PID hart und raeumt den Marker ab; ohne discardChanges bleibt sie mit confirmation-required erhalten. Das Ergebnis meldet hauptfensterVorher."
     },
     { timeoutMs: 12e4 }
   );
