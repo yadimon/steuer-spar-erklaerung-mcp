@@ -12,6 +12,7 @@ $functionNames = @(
   'Get-SSEPeerWindowSet',
   'Test-SSERecoveryPromptWindowCandidate',
   'Test-SSERecoveryPromptDescriptor',
+  'Test-SSEUpdatePromptDescriptor',
   'Get-DialogDescriptor'
 )
 foreach ($functionName in $functionNames) {
