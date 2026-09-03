@@ -45,7 +45,13 @@ Health-Quelle.
 | Produktionsabhängigkeiten | `npm audit --omit=dev --audit-level=low` | keine gemeldete Schwachstelle |
 | Vollständiger Abhängigkeitsbaum | `npm audit --audit-level=low` | keine gemeldete Schwachstelle |
 
-Ein Registry-Ausfall ist `BLOCKED`, niemals ein grüner Audit.
+Ein Registry-Ausfall ist `BLOCKED`, niemals ein grüner Audit. Das gilt auch für
+den Audit-Dienst allein: npm 10.x fragt den von npm selbst als stillgelegt
+angekündigten Endpunkt `/-/npm/v1/security/audits/quick` ab, der mit HTTP 400
+antworten kann, während `/-/npm/v1/security/advisories/bulk` in eine
+Zeitüberschreitung läuft. Ein erreichbares `/-/ping` unterscheidet die Fälle:
+Antwortet die Registry, aber nicht der Audit-Dienst, ist das `BLOCKED` und kein
+Repositoriumsbefund.
 
 ## Automatische Gates
 
@@ -59,7 +65,12 @@ Ein Registry-Ausfall ist `BLOCKED`, niemals ein grüner Audit.
 | erzeugte Referenz | `npm run docs:build -- --check` | `docs/API-REFERENZ.md` entspricht Katalog, Merkmalen und Abdeckungsledger |
 | handgeschriebene Doku | `npm run docs:check` | keine toten Operationsnamen, jede live belegte Operation genannt, Gesamtzahlen und `fertig`-Zeilen belegt |
 
-Große Suites seriell ausführen. Ein optional fehlendes privates Archiv-Fixture
+Große Suites seriell ausführen — das ist keine Empfehlung: Zwei gleichzeitig
+laufende Suiten bauen beide `dist`, die native DLL und die npm-Pakete und
+beschädigen dabei den Paketbaum. Ergebnisse aus einem solchen Parallellauf sind
+kein Beleg. Einen Befehl, der ein Urteil trägt, außerdem nie in eine Pipe
+hängen; der Exitcode wäre dann der des letzten Pipeglieds statt der der
+Prüfung. Ein optional fehlendes privates Archiv-Fixture
 darf nur dort übersprungen werden, wo der konkrete Vertrag es ausdrücklich als
 optional behandelt; andere fehlende Voraussetzungen bleiben Fehler oder
 `BLOCKED`.
