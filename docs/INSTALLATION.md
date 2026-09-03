@@ -291,6 +291,21 @@ bewussten Stopp Client/MCP neu starten, `sse_preflight` wiederholen und eine
 möglicherweise unterbrochene Mutation niemals automatisch erneut ausführen;
 zuerst den Zustand zurücklesen.
 
+## Cloud-synchronisierte und Netzlaufwerke
+
+Ein Paketordner mit `node_modules` gehört auf ein lokales Laufwerk. Auf
+cloud-synchronisierten Ordnern und Netzlaufwerken scheitert `npm install`
+regelmäßig beim Entpacken (Exit 13, `TAR_ENTRY_ERROR`/`EBADF`), weil der
+Synchronisationsdienst Dateien während des Schreibens sperrt. Der Plugin-Weg
+ist davon nicht betroffen, weil er weder npm noch npx benötigt.
+
+Sollen Fall- oder Belegordner trotzdem in einem synchronisierten Ordner liegen,
+den Arbeitsbereich lokal anlegen und nur die Fall-, Beleg- und Ergebnisordner
+über `SSE_API_CONFIG` auf den synchronisierten Ort zeigen lassen. Eine
+Falldatei, die der Synchronisationsdienst gerade schreibt, kann beim Öffnen,
+Hashen oder Speichern zu `precondition-failed` führen; dann den Abgleich
+abwarten und den Hash erneut lesen.
+
 ## Fehlerbehebung
 
 - **Skill oder `sse_preflight` fehlt:** Client vollständig neu starten und

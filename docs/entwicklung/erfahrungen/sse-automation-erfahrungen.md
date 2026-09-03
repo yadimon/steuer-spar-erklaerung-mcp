@@ -211,6 +211,13 @@ einer veralteten Antwort bedient wird.
 - `sse_close` zuerst normal mit bewusster Speicherentscheidung verwenden.
   `force=true` nur für einen nachgewiesenen Hänger; ein Force-Kill erzeugt mit
   hoher Wahrscheinlichkeit den nächsten Recovery-Dialog.
+- Stirbt ein ohne Datei gestarteter Fall (neuer Fall vor dem ersten Speichern),
+  gibt es keine reguläre Datei, an die sich „Nein“ binden ließe. Der Worker
+  beweist dann über die Prozess-Kommandozeile, dass kein Fall geladen war, und
+  erlaubt `dialog_answer` mit `discardUnsavedRecovery=true`; danach muss genau
+  ein reguläres Fallfenster stehen. Eine markierte versteckte Instanz, die nur
+  noch die Frage zeigt, beendet `desktop_stop` allein mit `discardChanges`.
+  Ohne diese beiden Wege war der Zustand aus der API heraus unpassierbar.
 
 ## Lesen und Navigieren
 
@@ -249,6 +256,14 @@ einer veralteten Antwort bedient wird.
   UIA-Parent und die offizielle `RedThreadContent`-Struktur zu und gibt `rid`,
   `aid`, Beschriftung und aktuellen Anzeigewert zurück. Keine konkrete
   Gegenstandsseite oder private Fallbezeichnung als Page Object speichern.
+- Startseite eines ohne Datei gestarteten Falls („Gewinn-Erfassung für das
+  Jahr 2026“): Der Link „Jetzt beginnen“ ist ein Qt-Hyperlink, den
+  `sse_subpages` mit `rid` liefert. `sse_click` per `rid` invoked ihn und
+  verifiziert die Navigation zu „Beginn der Datenbearbeitung“; dafür ist der
+  sichtbare Desktop nötig, weil der verifizierte Punkt-Fallback versteckt
+  gesperrt ist. Danach `btnNavigatormodusEinURVor` und „Weiter“ bis
+  „Allgemeine Angaben zum Unternehmen“. `case_create` komponiert genau diesen
+  Weg und speichert sofort über „Speichern unter…“.
 
 ## Felder, Auswahl und Tabellen
 
@@ -346,6 +361,15 @@ angegeben war. Die abweichende Nachsumme löste zwar den vollständigen Rollback
 aus, die falsche Mutation muss aber bereits durch die regionale Vorbedingung
 verhindert werden.
 
+Belegte Grenzen in der Gewinn-Erfassung 2026: `table_add` findet nach sechs
+Zeilen je Tabelle keine freie Zeile mehr („Keine freie Tabellenzeile
+gefunden“); weder `scroll_page`, `scroll intoview`, `table_read` noch ein
+Seitenwechsel helfen, `table_delete` erreicht dieselben Zeilen dagegen
+problemlos. Umgehung: weitere Einnahmen-Position beziehungsweise Tabelle
+anlegen. Die Seitensummen der Vorsteuerseite tragen nach einer
+Zeitraumauswahl den Zeitraum im Label („… »2. Vierteljahr«“) und sind dann
+gefiltert; ein zuvor gelesenes `sumLabel` bricht die Bindungsprüfung.
+
 ### Tabellen aktualisieren
 
 - Eine bestehende sichtbare Zeile über einen eindeutigen Zelltext finden.
@@ -384,6 +408,27 @@ verhindert werden.
 - Nach fremder Eingabe, Fenster- oder Seitenwechsel kein blindes `Strg+Z`: Der
   Undo-Stack könnte inzwischen eine Nutzeraktion enthalten. Zustand melden,
   nicht speichern und neu synchronisieren.
+
+### Periodenwirksame Buchungen
+
+- In der Gewinn-Erfassung 2026 fließen nur Einnahmen-**Positionen**
+  (`Erloese.Erloes.Button` → „Position erfassen“ → Seite
+  `Einnahmen: <Bezeichnung>`) in die UStVA. Die jahresbezogene Tabelle
+  „Weitere Erlöse zu 19%“ ist nicht periodenwirksam; Erlöse dort fehlen in der
+  Voranmeldung, obwohl Seitensummen stimmen.
+- Ausgaben gehören in ihre Kostenart (`Betriebsausgaben → <Kostenart>`); das
+  Programm leitet Vorsteuer und UStVA daraus ab. Direkte Einträge in der
+  Vorsteuertabelle verdoppeln nichts, umgehen aber die Kostenart und sind nur
+  ein begründeter Fallback.
+- Zwei Tabellentypen: „(Steuersatz manuell)“ mit freier Prozentspalte und
+  „(Steuersatzauswahl)“ mit typisierter Prozent-ComboBox (`comboExpectedBefore
+  {"5":"19"}`, akzeptiert 0/7/19). `Reisekosten` ist ein Formular je Reise.
+- Soll/Ist wird ausschließlich auf der Themenfilterseite über
+  `AngabenUmsatzsteuer.Besteuerungsart.JaNein.Nein` (= Istversteuerung)
+  gesetzt; ein RadioButton, also `click pattern=select` mit exakter `aid`.
+- Das Programm rundet Netto aus Brutto teils anders als der Kassenbon
+  (18,42 / 1,07 = 17,21 statt 17,22). Kontrollsummen aus dem Readback
+  ableiten, die Cent-Abweichung im Bericht benennen.
 
 ## BelegManager: Fenster, Bindungen und Pläne
 
@@ -473,6 +518,13 @@ verhindert werden.
 - Überschreibdialoge nie automatisch bestätigen.
 - Nach `Save As` prüfen, dass das Ziel existiert, den erwarteten Header hat und
   das Original unverändert blieb.
+- Ein nie gespeicherter neuer Fall hat kein Original. `Datei → Speichern
+  unter... Strg+Alt+S` öffnet den nativen Dialog „Gewinn-Erfassung speichern“
+  (`#32770`, Schalter Speichern/Abbrechen); `file_dialog_select` legt die Datei
+  im Modus `save-new` an und liest SHA256 zurück. Weil der Prozess ohne Datei
+  gestartet wurde und ein langer Pfad im Titel gekürzt wird, kann `instances`
+  danach nur `caseName` liefern (`casePathSource=title-leaf`, `caseSha256`
+  leer); der Dateihash wird dann lokal gegen den Dialog-Readback geprüft.
 
 ### Übermittlungsstatus
 
@@ -484,6 +536,20 @@ verhindert werden.
 ## Prüfer, Hinweise und OCR
 
 ### Automatisches Warnfenster
+
+- Beim Verlassen einer unvollständigen Stammdatenseite (neuer Fall, nur Name
+  und Vorname gefüllt) meldet `click` `navigation-blocked` mit dem Hinweis
+  „Die Prüfung hat ergeben …“ (Schalter „Als gelesen markieren“, „Jetzt
+  ignorieren“). `warning_popup_read` liefert den `bodyFingerprint` nur mit OCR
+  (`ocr=false` → `null`). Lautet der Text „ELSTER: Einkunftsart fehlt!“, sperrt
+  `dialog_answer` ihn wegen Übermittlungsbezug — beabsichtigt. Der Weg ist
+  dann, die Ursache zu beheben (Einkunftsart setzen), nicht der Klick.
+- Qt-Kontrollkästchen exponieren ein `ValuePattern` mit **leerem** Text; der
+  Haken steht nur im `TogglePattern`. Der exakte Knoten-Readback
+  (`known_page_state`) liest bei leerem Wert seit dem 2026-09-03 das
+  `TogglePattern` und liefert `True`/`False` in derselben Schreibweise wie der
+  Vorbedingungs-Guard von `toggle`. Vorher stand dort `""`, und ein daraus
+  abgeleiteter `expectedBefore=false` scheiterte an „CheckBox zeigt 'True'“.
 
 - »Die Prüfung hat ergeben …« ist ein eigenes `OpenWarningsDlg`, nicht die
   globale Prüferseite und nicht die rechte Eingabehilfe.

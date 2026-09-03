@@ -39,6 +39,10 @@ Lies `sse_instances`.
   absoluten Fallpfad, bestätige genau diesen Pfad, bevor du ihn öffnest.
 - Fehlt auch dieser Pfad, frage nur nach der Falldatei. Suche nicht
   eigenmächtig das Laufwerk.
+- Gibt es nachweislich noch keinen Fall und der Nutzer will einen neuen,
+  folge [case-create.md](case-create.md): Klärungsrunde, dann
+  `sse_case_create` auf dem sichtbaren Desktop. Lege nie ungefragt einen Fall
+  an, nur weil keiner offen ist.
 
 Eine ausdrücklich erlaubte begrenzte Suche bleibt innerhalb eines bestätigten
 Ordners, folgt keinen Reparse Points und zeigt höchstens 100 Kandidaten.

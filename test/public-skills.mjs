@@ -44,8 +44,27 @@ for (const requirement of [
   "Ändern ist nicht Speichern",
   "Erfolg nur nach strukturiertem Readback",
   "MCP ist der Standardtransport",
+  "in **einer Klärungsrunde** gebündelt",
+  "Ein-/Ausgaben in die Kostenarten der Gewinn-Erfassung",
+  "Ohne Antwort gilt betreut",
 ]) {
   assert(normalizedMain.includes(requirement), `Hauptskill-Vertrag fehlt: ${requirement}`);
+}
+
+const caseCreate = readFileSync(join(skillRoot, "references", "case-create.md"), "utf8");
+const normalizedCaseCreate = caseCreate.replace(/\s+/gu, " ");
+for (const requirement of [
+  "`sse_case_create`",
+  "sichtbaren Desktop",
+  "`sse_instances` meldet `count=0`",
+  "Soll- oder Istversteuerung",
+  "gew_erfass.allgemeine_angaben_unternehmen",
+  "gew_erfass.themenfilter_umsatzsteuer",
+  "`sse_click pattern=select`",
+  "discardUnsavedRecovery",
+  "ersetzt ihn nie still",
+]) {
+  assert(normalizedCaseCreate.includes(requirement), `Fallanlage-Vertrag fehlt: ${requirement}`);
 }
 
 assert.match(normalizedMain, /Fehlt jedes `sse_\*`-Tool.+nichts installieren.+Installationsanleitung/iu);
@@ -63,6 +82,7 @@ for (const reference of [
   "references/first-run.md",
   "references/case-session.md",
   "references/ustva.md",
+  "references/case-create.md",
   "references/steuerquellen.md",
   "references/ui-fallback.md",
   "references/belegmanager-backup.md",
