@@ -106,7 +106,7 @@ Eigenes Programm ── HTTP/JSON ───────────────�
   Gesamtkatalog und OpenAPI-Abruf selbst; es gibt keinen separat gepflegten
   oder permissiveren API-Vertrag. Wiederkehrende Blattverträge wie optionaler
   Text, Flag, SHA-256 und Guard-Objekt werden dort als gemeinsame Komponenten
-  referenziert. Auch der für alle 99 Operationen identische
+  referenziert. Auch der für alle 100 Operationen identische
   `ok/kind/error/ms`-Umschlag liegt einmal als `OperationResultEnvelope` vor;
   jedes `Result_<operation>` ergänzt per `allOf` seine eigenen Fachfelder. Das
   hält die vollständiger gewordenen Result-Schemas unter dem Größenbudget,

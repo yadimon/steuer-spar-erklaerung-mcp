@@ -423,6 +423,8 @@ try {
     ...aliasCases.map(([operation]) => operation),
     "case_hash", "verify", "tracked_set_value", "save_as", "make_working_copy", "backup_cases", "archive_cases",
     "receipt_manager_import",
+    // Die Fallanlage komponiert; ihre Aufloesung und Redaktion beweist test/case-create-contract.mjs.
+    "case_create",
   ]);
   assert.deepEqual(
     Object.keys(API_RESOURCE_BINDINGS).sort(),

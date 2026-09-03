@@ -2,7 +2,7 @@
  * Programm-, Fall- und Lebenszykluswerkzeuge.
  */
 import { asArray } from "./api-client.js";
-import { LAUNCH_OPERATION_TIMEOUT_MS } from "./api-contract.js";
+import { LAUNCH_OPERATION_TIMEOUT_MS, MAX_OPERATION_TIMEOUT_MS } from "./api-contract.js";
 import type { McpRegistry } from "./mcp-registry.js";
 
 export function registerLifecycleTools(registry: McpRegistry): void {
@@ -38,6 +38,30 @@ export function registerLifecycleTools(registry: McpRegistry): void {
       dialogs: asArray(r.dialogs), product: r.product, case: r.case,
     }),
     { timeoutMs: LAUNCH_OPERATION_TIMEOUT_MS },
+  );
+
+  registerApiTool(
+    "sse_case_create",
+    {
+      title: "Neuen Steuerfall anlegen",
+      description:
+        "Legt einen neuen, leeren Steuerfall an: startet die SteuerSparErklaerung ohne Datei auf dem SICHTBAREN " +
+        "Desktop, fuehrt den echten Startassistenten (Jetzt beginnen -> Navigator-Modus -> Weiter) bis zur ersten " +
+        "Stammdatenseite und speichert den Fall sofort ueber den Programmdialog 'Speichern unter' unter targetRef. " +
+        "Voraussetzungen: sse_instances meldet keine Instanz, kein aktiver versteckter Desktop, das Ziel ist neu und " +
+        "traegt die zum Modus passende Endung. Danach bleibt der Fall geoeffnet; das Ergebnis liefert pid, hwnd, " +
+        "caseRef und sha256 fuer die weitere Bindung. Stammdaten anschliessend ueber die katalogisierten Seiten " +
+        "gew_erfass.allgemeine_angaben_unternehmen und gew_erfass.themenfilter_umsatzsteuer schreiben: Text- und " +
+        "Datumsfelder mit sse_fill_fields, Auswahlfelder (Rechtsform, Einkunftsart) mit sse_combo_select, " +
+        "Kontrollkaestchen mit sse_toggle, RadioButtons wie Kleinunternehmer oder Soll-/Istversteuerung mit " +
+        "sse_click pattern=select; die Einkunftsart vor dem Verlassen der ersten Seite setzen, sonst meldet der " +
+        "Programm-Pruefer einen gesperrten ELSTER-Hinweis. Vor der ersten weiteren Mutation den Dateistand mit " +
+        "sse_make_working_copy nach backups: sichern. Steuernummer, " +
+        "Finanzamt und mitwirkende Person sind eigene Unterseiten und kein Teil dieser Operation. Scheitert ein " +
+        "Schritt vor dem Speichern, wird die gestartete PID ohne Speichern beendet; nach dem Speichern wird nie " +
+        "geloescht. Nur den ausdruecklichen Auftrag 'neuen Fall anlegen' damit umsetzen; niemals ELSTER.",
+    },
+    { timeoutMs: MAX_OPERATION_TIMEOUT_MS },
   );
 
   registerApiTool(

@@ -24,6 +24,15 @@ export const SSE_MCP_LIFECYCLE_SCHEMAS = {
       ),
     exe: z.never().optional().describe("Nicht zulaessig; wird ausschliesslich in der lokalen API konfiguriert"),
   }).strict(),
+  "sse_case_create": z.object({
+    targetRef: CASE_REF().describe(
+      "Neue, noch nicht vorhandene Falldatei im Bereich cases:; die Endung muss zum Startmodus passen " +
+      "(einurvor im Profil 2025 -> .GewErfass2026)",
+    ),
+    mode: z.enum(["einurvor"]).describe(
+      "Startmodus des neuen Falls; derzeit nur einurvor (Gewinn-Erfassung des freigegebenen Folgejahres) live verifiziert",
+    ),
+  }).strict(),
   "sse_save": z.object({
     caseRef: CASE_REF().describe("Exakte Referenz des aktuell geoeffneten Steuerfalls; der Aufruf impliziert keine Save-As-Kopie"),
     expectedHashBefore: SHA256().describe("SHA256 der Datei unmittelbar vor dem Speichern"),

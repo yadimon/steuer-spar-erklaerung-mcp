@@ -5358,6 +5358,18 @@ function Convert-ExactElementToNode($Element) {
       $value = $vp.Current.Value
       $readOnly = [bool]$vp.Current.IsReadOnly
     }
+    if ([string]::IsNullOrEmpty([string]$value)) {
+      # Qt-Kontrollkaestchen tragen ein ValuePattern mit leerem Text; ihr
+      # Zustand steht im TogglePattern. Als Text in derselben Schreibweise wie
+      # der Toggle-Guard, damit katalogisierte boolean-Felder ueber page_state
+      # lesbar bleiben.
+      $tp = $null
+      if ($Element.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$tp)) {
+        $toggleState = [string]$tp.Current.ToggleState
+        $value = $(if ($toggleState -eq 'On') { 'True' } elseif ($toggleState -eq 'Off') { 'False' } else { 'Indeterminate' })
+        $readOnly = $false
+      }
+    }
     [pscustomobject]@{
       i=-1; p=-1; d=-1
       type=$current.ControlType.ProgrammaticName.Replace('ControlType.','')
@@ -6989,7 +7001,7 @@ $experimentalProfileVerificationOps = @(
   'window_restore', 'windows', 'instances'
 )
 $buildDriftBlockedOps = @(
-  'checker_run', 'click', 'click_point', 'combo_select', 'dialog_answer',
+  'case_create', 'checker_run', 'click', 'click_point', 'combo_select', 'dialog_answer',
   'file_dialog_select', 'fill_fields', 'goto', 'menu_click', 'save', 'save_as', 'set_value',
   'receipt_manager_action', 'receipt_manager_bulk_upsert', 'receipt_manager_classification_options', 'receipt_manager_classify',
   'receipt_manager_delete', 'receipt_manager_import', 'receipt_manager_link', 'receipt_manager_read', 'receipt_manager_update',

@@ -46,6 +46,7 @@ for (const field of RECEIPT_FOREGROUND_BLOCK_FIELDS) {
  */
 const API_INTERNAL_OPERATIONS = [
   "capabilities",
+  "case_create",
   "checker_open",
   "fill_fields",
   "scenario_run",

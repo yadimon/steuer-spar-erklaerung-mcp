@@ -133,8 +133,31 @@ function resultDetails(caseState) {
 }
 
 function caseTitle(caseState, path) {
+  if (caseState.kind === "freelancer" && caseState.taxYear === 2026) {
+    // Der Folgejahr-Fall traegt im echten Titel das Profiljahr, nicht sein eigenes.
+    return `Gewinn-Erfassung/Umsatz-/Gewerbesteuer 2026: SteuerSparErklärung für das Steuerjahr 2025 - ${basename(path)}`;
+  }
   const product = caseState.kind === "income_tax" ? "Einkommensteuer" : "Gewinnermittlung";
   return `${product} ${caseState.taxYear}: SteuerSparErklärung für das Steuerjahr ${caseState.taxYear} - ${basename(path)}`;
+}
+
+/** Startseite, Startlink und Fenstertitel eines ohne Datei gestarteten Folgejahr-Falls. */
+const NEW_CASE_START_PAGE = "Gewinn-Erfassung für das Jahr 2026";
+const NEW_CASE_START_RID = "42.500.4.-2147480001";
+const NEW_CASE_TITLE = "Gewinn-Erfassung/Umsatz-/Gewerbesteuer 2026: SteuerSparErklärung für das Steuerjahr 2025 - Gewinn-Erfassung";
+const NEW_CASE_SAVE_DIALOG = "Gewinn-Erfassung speichern";
+function pendingCaseTemplate() {
+  const values = { revenue: 0, expenses: 0, sonstigeEinnahmen: [] };
+  const ustva = { frequency: "vierteljährlich", month: "", manualInput: false, taxable19Base: 0, taxable19Tax: 0, inputTax: 0, settlement: 0 };
+  return {
+    path: null,
+    kind: "freelancer",
+    taxYear: 2026,
+    values,
+    ustva,
+    baseline: { schemaVersion: 1, kind: "freelancer", taxYear: 2026, values: clone(values), ustva: clone(ustva) },
+    dirty: false,
+  };
 }
 
 function pageFields(model) {
@@ -336,6 +359,7 @@ const MENUS = [
     name: "Datei",
     eintraege: [
       { menu: "Datei", name: "Steuerfall öffnen...", opens: "file-dialog" },
+      { menu: "Datei", name: "Speichern unter... Strg+Alt+S", opens: "save-dialog" },
       { menu: "Datei", name: "Belege abrufen (VaSt)...", opens: "vast" },
     ],
   },
@@ -437,6 +461,9 @@ export function createStatefulSseWorker({
   let dialogs = [];
   let openMenu = null;
   let fileDialog = null;
+  // Ein ohne Datei gestarteter Fall lebt bis zum ersten 'Speichern unter'
+  // nur im Fenster; genau diesen Zustand bildet case_create ab.
+  let pendingNewCase = null;
   let receiptManagerOpen = initialReceiptManagerState !== "closed";
   let receiptManagerState = initialReceiptManagerState === "list" ? "list" : "start";
   let receiptRows = clone(initialReceiptRows);
@@ -473,6 +500,8 @@ export function createStatefulSseWorker({
     return cases.get(absolute);
   };
 
+  const openTitle = () => openPath ? caseTitle(model.openCase(), openPath) : NEW_CASE_TITLE;
+
   const model = {
     journal,
     cases,
@@ -480,7 +509,7 @@ export function createStatefulSseWorker({
     get openPath() { return openPath; },
     get searchValue() { return searchValue; },
     get dialogs() { return dialogs; },
-    openCase: () => openPath ? readCase(openPath) : null,
+    openCase: () => openPath ? readCase(openPath) : pendingNewCase,
     receiptSnapshot: () => ({
       open: receiptManagerOpen,
       state: receiptManagerState,
@@ -756,7 +785,17 @@ export function createStatefulSseWorker({
         };
       }
       case "launch": {
-        if (!args.file || !existsSync(args.file)) return { ok: false, kind: "not-found", error: "Falldatei fehlt." };
+        if (args.file === undefined) {
+          // Start ohne Datei: SSE zeigt die Startseite des Folgejahr-Assistenten.
+          if (String(args.mode ?? "") !== "einurvor") {
+            return { ok: false, kind: "mode-mismatch", error: "Synthetischer Start ohne Datei kennt nur den Modus einurvor." };
+          }
+          if (openPath || pendingNewCase) return { ok: false, kind: "ambiguous", error: "Es ist bereits ein Fall offen." };
+          pendingNewCase = pendingCaseTemplate();
+          currentPage = NEW_CASE_START_PAGE;
+          return { ok: true, pid, launched: true, case: null };
+        }
+        if (!existsSync(args.file)) return { ok: false, kind: "not-found", error: "Falldatei fehlt." };
         const fileName = basename(String(args.file));
         const expectedMode = fileName.endsWith(".ESt2025")
           ? "normal"
@@ -789,32 +828,29 @@ export function createStatefulSseWorker({
         };
       }
       case "windows": {
-        if (!openPath) return { ok: true, windows: [] };
-        const caseState = model.openCase();
-        return { ok: true, windows: [{ pid, hwnd, title: caseTitle(caseState, openPath), w: 1200, h: 800, minimiert: minimised }] };
+        if (!model.openCase()) return { ok: true, windows: [] };
+        return { ok: true, windows: [{ pid, hwnd, title: openTitle(), w: 1200, h: 800, minimiert: minimised }] };
       }
       case "launch_probe": {
-        if (!openPath) return { ok: true, outcome: "deadline", windows: [], dialogs: [] };
-        const caseState = model.openCase();
+        if (!model.openCase()) return { ok: true, outcome: "deadline", windows: [], dialogs: [] };
         return {
           ok: true,
           outcome: "observed",
-          windows: [{ pid, hwnd, title: caseTitle(caseState, openPath), w: 1200, h: 800, minimiert: minimised }],
+          windows: [{ pid, hwnd, title: openTitle(), w: 1200, h: 800, minimiert: minimised }],
           dialogs: [],
         };
       }
       case "instances": {
-        if (!openPath) {
+        if (!model.openCase()) {
           return {
             ok: true, count: 0, instances: [], ambiguous: false, foregroundHwnd: null,
             advice: "Keine steuerbare Instanz von 'SteuerSparErklaerung 2025' offen.",
           };
         }
-        const caseState = model.openCase();
-        const title = caseTitle(caseState, openPath);
+        const title = openTitle();
         // Wie im echten Worker aus dem Dateinamen abgeleitet, nicht aus dem
-        // Startmodus geraten.
-        const suffix = /\.(?<type>[A-Za-z]+)(?<year>\d{4})(?:_Backup)?$/u.exec(basename(openPath));
+        // Startmodus geraten. Ein nie gespeicherter Fall hat keinen Dateinamen.
+        const suffix = openPath ? /\.(?<type>[A-Za-z]+)(?<year>\d{4})(?:_Backup)?$/u.exec(basename(openPath)) : null;
         const caseType = suffix ? suffix.groups.type : null;
         const startMode = caseType === "ESt" ? "normal" : caseType === "GewErfass" ? "einurvor" : caseType === "Gew" ? "einur" : null;
         return {
@@ -823,17 +859,29 @@ export function createStatefulSseWorker({
             hwnd, pid, title, titleFingerprint: sha256(title).toUpperCase(),
             x: 0, y: 0, w: 1200, h: 800,
             minimized: minimised, hung: false, foreground: !minimised,
-            casePath: openPath, caseName: basename(openPath), casePathSource: "title",
+            casePath: openPath, caseName: openPath ? basename(openPath) : null, casePathSource: openPath ? "title" : null,
             casePathFromTitle: openPath, casePathFromCommandLine: openPath,
             caseType, caseYear: suffix ? Number(suffix.groups.year) : null, startMode,
-            caseSha256: null, caseFileMissing: false, recoveredState: false, titleTruncated: false,
+            caseSha256: args.includeHash === true && openPath ? sha256File(openPath) : null,
+            caseFileMissing: openPath ? false : null, recoveredState: false, titleTruncated: false,
           }],
           hashesIncluded: args.includeHash === true,
           advice: "Genau ein Steuerfall ist offen; hwnd ist optional, schadet aber nie.",
         };
       }
       case "dialog_list":
-        return { ok: true, count: dialogs.length, dialogs: clone(dialogs), windows: clone(dialogs) };
+        {
+          // Ein offener nativer Dateidialog gehoert wie im echten Worker in die Inventur.
+          const nativeDialogs = fileDialog
+            ? [{
+              hwnd: fileDialog.hwnd, pid, cls: "#32770", kind: "native-dialog", title: fileDialog.title,
+              buttons: [{ name: fileDialog.mode === "save-new" ? "Speichern" : "Öffnen", enabled: true }, { name: "Abbrechen", enabled: true }],
+              texts: [], fingerprint: fileDialog.fingerprint,
+            }]
+            : [];
+          const inventory = [...clone(dialogs), ...nativeDialogs];
+          return { ok: true, count: inventory.length, dialogs: inventory, windows: clone(inventory) };
+        }
       case "bulk_action": {
         const actions = Array.isArray(args.actions) ? args.actions : [];
         const completed = [];
@@ -949,7 +997,7 @@ export function createStatefulSseWorker({
         return {
           ok: true,
           running: true,
-          instance: { pid, hwnd, title: caseTitle(caseState, openPath) },
+          instance: { pid, hwnd, title: openTitle() },
           stateFingerprint: sha256(JSON.stringify({ epoch, currentPage, dialogs, messages, dirty: caseState.dirty })),
           heading: currentPage,
           blockiert: dialogs.length > 0 || messages.length > 0,
@@ -995,6 +1043,12 @@ export function createStatefulSseWorker({
       }
       case "click": {
         const before = currentPage;
+        if (typeof args.rid === "string" && args.rid.startsWith("42.500.") && args.rid !== NEW_CASE_START_RID) {
+          return { ok: false, kind: "not-found", error: `RuntimeId '${args.rid}' existiert auf der Startseite nicht.` };
+        }
+        if (typeof args.expectedPageBefore === "string" && args.expectedPageBefore !== before) {
+          return { ok: false, kind: "precondition-failed", error: `Seite '${before}' statt '${args.expectedPageBefore}'; nichts geklickt.` };
+        }
         const target = String(args.expectedPageAfter ?? "");
         if (target) currentPage = target;
         return {
@@ -1205,6 +1259,7 @@ export function createStatefulSseWorker({
       }
       case "close":
         openPath = null;
+        pendingNewCase = null;
         currentPage = null;
         dialogs = [];
         vast = null;
@@ -1245,6 +1300,16 @@ export function createStatefulSseWorker({
       case "subpages": {
         const caseState = requireOpenCase();
         if (caseState.error) return caseState.error;
+        if (pendingNewCase && currentPage === NEW_CASE_START_PAGE) {
+          return {
+            ok: true, anzahl: 2,
+            unterseiten: [
+              { schalter: "Jetzt beginnen", fuehrt_zu: null, typ: "Hyperlink", aktiviert: true, rid: NEW_CASE_START_RID, werkzeug: "sse_click (rid)" },
+              { schalter: "Daten übernehmen", fuehrt_zu: null, typ: "Hyperlink", aktiviert: true, rid: "42.500.4.-2147480002", werkzeug: "sse_click (rid)" },
+            ],
+            hinweis: "Startseite eines neuen Falls.",
+          };
+        }
         const sequence = pageSequence(caseState.value);
         const unterseiten = sequence.slice(sequence.indexOf(currentPage) + 1)
           .map((name, index) => ({ name, ebene: index + 1 }));
@@ -1552,14 +1617,17 @@ export function createStatefulSseWorker({
       case "menu": {
         const caseState = requireOpenCase();
         if (caseState.error) return caseState.error;
-        return {
-          ok: true,
-          menues: MENUS.map(({ name, eintraege }) => ({
-            name,
-            eintraege: eintraege.map((entry) => ({ name: entry.name, gesperrt: entry.blocked === true })),
-          })),
-          hinweis: null,
-        };
+        const menues = MENUS.map(({ name, eintraege }) => ({
+          name,
+          eintraege: eintraege.map((entry) => ({ name: entry.name, aktiv: true, gesperrt: entry.blocked === true })),
+        }));
+        if (typeof args.name === "string" && args.name) {
+          // Wie im echten Worker: mit name liegen die Eintraege des einen Menues flach vor.
+          const opened = menues.find((menu) => menu.name === args.name);
+          if (!opened) return { ok: false, kind: "not-found", error: `Menue '${args.name}' fehlt.` };
+          return { ok: true, menue: opened.name, anzahl: opened.eintraege.length, eintraege: opened.eintraege, menues, hinweis: null };
+        }
+        return { ok: true, menues, hinweis: null };
       }
       case "menu_click": {
         const caseState = requireOpenCase();
@@ -1573,6 +1641,9 @@ export function createStatefulSseWorker({
         openMenu = entry.menu;
         if (entry.opens === "file-dialog") {
           fileDialog = { hwnd: 6161, title: "Steuerfall öffnen", fingerprint: sha256("synthetic-file-dialog") };
+        }
+        if (entry.opens === "save-dialog") {
+          fileDialog = { hwnd: 6162, title: NEW_CASE_SAVE_DIALOG, mode: "save-new", fingerprint: sha256("synthetic-save-dialog") };
         }
         if (entry.opens === "vast") vast = createVastDialog();
         if (entry.opens === "receipt-manager") receiptManagerOpen = true;
@@ -2273,6 +2344,16 @@ export function createStatefulSseWorker({
           return { ok: false, kind: "stale", error: "Dialogtitel stimmt nicht mehr." };
         }
         const target = resolve(String(args.expectedPath));
+        if (fileDialog.mode === "save-new") {
+          if (existsSync(target)) return { ok: false, kind: "precondition-failed", error: "Speicherziel existiert bereits." };
+          if (!pendingNewCase) return { ok: false, kind: "not-found", error: "Kein ungespeicherter Fall offen." };
+          writeCanonicalCase(target, pendingNewCase);
+          cases.delete(target);
+          openPath = target;
+          pendingNewCase = null;
+          fileDialog = null;
+          return { ok: true, selected: target, sha256: sha256File(target), dialogTitle: NEW_CASE_SAVE_DIALOG, mode: "save-new", dialogClosed: true, verified: true };
+        }
         if (!existsSync(target)) return { ok: false, kind: "not-found", error: "Ausgewaehlte Datei fehlt." };
         if (args.expectedHash !== undefined && sha256File(target) !== String(args.expectedHash).toUpperCase()) {
           return { ok: false, kind: "precondition-failed", error: "Dateihash stimmt nicht mehr." };

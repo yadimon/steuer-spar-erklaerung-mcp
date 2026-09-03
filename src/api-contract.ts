@@ -31,6 +31,7 @@ export const SSE_API_OPERATIONS = [
   "accessibility_probe",
   "archive_cases",
   "backup_cases",
+  "case_create",
   "case_hash",
   "center_cases",
   "center_refresh",

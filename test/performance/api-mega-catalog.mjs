@@ -64,8 +64,8 @@ const groups = [
   {
     classification: "destructive-non-happy-path",
     subclassification: "alternate-file-lifecycle",
-    reason: "Archive and save-as change file topology and duplicate the safer working-copy, save, reopen, and hash lifecycle already measured.",
-    operations: ["archive_cases", "save_as"],
+    reason: "Archive, save-as and case creation change file topology and duplicate the safer working-copy, save, reopen, and hash lifecycle already measured.",
+    operations: ["archive_cases", "case_create", "save_as"],
   },
   {
     classification: "destructive-non-happy-path",

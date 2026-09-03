@@ -1170,6 +1170,162 @@
         }
       }
     },
+    "case_create": {
+      "offline": {
+        "profiles": [],
+        "fields": {}
+      },
+      "live": {
+        "profiles": [
+          "2025"
+        ],
+        "fields": {
+          "caseHashSource": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "caseRef": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "created": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "effects": {
+            "types": [
+              "object:{\"savePerformed\":\"boolean\",\"submissionPerformed\":\"boolean\",\"taxDataChanged\":\"boolean\"}"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "heading": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "hwnd": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "mode": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "note": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "ok": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "pid": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "sha256": {
+            "types": [
+              "string-hex64"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "steps": {
+            "types": [
+              "array-many:string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "taxYear": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          }
+        }
+      }
+    },
     "case_hash": {
       "offline": {
         "profiles": [],
@@ -1317,6 +1473,7 @@
           },
           "header": {
             "types": [
+              "object:{\"ElsterTransferTime\":\"string-empty\",\"FileSavedBy\":\"string-other\",\"FileType\":\"string-other\",\"MitElsterVersendetText\":\"string-empty\",\"Steuernummer\":\"string-empty\",\"VJahr\":\"string-other\"}",
               "object:{\"ElsterTransferTime\":\"string-empty\",\"FileSavedBy\":\"string-other\",\"FileType\":\"string-other\",\"MitElsterVersendetText\":\"string-empty\",\"Steuernummer\":\"string-other\",\"VJahr\":\"string-other\"}",
               "object:{\"ElsterTransferTime\":\"string-other\",\"FileSavedBy\":\"string-other\",\"FileType\":\"string-other\",\"MitElsterVersendetText\":\"string-empty\",\"Steuernummer\":\"string-other\",\"VJahr\":\"string-other\"}"
             ],
@@ -5708,6 +5865,7 @@
           },
           "before": {
             "types": [
+              "string-empty",
               "string-other"
             ],
             "labels": [
@@ -7641,8 +7799,231 @@
         }
       },
       "live": {
-        "profiles": [],
-        "fields": {}
+        "profiles": [
+          "2025"
+        ],
+        "fields": {
+          "cleanupRequired": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "completed": {
+            "types": [
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "error": {
+            "types": [
+              "null"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "failedAction": {
+            "types": [
+              "null"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "failedIndex": {
+            "types": [
+              "null"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "finalReadback": {
+            "types": [
+              "object:{\"dialogs\":\"array-empty\",\"dirty\":\"boolean\",\"epoch\":\"string-hex64\",\"expectedHeading\":\"string-other\",\"fields\":\"array-many:object\",\"focusTelemetry\":\"object\",\"foreground\":\"boolean\",\"heading\":\"string-other\",\"hwnd\":\"nonnegative-number\",\"ms\":\"nonnegative-number\",\"ok\":\"boolean\",\"onExpectedPage\":\"boolean\",\"pageId\":\"string-other\",\"pid\":\"nonnegative-number\",\"privateValuesPersisted\":\"boolean\"}"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "finalReadbackVerified": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "focusTelemetry": {
+            "types": [
+              "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "kind": {
+            "types": [
+              "null"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "ms": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "ok": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "performance": {
+            "types": [
+              "object:{\"foregroundRaiseCount\":\"nonnegative-number\",\"fullUiReadbackCount\":\"nonnegative-number\",\"immediateReadbackCount\":\"nonnegative-number\",\"initialization\":\"object\",\"internalOperationCount\":\"nonnegative-number\",\"planMs\":\"nonnegative-number\",\"sseActionMs\":\"nonnegative-number\",\"workerProcessCount\":\"nonnegative-number\"}"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "planKind": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "resourceRefs": {
+            "types": [
+              "object:{\"expectedCaseRef\":\"string-other\"}"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "resultingState": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "rollback": {
+            "types": [
+              "object:{\"attempted\":\"boolean\",\"entries\":\"array-empty\",\"mode\":\"string-other\",\"ok\":\"null\"}"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "schemaVersion": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "skipped": {
+            "types": [
+              "array-empty"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "stopOnError": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "verified": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          }
+        }
       }
     },
     "find": {
@@ -8655,8 +9036,144 @@
         }
       },
       "live": {
-        "profiles": [],
-        "fields": {}
+        "profiles": [
+          "2025"
+        ],
+        "fields": {
+          "advice": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "ambiguous": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "count": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "foregroundHwnd": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "hashesIncluded": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "ignoredRunning": {
+            "types": [
+              "array-empty"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "instances": {
+            "types": [
+              "array-empty",
+              "array-one:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "ms": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "ok": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "product": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "profileId": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "taxYear": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          }
+        }
       }
     },
     "known_page_state": {
@@ -8795,6 +9312,7 @@
           "fields": {
             "types": [
               "array-empty",
+              "array-many:object",
               "array-one:object"
             ],
             "labels": [
@@ -9583,6 +10101,7 @@
           },
           "header": {
             "types": [
+              "object:{\"ElsterTransferTime\":\"string-empty\",\"FileSavedBy\":\"string-other\",\"FileType\":\"string-other\",\"MitElsterVersendetText\":\"string-empty\",\"Steuernummer\":\"string-empty\",\"VJahr\":\"string-other\"}",
               "object:{\"ElsterTransferTime\":\"string-empty\",\"FileSavedBy\":\"string-other\",\"FileType\":\"string-other\",\"MitElsterVersendetText\":\"string-empty\",\"Steuernummer\":\"string-other\",\"VJahr\":\"string-other\"}",
               "object:{\"ElsterTransferTime\":\"string-other\",\"FileSavedBy\":\"string-other\",\"FileType\":\"string-other\",\"MitElsterVersendetText\":\"string-empty\",\"Steuernummer\":\"string-other\",\"VJahr\":\"string-other\"}"
             ],
@@ -18027,6 +18546,7 @@
           },
           "inputGuard": {
             "types": [
+              "object:{\"aktiv\":\"boolean\",\"baseline\":\"nonnegative-number\",\"beobachtet\":\"nonnegative-number\",\"eingriffErkannt\":\"boolean\"}",
               "object:{\"aktiv\":\"boolean\",\"baseline\":\"null\",\"beobachtet\":\"nonnegative-number\",\"eingriffErkannt\":\"boolean\"}"
             ],
             "labels": [
@@ -18092,6 +18612,17 @@
             ],
             "outcomes": [
               "error",
+              "success"
+            ]
+          },
+          "resourceRefs": {
+            "types": [
+              "object:{\"expectedCaseRef\":\"string-other\"}"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
               "success"
             ]
           },
@@ -19206,7 +19737,8 @@
           },
           "leerePflichtfelder": {
             "types": [
-              "array-empty"
+              "array-empty",
+              "array-one:object"
             ],
             "labels": [
               "worker"

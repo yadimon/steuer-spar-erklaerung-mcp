@@ -167,7 +167,7 @@ mehrdeutige Wahl gesperrt. API-stdio bleibt vollständig vom MCP-stdout getrennt
   `structuredContent`; die bereits als Bildinhalt übertragenen Base64-Bytes
   (`imageBase64`/`bildBase64`) werden dort nicht dupliziert.
 
-Alle 99 Operationen besitzen ein eigenes `Result_<operation>`-Schema der
+Alle 100 Operationen besitzen ein eigenes `Result_<operation>`-Schema der
 Ergebnisvertragsversion 1. Diese Schemata typisieren die stabile
 Transportfläche und ausgewählte fachliche Kernfelder, bleiben aber mit
 Zusatzfeldern vorwärtskompatibel. Sie sind deshalb ein versionierter
@@ -184,7 +184,7 @@ berechnete `ok`-Ausgabe muss zusätzlich `kind` und `error` für ihren
 möglichen Fehlerzweig besitzen; damit wird ein fachliches `ok=false` nicht
 erst an der API-Grenze in einen HTTP-502-Vertragsfehler verwandelt.
 
-Alle 24 als destruktiv annotierten Operationen veröffentlichen inzwischen
+Alle 30 als destruktiv annotierten Operationen veröffentlichen inzwischen
 fachliche Erfolgs-, Guard- oder Recovery-Felder statt nur
 `ok/kind/error/ms`. Gemeinsame Zod-Bausteine verhindern dabei abweichende
 Typentscheidungen für Flag, Hash, Rollback und Fenster-/Eingabe-Guard. OpenAPI
@@ -258,6 +258,18 @@ read-only Detailklick. UStVA-Werkzeuge komponieren profilierte Seiten- und
 Feldoperationen in der API, nicht im MCP-Prozess. Ihr Seiten-Read und die
 nachfolgende gebundene UI-Aktion teilen eine absolute Aufruferdeadline. Unter
 zwei Sekunden Rest startet keine UStVA-Mutation oder Bereichsnavigation mehr.
+`case_create` komponiert in der API den Startassistenten eines neuen Falls:
+`launch` ohne Datei, `instances`/`ui_state` bis zur Startseite, `subpages` und
+`click` bis zur ersten Stammdatenseite, `menu`/`menu_click` „Speichern
+unter…“, `dialog_list` und `file_dialog_select` im Modus `save-new` sowie den
+`instances`-Readback. Vor dem Speichern beendet jeder Fehler die exakt
+gestartete PID ohne Speichern; nach dem Speichern wird nie gelöscht. Die
+Operation verlangt eine leere Instanzliste, keinen aktiven versteckten Desktop,
+ein neues Ziel mit modusgerechter Endung und ist auf live verifizierte
+Startmodi begrenzt. Kann der Worker nach dem Speichern keinen Dateihash
+liefern, weil der Prozess ohne Datei gestartet wurde und der Titel gekürzt ist,
+prüft die API den Dateihash lokal gegen den Dialog-Readback
+(`caseHashSource=local-file`).
 
 Jede neue Ausnahme braucht einen Vertragstest, der API-Ziel, Argumente,
 Fehlerweitergabe und Ergebnisfelder nachweist.

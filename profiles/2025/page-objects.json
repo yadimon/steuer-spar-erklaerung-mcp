@@ -785,6 +785,7 @@
           "label": "Umsatzsteuererklärung/-Voranmeldungen",
           "controlType": "CheckBox",
           "valueKind": "boolean",
+          "writeTool": "sse_toggle",
           "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.WeitereAngabenUnternehmen./.WeitereAngabenUnternehmen.Umsatzsteuer",
           "automationIdSuffix": ".WeitereAngabenUnternehmen.Umsatzsteuer",
           "verification": {
@@ -797,6 +798,7 @@
           "label": "Zusammenfassende Meldung",
           "controlType": "CheckBox",
           "valueKind": "boolean",
+          "writeTool": "sse_toggle",
           "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.WeitereAngabenUnternehmen./.WeitereAngabenUnternehmen.ZusammenfassendeMeldung",
           "automationIdSuffix": ".WeitereAngabenUnternehmen.ZusammenfassendeMeldung",
           "verification": {
@@ -809,6 +811,7 @@
           "label": "Gewerbesteuererklärung",
           "controlType": "CheckBox",
           "valueKind": "boolean",
+          "writeTool": "sse_toggle",
           "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.WeitereAngabenUnternehmen./.WeitereAngabenUnternehmen.Gewerbesteuer",
           "automationIdSuffix": ".WeitereAngabenUnternehmen.Gewerbesteuer",
           "verification": {
@@ -821,6 +824,7 @@
           "label": "Lohnsteueranmeldungen",
           "controlType": "CheckBox",
           "valueKind": "boolean",
+          "writeTool": "sse_toggle",
           "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.WeitereAngabenUnternehmen./.WeitereAngabenUnternehmen.Lohnsteuer",
           "automationIdSuffix": ".WeitereAngabenUnternehmen.Lohnsteuer",
           "verification": {

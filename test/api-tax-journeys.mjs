@@ -1437,3 +1437,52 @@ test("32 the checker detail and reset are reachable without the composition", as
     assert.equal(reset.konsistent, true);
   });
 });
+
+test("33 case_create builds a new follow-year case through the wizard and the save dialog", async () => {
+  await withHarness(async (harness) => {
+    const targetRef = "cases:neu.GewErfass2026";
+    const created = await harness.call("case_create", { targetRef, mode: "einurvor" }, 60_000);
+    assert.equal(created.ok, true, JSON.stringify(created));
+    assert.equal(created.created, true);
+    assert.equal(created.caseRef, targetRef);
+    assert.match(created.sha256, /^[A-F0-9]{64}$/u);
+    assert.equal(created.pid, 3131);
+    assert.equal(created.hwnd, 4242);
+    assert.equal(created.taxYear, 2026);
+    assert.equal(created.heading, "Allgemeine Angaben zum Unternehmen");
+    assert.deepEqual(created.effects, { taxDataChanged: false, savePerformed: true, submissionPerformed: false });
+    assert.deepEqual(created.resourceRefs, undefined, "Die Komposition traegt ihre Referenz selbst als caseRef");
+    assert(!JSON.stringify(created).includes(harness.caseDir), "Kein lokaler Pfad darf die API verlassen");
+    const targetPath = join(harness.caseDir, "neu.GewErfass2026");
+    assert(existsSync(targetPath), "Die neue Falldatei muss existieren");
+    assert.equal(sha256File(targetPath), created.sha256);
+    assert.deepEqual(created.steps, [
+      "instances", "desktop_status", "launch", "instances", "ui_state", "subpages",
+      "click", "click", "click", "menu", "menu_click", "dialog_list", "file_dialog_select", "instances",
+    ]);
+    assert.equal(harness.model.journal.filter((entry) => entry.operation === "close").length, 0,
+      "Eine erfolgreiche Anlage schliesst nichts");
+
+    const instances = await harness.call("instances", { includeHash: true });
+    assert.equal(instances.count, 1);
+    assert.equal(instances.instances[0].caseName, "neu.GewErfass2026");
+    assert.equal(instances.instances[0].caseSha256, created.sha256);
+    assert.equal(instances.instances[0].caseType, "GewErfass");
+    assert.equal((await harness.call("ui_state", {})).heading, "Allgemeine Angaben zum Unternehmen");
+    assert.equal((await harness.call("dialog_list", { pid: 3131 })).count, 0, "Der Speicherdialog ist geschlossen");
+
+    const again = await harness.request("case_create", { targetRef: "cases:noch-einer.GewErfass2026", mode: "einurvor" }, 60_000);
+    assert.equal(again.status, 200);
+    assert.equal(again.body.result.kind, "confirmation-required", "Mit offener Instanz wird nichts gestartet");
+    assert(!existsSync(join(harness.caseDir, "noch-einer.GewErfass2026")));
+
+    const existing = await harness.request("case_create", { targetRef, mode: "einurvor" }, 60_000);
+    assert.equal(existing.body.result.kind, "target-exists");
+    const wrongSuffix = await harness.request("case_create", { targetRef: "cases:neu.Gew2025", mode: "einurvor" }, 60_000);
+    assert.equal(wrongSuffix.body.result.kind, "bad-args");
+
+    const closed = await harness.call("close", { hwnd: 4242, pid: 3131 });
+    assert.equal(closed.closed, true);
+    assert.equal(sha256File(targetPath), created.sha256, "Schliessen ohne Aenderung laesst die neue Datei unveraendert");
+  });
+});

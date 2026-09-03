@@ -62,8 +62,8 @@ Details zu getrennten Arbeitsdaten, Update und sicherer Entfernung stehen in der
 - Cancellation bis zum lokalen API-Auftrag;
 - Größenlimits, protokollreines stdout und fail-closed Fehlerantworten.
 
-Der Katalog umfasst **99 fachliche API-Toolnamen plus den komponierten MCP-Preflight**.
-Alle 100 MCP-Werkzeugnamen werden aus dem versionierten Vertrag abgeleitet und
+Der Katalog umfasst **100 fachliche API-Toolnamen plus den komponierten MCP-Preflight**.
+Alle 101 MCP-Werkzeugnamen werden aus dem versionierten Vertrag abgeleitet und
 als strukturierte Werkzeuge registriert.
 
 Vor der ersten Facharbeit bündelt `sse_preflight` nacheinander

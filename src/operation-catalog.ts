@@ -132,6 +132,7 @@ export const SSE_MCP_TOOL_OPERATIONS = {
   "sse_ustva_open_section": "ustva_open_section",
   "sse_scroll": "scroll",
   "sse_launch": "launch",
+  "sse_case_create": "case_create",
   "sse_save": "save",
   "sse_file_dialog_select": "file_dialog_select",
   "sse_fill_fields": "fill_fields",
@@ -402,6 +403,7 @@ schemasByOperation.window_close = z.object({
 });
 schemasByOperation.desktop_start = optionalAliasWithLegacy(SSE_MCP_TOOL_SCHEMAS.sse_desktop_start, "caseRef", "file");
 schemasByOperation.launch = optionalAliasWithLegacy(SSE_MCP_TOOL_SCHEMAS.sse_launch, "caseRef", "file");
+schemasByOperation.case_create = withLegacyAlias(SSE_MCP_TOOL_SCHEMAS.sse_case_create, "targetRef", "targetPath");
 schemasByOperation.collect = optionalAliasWithLegacy(SSE_MCP_TOOL_SCHEMAS.sse_collect, "resultRef", "path");
 schemasByOperation.export_csv = optionalAliasWithLegacy(SSE_MCP_TOOL_SCHEMAS.sse_export_csv, "resultRef", "dir");
 schemasByOperation.verify = withLegacyAlias(SSE_MCP_TOOL_SCHEMAS.sse_verify, "sourceRef", "from");
