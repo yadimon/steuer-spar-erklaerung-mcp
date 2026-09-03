@@ -1173,7 +1173,179 @@
     "case_create": {
       "offline": {
         "profiles": [],
-        "fields": {}
+        "fields": {
+          "caseHashSource": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "caseRef": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "created": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "effects": {
+            "types": [
+              "object:{\"savePerformed\":\"boolean\",\"submissionPerformed\":\"boolean\",\"taxDataChanged\":\"boolean\"}"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "error": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
+          "heading": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "hwnd": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "kind": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
+          "mode": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "note": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "ok": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "pid": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "sha256": {
+            "types": [
+              "string-hex64"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "steps": {
+            "types": [
+              "array-empty",
+              "array-many:string-other",
+              "array-one:string-other"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "taxYear": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          }
+        }
       },
       "live": {
         "profiles": [
