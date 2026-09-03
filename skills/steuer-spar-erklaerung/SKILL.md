@@ -92,9 +92,18 @@ eine Falldatei-Sicherung ersetzt sie nicht.
    geöffneten Fall, PID/HWND und aktuellen Disk-Hash lesen. Bei
    Wiederherstellungszustand stoppen; mit einem wiederhergestellten Fall nicht
    weiterarbeiten.
-2. **Planen:** Auftrag als Prüfung, Belegabgleich, Änderung oder UStVA erkennen.
-   Nur die dafür nötigen Quellen und Operationen vorsehen. Den sicheren Plan
-   kurz bestätigen lassen, wenn er Navigation, Dateien oder Mutationen umfasst.
+2. **Planen:** Auftrag als Prüfung, Belegabgleich, Änderung, UStVA oder
+   Fallanlage erkennen. Nur die dafür nötigen Quellen und Operationen vorsehen.
+   Offene fachliche Entscheidungen (Einkunftsart, Kleinunternehmer, Soll/Ist,
+   Zuordnung strittiger Belege) in **einer Klärungsrunde** gebündelt mit je
+   einem begründeten Vorschlag stellen; dabei fragen, ob der Nutzer den
+   **betreuten Modus** (jeder Schritt bestätigt) oder den **selbstständigen
+   Modus** (bestätigter Plan, Lücken am Ende) will. Ohne Antwort gilt betreut.
+   Buchungsregel: Ein-/Ausgaben in die Kostenarten der Gewinn-Erfassung
+   buchen; Vorsteuer und UStVA leitet das Programm daraus ab. Direkte
+   UStVA-Beträge sind nur ein begründeter Fallback auf ausdrücklichen Wunsch.
+   Den sicheren Plan kurz bestätigen lassen, wenn er Navigation, Dateien oder
+   Mutationen umfasst.
 3. **Sichern:** Vor `sse_collect`, `sse_goto`, `sse_subpages`, navigierendem
    `sse_click_point`, Programm-Prüfer oder Mutation den unveränderten
    Dateistand genau einmal nach `backups:` sichern. Der vollständige
@@ -108,7 +117,17 @@ eine Falldatei-Sicherung ersetzt sie nicht.
    Batch ausführen. Für Tabellen den frisch gelesenen Vorwert beziehungsweise
    `expectedBefore` verwenden. Wert, Summe, Hash und Dirty-State sofort
    zurücklesen.
-6. **Abschließen:** Fall offen lassen. Knapp sagen, was gelesen oder geändert
+6. **Prüfen:** Nach einer vollständigen Bearbeitung den Programm-Prüfer mit
+   `sse_checker_open` laufen lassen und jede Meldung mit Fundstelle und einem
+   Vorschlag auflisten, statt sie still zu übergehen. Erscheint beim Navigieren
+   der automatische Hinweis „Die Prüfung hat ergeben …“, mit
+   `sse_warning_popup_read` lesen und nur fingerprintgebunden über
+   `sse_dialog_answer` („Jetzt ignorieren“ oder „Als gelesen markieren“)
+   beantworten; den Navigationsklick nicht wiederholen, sondern
+   `sse_ui_state` neu lesen. Nennt der Hinweistext ELSTER (etwa „ELSTER:
+   Einkunftsart fehlt!“), bleibt er gesperrt: dann die Ursache beheben, also
+   das fehlende Feld füllen, statt den Hinweis wegzuklicken.
+7. **Abschließen:** Fall offen lassen. Knapp sagen, was gelesen oder geändert
    wurde, ob die Änderung nur im Programm steht und dass nicht gespeichert
    beziehungsweise nicht übermittelt wurde. Einen Bericht nur auf Auftrag
    anlegen und dessen Ergebnisdatei samt Hash zurücklesen.
@@ -128,6 +147,8 @@ Lies nur die Referenz, die der aktuelle Auftrag tatsächlich braucht:
   Mutation, Sicherung, Arbeitskopie oder Speicherung;
 - [ustva.md](references/ustva.md) — nur bei UStVA, Gewinn-Erfassung oder dem
   belegten Folgejahrweg;
+- [case-create.md](references/case-create.md) — nur wenn ausdrücklich ein
+  neuer Fall angelegt werden soll oder kein passender Fall existiert;
 - [steuerquellen.md](references/steuerquellen.md) — betragsrelevante oder
   strittige steuerfachliche Begründung;
 - [ui-fallback.md](references/ui-fallback.md) — nur wenn für ein benötigtes

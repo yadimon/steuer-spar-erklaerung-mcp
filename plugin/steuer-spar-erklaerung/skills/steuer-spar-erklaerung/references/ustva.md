@@ -46,6 +46,22 @@ UStVA-Änderung.
    Eine Rechnung aus einem bereits übermittelten Zeitraum wird nicht still in
    den aktuellen Zeitraum verschoben; dokumentiere stattdessen den möglichen
    Berichtigungsbedarf.
+   Beachte in der Gewinn-Erfassung diese belegten Eigenheiten:
+   - Nur Einnahmen-**Positionen** (Erlöse → „Position erfassen“ → Seite
+     `Einnahmen: <Bezeichnung>`) sind periodenwirksam und erscheinen in der
+     UStVA. Die jahresbezogene Tabelle „Weitere Erlöse zu 19%“ ist es nicht.
+   - Ausgaben gehören in die Kostenart; Vorsteuer und UStVA entstehen daraus.
+     Tabellen „(Steuersatz manuell)“ haben eine freie Prozentspalte, Tabellen
+     „(Steuersatzauswahl)“ eine typisierte Auswahl (0/7/19). `Reisekosten` ist
+     ein Formular je Reise, keine flache Tabelle.
+   - `sse_table_add` schreibt höchstens sechs Zeilen je Tabelle. Danach eine
+     weitere Position beziehungsweise Tabelle anlegen, nicht scrollen.
+   - Seitensummen der Vorsteuerseite tragen den gewählten Zeitraum im Label
+     („… »2. Vierteljahr«“) und sind dann gefiltert: `sumLabel` vor jedem
+     `sse_table_add`/`sse_table_delete` frisch aus `sse_read_page` nehmen.
+   - Das Programm rundet Netto aus Brutto teils anders als der Kassenbon
+     (18,42 / 1,07 = 17,21 statt 17,22). Kontrollsummen aus dem
+     Programm-Readback ableiten und die Abweichung dokumentieren.
 6. Behalte die belegte Meldefrequenz bei. Ein im Auftrag genannter Monat oder
    ein genanntes Quartal benennt nur den Zielzeitraum und erlaubt keinen
    Frequenzwechsel, weder von vierteljährlich auf monatlich noch umgekehrt.

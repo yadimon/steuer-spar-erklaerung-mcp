@@ -22,11 +22,14 @@ versionsgleichen Installation.
 - Berichte, private Backups und ausdrücklich verlangte Arbeitskopien im lokalen
   Arbeitsbereich erzeugen;
 - über `sse_preflight` Arbeitsbereich, Produktprofil und Laufzeit prüfen, bevor
-  Steuerdaten gelesen werden.
+  Steuerdaten gelesen werden;
+- einen neuen Gewinn-Erfassungsfall des freigegebenen Folgejahres über den
+  echten Startassistenten anlegen (`sse_case_create`) und dessen Stammdaten
+  über katalogisierte Seiten füllen.
 
 Profil 2025 / Engine 31 ist freigegeben. Profil 2024 bleibt experimentell und
 auf Verifikation begrenzt. `GewErfass2026` ist ausschließlich für den belegten
-Folgejahr-Leseweg freigegeben. Im BelegManager ist aktuell nur die focusless
+Folgejahr-Leseweg und die neu angelegte Gewinn-Erfassung freigegeben. Im BelegManager ist aktuell nur die focusless
 Leseliste allgemein aktiv; die Vordergrundwege bleiben fail-closed gesperrt.
 
 ## Voraussetzungen und harte Grenzen

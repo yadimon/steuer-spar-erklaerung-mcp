@@ -64,6 +64,13 @@ Steuerberatung.
    Anbieters gehört dort unter `Fremdleistungen -> Rechnungen nach § 13b UStG`.
    Welche Seiten und Unterseiten es wirklich gibt, aus dem geöffneten Fall
    lesen.
+   Periodenwirksam sind in der Gewinn-Erfassung nur Einnahmen-Positionen
+   (`Erlöse` → „Position erfassen“) und die Kostenarten; die jahresbezogene
+   Tabelle „Weitere Erlöse zu 19%“ erscheint nicht in der UStVA. Eine Tabelle
+   nimmt über `table_add` höchstens sechs Zeilen auf, danach eine weitere
+   Position anlegen. Summenlabels der Vorsteuerseite tragen den gewählten
+   Zeitraum im Namen und sind dann gefiltert; sie vor jeder Tabellenmutation
+   frisch aus `read_page` übernehmen.
    Für die anfängliche Bestandskarte kurze `collect`-/`sse_collect`-Segmente mit
    dem linearen `Weiter`-Pfad verwenden. Nur erkannte lange Tabellen zusätzlich
    mit `table_read`/`sse_table_read` vollständig lesen. Die globale Suche ist
