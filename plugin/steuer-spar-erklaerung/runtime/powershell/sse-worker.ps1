@@ -15276,7 +15276,12 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $sumLabel = [string](Arg $a 'sumLabel')
     $sumOccurrence = Get-SSEBoundedIntegerArg $a 'sumOccurrence' 1 1 1000
     $hwnd = [IntPtr][int64](Resolve-SSEMainWindowDescriptor $a -RestoreMinimized).hwnd
-    $dirtyBefore = Get-DirtyState (Walk-Tree $hwnd 600 20 8)
+    # Der Sichern-Schalter ist ein einzelnes Element mit stabiler AutomationId.
+    # Ihn ueber einen vollstaendigen Baumlauf zu suchen kostete hier zweimal je
+    # Aufruf einen kompletten Lauf; die gezielte Abfrage liefert denselben Wert
+    # (beide lesen IsEnabled desselben Knotens) und ist der Weg, den alle
+    # anderen Operationen ohnehin verwenden.
+    $dirtyBefore = Get-DirtyStateFast $hwnd
     $gesehen = New-Object 'System.Collections.Generic.HashSet[string]'
     $alle = New-Object System.Collections.ArrayList
     $identityState = [pscustomobject]@{ fehlend = $false }
@@ -15556,7 +15561,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $summeRead = Read-LabeledValueFromTree (Walk-Tree $hwnd -WithValues) $hwnd $sumLabel $sumOccurrence
       $summe = [string]$summeRead.value
     }
-    $dirtyAfter = Get-DirtyState (Walk-Tree $hwnd 600 20 8)
+    $dirtyAfter = Get-DirtyStateFast $hwnd
     Emit ([pscustomobject]@{
       ok = $true; kopf = $kopf; zeilen = $echte; anzahl = $echte.Count
       summe = $summe
