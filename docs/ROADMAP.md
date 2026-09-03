@@ -93,11 +93,15 @@ Parametersignatur `STRING GotoExpression`.
 
 ### 3.2 Programmbereiche ohne Profil
 
-Wer die Luecke lieber an der Oberflaeche als an Symbolnamen sehen will: Das
+Wer die Luecke lieber an der Oberflaeche als an Symbolnamen sehen will, findet
+sie in zwei Entwicklungsdokumenten. Das
 [Aktionsinventar](entwicklung/aktionsinventar.md) geht die sieben Menues von
-SSE mit ihren 64 Eintraegen durch und ordnet jedem zu, ob es dafuer eine
-Operation gibt. Elf sind abgedeckt, neun teilweise, vier bleiben mit Absicht
-zu - der Rest ist offen, darunter zwei vollstaendig leere Menues.
+SSE mit ihren 64 Eintraegen durch: elf abgedeckt, neun teilweise, vier mit
+Absicht zu, der Rest offen, darunter zwei vollstaendig leere Menues. Der
+[Funktionskatalog](entwicklung/funktionskatalog.md) nimmt die fachliche Achse -
+SteuerSparErklaerung ist **sieben Module**, nicht eines, und zu **vieren davon
+gibt es bei uns gar nichts**: Feststellung, Lohnsteuer-Ermaessigung, Prognose
+und konsolidierte Umsatzsteuer.
 
 
 Die Methodennamen von `DMSession` im dekompilierten `Dm.dll`-Index nennen

@@ -24,6 +24,9 @@ werden erst nach Verifikation als kurze aktuelle Regel in einen Skill
 
 ## Aktueller Inhalt
 
+- `funktionskatalog.md`: die fachliche Landkarte — sieben Programmmodule mit
+  gemessenen Navigationsbäumen, Funktionsgruppen aus dem Herstellerhandbuch und
+  der Abgleich, was davon eine Operation hat;
 - `aktionsinventar.md`: die aus dem laufenden Programm ausgelesene Menüstruktur
   mit der Zuordnung, welche Aktion eine Operation hat und welche nicht;
 - `erfahrungen/sse-automation-erfahrungen.md`: sanitisierte Qt/UIA-Fehler,
