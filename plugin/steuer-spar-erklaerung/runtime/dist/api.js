@@ -16273,7 +16273,7 @@ var init_desktop_marker = __esm({
 
 // src/worker-prewarm.ts
 import { spawn } from "node:child_process";
-import { constants as osConstants, setPriority } from "node:os";
+import { availableParallelism, constants as osConstants, setPriority, totalmem } from "node:os";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 import { dirname as dirname11, join as join12 } from "node:path";
 function setSparePriority(child, priority) {
@@ -16289,8 +16289,16 @@ function positiveDurationFromEnvironment(name, fallback) {
 }
 function boundedPoolSizeFromEnvironment() {
   const configured = Number(process.env.SSE_WORKER_PREWARM_POOL_SIZE);
-  if (!Number.isInteger(configured)) return 2;
+  if (!Number.isInteger(configured)) return defaultPoolSize();
   return Math.max(1, Math.min(4, configured));
+}
+function poolSizeForHost(speicherGiB, kerne) {
+  if (speicherGiB >= 24 && kerne >= 8) return 4;
+  if (speicherGiB >= 12 && kerne >= 4) return 3;
+  return 2;
+}
+function defaultPoolSize() {
+  return poolSizeForHost(totalmem() / 1024 ** 3, availableParallelism());
 }
 function lastPrewarmFailure() {
   return failureReason;

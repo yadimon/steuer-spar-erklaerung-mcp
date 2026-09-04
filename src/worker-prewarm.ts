@@ -15,7 +15,7 @@
  * weiterreichen. Nach seinem Auftrag endet er wie jeder andere Arbeiter.
  */
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { constants as osConstants, setPriority } from "node:os";
+import { availableParallelism, constants as osConstants, setPriority, totalmem } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { resolveWindowsPowerShell } from "./windows-runtime.js";
@@ -56,7 +56,7 @@ const PREWARM_RETRY_DELAY_MS = positiveDurationFromEnvironment(
   "SSE_WORKER_PREWARM_RETRY_DELAY_MS",
   30_000,
 );
-/** Zwei Reserven sind der sparsame Default; schnelle Hosts duerfen vier halten. */
+/** Zwei Reserven sind der sparsame Default; grosszuegige Hosts halten mehr. */
 const PREWARM_POOL_SIZE = boundedPoolSizeFromEnvironment();
 /** Ohne diesen Schalter liesse sich das Vorwaermen im Test nicht abschalten. */
 const PREWARM_DISABLED = process.env.SSE_WORKER_PREWARM === "0";
@@ -68,8 +68,34 @@ function positiveDurationFromEnvironment(name: string, fallback: number): number
 
 function boundedPoolSizeFromEnvironment(): number {
   const configured = Number(process.env.SSE_WORKER_PREWARM_POOL_SIZE);
-  if (!Number.isInteger(configured)) return 2;
+  if (!Number.isInteger(configured)) return defaultPoolSize();
   return Math.max(1, Math.min(4, configured));
+}
+
+/**
+ * Wie viele Reserven ohne ausdrueckliche Einstellung?
+ *
+ * Zwei reichen fuer gemaechliche Aufruffolgen, nicht fuer dichte: Jeder Aufruf
+ * entnimmt eine Reserve, das Nachfuellen dauert rund zwei Sekunden, und wer
+ * schneller ruft als der Vorrat nachwaechst, startet kalt - mit dem vollen
+ * Preis fuer Prozessstart und Zerlegen des Workerskripts. In der grossen
+ * Reise verfehlten so 32 von 137 Aufrufen den Reservearbeiter; mit vier
+ * Reserven blieben 13, und die Reise verkuerzte sich um rund 30 s.
+ *
+ * Der Preis ist Speicher: Eine wartende Reserve belegt rund 240 MB. Vier davon
+ * sind auf einem grosszuegig ausgestatteten Rechner eine Nebensaechlichkeit und
+ * auf einem kleinen ein Problem, deshalb entscheidet die Ausstattung und nicht
+ * eine feste Zahl. Kerne zaehlen mit, weil die Reserven ihr Skript gleichzeitig
+ * zerlegen; auf wenigen Kernen ginge das der Fernsteuerung ab.
+ */
+export function poolSizeForHost(speicherGiB: number, kerne: number): number {
+  if (speicherGiB >= 24 && kerne >= 8) return 4;
+  if (speicherGiB >= 12 && kerne >= 4) return 3;
+  return 2;
+}
+
+function defaultPoolSize(): number {
+  return poolSizeForHost(totalmem() / 1024 ** 3, availableParallelism());
 }
 
 export interface WarmSpare {
