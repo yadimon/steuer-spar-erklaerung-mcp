@@ -45,13 +45,21 @@ Health-Quelle.
 | Produktionsabhängigkeiten | `npm audit --omit=dev --audit-level=low` | keine gemeldete Schwachstelle |
 | Vollständiger Abhängigkeitsbaum | `npm audit --audit-level=low` | keine gemeldete Schwachstelle |
 
-Ein Registry-Ausfall ist `BLOCKED`, niemals ein grüner Audit. Das gilt auch für
-den Audit-Dienst allein: npm 10.x fragt den von npm selbst als stillgelegt
-angekündigten Endpunkt `/-/npm/v1/security/audits/quick` ab, der mit HTTP 400
-antworten kann, während `/-/npm/v1/security/advisories/bulk` in eine
-Zeitüberschreitung läuft. Ein erreichbares `/-/ping` unterscheidet die Fälle:
-Antwortet die Registry, aber nicht der Audit-Dienst, ist das `BLOCKED` und kein
-Repositoriumsbefund.
+Ein Registry-Ausfall ist `BLOCKED`, niemals ein grüner Audit.
+
+**Der Audit-Dienst fällt getrennt von der Registry aus, und er lügt dabei.** In
+einer solchen Phase antwortet `/-/npm/v1/security/advisories/bulk` gar nicht,
+und der ältere Endpunkt liefert HTTP 400 mit „Invalid package tree, run npm
+install to rebuild your package-lock.json". Diese Meldung beschuldigt den
+lokalen Baum, obwohl dieser in Ordnung ist: `npm ci` ändert nichts, und
+derselbe Aufruf läuft nach der Erholung des Dienstes unverändert grün durch.
+Belegt am 2026-09-03/04 über mehrere Stunden.
+
+Vor einer Schlussfolgerung deshalb messen, nicht raten: `curl
+https://registry.npmjs.org/-/ping` gegen `curl -X POST
+https://registry.npmjs.org/-/npm/v1/security/advisories/bulk` mit kurzer
+Zeitgrenze. Antwortet der erste und der zweite nicht, ist es `BLOCKED` — und
+kein Anlass, ein Gate umzubauen.
 
 ## Automatische Gates
 
