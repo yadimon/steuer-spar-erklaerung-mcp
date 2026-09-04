@@ -1038,6 +1038,169 @@
           }
         }
       }
+    },
+    "est.spenden_steuerbeguenstigte_zwecke": {
+      "heading": "Spenden für steuerbegünstigte Zwecke",
+      "headingPrefix": "Spenden für steuerbegünstigte Zwecke",
+      "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
+      "documentType": "ESt2025",
+      "fields": {
+        "spendenvortrag_aus_vorjahr_person_a": {
+          "label": "Spenden-Vortrag aus 2024 (Person A)",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Ermittlung./.Ermittlung.SpendenVortragAus./.Ermittlung.SpendenVortragAus.SpendeVortrag",
+          "automationIdSuffix": ".Ermittlung.SpendenVortragAus.SpendeVortrag",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "spendenvortrag_aus_vorjahr_person_b": {
+          "label": "Spenden-Vortrag aus 2024 (Person B)",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Ermittlung./.Ermittlung.SpendenVortragAusPA./.Ermittlung.SpendenVortragAusPA.Wert",
+          "automationIdSuffix": ".Ermittlung.SpendenVortragAusPA.Wert",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "zuwendung_ausland_person_a": {
+          "label": "Zuwendungen an Empfänger im Ausland (Person A)",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.SpendenAnEUEmpfaenger./.SpendenAnEUEmpfaenger.ZuwendungAusland./.SpendenAnEUEmpfaenger.ZuwendungAusland.SpendeBescheinigung./.SpendenAnEUEmpfaenger.ZuwendungAusland.SpendeBescheinigung.ZuwendungAusland./.SpendenAnEUEmpfaenger.ZuwendungAusland.SpendeBescheinigung.ZuwendungAusland.Wert",
+          "automationIdSuffix": ".SpendeBescheinigung.ZuwendungAusland.Wert",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "zuwendung_ausland_person_b": {
+          "label": "Zuwendungen an Empfänger im Ausland (Person B)",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.SpendenAnEUEmpfaenger./.SpendenAnEUEmpfaenger.ZuwendungAusland./.SpendenAnEUEmpfaenger.ZuwendungAusland.SpendeBescheinigung./.SpendenAnEUEmpfaenger.ZuwendungAusland.SpendeBescheinigung.ZuwendungAusland./.SpendenAnEUEmpfaenger.ZuwendungAusland.SpendeBescheinigung.ZuwendungAusland.Wert2",
+          "automationIdSuffix": ".SpendeBescheinigung.ZuwendungAusland.Wert2",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        }
+      }
+    },
+    "est.themenfilter_spenden": {
+      "heading": "Spenden und Mitgliedsbeiträge",
+      "headingPrefix": "Spenden und Mitgliedsbeiträge",
+      "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
+      "documentType": "ESt2025",
+      "fields": {
+        "spenden_steuerbeguenstigte_zwecke": {
+          "label": "Spenden für steuerbegünstigte Zwecke",
+          "controlType": "CheckBox",
+          "valueKind": "boolean",
+          "writeTool": "sse_toggle",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.QWidget.QWidget.ThemenfilterUiCheckboxList_ScrollArea.qt_scrollarea_viewport.QWidget.m_uiItemContainer.ThemenfilterItemCheckBox.Spenden für steuerbegünstigte Zwecke_checkbox",
+          "automationIdSuffix": ".ThemenfilterItemCheckBox.Spenden für steuerbegünstigte Zwecke_checkbox",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "spenden_politische_parteien": {
+          "label": "Spenden an politische Parteien",
+          "controlType": "CheckBox",
+          "valueKind": "boolean",
+          "writeTool": "sse_toggle",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.QWidget.QWidget.ThemenfilterUiCheckboxList_ScrollArea.qt_scrollarea_viewport.QWidget.m_uiItemContainer.ThemenfilterItemCheckBox.Spenden an politische Parteien_checkbox",
+          "automationIdSuffix": ".ThemenfilterItemCheckBox.Spenden an politische Parteien_checkbox",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "spenden_waehlervereinigungen": {
+          "label": "Spenden an Wählervereinigungen",
+          "controlType": "CheckBox",
+          "valueKind": "boolean",
+          "writeTool": "sse_toggle",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.QWidget.QWidget.ThemenfilterUiCheckboxList_ScrollArea.qt_scrollarea_viewport.QWidget.m_uiItemContainer.ThemenfilterItemCheckBox.Spenden an Wählervereinigungen_checkbox",
+          "automationIdSuffix": ".ThemenfilterItemCheckBox.Spenden an Wählervereinigungen_checkbox",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "spenden_stiftung_vermoegensstock": {
+          "label": "Spenden in den Vermögensstock einer Stiftung",
+          "controlType": "CheckBox",
+          "valueKind": "boolean",
+          "writeTool": "sse_toggle",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.QWidget.QWidget.ThemenfilterUiCheckboxList_ScrollArea.qt_scrollarea_viewport.QWidget.m_uiItemContainer.ThemenfilterItemCheckBox.Spenden in den Vermögensstock einer Stiftung_checkbox",
+          "automationIdSuffix": ".ThemenfilterItemCheckBox.Spenden in den Vermögensstock einer Stiftung_checkbox",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        }
+      }
+    },
+    "est.themenfilter_haushaltsnahe_ausgaben": {
+      "heading": "Haushaltsnahe Ausgaben",
+      "headingPrefix": "Haushaltsnahe Ausgaben",
+      "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
+      "documentType": "ESt2025",
+      "fields": {
+        "nebenkosten_hausgeldabrechnung": {
+          "label": "Nebenkosten-/Hausgeldabrechnung",
+          "controlType": "CheckBox",
+          "valueKind": "boolean",
+          "writeTool": "sse_toggle",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.QWidget.QWidget.ThemenfilterUiCheckboxList_ScrollArea.qt_scrollarea_viewport.QWidget.m_uiItemContainer.ThemenfilterItemCheckBox.Nebenkosten-/Hausgeldabrechnung_checkbox",
+          "automationIdSuffix": ".ThemenfilterItemCheckBox.Nebenkosten-/Hausgeldabrechnung_checkbox",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "haushaltsnahe_dienst_und_handwerkerleistungen": {
+          "label": "Haushaltsnahe Dienst- und Handwerkerleistungen",
+          "controlType": "CheckBox",
+          "valueKind": "boolean",
+          "writeTool": "sse_toggle",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.QWidget.QWidget.ThemenfilterUiCheckboxList_ScrollArea.qt_scrollarea_viewport.QWidget.m_uiItemContainer.ThemenfilterItemCheckBox.Haushaltsnahe Dienst- und Handwerkerleistungen_checkbox",
+          "automationIdSuffix": ".ThemenfilterItemCheckBox.Haushaltsnahe Dienst- und Handwerkerleistungen_checkbox",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "energetische_sanierungsmassnahmen": {
+          "label": "Energetische Sanierungsmaßnahmen",
+          "controlType": "CheckBox",
+          "valueKind": "boolean",
+          "writeTool": "sse_toggle",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.QWidget.QWidget.ThemenfilterUiCheckboxList_ScrollArea.qt_scrollarea_viewport.QWidget.m_uiItemContainer.ThemenfilterItemCheckBox.Energetische Sanierungsmaßnahmen_checkbox",
+          "automationIdSuffix": ".ThemenfilterItemCheckBox.Energetische Sanierungsmaßnahmen_checkbox",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        }
+      }
     }
   }
 }
