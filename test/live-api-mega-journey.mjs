@@ -1683,7 +1683,7 @@ try {
         requested: true,
         readyBeforeFirstCatalogOperation: initialHealthz.prewarm?.ready === true,
         status: initialHealthz.prewarm,
-        configuredPoolSize: Number.parseInt(process.env.SSE_WORKER_PREWARM_POOL_SIZE ?? "2", 10),
+        configuredPoolSize: initialHealthz.prewarm?.poolTarget ?? null,
       },
       cleanup,
     },

@@ -194,10 +194,11 @@ export const SSE_OPENAPI_DOCUMENT = Object.freeze({
                         { type: "null" },
                         {
                           type: "object",
-                          required: ["ready", "failure"],
+                          required: ["ready", "failure", "poolTarget"],
                           properties: {
                             ready: { type: "boolean" },
                             failure: { oneOf: [{ type: "null" }, { type: "string" }] },
+                            poolTarget: { type: "integer", minimum: 1, maximum: 4 },
                           },
                           additionalProperties: false,
                         },

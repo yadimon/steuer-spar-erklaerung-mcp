@@ -15544,10 +15544,11 @@ var init_api_openapi = __esm({
                             { type: "null" },
                             {
                               type: "object",
-                              required: ["ready", "failure"],
+                              required: ["ready", "failure", "poolTarget"],
                               properties: {
                                 ready: { type: "boolean" },
-                                failure: { oneOf: [{ type: "null" }, { type: "string" }] }
+                                failure: { oneOf: [{ type: "null" }, { type: "string" }] },
+                                poolTarget: { type: "integer", minimum: 1, maximum: 4 }
                               },
                               additionalProperties: false
                             }
@@ -16305,6 +16306,13 @@ function lastPrewarmFailure() {
 }
 function isWarmSpareReady() {
   return spares.some((candidate) => candidate.ready && !candidate.discarded);
+}
+function warmSparePoolStatus() {
+  return {
+    ready: spares.filter((candidate) => candidate.ready && !candidate.discarded).length,
+    starting,
+    target: PREWARM_POOL_SIZE
+  };
 }
 function environmentFingerprint() {
   return Object.keys(process.env).filter((name) => name.startsWith("SSE_")).sort().map((name) => `${name}=${process.env[name] ?? ""}`).join("\0");
@@ -17182,7 +17190,7 @@ async function runApiRuntime(configPath, overrides = {}) {
     execute,
     log,
     configurationFingerprint: configIdentity,
-    prewarmStatus: () => ({ ready: isWarmSpareReady(), failure: lastPrewarmFailure() })
+    prewarmStatus: () => ({ ready: isWarmSpareReady(), failure: lastPrewarmFailure(), poolTarget: warmSparePoolStatus().target })
   });
   installApiShutdown(server, shutdown, log);
   await listenSseApiServer(server, config.host, config.port);

@@ -13,6 +13,7 @@ import {
   isWarmSpareReady,
   lastPrewarmFailure,
   shutdownWarmSpare,
+  warmSparePoolStatus,
 } from "../dist/worker-prewarm.js";
 import { SSE_FOREGROUND_REQUIRED_RECEIPT_OPERATIONS } from "../dist/receipt-interaction-policy.js";
 import { resolveWindowsPowerShell } from "../dist/windows-runtime.js";
@@ -110,7 +111,7 @@ const execute = traceOperations("worker", createApiExecutor(config, worker));
 const server = createSseApiServer({
   execute,
   ...(useWorkerPrewarm ? {
-    prewarmStatus: () => ({ ready: isWarmSpareReady(), failure: lastPrewarmFailure() }),
+    prewarmStatus: () => ({ ready: isWarmSpareReady(), failure: lastPrewarmFailure(), poolTarget: warmSparePoolStatus().target }),
   } : {}),
 });
 server.listen(0, "127.0.0.1");

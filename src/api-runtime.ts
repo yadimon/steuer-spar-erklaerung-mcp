@@ -16,6 +16,7 @@ import {
   isWarmSpareReady,
   lastPrewarmFailure,
   shutdownWarmSpare,
+  warmSparePoolStatus,
 } from "./worker-prewarm.js";
 import { configurationFingerprint } from "./workspace-status.js";
 import {
@@ -222,7 +223,7 @@ export async function runApiRuntime(
     execute,
     log,
     configurationFingerprint: configIdentity,
-    prewarmStatus: () => ({ ready: isWarmSpareReady(), failure: lastPrewarmFailure() }),
+    prewarmStatus: () => ({ ready: isWarmSpareReady(), failure: lastPrewarmFailure(), poolTarget: warmSparePoolStatus().target }),
   });
   installApiShutdown(server, shutdown, log);
   await listenSseApiServer(server, config.host, config.port);
