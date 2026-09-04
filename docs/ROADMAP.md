@@ -75,6 +75,24 @@ kleinere Stichprobe nahelegte.
 - Gemessen wurde **ein** Musterfall. Welche Seiten ueberhaupt erscheinen,
   entscheiden dessen Themenfilter.
 
+**Und die Module sind verschieden gebaut.** Dieselbe Messung an der
+Gewinnermittlung (30 Seiten ab `Beitraege, Gebuehren und Abgaben`) kehrt das
+Verhaeltnis um:
+
+| Bauart | Einkommensteuer | Gewinnermittlung |
+| --- | ---: | ---: |
+| Tabellenseite | 7 von 55 | **20 von 30** |
+| Feldseite | **31 von 55** | 3 von 30 |
+| Uebersicht | 14 | 6 |
+| Auswahlseite | 3 | 1 |
+
+Betriebsausgaben sind Belegzeilen, keine Einzelfelder. Ein Seitenobjekt ist in
+der Gewinnermittlung deshalb ein **schwacher** Hebel - dort arbeiten
+`table_add`, `table_update` und `table_delete` schon ohne Katalog. Wer Aufwand
+in Seitenobjekte steckt, sollte ihn in die Einkommensteuer stecken. Die
+vollstaendigen Listen stehen in der
+[Seitenlandkarte](entwicklung/seitenlandkarte.md).
+
 Die Klassifikation selbst ist billig und wiederholbar: ein `snapshot` mit
 `types: ["Edit","ComboBox","CheckBox","DataItem","RadioButton"]`, getrennt nach
 Steuerelementtyp und `ro`-Kennzeichen. Eine Falle steckt darin: **RadioButtons

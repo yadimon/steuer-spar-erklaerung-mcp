@@ -50,7 +50,7 @@ Diese Wege bleiben unterstützt, sind aber nicht der normale Einstieg.
 - [Statustafel](entwicklung/status.md) — jede bekannte Fähigkeit des Produkts
   mit ihrem Stand bei uns; der Einstieg für „haben wir das schon?";
 - [Seitenlandkarte](entwicklung/seitenlandkarte.md) — gemessene Bauart der
-  Einkommensteuerseiten; sagt, wo ein Seitenobjekt etwas bringt;
+  Seiten beider Module; sagt, wo ein Seitenobjekt etwas bringt und wo nicht;
 - [Entwicklungswissen](entwicklung/README.md) — Funktionskatalog,
   Aktionsinventar, historische Ursachen und verworfene Ansätze;
 - [Performance-Harness](../test/performance/README.md) — produktfreie
