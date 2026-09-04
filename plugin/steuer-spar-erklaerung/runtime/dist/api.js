@@ -8776,11 +8776,14 @@ function caseBinding(args) {
   };
 }
 async function readCurrentUstvaPage(args, step) {
-  return normalizeUstvaCurrentPage(await step(
+  const gelesen = await step(
     "page",
     args.hwnd === void 0 ? {} : { hwnd: args.hwnd },
     MIN_USTVA_READ_MS
-  ));
+  );
+  const normalisiert = normalizeUstvaCurrentPage(gelesen);
+  if (typeof normalisiert.ms === "number" || typeof gelesen.ms !== "number") return normalisiert;
+  return { ...normalisiert, ms: gelesen.ms };
 }
 function requireOverview(page) {
   if (page.ok === false) return page;

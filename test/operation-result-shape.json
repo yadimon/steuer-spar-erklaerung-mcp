@@ -268,6 +268,7 @@
           },
           "concurrency": {
             "types": [
+              "object:{\"progressRoute\":\"string-other\",\"rejectionCode\":\"string-other\",\"rejectionStatus\":\"nonnegative-number\",\"rule\":\"string-other\",\"singleFlight\":\"boolean\",\"workerController\":\"object\"}",
               "object:{\"progressRoute\":\"string-other\",\"rejectionCode\":\"string-other\",\"rejectionStatus\":\"nonnegative-number\",\"rule\":\"string-other\",\"singleFlight\":\"boolean\"}"
             ],
             "labels": [
@@ -312,6 +313,7 @@
           },
           "liveEvidence": {
             "types": [
+              "object:{\"affectsAvailability\":\"boolean\",\"basis\":\"string-other\",\"errorPathOnlyCount\":\"nonnegative-number\",\"functionalCount\":\"nonnegative-number\",\"operationStatus\":\"object\",\"profileSpecific\":\"boolean\",\"schemaVersion\":\"nonnegative-number\",\"scope\":\"string-other\",\"untestedCount\":\"nonnegative-number\",\"untestedOperations\":\"array-empty\"}",
               "object:{\"affectsAvailability\":\"boolean\",\"basis\":\"string-other\",\"errorPathOnlyCount\":\"nonnegative-number\",\"functionalCount\":\"nonnegative-number\",\"operationStatus\":\"object\",\"profileSpecific\":\"boolean\",\"schemaVersion\":\"nonnegative-number\",\"scope\":\"string-other\",\"untestedCount\":\"nonnegative-number\",\"untestedOperations\":\"array-many:string-other\"}"
             ],
             "labels": [
@@ -345,6 +347,7 @@
           },
           "profile": {
             "types": [
+              "object:{\"id\":\"string-other\",\"interactiveReceiptLeaseActive\":\"boolean\",\"operateExperimental\":\"boolean\",\"operationAccess\":\"string-other\",\"status\":\"string-other\"}",
               "object:{\"id\":\"string-other\",\"operateExperimental\":\"boolean\",\"operationAccess\":\"string-other\",\"status\":\"string-other\"}"
             ],
             "labels": [
@@ -390,6 +393,7 @@
           },
           "transport": {
             "types": [
+              "object:{\"apiOperations\":\"array-many:string-other\",\"apiVersion\":\"string-other\",\"directApiWithoutMcp\":\"boolean\",\"directCliWithoutMcp\":\"boolean\",\"discoveryPath\":\"string-other\",\"mcpCancellationPropagatesToApi\":\"boolean\",\"mcpComposedToolOperations\":\"object\",\"mcpToolOperations\":\"object\",\"nonDestructiveStatefulOperations\":\"array-many:string-other\",\"openApiPath\":\"string-other\",\"operationDiscoveryPathTemplate\":\"string-other\",\"packageName\":\"string-other\",\"packageVersion\":\"string-other\",\"potentiallyDestructiveOperations\":\"array-many:string-other\",\"readOnlyOperations\":\"array-many:string-other\",\"statefulOperations\":\"array-many:string-other\",\"workerArguments\":\"string-other\",\"workerArgumentsVisibleInProcessList\":\"boolean\",\"workerQueueDepth\":\"nonnegative-number\"}",
               "object:{\"apiOperations\":\"array-many:string-other\",\"apiVersion\":\"string-other\",\"directApiWithoutMcp\":\"boolean\",\"directCliWithoutMcp\":\"boolean\",\"discoveryPath\":\"string-other\",\"mcpCancellationPropagatesToApi\":\"boolean\",\"mcpToolOperations\":\"object\",\"nonDestructiveStatefulOperations\":\"array-many:string-other\",\"openApiPath\":\"string-other\",\"operationDiscoveryPathTemplate\":\"string-other\",\"packageName\":\"string-other\",\"packageVersion\":\"string-other\",\"potentiallyDestructiveOperations\":\"array-many:string-other\",\"readOnlyOperations\":\"array-many:string-other\",\"statefulOperations\":\"array-many:string-other\",\"workerArguments\":\"string-other\",\"workerArgumentsVisibleInProcessList\":\"boolean\",\"workerQueueDepth\":\"nonnegative-number\"}"
             ],
             "labels": [
@@ -2003,6 +2007,7 @@
           },
           "konsistent": {
             "types": [
+              "boolean",
               "null"
             ],
             "labels": [
@@ -2036,7 +2041,8 @@
           },
           "nurImCenter": {
             "types": [
-              "array-empty"
+              "array-empty",
+              "array-many:string-other"
             ],
             "labels": [
               "worker"
@@ -2102,7 +2108,8 @@
           },
           "verzeichnis": {
             "types": [
-              "null"
+              "null",
+              "string-other"
             ],
             "labels": [
               "worker"
@@ -2359,7 +2366,8 @@
           },
           "verzeichnis": {
             "types": [
-              "null"
+              "null",
+              "string-other"
             ],
             "labels": [
               "worker"
@@ -3430,6 +3438,28 @@
               "success"
             ]
           },
+          "cleanupRequired": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "focusTelemetry": {
+            "types": [
+              "object:{\"acquisitions\":\"nonnegative-number\",\"cleanupError\":\"null\",\"cursorRestored\":\"boolean\",\"foregroundHeldMs\":\"nonnegative-number\",\"foregroundRestored\":\"boolean\",\"raises\":\"nonnegative-number\",\"releasedByEmit\":\"boolean\",\"releases\":\"nonnegative-number\",\"restoreSkippedReason\":\"string-other\",\"topmostCycles\":\"nonnegative-number\"}"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "inAnsichtGerollt": {
             "types": [
               "boolean"
@@ -3521,6 +3551,50 @@
           "ok": {
             "types": [
               "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "performance": {
+            "types": [
+              "object:{\"foregroundRaiseCount\":\"nonnegative-number\",\"initialization\":\"object\",\"internalOperationCount\":\"nonnegative-number\",\"internalTimings\":\"array-many:object\",\"planMs\":\"nonnegative-number\",\"reusedReadbackCount\":\"nonnegative-number\",\"sseActionMs\":\"nonnegative-number\",\"workerProcessCount\":\"nonnegative-number\"}"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "planKind": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "resultingState": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "schemaVersion": {
+            "types": [
+              "nonnegative-number"
             ],
             "labels": [
               "worker"
@@ -6801,6 +6875,17 @@
               "success"
             ]
           },
+          "hauptfensterVorher": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "hilfsfenster": {
             "types": [
               "array-one:object"
@@ -6984,6 +7069,28 @@
               "success"
             ]
           },
+          "caseBindingModeAfter": {
+            "types": [
+              "null"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "caseHashUnchanged": {
+            "types": [
+              "null"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "closed": {
             "types": [
               "boolean"
@@ -7086,9 +7193,31 @@
               "success"
             ]
           },
+          "recoveryDiscarded": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "requestedAnswer": {
             "types": [
               "string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "startedWithoutCaseFile": {
+            "types": [
+              "null"
             ],
             "labels": [
               "worker"
@@ -8637,6 +8766,17 @@
           "ok": {
             "types": [
               "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "pageId": {
+            "types": [
+              "null"
             ],
             "labels": [
               "worker"
@@ -11898,6 +12038,7 @@
           },
           "ms": {
             "types": [
+              "nonnegative-number",
               "null"
             ],
             "labels": [
@@ -15424,6 +15565,17 @@
           "binding": {
             "types": [
               "object:{\"commandPath\":\"string-other\",\"expectedPath\":\"string-other\",\"mode\":\"string-other\",\"ok\":\"boolean\",\"title\":\"string-other\",\"titlePath\":\"string-other\"}"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "correction": {
+            "types": [
+              "null"
             ],
             "labels": [
               "worker"
@@ -20842,6 +20994,7 @@
           },
           "verified": {
             "types": [
+              "boolean",
               "null"
             ],
             "labels": [
@@ -21111,6 +21264,17 @@
             "types": [
               "array-empty",
               "array-one:string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "ms": {
+            "types": [
+              "nonnegative-number"
             ],
             "labels": [
               "worker"
