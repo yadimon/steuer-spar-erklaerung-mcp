@@ -38,6 +38,12 @@ export type OperationExecutor = (
 export interface PrewarmStatus {
   ready: boolean;
   failure: string | null;
+  /**
+   * Wie viele Reserven angestrebt werden. Seit der Vorrat sich nach der
+   * Ausstattung des Rechners richtet, laesst sich diese Zahl nicht mehr aus
+   * der Umgebung ableiten - wer sie protokolliert, muss sie hier ablesen.
+   */
+  poolTarget: number;
 }
 
 export interface SseApiServerOptions {

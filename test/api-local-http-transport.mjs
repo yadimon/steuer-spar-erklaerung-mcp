@@ -8,7 +8,7 @@ import { localHttpFetch } from "../dist/local-http-transport.js";
 
 const server = createSseApiServer({
   execute: async () => ({ ok: true, running: false }),
-  prewarmStatus: () => ({ ready: true, failure: null }),
+  prewarmStatus: () => ({ ready: true, failure: null, poolTarget: 2 }),
 });
 server.listen(0, "127.0.0.1");
 await once(server, "listening");
