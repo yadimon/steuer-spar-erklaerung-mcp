@@ -55,12 +55,12 @@ for (const [pageId, heading, expectedFields] of [
 // `knownPageForCase` die Seite nie aus - sie faellt aus jeder Live-Pruefung
 // heraus, ohne dass etwas rot wird. Seiten, die nur Tabellen beschreiben, sind
 // ausgenommen: Fuer sie gibt es nichts feldweise zu vergleichen.
-const ohneDokumenttyp = Object.entries(profile.pageObjectsCatalog.pages)
-  .filter(([, page]) => Object.keys(page.fields ?? {}).length > 0)
-  .filter(([, page]) => typeof page.documentType !== "string" || !page.documentType)
-  .map(([pageId]) => pageId);
-assert.deepEqual(ohneDokumenttyp, [],
-  `Diese Seitenobjekte fuehren Felder, nennen aber keinen documentType: ${ohneDokumenttyp.join(", ")}`);
+function seitenObjekteOhneDokumenttyp(katalog) {
+  return Object.entries(katalog.pages)
+    .filter(([, page]) => Object.keys(page.fields ?? {}).length > 0)
+    .filter(([, page]) => typeof page.documentType !== "string" || !page.documentType)
+    .map(([pageId]) => pageId);
+}
 
 const masterData = profile.pageObjectsCatalog.pages["gew_erfass.allgemeine_angaben_unternehmen"];
 assert.equal(masterData.fields.einkunftsart.controlType, "ComboBox");
@@ -98,6 +98,19 @@ assert.equal(profile2024.status, "experimental");
 assert.equal(profile2024.operationAccess, "verification-only");
 assert.equal(isProductProfileReleased(profile2024), false);
 assert.equal(profile2024.verifiedBuild, "30.0.127.0");
+
+// Ein Seitenobjekt mit Feldern muss seinen Dokumenttyp nennen - in JEDEM Profil.
+// Ohne ihn waehlt knownPageForCase die Seite nie aus, sie faellt aus jeder
+// Live-Pruefung heraus, ohne dass etwas rot wird. Seit die Ueberschriften der
+// ELSTER-Seiten sich zwischen den Modulen wiederholen, entscheidet der Typ
+// zusaetzlich, ob eine Seite ueberhaupt die gemeinte ist. Seitenobjekte, die
+// nur Tabellen beschreiben, sind ausgenommen: Dort gibt es nichts feldweise zu
+// vergleichen.
+for (const [jahr, geprueft] of [["2025", profile], ["2024", profile2024]]) {
+  const fehlend = seitenObjekteOhneDokumenttyp(geprueft.pageObjectsCatalog);
+  assert.deepEqual(fehlend, [],
+    `Profil ${jahr}: Diese Seitenobjekte fuehren Felder, nennen aber keinen documentType: ${fehlend.join(", ")}`);
+}
 assert.throws(() => loadProductProfile("..\\2025"), /Ungueltige/);
 
 const invalidAdditionalYearRoot = mkdtempSync(join(tmpdir(), "sse-product-additional-year-"));
