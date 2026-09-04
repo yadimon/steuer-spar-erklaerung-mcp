@@ -47,10 +47,10 @@ Suchfeld beschraenkt, weil ein direkter ValuePattern-Write Qt-Commit,
 Ergebnis-Diff und Seitenobjekte umgehen wuerde.
 
 Der Katalog ist trotzdem klein. `profiles/2025/page-objects.json` enthaelt heute
-**neun Seiten und fuenf Fenster**, davon genau **eine** Seite aus der
-Einkommensteuer (`est.sonstige_werbungskosten_fahrten`); sechs Seiten gehoeren
-zur Gewinnermittlung, zwei zur Gewinn-Erfassung. Es gibt genau **einen**
-profilierten fokuslosen Schreibpfad.
+**zehn Seiten und fuenf Fenster**: zwei aus der Einkommensteuer
+(`est.sonstige_werbungskosten_fahrten`, `est.private_kranken_pflegeversicherung`),
+sechs aus der Gewinnermittlung, zwei aus der Gewinn-Erfassung. Es gibt genau
+**einen** profilierten fokuslosen Schreibpfad.
 
 Wer also fragt „koennen wir SSE vollstaendig steuern?", bekommt eine
 zweigeteilte Antwort: Die *Reichweite* ist gross – jede Seite ist lesbar, und
@@ -136,7 +136,7 @@ Faehigkeiten, zu denen es bei uns keinerlei Gegenstueck gibt:
 
 | Bereich | Beleg | Weg |
 | --- | --- | --- |
-| Fast die gesamte Einkommensteuer | genau ein `est.`-Seitenobjekt im Katalog – erreichbar sind die Seiten, benannt sind sie nicht | UI, je Seite ein Profil |
+| Fast die gesamte Einkommensteuer | zwei `est.`-Seitenobjekte im Katalog – erreichbar sind die Seiten, benannt sind sie nicht | UI, je Seite ein Profil |
 | Optionen, Datenuebernahme, Steuerrechner, Musterbriefe, Service, Ansicht | Menuezeile bekannt, kein einziges Objekt daraus katalogisiert | UI, `menu`/`menu_click` sind generisch |
 | Druck- und Ausgabefenster | kein Fensterobjekt | UI plus PDF-Aufbereitung |
 | Passwortgeschuetzte Falldateien | `setPassword`, `checkPassword`, `activePassword` | UI, sofern es einen Dialog gibt |

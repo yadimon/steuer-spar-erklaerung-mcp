@@ -26,7 +26,7 @@ Navigationsbaum. Die folgenden Baeume sind gemessen.
 
 | Modul | Endung | Rubriken | Bei uns |
 | --- | --- | --- | --- |
-| **Einkommensteuer** | `.ESt2025` | 9 | Hauptmodul der Live-Reisen; **ein** Seitenobjekt von 672 Programmseiten |
+| **Einkommensteuer** | `.ESt2025` | 9 | Hauptmodul der Live-Reisen; **zwei** Seitenobjekte von 672 Programmseiten |
 | **Gewinnermittlung** | `.Gew2025` | 15 | sechs Seitenobjekte (`gew.*`), UStVA ausgebaut |
 | **Gewinn-Erfassung** | `.GewErfass2026` | 12 | zwei Seitenobjekte (`gew_erfass.*`); live gefahren mit `case_create` und der Folgejahr-UStVA |
 | **Gesonderte Feststellung** | `.GesondFest2025` | 11 | **nichts** |
@@ -114,7 +114,7 @@ Programmordner von SSE `31.0.2.0`:
 | `*.ddb` | **7** Dateien | das Datenmodell je Modul, gebaut aus `ddf`-Quellen. Die Namen sind exakt die Startmodi: `normal`, `einur`, `einurvor`, `fest`, `ermaess`, `konsust`, `vorweg` |
 | `*.idx` | 2 Dateien | die Stichwortverzeichnisse der Suche (`steuererklaerung.idx`, `gewinn.idx`), reiner Text |
 
-Damit steht die Zahl: **672 Seiten im Produkt, neun katalogisiert.** Sie sagt
+Damit steht die Zahl: **672 Seiten im Produkt, zehn katalogisiert.** Sie sagt
 aber nicht, was viele darin lesen. Erreichbar sind alle 672 - lesend
 durchgehend, schreibend ueber `tracked_set_value` mit selbst gelieferter
 Bindung, und die Tabellenoperationen kennen ohnehin keine `pageId`. Genau
@@ -180,6 +180,36 @@ und sie ist mit einem Befehl reproduzierbar
 kennt - und `goto` navigiert ueber diese Suche. Eine Seitenaufnahme muss also
 nicht raten, wonach sie suchen soll; sie kann die Stichwortliste abarbeiten.
 Das macht das Profilieren nicht billig, aber planbar.
+
+### So entsteht ein Seitenobjekt
+
+Der Weg ist reproduzierbar und dauert pro Seite etwa eine Viertelstunde. Belegt
+an `est.private_kranken_pflegeversicherung` am 2026-09-04:
+
+1. **Arbeitskopie** des Herstellermusterfalls oeffnen, nie das Original.
+2. **Ansteuern** mit `goto` ueber die Ueberschrift. Der Weg laeuft ueber die
+   Programmsuche; die Startseite „Vorbereitung Steuererklaerung" hat kein
+   „Weiter" und taugt nicht als Ausgangspunkt fuer lineares Blaettern.
+3. **Lesen** mit `read_page` (Beschriftungen und Werte je Bildschirmzeile) und
+   `snapshot` mit `types: ["Edit","ComboBox","CheckBox","DataItem"]`
+   (Automation-IDs). Beide ueber die Zeilenkoordinate `y` paaren - das trifft
+   zuverlaessig, Abstaende bleiben unter fuenf Pixeln.
+4. **Rechenfelder aussortieren.** Der Schluessel ist das `ro`-Kennzeichen aus
+   dem Snapshot: Was SSE selbst ausrechnet, meldet UIA als schreibgeschuetzt.
+   Auf der Versicherungsseite betrifft das die drei Wahlleistungs-Zeilen
+   (Gesamt minus Basis) und die Summe. Solche Felder gehoeren **nicht** in
+   `fields`, sondern als `pageTotals` in die Verifikation - sie sind der beste
+   Beweis, dass ein Schreibvorgang wirklich angekommen ist.
+5. **Eintragen** als Text in `profiles/2025/page-objects.json`. Die Datei ist von
+   Hand eingerueckt; ein Round-Trip durch `JSON.stringify` formatiert 238 Zeilen
+   um und versteckt die Aenderung im Rauschen.
+6. **Live belegen**: `goto` per `pageId`, `known_page_state`, dann `fill_fields`
+   mit `sumChecks` - und den Ausgangswert im selben Lauf zuruecksetzen.
+
+Zwei Fallen aus der Praxis: Schon reines Blaettern setzt den Dirty-State, ein
+`close` verlangt danach eine Entscheidung. Und ein hart beendetes SSE
+hinterlaesst eine Wiederherstellungsdatei, die den naechsten Start blockiert -
+Instanzen deshalb immer ueber `close` beenden, notfalls im `finally`.
 
 ## Achse 2: Funktionsgruppen
 
