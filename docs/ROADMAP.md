@@ -57,7 +57,7 @@ klassifiziert, erreichte 55 von 58 Seiten:
 | **Tabellenseite** – Daten in Zellen | 7 | nein, `table_add`/`table_update`/`table_delete` binden ueber die Ueberschrift |
 | **Auswahlseite** – nur RadioButtons | 3 | nein, RadioButtons bleiben Hinweis fuer `click pattern=select` |
 
-Rund **die Haelfte** der Seiten ist also Feldseite. Die Luecke zwischen achtzehn
+Rund **die Haelfte** der Seiten ist also Feldseite. Die Luecke zwischen einundzwanzig
 katalogisierten und dem Bestand ist damit real - anders als eine erste,
 kleinere Stichprobe nahelegte.
 
@@ -83,11 +83,11 @@ duerfen nicht als Felder zaehlen.** Sie sind im Profilvertrag ausdruecklich kein
 mitzaehlt, haelt jede Auswahlseite faelschlich fuer eine Feldseite.
 
 Der Katalog ist trotzdem klein. `profiles/2025/page-objects.json` enthaelt heute
-**achtzehn Seiten und fuenf Fenster**: zehn aus der Einkommensteuer
-(Fahrten, private Kranken- und Pflegeversicherung, Spenden, Verlustvortraege
-aus Kapitaleinkuenften, die ELSTER-Grunddaten, die Riester-Foerder-
-voraussetzungen und drei Themenfilter), sechs aus der Gewinnermittlung, zwei
-aus der Gewinn-Erfassung. Es gibt genau
+**einundzwanzig Seiten und fuenf Fenster**: dreizehn aus der Einkommensteuer
+(Vorsorge, Spenden, Kapitalverluste, Werbungskosten-Fahrten, Riester,
+Zusatzangaben, drei Themenfilter und vier ELSTER-Seiten von den Grunddaten bis
+zum Antrag auf Anpassung der Vorauszahlungen), sechs aus der Gewinnermittlung,
+zwei aus der Gewinn-Erfassung. Es gibt genau
 **einen** profilierten fokuslosen Schreibpfad.
 
 Wer also fragt „koennen wir SSE vollstaendig steuern?", bekommt eine
@@ -177,7 +177,7 @@ Faehigkeiten, zu denen es bei uns keinerlei Gegenstueck gibt:
 
 | Bereich | Beleg | Weg |
 | --- | --- | --- |
-| Fast die gesamte Einkommensteuer | zehn `est.`-Seitenobjekte im Katalog – erreichbar sind die Seiten, benannt sind sie nicht | UI, je Seite ein Profil |
+| Fast die gesamte Einkommensteuer | dreizehn `est.`-Seitenobjekte im Katalog – erreichbar sind die Seiten, benannt sind sie nicht | UI, je Seite ein Profil |
 | Optionen, Datenuebernahme, Steuerrechner, Musterbriefe, Service, Ansicht | Menuezeile bekannt, kein einziges Objekt daraus katalogisiert | UI, `menu`/`menu_click` sind generisch |
 | Druck- und Ausgabefenster | kein Fensterobjekt | UI plus PDF-Aufbereitung |
 | Passwortgeschuetzte Falldateien | `setPassword`, `checkPassword`, `activePassword` | UI, sofern es einen Dialog gibt |

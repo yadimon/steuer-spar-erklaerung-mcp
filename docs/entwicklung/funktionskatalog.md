@@ -26,7 +26,7 @@ Navigationsbaum. Die folgenden Baeume sind gemessen.
 
 | Modul | Endung | Rubriken | Bei uns |
 | --- | --- | --- | --- |
-| **Einkommensteuer** | `.ESt2025` | 9 | Hauptmodul der Live-Reisen; **zehn** Seitenobjekte von 672 Programmseiten |
+| **Einkommensteuer** | `.ESt2025` | 9 | Hauptmodul der Live-Reisen; **dreizehn** Seitenobjekte von 672 Programmseiten |
 | **Gewinnermittlung** | `.Gew2025` | 15 | sechs Seitenobjekte (`gew.*`), UStVA ausgebaut |
 | **Gewinn-Erfassung** | `.GewErfass2026` | 12 | zwei Seitenobjekte (`gew_erfass.*`); live gefahren mit `case_create` und der Folgejahr-UStVA |
 | **Gesonderte Feststellung** | `.GesondFest2025` | 11 | **nichts** |
@@ -114,7 +114,7 @@ Programmordner von SSE `31.0.2.0`:
 | `*.ddb` | **7** Dateien | das Datenmodell je Modul, gebaut aus `ddf`-Quellen. Die Namen sind exakt die Startmodi: `normal`, `einur`, `einurvor`, `fest`, `ermaess`, `konsust`, `vorweg` |
 | `*.idx` | 2 Dateien | die Stichwortverzeichnisse der Suche (`steuererklaerung.idx`, `gewinn.idx`), reiner Text |
 
-Damit steht die Zahl: **672 Seiten im Produkt, achtzehn katalogisiert.** Sie sagt
+Damit steht die Zahl: **672 Seiten im Produkt, einundzwanzig katalogisiert.** Sie sagt
 aber nicht, was viele darin lesen. Erreichbar sind alle 672 - lesend
 durchgehend, schreibend ueber `tracked_set_value` mit selbst gelieferter
 Bindung, und die Tabellenoperationen kennen ohnehin keine `pageId`. Genau

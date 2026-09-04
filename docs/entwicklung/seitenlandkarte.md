@@ -79,10 +79,10 @@ ausserhalb des Durchlaufs fehlen hier ganz - derzeit 5:
 | Bescheidvergleich | Tabellenseite | 0 | 92 | 0 |  |
 | Grunddaten | Feldseite | 37 | 0 | 0 | ja |
 | ELSTER-Einstellungen | Auswahlseite | 0 | 0 | 0 |  |
-| Antrag auf Fristverlängerung | Feldseite | 14 | 3 | 1 |  |
-| Antrag auf Anpassung der Vorauszahlungen | Feldseite | 14 | 3 | 1 |  |
+| Antrag auf Fristverlängerung | Feldseite | 14 | 3 | 1 | ja |
+| Antrag auf Anpassung der Vorauszahlungen | Feldseite | 14 | 3 | 1 | ja |
 | Änderung der Adresse | Feldseite | 15 | 0 | 0 |  |
-| Änderung der Bankverbindung | Feldseite | 10 | 0 | 0 |  |
+| Änderung der Bankverbindung | Feldseite | 10 | 0 | 0 | ja |
 | Fragebogen zur steuerlichen Erfassung | Auswahlseite | 0 | 0 | 0 |  |
 | Meine Steuerdokumente | Uebersicht | 0 | 0 | 0 |  |
 
