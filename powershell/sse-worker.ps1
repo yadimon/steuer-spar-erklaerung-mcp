@@ -8122,9 +8122,12 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # allein wuerde ein est.-Seitenobjekt auf der gleichnamigen Gew-Seite
     # akzeptieren. Der Falltyp aus dem Fenstertitel trennt sie - und wenn er
     # nicht lesbar ist, wird nicht geraten, sondern wie bisher fortgefahren.
+    # Die Fensterliste wird ohnehin gebraucht - fuer die PID im Ergebnis. Einmal
+    # holen und beide Male benutzen; zwei Aufzaehlungen je Aufruf waeren dieselbe
+    # Arbeit zweimal.
+    $fensterRecord = @(Get-Windows 'SSE' | Where-Object { [int64]$_.hwnd -eq [int64]$hwnd })[0]
     $erwarteterTyp = [string]$known.page.documentType
     if ($erwarteterTyp) {
-      $fensterRecord = @(Get-Windows 'SSE' | Where-Object { [int64]$_.hwnd -eq [int64]$hwnd })[0]
       $fallPfad = $(if ($fensterRecord) { Get-CasePathFromTitle ([string]$fensterRecord.title) } else { $null })
       if ($fallPfad) {
         $typMatch = [regex]::Match([IO.Path]::GetExtension($fallPfad), '^\.(?<type>[A-Za-z]+[0-9]{4})$')
@@ -8141,10 +8144,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         @($state.fields | Where-Object { -not $_.present }).Count -eq 0)
       heading=$state.heading; dirty=$state.dirty; fields=$state.fields; epoch=$state.epoch
       hwnd=[int64]$hwnd
-      pid=$(
-        $record = @(Get-Windows 'SSE' | Where-Object { [int64]$_.hwnd -eq [int64]$hwnd })[0]
-        if ($record) { [int]$record.pid } else { 0 }
-      )
+      pid=$(if ($fensterRecord) { [int]$fensterRecord.pid } else { 0 })
       foreground=([SW]::GetForegroundWindow() -eq $hwnd)
       dialogs=@($dialogs | ForEach-Object { [pscustomobject]@{ hwnd=$_.hwnd; title=$_.title; fingerprint=$_.fingerprint } })
       privateValuesPersisted=$false
