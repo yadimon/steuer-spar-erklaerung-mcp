@@ -57,7 +57,7 @@ klassifiziert, erreichte 55 von 58 Seiten:
 | **Tabellenseite** – Daten in Zellen | 7 | nein, `table_add`/`table_update`/`table_delete` binden ueber die Ueberschrift |
 | **Auswahlseite** – nur RadioButtons | 3 | nein, RadioButtons bleiben Hinweis fuer `click pattern=select` |
 
-Rund **die Haelfte** der Seiten ist also Feldseite. Die Luecke zwischen siebzehn
+Rund **die Haelfte** der Seiten ist also Feldseite. Die Luecke zwischen achtzehn
 katalogisierten und dem Bestand ist damit real - anders als eine erste,
 kleinere Stichprobe nahelegte.
 
@@ -83,7 +83,7 @@ duerfen nicht als Felder zaehlen.** Sie sind im Profilvertrag ausdruecklich kein
 mitzaehlt, haelt jede Auswahlseite faelschlich fuer eine Feldseite.
 
 Der Katalog ist trotzdem klein. `profiles/2025/page-objects.json` enthaelt heute
-**siebzehn Seiten und fuenf Fenster**: neun aus der Einkommensteuer
+**achtzehn Seiten und fuenf Fenster**: zehn aus der Einkommensteuer
 (Fahrten, private Kranken- und Pflegeversicherung, Spenden, Verlustvortraege
 aus Kapitaleinkuenften, die ELSTER-Grunddaten, die Riester-Foerder-
 voraussetzungen und drei Themenfilter), sechs aus der Gewinnermittlung, zwei
@@ -129,6 +129,7 @@ im Repository belegt sind.
 | **Steuerjahr 2026** | es gibt kein Profil | vorhandene Wege, neues Profil | das Produkt muss erscheinen; danach Katalog, Profil und Live-Verifikation |
 | **Ausgabe ausser CSV** | es gibt genau `export_csv` | Vordergrund-Lease fuer den Druckdialog, danach PDF-Aufbereitung | Entscheidung, ob ein Druck-nach-PDF-Weg die Mutationsgrenze beruehrt |
 | **Schnellere Bedienung ueber typisierte Kommandos** | der Herstellerweg ist geschlossen | Hersteller-IPC | siehe Abschnitt 4 |
+| **`headingPrefix` traegt zwei Rollen** – er ist zugleich Suchbegriff fuer `goto` und Praefix fuer die Seitenbindung. Bei `Sonstige Leistungen <Name>` neben `Sonstige Leistungen: Verlustverrechnung` braucht die Bindung ein abschliessendes Leerzeichen, die Programmsuche findet damit aber nichts mehr (gemessen 2026-09-04) | beide Rollen wollen hier verschiedene Werte | Bindungsregel | ein eigenes Feld fuer das Navigationsziel, getrennt vom Bindungspraefix |
 | **Seiten, deren Felder sich nicht eindeutig adressieren lassen** – etwa `Kapitalertraege, ermaessigt besteuert`: Die Felder beider Ehepartner tragen im adressierbaren Endstueck denselben Pfad, unterschieden werden sie erst weiter oben im Baum (gemessen 2026-09-04) | ein Seitenobjekt braucht je Feld genau einen Treffer; hier waeren es zwei | UI, aber zuerst die Bindungsregel | entweder laengere Pfade im Seitenobjekt zulassen oder die Bindung um eine Positionsangabe erweitern |
 | **Seiten mit Nummer in der Mitte der Ueberschrift** – etwa die Verpflegungspauschbetraege einer Fortbildungsreise (`Fortbildung <Name>: <N>. Reise (Verpflegung)`, zehn beschreibbare Felder, gemessen 2026-09-04) | die Bindung kennt zwei Muster: `headingNumberedLabel` erwartet ein fuehrendes `N. Label`, `headingPrefix` einen festen Anfang. Hier steht die Nummer in der Mitte und der Personenname davor; ein Praefix `Fortbildung ` wuerde jede Fortbildungsseite jeder Person treffen | UI, aber zuerst die Bindungsregel | ein drittes Muster fuer Ueberschriften mit Platzhaltern an beliebiger Stelle - und der Nachweis, dass es nicht versehentlich die Nachbarseite bindet |
 
@@ -176,7 +177,7 @@ Faehigkeiten, zu denen es bei uns keinerlei Gegenstueck gibt:
 
 | Bereich | Beleg | Weg |
 | --- | --- | --- |
-| Fast die gesamte Einkommensteuer | neun `est.`-Seitenobjekte im Katalog – erreichbar sind die Seiten, benannt sind sie nicht | UI, je Seite ein Profil |
+| Fast die gesamte Einkommensteuer | zehn `est.`-Seitenobjekte im Katalog – erreichbar sind die Seiten, benannt sind sie nicht | UI, je Seite ein Profil |
 | Optionen, Datenuebernahme, Steuerrechner, Musterbriefe, Service, Ansicht | Menuezeile bekannt, kein einziges Objekt daraus katalogisiert | UI, `menu`/`menu_click` sind generisch |
 | Druck- und Ausgabefenster | kein Fensterobjekt | UI plus PDF-Aufbereitung |
 | Passwortgeschuetzte Falldateien | `setPassword`, `checkPassword`, `activePassword` | UI, sofern es einen Dialog gibt |
