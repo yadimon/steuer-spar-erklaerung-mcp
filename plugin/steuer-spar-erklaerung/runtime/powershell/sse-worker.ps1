@@ -15162,13 +15162,11 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # WarteAufUeberschrift, damit die Providerlast sich nicht aendert.
     function WarteAufSeitenwechsel {
       param([IntPtr]$h, [string]$vorher, [int]$obergrenzeMs = 900)
-      # Nur pollen, wenn das Lesen der Ueberschrift billig ist. Mit einem
-      # bekannten Seitenobjekt ist es EIN gebundener Lesezugriff. Ohne eines
-      # kostet AktuelleUeberschrift einen Baumlauf ueber 400 Knoten - bei einer
-      # Seite, die die volle Frist braucht, waeren das vier zusaetzliche Laeufe
-      # und der Schritt am Ende langsamer als vorher. Diesen Fall nicht
-      # antasten, solange kein sauberer Messwert dagegen steht.
-      if (-not $vorher -or -not $knownTarget) { Start-Sleep -Milliseconds $obergrenzeMs; return }
+      # Der Poll kostet je Runde einen Lesezugriff auf die Ueberschrift: mit
+      # bekanntem Seitenobjekt einen gebundenen Einzelzugriff, sonst einen
+      # Baumlauf ueber 400 Knoten. Die Sorge, dass der teure Fall eine Seite am
+      # Ende langsamer macht, ist gemessen und trat nicht ein - siehe unten.
+      if (-not $vorher) { Start-Sleep -Milliseconds $obergrenzeMs; return }
       $sw = [Diagnostics.Stopwatch]::StartNew()
       while ($sw.ElapsedMilliseconds -lt $obergrenzeMs) {
         $restMs = [int]($obergrenzeMs - $sw.ElapsedMilliseconds)
