@@ -62,7 +62,7 @@ ausserhalb des Durchlaufs fehlen hier ganz - derzeit 5:
 | Unfallkosten bei Steuerberatung | Feldseite | 1 | 0 | 5 |  |
 | Kirchensteuer: Zahlungen und Erstattungen | Tabellenseite | 0 | 9 | 16 |  |
 | Tatsächliche Fahrzeugkosten | Auswahlseite | 0 | 0 | 0 |  |
-| Zusatzangaben zur Steuererklärung | Feldseite | 3 | 0 | 0 |  |
+| Zusatzangaben zur Steuererklärung | Feldseite | 3 | 0 | 0 | ja |
 | Veranlagungscheck und Zusatzangaben | Feldseite | 2 | 0 | 0 |  |
 | Belege prüfen und nachreichen | Uebersicht | 0 | 0 | 0 |  |
 | Datensicherung | Uebersicht | 0 | 0 | 0 |  |

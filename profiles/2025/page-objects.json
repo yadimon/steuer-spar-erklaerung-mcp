@@ -2103,6 +2103,51 @@
           }
         }
       }
+    },
+    "est.zusatzangaben_steuererklaerung": {
+      "heading": "Zusatzangaben zur Steuererklärung",
+      "headingPrefix": "Zusatzangaben zur Steuererklärung",
+      "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
+      "documentType": "ESt2025",
+      "reachedBy": "Die Programmsuche findet diese Seite nicht. Vom Startbildschirm aus zuerst 'Kirchensteuer: Zahlungen und Erstattungen' ansteuern, von dort erreicht goto sie ueber wenige Blaetterschritte.",
+      "fields": {
+        "kommentar_steuerfall": {
+          "label": "Kommentar zum Steuerfall für Ihre Unterlagen",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Kommentar./.Kommentar.TextFeld",
+          "automationIdSuffix": ".Kommentar.TextFeld",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "steuergestaltung_registriernummer": {
+          "label": "Registriernummer (grenzüberschreitende Steuergestaltung)",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Steuergestaltung./.Steuergestaltung.Ordnungsmerkmal./.Steuergestaltung.Ordnungsmerkmal.Text",
+          "automationIdSuffix": ".Steuergestaltung.Ordnungsmerkmal.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "steuergestaltung_offenlegungsnummer": {
+          "label": "Offenlegungsnummer (grenzüberschreitende Steuergestaltung)",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Steuergestaltung./.Steuergestaltung.Offenlegungsnummer./.Steuergestaltung.Offenlegungsnummer.Text",
+          "automationIdSuffix": ".Steuergestaltung.Offenlegungsnummer.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        }
+      }
     }
   }
 }
