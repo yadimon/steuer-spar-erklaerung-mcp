@@ -206,10 +206,18 @@ an `est.private_kranken_pflegeversicherung` am 2026-09-04:
 6. **Live belegen**: `goto` per `pageId`, `known_page_state`, dann `fill_fields`
    mit `sumChecks` - und den Ausgangswert im selben Lauf zuruecksetzen.
 
-Zwei Fallen aus der Praxis: Schon reines Blaettern setzt den Dirty-State, ein
-`close` verlangt danach eine Entscheidung. Und ein hart beendetes SSE
-hinterlaesst eine Wiederherstellungsdatei, die den naechsten Start blockiert -
-Instanzen deshalb immer ueber `close` beenden, notfalls im `finally`.
+Drei Fallen aus der Praxis:
+
+- Schon reines Blaettern setzt den Dirty-State; ein `close` verlangt danach eine
+  Entscheidung.
+- Ein hart beendetes SSE hinterlaesst eine Wiederherstellungsdatei, die den
+  naechsten Start blockiert. Instanzen deshalb immer ueber `close` beenden,
+  notfalls im `finally`.
+- **Das Steuer-Spar-Tipps-Fenster oeffnet sich auf manchen Seiten von selbst**
+  und legt sich ueber die Eingabefelder - auf der Spendenseite exakt ueber den
+  Vortragsbetrag. Der Schreibpfad klickt dann bewusst nicht und meldet, welches
+  Fenster im Weg lag; `sse_window_close` raeumt es weg, danach geht der Schreib-
+  vorgang durch. Das ist kein Fehler des Seitenobjekts.
 
 ## Achse 2: Funktionsgruppen
 
