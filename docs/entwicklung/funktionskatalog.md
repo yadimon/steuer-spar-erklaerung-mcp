@@ -213,6 +213,11 @@ Vier Fallen aus der Praxis:
 - Ein hart beendetes SSE hinterlaesst eine Wiederherstellungsdatei, die den
   naechsten Start blockiert. Instanzen deshalb immer ueber `close` beenden,
   notfalls im `finally`.
+- **In der Gewinnermittlung schlaegt kaltes `goto` per `pageId` fehl.** Am
+  2026-09-04 lief es dort fuer alle sechs Seitenobjekte in die Zeitgrenze; mit
+  einem vorgeschalteten `goto` per Namen auf eine Nachbarseite war dieselbe
+  Seite in Sekunden erreicht. Beim Profilieren in diesem Modul also immer ein
+  Zwischenziel setzen - und es im `reachedBy` festhalten.
 - **Nicht jede Seite findet die Programmsuche.** `goto` sucht zuerst und
   blaettert dann; vom Startbildschirm aus bleiben manche Seiten unerreichbar,
   von einer Nachbarseite aus nicht. Wo das so ist, gehoert der Weg in
