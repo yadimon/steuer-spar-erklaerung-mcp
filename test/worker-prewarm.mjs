@@ -55,6 +55,19 @@ assert.equal(configuredPoolTarget("4"), 4, "Der schnelle Host darf vier Reserven
 assert.equal(configuredPoolTarget("999"), 4, "Der Reservevorrat muss nach oben auf vier begrenzt bleiben.");
 assert.equal(configuredPoolTarget("0"), 1, "Der Reservevorrat muss nach unten mindestens eins bleiben.");
 
+// Ohne ausdrueckliche Einstellung richtet sich der Vorrat nach der Ausstattung
+// des Rechners. Die Regel wird mit festen Zahlen geprueft, damit der Test auf
+// jedem Rechner dasselbe aussagt - `defaultPoolSize` misst die Maschine, diese
+// Funktion entscheidet.
+const { poolSizeForHost } = await import("../dist/worker-prewarm.js");
+assert.equal(poolSizeForHost(68, 32), 4, "Ein grosszuegiger Rechner haelt vier Reserven.");
+assert.equal(poolSizeForHost(24, 8), 4, "An der oberen Schwelle sind es vier.");
+assert.equal(poolSizeForHost(24, 7), 3, "Zu wenige Kerne verhindern die vierte Reserve.");
+assert.equal(poolSizeForHost(16, 8), 3, "Mittlere Ausstattung haelt drei Reserven.");
+assert.equal(poolSizeForHost(12, 4), 3, "An der unteren Schwelle sind es drei.");
+assert.equal(poolSizeForHost(8, 16), 2, "Wenig Speicher bleibt beim sparsamen Vorrat.");
+assert.equal(poolSizeForHost(64, 2), 2, "Wenige Kerne bleiben beim sparsamen Vorrat.");
+
 function newArgumentsFile() {
   const path = join(tmpdir(), `sse-args-${randomUUID().replaceAll("-", "")}.json`);
   writeFileSync(path, "{}", "utf8");

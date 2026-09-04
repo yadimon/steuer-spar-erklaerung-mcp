@@ -306,13 +306,17 @@ Eigenes Programm ── HTTP/JSON ───────────────�
 
 - Jeder UIA-Aufruf läuft weiterhin in einem frischen Prozess. Das isoliert den
   bekannten Qt/UIA-Fehlerzustand, in dem spätere Reads still leer werden.
-- Der dauerhafte API-Server hält standardmäßig zwei vollständig initialisierte,
-  aber noch UIA-unbenutzte Reserveprozesse. Jeder davon übernimmt weiterhin
-  genau einen Auftrag und endet danach; die Prozessisolation wird also nicht
-  aufgeweicht. `SSE_WORKER_PREWARM_POOL_SIZE` begrenzt den Vorrat auf 1 bis 4.
-  Zwei sind der gemessene allgemeine Kompromiss; drei vermeiden auf einem
-  schnellen Host zusätzliche Kaltstarts bei Aufrufen ohne Denkpause, benötigen
-  dafür aber einen weiteren wartenden PowerShell-Prozess.
+- Der dauerhafte API-Server hält vollständig initialisierte, aber noch
+  UIA-unbenutzte Reserveprozesse. Jeder davon übernimmt weiterhin genau einen
+  Auftrag und endet danach; die Prozessisolation wird also nicht aufgeweicht.
+  Wie viele es sind, richtet sich nach der Ausstattung des Rechners: vier ab
+  24 GiB Arbeitsspeicher und acht Kernen, drei ab 12 GiB und vier Kernen, sonst
+  zwei. Eine wartende Reserve belegt rund 240 MB, deshalb entscheidet die
+  Ausstattung und keine feste Zahl. Der Grund für mehr als zwei ist gemessen:
+  Wer schneller ruft, als der Vorrat nachwächst, startet kalt; in der großen
+  Reise verfehlten mit zwei Reserven 32 von 137 Aufrufen den Reservearbeiter,
+  mit vier nur noch 13, und die Reise verkürzte sich um rund 30 s.
+  `SSE_WORKER_PREWARM_POOL_SIZE` übersteuert das und begrenzt den Vorrat auf 1 bis 4.
 - Ein gesetzter Privatdesktop-Marker wird vor dem Routing in Node und nach der
   Auftragsannahme im Worker weiterhin fail-closed auf Format und Eigentum
   geprüft. Nur die beiden statischen, mutexfreien Reads `page_objects` und
