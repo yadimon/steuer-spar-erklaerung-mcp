@@ -1,7 +1,9 @@
-# Seitenlandkarte der Einkommensteuer
+# Seitenlandkarte
 
-Gemessen am 2026-09-04 an einem geoeffneten
-Herstellermusterfall, SSE `31.0.2.0`. Die Seitenfolge stammt aus einem linearen
+## Einkommensteuer
+
+Gemessen am 2026-09-04 an geoeffneten
+Herstellermusterfaellen, SSE `31.0.2.0`. Die Seitenfolge stammt aus einem linearen
 `goto`-Durchlauf, die Bauart aus einem `snapshot` je Seite.
 
 **Wozu:** Wer eine Seite profilieren will, soll nicht raten muessen, ob sich das
@@ -85,6 +87,54 @@ ausserhalb des Durchlaufs fehlen hier ganz - derzeit 5:
 | Änderung der Bankverbindung | Feldseite | 10 | 0 | 0 | ja |
 | Fragebogen zur steuerlichen Erfassung | Auswahlseite | 0 | 0 | 0 |  |
 | Meine Steuerdokumente | Uebersicht | 0 | 0 | 0 |  |
+
+## Gewinnermittlung
+
+Dieselbe Messung am Musterfall der Gewinnermittlung, 30 Seiten
+ab `Beitraege, Gebuehren und Abgaben`.
+
+**Verteilung:** 20 Tabellenseite, 6 Uebersicht, 3 Feldseite, 1 Auswahlseite
+
+**Die beiden Module sind verschieden gebaut - und das aendert die Planung.**
+Die Einkommensteuer besteht zur Haelfte aus Feldseiten, die Gewinnermittlung zu
+zwei Dritteln aus Tabellenseiten: Betriebsausgaben sind Belegzeilen, keine
+Einzelfelder. Ein Seitenobjekt ist dort deshalb ein **schwacher** Hebel;
+`table_add`/`table_update`/`table_delete` leisten die Arbeit bereits, und sie
+brauchen keinen Katalog. Wer Aufwand plant, sollte ihn in der Einkommensteuer
+einsetzen.
+
+| Seite | Bauart | Felder | Zellen | rechnend |
+| --- | --- | ---: | ---: | ---: |
+| Beiträge, Gebühren und Abgaben | Tabellenseite | 0 | 21 | 2 |
+| Versicherungen (ohne Gebäude oder Kfz) | Tabellenseite | 0 | 4 | 1 |
+| Reisekosten | Uebersicht | 0 | 0 | 0 |
+| Öffentliche Verkehrsmittel | Tabellenseite | 0 | 12 | 2 |
+| Sonstige Kosten | Tabellenseite | 0 | 7 | 2 |
+| Geschenke bis 50,- € | Tabellenseite | 0 | 14 | 2 |
+| Bewirtungskosten | Tabellenseite | 0 | 13 | 8 |
+| Wege zum Betrieb (Entfernungspauschale) | Tabellenseite | 0 | 17 | 9 |
+| Portokosten | Tabellenseite | 0 | 7 | 2 |
+| Telefon/Mobilfunk/Internet | Uebersicht | 0 | 0 | 0 |
+| Bürobedarf | Tabellenseite | 0 | 42 | 4 |
+| Innergem. Erwerb, § 13b UStG und Einfuhr | Tabellenseite | 0 | 16 | 6 |
+| Fachliteratur | Tabellenseite | 0 | 7 | 2 |
+| Fortbildungskosten | Tabellenseite | 0 | 21 | 2 |
+| Rechts- und Beratungkosten | Tabellenseite | 0 | 7 | 2 |
+| Miete/Leasing beweglicher Wirtschaftsgüter | Uebersicht | 0 | 0 | 0 |
+| Werbung und Reklame | Tabellenseite | 0 | 7 | 4 |
+| Sonstige Betriebsausgaben | Tabellenseite | 0 | 13 | 11 |
+| Werkzeuge und Kleingeräte | Tabellenseite | 0 | 7 | 4 |
+| EDV-Kosten | Tabellenseite | 0 | 7 | 2 |
+| Vorsteuer (Übersicht) | Auswahlseite | 0 | 0 | 25 |
+| Sonstige Vorsteuerbeträge | Tabellenseite | 0 | 4 | 1 |
+| Betriebsausgaben: Eigene Positionen | Uebersicht | 0 | 0 | 0 |
+| Journal und BWA | Feldseite | 14 | 0 | 0 |
+| Zusatzangaben zur Anlage EÜR | Feldseite | 3 | 0 | 0 |
+| Entnahmen/Einlagen | Tabellenseite | 0 | 8 | 6 |
+| Umsatzsteuererklärung 2025 | Feldseite | 7 | 0 | 24 |
+| Lieferungen/Leistungen zu 19% | Tabellenseite | 0 | 5 | 11 |
+| Unentgeltliche Wertabgaben zu 19% | Uebersicht | 0 | 0 | 10 |
+| Lieferungen/Leistungen zu 7% | Uebersicht | 0 | 0 | 8 |
 
 Die Wege zum Seitenobjekt und die Fallen dabei stehen im
 [Funktionskatalog](funktionskatalog.md); der Stand je Faehigkeit in der
