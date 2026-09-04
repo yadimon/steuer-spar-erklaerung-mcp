@@ -2443,6 +2443,102 @@
           }
         }
       }
+    },
+    "gew.umsatzsteuer_jahreserklaerung": {
+      "heading": "Umsatzsteuererklärung 2025",
+      "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
+      "documentType": "Gew2025",
+      "reachedBy": "Die Programmsuche findet diese Seite nicht. Zuerst 'Entnahmen/Einlagen' ansteuern, von dort erreicht goto sie ueber wenige Blaetterschritte.",
+      "fields": {
+        "berichtigte_erklaerung": {
+          "label": "Berichtigte Umsatzsteuererklärung",
+          "controlType": "CheckBox",
+          "valueKind": "boolean",
+          "writeTool": "sse_toggle",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.AngabenUStJahr./.AngabenUStJahr.Berichtigt",
+          "automationIdSuffix": ".AngabenUStJahr.Berichtigt",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "verrechnungswunsch": {
+          "label": "Verrechnungswunsch",
+          "controlType": "CheckBox",
+          "valueKind": "boolean",
+          "writeTool": "sse_toggle",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.AngabenUStJahr./.AngabenUStJahr.Verrech",
+          "automationIdSuffix": ".AngabenUStJahr.Verrech",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "ergaenzende_angaben": {
+          "label": "Ergänzende Angaben zur Umsatzsteuererklärung",
+          "controlType": "CheckBox",
+          "valueKind": "boolean",
+          "writeTool": "sse_toggle",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.AngabenUStJahr./.AngabenUStJahr.WeitereAngaben./.AngabenUStJahr.WeitereAngaben.WeitereAngaben",
+          "automationIdSuffix": ".AngabenUStJahr.WeitereAngaben.WeitereAngaben",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "betraege_manuell_erfassen": {
+          "label": "Beträge für die Umsatzsteuererklärung manuell erfassen",
+          "controlType": "CheckBox",
+          "valueKind": "boolean",
+          "writeTool": "sse_toggle",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.RahmenUmsaetzeUndVorsteuer./.RahmenUmsaetzeUndVorsteuer.ManuellErfassen",
+          "automationIdSuffix": ".RahmenUmsaetzeUndVorsteuer.ManuellErfassen",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "lieferungen_leistungen_null_prozent": {
+          "label": "Lieferungen/Leistungen zu 0%",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.RahmenUmsaetzeUndVorsteuer./.RahmenUmsaetzeUndVorsteuer.NullSatz./.RahmenUmsaetzeUndVorsteuer.NullSatz.Wert",
+          "automationIdSuffix": ".RahmenUmsaetzeUndVorsteuer.NullSatz.Wert",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "unentgeltliche_wertabgaben_null_prozent": {
+          "label": "Lieferungen (Unentgeltliche Wertabgaben) zu 0%",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.RahmenUmsaetzeUndVorsteuer./.RahmenUmsaetzeUndVorsteuer.GrpUnentgeltlNull./.RahmenUmsaetzeUndVorsteuer.GrpUnentgeltlNull.NullSatzWerabg./.RahmenUmsaetzeUndVorsteuer.GrpUnentgeltlNull.NullSatzWerabg.Wert",
+          "automationIdSuffix": ".GrpUnentgeltlNull.NullSatzWerabg.Wert",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "unentgeltliche_sonstige_leistungen_null_prozent": {
+          "label": "Sonstige Leistungen (Unentgeltliche Wertabgaben) zu 0%",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.RahmenUmsaetzeUndVorsteuer./.RahmenUmsaetzeUndVorsteuer.GrpUnentgeltlNull./.RahmenUmsaetzeUndVorsteuer.GrpUnentgeltlNull.NullSatzSonstLeist./.RahmenUmsaetzeUndVorsteuer.GrpUnentgeltlNull.NullSatzSonstLeist.Wert",
+          "automationIdSuffix": ".GrpUnentgeltlNull.NullSatzSonstLeist.Wert",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        }
+      }
     }
   }
 }

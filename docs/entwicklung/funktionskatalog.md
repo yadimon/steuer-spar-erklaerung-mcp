@@ -114,7 +114,7 @@ Programmordner von SSE `31.0.2.0`:
 | `*.ddb` | **7** Dateien | das Datenmodell je Modul, gebaut aus `ddf`-Quellen. Die Namen sind exakt die Startmodi: `normal`, `einur`, `einurvor`, `fest`, `ermaess`, `konsust`, `vorweg` |
 | `*.idx` | 2 Dateien | die Stichwortverzeichnisse der Suche (`steuererklaerung.idx`, `gewinn.idx`), reiner Text |
 
-Damit steht die Zahl: **672 Seiten im Produkt, einundzwanzig katalogisiert.** Sie sagt
+Damit steht die Zahl: **672 Seiten im Produkt, zweiundzwanzig katalogisiert.** Sie sagt
 aber nicht, was viele darin lesen. Erreichbar sind alle 672 - lesend
 durchgehend, schreibend ueber `tracked_set_value` mit selbst gelieferter
 Bindung, und die Tabellenoperationen kennen ohnehin keine `pageId`. Genau

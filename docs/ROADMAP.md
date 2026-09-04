@@ -57,7 +57,7 @@ klassifiziert, erreichte 55 von 58 Seiten:
 | **Tabellenseite** – Daten in Zellen | 7 | nein, `table_add`/`table_update`/`table_delete` binden ueber die Ueberschrift |
 | **Auswahlseite** – nur RadioButtons | 3 | nein, RadioButtons bleiben Hinweis fuer `click pattern=select` |
 
-Rund **die Haelfte** der Seiten ist also Feldseite. Die Luecke zwischen einundzwanzig
+Rund **die Haelfte** der Seiten ist also Feldseite. Die Luecke zwischen zweiundzwanzig
 katalogisierten und dem Bestand ist damit real - anders als eine erste,
 kleinere Stichprobe nahelegte.
 
@@ -101,11 +101,12 @@ duerfen nicht als Felder zaehlen.** Sie sind im Profilvertrag ausdruecklich kein
 mitzaehlt, haelt jede Auswahlseite faelschlich fuer eine Feldseite.
 
 Der Katalog ist trotzdem klein. `profiles/2025/page-objects.json` enthaelt heute
-**einundzwanzig Seiten und fuenf Fenster**: dreizehn aus der Einkommensteuer
+**zweiundzwanzig Seiten und fuenf Fenster**: dreizehn aus der Einkommensteuer
 (Vorsorge, Spenden, Kapitalverluste, Werbungskosten-Fahrten, Riester,
 Zusatzangaben, drei Themenfilter und vier ELSTER-Seiten von den Grunddaten bis
-zum Antrag auf Anpassung der Vorauszahlungen), sechs aus der Gewinnermittlung,
-zwei aus der Gewinn-Erfassung. Es gibt genau
+zum Antrag auf Anpassung der Vorauszahlungen), sieben aus der Gewinnermittlung
+- darunter neu die Umsatzsteuer-Jahreserklaerung -, zwei aus der
+Gewinn-Erfassung. Es gibt genau
 **einen** profilierten fokuslosen Schreibpfad.
 
 Wer also fragt „koennen wir SSE vollstaendig steuern?", bekommt eine
@@ -147,7 +148,7 @@ im Repository belegt sind.
 | **Steuerjahr 2026** | es gibt kein Profil | vorhandene Wege, neues Profil | das Produkt muss erscheinen; danach Katalog, Profil und Live-Verifikation |
 | **Ausgabe ausser CSV** | es gibt genau `export_csv` | Vordergrund-Lease fuer den Druckdialog, danach PDF-Aufbereitung | Entscheidung, ob ein Druck-nach-PDF-Weg die Mutationsgrenze beruehrt |
 | **Schnellere Bedienung ueber typisierte Kommandos** | der Herstellerweg ist geschlossen | Hersteller-IPC | siehe Abschnitt 4 |
-| **`headingPrefix` traegt zwei Rollen** – er ist zugleich Suchbegriff fuer `goto` und Praefix fuer die Seitenbindung. Bei `Sonstige Leistungen <Name>` neben `Sonstige Leistungen: Verlustverrechnung` braucht die Bindung ein abschliessendes Leerzeichen, die Programmsuche findet damit aber nichts mehr (gemessen 2026-09-04) | beide Rollen wollen hier verschiedene Werte | Bindungsregel | ein eigenes Feld fuer das Navigationsziel, getrennt vom Bindungspraefix |
+| **`headingPrefix` traegt zwei Rollen** – er ist zugleich Suchbegriff fuer `goto` und Praefix fuer die Seitenbindung. Zweimal gemessen am 2026-09-04: Bei `Sonstige Leistungen <Name>` neben `Sonstige Leistungen: Verlustverrechnung` braucht die Bindung ein abschliessendes Leerzeichen, womit die Programmsuche nichts mehr findet; bei `Umsatzsteuererklaerung 2025` fuehrte ein verkuerzter Praefix die Suche auf einen Nachbartreffer und in einen 74-Schritte-Irrlauf | beide Rollen wollen verschiedene Werte | Bindungsregel | ein eigenes Feld fuer das Navigationsziel, getrennt vom Bindungspraefix |
 | **Seiten, deren Felder sich nicht eindeutig adressieren lassen** – etwa `Kapitalertraege, ermaessigt besteuert`: Die Felder beider Ehepartner tragen im adressierbaren Endstueck denselben Pfad, unterschieden werden sie erst weiter oben im Baum (gemessen 2026-09-04) | ein Seitenobjekt braucht je Feld genau einen Treffer; hier waeren es zwei | UI, aber zuerst die Bindungsregel | entweder laengere Pfade im Seitenobjekt zulassen oder die Bindung um eine Positionsangabe erweitern |
 | **Seiten mit Nummer in der Mitte der Ueberschrift** – etwa die Verpflegungspauschbetraege einer Fortbildungsreise (`Fortbildung <Name>: <N>. Reise (Verpflegung)`, zehn beschreibbare Felder, gemessen 2026-09-04) | die Bindung kennt zwei Muster: `headingNumberedLabel` erwartet ein fuehrendes `N. Label`, `headingPrefix` einen festen Anfang. Hier steht die Nummer in der Mitte und der Personenname davor; ein Praefix `Fortbildung ` wuerde jede Fortbildungsseite jeder Person treffen | UI, aber zuerst die Bindungsregel | ein drittes Muster fuer Ueberschriften mit Platzhaltern an beliebiger Stelle - und der Nachweis, dass es nicht versehentlich die Nachbarseite bindet |
 
