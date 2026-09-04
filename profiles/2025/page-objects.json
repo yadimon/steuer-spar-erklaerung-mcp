@@ -1925,6 +1925,184 @@
           }
         }
       }
+    },
+    "est.themenfilter_aussergewoehnliche_belastungen": {
+      "heading": "Außergewöhnliche Belastungen",
+      "headingPrefix": "Außergewöhnliche Belastungen",
+      "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
+      "documentType": "ESt2025",
+      "fields": {
+        "pflege_und_heimkosten": {
+          "label": "Pflege- und Heimkosten",
+          "controlType": "CheckBox",
+          "valueKind": "boolean",
+          "writeTool": "sse_toggle",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.QWidget.QWidget.ThemenfilterUiCheckboxList_ScrollArea.qt_scrollarea_viewport.QWidget.m_uiItemContainer.ThemenfilterItemCheckBox.Pflege- und Heimkosten_checkbox",
+          "automationIdSuffix": ".ThemenfilterItemCheckBox.Pflege- und Heimkosten_checkbox",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "unterhalt_beduerftige_personen": {
+          "label": "Unterhalt für bedürftige Personen",
+          "controlType": "CheckBox",
+          "valueKind": "boolean",
+          "writeTool": "sse_toggle",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.QWidget.QWidget.ThemenfilterUiCheckboxList_ScrollArea.qt_scrollarea_viewport.QWidget.m_uiItemContainer.ThemenfilterItemCheckBox.Unterhalt für bedürftige Personen_checkbox",
+          "automationIdSuffix": ".ThemenfilterItemCheckBox.Unterhalt für bedürftige Personen_checkbox",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "pauschbetraege_behinderte": {
+          "label": "Pauschbeträge für Behinderte",
+          "controlType": "CheckBox",
+          "valueKind": "boolean",
+          "writeTool": "sse_toggle",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.QWidget.QWidget.ThemenfilterUiCheckboxList_ScrollArea.qt_scrollarea_viewport.QWidget.m_uiItemContainer.ThemenfilterItemCheckBox.Pauschbeträge für Behinderte_checkbox",
+          "automationIdSuffix": ".ThemenfilterItemCheckBox.Pauschbeträge für Behinderte_checkbox",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "pauschbetraege_hinterbliebene": {
+          "label": "Pauschbeträge für Hinterbliebene",
+          "controlType": "CheckBox",
+          "valueKind": "boolean",
+          "writeTool": "sse_toggle",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.QWidget.QWidget.ThemenfilterUiCheckboxList_ScrollArea.qt_scrollarea_viewport.QWidget.m_uiItemContainer.ThemenfilterItemCheckBox.Pauschbeträge für Hinterbliebene_checkbox",
+          "automationIdSuffix": ".ThemenfilterItemCheckBox.Pauschbeträge für Hinterbliebene_checkbox",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "weitere_aussergewoehnliche_belastungen": {
+          "label": "Weitere außergewöhnliche Belastungen",
+          "controlType": "CheckBox",
+          "valueKind": "boolean",
+          "writeTool": "sse_toggle",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.QWidget.QWidget.ThemenfilterUiCheckboxList_ScrollArea.qt_scrollarea_viewport.QWidget.m_uiItemContainer.ThemenfilterItemCheckBox.Weitere außergewöhnliche Belastungen_checkbox",
+          "automationIdSuffix": ".ThemenfilterItemCheckBox.Weitere außergewöhnliche Belastungen_checkbox",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        }
+      }
+    },
+    "est.verlustvortraege_kapitaleinkuenfte": {
+      "heading": "Verlustvorträge aus Kapitaleinkünften",
+      "headingPrefix": "Verlustvorträge aus Kapitaleinkünften",
+      "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
+      "documentType": "ESt2025",
+      "reachedBy": "Rubrik 'Kapitalerträge', nach 'Ausländische Investmenterträge ohne inländischen Steuerabzug'.",
+      "fields": {
+        "aktienveraeusserungen_ehemann": {
+          "label": "Aus Aktienveräußerungen (§ 20 Abs. 6 Satz 4 EStG) (Ehemann)",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.VerlustVortragVerheiratet./.VerlustVortragVerheiratet.VerlustVortragAktienEhepaar./.VerlustVortragVerheiratet.VerlustVortragAktienEhepaar.Wert",
+          "automationIdSuffix": ".VerlustVortragAktienEhepaar.Wert",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "termingeschaefte_ehemann": {
+          "label": "Aus Termingeschäften (§ 20 Abs. 6 Satz 5 EStG) (Ehemann)",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.VerlustVortragVerheiratet./.VerlustVortragVerheiratet.VerlustVortragTermingeschaefte./.VerlustVortragVerheiratet.VerlustVortragTermingeschaefte.Wert",
+          "automationIdSuffix": ".VerlustVortragTermingeschaefte.Wert",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "ohne_aktienveraeusserungen_ehemann": {
+          "label": "Ohne Aktienveräußerungen (§ 20 Abs. 6 Satz 7 EStG) (Ehemann)",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.VerlustVortragVerheiratet./.VerlustVortragVerheiratet.VerlustVortragAndereKapEhepaar./.VerlustVortragVerheiratet.VerlustVortragAndereKapEhepaar.Wert",
+          "automationIdSuffix": ".VerlustVortragAndereKapEhepaar.Wert",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "uneinbringliche_kapitalforderung_ehemann": {
+          "label": "Aus der Uneinbringlichkeit einer Kapitalforderung (§ 20 Abs. 6 Satz 6 EStG) (Ehemann)",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.VerlustVortragVerheiratet./.VerlustVortragVerheiratet.VerlustVortragUneinbringlKapitalfordKapEhepaar./.VerlustVortragVerheiratet.VerlustVortragUneinbringlKapitalfordKapEhepaar.Wert",
+          "automationIdSuffix": ".VerlustVortragUneinbringlKapitalfordKapEhepaar.Wert",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "aktienveraeusserungen_ehefrau": {
+          "label": "Aus Aktienveräußerungen (§ 20 Abs. 6 Satz 4 EStG) (Ehefrau)",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.VerlustVortragVerheiratet./.VerlustVortragVerheiratet.VerlustVortragAktienEhepaar./.VerlustVortragVerheiratet.VerlustVortragAktienEhepaar.Wert2",
+          "automationIdSuffix": ".VerlustVortragAktienEhepaar.Wert2",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "termingeschaefte_ehefrau": {
+          "label": "Aus Termingeschäften (§ 20 Abs. 6 Satz 5 EStG) (Ehefrau)",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.VerlustVortragVerheiratet./.VerlustVortragVerheiratet.VerlustVortragTermingeschaefte./.VerlustVortragVerheiratet.VerlustVortragTermingeschaefte.Wert2",
+          "automationIdSuffix": ".VerlustVortragTermingeschaefte.Wert2",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "ohne_aktienveraeusserungen_ehefrau": {
+          "label": "Ohne Aktienveräußerungen (§ 20 Abs. 6 Satz 7 EStG) (Ehefrau)",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.VerlustVortragVerheiratet./.VerlustVortragVerheiratet.VerlustVortragAndereKapEhepaar./.VerlustVortragVerheiratet.VerlustVortragAndereKapEhepaar.Wert2",
+          "automationIdSuffix": ".VerlustVortragAndereKapEhepaar.Wert2",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "uneinbringliche_kapitalforderung_ehefrau": {
+          "label": "Aus der Uneinbringlichkeit einer Kapitalforderung (§ 20 Abs. 6 Satz 6 EStG) (Ehefrau)",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.VerlustVortragVerheiratet./.VerlustVortragVerheiratet.VerlustVortragUneinbringlKapitalfordKapEhepaar./.VerlustVortragVerheiratet.VerlustVortragUneinbringlKapitalfordKapEhepaar.Wert2",
+          "automationIdSuffix": ".VerlustVortragUneinbringlKapitalfordKapEhepaar.Wert2",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        }
+      }
     }
   }
 }
