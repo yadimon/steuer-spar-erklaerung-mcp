@@ -63,11 +63,20 @@ async function readCurrentUstvaPage(
   args: Record<string, unknown>,
   step: UstvaStep,
 ): Promise<WorkerResult> {
-  return normalizeUstvaCurrentPage(await step(
+  const gelesen = await step(
     "page",
     args.hwnd === undefined ? {} : { hwnd: args.hwnd },
     MIN_USTVA_READ_MS,
-  ));
+  );
+  const normalisiert = normalizeUstvaCurrentPage(gelesen);
+  // Die Normalisierung baut je Seitenart ein NEUES Ergebnisobjekt und liesse
+  // die gemessene Workerzeit dabei fallen. Im Leistungsbericht stand
+  // `ustva_read` deshalb mit 0 ms und las sich wie "laeuft gar nicht im
+  // Worker" - eine Messfalle, auf die schon jemand hereingefallen ist. Ein
+  // vorhandenes `ms` der Normalisierung hat Vorrang; ohne gemessenes `ms`
+  // bleibt das Ergebnis unveraendert.
+  if (typeof normalisiert.ms === "number" || typeof gelesen.ms !== "number") return normalisiert;
+  return { ...normalisiert, ms: gelesen.ms };
 }
 
 function requireOverview(page: WorkerResult): WorkerResult | null {
