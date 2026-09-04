@@ -1598,6 +1598,333 @@
           }
         }
       }
+    },
+    "est.riester_foerdervoraussetzungen": {
+      "heading": "Riester-Rente: Voraussetzungen für die Förderung",
+      "headingPrefix": "Riester-Rente: Voraussetzungen für die Förderung",
+      "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
+      "documentType": "ESt2025",
+      "reachedBy": "Rubrik 'Versicherungen und Altersvorsorge', direkt nach 'Riester-Rente'.",
+      "fields": {
+        "eigener_vertrag_ehemann": {
+          "label": "Geförderte Person mit eigenem Vertrag (unmittelbar begünstigt) (Ehemann)",
+          "controlType": "CheckBox",
+          "valueKind": "boolean",
+          "writeTool": "sse_toggle",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.AllgemeineAngaben./.AllgemeineAngaben.GefoerdertePerson./.AllgemeineAngaben.GefoerdertePerson.Checkbox./.AllgemeineAngaben.GefoerdertePerson.Checkbox.SP",
+          "automationIdSuffix": ".GefoerdertePerson.Checkbox.SP",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "eigener_vertrag_ehefrau": {
+          "label": "Geförderte Person mit eigenem Vertrag (unmittelbar begünstigt) (Ehefrau)",
+          "controlType": "CheckBox",
+          "valueKind": "boolean",
+          "writeTool": "sse_toggle",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.AllgemeineAngaben./.AllgemeineAngaben.GefoerdertePerson./.AllgemeineAngaben.GefoerdertePerson.Checkbox./.AllgemeineAngaben.GefoerdertePerson.Checkbox.PA",
+          "automationIdSuffix": ".GefoerdertePerson.Checkbox.PA",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "mittelbar_beguenstigt_ehemann": {
+          "label": "Vorlage förderungsfähiger Vertrag (mittelbar begünstigt) (Ehemann)",
+          "controlType": "CheckBox",
+          "valueKind": "boolean",
+          "writeTool": "sse_toggle",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.AllgemeineAngaben./.AllgemeineAngaben.MittelbarBeg./.AllgemeineAngaben.MittelbarBeg.Checkbox./.AllgemeineAngaben.MittelbarBeg.Checkbox.SP",
+          "automationIdSuffix": ".MittelbarBeg.Checkbox.SP",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "mittelbar_beguenstigt_ehefrau": {
+          "label": "Vorlage förderungsfähiger Vertrag (mittelbar begünstigt) (Ehefrau)",
+          "controlType": "CheckBox",
+          "valueKind": "boolean",
+          "writeTool": "sse_toggle",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.AllgemeineAngaben./.AllgemeineAngaben.MittelbarBeg./.AllgemeineAngaben.MittelbarBeg.Checkbox./.AllgemeineAngaben.MittelbarBeg.Checkbox.PA",
+          "automationIdSuffix": ".MittelbarBeg.Checkbox.PA",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "bezug_einnahmen_rv_ehemann": {
+          "label": "Bezug von Einnahmen im Sinne der Rentenversicherung im Jahr 2024 (Ehemann)",
+          "controlType": "CheckBox",
+          "valueKind": "boolean",
+          "writeTool": "sse_toggle",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.AllgemeineAngaben./.AllgemeineAngaben.Einnahmen./.AllgemeineAngaben.Einnahmen.Checkbox./.AllgemeineAngaben.Einnahmen.Checkbox.SP",
+          "automationIdSuffix": ".Einnahmen.Checkbox.SP",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "bezug_einnahmen_rv_ehefrau": {
+          "label": "Bezug von Einnahmen im Sinne der Rentenversicherung im Jahr 2024 (Ehefrau)",
+          "controlType": "CheckBox",
+          "valueKind": "boolean",
+          "writeTool": "sse_toggle",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.AllgemeineAngaben./.AllgemeineAngaben.Einnahmen./.AllgemeineAngaben.Einnahmen.Checkbox./.AllgemeineAngaben.Einnahmen.Checkbox.PA",
+          "automationIdSuffix": ".Einnahmen.Checkbox.PA",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "rentenversicherungspflichtige_einnahmen_ehemann": {
+          "label": "Rentenversicherungspflichtige Einnahmen 2024 (Ehemann)",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Einnahmen./.Einnahmen.RVPflichtig./.Einnahmen.RVPflichtig.Wert",
+          "automationIdSuffix": ".RVPflichtig.Wert",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "besoldung_amtsbezuege_ehemann": {
+          "label": "Besoldung und Amtsbezüge 2024 (Ehemann)",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Einnahmen./.Einnahmen.Besoldung./.Einnahmen.Besoldung.Wert",
+          "automationIdSuffix": ".Besoldung.Wert",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "entgeltersatzleistungen_ehemann": {
+          "label": "Entgeltersatzleistungen 2024 (Ehemann)",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Einnahmen./.Einnahmen.Entgeleltersatz./.Einnahmen.Entgeleltersatz.Wert",
+          "automationIdSuffix": ".Entgeleltersatz.Wert",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "tatsaechliches_entgelt_ehemann": {
+          "label": "Tatsächliches Entgelt 2024 (Ehemann)",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Einnahmen./.Einnahmen.TatsaechlichesEntgelt./.Einnahmen.TatsaechlichesEntgelt.Wert",
+          "automationIdSuffix": ".TatsaechlichesEntgelt.Wert",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "rente_erwerbsminderung_ehemann": {
+          "label": "Rente wegen voller Erwerbsminderung 2024 (Ehemann)",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Einnahmen./.Einnahmen.Rente./.Einnahmen.Rente.Wert",
+          "automationIdSuffix": ".Rente.Wert",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "versorgungsbezuege_dienstunfaehigkeit_ehemann": {
+          "label": "Versorgungsbezüge wegen Dienstunfähigkeit 2024 (Ehemann)",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Einnahmen./.Einnahmen.Vresorgungsbezuege./.Einnahmen.Vresorgungsbezuege.Wert",
+          "automationIdSuffix": ".Vresorgungsbezuege.Wert",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "einkuenfte_land_forstwirtschaft_ehemann": {
+          "label": "Einkünfte Land-/Forstwirtschaft 2023 (Ehemann)",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Einnahmen./.Einnahmen.LuF./.Einnahmen.LuF.Wert",
+          "automationIdSuffix": ".LuF.Wert",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "rente_erwerbsminderung_alterskasse_ehemann": {
+          "label": "Rente wegen voller Erwerbsminderung aus einer landwirtschaftlichen Alterskasse 2024 (Ehemann)",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Einnahmen./.Einnahmen.RenteLand./.Einnahmen.RenteLand.Wert",
+          "automationIdSuffix": ".RenteLand.Wert",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "rente_erwerbsminderung_ausland_ehemann": {
+          "label": "Rente wegen voller Erwerbsminderung aus einer ausl. gesetzlichen RV 2024 (Ehemann)",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Einnahmen./.Einnahmen.RenteAuslRV./.Einnahmen.RenteAuslRV.Wert",
+          "automationIdSuffix": ".RenteAuslRV.Wert",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "rentenversicherungspflichtige_einnahmen_ehefrau": {
+          "label": "Rentenversicherungspflichtige Einnahmen 2024 (Ehefrau)",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Einnahmen./.Einnahmen.RVPflichtig./.Einnahmen.RVPflichtig.Wert2",
+          "automationIdSuffix": ".RVPflichtig.Wert2",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "besoldung_amtsbezuege_ehefrau": {
+          "label": "Besoldung und Amtsbezüge 2024 (Ehefrau)",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Einnahmen./.Einnahmen.Besoldung./.Einnahmen.Besoldung.Wert2",
+          "automationIdSuffix": ".Besoldung.Wert2",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "entgeltersatzleistungen_ehefrau": {
+          "label": "Entgeltersatzleistungen 2024 (Ehefrau)",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Einnahmen./.Einnahmen.Entgeleltersatz./.Einnahmen.Entgeleltersatz.Wert2",
+          "automationIdSuffix": ".Entgeleltersatz.Wert2",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "tatsaechliches_entgelt_ehefrau": {
+          "label": "Tatsächliches Entgelt 2024 (Ehefrau)",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Einnahmen./.Einnahmen.TatsaechlichesEntgelt./.Einnahmen.TatsaechlichesEntgelt.Wert2",
+          "automationIdSuffix": ".TatsaechlichesEntgelt.Wert2",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "rente_erwerbsminderung_ehefrau": {
+          "label": "Rente wegen voller Erwerbsminderung 2024 (Ehefrau)",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Einnahmen./.Einnahmen.Rente./.Einnahmen.Rente.Wert2",
+          "automationIdSuffix": ".Rente.Wert2",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "versorgungsbezuege_dienstunfaehigkeit_ehefrau": {
+          "label": "Versorgungsbezüge wegen Dienstunfähigkeit 2024 (Ehefrau)",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Einnahmen./.Einnahmen.Vresorgungsbezuege./.Einnahmen.Vresorgungsbezuege.Wert2",
+          "automationIdSuffix": ".Vresorgungsbezuege.Wert2",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "einkuenfte_land_forstwirtschaft_ehefrau": {
+          "label": "Einkünfte Land-/Forstwirtschaft 2023 (Ehefrau)",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Einnahmen./.Einnahmen.LuF./.Einnahmen.LuF.Wert2",
+          "automationIdSuffix": ".LuF.Wert2",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "rente_erwerbsminderung_alterskasse_ehefrau": {
+          "label": "Rente wegen voller Erwerbsminderung aus einer landwirtschaftlichen Alterskasse 2024 (Ehefrau)",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Einnahmen./.Einnahmen.RenteLand./.Einnahmen.RenteLand.Wert2",
+          "automationIdSuffix": ".RenteLand.Wert2",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "rente_erwerbsminderung_ausland_ehefrau": {
+          "label": "Rente wegen voller Erwerbsminderung aus einer ausl. gesetzlichen RV 2024 (Ehefrau)",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Einnahmen./.Einnahmen.RenteAuslRV./.Einnahmen.RenteAuslRV.Wert2",
+          "automationIdSuffix": ".RenteAuslRV.Wert2",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": []
+          }
+        },
+        "mitgliedsnummer_alterskasse_ehemann": {
+          "label": "Mitgliedsnummer der landwirtschaftlichen Alterskasse (Ehemann)",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Einnahmen./.Einnahmen.MitgliedLand./.Einnahmen.MitgliedLand.Text",
+          "automationIdSuffix": ".MitgliedLand.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "mitgliedsnummer_alterskasse_ehefrau": {
+          "label": "Mitgliedsnummer der landwirtschaftlichen Alterskasse (Ehefrau)",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Einnahmen./.Einnahmen.MitgliedLand./.Einnahmen.MitgliedLand.PA",
+          "automationIdSuffix": ".MitgliedLand.PA",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        }
+      }
     }
   }
 }

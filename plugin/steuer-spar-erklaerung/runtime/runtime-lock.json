@@ -128,8 +128,8 @@
     },
     {
       "path": "profiles/2025/page-objects.json",
-      "sha256": "5f73c1342839e5bcbd06508133c027a3c2f8d209f0fe97e8fb6700b6de035d08",
-      "size": 82359
+      "sha256": "5dac308310e9bb2c131773d66596ae8a1ac17db3ce445eece72a97c331ac80b5",
+      "size": 100569
     },
     {
       "path": "profiles/2025/profile.json",
