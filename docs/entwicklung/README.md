@@ -32,6 +32,9 @@ werden erst nach Verifikation als kurze aktuelle Regel in einen Skill
   der Abgleich, was davon eine Operation hat;
 - `aktionsinventar.md`: die aus dem laufenden Programm ausgelesene Menüstruktur
   mit der Zuordnung, welche Aktion eine Operation hat und welche nicht;
+- `seitenlandkarte.md`: 55 gemessene Seiten der Einkommensteuer mit ihrer
+  Bauart. Beantwortet vor dem Profilieren die Frage, ob sich ein Seitenobjekt
+  für eine Seite überhaupt lohnt;
 - `erfahrungen/sse-automation-erfahrungen.md`: sanitisierte Qt/UIA-Fehler,
   verifizierte Gegenmaßnahmen, Fall-/Backup-Sitzungsgrenzen,
   BelegManager-Bindungen, Sicherheitsnachbedingungen und offene Grenzen.
