@@ -15151,8 +15151,35 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       } while ($sw.ElapsedMilliseconds -lt $timeoutMs)
       return (AktuelleUeberschrift $h)
     }
+    # Nach dem Invoke wartet der Klick auf den Seitenwechsel. Die festen 900 ms
+    # waren dafuer das GESAMTE Budget: Die Blaetterschleife liest die
+    # Ueberschrift danach genau einmal und deutet 'unveraendert' als
+    # blockierenden Pruefhinweis. Pauschal kuerzen wuerde also Fehlalarme
+    # erzeugen, nicht Zeit sparen. Bedingt warten darf man dagegen - sobald die
+    # Ueberschrift wechselt, ist der Zweck erfuellt; bleibt sie stehen, laeuft
+    # die volle alte Frist ab und die Deutung der Schleife stimmt weiterhin.
+    # Der 200-ms-Takt ist derselbe wie im laengst produktiven
+    # WarteAufUeberschrift, damit die Providerlast sich nicht aendert.
+    function WarteAufSeitenwechsel {
+      param([IntPtr]$h, [string]$vorher, [int]$obergrenzeMs = 900)
+      # Nur pollen, wenn das Lesen der Ueberschrift billig ist. Mit einem
+      # bekannten Seitenobjekt ist es EIN gebundener Lesezugriff. Ohne eines
+      # kostet AktuelleUeberschrift einen Baumlauf ueber 400 Knoten - bei einer
+      # Seite, die die volle Frist braucht, waeren das vier zusaetzliche Laeufe
+      # und der Schritt am Ende langsamer als vorher. Diesen Fall nicht
+      # antasten, solange kein sauberer Messwert dagegen steht.
+      if (-not $vorher -or -not $knownTarget) { Start-Sleep -Milliseconds $obergrenzeMs; return }
+      $sw = [Diagnostics.Stopwatch]::StartNew()
+      while ($sw.ElapsedMilliseconds -lt $obergrenzeMs) {
+        $restMs = [int]($obergrenzeMs - $sw.ElapsedMilliseconds)
+        Start-Sleep -Milliseconds ([Math]::Min(200, [Math]::Max(1, $restMs)))
+        $jetzt = $null
+        try { $jetzt = AktuelleUeberschrift $h } catch { $jetzt = $null }
+        if ($jetzt -and $jetzt -ne $vorher) { return }
+      }
+    }
     function DrueckeKnopf {
-      param([IntPtr]$h, [string]$name, [string]$aid)
+      param([IntPtr]$h, [string]$name, [string]$aid, [string]$wechselVon = '')
       # FindFirst statt Baumlauf: ~20 ms gegen ~2 s. Bei 25 Schritten macht
       # das den Unterschied zwischen 8 s und ueber einer Minute - vorher lief
       # goto deshalb in den Timeout.
@@ -15170,7 +15197,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         # AKTIV pruefen: 'Zurueck' ist an Zweiggrenzen deaktiviert. Ohne das
         # klickt der Aufrufer dort endlos ins Leere, statt die Richtung zu wechseln.
         try { if (-not $el.Current.IsEnabled) { return $false } } catch { return $false }
-        try { $el.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); Start-Sleep -Milliseconds 900; return $true }
+        try { $el.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); WarteAufSeitenwechsel $h $wechselVon; return $true }
         catch { return $false }
       }
       $t = Walk-Tree $h 1200
@@ -15178,7 +15205,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       if (-not $k) { return $false }
       $el = Get-LiveElement $h $k.rid
       if (-not $el) { return $false }
-      try { $el.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); Start-Sleep -Milliseconds 900; return $true }
+      try { $el.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); WarteAufSeitenwechsel $h $wechselVon; return $true }
       catch { return $false }
     }
 
@@ -15412,7 +15439,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         if ($verbraucht -ge $maxS) { break }
         $verbraucht++
         $vorher = AktuelleUeberschrift $hwnd
-        $ok = DrueckeKnopf $hwnd $richtung ''
+        $ok = DrueckeKnopf $hwnd $richtung '' $vorher
         if (-not $ok) {
           # Schalter fehlt oder ist deaktiviert. Sonderfall: Sackgassenseiten
           # wie 'Gewinnermittlung beginnen' haben WEDER Weiter NOCH Zurueck -
