@@ -23,12 +23,12 @@ ist, nicht was fehlt.
 | | Produkt | Bei uns |
 | --- | --- | --- |
 | Module (Fallarten) | 7 | 3 angefasst, davon 2 live gefahren |
-| Seiten (`.dialog`-Dateien) | 672 | **alle lesbar**, mit sichtbarem Vordergrund auch beschreibbar; 21 katalogisiert – siehe unten |
+| Seiten (`.dialog`-Dateien) | 672 | **alle lesbar**, mit sichtbarem Vordergrund auch beschreibbar; 22 katalogisiert – siehe unten |
 | Menueeintraege | 64 | 11 fertig, 9 teils, 4 zu |
 | Formularvorlagen (`.frb`) | 994 | 0 |
 | Operationen | – | 100, davon 94 live belegt |
 
-## Was „21 katalogisierte Seiten" wirklich heisst
+## Was „22 katalogisierte Seiten" wirklich heisst
 
 Diese Zahl wird leicht falsch gelesen. Der Seitenkatalog ist **keine
 Zugangsschranke**, sondern eine Bequemlichkeits- und Sicherheitsschicht.
@@ -81,7 +81,7 @@ Programmsuche sie nicht findet; das steht in ihrem `reachedBy`.
 | Modul | Endung | Rubriken | Stand | Weg |
 | --- | --- | --- | --- | --- |
 | Einkommensteuer | `.ESt2025` | 9 | **teils** – Hauptmodul der Live-Reisen, 13 Seitenobjekte | Seiten profilieren |
-| Gewinnermittlung | `.Gew2025` | 15 | **teils** – 6 Seitenobjekte, UStVA ausgebaut | Seiten profilieren |
+| Gewinnermittlung | `.Gew2025` | 15 | **teils** – 7 Seitenobjekte, UStVA ausgebaut, Jahreserklaerung angefangen | Seiten profilieren |
 | Gewinn-Erfassung | `.GewErfass2026` | 12 | **teils** – 2 Seitenobjekte, live gefahren (`case_create`, Folgejahr-UStVA) | Seiten profilieren |
 | Gesonderte Feststellung | `.GesondFest2025` | 11 | **offen** | Profil, dann Seiten |
 | Lohnsteuer-Ermaessigung | `.Freib2026` | 14 | **offen** | Profil, dann Seiten |
@@ -151,7 +151,7 @@ Belege in der [Seitenlandkarte](funktionskatalog.md).
 | --- | --- | --- |
 | Umsatzsteuer-Voranmeldung | **fertig** | fuenf `ustva_*`-Operationen |
 | Anlagevermoegen, Fahrzeugkosten | **teils** | Seitenobjekte vorhanden |
-| Umsatzsteuer-Jahreserklaerung | **offen** | eigene Rubrik der Gewinnermittlung |
+| Umsatzsteuer-Jahreserklaerung | **teils** | `gew.umsatzsteuer_jahreserklaerung` – die vier Schalter und die Null-Prozent-Zeilen. Die Betraege zu 19 und 7 Prozent rechnet SSE aus den Buchungen, solange der Schalter fuer manuelle Erfassung nicht gesetzt ist |
 | Gewerbesteuererklaerung | **offen** | eigene Rubrik der Gewinnermittlung |
 | Lohnsteuer-Anmeldung | **offen** | eigene Rubrik der Gewinn-Erfassung |
 | Dauerfristverlaengerung | **offen** | vom Hersteller genannt |
