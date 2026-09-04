@@ -46,7 +46,7 @@ ausserhalb des Durchlaufs fehlen hier ganz - derzeit 5:
 | Rechnung Anschlusskosten Kabelanschluss | Feldseite | 6 | 4 | 3 |  |
 | Reparatur Waschmaschine | Feldseite | 6 | 4 | 3 |  |
 | Haushaltsnahe Dienst- und Handwerkerleistungen | Feldseite | 2 | 0 | 14 |  |
-| Riester-Rente: Voraussetzungen für die Förderung | Feldseite | 28 | 0 | 0 |  |
+| Riester-Rente: Voraussetzungen für die Förderung | Feldseite | 28 | 0 | 0 | ja |
 | 1. Riester-Vertrag (Banksparplan Sparkasse) | Feldseite | 5 | 0 | 0 |  |
 | Wichtige Angaben zur Krankenversicherung | Uebersicht | 0 | 0 | 2 |  |
 | Gesetzliche Kranken- und Pflegeversicherung | Uebersicht | 0 | 0 | 0 |  |
