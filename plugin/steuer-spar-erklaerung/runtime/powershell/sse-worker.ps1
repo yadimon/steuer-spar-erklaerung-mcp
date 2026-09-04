@@ -5477,6 +5477,10 @@ function Get-KnownPageState([IntPtr]$Hwnd, $Known) {
     $null = $fields.Add([pscustomobject]@{
       fieldId=$property.Name
       label=[string]$property.Value.label
+      controlType=[string]$property.Value.controlType
+      valueKind=[string]$property.Value.valueKind
+      writeTool=$(if ($property.Value.PSObject.Properties['writeTool']) { [string]$property.Value.writeTool } else { $null })
+      automationIdSuffix=[string]$property.Value.automationIdSuffix
       present=[bool]($null -ne $node)
       value=$(if ($node) { [string]$node.val } else { $null })
       enabled=$(if ($node) { [bool]$node.on } else { $false })

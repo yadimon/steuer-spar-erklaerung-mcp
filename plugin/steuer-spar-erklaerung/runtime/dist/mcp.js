@@ -27713,7 +27713,7 @@ function registerDiagnosticTools(registry2) {
     "sse_page_state",
     {
       title: "Bekannte Seite schnell und versionsfest lesen",
-      description: "Liest eine katalogisierte Seite ueber exakte relative AutomationIds statt einer freien Volltextsuche. Liefert aktuelle Feldwerte, Fenster-/Dialogstatus und eine kurzlebige state epoch. Diese Epoche kann sse_change_known_field als Vorbedingung erhalten; jede zwischenzeitliche Seite-, Scroll-, Feld- oder Dirty-State-Aenderung bricht dann vor dem Schreiben ab. Werte werden nicht im Katalog oder auf Platte gespeichert."
+      description: "Liest eine katalogisierte Seite ueber exakte relative AutomationIds statt einer freien Volltextsuche. Liefert aktuelle Feldwerte, Fenster-/Dialogstatus und eine kurzlebige state epoch. Je Feld kommen ausserdem controlType, valueKind, writeTool und automationIdSuffix mit; damit steht ohne zweiten Aufruf fest, mit welchem Werkzeug und ueber welche Kennung es sich beschreiben laesst. Diese Katalogangaben gehen bewusst nicht in die Epoche ein - sie bindet nur den Zustand. Diese Epoche kann sse_change_known_field als Vorbedingung erhalten; jede zwischenzeitliche Seite-, Scroll-, Feld- oder Dirty-State-Aenderung bricht dann vor dem Schreiben ab. Werte werden nicht im Katalog oder auf Platte gespeichert."
     }
   );
   registerApiTool(
