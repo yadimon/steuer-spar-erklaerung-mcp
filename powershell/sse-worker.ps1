@@ -2480,6 +2480,17 @@ if ($Prewarm) {
   $dispatcherWarmupProbe.Stop()
   $script:INIT_TIMINGS.dispatcherWarmupMs = $dispatcherWarmupProbe.ElapsedMilliseconds
 
+  # Sammeln, BEVOR der Arbeiter parkt. Ohne das zahlt die erste
+  # allokationsreiche Anweisung nach dem Aufwachen eine Sammlung - gemessen
+  # rund 290 ms, und sie wandert: mal auf die Prozessaufzaehlung, mal auf einen
+  # frueheren Schritt, je nachdem was zuerst laeuft. Genau dieses Wandern hat
+  # die Ursache lange verdeckt. Hier kostet die Sammlung nichts, was den
+  # Aufrufer traefe: Der Reservearbeiter laeuft im Hintergrund mit gesenkter
+  # Prioritaet und wartet danach ohnehin.
+  [GC]::Collect()
+  [GC]::WaitForPendingFinalizers()
+  [GC]::Collect()
+
   [Console]::Out.WriteLine((@{ prewarm='ready'; pid=$PID } | ConvertTo-Json -Compress))
   [Console]::Out.Flush()
   $auftragszeile = $null
