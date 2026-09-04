@@ -87,6 +87,7 @@ const handwrittenPaths = [
   "docs/entwicklung/status.md",
   "docs/entwicklung/aktionsinventar.md",
   "docs/entwicklung/funktionskatalog.md",
+  "docs/entwicklung/seitenlandkarte.md",
 ];
 const handwritten = handwrittenPaths.map((path) => ({
   path,

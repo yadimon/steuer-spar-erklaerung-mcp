@@ -49,6 +49,8 @@ Diese Wege bleiben unterstützt, sind aber nicht der normale Einstieg.
 - [Repository Health Check](../health-check.md) — reproduzierbares Playbook;
 - [Statustafel](entwicklung/status.md) — jede bekannte Fähigkeit des Produkts
   mit ihrem Stand bei uns; der Einstieg für „haben wir das schon?";
+- [Seitenlandkarte](entwicklung/seitenlandkarte.md) — gemessene Bauart der
+  Einkommensteuerseiten; sagt, wo ein Seitenobjekt etwas bringt;
 - [Entwicklungswissen](entwicklung/README.md) — Funktionskatalog,
   Aktionsinventar, historische Ursachen und verworfene Ansätze;
 - [Performance-Harness](../test/performance/README.md) — produktfreie
