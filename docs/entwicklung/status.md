@@ -67,6 +67,15 @@ Zustandsvergleiche und den geplanten Mehrfeld-Schreibweg mit Rollback.
 globale Suchfeld beschraenkt, weil ein direkter Schreibzugriff Qt-Commit,
 Ergebnis-Diff und Seitenobjekte umgehen wuerde.
 
+### Belegt in einer gemeinsamen Reise
+
+Jedes Seitenobjekt einzeln zu belegen genuegt nicht - es beweist nicht, dass
+die Seiten auch nacheinander in einem Lauf tragen. Am 2026-09-04 wurden alle
+**dreizehn** katalogisierten Einkommensteuerseiten in **einer** Sitzung
+angesteuert und gelesen: 114 Felder, keines fehlend, keine Seite unerreichbar.
+Eine Seite braucht dabei einen Umweg ueber eine Nachbarseite, weil die
+Programmsuche sie nicht findet; das steht in ihrem `reachedBy`.
+
 ## Module
 
 | Modul | Endung | Rubriken | Stand | Weg |
