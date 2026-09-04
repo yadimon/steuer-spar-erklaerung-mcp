@@ -23,14 +23,14 @@ ist, nicht was fehlt.
 | | Produkt | Bei uns |
 | --- | --- | --- |
 | Module (Fallarten) | 7 | 3 angefasst, davon 2 live gefahren |
-| Seiten (`.dialog`-Dateien) | 672 | **alle lesbar**, mit sichtbarem Vordergrund auch beschreibbar; 9 katalogisiert – siehe unten |
+| Seiten (`.dialog`-Dateien) | 672 | **alle lesbar**, mit sichtbarem Vordergrund auch beschreibbar; 10 katalogisiert – siehe unten |
 | Menueeintraege | 64 | 11 fertig, 9 teils, 4 zu |
 | Formularvorlagen (`.frb`) | 994 | 0 |
 | Operationen | – | 100, davon 94 live belegt |
 
-## Was „9 katalogisierte Seiten" wirklich heisst
+## Was „10 katalogisierte Seiten" wirklich heisst
 
-Die Zahl neun wird leicht falsch gelesen. Der Seitenkatalog ist **keine
+Diese Zahl wird leicht falsch gelesen. Der Seitenkatalog ist **keine
 Zugangsschranke**, sondern eine Bequemlichkeits- und Sicherheitsschicht.
 
 Von hundert Operationen brauchen genau **zwei** einen Katalogeintrag:
@@ -71,7 +71,7 @@ Ergebnis-Diff und Seitenobjekte umgehen wuerde.
 
 | Modul | Endung | Rubriken | Stand | Weg |
 | --- | --- | --- | --- | --- |
-| Einkommensteuer | `.ESt2025` | 9 | **teils** – Hauptmodul der Live-Reisen, 1 Seitenobjekt | Seiten profilieren |
+| Einkommensteuer | `.ESt2025` | 9 | **teils** – Hauptmodul der Live-Reisen, 2 Seitenobjekte | Seiten profilieren |
 | Gewinnermittlung | `.Gew2025` | 15 | **teils** – 6 Seitenobjekte, UStVA ausgebaut | Seiten profilieren |
 | Gewinn-Erfassung | `.GewErfass2026` | 12 | **teils** – 2 Seitenobjekte, live gefahren (`case_create`, Folgejahr-UStVA) | Seiten profilieren |
 | Gesonderte Feststellung | `.GesondFest2025` | 11 | **offen** | Profil, dann Seiten |

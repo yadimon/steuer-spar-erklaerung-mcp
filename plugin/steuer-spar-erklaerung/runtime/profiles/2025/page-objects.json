@@ -911,6 +911,133 @@
           }
         ]
       }
+    },
+    "est.private_kranken_pflegeversicherung": {
+      "heading": "Private Kranken- und Pflegeversicherung",
+      "headingPrefix": "Private Kranken- und Pflegeversicherung",
+      "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
+      "documentType": "ESt2025",
+      "fields": {
+        "gesamtbeitrag_krankenversicherung": {
+          "label": "Gesamtbeitrag zur privaten Krankenversicherung",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.BeitragErfassOhneZeilen./.BeitragErfassOhneZeilen.GesamtbetragKV./.BeitragErfassOhneZeilen.GesamtbetragKV.Wert",
+          "automationIdSuffix": ".BeitragErfassOhneZeilen.GesamtbetragKV.Wert",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": [
+              {
+                "label": "Summe der Beiträge und Erstattungen",
+                "occurrence": 1
+              }
+            ]
+          }
+        },
+        "beitrag_basisabsicherung": {
+          "label": "darin enthaltene Beiträge zur Basisabsicherung",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.BeitragErfassOhneZeilen./.BeitragErfassOhneZeilen.Basisversicherung./.BeitragErfassOhneZeilen.Basisversicherung.Wert",
+          "automationIdSuffix": ".BeitragErfassOhneZeilen.Basisversicherung.Wert",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": [
+              {
+                "label": "Summe der Beiträge und Erstattungen",
+                "occurrence": 1
+              }
+            ]
+          }
+        },
+        "gesamtbeitrag_pflegeversicherung": {
+          "label": "Gesamtbeitrag zur privaten Pflege-Pflichtversicherung",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.BeitragErfassOhneZeilen./.BeitragErfassOhneZeilen.GesamtPV./.BeitragErfassOhneZeilen.GesamtPV.Wert",
+          "automationIdSuffix": ".BeitragErfassOhneZeilen.GesamtPV.Wert",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": [
+              {
+                "label": "Summe der Beiträge und Erstattungen",
+                "occurrence": 1
+              }
+            ]
+          }
+        },
+        "erstattungen": {
+          "label": "./. Erstattete Beiträge zur Kranken- und Pflege-Pflichtversicherung",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.BeitragErfassOhneZeilen./.BeitragErfassOhneZeilen.ErstattungKVPV./.BeitragErfassOhneZeilen.ErstattungKVPV.Wert",
+          "automationIdSuffix": ".BeitragErfassOhneZeilen.ErstattungKVPV.Wert",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": [
+              {
+                "label": "Summe der Beiträge und Erstattungen",
+                "occurrence": 1
+              }
+            ]
+          }
+        },
+        "erstattungen_basisabsicherung": {
+          "label": "darin enthaltene Erstattungen zur Basisabsicherung und Pflege-Pflichtversicherung",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.BeitragErfassOhneZeilen./.BeitragErfassOhneZeilen.ErstattungBasis./.BeitragErfassOhneZeilen.ErstattungBasis.Wert",
+          "automationIdSuffix": ".BeitragErfassOhneZeilen.ErstattungBasis.Wert",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": [
+              {
+                "label": "Summe der Beiträge und Erstattungen",
+                "occurrence": 1
+              }
+            ]
+          }
+        },
+        "zuschuesse": {
+          "label": "./. Zuschüsse zur privaten Kranken- und Pflege-Pflichtversicherung",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.BeitragErfassOhneZeilen./.BeitragErfassOhneZeilen.ZuschussKVPV./.BeitragErfassOhneZeilen.ZuschussKVPV.Wert",
+          "automationIdSuffix": ".BeitragErfassOhneZeilen.ZuschussKVPV.Wert",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": [
+              {
+                "label": "Summe der Beiträge und Erstattungen",
+                "occurrence": 1
+              }
+            ]
+          }
+        },
+        "zuschuesse_basisabsicherung": {
+          "label": "darin enthaltene Zuschüsse zur Basisabsicherung und Pflege-Pflichtversicherung",
+          "controlType": "Edit",
+          "valueKind": "currency",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.BeitragErfassOhneZeilen./.BeitragErfassOhneZeilen.ZuschussBasis./.BeitragErfassOhneZeilen.ZuschussBasis.Wert",
+          "automationIdSuffix": ".BeitragErfassOhneZeilen.ZuschussBasis.Wert",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": true,
+            "pageTotals": [
+              {
+                "label": "Summe der Beiträge und Erstattungen",
+                "occurrence": 1
+              }
+            ]
+          }
+        }
+      }
     }
   }
 }
