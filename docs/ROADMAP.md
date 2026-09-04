@@ -46,34 +46,48 @@ jeder der 672 Seiten:
 Suchfeld beschraenkt, weil ein direkter ValuePattern-Write Qt-Commit,
 Ergebnis-Diff und Seitenobjekte umgehen wuerde.
 
-**Und der Nenner ist viel kleiner, als 672 vermuten laesst.** Eine Stichprobe
-von 20 angesteuerten Seiten der Einkommensteuer, gemessen am 2026-09-04:
+**Nicht jede Seite profitiert von einem Katalogeintrag.** Ein linearer
+Durchlauf des ESt-Musterfalls, am 2026-09-04 ueber `goto` und `snapshot`
+klassifiziert, erreichte 55 von 58 Seiten:
 
-| Bauart | Anteil | Bringt ein Seitenobjekt etwas? |
+| Bauart | Anzahl | Bringt ein Seitenobjekt etwas? |
 | --- | --- | --- |
-| **Tabellenseite** – Daten in Zellen, `Edit` nur als Summe | 8 von 20 | nein, `table_add`/`table_update`/`table_delete` binden ueber die Ueberschrift |
-| **Uebersicht** – nur Rechenfelder und Text | 6 von 20 | nein, es gibt nichts zu schreiben |
-| **Feldseite** – beschreibbare Einzelfelder | 4 von 20 | ja, genau dafuer ist der Katalog da |
-| **Auswahlseite** – nur RadioButtons | 2 von 20 | nein, RadioButtons bleiben bewusst Hinweis fuer `click pattern=select` |
+| **Feldseite** – beschreibbare Einzelfelder | 31 | ja, genau dafuer ist der Katalog da |
+| **Uebersicht** – nur Rechenfelder und Text | 14 | nein, es gibt nichts zu schreiben |
+| **Tabellenseite** – Daten in Zellen | 7 | nein, `table_add`/`table_update`/`table_delete` binden ueber die Ueberschrift |
+| **Auswahlseite** – nur RadioButtons | 3 | nein, RadioButtons bleiben Hinweis fuer `click pattern=select` |
 
-Nur **jede fuenfte** Seite profitiert also ueberhaupt von einem Katalogeintrag -
-und von den vier Feldseiten der Stichprobe stehen drei bereits im Katalog. Wer
-„13 von 672" liest, sieht eine Luecke, die ein Vielfaches groesser wirkt, als
-sie ist.
+Rund **die Haelfte** der Seiten ist also Feldseite. Die Luecke zwischen vierzehn
+katalogisierten und dem Bestand ist damit real - anders als eine erste,
+kleinere Stichprobe nahelegte.
 
-Die Klassifikation ist billig und wiederholbar: Ein `snapshot` mit
-`types: ["Edit","ComboBox","CheckBox","DataItem","RadioButton"]` trennt die vier
-Bauarten anhand von Steuerelementtyp und `ro`-Kennzeichen. Eine Falle steckt
-darin: **RadioButtons duerfen nicht als Felder zaehlen.** Sie sind im
-Profilvertrag ausdruecklich kein `fields`-Eintrag, sondern ein Hinweis fuer
-`sse_click pattern=select`; wer sie mitzaehlt, haelt jede Auswahlseite
-faelschlich fuer eine Feldseite.
+**Diese Zahl hat Grenzen, und sie gehoeren dazu:**
+
+- Eine erste Stichprobe von 20 Seiten kam auf nur vier Feldseiten. Sie lief
+  durch eine tabellenlastige Region des Dokuments; wer wenige Seiten am Stueck
+  misst, misst die Nachbarschaft, nicht das Ganze.
+- ComboBoxen zaehlen doppelt: UIA meldet die Box und ein inneres `Edit`. Die
+  Feldzahl je Seite ist daher eine Obergrenze.
+- `ro=false` heisst „nicht schreibgeschuetzt", nicht „Benutzereingabe". Auf
+  Ergebnisseiten wie der Steuerberechnung ist unbelegt, ob die gezaehlten
+  Felder wirklich Eingaben sind. Stichprobe `Grunddaten` (Identnummer, Anrede,
+  Name, Telefon, Geburtsdatum, Adresse) war dagegen eindeutig echt.
+- Gemessen wurde **ein** Musterfall. Welche Seiten ueberhaupt erscheinen,
+  entscheiden dessen Themenfilter.
+
+Die Klassifikation selbst ist billig und wiederholbar: ein `snapshot` mit
+`types: ["Edit","ComboBox","CheckBox","DataItem","RadioButton"]`, getrennt nach
+Steuerelementtyp und `ro`-Kennzeichen. Eine Falle steckt darin: **RadioButtons
+duerfen nicht als Felder zaehlen.** Sie sind im Profilvertrag ausdruecklich kein
+`fields`-Eintrag, sondern ein Hinweis fuer `sse_click pattern=select`; wer sie
+mitzaehlt, haelt jede Auswahlseite faelschlich fuer eine Feldseite.
 
 Der Katalog ist trotzdem klein. `profiles/2025/page-objects.json` enthaelt heute
-**dreizehn Seiten und fuenf Fenster**: fuenf aus der Einkommensteuer
-(Fahrten, private Kranken- und Pflegeversicherung, Spenden und die beiden
-Themenfilter fuer Spenden und haushaltsnahe Ausgaben), sechs aus der
-Gewinnermittlung, zwei aus der Gewinn-Erfassung. Es gibt genau
+**vierzehn Seiten und fuenf Fenster**: sechs aus der Einkommensteuer
+(Fahrten, private Kranken- und Pflegeversicherung, Spenden, die beiden
+Themenfilter fuer Spenden und haushaltsnahe Ausgaben sowie die
+ELSTER-Grunddaten), sechs aus der Gewinnermittlung, zwei aus der
+Gewinn-Erfassung. Es gibt genau
 **einen** profilierten fokuslosen Schreibpfad.
 
 Wer also fragt „koennen wir SSE vollstaendig steuern?", bekommt eine
@@ -161,7 +175,7 @@ Faehigkeiten, zu denen es bei uns keinerlei Gegenstueck gibt:
 
 | Bereich | Beleg | Weg |
 | --- | --- | --- |
-| Fast die gesamte Einkommensteuer | fuenf `est.`-Seitenobjekte im Katalog – erreichbar sind die Seiten, benannt sind sie nicht | UI, je Seite ein Profil |
+| Fast die gesamte Einkommensteuer | sechs `est.`-Seitenobjekte im Katalog – erreichbar sind die Seiten, benannt sind sie nicht | UI, je Seite ein Profil |
 | Optionen, Datenuebernahme, Steuerrechner, Musterbriefe, Service, Ansicht | Menuezeile bekannt, kein einziges Objekt daraus katalogisiert | UI, `menu`/`menu_click` sind generisch |
 | Druck- und Ausgabefenster | kein Fensterobjekt | UI plus PDF-Aufbereitung |
 | Passwortgeschuetzte Falldateien | `setPassword`, `checkPassword`, `activePassword` | UI, sofern es einen Dialog gibt |

@@ -1201,6 +1201,403 @@
           }
         }
       }
+    },
+    "est.grunddaten_elster": {
+      "heading": "Grunddaten",
+      "headingPrefix": "Grunddaten",
+      "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
+      "documentType": "ESt2025",
+      "reachedBy": "Rubrik 'Kommunikation mit dem Finanzamt per ELSTER'; erste Seite darin.",
+      "fields": {
+        "identifikationsnummer_steuerpflichtiger": {
+          "label": "Identifikationsnummer (Steuerpflichtiger)",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenSP./.DatenSP.IdentNrSP./.DatenSP.IdentNrSP.Text",
+          "automationIdSuffix": ".IdentNrSP.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "bezeichnung_steuerpflichtiger": {
+          "label": "Bezeichnung (Steuerpflichtiger)",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenSP./.DatenSP.BezeichnungSP./.DatenSP.BezeichnungSP.Text",
+          "automationIdSuffix": ".BezeichnungSP.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "anrede_steuerpflichtiger": {
+          "label": "Anrede (Steuerpflichtiger)",
+          "controlType": "ComboBox",
+          "valueKind": "text",
+          "writeTool": "sse_combo_select",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenSP./.DatenSP.AnredeSP./.DatenSP.AnredeSP.Combobox",
+          "automationIdSuffix": ".AnredeSP.Combobox",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "name_steuerpflichtiger": {
+          "label": "Name (Steuerpflichtiger)",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenSP./.DatenSP.NameSP./.DatenSP.NameSP.Text",
+          "automationIdSuffix": ".NameSP.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "vorname_steuerpflichtiger": {
+          "label": "Vorname (Steuerpflichtiger)",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenSP./.DatenSP.VornameSP./.DatenSP.VornameSP.Text",
+          "automationIdSuffix": ".VornameSP.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "titel_steuerpflichtiger": {
+          "label": "Titel (Steuerpflichtiger)",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenSP./.DatenSP.TitelSP./.DatenSP.TitelSP.Text",
+          "automationIdSuffix": ".TitelSP.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "telefon_steuerpflichtiger": {
+          "label": "Telefon (Steuerpflichtiger)",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenSP./.DatenSP.TelefonSP./.DatenSP.TelefonSP.Text",
+          "automationIdSuffix": ".TelefonSP.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "email_steuerpflichtiger": {
+          "label": "E-Mail (Steuerpflichtiger)",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenSP./.DatenSP.EmailSP./.DatenSP.EmailSP.Text",
+          "automationIdSuffix": ".EmailSP.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "geburtsdatum_steuerpflichtiger": {
+          "label": "Geburtsdatum (Steuerpflichtiger)",
+          "controlType": "Edit",
+          "valueKind": "date",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenSP./.DatenSP.GebDatSP./.DatenSP.GebDatSP.Text",
+          "automationIdSuffix": ".GebDatSP.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "adressart_steuerpflichtiger": {
+          "label": "Art der Adresse (Steuerpflichtiger)",
+          "controlType": "ComboBox",
+          "valueKind": "text",
+          "writeTool": "sse_combo_select",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenSP./.DatenSP.AdressartSP./.DatenSP.AdressartSP.Combobox",
+          "automationIdSuffix": ".AdressartSP.Combobox",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "strasse_steuerpflichtiger": {
+          "label": "Straße, Hausnr., -zusatz (Straße) (Steuerpflichtiger)",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenSP./.DatenSP.AngabenStrasseSP./.DatenSP.AngabenStrasseSP.Text",
+          "automationIdSuffix": ".AngabenStrasseSP.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "hausnummer_steuerpflichtiger": {
+          "label": "Straße, Hausnr., -zusatz (Hausnummer) (Steuerpflichtiger)",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenSP./.DatenSP.AngabenStrasseSP./.DatenSP.AngabenStrasseSP.Nr",
+          "automationIdSuffix": ".AngabenStrasseSP.Nr",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "hausnummerzusatz_steuerpflichtiger": {
+          "label": "Straße, Hausnr., -zusatz (Zusatz) (Steuerpflichtiger)",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenSP./.DatenSP.AngabenStrasseSP./.DatenSP.AngabenStrasseSP.Zusatz",
+          "automationIdSuffix": ".AngabenStrasseSP.Zusatz",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "anschriftenzusatz_steuerpflichtiger": {
+          "label": "Anschriftenzusatz (Steuerpflichtiger)",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenSP./.DatenSP.AnschriftenzusatzSP./.DatenSP.AnschriftenzusatzSP.Text",
+          "automationIdSuffix": ".AnschriftenzusatzSP.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "postleitzahl_steuerpflichtiger": {
+          "label": "Postleitzahl, Ort (Postleitzahl) (Steuerpflichtiger)",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenSP./.DatenSP.ZeilePLZOrtSP./.DatenSP.ZeilePLZOrtSP.Text",
+          "automationIdSuffix": ".ZeilePLZOrtSP.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "ort_steuerpflichtiger": {
+          "label": "Postleitzahl, Ort (Ort) (Steuerpflichtiger)",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenSP./.DatenSP.ZeilePLZOrtSP./.DatenSP.ZeilePLZOrtSP.Ort",
+          "automationIdSuffix": ".ZeilePLZOrtSP.Ort",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "identifikationsnummer_partner": {
+          "label": "Identifikationsnummer (Ehe-/Lebenspartner)",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenPA./.DatenPA.IdentNrPA./.DatenPA.IdentNrPA.Text",
+          "automationIdSuffix": ".IdentNrPA.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "bezeichnung_partner": {
+          "label": "Bezeichnung (Ehe-/Lebenspartner)",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenPA./.DatenPA.BezeichnungPA./.DatenPA.BezeichnungPA.Text",
+          "automationIdSuffix": ".BezeichnungPA.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "anrede_partner": {
+          "label": "Anrede (Ehe-/Lebenspartner)",
+          "controlType": "ComboBox",
+          "valueKind": "text",
+          "writeTool": "sse_combo_select",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenPA./.DatenPA.AnredePA./.DatenPA.AnredePA.Combobox",
+          "automationIdSuffix": ".AnredePA.Combobox",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "name_partner": {
+          "label": "Name (Ehe-/Lebenspartner)",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenPA./.DatenPA.NamePA./.DatenPA.NamePA.Text",
+          "automationIdSuffix": ".NamePA.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "vorname_partner": {
+          "label": "Vorname (Ehe-/Lebenspartner)",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenPA./.DatenPA.VornamePA./.DatenPA.VornamePA.Text",
+          "automationIdSuffix": ".VornamePA.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "titel_partner": {
+          "label": "Titel (Ehe-/Lebenspartner)",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenPA./.DatenPA.TitelPA./.DatenPA.TitelPA.Text",
+          "automationIdSuffix": ".TitelPA.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "telefon_partner": {
+          "label": "Telefon (Ehe-/Lebenspartner)",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenPA./.DatenPA.TelefonPA./.DatenPA.TelefonPA.Text",
+          "automationIdSuffix": ".TelefonPA.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "email_partner": {
+          "label": "E-Mail (Ehe-/Lebenspartner)",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenPA./.DatenPA.EmailPA./.DatenPA.EmailPA.Text",
+          "automationIdSuffix": ".EmailPA.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "geburtsdatum_partner": {
+          "label": "Geburtsdatum (Ehe-/Lebenspartner)",
+          "controlType": "Edit",
+          "valueKind": "date",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenPA./.DatenPA.GebDatPA./.DatenPA.GebDatPA.Text",
+          "automationIdSuffix": ".GebDatPA.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "adressart_partner": {
+          "label": "Art der Adresse (Ehe-/Lebenspartner)",
+          "controlType": "ComboBox",
+          "valueKind": "text",
+          "writeTool": "sse_combo_select",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenPA./.DatenPA.AdressartPA./.DatenPA.AdressartPA.Combobox",
+          "automationIdSuffix": ".AdressartPA.Combobox",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "strasse_partner": {
+          "label": "Straße, Hausnr., -zusatz (Straße) (Ehe-/Lebenspartner)",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenPA./.DatenPA.AngabenStrassePA./.DatenPA.AngabenStrassePA.Text",
+          "automationIdSuffix": ".AngabenStrassePA.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "hausnummer_partner": {
+          "label": "Straße, Hausnr., -zusatz (Hausnummer) (Ehe-/Lebenspartner)",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenPA./.DatenPA.AngabenStrassePA./.DatenPA.AngabenStrassePA.Nr",
+          "automationIdSuffix": ".AngabenStrassePA.Nr",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "hausnummerzusatz_partner": {
+          "label": "Straße, Hausnr., -zusatz (Zusatz) (Ehe-/Lebenspartner)",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenPA./.DatenPA.AngabenStrassePA./.DatenPA.AngabenStrassePA.Zusatz",
+          "automationIdSuffix": ".AngabenStrassePA.Zusatz",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "anschriftenzusatz_partner": {
+          "label": "Anschriftenzusatz (Ehe-/Lebenspartner)",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenPA./.DatenPA.AnschriftenzusatzPA./.DatenPA.AnschriftenzusatzPA.Text",
+          "automationIdSuffix": ".AnschriftenzusatzPA.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "postleitzahl_partner": {
+          "label": "Postleitzahl, Ort (Postleitzahl) (Ehe-/Lebenspartner)",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenPA./.DatenPA.ZeilePLZOrtPA./.DatenPA.ZeilePLZOrtPA.Text",
+          "automationIdSuffix": ".ZeilePLZOrtPA.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "ort_partner": {
+          "label": "Postleitzahl, Ort (Ort) (Ehe-/Lebenspartner)",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenPA./.DatenPA.ZeilePLZOrtPA./.DatenPA.ZeilePLZOrtPA.Ort",
+          "automationIdSuffix": ".ZeilePLZOrtPA.Ort",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        }
+      }
     }
   }
 }
