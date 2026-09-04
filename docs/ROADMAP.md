@@ -46,6 +46,29 @@ jeder der 672 Seiten:
 Suchfeld beschraenkt, weil ein direkter ValuePattern-Write Qt-Commit,
 Ergebnis-Diff und Seitenobjekte umgehen wuerde.
 
+**Und der Nenner ist viel kleiner, als 672 vermuten laesst.** Eine Stichprobe
+von 20 angesteuerten Seiten der Einkommensteuer, gemessen am 2026-09-04:
+
+| Bauart | Anteil | Bringt ein Seitenobjekt etwas? |
+| --- | --- | --- |
+| **Tabellenseite** – Daten in Zellen, `Edit` nur als Summe | 8 von 20 | nein, `table_add`/`table_update`/`table_delete` binden ueber die Ueberschrift |
+| **Uebersicht** – nur Rechenfelder und Text | 6 von 20 | nein, es gibt nichts zu schreiben |
+| **Feldseite** – beschreibbare Einzelfelder | 4 von 20 | ja, genau dafuer ist der Katalog da |
+| **Auswahlseite** – nur RadioButtons | 2 von 20 | nein, RadioButtons bleiben bewusst Hinweis fuer `click pattern=select` |
+
+Nur **jede fuenfte** Seite profitiert also ueberhaupt von einem Katalogeintrag -
+und von den vier Feldseiten der Stichprobe stehen drei bereits im Katalog. Wer
+„13 von 672" liest, sieht eine Luecke, die ein Vielfaches groesser wirkt, als
+sie ist.
+
+Die Klassifikation ist billig und wiederholbar: Ein `snapshot` mit
+`types: ["Edit","ComboBox","CheckBox","DataItem","RadioButton"]` trennt die vier
+Bauarten anhand von Steuerelementtyp und `ro`-Kennzeichen. Eine Falle steckt
+darin: **RadioButtons duerfen nicht als Felder zaehlen.** Sie sind im
+Profilvertrag ausdruecklich kein `fields`-Eintrag, sondern ein Hinweis fuer
+`sse_click pattern=select`; wer sie mitzaehlt, haelt jede Auswahlseite
+faelschlich fuer eine Feldseite.
+
 Der Katalog ist trotzdem klein. `profiles/2025/page-objects.json` enthaelt heute
 **dreizehn Seiten und fuenf Fenster**: fuenf aus der Einkommensteuer
 (Fahrten, private Kranken- und Pflegeversicherung, Spenden und die beiden
@@ -92,6 +115,7 @@ im Repository belegt sind.
 | **Steuerjahr 2026** | es gibt kein Profil | vorhandene Wege, neues Profil | das Produkt muss erscheinen; danach Katalog, Profil und Live-Verifikation |
 | **Ausgabe ausser CSV** | es gibt genau `export_csv` | Vordergrund-Lease fuer den Druckdialog, danach PDF-Aufbereitung | Entscheidung, ob ein Druck-nach-PDF-Weg die Mutationsgrenze beruehrt |
 | **Schnellere Bedienung ueber typisierte Kommandos** | der Herstellerweg ist geschlossen | Hersteller-IPC | siehe Abschnitt 4 |
+| **Seiten mit Nummer in der Mitte der Ueberschrift** – etwa die Verpflegungspauschbetraege einer Fortbildungsreise (`Fortbildung <Name>: <N>. Reise (Verpflegung)`, zehn beschreibbare Felder, gemessen 2026-09-04) | die Bindung kennt zwei Muster: `headingNumberedLabel` erwartet ein fuehrendes `N. Label`, `headingPrefix` einen festen Anfang. Hier steht die Nummer in der Mitte und der Personenname davor; ein Praefix `Fortbildung ` wuerde jede Fortbildungsseite jeder Person treffen | UI, aber zuerst die Bindungsregel | ein drittes Muster fuer Ueberschriften mit Platzhaltern an beliebiger Stelle - und der Nachweis, dass es nicht versehentlich die Nachbarseite bindet |
 
 ### 3.1 SSEs eigene Kommandoflaeche
 
