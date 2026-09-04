@@ -15209,7 +15209,18 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         $svp = $null
         if ($se -and $se.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$svp)) {
           $svp.SetValue($ziel)
-          Start-Sleep -Milliseconds 350
+          # Warten, BIS das Suchfeld den Wert meldet, statt pauschal 350 ms.
+          # Der Lesezugriff auf ValuePattern kostet rund zwei Millisekunden;
+          # ueblicherweise steht der Wert sofort. Die alte Frist bleibt als
+          # Obergrenze: Ein zaehes Feld darf dadurch nicht frueher weiterlaufen
+          # als bisher, sonst tauschte man Zeit gegen Verlaesslichkeit.
+          $wertUhr = [Diagnostics.Stopwatch]::StartNew()
+          while ($wertUhr.ElapsedMilliseconds -lt 350) {
+            $gelesen = $null
+            try { $gelesen = [string]$svp.Current.Value } catch { $gelesen = $null }
+            if ($gelesen -ceq $ziel) { break }
+            Start-Sleep -Milliseconds 10
+          }
           $lupe = @($ts.nodes | Where-Object { $_.type -eq 'Button' -and -not $_.name -and
                                                $_.y -ge ($suchfeld.y - 12) -and $_.y -le ($suchfeld.y + 12) -and
                                                $_.x -gt $suchfeld.x })[0]
