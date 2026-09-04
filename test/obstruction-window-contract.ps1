@@ -26,7 +26,13 @@ $definition = @($ast.FindAll({
   $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Resolve-SSEToolWindowKind'
 }, $true))
 if ($definition.Count -ne 1) { throw 'Funktion Resolve-SSEToolWindowKind ist nicht eindeutig vorhanden.' }
-$script:WERTE_INFO_TITEL = 'Werte-Info: Werte vergleichen - Was wäre wenn'
+
+# Den Titel NICHT hier hinschreiben, sondern aus dem Worker lesen. Eine eigene
+# Kopie wuerde die Funktion gegen einen Wert pruefen, den das Produkt gar nicht
+# mehr verwendet - der Vertrag waere gruen und die Einordnung trotzdem kaputt.
+$titelZuweisung = [regex]::Match($workerSource, "(?m)^\`$script:WERTE_INFO_TITEL\s*=\s*'(?<titel>[^']+)'")
+if (-not $titelZuweisung.Success) { throw 'Die Zuweisung von $script:WERTE_INFO_TITEL ist im Worker nicht auffindbar.' }
+$script:WERTE_INFO_TITEL = $titelZuweisung.Groups['titel'].Value
 Invoke-Expression $definition[0].Extent.Text
 
 function Assert-Equal($Actual, $Expected, [string]$Message) {
@@ -45,8 +51,13 @@ Assert-Equal (Resolve-SSEToolWindowKind 'Steuer-Spar-Tipps ' 479 333) '' 'Titelv
 Assert-Equal (Resolve-SSEToolWindowKind 'Irgendein Fenster' 479 333) '' 'Fremder Titel gilt faelschlich als bekannt'
 Assert-Equal (Resolve-SSEToolWindowKind '' 0 0) '' 'Leerer Titel gilt faelschlich als bekannt'
 
-# Die Sperrstelle muss Titel und Art mitliefern, sonst nuetzt die Erkennung nichts.
-foreach ($feld in @('hitTitle=$hitTitle; hitWindowKind=$hitWindowKind')) {
+# Die Sperrstelle muss alles mitliefern, was sse_window_close verlangt: Titel,
+# Art und den Fingerprint. Ohne den Fingerprint braeuchte der Aufrufer doch
+# wieder einen sse_windows-Aufruf - genau den soll die Meldung ersparen.
+foreach ($feld in @(
+  'hitTitle=$hitTitle; hitTitleFingerprint=$hitTitleFingerprint; hitWindowKind=$hitWindowKind',
+  '$hitTitleFingerprint = Get-SSETextSha256 $hitTitle'
+)) {
   if ($workerSource -notmatch [regex]::Escape($feld)) {
     throw "Der Verdeckungsbefund liefert '$feld' nicht mit."
   }
@@ -59,8 +70,22 @@ if ($workerSource -notmatch [regex]::Escape('$hitWindowKind = Resolve-SSEToolWin
 if ($workerSource -notmatch 'Das SSE-eigene Fenster') {
   throw 'Die Verdeckungsmeldung benennt das Fenster nicht.'
 }
-if ($workerSource -notmatch [regex]::Escape('schliessen; danach den Schreibvorgang wiederholen')) {
+if ($workerSource -notmatch [regex]::Escape('Danach den Schreibvorgang wiederholen')) {
   throw 'Die Verdeckungsmeldung nennt den Ausweg ueber sse_window_close nicht.'
+}
+
+# Der Ausweg muss auf das Fenster der obersten Ebene zeigen. WindowFromPoint
+# liefert das unterste Kind unter dem Punkt; sse_window_close nimmt nur, was
+# sse_windows auflistet - und das sind Hauptfenster. Ein Verweis auf hitWindow
+# waere eine Anleitung, die im Zweifel nicht funktioniert.
+if ($workerSource -notmatch [regex]::Escape('hwnd=commitDetails.hitRoot')) {
+  throw 'Die Verdeckungsmeldung nennt nicht hitRoot als zu schliessendes Fenster.'
+}
+if ($workerSource -match [regex]::Escape('hwnd aus commitDetails.hitWindow')) {
+  throw 'Die Verdeckungsmeldung verweist weiterhin auf hitWindow statt auf hitRoot.'
+}
+if ($workerSource -notmatch [regex]::Escape('titleFingerprint=commitDetails.hitTitleFingerprint')) {
+  throw 'Die Verdeckungsmeldung nennt den fuer sse_window_close noetigen Fingerprint nicht.'
 }
 
 # sse_ui_state benutzt denselben Helfer - keine zweite Kopie der Schwellenwerte.

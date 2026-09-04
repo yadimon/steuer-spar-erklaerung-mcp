@@ -914,7 +914,6 @@
     },
     "est.private_kranken_pflegeversicherung": {
       "heading": "Private Kranken- und Pflegeversicherung",
-      "headingPrefix": "Private Kranken- und Pflegeversicherung",
       "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
       "documentType": "ESt2025",
       "fields": {
@@ -1041,7 +1040,6 @@
     },
     "est.spenden_steuerbeguenstigte_zwecke": {
       "heading": "Spenden für steuerbegünstigte Zwecke",
-      "headingPrefix": "Spenden für steuerbegünstigte Zwecke",
       "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
       "documentType": "ESt2025",
       "fields": {
@@ -1097,7 +1095,6 @@
     },
     "est.themenfilter_spenden": {
       "heading": "Spenden und Mitgliedsbeiträge",
-      "headingPrefix": "Spenden und Mitgliedsbeiträge",
       "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
       "documentType": "ESt2025",
       "fields": {
@@ -1157,7 +1154,6 @@
     },
     "est.themenfilter_haushaltsnahe_ausgaben": {
       "heading": "Haushaltsnahe Ausgaben",
-      "headingPrefix": "Haushaltsnahe Ausgaben",
       "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
       "documentType": "ESt2025",
       "fields": {
@@ -1204,7 +1200,6 @@
     },
     "est.grunddaten_elster": {
       "heading": "Grunddaten",
-      "headingPrefix": "Grunddaten",
       "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
       "documentType": "ESt2025",
       "reachedBy": "Rubrik 'Kommunikation mit dem Finanzamt per ELSTER'; erste Seite darin.",
@@ -1601,7 +1596,6 @@
     },
     "est.riester_foerdervoraussetzungen": {
       "heading": "Riester-Rente: Voraussetzungen für die Förderung",
-      "headingPrefix": "Riester-Rente: Voraussetzungen für die Förderung",
       "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
       "documentType": "ESt2025",
       "reachedBy": "Rubrik 'Versicherungen und Altersvorsorge', direkt nach 'Riester-Rente'.",
@@ -1928,7 +1922,6 @@
     },
     "est.themenfilter_aussergewoehnliche_belastungen": {
       "heading": "Außergewöhnliche Belastungen",
-      "headingPrefix": "Außergewöhnliche Belastungen",
       "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
       "documentType": "ESt2025",
       "fields": {
@@ -2001,7 +1994,6 @@
     },
     "est.verlustvortraege_kapitaleinkuenfte": {
       "heading": "Verlustvorträge aus Kapitaleinkünften",
-      "headingPrefix": "Verlustvorträge aus Kapitaleinkünften",
       "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
       "documentType": "ESt2025",
       "reachedBy": "Rubrik 'Kapitalerträge', nach 'Ausländische Investmenterträge ohne inländischen Steuerabzug'.",
@@ -2106,7 +2098,6 @@
     },
     "est.zusatzangaben_steuererklaerung": {
       "heading": "Zusatzangaben zur Steuererklärung",
-      "headingPrefix": "Zusatzangaben zur Steuererklärung",
       "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
       "documentType": "ESt2025",
       "reachedBy": "Die Programmsuche findet diese Seite nicht. Vom Startbildschirm aus zuerst 'Kirchensteuer: Zahlungen und Erstattungen' ansteuern, von dort erreicht goto sie ueber wenige Blaetterschritte.",
@@ -2151,7 +2142,6 @@
     },
     "est.elster_aenderung_bankverbindung": {
       "heading": "Änderung der Bankverbindung",
-      "headingPrefix": "Änderung der Bankverbindung",
       "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
       "documentType": "ESt2025",
       "reachedBy": "Rubrik 'Kommunikation mit dem Finanzamt per ELSTER', nach 'Änderung der Adresse'.",
@@ -2236,7 +2226,6 @@
     },
     "est.elster_fristverlaengerung": {
       "heading": "Antrag auf Fristverlängerung",
-      "headingPrefix": "Antrag auf Fristverlängerung",
       "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
       "documentType": "ESt2025",
       "reachedBy": "Rubrik 'Kommunikation mit dem Finanzamt per ELSTER', nach 'Schreiben an das Finanzamt'.",
@@ -2347,7 +2336,6 @@
     },
     "est.elster_anpassung_vorauszahlungen": {
       "heading": "Antrag auf Anpassung der Vorauszahlungen",
-      "headingPrefix": "Antrag auf Anpassung der Vorauszahlungen",
       "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
       "documentType": "ESt2025",
       "reachedBy": "Rubrik 'Kommunikation mit dem Finanzamt per ELSTER', nach 'Antrag auf Fristverlängerung'.",

@@ -6561,6 +6561,7 @@ function Commit-TrackedValue([IntPtr]$Hwnd, $Node, [string]$Value, [string]$Expe
       # muss der Aufrufer erst sse_windows und sse_ui_state nachschieben, um zu
       # erfahren, dass ihm ein schliessbares Nebenfenster im Weg stand.
       $hitTitle = Get-SSEWindowTitleText $hitRoot
+      $hitTitleFingerprint = Get-SSETextSha256 $hitTitle
       $hitWindowKind = ''
       if ($hitPid -eq $expectedPid) {
         $hitRect = New-Object SW+RC
@@ -6573,7 +6574,7 @@ function Commit-TrackedValue([IntPtr]$Hwnd, $Node, [string]$Value, [string]$Expe
         expectedPid=[int]$expectedPid; hitPid=[int]$hitPid
         expectedRoot=[int64]$Hwnd; hitRoot=[int64]$hitRoot; hitWindow=[int64]$hitWindow
         hitProcessName=$hitProcessName; hitClassName=$hitClassName
-        hitTitle=$hitTitle; hitWindowKind=$hitWindowKind
+        hitTitle=$hitTitle; hitTitleFingerprint=$hitTitleFingerprint; hitWindowKind=$hitWindowKind
         sameProcess=[bool]($hitPid -eq $expectedPid)
         foregroundHwnd=[int64][SW]::GetForegroundWindow()
         foregroundPrepared=[bool]$foregroundPrepared
@@ -8115,6 +8116,24 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $canary = Test-Canary $hwnd
     if (-not $canary.ok) { Fail "Kanarienvogel traege ($($canary.ms) ms) - neu starten." 'degraded' }
     $dialogs = @(Get-DialogInventory | Where-Object { $_.kind -in @('native-dialog','qt-dialog') })
+    # Ueberschriften sind nicht modulweit eindeutig: Der ELSTER-Bereich heisst in
+    # der Einkommensteuer wie in der Gewinnermittlung 'Grunddaten',
+    # 'Antrag auf Fristverlaengerung' und so fort. Die Ueberschriftpruefung
+    # allein wuerde ein est.-Seitenobjekt auf der gleichnamigen Gew-Seite
+    # akzeptieren. Der Falltyp aus dem Fenstertitel trennt sie - und wenn er
+    # nicht lesbar ist, wird nicht geraten, sondern wie bisher fortgefahren.
+    $erwarteterTyp = [string]$known.page.documentType
+    if ($erwarteterTyp) {
+      $fensterRecord = @(Get-Windows 'SSE' | Where-Object { [int64]$_.hwnd -eq [int64]$hwnd })[0]
+      $fallPfad = $(if ($fensterRecord) { Get-CasePathFromTitle ([string]$fensterRecord.title) } else { $null })
+      if ($fallPfad) {
+        $typMatch = [regex]::Match([IO.Path]::GetExtension($fallPfad), '^\.(?<type>[A-Za-z]+[0-9]{4})$')
+        if ($typMatch.Success -and $typMatch.Groups['type'].Value -ine $erwarteterTyp) {
+          Fail ("Seitenobjekt '$pageId' gehoert zum Falltyp '$erwarteterTyp', geoeffnet ist " +
+            "'$($typMatch.Groups['type'].Value)'. Ueberschriften sind zwischen den Modulen nicht eindeutig.") 'mode-mismatch'
+        }
+      }
+    }
     $state = Get-KnownPageState $hwnd $known
     Emit ([pscustomobject]@{
       ok=$true; pageId=$pageId; expectedHeading=[string]$known.page.heading
@@ -10105,10 +10124,16 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           # Steuer-Spar-Tipps oeffnen sich auf manchen Seiten von selbst - und er
           # ist mit einem Aufruf behoben. Das gehoert in die Meldung, nicht in
           # eine Fussnote.
+          # sse_window_close nimmt ausschliesslich Fenster der obersten Ebene.
+          # Das ist hitRoot, nicht hitWindow: WindowFromPoint liefert das
+          # unterste Kind unter dem Punkt, geschlossen wird der Vorfahr. Der
+          # Fingerprint kommt mit, sonst braeuchte der Aufrufer doch wieder
+          # sse_windows.
           $stoerung = ("Das SSE-eigene Fenster '" + [string]$verdecker.hitTitle + "' (Art '" +
             [string]$verdecker.hitWindowKind + "') lag ueber dem Zielfeld, deshalb wurde nicht geklickt. " +
-            'Zustand wurde nur gelesen; kein Rollback und kein Speichern. Es laesst sich mit sse_window_close ' +
-            '(hwnd aus commitDetails.hitWindow) schliessen; danach den Schreibvorgang wiederholen.')
+            'Zustand wurde nur gelesen; kein Rollback und kein Speichern. Schliessen mit sse_window_close: ' +
+            'pid=commitDetails.hitPid, hwnd=commitDetails.hitRoot, titleFingerprint=commitDetails.hitTitleFingerprint. ' +
+            'Danach den Schreibvorgang wiederholen.')
         }
       }
       Emit ([pscustomobject]@{
