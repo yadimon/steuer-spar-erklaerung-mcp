@@ -34,7 +34,7 @@ ausserhalb des Durchlaufs fehlen hier ganz - derzeit 5:
 | Steuer zu anderen Einkünften | Uebersicht | 0 | 0 | 0 |  |
 | Beteiligungen | Uebersicht | 0 | 0 | 0 |  |
 | Ausländische Investmenterträge ohne inländischen Steuerabzug | Uebersicht | 0 | 0 | 0 |  |
-| Verlustvorträge aus Kapitaleinkünften | Feldseite | 8 | 0 | 0 |  |
+| Verlustvorträge aus Kapitaleinkünften | Feldseite | 8 | 0 | 0 | ja |
 | Restfreibetrag für bestandsgeschützte Alt-Anteile | Feldseite | 2 | 0 | 0 |  |
 | Kapitalerträge, ermäßigt besteuert | Feldseite | 8 | 0 | 0 |  |
 | Ehrenämter und Aufwandsentschädigungen <Person> | Feldseite | 8 | 0 | 1 |  |
@@ -51,7 +51,7 @@ ausserhalb des Durchlaufs fehlen hier ganz - derzeit 5:
 | Wichtige Angaben zur Krankenversicherung | Uebersicht | 0 | 0 | 2 |  |
 | Gesetzliche Kranken- und Pflegeversicherung | Uebersicht | 0 | 0 | 0 |  |
 | Kinder: Übernommene Beiträge zur KV/PV | Uebersicht | 0 | 0 | 0 |  |
-| Außergewöhnliche Belastungen | Feldseite | 8 | 0 | 0 |  |
+| Außergewöhnliche Belastungen | Feldseite | 8 | 0 | 0 | ja |
 | Fahrtkosten | Tabellenseite | 0 | 13 | 9 |  |
 | Sonstige außergew. Belastungen: Sonstige Reisekosten | Tabellenseite | 0 | 3 | 1 |  |
 | Steuern und andere Themen | Feldseite | 18 | 0 | 0 |  |
