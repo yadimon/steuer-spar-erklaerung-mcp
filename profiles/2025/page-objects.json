@@ -2148,6 +2148,301 @@
           }
         }
       }
+    },
+    "est.elster_aenderung_bankverbindung": {
+      "heading": "Änderung der Bankverbindung",
+      "headingPrefix": "Änderung der Bankverbindung",
+      "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
+      "documentType": "ESt2025",
+      "reachedBy": "Rubrik 'Kommunikation mit dem Finanzamt per ELSTER', nach 'Änderung der Adresse'.",
+      "fields": {
+        "bundesland_finanzamt": {
+          "label": "Bundesland des Finanzamtes",
+          "controlType": "ComboBox",
+          "valueKind": "text",
+          "writeTool": "sse_combo_select",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenAenderungAdresse./.DatenAenderungAdresse.Bundesland./.DatenAenderungAdresse.Bundesland.Combobox",
+          "automationIdSuffix": ".DatenAenderungAdresse.Bundesland.Combobox",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "finanzamt": {
+          "label": "Finanzamt",
+          "controlType": "ComboBox",
+          "valueKind": "text",
+          "writeTool": "sse_combo_select",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenAenderungAdresse./.DatenAenderungAdresse.Finanzamt./.DatenAenderungAdresse.Finanzamt.Combobox",
+          "automationIdSuffix": ".DatenAenderungAdresse.Finanzamt.Combobox",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "steuernummer": {
+          "label": "Steuernummer",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenAenderungAdresse./.DatenAenderungAdresse.Steuernummer./.DatenAenderungAdresse.Steuernummer.Text",
+          "automationIdSuffix": ".DatenAenderungAdresse.Steuernummer.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "iban_neu": {
+          "label": "IBAN (neue Bankverbindung)",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenNeueAdresse./.DatenNeueAdresse.IBANNeu./.DatenNeueAdresse.IBANNeu.Text",
+          "automationIdSuffix": ".DatenNeueAdresse.IBANNeu.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "kontoinhaber": {
+          "label": "Kontoinhaber",
+          "controlType": "ComboBox",
+          "valueKind": "text",
+          "writeTool": "sse_combo_select",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenNeueAdresse./.DatenNeueAdresse.Kontoinhaber./.DatenNeueAdresse.Kontoinhaber.Combobox",
+          "automationIdSuffix": ".DatenNeueAdresse.Kontoinhaber.Combobox",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "steuerart": {
+          "label": "Steuerart",
+          "controlType": "ComboBox",
+          "valueKind": "text",
+          "writeTool": "sse_combo_select",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenNeueAdresse./.DatenNeueAdresse.Steuerart./.DatenNeueAdresse.Steuerart.Combobox",
+          "automationIdSuffix": ".DatenNeueAdresse.Steuerart.Combobox",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        }
+      }
+    },
+    "est.elster_fristverlaengerung": {
+      "heading": "Antrag auf Fristverlängerung",
+      "headingPrefix": "Antrag auf Fristverlängerung",
+      "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
+      "documentType": "ESt2025",
+      "reachedBy": "Rubrik 'Kommunikation mit dem Finanzamt per ELSTER', nach 'Schreiben an das Finanzamt'.",
+      "fields": {
+        "bundesland_finanzamt": {
+          "label": "Bundesland des Finanzamtes",
+          "controlType": "ComboBox",
+          "valueKind": "text",
+          "writeTool": "sse_combo_select",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenFristverlaengerungInhalt./.DatenFristverlaengerungInhalt.Bundesland./.DatenFristverlaengerungInhalt.Bundesland.Combobox",
+          "automationIdSuffix": ".DatenFristverlaengerungInhalt.Bundesland.Combobox",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "finanzamt": {
+          "label": "Finanzamt",
+          "controlType": "ComboBox",
+          "valueKind": "text",
+          "writeTool": "sse_combo_select",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenFristverlaengerungInhalt./.DatenFristverlaengerungInhalt.Finanzamt./.DatenFristverlaengerungInhalt.Finanzamt.Combobox",
+          "automationIdSuffix": ".DatenFristverlaengerungInhalt.Finanzamt.Combobox",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "steuernummer": {
+          "label": "Steuernummer",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenFristverlaengerungInhalt./.DatenFristverlaengerungInhalt.Steuernummer./.DatenFristverlaengerungInhalt.Steuernummer.Text",
+          "automationIdSuffix": ".DatenFristverlaengerungInhalt.Steuernummer.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "rechtsstellung": {
+          "label": "Rechtsstellung",
+          "controlType": "ComboBox",
+          "valueKind": "text",
+          "writeTool": "sse_combo_select",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenFristverlaengerungInhalt./.DatenFristverlaengerungInhalt.StPflTyp./.DatenFristverlaengerungInhalt.StPflTyp.Combobox",
+          "automationIdSuffix": ".DatenFristverlaengerungInhalt.StPflTyp.Combobox",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "betroffener_veranlagungszeitraum": {
+          "label": "Von Fristverlängerung betroffener Veranlagungszeitraum",
+          "controlType": "ComboBox",
+          "valueKind": "text",
+          "writeTool": "sse_combo_select",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenFristverlaengerungInhalt./.DatenFristverlaengerungInhalt.BetroffenerVZ./.DatenFristverlaengerungInhalt.BetroffenerVZ.Combobox",
+          "automationIdSuffix": ".DatenFristverlaengerungInhalt.BetroffenerVZ.Combobox",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "steuerart": {
+          "label": "Steuerart",
+          "controlType": "ComboBox",
+          "valueKind": "text",
+          "writeTool": "sse_combo_select",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenFristverlaengerungInhalt./.DatenFristverlaengerungInhalt.Steuerart./.DatenFristverlaengerungInhalt.Steuerart.Combobox",
+          "automationIdSuffix": ".DatenFristverlaengerungInhalt.Steuerart.Combobox",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "beantragte_frist_bis": {
+          "label": "Beantragte Fristverlängerung (bis)",
+          "controlType": "Edit",
+          "valueKind": "date",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenFristverlaengerungInhalt./.DatenFristverlaengerungInhalt.FristBis./.DatenFristverlaengerungInhalt.FristBis.Date",
+          "automationIdSuffix": ".DatenFristverlaengerungInhalt.FristBis.Date",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "persoenliche_bearbeitung": {
+          "label": "Ich möchte die persönliche Bearbeitung beim Finanzamt",
+          "controlType": "CheckBox",
+          "valueKind": "boolean",
+          "writeTool": "sse_toggle",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenFristverlaengerungInhalt./.DatenFristverlaengerungInhalt.PersoenlicheBearbeitung",
+          "automationIdSuffix": ".DatenFristverlaengerungInhalt.PersoenlicheBearbeitung",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        }
+      }
+    },
+    "est.elster_anpassung_vorauszahlungen": {
+      "heading": "Antrag auf Anpassung der Vorauszahlungen",
+      "headingPrefix": "Antrag auf Anpassung der Vorauszahlungen",
+      "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
+      "documentType": "ESt2025",
+      "reachedBy": "Rubrik 'Kommunikation mit dem Finanzamt per ELSTER', nach 'Antrag auf Fristverlängerung'.",
+      "fields": {
+        "bundesland_finanzamt": {
+          "label": "Bundesland des Finanzamtes",
+          "controlType": "ComboBox",
+          "valueKind": "text",
+          "writeTool": "sse_combo_select",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenAnpassungVZ./.DatenAnpassungVZ.Bundesland./.DatenAnpassungVZ.Bundesland.Combobox",
+          "automationIdSuffix": ".DatenAnpassungVZ.Bundesland.Combobox",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "finanzamt": {
+          "label": "Finanzamt",
+          "controlType": "ComboBox",
+          "valueKind": "text",
+          "writeTool": "sse_combo_select",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenAnpassungVZ./.DatenAnpassungVZ.Finanzamt./.DatenAnpassungVZ.Finanzamt.Combobox",
+          "automationIdSuffix": ".DatenAnpassungVZ.Finanzamt.Combobox",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "steuernummer": {
+          "label": "Steuernummer",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenAnpassungVZ./.DatenAnpassungVZ.Steuernummer./.DatenAnpassungVZ.Steuernummer.Text",
+          "automationIdSuffix": ".DatenAnpassungVZ.Steuernummer.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "rechtsstellung": {
+          "label": "Rechtsstellung",
+          "controlType": "ComboBox",
+          "valueKind": "text",
+          "writeTool": "sse_combo_select",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenAnpassungVZ./.DatenAnpassungVZ.StPflTyp./.DatenAnpassungVZ.StPflTyp.Combobox",
+          "automationIdSuffix": ".DatenAnpassungVZ.StPflTyp.Combobox",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "betreffende_steuerart": {
+          "label": "Betreffende Steuerart",
+          "controlType": "ComboBox",
+          "valueKind": "text",
+          "writeTool": "sse_combo_select",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenAnpassungVZ./.DatenAnpassungVZ.BetroffenerVZ./.DatenAnpassungVZ.BetroffenerVZ.Combobox",
+          "automationIdSuffix": ".DatenAnpassungVZ.BetroffenerVZ.Combobox",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "quartal": {
+          "label": "Quartal",
+          "controlType": "ComboBox",
+          "valueKind": "text",
+          "writeTool": "sse_combo_select",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenAnpassungVZ./.DatenAnpassungVZ.AnpassungVZQuartal./.DatenAnpassungVZ.AnpassungVZQuartal.Combobox",
+          "automationIdSuffix": ".DatenAnpassungVZ.AnpassungVZQuartal.Combobox",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "jahr": {
+          "label": "Jahr",
+          "controlType": "ComboBox",
+          "valueKind": "text",
+          "writeTool": "sse_combo_select",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.DatenAnpassungVZ./.DatenAnpassungVZ.AnpassungVZJahr./.DatenAnpassungVZ.AnpassungVZJahr.Combobox",
+          "automationIdSuffix": ".DatenAnpassungVZ.AnpassungVZJahr.Combobox",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        }
+      }
     }
   }
 }
