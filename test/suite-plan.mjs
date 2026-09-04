@@ -49,6 +49,7 @@ export const parallelSteps = Object.freeze([
   psFile("recovery-answer-policy", "test/recovery-answer-policy-contract.ps1"),
   psFile("update-prompt", "test/update-prompt-contract.ps1"),
   psFile("obstruction-window", "test/obstruction-window-contract.ps1"),
+  psFile("known-page-state", "test/known-page-state-contract.ps1"),
   psFile("heading-cache", "test/heading-cache-contract.ps1"),
   psFile("desktop-stop-policy", "test/desktop-stop-policy-contract.ps1"),
   psFile("process-command-line", "test/process-command-line-contract.ps1"),
