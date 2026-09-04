@@ -2888,6 +2888,22 @@ function Get-SSEWindowClassName([IntPtr]$Window) {
   $className.ToString()
 }
 
+function Get-SSEWindowTitleText([IntPtr]$Window) {
+  if ($Window -eq [IntPtr]::Zero) { return '' }
+  $text = New-Object Text.StringBuilder 512
+  [SW]::GetWindowTextW($Window, $text, $text.Capacity) | Out-Null
+  $text.ToString()
+}
+
+# Ordnet ein SSE-eigenes Fenster derselben Art zu, die sse_ui_state meldet.
+# Beide Stellen muessen dieselben Schwellen verwenden, sonst nennt die eine ein
+# Fenster 'steuer-tipps', das die andere nicht kennt.
+function Resolve-SSEToolWindowKind([string]$Title, [int]$Width, [int]$Height) {
+  if ($Title -eq $script:WERTE_INFO_TITEL -and $Width -le 900 -and $Height -le 700) { return 'werte-info' }
+  if ($Title -eq 'Steuer-Spar-Tipps' -and $Width -le 850 -and $Height -le 650) { return 'steuer-tipps' }
+  ''
+}
+
 function Get-SSEPointObstruction([IntPtr]$BoundWindow, [int]$X, [int]$Y) {
   $point = New-Object SW+PT
   $point.X = $X; $point.Y = $Y
@@ -6537,11 +6553,23 @@ function Commit-TrackedValue([IntPtr]$Hwnd, $Node, [string]$Value, [string]$Expe
         try { $hitProcessName = [string](Get-Process -Id $hitPid -ErrorAction Stop).ProcessName } catch { }
       }
       $hitClassName = Get-SSEWindowClassName $hitRoot
+      # Titel und Groesse des verdeckenden Fensters gleich mitnehmen: Ohne sie
+      # muss der Aufrufer erst sse_windows und sse_ui_state nachschieben, um zu
+      # erfahren, dass ihm ein schliessbares Nebenfenster im Weg stand.
+      $hitTitle = Get-SSEWindowTitleText $hitRoot
+      $hitWindowKind = ''
+      if ($hitPid -eq $expectedPid) {
+        $hitRect = New-Object SW+RC
+        if ([SW]::GetWindowRect($hitRoot, [ref]$hitRect)) {
+          $hitWindowKind = Resolve-SSEToolWindowKind $hitTitle ($hitRect.R - $hitRect.L) ($hitRect.B - $hitRect.T)
+        }
+      }
       $obstructionDetails = [pscustomobject]@{
         point=[pscustomobject]@{ x=$px; y=$py }
         expectedPid=[int]$expectedPid; hitPid=[int]$hitPid
         expectedRoot=[int64]$Hwnd; hitRoot=[int64]$hitRoot; hitWindow=[int64]$hitWindow
         hitProcessName=$hitProcessName; hitClassName=$hitClassName
+        hitTitle=$hitTitle; hitWindowKind=$hitWindowKind
         sameProcess=[bool]($hitPid -eq $expectedPid)
         foregroundHwnd=[int64][SW]::GetForegroundWindow()
         foregroundPrepared=[bool]$foregroundPrepared
@@ -10066,6 +10094,18 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $stoerung = 'Interaktions-Guard hat fremde Eingabe, ein verschobenes/ausgetauschtes Element oder eine blockierende Fensterlage erkannt. Zustand wurde nur gelesen; kein automatischer Rollback und kein Speichern. Mit sse_ui_state neu synchronisieren.'
       if ($commitMethod -eq 'epoch-obstructed') {
         $stoerung = 'Ueber dem Zielfeld lag ein anderes Fenster, deshalb wurde nicht geklickt. Zustand wurde nur gelesen; kein Rollback und kein Speichern. Welches Fenster es war, steht in commitDetails.hitWindow; sse_ui_state listet die offenen Nebenfenster.'
+        $verdecker = $null
+        try { $verdecker = $commitResult.details } catch { $verdecker = $null }
+        if ($verdecker -and [string]$verdecker.hitWindowKind) {
+          # Ein katalogisiertes Nebenfenster ist der haeufigste Fall - die
+          # Steuer-Spar-Tipps oeffnen sich auf manchen Seiten von selbst - und er
+          # ist mit einem Aufruf behoben. Das gehoert in die Meldung, nicht in
+          # eine Fussnote.
+          $stoerung = ("Das SSE-eigene Fenster '" + [string]$verdecker.hitTitle + "' (Art '" +
+            [string]$verdecker.hitWindowKind + "') lag ueber dem Zielfeld, deshalb wurde nicht geklickt. " +
+            'Zustand wurde nur gelesen; kein Rollback und kein Speichern. Es laesst sich mit sse_window_close ' +
+            '(hwnd aus commitDetails.hitWindow) schliessen; danach den Schreibvorgang wiederholen.')
+        }
       }
       Emit ([pscustomobject]@{
         ok=$false; kind='interference'
@@ -20351,10 +20391,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         })
         continue
       }
-      if ($w.title -eq $script:WERTE_INFO_TITEL -and $w.w -le 900 -and $w.h -le 700) { $art = 'werte-info' }
-      elseif ($w.title -eq 'Steuer-Spar-Tipps' -and $w.w -le 850 -and $w.h -le 650) { $art = 'steuer-tipps' }
-      elseif ($w.cls -match '^UAC[ _]' -and $w.w -le 80 -and $w.h -le 80) { $art = 'system-overlay' }
-      else { $art = $null }
+      $art = Resolve-SSEToolWindowKind $w.title ([int]$w.w) ([int]$w.h)
+      if (-not $art -and $w.cls -match '^UAC[ _]' -and $w.w -le 80 -and $w.h -le 80) { $art = 'system-overlay' }
+      if (-not $art) { $art = $null }
       if ($art) {
         $null = $fenster.Add([pscustomobject]@{
           hwnd=$w.hwnd; pid=$w.pid; cls=$w.cls; title=$w.title; art=$art
