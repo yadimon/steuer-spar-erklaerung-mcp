@@ -51,6 +51,17 @@ for (const [pageId, heading, expectedFields] of [
   assert(Array.isArray(page.notes.radioButtons) && page.notes.radioButtons.length >= 2,
     `${pageId} muss die nicht katalogisierbaren RadioButtons als Hinweis fuehren.`);
 }
+// Ein Seitenobjekt mit Feldern muss seinen Dokumenttyp nennen. Ohne ihn waehlt
+// `knownPageForCase` die Seite nie aus - sie faellt aus jeder Live-Pruefung
+// heraus, ohne dass etwas rot wird. Seiten, die nur Tabellen beschreiben, sind
+// ausgenommen: Fuer sie gibt es nichts feldweise zu vergleichen.
+const ohneDokumenttyp = Object.entries(profile.pageObjectsCatalog.pages)
+  .filter(([, page]) => Object.keys(page.fields ?? {}).length > 0)
+  .filter(([, page]) => typeof page.documentType !== "string" || !page.documentType)
+  .map(([pageId]) => pageId);
+assert.deepEqual(ohneDokumenttyp, [],
+  `Diese Seitenobjekte fuehren Felder, nennen aber keinen documentType: ${ohneDokumenttyp.join(", ")}`);
+
 const masterData = profile.pageObjectsCatalog.pages["gew_erfass.allgemeine_angaben_unternehmen"];
 assert.equal(masterData.fields.einkunftsart.controlType, "ComboBox");
 assert.equal(masterData.fields.einkunftsart.writeTool, "sse_combo_select",
