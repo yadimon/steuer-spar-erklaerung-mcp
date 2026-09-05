@@ -219,9 +219,52 @@ try {
   assert.equal(openApi.code, 0, openApi.stderr);
   assert.equal(JSON.parse(openApi.stdout).openapi, "3.1.0");
 
+  // Argumente duerfen einzeln in der Kommandozeile stehen. Der Server spiegelt
+  // sie zurueck, also laesst sich pruefen, was wirklich ankommt - samt Typ.
+  const inline = await runCli(
+    "find", "--name", "Spenden", "--hwnd", "123", "--type", "Button", "--config", config.configPath,
+  );
+  assert.equal(inline.code, 0, inline.stderr);
+  assert.deepEqual(JSON.parse(inline.stdout).args, { name: "Spenden", hwnd: 123, type: "Button" },
+    "Ein Wert wird als JSON gelesen, wenn er sich als JSON lesen laesst - 123 also als Zahl.");
+
+  // Dass die Umwandlung wirklich greift, zeigt der Gegenfall: '2024' als Name
+  // wird zur Zahl und vom Schema abgewiesen. Wer die Zeichenkette braucht,
+  // schreibt sie als JSON-Zeichenkette - ohne diesen Weg waere sie unerreichbar.
+  const alsZahl = await runCli("find", "--name", "2024", "--config", config.configPath);
+  assert.equal(alsZahl.code, 2);
+  assert.match(alsZahl.stderr, /Expected string, received number/);
+  const alsText = await runCli("find", "--name", '"2024"', "--config", config.configPath);
+  assert.equal(alsText.code, 0, alsText.stderr);
+  assert.equal(JSON.parse(alsText.stdout).args.name, "2024");
+
+  // Datei und Einzelargumente zusammen: die Datei ist die Grundlage, das
+  // einzelne Argument gewinnt. Sonst waere eine Vorlage nicht abwandelbar.
+  const vorlagePath = join(temporary, "vorlage.json");
+  writeFileSync(vorlagePath, `${JSON.stringify({ name: "aus-datei", type: "Edit" })}
+`, "utf8");
+  const gemischt = await runCli(
+    "find", "--args-file", vorlagePath, "--name", "aus-argument", "--config", config.configPath,
+  );
+  assert.deepEqual(JSON.parse(gemischt.stdout).args, { name: "aus-argument", type: "Edit" });
+
+  // Ein doppelt genanntes Argument ist mehrdeutig und wird abgewiesen, statt
+  // stillschweigend das letzte zu nehmen.
+  const doppelt = await runCli("find", "--name", "a", "--name", "b", "--config", config.configPath);
+  assert.equal(doppelt.code, 2);
+  assert.match(doppelt.stderr, /Argument 'name' ist doppelt angegeben/);
+
+  // Die vier Aufrufoptionen tragen Bindestriche, Operationsargumente nicht.
+  // Damit kann ein Tippfehler in einer Aufrufoption nicht stillschweigend zu
+  // einem Operationsargument werden.
   const rejectedInline = await runCli("find", "--args-json", "{}", "--config", config.configPath);
   assert.equal(rejectedInline.code, 2);
   assert.match(rejectedInline.stderr, /Unbekannte Option '--args-json'/);
+
+  // Die argumentlosen Befehle nehmen weiterhin keine Argumente an.
+  const discoveryMitArgument = await runCli("discovery", "--hwnd", "1", "--config", config.configPath);
+  assert.equal(discoveryMitArgument.code, 2);
+  assert.match(discoveryMitArgument.stderr, /discovery akzeptiert keine Operationsargumente/);
 
   // Wird das Paket verlinkt statt kopiert - npm mit lokalem Pfad, npm link,
   // pnpm -, laedt Node das Modul unter seinem aufgeloesten Pfad, waehrend

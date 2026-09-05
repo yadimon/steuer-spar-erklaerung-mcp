@@ -96,6 +96,19 @@ zuerst ist ihr fachlicher Zustand über eine neue, read-only API-Abfrage zu
 ermitteln. Das Journal ist bewusst eine optionale CLI-Aufruferfunktion und kein
 zweites serverseitiges Transaktionsprotokoll.
 
+Argumente erreichen die CLI auf zwei Wegen: einzeln als `--<name> <wert>` oder
+als JSON-Objekt über `--args-file`. Beides zusammen ist erlaubt; die Datei ist
+die Grundlage, einzelne Werte gewinnen darüber. Ein einzelner Wert wird als JSON
+gelesen, wenn er sich als JSON lesen lässt, sonst als Zeichenkette — `--hwnd 123`
+ist also eine Zahl, `--name Spenden` eine Zeichenkette, und eine Zeichenkette,
+die wie eine Zahl aussieht, schreibt man als `--name '"2024"'`.
+
+Für den Weg über die Kommandozeile gelten zwei Einschränkungen, die keine
+Verbote sind, sondern Eigenschaften der Umgebung: Werte landen im dauerhaften
+Verlauf der Shell, und nicht-ASCII geht durch deren Codepage. Für Umlaute und
+für alles, was nicht im Verlauf stehen soll, bleibt `--args-file` der
+verlässliche Weg.
+
 Für `--args-file` gilt zusätzlich ein Bytevertrag: Mehrzeilige oder
 nicht-ASCII Nutzdaten werden als neue UTF-8-JSON-Datei ohne BOM erzeugt,
 zurückgeparst und über ihren Pfad übergeben. Eine Windows-PowerShell-Pipeline
