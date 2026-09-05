@@ -100,14 +100,20 @@ Argumente erreichen die CLI auf zwei Wegen: einzeln als `--<name> <wert>` oder
 als JSON-Objekt über `--args-file`. Beides zusammen ist erlaubt; die Datei ist
 die Grundlage, einzelne Werte gewinnen darüber. Ein einzelner Wert wird als JSON
 gelesen, wenn er sich als JSON lesen lässt, sonst als Zeichenkette — `--hwnd 123`
-ist also eine Zahl, `--name Spenden` eine Zeichenkette, und eine Zeichenkette,
-die wie eine Zahl aussieht, schreibt man als `--name '"2024"'`.
+ist also eine Zahl, `--name Spenden` eine Zeichenkette.
 
-Für den Weg über die Kommandozeile gelten zwei Einschränkungen, die keine
-Verbote sind, sondern Eigenschaften der Umgebung: Werte landen im dauerhaften
-Verlauf der Shell, und nicht-ASCII geht durch deren Codepage. Für Umlaute und
-für alles, was nicht im Verlauf stehen soll, bleibt `--args-file` der
-verlässliche Weg.
+Eine Zeichenkette, die wie eine Zahl aussieht, lässt sich **nicht shellneutral**
+erzwingen. Gemessen auf derselben Maschine: Windows PowerShell 5.1 entfernt die
+Anführungszeichen aus `--pageId '"2024"'` und übergibt `2024`, PowerShell 7
+reicht `"2024"` unverändert durch; die jeweils andere Schreibweise `'\"2024\"'`
+verhält sich spiegelbildlich. Es gibt keine Form, die in beiden Editionen
+funktioniert. Wer einen Typ sicher erzwingen will, nimmt `--args-file`.
+
+Für den Weg über die Kommandozeile gelten zwei weitere Einschränkungen, die
+keine Verbote sind, sondern Eigenschaften der Umgebung: Werte landen im
+dauerhaften Verlauf der Shell, und nicht-ASCII geht durch deren Codepage. Für
+Umlaute und für alles, was nicht im Verlauf stehen soll, bleibt `--args-file`
+der verlässliche Weg.
 
 Für `--args-file` gilt zusätzlich ein Bytevertrag: Mehrzeilige oder
 nicht-ASCII Nutzdaten werden als neue UTF-8-JSON-Datei ohne BOM erzeugt,
