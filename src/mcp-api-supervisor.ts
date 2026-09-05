@@ -409,11 +409,29 @@ export function ensureApiSingleton(): Promise<ApiHealthDocument> {
 export async function assertApiSingletonIdentity(): Promise<ApiHealthDocument> {
   const endpoint = activeEndpoint;
   if (!endpoint) return ensureApiSingleton();
-  const current = await probe(
+  let current = await probe(
     endpoint.baseUrl,
     INITIAL_PROBE_TIMEOUT_MS,
     endpoint.expectedConfigurationFingerprint,
   );
+  // Ein Transportfehler ist KEINE Aussage darueber, wer am Port lauscht. Er
+  // entsteht auch, wenn eine wiederverwendete Verbindung stirbt - etwa weil
+  // genau dieser API-Prozess gerade ausgetauscht wurde. Wer ihn als Befund
+  // durchreicht, meldet ausgerechnet dann "nicht erreichbar", wenn die
+  // eigentliche Nachricht "der Prozess wurde ausgetauscht" lauten muesste,
+  // und verschluckt damit den Hinweis, den der Benutzer braucht: den
+  // MCP-Server neu starten, statt einen zweiten API-Prozess zu starten.
+  //
+  // Genau einmal frisch nachfragen. Die Abfrage ist ein lesendes GET auf
+  // /healthz und damit gefahrlos wiederholbar; ist die API wirklich weg,
+  // scheitert auch der zweite Versuch und der Netzwerkfehler bleibt.
+  if (current.state === "absent") {
+    current = await probe(
+      endpoint.baseUrl,
+      INITIAL_PROBE_TIMEOUT_MS,
+      endpoint.expectedConfigurationFingerprint,
+    );
+  }
   if (current.state === "compatible") {
     if (activeProcessId !== undefined && current.health.processId !== activeProcessId) {
       throw new ApiClientError(

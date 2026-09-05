@@ -343,6 +343,73 @@ try {
     await closeServer(replacement);
   }
 
+  // Ein abgerissener Transport ist KEINE Aussage darueber, wer am Port lauscht.
+  // Genau das passiert beim Austausch eines API-Prozesses: Die
+  // wiederverwendete Verbindung stirbt, und die Identitaetsabfrage scheitert
+  // am Socket, bevor sie die neue Identitaet sehen kann. Wird der
+  // Transportfehler als Befund durchgereicht, meldet der MCP "nicht
+  // erreichbar" statt "ausgetauscht" - und verschluckt damit den Hinweis, den
+  // der Benutzer braucht.
+  //
+  // Der Ablauf ist hier bewusst deterministisch und nicht zeitabhaengig: Die
+  // erste Abfrage nach dem Handshake wird abgerissen, die zweite antwortet mit
+  // einer anderen Instanz.
+  const abrissPort = await freePort();
+  let abrissAbfragen = 0;
+  const abrissZaehler = { operations: 0 };
+  const abriss = createServer((request, response) => {
+    if (request.url === "/healthz") {
+      abrissAbfragen += 1;
+      if (abrissAbfragen === 2) {
+        request.socket.destroy();
+        return;
+      }
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({
+        ok: true,
+        apiVersion: "v1",
+        packageName: SSE_API_PACKAGE_NAME,
+        packageVersion: SSE_PACKAGE_VERSION,
+        processId: 10101,
+        // Ab der dritten Abfrage eine ANDERE Instanz - der Austausch.
+        instanceId: abrissAbfragen >= 3
+          ? "99999999-9999-4999-8999-999999999999"
+          : "77777777-7777-4777-8777-777777777777",
+        configurationFingerprint: "0".repeat(64),
+        inFlight: null,
+        prewarm: null,
+      }));
+      return;
+    }
+    abrissZaehler.operations += 1;
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ ok: true }));
+  });
+  abriss.listen(abrissPort, "127.0.0.1");
+  await once(abriss, "listening");
+  const abrissClient = await connectMcp({
+    ...process.env,
+    SSE_API_CONFIG: "",
+    SSE_API_URL: `http://127.0.0.1:${abrissPort}`,
+  });
+  try {
+    const abrissErgebnis = await abrissClient.callTool({ name: "sse_health", arguments: {} });
+    const abrissText = abrissErgebnis.content
+      ?.filter((entry) => entry.type === "text")
+      .map((entry) => entry.text)
+      .join("\n") ?? "";
+    assert.equal(abrissErgebnis.isError, true,
+      "Ein ausgetauschter API-Prozess wurde trotz abgerissener Verbindung weiterverwendet.");
+    assert.match(abrissText, /ausgetauscht|inkompatibel/iu,
+      "Nach einem abgerissenen Transport meldet der MCP den Netzwerkfehler statt des Austauschs; " +
+      "die Identitaetsabfrage muss genau einmal frisch nachfragen.");
+    assert.equal(abrissZaehler.operations, 0,
+      "MCP rief eine Operation auf dem ausgetauschten Prozess auf.");
+  } finally {
+    await abrissClient.close();
+    await closeServer(abriss);
+  }
+
   const noFallbackPort = await freePort();
   const untouchedConfigPort = await freePort();
   const ambiguousResult = await runMcp(["--selftest"], {

@@ -8375,11 +8375,18 @@ function ensureApiSingleton() {
 async function assertApiSingletonIdentity() {
   const endpoint = activeEndpoint;
   if (!endpoint) return ensureApiSingleton();
-  const current = await probe(
+  let current = await probe(
     endpoint.baseUrl,
     INITIAL_PROBE_TIMEOUT_MS,
     endpoint.expectedConfigurationFingerprint
   );
+  if (current.state === "absent") {
+    current = await probe(
+      endpoint.baseUrl,
+      INITIAL_PROBE_TIMEOUT_MS,
+      endpoint.expectedConfigurationFingerprint
+    );
+  }
   if (current.state === "compatible") {
     if (activeProcessId !== void 0 && current.health.processId !== activeProcessId) {
       throw new ApiClientError(
