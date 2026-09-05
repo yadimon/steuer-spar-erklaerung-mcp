@@ -4,7 +4,7 @@ Eine Tafel statt vier Dokumente. Jede bekannte Faehigkeit von
 SteuerSparErklaerung mit dem Stand bei uns, dem Beleg und dem Weg, auf dem sie
 zu bauen waere.
 
-**Stand: 2026-09-03**, SSE `31.0.2.0` / `[31.31]`, API `0.1.0-beta.36`.
+**Stand: 2026-09-05**, SSE `31.0.2.0` / `[31.31]`, API `0.1.0-beta.37`.
 Diese Tafel ist von Hand gepflegt und veraltet zwangslaeufig. Die erzeugte
 [API-Referenz](../API-REFERENZ.md) ist immer aktuell; sie sagt aber nur, was da
 ist, nicht was fehlt.
