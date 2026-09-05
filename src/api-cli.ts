@@ -11,23 +11,56 @@ interface CliArguments {
   command: string;
   targetOperation?: string;
   argsFile?: string;
+  inlineArgs: Record<string, unknown>;
   configPath?: string;
   journalFile?: string;
   timeoutMs: number;
 }
 
+/**
+ * Diese vier steuern den Aufruf selbst. Alles andere in der Form `--name wert`
+ * ist ein Argument der Operation.
+ *
+ * Sie tragen bewusst Bindestriche, die Operationsargumente bewusst nicht: So
+ * kann ein Tippfehler in einer dieser Optionen nicht stillschweigend zu einem
+ * Operationsargument werden, sondern meldet sich als unbekannte Option.
+ */
+const RESERVED_OPTIONS = ["--args-file", "--config", "--journal-file", "--timeout-ms"] as const;
+const OPERATION_ARGUMENT_NAME = /^[A-Za-z][A-Za-z0-9_]*$/u;
+
 const usage = [
   "Aufruf:",
   "  steuer-spar-erklaerung-call health [--config <config.json>] [--journal-file <new.jsonl>]",
-  "  steuer-spar-erklaerung-call <operation> --args-file <args.json|-> [--timeout-ms <ms>] [--config <config.json>] [--journal-file <new.jsonl>]",
+  "  steuer-spar-erklaerung-call <operation> [--<name> <wert> ...] [--args-file <args.json|->] [--timeout-ms <ms>] [--config <config.json>] [--journal-file <new.jsonl>]",
   "  steuer-spar-erklaerung-call discovery [--config <config.json>] [--journal-file <new.jsonl>]",
   "  steuer-spar-erklaerung-call describe <operation> [--config <config.json>] [--journal-file <new.jsonl>]",
   "  steuer-spar-erklaerung-call openapi [--config <config.json>] [--journal-file <new.jsonl>]",
   "",
-  "Mit --args-file - kommt ein begrenztes JSON-Objekt ueber stdin.",
-  "Argumentwerte werden absichtlich nicht direkt in der Kommandozeile akzeptiert.",
+  "Argumente gehen einzeln als --<name> <wert> oder als JSON-Objekt ueber",
+  "--args-file <datei> beziehungsweise --args-file - (stdin). Beides zusammen",
+  "ist erlaubt; einzelne Werte gewinnen gegen die Datei.",
+  "",
+  "Ein Wert wird als JSON gelesen, wenn er sich als JSON lesen laesst, sonst als",
+  "Zeichenkette: --hwnd 123 ergibt eine Zahl, --name Spenden eine Zeichenkette,",
+  "--discardChanges true einen Wahrheitswert. Soll eine Zahl eine Zeichenkette",
+  "sein, dann als JSON-Zeichenkette schreiben: --name '\"2024\"'.",
+  "",
+  "Zwei Dinge dabei wissen: Werte in der Kommandozeile landen im Verlauf der",
+  "Shell - PowerShell schreibt ihn dauerhaft mit -, und nicht-ASCII geht durch",
+  "die Codepage der Shell. Fuer Umlaute und fuer alles, was nicht im Verlauf",
+  "stehen soll, ist --args-file der verlaessliche Weg.",
+  "",
   "--journal-file legt vor dem Aufruf exklusiv ein dauerhaftes pending/result-Protokoll an und ueberschreibt nie.",
 ].join("\n");
+
+/** Ein Wert ist JSON, wenn er sich als JSON lesen laesst - sonst eine Zeichenkette. */
+function parseInlineArgumentValue(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return raw;
+  }
+}
 
 function parseCliArguments(argv: readonly string[]): CliArguments {
   const command = argv[0];
@@ -47,32 +80,44 @@ function parseCliArguments(argv: readonly string[]): CliArguments {
     }
     optionStart = 2;
   }
+  const inlineArgs: Record<string, unknown> = {};
   for (let index = optionStart; index < argv.length; index += 1) {
-    const option = argv[index];
+    const option = argv[index] ?? "";
     const value = argv[index + 1];
-    if (!["--args-file", "--config", "--journal-file", "--timeout-ms"].includes(option ?? "")) {
+    const reserved = (RESERVED_OPTIONS as readonly string[]).includes(option);
+    const argumentName = option.startsWith("--") ? option.slice(2) : "";
+    if (!reserved && !OPERATION_ARGUMENT_NAME.test(argumentName)) {
       throw new ApiClientError(`Unbekannte Option '${option}'.\n${usage}`, "usage");
     }
     if (!value || value.startsWith("--")) {
       throw new ApiClientError(`Option '${option}' braucht einen Wert.\n${usage}`, "usage");
     }
     if (option === "--args-file") argsFile = value === "-" ? "-" : resolve(value);
-    if (option === "--config") configPath = resolve(value);
-    if (option === "--journal-file") journalFile = resolve(value);
-    if (option === "--timeout-ms") {
+    else if (option === "--config") configPath = resolve(value);
+    else if (option === "--journal-file") journalFile = resolve(value);
+    else if (option === "--timeout-ms") {
       timeoutMs = Number(value);
       if (!Number.isInteger(timeoutMs)) {
         throw new ApiClientError("--timeout-ms muss eine ganze Zahl sein.", "usage");
       }
+    } else {
+      // Ein zweimal genanntes Argument waere mehrdeutig; stillschweigend das
+      // letzte zu nehmen verschleiert einen Tippfehler.
+      if (Object.prototype.hasOwnProperty.call(inlineArgs, argumentName)) {
+        throw new ApiClientError(`Argument '${argumentName}' ist doppelt angegeben.`, "usage");
+      }
+      inlineArgs[argumentName] = parseInlineArgumentValue(value);
     }
     index += 1;
   }
-  if (["discovery", "describe", "openapi"].includes(command) && argsFile) {
-    throw new ApiClientError(`${command} akzeptiert keine Argumentdatei.`, "usage");
+  const inlineCount = Object.keys(inlineArgs).length;
+  if (["discovery", "describe", "openapi"].includes(command) && (argsFile || inlineCount)) {
+    throw new ApiClientError(`${command} akzeptiert keine Operationsargumente.`, "usage");
   }
   return {
     command,
     timeoutMs,
+    inlineArgs,
     ...(targetOperation ? { targetOperation } : {}),
     ...(argsFile ? { argsFile } : {}),
     ...(configPath ? { configPath } : {}),
@@ -116,7 +161,23 @@ export async function readCliInputBounded(
   return Buffer.concat(chunks, total);
 }
 
-async function readOperationArgs(argsFile?: string): Promise<Record<string, unknown>> {
+/**
+ * Datei/stdin liefern die Grundlage, einzelne `--name wert` gewinnen darueber.
+ * So laesst sich eine Vorlage wiederverwenden und punktuell abwandeln.
+ */
+async function readOperationArgs(
+  argsFile: string | undefined,
+  inlineArgs: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const merged = { ...(await readArgumentsFile(argsFile)), ...inlineArgs };
+  const bytes = Buffer.byteLength(JSON.stringify(merged), "utf8");
+  if (bytes > MAX_API_BODY_BYTES) {
+    throw new ApiClientError(`Operationsargumente sind groesser als ${MAX_API_BODY_BYTES} Bytes.`, "bad-args");
+  }
+  return merged;
+}
+
+async function readArgumentsFile(argsFile?: string): Promise<Record<string, unknown>> {
   if (!argsFile) return {};
   let parsed: unknown;
   try {
@@ -152,7 +213,7 @@ async function runApiCli(argv: readonly string[]): Promise<number> {
     if (cli.command === "discovery") output = await client.readApiDiscovery(options);
     else if (cli.command === "describe") output = await client.readApiOperationDiscovery(cli.targetOperation!, options);
     else if (cli.command === "openapi") output = await client.readOpenApiDocument(options);
-    else output = await client.callApiOperation(cli.command, await readOperationArgs(cli.argsFile), cli.timeoutMs, options);
+    else output = await client.callApiOperation(cli.command, await readOperationArgs(cli.argsFile, cli.inlineArgs), cli.timeoutMs, options);
     const exitCode = output && typeof output === "object" && "ok" in output && output.ok === false ? 1 : 0;
     journal?.complete(output, exitCode);
     process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
