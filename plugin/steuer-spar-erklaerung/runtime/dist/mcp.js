@@ -7447,7 +7447,7 @@ var init_version = __esm({
     SSE_PACKAGE_NAME = "steuer-spar-erklaerung-mcp";
     SSE_API_PACKAGE_NAME = "@yadimon/steuer-spar-erklaerung-api";
     SSE_PLUGIN_NAME = "steuer-spar-erklaerung";
-    SSE_PACKAGE_VERSION = "0.1.0-beta.38";
+    SSE_PACKAGE_VERSION = "0.1.0-beta.39";
   }
 });
 
