@@ -2428,100 +2428,6 @@ $script:INIT_TIMINGS.nativeExpectedDllHash = $nativeLoad.expectedDllHash
 $script:INIT_TIMINGS.nativeDllHashMatch = $nativeLoad.dllHashMatch
 if ($nativeLoad.dllError) { $script:INIT_TIMINGS.nativeDllError = $nativeLoad.dllError }
 }
-# ------------------------------------------------------- Auftragsannahme (warm)
-# Ab hier ist alles Teure erledigt: dieses Skript ist zerlegt, das Produkt-
-# profil geladen, die Assemblies und die native Interop-DLL sind im Prozess.
-# Ein vorgewaermter Arbeiter meldet sich jetzt einmal als bereit und wartet
-# auf seinen einen Auftrag. Schliesst der Elternprozess die Standardeingabe,
-# endet der Arbeiter ohne Nebenwirkung.
-if ($Prewarm) {
-  # Statische, validierte Profilkataloge vor der Bereitschaft laden. Fast alle
-  # UI-Operationen erhalten danach dieselben cachegebundenen Objekte schneller.
-  $staticProfileProbe = [Diagnostics.Stopwatch]::StartNew()
-  $null = Get-SSEExecutableIdentity $script:SSE_DEFAULT_EXE
-  $null = Get-SSEPageObjects
-  $staticProfileProbe.Stop()
-  $script:INIT_TIMINGS.staticProfileCacheMs = $staticProfileProbe.ElapsedMilliseconds
-
-  # PowerShell zerlegt das gesamte Skript vor der ersten Anweisung, registriert
-  # eine Funktionsdeklaration aber erst, wenn ihre Anweisung ausgefuehrt wird.
-  # Der grosse Operationsdispatcher lag dadurch trotz prewarm=ready noch auf
-  # dem Aufrufpfad. Fuer den Reservearbeiter registrieren wir exakt die eine
-  # bereits geparste eigene Definition jetzt; eine allgemeine Auswertung
-  # fremden Texts darf an dieser Vertrauensgrenze nicht stattfinden.
-  $dispatcherProbe = [Diagnostics.Stopwatch]::StartNew()
-  $workerAst = $MyInvocation.MyCommand.ScriptBlock.Ast
-  $dispatcherDefinitions = @($(if ($workerAst) {
-    $workerAst.FindAll({
-      param($node)
-      $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
-        $node.Name -ceq 'Invoke-SSEWorkerOperation'
-    }, $true)
-  }))
-  if ($dispatcherDefinitions.Count -ne 1) {
-    Fail "Worker-AST enthaelt $($dispatcherDefinitions.Count) Dispatcherdefinitionen statt genau einer." 'worker-init'
-  }
-  try {
-    $dispatcherDefinition = [ScriptBlock]::Create($dispatcherDefinitions[0].Extent.Text)
-    . $dispatcherDefinition
-  } catch {
-    Fail "Dispatcherdefinition liess sich nicht aus dem eigenen Worker-AST registrieren: $($_.Exception.Message)" 'worker-init'
-  }
-  if (-not (Test-Path -LiteralPath 'Function:\Invoke-SSEWorkerOperation')) {
-    Fail 'Dispatcherdefinition wurde vor der Bereitschaft nicht registriert.' 'worker-init'
-  }
-  $dispatcherProbe.Stop()
-  $script:INIT_TIMINGS.dispatcherRegistrationMs = $dispatcherProbe.ElapsedMilliseconds
-
-  # Registriert ist der Dispatcher damit, uebersetzt aber noch nicht. Genau
-  # dieser Schritt lag bisher im Aufrufpfad; hier gehoert er hin.
-  $dispatcherWarmupProbe = [Diagnostics.Stopwatch]::StartNew()
-  Invoke-SSEWorkerOperation $script:SSE_DISPATCHER_WARMUP $null
-  $dispatcherWarmupProbe.Stop()
-  $script:INIT_TIMINGS.dispatcherWarmupMs = $dispatcherWarmupProbe.ElapsedMilliseconds
-
-  # Sammeln, BEVOR der Arbeiter parkt. Ohne das zahlt die erste
-  # allokationsreiche Anweisung nach dem Aufwachen eine Sammlung - gemessen
-  # rund 290 ms, und sie wandert: mal auf die Prozessaufzaehlung, mal auf einen
-  # frueheren Schritt, je nachdem was zuerst laeuft. Genau dieses Wandern hat
-  # die Ursache lange verdeckt. Hier kostet die Sammlung nichts, was den
-  # Aufrufer traefe: Der Reservearbeiter laeuft im Hintergrund mit gesenkter
-  # Prioritaet und wartet danach ohnehin.
-  [GC]::Collect()
-  [GC]::WaitForPendingFinalizers()
-  [GC]::Collect()
-
-  [Console]::Out.WriteLine((@{ prewarm='ready'; pid=$PID } | ConvertTo-Json -Compress))
-  [Console]::Out.Flush()
-  $auftragszeile = $null
-  try { $auftragszeile = [Console]::In.ReadLine() }
-  catch { exit 0 }
-  # EOF heisst: der Elternprozess braucht diesen Reservearbeiter nicht mehr.
-  if ($null -eq $auftragszeile) { exit 0 }
-  $auftrag = $null
-  try { $auftrag = $auftragszeile | ConvertFrom-Json }
-  catch { $auftrag = $null }
-  if ($null -eq $auftrag -or $auftrag -isnot [pscustomobject]) {
-    [Console]::Out.Write((@{ ok=$false; kind='bad-args'; error='Auftragszeile ist kein JSON-Objekt.' } | ConvertTo-Json -Compress))
-    exit 1
-  }
-  $auftragsFelder = @($auftrag.PSObject.Properties.Name)
-  if (@($auftragsFelder | Where-Object { $_ -notin @('op','argsFile') }).Count) {
-    [Console]::Out.Write((@{ ok=$false; kind='bad-args'; error='Auftragszeile kennt nur op und argsFile.' } | ConvertTo-Json -Compress))
-    exit 1
-  }
-  $Op = [string]$auftrag.op
-  if ($Op -notmatch '^[a-z][a-z0-9_]{0,63}$') {
-    [Console]::Out.Write((@{ ok=$false; kind='bad-args'; error='Auftragszeile nennt keinen gueltigen Operationsnamen.' } | ConvertTo-Json -Compress))
-    exit 1
-  }
-  $ArgsFile = [string]$auftrag.argsFile
-  # Erst ab hier laeuft die Uhr des Auftrags. Die Wartezeit des Reserve-
-  # arbeiters gehoert nicht zur gemessenen Dauer der Operation.
-  $script:T0 = [Diagnostics.Stopwatch]::StartNew()
-  Initialize-SSEWorkerTransport
-  Initialize-SSEWorkerArguments
-}
 
 $desktopTempRoot = $(if ($env:TEMP) { $env:TEMP } elseif ($env:TMP) { $env:TMP } else { '.' })
 $script:DESKTOP_MARKE = Join-Path $desktopTempRoot 'sse-mcp-desktop.txt'
@@ -7404,6 +7310,114 @@ function Set-SSEDialogFieldText(
     })
   }
   $fieldReadback
+}
+
+# ------------------------------------------------------- Auftragsannahme (warm)
+# Ab hier ist alles Teure erledigt: dieses Skript ist zerlegt, das Produkt-
+# profil geladen, die Assemblies und die native Interop-DLL sind im Prozess -
+# und seit dem Umzug dieses Blocks auch jede Konstante und jede Funktions-
+# definition, die eine Operation braucht.
+#
+# Der Block stand frueher rund 5000 Zeilen weiter oben. Deren Ausfuehrung lag
+# damit im Aufrufpfad JEDER Operation: gemessen 74 ms, die der Aufrufer
+# bezahlte, obwohl kein einziger dieser Zeilen den Auftrag braucht.
+#
+# Weiter nach unten darf er nicht: Die naechste Anweisung liest bereits $Op
+# und $a, und die kennt ein Reservearbeiter erst, nachdem er sich als bereit
+# gemeldet hat. Dass zwischen der alten und dieser Stelle keine Anweisung auf
+# oberster Ebene $Op, $a, $ArgsFile oder $B64 benutzt, ist nachgemessen und
+# von test/worker-prewarm-placement-contract.ps1 festgehalten.
+#
+# Ein vorgewaermter Arbeiter meldet sich jetzt einmal als bereit und wartet
+# auf seinen einen Auftrag. Schliesst der Elternprozess die Standardeingabe,
+# endet der Arbeiter ohne Nebenwirkung.
+if ($Prewarm) {
+  # Statische, validierte Profilkataloge vor der Bereitschaft laden. Fast alle
+  # UI-Operationen erhalten danach dieselben cachegebundenen Objekte schneller.
+  $staticProfileProbe = [Diagnostics.Stopwatch]::StartNew()
+  $null = Get-SSEExecutableIdentity $script:SSE_DEFAULT_EXE
+  $null = Get-SSEPageObjects
+  $staticProfileProbe.Stop()
+  $script:INIT_TIMINGS.staticProfileCacheMs = $staticProfileProbe.ElapsedMilliseconds
+
+  # PowerShell zerlegt das gesamte Skript vor der ersten Anweisung, registriert
+  # eine Funktionsdeklaration aber erst, wenn ihre Anweisung ausgefuehrt wird.
+  # Der grosse Operationsdispatcher lag dadurch trotz prewarm=ready noch auf
+  # dem Aufrufpfad. Fuer den Reservearbeiter registrieren wir exakt die eine
+  # bereits geparste eigene Definition jetzt; eine allgemeine Auswertung
+  # fremden Texts darf an dieser Vertrauensgrenze nicht stattfinden.
+  $dispatcherProbe = [Diagnostics.Stopwatch]::StartNew()
+  $workerAst = $MyInvocation.MyCommand.ScriptBlock.Ast
+  $dispatcherDefinitions = @($(if ($workerAst) {
+    $workerAst.FindAll({
+      param($node)
+      $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -ceq 'Invoke-SSEWorkerOperation'
+    }, $true)
+  }))
+  if ($dispatcherDefinitions.Count -ne 1) {
+    Fail "Worker-AST enthaelt $($dispatcherDefinitions.Count) Dispatcherdefinitionen statt genau einer." 'worker-init'
+  }
+  try {
+    $dispatcherDefinition = [ScriptBlock]::Create($dispatcherDefinitions[0].Extent.Text)
+    . $dispatcherDefinition
+  } catch {
+    Fail "Dispatcherdefinition liess sich nicht aus dem eigenen Worker-AST registrieren: $($_.Exception.Message)" 'worker-init'
+  }
+  if (-not (Test-Path -LiteralPath 'Function:\Invoke-SSEWorkerOperation')) {
+    Fail 'Dispatcherdefinition wurde vor der Bereitschaft nicht registriert.' 'worker-init'
+  }
+  $dispatcherProbe.Stop()
+  $script:INIT_TIMINGS.dispatcherRegistrationMs = $dispatcherProbe.ElapsedMilliseconds
+
+  # Registriert ist der Dispatcher damit, uebersetzt aber noch nicht. Genau
+  # dieser Schritt lag bisher im Aufrufpfad; hier gehoert er hin.
+  $dispatcherWarmupProbe = [Diagnostics.Stopwatch]::StartNew()
+  Invoke-SSEWorkerOperation $script:SSE_DISPATCHER_WARMUP $null
+  $dispatcherWarmupProbe.Stop()
+  $script:INIT_TIMINGS.dispatcherWarmupMs = $dispatcherWarmupProbe.ElapsedMilliseconds
+
+  # Sammeln, BEVOR der Arbeiter parkt. Ohne das zahlt die erste
+  # allokationsreiche Anweisung nach dem Aufwachen eine Sammlung - gemessen
+  # rund 290 ms, und sie wandert: mal auf die Prozessaufzaehlung, mal auf einen
+  # frueheren Schritt, je nachdem was zuerst laeuft. Genau dieses Wandern hat
+  # die Ursache lange verdeckt. Hier kostet die Sammlung nichts, was den
+  # Aufrufer traefe: Der Reservearbeiter laeuft im Hintergrund mit gesenkter
+  # Prioritaet und wartet danach ohnehin.
+  [GC]::Collect()
+  [GC]::WaitForPendingFinalizers()
+  [GC]::Collect()
+
+  [Console]::Out.WriteLine((@{ prewarm='ready'; pid=$PID } | ConvertTo-Json -Compress))
+  [Console]::Out.Flush()
+  $auftragszeile = $null
+  try { $auftragszeile = [Console]::In.ReadLine() }
+  catch { exit 0 }
+  # EOF heisst: der Elternprozess braucht diesen Reservearbeiter nicht mehr.
+  if ($null -eq $auftragszeile) { exit 0 }
+  $auftrag = $null
+  try { $auftrag = $auftragszeile | ConvertFrom-Json }
+  catch { $auftrag = $null }
+  if ($null -eq $auftrag -or $auftrag -isnot [pscustomobject]) {
+    [Console]::Out.Write((@{ ok=$false; kind='bad-args'; error='Auftragszeile ist kein JSON-Objekt.' } | ConvertTo-Json -Compress))
+    exit 1
+  }
+  $auftragsFelder = @($auftrag.PSObject.Properties.Name)
+  if (@($auftragsFelder | Where-Object { $_ -notin @('op','argsFile') }).Count) {
+    [Console]::Out.Write((@{ ok=$false; kind='bad-args'; error='Auftragszeile kennt nur op und argsFile.' } | ConvertTo-Json -Compress))
+    exit 1
+  }
+  $Op = [string]$auftrag.op
+  if ($Op -notmatch '^[a-z][a-z0-9_]{0,63}$') {
+    [Console]::Out.Write((@{ ok=$false; kind='bad-args'; error='Auftragszeile nennt keinen gueltigen Operationsnamen.' } | ConvertTo-Json -Compress))
+    exit 1
+  }
+  $ArgsFile = [string]$auftrag.argsFile
+  # Erst ab hier laeuft die Uhr des Auftrags. Die Wartezeit des Reserve-
+  # arbeiters gehoert nicht zur gemessenen Dauer der Operation.
+  $script:T0 = [Diagnostics.Stopwatch]::StartNew()
+  Initialize-SSEWorkerTransport
+  Initialize-SSEWorkerArguments
 }
 
 $experimentalCheckerNavigation = [bool](

@@ -52,6 +52,7 @@ export const parallelSteps = Object.freeze([
   psFile("known-page-state", "test/known-page-state-contract.ps1"),
   psFile("goto-conditional-waits", "test/goto-conditional-waits-contract.ps1"),
   psFile("window-close-wait", "test/window-close-wait-contract.ps1"),
+  psFile("worker-prewarm-placement", "test/worker-prewarm-placement-contract.ps1"),
   psFile("heading-cache", "test/heading-cache-contract.ps1"),
   psFile("desktop-stop-policy", "test/desktop-stop-policy-contract.ps1"),
   psFile("process-command-line", "test/process-command-line-contract.ps1"),
