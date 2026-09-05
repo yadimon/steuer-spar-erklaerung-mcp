@@ -15,7 +15,7 @@
       "name": "steuer-spar-erklaerung",
       "source": "./plugin/steuer-spar-erklaerung",
       "description": "Lokale, inoffizielle Windows-Automation für SteuerSparErklärung mit einem gebündelten MCP-Server und wiederverwendbaren Arbeitsabläufen.",
-      "version": "0.1.0-beta.39",
+      "version": "0.1.0-beta.40",
       "author": {
         "name": "yadimon",
         "url": "https://github.com/yadimon"
