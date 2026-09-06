@@ -9,6 +9,13 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { SSE_API_PACKAGE_NAME, SSE_PACKAGE_VERSION } from "../dist/version.js";
 import { listenOnFetchablePort } from "./fetchable-port.mjs";
+import { resolveWindowsPowerShell } from "../dist/windows-runtime.js";
+
+// Dieselbe Aufloesung wie im Produkt: Windows PowerShell 5.1 aus dem
+// Systemordner. Ein hart verdrahteter Aufruf von PowerShell 7 wuerde eine
+// Installation verlangen, die das Produkt ausdruecklich nicht braucht, und
+// das Gate auf einer frischen Windows-Maschine unlauffaehig machen.
+const windowsPowerShell = resolveWindowsPowerShell();
 
 assert.equal(process.platform, "win32", "MCP-Autostart ist ein Windows-Vertrag.");
 assert.equal(process.arch, "x64", "MCP-Autostart ist ein Windows-x64-Vertrag.");
@@ -91,7 +98,7 @@ function discoverOwnedApiPids() {
     "} | Select-Object -ExpandProperty ProcessId)",
     "[Console]::Out.WriteLine(($pids | ConvertTo-Json -Compress))",
   ].join("\n");
-  const result = spawnSync("pwsh.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], {
+  const result = spawnSync(windowsPowerShell, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], {
     encoding: "utf8",
     windowsHide: true,
     env: { ...process.env, SSE_TEST_CONFIG_ROOT: temporary },

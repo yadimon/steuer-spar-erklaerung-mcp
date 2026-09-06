@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { readdirSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { availableParallelism } from "node:os";
 import { join, relative } from "node:path";
 
@@ -57,6 +57,35 @@ const requiredDormantEntries = [
 ].map((name) => join("test", name));
 for (const path of requiredDormantEntries) {
   assert(modules.includes(path), `Fixturegebundener Regressionseinstieg fehlt im Syntaxvertrag: ${path}`);
+}
+
+// Kein Testmodul darf PowerShell 7 hart aufrufen. Das Produkt
+// laeuft auf der Windows PowerShell 5.1 aus dem Systemordner und verspricht
+// ausdruecklich, ohne globale PowerShell-7-Installation auszukommen; ein
+// solcher Aufruf im Testweg macht das Release-Gate auf einer frisch
+// aufgesetzten Windows-Maschine unlauffaehig, waehrend es auf jedem
+// Entwicklungsrechner gruen bleibt. Wer eine PowerShell braucht, nimmt
+// resolveWindowsPowerShell() aus dist/windows-runtime.js.
+//
+// native-build-cache.mjs ist die eine begruendete Ausnahme: Es prueft, dass
+// PowerShell Core die Produkt-DLL gerade NICHT bauen darf, und ueberspringt
+// sich selbst, wenn Core fehlt.
+//
+// Der verbotene Name steht zusammengesetzt da, damit dieser Vertrag nicht
+// ueber sein eigenes Zitat stolpert. Gesucht wird nur die ausfuehrbare Datei:
+// derselbe Name als blosser Prozessname, etwa in einer Beobachtungsliste, ist
+// erlaubt und kommt vor.
+const verbotenerAufruf = "pw" + "sh";
+const pwshAusnahmen = new Set([join("test", "native-build-cache.mjs")]);
+for (const path of modules) {
+  if (pwshAusnahmen.has(path)) continue;
+  const quelltext = readFileSync(path, "utf8");
+  assert(
+    !new RegExp(`${verbotenerAufruf}\\.exe`, "u").test(quelltext),
+    `${path} ruft ${verbotenerAufruf} hart auf. Das Gate muss ohne ` +
+      "PowerShell 7 laufen; " +
+      "nutze resolveWindowsPowerShell() aus dist/windows-runtime.js.",
+  );
 }
 
 let nextIndex = 0;
