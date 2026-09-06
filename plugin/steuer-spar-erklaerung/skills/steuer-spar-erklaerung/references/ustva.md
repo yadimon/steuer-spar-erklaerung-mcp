@@ -71,6 +71,15 @@ UStVA-Änderung.
    Monat/Quartal mit getrennten `sse_ustva_select_period`-Aufrufen, jeweils mit
    gebundenem, nach case-session.md gesichertem Arbeitsfall, aktuellem Hash,
    PID/HWND sowie exaktem Vorwert.
+   Reiche dabei das Feld `page` aus dem unmittelbar vorangegangenen
+   `sse_ustva_read` als `expectedPage` an `sse_ustva_select_period`,
+   `sse_ustva_set_flag`, `sse_ustva_change_value` und `sse_ustva_open_section`
+   weiter. Ohne diese Angabe schlägt jede dieser Operationen die Seite selbst
+   noch einmal nach, was einen zusätzlichen Arbeitsprozess kostet. Die Angabe
+   lockert nichts: Eine fremde oder unbekannte Seite wird abgelehnt, bevor
+   irgendetwas am Programm geschieht, und der Arbeiter prüft sie unmittelbar
+   vor der Änderung gegen die tatsächlich offene Seite. Liegt zwischen Lesung
+   und Änderung eine eigene Navigation, lies vorher erneut.
 8. Verwende `sse_ustva_open_section` statt generischer Klicks. Öffne damit auch
    die Detailbereiche `reverse_charge` und `input_tax`; EU-/Drittlandsleistungen
    und normale/§13b-Vorsteuer müssen getrennt rückgelesen werden. Mehrere gleich
