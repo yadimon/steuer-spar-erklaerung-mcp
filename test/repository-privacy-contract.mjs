@@ -119,27 +119,28 @@ assert.deepEqual(
   `Git-Historie enthaelt sensible Dateinamen:\n${sensitiveHistoryPaths.join("\n")}`,
 );
 
-// Die Regel gegen private Umgebungsdetails muss wortgleich in beiden
-// Agentendateien stehen. Werkzeuge lesen mal die eine, mal die andere; eine
-// Regel, die nur in einer davon steht, gilt fuer das andere Werkzeug nicht.
-// Diese Fassung ist die Lehre aus einem Release, in dem Namen von
+// AGENTS.md ist die einzige Quelle der Agentenregeln; CLAUDE.md verweist nur
+// darauf. Zwei Fassungen derselben Regel laufen auseinander, und die
+// veraltete gilt dann fuer irgendein Werkzeug weiter.
+//
+// Diese Pruefung ist die Lehre aus einem Release, in dem Namen von
 // Pruefumgebungen und die Pruefsumme eines Transferarchivs oeffentlich wurden.
-const regelBlock = (text) => {
-  const start = text.indexOf("<!-- REGEL:PRIVATES -->");
-  const ende = text.indexOf("<!-- /REGEL:PRIVATES -->");
-  return start >= 0 && ende > start ? text.slice(start, ende) : null;
-};
-const agentenRegel = regelBlock(readFileSync(resolve(root, "AGENTS.md"), "utf8"));
-const claudeRegel = regelBlock(readFileSync(resolve(root, "CLAUDE.md"), "utf8"));
-assert(agentenRegel, "AGENTS.md fuehrt den Regelblock REGEL:PRIVATES nicht.");
-assert(claudeRegel, "CLAUDE.md fuehrt den Regelblock REGEL:PRIVATES nicht.");
-assert.equal(claudeRegel, agentenRegel,
-  "AGENTS.md und CLAUDE.md tragen unterschiedliche Fassungen der Regel gegen private Umgebungsdetails.");
+const agenten = readFileSync(resolve(root, "AGENTS.md"), "utf8");
+const claude = readFileSync(resolve(root, "CLAUDE.md"), "utf8");
+const regelStart = agenten.indexOf("<!-- REGEL:PRIVATES -->");
+const regelEnde = agenten.indexOf("<!-- /REGEL:PRIVATES -->");
+assert(regelStart >= 0 && regelEnde > regelStart,
+  "AGENTS.md fuehrt den Regelblock REGEL:PRIVATES nicht.");
+const regel = agenten.slice(regelStart, regelEnde);
 for (const pflicht of ["localdev/", ".private/", "perf:api-mega"]) {
-  assert(agentenRegel.includes(pflicht),
+  assert(regel.includes(pflicht),
     `Die Regel nennt ${pflicht} nicht und bleibt damit ohne brauchbare Anweisung.`);
 }
+assert.match(claude, /\[AGENTS\.md\]\(\.\/AGENTS\.md\)/u,
+  "CLAUDE.md muss per relativem Link auf AGENTS.md verweisen; ein Symlink ist unter Windows nicht verlaesslich.");
+assert(!claude.includes("<!-- REGEL:PRIVATES -->"),
+  "CLAUDE.md darf keine eigene Fassung der Regel tragen, sondern nur auf AGENTS.md verweisen.");
 
 process.stdout.write(
-  `Repository-Privacy: ${checked} Textdateien und ${revisions.length} Commits ohne private Pfade, IDs, Konten oder Zugangsdaten; Regel gegen private Umgebungsdetails in beiden Agentendateien gleich\n`,
+  `Repository-Privacy: ${checked} Textdateien und ${revisions.length} Commits ohne private Pfade, IDs, Konten oder Zugangsdaten; Agentenregeln allein in AGENTS.md, CLAUDE.md verweist darauf\n`,
 );
