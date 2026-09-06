@@ -1,5 +1,5 @@
-# Die Wartezeit in `window_close` ist bedingt, begrenzt - und behaelt ihr
-# Beobachtungsfenster.
+# Die Wartezeiten in `window_close` UND `window_restore` sind bedingt, begrenzt
+# - und behalten ihr Beobachtungsfenster.
 #
 # `waitMs` ist als "Wartezeit auf das Schliessen" zugesagt, also als
 # Obergrenze. Die Umsetzung sass sie frueher pauschal ab; gemessen kostete das
@@ -45,16 +45,35 @@ if ($workerSource -notmatch [regex]::Escape('}
   throw 'window_close liest `closed` nicht mehr unmittelbar nach der Warteschleife.'
 }
 
-# 4. Kein Rueckfall auf das pauschale Absitzen - geprueft NUR im Block von
-#    window_close. `window_restore` traegt dieselbe Zeile absichtlich weiter;
-#    ihre Bedingung ist eine andere und wurde nicht mitgemessen.
-$blockStart = $workerSource.IndexOf("  'window_close' {")
-if ($blockStart -lt 0) { throw 'Der Block von window_close ist nicht auffindbar.' }
-$blockEnde = $workerSource.IndexOf("  'result_details' {", $blockStart)
-if ($blockEnde -lt 0) { throw 'Das Ende des window_close-Blocks ist nicht auffindbar.' }
-$block = $workerSource.Substring($blockStart, $blockEnde - $blockStart)
-if ($block -match [regex]::Escape("Start-Sleep -Milliseconds ([Math]::Min(10000, [Math]::Max(300, [int](Arg `$a 'waitMs' 800))))")) {
-  throw 'window_close sitzt die Frist wieder pauschal ab.'
+# 4. Kein Rueckfall auf das pauschale Absitzen - in KEINER der beiden
+#    Operationen. `window_restore` trug die feste Zeile bis beta.41 weiter;
+#    seine Nachbedingung ist mit `IsIconic` ebenso beobachtbar wie die von
+#    `window_close` mit `IsWindow`, also gilt dort dieselbe Behandlung.
+$pauschal = [regex]::Escape("Start-Sleep -Milliseconds ([Math]::Min(10000, [Math]::Max(300, [int](Arg `$a 'waitMs' 800))))")
+function Get-SSEOperationBlock([string]$Quelle, [string]$Operation, [string]$NaechsteOperation) {
+  $start = $Quelle.IndexOf("  '$Operation' {")
+  if ($start -lt 0) { throw "Der Block von $Operation ist nicht auffindbar." }
+  $ende = $Quelle.IndexOf("  '$NaechsteOperation' {", $start)
+  if ($ende -lt 0) { throw "Das Ende des $Operation-Blocks ist nicht auffindbar." }
+  $Quelle.Substring($start, $ende - $start)
+}
+foreach ($paar in @(
+  @{ op = 'window_restore'; next = 'window_close' },
+  @{ op = 'window_close'; next = 'result_details' }
+)) {
+  $block = Get-SSEOperationBlock $workerSource $paar.op $paar.next
+  if ($block -match $pauschal) { throw "$($paar.op) sitzt die Frist wieder pauschal ab." }
 }
 
-Write-Output 'window_close-Wartezeit: bedingt, begrenzt, Beobachtungsfenster erhalten - bestanden'
+# 5. window_restore wartet auf seine eigene, beobachtbare Nachbedingung.
+if ($workerSource -notmatch [regex]::Escape('$wiederherstellUhr.ElapsedMilliseconds -lt $fristMs')) {
+  throw 'Die Warteschleife von window_restore ist nicht mehr durch die Frist begrenzt.'
+}
+if ($workerSource -notmatch [regex]::Escape('if ($wiederherstellUhr.ElapsedMilliseconds -ge 300 -and')) {
+  throw 'Der vorzeitige Ausstieg aus window_restore haengt nicht mehr an der 300-ms-Mindestbeobachtung.'
+}
+if ($workerSource -notmatch [regex]::Escape('-not [SW]::IsIconic([IntPtr]$targetHwnd)) { break }')) {
+  throw 'window_restore steigt nicht mehr am nachweislich wiederhergestellten Fenster vorzeitig aus.'
+}
+
+Write-Output 'Fensterwartezeiten (close und restore): bedingt, begrenzt, Beobachtungsfenster erhalten - bestanden'
