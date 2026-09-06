@@ -462,14 +462,25 @@ try {
   "Dynamische Detailseitenkoepfe sind nicht zugleich an Praefix und alle exakten Page-Object-Felder gebunden.");
   const saveBlock = workerOpBlock("save");
   assert(workerSource.includes("if ($summaryBefore.transmitted -ne $false)") &&
-    saveBlock.includes("'transmitted-case-locked'") &&
+    saveBlock.includes("$script:SSE_TRANSMITTED_CASE_WARNING = [pscustomobject]@{") &&
+    workerSource.includes("if ($script:SSE_TRANSMITTED_CASE_WARNING) {") &&
+    workerSource.includes("-NotePropertyName transmittedCaseWarning") &&
     saveBlock.includes("(?i)(korrektur|berichtigung)") &&
     saveBlock.includes("Korrekturstand, uebermitteltes Original und Sicherung muessen drei verschiedene Dateien sein") &&
     saveBlock.includes("$actualBackupHash -ne $before") &&
     saveBlock.includes("$sourceSummary.transmitted -ne $true") &&
     saveBlock.includes("elsterTransmissionTriggered = $false") &&
     !saveBlock.includes("Arg $a 'force'"),
-  "Der Save-Worker besitzt keinen vollstaendig gebundenen Korrekturmodus oder eine generische Force-Luecke.");
+  "Der Save-Worker besitzt keinen vollstaendig gebundenen Korrekturmodus, keine generische Force-Luecke oder er verschweigt den Uebermittlungsvermerk.");
+  // Die Beschreibung muss sagen, was wirklich passiert. Solange sie
+  // "gesperrt" versprach, obwohl gespeichert wird, haette ein Aufrufer die
+  // Warnung nie erwartet - und ein Fall, der das ganze Jahr weitergefuehrt
+  // wird, waere unbrauchbar geblieben.
+  const saveToolSource = readFileSync(join(root, "src", "mcp-tools-lifecycle.ts"), "utf8");
+  assert(saveToolSource.includes("transmittedCaseWarning") &&
+    saveToolSource.includes("uebermittelter ZEITRAUM darf nicht still geaendert werden") &&
+    !saveToolSource.includes("Bereits uebermittelte oder unbekannte Faelle bleiben standardmaessig"),
+  "Die sse_save-Beschreibung nennt die Uebermittlungswarnung nicht oder verspricht noch eine Blankosperre.");
   const closeBlock = workerOpBlock("close");
   assert(workerSource.includes("function Get-SSEPinnedProcessHandle([Diagnostics.Process]$Process)") &&
     workerSource.includes("function Wait-SSEProcessExit([Microsoft.Win32.SafeHandles.SafeProcessHandle]$ProcessHandle") &&
