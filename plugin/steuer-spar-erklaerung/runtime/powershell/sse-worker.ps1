@@ -16097,6 +16097,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $lockScreenIsolation = [bool](-not $script:DESKTOP_NAME -and (Test-SSEForegroundIsLockScreen))
     $guardUserInput = [bool](-not $script:DESKTOP_NAME -and -not $lockScreenIsolation)
     $inputBaseline = $(if ($guardUserInput) { Get-SSELastInputTick } else { $null })
+    $navigationVersuche = 0
     if (-not $freeRead.free.Count -and $freeRead.firstCell) {
       if ($script:DESKTOP_NAME) {
         Fail ("Keine sichtbare freie Tabellenzeile gefunden. Auf dem versteckten Desktop kann Qt nicht " +
@@ -16132,6 +16133,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           Fail 'Tabellenfokus ging waehrend der Navigation verloren; nichts geschrieben.' 'interference'
         }
         [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
+        $navigationVersuche++
         if ($guardUserInput) { $inputBaseline = Get-SSELastInputTick }
         Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick)
         Start-Sleep -Milliseconds 100
@@ -16139,7 +16141,14 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     }
     $nachY = $freeRead.byY
     $freie = @($freeRead.free)
-    if (-not $freie.Count) { Fail 'Keine freie Tabellenzeile gefunden.' 'not-found' }
+    if (-not $freie.Count) {
+      $befund = Get-TableStructureEvidence $freeRead
+      Fail ("Keine freie Tabellenzeile gefunden. Die gebundene Tabellenregion zeigte " +
+            "$([int]$befund.rowCount) Zeilen, davon $([int]$befund.populatedRowCount) belegt; " +
+            "die Tabellenend-Navigation lief $navigationVersuche Schritte. Zeigt die Tabelle im " +
+            "Programm mehr Zeilen als hier genannt, materialisiert Qt die Anlegezeile erst beim " +
+            "Blaettern und die Region wurde zu kurz gelesen.") 'not-found'
+    }
     $zeile = @($nachY[$freie[0]] | Sort-Object x)
     if ($werte.Count -gt $zeile.Count) {
       Fail "werte enthaelt $($werte.Count) Spalten, die freie sichtbare Zeile aber nur $($zeile.Count)." 'bad-args'
