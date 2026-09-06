@@ -886,6 +886,91 @@ public static class SSEUiaTree {
     return state.Result;
   }
 
+  // Rangfolge der Bedienbarkeit. Wie die PowerShell-Hashtable ist die Zuordnung
+  // ohne Ruecksicht auf Gross-/Kleinschreibung.
+  static readonly Dictionary<string, int> Rang = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) {
+    { "Button", 0 }, { "CheckBox", 1 }, { "RadioButton", 1 }, { "MenuItem", 1 },
+    { "TreeItem", 2 }, { "ListItem", 2 }, { "Hyperlink", 3 }, { "DataItem", 4 }, { "Text", 5 },
+  };
+
+  static bool Gleich(string links, string rechts) {
+    return string.Equals(links ?? "", rechts ?? "", StringComparison.OrdinalIgnoreCase);
+  }
+
+  /// <summary>
+  /// Waehlt Knoten nach RuntimeId, AutomationId, Name und Typ und ordnet sie
+  /// nach Bedienbarkeit.
+  /// </summary>
+  /// <remarks>
+  /// Das war eine Kette aus Where-Object und einem Sort-Object mit zwei
+  /// Skriptbloecken. Deren Uebersetzung kostete jeden Arbeitsprozess bei der
+  /// ERSTEN Ausfuehrung rund 89 Millisekunden - und zwar nahezu unabhaengig
+  /// von der Knotenzahl: gemessen 67 ms fuer zwei Knoten und 87 ms fuer 600.
+  /// Da fast jede Operation Knoten aufloest und jeder Auftrag einen frischen
+  /// Prozess bekommt, fiel dieser Betrag jedes Mal an.
+  ///
+  /// Die Vergleiche folgen bewusst PowerShell: `-eq` und `-like` sind dort
+  /// ohne Ruecksicht auf Gross-/Kleinschreibung, ebenso der Hashtable-Zugriff
+  /// auf die Rangfolge. Einzige bewusste Abweichung: Der frühere `-like`
+  /// Suffixvergleich haette Platzhalterzeichen in einer AutomationId als
+  /// Muster gelesen; hier ist es ein reiner Suffixvergleich.
+  ///
+  /// Bei Gleichstand entscheidet jetzt die Baumreihenfolge. Sort-Object ist
+  /// ohne -Stable nicht stabil, die bisherige Reihenfolge bei Gleichstand also
+  /// unbestimmt; deterministisch ist besser als zufaellig.
+  /// </remarks>
+  public static SSEUiaNodeView[] Resolve(
+      SSEUiaNodeView[] nodes, string rid, string aid, string name, string type, bool contains) {
+    if (nodes == null) throw new ArgumentException("nodes fehlt.");
+
+    var treffer = new List<SSEUiaNodeView>(nodes);
+
+    if (!string.IsNullOrEmpty(rid)) {
+      treffer = treffer.FindAll(delegate(SSEUiaNodeView n) { return Gleich(n.rid, rid); });
+    }
+
+    if (!string.IsNullOrEmpty(aid)) {
+      var genau = treffer.FindAll(delegate(SSEUiaNodeView n) { return Gleich(n.aid, aid); });
+      if (genau.Count == 0) {
+        genau = treffer.FindAll(delegate(SSEUiaNodeView n) {
+          return (n.aid ?? "").EndsWith(aid, StringComparison.OrdinalIgnoreCase);
+        });
+      }
+      treffer = genau;
+    }
+
+    if (!string.IsNullOrEmpty(name)) {
+      treffer = treffer.FindAll(delegate(SSEUiaNodeView n) {
+        if (!contains) return Gleich(n.name, name);
+        return (n.name ?? "").IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0;
+      });
+    }
+
+    if (!string.IsNullOrEmpty(type)) {
+      treffer = treffer.FindAll(delegate(SSEUiaNodeView n) { return Gleich(n.type, type); });
+    }
+
+    var ordnung = new int[treffer.Count];
+    for (int i = 0; i < treffer.Count; i++) ordnung[i] = i;
+    var kopie = treffer.ToArray();
+    Array.Sort(ordnung, delegate(int links, int rechts) {
+      int a = RangVon(kopie[links].type), b = RangVon(kopie[rechts].type);
+      if (a != b) return a - b;
+      int sa = kopie[links].on ? 0 : 1, sb = kopie[rechts].on ? 0 : 1;
+      if (sa != sb) return sa - sb;
+      return links - rechts;
+    });
+    var ergebnis = new SSEUiaNodeView[kopie.Length];
+    for (int i = 0; i < ordnung.Length; i++) ergebnis[i] = kopie[ordnung[i]];
+    return ergebnis;
+  }
+
+  static int RangVon(string type) {
+    int wert;
+    if (type != null && Rang.TryGetValue(type, out wert)) return wert;
+    return 6;
+  }
+
   /// <summary>
   /// Wandelt die gelaufenen Knoten in die Weitergabeform des Arbeiters und
   /// fuellt dabei seinen RuntimeId-Zwischenspeicher.

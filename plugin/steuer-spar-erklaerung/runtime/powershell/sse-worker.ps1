@@ -4308,27 +4308,33 @@ function Get-SSETypeInventory($tree, [string]$Type, [int]$Max = 5) {
   "Sichtbar sind $($treffer.Count) Element(e) vom Typ ${Type}: $liste."
 }
 
+<#
+.SYNOPSIS
+Waehlt Knoten nach RuntimeId, AutomationId, Name und Typ.
+
+.DESCRIPTION
+Die Arbeit macht die DLL. Das war eine Kette aus Where-Object und einem
+Sort-Object mit zwei Skriptbloecken; deren Uebersetzung kostete jeden
+Arbeitsprozess bei seiner ERSTEN Ausfuehrung rund 89 Millisekunden - fast
+unabhaengig von der Knotenzahl, gemessen 67 ms schon fuer zwei Knoten. Fast
+jede Operation loest Knoten auf, und jeder Auftrag bekommt einen frischen
+Prozess.
+
+WICHTIG: hier KEIN fuehrendes Komma. Die Aufrufer schreiben `@(Resolve-Nodes
+...)`, und `@()` ueber einem Funktionsaufruf sammelt Pipeline-Ausgabe: Eine
+mit Komma zurueckgegebene Sammlung bliebe EIN Objekt und ergaebe ein Array mit
+der Liste als einzigem Element. Ohne Komma laeuft das Array normal in die
+Pipeline und die Aufrufer bekommen, was sie erwarten.
+#>
 function Resolve-Nodes {
   param($tree, $a)
-  $rid = [string](Arg $a 'rid')
-  $aid = [string](Arg $a 'aid')
-  $name = [string](Arg $a 'name')
-  $type = [string](Arg $a 'type')
-  $sub  = [bool](Arg $a 'contains' $false)
-  $hits = @($tree.nodes)
-  if ($rid) { $hits = @($hits | Where-Object { $_.rid -eq $rid }) }
-  if ($aid) {
-    $aidHits = @($hits | Where-Object { $_.aid -eq $aid })
-    if (-not $aidHits.Count) { $aidHits = @($hits | Where-Object { $_.aid -like "*$aid" }) }
-    $hits = $aidHits
-  }
-  if ($name) {
-    $hits = @($hits | Where-Object { $(if ($sub) { $_.name -like "*$name*" } else { $_.name -eq $name }) })
-  }
-  if ($type) { $hits = @($hits | Where-Object { $_.type -eq $type }) }
-  # Bedienbare Typen zuerst, danach sichtbare vor unsichtbaren.
-  $rang = @{ Button = 0; CheckBox = 1; RadioButton = 1; MenuItem = 1; TreeItem = 2; ListItem = 2; Hyperlink = 3; DataItem = 4; Text = 5 }
-  @($hits | Sort-Object @{ e = { if ($rang.ContainsKey($_.type)) { $rang[$_.type] } else { 6 } } }, @{ e = { if ($_.on) { 0 } else { 1 } } })
+  [SSEUiaTree]::Resolve(
+    $tree.nodes,
+    [string](Arg $a 'rid'),
+    [string](Arg $a 'aid'),
+    [string](Arg $a 'name'),
+    [string](Arg $a 'type'),
+    [bool](Arg $a 'contains' $false))
 }
 
 # Ergebnisbaum des GLOBALEN Steuerpruefers. Dieser Baum ersetzt nach dem

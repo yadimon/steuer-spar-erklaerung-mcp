@@ -43,8 +43,8 @@
     },
     {
       "path": "powershell/load-native.ps1",
-      "sha256": "64bd13f49d7a4e40d904e2018f094e06d33075bd25e6598fa04307c7be1f6019",
-      "size": 9084
+      "sha256": "6c12948cf46e00de61a81f21ea3d674f00dde398b9d9b9749f0c5df84b6cd18a",
+      "size": 9094
     },
     {
       "path": "powershell/ocr-image.ps1",
@@ -68,23 +68,23 @@
     },
     {
       "path": "powershell/sse-native.cs",
-      "sha256": "9af176d9012f190a9cd1ee15b976100d3c6e66eb7d9c8ba2baaec10a0d7bff8d",
-      "size": 42507
+      "sha256": "37e8496346a13bf3574372864cea4b1ff3c45ac0081994ecf130c8ecd8a2c35b",
+      "size": 46174
     },
     {
       "path": "powershell/sse-native.dll",
-      "sha256": "cbe3e1c0492d73eac8163ed3e02b8ad4ae7391f6779d013ff445210a18b681d3",
-      "size": 34304
+      "sha256": "0374ad985569283c25a682fdd69063b6c663bca738c38a4e019cd0eee90e7b6d",
+      "size": 36352
     },
     {
       "path": "powershell/sse-native.sha256",
-      "sha256": "2f610a83b1e5e19583ffee8410b932a6898ebfc51dc2ab2fe418567d6bb9d423",
+      "sha256": "42e8a6b8b3e737341adcea3436c18dfefa72edfe1faed39352de567fd7b3fad2",
       "size": 181
     },
     {
       "path": "powershell/sse-worker.ps1",
-      "sha256": "f120739c7dbfa229a06beb112e2763325fcd4397f1e8011ecb3dfc605b94d47c",
-      "size": 1137686
+      "sha256": "ef358949cd5cde346afbbed5c097c92a00829a60fe230f7ea119218eb89a9bdf",
+      "size": 1137703
     },
     {
       "path": "powershell/structure-binding.ps1",
