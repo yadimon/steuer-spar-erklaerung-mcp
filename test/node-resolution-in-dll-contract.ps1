@@ -8,6 +8,15 @@
 # also fiel der Betrag jedes Mal an. In kompiliertem Code sind daraus 3 ms
 # geworden.
 #
+# Einschraenkung, damit die Zahl nicht ueberliest: Rund 50 der 89 Millisekunden
+# sind einmalige Prozesskosten, die sich PowerShell mit jeder anderen
+# Sortierung und jeder anderen Schleife teilt - gemessen kostet derselbe Sort
+# nach einer vorherigen Sortierung nur noch 22 ms, und ein Ersatz durch
+# [Array]::Sort war mit 83 ms sogar langsamer, weil die Schluesselschleife
+# ihrerseits uebersetzt werden muss. Der Auftragsgewinn ist also kleiner als
+# die isolierte Zahl, solange irgendein anderer PowerShell-Schritt im selben
+# Prozess dieselbe Maschinerie anwirft.
+#
 # Vier Eigenschaften duerfen dabei nie verlorengehen:
 #
 #   1. **Die Auswahl delegiert an die DLL.** Ein wieder eingefuehrtes
