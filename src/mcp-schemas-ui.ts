@@ -67,7 +67,12 @@ export const SSE_MCP_UI_SCHEMAS = {
     sumLabel: z.string().describe("Beschriftung der eindeutigen Kontrollsumme"),
     sumOccurrence: UI_OCCURRENCE.optional().describe("1-basierte Position bei mehrfacher Summenbeschriftung; Vorgabe 1"),
     expectedBefore: z.string().describe("Exakter Summenwert vor dem Anlegen"),
-    expectedAfter: z.string().describe("Exakter Summenwert nach dem Anlegen"),
+    expectedAfter: z.string().optional().describe(
+      "Optional: exakter Summenwert nach dem Anlegen. Ohne diese Angabe genuegt, dass die Kontrollsumme " +
+      "sich bewegt hat - sie bindet die Zeile an die richtige Tabelle, und jede Zelle wird ohnehin einzeln " +
+      "zurueckgelesen. Die Vorhersage verlangt, SSEs Rechnung nachzubilden: Die Seitensumme addiert netto, " +
+      "nicht brutto. Wer sie liefert, wird strenger geprueft",
+    ),
     hwnd: WINDOW_HANDLE.optional(),
   }).strict(),
   "sse_table_update": z.object({

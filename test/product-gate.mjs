@@ -481,6 +481,24 @@ try {
     saveToolSource.includes("uebermittelter ZEITRAUM darf nicht still geaendert werden") &&
     !saveToolSource.includes("Bereits uebermittelte oder unbekannte Faelle bleiben standardmaessig"),
   "Die sse_save-Beschreibung nennt die Uebermittlungswarnung nicht oder verspricht noch eine Blankosperre.");
+  // Die Nachsumme vorherzusagen klingt strenger, als sie ist: Sie zwingt den
+  // Aufrufer, SSEs Rechnung nachzubilden - die Seitensumme addiert netto,
+  // nicht brutto. Wer falsch rechnet, bekommt eine abgewiesene Schreibung,
+  // obwohl die Zeile stimmte. Was die Pruefung wirklich absichert, ist die
+  // Bindung an die richtige Tabelle, und das leistet auch die blosse
+  // Veraenderung. Beide Wege muessen erhalten bleiben.
+  const addBlock = workerOpBlock("table_add");
+  assert(addBlock.includes("'expectedPage, sumLabel und expectedBefore sind Pflicht.'") &&
+    !addBlock.includes("expectedBefore und expectedAfter sind Pflicht") &&
+    addBlock.includes("if ($expectedAfter) {") &&
+    addBlock.includes("Nachsumme '$sumLabel' ist '$($sumAfterRead.value)', erwartet '$expectedAfter'.") &&
+    addBlock.includes("$betragGeschrieben = [bool](@($werte | Where-Object {") &&
+    addBlock.includes("Die Zeile ist nicht in der gebundenen Tabelle gelandet."),
+  "table_add bindet die Nachsumme nicht mehr in beiden Formen oder erzwingt die Vorhersage wieder.");
+  const tableSchemaSource = readFileSync(join(root, "src", "mcp-schemas-ui.ts"), "utf8");
+  assert(tableSchemaSource.includes("expectedAfter: z.string().optional().describe(") &&
+    tableSchemaSource.includes("Die Seitensumme addiert netto"),
+  "Das Schema erklaert nicht, warum die Nachsumme optional ist.");
   const closeBlock = workerOpBlock("close");
   assert(workerSource.includes("function Get-SSEPinnedProcessHandle([Diagnostics.Process]$Process)") &&
     workerSource.includes("function Wait-SSEProcessExit([Microsoft.Win32.SafeHandles.SafeProcessHandle]$ProcessHandle") &&
