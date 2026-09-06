@@ -11517,63 +11517,64 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
                      'Berichtigung eines uebermittelten Zeitraums den correction-Weg mit Arbeitskopie, ' +
                      'Sicherung, Zeitraum und Grund benutzen.')
         }
-      }
+      } else {
 
-      $acknowledged = [bool](Arg $correction 'acknowledged' $false)
-      $period = [string](Arg $correction 'period')
-      $correctionReason = ([string](Arg $correction 'reason')).Trim()
-      $sourcePathRaw = [string](Arg $correction 'sourcePath')
-      $backupPathRaw = [string](Arg $correction 'backupPath')
-      $expectedSourceHash = ([string](Arg $correction 'expectedSourceHash')).ToUpperInvariant()
-      $expectedBackupHash = ([string](Arg $correction 'expectedBackupHash')).ToUpperInvariant()
-      if (-not $acknowledged -or $period -notmatch '^\d{4}-(?:0[1-9]|1[0-2]|Q[1-4]|YEAR)$' -or
-          $correctionReason.Length -lt 3 -or $correctionReason.Length -gt 500 -or
-          -not $sourcePathRaw -or -not $backupPathRaw -or
-          $expectedSourceHash -notmatch '^[A-F0-9]{64}$' -or
-          $expectedBackupHash -notmatch '^[A-F0-9]{64}$') {
-        Fail ('correction braucht acknowledged=true, einen Zeitraum YYYY-MM/YYYY-Qn/YYYY-YEAR, ' +
-              'einen Grund sowie gebundene Original- und Sicherungspfade mit SHA256.') 'bad-args'
-      }
+        $acknowledged = [bool](Arg $correction 'acknowledged' $false)
+        $period = [string](Arg $correction 'period')
+        $correctionReason = ([string](Arg $correction 'reason')).Trim()
+        $sourcePathRaw = [string](Arg $correction 'sourcePath')
+        $backupPathRaw = [string](Arg $correction 'backupPath')
+        $expectedSourceHash = ([string](Arg $correction 'expectedSourceHash')).ToUpperInvariant()
+        $expectedBackupHash = ([string](Arg $correction 'expectedBackupHash')).ToUpperInvariant()
+        if (-not $acknowledged -or $period -notmatch '^\d{4}-(?:0[1-9]|1[0-2]|Q[1-4]|YEAR)$' -or
+            $correctionReason.Length -lt 3 -or $correctionReason.Length -gt 500 -or
+            -not $sourcePathRaw -or -not $backupPathRaw -or
+            $expectedSourceHash -notmatch '^[A-F0-9]{64}$' -or
+            $expectedBackupHash -notmatch '^[A-F0-9]{64}$') {
+          Fail ('correction braucht acknowledged=true, einen Zeitraum YYYY-MM/YYYY-Qn/YYYY-YEAR, ' +
+                'einen Grund sowie gebundene Original- und Sicherungspfade mit SHA256.') 'bad-args'
+        }
 
-      $sourcePath = [IO.Path]::GetFullPath($sourcePathRaw)
-      $backupPath = [IO.Path]::GetFullPath($backupPathRaw)
-      $samePath = [StringComparer]::OrdinalIgnoreCase
-      if ($samePath.Equals($expectedPath, $sourcePath) -or
-          $samePath.Equals($expectedPath, $backupPath) -or
-          $samePath.Equals($sourcePath, $backupPath)) {
-        Fail 'Korrekturstand, uebermitteltes Original und Sicherung muessen drei verschiedene Dateien sein.' 'precondition-failed'
-      }
-      $targetStem = [IO.Path]::GetFileNameWithoutExtension($expectedPath)
-      if ($targetStem -notmatch '(?i)(korrektur|berichtigung)') {
-        Fail 'Ein uebermittelter Stand darf nur in einer als Korrektur oder Berichtigung benannten Arbeitskopie gespeichert werden.' 'precondition-failed'
-      }
-      $targetExtension = [IO.Path]::GetExtension($expectedPath)
-      if ([IO.Path]::GetExtension($sourcePath) -ne $targetExtension -or
-          [IO.Path]::GetExtension($backupPath) -ne $targetExtension) {
-        Fail 'Korrekturstand, Original und Sicherung muessen denselben Falldateityp haben.' 'precondition-failed'
-      }
-      if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) { Fail 'Korrektur-Original fehlt.' 'not-found' }
-      if (-not (Test-Path -LiteralPath $backupPath -PathType Leaf)) { Fail 'Korrektur-Sicherung fehlt.' 'not-found' }
-      $actualSourceHash = Get-Sha256 $sourcePath
-      $actualBackupHash = Get-Sha256 $backupPath
-      if ($actualSourceHash -ne $expectedSourceHash) {
-        Fail 'Das gebundene uebermittelte Original wurde veraendert; Korrektur nicht gespeichert.' 'resource-changed'
-      }
-      if ($actualBackupHash -ne $expectedBackupHash -or $actualBackupHash -ne $before) {
-        Fail 'Die Korrektur-Sicherung entspricht nicht bytegenau dem unmittelbar zu speichernden Vorzustand.' 'precondition-failed'
-      }
-      $sourceSummary = Get-CaseSummary $sourcePath
-      if (-not $sourceSummary -or $sourceSummary.transmitted -ne $true) {
-        Fail 'Die Korrekturquelle ist nicht eindeutig als uebermitteltes Original nachgewiesen.' 'precondition-failed'
-      }
-      $correctionResult = [pscustomobject]@{
-        acknowledged = $true
-        period = $period
-        reason = $correctionReason
-        sourceHash = $actualSourceHash
-        backupHash = $actualBackupHash
-        originalUntouchedBeforeSave = $true
-        elsterTransmissionTriggered = $false
+        $sourcePath = [IO.Path]::GetFullPath($sourcePathRaw)
+        $backupPath = [IO.Path]::GetFullPath($backupPathRaw)
+        $samePath = [StringComparer]::OrdinalIgnoreCase
+        if ($samePath.Equals($expectedPath, $sourcePath) -or
+            $samePath.Equals($expectedPath, $backupPath) -or
+            $samePath.Equals($sourcePath, $backupPath)) {
+          Fail 'Korrekturstand, uebermitteltes Original und Sicherung muessen drei verschiedene Dateien sein.' 'precondition-failed'
+        }
+        $targetStem = [IO.Path]::GetFileNameWithoutExtension($expectedPath)
+        if ($targetStem -notmatch '(?i)(korrektur|berichtigung)') {
+          Fail 'Ein uebermittelter Stand darf nur in einer als Korrektur oder Berichtigung benannten Arbeitskopie gespeichert werden.' 'precondition-failed'
+        }
+        $targetExtension = [IO.Path]::GetExtension($expectedPath)
+        if ([IO.Path]::GetExtension($sourcePath) -ne $targetExtension -or
+            [IO.Path]::GetExtension($backupPath) -ne $targetExtension) {
+          Fail 'Korrekturstand, Original und Sicherung muessen denselben Falldateityp haben.' 'precondition-failed'
+        }
+        if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) { Fail 'Korrektur-Original fehlt.' 'not-found' }
+        if (-not (Test-Path -LiteralPath $backupPath -PathType Leaf)) { Fail 'Korrektur-Sicherung fehlt.' 'not-found' }
+        $actualSourceHash = Get-Sha256 $sourcePath
+        $actualBackupHash = Get-Sha256 $backupPath
+        if ($actualSourceHash -ne $expectedSourceHash) {
+          Fail 'Das gebundene uebermittelte Original wurde veraendert; Korrektur nicht gespeichert.' 'resource-changed'
+        }
+        if ($actualBackupHash -ne $expectedBackupHash -or $actualBackupHash -ne $before) {
+          Fail 'Die Korrektur-Sicherung entspricht nicht bytegenau dem unmittelbar zu speichernden Vorzustand.' 'precondition-failed'
+        }
+        $sourceSummary = Get-CaseSummary $sourcePath
+        if (-not $sourceSummary -or $sourceSummary.transmitted -ne $true) {
+          Fail 'Die Korrekturquelle ist nicht eindeutig als uebermitteltes Original nachgewiesen.' 'precondition-failed'
+        }
+        $correctionResult = [pscustomobject]@{
+          acknowledged = $true
+          period = $period
+          reason = $correctionReason
+          sourceHash = $actualSourceHash
+          backupHash = $actualBackupHash
+          originalUntouchedBeforeSave = $true
+          elsterTransmissionTriggered = $false
+        }
       }
     } elseif ($correction) {
       Fail 'correction ist nur fuer eine Korrektur-Arbeitskopie mit eindeutig uebermitteltem Quelloriginal zulaessig.' 'bad-args'
