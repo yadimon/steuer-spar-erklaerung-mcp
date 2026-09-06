@@ -4055,6 +4055,48 @@ function Walk-TreeLegacy {
 # die bisherige Ergebnisform abgebildet; sie bleibt formgleich zu
 # Walk-TreeLegacy, das weiterhin der Rueckfallweg ist.
 $script:UIAElementCache = @{}
+
+<#
+.SYNOPSIS
+Wandelt die nativen Knoten eines Baumlaufs in die Schnappschussform um.
+
+.DESCRIPTION
+Steht bewusst als eigene Funktion da, nicht als Schleife in Get-UiSnapshot.
+Der Grund ist messbar: PowerShell uebersetzt einen Schleifenrumpf erst bei
+seiner ERSTEN Ausfuehrung. In einem frischen Arbeitsprozess kostet dieser
+Durchlauf 41 ms gegen 5-7 ms fuer jeden weiteren (gemessen ueber 160
+synthetische Knoten; im Arbeiter selbst rund 75 ms). Und weil jeder Arbeiter
+genau einen Baumlauf macht, zahlt er diese Uebersetzung immer.
+
+Als eigene Funktion laesst sie sich beim Vorwaermen einmal ueber synthetische
+Knoten laufen lassen - reine Rechenarbeit ohne jede UIA-Abfrage, siehe die
+Warmlaufstelle im Prewarm-Block.
+#>
+function ConvertTo-SSESnapshotNodes($NativeNodes) {
+  $out = New-Object System.Collections.ArrayList
+  foreach ($node in $NativeNodes) {
+    $scroll = $null
+    if ($null -ne $node.Scroll) {
+      $scroll = [pscustomobject]@{
+        vScrollable=$node.Scroll.VerticallyScrollable; vPercent=$node.Scroll.VerticalScrollPercent
+        vView=$node.Scroll.VerticalViewSize; hScrollable=$node.Scroll.HorizontallyScrollable
+        hPercent=$node.Scroll.HorizontalScrollPercent
+      }
+    }
+    $null = $out.Add([pscustomobject]@{
+      i=$node.Index; p=$node.ParentIndex; d=$node.Depth; type=$node.ControlType
+      name=$node.Name; aid=$node.AutomationId
+      x=$node.X; y=$node.Y; w=$node.W; h=$node.H
+      on=$node.Enabled; val=$node.Value; ro=$node.ReadOnly; checked=$node.Checked
+      selected=$node.Selected; scroll=$scroll; rid=$node.RuntimeId
+    })
+    # Spaetere Operationen greifen ueber die RuntimeId auf genau dieses
+    # lebende Element zurueck, statt den Baum erneut zu durchlaufen.
+    if ($node.RuntimeId) { $script:UIAElementCache[$node.RuntimeId] = $node.Element }
+  }
+  # Das Komma verhindert, dass PowerShell die Liste beim Rueckgeben aufloest.
+  ,$out
+}
 function Get-UiSnapshot {
   param([IntPtr]$hwnd, [int]$MaxNodes = 4000, [int]$TimeoutSec = 45, [int]$MaxDepth = 16,
         [switch]$WithValues, [switch]$WithScroll)
@@ -4086,27 +4128,7 @@ function Get-UiSnapshot {
     $native = [SSEUiaTree]::Describe(
       $hwnd, $MaxNodes, ($TimeoutSec * 1000), $MaxDepth, [bool]$WithValues, [bool]$WithScroll)
 
-    $out = New-Object System.Collections.ArrayList
-    foreach ($node in $native.Nodes) {
-      $scroll = $null
-      if ($null -ne $node.Scroll) {
-        $scroll = [pscustomobject]@{
-          vScrollable=$node.Scroll.VerticallyScrollable; vPercent=$node.Scroll.VerticalScrollPercent
-          vView=$node.Scroll.VerticalViewSize; hScrollable=$node.Scroll.HorizontallyScrollable
-          hPercent=$node.Scroll.HorizontalScrollPercent
-        }
-      }
-      $null = $out.Add([pscustomobject]@{
-        i=$node.Index; p=$node.ParentIndex; d=$node.Depth; type=$node.ControlType
-        name=$node.Name; aid=$node.AutomationId
-        x=$node.X; y=$node.Y; w=$node.W; h=$node.H
-        on=$node.Enabled; val=$node.Value; ro=$node.ReadOnly; checked=$node.Checked
-        selected=$node.Selected; scroll=$scroll; rid=$node.RuntimeId
-      })
-      # Spaetere Operationen greifen ueber die RuntimeId auf genau dieses
-      # lebende Element zurueck, statt den Baum erneut zu durchlaufen.
-      if ($node.RuntimeId) { $script:UIAElementCache[$node.RuntimeId] = $node.Element }
-    }
+    $out = ConvertTo-SSESnapshotNodes $native.Nodes
     $st = [pscustomobject]@{
       n=$native.NodeCount; err=$native.WalkErrors; cyc=$native.CycleHits
       cycleRid=[string]$native.CycleRuntimeId; cycleName=''
@@ -7376,6 +7398,43 @@ if ($Prewarm) {
   Invoke-SSEWorkerOperation $script:SSE_DISPATCHER_WARMUP $null
   $dispatcherWarmupProbe.Stop()
   $script:INIT_TIMINGS.dispatcherWarmupMs = $dispatcherWarmupProbe.ElapsedMilliseconds
+
+  # Dieselbe Begruendung, eine Ebene tiefer: Der Dispatcher-Warmlauf erreicht
+  # die Knotenumwandlung nicht, weil sie hinter einem Baumlauf liegt - und ein
+  # Reservearbeiter darf vor seiner Bereitschaft KEINE UIA-Abfrage stellen.
+  # Uebersetzt ist ihr Rumpf damit erst beim ersten echten Baumlauf, und den
+  # macht jeder Arbeiter: gemessen 41 ms erste gegen 5-7 ms jede weitere
+  # Ausfuehrung (im Arbeiter rund 75 ms gegen 6 ms).
+  #
+  # Der Warmlauf umgeht das, ohne die Isolationsregel zu beruehren: Die Knoten
+  # entstehen im Speicher, ihr Element bleibt null, und es wird kein einziges
+  # UI-Element angefasst. Ein Knoten traegt einen Scrollzustand, damit auch
+  # dieser Zweig uebersetzt wird.
+  $nodeWarmupProbe = [Diagnostics.Stopwatch]::StartNew()
+  $warmupNodes = New-Object 'System.Collections.Generic.List[SSEUiaNode]'
+  for ($warmupIndex = 0; $warmupIndex -lt 64; $warmupIndex++) {
+    $warmupNode = New-Object SSEUiaNode
+    $warmupNode.Index = $warmupIndex
+    $warmupNode.ParentIndex = [int]($warmupIndex / 2)
+    $warmupNode.Depth = 2
+    $warmupNode.ControlType = 'Edit'
+    $warmupNode.Name = "warmup-$warmupIndex"
+    $warmupNode.AutomationId = ".warmup.$warmupIndex"
+    $warmupNode.X = $warmupIndex; $warmupNode.Y = $warmupIndex
+    $warmupNode.W = 10; $warmupNode.H = 10
+    $warmupNode.Enabled = $true
+    $warmupNode.Value = '1.234,00'
+    $warmupNode.RuntimeId = "warmup.$warmupIndex"
+    if ($warmupIndex -eq 0) { $warmupNode.Scroll = New-Object SSEUiaScrollState }
+    $null = $warmupNodes.Add($warmupNode)
+  }
+  $null = ConvertTo-SSESnapshotNodes $warmupNodes.ToArray()
+  # Die synthetischen Eintraege duerfen den Elementzwischenspeicher nicht
+  # verlassen: Get-LiveElement meldet einen Treffer allein anhand des
+  # Schluessels und wuerde sonst ein null als lebendes Element zurueckgeben.
+  $script:UIAElementCache.Clear()
+  $nodeWarmupProbe.Stop()
+  $script:INIT_TIMINGS.snapshotConversionWarmupMs = $nodeWarmupProbe.ElapsedMilliseconds
 
   # Sammeln, BEVOR der Arbeiter parkt. Ohne das zahlt die erste
   # allokationsreiche Anweisung nach dem Aufwachen eine Sammlung - gemessen
