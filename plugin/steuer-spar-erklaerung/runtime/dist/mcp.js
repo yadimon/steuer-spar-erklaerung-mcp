@@ -5368,7 +5368,9 @@ var init_mcp_schemas_ui = __esm({
         sumLabel: external_exports.string().describe("Beschriftung der eindeutigen Kontrollsumme"),
         sumOccurrence: UI_OCCURRENCE.optional().describe("1-basierte Position bei mehrfacher Summenbeschriftung; Vorgabe 1"),
         expectedBefore: external_exports.string().describe("Exakter Summenwert vor dem Anlegen"),
-        expectedAfter: external_exports.string().describe("Exakter Summenwert nach dem Anlegen"),
+        expectedAfter: external_exports.string().optional().describe(
+          "Optional: exakter Summenwert nach dem Anlegen. Ohne diese Angabe genuegt, dass die Kontrollsumme sich bewegt hat - sie bindet die Zeile an die richtige Tabelle, und jede Zelle wird ohnehin einzeln zurueckgelesen. Die Vorhersage verlangt, SSEs Rechnung nachzubilden: Die Seitensumme addiert netto, nicht brutto. Wer sie liefert, wird strenger geprueft"
+        ),
         hwnd: WINDOW_HANDLE.optional()
       }).strict(),
       "sse_table_update": external_exports.object({

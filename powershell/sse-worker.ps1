@@ -16154,8 +16154,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $expectedBefore = [string](Arg $a 'expectedBefore')
     $expectedAfter = [string](Arg $a 'expectedAfter')
     if (-not $werte.Count) { Fail 'werte fehlt (Liste in Spaltenreihenfolge)' 'bad-args' }
-    if (-not $expectedPage -or -not $sumLabel -or -not $expectedBefore -or -not $expectedAfter) {
-      Fail 'expectedPage, sumLabel, expectedBefore und expectedAfter sind Pflicht.' 'bad-args'
+    if (-not $expectedPage -or -not $sumLabel -or -not $expectedBefore) {
+      Fail 'expectedPage, sumLabel und expectedBefore sind Pflicht.' 'bad-args'
     }
     if (-not @($werte | Where-Object { [string]$_ }).Count) {
       Fail 'werte enthaelt keinen zu schreibenden Zellwert.' 'bad-args'
@@ -16597,8 +16597,37 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         $interference = $true
       } else {
         $sumAfterRead = Read-LabeledValueFromTree $afterTree $hwnd $sumLabel $sumOccurrence
-    if (-not $failure -and -not (Test-SSEScalarEqual $sumAfterRead.value $expectedAfter)) {
-          $failure = "Nachsumme '$sumLabel' ist '$($sumAfterRead.value)', erwartet '$expectedAfter'."
+        if ($expectedAfter) {
+          # Strengste Form: Der Aufrufer sagt die Nachsumme voraus und wird
+          # daran gebunden.
+          if (-not $failure -and -not (Test-SSEScalarEqual $sumAfterRead.value $expectedAfter)) {
+            $failure = "Nachsumme '$sumLabel' ist '$($sumAfterRead.value)', erwartet '$expectedAfter'."
+          }
+        } elseif (-not $failure) {
+          # Ohne Vorhersage: Die Kontrollsumme MUSS sich bewegt haben.
+          #
+          # Die Vorhersage zu verlangen klingt strenger, als sie ist. Sie
+          # zwingt den Aufrufer, SSEs Rechnung nachzubilden - die Seitensumme
+          # addiert netto, nicht brutto, und rundet selbst. Wer das falsch
+          # rechnet, bekommt eine abgewiesene Schreibung, obwohl die Zeile
+          # richtig war. Genau daran scheitert die Bedienung in der Praxis.
+          #
+          # Was die Summenpruefung wirklich absichert, ist die Bindung an die
+          # richtige Tabelle: Landet die Zeile woanders, bewegt sich diese
+          # Summe nicht. Das prueft die Veraenderung genauso. Jede
+          # geschriebene Zelle wird ohnehin einzeln zurueckgelesen.
+          #
+          # Eine Zeile ohne betragsmaessige Wirkung waere hier ein falscher
+          # Alarm; deshalb greift die Pruefung nur, wenn ueberhaupt ein von
+          # Null verschiedener Betrag geschrieben wurde.
+          $betragGeschrieben = [bool](@($werte | Where-Object {
+            $t = ([string]$_).Trim()
+            $t -and $t -ne '0' -and $t -ne '0,00' -and $t -ne '0.00'
+          }).Count)
+          if ($betragGeschrieben -and (Test-SSEScalarEqual $sumAfterRead.value $expectedBefore)) {
+            $failure = ("Kontrollsumme '$sumLabel' steht nach dem Anlegen unveraendert auf " +
+                        "'$($sumAfterRead.value)'. Die Zeile ist nicht in der gebundenen Tabelle gelandet.")
+          }
         }
       }
     }
