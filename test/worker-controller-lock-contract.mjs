@@ -13,6 +13,7 @@ import { createApiExecutor } from "../dist/api-executor.js";
 import { createSseApiServer } from "../dist/api-server.js";
 import { callWorker } from "../dist/worker.js";
 import { desktopMarkerState, directWorker, powershell, root, ssePids } from "./direct-worker-helpers.mjs";
+import { listenOnFetchablePort } from "./fetchable-port.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const peerScript = join(here, "worker-controller-mutex-peer.ps1");
@@ -247,10 +248,7 @@ const runApiAndMcpBusy = async () => {
   const server = createSseApiServer({ execute });
   let client;
   try {
-    server.listen(0, "127.0.0.1");
-    await once(server, "listening");
-    const address = server.address();
-    assert(address && typeof address === "object");
+    const address = { port: await listenOnFetchablePort(server) };
     const baseUrl = `http://127.0.0.1:${address.port}`;
 
     const response = await fetch(`${baseUrl}/v1/operations/health`, {

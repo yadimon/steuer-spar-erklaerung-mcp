@@ -8,6 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { listenOnFetchablePort } from "./fetchable-port.mjs";
 
 const monitorScript = [
   "$ErrorActionPreference='SilentlyContinue'",
@@ -30,10 +31,7 @@ const monitorScript = [
 ].join("\n");
 
 const portProbe = createServer();
-portProbe.listen(0, "127.0.0.1");
-await once(portProbe, "listening");
-const portAddress = portProbe.address();
-assert(portAddress && typeof portAddress === "object");
+const portAddress = { port: await listenOnFetchablePort(portProbe) };
 await new Promise((resolveClose) => portProbe.close(resolveClose));
 const temporary = mkdtempSync(join(tmpdir(), "sse-no-console-window-"));
 const configPath = resolve(temporary, "config.json");
