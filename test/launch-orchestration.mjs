@@ -130,7 +130,7 @@ try {
   }
 
   {
-    // Regression aus dem beta.10-VM-Lauf: SSE hatte eine Wiederherstellungsdatei
+    // Regression aus einem fruehen Prueflauf: SSE hatte eine Wiederherstellungsdatei
     // geladen, meldete aber keinen Dialog. Nur der Fenstertitel verriet es, und
     // der Ablauf lief mit ready=true auf nicht verifiziertem Inhalt weiter.
     const pid = 4109;

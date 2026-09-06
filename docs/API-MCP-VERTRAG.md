@@ -528,5 +528,4 @@ Davon getrennt bleibt die fachliche Live-Evidenz: Ein Schema beweist weder die
 Erreichbarkeit jedes UI-Zustands noch alle Schreib-, Rollback- und
 Wiederöffnungsvarianten. Doku und Release Notes dürfen daher vollständige
 Transportparität, aber keine vollständige praktische UI-Abdeckung aller
-Operationen behaupten. Der genaue Stand steht in
-[VERIFIKATION.md](VERIFIKATION.md).
+Operationen behaupten. Welche Operationen live belegt sind, hält `test/operation-coverage.json` fest.

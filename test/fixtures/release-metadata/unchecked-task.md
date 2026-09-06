@@ -2,4 +2,4 @@
 
 ## Release-Gate
 
-- [ ] Frische Windows-VM vollständig prüfen
+- [ ] Frisches Windows-System vollständig prüfen

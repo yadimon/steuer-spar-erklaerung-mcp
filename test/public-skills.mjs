@@ -213,14 +213,14 @@ assert(architecture.includes("Agent Plugin")
   && architecture.includes("`sse_preflight`")
   && architecture.includes("keine physische Projektisolation"));
 
+// Die Verifikationsdoku traegt die Abdeckungsaussage und ihre Grenzen - nicht
+// die Innereien einzelner Prueflaeufe. Frueher standen hier ein Transferhash
+// und zwei Zeitstempel; beides gehoert nicht in ein oeffentliches Dokument.
 const verification = readFileSync(join(root, "docs", "VERIFIKATION.md"), "utf8");
-assert(verification.includes("0.151.0-alpha.7.2")
-  && verification.includes("`064048Z`")
-  && verification.includes("`064512Z`")
-  && verification.includes("materialisierte")
-  && verification.includes("c7874f26834142cf17ff0ec451341188149311d87b53e53bc31a21a953676410")
-  && verification.includes("keine Release-Sperre mehr")
-  && verification.includes("`SSE_NOT_RUNNING`"));
+assert(verification.includes("Live-Abdeckung")
+  && verification.includes("test/operation-coverage.json")
+  && verification.includes("Ausdruecklich nicht belegt".replace("ue", "\u00fc"))
+  && verification.includes("ELSTER"));
 
 const apiPackageReadme = readFileSync(join(root, "packages", "api", "README.md"), "utf8");
 const mcpPackageReadme = readFileSync(join(root, "packages", "mcp", "README.md"), "utf8");

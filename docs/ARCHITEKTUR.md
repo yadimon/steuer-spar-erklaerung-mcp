@@ -6,7 +6,7 @@ Entstehungsgeschichte einzelner UIA-Lösungen.
 
 > **Statushinweis:** Dieses Dokument enthält auch Zielverträge, die noch nicht
 > vollständig erreicht sind. Der aktuell belegte Produktstand und offene Gates
-> stehen in [VERIFIKATION.md](VERIFIKATION.md); Transportdetails stehen in
+> stehen in `test/operation-coverage.json`; Transportdetails stehen in
 > [API-MCP-VERTRAG.md](API-MCP-VERTRAG.md).
 
 ## Inhalt
@@ -326,12 +326,12 @@ Eigenes Programm ── HTTP/JSON ───────────────�
   Marker-Routingregeln; insbesondere umgehen UI-, Health-, Fenster- und
   Center-Wege diese Grenze nicht. `desktop_start` und `desktop_status` behalten
   ihre bereits dokumentierten Sonderwege.
-- Was dieser Schnitt kostet, ist gemessen und nicht geschätzt. Ein weiterhin
-  nötiger Workeraufruf braucht rund 1,1 s Wanduhrzeit, davon etwa 130 ms für den
-  PowerShell-Start, **rund 560 ms allein für das Übersetzen des über 700 KB
-  großen Workerskripts**, 40 ms für die UIA-Assemblies, 36 ms für den
-  vorkompilierten Interop und den Rest für die Operation selbst. Die
-  naheliegende Vermutung, die UIA-Schicht sei der Engpass, ist damit widerlegt.
+- Was dieser Schnitt kostet, ist gemessen und nicht geschätzt. Von der
+  Wanduhrzeit eines Workeraufrufs entfällt **rund die Hälfte allein auf das
+  Übersetzen des über 700 KB großen Workerskripts**; PowerShell-Start,
+  UIA-Assemblies und vorkompilierter Interop kosten zusammen deutlich weniger,
+  der Rest ist die Operation selbst. Die naheliegende Vermutung, die
+  UIA-Schicht sei der Engpass, ist damit widerlegt.
 - Reine Datei-/Metadatenoperationen werden nach feldgenauer Parität in den
   API-Prozess gezogen. Für verbleibende UI-Operationen lässt sich dieser Boden
   nur durch eine fachliche Skriptaufteilung senken, sodass ein Aufruf weniger
@@ -474,10 +474,10 @@ nicht aus.
 Der semantische Pfad liest Überschrift und Pflichtfelder direkt über ihre
 vollständigen AutomationIds. Er vermeidet den generischen 400-Knoten-Baum bei
 der Start-, Warte- und Zielprüfung, behält aber Suche, linearen Fallback,
-Dialogstopp und Schrittlimit unverändert. Im lokalen Wegwerffall sank der
-vollständige Sprung von `Beiträge, Gebühren und Abgaben` zum Fahrzeug von
-19,916 s mit einem falschen `not-found` auf 12,724 s mit verifiziertem Erfolg;
-auf der bereits geöffneten Zielseite benötigte der Nullschritt 1,956 s.
+Dialogstopp und Schrittlimit unverändert. Im lokalen Wegwerffall wurde der
+vollständige Sprung von `Beiträge, Gebühren und Abgaben` zum Fahrzeug deutlich
+kürzer und endete statt mit einem falschen `not-found` mit verifiziertem
+Erfolg; auf der bereits geöffneten Zielseite bleibt der Nullschritt kurz.
 
 ### Typisierte Ein-Worker-Pläne
 
@@ -510,27 +510,24 @@ Listenread im selben Prozess. Nur ein vollständiges, hashgleiches semantisches
 Zeilen-Multiset hebt diesen Zwischenzustand auf; der öffentliche Einzelread
 bleibt unverändert fail-closed.
 
-Auf dem Entwicklungsrechner lag ein kalter API→PowerShell-Aufruf in fünf
-Messungen bei p50 2,112 s, davon p50 0,717 s im Worker und rund 1,395 s
-Prozess-/Transport-Overhead. Damit spart ein Fünf-Feld-Plan gegenüber fünf
-Einzelworkern allein etwa 5,6 s Startoverhead. Ein Beleg ohne Klassifikation
-benötigte zuvor drei Worker, fünf Belege 15; der neue Plan startet jeweils
-genau einen. Der reale Zwei-Feld-Plan benötigte auf dem Entwicklungsrechner
-8,753 s Planzeit bei 8,735 s Worker-Aktionszeit. Der reale Beleg-Import in der
-Snapshot-VM benötigte trotz nur eines Workers 98,561 s; dort dominierte die
-sichtbare Qt-Interaktion und Stabilisierung.
+Bei einem kalten API→PowerShell-Aufruf wiegt der Prozess- und Transportweg
+schwerer als die eigentliche Arbeit im Worker. Ein Plan, der fünf Felder in
+einem Worker erledigt, spart deshalb den Startaufwand der übrigen vier: Ein
+Beleg ohne Klassifikation benötigte zuvor drei Worker, fünf Belege fünfzehn;
+der Plan startet jeweils genau einen. Beim sichtbaren Beleg-Import dominiert
+dagegen die Qt-Interaktion und ihre Stabilisierung — dort bringt die Bündelung
+wenig.
 
 Eine kontrollierte Vorher-/Nachher-Messung auf demselben lokalen Wegwerffall
 mit 21 vorhandenen Belegen verkürzte Import, sieben Feldwerte und unabhängigen
-Abschlussreadback von 37,531 auf 25,568 s (−31,9 %). Dafür liest
+Abschlussreadback um knapp ein Drittel. Dafür liest
 `receipt_manager_update` zwischen den drei vollständigen Bindungs-/Abschluss-
 Snapshots jedes bereits gebundene Feld direkt über dessen exakte AutomationId
 und pollt den tatsächlichen Wert, statt vor und nach jedem Feld erneut bis zu
-800 UIA-Knoten zu projizieren. Der Update-Anteil benötigte noch 6,609 s.
-`performance.internalTimings` erklärt jede interne Operation einzeln; im
-erfolgreichen Nachlauf entfielen 10,203 s auf den nativen Importdialog,
-4,799 s auf den unabhängigen Detailreadback und zusammen 2,520 s auf die zwei
-vollständigen Listenreads. Diese Sicherheitsnachweise zu Liste, Dialogen,
+800 UIA-Knoten zu projizieren. `performance.internalTimings` erklärt jede
+interne Operation einzeln; im erfolgreichen Nachlauf entfällt der größte
+Anteil auf den nativen Importdialog, gefolgt vom unabhängigen Detailreadback
+und den zwei vollständigen Listenreads. Diese Sicherheitsnachweise zu Liste, Dialogen,
 Fenstern und Dirty-State bleiben absichtlich erhalten. Ein separater
 langlebiger Worker oder C#-Bulk-Prozess ist nach diesen Messungen nicht
 gerechtfertigt.
@@ -772,8 +769,7 @@ Readback-Evidenz braucht deshalb einen isolierten bekannten Ausgangszustand.
 Das aktuell verwendete `plugins@1.3.4` ignoriert den Scope bei Codex und
 schreibt bei beiden dokumentierten Zielen in clientverwaltete Benutzer-Caches
 beziehungsweise Konfiguration. Claude Code verwendet bewusst `--scope user`,
-weil nur dieser Zustand im Windows-VM-Lauf target-nativ gelesen und entfernt
-werden konnte. Beide Wege sind daher keine physische Projektisolation. Der gewählte Ordner trennt den
+weil nur dieser Zustand target-nativ gelesen und entfernt werden kann. Beide Wege sind daher keine physische Projektisolation. Der gewählte Ordner trennt den
 Agentenkontext; ein eigener absoluter `SSE_API_CONFIG`-Pfad trennt zusätzlich
 die API-Arbeitsdaten. Ohne ihn gilt der private Standard unter
 `%LOCALAPPDATA%\SteuerSparErklaerungApi`.
@@ -987,9 +983,7 @@ Inhalte. Neue Feld- oder Typvarianten stoppen den Test bis zur bewussten
 Übernahme; die Schemas müssen jede belegte Variante akzeptieren.
 Der statische Worker-Feldguard bleibt ergänzend bestehen, weil optionale
 Fehler- und Recovery-Felder nicht in jedem deterministischen Lauf erscheinen.
-Profilierte Live-Läufe verwenden ausschließlich Wegwerfkopien und werden mit
-Voraussetzungen und belegtem Umfang in
-[VERIFIKATION.md](VERIFIKATION.md) geführt.
+Profilierte Live-Läufe verwenden ausschließlich Wegwerfkopien.
 
 ## Definition of Done (Ziel, noch nicht vollständig erreicht)
 

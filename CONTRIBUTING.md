@@ -88,8 +88,7 @@ Remove-Item Env:SSE_WRITE_OPERATION_COVERAGE
 Remove-Item Env:SSE_WRITE_OPERATION_SHAPE
 ```
 
-Prüfe anschließend die beiden JSON-Diffs einzeln. Details und Evidenzgrenzen
-stehen in [docs/VERIFIKATION.md](docs/VERIFIKATION.md).
+Prüfe anschließend die beiden JSON-Diffs einzeln. Welche Operation live belegt ist, hält `test/operation-coverage.json` fest.
 
 ## Pull Request
 

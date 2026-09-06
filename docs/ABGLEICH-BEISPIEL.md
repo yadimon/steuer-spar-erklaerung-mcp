@@ -63,8 +63,7 @@ Nur Fakten eintragen, keine Vermutungen:
 |---|---|---|---|
 | `<FRAGE>` | `<DATEI/BELEGART>` | `<WAS FEHLT>` | ja/nein |
 
-Aktuelle Laufzeitgrenzen stehen im
-[Verifikationsstand](VERIFIKATION.md) und in der
+Aktuelle Laufzeitgrenzen stehen in der
 [Produktarchitektur](ARCHITEKTUR.md). Das
 [Entwicklungsprotokoll](entwicklung/erfahrungen/sse-automation-erfahrungen.md)
 erklärt historische UIA-Befunde und verworfene Ansätze, ist aber keine

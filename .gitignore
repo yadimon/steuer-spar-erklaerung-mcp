@@ -93,9 +93,12 @@ docs/*.json
 # Private lokale, vorerst rechner- und sitzungsspezifische Learnings
 /docs/ai-learning/
 
-# Private lokale Testdaten und VM-Smoke-Umgebung
+# Private lokale Testdaten und Prueflaufumgebung
 /.private/
-/.vm-provisioning/
+# Interner Entwicklungsstand: Pruefprotokolle, Messreihen, Lernnotizen
+# und historische Release-Notizen. Oeffentlich bleibt nur, was den Code
+# selbst betrifft.
+/localdev/
 /documents/
 /backups/
 /cases/
@@ -103,7 +106,7 @@ docs/*.json
 /workspace/
 /tmp/
 
-# Lokale VirtualBox-Maschinen, Exporte und Laufzeitstatus
+# Lokale Prueflaufumgebungen, Exporte und Laufzeitstatus
 *.vbox
 *.vbox-prev
 *.vdi

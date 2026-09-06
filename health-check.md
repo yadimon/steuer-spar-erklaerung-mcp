@@ -9,13 +9,13 @@ ermittelt.
 Der Health Check sendet nichts über ELSTER und verwendet keine echten
 Steuerdaten. Live-Prüfungen laufen ausschließlich auf konfigurierten
 herstellereigenen Wegwerfkopien; Rohberichte, lokale Pfade, Screenshots und
-VM-Evidenz bleiben außerhalb von Git.
+Prüfprotokolle bleiben außerhalb von Git.
 
 ## Maßgebliche Quellen
 
 - `package.json` und `test/suite-plan.mjs` für Build- und Testplan;
 - `src/api-contract.ts` für den aktuellen Operationskatalog;
-- `test/operation-coverage.json` und `docs/VERIFIKATION.md` für Live-Evidenz;
+- `test/operation-coverage.json` für Live-Evidenz;
 - `profiles/*/profile.json` für Produktfreigabe und Buildbindung;
 - `SECURITY.md` und `docs/RELEASE.md` für Support- und Releasegrenzen.
 

@@ -27,7 +27,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const ledgerPath = join(here, "operation-coverage.json");
 const scope = process.env.SSE_TEST_COVERAGE_SCOPE ?? "";
 const CURRENT_GATE_EVIDENCE = "current-gate";
-const SNAPSHOT_VM_EVIDENCE = "snapshot-vm";
+const SNAPSHOT_VM_EVIDENCE = "isoliert";
 assert(
   scope === "offline" || scope === "live",
   "SSE_TEST_COVERAGE_SCOPE muss 'offline' oder 'live' sein; der Vertrag laeuft nur aus einem Suiterunner.",
@@ -146,7 +146,7 @@ for (const operation of SSE_API_OPERATIONS) {
   const actual = observedStatus(operation);
   // Benutzerbezogene Desktopdaten und ELSTER-Voraussetzungen lassen sich auf
   // dem Host nicht deterministisch pruefen, ohne fremde Daten anzufassen.
-  // Diese eng begrenzten Operationen werden in der sauberen Snapshot-VM
+  // Diese eng begrenzten Operationen werden in einer abgeschotteten Pruefumgebung
   // ausgefuehrt und gehoeren deshalb nicht zur Host-Trace-Ratsche.
   if (scope === "live" && entry.liveEvidence === SNAPSHOT_VM_EVIDENCE) continue;
   if (actual === claimed) continue;
@@ -173,7 +173,7 @@ const external = scope === "live"
 process.stdout.write(
   `Abdeckungsbilanz ${scope}: ${functional.length}/${SSE_API_OPERATIONS.length} Operationsvertraege funktional ausgeuebt, ` +
   `${errorOnly.length} nur auf Fehlerpfaden, ${recordCount} protokollierte Aufrufe` +
-  (external.length ? `; ${external.length} Live-Nachweise stammen aus dem getrennten Snapshot-VM-Gate` : "") + "\n",
+  (external.length ? `; ${external.length} Live-Nachweise stammen aus dem getrennten abgeschotteten Gate` : "") + "\n",
 );
 
 // Laufzeitbild statt Bauchgefuehl: Es wird berichtet, nie behauptet. Ein

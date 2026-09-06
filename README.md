@@ -80,9 +80,9 @@ cd C:\mein-steuer-ai
 npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target claude-code --scope user --yes
 ```
 
-Claude Code benötigt keinen zusätzlichen Codex-Befehl; der Windows-VM-Lauf mit
-Claude Code 2.1.252 zeigte den Eintrag nach diesem einen Installeraufruf als
-`enabled` und bestätigte die target-native Entfernung mit demselben User-Scope.
+Claude Code benötigt keinen zusätzlichen Codex-Befehl: Der Eintrag steht nach
+diesem einen Installeraufruf als `enabled`, und die target-native Entfernung
+gelingt mit demselben User-Scope.
 Danach den gewählten Client in `C:\mein-steuer-ai` neu starten oder
 seine Plugins neu laden. Git wird nur vom einmaligen Installer zum Klonen
 benötigt. Zur Laufzeit ist Node.js 22+ die einzige zusätzliche Voraussetzung:
@@ -92,9 +92,9 @@ kein Netzwerkzugriff benötigt.
 
 `plugins@1.3.4` ignoriert den Scope bei Codex und schreibt bei beiden Zielen in
 clientverwaltete Benutzer-Caches beziehungsweise Benutzerkonfiguration. Beim
-Claude-Code-Ziel ist `--scope user` absichtlich gewählt: Der VM-Test zeigte,
-dass der vom Installer als `project` registrierte Zustand target-nativ nicht
-entfernbar war, während `user` vollständig gelesen und entfernt werden konnte.
+Claude-Code-Ziel ist `--scope user` absichtlich gewählt: Ein vom Installer als
+`project` registrierter Zustand ist target-nativ nicht entfernbar, `user`
+dagegen vollständig lesbar und entfernbar.
 Damit gibt es keine physische Projektisolation. Der geöffnete Ordner begrenzt
 weiterhin den Auftragskontext; für strikt getrennte Arbeitsdaten wird
 zusätzlich ein eigener absoluter `SSE_API_CONFIG`-Pfad konfiguriert. Details,
@@ -168,7 +168,7 @@ fortgeschrittener npm-Weg verfügbar, ist aber nicht der Nutzerstandard.
 - [Produktarchitektur](docs/ARCHITEKTUR.md)
 - [API-/MCP-Vertrag](docs/API-MCP-VERTRAG.md)
 - [Umsatzsteuer-Voranmeldung](docs/UMSATZSTEUER-VORANMELDUNG.md)
-- [Verifikationsstand und offene VM-Matrix](docs/VERIFIKATION.md)
+- [Verifikationsstand](docs/VERIFIKATION.md)
 - [Skill-Vertrag](skills/steuer-spar-erklaerung/SKILL.md)
 - [Releases](https://github.com/yadimon/steuer-spar-erklaerung-mcp/releases)
 

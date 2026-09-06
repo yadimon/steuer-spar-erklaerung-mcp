@@ -6,7 +6,7 @@ const excludedDirectories = new Set([
   ".git",
   ".private",
   ".tmp",
-  ".vm-provisioning",
+  "localdev",
   "ai-learning",
   "artifacts",
   "backups",
@@ -123,8 +123,10 @@ assert.match(readFileSync("health-check.md", "utf8"), /keine eingefrorenen Test-
   "Health Check muss Zähler aus Quellen ableiten statt einen alten Grünstand zu konservieren.");
 assert.doesNotMatch(readFileSync("docs/RELEASE.md", "utf8"), /GitHub-Assets aus Abschnitt 5/u,
   "Release-Anleitung verweist auf den falschen Abschnitt.");
-assert.match(readFileSync("docs/releases/v0.1.0-beta.31.md", "utf8"), /foreground-required-operation-disabled/u,
-  "Aktuelle Release Notes müssen die öffentliche BelegManager-Sperre offenlegen.");
+// Die Sperre gehoert in ein dauerhaftes Dokument, nicht in eine einzelne
+// Release-Notiz: Dort blieb sie an einer laengst ueberholten Version haengen.
+assert.match(readFileSync("docs/ARCHITEKTUR.md", "utf8"), /foreground-required-operation-disabled/u,
+  "Die Architekturdoku muss die öffentliche BelegManager-Sperre offenlegen.");
 process.stdout.write(
   `Repository-Links: ${markdownFiles.length} Markdown-Dateien, ${localLinkCount} lokale Ziele und ${anchorLinkCount} Anker bestanden\n`,
 );

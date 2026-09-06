@@ -1,7 +1,6 @@
 # Dokumentation
 
-Der Nutzerstandard ist das selbstenthaltene Agent Plugin. Alte Release Notes
-und historische VM-Berichte beschreiben ihren damaligen Stand und sind keine
+Der Nutzerstandard ist das selbstenthaltene Agent Plugin. Ältere Release Notes beschreiben ihren damaligen Stand und sind keine
 aktuelle Installationsanweisung.
 
 ## Einstieg
@@ -11,8 +10,7 @@ aktuelle Installationsanweisung.
 - [Installation](INSTALLATION.md) — Codex-/Claude-Code-Setup, First run,
   Datenablage, Update, sichere Entfernung und Fehlerbehebung;
 - [Skill](../skills/steuer-spar-erklaerung/SKILL.md) — kurzer Router für
-  wiederverwendbare Prüf-, Beleg-, Änderungs- und UStVA-Abläufe;
-- [Öffentlicher Artikel](OEFFENTLICHER-POST.md) — kopierbarer Ankündigungstext.
+  wiederverwendbare Prüf-, Beleg-, Änderungs- und UStVA-Abläufe.
 
 ## Produkt- und Sicherheitsverträge
 
@@ -24,8 +22,8 @@ aktuelle Installationsanweisung.
   Build-Drift-Sperre und Verifikationsstand; wird aus den Quellen erzeugt;
 - [Umsatzsteuer-Voranmeldung](UMSATZSTEUER-VORANMELDUNG.md) — fachlicher und
   technischer UStVA-Ablauf;
-- [Verifikationsstand](VERIFIKATION.md) — Offline-/Live-Abdeckung, historische
-  Evidenz und die ausdrücklich offene Plugin-VM-Matrix;
+- [Verifikationsstand](VERIFIKATION.md) — was die Suite beweist, was nur ein
+  Live-Lauf beweist und was ausdrücklich offen ist;
 - [Sicherheitsrichtlinie](../SECURITY.md) — Support-, Melde- und
   Betriebsgrenze.
 
@@ -44,8 +42,7 @@ Diese Wege bleiben unterstützt, sind aber nicht der normale Einstieg.
 - [Mitwirken](../CONTRIBUTING.md) — Entwicklung, Tests und Datenschutz;
 - [Fähigkeiten und offene Lücken](ROADMAP.md) — was fertig ist, was fehlt und
   auf welchem Bauweg es zu schließen wäre;
-- [Release-Prozess](RELEASE.md) — versionsgleicher Plugin-/npm-Release und
-  verifizierte Registry-/VM-Gates;
+- [Release-Prozess](RELEASE.md) — versionsgleicher Plugin-/npm-Release.
 - [Repository Health Check](../health-check.md) — reproduzierbares Playbook;
 - [Statustafel](entwicklung/status.md) — jede bekannte Fähigkeit des Produkts
   mit ihrem Stand bei uns; der Einstieg für „haben wir das schon?";
@@ -67,6 +64,6 @@ Diese Wege bleiben unterstützt, sind aber nicht der normale Einstieg.
 | Was fehlt noch, und auf welchem Weg? | [ROADMAP.md](ROADMAP.md) |
 | Welche Operation ist erreichbar? | laufendes `capabilities.operationPolicy` |
 | Wie wird installiert? | [INSTALLATION.md](INSTALLATION.md) |
-| Was ist live belegt? | `test/operation-coverage.json`, [VERIFIKATION.md](VERIFIKATION.md) |
+| Was ist live belegt? | `test/operation-coverage.json` |
 | Welche Tests gehören zum Gate? | `test/suite-plan.mjs` |
 | Wie wird veröffentlicht? | [RELEASE.md](RELEASE.md), npm-Publish-Workflow |

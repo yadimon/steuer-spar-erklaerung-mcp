@@ -259,7 +259,7 @@
         "stateful-mock"
       ],
       "live": "functional",
-      "liveEvidence": "snapshot-vm"
+      "liveEvidence": "isoliert"
     },
     "known_page_state": {
       "offline": "functional",
@@ -369,7 +369,7 @@
         "stateful-mock"
       ],
       "live": "functional",
-      "liveEvidence": "snapshot-vm"
+      "liveEvidence": "isoliert"
     },
     "receipt_manager_bulk_upsert": {
       "offline": "functional",
@@ -377,7 +377,7 @@
         "stateful-mock"
       ],
       "live": "functional",
-      "liveEvidence": "snapshot-vm"
+      "liveEvidence": "isoliert"
     },
     "receipt_manager_classification_options": {
       "offline": "functional",
@@ -385,7 +385,7 @@
         "stateful-mock"
       ],
       "live": "functional",
-      "liveEvidence": "snapshot-vm"
+      "liveEvidence": "isoliert"
     },
     "receipt_manager_classify": {
       "offline": "functional",
@@ -393,7 +393,7 @@
         "stateful-mock"
       ],
       "live": "functional",
-      "liveEvidence": "snapshot-vm"
+      "liveEvidence": "isoliert"
     },
     "receipt_manager_link": {
       "offline": "functional",
@@ -401,7 +401,7 @@
         "stateful-mock"
       ],
       "live": "functional",
-      "liveEvidence": "snapshot-vm"
+      "liveEvidence": "isoliert"
     },
     "receipt_manager_delete": {
       "offline": "functional",
@@ -409,7 +409,7 @@
         "stateful-mock"
       ],
       "live": "functional",
-      "liveEvidence": "snapshot-vm"
+      "liveEvidence": "isoliert"
     },
     "receipt_manager_import": {
       "offline": "functional",
@@ -417,7 +417,7 @@
         "stateful-mock"
       ],
       "live": "functional",
-      "liveEvidence": "snapshot-vm"
+      "liveEvidence": "isoliert"
     },
     "receipt_manager_list": {
       "offline": "functional",
@@ -425,7 +425,7 @@
         "stateful-mock"
       ],
       "live": "functional",
-      "liveEvidence": "snapshot-vm"
+      "liveEvidence": "isoliert"
     },
     "receipt_manager_read": {
       "offline": "functional",
@@ -433,7 +433,7 @@
         "stateful-mock"
       ],
       "live": "functional",
-      "liveEvidence": "snapshot-vm"
+      "liveEvidence": "isoliert"
     },
     "receipt_manager_update": {
       "offline": "functional",
@@ -628,7 +628,7 @@
         "stateful-mock"
       ],
       "live": "error-path-only",
-      "liveEvidence": "snapshot-vm"
+      "liveEvidence": "isoliert"
     },
     "vast_dialog_read": {
       "offline": "functional",
@@ -636,7 +636,7 @@
         "stateful-mock"
       ],
       "live": "error-path-only",
-      "liveEvidence": "snapshot-vm"
+      "liveEvidence": "isoliert"
     },
     "vast_mapping_options": {
       "offline": "functional",
@@ -644,7 +644,7 @@
         "stateful-mock"
       ],
       "live": "error-path-only",
-      "liveEvidence": "snapshot-vm"
+      "liveEvidence": "isoliert"
     },
     "vast_mapping_select": {
       "offline": "functional",
@@ -652,7 +652,7 @@
         "stateful-mock"
       ],
       "live": "error-path-only",
-      "liveEvidence": "snapshot-vm"
+      "liveEvidence": "isoliert"
     },
     "vast_row_details": {
       "offline": "functional",
@@ -660,7 +660,7 @@
         "stateful-mock"
       ],
       "live": "error-path-only",
-      "liveEvidence": "snapshot-vm"
+      "liveEvidence": "isoliert"
     },
     "vast_row_set_expanded": {
       "offline": "functional",
@@ -668,7 +668,7 @@
         "stateful-mock"
       ],
       "live": "error-path-only",
-      "liveEvidence": "snapshot-vm"
+      "liveEvidence": "isoliert"
     },
     "verify": {
       "offline": "functional",

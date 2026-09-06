@@ -7,8 +7,8 @@ wiederholt sie nicht:
 - **[API-REFERENZ.md](API-REFERENZ.md)** listet alle Operationen, ihre
   MCP-Werkzeuge, ihre Art und ihren Verifikationsstand. Sie wird aus den Quellen
   erzeugt und kann nicht veralten.
-- **[VERIFIKATION.md](VERIFIKATION.md)** haelt fest, womit jede Zusicherung
-  belegt ist und wo die Grenze der Aussage liegt.
+- **`test/operation-coverage.json`** haelt fest, welche Operation live belegt
+  ist und wo die Grenze der Aussage liegt.
 
 Hier steht nur, was sich daraus **nicht** ablesen laesst: die Absicht.
 
@@ -142,7 +142,7 @@ im Repository belegt sind.
 
 | Luecke | Warum offen | Weg | Was dafuer noetig ist |
 | --- | --- | --- | --- |
-| **VaSt vollstaendig** – die sechs Wege `vast_apply`, `vast_dialog_read`, `vast_mapping_options`, `vast_mapping_select`, `vast_row_details`, `vast_row_set_expanded` | in der Snapshot-VM erreichte jeder kontrolliert den echten `not-found`-Fehlerpfad; ohne Zertifikat-PIN kam kein Datensatz | Vordergrund-Lease, wie heute | ein ELSTER-Zertifikat mit PIN in einer Wegwerf-Umgebung, und die Entscheidung, ob echte Abrufdaten dort liegen duerfen |
+| **VaSt vollstaendig** – die sechs Wege `vast_apply`, `vast_dialog_read`, `vast_mapping_options`, `vast_mapping_select`, `vast_row_details`, `vast_row_set_expanded` | in einer abgeschotteten Prüfumgebung erreichte jeder kontrolliert den echten `not-found`-Fehlerpfad; ohne Zertifikat-PIN kam kein Datensatz | Vordergrund-Lease, wie heute | ein ELSTER-Zertifikat mit PIN in einer Wegwerf-Umgebung, und die Entscheidung, ob echte Abrufdaten dort liegen duerfen |
 | **BelegManager ohne Vordergrund** – neun der zehn Wege | nur `receipt_manager_list` ist als fokusloses Lesen freigegeben; Detailauswahl, Navigation und Mutation brauchen sichtbaren Vordergrund | fokusloses Schreiben, falls die Qt-Liste je brauchbare Muster anbietet | Nachweis, dass Auswahl und Detailbindung ohne physische Eingabe stabil sind – bisher nicht gelungen |
 | **Steuerjahr 2024 im Vollbetrieb** | Profil steht auf `experimental` mit `verification-only`; nur mit ausdruecklichem Opt-in erreichbar | vorhandene Wege, neues Profil | vollstaendige Live-Verifikation gegen Engine 30, wie sie fuer 2025 vorliegt |
 | **Steuerjahr 2026** | es gibt kein Profil | vorhandene Wege, neues Profil | das Produkt muss erscheinen; danach Katalog, Profil und Live-Verifikation |

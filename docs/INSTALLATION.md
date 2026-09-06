@@ -213,7 +213,7 @@ codex plugin list --json
 
 Für Claude Code stattdessen wieder den einzelnen `plugins@1 add`-Befehl mit
 `--target claude-code --scope user` verwenden und dessen target-native Anzeige
-zurücklesen. Der VM-Lauf belegt die idempotente Wiederholung derselben
+zurücklesen. Der Prüflauf belegt die idempotente Wiederholung derselben
 beta.33; ein Update über zwei Plugin-Versionen ist für diesen ersten
 Agent-Plugin-Release nicht möglich und wird erstmals beim Nachfolger geprüft.
 Ein erfolgreicher Installer-Exitcode allein beweist kein Update. Danach den
@@ -239,8 +239,8 @@ codex plugin list --json
 ```
 
 Die Entfernung ist erst bestätigt, wenn `codex plugin list --json` genau diesen
-Eintrag nicht mehr als installiert oder aktiviert ausweist. Für den in der VM
-mit Claude Code 2.1.252 zurückgelesenen Eintrag gilt:
+Eintrag nicht mehr als installiert oder aktiviert ausweist. Für den
+zurückgelesenen Eintrag gilt:
 
 ```powershell
 cd C:\mein-steuer-ai

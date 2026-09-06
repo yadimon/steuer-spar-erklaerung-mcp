@@ -2,4 +2,4 @@
 
 ## Verifikation vor Veröffentlichung
 
-Zusätzlich offen bis zum VM-Lauf ist die Entfernungsmatrix.
+Zusätzlich offen bis zum Prüflauf ist die Entfernungsmatrix.

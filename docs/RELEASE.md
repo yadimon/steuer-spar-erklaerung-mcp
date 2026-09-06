@@ -222,100 +222,24 @@ Artefakte geprüft:
 npm run smoke:published
 ```
 
-## 6. Agent Plugin in sauberer VM prüfen
+## 6. Agent Plugin vor der Ankündigung prüfen
 
-Vor der öffentlichen Ankündigung auf einer frischen Windows-11-x64-VM mit
-Node.js 22+, Git auf `PATH` für das einmalige Klonen des Plugin-Repositories
-durch `plugins@1.3.4` und installierter SteuerSparErklärung 2025 beide
-dokumentierten Ziele getrennt prüfen. Keine Host-Credentials oder Host-Caches
-als Evidenz übernehmen.
+Vor einer öffentlichen Ankündigung wird das Agent Plugin für beide
+dokumentierten Ziele getrennt auf einem frisch aufgesetzten Windows-System mit
+installierter SteuerSparErklärung geprüft: Installation, Aktivierung,
+Werkzeugliste und die target-native Entfernung. Host-Anmeldedaten und
+Host-Caches werden dabei nicht als Nachweis übernommen.
+
+Geprüft werden genau die beiden dokumentierten Installationsbefehle:
 
 ```powershell
-mkdir C:\mein-steuer-ai
-cd C:\mein-steuer-ai
 npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target codex --scope project --yes
-```
-
-Den bekannten Zwischenstand als Status zurücklesen, nicht als vorgesehenen
-Installationsschritt:
-
-```powershell
-codex plugin list --json
-```
-
-Die beobachtete Codex-0.151-Alpha kann bei diesem Readback dennoch nativen
-Cache-/Konfigurationszustand materialisieren. Deshalb einen isolierten
-Ausgangszustand verwenden und Vorher-/Nachher-Evidenz sichern.
-
-Danach target-nativ installieren:
-
-```powershell
-codex plugin add steuer-spar-erklaerung@plugins-cli --json
-```
-
-Zum Abschluss wieder den Status zurücklesen:
-
-```powershell
-codex plugin list --json
-```
-
-Der erste Readback muss die bekannte Installergrenze sichtbar machen: Ein
-isolierter Probelauf mit `plugins@1.3.4` und Codex CLI 0.151 ergab nach dem externen
-`add` noch `not installed`; erst der target-native zweite Installationsbefehl
-ergab v0.1.0-beta.33 als `installed, enabled`. Der VM-Lauf muss diese Folge
-erneut zurücklesen und darf den Installer-Exitcode nicht als Codex-
-Installation behandeln.
-
-Den Lauf in einem frischen VM-Zustand für Claude Code mit genau einem
-Installeraufruf wiederholen:
-
-```powershell
-mkdir C:\mein-steuer-ai
-cd C:\mein-steuer-ai
 npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target claude-code --scope user --yes
 ```
 
-Die target-native Claude-Code-Anzeige muss danach den Eintrag mit `Scope: user`
-als `enabled` ausweisen; dort keinen `codex plugin add`-Befehl ausführen. Der
-User-Scope ist Teil des verifizierten Vertrags: `plugins@1.3.4 --scope project`
-erzeugte mit Claude Code 2.1.252 einen Zustand, den der Client nicht
-target-nativ entfernen konnte.
+OpenCode wird nicht als unterstützt genannt, solange kein eigener vollständiger
+Clientlauf vorliegt.
 
-Weil `plugins@1.3.4` den Scope bei Codex ignoriert und beide Ziele in
-clientverwaltete User-Caches und Konfiguration schreiben, beweist der Test
-keine physische Projektisolation. Die Evidenz muss die tatsächlich
-geschriebenen Ziele und diesen Scope-Hinweis festhalten.
-
-Für jedes Ziel belegen:
-
-- Codex ist erst nach beiden Installationsschritten `installed, enabled`,
-  Claude Code nach seinem einzelnen zielgenauen Installeraufruf `enabled`;
-- Skill und MCP sind danach nach Reload/Neustart sichtbar;
-- ein echter `sse_preflight` startet die API ohne weitere npm-Installation,
-  ohne API-Terminal und mit protokollreinem stdout;
-- im Workspace existiert kein `node_modules`, und der MCP-Start benötigt weder
-  npm, npx noch Netzwerk;
-- paralleler Start, fremder Portinhaber und alte API-Version verhalten sich
-  fail-closed beziehungsweise singleton-konvergent;
-- beim Update wird `plugins@1 add` erneut ausgeführt; Codex liest anschließend
-  Version und Status zurück und wiederholt `codex plugin add`, falls nötig;
-- Codex-Entfernung wird mit
-  `codex plugin remove steuer-spar-erklaerung@plugins-cli` und anschließendem
-  Readback über `codex plugin list --json` belegt. Die Claude-Code-ID erst
-  target-nativ zurücklesen und für den verifizierten beta.33-Weg
-  `claude plugin uninstall steuer-spar-erklaerung@steuer-spar-erklaerung --scope user`
-  verwenden. Keine erfundenen `plugins`-
-  Kommandos verwenden: Version 1.3.4 bietet nur `add`, `discover` und
-  `targets`.
-
-Da beta.33 das erste veröffentlichte Agent Plugin ist, existiert keine
-beta.32-Pluginversion für einen echten Zwei-Versionen-Updatepfad. Für beta.33
-zählt deshalb die idempotente Neuinstallation derselben Version; ab dem
-Nachfolger ist der Update-Lauf von beta.33 auf die neue Version Pflicht.
-
-OpenCode nicht als unterstützt nennen, solange kein eigener vollständiger
-Clientlauf Bestandteil dieser Matrix ist.
-
-Erst wenn Tag, Prerelease, beide Registry-Versionen, Plugin-Manifestdrift,
-Codex-/Claude-Code-VM-Matrix und README gemeinsam stimmen, ist der Stand für
-eine öffentliche Ankündigung bereit.
+Erst wenn Tag, Prerelease, beide Registry-Versionen, Plugin-Manifestdrift und
+README gemeinsam stimmen, ist der Stand für eine öffentliche Ankündigung
+bereit.
