@@ -5209,12 +5209,15 @@ var init_mcp_schemas_diagnostics = __esm({
 });
 
 // src/mcp-schemas-interaction.ts
-var SSE_MCP_INTERACTION_SCHEMAS;
+var USTVA_EXPECTED_PAGE, SSE_MCP_INTERACTION_SCHEMAS;
 var init_mcp_schemas_interaction = __esm({
   "src/mcp-schemas-interaction.ts"() {
     "use strict";
     init_zod();
     init_operation_schema_primitives();
+    USTVA_EXPECTED_PAGE = () => external_exports.string().min(1).optional().describe(
+      "Seitenueberschrift aus sse_ustva_read (Feld 'page'); spart die zusaetzliche Seitenlesung und wird vor der Aenderung geprueft."
+    );
     SSE_MCP_INTERACTION_SCHEMAS = {
       "sse_click": external_exports.object({
         name: external_exports.string().optional().describe("Beschriftung, z. B. 'Weiter'"),
@@ -5388,6 +5391,7 @@ var init_mcp_schemas_interaction = __esm({
       }).strict(),
       "sse_ustva_select_period": external_exports.object({
         selector: external_exports.enum(["frequency", "month", "quarter"]).describe("Zu aendernde Zeitraumdimension"),
+        expectedPage: USTVA_EXPECTED_PAGE(),
         expectedCurrent: USTVA_PERIOD_KEY(),
         value: USTVA_PERIOD_KEY(),
         hwnd: WINDOW_HANDLE.optional(),
@@ -5397,6 +5401,7 @@ var init_mcp_schemas_interaction = __esm({
       }).strict(),
       "sse_ustva_set_flag": external_exports.object({
         flag: external_exports.enum(["corrected", "documents", "offset_request", "revoke_sepa", "additional_information", "manual_input"]).describe("Stabiles fachliches UStVA-Kennzeichen"),
+        expectedPage: USTVA_EXPECTED_PAGE(),
         expectedBefore: external_exports.boolean().describe("Exakt erwarteter aktueller Kennzeichenstatus"),
         value: external_exports.boolean().describe("Gewuenschter Kennzeichenstatus"),
         expectedAfter: external_exports.boolean().describe("Exakt erwarteter Status nach Readback"),
@@ -5424,6 +5429,7 @@ var init_mcp_schemas_interaction = __esm({
           "reduction_taxable_base",
           "reduction_input_tax"
         ]).describe("Stabiles fachliches UStVA-Betragsfeld"),
+        expectedPage: USTVA_EXPECTED_PAGE(),
         expectedBefore: external_exports.string().describe("Exakt erwarteter formatierter Vorwert"),
         value: external_exports.string().describe("Neuer fachlicher Betragswert"),
         expectedAfter: external_exports.string().describe("Exakt erwarteter formatierter Wert nach Readback"),
@@ -5435,6 +5441,7 @@ var init_mcp_schemas_interaction = __esm({
       }).strict(),
       "sse_ustva_open_section": external_exports.object({
         section: external_exports.enum(["reverse_charge", "input_tax", "small_business", "tax_exempt", "non_taxable"]).describe("Stabiler fachlicher UStVA-Unterbereich"),
+        expectedPage: USTVA_EXPECTED_PAGE(),
         hwnd: WINDOW_HANDLE.optional()
       }).strict(),
       "sse_scroll": external_exports.object({
@@ -8566,6 +8573,12 @@ function normalizeUstvaPage(page) {
     note: "Read-only snapshot. Diese Operation speichert und uebermittelt nichts."
   };
 }
+function classifyUstvaPageHeading(heading) {
+  if (parseUstvaPageHeading(heading)) return "overview";
+  if (heading === USTVA_REVERSE_CHARGE_PAGE) return "reverse_charge";
+  if (heading === USTVA_INPUT_TAX_PAGE) return "input_tax";
+  return null;
+}
 function normalizeUstvaCurrentPage(page) {
   const blocked = blockedPage(page);
   if (blocked) return blocked;
@@ -8785,14 +8798,35 @@ async function readCurrentUstvaPage(args, step) {
   if (typeof normalisiert.ms === "number" || typeof gelesen.ms !== "number") return normalisiert;
   return { ...normalisiert, ms: gelesen.ms };
 }
-function requireOverview(page) {
-  if (page.ok === false) return page;
-  if (page.pageKind === "overview") return null;
-  return {
-    ok: false,
-    kind: "ustva-page",
-    error: `Die Operation braucht die UStVA-Uebersicht; aktuell ist '${String(page.page ?? "")}' offen.`
-  };
+async function resolveUstvaPageHeading(args, step, requiredKind) {
+  const durchgereicht = args.expectedPage;
+  if (typeof durchgereicht === "string" && durchgereicht.length > 0) {
+    const art = classifyUstvaPageHeading(durchgereicht);
+    if (art !== requiredKind) {
+      return {
+        failure: {
+          ok: false,
+          kind: "ustva-page",
+          error: `Die Operation braucht den UStVA-Bereich '${requiredKind}'; die uebergebene Seite '${durchgereicht}' gehoert ${art ? `zu '${art}'` : "zu keinem bekannten Bereich"}.`,
+          effects: mutationEffects(false)
+        }
+      };
+    }
+    return { heading: durchgereicht };
+  }
+  const gelesen = await readCurrentUstvaPage(args, step);
+  if (gelesen.ok === false) return { failure: gelesen };
+  if (gelesen.pageKind !== requiredKind) {
+    return {
+      failure: {
+        ok: false,
+        kind: "ustva-page",
+        error: `Die Operation braucht den UStVA-Bereich '${requiredKind}'; aktuell ist '${String(gelesen.page ?? "")}' offen.`,
+        effects: mutationEffects(false)
+      }
+    };
+  }
+  return { heading: String(gelesen.page ?? "") };
 }
 function withUstvaMetadata(result, metadata, effects) {
   return result.ok === false ? result : { ...result, ustva: { ...metadata, effects } };
@@ -8840,11 +8874,10 @@ async function executeUstvaOperation(operation, args, timeoutMs, signal, execute
       if (expected.aid !== requested.aid) {
         throw new ExecutorArgumentError("UStVA-Vorwert und Ziel gehoeren nicht zum selben Selektor.");
       }
-      const page = await readCurrentUstvaPage(args, step);
-      const pageError = requireOverview(page);
-      if (pageError) return pageError;
+      const seite = await resolveUstvaPageHeading(args, step, "overview");
+      if ("failure" in seite) return seite.failure;
       const result = await step("combo_select", {
-        expectedPage: page.page,
+        expectedPage: seite.heading,
         aid: requested.aid,
         expectedCurrent: expected.display,
         value: requested.display,
@@ -8862,11 +8895,10 @@ async function executeUstvaOperation(operation, args, timeoutMs, signal, execute
       const flag = String(args.flag);
       const aid = USTVA_FLAGS[flag];
       if (!aid) throw new ExecutorArgumentError(`Unbekanntes UStVA-Flag: '${flag}'.`);
-      const page = await readCurrentUstvaPage(args, step);
-      const pageError = requireOverview(page);
-      if (pageError) return pageError;
+      const seite = await resolveUstvaPageHeading(args, step, "overview");
+      if ("failure" in seite) return seite.failure;
       const result = await step("toggle", {
-        expectedPage: page.page,
+        expectedPage: seite.heading,
         aid,
         expectedBefore: args.expectedBefore,
         value: args.value,
@@ -8885,17 +8917,19 @@ async function executeUstvaOperation(operation, args, timeoutMs, signal, execute
           `UStVA-Feld '${field}' ist nur bei bewusst aktivierter manueller Erfassung erlaubt; manualInputConfirmed=true fehlt.`
         );
       }
-      const page = await readCurrentUstvaPage(args, step);
-      if (page.ok === false) return page;
-      if (page.pageKind !== definition.page) {
-        return {
-          ok: false,
-          kind: "ustva-page",
-          error: `UStVA-Feld '${field}' braucht den Bereich '${definition.page}'; aktuell ist '${String(page.pageKind ?? page.page ?? "")}' offen.`,
-          effects: mutationEffects(false)
-        };
-      }
-      if (definition.manualOnly && definition.page === "overview") {
+      const brauchtLebendesKennzeichen = definition.manualOnly && definition.page === "overview";
+      let ueberschrift;
+      if (brauchtLebendesKennzeichen) {
+        const page = await readCurrentUstvaPage(args, step);
+        if (page.ok === false) return page;
+        if (page.pageKind !== definition.page) {
+          return {
+            ok: false,
+            kind: "ustva-page",
+            error: `UStVA-Feld '${field}' braucht den Bereich '${definition.page}'; aktuell ist '${String(page.pageKind ?? page.page ?? "")}' offen.`,
+            effects: mutationEffects(false)
+          };
+        }
         const flags = page.flags;
         if (flags?.manual_input !== true) {
           return {
@@ -8905,9 +8939,22 @@ async function executeUstvaOperation(operation, args, timeoutMs, signal, execute
             effects: mutationEffects(false)
           };
         }
+        ueberschrift = String(page.page ?? "");
+        if (typeof args.expectedPage === "string" && args.expectedPage !== ueberschrift) {
+          return {
+            ok: false,
+            kind: "ustva-page",
+            error: `Uebergebene Seite '${args.expectedPage}' stimmt nicht mit der offenen Seite '${ueberschrift}' ueberein; keine Aenderung ausgefuehrt.`,
+            effects: mutationEffects(false)
+          };
+        }
+      } else {
+        const seite = await resolveUstvaPageHeading(args, step, definition.page);
+        if ("failure" in seite) return seite.failure;
+        ueberschrift = seite.heading;
       }
       const result = await step("tracked_set_value", {
-        expectedPage: page.page,
+        expectedPage: ueberschrift,
         aid: definition.aid,
         expectedBefore: args.expectedBefore,
         value: args.value,
@@ -8926,12 +8973,11 @@ async function executeUstvaOperation(operation, args, timeoutMs, signal, execute
       const section = String(args.section);
       const definition = USTVA_SECTIONS[section];
       if (!definition) throw new ExecutorArgumentError(`Unbekannter UStVA-Bereich: '${section}'.`);
-      const page = await readCurrentUstvaPage(args, step);
-      const pageError = requireOverview(page);
-      if (pageError) return pageError;
+      const seite = await resolveUstvaPageHeading(args, step, "overview");
+      if ("failure" in seite) return seite.failure;
       const result = await step("click", {
         aid: definition.aid,
-        expectedPageBefore: page.page,
+        expectedPageBefore: seite.heading,
         expectedPageAfter: definition.targetPage,
         waitMs: 3e3,
         ...args.hwnd === void 0 ? {} : { hwnd: args.hwnd }

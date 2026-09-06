@@ -18,13 +18,13 @@
     },
     {
       "path": "dist/api.js",
-      "sha256": "fa01fa972bd72467feee797f8e0c1b4d6ee34549a66adb4d65ea1d881061e518",
-      "size": 701838
+      "sha256": "35131bbdf4e18544c4f107f38ebf3e21705fe57cbc1b6598935e5d3ef8b91bf7",
+      "size": 704054
     },
     {
       "path": "dist/mcp.js",
-      "sha256": "d4ecf7d2a60d54c5b28da432d04506d8bdfc240cd3a6d261dd149f2da1784f5a",
-      "size": 1160459
+      "sha256": "60aac40cf965c2c42b04677c3f3b49811fb59ebdcc9ece21a0cb940821f7386c",
+      "size": 1160887
     },
     {
       "path": "powershell/akad-parser.ps1",
