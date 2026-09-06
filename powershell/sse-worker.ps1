@@ -1920,6 +1920,18 @@ function Emit($obj) {
       "SSE-WARNUNG: veralteter Rueckfallweg '$([string]$script:SSE_DEPRECATED_FALLBACK.operation)' " +
       "benutzt. $([string]$script:SSE_DEPRECATED_FALLBACK.reason)")
   }
+  # Ein Fall, dessen Kopf eine Uebermittlung traegt, wird gespeichert - aber
+  # nie stillschweigend. Die Warnung steht im Ergebnis UND auf der
+  # Fehlerausgabe, damit sie auch in Protokollen auftaucht, die nur den
+  # Prozess mitschreiben.
+  if ($script:SSE_TRANSMITTED_CASE_WARNING) {
+    $obj | Add-Member -NotePropertyName transmittedCaseWarning `
+      -NotePropertyValue $script:SSE_TRANSMITTED_CASE_WARNING -Force
+    [Console]::Error.WriteLine(
+      "SSE-WARNUNG: Fall mit Uebermittlungsvermerk gespeichert. " +
+      "$([string]$script:SSE_TRANSMITTED_CASE_WARNING.reason) " +
+      "$([string]$script:SSE_TRANSMITTED_CASE_WARNING.hinweis)")
+  }
   # Depth hoch, damit verschachtelte Baeume nicht abgeschnitten werden
   $json = $obj | ConvertTo-Json -Depth 24 -Compress
   if ($OutFile) {
@@ -11483,9 +11495,28 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $transmissionReason = [string]$summaryBefore.transmittedReason
       if (-not $transmissionReason) { $transmissionReason = 'Uebermittlungsstatus ist unbekannt' }
       if (-not $correction) {
-        Fail ("Bereits uebermittelter oder nicht sicher als unuebermittelt erkannter Fall wird nicht gespeichert: " +
-              "$transmissionReason. Fuer eine Korrektur zuerst eine als Korrektur/Berichtigung benannte, " +
-              "hashverifizierte Arbeitskopie samt Sicherung erzeugen und correction explizit bestaetigen.") 'transmitted-case-locked'
+        # Der Fallkopf haelt EINE Uebermittlung fest, nicht den Zustand des
+        # ganzen Jahres. Eine Gewinn-Erfassung wird ueber das Jahr
+        # weitergefuehrt und ist die Vorbefuellung fuer die naechste
+        # Voranmeldung; eine Blankosperre machte genau den Zweck der Datei
+        # unmoeglich - der Kommentar oben sagt das seit jeher, die Umsetzung
+        # hielt sich nicht daran.
+        #
+        # Was wirklich gilt: Ein bereits uebermittelter ZEITRAUM darf nicht
+        # still geaendert werden. Das ist eine Aussage ueber Zeitraeume, nicht
+        # ueber die Datei. Gespeichert wird deshalb, und die Warnung nennt die
+        # Uebermittlung in jedem Ergebnis.
+        #
+        # Der correction-Weg bleibt unveraendert: Wer einen uebermittelten
+        # Zeitraum wirklich berichtigt, bindet Arbeitskopie, Sicherung,
+        # Zeitraum und Grund - und bekommt dafuer die strengere Pruefung.
+        $script:SSE_TRANSMITTED_CASE_WARNING = [pscustomobject]@{
+          kind = 'transmitted-case'
+          reason = $transmissionReason
+          hinweis = ('Bereits uebermittelte Zeitraeume duerfen nicht still geaendert werden. Fuer die ' +
+                     'Berichtigung eines uebermittelten Zeitraums den correction-Weg mit Arbeitskopie, ' +
+                     'Sicherung, Zeitraum und Grund benutzen.')
+        }
       }
 
       $acknowledged = [bool](Arg $correction 'acknowledged' $false)
