@@ -8612,7 +8612,25 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     }
 
     [SW]::ShowWindow([IntPtr]$targetHwnd, 9) | Out-Null # SW_RESTORE
-    Start-Sleep -Milliseconds ([Math]::Min(10000, [Math]::Max(300, [int](Arg $a 'waitMs' 800))))
+    # Warten, BIS das Fenster wiederhergestellt ist, statt die Frist pauschal
+    # abzusitzen - dieselbe Behandlung, die window_close seit beta.37 bekommt.
+    # Die Zusage bleibt eine Obergrenze: Ein Fenster, das haengt, erhaelt
+    # weiterhin die volle Frist, und die Nachbedingung wird danach unveraendert
+    # geprueft.
+    #
+    # Die Untergrenze von 300 ms bleibt als Beobachtungsfenster stehen, denn die
+    # Nachbedingung prueft mehr als den Zustand des Ziels: dass kein
+    # Nachbarfenster verschwand, hinzukam oder seinen Fingerabdruck aenderte.
+    # Dafuer braucht das Programm einen Moment.
+    #
+    # `IsIconic` ist ein einzelner Win32-Aufruf und kostet nichts.
+    $fristMs = [Math]::Min(10000, [Math]::Max(300, [int](Arg $a 'waitMs' 800)))
+    $wiederherstellUhr = [Diagnostics.Stopwatch]::StartNew()
+    while ($wiederherstellUhr.ElapsedMilliseconds -lt $fristMs) {
+      Start-Sleep -Milliseconds 25
+      if ($wiederherstellUhr.ElapsedMilliseconds -ge 300 -and
+          -not [SW]::IsIconic([IntPtr]$targetHwnd)) { break }
+    }
 
     $afterWindows = @(Get-Windows 'SSE' | Where-Object { [int]$_.pid -eq $targetPid })
     $afterTargetMatches = @($afterWindows | Where-Object { [int64]$_.hwnd -eq $targetHwnd })
