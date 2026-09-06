@@ -13,6 +13,7 @@ import { SSE_API_DISCOVERY } from "../dist/api-discovery.js";
 import { createSseApiServer, listenSseApiServer } from "../dist/api-server.js";
 import { configurationFingerprint } from "../dist/workspace-status.js";
 import { SSE_PACKAGE_VERSION } from "../dist/version.js";
+import { listenOnFetchablePort } from "./fetchable-port.mjs";
 
 const calls = [];
 const logs = [];
@@ -222,11 +223,8 @@ const unsafeBindServer = createSseApiServer({ execute });
 await assert.rejects(listenSseApiServer(unsafeBindServer, "0.0.0.0", 43127), /Loopback/);
 await assert.rejects(listenSseApiServer(unsafeBindServer, "127.0.0.1", 0), /zwischen 1 und 65535/);
 
-server.listen(0, "127.0.0.1");
-await once(server, "listening");
-const address = server.address();
-assert(address && typeof address === "object");
-const baseUrl = `http://127.0.0.1:${address.port}`;
+const port = await listenOnFetchablePort(server);
+const baseUrl = `http://127.0.0.1:${port}`;
 
 try {
   const health = await fetch(`${baseUrl}/healthz`);
@@ -284,7 +282,7 @@ try {
   // Node behaelt bei doppeltem 'Host' stillschweigend die erste Kopfzeile; die
   // Anfrage bleibt trotzdem mehrdeutig und darf nicht interpretiert werden.
   const duplicateHostStatus = await new Promise((resolve, reject) => {
-    const socket = connect(address.port, "127.0.0.1", () => {
+    const socket = connect(port, "127.0.0.1", () => {
       socket.write([
         "GET /healthz HTTP/1.1",
         "Host: 127.0.0.1",

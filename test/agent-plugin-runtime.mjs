@@ -22,6 +22,7 @@ import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { listenOnFetchablePort } from "./fetchable-port.mjs";
 
 assert.equal(process.platform, "win32", "Die gebuendelte Produkt-Runtime ist ein Windows-Vertrag.");
 assert.equal(process.arch, "x64", "Die gebuendelte Produkt-Runtime ist ein Windows-x64-Vertrag.");
@@ -34,12 +35,11 @@ let activeJunction;
 
 async function freePort() {
   const server = createServer();
-  server.listen(0, "127.0.0.1");
-  await once(server, "listening");
-  const address = server.address();
-  assert(address && typeof address === "object");
+  // Der Port wird spaeter per fetch angesprochen; die Fetch-Spezifikation
+  // sperrt eine feste Liste, siehe fetchable-port.mjs.
+  const port = await listenOnFetchablePort(server);
   await new Promise((resolveClose) => server.close(resolveClose));
-  return address.port;
+  return port;
 }
 
 function configFor(name, port) {
