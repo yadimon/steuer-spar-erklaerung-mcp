@@ -311,6 +311,24 @@ function normalizeUstvaPage(page: WorkerResult): WorkerResult {
   };
 }
 
+export type UstvaPageKind = "overview" | "reverse_charge" | "input_tax";
+
+/**
+ * Seitenart allein aus der Ueberschrift bestimmen.
+ *
+ * Genau diese drei Vergleiche entscheiden auch in `normalizeUstvaCurrentPage`
+ * ueber die Seitenart; dort stehen sie nur zwischen dem Aufbau der jeweiligen
+ * Ergebnisform. Herausgezogen sind sie zusaetzlich auf eine Ueberschrift
+ * anwendbar, die der Aufrufer bereits gelesen hat - ohne die Seite ein
+ * zweites Mal aufzumachen.
+ */
+export function classifyUstvaPageHeading(heading: string): UstvaPageKind | null {
+  if (parseUstvaPageHeading(heading)) return "overview";
+  if (heading === USTVA_REVERSE_CHARGE_PAGE) return "reverse_charge";
+  if (heading === USTVA_INPUT_TAX_PAGE) return "input_tax";
+  return null;
+}
+
 export function normalizeUstvaCurrentPage(page: WorkerResult): WorkerResult {
   const blocked = blockedPage(page);
   if (blocked) return blocked;

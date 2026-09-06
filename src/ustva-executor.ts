@@ -6,11 +6,13 @@ import {
 } from "./api-contract.js";
 import { ExecutorArgumentError, operationError } from "./executor-errors.js";
 import {
+  classifyUstvaPageHeading,
   mapUstvaPeriodValue,
   normalizeUstvaCurrentPage,
   USTVA_FLAGS,
   USTVA_SECTIONS,
   USTVA_VALUE_FIELDS,
+  type UstvaPageKind,
 } from "./ustva.js";
 
 const USTVA_OPERATIONS = [
@@ -79,14 +81,61 @@ async function readCurrentUstvaPage(
   return { ...normalisiert, ms: gelesen.ms };
 }
 
-function requireOverview(page: WorkerResult): WorkerResult | null {
-  if (page.ok === false) return page;
-  if (page.pageKind === "overview") return null;
-  return {
-    ok: false,
-    kind: "ustva-page",
-    error: `Die Operation braucht die UStVA-Uebersicht; aktuell ist '${String(page.page ?? "")}' offen.`,
-  };
+/**
+ * Die Seite, auf der die Schreiboperation stattfinden muss - entweder frisch
+ * gelesen oder vom Aufrufer durchgereicht.
+ *
+ * Die UStVA-Schreiboperationen brauchten bisher IMMER eine eigene
+ * `page`-Lesung, nur um die Ueberschrift zu erfahren, die sie danach als
+ * `expectedPage` an die eigentliche Worker-Operation weitergeben. Diese Lesung
+ * kostet einen vollstaendigen zweiten Workerprozess samt eigenem Baumlauf
+ * (gemessen rund 1000 ms je Aufruf) - und der Arbeiter liest die Seite fuer
+ * seine eigene `expectedPage`-Pruefung ohnehin ein drittes Mal.
+ *
+ * Wer die Ueberschrift schon kennt, weil er unmittelbar davor `ustva_read`
+ * aufgerufen hat, reicht sie als `expectedPage` durch. Der Verlass darauf ist
+ * KEIN Vertrauensvorschuss: die Ueberschrift wird hier gegen dieselbe
+ * Seitenart geprueft wie eine selbst gelesene, und der Arbeiter vergleicht sie
+ * unmittelbar vor der Aenderung gegen die tatsaechlich offene Seite und bricht
+ * fail-closed ab, wenn sie abweicht. Der Weg ist sogar enger als der bisherige:
+ * zwischen Lesung und Aenderung liegt kein zweiter Prozesswechsel mehr, in dem
+ * die Seite haette wechseln koennen.
+ */
+async function resolveUstvaPageHeading(
+  args: Record<string, unknown>,
+  step: UstvaStep,
+  requiredKind: UstvaPageKind,
+): Promise<{ heading: string } | { failure: WorkerResult }> {
+  const durchgereicht = args.expectedPage;
+  if (typeof durchgereicht === "string" && durchgereicht.length > 0) {
+    const art = classifyUstvaPageHeading(durchgereicht);
+    if (art !== requiredKind) {
+      return {
+        failure: {
+          ok: false,
+          kind: "ustva-page",
+          error: `Die Operation braucht den UStVA-Bereich '${requiredKind}'; die uebergebene Seite ` +
+            `'${durchgereicht}' gehoert ${art ? `zu '${art}'` : "zu keinem bekannten Bereich"}.`,
+          effects: mutationEffects(false),
+        },
+      };
+    }
+    return { heading: durchgereicht };
+  }
+  const gelesen = await readCurrentUstvaPage(args, step);
+  if (gelesen.ok === false) return { failure: gelesen };
+  if (gelesen.pageKind !== requiredKind) {
+    return {
+      failure: {
+        ok: false,
+        kind: "ustva-page",
+        error: `Die Operation braucht den UStVA-Bereich '${requiredKind}'; aktuell ist ` +
+          `'${String(gelesen.page ?? "")}' offen.`,
+        effects: mutationEffects(false),
+      },
+    };
+  }
+  return { heading: String(gelesen.page ?? "") };
 }
 
 function withUstvaMetadata(
@@ -149,11 +198,10 @@ export async function executeUstvaOperation(
       if (expected.aid !== requested.aid) {
         throw new ExecutorArgumentError("UStVA-Vorwert und Ziel gehoeren nicht zum selben Selektor.");
       }
-      const page = await readCurrentUstvaPage(args, step);
-      const pageError = requireOverview(page);
-      if (pageError) return pageError;
+      const seite = await resolveUstvaPageHeading(args, step, "overview");
+      if ("failure" in seite) return seite.failure;
       const result = await step("combo_select", {
-        expectedPage: page.page,
+        expectedPage: seite.heading,
         aid: requested.aid,
         expectedCurrent: expected.display,
         value: requested.display,
@@ -171,11 +219,10 @@ export async function executeUstvaOperation(
       const flag = String(args.flag) as keyof typeof USTVA_FLAGS;
       const aid = USTVA_FLAGS[flag];
       if (!aid) throw new ExecutorArgumentError(`Unbekanntes UStVA-Flag: '${flag}'.`);
-      const page = await readCurrentUstvaPage(args, step);
-      const pageError = requireOverview(page);
-      if (pageError) return pageError;
+      const seite = await resolveUstvaPageHeading(args, step, "overview");
+      if ("failure" in seite) return seite.failure;
       const result = await step("toggle", {
-        expectedPage: page.page,
+        expectedPage: seite.heading,
         aid,
         expectedBefore: args.expectedBefore,
         value: args.value,
@@ -194,17 +241,25 @@ export async function executeUstvaOperation(
           `UStVA-Feld '${field}' ist nur bei bewusst aktivierter manueller Erfassung erlaubt; manualInputConfirmed=true fehlt.`,
         );
       }
-      const page = await readCurrentUstvaPage(args, step);
-      if (page.ok === false) return page;
-      if (page.pageKind !== definition.page) {
-        return {
-          ok: false,
-          kind: "ustva-page",
-          error: `UStVA-Feld '${field}' braucht den Bereich '${definition.page}'; aktuell ist '${String(page.pageKind ?? page.page ?? "")}' offen.`,
-          effects: mutationEffects(false),
-        };
-      }
-      if (definition.manualOnly && definition.page === "overview") {
+      // Manuelle Uebersichtsfelder brauchen den LIVE gelesenen Nachweis, dass
+      // das Kennzeichen 'manuelle Erfassung' aktiv ist. Diese Lesung ist keine
+      // blosse Ueberschriftenbeschaffung und darf deshalb nicht entfallen -
+      // eine Zusicherung des Aufrufers waere hier keine Pruefung. Ein trotzdem
+      // uebergebenes `expectedPage` wird gegen die Lesung gehalten, statt es
+      // stillschweigend zu uebergehen.
+      const brauchtLebendesKennzeichen = definition.manualOnly && definition.page === "overview";
+      let ueberschrift: string;
+      if (brauchtLebendesKennzeichen) {
+        const page = await readCurrentUstvaPage(args, step);
+        if (page.ok === false) return page;
+        if (page.pageKind !== definition.page) {
+          return {
+            ok: false,
+            kind: "ustva-page",
+            error: `UStVA-Feld '${field}' braucht den Bereich '${definition.page}'; aktuell ist '${String(page.pageKind ?? page.page ?? "")}' offen.`,
+            effects: mutationEffects(false),
+          };
+        }
         const flags = page.flags as Record<string, unknown> | undefined;
         if (flags?.manual_input !== true) {
           return {
@@ -214,9 +269,23 @@ export async function executeUstvaOperation(
             effects: mutationEffects(false),
           };
         }
+        ueberschrift = String(page.page ?? "");
+        if (typeof args.expectedPage === "string" && args.expectedPage !== ueberschrift) {
+          return {
+            ok: false,
+            kind: "ustva-page",
+            error: `Uebergebene Seite '${args.expectedPage}' stimmt nicht mit der offenen Seite ` +
+              `'${ueberschrift}' ueberein; keine Aenderung ausgefuehrt.`,
+            effects: mutationEffects(false),
+          };
+        }
+      } else {
+        const seite = await resolveUstvaPageHeading(args, step, definition.page);
+        if ("failure" in seite) return seite.failure;
+        ueberschrift = seite.heading;
       }
       const result = await step("tracked_set_value", {
-        expectedPage: page.page,
+        expectedPage: ueberschrift,
         aid: definition.aid,
         expectedBefore: args.expectedBefore,
         value: args.value,
@@ -235,12 +304,11 @@ export async function executeUstvaOperation(
       const section = String(args.section) as keyof typeof USTVA_SECTIONS;
       const definition = USTVA_SECTIONS[section];
       if (!definition) throw new ExecutorArgumentError(`Unbekannter UStVA-Bereich: '${section}'.`);
-      const page = await readCurrentUstvaPage(args, step);
-      const pageError = requireOverview(page);
-      if (pageError) return pageError;
+      const seite = await resolveUstvaPageHeading(args, step, "overview");
+      if ("failure" in seite) return seite.failure;
       const result = await step("click", {
         aid: definition.aid,
-        expectedPageBefore: page.page,
+        expectedPageBefore: seite.heading,
         expectedPageAfter: definition.targetPage,
         waitMs: 3_000,
         ...(args.hwnd === undefined ? {} : { hwnd: args.hwnd }),

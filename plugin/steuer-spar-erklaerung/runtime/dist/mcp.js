@@ -4777,12 +4777,15 @@ var init_mcp_schemas_diagnostics = __esm({
 });
 
 // src/mcp-schemas-interaction.ts
-var SSE_MCP_INTERACTION_SCHEMAS;
+var USTVA_EXPECTED_PAGE, SSE_MCP_INTERACTION_SCHEMAS;
 var init_mcp_schemas_interaction = __esm({
   "src/mcp-schemas-interaction.ts"() {
     "use strict";
     init_zod();
     init_operation_schema_primitives();
+    USTVA_EXPECTED_PAGE = () => external_exports.string().min(1).optional().describe(
+      "Seitenueberschrift aus sse_ustva_read (Feld 'page'); spart die zusaetzliche Seitenlesung und wird vor der Aenderung geprueft."
+    );
     SSE_MCP_INTERACTION_SCHEMAS = {
       "sse_click": external_exports.object({
         name: external_exports.string().optional().describe("Beschriftung, z. B. 'Weiter'"),
@@ -4956,6 +4959,7 @@ var init_mcp_schemas_interaction = __esm({
       }).strict(),
       "sse_ustva_select_period": external_exports.object({
         selector: external_exports.enum(["frequency", "month", "quarter"]).describe("Zu aendernde Zeitraumdimension"),
+        expectedPage: USTVA_EXPECTED_PAGE(),
         expectedCurrent: USTVA_PERIOD_KEY(),
         value: USTVA_PERIOD_KEY(),
         hwnd: WINDOW_HANDLE.optional(),
@@ -4965,6 +4969,7 @@ var init_mcp_schemas_interaction = __esm({
       }).strict(),
       "sse_ustva_set_flag": external_exports.object({
         flag: external_exports.enum(["corrected", "documents", "offset_request", "revoke_sepa", "additional_information", "manual_input"]).describe("Stabiles fachliches UStVA-Kennzeichen"),
+        expectedPage: USTVA_EXPECTED_PAGE(),
         expectedBefore: external_exports.boolean().describe("Exakt erwarteter aktueller Kennzeichenstatus"),
         value: external_exports.boolean().describe("Gewuenschter Kennzeichenstatus"),
         expectedAfter: external_exports.boolean().describe("Exakt erwarteter Status nach Readback"),
@@ -4992,6 +4997,7 @@ var init_mcp_schemas_interaction = __esm({
           "reduction_taxable_base",
           "reduction_input_tax"
         ]).describe("Stabiles fachliches UStVA-Betragsfeld"),
+        expectedPage: USTVA_EXPECTED_PAGE(),
         expectedBefore: external_exports.string().describe("Exakt erwarteter formatierter Vorwert"),
         value: external_exports.string().describe("Neuer fachlicher Betragswert"),
         expectedAfter: external_exports.string().describe("Exakt erwarteter formatierter Wert nach Readback"),
@@ -5003,6 +5009,7 @@ var init_mcp_schemas_interaction = __esm({
       }).strict(),
       "sse_ustva_open_section": external_exports.object({
         section: external_exports.enum(["reverse_charge", "input_tax", "small_business", "tax_exempt", "non_taxable"]).describe("Stabiler fachlicher UStVA-Unterbereich"),
+        expectedPage: USTVA_EXPECTED_PAGE(),
         hwnd: WINDOW_HANDLE.optional()
       }).strict(),
       "sse_scroll": external_exports.object({

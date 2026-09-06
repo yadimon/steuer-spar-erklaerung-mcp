@@ -11,6 +11,25 @@ import {
   SSE_CLICK_PATTERNS,
 } from "./operation-schema-primitives.js";
 
+/**
+ * Die Ueberschrift der offenen UStVA-Seite, so wie `sse_ustva_read` sie unter
+ * `page` gemeldet hat.
+ *
+ * Ohne diese Angabe oeffnet die Schreiboperation die Seite selbst noch einmal,
+ * nur um ihre Ueberschrift zu erfahren - ein vollstaendiger zweiter
+ * Arbeitsprozess samt Baumlauf, rund eine Sekunde. Wer unmittelbar zuvor
+ * `sse_ustva_read` aufgerufen hat, kennt sie bereits.
+ *
+ * Die Angabe ist keine Abkuerzung an der Pruefung vorbei: Sie wird gegen die
+ * geforderte Seitenart geprueft, und der Arbeiter vergleicht sie unmittelbar
+ * vor der Aenderung gegen die tatsaechlich offene Seite. Stimmt sie nicht,
+ * bricht er ab, ohne etwas zu aendern.
+ */
+const USTVA_EXPECTED_PAGE = () => z.string().min(1).optional().describe(
+  "Seitenueberschrift aus sse_ustva_read (Feld 'page'); spart die zusaetzliche Seitenlesung und " +
+  "wird vor der Aenderung geprueft.",
+);
+
 export const SSE_MCP_INTERACTION_SCHEMAS = {
   "sse_click": z.object({
     name: z.string().optional().describe("Beschriftung, z. B. 'Weiter'"),
@@ -191,6 +210,7 @@ export const SSE_MCP_INTERACTION_SCHEMAS = {
   }).strict(),
   "sse_ustva_select_period": z.object({
     selector: z.enum(["frequency", "month", "quarter"]).describe("Zu aendernde Zeitraumdimension"),
+    expectedPage: USTVA_EXPECTED_PAGE(),
     expectedCurrent: USTVA_PERIOD_KEY(),
     value: USTVA_PERIOD_KEY(),
     hwnd: WINDOW_HANDLE.optional(),
@@ -201,6 +221,7 @@ export const SSE_MCP_INTERACTION_SCHEMAS = {
   "sse_ustva_set_flag": z.object({
     flag: z.enum(["corrected", "documents", "offset_request", "revoke_sepa", "additional_information", "manual_input"])
       .describe("Stabiles fachliches UStVA-Kennzeichen"),
+    expectedPage: USTVA_EXPECTED_PAGE(),
     expectedBefore: z.boolean().describe("Exakt erwarteter aktueller Kennzeichenstatus"),
     value: z.boolean().describe("Gewuenschter Kennzeichenstatus"),
     expectedAfter: z.boolean().describe("Exakt erwarteter Status nach Readback"),
@@ -217,6 +238,7 @@ export const SSE_MCP_INTERACTION_SCHEMAS = {
       "input_tax_invoices", "input_tax_reverse_charge", "input_tax_import",
       "input_tax_adjustment", "special_advance_payment", "reduction_taxable_base", "reduction_input_tax",
     ]).describe("Stabiles fachliches UStVA-Betragsfeld"),
+    expectedPage: USTVA_EXPECTED_PAGE(),
     expectedBefore: z.string().describe("Exakt erwarteter formatierter Vorwert"),
     value: z.string().describe("Neuer fachlicher Betragswert"),
     expectedAfter: z.string().describe("Exakt erwarteter formatierter Wert nach Readback"),
@@ -230,6 +252,7 @@ export const SSE_MCP_INTERACTION_SCHEMAS = {
   "sse_ustva_open_section": z.object({
     section: z.enum(["reverse_charge", "input_tax", "small_business", "tax_exempt", "non_taxable"])
       .describe("Stabiler fachlicher UStVA-Unterbereich"),
+    expectedPage: USTVA_EXPECTED_PAGE(),
     hwnd: WINDOW_HANDLE.optional(),
   }).strict(),
   "sse_scroll": z.object({

@@ -114,6 +114,40 @@ Die API nimmt semantische Schlüssel wie `month` + `july` oder `quarter` + `q3`
 entgegen und übersetzt sie erst lokal in die deutsche Oberfläche. Absolute
 Pfade gelangen nicht in den MCP-Vertrag.
 
+### Die Seitenüberschrift durchreichen statt neu lesen
+
+Die vier schreibenden Operationen müssen wissen, welche UStVA-Seite offen ist —
+sie geben deren Überschrift als `expectedPage` an die eigentliche
+Worker-Operation weiter, die unmittelbar vor der Änderung dagegen prüft.
+
+Ohne Zutun beschaffen sie sich diese Überschrift mit einer **eigenen
+Seitenlesung**: ein zweiter Arbeitsprozess mit eigenem Baumlauf, gemessen rund
+eine Sekunde je Aufruf. Wer unmittelbar davor ohnehin `ustva_read` aufgerufen
+hat — der übliche Ablauf —, kennt sie längst und reicht sie durch:
+
+```json
+{ "flag": "corrected", "expectedBefore": false, "value": true,
+  "expectedAfter": true, "expectedPage": "Umsatzsteuer-Voranmeldungen 2025" }
+```
+
+Das ist **keine** Abkürzung an der Prüfung vorbei:
+
+- Die durchgereichte Überschrift wird gegen die geforderte Seitenart geprüft;
+  eine fremde oder unbekannte Seite bricht fail-closed ab, **bevor** irgendeine
+  Worker-Operation läuft.
+- Der Arbeiter vergleicht sie unmittelbar vor der Änderung gegen die
+  tatsächlich offene Seite und ändert nichts, wenn sie abweicht.
+- Der Weg ist sogar enger als der bisherige: zwischen Lesung und Änderung liegt
+  kein zweiter Prozesswechsel mehr, in dem die Seite hätte wechseln können.
+
+**Eine Ausnahme bleibt.** `ustva_change_value` liest bei den manuellen
+Übersichtsfeldern weiterhin selbst, denn dort ist die Lesung nicht bloß
+Überschriftenbeschaffung, sondern der Nachweis, dass das Kennzeichen „Beträge
+manuell erfassen" aktiv ist. Eine Zusicherung des Aufrufers wäre dafür keine
+Prüfung. Ein trotzdem übergebenes `expectedPage` wird dort gegen die Lesung
+gehalten und bei Widerspruch abgelehnt, statt stillschweigend übergangen zu
+werden.
+
 Für die Folgejahr-Ausnahme ist der maschinenlesbare Ablauf:
 
 1. `product_info` lesen und `supportedCaseYears.einurvor` auf `2026` prüfen;

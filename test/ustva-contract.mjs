@@ -433,6 +433,112 @@ try {
   assert.equal(exhausted.ok, false);
   assert.equal(exhausted.kind, "timeout");
 
+  // --- Durchgereichte Seitenueberschrift (expectedPage) ---------------------
+  //
+  // Wer die Ueberschrift schon kennt, spart die zusaetzliche `page`-Lesung.
+  // Das darf die Pruefung nicht lockern: eine falsche oder unbekannte Seite
+  // muss ohne JEDE Worker-Operation fail-closed abbrechen.
+  const UEBERSICHT = "Umsatzsteuer-Voranmeldungen 2025";
+
+  const durchgereicht = [];
+  const mitSeite = await executeUstvaOperation(
+    "ustva_set_flag",
+    { flag: "corrected", expectedBefore: false, value: true, expectedAfter: true, expectedPage: UEBERSICHT },
+    10_000,
+    undefined,
+    async (operation, nestedArgs) => {
+      durchgereicht.push({ operation, args: nestedArgs });
+      if (operation === "page") return overviewWorkerPage();
+      return { ok: true, verified: true };
+    },
+  );
+  assert.equal(mitSeite.ok, true);
+  assert.deepEqual(
+    durchgereicht.map((c) => c.operation),
+    ["toggle"],
+    "Mit durchgereichter Ueberschrift darf keine zusaetzliche Seitenlesung mehr laufen.",
+  );
+  assert.equal(
+    durchgereicht[0].args.expectedPage,
+    UEBERSICHT,
+    "Die durchgereichte Ueberschrift muss unveraendert als expectedPage beim Arbeiter ankommen.",
+  );
+
+  for (const [beschreibung, seite] of [
+    ["fremder Bereich", "Abziehbare Vorsteuer"],
+    ["unbekannte Seite", "Irgendeine andere Seite"],
+  ]) {
+    const abgelehnt = [];
+    const falsch = await executeUstvaOperation(
+      "ustva_set_flag",
+      { flag: "corrected", expectedBefore: false, value: true, expectedAfter: true, expectedPage: seite },
+      10_000,
+      undefined,
+      async (operation, nestedArgs) => {
+        abgelehnt.push({ operation, args: nestedArgs });
+        return { ok: true, verified: true };
+      },
+    );
+    assert.equal(falsch.ok, false, beschreibung);
+    assert.equal(falsch.kind, "ustva-page", beschreibung);
+    assert.equal(falsch.effects.taxDataChanged, false, beschreibung);
+    assert.deepEqual(abgelehnt, [], `${beschreibung}: Es darf keine Worker-Operation gelaufen sein.`);
+  }
+
+  // Manuelle Uebersichtsfelder behalten die LIVE-Lesung: sie ist der Nachweis
+  // fuer das Kennzeichen 'manuelle Erfassung', keine Ueberschriftenbeschaffung.
+  const manuellCalls = [];
+  const manuell = await executeUstvaOperation(
+    "ustva_change_value",
+    {
+      field: "taxable_19_base", expectedBefore: "1.234,00", value: "1.300,00",
+      expectedAfter: "1.300,00", manualInputConfirmed: true, expectedPage: UEBERSICHT,
+    },
+    10_000,
+    undefined,
+    async (operation, nestedArgs) => {
+      manuellCalls.push({ operation, args: nestedArgs });
+      if (operation === "page") return overviewWorkerPage();
+      return { ok: true, verified: true };
+    },
+  );
+  assert.equal(
+    manuellCalls[0].operation,
+    "page",
+    "Manuelle Uebersichtsfelder muessen das Kennzeichen weiterhin live lesen.",
+  );
+  assert.equal(manuell.ok, false);
+  assert.equal(manuell.kind, "manual-input-disabled");
+
+  // Eine durchgereichte Ueberschrift, die der Lesung widerspricht, wird nicht
+  // stillschweigend uebergangen.
+  const widerspruchCalls = [];
+  const widerspruch = await executeUstvaOperation(
+    "ustva_change_value",
+    {
+      field: "taxable_19_base", expectedBefore: "1.234,00", value: "1.300,00",
+      expectedAfter: "1.300,00", manualInputConfirmed: true, expectedPage: "Umsatzsteuer-Voranmeldungen 2024",
+    },
+    10_000,
+    undefined,
+    async (operation) => {
+      widerspruchCalls.push(operation);
+      if (operation === "page") {
+        return { ...overviewWorkerPage(), felder: fields.map((f) => (
+          f.aid === "ManuelleEingabe" ? { ...f, wert: true } : f
+        )) };
+      }
+      return { ok: true, verified: true };
+    },
+  );
+  assert.equal(widerspruch.ok, false);
+  assert.equal(widerspruch.kind, "ustva-page");
+  assert.deepEqual(
+    widerspruchCalls,
+    ["page"],
+    "Bei widersprechender Ueberschrift darf keine Aenderung folgen.",
+  );
+
   const alreadyAborted = new AbortController();
   alreadyAborted.abort(new Error("synthetischer UStVA-Abbruch"));
   const abortedCalls = [];
