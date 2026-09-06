@@ -64,7 +64,8 @@ function Test-SSENativeSurface {
   $types = @(
     'DSK','SW','SSEWindowNode','SSEWindowEnumerator','SSEProcessCommandLine',
     'SSEAccessible','SSEAccNode','SSEWorkerControllerLease',
-    'SSEUiaTree','SSEUiaNode','SSEUiaScrollState','SSEUiaSnapshot'
+    'SSEUiaTree','SSEUiaNode','SSEUiaScrollState','SSEUiaSnapshot',
+    'SSEUiaNodeView','SSEUiaScrollView','SSEWindowView'
   )
   foreach ($name in $types) {
     if (-not ($name -as [type])) { return $false }
@@ -80,15 +81,18 @@ function Test-SSENativeSurface {
       'WindowFromPoint','GetAncestor','ShowWindow','SetWindowPos','BringWindowToTop','ScreenToClient','PostMessage',
       'SendMessage','GetForegroundWindow','GetLastActivePopup','GetLastInputInfo','IsIconic','AttachThreadInput',
       'GetGUIThreadInfo','GetCurrentThreadId','SendUnicodeText')
-    SSEWindowEnumerator=@('Describe')
+    SSEWindowEnumerator=@('Describe','ToViews')
     SSEProcessCommandLine=@('TryGet')
     SSEWindowNode=@()
     SSEAccessible=@('Describe','DescribePoint','DescribePointBasic','Invoke')
     SSEWorkerControllerLease=@('Acquire','ReleaseAndClose')
-    SSEUiaTree=@('Describe')
+    SSEUiaTree=@('Describe','ToViews')
     SSEUiaNode=@()
     SSEUiaScrollState=@()
     SSEUiaSnapshot=@()
+    SSEUiaScrollView=@()
+    SSEUiaNodeView=@()
+    SSEWindowView=@()
   }
   foreach ($typeName in $required.Keys) {
     $type = $typeName -as [type]
