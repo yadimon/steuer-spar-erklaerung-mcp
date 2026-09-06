@@ -1906,6 +1906,20 @@ function Emit($obj) {
       ms=$script:T0.ElapsedMilliseconds
     }
   }
+  # Ein bewusst veralteter Rueckfallweg darf nicht unbemerkt benutzt werden.
+  #
+  # Solche Wege bleiben erhalten, weil sie im Fehlerfall noch tragen - aber
+  # genau deshalb ist die Gefahr, dass sie stillschweigend zum Normalweg
+  # werden. Die Markierung steht im Ergebnis, damit sie jeder Aufrufer sieht,
+  # UND auf der Fehlerausgabe, damit sie auch in Protokollen auftaucht, die nur
+  # den Prozess mitschreiben.
+  if ($script:SSE_DEPRECATED_FALLBACK) {
+    $obj | Add-Member -NotePropertyName deprecatedFallback `
+      -NotePropertyValue $script:SSE_DEPRECATED_FALLBACK -Force
+    [Console]::Error.WriteLine(
+      "SSE-WARNUNG: veralteter Rueckfallweg '$([string]$script:SSE_DEPRECATED_FALLBACK.operation)' " +
+      "benutzt. $([string]$script:SSE_DEPRECATED_FALLBACK.reason)")
+  }
   # Depth hoch, damit verschachtelte Baeume nicht abgeschnitten werden
   $json = $obj | ConvertTo-Json -Depth 24 -Compress
   if ($OutFile) {
@@ -14178,6 +14192,17 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     #  - "Gewinnermittlung beginnen" ist eine Sackgasse ohne beide Schalter.
     # Deshalb: erst den passenden Zweig ueber den Baum anspringen (echter
     # Klick, UIA-Invoke navigiert dort nicht), dann von dort blaettern.
+    # Dieser Weg ist ein Rueckfall, kein Normalweg - und er meldet das ab jetzt
+    # in jedem Ergebnis und auf der Fehlerausgabe. Ohne die Markierung koennte
+    # er unbemerkt zum Standard werden, obwohl er einen echten Mausklick
+    # braucht und das Fenster nach vorn holt.
+    $script:SSE_DEPRECATED_FALLBACK = [pscustomobject]@{
+      operation = 'goto_tree'
+      reason = ("Veralteter Navigationsweg ueber den Baum: braucht einen echten Mausklick und holt das " +
+                "Fenster nach vorn. Vorgabe ist das fokusfreie 'goto'; dieser Weg bleibt nur als " +
+                "Rueckfall erhalten, wenn 'goto' die Seite nicht erreicht.")
+      preferred = 'goto'
+    }
     $ziel = [string](Arg $a 'name')
     if (-not $ziel) { Fail 'name fehlt (Ueberschrift der gewuenschten Seite)' 'bad-args' }
     $hwnd = [IntPtr][int64](Resolve-SSEMainWindowDescriptor $a -RestoreMinimized).hwnd
