@@ -41,7 +41,7 @@ const forbiddenPaths = [
   { label: "lokale Umgebungsdatei", pattern: /(?:^|\/)\.env(?:\..+)?$/iu },
   { label: "lokale npm-Konfiguration", pattern: /(?:^|\/)\.npmrc$/iu },
   { label: "lokale Zugangsdaten", pattern: /(?:^|\/)(?:auth|credentials)\.json$/iu },
-  { label: "lokales VM-Passwort", pattern: /(?:^|\/)guest-password\.txt$/iu },
+  { label: "lokales Gastpasswort", pattern: /(?:^|\/)guest-password\.txt$/iu },
   { label: "lokaler SSH-Schluessel", pattern: /(?:^|\/)id_(?:rsa|ed25519)$/iu },
   { label: "lokales Git-Historienbundle", pattern: /\.bundle$/iu },
   { label: "mögliche Schlüsseldatei", pattern: /\.(?:key|pem|p12|pfx|jks|kdbx|ovpn)$/iu },
@@ -119,6 +119,27 @@ assert.deepEqual(
   `Git-Historie enthaelt sensible Dateinamen:\n${sensitiveHistoryPaths.join("\n")}`,
 );
 
+// Die Regel gegen private Umgebungsdetails muss wortgleich in beiden
+// Agentendateien stehen. Werkzeuge lesen mal die eine, mal die andere; eine
+// Regel, die nur in einer davon steht, gilt fuer das andere Werkzeug nicht.
+// Diese Fassung ist die Lehre aus einem Release, in dem Namen von
+// Pruefumgebungen und die Pruefsumme eines Transferarchivs oeffentlich wurden.
+const regelBlock = (text) => {
+  const start = text.indexOf("<!-- REGEL:PRIVATES -->");
+  const ende = text.indexOf("<!-- /REGEL:PRIVATES -->");
+  return start >= 0 && ende > start ? text.slice(start, ende) : null;
+};
+const agentenRegel = regelBlock(readFileSync(resolve(root, "AGENTS.md"), "utf8"));
+const claudeRegel = regelBlock(readFileSync(resolve(root, "CLAUDE.md"), "utf8"));
+assert(agentenRegel, "AGENTS.md fuehrt den Regelblock REGEL:PRIVATES nicht.");
+assert(claudeRegel, "CLAUDE.md fuehrt den Regelblock REGEL:PRIVATES nicht.");
+assert.equal(claudeRegel, agentenRegel,
+  "AGENTS.md und CLAUDE.md tragen unterschiedliche Fassungen der Regel gegen private Umgebungsdetails.");
+for (const pflicht of ["localdev/", ".private/", "perf:api-mega"]) {
+  assert(agentenRegel.includes(pflicht),
+    `Die Regel nennt ${pflicht} nicht und bleibt damit ohne brauchbare Anweisung.`);
+}
+
 process.stdout.write(
-  `Repository-Privacy: ${checked} Textdateien und ${revisions.length} Commits ohne private Pfade, IDs, Konten oder Zugangsdaten\n`,
+  `Repository-Privacy: ${checked} Textdateien und ${revisions.length} Commits ohne private Pfade, IDs, Konten oder Zugangsdaten; Regel gegen private Umgebungsdetails in beiden Agentendateien gleich\n`,
 );
