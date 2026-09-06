@@ -12,6 +12,13 @@ versionsgleichen Installation.
 > Ergebnisse selbst prüfen und den aktuellen Dateistand vor der ersten
 > Änderung privat sichern.
 
+![Vier Eingangsrechnungen werden als Betriebsausgaben eingetragen, danach zeigt
+das Programm die Umsatzsteuer-Voranmeldung](docs/assets/demo/steuer-spar-erklaerung-demo.gif)
+
+Ein Auftrag in einem Satz: vier neue Eingangsrechnungen aus einem Belegordner
+als Betriebsausgaben eintragen, jede auf ihre Kostenart, speichern — und zum
+Schluss die Umsatzsteuer-Voranmeldung zeigen. Nichts wird an ELSTER gesendet.
+
 ## Was kann es?
 
 - den eindeutig geöffneten Fall in SteuerSparErklärung 2025 lesen und mit dem
