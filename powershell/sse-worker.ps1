@@ -2516,31 +2516,49 @@ function Get-AllowedWindowProcesses([string]$ProcName) {
   }
   Fail "Prozessname '$ProcName' ist nicht freigegeben. Erlaubt sind SSE und SteuertippsCenter." 'blocked'
 }
+<#
+.SYNOPSIS
+Wandelt die nativ beschriebenen Fenster in die Fensterform des Workers um.
+
+.DESCRIPTION
+Steht aus demselben Grund als eigene Funktion da wie ConvertTo-SSESnapshotNodes:
+PowerShell uebersetzt den Rumpf erst bei seiner ERSTEN Ausfuehrung. Gemessen
+19,4 ms gegen 0,5 ms fuer jeden weiteren Aufruf im selben Prozess - und
+Get-Windows laeuft in jedem Arbeiter mindestens einmal.
+
+Bewusst `foreach` statt `ForEach-Object`: Ein Pipeline-Block wird nur
+uebersetzt, wenn er auch laeuft. Der Warmlauf im Prewarm reicht dieser Funktion
+synthetische Beschreibungen, ohne einen einzigen Prozess anzufassen; ein
+Pipeline-Block liesse sich so nicht vorwaermen.
+#>
+function ConvertTo-SSEWindowDescriptors($Described) {
+  $out = New-Object System.Collections.ArrayList
+  foreach ($window in $Described) {
+    $null = $out.Add([pscustomobject][ordered]@{
+      hwnd=[int64]$window.Hwnd; pid=[int]$window.Pid
+      x=[int]$window.X; y=[int]$window.Y; w=[int]$window.W; h=[int]$window.H
+      cls=[string]$window.ClassName; title=[string]$window.Title
+      titleFingerprint=[string]$window.TitleFingerprint
+      hung=[bool]$window.Hung
+      minimiert=[bool]$window.Minimized
+    })
+  }
+  ,$out
+}
 function Get-Windows([string]$ProcName = 'SSE') {
   $procs = @(Get-AllowedWindowProcesses $ProcName)
   if (-not $procs) { return @() }
   $ids = [int[]]@($procs | ForEach-Object { [int]$_.Id })
-  @([SSEWindowEnumerator]::Describe($ids) | ForEach-Object {
-    [pscustomobject][ordered]@{
-      hwnd=[int64]$_.Hwnd; pid=[int]$_.Pid
-      x=[int]$_.X; y=[int]$_.Y; w=[int]$_.W; h=[int]$_.H
-      cls=[string]$_.ClassName; title=[string]$_.Title
-      titleFingerprint=[string]$_.TitleFingerprint
-      hung=[bool]$_.Hung
-      # Minimierte Fenster meldet Windows bei -32000,-32000 mit Winzgroesse.
-      # Ohne diese Kennzeichnung rechnet alles Weitere mit Unsinn:
-      # Spaltengrenzen werden negativ, jede Zuordnung ist falsch.
-      minimiert=[bool]$_.Minimized
-    }
-  })
+  # WICHTIG: erst zuweisen, dann @() darum. `@(funktionsaufruf)` sammelt die
+  # Pipeline-Ausgabe, und die Funktion gibt ihre Liste wegen des fuehrenden
+  # Kommas als EIN Objekt aus - das Ergebnis waere ein Array mit der Liste
+  # als einzigem Element. Ueber einer Variablen loest @() die Liste dagegen
+  # auf. Bei genau einem Fenster faellt der Unterschied nicht auf, weil die
+  # Membersuche ihn verdeckt; ab zwei Fenstern sieht der Aufrufer ein
+  # einziges Pseudo-Fenster.
+  $beschrieben = ConvertTo-SSEWindowDescriptors ([SSEWindowEnumerator]::Describe($ids))
+  @($beschrieben)
 }
-
-# EnumWindows sieht nur den Desktop des aufrufenden Threads. Der Worker fuer
-# desktop_start wurde jedoch bereits auf dem sichtbaren Desktop geboren und
-# darf danach nicht mehr verlaesslich per SetThreadDesktop wechseln (Fehler
-# 170, sobald PowerShell ein Fenster besitzt). EnumDesktopWindows prueft den
-# neu angelegten Desktop direkt und vermeidet dadurch einen falschen
-# 90-Sekunden-Timeout bei einem tatsaechlich erfolgreichen SSE-Start.
 function Get-WindowsOnDesktop(
   [IntPtr]$Desktop,
   [string]$ProcName = 'SSE',
@@ -7429,6 +7447,23 @@ if ($Prewarm) {
     $null = $warmupNodes.Add($warmupNode)
   }
   $null = ConvertTo-SSESnapshotNodes $warmupNodes.ToArray()
+
+  # Dasselbe fuer die Fensterumwandlung: gemessen 19,4 ms erste gegen 0,5 ms
+  # jede weitere Ausfuehrung, und Get-Windows laeuft in jedem Arbeiter. Auch
+  # hier entstehen die Beschreibungen im Speicher - es wird KEIN Prozess
+  # aufgezaehlt und KEIN Fenster angefasst.
+  $warmupWindows = New-Object 'System.Collections.Generic.List[SSEWindowNode]'
+  for ($warmupIndex = 0; $warmupIndex -lt 8; $warmupIndex++) {
+    $warmupWindow = New-Object SSEWindowNode
+    $warmupWindow.Hwnd = [int64]$warmupIndex
+    $warmupWindow.Pid = 0
+    $warmupWindow.X = 0; $warmupWindow.Y = 0; $warmupWindow.W = 10; $warmupWindow.H = 10
+    $warmupWindow.ClassName = 'Warmup'
+    $warmupWindow.Title = "warmup-$warmupIndex"
+    $warmupWindow.TitleFingerprint = '0'
+    $null = $warmupWindows.Add($warmupWindow)
+  }
+  $null = ConvertTo-SSEWindowDescriptors $warmupWindows.ToArray()
   # Die synthetischen Eintraege duerfen den Elementzwischenspeicher nicht
   # verlassen: Get-LiveElement meldet einen Treffer allein anhand des
   # Schluessels und wuerde sonst ein null als lebendes Element zurueckgeben.
