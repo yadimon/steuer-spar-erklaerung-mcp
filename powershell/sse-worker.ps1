@@ -2521,30 +2521,14 @@ function Get-AllowedWindowProcesses([string]$ProcName) {
 Wandelt die nativ beschriebenen Fenster in die Fensterform des Workers um.
 
 .DESCRIPTION
-Steht aus demselben Grund als eigene Funktion da wie ConvertTo-SSESnapshotNodes:
-PowerShell uebersetzt den Rumpf erst bei seiner ERSTEN Ausfuehrung. Gemessen
-19,4 ms gegen 0,5 ms fuer jeden weiteren Aufruf im selben Prozess - und
-Get-Windows laeuft in jedem Arbeiter mindestens einmal.
-
-Bewusst `foreach` statt `ForEach-Object`: Ein Pipeline-Block wird nur
-uebersetzt, wenn er auch laeuft. Der Warmlauf im Prewarm reicht dieser Funktion
-synthetische Beschreibungen, ohne einen einzigen Prozess anzufassen; ein
-Pipeline-Block liesse sich so nicht vorwaermen.
+Aus demselben Grund wie ConvertTo-SSESnapshotNodes in kompiliertem Code:
+Der Rumpf der frueheren PowerShell-Schleife kostete jeden Arbeitsprozess 19 ms
+Uebersetzung, und Get-Windows laeuft in jedem mindestens einmal.
 #>
 function ConvertTo-SSEWindowDescriptors($Described) {
-  $out = New-Object System.Collections.ArrayList
-  foreach ($window in $Described) {
-    $null = $out.Add([pscustomobject][ordered]@{
-      hwnd=[int64]$window.Hwnd; pid=[int]$window.Pid
-      x=[int]$window.X; y=[int]$window.Y; w=[int]$window.W; h=[int]$window.H
-      cls=[string]$window.ClassName; title=[string]$window.Title
-      titleFingerprint=[string]$window.TitleFingerprint
-      hung=[bool]$window.Hung
-      minimiert=[bool]$window.Minimized
-    })
-  }
-  ,$out
+  ,[SSEWindowEnumerator]::ToViews($Described)
 }
+
 function Get-Windows([string]$ProcName = 'SSE') {
   $procs = @(Get-AllowedWindowProcesses $ProcName)
   if (-not $procs) { return @() }
@@ -4079,42 +4063,22 @@ $script:UIAElementCache = @{}
 Wandelt die nativen Knoten eines Baumlaufs in die Schnappschussform um.
 
 .DESCRIPTION
-Steht bewusst als eigene Funktion da, nicht als Schleife in Get-UiSnapshot.
-Der Grund ist messbar: PowerShell uebersetzt einen Schleifenrumpf erst bei
-seiner ERSTEN Ausfuehrung. In einem frischen Arbeitsprozess kostet dieser
-Durchlauf 41 ms gegen 5-7 ms fuer jeden weiteren (gemessen ueber 160
-synthetische Knoten; im Arbeiter selbst rund 75 ms). Und weil jeder Arbeiter
-genau einen Baumlauf macht, zahlt er diese Uebersetzung immer.
+Die eigentliche Arbeit macht die DLL: `[SSEUiaTree]::ToViews` baut die
+Weitergabeform und fuellt dabei den RuntimeId-Zwischenspeicher des Arbeiters.
 
-Als eigene Funktion laesst sie sich beim Vorwaermen einmal ueber synthetische
-Knoten laufen lassen - reine Rechenarbeit ohne jede UIA-Abfrage, siehe die
-Warmlaufstelle im Prewarm-Block.
+Das war frueher eine PowerShell-Schleife. Deren Rumpf musste jeder
+Arbeitsprozess bei seiner ERSTEN Ausfuehrung uebersetzen - gemessen 41 ms gegen
+5 ms fuer jede weitere, und jeder Arbeiter macht genau einen Baumlauf. In
+kompiliertem Code entfaellt das ersatzlos; ein Vorwaermen ist dafuer nicht mehr
+noetig.
+
+Der Zwischenspeicher wird bewusst DRUEBEN gefuellt: Bliebe er hier, bliebe auch
+die Schleife, und mit ihr die Uebersetzung.
 #>
 function ConvertTo-SSESnapshotNodes($NativeNodes) {
-  $out = New-Object System.Collections.ArrayList
-  foreach ($node in $NativeNodes) {
-    $scroll = $null
-    if ($null -ne $node.Scroll) {
-      $scroll = [pscustomobject]@{
-        vScrollable=$node.Scroll.VerticallyScrollable; vPercent=$node.Scroll.VerticalScrollPercent
-        vView=$node.Scroll.VerticalViewSize; hScrollable=$node.Scroll.HorizontallyScrollable
-        hPercent=$node.Scroll.HorizontalScrollPercent
-      }
-    }
-    $null = $out.Add([pscustomobject]@{
-      i=$node.Index; p=$node.ParentIndex; d=$node.Depth; type=$node.ControlType
-      name=$node.Name; aid=$node.AutomationId
-      x=$node.X; y=$node.Y; w=$node.W; h=$node.H
-      on=$node.Enabled; val=$node.Value; ro=$node.ReadOnly; checked=$node.Checked
-      selected=$node.Selected; scroll=$scroll; rid=$node.RuntimeId
-    })
-    # Spaetere Operationen greifen ueber die RuntimeId auf genau dieses
-    # lebende Element zurueck, statt den Baum erneut zu durchlaufen.
-    if ($node.RuntimeId) { $script:UIAElementCache[$node.RuntimeId] = $node.Element }
-  }
-  # Das Komma verhindert, dass PowerShell die Liste beim Rueckgeben aufloest.
-  ,$out
+  ,[SSEUiaTree]::ToViews($NativeNodes, $script:UIAElementCache)
 }
+
 function Get-UiSnapshot {
   param([IntPtr]$hwnd, [int]$MaxNodes = 4000, [int]$TimeoutSec = 45, [int]$MaxDepth = 16,
         [switch]$WithValues, [switch]$WithScroll)

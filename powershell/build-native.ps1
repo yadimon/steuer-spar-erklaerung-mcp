@@ -100,16 +100,19 @@ function Assert-SSENativeAssemblySurface([Reflection.Assembly]$Assembly) {
       'WindowFromPoint','GetAncestor','ShowWindow','SetWindowPos','BringWindowToTop','ScreenToClient','PostMessage',
       'SendMessage','GetForegroundWindow','GetLastActivePopup','GetLastInputInfo','IsIconic','AttachThreadInput',
       'GetGUIThreadInfo','GetCurrentThreadId','SendUnicodeText')
-    SSEWindowEnumerator=@('Describe')
+    SSEWindowEnumerator=@('Describe','ToViews')
     SSEProcessCommandLine=@('TryGet')
     SSEWindowNode=@()
     SSEAccessible=@('Describe','DescribePoint','DescribePointBasic','Invoke')
     SSEAccNode=@()
     SSEWorkerControllerLease=@('Acquire','ReleaseAndClose')
-    SSEUiaTree=@('Describe')
+    SSEUiaTree=@('Describe','ToViews')
     SSEUiaNode=@()
     SSEUiaScrollState=@()
     SSEUiaSnapshot=@()
+    SSEUiaScrollView=@()
+    SSEUiaNodeView=@()
+    SSEWindowView=@()
   }
   $missingTypes = @()
   $missingMethods = @()

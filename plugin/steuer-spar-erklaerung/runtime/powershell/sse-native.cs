@@ -1,6 +1,7 @@
 // Public Win32/MSAA interop used by the fresh per-action PowerShell worker.
 // Kept in one compilation unit so Add-Type invokes the compiler only once.
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -254,7 +255,44 @@ public sealed class SSEWindowNode {
   internal int EnumerationOrder;
 }
 
+// Weitergabeform der Fensterliste, aus demselben Grund wie SSEUiaNodeView:
+// Der Rumpf der frueheren PowerShell-Schleife kostete jeden Arbeitsprozess
+// 19 ms Uebersetzung, und Get-Windows laeuft in jedem mindestens einmal.
+public sealed class SSEWindowView {
+  public long hwnd;
+  public int pid;
+  public int x;
+  public int y;
+  public int w;
+  public int h;
+  public string cls;
+  public string title;
+  public string titleFingerprint;
+  public bool hung;
+  // Minimierte Fenster meldet Windows bei -32000,-32000 mit Winzgroesse. Ohne
+  // diese Kennzeichnung rechnet alles Weitere mit Unsinn: Spaltengrenzen
+  // werden negativ, jede Zuordnung ist falsch.
+  public bool minimiert;
+}
+
 public static class SSEWindowEnumerator {
+  /// <summary>Wandelt beschriebene Fenster in die Weitergabeform des Arbeiters.</summary>
+  public static SSEWindowView[] ToViews(SSEWindowNode[] windows) {
+    if (windows == null) throw new ArgumentException("windows fehlt.");
+    var views = new SSEWindowView[windows.Length];
+    for (int index = 0; index < windows.Length; index++) {
+      SSEWindowNode window = windows[index];
+      views[index] = new SSEWindowView {
+        hwnd = window.Hwnd, pid = window.Pid,
+        x = window.X, y = window.Y, w = window.W, h = window.H,
+        cls = window.ClassName, title = window.Title,
+        titleFingerprint = window.TitleFingerprint,
+        hung = window.Hung, minimiert = window.Minimized,
+      };
+    }
+    return views;
+  }
+
   static string Sha256(string value) {
     using (SHA256 algorithm = SHA256.Create()) {
       return BitConverter.ToString(algorithm.ComputeHash(Encoding.UTF8.GetBytes(value))).Replace("-", "");
@@ -591,6 +629,46 @@ public sealed class SSEUiaNode {
   public AutomationElement Element;
 }
 
+// Die Form, in der der Arbeiter Knoten weiterreicht - kurze Feldnamen, kein
+// lebendes Element.
+//
+// Sie entstand frueher in einer PowerShell-Schleife. Deren Rumpf musste jeder
+// Arbeitsprozess bei seiner ersten Ausfuehrung uebersetzen; gemessen 41 ms
+// gegen 5 ms fuer jede weitere. Hier entfaellt das vollstaendig.
+//
+// WICHTIG: `Element` hat in dieser Klasse nichts zu suchen. Die Umwandlung ist
+// auch eine Reinigung - ein lebendes AutomationElement duerfte weder in ein
+// Ergebnis-JSON geraten noch von einem spaeteren Aufrufer festgehalten werden.
+public sealed class SSEUiaScrollView {
+  public bool vScrollable;
+  public double vPercent;
+  public double vView;
+  public bool hScrollable;
+  public double hPercent;
+}
+
+public sealed class SSEUiaNodeView {
+  public int i;
+  public int p;
+  public int d;
+  public string type;
+  public string name;
+  public string aid;
+  public int x;
+  public int y;
+  public int w;
+  public int h;
+  public bool on;
+  public object val;
+  public object ro;
+  // `checked` ist ein C#-Schluesselwort; das @ ist reine Quelltextnotation,
+  // ueber Reflexion und damit in JSON heisst das Feld weiterhin "checked".
+  public object @checked;
+  public object selected;
+  public SSEUiaScrollView scroll;
+  public string rid;
+}
+
 public sealed class SSEUiaSnapshot {
   public SSEUiaNode[] Nodes;
   public int NodeCount;
@@ -806,5 +884,49 @@ public static class SSEUiaTree {
     Walk(state, cachedRoot, 0, -1);
     state.Result.Nodes = state.Output.ToArray();
     return state.Result;
+  }
+
+  /// <summary>
+  /// Wandelt die gelaufenen Knoten in die Weitergabeform des Arbeiters und
+  /// fuellt dabei seinen RuntimeId-Zwischenspeicher.
+  /// </summary>
+  /// <remarks>
+  /// Der Zwischenspeicher wird bewusst hier gefuellt und nicht drueben in
+  /// PowerShell: Sonst bliebe genau die Schleife stehen, deren Uebersetzung
+  /// vermieden werden soll. Uebergeben wird die Hashtable des Arbeiters
+  /// (`$script:UIAElementCache`), damit die Zuordnung RuntimeId -> lebendes
+  /// Element dort landet, wo `Get-LiveElement` sie sucht.
+  ///
+  /// Ein leerer oder fehlender RuntimeId erzeugt KEINEN Eintrag. Der
+  /// Zwischenspeicher meldet einen Treffer allein am Schluessel; ein Eintrag
+  /// ohne belastbare Id waere eine Falle.
+  /// </remarks>
+  public static SSEUiaNodeView[] ToViews(SSEUiaNode[] nodes, Hashtable elementCache) {
+    if (nodes == null) throw new ArgumentException("nodes fehlt.");
+    var views = new SSEUiaNodeView[nodes.Length];
+    for (int index = 0; index < nodes.Length; index++) {
+      SSEUiaNode node = nodes[index];
+      SSEUiaScrollView scroll = null;
+      if (node.Scroll != null) {
+        scroll = new SSEUiaScrollView {
+          vScrollable = node.Scroll.VerticallyScrollable,
+          vPercent = node.Scroll.VerticalScrollPercent,
+          vView = node.Scroll.VerticalViewSize,
+          hScrollable = node.Scroll.HorizontallyScrollable,
+          hPercent = node.Scroll.HorizontalScrollPercent,
+        };
+      }
+      views[index] = new SSEUiaNodeView {
+        i = node.Index, p = node.ParentIndex, d = node.Depth, type = node.ControlType,
+        name = node.Name, aid = node.AutomationId,
+        x = node.X, y = node.Y, w = node.W, h = node.H,
+        on = node.Enabled, val = node.Value, ro = node.ReadOnly, @checked = node.Checked,
+        selected = node.Selected, scroll = scroll, rid = node.RuntimeId,
+      };
+      if (elementCache != null && !string.IsNullOrEmpty(node.RuntimeId)) {
+        elementCache[node.RuntimeId] = node.Element;
+      }
+    }
+    return views;
   }
 }
