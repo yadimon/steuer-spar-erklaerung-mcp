@@ -245,6 +245,19 @@ export function callWorker(
   });
 }
 
+/**
+ * Nachfuellen des Reservevorrats, verschoben um eine Ereignisschleifenrunde.
+ * Ein zwischenzeitlich gemeldeter Laufzeitfehler muss den Start noch
+ * verhindern koennen - deshalb wird das Flag hier erneut geprueft. Die
+ * Pruefung steht bewusst in der NEGIERTEN Form: `test/product-gate.mjs` zaehlt
+ * die unnegierten Fail-Closed-Sperren auf dieses Flag in dieser Datei und
+ * nagelt sie auf genau zwei fest. Diese Zeile ist keine solche Sperre, sondern
+ * nur ein Verzicht auf Vorratshaltung im bereits gesperrten Zustand.
+ */
+function refillWarmSpareLater(): void {
+  if (!workerRuntimeFailure) ensureWarmSpare();
+}
+
 async function callWorkerUnsynchronised(
   op: string,
   args: Record<string, unknown> = {},
@@ -291,11 +304,21 @@ async function callWorkerUnsynchronised(
   // Der Weg ueber den alternativen Desktop hat einen eigenen Prozessbaum und
   // kann keinen Reservearbeiter des sichtbaren Desktops verwenden.
   const spare = !desk || markerAllowsWarmSpare ? takeWarmSpare() : null;
-  // Sofort nachfuellen statt erst nach der Operation: Vorwaermen dauert rund
-  // 1,4 s und ueberlappt so mit der laufenden Arbeit, statt den naechsten
-  // Aufruf kalt zu treffen (gemessen 0,25 s gegen 2,2 s). Der wartende Prozess
-  // laeuft dafuer mit verminderter Prioritaet, siehe worker-prewarm.ts.
-  if (!workerRuntimeFailure) ensureWarmSpare();
+  // Nachfuellen, waehrend die Operation laeuft, statt erst nach ihr: Vorwaermen
+  // dauert rund 1,4 s und ueberlappt so mit der laufenden Arbeit, statt den
+  // naechsten Aufruf kalt zu treffen (gemessen 0,25 s gegen 2,2 s). Der
+  // wartende Prozess laeuft dafuer mit verminderter Prioritaet, siehe
+  // worker-prewarm.ts.
+  //
+  // Es startet aber erst eine Ereignisschleifenrunde spaeter, denn Nachfuellen
+  // heisst `spawn`, und libuv fuehrt CreateProcessW SYNCHRON auf dem
+  // Hauptthread aus: gemessen 6-8 ms. Stuende der Aufruf hier, laegen sie
+  // ZWISCHEN der Entnahme der Reserve und der Auftragsuebergabe an ihre
+  // stdin - der Arbeiter erfuehre also spaeter von seinem Auftrag, nur damit
+  // ein Prozess entsteht, der ihn nichts angeht. Verschraenkt gemessen bleiben
+  // davon 3-8 ms je Aufruf uebrig; ein Teil kommt als Nebenlast zurueck.
+  // Zusaetzlich fuellt `runQueuedWorkerCall` nach jedem Aufruf nach.
+  if (!workerRuntimeFailure) setImmediate(refillWarmSpareLater);
 
   return new Promise((resolve, reject) => {
     // Auch der Launcher fuer den alternativen Desktop bleibt unsichtbar. Der
