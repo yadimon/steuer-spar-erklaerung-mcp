@@ -277,6 +277,18 @@ read-only Detailklick. UStVA-Werkzeuge komponieren profilierte Seiten- und
 Feldoperationen in der API, nicht im MCP-Prozess. Ihr Seiten-Read und die
 nachfolgende gebundene UI-Aktion teilen eine absolute Aufruferdeadline. Unter
 zwei Sekunden Rest startet keine UStVA-Mutation oder Bereichsnavigation mehr.
+
+Der Seiten-Read der vier schreibenden UStVA-Operationen entfällt, wenn der
+Aufrufer die Seitenüberschrift als `expectedPage` durchreicht — das Feld `page`
+aus dem unmittelbar vorangegangenen `ustva_read`. Die Angabe wird gegen die
+geforderte Seitenart geprüft, bevor irgendeine Worker-Operation startet, und
+der Worker hält sie unmittelbar vor der Änderung gegen die tatsächlich offene
+Seite; beide Seiten lesen die Überschrift über dieselbe Funktion. Ohne die
+Angabe bleibt die Komposition unverändert. Eine Ausnahme behält den Read auch
+mit `expectedPage`: `ustva_change_value` auf den manuellen Übersichtsfeldern,
+weil dort die Lesung der Nachweis für das aktive Kennzeichen „Beträge manuell
+erfassen“ ist und eine Zusicherung des Aufrufers keine Prüfung wäre. Ein dort
+trotzdem übergebenes `expectedPage` wird gegen die Lesung gehalten.
 `case_create` komponiert in der API den Startassistenten eines neuen Falls:
 `launch` ohne Datei, `instances`/`ui_state` bis zur Startseite, `subpages` und
 `click` bis zur ersten Stammdatenseite, `menu`/`menu_click` „Speichern
