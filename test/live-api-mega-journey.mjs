@@ -769,7 +769,7 @@ try {
     await mutateAndRead(
       "ustva-period-change",
       {
-        selector, expectedCurrent: original.period.key, value: alternate,
+        selector, expectedCurrent: original.period.key, value: alternate, expectedPage: ustvaPage,
         expectedCaseRef: fixtures.gew.targetRef, expectedCaseHash: gewHash, hwnd: currentHwnd,
       },
       (result) => assert.equal(result.verified, true),
@@ -779,7 +779,7 @@ try {
     await mutateAndRead(
       "ustva-period-restore",
       {
-        selector, expectedCurrent: alternate, value: original.period.key,
+        selector, expectedCurrent: alternate, value: original.period.key, expectedPage: ustvaPage,
         expectedCaseRef: fixtures.gew.targetRef, expectedCaseHash: gewHash, hwnd: currentHwnd,
       },
       (result) => assert.equal(result.verified, true),
@@ -794,6 +794,7 @@ try {
       "ustva-flag-change",
       {
         flag: "documents", expectedBefore: originalFlag, value: !originalFlag, expectedAfter: !originalFlag,
+        expectedPage: ustvaPage,
         expectedCaseRef: fixtures.gew.targetRef, expectedCaseHash: gewHash, hwnd: currentHwnd,
       },
       (result) => assert.equal(result.verified, true),
@@ -804,6 +805,7 @@ try {
       "ustva-flag-restore",
       {
         flag: "documents", expectedBefore: !originalFlag, value: originalFlag, expectedAfter: originalFlag,
+        expectedPage: ustvaPage,
         expectedCaseRef: fixtures.gew.targetRef, expectedCaseHash: gewHash, hwnd: currentHwnd,
       },
       (result) => assert.equal(result.verified, true),
@@ -817,7 +819,7 @@ try {
       "ustva-value-change",
       {
         field: "special_advance_payment", expectedBefore: special.display,
-        value: changedDisplay, expectedAfter: changedDisplay,
+        value: changedDisplay, expectedAfter: changedDisplay, expectedPage: ustvaPage,
         expectedCaseRef: fixtures.gew.targetRef, expectedCaseHash: gewHash, hwnd: currentHwnd,
       },
       (result) => assert.equal(result.verified, true),
@@ -832,7 +834,7 @@ try {
       "ustva-value-restore",
       {
         field: "special_advance_payment", expectedBefore: changedDisplay,
-        value: special.display, expectedAfter: special.display,
+        value: special.display, expectedAfter: special.display, expectedPage: ustvaPage,
         expectedCaseRef: fixtures.gew.targetRef, expectedCaseHash: gewHash, hwnd: currentHwnd,
       },
       (result) => assert.equal(result.verified, true),
@@ -844,7 +846,7 @@ try {
     );
     await mutateAndRead(
       "ustva-section-open",
-      { section: "input_tax", hwnd: currentHwnd },
+      { section: "input_tax", expectedPage: ustvaPage, hwnd: currentHwnd },
       (result) => assert.equal(result.ustva?.targetPage, "Abziehbare Vorsteuer"),
       { hwnd: currentHwnd },
       (result) => assert.equal(result.pageKind, "input_tax"),
