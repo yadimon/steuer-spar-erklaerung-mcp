@@ -4283,6 +4283,31 @@ function Resolve-Node {
 # Beschriftung mehrfach vorkommt: "Jetzt beginnen" existiert als Hyperlink
 # (ohne InvokePattern) UND als Button (mit). Wer nur den ersten Treffer nimmt,
 # scheitert mit "Nicht unterstuetztes Muster".
+<#
+.SYNOPSIS
+Zaehlt Bedienelemente eines Typs im Baum und nennt einige beim Namen.
+
+.DESCRIPTION
+Fuer Fehlermeldungen: Ein blosses "nicht gefunden" laesst offen, ob das
+gesuchte Element gar nicht da ist oder nur anders heisst. Beides fuehrt zu
+voellig verschiedenen naechsten Schritten.
+
+Die genannten Namen und AutomationIds sind dieselben Angaben, die
+`sse_read_page` ohnehin zurueckgibt; es entsteht also keine neue Offenlegung.
+#>
+function Get-SSETypeInventory($tree, [string]$Type, [int]$Max = 5) {
+  $treffer = @($tree.nodes | Where-Object { $_.type -eq $Type })
+  if (-not $treffer.Count) { return "Auf der Seite ist kein Element vom Typ $Type sichtbar." }
+  $namen = @($treffer | Select-Object -First $Max | ForEach-Object {
+    $bezeichner = $(if ($_.aid) { "aid=$($_.aid)" } elseif ($_.name) { "name=$($_.name)" } else { "rid=$($_.rid)" })
+    [string]$bezeichner
+  })
+  $rest = $treffer.Count - $namen.Count
+  $liste = $namen -join ', '
+  if ($rest -gt 0) { $liste = "$liste, +$rest weitere" }
+  "Sichtbar sind $($treffer.Count) Element(e) vom Typ ${Type}: $liste."
+}
+
 function Resolve-Nodes {
   param($tree, $a)
   $rid = [string](Arg $a 'rid')
@@ -9739,7 +9764,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       Fail "Vorbedingung verletzt: aktuelle Seite ist '$headingBefore', erwartet '$expectedPage'. NICHT geaendert." 'precondition-failed'
     }
     $nodes = @(Resolve-Nodes $tree $selector)
-    if (-not $nodes.Count) { Fail 'CheckBox nicht gefunden.' 'not-found' }
+    if (-not $nodes.Count) {
+      Fail ("CheckBox nicht gefunden. " + (Get-SSETypeInventory $tree 'CheckBox')) 'not-found'
+    }
     if ($nodes.Count -ne 1) { Fail "CheckBox ist nicht eindeutig ($($nodes.Count) Treffer)." 'ambiguous' }
     $node = $nodes[0]
     if ($node.type -ne 'CheckBox') { Fail "Ziel ist '$($node.type)', keine CheckBox." 'bad-target' }
@@ -10475,7 +10502,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       contains=[bool](Arg $a 'contains' $false); type='ComboBox'
     }
     $combos = @(Resolve-Nodes $tree $selector)
-    if (-not $combos.Count) { Fail 'ComboBox nicht gefunden.' 'not-found' }
+    if (-not $combos.Count) {
+      Fail ("ComboBox nicht gefunden. " + (Get-SSETypeInventory $tree 'ComboBox')) 'not-found'
+    }
     if ($combos.Count -ne 1) { Fail "ComboBox ist nicht eindeutig ($($combos.Count) Treffer)." 'ambiguous' }
     $combo = $combos[0]
     if (-not $combo.aid) {
@@ -10547,7 +10576,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       contains=[bool](Arg $a 'contains' $false); type='ComboBox'
     }
     $combos = @(Resolve-Nodes $tree $selector)
-    if (-not $combos.Count) { Fail 'ComboBox nicht gefunden.' 'not-found' }
+    if (-not $combos.Count) {
+      Fail ("ComboBox nicht gefunden. " + (Get-SSETypeInventory $tree 'ComboBox')) 'not-found'
+    }
     if ($combos.Count -ne 1) { Fail "ComboBox ist nicht eindeutig ($($combos.Count) Treffer)." 'ambiguous' }
     $combo = $combos[0]
     if (-not $combo.aid) {
