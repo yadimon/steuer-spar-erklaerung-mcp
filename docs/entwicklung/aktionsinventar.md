@@ -7,7 +7,7 @@ zu versprechen, dass sie geschlossen werden.
 
 ## Herkunft der Daten
 
-Die Menuestruktur ist am 2026-09-03 in der Forschungs-VM aus dem laufenden
+Die Menuestruktur ist am 2026-09-03 in der Forschungsumgebung aus dem laufenden
 Programm ausgelesen worden (SSE `31.0.2.0`, Titel `[31.31]`, geoeffneter
 Musterfall `MusterSteuer1.ESt2025`). Jedes Menue wurde ueber UIA aufgeklappt,
 seine Eintraege samt Aktivierungszustand gelesen und wieder geschlossen; es

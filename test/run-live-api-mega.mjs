@@ -405,7 +405,7 @@ const markdown = `# Canonical live API mega journey — ${classification}\n\n` +
   "## Safely excluded catalog operations\n\n" +
   "| Classification | Subclassification | Operations | Reason |\n| --- | --- | --- | --- |\n" +
   (exclusionRows || "| n/a | n/a | n/a | n/a |") + "\n\n" +
-  `${report.historicalComparison.note} The historical navigation, receipt, vehicle, and VM figures are component measurements only and are not directly comparable.\n` +
+  `${report.historicalComparison.note} The historical navigation, receipt, and vehicle figures are component measurements only and are not directly comparable.\n` +
   (passed ? "" : `\nFailure phase: ${report.failure.phase}; reasons: ${failureReasons.join(", ")}\n`);
 
 writeExclusive(jsonPath, `${JSON.stringify(report, null, 2)}\n`);

@@ -6,11 +6,11 @@ const verification = readFileSync(new URL("../docs/VERIFIKATION.md", import.meta
 const operations = Object.entries(coverage.operations ?? {});
 const live = operations.filter(([, value]) => value.live === "functional");
 const missing = operations.filter(([, value]) => value.live !== "functional").map(([name]) => name).sort();
-const snapshotVm = operations.filter(([, value]) => value.liveEvidence === "snapshot-vm").map(([name]) => name).sort();
+const isoliert = operations.filter(([, value]) => value.liveEvidence === "isoliert").map(([name]) => name).sort();
 
 assert(operations.length > 0, "Operation-Coverage-Ledger ist leer");
 assert.equal(live.length + missing.length, operations.length);
-assert.deepEqual(snapshotVm, [
+assert.deepEqual(isoliert, [
   "instances",
   "receipt_manager_action",
   "receipt_manager_bulk_upsert",
@@ -59,6 +59,6 @@ assert.deepEqual(documentedMissing, missing,
   "Dokumentierte Namen der Live-Restluecke widersprechen operation-coverage.json");
 
 process.stdout.write(
-  `Verifikationsdoku: ${live.length}/${operations.length} live, davon ${snapshotVm.length} aus der Snapshot-VM, ` +
+  `Verifikationsdoku: ${live.length}/${operations.length} live, davon ${isoliert.length} aus abgeschotteten Laeufen, ` +
   `${missing.length} Restoperationen ledgergebunden.\n`,
 );

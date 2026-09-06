@@ -226,7 +226,7 @@ Belege in der [Seitenlandkarte](funktionskatalog.md).
 
 | Quelle | Was daraus kommt |
 | --- | --- |
-| Messung in der Forschungs-VM, 2026-09-03 | Module und Rubriken, Menueinventar, Dateizaehlung, das Verhalten der UIA-Muster |
+| Messung in der Forschungsumgebung, 2026-09-03 | Module und Rubriken, Menueinventar, Dateizaehlung, das Verhalten der UIA-Muster |
 | Programmdateien der Installation | 672 Seiten, 994 Vorlagen, 7 Datenmodelle, 2 Stichwortverzeichnisse |
 | Statische Analyse (im Repository) | Kommandonamen, `DMSession`-Methoden |
 | Herstellerhandbuch | Funktionsgruppen – oeffentlich nur Jahrgang **2023**, fuer 2025 nicht belegt |

@@ -40,14 +40,14 @@ Für Claude Code genügt der eine zielgenaue Installeraufruf:
 npx -y plugins@1 add yadimon/steuer-spar-erklaerung-mcp --target claude-code --scope user --yes
 ```
 
-Der Windows-VM-Lauf mit Claude Code 2.1.252 zeigte den Eintrag danach mit
-`Scope: user` als `enabled` und bestätigte die target-native Entfernung.
+Der Eintrag steht danach mit `Scope: user` als `enabled`; die target-native
+Entfernung gelingt.
 Anschließend den jeweiligen Client neu starten beziehungsweise seine Plugins
 neu laden und das echte Tool `sse_preflight` aufrufen. Die automatische
 Target-Erkennung wird unter Windows nicht empfohlen.
 
 `plugins@1.3.4` ignoriert den Scope bei Codex. Claude Code verwendet bewusst
-den VM-verifizierten User-Scope; beide Ziele schreiben in clientverwaltete
+den User-Scope; beide Ziele schreiben in clientverwaltete
 Benutzer-Caches/config und bedeuten daher keine physische Projektisolation.
 Details zu getrennten Arbeitsdaten, Update und sicherer Entfernung stehen in der
 [Installationsanleitung](https://github.com/yadimon/steuer-spar-erklaerung-mcp/blob/main/docs/INSTALLATION.md).

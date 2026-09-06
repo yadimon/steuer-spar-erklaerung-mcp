@@ -12,7 +12,7 @@ Verification mode: full-cycle
   Dokumentations- und Repository-Hygiene.
 - Forbidden: ELSTER-/Versandfreigaben, spekulative Produktfeatures und echte
   Steuerdaten im Repository.
-- Private VM-, Live- und lokale Testevidenz bleibt ausschließlich in
+- Private Live- und lokale Testevidenz bleibt ausschließlich in
   gitignorierten Bereichen und wird hier nicht inventarisiert.
 
 ## 2) Workspace Fingerprint

@@ -55,7 +55,7 @@
 
 - Run large suites serially.
 - Never count a missing live fixture as successful live evidence.
-- Keep VM/live logs, paths, screenshots and reports in ignored private areas.
+- Keep live logs, paths, screenshots and reports in ignored private areas.
 - The global maintenance bootstrap does not honor ignored generated package
   copies; that tooling limitation is not a healthcheck workspace invariant.
 - A version bump makes `agent-plugin-build --check` fail until
@@ -65,9 +65,10 @@
   generated reference, `docs:check` guards the handwritten documents. Counts
   stated as "alle N Operationen" are asserted against the catalogue, so adding
   an operation fails the check until the prose follows.
-- The research VM `CleanWin11-SSE-test-npm-git-node` carries the same SSE build
-  as the verified profile but holds no source checkout, only the published npm
-  package. Treat a live run there as a setup project, not a quick fallback.
+- The separate research environment carries the same SSE build as the verified
+  profile but holds no source checkout, only the published npm package. Treat a
+  live run there as a setup project, not a quick fallback. Its identity stays
+  out of this repository.
 
 ## Last Confirmed State
 

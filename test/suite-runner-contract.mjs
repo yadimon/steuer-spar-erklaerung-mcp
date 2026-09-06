@@ -44,10 +44,10 @@ assert(suiteRunnerSource.indexOf("await runSeries(serialBuildSteps, runStep);") 
 "Der Operation-Trace muss erst nach dem seriellen Build geladen werden.");
 const liveRunner = readFileSync("test/run-live-suite.mjs", "utf8");
 assert.doesNotMatch(liveRunner, /live-receipt-manager/u,
-  "Der benutzerspezifische BelegManager-Zyklus gehoert in das private VM-Gate, nicht auf den lokalen PC.");
+  "Der benutzerspezifische BelegManager-Zyklus gehoert in das private Gate, nicht auf den lokalen PC.");
 const coverage = JSON.parse(readFileSync("test/operation-coverage.json", "utf8"));
 const externalLiveOperations = Object.entries(coverage.operations ?? {})
-  .filter(([, value]) => value.liveEvidence === "snapshot-vm")
+  .filter(([, value]) => value.liveEvidence === "isoliert")
   .map(([name]) => name)
   .sort();
 assert.deepEqual(externalLiveOperations, [
@@ -67,7 +67,7 @@ assert.deepEqual(externalLiveOperations, [
   "vast_mapping_select",
   "vast_row_details",
   "vast_row_set_expanded",
-], "Nur BelegManager, instances und VaSt duerfen auf den privaten Snapshot-VM-Nachweis angewiesen sein.");
+], "Nur BelegManager, instances und VaSt duerfen auf den privaten abgeschotteten Nachweis angewiesen sein.");
 assert.deepEqual(exclusiveSteps.map((step) => step.name), [
   "worker-controller-lock", "mcp-api-supervisor", "agent-plugin-runtime", "no-console-window",
 ]);

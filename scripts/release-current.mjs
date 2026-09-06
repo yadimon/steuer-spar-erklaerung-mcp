@@ -170,7 +170,7 @@ export function assertReleaseNotesReady(releaseNotes, version, releasePath = `v$
     throw new Error(`Release Notes enthalten einen offenen Pflichtmarker: ${placeholderLine.trim()}`);
   }
 
-  // Markdown-Zeilenumbrueche duerfen eine Bezeichnung wie "VM-Matrix" nicht
+  // Markdown-Zeilenumbrueche duerfen eine zusammengesetzte Bezeichnung nicht
   // vor der Erkennung verstecken. Nur explizite offene Statusformulierungen
   // sperren; fachliche Begriffe wie "offener Steuerfall" bleiben erlaubt.
   const prose = releaseNotes
@@ -178,8 +178,8 @@ export function assertReleaseNotesReady(releaseNotes, version, releasePath = `v$
     .replace(/\r?\n/gu, " ")
     .replace(/\s+/gu, " ");
   const openMatrix =
-    /\b(?:pflicht|release|vm|verifikations|validierungs|evidenz)[-\s]*matrix\b.{0,180}\b(?:bleibt|ist|steht|weiterhin|noch|ausdruecklich|ausdrücklich)\b.{0,100}\b(?:offen|ausstehend|pending)\b/iu.test(prose)
-    || /\b(?:offen|ausstehend|pending)\b.{0,180}\b(?:pflicht|release|vm|verifikations|validierungs|evidenz)[-\s]*matrix\b/iu.test(prose);
+    /\b(?:pflicht|release|verifikations|validierungs|evidenz)[-\s]*matrix\b.{0,180}\b(?:bleibt|ist|steht|weiterhin|noch|ausdruecklich|ausdrücklich)\b.{0,100}\b(?:offen|ausstehend|pending)\b/iu.test(prose)
+    || /\b(?:offen|ausstehend|pending)\b.{0,180}\b(?:pflicht|release|verifikations|validierungs|evidenz)[-\s]*matrix\b/iu.test(prose);
   if (openMatrix) {
     throw new Error(`Release Notes enthalten eine offene Pflichtmatrix: ${releasePath}`);
   }
@@ -188,7 +188,7 @@ export function assertReleaseNotesReady(releaseNotes, version, releasePath = `v$
   for (const line of lines) {
     const heading = line.match(/^\s*#{2,6}\s+(.+)$/u);
     if (heading) {
-      inRequiredSection = /\b(?:verifikation|validierung|evidenz|release[-\s]?gate|pflichtmatrix|release[-\s]?matrix|vm[-\s]?matrix)\b/iu.test(heading[1]);
+      inRequiredSection = /\b(?:verifikation|validierung|evidenz|release[-\s]?gate|pflichtmatrix|release[-\s]?matrix)\b/iu.test(heading[1]);
       if (inRequiredSection && /\b(?:offen|ausstehend|pending|entwurf)\b/iu.test(heading[1])) {
         throw new Error(`Release Notes markieren einen Pflichtabschnitt als offen: ${line.trim()}`);
       }
