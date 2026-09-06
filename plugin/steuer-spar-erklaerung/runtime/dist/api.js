@@ -16665,6 +16665,9 @@ function callWorker(op, args = {}, timeoutMs = DEFAULT_TIMEOUT_MS, signal) {
     startNextWorkerCall();
   });
 }
+function refillWarmSpareLater() {
+  if (!workerRuntimeFailure) ensureWarmSpare();
+}
 async function callWorkerUnsynchronised(op, args = {}, timeoutMs = DEFAULT_TIMEOUT_MS, signal) {
   const marker = op === "desktop_start" || op === "desktop_status" ? null : resolveDesktopMarkerForOperation(
     DESKTOP_MARKER_PATH,
@@ -16690,7 +16693,7 @@ async function callWorkerUnsynchronised(op, args = {}, timeoutMs = DEFAULT_TIMEO
     String(Math.max(30, Math.floor(timeoutMs / 1e3) - 5))
   ] : ["-NoLogo", "-NoProfile", "-NonInteractive", "-File", WORKER, "-Op", op, "-ArgsFile", argsFile];
   const spare = !desk || markerAllowsWarmSpare ? takeWarmSpare() : null;
-  if (!workerRuntimeFailure) ensureWarmSpare();
+  if (!workerRuntimeFailure) setImmediate(refillWarmSpareLater);
   return new Promise((resolve16, reject) => {
     let child;
     if (spare) {
