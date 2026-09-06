@@ -7395,59 +7395,11 @@ if ($Prewarm) {
   $dispatcherWarmupProbe.Stop()
   $script:INIT_TIMINGS.dispatcherWarmupMs = $dispatcherWarmupProbe.ElapsedMilliseconds
 
-  # Dieselbe Begruendung, eine Ebene tiefer: Der Dispatcher-Warmlauf erreicht
-  # die Knotenumwandlung nicht, weil sie hinter einem Baumlauf liegt - und ein
-  # Reservearbeiter darf vor seiner Bereitschaft KEINE UIA-Abfrage stellen.
-  # Uebersetzt ist ihr Rumpf damit erst beim ersten echten Baumlauf, und den
-  # macht jeder Arbeiter: gemessen 41 ms erste gegen 5-7 ms jede weitere
-  # Ausfuehrung (im Arbeiter rund 75 ms gegen 6 ms).
-  #
-  # Der Warmlauf umgeht das, ohne die Isolationsregel zu beruehren: Die Knoten
-  # entstehen im Speicher, ihr Element bleibt null, und es wird kein einziges
-  # UI-Element angefasst. Ein Knoten traegt einen Scrollzustand, damit auch
-  # dieser Zweig uebersetzt wird.
-  $nodeWarmupProbe = [Diagnostics.Stopwatch]::StartNew()
-  $warmupNodes = New-Object 'System.Collections.Generic.List[SSEUiaNode]'
-  for ($warmupIndex = 0; $warmupIndex -lt 64; $warmupIndex++) {
-    $warmupNode = New-Object SSEUiaNode
-    $warmupNode.Index = $warmupIndex
-    $warmupNode.ParentIndex = [int]($warmupIndex / 2)
-    $warmupNode.Depth = 2
-    $warmupNode.ControlType = 'Edit'
-    $warmupNode.Name = "warmup-$warmupIndex"
-    $warmupNode.AutomationId = ".warmup.$warmupIndex"
-    $warmupNode.X = $warmupIndex; $warmupNode.Y = $warmupIndex
-    $warmupNode.W = 10; $warmupNode.H = 10
-    $warmupNode.Enabled = $true
-    $warmupNode.Value = '1.234,00'
-    $warmupNode.RuntimeId = "warmup.$warmupIndex"
-    if ($warmupIndex -eq 0) { $warmupNode.Scroll = New-Object SSEUiaScrollState }
-    $null = $warmupNodes.Add($warmupNode)
-  }
-  $null = ConvertTo-SSESnapshotNodes $warmupNodes.ToArray()
-
-  # Dasselbe fuer die Fensterumwandlung: gemessen 19,4 ms erste gegen 0,5 ms
-  # jede weitere Ausfuehrung, und Get-Windows laeuft in jedem Arbeiter. Auch
-  # hier entstehen die Beschreibungen im Speicher - es wird KEIN Prozess
-  # aufgezaehlt und KEIN Fenster angefasst.
-  $warmupWindows = New-Object 'System.Collections.Generic.List[SSEWindowNode]'
-  for ($warmupIndex = 0; $warmupIndex -lt 8; $warmupIndex++) {
-    $warmupWindow = New-Object SSEWindowNode
-    $warmupWindow.Hwnd = [int64]$warmupIndex
-    $warmupWindow.Pid = 0
-    $warmupWindow.X = 0; $warmupWindow.Y = 0; $warmupWindow.W = 10; $warmupWindow.H = 10
-    $warmupWindow.ClassName = 'Warmup'
-    $warmupWindow.Title = "warmup-$warmupIndex"
-    $warmupWindow.TitleFingerprint = '0'
-    $null = $warmupWindows.Add($warmupWindow)
-  }
-  $null = ConvertTo-SSEWindowDescriptors $warmupWindows.ToArray()
-  # Die synthetischen Eintraege duerfen den Elementzwischenspeicher nicht
-  # verlassen: Get-LiveElement meldet einen Treffer allein anhand des
-  # Schluessels und wuerde sonst ein null als lebendes Element zurueckgeben.
-  $script:UIAElementCache.Clear()
-  $nodeWarmupProbe.Stop()
-  $script:INIT_TIMINGS.snapshotConversionWarmupMs = $nodeWarmupProbe.ElapsedMilliseconds
+  # KEIN Warmlauf mehr fuer die beiden Umwandlungen: Ihr Rumpf liegt seit der
+  # Portierung in der DLL und ist damit kompiliert. Die Uebersetzung, die hier
+  # frueher vorgezogen wurde (41 ms fuer Knoten, 19 ms fuer Fenster je frischem
+  # Arbeitsprozess), gibt es nicht mehr - ein Warmlauf haette nur noch sich
+  # selbst gewaermt und kostete Bereitschaftszeit.
 
   # Sammeln, BEVOR der Arbeiter parkt. Ohne das zahlt die erste
   # allokationsreiche Anweisung nach dem Aufwachen eine Sammlung - gemessen
