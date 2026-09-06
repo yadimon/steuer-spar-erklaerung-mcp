@@ -56,6 +56,7 @@ export const parallelSteps = Object.freeze([
   psFile("deprecated-fallback", "test/deprecated-fallback-contract.ps1"),
   psFile("control-inventory", "test/control-inventory-contract.ps1"),
   psFile("node-resolution-in-dll", "test/node-resolution-in-dll-contract.ps1"),
+  psFile("parallel-work", "test/parallel-work-contract.ps1"),
   psFile("worker-prewarm-placement", "test/worker-prewarm-placement-contract.ps1"),
   psFile("heading-cache", "test/heading-cache-contract.ps1"),
   psFile("desktop-stop-policy", "test/desktop-stop-policy-contract.ps1"),

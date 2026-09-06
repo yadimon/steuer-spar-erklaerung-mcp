@@ -5281,6 +5281,68 @@ function Test-SSEForegroundIsLockScreen {
   [bool]($processName -eq 'LockApp' -or $className -match 'LockScreenBackstopFrame')
 }
 
+<#
+.SYNOPSIS
+Liegt der Vordergrund bei einem anderen Prozess als der gebundenen SSE-Instanz?
+
+.DESCRIPTION
+GetLastInputInfo zaehlt jede Eingabe im System, gleichgueltig wohin sie geht.
+Deshalb bricht eine Schreibung bisher auch dann ab, wenn der Benutzer in einem
+voellig anderen Fenster tippt - obwohl seine Tastenanschlaege SSE gar nicht
+erreichen koennen.
+
+Das ist dieselbe Ueberlegung, die schon fuer den Sperrbildschirm gilt: Steht
+nachweislich ein fremdes Fenster im Vordergrund, kann der Benutzer SSE nicht
+parallel bedienen, und eine reine UIA-ValuePattern-Schreibung darf an dem
+dadurch ausgeloesten Tickwechsel nicht scheitern.
+
+Verglichen wird der PROZESS, nicht das Fenster: Ein Dialog derselben
+SSE-Instanz gehoert zu SSE, und dort waere eine Fremdeingabe sehr wohl
+gefaehrlich.
+
+Im Zweifel streng: Laesst sich der Vordergrund nicht bestimmen, gilt er als
+nicht fremd, und der Schutz bleibt an.
+#>
+<#
+.SYNOPSIS
+Ist die Abschirmung entfallen, auf die sich eine laufende Schreibung stuetzt?
+
+.DESCRIPTION
+Zwei Lagen erlauben es, waehrend fremder Systemeingaben weiterzuschreiben,
+weil der Benutzer SSE nachweislich nicht bedienen kann: der Sperrbildschirm
+und ein fremder Prozess im Vordergrund. Endet die jeweilige Lage mitten in der
+Transaktion, ist der Schutz sofort wieder noetig.
+
+Die Begruendung landet in $script:SSE_ISOLATION_BREACH, damit die Meldung
+sagen kann, WELCHE Lage endete - sonst stuenden acht Pruefstellen mit einer
+Begruendung da, die nur fuer eine davon stimmt.
+#>
+function Test-SSEIsolationEnded([bool]$LockScreen, [bool]$ForeignForeground, [IntPtr]$Hwnd) {
+  if ($LockScreen -and -not (Test-SSEForegroundIsLockScreen)) {
+    $script:SSE_ISOLATION_BREACH = 'Windows-Lockscreen wurde verlassen'
+    return $true
+  }
+  if ($ForeignForeground -and -not (Test-SSEForegroundIsForeignProcess $Hwnd)) {
+    $script:SSE_ISOLATION_BREACH = 'SSE wurde in den Vordergrund geholt'
+    return $true
+  }
+  $false
+}
+
+function Test-SSEForegroundIsForeignProcess([IntPtr]$Hwnd) {
+  if ($Hwnd -eq [IntPtr]::Zero) { return $false }
+  $foreground = [SW]::GetForegroundWindow()
+  if ($foreground -eq [IntPtr]::Zero) { return $false }
+  $foregroundRoot = [SW]::GetAncestor($foreground, 2) # GA_ROOT
+  if ($foregroundRoot -eq [IntPtr]::Zero) { $foregroundRoot = $foreground }
+  $foregroundPid = 0
+  [SW]::GetWindowThreadProcessId($foregroundRoot, [ref]$foregroundPid) | Out-Null
+  $ownPid = 0
+  [SW]::GetWindowThreadProcessId($Hwnd, [ref]$ownPid) | Out-Null
+  if ($foregroundPid -le 0 -or $ownPid -le 0) { return $false }
+  [bool]($foregroundPid -ne $ownPid)
+}
+
 # Reine Messung. Der Phasenlog veraendert keine Vor-/Nachbedingung und wird
 # nur additiv in die Antwort aufgenommen, damit eine Optimierung an gemessenen
 # statt geratenen Kosten ansetzen kann.
@@ -16132,7 +16194,15 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # Lockscreen waehrend der Transaktion verlassen, stoppen wir als
     # Interferenz. Physische Klick-/Tastaturpfade bleiben unveraendert gesperrt.
     $lockScreenIsolation = [bool](-not $script:DESKTOP_NAME -and (Test-SSEForegroundIsLockScreen))
-    $guardUserInput = [bool](-not $script:DESKTOP_NAME -and -not $lockScreenIsolation)
+    # Tippt der Benutzer in einem fremden Fenster, koennen seine Anschlaege SSE
+    # nicht erreichen. Dann darf eine reine ValuePattern-Schreibung nicht am
+    # systemweiten Eingabetick scheitern - dieselbe Ueberlegung wie beim
+    # Sperrbildschirm. Tastaturpfade bleiben davon unberuehrt; sie verlangen
+    # den Vordergrund und werden weiter unten ausdruecklich abgewiesen.
+    $foreignForegroundIsolation = [bool](-not $script:DESKTOP_NAME -and -not $lockScreenIsolation -and
+      (Test-SSEForegroundIsForeignProcess $hwnd))
+    $guardUserInput = [bool](-not $script:DESKTOP_NAME -and -not $lockScreenIsolation -and
+      -not $foreignForegroundIsolation)
     $inputBaseline = $(if ($guardUserInput) { Get-SSELastInputTick } else { $null })
     $navigationVersuche = 0
     if (-not $freeRead.free.Count -and $freeRead.firstCell) {
@@ -16140,6 +16210,17 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         Fail ("Keine sichtbare freie Tabellenzeile gefunden. Auf dem versteckten Desktop kann Qt nicht " +
               "per Tastatur zum Tabellenende bewegt werden. Eine sichtbare freie Zeile kann sse_table_add " +
               "vollstaendig per ValuePattern beschreiben; andernfalls sichtbar arbeiten.") 'hidden-desktop'
+      }
+      # Waehrend der Benutzer in einem fremden Fenster arbeitet, wird der
+      # Vordergrund nicht weggenommen. Der Weg zum Tabellenende braucht Klick
+      # und Tastatur - beides wuerde ihm den Fokus mitten im Satz entreissen.
+      # Eine bereits sichtbare freie Zeile wird dagegen weiterhin geschrieben,
+      # denn dafuer genuegt ValuePattern.
+      if ($foreignForegroundIsolation) {
+        Fail ("Keine sichtbare freie Tabellenzeile gefunden, und der Vordergrund liegt bei einem anderen " +
+              "Programm. Der Weg zum Tabellenende braeuchte Klick und Tastatur und wuerde den Fokus " +
+              "entreissen; das unterbleibt waehrend paralleler Arbeit. Die Tabelle einmal ans Ende " +
+              "blaettern - eine sichtbare freie Zeile wird dann ohne Fokuswechsel beschrieben.") 'foreground-needed'
       }
       $null = Click-VerifiedPoint $hwnd $freeRead.firstCell
       Start-Sleep -Milliseconds 180
@@ -16296,8 +16377,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $failureKind = $null
     $interference = $false
     foreach ($entry in @($prepared | Sort-Object @{ Expression = { if ($_.mode -eq 'combo') { 0 } else { 1 } } }, spalte)) {
-      if ($lockScreenIsolation -and -not (Test-SSEForegroundIsLockScreen)) {
-        $failure = 'Windows-Lockscreen wurde waehrend der Zellschreibung verlassen.'
+      if (Test-SSEIsolationEnded $lockScreenIsolation $foreignForegroundIsolation $hwnd) {
+        $failure = "$script:SSE_ISOLATION_BREACH - waehrend der Zellschreibung."
         $interference = $true
         break
       }
@@ -16310,6 +16391,16 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         }
       }
       if ($entry.mode -eq 'combo') {
+        # Eine Klappliste laesst sich nicht per ValuePattern setzen; sie
+        # verlangt Klick und Vordergrund. Waehrend der Benutzer anderswo
+        # arbeitet, wird ihm der Fokus dafuer nicht entrissen.
+        if ($foreignForegroundIsolation) {
+          $failure = ("Spalte $($entry.spalte) ist eine Auswahlliste und braucht Klick und Vordergrund. " +
+                      "Der liegt bei einem anderen Programm; waehrend paralleler Arbeit wird er nicht " +
+                      "uebernommen. Diese Spalte im Programm selbst setzen oder SSE nach vorn holen.")
+          $interference = $true
+          break
+        }
         $comboResult = Invoke-SSETableComboSelection `
           -Hwnd $hwnd -ProcessId $targetPid -ExpectedPage $expectedPage `
           -SumLabel $sumLabel -SumOccurrence $sumOccurrence -RowY $entry.rowY -ColumnIndex $entry.spalte `
@@ -16349,8 +16440,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         $null = $changed.Add($entry)
         $entry.pattern.SetValue($entry.requested)
         Start-Sleep -Milliseconds 350
-        if ($lockScreenIsolation -and -not (Test-SSEForegroundIsLockScreen)) {
-          $failure = 'Windows-Lockscreen wurde nach einer Zellschreibung verlassen.'
+        if (Test-SSEIsolationEnded $lockScreenIsolation $foreignForegroundIsolation $hwnd) {
+          $failure = "$script:SSE_ISOLATION_BREACH - nach einer Zellschreibung."
           $interference = $true
           break
         }
@@ -16388,8 +16479,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
 
     Start-Sleep -Milliseconds 500
     $interactionAfter = Get-SSEInteractionWindowSet $targetPid $hwnd
-    if ($lockScreenIsolation -and -not (Test-SSEForegroundIsLockScreen)) {
-      if (-not $failure) { $failure = 'Windows-Lockscreen wurde waehrend der Tabellenaktion verlassen.' }
+    if (Test-SSEIsolationEnded $lockScreenIsolation $foreignForegroundIsolation $hwnd) {
+      if (-not $failure) { $failure = "$script:SSE_ISOLATION_BREACH - waehrend der Tabellenaktion." }
       $interference = $true
     }
     if ($interactionAfter.fingerprint -ne $interactionBefore.fingerprint) {
@@ -16435,6 +16526,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           rollback=[pscustomobject]@{ versucht=$false; grund='Kein blinder Rollback nach fremder Eingabe/Fenster- oder Seitenwechsel.' }
           inputGuard=[pscustomobject]@{
             aktiv=$guardUserInput; lockScreenIsolation=$lockScreenIsolation
+            foreignForegroundIsolation=$foreignForegroundIsolation
             baseline=$inputBaseline; beobachtet=$(Get-SSELastInputTick); eingriffErkannt=$true
           }
         })
@@ -16480,8 +16572,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $rollbackWindowsBefore = Get-SSEInteractionWindowSet $targetPid $hwnd
       if ($rebindError) {
         $rollbackPreflightError = $rebindError
-      } elseif ($lockScreenIsolation -and -not (Test-SSEForegroundIsLockScreen)) {
-        $rollbackPreflightError = 'Windows-Lockscreen wurde vor dem Rollback verlassen.'
+      } elseif (Test-SSEIsolationEnded $lockScreenIsolation $foreignForegroundIsolation $hwnd) {
+        $rollbackPreflightError = "$script:SSE_ISOLATION_BREACH - vor dem Rollback."
       } elseif ($guardUserInput -and $null -ne $inputBaseline -and $null -ne $rollbackInputBefore -and
                 $rollbackInputBefore -ne $inputBaseline) {
         $rollbackPreflightError = 'Fremde Benutzereingabe vor dem Rollback erkannt.'
@@ -16538,8 +16630,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       foreach ($snapshot in @($rowSnapshotBefore | Sort-Object spalte -Descending)) {
         $attempted = $false; $setError = $null
         try {
-          if ($lockScreenIsolation -and -not (Test-SSEForegroundIsLockScreen)) {
-            throw 'Windows-Lockscreen wurde waehrend des Rollbacks verlassen.'
+          if (Test-SSEIsolationEnded $lockScreenIsolation $foreignForegroundIsolation $hwnd) {
+            throw "$script:SSE_ISOLATION_BREACH - waehrend des Rollbacks."
           }
           if ($guardUserInput -and -not (Test-SSELastInputUnchanged $inputBaseline)) {
             throw 'Fremde Benutzereingabe waehrend des Rollbacks erkannt.'
@@ -16697,6 +16789,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       ungespeichertVorher=$dirtyBefore; ungespeichertNachher=$(Get-DirtyState $afterTree)
       inputGuard=[pscustomobject]@{
         aktiv=$guardUserInput; lockScreenIsolation=$lockScreenIsolation
+            foreignForegroundIsolation=$foreignForegroundIsolation
         baseline=$inputBaseline; beobachtet=$(Get-SSELastInputTick); eingriffErkannt=$false
       }
     })
@@ -16847,7 +16940,15 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
 
     $dirtyBefore = Get-DirtyState $beforeTree
     $lockScreenIsolation = [bool](-not $script:DESKTOP_NAME -and (Test-SSEForegroundIsLockScreen))
-    $guardUserInput = [bool](-not $script:DESKTOP_NAME -and -not $lockScreenIsolation)
+    # Tippt der Benutzer in einem fremden Fenster, koennen seine Anschlaege SSE
+    # nicht erreichen. Dann darf eine reine ValuePattern-Schreibung nicht am
+    # systemweiten Eingabetick scheitern - dieselbe Ueberlegung wie beim
+    # Sperrbildschirm. Tastaturpfade bleiben davon unberuehrt; sie verlangen
+    # den Vordergrund und werden weiter unten ausdruecklich abgewiesen.
+    $foreignForegroundIsolation = [bool](-not $script:DESKTOP_NAME -and -not $lockScreenIsolation -and
+      (Test-SSEForegroundIsForeignProcess $hwnd))
+    $guardUserInput = [bool](-not $script:DESKTOP_NAME -and -not $lockScreenIsolation -and
+      -not $foreignForegroundIsolation)
     $inputBaseline = $(if ($guardUserInput) { Get-SSELastInputTick } else { $null })
     $interactionBefore = Get-SSEInteractionWindowSet $targetPid $hwnd
     $changed = New-Object System.Collections.ArrayList
@@ -16855,8 +16956,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $failure = $null; $failureKind = $null; $interference = $false
 
     foreach ($entry in @($prepared | Sort-Object @{ Expression = { if ($_.mode -eq 'combo') { 0 } else { 1 } } }, spalte)) {
-      if ($lockScreenIsolation -and -not (Test-SSEForegroundIsLockScreen)) {
-        $failure = 'Windows-Lockscreen wurde waehrend der Zellaktualisierung verlassen.'
+      if (Test-SSEIsolationEnded $lockScreenIsolation $foreignForegroundIsolation $hwnd) {
+        $failure = "$script:SSE_ISOLATION_BREACH - waehrend der Zellaktualisierung."
         $interference = $true; break
       }
       if ($guardUserInput -and -not (Test-SSELastInputUnchanged $inputBaseline)) {
@@ -16864,6 +16965,16 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         $interference = $true; break
       }
       if ($entry.mode -eq 'combo') {
+        # Eine Klappliste laesst sich nicht per ValuePattern setzen; sie
+        # verlangt Klick und Vordergrund. Waehrend der Benutzer anderswo
+        # arbeitet, wird ihm der Fokus dafuer nicht entrissen.
+        if ($foreignForegroundIsolation) {
+          $failure = ("Spalte $($entry.spalte) ist eine Auswahlliste und braucht Klick und Vordergrund. " +
+                      "Der liegt bei einem anderen Programm; waehrend paralleler Arbeit wird er nicht " +
+                      "uebernommen. Diese Spalte im Programm selbst setzen oder SSE nach vorn holen.")
+          $interference = $true
+          break
+        }
         $comboResult = Invoke-SSETableComboSelection `
           -Hwnd $hwnd -ProcessId $targetPid -ExpectedPage $expectedPage `
           -SumLabel $sumLabel -SumOccurrence $sumOccurrence -RowY $entry.rowY -ColumnIndex $entry.spalte `
@@ -16958,8 +17069,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           $entry | Add-Member -NotePropertyName mutationMethod -NotePropertyValue 'value-pattern'
         }
         Start-Sleep -Milliseconds 350
-        if ($lockScreenIsolation -and -not (Test-SSEForegroundIsLockScreen)) {
-          $failure = 'Windows-Lockscreen wurde nach einer Zellaktualisierung verlassen.'
+        if (Test-SSEIsolationEnded $lockScreenIsolation $foreignForegroundIsolation $hwnd) {
+          $failure = "$script:SSE_ISOLATION_BREACH - nach einer Zellaktualisierung."
           $interference = $true; break
         }
         if ($guardUserInput -and -not (Test-SSELastInputUnchanged $inputBaseline)) {
@@ -16993,8 +17104,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
 
     Start-Sleep -Milliseconds 500
     $interactionAfter = Get-SSEInteractionWindowSet $targetPid $hwnd
-    if ($lockScreenIsolation -and -not (Test-SSEForegroundIsLockScreen)) {
-      if (-not $failure) { $failure = 'Windows-Lockscreen wurde waehrend der Tabellenaktualisierung verlassen.' }
+    if (Test-SSEIsolationEnded $lockScreenIsolation $foreignForegroundIsolation $hwnd) {
+      if (-not $failure) { $failure = "$script:SSE_ISOLATION_BREACH - waehrend der Tabellenaktualisierung." }
       $interference = $true
     }
     if ($interactionAfter.fingerprint -ne $interactionBefore.fingerprint) {
@@ -17045,6 +17156,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           tableBinding=$binding
           inputGuard=[pscustomobject]@{
             aktiv=$guardUserInput; lockScreenIsolation=$lockScreenIsolation
+            foreignForegroundIsolation=$foreignForegroundIsolation
             baseline=$inputBaseline; beobachtet=$(Get-SSELastInputTick); eingriffErkannt=$true
           }
           windowGuard=[pscustomobject]@{ vorher=$interactionBefore.fingerprint; nachher=$interactionAfter.fingerprint; geaendert=[bool]($interactionBefore.fingerprint -ne $interactionAfter.fingerprint) }
@@ -17196,6 +17308,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       ungespeichertVorher=$dirtyBefore; ungespeichertNachher=$(Get-DirtyState $afterTree)
       inputGuard=[pscustomobject]@{
         aktiv=$guardUserInput; lockScreenIsolation=$lockScreenIsolation
+            foreignForegroundIsolation=$foreignForegroundIsolation
         baseline=$inputBaseline; beobachtet=$(Get-SSELastInputTick); eingriffErkannt=$false
       }
       versteckterDesktop=[bool]$script:DESKTOP_NAME
