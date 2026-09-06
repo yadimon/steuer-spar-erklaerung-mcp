@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { once } from "node:events";
 import { createSseApiServer } from "../dist/api-server.js";
 import { SSE_API_DISCOVERY } from "../dist/api-discovery.js";
 import { SSE_OPENAPI_DOCUMENT } from "../dist/api-openapi.js";
+import { listenOnFetchablePort } from "./fetchable-port.mjs";
 
 const config = {
   host: "127.0.0.1",
@@ -29,10 +29,7 @@ try {
   discoverySchema[mutationKey] = "darf-nicht-im-http-dokument-erscheinen";
   openApiInfo[mutationKey] = "darf-nicht-im-http-dokument-erscheinen";
 
-  server.listen(0, "127.0.0.1");
-  await once(server, "listening");
-  const address = server.address();
-  assert(address && typeof address === "object");
+  const address = { port: await listenOnFetchablePort(server) };
   const baseUrl = `http://127.0.0.1:${address.port}`;
   const headers = {};
 

@@ -7,7 +7,6 @@
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { once } from "node:events";
 import {
   appendFileSync,
   existsSync,
@@ -33,6 +32,7 @@ import {
 } from "../dist/receipt-interaction-policy.js";
 import { traceOperations } from "./operation-trace.mjs";
 import { createSyntheticAkadCase } from "./synthetic-akad-fixture.mjs";
+import { listenOnFetchablePort } from "./fetchable-port.mjs";
 import {
   CHECKER_MESSAGE,
   MONTHS,
@@ -158,10 +158,7 @@ async function createHarness({
     { archiveHasRunningSseProcess: async () => false },
   ));
   const server = createSseApiServer({ execute });
-  server.listen(0, "127.0.0.1");
-  await once(server, "listening");
-  const address = server.address();
-  assert(address && typeof address === "object");
+  const address = { port: await listenOnFetchablePort(server) };
   const baseUrl = `http://127.0.0.1:${address.port}`;
   const headers = { "content-type": "application/json" };
 

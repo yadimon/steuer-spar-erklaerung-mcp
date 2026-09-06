@@ -8,6 +8,7 @@ import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { SSE_API_PACKAGE_NAME, SSE_PACKAGE_VERSION } from "../dist/version.js";
+import { listenOnFetchablePort } from "./fetchable-port.mjs";
 
 assert.equal(process.platform, "win32", "MCP-Autostart ist ein Windows-Vertrag.");
 assert.equal(process.arch, "x64", "MCP-Autostart ist ein Windows-x64-Vertrag.");
@@ -17,10 +18,7 @@ const ownedApiPids = new Set();
 
 async function freePort() {
   const server = createServer();
-  server.listen(0, "127.0.0.1");
-  await once(server, "listening");
-  const address = server.address();
-  assert(address && typeof address === "object");
+  const address = { port: await listenOnFetchablePort(server) };
   await new Promise((resolveClose) => server.close(resolveClose));
   return address.port;
 }
@@ -245,10 +243,7 @@ try {
     response.writeHead(200, { "content-type": "text/plain" });
     response.end("not-the-sse-api");
   });
-  foreign.listen(0, "127.0.0.1");
-  await once(foreign, "listening");
-  const foreignAddress = foreign.address();
-  assert(foreignAddress && typeof foreignAddress === "object");
+  const foreignAddress = { port: await listenOnFetchablePort(foreign) };
   const foreignResult = await runMcp(["--selftest"], {
     ...process.env,
     SSE_API_CONFIG: "",
@@ -273,10 +268,7 @@ try {
       prewarm: null,
     }));
   });
-  incompatible.listen(0, "127.0.0.1");
-  await once(incompatible, "listening");
-  const incompatibleAddress = incompatible.address();
-  assert(incompatibleAddress && typeof incompatibleAddress === "object");
+  const incompatibleAddress = { port: await listenOnFetchablePort(incompatible) };
   const incompatibleResult = await runMcp(["--selftest"], {
     ...process.env,
     SSE_API_CONFIG: "",
@@ -288,10 +280,7 @@ try {
   await closeServer(incompatible);
 
   const unsafePid = identityServer(SSE_PACKAGE_VERSION, { operations: 0 }, 1e100);
-  unsafePid.listen(0, "127.0.0.1");
-  await once(unsafePid, "listening");
-  const unsafePidAddress = unsafePid.address();
-  assert(unsafePidAddress && typeof unsafePidAddress === "object");
+  const unsafePidAddress = { port: await listenOnFetchablePort(unsafePid) };
   const unsafePidResult = await runMcp(["--selftest"], {
     ...process.env,
     SSE_API_CONFIG: "",

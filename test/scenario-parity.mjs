@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { once } from "node:events";
 import { cpSync, mkdtempSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -9,6 +8,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { createApiExecutor } from "../dist/api-executor.js";
 import { traceOperations } from "./operation-trace.mjs";
 import { createSseApiServer } from "../dist/api-server.js";
+import { listenOnFetchablePort } from "./fetchable-port.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const temporary = mkdtempSync(join(tmpdir(), "sse-api-mcp-parity-"));
@@ -97,18 +97,12 @@ const worker = async (operation, args) => {
 
 const execute = traceOperations("scenario-mock", createApiExecutor(config, worker));
 const server = createSseApiServer({ execute });
-server.listen(0, "127.0.0.1");
-await once(server, "listening");
-const address = server.address();
-assert(address && typeof address === "object");
 // Ein Lauf ist hier schon einmal mit undicis undurchsichtigem 'bad port'
-// gescheitert. Reproduzieren liess er sich nicht. Diese Zusicherung nennt
-// beim naechsten Mal den tatsaechlichen Bindezustand, statt den Fehler tief
-// in der HTTP-Bibliothek entstehen zu lassen.
-assert(
-  Number.isInteger(address.port) && address.port > 0 && address.port <= 65_535,
-  `Testserver meldet keinen gueltigen Port: ${JSON.stringify(address)}`,
-);
+// gescheitert und liess sich nicht reproduzieren. Die Ursache ist inzwischen
+// bekannt: Der Port war gueltig, stand aber auf der Sperrliste der
+// Fetch-Spezifikation. Eine Bereichspruefung konnte das nicht fangen - das
+// Binden muss den gesperrten Port meiden. Siehe fetchable-port.mjs.
+const address = { port: await listenOnFetchablePort(server) };
 const baseUrl = `http://127.0.0.1:${address.port}`;
 
 let client;

@@ -18,6 +18,7 @@ import {
 import { SSE_FOREGROUND_REQUIRED_RECEIPT_OPERATIONS } from "../dist/receipt-interaction-policy.js";
 import { resolveWindowsPowerShell } from "../dist/windows-runtime.js";
 import { traceOperations } from "./operation-trace.mjs";
+import { listenOnFetchablePort } from "./fetchable-port.mjs";
 
 const [, , command, ...args] = process.argv;
 if (!command) {
@@ -114,8 +115,7 @@ const server = createSseApiServer({
     prewarmStatus: () => ({ ready: isWarmSpareReady(), failure: lastPrewarmFailure(), poolTarget: warmSparePoolStatus().target }),
   } : {}),
 });
-server.listen(0, "127.0.0.1");
-await once(server, "listening");
+await listenOnFetchablePort(server);
 if (useWorkerPrewarm) {
   enableWorkerPrewarm();
   const deadline = Date.now() + 15_000;
