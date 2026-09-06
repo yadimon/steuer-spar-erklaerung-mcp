@@ -5341,6 +5341,37 @@ function Test-SSEIsolationEnded([bool]$LockScreen, [bool]$ForeignForeground, [In
   $false
 }
 
+<#
+.SYNOPSIS
+Naheliegende Seitennamen zu einem nicht gefundenen Ziel.
+
+.DESCRIPTION
+Ein falsch geratener Seitenname liess das Programm bisher durch das gesamte
+Formular blaettern - sichtbar, minutenlang, und am Ende stand nur, dass die
+Seite nicht erreicht wurde. Wer daneben arbeitet, sieht dabei zu.
+
+Verglichen wird wortweise: Ein Vorschlag zaehlt, wenn er ein Wort des Ziels
+enthaelt oder umgekehrt. Woerter unter vier Zeichen bleiben aussen vor, sonst
+schlaegt jedes "und" alles vor.
+#>
+function Get-SSEPageSuggestions([string]$Ziel, [string[]]$Bekannt, [int]$Max = 8) {
+  # Verglichen wird auf Wortstamm, nicht auf ganze Woerter: 'Werbekosten'
+  # enthaelt 'Werbung' nicht, teilt mit ihm aber die ersten vier Zeichen.
+  # Ohne diesen Schritt bleibt genau der haeufigste Fall ohne Vorschlag.
+  $stamme = @(($Ziel -split '[^\p{L}\p{N}]+') | Where-Object { $_.Length -ge 4 } |
+    ForEach-Object { $_.Substring(0, [Math]::Min(5, $_.Length)) })
+  $treffer = New-Object System.Collections.ArrayList
+  foreach ($name in $Bekannt) {
+    if (-not $name) { continue }
+    foreach ($stamm in $stamme) {
+      if ($name -like "*$stamm*") { $null = $treffer.Add($name); break }
+      if ($stamm.Length -gt 4 -and $name -like "*$($stamm.Substring(0,4))*") { $null = $treffer.Add($name); break }
+    }
+  }
+  if (-not $treffer.Count) { return @() }
+  @($treffer | Select-Object -Unique | Select-Object -First $Max)
+}
+
 function Test-SSEForegroundIsForeignProcess([IntPtr]$Hwnd) {
   if ($Hwnd -eq [IntPtr]::Zero) { return $false }
   $foreground = [SW]::GetForegroundWindow()
@@ -15340,6 +15371,35 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     )
     $iZiel = [array]::IndexOf($FOLGE, $ziel)
 
+    # Ein geratener Seitenname liess das Programm durch das ganze Formular
+    # blaettern, und am Ende stand nur, dass die Seite nicht erreicht wurde.
+    # Wer daneben arbeitet, sieht dabei zu.
+    #
+    # Hart abzuweisen ging nicht: Weder die bekannte Blaetterfolge noch der
+    # Seitenkatalog noch der sichtbare Baum kennen alle Seiten - dynamische
+    # wie 'Sonstige Kfz-Kosten: <Fahrzeug>' oder 'Umsatzsteuer-Voranmeldungen
+    # 2026' fehlen in allen dreien und sind trotzdem erreichbar. Eine Pruefung
+    # dagegen haette funktionierende Navigation gebrochen.
+    #
+    # Deshalb wird gesammelt, nicht gesperrt: Fehlt jeder Beleg, laeuft die
+    # Suche wie bisher, aber die Fehlermeldung nennt am Ende naheliegende
+    # Namen. Das ist der Unterschied zwischen 'nicht erreicht' und 'meintest
+    # du Werbung und Reklame?'.
+    $zielBelegt = $true
+    $bekannteNamen = @($FOLGE)
+    if (-not $pageId -and $iZiel -lt 0) {
+      $folgeTreffer = @($FOLGE | Where-Object { $ziel.StartsWith($_) -or $_.StartsWith($ziel) })
+      if (-not $folgeTreffer.Count) {
+        try {
+          $vorbaum = Walk-Tree $hwnd 1800
+          $baumNamen = @($vorbaum.nodes | Where-Object { $_.type -eq 'TreeItem' -and [string]$_.name } |
+            ForEach-Object { [string]$_.name })
+          $bekannteNamen = @($bekannteNamen) + @($baumNamen)
+          $zielBelegt = [bool](@($baumNamen | Where-Object { $ziel.StartsWith($_) -or $_.StartsWith($ziel) }).Count)
+        } catch { $zielBelegt = $false }
+      }
+    }
+
     function AktuelleUeberschrift {
       param([IntPtr]$h)
       if ($knownTarget) { return (Get-KnownPageHeading $h $knownTarget) }
@@ -15748,7 +15808,15 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       Emit ([pscustomobject]@{ ok = $true; erreicht=$true; pageId=$(if ($pageId) { $pageId } else { $null }); ueberschrift = $spaet; schritte = $weg.Count
         richtung = 'spaete Gegenprobe'; weg = @($weg); fokusfrei = $false })
     }
-    Fail ("Seite '$ziel' in $($weg.Count) Schritten nicht erreicht. Zuletzt: '$spaet'. " +
+    $vorschlagsText = ''
+    if (-not $zielBelegt) {
+      $vorschlaege = Get-SSEPageSuggestions $ziel (@($bekannteNamen) + @($besucht))
+      if ($vorschlaege.Count) {
+        $vorschlagsText = " Der Name ist weder in der bekannten Blaetterfolge noch im sichtbaren " +
+          "Navigationsbaum belegt. Naheliegend: $((@($vorschlaege)) -join ' | ')."
+      }
+    }
+    Fail ("Seite '$ziel' in $($weg.Count) Schritten nicht erreicht. Zuletzt: '$spaet'.$vorschlagsText " +
           "Besuchte Ueberschriften: $((@($besucht | Select-Object -Unique)) -join ' | '). " +
           "Versuche: $((@($weg)) -join ' | ')") 'not-found'
   }
