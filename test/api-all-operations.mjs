@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { once } from "node:events";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -8,6 +7,7 @@ import { SSE_API_OPERATIONS } from "../dist/api-contract.js";
 import { createSseApiServer } from "../dist/api-server.js";
 import { SSE_MCP_TOOL_OPERATIONS } from "../dist/operation-catalog.js";
 import { enumChoices, sampleJsonSchema } from "./json-schema-samples.mjs";
+import { listenOnFetchablePort } from "./fetchable-port.mjs";
 
 const calls = [];
 const server = createSseApiServer({
@@ -16,11 +16,7 @@ const server = createSseApiServer({
     return { ok: true, operation, args };
   },
 });
-server.listen(0, "127.0.0.1");
-await once(server, "listening");
-const address = server.address();
-assert(address && typeof address === "object");
-const baseUrl = `http://127.0.0.1:${address.port}`;
+const baseUrl = `http://127.0.0.1:${await listenOnFetchablePort(server)}`;
 
 const here = dirname(fileURLToPath(import.meta.url));
 const discoveryTransport = new StdioClientTransport({

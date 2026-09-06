@@ -18,14 +18,13 @@ import {
   SSE_EXPECTED_API_BASE_URL,
   SSE_EXPECTED_API_CONFIGURATION_FINGERPRINT,
 } from "../dist/api-supervisor-contract.js";
+import { listenOnFetchablePort } from "./fetchable-port.mjs";
 
 const reservePort = async () => {
   const probe = createServer();
-  probe.listen(0, "127.0.0.1");
-  await once(probe, "listening");
-  const address = probe.address();
-  assert(address && typeof address === "object");
-  const port = address.port;
+  // Der Port wird spaeter per fetch angesprochen; die Fetch-Spezifikation
+  // sperrt eine feste Liste, siehe fetchable-port.mjs.
+  const port = await listenOnFetchablePort(probe);
   await new Promise((resolve) => probe.close(resolve));
   return port;
 };
