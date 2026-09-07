@@ -1932,6 +1932,14 @@ function Emit($obj) {
       "$([string]$script:SSE_TRANSMITTED_CASE_WARNING.reason) " +
       "$([string]$script:SSE_TRANSMITTED_CASE_WARNING.hinweis)")
   }
+  # Rein additive Messung: Baumlaeufe sind der teuerste wiederkehrende Schritt.
+  if ([int]$script:SSE_TREE_WALKS -gt 0) {
+    $obj | Add-Member -NotePropertyName treeWalks -NotePropertyValue ([int]$script:SSE_TREE_WALKS) -Force
+    $obj | Add-Member -NotePropertyName treeWalkMs -NotePropertyValue ([int]$script:SSE_TREE_WALK_MS) -Force
+    if ($script:SSE_TREE_WALK_DETAIL) {
+      $obj | Add-Member -NotePropertyName treeWalkDetail -NotePropertyValue @($script:SSE_TREE_WALK_DETAIL) -Force
+    }
+  }
   # Depth hoch, damit verschachtelte Baeume nicht abgeschnitten werden
   $json = $obj | ConvertTo-Json -Depth 24 -Compress
   if ($OutFile) {
@@ -4137,6 +4145,17 @@ function Get-UiSnapshot {
       $hwnd, $MaxNodes, ($TimeoutSec * 1000), $MaxDepth, [bool]$WithValues, [bool]$WithScroll)
 
     $out = ConvertTo-SSESnapshotNodes $native.Nodes
+    # Ein Baumlauf ist der teuerste wiederkehrende Schritt einer Operation.
+    # Wie oft er faellt, sieht man ohne Zaehler nicht - und ohne diese Zahl
+    # optimiert man an geratenen statt an gemessenen Kosten.
+    $script:SSE_TREE_WALKS = 1 + [int]$script:SSE_TREE_WALKS
+    $script:SSE_TREE_WALK_MS = [int]$script:SSE_TREE_WALK_MS + [int]$snapshotWatch.ElapsedMilliseconds
+    if ($null -eq $script:SSE_TREE_WALK_DETAIL) { $script:SSE_TREE_WALK_DETAIL = New-Object System.Collections.ArrayList }
+    if ($script:SSE_TREE_WALK_DETAIL.Count -lt 16) {
+      $null = $script:SSE_TREE_WALK_DETAIL.Add([pscustomobject]@{
+        knoten = [int]$native.NodeCount; grenze = [int]$MaxNodes; ms = [int]$snapshotWatch.ElapsedMilliseconds
+      })
+    }
     $st = [pscustomobject]@{
       n=$native.NodeCount; err=$native.WalkErrors; cyc=$native.CycleHits
       cycleRid=[string]$native.CycleRuntimeId; cycleName=''
