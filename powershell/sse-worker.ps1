@@ -17060,7 +17060,22 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
             previousSummaryY=$freeRead.previousSummaryY; rowY=$freie[0]
           }
           rollback=[pscustomobject]@{
-            versucht=$false; grund='Kein blinder Rollback nach fremder Eingabe/Fenster-/Seiten- oder Zellwertinterferenz.'
+            versucht=$false
+            # Nicht jeder abgebrochene Rollback hat dieselbe Ursache. Wer die
+            # Zeile nach dem Schreiben nicht mehr binden kann, hat kein
+            # Interferenzproblem, sondern eine Zeile, die sich bewegt oder
+            # anders aufgebaut hat - der Aufrufer sucht sonst an der falschen
+            # Stelle. Gemessen tritt das auf, wenn Werte um eine Spalte
+            # verrutscht in die Tabelle gehen, etwa weil eine fuehrende
+            # Nummernspalte in 'werte' weggelassen wurde.
+            grund=$(if ($rebindError) {
+              'Kein blinder Rollback: Die geschriebene Zeile liess sich danach nicht mehr eindeutig binden. ' +
+              'Zeile pruefen und bei Bedarf von Hand entfernen. Haeufigste Ursache ist eine verschobene ' +
+              "Spaltenzuordnung - 'werte' gegen 'kopf' aus table_read pruefen; fuehrende Spalten wie eine " +
+              "automatische 'Nr.' gehoeren als leerer Wert dazu."
+            } else {
+              'Kein blinder Rollback nach fremder Eingabe/Fenster-/Seiten- oder Zellwertinterferenz.'
+            })
             strukturVorher=$structureBefore
           }
         })
