@@ -9533,9 +9533,51 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       Start-Sleep -Milliseconds 600
       $nachher = [SSEUiaTree]::Describe($wissenHwnd, 2500, 15000, 20, $true, $false)
       $nachherViews = [SSEUiaTree]::ToViews($nachher.Nodes, $null)
-      $abschnitte = @($nachherViews |
-        Where-Object { $_.type -eq 'Text' -and ([string]$_.name).Length -ge $mindestLaenge } |
-        ForEach-Object { [string]$_.name } | Select-Object -Unique | Select-Object -First $maxAbschnitte)
+      # Die eingebettete Ansicht zerlegt einen Absatz in mehrere Textknoten,
+      # und die Trefferhervorhebung schneidet den gesuchten Begriff in eigene,
+      # sehr kurze Knoten. Wer nur lange Knoten nimmt, verliert genau den
+      # Begriff, nach dem gesucht wurde: Aus einem Satz ueber das
+      # Reverse-Charge-Verfahren wurden zwei zusammenhanglose Bruchstuecke,
+      # zwischen denen der Begriff fehlte.
+      #
+      # Deshalb werden zusammengehoerige Knoten - gleicher Elternknoten, in
+      # Baumreihenfolge - zu einem Abschnitt vereint, und erst der ganze
+      # Abschnitt wird an der Mindestlaenge gemessen.
+      #
+      # Verbunden wird ohne Trennzeichen. Die Namen tragen die Wortabstaende
+      # an den Schnittstellen nicht (gemessen: der Knoten vor einer
+      # Hervorhebung endet auf 'tes', nicht auf 'tes '), und ein eingefuegtes
+      # Leerzeichen waere erfunden - es zerrisse 'Reverse-Charge' zu
+      # 'Reverse - Charge'. Ein fehlendes Leerzeichen ist die kleinere
+      # Entstellung als ein zusaetzliches; 'teile' liefert daneben den
+      # unveraenderten Wortlaut jedes einzelnen Knotens.
+      #
+      # Ein TextPattern waere der saubere Weg, den Absatz samt Abstaenden zu
+      # lesen. Dieses Fenster bietet keines: gemessen meldete kein einziger
+      # Knoten IsTextPatternAvailable.
+      $textKnoten = @($nachherViews | Where-Object { $_.type -eq 'Text' -and [string]$_.name })
+      $roheAbschnitte = New-Object System.Collections.ArrayList
+      $gruppenTeile = New-Object System.Collections.ArrayList
+      $gruppenEltern = $null
+      foreach ($knoten in $textKnoten) {
+        if ($gruppenTeile.Count -and [string]$knoten.p -ne [string]$gruppenEltern) {
+          $null = $roheAbschnitte.Add(@($gruppenTeile.ToArray()))
+          $gruppenTeile.Clear()
+        }
+        $gruppenEltern = [string]$knoten.p
+        $null = $gruppenTeile.Add([string]$knoten.name)
+      }
+      if ($gruppenTeile.Count) { $null = $roheAbschnitte.Add(@($gruppenTeile.ToArray())) }
+
+      $abschnitte = @()
+      $gesehenerText = New-Object 'System.Collections.Generic.HashSet[string]'
+      foreach ($teile in $roheAbschnitte) {
+        $verbunden = ($teile -join '')
+        if ($verbunden.Length -lt $mindestLaenge) { continue }
+        if (-not $gesehenerText.Add($verbunden)) { continue }
+        $abschnitte += [pscustomobject]@{ text = $verbunden; teile = @($teile) }
+        if ($abschnitte.Count -ge $maxAbschnitte) { break }
+      }
       $verweise = @($nachherViews |
         Where-Object { $_.type -eq 'Hyperlink' -and [string]$_.name } |
         ForEach-Object { [string]$_.name } | Select-Object -Unique | Select-Object -First 25)
@@ -9552,7 +9594,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       wartezeitMs = [int64]$wartenBis.ElapsedMilliseconds
       hinweis = ('Rein lesend aus dem Steuerwissen der SteuerSparErklaerung. Kein Steuerfall wurde ' +
                  'gebunden, gelesen oder geaendert. Die Antwort ist Herstellerinhalt, keine ' +
-                 'Steuerberatung und keine Zusage fuer den konkreten Fall.')
+                 'Steuerberatung und keine Zusage fuer den konkreten Fall. Je Abschnitt ist ' +
+                 "'teile' der unveraenderte Wortlaut der einzelnen Textknoten; 'text' verbindet " +
+                 'sie ohne Trennzeichen. An einer Trefferhervorhebung kann dort ein Wortabstand ' +
+                 'fehlen - die Ansicht gibt ihn nicht heraus.')
     })
   }
 
