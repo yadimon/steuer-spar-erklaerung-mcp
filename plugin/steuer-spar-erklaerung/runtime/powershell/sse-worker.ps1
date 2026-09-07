@@ -16383,15 +16383,40 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # expectedBefore/expectedAfter der Tabellenmutationen nicht ermitteln - er
     # muesste die Kontrollsumme raten. Lesen und Schreiben binden dieselbe
     # Zelle ueber dasselbe Label und dieselbe Occurrence.
+    $summenBaum = Walk-Tree $hwnd -WithValues
     $summe = $null
     if ($sumLabel) {
-      $summeRead = Read-LabeledValueFromTree (Walk-Tree $hwnd -WithValues) $hwnd $sumLabel $sumOccurrence
+      $summeRead = Read-LabeledValueFromTree $summenBaum $hwnd $sumLabel $sumOccurrence
       $summe = [string]$summeRead.value
+    }
+
+    # Wer die Beschriftung der Kontrollsumme nicht kennt, kann die
+    # Pflichtangabe expectedBefore einer Tabellenmutation nur raten oder ein
+    # zweites Mal lesen - und auf einer Seite mit mehreren Tabellen ausserdem
+    # nicht wissen, welche Vorkommensnummer die eigene ist. Deshalb kommen
+    # alle sichtbaren Summenzeilen samt Vorkommen und Wert mit. Sie stammen
+    # aus demselben Baum, kosten also keinen weiteren Lauf.
+    $summen = @()
+    $summenZaehler = @{}
+    foreach ($summenLabel in @($summenBaum.nodes | Where-Object {
+      $_.type -eq 'Text' -and $_.name -match '^(?:Summe|Gesamtsumme)\b'
+    } | Sort-Object y, x | Select-Object -First 12)) {
+      $summenName = [string]$summenLabel.name
+      $summenVorkommen = 1 + [int]$summenZaehler[$summenName]
+      $summenZaehler[$summenName] = $summenVorkommen
+      $summenWert = $null
+      try {
+        $summenWert = [string](Read-LabeledValueFromTree $summenBaum $hwnd $summenName $summenVorkommen).value
+      } catch { $summenWert = $null }
+      $summen += [pscustomobject]@{
+        label = $summenName; vorkommen = $summenVorkommen; wert = $summenWert
+      }
     }
     $dirtyAfter = Get-DirtyStateFast $hwnd
     Emit ([pscustomobject]@{
       ok = $true; kopf = $kopf; zeilen = $echte; anzahl = $echte.Count
       summe = $summe
+      summen = @($summen)
       vollstaendig = $vollstaendig
       schritte = $schritte
       steps = $schritte
