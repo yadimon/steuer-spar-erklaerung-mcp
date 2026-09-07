@@ -18030,7 +18030,14 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $targetAid = [string]$zelle.aid
     $targetRegion = $pointRegion
     $targetElement = Get-LiveElement $hwnd $zelle.rid
-    if (-not $targetElement -or [string]$targetElement.Current.Name -ne $text) {
+    # Derselbe Textvertrag wie SSEUiaTree.Normalize: Qt kann unsichtbare
+    # Zeilenumbrueche an Zellnamen anhaengen. Identitaet und Summenbindung
+    # bleiben unveraendert; nur der bereits normalisierte Snapshottext wird
+    # mit dem gleich normalisierten Live-Namen verglichen.
+    $targetLiveName = $(if ($targetElement) {
+      ([string]$targetElement.Current.Name -replace "`r|`n|`t", ' ').Trim()
+    } else { $null })
+    if (-not $targetElement -or $targetLiveName -ne $text) {
       [SW]::SetWindowPos($hwnd, $HWND_NOTOPMOST, 0, 0, 0, 0, $SWP) | Out-Null
       Fail 'Zielzelle ist unmittelbar vor dem Aktivierungsklick nicht mehr identisch; nichts geloescht.' 'stale'
     }
