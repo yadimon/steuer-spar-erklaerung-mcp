@@ -149,6 +149,8 @@ Lies nur die Referenz, die der aktuelle Auftrag tatsächlich braucht:
   belegten Folgejahrweg;
 - [case-create.md](references/case-create.md) — nur wenn ausdrücklich ein
   neuer Fall angelegt werden soll oder kein passender Fall existiert;
+- [buchungswege.md](references/buchungswege.md) — bevor eine Ausgabe, Einnahme
+  oder ein Reverse-Charge-Beleg eingetragen wird;
 - [steuerquellen.md](references/steuerquellen.md) — betragsrelevante oder
   strittige steuerfachliche Begründung;
 - [ui-fallback.md](references/ui-fallback.md) — nur wenn für ein benötigtes

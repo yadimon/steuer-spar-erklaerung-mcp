@@ -83,6 +83,7 @@ for (const reference of [
   "references/case-session.md",
   "references/ustva.md",
   "references/case-create.md",
+  "references/buchungswege.md",
   "references/steuerquellen.md",
   "references/ui-fallback.md",
   "references/belegmanager-backup.md",
