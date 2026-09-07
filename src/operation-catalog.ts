@@ -84,6 +84,7 @@ export const SSE_MCP_TOOL_OPERATIONS = {
   "sse_desktop_status": "desktop_status",
   "sse_page": "page",
   "sse_positions": "positions",
+  "sse_position_create": "position_create",
   "sse_export_csv": "export_csv",
   "sse_collect": "collect",
   "sse_verify": "verify",
@@ -375,6 +376,10 @@ schemasByOperation.scenario_run = z.object({
 }).strict();
 
 schemasByOperation.case_hash = withLegacyAlias(SSE_MCP_TOOL_SCHEMAS.sse_case_hash, "ref", "path");
+schemasByOperation.position_create = withLegacyAliases(
+  SSE_MCP_TOOL_SCHEMAS.sse_position_create,
+  [["expectedCaseRef", "expectedCasePath"], ["backupRef", "backupPath"]],
+);
 schemasByOperation.center_refresh = z.object({
   ...SSE_MCP_TOOL_SCHEMAS.sse_center_refresh.shape,
   expectedDirectory: API_LOCAL_PATH.optional(),

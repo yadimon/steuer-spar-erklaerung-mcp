@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   SSE_START_MODE,
   CASE_REF,
+  BACKUP_REF,
   RESULT_REF,
   VERIFY_SOURCE_REF,
   SHA256,
@@ -30,6 +31,18 @@ export const SSE_MCP_DESKTOP_SCHEMAS = {
   "sse_positions": z.object({
     aktion: z.literal("list").optional().describe("Vorgabe und einzig zugelassene Aktion: 'list'"),
     hwnd: WINDOW_HANDLE.optional(),
+  }).strict(),
+  "sse_position_create": z.object({
+    hwnd: WINDOW_HANDLE,
+    expectedCaseRef: CASE_REF(),
+    expectedCaseHash: SHA256(),
+    backupRef: BACKUP_REF().describe("Bytegleiche Sicherung des aktuellen Disk-Stands"),
+    name: z.string().min(1).max(80).regex(/^[^\r\n\t»«<>]+$/).refine(value => value === value.trim(), "Keine Rand-Leerzeichen")
+      .describe("Eindeutige Bezeichnung der neu anzulegenden Einnahmenposition"),
+    expectedPositions: z.array(z.object({
+      name: z.string().min(1).max(80).describe("Exakter Name einer vorhandenen Position"),
+      net: z.string().regex(/^-?(?:\d{1,3}(?:\.\d{3})*|\d+),\d{2}$/).describe("Exakt angezeigte Nettosumme, beispielsweise 100,00"),
+    }).strict()).max(50).describe("Alle vorhandenen Positionen und exakten Nettosummen der sichtbaren Übersicht"),
   }).strict(),
   "sse_export_csv": z.object({
     resultRef: RESULT_REF().optional().describe("Neuer oder vorhandener leerer Ergebnisordner fuer den CSV-Export"),

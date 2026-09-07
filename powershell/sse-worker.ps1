@@ -7185,6 +7185,7 @@ $experimentalProfileVerificationOps = @(
   'window_restore', 'windows', 'instances'
 )
 $buildDriftBlockedOps = @(
+  'position_create',
   'case_create', 'checker_run', 'click', 'click_point', 'combo_select', 'dialog_answer',
   'file_dialog_select', 'fill_fields', 'goto', 'menu_click', 'save', 'save_as', 'set_value',
   'receipt_manager_action', 'receipt_manager_bulk_upsert', 'receipt_manager_classification_options', 'receipt_manager_classify',
@@ -13889,6 +13890,166 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       offeneFenster = $wins.Count
       stats = $t.stats
     })
+  }
+
+  'position_create' {
+    $name = [string](Arg $a 'name')
+    $casePath = [string](Arg $a 'expectedCasePath')
+    $caseHash = ([string](Arg $a 'expectedCaseHash')).ToUpperInvariant()
+    $backupPath = [string](Arg $a 'backupPath')
+    $expected = @(Get-SSEBoundedArrayArg $a 'expectedPositions' 0 50)
+    if (-not (Arg $a 'hwnd') -or -not $casePath -or -not $backupPath -or
+        $caseHash -notmatch '^[A-F0-9]{64}$' -or $name.Length -lt 1 -or $name.Length -gt 80 -or
+        $name -ne $name.Trim() -or $name -match '[\r\n\t\u00BB\u00AB<>]') {
+      Fail 'Fenster, Fall, Hash, Sicherung, Positionsinventar und einzeiliger Name sind Pflicht.' 'bad-args'
+    }
+    foreach ($item in $expected) {
+      if (-not [string]$item.name -or [string]$item.net -notmatch '^-?(?:\d{1,3}(?:\.\d{3})*|\d+),\d{2}$') {
+        Fail 'Positionsinventar braucht eindeutige Namen und formatierte Nettosummen.' 'bad-args'
+      }
+    }
+    if (@($expected | Group-Object name | Where-Object Count -ne 1).Count -or $name -in @($expected.name)) {
+      Fail 'Doppelte Namen oder bereits vorhandene Zielposition; nichts angelegt.' 'precondition-failed'
+    }
+    if ((Get-Sha256 $backupPath) -ne $caseHash -or
+        [IO.Path]::GetFullPath($backupPath) -eq [IO.Path]::GetFullPath($casePath)) {
+      Fail 'Die getrennte Sicherung ist nicht bytegleich zum erwarteten Fallstand.' 'precondition-failed'
+    }
+    $bound = Resolve-BoundWriteWindow $a
+    $hwnd = [IntPtr][int64]$bound.window.hwnd
+    $targetPid = [int]$bound.window.pid
+    $started = $false
+    $beforePositions = @()
+    $afterPositions = @()
+    $inputBaseline = Get-SSELastInputTick
+    $windowBaseline = Get-SSEInteractionWindowSet $targetPid $hwnd
+    function Assert-PositionEpoch {
+      $inputChanged = ($null -eq $inputBaseline -or -not (Test-SSELastInputUnchanged $inputBaseline))
+      $windowsChanged = ((Get-SSEInteractionWindowSet $targetPid $hwnd).fingerprint -ne $windowBaseline.fingerprint)
+      $dialogs = @(Get-DialogInventory $targetPid | Where-Object { $_.kind -in @('native-dialog','qt-dialog') })
+      if ($inputChanged -or $windowsChanged -or $dialogs.Count) {
+        throw "Positionsepoche veraendert: Benutzereingabe=$inputChanged, Fenstersatz=$windowsChanged, Dialoge=$($dialogs.Count)."
+      }
+      $null = Resolve-BoundWriteWindow $a
+    }
+    function Read-PositionOverview {
+      $tree = Walk-Tree $hwnd -WithValues
+      if ($tree.stats.truncated -or $tree.stats.err -or (Get-CurrentHeading $hwnd $tree) -ne 'Erlöse Lieferungen/Leistungen') {
+        throw 'Vollstaendige Einnahmen-Uebersicht wird erwartet.'
+      }
+      $buttons = @($tree.nodes | Where-Object { $_.type -eq 'Hyperlink' -and $_.aid -like '*.GuideViewer.*' -and $_.name -match '^»(.+)« bearbeiten$' })
+      $rows = @($buttons | ForEach-Object {
+        $button = $_
+        $amount = @($tree.nodes | Where-Object {
+          $_.type -eq 'Text' -and $_.aid -like '*.GuideViewer.*' -and
+          [Math]::Abs($_.y - $button.y) -lt 10 -and $_.name -match '^-?(?:\d{1,3}(?:\.\d{3})*|\d+),\d{2}$'
+        })
+        if ($amount.Count -ne 1) { throw 'Positionssumme fehlt oder ist mehrdeutig.' }
+        [pscustomobject]@{ name=($button.name -replace '^»|« bearbeiten$', ''); net=[string]$amount[0].name }
+      })
+      if (@($rows | Group-Object name | Where-Object Count -ne 1).Count) { throw 'Doppelte Positionen in der Uebersicht.' }
+      [pscustomobject]@{ tree=$tree; rows=@($rows) }
+    }
+    function Assert-PositionRows($Actual, $ExpectedRows) {
+      if (@($Actual).Count -ne @($ExpectedRows).Count) { throw 'Anzahl der Positionen stimmt nicht.' }
+      foreach ($row in @($ExpectedRows)) {
+        if (@($Actual | Where-Object { $_.name -ceq $row.name -and $_.net -ceq $row.net }).Count -ne 1) {
+          throw 'Positionsname oder Nettosumme stimmt nicht.'
+        }
+      }
+    }
+    function Invoke-PositionButton($Tree, [string]$Caption) {
+      Assert-PositionEpoch
+      # GuideViewer exponiert InvokePattern, fuehrt den Befehl darueber aber
+      # nicht aus. Ein einziger geometrisch und per PID gebundener Klick ist
+      # hier der eigene Schreibvertrag, kein Rueckfall nach einem Invoke.
+      $headingBeforeClick = Get-CurrentHeading $hwnd $Tree
+      $null = Show-SSEWindow $hwnd
+      $Tree = Walk-Tree $hwnd -WithValues
+      if ($Tree.stats.truncated -or (Get-CurrentHeading $hwnd $Tree) -cne $headingBeforeClick) {
+        throw 'Seite hat sich vor dem Positionsbefehl veraendert.'
+      }
+      $controlType = $(if ($Caption -eq 'Zurück') { 'Button' } else { 'Hyperlink' })
+      $buttons = @($Tree.nodes | Where-Object { $_.type -eq $controlType -and $_.name -ceq $Caption -and $_.on })
+      if ($buttons.Count -ne 1) { throw 'Positionsbefehl ist nicht eindeutig.' }
+      $node = $buttons[0]
+      $live = Get-LiveElement $hwnd $node.rid
+      if (-not $live -or [int]$live.Current.ProcessId -ne $targetPid -or
+          ([string]$live.Current.Name).Trim() -cne $Caption) {
+        throw 'Positionsbefehl hat keine gueltige Live-Bindung.'
+      }
+      $rect = $live.Current.BoundingRectangle
+      if ([double]::IsInfinity($rect.X) -or [double]::IsInfinity($rect.Y) -or $rect.Width -le 0 -or $rect.Height -le 0 -or
+          [Math]::Abs($rect.X - $node.x) -gt 3 -or [Math]::Abs($rect.Y - $node.y) -gt 3) {
+        throw 'Frisches Zielrechteck ist nicht mehr identisch.'
+      }
+      $px = [int]($rect.X + $rect.Width / 2); $py = [int]($rect.Y + $rect.Height / 2)
+      if (-not (Get-SSEPointObstruction $hwnd $px $py).isBoundTarget) { throw 'Positionsbefehl ist verdeckt.' }
+      Assert-PositionEpoch
+      if ($Caption -ceq 'Weitere Position erfassen') { Set-Variable -Name started -Value $true -Scope 1 }
+      [SW]::SetCursorPos($px, $py) | Out-Null
+      [SW]::mouse_event(0x0002, 0, 0, 0, [IntPtr]::Zero)
+      [SW]::mouse_event(0x0004, 0, 0, 0, [IntPtr]::Zero)
+      $ownedTick = Get-SSELastInputTick
+      Set-SSEForegroundLeaseInputCheckpoint $ownedTick ([pscustomobject]@{ x=$px; y=$py })
+      Set-Variable -Name inputBaseline -Value $ownedTick -Scope 1
+      Start-Sleep -Milliseconds 350
+    }
+    function Read-NewPosition([string]$ExpectedName, [bool]$RequireName) {
+      Assert-PositionEpoch
+      $tree = Walk-Tree $hwnd -WithValues
+      $heading = Get-CurrentHeading $hwnd $tree
+      $fields = @($tree.nodes | Where-Object { $_.type -eq 'Edit' -and $_.aid -like '*.DialogUI.*.Text' -and $_.ro -eq $false })
+      $rate = @($tree.nodes | Where-Object { $_.type -eq 'ComboBox' -and $_.aid -like '*.AuswahlUStSatz' })
+      $sum = Read-LabeledValueFromTree $tree $hwnd 'Summe der Einnahmen (netto)'
+      $vat = Read-LabeledValueFromTree $tree $hwnd 'Summe der Umsatzsteuer'
+      if ($tree.stats.truncated -or $tree.stats.err -or ($heading -notlike 'Einnahmen:*' -and $heading -ne 'Einnahmen') -or
+          $fields.Count -ne 1 -or $rate.Count -ne 1 -or [string]$rate[0].val -ne '19' -or
+          $sum.candidateCount -ne 1 -or $vat.candidateCount -ne 1 -or
+          [string]$sum.value -notin @('','0','0,00') -or [string]$vat.value -notin @('','0','0,00')) {
+        throw 'Neue Einnahmenposition ist nicht eindeutig leer und mit 19 Prozent gebunden.'
+      }
+      if (($RequireName -and ([string]$fields[0].val -cne $ExpectedName -or $heading -cne "Einnahmen: $ExpectedName")) -or
+          (-not $RequireName -and [string]$fields[0].val -in @($expected.name))) {
+        throw 'Bezeichnung der neuen Position stimmt nicht.'
+      }
+      $region = Get-SSETableRegion $tree $hwnd $sum
+      if (-not $region.ok -or @($region.cells | Where-Object { $_.name -and $_.name -notin @('0,00','0','19') }).Count) {
+        throw 'Neue Position enthaelt bereits Tabellenwerte oder die Tabelle ist nicht lesbar.'
+      }
+      [pscustomobject]@{ tree=$tree; field=$fields[0]; heading=$heading }
+    }
+    try {
+      Assert-PositionEpoch
+      $overview = Read-PositionOverview
+      $beforePositions = @($overview.rows)
+      Assert-PositionRows $beforePositions $expected
+      Invoke-PositionButton $overview.tree 'Weitere Position erfassen'
+      $new = Read-NewPosition '' $false
+      $live = Get-LiveElement $hwnd $new.field.rid
+      $valuePattern = $null
+      if (-not $live -or -not $live.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$valuePattern) -or
+          $valuePattern.Current.IsReadOnly -or [string]$valuePattern.Current.Value -cne [string]$new.field.val) {
+        throw 'Namensfeld hat seine Bindung verloren.'
+      }
+      Assert-PositionEpoch
+      $valuePattern.SetValue($name)
+      $namedTree = Walk-Tree $hwnd -WithValues
+      Invoke-PositionButton $namedTree 'Zurück'
+      $after = Read-PositionOverview
+      $afterPositions = @($after.rows)
+      Assert-PositionRows $afterPositions (@($expected) + @([pscustomobject]@{ name=$name; net='0,00' }))
+      Invoke-PositionButton $after.tree "»$name« bearbeiten"
+      $verified = Read-NewPosition $name $true
+      Assert-PositionEpoch
+      Emit ([pscustomobject]@{ ok=$true; verified=$true; mutationStarted=$true; cleanupRequired=$false;
+        name=$name; page=$verified.heading; beforePositions=$beforePositions; afterPositions=$afterPositions })
+    } catch {
+      Emit ([pscustomobject]@{ ok=$false; kind='position-create-incomplete'; error=$_.Exception.Message;
+        verified=$false; mutationStarted=$started; cleanupRequired=$started; name=$name;
+        beforePositions=$beforePositions; afterPositions=$afterPositions;
+        rollback=[pscustomobject]@{ attempted=$false; reason='Teilstand bewusst neu lesen; keine blinde Wiederholung oder Loeschung einer Position.' } })
+    }
   }
 
   'positions' {

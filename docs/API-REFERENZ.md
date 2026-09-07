@@ -10,13 +10,14 @@ Operationsmerkmale in `src/operation-traits.ts`, das Abdeckungsledger
 
 ## Zahlen
 
-- Operationen insgesamt: **101**
+- Operationen insgesamt: **102**
 - davon live belegt: **94**
-- davon nur auf dem Fehlerpfad belegt: **7**
-- als MCP-Werkzeug veroeffentlicht: **101**
+- davon nur auf dem Fehlerpfad belegt: **6**
+- davon live ungetestet: **2**
+- als MCP-Werkzeug veroeffentlicht: **102**
 - zusammengesetzte MCP-Werkzeuge: **1**
-- nur lesend: **36**, destruktiv: **30**, Aufraeumen: **7**
-- nach einem Produktupdate gesperrt, bis der Build neu verifiziert ist: **34**
+- nur lesend: **36**, destruktiv: **31**, Aufraeumen: **7**
+- nach einem Produktupdate gesperrt, bis der Build neu verifiziert ist: **35**
 
 ## HTTP-Oberflaeche
 
@@ -27,7 +28,7 @@ OpenAPI 3.1.0, Titel „Unoffizielle lokale SteuerSparErklaerung API“.
 | `/healthz` | GET | Lokale API-Erreichbarkeit und Version |
 | `/v1/operations` | GET | Vollstaendiger API-Katalog mit Schemas und Sicherheitsmerkmalen |
 | `/v1/openapi.json` | GET | Diese generierte OpenAPI-3.1-Beschreibung |
-| `/v1/operations/{operation}` | GET, POST | Schema und Sicherheitsmerkmale lesen beziehungsweise die Operation ausfuehren (202 Pfadeintraege fuer 101 Operationen) |
+| `/v1/operations/{operation}` | GET, POST | Schema und Sicherheitsmerkmale lesen beziehungsweise die Operation ausfuehren (204 Pfadeintraege fuer 102 Operationen) |
 
 ## Operationen
 
@@ -82,6 +83,7 @@ gesperrt sind, bis der neue Build live nachverifiziert wurde.
 | `menu_close` | `sse_menu_close` | Aufraeumen | – | live belegt |
 | `page` | `sse_page` | lesend | – | live belegt |
 | `page_objects` | `sse_page_objects` | lesend | – | live belegt |
+| `position_create` | `sse_position_create` | destruktiv | ja | live: untested |
 | `positions` | `sse_positions` | lesend | – | live belegt |
 | `product_info` | `sse_product_info` | lesend | – | live belegt |
 | `read_full` | `sse_read_full` | lesend | – | live belegt |
@@ -141,7 +143,7 @@ gesperrt sind, bis der neue Build live nachverifiziert wurde.
 
 ## MCP-Werkzeuge
 
-Der Server meldet 102 Werkzeuge.
+Der Server meldet 103 Werkzeuge.
 
 ### `sse_accessibility_probe`
 
@@ -510,6 +512,14 @@ Operation: `page_objects` (lesend).
 Liest eine katalogisierte Seite ueber exakte relative AutomationIds statt einer freien Volltextsuche.
 
 Operation: `known_page_state` (lesend).
+
+### `sse_position_create`
+
+**Einnahmenposition anlegen**
+
+Legt auf 'Erlöse Lieferungen/Leistungen' genau eine leere Einnahmenposition mit 19 % an.
+
+Operation: `position_create` (destruktiv, drift-gesperrt).
 
 ### `sse_positions`
 

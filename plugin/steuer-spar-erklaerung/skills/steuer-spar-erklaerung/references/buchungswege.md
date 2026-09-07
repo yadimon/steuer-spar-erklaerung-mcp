@@ -18,6 +18,22 @@ korrekt geschriebenen Zeilen.
 
 `expectedBefore` bleibt Pflicht und ist billig: `sse_table_read` liefert es.
 
+## Eigene Einnahmenposition anlegen
+
+Auf `Erlöse Lieferungen/Leistungen` legt `sse_position_create` eine leere
+Einnahmenposition mit 19 % an. Vorher die gesamte sichtbare Übersicht mit
+Namen und exakten Nettosummen lesen und als `expectedPositions` übergeben.
+`hwnd`, `expectedCaseRef`, `expectedCaseHash` und die bytegleiche getrennte
+Sicherung `backupRef` sind Pflicht. Ein bereits vorhandener Name wird
+abgewiesen; zum Wiederverwenden die bestehende Position öffnen.
+
+Der Befehl prüft nach dem Anlegen die neue leere Position und die unveränderten
+Altpositionen. Erst bei `verified=true` mit `sse_table_add` die bestätigten
+Buchungen erfassen. Andere Steuersätze und ganze Positionen löschen sind
+hier nicht freigegeben. Bei `cleanupRequired=true` den Teilstand neu lesen:
+keine blinde Wiederholung und keine automatische Löschung. Speichern bleibt
+ein getrennter Auftrag.
+
 ## Reverse Charge erzeugt sich nicht aus der Ausgabenzeile
 
 Ein EU-Beleg ohne ausgewiesene deutsche Umsatzsteuer als 0-%-Zeile in den

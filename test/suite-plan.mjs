@@ -30,7 +30,6 @@ export const serialBuildSteps = Object.freeze([
   nodeFile("npm-package-build", "scripts/build-npm-packages.mjs"),
   nodeFile("agent-plugin-build", "scripts/build-agent-plugin.mjs", "--check"),
   nodeFile("api-docs", "scripts/build-api-docs.mjs", "--check"),
-  nodeFile("docs-consistency", "scripts/check-docs-consistency.mjs"),
 ]);
 
 export const parallelSteps = Object.freeze([
@@ -43,6 +42,7 @@ export const parallelSteps = Object.freeze([
   nodeFile("javascript-syntax", "test/javascript-syntax-contract.mjs"),
   psFile("powershell-syntax", "test/powershell-syntax-contract.ps1"),
   psFile("table-delete-name", "test/table-delete-name-contract.ps1"),
+  psFile("position-create", "test/position-create-contract.ps1"),
   psFile("tracked-date-rollback", "test/tracked-date-rollback-contract.ps1"),
   psFile("value-info-window", "test/value-info-window-contract.ps1"),
   psFile("write-window-binding", "test/write-window-binding-contract.ps1"),
@@ -144,11 +144,9 @@ export const parallelSteps = Object.freeze([
   nodeFile("case-create-contract", "test/case-create-contract.mjs"),
   nodeFile("operation-schema-catalog", "test/operation-schema-catalog.mjs"),
   nodeFile("operation-coverage-merge", "test/operation-coverage-merge-contract.mjs"),
-  nodeFile("verification-doc-coverage", "test/verification-doc-coverage-contract.mjs"),
   nodeFile("operation-result-shape-merge", "test/operation-result-shape-merge-contract.mjs"),
   nodeFile("operation-trace", "test/operation-trace-contract.mjs"),
   nodeFile("live-profile-read-coverage", "test/live-profile-read-coverage-contract.mjs"),
-  nodeFile("operation-live-evidence", "test/operation-live-evidence-contract.mjs"),
   nodeFile("live-core-read-contract", "test/live-core-read-contract.mjs"),
   nodeFile("result-contract", "test/result-contract.mjs"),
   nodeFile("result-field-worker-guard", "test/result-field-worker-guard.mjs"),
@@ -205,6 +203,10 @@ export const exclusiveSteps = Object.freeze([
 export const finalSteps = Object.freeze([
   nodeFile("operation-coverage", "test/operation-coverage-contract.mjs"),
   nodeFile("operation-result-shape", "test/operation-result-shape-contract.mjs"),
+  // Erst nach der bewussten Regeneration die kompilierte Bilanz vergleichen.
+  nodeFile("operation-live-evidence", "test/operation-live-evidence-contract.mjs"),
+  nodeFile("docs-consistency", "scripts/check-docs-consistency.mjs"),
+  nodeFile("verification-doc-coverage", "test/verification-doc-coverage-contract.mjs"),
 ]);
 
 const FAST_STEP_NAMES = new Set([
@@ -306,6 +308,7 @@ const FAST_STEP_NAMES = new Set([
   "table-read-batch-contract",
   "table-delete-rebinding",
   "table-delete-name",
+  "position-create",
   "table-window-scope",
   "dirty-state-binding",
   "table-values",
@@ -317,5 +320,5 @@ export const fastBuildSteps = Object.freeze(
   serialBuildSteps.filter((step) => step.name === "dist-prune" || step.name === "typescript-build"),
 );
 export const fastSteps = Object.freeze(
-  parallelSteps.filter((step) => FAST_STEP_NAMES.has(step.name)),
+  [...parallelSteps, ...finalSteps].filter((step) => FAST_STEP_NAMES.has(step.name)),
 );

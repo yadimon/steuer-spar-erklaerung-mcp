@@ -100,11 +100,19 @@ export function registerDesktopTools(registry: McpRegistry): void {
       title: "Positionen auflisten",
       description:
         "Listet die auf der aktuellen Uebersichtsseite sichtbaren Einnahmen-/Ausgabenpositionen. " +
-        "Anlegen und Loeschen sind fail-closed gesperrt, solange dafuer kein eigener Seiten-, Feld-, " +
-        "Summen- und Dialogvertrag mit Readback/Rollback existiert. Struktur vorerst manuell anlegen; " +
-        "Werte danach nur ueber die gebundenen Feld- und Tabellenwerkzeuge schreiben.",
+        "Eine neue Einnahmenposition mit 19 % wird separat ueber sse_position_create angelegt. " +
+        "Das Loeschen ganzer Positionen bleibt gesperrt.",
     },
   );
+
+  registerApiTool("sse_position_create", {
+    title: "Einnahmenposition anlegen",
+    description: "Legt auf 'Erlöse Lieferungen/Leistungen' genau eine leere Einnahmenposition mit 19 % an. " +
+      "Bindet Fenster, Falldatei, Hash, bytegleiche Sicherung sowie alle vorhandenen Namen und Nettosummen. " +
+      "Prueft danach Name, leere Tabelle und unveraenderte Altpositionen. Speichert nicht. " +
+      "Bei einem Fehler nach Beginn bleiben Teilstand und cleanupRequired sichtbar; keine blinde Wiederholung " +
+      "und kein automatisches Loeschen einer moeglicherweise bearbeiteten Position.",
+  });
 
   registerApiTool(
     "sse_export_csv",

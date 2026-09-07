@@ -44,6 +44,16 @@ const OPTIONAL_SEARCH_ROLLBACK = z.object({
 
 /** Sicherheitsrelevante Erfolgs-, Guard- und Recovery-Felder schreibender Operationen. */
 export const MUTATION_OPERATION_RESULT_FIELDS = {
+  position_create: {
+    verified: OPTIONAL_BOOLEAN,
+    mutationStarted: OPTIONAL_BOOLEAN,
+    cleanupRequired: OPTIONAL_BOOLEAN,
+    name: OPTIONAL_STRING,
+    page: OPTIONAL_STRING,
+    beforePositions: OPTIONAL_ARRAY,
+    afterPositions: OPTIONAL_ARRAY,
+    rollback: OPTIONAL_OBJECT,
+  },
   fill_fields: {
     schemaVersion: OPTIONAL_NON_NEGATIVE_NUMBER,
     planKind: OPTIONAL_STRING,

@@ -40,6 +40,7 @@ export const SSE_READ_ONLY_OPERATIONS = [
 ] as const satisfies readonly SseApiOperation[];
 
 export const SSE_DESTRUCTIVE_OPERATIONS = [
+  "position_create",
   "archive_cases",
   "case_create",
   "click",
@@ -97,6 +98,7 @@ export const SSE_CLEANUP_OPERATIONS = [
 
 /** UI-/Steuerfallmutationen, die bei einem nicht erneut verifizierten SSE-Build fail-closed stoppen. */
 export const SSE_BUILD_DRIFT_BLOCKED_OPERATIONS = [
+  "position_create",
   "case_create",
   "checker_run",
   "click",

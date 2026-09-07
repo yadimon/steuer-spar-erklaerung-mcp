@@ -73,6 +73,7 @@ export const SSE_API_OPERATIONS = [
   "page",
   "page_objects",
   "positions",
+  "position_create",
   "product_info",
   "read_full",
   "read_page",
