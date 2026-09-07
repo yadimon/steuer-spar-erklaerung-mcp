@@ -16,6 +16,12 @@ Wer stattdessen eine einzelne Tafel sucht, auf der jede bekannte Faehigkeit mit
 ihrem Stand steht - fertig, teils, offen oder bewusst zu -, findet sie in der
 [Statustafel](entwicklung/status.md).
 
+Konkrete Aufgaben für Batch-Buchungen, semantisches Tabellenlesen,
+Unterbrechungen und reproduzierbare Tests stehen im
+[Automations-Backlog](entwicklung/automations-backlog.md), jeweils mit
+Abnahmekriterien. Die dort geplanten Funktionen sind noch keine zusätzliche
+API-Abdeckung.
+
 ## 1. Stand in Zahlen
 
 102 Operationen sind katalogisiert. 94 davon sind in der Live-Suite belegt,
