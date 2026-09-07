@@ -9476,12 +9476,30 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $wissenHwnd = [IntPtr]$mitFenster[0].MainWindowHandle
     $wissenPid = [int]$mitFenster[0].Id
 
-    $vorher = [SSEUiaTree]::Describe($wissenHwnd, 900, 9000, 16, $true, $false)
+    # Das Fenster erscheint, bevor die eingebettete Ansicht ihre Bedienelemente
+    # meldet - deshalb wird darauf gewartet.
+    #
+    # OFFEN, und der Grund, warum diese Operation als live ungetestet gilt:
+    # Chromium legt seinen Bedienbaum nur auf Anforderung an. Gemessen meldete
+    # dasselbe Fenster einmal 31 Knoten samt Suchfeld und ein anderes Mal nur
+    # 15 ohne jeden Inhalt - Warten half dort nicht, auch nach 15 Sekunden
+    # nicht. Was den Baum verlaesslich anfordert, ist noch nicht gefunden;
+    # blosses Lesen ueber UIA genuegt offenbar nicht. Bis dahin scheitert die
+    # Operation in dieser Lage sauber, statt etwas zu behaupten.
+    $suchfeld = $null
     $wissenCache = New-Object System.Collections.Hashtable
-    $vorherViews = [SSEUiaTree]::ToViews($vorher.Nodes, $wissenCache)
-    $suchfeld = @($vorherViews | Where-Object { $_.type -eq 'Edit' -and [string]$_.name -like '*Suchbegriff*' })[0]
+    $feldUhr = [Diagnostics.Stopwatch]::StartNew()
+    while ($feldUhr.ElapsedMilliseconds -lt 15000) {
+      $vorher = [SSEUiaTree]::Describe($wissenHwnd, 900, 9000, 16, $true, $false)
+      $wissenCache.Clear()
+      $vorherViews = [SSEUiaTree]::ToViews($vorher.Nodes, $wissenCache)
+      $suchfeld = @($vorherViews | Where-Object { $_.type -eq 'Edit' -and [string]$_.name -like '*Suchbegriff*' })[0]
+      if ($suchfeld) { break }
+      Start-Sleep -Milliseconds 700
+    }
     if (-not $suchfeld) {
-      Fail 'Im Steuerwissen-Fenster ist kein Suchfeld sichtbar.' 'not-found'
+      Fail ("Im Steuerwissen-Fenster ist auch nach $([int]$feldUhr.Elapsed.TotalSeconds) Sekunden kein " +
+            'Suchfeld sichtbar.') 'not-found'
     }
     if ([int]$suchfeld.w -le 0 -or [int]$suchfeld.h -le 0) {
       Fail 'Das Suchfeld des Steuerwissens hat keine sichtbare Flaeche.' 'offscreen'
