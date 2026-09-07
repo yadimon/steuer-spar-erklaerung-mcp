@@ -69,4 +69,45 @@ if ($workerSource -notmatch [regex]::Escape('if ($gelesen -ceq $ziel) { break }'
   throw 'Das Warten auf den Suchfeldwert vergleicht nicht mehr zeichengenau gegen das Ziel.'
 }
 
-Write-Output 'goto-Wartezeiten: bedingt, begrenzt, und bei ausbleibendem Wechsel weiterhin voll - bestanden'
+# Ein Seitenaufbau darf zwischen zwei Lesungen fertig werden. Fuehre die
+# echte Blaetterschleife mit vorgegebenen Beobachtungen aus; jeder zusaetzliche
+# Invoke nach dem beobachteten Ziel ist ein Fehler, auch ohne echte UI.
+$navigationLoops = @($ast.FindAll({
+  param($node)
+  $node -is [Management.Automation.Language.ForEachStatementAst] -and
+  $node.Variable.VariablePath.UserPath -eq 'richtung' -and
+  $node.Extent.Text.Contains('$stillstand')
+}, $true))
+if ($navigationLoops.Count -ne 1) { throw 'Blaetterschleife nicht eindeutig vorhanden.' }
+$navigationLoop = [scriptblock]::Create($navigationLoops[0].Extent.Text)
+
+function Assert-DelayedNavigationStops([string[]]$Headings, [int]$ExpectedClicks) {
+  $script:gotoHeadings = New-Object 'System.Collections.Generic.Queue[string]'
+  foreach ($heading in $Headings) { $script:gotoHeadings.Enqueue($heading) }
+  $script:gotoClicks = 0
+  $script:gotoResult = $null
+  $ziel = 'Zielseite'; $pageId = ''; $hwnd = [IntPtr]::Zero
+  $reihenfolge = @('Weiter'); $verbraucht = 0; $maxS = 3
+  $weg = New-Object System.Collections.ArrayList
+  $besucht = New-Object System.Collections.ArrayList
+  function AktuelleUeberschrift { param($h) $script:gotoHeadings.Dequeue() }
+  function IstZielseite { param($h, $heading) $heading -eq $ziel }
+  function DrueckeKnopf {
+    param($h, $name, $aid, $wechselVon)
+    $script:gotoClicks++
+    if ($script:gotoClicks -gt $ExpectedClicks) { throw 'Zusaetzlicher Invoke verliess die erreichte Zielseite.' }
+    $true
+  }
+  function Emit { param($result) $script:gotoResult = $result; throw 'goto-test-emitted' }
+  try { & $navigationLoop } catch {
+    if ($_.Exception.Message -ne 'goto-test-emitted') { throw }
+  }
+  if (-not $script:gotoResult.ok -or $script:gotoResult.ueberschrift -ne $ziel -or
+      $script:gotoClicks -ne $ExpectedClicks -or $script:gotoHeadings.Count -ne 0) {
+    throw 'Verzoegertes Navigationsziel wurde nicht ohne weiteren Klick bestaetigt.'
+  }
+}
+Assert-DelayedNavigationStops @('Zielseite') 0
+Assert-DelayedNavigationStops @('Startseite','Zwischenseite','Zielseite') 1
+
+Write-Output 'goto-Wartezeiten: begrenzt; verzoegert erreichte Ziele werden vor weiterem Invoke bestaetigt - bestanden'
