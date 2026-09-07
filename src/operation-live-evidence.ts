@@ -22,7 +22,12 @@ const SSE_LIVE_ERROR_PATH_ONLY_OPERATIONS = Object.freeze(
 );
 
 const SSE_LIVE_UNTESTED_OPERATIONS = Object.freeze(
-  [] as const satisfies readonly SseApiOperation[],
+  [
+    // Der Mechanismus ist belegt - eine Sonde hat im Steuerwissen gesucht und
+    // Artikeltext gelesen -, die ausgelieferte Operation selbst aber noch
+    // nicht. Bis dieser Nachweis vorliegt, bleibt sie ungetestet.
+    "tax_knowledge_search",
+  ] as const satisfies readonly SseApiOperation[],
 );
 
 const untested = new Set<SseApiOperation>(SSE_LIVE_UNTESTED_OPERATIONS);

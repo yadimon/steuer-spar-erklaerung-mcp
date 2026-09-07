@@ -150,6 +150,7 @@ var init_api_contract = __esm({
       "table_delete",
       "table_read",
       "table_update",
+      "tax_knowledge_search",
       "toggle",
       "tracked_set_value",
       "tree_scroll",
@@ -5006,6 +5007,13 @@ var init_mcp_schemas_analysis = __esm({
         name: external_exports.string().min(1).describe("Exakter Text aus sse_checker_results"),
         hwnd: WINDOW_HANDLE.optional()
       }).strict(),
+      "sse_tax_knowledge_search": external_exports.object({
+        begriff: external_exports.string().min(2).max(80).describe("Suchbegriff, 2 bis 80 Zeichen"),
+        mindestLaenge: external_exports.number().int().min(20).max(400).optional().describe(
+          "Mindestlaenge eines Textabschnitts; Vorgabe 60, trennt Fliesstext von Menuebeschriftungen"
+        ),
+        maxAbschnitte: external_exports.number().int().min(1).max(40).optional().describe("Hoechstzahl der Abschnitte; Vorgabe 12")
+      }).strict(),
       "sse_checker_close": external_exports.object({
         hwnd: WINDOW_HANDLE.optional(),
         waitMs: external_exports.number().int().min(300).max(3e3).optional().describe("Wartezeit auf den unveraenderten Seiten-Readback")
@@ -6231,6 +6239,7 @@ var init_operation_catalog = __esm({
       "sse_find": "find",
       "sse_get_value": "get_value",
       "sse_click": "click",
+      "sse_tax_knowledge_search": "tax_knowledge_search",
       "sse_toggle": "toggle",
       "sse_click_point": "click_point",
       "sse_set_value": "set_value",
@@ -6622,7 +6631,12 @@ var init_operation_live_evidence = __esm({
       ]
     );
     SSE_LIVE_UNTESTED_OPERATIONS = Object.freeze(
-      []
+      [
+        // Der Mechanismus ist belegt - eine Sonde hat im Steuerwissen gesucht und
+        // Artikeltext gelesen -, die ausgelieferte Operation selbst aber noch
+        // nicht. Bis dieser Nachweis vorliegt, bleibt sie ungetestet.
+        "tax_knowledge_search"
+      ]
     );
     untested = new Set(SSE_LIVE_UNTESTED_OPERATIONS);
     errorPathOnly = new Set(SSE_LIVE_ERROR_PATH_ONLY_OPERATIONS);
@@ -6686,7 +6700,7 @@ var init_version = __esm({
     "use strict";
     SSE_PACKAGE_NAME = "steuer-spar-erklaerung-mcp";
     SSE_API_PACKAGE_NAME = "@yadimon/steuer-spar-erklaerung-api";
-    SSE_PACKAGE_VERSION = "0.1.0-beta.43";
+    SSE_PACKAGE_VERSION = "0.1.0-beta.44";
   }
 });
 

@@ -112,7 +112,7 @@
           },
           "liveEvidence": {
             "types": [
-              "object:{\"affectsAvailability\":\"boolean\",\"basis\":\"string-other\",\"errorPathOnlyCount\":\"nonnegative-number\",\"functionalCount\":\"nonnegative-number\",\"operationStatus\":\"object\",\"profileSpecific\":\"boolean\",\"schemaVersion\":\"nonnegative-number\",\"scope\":\"string-other\",\"untestedCount\":\"nonnegative-number\",\"untestedOperations\":\"array-empty\"}"
+              "object:{\"affectsAvailability\":\"boolean\",\"basis\":\"string-other\",\"errorPathOnlyCount\":\"nonnegative-number\",\"functionalCount\":\"nonnegative-number\",\"operationStatus\":\"object\",\"profileSpecific\":\"boolean\",\"schemaVersion\":\"nonnegative-number\",\"scope\":\"string-other\",\"untestedCount\":\"nonnegative-number\",\"untestedOperations\":\"array-one:string-other\"}"
             ],
             "labels": [
               "scenario-mock",
@@ -18752,6 +18752,16 @@
             ]
           }
         }
+      }
+    },
+    "tax_knowledge_search": {
+      "offline": {
+        "profiles": [],
+        "fields": {}
+      },
+      "live": {
+        "profiles": [],
+        "fields": {}
       }
     },
     "toggle": {

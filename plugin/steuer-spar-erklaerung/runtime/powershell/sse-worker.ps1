@@ -9438,6 +9438,106 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     Emit ([pscustomobject]@{ ok = $true; heading = $head; bounds = $b; lines = @($lines); stats = $t.stats })
   }
 
+  'tax_knowledge_search' {
+    # Das Steuerwissen der SteuerSparErklaerung ist ein EIGENES Programm
+    # (Prozess SteuerBerater, Fenstertitel 'Steuerwissen'), das SSE ueber die
+    # Werkzeugleiste startet. Diese Operation liest dort nach - und nur das.
+    #
+    # Sie ruehrt den Steuerfall nicht an: kein Fenster von SSE wird gebunden,
+    # nichts geschrieben, nichts gespeichert. Getippt wird ausschliesslich in
+    # das Suchfeld des Wissensfensters.
+    #
+    # Warum physisch geklickt und getippt wird: Das Suchfeld liegt in einer
+    # eingebetteten Chromium-Ansicht. SetFocus lehnt sie ab ('Das Zielelement
+    # kann keinen Fokus erhalten'), und ein ValuePattern-Text loest die Suche
+    # nicht aus. Beides ist gemessen. Die Operation braucht deshalb den
+    # sichtbaren Desktop und den Vordergrund; sie ist nichts fuer nebenher.
+    if ($script:DESKTOP_NAME) {
+      Fail ('Steuerwissen braucht den sichtbaren Desktop: Das Suchfeld liegt in einer eingebetteten ' +
+            'Chromium-Ansicht und nimmt weder UIA-Fokus noch ValuePattern an.') 'hidden-desktop'
+    }
+    $begriff = ([string](Arg $a 'begriff')).Trim()
+    if ($begriff.Length -lt 2 -or $begriff.Length -gt 80) {
+      Fail 'begriff braucht 2 bis 80 Zeichen.' 'bad-args'
+    }
+    $mindestLaenge = Get-SSEBoundedIntegerArg $a 'mindestLaenge' 60 20 400
+    $maxAbschnitte = Get-SSEBoundedIntegerArg $a 'maxAbschnitte' 12 1 40
+
+    $wissenProzesse = @(Get-Process -Name 'SteuerBerater' -ErrorAction SilentlyContinue)
+    foreach ($wp in $wissenProzesse) { $wp.Refresh() }
+    $mitFenster = @($wissenProzesse | Where-Object {
+      $_.MainWindowHandle -ne 0 -and [string]$_.MainWindowTitle -eq 'Steuerwissen'
+    })
+    if (-not $mitFenster.Count) {
+      Fail ('Das Steuerwissen-Fenster ist nicht offen. Es wird von der SteuerSparErklaerung selbst ' +
+            "gestartet: sse_click mit name='Steuerwissen' auf der Werkzeugleiste, danach diese " +
+            'Operation erneut aufrufen.') 'not-found'
+    }
+    $wissenHwnd = [IntPtr]$mitFenster[0].MainWindowHandle
+    $wissenPid = [int]$mitFenster[0].Id
+
+    $vorher = [SSEUiaTree]::Describe($wissenHwnd, 900, 9000, 16, $true, $false)
+    $wissenCache = New-Object System.Collections.Hashtable
+    $vorherViews = [SSEUiaTree]::ToViews($vorher.Nodes, $wissenCache)
+    $suchfeld = @($vorherViews | Where-Object { $_.type -eq 'Edit' -and [string]$_.name -like '*Suchbegriff*' })[0]
+    if (-not $suchfeld) {
+      Fail 'Im Steuerwissen-Fenster ist kein Suchfeld sichtbar.' 'not-found'
+    }
+    if ([int]$suchfeld.w -le 0 -or [int]$suchfeld.h -le 0) {
+      Fail 'Das Suchfeld des Steuerwissens hat keine sichtbare Flaeche.' 'offscreen'
+    }
+
+    $null = [SW]::SetForegroundWindow($wissenHwnd)
+    Start-Sleep -Milliseconds 500
+    if ([SW]::GetForegroundWindow() -ne $wissenHwnd) {
+      Fail 'Das Steuerwissen-Fenster liess sich nicht in den Vordergrund holen; nichts getippt.' 'precondition-failed'
+    }
+    $klickX = [int]($suchfeld.x + $suchfeld.w / 2)
+    $klickY = [int]($suchfeld.y + $suchfeld.h / 2)
+    [SW]::SetCursorPos($klickX, $klickY) | Out-Null
+    Start-Sleep -Milliseconds 150
+    [SW]::mouse_event(0x0002, 0, 0, 0, [IntPtr]::Zero)
+    [SW]::mouse_event(0x0004, 0, 0, 0, [IntPtr]::Zero)
+    Start-Sleep -Milliseconds 350
+
+    # Vorherigen Suchbegriff ersetzen, nicht ergaenzen.
+    [System.Windows.Forms.SendKeys]::SendWait('^a')
+    Start-Sleep -Milliseconds 120
+    [System.Windows.Forms.SendKeys]::SendWait((ConvertTo-SendKeysLiteral $begriff))
+    Start-Sleep -Milliseconds 350
+    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+
+    # Auf Inhalt warten statt pauschal zu schlafen.
+    $wartenBis = [Diagnostics.Stopwatch]::StartNew()
+    $abschnitte = @()
+    $verweise = @()
+    while ($wartenBis.ElapsedMilliseconds -lt 12000) {
+      Start-Sleep -Milliseconds 600
+      $nachher = [SSEUiaTree]::Describe($wissenHwnd, 2500, 15000, 20, $true, $false)
+      $nachherViews = [SSEUiaTree]::ToViews($nachher.Nodes, $null)
+      $abschnitte = @($nachherViews |
+        Where-Object { $_.type -eq 'Text' -and ([string]$_.name).Length -ge $mindestLaenge } |
+        ForEach-Object { [string]$_.name } | Select-Object -Unique | Select-Object -First $maxAbschnitte)
+      $verweise = @($nachherViews |
+        Where-Object { $_.type -eq 'Hyperlink' -and [string]$_.name } |
+        ForEach-Object { [string]$_.name } | Select-Object -Unique | Select-Object -First 25)
+      if ($abschnitte.Count) { break }
+    }
+
+    Emit ([pscustomobject]@{
+      ok = $true
+      begriff = $begriff
+      fenster = [int64]$wissenHwnd
+      pid = $wissenPid
+      abschnitte = @($abschnitte)
+      verweise = @($verweise)
+      wartezeitMs = [int64]$wartenBis.ElapsedMilliseconds
+      hinweis = ('Rein lesend aus dem Steuerwissen der SteuerSparErklaerung. Kein Steuerfall wurde ' +
+                 'gebunden, gelesen oder geaendert. Die Antwort ist Herstellerinhalt, keine ' +
+                 'Steuerberatung und keine Zusage fuer den konkreten Fall.')
+    })
+  }
+
   'read_table' {
     $hwnd = Resolve-Window $a
     $t = Walk-BoundTree $hwnd

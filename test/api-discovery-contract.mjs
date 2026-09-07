@@ -107,11 +107,14 @@ for (const operation of emptyObjectOperations) {
 
 const serialized = JSON.stringify(SSE_API_DISCOVERY);
 // Der dateilose Recovery-Weg (discardUnsavedRecovery), die Fallanlage
-// (case_create) und das durchgereichte `expectedPage` der vier schreibenden
-// UStVA-Operationen heben die Discovery auf 290,2 KiB. 291 KiB lassen unter
-// 1 KiB Reserve; zweistellige KiB-Zuwaechse bleiben damit weiterhin ein
-// Regressionstreffer, ohne maschinenlesbare Semantik zu streichen.
-assert(Buffer.byteLength(serialized, "utf8") < 291 * 1024, "Discovery-Antwort ist unnoetig gross.");
+// (case_create), das durchgereichte `expectedPage` der vier schreibenden
+// UStVA-Operationen und zuletzt die Steuerwissen-Suche heben die Discovery auf
+// 291,9 KiB. Der Zuwachs der letzten Operation steckt fast vollstaendig im
+// erzeugten Ergebnisschema: Die Beschreibungen um 600 Zeichen zu kuerzen
+// brachte nur 0,07 KiB. 293 KiB lassen gut 1 KiB Reserve; zweistellige
+// KiB-Zuwaechse bleiben damit weiterhin ein Regressionstreffer, ohne
+// maschinenlesbare Semantik zu streichen.
+assert(Buffer.byteLength(serialized, "utf8") < 293 * 1024, "Discovery-Antwort ist unnoetig gross.");
 assert(!serialized.includes("C:\\development"), "Discovery darf keine Build-PC-Pfade enthalten.");
 assert(!serialized.includes("private-tax"), "Discovery darf keine Test- oder Steuerdaten enthalten.");
 

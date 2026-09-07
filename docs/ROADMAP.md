@@ -18,7 +18,7 @@ ihrem Stand steht - fertig, teils, offen oder bewusst zu -, findet sie in der
 
 ## 1. Stand in Zahlen
 
-100 Operationen sind katalogisiert. 94 davon sind live belegt, sechs nur auf
+101 Operationen sind katalogisiert. 94 davon sind live belegt, sechs nur auf
 ihrem Fehlerpfad. Dazu gibt es 100 direkte MCP-Werkzeugnamen und ein
 zusammengesetztes fuer den Einstieg, zusammen 101. Sie decken 99 Operationen
 ab: `checker_detail` hat kein eigenes Werkzeug, und `tracked_set_value` traegt

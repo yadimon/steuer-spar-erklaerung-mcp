@@ -27,6 +27,13 @@ export const SSE_MCP_ANALYSIS_SCHEMAS = {
     name: z.string().min(1).describe("Exakter Text aus sse_checker_results"),
     hwnd: WINDOW_HANDLE.optional(),
   }).strict(),
+  "sse_tax_knowledge_search": z.object({
+    begriff: z.string().min(2).max(80).describe("Suchbegriff, 2 bis 80 Zeichen"),
+    mindestLaenge: z.number().int().min(20).max(400).optional().describe(
+      "Mindestlaenge eines Textabschnitts; Vorgabe 60, trennt Fliesstext von Menuebeschriftungen",
+    ),
+    maxAbschnitte: z.number().int().min(1).max(40).optional().describe("Hoechstzahl der Abschnitte; Vorgabe 12"),
+  }).strict(),
   "sse_checker_close": z.object({
     hwnd: WINDOW_HANDLE.optional(),
     waitMs: z.number().int().min(300).max(3000).optional().describe("Wartezeit auf den unveraenderten Seiten-Readback"),
