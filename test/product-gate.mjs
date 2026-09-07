@@ -499,6 +499,15 @@ try {
   assert(tableSchemaSource.includes("expectedAfter: z.string().optional().describe(") &&
     tableSchemaSource.includes("Die Seitensumme addiert netto"),
   "Das Schema erklaert nicht, warum die Nachsumme optional ist.");
+  // Anhaengen scheiterte, solange die Anlegezeile ausserhalb des
+  // Sichtbereichs lag - der Aufrufer musste wissen, dass erst ein
+  // vollstaendiger Lesevorgang die Tabelle ans Ende bringt. Diese Kenntnis
+  // darf nicht wieder Voraussetzung werden.
+  const executorSource = readFileSync(join(root, "src", "api-executor.ts"), "utf8");
+  assert(executorSource.includes('result.error.includes("Keine freie Tabellenzeile")') &&
+    executorSource.includes('const scrolled = await worker("table_read"') &&
+    executorSource.includes("retriedAfterTableWalk: true"),
+  "table_add holt die Anlegezeile nicht mehr selbst in den Sichtbereich.");
   const closeBlock = workerOpBlock("close");
   assert(workerSource.includes("function Get-SSEPinnedProcessHandle([Diagnostics.Process]$Process)") &&
     workerSource.includes("function Wait-SSEProcessExit([Microsoft.Win32.SafeHandles.SafeProcessHandle]$ProcessHandle") &&

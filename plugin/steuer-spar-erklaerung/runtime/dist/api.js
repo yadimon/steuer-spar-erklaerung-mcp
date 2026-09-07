@@ -12357,6 +12357,24 @@ function createApiExecutor(config, worker, dependencies = {}) {
           }
         }
       }
+      if (operation === "table_add" && result?.ok !== true && result?.kind === "not-found" && typeof result?.error === "string" && result.error.includes("Keine freie Tabellenzeile")) {
+        const readArgs = { maxRows: 400 };
+        for (const key of ["sumLabel", "sumOccurrence", "hwnd", "pid"]) {
+          if (configured.args[key] !== void 0) readArgs[key] = configured.args[key];
+        }
+        const configuredRead = configuredArgs("table_read", readArgs, config);
+        const scrolled = await worker("table_read", configuredRead.args, timeoutMs, signal);
+        if (scrolled?.ok === true) {
+          const retried = await worker(operation, configured.args, timeoutMs, signal);
+          return withResourceIdentity4(redactPaths, {
+            ...retried,
+            freeRowSearch: {
+              retriedAfterTableWalk: true,
+              rowsWalked: scrolled.anzahl ?? null
+            }
+          }, configured.resourceRefs);
+        }
+      }
       return withResourceIdentity4(redactPaths, result, configured.resourceRefs);
     } catch (error) {
       return redactPaths(executionError(operation, error));
