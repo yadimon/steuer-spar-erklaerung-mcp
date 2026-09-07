@@ -60,8 +60,11 @@ export const SSE_MCP_UI_SCHEMAS = {
   "sse_table_add": z.object({
     expectedPage: z.string().describe("Exakte aktuelle Seitenueberschrift"),
     werte: z.array(z.string()).min(1).max(SSE_OPERATION_LIMITS.tableValues).describe(
-      "Werte in Spaltenreihenfolge, maximal 100 Spalten; eine im Produktprofil typisierte ComboBox wird auch " +
-      "als UIA-DataItem nur ueber eine exakt popupgebundene SelectionItem-Option gesetzt, niemals per ValuePattern-Text",
+      "Werte in Spaltenreihenfolge ab der ERSTEN Spalte, maximal 100 Spalten. Die Reihenfolge steht in " +
+      "'kopf' von sse_table_read; fuehrende Spalten wie eine automatische 'Nr.' bleiben leer ('') und " +
+      "duerfen nicht weggelassen werden - sonst rutscht jeder Wert eine Spalte nach links. Eine im " +
+      "Produktprofil typisierte ComboBox wird auch als UIA-DataItem nur ueber eine exakt popupgebundene " +
+      "SelectionItem-Option gesetzt, niemals per ValuePattern-Text",
     ),
     comboExpectedBefore: TABLE_COMBO_EXPECTED_BEFORE.optional(),
     sumLabel: z.string().describe("Beschriftung der eindeutigen Kontrollsumme"),

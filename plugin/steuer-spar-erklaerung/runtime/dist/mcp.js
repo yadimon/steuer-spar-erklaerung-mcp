@@ -5370,7 +5370,7 @@ var init_mcp_schemas_ui = __esm({
       "sse_table_add": external_exports.object({
         expectedPage: external_exports.string().describe("Exakte aktuelle Seitenueberschrift"),
         werte: external_exports.array(external_exports.string()).min(1).max(SSE_OPERATION_LIMITS.tableValues).describe(
-          "Werte in Spaltenreihenfolge, maximal 100 Spalten; eine im Produktprofil typisierte ComboBox wird auch als UIA-DataItem nur ueber eine exakt popupgebundene SelectionItem-Option gesetzt, niemals per ValuePattern-Text"
+          "Werte in Spaltenreihenfolge ab der ERSTEN Spalte, maximal 100 Spalten. Die Reihenfolge steht in 'kopf' von sse_table_read; fuehrende Spalten wie eine automatische 'Nr.' bleiben leer ('') und duerfen nicht weggelassen werden - sonst rutscht jeder Wert eine Spalte nach links. Eine im Produktprofil typisierte ComboBox wird auch als UIA-DataItem nur ueber eine exakt popupgebundene SelectionItem-Option gesetzt, niemals per ValuePattern-Text"
         ),
         comboExpectedBefore: TABLE_COMBO_EXPECTED_BEFORE.optional(),
         sumLabel: external_exports.string().describe("Beschriftung der eindeutigen Kontrollsumme"),
