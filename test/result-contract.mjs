@@ -13,6 +13,24 @@ import {
 } from "../dist/result-contract.js";
 
 assert.equal(SSE_API_RESULT_SCHEMA_VERSION, 1);
+for (const operation of ["read_table", "table_read"]) {
+  const details = [{
+    rowIndex: 0,
+    typedValues: ["", false, true, null],
+    checkboxStates: [null, "Off", "On", "Indeterminate"],
+    cellTypes: ["text", "boolean", "boolean", "boolean"],
+    semanticsComplete: true,
+    semanticReadErrors: [],
+  }];
+  assert.deepEqual(parseApiOperationResult(operation, { ok: true, rowDetails: details }).rowDetails, details,
+    `${operation}: boolesche Tabellenwerte muessen den API-Readback unveraendert ueberleben.`);
+  assert.throws(() => parseApiOperationResult(operation, {
+    ok: true, rowDetails: [{ ...details[0], checkboxStates: ["false"] }],
+  }), undefined, `${operation}: Checkbox-Zustand darf kein boolescher Anzeigetext sein.`);
+  assert.throws(() => parseApiOperationResult(operation, {
+    ok: true, rowDetails: [{ ...details[0], semanticsComplete: "true" }],
+  }), undefined, `${operation}: Vollstaendigkeit muss ein Boolean bleiben.`);
+}
 assert.deepEqual(Object.keys(SSE_API_RESULT_OUTPUT_SCHEMAS), [...SSE_API_OPERATIONS]);
 assert.deepEqual(Object.keys(SSE_API_RESULT_SCHEMAS), [...SSE_API_OPERATIONS]);
 
