@@ -2,15 +2,6 @@
   "schemaVersion": 1,
   "hinweis": "Erzeugt aus echter Testausfuehrung. Nicht von Hand hochstufen - erst Test schreiben, dann regenerieren.",
   "operations": {
-    "capabilities": {
-      "offline": "functional",
-      "offlineLabels": [
-        "scenario-mock",
-        "stateful-mock",
-        "worker"
-      ],
-      "live": "functional"
-    },
     "accessibility_probe": {
       "offline": "functional",
       "offlineLabels": [
@@ -29,6 +20,15 @@
     "backup_cases": {
       "offline": "functional",
       "offlineLabels": [
+        "stateful-mock",
+        "worker"
+      ],
+      "live": "functional"
+    },
+    "capabilities": {
+      "offline": "functional",
+      "offlineLabels": [
+        "scenario-mock",
         "stateful-mock",
         "worker"
       ],
@@ -395,14 +395,6 @@
       "live": "functional",
       "liveEvidence": "isoliert"
     },
-    "receipt_manager_link": {
-      "offline": "functional",
-      "offlineLabels": [
-        "stateful-mock"
-      ],
-      "live": "functional",
-      "liveEvidence": "isoliert"
-    },
     "receipt_manager_delete": {
       "offline": "functional",
       "offlineLabels": [
@@ -412,6 +404,14 @@
       "liveEvidence": "isoliert"
     },
     "receipt_manager_import": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional",
+      "liveEvidence": "isoliert"
+    },
+    "receipt_manager_link": {
       "offline": "functional",
       "offlineLabels": [
         "stateful-mock"
@@ -547,6 +547,10 @@
         "stateful-mock"
       ],
       "live": "functional"
+    },
+    "tax_knowledge_search": {
+      "offline": "untested",
+      "live": "untested"
     },
     "toggle": {
       "offline": "functional",
@@ -685,6 +689,27 @@
       ],
       "live": "functional"
     },
+    "window_close": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "window_restore": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
+    "windows": {
+      "offline": "functional",
+      "offlineLabels": [
+        "stateful-mock"
+      ],
+      "live": "functional"
+    },
     "workspace_file_list": {
       "offline": "functional",
       "offlineLabels": [
@@ -714,27 +739,6 @@
       "offlineLabels": [
         "stateful-mock",
         "worker"
-      ],
-      "live": "functional"
-    },
-    "window_close": {
-      "offline": "functional",
-      "offlineLabels": [
-        "stateful-mock"
-      ],
-      "live": "functional"
-    },
-    "window_restore": {
-      "offline": "functional",
-      "offlineLabels": [
-        "stateful-mock"
-      ],
-      "live": "functional"
-    },
-    "windows": {
-      "offline": "functional",
-      "offlineLabels": [
-        "stateful-mock"
       ],
       "live": "functional"
     }

@@ -271,6 +271,20 @@ export function registerAnalysisTools(registry: McpRegistry): void {
   );
 
   registerApiTool(
+    "sse_tax_knowledge_search",
+    {
+      title: "Steuerwissen nachschlagen",
+      description:
+        "Schlaegt einen Begriff im Steuerwissen nach und gibt Textabschnitte und Verweise zurueck. Rein " +
+        "lesend; kein Steuerfall wird gebunden oder geaendert. Das Steuerwissen ist ein eigenes Fenster, " +
+        "das die SteuerSparErklaerung startet - ist es zu, zuerst sse_click name='Steuerwissen'. Braucht " +
+        "sichtbaren Desktop und den Vordergrund, taugt also nicht fuer Arbeit nebenher. Herstellerinhalt, " +
+        "keine Steuerberatung.",
+    },
+    { timeoutMs: 90_000 },
+  );
+
+  registerApiTool(
     "sse_checker_close",
     {
       title: "Steuerpruefer-Ergebnisleiste schliessen",

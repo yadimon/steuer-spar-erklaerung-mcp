@@ -118,6 +118,7 @@ export const SSE_MCP_TOOL_OPERATIONS = {
   "sse_find": "find",
   "sse_get_value": "get_value",
   "sse_click": "click",
+  "sse_tax_knowledge_search": "tax_knowledge_search",
   "sse_toggle": "toggle",
   "sse_click_point": "click_point",
   "sse_set_value": "set_value",

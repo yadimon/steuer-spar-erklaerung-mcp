@@ -102,6 +102,7 @@ export const SSE_API_OPERATIONS = [
   "table_delete",
   "table_read",
   "table_update",
+  "tax_knowledge_search",
   "toggle",
   "tracked_set_value",
   "tree_scroll",

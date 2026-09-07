@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
   "packageName": "steuer-spar-erklaerung-mcp",
-  "packageVersion": "0.1.0-beta.43",
+  "packageVersion": "0.1.0-beta.44",
   "apiPackageName": "@yadimon/steuer-spar-erklaerung-api",
   "mcpPackageName": "@yadimon/steuer-spar-erklaerung-mcp",
   "pluginName": "steuer-spar-erklaerung",
-  "pluginVersion": "0.1.0-beta.43",
+  "pluginVersion": "0.1.0-beta.44",
   "entries": {
     "mcp": "dist/mcp.js",
     "api": "dist/api.js"
@@ -18,13 +18,13 @@
     },
     {
       "path": "dist/api.js",
-      "sha256": "6da7ad32c6fcb7eb3ff664b41fb4901f1257716f06ed9141eff14f138734f9dd",
-      "size": 705364
+      "sha256": "7a17039838378a13532b6af8369fc7f43df1159c201cbe4eb2dccedaeef8efb7",
+      "size": 706241
     },
     {
       "path": "dist/mcp.js",
-      "sha256": "29bff87fced222372e0913216ee167f6b37770497829f616939f958252b3713b",
-      "size": 1161506
+      "sha256": "a00c9222c156fe482fd869be5e55d881f341387e59311f6bfd3e90ff3154afc1",
+      "size": 1162944
     },
     {
       "path": "powershell/akad-parser.ps1",
@@ -83,8 +83,8 @@
     },
     {
       "path": "powershell/sse-worker.ps1",
-      "sha256": "110db6ec53b0e928c98a210994e9b58136af3a0ddb8c2dfeb6ba3565186ae6ae",
-      "size": 1153960
+      "sha256": "4e4b4fda0fdc2f1f9f4ebc1484e55fdf14995c312f3470c0f7ed06c26737d763",
+      "size": 1158967
     },
     {
       "path": "powershell/structure-binding.ps1",
