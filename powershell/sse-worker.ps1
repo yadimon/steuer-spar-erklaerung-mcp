@@ -15724,6 +15724,15 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
             if ($le) { try { $le.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() } catch { } }
           }
           Start-Sleep -Milliseconds 1200
+          # Dieser Lauf ist der teuerste Posten eines Seitenwechsels, und die
+          # naheliegende Erklaerung ist die falsche: Es liegt nicht an der
+          # Baumgroesse. Gemessen kostete derselbe Moment mit knappem Budget
+          # (1200 Knoten, Tiefe 10) 2238 ms und der unmittelbar folgende Lauf
+          # mit vollem Budget 123 ms. Teuer ist also der ERSTE Lesezugriff
+          # nach dem Oeffnen der Trefferliste - er wartet auf die noch
+          # beschaeftigte Anwendung. Ein knapperer Lauf spart hier nichts und
+          # kostet nur einen zusaetzlichen; ein gestufter Versuch wurde
+          # deshalb wieder verworfen.
           $tt = Walk-Tree $hwnd
           $bb = Get-ContentBounds $tt $hwnd
           $rr = New-Object SW+RC; [SW]::GetWindowRect($hwnd, [ref]$rr) | Out-Null
