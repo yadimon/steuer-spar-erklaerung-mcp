@@ -279,7 +279,9 @@ export function registerAnalysisTools(registry: McpRegistry): void {
         "lesend; kein Steuerfall wird gebunden oder geaendert. Das Steuerwissen ist ein eigenes Fenster, " +
         "das die SteuerSparErklaerung startet - ist es zu, zuerst sse_click name='Steuerwissen'. Braucht " +
         "sichtbaren Desktop und den Vordergrund, taugt also nicht fuer Arbeit nebenher. Herstellerinhalt, " +
-        "keine Steuerberatung.",
+        "keine Steuerberatung. Je Abschnitt ist 'text' die Lesefassung des ganzen Absatzes und 'teile' der " +
+        "unveraenderte Wortlaut der einzelnen Textknoten; an einer Trefferhervorhebung kann in 'text' ein " +
+        "Wortabstand fehlen, den die Ansicht nicht herausgibt.",
     },
     { timeoutMs: 90_000 },
   );

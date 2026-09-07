@@ -30,7 +30,9 @@ export const SSE_MCP_ANALYSIS_SCHEMAS = {
   "sse_tax_knowledge_search": z.object({
     begriff: z.string().min(2).max(80).describe("Suchbegriff, 2 bis 80 Zeichen"),
     mindestLaenge: z.number().int().min(20).max(400).optional().describe(
-      "Mindestlaenge eines Textabschnitts; Vorgabe 60, trennt Fliesstext von Menuebeschriftungen",
+      "Mindestlaenge eines zusammengefuegten Abschnitts; Vorgabe 60, trennt Fliesstext von " +
+      "Menuebeschriftungen. Gemessen wird der ganze Absatz, nicht der einzelne Textknoten - " +
+      "die Trefferhervorhebung zerlegt den Suchbegriff sonst in Bruchstuecke, die durchfallen",
     ),
     maxAbschnitte: z.number().int().min(1).max(40).optional().describe("Hoechstzahl der Abschnitte; Vorgabe 12"),
   }).strict(),
