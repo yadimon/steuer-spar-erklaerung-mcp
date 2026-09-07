@@ -143,6 +143,7 @@ im Repository belegt sind.
 
 | Luecke | Warum offen | Weg | Was dafuer noetig ist |
 | --- | --- | --- | --- |
+| **API ueber API und MCP kontrolliert beenden** | `installApiShutdown` verarbeitet Prozesssignale; ein aufrufbares Shutdown-Kommando fehlt | API-Lebenszyklus und MCP-Wrapper | Instanzbindung, Schutz laufender Auftraege, bestaetigtes Prozessende und ein bewusst gestoppter Supervisor-Zustand; siehe Shutdown-TODO unten |
 | **VaSt vollstaendig** – die sechs Wege `vast_apply`, `vast_dialog_read`, `vast_mapping_options`, `vast_mapping_select`, `vast_row_details`, `vast_row_set_expanded` | in einer abgeschotteten Prüfumgebung erreichte jeder kontrolliert den echten `not-found`-Fehlerpfad; ohne Zertifikat-PIN kam kein Datensatz | Vordergrund-Lease, wie heute | ein ELSTER-Zertifikat mit PIN in einer Wegwerf-Umgebung, und die Entscheidung, ob echte Abrufdaten dort liegen duerfen |
 | **BelegManager ohne Vordergrund** – neun der zehn Wege | nur `receipt_manager_list` ist als fokusloses Lesen freigegeben; Detailauswahl, Navigation und Mutation brauchen sichtbaren Vordergrund | fokusloses Schreiben, falls die Qt-Liste je brauchbare Muster anbietet | Nachweis, dass Auswahl und Detailbindung ohne physische Eingabe stabil sind – bisher nicht gelungen |
 | **Steuerjahr 2024 im Vollbetrieb** | Profil steht auf `experimental` mit `verification-only`; nur mit ausdruecklichem Opt-in erreichbar | vorhandene Wege, neues Profil | vollstaendige Live-Verifikation gegen Engine 30, wie sie fuer 2025 vorliegt |
@@ -153,6 +154,36 @@ im Repository belegt sind.
 | **Kaltes `goto` per `pageId` traegt in der Gewinnermittlung nicht** – am 2026-09-04 lief es fuer **alle sechs** dortigen Seitenobjekte in die Zeitgrenze, mit 120 wie mit 300 Sekunden. Mit einem vorgeschalteten `goto` per Namen auf eine Nachbarseite ist dieselbe Seite in Sekunden erreicht | ungeklaert, ob Fallaufbau, Suchtreffer oder Blaettertiefe die Ursache sind; die Feldbindung selbst ist davon nicht betroffen | Messung, dann Navigationsweg | eine Ursachenanalyse an einem zweiten Gewinnermittlungsfall, bevor an `goto` etwas geaendert wird |
 | **Seiten, deren Felder sich nicht eindeutig adressieren lassen** – etwa `Kapitalertraege, ermaessigt besteuert`: Die Felder beider Ehepartner tragen im adressierbaren Endstueck denselben Pfad, unterschieden werden sie erst weiter oben im Baum (gemessen 2026-09-04) | ein Seitenobjekt braucht je Feld genau einen Treffer; hier waeren es zwei | UI, aber zuerst die Bindungsregel | entweder laengere Pfade im Seitenobjekt zulassen oder die Bindung um eine Positionsangabe erweitern |
 | **Seiten mit Nummer in der Mitte der Ueberschrift** – etwa die Verpflegungspauschbetraege einer Fortbildungsreise (`Fortbildung <Name>: <N>. Reise (Verpflegung)`, zehn beschreibbare Felder, gemessen 2026-09-04) | die Bindung kennt zwei Muster: `headingNumberedLabel` erwartet ein fuehrendes `N. Label`, `headingPrefix` einen festen Anfang. Hier steht die Nummer in der Mitte und der Personenname davor; ein Praefix `Fortbildung ` wuerde jede Fortbildungsseite jeder Person treffen | UI, aber zuerst die Bindungsregel | ein drittes Muster fuer Ueberschriften mit Platzhaltern an beliebiger Stelle - und der Nachweis, dass es nicht versehentlich die Nachbarseite bindet |
+
+### API und MCP: Shutdown (TODO)
+
+Geplant ist ein API-Kommando `shutdown`, das auch ueber ein MCP-Werkzeug
+aufrufbar ist. Der bestehende Shutdown-Pfad liegt in
+[`src/api-runtime.ts`](../src/api-runtime.ts); die HTTP-Grenze in
+[`src/api-server.ts`](../src/api-server.ts) und die MCP-Instanzbindung in
+[`src/mcp-api-supervisor.ts`](../src/mcp-api-supervisor.ts). Das Kommando ist
+noch nicht implementiert.
+
+Abnahmekriterien:
+
+- Der Aufruf verlangt einen ausdruecklichen Beendigungsauftrag und die exakte
+  API-Instanzkennung. Fehlende oder veraltete Kennungen werden abgewiesen;
+  die bestehenden Loopback- und Browser-Sperren gelten unveraendert.
+- Bei einem laufenden Auftrag wird `busy` gemeldet. Der Shutdown darf keine
+  Tabellenmutation abbrechen. Annahme des Shutdowns und Sperre neuer Auftraege
+  muessen atomar sein, auch bei gleichzeitig eintreffenden Anfragen.
+- Die API bestaetigt zuerst die Annahme und beendet danach HTTP-Server und
+  eigene Reservearbeiter kontrolliert. Angenommener Shutdown und nachgewiesenes
+  Prozessende werden getrennt gemeldet; ein verlorener Antwortkanal ist kein
+  Erfolgsnachweis. Eine inzwischen ersetzte Instanz darf nicht beendet werden.
+- SSE bleibt geoeffnet. Das Kommando speichert, schliesst oder verwirft keinen
+  Steuerfall und verwendet keinen pauschalen Prozessnamen zum Beenden.
+- MCP bleibt fuer Rueckmeldungen erreichbar und merkt sich den absichtlichen
+  Stopp. Ein nachfolgender Werkzeugaufruf darf die API nicht unbemerkt neu
+  starten. Erneuter Start und neue Instanzbindung brauchen einen eigenen Auftrag.
+- Tests mit eigens gestarteten API-Prozessen pruefen Erfolg, falsche Identitaet,
+  laufende Auftraege, konkurrierende Shutdowns, Antwortverlust und Worker-Cleanup.
+  Ein Testlauf darf keine bereits vorhandene API- oder SSE-Instanz beenden.
 
 ### 3.1 SSEs eigene Kommandoflaeche
 
