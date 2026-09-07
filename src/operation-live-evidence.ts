@@ -23,9 +23,12 @@ const SSE_LIVE_ERROR_PATH_ONLY_OPERATIONS = Object.freeze(
 
 const SSE_LIVE_UNTESTED_OPERATIONS = Object.freeze(
   [
-    // Der Mechanismus ist belegt - eine Sonde hat im Steuerwissen gesucht und
-    // Artikeltext gelesen -, die ausgelieferte Operation selbst aber noch
-    // nicht. Bis dieser Nachweis vorliegt, bleibt sie ungetestet.
+    // Die Operation ist gegen das laufende Programm ausgefuehrt worden und
+    // hat Artikeltext geliefert. Was ihr fehlt, ist ein Suiteschritt, der das
+    // selbst protokolliert: Sie braucht den sichtbaren Desktop und holt ein
+    // zweites Programmfenster in den Vordergrund, was mitten in einem
+    // parallelen Lauf andere Schritte stoert. Diese Bilanz zaehlt nur, was
+    // ein Suitelauf belegt - deshalb steht sie hier.
     "tax_knowledge_search",
   ] as const satisfies readonly SseApiOperation[],
 );

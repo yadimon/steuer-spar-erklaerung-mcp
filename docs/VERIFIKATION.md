@@ -28,9 +28,16 @@ einer abgeschotteten Umgebung weniger wiegt als einer aus dem Alltagsbetrieb.
 
 Gemessen am 2026-09-07 sind noch 7 der 101 Operationen nicht live-funktional.
 
-Noch nie erfolgreich live ausgeführt wurden `tax_knowledge_search`,
-`vast_apply`, `vast_dialog_read`, `vast_mapping_options`,
-`vast_mapping_select`, `vast_row_details` und `vast_row_set_expanded`.
+Von keinem automatisierten Suitelauf funktional ausgeübt wurden
+`tax_knowledge_search`, `vast_apply`, `vast_dialog_read`,
+`vast_mapping_options`, `vast_mapping_select`, `vast_row_details` und
+`vast_row_set_expanded`.
+
+Die Bilanz zählt ausschließlich, was ein Suitelauf selbst protokolliert. Der
+Nachschlagevorgang im Steuerwissen ist am 2026-09-07 von Hand gegen das
+laufende Programm ausgeführt worden und lieferte Artikeltext; ein
+automatisierter Nachweis fehlt ihm trotzdem, und genau das hält diese Zeile
+fest.
 
 ## Ausdrücklich nicht belegt
 
