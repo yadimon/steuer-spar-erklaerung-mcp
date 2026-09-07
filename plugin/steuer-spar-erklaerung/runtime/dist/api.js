@@ -5010,7 +5010,7 @@ var init_mcp_schemas_analysis = __esm({
       "sse_tax_knowledge_search": external_exports.object({
         begriff: external_exports.string().min(2).max(80).describe("Suchbegriff, 2 bis 80 Zeichen"),
         mindestLaenge: external_exports.number().int().min(20).max(400).optional().describe(
-          "Mindestlaenge eines Textabschnitts; Vorgabe 60, trennt Fliesstext von Menuebeschriftungen"
+          "Mindestlaenge eines zusammengefuegten Abschnitts; Vorgabe 60, trennt Fliesstext von Menuebeschriftungen. Gemessen wird der ganze Absatz, nicht der einzelne Textknoten - die Trefferhervorhebung zerlegt den Suchbegriff sonst in Bruchstuecke, die durchfallen"
         ),
         maxAbschnitte: external_exports.number().int().min(1).max(40).optional().describe("Hoechstzahl der Abschnitte; Vorgabe 12")
       }).strict(),
@@ -6632,9 +6632,12 @@ var init_operation_live_evidence = __esm({
     );
     SSE_LIVE_UNTESTED_OPERATIONS = Object.freeze(
       [
-        // Der Mechanismus ist belegt - eine Sonde hat im Steuerwissen gesucht und
-        // Artikeltext gelesen -, die ausgelieferte Operation selbst aber noch
-        // nicht. Bis dieser Nachweis vorliegt, bleibt sie ungetestet.
+        // Die Operation ist gegen das laufende Programm ausgefuehrt worden und
+        // hat Artikeltext geliefert. Was ihr fehlt, ist ein Suiteschritt, der das
+        // selbst protokolliert: Sie braucht den sichtbaren Desktop und holt ein
+        // zweites Programmfenster in den Vordergrund, was mitten in einem
+        // parallelen Lauf andere Schritte stoert. Diese Bilanz zaehlt nur, was
+        // ein Suitelauf belegt - deshalb steht sie hier.
         "tax_knowledge_search"
       ]
     );

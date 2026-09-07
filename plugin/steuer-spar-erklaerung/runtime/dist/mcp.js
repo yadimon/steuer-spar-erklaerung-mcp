@@ -4578,7 +4578,7 @@ var init_mcp_schemas_analysis = __esm({
       "sse_tax_knowledge_search": external_exports.object({
         begriff: external_exports.string().min(2).max(80).describe("Suchbegriff, 2 bis 80 Zeichen"),
         mindestLaenge: external_exports.number().int().min(20).max(400).optional().describe(
-          "Mindestlaenge eines Textabschnitts; Vorgabe 60, trennt Fliesstext von Menuebeschriftungen"
+          "Mindestlaenge eines zusammengefuegten Abschnitts; Vorgabe 60, trennt Fliesstext von Menuebeschriftungen. Gemessen wird der ganze Absatz, nicht der einzelne Textknoten - die Trefferhervorhebung zerlegt den Suchbegriff sonst in Bruchstuecke, die durchfallen"
         ),
         maxAbschnitte: external_exports.number().int().min(1).max(40).optional().describe("Hoechstzahl der Abschnitte; Vorgabe 12")
       }).strict(),
@@ -6956,9 +6956,12 @@ var init_operation_live_evidence = __esm({
     );
     SSE_LIVE_UNTESTED_OPERATIONS = Object.freeze(
       [
-        // Der Mechanismus ist belegt - eine Sonde hat im Steuerwissen gesucht und
-        // Artikeltext gelesen -, die ausgelieferte Operation selbst aber noch
-        // nicht. Bis dieser Nachweis vorliegt, bleibt sie ungetestet.
+        // Die Operation ist gegen das laufende Programm ausgefuehrt worden und
+        // hat Artikeltext geliefert. Was ihr fehlt, ist ein Suiteschritt, der das
+        // selbst protokolliert: Sie braucht den sichtbaren Desktop und holt ein
+        // zweites Programmfenster in den Vordergrund, was mitten in einem
+        // parallelen Lauf andere Schritte stoert. Diese Bilanz zaehlt nur, was
+        // ein Suitelauf belegt - deshalb steht sie hier.
         "tax_knowledge_search"
       ]
     );
@@ -27266,7 +27269,7 @@ function registerAnalysisTools(registry2) {
     "sse_tax_knowledge_search",
     {
       title: "Steuerwissen nachschlagen",
-      description: "Schlaegt einen Begriff im Steuerwissen nach und gibt Textabschnitte und Verweise zurueck. Rein lesend; kein Steuerfall wird gebunden oder geaendert. Das Steuerwissen ist ein eigenes Fenster, das die SteuerSparErklaerung startet - ist es zu, zuerst sse_click name='Steuerwissen'. Braucht sichtbaren Desktop und den Vordergrund, taugt also nicht fuer Arbeit nebenher. Herstellerinhalt, keine Steuerberatung."
+      description: "Schlaegt einen Begriff im Steuerwissen nach und gibt Textabschnitte und Verweise zurueck. Rein lesend; kein Steuerfall wird gebunden oder geaendert. Das Steuerwissen ist ein eigenes Fenster, das die SteuerSparErklaerung startet - ist es zu, zuerst sse_click name='Steuerwissen'. Braucht sichtbaren Desktop und den Vordergrund, taugt also nicht fuer Arbeit nebenher. Herstellerinhalt, keine Steuerberatung. Je Abschnitt ist 'text' die Lesefassung des ganzen Absatzes und 'teile' der unveraenderte Wortlaut der einzelnen Textknoten; an einer Trefferhervorhebung kann in 'text' ein Wortabstand fehlen, den die Ansicht nicht herausgibt."
     },
     { timeoutMs: 9e4 }
   );
@@ -28667,7 +28670,7 @@ function registerUiTools(registry2) {
     "sse_table_read",
     {
       title: "Tabelle vollstaendig lesen",
-      description: "Liest eine Eingabetabelle VOLLSTAENDIG - im Gegensatz zu sse_read_table, das nur die sichtbaren Zeilen liefert. Qt virtualisiert Tabellen: nur was auf dem Schirm ist, steht im Elementbaum, es gibt keinen scrollbaren Container und Bild-ab wirkt nicht. Dieses Werkzeug klickt in die Tabelle, springt zuerst an den Tabellenanfang und wandert mit der Pfeiltaste durch die Zeilen, bis nichts Neues mehr kommt. Auf Seiten mit mehreren Eingabetabellen binden sumLabel und sumOccurrence den Lauf an genau die zugehoerige Summenregion; ohne diese Bindung wird nichts fokussiert und vollstaendig=false gemeldet. Nicht-modale Werte-Info-Tabellen werden aus dem Eingabeformular ausgeschlossen. ACHTUNG: holt das Fenster dafuer kurz nach vorn. Das Feld 'vollstaendig' sagt, ob das gelungen ist. Immer gegen die Summenzeile der Seite pruefen."
+      description: "Liest eine Eingabetabelle VOLLSTAENDIG - im Gegensatz zu sse_read_table, das nur die sichtbaren Zeilen liefert. Qt virtualisiert Tabellen: nur was auf dem Schirm ist, steht im Elementbaum, es gibt keinen scrollbaren Container und Bild-ab wirkt nicht. Dieses Werkzeug klickt in die Tabelle, springt zuerst an den Tabellenanfang und zieht den Cursor dann in Stapeln von Pfeiltasten weiter, bis nichts Neues mehr kommt. Ein Stapel bleibt kleiner als das Sichtfenster hoch ist, damit zwei aufeinanderfolgende Ansichten einander ueberlappen; diese Ueberlappung wird geprueft und belegt, dass keine Zeile uebersprungen wurde. Auf Seiten mit mehreren Eingabetabellen binden sumLabel und sumOccurrence den Lauf an genau die zugehoerige Summenregion; ohne diese Bindung wird nichts fokussiert und vollstaendig=false gemeldet. Nicht-modale Werte-Info-Tabellen werden aus dem Eingabeformular ausgeschlossen. ACHTUNG: holt das Fenster dafuer kurz nach vorn. Das Feld 'vollstaendig' sagt, ob das gelungen ist. Immer gegen die Summenzeile der Seite pruefen."
     },
     (r) => ({
       kopf: asArray(r.kopf),
