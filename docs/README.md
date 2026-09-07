@@ -42,6 +42,8 @@ Diese Wege bleiben unterstützt, sind aber nicht der normale Einstieg.
 - [Mitwirken](../CONTRIBUTING.md) — Entwicklung, Tests und Datenschutz;
 - [Fähigkeiten und offene Lücken](ROADMAP.md) — was fertig ist, was fehlt und
   auf welchem Bauweg es zu schließen wäre;
+- [Automations-Backlog](entwicklung/automations-backlog.md) — Batch-Buchungen,
+  Tabellenlesen, Unterbrechungen und Testnachweise mit Abnahmekriterien;
 - [Release-Prozess](RELEASE.md) — versionsgleicher Plugin-/npm-Release.
 - [Repository Health Check](../health-check.md) — reproduzierbares Playbook;
 - [Statustafel](entwicklung/status.md) — jede bekannte Fähigkeit des Produkts
