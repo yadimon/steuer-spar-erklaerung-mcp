@@ -18,18 +18,19 @@ ihrem Stand steht - fertig, teils, offen oder bewusst zu -, findet sie in der
 
 ## 1. Stand in Zahlen
 
-101 Operationen sind katalogisiert. 94 davon sind live belegt, sechs nur auf
-ihrem Fehlerpfad. Dazu gibt es 100 direkte MCP-Werkzeugnamen und ein
-zusammengesetztes fuer den Einstieg, zusammen 101. Sie decken 99 Operationen
+102 Operationen sind katalogisiert. 94 davon sind in der Live-Suite belegt,
+sechs nur auf ihrem Fehlerpfad, zwei ohne automatisierten Live-Suiteschritt.
+Dazu gibt es 102 direkte MCP-Werkzeugnamen und ein
+zusammengesetztes fuer den Einstieg, zusammen 103. Sie decken 101 Operationen
 ab: `checker_detail` hat kein eigenes Werkzeug, und `tracked_set_value` traegt
 deren zwei (`sse_change_field`, `sse_change_known_field`).
 
-Das ist keine Vollstaendigkeit gegenueber dem Produkt, und die Zahl 100 ist
+Das ist keine Vollstaendigkeit gegenueber dem Produkt, und die Gesamtzahl ist
 irrefuehrend, wenn man sie allein liest. **Operationen sind Mechanismen, keine
 Flaeche.**
 
 Wichtig ist, was der Seitenkatalog tatsaechlich absperrt – naemlich sehr wenig.
-Von hundert Operationen verlangen genau **zwei** einen Katalogeintrag:
+Vom gesamten Operationskatalog verlangen genau **zwei** einen Katalogeintrag:
 `fill_fields` (geplante Feldtransaktion mit Rollback) und `known_page_state`
 (Vergleich gegen einen hinterlegten Sollzustand). Alles andere arbeitet auf
 jeder der 672 Seiten:

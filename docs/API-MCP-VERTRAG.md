@@ -173,9 +173,9 @@ mehrdeutige Wahl gesperrt. API-stdio bleibt vollständig vom MCP-stdout getrennt
 - API-Fehlerfelder werden nicht durch eine Fehler-Allowlist abgeschnitten;
   MCP markiert sie mit `isError=true`.
 - Erfolgreiche Antworten bleiben als JSON-Text verfügbar. Einige Werkzeuge
-  erzeugen darin aus Kompatibilitätsgründen eine kompakte Projektion. Alle 102
+  erzeugen darin aus Kompatibilitätsgründen eine kompakte Projektion. Alle 103
   MCP-Werkzeuge veröffentlichen parallel ein vollständiges, redigiertes
-  `structuredContent` mit einem deklarierten `outputSchema`. Bei den 101
+  `structuredContent` mit einem deklarierten `outputSchema`. Bei den 102
   direkten Werkzeugen ist es das API-Ergebnis; `sse_preflight` besitzt einen
   eigenen PC-blinden Kompositionsvertrag.
 - Lokale Windows-, UNC-, Datei-URL- und typische POSIX-Pfade werden an der
@@ -186,7 +186,7 @@ mehrdeutige Wahl gesperrt. API-stdio bleibt vollständig vom MCP-stdout getrennt
   `structuredContent`; die bereits als Bildinhalt übertragenen Base64-Bytes
   (`imageBase64`/`bildBase64`) werden dort nicht dupliziert.
 
-Alle 101 Operationen besitzen ein eigenes `Result_<operation>`-Schema der
+Alle 102 Operationen besitzen ein eigenes `Result_<operation>`-Schema der
 Ergebnisvertragsversion 1. Diese Schemata typisieren die stabile
 Transportfläche und ausgewählte fachliche Kernfelder, bleiben aber mit
 Zusatzfeldern vorwärtskompatibel. Sie sind deshalb ein versionierter

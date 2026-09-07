@@ -113,6 +113,7 @@ var init_api_contract = __esm({
       "page",
       "page_objects",
       "positions",
+      "position_create",
       "product_info",
       "read_full",
       "read_page",
@@ -4617,6 +4618,17 @@ var init_mcp_schemas_desktop = __esm({
         aktion: external_exports.literal("list").optional().describe("Vorgabe und einzig zugelassene Aktion: 'list'"),
         hwnd: WINDOW_HANDLE.optional()
       }).strict(),
+      "sse_position_create": external_exports.object({
+        hwnd: WINDOW_HANDLE,
+        expectedCaseRef: CASE_REF(),
+        expectedCaseHash: SHA256(),
+        backupRef: BACKUP_REF().describe("Bytegleiche Sicherung des aktuellen Disk-Stands"),
+        name: external_exports.string().min(1).max(80).regex(/^[^\r\n\t»«<>]+$/).refine((value) => value === value.trim(), "Keine Rand-Leerzeichen").describe("Eindeutige Bezeichnung der neu anzulegenden Einnahmenposition"),
+        expectedPositions: external_exports.array(external_exports.object({
+          name: external_exports.string().min(1).max(80).describe("Exakter Name einer vorhandenen Position"),
+          net: external_exports.string().regex(/^-?(?:\d{1,3}(?:\.\d{3})*|\d+),\d{2}$/).describe("Exakt angezeigte Nettosumme, beispielsweise 100,00")
+        }).strict()).max(50).describe("Alle vorhandenen Positionen und exakten Nettosummen der sichtbaren Übersicht")
+      }).strict(),
       "sse_export_csv": external_exports.object({
         resultRef: RESULT_REF().optional().describe("Neuer oder vorhandener leerer Ergebnisordner fuer den CSV-Export"),
         hwnd: WINDOW_HANDLE.optional()
@@ -5768,6 +5780,7 @@ var init_operation_catalog = __esm({
       "sse_desktop_status": "desktop_status",
       "sse_page": "page",
       "sse_positions": "positions",
+      "sse_position_create": "position_create",
       "sse_export_csv": "export_csv",
       "sse_collect": "collect",
       "sse_verify": "verify",
@@ -5955,6 +5968,10 @@ var init_operation_catalog = __esm({
       resultRef: external_exports.union([RESULT_REF(), BARE_RESOURCE_REF()]).optional().describe("Neue Ergebnisreferenz unter results: oder relativer Ergebnispfad")
     }).strict();
     schemasByOperation.case_hash = withLegacyAlias(SSE_MCP_TOOL_SCHEMAS.sse_case_hash, "ref", "path");
+    schemasByOperation.position_create = withLegacyAliases(
+      SSE_MCP_TOOL_SCHEMAS.sse_position_create,
+      [["expectedCaseRef", "expectedCasePath"], ["backupRef", "backupPath"]]
+    );
     schemasByOperation.center_refresh = external_exports.object({
       ...SSE_MCP_TOOL_SCHEMAS.sse_center_refresh.shape,
       expectedDirectory: API_LOCAL_PATH.optional()
@@ -6152,6 +6169,16 @@ var init_result_mutation_fields = __esm({
       grund: OPTIONAL_STRING
     }).passthrough().nullable().optional().describe("Fail-closed Ruecksetzstatus des globalen Suchfelds");
     MUTATION_OPERATION_RESULT_FIELDS = {
+      position_create: {
+        verified: OPTIONAL_BOOLEAN,
+        mutationStarted: OPTIONAL_BOOLEAN,
+        cleanupRequired: OPTIONAL_BOOLEAN,
+        name: OPTIONAL_STRING,
+        page: OPTIONAL_STRING,
+        beforePositions: OPTIONAL_ARRAY,
+        afterPositions: OPTIONAL_ARRAY,
+        rollback: OPTIONAL_OBJECT
+      },
       fill_fields: {
         schemaVersion: OPTIONAL_NON_NEGATIVE_NUMBER,
         planKind: OPTIONAL_STRING,
@@ -6956,6 +6983,8 @@ var init_operation_live_evidence = __esm({
     );
     SSE_LIVE_UNTESTED_OPERATIONS = Object.freeze(
       [
+        // Die Gruppenanlage hat noch keinen automatisierten Live-Suiteschritt.
+        "position_create",
         // Die Operation ist gegen das laufende Programm ausgefuehrt worden und
         // hat Artikeltext geliefert. Was ihr fehlt, ist ein Suiteschritt, der das
         // selbst protokolliert: Sie braucht den sichtbaren Desktop und holt ein
@@ -26911,6 +26940,7 @@ var init_operation_traits = __esm({
       "workspace_status"
     ];
     SSE_DESTRUCTIVE_OPERATIONS = [
+      "position_create",
       "archive_cases",
       "case_create",
       "click",
@@ -27362,9 +27392,13 @@ function registerDesktopTools(registry2) {
     "sse_positions",
     {
       title: "Positionen auflisten",
-      description: "Listet die auf der aktuellen Uebersichtsseite sichtbaren Einnahmen-/Ausgabenpositionen. Anlegen und Loeschen sind fail-closed gesperrt, solange dafuer kein eigener Seiten-, Feld-, Summen- und Dialogvertrag mit Readback/Rollback existiert. Struktur vorerst manuell anlegen; Werte danach nur ueber die gebundenen Feld- und Tabellenwerkzeuge schreiben."
+      description: "Listet die auf der aktuellen Uebersichtsseite sichtbaren Einnahmen-/Ausgabenpositionen. Eine neue Einnahmenposition mit 19 % wird separat ueber sse_position_create angelegt. Das Loeschen ganzer Positionen bleibt gesperrt."
     }
   );
+  registerApiTool("sse_position_create", {
+    title: "Einnahmenposition anlegen",
+    description: "Legt auf 'Erlöse Lieferungen/Leistungen' genau eine leere Einnahmenposition mit 19 % an. Bindet Fenster, Falldatei, Hash, bytegleiche Sicherung sowie alle vorhandenen Namen und Nettosummen. Prueft danach Name, leere Tabelle und unveraenderte Altpositionen. Speichert nicht. Bei einem Fehler nach Beginn bleiben Teilstand und cleanupRequired sichtbar; keine blinde Wiederholung und kein automatisches Loeschen einer moeglicherweise bearbeiteten Position."
+  });
   registerApiTool(
     "sse_export_csv",
     {

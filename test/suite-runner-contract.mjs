@@ -21,6 +21,7 @@ import {
 
 const expectedNames = [
   "table-delete-name",
+  "position-create",
   "dist-prune", "native-build", "typescript-build", "npm-package-build", "agent-plugin-build", "api-docs", "docs-consistency", "publishable-dependency-parity", "obstruction-window", "known-page-state", "goto-conditional-waits", "window-wait", "conversion-in-dll", "deprecated-fallback", "control-inventory", "node-resolution-in-dll", "parallel-work", "worker-prewarm-placement", "suite-runner-contract", "public-skills", "repository-privacy", "repository-links", "readme-contract", "github-workflow", "javascript-syntax", "powershell-syntax", "product-profiles", "page-objects-parity", "product-profile-status", "profile-operation-policy", "receipt-interaction-policy", "belegmanager-config-isolation", "api-mega-contract",
   "akad-parser", "table-combobox-contract", "table-combobox-guard", "case-file", "pdf-render-helper", "atomic-files", "jsonl-logger", "dist-artifacts", "release-metadata", "agent-plugin-contract", "native-build-cache", "npm-package", "workspace-containment", "workspace-file-cancellation",
   "resource-references", "live-script-resource-contract", "backup-cases-contract", "backup-local-parity", "archive-cases-synthetic", "archive-local-parity", "sse-process-guard", "desktop-launcher", "api-contract", "api-static-documents", "api-client-body-abort", "api-client-transport-timeout", "api-local-http-transport", "api-single-flight", "checker-open-contract", "api-discovery-contract", "api-openapi-contract", "api-cli-contract", "api-config-contract", "api-all-operations", "launch-orchestration", "case-create-contract", "operation-schema-catalog", "operation-coverage-merge", "verification-doc-coverage", "operation-result-shape-merge", "operation-trace", "live-profile-read-coverage", "operation-live-evidence", "live-core-read-contract", "result-contract", "result-field-worker-guard", "source-architecture", "no-year-conditionals", "mcp-module-boundaries", "mcp-main-contract", "mcp-preflight",
@@ -91,14 +92,19 @@ assert(!parallelSteps.some((step) => step.name === "mcp-api-supervisor"));
 assert(!parallelSteps.some((step) => step.name === "agent-plugin-runtime"));
 // Die Abdeckungsbilanz wertet das Protokoll aller anderen Schritte aus und
 // darf deshalb weder parallel noch vor ihnen laufen.
-assert.deepEqual(finalSteps.map((step) => step.name), ["operation-coverage", "operation-result-shape"]);
+assert.deepEqual(finalSteps.map((step) => step.name), [
+  "operation-coverage", "operation-result-shape", "operation-live-evidence",
+  "docs-consistency", "verification-doc-coverage",
+]);
+assert(fastSteps.some((step) => step.name === "operation-live-evidence"));
+assert(!parallelSteps.some((step) => step.name === "operation-live-evidence"));
 assert(!parallelSteps.some((step) => step.name === "operation-coverage"));
 assert(!fastSteps.some((step) => step.name === "operation-coverage"));
 assert(!parallelSteps.some((step) => step.name === "operation-result-shape"));
 assert(!fastSteps.some((step) => step.name === "operation-result-shape"));
 assert.deepEqual(fastBuildSteps.map((step) => step.name), ["dist-prune", "typescript-build"]);
 assert(fastSteps.length >= 20, "Der schnelle Lauf muss die breite API-/MCP-Vertragsflaeche behalten.");
-assert(fastSteps.every((step) => parallelSteps.includes(step)), "Schnelle Schritte muessen aus dem Vollplan stammen.");
+assert(fastSteps.every((step) => allSteps.includes(step)), "Schnelle Schritte muessen aus dem Vollplan stammen.");
 for (const heavyweight of [
   "direct-worker-guard", "product-gate", "mcp-api-supervisor", "no-console-window",
   "file-operations-worker",

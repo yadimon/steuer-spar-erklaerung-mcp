@@ -75,6 +75,12 @@ const groups = [
   },
   {
     classification: "destructive-non-happy-path",
+    subclassification: "income-position-creation",
+    reason: "Creating an income position requires a dedicated empty-position journey with a complete inventory and byte-identical backup binding.",
+    operations: ["position_create"],
+  },
+  {
+    classification: "destructive-non-happy-path",
     subclassification: "generic-dismissal",
     reason: "Generic dismissal cannot prove the exact window or dialog transition required by this fail-closed happy path.",
     operations: [

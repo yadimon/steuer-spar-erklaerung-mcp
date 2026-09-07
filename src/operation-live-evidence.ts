@@ -23,6 +23,8 @@ const SSE_LIVE_ERROR_PATH_ONLY_OPERATIONS = Object.freeze(
 
 const SSE_LIVE_UNTESTED_OPERATIONS = Object.freeze(
   [
+    // Die Gruppenanlage hat noch keinen automatisierten Live-Suiteschritt.
+    "position_create",
     // Die Operation ist gegen das laufende Programm ausgefuehrt worden und
     // hat Artikeltext geliefert. Was ihr fehlt, ist ein Suiteschritt, der das
     // selbst protokolliert: Sie braucht den sichtbaren Desktop und holt ein
