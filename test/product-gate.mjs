@@ -554,7 +554,7 @@ try {
     workerOpBlock("goto").includes("niemals einen") &&
     workerOpBlock("goto").includes("unscharfen Treffer doppelklicken"),
   "sse_goto kann ohne fachlich gebundenen Suchtreffer weiterhin eine beliebige Seite oeffnen.");
-  assert((workerOpBlock("goto").match(/erreicht\s*=\s*\$true/g) ?? []).length === 5,
+  assert((workerOpBlock("goto").match(/erreicht\s*=\s*\$true/g) ?? []).length === 6,
     "Mindestens ein erfolgreicher sse_goto-Pfad meldet erreicht=true nicht konsistent.");
   const checkerCloseBlock = workerOpBlock("checker_close");
   assert(checkerCloseBlock.includes("Get-SSEContainerDescendants $before.nodes '.PrueferWidgetSSE.FrameTitle' 'Button' 'Group'") &&

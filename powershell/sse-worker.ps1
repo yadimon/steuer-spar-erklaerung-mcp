@@ -16138,8 +16138,18 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $stillstand = 0
       for ($i = 1; $i -le $maxS; $i++) {
         if ($verbraucht -ge $maxS) { break }
-        $verbraucht++
         $vorher = AktuelleUeberschrift $hwnd
+        # Ein verzoegerter Seitenaufbau kann seit der letzten Gegenprobe das
+        # Ziel erreicht haben. Die ohnehin frische Lesung vor dem naechsten
+        # Invoke muss es bestaetigen, bevor Weiter/Zurueck es wieder verlaesst.
+        if (IstZielseite $hwnd $vorher) {
+          $null = $weg.Add("Ziel vor weiterem Blaettern bestaetigt -> $vorher")
+          Emit ([pscustomobject]@{
+            ok=$true; erreicht=$true; pageId=$(if ($pageId) { $pageId } else { $null })
+            ueberschrift=$vorher; schritte=$verbraucht; richtung=$richtung; weg=@($weg)
+          })
+        }
+        $verbraucht++
         $ok = DrueckeKnopf $hwnd $richtung '' $vorher
         if (-not $ok) {
           # Schalter fehlt oder ist deaktiviert. Sonderfall: Sackgassenseiten
