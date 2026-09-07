@@ -9533,9 +9533,51 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       Start-Sleep -Milliseconds 600
       $nachher = [SSEUiaTree]::Describe($wissenHwnd, 2500, 15000, 20, $true, $false)
       $nachherViews = [SSEUiaTree]::ToViews($nachher.Nodes, $null)
-      $abschnitte = @($nachherViews |
-        Where-Object { $_.type -eq 'Text' -and ([string]$_.name).Length -ge $mindestLaenge } |
-        ForEach-Object { [string]$_.name } | Select-Object -Unique | Select-Object -First $maxAbschnitte)
+      # Die eingebettete Ansicht zerlegt einen Absatz in mehrere Textknoten,
+      # und die Trefferhervorhebung schneidet den gesuchten Begriff in eigene,
+      # sehr kurze Knoten. Wer nur lange Knoten nimmt, verliert genau den
+      # Begriff, nach dem gesucht wurde: Aus einem Satz ueber das
+      # Reverse-Charge-Verfahren wurden zwei zusammenhanglose Bruchstuecke,
+      # zwischen denen der Begriff fehlte.
+      #
+      # Deshalb werden zusammengehoerige Knoten - gleicher Elternknoten, in
+      # Baumreihenfolge - zu einem Abschnitt vereint, und erst der ganze
+      # Abschnitt wird an der Mindestlaenge gemessen.
+      #
+      # Verbunden wird ohne Trennzeichen. Die Namen tragen die Wortabstaende
+      # an den Schnittstellen nicht (gemessen: der Knoten vor einer
+      # Hervorhebung endet auf 'tes', nicht auf 'tes '), und ein eingefuegtes
+      # Leerzeichen waere erfunden - es zerrisse 'Reverse-Charge' zu
+      # 'Reverse - Charge'. Ein fehlendes Leerzeichen ist die kleinere
+      # Entstellung als ein zusaetzliches; 'teile' liefert daneben den
+      # unveraenderten Wortlaut jedes einzelnen Knotens.
+      #
+      # Ein TextPattern waere der saubere Weg, den Absatz samt Abstaenden zu
+      # lesen. Dieses Fenster bietet keines: gemessen meldete kein einziger
+      # Knoten IsTextPatternAvailable.
+      $textKnoten = @($nachherViews | Where-Object { $_.type -eq 'Text' -and [string]$_.name })
+      $roheAbschnitte = New-Object System.Collections.ArrayList
+      $gruppenTeile = New-Object System.Collections.ArrayList
+      $gruppenEltern = $null
+      foreach ($knoten in $textKnoten) {
+        if ($gruppenTeile.Count -and [string]$knoten.p -ne [string]$gruppenEltern) {
+          $null = $roheAbschnitte.Add(@($gruppenTeile.ToArray()))
+          $gruppenTeile.Clear()
+        }
+        $gruppenEltern = [string]$knoten.p
+        $null = $gruppenTeile.Add([string]$knoten.name)
+      }
+      if ($gruppenTeile.Count) { $null = $roheAbschnitte.Add(@($gruppenTeile.ToArray())) }
+
+      $abschnitte = @()
+      $gesehenerText = New-Object 'System.Collections.Generic.HashSet[string]'
+      foreach ($teile in $roheAbschnitte) {
+        $verbunden = ($teile -join '')
+        if ($verbunden.Length -lt $mindestLaenge) { continue }
+        if (-not $gesehenerText.Add($verbunden)) { continue }
+        $abschnitte += [pscustomobject]@{ text = $verbunden; teile = @($teile) }
+        if ($abschnitte.Count -ge $maxAbschnitte) { break }
+      }
       $verweise = @($nachherViews |
         Where-Object { $_.type -eq 'Hyperlink' -and [string]$_.name } |
         ForEach-Object { [string]$_.name } | Select-Object -Unique | Select-Object -First 25)
@@ -9552,7 +9594,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       wartezeitMs = [int64]$wartenBis.ElapsedMilliseconds
       hinweis = ('Rein lesend aus dem Steuerwissen der SteuerSparErklaerung. Kein Steuerfall wurde ' +
                  'gebunden, gelesen oder geaendert. Die Antwort ist Herstellerinhalt, keine ' +
-                 'Steuerberatung und keine Zusage fuer den konkreten Fall.')
+                 'Steuerberatung und keine Zusage fuer den konkreten Fall. Je Abschnitt ist ' +
+                 "'teile' der unveraenderte Wortlaut der einzelnen Textknoten; 'text' verbindet " +
+                 'sie ohne Trennzeichen. An einer Trefferhervorhebung kann dort ein Wortabstand ' +
+                 'fehlen - die Ansicht gibt ihn nicht heraus.')
     })
   }
 
@@ -16084,6 +16129,13 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       }
     }
 
+    # Die Identitaeten einer einzelnen Ansicht. Sie belegen, ob zwei
+    # aufeinanderfolgende Ansichten einander ueberlappen.
+    $snapshotIdentities = {
+      param($snapshot)
+      @(@($snapshot.zeilenMitIdentitaet) | ForEach-Object { [string]$_.identitaet } | Where-Object { $_ })
+    }
+
     $cursorSelectionPattern = $null
     $getCursorSignature = {
       if (-not $cursorSelectionPattern) { return $null }
@@ -16108,6 +16160,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $geklickt = $false
     $cursorUnavailable = $false
     $cursorSignature = $null
+    $letzteIdentitaeten = @()
+    $sichtbareZeilen = 1
     if ($erst.ersteZelle -and (Arg $a 'noKeys') -ne $true -and $erst.tabelleAnzahl -eq 1) {
       $HWND_TOPMOST = [IntPtr](-1); $HWND_NOTOPMOST = [IntPtr](-2)
       $SWP = 0x0001 -bor 0x0002 -bor 0x0010
@@ -16141,6 +16195,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           } else {
             $kopf = $topSnapshot.kopf
             & $addSnapshotRows $topSnapshot
+            $letzteIdentitaeten = @(& $snapshotIdentities $topSnapshot)
+            $sichtbareZeilen = [Math]::Max(1, @($topSnapshot.zeilen).Count)
 
             # Der Tabellencontainer meldet die aktuell markierte Qt-Zeile als
             # Auswahl (typischerweise eine ausgewaehlte Zelle je Spalte). Die
@@ -16169,19 +16225,50 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     }
 
     $schritte = 0
+    $stapel = 0
+    $stapelKorrekturen = 0
     $stableCursorMoves = 0
     $endProven = $false
+    # Qt haelt nur die sichtbaren Zeilen im Baum, also zieht der Cursor die
+    # Ansicht weiter. Eine Pfeiltaste je Zeile einzeln zu senden kostet fuer
+    # jede Zeile eine Wartezeit und fuer je drei Zeilen einen vollstaendigen
+    # Baumlauf - bei einer langen Tabelle ist das der groesste Posten des
+    # ganzen Aufrufs.
+    #
+    # Ein Stapel von Pfeiltasten bewegt den Cursor um mehrere Zeilen und
+    # kostet nur eine Wartezeit und einen Baumlauf. Das ist genau dann sicher,
+    # wenn der Stapel kleiner bleibt als das Sichtfenster hoch ist: Dann
+    # ueberlappen zwei aufeinanderfolgende Ansichten in mindestens einer
+    # Zeile. Diese Ueberlappung wird nach jedem Stapel geprueft und ist der
+    # Beweis, dass dazwischen keine Zeile lag. Fehlt sie, wird der Sprung
+    # zurueckgenommen und mit halbem Stapel wiederholt - eine Luecke wird
+    # nicht stillschweigend hingenommen.
+    #
+    # Zu kurze Spruenge sind ungefaehrlich: Qt darf einen Stapel auch nur
+    # teilweise verarbeiten, dann ueberlappen die Ansichten lediglich mehr.
+    # Zwei Groessen, nicht eine: Die Obergrenze sinkt dauerhaft, wenn eine
+    # Ueberlappung gefehlt hat - dieser Sprung war nachweislich zu weit. Die
+    # aktuelle Groesse faellt daneben voruebergehend auf 1, sobald der Cursor
+    # stehenbleibt, damit der Endbeweis mit einzelnen Tasten gefuehrt wird.
+    # Bewegt er sich danach doch weiter, war es kein Tabellenende, sondern ein
+    # verschluckter Stapel; dann darf wieder bis zur Obergrenze gegangen
+    # werden, statt den Rest einer langen Tabelle einzeln abzuschreiten.
+    $stapelObergrenze = [Math]::Max(1, [Math]::Min(8, $sichtbareZeilen - 1))
+    $stapelGroesse = $stapelObergrenze
     if ($geklickt -and -not $cursorUnavailable) {
-      for ($i = 1; $i -le $maxSchritte; $i++) {
+      while ($schritte -lt $maxSchritte) {
+        $dieserStapel = [Math]::Max(1, [Math]::Min($stapelGroesse, $maxSchritte - $schritte))
         try {
-          [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
+          [System.Windows.Forms.SendKeys]::SendWait($(
+            if ($dieserStapel -eq 1) { '{DOWN}' } else { "{DOWN $dieserStapel}" }))
           Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick) ([pscustomobject]@{ x=$px; y=$py })
         } catch {
           $cursorUnavailable = $true
           break
         }
-        $schritte++
-        Start-Sleep -Milliseconds 160
+        $schritte += $dieserStapel
+        $stapel++
+        Start-Sleep -Milliseconds (160 + 40 * ($dieserStapel - 1))
         $nextCursorSignature = & $getCursorSignature
         if (-not $nextCursorSignature) {
           $cursorUnavailable = $true
@@ -16194,16 +16281,56 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         }
         $cursorSignature = $nextCursorSignature
 
-        if ($i % 3 -eq 0 -or $stableCursorMoves -gt 0 -or $i -eq $maxSchritte) {
-          $snapshot = LiesZeilen $hwnd
-          if ($snapshot.error) {
+        $snapshot = LiesZeilen $hwnd
+        if ($snapshot.error) {
+          $cursorUnavailable = $true
+          break
+        }
+        $identitaeten = @(& $snapshotIdentities $snapshot)
+        $ueberlappung = @($identitaeten | Where-Object { $letzteIdentitaeten -contains $_ }).Count
+        if ($dieserStapel -gt 1 -and $identitaeten.Count -and $letzteIdentitaeten.Count -and
+            $ueberlappung -eq 0) {
+          # Der Sprung war weiter als das Sichtfenster. Ohne gemeinsame Zeile
+          # ist nicht belegt, dass dazwischen keine lag: zurueck und kleiner.
+          $stapelKorrekturen++
+          if ($stapelKorrekturen -gt 5) {
             $cursorUnavailable = $true
             break
           }
-          & $addSnapshotRows $snapshot
+          try {
+            [System.Windows.Forms.SendKeys]::SendWait("{UP $dieserStapel}")
+            Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick) ([pscustomobject]@{ x=$px; y=$py })
+          } catch {
+            $cursorUnavailable = $true
+            break
+          }
+          Start-Sleep -Milliseconds (160 + 40 * ($dieserStapel - 1))
+          $schritte -= $dieserStapel
+          $stapelObergrenze = [Math]::Max(1, [int][Math]::Floor($dieserStapel / 2))
+          $stapelGroesse = $stapelObergrenze
+          $zurueck = LiesZeilen $hwnd
+          if ($zurueck.error) {
+            $cursorUnavailable = $true
+            break
+          }
+          & $addSnapshotRows $zurueck
+          $letzteIdentitaeten = @(& $snapshotIdentities $zurueck)
+          $cursorSignature = & $getCursorSignature
+          if (-not $cursorSignature) {
+            $cursorUnavailable = $true
+            break
+          }
+          $stableCursorMoves = 0
+          continue
         }
+        & $addSnapshotRows $snapshot
+        $letzteIdentitaeten = $identitaeten
+
         # Zwei bestaetigte DOWN-Versuche mit unveraenderter UIA-Auswahl sind
-        # der Endbeweis. Identische Zelltexte spielen dabei keine Rolle.
+        # der Endbeweis. Identische Zelltexte spielen dabei keine Rolle. Am
+        # Tabellenende wird er mit einzelnen Tasten gefuehrt, damit er genauso
+        # streng bleibt wie ohne Stapel.
+        $stapelGroesse = $(if ($stableCursorMoves -gt 0) { 1 } else { $stapelObergrenze })
         if ($stableCursorMoves -ge 2) {
           $endProven = $true
           break
@@ -16259,6 +16386,11 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       vollstaendig = $vollstaendig
       schritte = $schritte
       steps = $schritte
+      # Wie der Lauf zustande kam: Stapel statt einzelner Tasten, und wie oft
+      # ein Stapel wegen fehlender Ueberlappung zurueckgenommen werden musste.
+      stapel = $stapel
+      stapelGroesse = $stapelGroesse
+      stapelKorrekturen = $stapelKorrekturen
       stopKind = $stopKind
       limitReached = $limitReached
       tabelleAnzahl = $erst.tabelleAnzahl
