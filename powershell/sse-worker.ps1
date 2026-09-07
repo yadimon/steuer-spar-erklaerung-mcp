@@ -4773,6 +4773,60 @@ function Get-LiveElement {
   $found
 }
 
+# Nur Elemente des aktuellen Worker-Snapshots verwenden. Ein fehlender oder
+# veralteter Zellbezug wird als unbekannt gemeldet, nicht durch eine neue
+# Suche mit moeglicherweise anderer Zeilenidentitaet ersetzt.
+function Read-SSETableCellSemantic($Cell) {
+  $result = [pscustomobject]@{
+    type='unknown'; value=$null; checkboxState=$null; ok=$false; error=$null
+  }
+  try {
+    $rid = [string]$Cell.rid
+    if (-not $rid -or -not $script:UIAElementCache.ContainsKey($rid)) {
+      throw 'Zelle fehlt im aktuellen Snapshot.'
+    }
+    $element = $script:UIAElementCache[$rid]
+    if (($element.GetRuntimeId() -join '.') -ne $rid) { throw 'Zellidentitaet hat sich geaendert.' }
+    $toggle = $null
+    if ($element.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$toggle)) {
+      $state = [string]$toggle.Current.ToggleState
+      if ($state -notin @('On','Off','Indeterminate')) { throw 'Unbekannter Checkbox-Zustand.' }
+      $result.type = 'boolean'
+      $result.checkboxState = $state
+      $result.value = $(if ($state -eq 'On') { $true } elseif ($state -eq 'Off') { $false } else { $null })
+    } else {
+      $result.type = 'text'
+      $result.value = [string]$Cell.name
+    }
+    $result.ok = $true
+  } catch {
+    $result.error = $_.Exception.Message
+  }
+  $result
+}
+
+function New-SSETableRowDetails([int]$RowIndex, $Cells) {
+  $values = New-Object 'System.Collections.Generic.List[object]'
+  $states = New-Object 'System.Collections.Generic.List[object]'
+  $types = New-Object 'System.Collections.Generic.List[string]'
+  $errors = New-Object System.Collections.ArrayList
+  for ($column = 0; $column -lt $Cells.Count; $column++) {
+    $cell = $Cells[$column]
+    $values.Add($(if ($cell -and $cell.ok) { $cell.value } else { $null }))
+    $states.Add($(if ($cell -and $cell.ok) { $cell.checkboxState } else { $null }))
+    $types.Add($(if ($cell -and $cell.ok) { [string]$cell.type } else { 'unknown' }))
+    if (-not $cell -or -not $cell.ok) {
+      $null = $errors.Add([pscustomobject]@{
+        column=$column; error=$(if ($cell -and $cell.error) { $cell.error } else { 'Zelle nicht beobachtet.' })
+      })
+    }
+  }
+  [pscustomobject]@{
+    rowIndex=$RowIndex; typedValues=$values.ToArray(); checkboxStates=$states.ToArray()
+    cellTypes=$types.ToArray(); semanticsComplete=($errors.Count -eq 0); semanticReadErrors=@($errors)
+  }
+}
+
 # Liefert fuer genau ein UIA-Element alle strukturiert erreichbaren Texte und
 # einen begrenzten RawView-Unterbaum. Das ist die Diagnose dafuer, ob ein
 # Qt-Bereich wirklich OCR braucht: ControlView kann leer sein, obwohl
@@ -9629,18 +9683,26 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     }
 
     $rows = New-Object System.Collections.ArrayList
-    $cur = $null; $anker = -9999
+    $rowDetails = New-Object System.Collections.ArrayList
+    $cur = $null; $curSemantic = $null; $anker = -9999
     $abschluss = {
-      if ($null -ne $cur) { $null = $rows.Add(@($cur)) }
+      if ($null -ne $cur) {
+        $null = $rowDetails.Add((New-SSETableRowDetails $rows.Count $curSemantic))
+        $null = $rows.Add(@($cur))
+      }
     }
     foreach ($c in $cells) {
       if ($null -eq $cur -or [Math]::Abs($c.y - $anker) -gt 10) {
         & $abschluss
         $anker = $c.y
         $cur = @($null) * [Math]::Max(1, $heads.Count)
+        $curSemantic = @($null) * [Math]::Max(1, $heads.Count)
       }
       $idx = SpalteVon $c.x
-      if ($idx -ge 0 -and $idx -lt $cur.Count) { $cur[$idx] = $c.name } else { $cur += $c.name }
+      $semantic = Read-SSETableCellSemantic $c
+      if ($idx -ge 0 -and $idx -lt $cur.Count) {
+        $cur[$idx] = $c.name; $curSemantic[$idx] = $semantic
+      } else { $cur += $c.name; $curSemantic += $semantic }
     }
     & $abschluss
 
@@ -9650,6 +9712,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       # Wie bei table_read: Windows PowerShell 5.1 macht aus einer
       # verschachtelten Zeile sonst {"value":[...],"Count":n}.
       rows = @($rows | ForEach-Object { ,[string[]]@($_ | ForEach-Object { [string]$_ }) }); rowCount = $rows.Count
+      rowDetails = @($rowDetails)
       # Fremde Fenster ausweisen. Frueher lieferte read_table bei geoeffneter
       # Werte-Info deren Tabelle als Seiteninhalt - ohne jeden Hinweis.
       ausgeschlosseneFenster = @($t.fremdeFenster)
@@ -16190,11 +16253,14 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $dirtyBefore = Get-DirtyStateFast $hwnd
     $gesehen = New-Object 'System.Collections.Generic.HashSet[string]'
     $alle = New-Object System.Collections.ArrayList
+    $allSemanticRows = New-Object System.Collections.ArrayList
     $identityState = [pscustomobject]@{ fehlend = $false }
     $kopf = @()
+    $latestTableSnapshot = [pscustomobject]@{ tree=$null }
 
     function LiesZeilen($hwnd) {
-      $t = Walk-Tree $hwnd
+      $t = Walk-Tree $hwnd -WithValues
+      $latestTableSnapshot.tree = $t
       $bounds = Get-ContentBounds $t $hwnd
       # Nur Tabellen des eigentlichen Eingabeformulars. Ein geoeffnetes
       # Werte-Info-Fenster gehoert zum selben Prozess und wurde frueher
@@ -16237,7 +16303,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       }
       $h = @($hRaw | Sort-Object x)
       $hd = @(); foreach ($x in $h) { if (-not $hd.Count -or [Math]::Abs($x.x - $hd[-1].x) -gt 8) { $hd += $x } }
-      $rows = @(); $rowsWithIdentity = @(); $cur = $null; $curRids = $null; $cy = -9999
+      $rows = @(); $rowsWithIdentity = @(); $cur = $null; $curRids = $null; $curSemantic = $null; $cy = -9999
       foreach ($c in $z) {
         if ($null -eq $cur -or [Math]::Abs($c.y - $cy) -gt 10) {
           if ($null -ne $cur) {
@@ -16248,20 +16314,23 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
             }
             $identity = $(if ($identityParts.Count) { $identityParts -join '|' } else { $null })
             $rows += , $cur
-            $rowsWithIdentity += [pscustomobject]@{ werte = @($cur); identitaet = $identity }
+            $rowsWithIdentity += [pscustomobject]@{ werte = @($cur); identitaet = $identity; semanticCells = @($curSemantic) }
           }
           $cy = $c.y
           $cur = @($null) * [Math]::Max(1, $hd.Count)
           $curRids = @($null) * [Math]::Max(1, $hd.Count)
+          $curSemantic = @($null) * [Math]::Max(1, $hd.Count)
         }
         $best = 0; $d = [int]::MaxValue
         for ($i = 0; $i -lt $hd.Count; $i++) { $dd = [Math]::Abs($c.x - $hd[$i].x); if ($dd -lt $d) { $d = $dd; $best = $i } }
         if ($best -lt $cur.Count) {
           $cur[$best] = $c.name
           $curRids[$best] = $c.rid
+          $curSemantic[$best] = Read-SSETableCellSemantic $c
         } else {
           $cur += $c.name
           $curRids += $c.rid
+          $curSemantic += Read-SSETableCellSemantic $c
         }
       }
       if ($null -ne $cur) {
@@ -16272,7 +16341,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         }
         $identity = $(if ($identityParts.Count) { $identityParts -join '|' } else { $null })
         $rows += , $cur
-        $rowsWithIdentity += [pscustomobject]@{ werte = @($cur); identitaet = $identity }
+        $rowsWithIdentity += [pscustomobject]@{ werte = @($cur); identitaet = $identity; semanticCells = @($curSemantic) }
       }
       [pscustomobject]@{
         kopf = @($hd | ForEach-Object { $_.name }); zeilen = $rows
@@ -16295,6 +16364,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         }
         if ($gesehen.Add($identity)) {
           $null = $alle.Add([object[]]@($entry.werte))
+          $null = $allSemanticRows.Add([object[]]@($entry.semanticCells))
         }
       }
     }
@@ -16358,6 +16428,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           # Fuer eine stabile Reihenfolge jetzt bewusst am Anfang neu sammeln.
           $gesehen.Clear()
           $alle.Clear()
+          $allSemanticRows.Clear()
           $identityState.fehlend = $false
           $topSnapshot = LiesZeilen $hwnd
           if ($topSnapshot.error) {
@@ -16531,7 +16602,13 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     )
 
     # Nur Zeilen mit Inhalt melden
-    $roh = @($alle | Where-Object { @($_ | Where-Object { $_ -and "$_".Trim() -and "$_" -ne '0,00' -and "$_" -ne '0' }).Count -gt 0 })
+    $populatedIndices = @(for ($rowIndex = 0; $rowIndex -lt $alle.Count; $rowIndex++) {
+      if (@($alle[$rowIndex] | Where-Object { $_ -and "$_".Trim() -and "$_" -ne '0,00' -and "$_" -ne '0' }).Count -gt 0) { $rowIndex }
+    })
+    $roh = @($populatedIndices | ForEach-Object { ,$alle[$_] })
+    $rowDetails = @(for ($outputIndex = 0; $outputIndex -lt $populatedIndices.Count; $outputIndex++) {
+      New-SSETableRowDetails $outputIndex $allSemanticRows[$populatedIndices[$outputIndex]]
+    })
     # Windows PowerShell 5.1 serialisiert ein verschachteltes object[] als
     # {"value":[...],"Count":n} statt als Zeile. Der veroeffentlichte Vertrag
     # verspricht eine Liste von Zeilen; ohne diese Umformung bekam jeder
@@ -16544,7 +16621,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # expectedBefore/expectedAfter der Tabellenmutationen nicht ermitteln - er
     # muesste die Kontrollsumme raten. Lesen und Schreiben binden dieselbe
     # Zelle ueber dasselbe Label und dieselbe Occurrence.
-    $summenBaum = Walk-Tree $hwnd -WithValues
+    # Der letzte Viewport wurde bereits mit Werten gelesen. Seine Summe und
+    # Zellen gehoeren zu derselben Beobachtung; ein weiterer Fensterbaum ist
+    # dafuer nicht erforderlich.
+    $summenBaum = $latestTableSnapshot.tree
     $summe = $null
     if ($sumLabel) {
       $summeRead = Read-LabeledValueFromTree $summenBaum $hwnd $sumLabel $sumOccurrence
@@ -16576,6 +16656,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $dirtyAfter = Get-DirtyStateFast $hwnd
     Emit ([pscustomobject]@{
       ok = $true; kopf = $kopf; zeilen = $echte; anzahl = $echte.Count
+      rowDetails = @($rowDetails)
       summe = $summe
       summen = @($summen)
       vollstaendig = $vollstaendig

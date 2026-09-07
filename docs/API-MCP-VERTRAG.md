@@ -506,6 +506,23 @@ der äußere Cleanup-Wächter die Worker-Laufzeit fail-closed.
 
 ## Ergebnisgrenze und Evidenz
 
+`read_table` und `table_read` liefern neben ihren bisherigen Textzeilen
+`rowDetails` in derselben Zeilenreihenfolge. `rowIndex` ist nullbasiert;
+`typedValues`, `checkboxStates` und `cellTypes` folgen der Spaltenreihenfolge.
+Checkboxen stehen als echte Booleans in `typedValues` und separat als `On`,
+`Off` oder `Indeterminate` in `checkboxStates`. Ein unbestimmter Zustand hat
+den Wert `null`. Nicht beobachtete Zellen bleiben `unknown` und werden in
+`semanticReadErrors` ausgewiesen; leerer Anzeigetext beweist keine ausgeschaltete
+Checkbox. `semanticsComplete` beschreibt nur die ausgegebenen Zellen, nicht
+die Vollständigkeit einer virtualisierten Tabelle. Sichtbares Lesen ersetzt
+weiterhin keinen Tabellenlauf mit Endbeweis. Steuerbeträge werden aus diesen
+Checkbox-Zuständen nicht abgeleitet.
+
+Beim Tabellen-Readback müssen zwei explizit angegebene Datumsjahre
+übereinstimmen. Ungültige Kalendertage gelten auch bei gleichem Text nicht als
+bestätigt. Für Datumseingaben ist weiterhin das vollständige Jahr anzugeben;
+die gekürzte Produktanzeige wird gegen dieses angeforderte Jahr geprüft.
+
 Der gemeinsame Ergebnisvertrag ist technisch an allen Transportgrenzen
 durchgesetzt:
 

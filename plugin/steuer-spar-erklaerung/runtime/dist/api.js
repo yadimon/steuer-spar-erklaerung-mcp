@@ -15028,7 +15028,7 @@ function createOperationResultSchema(operation) {
 function parseApiOperationResult(operation, value) {
   return SSE_API_RESULT_SCHEMAS[operation].parse(value);
 }
-var SSE_API_RESULT_SCHEMA_VERSION, API_OPERATION_NAME_SCHEMA, OPTIONAL_SUPPORTED_CASE_YEARS, OPTIONAL_CASE_IDENTITY, OPTIONAL_USTVA_PERIOD, OPTIONAL_USTVA_FLAGS, OPTIONAL_USTVA_TRANSMISSION, OPTIONAL_USTVA_READ_EFFECTS, CORE_OPERATION_RESULT_FIELDS, RESULT_FIELD_TABLES, duplicateOperations, OPERATION_RESULT_FIELDS, SSE_API_RESULT_OUTPUT_SCHEMAS, SSE_API_RESULT_SCHEMAS;
+var SSE_API_RESULT_SCHEMA_VERSION, API_OPERATION_NAME_SCHEMA, OPTIONAL_TABLE_ROW_DETAILS, OPTIONAL_SUPPORTED_CASE_YEARS, OPTIONAL_CASE_IDENTITY, OPTIONAL_USTVA_PERIOD, OPTIONAL_USTVA_FLAGS, OPTIONAL_USTVA_TRANSMISSION, OPTIONAL_USTVA_READ_EFFECTS, CORE_OPERATION_RESULT_FIELDS, RESULT_FIELD_TABLES, duplicateOperations, OPERATION_RESULT_FIELDS, SSE_API_RESULT_OUTPUT_SCHEMAS, SSE_API_RESULT_SCHEMAS;
 var init_result_contract = __esm({
   "src/result-contract.ts"() {
     "use strict";
@@ -15040,6 +15040,23 @@ var init_result_contract = __esm({
     init_result_schema_types();
     SSE_API_RESULT_SCHEMA_VERSION = 1;
     API_OPERATION_NAME_SCHEMA = external_exports.enum(SSE_API_OPERATIONS);
+    OPTIONAL_TABLE_ROW_DETAILS = external_exports.array(external_exports.object({
+      rowIndex: external_exports.number().int().nonnegative().describe("Nullbasierter Ausgabezeilenindex"),
+      typedValues: external_exports.array(external_exports.union([external_exports.string(), external_exports.boolean(), external_exports.null()])).describe(
+        "Zellwerte; Checkboxen boolesch, unbestimmte/unbekannte Werte null"
+      ),
+      checkboxStates: external_exports.array(external_exports.enum(["On", "Off", "Indeterminate"]).nullable()).describe(
+        "TogglePattern-Zustand je Spalte, sonst null"
+      ),
+      cellTypes: external_exports.array(external_exports.enum(["text", "boolean", "unknown"])).describe("Semantischer Zelltyp je Spalte"),
+      semanticsComplete: external_exports.boolean().describe("Alle Ausgabezellen gelesen; kein Tabellenendbeweis"),
+      semanticReadErrors: external_exports.array(external_exports.object({
+        column: external_exports.number().int().nonnegative().describe("Nullbasierte Spalte"),
+        error: external_exports.string().describe("Lesefehler")
+      })).describe("Nicht verifizierte Zellen")
+    }).passthrough()).nullable().optional().describe(
+      "Semantische Werte und Leseluecken je Ausgabezeile"
+    );
     OPTIONAL_SUPPORTED_CASE_YEARS = external_exports.record(
       external_exports.string().min(1),
       external_exports.array(external_exports.number().int().nonnegative()).min(1)
@@ -15160,6 +15177,7 @@ var init_result_contract = __esm({
         headers: OPTIONAL_ARRAY,
         rows: OPTIONAL_ARRAY,
         rowCount: OPTIONAL_NON_NEGATIVE_NUMBER,
+        rowDetails: OPTIONAL_TABLE_ROW_DETAILS,
         ausgeschlosseneFenster: OPTIONAL_ARRAY,
         stats: OPTIONAL_OBJECT,
         incomplete: OPTIONAL_BOOLEAN
@@ -15193,6 +15211,7 @@ var init_result_contract = __esm({
       // angegeben wurde.
       table_read: {
         zeilen: OPTIONAL_ARRAY,
+        rowDetails: OPTIONAL_TABLE_ROW_DETAILS,
         vollstaendig: OPTIONAL_BOOLEAN,
         anzahl: OPTIONAL_NON_NEGATIVE_NUMBER,
         summe: OPTIONAL_STRING

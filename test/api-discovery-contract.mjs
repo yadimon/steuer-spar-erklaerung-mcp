@@ -106,10 +106,10 @@ for (const operation of emptyObjectOperations) {
 }
 
 const serialized = JSON.stringify(SSE_API_DISCOVERY);
-// Einschliesslich der hash- und inventargebundenen Positionsanlage braucht
-// die Discovery rund 296 KiB. Die Reserve deckt kleinere Beschreibungen ab;
+// Einschliesslich typisierter Tabellenzellen braucht die Discovery rund
+// 299 KiB. Die Reserve deckt kleinere Beschreibungen ab;
 // zweistellige KiB-Zuwaechse durch duplizierte Schemas bleiben ein Fehler.
-assert(Buffer.byteLength(serialized, "utf8") < 298 * 1024, "Discovery-Antwort ist unnoetig gross.");
+assert(Buffer.byteLength(serialized, "utf8") < 300 * 1024, "Discovery-Antwort ist unnoetig gross.");
 assert(!serialized.includes("C:\\development"), "Discovery darf keine Build-PC-Pfade enthalten.");
 assert(!serialized.includes("private-tax"), "Discovery darf keine Test- oder Steuerdaten enthalten.");
 
