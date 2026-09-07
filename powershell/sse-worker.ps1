@@ -16238,7 +16238,16 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $anchorY = @($byY.Keys | Sort-Object -Descending | Select-Object -First 1)
       [pscustomobject]@{
         tree = $tree; cells = $cells; byY = $byY; free = $free
-        firstCell = $(if ($anchorY.Count) { @($byY[$anchorY[0]] | Sort-Object x)[0] } else { $null })
+        # Ankerzelle fuer den Klick, der die Tabelle in die Tastaturnavigation
+        # bringt. NICHT die erste Spalte: Dort steht die laufende Nummer, und
+        # ein Klick darauf gab der Tabelle keinen Tastaturfokus - gemessen
+        # blieb die unterste sichtbare Zeile nach 41 Pfeiltasten unveraendert,
+        # waehrend derselbe Ablauf in table_read mit einer Datenzelle durch 45
+        # Zeilen laeuft. Deshalb die zweite Spalte, sofern es sie gibt.
+        firstCell = $(if ($anchorY.Count) {
+          $ankerZellen = @($byY[$anchorY[0]] | Sort-Object x)
+          $(if ($ankerZellen.Count -gt 1) { $ankerZellen[1] } else { $ankerZellen[0] })
+        } else { $null })
         targetSum=$targetSumRead; targetSumY=$region.targetSumY
         previousSummaryY=$region.previousSummaryY
         selectionMethod=$region.selectionMethod; scopePrefix=$region.scopePrefix
@@ -16328,11 +16337,28 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         Fail 'Tabellenfokus ist vor der Navigation verloren gegangen; nichts geschrieben.' 'interference'
       }
       if ($guardUserInput) { $inputBaseline = Get-SSELastInputTick }
-      [System.Windows.Forms.SendKeys]::SendWait('^{END}')
+      # Strg+Ende bewegte diese Qt-Tabelle nicht: gemessen 41 Tastendrücke
+      # ohne jede Aenderung der untersten sichtbaren Zeile. Strg+Pos1 wirkt
+      # dagegen nachweislich - table_read laeuft damit durch 45 Zeilen. Also
+      # von oben beginnen und mit Pfeiltasten nach unten wandern.
+      [System.Windows.Forms.SendKeys]::SendWait('^{HOME}')
       if ($guardUserInput) { $inputBaseline = Get-SSELastInputTick }
       Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick)
       Start-Sleep -Milliseconds 350
-      for ($navigationSteps = 0; $navigationSteps -le 40; $navigationSteps++) {
+      # Der Weg zum Tabellenende las frueher vor JEDEM Tastendruck den ganzen
+      # Baum: 41 Baumlaeufe fuer 41 Schritte, und bei einer Tabelle mit 45
+      # Zeilen reichte das Budget trotzdem nicht - gemessen 14 Sekunden und
+      # danach 'keine freie Zeile'. Der Aufrufer musste erst einen
+      # vollstaendigen table_read fahren, nur damit die Anlegezeile sichtbar
+      # wurde.
+      #
+      # Gedrueckt wird deshalb in Buendeln und nur dazwischen gelesen. Die
+      # Schleife endet, sobald eine freie Zeile auftaucht - oder sobald sich
+      # die letzte sichtbare Zeile nicht mehr aendert: Dann ist das Ende
+      # erreicht und weiteres Druecken bringt nichts.
+      $buendel = 8
+      $letzteSignatur = $null
+      for ($navigationRunden = 0; $navigationRunden -le 60; $navigationRunden++) {
         if ($searchWatch.ElapsedMilliseconds -ge $searchDeadlineMs) {
           Fail 'Tabellenend-Navigation ueberschritt die interne Frist; nichts geschrieben.' 'timeout'
         }
@@ -16347,14 +16373,25 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           Fail "$($freeRead.error) NICHT geschrieben." $(if ($freeRead.profileMismatch) { 'table-profile-mismatch' } else { 'precondition-failed' })
         }
         if ($freeRead.free.Count) { break }
+
+        $unterste = @($freeRead.byY.Keys | Sort-Object -Descending | Select-Object -First 1)
+        $signatur = $(if ($unterste.Count) {
+          "$($unterste[0])::" + ((@($freeRead.byY[$unterste[0]] | Sort-Object x | ForEach-Object { [string]$_.name })) -join "`u{001F}")
+        } else { '' })
+        if ($null -ne $letzteSignatur -and $signatur -eq $letzteSignatur) { break }
+        $letzteSignatur = $signatur
+
         if ([SW]::GetForegroundWindow() -ne $hwnd) {
           Fail 'Tabellenfokus ging waehrend der Navigation verloren; nichts geschrieben.' 'interference'
         }
-        [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
-        $navigationVersuche++
+        for ($imBuendel = 0; $imBuendel -lt $buendel; $imBuendel++) {
+          [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
+          $navigationVersuche++
+          Start-Sleep -Milliseconds 35
+        }
         if ($guardUserInput) { $inputBaseline = Get-SSELastInputTick }
         Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick)
-        Start-Sleep -Milliseconds 100
+        Start-Sleep -Milliseconds 120
       }
     }
     $nachY = $freeRead.byY
