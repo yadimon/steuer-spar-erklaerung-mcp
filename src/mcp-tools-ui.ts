@@ -108,6 +108,10 @@ export function registerUiTools(registry: McpRegistry): void {
       // Ohne die gelesene Kontrollsumme koennte ein Aufrufer die
       // Pflichtangabe expectedBefore der Tabellenmutationen nur raten.
       summe: r.summe,
+      // Und ohne die Beschriftungen wuesste er nicht, welche er ueberhaupt
+      // angeben kann - auf einer Seite mit mehreren Tabellen auch nicht,
+      // welche Vorkommensnummer die eigene ist.
+      summen: asArray(r.summen),
     }),
     { timeoutMs: 300_000 },
   );
