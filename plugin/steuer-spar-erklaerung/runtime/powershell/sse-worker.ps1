@@ -1871,6 +1871,12 @@ function Emit($obj) {
       $focusTelemetry = Get-SSEForegroundLeaseTelemetry
       if ($focusTelemetry -and [int]$focusTelemetry.acquisitions -gt 0) {
         $obj | Add-Member -NotePropertyName focusTelemetry -NotePropertyValue $focusTelemetry -Force
+        # Ein Suchpfad kann nach einem physischen Klick denselben Erfolgsausgang
+        # wie eine reine UIA-Navigation erreichen. Die beobachtete Lease hat
+        # Vorrang vor einer dort voreingestellten Fokusfrei-Angabe.
+        if ($obj.PSObject.Properties['fokusfrei'] -and $obj.fokusfrei -is [bool]) {
+          $obj.fokusfrei = $false
+        }
       }
     } catch { }
   }

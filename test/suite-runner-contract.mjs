@@ -20,6 +20,7 @@ import {
 } from "./suite-runner.mjs";
 
 const expectedNames = [
+  "api-monotonic-timing", "foreground-reporting-contract",
   "table-delete-name",
   "position-create",
   "dist-prune", "native-build", "typescript-build", "npm-package-build", "agent-plugin-build", "api-docs", "docs-consistency", "publishable-dependency-parity", "obstruction-window", "known-page-state", "goto-conditional-waits", "window-wait", "conversion-in-dll", "deprecated-fallback", "control-inventory", "node-resolution-in-dll", "parallel-work", "worker-prewarm-placement", "suite-runner-contract", "public-skills", "repository-privacy", "repository-links", "readme-contract", "github-workflow", "javascript-syntax", "powershell-syntax", "product-profiles", "page-objects-parity", "product-profile-status", "profile-operation-policy", "receipt-interaction-policy", "belegmanager-config-isolation", "api-mega-contract",
