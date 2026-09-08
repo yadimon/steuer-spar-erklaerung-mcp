@@ -112,11 +112,23 @@ eine Falldatei-Sicherung ersetzt sie nicht.
 4. **Lesen:** Verfügbare Werkzeuge und Grenzen aus `sse_capabilities`, der
    API-Selbstbeschreibung und dem installierten API-Vertrag ableiten. Belege
    nur aus bestätigten Quellen inventarisieren. Ergebnisse strukturiert lesen;
-   Screenshots sind nur ergänzende Evidenz.
+   Screenshots sind nur ergänzende Evidenz. Für die Frage, was auf der
+   sichtbaren Seite steht — welcher Betrag, welche Auswahl —, ist
+   `sse_read_page` der billige Weg: eine Zeile je Beschriftung samt Wert.
+   `sse_table_read` erst, wenn es wirklich um die Zeilen einer Buchungstabelle
+   geht; es läuft die ganze Tabelle ab und liefert dabei die Spaltenköpfe und
+   unter `summen` die Beschriftungen aller Kontrollsummen der Seite, aus denen
+   `sumLabel`, `sumOccurrence` und `expectedBefore` einer folgenden Änderung
+   stammen.
 5. **Ändern:** Nur genau eine eng gebundene Änderung oder einen bestätigten
    Batch ausführen. Für Tabellen den frisch gelesenen Vorwert beziehungsweise
    `expectedBefore` verwenden. Wert, Summe, Hash und Dirty-State sofort
-   zurücklesen.
+   zurücklesen. Eine Zeile anzuhängen ist unmittelbar nach `sse_table_read`
+   deutlich billiger, weil der Lauf den Cursor bereits ans Tabellenende
+   gezogen hat; ohne vorheriges Lesen holt die Bibliothek das selbst nach. Die
+   Werte in `werte` stehen in Spaltenreihenfolge ab der ersten Spalte —
+   führende Spalten wie eine automatische „Nr." gehören als leerer Wert dazu,
+   sonst rutscht jeder Wert eine Spalte nach links.
 6. **Prüfen:** Nach einer vollständigen Bearbeitung den Programm-Prüfer mit
    `sse_checker_open` laufen lassen und jede Meldung mit Fundstelle und einem
    Vorschlag auflisten, statt sie still zu übergehen. Erscheint beim Navigieren
@@ -149,6 +161,8 @@ Lies nur die Referenz, die der aktuelle Auftrag tatsächlich braucht:
   belegten Folgejahrweg;
 - [case-create.md](references/case-create.md) — nur wenn ausdrücklich ein
   neuer Fall angelegt werden soll oder kein passender Fall existiert;
+- [buchungswege.md](references/buchungswege.md) — bevor eine Ausgabe, Einnahme
+  oder ein Reverse-Charge-Beleg eingetragen wird;
 - [steuerquellen.md](references/steuerquellen.md) — betragsrelevante oder
   strittige steuerfachliche Begründung;
 - [ui-fallback.md](references/ui-fallback.md) — nur wenn für ein benötigtes

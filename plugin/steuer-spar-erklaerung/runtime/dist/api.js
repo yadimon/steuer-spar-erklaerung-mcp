@@ -121,6 +121,7 @@ var init_api_contract = __esm({
       "page",
       "page_objects",
       "positions",
+      "position_create",
       "product_info",
       "read_full",
       "read_page",
@@ -150,6 +151,7 @@ var init_api_contract = __esm({
       "table_delete",
       "table_read",
       "table_update",
+      "tax_knowledge_search",
       "toggle",
       "tracked_set_value",
       "tree_scroll",
@@ -5006,6 +5008,13 @@ var init_mcp_schemas_analysis = __esm({
         name: external_exports.string().min(1).describe("Exakter Text aus sse_checker_results"),
         hwnd: WINDOW_HANDLE.optional()
       }).strict(),
+      "sse_tax_knowledge_search": external_exports.object({
+        begriff: external_exports.string().min(2).max(80).describe("Suchbegriff, 2 bis 80 Zeichen"),
+        mindestLaenge: external_exports.number().int().min(20).max(400).optional().describe(
+          "Mindestlaenge eines zusammengefuegten Abschnitts; Vorgabe 60, trennt Fliesstext von Menuebeschriftungen. Gemessen wird der ganze Absatz, nicht der einzelne Textknoten - die Trefferhervorhebung zerlegt den Suchbegriff sonst in Bruchstuecke, die durchfallen"
+        ),
+        maxAbschnitte: external_exports.number().int().min(1).max(40).optional().describe("Hoechstzahl der Abschnitte; Vorgabe 12")
+      }).strict(),
       "sse_checker_close": external_exports.object({
         hwnd: WINDOW_HANDLE.optional(),
         waitMs: external_exports.number().int().min(300).max(3e3).optional().describe("Wartezeit auf den unveraenderten Seiten-Readback")
@@ -5040,6 +5049,17 @@ var init_mcp_schemas_desktop = __esm({
       "sse_positions": external_exports.object({
         aktion: external_exports.literal("list").optional().describe("Vorgabe und einzig zugelassene Aktion: 'list'"),
         hwnd: WINDOW_HANDLE.optional()
+      }).strict(),
+      "sse_position_create": external_exports.object({
+        hwnd: WINDOW_HANDLE,
+        expectedCaseRef: CASE_REF(),
+        expectedCaseHash: SHA256(),
+        backupRef: BACKUP_REF().describe("Bytegleiche Sicherung des aktuellen Disk-Stands"),
+        name: external_exports.string().min(1).max(80).regex(/^[^\r\n\t»«<>]+$/).refine((value) => value === value.trim(), "Keine Rand-Leerzeichen").describe("Eindeutige Bezeichnung der neu anzulegenden Einnahmenposition"),
+        expectedPositions: external_exports.array(external_exports.object({
+          name: external_exports.string().min(1).max(80).describe("Exakter Name einer vorhandenen Position"),
+          net: external_exports.string().regex(/^-?(?:\d{1,3}(?:\.\d{3})*|\d+),\d{2}$/).describe("Exakt angezeigte Nettosumme, beispielsweise 100,00")
+        }).strict()).max(50).describe("Alle vorhandenen Positionen und exakten Nettosummen der sichtbaren Übersicht")
       }).strict(),
       "sse_export_csv": external_exports.object({
         resultRef: RESULT_REF().optional().describe("Neuer oder vorhandener leerer Ergebnisordner fuer den CSV-Export"),
@@ -5794,13 +5814,15 @@ var init_mcp_schemas_ui = __esm({
       "sse_table_add": external_exports.object({
         expectedPage: external_exports.string().describe("Exakte aktuelle Seitenueberschrift"),
         werte: external_exports.array(external_exports.string()).min(1).max(SSE_OPERATION_LIMITS.tableValues).describe(
-          "Werte in Spaltenreihenfolge, maximal 100 Spalten; eine im Produktprofil typisierte ComboBox wird auch als UIA-DataItem nur ueber eine exakt popupgebundene SelectionItem-Option gesetzt, niemals per ValuePattern-Text"
+          "Werte in Spaltenreihenfolge ab der ERSTEN Spalte, maximal 100 Spalten. Die Reihenfolge steht in 'kopf' von sse_table_read; fuehrende Spalten wie eine automatische 'Nr.' bleiben leer ('') und duerfen nicht weggelassen werden - sonst rutscht jeder Wert eine Spalte nach links. Eine im Produktprofil typisierte ComboBox wird auch als UIA-DataItem nur ueber eine exakt popupgebundene SelectionItem-Option gesetzt, niemals per ValuePattern-Text"
         ),
         comboExpectedBefore: TABLE_COMBO_EXPECTED_BEFORE.optional(),
         sumLabel: external_exports.string().describe("Beschriftung der eindeutigen Kontrollsumme"),
         sumOccurrence: UI_OCCURRENCE.optional().describe("1-basierte Position bei mehrfacher Summenbeschriftung; Vorgabe 1"),
         expectedBefore: external_exports.string().describe("Exakter Summenwert vor dem Anlegen"),
-        expectedAfter: external_exports.string().describe("Exakter Summenwert nach dem Anlegen"),
+        expectedAfter: external_exports.string().optional().describe(
+          "Optional: exakter Summenwert nach dem Anlegen. Ohne diese Angabe genuegt, dass die Kontrollsumme sich bewegt hat - sie bindet die Zeile an die richtige Tabelle, und jede Zelle wird ohnehin einzeln zurueckgelesen. Die Vorhersage verlangt, SSEs Rechnung nachzubilden: Die Seitensumme addiert netto, nicht brutto. Wer sie liefert, wird strenger geprueft"
+        ),
         hwnd: WINDOW_HANDLE.optional()
       }).strict(),
       "sse_table_update": external_exports.object({
@@ -5913,6 +5935,39 @@ var init_mcp_schemas_ui = __esm({
   }
 });
 
+// src/mcp-schemas-api-control.ts
+var SSE_MCP_API_CONTROL_SCHEMAS, validatedRequest, SSE_MCP_API_CONTROL_OUTPUT_SCHEMA;
+var init_mcp_schemas_api_control = __esm({
+  "src/mcp-schemas-api-control.ts"() {
+    "use strict";
+    init_zod();
+    SSE_MCP_API_CONTROL_SCHEMAS = {
+      sse_api_control: external_exports.object({
+        action: external_exports.enum(["status", "shutdown", "start"]).describe("Status lesen, API stoppen oder ausdruecklich erneut starten."),
+        confirm: external_exports.literal(true).optional().describe("Fuer shutdown/start ausdruecklich true; bei status weglassen."),
+        instanceId: external_exports.string().uuid().optional().describe("Fuer shutdown/start die zuletzt gelesene gebundene API-Instanz; bei status weglassen.")
+      }).strict()
+    };
+    validatedRequest = SSE_MCP_API_CONTROL_SCHEMAS.sse_api_control.superRefine((value, context) => {
+      if (value.action === "status") {
+        if (value.confirm !== void 0 || value.instanceId !== void 0) {
+          context.addIssue({ code: external_exports.ZodIssueCode.custom, message: "status akzeptiert ausschliesslich action." });
+        }
+      } else if (value.confirm !== true || !value.instanceId) {
+        context.addIssue({ code: external_exports.ZodIssueCode.custom, message: "shutdown und start verlangen confirm=true und die zuletzt gelesene instanceId." });
+      }
+    });
+    SSE_MCP_API_CONTROL_OUTPUT_SCHEMA = external_exports.object({
+      ok: external_exports.boolean(),
+      state: external_exports.enum(["running", "stopping", "stopped", "starting", "unknown"]).optional(),
+      instanceId: external_exports.string().uuid().optional(),
+      processId: external_exports.number().int().positive().optional(),
+      accepted: external_exports.boolean().nullable().optional(),
+      processExited: external_exports.boolean().optional()
+    }).passthrough();
+  }
+});
+
 // src/mcp-operation-schemas.ts
 var SSE_MCP_TOOL_SCHEMAS;
 var init_mcp_operation_schemas = __esm({
@@ -5925,6 +5980,7 @@ var init_mcp_operation_schemas = __esm({
     init_mcp_schemas_lifecycle();
     init_mcp_schemas_receipts();
     init_mcp_schemas_ui();
+    init_mcp_schemas_api_control();
     SSE_MCP_TOOL_SCHEMAS = {
       ...SSE_MCP_DIAGNOSTIC_SCHEMAS,
       ...SSE_MCP_ANALYSIS_SCHEMAS,
@@ -5932,7 +5988,8 @@ var init_mcp_operation_schemas = __esm({
       ...SSE_MCP_UI_SCHEMAS,
       ...SSE_MCP_RECEIPT_SCHEMAS,
       ...SSE_MCP_INTERACTION_SCHEMAS,
-      ...SSE_MCP_LIFECYCLE_SCHEMAS
+      ...SSE_MCP_LIFECYCLE_SCHEMAS,
+      ...SSE_MCP_API_CONTROL_SCHEMAS
     };
   }
 });
@@ -6137,7 +6194,7 @@ function formatOperationArgumentError(error, operation) {
   if (!erlaubt.length) return message;
   return `${message.replace(/\.$/u, "")}. Erlaubt sind: ${erlaubt.join(", ")}`;
 }
-var SSE_MCP_COMPOSED_TOOL_OPERATIONS, SSE_MCP_TOOL_OPERATIONS, RESOURCE_AREA, API_TEXT_WRITE_AREA, API_LOCAL_PATH, schemasByOperation, checkerReadOnlyClickSchema, SSE_API_OPERATION_SCHEMAS, MAX_API_ARGUMENT_STRING_BYTES, MAX_API_ARGUMENT_COLLECTION_ITEMS, MAX_API_ARGUMENT_DEPTH, MAX_API_ARGUMENT_NODES;
+var SSE_MCP_COMPOSED_TOOL_OPERATIONS, SSE_MCP_CONTROL_TOOL_ACTIONS, SSE_MCP_TOOL_OPERATIONS, RESOURCE_AREA, API_TEXT_WRITE_AREA, API_LOCAL_PATH, schemasByOperation, checkerReadOnlyClickSchema, SSE_API_OPERATION_SCHEMAS, MAX_API_ARGUMENT_STRING_BYTES, MAX_API_ARGUMENT_COLLECTION_ITEMS, MAX_API_ARGUMENT_DEPTH, MAX_API_ARGUMENT_NODES;
 var init_operation_catalog = __esm({
   "src/operation-catalog.ts"() {
     "use strict";
@@ -6151,6 +6208,9 @@ var init_operation_catalog = __esm({
     init_mcp_operation_schemas();
     SSE_MCP_COMPOSED_TOOL_OPERATIONS = {
       "sse_preflight": ["workspace_status", "product_info", "health"]
+    };
+    SSE_MCP_CONTROL_TOOL_ACTIONS = {
+      sse_api_control: ["status", "shutdown", "start"]
     };
     SSE_MCP_TOOL_OPERATIONS = {
       "sse_product_info": "product_info",
@@ -6195,6 +6255,7 @@ var init_operation_catalog = __esm({
       "sse_desktop_status": "desktop_status",
       "sse_page": "page",
       "sse_positions": "positions",
+      "sse_position_create": "position_create",
       "sse_export_csv": "export_csv",
       "sse_collect": "collect",
       "sse_verify": "verify",
@@ -6229,6 +6290,7 @@ var init_operation_catalog = __esm({
       "sse_find": "find",
       "sse_get_value": "get_value",
       "sse_click": "click",
+      "sse_tax_knowledge_search": "tax_knowledge_search",
       "sse_toggle": "toggle",
       "sse_click_point": "click_point",
       "sse_set_value": "set_value",
@@ -6381,6 +6443,10 @@ var init_operation_catalog = __esm({
       resultRef: external_exports.union([RESULT_REF(), BARE_RESOURCE_REF()]).optional().describe("Neue Ergebnisreferenz unter results: oder relativer Ergebnispfad")
     }).strict();
     schemasByOperation.case_hash = withLegacyAlias(SSE_MCP_TOOL_SCHEMAS.sse_case_hash, "ref", "path");
+    schemasByOperation.position_create = withLegacyAliases(
+      SSE_MCP_TOOL_SCHEMAS.sse_position_create,
+      [["expectedCaseRef", "expectedCasePath"], ["backupRef", "backupPath"]]
+    );
     schemasByOperation.center_refresh = external_exports.object({
       ...SSE_MCP_TOOL_SCHEMAS.sse_center_refresh.shape,
       expectedDirectory: API_LOCAL_PATH.optional()
@@ -6508,6 +6574,7 @@ var init_operation_traits = __esm({
       "workspace_status"
     ];
     SSE_DESTRUCTIVE_OPERATIONS = [
+      "position_create",
       "archive_cases",
       "case_create",
       "click",
@@ -6557,6 +6624,7 @@ var init_operation_traits = __esm({
       "window_close"
     ];
     SSE_BUILD_DRIFT_BLOCKED_OPERATIONS = [
+      "position_create",
       "case_create",
       "checker_run",
       "click",
@@ -6620,7 +6688,17 @@ var init_operation_live_evidence = __esm({
       ]
     );
     SSE_LIVE_UNTESTED_OPERATIONS = Object.freeze(
-      []
+      [
+        // Die Gruppenanlage hat noch keinen automatisierten Live-Suiteschritt.
+        "position_create",
+        // Die Operation ist gegen das laufende Programm ausgefuehrt worden und
+        // hat Artikeltext geliefert. Was ihr fehlt, ist ein Suiteschritt, der das
+        // selbst protokolliert: Sie braucht den sichtbaren Desktop und holt ein
+        // zweites Programmfenster in den Vordergrund, was mitten in einem
+        // parallelen Lauf andere Schritte stoert. Diese Bilanz zaehlt nur, was
+        // ein Suitelauf belegt - deshalb steht sie hier.
+        "tax_knowledge_search"
+      ]
     );
     untested = new Set(SSE_LIVE_UNTESTED_OPERATIONS);
     errorPathOnly = new Set(SSE_LIVE_ERROR_PATH_ONLY_OPERATIONS);
@@ -6684,7 +6762,7 @@ var init_version = __esm({
     "use strict";
     SSE_PACKAGE_NAME = "steuer-spar-erklaerung-mcp";
     SSE_API_PACKAGE_NAME = "@yadimon/steuer-spar-erklaerung-api";
-    SSE_PACKAGE_VERSION = "0.1.0-beta.43";
+    SSE_PACKAGE_VERSION = "0.1.0-beta.44";
   }
 });
 
@@ -6745,6 +6823,7 @@ var init_capabilities = __esm({
         apiOperations: SSE_API_OPERATIONS,
         mcpToolOperations: SSE_MCP_TOOL_OPERATIONS,
         mcpComposedToolOperations: SSE_MCP_COMPOSED_TOOL_OPERATIONS,
+        mcpControlToolActions: SSE_MCP_CONTROL_TOOL_ACTIONS,
         readOnlyOperations: SSE_READ_ONLY_OPERATIONS,
         statefulOperations: SSE_STATEFUL_OPERATIONS,
         nonDestructiveStatefulOperations: SSE_NON_DESTRUCTIVE_STATEFUL_OPERATIONS,
@@ -7309,14 +7388,14 @@ async function executeCheckerOpen(args, timeoutMs, signal, worker) {
       Math.min(timeoutMs ?? 3e5, 3e5),
       signal
     );
-    const performance9 = result.performance && typeof result.performance === "object" && !Array.isArray(result.performance) ? result.performance : {};
+    const performance11 = result.performance && typeof result.performance === "object" && !Array.isArray(result.performance) ? result.performance : {};
     return {
       ...result,
       schemaVersion: 1,
       planKind: CHECKER_OPEN_PLAN_KIND,
       resultingState: typeof result.resultingState === "string" ? result.resultingState : result.ok === true ? "detail-verified" : "unknown",
       cleanupRequired: typeof result.cleanupRequired === "boolean" ? result.cleanupRequired : result.ok !== true,
-      performance: { ...performance9, workerProcessCount: 1 },
+      performance: { ...performance11, workerProcessCount: 1 },
       ...result.ok === true ? { kontrollbildEnthalten: typeof result.bildBase64 === "string" && result.bildBase64.length > 0 } : {}
     };
   } catch (error) {
@@ -7646,6 +7725,10 @@ var init_api_resource_bindings = __esm({
     "use strict";
     API_RESOURCE_BINDINGS = Object.freeze({
       case_hash: [{ alias: "ref", workerField: "path", allowedAreas: ["cases"] }],
+      position_create: [
+        { alias: "expectedCaseRef", workerField: "expectedCasePath", allowedAreas: ["cases"] },
+        { alias: "backupRef", workerField: "backupPath", allowedAreas: ["backups"] }
+      ],
       case_create: [{ alias: "targetRef", workerField: "targetPath", allowedAreas: ["cases"] }],
       center_refresh: [{ alias: "expectedDirectoryRef", workerField: "expectedDirectory", allowedAreas: ["cases"] }],
       launch: [{ alias: "caseRef", workerField: "file", allowedAreas: ["cases"] }],
@@ -8364,13 +8447,13 @@ var init_profile_operation_policy = __esm({
 });
 
 // src/page-objects-executor.ts
-import { performance } from "node:perf_hooks";
+import { performance as performance2 } from "node:perf_hooks";
 function executeLocalPageObjects(options) {
   const effectiveTimeoutMs = options.timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS;
-  const localStartedAt = performance.now();
+  const localStartedAt = performance2.now();
   const remainingTimeoutMs2 = () => Math.max(
     0,
-    Math.floor(effectiveTimeoutMs - (performance.now() - localStartedAt))
+    Math.floor(effectiveTimeoutMs - (performance2.now() - localStartedAt))
   );
   const localStopResult = () => {
     if (options.signal?.aborted) {
@@ -9025,7 +9108,7 @@ import {
   writeFileSync as writeFileSync2
 } from "node:fs";
 import { dirname as dirname6, isAbsolute as isAbsolute5, relative as relative3, resolve as resolve10 } from "node:path";
-import { performance as performance2 } from "node:perf_hooks";
+import { performance as performance3 } from "node:perf_hooks";
 function hash(buffer) {
   return createHash3("sha256").update(buffer).digest("hex");
 }
@@ -9242,7 +9325,7 @@ async function listWorkspaceFilesBounded(root, ref = ".", limit = 500, includeHa
   if (!Number.isFinite(timeoutMs) || timeoutMs < 0) {
     throw new Error("Zeitbudget fuer die Dateiliste muss eine nicht negative Zahl sein.");
   }
-  const now = options.now ?? (() => performance2.now());
+  const now = options.now ?? (() => performance3.now());
   const startedAt = now();
   const checkStopped = () => {
     if (options.signal?.aborted) {
@@ -9472,7 +9555,7 @@ function failedStep(step, kind, error) {
   };
 }
 async function executeScenarioStep(step, workspaceDir, priorResults, deadline, signal, execute, allowStepReferences, defaultTimeoutMs) {
-  const remainingMs = deadline - Date.now();
+  const remainingMs = Math.floor(deadline - performance.now());
   if (signal?.aborted || remainingMs < 200) {
     return failedStep(
       step,
@@ -9510,7 +9593,7 @@ async function executeScenarioStep(step, workspaceDir, priorResults, deadline, s
   } catch (error) {
     return failedStep(step, "execution-error", error instanceof Error ? error.message : String(error));
   }
-  if (signal?.aborted || Date.now() > deadline) {
+  if (signal?.aborted || performance.now() > deadline) {
     const kind = signal?.aborted ? "aborted" : "timeout";
     const error = signal?.aborted ? "API-Client hat den Szenariolauf abgebrochen." : "Gesamtfrist des Szenarios ist abgelaufen.";
     return {
@@ -9561,7 +9644,7 @@ async function runScenario(workspaceDir, resultDir, scenarioRef, resultRefOverri
   const cleanup = [];
   const priorResults = /* @__PURE__ */ new Map();
   let mainOk = true;
-  const startedAt = Date.now();
+  const startedAt = performance.now();
   const totalBudgetMs = Math.min(totalTimeoutMs ?? 3e5, 3e5);
   const deadline = startedAt + totalBudgetMs;
   const cleanupSteps = scenario.schemaVersion === 2 ? scenario.finally : [];
@@ -9595,7 +9678,7 @@ async function runScenario(workspaceDir, resultDir, scenarioRef, resultRefOverri
   mainOk = mainOk && steps.length === scenario.steps.length;
   for (let index = 0; index < cleanupSteps.length; index++) {
     const step = cleanupSteps[index];
-    const remainingMs = deadline - Date.now();
+    const remainingMs = Math.floor(deadline - performance.now());
     const remainingSteps = cleanupSteps.length - index;
     const defaultTimeoutMs = Math.max(200, Math.floor(remainingMs / remainingSteps));
     const execution = await executeScenarioStep(
@@ -9791,7 +9874,7 @@ var init_scenario = __esm({
 });
 
 // src/workspace-executor.ts
-import { performance as performance3 } from "node:perf_hooks";
+import { performance as performance4 } from "node:perf_hooks";
 function isWorkspaceExecutorOperation(operation) {
   return WORKSPACE_EXECUTOR_OPERATIONS.includes(operation);
 }
@@ -9810,7 +9893,7 @@ function resourceArgument(roots, ref, area, defaultArea, allowedAreas) {
 }
 async function executeWorkspaceOperation(operation, args, context) {
   const { roots, workspaceDir, resultDir, timeoutMs, signal, execute, redactPaths } = context;
-  const now = context.now ?? (() => performance3.now());
+  const now = context.now ?? (() => performance4.now());
   const effectiveTimeoutMs = timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS;
   const startedAt = now();
   const stopped = (activity) => {
@@ -10289,7 +10372,7 @@ var init_collect_verification = __esm({
 import { createHash as createHash6 } from "node:crypto";
 import { open as open2, stat as stat2 } from "node:fs/promises";
 import { extname as extname2 } from "node:path";
-import { performance as performance4 } from "node:perf_hooks";
+import { performance as performance5 } from "node:perf_hooks";
 async function readStableJsonFile(path, signal, includeBytes) {
   if (signal.aborted) throw abortError();
   const opening = open2(path, "r");
@@ -10338,7 +10421,7 @@ function withResourceIdentity(result, resourceRefs) {
 }
 async function executeLocalVerify(options) {
   const effectiveTimeoutMs = options.timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS;
-  const localStartedAt = performance4.now();
+  const localStartedAt = performance5.now();
   const controller = new AbortController();
   let timedOut = false;
   const timer = setTimeout(() => {
@@ -10350,7 +10433,7 @@ async function executeLocalVerify(options) {
   if (options.signal?.aborted) abort();
   const stopped = () => {
     if (options.signal?.aborted) return operationError("API-Client hat die Collect-Verifikation abgebrochen.", "aborted");
-    if (timedOut || performance4.now() - localStartedAt >= effectiveTimeoutMs) {
+    if (timedOut || performance5.now() - localStartedAt >= effectiveTimeoutMs) {
       return operationError("Zeitbudget beim lokalen Pruefen des Collect-Stands aufgebraucht.", "timeout");
     }
     return void 0;
@@ -10546,7 +10629,7 @@ var init_owned_file = __esm({
 import { createHash as createHash8 } from "node:crypto";
 import { lstat as lstat2, open as open4, stat as stat4 } from "node:fs/promises";
 import { dirname as dirname8, extname as extname3, resolve as resolve12 } from "node:path";
-import { performance as performance5 } from "node:perf_hooks";
+import { performance as performance6 } from "node:perf_hooks";
 function errorCode2(error) {
   return error && typeof error === "object" && "code" in error ? String(error.code) : "";
 }
@@ -10633,7 +10716,7 @@ function appendHeaderBytes(chunks, chunk, currentBytes) {
 }
 async function executeLocalWorkingCopy(options) {
   const effectiveTimeoutMs = Math.max(0, options.timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS);
-  const startedAt = performance5.now();
+  const startedAt = performance6.now();
   const controller = new AbortController();
   let timedOut = false;
   const timer = setTimeout(() => {
@@ -10645,7 +10728,7 @@ async function executeLocalWorkingCopy(options) {
   if (options.signal?.aborted) abort();
   const stopped = () => {
     if (options.signal?.aborted) return operationError("API-Client hat die Arbeitskopie abgebrochen.", "aborted");
-    if (timedOut || performance5.now() - startedAt >= effectiveTimeoutMs) {
+    if (timedOut || performance6.now() - startedAt >= effectiveTimeoutMs) {
       return operationError("Zeitbudget beim lokalen Erstellen der Arbeitskopie aufgebraucht.", "timeout");
     }
     return void 0;
@@ -11043,7 +11126,7 @@ var init_local_file_transaction = __esm({
 import { createHash as createHash9 } from "node:crypto";
 import { open as open5, readdir as readdir3, stat as stat6 } from "node:fs/promises";
 import { join as join6, resolve as resolve13 } from "node:path";
-import { performance as performance6 } from "node:perf_hooks";
+import { performance as performance7 } from "node:perf_hooks";
 async function sourceInventoryStillStable(path, identity, expectedNames, profile) {
   if (!await directoryStillOwned(path, identity)) return false;
   const currentNames = (await readdir3(path, { withFileTypes: true })).filter((entry) => entry.isFile() && isProfileCaseFileName(entry.name, profile, true)).map((entry) => entry.name);
@@ -11065,14 +11148,14 @@ async function assertVerifiedTargetStillOwned(file, profile, timeoutMs, signal) 
 }
 async function executeLocalBackup(options) {
   const effectiveTimeoutMs = Math.max(0, options.timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS);
-  const startedAt = performance6.now();
+  const startedAt = performance7.now();
   let timedOut = false;
   const timer = setTimeout(() => {
     timedOut = true;
   }, effectiveTimeoutMs);
   const stopped = () => {
     if (options.signal?.aborted) return operationError("API-Client hat die Fallsicherung abgebrochen.", "aborted");
-    if (timedOut || performance6.now() - startedAt >= effectiveTimeoutMs) {
+    if (timedOut || performance7.now() - startedAt >= effectiveTimeoutMs) {
       return operationError("Zeitbudget beim lokalen Sichern der Steuerfaelle aufgebraucht.", "timeout");
     }
     return void 0;
@@ -11081,7 +11164,7 @@ async function executeLocalBackup(options) {
     const result = stopped();
     if (result) throw new LocalOperationStopped(result);
   };
-  const remainingMs = () => Math.max(0, Math.floor(effectiveTimeoutMs - (performance6.now() - startedAt)));
+  const remainingMs = () => Math.max(0, Math.floor(effectiveTimeoutMs - (performance7.now() - startedAt)));
   const localResult = (result) => options.redactPaths(withResourceIdentity3(result, options.resourceRefs));
   let destination = "";
   let destinationIdentity;
@@ -11508,7 +11591,7 @@ var init_sse_process_guard = __esm({
 import { createHash as createHash11 } from "node:crypto";
 import { open as open7, readdir as readdir4, stat as stat8, unlink as unlink3 } from "node:fs/promises";
 import { basename as basename5, join as join8, resolve as resolve14 } from "node:path";
-import { performance as performance7 } from "node:perf_hooks";
+import { performance as performance8 } from "node:perf_hooks";
 function asArchiveArguments(value) {
   if (!Array.isArray(value) || !value.length) return void 0;
   const result = [];
@@ -11628,14 +11711,14 @@ async function preserveRecoveryCopy(file, directory, directoryIdentity) {
 }
 async function executeLocalArchive(options) {
   const effectiveTimeoutMs = Math.max(0, options.timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS);
-  const startedAt = performance7.now();
+  const startedAt = performance8.now();
   let timedOut = false;
   const timer = setTimeout(() => {
     timedOut = true;
   }, effectiveTimeoutMs);
   const stopped = () => {
     if (options.signal?.aborted) return operationError("API-Client hat die Fallarchivierung abgebrochen.", "aborted");
-    if (timedOut || performance7.now() - startedAt >= effectiveTimeoutMs) {
+    if (timedOut || performance8.now() - startedAt >= effectiveTimeoutMs) {
       return operationError("Zeitbudget beim lokalen Archivieren der Steuerfaelle aufgebraucht.", "timeout");
     }
     return void 0;
@@ -11644,7 +11727,7 @@ async function executeLocalArchive(options) {
     const result = stopped();
     if (result) throw new LocalOperationStopped(result);
   };
-  const remainingMs = () => Math.max(0, Math.floor(effectiveTimeoutMs - (performance7.now() - startedAt)));
+  const remainingMs = () => Math.max(0, Math.floor(effectiveTimeoutMs - (performance8.now() - startedAt)));
   const localResult = (result) => options.redactPaths(withResourceIdentity3(result, options.resourceRefs));
   let directory = "";
   let destination = "";
@@ -11973,7 +12056,7 @@ var init_archive_executor = __esm({
 // src/api-executor.ts
 import { existsSync as existsSync9, mkdirSync as mkdirSync3, readdirSync as readdirSync3, rmdirSync } from "node:fs";
 import { dirname as dirname10, join as join9 } from "node:path";
-import { performance as performance8 } from "node:perf_hooks";
+import { performance as performance9 } from "node:perf_hooks";
 function resourceRoots(config) {
   return {
     cases: config.caseDir,
@@ -12069,7 +12152,7 @@ function executionError(operation, error) {
   };
 }
 function remainingTimeoutMs(timeoutMs, startedAt) {
-  return Math.max(0, Math.floor(timeoutMs - (performance8.now() - startedAt)));
+  return Math.max(0, Math.floor(timeoutMs - (performance9.now() - startedAt)));
 }
 function isExperimentalDialogAnswerCandidate(operation, args) {
   return operation === "dialog_answer" && args.button === "OK";
@@ -12294,7 +12377,7 @@ function createApiExecutor(config, worker, dependencies = {}) {
       }
       if (operation === "list_cases" && configured.args.verbose !== true && typeof configured.args.dir === "string" && existsSync9(configured.args.dir)) {
         const effectiveTimeoutMs = timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS;
-        const localStartedAt = performance8.now();
+        const localStartedAt = performance9.now();
         try {
           const result2 = await listCaseFiles(configured.args.dir, profile, {
             includeBackups: configured.args.includeBackups === true,
@@ -12353,6 +12436,24 @@ function createApiExecutor(config, worker, dependencies = {}) {
             }
           } catch {
           }
+        }
+      }
+      if (operation === "table_add" && result?.ok !== true && result?.kind === "not-found" && typeof result?.error === "string" && result.error.includes("Keine freie Tabellenzeile")) {
+        const readArgs = { maxRows: 400 };
+        for (const key of ["sumLabel", "sumOccurrence", "hwnd", "pid"]) {
+          if (configured.args[key] !== void 0) readArgs[key] = configured.args[key];
+        }
+        const configuredRead = configuredArgs("table_read", readArgs, config);
+        const scrolled = await worker("table_read", configuredRead.args, timeoutMs, signal);
+        if (scrolled?.ok === true) {
+          const retried = await worker(operation, configured.args, timeoutMs, signal);
+          return withResourceIdentity4(redactPaths, {
+            ...retried,
+            freeRowSearch: {
+              retriedAfterTableWalk: true,
+              rowsWalked: scrolled.anzahl ?? null
+            }
+          }, configured.resourceRefs);
         }
       }
       return withResourceIdentity4(redactPaths, result, configured.resourceRefs);
@@ -14105,6 +14206,16 @@ var init_result_mutation_fields = __esm({
       grund: OPTIONAL_STRING
     }).passthrough().nullable().optional().describe("Fail-closed Ruecksetzstatus des globalen Suchfelds");
     MUTATION_OPERATION_RESULT_FIELDS = {
+      position_create: {
+        verified: OPTIONAL_BOOLEAN,
+        mutationStarted: OPTIONAL_BOOLEAN,
+        cleanupRequired: OPTIONAL_BOOLEAN,
+        name: OPTIONAL_STRING,
+        page: OPTIONAL_STRING,
+        beforePositions: OPTIONAL_ARRAY,
+        afterPositions: OPTIONAL_ARRAY,
+        rollback: OPTIONAL_OBJECT
+      },
       fill_fields: {
         schemaVersion: OPTIONAL_NON_NEGATIVE_NUMBER,
         planKind: OPTIONAL_STRING,
@@ -14956,7 +15067,7 @@ function createOperationResultSchema(operation) {
 function parseApiOperationResult(operation, value) {
   return SSE_API_RESULT_SCHEMAS[operation].parse(value);
 }
-var SSE_API_RESULT_SCHEMA_VERSION, API_OPERATION_NAME_SCHEMA, OPTIONAL_SUPPORTED_CASE_YEARS, OPTIONAL_CASE_IDENTITY, OPTIONAL_USTVA_PERIOD, OPTIONAL_USTVA_FLAGS, OPTIONAL_USTVA_TRANSMISSION, OPTIONAL_USTVA_READ_EFFECTS, CORE_OPERATION_RESULT_FIELDS, RESULT_FIELD_TABLES, duplicateOperations, OPERATION_RESULT_FIELDS, SSE_API_RESULT_OUTPUT_SCHEMAS, SSE_API_RESULT_SCHEMAS;
+var SSE_API_RESULT_SCHEMA_VERSION, API_OPERATION_NAME_SCHEMA, OPTIONAL_TABLE_ROW_DETAILS, OPTIONAL_SUPPORTED_CASE_YEARS, OPTIONAL_CASE_IDENTITY, OPTIONAL_USTVA_PERIOD, OPTIONAL_USTVA_FLAGS, OPTIONAL_USTVA_TRANSMISSION, OPTIONAL_USTVA_READ_EFFECTS, CORE_OPERATION_RESULT_FIELDS, RESULT_FIELD_TABLES, duplicateOperations, OPERATION_RESULT_FIELDS, SSE_API_RESULT_OUTPUT_SCHEMAS, SSE_API_RESULT_SCHEMAS;
 var init_result_contract = __esm({
   "src/result-contract.ts"() {
     "use strict";
@@ -14968,6 +15079,23 @@ var init_result_contract = __esm({
     init_result_schema_types();
     SSE_API_RESULT_SCHEMA_VERSION = 1;
     API_OPERATION_NAME_SCHEMA = external_exports.enum(SSE_API_OPERATIONS);
+    OPTIONAL_TABLE_ROW_DETAILS = external_exports.array(external_exports.object({
+      rowIndex: external_exports.number().int().nonnegative().describe("Nullbasierter Ausgabezeilenindex"),
+      typedValues: external_exports.array(external_exports.union([external_exports.string(), external_exports.boolean(), external_exports.null()])).describe(
+        "Zellwerte; Checkboxen boolesch, unbestimmte/unbekannte Werte null"
+      ),
+      checkboxStates: external_exports.array(external_exports.enum(["On", "Off", "Indeterminate"]).nullable()).describe(
+        "TogglePattern-Zustand je Spalte, sonst null"
+      ),
+      cellTypes: external_exports.array(external_exports.enum(["text", "boolean", "unknown"])).describe("Semantischer Zelltyp je Spalte"),
+      semanticsComplete: external_exports.boolean().describe("Alle Ausgabezellen gelesen; kein Tabellenendbeweis"),
+      semanticReadErrors: external_exports.array(external_exports.object({
+        column: external_exports.number().int().nonnegative().describe("Nullbasierte Spalte"),
+        error: external_exports.string().describe("Lesefehler")
+      })).describe("Nicht verifizierte Zellen")
+    }).passthrough()).nullable().optional().describe(
+      "Semantische Werte und Leseluecken je Ausgabezeile"
+    );
     OPTIONAL_SUPPORTED_CASE_YEARS = external_exports.record(
       external_exports.string().min(1),
       external_exports.array(external_exports.number().int().nonnegative()).min(1)
@@ -15088,6 +15216,7 @@ var init_result_contract = __esm({
         headers: OPTIONAL_ARRAY,
         rows: OPTIONAL_ARRAY,
         rowCount: OPTIONAL_NON_NEGATIVE_NUMBER,
+        rowDetails: OPTIONAL_TABLE_ROW_DETAILS,
         ausgeschlosseneFenster: OPTIONAL_ARRAY,
         stats: OPTIONAL_OBJECT,
         incomplete: OPTIONAL_BOOLEAN
@@ -15121,6 +15250,7 @@ var init_result_contract = __esm({
       // angegeben wurde.
       table_read: {
         zeilen: OPTIONAL_ARRAY,
+        rowDetails: OPTIONAL_TABLE_ROW_DETAILS,
         vollstaendig: OPTIONAL_BOOLEAN,
         anzahl: OPTIONAL_NON_NEGATIVE_NUMBER,
         summe: OPTIONAL_STRING
@@ -15338,6 +15468,21 @@ var init_result_contract = __esm({
   }
 });
 
+// src/api-control-contract.ts
+var SSE_API_SHUTDOWN_PATH, API_SHUTDOWN_REQUEST_SCHEMA;
+var init_api_control_contract = __esm({
+  "src/api-control-contract.ts"() {
+    "use strict";
+    init_zod();
+    init_api_contract();
+    SSE_API_SHUTDOWN_PATH = `/${SSE_API_VERSION}/control/shutdown`;
+    API_SHUTDOWN_REQUEST_SCHEMA = external_exports.object({
+      confirm: external_exports.literal(true),
+      instanceId: external_exports.string().uuid()
+    }).strict();
+  }
+});
+
 // src/api-discovery.ts
 function createArgumentSchemas() {
   return Object.freeze(Object.fromEntries(
@@ -15393,6 +15538,7 @@ var init_api_discovery = __esm({
     init_operation_catalog();
     init_operation_traits();
     init_result_contract();
+    init_api_control_contract();
     SSE_API_DISCOVERY = Object.freeze({
       schemaVersion: 1,
       apiVersion: SSE_API_VERSION,
@@ -15401,6 +15547,17 @@ var init_api_discovery = __esm({
       resultSchemaVersion: SSE_API_RESULT_SCHEMA_VERSION,
       resultSchemas: createResultSchemas(),
       operationTraits: createOperationTraits(),
+      controls: Object.freeze({
+        shutdown: Object.freeze({
+          method: "POST",
+          path: SSE_API_SHUTDOWN_PATH,
+          instanceHeader: "x-sse-api-instance-id",
+          idleOnly: true,
+          acceptanceStatus: 202,
+          acceptanceProvesProcessExit: false,
+          argumentSchema: zodToJsonSchema(API_SHUTDOWN_REQUEST_SCHEMA, { target: "jsonSchema7", $refStrategy: "none" })
+        })
+      }),
       planning: Object.freeze({
         fallbackStages: SSE_CAPABILITIES.fallbackStages,
         selectors: SSE_CAPABILITIES.selectors,
@@ -15444,6 +15601,7 @@ var init_api_openapi = __esm({
     init_api_contract();
     init_api_discovery();
     init_version();
+    init_api_control_contract();
     schemaName = (operation) => `Args_${operation}`;
     resultSchemaName = (operation) => `Result_${operation}`;
     argumentComponents = Object.freeze(Object.fromEntries(
@@ -15526,7 +15684,7 @@ var init_api_openapi = __esm({
               },
               responses: {
                 "200": {
-                  description: "Strukturiertes lokales Operationsergebnis",
+                  description: "Operationsergebnis",
                   content: {
                     "application/json": {
                       schema: {
@@ -15566,6 +15724,48 @@ var init_api_openapi = __esm({
       },
       servers: [{ url: "/", description: "Aktueller lokaler API-Server" }],
       paths: Object.freeze({
+        [SSE_API_SHUTDOWN_PATH]: {
+          post: {
+            operationId: "shutdown_api",
+            summary: "Auftragsfreie gebundene API beenden; SSE und Steuerfaelle bleiben offen",
+            tags: ["lifecycle"],
+            parameters: [{
+              name: "x-sse-api-instance-id",
+              in: "header",
+              required: true,
+              schema: { type: "string", format: "uuid" },
+              description: "Exakte instanceId aus /healthz; muss auch im Anfragekoerper stehen."
+            }],
+            requestBody: {
+              required: true,
+              content: { "application/json": { schema: SSE_API_DISCOVERY.controls.shutdown.argumentSchema } }
+            },
+            responses: {
+              "202": {
+                description: "Stopp angenommen. Dies beweist noch kein Prozessende; verlorene Antworten nicht wiederholen.",
+                content: { "application/json": { schema: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["apiVersion", "requestId", "accepted", "instanceId", "processId", "processExited"],
+                  properties: {
+                    apiVersion: { const: SSE_API_VERSION },
+                    requestId: { type: "string", format: "uuid" },
+                    accepted: { const: true },
+                    instanceId: { type: "string", format: "uuid" },
+                    processId: { type: "integer", minimum: 1, maximum: 4294967295 },
+                    processExited: { const: false }
+                  }
+                } } }
+              },
+              "400": { $ref: "#/components/responses/ApiError" },
+              "403": { $ref: "#/components/responses/ApiError" },
+              "409": { $ref: "#/components/responses/ApiError" },
+              "413": { $ref: "#/components/responses/ApiError" },
+              "415": { $ref: "#/components/responses/ApiError" },
+              "503": { $ref: "#/components/responses/ApiError" }
+            }
+          }
+        },
         "/healthz": {
           get: {
             operationId: "healthz",
@@ -15821,6 +16021,7 @@ var init_api_supervisor_contract = __esm({
 
 // src/api-server.ts
 import { randomUUID as randomUUID3 } from "node:crypto";
+import { performance as performance10 } from "node:perf_hooks";
 import {
   createServer
 } from "node:http";
@@ -15928,11 +16129,16 @@ function parseOperationRequest(value) {
   };
 }
 function createSseApiServer(options) {
-  const { execute } = options;
+  const { execute, requestShutdown } = options;
   const instanceId = options.instanceId ?? randomUUID3();
   const log = options.log ?? (() => void 0);
   let inFlight = null;
-  const inFlightSnapshot = (now = Date.now()) => inFlight ? { ...inFlight, elapsedMs: now - inFlight.startedAt } : null;
+  let stopping = false;
+  const inFlightSnapshot = () => {
+    if (!inFlight) return null;
+    const { startedMonotonic, ...publicState } = inFlight;
+    return { ...publicState, elapsedMs: Math.round(performance10.now() - startedMonotonic) };
+  };
   const safeLog = (record) => {
     try {
       log(record);
@@ -15941,7 +16147,7 @@ function createSseApiServer(options) {
   };
   const server = createServer(async (request, response) => {
     const requestId = randomUUID3();
-    const started = Date.now();
+    const started = performance10.now();
     const foreignClient = foreignClientReason(request);
     if (foreignClient) {
       sendJson(response, 403, apiError(requestId, "forbidden", foreignClient));
@@ -15979,6 +16185,60 @@ function createSseApiServer(options) {
     }
     if (request.method === "GET" && url.pathname === `/${SSE_API_VERSION}/openapi.json`) {
       sendJsonBytes(response, 200, SSE_OPENAPI_BYTES);
+      return;
+    }
+    if (url.pathname === SSE_API_SHUTDOWN_PATH) {
+      if (request.method !== "POST") {
+        sendJson(response, 405, apiError(requestId, "method-not-allowed", "Shutdown verlangt POST."), { allow: "POST" });
+        return;
+      }
+      if (request.headers[SSE_API_INSTANCE_HEADER] !== instanceId) {
+        sendJson(response, 409, apiError(requestId, "api-instance-mismatch", "Shutdown verlangt die exakte API-Instanzkennung."));
+        return;
+      }
+      if (!hasJsonContentType(request)) {
+        sendJson(response, 415, apiError(requestId, "unsupported-media-type", "Shutdown verlangt application/json."));
+        return;
+      }
+      try {
+        const body = API_SHUTDOWN_REQUEST_SCHEMA.parse(await readJson(request));
+        if (body.instanceId !== instanceId) {
+          throw new ApiRequestError("Shutdown-Instanz stimmt nicht mit der laufenden API ueberein.", 409, "api-instance-mismatch");
+        }
+        if (!requestShutdown) {
+          throw new ApiRequestError("Diese API besitzt keinen kontrollierten Shutdown-Pfad.", 503, "shutdown-unavailable");
+        }
+        if (stopping) throw new ApiRequestError("Der API-Stopp wurde bereits angenommen.", 409, "api-stopping");
+        const running = inFlightSnapshot();
+        if (running) {
+          sendJson(response, 409, {
+            ...apiError(requestId, "busy", "Ein Auftrag laeuft; die API wird nicht beendet. Auf dessen Ergebnis warten."),
+            inFlight: running
+          });
+          return;
+        }
+        if (response.destroyed) return;
+        stopping = true;
+        const outcome = sendJson(response, 202, {
+          apiVersion: SSE_API_VERSION,
+          requestId,
+          accepted: true,
+          instanceId,
+          processId: process.pid,
+          processExited: false
+        });
+        safeLog({ event: "shutdown-accepted", requestId, instanceId, delivered: outcome === "sent" });
+        setImmediate(() => {
+          try {
+            requestShutdown();
+          } catch (error) {
+            safeLog({ event: "shutdown-failed", requestId, errorName: error instanceof Error ? error.name : "Error" });
+          }
+        });
+      } catch (error) {
+        const failure = error instanceof ApiRequestError ? error : error instanceof SyntaxError || error instanceof ZodError ? new ApiRequestError("Shutdown verlangt genau confirm=true und eine gueltige instanceId.") : new ApiRequestError("Shutdown-Anfrage konnte nicht sicher gelesen werden.");
+        sendJson(response, failure.status, apiError(requestId, failure.code, failure.message));
+      }
       return;
     }
     const match = new RegExp(`^/${SSE_API_VERSION}/operations/([a-z_]+)$`).exec(url.pathname);
@@ -16046,6 +16306,9 @@ function createSseApiServer(options) {
         }
         throw error;
       }
+      if (stopping) {
+        throw new ApiRequestError("Die API wird beendet und nimmt keine neuen Auftraege an.", 409, "api-stopping");
+      }
       const running = inFlightSnapshot();
       if (running) {
         sendJson(response, 409, {
@@ -16058,7 +16321,7 @@ function createSseApiServer(options) {
         });
         return;
       }
-      inFlight = { operation: operationName, requestId, startedAt: Date.now() };
+      inFlight = { operation: operationName, requestId, startedAt: Date.now(), startedMonotonic: performance10.now() };
       let rawResult;
       try {
         rawResult = await execute(operationName, args, body.timeoutMs, controller.signal);
@@ -16087,7 +16350,7 @@ function createSseApiServer(options) {
         apiVersion: SSE_API_VERSION,
         requestId,
         operation: operationName,
-        durationMs: Date.now() - started,
+        durationMs: Math.round(performance10.now() - started),
         result
       };
       const operationLog = {
@@ -16128,7 +16391,7 @@ function createSseApiServer(options) {
         event: "operation-error",
         requestId,
         operation: operationName,
-        durationMs: Date.now() - started,
+        durationMs: Math.round(performance10.now() - started),
         code,
         errorName: error instanceof Error ? error.name : "Error"
       });
@@ -16181,6 +16444,7 @@ var init_api_server = __esm({
     init_result_contract();
     init_version();
     init_api_supervisor_contract();
+    init_api_control_contract();
     SSE_API_DISCOVERY_BYTES = serializeStaticApiDocument("API-Discovery", SSE_API_DISCOVERY);
     SSE_OPENAPI_BYTES = serializeStaticApiDocument("OpenAPI-Dokument", SSE_OPENAPI_DOCUMENT);
     ApiRequestError = class extends Error {
@@ -16395,7 +16659,7 @@ function startWarmSpare() {
       { windowsHide: true }
     );
   } catch (error) {
-    blockedUntil = Date.now() + PREWARM_RETRY_DELAY_MS;
+    blockedUntil = performance.now() + PREWARM_RETRY_DELAY_MS;
     failureReason = `Reservearbeiter liess sich nicht starten: ${String(error)}`;
     return false;
   }
@@ -16429,7 +16693,7 @@ function startWarmSpare() {
     if (newline < 0) {
       if (handshake.length > MAX_HANDSHAKE_BYTES) {
         handshakeDone = true;
-        blockedUntil = Date.now() + PREWARM_RETRY_DELAY_MS;
+        blockedUntil = performance.now() + PREWARM_RETRY_DELAY_MS;
         discard(candidate, "Reservearbeiter meldete keine gueltige Bereitschaftszeile.");
       }
       return;
@@ -16451,7 +16715,7 @@ function startWarmSpare() {
     }
     const ready = Boolean(announcement) && typeof announcement === "object" && announcement.prewarm === "ready";
     if (!ready) {
-      blockedUntil = Date.now() + PREWARM_RETRY_DELAY_MS;
+      blockedUntil = performance.now() + PREWARM_RETRY_DELAY_MS;
       discard(candidate, `Reservearbeiter meldete statt Bereitschaft: ${line.slice(0, 400)}`);
       return;
     }
@@ -16463,7 +16727,7 @@ function startWarmSpare() {
   };
   const onExit = () => {
     clearStartupTimer();
-    blockedUntil = Date.now() + PREWARM_RETRY_DELAY_MS;
+    blockedUntil = performance.now() + PREWARM_RETRY_DELAY_MS;
     const diagnostic = stderrText.trim().slice(0, 400);
     discard(
       candidate,
@@ -16472,7 +16736,7 @@ function startWarmSpare() {
   };
   const onError = (error) => {
     clearStartupTimer();
-    blockedUntil = Date.now() + PREWARM_RETRY_DELAY_MS;
+    blockedUntil = performance.now() + PREWARM_RETRY_DELAY_MS;
     discard(candidate, `Reservearbeiter meldete einen Prozessfehler: ${error.message}`);
   };
   candidate.release = () => {
@@ -16485,7 +16749,7 @@ function startWarmSpare() {
   startupTimer = setTimeout(() => {
     if (handshakeDone || candidate.discarded) return;
     handshakeDone = true;
-    blockedUntil = Date.now() + PREWARM_RETRY_DELAY_MS;
+    blockedUntil = performance.now() + PREWARM_RETRY_DELAY_MS;
     const diagnostic = stderrText.trim().slice(0, 400);
     discard(
       candidate,
@@ -16502,7 +16766,7 @@ function startWarmSpare() {
 }
 function ensureWarmSpare() {
   if (!enabled || PREWARM_DISABLED || shuttingDown) return;
-  if (Date.now() < blockedUntil) return;
+  if (performance.now() < blockedUntil) return;
   while (spares.length < PREWARM_POOL_SIZE) {
     if (!startWarmSpare()) break;
   }
@@ -17238,13 +17502,15 @@ async function runApiRuntime(configPath, overrides = {}) {
   const logPath = join14(logDir, "api.jsonl");
   const maxLogBytes = 5 * 1024 * 1024;
   const { log } = createRotatingJsonlLogger({ logPath, maxBytes: maxLogBytes });
+  let lifecycle;
   const server = createSseApiServer({
     execute,
     log,
+    requestShutdown: () => lifecycle.requestShutdown(),
     configurationFingerprint: configIdentity,
     prewarmStatus: () => ({ ready: isWarmSpareReady(), failure: lastPrewarmFailure(), poolTarget: warmSparePoolStatus().target })
   });
-  installApiShutdown(server, shutdown, log);
+  lifecycle = installApiShutdown(server, shutdown, log);
   await listenSseApiServer(server, config.host, config.port);
   shutdown.signal.addEventListener("abort", shutdownWarmSpare, { once: true });
   enableWorkerPrewarm();

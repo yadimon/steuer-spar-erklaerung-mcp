@@ -30,16 +30,20 @@ export { SSE_MCP_TOOL_SCHEMAS } from "./mcp-operation-schemas.js";
 export type SseMcpToolName = keyof typeof SSE_MCP_TOOL_SCHEMAS;
 
 /**
- * MCP-Werkzeuge, die mehrere read-only API-Wahrheiten zu genau einer
- * Orientierung zusammenfassen. Sie bleiben getrennt vom direkten Mapping,
- * damit der Katalog keine erfundene 1:1-API-Operation behauptet.
+ * Bündelt read-only API-Operationen zur Orientierung; bleibt vom direkten
+ * Mapping getrennt, um keine erfundene 1:1-Operation zu behaupten.
  */
 export const SSE_MCP_COMPOSED_TOOL_OPERATIONS = {
   "sse_preflight": ["workspace_status", "product_info", "health"],
 } as const satisfies Partial<Record<SseMcpToolName, readonly SseApiOperation[]>>;
 
 export type SseMcpComposedToolName = keyof typeof SSE_MCP_COMPOSED_TOOL_OPERATIONS;
-export type SseMcpDirectToolName = Exclude<SseMcpToolName, SseMcpComposedToolName>;
+/** API-/Supervisor-Lebenszyklus, ohne erfundene Worker-Basisoperation. */
+export const SSE_MCP_CONTROL_TOOL_ACTIONS = {
+  sse_api_control: ["status", "shutdown", "start"],
+} as const satisfies Partial<Record<SseMcpToolName, readonly string[]>>;
+export type SseMcpControlToolName = keyof typeof SSE_MCP_CONTROL_TOOL_ACTIONS;
+export type SseMcpDirectToolName = Exclude<SseMcpToolName, SseMcpComposedToolName | SseMcpControlToolName>;
 
 export const SSE_MCP_TOOL_OPERATIONS = {
   "sse_product_info": "product_info",
@@ -84,6 +88,7 @@ export const SSE_MCP_TOOL_OPERATIONS = {
   "sse_desktop_status": "desktop_status",
   "sse_page": "page",
   "sse_positions": "positions",
+  "sse_position_create": "position_create",
   "sse_export_csv": "export_csv",
   "sse_collect": "collect",
   "sse_verify": "verify",
@@ -118,6 +123,7 @@ export const SSE_MCP_TOOL_OPERATIONS = {
   "sse_find": "find",
   "sse_get_value": "get_value",
   "sse_click": "click",
+  "sse_tax_knowledge_search": "tax_knowledge_search",
   "sse_toggle": "toggle",
   "sse_click_point": "click_point",
   "sse_set_value": "set_value",
@@ -374,6 +380,10 @@ schemasByOperation.scenario_run = z.object({
 }).strict();
 
 schemasByOperation.case_hash = withLegacyAlias(SSE_MCP_TOOL_SCHEMAS.sse_case_hash, "ref", "path");
+schemasByOperation.position_create = withLegacyAliases(
+  SSE_MCP_TOOL_SCHEMAS.sse_position_create,
+  [["expectedCaseRef", "expectedCasePath"], ["backupRef", "backupPath"]],
+);
 schemasByOperation.center_refresh = z.object({
   ...SSE_MCP_TOOL_SCHEMAS.sse_center_refresh.shape,
   expectedDirectory: API_LOCAL_PATH.optional(),

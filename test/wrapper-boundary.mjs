@@ -5,6 +5,7 @@ import { SSE_API_OPERATIONS } from "../dist/api-contract.js";
 import {
   SSE_MCP_COMPOSITION_ONLY_OPERATIONS,
   SSE_MCP_COMPOSED_TOOL_OPERATIONS,
+  SSE_MCP_CONTROL_TOOL_ACTIONS,
   SSE_MCP_TOOL_OPERATIONS,
   SSE_MCP_TOOL_SCHEMAS,
 } from "../dist/operation-catalog.js";
@@ -105,9 +106,9 @@ assert.deepEqual(
 
 const toolNames = Object.keys(SSE_MCP_TOOL_SCHEMAS).sort();
 assert.deepEqual(
-  [...Object.keys(SSE_MCP_TOOL_OPERATIONS), ...Object.keys(SSE_MCP_COMPOSED_TOOL_OPERATIONS)].sort(),
+  [...Object.keys(SSE_MCP_TOOL_OPERATIONS), ...Object.keys(SSE_MCP_COMPOSED_TOOL_OPERATIONS), ...Object.keys(SSE_MCP_CONTROL_TOOL_ACTIONS)].sort(),
   toolNames,
-  "Jedes MCP-Schema braucht genau ein direktes oder komponiertes API-Mapping.",
+  "Jedes MCP-Schema braucht genau ein direktes, komponiertes oder Lebenszyklus-Mapping.",
 );
 assert(toolNames.length >= 85, `Zu wenige MCP-Werkzeuge gefunden: ${toolNames.length}`);
 const documentedToolReferences = [...new Set(mcpSourceText.match(/\bsse_[a-z_]+\b/g) ?? [])].sort();

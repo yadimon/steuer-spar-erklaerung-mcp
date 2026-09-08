@@ -113,6 +113,7 @@ var init_api_contract = __esm({
       "page",
       "page_objects",
       "positions",
+      "position_create",
       "product_info",
       "read_full",
       "read_page",
@@ -142,6 +143,7 @@ var init_api_contract = __esm({
       "table_delete",
       "table_read",
       "table_update",
+      "tax_knowledge_search",
       "toggle",
       "tracked_set_value",
       "tree_scroll",
@@ -4574,6 +4576,13 @@ var init_mcp_schemas_analysis = __esm({
         name: external_exports.string().min(1).describe("Exakter Text aus sse_checker_results"),
         hwnd: WINDOW_HANDLE.optional()
       }).strict(),
+      "sse_tax_knowledge_search": external_exports.object({
+        begriff: external_exports.string().min(2).max(80).describe("Suchbegriff, 2 bis 80 Zeichen"),
+        mindestLaenge: external_exports.number().int().min(20).max(400).optional().describe(
+          "Mindestlaenge eines zusammengefuegten Abschnitts; Vorgabe 60, trennt Fliesstext von Menuebeschriftungen. Gemessen wird der ganze Absatz, nicht der einzelne Textknoten - die Trefferhervorhebung zerlegt den Suchbegriff sonst in Bruchstuecke, die durchfallen"
+        ),
+        maxAbschnitte: external_exports.number().int().min(1).max(40).optional().describe("Hoechstzahl der Abschnitte; Vorgabe 12")
+      }).strict(),
       "sse_checker_close": external_exports.object({
         hwnd: WINDOW_HANDLE.optional(),
         waitMs: external_exports.number().int().min(300).max(3e3).optional().describe("Wartezeit auf den unveraenderten Seiten-Readback")
@@ -4608,6 +4617,17 @@ var init_mcp_schemas_desktop = __esm({
       "sse_positions": external_exports.object({
         aktion: external_exports.literal("list").optional().describe("Vorgabe und einzig zugelassene Aktion: 'list'"),
         hwnd: WINDOW_HANDLE.optional()
+      }).strict(),
+      "sse_position_create": external_exports.object({
+        hwnd: WINDOW_HANDLE,
+        expectedCaseRef: CASE_REF(),
+        expectedCaseHash: SHA256(),
+        backupRef: BACKUP_REF().describe("Bytegleiche Sicherung des aktuellen Disk-Stands"),
+        name: external_exports.string().min(1).max(80).regex(/^[^\r\n\t»«<>]+$/).refine((value) => value === value.trim(), "Keine Rand-Leerzeichen").describe("Eindeutige Bezeichnung der neu anzulegenden Einnahmenposition"),
+        expectedPositions: external_exports.array(external_exports.object({
+          name: external_exports.string().min(1).max(80).describe("Exakter Name einer vorhandenen Position"),
+          net: external_exports.string().regex(/^-?(?:\d{1,3}(?:\.\d{3})*|\d+),\d{2}$/).describe("Exakt angezeigte Nettosumme, beispielsweise 100,00")
+        }).strict()).max(50).describe("Alle vorhandenen Positionen und exakten Nettosummen der sichtbaren Übersicht")
       }).strict(),
       "sse_export_csv": external_exports.object({
         resultRef: RESULT_REF().optional().describe("Neuer oder vorhandener leerer Ergebnisordner fuer den CSV-Export"),
@@ -5362,13 +5382,15 @@ var init_mcp_schemas_ui = __esm({
       "sse_table_add": external_exports.object({
         expectedPage: external_exports.string().describe("Exakte aktuelle Seitenueberschrift"),
         werte: external_exports.array(external_exports.string()).min(1).max(SSE_OPERATION_LIMITS.tableValues).describe(
-          "Werte in Spaltenreihenfolge, maximal 100 Spalten; eine im Produktprofil typisierte ComboBox wird auch als UIA-DataItem nur ueber eine exakt popupgebundene SelectionItem-Option gesetzt, niemals per ValuePattern-Text"
+          "Werte in Spaltenreihenfolge ab der ERSTEN Spalte, maximal 100 Spalten. Die Reihenfolge steht in 'kopf' von sse_table_read; fuehrende Spalten wie eine automatische 'Nr.' bleiben leer ('') und duerfen nicht weggelassen werden - sonst rutscht jeder Wert eine Spalte nach links. Eine im Produktprofil typisierte ComboBox wird auch als UIA-DataItem nur ueber eine exakt popupgebundene SelectionItem-Option gesetzt, niemals per ValuePattern-Text"
         ),
         comboExpectedBefore: TABLE_COMBO_EXPECTED_BEFORE.optional(),
         sumLabel: external_exports.string().describe("Beschriftung der eindeutigen Kontrollsumme"),
         sumOccurrence: UI_OCCURRENCE.optional().describe("1-basierte Position bei mehrfacher Summenbeschriftung; Vorgabe 1"),
         expectedBefore: external_exports.string().describe("Exakter Summenwert vor dem Anlegen"),
-        expectedAfter: external_exports.string().describe("Exakter Summenwert nach dem Anlegen"),
+        expectedAfter: external_exports.string().optional().describe(
+          "Optional: exakter Summenwert nach dem Anlegen. Ohne diese Angabe genuegt, dass die Kontrollsumme sich bewegt hat - sie bindet die Zeile an die richtige Tabelle, und jede Zelle wird ohnehin einzeln zurueckgelesen. Die Vorhersage verlangt, SSEs Rechnung nachzubilden: Die Seitensumme addiert netto, nicht brutto. Wer sie liefert, wird strenger geprueft"
+        ),
         hwnd: WINDOW_HANDLE.optional()
       }).strict(),
       "sse_table_update": external_exports.object({
@@ -5481,6 +5503,42 @@ var init_mcp_schemas_ui = __esm({
   }
 });
 
+// src/mcp-schemas-api-control.ts
+function parseApiControlRequest(value) {
+  return validatedRequest.parse(value);
+}
+var SSE_MCP_API_CONTROL_SCHEMAS, validatedRequest, SSE_MCP_API_CONTROL_OUTPUT_SCHEMA;
+var init_mcp_schemas_api_control = __esm({
+  "src/mcp-schemas-api-control.ts"() {
+    "use strict";
+    init_zod();
+    SSE_MCP_API_CONTROL_SCHEMAS = {
+      sse_api_control: external_exports.object({
+        action: external_exports.enum(["status", "shutdown", "start"]).describe("Status lesen, API stoppen oder ausdruecklich erneut starten."),
+        confirm: external_exports.literal(true).optional().describe("Fuer shutdown/start ausdruecklich true; bei status weglassen."),
+        instanceId: external_exports.string().uuid().optional().describe("Fuer shutdown/start die zuletzt gelesene gebundene API-Instanz; bei status weglassen.")
+      }).strict()
+    };
+    validatedRequest = SSE_MCP_API_CONTROL_SCHEMAS.sse_api_control.superRefine((value, context) => {
+      if (value.action === "status") {
+        if (value.confirm !== void 0 || value.instanceId !== void 0) {
+          context.addIssue({ code: external_exports.ZodIssueCode.custom, message: "status akzeptiert ausschliesslich action." });
+        }
+      } else if (value.confirm !== true || !value.instanceId) {
+        context.addIssue({ code: external_exports.ZodIssueCode.custom, message: "shutdown und start verlangen confirm=true und die zuletzt gelesene instanceId." });
+      }
+    });
+    SSE_MCP_API_CONTROL_OUTPUT_SCHEMA = external_exports.object({
+      ok: external_exports.boolean(),
+      state: external_exports.enum(["running", "stopping", "stopped", "starting", "unknown"]).optional(),
+      instanceId: external_exports.string().uuid().optional(),
+      processId: external_exports.number().int().positive().optional(),
+      accepted: external_exports.boolean().nullable().optional(),
+      processExited: external_exports.boolean().optional()
+    }).passthrough();
+  }
+});
+
 // src/mcp-operation-schemas.ts
 var SSE_MCP_TOOL_SCHEMAS;
 var init_mcp_operation_schemas = __esm({
@@ -5493,6 +5551,7 @@ var init_mcp_operation_schemas = __esm({
     init_mcp_schemas_lifecycle();
     init_mcp_schemas_receipts();
     init_mcp_schemas_ui();
+    init_mcp_schemas_api_control();
     SSE_MCP_TOOL_SCHEMAS = {
       ...SSE_MCP_DIAGNOSTIC_SCHEMAS,
       ...SSE_MCP_ANALYSIS_SCHEMAS,
@@ -5500,7 +5559,8 @@ var init_mcp_operation_schemas = __esm({
       ...SSE_MCP_UI_SCHEMAS,
       ...SSE_MCP_RECEIPT_SCHEMAS,
       ...SSE_MCP_INTERACTION_SCHEMAS,
-      ...SSE_MCP_LIFECYCLE_SCHEMAS
+      ...SSE_MCP_LIFECYCLE_SCHEMAS,
+      ...SSE_MCP_API_CONTROL_SCHEMAS
     };
   }
 });
@@ -5758,6 +5818,7 @@ var init_operation_catalog = __esm({
       "sse_desktop_status": "desktop_status",
       "sse_page": "page",
       "sse_positions": "positions",
+      "sse_position_create": "position_create",
       "sse_export_csv": "export_csv",
       "sse_collect": "collect",
       "sse_verify": "verify",
@@ -5792,6 +5853,7 @@ var init_operation_catalog = __esm({
       "sse_find": "find",
       "sse_get_value": "get_value",
       "sse_click": "click",
+      "sse_tax_knowledge_search": "tax_knowledge_search",
       "sse_toggle": "toggle",
       "sse_click_point": "click_point",
       "sse_set_value": "set_value",
@@ -5944,6 +6006,10 @@ var init_operation_catalog = __esm({
       resultRef: external_exports.union([RESULT_REF(), BARE_RESOURCE_REF()]).optional().describe("Neue Ergebnisreferenz unter results: oder relativer Ergebnispfad")
     }).strict();
     schemasByOperation.case_hash = withLegacyAlias(SSE_MCP_TOOL_SCHEMAS.sse_case_hash, "ref", "path");
+    schemasByOperation.position_create = withLegacyAliases(
+      SSE_MCP_TOOL_SCHEMAS.sse_position_create,
+      [["expectedCaseRef", "expectedCasePath"], ["backupRef", "backupPath"]]
+    );
     schemasByOperation.center_refresh = external_exports.object({
       ...SSE_MCP_TOOL_SCHEMAS.sse_center_refresh.shape,
       expectedDirectory: API_LOCAL_PATH.optional()
@@ -6141,6 +6207,16 @@ var init_result_mutation_fields = __esm({
       grund: OPTIONAL_STRING
     }).passthrough().nullable().optional().describe("Fail-closed Ruecksetzstatus des globalen Suchfelds");
     MUTATION_OPERATION_RESULT_FIELDS = {
+      position_create: {
+        verified: OPTIONAL_BOOLEAN,
+        mutationStarted: OPTIONAL_BOOLEAN,
+        cleanupRequired: OPTIONAL_BOOLEAN,
+        name: OPTIONAL_STRING,
+        page: OPTIONAL_STRING,
+        beforePositions: OPTIONAL_ARRAY,
+        afterPositions: OPTIONAL_ARRAY,
+        rollback: OPTIONAL_OBJECT
+      },
       fill_fields: {
         schemaVersion: OPTIONAL_NON_NEGATIVE_NUMBER,
         planKind: OPTIONAL_STRING,
@@ -6944,7 +7020,17 @@ var init_operation_live_evidence = __esm({
       ]
     );
     SSE_LIVE_UNTESTED_OPERATIONS = Object.freeze(
-      []
+      [
+        // Die Gruppenanlage hat noch keinen automatisierten Live-Suiteschritt.
+        "position_create",
+        // Die Operation ist gegen das laufende Programm ausgefuehrt worden und
+        // hat Artikeltext geliefert. Was ihr fehlt, ist ein Suiteschritt, der das
+        // selbst protokolliert: Sie braucht den sichtbaren Desktop und holt ein
+        // zweites Programmfenster in den Vordergrund, was mitten in einem
+        // parallelen Lauf andere Schritte stoert. Diese Bilanz zaehlt nur, was
+        // ein Suitelauf belegt - deshalb steht sie hier.
+        "tax_knowledge_search"
+      ]
     );
     untested = new Set(SSE_LIVE_UNTESTED_OPERATIONS);
     errorPathOnly = new Set(SSE_LIVE_ERROR_PATH_ONLY_OPERATIONS);
@@ -7057,7 +7143,7 @@ function createOperationResultSchema(operation) {
 function parseApiOperationResult(operation, value) {
   return SSE_API_RESULT_SCHEMAS[operation].parse(value);
 }
-var SSE_API_RESULT_SCHEMA_VERSION, API_OPERATION_NAME_SCHEMA, OPTIONAL_SUPPORTED_CASE_YEARS, OPTIONAL_CASE_IDENTITY, OPTIONAL_USTVA_PERIOD, OPTIONAL_USTVA_FLAGS, OPTIONAL_USTVA_TRANSMISSION, OPTIONAL_USTVA_READ_EFFECTS, CORE_OPERATION_RESULT_FIELDS, RESULT_FIELD_TABLES, duplicateOperations, OPERATION_RESULT_FIELDS, SSE_API_RESULT_OUTPUT_SCHEMAS, SSE_API_RESULT_SCHEMAS;
+var SSE_API_RESULT_SCHEMA_VERSION, API_OPERATION_NAME_SCHEMA, OPTIONAL_TABLE_ROW_DETAILS, OPTIONAL_SUPPORTED_CASE_YEARS, OPTIONAL_CASE_IDENTITY, OPTIONAL_USTVA_PERIOD, OPTIONAL_USTVA_FLAGS, OPTIONAL_USTVA_TRANSMISSION, OPTIONAL_USTVA_READ_EFFECTS, CORE_OPERATION_RESULT_FIELDS, RESULT_FIELD_TABLES, duplicateOperations, OPERATION_RESULT_FIELDS, SSE_API_RESULT_OUTPUT_SCHEMAS, SSE_API_RESULT_SCHEMAS;
 var init_result_contract = __esm({
   "src/result-contract.ts"() {
     "use strict";
@@ -7069,6 +7155,23 @@ var init_result_contract = __esm({
     init_result_schema_types();
     SSE_API_RESULT_SCHEMA_VERSION = 1;
     API_OPERATION_NAME_SCHEMA = external_exports.enum(SSE_API_OPERATIONS);
+    OPTIONAL_TABLE_ROW_DETAILS = external_exports.array(external_exports.object({
+      rowIndex: external_exports.number().int().nonnegative().describe("Nullbasierter Ausgabezeilenindex"),
+      typedValues: external_exports.array(external_exports.union([external_exports.string(), external_exports.boolean(), external_exports.null()])).describe(
+        "Zellwerte; Checkboxen boolesch, unbestimmte/unbekannte Werte null"
+      ),
+      checkboxStates: external_exports.array(external_exports.enum(["On", "Off", "Indeterminate"]).nullable()).describe(
+        "TogglePattern-Zustand je Spalte, sonst null"
+      ),
+      cellTypes: external_exports.array(external_exports.enum(["text", "boolean", "unknown"])).describe("Semantischer Zelltyp je Spalte"),
+      semanticsComplete: external_exports.boolean().describe("Alle Ausgabezellen gelesen; kein Tabellenendbeweis"),
+      semanticReadErrors: external_exports.array(external_exports.object({
+        column: external_exports.number().int().nonnegative().describe("Nullbasierte Spalte"),
+        error: external_exports.string().describe("Lesefehler")
+      })).describe("Nicht verifizierte Zellen")
+    }).passthrough()).nullable().optional().describe(
+      "Semantische Werte und Leseluecken je Ausgabezeile"
+    );
     OPTIONAL_SUPPORTED_CASE_YEARS = external_exports.record(
       external_exports.string().min(1),
       external_exports.array(external_exports.number().int().nonnegative()).min(1)
@@ -7189,6 +7292,7 @@ var init_result_contract = __esm({
         headers: OPTIONAL_ARRAY,
         rows: OPTIONAL_ARRAY,
         rowCount: OPTIONAL_NON_NEGATIVE_NUMBER,
+        rowDetails: OPTIONAL_TABLE_ROW_DETAILS,
         ausgeschlosseneFenster: OPTIONAL_ARRAY,
         stats: OPTIONAL_OBJECT,
         incomplete: OPTIONAL_BOOLEAN
@@ -7222,6 +7326,7 @@ var init_result_contract = __esm({
       // angegeben wurde.
       table_read: {
         zeilen: OPTIONAL_ARRAY,
+        rowDetails: OPTIONAL_TABLE_ROW_DETAILS,
         vollstaendig: OPTIONAL_BOOLEAN,
         anzahl: OPTIONAL_NON_NEGATIVE_NUMBER,
         summe: OPTIONAL_STRING
@@ -7454,7 +7559,7 @@ var init_version = __esm({
     SSE_PACKAGE_NAME = "steuer-spar-erklaerung-mcp";
     SSE_API_PACKAGE_NAME = "@yadimon/steuer-spar-erklaerung-api";
     SSE_PLUGIN_NAME = "steuer-spar-erklaerung";
-    SSE_PACKAGE_VERSION = "0.1.0-beta.43";
+    SSE_PACKAGE_VERSION = "0.1.0-beta.44";
   }
 });
 
@@ -7473,9 +7578,12 @@ var init_api_supervisor_contract = __esm({
 var api_client_exports = {};
 __export(api_client_exports, {
   ApiClientError: () => ApiClientError,
+  apiResponseError: () => apiResponseError,
   asArray: () => asArray,
   callApiOperation: () => callApiOperation,
   callApiOperationEnvelope: () => callApiOperationEnvelope,
+  clientSettings: () => clientSettings,
+  hasValidErrorEnvelope: () => hasValidErrorEnvelope,
   readApiDiscovery: () => readApiDiscovery,
   readApiHealthz: () => readApiHealthz,
   readApiJsonResponse: () => readApiJsonResponse,
@@ -7715,7 +7823,8 @@ async function readOpenApiDocument(options = {}) {
   const schemas = isRecord(components.schemas) ? components.schemas : {};
   const operationPaths = SSE_API_OPERATIONS.map((operation) => `/${SSE_API_VERSION}/operations/${operation}`);
   const metadataPaths = ["/healthz", `/${SSE_API_VERSION}/operations`, `/${SSE_API_VERSION}/openapi.json`];
-  const exactPaths = Object.keys(paths).length === operationPaths.length + metadataPaths.length && operationPaths.every((path) => {
+  const control = paths[`/${SSE_API_VERSION}/control/shutdown`];
+  const exactPaths = Object.keys(paths).length === operationPaths.length + metadataPaths.length + 1 && isRecord(control) && isRecord(control.post) && !Object.hasOwn(control, "get") && operationPaths.every((path) => {
     const pathItem = paths[path];
     return isRecord(pathItem) && isRecord(pathItem.get) && isRecord(pathItem.post);
   }) && metadataPaths.every((path) => {
@@ -8064,6 +8173,81 @@ var init_api_config_file = __esm({
   }
 });
 
+// src/api-control-contract.ts
+var SSE_API_SHUTDOWN_PATH, API_SHUTDOWN_REQUEST_SCHEMA;
+var init_api_control_contract = __esm({
+  "src/api-control-contract.ts"() {
+    "use strict";
+    init_zod();
+    init_api_contract();
+    SSE_API_SHUTDOWN_PATH = `/${SSE_API_VERSION}/control/shutdown`;
+    API_SHUTDOWN_REQUEST_SCHEMA = external_exports.object({
+      confirm: external_exports.literal(true),
+      instanceId: external_exports.string().uuid()
+    }).strict();
+  }
+});
+
+// src/api-control-client.ts
+function isRecord2(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+async function requestApiShutdown(request2, options = {}) {
+  const parsed = API_SHUTDOWN_REQUEST_SCHEMA.safeParse(request2);
+  if (!parsed.success) throw new ApiClientError("Shutdown verlangt confirm=true und die exakte instanceId.", "bad-args");
+  const settings = clientSettings(options);
+  if (settings.expectedInstanceId !== request2.instanceId) {
+    throw new ApiClientError("Shutdown verlangt dieselbe Instanzkennung aus der vorherigen Health-Bindung.", "api-instance-mismatch");
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5e3);
+  try {
+    const { response, payload } = await withCombinedAbortSignal([controller.signal, settings.signal], async (signal) => {
+      const response2 = await settings.fetchImpl(`${settings.baseUrl}${SSE_API_SHUTDOWN_PATH}`, {
+        method: "POST",
+        redirect: "error",
+        signal,
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json",
+          [SSE_API_INSTANCE_HEADER]: request2.instanceId
+        },
+        body: JSON.stringify(parsed.data)
+      });
+      return { response: response2, payload: await readApiJsonResponse(response2, 16 * 1024) };
+    });
+    if (!isRecord2(payload)) throw new ApiClientError("Shutdown-Antwort ist kein JSON-Objekt.", "protocol");
+    if (!response.ok) {
+      if (!hasValidErrorEnvelope(payload)) throw new ApiClientError("Shutdown-Fehlerantwort ist nicht eindeutig.", "protocol");
+      throw apiResponseError(payload, response.status);
+    }
+    if (response.status !== 202 || payload.apiVersion !== SSE_API_VERSION || typeof payload.requestId !== "string" || !UUID_V42.test(payload.requestId) || payload.accepted !== true || payload.instanceId !== request2.instanceId || !Number.isSafeInteger(payload.processId) || Number(payload.processId) < 1 || Number(payload.processId) > 4294967295 || payload.processExited !== false) {
+      throw new ApiClientError("Shutdown-Antwort bestaetigt keine gebundene Annahme.", "protocol");
+    }
+    return payload;
+  } catch (error2) {
+    if (error2 instanceof ApiClientError) throw error2;
+    throw new ApiClientError(
+      "Shutdown-Antwort fehlt. Ob der Stopp angenommen wurde, ist unbekannt; keinen erneuten Stopp senden und keinen Ersatzprozess starten.",
+      "shutdown-unknown"
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+}
+var UUID_V42;
+var init_api_control_client = __esm({
+  "src/api-control-client.ts"() {
+    "use strict";
+    init_api_contract();
+    init_api_control_contract();
+    init_api_client();
+    init_api_supervisor_contract();
+    init_abort();
+    UUID_V42 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  }
+});
+
 // src/configuration-fingerprint.ts
 import { createHash } from "node:crypto";
 import { resolve as resolve2 } from "node:path";
@@ -8093,6 +8277,7 @@ var init_configuration_fingerprint = __esm({
 var mcp_api_supervisor_exports = {};
 __export(mcp_api_supervisor_exports, {
   assertApiSingletonIdentity: () => assertApiSingletonIdentity,
+  controlApiSingleton: () => controlApiSingleton,
   ensureApiSingleton: () => ensureApiSingleton
 });
 import { spawn } from "node:child_process";
@@ -8101,6 +8286,7 @@ import { createRequire } from "node:module";
 import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname as dirname2, isAbsolute as isAbsolute2, relative, resolve as resolve3 } from "node:path";
 import { fileURLToPath } from "node:url";
+import { performance as performance2 } from "node:perf_hooks";
 function loopbackBaseUrl(raw) {
   let parsed;
   try {
@@ -8326,19 +8512,27 @@ function startApiDependency(endpoint) {
     didExit = true;
   });
   child.unref();
-  return { exited: () => didExit, spawnError: () => startError };
+  return { pid: child.pid, exited: () => didExit, spawnError: () => startError };
 }
 function delay(ms) {
   return new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
 }
-async function ensureApiSingletonInner() {
-  const endpoint = configuredEndpoint(process.env);
+function assertApiRunningIntent() {
+  if (controlState !== "running") {
+    throw new ApiClientError(
+      "Die API ist absichtlich gestoppt oder ihr Lebenszyklus noch ungeklärt. Mit sse_api_control den Status lesen; ein Neustart braucht einen eigenen Auftrag.",
+      controlState === "stopped" ? "api-stopped" : "api-lifecycle-pending"
+    );
+  }
+}
+async function ensureApiSingletonInner(endpoint = configuredEndpoint(process.env), restarting = false) {
   const initial = await probe(
     endpoint.baseUrl,
     INITIAL_PROBE_TIMEOUT_MS,
     endpoint.expectedConfigurationFingerprint
   );
   if (initial.state === "compatible") {
+    if (restarting) throw new ApiClientError("Am Endpunkt laeuft bereits eine andere API; sie wird nicht uebernommen oder beendet.", "api-replaced");
     activeEndpoint = endpoint;
     activeProcessId = initial.health.processId;
     activeInstanceId = initial.health.instanceId;
@@ -8352,8 +8546,12 @@ async function ensureApiSingletonInner() {
     );
   }
   const started = startApiDependency(endpoint);
-  const deadline = Date.now() + READINESS_TIMEOUT_MS;
-  while (Date.now() < deadline) {
+  activeChild = started;
+  activeEndpoint = endpoint;
+  activeProcessId = started.pid;
+  activeInstanceId = void 0;
+  const deadline = performance2.now() + READINESS_TIMEOUT_MS;
+  while (performance2.now() < deadline) {
     const startError = started.spawnError();
     if (startError) throw new Error("Die installierte API-Dependency konnte nicht gestartet werden.");
     const current = await probe(
@@ -8362,6 +8560,9 @@ async function ensureApiSingletonInner() {
       endpoint.expectedConfigurationFingerprint
     );
     if (current.state === "compatible") {
+      if (restarting && current.health.processId !== started.pid) {
+        throw new ApiClientError("Die antwortende API gehoert nicht zum ausdruecklich gestarteten Prozess.", "api-replaced");
+      }
       activeEndpoint = endpoint;
       activeProcessId = current.health.processId;
       activeInstanceId = current.health.instanceId;
@@ -8376,10 +8577,12 @@ async function ensureApiSingletonInner() {
   );
 }
 function ensureApiSingleton() {
+  assertApiRunningIntent();
   ensurePromise ??= ensureApiSingletonInner();
   return ensurePromise;
 }
 async function assertApiSingletonIdentity() {
+  assertApiRunningIntent();
   const endpoint = activeEndpoint;
   if (!endpoint) return ensureApiSingleton();
   let current = await probe(
@@ -8394,6 +8597,7 @@ async function assertApiSingletonIdentity() {
       endpoint.expectedConfigurationFingerprint
     );
   }
+  assertApiRunningIntent();
   if (current.state === "compatible") {
     if (activeProcessId !== void 0 && current.health.processId !== activeProcessId) {
       throw new ApiClientError(
@@ -8411,12 +8615,145 @@ async function assertApiSingletonIdentity() {
   }
   throw current.error;
 }
-var MAX_API_MANIFEST_BYTES, MAX_PLUGIN_RUNTIME_LOCK_BYTES, INITIAL_PROBE_TIMEOUT_MS, READINESS_PROBE_TIMEOUT_MS, READINESS_TIMEOUT_MS, READINESS_POLL_MS, API_BIN_NAME, ensurePromise, activeEndpoint, activeProcessId, activeInstanceId;
+function boundProcessExited() {
+  if (activeProcessId === void 0) return false;
+  if (activeChild && activeChild.pid === activeProcessId && activeChild.exited()) return true;
+  try {
+    process.kill(activeProcessId, 0);
+    return false;
+  } catch (error2) {
+    if (error2.code === "ESRCH") return true;
+    throw new ApiClientError("Das Ende des gebundenen API-Prozesses ist nicht sicher pruefbar.", "shutdown-unknown");
+  }
+}
+function controlSnapshot(ok = true, detail = {}) {
+  return {
+    ok,
+    state: controlState,
+    ...activeInstanceId ? { instanceId: activeInstanceId } : {},
+    ...activeProcessId !== void 0 ? { processId: activeProcessId } : {},
+    accepted: shutdownAccepted,
+    processExited: controlState === "stopped",
+    ...detail
+  };
+}
+async function controlStatus() {
+  if (controlBusy) return controlSnapshot();
+  if (controlState === "running") {
+    await assertApiSingletonIdentity();
+    return controlSnapshot();
+  }
+  if (boundProcessExited()) {
+    controlState = "stopped";
+    pendingRestart = false;
+    return controlSnapshot();
+  }
+  if (pendingRestart && activeEndpoint && activeChild && activeChild.pid === activeProcessId) {
+    const observed = await probe(activeEndpoint.baseUrl, INITIAL_PROBE_TIMEOUT_MS, activeEndpoint.expectedConfigurationFingerprint);
+    if (observed.state === "compatible" && observed.health.processId === activeChild.pid) {
+      activeInstanceId = observed.health.instanceId;
+      controlState = "running";
+      pendingRestart = false;
+      shutdownAccepted = null;
+      ensurePromise = Promise.resolve(observed.health);
+    }
+  }
+  return controlSnapshot();
+}
+async function controlApiSingleton(request2) {
+  if (!["status", "shutdown", "start"].includes(request2.action)) {
+    throw new ApiClientError("Unbekannte API-Lebenszyklusaktion.", "bad-args");
+  }
+  if (request2.action === "status") return controlStatus();
+  if (request2.confirm !== true || !request2.instanceId || request2.instanceId !== activeInstanceId) {
+    throw new ApiClientError("API-Steuerung verlangt confirm=true und die zuletzt gelesene exakte instanceId.", "api-instance-mismatch");
+  }
+  if (controlBusy) throw new ApiClientError("Eine API-Lebenszyklusaktion laeuft bereits.", "busy");
+  controlBusy = true;
+  try {
+    if (request2.action === "start") {
+      if (controlState !== "stopped" || !boundProcessExited()) {
+        throw new ApiClientError("Neustart verlangt das nachgewiesene Ende der zuvor gebundenen API.", "api-lifecycle-pending");
+      }
+      const endpoint = activeEndpoint;
+      if (!endpoint?.configPath || endpoint.explicitUrl) {
+        throw new ApiClientError(
+          "Die API wurde nur ueber SSE_API_URL gebunden; ihre Startkonfiguration ist unbekannt. API mit ihrer urspruenglichen Konfiguration manuell starten.",
+          "api-start-unavailable"
+        );
+      }
+      const current = endpointFromConfig(endpoint.configPath);
+      if (current.baseUrl !== endpoint.baseUrl || current.expectedConfigurationFingerprint !== endpoint.expectedConfigurationFingerprint) {
+        throw new ApiClientError("Die urspruengliche API-Konfiguration wurde geaendert; kein automatischer Wechsel beim Neustart.", "api-configuration-changed");
+      }
+      controlState = "starting";
+      pendingRestart = true;
+      try {
+        ensurePromise = ensureApiSingletonInner(endpoint, true);
+        await ensurePromise;
+        controlState = "running";
+        pendingRestart = false;
+        shutdownAccepted = null;
+        return controlSnapshot();
+      } catch (error2) {
+        controlState = "unknown";
+        throw error2;
+      }
+    }
+    assertApiRunningIntent();
+    const health = await assertApiSingletonIdentity();
+    if (health.instanceId !== request2.instanceId) {
+      throw new ApiClientError("API-Instanz hat sich vor dem Stopp geaendert.", "api-instance-mismatch");
+    }
+    controlState = "stopping";
+    shutdownAccepted = null;
+    try {
+      const accepted = await requestApiShutdown({ confirm: true, instanceId: health.instanceId }, {
+        baseUrl: activeEndpoint.baseUrl,
+        expectedInstanceId: health.instanceId
+      });
+      if (accepted.processId !== health.processId) {
+        throw new ApiClientError("Shutdown-Annahme meldet einen anderen API-Prozess.", "protocol");
+      }
+      shutdownAccepted = true;
+    } catch (error2) {
+      const rejected = error2 instanceof ApiClientError && [
+        "busy",
+        "api-instance-mismatch",
+        "bad-request",
+        "shutdown-unavailable",
+        "forbidden",
+        "unsupported-media-type",
+        "method-not-allowed",
+        "not-found"
+      ].includes(error2.kind);
+      controlState = rejected ? "running" : "unknown";
+      shutdownAccepted = rejected ? false : null;
+      return controlSnapshot(false, {
+        kind: error2 instanceof ApiClientError ? error2.kind : "shutdown-unknown",
+        error: error2 instanceof Error ? error2.message : "Shutdown-Ausgang ist unbekannt."
+      });
+    }
+    const deadline = performance2.now() + 1e4;
+    while (performance2.now() < deadline) {
+      if (boundProcessExited()) {
+        controlState = "stopped";
+        return controlSnapshot();
+      }
+      await delay(100);
+    }
+    return controlSnapshot(false, { kind: "shutdown-pending", error: "Stopp angenommen; Prozessende noch nicht nachgewiesen. Status lesen." });
+  } finally {
+    controlBusy = false;
+  }
+}
+var MAX_API_MANIFEST_BYTES, MAX_PLUGIN_RUNTIME_LOCK_BYTES, INITIAL_PROBE_TIMEOUT_MS, READINESS_PROBE_TIMEOUT_MS, READINESS_TIMEOUT_MS, READINESS_POLL_MS, API_BIN_NAME, ensurePromise, activeEndpoint, activeProcessId, activeInstanceId, activeChild, controlState, controlBusy, pendingRestart, shutdownAccepted;
 var init_mcp_api_supervisor = __esm({
   "src/mcp-api-supervisor.ts"() {
     "use strict";
     init_api_config_file();
     init_api_client();
+    init_api_control_client();
     init_version();
     init_configuration_fingerprint();
     init_api_supervisor_contract();
@@ -8427,6 +8764,10 @@ var init_mcp_api_supervisor = __esm({
     READINESS_TIMEOUT_MS = 15e3;
     READINESS_POLL_MS = 100;
     API_BIN_NAME = "steuer-spar-erklaerung-api";
+    controlState = "running";
+    controlBusy = false;
+    pendingRestart = false;
+    shutdownAccepted = null;
   }
 });
 
@@ -25254,12 +25595,12 @@ var init_server2 = __esm({
         const method = methodValue;
         if (method === "tools/call") {
           const wrappedHandler = async (request2, extra) => {
-            const validatedRequest = safeParse2(CallToolRequestSchema, request2);
-            if (!validatedRequest.success) {
-              const errorMessage = validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
+            const validatedRequest2 = safeParse2(CallToolRequestSchema, request2);
+            if (!validatedRequest2.success) {
+              const errorMessage = validatedRequest2.error instanceof Error ? validatedRequest2.error.message : String(validatedRequest2.error);
               throw new McpError(ErrorCode.InvalidParams, `Invalid tools/call request: ${errorMessage}`);
             }
-            const { params } = validatedRequest.data;
+            const { params } = validatedRequest2.data;
             const result = await Promise.resolve(handler(request2, extra));
             if (params.task) {
               const taskValidationResult = safeParse2(CreateTaskResultSchema, result);
@@ -26892,6 +27233,7 @@ var init_operation_traits = __esm({
       "workspace_status"
     ];
     SSE_DESTRUCTIVE_OPERATIONS = [
+      "position_create",
       "archive_cases",
       "case_create",
       "click",
@@ -27247,6 +27589,14 @@ function registerAnalysisTools(registry2) {
     }
   );
   registerApiTool(
+    "sse_tax_knowledge_search",
+    {
+      title: "Steuerwissen nachschlagen",
+      description: "Schlaegt einen Begriff im Steuerwissen nach und gibt Textabschnitte und Verweise zurueck. Rein lesend; kein Steuerfall wird gebunden oder geaendert. Das Steuerwissen ist ein eigenes Fenster, das die SteuerSparErklaerung startet - ist es zu, zuerst sse_click name='Steuerwissen'. Braucht sichtbaren Desktop und den Vordergrund, taugt also nicht fuer Arbeit nebenher. Herstellerinhalt, keine Steuerberatung. Je Abschnitt ist 'text' die Lesefassung des ganzen Absatzes und 'teile' der unveraenderte Wortlaut der einzelnen Textknoten; an einer Trefferhervorhebung kann in 'text' ein Wortabstand fehlen, den die Ansicht nicht herausgibt."
+    },
+    { timeoutMs: 9e4 }
+  );
+  registerApiTool(
     "sse_checker_close",
     {
       title: "Steuerpruefer-Ergebnisleiste schliessen",
@@ -27335,9 +27685,13 @@ function registerDesktopTools(registry2) {
     "sse_positions",
     {
       title: "Positionen auflisten",
-      description: "Listet die auf der aktuellen Uebersichtsseite sichtbaren Einnahmen-/Ausgabenpositionen. Anlegen und Loeschen sind fail-closed gesperrt, solange dafuer kein eigener Seiten-, Feld-, Summen- und Dialogvertrag mit Readback/Rollback existiert. Struktur vorerst manuell anlegen; Werte danach nur ueber die gebundenen Feld- und Tabellenwerkzeuge schreiben."
+      description: "Listet die auf der aktuellen Uebersichtsseite sichtbaren Einnahmen-/Ausgabenpositionen. Eine neue Einnahmenposition mit 19 % wird separat ueber sse_position_create angelegt. Das Loeschen ganzer Positionen bleibt gesperrt."
     }
   );
+  registerApiTool("sse_position_create", {
+    title: "Einnahmenposition anlegen",
+    description: "Legt auf 'Erlöse Lieferungen/Leistungen' genau eine leere Einnahmenposition mit 19 % an. Bindet Fenster, Falldatei, Hash, bytegleiche Sicherung sowie alle vorhandenen Namen und Nettosummen. Prueft danach Name, leere Tabelle und unveraenderte Altpositionen. Speichert nicht. Bei einem Fehler nach Beginn bleiben Teilstand und cleanupRequired sichtbar; keine blinde Wiederholung und kein automatisches Loeschen einer moeglicherweise bearbeiteten Position."
+  });
   registerApiTool(
     "sse_export_csv",
     {
@@ -28191,7 +28545,7 @@ function registerLifecycleTools(registry2) {
     "sse_save",
     {
       title: "Steuerfall sicher speichern",
-      description: "Speichert nur den bereits geoeffneten, referenzierten Steuerfall. caseRef und expectedHashBefore sind Pflicht und muessen mit Fenstertitel und Datei uebereinstimmen. Sind mehrere Steuerfaelle offen, muss das exakte Hauptfenster per hwnd gebunden werden. Danach werden Hashwechsel, deaktivierte Sichern-Schaltflaeche und Dialogfreiheit geprueft. Eine Bitte, Werte zu aendern, erlaubt noch kein Speichern: sse_save nur verwenden, wenn der Mensch in diesem Auftrag ausdruecklich das Speichern verlangt. Nicht fuer Wiederherstellungsfaelle ohne Dateibindung verwenden. Bereits uebermittelte oder unbekannte Faelle bleiben standardmaessig gesperrt. Nach ausdruecklicher menschlicher Freigabe kann correction ausschliesslich eine separat als Korrektur/Berichtigung benannte Arbeitskopie speichern: Zeitraum, Grund, unveraendertes uebermitteltes Original und dessen SHA256 sowie eine bytegleiche Vorzustands-Sicherung unter backups: sind Pflicht. Ein generisches force gibt es nicht, das Original bleibt unveraendert und sse_save loest niemals ELSTER aus. Bei einer UStVA-Berichtigung muss das fachliche Kennzeichen corrected separat im richtigen Zeitraum gesetzt und zurueckgelesen werden."
+      description: "Speichert nur den bereits geoeffneten, referenzierten Steuerfall. caseRef und expectedHashBefore sind Pflicht und muessen mit Fenstertitel und Datei uebereinstimmen. Sind mehrere Steuerfaelle offen, muss das exakte Hauptfenster per hwnd gebunden werden. Danach werden Hashwechsel, deaktivierte Sichern-Schaltflaeche und Dialogfreiheit geprueft. Eine Bitte, Werte zu aendern, erlaubt noch kein Speichern: sse_save nur verwenden, wenn der Mensch in diesem Auftrag ausdruecklich das Speichern verlangt. Nicht fuer Wiederherstellungsfaelle ohne Dateibindung verwenden. Traegt der Fallkopf eine Uebermittlung, wird trotzdem gespeichert - eine Gewinn-Erfassung laeuft ueber das ganze Jahr und ist die Vorbefuellung der naechsten Voranmeldung -, aber das Ergebnis traegt dann transmittedCaseWarning. Diese Warnung ernst nehmen: Ein bereits uebermittelter ZEITRAUM darf nicht still geaendert werden. Fuer dessen Berichtigung kann correction nach ausdruecklicher menschlicher Freigabe ausschliesslich eine separat als Korrektur/Berichtigung benannte Arbeitskopie speichern: Zeitraum, Grund, unveraendertes uebermitteltes Original und dessen SHA256 sowie eine bytegleiche Vorzustands-Sicherung unter backups: sind Pflicht. Ein generisches force gibt es nicht, das Original bleibt unveraendert und sse_save loest niemals ELSTER aus. Bei einer UStVA-Berichtigung muss das fachliche Kennzeichen corrected separat im richtigen Zeitraum gesetzt und zurueckgelesen werden."
     },
     { timeoutMs: 9e4 }
   );
@@ -28643,7 +28997,7 @@ function registerUiTools(registry2) {
     "sse_table_read",
     {
       title: "Tabelle vollstaendig lesen",
-      description: "Liest eine Eingabetabelle VOLLSTAENDIG - im Gegensatz zu sse_read_table, das nur die sichtbaren Zeilen liefert. Qt virtualisiert Tabellen: nur was auf dem Schirm ist, steht im Elementbaum, es gibt keinen scrollbaren Container und Bild-ab wirkt nicht. Dieses Werkzeug klickt in die Tabelle, springt zuerst an den Tabellenanfang und wandert mit der Pfeiltaste durch die Zeilen, bis nichts Neues mehr kommt. Auf Seiten mit mehreren Eingabetabellen binden sumLabel und sumOccurrence den Lauf an genau die zugehoerige Summenregion; ohne diese Bindung wird nichts fokussiert und vollstaendig=false gemeldet. Nicht-modale Werte-Info-Tabellen werden aus dem Eingabeformular ausgeschlossen. ACHTUNG: holt das Fenster dafuer kurz nach vorn. Das Feld 'vollstaendig' sagt, ob das gelungen ist. Immer gegen die Summenzeile der Seite pruefen."
+      description: "Liest eine Eingabetabelle VOLLSTAENDIG - im Gegensatz zu sse_read_table, das nur die sichtbaren Zeilen liefert. Qt virtualisiert Tabellen: nur was auf dem Schirm ist, steht im Elementbaum, es gibt keinen scrollbaren Container und Bild-ab wirkt nicht. Dieses Werkzeug klickt in die Tabelle, springt zuerst an den Tabellenanfang und zieht den Cursor dann in Stapeln von Pfeiltasten weiter, bis nichts Neues mehr kommt. Ein Stapel bleibt kleiner als das Sichtfenster hoch ist, damit zwei aufeinanderfolgende Ansichten einander ueberlappen; diese Ueberlappung wird geprueft und belegt, dass keine Zeile uebersprungen wurde. Auf Seiten mit mehreren Eingabetabellen binden sumLabel und sumOccurrence den Lauf an genau die zugehoerige Summenregion; ohne diese Bindung wird nichts fokussiert und vollstaendig=false gemeldet. Nicht-modale Werte-Info-Tabellen werden aus dem Eingabeformular ausgeschlossen. ACHTUNG: holt das Fenster dafuer kurz nach vorn. Das Feld 'vollstaendig' sagt, ob das gelungen ist. Immer gegen die Summenzeile der Seite pruefen."
     },
     (r) => ({
       kopf: asArray(r.kopf),
@@ -28662,7 +29016,11 @@ function registerUiTools(registry2) {
       zeilen: asArray(r.zeilen),
       // Ohne die gelesene Kontrollsumme koennte ein Aufrufer die
       // Pflichtangabe expectedBefore der Tabellenmutationen nur raten.
-      summe: r.summe
+      summe: r.summe,
+      // Und ohne die Beschriftungen wuesste er nicht, welche er ueberhaupt
+      // angeben kann - auf einer Seite mit mehreren Tabellen auch nicht,
+      // welche Vorkommensnummer die eigene ist.
+      summen: asArray(r.summen)
     }),
     { timeoutMs: 3e5 }
   );
@@ -28877,6 +29235,40 @@ var init_mcp_tools_ui = __esm({
   }
 });
 
+// src/mcp-tools-api-control.ts
+function registerApiControlTools(server) {
+  const schema = SSE_MCP_API_CONTROL_SCHEMAS.sse_api_control;
+  server.registerTool("sse_api_control", {
+    title: "Lokale API steuern",
+    description: "Liest den API-Status oder beendet die gebundene, auftragsfreie API und startet sie auf ausdruecklichen Auftrag erneut. shutdown/start verlangen confirm=true und die instanceId aus status. Annahme und Prozessende werden getrennt gemeldet. SSE und Steuerfaelle bleiben offen; MCP bleibt erreichbar. Nach Stopp kein stiller Neustart. start verwendet ausschliesslich die unveraenderte urspruengliche API-Konfiguration; bei reiner SSE_API_URL ist kein Start moeglich.",
+    inputSchema: schema,
+    outputSchema: SSE_MCP_API_CONTROL_OUTPUT_SCHEMA,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
+  }, async (raw) => {
+    try {
+      const args = parseApiControlRequest(raw);
+      const request2 = args.action === "status" ? { action: "status" } : { action: args.action, confirm: true, instanceId: args.instanceId };
+      const result = await controlApiSingleton(request2);
+      return result.ok === false ? apiErrorResult("api_control", result) : apiSuccessResult(result, result);
+    } catch (error2) {
+      return apiErrorResult("api_control", {
+        ok: false,
+        kind: error2 instanceof ApiClientError ? error2.kind : "bad-args",
+        error: error2 instanceof Error ? error2.message : "API-Steuerung fehlgeschlagen."
+      });
+    }
+  });
+}
+var init_mcp_tools_api_control = __esm({
+  "src/mcp-tools-api-control.ts"() {
+    "use strict";
+    init_api_client_error();
+    init_mcp_api_supervisor();
+    init_mcp_response();
+    init_mcp_schemas_api_control();
+  }
+});
+
 // src/mcp-tools.ts
 var mcp_tools_exports = {};
 __export(mcp_tools_exports, {
@@ -28891,6 +29283,7 @@ function registerSseTools(server) {
   registerReceiptTools(registry2);
   registerInteractionTools(registry2);
   registerLifecycleTools(registry2);
+  registerApiControlTools(server);
   return registry2;
 }
 var init_mcp_tools = __esm({
@@ -28904,6 +29297,7 @@ var init_mcp_tools = __esm({
     init_mcp_tools_lifecycle();
     init_mcp_tools_receipts();
     init_mcp_tools_ui();
+    init_mcp_tools_api_control();
   }
 });
 
@@ -28996,7 +29390,7 @@ async function runMcpMain(args) {
       Promise.resolve().then(() => (init_mcp_response(), mcp_response_exports))
     ]);
     const health = await supervisor.ensureApiSingleton();
-    const deadline = Date.now() + SELFTEST_BUSY_TIMEOUT_MS;
+    const deadline = performance.now() + SELFTEST_BUSY_TIMEOUT_MS;
     let busyPollMs = SELFTEST_BUSY_POLL_MS;
     let result;
     while (true) {
@@ -29006,11 +29400,11 @@ async function runMcpMain(args) {
           result = candidate;
           break;
         }
-        if (Date.now() >= deadline) {
+        if (performance.now() >= deadline) {
           throw new Error("API-Selftest fehlgeschlagen: health blieb laenger als 60 Sekunden belegt.");
         }
       } catch (error2) {
-        if (!isBusyApiError(error2) || Date.now() >= deadline) throw error2;
+        if (!isBusyApiError(error2) || performance.now() >= deadline) throw error2;
       }
       await supervisor.assertApiSingletonIdentity();
       await delay2(busyPollMs);

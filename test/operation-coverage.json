@@ -334,6 +334,11 @@
       ],
       "live": "functional"
     },
+    "position_create": {
+      "offline": "untested",
+      "offlineLabels": [],
+      "live": "untested"
+    },
     "product_info": {
       "offline": "functional",
       "offlineLabels": [
@@ -547,6 +552,11 @@
         "stateful-mock"
       ],
       "live": "functional"
+    },
+    "tax_knowledge_search": {
+      "offline": "untested",
+      "offlineLabels": [],
+      "live": "untested"
     },
     "toggle": {
       "offline": "functional",

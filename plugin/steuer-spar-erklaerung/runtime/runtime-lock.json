@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
   "packageName": "steuer-spar-erklaerung-mcp",
-  "packageVersion": "0.1.0-beta.43",
+  "packageVersion": "0.1.0-beta.44",
   "apiPackageName": "@yadimon/steuer-spar-erklaerung-api",
   "mcpPackageName": "@yadimon/steuer-spar-erklaerung-mcp",
   "pluginName": "steuer-spar-erklaerung",
-  "pluginVersion": "0.1.0-beta.43",
+  "pluginVersion": "0.1.0-beta.44",
   "entries": {
     "mcp": "dist/mcp.js",
     "api": "dist/api.js"
@@ -18,13 +18,13 @@
     },
     {
       "path": "dist/api.js",
-      "sha256": "d0f2c8ca827f7fd6e514d901e1db0879749642d7667d0ea87e9bad38347d28bc",
-      "size": 704054
+      "sha256": "356ed164209e5a2a989d34b3bec26f9ec2642ebbc74ef29c5ba2385667992ac1",
+      "size": 718582
     },
     {
       "path": "dist/mcp.js",
-      "sha256": "9d8ded8e7144a1c73d22400998a6f0c14152cccab3e42ceff5900cf8b84cae5e",
-      "size": 1160887
+      "sha256": "62b779092d185d2fde0b435b43d51ff56e4aedd60cac0a633261b324193864c2",
+      "size": 1181958
     },
     {
       "path": "powershell/akad-parser.ps1",
@@ -43,8 +43,8 @@
     },
     {
       "path": "powershell/load-native.ps1",
-      "sha256": "64bd13f49d7a4e40d904e2018f094e06d33075bd25e6598fa04307c7be1f6019",
-      "size": 9084
+      "sha256": "6c12948cf46e00de61a81f21ea3d674f00dde398b9d9b9749f0c5df84b6cd18a",
+      "size": 9094
     },
     {
       "path": "powershell/ocr-image.ps1",
@@ -68,23 +68,23 @@
     },
     {
       "path": "powershell/sse-native.cs",
-      "sha256": "9af176d9012f190a9cd1ee15b976100d3c6e66eb7d9c8ba2baaec10a0d7bff8d",
-      "size": 42507
+      "sha256": "37e8496346a13bf3574372864cea4b1ff3c45ac0081994ecf130c8ecd8a2c35b",
+      "size": 46174
     },
     {
       "path": "powershell/sse-native.dll",
-      "sha256": "cbe3e1c0492d73eac8163ed3e02b8ad4ae7391f6779d013ff445210a18b681d3",
-      "size": 34304
+      "sha256": "0374ad985569283c25a682fdd69063b6c663bca738c38a4e019cd0eee90e7b6d",
+      "size": 36352
     },
     {
       "path": "powershell/sse-native.sha256",
-      "sha256": "2f610a83b1e5e19583ffee8410b932a6898ebfc51dc2ab2fe418567d6bb9d423",
+      "sha256": "42e8a6b8b3e737341adcea3436c18dfefa72edfe1faed39352de567fd7b3fad2",
       "size": 181
     },
     {
       "path": "powershell/sse-worker.ps1",
-      "sha256": "5d3b3d802018611ab9ec20c22f85f45a7840dafb4440d3918870aa495c1fcba6",
-      "size": 1135919
+      "sha256": "418484c66335f1fa6119103b0146ff7b37624232858f7b73044db826a70c3776",
+      "size": 1185525
     },
     {
       "path": "powershell/structure-binding.ps1",
@@ -103,8 +103,8 @@
     },
     {
       "path": "powershell/table-values.ps1",
-      "sha256": "05f8ebf99883a4f564d38716a66777ccc89f1b9d1cad6f6750c5a1fc1ce82817",
-      "size": 2393
+      "sha256": "5e47c23eef59b74fac8b25b440c87bfab18e452ebd42424eb0931c8c155a467d",
+      "size": 3392
     },
     {
       "path": "powershell/window-scope.ps1",

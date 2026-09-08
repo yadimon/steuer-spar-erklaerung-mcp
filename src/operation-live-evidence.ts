@@ -22,7 +22,17 @@ const SSE_LIVE_ERROR_PATH_ONLY_OPERATIONS = Object.freeze(
 );
 
 const SSE_LIVE_UNTESTED_OPERATIONS = Object.freeze(
-  [] as const satisfies readonly SseApiOperation[],
+  [
+    // Die Gruppenanlage hat noch keinen automatisierten Live-Suiteschritt.
+    "position_create",
+    // Die Operation ist gegen das laufende Programm ausgefuehrt worden und
+    // hat Artikeltext geliefert. Was ihr fehlt, ist ein Suiteschritt, der das
+    // selbst protokolliert: Sie braucht den sichtbaren Desktop und holt ein
+    // zweites Programmfenster in den Vordergrund, was mitten in einem
+    // parallelen Lauf andere Schritte stoert. Diese Bilanz zaehlt nur, was
+    // ein Suitelauf belegt - deshalb steht sie hier.
+    "tax_knowledge_search",
+  ] as const satisfies readonly SseApiOperation[],
 );
 
 const untested = new Set<SseApiOperation>(SSE_LIVE_UNTESTED_OPERATIONS);

@@ -80,7 +80,10 @@ export function registerUiTools(registry: McpRegistry): void {
         "Liest eine Eingabetabelle VOLLSTAENDIG - im Gegensatz zu sse_read_table, das nur die sichtbaren " +
         "Zeilen liefert. Qt virtualisiert Tabellen: nur was auf dem Schirm ist, steht im Elementbaum, " +
         "es gibt keinen scrollbaren Container und Bild-ab wirkt nicht. Dieses Werkzeug klickt in die " +
-        "Tabelle, springt zuerst an den Tabellenanfang und wandert mit der Pfeiltaste durch die Zeilen, bis nichts Neues mehr kommt. " +
+        "Tabelle, springt zuerst an den Tabellenanfang und zieht den Cursor dann in Stapeln von Pfeiltasten " +
+        "weiter, bis nichts Neues mehr kommt. Ein Stapel bleibt kleiner als das Sichtfenster hoch ist, " +
+        "damit zwei aufeinanderfolgende Ansichten einander ueberlappen; diese Ueberlappung wird geprueft " +
+        "und belegt, dass keine Zeile uebersprungen wurde. " +
         "Auf Seiten mit mehreren Eingabetabellen binden sumLabel und sumOccurrence den Lauf an genau die " +
         "zugehoerige Summenregion; ohne diese Bindung wird nichts fokussiert und vollstaendig=false gemeldet. " +
         "Nicht-modale Werte-Info-Tabellen werden aus dem Eingabeformular ausgeschlossen. " +
@@ -105,6 +108,10 @@ export function registerUiTools(registry: McpRegistry): void {
       // Ohne die gelesene Kontrollsumme koennte ein Aufrufer die
       // Pflichtangabe expectedBefore der Tabellenmutationen nur raten.
       summe: r.summe,
+      // Und ohne die Beschriftungen wuesste er nicht, welche er ueberhaupt
+      // angeben kann - auf einer Seite mit mehreren Tabellen auch nicht,
+      // welche Vorkommensnummer die eigene ist.
+      summen: asArray(r.summen),
     }),
     { timeoutMs: 300_000 },
   );

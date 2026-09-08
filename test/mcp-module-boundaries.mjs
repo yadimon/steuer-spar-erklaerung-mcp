@@ -7,12 +7,15 @@ import { SSE_MCP_INTERACTION_SCHEMAS } from "../dist/mcp-schemas-interaction.js"
 import { SSE_MCP_LIFECYCLE_SCHEMAS } from "../dist/mcp-schemas-lifecycle.js";
 import { SSE_MCP_RECEIPT_SCHEMAS } from "../dist/mcp-schemas-receipts.js";
 import { SSE_MCP_UI_SCHEMAS } from "../dist/mcp-schemas-ui.js";
+import { SSE_MCP_API_CONTROL_SCHEMAS } from "../dist/mcp-schemas-api-control.js";
 import {
   SSE_MCP_COMPOSED_TOOL_OPERATIONS,
+  SSE_MCP_CONTROL_TOOL_ACTIONS,
   SSE_MCP_TOOL_OPERATIONS,
 } from "../dist/operation-catalog.js";
 
 const groups = [
+  ["api-control", SSE_MCP_API_CONTROL_SCHEMAS],
   ["analysis", SSE_MCP_ANALYSIS_SCHEMAS],
   ["desktop", SSE_MCP_DESKTOP_SCHEMAS],
   ["diagnostics", SSE_MCP_DIAGNOSTIC_SCHEMAS],
@@ -21,7 +24,7 @@ const groups = [
   ["receipts", SSE_MCP_RECEIPT_SCHEMAS],
   ["ui", SSE_MCP_UI_SCHEMAS],
 ];
-const registrationPattern = /register(?:ApiTool|ComposedTool|ShapedApiTool|StrictTool)\(\s*"(sse_[a-z0-9_]+)"/g;
+const registrationPattern = /register(?:ApiTool|ComposedTool|ShapedApiTool|StrictTool|Tool)\(\s*"(sse_[a-z0-9_]+)"/g;
 const registered = [];
 
 for (const [group, schemas] of groups) {
@@ -48,7 +51,7 @@ for (const file of ["src/operation-catalog.ts", "src/operation-schema-primitives
 assert.equal(new Set(registered).size, registered.length, "Jedes MCP-Werkzeug darf nur einmal registriert werden.");
 assert.deepEqual(
   [...registered].sort(),
-  [...Object.keys(SSE_MCP_TOOL_OPERATIONS), ...Object.keys(SSE_MCP_COMPOSED_TOOL_OPERATIONS)].sort(),
+  [...Object.keys(SSE_MCP_TOOL_OPERATIONS), ...Object.keys(SSE_MCP_COMPOSED_TOOL_OPERATIONS), ...Object.keys(SSE_MCP_CONTROL_TOOL_ACTIONS)].sort(),
   "Die fachlichen MCP-Module muessen den gesamten Katalog exakt abdecken.",
 );
 

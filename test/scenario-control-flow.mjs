@@ -38,6 +38,49 @@ const run = async (name, scenario, executor, resultRef = `${name}-result.json`, 
 };
 
 try {
+  const wallNow = Date.now;
+  // Change only the process-local JavaScript wall clock, never Windows time.
+  try {
+    const forward = await run("clock-forward", {
+      schemaVersion: 2,
+      name: "clock-forward",
+      resultFile: "unused.json",
+      steps: [{ id: "first", operation: "health" }, { id: "second", operation: "health" }],
+      finally: [{ id: "cleanup", operation: "close" }],
+    }, async () => {
+      Date.now = () => wallNow() + 2 * 24 * 60 * 60 * 1000;
+      return { ok: true };
+    });
+    assert.equal(forward.result.ok, true,
+      "A forward wall-clock correction must not expire a scenario or suppress its cleanup.");
+    assert.deepEqual(forward.calls.map((call) => call.operation), ["health", "health", "close"]);
+    assert.equal(forward.result.result.cleanupOk, true);
+    assert(forward.calls.every((call) => Number.isInteger(call.timeoutMs) && call.timeoutMs > 0 && call.timeoutMs <= 30_000));
+  } finally {
+    Date.now = wallNow;
+  }
+  try {
+    const backward = await run("clock-backward", {
+      schemaVersion: 1,
+      name: "clock-backward",
+      resultFile: "unused.json",
+      steps: [{ id: "first", operation: "health" }, { id: "second", operation: "health" }],
+    }, async () => {
+      Date.now = () => wallNow() - 2 * 24 * 60 * 60 * 1000;
+      await new Promise((resolve) => setTimeout(resolve, 1_100));
+      return { ok: true };
+    }, "clock-backward-result.json", { totalTimeoutMs: 1_000 });
+    assert.equal(backward.calls.length, 1,
+      "A backward wall-clock correction must not extend the elapsed scenario budget.");
+    assert.equal(backward.result.ok, false);
+    assert.equal(backward.result.result.ok, false);
+    assert.equal(backward.result.result.steps[0].kind, "timeout");
+    assert.equal(backward.result.result.steps[0].values.ok, true,
+      "Preserve the completed executor readback when the overall budget expires.");
+    assert(Number.isInteger(backward.calls[0].timeoutMs) && backward.calls[0].timeoutMs > 0 && backward.calls[0].timeoutMs <= 1_000);
+  } finally {
+    Date.now = wallNow;
+  }
   let deeplyNestedInput = "wert";
   for (let depth = 0; depth < 40; depth += 1) deeplyNestedInput = [deeplyNestedInput];
   writeFileSync(join(workspaceDir, "deep-input.json"), JSON.stringify(deeplyNestedInput), "utf8");

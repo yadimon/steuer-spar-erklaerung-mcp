@@ -13,6 +13,10 @@ export type ResourceBinding = {
  */
 export const API_RESOURCE_BINDINGS: Readonly<Partial<Record<SseApiOperation, readonly ResourceBinding[]>>> = Object.freeze({
   case_hash: [{ alias: "ref", workerField: "path", allowedAreas: ["cases"] }],
+  position_create: [
+    { alias: "expectedCaseRef", workerField: "expectedCasePath", allowedAreas: ["cases"] },
+    { alias: "backupRef", workerField: "backupPath", allowedAreas: ["backups"] },
+  ],
   case_create: [{ alias: "targetRef", workerField: "targetPath", allowedAreas: ["cases"] }],
   center_refresh: [{ alias: "expectedDirectoryRef", workerField: "expectedDirectory", allowedAreas: ["cases"] }],
   launch: [{ alias: "caseRef", workerField: "file", allowedAreas: ["cases"] }],
