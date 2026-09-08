@@ -39,8 +39,8 @@ const groups = [
     subclassification: "account-certificate-or-service",
     reason: "Needs a separate application, account, certificate, or service state that the disposable offline journey must not assume.",
     operations: [
-      "center_cases", "center_refresh", "vast_apply", "vast_dialog_read", "vast_mapping_options",
-      "vast_mapping_select", "vast_row_details", "vast_row_set_expanded",
+      "center_cases", "center_refresh", "tax_knowledge_search", "vast_apply", "vast_dialog_read",
+      "vast_mapping_options", "vast_mapping_select", "vast_row_details", "vast_row_set_expanded",
     ],
   },
   {
@@ -72,6 +72,12 @@ const groups = [
     subclassification: "alternate-orchestration",
     reason: "Scenario orchestration would introduce a second controller above the canonical serialized direct-API journey.",
     operations: ["scenario_run"],
+  },
+  {
+    classification: "destructive-non-happy-path",
+    subclassification: "income-position-creation",
+    reason: "Creating an income position requires a dedicated empty-position journey with a complete inventory and byte-identical backup binding.",
+    operations: ["position_create"],
   },
   {
     classification: "destructive-non-happy-path",

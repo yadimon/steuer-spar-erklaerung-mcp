@@ -129,6 +129,29 @@ try {
   );
 
   const centerCases = await execute("center_cases", { hwnd: 42 }, 1_000);
+  writeFileSync(join(roots.backups, "position-before.Gew2025"), "case-fixture");
+  const createdPosition = await execute("position_create", {
+    hwnd: 42,
+    expectedCaseRef: "cases:arbeit.Gew2025",
+    expectedCaseHash: caseFixtureHash,
+    backupRef: "backups:position-before.Gew2025",
+    name: "Development",
+    expectedPositions: [{ name: "Existing", net: "100,00" }],
+  }, 1_000);
+  assert.equal(createdPosition.ok, true);
+  assert.equal(calls.at(-1).operation, "position_create");
+  assert.equal(calls.at(-1).args.expectedCasePath, join(roots.cases, "arbeit.Gew2025"));
+  assert.equal(calls.at(-1).args.backupPath, join(roots.backups, "position-before.Gew2025"));
+  assert.deepEqual(createdPosition.resourceRefs, {
+    expectedCaseRef: "cases:arbeit.Gew2025", backupRef: "backups:position-before.Gew2025",
+  });
+  const callsBeforeMissingBackup = calls.length;
+  const rejectedPosition = await execute("position_create", {
+    hwnd: 42, expectedCaseRef: "cases:arbeit.Gew2025", expectedCaseHash: caseFixtureHash,
+    name: "Development", expectedPositions: [],
+  }, 1_000);
+  assert.equal(rejectedPosition.ok, false);
+  assert.equal(calls.length, callsBeforeMissingBackup, "Ohne Sicherungsbindung darf kein Worker aufgerufen werden.");
   assert.equal(centerCases.verzeichnis, "cases:.");
   const centerRefresh = await execute("center_refresh", {
     hwnd: 42,
@@ -425,6 +448,7 @@ try {
     "receipt_manager_import",
     // Die Fallanlage komponiert; ihre Aufloesung und Redaktion beweist test/case-create-contract.mjs.
     "case_create",
+    "position_create",
   ]);
   assert.deepEqual(
     Object.keys(API_RESOURCE_BINDINGS).sort(),

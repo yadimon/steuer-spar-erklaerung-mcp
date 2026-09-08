@@ -60,14 +60,22 @@ export const SSE_MCP_UI_SCHEMAS = {
   "sse_table_add": z.object({
     expectedPage: z.string().describe("Exakte aktuelle Seitenueberschrift"),
     werte: z.array(z.string()).min(1).max(SSE_OPERATION_LIMITS.tableValues).describe(
-      "Werte in Spaltenreihenfolge, maximal 100 Spalten; eine im Produktprofil typisierte ComboBox wird auch " +
-      "als UIA-DataItem nur ueber eine exakt popupgebundene SelectionItem-Option gesetzt, niemals per ValuePattern-Text",
+      "Werte in Spaltenreihenfolge ab der ERSTEN Spalte, maximal 100 Spalten. Die Reihenfolge steht in " +
+      "'kopf' von sse_table_read; fuehrende Spalten wie eine automatische 'Nr.' bleiben leer ('') und " +
+      "duerfen nicht weggelassen werden - sonst rutscht jeder Wert eine Spalte nach links. Eine im " +
+      "Produktprofil typisierte ComboBox wird auch als UIA-DataItem nur ueber eine exakt popupgebundene " +
+      "SelectionItem-Option gesetzt, niemals per ValuePattern-Text",
     ),
     comboExpectedBefore: TABLE_COMBO_EXPECTED_BEFORE.optional(),
     sumLabel: z.string().describe("Beschriftung der eindeutigen Kontrollsumme"),
     sumOccurrence: UI_OCCURRENCE.optional().describe("1-basierte Position bei mehrfacher Summenbeschriftung; Vorgabe 1"),
     expectedBefore: z.string().describe("Exakter Summenwert vor dem Anlegen"),
-    expectedAfter: z.string().describe("Exakter Summenwert nach dem Anlegen"),
+    expectedAfter: z.string().optional().describe(
+      "Optional: exakter Summenwert nach dem Anlegen. Ohne diese Angabe genuegt, dass die Kontrollsumme " +
+      "sich bewegt hat - sie bindet die Zeile an die richtige Tabelle, und jede Zelle wird ohnehin einzeln " +
+      "zurueckgelesen. Die Vorhersage verlangt, SSEs Rechnung nachzubilden: Die Seitensumme addiert netto, " +
+      "nicht brutto. Wer sie liefert, wird strenger geprueft",
+    ),
     hwnd: WINDOW_HANDLE.optional(),
   }).strict(),
   "sse_table_update": z.object({

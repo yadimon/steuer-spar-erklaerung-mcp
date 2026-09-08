@@ -8,6 +8,7 @@ import { createSseApiServer } from "../dist/api-server.js";
 import { MCP_PREFLIGHT_OUTPUT_SCHEMA } from "../dist/mcp-preflight.js";
 import {
   SSE_MCP_COMPOSED_TOOL_OPERATIONS,
+  SSE_MCP_CONTROL_TOOL_ACTIONS,
   SSE_MCP_TOOL_OPERATIONS,
   SSE_MCP_TOOL_SCHEMAS,
 } from "../dist/operation-catalog.js";
@@ -118,6 +119,19 @@ try {
   });
   assert.equal(unknownPreflight.isError, true);
   assert.equal(calls.length, beforeUnknownPreflight);
+  const controlTools = tools.filter((tool) => tool.name in SSE_MCP_CONTROL_TOOL_ACTIONS);
+  assert.equal(controlTools.length, Object.keys(SSE_MCP_CONTROL_TOOL_ACTIONS).length);
+  for (const tool of controlTools) {
+    const beforeControl = calls.length;
+    const status = await client.callTool({ name: tool.name, arguments: { action: "status" } });
+    assert.notEqual(status.isError, true);
+    assert.equal(status.structuredContent?.state, "running");
+    assert.equal(status.structuredContent?.processId, process.pid);
+    const unknown = await client.callTool({ name: tool.name, arguments: { action: "status", nichtImVertrag: true } });
+    assert.equal(unknown.isError, true);
+    assert.equal(calls.length, beforeControl, "API-Steuerung darf keinen Worker-Auftrag erzeugen.");
+  }
+  assert.equal(directTools.length + Object.keys(SSE_MCP_COMPOSED_TOOL_OPERATIONS).length + controlTools.length, tools.length);
   assert.equal(calls.length, directTools.length + SSE_MCP_COMPOSED_TOOL_OPERATIONS.sse_preflight.length);
   process.stdout.write(`MCP/API-End-to-End-Matrix: ${expectedToolCount} Werkzeuge validiert, redigiert und ausgefuehrt\n`);
 } finally {

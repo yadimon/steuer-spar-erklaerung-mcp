@@ -106,7 +106,7 @@ Eigenes Programm ── HTTP/JSON ───────────────�
   Gesamtkatalog und OpenAPI-Abruf selbst; es gibt keinen separat gepflegten
   oder permissiveren API-Vertrag. Wiederkehrende Blattverträge wie optionaler
   Text, Flag, SHA-256 und Guard-Objekt werden dort als gemeinsame Komponenten
-  referenziert. Auch der für alle 100 Operationen identische
+  referenziert. Auch der für alle 102 Operationen identische
   `ok/kind/error/ms`-Umschlag liegt einmal als `OperationResultEnvelope` vor;
   jedes `Result_<operation>` ergänzt per `allOf` seine eigenen Fachfelder. Das
   hält die vollständiger gewordenen Result-Schemas unter dem Größenbudget,
@@ -258,7 +258,7 @@ Eigenes Programm ── HTTP/JSON ───────────────�
   bleiben unverändert, damit ein separat installierter Wrapper weder Details
   des API-Rechners noch seines eigenen Hosts preisgibt.
 - Werkzeugnamen, API-Zuordnung, Eingaben und versionierte
-  Ergebnismindestverträge werden aus gemeinsamen Katalogen abgeleitet. Alle 100
+  Ergebnismindestverträge werden aus gemeinsamen Katalogen abgeleitet. Alle 103
   Werkzeuge deklarieren ein `outputSchema` und liefern
   das vollständige, pfadredigierte nicht-binäre Ergebnis als
   `structuredContent`. Bereits als MCP-Bildblock gelieferte Base64-Bytes werden
@@ -777,9 +777,13 @@ die API-Arbeitsdaten. Ohne ihn gilt der private Standard unter
 Der gebündelte MCP bleibt PC-blind. Sein Supervisor übernimmt eine vorhandene
 API nur bei exakt passender Identität und Ressourcenbindung oder startet die
 mitgelieferte API unsichtbar. Der Singleton darf über das Ende eines Clients
-hinaus weiterlaufen. Bewusster Shutdown ist nur nach Paket-, Versions- und
-Kommandozeilenprüfung der exakten Health-PID zulässig; Prozessname-Sweeps sind
-kein Teil der Architektur.
+hinaus weiterlaufen. `sse_api_control` bindet den bewussten Shutdown an Paket,
+Version, Konfiguration und exakte Health-Instanz. Die API nimmt den Auftrag
+nur ohne laufende Operation an und beendet sich selbst; der Supervisor prüft
+anschließend das Ende des gebundenen Prozesses. Prozessname-Sweeps sind kein
+Teil der Architektur. Nach einem absichtlichen Stopp bleibt MCP erreichbar,
+startet die API aber erst auf einen eigenen, konfigurationsgebundenen Auftrag
+erneut. Ein verlorener Antwortkanal bleibt als unbekannter Ausgang gesperrt.
 
 `SSE_API_URL` benennt eine autoritative separat verwaltete Loopback-API und
 verhindert jeden Autostart. `SSE_API_CONFIG` benennt dagegen einen absoluten
@@ -847,7 +851,7 @@ Gewinnaktualisierungsnotiz mit `OK` beschränkt; Recovery-Dateien werden nicht
 automatisch verworfen. Das Manifest trennt `status` von `operationAccess`:
 2025 trägt `full`, 2024 `verification-only`. Freigabe und voller Betriebsraum
 öffnen sich nur bei `supported` **und** `full`; eine reine Status-Promotion
-bleibt daher fail-closed. `capabilities.operationPolicy` klassifiziert alle 100
+bleibt daher fail-closed. `capabilities.operationPolicy` klassifiziert alle 102
 Operationen als Lesen, Navigation, bedingtes Focusless-Schreiben, Mutation,
 destruktiv oder Cleanup und nennt Opt-in- sowie Build-Drift-Gates. Ein zweiter
 MCP-Server pro Jahr ist nicht vorgesehen, solange sich nur Profildaten ändern.

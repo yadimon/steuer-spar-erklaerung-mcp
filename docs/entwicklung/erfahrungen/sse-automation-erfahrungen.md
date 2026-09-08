@@ -366,7 +366,10 @@ Zeilen je Tabelle keine freie Zeile mehr („Keine freie Tabellenzeile
 gefunden“); weder `scroll_page`, `scroll intoview`, `table_read` noch ein
 Seitenwechsel helfen, `table_delete` erreicht dieselben Zeilen dagegen
 problemlos. Umgehung: weitere Einnahmen-Position beziehungsweise Tabelle
-anlegen. Die Seitensummen der Vorsteuerseite tragen nach einer
+anlegen. Die Meldung nennt seit beta.44 zusaetzlich, wie viele Zeilen die
+gebundene Region sah, wie viele davon belegt waren und wie viele Schritte die
+Tabellenend-Navigation lief. Damit ist unterscheidbar, ob die Tabelle wirklich
+voll ist oder ob die Region zu kurz gelesen wurde. Die Seitensummen der Vorsteuerseite tragen nach einer
 Zeitraumauswahl den Zeitraum im Label („… »2. Vierteljahr«“) und sind dann
 gefiltert; ein zuvor gelesenes `sumLabel` bricht die Bindungsprüfung.
 

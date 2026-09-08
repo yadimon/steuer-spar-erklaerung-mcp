@@ -20,6 +20,23 @@ import {
 
 export const SSE_API_RESULT_SCHEMA_VERSION = 1;
 const API_OPERATION_NAME_SCHEMA = z.enum(SSE_API_OPERATIONS);
+const OPTIONAL_TABLE_ROW_DETAILS = z.array(z.object({
+  rowIndex: z.number().int().nonnegative().describe("Nullbasierter Ausgabezeilenindex"),
+  typedValues: z.array(z.union([z.string(), z.boolean(), z.null()])).describe(
+    "Zellwerte; Checkboxen boolesch, unbestimmte/unbekannte Werte null",
+  ),
+  checkboxStates: z.array(z.enum(["On", "Off", "Indeterminate"]).nullable()).describe(
+    "TogglePattern-Zustand je Spalte, sonst null",
+  ),
+  cellTypes: z.array(z.enum(["text", "boolean", "unknown"])).describe("Semantischer Zelltyp je Spalte"),
+  semanticsComplete: z.boolean().describe("Alle Ausgabezellen gelesen; kein Tabellenendbeweis"),
+  semanticReadErrors: z.array(z.object({
+    column: z.number().int().nonnegative().describe("Nullbasierte Spalte"),
+    error: z.string().describe("Lesefehler"),
+  })).describe("Nicht verifizierte Zellen"),
+}).passthrough()).nullable().optional().describe(
+  "Semantische Werte und Leseluecken je Ausgabezeile",
+);
 const OPTIONAL_SUPPORTED_CASE_YEARS = z.record(
   z.string().min(1),
   z.array(z.number().int().nonnegative()).min(1),
@@ -150,6 +167,7 @@ const CORE_OPERATION_RESULT_FIELDS = {
     headers: OPTIONAL_ARRAY,
     rows: OPTIONAL_ARRAY,
     rowCount: OPTIONAL_NON_NEGATIVE_NUMBER,
+    rowDetails: OPTIONAL_TABLE_ROW_DETAILS,
     ausgeschlosseneFenster: OPTIONAL_ARRAY,
     stats: OPTIONAL_OBJECT,
     incomplete: OPTIONAL_BOOLEAN,
@@ -183,6 +201,7 @@ const CORE_OPERATION_RESULT_FIELDS = {
   // angegeben wurde.
   table_read: {
     zeilen: OPTIONAL_ARRAY,
+    rowDetails: OPTIONAL_TABLE_ROW_DETAILS,
     vollstaendig: OPTIONAL_BOOLEAN,
     anzahl: OPTIONAL_NON_NEGATIVE_NUMBER,
     summe: OPTIONAL_STRING,

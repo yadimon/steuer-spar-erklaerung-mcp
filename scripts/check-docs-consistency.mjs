@@ -33,7 +33,7 @@ assert(
   existsSync(catalogPath),
   "dist/operation-catalog.js fehlt. Erst `npx tsc` laufen lassen, dann diese Pruefung.",
 );
-const { SSE_MCP_COMPOSED_TOOL_OPERATIONS, SSE_MCP_TOOL_OPERATIONS } = await import(
+const { SSE_MCP_COMPOSED_TOOL_OPERATIONS, SSE_MCP_CONTROL_TOOL_ACTIONS, SSE_MCP_TOOL_OPERATIONS } = await import(
   "../dist/operation-catalog.js"
 );
 
@@ -49,6 +49,7 @@ const liveOperations = new Set(
 const toolNames = new Set([
   ...Object.keys(SSE_MCP_TOOL_OPERATIONS),
   ...Object.keys(SSE_MCP_COMPOSED_TOOL_OPERATIONS),
+  ...Object.keys(SSE_MCP_CONTROL_TOOL_ACTIONS),
 ]);
 
 /** Die Referenz wird erzeugt; hier zaehlt nur, dass sie da und vollstaendig ist. */

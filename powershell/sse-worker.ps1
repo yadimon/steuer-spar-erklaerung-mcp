@@ -1871,6 +1871,12 @@ function Emit($obj) {
       $focusTelemetry = Get-SSEForegroundLeaseTelemetry
       if ($focusTelemetry -and [int]$focusTelemetry.acquisitions -gt 0) {
         $obj | Add-Member -NotePropertyName focusTelemetry -NotePropertyValue $focusTelemetry -Force
+        # Ein Suchpfad kann nach einem physischen Klick denselben Erfolgsausgang
+        # wie eine reine UIA-Navigation erreichen. Die beobachtete Lease hat
+        # Vorrang vor einer dort voreingestellten Fokusfrei-Angabe.
+        if ($obj.PSObject.Properties['fokusfrei'] -and $obj.fokusfrei -is [bool]) {
+          $obj.fokusfrei = $false
+        }
       }
     } catch { }
   }
@@ -1919,6 +1925,26 @@ function Emit($obj) {
     [Console]::Error.WriteLine(
       "SSE-WARNUNG: veralteter Rueckfallweg '$([string]$script:SSE_DEPRECATED_FALLBACK.operation)' " +
       "benutzt. $([string]$script:SSE_DEPRECATED_FALLBACK.reason)")
+  }
+  # Ein Fall, dessen Kopf eine Uebermittlung traegt, wird gespeichert - aber
+  # nie stillschweigend. Die Warnung steht im Ergebnis UND auf der
+  # Fehlerausgabe, damit sie auch in Protokollen auftaucht, die nur den
+  # Prozess mitschreiben.
+  if ($script:SSE_TRANSMITTED_CASE_WARNING) {
+    $obj | Add-Member -NotePropertyName transmittedCaseWarning `
+      -NotePropertyValue $script:SSE_TRANSMITTED_CASE_WARNING -Force
+    [Console]::Error.WriteLine(
+      "SSE-WARNUNG: Fall mit Uebermittlungsvermerk gespeichert. " +
+      "$([string]$script:SSE_TRANSMITTED_CASE_WARNING.reason) " +
+      "$([string]$script:SSE_TRANSMITTED_CASE_WARNING.hinweis)")
+  }
+  # Rein additive Messung: Baumlaeufe sind der teuerste wiederkehrende Schritt.
+  if ([int]$script:SSE_TREE_WALKS -gt 0) {
+    $obj | Add-Member -NotePropertyName treeWalks -NotePropertyValue ([int]$script:SSE_TREE_WALKS) -Force
+    $obj | Add-Member -NotePropertyName treeWalkMs -NotePropertyValue ([int]$script:SSE_TREE_WALK_MS) -Force
+    if ($script:SSE_TREE_WALK_DETAIL) {
+      $obj | Add-Member -NotePropertyName treeWalkDetail -NotePropertyValue @($script:SSE_TREE_WALK_DETAIL) -Force
+    }
   }
   # Depth hoch, damit verschachtelte Baeume nicht abgeschnitten werden
   $json = $obj | ConvertTo-Json -Depth 24 -Compress
@@ -4125,6 +4151,17 @@ function Get-UiSnapshot {
       $hwnd, $MaxNodes, ($TimeoutSec * 1000), $MaxDepth, [bool]$WithValues, [bool]$WithScroll)
 
     $out = ConvertTo-SSESnapshotNodes $native.Nodes
+    # Ein Baumlauf ist der teuerste wiederkehrende Schritt einer Operation.
+    # Wie oft er faellt, sieht man ohne Zaehler nicht - und ohne diese Zahl
+    # optimiert man an geratenen statt an gemessenen Kosten.
+    $script:SSE_TREE_WALKS = 1 + [int]$script:SSE_TREE_WALKS
+    $script:SSE_TREE_WALK_MS = [int]$script:SSE_TREE_WALK_MS + [int]$snapshotWatch.ElapsedMilliseconds
+    if ($null -eq $script:SSE_TREE_WALK_DETAIL) { $script:SSE_TREE_WALK_DETAIL = New-Object System.Collections.ArrayList }
+    if ($script:SSE_TREE_WALK_DETAIL.Count -lt 16) {
+      $null = $script:SSE_TREE_WALK_DETAIL.Add([pscustomobject]@{
+        knoten = [int]$native.NodeCount; grenze = [int]$MaxNodes; ms = [int]$snapshotWatch.ElapsedMilliseconds
+      })
+    }
     $st = [pscustomobject]@{
       n=$native.NodeCount; err=$native.WalkErrors; cyc=$native.CycleHits
       cycleRid=[string]$native.CycleRuntimeId; cycleName=''
@@ -4283,27 +4320,58 @@ function Resolve-Node {
 # Beschriftung mehrfach vorkommt: "Jetzt beginnen" existiert als Hyperlink
 # (ohne InvokePattern) UND als Button (mit). Wer nur den ersten Treffer nimmt,
 # scheitert mit "Nicht unterstuetztes Muster".
+<#
+.SYNOPSIS
+Zaehlt Bedienelemente eines Typs im Baum und nennt einige beim Namen.
+
+.DESCRIPTION
+Fuer Fehlermeldungen: Ein blosses "nicht gefunden" laesst offen, ob das
+gesuchte Element gar nicht da ist oder nur anders heisst. Beides fuehrt zu
+voellig verschiedenen naechsten Schritten.
+
+Die genannten Namen und AutomationIds sind dieselben Angaben, die
+`sse_read_page` ohnehin zurueckgibt; es entsteht also keine neue Offenlegung.
+#>
+function Get-SSETypeInventory($tree, [string]$Type, [int]$Max = 5) {
+  $treffer = @($tree.nodes | Where-Object { $_.type -eq $Type })
+  if (-not $treffer.Count) { return "Auf der Seite ist kein Element vom Typ $Type sichtbar." }
+  $namen = @($treffer | Select-Object -First $Max | ForEach-Object {
+    $bezeichner = $(if ($_.aid) { "aid=$($_.aid)" } elseif ($_.name) { "name=$($_.name)" } else { "rid=$($_.rid)" })
+    [string]$bezeichner
+  })
+  $rest = $treffer.Count - $namen.Count
+  $liste = $namen -join ', '
+  if ($rest -gt 0) { $liste = "$liste, +$rest weitere" }
+  "Sichtbar sind $($treffer.Count) Element(e) vom Typ ${Type}: $liste."
+}
+
+<#
+.SYNOPSIS
+Waehlt Knoten nach RuntimeId, AutomationId, Name und Typ.
+
+.DESCRIPTION
+Die Arbeit macht die DLL. Das war eine Kette aus Where-Object und einem
+Sort-Object mit zwei Skriptbloecken; deren Uebersetzung kostete jeden
+Arbeitsprozess bei seiner ERSTEN Ausfuehrung rund 89 Millisekunden - fast
+unabhaengig von der Knotenzahl, gemessen 67 ms schon fuer zwei Knoten. Fast
+jede Operation loest Knoten auf, und jeder Auftrag bekommt einen frischen
+Prozess.
+
+WICHTIG: hier KEIN fuehrendes Komma. Die Aufrufer schreiben `@(Resolve-Nodes
+...)`, und `@()` ueber einem Funktionsaufruf sammelt Pipeline-Ausgabe: Eine
+mit Komma zurueckgegebene Sammlung bliebe EIN Objekt und ergaebe ein Array mit
+der Liste als einzigem Element. Ohne Komma laeuft das Array normal in die
+Pipeline und die Aufrufer bekommen, was sie erwarten.
+#>
 function Resolve-Nodes {
   param($tree, $a)
-  $rid = [string](Arg $a 'rid')
-  $aid = [string](Arg $a 'aid')
-  $name = [string](Arg $a 'name')
-  $type = [string](Arg $a 'type')
-  $sub  = [bool](Arg $a 'contains' $false)
-  $hits = @($tree.nodes)
-  if ($rid) { $hits = @($hits | Where-Object { $_.rid -eq $rid }) }
-  if ($aid) {
-    $aidHits = @($hits | Where-Object { $_.aid -eq $aid })
-    if (-not $aidHits.Count) { $aidHits = @($hits | Where-Object { $_.aid -like "*$aid" }) }
-    $hits = $aidHits
-  }
-  if ($name) {
-    $hits = @($hits | Where-Object { $(if ($sub) { $_.name -like "*$name*" } else { $_.name -eq $name }) })
-  }
-  if ($type) { $hits = @($hits | Where-Object { $_.type -eq $type }) }
-  # Bedienbare Typen zuerst, danach sichtbare vor unsichtbaren.
-  $rang = @{ Button = 0; CheckBox = 1; RadioButton = 1; MenuItem = 1; TreeItem = 2; ListItem = 2; Hyperlink = 3; DataItem = 4; Text = 5 }
-  @($hits | Sort-Object @{ e = { if ($rang.ContainsKey($_.type)) { $rang[$_.type] } else { 6 } } }, @{ e = { if ($_.on) { 0 } else { 1 } } })
+  [SSEUiaTree]::Resolve(
+    $tree.nodes,
+    [string](Arg $a 'rid'),
+    [string](Arg $a 'aid'),
+    [string](Arg $a 'name'),
+    [string](Arg $a 'type'),
+    [bool](Arg $a 'contains' $false))
 }
 
 # Ergebnisbaum des GLOBALEN Steuerpruefers. Dieser Baum ersetzt nach dem
@@ -4709,6 +4777,60 @@ function Get-LiveElement {
     }
   }
   $found
+}
+
+# Nur Elemente des aktuellen Worker-Snapshots verwenden. Ein fehlender oder
+# veralteter Zellbezug wird als unbekannt gemeldet, nicht durch eine neue
+# Suche mit moeglicherweise anderer Zeilenidentitaet ersetzt.
+function Read-SSETableCellSemantic($Cell) {
+  $result = [pscustomobject]@{
+    type='unknown'; value=$null; checkboxState=$null; ok=$false; error=$null
+  }
+  try {
+    $rid = [string]$Cell.rid
+    if (-not $rid -or -not $script:UIAElementCache.ContainsKey($rid)) {
+      throw 'Zelle fehlt im aktuellen Snapshot.'
+    }
+    $element = $script:UIAElementCache[$rid]
+    if (($element.GetRuntimeId() -join '.') -ne $rid) { throw 'Zellidentitaet hat sich geaendert.' }
+    $toggle = $null
+    if ($element.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$toggle)) {
+      $state = [string]$toggle.Current.ToggleState
+      if ($state -notin @('On','Off','Indeterminate')) { throw 'Unbekannter Checkbox-Zustand.' }
+      $result.type = 'boolean'
+      $result.checkboxState = $state
+      $result.value = $(if ($state -eq 'On') { $true } elseif ($state -eq 'Off') { $false } else { $null })
+    } else {
+      $result.type = 'text'
+      $result.value = [string]$Cell.name
+    }
+    $result.ok = $true
+  } catch {
+    $result.error = $_.Exception.Message
+  }
+  $result
+}
+
+function New-SSETableRowDetails([int]$RowIndex, $Cells) {
+  $values = New-Object 'System.Collections.Generic.List[object]'
+  $states = New-Object 'System.Collections.Generic.List[object]'
+  $types = New-Object 'System.Collections.Generic.List[string]'
+  $errors = New-Object System.Collections.ArrayList
+  for ($column = 0; $column -lt $Cells.Count; $column++) {
+    $cell = $Cells[$column]
+    $values.Add($(if ($cell -and $cell.ok) { $cell.value } else { $null }))
+    $states.Add($(if ($cell -and $cell.ok) { $cell.checkboxState } else { $null }))
+    $types.Add($(if ($cell -and $cell.ok) { [string]$cell.type } else { 'unknown' }))
+    if (-not $cell -or -not $cell.ok) {
+      $null = $errors.Add([pscustomobject]@{
+        column=$column; error=$(if ($cell -and $cell.error) { $cell.error } else { 'Zelle nicht beobachtet.' })
+      })
+    }
+  }
+  [pscustomobject]@{
+    rowIndex=$RowIndex; typedValues=$values.ToArray(); checkboxStates=$states.ToArray()
+    cellTypes=$types.ToArray(); semanticsComplete=($errors.Count -eq 0); semanticReadErrors=@($errors)
+  }
 }
 
 # Liefert fuer genau ein UIA-Element alle strukturiert erreichbaren Texte und
@@ -5248,6 +5370,99 @@ function Test-SSEForegroundIsLockScreen {
   }
   $className = Get-SSEWindowClassName $foregroundRoot
   [bool]($processName -eq 'LockApp' -or $className -match 'LockScreenBackstopFrame')
+}
+
+<#
+.SYNOPSIS
+Liegt der Vordergrund bei einem anderen Prozess als der gebundenen SSE-Instanz?
+
+.DESCRIPTION
+GetLastInputInfo zaehlt jede Eingabe im System, gleichgueltig wohin sie geht.
+Deshalb bricht eine Schreibung bisher auch dann ab, wenn der Benutzer in einem
+voellig anderen Fenster tippt - obwohl seine Tastenanschlaege SSE gar nicht
+erreichen koennen.
+
+Das ist dieselbe Ueberlegung, die schon fuer den Sperrbildschirm gilt: Steht
+nachweislich ein fremdes Fenster im Vordergrund, kann der Benutzer SSE nicht
+parallel bedienen, und eine reine UIA-ValuePattern-Schreibung darf an dem
+dadurch ausgeloesten Tickwechsel nicht scheitern.
+
+Verglichen wird der PROZESS, nicht das Fenster: Ein Dialog derselben
+SSE-Instanz gehoert zu SSE, und dort waere eine Fremdeingabe sehr wohl
+gefaehrlich.
+
+Im Zweifel streng: Laesst sich der Vordergrund nicht bestimmen, gilt er als
+nicht fremd, und der Schutz bleibt an.
+#>
+<#
+.SYNOPSIS
+Ist die Abschirmung entfallen, auf die sich eine laufende Schreibung stuetzt?
+
+.DESCRIPTION
+Zwei Lagen erlauben es, waehrend fremder Systemeingaben weiterzuschreiben,
+weil der Benutzer SSE nachweislich nicht bedienen kann: der Sperrbildschirm
+und ein fremder Prozess im Vordergrund. Endet die jeweilige Lage mitten in der
+Transaktion, ist der Schutz sofort wieder noetig.
+
+Die Begruendung landet in $script:SSE_ISOLATION_BREACH, damit die Meldung
+sagen kann, WELCHE Lage endete - sonst stuenden acht Pruefstellen mit einer
+Begruendung da, die nur fuer eine davon stimmt.
+#>
+function Test-SSEIsolationEnded([bool]$LockScreen, [bool]$ForeignForeground, [IntPtr]$Hwnd) {
+  if ($LockScreen -and -not (Test-SSEForegroundIsLockScreen)) {
+    $script:SSE_ISOLATION_BREACH = 'Windows-Lockscreen wurde verlassen'
+    return $true
+  }
+  if ($ForeignForeground -and -not (Test-SSEForegroundIsForeignProcess $Hwnd)) {
+    $script:SSE_ISOLATION_BREACH = 'SSE wurde in den Vordergrund geholt'
+    return $true
+  }
+  $false
+}
+
+<#
+.SYNOPSIS
+Naheliegende Seitennamen zu einem nicht gefundenen Ziel.
+
+.DESCRIPTION
+Ein falsch geratener Seitenname liess das Programm bisher durch das gesamte
+Formular blaettern - sichtbar, minutenlang, und am Ende stand nur, dass die
+Seite nicht erreicht wurde. Wer daneben arbeitet, sieht dabei zu.
+
+Verglichen wird wortweise: Ein Vorschlag zaehlt, wenn er ein Wort des Ziels
+enthaelt oder umgekehrt. Woerter unter vier Zeichen bleiben aussen vor, sonst
+schlaegt jedes "und" alles vor.
+#>
+function Get-SSEPageSuggestions([string]$Ziel, [string[]]$Bekannt, [int]$Max = 8) {
+  # Verglichen wird auf Wortstamm, nicht auf ganze Woerter: 'Werbekosten'
+  # enthaelt 'Werbung' nicht, teilt mit ihm aber die ersten vier Zeichen.
+  # Ohne diesen Schritt bleibt genau der haeufigste Fall ohne Vorschlag.
+  $stamme = @(($Ziel -split '[^\p{L}\p{N}]+') | Where-Object { $_.Length -ge 4 } |
+    ForEach-Object { $_.Substring(0, [Math]::Min(5, $_.Length)) })
+  $treffer = New-Object System.Collections.ArrayList
+  foreach ($name in $Bekannt) {
+    if (-not $name) { continue }
+    foreach ($stamm in $stamme) {
+      if ($name -like "*$stamm*") { $null = $treffer.Add($name); break }
+      if ($stamm.Length -gt 4 -and $name -like "*$($stamm.Substring(0,4))*") { $null = $treffer.Add($name); break }
+    }
+  }
+  if (-not $treffer.Count) { return @() }
+  @($treffer | Select-Object -Unique | Select-Object -First $Max)
+}
+
+function Test-SSEForegroundIsForeignProcess([IntPtr]$Hwnd) {
+  if ($Hwnd -eq [IntPtr]::Zero) { return $false }
+  $foreground = [SW]::GetForegroundWindow()
+  if ($foreground -eq [IntPtr]::Zero) { return $false }
+  $foregroundRoot = [SW]::GetAncestor($foreground, 2) # GA_ROOT
+  if ($foregroundRoot -eq [IntPtr]::Zero) { $foregroundRoot = $foreground }
+  $foregroundPid = 0
+  [SW]::GetWindowThreadProcessId($foregroundRoot, [ref]$foregroundPid) | Out-Null
+  $ownPid = 0
+  [SW]::GetWindowThreadProcessId($Hwnd, [ref]$ownPid) | Out-Null
+  if ($foregroundPid -le 0 -or $ownPid -le 0) { return $false }
+  [bool]($foregroundPid -ne $ownPid)
 }
 
 # Reine Messung. Der Phasenlog veraendert keine Vor-/Nachbedingung und wird
@@ -7030,6 +7245,7 @@ $experimentalProfileVerificationOps = @(
   'window_restore', 'windows', 'instances'
 )
 $buildDriftBlockedOps = @(
+  'position_create',
   'case_create', 'checker_run', 'click', 'click_point', 'combo_select', 'dialog_answer',
   'file_dialog_select', 'fill_fields', 'goto', 'menu_click', 'save', 'save_as', 'set_value',
   'receipt_manager_action', 'receipt_manager_bulk_upsert', 'receipt_manager_classification_options', 'receipt_manager_classify',
@@ -9283,6 +9499,169 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     Emit ([pscustomobject]@{ ok = $true; heading = $head; bounds = $b; lines = @($lines); stats = $t.stats })
   }
 
+  'tax_knowledge_search' {
+    # Das Steuerwissen der SteuerSparErklaerung ist ein EIGENES Programm
+    # (Prozess SteuerBerater, Fenstertitel 'Steuerwissen'), das SSE ueber die
+    # Werkzeugleiste startet. Diese Operation liest dort nach - und nur das.
+    #
+    # Sie ruehrt den Steuerfall nicht an: kein Fenster von SSE wird gebunden,
+    # nichts geschrieben, nichts gespeichert. Getippt wird ausschliesslich in
+    # das Suchfeld des Wissensfensters.
+    #
+    # Warum physisch geklickt und getippt wird: Das Suchfeld liegt in einer
+    # eingebetteten Chromium-Ansicht. SetFocus lehnt sie ab ('Das Zielelement
+    # kann keinen Fokus erhalten'), und ein ValuePattern-Text loest die Suche
+    # nicht aus. Beides ist gemessen. Die Operation braucht deshalb den
+    # sichtbaren Desktop und den Vordergrund; sie ist nichts fuer nebenher.
+    if ($script:DESKTOP_NAME) {
+      Fail ('Steuerwissen braucht den sichtbaren Desktop: Das Suchfeld liegt in einer eingebetteten ' +
+            'Chromium-Ansicht und nimmt weder UIA-Fokus noch ValuePattern an.') 'hidden-desktop'
+    }
+    $begriff = ([string](Arg $a 'begriff')).Trim()
+    if ($begriff.Length -lt 2 -or $begriff.Length -gt 80) {
+      Fail 'begriff braucht 2 bis 80 Zeichen.' 'bad-args'
+    }
+    $mindestLaenge = Get-SSEBoundedIntegerArg $a 'mindestLaenge' 60 20 400
+    $maxAbschnitte = Get-SSEBoundedIntegerArg $a 'maxAbschnitte' 12 1 40
+
+    $wissenProzesse = @(Get-Process -Name 'SteuerBerater' -ErrorAction SilentlyContinue)
+    foreach ($wp in $wissenProzesse) { $wp.Refresh() }
+    $mitFenster = @($wissenProzesse | Where-Object {
+      $_.MainWindowHandle -ne 0 -and [string]$_.MainWindowTitle -eq 'Steuerwissen'
+    })
+    if (-not $mitFenster.Count) {
+      Fail ('Das Steuerwissen-Fenster ist nicht offen. Es wird von der SteuerSparErklaerung selbst ' +
+            "gestartet: sse_click mit name='Steuerwissen' auf der Werkzeugleiste, danach diese " +
+            'Operation erneut aufrufen.') 'not-found'
+    }
+    $wissenHwnd = [IntPtr]$mitFenster[0].MainWindowHandle
+    $wissenPid = [int]$mitFenster[0].Id
+
+    # Das Fenster erscheint, bevor die eingebettete Ansicht ihre Bedienelemente
+    # meldet - deshalb wird darauf gewartet.
+    #
+    # OFFEN, und der Grund, warum diese Operation als live ungetestet gilt:
+    # Chromium legt seinen Bedienbaum nur auf Anforderung an. Gemessen meldete
+    # dasselbe Fenster einmal 31 Knoten samt Suchfeld und ein anderes Mal nur
+    # 15 ohne jeden Inhalt - Warten half dort nicht, auch nach 15 Sekunden
+    # nicht. Was den Baum verlaesslich anfordert, ist noch nicht gefunden;
+    # blosses Lesen ueber UIA genuegt offenbar nicht. Bis dahin scheitert die
+    # Operation in dieser Lage sauber, statt etwas zu behaupten.
+    $suchfeld = $null
+    $wissenCache = New-Object System.Collections.Hashtable
+    $feldUhr = [Diagnostics.Stopwatch]::StartNew()
+    while ($feldUhr.ElapsedMilliseconds -lt 15000) {
+      $vorher = [SSEUiaTree]::Describe($wissenHwnd, 900, 9000, 16, $true, $false)
+      $wissenCache.Clear()
+      $vorherViews = [SSEUiaTree]::ToViews($vorher.Nodes, $wissenCache)
+      $suchfeld = @($vorherViews | Where-Object { $_.type -eq 'Edit' -and [string]$_.name -like '*Suchbegriff*' })[0]
+      if ($suchfeld) { break }
+      Start-Sleep -Milliseconds 700
+    }
+    if (-not $suchfeld) {
+      Fail ("Im Steuerwissen-Fenster ist auch nach $([int]$feldUhr.Elapsed.TotalSeconds) Sekunden kein " +
+            'Suchfeld sichtbar.') 'not-found'
+    }
+    if ([int]$suchfeld.w -le 0 -or [int]$suchfeld.h -le 0) {
+      Fail 'Das Suchfeld des Steuerwissens hat keine sichtbare Flaeche.' 'offscreen'
+    }
+
+    $null = [SW]::SetForegroundWindow($wissenHwnd)
+    Start-Sleep -Milliseconds 500
+    if ([SW]::GetForegroundWindow() -ne $wissenHwnd) {
+      Fail 'Das Steuerwissen-Fenster liess sich nicht in den Vordergrund holen; nichts getippt.' 'precondition-failed'
+    }
+    $klickX = [int]($suchfeld.x + $suchfeld.w / 2)
+    $klickY = [int]($suchfeld.y + $suchfeld.h / 2)
+    [SW]::SetCursorPos($klickX, $klickY) | Out-Null
+    Start-Sleep -Milliseconds 150
+    [SW]::mouse_event(0x0002, 0, 0, 0, [IntPtr]::Zero)
+    [SW]::mouse_event(0x0004, 0, 0, 0, [IntPtr]::Zero)
+    Start-Sleep -Milliseconds 350
+
+    # Vorherigen Suchbegriff ersetzen, nicht ergaenzen.
+    [System.Windows.Forms.SendKeys]::SendWait('^a')
+    Start-Sleep -Milliseconds 120
+    [System.Windows.Forms.SendKeys]::SendWait((ConvertTo-SendKeysLiteral $begriff))
+    Start-Sleep -Milliseconds 350
+    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+
+    # Auf Inhalt warten statt pauschal zu schlafen.
+    $wartenBis = [Diagnostics.Stopwatch]::StartNew()
+    $abschnitte = @()
+    $verweise = @()
+    while ($wartenBis.ElapsedMilliseconds -lt 12000) {
+      Start-Sleep -Milliseconds 600
+      $nachher = [SSEUiaTree]::Describe($wissenHwnd, 2500, 15000, 20, $true, $false)
+      $nachherViews = [SSEUiaTree]::ToViews($nachher.Nodes, $null)
+      # Die eingebettete Ansicht zerlegt einen Absatz in mehrere Textknoten,
+      # und die Trefferhervorhebung schneidet den gesuchten Begriff in eigene,
+      # sehr kurze Knoten. Wer nur lange Knoten nimmt, verliert genau den
+      # Begriff, nach dem gesucht wurde: Aus einem Satz ueber das
+      # Reverse-Charge-Verfahren wurden zwei zusammenhanglose Bruchstuecke,
+      # zwischen denen der Begriff fehlte.
+      #
+      # Deshalb werden zusammengehoerige Knoten - gleicher Elternknoten, in
+      # Baumreihenfolge - zu einem Abschnitt vereint, und erst der ganze
+      # Abschnitt wird an der Mindestlaenge gemessen.
+      #
+      # Verbunden wird ohne Trennzeichen. Die Namen tragen die Wortabstaende
+      # an den Schnittstellen nicht (gemessen: der Knoten vor einer
+      # Hervorhebung endet auf 'tes', nicht auf 'tes '), und ein eingefuegtes
+      # Leerzeichen waere erfunden - es zerrisse 'Reverse-Charge' zu
+      # 'Reverse - Charge'. Ein fehlendes Leerzeichen ist die kleinere
+      # Entstellung als ein zusaetzliches; 'teile' liefert daneben den
+      # unveraenderten Wortlaut jedes einzelnen Knotens.
+      #
+      # Ein TextPattern waere der saubere Weg, den Absatz samt Abstaenden zu
+      # lesen. Dieses Fenster bietet keines: gemessen meldete kein einziger
+      # Knoten IsTextPatternAvailable.
+      $textKnoten = @($nachherViews | Where-Object { $_.type -eq 'Text' -and [string]$_.name })
+      $roheAbschnitte = New-Object System.Collections.ArrayList
+      $gruppenTeile = New-Object System.Collections.ArrayList
+      $gruppenEltern = $null
+      foreach ($knoten in $textKnoten) {
+        if ($gruppenTeile.Count -and [string]$knoten.p -ne [string]$gruppenEltern) {
+          $null = $roheAbschnitte.Add(@($gruppenTeile.ToArray()))
+          $gruppenTeile.Clear()
+        }
+        $gruppenEltern = [string]$knoten.p
+        $null = $gruppenTeile.Add([string]$knoten.name)
+      }
+      if ($gruppenTeile.Count) { $null = $roheAbschnitte.Add(@($gruppenTeile.ToArray())) }
+
+      $abschnitte = @()
+      $gesehenerText = New-Object 'System.Collections.Generic.HashSet[string]'
+      foreach ($teile in $roheAbschnitte) {
+        $verbunden = ($teile -join '')
+        if ($verbunden.Length -lt $mindestLaenge) { continue }
+        if (-not $gesehenerText.Add($verbunden)) { continue }
+        $abschnitte += [pscustomobject]@{ text = $verbunden; teile = @($teile) }
+        if ($abschnitte.Count -ge $maxAbschnitte) { break }
+      }
+      $verweise = @($nachherViews |
+        Where-Object { $_.type -eq 'Hyperlink' -and [string]$_.name } |
+        ForEach-Object { [string]$_.name } | Select-Object -Unique | Select-Object -First 25)
+      if ($abschnitte.Count) { break }
+    }
+
+    Emit ([pscustomobject]@{
+      ok = $true
+      begriff = $begriff
+      fenster = [int64]$wissenHwnd
+      pid = $wissenPid
+      abschnitte = @($abschnitte)
+      verweise = @($verweise)
+      wartezeitMs = [int64]$wartenBis.ElapsedMilliseconds
+      hinweis = ('Rein lesend aus dem Steuerwissen der SteuerSparErklaerung. Kein Steuerfall wurde ' +
+                 'gebunden, gelesen oder geaendert. Die Antwort ist Herstellerinhalt, keine ' +
+                 'Steuerberatung und keine Zusage fuer den konkreten Fall. Je Abschnitt ist ' +
+                 "'teile' der unveraenderte Wortlaut der einzelnen Textknoten; 'text' verbindet " +
+                 'sie ohne Trennzeichen. An einer Trefferhervorhebung kann dort ein Wortabstand ' +
+                 'fehlen - die Ansicht gibt ihn nicht heraus.')
+    })
+  }
+
   'read_table' {
     $hwnd = Resolve-Window $a
     $t = Walk-BoundTree $hwnd
@@ -9310,18 +9689,26 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     }
 
     $rows = New-Object System.Collections.ArrayList
-    $cur = $null; $anker = -9999
+    $rowDetails = New-Object System.Collections.ArrayList
+    $cur = $null; $curSemantic = $null; $anker = -9999
     $abschluss = {
-      if ($null -ne $cur) { $null = $rows.Add(@($cur)) }
+      if ($null -ne $cur) {
+        $null = $rowDetails.Add((New-SSETableRowDetails $rows.Count $curSemantic))
+        $null = $rows.Add(@($cur))
+      }
     }
     foreach ($c in $cells) {
       if ($null -eq $cur -or [Math]::Abs($c.y - $anker) -gt 10) {
         & $abschluss
         $anker = $c.y
         $cur = @($null) * [Math]::Max(1, $heads.Count)
+        $curSemantic = @($null) * [Math]::Max(1, $heads.Count)
       }
       $idx = SpalteVon $c.x
-      if ($idx -ge 0 -and $idx -lt $cur.Count) { $cur[$idx] = $c.name } else { $cur += $c.name }
+      $semantic = Read-SSETableCellSemantic $c
+      if ($idx -ge 0 -and $idx -lt $cur.Count) {
+        $cur[$idx] = $c.name; $curSemantic[$idx] = $semantic
+      } else { $cur += $c.name; $curSemantic += $semantic }
     }
     & $abschluss
 
@@ -9331,6 +9718,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       # Wie bei table_read: Windows PowerShell 5.1 macht aus einer
       # verschachtelten Zeile sonst {"value":[...],"Count":n}.
       rows = @($rows | ForEach-Object { ,[string[]]@($_ | ForEach-Object { [string]$_ }) }); rowCount = $rows.Count
+      rowDetails = @($rowDetails)
       # Fremde Fenster ausweisen. Frueher lieferte read_table bei geoeffneter
       # Werte-Info deren Tabelle als Seiteninhalt - ohne jeden Hinweis.
       ausgeschlosseneFenster = @($t.fremdeFenster)
@@ -9739,7 +10127,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       Fail "Vorbedingung verletzt: aktuelle Seite ist '$headingBefore', erwartet '$expectedPage'. NICHT geaendert." 'precondition-failed'
     }
     $nodes = @(Resolve-Nodes $tree $selector)
-    if (-not $nodes.Count) { Fail 'CheckBox nicht gefunden.' 'not-found' }
+    if (-not $nodes.Count) {
+      Fail ("CheckBox nicht gefunden. " + (Get-SSETypeInventory $tree 'CheckBox')) 'not-found'
+    }
     if ($nodes.Count -ne 1) { Fail "CheckBox ist nicht eindeutig ($($nodes.Count) Treffer)." 'ambiguous' }
     $node = $nodes[0]
     if ($node.type -ne 'CheckBox') { Fail "Ziel ist '$($node.type)', keine CheckBox." 'bad-target' }
@@ -10475,7 +10865,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       contains=[bool](Arg $a 'contains' $false); type='ComboBox'
     }
     $combos = @(Resolve-Nodes $tree $selector)
-    if (-not $combos.Count) { Fail 'ComboBox nicht gefunden.' 'not-found' }
+    if (-not $combos.Count) {
+      Fail ("ComboBox nicht gefunden. " + (Get-SSETypeInventory $tree 'ComboBox')) 'not-found'
+    }
     if ($combos.Count -ne 1) { Fail "ComboBox ist nicht eindeutig ($($combos.Count) Treffer)." 'ambiguous' }
     $combo = $combos[0]
     if (-not $combo.aid) {
@@ -10547,7 +10939,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       contains=[bool](Arg $a 'contains' $false); type='ComboBox'
     }
     $combos = @(Resolve-Nodes $tree $selector)
-    if (-not $combos.Count) { Fail 'ComboBox nicht gefunden.' 'not-found' }
+    if (-not $combos.Count) {
+      Fail ("ComboBox nicht gefunden. " + (Get-SSETypeInventory $tree 'ComboBox')) 'not-found'
+    }
     if ($combos.Count -ne 1) { Fail "ComboBox ist nicht eindeutig ($($combos.Count) Treffer)." 'ambiguous' }
     $combo = $combos[0]
     if (-not $combo.aid) {
@@ -11384,66 +11778,86 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $transmissionReason = [string]$summaryBefore.transmittedReason
       if (-not $transmissionReason) { $transmissionReason = 'Uebermittlungsstatus ist unbekannt' }
       if (-not $correction) {
-        Fail ("Bereits uebermittelter oder nicht sicher als unuebermittelt erkannter Fall wird nicht gespeichert: " +
-              "$transmissionReason. Fuer eine Korrektur zuerst eine als Korrektur/Berichtigung benannte, " +
-              "hashverifizierte Arbeitskopie samt Sicherung erzeugen und correction explizit bestaetigen.") 'transmitted-case-locked'
-      }
+        # Der Fallkopf haelt EINE Uebermittlung fest, nicht den Zustand des
+        # ganzen Jahres. Eine Gewinn-Erfassung wird ueber das Jahr
+        # weitergefuehrt und ist die Vorbefuellung fuer die naechste
+        # Voranmeldung; eine Blankosperre machte genau den Zweck der Datei
+        # unmoeglich - der Kommentar oben sagt das seit jeher, die Umsetzung
+        # hielt sich nicht daran.
+        #
+        # Was wirklich gilt: Ein bereits uebermittelter ZEITRAUM darf nicht
+        # still geaendert werden. Das ist eine Aussage ueber Zeitraeume, nicht
+        # ueber die Datei. Gespeichert wird deshalb, und die Warnung nennt die
+        # Uebermittlung in jedem Ergebnis.
+        #
+        # Der correction-Weg bleibt unveraendert: Wer einen uebermittelten
+        # Zeitraum wirklich berichtigt, bindet Arbeitskopie, Sicherung,
+        # Zeitraum und Grund - und bekommt dafuer die strengere Pruefung.
+        $script:SSE_TRANSMITTED_CASE_WARNING = [pscustomobject]@{
+          kind = 'transmitted-case'
+          reason = $transmissionReason
+          hinweis = ('Bereits uebermittelte Zeitraeume duerfen nicht still geaendert werden. Fuer die ' +
+                     'Berichtigung eines uebermittelten Zeitraums den correction-Weg mit Arbeitskopie, ' +
+                     'Sicherung, Zeitraum und Grund benutzen.')
+        }
+      } else {
 
-      $acknowledged = [bool](Arg $correction 'acknowledged' $false)
-      $period = [string](Arg $correction 'period')
-      $correctionReason = ([string](Arg $correction 'reason')).Trim()
-      $sourcePathRaw = [string](Arg $correction 'sourcePath')
-      $backupPathRaw = [string](Arg $correction 'backupPath')
-      $expectedSourceHash = ([string](Arg $correction 'expectedSourceHash')).ToUpperInvariant()
-      $expectedBackupHash = ([string](Arg $correction 'expectedBackupHash')).ToUpperInvariant()
-      if (-not $acknowledged -or $period -notmatch '^\d{4}-(?:0[1-9]|1[0-2]|Q[1-4]|YEAR)$' -or
-          $correctionReason.Length -lt 3 -or $correctionReason.Length -gt 500 -or
-          -not $sourcePathRaw -or -not $backupPathRaw -or
-          $expectedSourceHash -notmatch '^[A-F0-9]{64}$' -or
-          $expectedBackupHash -notmatch '^[A-F0-9]{64}$') {
-        Fail ('correction braucht acknowledged=true, einen Zeitraum YYYY-MM/YYYY-Qn/YYYY-YEAR, ' +
-              'einen Grund sowie gebundene Original- und Sicherungspfade mit SHA256.') 'bad-args'
-      }
+        $acknowledged = [bool](Arg $correction 'acknowledged' $false)
+        $period = [string](Arg $correction 'period')
+        $correctionReason = ([string](Arg $correction 'reason')).Trim()
+        $sourcePathRaw = [string](Arg $correction 'sourcePath')
+        $backupPathRaw = [string](Arg $correction 'backupPath')
+        $expectedSourceHash = ([string](Arg $correction 'expectedSourceHash')).ToUpperInvariant()
+        $expectedBackupHash = ([string](Arg $correction 'expectedBackupHash')).ToUpperInvariant()
+        if (-not $acknowledged -or $period -notmatch '^\d{4}-(?:0[1-9]|1[0-2]|Q[1-4]|YEAR)$' -or
+            $correctionReason.Length -lt 3 -or $correctionReason.Length -gt 500 -or
+            -not $sourcePathRaw -or -not $backupPathRaw -or
+            $expectedSourceHash -notmatch '^[A-F0-9]{64}$' -or
+            $expectedBackupHash -notmatch '^[A-F0-9]{64}$') {
+          Fail ('correction braucht acknowledged=true, einen Zeitraum YYYY-MM/YYYY-Qn/YYYY-YEAR, ' +
+                'einen Grund sowie gebundene Original- und Sicherungspfade mit SHA256.') 'bad-args'
+        }
 
-      $sourcePath = [IO.Path]::GetFullPath($sourcePathRaw)
-      $backupPath = [IO.Path]::GetFullPath($backupPathRaw)
-      $samePath = [StringComparer]::OrdinalIgnoreCase
-      if ($samePath.Equals($expectedPath, $sourcePath) -or
-          $samePath.Equals($expectedPath, $backupPath) -or
-          $samePath.Equals($sourcePath, $backupPath)) {
-        Fail 'Korrekturstand, uebermitteltes Original und Sicherung muessen drei verschiedene Dateien sein.' 'precondition-failed'
-      }
-      $targetStem = [IO.Path]::GetFileNameWithoutExtension($expectedPath)
-      if ($targetStem -notmatch '(?i)(korrektur|berichtigung)') {
-        Fail 'Ein uebermittelter Stand darf nur in einer als Korrektur oder Berichtigung benannten Arbeitskopie gespeichert werden.' 'precondition-failed'
-      }
-      $targetExtension = [IO.Path]::GetExtension($expectedPath)
-      if ([IO.Path]::GetExtension($sourcePath) -ne $targetExtension -or
-          [IO.Path]::GetExtension($backupPath) -ne $targetExtension) {
-        Fail 'Korrekturstand, Original und Sicherung muessen denselben Falldateityp haben.' 'precondition-failed'
-      }
-      if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) { Fail 'Korrektur-Original fehlt.' 'not-found' }
-      if (-not (Test-Path -LiteralPath $backupPath -PathType Leaf)) { Fail 'Korrektur-Sicherung fehlt.' 'not-found' }
-      $actualSourceHash = Get-Sha256 $sourcePath
-      $actualBackupHash = Get-Sha256 $backupPath
-      if ($actualSourceHash -ne $expectedSourceHash) {
-        Fail 'Das gebundene uebermittelte Original wurde veraendert; Korrektur nicht gespeichert.' 'resource-changed'
-      }
-      if ($actualBackupHash -ne $expectedBackupHash -or $actualBackupHash -ne $before) {
-        Fail 'Die Korrektur-Sicherung entspricht nicht bytegenau dem unmittelbar zu speichernden Vorzustand.' 'precondition-failed'
-      }
-      $sourceSummary = Get-CaseSummary $sourcePath
-      if (-not $sourceSummary -or $sourceSummary.transmitted -ne $true) {
-        Fail 'Die Korrekturquelle ist nicht eindeutig als uebermitteltes Original nachgewiesen.' 'precondition-failed'
-      }
-      $correctionResult = [pscustomobject]@{
-        acknowledged = $true
-        period = $period
-        reason = $correctionReason
-        sourceHash = $actualSourceHash
-        backupHash = $actualBackupHash
-        originalUntouchedBeforeSave = $true
-        elsterTransmissionTriggered = $false
+        $sourcePath = [IO.Path]::GetFullPath($sourcePathRaw)
+        $backupPath = [IO.Path]::GetFullPath($backupPathRaw)
+        $samePath = [StringComparer]::OrdinalIgnoreCase
+        if ($samePath.Equals($expectedPath, $sourcePath) -or
+            $samePath.Equals($expectedPath, $backupPath) -or
+            $samePath.Equals($sourcePath, $backupPath)) {
+          Fail 'Korrekturstand, uebermitteltes Original und Sicherung muessen drei verschiedene Dateien sein.' 'precondition-failed'
+        }
+        $targetStem = [IO.Path]::GetFileNameWithoutExtension($expectedPath)
+        if ($targetStem -notmatch '(?i)(korrektur|berichtigung)') {
+          Fail 'Ein uebermittelter Stand darf nur in einer als Korrektur oder Berichtigung benannten Arbeitskopie gespeichert werden.' 'precondition-failed'
+        }
+        $targetExtension = [IO.Path]::GetExtension($expectedPath)
+        if ([IO.Path]::GetExtension($sourcePath) -ne $targetExtension -or
+            [IO.Path]::GetExtension($backupPath) -ne $targetExtension) {
+          Fail 'Korrekturstand, Original und Sicherung muessen denselben Falldateityp haben.' 'precondition-failed'
+        }
+        if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) { Fail 'Korrektur-Original fehlt.' 'not-found' }
+        if (-not (Test-Path -LiteralPath $backupPath -PathType Leaf)) { Fail 'Korrektur-Sicherung fehlt.' 'not-found' }
+        $actualSourceHash = Get-Sha256 $sourcePath
+        $actualBackupHash = Get-Sha256 $backupPath
+        if ($actualSourceHash -ne $expectedSourceHash) {
+          Fail 'Das gebundene uebermittelte Original wurde veraendert; Korrektur nicht gespeichert.' 'resource-changed'
+        }
+        if ($actualBackupHash -ne $expectedBackupHash -or $actualBackupHash -ne $before) {
+          Fail 'Die Korrektur-Sicherung entspricht nicht bytegenau dem unmittelbar zu speichernden Vorzustand.' 'precondition-failed'
+        }
+        $sourceSummary = Get-CaseSummary $sourcePath
+        if (-not $sourceSummary -or $sourceSummary.transmitted -ne $true) {
+          Fail 'Die Korrekturquelle ist nicht eindeutig als uebermitteltes Original nachgewiesen.' 'precondition-failed'
+        }
+        $correctionResult = [pscustomobject]@{
+          acknowledged = $true
+          period = $period
+          reason = $correctionReason
+          sourceHash = $actualSourceHash
+          backupHash = $actualBackupHash
+          originalUntouchedBeforeSave = $true
+          elsterTransmissionTriggered = $false
+        }
       }
     } elseif ($correction) {
       Fail 'correction ist nur fuer eine Korrektur-Arbeitskopie mit eindeutig uebermitteltem Quelloriginal zulaessig.' 'bad-args'
@@ -13547,6 +13961,166 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     })
   }
 
+  'position_create' {
+    $name = [string](Arg $a 'name')
+    $casePath = [string](Arg $a 'expectedCasePath')
+    $caseHash = ([string](Arg $a 'expectedCaseHash')).ToUpperInvariant()
+    $backupPath = [string](Arg $a 'backupPath')
+    $expected = @(Get-SSEBoundedArrayArg $a 'expectedPositions' 0 50)
+    if (-not (Arg $a 'hwnd') -or -not $casePath -or -not $backupPath -or
+        $caseHash -notmatch '^[A-F0-9]{64}$' -or $name.Length -lt 1 -or $name.Length -gt 80 -or
+        $name -ne $name.Trim() -or $name -match '[\r\n\t\u00BB\u00AB<>]') {
+      Fail 'Fenster, Fall, Hash, Sicherung, Positionsinventar und einzeiliger Name sind Pflicht.' 'bad-args'
+    }
+    foreach ($item in $expected) {
+      if (-not [string]$item.name -or [string]$item.net -notmatch '^-?(?:\d{1,3}(?:\.\d{3})*|\d+),\d{2}$') {
+        Fail 'Positionsinventar braucht eindeutige Namen und formatierte Nettosummen.' 'bad-args'
+      }
+    }
+    if (@($expected | Group-Object name | Where-Object Count -ne 1).Count -or $name -in @($expected.name)) {
+      Fail 'Doppelte Namen oder bereits vorhandene Zielposition; nichts angelegt.' 'precondition-failed'
+    }
+    if ((Get-Sha256 $backupPath) -ne $caseHash -or
+        [IO.Path]::GetFullPath($backupPath) -eq [IO.Path]::GetFullPath($casePath)) {
+      Fail 'Die getrennte Sicherung ist nicht bytegleich zum erwarteten Fallstand.' 'precondition-failed'
+    }
+    $bound = Resolve-BoundWriteWindow $a
+    $hwnd = [IntPtr][int64]$bound.window.hwnd
+    $targetPid = [int]$bound.window.pid
+    $started = $false
+    $beforePositions = @()
+    $afterPositions = @()
+    $inputBaseline = Get-SSELastInputTick
+    $windowBaseline = Get-SSEInteractionWindowSet $targetPid $hwnd
+    function Assert-PositionEpoch {
+      $inputChanged = ($null -eq $inputBaseline -or -not (Test-SSELastInputUnchanged $inputBaseline))
+      $windowsChanged = ((Get-SSEInteractionWindowSet $targetPid $hwnd).fingerprint -ne $windowBaseline.fingerprint)
+      $dialogs = @(Get-DialogInventory $targetPid | Where-Object { $_.kind -in @('native-dialog','qt-dialog') })
+      if ($inputChanged -or $windowsChanged -or $dialogs.Count) {
+        throw "Positionsepoche veraendert: Benutzereingabe=$inputChanged, Fenstersatz=$windowsChanged, Dialoge=$($dialogs.Count)."
+      }
+      $null = Resolve-BoundWriteWindow $a
+    }
+    function Read-PositionOverview {
+      $tree = Walk-Tree $hwnd -WithValues
+      if ($tree.stats.truncated -or $tree.stats.err -or (Get-CurrentHeading $hwnd $tree) -ne 'Erlöse Lieferungen/Leistungen') {
+        throw 'Vollstaendige Einnahmen-Uebersicht wird erwartet.'
+      }
+      $buttons = @($tree.nodes | Where-Object { $_.type -eq 'Hyperlink' -and $_.aid -like '*.GuideViewer.*' -and $_.name -match '^»(.+)« bearbeiten$' })
+      $rows = @($buttons | ForEach-Object {
+        $button = $_
+        $amount = @($tree.nodes | Where-Object {
+          $_.type -eq 'Text' -and $_.aid -like '*.GuideViewer.*' -and
+          [Math]::Abs($_.y - $button.y) -lt 10 -and $_.name -match '^-?(?:\d{1,3}(?:\.\d{3})*|\d+),\d{2}$'
+        })
+        if ($amount.Count -ne 1) { throw 'Positionssumme fehlt oder ist mehrdeutig.' }
+        [pscustomobject]@{ name=($button.name -replace '^»|« bearbeiten$', ''); net=[string]$amount[0].name }
+      })
+      if (@($rows | Group-Object name | Where-Object Count -ne 1).Count) { throw 'Doppelte Positionen in der Uebersicht.' }
+      [pscustomobject]@{ tree=$tree; rows=@($rows) }
+    }
+    function Assert-PositionRows($Actual, $ExpectedRows) {
+      if (@($Actual).Count -ne @($ExpectedRows).Count) { throw 'Anzahl der Positionen stimmt nicht.' }
+      foreach ($row in @($ExpectedRows)) {
+        if (@($Actual | Where-Object { $_.name -ceq $row.name -and $_.net -ceq $row.net }).Count -ne 1) {
+          throw 'Positionsname oder Nettosumme stimmt nicht.'
+        }
+      }
+    }
+    function Invoke-PositionButton($Tree, [string]$Caption) {
+      Assert-PositionEpoch
+      # GuideViewer exponiert InvokePattern, fuehrt den Befehl darueber aber
+      # nicht aus. Ein einziger geometrisch und per PID gebundener Klick ist
+      # hier der eigene Schreibvertrag, kein Rueckfall nach einem Invoke.
+      $headingBeforeClick = Get-CurrentHeading $hwnd $Tree
+      $null = Show-SSEWindow $hwnd
+      $Tree = Walk-Tree $hwnd -WithValues
+      if ($Tree.stats.truncated -or (Get-CurrentHeading $hwnd $Tree) -cne $headingBeforeClick) {
+        throw 'Seite hat sich vor dem Positionsbefehl veraendert.'
+      }
+      $controlType = $(if ($Caption -eq 'Zurück') { 'Button' } else { 'Hyperlink' })
+      $buttons = @($Tree.nodes | Where-Object { $_.type -eq $controlType -and $_.name -ceq $Caption -and $_.on })
+      if ($buttons.Count -ne 1) { throw 'Positionsbefehl ist nicht eindeutig.' }
+      $node = $buttons[0]
+      $live = Get-LiveElement $hwnd $node.rid
+      if (-not $live -or [int]$live.Current.ProcessId -ne $targetPid -or
+          ([string]$live.Current.Name).Trim() -cne $Caption) {
+        throw 'Positionsbefehl hat keine gueltige Live-Bindung.'
+      }
+      $rect = $live.Current.BoundingRectangle
+      if ([double]::IsInfinity($rect.X) -or [double]::IsInfinity($rect.Y) -or $rect.Width -le 0 -or $rect.Height -le 0 -or
+          [Math]::Abs($rect.X - $node.x) -gt 3 -or [Math]::Abs($rect.Y - $node.y) -gt 3) {
+        throw 'Frisches Zielrechteck ist nicht mehr identisch.'
+      }
+      $px = [int]($rect.X + $rect.Width / 2); $py = [int]($rect.Y + $rect.Height / 2)
+      if (-not (Get-SSEPointObstruction $hwnd $px $py).isBoundTarget) { throw 'Positionsbefehl ist verdeckt.' }
+      Assert-PositionEpoch
+      if ($Caption -ceq 'Weitere Position erfassen') { Set-Variable -Name started -Value $true -Scope 1 }
+      [SW]::SetCursorPos($px, $py) | Out-Null
+      [SW]::mouse_event(0x0002, 0, 0, 0, [IntPtr]::Zero)
+      [SW]::mouse_event(0x0004, 0, 0, 0, [IntPtr]::Zero)
+      $ownedTick = Get-SSELastInputTick
+      Set-SSEForegroundLeaseInputCheckpoint $ownedTick ([pscustomobject]@{ x=$px; y=$py })
+      Set-Variable -Name inputBaseline -Value $ownedTick -Scope 1
+      Start-Sleep -Milliseconds 350
+    }
+    function Read-NewPosition([string]$ExpectedName, [bool]$RequireName) {
+      Assert-PositionEpoch
+      $tree = Walk-Tree $hwnd -WithValues
+      $heading = Get-CurrentHeading $hwnd $tree
+      $fields = @($tree.nodes | Where-Object { $_.type -eq 'Edit' -and $_.aid -like '*.DialogUI.*.Text' -and $_.ro -eq $false })
+      $rate = @($tree.nodes | Where-Object { $_.type -eq 'ComboBox' -and $_.aid -like '*.AuswahlUStSatz' })
+      $sum = Read-LabeledValueFromTree $tree $hwnd 'Summe der Einnahmen (netto)'
+      $vat = Read-LabeledValueFromTree $tree $hwnd 'Summe der Umsatzsteuer'
+      if ($tree.stats.truncated -or $tree.stats.err -or ($heading -notlike 'Einnahmen:*' -and $heading -ne 'Einnahmen') -or
+          $fields.Count -ne 1 -or $rate.Count -ne 1 -or [string]$rate[0].val -ne '19' -or
+          $sum.candidateCount -ne 1 -or $vat.candidateCount -ne 1 -or
+          [string]$sum.value -notin @('','0','0,00') -or [string]$vat.value -notin @('','0','0,00')) {
+        throw 'Neue Einnahmenposition ist nicht eindeutig leer und mit 19 Prozent gebunden.'
+      }
+      if (($RequireName -and ([string]$fields[0].val -cne $ExpectedName -or $heading -cne "Einnahmen: $ExpectedName")) -or
+          (-not $RequireName -and [string]$fields[0].val -in @($expected.name))) {
+        throw 'Bezeichnung der neuen Position stimmt nicht.'
+      }
+      $region = Get-SSETableRegion $tree $hwnd $sum
+      if (-not $region.ok -or @($region.cells | Where-Object { $_.name -and $_.name -notin @('0,00','0','19') }).Count) {
+        throw 'Neue Position enthaelt bereits Tabellenwerte oder die Tabelle ist nicht lesbar.'
+      }
+      [pscustomobject]@{ tree=$tree; field=$fields[0]; heading=$heading }
+    }
+    try {
+      Assert-PositionEpoch
+      $overview = Read-PositionOverview
+      $beforePositions = @($overview.rows)
+      Assert-PositionRows $beforePositions $expected
+      Invoke-PositionButton $overview.tree 'Weitere Position erfassen'
+      $new = Read-NewPosition '' $false
+      $live = Get-LiveElement $hwnd $new.field.rid
+      $valuePattern = $null
+      if (-not $live -or -not $live.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$valuePattern) -or
+          $valuePattern.Current.IsReadOnly -or [string]$valuePattern.Current.Value -cne [string]$new.field.val) {
+        throw 'Namensfeld hat seine Bindung verloren.'
+      }
+      Assert-PositionEpoch
+      $valuePattern.SetValue($name)
+      $namedTree = Walk-Tree $hwnd -WithValues
+      Invoke-PositionButton $namedTree 'Zurück'
+      $after = Read-PositionOverview
+      $afterPositions = @($after.rows)
+      Assert-PositionRows $afterPositions (@($expected) + @([pscustomobject]@{ name=$name; net='0,00' }))
+      Invoke-PositionButton $after.tree "»$name« bearbeiten"
+      $verified = Read-NewPosition $name $true
+      Assert-PositionEpoch
+      Emit ([pscustomobject]@{ ok=$true; verified=$true; mutationStarted=$true; cleanupRequired=$false;
+        name=$name; page=$verified.heading; beforePositions=$beforePositions; afterPositions=$afterPositions })
+    } catch {
+      Emit ([pscustomobject]@{ ok=$false; kind='position-create-incomplete'; error=$_.Exception.Message;
+        verified=$false; mutationStarted=$started; cleanupRequired=$started; name=$name;
+        beforePositions=$beforePositions; afterPositions=$afterPositions;
+        rollback=[pscustomobject]@{ attempted=$false; reason='Teilstand bewusst neu lesen; keine blinde Wiederholung oder Loeschung einer Position.' } })
+    }
+  }
+
   'positions' {
     $was = [string](Arg $a 'aktion' 'list')
     if ($was -in @('add','delete')) {
@@ -15209,6 +15783,35 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     )
     $iZiel = [array]::IndexOf($FOLGE, $ziel)
 
+    # Ein geratener Seitenname liess das Programm durch das ganze Formular
+    # blaettern, und am Ende stand nur, dass die Seite nicht erreicht wurde.
+    # Wer daneben arbeitet, sieht dabei zu.
+    #
+    # Hart abzuweisen ging nicht: Weder die bekannte Blaetterfolge noch der
+    # Seitenkatalog noch der sichtbare Baum kennen alle Seiten - dynamische
+    # wie 'Sonstige Kfz-Kosten: <Fahrzeug>' oder 'Umsatzsteuer-Voranmeldungen
+    # 2026' fehlen in allen dreien und sind trotzdem erreichbar. Eine Pruefung
+    # dagegen haette funktionierende Navigation gebrochen.
+    #
+    # Deshalb wird gesammelt, nicht gesperrt: Fehlt jeder Beleg, laeuft die
+    # Suche wie bisher, aber die Fehlermeldung nennt am Ende naheliegende
+    # Namen. Das ist der Unterschied zwischen 'nicht erreicht' und 'meintest
+    # du Werbung und Reklame?'.
+    $zielBelegt = $true
+    $bekannteNamen = @($FOLGE)
+    if (-not $pageId -and $iZiel -lt 0) {
+      $folgeTreffer = @($FOLGE | Where-Object { $ziel.StartsWith($_) -or $_.StartsWith($ziel) })
+      if (-not $folgeTreffer.Count) {
+        try {
+          $vorbaum = Walk-Tree $hwnd 1800
+          $baumNamen = @($vorbaum.nodes | Where-Object { $_.type -eq 'TreeItem' -and [string]$_.name } |
+            ForEach-Object { [string]$_.name })
+          $bekannteNamen = @($bekannteNamen) + @($baumNamen)
+          $zielBelegt = [bool](@($baumNamen | Where-Object { $ziel.StartsWith($_) -or $_.StartsWith($ziel) }).Count)
+        } catch { $zielBelegt = $false }
+      }
+    }
+
     function AktuelleUeberschrift {
       param([IntPtr]$h)
       if ($knownTarget) { return (Get-KnownPageHeading $h $knownTarget) }
@@ -15351,6 +15954,15 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
             if ($le) { try { $le.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() } catch { } }
           }
           Start-Sleep -Milliseconds 1200
+          # Dieser Lauf ist der teuerste Posten eines Seitenwechsels, und die
+          # naheliegende Erklaerung ist die falsche: Es liegt nicht an der
+          # Baumgroesse. Gemessen kostete derselbe Moment mit knappem Budget
+          # (1200 Knoten, Tiefe 10) 2238 ms und der unmittelbar folgende Lauf
+          # mit vollem Budget 123 ms. Teuer ist also der ERSTE Lesezugriff
+          # nach dem Oeffnen der Trefferliste - er wartet auf die noch
+          # beschaeftigte Anwendung. Ein knapperer Lauf spart hier nichts und
+          # kostet nur einen zusaetzlichen; ein gestufter Versuch wurde
+          # deshalb wieder verworfen.
           $tt = Walk-Tree $hwnd
           $bb = Get-ContentBounds $tt $hwnd
           $rr = New-Object SW+RC; [SW]::GetWindowRect($hwnd, [ref]$rr) | Out-Null
@@ -15532,8 +16144,18 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $stillstand = 0
       for ($i = 1; $i -le $maxS; $i++) {
         if ($verbraucht -ge $maxS) { break }
-        $verbraucht++
         $vorher = AktuelleUeberschrift $hwnd
+        # Ein verzoegerter Seitenaufbau kann seit der letzten Gegenprobe das
+        # Ziel erreicht haben. Die ohnehin frische Lesung vor dem naechsten
+        # Invoke muss es bestaetigen, bevor Weiter/Zurueck es wieder verlaesst.
+        if (IstZielseite $hwnd $vorher) {
+          $null = $weg.Add("Ziel vor weiterem Blaettern bestaetigt -> $vorher")
+          Emit ([pscustomobject]@{
+            ok=$true; erreicht=$true; pageId=$(if ($pageId) { $pageId } else { $null })
+            ueberschrift=$vorher; schritte=$verbraucht; richtung=$richtung; weg=@($weg)
+          })
+        }
+        $verbraucht++
         $ok = DrueckeKnopf $hwnd $richtung '' $vorher
         if (-not $ok) {
           # Schalter fehlt oder ist deaktiviert. Sonderfall: Sackgassenseiten
@@ -15617,7 +16239,15 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       Emit ([pscustomobject]@{ ok = $true; erreicht=$true; pageId=$(if ($pageId) { $pageId } else { $null }); ueberschrift = $spaet; schritte = $weg.Count
         richtung = 'spaete Gegenprobe'; weg = @($weg); fokusfrei = $false })
     }
-    Fail ("Seite '$ziel' in $($weg.Count) Schritten nicht erreicht. Zuletzt: '$spaet'. " +
+    $vorschlagsText = ''
+    if (-not $zielBelegt) {
+      $vorschlaege = Get-SSEPageSuggestions $ziel (@($bekannteNamen) + @($besucht))
+      if ($vorschlaege.Count) {
+        $vorschlagsText = " Der Name ist weder in der bekannten Blaetterfolge noch im sichtbaren " +
+          "Navigationsbaum belegt. Naheliegend: $((@($vorschlaege)) -join ' | ')."
+      }
+    }
+    Fail ("Seite '$ziel' in $($weg.Count) Schritten nicht erreicht. Zuletzt: '$spaet'.$vorschlagsText " +
           "Besuchte Ueberschriften: $((@($besucht | Select-Object -Unique)) -join ' | '). " +
           "Versuche: $((@($weg)) -join ' | ')") 'not-found'
   }
@@ -15639,11 +16269,14 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $dirtyBefore = Get-DirtyStateFast $hwnd
     $gesehen = New-Object 'System.Collections.Generic.HashSet[string]'
     $alle = New-Object System.Collections.ArrayList
+    $allSemanticRows = New-Object System.Collections.ArrayList
     $identityState = [pscustomobject]@{ fehlend = $false }
     $kopf = @()
+    $latestTableSnapshot = [pscustomobject]@{ tree=$null }
 
     function LiesZeilen($hwnd) {
-      $t = Walk-Tree $hwnd
+      $t = Walk-Tree $hwnd -WithValues
+      $latestTableSnapshot.tree = $t
       $bounds = Get-ContentBounds $t $hwnd
       # Nur Tabellen des eigentlichen Eingabeformulars. Ein geoeffnetes
       # Werte-Info-Fenster gehoert zum selben Prozess und wurde frueher
@@ -15686,7 +16319,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       }
       $h = @($hRaw | Sort-Object x)
       $hd = @(); foreach ($x in $h) { if (-not $hd.Count -or [Math]::Abs($x.x - $hd[-1].x) -gt 8) { $hd += $x } }
-      $rows = @(); $rowsWithIdentity = @(); $cur = $null; $curRids = $null; $cy = -9999
+      $rows = @(); $rowsWithIdentity = @(); $cur = $null; $curRids = $null; $curSemantic = $null; $cy = -9999
       foreach ($c in $z) {
         if ($null -eq $cur -or [Math]::Abs($c.y - $cy) -gt 10) {
           if ($null -ne $cur) {
@@ -15697,20 +16330,23 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
             }
             $identity = $(if ($identityParts.Count) { $identityParts -join '|' } else { $null })
             $rows += , $cur
-            $rowsWithIdentity += [pscustomobject]@{ werte = @($cur); identitaet = $identity }
+            $rowsWithIdentity += [pscustomobject]@{ werte = @($cur); identitaet = $identity; semanticCells = @($curSemantic) }
           }
           $cy = $c.y
           $cur = @($null) * [Math]::Max(1, $hd.Count)
           $curRids = @($null) * [Math]::Max(1, $hd.Count)
+          $curSemantic = @($null) * [Math]::Max(1, $hd.Count)
         }
         $best = 0; $d = [int]::MaxValue
         for ($i = 0; $i -lt $hd.Count; $i++) { $dd = [Math]::Abs($c.x - $hd[$i].x); if ($dd -lt $d) { $d = $dd; $best = $i } }
         if ($best -lt $cur.Count) {
           $cur[$best] = $c.name
           $curRids[$best] = $c.rid
+          $curSemantic[$best] = Read-SSETableCellSemantic $c
         } else {
           $cur += $c.name
           $curRids += $c.rid
+          $curSemantic += Read-SSETableCellSemantic $c
         }
       }
       if ($null -ne $cur) {
@@ -15721,7 +16357,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         }
         $identity = $(if ($identityParts.Count) { $identityParts -join '|' } else { $null })
         $rows += , $cur
-        $rowsWithIdentity += [pscustomobject]@{ werte = @($cur); identitaet = $identity }
+        $rowsWithIdentity += [pscustomobject]@{ werte = @($cur); identitaet = $identity; semanticCells = @($curSemantic) }
       }
       [pscustomobject]@{
         kopf = @($hd | ForEach-Object { $_.name }); zeilen = $rows
@@ -15744,8 +16380,16 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         }
         if ($gesehen.Add($identity)) {
           $null = $alle.Add([object[]]@($entry.werte))
+          $null = $allSemanticRows.Add([object[]]@($entry.semanticCells))
         }
       }
+    }
+
+    # Die Identitaeten einer einzelnen Ansicht. Sie belegen, ob zwei
+    # aufeinanderfolgende Ansichten einander ueberlappen.
+    $snapshotIdentities = {
+      param($snapshot)
+      @(@($snapshot.zeilenMitIdentitaet) | ForEach-Object { [string]$_.identitaet } | Where-Object { $_ })
     }
 
     $cursorSelectionPattern = $null
@@ -15770,8 +16414,11 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
 
     # In die erste Zelle klicken, damit die Pfeiltaste greift.
     $geklickt = $false
+    $activationObstruction = $null
     $cursorUnavailable = $false
     $cursorSignature = $null
+    $letzteIdentitaeten = @()
+    $sichtbareZeilen = 1
     if ($erst.ersteZelle -and (Arg $a 'noKeys') -ne $true -and $erst.tabelleAnzahl -eq 1) {
       $HWND_TOPMOST = [IntPtr](-1); $HWND_NOTOPMOST = [IntPtr](-2)
       $SWP = 0x0001 -bor 0x0002 -bor 0x0010
@@ -15780,12 +16427,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         $px = [int]($z0.x + $z0.w / 2); $py = [int]($z0.y + $z0.h / 2)
         $null = Show-SSEWindow $hwnd
         Start-Sleep -Milliseconds 350
-        $pt = New-Object SW+PT; $pt.X = $px; $pt.Y = $py
-        $unter = [SW]::WindowFromPoint($pt)
-        $unterRoot = [SW]::GetAncestor($unter, 2) # GA_ROOT
-        $zp = 0; [SW]::GetWindowThreadProcessId($hwnd, [ref]$zp) | Out-Null
-        $tp = 0; [SW]::GetWindowThreadProcessId($unter, [ref]$tp) | Out-Null
-        if ($tp -eq $zp -and [int64]$unterRoot -eq [int64]$hwnd) {
+        $pointBinding = Get-SSEPointObstruction $hwnd $px $py
+        if ($pointBinding.isBoundTarget) {
           [SW]::SetCursorPos($px, $py) | Out-Null; Start-Sleep -Milliseconds 100
           [SW]::mouse_event(0x0002, 0, 0, 0, [IntPtr]::Zero); [SW]::mouse_event(0x0004, 0, 0, 0, [IntPtr]::Zero)
           $geklickt = $true
@@ -15798,6 +16441,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           # Fuer eine stabile Reihenfolge jetzt bewusst am Anfang neu sammeln.
           $gesehen.Clear()
           $alle.Clear()
+          $allSemanticRows.Clear()
           $identityState.fehlend = $false
           $topSnapshot = LiesZeilen $hwnd
           if ($topSnapshot.error) {
@@ -15805,6 +16449,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           } else {
             $kopf = $topSnapshot.kopf
             & $addSnapshotRows $topSnapshot
+            $letzteIdentitaeten = @(& $snapshotIdentities $topSnapshot)
+            $sichtbareZeilen = [Math]::Max(1, @($topSnapshot.zeilen).Count)
 
             # Der Tabellencontainer meldet die aktuell markierte Qt-Zeile als
             # Auswahl (typischerweise eine ausgewaehlte Zelle je Spalte). Die
@@ -15824,6 +16470,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
             $cursorSignature = & $getCursorSignature
             if (-not $cursorSignature) { $cursorUnavailable = $true }
           }
+        } else {
+          $activationObstruction = $pointBinding
         }
       } catch {
         $cursorUnavailable = $true
@@ -15833,19 +16481,50 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     }
 
     $schritte = 0
+    $stapel = 0
+    $stapelKorrekturen = 0
     $stableCursorMoves = 0
     $endProven = $false
+    # Qt haelt nur die sichtbaren Zeilen im Baum, also zieht der Cursor die
+    # Ansicht weiter. Eine Pfeiltaste je Zeile einzeln zu senden kostet fuer
+    # jede Zeile eine Wartezeit und fuer je drei Zeilen einen vollstaendigen
+    # Baumlauf - bei einer langen Tabelle ist das der groesste Posten des
+    # ganzen Aufrufs.
+    #
+    # Ein Stapel von Pfeiltasten bewegt den Cursor um mehrere Zeilen und
+    # kostet nur eine Wartezeit und einen Baumlauf. Das ist genau dann sicher,
+    # wenn der Stapel kleiner bleibt als das Sichtfenster hoch ist: Dann
+    # ueberlappen zwei aufeinanderfolgende Ansichten in mindestens einer
+    # Zeile. Diese Ueberlappung wird nach jedem Stapel geprueft und ist der
+    # Beweis, dass dazwischen keine Zeile lag. Fehlt sie, wird der Sprung
+    # zurueckgenommen und mit halbem Stapel wiederholt - eine Luecke wird
+    # nicht stillschweigend hingenommen.
+    #
+    # Zu kurze Spruenge sind ungefaehrlich: Qt darf einen Stapel auch nur
+    # teilweise verarbeiten, dann ueberlappen die Ansichten lediglich mehr.
+    # Zwei Groessen, nicht eine: Die Obergrenze sinkt dauerhaft, wenn eine
+    # Ueberlappung gefehlt hat - dieser Sprung war nachweislich zu weit. Die
+    # aktuelle Groesse faellt daneben voruebergehend auf 1, sobald der Cursor
+    # stehenbleibt, damit der Endbeweis mit einzelnen Tasten gefuehrt wird.
+    # Bewegt er sich danach doch weiter, war es kein Tabellenende, sondern ein
+    # verschluckter Stapel; dann darf wieder bis zur Obergrenze gegangen
+    # werden, statt den Rest einer langen Tabelle einzeln abzuschreiten.
+    $stapelObergrenze = [Math]::Max(1, [Math]::Min(8, $sichtbareZeilen - 1))
+    $stapelGroesse = $stapelObergrenze
     if ($geklickt -and -not $cursorUnavailable) {
-      for ($i = 1; $i -le $maxSchritte; $i++) {
+      while ($schritte -lt $maxSchritte) {
+        $dieserStapel = [Math]::Max(1, [Math]::Min($stapelGroesse, $maxSchritte - $schritte))
         try {
-          [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
+          [System.Windows.Forms.SendKeys]::SendWait($(
+            if ($dieserStapel -eq 1) { '{DOWN}' } else { "{DOWN $dieserStapel}" }))
           Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick) ([pscustomobject]@{ x=$px; y=$py })
         } catch {
           $cursorUnavailable = $true
           break
         }
-        $schritte++
-        Start-Sleep -Milliseconds 160
+        $schritte += $dieserStapel
+        $stapel++
+        Start-Sleep -Milliseconds (160 + 40 * ($dieserStapel - 1))
         $nextCursorSignature = & $getCursorSignature
         if (-not $nextCursorSignature) {
           $cursorUnavailable = $true
@@ -15858,16 +16537,56 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         }
         $cursorSignature = $nextCursorSignature
 
-        if ($i % 3 -eq 0 -or $stableCursorMoves -gt 0 -or $i -eq $maxSchritte) {
-          $snapshot = LiesZeilen $hwnd
-          if ($snapshot.error) {
+        $snapshot = LiesZeilen $hwnd
+        if ($snapshot.error) {
+          $cursorUnavailable = $true
+          break
+        }
+        $identitaeten = @(& $snapshotIdentities $snapshot)
+        $ueberlappung = @($identitaeten | Where-Object { $letzteIdentitaeten -contains $_ }).Count
+        if ($dieserStapel -gt 1 -and $identitaeten.Count -and $letzteIdentitaeten.Count -and
+            $ueberlappung -eq 0) {
+          # Der Sprung war weiter als das Sichtfenster. Ohne gemeinsame Zeile
+          # ist nicht belegt, dass dazwischen keine lag: zurueck und kleiner.
+          $stapelKorrekturen++
+          if ($stapelKorrekturen -gt 5) {
             $cursorUnavailable = $true
             break
           }
-          & $addSnapshotRows $snapshot
+          try {
+            [System.Windows.Forms.SendKeys]::SendWait("{UP $dieserStapel}")
+            Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick) ([pscustomobject]@{ x=$px; y=$py })
+          } catch {
+            $cursorUnavailable = $true
+            break
+          }
+          Start-Sleep -Milliseconds (160 + 40 * ($dieserStapel - 1))
+          $schritte -= $dieserStapel
+          $stapelObergrenze = [Math]::Max(1, [int][Math]::Floor($dieserStapel / 2))
+          $stapelGroesse = $stapelObergrenze
+          $zurueck = LiesZeilen $hwnd
+          if ($zurueck.error) {
+            $cursorUnavailable = $true
+            break
+          }
+          & $addSnapshotRows $zurueck
+          $letzteIdentitaeten = @(& $snapshotIdentities $zurueck)
+          $cursorSignature = & $getCursorSignature
+          if (-not $cursorSignature) {
+            $cursorUnavailable = $true
+            break
+          }
+          $stableCursorMoves = 0
+          continue
         }
+        & $addSnapshotRows $snapshot
+        $letzteIdentitaeten = $identitaeten
+
         # Zwei bestaetigte DOWN-Versuche mit unveraenderter UIA-Auswahl sind
-        # der Endbeweis. Identische Zelltexte spielen dabei keine Rolle.
+        # der Endbeweis. Identische Zelltexte spielen dabei keine Rolle. Am
+        # Tabellenende wird er mit einzelnen Tasten gefuehrt, damit er genauso
+        # streng bleibt wie ohne Stapel.
+        $stapelGroesse = $(if ($stableCursorMoves -gt 0) { 1 } else { $stapelObergrenze })
         if ($stableCursorMoves -ge 2) {
           $endProven = $true
           break
@@ -15898,7 +16617,13 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     )
 
     # Nur Zeilen mit Inhalt melden
-    $roh = @($alle | Where-Object { @($_ | Where-Object { $_ -and "$_".Trim() -and "$_" -ne '0,00' -and "$_" -ne '0' }).Count -gt 0 })
+    $populatedIndices = @(for ($rowIndex = 0; $rowIndex -lt $alle.Count; $rowIndex++) {
+      if (@($alle[$rowIndex] | Where-Object { $_ -and "$_".Trim() -and "$_" -ne '0,00' -and "$_" -ne '0' }).Count -gt 0) { $rowIndex }
+    })
+    $roh = @($populatedIndices | ForEach-Object { ,$alle[$_] })
+    $rowDetails = @(for ($outputIndex = 0; $outputIndex -lt $populatedIndices.Count; $outputIndex++) {
+      New-SSETableRowDetails $outputIndex $allSemanticRows[$populatedIndices[$outputIndex]]
+    })
     # Windows PowerShell 5.1 serialisiert ein verschachteltes object[] als
     # {"value":[...],"Count":n} statt als Zeile. Der veroeffentlichte Vertrag
     # verspricht eine Liste von Zeilen; ohne diese Umformung bekam jeder
@@ -15911,18 +16636,69 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # expectedBefore/expectedAfter der Tabellenmutationen nicht ermitteln - er
     # muesste die Kontrollsumme raten. Lesen und Schreiben binden dieselbe
     # Zelle ueber dasselbe Label und dieselbe Occurrence.
+    # Der letzte Viewport wurde bereits mit Werten gelesen. Seine Summe und
+    # Zellen gehoeren zu derselben Beobachtung; ein weiterer Fensterbaum ist
+    # dafuer nicht erforderlich.
+    $summenBaum = $latestTableSnapshot.tree
     $summe = $null
     if ($sumLabel) {
-      $summeRead = Read-LabeledValueFromTree (Walk-Tree $hwnd -WithValues) $hwnd $sumLabel $sumOccurrence
+      $summeRead = Read-LabeledValueFromTree $summenBaum $hwnd $sumLabel $sumOccurrence
       $summe = [string]$summeRead.value
     }
+
+    # Wer die Beschriftung der Kontrollsumme nicht kennt, kann die
+    # Pflichtangabe expectedBefore einer Tabellenmutation nur raten oder ein
+    # zweites Mal lesen - und auf einer Seite mit mehreren Tabellen ausserdem
+    # nicht wissen, welche Vorkommensnummer die eigene ist. Deshalb kommen
+    # alle sichtbaren Summenzeilen samt Vorkommen und Wert mit. Sie stammen
+    # aus demselben Baum, kosten also keinen weiteren Lauf.
+    $summen = @()
+    $summenZaehler = @{}
+    foreach ($summenLabel in @($summenBaum.nodes | Where-Object {
+      $_.type -eq 'Text' -and $_.name -match '^(?:Summe|Gesamtsumme)\b'
+    } | Sort-Object y, x | Select-Object -First 12)) {
+      $summenName = [string]$summenLabel.name
+      $summenVorkommen = 1 + [int]$summenZaehler[$summenName]
+      $summenZaehler[$summenName] = $summenVorkommen
+      $summenWert = $null
+      try {
+        $summenWert = [string](Read-LabeledValueFromTree $summenBaum $hwnd $summenName $summenVorkommen).value
+      } catch { $summenWert = $null }
+      $summen += [pscustomobject]@{
+        label = $summenName; vorkommen = $summenVorkommen; wert = $summenWert
+      }
+    }
     $dirtyAfter = Get-DirtyStateFast $hwnd
+    if ($activationObstruction) {
+      # Der Voll-Read wurde vor dem ersten Klick blockiert. Schon beobachtete
+      # Zeilen bleiben als Teilstand erhalten, nicht als erfolgreicher Read.
+      Emit ([pscustomobject]@{
+        ok=$false; kind='obstructed'
+        error=("Tabellenklick durch $($activationObstruction.blockerKind) " +
+          "($($activationObstruction.processName)/$($activationObstruction.className)) verdeckt; Vollstaendigkeit nicht bewiesen.")
+        kopf=$kopf; zeilen=$echte; anzahl=$echte.Count; rowDetails=@($rowDetails)
+        summe=$summe; summen=@($summen); vollstaendig=$false; stopKind='obstructed'
+        schritte=$schritte; steps=$schritte; limitReached=$false
+        tabelleAnzahl=$erst.tabelleAnzahl; bindung=$erst.bindung
+        ungespeichertVorher=$dirtyBefore; ungespeichertNachher=$dirtyAfter
+        ungespeichertEingefuehrt=[bool]((-not $dirtyBefore) -and $dirtyAfter)
+        obstruction=$activationObstruction
+        hinweis='Nur der erste sichtbare Teilstand wurde gelesen; keine Taste und kein Tabellenklick ausgefuehrt.'
+      })
+    }
     Emit ([pscustomobject]@{
       ok = $true; kopf = $kopf; zeilen = $echte; anzahl = $echte.Count
+      rowDetails = @($rowDetails)
       summe = $summe
+      summen = @($summen)
       vollstaendig = $vollstaendig
       schritte = $schritte
       steps = $schritte
+      # Wie der Lauf zustande kam: Stapel statt einzelner Tasten, und wie oft
+      # ein Stapel wegen fehlender Ueberlappung zurueckgenommen werden musste.
+      stapel = $stapel
+      stapelGroesse = $stapelGroesse
+      stapelKorrekturen = $stapelKorrekturen
       stopKind = $stopKind
       limitReached = $limitReached
       tabelleAnzahl = $erst.tabelleAnzahl
@@ -15955,8 +16731,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $expectedBefore = [string](Arg $a 'expectedBefore')
     $expectedAfter = [string](Arg $a 'expectedAfter')
     if (-not $werte.Count) { Fail 'werte fehlt (Liste in Spaltenreihenfolge)' 'bad-args' }
-    if (-not $expectedPage -or -not $sumLabel -or -not $expectedBefore -or -not $expectedAfter) {
-      Fail 'expectedPage, sumLabel, expectedBefore und expectedAfter sind Pflicht.' 'bad-args'
+    if (-not $expectedPage -or -not $sumLabel -or -not $expectedBefore) {
+      Fail 'expectedPage, sumLabel und expectedBefore sind Pflicht.' 'bad-args'
     }
     if (-not @($werte | Where-Object { [string]$_ }).Count) {
       Fail 'werte enthaelt keinen zu schreibenden Zellwert.' 'bad-args'
@@ -16039,7 +16815,16 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $anchorY = @($byY.Keys | Sort-Object -Descending | Select-Object -First 1)
       [pscustomobject]@{
         tree = $tree; cells = $cells; byY = $byY; free = $free
-        firstCell = $(if ($anchorY.Count) { @($byY[$anchorY[0]] | Sort-Object x)[0] } else { $null })
+        # Ankerzelle fuer den Klick, der die Tabelle in die Tastaturnavigation
+        # bringt. NICHT die erste Spalte: Dort steht die laufende Nummer, und
+        # ein Klick darauf gab der Tabelle keinen Tastaturfokus - gemessen
+        # blieb die unterste sichtbare Zeile nach 41 Pfeiltasten unveraendert,
+        # waehrend derselbe Ablauf in table_read mit einer Datenzelle durch 45
+        # Zeilen laeuft. Deshalb die zweite Spalte, sofern es sie gibt.
+        firstCell = $(if ($anchorY.Count) {
+          $ankerZellen = @($byY[$anchorY[0]] | Sort-Object x)
+          $(if ($ankerZellen.Count -gt 1) { $ankerZellen[1] } else { $ankerZellen[0] })
+        } else { $null })
         targetSum=$targetSumRead; targetSumY=$region.targetSumY
         previousSummaryY=$region.previousSummaryY
         selectionMethod=$region.selectionMethod; scopePrefix=$region.scopePrefix
@@ -16095,13 +16880,33 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # Lockscreen waehrend der Transaktion verlassen, stoppen wir als
     # Interferenz. Physische Klick-/Tastaturpfade bleiben unveraendert gesperrt.
     $lockScreenIsolation = [bool](-not $script:DESKTOP_NAME -and (Test-SSEForegroundIsLockScreen))
-    $guardUserInput = [bool](-not $script:DESKTOP_NAME -and -not $lockScreenIsolation)
+    # Tippt der Benutzer in einem fremden Fenster, koennen seine Anschlaege SSE
+    # nicht erreichen. Dann darf eine reine ValuePattern-Schreibung nicht am
+    # systemweiten Eingabetick scheitern - dieselbe Ueberlegung wie beim
+    # Sperrbildschirm. Tastaturpfade bleiben davon unberuehrt; sie verlangen
+    # den Vordergrund und werden weiter unten ausdruecklich abgewiesen.
+    $foreignForegroundIsolation = [bool](-not $script:DESKTOP_NAME -and -not $lockScreenIsolation -and
+      (Test-SSEForegroundIsForeignProcess $hwnd))
+    $guardUserInput = [bool](-not $script:DESKTOP_NAME -and -not $lockScreenIsolation -and
+      -not $foreignForegroundIsolation)
     $inputBaseline = $(if ($guardUserInput) { Get-SSELastInputTick } else { $null })
+    $navigationVersuche = 0
     if (-not $freeRead.free.Count -and $freeRead.firstCell) {
       if ($script:DESKTOP_NAME) {
         Fail ("Keine sichtbare freie Tabellenzeile gefunden. Auf dem versteckten Desktop kann Qt nicht " +
               "per Tastatur zum Tabellenende bewegt werden. Eine sichtbare freie Zeile kann sse_table_add " +
               "vollstaendig per ValuePattern beschreiben; andernfalls sichtbar arbeiten.") 'hidden-desktop'
+      }
+      # Waehrend der Benutzer in einem fremden Fenster arbeitet, wird der
+      # Vordergrund nicht weggenommen. Der Weg zum Tabellenende braucht Klick
+      # und Tastatur - beides wuerde ihm den Fokus mitten im Satz entreissen.
+      # Eine bereits sichtbare freie Zeile wird dagegen weiterhin geschrieben,
+      # denn dafuer genuegt ValuePattern.
+      if ($foreignForegroundIsolation) {
+        Fail ("Keine sichtbare freie Tabellenzeile gefunden, und der Vordergrund liegt bei einem anderen " +
+              "Programm. Der Weg zum Tabellenende braeuchte Klick und Tastatur und wuerde den Fokus " +
+              "entreissen; das unterbleibt waehrend paralleler Arbeit. Die Tabelle einmal ans Ende " +
+              "blaettern - eine sichtbare freie Zeile wird dann ohne Fokuswechsel beschrieben.") 'foreground-needed'
       }
       $null = Click-VerifiedPoint $hwnd $freeRead.firstCell
       Start-Sleep -Milliseconds 180
@@ -16109,11 +16914,28 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         Fail 'Tabellenfokus ist vor der Navigation verloren gegangen; nichts geschrieben.' 'interference'
       }
       if ($guardUserInput) { $inputBaseline = Get-SSELastInputTick }
-      [System.Windows.Forms.SendKeys]::SendWait('^{END}')
+      # Strg+Ende bewegte diese Qt-Tabelle nicht: gemessen 41 Tastendrücke
+      # ohne jede Aenderung der untersten sichtbaren Zeile. Strg+Pos1 wirkt
+      # dagegen nachweislich - table_read laeuft damit durch 45 Zeilen. Also
+      # von oben beginnen und mit Pfeiltasten nach unten wandern.
+      [System.Windows.Forms.SendKeys]::SendWait('^{HOME}')
       if ($guardUserInput) { $inputBaseline = Get-SSELastInputTick }
       Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick)
       Start-Sleep -Milliseconds 350
-      for ($navigationSteps = 0; $navigationSteps -le 40; $navigationSteps++) {
+      # Der Weg zum Tabellenende las frueher vor JEDEM Tastendruck den ganzen
+      # Baum: 41 Baumlaeufe fuer 41 Schritte, und bei einer Tabelle mit 45
+      # Zeilen reichte das Budget trotzdem nicht - gemessen 14 Sekunden und
+      # danach 'keine freie Zeile'. Der Aufrufer musste erst einen
+      # vollstaendigen table_read fahren, nur damit die Anlegezeile sichtbar
+      # wurde.
+      #
+      # Gedrueckt wird deshalb in Buendeln und nur dazwischen gelesen. Die
+      # Schleife endet, sobald eine freie Zeile auftaucht - oder sobald sich
+      # die letzte sichtbare Zeile nicht mehr aendert: Dann ist das Ende
+      # erreicht und weiteres Druecken bringt nichts.
+      $buendel = 8
+      $letzteSignatur = $null
+      for ($navigationRunden = 0; $navigationRunden -le 60; $navigationRunden++) {
         if ($searchWatch.ElapsedMilliseconds -ge $searchDeadlineMs) {
           Fail 'Tabellenend-Navigation ueberschritt die interne Frist; nichts geschrieben.' 'timeout'
         }
@@ -16128,18 +16950,37 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           Fail "$($freeRead.error) NICHT geschrieben." $(if ($freeRead.profileMismatch) { 'table-profile-mismatch' } else { 'precondition-failed' })
         }
         if ($freeRead.free.Count) { break }
+
+        $unterste = @($freeRead.byY.Keys | Sort-Object -Descending | Select-Object -First 1)
+        $signatur = $(if ($unterste.Count) {
+          "$($unterste[0])::" + ((@($freeRead.byY[$unterste[0]] | Sort-Object x | ForEach-Object { [string]$_.name })) -join "`u{001F}")
+        } else { '' })
+        if ($null -ne $letzteSignatur -and $signatur -eq $letzteSignatur) { break }
+        $letzteSignatur = $signatur
+
         if ([SW]::GetForegroundWindow() -ne $hwnd) {
           Fail 'Tabellenfokus ging waehrend der Navigation verloren; nichts geschrieben.' 'interference'
         }
-        [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
+        for ($imBuendel = 0; $imBuendel -lt $buendel; $imBuendel++) {
+          [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
+          $navigationVersuche++
+          Start-Sleep -Milliseconds 35
+        }
         if ($guardUserInput) { $inputBaseline = Get-SSELastInputTick }
         Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick)
-        Start-Sleep -Milliseconds 100
+        Start-Sleep -Milliseconds 120
       }
     }
     $nachY = $freeRead.byY
     $freie = @($freeRead.free)
-    if (-not $freie.Count) { Fail 'Keine freie Tabellenzeile gefunden.' 'not-found' }
+    if (-not $freie.Count) {
+      $befund = Get-TableStructureEvidence $freeRead
+      Fail ("Keine freie Tabellenzeile gefunden. Die gebundene Tabellenregion zeigte " +
+            "$([int]$befund.rowCount) Zeilen, davon $([int]$befund.populatedRowCount) belegt; " +
+            "die Tabellenend-Navigation lief $navigationVersuche Schritte. Zeigt die Tabelle im " +
+            "Programm mehr Zeilen als hier genannt, materialisiert Qt die Anlegezeile erst beim " +
+            "Blaettern und die Region wurde zu kurz gelesen.") 'not-found'
+    }
     $zeile = @($nachY[$freie[0]] | Sort-Object x)
     if ($werte.Count -gt $zeile.Count) {
       Fail "werte enthaelt $($werte.Count) Spalten, die freie sichtbare Zeile aber nur $($zeile.Count)." 'bad-args'
@@ -16250,8 +17091,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $failureKind = $null
     $interference = $false
     foreach ($entry in @($prepared | Sort-Object @{ Expression = { if ($_.mode -eq 'combo') { 0 } else { 1 } } }, spalte)) {
-      if ($lockScreenIsolation -and -not (Test-SSEForegroundIsLockScreen)) {
-        $failure = 'Windows-Lockscreen wurde waehrend der Zellschreibung verlassen.'
+      if (Test-SSEIsolationEnded $lockScreenIsolation $foreignForegroundIsolation $hwnd) {
+        $failure = "$script:SSE_ISOLATION_BREACH - waehrend der Zellschreibung."
         $interference = $true
         break
       }
@@ -16264,6 +17105,16 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         }
       }
       if ($entry.mode -eq 'combo') {
+        # Eine Klappliste laesst sich nicht per ValuePattern setzen; sie
+        # verlangt Klick und Vordergrund. Waehrend der Benutzer anderswo
+        # arbeitet, wird ihm der Fokus dafuer nicht entrissen.
+        if ($foreignForegroundIsolation) {
+          $failure = ("Spalte $($entry.spalte) ist eine Auswahlliste und braucht Klick und Vordergrund. " +
+                      "Der liegt bei einem anderen Programm; waehrend paralleler Arbeit wird er nicht " +
+                      "uebernommen. Diese Spalte im Programm selbst setzen oder SSE nach vorn holen.")
+          $interference = $true
+          break
+        }
         $comboResult = Invoke-SSETableComboSelection `
           -Hwnd $hwnd -ProcessId $targetPid -ExpectedPage $expectedPage `
           -SumLabel $sumLabel -SumOccurrence $sumOccurrence -RowY $entry.rowY -ColumnIndex $entry.spalte `
@@ -16303,8 +17154,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         $null = $changed.Add($entry)
         $entry.pattern.SetValue($entry.requested)
         Start-Sleep -Milliseconds 350
-        if ($lockScreenIsolation -and -not (Test-SSEForegroundIsLockScreen)) {
-          $failure = 'Windows-Lockscreen wurde nach einer Zellschreibung verlassen.'
+        if (Test-SSEIsolationEnded $lockScreenIsolation $foreignForegroundIsolation $hwnd) {
+          $failure = "$script:SSE_ISOLATION_BREACH - nach einer Zellschreibung."
           $interference = $true
           break
         }
@@ -16342,8 +17193,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
 
     Start-Sleep -Milliseconds 500
     $interactionAfter = Get-SSEInteractionWindowSet $targetPid $hwnd
-    if ($lockScreenIsolation -and -not (Test-SSEForegroundIsLockScreen)) {
-      if (-not $failure) { $failure = 'Windows-Lockscreen wurde waehrend der Tabellenaktion verlassen.' }
+    if (Test-SSEIsolationEnded $lockScreenIsolation $foreignForegroundIsolation $hwnd) {
+      if (-not $failure) { $failure = "$script:SSE_ISOLATION_BREACH - waehrend der Tabellenaktion." }
       $interference = $true
     }
     if ($interactionAfter.fingerprint -ne $interactionBefore.fingerprint) {
@@ -16360,8 +17211,37 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         $interference = $true
       } else {
         $sumAfterRead = Read-LabeledValueFromTree $afterTree $hwnd $sumLabel $sumOccurrence
-    if (-not $failure -and -not (Test-SSEScalarEqual $sumAfterRead.value $expectedAfter)) {
-          $failure = "Nachsumme '$sumLabel' ist '$($sumAfterRead.value)', erwartet '$expectedAfter'."
+        if ($expectedAfter) {
+          # Strengste Form: Der Aufrufer sagt die Nachsumme voraus und wird
+          # daran gebunden.
+          if (-not $failure -and -not (Test-SSEScalarEqual $sumAfterRead.value $expectedAfter)) {
+            $failure = "Nachsumme '$sumLabel' ist '$($sumAfterRead.value)', erwartet '$expectedAfter'."
+          }
+        } elseif (-not $failure) {
+          # Ohne Vorhersage: Die Kontrollsumme MUSS sich bewegt haben.
+          #
+          # Die Vorhersage zu verlangen klingt strenger, als sie ist. Sie
+          # zwingt den Aufrufer, SSEs Rechnung nachzubilden - die Seitensumme
+          # addiert netto, nicht brutto, und rundet selbst. Wer das falsch
+          # rechnet, bekommt eine abgewiesene Schreibung, obwohl die Zeile
+          # richtig war. Genau daran scheitert die Bedienung in der Praxis.
+          #
+          # Was die Summenpruefung wirklich absichert, ist die Bindung an die
+          # richtige Tabelle: Landet die Zeile woanders, bewegt sich diese
+          # Summe nicht. Das prueft die Veraenderung genauso. Jede
+          # geschriebene Zelle wird ohnehin einzeln zurueckgelesen.
+          #
+          # Eine Zeile ohne betragsmaessige Wirkung waere hier ein falscher
+          # Alarm; deshalb greift die Pruefung nur, wenn ueberhaupt ein von
+          # Null verschiedener Betrag geschrieben wurde.
+          $betragGeschrieben = [bool](@($werte | Where-Object {
+            $t = ([string]$_).Trim()
+            $t -and $t -ne '0' -and $t -ne '0,00' -and $t -ne '0.00'
+          }).Count)
+          if ($betragGeschrieben -and (Test-SSEScalarEqual $sumAfterRead.value $expectedBefore)) {
+            $failure = ("Kontrollsumme '$sumLabel' steht nach dem Anlegen unveraendert auf " +
+                        "'$($sumAfterRead.value)'. Die Zeile ist nicht in der gebundenen Tabelle gelandet.")
+          }
         }
       }
     }
@@ -16389,6 +17269,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           rollback=[pscustomobject]@{ versucht=$false; grund='Kein blinder Rollback nach fremder Eingabe/Fenster- oder Seitenwechsel.' }
           inputGuard=[pscustomobject]@{
             aktiv=$guardUserInput; lockScreenIsolation=$lockScreenIsolation
+            foreignForegroundIsolation=$foreignForegroundIsolation
             baseline=$inputBaseline; beobachtet=$(Get-SSELastInputTick); eingriffErkannt=$true
           }
         })
@@ -16434,8 +17315,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $rollbackWindowsBefore = Get-SSEInteractionWindowSet $targetPid $hwnd
       if ($rebindError) {
         $rollbackPreflightError = $rebindError
-      } elseif ($lockScreenIsolation -and -not (Test-SSEForegroundIsLockScreen)) {
-        $rollbackPreflightError = 'Windows-Lockscreen wurde vor dem Rollback verlassen.'
+      } elseif (Test-SSEIsolationEnded $lockScreenIsolation $foreignForegroundIsolation $hwnd) {
+        $rollbackPreflightError = "$script:SSE_ISOLATION_BREACH - vor dem Rollback."
       } elseif ($guardUserInput -and $null -ne $inputBaseline -and $null -ne $rollbackInputBefore -and
                 $rollbackInputBefore -ne $inputBaseline) {
         $rollbackPreflightError = 'Fremde Benutzereingabe vor dem Rollback erkannt.'
@@ -16478,7 +17359,22 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
             previousSummaryY=$freeRead.previousSummaryY; rowY=$freie[0]
           }
           rollback=[pscustomobject]@{
-            versucht=$false; grund='Kein blinder Rollback nach fremder Eingabe/Fenster-/Seiten- oder Zellwertinterferenz.'
+            versucht=$false
+            # Nicht jeder abgebrochene Rollback hat dieselbe Ursache. Wer die
+            # Zeile nach dem Schreiben nicht mehr binden kann, hat kein
+            # Interferenzproblem, sondern eine Zeile, die sich bewegt oder
+            # anders aufgebaut hat - der Aufrufer sucht sonst an der falschen
+            # Stelle. Gemessen tritt das auf, wenn Werte um eine Spalte
+            # verrutscht in die Tabelle gehen, etwa weil eine fuehrende
+            # Nummernspalte in 'werte' weggelassen wurde.
+            grund=$(if ($rebindError) {
+              'Kein blinder Rollback: Die geschriebene Zeile liess sich danach nicht mehr eindeutig binden. ' +
+              'Zeile pruefen und bei Bedarf von Hand entfernen. Haeufigste Ursache ist eine verschobene ' +
+              "Spaltenzuordnung - 'werte' gegen 'kopf' aus table_read pruefen; fuehrende Spalten wie eine " +
+              "automatische 'Nr.' gehoeren als leerer Wert dazu."
+            } else {
+              'Kein blinder Rollback nach fremder Eingabe/Fenster-/Seiten- oder Zellwertinterferenz.'
+            })
             strukturVorher=$structureBefore
           }
         })
@@ -16492,8 +17388,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       foreach ($snapshot in @($rowSnapshotBefore | Sort-Object spalte -Descending)) {
         $attempted = $false; $setError = $null
         try {
-          if ($lockScreenIsolation -and -not (Test-SSEForegroundIsLockScreen)) {
-            throw 'Windows-Lockscreen wurde waehrend des Rollbacks verlassen.'
+          if (Test-SSEIsolationEnded $lockScreenIsolation $foreignForegroundIsolation $hwnd) {
+            throw "$script:SSE_ISOLATION_BREACH - waehrend des Rollbacks."
           }
           if ($guardUserInput -and -not (Test-SSELastInputUnchanged $inputBaseline)) {
             throw 'Fremde Benutzereingabe waehrend des Rollbacks erkannt.'
@@ -16651,6 +17547,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       ungespeichertVorher=$dirtyBefore; ungespeichertNachher=$(Get-DirtyState $afterTree)
       inputGuard=[pscustomobject]@{
         aktiv=$guardUserInput; lockScreenIsolation=$lockScreenIsolation
+            foreignForegroundIsolation=$foreignForegroundIsolation
         baseline=$inputBaseline; beobachtet=$(Get-SSELastInputTick); eingriffErkannt=$false
       }
     })
@@ -16801,7 +17698,15 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
 
     $dirtyBefore = Get-DirtyState $beforeTree
     $lockScreenIsolation = [bool](-not $script:DESKTOP_NAME -and (Test-SSEForegroundIsLockScreen))
-    $guardUserInput = [bool](-not $script:DESKTOP_NAME -and -not $lockScreenIsolation)
+    # Tippt der Benutzer in einem fremden Fenster, koennen seine Anschlaege SSE
+    # nicht erreichen. Dann darf eine reine ValuePattern-Schreibung nicht am
+    # systemweiten Eingabetick scheitern - dieselbe Ueberlegung wie beim
+    # Sperrbildschirm. Tastaturpfade bleiben davon unberuehrt; sie verlangen
+    # den Vordergrund und werden weiter unten ausdruecklich abgewiesen.
+    $foreignForegroundIsolation = [bool](-not $script:DESKTOP_NAME -and -not $lockScreenIsolation -and
+      (Test-SSEForegroundIsForeignProcess $hwnd))
+    $guardUserInput = [bool](-not $script:DESKTOP_NAME -and -not $lockScreenIsolation -and
+      -not $foreignForegroundIsolation)
     $inputBaseline = $(if ($guardUserInput) { Get-SSELastInputTick } else { $null })
     $interactionBefore = Get-SSEInteractionWindowSet $targetPid $hwnd
     $changed = New-Object System.Collections.ArrayList
@@ -16809,8 +17714,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $failure = $null; $failureKind = $null; $interference = $false
 
     foreach ($entry in @($prepared | Sort-Object @{ Expression = { if ($_.mode -eq 'combo') { 0 } else { 1 } } }, spalte)) {
-      if ($lockScreenIsolation -and -not (Test-SSEForegroundIsLockScreen)) {
-        $failure = 'Windows-Lockscreen wurde waehrend der Zellaktualisierung verlassen.'
+      if (Test-SSEIsolationEnded $lockScreenIsolation $foreignForegroundIsolation $hwnd) {
+        $failure = "$script:SSE_ISOLATION_BREACH - waehrend der Zellaktualisierung."
         $interference = $true; break
       }
       if ($guardUserInput -and -not (Test-SSELastInputUnchanged $inputBaseline)) {
@@ -16818,6 +17723,16 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         $interference = $true; break
       }
       if ($entry.mode -eq 'combo') {
+        # Eine Klappliste laesst sich nicht per ValuePattern setzen; sie
+        # verlangt Klick und Vordergrund. Waehrend der Benutzer anderswo
+        # arbeitet, wird ihm der Fokus dafuer nicht entrissen.
+        if ($foreignForegroundIsolation) {
+          $failure = ("Spalte $($entry.spalte) ist eine Auswahlliste und braucht Klick und Vordergrund. " +
+                      "Der liegt bei einem anderen Programm; waehrend paralleler Arbeit wird er nicht " +
+                      "uebernommen. Diese Spalte im Programm selbst setzen oder SSE nach vorn holen.")
+          $interference = $true
+          break
+        }
         $comboResult = Invoke-SSETableComboSelection `
           -Hwnd $hwnd -ProcessId $targetPid -ExpectedPage $expectedPage `
           -SumLabel $sumLabel -SumOccurrence $sumOccurrence -RowY $entry.rowY -ColumnIndex $entry.spalte `
@@ -16912,8 +17827,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           $entry | Add-Member -NotePropertyName mutationMethod -NotePropertyValue 'value-pattern'
         }
         Start-Sleep -Milliseconds 350
-        if ($lockScreenIsolation -and -not (Test-SSEForegroundIsLockScreen)) {
-          $failure = 'Windows-Lockscreen wurde nach einer Zellaktualisierung verlassen.'
+        if (Test-SSEIsolationEnded $lockScreenIsolation $foreignForegroundIsolation $hwnd) {
+          $failure = "$script:SSE_ISOLATION_BREACH - nach einer Zellaktualisierung."
           $interference = $true; break
         }
         if ($guardUserInput -and -not (Test-SSELastInputUnchanged $inputBaseline)) {
@@ -16947,8 +17862,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
 
     Start-Sleep -Milliseconds 500
     $interactionAfter = Get-SSEInteractionWindowSet $targetPid $hwnd
-    if ($lockScreenIsolation -and -not (Test-SSEForegroundIsLockScreen)) {
-      if (-not $failure) { $failure = 'Windows-Lockscreen wurde waehrend der Tabellenaktualisierung verlassen.' }
+    if (Test-SSEIsolationEnded $lockScreenIsolation $foreignForegroundIsolation $hwnd) {
+      if (-not $failure) { $failure = "$script:SSE_ISOLATION_BREACH - waehrend der Tabellenaktualisierung." }
       $interference = $true
     }
     if ($interactionAfter.fingerprint -ne $interactionBefore.fingerprint) {
@@ -16999,6 +17914,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           tableBinding=$binding
           inputGuard=[pscustomobject]@{
             aktiv=$guardUserInput; lockScreenIsolation=$lockScreenIsolation
+            foreignForegroundIsolation=$foreignForegroundIsolation
             baseline=$inputBaseline; beobachtet=$(Get-SSELastInputTick); eingriffErkannt=$true
           }
           windowGuard=[pscustomobject]@{ vorher=$interactionBefore.fingerprint; nachher=$interactionAfter.fingerprint; geaendert=[bool]($interactionBefore.fingerprint -ne $interactionAfter.fingerprint) }
@@ -17150,6 +18066,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       ungespeichertVorher=$dirtyBefore; ungespeichertNachher=$(Get-DirtyState $afterTree)
       inputGuard=[pscustomobject]@{
         aktiv=$guardUserInput; lockScreenIsolation=$lockScreenIsolation
+            foreignForegroundIsolation=$foreignForegroundIsolation
         baseline=$inputBaseline; beobachtet=$(Get-SSELastInputTick); eingriffErkannt=$false
       }
       versteckterDesktop=[bool]$script:DESKTOP_NAME
@@ -17387,7 +18304,14 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $targetAid = [string]$zelle.aid
     $targetRegion = $pointRegion
     $targetElement = Get-LiveElement $hwnd $zelle.rid
-    if (-not $targetElement -or [string]$targetElement.Current.Name -ne $text) {
+    # Derselbe Textvertrag wie SSEUiaTree.Normalize: Qt kann unsichtbare
+    # Zeilenumbrueche an Zellnamen anhaengen. Identitaet und Summenbindung
+    # bleiben unveraendert; nur der bereits normalisierte Snapshottext wird
+    # mit dem gleich normalisierten Live-Namen verglichen.
+    $targetLiveName = $(if ($targetElement) {
+      ([string]$targetElement.Current.Name -replace "`r|`n|`t", ' ').Trim()
+    } else { $null })
+    if (-not $targetElement -or $targetLiveName -ne $text) {
       [SW]::SetWindowPos($hwnd, $HWND_NOTOPMOST, 0, 0, 0, 0, $SWP) | Out-Null
       Fail 'Zielzelle ist unmittelbar vor dem Aktivierungsklick nicht mehr identisch; nichts geloescht.' 'stale'
     }

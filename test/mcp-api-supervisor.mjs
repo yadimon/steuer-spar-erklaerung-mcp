@@ -60,6 +60,24 @@ async function waitForPortClosed(port) {
   assert.fail(`Port ${port} blieb nach dem exakten Prozessstopp erreichbar.`);
 }
 
+// Der Test will wissen, ob der Prozess danach tot ist - nicht, welchen Code
+// das Hilfswerkzeug geliefert hat. taskkill meldet 128, wenn der Prozess im
+// Moment des Aufrufs schon weg war, und auf einem ausgelasteten Runner auch
+// 255; beides ist kein Fehlschlag, solange die Nachbedingung eintritt. Genau
+// diese Verwechslung hat den Publish-Workflow mehrfach abgebrochen.
+async function waitForProcessGone(pid) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      process.kill(pid, 0);
+    } catch (error) {
+      assert.equal(error.code, "ESRCH", `PID ${pid} war nicht pruefbar: ${error.code}`);
+      return;
+    }
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 50));
+  }
+  assert.fail(`Der exakt identifizierte Test-API-Prozess ${pid} lief nach dem Stopp weiter.`);
+}
+
 async function connectMcp(env) {
   const transport = new StdioClientTransport({
     command: process.execPath,
@@ -180,11 +198,11 @@ try {
   });
   const deathHealth = await health(deathPort);
   ownedApiPids.add(deathHealth.processId);
-  const stopped = spawnSync("taskkill.exe", ["/PID", String(deathHealth.processId), "/T", "/F"], {
+  spawnSync("taskkill.exe", ["/PID", String(deathHealth.processId), "/T", "/F"], {
     windowsHide: true,
     stdio: "ignore",
   });
-  assert.equal(stopped.status, 0, "Der exakt identifizierte Test-API-Prozess konnte nicht beendet werden.");
+  await waitForProcessGone(deathHealth.processId);
   ownedApiPids.delete(deathHealth.processId);
   await waitForPortClosed(deathPort);
   const deathResult = await deathClient.callTool({ name: "sse_health", arguments: {} });

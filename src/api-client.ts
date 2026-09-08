@@ -38,6 +38,7 @@ export interface ApiDiscoveryDocument {
   resultSchemaVersion: number;
   resultSchemas: Readonly<Record<string, unknown>>;
   operationTraits: Readonly<Record<string, unknown>>;
+  controls?: Readonly<Record<string, unknown>>;
   planning: Readonly<Record<string, unknown>>;
   limits: Readonly<Record<string, unknown>>;
   safety: Readonly<Record<string, unknown>>;
@@ -82,7 +83,7 @@ interface ApiClientSettings {
   expectedInstanceId?: string;
 }
 
-function clientSettings(options: ApiClientOptions = {}): ApiClientSettings {
+export function clientSettings(options: ApiClientOptions = {}): ApiClientSettings {
   const baseUrl = (options.baseUrl ?? process.env.SSE_API_URL ?? `http://${DEFAULT_API_HOST}:${DEFAULT_API_PORT}`).replace(/\/$/, "");
   let parsedUrl: URL;
   try {
@@ -121,7 +122,7 @@ function hasValidRequestMetadata(payload: Record<string, unknown>): boolean {
     Number.isInteger(payload.durationMs) && Number(payload.durationMs) >= 0;
 }
 
-function hasValidErrorEnvelope(payload: Record<string, unknown>): boolean {
+export function hasValidErrorEnvelope(payload: Record<string, unknown>): boolean {
   return payload.apiVersion === SSE_API_VERSION &&
     typeof payload.requestId === "string" && UUID_V4.test(payload.requestId) &&
     isRecord(payload.error) &&
@@ -171,7 +172,7 @@ function hasPublishedSafetyAndLimits(payload: Record<string, unknown>): boolean 
     payload.safety.localPathsHiddenFromMcp === true;
 }
 
-function apiResponseError(payload: Record<string, unknown>, status: number): ApiClientError {
+export function apiResponseError(payload: Record<string, unknown>, status: number): ApiClientError {
   const error = isRecord(payload.error) ? payload.error : undefined;
   const message = typeof error?.message === "string" ? error.message : `HTTP ${status}`;
   const kind = typeof error?.code === "string" ? error.code : "http";
@@ -436,7 +437,9 @@ export async function readOpenApiDocument(options: ApiClientOptions = {}): Promi
   const schemas = isRecord(components.schemas) ? components.schemas : {};
   const operationPaths = SSE_API_OPERATIONS.map((operation) => `/${SSE_API_VERSION}/operations/${operation}`);
   const metadataPaths = ["/healthz", `/${SSE_API_VERSION}/operations`, `/${SSE_API_VERSION}/openapi.json`];
-  const exactPaths = Object.keys(paths).length === operationPaths.length + metadataPaths.length &&
+  const control = paths[`/${SSE_API_VERSION}/control/shutdown`];
+  const exactPaths = Object.keys(paths).length === operationPaths.length + metadataPaths.length + 1 &&
+    isRecord(control) && isRecord(control.post) && !Object.hasOwn(control, "get") &&
     operationPaths.every((path) => {
       const pathItem = paths[path];
       return isRecord(pathItem) && isRecord(pathItem.get) && isRecord(pathItem.post);

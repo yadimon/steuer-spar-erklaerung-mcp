@@ -16,20 +16,27 @@ Wer stattdessen eine einzelne Tafel sucht, auf der jede bekannte Faehigkeit mit
 ihrem Stand steht - fertig, teils, offen oder bewusst zu -, findet sie in der
 [Statustafel](entwicklung/status.md).
 
+Konkrete Aufgaben für Batch-Buchungen, semantisches Tabellenlesen,
+Unterbrechungen und reproduzierbare Tests stehen im
+[Automations-Backlog](entwicklung/automations-backlog.md), jeweils mit
+Abnahmekriterien. Die dort geplanten Funktionen sind noch keine zusätzliche
+API-Abdeckung.
+
 ## 1. Stand in Zahlen
 
-100 Operationen sind katalogisiert. 94 davon sind live belegt, sechs nur auf
-ihrem Fehlerpfad. Dazu gibt es 100 direkte MCP-Werkzeugnamen und ein
-zusammengesetztes fuer den Einstieg, zusammen 101. Sie decken 99 Operationen
+102 Operationen sind katalogisiert. 94 davon sind in der Live-Suite belegt,
+sechs nur auf ihrem Fehlerpfad, zwei ohne automatisierten Live-Suiteschritt.
+Dazu gibt es 102 direkte MCP-Werkzeugnamen und ein
+zusammengesetztes fuer den Einstieg, zusammen 103. Sie decken 101 Operationen
 ab: `checker_detail` hat kein eigenes Werkzeug, und `tracked_set_value` traegt
 deren zwei (`sse_change_field`, `sse_change_known_field`).
 
-Das ist keine Vollstaendigkeit gegenueber dem Produkt, und die Zahl 100 ist
+Das ist keine Vollstaendigkeit gegenueber dem Produkt, und die Gesamtzahl ist
 irrefuehrend, wenn man sie allein liest. **Operationen sind Mechanismen, keine
 Flaeche.**
 
 Wichtig ist, was der Seitenkatalog tatsaechlich absperrt – naemlich sehr wenig.
-Von hundert Operationen verlangen genau **zwei** einen Katalogeintrag:
+Vom gesamten Operationskatalog verlangen genau **zwei** einen Katalogeintrag:
 `fill_fields` (geplante Feldtransaktion mit Rollback) und `known_page_state`
 (Vergleich gegen einen hinterlegten Sollzustand). Alles andere arbeitet auf
 jeder der 672 Seiten:
@@ -152,6 +159,46 @@ im Repository belegt sind.
 | **Kaltes `goto` per `pageId` traegt in der Gewinnermittlung nicht** – am 2026-09-04 lief es fuer **alle sechs** dortigen Seitenobjekte in die Zeitgrenze, mit 120 wie mit 300 Sekunden. Mit einem vorgeschalteten `goto` per Namen auf eine Nachbarseite ist dieselbe Seite in Sekunden erreicht | ungeklaert, ob Fallaufbau, Suchtreffer oder Blaettertiefe die Ursache sind; die Feldbindung selbst ist davon nicht betroffen | Messung, dann Navigationsweg | eine Ursachenanalyse an einem zweiten Gewinnermittlungsfall, bevor an `goto` etwas geaendert wird |
 | **Seiten, deren Felder sich nicht eindeutig adressieren lassen** – etwa `Kapitalertraege, ermaessigt besteuert`: Die Felder beider Ehepartner tragen im adressierbaren Endstueck denselben Pfad, unterschieden werden sie erst weiter oben im Baum (gemessen 2026-09-04) | ein Seitenobjekt braucht je Feld genau einen Treffer; hier waeren es zwei | UI, aber zuerst die Bindungsregel | entweder laengere Pfade im Seitenobjekt zulassen oder die Bindung um eine Positionsangabe erweitern |
 | **Seiten mit Nummer in der Mitte der Ueberschrift** – etwa die Verpflegungspauschbetraege einer Fortbildungsreise (`Fortbildung <Name>: <N>. Reise (Verpflegung)`, zehn beschreibbare Felder, gemessen 2026-09-04) | die Bindung kennt zwei Muster: `headingNumberedLabel` erwartet ein fuehrendes `N. Label`, `headingPrefix` einen festen Anfang. Hier steht die Nummer in der Mitte und der Personenname davor; ein Praefix `Fortbildung ` wuerde jede Fortbildungsseite jeder Person treffen | UI, aber zuerst die Bindungsregel | ein drittes Muster fuer Ueberschriften mit Platzhaltern an beliebiger Stelle - und der Nachweis, dass es nicht versehentlich die Nachbarseite bindet |
+
+### API und MCP: Shutdown
+
+`POST /v1/control/shutdown` beendet ausschliesslich die gebundene API und ihre
+Reservearbeiter. Der Aufruf verlangt `Content-Type: application/json`,
+`x-sse-api-instance-id` aus `/healthz` und den Koerper
+`{"confirm":true,"instanceId":"<instanceId aus healthz>"}`. Paket, Version und
+Konfiguration vor dem Stopp pruefen. Loopback- und Browser-Sperren gelten auch
+hier. Bei einem laufenden Auftrag kommt `busy`; eine Tabellenmutation wird
+nicht abgebrochen. Annahme und Sperre weiterer Auftraege sind atomar.
+
+HTTP 202 meldet `accepted=true` und `processExited=false`: Die Annahme allein
+beweist noch kein Prozessende. Ein verlorener Antwortkanal bedeutet einen
+unbekannten Ausgang und erlaubt keinen blinden zweiten Stoppauftrag. SSE und
+Steuerfaelle bleiben offen; Speichern, Verwerfen und Schliessen sind kein Teil
+dieses Kommandos.
+
+MCP bietet dafuer `sse_api_control`:
+
+1. `{"action":"status"}` liefert Zustand, Instanz und Prozesskennung.
+2. Nach ausdruecklichem Stoppauftrag
+   `{"action":"shutdown","confirm":true,"instanceId":"<gelesene Instanz>"}`
+   senden. `accepted` und `processExited` getrennt auswerten. Bei `unknown`
+   oder `stopping` zuerst wieder `status` lesen.
+3. MCP bleibt erreichbar. Normale Werkzeuge melden nach absichtlichem Stopp
+   `api-stopped`, ohne die API neu zu starten.
+4. Ein eigener Neustartauftrag verwendet
+   `{"action":"start","confirm":true,"instanceId":"<gestoppte Instanz>"}`.
+   Erst nach bewiesenem Prozessende wird die urspruengliche, unveraenderte
+   Konfiguration verwendet und eine neue Instanz gebunden. Eine Ersatzinstanz
+   am Port wird weder uebernommen noch beendet. Bei ausschliesslicher Bindung
+   ueber `SSE_API_URL` ist die Startkonfiguration unbekannt; die separat
+   verwaltete API muss mit ihrer eigenen Konfiguration gestartet werden.
+
+Die Umsetzung liegt in [`src/api-server.ts`](../src/api-server.ts),
+[`src/api-runtime.ts`](../src/api-runtime.ts) und
+[`src/mcp-api-supervisor.ts`](../src/mcp-api-supervisor.ts). `npm test` enthaelt
+die HTTP-, Prozess- und MCP-Vertraege: falsche Identitaet, laufende Auftraege,
+konkurrierende Stopps, Antwortverlust, Reservearbeiter-Cleanup und ausdruecklichen
+Neustart. Diese Tests verwenden ausschliesslich eigene API-Prozesse.
 
 ### 3.1 SSEs eigene Kommandoflaeche
 

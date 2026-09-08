@@ -567,6 +567,44 @@ export function createApiExecutor(
           }
         }
       }
+      // Eine Zeile anzuhaengen scheitert, solange die Anlegezeile ausserhalb
+      // des Sichtbereichs liegt: Qt haelt nur rund sechs Zeilen im
+      // UIA-Baum, und die Tastaturnavigation zum Tabellenende bewegt diese
+      // Tabelle nachweislich nicht - gemessen blieb die unterste sichtbare
+      // Zeile nach 41 Pfeiltasten unveraendert.
+      //
+      // Der Cursorlauf von table_read schafft dieselbe Strecke dagegen
+      // zuverlaessig durch 45 Zeilen. Bisher musste der Aufrufer das wissen
+      // und selbst einen vollstaendigen Lesevorgang vorschalten. Genau das
+      // macht "haenge eine Zeile an" unbrauchbar.
+      //
+      // Deshalb hier: einmal lesen, einmal wiederholen - und nur auf diesem
+      // langsamen Pfad. Der schnelle Weg mit sichtbarer Anlegezeile bleibt
+      // ein einziger Workeraufruf.
+      if (
+        operation === "table_add" &&
+        result?.ok !== true &&
+        result?.kind === "not-found" &&
+        typeof result?.error === "string" &&
+        result.error.includes("Keine freie Tabellenzeile")
+      ) {
+        const readArgs: Record<string, unknown> = { maxRows: 400 };
+        for (const key of ["sumLabel", "sumOccurrence", "hwnd", "pid"] as const) {
+          if (configured.args[key] !== undefined) readArgs[key] = configured.args[key];
+        }
+        const configuredRead = configuredArgs("table_read", readArgs, config);
+        const scrolled = await worker("table_read", configuredRead.args, timeoutMs, signal);
+        if (scrolled?.ok === true) {
+          const retried = await worker(operation, configured.args, timeoutMs, signal);
+          return withResourceIdentity(redactPaths, {
+            ...retried,
+            freeRowSearch: {
+              retriedAfterTableWalk: true,
+              rowsWalked: scrolled.anzahl ?? null,
+            },
+          }, configured.resourceRefs);
+        }
+      }
       return withResourceIdentity(redactPaths, result, configured.resourceRefs);
     } catch (error) {
       return redactPaths(executionError(operation, error));

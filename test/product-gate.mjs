@@ -462,14 +462,52 @@ try {
   "Dynamische Detailseitenkoepfe sind nicht zugleich an Praefix und alle exakten Page-Object-Felder gebunden.");
   const saveBlock = workerOpBlock("save");
   assert(workerSource.includes("if ($summaryBefore.transmitted -ne $false)") &&
-    saveBlock.includes("'transmitted-case-locked'") &&
+    saveBlock.includes("$script:SSE_TRANSMITTED_CASE_WARNING = [pscustomobject]@{") &&
+    workerSource.includes("if ($script:SSE_TRANSMITTED_CASE_WARNING) {") &&
+    workerSource.includes("-NotePropertyName transmittedCaseWarning") &&
     saveBlock.includes("(?i)(korrektur|berichtigung)") &&
     saveBlock.includes("Korrekturstand, uebermitteltes Original und Sicherung muessen drei verschiedene Dateien sein") &&
     saveBlock.includes("$actualBackupHash -ne $before") &&
     saveBlock.includes("$sourceSummary.transmitted -ne $true") &&
     saveBlock.includes("elsterTransmissionTriggered = $false") &&
     !saveBlock.includes("Arg $a 'force'"),
-  "Der Save-Worker besitzt keinen vollstaendig gebundenen Korrekturmodus oder eine generische Force-Luecke.");
+  "Der Save-Worker besitzt keinen vollstaendig gebundenen Korrekturmodus, keine generische Force-Luecke oder er verschweigt den Uebermittlungsvermerk.");
+  // Die Beschreibung muss sagen, was wirklich passiert. Solange sie
+  // "gesperrt" versprach, obwohl gespeichert wird, haette ein Aufrufer die
+  // Warnung nie erwartet - und ein Fall, der das ganze Jahr weitergefuehrt
+  // wird, waere unbrauchbar geblieben.
+  const saveToolSource = readFileSync(join(root, "src", "mcp-tools-lifecycle.ts"), "utf8");
+  assert(saveToolSource.includes("transmittedCaseWarning") &&
+    saveToolSource.includes("uebermittelter ZEITRAUM darf nicht still geaendert werden") &&
+    !saveToolSource.includes("Bereits uebermittelte oder unbekannte Faelle bleiben standardmaessig"),
+  "Die sse_save-Beschreibung nennt die Uebermittlungswarnung nicht oder verspricht noch eine Blankosperre.");
+  // Die Nachsumme vorherzusagen klingt strenger, als sie ist: Sie zwingt den
+  // Aufrufer, SSEs Rechnung nachzubilden - die Seitensumme addiert netto,
+  // nicht brutto. Wer falsch rechnet, bekommt eine abgewiesene Schreibung,
+  // obwohl die Zeile stimmte. Was die Pruefung wirklich absichert, ist die
+  // Bindung an die richtige Tabelle, und das leistet auch die blosse
+  // Veraenderung. Beide Wege muessen erhalten bleiben.
+  const addBlock = workerOpBlock("table_add");
+  assert(addBlock.includes("'expectedPage, sumLabel und expectedBefore sind Pflicht.'") &&
+    !addBlock.includes("expectedBefore und expectedAfter sind Pflicht") &&
+    addBlock.includes("if ($expectedAfter) {") &&
+    addBlock.includes("Nachsumme '$sumLabel' ist '$($sumAfterRead.value)', erwartet '$expectedAfter'.") &&
+    addBlock.includes("$betragGeschrieben = [bool](@($werte | Where-Object {") &&
+    addBlock.includes("Die Zeile ist nicht in der gebundenen Tabelle gelandet."),
+  "table_add bindet die Nachsumme nicht mehr in beiden Formen oder erzwingt die Vorhersage wieder.");
+  const tableSchemaSource = readFileSync(join(root, "src", "mcp-schemas-ui.ts"), "utf8");
+  assert(tableSchemaSource.includes("expectedAfter: z.string().optional().describe(") &&
+    tableSchemaSource.includes("Die Seitensumme addiert netto"),
+  "Das Schema erklaert nicht, warum die Nachsumme optional ist.");
+  // Anhaengen scheiterte, solange die Anlegezeile ausserhalb des
+  // Sichtbereichs lag - der Aufrufer musste wissen, dass erst ein
+  // vollstaendiger Lesevorgang die Tabelle ans Ende bringt. Diese Kenntnis
+  // darf nicht wieder Voraussetzung werden.
+  const executorSource = readFileSync(join(root, "src", "api-executor.ts"), "utf8");
+  assert(executorSource.includes('result.error.includes("Keine freie Tabellenzeile")') &&
+    executorSource.includes('const scrolled = await worker("table_read"') &&
+    executorSource.includes("retriedAfterTableWalk: true"),
+  "table_add holt die Anlegezeile nicht mehr selbst in den Sichtbereich.");
   const closeBlock = workerOpBlock("close");
   assert(workerSource.includes("function Get-SSEPinnedProcessHandle([Diagnostics.Process]$Process)") &&
     workerSource.includes("function Wait-SSEProcessExit([Microsoft.Win32.SafeHandles.SafeProcessHandle]$ProcessHandle") &&
@@ -516,7 +554,7 @@ try {
     workerOpBlock("goto").includes("niemals einen") &&
     workerOpBlock("goto").includes("unscharfen Treffer doppelklicken"),
   "sse_goto kann ohne fachlich gebundenen Suchtreffer weiterhin eine beliebige Seite oeffnen.");
-  assert((workerOpBlock("goto").match(/erreicht\s*=\s*\$true/g) ?? []).length === 5,
+  assert((workerOpBlock("goto").match(/erreicht\s*=\s*\$true/g) ?? []).length === 6,
     "Mindestens ein erfolgreicher sse_goto-Pfad meldet erreicht=true nicht konsistent.");
   const checkerCloseBlock = workerOpBlock("checker_close");
   assert(checkerCloseBlock.includes("Get-SSEContainerDescendants $before.nodes '.PrueferWidgetSSE.FrameTitle' 'Button' 'Group'") &&
@@ -611,7 +649,8 @@ try {
     workerOpBlock("tree_top").includes("$hitRoot = [SW]::GetAncestor($hitWindow, 2)") &&
     workerOpBlock("tree_scroll").includes("$hitRoot = [SW]::GetAncestor($hitWindow, 2)") &&
     workerOpBlock("checker_detail").includes("$hitRoot = [SW]::GetAncestor($hitWindow, 2)") &&
-    workerOpBlock("table_read").includes("$unterRoot = [SW]::GetAncestor($unter, 2)"),
+    workerOpBlock("table_read").includes("$pointBinding = Get-SSEPointObstruction $hwnd $px $py") &&
+    workerOpBlock("table_read").includes("if ($pointBinding.isBoundTarget)"),
   "Mindestens ein physischer Fokus-/Scrollpfad bindet nur die PID statt das exakte Hauptfenster-Root.");
   const dialogAnswerBlock = workerOpBlock("dialog_answer");
   assert(nativeSourceText.includes("GetLastActivePopup") &&

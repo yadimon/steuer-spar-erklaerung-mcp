@@ -4,11 +4,13 @@ import { createRequire } from "node:module";
 import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { performance } from "node:perf_hooks";
 import {
   defaultApiConfigPath,
   resolveApiConfigValues,
 } from "./api-config-file.js";
 import { ApiClientError, readApiHealthz, type ApiHealthDocument } from "./api-client.js";
+import { requestApiShutdown } from "./api-control-client.js";
 import {
   SSE_API_PACKAGE_NAME,
   SSE_PACKAGE_NAME,
@@ -318,7 +320,13 @@ function cleanApiEnvironment(): NodeJS.ProcessEnv {
   return env;
 }
 
-function startApiDependency(endpoint: ApiEndpoint): { exited: () => boolean; spawnError: () => Error | undefined } {
+interface StartedApi {
+  pid: number | undefined;
+  exited: () => boolean;
+  spawnError: () => Error | undefined;
+}
+
+function startApiDependency(endpoint: ApiEndpoint): StartedApi {
   if (process.platform !== "win32" || process.arch !== "x64") {
     throw new Error("Die automatische SSE-API benoetigt Windows x64.");
   }
@@ -340,7 +348,7 @@ function startApiDependency(endpoint: ApiEndpoint): { exited: () => boolean; spa
   child.once("error", (error) => { startError = error; });
   child.once("exit", () => { didExit = true; });
   child.unref();
-  return { exited: () => didExit, spawnError: () => startError };
+  return { pid: child.pid, exited: () => didExit, spawnError: () => startError };
 }
 
 function delay(ms: number): Promise<void> {
@@ -351,15 +359,33 @@ let ensurePromise: Promise<ApiHealthDocument> | undefined;
 let activeEndpoint: ApiEndpoint | undefined;
 let activeProcessId: number | undefined;
 let activeInstanceId: string | undefined;
+let activeChild: StartedApi | undefined;
+type ApiControlState = "running" | "stopping" | "stopped" | "starting" | "unknown";
+let controlState: ApiControlState = "running";
+let controlBusy = false;
+let pendingRestart = false;
+let shutdownAccepted: boolean | null = null;
 
-async function ensureApiSingletonInner(): Promise<ApiHealthDocument> {
-  const endpoint = configuredEndpoint(process.env);
+function assertApiRunningIntent(): void {
+  if (controlState !== "running") {
+    throw new ApiClientError(
+      "Die API ist absichtlich gestoppt oder ihr Lebenszyklus noch ungeklärt. Mit sse_api_control den Status lesen; ein Neustart braucht einen eigenen Auftrag.",
+      controlState === "stopped" ? "api-stopped" : "api-lifecycle-pending",
+    );
+  }
+}
+
+async function ensureApiSingletonInner(
+  endpoint: ApiEndpoint = configuredEndpoint(process.env),
+  restarting = false,
+): Promise<ApiHealthDocument> {
   const initial = await probe(
     endpoint.baseUrl,
     INITIAL_PROBE_TIMEOUT_MS,
     endpoint.expectedConfigurationFingerprint,
   );
   if (initial.state === "compatible") {
+    if (restarting) throw new ApiClientError("Am Endpunkt laeuft bereits eine andere API; sie wird nicht uebernommen oder beendet.", "api-replaced");
     activeEndpoint = endpoint;
     activeProcessId = initial.health.processId;
     activeInstanceId = initial.health.instanceId;
@@ -375,8 +401,12 @@ async function ensureApiSingletonInner(): Promise<ApiHealthDocument> {
   }
 
   const started = startApiDependency(endpoint);
-  const deadline = Date.now() + READINESS_TIMEOUT_MS;
-  while (Date.now() < deadline) {
+  activeChild = started;
+  activeEndpoint = endpoint;
+  activeProcessId = started.pid;
+  activeInstanceId = undefined;
+  const deadline = performance.now() + READINESS_TIMEOUT_MS;
+  while (performance.now() < deadline) {
     const startError = started.spawnError();
     if (startError) throw new Error("Die installierte API-Dependency konnte nicht gestartet werden.");
     const current = await probe(
@@ -385,6 +415,9 @@ async function ensureApiSingletonInner(): Promise<ApiHealthDocument> {
       endpoint.expectedConfigurationFingerprint,
     );
     if (current.state === "compatible") {
+      if (restarting && current.health.processId !== started.pid) {
+        throw new ApiClientError("Die antwortende API gehoert nicht zum ausdruecklich gestarteten Prozess.", "api-replaced");
+      }
       activeEndpoint = endpoint;
       activeProcessId = current.health.processId;
       activeInstanceId = current.health.instanceId;
@@ -402,11 +435,13 @@ async function ensureApiSingletonInner(): Promise<ApiHealthDocument> {
 }
 
 export function ensureApiSingleton(): Promise<ApiHealthDocument> {
+  assertApiRunningIntent();
   ensurePromise ??= ensureApiSingletonInner();
   return ensurePromise;
 }
 
 export async function assertApiSingletonIdentity(): Promise<ApiHealthDocument> {
+  assertApiRunningIntent();
   const endpoint = activeEndpoint;
   if (!endpoint) return ensureApiSingleton();
   let current = await probe(
@@ -414,17 +449,9 @@ export async function assertApiSingletonIdentity(): Promise<ApiHealthDocument> {
     INITIAL_PROBE_TIMEOUT_MS,
     endpoint.expectedConfigurationFingerprint,
   );
-  // Ein Transportfehler ist KEINE Aussage darueber, wer am Port lauscht. Er
-  // entsteht auch, wenn eine wiederverwendete Verbindung stirbt - etwa weil
-  // genau dieser API-Prozess gerade ausgetauscht wurde. Wer ihn als Befund
-  // durchreicht, meldet ausgerechnet dann "nicht erreichbar", wenn die
-  // eigentliche Nachricht "der Prozess wurde ausgetauscht" lauten muesste,
-  // und verschluckt damit den Hinweis, den der Benutzer braucht: den
-  // MCP-Server neu starten, statt einen zweiten API-Prozess zu starten.
-  //
-  // Genau einmal frisch nachfragen. Die Abfrage ist ein lesendes GET auf
-  // /healthz und damit gefahrlos wiederholbar; ist die API wirklich weg,
-  // scheitert auch der zweite Versuch und der Netzwerkfehler bleibt.
+  // Ein Transportfehler kann von einer beim Prozesswechsel abgerissenen
+  // Verbindung stammen. Genau ein frisches, lesendes /healthz-GET unterscheidet
+  // diesen Austausch von einer unerreichbaren API, ohne einen Ersatz zu starten.
   if (current.state === "absent") {
     current = await probe(
       endpoint.baseUrl,
@@ -432,6 +459,7 @@ export async function assertApiSingletonIdentity(): Promise<ApiHealthDocument> {
       endpoint.expectedConfigurationFingerprint,
     );
   }
+  assertApiRunningIntent();
   if (current.state === "compatible") {
     if (activeProcessId !== undefined && current.health.processId !== activeProcessId) {
       throw new ApiClientError(
@@ -448,4 +476,142 @@ export async function assertApiSingletonIdentity(): Promise<ApiHealthDocument> {
     return current.health;
   }
   throw current.error;
+}
+
+export type ApiControlRequest =
+  | { action: "status" }
+  | { action: "shutdown" | "start"; confirm: true; instanceId: string };
+
+function boundProcessExited(): boolean {
+  if (activeProcessId === undefined) return false;
+  if (activeChild && activeChild.pid === activeProcessId && activeChild.exited()) return true;
+  try {
+    // Signal 0 ist eine Existenzabfrage, keine Prozessbeendigung.
+    process.kill(activeProcessId, 0);
+    return false;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") return true;
+    throw new ApiClientError("Das Ende des gebundenen API-Prozesses ist nicht sicher pruefbar.", "shutdown-unknown");
+  }
+}
+
+function controlSnapshot(ok = true, detail: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    ok, state: controlState,
+    ...(activeInstanceId ? { instanceId: activeInstanceId } : {}),
+    ...(activeProcessId !== undefined ? { processId: activeProcessId } : {}),
+    accepted: shutdownAccepted,
+    processExited: controlState === "stopped",
+    ...detail,
+  };
+}
+
+async function controlStatus(): Promise<Record<string, unknown>> {
+  if (controlBusy) return controlSnapshot();
+  if (controlState === "running") {
+    await assertApiSingletonIdentity();
+    return controlSnapshot();
+  }
+  if (boundProcessExited()) {
+    controlState = "stopped";
+    pendingRestart = false;
+    return controlSnapshot();
+  }
+  if (pendingRestart && activeEndpoint && activeChild && activeChild.pid === activeProcessId) {
+    const observed = await probe(activeEndpoint.baseUrl, INITIAL_PROBE_TIMEOUT_MS, activeEndpoint.expectedConfigurationFingerprint);
+    if (observed.state === "compatible" && observed.health.processId === activeChild.pid) {
+      activeInstanceId = observed.health.instanceId;
+      controlState = "running";
+      pendingRestart = false;
+      shutdownAccepted = null;
+      ensurePromise = Promise.resolve(observed.health);
+    }
+  }
+  return controlSnapshot();
+}
+
+/** Kontrolliert nur die gebundene API. Ein SSE-/Fallauftrag wird nie ausgefuehrt. */
+export async function controlApiSingleton(request: ApiControlRequest): Promise<Record<string, unknown>> {
+  if (!["status", "shutdown", "start"].includes(request.action)) {
+    throw new ApiClientError("Unbekannte API-Lebenszyklusaktion.", "bad-args");
+  }
+  if (request.action === "status") return controlStatus();
+  if (request.confirm !== true || !request.instanceId || request.instanceId !== activeInstanceId) {
+    throw new ApiClientError("API-Steuerung verlangt confirm=true und die zuletzt gelesene exakte instanceId.", "api-instance-mismatch");
+  }
+  if (controlBusy) throw new ApiClientError("Eine API-Lebenszyklusaktion laeuft bereits.", "busy");
+  controlBusy = true;
+  try {
+    if (request.action === "start") {
+      if (controlState !== "stopped" || !boundProcessExited()) {
+        throw new ApiClientError("Neustart verlangt das nachgewiesene Ende der zuvor gebundenen API.", "api-lifecycle-pending");
+      }
+      const endpoint = activeEndpoint;
+      if (!endpoint?.configPath || endpoint.explicitUrl) {
+        throw new ApiClientError(
+          "Die API wurde nur ueber SSE_API_URL gebunden; ihre Startkonfiguration ist unbekannt. " +
+            "API mit ihrer urspruenglichen Konfiguration manuell starten.",
+          "api-start-unavailable",
+        );
+      }
+      const current = endpointFromConfig(endpoint.configPath);
+      if (current.baseUrl !== endpoint.baseUrl || current.expectedConfigurationFingerprint !== endpoint.expectedConfigurationFingerprint) {
+        throw new ApiClientError("Die urspruengliche API-Konfiguration wurde geaendert; kein automatischer Wechsel beim Neustart.", "api-configuration-changed");
+      }
+      controlState = "starting";
+      pendingRestart = true;
+      try {
+        ensurePromise = ensureApiSingletonInner(endpoint, true);
+        await ensurePromise;
+        controlState = "running";
+        pendingRestart = false;
+        shutdownAccepted = null;
+        return controlSnapshot();
+      } catch (error) {
+        controlState = "unknown";
+        throw error;
+      }
+    }
+
+    assertApiRunningIntent();
+    const health = await assertApiSingletonIdentity();
+    if (health.instanceId !== request.instanceId) {
+      throw new ApiClientError("API-Instanz hat sich vor dem Stopp geaendert.", "api-instance-mismatch");
+    }
+    controlState = "stopping";
+    shutdownAccepted = null;
+    try {
+      const accepted = await requestApiShutdown({ confirm: true, instanceId: health.instanceId }, {
+        baseUrl: activeEndpoint!.baseUrl, expectedInstanceId: health.instanceId,
+      });
+      if (accepted.processId !== health.processId) {
+        throw new ApiClientError("Shutdown-Annahme meldet einen anderen API-Prozess.", "protocol");
+      }
+      shutdownAccepted = true;
+    } catch (error) {
+      // Nur eine eindeutige API-Ablehnung beweist, dass kein Stopp angenommen
+      // wurde. Transport-/Protokollfehler lassen die Startabsicht gesperrt.
+      const rejected = error instanceof ApiClientError && [
+        "busy", "api-instance-mismatch", "bad-request", "shutdown-unavailable",
+        "forbidden", "unsupported-media-type", "method-not-allowed", "not-found",
+      ].includes(error.kind);
+      controlState = rejected ? "running" : "unknown";
+      shutdownAccepted = rejected ? false : null;
+      return controlSnapshot(false, {
+        kind: error instanceof ApiClientError ? error.kind : "shutdown-unknown",
+        error: error instanceof Error ? error.message : "Shutdown-Ausgang ist unbekannt.",
+      });
+    }
+    const deadline = performance.now() + 10_000;
+    while (performance.now() < deadline) {
+      if (boundProcessExited()) {
+        controlState = "stopped";
+        return controlSnapshot();
+      }
+      await delay(100);
+    }
+    return controlSnapshot(false, { kind: "shutdown-pending", error: "Stopp angenommen; Prozessende noch nicht nachgewiesen. Status lesen." });
+  } finally {
+    controlBusy = false;
+  }
 }

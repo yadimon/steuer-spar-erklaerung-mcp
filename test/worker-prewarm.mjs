@@ -210,6 +210,7 @@ const managedEnvironment = [
 ];
 const previousEnvironment = new Map(managedEnvironment.map((name) => [name, process.env[name]]));
 let prewarmPool;
+const wallNow = Date.now;
 
 writeFileSync(fixtureSource, `
 using System;
@@ -293,8 +294,8 @@ function processIsAlive(pid) {
 }
 
 async function waitFor(predicate, message, timeoutMs = 10_000) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
+  const deadline = performance.now() + timeoutMs;
+  while (performance.now() < deadline) {
     if (predicate()) return;
     await delay(10);
   }
@@ -441,9 +442,14 @@ try {
     "Die Health-Anzeige muss eine trotz Teilfehler nutzbare Reserve melden.",
   );
 
+  // Only this JavaScript process sees the clock corrections; Windows time is unchanged.
+  Date.now = () => wallNow() + 2 * 24 * 60 * 60 * 1000;
   prewarmPool.ensureWarmSpare();
+  assert.equal(prewarmPool.warmSparePoolStatus().starting, 0,
+    "A forward wall-clock correction must not bypass the prewarm retry delay.");
   await delay(40);
   assert.equal(fixtureLaunches().length, 2, "Die Retry-Sperre muss einen sofortigen Neustart verhindern.");
+  Date.now = () => wallNow() - 2 * 24 * 60 * 60 * 1000;
 
   const firstReadySpare = prewarmPool.takeWarmSpare();
   assert(firstReadySpare, "Die trotz Teilfehler bereite Reserve muss entnehmbar bleiben.");
@@ -456,8 +462,9 @@ try {
       prewarmPool.ensureWarmSpare();
       return fixtureLaunches().length === 4 && prewarmPool.warmSparePoolStatus().ready === 1;
     },
-    "Nach der Retry-Sperre wurde der Pool nicht neu aufgebaut.",
+    "A backward wall-clock correction must not prolong the prewarm retry delay.",
   );
+  Date.now = wallNow;
   assert.deepEqual(prewarmPool.warmSparePoolStatus(), { ready: 1, starting: 1, target: 2 });
   assert.equal(prewarmPool.lastPrewarmFailure(), null, "Ein erfolgreicher Retry muss den Timeout-Fehler loeschen.");
 
@@ -501,6 +508,7 @@ try {
     "Der neu aufgebaute Pool muss sauber herunterfahren.",
   );
 } finally {
+  Date.now = wallNow;
   prewarmPool?.shutdownWarmSpare();
   for (const [name, previous] of previousEnvironment) {
     if (previous === undefined) delete process.env[name];

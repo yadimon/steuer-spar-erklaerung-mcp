@@ -173,9 +173,9 @@ mehrdeutige Wahl gesperrt. API-stdio bleibt vollständig vom MCP-stdout getrennt
 - API-Fehlerfelder werden nicht durch eine Fehler-Allowlist abgeschnitten;
   MCP markiert sie mit `isError=true`.
 - Erfolgreiche Antworten bleiben als JSON-Text verfügbar. Einige Werkzeuge
-  erzeugen darin aus Kompatibilitätsgründen eine kompakte Projektion. Alle 101
+  erzeugen darin aus Kompatibilitätsgründen eine kompakte Projektion. Alle 103
   MCP-Werkzeuge veröffentlichen parallel ein vollständiges, redigiertes
-  `structuredContent` mit einem deklarierten `outputSchema`. Bei den 100
+  `structuredContent` mit einem deklarierten `outputSchema`. Bei den 102
   direkten Werkzeugen ist es das API-Ergebnis; `sse_preflight` besitzt einen
   eigenen PC-blinden Kompositionsvertrag.
 - Lokale Windows-, UNC-, Datei-URL- und typische POSIX-Pfade werden an der
@@ -186,7 +186,7 @@ mehrdeutige Wahl gesperrt. API-stdio bleibt vollständig vom MCP-stdout getrennt
   `structuredContent`; die bereits als Bildinhalt übertragenen Base64-Bytes
   (`imageBase64`/`bildBase64`) werden dort nicht dupliziert.
 
-Alle 100 Operationen besitzen ein eigenes `Result_<operation>`-Schema der
+Alle 102 Operationen besitzen ein eigenes `Result_<operation>`-Schema der
 Ergebnisvertragsversion 1. Diese Schemata typisieren die stabile
 Transportfläche und ausgewählte fachliche Kernfelder, bleiben aber mit
 Zusatzfeldern vorwärtskompatibel. Sie sind deshalb ein versionierter
@@ -505,6 +505,23 @@ stdout/stderr-Handles offen und verhindert dadurch Nodes `close`, verriegelt
 der äußere Cleanup-Wächter die Worker-Laufzeit fail-closed.
 
 ## Ergebnisgrenze und Evidenz
+
+`read_table` und `table_read` liefern neben ihren bisherigen Textzeilen
+`rowDetails` in derselben Zeilenreihenfolge. `rowIndex` ist nullbasiert;
+`typedValues`, `checkboxStates` und `cellTypes` folgen der Spaltenreihenfolge.
+Checkboxen stehen als echte Booleans in `typedValues` und separat als `On`,
+`Off` oder `Indeterminate` in `checkboxStates`. Ein unbestimmter Zustand hat
+den Wert `null`. Nicht beobachtete Zellen bleiben `unknown` und werden in
+`semanticReadErrors` ausgewiesen; leerer Anzeigetext beweist keine ausgeschaltete
+Checkbox. `semanticsComplete` beschreibt nur die ausgegebenen Zellen, nicht
+die Vollständigkeit einer virtualisierten Tabelle. Sichtbares Lesen ersetzt
+weiterhin keinen Tabellenlauf mit Endbeweis. Steuerbeträge werden aus diesen
+Checkbox-Zuständen nicht abgeleitet.
+
+Beim Tabellen-Readback müssen zwei explizit angegebene Datumsjahre
+übereinstimmen. Ungültige Kalendertage gelten auch bei gleichem Text nicht als
+bestätigt. Für Datumseingaben ist weiterhin das vollständige Jahr anzugeben;
+die gekürzte Produktanzeige wird gegen dieses angeforderte Jahr geprüft.
 
 Der gemeinsame Ergebnisvertrag ist technisch an allen Transportgrenzen
 durchgesetzt:

@@ -112,7 +112,7 @@
           },
           "liveEvidence": {
             "types": [
-              "object:{\"affectsAvailability\":\"boolean\",\"basis\":\"string-other\",\"errorPathOnlyCount\":\"nonnegative-number\",\"functionalCount\":\"nonnegative-number\",\"operationStatus\":\"object\",\"profileSpecific\":\"boolean\",\"schemaVersion\":\"nonnegative-number\",\"scope\":\"string-other\",\"untestedCount\":\"nonnegative-number\",\"untestedOperations\":\"array-empty\"}"
+              "object:{\"affectsAvailability\":\"boolean\",\"basis\":\"string-other\",\"errorPathOnlyCount\":\"nonnegative-number\",\"functionalCount\":\"nonnegative-number\",\"operationStatus\":\"object\",\"profileSpecific\":\"boolean\",\"schemaVersion\":\"nonnegative-number\",\"scope\":\"string-other\",\"untestedCount\":\"nonnegative-number\",\"untestedOperations\":\"array-many:string-other\"}"
             ],
             "labels": [
               "scenario-mock",
@@ -203,7 +203,7 @@
           },
           "transport": {
             "types": [
-              "object:{\"apiOperations\":\"array-many:string-other\",\"apiVersion\":\"string-other\",\"directApiWithoutMcp\":\"boolean\",\"directCliWithoutMcp\":\"boolean\",\"discoveryPath\":\"string-other\",\"mcpCancellationPropagatesToApi\":\"boolean\",\"mcpComposedToolOperations\":\"object\",\"mcpToolOperations\":\"object\",\"nonDestructiveStatefulOperations\":\"array-many:string-other\",\"openApiPath\":\"string-other\",\"operationDiscoveryPathTemplate\":\"string-other\",\"packageName\":\"string-other\",\"packageVersion\":\"string-other\",\"potentiallyDestructiveOperations\":\"array-many:string-other\",\"readOnlyOperations\":\"array-many:string-other\",\"statefulOperations\":\"array-many:string-other\",\"workerArguments\":\"string-other\",\"workerArgumentsVisibleInProcessList\":\"boolean\",\"workerQueueDepth\":\"nonnegative-number\"}"
+              "object:{\"apiOperations\":\"array-many:string-other\",\"apiVersion\":\"string-other\",\"directApiWithoutMcp\":\"boolean\",\"directCliWithoutMcp\":\"boolean\",\"discoveryPath\":\"string-other\",\"mcpCancellationPropagatesToApi\":\"boolean\",\"mcpComposedToolOperations\":\"object\",\"mcpControlToolActions\":\"object\",\"mcpToolOperations\":\"object\",\"nonDestructiveStatefulOperations\":\"array-many:string-other\",\"openApiPath\":\"string-other\",\"operationDiscoveryPathTemplate\":\"string-other\",\"packageName\":\"string-other\",\"packageVersion\":\"string-other\",\"potentiallyDestructiveOperations\":\"array-many:string-other\",\"readOnlyOperations\":\"array-many:string-other\",\"statefulOperations\":\"array-many:string-other\",\"workerArguments\":\"string-other\",\"workerArgumentsVisibleInProcessList\":\"boolean\",\"workerQueueDepth\":\"nonnegative-number\"}"
             ],
             "labels": [
               "scenario-mock",
@@ -11527,6 +11527,16 @@
         }
       }
     },
+    "position_create": {
+      "offline": {
+        "profiles": [],
+        "fields": {}
+      },
+      "live": {
+        "profiles": [],
+        "fields": {}
+      }
+    },
     "product_info": {
       "offline": {
         "profiles": [],
@@ -18752,6 +18762,16 @@
             ]
           }
         }
+      }
+    },
+    "tax_knowledge_search": {
+      "offline": {
+        "profiles": [],
+        "fields": {}
+      },
+      "live": {
+        "profiles": [],
+        "fields": {}
       }
     },
     "toggle": {

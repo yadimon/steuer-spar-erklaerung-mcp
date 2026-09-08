@@ -10,13 +10,15 @@ Operationsmerkmale in `src/operation-traits.ts`, das Abdeckungsledger
 
 ## Zahlen
 
-- Operationen insgesamt: **100**
+- Operationen insgesamt: **102**
 - davon live belegt: **94**
 - davon nur auf dem Fehlerpfad belegt: **6**
-- als MCP-Werkzeug veroeffentlicht: **100**
+- davon live ungetestet: **2**
+- als MCP-Werkzeug veroeffentlicht: **102**
 - zusammengesetzte MCP-Werkzeuge: **1**
-- nur lesend: **36**, destruktiv: **30**, Aufraeumen: **7**
-- nach einem Produktupdate gesperrt, bis der Build neu verifiziert ist: **34**
+- API-Lebenszykluswerkzeuge: **1**
+- nur lesend: **36**, destruktiv: **31**, Aufraeumen: **7**
+- nach einem Produktupdate gesperrt, bis der Build neu verifiziert ist: **35**
 
 ## HTTP-Oberflaeche
 
@@ -24,10 +26,11 @@ OpenAPI 3.1.0, Titel „Unoffizielle lokale SteuerSparErklaerung API“.
 
 | Pfad | Methode | Zweck |
 | --- | --- | --- |
+| `/v1/control/shutdown` | POST | Auftragsfreie gebundene API beenden; SSE und Steuerfaelle bleiben offen |
 | `/healthz` | GET | Lokale API-Erreichbarkeit und Version |
 | `/v1/operations` | GET | Vollstaendiger API-Katalog mit Schemas und Sicherheitsmerkmalen |
 | `/v1/openapi.json` | GET | Diese generierte OpenAPI-3.1-Beschreibung |
-| `/v1/operations/{operation}` | GET, POST | Schema und Sicherheitsmerkmale lesen beziehungsweise die Operation ausfuehren (200 Pfadeintraege fuer 100 Operationen) |
+| `/v1/operations/{operation}` | GET, POST | Schema und Sicherheitsmerkmale lesen beziehungsweise die Operation ausfuehren (204 Pfadeintraege fuer 102 Operationen) |
 
 ## Operationen
 
@@ -82,6 +85,7 @@ gesperrt sind, bis der neue Build live nachverifiziert wurde.
 | `menu_close` | `sse_menu_close` | Aufraeumen | – | live belegt |
 | `page` | `sse_page` | lesend | – | live belegt |
 | `page_objects` | `sse_page_objects` | lesend | – | live belegt |
+| `position_create` | `sse_position_create` | destruktiv | ja | live: untested |
 | `positions` | `sse_positions` | lesend | – | live belegt |
 | `product_info` | `sse_product_info` | lesend | – | live belegt |
 | `read_full` | `sse_read_full` | lesend | – | live belegt |
@@ -112,6 +116,7 @@ gesperrt sind, bis der neue Build live nachverifiziert wurde.
 | `table_delete` | `sse_table_delete` | destruktiv | ja | live belegt |
 | `table_read` | `sse_table_read` | zustandsaendernd | – | live belegt |
 | `table_update` | `sse_table_update` | destruktiv | ja | live belegt |
+| `tax_knowledge_search` | `sse_tax_knowledge_search` | zustandsaendernd | – | live: untested |
 | `toggle` | `sse_toggle` | destruktiv | ja | live belegt |
 | `tracked_set_value` | `sse_change_known_field` | destruktiv | ja | live belegt |
 | `tree_scroll` | `sse_tree_scroll` | zustandsaendernd | – | live belegt |
@@ -140,7 +145,7 @@ gesperrt sind, bis der neue Build live nachverifiziert wurde.
 
 ## MCP-Werkzeuge
 
-Der Server meldet 101 Werkzeuge.
+Der Server meldet 104 Werkzeuge.
 
 ### `sse_accessibility_probe`
 
@@ -149,6 +154,14 @@ Der Server meldet 101 Werkzeuge.
 Rein lesende Tiefenpruefung fuer ein exakt adressiertes UI-Element.
 
 Operation: `accessibility_probe` (lesend).
+
+### `sse_api_control`
+
+**Lokale API steuern**
+
+Liest den API-Status oder beendet die gebundene, auftragsfreie API und startet sie auf ausdruecklichen Auftrag erneut.
+
+API-/Supervisor-Lebenszyklus: `status`, `shutdown`, `start`. Kein Worker- oder Steuerfallauftrag.
 
 ### `sse_archive_cases`
 
@@ -510,6 +523,14 @@ Liest eine katalogisierte Seite ueber exakte relative AutomationIds statt einer 
 
 Operation: `known_page_state` (lesend).
 
+### `sse_position_create`
+
+**Einnahmenposition anlegen**
+
+Legt auf 'Erlöse Lieferungen/Leistungen' genau eine leere Einnahmenposition mit 19 % an.
+
+Operation: `position_create` (destruktiv, drift-gesperrt).
+
 ### `sse_positions`
 
 **Positionen auflisten**
@@ -757,6 +778,14 @@ Operation: `table_read` (zustandsaendernd).
 Aktualisiert eine eindeutig ueber einen vorhandenen Zelltext gefundene, sichtbare Tabellenzeile ueber Qt-ValuePattern sowie fuer boolesche Tabellenzellen ueber TogglePattern und funktioniert deshalb auch auf dem versteckten Desktop.
 
 Operation: `table_update` (destruktiv, drift-gesperrt).
+
+### `sse_tax_knowledge_search`
+
+**Steuerwissen nachschlagen**
+
+Schlaegt einen Begriff im Steuerwissen nach und gibt Textabschnitte und Verweise zurueck.
+
+Operation: `tax_knowledge_search` (zustandsaendernd).
 
 ### `sse_toggle`
 

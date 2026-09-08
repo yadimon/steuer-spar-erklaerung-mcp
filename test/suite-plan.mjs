@@ -30,7 +30,6 @@ export const serialBuildSteps = Object.freeze([
   nodeFile("npm-package-build", "scripts/build-npm-packages.mjs"),
   nodeFile("agent-plugin-build", "scripts/build-agent-plugin.mjs", "--check"),
   nodeFile("api-docs", "scripts/build-api-docs.mjs", "--check"),
-  nodeFile("docs-consistency", "scripts/check-docs-consistency.mjs"),
 ]);
 
 export const parallelSteps = Object.freeze([
@@ -42,6 +41,8 @@ export const parallelSteps = Object.freeze([
   nodeFile("github-workflow", "test/github-workflow-contract.mjs"),
   nodeFile("javascript-syntax", "test/javascript-syntax-contract.mjs"),
   psFile("powershell-syntax", "test/powershell-syntax-contract.ps1"),
+  psFile("table-delete-name", "test/table-delete-name-contract.ps1"),
+  psFile("position-create", "test/position-create-contract.ps1"),
   psFile("tracked-date-rollback", "test/tracked-date-rollback-contract.ps1"),
   psFile("value-info-window", "test/value-info-window-contract.ps1"),
   psFile("write-window-binding", "test/write-window-binding-contract.ps1"),
@@ -54,6 +55,9 @@ export const parallelSteps = Object.freeze([
   psFile("window-wait", "test/window-wait-contract.ps1"),
   psFile("conversion-in-dll", "test/conversion-in-dll-contract.ps1"),
   psFile("deprecated-fallback", "test/deprecated-fallback-contract.ps1"),
+  psFile("control-inventory", "test/control-inventory-contract.ps1"),
+  psFile("node-resolution-in-dll", "test/node-resolution-in-dll-contract.ps1"),
+  psFile("parallel-work", "test/parallel-work-contract.ps1"),
   psFile("worker-prewarm-placement", "test/worker-prewarm-placement-contract.ps1"),
   psFile("heading-cache", "test/heading-cache-contract.ps1"),
   psFile("desktop-stop-policy", "test/desktop-stop-policy-contract.ps1"),
@@ -72,6 +76,8 @@ export const parallelSteps = Object.freeze([
   psFile("desktop-enumeration", "test/desktop-enumeration-contract.ps1"),
   psFile("window-restore-contract", "test/window-restore-contract.ps1"),
   nodeFile("foreground-lease-contract", "test/foreground-lease-contract.mjs"),
+  psFile("foreground-reporting-contract", "test/foreground-reporting-contract.ps1"),
+  psFile("table-read-obstruction", "test/table-read-obstruction-contract.ps1"),
   nodeFile("desktop-marker-contract", "test/desktop-marker-contract.mjs"),
   psFile("desktop-marker-write-contract", "test/desktop-marker-write-contract.ps1"),
   nodeFile("focusless-commit-contract", "test/focusless-commit-contract.mjs"),
@@ -87,6 +93,7 @@ export const parallelSteps = Object.freeze([
   nodeFile("direct-worker-collection-guard", "test/direct-worker-collection-guard.mjs"),
   nodeFile("worker-progress-contract", "test/worker-progress-contract.mjs"),
   nodeFile("table-add-rollback-contract", "test/table-add-rollback-contract.mjs"),
+  nodeFile("table-read-batch-contract", "test/table-read-batch-contract.mjs"),
   nodeFile("table-delete-rebinding", "test/table-delete-rebinding-contract.mjs"),
   nodeFile("table-window-scope", "test/table-window-scope-contract.mjs"),
   nodeFile("dirty-state-binding", "test/dirty-state-binding-contract.mjs"),
@@ -124,6 +131,8 @@ export const parallelSteps = Object.freeze([
   nodeFile("sse-process-guard", "test/sse-process-guard.mjs"),
   psFile("desktop-launcher", "test/desktop-launcher-contract.ps1"),
   nodeFile("api-contract", "test/api-contract.mjs"),
+  nodeFile("api-monotonic-timing", "test/api-monotonic-timing.mjs"),
+  nodeFile("api-control-shutdown", "test/api-control-shutdown.mjs"),
   nodeFile("api-static-documents", "test/api-static-document-cache.mjs"),
   nodeFile("api-client-body-abort", "test/api-client-body-abort.mjs"),
   nodeFile("api-client-transport-timeout", "test/api-client-transport-timeout.mjs"),
@@ -139,11 +148,9 @@ export const parallelSteps = Object.freeze([
   nodeFile("case-create-contract", "test/case-create-contract.mjs"),
   nodeFile("operation-schema-catalog", "test/operation-schema-catalog.mjs"),
   nodeFile("operation-coverage-merge", "test/operation-coverage-merge-contract.mjs"),
-  nodeFile("verification-doc-coverage", "test/verification-doc-coverage-contract.mjs"),
   nodeFile("operation-result-shape-merge", "test/operation-result-shape-merge-contract.mjs"),
   nodeFile("operation-trace", "test/operation-trace-contract.mjs"),
   nodeFile("live-profile-read-coverage", "test/live-profile-read-coverage-contract.mjs"),
-  nodeFile("operation-live-evidence", "test/operation-live-evidence-contract.mjs"),
   nodeFile("live-core-read-contract", "test/live-core-read-contract.mjs"),
   nodeFile("result-contract", "test/result-contract.mjs"),
   nodeFile("result-field-worker-guard", "test/result-field-worker-guard.mjs"),
@@ -189,6 +196,8 @@ export const parallelSteps = Object.freeze([
 export const exclusiveSteps = Object.freeze([
   { ...nodeFile("worker-controller-lock", "test/worker-controller-lock-contract.mjs"), timeoutMs: 420_000 },
   nodeFile("mcp-api-supervisor", "test/mcp-api-supervisor.mjs"),
+  nodeFile("api-control-runtime", "test/api-control-runtime.mjs"),
+  nodeFile("mcp-api-control", "test/mcp-api-control.mjs"),
   nodeFile("agent-plugin-runtime", "test/agent-plugin-runtime.mjs"),
   withApi("no-console-window", "test/no-console-window.mjs"),
 ]);
@@ -200,6 +209,10 @@ export const exclusiveSteps = Object.freeze([
 export const finalSteps = Object.freeze([
   nodeFile("operation-coverage", "test/operation-coverage-contract.mjs"),
   nodeFile("operation-result-shape", "test/operation-result-shape-contract.mjs"),
+  // Erst nach der bewussten Regeneration die kompilierte Bilanz vergleichen.
+  nodeFile("operation-live-evidence", "test/operation-live-evidence-contract.mjs"),
+  nodeFile("docs-consistency", "scripts/check-docs-consistency.mjs"),
+  nodeFile("verification-doc-coverage", "test/verification-doc-coverage-contract.mjs"),
 ]);
 
 const FAST_STEP_NAMES = new Set([
@@ -248,6 +261,7 @@ const FAST_STEP_NAMES = new Set([
   "live-script-resource-contract",
   "sse-process-guard",
   "api-contract",
+  "api-monotonic-timing",
   "api-static-documents",
   "api-client-body-abort",
   "api-client-transport-timeout",
@@ -298,7 +312,10 @@ const FAST_STEP_NAMES = new Set([
   "worker-timeout",
   "worker-progress-contract",
   "table-add-rollback-contract",
+  "table-read-batch-contract",
   "table-delete-rebinding",
+  "table-delete-name",
+  "position-create",
   "table-window-scope",
   "dirty-state-binding",
   "table-values",
@@ -310,5 +327,5 @@ export const fastBuildSteps = Object.freeze(
   serialBuildSteps.filter((step) => step.name === "dist-prune" || step.name === "typescript-build"),
 );
 export const fastSteps = Object.freeze(
-  parallelSteps.filter((step) => FAST_STEP_NAMES.has(step.name)),
+  [...parallelSteps, ...finalSteps].filter((step) => FAST_STEP_NAMES.has(step.name)),
 );

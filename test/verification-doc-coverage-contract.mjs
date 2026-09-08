@@ -49,7 +49,7 @@ assert.deepEqual(
   "Dokumentierte Live-Restluecke widerspricht operation-coverage.json",
 );
 
-const missingStart = verification.indexOf("Noch nie erfolgreich live");
+const missingStart = verification.indexOf("Von keinem automatisierten Suitelauf");
 const missingEnd = verification.indexOf("\n\n", missingStart);
 assert(missingStart >= 0 && missingEnd > missingStart, "Abschnitt mit fehlenden Live-Operationen ist nicht eindeutig");
 const documentedMissing = [...verification.slice(missingStart, missingEnd).matchAll(/`([a-z][a-z0-9_]*)`/gu)]
