@@ -168,10 +168,12 @@ const regelEnde = agenten.indexOf("<!-- /REGEL:PRIVATES -->");
 assert(regelStart >= 0 && regelEnde > regelStart,
   "AGENTS.md fuehrt den Regelblock REGEL:PRIVATES nicht.");
 const regel = agenten.slice(regelStart, regelEnde);
-for (const pflicht of ["localdev/", ".private/", "perf:api-mega"]) {
+for (const pflicht of ["außerhalb dieses Repositorys", "perf:api-mega"]) {
   assert(regel.includes(pflicht),
     `Die Regel nennt ${pflicht} nicht und bleibt damit ohne brauchbare Anweisung.`);
 }
+assert(!regel.includes("gehört nach `localdev/`") && !regel.includes("gehört nach `.private/`"),
+  "Die Regel darf private Arbeitsdaten nicht mehr in Unterverzeichnisse des öffentlichen Repositorys lenken.");
 assert.match(claude, /\[AGENTS\.md\]\(\.\/AGENTS\.md\)/u,
   "CLAUDE.md muss per relativem Link auf AGENTS.md verweisen; ein Symlink ist unter Windows nicht verlaesslich.");
 assert(!claude.includes("<!-- REGEL:PRIVATES -->"),
