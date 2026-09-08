@@ -8286,7 +8286,7 @@ import { createRequire } from "node:module";
 import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname as dirname2, isAbsolute as isAbsolute2, relative, resolve as resolve3 } from "node:path";
 import { fileURLToPath } from "node:url";
-import { performance } from "node:perf_hooks";
+import { performance as performance2 } from "node:perf_hooks";
 function loopbackBaseUrl(raw) {
   let parsed;
   try {
@@ -8550,8 +8550,8 @@ async function ensureApiSingletonInner(endpoint = configuredEndpoint(process.env
   activeEndpoint = endpoint;
   activeProcessId = started.pid;
   activeInstanceId = void 0;
-  const deadline = performance.now() + READINESS_TIMEOUT_MS;
-  while (performance.now() < deadline) {
+  const deadline = performance2.now() + READINESS_TIMEOUT_MS;
+  while (performance2.now() < deadline) {
     const startError = started.spawnError();
     if (startError) throw new Error("Die installierte API-Dependency konnte nicht gestartet werden.");
     const current = await probe(
@@ -8734,8 +8734,8 @@ async function controlApiSingleton(request2) {
         error: error2 instanceof Error ? error2.message : "Shutdown-Ausgang ist unbekannt."
       });
     }
-    const deadline = performance.now() + 1e4;
-    while (performance.now() < deadline) {
+    const deadline = performance2.now() + 1e4;
+    while (performance2.now() < deadline) {
       if (boundProcessExited()) {
         controlState = "stopped";
         return controlSnapshot();
@@ -29390,7 +29390,7 @@ async function runMcpMain(args) {
       Promise.resolve().then(() => (init_mcp_response(), mcp_response_exports))
     ]);
     const health = await supervisor.ensureApiSingleton();
-    const deadline = Date.now() + SELFTEST_BUSY_TIMEOUT_MS;
+    const deadline = performance.now() + SELFTEST_BUSY_TIMEOUT_MS;
     let busyPollMs = SELFTEST_BUSY_POLL_MS;
     let result;
     while (true) {
@@ -29400,11 +29400,11 @@ async function runMcpMain(args) {
           result = candidate;
           break;
         }
-        if (Date.now() >= deadline) {
+        if (performance.now() >= deadline) {
           throw new Error("API-Selftest fehlgeschlagen: health blieb laenger als 60 Sekunden belegt.");
         }
       } catch (error2) {
-        if (!isBusyApiError(error2) || Date.now() >= deadline) throw error2;
+        if (!isBusyApiError(error2) || performance.now() >= deadline) throw error2;
       }
       await supervisor.assertApiSingletonIdentity();
       await delay2(busyPollMs);

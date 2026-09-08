@@ -187,6 +187,45 @@ assert.equal(workerBusyCode, 0, workerBusyStderr);
 assert.equal(workerBusyStderr, "");
 assert.equal(JSON.parse(workerBusyStdout).ok, true);
 
+
+// Advance only the child's JavaScript clock after a real operation response.
+// The HTTP fixture and production transport remain active throughout the test.
+const clockJumpBootstrap = `
+  import http from "node:http";
+  import { syncBuiltinESMExports } from "node:module";
+  const originalRequest = http.request;
+  const originalNow = Date.now;
+  http.request = function (...args) {
+    const outgoing = originalRequest.apply(this, args);
+    if (String(args[0]).endsWith("/v1/operations/health")) {
+      outgoing.prependOnceListener("response", () => {
+        Date.now = () => originalNow() + 172800000;
+      });
+    }
+    return outgoing;
+  };
+  syncBuiltinESMExports();
+  const { runMcpMain } = await import("./dist/mcp-main.js");
+  await runMcpMain(["--selftest"]);
+`;
+selftestResultBusyRemaining = 1;
+const clockJumpSelftest = spawn(process.execPath, ["--input-type=module", "--eval", clockJumpBootstrap], {
+  cwd: process.cwd(),
+  env: { ...process.env, SSE_API_URL: `http://127.0.0.1:${selftestAddress.port}` },
+  windowsHide: true,
+  timeout: 15_000,
+  stdio: ["ignore", "pipe", "pipe"],
+});
+let clockJumpStdout = "";
+let clockJumpStderr = "";
+clockJumpSelftest.stdout.on("data", (chunk) => { clockJumpStdout += chunk.toString("utf8"); });
+clockJumpSelftest.stderr.on("data", (chunk) => { clockJumpStderr += chunk.toString("utf8"); });
+const [clockJumpCode] = await once(clockJumpSelftest, "exit");
+assert.equal(clockJumpCode, 0, `A wall-clock correction must not expire the selftest busy budget. ${clockJumpStderr}`);
+assert.equal(clockJumpStderr, "");
+assert.equal(JSON.parse(clockJumpStdout).ok, true);
+assert.equal(selftestResultBusyRemaining, 0);
+
 selftestResultFails = true;
 const failedResultSelftest = spawn(process.execPath, ["dist/index.js", "--selftest"], {
   cwd: process.cwd(),
