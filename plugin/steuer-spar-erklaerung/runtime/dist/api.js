@@ -7388,14 +7388,14 @@ async function executeCheckerOpen(args, timeoutMs, signal, worker) {
       Math.min(timeoutMs ?? 3e5, 3e5),
       signal
     );
-    const performance10 = result.performance && typeof result.performance === "object" && !Array.isArray(result.performance) ? result.performance : {};
+    const performance11 = result.performance && typeof result.performance === "object" && !Array.isArray(result.performance) ? result.performance : {};
     return {
       ...result,
       schemaVersion: 1,
       planKind: CHECKER_OPEN_PLAN_KIND,
       resultingState: typeof result.resultingState === "string" ? result.resultingState : result.ok === true ? "detail-verified" : "unknown",
       cleanupRequired: typeof result.cleanupRequired === "boolean" ? result.cleanupRequired : result.ok !== true,
-      performance: { ...performance10, workerProcessCount: 1 },
+      performance: { ...performance11, workerProcessCount: 1 },
       ...result.ok === true ? { kontrollbildEnthalten: typeof result.bildBase64 === "string" && result.bildBase64.length > 0 } : {}
     };
   } catch (error) {
@@ -8447,13 +8447,13 @@ var init_profile_operation_policy = __esm({
 });
 
 // src/page-objects-executor.ts
-import { performance } from "node:perf_hooks";
+import { performance as performance2 } from "node:perf_hooks";
 function executeLocalPageObjects(options) {
   const effectiveTimeoutMs = options.timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS;
-  const localStartedAt = performance.now();
+  const localStartedAt = performance2.now();
   const remainingTimeoutMs2 = () => Math.max(
     0,
-    Math.floor(effectiveTimeoutMs - (performance.now() - localStartedAt))
+    Math.floor(effectiveTimeoutMs - (performance2.now() - localStartedAt))
   );
   const localStopResult = () => {
     if (options.signal?.aborted) {
@@ -9108,7 +9108,7 @@ import {
   writeFileSync as writeFileSync2
 } from "node:fs";
 import { dirname as dirname6, isAbsolute as isAbsolute5, relative as relative3, resolve as resolve10 } from "node:path";
-import { performance as performance2 } from "node:perf_hooks";
+import { performance as performance3 } from "node:perf_hooks";
 function hash(buffer) {
   return createHash3("sha256").update(buffer).digest("hex");
 }
@@ -9325,7 +9325,7 @@ async function listWorkspaceFilesBounded(root, ref = ".", limit = 500, includeHa
   if (!Number.isFinite(timeoutMs) || timeoutMs < 0) {
     throw new Error("Zeitbudget fuer die Dateiliste muss eine nicht negative Zahl sein.");
   }
-  const now = options.now ?? (() => performance2.now());
+  const now = options.now ?? (() => performance3.now());
   const startedAt = now();
   const checkStopped = () => {
     if (options.signal?.aborted) {
@@ -9555,7 +9555,7 @@ function failedStep(step, kind, error) {
   };
 }
 async function executeScenarioStep(step, workspaceDir, priorResults, deadline, signal, execute, allowStepReferences, defaultTimeoutMs) {
-  const remainingMs = deadline - Date.now();
+  const remainingMs = Math.floor(deadline - performance.now());
   if (signal?.aborted || remainingMs < 200) {
     return failedStep(
       step,
@@ -9593,7 +9593,7 @@ async function executeScenarioStep(step, workspaceDir, priorResults, deadline, s
   } catch (error) {
     return failedStep(step, "execution-error", error instanceof Error ? error.message : String(error));
   }
-  if (signal?.aborted || Date.now() > deadline) {
+  if (signal?.aborted || performance.now() > deadline) {
     const kind = signal?.aborted ? "aborted" : "timeout";
     const error = signal?.aborted ? "API-Client hat den Szenariolauf abgebrochen." : "Gesamtfrist des Szenarios ist abgelaufen.";
     return {
@@ -9644,7 +9644,7 @@ async function runScenario(workspaceDir, resultDir, scenarioRef, resultRefOverri
   const cleanup = [];
   const priorResults = /* @__PURE__ */ new Map();
   let mainOk = true;
-  const startedAt = Date.now();
+  const startedAt = performance.now();
   const totalBudgetMs = Math.min(totalTimeoutMs ?? 3e5, 3e5);
   const deadline = startedAt + totalBudgetMs;
   const cleanupSteps = scenario.schemaVersion === 2 ? scenario.finally : [];
@@ -9678,7 +9678,7 @@ async function runScenario(workspaceDir, resultDir, scenarioRef, resultRefOverri
   mainOk = mainOk && steps.length === scenario.steps.length;
   for (let index = 0; index < cleanupSteps.length; index++) {
     const step = cleanupSteps[index];
-    const remainingMs = deadline - Date.now();
+    const remainingMs = Math.floor(deadline - performance.now());
     const remainingSteps = cleanupSteps.length - index;
     const defaultTimeoutMs = Math.max(200, Math.floor(remainingMs / remainingSteps));
     const execution = await executeScenarioStep(
@@ -9874,7 +9874,7 @@ var init_scenario = __esm({
 });
 
 // src/workspace-executor.ts
-import { performance as performance3 } from "node:perf_hooks";
+import { performance as performance4 } from "node:perf_hooks";
 function isWorkspaceExecutorOperation(operation) {
   return WORKSPACE_EXECUTOR_OPERATIONS.includes(operation);
 }
@@ -9893,7 +9893,7 @@ function resourceArgument(roots, ref, area, defaultArea, allowedAreas) {
 }
 async function executeWorkspaceOperation(operation, args, context) {
   const { roots, workspaceDir, resultDir, timeoutMs, signal, execute, redactPaths } = context;
-  const now = context.now ?? (() => performance3.now());
+  const now = context.now ?? (() => performance4.now());
   const effectiveTimeoutMs = timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS;
   const startedAt = now();
   const stopped = (activity) => {
@@ -10372,7 +10372,7 @@ var init_collect_verification = __esm({
 import { createHash as createHash6 } from "node:crypto";
 import { open as open2, stat as stat2 } from "node:fs/promises";
 import { extname as extname2 } from "node:path";
-import { performance as performance4 } from "node:perf_hooks";
+import { performance as performance5 } from "node:perf_hooks";
 async function readStableJsonFile(path, signal, includeBytes) {
   if (signal.aborted) throw abortError();
   const opening = open2(path, "r");
@@ -10421,7 +10421,7 @@ function withResourceIdentity(result, resourceRefs) {
 }
 async function executeLocalVerify(options) {
   const effectiveTimeoutMs = options.timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS;
-  const localStartedAt = performance4.now();
+  const localStartedAt = performance5.now();
   const controller = new AbortController();
   let timedOut = false;
   const timer = setTimeout(() => {
@@ -10433,7 +10433,7 @@ async function executeLocalVerify(options) {
   if (options.signal?.aborted) abort();
   const stopped = () => {
     if (options.signal?.aborted) return operationError("API-Client hat die Collect-Verifikation abgebrochen.", "aborted");
-    if (timedOut || performance4.now() - localStartedAt >= effectiveTimeoutMs) {
+    if (timedOut || performance5.now() - localStartedAt >= effectiveTimeoutMs) {
       return operationError("Zeitbudget beim lokalen Pruefen des Collect-Stands aufgebraucht.", "timeout");
     }
     return void 0;
@@ -10629,7 +10629,7 @@ var init_owned_file = __esm({
 import { createHash as createHash8 } from "node:crypto";
 import { lstat as lstat2, open as open4, stat as stat4 } from "node:fs/promises";
 import { dirname as dirname8, extname as extname3, resolve as resolve12 } from "node:path";
-import { performance as performance5 } from "node:perf_hooks";
+import { performance as performance6 } from "node:perf_hooks";
 function errorCode2(error) {
   return error && typeof error === "object" && "code" in error ? String(error.code) : "";
 }
@@ -10716,7 +10716,7 @@ function appendHeaderBytes(chunks, chunk, currentBytes) {
 }
 async function executeLocalWorkingCopy(options) {
   const effectiveTimeoutMs = Math.max(0, options.timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS);
-  const startedAt = performance5.now();
+  const startedAt = performance6.now();
   const controller = new AbortController();
   let timedOut = false;
   const timer = setTimeout(() => {
@@ -10728,7 +10728,7 @@ async function executeLocalWorkingCopy(options) {
   if (options.signal?.aborted) abort();
   const stopped = () => {
     if (options.signal?.aborted) return operationError("API-Client hat die Arbeitskopie abgebrochen.", "aborted");
-    if (timedOut || performance5.now() - startedAt >= effectiveTimeoutMs) {
+    if (timedOut || performance6.now() - startedAt >= effectiveTimeoutMs) {
       return operationError("Zeitbudget beim lokalen Erstellen der Arbeitskopie aufgebraucht.", "timeout");
     }
     return void 0;
@@ -11126,7 +11126,7 @@ var init_local_file_transaction = __esm({
 import { createHash as createHash9 } from "node:crypto";
 import { open as open5, readdir as readdir3, stat as stat6 } from "node:fs/promises";
 import { join as join6, resolve as resolve13 } from "node:path";
-import { performance as performance6 } from "node:perf_hooks";
+import { performance as performance7 } from "node:perf_hooks";
 async function sourceInventoryStillStable(path, identity, expectedNames, profile) {
   if (!await directoryStillOwned(path, identity)) return false;
   const currentNames = (await readdir3(path, { withFileTypes: true })).filter((entry) => entry.isFile() && isProfileCaseFileName(entry.name, profile, true)).map((entry) => entry.name);
@@ -11148,14 +11148,14 @@ async function assertVerifiedTargetStillOwned(file, profile, timeoutMs, signal) 
 }
 async function executeLocalBackup(options) {
   const effectiveTimeoutMs = Math.max(0, options.timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS);
-  const startedAt = performance6.now();
+  const startedAt = performance7.now();
   let timedOut = false;
   const timer = setTimeout(() => {
     timedOut = true;
   }, effectiveTimeoutMs);
   const stopped = () => {
     if (options.signal?.aborted) return operationError("API-Client hat die Fallsicherung abgebrochen.", "aborted");
-    if (timedOut || performance6.now() - startedAt >= effectiveTimeoutMs) {
+    if (timedOut || performance7.now() - startedAt >= effectiveTimeoutMs) {
       return operationError("Zeitbudget beim lokalen Sichern der Steuerfaelle aufgebraucht.", "timeout");
     }
     return void 0;
@@ -11164,7 +11164,7 @@ async function executeLocalBackup(options) {
     const result = stopped();
     if (result) throw new LocalOperationStopped(result);
   };
-  const remainingMs = () => Math.max(0, Math.floor(effectiveTimeoutMs - (performance6.now() - startedAt)));
+  const remainingMs = () => Math.max(0, Math.floor(effectiveTimeoutMs - (performance7.now() - startedAt)));
   const localResult = (result) => options.redactPaths(withResourceIdentity3(result, options.resourceRefs));
   let destination = "";
   let destinationIdentity;
@@ -11591,7 +11591,7 @@ var init_sse_process_guard = __esm({
 import { createHash as createHash11 } from "node:crypto";
 import { open as open7, readdir as readdir4, stat as stat8, unlink as unlink3 } from "node:fs/promises";
 import { basename as basename5, join as join8, resolve as resolve14 } from "node:path";
-import { performance as performance7 } from "node:perf_hooks";
+import { performance as performance8 } from "node:perf_hooks";
 function asArchiveArguments(value) {
   if (!Array.isArray(value) || !value.length) return void 0;
   const result = [];
@@ -11711,14 +11711,14 @@ async function preserveRecoveryCopy(file, directory, directoryIdentity) {
 }
 async function executeLocalArchive(options) {
   const effectiveTimeoutMs = Math.max(0, options.timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS);
-  const startedAt = performance7.now();
+  const startedAt = performance8.now();
   let timedOut = false;
   const timer = setTimeout(() => {
     timedOut = true;
   }, effectiveTimeoutMs);
   const stopped = () => {
     if (options.signal?.aborted) return operationError("API-Client hat die Fallarchivierung abgebrochen.", "aborted");
-    if (timedOut || performance7.now() - startedAt >= effectiveTimeoutMs) {
+    if (timedOut || performance8.now() - startedAt >= effectiveTimeoutMs) {
       return operationError("Zeitbudget beim lokalen Archivieren der Steuerfaelle aufgebraucht.", "timeout");
     }
     return void 0;
@@ -11727,7 +11727,7 @@ async function executeLocalArchive(options) {
     const result = stopped();
     if (result) throw new LocalOperationStopped(result);
   };
-  const remainingMs = () => Math.max(0, Math.floor(effectiveTimeoutMs - (performance7.now() - startedAt)));
+  const remainingMs = () => Math.max(0, Math.floor(effectiveTimeoutMs - (performance8.now() - startedAt)));
   const localResult = (result) => options.redactPaths(withResourceIdentity3(result, options.resourceRefs));
   let directory = "";
   let destination = "";
@@ -12056,7 +12056,7 @@ var init_archive_executor = __esm({
 // src/api-executor.ts
 import { existsSync as existsSync9, mkdirSync as mkdirSync3, readdirSync as readdirSync3, rmdirSync } from "node:fs";
 import { dirname as dirname10, join as join9 } from "node:path";
-import { performance as performance8 } from "node:perf_hooks";
+import { performance as performance9 } from "node:perf_hooks";
 function resourceRoots(config) {
   return {
     cases: config.caseDir,
@@ -12152,7 +12152,7 @@ function executionError(operation, error) {
   };
 }
 function remainingTimeoutMs(timeoutMs, startedAt) {
-  return Math.max(0, Math.floor(timeoutMs - (performance8.now() - startedAt)));
+  return Math.max(0, Math.floor(timeoutMs - (performance9.now() - startedAt)));
 }
 function isExperimentalDialogAnswerCandidate(operation, args) {
   return operation === "dialog_answer" && args.button === "OK";
@@ -12377,7 +12377,7 @@ function createApiExecutor(config, worker, dependencies = {}) {
       }
       if (operation === "list_cases" && configured.args.verbose !== true && typeof configured.args.dir === "string" && existsSync9(configured.args.dir)) {
         const effectiveTimeoutMs = timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS;
-        const localStartedAt = performance8.now();
+        const localStartedAt = performance9.now();
         try {
           const result2 = await listCaseFiles(configured.args.dir, profile, {
             includeBackups: configured.args.includeBackups === true,
@@ -16021,7 +16021,7 @@ var init_api_supervisor_contract = __esm({
 
 // src/api-server.ts
 import { randomUUID as randomUUID3 } from "node:crypto";
-import { performance as performance9 } from "node:perf_hooks";
+import { performance as performance10 } from "node:perf_hooks";
 import {
   createServer
 } from "node:http";
@@ -16137,7 +16137,7 @@ function createSseApiServer(options) {
   const inFlightSnapshot = () => {
     if (!inFlight) return null;
     const { startedMonotonic, ...publicState } = inFlight;
-    return { ...publicState, elapsedMs: Math.round(performance9.now() - startedMonotonic) };
+    return { ...publicState, elapsedMs: Math.round(performance10.now() - startedMonotonic) };
   };
   const safeLog = (record) => {
     try {
@@ -16147,7 +16147,7 @@ function createSseApiServer(options) {
   };
   const server = createServer(async (request, response) => {
     const requestId = randomUUID3();
-    const started = performance9.now();
+    const started = performance10.now();
     const foreignClient = foreignClientReason(request);
     if (foreignClient) {
       sendJson(response, 403, apiError(requestId, "forbidden", foreignClient));
@@ -16321,7 +16321,7 @@ function createSseApiServer(options) {
         });
         return;
       }
-      inFlight = { operation: operationName, requestId, startedAt: Date.now(), startedMonotonic: performance9.now() };
+      inFlight = { operation: operationName, requestId, startedAt: Date.now(), startedMonotonic: performance10.now() };
       let rawResult;
       try {
         rawResult = await execute(operationName, args, body.timeoutMs, controller.signal);
@@ -16350,7 +16350,7 @@ function createSseApiServer(options) {
         apiVersion: SSE_API_VERSION,
         requestId,
         operation: operationName,
-        durationMs: Math.round(performance9.now() - started),
+        durationMs: Math.round(performance10.now() - started),
         result
       };
       const operationLog = {
@@ -16391,7 +16391,7 @@ function createSseApiServer(options) {
         event: "operation-error",
         requestId,
         operation: operationName,
-        durationMs: Math.round(performance9.now() - started),
+        durationMs: Math.round(performance10.now() - started),
         code,
         errorName: error instanceof Error ? error.name : "Error"
       });
@@ -16659,7 +16659,7 @@ function startWarmSpare() {
       { windowsHide: true }
     );
   } catch (error) {
-    blockedUntil = Date.now() + PREWARM_RETRY_DELAY_MS;
+    blockedUntil = performance.now() + PREWARM_RETRY_DELAY_MS;
     failureReason = `Reservearbeiter liess sich nicht starten: ${String(error)}`;
     return false;
   }
@@ -16693,7 +16693,7 @@ function startWarmSpare() {
     if (newline < 0) {
       if (handshake.length > MAX_HANDSHAKE_BYTES) {
         handshakeDone = true;
-        blockedUntil = Date.now() + PREWARM_RETRY_DELAY_MS;
+        blockedUntil = performance.now() + PREWARM_RETRY_DELAY_MS;
         discard(candidate, "Reservearbeiter meldete keine gueltige Bereitschaftszeile.");
       }
       return;
@@ -16715,7 +16715,7 @@ function startWarmSpare() {
     }
     const ready = Boolean(announcement) && typeof announcement === "object" && announcement.prewarm === "ready";
     if (!ready) {
-      blockedUntil = Date.now() + PREWARM_RETRY_DELAY_MS;
+      blockedUntil = performance.now() + PREWARM_RETRY_DELAY_MS;
       discard(candidate, `Reservearbeiter meldete statt Bereitschaft: ${line.slice(0, 400)}`);
       return;
     }
@@ -16727,7 +16727,7 @@ function startWarmSpare() {
   };
   const onExit = () => {
     clearStartupTimer();
-    blockedUntil = Date.now() + PREWARM_RETRY_DELAY_MS;
+    blockedUntil = performance.now() + PREWARM_RETRY_DELAY_MS;
     const diagnostic = stderrText.trim().slice(0, 400);
     discard(
       candidate,
@@ -16736,7 +16736,7 @@ function startWarmSpare() {
   };
   const onError = (error) => {
     clearStartupTimer();
-    blockedUntil = Date.now() + PREWARM_RETRY_DELAY_MS;
+    blockedUntil = performance.now() + PREWARM_RETRY_DELAY_MS;
     discard(candidate, `Reservearbeiter meldete einen Prozessfehler: ${error.message}`);
   };
   candidate.release = () => {
@@ -16749,7 +16749,7 @@ function startWarmSpare() {
   startupTimer = setTimeout(() => {
     if (handshakeDone || candidate.discarded) return;
     handshakeDone = true;
-    blockedUntil = Date.now() + PREWARM_RETRY_DELAY_MS;
+    blockedUntil = performance.now() + PREWARM_RETRY_DELAY_MS;
     const diagnostic = stderrText.trim().slice(0, 400);
     discard(
       candidate,
@@ -16766,7 +16766,7 @@ function startWarmSpare() {
 }
 function ensureWarmSpare() {
   if (!enabled || PREWARM_DISABLED || shuttingDown) return;
-  if (Date.now() < blockedUntil) return;
+  if (performance.now() < blockedUntil) return;
   while (spares.length < PREWARM_POOL_SIZE) {
     if (!startWarmSpare()) break;
   }
