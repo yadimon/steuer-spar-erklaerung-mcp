@@ -101,7 +101,7 @@ export async function runMcpMain(args: readonly string[]): Promise<void> {
       import("./mcp-response.js"),
     ]);
     const health = await supervisor.ensureApiSingleton();
-    const deadline = Date.now() + SELFTEST_BUSY_TIMEOUT_MS;
+    const deadline = performance.now() + SELFTEST_BUSY_TIMEOUT_MS;
     let busyPollMs = SELFTEST_BUSY_POLL_MS;
     let result: Awaited<ReturnType<typeof callApiOperation>>;
     while (true) {
@@ -111,11 +111,11 @@ export async function runMcpMain(args: readonly string[]): Promise<void> {
           result = candidate;
           break;
         }
-        if (Date.now() >= deadline) {
+        if (performance.now() >= deadline) {
           throw new Error("API-Selftest fehlgeschlagen: health blieb laenger als 60 Sekunden belegt.");
         }
       } catch (error) {
-        if (!isBusyApiError(error) || Date.now() >= deadline) throw error;
+        if (!isBusyApiError(error) || performance.now() >= deadline) throw error;
       }
       await supervisor.assertApiSingletonIdentity();
       await delay(busyPollMs);
