@@ -348,7 +348,7 @@ async function executeScenarioStep(
   allowStepReferences: boolean,
   defaultTimeoutMs?: number,
 ): Promise<StepExecution> {
-  const remainingMs = deadline - Date.now();
+  const remainingMs = Math.floor(deadline - performance.now());
   if (signal?.aborted || remainingMs < 200) {
     return failedStep(
       step,
@@ -390,7 +390,7 @@ async function executeScenarioStep(
   } catch (error) {
     return failedStep(step, "execution-error", error instanceof Error ? error.message : String(error));
   }
-  if (signal?.aborted || Date.now() > deadline) {
+  if (signal?.aborted || performance.now() > deadline) {
     const kind = signal?.aborted ? "aborted" : "timeout";
     const error = signal?.aborted
       ? "API-Client hat den Szenariolauf abgebrochen."
@@ -459,7 +459,7 @@ export async function runScenario(
   const cleanup: Array<Record<string, unknown>> = [];
   const priorResults = new Map<string, WorkerResult>();
   let mainOk = true;
-  const startedAt = Date.now();
+  const startedAt = performance.now();
   const totalBudgetMs = Math.min(totalTimeoutMs ?? 300_000, 300_000);
   const deadline = startedAt + totalBudgetMs;
   const cleanupSteps = scenario.schemaVersion === 2 ? scenario.finally : [];
@@ -495,7 +495,7 @@ export async function runScenario(
 
   for (let index = 0; index < cleanupSteps.length; index++) {
     const step = cleanupSteps[index]!;
-    const remainingMs = deadline - Date.now();
+    const remainingMs = Math.floor(deadline - performance.now());
     const remainingSteps = cleanupSteps.length - index;
     const defaultTimeoutMs = Math.max(200, Math.floor(remainingMs / remainingSteps));
     // Cleanup muss auch nach Client-Abbruch versucht werden. Deshalb wird das

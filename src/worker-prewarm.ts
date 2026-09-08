@@ -188,7 +188,7 @@ function startWarmSpare(): boolean {
       { windowsHide: true },
     );
   } catch (error) {
-    blockedUntil = Date.now() + PREWARM_RETRY_DELAY_MS;
+    blockedUntil = performance.now() + PREWARM_RETRY_DELAY_MS;
     failureReason = `Reservearbeiter liess sich nicht starten: ${String(error)}`;
     return false;
   }
@@ -226,7 +226,7 @@ function startWarmSpare(): boolean {
     if (newline < 0) {
       if (handshake.length > MAX_HANDSHAKE_BYTES) {
         handshakeDone = true;
-        blockedUntil = Date.now() + PREWARM_RETRY_DELAY_MS;
+        blockedUntil = performance.now() + PREWARM_RETRY_DELAY_MS;
         discard(candidate, "Reservearbeiter meldete keine gueltige Bereitschaftszeile.");
       }
       return;
@@ -246,7 +246,7 @@ function startWarmSpare(): boolean {
     const ready = Boolean(announcement) && typeof announcement === "object" &&
       (announcement as { prewarm?: unknown }).prewarm === "ready";
     if (!ready) {
-      blockedUntil = Date.now() + PREWARM_RETRY_DELAY_MS;
+      blockedUntil = performance.now() + PREWARM_RETRY_DELAY_MS;
       discard(candidate, `Reservearbeiter meldete statt Bereitschaft: ${line.slice(0, 400)}`);
       return;
     }
@@ -260,7 +260,7 @@ function startWarmSpare(): boolean {
 
   const onExit = () => {
     clearStartupTimer();
-    blockedUntil = Date.now() + PREWARM_RETRY_DELAY_MS;
+    blockedUntil = performance.now() + PREWARM_RETRY_DELAY_MS;
     const diagnostic = stderrText.trim().slice(0, 400);
     discard(
       candidate,
@@ -270,7 +270,7 @@ function startWarmSpare(): boolean {
 
   const onError = (error: Error) => {
     clearStartupTimer();
-    blockedUntil = Date.now() + PREWARM_RETRY_DELAY_MS;
+    blockedUntil = performance.now() + PREWARM_RETRY_DELAY_MS;
     discard(candidate, `Reservearbeiter meldete einen Prozessfehler: ${error.message}`);
   };
 
@@ -285,7 +285,7 @@ function startWarmSpare(): boolean {
   startupTimer = setTimeout(() => {
     if (handshakeDone || candidate.discarded) return;
     handshakeDone = true;
-    blockedUntil = Date.now() + PREWARM_RETRY_DELAY_MS;
+    blockedUntil = performance.now() + PREWARM_RETRY_DELAY_MS;
     const diagnostic = stderrText.trim().slice(0, 400);
     discard(
       candidate,
@@ -306,7 +306,7 @@ function startWarmSpare(): boolean {
 
 export function ensureWarmSpare(): void {
   if (!enabled || PREWARM_DISABLED || shuttingDown) return;
-  if (Date.now() < blockedUntil) return;
+  if (performance.now() < blockedUntil) return;
   while (spares.length < PREWARM_POOL_SIZE) {
     if (!startWarmSpare()) break;
   }
