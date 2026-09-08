@@ -21,9 +21,10 @@ Nicht committen und nicht in erzeugte Dokumentation schreiben:
   Maschine, das ohnehin niemand nachvollziehen kann;
 - private Steuerdaten, Fallnamen, lokale Konfigurationen, Anmeldedaten.
 
-Solches Material gehört nach `localdev/` oder `.private/`; beide sind
-gitignoriert. Das gilt gleichermaßen für Commit-Nachrichten, Release Notes und
-jedes Dokument unter `docs/`.
+Solches Material gehört außerhalb dieses Repositorys in eine getrennte lokale
+Arbeitsumgebung. Das gilt gleichermaßen für Commit-Nachrichten, Release Notes
+und jedes Dokument unter `docs/`. Gitignore-Einträge für frühere lokale
+Verzeichnisse bleiben lediglich als zusätzliche Schutzgrenze bestehen.
 
 Öffentliche Dokumentation beschreibt den Code und seine Zusagen: was er tut,
 welche Grenzen gelten, wie man ihn selbst nachprüft.
