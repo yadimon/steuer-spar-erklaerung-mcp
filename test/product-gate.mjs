@@ -649,7 +649,8 @@ try {
     workerOpBlock("tree_top").includes("$hitRoot = [SW]::GetAncestor($hitWindow, 2)") &&
     workerOpBlock("tree_scroll").includes("$hitRoot = [SW]::GetAncestor($hitWindow, 2)") &&
     workerOpBlock("checker_detail").includes("$hitRoot = [SW]::GetAncestor($hitWindow, 2)") &&
-    workerOpBlock("table_read").includes("$unterRoot = [SW]::GetAncestor($unter, 2)"),
+    workerOpBlock("table_read").includes("$pointBinding = Get-SSEPointObstruction $hwnd $px $py") &&
+    workerOpBlock("table_read").includes("if ($pointBinding.isBoundTarget)"),
   "Mindestens ein physischer Fokus-/Scrollpfad bindet nur die PID statt das exakte Hauptfenster-Root.");
   const dialogAnswerBlock = workerOpBlock("dialog_answer");
   assert(nativeSourceText.includes("GetLastActivePopup") &&

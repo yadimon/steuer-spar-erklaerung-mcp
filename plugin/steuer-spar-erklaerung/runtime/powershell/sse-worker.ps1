@@ -16414,6 +16414,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
 
     # In die erste Zelle klicken, damit die Pfeiltaste greift.
     $geklickt = $false
+    $activationObstruction = $null
     $cursorUnavailable = $false
     $cursorSignature = $null
     $letzteIdentitaeten = @()
@@ -16426,12 +16427,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         $px = [int]($z0.x + $z0.w / 2); $py = [int]($z0.y + $z0.h / 2)
         $null = Show-SSEWindow $hwnd
         Start-Sleep -Milliseconds 350
-        $pt = New-Object SW+PT; $pt.X = $px; $pt.Y = $py
-        $unter = [SW]::WindowFromPoint($pt)
-        $unterRoot = [SW]::GetAncestor($unter, 2) # GA_ROOT
-        $zp = 0; [SW]::GetWindowThreadProcessId($hwnd, [ref]$zp) | Out-Null
-        $tp = 0; [SW]::GetWindowThreadProcessId($unter, [ref]$tp) | Out-Null
-        if ($tp -eq $zp -and [int64]$unterRoot -eq [int64]$hwnd) {
+        $pointBinding = Get-SSEPointObstruction $hwnd $px $py
+        if ($pointBinding.isBoundTarget) {
           [SW]::SetCursorPos($px, $py) | Out-Null; Start-Sleep -Milliseconds 100
           [SW]::mouse_event(0x0002, 0, 0, 0, [IntPtr]::Zero); [SW]::mouse_event(0x0004, 0, 0, 0, [IntPtr]::Zero)
           $geklickt = $true
@@ -16473,6 +16470,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
             $cursorSignature = & $getCursorSignature
             if (-not $cursorSignature) { $cursorUnavailable = $true }
           }
+        } else {
+          $activationObstruction = $pointBinding
         }
       } catch {
         $cursorUnavailable = $true
@@ -16670,6 +16669,23 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       }
     }
     $dirtyAfter = Get-DirtyStateFast $hwnd
+    if ($activationObstruction) {
+      # Der Voll-Read wurde vor dem ersten Klick blockiert. Schon beobachtete
+      # Zeilen bleiben als Teilstand erhalten, nicht als erfolgreicher Read.
+      Emit ([pscustomobject]@{
+        ok=$false; kind='obstructed'
+        error=("Tabellenklick durch $($activationObstruction.blockerKind) " +
+          "($($activationObstruction.processName)/$($activationObstruction.className)) verdeckt; Vollstaendigkeit nicht bewiesen.")
+        kopf=$kopf; zeilen=$echte; anzahl=$echte.Count; rowDetails=@($rowDetails)
+        summe=$summe; summen=@($summen); vollstaendig=$false; stopKind='obstructed'
+        schritte=$schritte; steps=$schritte; limitReached=$false
+        tabelleAnzahl=$erst.tabelleAnzahl; bindung=$erst.bindung
+        ungespeichertVorher=$dirtyBefore; ungespeichertNachher=$dirtyAfter
+        ungespeichertEingefuehrt=[bool]((-not $dirtyBefore) -and $dirtyAfter)
+        obstruction=$activationObstruction
+        hinweis='Nur der erste sichtbare Teilstand wurde gelesen; keine Taste und kein Tabellenklick ausgefuehrt.'
+      })
+    }
     Emit ([pscustomobject]@{
       ok = $true; kopf = $kopf; zeilen = $echte; anzahl = $echte.Count
       rowDetails = @($rowDetails)
