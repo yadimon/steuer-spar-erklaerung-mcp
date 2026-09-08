@@ -137,7 +137,9 @@ try {
   let windowState = { controllerBound: true, windowEnabled: true, modalBlocked: false };
   await withPeer((socket, request) => {
     assert.equal(request.op, "objects");
-    socket.write(frame({ ok: true, id: request.id, complete: true, objects, ...windowState }));
+    assert.equal(request.projection, "values");
+    assert.equal(request.visibleOnly, true);
+    socket.write(frame({ ok: true, id: request.id, complete: true, objects, projection: "values", visibleOnly: true, ...windowState }));
   }, async (binding, requests) => {
     const client = await QtNativeClient.connect(binding);
     let workerCalls = 0;
@@ -194,8 +196,68 @@ try {
       await new Promise(resolve => server.close(resolve));
     }
   });
+  const cell = (display, checkState = null) => ({ display, edit: display, checkState, flags: checkState === null ? 35 : 63 });
+  const record = (label, amount, check) => [cell(""), cell(label), cell(amount), cell(null, check)];
+  const completeTable = {
+    ok: true, controllerBound: true, windowEnabled: true, modalBlocked: false,
+    rows: 5, readRows: 5, columns: 4, headers: ["Nr.", "Text", "Betrag", "Flag"],
+    values: [record("Duplicate", "1,00", 2), record("Duplicate", "1,00", 2), record("Hidden", "3,00", 0),
+      record("Third", "2,00", 1), record("", "0,00", 0)],
+    rowFingerprints: Array.from({ length: 5 }, (_, index) => String(index).repeat(64)),
+    hiddenColumns: [0], hiddenRows: [2], complete: true, canFetchMore: false, tableCount: 1,
+    table: { id: 9, name: "/.Synthetic.Table", class: "DialogUITable", visible: true },
+    summary: "4,00", binding: { sumLabel: "Summe", sumOccurrence: 1, coordinateSpace: "qt-root" },
+    summaries: [{ label: "Summe", vorkommen: 1, wert: "4,00" }],
+  };
+  let tableReply = structuredClone(completeTable);
+  await withPeer((socket, request) => {
+    assert.equal(request.op, "table_snapshot");
+    assert.equal(request.noKeys, undefined, "Native table reads must not dispatch physical-input options.");
+    socket.write(frame({ ...tableReply, id: request.id }));
+  }, async (binding, requests) => {
+    const client = await QtNativeClient.connect(binding);
+    const execute = createApiExecutor(config, async () => { assert.fail("Native table read fell back to UIA."); }, { qtNativeClient: client });
+    const server = createSseApiServer({ execute });
+    server.listen(0, "127.0.0.1"); await once(server, "listening");
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+    const read = async args => (await callApiOperationEnvelope("table_read", args, 5000, { baseUrl })).result;
+    try {
+      const result = await read({ noKeys: true, sumLabel: "Summe", sumOccurrence: 1 });
+      assert.equal(result.ok, true); assert.equal(result.vollstaendig, true); assert.equal(result.physicalInputUsed, false);
+      assert.equal(result.anzahl, 3); assert.equal(result.summe, "4,00");
+      assert.deepEqual(result.kopf, ["Text", "Betrag", "Flag"]);
+      assert.deepEqual(result.zeilen, [["Duplicate", "1,00", ""], ["Duplicate", "1,00", ""], ["Third", "2,00", ""]]);
+      assert.deepEqual(result.rowDetails.map(row => row.modelRowIndex), [0, 1, 3]);
+      assert.deepEqual(result.rowDetails[0].typedValues, ["Duplicate", "1,00", true]);
+      assert.deepEqual(result.rowDetails[2].checkboxStates, [null, null, "Indeterminate"]);
+      assert.equal(result.rowDetails[2].typedValues[2], null);
+      assert(result.rowDetails.every(row => row.semanticsComplete));
+      const beforeRejected = requests.length;
+      assert.equal((await read({ hwnd: binding.hwnd + 1 })).kind, "stale-window");
+      assert.equal(requests.length, beforeRejected);
+      tableReply.readRows = 3; tableReply.values = tableReply.values.slice(0, 3);
+      tableReply.rowFingerprints = tableReply.rowFingerprints.slice(0, 3); tableReply.complete = false;
+      const partial = await read({ maxRows: 2 });
+      assert.equal(partial.anzahl, 2); assert.equal(partial.vollstaendig, false);
+      assert.equal(partial.limitReached, true); assert.equal(partial.stopKind, "max-rows");
+      tableReply.complete = true;
+      assert.equal((await read({ maxRows: 2 })).kind, "native-contract", "Partial model data must not claim completeness.");
+      tableReply = structuredClone(completeTable); tableReply.hiddenColumns = [4];
+      assert.equal((await read({})).kind, "native-contract");
+      tableReply = structuredClone(completeTable); tableReply.values[0][3].checkState = 7;
+      const uncertain = await read({});
+      assert.equal(uncertain.rowDetails[0].semanticsComplete, false);
+      assert.equal(uncertain.rowDetails[0].cellTypes[2], "unknown");
+      tableReply = structuredClone(completeTable); tableReply.modalBlocked = true;
+      assert.equal((await read({})).kind, "window-obstructed");
+      tableReply = { ok: false, code: "busy", error: "Controller occupied", mutationAttempted: false };
+      assert.equal((await read({})).kind, "busy");
+    } finally {
+      client.close(); await new Promise(resolve => server.close(resolve));
+    }
+  });
 } finally {
   rmSync(fixture, { recursive: true, force: true });
 }
 
-console.log("OK: native pipe binding, fragmented Unicode frames, cancellation, no write replay and HTTP get_value with fresh selector resolution.");
+console.log("OK: native pipe binding, cancellation, no write replay, fresh HTTP values and typed table reads with limits and duplicate rows preserved.");
