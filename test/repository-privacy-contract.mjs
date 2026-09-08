@@ -10,7 +10,8 @@ const listed = execFileSync("git", ["ls-files", "--cached", "--others", "--exclu
   windowsHide: true,
 });
 const textExtensions = new Set([
-  ".cmd", ".cs", ".js", ".json", ".md", ".mjs", ".ps1", ".ts", ".txt", ".vbs", ".yaml", ".yml",
+  ".cmd", ".config", ".cs", ".csv", ".html", ".ini", ".js", ".json", ".map", ".md", ".mjs",
+  ".ps1", ".svg", ".toml", ".ts", ".txt", ".vbs", ".xml", ".yaml", ".yml",
 ]);
 const sha256TokenPattern = /(?<![0-9A-Fa-f])[0-9A-Fa-f]{64}(?![0-9A-Fa-f])/gu;
 const taxIdPattern = /(?<!\d)\d{11}(?!\d)/u;
@@ -36,6 +37,7 @@ const syntheticSha256 = "a4a6daee01c00a0cd0a59fde3a16f997f35981003677cfb135bed2c
 assert.equal(syntheticSha256.replace(sha256TokenPattern, ""), "",
   "Ein vollstaendiges SHA-256-Token muss vor dem Steuer-ID-Scan entfernt werden.");
 const forbiddenPaths = [
+  { label: "privater Arbeitsbereich", pattern: /^(?:\.private|\.tmp|localdev|documents|backups|cases|results|workspace|tmp)(?:\/|$)/iu },
   { label: "lokale Agenten-Arbeitsdatei", pattern: /^(?:\.agents|\.claude|\.codex|\.superpowers)(?:\/|$)/iu },
   { label: "agentenspezifischer Arbeitsplan", pattern: /^docs\/(?:superpowers|CODEX-|CLAUDE-)/iu },
   { label: "lokale Umgebungsdatei", pattern: /(?:^|\/)\.env(?:\..+)?$/iu },
@@ -44,19 +46,56 @@ const forbiddenPaths = [
   { label: "lokales Gastpasswort", pattern: /(?:^|\/)guest-password\.txt$/iu },
   { label: "lokaler SSH-Schluessel", pattern: /(?:^|\/)id_(?:rsa|ed25519)$/iu },
   { label: "lokales Git-Historienbundle", pattern: /\.bundle$/iu },
+  { label: "lokale virtuelle Maschine", pattern: /\.(?:vbox(?:-prev)?|vdi|vhdx?|avhdx?|vmdk|ova|ovf|sav|nvram|vmem|vmrs|vmcx)$/iu },
   { label: "mögliche Schlüsseldatei", pattern: /\.(?:key|pem|p12|pfx|jks|kdbx|ovpn)$/iu },
   {
     label: "Steuerfall- oder Wiederherstellungsdatei",
     pattern: /\.\$?(?:ESt|Gew|GewErfass|Fest|Erm|Vorweg|KonsUst|Zulage|NVBescheinigung)20\d{2}\$?(?:_Backup)?$/iu,
   },
 ];
+// Lokale Wartungsprofile wurden früher versioniert. Der aktuelle Bestand
+// darf sie nicht erneut aufnehmen; die bestehenden Releases bleiben erhalten.
+const currentOnlyPaths = [
+  { label: "lokales Wartungsprofil", pattern: /^skills-data(?:\/|$)/iu },
+  { label: "lokale Lernnotiz", pattern: /^docs\/ai-learning(?:\/|$)/iu },
+];
+const currentPathRules = [...forbiddenPaths, ...currentOnlyPaths];
+const privatePathProbes = [
+  ".private/example.txt", ".tmp/example.json", "localdev/example.md", "documents/example.txt",
+  "backups/example.zip", "cases/example.json", "results/example.json", "workspace/example.txt",
+  "tmp/example.txt", "skills-data/example.md", "docs/ai-learning/example.md",
+  "sample.vbox", "sample.vbox-prev", "sample.vdi", "sample.vhd", "sample.vhdx",
+  "sample.avhd", "sample.avhdx", "sample.vmdk", "sample.ova", "sample.ovf", "sample.sav",
+  "sample.nvram", "sample.vmem", "sample.vmrs", "sample.vmcx",
+];
+for (const file of privatePathProbes) {
+  assert(currentPathRules.some(({ pattern }) => pattern.test(file)),
+    `${file}: ein erzwungen hinzugefügter privater Pfad muss am Vertrag scheitern.`);
+}
+for (const file of [
+  "src/worker.ts", "test/fixtures/example.json", "docs/ARCHITEKTUR.md",
+  "plugin/steuer-spar-erklaerung/runtime/dist/api.js",
+  "plugin/steuer-spar-erklaerung/runtime/powershell/sse-native.dll",
+]) {
+  assert(!currentPathRules.some(({ pattern }) => pattern.test(file)),
+    `${file}: öffentlicher Produktbestand darf nicht als privater Pfad gelten.`);
+}
+const ignoredProbes = spawnSync("git", ["check-ignore", "--no-index", "--stdin", "-z"], {
+  cwd: root,
+  input: `${privatePathProbes.join("\0")}\0`,
+  encoding: "utf8",
+  windowsHide: true,
+});
+assert.equal(ignoredProbes.status, 0, ignoredProbes.stderr);
+assert.deepEqual(ignoredProbes.stdout.split("\0").filter(Boolean), privatePathProbes,
+  "Private Pfade müssen auch ohne den Vertrag bereits durch Git ignoriert werden.");
 const violations = [];
 let checked = 0;
 for (const file of listed.split("\0").filter(Boolean)) {
   const absolute = resolve(root, file);
   if (!existsSync(absolute)) continue;
   const normalizedFile = file.replaceAll("\\", "/");
-  for (const rule of forbiddenPaths) {
+  for (const rule of currentPathRules) {
     if (rule.pattern.test(normalizedFile)) violations.push(`${file}: ${rule.label}`);
   }
   if (!textExtensions.has(extname(file).toLowerCase())) continue;
@@ -122,9 +161,6 @@ assert.deepEqual(
 // AGENTS.md ist die einzige Quelle der Agentenregeln; CLAUDE.md verweist nur
 // darauf. Zwei Fassungen derselben Regel laufen auseinander, und die
 // veraltete gilt dann fuer irgendein Werkzeug weiter.
-//
-// Diese Pruefung ist die Lehre aus einem Release, in dem Namen von
-// Pruefumgebungen und die Pruefsumme eines Transferarchivs oeffentlich wurden.
 const agenten = readFileSync(resolve(root, "AGENTS.md"), "utf8");
 const claude = readFileSync(resolve(root, "CLAUDE.md"), "utf8");
 const regelStart = agenten.indexOf("<!-- REGEL:PRIVATES -->");

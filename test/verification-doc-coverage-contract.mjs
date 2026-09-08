@@ -30,7 +30,7 @@ assert.deepEqual(isoliert, [
 ], "Der externe Live-Nachweis muss auf BelegManager, instances und VaSt begrenzt bleiben.");
 
 const liveClaim = verification.match(
-  /Dort stehen am \d{4}-\d{2}-\d{2} (\d+) der (\d+)\s+Operationen/u,
+  /Dort stehen (\d+) der (\d+)\s+Operationen/u,
 );
 assert(liveClaim, "VERIFIKATION.md nennt keinen aktuellen Live-Funktionsstand");
 assert.deepEqual(
@@ -40,7 +40,7 @@ assert.deepEqual(
 );
 
 const missingClaim = verification.match(
-  /Gemessen am \d{4}-\d{2}-\d{2} sind noch (\d+) der (\d+) Operationen nicht\s+live-funktional/u,
+  /Noch (\d+) der (\d+) Operationen sind nicht\s+live-funktional belegt/u,
 );
 assert(missingClaim, "VERIFIKATION.md nennt keine aktuelle Live-Restluecke");
 assert.deepEqual(

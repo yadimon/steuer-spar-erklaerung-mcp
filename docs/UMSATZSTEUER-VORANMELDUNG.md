@@ -121,8 +121,8 @@ sie geben deren Überschrift als `expectedPage` an die eigentliche
 Worker-Operation weiter, die unmittelbar vor der Änderung dagegen prüft.
 
 Ohne Zutun beschaffen sie sich diese Überschrift mit einer **eigenen
-Seitenlesung**: ein zweiter Arbeitsprozess mit eigenem Baumlauf, gemessen rund
-eine Sekunde je Aufruf. Wer unmittelbar davor ohnehin `ustva_read` aufgerufen
+Seitenlesung**: ein zweiter Arbeitsprozess mit eigenem Baumlauf.
+Wer unmittelbar davor ohnehin `ustva_read` aufgerufen
 hat — der übliche Ablauf —, kennt sie längst und reicht sie durch:
 
 ```json

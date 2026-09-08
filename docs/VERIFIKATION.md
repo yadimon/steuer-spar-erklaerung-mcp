@@ -18,7 +18,7 @@ führt. Dafür zählt allein der Live-Nachweis.
 ## Live-Abdeckung
 
 Der maßgebliche Stand steht maschinenlesbar in `test/operation-coverage.json`;
-ein Vertragstest hält dieses Dokument dagegen. Dort stehen am 2026-09-07 94 der 102
+ein Vertragstest hält dieses Dokument dagegen. Dort stehen 94 der 102
 Operationen als live-funktional.
 
 Sechzehn davon sind in einer abgeschotteten Prüfumgebung belegt statt im
@@ -26,18 +26,16 @@ regulären Live-Lauf: der gesamte BelegManager, `instances` und die
 VaSt-Operationen. Diese Trennung bleibt bewusst sichtbar, weil ein Nachweis aus
 einer abgeschotteten Umgebung weniger wiegt als einer aus dem Alltagsbetrieb.
 
-Gemessen am 2026-09-07 sind noch 8 der 102 Operationen nicht live-funktional.
+Noch 8 der 102 Operationen sind nicht live-funktional belegt.
 
 Von keinem automatisierten Suitelauf funktional ausgeübt wurden
 `position_create`, `tax_knowledge_search`, `vast_apply`, `vast_dialog_read`,
 `vast_mapping_options`, `vast_mapping_select`, `vast_row_details` und
 `vast_row_set_expanded`.
 
-Die Bilanz zählt ausschließlich, was ein Suitelauf selbst protokolliert. Der
-Nachschlagevorgang im Steuerwissen ist am 2026-09-07 von Hand gegen das
-laufende Programm ausgeführt worden und lieferte Artikeltext; ein
-automatisierter Nachweis fehlt ihm trotzdem, und genau das hält diese Zeile
-fest.
+Die Bilanz zählt ausschließlich, was ein Suitelauf selbst protokolliert.
+Manuelle Stichproben ersetzen den fehlenden automatisierten Nachweis für
+`tax_knowledge_search` nicht.
 
 ## Ausdrücklich nicht belegt
 

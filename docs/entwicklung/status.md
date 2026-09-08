@@ -4,7 +4,7 @@ Eine Tafel statt vier Dokumente. Jede bekannte Faehigkeit von
 SteuerSparErklaerung mit dem Stand bei uns, dem Beleg und dem Weg, auf dem sie
 zu bauen waere.
 
-**Stand: 2026-09-06**, SSE `31.0.2.0` / `[31.31]`, API `0.1.0-beta.41`.
+**Produktbezug:** SSE `31.0.2.0` / `[31.31]`.
 Diese Tafel ist von Hand gepflegt und veraltet zwangslaeufig. Die erzeugte
 [API-Referenz](../API-REFERENZ.md) ist immer aktuell; sie sagt aber nur, was da
 ist, nicht was fehlt.
@@ -69,12 +69,11 @@ Ergebnis-Diff und Seitenobjekte umgehen wuerde.
 
 ### Belegt in einer gemeinsamen Reise
 
-Jedes Seitenobjekt einzeln zu belegen genuegt nicht - es beweist nicht, dass
-die Seiten auch nacheinander in einem Lauf tragen. Am 2026-09-04 wurden alle
-**dreizehn** katalogisierten Einkommensteuerseiten in **einer** Sitzung
-angesteuert und gelesen: 114 Felder, keines fehlend, keine Seite unerreichbar.
-Eine Seite braucht dabei einen Umweg ueber eine Nachbarseite, weil die
-Programmsuche sie nicht findet; das steht in ihrem `reachedBy`.
+Jedes Seitenobjekt einzeln zu belegen genügt nicht: Der Live-Sweep muss die
+katalogisierten Seiten auch nacheinander ansteuern und ihre Felder lesen.
+Ein erforderliches Zwischenziel steht im jeweiligen `reachedBy`.
+Die aktuelle Abdeckung ergibt sich aus den Profilen und dem
+maschinenlesbaren Verifikationsstand.
 
 ## Module
 
@@ -226,7 +225,7 @@ Belege in der [Seitenlandkarte](funktionskatalog.md).
 
 | Quelle | Was daraus kommt |
 | --- | --- |
-| Messung in der Forschungsumgebung, 2026-09-03 | Module und Rubriken, Menueinventar, Dateizaehlung, das Verhalten der UIA-Muster |
+| UIA-Inventar des unterstützten Produktprofils | Module und Rubriken, Menüinventar und Verhalten der UIA-Muster; auf Herstellermusterfällen nachprüfbar |
 | Programmdateien der Installation | 672 Seiten, 994 Vorlagen, 7 Datenmodelle, 2 Stichwortverzeichnisse |
 | Statische Analyse (im Repository) | Kommandonamen, `DMSession`-Methoden |
 | Herstellerhandbuch | Funktionsgruppen – oeffentlich nur Jahrgang **2023**, fuer 2025 nicht belegt |

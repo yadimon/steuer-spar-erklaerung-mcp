@@ -11,7 +11,7 @@ hier geht es um die fachliche Landkarte.
 
 | Quelle | Wie belastbar |
 | --- | --- |
-| **Messung in der Forschungsumgebung**, 2026-09-03, SSE `31.0.2.0` / `[31.31]` | belastbar. Sieben Musterfaelle geoeffnet, je der Navigationsbaum ueber UIA aufgeklappt und gelesen. Nichts geklickt, nichts gespeichert. Rohdaten: `fallarten-katalog.json`, Job `43-alle-fallarten.ps1` – beides liegt im Laborordner **ausserhalb von Git** |
+| **Navigationsbäume von SSE `31.0.2.0` / `[31.31]`** | Die Modulübersicht lässt sich auf Wegwerfkopien der Herstellermusterfälle prüfen: jeden Navigationsbaum über UIA aufklappen und lesen, ohne Einträge auszulösen oder zu speichern. |
 | **Herstellerhandbuch** | eingeschraenkt. Oeffentlich zugaenglich ist nur das Handbuch zum Steuerjahr **2023**; fuer 2025 gibt es keine oeffentliche Fassung. Die Kapitelstruktur ist ueber Jahrgaenge hinweg stabil, Einzelaussagen sind fuer unser Profiljahr aber nur wahrscheinlich |
 | **Unser Repository** | belastbar. Operationsliste, Seitenkatalog, Verifikationsstand |
 
@@ -183,8 +183,8 @@ Das macht das Profilieren nicht billig, aber planbar.
 
 ### So entsteht ein Seitenobjekt
 
-Der Weg ist reproduzierbar und dauert pro Seite etwa eine Viertelstunde. Belegt
-an `est.private_kranken_pflegeversicherung` am 2026-09-04:
+Der folgende Ablauf beschreibt das Profilieren am Beispiel von
+`est.private_kranken_pflegeversicherung`:
 
 1. **Arbeitskopie** des Herstellermusterfalls oeffnen, nie das Original.
 2. **Ansteuern** mit `goto` ueber die Ueberschrift. Der Weg laeuft ueber die
@@ -201,8 +201,8 @@ an `est.private_kranken_pflegeversicherung` am 2026-09-04:
    `fields`, sondern als `pageTotals` in die Verifikation - sie sind der beste
    Beweis, dass ein Schreibvorgang wirklich angekommen ist.
 5. **Eintragen** als Text in `profiles/2025/page-objects.json`. Die Datei ist von
-   Hand eingerueckt; ein Round-Trip durch `JSON.stringify` formatiert 238 Zeilen
-   um und versteckt die Aenderung im Rauschen.
+   Hand eingerueckt; bestehende Formatierung erhalten, damit der Diff nur
+   die beabsichtigte Änderung zeigt.
 6. **Live belegen**: `goto` per `pageId`, `known_page_state`, dann `fill_fields`
    mit `sumChecks` - und den Ausgangswert im selben Lauf zuruecksetzen.
 
@@ -213,11 +213,10 @@ Vier Fallen aus der Praxis:
 - Ein hart beendetes SSE hinterlaesst eine Wiederherstellungsdatei, die den
   naechsten Start blockiert. Instanzen deshalb immer ueber `close` beenden,
   notfalls im `finally`.
-- **In der Gewinnermittlung schlaegt kaltes `goto` per `pageId` fehl.** Am
-  2026-09-04 lief es dort fuer alle sechs Seitenobjekte in die Zeitgrenze; mit
-  einem vorgeschalteten `goto` per Namen auf eine Nachbarseite war dieselbe
-  Seite in Sekunden erreicht. Beim Profilieren in diesem Modul also immer ein
-  Zwischenziel setzen - und es im `reachedBy` festhalten.
+- **In der Gewinnermittlung kann kaltes `goto` per `pageId` scheitern.**
+  Erreichbarkeit auf der gewählten Arbeitskopie prüfen. Benötigt die Suche
+  eine Nachbarseite als Zwischenziel, den verifizierten Weg in `reachedBy`
+  festhalten; die Ursache nicht allein aus einem Timeout ableiten.
 - **Nicht jede Seite findet die Programmsuche.** `goto` sucht zuerst und
   blaettert dann; vom Startbildschirm aus bleiben manche Seiten unerreichbar,
   von einer Nachbarseite aus nicht. Wo das so ist, gehoert der Weg in

@@ -108,9 +108,6 @@ const currentDocumentationPaths = [
   "docs/API-MCP-VERTRAG.md",
   "docs/VERIFIKATION.md",
   "skills/steuer-spar-erklaerung/SKILL.md",
-  "skills-data/healthcheck/skill-profile.md",
-  "skills-data/project-quality-maintenance/skill-profile.md",
-  "skills-data/project-quality-maintenance/forever-improve-loop.md",
 ];
 const currentDocumentation = currentDocumentationPaths
   .map((path) => readFileSync(path, "utf8"))

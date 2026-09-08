@@ -168,12 +168,10 @@ try {
   const actualNativeHash = createHash("sha256").update(readFileSync(nativeSource)).digest("hex").toUpperCase();
   const nativeDllBytes = readFileSync(nativeDll);
   const actualNativeDllHash = createHash("sha256").update(nativeDllBytes).digest("hex").toUpperCase();
-  const privateUserFragment = ["di", "mon"].join("");
-  const privateFolderFragment = ["Meine", "Ablage"].join("\\s+");
-  const nativePrivacyPattern = new RegExp(`[A-Za-z]:[\\\\/]|${privateUserFragment}|${privateFolderFragment}`, "iu");
+  const nativePrivacyPattern = /[A-Za-z]:[\\/]|\\\\[^\\\s]+\\|\/(?:home|Users)\//iu;
   for (const decodedNativeDll of [nativeDllBytes.toString("latin1"), nativeDllBytes.toString("utf16le")]) {
     assert(!nativePrivacyPattern.test(decodedNativeDll),
-      "Native DLL enthaelt einen lokalen Build-PC-Pfad oder Nutzernamen.");
+      "Native DLL enthaelt einen absoluten Build- oder Benutzerpfad.");
   }
   const nativeIntegrity = JSON.parse(readFileSync(nativeHashSidecar, "utf8"));
   assert(nativeIntegrity.schemaVersion === 1 &&

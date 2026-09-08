@@ -99,6 +99,7 @@ docs/*.json
 # und historische Release-Notizen. Oeffentlich bleibt nur, was den Code
 # selbst betrifft.
 /localdev/
+/skills-data/
 /documents/
 /backups/
 /cases/
@@ -111,8 +112,14 @@ docs/*.json
 *.vbox-prev
 *.vdi
 *.vhd
+*.vhdx
+*.avhd
+*.avhdx
 *.vmdk
 *.ova
 *.ovf
 *.sav
 *.nvram
+*.vmem
+*.vmrs
+*.vmcx

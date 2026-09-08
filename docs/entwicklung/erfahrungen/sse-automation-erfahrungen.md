@@ -549,7 +549,7 @@ gefiltert; ein zuvor gelesenes `sumLabel` bricht die Bindungsprüfung.
   dann, die Ursache zu beheben (Einkunftsart setzen), nicht der Klick.
 - Qt-Kontrollkästchen exponieren ein `ValuePattern` mit **leerem** Text; der
   Haken steht nur im `TogglePattern`. Der exakte Knoten-Readback
-  (`known_page_state`) liest bei leerem Wert seit dem 2026-09-03 das
+  (`known_page_state`) liest bei leerem Wert das
   `TogglePattern` und liefert `True`/`False` in derselben Schreibweise wie der
   Vorbedingungs-Guard von `toggle`. Vorher stand dort `""`, und ein daraus
   abgeleiteter `expectedBefore=false` scheiterte an „CheckBox zeigt 'True'“.
@@ -773,12 +773,10 @@ gefiltert; ein zuvor gelesenes `sumLabel` bricht die Bindungsprüfung.
   harten nativen Qt-UIA-Fehler kann ein Prozess sonst nur noch leere Treffer
   liefern. Große Actions bündeln deshalb Vorzustand, Eingabe, Readback,
   Ergebnis-Diff und gegebenenfalls Rollback in **einem** Worker.
-- Drei getrennte `Add-Type`-Kompilierungen für Desktop-, Fenster- und
-  MSAA-Interop kosteten zusammen median rund 0,30 s je frischem Worker. Ein
-  bloßes Zusammenlegen in eine C#-Quelldatei sparte nur etwa 30–50 ms. Der
-  wirksame Weg ist eine beim `npm run build` einmalig erzeugte
-  `sse-native.dll`; der Worker lädt sie in rund 20 ms und behält
-  `sse-native.cs` als getesteten Fallback.
+- Desktop-, Fenster- und MSAA-Interop liegen in einer beim `npm run build`
+  erzeugten `sse-native.dll`. Der Worker lädt diese vorkompilierte Brücke
+  und behält `sse-native.cs` als getesteten Fallback. So entfällt die
+  erneute Interop-Kompilierung je Auftrag.
 - Eine geladene DLL kann nicht allein an ihrem Typnamen als aktuell erkannt
   werden. Der Build schreibt deshalb die SHA256-Werte des exakten C#-Quelltexts
   und der tatsächlichen DLL-Bytes in ein striktes Sidecar; Worker und
@@ -790,20 +788,12 @@ gefiltert; ein zuvor gelesenes `sumLabel` bricht die Bindungsprüfung.
   Zwischenzustand ist der Hashvertrag falsch und neue Worker fallen sicher auf
   den Quelltext zurück. Der Build prüft Typen und kritische DSK-Methoden aus
   den Assembly-Bytes vor dem Ersetzen.
-- Auch `run-on-desktop.ps1` ist ein frischer Prozess je Hidden-Action. Eine
-  eigene `Add-Type`-Definition dort kostete gemessen etwa 0,24–0,41 s und wurde
-  durch denselben gemeinsamen Loader ersetzt. Das Kill-on-close-Jobobjekt und
-  die suspende/resume-Startlogik bleiben unverändert.
-- Gemessene Leerlauf-Mediane auf demselben Rechner nach der Hashbindung:
-  Worker intern 0,130–0,156 s statt 0,41–0,44 s; kompletter MCP-Aufruf
-  0,857–0,890 s statt 1,24–1,30 s. Das reduziert die Initialisierung um etwa
-  70 %, ohne den
-  UIA-Prozess wiederzuverwenden. Formular-, OCR- und Dialoglaufzeit kommt
-  zusätzlich hinzu.
-- Vier vollständige reale Hidden-Lifecycle-Läufe mit der vorkompilierten
-  Worker- und Launcher-Brücke lagen bei 36,50–37,04 s (Median 36,92 s). Der
-  einzelne Altwert von rund 43,5 s dient nur als grobe Vorherreferenz; die
-  stabilere Aussage ist die per Action gemessene Initialisierungsersparnis.
+- Auch `run-on-desktop.ps1` verwendet den gemeinsamen Loader für die
+  native Brücke. Das Kill-on-close-Jobobjekt und die Suspend-/Resume-Startlogik
+  bleiben dabei erhalten.
+- Initialisierungs- und Operationskosten getrennt mit
+  `npm run perf:api-mega` prüfen; einzelne Rechnerlaufzeiten gehören nicht
+  in diese Referenz.
 - `sse_product_info.workerInitializationMs` nennt `precompiled-dll` oder
   `source-fallback`. Tests müssen beide Wege ausführen. Eine fehlende oder
   inkompatible DLL darf nie zum stillen Funktionsverlust führen.
@@ -852,12 +842,9 @@ gefiltert; ein zuvor gelesenes `sumLabel` bricht die Bindungsprüfung.
   vorhanden, wird deshalb **nicht** erneut geschrieben. Ein echter Rollback
   erfolgt nur, wenn das Feld noch den von der Action gesetzten Wert trägt;
   anschließend wird der alte Wert erneut gelesen.
-- Katalogisierte Metadaten liest der persistente Node-Server direkt. Der
-  vollständige 2025-Katalog brauchte am 16.08.2026 im Executor-Mittel über
-  1.000 Aufrufe 2,957 ms ohne Transport und UIA-Worker statt rund einer Sekunde
-  im frischen Worker. Eine vollständige katalogisierte Feldaktion
-  einschließlich 14-zeiligem Werte-Info-Vorher/Nachher-Vergleich brauchte auf
-  der Testkopie rund 6,5 s statt zuvor etwa 15 s.
+- Katalogisierte Metadaten liest der persistente Node-Server direkt. Dadurch
+  entfällt für diese statischen Informationen ein zusätzlicher UIA-Worker.
+  Feldaktionen behalten ihre Vorzustands-, Readback- und Summenverträge.
 - Der persistente Server darf den Page-Object-Katalog nicht nur beim Start
   einlesen. Während einer gemeinsamen Formularsitzung werden bestätigte Seiten
   schrittweise ergänzt; `sse_page_objects` lädt die öffentliche JSON-Datei
@@ -878,11 +865,8 @@ gefiltert; ein zuvor gelesenes `sumLabel` bricht die Bindungsprüfung.
   gespeichert.
 - `sse_ui_state` nutzt denselben Bulk-Snapshot gleichzeitig für Seite,
   Dirty-State, Dialoglage, Seiten-/Globalprüfer und die bereits offene
-  Werte-Info-Tabelle. Drei identische Testläufe lagen bei 2,114/2,128/2,193 s.
-  Sie lieferten denselben Zustandsfingerprint.
-  Die vorher getrennten Lesungen `sse_check_page`, `sse_checker_results` und
-  offene `sse_result_details` brauchten zusammen 6,187 s: rund 66 % weniger
-  Roundtrip-Zeit. Das erstmalige Öffnen von Werte-Info bleibt separat.
+  Werte-Info-Tabelle. Das bündelt zuvor getrennte Lesungen; das erstmalige
+  Öffnen von Werte-Info bleibt separat.
 - Der Zustandsfingerprint enthält PID/HWND, Seite, Dirty-/Blockierzustand,
   Dialogfingerprints, Fensterarten, Prüferzähler und den Fingerprint der
   Ergebniszeilen. Flüchtige HWNDs nicht-modaler Hilfsfenster bleiben bewusst
@@ -892,13 +876,9 @@ gefiltert; ein zuvor gelesenes `sumLabel` bricht die Bindungsprüfung.
 
 ## Lange Gates und dauerhafte Evidenz
 
-- Ein Hintergrund-Gate kann nach dem Ende oder Rate-Limit der steuernden
-  Agentensitzung korrekt fertiglaufen. Weder die letzte Chatnachricht noch eine
-  bloße »Task completed«-Meldung beweist den Produktstand. Verbindlich wird der
-  Lauf erst, wenn Exitcode, fehlende Rest-SSE-Prozesse und die eigentliche
-  Testzusammenfassung gelesen, die Abdeckungsbilanz regeneriert und beides in
-  einem Commit festgehalten wurde. Genau so wurde der erfolgreiche strikte
-  Zwei-Profil-Lauf vom 14.08.2026 nachträglich dauerhaft übernommen.
+- Ein Prüflauf gilt erst mit gelesenem Exitcode, Testzusammenfassung und
+  verifiziertem Prozess-Cleanup als abgeschlossen. Die Abdeckungsbilanz darf
+  nur aus den dafür vorgesehenen Testartefakten aktualisiert werden.
 - Zwischenstände aus einem laufenden Gate altern sofort. Eine im Chat genannte
   Operationszahl darf deshalb nie in spätere Berichte kopiert werden; normativ
   bleiben Laufzeitkatalog und `test/operation-coverage.json` des aktuellen
@@ -929,30 +909,23 @@ gefiltert; ein zuvor gelesenes `sumLabel` bricht die Bindungsprüfung.
   blättert linear auch auf dem versteckten Desktop. Qt kann das mit dem
   automatischen Prüffenster »Die Prüfung hat ergeben …« unterbrechen. Der Ablauf
   `sse_goto` → `sse_warning_popup_read ocr=true` → `sse_dialog_answer` mit
-  UIA-Fingerprint **und** `bodyFingerprint` → `sse_goto` erreichte die Zielseite
-  in 17 Blätterschritten in rund 57–62 s. Der Dirty-State blieb dabei
-  unverändert; ohne `bodyFingerprint` verweigert die Antwort korrekt.
+  UIA-Fingerprint **und** `bodyFingerprint` → `sse_goto` behandelt diese
+  Unterbrechung. Danach Zielseite und Dirty-State erneut prüfen; ohne
+  `bodyFingerprint` muss die Antwort verweigert werden.
 - `sse_save_as` braucht den sichtbaren Desktop (nativer Dateidialog).
   `sse_save` läuft versteckt und schreibt die Datei; seine strenge
   Nachbedingung (Hashwechsel, deaktivierter Sichern-Schalter und Dialogfreiheit
   gemeinsam) kann dabei trotzdem `postcondition-failed` melden. Die Datei ist
   dann geschrieben, der Zustand aber nicht bewiesen: erneut hashen statt mit dem
   alten Vorhash weiterzuarbeiten.
-- Gemessene Phasen einer erfolgreichen versteckten Feldtransaktion
-  (`zeitmessung`): gesamt 12,3 s, davon Commit 9,0 s (73 %), Fensterbindung
-  1,5 s, die drei vollständigen Walk-Tree-Läufe zusammen nur 1,35 s (11 %). Die
-  naheliegende Optimierung „weniger Baumläufe“ lohnt sich also nicht; der
-  Commit ist der einzige relevante Kostenblock.
-- Offene Grenze: der Focusless-Commit bindet den Qt-Fokus nur, wenn der Fall
-  bereits auf der profilierten Seite geöffnet wurde. Nach linearer Navigation
-  meldet er `focus-mismatch`. Auch bei direkt geöffneter Seite war er nicht
-  reproduzierbar: ein Lauf gelang, alle späteren meldeten `focus-mismatch` mit
-  `hasKeyboardFocus=false` auf Zelle **und** Tabelle, obwohl beide
-  `keyboardFocusable=true` sind. In diesem Zustand wird nichts mutiert und nicht
-  blind zurückgerollt. Ein längeres Fokus-Zeitbudget und das gemeinsame Pollen
-  beider Fokusbeweise änderten nichts; die Ursache liegt vermutlich darin, dass
-  das SSE-Fenster auf dem privaten Desktop kein aktives Fenster hat. Solange das
-  nicht bewiesen gelöst ist, bleibt der Pfad fail-closed.
+- Feldtransaktionen weisen ihre Phasen über `zeitmessung` aus.
+  Optimierungen müssen die Kosten von Commit, Fensterbindung und Baumläufen
+  getrennt untersuchen und sämtliche Sicherheitsnachbedingungen erhalten.
+- Offene Grenze: Der Focusless-Commit benötigt einen belegten Qt-Fokus auf
+  der Zielzelle. `keyboardFocusable=true` beweist nicht
+  `hasKeyboardFocus=true`; lineare Navigation allein stellt diesen Fokus
+  nicht sicher. Bei `focus-mismatch` wird nichts mutiert und nicht blind
+  zurückgerollt. Ein längeres Zeitbudget ersetzt den Fokusnachweis nicht.
 
 ## Bekannte Fehlwege
 
@@ -969,9 +942,9 @@ gefiltert; ein zuvor gelesenes `sumLabel` bricht die Bindungsprüfung.
 | ältere Prüferkarte automatisch schließen | kann auch die neuere Zielkarte schließen | Detail zuerst lesen; Schließen nur best effort |
 | rekursives MSAA auf der Qt-Hauptoberfläche | kann den isolierten Arbeitsprozess nativ beenden | nur begrenzte Punktabfragen |
 | viele elementweise UIA-Abfragen am Stück | SSE wird kumulativ träge | Bulk-Snapshot, Kanarienabfrage und expliziter TreeWalker-Fallback |
-| drei C#-Interop-Blöcke in jedem frischen Worker kompilieren | rund 0,30 s vermeidbarer Startaufwand je Action | einmalige Build-DLL laden; geprüften Source-Fallback behalten |
+| drei C#-Interop-Blöcke in jedem frischen Worker kompilieren | wiederholte Kompilierung je Action | einmalige Build-DLL laden; geprüften Source-Fallback behalten |
 | nur prüfen, ob eine DLL die Klasse `DSK` enthält | veraltete DLL wird still bevorzugt und kann erst mitten in einer Action scheitern | SHA256 des exakten C#-Quelltexts binden und erwartete Methoden vor dem Build-Austausch prüfen |
-| Worker optimieren, aber Hidden-Desktop-Launcher weiter per `Add-Type` kompilieren | bevorzugter versteckter Pfad behält rund 0,24–0,41 s Extraaufwand je Action | denselben hashgebundenen Loader und dieselbe DSK-Oberfläche verwenden |
+| Worker optimieren, aber Hidden-Desktop-Launcher weiter per `Add-Type` kompilieren | versteckter Pfad kompiliert die Brücke weiterhin je Action | denselben hashgebundenen Loader und dieselbe DSK-Oberfläche verwenden |
 | für jeden Diagnoseaufruf einen neuen MCP-Client starten | zusätzlicher Prozess- und Handshake-Aufwand; kleine Arbeitsfolgen wirken unnötig langsam | zusammengehörige Aufrufe mit `test/call-tools.mjs` in einer MCP-Sitzung ausführen |
 | Suchtreffer nur per UIA `Invoke`/`SelectionItem` aktivieren | Qt meldet Erfolg, wechselt aber nicht oder öffnet nur die Themenauswahl | sichtbaren Treffer PID-geprüft doppelklicken; bei Themenauswahl Suche schließen und das exakte TreeItem anklicken |
 | „nicht gefunden“ bei träger UI | falsches leeres Ergebnis | erst Gesundheit prüfen |
@@ -1008,7 +981,7 @@ gefiltert; ein zuvor gelesenes `sumLabel` bricht die Bindungsprüfung.
 | `Invoke` auf `Weiter`/`Zurück` als Seitenwechsel werten | Qt kann nur einen Prüfhinweis öffnen; der eigentliche Wechsel wartet bis zur Antwort, ein Wiederholungsklick überspringt danach eine Seite | Überschrift intern vor/nach lesen, `navigation-blocked` samt Dialog melden, Dialog beantworten und danach Zustand neu lesen |
 | Mehrseiten-Erfassung nach Dialog oder gleicher Überschrift weiterlaufen lassen | dieselbe Seite erscheint mehrfach und ein Teilstand sieht wie eine vollständige Erklärung aus | beim ersten Dialog, Zyklus, Stillstand, Kanarienfehler oder Nutzereingriff `collection-incomplete` liefern; Teilstand und Stopgrund erhalten |
 | Seitentitel allein als Zyklus-ID verwenden | SSE nutzt dieselbe Überschrift für legitime §13b-Unterseiten hinter Material, Fremdleistungen und weiteren Kosten; der Collector stoppt falsch | gerichteten Weg `Vorgänger -> Überschrift` als Zyklus-ID verwenden; gleicher Titel aus anderem Vorgänger ist ein eigenes Vorkommen |
-| Mehr als wenige große Qt-Seiten in einem Collector-Prozess erzwingen | Schon 12 Seiten konnten nach mehreren Minuten auf über 3 GB wachsen und SSE blockieren; das Abschlussartefakt fehlte | Vorgabe 3, hart maximal 5 Seiten; Memory-/Kanarienguard auf jeder Seite. Live-Arbeit ausschließlich über direkte Tree-/Page-Object-Sprünge |
+| Mehr als wenige große Qt-Seiten in einem Collector-Prozess erzwingen | Lange Baumläufe können Speicherverbrauch erhöhen und SSE blockieren, bevor ein Abschlussartefakt entsteht | Vorgabe 3, hart maximal 5 Seiten; Memory-/Kanarienguard auf jeder Seite. Live-Arbeit ausschließlich über direkte Tree-/Page-Object-Sprünge |
 | bestehenden Erfassungs-JSON-Pfad überschreiben, auch hashgebunden | zwischen langer UI-Erfassung und Ersetzen bleibt ein Fremdänderungsfenster | jedes Segment in eine neue, exklusiv erzeugte Ergebnisdatei schreiben; vorhandene Ziele nie ersetzen und neuen SHA256 zurücklesen |
 | unvollständigen Collect-Stand als vollständige Prüfquelle verwenden | alle vorhandenen Erwartungen können stimmen, obwohl andere Seiten fehlen | `vollstaendig=true` verlangen; Teilstand nur bewusst mit `allowIncompleteSource` und ohne Gesamtaussage prüfen |
 | bei Seiten-/Feldteilstring den ersten Treffer wählen | gleichnamige Summen oder ähnliche Seiten werden verwechselt | exakte Treffer priorisieren, Teilstrings literal und eindeutig verlangen, Mehrdeutigkeit mit Kandidaten melden |
