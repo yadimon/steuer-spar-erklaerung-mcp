@@ -16,6 +16,7 @@ Operationsmerkmale in `src/operation-traits.ts`, das Abdeckungsledger
 - davon live ungetestet: **2**
 - als MCP-Werkzeug veroeffentlicht: **102**
 - zusammengesetzte MCP-Werkzeuge: **1**
+- API-Lebenszykluswerkzeuge: **1**
 - nur lesend: **36**, destruktiv: **31**, Aufraeumen: **7**
 - nach einem Produktupdate gesperrt, bis der Build neu verifiziert ist: **35**
 
@@ -25,6 +26,7 @@ OpenAPI 3.1.0, Titel „Unoffizielle lokale SteuerSparErklaerung API“.
 
 | Pfad | Methode | Zweck |
 | --- | --- | --- |
+| `/v1/control/shutdown` | POST | Auftragsfreie gebundene API beenden; SSE und Steuerfaelle bleiben offen |
 | `/healthz` | GET | Lokale API-Erreichbarkeit und Version |
 | `/v1/operations` | GET | Vollstaendiger API-Katalog mit Schemas und Sicherheitsmerkmalen |
 | `/v1/openapi.json` | GET | Diese generierte OpenAPI-3.1-Beschreibung |
@@ -143,7 +145,7 @@ gesperrt sind, bis der neue Build live nachverifiziert wurde.
 
 ## MCP-Werkzeuge
 
-Der Server meldet 103 Werkzeuge.
+Der Server meldet 104 Werkzeuge.
 
 ### `sse_accessibility_probe`
 
@@ -152,6 +154,14 @@ Der Server meldet 103 Werkzeuge.
 Rein lesende Tiefenpruefung fuer ein exakt adressiertes UI-Element.
 
 Operation: `accessibility_probe` (lesend).
+
+### `sse_api_control`
+
+**Lokale API steuern**
+
+Liest den API-Status oder beendet die gebundene, auftragsfreie API und startet sie auf ausdruecklichen Auftrag erneut.
+
+API-/Supervisor-Lebenszyklus: `status`, `shutdown`, `start`. Kein Worker- oder Steuerfallauftrag.
 
 ### `sse_archive_cases`
 

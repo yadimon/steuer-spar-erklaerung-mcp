@@ -9,6 +9,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import {
   MAX_API_ARGUMENT_STRING_BYTES,
   SSE_MCP_COMPOSED_TOOL_OPERATIONS,
+  SSE_MCP_CONTROL_TOOL_ACTIONS,
   SSE_MCP_TOOL_OPERATIONS,
   SSE_MCP_TOOL_SCHEMAS,
 } from "../dist/operation-catalog.js";
@@ -171,6 +172,9 @@ try {
   const toolTexts = new Map();
   assert.equal(catalog.tools.length, expectedToolCount, `Unerwartete MCP-Werkzeugzahl: ${catalog.tools.length}`);
   const catalogToolNames = new Set(catalog.tools.map((tool) => tool.name));
+  const operationTools = catalog.tools.filter((tool) => !Object.hasOwn(SSE_MCP_CONTROL_TOOL_ACTIONS, tool.name));
+  const controlTools = catalog.tools.filter((tool) => Object.hasOwn(SSE_MCP_CONTROL_TOOL_ACTIONS, tool.name));
+  assert.deepEqual(controlTools.map((tool) => tool.name).sort(), Object.keys(SSE_MCP_CONTROL_TOOL_ACTIONS).sort());
   const catalogTitles = new Set(catalog.tools.map((tool) => tool.title));
   assert.equal(catalogTitles.size, catalog.tools.length, "MCP-Werkzeugtitel muessen eindeutig sein.");
   for (const tool of catalog.tools) {
@@ -197,12 +201,29 @@ try {
   assert.match(launchDescription, /sse_dialog_list/);
   assert.match(launchDescription, /sse_dialog_answer/);
   assert(!/sse_click\s+'(?:Ja|Nein)'/.test(launchDescription), "Startdialog darf keinen generischen Klick empfehlen.");
-  for (const tool of catalog.tools) {
+  for (const tool of operationTools) {
     assert.deepEqual(
       tool.annotations,
       annotationsForTool(tool.name),
       `${tool.name} hat driftende MCP-Sicherheitshinweise.`,
     );
+  }
+  let controlStrictRejections = 0;
+  for (const tool of controlTools) {
+    assert.deepEqual(tool.annotations, {
+      readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false,
+    });
+    assert.deepEqual(tool.inputSchema.properties.action.enum, SSE_MCP_CONTROL_TOOL_ACTIONS[tool.name]);
+    const before = calls.length;
+    const status = await client.callTool({ name: tool.name, arguments: { action: "status" } });
+    assert.notEqual(status.isError, true);
+    assert.equal(status.structuredContent.state, "running");
+    assert.equal(status.structuredContent.instanceId, API_INSTANCE_ID);
+    assert.equal(status.structuredContent.processExited, false);
+    const unknown = await client.callTool({ name: tool.name, arguments: { action: "status", unknown: true } });
+    assert.equal(unknown.isError, true);
+    controlStrictRejections += 1;
+    assert.equal(calls.length, before, "API lifecycle status must not be disguised as a worker operation.");
   }
   const pathBearingTools = new Set([
     "sse_case_hash", "sse_center_refresh", "sse_window_close", "sse_vast_apply", "sse_desktop_start",
@@ -224,7 +245,7 @@ try {
       `${tool.name} veroeffentlicht weiterhin lokale PC-Pfadfelder`,
     );
   }
-  for (const tool of catalog.tools) {
+  for (const tool of operationTools) {
     const args = sampleJsonSchema(tool.inputSchema, tool.name);
     const result = await client.callTool(
       { name: tool.name, arguments: args },
@@ -296,9 +317,9 @@ try {
 
   let optionVariants = 0;
   let boundaryVariants = 0;
-  let strictRejections = 0;
+  let strictRejections = controlStrictRejections;
   let typeRejections = 0;
-  for (const tool of catalog.tools) {
+  for (const tool of operationTools) {
     const baseArgs = sampleJsonSchema(tool.inputSchema, tool.name);
     const beforeUnknown = calls.length;
     const unknown = await client.callTool(

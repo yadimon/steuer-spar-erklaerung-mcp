@@ -11,7 +11,13 @@ assert.equal(SSE_OPENAPI_DOCUMENT.security, undefined);
 assert.equal(SSE_OPENAPI_DOCUMENT.components.securitySchemes, undefined);
 assert.equal(SSE_OPENAPI_DOCUMENT.info.description.includes("Origin"), true);
 assert.equal(SSE_OPENAPI_DOCUMENT.info.description.includes("ELSTER"), true);
-assert.equal(Object.keys(SSE_OPENAPI_DOCUMENT.paths).length, SSE_API_OPERATIONS.length + 3);
+assert.equal(Object.keys(SSE_OPENAPI_DOCUMENT.paths).length, SSE_API_OPERATIONS.length + 4);
+const shutdownPath = SSE_OPENAPI_DOCUMENT.paths["/v1/control/shutdown"].post;
+assert.equal(shutdownPath.operationId, "shutdown_api");
+assert.equal(shutdownPath.parameters[0].name, "x-sse-api-instance-id");
+assert.equal(shutdownPath.parameters[0].required, true);
+assert.equal(shutdownPath.requestBody.content["application/json"].schema, SSE_API_DISCOVERY.controls.shutdown.argumentSchema);
+assert.equal(shutdownPath.responses["202"].content["application/json"].schema.properties.processExited.const, false);
 assert.equal(SSE_OPENAPI_DOCUMENT.paths["/healthz"].get.operationId, "healthz");
 assert.deepEqual(
   SSE_OPENAPI_DOCUMENT.paths["/healthz"].get.responses["200"].content["application/json"].schema.required,
@@ -44,8 +50,8 @@ assert.equal(
   operationIds.length,
   "operationIds muessen im ganzen Dokument eindeutig sein, sonst scheitert die Client-Generierung.",
 );
-assert.equal(operationIds.length, SSE_API_OPERATIONS.length * 2 + 3,
-  "Je Operation genau ein POST und ein describe-GET, plus drei Infrastrukturpfade.");
+assert.equal(operationIds.length, SSE_API_OPERATIONS.length * 2 + 4,
+  "Je Operation genau ein POST und ein describe-GET, plus vier Infrastrukturpfade.");
 
 for (const operation of SSE_API_OPERATIONS) {
   const path = `/${SSE_API_VERSION}/operations/${operation}`;
@@ -179,5 +185,5 @@ for (const { ref, pfad } of refs) {
 }
 
 process.stdout.write(
-  `OpenAPI 3.1: ${SSE_API_OPERATIONS.length} Operationen plus 3 Infrastrukturpfade und gemeinsame Schemas (${Buffer.byteLength(serialized, "utf8")} Bytes)\n`,
+  `OpenAPI 3.1: ${SSE_API_OPERATIONS.length} Operationen plus 4 Infrastrukturpfade und gemeinsame Schemas (${Buffer.byteLength(serialized, "utf8")} Bytes)\n`,
 );

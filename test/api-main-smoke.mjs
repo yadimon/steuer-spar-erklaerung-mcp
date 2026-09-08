@@ -419,7 +419,8 @@ try {
   assert.equal(actualOpenApiResponse.status, 200);
   const actualOpenApi = await actualOpenApiResponse.json();
   assert.equal(actualOpenApi.openapi, "3.1.0");
-  assert.equal(Object.keys(actualOpenApi.paths).length, SSE_API_OPERATIONS.length + 3);
+  assert.equal(Object.keys(actualOpenApi.paths).length, SSE_API_OPERATIONS.length + 4);
+  assert.equal(actualOpenApi.paths[`/${SSE_API_VERSION}/control/shutdown`]?.post?.operationId, "shutdown_api");
   assert(actualOpenApi.paths["/healthz"]?.get);
   assert(actualOpenApi.paths[`/${SSE_API_VERSION}/operations`]?.get);
   assert(actualOpenApi.paths[`/${SSE_API_VERSION}/openapi.json`]?.get);

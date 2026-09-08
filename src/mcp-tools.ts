@@ -10,6 +10,7 @@ import { registerInteractionTools } from "./mcp-tools-interaction.js";
 import { registerLifecycleTools } from "./mcp-tools-lifecycle.js";
 import { registerReceiptTools } from "./mcp-tools-receipts.js";
 import { registerUiTools } from "./mcp-tools-ui.js";
+import { registerApiControlTools } from "./mcp-tools-api-control.js";
 
 export function registerSseTools(server: McpServer) {
   const registry = createMcpRegistry(server);
@@ -20,5 +21,6 @@ export function registerSseTools(server: McpServer) {
   registerReceiptTools(registry);
   registerInteractionTools(registry);
   registerLifecycleTools(registry);
+  registerApiControlTools(server);
   return registry;
 }

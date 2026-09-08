@@ -21,6 +21,7 @@ import { createSseApiServer } from "../dist/api-server.js";
 import { SSE_OPENAPI_DOCUMENT } from "../dist/api-openapi.js";
 import {
   SSE_MCP_COMPOSED_TOOL_OPERATIONS,
+  SSE_MCP_CONTROL_TOOL_ACTIONS,
   SSE_MCP_TOOL_OPERATIONS,
 } from "../dist/operation-catalog.js";
 import {
@@ -116,6 +117,7 @@ lines.push(`- davon nur auf dem Fehlerpfad belegt: **${operations.filter((op) =>
 lines.push(`- davon live ungetestet: **${operations.filter((op) => coverage.operations[op].live === "untested").length}**`);
 lines.push(`- als MCP-Werkzeug veroeffentlicht: **${Object.keys(SSE_MCP_TOOL_OPERATIONS).length}**`);
 lines.push(`- zusammengesetzte MCP-Werkzeuge: **${Object.keys(SSE_MCP_COMPOSED_TOOL_OPERATIONS).length}**`);
+lines.push(`- API-Lebenszykluswerkzeuge: **${Object.keys(SSE_MCP_CONTROL_TOOL_ACTIONS).length}**`);
 lines.push(`- nur lesend: **${SSE_READ_ONLY_OPERATIONS.length}**, destruktiv: **${SSE_DESTRUCTIVE_OPERATIONS.length}**, Aufraeumen: **${SSE_CLEANUP_OPERATIONS.length}**`);
 lines.push(`- nach einem Produktupdate gesperrt, bis der Build neu verifiziert ist: **${SSE_BUILD_DRIFT_BLOCKED_OPERATIONS.length}**`);
 lines.push("");
@@ -179,6 +181,8 @@ for (const tool of [...tools].sort((a, b) => a.name.localeCompare(b.name))) {
     lines.push(`Setzt sich zusammen aus: ${operation.map((entry) => `\`${entry}\``).join(", ")}.`);
   } else if (typeof operation === "string") {
     lines.push(`Operation: \`${operation}\` (${art(operation)}${driftBlocked.has(operation) ? ", drift-gesperrt" : ""}).`);
+  } else if (Object.hasOwn(SSE_MCP_CONTROL_TOOL_ACTIONS, tool.name)) {
+    lines.push(`API-/Supervisor-Lebenszyklus: ${SSE_MCP_CONTROL_TOOL_ACTIONS[tool.name].map((action) => `\`${action}\``).join(", ")}. Kein Worker- oder Steuerfallauftrag.`);
   }
   lines.push("");
 }

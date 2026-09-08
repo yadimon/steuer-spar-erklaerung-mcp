@@ -4,6 +4,7 @@ import { SSE_CAPABILITIES } from "./capabilities.js";
 import { SSE_API_OPERATION_SCHEMAS } from "./operation-catalog.js";
 import { operationAnnotations } from "./operation-traits.js";
 import { SSE_API_RESULT_OUTPUT_SCHEMAS, SSE_API_RESULT_SCHEMA_VERSION } from "./result-contract.js";
+import { API_SHUTDOWN_REQUEST_SCHEMA, SSE_API_SHUTDOWN_PATH } from "./api-control-contract.js";
 
 function createArgumentSchemas(): Readonly<Record<SseApiOperation, JsonSchema7Type>> {
   return Object.freeze(Object.fromEntries(
@@ -51,6 +52,14 @@ export const SSE_API_DISCOVERY = Object.freeze({
   resultSchemaVersion: SSE_API_RESULT_SCHEMA_VERSION,
   resultSchemas: createResultSchemas(),
   operationTraits: createOperationTraits(),
+  controls: Object.freeze({
+    shutdown: Object.freeze({
+      method: "POST", path: SSE_API_SHUTDOWN_PATH,
+      instanceHeader: "x-sse-api-instance-id", idleOnly: true,
+      acceptanceStatus: 202, acceptanceProvesProcessExit: false,
+      argumentSchema: zodToJsonSchema(API_SHUTDOWN_REQUEST_SCHEMA, { target: "jsonSchema7", $refStrategy: "none" }),
+    }),
+  }),
   planning: Object.freeze({
     fallbackStages: SSE_CAPABILITIES.fallbackStages,
     selectors: SSE_CAPABILITIES.selectors,

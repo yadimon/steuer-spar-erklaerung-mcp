@@ -16,6 +16,7 @@ import {
   SSE_CLICK_PATTERNS,
   SSE_DIALOG_BUTTONS,
   SSE_MCP_COMPOSED_TOOL_OPERATIONS,
+  SSE_MCP_CONTROL_TOOL_ACTIONS,
   SSE_MCP_TOOL_OPERATIONS,
   SSE_MCP_TOOL_SCHEMAS,
   SSE_OPERATION_LIMITS,
@@ -124,10 +125,11 @@ assert.deepEqual(result.limits, {
 assert.deepEqual(result.transport.apiOperations, SSE_API_OPERATIONS);
 assert.deepEqual(result.transport.mcpToolOperations, SSE_MCP_TOOL_OPERATIONS);
 assert.deepEqual(result.transport.mcpComposedToolOperations, SSE_MCP_COMPOSED_TOOL_OPERATIONS);
+assert.deepEqual(result.transport.mcpControlToolActions, SSE_MCP_CONTROL_TOOL_ACTIONS);
 assert.deepEqual(
-  [...Object.keys(result.transport.mcpToolOperations), ...Object.keys(result.transport.mcpComposedToolOperations)].sort(),
+  [...Object.keys(result.transport.mcpToolOperations), ...Object.keys(result.transport.mcpComposedToolOperations), ...Object.keys(result.transport.mcpControlToolActions)].sort(),
   Object.keys(SSE_MCP_TOOL_SCHEMAS).sort(),
-  "Direkte und komponierte Capabilities muessen die ganze MCP-Oberflaeche abdecken.",
+  "Direkte, komponierte und Lebenszyklus-Capabilities muessen die ganze MCP-Oberflaeche abdecken.",
 );
 assert.deepEqual(result.transport.readOnlyOperations, SSE_READ_ONLY_OPERATIONS);
 assert.deepEqual(result.transport.statefulOperations, SSE_STATEFUL_OPERATIONS);

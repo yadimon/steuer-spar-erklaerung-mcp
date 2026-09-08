@@ -149,7 +149,6 @@ im Repository belegt sind.
 
 | Luecke | Warum offen | Weg | Was dafuer noetig ist |
 | --- | --- | --- | --- |
-| **API ueber API und MCP kontrolliert beenden** | `installApiShutdown` verarbeitet Prozesssignale; ein aufrufbares Shutdown-Kommando fehlt | API-Lebenszyklus und MCP-Wrapper | Instanzbindung, Schutz laufender Auftraege, bestaetigtes Prozessende und ein bewusst gestoppter Supervisor-Zustand; siehe Shutdown-TODO unten |
 | **VaSt vollstaendig** – die sechs Wege `vast_apply`, `vast_dialog_read`, `vast_mapping_options`, `vast_mapping_select`, `vast_row_details`, `vast_row_set_expanded` | in einer abgeschotteten Prüfumgebung erreichte jeder kontrolliert den echten `not-found`-Fehlerpfad; ohne Zertifikat-PIN kam kein Datensatz | Vordergrund-Lease, wie heute | ein ELSTER-Zertifikat mit PIN in einer Wegwerf-Umgebung, und die Entscheidung, ob echte Abrufdaten dort liegen duerfen |
 | **BelegManager ohne Vordergrund** – neun der zehn Wege | nur `receipt_manager_list` ist als fokusloses Lesen freigegeben; Detailauswahl, Navigation und Mutation brauchen sichtbaren Vordergrund | fokusloses Schreiben, falls die Qt-Liste je brauchbare Muster anbietet | Nachweis, dass Auswahl und Detailbindung ohne physische Eingabe stabil sind – bisher nicht gelungen |
 | **Steuerjahr 2024 im Vollbetrieb** | Profil steht auf `experimental` mit `verification-only`; nur mit ausdruecklichem Opt-in erreichbar | vorhandene Wege, neues Profil | vollstaendige Live-Verifikation gegen Engine 30, wie sie fuer 2025 vorliegt |
@@ -161,35 +160,45 @@ im Repository belegt sind.
 | **Seiten, deren Felder sich nicht eindeutig adressieren lassen** – etwa `Kapitalertraege, ermaessigt besteuert`: Die Felder beider Ehepartner tragen im adressierbaren Endstueck denselben Pfad, unterschieden werden sie erst weiter oben im Baum (gemessen 2026-09-04) | ein Seitenobjekt braucht je Feld genau einen Treffer; hier waeren es zwei | UI, aber zuerst die Bindungsregel | entweder laengere Pfade im Seitenobjekt zulassen oder die Bindung um eine Positionsangabe erweitern |
 | **Seiten mit Nummer in der Mitte der Ueberschrift** – etwa die Verpflegungspauschbetraege einer Fortbildungsreise (`Fortbildung <Name>: <N>. Reise (Verpflegung)`, zehn beschreibbare Felder, gemessen 2026-09-04) | die Bindung kennt zwei Muster: `headingNumberedLabel` erwartet ein fuehrendes `N. Label`, `headingPrefix` einen festen Anfang. Hier steht die Nummer in der Mitte und der Personenname davor; ein Praefix `Fortbildung ` wuerde jede Fortbildungsseite jeder Person treffen | UI, aber zuerst die Bindungsregel | ein drittes Muster fuer Ueberschriften mit Platzhaltern an beliebiger Stelle - und der Nachweis, dass es nicht versehentlich die Nachbarseite bindet |
 
-### API und MCP: Shutdown (TODO)
+### API und MCP: Shutdown
 
-Geplant ist ein API-Kommando `shutdown`, das auch ueber ein MCP-Werkzeug
-aufrufbar ist. Der bestehende Shutdown-Pfad liegt in
-[`src/api-runtime.ts`](../src/api-runtime.ts); die HTTP-Grenze in
-[`src/api-server.ts`](../src/api-server.ts) und die MCP-Instanzbindung in
-[`src/mcp-api-supervisor.ts`](../src/mcp-api-supervisor.ts). Das Kommando ist
-noch nicht implementiert.
+`POST /v1/control/shutdown` beendet ausschliesslich die gebundene API und ihre
+Reservearbeiter. Der Aufruf verlangt `Content-Type: application/json`,
+`x-sse-api-instance-id` aus `/healthz` und den Koerper
+`{"confirm":true,"instanceId":"<instanceId aus healthz>"}`. Paket, Version und
+Konfiguration vor dem Stopp pruefen. Loopback- und Browser-Sperren gelten auch
+hier. Bei einem laufenden Auftrag kommt `busy`; eine Tabellenmutation wird
+nicht abgebrochen. Annahme und Sperre weiterer Auftraege sind atomar.
 
-Abnahmekriterien:
+HTTP 202 meldet `accepted=true` und `processExited=false`: Die Annahme allein
+beweist noch kein Prozessende. Ein verlorener Antwortkanal bedeutet einen
+unbekannten Ausgang und erlaubt keinen blinden zweiten Stoppauftrag. SSE und
+Steuerfaelle bleiben offen; Speichern, Verwerfen und Schliessen sind kein Teil
+dieses Kommandos.
 
-- Der Aufruf verlangt einen ausdruecklichen Beendigungsauftrag und die exakte
-  API-Instanzkennung. Fehlende oder veraltete Kennungen werden abgewiesen;
-  die bestehenden Loopback- und Browser-Sperren gelten unveraendert.
-- Bei einem laufenden Auftrag wird `busy` gemeldet. Der Shutdown darf keine
-  Tabellenmutation abbrechen. Annahme des Shutdowns und Sperre neuer Auftraege
-  muessen atomar sein, auch bei gleichzeitig eintreffenden Anfragen.
-- Die API bestaetigt zuerst die Annahme und beendet danach HTTP-Server und
-  eigene Reservearbeiter kontrolliert. Angenommener Shutdown und nachgewiesenes
-  Prozessende werden getrennt gemeldet; ein verlorener Antwortkanal ist kein
-  Erfolgsnachweis. Eine inzwischen ersetzte Instanz darf nicht beendet werden.
-- SSE bleibt geoeffnet. Das Kommando speichert, schliesst oder verwirft keinen
-  Steuerfall und verwendet keinen pauschalen Prozessnamen zum Beenden.
-- MCP bleibt fuer Rueckmeldungen erreichbar und merkt sich den absichtlichen
-  Stopp. Ein nachfolgender Werkzeugaufruf darf die API nicht unbemerkt neu
-  starten. Erneuter Start und neue Instanzbindung brauchen einen eigenen Auftrag.
-- Tests mit eigens gestarteten API-Prozessen pruefen Erfolg, falsche Identitaet,
-  laufende Auftraege, konkurrierende Shutdowns, Antwortverlust und Worker-Cleanup.
-  Ein Testlauf darf keine bereits vorhandene API- oder SSE-Instanz beenden.
+MCP bietet dafuer `sse_api_control`:
+
+1. `{"action":"status"}` liefert Zustand, Instanz und Prozesskennung.
+2. Nach ausdruecklichem Stoppauftrag
+   `{"action":"shutdown","confirm":true,"instanceId":"<gelesene Instanz>"}`
+   senden. `accepted` und `processExited` getrennt auswerten. Bei `unknown`
+   oder `stopping` zuerst wieder `status` lesen.
+3. MCP bleibt erreichbar. Normale Werkzeuge melden nach absichtlichem Stopp
+   `api-stopped`, ohne die API neu zu starten.
+4. Ein eigener Neustartauftrag verwendet
+   `{"action":"start","confirm":true,"instanceId":"<gestoppte Instanz>"}`.
+   Erst nach bewiesenem Prozessende wird die urspruengliche, unveraenderte
+   Konfiguration verwendet und eine neue Instanz gebunden. Eine Ersatzinstanz
+   am Port wird weder uebernommen noch beendet. Bei ausschliesslicher Bindung
+   ueber `SSE_API_URL` ist die Startkonfiguration unbekannt; die separat
+   verwaltete API muss mit ihrer eigenen Konfiguration gestartet werden.
+
+Die Umsetzung liegt in [`src/api-server.ts`](../src/api-server.ts),
+[`src/api-runtime.ts`](../src/api-runtime.ts) und
+[`src/mcp-api-supervisor.ts`](../src/mcp-api-supervisor.ts). `npm test` enthaelt
+die HTTP-, Prozess- und MCP-Vertraege: falsche Identitaet, laufende Auftraege,
+konkurrierende Stopps, Antwortverlust, Reservearbeiter-Cleanup und ausdruecklichen
+Neustart. Diese Tests verwenden ausschliesslich eigene API-Prozesse.
 
 ### 3.1 SSEs eigene Kommandoflaeche
 

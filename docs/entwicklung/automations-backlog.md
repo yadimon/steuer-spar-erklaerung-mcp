@@ -69,7 +69,7 @@ stehen in [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
 ## Lebenszyklus
 
-Kontrolliertes API-Shutdown über API und MCP ist separat in der
-[Roadmap](../ROADMAP.md#api-und-mcp-shutdown-todo) beschrieben. Es ist weiterhin
-ein TODO. Ein Shutdown darf keine laufende Tabellenmutation abbrechen oder
-einen Steuerfall speichern, schließen oder verwerfen.
+Kontrolliertes API-Shutdown und der ausdrückliche Neustart über
+`sse_api_control` sind in der [Roadmap](../ROADMAP.md#api-und-mcp-shutdown)
+beschrieben. Die API lehnt einen Stopp während laufender Aufträge ab;
+Steuerfälle werden dabei weder gespeichert noch geschlossen oder verworfen.

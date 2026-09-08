@@ -5,6 +5,7 @@ import { SSE_MCP_INTERACTION_SCHEMAS } from "./mcp-schemas-interaction.js";
 import { SSE_MCP_LIFECYCLE_SCHEMAS } from "./mcp-schemas-lifecycle.js";
 import { SSE_MCP_RECEIPT_SCHEMAS } from "./mcp-schemas-receipts.js";
 import { SSE_MCP_UI_SCHEMAS } from "./mcp-schemas-ui.js";
+import { SSE_MCP_API_CONTROL_SCHEMAS } from "./mcp-schemas-api-control.js";
 
 export const SSE_MCP_TOOL_SCHEMAS = {
   ...SSE_MCP_DIAGNOSTIC_SCHEMAS,
@@ -14,4 +15,5 @@ export const SSE_MCP_TOOL_SCHEMAS = {
   ...SSE_MCP_RECEIPT_SCHEMAS,
   ...SSE_MCP_INTERACTION_SCHEMAS,
   ...SSE_MCP_LIFECYCLE_SCHEMAS,
+  ...SSE_MCP_API_CONTROL_SCHEMAS,
 } as const;
