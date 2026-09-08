@@ -216,14 +216,14 @@ var init_bounded_files = __esm({
 // src/json-files.ts
 function parseJsonBytesStrict(bytes, label, source) {
   const suffix = source ? `: ${source}` : "";
-  let text;
+  let text2;
   try {
-    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    text2 = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch {
     throw new Error(`${label} ist kein gueltiges UTF-8${suffix}`);
   }
   try {
-    return JSON.parse(text);
+    return JSON.parse(text2);
   } catch {
     throw new Error(`${label} ist kein gueltiges JSON${suffix}`);
   }
@@ -5803,9 +5803,9 @@ var init_mcp_schemas_ui = __esm({
         hwnd: WINDOW_HANDLE.optional()
       }).strict(),
       "sse_table_read": external_exports.object({
-        maxRows: TABLE_MAX_ROWS.optional().describe("Obergrenze der Pfeiltastenschritte, Vorgabe 200, maximal 1000"),
+        maxRows: TABLE_MAX_ROWS.optional().describe("Leselimit, Vorgabe 200, maximal 1000: UIA-Cursorschritte oder Ausgabezeilen beim nativen Qt-Zugriff"),
         noKeys: external_exports.boolean().optional().describe(
-          "Nur sichtbare Zeilen, ohne Fenster nach vorn zu holen. Damit entfaellt der Cursorlauf, und der Vollstaendigkeitsbeweis ist unmoeglich: vollstaendig bleibt false und stopKind visible-only, auch wenn zufaellig alle Zeilen sichtbar waren. Fuer einen belastbaren Tabellenstand weglassen."
+          "Keine physische Eingabe oder Vordergrundaktivierung. Der UIA-Zugriff liest dann nur sichtbare Zeilen und meldet vollstaendig false / stopKind visible-only. Ein explizit gebundener nativer Qt-Zugriff liest das Modell ohne Cursorschritte und kann damit trotzdem die vollstaendige Tabelle belegen."
         ),
         sumLabel: external_exports.string().optional().describe("Bei mehreren Tabellen: Beschriftung der zugehoerigen Kontrollsumme"),
         sumOccurrence: UI_OCCURRENCE.optional().describe("1-basierte Position der Kontrollsumme; Vorgabe 1"),
@@ -8529,10 +8529,10 @@ function normalizedLabel(value) {
 }
 function cents(display) {
   if (typeof display !== "string") return null;
-  const text = display.trim();
-  if (text.length > 64 || !/^-?(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{1,2})?$/u.test(text)) return null;
-  const negative = text.startsWith("-");
-  const unsigned = negative ? text.slice(1) : text;
+  const text2 = display.trim();
+  if (text2.length > 64 || !/^-?(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{1,2})?$/u.test(text2)) return null;
+  const negative = text2.startsWith("-");
+  const unsigned = negative ? text2.slice(1) : text2;
   const [euros = "", decimal = ""] = unsigned.split(",", 2);
   const exact = BigInt(euros.replaceAll(".", "")) * 100n + BigInt(decimal.padEnd(2, "0") || "0");
   const signed = negative ? -exact : exact;
@@ -8540,8 +8540,8 @@ function cents(display) {
   return Number(signed);
 }
 function amount(display) {
-  const text = typeof display === "string" ? display : null;
-  return { display: text, cents: cents(text) };
+  const text2 = typeof display === "string" ? display : null;
+  return { display: text2, cents: cents(text2) };
 }
 function findFields(fields, label, type) {
   return fields.filter((field) => normalizedLabel(field.label) === label && (!type || field.typ === type));
@@ -9217,9 +9217,9 @@ function readWorkspaceText(root, ref) {
   }
   return { info: { ref, bytes: buffer.length, sha256: hash(buffer) }, text: decodeUtf8(buffer) };
 }
-function writeWorkspaceText(root, ref, text) {
-  if (typeof text !== "string") throw new Error("'text' muss eine Zeichenkette sein.");
-  const buffer = Buffer.from(text, "utf8");
+function writeWorkspaceText(root, ref, text2) {
+  if (typeof text2 !== "string") throw new Error("'text' muss eine Zeichenkette sein.");
+  const buffer = Buffer.from(text2, "utf8");
   if (buffer.length > MAX_TEXT_FILE_BYTES) throw new Error(`Textdatei ist groesser als ${MAX_TEXT_FILE_BYTES} Bytes.`);
   validateWorkspaceTextWrite(root, ref);
   const path = resolveWorkspacePath(root, ref, true);
@@ -10148,21 +10148,21 @@ function decimalFromNormalized(value) {
   return { coefficient: negative ? -coefficient : coefficient, scale };
 }
 function parseTableNumber(value) {
-  let text = trimDotNet(value);
-  text = text.replace(/^(?:€|EUR)\s*/iu, "");
-  text = text.replace(/\s*(?:€|EUR|%)$/iu, "");
-  text = removeDotNetWhitespace(text);
-  if (!text) return null;
+  let text2 = trimDotNet(value);
+  text2 = text2.replace(/^(?:€|EUR)\s*/iu, "");
+  text2 = text2.replace(/\s*(?:€|EUR|%)$/iu, "");
+  text2 = removeDotNetWhitespace(text2);
+  if (!text2) return null;
   let normalized;
-  if (/^-?[0-9]+$/u.test(text)) {
-    normalized = text;
-  } else if (/^-?(?:[0-9]{1,3}(?:\.[0-9]{3})+|[0-9]+),[0-9]+$/u.test(text)) {
-    normalized = text.replaceAll(".", "").replace(",", ".");
-  } else if (/^-?[0-9]+\.[0-9]+$/u.test(text)) {
-    const fraction = text.replace(/^-/, "").split(".", 2)[1] ?? "";
-    normalized = fraction.length === 3 ? text.replace(".", "") : text;
-  } else if (/^-?[0-9]{1,3}(?:\.[0-9]{3}){2,}$/u.test(text)) {
-    normalized = text.replaceAll(".", "");
+  if (/^-?[0-9]+$/u.test(text2)) {
+    normalized = text2;
+  } else if (/^-?(?:[0-9]{1,3}(?:\.[0-9]{3})+|[0-9]+),[0-9]+$/u.test(text2)) {
+    normalized = text2.replaceAll(".", "").replace(",", ".");
+  } else if (/^-?[0-9]+\.[0-9]+$/u.test(text2)) {
+    const fraction = text2.replace(/^-/, "").split(".", 2)[1] ?? "";
+    normalized = fraction.length === 3 ? text2.replace(".", "") : text2;
+  } else if (/^-?[0-9]{1,3}(?:\.[0-9]{3}){2,}$/u.test(text2)) {
+    normalized = text2.replaceAll(".", "");
   } else {
     return null;
   }
@@ -12102,7 +12102,7 @@ async function executeQtNativeGetValue(client, args, timeoutMs = 5e3, signal) {
     return failure("bad-args", "get_value requires name, aid or rid.");
   }
   try {
-    const read = await client.request("objects", {}, timeoutMs, signal);
+    const read = await client.request("objects", { projection: "values", visibleOnly: true }, timeoutMs, signal);
     if (!read.result.ok) return { ...read.result, kind: String(read.result.code ?? "native-read"), backend: "qt" };
     const parsed = OBJECTS.parse(read.result);
     if (!parsed.windowEnabled || parsed.modalBlocked) {
@@ -12183,10 +12183,132 @@ var init_qt_native_values = __esm({
       ok: external_exports.literal(true),
       complete: external_exports.literal(true),
       controllerBound: external_exports.literal(true),
+      projection: external_exports.literal("values"),
+      visibleOnly: external_exports.literal(true),
       windowEnabled: external_exports.boolean(),
       modalBlocked: external_exports.boolean(),
       objects: external_exports.array(NODE).max(5e4)
     });
+  }
+});
+
+// src/qt-native-tables.ts
+function normalizeTable(raw, maxRows) {
+  const uniqueBounded = (indices, length) => new Set(indices).size === indices.length && indices.every((index) => index < length);
+  if (raw.readRows > raw.rows || raw.readRows > maxRows + 1 || raw.values.length !== raw.readRows || raw.headers.length !== raw.columns || raw.rowFingerprints.length !== raw.readRows || raw.values.some((row) => row.length !== raw.columns) || !uniqueBounded(raw.hiddenColumns, raw.columns) || !uniqueBounded(raw.hiddenRows, raw.readRows) || raw.complete && (raw.readRows !== raw.rows || raw.canFetchMore)) {
+    return fail2("native-contract", "Native table dimensions or completeness evidence are inconsistent.");
+  }
+  if (!raw.windowEnabled || raw.modalBlocked) return fail2("window-obstructed", "The native table is disabled or blocked by a modal dialog.");
+  const columns = Array.from({ length: raw.columns }, (_, index) => index).filter((index) => !raw.hiddenColumns.includes(index));
+  const rows = raw.values.map((cells, modelRowIndex) => ({ modelRowIndex, cells: columns.map((index) => cells[index]) })).filter((row) => !raw.hiddenRows.includes(row.modelRowIndex)).filter((row) => row.cells.some((cell) => {
+    const value = text(cell.display);
+    return value.trim() && value !== "0,00" && value !== "0";
+  }));
+  const limitReached = rows.length > maxRows || raw.readRows < raw.rows;
+  const included = rows.slice(0, maxRows);
+  const rowDetails = included.map((row, rowIndex) => {
+    const cells = row.cells.map((cell, column) => {
+      if ((cell.flags & 16) !== 0 || cell.checkState !== null) {
+        if (![0, 1, 2].includes(cell.checkState ?? -1)) {
+          return { type: "unknown", value: null, state: null, error: { column, error: "Checkbox state was not exposed by the model." } };
+        }
+        return {
+          type: "boolean",
+          value: cell.checkState === 1 ? null : cell.checkState === 2,
+          state: cell.checkState === 0 ? "Off" : cell.checkState === 2 ? "On" : "Indeterminate",
+          error: null
+        };
+      }
+      return { type: "text", value: text(cell.display), state: null, error: null };
+    });
+    return {
+      rowIndex,
+      modelRowIndex: row.modelRowIndex,
+      rowFingerprint: raw.rowFingerprints[row.modelRowIndex],
+      typedValues: cells.map((cell) => cell.value),
+      checkboxStates: cells.map((cell) => cell.state),
+      cellTypes: cells.map((cell) => cell.type),
+      semanticsComplete: cells.every((cell) => !cell.error),
+      semanticReadErrors: cells.flatMap((cell) => cell.error ? [cell.error] : [])
+    };
+  });
+  return {
+    ok: true,
+    backend: "qt",
+    kopf: columns.map((column) => text(raw.headers[column])),
+    zeilen: included.map((row) => row.cells.map((cell) => text(cell.display))),
+    anzahl: included.length,
+    rowDetails,
+    summe: raw.summary,
+    summen: raw.summaries,
+    bindung: raw.binding,
+    tabelleAnzahl: 1,
+    vollstaendig: raw.complete && !limitReached,
+    limitReached,
+    stopKind: limitReached ? "max-rows" : raw.complete ? "end-of-model" : "model-incomplete",
+    schritte: 0,
+    steps: 0,
+    physicalInputUsed: false,
+    nativeTable: {
+      id: raw.table.id,
+      aid: raw.table.name,
+      modelRows: raw.rows,
+      modelColumns: raw.columns,
+      visibleColumns: columns,
+      tableCount: raw.tableCount,
+      readModelRows: raw.readRows,
+      rowFilter: "nonempty-nonzero-display",
+      dirtyStateVerified: false
+    }
+  };
+}
+async function executeQtNativeTableRead(client, args, timeoutMs = 5e3, signal) {
+  if (args.hwnd !== void 0 && args.hwnd !== client.binding.hwnd) return fail2("stale-window", "Requested window differs from the native session.");
+  const maxRows = typeof args.maxRows === "number" ? args.maxRows : 200;
+  try {
+    const read = await client.request("table_snapshot", {
+      maxRows,
+      ...args.sumLabel ? { sumLabel: args.sumLabel } : {},
+      ...args.sumOccurrence ? { sumOccurrence: args.sumOccurrence } : {}
+    }, timeoutMs, signal);
+    if (!read.result.ok) return { ...read.result, kind: String(read.result.code ?? "native-read"), backend: "qt" };
+    return { ...normalizeTable(TABLE.parse(read.result), maxRows), nativeDurationMs: read.durationMs };
+  } catch (error) {
+    if (error instanceof QtNativeTransportError) return { ...fail2(error.kind, error.message), outcomeUnknown: error.outcomeUnknown };
+    return fail2("native-contract", error instanceof Error ? error.message : "Invalid native table response.");
+  }
+}
+var SCALAR, CELL, TABLE, text, fail2;
+var init_qt_native_tables = __esm({
+  "src/qt-native-tables.ts"() {
+    "use strict";
+    init_zod();
+    init_qt_native_client();
+    SCALAR = external_exports.union([external_exports.string(), external_exports.number(), external_exports.boolean(), external_exports.null()]);
+    CELL = external_exports.object({ display: SCALAR, edit: SCALAR, checkState: external_exports.number().int().nullable(), flags: external_exports.number().int().nonnegative() });
+    TABLE = external_exports.object({
+      ok: external_exports.literal(true),
+      controllerBound: external_exports.literal(true),
+      windowEnabled: external_exports.boolean(),
+      modalBlocked: external_exports.boolean(),
+      rows: external_exports.number().int().nonnegative(),
+      readRows: external_exports.number().int().min(0).max(1001),
+      columns: external_exports.number().int().min(1).max(100),
+      headers: external_exports.array(SCALAR).max(100),
+      values: external_exports.array(external_exports.array(CELL).max(100)).max(1001),
+      rowFingerprints: external_exports.array(external_exports.string().regex(/^[a-f0-9]{64}$/u)).max(1001),
+      hiddenColumns: external_exports.array(external_exports.number().int().nonnegative()).max(100),
+      hiddenRows: external_exports.array(external_exports.number().int().nonnegative()).max(1001),
+      complete: external_exports.boolean(),
+      canFetchMore: external_exports.boolean(),
+      tableCount: external_exports.number().int().positive(),
+      table: external_exports.object({ id: external_exports.number().int().positive(), name: external_exports.string(), class: external_exports.string(), visible: external_exports.literal(true) }).passthrough(),
+      summary: external_exports.string().nullable(),
+      binding: external_exports.record(external_exports.unknown()).nullable(),
+      summaries: external_exports.array(external_exports.object({ label: external_exports.string(), vorkommen: external_exports.number().int().positive(), wert: external_exports.string().nullable() })).max(12)
+    });
+    text = (value) => value === null ? "" : String(value);
+    fail2 = (kind, error) => ({ ok: false, backend: "qt", kind, error });
   }
 });
 
@@ -12336,6 +12458,9 @@ function createApiExecutor(config, worker, dependencies = {}) {
       args = internalCheckerClick ? parseCheckerReadOnlyClickArgs(args) : parseApiOperationArgs(operation, args);
       if (operation === "get_value" && dependencies.qtNativeClient) {
         return redactPaths(await executeQtNativeGetValue(dependencies.qtNativeClient, args, timeoutMs, signal));
+      }
+      if (operation === "table_read" && dependencies.qtNativeClient) {
+        return redactPaths(await executeQtNativeTableRead(dependencies.qtNativeClient, args, timeoutMs, signal));
       }
       if (operation === "capabilities") {
         return {
@@ -12624,6 +12749,7 @@ var init_api_executor = __esm({
     init_backup_executor();
     init_archive_executor();
     init_qt_native_values();
+    init_qt_native_tables();
     init_api_resource_bindings();
     init_profile_operation_policy();
     MIN_WORKER_FALLBACK_TIMEOUT_MS = 2e3;
@@ -16230,13 +16356,13 @@ async function readJson(request) {
   if (chunks.length === 0) {
     throw new ApiRequestError("Anfragekoerper darf bei POST nicht leer sein.");
   }
-  let text;
+  let text2;
   try {
-    text = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks));
+    text2 = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks));
   } catch {
     throw new ApiRequestError("Anfragekoerper muss gueltiges UTF-8 enthalten.");
   }
-  return JSON.parse(text);
+  return JSON.parse(text2);
 }
 function parseOperationRequest(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -16640,8 +16766,8 @@ function validName(value) {
 function validPid(value) {
   return Number.isSafeInteger(value) && Number(value) > 0 && Number(value) <= 4294967295;
 }
-function parseDesktopMarker(text) {
-  const raw = text.trim();
+function parseDesktopMarker(text2) {
+  const raw = text2.trim();
   if (!raw) return invalidMarker();
   if (!raw.startsWith("{")) {
     if (!validName(raw)) return invalidMarker();
@@ -17019,13 +17145,13 @@ function summarizeWorkerDiagnostic(value) {
   return `${value.slice(0, MAX_WORKER_DIAGNOSTIC_CHARACTERS)}
 [Diagnose gekuerzt: ${bytes.length} UTF-8-Bytes, sha256=${digest}]`;
 }
-function parseWorkerResult(text, operation) {
+function parseWorkerResult(text2, operation) {
   let parsed;
   try {
-    parsed = JSON.parse(text);
+    parsed = JSON.parse(text2);
   } catch {
     throw new WorkerError(
-      `Antwort von '${operation}' war kein JSON. Anfang: ${text.slice(0, 400)}`,
+      `Antwort von '${operation}' war kein JSON. Anfang: ${text2.slice(0, 400)}`,
       "parse"
     );
   }
@@ -17275,17 +17401,17 @@ async function callWorkerUnsynchronised(op, args = {}, timeoutMs = DEFAULT_TIMEO
         reject(argumentCleanupError);
         return;
       }
-      let text;
+      let text2;
       let err;
       try {
         const decoder = new TextDecoder("utf-8", { fatal: true });
-        text = decoder.decode(Buffer.concat(outChunks, outBytes)).trim();
+        text2 = decoder.decode(Buffer.concat(outChunks, outBytes)).trim();
         err = decoder.decode(Buffer.concat(errChunks, errBytes)).trim();
       } catch {
         reject(new WorkerError(`Antwort von '${op}' war kein gueltiges UTF-8.`, "parse"));
         return;
       }
-      if (!text) {
+      if (!text2) {
         const stderr = summarizeWorkerDiagnostic(err);
         reject(
           new WorkerError(
@@ -17296,7 +17422,7 @@ async function callWorkerUnsynchronised(op, args = {}, timeoutMs = DEFAULT_TIMEO
         return;
       }
       try {
-        resolve16(parseWorkerResult(text, op));
+        resolve16(parseWorkerResult(text2, op));
       } catch (error) {
         const stderr = summarizeWorkerDiagnostic(err);
         const message = error instanceof Error ? error.message : String(error);

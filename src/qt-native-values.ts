@@ -17,6 +17,7 @@ const NODE = z.object({
 }).passthrough();
 const OBJECTS = z.object({
   ok: z.literal(true), complete: z.literal(true), controllerBound: z.literal(true),
+  projection: z.literal("values"), visibleOnly: z.literal(true),
   windowEnabled: z.boolean(), modalBlocked: z.boolean(), objects: z.array(NODE).max(50_000),
 });
 type NativeNode = z.infer<typeof NODE>;
@@ -31,7 +32,7 @@ function controlType(node: NativeNode): string | null {
 
 function failure(kind: string, error: string): WorkerResult { return { ok: false, kind, error }; }
 
-/** Read an actual Qt value; no values or object trees survive between calls. */
+/** Read a fresh Qt value-control projection; no values survive between calls. */
 export async function executeQtNativeGetValue(
   client: QtNativeClient,
   args: Readonly<Record<string, unknown>>,
@@ -45,7 +46,7 @@ export async function executeQtNativeGetValue(
     return failure("bad-args", "get_value requires name, aid or rid.");
   }
   try {
-    const read = await client.request("objects", {}, timeoutMs, signal);
+    const read = await client.request("objects", { projection: "values", visibleOnly: true }, timeoutMs, signal);
     if (!read.result.ok) return { ...read.result, kind: String(read.result.code ?? "native-read"), backend: "qt" };
     const parsed = OBJECTS.parse(read.result);
     if (!parsed.windowEnabled || parsed.modalBlocked) {

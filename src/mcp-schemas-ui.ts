@@ -46,12 +46,11 @@ export const SSE_MCP_UI_SCHEMAS = {
     hwnd: WINDOW_HANDLE.optional(),
   }).strict(),
   "sse_table_read": z.object({
-    maxRows: TABLE_MAX_ROWS.optional().describe("Obergrenze der Pfeiltastenschritte, Vorgabe 200, maximal 1000"),
+    maxRows: TABLE_MAX_ROWS.optional().describe("Leselimit, Vorgabe 200, maximal 1000: UIA-Cursorschritte oder Ausgabezeilen beim nativen Qt-Zugriff"),
     noKeys: z.boolean().optional().describe(
-      "Nur sichtbare Zeilen, ohne Fenster nach vorn zu holen. Damit entfaellt der Cursorlauf, "
-      + "und der Vollstaendigkeitsbeweis ist unmoeglich: vollstaendig bleibt false und stopKind "
-      + "visible-only, auch wenn zufaellig alle Zeilen sichtbar waren. Fuer einen belastbaren "
-      + "Tabellenstand weglassen.",
+      "Keine physische Eingabe oder Vordergrundaktivierung. Der UIA-Zugriff liest dann nur sichtbare Zeilen "
+      + "und meldet vollstaendig false / stopKind visible-only. Ein explizit gebundener nativer Qt-Zugriff "
+      + "liest das Modell ohne Cursorschritte und kann damit trotzdem die vollstaendige Tabelle belegen.",
     ),
     sumLabel: z.string().optional().describe("Bei mehreren Tabellen: Beschriftung der zugehoerigen Kontrollsumme"),
     sumOccurrence: UI_OCCURRENCE.optional().describe("1-basierte Position der Kontrollsumme; Vorgabe 1"),

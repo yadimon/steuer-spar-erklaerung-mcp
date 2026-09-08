@@ -49,6 +49,7 @@ import { executeLocalBackup } from "./backup-executor.js";
 import { executeLocalArchive } from "./archive-executor.js";
 import type { QtNativeClient } from "./qt-native-client.js";
 import { executeQtNativeGetValue } from "./qt-native-values.js";
+import { executeQtNativeTableRead } from "./qt-native-tables.js";
 
 interface ConfiguredArguments {
   args: Record<string, unknown>;
@@ -288,6 +289,9 @@ export function createApiExecutor(
         : parseApiOperationArgs(operation, args);
       if (operation === "get_value" && dependencies.qtNativeClient) {
         return redactPaths(await executeQtNativeGetValue(dependencies.qtNativeClient, args, timeoutMs, signal));
+      }
+      if (operation === "table_read" && dependencies.qtNativeClient) {
+        return redactPaths(await executeQtNativeTableRead(dependencies.qtNativeClient, args, timeoutMs, signal));
       }
       if (operation === "capabilities") {
         return {
