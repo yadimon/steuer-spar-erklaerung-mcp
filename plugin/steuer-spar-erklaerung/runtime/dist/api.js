@@ -7419,10 +7419,19 @@ var init_checker_executor = __esm({
 function operationError(error, kind = "operation") {
   return { ok: false, kind, error };
 }
+function executionError(operation, error) {
+  const explicitKind = error && typeof error === "object" && typeof error.kind === "string" ? String(error.kind) : void 0;
+  return {
+    ok: false,
+    kind: explicitKind ?? (error instanceof ZodError || error instanceof ExecutorArgumentError ? "bad-args" : operation.startsWith("workspace_") || operation === "scenario_run" ? "workspace" : "worker"),
+    error: error instanceof Error ? error.message : String(error)
+  };
+}
 var ExecutorArgumentError;
 var init_executor_errors = __esm({
   "src/executor-errors.ts"() {
     "use strict";
+    init_zod();
     ExecutorArgumentError = class extends Error {
       name = "ExecutorArgumentError";
     };
@@ -7943,14 +7952,14 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
       note: "Der neue Fall ist geoeffnet und leer gespeichert. Stammdaten jetzt mit fill_fields fuellen; vor der ersten weiteren Mutation den Dateistand nach backups: sichern."
     };
   } catch (error) {
-    const failure = error instanceof StepFailure ? error.result : operationError(error instanceof Error ? error.message : String(error), signal?.aborted ? "aborted" : "case-create");
+    const failure2 = error instanceof StepFailure ? error.result : operationError(error instanceof Error ? error.message : String(error), signal?.aborted ? "aborted" : "case-create");
     const created = target !== void 0 && existsSync7(target.path);
     if (pid > 0 && !created) {
       const cleanupState = await cleanupStartedProcess(dependencies.worker, pid);
-      return { ...failure, created: false, steps, pid, ...cleanupState };
+      return { ...failure2, created: false, steps, pid, ...cleanupState };
     }
     return {
-      ...failure,
+      ...failure2,
       created,
       steps,
       ...pid > 0 ? { pid, processStillRunning: true } : {},
@@ -12053,6 +12062,134 @@ var init_archive_executor = __esm({
   }
 });
 
+// src/qt-native-client.ts
+var MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES, UTF8, QtNativeTransportError;
+var init_qt_native_client = __esm({
+  "src/qt-native-client.ts"() {
+    "use strict";
+    MAX_REQUEST_BYTES = 1024 * 1024;
+    MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
+    UTF8 = new TextDecoder("utf-8", { fatal: true });
+    QtNativeTransportError = class extends Error {
+      constructor(message, kind, outcomeUnknown = false) {
+        super(message);
+        this.kind = kind;
+        this.outcomeUnknown = outcomeUnknown;
+        this.name = "QtNativeTransportError";
+      }
+      kind;
+      outcomeUnknown;
+    };
+  }
+});
+
+// src/qt-native-values.ts
+function controlType(node) {
+  if (["lineEdit", "spinBox", "plainTextEdit"].includes(node.kind ?? "")) return "Edit";
+  if (node.kind === "label") return "Text";
+  if (node.kind === "comboBox") return "ComboBox";
+  if (node.kind === "button") return node.checkable ? "CheckBox" : "Button";
+  return null;
+}
+function failure(kind, error) {
+  return { ok: false, kind, error };
+}
+async function executeQtNativeGetValue(client, args, timeoutMs = 5e3, signal) {
+  if (args.hwnd !== void 0 && args.hwnd !== client.binding.hwnd) {
+    return failure("stale-window", "Requested window differs from the verified native session.");
+  }
+  if (![args.name, args.aid, args.rid].some((value) => typeof value === "string" && value.length > 0)) {
+    return failure("bad-args", "get_value requires name, aid or rid.");
+  }
+  try {
+    const read = await client.request("objects", {}, timeoutMs, signal);
+    if (!read.result.ok) return { ...read.result, kind: String(read.result.code ?? "native-read"), backend: "qt" };
+    const parsed = OBJECTS.parse(read.result);
+    if (!parsed.windowEnabled || parsed.modalBlocked) {
+      return failure("window-obstructed", "The bound native window is disabled or blocked by a modal dialog.");
+    }
+    const rid = (node) => `qt:${client.binding.pid}:${client.binding.creationTime}:${client.binding.hwnd}:${node.id}`;
+    const nodes = parsed.objects.filter((node) => node.visible && controlType(node));
+    const candidates = nodes.filter((node) => {
+      if (typeof args.aid === "string" && args.aid && (!node.name || !args.aid.endsWith(node.name) && !node.name.endsWith(args.aid))) return false;
+      if (typeof args.rid === "string" && args.rid && args.rid !== rid(node)) return false;
+      if (typeof args.type === "string" && args.type && controlType(node)?.toLowerCase() !== args.type.toLowerCase()) return false;
+      if (typeof args.name === "string" && args.name) {
+        const label = (node.value ?? "").toLowerCase();
+        const sought = args.name.toLowerCase();
+        if (args.contains ? !label.includes(sought) : label !== sought) return false;
+      }
+      return true;
+    });
+    if (candidates.length === 0) return failure("not-found", "No native control matches the selector.");
+    if (candidates.length !== 1) return failure("ambiguous", "Native control selector is not unique.");
+    let selected = candidates[0];
+    let resolvedVia = "selektor";
+    if (selected.kind === "label" && args.name && !args.aid && !args.rid) {
+      const fields = nodes.filter((node) => node.parentId === selected.parentId && ["lineEdit", "spinBox", "plainTextEdit", "comboBox"].includes(node.kind ?? ""));
+      if (fields.length !== 1) {
+        return failure(fields.length ? "ambiguous" : "not-found", "The observed Qt label has no unique value control in its group.");
+      }
+      selected = fields[0];
+      resolvedVia = "beschriftung";
+    }
+    if (selected.sensitive || !["lineEdit", "spinBox", "plainTextEdit", "comboBox"].includes(selected.kind ?? "") || typeof selected.value !== "string") {
+      return failure("no-readable-value", "The selected native control does not expose a readable text value.");
+    }
+    return {
+      ok: true,
+      backend: "qt",
+      value: selected.value,
+      readOnly: selected.readOnly ?? null,
+      aufgeloestUeber: resolvedVia,
+      node: {
+        type: controlType(selected),
+        name: selected.value,
+        val: selected.value,
+        aid: selected.name,
+        rid: rid(selected),
+        enabled: selected.enabled,
+        nativeClass: selected.class
+      },
+      nativeDurationMs: read.durationMs
+    };
+  } catch (error) {
+    if (error instanceof QtNativeTransportError) {
+      return { ...failure(error.kind, error.message), outcomeUnknown: error.outcomeUnknown, backend: "qt" };
+    }
+    return failure("native-contract", error instanceof Error ? error.message : "Invalid native object response.");
+  }
+}
+var NODE, OBJECTS;
+var init_qt_native_values = __esm({
+  "src/qt-native-values.ts"() {
+    "use strict";
+    init_zod();
+    init_qt_native_client();
+    NODE = external_exports.object({
+      id: external_exports.number().int().positive(),
+      parentId: external_exports.number().int().nonnegative(),
+      class: external_exports.string(),
+      name: external_exports.string(),
+      kind: external_exports.string().optional(),
+      visible: external_exports.boolean().optional(),
+      enabled: external_exports.boolean().optional(),
+      value: external_exports.string().optional(),
+      readOnly: external_exports.boolean().optional(),
+      sensitive: external_exports.boolean().optional(),
+      checkable: external_exports.boolean().optional()
+    }).passthrough();
+    OBJECTS = external_exports.object({
+      ok: external_exports.literal(true),
+      complete: external_exports.literal(true),
+      controllerBound: external_exports.literal(true),
+      windowEnabled: external_exports.boolean(),
+      modalBlocked: external_exports.boolean(),
+      objects: external_exports.array(NODE).max(5e4)
+    });
+  }
+});
+
 // src/api-executor.ts
 import { existsSync as existsSync9, mkdirSync as mkdirSync3, readdirSync as readdirSync3, rmdirSync } from "node:fs";
 import { dirname as dirname10, join as join9 } from "node:path";
@@ -12143,14 +12280,6 @@ function withResourceIdentity4(redactPaths, result, resourceRefs = {}) {
   if (!Object.keys(resourceRefs).length) return redacted;
   return { ...redacted, resourceRefs };
 }
-function executionError(operation, error) {
-  const explicitKind = error && typeof error === "object" && typeof error.kind === "string" ? String(error.kind) : void 0;
-  return {
-    ok: false,
-    kind: explicitKind ?? (error instanceof ZodError || error instanceof ExecutorArgumentError ? "bad-args" : operation.startsWith("workspace_") || operation === "scenario_run" ? "workspace" : "worker"),
-    error: error instanceof Error ? error.message : String(error)
-  };
-}
 function remainingTimeoutMs(timeoutMs, startedAt) {
   return Math.max(0, Math.floor(timeoutMs - (performance9.now() - startedAt)));
 }
@@ -12205,6 +12334,9 @@ function createApiExecutor(config, worker, dependencies = {}) {
         }
       }
       args = internalCheckerClick ? parseCheckerReadOnlyClickArgs(args) : parseApiOperationArgs(operation, args);
+      if (operation === "get_value" && dependencies.qtNativeClient) {
+        return redactPaths(await executeQtNativeGetValue(dependencies.qtNativeClient, args, timeoutMs, signal));
+      }
       if (operation === "capabilities") {
         return {
           ok: true,
@@ -12469,7 +12601,6 @@ var init_api_executor = __esm({
   "src/api-executor.ts"() {
     "use strict";
     init_api_contract();
-    init_zod();
     init_capabilities();
     init_case_file();
     init_checker_executor();
@@ -12492,6 +12623,7 @@ var init_api_executor = __esm({
     init_working_copy_executor();
     init_backup_executor();
     init_archive_executor();
+    init_qt_native_values();
     init_api_resource_bindings();
     init_profile_operation_policy();
     MIN_WORKER_FALLBACK_TIMEOUT_MS = 2e3;
@@ -16236,8 +16368,8 @@ function createSseApiServer(options) {
           }
         });
       } catch (error) {
-        const failure = error instanceof ApiRequestError ? error : error instanceof SyntaxError || error instanceof ZodError ? new ApiRequestError("Shutdown verlangt genau confirm=true und eine gueltige instanceId.") : new ApiRequestError("Shutdown-Anfrage konnte nicht sicher gelesen werden.");
-        sendJson(response, failure.status, apiError(requestId, failure.code, failure.message));
+        const failure2 = error instanceof ApiRequestError ? error : error instanceof SyntaxError || error instanceof ZodError ? new ApiRequestError("Shutdown verlangt genau confirm=true und eine gueltige instanceId.") : new ApiRequestError("Shutdown-Anfrage konnte nicht sicher gelesen werden.");
+        sendJson(response, failure2.status, apiError(requestId, failure2.code, failure2.message));
       }
       return;
     }
@@ -16849,19 +16981,19 @@ function createWorkerArgumentsFile(args) {
   }
   const path = join13(tmpdir(), `sse-args-${randomUUID4().replaceAll("-", "")}.json`);
   const descriptor = openSync3(path, "wx", 384);
-  let failure;
+  let failure2;
   try {
     writeFileSync3(descriptor, bytes);
   } catch (error) {
-    failure = error;
+    failure2 = error;
   } finally {
     try {
       closeSync3(descriptor);
     } catch (error) {
-      failure ??= error;
+      failure2 ??= error;
     }
   }
-  if (failure !== void 0) {
+  if (failure2 !== void 0) {
     const cleanupError = removeWorkerArgumentsFile(path);
     const detail = cleanupError ? ` ${cleanupError.message}` : "";
     throw new WorkerError(`Interne Worker-Argumentdatei liess sich nicht schreiben.${detail}`, "worker-transport");

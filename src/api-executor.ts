@@ -3,7 +3,6 @@ import { existsSync, mkdirSync, readdirSync, rmdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { DEFAULT_OPERATION_TIMEOUT_MS, type SseApiOperation, type WorkerResult } from "./api-contract.js";
-import { ZodError } from "zod";
 import { SSE_CAPABILITIES } from "./capabilities.js";
 import {
   CaseFileParserFallbackError,
@@ -18,7 +17,7 @@ import {
 } from "./bulk-plan-executor.js";
 import { API_RESOURCE_BINDINGS } from "./api-resource-bindings.js";
 import { executeCaseCreate } from "./case-create-executor.js";
-import { ExecutorArgumentError, operationError } from "./executor-errors.js";
+import { ExecutorArgumentError, executionError, operationError } from "./executor-errors.js";
 import { executeLaunchOperation } from "./launch-executor.js";
 import { parseApiOperationArgs, parseCheckerReadOnlyClickArgs } from "./operation-catalog.js";
 import { receiptBlock } from "./receipt-interaction-policy.js";
@@ -48,6 +47,8 @@ import { executeLocalVerify } from "./verify-executor.js";
 import { executeLocalWorkingCopy } from "./working-copy-executor.js";
 import { executeLocalBackup } from "./backup-executor.js";
 import { executeLocalArchive } from "./archive-executor.js";
+import type { QtNativeClient } from "./qt-native-client.js";
+import { executeQtNativeGetValue } from "./qt-native-values.js";
 
 interface ConfiguredArguments {
   args: Record<string, unknown>;
@@ -170,24 +171,6 @@ function withResourceIdentity(
   return { ...redacted, resourceRefs };
 }
 
-function executionError(operation: SseApiOperation, error: unknown): WorkerResult {
-  const explicitKind =
-    error && typeof error === "object" && typeof (error as { kind?: unknown }).kind === "string"
-      ? String((error as { kind: string }).kind)
-      : undefined;
-  return {
-    ok: false,
-    kind:
-      explicitKind ??
-      (error instanceof ZodError || error instanceof ExecutorArgumentError
-        ? "bad-args"
-        : operation.startsWith("workspace_") || operation === "scenario_run"
-          ? "workspace"
-          : "worker"),
-    error: error instanceof Error ? error.message : String(error),
-  };
-}
-
 const MIN_WORKER_FALLBACK_TIMEOUT_MS = 2_000;
 
 function remainingTimeoutMs(timeoutMs: number, startedAt: number): number {
@@ -209,6 +192,8 @@ export interface ApiExecutorDependencies {
   profilesRoot?: string;
   /** Interne Testgrenze fuer die fail-closed SSE-Prozesspruefung der Fallarchivierung. */
   archiveHasRunningSseProcess?: () => Promise<boolean>;
+  /** Explicitly loaded, process-bound native session owned by this executor. */
+  qtNativeClient?: QtNativeClient;
 }
 
 function isExperimentalDialogAnswerCandidate(
@@ -301,6 +286,9 @@ export function createApiExecutor(
       args = internalCheckerClick
         ? parseCheckerReadOnlyClickArgs(args)
         : parseApiOperationArgs(operation, args);
+      if (operation === "get_value" && dependencies.qtNativeClient) {
+        return redactPaths(await executeQtNativeGetValue(dependencies.qtNativeClient, args, timeoutMs, signal));
+      }
       if (operation === "capabilities") {
         return {
           ok: true,
