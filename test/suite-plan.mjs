@@ -77,6 +77,7 @@ export const parallelSteps = Object.freeze([
   psFile("window-restore-contract", "test/window-restore-contract.ps1"),
   nodeFile("foreground-lease-contract", "test/foreground-lease-contract.mjs"),
   psFile("foreground-reporting-contract", "test/foreground-reporting-contract.ps1"),
+  psFile("table-read-obstruction", "test/table-read-obstruction-contract.ps1"),
   nodeFile("desktop-marker-contract", "test/desktop-marker-contract.mjs"),
   psFile("desktop-marker-write-contract", "test/desktop-marker-write-contract.ps1"),
   nodeFile("focusless-commit-contract", "test/focusless-commit-contract.mjs"),
