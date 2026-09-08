@@ -27,6 +27,7 @@ import { formatOperationArgumentError, parseApiOperationArgs } from "./operation
 import { parseApiOperationResult } from "./result-contract.js";
 import { SSE_API_PACKAGE_NAME, SSE_PACKAGE_VERSION } from "./version.js";
 import { SSE_API_INSTANCE_HEADER } from "./api-supervisor-contract.js";
+import { API_SHUTDOWN_REQUEST_SCHEMA, SSE_API_SHUTDOWN_PATH } from "./api-control-contract.js";
 
 export type OperationExecutor = (
   operation: SseApiOperation,
@@ -56,6 +57,8 @@ export interface SseApiServerOptions {
   instanceId?: string;
   /** Optional; ohne diese Auskunft meldet /healthz das Feld schlicht nicht. */
   prewarmStatus?: () => PrewarmStatus;
+  /** Erst nach atomarer, auftragsfreier Annahme des gebundenen Stopps aufgerufen. */
+  requestShutdown?: () => void;
 }
 type SendJsonOutcome = "sent" | "unavailable" | "too-large";
 
@@ -248,10 +251,11 @@ function parseOperationRequest(value: unknown): OperationRequest {
 }
 
 export function createSseApiServer(options: SseApiServerOptions): Server {
-  const { execute } = options;
+  const { execute, requestShutdown } = options;
   const instanceId = options.instanceId ?? randomUUID();
   const log = options.log ?? (() => undefined);
   let inFlight: (InFlightOperation & { startedMonotonic: number }) | null = null;
+  let stopping = false;
   const inFlightSnapshot = (): (InFlightOperation & { elapsedMs: number }) | null => {
     if (!inFlight) return null;
     const { startedMonotonic, ...publicState } = inFlight;
@@ -310,6 +314,63 @@ export function createSseApiServer(options: SseApiServerOptions): Server {
 
     if (request.method === "GET" && url.pathname === `/${SSE_API_VERSION}/openapi.json`) {
       sendJsonBytes(response, 200, SSE_OPENAPI_BYTES);
+      return;
+    }
+
+    if (url.pathname === SSE_API_SHUTDOWN_PATH) {
+      if (request.method !== "POST") {
+        sendJson(response, 405, apiError(requestId, "method-not-allowed", "Shutdown verlangt POST."), { allow: "POST" });
+        return;
+      }
+      if (request.headers[SSE_API_INSTANCE_HEADER] !== instanceId) {
+        sendJson(response, 409, apiError(requestId, "api-instance-mismatch", "Shutdown verlangt die exakte API-Instanzkennung."));
+        return;
+      }
+      if (!hasJsonContentType(request)) {
+        sendJson(response, 415, apiError(requestId, "unsupported-media-type", "Shutdown verlangt application/json."));
+        return;
+      }
+      try {
+        const body = API_SHUTDOWN_REQUEST_SCHEMA.parse(await readJson(request));
+        if (body.instanceId !== instanceId) {
+          throw new ApiRequestError("Shutdown-Instanz stimmt nicht mit der laufenden API ueberein.", 409, "api-instance-mismatch");
+        }
+        if (!requestShutdown) {
+          throw new ApiRequestError("Diese API besitzt keinen kontrollierten Shutdown-Pfad.", 503, "shutdown-unavailable");
+        }
+        if (stopping) throw new ApiRequestError("Der API-Stopp wurde bereits angenommen.", 409, "api-stopping");
+        const running = inFlightSnapshot();
+        if (running) {
+          sendJson(response, 409, {
+            ...apiError(requestId, "busy", "Ein Auftrag laeuft; die API wird nicht beendet. Auf dessen Ergebnis warten."),
+            inFlight: running,
+          });
+          return;
+        }
+        if (response.destroyed) return;
+        // Kein await zwischen Auftragspruefung und Sperre. Auch bereits
+        // eingelesene konkurrierende POSTs pruefen diese Sperre vor execute.
+        stopping = true;
+        const outcome = sendJson(response, 202, {
+          apiVersion: SSE_API_VERSION, requestId, accepted: true,
+          instanceId, processId: process.pid, processExited: false,
+        });
+        safeLog({ event: "shutdown-accepted", requestId, instanceId, delivered: outcome === "sent" });
+        // Antwort zuerst einreihen, danach ausschliesslich die eigene Runtime
+        // schliessen. Antwortverlust darf den angenommenen Stopp nicht aufheben.
+        setImmediate(() => {
+          try { requestShutdown(); }
+          catch (error) {
+            safeLog({ event: "shutdown-failed", requestId, errorName: error instanceof Error ? error.name : "Error" });
+          }
+        });
+      } catch (error) {
+        const failure = error instanceof ApiRequestError ? error
+          : error instanceof SyntaxError || error instanceof ZodError
+            ? new ApiRequestError("Shutdown verlangt genau confirm=true und eine gueltige instanceId.")
+            : new ApiRequestError("Shutdown-Anfrage konnte nicht sicher gelesen werden.");
+        sendJson(response, failure.status, apiError(requestId, failure.code, failure.message));
+      }
       return;
     }
 
@@ -382,6 +443,9 @@ export function createSseApiServer(options: SseApiServerOptions): Server {
           throw new ApiRequestError(formatOperationArgumentError(error, operationName), 400, "bad-args");
         }
         throw error;
+      }
+      if (stopping) {
+        throw new ApiRequestError("Die API wird beendet und nimmt keine neuen Auftraege an.", 409, "api-stopping");
       }
       const running = inFlightSnapshot();
       if (running) {

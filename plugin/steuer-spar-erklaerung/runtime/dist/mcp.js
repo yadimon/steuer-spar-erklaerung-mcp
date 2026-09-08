@@ -5503,6 +5503,42 @@ var init_mcp_schemas_ui = __esm({
   }
 });
 
+// src/mcp-schemas-api-control.ts
+function parseApiControlRequest(value) {
+  return validatedRequest.parse(value);
+}
+var SSE_MCP_API_CONTROL_SCHEMAS, validatedRequest, SSE_MCP_API_CONTROL_OUTPUT_SCHEMA;
+var init_mcp_schemas_api_control = __esm({
+  "src/mcp-schemas-api-control.ts"() {
+    "use strict";
+    init_zod();
+    SSE_MCP_API_CONTROL_SCHEMAS = {
+      sse_api_control: external_exports.object({
+        action: external_exports.enum(["status", "shutdown", "start"]).describe("Status lesen, API stoppen oder ausdruecklich erneut starten."),
+        confirm: external_exports.literal(true).optional().describe("Fuer shutdown/start ausdruecklich true; bei status weglassen."),
+        instanceId: external_exports.string().uuid().optional().describe("Fuer shutdown/start die zuletzt gelesene gebundene API-Instanz; bei status weglassen.")
+      }).strict()
+    };
+    validatedRequest = SSE_MCP_API_CONTROL_SCHEMAS.sse_api_control.superRefine((value, context) => {
+      if (value.action === "status") {
+        if (value.confirm !== void 0 || value.instanceId !== void 0) {
+          context.addIssue({ code: external_exports.ZodIssueCode.custom, message: "status akzeptiert ausschliesslich action." });
+        }
+      } else if (value.confirm !== true || !value.instanceId) {
+        context.addIssue({ code: external_exports.ZodIssueCode.custom, message: "shutdown und start verlangen confirm=true und die zuletzt gelesene instanceId." });
+      }
+    });
+    SSE_MCP_API_CONTROL_OUTPUT_SCHEMA = external_exports.object({
+      ok: external_exports.boolean(),
+      state: external_exports.enum(["running", "stopping", "stopped", "starting", "unknown"]).optional(),
+      instanceId: external_exports.string().uuid().optional(),
+      processId: external_exports.number().int().positive().optional(),
+      accepted: external_exports.boolean().nullable().optional(),
+      processExited: external_exports.boolean().optional()
+    }).passthrough();
+  }
+});
+
 // src/mcp-operation-schemas.ts
 var SSE_MCP_TOOL_SCHEMAS;
 var init_mcp_operation_schemas = __esm({
@@ -5515,6 +5551,7 @@ var init_mcp_operation_schemas = __esm({
     init_mcp_schemas_lifecycle();
     init_mcp_schemas_receipts();
     init_mcp_schemas_ui();
+    init_mcp_schemas_api_control();
     SSE_MCP_TOOL_SCHEMAS = {
       ...SSE_MCP_DIAGNOSTIC_SCHEMAS,
       ...SSE_MCP_ANALYSIS_SCHEMAS,
@@ -5522,7 +5559,8 @@ var init_mcp_operation_schemas = __esm({
       ...SSE_MCP_UI_SCHEMAS,
       ...SSE_MCP_RECEIPT_SCHEMAS,
       ...SSE_MCP_INTERACTION_SCHEMAS,
-      ...SSE_MCP_LIFECYCLE_SCHEMAS
+      ...SSE_MCP_LIFECYCLE_SCHEMAS,
+      ...SSE_MCP_API_CONTROL_SCHEMAS
     };
   }
 });
@@ -7540,9 +7578,12 @@ var init_api_supervisor_contract = __esm({
 var api_client_exports = {};
 __export(api_client_exports, {
   ApiClientError: () => ApiClientError,
+  apiResponseError: () => apiResponseError,
   asArray: () => asArray,
   callApiOperation: () => callApiOperation,
   callApiOperationEnvelope: () => callApiOperationEnvelope,
+  clientSettings: () => clientSettings,
+  hasValidErrorEnvelope: () => hasValidErrorEnvelope,
   readApiDiscovery: () => readApiDiscovery,
   readApiHealthz: () => readApiHealthz,
   readApiJsonResponse: () => readApiJsonResponse,
@@ -7782,7 +7823,8 @@ async function readOpenApiDocument(options = {}) {
   const schemas = isRecord(components.schemas) ? components.schemas : {};
   const operationPaths = SSE_API_OPERATIONS.map((operation) => `/${SSE_API_VERSION}/operations/${operation}`);
   const metadataPaths = ["/healthz", `/${SSE_API_VERSION}/operations`, `/${SSE_API_VERSION}/openapi.json`];
-  const exactPaths = Object.keys(paths).length === operationPaths.length + metadataPaths.length && operationPaths.every((path) => {
+  const control = paths[`/${SSE_API_VERSION}/control/shutdown`];
+  const exactPaths = Object.keys(paths).length === operationPaths.length + metadataPaths.length + 1 && isRecord(control) && isRecord(control.post) && !Object.hasOwn(control, "get") && operationPaths.every((path) => {
     const pathItem = paths[path];
     return isRecord(pathItem) && isRecord(pathItem.get) && isRecord(pathItem.post);
   }) && metadataPaths.every((path) => {
@@ -8131,6 +8173,81 @@ var init_api_config_file = __esm({
   }
 });
 
+// src/api-control-contract.ts
+var SSE_API_SHUTDOWN_PATH, API_SHUTDOWN_REQUEST_SCHEMA;
+var init_api_control_contract = __esm({
+  "src/api-control-contract.ts"() {
+    "use strict";
+    init_zod();
+    init_api_contract();
+    SSE_API_SHUTDOWN_PATH = `/${SSE_API_VERSION}/control/shutdown`;
+    API_SHUTDOWN_REQUEST_SCHEMA = external_exports.object({
+      confirm: external_exports.literal(true),
+      instanceId: external_exports.string().uuid()
+    }).strict();
+  }
+});
+
+// src/api-control-client.ts
+function isRecord2(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+async function requestApiShutdown(request2, options = {}) {
+  const parsed = API_SHUTDOWN_REQUEST_SCHEMA.safeParse(request2);
+  if (!parsed.success) throw new ApiClientError("Shutdown verlangt confirm=true und die exakte instanceId.", "bad-args");
+  const settings = clientSettings(options);
+  if (settings.expectedInstanceId !== request2.instanceId) {
+    throw new ApiClientError("Shutdown verlangt dieselbe Instanzkennung aus der vorherigen Health-Bindung.", "api-instance-mismatch");
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5e3);
+  try {
+    const { response, payload } = await withCombinedAbortSignal([controller.signal, settings.signal], async (signal) => {
+      const response2 = await settings.fetchImpl(`${settings.baseUrl}${SSE_API_SHUTDOWN_PATH}`, {
+        method: "POST",
+        redirect: "error",
+        signal,
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json",
+          [SSE_API_INSTANCE_HEADER]: request2.instanceId
+        },
+        body: JSON.stringify(parsed.data)
+      });
+      return { response: response2, payload: await readApiJsonResponse(response2, 16 * 1024) };
+    });
+    if (!isRecord2(payload)) throw new ApiClientError("Shutdown-Antwort ist kein JSON-Objekt.", "protocol");
+    if (!response.ok) {
+      if (!hasValidErrorEnvelope(payload)) throw new ApiClientError("Shutdown-Fehlerantwort ist nicht eindeutig.", "protocol");
+      throw apiResponseError(payload, response.status);
+    }
+    if (response.status !== 202 || payload.apiVersion !== SSE_API_VERSION || typeof payload.requestId !== "string" || !UUID_V42.test(payload.requestId) || payload.accepted !== true || payload.instanceId !== request2.instanceId || !Number.isSafeInteger(payload.processId) || Number(payload.processId) < 1 || Number(payload.processId) > 4294967295 || payload.processExited !== false) {
+      throw new ApiClientError("Shutdown-Antwort bestaetigt keine gebundene Annahme.", "protocol");
+    }
+    return payload;
+  } catch (error2) {
+    if (error2 instanceof ApiClientError) throw error2;
+    throw new ApiClientError(
+      "Shutdown-Antwort fehlt. Ob der Stopp angenommen wurde, ist unbekannt; keinen erneuten Stopp senden und keinen Ersatzprozess starten.",
+      "shutdown-unknown"
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+}
+var UUID_V42;
+var init_api_control_client = __esm({
+  "src/api-control-client.ts"() {
+    "use strict";
+    init_api_contract();
+    init_api_control_contract();
+    init_api_client();
+    init_api_supervisor_contract();
+    init_abort();
+    UUID_V42 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  }
+});
+
 // src/configuration-fingerprint.ts
 import { createHash } from "node:crypto";
 import { resolve as resolve2 } from "node:path";
@@ -8160,6 +8277,7 @@ var init_configuration_fingerprint = __esm({
 var mcp_api_supervisor_exports = {};
 __export(mcp_api_supervisor_exports, {
   assertApiSingletonIdentity: () => assertApiSingletonIdentity,
+  controlApiSingleton: () => controlApiSingleton,
   ensureApiSingleton: () => ensureApiSingleton
 });
 import { spawn } from "node:child_process";
@@ -8168,6 +8286,7 @@ import { createRequire } from "node:module";
 import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname as dirname2, isAbsolute as isAbsolute2, relative, resolve as resolve3 } from "node:path";
 import { fileURLToPath } from "node:url";
+import { performance } from "node:perf_hooks";
 function loopbackBaseUrl(raw) {
   let parsed;
   try {
@@ -8393,19 +8512,27 @@ function startApiDependency(endpoint) {
     didExit = true;
   });
   child.unref();
-  return { exited: () => didExit, spawnError: () => startError };
+  return { pid: child.pid, exited: () => didExit, spawnError: () => startError };
 }
 function delay(ms) {
   return new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
 }
-async function ensureApiSingletonInner() {
-  const endpoint = configuredEndpoint(process.env);
+function assertApiRunningIntent() {
+  if (controlState !== "running") {
+    throw new ApiClientError(
+      "Die API ist absichtlich gestoppt oder ihr Lebenszyklus noch ungeklärt. Mit sse_api_control den Status lesen; ein Neustart braucht einen eigenen Auftrag.",
+      controlState === "stopped" ? "api-stopped" : "api-lifecycle-pending"
+    );
+  }
+}
+async function ensureApiSingletonInner(endpoint = configuredEndpoint(process.env), restarting = false) {
   const initial = await probe(
     endpoint.baseUrl,
     INITIAL_PROBE_TIMEOUT_MS,
     endpoint.expectedConfigurationFingerprint
   );
   if (initial.state === "compatible") {
+    if (restarting) throw new ApiClientError("Am Endpunkt laeuft bereits eine andere API; sie wird nicht uebernommen oder beendet.", "api-replaced");
     activeEndpoint = endpoint;
     activeProcessId = initial.health.processId;
     activeInstanceId = initial.health.instanceId;
@@ -8419,8 +8546,12 @@ async function ensureApiSingletonInner() {
     );
   }
   const started = startApiDependency(endpoint);
-  const deadline = Date.now() + READINESS_TIMEOUT_MS;
-  while (Date.now() < deadline) {
+  activeChild = started;
+  activeEndpoint = endpoint;
+  activeProcessId = started.pid;
+  activeInstanceId = void 0;
+  const deadline = performance.now() + READINESS_TIMEOUT_MS;
+  while (performance.now() < deadline) {
     const startError = started.spawnError();
     if (startError) throw new Error("Die installierte API-Dependency konnte nicht gestartet werden.");
     const current = await probe(
@@ -8429,6 +8560,9 @@ async function ensureApiSingletonInner() {
       endpoint.expectedConfigurationFingerprint
     );
     if (current.state === "compatible") {
+      if (restarting && current.health.processId !== started.pid) {
+        throw new ApiClientError("Die antwortende API gehoert nicht zum ausdruecklich gestarteten Prozess.", "api-replaced");
+      }
       activeEndpoint = endpoint;
       activeProcessId = current.health.processId;
       activeInstanceId = current.health.instanceId;
@@ -8443,10 +8577,12 @@ async function ensureApiSingletonInner() {
   );
 }
 function ensureApiSingleton() {
+  assertApiRunningIntent();
   ensurePromise ??= ensureApiSingletonInner();
   return ensurePromise;
 }
 async function assertApiSingletonIdentity() {
+  assertApiRunningIntent();
   const endpoint = activeEndpoint;
   if (!endpoint) return ensureApiSingleton();
   let current = await probe(
@@ -8461,6 +8597,7 @@ async function assertApiSingletonIdentity() {
       endpoint.expectedConfigurationFingerprint
     );
   }
+  assertApiRunningIntent();
   if (current.state === "compatible") {
     if (activeProcessId !== void 0 && current.health.processId !== activeProcessId) {
       throw new ApiClientError(
@@ -8478,12 +8615,145 @@ async function assertApiSingletonIdentity() {
   }
   throw current.error;
 }
-var MAX_API_MANIFEST_BYTES, MAX_PLUGIN_RUNTIME_LOCK_BYTES, INITIAL_PROBE_TIMEOUT_MS, READINESS_PROBE_TIMEOUT_MS, READINESS_TIMEOUT_MS, READINESS_POLL_MS, API_BIN_NAME, ensurePromise, activeEndpoint, activeProcessId, activeInstanceId;
+function boundProcessExited() {
+  if (activeProcessId === void 0) return false;
+  if (activeChild && activeChild.pid === activeProcessId && activeChild.exited()) return true;
+  try {
+    process.kill(activeProcessId, 0);
+    return false;
+  } catch (error2) {
+    if (error2.code === "ESRCH") return true;
+    throw new ApiClientError("Das Ende des gebundenen API-Prozesses ist nicht sicher pruefbar.", "shutdown-unknown");
+  }
+}
+function controlSnapshot(ok = true, detail = {}) {
+  return {
+    ok,
+    state: controlState,
+    ...activeInstanceId ? { instanceId: activeInstanceId } : {},
+    ...activeProcessId !== void 0 ? { processId: activeProcessId } : {},
+    accepted: shutdownAccepted,
+    processExited: controlState === "stopped",
+    ...detail
+  };
+}
+async function controlStatus() {
+  if (controlBusy) return controlSnapshot();
+  if (controlState === "running") {
+    await assertApiSingletonIdentity();
+    return controlSnapshot();
+  }
+  if (boundProcessExited()) {
+    controlState = "stopped";
+    pendingRestart = false;
+    return controlSnapshot();
+  }
+  if (pendingRestart && activeEndpoint && activeChild && activeChild.pid === activeProcessId) {
+    const observed = await probe(activeEndpoint.baseUrl, INITIAL_PROBE_TIMEOUT_MS, activeEndpoint.expectedConfigurationFingerprint);
+    if (observed.state === "compatible" && observed.health.processId === activeChild.pid) {
+      activeInstanceId = observed.health.instanceId;
+      controlState = "running";
+      pendingRestart = false;
+      shutdownAccepted = null;
+      ensurePromise = Promise.resolve(observed.health);
+    }
+  }
+  return controlSnapshot();
+}
+async function controlApiSingleton(request2) {
+  if (!["status", "shutdown", "start"].includes(request2.action)) {
+    throw new ApiClientError("Unbekannte API-Lebenszyklusaktion.", "bad-args");
+  }
+  if (request2.action === "status") return controlStatus();
+  if (request2.confirm !== true || !request2.instanceId || request2.instanceId !== activeInstanceId) {
+    throw new ApiClientError("API-Steuerung verlangt confirm=true und die zuletzt gelesene exakte instanceId.", "api-instance-mismatch");
+  }
+  if (controlBusy) throw new ApiClientError("Eine API-Lebenszyklusaktion laeuft bereits.", "busy");
+  controlBusy = true;
+  try {
+    if (request2.action === "start") {
+      if (controlState !== "stopped" || !boundProcessExited()) {
+        throw new ApiClientError("Neustart verlangt das nachgewiesene Ende der zuvor gebundenen API.", "api-lifecycle-pending");
+      }
+      const endpoint = activeEndpoint;
+      if (!endpoint?.configPath || endpoint.explicitUrl) {
+        throw new ApiClientError(
+          "Die API wurde nur ueber SSE_API_URL gebunden; ihre Startkonfiguration ist unbekannt. API mit ihrer urspruenglichen Konfiguration manuell starten.",
+          "api-start-unavailable"
+        );
+      }
+      const current = endpointFromConfig(endpoint.configPath);
+      if (current.baseUrl !== endpoint.baseUrl || current.expectedConfigurationFingerprint !== endpoint.expectedConfigurationFingerprint) {
+        throw new ApiClientError("Die urspruengliche API-Konfiguration wurde geaendert; kein automatischer Wechsel beim Neustart.", "api-configuration-changed");
+      }
+      controlState = "starting";
+      pendingRestart = true;
+      try {
+        ensurePromise = ensureApiSingletonInner(endpoint, true);
+        await ensurePromise;
+        controlState = "running";
+        pendingRestart = false;
+        shutdownAccepted = null;
+        return controlSnapshot();
+      } catch (error2) {
+        controlState = "unknown";
+        throw error2;
+      }
+    }
+    assertApiRunningIntent();
+    const health = await assertApiSingletonIdentity();
+    if (health.instanceId !== request2.instanceId) {
+      throw new ApiClientError("API-Instanz hat sich vor dem Stopp geaendert.", "api-instance-mismatch");
+    }
+    controlState = "stopping";
+    shutdownAccepted = null;
+    try {
+      const accepted = await requestApiShutdown({ confirm: true, instanceId: health.instanceId }, {
+        baseUrl: activeEndpoint.baseUrl,
+        expectedInstanceId: health.instanceId
+      });
+      if (accepted.processId !== health.processId) {
+        throw new ApiClientError("Shutdown-Annahme meldet einen anderen API-Prozess.", "protocol");
+      }
+      shutdownAccepted = true;
+    } catch (error2) {
+      const rejected = error2 instanceof ApiClientError && [
+        "busy",
+        "api-instance-mismatch",
+        "bad-request",
+        "shutdown-unavailable",
+        "forbidden",
+        "unsupported-media-type",
+        "method-not-allowed",
+        "not-found"
+      ].includes(error2.kind);
+      controlState = rejected ? "running" : "unknown";
+      shutdownAccepted = rejected ? false : null;
+      return controlSnapshot(false, {
+        kind: error2 instanceof ApiClientError ? error2.kind : "shutdown-unknown",
+        error: error2 instanceof Error ? error2.message : "Shutdown-Ausgang ist unbekannt."
+      });
+    }
+    const deadline = performance.now() + 1e4;
+    while (performance.now() < deadline) {
+      if (boundProcessExited()) {
+        controlState = "stopped";
+        return controlSnapshot();
+      }
+      await delay(100);
+    }
+    return controlSnapshot(false, { kind: "shutdown-pending", error: "Stopp angenommen; Prozessende noch nicht nachgewiesen. Status lesen." });
+  } finally {
+    controlBusy = false;
+  }
+}
+var MAX_API_MANIFEST_BYTES, MAX_PLUGIN_RUNTIME_LOCK_BYTES, INITIAL_PROBE_TIMEOUT_MS, READINESS_PROBE_TIMEOUT_MS, READINESS_TIMEOUT_MS, READINESS_POLL_MS, API_BIN_NAME, ensurePromise, activeEndpoint, activeProcessId, activeInstanceId, activeChild, controlState, controlBusy, pendingRestart, shutdownAccepted;
 var init_mcp_api_supervisor = __esm({
   "src/mcp-api-supervisor.ts"() {
     "use strict";
     init_api_config_file();
     init_api_client();
+    init_api_control_client();
     init_version();
     init_configuration_fingerprint();
     init_api_supervisor_contract();
@@ -8494,6 +8764,10 @@ var init_mcp_api_supervisor = __esm({
     READINESS_TIMEOUT_MS = 15e3;
     READINESS_POLL_MS = 100;
     API_BIN_NAME = "steuer-spar-erklaerung-api";
+    controlState = "running";
+    controlBusy = false;
+    pendingRestart = false;
+    shutdownAccepted = null;
   }
 });
 
@@ -25321,12 +25595,12 @@ var init_server2 = __esm({
         const method = methodValue;
         if (method === "tools/call") {
           const wrappedHandler = async (request2, extra) => {
-            const validatedRequest = safeParse2(CallToolRequestSchema, request2);
-            if (!validatedRequest.success) {
-              const errorMessage = validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
+            const validatedRequest2 = safeParse2(CallToolRequestSchema, request2);
+            if (!validatedRequest2.success) {
+              const errorMessage = validatedRequest2.error instanceof Error ? validatedRequest2.error.message : String(validatedRequest2.error);
               throw new McpError(ErrorCode.InvalidParams, `Invalid tools/call request: ${errorMessage}`);
             }
-            const { params } = validatedRequest.data;
+            const { params } = validatedRequest2.data;
             const result = await Promise.resolve(handler(request2, extra));
             if (params.task) {
               const taskValidationResult = safeParse2(CreateTaskResultSchema, result);
@@ -28961,6 +29235,40 @@ var init_mcp_tools_ui = __esm({
   }
 });
 
+// src/mcp-tools-api-control.ts
+function registerApiControlTools(server) {
+  const schema = SSE_MCP_API_CONTROL_SCHEMAS.sse_api_control;
+  server.registerTool("sse_api_control", {
+    title: "Lokale API steuern",
+    description: "Liest den API-Status oder beendet die gebundene, auftragsfreie API und startet sie auf ausdruecklichen Auftrag erneut. shutdown/start verlangen confirm=true und die instanceId aus status. Annahme und Prozessende werden getrennt gemeldet. SSE und Steuerfaelle bleiben offen; MCP bleibt erreichbar. Nach Stopp kein stiller Neustart. start verwendet ausschliesslich die unveraenderte urspruengliche API-Konfiguration; bei reiner SSE_API_URL ist kein Start moeglich.",
+    inputSchema: schema,
+    outputSchema: SSE_MCP_API_CONTROL_OUTPUT_SCHEMA,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
+  }, async (raw) => {
+    try {
+      const args = parseApiControlRequest(raw);
+      const request2 = args.action === "status" ? { action: "status" } : { action: args.action, confirm: true, instanceId: args.instanceId };
+      const result = await controlApiSingleton(request2);
+      return result.ok === false ? apiErrorResult("api_control", result) : apiSuccessResult(result, result);
+    } catch (error2) {
+      return apiErrorResult("api_control", {
+        ok: false,
+        kind: error2 instanceof ApiClientError ? error2.kind : "bad-args",
+        error: error2 instanceof Error ? error2.message : "API-Steuerung fehlgeschlagen."
+      });
+    }
+  });
+}
+var init_mcp_tools_api_control = __esm({
+  "src/mcp-tools-api-control.ts"() {
+    "use strict";
+    init_api_client_error();
+    init_mcp_api_supervisor();
+    init_mcp_response();
+    init_mcp_schemas_api_control();
+  }
+});
+
 // src/mcp-tools.ts
 var mcp_tools_exports = {};
 __export(mcp_tools_exports, {
@@ -28975,6 +29283,7 @@ function registerSseTools(server) {
   registerReceiptTools(registry2);
   registerInteractionTools(registry2);
   registerLifecycleTools(registry2);
+  registerApiControlTools(server);
   return registry2;
 }
 var init_mcp_tools = __esm({
@@ -28988,6 +29297,7 @@ var init_mcp_tools = __esm({
     init_mcp_tools_lifecycle();
     init_mcp_tools_receipts();
     init_mcp_tools_ui();
+    init_mcp_tools_api_control();
   }
 });
 

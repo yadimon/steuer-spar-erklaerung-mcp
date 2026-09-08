@@ -20,6 +20,7 @@ import {
 } from "./suite-runner.mjs";
 
 const expectedNames = [
+  "api-control-shutdown", "api-control-runtime", "mcp-api-control",
   "api-monotonic-timing", "foreground-reporting-contract", "table-read-obstruction",
   "table-delete-name",
   "position-create",
@@ -72,7 +73,7 @@ assert.deepEqual(externalLiveOperations, [
   "vast_row_set_expanded",
 ], "Nur BelegManager, instances und VaSt duerfen auf den privaten abgeschotteten Nachweis angewiesen sein.");
 assert.deepEqual(exclusiveSteps.map((step) => step.name), [
-  "worker-controller-lock", "mcp-api-supervisor", "agent-plugin-runtime", "no-console-window",
+  "worker-controller-lock", "mcp-api-supervisor", "api-control-runtime", "mcp-api-control", "agent-plugin-runtime", "no-console-window",
 ]);
 assert.equal(exclusiveSteps[0].timeoutMs, 420_000);
 const controllerConflictSteps = parallelSteps.filter((step) => step.conflictKey !== undefined);

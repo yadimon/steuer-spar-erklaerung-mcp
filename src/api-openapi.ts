@@ -6,6 +6,7 @@ import {
 } from "./api-contract.js";
 import { SSE_API_DISCOVERY } from "./api-discovery.js";
 import { SSE_API_PACKAGE_NAME, SSE_PACKAGE_VERSION } from "./version.js";
+import { SSE_API_SHUTDOWN_PATH } from "./api-control-contract.js";
 
 const schemaName = (operation: SseApiOperation): string => `Args_${operation}`;
 const resultSchemaName = (operation: SseApiOperation): string => `Result_${operation}`;
@@ -121,7 +122,7 @@ const operationPaths = Object.freeze(Object.fromEntries(
           },
           responses: {
             "200": {
-              description: "Strukturiertes lokales Operationsergebnis",
+              description: "Operationsergebnis",
               content: {
                 "application/json": {
                   schema: {
@@ -166,6 +167,42 @@ export const SSE_OPENAPI_DOCUMENT = Object.freeze({
   },
   servers: [{ url: "/", description: "Aktueller lokaler API-Server" }],
   paths: Object.freeze({
+    [SSE_API_SHUTDOWN_PATH]: {
+      post: {
+        operationId: "shutdown_api",
+        summary: "Auftragsfreie gebundene API beenden; SSE und Steuerfaelle bleiben offen",
+        tags: ["lifecycle"],
+        parameters: [{
+          name: "x-sse-api-instance-id", in: "header", required: true,
+          schema: { type: "string", format: "uuid" },
+          description: "Exakte instanceId aus /healthz; muss auch im Anfragekoerper stehen.",
+        }],
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: SSE_API_DISCOVERY.controls.shutdown.argumentSchema } },
+        },
+        responses: {
+          "202": {
+            description: "Stopp angenommen. Dies beweist noch kein Prozessende; verlorene Antworten nicht wiederholen.",
+            content: { "application/json": { schema: {
+              type: "object", additionalProperties: false,
+              required: ["apiVersion", "requestId", "accepted", "instanceId", "processId", "processExited"],
+              properties: {
+                apiVersion: { const: SSE_API_VERSION }, requestId: { type: "string", format: "uuid" },
+                accepted: { const: true }, instanceId: { type: "string", format: "uuid" },
+                processId: { type: "integer", minimum: 1, maximum: 4294967295 }, processExited: { const: false },
+              },
+            } } },
+          },
+          "400": { $ref: "#/components/responses/ApiError" },
+          "403": { $ref: "#/components/responses/ApiError" },
+          "409": { $ref: "#/components/responses/ApiError" },
+          "413": { $ref: "#/components/responses/ApiError" },
+          "415": { $ref: "#/components/responses/ApiError" },
+          "503": { $ref: "#/components/responses/ApiError" },
+        },
+      },
+    },
     "/healthz": {
       get: {
         operationId: "healthz",

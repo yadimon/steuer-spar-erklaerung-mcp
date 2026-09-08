@@ -132,6 +132,7 @@ export const parallelSteps = Object.freeze([
   psFile("desktop-launcher", "test/desktop-launcher-contract.ps1"),
   nodeFile("api-contract", "test/api-contract.mjs"),
   nodeFile("api-monotonic-timing", "test/api-monotonic-timing.mjs"),
+  nodeFile("api-control-shutdown", "test/api-control-shutdown.mjs"),
   nodeFile("api-static-documents", "test/api-static-document-cache.mjs"),
   nodeFile("api-client-body-abort", "test/api-client-body-abort.mjs"),
   nodeFile("api-client-transport-timeout", "test/api-client-transport-timeout.mjs"),
@@ -195,6 +196,8 @@ export const parallelSteps = Object.freeze([
 export const exclusiveSteps = Object.freeze([
   { ...nodeFile("worker-controller-lock", "test/worker-controller-lock-contract.mjs"), timeoutMs: 420_000 },
   nodeFile("mcp-api-supervisor", "test/mcp-api-supervisor.mjs"),
+  nodeFile("api-control-runtime", "test/api-control-runtime.mjs"),
+  nodeFile("mcp-api-control", "test/mcp-api-control.mjs"),
   nodeFile("agent-plugin-runtime", "test/agent-plugin-runtime.mjs"),
   withApi("no-console-window", "test/no-console-window.mjs"),
 ]);

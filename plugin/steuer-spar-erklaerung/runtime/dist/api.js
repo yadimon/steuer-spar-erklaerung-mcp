@@ -5935,6 +5935,39 @@ var init_mcp_schemas_ui = __esm({
   }
 });
 
+// src/mcp-schemas-api-control.ts
+var SSE_MCP_API_CONTROL_SCHEMAS, validatedRequest, SSE_MCP_API_CONTROL_OUTPUT_SCHEMA;
+var init_mcp_schemas_api_control = __esm({
+  "src/mcp-schemas-api-control.ts"() {
+    "use strict";
+    init_zod();
+    SSE_MCP_API_CONTROL_SCHEMAS = {
+      sse_api_control: external_exports.object({
+        action: external_exports.enum(["status", "shutdown", "start"]).describe("Status lesen, API stoppen oder ausdruecklich erneut starten."),
+        confirm: external_exports.literal(true).optional().describe("Fuer shutdown/start ausdruecklich true; bei status weglassen."),
+        instanceId: external_exports.string().uuid().optional().describe("Fuer shutdown/start die zuletzt gelesene gebundene API-Instanz; bei status weglassen.")
+      }).strict()
+    };
+    validatedRequest = SSE_MCP_API_CONTROL_SCHEMAS.sse_api_control.superRefine((value, context) => {
+      if (value.action === "status") {
+        if (value.confirm !== void 0 || value.instanceId !== void 0) {
+          context.addIssue({ code: external_exports.ZodIssueCode.custom, message: "status akzeptiert ausschliesslich action." });
+        }
+      } else if (value.confirm !== true || !value.instanceId) {
+        context.addIssue({ code: external_exports.ZodIssueCode.custom, message: "shutdown und start verlangen confirm=true und die zuletzt gelesene instanceId." });
+      }
+    });
+    SSE_MCP_API_CONTROL_OUTPUT_SCHEMA = external_exports.object({
+      ok: external_exports.boolean(),
+      state: external_exports.enum(["running", "stopping", "stopped", "starting", "unknown"]).optional(),
+      instanceId: external_exports.string().uuid().optional(),
+      processId: external_exports.number().int().positive().optional(),
+      accepted: external_exports.boolean().nullable().optional(),
+      processExited: external_exports.boolean().optional()
+    }).passthrough();
+  }
+});
+
 // src/mcp-operation-schemas.ts
 var SSE_MCP_TOOL_SCHEMAS;
 var init_mcp_operation_schemas = __esm({
@@ -5947,6 +5980,7 @@ var init_mcp_operation_schemas = __esm({
     init_mcp_schemas_lifecycle();
     init_mcp_schemas_receipts();
     init_mcp_schemas_ui();
+    init_mcp_schemas_api_control();
     SSE_MCP_TOOL_SCHEMAS = {
       ...SSE_MCP_DIAGNOSTIC_SCHEMAS,
       ...SSE_MCP_ANALYSIS_SCHEMAS,
@@ -5954,7 +5988,8 @@ var init_mcp_operation_schemas = __esm({
       ...SSE_MCP_UI_SCHEMAS,
       ...SSE_MCP_RECEIPT_SCHEMAS,
       ...SSE_MCP_INTERACTION_SCHEMAS,
-      ...SSE_MCP_LIFECYCLE_SCHEMAS
+      ...SSE_MCP_LIFECYCLE_SCHEMAS,
+      ...SSE_MCP_API_CONTROL_SCHEMAS
     };
   }
 });
@@ -6159,7 +6194,7 @@ function formatOperationArgumentError(error, operation) {
   if (!erlaubt.length) return message;
   return `${message.replace(/\.$/u, "")}. Erlaubt sind: ${erlaubt.join(", ")}`;
 }
-var SSE_MCP_COMPOSED_TOOL_OPERATIONS, SSE_MCP_TOOL_OPERATIONS, RESOURCE_AREA, API_TEXT_WRITE_AREA, API_LOCAL_PATH, schemasByOperation, checkerReadOnlyClickSchema, SSE_API_OPERATION_SCHEMAS, MAX_API_ARGUMENT_STRING_BYTES, MAX_API_ARGUMENT_COLLECTION_ITEMS, MAX_API_ARGUMENT_DEPTH, MAX_API_ARGUMENT_NODES;
+var SSE_MCP_COMPOSED_TOOL_OPERATIONS, SSE_MCP_CONTROL_TOOL_ACTIONS, SSE_MCP_TOOL_OPERATIONS, RESOURCE_AREA, API_TEXT_WRITE_AREA, API_LOCAL_PATH, schemasByOperation, checkerReadOnlyClickSchema, SSE_API_OPERATION_SCHEMAS, MAX_API_ARGUMENT_STRING_BYTES, MAX_API_ARGUMENT_COLLECTION_ITEMS, MAX_API_ARGUMENT_DEPTH, MAX_API_ARGUMENT_NODES;
 var init_operation_catalog = __esm({
   "src/operation-catalog.ts"() {
     "use strict";
@@ -6173,6 +6208,9 @@ var init_operation_catalog = __esm({
     init_mcp_operation_schemas();
     SSE_MCP_COMPOSED_TOOL_OPERATIONS = {
       "sse_preflight": ["workspace_status", "product_info", "health"]
+    };
+    SSE_MCP_CONTROL_TOOL_ACTIONS = {
+      sse_api_control: ["status", "shutdown", "start"]
     };
     SSE_MCP_TOOL_OPERATIONS = {
       "sse_product_info": "product_info",
@@ -6785,6 +6823,7 @@ var init_capabilities = __esm({
         apiOperations: SSE_API_OPERATIONS,
         mcpToolOperations: SSE_MCP_TOOL_OPERATIONS,
         mcpComposedToolOperations: SSE_MCP_COMPOSED_TOOL_OPERATIONS,
+        mcpControlToolActions: SSE_MCP_CONTROL_TOOL_ACTIONS,
         readOnlyOperations: SSE_READ_ONLY_OPERATIONS,
         statefulOperations: SSE_STATEFUL_OPERATIONS,
         nonDestructiveStatefulOperations: SSE_NON_DESTRUCTIVE_STATEFUL_OPERATIONS,
@@ -15429,6 +15468,21 @@ var init_result_contract = __esm({
   }
 });
 
+// src/api-control-contract.ts
+var SSE_API_SHUTDOWN_PATH, API_SHUTDOWN_REQUEST_SCHEMA;
+var init_api_control_contract = __esm({
+  "src/api-control-contract.ts"() {
+    "use strict";
+    init_zod();
+    init_api_contract();
+    SSE_API_SHUTDOWN_PATH = `/${SSE_API_VERSION}/control/shutdown`;
+    API_SHUTDOWN_REQUEST_SCHEMA = external_exports.object({
+      confirm: external_exports.literal(true),
+      instanceId: external_exports.string().uuid()
+    }).strict();
+  }
+});
+
 // src/api-discovery.ts
 function createArgumentSchemas() {
   return Object.freeze(Object.fromEntries(
@@ -15484,6 +15538,7 @@ var init_api_discovery = __esm({
     init_operation_catalog();
     init_operation_traits();
     init_result_contract();
+    init_api_control_contract();
     SSE_API_DISCOVERY = Object.freeze({
       schemaVersion: 1,
       apiVersion: SSE_API_VERSION,
@@ -15492,6 +15547,17 @@ var init_api_discovery = __esm({
       resultSchemaVersion: SSE_API_RESULT_SCHEMA_VERSION,
       resultSchemas: createResultSchemas(),
       operationTraits: createOperationTraits(),
+      controls: Object.freeze({
+        shutdown: Object.freeze({
+          method: "POST",
+          path: SSE_API_SHUTDOWN_PATH,
+          instanceHeader: "x-sse-api-instance-id",
+          idleOnly: true,
+          acceptanceStatus: 202,
+          acceptanceProvesProcessExit: false,
+          argumentSchema: zodToJsonSchema(API_SHUTDOWN_REQUEST_SCHEMA, { target: "jsonSchema7", $refStrategy: "none" })
+        })
+      }),
       planning: Object.freeze({
         fallbackStages: SSE_CAPABILITIES.fallbackStages,
         selectors: SSE_CAPABILITIES.selectors,
@@ -15535,6 +15601,7 @@ var init_api_openapi = __esm({
     init_api_contract();
     init_api_discovery();
     init_version();
+    init_api_control_contract();
     schemaName = (operation) => `Args_${operation}`;
     resultSchemaName = (operation) => `Result_${operation}`;
     argumentComponents = Object.freeze(Object.fromEntries(
@@ -15617,7 +15684,7 @@ var init_api_openapi = __esm({
               },
               responses: {
                 "200": {
-                  description: "Strukturiertes lokales Operationsergebnis",
+                  description: "Operationsergebnis",
                   content: {
                     "application/json": {
                       schema: {
@@ -15657,6 +15724,48 @@ var init_api_openapi = __esm({
       },
       servers: [{ url: "/", description: "Aktueller lokaler API-Server" }],
       paths: Object.freeze({
+        [SSE_API_SHUTDOWN_PATH]: {
+          post: {
+            operationId: "shutdown_api",
+            summary: "Auftragsfreie gebundene API beenden; SSE und Steuerfaelle bleiben offen",
+            tags: ["lifecycle"],
+            parameters: [{
+              name: "x-sse-api-instance-id",
+              in: "header",
+              required: true,
+              schema: { type: "string", format: "uuid" },
+              description: "Exakte instanceId aus /healthz; muss auch im Anfragekoerper stehen."
+            }],
+            requestBody: {
+              required: true,
+              content: { "application/json": { schema: SSE_API_DISCOVERY.controls.shutdown.argumentSchema } }
+            },
+            responses: {
+              "202": {
+                description: "Stopp angenommen. Dies beweist noch kein Prozessende; verlorene Antworten nicht wiederholen.",
+                content: { "application/json": { schema: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["apiVersion", "requestId", "accepted", "instanceId", "processId", "processExited"],
+                  properties: {
+                    apiVersion: { const: SSE_API_VERSION },
+                    requestId: { type: "string", format: "uuid" },
+                    accepted: { const: true },
+                    instanceId: { type: "string", format: "uuid" },
+                    processId: { type: "integer", minimum: 1, maximum: 4294967295 },
+                    processExited: { const: false }
+                  }
+                } } }
+              },
+              "400": { $ref: "#/components/responses/ApiError" },
+              "403": { $ref: "#/components/responses/ApiError" },
+              "409": { $ref: "#/components/responses/ApiError" },
+              "413": { $ref: "#/components/responses/ApiError" },
+              "415": { $ref: "#/components/responses/ApiError" },
+              "503": { $ref: "#/components/responses/ApiError" }
+            }
+          }
+        },
         "/healthz": {
           get: {
             operationId: "healthz",
@@ -16020,10 +16129,11 @@ function parseOperationRequest(value) {
   };
 }
 function createSseApiServer(options) {
-  const { execute } = options;
+  const { execute, requestShutdown } = options;
   const instanceId = options.instanceId ?? randomUUID3();
   const log = options.log ?? (() => void 0);
   let inFlight = null;
+  let stopping = false;
   const inFlightSnapshot = () => {
     if (!inFlight) return null;
     const { startedMonotonic, ...publicState } = inFlight;
@@ -16075,6 +16185,60 @@ function createSseApiServer(options) {
     }
     if (request.method === "GET" && url.pathname === `/${SSE_API_VERSION}/openapi.json`) {
       sendJsonBytes(response, 200, SSE_OPENAPI_BYTES);
+      return;
+    }
+    if (url.pathname === SSE_API_SHUTDOWN_PATH) {
+      if (request.method !== "POST") {
+        sendJson(response, 405, apiError(requestId, "method-not-allowed", "Shutdown verlangt POST."), { allow: "POST" });
+        return;
+      }
+      if (request.headers[SSE_API_INSTANCE_HEADER] !== instanceId) {
+        sendJson(response, 409, apiError(requestId, "api-instance-mismatch", "Shutdown verlangt die exakte API-Instanzkennung."));
+        return;
+      }
+      if (!hasJsonContentType(request)) {
+        sendJson(response, 415, apiError(requestId, "unsupported-media-type", "Shutdown verlangt application/json."));
+        return;
+      }
+      try {
+        const body = API_SHUTDOWN_REQUEST_SCHEMA.parse(await readJson(request));
+        if (body.instanceId !== instanceId) {
+          throw new ApiRequestError("Shutdown-Instanz stimmt nicht mit der laufenden API ueberein.", 409, "api-instance-mismatch");
+        }
+        if (!requestShutdown) {
+          throw new ApiRequestError("Diese API besitzt keinen kontrollierten Shutdown-Pfad.", 503, "shutdown-unavailable");
+        }
+        if (stopping) throw new ApiRequestError("Der API-Stopp wurde bereits angenommen.", 409, "api-stopping");
+        const running = inFlightSnapshot();
+        if (running) {
+          sendJson(response, 409, {
+            ...apiError(requestId, "busy", "Ein Auftrag laeuft; die API wird nicht beendet. Auf dessen Ergebnis warten."),
+            inFlight: running
+          });
+          return;
+        }
+        if (response.destroyed) return;
+        stopping = true;
+        const outcome = sendJson(response, 202, {
+          apiVersion: SSE_API_VERSION,
+          requestId,
+          accepted: true,
+          instanceId,
+          processId: process.pid,
+          processExited: false
+        });
+        safeLog({ event: "shutdown-accepted", requestId, instanceId, delivered: outcome === "sent" });
+        setImmediate(() => {
+          try {
+            requestShutdown();
+          } catch (error) {
+            safeLog({ event: "shutdown-failed", requestId, errorName: error instanceof Error ? error.name : "Error" });
+          }
+        });
+      } catch (error) {
+        const failure = error instanceof ApiRequestError ? error : error instanceof SyntaxError || error instanceof ZodError ? new ApiRequestError("Shutdown verlangt genau confirm=true und eine gueltige instanceId.") : new ApiRequestError("Shutdown-Anfrage konnte nicht sicher gelesen werden.");
+        sendJson(response, failure.status, apiError(requestId, failure.code, failure.message));
+      }
       return;
     }
     const match = new RegExp(`^/${SSE_API_VERSION}/operations/([a-z_]+)$`).exec(url.pathname);
@@ -16141,6 +16305,9 @@ function createSseApiServer(options) {
           throw new ApiRequestError(formatOperationArgumentError(error, operationName), 400, "bad-args");
         }
         throw error;
+      }
+      if (stopping) {
+        throw new ApiRequestError("Die API wird beendet und nimmt keine neuen Auftraege an.", 409, "api-stopping");
       }
       const running = inFlightSnapshot();
       if (running) {
@@ -16277,6 +16444,7 @@ var init_api_server = __esm({
     init_result_contract();
     init_version();
     init_api_supervisor_contract();
+    init_api_control_contract();
     SSE_API_DISCOVERY_BYTES = serializeStaticApiDocument("API-Discovery", SSE_API_DISCOVERY);
     SSE_OPENAPI_BYTES = serializeStaticApiDocument("OpenAPI-Dokument", SSE_OPENAPI_DOCUMENT);
     ApiRequestError = class extends Error {
@@ -17334,13 +17502,15 @@ async function runApiRuntime(configPath, overrides = {}) {
   const logPath = join14(logDir, "api.jsonl");
   const maxLogBytes = 5 * 1024 * 1024;
   const { log } = createRotatingJsonlLogger({ logPath, maxBytes: maxLogBytes });
+  let lifecycle;
   const server = createSseApiServer({
     execute,
     log,
+    requestShutdown: () => lifecycle.requestShutdown(),
     configurationFingerprint: configIdentity,
     prewarmStatus: () => ({ ready: isWarmSpareReady(), failure: lastPrewarmFailure(), poolTarget: warmSparePoolStatus().target })
   });
-  installApiShutdown(server, shutdown, log);
+  lifecycle = installApiShutdown(server, shutdown, log);
   await listenSseApiServer(server, config.host, config.port);
   shutdown.signal.addEventListener("abort", shutdownWarmSpare, { once: true });
   enableWorkerPrewarm();

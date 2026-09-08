@@ -777,9 +777,13 @@ die API-Arbeitsdaten. Ohne ihn gilt der private Standard unter
 Der gebündelte MCP bleibt PC-blind. Sein Supervisor übernimmt eine vorhandene
 API nur bei exakt passender Identität und Ressourcenbindung oder startet die
 mitgelieferte API unsichtbar. Der Singleton darf über das Ende eines Clients
-hinaus weiterlaufen. Bewusster Shutdown ist nur nach Paket-, Versions- und
-Kommandozeilenprüfung der exakten Health-PID zulässig; Prozessname-Sweeps sind
-kein Teil der Architektur.
+hinaus weiterlaufen. `sse_api_control` bindet den bewussten Shutdown an Paket,
+Version, Konfiguration und exakte Health-Instanz. Die API nimmt den Auftrag
+nur ohne laufende Operation an und beendet sich selbst; der Supervisor prüft
+anschließend das Ende des gebundenen Prozesses. Prozessname-Sweeps sind kein
+Teil der Architektur. Nach einem absichtlichen Stopp bleibt MCP erreichbar,
+startet die API aber erst auf einen eigenen, konfigurationsgebundenen Auftrag
+erneut. Ein verlorener Antwortkanal bleibt als unbekannter Ausgang gesperrt.
 
 `SSE_API_URL` benennt eine autoritative separat verwaltete Loopback-API und
 verhindert jeden Autostart. `SSE_API_CONFIG` benennt dagegen einen absoluten

@@ -340,7 +340,7 @@ try {
   assert.equal(openApiResponse.status, 200);
   const openApi = await openApiResponse.json();
   assert.equal(openApi.openapi, "3.1.0");
-  assert.equal(Object.keys(openApi.paths).length, SSE_API_OPERATIONS.length + 3);
+  assert.equal(Object.keys(openApi.paths).length, SSE_API_OPERATIONS.length + 4);
   assert.equal(openApi.security, undefined, "Ohne Anmeldung darf die Beschreibung kein Sicherheitsschema fordern.");
   assert.equal(openApi.components.securitySchemes, undefined);
 
@@ -355,7 +355,17 @@ try {
     (error) => error?.kind === "operation",
   );
   const clientOpenApi = await readOpenApiDocument({ baseUrl });
-  assert.equal(Object.keys(clientOpenApi.paths).length, SSE_API_OPERATIONS.length + 3);
+  assert.equal(Object.keys(clientOpenApi.paths).length, SSE_API_OPERATIONS.length + 4);
+  assert.equal(clientOpenApi.paths["/v1/control/shutdown"].post.operationId, "shutdown_api");
+  for (const invalidControl of [undefined, { get: {} }, { get: {}, post: {} }]) {
+    const paths = { ...clientOpenApi.paths, "/v1/control/shutdown": invalidControl };
+    await assert.rejects(readOpenApiDocument({
+      baseUrl,
+      fetchImpl: async () => new Response(JSON.stringify({ ...clientOpenApi, paths }), {
+        headers: { "content-type": "application/json" },
+      }),
+    }), (error) => error?.kind === "protocol", "Client muss einen fehlenden oder falschen Kontrollpfad ablehnen.");
+  }
 
   await assert.rejects(
     readApiDiscovery({
