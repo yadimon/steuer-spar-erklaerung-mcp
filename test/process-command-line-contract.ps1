@@ -11,6 +11,18 @@ function Assert-True([bool]$Condition, [string]$Message) {
   if (-not $Condition) { throw $Message }
 }
 
+function Assert-NativeCommandLineBatch([int]$ProcessId, [string]$Expected) {
+  foreach ($iteration in 1..500) {
+    Assert-True ([SSEProcessCommandLine]::TryGet($ProcessId).Equals($Expected, [StringComparison]::Ordinal)) `
+      "Native Wiederholungsabfrage $iteration verlor die exakte Kommandozeile."
+  }
+}
+
+function Get-ContractHandleCount([Diagnostics.Process]$Process) {
+  $Process.Refresh()
+  $Process.HandleCount
+}
+
 Assert-True ($load.mode -in @('precompiled-dll', 'source-fallback', 'already-loaded')) `
   "Nativer Interop-Loader meldete einen unbekannten Modus '$($load.mode)'."
 
@@ -37,23 +49,23 @@ try {
   Assert-True ($null -ne $nativeCommandLine) 'Der Native-Pfad konnte den harmlosen Kindprozess nicht lesen.'
   Assert-True ($nativeCommandLine -ceq $cimCommandLine) 'Native- und CIM-Kommandozeile weichen byteinhaltlich ab.'
 
-  # Der erste Batch waermt die Laufzeit auf; der zweite misst danach isoliert,
-  # ob pro Abfrage ein Prozess-Handle liegen bleibt. So beeinflusst einmalige
-  # Runtime-Initialisierung den engen Handle-Grenzwert nicht.
-  $nativeTimer = [Diagnostics.Stopwatch]::StartNew()
-  foreach ($iteration in 1..500) {
-    Assert-True ([SSEProcessCommandLine]::TryGet($child.Id).Equals($cimCommandLine, [StringComparison]::Ordinal)) `
-      "Native Wiederholungsabfrage $iteration verlor die exakte Kommandozeile."
+  # Aufwaermen und Messen verwenden dieselben PowerShell-Aufrufstellen.
+  # Zwei getrennte Schleifen initialisieren getrennte dynamische Binder; auch
+  # eine erstmals aufgerufene Prozessabfrage gehoert nicht in die Messstrecke.
+  $observer = [Diagnostics.Process]::GetCurrentProcess()
+  try {
+    $null = Get-ContractHandleCount $observer
+    $nativeTimer = [Diagnostics.Stopwatch]::StartNew()
+    Assert-NativeCommandLineBatch $child.Id $cimCommandLine
+    $nativeTimer.Stop()
+    $handlesBefore = Get-ContractHandleCount $observer
+    Assert-NativeCommandLineBatch $child.Id $cimCommandLine
+    $handlesAfter = Get-ContractHandleCount $observer
+    Assert-True (($handlesAfter - $handlesBefore) -le 2) `
+      "Native Wiederholungsabfragen liessen Prozess-Handles wachsen ($handlesBefore -> $handlesAfter)."
+  } finally {
+    $observer.Dispose()
   }
-  $nativeTimer.Stop()
-  $handlesBefore = (Get-Process -Id $PID -ErrorAction Stop).HandleCount
-  foreach ($iteration in 1..500) {
-    Assert-True ([SSEProcessCommandLine]::TryGet($child.Id).Equals($cimCommandLine, [StringComparison]::Ordinal)) `
-      "Native Handle-Pruefabfrage $iteration verlor die exakte Kommandozeile."
-  }
-  $handlesAfter = (Get-Process -Id $PID -ErrorAction Stop).HandleCount
-  Assert-True (($handlesAfter - $handlesBefore) -le 2) `
-    "Native Wiederholungsabfragen liessen Prozess-Handles wachsen ($handlesBefore -> $handlesAfter)."
 
   $cimTimer = [Diagnostics.Stopwatch]::StartNew()
   foreach ($iteration in 1..3) {
