@@ -7349,14 +7349,14 @@ async function executeCheckerOpen(args, timeoutMs, signal, worker) {
       Math.min(timeoutMs ?? 3e5, 3e5),
       signal
     );
-    const performance9 = result.performance && typeof result.performance === "object" && !Array.isArray(result.performance) ? result.performance : {};
+    const performance10 = result.performance && typeof result.performance === "object" && !Array.isArray(result.performance) ? result.performance : {};
     return {
       ...result,
       schemaVersion: 1,
       planKind: CHECKER_OPEN_PLAN_KIND,
       resultingState: typeof result.resultingState === "string" ? result.resultingState : result.ok === true ? "detail-verified" : "unknown",
       cleanupRequired: typeof result.cleanupRequired === "boolean" ? result.cleanupRequired : result.ok !== true,
-      performance: { ...performance9, workerProcessCount: 1 },
+      performance: { ...performance10, workerProcessCount: 1 },
       ...result.ok === true ? { kontrollbildEnthalten: typeof result.bildBase64 === "string" && result.bildBase64.length > 0 } : {}
     };
   } catch (error) {
@@ -15912,6 +15912,7 @@ var init_api_supervisor_contract = __esm({
 
 // src/api-server.ts
 import { randomUUID as randomUUID3 } from "node:crypto";
+import { performance as performance9 } from "node:perf_hooks";
 import {
   createServer
 } from "node:http";
@@ -16023,7 +16024,11 @@ function createSseApiServer(options) {
   const instanceId = options.instanceId ?? randomUUID3();
   const log = options.log ?? (() => void 0);
   let inFlight = null;
-  const inFlightSnapshot = (now = Date.now()) => inFlight ? { ...inFlight, elapsedMs: now - inFlight.startedAt } : null;
+  const inFlightSnapshot = () => {
+    if (!inFlight) return null;
+    const { startedMonotonic, ...publicState } = inFlight;
+    return { ...publicState, elapsedMs: Math.round(performance9.now() - startedMonotonic) };
+  };
   const safeLog = (record) => {
     try {
       log(record);
@@ -16032,7 +16037,7 @@ function createSseApiServer(options) {
   };
   const server = createServer(async (request, response) => {
     const requestId = randomUUID3();
-    const started = Date.now();
+    const started = performance9.now();
     const foreignClient = foreignClientReason(request);
     if (foreignClient) {
       sendJson(response, 403, apiError(requestId, "forbidden", foreignClient));
@@ -16149,7 +16154,7 @@ function createSseApiServer(options) {
         });
         return;
       }
-      inFlight = { operation: operationName, requestId, startedAt: Date.now() };
+      inFlight = { operation: operationName, requestId, startedAt: Date.now(), startedMonotonic: performance9.now() };
       let rawResult;
       try {
         rawResult = await execute(operationName, args, body.timeoutMs, controller.signal);
@@ -16178,7 +16183,7 @@ function createSseApiServer(options) {
         apiVersion: SSE_API_VERSION,
         requestId,
         operation: operationName,
-        durationMs: Date.now() - started,
+        durationMs: Math.round(performance9.now() - started),
         result
       };
       const operationLog = {
@@ -16219,7 +16224,7 @@ function createSseApiServer(options) {
         event: "operation-error",
         requestId,
         operation: operationName,
-        durationMs: Date.now() - started,
+        durationMs: Math.round(performance9.now() - started),
         code,
         errorName: error instanceof Error ? error.name : "Error"
       });

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { performance } from "node:perf_hooks";
 import {
   createServer,
   type IncomingMessage,
@@ -250,16 +251,20 @@ export function createSseApiServer(options: SseApiServerOptions): Server {
   const { execute } = options;
   const instanceId = options.instanceId ?? randomUUID();
   const log = options.log ?? (() => undefined);
-  let inFlight: InFlightOperation | null = null;
-  const inFlightSnapshot = (now = Date.now()): (InFlightOperation & { elapsedMs: number }) | null =>
-    inFlight ? { ...inFlight, elapsedMs: now - inFlight.startedAt } : null;
+  let inFlight: (InFlightOperation & { startedMonotonic: number }) | null = null;
+  const inFlightSnapshot = (): (InFlightOperation & { elapsedMs: number }) | null => {
+    if (!inFlight) return null;
+    const { startedMonotonic, ...publicState } = inFlight;
+    return { ...publicState, elapsedMs: Math.round(performance.now() - startedMonotonic) };
+  };
   const safeLog = (record: Record<string, unknown>): void => {
     try { log(record); } catch { /* Diagnose darf niemals API-Antworten verhindern. */ }
   };
 
   const server = createServer(async (request, response) => {
     const requestId = randomUUID();
-    const started = Date.now();
+    // Laufzeiten duerfen sich durch eine Korrektur der Systemuhr nicht aendern.
+    const started = performance.now();
     const foreignClient = foreignClientReason(request);
     if (foreignClient) {
       sendJson(response, 403, apiError(requestId, "forbidden", foreignClient));
@@ -392,7 +397,7 @@ export function createSseApiServer(options: SseApiServerOptions): Server {
         });
         return;
       }
-      inFlight = { operation: operationName, requestId, startedAt: Date.now() };
+      inFlight = { operation: operationName, requestId, startedAt: Date.now(), startedMonotonic: performance.now() };
       let rawResult: WorkerResult;
       try {
         rawResult = await execute(operationName, args, body.timeoutMs, controller.signal);
@@ -422,7 +427,7 @@ export function createSseApiServer(options: SseApiServerOptions): Server {
         apiVersion: SSE_API_VERSION,
         requestId,
         operation: operationName,
-        durationMs: Date.now() - started,
+        durationMs: Math.round(performance.now() - started),
         result,
       };
       const operationLog = {
@@ -467,7 +472,7 @@ export function createSseApiServer(options: SseApiServerOptions): Server {
         event: "operation-error",
         requestId,
         operation: operationName,
-        durationMs: Date.now() - started,
+        durationMs: Math.round(performance.now() - started),
         code,
         errorName: error instanceof Error ? error.name : "Error",
       });
