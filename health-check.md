@@ -47,13 +47,10 @@ Health-Quelle.
 
 Ein Registry-Ausfall ist `BLOCKED`, niemals ein grüner Audit.
 
-**Der Audit-Dienst fällt getrennt von der Registry aus, und er lügt dabei.** In
-einer solchen Phase antwortet `/-/npm/v1/security/advisories/bulk` gar nicht,
-und der ältere Endpunkt liefert HTTP 400 mit „Invalid package tree, run npm
-install to rebuild your package-lock.json". Diese Meldung beschuldigt den
-lokalen Baum, obwohl dieser in Ordnung ist: `npm ci` ändert nichts, und
-derselbe Aufruf läuft nach der Erholung des Dienstes unverändert grün durch.
-Belegt am 2026-09-03/04 über mehrere Stunden.
+Der Audit-Dienst und die Paket-Registry sind getrennte Dienste. Ein Timeout
+oder eine ungültige Antwort des Audit-Endpunkts beweist keinen Fehler im
+lokalen Abhängigkeitsbaum. Einen solchen Lauf als `BLOCKED` behandeln und
+Dienstverfügbarkeit sowie Lockfile getrennt prüfen.
 
 Vor einer Schlussfolgerung deshalb messen, nicht raten: `curl
 https://registry.npmjs.org/-/ping` gegen `curl -X POST

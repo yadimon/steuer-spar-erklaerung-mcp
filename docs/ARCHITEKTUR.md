@@ -311,11 +311,9 @@ Eigenes Programm ── HTTP/JSON ───────────────�
   Auftrag und endet danach; die Prozessisolation wird also nicht aufgeweicht.
   Wie viele es sind, richtet sich nach der Ausstattung des Rechners: vier ab
   24 GiB Arbeitsspeicher und acht Kernen, drei ab 12 GiB und vier Kernen, sonst
-  zwei. Eine wartende Reserve belegt rund 240 MB, deshalb entscheidet die
-  Ausstattung und keine feste Zahl. Der Grund für mehr als zwei ist gemessen:
-  Wer schneller ruft, als der Vorrat nachwächst, startet kalt; in der großen
-  Reise verfehlten mit zwei Reserven 32 von 137 Aufrufen den Reservearbeiter,
-  mit vier nur noch 13, und die Reise verkürzte sich um rund 30 s.
+  zwei. Der Vorrat berücksichtigt den Speicherbedarf wartender Prozesse.
+  Treffen Aufträge schneller ein, als Reserven nachwachsen, benötigt der
+  nächste Auftrag einen Kaltstart.
   `SSE_WORKER_PREWARM_POOL_SIZE` übersteuert das und begrenzt den Vorrat auf 1 bis 4.
 - Ein gesetzter Privatdesktop-Marker wird vor dem Routing in Node und nach der
   Auftragsannahme im Worker weiterhin fail-closed auf Format und Eigentum
@@ -326,12 +324,10 @@ Eigenes Programm ── HTTP/JSON ───────────────�
   Marker-Routingregeln; insbesondere umgehen UI-, Health-, Fenster- und
   Center-Wege diese Grenze nicht. `desktop_start` und `desktop_status` behalten
   ihre bereits dokumentierten Sonderwege.
-- Was dieser Schnitt kostet, ist gemessen und nicht geschätzt. Von der
-  Wanduhrzeit eines Workeraufrufs entfällt **rund die Hälfte allein auf das
-  Übersetzen des über 700 KB großen Workerskripts**; PowerShell-Start,
-  UIA-Assemblies und vorkompilierter Interop kosten zusammen deutlich weniger,
-  der Rest ist die Operation selbst. Die naheliegende Vermutung, die
-  UIA-Schicht sei der Engpass, ist damit widerlegt.
+- Ein frischer Worker benötigt PowerShell-Start, Skriptübersetzung,
+  UIA-Assemblies und Interop-Initialisierung vor der eigentlichen Operation.
+  Diese Phasen lassen sich mit `npm run perf:api-mega` untersuchen; ihre
+  Anteile hängen von Operation, Rechner und Last ab.
 - Reine Datei-/Metadatenoperationen werden nach feldgenauer Parität in den
   API-Prozess gezogen. Für verbleibende UI-Operationen lässt sich dieser Boden
   nur durch eine fachliche Skriptaufteilung senken, sodass ein Aufruf weniger

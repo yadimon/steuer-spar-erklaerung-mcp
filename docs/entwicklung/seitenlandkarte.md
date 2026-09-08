@@ -2,9 +2,9 @@
 
 ## Einkommensteuer
 
-Gemessen am 2026-09-04 an geoeffneten
-Herstellermusterfaellen, SSE `31.0.2.0`. Die Seitenfolge stammt aus einem linearen
-`goto`-Durchlauf, die Bauart aus einem `snapshot` je Seite.
+Die Übersicht beschreibt Herstellermusterfälle in SSE `31.0.2.0`. Zur
+Nachprüfung die Seitenfolge mit `goto` durchlaufen und die Bauart anhand
+eines `snapshot` je Seite bestimmen.
 
 **Wozu:** Wer eine Seite profilieren will, soll nicht raten muessen, ob sich das
 lohnt. Ein Seitenobjekt bringt nur bei einer **Feldseite** etwas.

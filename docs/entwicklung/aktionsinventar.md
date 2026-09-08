@@ -7,19 +7,17 @@ zu versprechen, dass sie geschlossen werden.
 
 ## Herkunft der Daten
 
-Die Menuestruktur ist am 2026-09-03 in der Forschungsumgebung aus dem laufenden
-Programm ausgelesen worden (SSE `31.0.2.0`, Titel `[31.31]`, geoeffneter
-Musterfall `MusterSteuer1.ESt2025`). Jedes Menue wurde ueber UIA aufgeklappt,
-seine Eintraege samt Aktivierungszustand gelesen und wieder geschlossen; es
-wurde kein Eintrag geklickt. Rohdaten: `menu-inventar.json` im Laborordner,
-Job `40-menu-inventar.ps1`; beides liegt ausserhalb von Git.
+Die Menuestruktur beschreibt SSE `31.0.2.0` mit einem geöffneten
+Herstellermusterfall für die Einkommensteuer. Zur Prüfung jedes Menü über
+UIA aufklappen, Einträge samt Aktivierungszustand lesen und wieder schließen,
+ohne einen Eintrag auszulösen.
 
 **7 Menues, 64 Eintraege.** Der Aktivierungszustand gilt fuer genau diesen
 Zustand (Einkommensteuerfall, nichts markiert, nichts geaendert) und ist
 deshalb nur ein Hinweis, keine Zusicherung.
 
-Die Zuordnung zu unseren Operationen ist meine Einschaetzung anhand der
-Operationsliste, nicht gemessen. Wo ich unsicher bin, steht das dabei.
+Die Zuordnung zu den API-Operationen folgt dem Operationskatalog. Sie ersetzt
+keinen Live-Nachweis; unsichere Zuordnungen sind entsprechend gekennzeichnet.
 
 ## Datei
 
