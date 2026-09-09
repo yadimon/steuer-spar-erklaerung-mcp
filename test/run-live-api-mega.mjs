@@ -243,6 +243,8 @@ const report = {
   benchmark: "canonical-live-api-mega-happy-path",
   status: passed ? "passed" : "failed",
   classification,
+  executionBackend: process.env.SSE_TEST_NATIVE_PACKAGE ? "qt-win32-native" : "worker",
+  nativeManifestSha256: process.env.SSE_TEST_NATIVE_MANIFEST_SHA256 ?? null,
   classificationEvidence: {
     requestedCacheState: classification,
     observedRunClass,
