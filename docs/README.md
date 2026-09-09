@@ -20,6 +20,10 @@ aktuelle Installationsanweisung.
   und Evidenzgrenze;
 - [API-Referenz](API-REFERENZ.md) — alle Operationen mit MCP-Werkzeug, Art,
   Build-Drift-Sperre und Verifikationsstand; wird aus den Quellen erzeugt;
+- [Native-Abdeckung](NATIVE-COVERAGE.md) — alle Operationen mit Qt-DLL- und
+  funktionalem Live-Stand; klare Grenze zu noch nicht integrierten Funktionen;
+- [Qt-Lesepfad](NATIVE-QT.md) — separates natives Paket, Konfiguration,
+  Prozessbindung und Prüfungen;
 - [Umsatzsteuer-Voranmeldung](UMSATZSTEUER-VORANMELDUNG.md) — fachlicher und
   technischer UStVA-Ablauf;
 - [Verifikationsstand](VERIFIKATION.md) — was die Suite beweist, was nur ein
@@ -67,5 +71,6 @@ Diese Wege bleiben unterstützt, sind aber nicht der normale Einstieg.
 | Welche Operation ist erreichbar? | laufendes `capabilities.operationPolicy` |
 | Wie wird installiert? | [INSTALLATION.md](INSTALLATION.md) |
 | Was ist live belegt? | `test/operation-coverage.json` |
+| Was ist auf die Qt-DLL umgestellt? | [NATIVE-COVERAGE.md](NATIVE-COVERAGE.md), Dispatch in `src/api-executor.ts` |
 | Welche Tests gehören zum Gate? | `test/suite-plan.mjs` |
 | Wie wird veröffentlicht? | [RELEASE.md](RELEASE.md), npm-Publish-Workflow |

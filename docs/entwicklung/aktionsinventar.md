@@ -114,7 +114,7 @@ Von 64 Menueeintraegen sind **elf** durch eine Operation abgedeckt, **neun**
 teilweise, und **vier** bleiben mit Absicht zu (ELSTER, Freischaltcode,
 Online-Zugang, Fernwartung). Die restlichen rund vierzig sind offen.
 
-Das relativiert die Zahl der hundert Operationen noch einmal anders als die
+Das relativiert die Zahl der 102 Operationen noch einmal anders als die
 Roadmap: Die API ist tief, wo sie etwas kann – Steuerpruefer, BelegManager,
 Tabellen, UStVA sind mit vielen Operationen ausgearbeitet – und vollstaendig
 leer bei ganzen Menues.

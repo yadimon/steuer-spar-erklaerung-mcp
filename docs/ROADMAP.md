@@ -10,7 +10,9 @@ wiederholt sie nicht:
 - **`test/operation-coverage.json`** haelt fest, welche Operation live belegt
   ist und wo die Grenze der Aussage liegt.
 
-Hier steht nur, was sich daraus **nicht** ablesen laesst: die Absicht.
+Die [Native-Matrix](NATIVE-COVERAGE.md) ergänzt den Ausführungsstand jeder
+Operation. Funktionale Live-Abdeckung und Umstellung auf die Qt-DLL sind
+getrennte Zahlen. Hier stehen zusätzlich die Absicht und offene Lücken.
 
 Wer stattdessen eine einzelne Tafel sucht, auf der jede bekannte Faehigkeit mit
 ihrem Stand steht - fertig, teils, offen oder bewusst zu -, findet sie in der
@@ -26,10 +28,17 @@ API-Abdeckung.
 
 102 Operationen sind katalogisiert. 94 davon sind in der Live-Suite belegt,
 sechs nur auf ihrem Fehlerpfad, zwei ohne automatisierten Live-Suiteschritt.
-Dazu gibt es 102 direkte MCP-Werkzeugnamen und ein
-zusammengesetztes fuer den Einstieg, zusammen 103. Sie decken 101 Operationen
+Dazu gibt es 102 direkte MCP-Werkzeugnamen, ein zusammengesetztes für den
+Einstieg und ein API-Lebenszykluswerkzeug, zusammen 104. Die direkten Werkzeuge decken 101 Operationen
 ab: `checker_detail` hat kein eigenes Werkzeug, und `tracked_set_value` traegt
 deren zwei (`sse_change_field`, `sse_change_known_field`).
+
+**Sechs der 102 Operationen**, `get_value`, `table_read`, `snapshot`, `find`, `read_page` und `subpages`, besitzen einen
+direkten optionalen Qt-DLL-Pfad. Die übrigen 96 behalten ihre bestehenden
+Pfade. Dateioperationen brauchen häufig keine DLL in SSE; diese Zahl ist
+deshalb kein gewichteter Fertigstellungsgrad. Der Qt-Pfad verlangt explizite
+Konfiguration und ein separates kompatibles Paket. Öffentliche native
+Schreib-, Navigations- und Speicheroperationen sind noch nicht angeschlossen.
 
 Das ist keine Vollstaendigkeit gegenueber dem Produkt, und die Gesamtzahl ist
 irrefuehrend, wenn man sie allein liest. **Operationen sind Mechanismen, keine
@@ -38,8 +47,9 @@ Flaeche.**
 Wichtig ist, was der Seitenkatalog tatsaechlich absperrt – naemlich sehr wenig.
 Vom gesamten Operationskatalog verlangen genau **zwei** einen Katalogeintrag:
 `fill_fields` (geplante Feldtransaktion mit Rollback) und `known_page_state`
-(Vergleich gegen einen hinterlegten Sollzustand). Alles andere arbeitet auf
-jeder der 672 Seiten:
+(Vergleich gegen einen hinterlegten Sollzustand). Die folgenden generischen
+Mechanismen brauchen keinen Katalogeintrag; damit ist die Bedienbarkeit
+aller 672 Seiten noch nicht nachgewiesen:
 
 - **Lesen** ist durchgehend generisch – `page`, `read_page`, `table_read`,
   `positions`, `collect`, `snapshot`.
@@ -117,8 +127,8 @@ Gewinn-Erfassung. Es gibt genau
 **einen** profilierten fokuslosen Schreibpfad.
 
 Wer also fragt „koennen wir SSE vollstaendig steuern?", bekommt eine
-zweigeteilte Antwort: Die *Reichweite* ist gross – jede Seite ist lesbar, und
-mit sichtbarem Vordergrund auch beschreibbar. Auf einem privaten Desktop
+zweigeteilte Antwort: Die *Reichweite* ist nicht auf katalogisierte Seiten
+beschränkt; jede konkrete Bindung muss trotzdem stimmen. Auf einem privaten Desktop
 schreibt dagegen nur der eine profilierte Focusless-Pfad; alles andere stoppt
 dort fail-closed mit `hidden-desktop`. Was fehlt, ist *hinterlegtes Wissen ueber die Oberflaeche*:
 stabile Namen, Beschriftungen, Wertarten, Sollzustaende und der geplante
@@ -133,9 +143,11 @@ Risiko und ob der Benutzer dabei zusehen muss.
 | Weg | Was er kann | Was er kostet | Wo er heute traegt |
 | --- | --- | --- | --- |
 | **Fokusloses UIA-Lesen** | Baum und Einzelwerte lesen, ohne den Vordergrund anzufassen | ein Baumlauf ist teuer, gezielte Bindung ueber AutomationId ist billig | Seitenlesen, Tabellen, Pruefer, Fallbindung |
-| **Fokusloses Schreiben** | Werte in Feldpfade schreiben, mit Feld-, Summen- und Dirty-State-Readback | ohne Katalog traegt der Aufrufer die Bindung; nur `fill_fields` verlangt ein Seitenobjekt | `tracked_set_value` (generisch), `fill_fields` (katalogisiert) |
+| **Fokusloses Schreiben** | Werte in ausdrücklich profilierten Feldpfaden schreiben, mit Commit und Readback | auf privatem Desktop nur für freigegebene Focusless-Pfade; generische Selektoren erweitern diese Freigabe nicht | ein profilierter Feldpfad; `tracked_set_value` und `fill_fields` behalten ihre Grenzen |
 | **Vordergrund-Lease mit physischer Eingabe** | Qt-Steuerelemente bedienen, die kein brauchbares UIA-Muster anbieten | der Benutzer sieht es und darf nicht dazwischenfunken; braucht ausdrueckliche Zustimmung | `click`, `combo_select`, neun der zehn BelegManager-Wege |
-| **Nativer Helfer (`sse-native.dll`)** | Fensteraufzaehlung, Prozesskommandozeile, MSAA-Punktprobe, UIA-Baumlauf, Controller-Lease | C#-Code mit Hash-Bindung und Oberflaechenvertrag; jede Erweiterung ist ein eigener Vertrag | der gesamte heisse Lesepfad |
+| **C#-Worker-Helfer (`sse-native.dll`)** | Fensteraufzaehlung, Prozesskommandozeile, MSAA-Punktprobe, UIA-Baumlauf, Controller-Lease | bleibt Teil des bisherigen Worker-Pfads; nicht die Qt-Brücke in SSE | bestehende UIA-/Win32-Operationen |
+| **C++-Qt-Brücke (`sse-qt-read.dll`)** | frische QObject-Werte, begrenzte Tabellenmodelle und Qt-Accessibility-Bäume im SSE-Prozess | exakte Produkt-/Qt-Bindung, GUI-Thread, Controller-Lease und dauerhaft gebundener Transport | optional `get_value`, `table_read`, `snapshot`, `find`, `read_page`, `subpages`; [vollständige Matrix](NATIVE-COVERAGE.md) |
+| **Direkter Win32-Helfer** | Desktopstatus und eigentumsgebundener Prozessstart ohne Worker | Produkt-/Markerprüfung, atomare Prozesszuordnung, verifizierte Bereinigung | optional `desktop_status`, `desktop_start`; Start bisher synthetisch über HTTP geprüft, Herstellerfall-Nachweis separat erforderlich |
 | **Dateiebene** | Falldateien hashen, sichern, archivieren, Kopien binden | keine UI noetig, aber auch kein Blick in den Inhalt | `case_hash`, `backup_cases`, `archive_cases` |
 | **OCR** (`Windows.Media.Ocr`) | Text aus Bildern lesen | Erkennungsqualitaet ist nicht zusicherbar | Belegbilder |
 | **PDF-Aufbereitung** (`render-pdf.ps1`) | PDF-Seiten rendern und lesen | eigener Prozess, eigene Grenzen | Belegdokumente |
@@ -154,7 +166,7 @@ im Repository belegt sind.
 | **Steuerjahr 2024 im Vollbetrieb** | Profil steht auf `experimental` mit `verification-only`; nur mit ausdruecklichem Opt-in erreichbar | vorhandene Wege, neues Profil | vollstaendige Live-Verifikation gegen Engine 30, wie sie fuer 2025 vorliegt |
 | **Steuerjahr 2026** | es gibt kein Profil | vorhandene Wege, neues Profil | das Produkt muss erscheinen; danach Katalog, Profil und Live-Verifikation |
 | **Ausgabe ausser CSV** | es gibt genau `export_csv` | Vordergrund-Lease fuer den Druckdialog, danach PDF-Aufbereitung | Entscheidung, ob ein Druck-nach-PDF-Weg die Mutationsgrenze beruehrt |
-| **Schnellere Bedienung ueber typisierte Kommandos** | der Herstellerweg ist geschlossen | Hersteller-IPC | siehe Abschnitt 4 |
+| **Weitere schnelle native Operationen** | Qt-Lesepfad für sechs Operationen vorhanden; weitere öffentliche Handler fehlen | Qt-Brücke für UI/Modell, direkte Systemzugriffe für Dateien/Lebenszyklus | vollständige Ergebnisparität, Commit/Readback, unbekannte Ausgänge und Ende-zu-Ende-Messung; siehe [Native-Matrix](NATIVE-COVERAGE.md) |
 | **`headingPrefix` trägt zwei Rollen** – Suchbegriff für `goto` und Präfix für die Seitenbindung können unterschiedliche Werte benötigen; ähnliche Überschriften können die Suche auf einen Nachbartreffer führen | beide Rollen wollen verschiedene Werte | Bindungsregel | ein eigenes Feld für das Navigationsziel, getrennt vom Bindungspräfix |
 | **Kaltes `goto` per `pageId` kann in der Gewinnermittlung scheitern** – ein verifiziertes Zwischenziel kann erforderlich sein | ungeklärt, ob Fallaufbau, Suchtreffer oder Blättertiefe die Ursache sind; die Feldbindung selbst ist davon nicht betroffen | Messung, dann Navigationsweg | Erreichbarkeit auf weiteren Herstellermusterfällen prüfen und erforderliche Zwischenziele im Profil festhalten |
 | **Seiten, deren Felder sich nicht eindeutig adressieren lassen** – etwa `Kapitalertraege, ermaessigt besteuert`: Die Felder beider Ehepartner tragen im adressierbaren Endstueck denselben Pfad, unterschieden werden sie erst weiter oben im Baum | ein Seitenobjekt braucht je Feld genau einen Treffer; hier waeren es zwei | UI, aber zuerst die Bindungsregel | entweder laengere Pfade im Seitenobjekt zulassen oder die Bindung um eine Positionsangabe erweitern |
@@ -261,6 +273,10 @@ Kommandokatalog maschinenlesbar ausgeben. Waere er erreichbar, muesste niemand
 mehr Zeichenketten aus Binaerdateien lesen, um diese Liste zu fuehren.
 
 ## 4. Der Hersteller-IPC-Weg und warum er zu ist
+
+Diese Grenze betrifft den untersuchten Hersteller-IPC-Weg. Sie verhindert
+nicht den inzwischen implementierten eigenen [Qt-Lesepfad](NATIVE-QT.md).
+Statisch gefundene Kommandonamen sind weiterhin keine ausführbaren API-Handler.
 
 SteuerSparErklaerung kennt einen internen Nachrichtenweg: eine
 `WM_COPYDATA`-Nachricht mit der Kennung `0x01FE0000`, deren Nutzlast

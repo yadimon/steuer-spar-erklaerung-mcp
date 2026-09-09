@@ -6,6 +6,40 @@ Wirkung gemessen wurde. Umsetzung und Abschluss brauchen den angegebenen
 Nachweis. Vorhandene Mechanismen werden erweitert; ihre Bindungs- und
 Übermittlungsgrenzen bleiben bestehen.
 
+## Aktueller Umsetzungsstand
+
+Die [Native-Matrix](../NATIVE-COVERAGE.md) führt jede der 102 Operationen.
+`get_value`, `table_read`, `snapshot`, `find`, `read_page` und `subpages` sind direkt an die optionale Qt-Brücke
+angeschlossen. Die folgende Bilanz ergänzt die Aufgaben; vorhandene
+Teilmechanismen erfüllen nicht automatisch deren gesamten Abnahmevertrag.
+`desktop_status` besitzt zusätzlich eine direkte Win32-Diagnose im optionalen
+nativen Paket. Start, Ende und weitere Lebenszyklus-Kompositionen bleiben in N07 offen.
+
+| Aufgabe | Bereits vorhanden | Noch erforderlich |
+| --- | --- | --- |
+| B03: semantisches Tabellenlesen | typisierte Checkboxzustände; Qt-Tabellenmodell mit sichtbarer Spaltenreihenfolge und Zeilenidentität | vollständige fachliche Projektion weiterer Zelltypen und Auswahlvarianten |
+| B04: Vollständigkeit | begrenzter atomarer Qt-Modellsnapshot; Teilstände ausdrücklich markiert; Worker meldet blockierte vollständige Lesung als Fehler | breitere Größen-/Zustandsmatrix und vergleichbarer Gesamtablauf |
+| B05: Datum | kalender- und jahresgenauer Vergleich einschließlich zulässiger Anzeigeverkürzung | kurze Eingabe anhand des gebundenen Falljahrs vervollständigen |
+| B10: Navigation | bestehende Schleife endet bei bereits erreichtem Ziel | allgemeiner nativer Handler und Nachweis der tatsächlich aufgebauten Zielseite |
+| B08: unbekannter Schreibausgang | nativer Transport erhält bekannte Antworten, quittiert sie und wiederholt keine Mutation | fachliche zeilengenaue Wiederherstellung; Quittung ist kein Readback |
+| B01/B02/B06/B07/B09/B11 | einzelne bestehende Operationen und Bindungsregeln | vollständige Batch-, Duplikat-, Struktur- und Steuerwirkungsnachweise laut Aufgabe |
+
+## Native-Integration: nächste Abnahmen
+
+| ID | Aufgabe | Abschlussbedingung |
+| --- | --- | --- |
+| N01 | Seiten- und Orientierungslesung anbinden | öffentliches Ergebnisschema einschließlich Kindfenstern, Zuständen, Geometrie und eindeutigen Referenzen; unabhängige Live-Parität auf mehreren Seiten |
+| N02 | Feldtransaktion nativ ausführen | Fall/Seite/Vorwert prüfen, normalen Commit auslösen, frischen Wert und geforderte Summen lesen; spätere Fokuswechsel dürfen nicht doppelt committen |
+| N03 | Tabellenmutationen anbinden | Zellen sowie Anlage/Löschung getrennt prüfen; Zeilenidentität, unveränderte Nachbarn und unbekannte/teilweise Ausgänge belegen |
+| N04 | Navigation anbinden | Auswahl, Aktivierung und fertig geladene richtige Seite unterscheiden; kalter Seitenwechsel getrennt vom bereits erreichten Ziel messen |
+| N05 | Speichern anbinden | bestehende Pfad-/Hash-/Korrekturgrenzen erhalten; Datei und Abschluss statt fester Pause prüfen; Wiederöffnen als Persistenznachweis |
+| N06 | BelegManager untersuchen und anbinden | eigene Fenster-/Objektbindung, echte Detaildaten, Importabschluss, Duplikate und unveränderte Nachbarbelege nachweisen |
+| N07 | Lebenszyklus und weitere Kompositionen beschleunigen | Status über Win32 implementiert; vollständige Start-/Ende-Aufrufe und verbleibende Workerwege messen; native Discovery allein reicht nicht |
+| N08 | Vergleichbare Ende-zu-Ende-Matrix führen | Handler, Paket, Produkt, Erstbindung und warme Aufrufe kenntlich machen; nur verifizierten Abschluss als Erfolgsdauer zählen |
+
+Diese Abnahmen sind offen. Der öffentliche Qt-Lesepfad enthält keine
+experimentellen Schreib-, Navigations- oder Speicherhandler.
+
 ## Priorität 1: Tabellen und Belege
 
 | ID | Aufgabe | Abnahmekriterium |
