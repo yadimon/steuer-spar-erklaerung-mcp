@@ -12,13 +12,16 @@ import { startQtNativeBroker } from "../dist/qt-native-broker.js";
 import { runApiRuntime } from "../dist/api-runtime.js";
 import { callApiOperationEnvelope } from "../dist/api-client.js";
 import { requestApiShutdown } from "../dist/api-control-client.js";
+import { discoverQtNativeTarget } from "../dist/qt-native-discovery.js";
+import { desktopMarkerPath } from "../dist/desktop-marker.js";
 
 assert.equal(process.argv.length, 7, "Run this test through qt-native-desktop.ps1 or CTest.");
-const [packageConfig, executable, qtBin, desktop, reportPath] = process.argv.slice(2);
+const [packageConfig, executable, qtBin] = process.argv.slice(2, 5).map(path => resolve(path));
+const [desktop, reportPath] = process.argv.slice(5);
 assert.match(desktop, /^SSEQtNativeTest_[0-9]+$/u);
 const temporary = mkdtempSync(join(tmpdir(), "sse-native-integration-"));
 const config = JSON.parse(readFileSync(packageConfig, "utf8"));
-const report = { scope: "Built native package, public API runtime and owned Qt fixture; synthetic discovery/profile seams", checks: [], http: [] };
+const report = { scope: "Built native package, public API runtime, native discovery and owned Qt fixture; synthetic profile seam", checks: [], http: [] };
 const sessions = [], fixtures = [], workerCalls = [];
 let ready, shutdown = false;
 
@@ -66,6 +69,18 @@ try {
   const validated = loadQtNativePackage(config.qtNativeRuntime, loadProductProfile("2025"));
   const nativePackage = { ...validated, manifest: { ...validated.manifest, profile: { id: "synthetic", qtVersion: "6.9.2" } } };
   const first = await fixture();
+  process.env.TEMP = temporary; process.env.TMP = temporary;
+  const marker = { schemaVersion: 1, owner: "sse", name: desktop, pid: first.info.pid };
+  const markerPath = desktopMarkerPath();
+  writeFileSync(markerPath, JSON.stringify(marker));
+  const discoveryOptions = { package: nativePackage, expectedImage: executable, marker, timeoutMs: 5000 };
+  const discoveryStarted = performance.now();
+  assert.deepEqual(await discoverQtNativeTarget(discoveryOptions), {
+    pid: first.info.pid, hwnd: first.info.hwnd, creationTime: first.info.creationTime, desktop,
+  });
+  report.discoveryMs = performance.now() - discoveryStarted;
+  await assert.rejects(discoverQtNativeTarget({ ...discoveryOptions, hwnd: 1 }), error => error.kind === "no-window");
+  await assert.rejects(discoverQtNativeTarget({ ...discoveryOptions, marker: { ...marker, pid: process.pid } }), error => error.kind === "native-binding");
   await assert.rejects(startQtNativeBroker({ package: nativePackage, expectedImage: executable, timeoutMs: 5000,
     target: { ...first.info, creationTime: "1" } }));
   const listener = createServer(); listener.listen(0, "127.0.0.1"); await once(listener, "listening");
@@ -75,18 +90,24 @@ try {
     workspaceDir: join(temporary, "workspace"), ...config }));
   ready = await runApiRuntime(configPath, { worker: async operation => {
     workerCalls.push(operation);
-    if (operation === "windows") return { ok: true, windows: fixtures.filter(item => item.child.exitCode === null).map(item => ({
-      pid: item.info.pid, hwnd: item.info.hwnd, title: "SteuerSparErklärung – synthetic fixture", w: 1000, h: 400 })) };
-    assert.equal(operation, "desktop_status"); return { ok: true, aktiv: true, markeVeraltet: false, pid: first.info.pid, desktop };
+    assert.fail("Native reads unexpectedly invoked PowerShell: " + operation);
   }, qtNativeDependencies: { loadPackage: () => nativePackage, startSession: async options => {
     const session = await startQtNativeBroker(options); sessions.push(session); return session;
   } } });
   assert.equal(sessions.length, 0);
+  writeFileSync(markerPath, "invalid/desktop");
+  assert.equal((await read("get_value", { aid: "syntheticField" })).kind, "desktop-marker-invalid");
+  assert.equal(sessions.length, 0);
+  writeFileSync(markerPath, JSON.stringify({ ...marker, owner: "center-test" }));
+  assert.equal((await read("get_value", { aid: "syntheticField" })).kind, "desktop-marker-owner");
+  assert.equal(sessions.length, 0);
+  writeFileSync(markerPath, JSON.stringify(marker));
   for (let count = 0; count < 12; ++count) {
     const result = await read("get_value", { aid: "syntheticField" });
     assert.equal(result.ok, true, JSON.stringify(result)); assert.equal(result.backend, "qt"); assert.equal(result.value, "Native field – пример");
   }
-  assert.equal(sessions.length, 1); assert.deepEqual(workerCalls, ["windows", "desktop_status"]);
+  assert.equal(sessions.length, 1); assert.deepEqual(workerCalls, []);
+  report.checks.push("Actual Win32 discovery reads the owned marker and binds process/window birth without any PowerShell inventory or discovery seam");
   await first.command("change-field");
   assert.equal((await read("get_value", { aid: "syntheticField" })).value, "Changed by fixture");
   const password = await read("get_value", { aid: "syntheticSecret" }); assert.equal(password.ok, false);
@@ -104,9 +125,13 @@ try {
   assert.equal((await read("get_value", { aid: "syntheticField" })).value, "Changed by fixture");
   report.checks.push("The distributed read bridge does not dispatch private experimental mutations");
   const second = await fixture();
+  await assert.rejects(discoverQtNativeTarget(discoveryOptions), error => error.kind === "ambiguous");
+  assert.equal((await discoverQtNativeTarget({ ...discoveryOptions, hwnd: first.info.hwnd })).pid, first.info.pid);
+  await assert.rejects(discoverQtNativeTarget({ ...discoveryOptions, hwnd: second.info.hwnd }), error => error.kind === "native-binding");
   assert.equal((await read("get_value", { aid: "syntheticField" })).kind, "ambiguous");
   assert.equal((await read("get_value", { aid: "syntheticField", hwnd: first.info.hwnd })).ok, true);
   second.child.stdin.write("quit\n"); await second.exited; assert.equal(second.child.exitCode, 0);
+  await assert.rejects(discoverQtNativeTarget({ ...discoveryOptions, marker: { ...marker, pid: second.info.pid } }), error => error.kind === "desktop-marker-stale");
   await first.command("disable"); assert.equal((await read("get_value", { aid: "syntheticField" })).ok, false);
   await first.command("enable"); assert.equal((await read("get_value", { aid: "syntheticField" })).ok, true);
   await first.command("delete-field"); assert.equal((await read("get_value", { aid: "syntheticField" })).kind, "not-found");

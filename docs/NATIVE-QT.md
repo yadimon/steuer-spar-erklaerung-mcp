@@ -39,8 +39,9 @@ die Produkt- und Qt-Binärdateien gegen `native/qt/compatibility.json`.
 
 Der explizite CTest-Lauf erstellt eine eigene, nicht aktive Windows-Arbeitsfläche
 und startet dort synthetische Qt-Fenster. Er verwendet das gebaute Paket und den
-regulären API-Prozess, mit ausdrücklich synthetischen Testabhängigkeiten für
-Profilauswahl und Fensterinventar. Geprüft werden frische HTTP-Lesewerte,
+regulären API-Prozess, mit einer ausdrücklich synthetischen Testabhängigkeit für
+die Profilauswahl. Das Fensterinventar wird tatsächlich über Win32 gelesen.
+Geprüft werden frische HTTP-Lesewerte,
 Tabellen, Fenster-/Objektlebensdauer, Passwortfelder und Helfer-Shutdown. Das ist
 kein Funktionsnachweis an einer installierten SSE. Die ausgelieferte DLL führt
 keine experimentellen Feld-, Tabellen-, Navigations- oder Speichermutationen aus.
@@ -62,6 +63,7 @@ Werte des kompatiblen Pakets zu ersetzen:
   "schemaVersion": 1,
   "startupAbi": 2,
   "bridgeProtocol": 1,
+  "discoveryProtocol": 1,
   "buildIdentity": "SSE_NATIVE_BRIDGE_V2:<64 kleine Hexadezimalzeichen>",
   "profile": {
     "id": "2025",
@@ -86,11 +88,22 @@ Aktivieren dieses Pfades.
 
 ## Bindung, Fehler und Laufzeit
 
-Beim ersten nativen Leseaufruf prüft der bestehende Worker die Fensterauswahl
-und Desktop-Eigentümerschaft. Erst danach startet die API den fensterlosen
-Helfer. Dieser muss Produkt-, Prozess-, HWND-, DLL- und Pipe-Server-Identität
-bestätigen. Die API prüft außerdem, dass der Helfer selbst der Sitzungsbesitzer
-ist. Der Start und alle folgenden Schritte teilen die Frist des API-Aufrufs.
+Beim ersten nativen Leseaufruf liest Node den bestehenden Desktop-Marker mit
+demselben strengen Parser wie der Worker. Ein beschädigter oder fremder Marker
+führt zum Abbruch. Ein eigener, rein lesender Win32-Helfer findet auf dieser
+Arbeitsfläche das Hauptfenster der konfigurierten Installation und bestätigt
+Produkt-, Prozess-, HWND- und Erstellungszeit-Identität. Ein markierter Prozess
+muss zur Auswahl passen. Ohne explizites `hwnd` muss die Auswahl eindeutig sein;
+ein Markerwechsel während der Erkennung verhindert die Anbindung.
+
+Diese Erkennung startet keine PowerShell und lädt noch keine DLL in das Ziel.
+Danach startet die API den dauerhaften Helfer mit der bereits geprüften
+Prozess-/Fensterbindung. Er bestätigt Produkt-, DLL- und Pipe-Server-Identität
+erneut. Die API prüft außerdem den Sitzungsbesitzer. Erkennung, Anbindung und
+Lesezugriff teilen die Frist des API-Aufrufs. `discoveryProtocol: 1` ist im
+nativen Manifest erforderlich; ältere Pakete ohne diesen Vertrag müssen mit
+den aktuellen Quellen neu gebaut und mit dem neuen Manifest-Pin konfiguriert
+werden. Es gibt keinen Wechsel zurück zu einer PowerShell-Erkennung.
 
 Weitere Leseaufrufe verwenden dieselbe Verbindung. Sie prüfen den aktuellen
 nativen Hauptfensterkontext und lesen frische Qt-Werte oder einen begrenzten
@@ -131,7 +144,8 @@ oder Zustellung einer HTTP-Antwort. Diese interne Funktion aktiviert keine
 zusätzliche öffentliche Schreiboperation.
 
 `npm test` prüft Konfiguration, Dateiintegrität, Profilgrenzen, Framing,
-Ergebnisform, Bindungswiederverwendung, Mehrdeutigkeit, Abbruch und Lifecycle.
+Ergebnisform, Markerwechsel, Bindungswiederverwendung, Mehrdeutigkeit, Abbruch
+und Lifecycle.
 Diese Offline-Prüfung lädt keine DLL in eine installierte SSE und ersetzt
 keine reale Prüfung eines konkreten nativen Pakets mit dem unterstützten
 Produkt. Leistung wird mit dem tatsächlichen Aufrufweg gemessen; ein kurzer

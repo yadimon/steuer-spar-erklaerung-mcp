@@ -26,7 +26,7 @@ export function packageNative(loader, bridge, identityHeader, buildDirectory) {
   const buildIdentity = "SSE_NATIVE_BRIDGE_V2:" + identity;
   assert(bridgeBytes.includes(Buffer.from(buildIdentity + "\0")), "Built bridge does not contain the expected source identity.");
   assert(loaderBytes.includes(Buffer.from(buildIdentity + "\0")), "Built loader does not contain the expected source identity.");
-  const manifest = { schemaVersion: 1, startupAbi: 2, bridgeProtocol: 1, buildIdentity, profile: compatibility().profile,
+  const manifest = { schemaVersion: 1, startupAbi: 2, bridgeProtocol: 1, discoveryProtocol: 1, buildIdentity, profile: compatibility().profile,
     loader: { file: "bridge-load.exe", sha256: hash(loaderBytes) }, bridge: { file: "sse-qt-read.dll", sha256: hash(bridgeBytes) } };
   const manifestBytes = Buffer.from(JSON.stringify(manifest, null, 2) + "\n"), manifestSha256 = hash(manifestBytes);
   const directory = join(resolve(buildDirectory), "packages", manifestSha256);

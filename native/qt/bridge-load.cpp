@@ -164,8 +164,10 @@ int main(int argc, char **argv) {
             // It does not switch the user's input desktop. Never call SwitchDesktop.
         }
         Json identity = Json::object();
+        if (readOnly) selectDiscoveryTarget(request);
         if (automatic) {
             identity = discoverBinding(request);
+            if (request.contains("desktop")) identity["desktop"] = request.at("desktop");
             request["hwnd"] = identity.at("hwnd"); request["creationTime"] = identity.at("creationTime");
         }
         identity["loaderBuildIdentity"] = SSE_BRIDGE_BUILD_PREFIX SSE_BRIDGE_SOURCE_DIGEST;
@@ -261,6 +263,10 @@ int main(int argc, char **argv) {
             runBroker(brokerConnection->value, process.value);
         } else std::cout << identity.dump() << std::endl;
         return 0;
+    } catch (const DiscoveryError &e) {
+        if (privateDesktop) CloseDesktop(privateDesktop);
+        std::cerr << Json({{"ok", false}, {"kind", e.kind}, {"error", e.what()}}).dump() << std::endl;
+        return 1;
     } catch (const std::exception &e) {
         if (privateDesktop) CloseDesktop(privateDesktop);
         std::cerr << Json({{"ok", false}, {"error", e.what()}}).dump() << std::endl;

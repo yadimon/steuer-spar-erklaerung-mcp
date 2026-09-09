@@ -39,7 +39,7 @@ for (const forbiddenModule of [
   "worker.ts", "api-executor.ts", "checker-executor.ts", "launch-executor.ts",
   "workspace-executor.ts", "ustva-executor.ts", "scenario.ts", "workspace.ts",
   "resources.ts", "setup.ts", "windows-runtime.ts", "product-profiles.ts",
-  "qt-native-package.ts", "qt-native-broker.ts", "qt-native-runtime.ts", "qt-native-client.ts",
+  "qt-native-package.ts", "qt-native-broker.ts", "qt-native-runtime.ts", "qt-native-client.ts", "qt-native-discovery.ts",
 ]) {
   assert(!reachableSources.has(forbiddenModule), `MCP erreicht PC-Runtime-Modul '${forbiddenModule}' transitiv.`);
 }
