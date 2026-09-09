@@ -6,6 +6,7 @@ import { mkdtempSync, readFileSync, writeFileSync, existsSync, rmSync } from "no
 import { tmpdir } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { fileURLToPath } from "node:url";
 import { loadQtNativePackage } from "../dist/qt-native-package.js";
 import { loadProductProfile } from "../dist/product-profiles.js";
 import { startQtNativeBroker } from "../dist/qt-native-broker.js";
@@ -14,6 +15,8 @@ import { callApiOperationEnvelope } from "../dist/api-client.js";
 import { requestApiShutdown } from "../dist/api-control-client.js";
 import { discoverQtNativeTarget } from "../dist/qt-native-discovery.js";
 import { desktopMarkerPath } from "../dist/desktop-marker.js";
+import { executeNativeDesktopStatus } from "../dist/native-desktop-status.js";
+import { pageProjectionOracle } from "./qt-native-page-projections.mjs";
 
 assert.equal(process.argv.length, 7, "Run this test through qt-native-desktop.ps1 or CTest.");
 const [packageConfig, executable, qtBin] = process.argv.slice(2, 5).map(path => resolve(path));
@@ -63,6 +66,18 @@ async function stopRuntime() {
   shutdown = true;
   await Promise.all(sessions.map(session => session.exited));
 }
+async function uiaSnapshot(hwnd) {
+  const output = join(temporary, "uia-snapshot.json");
+  const script = fileURLToPath(new URL("./qt-native-snapshot-uia.ps1", import.meta.url));
+  const child = spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+    "-File", script, "-Hwnd", String(hwnd), "-OutputPath", output, "-Desktop", desktop],
+  { windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });
+  let errors = ""; child.stderr.on("data", chunk => { errors += chunk; });
+  const timer = setTimeout(() => child.kill(), 30_000);
+  const [code] = await once(child, "exit"); clearTimeout(timer);
+  assert.equal(code, 0, errors);
+  return { nodes: JSON.parse(readFileSync(output, "utf8")), rect: JSON.parse(readFileSync(output + ".window.json", "utf8")) };
+}
 
 try {
   // Real production manifest/hash/profile verification comes before the fixture-only profile substitution.
@@ -95,7 +110,33 @@ try {
     const session = await startQtNativeBroker(options); sessions.push(session); return session;
   } } });
   assert.equal(sessions.length, 0);
+  // Real Win32 diagnostics do not attach a DLL, even for unsupported/stale processes.
+  await first.command("lock-controller");
+  assert.equal((await read("desktop_status")).kind, "worker-busy");
+  await first.command("unlock-controller");
+  await first.command("abandon-controller");
+  assert.equal((await read("desktop_status")).kind, "worker-isolation-lost");
+  await first.command("close-controller");
+  await first.command("untitled-window");
+  const status = await read("desktop_status");
+  assert.equal(status.ok, true, JSON.stringify(status)); assert.equal(status.backend, "win32");
+  assert.equal(status.desktopErreichbar, true); assert.equal(status.processIdentity.pid, first.info.pid);
+  assert.equal(status.processIdentity.supported, false, "Fixture must not be classified as the installed tax product");
+  assert.equal(status.aktiv, false); assert.equal(status.markeVeraltet, true); assert.deepEqual(status.fenster, []);
+  await first.command("close-untitled");
+  assert.equal(sessions.length, 0);
+  const rawOptions = { package: nativePackage, profile: loadProductProfile("2025"), timeoutMs: 5000 };
+  const changed = await executeNativeDesktopStatus({ ...rawOptions, readMarker: (() => {
+    let count = 0; return () => ++count === 1 ? marker : { ...marker, pid: process.pid };
+  })() });
+  assert.equal(changed.kind, "native-binding");
+  writeFileSync(markerPath, JSON.stringify({ ...marker, owner: "center-test" }));
+  assert.match((await read("desktop_status")).note, /Center-Testmarker/);
+  rmSync(markerPath);
+  const noMarker = await read("desktop_status");
+  assert.equal(noMarker.ok, true); assert.equal(noMarker.markeVeraltet, false); assert.equal(noMarker.aktiv, false);
   writeFileSync(markerPath, "invalid/desktop");
+  assert.equal((await read("desktop_status")).kind, "desktop-marker-invalid");
   assert.equal((await read("get_value", { aid: "syntheticField" })).kind, "desktop-marker-invalid");
   assert.equal(sessions.length, 0);
   writeFileSync(markerPath, JSON.stringify({ ...marker, owner: "center-test" }));
@@ -107,9 +148,60 @@ try {
     assert.equal(result.ok, true, JSON.stringify(result)); assert.equal(result.backend, "qt"); assert.equal(result.value, "Native field – пример");
   }
   assert.equal(sessions.length, 1); assert.deepEqual(workerCalls, []);
+  const snapshot = await read("snapshot", { maxNodes: 5000 });
+  assert.equal(snapshot.ok, true, JSON.stringify(snapshot)); assert.equal(snapshot.backend, "qt");
+  assert.equal(snapshot.stats.truncated, false); assert.equal(snapshot.stats.n, snapshot.count);
+  assert.equal(snapshot.canaryMs, null); assert.equal(snapshot.responsivenessCheck, "bounded-gui-thread");
+  const independent = await uiaSnapshot(first.info.hwnd);
+  const redactPassword = nodes => nodes.map(node => node.aid.endsWith("syntheticSecret") ? { ...node, val: null, ro: null } : node);
+  assert.deepEqual(redactPassword(snapshot.nodes), redactPassword(independent.nodes), "Public native tree must match independent Windows UIA");
+  assert(!JSON.stringify(snapshot).includes("must-not-be-exposed"));
+  assert(snapshot.nodes.some(node => /^42\.-?\d+$/u.test(node.rid)), "Fixture must cover a native child-window fragment root");
+  const fields = snapshot.nodes.filter(node => node.aid.endsWith("syntheticField"));
+  assert.equal(fields.length, 1);
+  const fieldRid = fields[0].rid;
+  assert.equal((await read("get_value", { rid: fieldRid })).value, "Native field – пример");
+  const limited = await read("snapshot", { maxNodes: 2 });
+  assert.equal(limited.count, 2); assert.equal(limited.stats.truncated, true);
+  assert.deepEqual(limited.nodes, snapshot.nodes.slice(0, 2));
+  const filtered = await read("snapshot", { types: ["eDiT"], namedOnly: true, maxNodes: 5000 });
+  assert.deepEqual(filtered.nodes, snapshot.nodes.filter(node => node.type === "Edit" && node.name));
+  assert.equal(filtered.stats.n, snapshot.stats.n);
+  const projectionCases = [
+    { operation: "read_page", args: {} }, { operation: "read_page", args: { minX: -1000000, maxX: 1000000 } },
+    { operation: "subpages", args: {} }, { operation: "find", args: { type: "CheckBox" } },
+    { operation: "find", args: { aid: "syntheticFi?ld" } }, { operation: "find", args: { name: "Synthetic*", contains: true } },
+    { operation: "find", args: { name: "Synthetic STRASSE" } },
+  ].map(test => ({ ...test, nodes: redactPassword(independent.nodes).map(node => test.operation === "find"
+    ? { ...node, val: null, ro: null, checked: null, selected: null } : node), rect: independent.rect, stats: snapshot.stats }));
+  const oracle = await pageProjectionOracle(projectionCases);
+  for (const [index, test] of projectionCases.entries()) {
+    const result = await read(test.operation, test.args);
+    assert.equal(result.ok, true, JSON.stringify(result)); assert.equal(result.backend, "qt");
+    const { backend, nativeDurationMs, stats, ...projection } = result;
+    const { stats: oracleStats, ...expected } = oracle.results[index];
+    assert.deepEqual(projection, expected, test.operation + JSON.stringify(test.args));
+  }
+  assert.equal(oracle.results[0].heading, "Synthetic heading");
+  assert(oracle.results[2].anzahl > 0, "Native fixture must expose a subpage action within the content bounds");
+  report.checks.push("Native find/read_page/subpages match the actual Worker projection bodies over independently observed UIA nodes and Win32 bounds");
+  assert.equal((await read("snapshot", { toolWindow: "unknown" })).kind, "bad-args");
+  assert.equal((await read("snapshot", { toolWindow: "receiptManager" })).kind, "not-found");
+  await first.command("open-tool");
+  const tool = await read("snapshot", { toolWindow: "receiptManager" });
+  assert.equal(tool.ok, true, JSON.stringify(tool)); assert.notEqual(tool.hwnd, first.info.hwnd);
+  assert.equal(tool.toolWindow, "receiptManager");
+  assert(tool.nodes.some(node => node.val === "Synthetic tool value"));
+  assert.deepEqual(tool.nodes, (await uiaSnapshot(tool.hwnd)).nodes);
+  await first.command("duplicate-tool");
+  assert.equal((await read("snapshot", { toolWindow: "receiptManager" })).kind, "ambiguous");
+  await first.command("close-tools");
+  report.checks.push("Catalogue-bound nonmodal tool snapshots match independent UIA and reject duplicate window titles");
+  report.checks.push("Public native snapshot matches independent UIA nodes, IDs, parents, geometry, types and values; limits and filters preserve original indices");
   report.checks.push("Actual Win32 discovery reads the owned marker and binds process/window birth without any PowerShell inventory or discovery seam");
   await first.command("change-field");
   assert.equal((await read("get_value", { aid: "syntheticField" })).value, "Changed by fixture");
+  assert.equal((await read("get_value", { rid: fieldRid })).value, "Changed by fixture");
   const password = await read("get_value", { aid: "syntheticSecret" }); assert.equal(password.ok, false);
   const table = await read("table_read", { maxRows: 600 });
   assert.equal(table.ok, true, JSON.stringify(table)); assert.equal(table.nativeTable.modelRows, 500);
@@ -131,10 +223,19 @@ try {
   assert.equal((await read("get_value", { aid: "syntheticField" })).kind, "ambiguous");
   assert.equal((await read("get_value", { aid: "syntheticField", hwnd: first.info.hwnd })).ok, true);
   second.child.stdin.write("quit\n"); await second.exited; assert.equal(second.child.exitCode, 0);
+  writeFileSync(markerPath, JSON.stringify({ ...marker, pid: second.info.pid }));
+  const deadStatus = await read("desktop_status");
+  assert.equal(deadStatus.ok, true); assert.equal(deadStatus.processIdentity, null); assert.equal(deadStatus.markeVeraltet, true);
+  writeFileSync(markerPath, JSON.stringify({ ...marker, name: desktop + "_Absent" }));
+  const missingDesktop = await read("desktop_status");
+  assert.equal(missingDesktop.ok, true, JSON.stringify(missingDesktop)); assert.equal(missingDesktop.desktopErreichbar, false);
+  writeFileSync(markerPath, JSON.stringify(marker));
+  report.checks.push("Public desktop_status uses fresh Win32 diagnostics without injection/PowerShell; absent, malformed, foreign, stale and changed markers are checked");
   await assert.rejects(discoverQtNativeTarget({ ...discoveryOptions, marker: { ...marker, pid: second.info.pid } }), error => error.kind === "desktop-marker-stale");
   await first.command("disable"); assert.equal((await read("get_value", { aid: "syntheticField" })).ok, false);
   await first.command("enable"); assert.equal((await read("get_value", { aid: "syntheticField" })).ok, true);
   await first.command("delete-field"); assert.equal((await read("get_value", { aid: "syntheticField" })).kind, "not-found");
+  assert.equal((await read("get_value", { rid: fieldRid })).kind, "not-found");
   report.checks.push("New window ambiguity, disabled windows and destroyed QObjects are observed on the retained connection");
   await stopRuntime(); assert.equal(first.child.exitCode, null);
   report.checks.push("API shutdown ends every native helper while the target application remains alive");

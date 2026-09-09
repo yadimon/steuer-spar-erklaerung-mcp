@@ -226,7 +226,8 @@ export async function runApiRuntime(
     const result = await worker(operation, args, timeoutMs, signal);
     await native?.afterWorker(operation, result);
     return result;
-  }, native ? { qtNativeClientFor: native.client } : {});
+  }, native ? { qtNativeClientFor: native.client, nativeDesktopStatus: native.desktopStatus,
+    nativeDesktopStart: native.desktopStart, nativeDesktopStop: native.desktopStop } : {});
 
   const logDir = join(dirname(config.configPath), "logs");
   const logPath = join(logDir, "api.jsonl");

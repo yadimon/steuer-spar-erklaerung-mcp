@@ -5,7 +5,12 @@
 #include <QtWidgets/QMainWindow>
 #include <QtWidgets/QTableView>
 #include <QtWidgets/QLineEdit>
+#include <QtWidgets/QDialog>
 #include <QtWidgets/QVBoxLayout>
+#include <QtWidgets/QHBoxLayout>
+#include <QtWidgets/QLabel>
+#include <QtWidgets/QPushButton>
+#include <QtWidgets/QCheckBox>
 #include <QtGui/QStandardItemModel>
 #include <QtCore/QTimer>
 #include <fstream>
@@ -26,6 +31,8 @@ static std::string desktopName(HDESK desktop) {
 }
 int main(int argc, char **argv) {
     if (argc != 3) return 2;
+    const auto targetDesktop = OpenDesktopA(argv[2], 0, FALSE, GENERIC_ALL);
+    if (!targetDesktop || !SetThreadDesktop(targetDesktop)) return 7;
     const auto ownDesktop = desktopName(GetThreadDesktop(GetCurrentThreadId()));
     const auto input = OpenInputDesktop(0, FALSE, DESKTOP_READOBJECTS);
     if (!input) return 3;
@@ -34,7 +41,20 @@ int main(int argc, char **argv) {
     QApplication app(argc, argv);
     QMainWindow window;
     auto *panel = new QWidget(&window);
+    panel->setAttribute(Qt::WA_NativeWindow);
+    panel->setObjectName("RedThreadContent");
     auto *layout = new QVBoxLayout(panel);
+    auto *frame = new QWidget(panel); frame->setObjectName("ClientFrameSSE");
+    auto *header = new QWidget(frame); header->setObjectName("ClientHeader");
+    auto *headingLayout = new QVBoxLayout(header); headingLayout->addWidget(new QLabel("Synthetic heading", header));
+    auto *frameLayout = new QVBoxLayout(frame); frameLayout->addWidget(header);
+    layout->addWidget(frame);
+    auto *subpageRow = new QWidget(panel);
+    auto *rowLayout = new QHBoxLayout(subpageRow);
+    rowLayout->addStretch(); rowLayout->addWidget(new QLabel("Synthetic subpage", subpageRow));
+    auto *open = new QPushButton(subpageRow); open->setObjectName("Button"); rowLayout->addWidget(open);
+    rowLayout->addStretch(); layout->addWidget(subpageRow);
+    auto *check = new QCheckBox(QString::fromUtf8("Synthetic Straße"), panel); check->setChecked(true); layout->addWidget(check);
     auto *field = new QLineEdit(QString::fromUtf8("Native field – пример"), panel);
     field->setObjectName("syntheticField");
     auto *secret = new QLineEdit("must-not-be-exposed", panel);
@@ -54,6 +74,16 @@ int main(int argc, char **argv) {
     FILETIME created{}, ended{}, kernel{}, user{};
     if (!GetProcessTimes(GetCurrentProcess(), &created, &ended, &kernel, &user)) return 6;
     const auto birth = (std::uint64_t(created.dwHighDateTime) << 32) | created.dwLowDateTime;
+    HANDLE controller = nullptr;
+    HWND untitled = nullptr;
+    QDialog *tool = nullptr, *duplicateTool = nullptr;
+    const auto makeTool = [&] {
+        auto *dialog = new QDialog(&window, Qt::Tool);
+        dialog->setWindowTitle("BelegManager"); dialog->setAttribute(Qt::WA_ShowWithoutActivating);
+        auto *value = new QLineEdit("Synthetic tool value", dialog);
+        value->setObjectName("syntheticToolField"); value->setGeometry(10, 10, 250, 30);
+        dialog->resize(300, 100); dialog->show(); return dialog;
+    };
     std::ofstream(argv[1]) << nlohmann::json({{"pid", GetCurrentProcessId()}, {"hwnd", hwnd},
         {"creationTime", std::to_string(birth)}, {"desktop", ownDesktop}, {"inputDesktop", inputName}, {"visible", true}}).dump();
     std::thread([&] {
@@ -66,12 +96,36 @@ int main(int argc, char **argv) {
                 else if (command == "delete-field") { delete field; field = nullptr; }
                 else if (command == "disable") window.setEnabled(false);
                 else if (command == "enable") window.setEnabled(true);
+                else if (command == "open-tool") tool = makeTool();
+                else if (command == "duplicate-tool") duplicateTool = makeTool();
+                else if (command == "close-tools") { delete duplicateTool; duplicateTool = nullptr; delete tool; tool = nullptr; }
+                else if (command == "untitled-window") {
+                    untitled = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"STATIC", L"", WS_POPUP | WS_VISIBLE,
+                        0, 0, 100, 80, reinterpret_cast<HWND>(hwnd), nullptr, GetModuleHandleW(nullptr), nullptr);
+                    if (!untitled) std::terminate();
+                }
+                else if (command == "close-untitled") { DestroyWindow(untitled); untitled = nullptr; }
+                else if (command == "lock-controller") {
+                    controller = CreateMutexW(nullptr, FALSE, L"Local\\SteuerSparErklaerungApi.SseWorkerController");
+                    if (!controller || WaitForSingleObject(controller, 0) != WAIT_OBJECT_0) std::terminate();
+                }
+                else if (command == "unlock-controller") {
+                    if (!controller || !ReleaseMutex(controller)) std::terminate();
+                    CloseHandle(controller); controller = nullptr;
+                }
+                else if (command == "abandon-controller") {
+                    controller = CreateMutexW(nullptr, FALSE, L"Local\\SteuerSparErklaerungApi.SseWorkerController");
+                    std::thread([&] { if (!controller || WaitForSingleObject(controller, 0) != WAIT_OBJECT_0) std::terminate(); }).join();
+                }
+                else if (command == "close-controller") { CloseHandle(controller); controller = nullptr; }
                 else { std::cout << "unknown" << std::endl; return; }
                 std::cout << command << std::endl;
             }, Qt::QueuedConnection);
         }
         QMetaObject::invokeMethod(&app, &QCoreApplication::quit, Qt::QueuedConnection);
     }).detach();
-    return app.exec();
+    const int result = app.exec();
+    CloseDesktop(targetDesktop);
+    return result;
 }
 #include "fixture.moc"

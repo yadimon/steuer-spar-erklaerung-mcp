@@ -104,6 +104,7 @@ static DWORD remoteCall(HANDLE process, LPTHREAD_START_ROUTINE function, const v
 #include "bridge-discovery.h"
 #include "bridge-image.h"
 #include "bridge-broker.h"
+#include "bridge-desktop-status.h"
 static DWORD parentProcessId() {
     Handle snapshot(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0));
     PROCESSENTRY32W entry{}; entry.dwSize = sizeof(entry);
@@ -125,6 +126,9 @@ static void bindOwner(BridgeConfig &config, const Json &request) {
     if (request.contains("ownerCreationTime") && request.at("ownerCreationTime") != std::to_string(config.ownerCreationTime))
         throw std::runtime_error("Session owner creation time changed");
 }
+#include "bridge-desktop-start.h"
+#include "bridge-desktop-stop.h"
+
 int main(int argc, char **argv) {
     HDESK privateDesktop = nullptr;
     try {
@@ -149,6 +153,13 @@ int main(int argc, char **argv) {
         auto request = Json::parse(bytes);
         const auto mode = request.value("mode", std::string("legacy"));
         if (broker && mode != "attach") throw std::runtime_error("Broker requires automatic attachment mode");
+        if (mode == "desktop-status" || mode == "desktop-start" || mode == "desktop-stop") {
+            auto status = mode == "desktop-stop" ? nativeDesktopStop(request)
+                : mode == "desktop-start" ? nativeDesktopStart(request) : desktopStatus(request);
+            status["loaderMs"] = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count();
+            std::cout << status.dump() << std::endl;
+            return 0;
+        }
         if (mode != "legacy" && mode != "discover" && mode != "attach") throw std::runtime_error("Unsupported loader mode");
         const bool automatic = mode != "legacy", readOnly = mode == "discover";
         if (request.contains("desktop")) {
@@ -200,6 +211,7 @@ int main(int argc, char **argv) {
             if (sha256(module(config.processId, L"Dm.dll").szExePath) != SSE_NATIVE_DM_SHA256) throw std::runtime_error("Unsupported Dm image");
         }
         if (sha256(module(config.processId, L"Qt6Core.dll").szExePath) != SSE_NATIVE_QT_CORE_SHA256
+            || sha256(module(config.processId, L"Qt6Gui.dll").szExePath) != SSE_NATIVE_QT_GUI_SHA256
             || sha256(module(config.processId, L"Qt6Widgets.dll").szExePath) != SSE_NATIVE_QT_WIDGETS_SHA256)
             throw std::runtime_error("Target Qt binary identity is unsupported");
         FILETIME created{}, exited{}, kernel{}, user{};

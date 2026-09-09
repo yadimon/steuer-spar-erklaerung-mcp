@@ -5461,7 +5461,7 @@ var init_mcp_schemas_ui = __esm({
         ),
         types: external_exports.array(external_exports.string()).max(SSE_OPERATION_LIMITS.snapshotTypes).optional().describe("Nur diese Steuerelementtypen, z. B. ['Button','Edit']; maximal 50"),
         namedOnly: external_exports.boolean().optional().describe("Nur Elemente mit Beschriftung"),
-        maxNodes: SNAPSHOT_MAX_NODES.optional().describe("Maximale Knotenzahl; Vorgabe 2000, Maximum 5000")
+        maxNodes: SNAPSHOT_MAX_NODES.optional().describe("Maximale Knotenzahl; Vorgabe 4000, Maximum 5000")
       }).strict(),
       "sse_snapshot_compare": external_exports.object({
         hwnd: WINDOW_HANDLE.optional(),

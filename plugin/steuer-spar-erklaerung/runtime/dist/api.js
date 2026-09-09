@@ -216,14 +216,14 @@ var init_bounded_files = __esm({
 // src/json-files.ts
 function parseJsonBytesStrict(bytes, label, source) {
   const suffix = source ? `: ${source}` : "";
-  let text2;
+  let text3;
   try {
-    text2 = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    text3 = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch {
     throw new Error(`${label} ist kein gueltiges UTF-8${suffix}`);
   }
   try {
-    return JSON.parse(text2);
+    return JSON.parse(text3);
   } catch {
     throw new Error(`${label} ist kein gueltiges JSON${suffix}`);
   }
@@ -5918,7 +5918,7 @@ var init_mcp_schemas_ui = __esm({
         ),
         types: external_exports.array(external_exports.string()).max(SSE_OPERATION_LIMITS.snapshotTypes).optional().describe("Nur diese Steuerelementtypen, z. B. ['Button','Edit']; maximal 50"),
         namedOnly: external_exports.boolean().optional().describe("Nur Elemente mit Beschriftung"),
-        maxNodes: SNAPSHOT_MAX_NODES.optional().describe("Maximale Knotenzahl; Vorgabe 2000, Maximum 5000")
+        maxNodes: SNAPSHOT_MAX_NODES.optional().describe("Maximale Knotenzahl; Vorgabe 4000, Maximum 5000")
       }).strict(),
       "sse_snapshot_compare": external_exports.object({
         hwnd: WINDOW_HANDLE.optional(),
@@ -7413,14 +7413,14 @@ async function executeCheckerOpen(args, timeoutMs, signal, worker) {
       Math.min(timeoutMs ?? 3e5, 3e5),
       signal
     );
-    const performance14 = result.performance && typeof result.performance === "object" && !Array.isArray(result.performance) ? result.performance : {};
+    const performance17 = result.performance && typeof result.performance === "object" && !Array.isArray(result.performance) ? result.performance : {};
     return {
       ...result,
       schemaVersion: 1,
       planKind: CHECKER_OPEN_PLAN_KIND,
       resultingState: typeof result.resultingState === "string" ? result.resultingState : result.ok === true ? "detail-verified" : "unknown",
       cleanupRequired: typeof result.cleanupRequired === "boolean" ? result.cleanupRequired : result.ok !== true,
-      performance: { ...performance14, workerProcessCount: 1 },
+      performance: { ...performance17, workerProcessCount: 1 },
       ...result.ok === true ? { kontrollbildEnthalten: typeof result.bildBase64 === "string" && result.bildBase64.length > 0 } : {}
     };
   } catch (error) {
@@ -7752,65 +7752,15 @@ var init_bulk_plan_executor = __esm({
   }
 });
 
-// src/api-resource-bindings.ts
-var API_RESOURCE_BINDINGS;
-var init_api_resource_bindings = __esm({
-  "src/api-resource-bindings.ts"() {
-    "use strict";
-    API_RESOURCE_BINDINGS = Object.freeze({
-      case_hash: [{ alias: "ref", workerField: "path", allowedAreas: ["cases"] }],
-      position_create: [
-        { alias: "expectedCaseRef", workerField: "expectedCasePath", allowedAreas: ["cases"] },
-        { alias: "backupRef", workerField: "backupPath", allowedAreas: ["backups"] }
-      ],
-      case_create: [{ alias: "targetRef", workerField: "targetPath", allowedAreas: ["cases"] }],
-      center_refresh: [{ alias: "expectedDirectoryRef", workerField: "expectedDirectory", allowedAreas: ["cases"] }],
-      launch: [{ alias: "caseRef", workerField: "file", allowedAreas: ["cases"] }],
-      desktop_start: [{ alias: "caseRef", workerField: "file", allowedAreas: ["cases"] }],
-      collect: [{ alias: "resultRef", workerField: "path", allowedAreas: ["results"] }],
-      export_csv: [{ alias: "resultRef", workerField: "dir", allowedAreas: ["results"] }],
-      verify: [{ alias: "sourceRef", workerField: "from", allowedAreas: ["results", "workspace"] }],
-      screenshot: [{ alias: "resultRef", workerField: "path", allowedAreas: ["results"] }],
-      save: [{ alias: "caseRef", workerField: "expectedPath", allowedAreas: ["cases"] }],
-      dialog_answer: [{ alias: "expectedCaseRef", workerField: "expectedCasePath", allowedAreas: ["cases"] }],
-      file_dialog_select: [{
-        alias: "resourceRef",
-        workerField: "expectedPath",
-        allowedAreas: ["cases", "documents", "workspace", "results", "backups"]
-      }],
-      receipt_manager_import: [{
-        alias: "resourceRef",
-        workerField: "expectedPath",
-        allowedAreas: ["documents"]
-      }],
-      vast_apply: [{ alias: "expectedCaseRef", workerField: "expectedCasePath", allowedAreas: ["cases"] }],
-      tracked_set_value: [{ alias: "expectedCaseRef", workerField: "expectedCasePath", allowedAreas: ["cases"] }],
-      combo_select: [{ alias: "expectedCaseRef", workerField: "expectedCasePath", allowedAreas: ["cases"] }],
-      toggle: [{ alias: "expectedCaseRef", workerField: "expectedCasePath", allowedAreas: ["cases"] }],
-      save_as: [
-        { alias: "sourceRef", workerField: "expectedSourcePath", allowedAreas: ["cases"] },
-        { alias: "targetRef", workerField: "targetPath", allowedAreas: ["cases"] }
-      ],
-      make_working_copy: [
-        { alias: "sourceRef", workerField: "source", allowedAreas: ["cases"] },
-        // Backups sind hashgepruefte Arbeitskopien mit eigenem Ablagezweck.
-        { alias: "targetRef", workerField: "target", allowedAreas: ["cases", "backups"] }
-      ],
-      backup_cases: [{ alias: "destinationRef", workerField: "dest", allowedAreas: ["backups"] }],
-      archive_cases: [{ alias: "destinationRef", workerField: "dest", allowedAreas: ["backups"] }]
-    });
-  }
-});
-
 // src/case-create-executor.ts
 import { createHash as createHash2 } from "node:crypto";
 import { existsSync as existsSync7, readFileSync } from "node:fs";
 import { basename as basename3 } from "node:path";
-async function cleanupStartedProcess(worker, pid) {
+async function cleanupStartedProcess(worker, pid2) {
   let cleanup = { ok: false, kind: "cleanup-not-run", error: "Cleanup wurde nicht ausgefuehrt." };
   const errors = [];
   try {
-    cleanup = await worker("close", { pid, force: true, discardChanges: true }, 3e4);
+    cleanup = await worker("close", { pid: pid2, force: true, discardChanges: true }, 3e4);
   } catch (error) {
     errors.push(`close: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -7822,7 +7772,7 @@ async function cleanupStartedProcess(worker, pid) {
         ...asArray(status.supportedRunning),
         ...asArray(status.ignoredRunning)
       ];
-      processStillRunning = running.some((entry) => Number(entry.pid) === pid);
+      processStillRunning = running.some((entry) => Number(entry.pid) === pid2);
     } else {
       errors.push("product_info: Prozessstatus war unvollstaendig.");
     }
@@ -7845,7 +7795,7 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
   const budgetMs = Math.min(timeoutMs ?? LAUNCH_OPERATION_TIMEOUT_MS, MAX_OPERATION_TIMEOUT_MS);
   const deadline = now() + budgetMs;
   const steps = [];
-  let pid = 0;
+  let pid2 = 0;
   let hwnd = 0;
   let target;
   const step = async (operation, stepArgs, ceilingMs = budgetMs) => {
@@ -7878,22 +7828,22 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
     }
     const launchBudget = Math.max(MIN_LAUNCH_MS, deadline - now() - WIZARD_RESERVE_MS);
     const launched = await step("launch", { mode }, launchBudget);
-    pid = Number(launched.pid);
-    if (!Number.isInteger(pid) || pid <= 0) fail("startup-pid", "Der Start lieferte keine verifizierbare PID.");
+    pid2 = Number(launched.pid);
+    if (!Number.isInteger(pid2) || pid2 <= 0) fail("startup-pid", "Der Start lieferte keine verifizierbare PID.");
     let startHeading = "";
     for (; ; ) {
       const bound2 = await step("instances", {});
-      const instance = asArray(bound2.instances).find((entry2) => Number(entry2.pid) === pid);
+      const instance = asArray(bound2.instances).find((entry2) => Number(entry2.pid) === pid2);
       if (instance && Number(bound2.count) === 1 && instance.hung !== true && instance.recoveredState !== true) {
         hwnd = Number(instance.hwnd);
         const state = await step("ui_state", { hwnd });
-        const heading = String(state.heading ?? "");
-        const match = wizard.startHeading.exec(heading);
+        const heading2 = String(state.heading ?? "");
+        const match = wizard.startHeading.exec(heading2);
         if (match) {
           if (Number(match[1]) !== taxYear) {
             fail("wizard-page", `Der Assistent bietet das Jahr ${match[1]} an, das Profil erlaubt fuer '${mode}' nur ${taxYear}.`);
           }
-          startHeading = heading;
+          startHeading = heading2;
           break;
         }
       }
@@ -7933,7 +7883,7 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
     }
     try {
       await step("menu_click", { name: wizard.saveMenuEntry, hwnd, waitMs: 5e3 });
-      const dialogs = await step("dialog_list", { pid });
+      const dialogs = await step("dialog_list", { pid: pid2 });
       const saveDialogs = asArray(dialogs.dialogs).filter((dialog) => String(dialog.kind ?? "") === "native-dialog" && String(dialog.title ?? "") === wizard.saveDialogTitle);
       if (saveDialogs.length !== 1) {
         fail("save-dialog", `Erwartet genau einen nativen Dialog '${wizard.saveDialogTitle}', gefunden ${saveDialogs.length}.`);
@@ -7952,7 +7902,7 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
       throw new StepFailure(operationError("Der Speicherdialog schloss ohne verifizierten save-new-Readback.", "postcondition-failed"));
     }
     const readback = await step("instances", { includeHash: true });
-    const bound = asArray(readback.instances).find((entry2) => Number(entry2.pid) === pid);
+    const bound = asArray(readback.instances).find((entry2) => Number(entry2.pid) === pid2);
     if (!bound || String(bound.caseName ?? "") !== fileName || bound.recoveredState === true) {
       throw new StepFailure(operationError("Die gespeicherte Datei ist nicht exakt an das offene Fallfenster gebunden.", "postcondition-failed"));
     }
@@ -7966,7 +7916,7 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
       created: true,
       caseRef: target.ref || target.path,
       sha256: sha2562.toUpperCase(),
-      pid,
+      pid: pid2,
       hwnd: Number(bound.hwnd),
       caseHashSource: instanceHash ? "instances" : "local-file",
       mode,
@@ -7977,17 +7927,17 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
       note: "Der neue Fall ist geoeffnet und leer gespeichert. Stammdaten jetzt mit fill_fields fuellen; vor der ersten weiteren Mutation den Dateistand nach backups: sichern."
     };
   } catch (error) {
-    const failure3 = error instanceof StepFailure ? error.result : operationError(error instanceof Error ? error.message : String(error), signal?.aborted ? "aborted" : "case-create");
+    const failure6 = error instanceof StepFailure ? error.result : operationError(error instanceof Error ? error.message : String(error), signal?.aborted ? "aborted" : "case-create");
     const created = target !== void 0 && existsSync7(target.path);
-    if (pid > 0 && !created) {
-      const cleanupState = await cleanupStartedProcess(dependencies.worker, pid);
-      return { ...failure3, created: false, steps, pid, ...cleanupState };
+    if (pid2 > 0 && !created) {
+      const cleanupState = await cleanupStartedProcess(dependencies.worker, pid2);
+      return { ...failure6, created: false, steps, pid: pid2, ...cleanupState };
     }
     return {
-      ...failure3,
+      ...failure6,
       created,
       steps,
-      ...pid > 0 ? { pid, processStillRunning: true } : {},
+      ...pid2 > 0 ? { pid: pid2, processStillRunning: true } : {},
       ...created ? { caseRef: target.ref || target.path } : {}
     };
   }
@@ -8043,8 +7993,8 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
   const deadline = startedAt + launchBudgetMs;
   const started = await worker("launch", args, MINIMUM_LAUNCH_TIMEOUT_MS, signal);
   if (started.ok === false) return started;
-  const pid = Number(started.pid);
-  if (!Number.isInteger(pid) || pid <= 0) {
+  const pid2 = Number(started.pid);
+  if (!Number.isInteger(pid2) || pid2 <= 0) {
     return operationError(
       "SSE-Start lieferte keine verifizierbare PID; Zustand vor Wiederholung manuell pruefen.",
       "startup-pid"
@@ -8054,7 +8004,7 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
     let cleanup = { ok: false, kind: "cleanup-not-run", error: "Cleanup wurde nicht ausgefuehrt." };
     const errors = [];
     try {
-      cleanup = await worker("close", { pid, force: true, discardChanges: true }, 3e4);
+      cleanup = await worker("close", { pid: pid2, force: true, discardChanges: true }, 3e4);
     } catch (error) {
       errors.push(`close: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -8066,7 +8016,7 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
           ...asArray(status.supportedRunning),
           ...asArray(status.ignoredRunning)
         ];
-        stillRunning = running.some((entry) => Number(entry.pid) === pid);
+        stillRunning = running.some((entry) => Number(entry.pid) === pid2);
       } else {
         errors.push("product_info: Prozessstatus war unvollstaendig.");
       }
@@ -8088,8 +8038,8 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
       return {
         ok: false,
         kind: cleanupState2.stillRunning ? "startup-abort-cleanup" : "aborted",
-        error: cleanupState2.stillRunning ? `API-Client brach den Start ab; die exakt gestartete SSE-PID ${pid} laeuft trotz Cleanup noch.` : "API-Client hat den Start abgebrochen; die exakt gestartete SSE-PID wurde ohne Speichern beendet.",
-        pid,
+        error: cleanupState2.stillRunning ? `API-Client brach den Start ab; die exakt gestartete SSE-PID ${pid2} laeuft trotz Cleanup noch.` : "API-Client hat den Start abgebrochen; die exakt gestartete SSE-PID wurde ohne Speichern beendet.",
+        pid: pid2,
         processStillRunning: cleanupState2.stillRunning,
         cleanup: cleanupState2.cleanup,
         cleanupError: cleanupState2.cleanupError,
@@ -8103,7 +8053,7 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
       const launchProbePlan = {
         schemaVersion: 1,
         planKind: "launch-readiness",
-        pid,
+        pid: pid2,
         hasCase: typeof args.file === "string" && args.file.length > 0,
         deadlineUnixMs: deadline
       };
@@ -8126,12 +8076,12 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
         break;
       }
       if (observed.windowProbeSucceeded === true) {
-        lastStartupPrompts = asArray(observed.startupPrompts).filter((window) => Number(window.pid) === pid && Number(window.hwnd) > 0);
+        lastStartupPrompts = asArray(observed.startupPrompts).filter((window) => Number(window.pid) === pid2 && Number(window.hwnd) > 0);
       }
       if (!signal?.aborted) await waitForNextProbe();
     }
     const terminalProbeResult = observed.ok === true && ["observed", "deadline"].includes(String(observed.outcome));
-    const windows = (terminalProbeResult ? asArray(observed.windows) : []).filter((window) => Number(window.pid) === pid && Number(window.hwnd) > 0);
+    const windows = (terminalProbeResult ? asArray(observed.windows) : []).filter((window) => Number(window.pid) === pid2 && Number(window.hwnd) > 0);
     const hasCase = typeof args.file === "string" && args.file.length > 0;
     const titledLikeSse = windows.filter((window) => {
       const title = String(window.title ?? "");
@@ -8141,11 +8091,11 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
     if (terminalProbeResult) {
       lastStartupPrompts = titledLikeSse.filter((window) => !mainCandidates.includes(window));
     }
-    const dialogs = (terminalProbeResult ? asArray(observed.dialogs) : []).filter((dialog) => Number(dialog.pid) === pid && ["native-dialog", "qt-dialog"].includes(String(dialog.kind)));
+    const dialogs = (terminalProbeResult ? asArray(observed.dialogs) : []).filter((dialog) => Number(dialog.pid) === pid2 && ["native-dialog", "qt-dialog"].includes(String(dialog.kind)));
     if (mainCandidates.length > 0 || dialogs.length > 0) {
       const mainCandidate = mainCandidates[0];
       const instance = mainCandidates.length === 1 ? {
-        pid,
+        pid: pid2,
         hwnd: Number(mainCandidate.hwnd),
         title: String(mainCandidate.title ?? ""),
         bindingMode: "launch-window"
@@ -8155,7 +8105,7 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
           ok: false,
           kind: "recovered-state",
           error: "SteuerSparErklaerung hat eine Wiederherstellungsdatei geladen; der geoeffnete Fall entspricht nicht mehr der verifizierten Datei. Fall ohne Speichern schliessen, die Wiederherstellung im Programm verwerfen und danach erneut oeffnen.",
-          pid,
+          pid: pid2,
           windows,
           instance,
           dialogs,
@@ -8180,7 +8130,7 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
         ok: false,
         kind: "startup-question",
         error: "SteuerSparErklaerung zeigt statt des Fallfensters ein schmales Fenster und wartet auf eine Antwort. Meist ist das die Startfrage nach einer Wiederherstellungsdatei nach einem unsauberen Ende. Diese Frage im Programm beantworten - eine Wiederherstellung gehoert verworfen, weil ihr Inhalt nicht mehr zur geprueften Falldatei passt - und danach erneut oeffnen. Der gestartete Prozess laeuft absichtlich weiter; ihn hier zu beenden erzeugte die naechste Wiederherstellungsdatei.",
-        pid,
+        pid: pid2,
         processStillRunning: true,
         windows: lastStartupPrompts,
         startupPrompts: lastStartupPrompts,
@@ -8195,8 +8145,8 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
     return {
       ok: false,
       kind: cleanupState.stillRunning ? "startup-timeout-cleanup" : "startup-timeout",
-      error: cleanupState.stillRunning ? `SSE-PID ${pid} erzeugte kein verifiziertes Fallfenster und konnte nicht sicher beendet werden.` : `SSE-PID ${pid} erzeugte innerhalb von ${Math.round((Date.now() - startedAt) / 100) / 10} Sekunden kein verifiziertes Fallfenster; der gestartete Prozess wurde beendet.`,
-      pid,
+      error: cleanupState.stillRunning ? `SSE-PID ${pid2} erzeugte kein verifiziertes Fallfenster und konnte nicht sicher beendet werden.` : `SSE-PID ${pid2} erzeugte innerhalb von ${Math.round((Date.now() - startedAt) / 100) / 10} Sekunden kein verifiziertes Fallfenster; der gestartete Prozess wurde beendet.`,
+      pid: pid2,
       processStillRunning: cleanupState.stillRunning,
       cleanup: cleanupState.cleanup,
       cleanupError: cleanupState.cleanupError,
@@ -8211,8 +8161,8 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
       return {
         ok: false,
         kind: cleanupState.stillRunning ? "startup-abort-cleanup" : "aborted",
-        error: cleanupState.stillRunning ? `API-Client brach den Start ab; die exakt gestartete SSE-PID ${pid} laeuft trotz Cleanup noch.` : "API-Client hat den Start abgebrochen; die exakt gestartete SSE-PID wurde ohne Speichern beendet.",
-        pid,
+        error: cleanupState.stillRunning ? `API-Client brach den Start ab; die exakt gestartete SSE-PID ${pid2} laeuft trotz Cleanup noch.` : "API-Client hat den Start abgebrochen; die exakt gestartete SSE-PID wurde ohne Speichern beendet.",
+        pid: pid2,
         processStillRunning: cleanupState.stillRunning,
         cleanup: cleanupState.cleanup,
         cleanupError: cleanupState.cleanupError,
@@ -8222,8 +8172,8 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
     return {
       ok: false,
       kind: cleanupState.stillRunning ? "startup-probe-cleanup" : kind,
-      error: cleanupState.stillRunning ? `${error instanceof Error ? error.message : String(error)} Die exakt gestartete PID ${pid} laeuft trotz Cleanup noch.` : `${error instanceof Error ? error.message : String(error)} Die exakt gestartete PID wurde ohne Speichern beendet.`,
-      pid,
+      error: cleanupState.stillRunning ? `${error instanceof Error ? error.message : String(error)} Die exakt gestartete PID ${pid2} laeuft trotz Cleanup noch.` : `${error instanceof Error ? error.message : String(error)} Die exakt gestartete PID wurde ohne Speichern beendet.`,
+      pid: pid2,
       processStillRunning: cleanupState.stillRunning,
       cleanup: cleanupState.cleanup,
       cleanupError: cleanupState.cleanupError,
@@ -8554,10 +8504,10 @@ function normalizedLabel(value) {
 }
 function cents(display) {
   if (typeof display !== "string") return null;
-  const text2 = display.trim();
-  if (text2.length > 64 || !/^-?(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{1,2})?$/u.test(text2)) return null;
-  const negative = text2.startsWith("-");
-  const unsigned = negative ? text2.slice(1) : text2;
+  const text3 = display.trim();
+  if (text3.length > 64 || !/^-?(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{1,2})?$/u.test(text3)) return null;
+  const negative = text3.startsWith("-");
+  const unsigned = negative ? text3.slice(1) : text3;
   const [euros = "", decimal = ""] = unsigned.split(",", 2);
   const exact = BigInt(euros.replaceAll(".", "")) * 100n + BigInt(decimal.padEnd(2, "0") || "0");
   const signed = negative ? -exact : exact;
@@ -8565,8 +8515,8 @@ function cents(display) {
   return Number(signed);
 }
 function amount(display) {
-  const text2 = typeof display === "string" ? display : null;
-  return { display: text2, cents: cents(text2) };
+  const text3 = typeof display === "string" ? display : null;
+  return { display: text3, cents: cents(text3) };
 }
 function findFields(fields, label, type) {
   return fields.filter((field) => normalizedLabel(field.label) === label && (!type || field.typ === type));
@@ -8628,8 +8578,8 @@ function blockedPage(page) {
 function normalizeUstvaPage(page) {
   const blocked = blockedPage(page);
   if (blocked) return blocked;
-  const heading = parseUstvaPageHeading(page.ueberschrift);
-  if (!heading) {
+  const heading2 = parseUstvaPageHeading(page.ueberschrift);
+  if (!heading2) {
     return {
       ok: false,
       kind: "ustva-page",
@@ -8655,8 +8605,8 @@ function normalizeUstvaPage(page) {
   return {
     ok: true,
     pageKind: "overview",
-    taxYear: heading.taxYear,
-    page: heading.page,
+    taxYear: heading2.taxYear,
+    page: heading2.page,
     period: semanticPeriod(
       typeof frequencyDisplay === "string" ? frequencyDisplay : null,
       typeof monthDisplay === "string" ? monthDisplay : typeof quarterDisplay === "string" ? quarterDisplay : null
@@ -8690,10 +8640,10 @@ function normalizeUstvaPage(page) {
     note: "Read-only snapshot. Diese Operation speichert und uebermittelt nichts."
   };
 }
-function classifyUstvaPageHeading(heading) {
-  if (parseUstvaPageHeading(heading)) return "overview";
-  if (heading === USTVA_REVERSE_CHARGE_PAGE) return "reverse_charge";
-  if (heading === USTVA_INPUT_TAX_PAGE) return "input_tax";
+function classifyUstvaPageHeading(heading2) {
+  if (parseUstvaPageHeading(heading2)) return "overview";
+  if (heading2 === USTVA_REVERSE_CHARGE_PAGE) return "reverse_charge";
+  if (heading2 === USTVA_INPUT_TAX_PAGE) return "input_tax";
   return null;
 }
 function normalizeUstvaCurrentPage(page) {
@@ -9125,6 +9075,149 @@ var init_ustva_executor = __esm({
   }
 });
 
+// src/api-resource-bindings.ts
+var API_RESOURCE_BINDINGS;
+var init_api_resource_bindings = __esm({
+  "src/api-resource-bindings.ts"() {
+    "use strict";
+    API_RESOURCE_BINDINGS = Object.freeze({
+      case_hash: [{ alias: "ref", workerField: "path", allowedAreas: ["cases"] }],
+      position_create: [
+        { alias: "expectedCaseRef", workerField: "expectedCasePath", allowedAreas: ["cases"] },
+        { alias: "backupRef", workerField: "backupPath", allowedAreas: ["backups"] }
+      ],
+      case_create: [{ alias: "targetRef", workerField: "targetPath", allowedAreas: ["cases"] }],
+      center_refresh: [{ alias: "expectedDirectoryRef", workerField: "expectedDirectory", allowedAreas: ["cases"] }],
+      launch: [{ alias: "caseRef", workerField: "file", allowedAreas: ["cases"] }],
+      desktop_start: [{ alias: "caseRef", workerField: "file", allowedAreas: ["cases"] }],
+      collect: [{ alias: "resultRef", workerField: "path", allowedAreas: ["results"] }],
+      export_csv: [{ alias: "resultRef", workerField: "dir", allowedAreas: ["results"] }],
+      verify: [{ alias: "sourceRef", workerField: "from", allowedAreas: ["results", "workspace"] }],
+      screenshot: [{ alias: "resultRef", workerField: "path", allowedAreas: ["results"] }],
+      save: [{ alias: "caseRef", workerField: "expectedPath", allowedAreas: ["cases"] }],
+      dialog_answer: [{ alias: "expectedCaseRef", workerField: "expectedCasePath", allowedAreas: ["cases"] }],
+      file_dialog_select: [{
+        alias: "resourceRef",
+        workerField: "expectedPath",
+        allowedAreas: ["cases", "documents", "workspace", "results", "backups"]
+      }],
+      receipt_manager_import: [{
+        alias: "resourceRef",
+        workerField: "expectedPath",
+        allowedAreas: ["documents"]
+      }],
+      vast_apply: [{ alias: "expectedCaseRef", workerField: "expectedCasePath", allowedAreas: ["cases"] }],
+      tracked_set_value: [{ alias: "expectedCaseRef", workerField: "expectedCasePath", allowedAreas: ["cases"] }],
+      combo_select: [{ alias: "expectedCaseRef", workerField: "expectedCasePath", allowedAreas: ["cases"] }],
+      toggle: [{ alias: "expectedCaseRef", workerField: "expectedCasePath", allowedAreas: ["cases"] }],
+      save_as: [
+        { alias: "sourceRef", workerField: "expectedSourcePath", allowedAreas: ["cases"] },
+        { alias: "targetRef", workerField: "targetPath", allowedAreas: ["cases"] }
+      ],
+      make_working_copy: [
+        { alias: "sourceRef", workerField: "source", allowedAreas: ["cases"] },
+        // Backups sind hashgepruefte Arbeitskopien mit eigenem Ablagezweck.
+        { alias: "targetRef", workerField: "target", allowedAreas: ["cases", "backups"] }
+      ],
+      backup_cases: [{ alias: "destinationRef", workerField: "dest", allowedAreas: ["backups"] }],
+      archive_cases: [{ alias: "destinationRef", workerField: "dest", allowedAreas: ["backups"] }]
+    });
+  }
+});
+
+// src/configured-args.ts
+import { join as join5 } from "node:path";
+function resourceRoots(config) {
+  return {
+    cases: config.caseDir,
+    documents: config.documentsDir ?? join5(config.workspaceDir, "documents"),
+    workspace: config.workspaceDir,
+    results: config.resultDir,
+    backups: config.backupsDir ?? join5(config.workspaceDir, "backups")
+  };
+}
+function resolveAlias(args, resourceRefs, roots, alias, legacy, allowedAreas) {
+  if (args[alias] === void 0) return;
+  if (args[legacy] !== void 0) {
+    throw new ExecutorArgumentError(`'${alias}' und '${legacy}' duerfen nicht gemeinsam angegeben werden.`);
+  }
+  if (typeof args[alias] !== "string") throw new ExecutorArgumentError(`'${alias}' muss eine Ressourcenreferenz sein.`);
+  let resolved;
+  try {
+    resolved = resolveResourceReference(roots, args[alias], allowedAreas);
+  } catch (error) {
+    throw new ExecutorArgumentError(error instanceof Error ? error.message : String(error));
+  }
+  delete args[alias];
+  args[legacy] = resolved.path;
+  resourceRefs[alias] = resolved.ref;
+}
+function resolveSaveCorrectionReferences(args, resourceRefs, roots) {
+  if (args.correction === void 0) return;
+  if (!args.correction || typeof args.correction !== "object" || Array.isArray(args.correction)) {
+    throw new ExecutorArgumentError("'correction' muss ein Objekt sein.");
+  }
+  const correction = { ...args.correction };
+  const bindings = [
+    ["sourceRef", "sourcePath", ["cases"]],
+    ["backupRef", "backupPath", ["backups"]]
+  ];
+  for (const [alias, workerField, allowedAreas] of bindings) {
+    const value = correction[alias];
+    if (typeof value !== "string") {
+      throw new ExecutorArgumentError(`'correction.${alias}' muss eine Ressourcenreferenz sein.`);
+    }
+    let resolved;
+    try {
+      resolved = resolveResourceReference(roots, value, allowedAreas);
+    } catch (error) {
+      throw new ExecutorArgumentError(error instanceof Error ? error.message : String(error));
+    }
+    delete correction[alias];
+    correction[workerField] = resolved.path;
+    resourceRefs[`correction.${alias}`] = resolved.ref;
+  }
+  args.correction = correction;
+}
+function configuredArgs(operation, args, config) {
+  const result = { ...args };
+  const roots = resourceRoots(config);
+  const resourceRefs = {};
+  for (const binding of API_RESOURCE_BINDINGS[operation] ?? []) {
+    resolveAlias(
+      result,
+      resourceRefs,
+      roots,
+      binding.alias,
+      binding.workerField,
+      binding.allowedAreas
+    );
+  }
+  if (operation === "save") resolveSaveCorrectionReferences(result, resourceRefs, roots);
+  if (operation === "receipt_manager_bulk_upsert") {
+    resolveReceiptManagerBulkReferences(result, resourceRefs, roots);
+  }
+  if (operation === "launch" || operation === "desktop_start") {
+    if (result.exe !== void 0) {
+      throw new ExecutorArgumentError("'exe' wird ausschliesslich in der lokalen API-Konfiguration festgelegt.");
+    }
+    if (config.sseExecutable) result.exe = config.sseExecutable;
+  }
+  if ((operation === "list_cases" || operation === "backup_cases" || operation === "archive_cases") && result.dir === void 0 && config.caseDir) {
+    result.dir = config.caseDir;
+  }
+  return { args: result, resourceRefs };
+}
+var init_configured_args = __esm({
+  "src/configured-args.ts"() {
+    "use strict";
+    init_api_resource_bindings();
+    init_executor_errors();
+    init_bulk_plan_executor();
+    init_resources();
+  }
+});
+
 // src/workspace.ts
 import { createHash as createHash3, randomUUID as randomUUID2 } from "node:crypto";
 import {
@@ -9242,9 +9335,9 @@ function readWorkspaceText(root, ref) {
   }
   return { info: { ref, bytes: buffer.length, sha256: hash(buffer) }, text: decodeUtf8(buffer) };
 }
-function writeWorkspaceText(root, ref, text2) {
-  if (typeof text2 !== "string") throw new Error("'text' muss eine Zeichenkette sein.");
-  const buffer = Buffer.from(text2, "utf8");
+function writeWorkspaceText(root, ref, text3) {
+  if (typeof text3 !== "string") throw new Error("'text' muss eine Zeichenkette sein.");
+  const buffer = Buffer.from(text3, "utf8");
   if (buffer.length > MAX_TEXT_FILE_BYTES) throw new Error(`Textdatei ist groesser als ${MAX_TEXT_FILE_BYTES} Bytes.`);
   validateWorkspaceTextWrite(root, ref);
   const path = resolveWorkspacePath(root, ref, true);
@@ -9423,7 +9516,7 @@ var init_workspace = __esm({
 // src/scenario.ts
 import { isDeepStrictEqual } from "node:util";
 import { createHash as createHash4 } from "node:crypto";
-import { basename as basename4, dirname as dirname7, extname, join as join5 } from "node:path";
+import { basename as basename4, dirname as dirname7, extname, join as join6 } from "node:path";
 function requireAllowedScenarioOperations(groups, context) {
   for (const [phase, steps] of groups) {
     steps.forEach((step, index) => {
@@ -9667,7 +9760,7 @@ function fallbackResultRef(requestedRef, sha2562) {
   const stem = basename4(requestedRef, extension);
   const fallbackName = `${stem}.conflict-${sha2562}${extension || ".json"}`;
   const parent = dirname7(requestedRef);
-  return (parent === "." ? fallbackName : join5(parent, fallbackName)).replaceAll("\\", "/");
+  return (parent === "." ? fallbackName : join6(parent, fallbackName)).replaceAll("\\", "/");
 }
 async function runScenario(workspaceDir, resultDir, scenarioRef, resultRefOverride, totalTimeoutMs, signal, execute) {
   const source = readWorkspaceText(workspaceDir, scenarioRef);
@@ -10166,9 +10259,9 @@ function foldLocalValue(value) {
 function decimalFromNormalized(value) {
   const negative = value.startsWith("-");
   const unsigned = negative ? value.slice(1) : value;
-  const [integer = "", fraction = ""] = unsigned.split(".", 2);
+  const [integer2 = "", fraction = ""] = unsigned.split(".", 2);
   let scale = fraction.length;
-  let coefficient = BigInt(`${integer}${fraction}` || "0");
+  let coefficient = BigInt(`${integer2}${fraction}` || "0");
   while (scale > 0 && coefficient % 10n === 0n) {
     coefficient /= 10n;
     scale -= 1;
@@ -10177,21 +10270,21 @@ function decimalFromNormalized(value) {
   return { coefficient: negative ? -coefficient : coefficient, scale };
 }
 function parseTableNumber(value) {
-  let text2 = trimDotNet(value);
-  text2 = text2.replace(/^(?:€|EUR)\s*/iu, "");
-  text2 = text2.replace(/\s*(?:€|EUR|%)$/iu, "");
-  text2 = removeDotNetWhitespace(text2);
-  if (!text2) return null;
+  let text3 = trimDotNet(value);
+  text3 = text3.replace(/^(?:€|EUR)\s*/iu, "");
+  text3 = text3.replace(/\s*(?:€|EUR|%)$/iu, "");
+  text3 = removeDotNetWhitespace(text3);
+  if (!text3) return null;
   let normalized;
-  if (/^-?[0-9]+$/u.test(text2)) {
-    normalized = text2;
-  } else if (/^-?(?:[0-9]{1,3}(?:\.[0-9]{3})+|[0-9]+),[0-9]+$/u.test(text2)) {
-    normalized = text2.replaceAll(".", "").replace(",", ".");
-  } else if (/^-?[0-9]+\.[0-9]+$/u.test(text2)) {
-    const fraction = text2.replace(/^-/, "").split(".", 2)[1] ?? "";
-    normalized = fraction.length === 3 ? text2.replace(".", "") : text2;
-  } else if (/^-?[0-9]{1,3}(?:\.[0-9]{3}){2,}$/u.test(text2)) {
-    normalized = text2.replaceAll(".", "");
+  if (/^-?[0-9]+$/u.test(text3)) {
+    normalized = text3;
+  } else if (/^-?(?:[0-9]{1,3}(?:\.[0-9]{3})+|[0-9]+),[0-9]+$/u.test(text3)) {
+    normalized = text3.replaceAll(".", "").replace(",", ".");
+  } else if (/^-?[0-9]+\.[0-9]+$/u.test(text3)) {
+    const fraction = text3.replace(/^-/, "").split(".", 2)[1] ?? "";
+    normalized = fraction.length === 3 ? text3.replace(".", "") : text3;
+  } else if (/^-?[0-9]{1,3}(?:\.[0-9]{3}){2,}$/u.test(text3)) {
+    normalized = text3.replaceAll(".", "");
   } else {
     return null;
   }
@@ -11163,7 +11256,7 @@ var init_local_file_transaction = __esm({
 // src/backup-executor.ts
 import { createHash as createHash9 } from "node:crypto";
 import { open as open5, readdir as readdir3, stat as stat6 } from "node:fs/promises";
-import { join as join6, resolve as resolve14 } from "node:path";
+import { join as join7, resolve as resolve14 } from "node:path";
 import { performance as performance7 } from "node:perf_hooks";
 async function sourceInventoryStillStable(path, identity, expectedNames, profile) {
   if (!await directoryStillOwned(path, identity)) return false;
@@ -11266,8 +11359,8 @@ async function executeLocalBackup(options) {
       if (!await sourceInventoryStillStable(directory, directoryState, names, options.profile)) {
         throw new LocalFileError("Fallbestand wurde waehrend der Sicherung veraendert.", "postcondition-failed");
       }
-      const source = join6(directory, name);
-      const target = join6(destination, name);
+      const source = join7(directory, name);
+      const target = join7(destination, name);
       const sourceInfo = await readCaseFileInfo(source, options.profile, {
         timeoutMs: remainingMs(),
         ...options.signal ? { signal: options.signal } : {}
@@ -11314,7 +11407,7 @@ async function executeLocalBackup(options) {
       throw new LocalFileError("Sicherungsziel wurde vor dem Manifest veraendert.", "postcondition-failed");
     }
     const hashes = copied.map((entry) => ({ file: entry.name, sha256: entry.sha256 }));
-    const manifestPath = join6(destination, "pruefsummen.csv");
+    const manifestPath = join7(destination, "pruefsummen.csv");
     const manifestBytes = csvManifest(hashes);
     const manifestHash = createHash9("sha256").update(manifestBytes).digest("hex").toUpperCase();
     manifestHandle = await open5(manifestPath, "wx+");
@@ -11370,8 +11463,8 @@ async function executeLocalBackup(options) {
         path: manifest.path,
         ownership: manifest.complete ? await removeOwnedFile(manifest.path, manifest.identity, manifest.bytes, manifest.sha256) : await removeOwnedFilePrefix(manifest.path, manifest.identity, manifest.content)
       });
-    } else if (destination && await pathExists3(join6(destination, "pruefsummen.csv")).catch(() => false)) {
-      removals.push({ path: join6(destination, "pruefsummen.csv"), ownership: { stillOwned: false, removed: false } });
+    } else if (destination && await pathExists3(join7(destination, "pruefsummen.csv")).catch(() => false)) {
+      removals.push({ path: join7(destination, "pruefsummen.csv"), ownership: { stillOwned: false, removed: false } });
     }
     for (const file of [...copied].reverse()) {
       removals.push({
@@ -11385,7 +11478,7 @@ async function executeLocalBackup(options) {
       if (destinationDirectory.identity && await directoryStillOwned(destination, destinationDirectory.identity)) {
         try {
           for (const name of await readdir3(destination)) {
-            const path = join6(destination, name);
+            const path = join7(destination, name);
             if (!retainedTargets.includes(path)) retainedTargets.push(path);
           }
         } catch {
@@ -11581,7 +11674,7 @@ var init_archive_file_copy = __esm({
 
 // src/sse-process-guard.ts
 import { execFile } from "node:child_process";
-import { join as join7 } from "node:path";
+import { join as join8 } from "node:path";
 import { promisify } from "node:util";
 function parseTasklistSseOutput(stdout) {
   const lines = stdout.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
@@ -11598,7 +11691,7 @@ async function hasRunningSseProcess() {
   if (!systemRoot) {
     throw new LocalFileError("Windows-Systempfad fuer die SSE-Prozesspruefung fehlt.", "precondition-failed");
   }
-  const executable = join7(systemRoot, "System32", "tasklist.exe");
+  const executable = join8(systemRoot, "System32", "tasklist.exe");
   try {
     const result = await execFileAsync(executable, ["/FI", "IMAGENAME eq SSE.exe", "/NH", "/FO", "CSV"], {
       encoding: "utf8",
@@ -11628,7 +11721,7 @@ var init_sse_process_guard = __esm({
 // src/archive-executor.ts
 import { createHash as createHash11 } from "node:crypto";
 import { open as open7, readdir as readdir4, stat as stat8, unlink as unlink3 } from "node:fs/promises";
-import { basename as basename5, join as join8, resolve as resolve15 } from "node:path";
+import { basename as basename5, join as join9, resolve as resolve15 } from "node:path";
 import { performance as performance8 } from "node:perf_hooks";
 function asArchiveArguments(value) {
   if (!Array.isArray(value) || !value.length) return void 0;
@@ -11693,7 +11786,7 @@ async function caseInventory(directory, profile) {
   return { names, byLowerName, collision };
 }
 async function writeVerifiedManifest(destination, rows, writeManifest) {
-  const path = join8(destination, "pruefsummen.csv");
+  const path = join9(destination, "pruefsummen.csv");
   const content = csvManifest(rows);
   const sha2562 = createHash11("sha256").update(content).digest("hex").toUpperCase();
   const handle = await open7(path, "wx+");
@@ -11729,7 +11822,7 @@ async function preserveRecoveryCopy(file, directory, directoryIdentity) {
   if (!directoryIdentity || !await directoryStillOwned(directory, directoryIdentity)) return void 0;
   const stem = `.sse-recovery-${file.expectedSha256.slice(0, 16)}-${file.actualName}`;
   for (let attempt = 0; attempt < 100; attempt += 1) {
-    const path = join8(directory, `${stem}${attempt === 0 ? "" : `.${attempt}`}.bin`);
+    const path = join9(directory, `${stem}${attempt === 0 ? "" : `.${attempt}`}.bin`);
     try {
       const copy = await copyOpenFileToArchive(
         file.handle,
@@ -11852,7 +11945,7 @@ async function executeLocalArchive(options) {
       const actualName = inventory.byLowerName.get(entry.name.toLowerCase());
       if (!actualName) throw new LocalFileError(`Fall '${entry.name}' fehlt waehrend der Archivvorbereitung.`, "resource-changed");
       const file = await bindCase(
-        join8(directory, actualName),
+        join9(directory, actualName),
         entry,
         actualName,
         options.profile,
@@ -11897,7 +11990,7 @@ async function executeLocalArchive(options) {
       if (!await sourcePathStillBound(file)) {
         throw new LocalFileError(`Fall '${file.actualName}' wurde vor dem Verschieben veraendert.`, "postcondition-failed");
       }
-      const target = join8(destination, file.actualName);
+      const target = join9(destination, file.actualName);
       const copied = await copyOpenFileToArchive(
         file.handle,
         target,
@@ -11979,7 +12072,7 @@ async function executeLocalArchive(options) {
       dest: destination,
       files: moved.map((entry) => ({ name: entry.actualName, sha256: entry.expectedSha256 })),
       remaining: remainingArguments.map((entry) => ({ name: entry.name, sha256: entry.expectedSha256 })),
-      manifest: join8(destination, "pruefsummen.csv"),
+      manifest: join9(destination, "pruefsummen.csv"),
       verified: true,
       recoverable: true
     });
@@ -12044,7 +12137,7 @@ async function executeLocalArchive(options) {
     const destinationDirectory = createdDirectories.find((entry) => entry.path === destination);
     if (destinationDirectory?.identity && await directoryStillOwned(destination, destinationDirectory.identity)) {
       for (const name of await readdir4(destination).catch(() => [])) {
-        const path = join8(destination, name);
+        const path = join9(destination, name);
         if (!retainedTargets.includes(path)) retainedTargets.push(path);
       }
     }
@@ -12229,31 +12322,31 @@ var init_qt_native_client = __esm({
         try {
           const received = await this.requestFrame(operation, args, timeoutMs, signal);
           const result = received.result, receipt = result.mutationReceipt;
-          const invalid = (message, kind = "native-mutation-receipt") => {
+          const invalid2 = (message, kind = "native-mutation-receipt") => {
             this.fail(message, kind, true);
             return new QtNativeAcknowledgmentError(message, kind, result);
           };
-          if (typeof result.mutationAttempted !== "boolean") throw invalid("Native reply did not identify whether a mutation was attempted.");
+          if (typeof result.mutationAttempted !== "boolean") throw invalid2("Native reply did not identify whether a mutation was attempted.");
           if (result.outcomeUnknown !== void 0 && typeof result.outcomeUnknown !== "boolean" || result.ok && result.outcomeUnknown === true) {
-            throw invalid("Native reply has inconsistent outcome evidence.");
+            throw invalid2("Native reply has inconsistent outcome evidence.");
           }
           if (receipt === void 0 && (!result.mutationAttempted || result.outcomeUnknown === true)) {
             return { ...received, durationMs: performance9.now() - started, mutationAckMs: 0, receiptAcknowledged: false };
           }
           if (!result.mutationAttempted || result.outcomeUnknown === true || typeof receipt !== "string" || !/^[1-9][0-9]{0,19}$/u.test(receipt) || BigInt(receipt) > 0xffffffffffffffffn) {
-            throw invalid("Native reply has no valid receipt for its known attempted mutation.");
+            throw invalid2("Native reply has no valid receipt for its known attempted mutation.");
           }
           const remaining = Math.floor(timeoutMs - (performance9.now() - started));
-          if (remaining < 1) throw invalid("Mutation reply received after its acknowledgment budget expired.", "native-timeout");
+          if (remaining < 1) throw invalid2("Mutation reply received after its acknowledgment budget expired.", "native-timeout");
           try {
             const acknowledgment = await this.requestFrame("mutation_ack", { receipt }, remaining, signal);
             if (acknowledgment.result.ok !== true || acknowledgment.result.acknowledged !== true || acknowledgment.result.receipt !== receipt || acknowledgment.result.outcomeUnknown !== void 0 && acknowledgment.result.outcomeUnknown !== false) {
-              throw invalid("Native peer did not acknowledge the exact mutation receipt.");
+              throw invalid2("Native peer did not acknowledge the exact mutation receipt.");
             }
             return { ...received, durationMs: performance9.now() - started, mutationAckMs: acknowledgment.durationMs, receiptAcknowledged: true };
           } catch (error) {
             if (error instanceof QtNativeAcknowledgmentError) throw error;
-            throw invalid(
+            throw invalid2(
               "Mutation reply received but acknowledgment failed; inspect the result and do not resend the mutation.",
               error instanceof QtNativeTransportError ? error.kind : "native-mutation-receipt"
             );
@@ -12573,15 +12666,369 @@ var init_qt_native_tables = __esm({
   }
 });
 
+// src/qt-native-snapshot.ts
+async function readQtNativeSnapshot(client, args, timeoutMs, signal) {
+  if (args.hwnd !== void 0 && args.hwnd !== client.binding.hwnd) {
+    throw new QtNativeTransportError("Requested window differs from the verified native session.", "stale-window");
+  }
+  const maxNodes = typeof args.maxNodes === "number" ? args.maxNodes : 4e3;
+  const read = await client.request("accessibility_snapshot", {
+    maxNodes,
+    ...typeof args.toolTitle === "string" ? { toolTitle: args.toolTitle } : {},
+    ...args.withValues === false ? { withValues: false } : {},
+    ...args.equalitySelectors ? { equalitySelectors: args.equalitySelectors } : {}
+  }, timeoutMs, signal);
+  if (!read.result.ok) throw new QtNativeTransportError(
+    String(read.result.error ?? "Native snapshot failed."),
+    String(read.result.code ?? "native-read"),
+    read.result.outcomeUnknown === true
+  );
+  const parsed = snapshotSchema.parse(read.result);
+  const invalid2 = (message) => {
+    throw new QtNativeTransportError(message, "native-contract");
+  };
+  if (args.toolTitle === void 0 && parsed.hwnd !== client.binding.hwnd) invalid2("Snapshot returned another window.");
+  if (parsed.stats.n !== parsed.nodes.length || parsed.nodes.length > maxNodes || parsed.stats.depthLimited && !parsed.stats.truncated) invalid2("Inconsistent native snapshot bounds.");
+  const seen = /* @__PURE__ */ new Set();
+  for (const [index, node] of parsed.nodes.entries()) {
+    if (node.i !== index || node.p >= index || seen.has(node.rid) || (node.p < 0 ? node.d !== 0 : node.d !== parsed.nodes[node.p].d + 1)) invalid2("Invalid native snapshot tree or identity.");
+    seen.add(node.rid);
+    if (args.withValues === false && [node.val, node.ro, node.checked, node.selected].some((value) => value !== null))
+      invalid2("A structural snapshot unexpectedly returned values.");
+  }
+  const selectors = Object.keys(args.equalitySelectors ?? {}).sort();
+  if (JSON.stringify(Object.keys(parsed.exactMatches).sort()) !== JSON.stringify(selectors)) invalid2("Missing native selector comparisons.");
+  for (const matches of Object.values(parsed.exactMatches)) {
+    if (matches && (new Set(matches).size !== matches.length || matches.some((index) => index >= parsed.nodes.length)))
+      invalid2("Invalid native selector comparison indices.");
+  }
+  return { ...parsed, nativeDurationMs: read.durationMs };
+}
+function qtSnapshotArguments(args, profile) {
+  if (args.toolWindow === void 0) return { ...args };
+  const windows = profile.pageObjectsCatalog.windows;
+  const definition = Object.hasOwn(windows, String(args.toolWindow)) ? windows[String(args.toolWindow)] : void 0;
+  if (!definition) throw new QtNativeTransportError("Unknown catalogued tool window.", "bad-args");
+  const window = external_exports.object({ role: external_exports.string(), title: external_exports.string().min(1).max(4096) }).parse(definition);
+  if (!window.role.startsWith("nonmodal-")) throw new QtNativeTransportError("The catalogued window is not nonmodal.", "blocked");
+  return { ...args, toolTitle: window.title };
+}
+async function executeQtNativeSnapshot(client, args, timeoutMs, signal) {
+  const result = await readQtNativeSnapshot(client, args, timeoutMs, signal);
+  const types = Array.isArray(args.types) ? args.types.map((value) => String(value).toLowerCase()) : [];
+  const nodes = result.nodes.filter((node) => (!types.length || types.includes(node.type.toLowerCase())) && (!args.namedOnly || node.name));
+  return {
+    ok: true,
+    backend: "qt",
+    hwnd: result.hwnd,
+    toolWindow: args.toolWindow ?? "",
+    canaryMs: null,
+    stats: result.stats,
+    count: nodes.length,
+    nodes,
+    nativeDurationMs: result.nativeDurationMs,
+    scope: result.scope,
+    responsivenessCheck: "bounded-gui-thread"
+  };
+}
+async function executeQtSnapshotGetValue(client, args, timeoutMs, signal) {
+  const result = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 5e3 }, timeoutMs, signal);
+  if (!result.windowEnabled || result.modalBlocked) return fail3("window-obstructed", "The native window is disabled or blocked by a modal dialog.");
+  if (result.stats.truncated) return fail3("native-incomplete", "The current tree exceeds the native read bound.");
+  const nodes = result.nodes.filter((node2) => node2.rid === args.rid && (!args.aid || node2.aid.endsWith(String(args.aid))) && (!args.type || node2.type.toLowerCase() === String(args.type).toLowerCase()) && (!args.name || (args.contains ? node2.name.toLowerCase().includes(String(args.name).toLowerCase()) : node2.name.toLowerCase() === String(args.name).toLowerCase())));
+  if (nodes.length !== 1) return fail3("not-found", "The current native tree does not contain the selected runtime ID.");
+  const node = nodes[0];
+  if (node.val === null) return fail3("no-readable-value", "The selected control does not expose a readable text value.");
+  return {
+    ok: true,
+    backend: "qt",
+    value: node.val,
+    readOnly: node.ro,
+    aufgeloestUeber: "selektor",
+    node,
+    nativeDurationMs: result.nativeDurationMs
+  };
+}
+var text2, integer, nodeSchema, snapshotSchema, fail3;
+var init_qt_native_snapshot = __esm({
+  "src/qt-native-snapshot.ts"() {
+    "use strict";
+    init_zod();
+    init_qt_native_client();
+    text2 = external_exports.string().max(65536);
+    integer = external_exports.number().int().safe();
+    nodeSchema = external_exports.object({
+      i: integer.nonnegative(),
+      p: integer.min(-1),
+      d: integer.min(0).max(16),
+      type: text2,
+      name: text2,
+      aid: text2,
+      rid: external_exports.string().regex(/^42\.-?\d+(?:\.4\.-?\d+)?$/u),
+      x: integer,
+      y: integer,
+      w: integer.nonnegative(),
+      h: integer.nonnegative(),
+      on: external_exports.boolean(),
+      val: text2.nullable(),
+      ro: external_exports.boolean().nullable(),
+      checked: external_exports.union([external_exports.boolean(), external_exports.literal("unbestimmt")]).nullable(),
+      selected: external_exports.boolean().nullable(),
+      scroll: external_exports.null()
+    }).strict();
+    snapshotSchema = external_exports.object({
+      ok: external_exports.literal(true),
+      controllerBound: external_exports.literal(true),
+      scope: external_exports.literal("qt-accessibility-content"),
+      hwnd: integer.positive(),
+      windowEnabled: external_exports.boolean(),
+      modalBlocked: external_exports.boolean(),
+      nodes: external_exports.array(nodeSchema).max(5e3),
+      windowRect: external_exports.object({ x: integer, y: integer, w: integer.nonnegative(), h: integer.nonnegative() }).strict(),
+      exactMatches: external_exports.object({
+        name: external_exports.array(integer.nonnegative()).optional(),
+        aid: external_exports.array(integer.nonnegative()).optional(),
+        type: external_exports.array(integer.nonnegative()).optional()
+      }).strict(),
+      stats: external_exports.object({
+        n: integer.nonnegative(),
+        err: external_exports.literal(0),
+        cyc: external_exports.literal(0),
+        cycleRid: external_exports.literal(""),
+        cycleName: external_exports.literal(""),
+        truncated: external_exports.boolean(),
+        depthLimited: external_exports.boolean(),
+        valErr: external_exports.literal(0),
+        scrollErr: external_exports.literal(0),
+        source: external_exports.literal("qt"),
+        fallbackReason: external_exports.literal(""),
+        snapshotMs: external_exports.number().finite().nonnegative()
+      }).strict()
+    });
+    fail3 = (kind, error) => ({ ok: false, backend: "qt", kind, error });
+  }
+});
+
+// src/qt-native-pages.ts
+function roundEven(value) {
+  const floor = Math.floor(value);
+  return value - floor === 0.5 ? floor + Math.abs(floor) % 2 : Math.round(value);
+}
+function contentBounds(nodes, rect) {
+  const nav = nodes.filter((node) => node.type === "Tree" && node.w > 100).sort((a, b) => a.x - b.x)[0];
+  const minX = nav ? nav.x + nav.w + 5 : roundEven(rect.x + rect.w * 0.28);
+  const help = nodes.filter((node) => ["eingabehilfe", "steuertipps"].includes(node.name.toLowerCase()) && node.x > minX).sort((a, b) => a.x - b.x)[0];
+  return { minX, maxX: help ? help.x - 10 : roundEven(rect.x + rect.w * 0.79), winX: rect.x, winW: rect.w, navErkannt: !!nav };
+}
+function heading(nodes, profile) {
+  const parsed = external_exports.object({ headingContainerAutomationIdSuffix: external_exports.string().min(1) }).safeParse(profile?.pageObjectsCatalog.windows.main);
+  if (!parsed.success) throw new QtNativeTransportError("Page catalogue has no heading container selector.", "invalid-catalog");
+  const containers = nodes.filter((node) => node.aid.endsWith(parsed.data.headingContainerAutomationIdSuffix));
+  if (containers.length !== 1) return null;
+  const descendants = /* @__PURE__ */ new Set([containers[0].i]);
+  const texts = [];
+  for (const node of nodes) {
+    if (descendants.has(node.p)) {
+      descendants.add(node.i);
+      if (node.type === "Text") texts.push(node);
+    }
+  }
+  return texts.sort(byPosition)[0]?.name ?? null;
+}
+async function executeQtNativeReadPage(client, args, timeoutMs, signal, profile) {
+  const result = await readQtNativeSnapshot(client, args, timeoutMs, signal);
+  const bounds = contentBounds(result.nodes, result.windowRect);
+  const minX = typeof args.minX === "number" ? args.minX : bounds.minX;
+  const maxX = typeof args.maxX === "number" ? args.maxX : bounds.maxX;
+  const keep = /* @__PURE__ */ new Set(["Text", "DataItem", "Edit", "CheckBox", "Header", "RadioButton", "Button", "Hyperlink", "ComboBox"]);
+  const rows = result.nodes.filter((node) => (node.name || node.val?.trim()) && node.x >= minX && node.x <= maxX && keep.has(node.type)).sort(byPosition);
+  const lines = [];
+  let anchor;
+  for (const node of rows) {
+    const overlap = anchor ? Math.min(node.y + node.h, anchor.y + anchor.h) - Math.max(node.y, anchor.y) : 0;
+    if (!anchor || Math.abs(node.y - anchor.y) > 12 && overlap <= Math.max(1, Math.min(node.h, anchor.h)) / 2) {
+      anchor = node;
+      lines.push({ y: node.y, cells: [] });
+    }
+    lines.at(-1).cells.push(node.val?.trim() ? node.name ? `${node.name} = ${node.val}` : node.val : node.name);
+  }
+  return {
+    ok: true,
+    backend: "qt",
+    heading: heading(result.nodes, profile),
+    bounds,
+    lines,
+    stats: result.stats,
+    nativeDurationMs: result.nativeDurationMs
+  };
+}
+function transmissionName(name) {
+  const normalized = name.toLowerCase().replaceAll("ä", "a").replaceAll("ö", "o").replaceAll("ü", "u").replaceAll("ß", "ss").replace(/[^\p{L}\p{N}]/gu, "");
+  return ["elster", "versend", "versand", "ubermittl", "ubermittel", "abschick", "nachreich", "abschliess", "datenubertrag", "transfer"].some((stem) => normalized.includes(stem)) || normalized.startsWith("senden");
+}
+async function executeQtNativeSubpages(client, args, timeoutMs, signal) {
+  const result = await readQtNativeSnapshot(client, args, timeoutMs, signal);
+  const bounds = contentBounds(result.nodes, result.windowRect);
+  if (result.stats.truncated) throw new QtNativeTransportError("The subpage tree exceeds the native read bound.", "native-incomplete");
+  const pageNodes = result.nodes.filter((node) => node.aid.toLowerCase().includes(".redthreadcontent.") && node.x >= bounds.minX && node.x <= bounds.maxX);
+  const texts = pageNodes.filter((node) => node.type === "Text" && node.name), values = pageNodes.filter((node) => node.type === "Edit");
+  const buttons = pageNodes.filter((node) => node.type === "Button" && (node.name || node.aid.toLowerCase().endsWith(".button")) || node.type === "Hyperlink" && node.name).filter((node) => !["zurück", "weiter"].includes(node.name.toLowerCase())).sort((a, b) => a.y - b.y || Number(a.type !== "Hyperlink") - Number(b.type !== "Hyperlink") || a.x - b.x);
+  const seen = /* @__PURE__ */ new Set();
+  const subpages = [];
+  for (const button of buttons) {
+    if (transmissionName(button.name)) continue;
+    const caption = texts.filter((node) => node.p === button.p).sort((a, b) => a.x - b.x)[0] ?? texts.filter((node) => Math.abs(node.y - button.y) <= 14 && node.x < button.x).sort((a, b) => b.x - a.x)[0];
+    const value = values.filter((node) => node.p === button.p).sort((a, b) => a.x - b.x)[0];
+    const name = button.name || "Öffnen", key = `${name}|${caption?.name ?? ""}|${button.y}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    subpages.push({
+      schalter: name,
+      fuehrt_zu: caption?.name ?? null,
+      wert: value?.val ?? null,
+      typ: button.type,
+      aktiviert: button.on,
+      aid: button.aid,
+      rid: button.rid,
+      y: button.y,
+      werkzeug: button.type === "Button" ? "sse_click (rid)" : "sse_click_point (nicht versteckt)"
+    });
+  }
+  return {
+    ok: true,
+    backend: "qt",
+    anzahl: subpages.length,
+    unterseiten: subpages,
+    nativeDurationMs: result.nativeDurationMs,
+    hinweis: "Hyperlinks sind bei doppelt exponierten Qt-Unterseiten der bevorzugte, PID-/Root-verifizierte Weg per sse_click_point. Reine oder unbeschriftete Buttons per rid mit sse_click oeffnen. Zurueck ueber sse_click name='Zurück' oder den Verlaufspfeil (aid HistoryToolbarBtnSSE)."
+  };
+}
+var byPosition;
+var init_qt_native_pages = __esm({
+  "src/qt-native-pages.ts"() {
+    "use strict";
+    init_zod();
+    init_qt_native_client();
+    init_qt_native_snapshot();
+    byPosition = (a, b) => a.y - b.y || a.x - b.x;
+  }
+});
+
+// src/qt-native-find.ts
+function nativeWildcard(pattern) {
+  const tokens = [];
+  const literal = (value) => tokens.push((character) => character.toLowerCase() === value.toLowerCase());
+  for (let index = 0; index < pattern.length; ++index) {
+    const character = pattern[index];
+    if (character === "`") {
+      if (index + 1 < pattern.length) literal(pattern[++index]);
+      else if (pattern.length > 1) literal("`");
+    } else if (character === "*") {
+      if (tokens.at(-1) !== "*") tokens.push("*");
+    } else if (character === "?") tokens.push(() => true);
+    else if (character === "[") {
+      const contents = [];
+      let closed = false, first = true;
+      while (++index < pattern.length) {
+        let value = pattern[index], escaped = false;
+        if (value === "]" && !first) {
+          closed = true;
+          break;
+        }
+        if (value === "`") {
+          first = false;
+          if (++index >= pattern.length) break;
+          value = pattern[index];
+          escaped = true;
+        }
+        contents.push({ value, dash: value === "-" && !escaped });
+        first = false;
+      }
+      if (!closed) throw invalid();
+      const matchers = [];
+      for (let part = 0; part < contents.length; ++part) {
+        const lower = contents[part].value;
+        if (part + 2 < contents.length && contents[part + 1].dash) {
+          const upper = contents[part + 2].value;
+          part += 2;
+          if (lower > upper) throw invalid();
+          const hex = (value) => `\\u${value.charCodeAt(0).toString(16).padStart(4, "0")}`;
+          const range = new RegExp(`[${hex(lower)}-${hex(upper)}]`, "i");
+          matchers.push((value) => range.test(value));
+        } else matchers.push((value) => value.toLowerCase() === lower.toLowerCase());
+      }
+      tokens.push((value) => matchers.some((match) => match(value)));
+    } else literal(character);
+  }
+  let budget = 1e7;
+  return (text3) => {
+    let current = new Uint8Array(tokens.length + 1);
+    current[0] = 1;
+    const closure = (states) => {
+      for (let index = 0; index < tokens.length; ++index) if (states[index] && tokens[index] === "*") states[index + 1] = 1;
+    };
+    closure(current);
+    for (let offset = 0; offset < text3.length; ++offset) {
+      budget -= tokens.length;
+      if (budget < 0) throw new QtNativeTransportError("Wildcard evaluation exceeds the bounded selector budget.", "native-selector-limit");
+      const next = new Uint8Array(tokens.length + 1);
+      for (let index = 0; index < tokens.length; ++index) {
+        if (!current[index]) continue;
+        const token = tokens[index];
+        if (token === "*") next[index] = 1;
+        else if (token(text3[offset])) next[index + 1] = 1;
+      }
+      closure(next);
+      current = next;
+    }
+    return current[tokens.length] === 1;
+  };
+}
+async function executeQtNativeFind(client, args, timeoutMs, signal) {
+  const name = typeof args.name === "string" ? args.name : "", aid = typeof args.aid === "string" ? args.aid : "";
+  const type = typeof args.type === "string" ? args.type : "";
+  if (!name && !aid && !type || args.contains && !name) throw new QtNativeTransportError("find requires name, aid or type; contains requires name.", "bad-args");
+  const nameMatch = args.contains ? nativeWildcard(`*${name}*`) : void 0;
+  const aidMatch = nativeWildcard(`*${aid}`);
+  const equalitySelectors = { ...name && !args.contains ? { name } : {}, ...aid ? { aid } : {}, ...type ? { type } : {} };
+  const result = await readQtNativeSnapshot(client, { ...args, withValues: false, equalitySelectors }, timeoutMs, signal);
+  const exactName = new Set(result.exactMatches.name), exactAid = new Set(result.exactMatches.aid), exactType = new Set(result.exactMatches.type);
+  const hits = result.nodes.filter((node) => (!name || (nameMatch ? nameMatch(node.name) : exactName.has(node.i))) && (!aid || exactAid.has(node.i) || aidMatch(node.aid)) && (!type || exactType.has(node.i)));
+  return {
+    ok: true,
+    backend: "qt",
+    count: hits.length,
+    hits,
+    stats: result.stats,
+    incomplete: result.stats.truncated,
+    note: result.stats.truncated ? 'ACHTUNG: Der Baumlauf wurde abgeschnitten. "Nicht gefunden" ist hier KEIN Beweis fuer Abwesenheit.' : null,
+    nativeDurationMs: result.nativeDurationMs
+  };
+}
+var invalid;
+var init_qt_native_find = __esm({
+  "src/qt-native-find.ts"() {
+    "use strict";
+    init_qt_native_client();
+    init_qt_native_snapshot();
+    invalid = () => new QtNativeTransportError("Invalid PowerShell wildcard expression.", "bad-args");
+  }
+});
+
 // src/qt-native-executor.ts
 import { performance as performance10 } from "node:perf_hooks";
-async function executeQtNativeRead(operation, args, dependencies, timeoutMs = DEFAULT_OPERATION_TIMEOUT_MS, signal) {
+function isQtNativeReadOperation(operation) {
+  return QT_NATIVE_READ_OPERATIONS.some((value) => value === operation);
+}
+async function executeQtNativeRead(operation, args, dependencies, timeoutMs = DEFAULT_OPERATION_TIMEOUT_MS, signal, profile) {
   try {
     const started = performance10.now();
+    if (operation === "snapshot" && profile) args = qtSnapshotArguments(args, profile);
     const client = dependencies.qtNativeClient ?? await dependencies.qtNativeClientFor(args, timeoutMs, signal);
     const remaining = Math.floor(timeoutMs - (performance10.now() - started));
     if (remaining < 1) throw new QtNativeTransportError("Native operation deadline exceeded before reading.", "native-timeout");
-    return await (operation === "get_value" ? executeQtNativeGetValue : executeQtNativeTableRead)(client, args, remaining, signal);
+    const execute = operation === "read_page" ? executeQtNativeReadPage : operation === "subpages" ? executeQtNativeSubpages : operation === "find" ? executeQtNativeFind : operation === "snapshot" ? executeQtNativeSnapshot : operation === "table_read" ? executeQtNativeTableRead : typeof args.rid === "string" && args.rid.startsWith("42.") ? executeQtSnapshotGetValue : executeQtNativeGetValue;
+    return await execute(client, args, remaining, signal, profile);
   } catch (error) {
     return {
       ok: false,
@@ -12592,6 +13039,7 @@ async function executeQtNativeRead(operation, args, dependencies, timeoutMs = DE
     };
   }
 }
+var QT_NATIVE_READ_OPERATIONS;
 var init_qt_native_executor = __esm({
   "src/qt-native-executor.ts"() {
     "use strict";
@@ -12599,94 +13047,17 @@ var init_qt_native_executor = __esm({
     init_qt_native_client();
     init_qt_native_values();
     init_qt_native_tables();
+    init_qt_native_snapshot();
+    init_qt_native_pages();
+    init_qt_native_find();
+    QT_NATIVE_READ_OPERATIONS = ["get_value", "table_read", "snapshot", "find", "read_page", "subpages"];
   }
 });
 
 // src/api-executor.ts
 import { existsSync as existsSync9, mkdirSync as mkdirSync3, readdirSync as readdirSync3, rmdirSync } from "node:fs";
-import { dirname as dirname10, join as join9 } from "node:path";
+import { dirname as dirname10 } from "node:path";
 import { performance as performance11 } from "node:perf_hooks";
-function resourceRoots(config) {
-  return {
-    cases: config.caseDir,
-    documents: config.documentsDir ?? join9(config.workspaceDir, "documents"),
-    workspace: config.workspaceDir,
-    results: config.resultDir,
-    backups: config.backupsDir ?? join9(config.workspaceDir, "backups")
-  };
-}
-function resolveAlias(args, resourceRefs, roots, alias, legacy, allowedAreas) {
-  if (args[alias] === void 0) return;
-  if (args[legacy] !== void 0) {
-    throw new ExecutorArgumentError(`'${alias}' und '${legacy}' duerfen nicht gemeinsam angegeben werden.`);
-  }
-  if (typeof args[alias] !== "string") throw new ExecutorArgumentError(`'${alias}' muss eine Ressourcenreferenz sein.`);
-  let resolved;
-  try {
-    resolved = resolveResourceReference(roots, args[alias], allowedAreas);
-  } catch (error) {
-    throw new ExecutorArgumentError(error instanceof Error ? error.message : String(error));
-  }
-  delete args[alias];
-  args[legacy] = resolved.path;
-  resourceRefs[alias] = resolved.ref;
-}
-function resolveSaveCorrectionReferences(args, resourceRefs, roots) {
-  if (args.correction === void 0) return;
-  if (!args.correction || typeof args.correction !== "object" || Array.isArray(args.correction)) {
-    throw new ExecutorArgumentError("'correction' muss ein Objekt sein.");
-  }
-  const correction = { ...args.correction };
-  const bindings = [
-    ["sourceRef", "sourcePath", ["cases"]],
-    ["backupRef", "backupPath", ["backups"]]
-  ];
-  for (const [alias, workerField, allowedAreas] of bindings) {
-    const value = correction[alias];
-    if (typeof value !== "string") {
-      throw new ExecutorArgumentError(`'correction.${alias}' muss eine Ressourcenreferenz sein.`);
-    }
-    let resolved;
-    try {
-      resolved = resolveResourceReference(roots, value, allowedAreas);
-    } catch (error) {
-      throw new ExecutorArgumentError(error instanceof Error ? error.message : String(error));
-    }
-    delete correction[alias];
-    correction[workerField] = resolved.path;
-    resourceRefs[`correction.${alias}`] = resolved.ref;
-  }
-  args.correction = correction;
-}
-function configuredArgs(operation, args, config) {
-  const result = { ...args };
-  const roots = resourceRoots(config);
-  const resourceRefs = {};
-  for (const binding of API_RESOURCE_BINDINGS[operation] ?? []) {
-    resolveAlias(
-      result,
-      resourceRefs,
-      roots,
-      binding.alias,
-      binding.workerField,
-      binding.allowedAreas
-    );
-  }
-  if (operation === "save") resolveSaveCorrectionReferences(result, resourceRefs, roots);
-  if (operation === "receipt_manager_bulk_upsert") {
-    resolveReceiptManagerBulkReferences(result, resourceRefs, roots);
-  }
-  if (operation === "launch" || operation === "desktop_start") {
-    if (result.exe !== void 0) {
-      throw new ExecutorArgumentError("'exe' wird ausschliesslich in der lokalen API-Konfiguration festgelegt.");
-    }
-    if (config.sseExecutable) result.exe = config.sseExecutable;
-  }
-  if ((operation === "list_cases" || operation === "backup_cases" || operation === "archive_cases") && result.dir === void 0 && config.caseDir) {
-    result.dir = config.caseDir;
-  }
-  return { args: result, resourceRefs };
-}
 function withResourceIdentity4(redactPaths, result, resourceRefs = {}) {
   const redacted = redactPaths(result);
   if (!Object.keys(resourceRefs).length) return redacted;
@@ -12746,8 +13117,11 @@ function createApiExecutor(config, worker, dependencies = {}) {
         }
       }
       args = internalCheckerClick ? parseCheckerReadOnlyClickArgs(args) : parseApiOperationArgs(operation, args);
-      if ((operation === "get_value" || operation === "table_read") && (dependencies.qtNativeClient || dependencies.qtNativeClientFor)) {
-        return redactPaths(await executeQtNativeRead(operation, args, dependencies, timeoutMs, signal));
+      if (operation === "desktop_status" && dependencies.nativeDesktopStatus) {
+        return redactPaths(await dependencies.nativeDesktopStatus(timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS, signal));
+      }
+      if (isQtNativeReadOperation(operation) && (dependencies.qtNativeClient || dependencies.qtNativeClientFor)) {
+        return redactPaths(await executeQtNativeRead(operation, args, dependencies, timeoutMs, signal, profile));
       }
       if (operation === "capabilities") {
         return {
@@ -12907,6 +13281,16 @@ function createApiExecutor(config, worker, dependencies = {}) {
         });
       }
       const configured = configuredArgs(operation, args, config);
+      if (operation === "desktop_stop" && dependencies.nativeDesktopStop) {
+        return redactPaths(await dependencies.nativeDesktopStop(configured.args, timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS, signal));
+      }
+      if (operation === "desktop_start" && dependencies.nativeDesktopStart) {
+        return withResourceIdentity4(
+          redactPaths,
+          await dependencies.nativeDesktopStart(configured.args, timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS, signal),
+          configured.resourceRefs
+        );
+      }
       if (internalCheckerNavigation) {
         configured.args.experimentalCheckerNavigation = true;
       }
@@ -13017,7 +13401,6 @@ var init_api_executor = __esm({
     init_case_file();
     init_checker_executor();
     init_bulk_plan_executor();
-    init_api_resource_bindings();
     init_case_create_executor();
     init_executor_errors();
     init_launch_executor();
@@ -13028,6 +13411,7 @@ var init_api_executor = __esm({
     init_page_objects_executor();
     init_ustva_executor();
     init_resources();
+    init_configured_args();
     init_workspace();
     init_workspace_executor();
     init_workspace_status();
@@ -16642,13 +17026,13 @@ async function readJson(request) {
   if (chunks.length === 0) {
     throw new ApiRequestError("Anfragekoerper darf bei POST nicht leer sein.");
   }
-  let text2;
+  let text3;
   try {
-    text2 = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks));
+    text3 = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks));
   } catch {
     throw new ApiRequestError("Anfragekoerper muss gueltiges UTF-8 enthalten.");
   }
-  return JSON.parse(text2);
+  return JSON.parse(text3);
 }
 function parseOperationRequest(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -16780,8 +17164,8 @@ function createSseApiServer(options) {
           }
         });
       } catch (error) {
-        const failure3 = error instanceof ApiRequestError ? error : error instanceof SyntaxError || error instanceof ZodError ? new ApiRequestError("Shutdown verlangt genau confirm=true und eine gueltige instanceId.") : new ApiRequestError("Shutdown-Anfrage konnte nicht sicher gelesen werden.");
-        sendJson(response, failure3.status, apiError(requestId, failure3.code, failure3.message));
+        const failure6 = error instanceof ApiRequestError ? error : error instanceof SyntaxError || error instanceof ZodError ? new ApiRequestError("Shutdown verlangt genau confirm=true und eine gueltige instanceId.") : new ApiRequestError("Shutdown-Anfrage konnte nicht sicher gelesen werden.");
+        sendJson(response, failure6.status, apiError(requestId, failure6.code, failure6.message));
       }
       return;
     }
@@ -17052,8 +17436,8 @@ function validName(value) {
 function validPid(value) {
   return Number.isSafeInteger(value) && Number(value) > 0 && Number(value) <= 4294967295;
 }
-function parseDesktopMarker(text2) {
-  const raw = text2.trim();
+function parseDesktopMarker(text3) {
+  const raw = text3.trim();
   if (!raw) return invalidMarker();
   if (!raw.startsWith("{")) {
     if (!validName(raw)) return invalidMarker();
@@ -17084,7 +17468,7 @@ function parseDesktopMarker(text2) {
     pid: marker.pid
   };
 }
-function resolveDesktopMarkerForOperation(markerPath, operation, allowCenterTest) {
+function readDesktopMarker(markerPath) {
   let raw;
   try {
     raw = new TextDecoder("utf-8", { fatal: true }).decode(readFileBounded(markerPath, MAX_DESKTOP_MARKER_BYTES));
@@ -17093,7 +17477,11 @@ function resolveDesktopMarkerForOperation(markerPath, operation, allowCenterTest
     if (error instanceof DesktopMarkerError) throw error;
     return invalidMarker();
   }
-  const marker = parseDesktopMarker(raw);
+  return parseDesktopMarker(raw);
+}
+function resolveDesktopMarkerForOperation(markerPath, operation, allowCenterTest) {
+  const marker = readDesktopMarker(markerPath);
+  if (!marker) return null;
   if (marker.owner === "sse" && CENTER_TEST_OPERATION_SET.has(operation)) {
     throw new DesktopMarkerError(
       "SSE-Desktop-Marker besitzt keinen Steuertipps-Center; Center-Operation wurde nicht dorthin geroutet.",
@@ -17393,19 +17781,19 @@ function createWorkerArgumentsFile(args) {
   }
   const path = join13(tmpdir(), `sse-args-${randomUUID4().replaceAll("-", "")}.json`);
   const descriptor = openSync3(path, "wx", 384);
-  let failure3;
+  let failure6;
   try {
     writeFileSync3(descriptor, bytes);
   } catch (error) {
-    failure3 = error;
+    failure6 = error;
   } finally {
     try {
       closeSync3(descriptor);
     } catch (error) {
-      failure3 ??= error;
+      failure6 ??= error;
     }
   }
-  if (failure3 !== void 0) {
+  if (failure6 !== void 0) {
     const cleanupError = removeWorkerArgumentsFile(path);
     const detail = cleanupError ? ` ${cleanupError.message}` : "";
     throw new WorkerError(`Interne Worker-Argumentdatei liess sich nicht schreiben.${detail}`, "worker-transport");
@@ -17431,13 +17819,13 @@ function summarizeWorkerDiagnostic(value) {
   return `${value.slice(0, MAX_WORKER_DIAGNOSTIC_CHARACTERS)}
 [Diagnose gekuerzt: ${bytes.length} UTF-8-Bytes, sha256=${digest}]`;
 }
-function parseWorkerResult(text2, operation) {
+function parseWorkerResult(text3, operation) {
   let parsed;
   try {
-    parsed = JSON.parse(text2);
+    parsed = JSON.parse(text3);
   } catch {
     throw new WorkerError(
-      `Antwort von '${operation}' war kein JSON. Anfang: ${text2.slice(0, 400)}`,
+      `Antwort von '${operation}' war kein JSON. Anfang: ${text3.slice(0, 400)}`,
       "parse"
     );
   }
@@ -17687,17 +18075,17 @@ async function callWorkerUnsynchronised(op, args = {}, timeoutMs = DEFAULT_TIMEO
         reject(argumentCleanupError);
         return;
       }
-      let text2;
+      let text3;
       let err;
       try {
         const decoder = new TextDecoder("utf-8", { fatal: true });
-        text2 = decoder.decode(Buffer.concat(outChunks, outBytes)).trim();
+        text3 = decoder.decode(Buffer.concat(outChunks, outBytes)).trim();
         err = decoder.decode(Buffer.concat(errChunks, errBytes)).trim();
       } catch {
         reject(new WorkerError(`Antwort von '${op}' war kein gueltiges UTF-8.`, "parse"));
         return;
       }
-      if (!text2) {
+      if (!text3) {
         const stderr = summarizeWorkerDiagnostic(err);
         reject(
           new WorkerError(
@@ -17708,7 +18096,7 @@ async function callWorkerUnsynchronised(op, args = {}, timeoutMs = DEFAULT_TIMEO
         return;
       }
       try {
-        resolve17(parseWorkerResult(text2, op));
+        resolve17(parseWorkerResult(text3, op));
       } catch (error) {
         const stderr = summarizeWorkerDiagnostic(err);
         const message = error instanceof Error ? error.message : String(error);
@@ -18129,31 +18517,552 @@ var init_qt_native_broker = __esm({
   }
 });
 
-// src/qt-native-discovery.ts
+// src/native-desktop-status.ts
 import { execFile as execFile2 } from "node:child_process";
+import { createHash as createHash14 } from "node:crypto";
+import { win32 as win322 } from "node:path";
+import { performance as performance13 } from "node:perf_hooks";
+function parseNativeDesktopStatus(value, marker, options) {
+  const status = statusSchema.parse(value), profile = options.profile;
+  if (status.loaderBuildIdentity !== options.package.manifest.buildIdentity || status.desktop !== marker.name || status.pid !== (marker.pid ?? 0) || status.windows.some((window) => window.pid !== marker.pid) || !status.reachable && status.windows.length) throw failure2("Native status returned a different ownership binding.", "native-binding");
+  let identity = null;
+  if (status.process) {
+    const process2 = status.process, name = win322.basename(process2.image), folder = win322.basename(win322.dirname(process2.image));
+    if (!marker.pid || !win322.isAbsolute(process2.image)) throw failure2("Native process identity is invalid.");
+    const fallbackMajor = /^\s*(\d+)/u.exec(process2.fileVersion)?.[1];
+    const major = process2.fileMajor || (fallbackMajor ? Number(fallbackMajor) : null);
+    const fileNameOk = name.toLowerCase() === profile.executable.name.toLowerCase();
+    const folderOk = folder.toLowerCase() === profile.executable.installationFolderName.toLowerCase();
+    const supported = fileNameOk && folderOk && major === profile.engineFileMajor;
+    const reason = !fileNameOk ? `Dateiname '${name}' ist nicht ${profile.executable.name}.` : !folderOk ? `Installationsordner '${folder}' ist nicht ${profile.executable.installationFolderName}.` : major !== profile.engineFileMajor ? `Engine-Hauptversion '${major ?? ""}' ist nicht ${profile.engineFileMajor}.` : `${profile.product} verifiziert.`;
+    identity = {
+      pid: marker.pid,
+      processName: win322.basename(name, win322.extname(name)),
+      path: process2.image,
+      supported,
+      reason,
+      fileMajor: major,
+      fileMajorSource: process2.fileMajor ? "FileMajorPart" : "FileVersion-fallback",
+      fileVersion: process2.fileVersion,
+      folder,
+      productName: process2.productName,
+      taxYear: supported ? profile.taxYear : null
+    };
+  }
+  const running = identity?.supported === true;
+  const windows = running ? status.windows.map((window) => ({
+    ...window,
+    titleFingerprint: createHash14("sha256").update(window.title, "utf8").digest("hex").toUpperCase()
+  })) : [];
+  const active = Boolean(marker.pid && running && status.reachable && windows.length);
+  return {
+    ok: true,
+    backend: "win32",
+    aktiv: active,
+    desktop: marker.name,
+    pid: marker.pid ?? 0,
+    sseLaeuft: running,
+    processIdentity: identity,
+    desktopErreichbar: status.reachable,
+    markeVeraltet: !active,
+    fenster: windows,
+    nativeMs: status.loaderMs,
+    note: marker.owner === "center-test" ? "Status hat einen Center-Testmarker nur diagnostiziert; keine SSE-Instanz wurde uebernommen oder veraendert." : `Status hat den markierten Desktop '${marker.name}' explizit geoeffnet und nur PID ${marker.pid ?? 0} geprueft.`
+  };
+}
+async function readNativeStatus(marker, options) {
+  return new Promise((resolve17, reject) => {
+    const child = execFile2(options.package.loaderPath, ["--stdin"], {
+      windowsHide: true,
+      encoding: "buffer",
+      maxBuffer: 1024 * 1024,
+      timeout: options.timeoutMs,
+      signal: options.signal
+    }, (error, stdout, stderr) => {
+      if (options.signal?.aborted) {
+        reject(failure2("Native status cancelled.", "aborted"));
+        return;
+      }
+      if (error) {
+        let kind = error.killed ? "native-timeout" : "native-binding";
+        try {
+          const diagnostic = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(stderr));
+          if (["worker-busy", "worker-isolation-lost", "desktop-marker-invalid"].includes(String(diagnostic.kind))) kind = String(diagnostic.kind);
+        } catch {
+        }
+        reject(failure2("Native desktop status could not complete its bounded read.", kind));
+        return;
+      }
+      try {
+        resolve17(parseNativeDesktopStatus(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(stdout)), marker, options));
+      } catch (error2) {
+        reject(error2 instanceof QtNativeTransportError ? error2 : failure2("Native status returned an invalid result."));
+      }
+    });
+    child.stdin?.on("error", () => {
+    });
+    child.stdin?.end(JSON.stringify({ mode: "desktop-status", desktop: marker.name, pid: marker.pid ?? 0 }));
+  });
+}
+async function executeNativeDesktopStatus(options) {
+  const start = performance13.now();
+  try {
+    if (options.signal?.aborted) throw failure2("Native status cancelled before launch.", "aborted");
+    if (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > 6e4)
+      throw failure2("Invalid native status deadline.", "native-deadline");
+    const readMarker = options.readMarker ?? (() => readDesktopMarker(desktopMarkerPath()));
+    const marker = readMarker();
+    const remaining = Math.floor(options.timeoutMs - (performance13.now() - start));
+    if (remaining < 1) throw failure2("Native status deadline exceeded before launch.", "native-timeout");
+    const result = marker ? await readNativeStatus(marker, { ...options, timeoutMs: remaining }) : {
+      ok: true,
+      backend: "win32",
+      aktiv: false,
+      desktop: null,
+      pid: 0,
+      sseLaeuft: false,
+      processIdentity: null,
+      desktopErreichbar: false,
+      markeVeraltet: false,
+      fenster: [],
+      note: "Keine gueltige Desktopmarke geladen."
+    };
+    if (options.signal?.aborted) throw failure2("Native status cancelled.", "aborted");
+    if (JSON.stringify(readMarker()) !== JSON.stringify(marker)) throw failure2("Desktop ownership changed during native status.", "native-binding");
+    return { ...result, ms: performance13.now() - start };
+  } catch (error) {
+    return {
+      ok: false,
+      backend: "win32",
+      kind: error instanceof QtNativeTransportError || error instanceof DesktopMarkerError ? error.kind : "native-contract",
+      error: error instanceof QtNativeTransportError || error instanceof DesktopMarkerError ? error.message : "Native desktop status failed.",
+      ms: performance13.now() - start
+    };
+  }
+}
+var pidSchema, windowSchema, statusSchema, failure2;
+var init_native_desktop_status = __esm({
+  "src/native-desktop-status.ts"() {
+    "use strict";
+    init_zod();
+    init_desktop_marker();
+    init_qt_native_client();
+    pidSchema = external_exports.number().int().min(0).max(4294967295);
+    windowSchema = external_exports.object({
+      hwnd: external_exports.number().int().positive().safe(),
+      pid: pidSchema,
+      x: external_exports.number().int(),
+      y: external_exports.number().int(),
+      w: external_exports.number().int().nonnegative(),
+      h: external_exports.number().int().nonnegative(),
+      cls: external_exports.string().max(256),
+      title: external_exports.string().max(512),
+      hung: external_exports.boolean(),
+      minimiert: external_exports.boolean()
+    }).strict();
+    statusSchema = external_exports.object({
+      ok: external_exports.literal(true),
+      desktop: external_exports.string(),
+      pid: pidSchema,
+      reachable: external_exports.boolean(),
+      process: external_exports.object({
+        image: external_exports.string().max(32768),
+        fileMajor: external_exports.number().int().min(0).max(65535),
+        fileVersion: external_exports.string().max(4096),
+        productName: external_exports.string().max(4096),
+        creationTime: external_exports.string().regex(/^[1-9][0-9]{0,19}$/u).refine((value) => BigInt(value) <= 0xffffffffffffffffn)
+      }).strict().nullable(),
+      windows: external_exports.array(windowSchema).max(256),
+      loaderBuildIdentity: external_exports.string(),
+      loaderMs: external_exports.number().finite().nonnegative()
+    }).strict();
+    failure2 = (message, kind = "native-contract") => new QtNativeTransportError(message, kind);
+  }
+});
+
+// src/native-desktop-start.ts
+import { execFile as execFile3 } from "node:child_process";
+import { createHash as createHash15 } from "node:crypto";
+import { statSync as statSync6 } from "node:fs";
+import { win32 as win323 } from "node:path";
+import { performance as performance14 } from "node:perf_hooks";
+function localPath(value) {
+  const path = win323.normalize(value);
+  if (!/^[A-Za-z]:\\/u.test(path) || /["\u0000-\u001f]/u.test(path) || path.length > 32767)
+    throw failure3("bad-args", "Native desktop start requires an absolute local path.");
+  return path;
+}
+function prepareNativeDesktopStart(options) {
+  const { args, profile } = options;
+  const name = args.name ?? "SSEAuto", mode = args.mode ?? "einur";
+  if (typeof name !== "string" || !/^[A-Za-z0-9_-]{1,64}$/u.test(name) || typeof mode !== "string" || !Object.hasOwn(profile.startModes, mode))
+    throw failure3("bad-args", "Invalid desktop name or unsupported SSE start mode.");
+  const executable = localPath(typeof args.exe === "string" ? args.exe : options.executable);
+  if (win323.basename(executable).toLowerCase() !== profile.executable.name.toLowerCase() || win323.basename(win323.dirname(executable)).toLowerCase() !== profile.executable.installationFolderName.toLowerCase())
+    throw failure3("unsupported-version", "Executable path differs from the selected product profile.");
+  const timeoutSec = args.timeoutSec ?? 30;
+  if (typeof timeoutSec !== "number" || !Number.isInteger(timeoutSec) || timeoutSec < 3 || timeoutSec > 90)
+    throw failure3("bad-args", "Native desktop startup timeout must be between 3 and 90 seconds.");
+  let caseIdentity = null;
+  if (args.file !== void 0) {
+    if (typeof args.file !== "string" || !args.file) throw failure3("bad-args", "Invalid case path.");
+    const path = localPath(args.file), types = Object.values(profile.startModes);
+    const match = new RegExp(`\\.(${types.map((type) => type.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")).join("|")})([0-9]{4})(?:_Backup)?$`, "iu").exec(win323.basename(path));
+    if (!match) throw failure3("unsupported-case", "Case extension is not supported by the selected product profile.");
+    if (match[1].toLowerCase() !== profile.startModes[mode].toLowerCase()) throw failure3("mode-mismatch", "Start mode and case type differ.");
+    const taxYear = Number(match[2]);
+    if (![profile.taxYear, ...profile.additionalCaseYears[mode] ?? []].includes(taxYear))
+      throw failure3("unsupported-year", "Case year is not allowed for the selected start mode.");
+    let regular = false;
+    try {
+      regular = statSync6(path).isFile();
+    } catch {
+    }
+    if (!regular) throw failure3("not-found", "Case file does not exist or is not a regular file.");
+    caseIdentity = { path, documentType: match[1], taxYear, mode, supported: true };
+  }
+  return { name, mode, executable, caseIdentity, timeoutSec };
+}
+function parseNativeDesktopStart(value, prepared, options) {
+  const result = resultSchema.parse(value);
+  if (result.loaderBuildIdentity !== options.package.manifest.buildIdentity || result.desktop !== prepared.name || result.pid !== result.startPid || result.product.image.toLowerCase() !== prepared.executable.toLowerCase() || result.product.fileMajor !== options.profile.engineFileMajor || result.fenster.some((window) => window.pid !== result.pid) || result.dialogWindows.some((window) => window.pid !== result.pid) || result.ready !== Boolean(result.instance) || result.blockedByDialog !== Boolean(result.dialogWindows.length) || result.instance && (result.instance.pid !== result.pid || !result.fenster.some((window) => window.hwnd === result.instance?.hwnd && window.title === result.instance.title)))
+    throw failure3("native-binding", "Native desktop start returned an inconsistent process ownership binding.", true);
+  const profile = options.profile;
+  const windows = (items) => items.map((window) => ({
+    ...window,
+    titleFingerprint: createHash15("sha256").update(window.title, "utf8").digest("hex").toUpperCase()
+  }));
+  const product = {
+    path: result.product.image,
+    exists: true,
+    supported: true,
+    reason: `${profile.product} verifiziert.`,
+    taxYear: profile.taxYear,
+    expectedFileMajor: profile.engineFileMajor,
+    fileMajor: result.product.fileMajor,
+    fileMajorSource: "FileMajorPart",
+    fileVersion: result.product.fileVersion,
+    productName: result.product.productName,
+    companyName: result.product.companyName,
+    folder: win323.basename(win323.dirname(result.product.image))
+  };
+  return {
+    ok: true,
+    backend: "win32",
+    desktop: result.desktop,
+    pid: result.pid,
+    startPid: result.startPid,
+    wartesekunden: result.wartesekunden,
+    kommandozeile: result.kommandozeile,
+    fenster: windows(result.fenster),
+    product,
+    case: prepared.caseIdentity,
+    instance: result.instance,
+    ready: result.ready,
+    blockedByDialog: result.blockedByDialog,
+    dialogWindows: windows(result.dialogWindows),
+    nativeMs: result.loaderMs,
+    note: `SSE laeuft auf dem unsichtbaren Desktop '${prepared.name}'. Fuer den Nutzer nicht sichtbar; alle Werkzeuge greifen normal darauf zu. Beenden mit sse_desktop_stop.`
+  };
+}
+async function executeNativeDesktopStart(options) {
+  const started = performance14.now();
+  try {
+    if (options.signal?.aborted) throw failure3("aborted", "Desktop start cancelled before launch.");
+    if (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 6500 || options.timeoutMs > 12e4)
+      throw failure3("native-deadline", "Native desktop start requires a bounded deadline including verified cleanup.");
+    const prepared = prepareNativeDesktopStart(options), markerPath = desktopMarkerPath();
+    const marker = readDesktopMarker(markerPath);
+    if (marker && marker.owner !== "sse") throw failure3("desktop-marker-owner", "Desktop belongs to a different controller.");
+    const remaining = Math.floor(options.timeoutMs - (performance14.now() - started));
+    if (remaining < 6500) throw failure3("native-deadline", "Not enough time remains for startup and verified cleanup.");
+    const request = {
+      mode: "desktop-start",
+      desktop: prepared.name,
+      startMode: prepared.mode,
+      expectedImage: prepared.executable,
+      expectedProfile: options.package.manifest.profile,
+      markerPath,
+      waitMs: Math.min(prepared.timeoutSec * 1e3, remaining - 6e3),
+      ...prepared.caseIdentity ? { casePath: prepared.caseIdentity.path } : {}
+    };
+    const body = Buffer.from(JSON.stringify(request));
+    if (body.length > 65536) throw failure3("native-request-size", "Native desktop start request exceeds its bound.");
+    const result = await new Promise((resolve17, reject) => {
+      const child = execFile3(options.package.loaderPath, ["--stdin"], {
+        windowsHide: true,
+        encoding: "buffer",
+        maxBuffer: 1024 * 1024,
+        timeout: remaining,
+        signal: options.signal
+      }, (error, stdout, stderr) => {
+        try {
+          if (options.signal?.aborted || error?.killed) throw failure3(
+            options.signal?.aborted ? "aborted" : "native-timeout",
+            "Native launch response was interrupted; inspect desktop_status before any further launch.",
+            Boolean(child.pid)
+          );
+          if (error) {
+            let known;
+            try {
+              const diagnostic = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(stderr));
+              if ([
+                "worker-busy",
+                "worker-isolation-lost",
+                "desktop-marker-invalid",
+                "desktop-marker-owner",
+                "stale-marker",
+                "desktop-active",
+                "desktop-occupied",
+                "desktop",
+                "marker-cleanup",
+                "bad-args",
+                "unsupported-version",
+                "unsupported-case",
+                "mode-mismatch",
+                "unsupported-year",
+                "launch",
+                "aborted"
+              ].includes(String(diagnostic.kind)))
+                known = String(diagnostic.kind);
+            } catch {
+            }
+            throw failure3(known ?? "native-transport", "Native desktop start could not complete; inspect desktop ownership before retrying.", Boolean(child.pid) && !known);
+          }
+          const raw = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(stdout));
+          if (raw?.ok === false) {
+            const failed = failedResultSchema.parse(raw);
+            if (failed.loaderBuildIdentity !== options.package.manifest.buildIdentity || failed.desktop !== prepared.name || !failed.outcomeUnknown && (failed.processStillRunning || !failed.markerRemoved))
+              throw failure3("native-contract", "Native cleanup result is inconsistent.", true);
+            const { loaderBuildIdentity: _identity, loaderMs, ...reported } = failed;
+            resolve17({ ...reported, backend: "win32", nativeMs: loaderMs });
+            return;
+          }
+          const success = parseNativeDesktopStart(raw, prepared, options);
+          const owned = readDesktopMarker(markerPath);
+          if (!owned || owned.owner !== "sse" || owned.name !== prepared.name || owned.pid !== success.pid)
+            throw failure3("native-binding", "Desktop ownership changed after launch handoff.", true);
+          resolve17(success);
+        } catch (error2) {
+          reject(error2 instanceof QtNativeTransportError ? error2 : failure3("native-contract", "Native launch result could not be verified.", true));
+        }
+      });
+      child.stdin?.on("error", () => {
+      });
+      child.stdin?.end(body);
+    });
+    return { ...result, ms: performance14.now() - started };
+  } catch (error) {
+    return {
+      ok: false,
+      backend: "win32",
+      kind: error instanceof QtNativeTransportError || error instanceof DesktopMarkerError ? error.kind : "native-contract",
+      error: error instanceof Error ? error.message : "Native desktop start failed.",
+      outcomeUnknown: error instanceof QtNativeTransportError && error.outcomeUnknown,
+      ms: performance14.now() - started
+    };
+  }
+}
+var failure3, pid, windowSchema2, resultSchema, failedResultSchema;
+var init_native_desktop_start = __esm({
+  "src/native-desktop-start.ts"() {
+    "use strict";
+    init_zod();
+    init_desktop_marker();
+    init_qt_native_client();
+    failure3 = (kind, message, unknown = false) => new QtNativeTransportError(message, kind, unknown);
+    pid = external_exports.number().int().min(1).max(4294967295);
+    windowSchema2 = external_exports.object({
+      hwnd: external_exports.number().int().positive().safe(),
+      pid,
+      x: external_exports.number().int(),
+      y: external_exports.number().int(),
+      w: external_exports.number().int().nonnegative(),
+      h: external_exports.number().int().nonnegative(),
+      cls: external_exports.string().max(256),
+      title: external_exports.string().max(512),
+      hung: external_exports.boolean(),
+      minimiert: external_exports.boolean()
+    }).strict();
+    resultSchema = external_exports.object({
+      ok: external_exports.literal(true),
+      desktop: external_exports.string(),
+      pid,
+      startPid: pid,
+      wartesekunden: external_exports.number().nonnegative(),
+      kommandozeile: external_exports.string(),
+      fenster: external_exports.array(windowSchema2).max(256),
+      dialogWindows: external_exports.array(windowSchema2).max(256),
+      ready: external_exports.boolean(),
+      blockedByDialog: external_exports.boolean(),
+      instance: external_exports.object({ pid, hwnd: external_exports.number().int().positive().safe(), title: external_exports.string(), bindingMode: external_exports.literal("desktop-launch-window") }).strict().nullable(),
+      product: external_exports.object({ image: external_exports.string(), fileMajor: external_exports.number().int().nonnegative(), fileVersion: external_exports.string(), productName: external_exports.string(), companyName: external_exports.string() }).strict(),
+      loaderBuildIdentity: external_exports.string(),
+      loaderMs: external_exports.number().nonnegative()
+    }).strict();
+    failedResultSchema = external_exports.object({
+      ok: external_exports.literal(false),
+      kind: external_exports.string(),
+      error: external_exports.string(),
+      desktop: external_exports.string(),
+      pid,
+      processStillRunning: external_exports.boolean(),
+      markerBeibehalten: external_exports.boolean(),
+      markerRemoved: external_exports.boolean(),
+      cleanupErrors: external_exports.array(external_exports.string()).max(16),
+      outcomeUnknown: external_exports.boolean(),
+      loaderBuildIdentity: external_exports.string(),
+      loaderMs: external_exports.number().nonnegative()
+    }).strict();
+  }
+});
+
+// src/native-desktop-stop.ts
+import { execFile as execFile4 } from "node:child_process";
+import { performance as performance15 } from "node:perf_hooks";
+import { win32 as win324 } from "node:path";
+function parseNativeDesktopStop(value, marker, options) {
+  const result = resultSchema2.parse(value);
+  if (result.loaderBuildIdentity !== options.package.manifest.buildIdentity || result.desktop !== void 0 && result.desktop !== marker.name || result.pid !== void 0 && result.pid !== marker.pid || result.discardChanges !== (options.args.discardChanges === true) || result.ok && (!result.processExited || !result.desktopMarkeEntfernt || result.markerBeibehalten || result.outcomeUnknown || !result.mutationAttempted || result.pid !== marker.pid || result.desktop !== marker.name) || result.hartBeendet && (options.args.discardChanges !== true || !result.mutationAttempted) || result.speichernAntwort !== null && (!result.mutationAttempted || options.args.discardChanges !== true || !["nein", "nicht speichern", "verwerfen"].includes(result.speichernAntwort.toLowerCase()) || result.antwortMethode !== "uia-invoke") || result.outcomeUnknown !== (result.mutationAttempted && !result.processExited) || !result.ok && (!result.kind || !result.error))
+    throw failure4("native-contract", "Native desktop stop returned inconsistent ownership or mutation evidence.", true);
+  const { loaderBuildIdentity: _build, loaderMs, kind, error, ...reported } = result;
+  return {
+    ...reported,
+    backend: "win32-uia",
+    nativeMs: loaderMs,
+    ...kind === void 0 ? {} : { kind },
+    ...error === void 0 ? {} : { error },
+    ...result.ok ? { note: "Der versteckte Desktop wird vom System aufgeraeumt, sobald kein Prozess mehr darauf laeuft." } : {}
+  };
+}
+async function executeNativeDesktopStop(options) {
+  const started = performance15.now();
+  try {
+    if (options.signal?.aborted) throw failure4("aborted", "Desktop stop cancelled before submission.");
+    if (options.args.save === true && options.args.discardChanges === true) throw failure4("bad-args", "Save and discard cannot both be requested.");
+    if (options.args.save === true) throw failure4("confirmation-required", "Use hash-bound save before stopping; desktop stop never saves a case.");
+    if (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 12e3 || options.timeoutMs > 12e4)
+      throw failure4("native-deadline", "Native desktop stop needs a bounded deadline including provider checks and verified exit.");
+    const markerPath = desktopMarkerPath(), marker = readDesktopMarker(markerPath);
+    if (!marker?.pid || marker.owner !== "sse") throw failure4("ownership", "A valid owned SSE desktop marker with PID is required.");
+    const image = win324.normalize(options.executable);
+    if (!/^[A-Za-z]:\\/u.test(image) || /["\u0000-\u001f]/u.test(image)) throw failure4("bad-args", "An absolute configured executable is required.");
+    const remaining = Math.floor(options.timeoutMs - (performance15.now() - started));
+    if (remaining < 11500) throw failure4("native-deadline", "Insufficient time remains for close ownership checks.");
+    const request = {
+      mode: "desktop-stop",
+      desktop: marker.name,
+      pid: marker.pid,
+      markerPath,
+      expectedImage: image,
+      expectedProfile: options.package.manifest.profile,
+      discardChanges: options.args.discardChanges === true,
+      waitMs: 12e3,
+      deadlineUnixMs: Date.now() + remaining - 500
+    };
+    const result = await new Promise((resolve17, reject) => {
+      const child = execFile4(options.package.loaderPath, ["--stdin"], {
+        windowsHide: true,
+        encoding: "buffer",
+        maxBuffer: 1024 * 1024,
+        timeout: remaining,
+        signal: options.signal
+      }, (error, stdout) => {
+        try {
+          if (error || options.signal?.aborted) throw failure4(
+            options.signal?.aborted ? "aborted" : error?.killed ? "native-timeout" : "native-transport",
+            "Native stop response was interrupted; inspect desktop_status before any further close.",
+            Boolean(child.pid)
+          );
+          const reported = parseNativeDesktopStop(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(stdout)), marker, options);
+          if (reported.ok && readDesktopMarker(markerPath) !== null)
+            throw failure4("native-binding", "An ownership marker exists after the confirmed process exit.", true);
+          resolve17(reported);
+        } catch (error2) {
+          reject(error2 instanceof QtNativeTransportError ? error2 : failure4("native-contract", "Native stop result could not be verified.", true));
+        }
+      });
+      child.stdin?.on("error", () => {
+      });
+      child.stdin?.end(JSON.stringify(request));
+    });
+    return { ...result, ms: performance15.now() - started };
+  } catch (error) {
+    return {
+      ok: false,
+      backend: "win32-uia",
+      kind: error instanceof QtNativeTransportError || error instanceof DesktopMarkerError ? error.kind : "native-contract",
+      error: error instanceof Error ? error.message : "Native desktop stop failed.",
+      outcomeUnknown: error instanceof QtNativeTransportError && error.outcomeUnknown,
+      ms: performance15.now() - started
+    };
+  }
+}
+var failure4, resultSchema2;
+var init_native_desktop_stop = __esm({
+  "src/native-desktop-stop.ts"() {
+    "use strict";
+    init_zod();
+    init_desktop_marker();
+    init_qt_native_client();
+    failure4 = (kind, message, unknown = false) => new QtNativeTransportError(message, kind, unknown);
+    resultSchema2 = external_exports.object({
+      ok: external_exports.boolean(),
+      hartBeendet: external_exports.boolean(),
+      desktopMarkeEntfernt: external_exports.boolean(),
+      markerBeibehalten: external_exports.boolean(),
+      mutationAttempted: external_exports.boolean(),
+      outcomeUnknown: external_exports.boolean(),
+      processExited: external_exports.boolean(),
+      speichernAntwort: external_exports.string().max(4096).nullable(),
+      antwortMethode: external_exports.literal("uia-invoke").nullable(),
+      dialogFehler: external_exports.string().max(4096).nullable(),
+      gracefulWaitMs: external_exports.number().finite().nonnegative(),
+      hauptfensterVorher: external_exports.number().int().min(0).max(256),
+      hilfsfenster: external_exports.array(external_exports.object({
+        hwnd: external_exports.number().int().positive().safe(),
+        title: external_exports.string().max(512),
+        closedBeforeMain: external_exports.boolean(),
+        closed: external_exports.boolean()
+      }).strict()).max(256),
+      loaderBuildIdentity: external_exports.string(),
+      loaderMs: external_exports.number().finite().nonnegative(),
+      discardChanges: external_exports.boolean().optional(),
+      desktop: external_exports.string().optional(),
+      pid: external_exports.number().int().positive().max(4294967295).optional(),
+      ungespeichert: external_exports.boolean().nullable().optional(),
+      closeSubmitted: external_exports.literal(true).optional(),
+      kind: external_exports.string().max(128).optional(),
+      error: external_exports.string().max(4096).optional()
+    }).strict();
+  }
+});
+
+// src/qt-native-discovery.ts
+import { execFile as execFile5 } from "node:child_process";
 import { isAbsolute as isAbsolute9 } from "node:path";
 function parseQtNativeDiscovery(value, options) {
   const found = discoverySchema.parse(value);
   if (found.loaderBuildIdentity !== options.package.manifest.buildIdentity || found.image.toLowerCase() !== options.expectedImage.toLowerCase() || found.desktop !== options.marker?.name || options.hwnd !== void 0 && found.hwnd !== options.hwnd || options.marker?.pid !== void 0 && options.marker?.pid !== null && found.pid !== options.marker.pid) {
-    throw failure2("native-binding", "Native discovery did not verify the requested image, desktop, process and window.");
+    throw failure5("native-binding", "Native discovery did not verify the requested image, desktop, process and window.");
   }
   const expected = options.package.manifest.profile;
   if (Object.keys(found.profile).length !== Object.keys(expected).length || Object.entries(expected).some(([key, value2]) => found.profile[key] !== value2)) {
-    throw failure2("native-binding", "Native discovery profile differs from its pinned package.");
+    throw failure5("native-binding", "Native discovery profile differs from its pinned package.");
   }
   return { pid: found.pid, hwnd: found.hwnd, creationTime: found.creationTime, ...found.desktop ? { desktop: found.desktop } : {} };
 }
 async function discoverQtNativeTarget(options) {
-  if (options.signal?.aborted) throw failure2("aborted", "Native discovery cancelled before launch.");
+  if (options.signal?.aborted) throw failure5("aborted", "Native discovery cancelled before launch.");
   if (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > 6e4) {
-    throw failure2("native-deadline", "Invalid native discovery deadline.");
+    throw failure5("native-deadline", "Invalid native discovery deadline.");
   }
   if (!isAbsolute9(options.expectedImage) || /[\u0000-\u001f]/u.test(options.expectedImage) || options.hwnd !== void 0 && (!Number.isSafeInteger(options.hwnd) || options.hwnd < 1)) {
-    throw failure2("native-binding", "Invalid native discovery selector.");
+    throw failure5("native-binding", "Invalid native discovery selector.");
   }
   const marker = options.marker;
   if (marker && (marker.owner !== "sse" || !/^[A-Za-z0-9_-]{1,64}$/u.test(marker.name) || marker.pid !== null && (!Number.isSafeInteger(marker.pid) || marker.pid < 1 || marker.pid > 4294967295))) {
-    throw failure2("desktop-marker-invalid", "Native discovery requires a valid SSE desktop marker.");
+    throw failure5("desktop-marker-invalid", "Native discovery requires a valid SSE desktop marker.");
   }
   const request = {
     mode: "discover",
@@ -18163,9 +19072,9 @@ async function discoverQtNativeTarget(options) {
     ...marker ? { desktop: marker.name, ...marker.pid !== null ? { pid: marker.pid } : {} } : {}
   };
   const body = Buffer.from(JSON.stringify(request));
-  if (body.length > 65536) throw failure2("native-request-size", "Native discovery request exceeds its bound.");
+  if (body.length > 65536) throw failure5("native-request-size", "Native discovery request exceeds its bound.");
   return new Promise((resolveTarget, reject) => {
-    const child = execFile2(options.package.loaderPath, ["--stdin"], {
+    const child = execFile5(options.package.loaderPath, ["--stdin"], {
       windowsHide: true,
       encoding: "buffer",
       maxBuffer: 65536,
@@ -18173,12 +19082,12 @@ async function discoverQtNativeTarget(options) {
       signal: options.signal
     }, (error, stdout, stderr) => {
       if (options.signal?.aborted) {
-        reject(failure2("aborted", "Native discovery cancelled."));
+        reject(failure5("aborted", "Native discovery cancelled."));
         return;
       }
       if (error) {
         if (error.killed) {
-          reject(failure2("native-timeout", "Native discovery exceeded its deadline."));
+          reject(failure5("native-timeout", "Native discovery exceeded its deadline."));
           return;
         }
         let kind = "native-binding";
@@ -18187,13 +19096,13 @@ async function discoverQtNativeTarget(options) {
           if (["no-window", "ambiguous", "desktop-marker-stale", "native-binding"].includes(String(diagnostic.kind))) kind = String(diagnostic.kind);
         } catch {
         }
-        reject(failure2(kind, "Native discovery could not verify an unambiguous current product window."));
+        reject(failure5(kind, "Native discovery could not verify an unambiguous current product window."));
         return;
       }
       try {
         resolveTarget(parseQtNativeDiscovery(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(stdout)), options));
       } catch (error2) {
-        reject(error2 instanceof QtNativeTransportError ? error2 : failure2("native-contract", "Native discovery returned an invalid identity."));
+        reject(error2 instanceof QtNativeTransportError ? error2 : failure5("native-contract", "Native discovery returned an invalid identity."));
       }
     });
     child.stdin?.on("error", () => {
@@ -18201,7 +19110,7 @@ async function discoverQtNativeTarget(options) {
     child.stdin?.end(body);
   });
 }
-var discoverySchema, failure2;
+var discoverySchema, failure5;
 var init_qt_native_discovery = __esm({
   "src/qt-native-discovery.ts"() {
     "use strict";
@@ -18220,12 +19129,12 @@ var init_qt_native_discovery = __esm({
       loaderBuildIdentity: external_exports.string(),
       profile: external_exports.record(external_exports.unknown())
     }).passthrough();
-    failure2 = (kind, message) => new QtNativeTransportError(message, kind);
+    failure5 = (kind, message) => new QtNativeTransportError(message, kind);
   }
 });
 
 // src/qt-native-runtime.ts
-import { performance as performance13 } from "node:perf_hooks";
+import { performance as performance16 } from "node:perf_hooks";
 function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
   if (!config.qtNativeRuntime) throw new Error("Native runtime configuration is required.");
   const nativePackage = (dependencies.loadPackage ?? loadQtNativePackage)(config.qtNativeRuntime, profile);
@@ -18238,10 +19147,10 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
   let selected, starting2;
   let startupAbort;
   let stopped = false, revision = 0;
-  const failure3 = (message, kind, outcomeUnknown = false) => new QtNativeTransportError(message, kind, outcomeUnknown);
+  const failure6 = (message, kind, outcomeUnknown = false) => new QtNativeTransportError(message, kind, outcomeUnknown);
   const left = (deadline) => {
-    const value = Math.floor(deadline - performance13.now());
-    if (value < 1) throw failure3("Native operation deadline exceeded before dispatch.", "native-timeout");
+    const value = Math.floor(deadline - performance16.now());
+    if (value < 1) throw failure6("Native operation deadline exceeded before dispatch.", "native-timeout");
     return value;
   };
   async function waitForStartup(pending, deadline, signal) {
@@ -18252,8 +19161,8 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
         if (error) reject(error);
         else resolveWait();
       };
-      const abort = () => finish(failure3("Native startup wait cancelled.", "aborted"));
-      const timer = setTimeout(() => finish(failure3("Native startup wait exceeded its deadline.", "native-timeout")), left(deadline));
+      const abort = () => finish(failure6("Native startup wait cancelled.", "aborted"));
+      const timer = setTimeout(() => finish(failure6("Native startup wait exceeded its deadline.", "native-timeout")), left(deadline));
       signal?.addEventListener("abort", abort, { once: true });
       pending.then(() => finish(), (error) => finish(error));
       if (signal?.aborted) abort();
@@ -18271,31 +19180,31 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
         ...signal ? { signal } : {}
       });
       if (JSON.stringify(readMarker()) !== JSON.stringify(marker)) {
-        throw failure3("Desktop ownership changed during native discovery.", "native-binding");
+        throw failure6("Desktop ownership changed during native discovery.", "native-binding");
       }
       return binding;
     } catch (error) {
-      if (error instanceof DesktopMarkerError) throw failure3(error.message, error.kind);
+      if (error instanceof DesktopMarkerError) throw failure6(error.message, error.kind);
       throw error;
     }
   }
   async function obtain(args, deadline, signal) {
-    if (stopped || shutdown.aborted || signal?.aborted) throw failure3("Native runtime is stopping or the request was cancelled.", "aborted");
+    if (stopped || shutdown.aborted || signal?.aborted) throw failure6("Native runtime is stopping or the request was cancelled.", "aborted");
     const requested = typeof args.hwnd === "number" ? args.hwnd : selected;
     if (requested !== void 0 && sessions.has(requested)) return sessions.get(requested);
     if (starting2) {
       await waitForStartup(starting2, deadline, signal);
       return obtain(args, deadline, signal);
     }
-    if (sessions.size >= 4) throw failure3("Native window session limit reached.", "native-session-limit");
+    if (sessions.size >= 4) throw failure6("Native window session limit reached.", "native-session-limit");
     const expectedRevision = revision;
     startupAbort = new AbortController();
     const startupSignal = startupAbort.signal;
     starting2 = withCombinedAbortSignal([signal, shutdown, startupSignal], async (combined) => {
       const binding = await target(args, deadline, combined);
-      if (combined.aborted || stopped || expectedRevision !== revision) throw failure3("Native attachment was cancelled before launch.", "aborted");
+      if (combined.aborted || stopped || expectedRevision !== revision) throw failure6("Native attachment was cancelled before launch.", "aborted");
       if ([...sessions.values()].some((session2) => session2.client.binding.pid === binding.pid)) {
-        throw failure3("This process already has a native session bound to another window.", "native-window-conflict");
+        throw failure6("This process already has a native session bound to another window.", "native-window-conflict");
       }
       const session = await start({
         package: nativePackage,
@@ -18306,7 +19215,7 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
       });
       if (stopped || shutdown.aborted || expectedRevision !== revision) {
         await session.close();
-        throw failure3("Native attachment was superseded by a lifecycle change.", "native-session-changed");
+        throw failure6("Native attachment was superseded by a lifecycle change.", "native-session-changed");
       }
       sessions.set(binding.hwnd, session);
       selected = binding.hwnd;
@@ -18328,19 +19237,50 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
     await Promise.all(current.map((session) => session.close()));
   }
   const runtime = {
+    async desktopStop(args, timeoutMs, signal) {
+      const deadline = performance16.now() + timeoutMs;
+      await clear();
+      return withCombinedAbortSignal([signal, shutdown], (combined) => executeNativeDesktopStop({
+        package: nativePackage,
+        executable: executable[0],
+        args,
+        timeoutMs: Math.max(0, Math.floor(deadline - performance16.now())),
+        signal: combined
+      }));
+    },
+    async desktopStart(args, timeoutMs, signal) {
+      const deadline = performance16.now() + timeoutMs;
+      await clear();
+      return withCombinedAbortSignal([signal, shutdown], (combined) => executeNativeDesktopStart({
+        package: nativePackage,
+        profile,
+        executable: executable[0],
+        args,
+        timeoutMs: Math.max(0, Math.floor(deadline - performance16.now())),
+        signal: combined
+      }));
+    },
+    async desktopStatus(timeoutMs, signal) {
+      return withCombinedAbortSignal([signal, shutdown], (combined) => executeNativeDesktopStatus({
+        package: nativePackage,
+        profile,
+        timeoutMs: Math.min(timeoutMs, 6e4),
+        signal: combined
+      }));
+    },
     async client(args, timeoutMs, signal) {
-      const deadline = performance13.now() + timeoutMs;
+      const deadline = performance16.now() + timeoutMs;
       return withCombinedAbortSignal([signal, shutdown], async (combined) => {
         const session = await obtain(args, deadline, combined);
         const checked = await session.client.request("window_context", {}, left(deadline), combined);
-        if (!checked.result.ok) throw failure3(
+        if (!checked.result.ok) throw failure6(
           String(checked.result.error ?? "Native window context failed."),
           String(checked.result.code ?? "native-binding"),
           checked.result.outcomeUnknown === true
         );
         const context = contextSchema.parse(checked.result);
-        if (!context.boundMain) throw failure3("The bound window is no longer a current main window.", "stale-window");
-        if (args.hwnd === void 0 && !context.unique) throw failure3("Multiple product windows require an explicit hwnd.", "ambiguous");
+        if (!context.boundMain) throw failure6("The bound window is no longer a current main window.", "stale-window");
+        if (args.hwnd === void 0 && !context.unique) throw failure6("Multiple product windows require an explicit hwnd.", "ambiguous");
         return session.client;
       });
     },
@@ -18373,6 +19313,9 @@ var init_qt_native_runtime = __esm({
     init_qt_native_package();
     init_qt_native_broker();
     init_abort();
+    init_native_desktop_status();
+    init_native_desktop_start();
+    init_native_desktop_stop();
     init_qt_native_discovery();
     init_desktop_marker();
     contextSchema = external_exports.object({ ok: external_exports.literal(true), boundMain: external_exports.boolean(), unique: external_exports.boolean() }).passthrough();
@@ -18519,7 +19462,12 @@ async function runApiRuntime(configPath, overrides = {}) {
     const result = await worker(operation, args, timeoutMs, signal);
     await native?.afterWorker(operation, result);
     return result;
-  }, native ? { qtNativeClientFor: native.client } : {});
+  }, native ? {
+    qtNativeClientFor: native.client,
+    nativeDesktopStatus: native.desktopStatus,
+    nativeDesktopStart: native.desktopStart,
+    nativeDesktopStop: native.desktopStop
+  } : {});
   const logDir = join15(dirname14(config.configPath), "logs");
   const logPath = join15(logDir, "api.jsonl");
   const maxLogBytes = 5 * 1024 * 1024;

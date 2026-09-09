@@ -93,11 +93,7 @@ export function parseDesktopMarker(text: string): DesktopMarker {
  * Only ENOENT means "visible desktop". Every existing but unreadable marker
  * is a safety boundary and therefore fails closed.
  */
-export function resolveDesktopMarkerForOperation(
-  markerPath: string,
-  operation: string,
-  allowCenterTest: boolean,
-): DesktopMarker | null {
+export function readDesktopMarker(markerPath: string): DesktopMarker | null {
   let raw: string;
   try {
     raw = new TextDecoder("utf-8", { fatal: true })
@@ -108,7 +104,16 @@ export function resolveDesktopMarkerForOperation(
     return invalidMarker();
   }
 
-  const marker = parseDesktopMarker(raw);
+  return parseDesktopMarker(raw);
+}
+
+export function resolveDesktopMarkerForOperation(
+  markerPath: string,
+  operation: string,
+  allowCenterTest: boolean,
+): DesktopMarker | null {
+  const marker = readDesktopMarker(markerPath);
+  if (!marker) return null;
   if (marker.owner === "sse" && CENTER_TEST_OPERATION_SET.has(operation)) {
     throw new DesktopMarkerError(
       "SSE-Desktop-Marker besitzt keinen Steuertipps-Center; Center-Operation wurde nicht dorthin geroutet.",
