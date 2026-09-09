@@ -75,6 +75,22 @@ weder per Konfiguration noch über HTTP setzbar.
 
 ## Prüfung
 
+Für interne native Schreibpfade bietet `QtNativeClient.requestAcknowledged`
+eine zusammenhängende Anfrage samt Empfangsbestätigung an. Beide Schritte
+teilen eine Frist; andere Aufrufe auf derselben Verbindung werden währenddessen
+abgelehnt. Eine bekannte versuchte Mutation verlangt eine gültige, exakt
+bestätigte Quittung. Auch ein fachlich fehlgeschlagener Schreibversuch kann
+quittiert werden; sein Ergebnis bleibt dabei unverändert. Eine explizit
+unbekannte Ausführung wird nicht quittiert. Der native Server behält die
+Wiederherstellungsanforderung; Lesezugriff kann weiterhin möglich sein.
+
+Fehlt die Bestätigung, wird die Verbindung geschlossen und die Mutation nie
+wiederholt. `QtNativeAcknowledgmentError.mutationResult` erhält die bereits
+empfangene Schreibantwort zur Auswertung. Die Quittung bestätigt den Empfang
+durch den Transportbesitzer, weder fachlichen Erfolg noch Speichern auf Platte
+oder Zustellung einer HTTP-Antwort. Diese interne Funktion aktiviert keine
+zusätzliche öffentliche Schreiboperation.
+
 `npm test` prüft Konfiguration, Dateiintegrität, Profilgrenzen, Framing,
 Ergebnisform, Bindungswiederverwendung, Mehrdeutigkeit, Abbruch und Lifecycle.
 Diese Offline-Prüfung lädt keine DLL in eine installierte SSE und ersetzt

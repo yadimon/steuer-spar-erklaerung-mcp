@@ -3,11 +3,11 @@ import { createServer, createConnection } from "node:net";
 import { Duplex } from "node:stream";
 import { once } from "node:events";
 import { randomBytes } from "node:crypto";
-import { setImmediate as nextTurn } from "node:timers/promises";
+import { setImmediate as nextTurn, setTimeout as delay } from "node:timers/promises";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { QtNativeClient, QtNativeTransportError } from "../dist/qt-native-client.js";
+import { QtNativeAcknowledgmentError, QtNativeClient, QtNativeTransportError } from "../dist/qt-native-client.js";
 import { createApiExecutor } from "../dist/api-executor.js";
 import { createSseApiServer } from "../dist/api-server.js";
 import { callApiOperationEnvelope } from "../dist/api-client.js";
@@ -307,4 +307,105 @@ try {
   rmSync(fixture, { recursive: true, force: true });
 }
 
-console.log("OK: native pipe binding, cancellation, no write replay, fresh HTTP values and typed table reads with limits and duplicate rows preserved.");
+await withPeer(async (socket, request) => {
+  socket.write(frame(request.op === "mutation_ack"
+    ? { ok: true, id: request.id, acknowledged: true, receipt: request.receipt }
+    : { ok: false, id: request.id, code: "WRITE_READBACK_MISMATCH", after: "observed", mutationAttempted: true, mutationReceipt: "7" }));
+}, async (binding, requests) => {
+  const client = await QtNativeClient.connect(binding);
+  try {
+    const response = await client.requestAcknowledged("table_set_cell", { value: "requested" });
+    assert.equal(response.result.ok, false, "Receipt acceptance must not change the application result.");
+    assert.equal(response.result.after, "observed"); assert.equal(response.receiptAcknowledged, true);
+    assert(response.durationMs >= response.mutationAckMs);
+    assert.deepEqual(requests.slice(1).map(request => request.op), ["table_set_cell", "mutation_ack"]);
+    assert.equal(requests.at(-1).receipt, "7");
+  } finally { client.close(); }
+});
+
+for (const reply of [
+  { mutationAttempted: true }, { mutationAttempted: true, mutationReceipt: "0" },
+  { mutationAttempted: true, mutationReceipt: 1 }, { mutationAttempted: true, mutationReceipt: "18446744073709551616" },
+  { mutationAttempted: false, mutationReceipt: "2" }, { mutationReceipt: "2" },
+  { mutationAttempted: true, mutationReceipt: "2", outcomeUnknown: true },
+  { mutationAttempted: true, mutationReceipt: "2", outcomeUnknown: "false" },
+  { mutationAttempted: false, outcomeUnknown: true },
+]) {
+  await withPeer((socket, request) => socket.write(frame({ ok: true, id: request.id, ...reply })), async (binding, requests) => {
+    const client = await QtNativeClient.connect(binding);
+    await assert.rejects(client.requestAcknowledged("table_set_cell"), error =>
+      error instanceof QtNativeAcknowledgmentError && error.outcomeUnknown && error.kind === "native-mutation-receipt");
+    await assert.rejects(client.request("table_set_cell"), nativeError("native-mutation-receipt"));
+    assert.equal(requests.length, 2, "Malformed receipts must not be acknowledged or trigger a new mutation.");
+  });
+}
+
+await withPeer((socket, request) => socket.write(frame({ ok: false, id: request.id, mutationAttempted: request.op === "table_set_cell",
+  ...(request.op === "table_set_cell" ? { outcomeUnknown: true, code: "GUI_OPERATION_TIMEOUT" } : { code: "busy" }) })), async (binding, requests) => {
+  const client = await QtNativeClient.connect(binding);
+  try {
+    const unknown = await client.requestAcknowledged("table_set_cell");
+    assert.equal(unknown.result.outcomeUnknown, true); assert.equal(unknown.receiptAcknowledged, false);
+    const denied = await client.requestAcknowledged("objects");
+    assert.equal(denied.result.mutationAttempted, false); assert.equal(denied.receiptAcknowledged, false);
+    assert.equal(requests.filter(request => request.op === "mutation_ack").length, 0);
+  } finally { client.close(); }
+});
+
+let ackEntered, finishAck;
+const acknowledgmentStarted = new Promise(resolve => { ackEntered = resolve; });
+const acknowledgmentAllowed = new Promise(resolve => { finishAck = resolve; });
+await withPeer(async (socket, request) => {
+  if (request.op === "mutation_ack") {
+    ackEntered(); await acknowledgmentAllowed;
+    socket.write(frame({ ok: true, id: request.id, acknowledged: true, receipt: request.receipt }));
+  } else socket.write(frame({ ok: true, id: request.id, mutationAttempted: true, mutationReceipt: "8" }));
+}, async (binding, requests) => {
+  const client = await QtNativeClient.connect(binding);
+  try {
+    const mutation = client.requestAcknowledged("table_set_cell"); await acknowledgmentStarted;
+    await assert.rejects(client.request("objects"), nativeError("native-transaction-busy"));
+    await assert.rejects(client.requestAcknowledged("table_set_cell"), nativeError("native-transaction-busy"));
+    finishAck(); assert.equal((await mutation).receiptAcknowledged, true);
+    assert.equal(requests.length, 3);
+  } finally { finishAck(); client.close(); }
+});
+
+await withPeer(async (socket, request) => {
+  await delay(request.op === "mutation_ack" ? 100 : 120);
+  socket.write(frame(request.op === "mutation_ack"
+    ? { ok: true, id: request.id, acknowledged: true, receipt: request.receipt }
+    : { ok: true, id: request.id, mutationAttempted: true, mutationReceipt: "9", after: "known-received-value" }));
+}, async (binding, requests) => {
+  const client = await QtNativeClient.connect(binding);
+  await assert.rejects(client.requestAcknowledged("table_set_cell", {}, 200), error =>
+    error instanceof QtNativeAcknowledgmentError && error.kind === "native-timeout" && error.outcomeUnknown
+      && error.mutationResult.after === "known-received-value");
+  assert.deepEqual(requests.slice(1).map(request => request.op), ["table_set_cell", "mutation_ack"]);
+  await assert.rejects(client.requestAcknowledged("table_set_cell"), nativeError("native-timeout"));
+  assert.equal(requests.length, 3, "The mutation must not be replayed after a lost acknowledgment.");
+});
+
+await withPeer((socket, request) => socket.write(frame(request.op === "mutation_ack"
+  ? { ok: true, id: request.id, acknowledged: true, receipt: "different" }
+  : { ok: true, id: request.id, mutationAttempted: true, mutationReceipt: "10", after: "changed" })), async (binding, requests) => {
+  const client = await QtNativeClient.connect(binding);
+  await assert.rejects(client.requestAcknowledged("table_set_cell"), error =>
+    error instanceof QtNativeAcknowledgmentError && error.mutationResult.after === "changed" && error.outcomeUnknown);
+  assert.equal(requests.filter(request => request.op === "table_set_cell").length, 1);
+});
+
+const cancelAcknowledgment = new AbortController();
+await withPeer((socket, request) => {
+  if (request.op === "mutation_ack") cancelAcknowledgment.abort();
+  else socket.write(frame({ ok: true, id: request.id, mutationAttempted: true, mutationReceipt: "11", after: "committed-before-cancellation" }));
+}, async (binding, requests) => {
+  const client = await QtNativeClient.connect(binding);
+  await assert.rejects(client.requestAcknowledged("table_set_cell", {}, 5000, cancelAcknowledgment.signal), error =>
+    error instanceof QtNativeAcknowledgmentError && error.kind === "aborted" && error.outcomeUnknown
+      && error.mutationResult.after === "committed-before-cancellation");
+  await assert.rejects(client.requestAcknowledged("table_set_cell"), nativeError("aborted"));
+  assert.deepEqual(requests.slice(1).map(request => request.op), ["table_set_cell", "mutation_ack"]);
+});
+
+console.log("OK: bound native reads and receipt transactions preserve results, share deadlines, reject interleaving and never replay mutations.");

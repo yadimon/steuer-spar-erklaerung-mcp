@@ -1,10 +1,10 @@
 import { createConnection } from "node:net";
 import { performance } from "node:perf_hooks";
 import type { Duplex } from "node:stream";
-import { QtNativeTransportError, validateQtNativeBinding } from "./qt-native-binding.js";
-import type { QtNativeBinding, QtNativeMeasurement, QtNativeReply } from "./qt-native-binding.js";
-export { QtNativeTransportError } from "./qt-native-binding.js";
-export type { QtNativeBinding, QtNativeMeasurement, QtNativeReply } from "./qt-native-binding.js";
+import { QtNativeAcknowledgmentError, QtNativeTransportError, validateQtNativeBinding } from "./qt-native-binding.js";
+import type { QtNativeAcknowledgedMeasurement, QtNativeBinding, QtNativeMeasurement, QtNativeReply } from "./qt-native-binding.js";
+export { QtNativeAcknowledgmentError, QtNativeTransportError } from "./qt-native-binding.js";
+export type { QtNativeAcknowledgedMeasurement, QtNativeBinding, QtNativeMeasurement, QtNativeReply } from "./qt-native-binding.js";
 
 const MAX_REQUEST_BYTES = 1024 * 1024;
 const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
@@ -28,6 +28,7 @@ export class QtNativeClient {
   private pending = new Map<number, PendingRequest>();
   private input = Buffer.alloc(0);
   private failure: QtNativeTransportError | undefined;
+  private acknowledging = false;
 
   private constructor(private socket: Duplex, readonly binding: Readonly<QtNativeBinding>) {
     socket.on("data", chunk => this.acceptData(chunk));
@@ -95,6 +96,56 @@ export class QtNativeClient {
     args: Readonly<Record<string, unknown>> = {},
     timeoutMs = 5_000,
     signal?: AbortSignal,
+  ): Promise<QtNativeMeasurement> {
+    if (this.acknowledging) return Promise.reject(new QtNativeTransportError("A native receipt transaction is in progress.", "native-transaction-busy"));
+    return this.requestFrame(operation, args, timeoutMs, signal);
+  }
+
+  /** Receive a complete reply and acknowledge its mutation receipt within one deadline; never replay. */
+  async requestAcknowledged(
+    operation: string, args: Readonly<Record<string, unknown>> = {}, timeoutMs = 5_000, signal?: AbortSignal,
+  ): Promise<QtNativeAcknowledgedMeasurement> {
+    if (this.acknowledging || this.pending.size) throw new QtNativeTransportError("The native transport already has an active request.", "native-transaction-busy");
+    this.acknowledging = true;
+    const started = performance.now();
+    try {
+      const received = await this.requestFrame(operation, args, timeoutMs, signal);
+      const result = received.result, receipt = result.mutationReceipt;
+      const invalid = (message: string, kind = "native-mutation-receipt") => {
+        this.fail(message, kind, true);
+        return new QtNativeAcknowledgmentError(message, kind, result);
+      };
+      if (typeof result.mutationAttempted !== "boolean") throw invalid("Native reply did not identify whether a mutation was attempted.");
+      if ((result.outcomeUnknown !== undefined && typeof result.outcomeUnknown !== "boolean") || (result.ok && result.outcomeUnknown === true)) {
+        throw invalid("Native reply has inconsistent outcome evidence.");
+      }
+      if (receipt === undefined && (!result.mutationAttempted || result.outcomeUnknown === true)) {
+        return { ...received, durationMs: performance.now() - started, mutationAckMs: 0, receiptAcknowledged: false };
+      }
+      if (!result.mutationAttempted || result.outcomeUnknown === true || typeof receipt !== "string"
+        || !/^[1-9][0-9]{0,19}$/u.test(receipt) || BigInt(receipt) > 0xffffffffffffffffn) {
+        throw invalid("Native reply has no valid receipt for its known attempted mutation.");
+      }
+      const remaining = Math.floor(timeoutMs - (performance.now() - started));
+      if (remaining < 1) throw invalid("Mutation reply received after its acknowledgment budget expired.", "native-timeout");
+      try {
+        const acknowledgment = await this.requestFrame("mutation_ack", { receipt }, remaining, signal);
+        if (acknowledgment.result.ok !== true || acknowledgment.result.acknowledged !== true
+          || acknowledgment.result.receipt !== receipt
+          || (acknowledgment.result.outcomeUnknown !== undefined && acknowledgment.result.outcomeUnknown !== false)) {
+          throw invalid("Native peer did not acknowledge the exact mutation receipt.");
+        }
+        return { ...received, durationMs: performance.now() - started, mutationAckMs: acknowledgment.durationMs, receiptAcknowledged: true };
+      } catch (error) {
+        if (error instanceof QtNativeAcknowledgmentError) throw error;
+        throw invalid("Mutation reply received but acknowledgment failed; inspect the result and do not resend the mutation.",
+          error instanceof QtNativeTransportError ? error.kind : "native-mutation-receipt");
+      }
+    } finally { this.acknowledging = false; }
+  }
+
+  private requestFrame(
+    operation: string, args: Readonly<Record<string, unknown>>, timeoutMs: number, signal?: AbortSignal,
   ): Promise<QtNativeMeasurement> {
     if (this.failure) return Promise.reject(this.failure);
     if (!/^[a-z][a-z0-9_]{0,63}$/u.test(operation)
