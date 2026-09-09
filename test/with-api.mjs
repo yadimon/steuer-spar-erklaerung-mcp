@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApiExecutor } from "../dist/api-executor.js";
 import { createQtNativeRuntime } from "../dist/qt-native-runtime.js";
+import { loadQtNativePackage } from "../dist/qt-native-package.js";
 import { loadProductProfile } from "../dist/product-profiles.js";
 import { createSseApiServer } from "../dist/api-server.js";
 import { callWorker } from "../dist/worker.js";
@@ -14,6 +15,7 @@ import {
   enableWorkerPrewarm,
   isWarmSpareReady,
   lastPrewarmFailure,
+  prewarmStartupTimeoutMs,
   shutdownWarmSpare,
   warmSparePoolStatus,
 } from "../dist/worker-prewarm.js";
@@ -46,7 +48,15 @@ function interactiveReceiptLease() {
   if (process.platform !== "win32") {
     throw new Error("Der interaktive BelegManager-Testschalter ist nur in einer sichtbaren Windows-Sitzung erlaubt.");
   }
-  const probe = spawnSync(resolveWindowsPowerShell(), [
+  const nativeDirectory = process.env.SSE_TEST_NATIVE_PACKAGE;
+  const nativeDigest = process.env.SSE_TEST_NATIVE_MANIFEST_SHA256;
+  if (Boolean(nativeDirectory) !== Boolean(nativeDigest)) throw new Error("Native package and digest must be supplied together.");
+  const nativePackage = nativeDirectory ? loadQtNativePackage({ directory: nativeDirectory, manifestSha256: nativeDigest },
+    loadProductProfile(process.env.SSE_PROFILE_ID)) : null;
+  const probe = nativePackage ? spawnSync(nativePackage.loaderPath, ["--stdin"], {
+    input: JSON.stringify({ mode: "interactive-session" }), encoding: "utf8", windowsHide: true,
+    timeout: 10_000, maxBuffer: 64 * 1024,
+  }) : spawnSync(resolveWindowsPowerShell(), [
     "-NoLogo", "-NoProfile", "-NonInteractive", "-Command",
     "$ErrorActionPreference='Stop'; " +
       "Add-Type -Namespace SseMega -Name User32 -MemberDefinition '" +
@@ -63,6 +73,7 @@ function interactiveReceiptLease() {
     throw new Error(`Interaktive Sitzung konnte nicht verifiziert werden: ${probe.error?.message ?? probe.stderr.trim()}`);
   }
   const state = JSON.parse(probe.stdout.trim());
+  if (nativePackage && state.ok !== true) throw new Error("Native session probe did not confirm success.");
   if (
     state.userInteractive !== true ||
     !Number.isInteger(state.sessionId) || state.sessionId <= 0 ||
@@ -134,8 +145,8 @@ const server = createSseApiServer({
 await listenOnFetchablePort(server);
 if (useWorkerPrewarm) {
   enableWorkerPrewarm();
-  const deadline = Date.now() + 15_000;
-  while (!isWarmSpareReady() && Date.now() < deadline) {
+  const deadline = performance.now() + prewarmStartupTimeoutMs();
+  while (!isWarmSpareReady() && performance.now() < deadline) {
     if (lastPrewarmFailure()) break;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }

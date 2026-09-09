@@ -129,6 +129,8 @@ static void bindOwner(BridgeConfig &config, const Json &request) {
 #include "bridge-desktop-start.h"
 #include "bridge-desktop-stop.h"
 
+#include "bridge-interactive-session.h"
+
 int main(int argc, char **argv) {
     HDESK privateDesktop = nullptr;
     try {
@@ -153,6 +155,13 @@ int main(int argc, char **argv) {
         auto request = Json::parse(bytes);
         const auto mode = request.value("mode", std::string("legacy"));
         if (broker && mode != "attach") throw std::runtime_error("Broker requires automatic attachment mode");
+        if (mode == "interactive-session") {
+            if (request.size() != 1) throw std::runtime_error("Interactive session probe accepts only mode");
+            auto state = interactiveSession();
+            state["loaderMs"] = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count();
+            std::cout << state.dump() << std::endl;
+            return 0;
+        }
         if (mode == "desktop-status" || mode == "desktop-start" || mode == "desktop-stop") {
             auto status = mode == "desktop-stop" ? nativeDesktopStop(request)
                 : mode == "desktop-start" ? nativeDesktopStart(request) : desktopStatus(request);

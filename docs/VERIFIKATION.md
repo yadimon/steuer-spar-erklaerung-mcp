@@ -99,6 +99,16 @@ aus und meldet die Gesamtzeit sowie die Zeit je Aufruf. Wer eine Änderung
 bewertet, misst davor und danach auf **derselben** Maschine, abwechselnd und
 mehrfach; eine einzelne Messung trägt keine Aussage.
 
+Für den optionalen nativen Modus müssen `SSE_TEST_NATIVE_PACKAGE` und
+`SSE_TEST_NATIVE_MANIFEST_SHA256` gemeinsam auf ein kompatibles, separat gebautes
+Paket zeigen. Der Bericht nennt den Ausführungsmodus und die Manifestidentität.
+Die Prüfung der interaktiven Sitzung verwendet dann den verifizierten
+Win32-Helfer ohne PowerShell-Kompilierung. Ohne diese beiden Einstellungen
+misst der Test den Worker-Pfad. Native Messungen ändern das Worker-Coverage-Ledger nicht.
+Der Bereitschaftstest übernimmt `SSE_WORKER_PREWARM_STARTUP_TIMEOUT_MS` aus der
+Pool-Konfiguration; eine längere erlaubte Vorbereitung ist keine schnellere API-Operation.
+Ein vor dem ersten Aufruf fehlgeschlagener Lauf liefert keine Gesamtlatenz der Reise.
+
 Für produktfreie Teilstrecken stehen `npm run perf:tax-journeys`,
 `npm run perf:receipt-workload` und `npm run perf:api-load-soak` bereit; der
 Rahmen dazu ist in [`test/performance/README.md`](../test/performance/README.md)

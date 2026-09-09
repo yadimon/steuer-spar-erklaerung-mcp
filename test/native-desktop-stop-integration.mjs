@@ -52,7 +52,11 @@ function preserved(owned, closes = 0) {
   assert.equal(json(owned.statePath).discardInvokes, 0);
 }
 async function quit(owned, expected = 0) {
-  if (owned.child.exitCode === null) { owned.child.stdin.write("quit\n"); await Promise.race([owned.exited, delay(5000)]); }
+  if (owned.child.exitCode === null) {
+    // A confirmed force-termination can precede Node's exit event; never write to that dead pipe.
+    if (expected === 0) owned.child.stdin.write("quit\n");
+    await Promise.race([owned.exited, delay(5000)]);
+  }
   assert.equal(owned.child.exitCode, expected, owned.item.stderr); owned.item.exitCode = owned.child.exitCode; persist();
 }
 try {
