@@ -6,6 +6,45 @@ wenn die Konfigurationsdatei `qtNativeRuntime` enthält. Dafür wird ein separat
 kompatibles natives Paket benötigt; die npm-Pakete enthalten diesen Qt-Helfer
 noch nicht. Andere Operationen behalten ihre bestehenden Ausführungspfade.
 
+## Natives Paket selbst bauen
+
+Die C++-Quellen und der Paketbau liegen unter [native/qt](../native/qt/CMakeLists.txt).
+Voraussetzungen sind Windows x64, MSVC, CMake ab 3.24, Node.js und das Qt-6.9.2-SDK
+für MSVC x64. Der normale npm-Build benötigt dieses zusätzliche SDK nicht.
+In einem x64-Entwicklerterminal von Visual Studio aus dem Projektverzeichnis:
+
+```powershell
+npm run build
+cmake -S native/qt -B artifacts/qt-native -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="C:\Qt\6.9.2\msvc2022_64" -DSSE_QT_BUILD_TESTS=ON
+cmake --build artifacts/qt-native --config Release
+npm run test:qt-native
+```
+
+Passe den Qt-SDK-Pfad an die eigene Installation an. Der Build verlangt exakt
+Qt 6.9.2 und die Release-Konfiguration. Er lädt keine Abhängigkeiten herunter.
+Die verwendeten Drittanbieterquellen und Hinweise stehen in
+[THIRD_PARTY.md](../native/qt/THIRD_PARTY.md).
+
+Nach erfolgreichem Build enthält `artifacts/qt-native/native-package.json` das
+fertige `qtNativeRuntime`-Objekt für die API-Konfiguration. Das zugehörige
+Verzeichnis unter `artifacts/qt-native/packages/` enthält Loader, DLL, Manifest
+und Lizenzhinweise. Sein Name ist der Manifest-Hash. Gleiche Binärdateien
+verwenden dasselbe geprüfte Verzeichnis; veränderte Builds erzeugen ein neues.
+Beim Verschieben des vollständigen Pakets muss nur `directory` angepasst werden.
+
+Der Paketbau bindet beide Binärdateien an die aktuelle Quellenidentität und
+prüft PE-Format, x64-Architektur sowie die Übereinstimmung des nativen Profils
+mit dem öffentlichen Produktprofil. Zur Laufzeit prüft der Loader zusätzlich
+die Produkt- und Qt-Binärdateien gegen `native/qt/compatibility.json`.
+
+Der explizite CTest-Lauf erstellt eine eigene, nicht aktive Windows-Arbeitsfläche
+und startet dort synthetische Qt-Fenster. Er verwendet das gebaute Paket und den
+regulären API-Prozess, mit ausdrücklich synthetischen Testabhängigkeiten für
+Profilauswahl und Fensterinventar. Geprüft werden frische HTTP-Lesewerte,
+Tabellen, Fenster-/Objektlebensdauer, Passwortfelder und Helfer-Shutdown. Das ist
+kein Funktionsnachweis an einer installierten SSE. Die ausgelieferte DLL führt
+keine experimentellen Feld-, Tabellen-, Navigations- oder Speichermutationen aus.
+
 ## Konfiguration und Paketvertrag
 
 `qtNativeRuntime` hat genau zwei Felder: `directory` ist ein absoluter lokaler

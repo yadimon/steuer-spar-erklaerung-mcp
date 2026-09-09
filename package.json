@@ -59,6 +59,7 @@
     "test:worker-native": "node test/direct-worker-native-guard.mjs",
     "test:worker-inherited-pipe": "npm run build:ts && node test/worker-inherited-pipe.mjs",
     "test:native-build-cache": "node test/native-build-cache.mjs",
+    "test:qt-native": "ctest --test-dir artifacts/qt-native -C Release --output-on-failure",
     "test:package": "npm run build:npm-packages && node test/npm-package-contract.mjs",
     "test:npm-clean-install": "npm run build:npm-packages && node test/npm-clean-install.mjs",
     "smoke:published": "node test/npm-clean-install.mjs --published",

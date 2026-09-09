@@ -10,7 +10,7 @@ const listed = execFileSync("git", ["ls-files", "--cached", "--others", "--exclu
   windowsHide: true,
 });
 const textExtensions = new Set([
-  ".cmd", ".config", ".cs", ".csv", ".html", ".ini", ".js", ".json", ".map", ".md", ".mjs",
+  ".cmd", ".config", ".cpp", ".cs", ".csv", ".h", ".html", ".ini", ".js", ".json", ".map", ".md", ".mjs",
   ".ps1", ".svg", ".toml", ".ts", ".txt", ".vbs", ".xml", ".yaml", ".yml",
 ]);
 const sha256TokenPattern = /(?<![0-9A-Fa-f])[0-9A-Fa-f]{64}(?![0-9A-Fa-f])/gu;
