@@ -176,6 +176,7 @@ fortgeschrittener npm-Weg verfügbar, ist aber nicht der Nutzerstandard.
 - [API-/MCP-Vertrag](docs/API-MCP-VERTRAG.md)
 - [Umsatzsteuer-Voranmeldung](docs/UMSATZSTEUER-VORANMELDUNG.md)
 - [Verifikationsstand](docs/VERIFIKATION.md)
+- [Fortschritt der Qt-DLL-Integration](docs/NATIVE-COVERAGE.md)
 - [Skill-Vertrag](skills/steuer-spar-erklaerung/SKILL.md)
 - [Releases](https://github.com/yadimon/steuer-spar-erklaerung-mcp/releases)
 

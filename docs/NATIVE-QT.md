@@ -1,16 +1,119 @@
 # Optionaler Qt-Lesepfad
 
-Die API kann `get_value` und `table_read` über eine dauerhaft gebundene
+Die API kann `get_value`, `table_read`, `snapshot`, `find`, `read_page` und `subpages` über eine dauerhaft gebundene
 Qt-Verbindung ausführen. Der normale Runtime-Start aktiviert diesen Pfad nur,
 wenn die Konfigurationsdatei `qtNativeRuntime` enthält. Dafür wird ein separates,
 kompatibles natives Paket benötigt; die npm-Pakete enthalten diesen Qt-Helfer
-noch nicht. Andere Operationen behalten ihre bestehenden Ausführungspfade.
+noch nicht. Dasselbe Paket führt `desktop_status` und `desktop_start` direkt über Win32 aus;
+`desktop_stop` verwendet einen externen C++-Helfer mit Win32 und COM-UIA.
+Die übrigen Operationen behalten ihre bestehenden Ausführungspfade.
+
+Die [Native-Abdeckungsmatrix](NATIVE-COVERAGE.md) zählt alle 102 API-Operationen:
+sechs direkte optionale Qt-Handler und 96 ohne direkten Qt-Pfad. Sie trennt
+diesen Stand von funktionaler Live-Abdeckung und noch erforderlicher Integration.
+`sse-native.dll` bezeichnet dagegen die bestehende C#-Worker-Hilfsbibliothek;
+der hier beschriebene C++-Lesepfad verwendet `sse-qt-read.dll` in SSE.
+
+`desktop_status` liefert `backend: "win32"`. Der gebundene Loader liest Prozessversion
+und sichtbare Fenster ausschließlich für die markierte PID auf dem ausdrücklich
+geöffneten Desktop. Er injiziert keine DLL, benötigt keinen UIA-Worker und verwendet
+keinen Desktopwechsel. Der Marker wird vor und nach der Abfrage gelesen; geändertes
+Eigentum, nicht lesbare Identität, Controller-Konflikte und ungültige Ergebnisse
+scheitern ausdrücklich. Ohne Marker wird der inaktive Zustand direkt in Node
+ermittelt. Alte Marker und Center-Testmarker bleiben diagnostizierbar. Der Status
+belegt keinen gespeicherten Fall und ersetzt keine vollständige Startbereitschaft.
+
+`desktop_start` verwendet ebenfalls `backend: "win32"`: Ressourcenreferenzen,
+Programmpfad, Produkt-Pin, Startmodus und Falljahr werden vor dem Prozessstart geprüft.
+Ein vorhandener Desktop wird nicht übernommen. Ein toter Marker darf nur entfernt
+werden, wenn sein Desktop keine sichtbaren Fenster mehr enthält; fremde, lebende
+und unklare Marker scheitern ausdrücklich. Der Controller-Lease umfasst den Start.
+
+Der Prozess wird unter Windows 10 oder neuer atomar einem Job Object zugeordnet,
+zunächst angehalten erstellt und erst danach fortgesetzt. Bis zum exklusiv
+geschriebenen und zurückgelesenen Eigentumsmarker beendet ein Absturz des Helfers
+seinen Prozessbaum. Danach bleibt die Instanz für weitere API-Aufrufe verfügbar.
+Timeouts prüfen Prozessende und Markerabbau; ein unvollständiger Abschluss liefert
+die Cleanup-Felder. Ein verlorener oder abgebrochener Antwortweg kann
+`outcomeUnknown: true` liefern und wird nie automatisch wiederholt.
+Vor einem weiteren Start ist dann `desktop_status` zu prüfen.
+
+`ready` bezeichnet wie bisher ein eindeutig erkanntes Hauptfenster; Startdialoge
+werden separat zurückgegeben. Das ist keine Zusage, dass der komplette Fall bereits
+geladen ist. Der Messweg trennt Helferstart, SSE-Ladezeit und Antwortabschluss.
+Die native Startintegration ist durch synthetische Prozess-/Desktop- und öffentliche
+HTTP-Tests geprüft. Eine zusätzliche Serie mit einer Hersteller-Musterfallkopie
+prüft Start, frischen Qt-Seiten-Readback und normales Beenden in jedem Zyklus.
+Das belegt noch nicht alle Startmodi oder Dialogzustände.
+
+`desktop_stop` liefert `backend: "win32-uia"`. Der Helfer bindet seinen Thread an
+den markierten Desktop, prüft das gepinnte Programm und hält Prozessobjekt,
+Eigentumsmarker und Controller-Lease bis zum bestätigten Ende. Er fragt den exakten
+Speichern-Button ab und stellt `WM_CLOSE` einmal in die Nachrichtenwarteschlange.
+Ein normaler erfolgreicher Stop benötigt keine festen Nachlaufpausen.
+
+`save: true` bleibt gesperrt; Speichern erfolgt vorher über die hashgebundene
+Speicheroperation. Unsichere oder ungespeicherte Zustände benötigen eine ausdrückliche
+Entscheidung. Nur `discardChanges: true` erlaubt einen eindeutigen aktiven Button
+`Nein`, `Nicht speichern` oder `Verwerfen` und gegebenenfalls das Beenden des exakt
+gehaltenen Prozesses. Vorhandene unbekannte Fenster müssen separat behandelt werden.
+Dialoge mit Übermittlungsbezug, unvollständige Bäume, fehlende Invoke-Muster und
+veränderte Inhalte scheitern ausdrücklich; es gibt keinen Maus- oder Worker-Fallback.
+
+COM-Verbindungs- und Transaktionsaufrufe sowie Baumgröße, Tiefe und Gesamtdauer sind
+begrenzt. API und Helfer verwenden einen gemeinsamen absoluten Deadline-Wert;
+Start, Hashprüfung und Hilfsfenster verbrauchen dasselbe Budget. Vor jeder Änderung
+muss genug Zeit für die anschließende Prozessbeobachtung verbleiben.
+Vor dem Invoke werden der vollständige Baum, die Fensteridentität und die
+gewählte Schaltfläche erneut geprüft. Ein verlorener Antwortweg oder ein unterbrochener
+Invoke wird nicht wiederholt. `outcomeUnknown` verlangt eine frische Statusprüfung.
+Der API-Timeout muss das Budget für Providerprüfung und bestätigtes Prozessende
+enthalten; ein kurzer durchschnittlicher Aufruf ist keine garantierte Höchstdauer.
+
+Die Stop-Tests verwenden ein separates Qt-Programm auf einem nicht aktiven Desktop.
+Sie prüfen normale und erzwungene Ausgänge, Dirty-State, Dialogantworten, doppelte
+Schaltflächen, Übermittlungssperren und Lesegrenzen. Eine zusätzliche Serie mit einer
+unveränderten Herstellerfallkopie prüft drei öffentliche HTTP-Zyklen mit frischem
+Qt-Seiten-Readback, normalem Prozessende und Markerabbau. Die Prüfung tatsächlicher
+SSE-Speicherdialoge und Hilfsfenster ist eine eigene Live-Abnahme.
+
+`snapshot` liest den Qt-Accessibility-Baum im GUI-Thread. Es liefert die bestehenden
+Knotenfelder und UIA-kompatible `rid`-Referenzen, auch an nativen Kindfenstergrenzen.
+`get_value` kann diese Referenzen durch einen frischen nativen Baum auflösen;
+die bisherigen `qt:`-Referenzen bleiben ebenfalls gültig. `types` und `namedOnly`
+filtern nach dem begrenzten Baumlauf, ohne Knoten- oder Elternindizes umzunummerieren.
+Katalogisierte nichtmodale `toolWindow`-Ziele werden innerhalb derselben gebundenen
+PID anhand ihres exakten Titels gelesen; fehlende und mehrdeutige Fenster scheitern.
+
+Die Wurzel wird wie beim Worker nicht ausgegeben. Vorgabe sind 4000 Knoten,
+Maximum 5000 und Tiefe 16; `stats.truncated` meldet eine überschrittene Grenze.
+Zeit-, Zyklus-, Text- und Ausgabebegrenzungen scheitern ausdrücklich. Passwortwerte
+bleiben verborgen. `stats.source: "qt"` und `responsivenessCheck: "bounded-gui-thread"`
+kennzeichnen den neuen Messweg; `canaryMs` ist `null`, da kein UIA-Kanarienaufruf
+stattfindet. Ein über die Snapshot-ID gelesener Wert benötigt einen vollständigen Baum.
+Der Umfang ist Qt-Inhalt, kein allgemeiner Ersatz für native Windows-Dialoge oder
+nicht von Qt bereitgestellte Fensterdekoration.
+
+`find`, `read_page` und `subpages` verwenden denselben frischen Qt-Baum ohne
+PowerShell-Prozess. `find` liest keine Feldwerte; Namens-/Typvergleich und
+AutomationId-Endungen behalten die Suchsemantik des Workers einschließlich
+Wildcard-Zeichen und Backtick-Escapes. Exakte Vergleiche laufen über die
+invariante Windows-Zeichenfolgenordnung; die Wildcard-Auswertung ist begrenzt
+und scheitert bei überschrittenem Budget ausdrücklich.
+
+`read_page` behält Inhaltsgrenzen, den kataloggebundenen Überschriftencontainer
+und die gegen den Zeilenanker berechnete Textgruppierung. `subpages` bindet
+Beschriftung und Wert über direkte Geschwister, filtert Übermittlungsaktionen
+und entfernt doppelt exponierte Verweise. Ein abgeschnittener Unterseitenbaum
+scheitert mit `native-incomplete`; `find` meldet wie bisher `incomplete` und
+`stats.truncated`. Die übrigen Seitenoperationen, etwa `page` und `read_full`,
+benutzen weiterhin ihre bestehenden Pfade.
 
 ## Natives Paket selbst bauen
 
 Die C++-Quellen und der Paketbau liegen unter [native/qt](../native/qt/CMakeLists.txt).
 Voraussetzungen sind Windows x64, MSVC, CMake ab 3.24, Node.js und das Qt-6.9.2-SDK
-für MSVC x64. Der normale npm-Build benötigt dieses zusätzliche SDK nicht.
+für MSVC x64 einschließlich privater Gui-Header. Der normale npm-Build benötigt dieses zusätzliche SDK nicht.
 In einem x64-Entwicklerterminal von Visual Studio aus dem Projektverzeichnis:
 
 ```powershell
@@ -36,6 +139,8 @@ Der Paketbau bindet beide Binärdateien an die aktuelle Quellenidentität und
 prüft PE-Format, x64-Architektur sowie die Übereinstimmung des nativen Profils
 mit dem öffentlichen Produktprofil. Zur Laufzeit prüft der Loader zusätzlich
 die Produkt- und Qt-Binärdateien gegen `native/qt/compatibility.json`.
+Die privaten Accessibility-/DPI-Schnittstellen binden zusätzlich `Qt6Gui.dll`
+an den hinterlegten Hash; eine abweichende Qt-Binärdatei wird vor dem Laden abgelehnt.
 
 Der explizite CTest-Lauf erstellt eine eigene, nicht aktive Windows-Arbeitsfläche
 und startet dort synthetische Qt-Fenster. Er verwendet das gebaute Paket und den

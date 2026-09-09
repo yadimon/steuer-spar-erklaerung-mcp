@@ -13,8 +13,14 @@
 
 ## Rollen
 
-Für die optionale dauerhafte Qt-Anbindung von `get_value` und `table_read`
+Für die optionale dauerhafte Qt-Anbindung von `get_value`, `table_read`, `snapshot`, `find`, `read_page` und `subpages`
 gilt zusätzlich der [native Paket- und Laufzeitvertrag](NATIVE-QT.md).
+Dasselbe optionale Paket übernimmt `desktop_status` und `desktop_start` direkt
+über Win32. Die Startoperation behält Ressourcenauflösung und Eigentumsprüfung;
+ein verlorener Antwortweg wird als unbekannter Ausgang ohne Wiederholung behandelt.
+`desktop_stop` nutzt Win32 und begrenztes COM-UIA im externen nativen Helfer.
+Speichern bleibt hashgebunden separat; Verwerfen benötigt `discardChanges: true`.
+Unsichere Dialoge und verlorene Ergebnisse lösen keinen Wiederholungsversuch aus.
 
 Die lokale HTTP-API ist der ausführende Kern. Sie besitzt Konfiguration,
 Ressourcenauflösung, Queue, Szenarien und den Windows-Worker. MCP ist ein
@@ -176,11 +182,12 @@ mehrdeutige Wahl gesperrt. API-stdio bleibt vollständig vom MCP-stdout getrennt
 - API-Fehlerfelder werden nicht durch eine Fehler-Allowlist abgeschnitten;
   MCP markiert sie mit `isError=true`.
 - Erfolgreiche Antworten bleiben als JSON-Text verfügbar. Einige Werkzeuge
-  erzeugen darin aus Kompatibilitätsgründen eine kompakte Projektion. Alle 103
+  erzeugen darin aus Kompatibilitätsgründen eine kompakte Projektion. Alle 104
   MCP-Werkzeuge veröffentlichen parallel ein vollständiges, redigiertes
   `structuredContent` mit einem deklarierten `outputSchema`. Bei den 102
   direkten Werkzeugen ist es das API-Ergebnis; `sse_preflight` besitzt einen
-  eigenen PC-blinden Kompositionsvertrag.
+  eigenen PC-blinden Kompositionsvertrag. `sse_api_control` ergänzt den
+  getrennten API-Lebenszyklusvertrag.
 - Lokale Windows-, UNC-, Datei-URL- und typische POSIX-Pfade werden an der
   MCP-Ausgabegrenze redigiert. Deshalb kann die öffentliche MCP-Antwort nicht
   bytegleich mit einem unredigierten lokalen API-Objekt sein.

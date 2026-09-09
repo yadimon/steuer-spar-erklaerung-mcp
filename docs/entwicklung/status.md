@@ -1,8 +1,9 @@
 # Statustafel: alles, was es gibt, mit Stand
 
-Eine Tafel statt vier Dokumente. Jede bekannte Faehigkeit von
-SteuerSparErklaerung mit dem Stand bei uns, dem Beleg und dem Weg, auf dem sie
-zu bauen waere.
+Diese Tafel ordnet bekannte Produktfähigkeiten ein. Die
+[Native-Matrix](../NATIVE-COVERAGE.md) führt zusätzlich jede API-Operation mit
+ihrem Qt-DLL- und funktionalen Live-Stand. „Fertig“ in dieser Tafel bedeutet
+keine native Umsetzung und keine garantierte Laufzeit.
 
 **Produktbezug:** SSE `31.0.2.0` / `[31.31]`.
 Diese Tafel ist von Hand gepflegt und veraltet zwangslaeufig. Die erzeugte
@@ -23,24 +24,33 @@ ist, nicht was fehlt.
 | | Produkt | Bei uns |
 | --- | --- | --- |
 | Module (Fallarten) | 7 | 3 angefasst, davon 2 live gefahren |
-| Seiten (`.dialog`-Dateien) | 672 | **alle lesbar**, mit sichtbarem Vordergrund auch beschreibbar; 22 katalogisiert – siehe unten |
+| Seiten (`.dialog`-Dateien) | 672 | generische Lese-/Schreibmechanismen, kein Vollnachweis für alle Seiten; 22 katalogisiert – siehe unten |
 | Menueeintraege | 64 | 11 fertig, 9 teils, 4 zu |
 | Formularvorlagen (`.frb`) | 994 | 0 |
-| Operationen | – | 100, davon 94 live belegt |
+| Operationen | – | 102: 94 funktional live belegt, 6 nur Fehlerpfad, 2 live ungetestet |
+| Direkte Qt-DLL-Handler | – | 6 optional: `get_value`, `table_read`, `snapshot`, `find`, `read_page`, `subpages`; 96 ohne direkten Qt-Pfad |
+| MCP-Werkzeuge | – | 104: 102 direkte, 1 Komposition, 1 API-Lebenszykluswerkzeug |
+
+Die Qt-Brücke enthält keine öffentlichen Schreib-, Navigations- oder
+Speicherhandler. Ihr Paket wird separat gebaut und über `qtNativeRuntime`
+aktiviert; ohne diese Konfiguration bleiben auch die beiden Reads beim
+bisherigen Pfad. Die C#-Worker-Bibliothek `sse-native.dll` zählt nicht als
+Umstellung auf die C++-Qt-Brücke `sse-qt-read.dll`.
 
 ## Was „22 katalogisierte Seiten" wirklich heisst
 
 Diese Zahl wird leicht falsch gelesen. Der Seitenkatalog ist **keine
 Zugangsschranke**, sondern eine Bequemlichkeits- und Sicherheitsschicht.
 
-Von hundert Operationen brauchen genau **zwei** einen Katalogeintrag:
+Von den 102 Operationen brauchen genau **zwei** einen Katalogeintrag:
 
 | Operation | warum |
 | --- | --- |
 | `fill_fields` | plant eine Feldtransaktion ueber `pageId` und `fieldId` und rollt bei verletzten Nachbedingungen zurueck |
 | `known_page_state` | vergleicht gegen einen hinterlegten Sollzustand |
 
-Alles Uebrige arbeitet auf **jeder** der 672 Seiten:
+Die folgenden Mechanismen brauchen keinen Seitenkatalogeintrag; ihre
+praktische Reichweite bleibt vom tatsächlichen Zielzustand abhängig:
 
 - **Lesen** ist durchgehend generisch: `page`, `read_page`, `table_read`,
   `positions`, `collect`, `snapshot`.
@@ -113,7 +123,7 @@ Belege in der [Seitenlandkarte](funktionskatalog.md).
 | --- | --- | --- |
 | Zu einer Seite navigieren | **fertig** | `goto` – ueber Suchfeld und Doppelklick, weil die UIA-Muster des Baums nicht wirken |
 | Seite lesen | **fertig** | `page`, `read_page`, `known_page_state`, `ui_state` |
-| Tabellen lesen | **fertig** | `table_read`, `read_table`, `positions` |
+| Tabellen lesen | **fertig** | `table_read` optional über Qt; `read_table` und `positions` behalten ihren bisherigen Pfad |
 | Unterseiten finden | **fertig** | `subpages` – „Erfassen"-Verweise sind echte Schaltflaechen |
 | Baum blaettern | **teils** | `tree_top`, `tree_scroll` – Aufzaehlen der Seiten geht darueber nicht |
 | Suche als eigene Operation | **offen** | `goto` nutzt die Suche intern; es gibt keinen direkten Zugriff |
@@ -133,7 +143,7 @@ Belege in der [Seitenlandkarte](funktionskatalog.md).
 | Rueckgaengig / Wiederherstellen | **offen** | es gibt kein Undo ueber die API |
 | Zwischenablage | **offen** | Ausschneiden, Kopieren, Einfuegen |
 | Erlaeuterung, Notiz | **offen** | Menue Bearbeiten |
-| Direkt ins Datenmodell schreiben | **zu** | `WriteToDM` existiert im Programm; wir schreiben nur ueber profilierte Feldpfade mit Readback |
+| Beliebige Herstellerkommandos ins Datenmodell senden | **zu** | kein allgemeiner `WriteToDM`-Zugang; ein begrenzter Qt-Schreibhandler müsste separat Commit und Readback belegen und ist öffentlich noch nicht vorhanden |
 
 ## Belege
 
@@ -227,7 +237,7 @@ Belege in der [Seitenlandkarte](funktionskatalog.md).
 | --- | --- |
 | UIA-Inventar des unterstützten Produktprofils | Module und Rubriken, Menüinventar und Verhalten der UIA-Muster; auf Herstellermusterfällen nachprüfbar |
 | Programmdateien der Installation | 672 Seiten, 994 Vorlagen, 7 Datenmodelle, 2 Stichwortverzeichnisse |
-| Statische Analyse (im Repository) | Kommandonamen, `DMSession`-Methoden |
+| Statische Analyse (sanitisierte Zusammenfassung; Rohartefakte außerhalb des Repositorys) | Kommandonamen und `DMSession`-Methoden; kein Nachweis ihrer API-Erreichbarkeit |
 | Herstellerhandbuch | Funktionsgruppen – oeffentlich nur Jahrgang **2023**, fuer 2025 nicht belegt |
 | Unser Repository | Operationsliste, Seitenkatalog, Verifikationsstand |
 

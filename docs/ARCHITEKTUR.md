@@ -1,7 +1,16 @@
 # Produktarchitektur
 
 Der optionale [Qt-Lesepfad](NATIVE-QT.md) beschreibt Paketprüfung, dauerhafte
-Prozessbindung und den konfigurierten nativen Runtime-Start für zwei Leseoperationen.
+Prozessbindung und den konfigurierten nativen Runtime-Start für sechs Leseoperationen.
+Die [Native-Matrix](NATIVE-COVERAGE.md) ordnet alle API-Operationen zu. Die
+C++-Qt-Brücke in SSE und der bisherige C#-Worker-Helfer sind getrennte Backends.
+Das optionale Paket führt zusätzlich `desktop_status` und `desktop_start` direkt über Win32 aus:
+Marker-Readback, Prozessversion und Desktopfenster werden ohne UIA oder Injektion
+diagnostiziert. Der Start bindet den Prozess atomar an ein Job Object und übergibt
+ihn erst nach Marker-Readback. Beide Systemoperationen zählen getrennt von den sechs Qt-Handlern.
+`desktop_stop` ist ein weiterer externer nativer Pfad mit begrenztem COM-UIA für
+Dirty-State und Dialoge. Sein gehaltenes Prozessobjekt und sein exklusiver Marker
+verbinden die einmalige Schließanforderung mit dem überprüften Prozessende.
 
 Dieses Dokument ist der überprüfbare Zielvertrag für API, MCP,
 Steuerjahrprofile und öffentliche Skills. Es beschreibt das Produkt, nicht die
@@ -261,7 +270,7 @@ Eigenes Programm ── HTTP/JSON ───────────────�
   bleiben unverändert, damit ein separat installierter Wrapper weder Details
   des API-Rechners noch seines eigenen Hosts preisgibt.
 - Werkzeugnamen, API-Zuordnung, Eingaben und versionierte
-  Ergebnismindestverträge werden aus gemeinsamen Katalogen abgeleitet. Alle 103
+  Ergebnismindestverträge werden aus gemeinsamen Katalogen abgeleitet. Alle 104
   Werkzeuge deklarieren ein `outputSchema` und liefern
   das vollständige, pfadredigierte nicht-binäre Ergebnis als
   `structuredContent`. Bereits als MCP-Bildblock gelieferte Base64-Bytes werden

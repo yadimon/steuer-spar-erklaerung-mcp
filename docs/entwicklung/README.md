@@ -24,6 +24,9 @@ werden erst nach Verifikation als kurze aktuelle Regel in einen Skill
 
 ## Aktueller Inhalt
 
+- [Native-Abdeckung](../NATIVE-COVERAGE.md): jede API-Operation mit direktem
+  Qt-DLL-Status, getrennt vom funktionalen Live-Teststand;
+
 - `status.md`: **eine Tafel für alles** — jede bekannte Fähigkeit mit Stand
   (fertig / teils / offen / bewusst zu), Beleg und Bauweg. Der Einstieg, wenn
   die Frage lautet „haben wir das schon?";
