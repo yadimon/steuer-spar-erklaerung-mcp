@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
+import type { QtNativeRuntimeConfig } from "./qt-native-config.js";
 
 export interface ConfigurationFingerprintIdentity {
   profileId: string;
@@ -10,6 +11,7 @@ export interface ConfigurationFingerprintIdentity {
   backupsDir: string;
   sseExecutable?: string;
   operateExperimental?: boolean;
+  qtNativeRuntime?: QtNativeRuntimeConfig;
 }
 
 function optionalResolved(path: string | undefined): string | null {
@@ -26,6 +28,9 @@ export function configurationFingerprint(config: ConfigurationFingerprintIdentit
     backupsDir: resolve(config.backupsDir),
     sseExecutable: optionalResolved(config.sseExecutable),
     operateExperimental: config.operateExperimental === true,
+    ...(config.qtNativeRuntime ? { qtNativeRuntime: {
+      directory: resolve(config.qtNativeRuntime.directory), manifestSha256: config.qtNativeRuntime.manifestSha256,
+    } } : {}),
   };
   return createHash("sha256").update(JSON.stringify(stable), "utf8").digest("hex");
 }

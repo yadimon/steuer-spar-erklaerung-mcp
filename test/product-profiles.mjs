@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import {
   isProductProfileReleased,
   listProductProfileIds,
@@ -251,6 +251,16 @@ const experimentalInfo = runWorkerProfileMutation(({ profilePath }) => {
 });
 assert.equal(experimentalInfo.profileStatus, "experimental", JSON.stringify(experimentalInfo));
 assert.equal(experimentalInfo.operationAccess, "full", JSON.stringify(experimentalInfo));
+
+for (const nativeQtVersion of [null, 692, "6.9", "6.9.2-extra"]) {
+  const invalidNative = runWorkerProfileMutation(({ profilePath }) => {
+    const manifest = JSON.parse(readFileSync(profilePath, "utf8"));
+    manifest.nativeQtVersion = nativeQtVersion;
+    writeJson(profilePath, manifest);
+    assert.throws(() => loadProductProfile("2025", dirname(dirname(profilePath))));
+  });
+  assert.equal(invalidNative.kind, "invalid-profile", JSON.stringify(invalidNative));
+}
 
 const unsupportedStatus = runWorkerProfileMutation(({ profilePath }) => {
   const manifest = JSON.parse(readFileSync(profilePath, "utf8"));

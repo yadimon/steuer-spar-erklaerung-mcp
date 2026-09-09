@@ -18,13 +18,13 @@
     },
     {
       "path": "dist/api.js",
-      "sha256": "2f9557294fb1f60643cb5c57f21f31d54d25c23ae0c1037dd24e4d97740f1153",
-      "size": 731917
+      "sha256": "9dc2f8c3a57698aa0bfaaa5fdb4aa42afd644ec07c689d13f85f1dc269734587",
+      "size": 763294
     },
     {
       "path": "dist/mcp.js",
-      "sha256": "e0dd899f025bf36455938fb845ef034b5504297f0db61f0446e7af4a5a75456b",
-      "size": 1182007
+      "sha256": "e44c872fa6306aa6f4675480cbe41824323e42d6189d3ca07c6f70d674fffc39",
+      "size": 1183301
     },
     {
       "path": "powershell/akad-parser.ps1",
@@ -83,8 +83,8 @@
     },
     {
       "path": "powershell/sse-worker.ps1",
-      "sha256": "418484c66335f1fa6119103b0146ff7b37624232858f7b73044db826a70c3776",
-      "size": 1185525
+      "sha256": "35243ce5c51dc1d9583f7d0bf3d523664dffbe7c69dfb2ee19de912f714e3f30",
+      "size": 1185863
     },
     {
       "path": "powershell/structure-binding.ps1",
@@ -133,8 +133,8 @@
     },
     {
       "path": "profiles/2025/profile.json",
-      "sha256": "cccbb43d6edda68273ab1d32c105956e3f078aefe7876983c90570a63994de0c",
-      "size": 837
+      "sha256": "5d9d81957156dcc5a0cbe2874225f41712c0d59fd701b16039a959ae474b6a8e",
+      "size": 867
     },
     {
       "path": "third-party/@modelcontextprotocol__sdk/LICENSE",

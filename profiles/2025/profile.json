@@ -7,6 +7,7 @@
   "taxYear": 2025,
   "engineFileMajor": 31,
   "verifiedBuild": "31.0.2.0",
+  "nativeQtVersion": "6.9.2",
   "executable": {
     "name": "SSE.exe",
     "installationFolderName": "Steuerjahr 2025",

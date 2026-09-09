@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { DEFAULT_API_HOST, DEFAULT_API_PORT } from "./api-contract.js";
 import { readJsonFileStrict } from "./json-files.js";
+import { parseQtNativeRuntimeConfig, type QtNativeRuntimeConfig } from "./qt-native-config.js";
 
 export const MAX_API_CONFIG_BYTES = 1024 * 1024;
 
@@ -18,6 +19,7 @@ export interface ApiConfigValues {
   backupsDir: string;
   sseExecutable?: string;
   operateExperimental?: boolean;
+  qtNativeRuntime?: QtNativeRuntimeConfig;
 }
 
 export interface ApiConfigOverrides {
@@ -43,14 +45,15 @@ interface ConfigFile {
   backupsDir?: unknown;
   sseExecutable?: unknown;
   operateExperimental?: unknown;
+  qtNativeRuntime?: unknown;
 }
 
 const CONFIG_FIELDS = new Set<keyof ConfigFile>([
   "profileId", "host", "port", "caseDir", "documentsDir",
-  "workspaceDir", "resultDir", "backupsDir", "sseExecutable", "operateExperimental",
+  "workspaceDir", "resultDir", "backupsDir", "sseExecutable", "operateExperimental", "qtNativeRuntime",
 ]);
 const STRING_CONFIG_FIELDS = [...CONFIG_FIELDS].filter(
-  (field) => field !== "port" && field !== "operateExperimental",
+  (field) => field !== "port" && field !== "operateExperimental" && field !== "qtNativeRuntime",
 );
 
 export function optionalConfigString(value: unknown): string | undefined {
@@ -146,6 +149,7 @@ export function resolveApiConfigValues(
     "sseExecutable",
   );
   const operateExperimental = file.operateExperimental === true ? true : undefined;
+  const qtNativeRuntime = parseQtNativeRuntimeConfig(file.qtNativeRuntime);
 
   return {
     profileId,
@@ -159,5 +163,6 @@ export function resolveApiConfigValues(
     backupsDir,
     ...(sseExecutable ? { sseExecutable } : {}),
     ...(operateExperimental ? { operateExperimental } : {}),
+    ...(qtNativeRuntime ? { qtNativeRuntime } : {}),
   };
 }

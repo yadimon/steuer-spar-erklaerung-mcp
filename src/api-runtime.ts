@@ -26,6 +26,9 @@ import {
 import { withCombinedAbortSignal } from "./abort.js";
 import { readFileBounded } from "./bounded-files.js";
 import { createRotatingJsonlLogger } from "./jsonl-logger.js";
+import { createQtNativeRuntime, type QtNativeRuntimeDependencies } from "./qt-native-runtime.js";
+import { loadProductProfile } from "./product-profiles.js";
+import type { ScenarioExecutor } from "./scenario.js";
 
 export const MAX_SCREENSHOT_IMAGE_BYTES = 20 * 1024 * 1024;
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -43,6 +46,9 @@ export interface ApiShutdownOptions {
 
 export interface ApiRuntimeOverrides {
   caseDir?: string;
+  /** Internal test seam; cannot be supplied through the API or its configuration file. */
+  qtNativeDependencies?: QtNativeRuntimeDependencies;
+  worker?: ScenarioExecutor;
 }
 
 export interface ApiRuntimeReady {
@@ -208,11 +214,19 @@ export async function runApiRuntime(
   if (config.operateExperimental === true) process.env.SSE_OPERATE_EXPERIMENTAL = "1";
   const shutdown = new AbortController();
 
-  const execute = createApiExecutor(config, async (operation, args, timeoutMs, signal) => {
+  const worker = async (operation: SseApiOperation, args: Record<string, unknown>, timeoutMs?: number, signal?: AbortSignal) => {
     const result = await withCombinedAbortSignal([signal, shutdown.signal], (combinedSignal) =>
-      callWorker(operation, args, timeoutMs, combinedSignal));
+      (overrides.worker ?? callWorker)(operation, args, timeoutMs, combinedSignal));
     return attachScreenshotImage(config.resultDir, operation, args, result);
-  });
+  };
+  const native = config.qtNativeRuntime
+    ? createQtNativeRuntime(config, loadProductProfile(config.profileId), worker, shutdown.signal, overrides.qtNativeDependencies)
+    : undefined;
+  const execute = createApiExecutor(config, async (operation, args, timeoutMs, signal) => {
+    const result = await worker(operation, args, timeoutMs, signal);
+    await native?.afterWorker(operation, result);
+    return result;
+  }, native ? { qtNativeClientFor: native.client } : {});
 
   const logDir = join(dirname(config.configPath), "logs");
   const logPath = join(logDir, "api.jsonl");
@@ -228,7 +242,8 @@ export async function runApiRuntime(
     prewarmStatus: () => ({ ready: isWarmSpareReady(), failure: lastPrewarmFailure(), poolTarget: warmSparePoolStatus().target }),
   });
   lifecycle = installApiShutdown(server, shutdown, log);
-  await listenSseApiServer(server, config.host, config.port);
+  try { await listenSseApiServer(server, config.host, config.port); }
+  catch (error) { lifecycle.dispose(); await native?.close(); throw error; }
   // Der Reservearbeiter darf den beendeten Server nicht ueberleben.
   shutdown.signal.addEventListener("abort", shutdownWarmSpare, { once: true });
   // Erst nach dem erfolgreichen Binden vorwaermen: bei einem Portkonflikt
