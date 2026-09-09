@@ -19,10 +19,23 @@ export interface QtNativeMeasurement {
   durationMs: number;
 }
 
+export interface QtNativeAcknowledgedMeasurement extends QtNativeMeasurement {
+  mutationAckMs: number;
+  receiptAcknowledged: boolean;
+}
+
 export class QtNativeTransportError extends Error {
   constructor(message: string, readonly kind: string, readonly outcomeUnknown = false) {
     super(message);
     this.name = "QtNativeTransportError";
+  }
+}
+
+/** The mutation reply was received, but its receipt could not be accepted safely. */
+export class QtNativeAcknowledgmentError extends QtNativeTransportError {
+  constructor(message: string, kind: string, readonly mutationResult: QtNativeReply) {
+    super(message, kind, true);
+    this.name = "QtNativeAcknowledgmentError";
   }
 }
 
