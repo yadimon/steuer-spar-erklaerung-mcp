@@ -13,6 +13,9 @@
 
 ## Rollen
 
+Für die optionale dauerhafte Qt-Anbindung von `get_value` und `table_read`
+gilt zusätzlich der [native Paket- und Laufzeitvertrag](NATIVE-QT.md).
+
 Die lokale HTTP-API ist der ausführende Kern. Sie besitzt Konfiguration,
 Ressourcenauflösung, Queue, Szenarien und den Windows-Worker. MCP ist ein
 PC-blinder fachlicher Adapter: Er ruft für ein Werkzeug genau die zugeordnete

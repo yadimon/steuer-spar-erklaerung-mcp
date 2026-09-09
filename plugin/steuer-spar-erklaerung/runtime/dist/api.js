@@ -247,184 +247,6 @@ var init_json_files = __esm({
   }
 });
 
-// src/api-config-file.ts
-import { existsSync as existsSync2 } from "node:fs";
-import { homedir } from "node:os";
-import { dirname as dirname2, isAbsolute as isAbsolute2, join as join2, resolve as resolve3 } from "node:path";
-function optionalConfigString(value) {
-  return typeof value === "string" && value.trim() ? value.trim() : void 0;
-}
-function absolutePath(value, name) {
-  if (!value) return void 0;
-  if (!isAbsolute2(value) || /[\u0000-\u001f]/u.test(value)) {
-    throw new Error(`${name} muss ein absoluter Windows-Pfad ohne Steuerzeichen sein.`);
-  }
-  return resolve3(value);
-}
-function defaultApiConfigPath(env = process.env) {
-  const configuredBase = [env.LOCALAPPDATA, env.APPDATA].map((entry) => optionalConfigString(entry)).find((entry) => entry !== void 0 && isAbsolute2(entry) && !/[\u0000-\u001f]/u.test(entry));
-  const base = configuredBase ?? join2(homedir(), "AppData", "Local");
-  if (!isAbsolute2(base) || /[\u0000-\u001f]/u.test(base)) {
-    throw new Error("Sicherer lokaler Standardpfad fuer die API-Konfiguration fehlt.");
-  }
-  return join2(base, "SteuerSparErklaerungApi", "config.json");
-}
-function readApiConfigFile(configPath) {
-  if (!existsSync2(configPath)) return {};
-  const parsed = readJsonFileStrict(configPath, "API-Konfiguration", MAX_API_CONFIG_BYTES);
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error(`API-Konfiguration ist kein JSON-Objekt: ${configPath}`);
-  }
-  const file = parsed;
-  if ("token" in file) {
-    throw new Error(
-      `API-Konfiguration enthaelt das entfallene Feld 'token': ${configPath}. Zeile loeschen - die API braucht kein Token mehr.`
-    );
-  }
-  const unknownFields = Object.keys(file).filter((field) => !CONFIG_FIELDS.has(field));
-  if (unknownFields.length) {
-    throw new Error(`Unbekanntes Feld in API-Konfiguration: '${unknownFields.sort()[0]}'.`);
-  }
-  for (const field of STRING_CONFIG_FIELDS) {
-    if (file[field] !== void 0 && typeof file[field] !== "string") {
-      throw new Error(`API-Konfigurationsfeld '${field}' muss eine Zeichenkette sein.`);
-    }
-  }
-  if (file.port !== void 0 && typeof file.port !== "number") {
-    throw new Error("API-Konfigurationsfeld 'port' muss eine Zahl sein.");
-  }
-  if (file.operateExperimental !== void 0 && typeof file.operateExperimental !== "boolean") {
-    throw new Error("API-Konfigurationsfeld 'operateExperimental' muss ein Wahrheitswert sein.");
-  }
-  return file;
-}
-function resolveApiConfigValues(configPath, overrides = {}) {
-  const absoluteConfig = resolve3(configPath);
-  const file = readApiConfigFile(absoluteConfig);
-  const host = overrides.host ?? optionalConfigString(file.host) ?? DEFAULT_API_HOST;
-  if (host !== "127.0.0.1" && host !== "::1") {
-    throw new Error("SSE-API darf aus Sicherheitsgruenden nur an Loopback gebunden werden.");
-  }
-  const rawPort = overrides.port ?? file.port ?? DEFAULT_API_PORT;
-  const port = typeof rawPort === "number" ? rawPort : Number(rawPort);
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error("SSE_API_PORT muss eine ganze Zahl zwischen 1 und 65535 sein.");
-  }
-  const profileId = overrides.profileId ?? optionalConfigString(file.profileId) ?? "2025";
-  const caseDir = absolutePath(overrides.caseDir ?? optionalConfigString(file.caseDir), "caseDir");
-  const workspaceDir = absolutePath(
-    overrides.workspaceDir ?? optionalConfigString(file.workspaceDir),
-    "workspaceDir"
-  ) ?? join2(dirname2(absoluteConfig), "workspace");
-  const documentsDir = absolutePath(
-    overrides.documentsDir ?? optionalConfigString(file.documentsDir),
-    "documentsDir"
-  ) ?? join2(workspaceDir, "documents");
-  const resultDir = absolutePath(
-    overrides.resultDir ?? optionalConfigString(file.resultDir),
-    "resultDir"
-  ) ?? join2(workspaceDir, "results");
-  const backupsDir = absolutePath(
-    overrides.backupsDir ?? optionalConfigString(file.backupsDir),
-    "backupsDir"
-  ) ?? join2(workspaceDir, "backups");
-  const sseExecutable = absolutePath(
-    overrides.sseExecutable ?? optionalConfigString(file.sseExecutable),
-    "sseExecutable"
-  );
-  const operateExperimental = file.operateExperimental === true ? true : void 0;
-  return {
-    profileId,
-    host,
-    port,
-    configPath: absoluteConfig,
-    ...caseDir ? { caseDir } : {},
-    documentsDir,
-    workspaceDir,
-    resultDir,
-    backupsDir,
-    ...sseExecutable ? { sseExecutable } : {},
-    ...operateExperimental ? { operateExperimental } : {}
-  };
-}
-var MAX_API_CONFIG_BYTES, CONFIG_FIELDS, STRING_CONFIG_FIELDS;
-var init_api_config_file = __esm({
-  "src/api-config-file.ts"() {
-    "use strict";
-    init_api_contract();
-    init_json_files();
-    MAX_API_CONFIG_BYTES = 1024 * 1024;
-    CONFIG_FIELDS = /* @__PURE__ */ new Set([
-      "profileId",
-      "host",
-      "port",
-      "caseDir",
-      "documentsDir",
-      "workspaceDir",
-      "resultDir",
-      "backupsDir",
-      "sseExecutable",
-      "operateExperimental"
-    ]);
-    STRING_CONFIG_FIELDS = [...CONFIG_FIELDS].filter(
-      (field) => field !== "port" && field !== "operateExperimental"
-    );
-  }
-});
-
-// src/api-config-values.ts
-import { resolve as resolve4 } from "node:path";
-function environmentForExplicitApiConfig(configPath, base = process.env) {
-  const env = { ...base };
-  for (const key of SSE_API_CONFIG_ENVIRONMENT_KEYS) delete env[key];
-  env.SSE_API_CONFIG = resolve4(configPath);
-  return env;
-}
-function loadApiConfigValues(env = process.env) {
-  const configPath = resolve4(env.SSE_API_CONFIG ?? defaultApiConfigPath(env));
-  const profileId = optionalConfigString(env.SSE_PROFILE_ID);
-  const host = optionalConfigString(env.SSE_API_HOST);
-  const port = optionalConfigString(env.SSE_API_PORT);
-  const caseDir = optionalConfigString(env.SSE_CASE_DIR);
-  const documentsDir = optionalConfigString(env.SSE_DOCUMENTS_DIR);
-  const workspaceDir = optionalConfigString(env.SSE_WORKSPACE_DIR);
-  const resultDir = optionalConfigString(env.SSE_RESULT_DIR);
-  const backupsDir = optionalConfigString(env.SSE_BACKUPS_DIR);
-  const sseExecutable = optionalConfigString(env.SSE_EXECUTABLE);
-  return resolveApiConfigValues(configPath, {
-    ...profileId ? { profileId } : {},
-    ...host ? { host } : {},
-    ...port ? { port } : {},
-    ...caseDir ? { caseDir } : {},
-    ...documentsDir ? { documentsDir } : {},
-    ...workspaceDir ? { workspaceDir } : {},
-    ...resultDir ? { resultDir } : {},
-    ...backupsDir ? { backupsDir } : {},
-    ...sseExecutable ? { sseExecutable } : {}
-  });
-}
-var SSE_API_CONFIG_ENVIRONMENT_KEYS;
-var init_api_config_values = __esm({
-  "src/api-config-values.ts"() {
-    "use strict";
-    init_api_config_file();
-    init_api_config_file();
-    SSE_API_CONFIG_ENVIRONMENT_KEYS = Object.freeze([
-      "SSE_API_CONFIG",
-      "SSE_API_HOST",
-      "SSE_API_PORT",
-      "SSE_API_URL",
-      "SSE_PROFILE_ID",
-      "SSE_CASE_DIR",
-      "SSE_DOCUMENTS_DIR",
-      "SSE_WORKSPACE_DIR",
-      "SSE_RESULT_DIR",
-      "SSE_BACKUPS_DIR",
-      "SSE_EXECUTABLE"
-    ]);
-  }
-});
-
 // node_modules/zod/v3/helpers/util.js
 var util, objectUtil, ZodParsedType, getParsedType;
 var init_util = __esm({
@@ -4531,9 +4353,211 @@ var init_zod = __esm({
   }
 });
 
+// src/qt-native-config.ts
+import { isAbsolute as isAbsolute2, resolve as resolve3 } from "node:path";
+function parseQtNativeRuntimeConfig(value) {
+  if (value === void 0) return void 0;
+  const result = external_exports.object({
+    directory: external_exports.string().min(1),
+    manifestSha256: external_exports.string().regex(/^[a-f0-9]{64}$/u)
+  }).strict().safeParse(value);
+  if (!result.success || !isAbsolute2(result.data.directory) || !/^[A-Za-z]:[\\/]/u.test(result.data.directory) || /[\u0000-\u001f]/u.test(result.data.directory)) {
+    throw new Error("qtNativeRuntime requires an absolute directory and a lowercase SHA256 manifest pin.");
+  }
+  return Object.freeze({ directory: resolve3(result.data.directory), manifestSha256: result.data.manifestSha256 });
+}
+var init_qt_native_config = __esm({
+  "src/qt-native-config.ts"() {
+    "use strict";
+    init_zod();
+  }
+});
+
+// src/api-config-file.ts
+import { existsSync as existsSync2 } from "node:fs";
+import { homedir } from "node:os";
+import { dirname as dirname2, isAbsolute as isAbsolute3, join as join2, resolve as resolve4 } from "node:path";
+function optionalConfigString(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : void 0;
+}
+function absolutePath(value, name) {
+  if (!value) return void 0;
+  if (!isAbsolute3(value) || /[\u0000-\u001f]/u.test(value)) {
+    throw new Error(`${name} muss ein absoluter Windows-Pfad ohne Steuerzeichen sein.`);
+  }
+  return resolve4(value);
+}
+function defaultApiConfigPath(env = process.env) {
+  const configuredBase = [env.LOCALAPPDATA, env.APPDATA].map((entry) => optionalConfigString(entry)).find((entry) => entry !== void 0 && isAbsolute3(entry) && !/[\u0000-\u001f]/u.test(entry));
+  const base = configuredBase ?? join2(homedir(), "AppData", "Local");
+  if (!isAbsolute3(base) || /[\u0000-\u001f]/u.test(base)) {
+    throw new Error("Sicherer lokaler Standardpfad fuer die API-Konfiguration fehlt.");
+  }
+  return join2(base, "SteuerSparErklaerungApi", "config.json");
+}
+function readApiConfigFile(configPath) {
+  if (!existsSync2(configPath)) return {};
+  const parsed = readJsonFileStrict(configPath, "API-Konfiguration", MAX_API_CONFIG_BYTES);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`API-Konfiguration ist kein JSON-Objekt: ${configPath}`);
+  }
+  const file = parsed;
+  if ("token" in file) {
+    throw new Error(
+      `API-Konfiguration enthaelt das entfallene Feld 'token': ${configPath}. Zeile loeschen - die API braucht kein Token mehr.`
+    );
+  }
+  const unknownFields = Object.keys(file).filter((field) => !CONFIG_FIELDS.has(field));
+  if (unknownFields.length) {
+    throw new Error(`Unbekanntes Feld in API-Konfiguration: '${unknownFields.sort()[0]}'.`);
+  }
+  for (const field of STRING_CONFIG_FIELDS) {
+    if (file[field] !== void 0 && typeof file[field] !== "string") {
+      throw new Error(`API-Konfigurationsfeld '${field}' muss eine Zeichenkette sein.`);
+    }
+  }
+  if (file.port !== void 0 && typeof file.port !== "number") {
+    throw new Error("API-Konfigurationsfeld 'port' muss eine Zahl sein.");
+  }
+  if (file.operateExperimental !== void 0 && typeof file.operateExperimental !== "boolean") {
+    throw new Error("API-Konfigurationsfeld 'operateExperimental' muss ein Wahrheitswert sein.");
+  }
+  return file;
+}
+function resolveApiConfigValues(configPath, overrides = {}) {
+  const absoluteConfig = resolve4(configPath);
+  const file = readApiConfigFile(absoluteConfig);
+  const host = overrides.host ?? optionalConfigString(file.host) ?? DEFAULT_API_HOST;
+  if (host !== "127.0.0.1" && host !== "::1") {
+    throw new Error("SSE-API darf aus Sicherheitsgruenden nur an Loopback gebunden werden.");
+  }
+  const rawPort = overrides.port ?? file.port ?? DEFAULT_API_PORT;
+  const port = typeof rawPort === "number" ? rawPort : Number(rawPort);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error("SSE_API_PORT muss eine ganze Zahl zwischen 1 und 65535 sein.");
+  }
+  const profileId = overrides.profileId ?? optionalConfigString(file.profileId) ?? "2025";
+  const caseDir = absolutePath(overrides.caseDir ?? optionalConfigString(file.caseDir), "caseDir");
+  const workspaceDir = absolutePath(
+    overrides.workspaceDir ?? optionalConfigString(file.workspaceDir),
+    "workspaceDir"
+  ) ?? join2(dirname2(absoluteConfig), "workspace");
+  const documentsDir = absolutePath(
+    overrides.documentsDir ?? optionalConfigString(file.documentsDir),
+    "documentsDir"
+  ) ?? join2(workspaceDir, "documents");
+  const resultDir = absolutePath(
+    overrides.resultDir ?? optionalConfigString(file.resultDir),
+    "resultDir"
+  ) ?? join2(workspaceDir, "results");
+  const backupsDir = absolutePath(
+    overrides.backupsDir ?? optionalConfigString(file.backupsDir),
+    "backupsDir"
+  ) ?? join2(workspaceDir, "backups");
+  const sseExecutable = absolutePath(
+    overrides.sseExecutable ?? optionalConfigString(file.sseExecutable),
+    "sseExecutable"
+  );
+  const operateExperimental = file.operateExperimental === true ? true : void 0;
+  const qtNativeRuntime = parseQtNativeRuntimeConfig(file.qtNativeRuntime);
+  return {
+    profileId,
+    host,
+    port,
+    configPath: absoluteConfig,
+    ...caseDir ? { caseDir } : {},
+    documentsDir,
+    workspaceDir,
+    resultDir,
+    backupsDir,
+    ...sseExecutable ? { sseExecutable } : {},
+    ...operateExperimental ? { operateExperimental } : {},
+    ...qtNativeRuntime ? { qtNativeRuntime } : {}
+  };
+}
+var MAX_API_CONFIG_BYTES, CONFIG_FIELDS, STRING_CONFIG_FIELDS;
+var init_api_config_file = __esm({
+  "src/api-config-file.ts"() {
+    "use strict";
+    init_api_contract();
+    init_json_files();
+    init_qt_native_config();
+    MAX_API_CONFIG_BYTES = 1024 * 1024;
+    CONFIG_FIELDS = /* @__PURE__ */ new Set([
+      "profileId",
+      "host",
+      "port",
+      "caseDir",
+      "documentsDir",
+      "workspaceDir",
+      "resultDir",
+      "backupsDir",
+      "sseExecutable",
+      "operateExperimental",
+      "qtNativeRuntime"
+    ]);
+    STRING_CONFIG_FIELDS = [...CONFIG_FIELDS].filter(
+      (field) => field !== "port" && field !== "operateExperimental" && field !== "qtNativeRuntime"
+    );
+  }
+});
+
+// src/api-config-values.ts
+import { resolve as resolve5 } from "node:path";
+function environmentForExplicitApiConfig(configPath, base = process.env) {
+  const env = { ...base };
+  for (const key of SSE_API_CONFIG_ENVIRONMENT_KEYS) delete env[key];
+  env.SSE_API_CONFIG = resolve5(configPath);
+  return env;
+}
+function loadApiConfigValues(env = process.env) {
+  const configPath = resolve5(env.SSE_API_CONFIG ?? defaultApiConfigPath(env));
+  const profileId = optionalConfigString(env.SSE_PROFILE_ID);
+  const host = optionalConfigString(env.SSE_API_HOST);
+  const port = optionalConfigString(env.SSE_API_PORT);
+  const caseDir = optionalConfigString(env.SSE_CASE_DIR);
+  const documentsDir = optionalConfigString(env.SSE_DOCUMENTS_DIR);
+  const workspaceDir = optionalConfigString(env.SSE_WORKSPACE_DIR);
+  const resultDir = optionalConfigString(env.SSE_RESULT_DIR);
+  const backupsDir = optionalConfigString(env.SSE_BACKUPS_DIR);
+  const sseExecutable = optionalConfigString(env.SSE_EXECUTABLE);
+  return resolveApiConfigValues(configPath, {
+    ...profileId ? { profileId } : {},
+    ...host ? { host } : {},
+    ...port ? { port } : {},
+    ...caseDir ? { caseDir } : {},
+    ...documentsDir ? { documentsDir } : {},
+    ...workspaceDir ? { workspaceDir } : {},
+    ...resultDir ? { resultDir } : {},
+    ...backupsDir ? { backupsDir } : {},
+    ...sseExecutable ? { sseExecutable } : {}
+  });
+}
+var SSE_API_CONFIG_ENVIRONMENT_KEYS;
+var init_api_config_values = __esm({
+  "src/api-config-values.ts"() {
+    "use strict";
+    init_api_config_file();
+    init_api_config_file();
+    SSE_API_CONFIG_ENVIRONMENT_KEYS = Object.freeze([
+      "SSE_API_CONFIG",
+      "SSE_API_HOST",
+      "SSE_API_PORT",
+      "SSE_API_URL",
+      "SSE_PROFILE_ID",
+      "SSE_CASE_DIR",
+      "SSE_DOCUMENTS_DIR",
+      "SSE_WORKSPACE_DIR",
+      "SSE_RESULT_DIR",
+      "SSE_BACKUPS_DIR",
+      "SSE_EXECUTABLE"
+    ]);
+  }
+});
+
 // src/product-profiles.ts
 import { existsSync as existsSync3, readdirSync } from "node:fs";
-import { dirname as dirname3, join as join3, resolve as resolve5 } from "node:path";
+import { dirname as dirname3, join as join3, resolve as resolve6 } from "node:path";
 import { fileURLToPath } from "node:url";
 function resolvePageObjectDefinition(catalog, pageId) {
   if (Object.hasOwn(catalog.pages, pageId)) {
@@ -4548,7 +4572,7 @@ function resolvePageObjectDefinition(catalog, pageId) {
 }
 function loadProductProfile(id = "2025", root = defaultProfilesRoot) {
   if (!/^[0-9]{4}$/u.test(id)) throw new Error(`Ungueltige SSE-Profil-ID: ${id}`);
-  const profileDir = resolve5(root, id);
+  const profileDir = resolve6(root, id);
   const manifestPath = join3(profileDir, "profile.json");
   if (!existsSync3(manifestPath)) throw new Error(`SSE-Profil '${id}' fehlt: ${manifestPath}`);
   const parsed = profileSchema.parse(readJsonFileStrict(manifestPath, `SSE-Profil '${id}'`));
@@ -4584,6 +4608,7 @@ var init_product_profiles = __esm({
       taxYear: external_exports.number().int().min(2e3).max(2200),
       engineFileMajor: external_exports.number().int().positive(),
       verifiedBuild: external_exports.string().regex(/^\d+\.\d+\.\d+\.\d+$/u),
+      nativeQtVersion: external_exports.string().regex(/^\d+\.\d+\.\d+$/u).optional(),
       executable: external_exports.object({
         name: external_exports.literal("SSE.exe"),
         installationFolderName: external_exports.string().min(1),
@@ -4711,19 +4736,19 @@ var init_product_profiles = __esm({
       }
     });
     here = dirname3(fileURLToPath(import.meta.url));
-    defaultProfilesRoot = resolve5(here, "..", "profiles");
+    defaultProfilesRoot = resolve6(here, "..", "profiles");
   }
 });
 
 // src/api-config.ts
 import { existsSync as existsSync4, realpathSync, statSync } from "node:fs";
-import { dirname as dirname4, isAbsolute as isAbsolute3, relative, resolve as resolve6, sep } from "node:path";
+import { dirname as dirname4, isAbsolute as isAbsolute4, relative, resolve as resolve7, sep } from "node:path";
 function pathInside(parent, candidate) {
   const rel = relative(canonicalTopologyPath(parent), canonicalTopologyPath(candidate));
-  return rel === "" || rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute3(rel);
+  return rel === "" || rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute4(rel);
 }
 function canonicalTopologyPath(path) {
-  const absolute = resolve6(path);
+  const absolute = resolve7(path);
   let ancestor = absolute;
   while (!existsSync4(ancestor)) {
     const parent = dirname4(ancestor);
@@ -4731,7 +4756,7 @@ function canonicalTopologyPath(path) {
     ancestor = parent;
   }
   const tail = relative(ancestor, absolute);
-  return resolve6(realpathSync(ancestor), tail);
+  return resolve7(realpathSync(ancestor), tail);
 }
 function assertDisjoint(leftName, left, rightName, right) {
   if (pathInside(left, right) || pathInside(right, left)) {
@@ -4791,14 +4816,14 @@ __export(api_first_run_exports, {
   ensureForegroundApiFirstRun: () => ensureForegroundApiFirstRun
 });
 import { existsSync as existsSync5, mkdirSync, statSync as statSync2 } from "node:fs";
-import { dirname as dirname5, join as join4, resolve as resolve7 } from "node:path";
+import { dirname as dirname5, join as join4, resolve as resolve8 } from "node:path";
 function detectSseExecutables(profileId = "2025", env = process.env) {
   const profile = loadProductProfile(profileId);
   const systemDrive = (env.SystemDrive ?? "C:").replace(/[\\/]+$/u, "");
   const configuredRoots = [env.ProgramFiles, env["ProgramFiles(x86)"]].filter((entry) => Boolean(entry));
-  const roots = configuredRoots.length ? configuredRoots : [resolve7(`${systemDrive}\\`, "Program Files")];
+  const roots = configuredRoots.length ? configuredRoots : [resolve8(`${systemDrive}\\`, "Program Files")];
   const candidates = roots.map((root) => join4(root, ...profile.executable.defaultRelativePath.split("/")));
-  return [...new Set(candidates.map((path) => resolve7(path)))].filter((path) => {
+  return [...new Set(candidates.map((path) => resolve8(path)))].filter((path) => {
     try {
       return statSync2(path).isFile();
     } catch {
@@ -4813,7 +4838,7 @@ function assertForegroundCaseDirectory(caseDir) {
 }
 function ensureForegroundApiFirstRun(explicitConfigPath, env = process.env) {
   const namedEnvironmentConfig = env.SSE_API_CONFIG?.trim();
-  const configPath = resolve7(explicitConfigPath ?? namedEnvironmentConfig ?? defaultApiConfigPath(env));
+  const configPath = resolve8(explicitConfigPath ?? namedEnvironmentConfig ?? defaultApiConfigPath(env));
   if (explicitConfigPath || namedEnvironmentConfig || existsSync5(configPath)) {
     return { configPath, created: false };
   }
@@ -6956,7 +6981,7 @@ var init_file_identity = __esm({
 // src/case-file.ts
 import { createHash } from "node:crypto";
 import { open, readdir, stat } from "node:fs/promises";
-import { basename as basename2, resolve as resolve8 } from "node:path";
+import { basename as basename2, resolve as resolve9 } from "node:path";
 function emptyHeader() {
   return Object.fromEntries(HEADER_KEYS.map((key) => [key, null]));
 }
@@ -7175,7 +7200,7 @@ function localTimestamp(milliseconds) {
   ].join(":");
 }
 async function listCaseFiles(directoryInput, profile, options = {}) {
-  const dir = resolve8(directoryInput);
+  const dir = resolve9(directoryInput);
   const controller = new AbortController();
   let timedOut = false;
   const timeout = setTimeout(() => {
@@ -7192,7 +7217,7 @@ async function listCaseFiles(directoryInput, profile, options = {}) {
     const cases = [];
     for (const name of names) {
       if (controller.signal.aborted) throw abortError();
-      const path = resolve8(dir, name);
+      const path = resolve9(dir, name);
       const { data, stats } = await readStableCaseHeader(path, controller.signal);
       const parsed = parseAkadCaseListSummary(data);
       if (!parsed) throw new CaseFileParserFallbackError(`AKAD-Kopf von '${name}' braucht den Worker-Parser.`);
@@ -7241,7 +7266,7 @@ function normalizeFileError(error, path, timedOut, aborted) {
   return new CaseFileError(error instanceof Error ? error.message : String(error), "worker");
 }
 async function readCaseFileInfo(pathInput, profile, options = {}) {
-  const path = resolve8(pathInput);
+  const path = resolve9(pathInput);
   const controller = new AbortController();
   let timedOut = false;
   const timeout = setTimeout(() => {
@@ -7388,14 +7413,14 @@ async function executeCheckerOpen(args, timeoutMs, signal, worker) {
       Math.min(timeoutMs ?? 3e5, 3e5),
       signal
     );
-    const performance11 = result.performance && typeof result.performance === "object" && !Array.isArray(result.performance) ? result.performance : {};
+    const performance14 = result.performance && typeof result.performance === "object" && !Array.isArray(result.performance) ? result.performance : {};
     return {
       ...result,
       schemaVersion: 1,
       planKind: CHECKER_OPEN_PLAN_KIND,
       resultingState: typeof result.resultingState === "string" ? result.resultingState : result.ok === true ? "detail-verified" : "unknown",
       cleanupRequired: typeof result.cleanupRequired === "boolean" ? result.cleanupRequired : result.ok !== true,
-      performance: { ...performance11, workerProcessCount: 1 },
+      performance: { ...performance14, workerProcessCount: 1 },
       ...result.ok === true ? { kontrollbildEnthalten: typeof result.bildBase64 === "string" && result.bildBase64.length > 0 } : {}
     };
   } catch (error) {
@@ -7440,10 +7465,10 @@ var init_executor_errors = __esm({
 
 // src/resources.ts
 import { existsSync as existsSync6, realpathSync as realpathSync2 } from "node:fs";
-import { isAbsolute as isAbsolute4, relative as relative2, resolve as resolve9, sep as sep2, win32 } from "node:path";
+import { isAbsolute as isAbsolute5, relative as relative2, resolve as resolve10, sep as sep2, win32 } from "node:path";
 function inside(root, candidate) {
   const rel = relative2(root, candidate);
-  return rel === "" || rel !== ".." && !rel.startsWith(`..${sep2}`) && !isAbsolute4(rel);
+  return rel === "" || rel !== ".." && !rel.startsWith(`..${sep2}`) && !isAbsolute5(rel);
 }
 function nearestExistingAncestor(path) {
   let current = path;
@@ -7504,7 +7529,7 @@ function resolveResourceReference(roots, value, allowedAreas = RESOURCE_AREAS) {
     throw new Error(`Lokaler Ressourcenbereich '${parsed.area}' existiert nicht.`);
   }
   const root = realpathSync2(configuredRoot);
-  const candidate = parsed.relativePath === "." ? root : resolve9(root, ...parsed.relativePath.split("/"));
+  const candidate = parsed.relativePath === "." ? root : resolve10(root, ...parsed.relativePath.split("/"));
   if (!inside(root, candidate)) throw new Error("Ressourcenreferenz verlaesst ihren konfigurierten Bereich.");
   const existing = existsSync6(candidate) ? candidate : nearestExistingAncestor(candidate);
   if (!inside(root, realpathSync2(existing))) {
@@ -7522,7 +7547,7 @@ function assertResourceWriteBoundary(roots, resource) {
     if (area === "workspace") continue;
     const configuredRoot = roots[area];
     if (!configuredRoot || !win32.isAbsolute(configuredRoot)) continue;
-    const otherRoot = existsSync6(configuredRoot) ? realpathSync2(configuredRoot) : resolve9(configuredRoot);
+    const otherRoot = existsSync6(configuredRoot) ? realpathSync2(configuredRoot) : resolve10(configuredRoot);
     if (inside(otherRoot, resource.path)) {
       throw new Error(
         `Schreiben ueber 'workspace:' in den Ressourcenbereich '${area}' ist gesperrt; '${area}:' explizit verwenden.`
@@ -7534,14 +7559,14 @@ function prepareResourceRoots(roots) {
   return RESOURCE_AREAS.flatMap((area) => {
     const configuredRoot = roots[area];
     if (!configuredRoot || !win32.isAbsolute(configuredRoot)) return [];
-    const root = existsSync6(configuredRoot) ? realpathSync2(configuredRoot) : resolve9(configuredRoot);
+    const root = existsSync6(configuredRoot) ? realpathSync2(configuredRoot) : resolve10(configuredRoot);
     const escaped = root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     return [{ area, root, embeddedPattern: new RegExp(`${escaped}(?:[\\\\/])?`, "gi") }];
   }).sort((left, right) => right.root.length - left.root.length);
 }
 function referenceForPreparedRoots(prepared, value) {
   if (typeof value !== "string" || !win32.isAbsolute(value)) return void 0;
-  const candidate = existsSync6(value) ? realpathSync2(value) : resolve9(value);
+  const candidate = existsSync6(value) ? realpathSync2(value) : resolve10(value);
   const match = prepared.find((entry) => inside(entry.root, candidate));
   if (!match) return void 0;
   const rel = relative2(match.root, candidate).replaceAll("\\", "/") || ".";
@@ -7832,7 +7857,7 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
     if (result.ok !== true) throw new StepFailure({ ...result, failedStep: operation });
     return result;
   };
-  const wait = (ms) => new Promise((resolve16) => setTimeout(resolve16, ms));
+  const wait = (ms) => new Promise((resolve17) => setTimeout(resolve17, ms));
   try {
     const mode = String(args.mode ?? "");
     const wizard = CASE_CREATE_WIZARDS[mode] ?? fail("bad-args", `Startmodus '${mode}' besitzt keinen live verifizierten Assistentenweg fuer neue Faelle.`);
@@ -7922,8 +7947,8 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
       expectedPath: target.path,
       waitMs: 15e3
     });
-    const sha256 = String(saved.sha256 ?? "");
-    if (saved.mode !== "save-new" || saved.verified !== true || !/^[A-F0-9]{64}$/iu.test(sha256)) {
+    const sha2562 = String(saved.sha256 ?? "");
+    if (saved.mode !== "save-new" || saved.verified !== true || !/^[A-F0-9]{64}$/iu.test(sha2562)) {
       throw new StepFailure(operationError("Der Speicherdialog schloss ohne verifizierten save-new-Readback.", "postcondition-failed"));
     }
     const readback = await step("instances", { includeHash: true });
@@ -7933,14 +7958,14 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
     }
     const instanceHash = typeof bound.caseSha256 === "string" ? bound.caseSha256.toUpperCase() : null;
     const diskHash = instanceHash ?? createHash2("sha256").update(readFileSync(target.path)).digest("hex").toUpperCase();
-    if (diskHash !== sha256.toUpperCase()) {
+    if (diskHash !== sha2562.toUpperCase()) {
       throw new StepFailure(operationError("Der Dateihash nach dem Speichern weicht vom Dialog-Readback ab.", "postcondition-failed"));
     }
     return {
       ok: true,
       created: true,
       caseRef: target.ref || target.path,
-      sha256: sha256.toUpperCase(),
+      sha256: sha2562.toUpperCase(),
       pid,
       hwnd: Number(bound.hwnd),
       caseHashSource: instanceHash ? "instances" : "local-file",
@@ -8209,7 +8234,7 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
   }
 }
 function waitForNextProbe() {
-  return new Promise((resolve16) => setTimeout(resolve16, 250));
+  return new Promise((resolve17) => setTimeout(resolve17, 250));
 }
 var MINIMUM_LAUNCH_TIMEOUT_MS, MAXIMUM_LAUNCH_TIMEOUT_MS, RECOVERED_STATE_TITLE, MIN_MAIN_WINDOW_WIDTH;
 var init_launch_executor = __esm({
@@ -9116,7 +9141,7 @@ import {
   unlinkSync as unlinkSync2,
   writeFileSync as writeFileSync2
 } from "node:fs";
-import { dirname as dirname6, isAbsolute as isAbsolute5, relative as relative3, resolve as resolve10 } from "node:path";
+import { dirname as dirname6, isAbsolute as isAbsolute6, relative as relative3, resolve as resolve11 } from "node:path";
 import { performance as performance3 } from "node:perf_hooks";
 function hash(buffer) {
   return createHash3("sha256").update(buffer).digest("hex");
@@ -9158,14 +9183,14 @@ function* hashFile(path, bytes, budget) {
 }
 function inside2(root, candidate) {
   const rel = relative3(root, candidate);
-  return rel === "" || !rel.startsWith("..") && !isAbsolute5(rel);
+  return rel === "" || !rel.startsWith("..") && !isAbsolute6(rel);
 }
 function resolveWorkspacePath(root, ref, createParent = false) {
-  if (typeof ref !== "string" || !ref.trim() || ref.includes("\0") || isAbsolute5(ref) || /^[A-Za-z]:/.test(ref)) {
+  if (typeof ref !== "string" || !ref.trim() || ref.includes("\0") || isAbsolute6(ref) || /^[A-Za-z]:/.test(ref)) {
     throw new Error("Dateireferenz muss ein nicht leerer relativer Pfad sein.");
   }
   const realRoot = realpathSync3(root);
-  const candidate = resolve10(realRoot, ref);
+  const candidate = resolve11(realRoot, ref);
   if (!inside2(realRoot, candidate)) throw new Error("Dateireferenz verlaesst den konfigurierten Arbeitsbereich.");
   if (existsSync8(candidate)) {
     const realCandidate = realpathSync3(candidate);
@@ -9281,7 +9306,7 @@ function* walkWorkspaceFiles(root, ref, limit, includeHashes, maxDirectories, ma
     yield {};
     for (const entry of entries) {
       try {
-        const path = resolve10(current, entry.name);
+        const path = resolve11(current, entry.name);
         if (entry.isSymbolicLink()) {
           yield {};
           continue;
@@ -9309,7 +9334,7 @@ function* walkWorkspaceFiles(root, ref, limit, includeHashes, maxDirectories, ma
           return;
         }
         const mayHash = includeHashes && bytes <= hashBudget.remaining;
-        const sha256 = mayHash ? yield* hashFile(file, bytes, hashBudget) : null;
+        const sha2562 = mayHash ? yield* hashFile(file, bytes, hashBudget) : null;
         if (realpathSync3(path) !== file) {
           throw new Error("Dateireferenz wurde waehrend der Auflistung ausgetauscht.");
         }
@@ -9318,8 +9343,8 @@ function* walkWorkspaceFiles(root, ref, limit, includeHashes, maxDirectories, ma
           file: {
             ref: relative3(realRoot, file).replaceAll("\\", "/"),
             bytes,
-            sha256,
-            ...sha256 === null ? { hashOmitted: true } : {}
+            sha256: sha2562,
+            ...sha2562 === null ? { hashOmitted: true } : {}
           }
         };
       } catch (error) {
@@ -9478,8 +9503,8 @@ function capture(result, paths) {
 }
 function recordedError(error) {
   if (error.length <= MAX_RECORDED_ERROR_CHARS) return error;
-  const sha256 = createHash4("sha256").update(error).digest("hex");
-  return `${error.slice(0, MAX_RECORDED_ERROR_CHARS)}… [gekuerzt; sha256=${sha256}]`;
+  const sha2562 = createHash4("sha256").update(error).digest("hex");
+  return `${error.slice(0, MAX_RECORDED_ERROR_CHARS)}… [gekuerzt; sha256=${sha2562}]`;
 }
 function compactStepRecord(record) {
   const compacted = { ...record };
@@ -9637,10 +9662,10 @@ async function executeScenarioStep(step, workspaceDir, priorResults, deadline, s
     }
   };
 }
-function fallbackResultRef(requestedRef, sha256) {
+function fallbackResultRef(requestedRef, sha2562) {
   const extension = extname(requestedRef);
   const stem = basename4(requestedRef, extension);
-  const fallbackName = `${stem}.conflict-${sha256}${extension || ".json"}`;
+  const fallbackName = `${stem}.conflict-${sha2562}${extension || ".json"}`;
   const parent = dirname7(requestedRef);
   return (parent === "." ? fallbackName : join5(parent, fallbackName)).replaceAll("\\", "/");
 }
@@ -10007,20 +10032,24 @@ var init_workspace_executor = __esm({
 
 // src/configuration-fingerprint.ts
 import { createHash as createHash5 } from "node:crypto";
-import { resolve as resolve11 } from "node:path";
+import { resolve as resolve12 } from "node:path";
 function optionalResolved(path) {
-  return path ? resolve11(path) : null;
+  return path ? resolve12(path) : null;
 }
 function configurationFingerprint(config) {
   const stable = {
     profileId: config.profileId,
     caseDir: optionalResolved(config.caseDir),
-    documentsDir: resolve11(config.documentsDir),
-    workspaceDir: resolve11(config.workspaceDir),
-    resultDir: resolve11(config.resultDir),
-    backupsDir: resolve11(config.backupsDir),
+    documentsDir: resolve12(config.documentsDir),
+    workspaceDir: resolve12(config.workspaceDir),
+    resultDir: resolve12(config.resultDir),
+    backupsDir: resolve12(config.backupsDir),
     sseExecutable: optionalResolved(config.sseExecutable),
-    operateExperimental: config.operateExperimental === true
+    operateExperimental: config.operateExperimental === true,
+    ...config.qtNativeRuntime ? { qtNativeRuntime: {
+      directory: resolve12(config.qtNativeRuntime.directory),
+      manifestSha256: config.qtNativeRuntime.manifestSha256
+    } } : {}
   };
   return createHash5("sha256").update(JSON.stringify(stable), "utf8").digest("hex");
 }
@@ -10637,7 +10666,7 @@ var init_owned_file = __esm({
 // src/working-copy-executor.ts
 import { createHash as createHash8 } from "node:crypto";
 import { lstat as lstat2, open as open4, stat as stat4 } from "node:fs/promises";
-import { dirname as dirname8, extname as extname3, resolve as resolve12 } from "node:path";
+import { dirname as dirname8, extname as extname3, resolve as resolve13 } from "node:path";
 import { performance as performance6 } from "node:perf_hooks";
 function errorCode2(error) {
   return error && typeof error === "object" && "code" in error ? String(error.code) : "";
@@ -10763,8 +10792,8 @@ async function executeLocalWorkingCopy(options) {
     if (typeof sourceRaw !== "string" || !sourceRaw || typeof targetRaw !== "string" || !targetRaw || typeof expectedHashRaw !== "string" || !/^[A-Fa-f0-9]{64}$/u.test(expectedHashRaw)) {
       return localResult(operationError("source, target und expectedSourceHash sind Pflicht.", "bad-args"));
     }
-    sourcePath = resolve12(sourceRaw);
-    targetPath = resolve12(targetRaw);
+    sourcePath = resolve13(sourceRaw);
+    targetPath = resolve13(targetRaw);
     const expectedHash = expectedHashRaw.toUpperCase();
     checkStopped();
     try {
@@ -10983,7 +11012,7 @@ var init_working_copy_executor = __esm({
 
 // src/local-file-transaction.ts
 import { lstat as lstat3, mkdir, readdir as readdir2, realpath, rmdir, stat as stat5 } from "node:fs/promises";
-import { dirname as dirname9, isAbsolute as isAbsolute6, relative as relative4, sep as sep3 } from "node:path";
+import { dirname as dirname9, isAbsolute as isAbsolute7, relative as relative4, sep as sep3 } from "node:path";
 function errorCode3(error) {
   return error && typeof error === "object" && "code" in error ? String(error.code) : "";
 }
@@ -10998,7 +11027,7 @@ async function pathExists3(path) {
 }
 function isInside(parent, candidate) {
   const relation = relative4(parent, candidate);
-  return relation === "" || !isAbsolute6(relation) && relation !== ".." && !relation.startsWith(`..${sep3}`);
+  return relation === "" || !isAbsolute7(relation) && relation !== ".." && !relation.startsWith(`..${sep3}`);
 }
 async function createOwnedDirectoryChain(options) {
   const { destination, sourceDirectory, created, destinationLabel, insideSourceMessage } = options;
@@ -11134,7 +11163,7 @@ var init_local_file_transaction = __esm({
 // src/backup-executor.ts
 import { createHash as createHash9 } from "node:crypto";
 import { open as open5, readdir as readdir3, stat as stat6 } from "node:fs/promises";
-import { join as join6, resolve as resolve13 } from "node:path";
+import { join as join6, resolve as resolve14 } from "node:path";
 import { performance as performance7 } from "node:perf_hooks";
 async function sourceInventoryStillStable(path, identity, expectedNames, profile) {
   if (!await directoryStillOwned(path, identity)) return false;
@@ -11187,8 +11216,8 @@ async function executeLocalBackup(options) {
     if (typeof directoryRaw !== "string" || !directoryRaw || typeof destinationRaw !== "string" || !destinationRaw) {
       return localResult(operationError("dir und dest sind Pflicht.", "bad-args"));
     }
-    const directory = resolve13(directoryRaw);
-    destination = resolve13(destinationRaw);
+    const directory = resolve14(directoryRaw);
+    destination = resolve14(destinationRaw);
     let directoryState;
     try {
       directoryState = await stat6(directory, { bigint: true });
@@ -11599,7 +11628,7 @@ var init_sse_process_guard = __esm({
 // src/archive-executor.ts
 import { createHash as createHash11 } from "node:crypto";
 import { open as open7, readdir as readdir4, stat as stat8, unlink as unlink3 } from "node:fs/promises";
-import { basename as basename5, join as join8, resolve as resolve14 } from "node:path";
+import { basename as basename5, join as join8, resolve as resolve15 } from "node:path";
 import { performance as performance8 } from "node:perf_hooks";
 function asArchiveArguments(value) {
   if (!Array.isArray(value) || !value.length) return void 0;
@@ -11666,14 +11695,14 @@ async function caseInventory(directory, profile) {
 async function writeVerifiedManifest(destination, rows, writeManifest) {
   const path = join8(destination, "pruefsummen.csv");
   const content = csvManifest(rows);
-  const sha256 = createHash11("sha256").update(content).digest("hex").toUpperCase();
+  const sha2562 = createHash11("sha256").update(content).digest("hex").toUpperCase();
   const handle = await open7(path, "wx+");
   const identity = await handle.stat({ bigint: true });
   const manifest = {
     path,
     identity,
     bytes: content.length,
-    sha256,
+    sha256: sha2562,
     content,
     complete: false
   };
@@ -11689,7 +11718,7 @@ async function writeVerifiedManifest(destination, rows, writeManifest) {
     return { manifest, handle };
   } catch (error) {
     await handle.close().catch(() => void 0);
-    const removal = manifest.complete ? await removeOwnedFile(path, identity, content.length, sha256) : await removeOwnedFilePrefix(path, identity, content);
+    const removal = manifest.complete ? await removeOwnedFile(path, identity, content.length, sha2562) : await removeOwnedFilePrefix(path, identity, content);
     if (!removal.removed) {
       throw new LocalFileError("Unvollstaendiges Archivmanifest blieb zur manuellen Klaerung erhalten.", "postcondition-failed");
     }
@@ -11757,8 +11786,8 @@ async function executeLocalArchive(options) {
     if (typeof directoryRaw !== "string" || !directoryRaw || typeof destinationRaw !== "string" || !destinationRaw || !archiveArguments.length || !remainingArguments.length) {
       return localResult(operationError("dir, dest, cases und expectedRemaining sind Pflicht und duerfen nicht leer sein.", "bad-args"));
     }
-    directory = resolve14(directoryRaw);
-    destination = resolve14(destinationRaw);
+    directory = resolve15(directoryRaw);
+    destination = resolve15(destinationRaw);
     try {
       directoryIdentity = await stat8(directory, { bigint: true });
     } catch (error) {
@@ -12063,10 +12092,20 @@ var init_archive_executor = __esm({
 });
 
 // src/qt-native-binding.ts
-var QtNativeTransportError;
+function validateQtNativeBinding(binding, timeoutMs) {
+  const pipe = PIPE_NAME.exec(binding.pipe);
+  if (!pipe || Number(pipe[1]) !== binding.pid || !Number.isSafeInteger(binding.pid) || binding.pid > 4294967295 || !Number.isSafeInteger(binding.hwnd) || binding.hwnd <= 0 || !/^[a-f0-9]{64}$/u.test(binding.nonce) || !/^[1-9][0-9]{0,19}$/u.test(binding.creationTime) || BigInt(binding.creationTime) > 0xffffffffffffffffn) {
+    throw new QtNativeTransportError("Invalid native process, window or session binding.", "native-binding");
+  }
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 6e4) {
+    throw new QtNativeTransportError("Invalid native connection deadline.", "native-deadline");
+  }
+}
+var PIPE_NAME, QtNativeTransportError;
 var init_qt_native_binding = __esm({
   "src/qt-native-binding.ts"() {
     "use strict";
+    PIPE_NAME = /^\\\\\.\\pipe\\sse-qt-read-([1-9][0-9]*)-[a-f0-9]{16}$/u;
     QtNativeTransportError = class extends Error {
       constructor(message, kind, outcomeUnknown = false) {
         super(message);
@@ -12081,7 +12120,9 @@ var init_qt_native_binding = __esm({
 });
 
 // src/qt-native-client.ts
-var MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES, UTF8;
+import { createConnection } from "node:net";
+import { performance as performance9 } from "node:perf_hooks";
+var MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES, UTF8, QtNativeClient;
 var init_qt_native_client = __esm({
   "src/qt-native-client.ts"() {
     "use strict";
@@ -12090,6 +12131,162 @@ var init_qt_native_client = __esm({
     MAX_REQUEST_BYTES = 1024 * 1024;
     MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
     UTF8 = new TextDecoder("utf-8", { fatal: true });
+    QtNativeClient = class _QtNativeClient {
+      constructor(socket, binding) {
+        this.socket = socket;
+        this.binding = binding;
+        socket.on("data", (chunk) => this.acceptData(chunk));
+        socket.on("error", (error) => this.fail("Native pipe failed: " + error.message, "native-connection", true));
+        socket.on("close", () => this.fail("Native pipe closed.", "native-connection", true));
+        socket.on("end", () => this.fail("Native response stream ended.", "native-connection", true));
+      }
+      socket;
+      binding;
+      nextId = 0;
+      pending = /* @__PURE__ */ new Map();
+      input = Buffer.alloc(0);
+      failure;
+      static async connect(binding, timeoutMs = 5e3) {
+        validateQtNativeBinding(binding, timeoutMs);
+        const socket = createConnection(binding.pipe);
+        const client = new _QtNativeClient(socket, Object.freeze({ ...binding }));
+        await new Promise((resolve17, reject) => {
+          const timer = setTimeout(() => {
+            cleanup();
+            const error = client.fail("Native connection deadline exceeded.", "native-connect-timeout");
+            reject(error);
+          }, timeoutMs);
+          const cleanup = () => {
+            clearTimeout(timer);
+            socket.off("connect", connected);
+            socket.off("error", failed);
+            socket.off("close", closed);
+          };
+          const connected = () => {
+            cleanup();
+            resolve17();
+          };
+          const failed = (error) => {
+            cleanup();
+            reject(error);
+          };
+          const closed = () => {
+            cleanup();
+            reject(client.failure ?? new Error("Native connection closed before readiness."));
+          };
+          socket.once("connect", connected);
+          socket.once("error", failed);
+          socket.once("close", closed);
+        });
+        return client.handshake(timeoutMs);
+      }
+      /** Take ownership of a ready byte stream whose OS peer the native broker has verified. */
+      static async connectStream(binding, stream, timeoutMs = 5e3) {
+        try {
+          validateQtNativeBinding(binding, timeoutMs);
+          if (stream.destroyed || !stream.readable || !stream.writable || stream.readableObjectMode || stream.writableObjectMode) {
+            throw new QtNativeTransportError("Native transport must be a live binary duplex stream.", "native-stream");
+          }
+        } catch (error) {
+          stream.destroy();
+          throw error;
+        }
+        const client = new _QtNativeClient(stream, Object.freeze({ ...binding }));
+        stream.resume();
+        return client.handshake(timeoutMs);
+      }
+      async handshake(timeoutMs) {
+        try {
+          const binding = this.binding;
+          const { result } = await this.request("ping", {}, timeoutMs);
+          if (result.ok !== true || result.pid !== binding.pid || result.hwnd !== binding.hwnd || result.creationTime !== binding.creationTime || result.bridgeProtocol !== 1 || result.guiThread !== true) {
+            throw new QtNativeTransportError("Native peer did not confirm the bound process, window and protocol.", "native-peer");
+          }
+          return this;
+        } catch (error) {
+          this.close();
+          throw error;
+        }
+      }
+      request(operation, args = {}, timeoutMs = 5e3, signal) {
+        if (this.failure) return Promise.reject(this.failure);
+        if (!/^[a-z][a-z0-9_]{0,63}$/u.test(operation) || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 3e5 || ["id", "op", "nonce"].some((field) => Object.hasOwn(args, field))) {
+          return Promise.reject(new QtNativeTransportError("Invalid native request envelope.", "native-request"));
+        }
+        if (signal?.aborted) return Promise.reject(new QtNativeTransportError("Native request cancelled before submission.", "aborted"));
+        if (this.pending.size >= 32) return Promise.reject(new QtNativeTransportError("Native request queue is full.", "native-queue-full"));
+        const id = ++this.nextId;
+        let payload;
+        try {
+          payload = Buffer.from(JSON.stringify({ ...args, id, op: operation, nonce: this.binding.nonce }));
+        } catch {
+          return Promise.reject(new QtNativeTransportError("Native request is not JSON serializable.", "native-request"));
+        }
+        if (payload.byteLength > MAX_REQUEST_BYTES) {
+          return Promise.reject(new QtNativeTransportError("Native request exceeds the frame limit.", "native-request-size"));
+        }
+        if (signal?.aborted) return Promise.reject(new QtNativeTransportError("Native request cancelled before submission.", "aborted"));
+        const header = Buffer.allocUnsafe(4);
+        header.writeUInt32LE(payload.byteLength);
+        return new Promise((resolve17, reject) => {
+          const abort = () => this.fail("Native request cancelled after submission; completion must be checked before retry.", "aborted", true);
+          const timer = setTimeout(() => {
+            this.fail("Native response deadline exceeded; completion must be checked before retry.", "native-timeout", true);
+          }, timeoutMs);
+          this.pending.set(id, {
+            resolve: resolve17,
+            reject,
+            timer,
+            startedAt: performance9.now(),
+            removeAbortListener: () => signal?.removeEventListener("abort", abort)
+          });
+          signal?.addEventListener("abort", abort, { once: true });
+          this.socket.write(Buffer.concat([header, payload]));
+        });
+      }
+      close() {
+        this.fail("Native session closed by its owner.", "native-closed", this.pending.size > 0);
+      }
+      acceptData(chunk) {
+        if (this.failure) return;
+        try {
+          if (this.input.byteLength + chunk.byteLength > (MAX_RESPONSE_BYTES + 4) * Math.max(1, this.pending.size)) {
+            throw new Error("Native receive buffer exceeded its bound.");
+          }
+          this.input = Buffer.concat([this.input, chunk]);
+          while (this.input.byteLength >= 4) {
+            const length = this.input.readUInt32LE(0);
+            if (length === 0 || length > MAX_RESPONSE_BYTES) throw new Error("Invalid native response frame length.");
+            if (this.input.byteLength < length + 4) return;
+            const value = JSON.parse(UTF8.decode(this.input.subarray(4, length + 4)));
+            this.input = this.input.subarray(length + 4);
+            if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Native response must be an object.");
+            const response = value;
+            if (!Number.isSafeInteger(response.id) || typeof response.ok !== "boolean") throw new Error("Invalid native response envelope.");
+            const pending = this.pending.get(response.id);
+            if (!pending) throw new Error("Native response has an unknown or repeated request id.");
+            this.pending.delete(response.id);
+            clearTimeout(pending.timer);
+            pending.removeAbortListener();
+            pending.resolve({ result: response, durationMs: performance9.now() - pending.startedAt });
+          }
+        } catch (error) {
+          this.fail(error instanceof Error ? error.message : "Invalid native response.", "native-protocol", true);
+        }
+      }
+      fail(message, kind, outcomeUnknown = false) {
+        this.failure ??= new QtNativeTransportError(message, kind, outcomeUnknown);
+        for (const pending of this.pending.values()) {
+          clearTimeout(pending.timer);
+          pending.removeAbortListener();
+          pending.reject(this.failure);
+        }
+        this.pending.clear();
+        this.input = Buffer.alloc(0);
+        this.socket.destroy();
+        return this.failure;
+      }
+    };
   }
 });
 
@@ -12322,10 +12519,39 @@ var init_qt_native_tables = __esm({
   }
 });
 
+// src/qt-native-executor.ts
+import { performance as performance10 } from "node:perf_hooks";
+async function executeQtNativeRead(operation, args, dependencies, timeoutMs = DEFAULT_OPERATION_TIMEOUT_MS, signal) {
+  try {
+    const started = performance10.now();
+    const client = dependencies.qtNativeClient ?? await dependencies.qtNativeClientFor(args, timeoutMs, signal);
+    const remaining = Math.floor(timeoutMs - (performance10.now() - started));
+    if (remaining < 1) throw new QtNativeTransportError("Native operation deadline exceeded before reading.", "native-timeout");
+    return await (operation === "get_value" ? executeQtNativeGetValue : executeQtNativeTableRead)(client, args, remaining, signal);
+  } catch (error) {
+    return {
+      ok: false,
+      backend: "qt",
+      kind: error instanceof QtNativeTransportError ? error.kind : "native-contract",
+      outcomeUnknown: error instanceof QtNativeTransportError && error.outcomeUnknown,
+      error: error instanceof Error ? error.message : "Invalid native runtime response."
+    };
+  }
+}
+var init_qt_native_executor = __esm({
+  "src/qt-native-executor.ts"() {
+    "use strict";
+    init_api_contract();
+    init_qt_native_client();
+    init_qt_native_values();
+    init_qt_native_tables();
+  }
+});
+
 // src/api-executor.ts
 import { existsSync as existsSync9, mkdirSync as mkdirSync3, readdirSync as readdirSync3, rmdirSync } from "node:fs";
 import { dirname as dirname10, join as join9 } from "node:path";
-import { performance as performance9 } from "node:perf_hooks";
+import { performance as performance11 } from "node:perf_hooks";
 function resourceRoots(config) {
   return {
     cases: config.caseDir,
@@ -12413,7 +12639,7 @@ function withResourceIdentity4(redactPaths, result, resourceRefs = {}) {
   return { ...redacted, resourceRefs };
 }
 function remainingTimeoutMs(timeoutMs, startedAt) {
-  return Math.max(0, Math.floor(timeoutMs - (performance9.now() - startedAt)));
+  return Math.max(0, Math.floor(timeoutMs - (performance11.now() - startedAt)));
 }
 function isExperimentalDialogAnswerCandidate(operation, args) {
   return operation === "dialog_answer" && args.button === "OK";
@@ -12466,11 +12692,8 @@ function createApiExecutor(config, worker, dependencies = {}) {
         }
       }
       args = internalCheckerClick ? parseCheckerReadOnlyClickArgs(args) : parseApiOperationArgs(operation, args);
-      if (operation === "get_value" && dependencies.qtNativeClient) {
-        return redactPaths(await executeQtNativeGetValue(dependencies.qtNativeClient, args, timeoutMs, signal));
-      }
-      if (operation === "table_read" && dependencies.qtNativeClient) {
-        return redactPaths(await executeQtNativeTableRead(dependencies.qtNativeClient, args, timeoutMs, signal));
+      if ((operation === "get_value" || operation === "table_read") && (dependencies.qtNativeClient || dependencies.qtNativeClientFor)) {
+        return redactPaths(await executeQtNativeRead(operation, args, dependencies, timeoutMs, signal));
       }
       if (operation === "capabilities") {
         return {
@@ -12644,7 +12867,7 @@ function createApiExecutor(config, worker, dependencies = {}) {
       }
       if (operation === "list_cases" && configured.args.verbose !== true && typeof configured.args.dir === "string" && existsSync9(configured.args.dir)) {
         const effectiveTimeoutMs = timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS;
-        const localStartedAt = performance9.now();
+        const localStartedAt = performance11.now();
         try {
           const result2 = await listCaseFiles(configured.args.dir, profile, {
             includeBackups: configured.args.includeBackups === true,
@@ -12758,8 +12981,7 @@ var init_api_executor = __esm({
     init_working_copy_executor();
     init_backup_executor();
     init_archive_executor();
-    init_qt_native_values();
-    init_qt_native_tables();
+    init_qt_native_executor();
     init_api_resource_bindings();
     init_profile_operation_policy();
     MIN_WORKER_FALLBACK_TIMEOUT_MS = 2e3;
@@ -16289,7 +16511,7 @@ var init_api_supervisor_contract = __esm({
 
 // src/api-server.ts
 import { randomUUID as randomUUID3 } from "node:crypto";
-import { performance as performance10 } from "node:perf_hooks";
+import { performance as performance12 } from "node:perf_hooks";
 import {
   createServer
 } from "node:http";
@@ -16405,7 +16627,7 @@ function createSseApiServer(options) {
   const inFlightSnapshot = () => {
     if (!inFlight) return null;
     const { startedMonotonic, ...publicState } = inFlight;
-    return { ...publicState, elapsedMs: Math.round(performance10.now() - startedMonotonic) };
+    return { ...publicState, elapsedMs: Math.round(performance12.now() - startedMonotonic) };
   };
   const safeLog = (record) => {
     try {
@@ -16415,7 +16637,7 @@ function createSseApiServer(options) {
   };
   const server = createServer(async (request, response) => {
     const requestId = randomUUID3();
-    const started = performance10.now();
+    const started = performance12.now();
     const foreignClient = foreignClientReason(request);
     if (foreignClient) {
       sendJson(response, 403, apiError(requestId, "forbidden", foreignClient));
@@ -16589,7 +16811,7 @@ function createSseApiServer(options) {
         });
         return;
       }
-      inFlight = { operation: operationName, requestId, startedAt: Date.now(), startedMonotonic: performance10.now() };
+      inFlight = { operation: operationName, requestId, startedAt: Date.now(), startedMonotonic: performance12.now() };
       let rawResult;
       try {
         rawResult = await execute(operationName, args, body.timeoutMs, controller.signal);
@@ -16618,7 +16840,7 @@ function createSseApiServer(options) {
         apiVersion: SSE_API_VERSION,
         requestId,
         operation: operationName,
-        durationMs: Math.round(performance10.now() - started),
+        durationMs: Math.round(performance12.now() - started),
         result
       };
       const operationLog = {
@@ -16659,7 +16881,7 @@ function createSseApiServer(options) {
         event: "operation-error",
         requestId,
         operation: operationName,
-        durationMs: Math.round(performance10.now() - started),
+        durationMs: Math.round(performance12.now() - started),
         code,
         errorName: error instanceof Error ? error.name : "Error"
       });
@@ -16686,14 +16908,14 @@ async function listenSseApiServer(server, host, port) {
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error("SSE-API-Port muss eine ganze Zahl zwischen 1 und 65535 sein.");
   }
-  await new Promise((resolve16, reject) => {
+  await new Promise((resolve17, reject) => {
     const onError = (error) => {
       server.off("listening", onListening);
       reject(error);
     };
     const onListening = () => {
       server.off("error", onError);
-      resolve16();
+      resolve17();
     };
     server.once("error", onError);
     server.once("listening", onListening);
@@ -16730,7 +16952,7 @@ var init_api_server = __esm({
 
 // src/windows-runtime.ts
 import { existsSync as existsSync10 } from "node:fs";
-import { basename as basename6, join as join10, resolve as resolve15 } from "node:path";
+import { basename as basename6, join as join10, resolve as resolve16 } from "node:path";
 function resolveWindowsPowerShell(env = process.env) {
   if (process.platform !== "win32") {
     throw new Error("SteuerSparErklaerung-Automation wird nur unter Windows unterstuetzt.");
@@ -16742,7 +16964,7 @@ function resolveWindowsPowerShell(env = process.env) {
     systemRoot ? join10(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe") : void 0
   ].filter((entry) => Boolean(entry));
   for (const candidate of candidates) {
-    const absolute = resolve15(candidate);
+    const absolute = resolve16(candidate);
     if (basename6(absolute).toLowerCase() === "powershell.exe" && existsSync10(absolute)) return absolute;
   }
   throw new Error(
@@ -17221,8 +17443,8 @@ function callWorker(op, args = {}, timeoutMs = DEFAULT_TIMEOUT_MS, signal) {
       )
     );
   }
-  return new Promise((resolve16, reject) => {
-    const queued = { op, args, timeoutMs, resolve: resolve16, reject };
+  return new Promise((resolve17, reject) => {
+    const queued = { op, args, timeoutMs, resolve: resolve17, reject };
     if (signal) queued.signal = signal;
     const abortWhileQueued = () => {
       const index = workerQueue.indexOf(queued);
@@ -17272,7 +17494,7 @@ async function callWorkerUnsynchronised(op, args = {}, timeoutMs = DEFAULT_TIMEO
   ] : ["-NoLogo", "-NoProfile", "-NonInteractive", "-File", WORKER, "-Op", op, "-ArgsFile", argsFile];
   const spare = !desk || markerAllowsWarmSpare ? takeWarmSpare() : null;
   if (!workerRuntimeFailure) setImmediate(refillWarmSpareLater);
-  return new Promise((resolve16, reject) => {
+  return new Promise((resolve17, reject) => {
     let child;
     if (spare) {
       child = spare.child;
@@ -17432,7 +17654,7 @@ async function callWorkerUnsynchronised(op, args = {}, timeoutMs = DEFAULT_TIMEO
         return;
       }
       try {
-        resolve16(parseWorkerResult(text2, op));
+        resolve17(parseWorkerResult(text2, op));
       } catch (error) {
         const stderr = summarizeWorkerDiagnostic(err);
         const message = error instanceof Error ? error.message : String(error);
@@ -17631,6 +17853,390 @@ var init_jsonl_logger = __esm({
   }
 });
 
+// src/qt-native-package.ts
+import { createHash as createHash13 } from "node:crypto";
+import { lstatSync as lstatSync3, realpathSync as realpathSync4 } from "node:fs";
+import { join as join14 } from "node:path";
+function verifiedFile(path, expected, maximumBytes) {
+  const info = lstatSync3(path);
+  if (!info.isFile() || info.isSymbolicLink()) throw new Error("Native package entries must be regular files.");
+  const bytes = readFileBounded(path, maximumBytes);
+  if (createHash13("sha256").update(bytes).digest("hex") !== expected) throw new Error("Native package file digest mismatch.");
+  return bytes;
+}
+function loadQtNativePackage(config, profile) {
+  if (profile.status !== "supported" || profile.operationAccess !== "full" || !profile.nativeQtVersion) {
+    throw new Error("The selected product profile has no supported native Qt binding.");
+  }
+  const directory = realpathSync4(config.directory);
+  const bytes = verifiedFile(join14(directory, "manifest.json"), config.manifestSha256, 16 * 1024);
+  const manifest = manifestSchema.parse(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)));
+  const expected = {
+    id: profile.id,
+    taxYear: profile.taxYear,
+    engineFileMajor: profile.engineFileMajor,
+    verifiedBuild: profile.verifiedBuild,
+    qtVersion: profile.nativeQtVersion
+  };
+  for (const key of Object.keys(expected)) {
+    if (manifest.profile[key] !== expected[key]) throw new Error("Native package compatibility differs from the selected product profile.");
+  }
+  const loaderPath = join14(directory, manifest.loader.file), bridgePath = join14(directory, manifest.bridge.file);
+  verifiedFile(loaderPath, manifest.loader.sha256, 128 * 1024 * 1024);
+  verifiedFile(bridgePath, manifest.bridge.sha256, 128 * 1024 * 1024);
+  return { directory, loaderPath, bridgePath, manifest };
+}
+var sha256, nativeProfileSchema, manifestSchema;
+var init_qt_native_package = __esm({
+  "src/qt-native-package.ts"() {
+    "use strict";
+    init_zod();
+    init_bounded_files();
+    sha256 = external_exports.string().regex(/^[a-f0-9]{64}$/u);
+    nativeProfileSchema = external_exports.object({
+      id: external_exports.string().regex(/^[0-9]{4}$/u),
+      taxYear: external_exports.number().int(),
+      engineFileMajor: external_exports.number().int(),
+      verifiedBuild: external_exports.string().regex(/^\d+\.\d+\.\d+\.\d+$/u),
+      qtVersion: external_exports.string().regex(/^\d+\.\d+\.\d+$/u)
+    }).strict();
+    manifestSchema = external_exports.object({
+      schemaVersion: external_exports.literal(1),
+      startupAbi: external_exports.literal(2),
+      bridgeProtocol: external_exports.literal(1),
+      buildIdentity: external_exports.string().regex(/^SSE_NATIVE_BRIDGE_V2:[a-f0-9]{64}$/u),
+      profile: nativeProfileSchema,
+      loader: external_exports.object({ file: external_exports.literal("bridge-load.exe"), sha256 }).strict(),
+      bridge: external_exports.object({ file: external_exports.literal("sse-qt-read.dll"), sha256 }).strict()
+    }).strict();
+  }
+});
+
+// src/qt-native-broker.ts
+import { spawn as spawn3 } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { Duplex } from "node:stream";
+import { isAbsolute as isAbsolute8 } from "node:path";
+async function readReadiness(child, timeoutMs, signal) {
+  return new Promise((resolveReady, reject) => {
+    let bytes = Buffer.alloc(0), done = false;
+    const finish = (error, value) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      child.stdout.off("readable", read);
+      child.off("exit", exited);
+      child.off("error", failed);
+      signal?.removeEventListener("abort", aborted);
+      if (error) reject(error);
+      else resolveReady(value);
+    };
+    const exited = () => finish(new QtNativeTransportError("Native broker ended before readiness.", "native-startup", true));
+    const failed = (error) => finish(error);
+    const aborted = () => finish(new QtNativeTransportError("Native broker startup cancelled; attachment may have begun.", "aborted", true));
+    const timer = setTimeout(() => finish(new QtNativeTransportError("Native broker startup deadline exceeded.", "native-startup-timeout", true)), timeoutMs);
+    const read = () => {
+      let chunk;
+      while ((chunk = child.stdout.read()) !== null) {
+        bytes = Buffer.concat([bytes, chunk]);
+        if (bytes.length > 65536) return finish(new Error("Native broker readiness exceeds the protocol bound."));
+        const newline = bytes.indexOf(10);
+        if (newline < 0) continue;
+        try {
+          const value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, newline)));
+          if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid native broker readiness.");
+          if (bytes.length !== newline + 1) throw new Error("Native broker emitted unsolicited protocol data before its handshake.");
+          return finish(void 0, value);
+        } catch (error) {
+          return finish(error instanceof Error ? error : new Error("Invalid broker readiness."));
+        }
+      }
+    };
+    child.stdout.on("readable", read);
+    child.once("exit", exited);
+    child.once("error", failed);
+    signal?.addEventListener("abort", aborted, { once: true });
+    if (signal?.aborted) aborted();
+    else read();
+  });
+}
+async function startQtNativeBroker(options) {
+  const { package: nativePackage, target, expectedImage, signal } = options;
+  if (signal?.aborted) throw new QtNativeTransportError("Native startup cancelled before launch.", "aborted");
+  if (!Number.isSafeInteger(target.pid) || target.pid < 1 || target.pid > 4294967295 || !Number.isSafeInteger(target.hwnd) || target.hwnd < 1 || !isAbsolute8(expectedImage) || /[\u0000-\u001f]/u.test(expectedImage) || target.desktop !== void 0 && !/^[A-Za-z0-9_-]{1,64}$/u.test(target.desktop)) {
+    throw new QtNativeTransportError("Invalid native target binding.", "native-binding");
+  }
+  if (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > 6e4) {
+    throw new QtNativeTransportError("Invalid native startup deadline.", "native-deadline");
+  }
+  const request = {
+    ...target,
+    mode: "attach",
+    expectedImage,
+    expectedProfile: nativePackage.manifest.profile,
+    dll: nativePackage.bridgePath,
+    pipe: `\\\\.\\pipe\\sse-qt-read-${target.pid}-${randomBytes(8).toString("hex")}`,
+    nonce: randomBytes(32).toString("hex")
+  };
+  const body = Buffer.from(JSON.stringify(request));
+  if (body.length > 65536) throw new QtNativeTransportError("Native bootstrap exceeds the protocol bound.", "native-request-size");
+  const header = Buffer.alloc(4);
+  header.writeUInt32LE(body.length);
+  const child = spawn3(nativePackage.loaderPath, ["--broker"], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
+  let stderrBytes = 0, client, stream;
+  child.stderr.on("data", (data) => {
+    stderrBytes += data.length;
+    if (stderrBytes > 65536) child.kill();
+  });
+  child.stdin.on("error", () => {
+  });
+  const exited = new Promise((resolveExit) => {
+    child.once("exit", () => resolveExit());
+    child.once("error", () => resolveExit());
+  });
+  const abort = () => {
+    client?.close();
+    child.kill();
+  };
+  signal?.addEventListener("abort", abort, { once: true });
+  try {
+    const started = performance.now(), waiting = readReadiness(child, options.timeoutMs, signal);
+    child.stdin.write(Buffer.concat([header, body]));
+    const loaded = await waiting;
+    if (loaded.ok !== true || loaded.pipePeerVerified !== true || loaded.binaryIdentityVerified !== true || loaded.bindingDiscovered !== true || loaded.bridgeImageVerified !== true || loaded.controllerPid !== process.pid || loaded.brokerPid !== child.pid || loaded.ownerPid !== child.pid || loaded.pid !== target.pid || loaded.hwnd !== target.hwnd || typeof loaded.ownerCreationTime !== "string" || !/^[1-9][0-9]{0,19}$/u.test(loaded.ownerCreationTime) || loaded.bridgeBuildIdentity !== nativePackage.manifest.buildIdentity || typeof loaded.image !== "string" || loaded.image.toLowerCase() !== expectedImage.toLowerCase()) {
+      throw new QtNativeTransportError("Native broker did not verify the requested binding and package.", "native-peer");
+    }
+    const actualProfile = loaded.profile;
+    for (const [key, value] of Object.entries(nativePackage.manifest.profile)) {
+      if (actualProfile?.[key] !== value) throw new QtNativeTransportError("Native broker profile mismatch.", "native-peer");
+    }
+    const binding = { ...request, creationTime: loaded.creationTime };
+    if (target.creationTime !== void 0 && binding.creationTime !== target.creationTime) {
+      throw new QtNativeTransportError("Native target process creation time changed.", "native-peer");
+    }
+    let remaining = Math.floor(options.timeoutMs - (performance.now() - started));
+    if (remaining < 1) throw new QtNativeTransportError("Native startup deadline exceeded before handshake.", "native-startup-timeout", true);
+    stream = new BrokerStream(child);
+    client = await QtNativeClient.connectStream(binding, stream, remaining);
+    remaining = Math.floor(options.timeoutMs - (performance.now() - started));
+    if (remaining < 1) throw new QtNativeTransportError("Native startup deadline exceeded before owner verification.", "native-startup-timeout", true);
+    const ping = (await client.request("ping", {}, remaining, signal)).result;
+    if (ping.ownerPid !== child.pid || ping.ownerCreationTime !== loaded.ownerCreationTime) {
+      throw new QtNativeTransportError("Native session owner does not match its broker.", "native-peer");
+    }
+    return { client, brokerPid: child.pid, exited, async close() {
+      client.close();
+      child.kill();
+      await exited;
+    } };
+  } catch (error) {
+    client?.close();
+    stream?.destroy();
+    child.kill();
+    await exited;
+    if (error instanceof QtNativeTransportError) throw error;
+    throw new QtNativeTransportError("Native broker startup failed.", "native-startup", true);
+  } finally {
+    signal?.removeEventListener("abort", abort);
+  }
+}
+var BrokerStream;
+var init_qt_native_broker = __esm({
+  "src/qt-native-broker.ts"() {
+    "use strict";
+    init_qt_native_client();
+    BrokerStream = class extends Duplex {
+      constructor(child) {
+        super();
+        this.child = child;
+        child.stdout.on("data", (chunk) => {
+          if (!this.push(chunk)) child.stdout.pause();
+        });
+        child.stdout.on("end", () => this.push(null));
+        child.stdout.on("error", (error) => this.destroy(error));
+        child.stdin.on("error", (error) => this.destroy(error));
+        child.once("exit", () => this.destroy(new Error("Native broker exited; pending outcomes require inspection.")));
+      }
+      child;
+      _read() {
+        this.child.stdout.resume();
+      }
+      _write(chunk, encoding, callback) {
+        this.child.stdin.write(chunk, encoding, callback);
+      }
+      _destroy(error, callback) {
+        this.child.stdin.destroy();
+        this.child.stdout.destroy();
+        this.child.kill();
+        callback(error);
+      }
+    };
+  }
+});
+
+// src/qt-native-runtime.ts
+import { performance as performance13 } from "node:perf_hooks";
+function createQtNativeRuntime(config, profile, worker, shutdown, dependencies = {}) {
+  if (!config.qtNativeRuntime) throw new Error("Native runtime configuration is required.");
+  const nativePackage = (dependencies.loadPackage ?? loadQtNativePackage)(config.qtNativeRuntime, profile);
+  const executable = config.sseExecutable ? [config.sseExecutable] : detectSseExecutables(profile.id);
+  if (executable.length !== 1) throw new Error("Native runtime requires exactly one configured or installed product executable.");
+  const start = dependencies.startSession ?? startQtNativeBroker;
+  const sessions = /* @__PURE__ */ new Map();
+  let selected, starting2;
+  let startupAbort;
+  let stopped = false, revision = 0;
+  const failure2 = (message, kind, outcomeUnknown = false) => new QtNativeTransportError(message, kind, outcomeUnknown);
+  const left = (deadline) => {
+    const value = Math.floor(deadline - performance13.now());
+    if (value < 1) throw failure2("Native operation deadline exceeded before dispatch.", "native-timeout");
+    return value;
+  };
+  async function waitForStartup(pending, deadline, signal) {
+    await new Promise((resolveWait, reject) => {
+      const finish = (error) => {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", abort);
+        if (error) reject(error);
+        else resolveWait();
+      };
+      const abort = () => finish(failure2("Native startup wait cancelled.", "aborted"));
+      const timer = setTimeout(() => finish(failure2("Native startup wait exceeded its deadline.", "native-timeout")), left(deadline));
+      signal?.addEventListener("abort", abort, { once: true });
+      pending.then(() => finish(), (error) => finish(error));
+      if (signal?.aborted) abort();
+    });
+  }
+  async function target(args, deadline, signal) {
+    const inventory = await worker("windows", {}, left(deadline), signal);
+    if (inventory.ok !== true) throw failure2(String(inventory.error ?? "Native window inventory failed."), String(inventory.kind ?? "native-binding"));
+    const windows = windowsSchema.parse(inventory).windows;
+    const loaded = windows.filter((window2) => window2.title.includes("SteuerSparErklärung") && (window2.w >= 900 || window2.minimiert));
+    const main2 = loaded.length ? loaded : windows.filter((window2) => window2.title === "Steuerprogramm" && (window2.w >= 900 || window2.minimiert));
+    const matches = args.hwnd === void 0 ? main2 : main2.filter((window2) => window2.hwnd === args.hwnd);
+    if (matches.length !== 1) throw failure2("An unambiguous current product window is required.", matches.length ? "ambiguous" : "no-window");
+    const window = matches[0];
+    const rawDesktop = await worker("desktop_status", {}, left(deadline), signal);
+    if (rawDesktop.ok !== true) throw failure2("Native desktop ownership could not be verified.", "native-binding");
+    const desktop = desktopSchema.parse(rawDesktop);
+    if (desktop.markeVeraltet) throw failure2("The owned desktop marker is stale.", "desktop-marker-stale");
+    if (desktop.aktiv && (desktop.pid !== window.pid || !desktop.desktop)) throw failure2("Native target differs from the owned desktop.", "native-binding");
+    return { pid: window.pid, hwnd: window.hwnd, ...desktop.aktiv ? { desktop: desktop.desktop } : {} };
+  }
+  async function obtain(args, deadline, signal) {
+    if (stopped || shutdown.aborted || signal?.aborted) throw failure2("Native runtime is stopping or the request was cancelled.", "aborted");
+    const requested = typeof args.hwnd === "number" ? args.hwnd : selected;
+    if (requested !== void 0 && sessions.has(requested)) return sessions.get(requested);
+    if (starting2) {
+      await waitForStartup(starting2, deadline, signal);
+      return obtain(args, deadline, signal);
+    }
+    if (sessions.size >= 4) throw failure2("Native window session limit reached.", "native-session-limit");
+    const expectedRevision = revision;
+    startupAbort = new AbortController();
+    const startupSignal = startupAbort.signal;
+    starting2 = withCombinedAbortSignal([signal, shutdown, startupSignal], async (combined) => {
+      const binding = await target(args, deadline, combined);
+      if (combined.aborted || stopped || expectedRevision !== revision) throw failure2("Native attachment was cancelled before launch.", "aborted");
+      if ([...sessions.values()].some((session2) => session2.client.binding.pid === binding.pid)) {
+        throw failure2("This process already has a native session bound to another window.", "native-window-conflict");
+      }
+      const session = await start({
+        package: nativePackage,
+        target: binding,
+        expectedImage: executable[0],
+        timeoutMs: Math.min(left(deadline), 6e4),
+        signal: combined
+      });
+      if (stopped || shutdown.aborted || expectedRevision !== revision) {
+        await session.close();
+        throw failure2("Native attachment was superseded by a lifecycle change.", "native-session-changed");
+      }
+      sessions.set(binding.hwnd, session);
+      selected = binding.hwnd;
+      return session;
+    });
+    try {
+      return await starting2;
+    } finally {
+      starting2 = void 0;
+      startupAbort = void 0;
+    }
+  }
+  async function clear() {
+    revision++;
+    selected = void 0;
+    startupAbort?.abort(new Error("Native lifecycle changed during startup."));
+    const current = [...sessions.values()];
+    sessions.clear();
+    await Promise.all(current.map((session) => session.close()));
+  }
+  const runtime = {
+    async client(args, timeoutMs, signal) {
+      const deadline = performance13.now() + timeoutMs;
+      return withCombinedAbortSignal([signal, shutdown], async (combined) => {
+        const session = await obtain(args, deadline, combined);
+        const checked = await session.client.request("window_context", {}, left(deadline), combined);
+        if (!checked.result.ok) throw failure2(
+          String(checked.result.error ?? "Native window context failed."),
+          String(checked.result.code ?? "native-binding"),
+          checked.result.outcomeUnknown === true
+        );
+        const context = contextSchema.parse(checked.result);
+        if (!context.boundMain) throw failure2("The bound window is no longer a current main window.", "stale-window");
+        if (args.hwnd === void 0 && !context.unique) throw failure2("Multiple product windows require an explicit hwnd.", "ambiguous");
+        return session.client;
+      });
+    },
+    async afterWorker(operation, result) {
+      if (result.ok === true && ["desktop_start", "desktop_stop", "window_close", "launch"].includes(operation)) await clear();
+    },
+    async close() {
+      stopped = true;
+      await clear();
+      if (starting2) {
+        try {
+          await starting2;
+        } catch {
+        }
+      }
+    }
+  };
+  shutdown.addEventListener("abort", () => {
+    void runtime.close();
+  }, { once: true });
+  return runtime;
+}
+var windowSchema, windowsSchema, desktopSchema, contextSchema;
+var init_qt_native_runtime = __esm({
+  "src/qt-native-runtime.ts"() {
+    "use strict";
+    init_zod();
+    init_api_first_run();
+    init_qt_native_client();
+    init_qt_native_package();
+    init_qt_native_broker();
+    init_abort();
+    windowSchema = external_exports.object({
+      pid: external_exports.number().int().positive(),
+      hwnd: external_exports.number().int().positive(),
+      title: external_exports.string(),
+      w: external_exports.number(),
+      h: external_exports.number(),
+      minimiert: external_exports.boolean().optional()
+    }).passthrough();
+    windowsSchema = external_exports.object({ ok: external_exports.literal(true), windows: external_exports.array(windowSchema).max(256) });
+    desktopSchema = external_exports.object({
+      ok: external_exports.literal(true),
+      aktiv: external_exports.boolean(),
+      markeVeraltet: external_exports.boolean(),
+      desktop: external_exports.string().nullable().optional(),
+      pid: external_exports.number().int().nonnegative().nullable().optional()
+    }).passthrough();
+    contextSchema = external_exports.object({ ok: external_exports.literal(true), boundMain: external_exports.boolean(), unique: external_exports.boolean() }).passthrough();
+  }
+});
+
 // src/api-runtime.ts
 var api_runtime_exports = {};
 __export(api_runtime_exports, {
@@ -17640,8 +18246,8 @@ __export(api_runtime_exports, {
   runApiRuntime: () => runApiRuntime
 });
 import { setMaxListeners } from "node:events";
-import { realpathSync as realpathSync4 } from "node:fs";
-import { dirname as dirname14, isAbsolute as isAbsolute7, join as join14, relative as relative5 } from "node:path";
+import { realpathSync as realpathSync5 } from "node:fs";
+import { dirname as dirname14, isAbsolute as isAbsolute9, join as join15, relative as relative5 } from "node:path";
 function installApiShutdown(server, shutdown, log, options = {}) {
   const forceAfterMs = options.forceAfterMs ?? 1e4;
   if (!Number.isFinite(forceAfterMs) || forceAfterMs < 1) {
@@ -17711,10 +18317,10 @@ function attachScreenshotImage(resultDir, operation, args, result) {
   const path = typeof shot?.path === "string" ? shot.path : "";
   if (!path) return result;
   try {
-    const safeRoot = realpathSync4(resultDir);
-    const imagePath = realpathSync4(path);
+    const safeRoot = realpathSync5(resultDir);
+    const imagePath = realpathSync5(path);
     const fromRoot = relative5(safeRoot, imagePath);
-    if (fromRoot.startsWith("..") || isAbsolute7(fromRoot)) {
+    if (fromRoot.startsWith("..") || isAbsolute9(fromRoot)) {
       return {
         ...result,
         imageReadError: "Kontrollbild liegt ausserhalb des konfigurierten Ergebnisbereichs; Bildinhalt wurde nicht gelesen."
@@ -17762,12 +18368,18 @@ async function runApiRuntime(configPath, overrides = {}) {
   if (config.sseExecutable) process.env.SSE_EXECUTABLE = config.sseExecutable;
   if (config.operateExperimental === true) process.env.SSE_OPERATE_EXPERIMENTAL = "1";
   const shutdown = new AbortController();
-  const execute = createApiExecutor(config, async (operation, args, timeoutMs, signal) => {
-    const result = await withCombinedAbortSignal([signal, shutdown.signal], (combinedSignal) => callWorker(operation, args, timeoutMs, combinedSignal));
+  const worker = async (operation, args, timeoutMs, signal) => {
+    const result = await withCombinedAbortSignal([signal, shutdown.signal], (combinedSignal) => (overrides.worker ?? callWorker)(operation, args, timeoutMs, combinedSignal));
     return attachScreenshotImage(config.resultDir, operation, args, result);
-  });
-  const logDir = join14(dirname14(config.configPath), "logs");
-  const logPath = join14(logDir, "api.jsonl");
+  };
+  const native = config.qtNativeRuntime ? createQtNativeRuntime(config, loadProductProfile(config.profileId), worker, shutdown.signal, overrides.qtNativeDependencies) : void 0;
+  const execute = createApiExecutor(config, async (operation, args, timeoutMs, signal) => {
+    const result = await worker(operation, args, timeoutMs, signal);
+    await native?.afterWorker(operation, result);
+    return result;
+  }, native ? { qtNativeClientFor: native.client } : {});
+  const logDir = join15(dirname14(config.configPath), "logs");
+  const logPath = join15(logDir, "api.jsonl");
   const maxLogBytes = 5 * 1024 * 1024;
   const { log } = createRotatingJsonlLogger({ logPath, maxBytes: maxLogBytes });
   let lifecycle;
@@ -17779,7 +18391,13 @@ async function runApiRuntime(configPath, overrides = {}) {
     prewarmStatus: () => ({ ready: isWarmSpareReady(), failure: lastPrewarmFailure(), poolTarget: warmSparePoolStatus().target })
   });
   lifecycle = installApiShutdown(server, shutdown, log);
-  await listenSseApiServer(server, config.host, config.port);
+  try {
+    await listenSseApiServer(server, config.host, config.port);
+  } catch (error) {
+    lifecycle.dispose();
+    await native?.close();
+    throw error;
+  }
   shutdown.signal.addEventListener("abort", shutdownWarmSpare, { once: true });
   enableWorkerPrewarm();
   log({ event: "ready", host: config.host, port: config.port });
@@ -17799,6 +18417,8 @@ var init_api_runtime = __esm({
     init_abort();
     init_bounded_files();
     init_jsonl_logger();
+    init_qt_native_runtime();
+    init_product_profiles();
     MAX_SCREENSHOT_IMAGE_BYTES = 20 * 1024 * 1024;
     PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
   }

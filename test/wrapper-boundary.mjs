@@ -39,6 +39,7 @@ for (const forbiddenModule of [
   "worker.ts", "api-executor.ts", "checker-executor.ts", "launch-executor.ts",
   "workspace-executor.ts", "ustva-executor.ts", "scenario.ts", "workspace.ts",
   "resources.ts", "setup.ts", "windows-runtime.ts", "product-profiles.ts",
+  "qt-native-package.ts", "qt-native-broker.ts", "qt-native-runtime.ts", "qt-native-client.ts",
 ]) {
   assert(!reachableSources.has(forbiddenModule), `MCP erreicht PC-Runtime-Modul '${forbiddenModule}' transitiv.`);
 }
@@ -67,9 +68,12 @@ const supervisorLocalReadModules = new Set([
   "api-config-file.ts",
   "bounded-files.ts",
   "configuration-fingerprint.ts",
+  "qt-native-config.ts",
   "json-files.ts",
   "mcp-api-supervisor.ts",
 ]);
+assert(!/from\s+["']node:(?:fs|child_process|module)["']/.test(sourceByFile.get("qt-native-config.ts") ?? ""),
+  "Native Konfigurationsidentitaet darf Pfade normalisieren, aber keine Pakete lesen oder Helfer starten.");
 for (const sourceFile of reachableSources) {
   if (supervisorLocalReadModules.has(sourceFile)) continue;
   const source = sourceByFile.get(sourceFile) ?? "";

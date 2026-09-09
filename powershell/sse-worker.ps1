@@ -2202,7 +2202,12 @@ function Initialize-SSEProductProfile {
     'executable','startModes','additionalCaseYears','pageObjects','policy'
   )
   $executableProperties = @('name','installationFolderName','defaultRelativePath')
+  $nativeQtVersion = $profileManifest.PSObject.Properties['nativeQtVersion']
+  if ($null -ne $nativeQtVersion) { $manifestProperties += 'nativeQtVersion' }
   $manifestShapeOk = Test-SSEExactProperties $profileManifest $manifestProperties
+  $nativeQtVersionOk = $null -eq $nativeQtVersion -or (
+    $nativeQtVersion.Value -is [string] -and $nativeQtVersion.Value -cmatch '^\d+\.\d+\.\d+$'
+  )
   $executableShapeOk = Test-SSEExactProperties $profileManifest.executable $executableProperties
   $startModeProperties = @($profileManifest.startModes.PSObject.Properties)
   $startModesOk = [bool]($startModeProperties.Count -and -not @($startModeProperties | Where-Object {
@@ -2223,7 +2228,7 @@ function Initialize-SSEProductProfile {
       }
     }
   }
-  if (-not $manifestShapeOk -or -not $executableShapeOk -or
+  if (-not $manifestShapeOk -or -not $executableShapeOk -or -not $nativeQtVersionOk -or
       [int]$profileManifest.schemaVersion -ne 1 -or [string]$profileManifest.id -ne $script:SSE_PROFILE_ID -or
       [string]$profileManifest.status -notin @('supported', 'experimental') -or [int]$profileManifest.taxYear -ne [int]$script:SSE_PROFILE_ID -or
       [string]$profileManifest.operationAccess -notin @('full', 'verification-only') -or

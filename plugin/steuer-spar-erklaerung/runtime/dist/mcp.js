@@ -4375,7 +4375,7 @@ var init_local_http_transport = __esm({
       if (body !== void 0 && !headers.has("content-length")) {
         headers.set("content-length", String(Buffer.byteLength(body, "utf8")));
       }
-      return await new Promise((resolve4, reject) => {
+      return await new Promise((resolve5, reject) => {
         let outgoing;
         try {
           outgoing = request(url, {
@@ -4397,7 +4397,7 @@ var init_local_http_transport = __esm({
             try {
               const responseBody = NULL_BODY_STATUSES.has(status) ? null : Readable.toWeb(incoming);
               if (responseBody === null) incoming.resume();
-              resolve4(new Response(
+              resolve5(new Response(
                 responseBody,
                 {
                   status,
@@ -8048,24 +8048,44 @@ var init_json_files = __esm({
   }
 });
 
+// src/qt-native-config.ts
+import { isAbsolute, resolve } from "node:path";
+function parseQtNativeRuntimeConfig(value) {
+  if (value === void 0) return void 0;
+  const result = external_exports.object({
+    directory: external_exports.string().min(1),
+    manifestSha256: external_exports.string().regex(/^[a-f0-9]{64}$/u)
+  }).strict().safeParse(value);
+  if (!result.success || !isAbsolute(result.data.directory) || !/^[A-Za-z]:[\\/]/u.test(result.data.directory) || /[\u0000-\u001f]/u.test(result.data.directory)) {
+    throw new Error("qtNativeRuntime requires an absolute directory and a lowercase SHA256 manifest pin.");
+  }
+  return Object.freeze({ directory: resolve(result.data.directory), manifestSha256: result.data.manifestSha256 });
+}
+var init_qt_native_config = __esm({
+  "src/qt-native-config.ts"() {
+    "use strict";
+    init_zod();
+  }
+});
+
 // src/api-config-file.ts
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute as isAbsolute2, join, resolve as resolve2 } from "node:path";
 function optionalConfigString(value) {
   return typeof value === "string" && value.trim() ? value.trim() : void 0;
 }
 function absolutePath(value, name) {
   if (!value) return void 0;
-  if (!isAbsolute(value) || /[\u0000-\u001f]/u.test(value)) {
+  if (!isAbsolute2(value) || /[\u0000-\u001f]/u.test(value)) {
     throw new Error(`${name} muss ein absoluter Windows-Pfad ohne Steuerzeichen sein.`);
   }
-  return resolve(value);
+  return resolve2(value);
 }
 function defaultApiConfigPath(env = process.env) {
-  const configuredBase = [env.LOCALAPPDATA, env.APPDATA].map((entry) => optionalConfigString(entry)).find((entry) => entry !== void 0 && isAbsolute(entry) && !/[\u0000-\u001f]/u.test(entry));
+  const configuredBase = [env.LOCALAPPDATA, env.APPDATA].map((entry) => optionalConfigString(entry)).find((entry) => entry !== void 0 && isAbsolute2(entry) && !/[\u0000-\u001f]/u.test(entry));
   const base = configuredBase ?? join(homedir(), "AppData", "Local");
-  if (!isAbsolute(base) || /[\u0000-\u001f]/u.test(base)) {
+  if (!isAbsolute2(base) || /[\u0000-\u001f]/u.test(base)) {
     throw new Error("Sicherer lokaler Standardpfad fuer die API-Konfiguration fehlt.");
   }
   return join(base, "SteuerSparErklaerungApi", "config.json");
@@ -8100,7 +8120,7 @@ function readApiConfigFile(configPath) {
   return file;
 }
 function resolveApiConfigValues(configPath, overrides = {}) {
-  const absoluteConfig = resolve(configPath);
+  const absoluteConfig = resolve2(configPath);
   const file = readApiConfigFile(absoluteConfig);
   const host = overrides.host ?? optionalConfigString(file.host) ?? DEFAULT_API_HOST;
   if (host !== "127.0.0.1" && host !== "::1") {
@@ -8134,6 +8154,7 @@ function resolveApiConfigValues(configPath, overrides = {}) {
     "sseExecutable"
   );
   const operateExperimental = file.operateExperimental === true ? true : void 0;
+  const qtNativeRuntime = parseQtNativeRuntimeConfig(file.qtNativeRuntime);
   return {
     profileId,
     host,
@@ -8145,7 +8166,8 @@ function resolveApiConfigValues(configPath, overrides = {}) {
     resultDir,
     backupsDir,
     ...sseExecutable ? { sseExecutable } : {},
-    ...operateExperimental ? { operateExperimental } : {}
+    ...operateExperimental ? { operateExperimental } : {},
+    ...qtNativeRuntime ? { qtNativeRuntime } : {}
   };
 }
 var MAX_API_CONFIG_BYTES, CONFIG_FIELDS, STRING_CONFIG_FIELDS;
@@ -8154,6 +8176,7 @@ var init_api_config_file = __esm({
     "use strict";
     init_api_contract();
     init_json_files();
+    init_qt_native_config();
     MAX_API_CONFIG_BYTES = 1024 * 1024;
     CONFIG_FIELDS = /* @__PURE__ */ new Set([
       "profileId",
@@ -8165,10 +8188,11 @@ var init_api_config_file = __esm({
       "resultDir",
       "backupsDir",
       "sseExecutable",
-      "operateExperimental"
+      "operateExperimental",
+      "qtNativeRuntime"
     ]);
     STRING_CONFIG_FIELDS = [...CONFIG_FIELDS].filter(
-      (field) => field !== "port" && field !== "operateExperimental"
+      (field) => field !== "port" && field !== "operateExperimental" && field !== "qtNativeRuntime"
     );
   }
 });
@@ -8250,20 +8274,24 @@ var init_api_control_client = __esm({
 
 // src/configuration-fingerprint.ts
 import { createHash } from "node:crypto";
-import { resolve as resolve2 } from "node:path";
+import { resolve as resolve3 } from "node:path";
 function optionalResolved(path) {
-  return path ? resolve2(path) : null;
+  return path ? resolve3(path) : null;
 }
 function configurationFingerprint(config2) {
   const stable = {
     profileId: config2.profileId,
     caseDir: optionalResolved(config2.caseDir),
-    documentsDir: resolve2(config2.documentsDir),
-    workspaceDir: resolve2(config2.workspaceDir),
-    resultDir: resolve2(config2.resultDir),
-    backupsDir: resolve2(config2.backupsDir),
+    documentsDir: resolve3(config2.documentsDir),
+    workspaceDir: resolve3(config2.workspaceDir),
+    resultDir: resolve3(config2.resultDir),
+    backupsDir: resolve3(config2.backupsDir),
     sseExecutable: optionalResolved(config2.sseExecutable),
-    operateExperimental: config2.operateExperimental === true
+    operateExperimental: config2.operateExperimental === true,
+    ...config2.qtNativeRuntime ? { qtNativeRuntime: {
+      directory: resolve3(config2.qtNativeRuntime.directory),
+      manifestSha256: config2.qtNativeRuntime.manifestSha256
+    } } : {}
   };
   return createHash("sha256").update(JSON.stringify(stable), "utf8").digest("hex");
 }
@@ -8284,7 +8312,7 @@ import { spawn } from "node:child_process";
 import { createHash as createHash2 } from "node:crypto";
 import { createRequire } from "node:module";
 import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { dirname as dirname2, isAbsolute as isAbsolute2, relative, resolve as resolve3 } from "node:path";
+import { dirname as dirname2, isAbsolute as isAbsolute3, relative, resolve as resolve4 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { performance as performance2 } from "node:perf_hooks";
 function loopbackBaseUrl(raw) {
@@ -8303,10 +8331,10 @@ function loopbackBaseUrl(raw) {
   return parsed.origin;
 }
 function absoluteConfigPath(raw) {
-  if (!isAbsolute2(raw) || /[\u0000-\u001f]/u.test(raw)) {
+  if (!isAbsolute3(raw) || /[\u0000-\u001f]/u.test(raw)) {
     throw new Error("SSE_API_CONFIG muss ein absoluter Pfad ohne Steuerzeichen sein.");
   }
-  return resolve3(raw);
+  return resolve4(raw);
 }
 function endpointFromConfig(configPath) {
   const config2 = resolveApiConfigValues(configPath);
@@ -8348,19 +8376,19 @@ async function probe(baseUrl, timeoutMs, expectedConfigurationFingerprint) {
 }
 function containedPath(root, path) {
   const fromRoot = relative(root, path);
-  return fromRoot !== "" && !fromRoot.startsWith("..") && !isAbsolute2(fromRoot);
+  return fromRoot !== "" && !fromRoot.startsWith("..") && !isAbsolute3(fromRoot);
 }
 function validRuntimeRelativePath(value) {
-  return typeof value === "string" && value.length > 0 && value.length <= 1024 && !value.includes("\\") && !value.includes("\0") && !isAbsolute2(value) && !value.split("/").some((part) => !part || part === "." || part === "..");
+  return typeof value === "string" && value.length > 0 && value.length <= 1024 && !value.includes("\\") && !value.includes("\0") && !isAbsolute3(value) && !value.split("/").some((part) => !part || part === "." || part === "..");
 }
 function adjacentPluginRuntime() {
   let runtimeRoot;
   try {
-    runtimeRoot = realpathSync(resolve3(dirname2(fileURLToPath(import.meta.url)), ".."));
+    runtimeRoot = realpathSync(resolve4(dirname2(fileURLToPath(import.meta.url)), ".."));
   } catch {
     throw new Error("Die MCP-Runtime konnte nicht sicher aufgeloest werden.");
   }
-  const lockPath = resolve3(runtimeRoot, "runtime-lock.json");
+  const lockPath = resolve4(runtimeRoot, "runtime-lock.json");
   try {
     if (!containedPath(runtimeRoot, lockPath)) throw new Error();
     const lockStat = lstatSync(lockPath);
@@ -8406,7 +8434,7 @@ function readBundledPluginApiEntry(runtime) {
   let entry;
   let content;
   try {
-    const candidate = resolve3(runtimeRoot, apiRelative);
+    const candidate = resolve4(runtimeRoot, apiRelative);
     if (!containedPath(runtimeRoot, candidate) || lstatSync(candidate).isSymbolicLink()) throw new Error();
     entry = realpathSync(candidate);
     if (!containedPath(runtimeRoot, entry) || relative(runtimeRoot, entry).replaceAll("\\", "/") !== apiRelative || !statSync(entry).isFile()) throw new Error();
@@ -8456,14 +8484,14 @@ function readApiPackageEntry() {
     throw new Error("Installierte API-Dependency besitzt keinen gueltigen Bin-Vertrag.");
   }
   const relativeEntry = manifest.bin[API_BIN_NAME];
-  if (typeof relativeEntry !== "string" || !relativeEntry || isAbsolute2(relativeEntry)) {
+  if (typeof relativeEntry !== "string" || !relativeEntry || isAbsolute3(relativeEntry)) {
     throw new Error("Installierte API-Dependency besitzt keinen gueltigen API-Einstieg.");
   }
   let packageRoot;
   let entry;
   try {
     packageRoot = realpathSync(dirname2(manifestPath));
-    entry = realpathSync(resolve3(packageRoot, relativeEntry));
+    entry = realpathSync(resolve4(packageRoot, relativeEntry));
   } catch {
     throw new Error("Der API-Einstieg der installierten Dependency fehlt.");
   }
@@ -8474,7 +8502,7 @@ function readApiPackageEntry() {
   } catch {
     throw new Error("Der API-Einstieg der installierten Dependency ist nicht lesbar.");
   }
-  if (!fromPackage || fromPackage.startsWith("..") || isAbsolute2(fromPackage) || !entryIsFile) {
+  if (!fromPackage || fromPackage.startsWith("..") || isAbsolute3(fromPackage) || !entryIsFile) {
     throw new Error("API-Einstieg liegt ausserhalb der installierten Dependency.");
   }
   return entry;
@@ -17580,7 +17608,7 @@ var init_protocol = __esm({
               return;
             }
             const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-            await new Promise((resolve4) => setTimeout(resolve4, pollInterval));
+            await new Promise((resolve5) => setTimeout(resolve5, pollInterval));
             options?.signal?.throwIfAborted();
           }
         } catch (error2) {
@@ -17597,7 +17625,7 @@ var init_protocol = __esm({
        */
       request(request2, resultSchema, options) {
         const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-        return new Promise((resolve4, reject) => {
+        return new Promise((resolve5, reject) => {
           const earlyReject = (error2) => {
             reject(error2);
           };
@@ -17675,7 +17703,7 @@ var init_protocol = __esm({
               if (!parseResult.success) {
                 reject(parseResult.error);
               } else {
-                resolve4(parseResult.data);
+                resolve5(parseResult.data);
               }
             } catch (error2) {
               reject(error2);
@@ -17936,12 +17964,12 @@ var init_protocol = __esm({
           }
         } catch {
         }
-        return new Promise((resolve4, reject) => {
+        return new Promise((resolve5, reject) => {
           if (signal.aborted) {
             reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
             return;
           }
-          const timeoutId = setTimeout(resolve4, interval);
+          const timeoutId = setTimeout(resolve5, interval);
           signal.addEventListener("abort", () => {
             clearTimeout(timeoutId);
             reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -20968,7 +20996,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve4.call(this, root, ref);
+      let _sch = resolve5.call(this, root, ref);
       if (_sch === void 0) {
         const schema = (_a = root.localRefs) === null || _a === void 0 ? void 0 : _a[ref];
         const { schemaId } = this.opts;
@@ -20995,7 +21023,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve4(root, ref) {
+    function resolve5(root, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -21825,7 +21853,7 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve4(baseURI, relativeURI, options) {
+    function resolve5(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const {
         parsed: baseParsed,
@@ -22193,7 +22221,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize,
-      resolve: resolve4,
+      resolve: resolve5,
       resolveComponent,
       equal,
       serialize,
@@ -26529,7 +26557,7 @@ var init_mcp = __esm({
         let task = createTaskResult.task;
         const pollInterval = task.pollInterval ?? 5e3;
         while (task.status !== "completed" && task.status !== "failed" && task.status !== "cancelled") {
-          await new Promise((resolve4) => setTimeout(resolve4, pollInterval));
+          await new Promise((resolve5) => setTimeout(resolve5, pollInterval));
           const updatedTask = await extra.taskStore.getTask(taskId);
           if (!updatedTask) {
             throw new McpError(ErrorCode.InternalError, `Task ${taskId} not found during polling`);
@@ -27166,12 +27194,12 @@ var init_stdio2 = __esm({
         this.onclose?.();
       }
       send(message) {
-        return new Promise((resolve4) => {
+        return new Promise((resolve5) => {
           const json = serializeMessage(message);
           if (this._stdout.write(json)) {
-            resolve4();
+            resolve5();
           } else {
-            this._stdout.once("drain", resolve4);
+            this._stdout.once("drain", resolve5);
           }
         });
       }
@@ -29309,7 +29337,7 @@ function isBusyApiError(error2) {
   return error2 instanceof Error && error2.kind === "busy";
 }
 async function delay2(ms) {
-  await new Promise((resolve4) => setTimeout(resolve4, ms));
+  await new Promise((resolve5) => setTimeout(resolve5, ms));
 }
 var MCP_CONDUCT_INSTRUCTIONS = [
   "Diese Tools steuern eine lokal installierte SteuerSparErklaerung unter Windows.",

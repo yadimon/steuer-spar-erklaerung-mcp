@@ -13,6 +13,7 @@ const profileSchema = z.object({
   taxYear: z.number().int().min(2000).max(2200),
   engineFileMajor: z.number().int().positive(),
   verifiedBuild: z.string().regex(/^\d+\.\d+\.\d+\.\d+$/u),
+  nativeQtVersion: z.string().regex(/^\d+\.\d+\.\d+$/u).optional(),
   executable: z.object({
     name: z.literal("SSE.exe"),
     installationFolderName: z.string().min(1),

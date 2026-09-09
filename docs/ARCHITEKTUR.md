@@ -1,5 +1,8 @@
 # Produktarchitektur
 
+Der optionale [Qt-Lesepfad](NATIVE-QT.md) beschreibt Paketprüfung, dauerhafte
+Prozessbindung und den konfigurierten nativen Runtime-Start für zwei Leseoperationen.
+
 Dieses Dokument ist der überprüfbare Zielvertrag für API, MCP,
 Steuerjahrprofile und öffentliche Skills. Es beschreibt das Produkt, nicht die
 Entstehungsgeschichte einzelner UIA-Lösungen.

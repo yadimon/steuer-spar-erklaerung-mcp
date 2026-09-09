@@ -47,9 +47,7 @@ import { executeLocalVerify } from "./verify-executor.js";
 import { executeLocalWorkingCopy } from "./working-copy-executor.js";
 import { executeLocalBackup } from "./backup-executor.js";
 import { executeLocalArchive } from "./archive-executor.js";
-import type { QtNativeClient } from "./qt-native-client.js";
-import { executeQtNativeGetValue } from "./qt-native-values.js";
-import { executeQtNativeTableRead } from "./qt-native-tables.js";
+import { executeQtNativeRead, type QtNativeExecutorDependencies } from "./qt-native-executor.js";
 
 interface ConfiguredArguments {
   args: Record<string, unknown>;
@@ -188,13 +186,11 @@ const EXPERIMENTAL_PROFILE_VERIFICATION = new Set<SseApiOperation>(
   EXPERIMENTAL_PROFILE_VERIFICATION_OPERATIONS,
 );
 
-export interface ApiExecutorDependencies {
+export interface ApiExecutorDependencies extends QtNativeExecutorDependencies {
   /** Interne Testgrenze; kein benutzerkonfigurierbarer API-Dateipfad. */
   profilesRoot?: string;
   /** Interne Testgrenze fuer die fail-closed SSE-Prozesspruefung der Fallarchivierung. */
   archiveHasRunningSseProcess?: () => Promise<boolean>;
-  /** Explicitly loaded, process-bound native session owned by this executor. */
-  qtNativeClient?: QtNativeClient;
 }
 
 function isExperimentalDialogAnswerCandidate(
@@ -287,11 +283,8 @@ export function createApiExecutor(
       args = internalCheckerClick
         ? parseCheckerReadOnlyClickArgs(args)
         : parseApiOperationArgs(operation, args);
-      if (operation === "get_value" && dependencies.qtNativeClient) {
-        return redactPaths(await executeQtNativeGetValue(dependencies.qtNativeClient, args, timeoutMs, signal));
-      }
-      if (operation === "table_read" && dependencies.qtNativeClient) {
-        return redactPaths(await executeQtNativeTableRead(dependencies.qtNativeClient, args, timeoutMs, signal));
+      if ((operation === "get_value" || operation === "table_read") && (dependencies.qtNativeClient || dependencies.qtNativeClientFor)) {
+        return redactPaths(await executeQtNativeRead(operation, args, dependencies, timeoutMs, signal));
       }
       if (operation === "capabilities") {
         return {

@@ -167,6 +167,7 @@ for (const required of [
 for (const path of mcp.paths) {
   assert(!/^(?:powershell|profiles)\//u.test(path), `MCP-Paket kennt PC-Runtime: ${path}`);
   assert(!/^dist\/(?:api-main|api-runtime|setup|worker|product-profile)/u.test(path), `MCP-Paket enthaelt API-/PC-Modul: ${path}`);
+  assert(!/^dist\/qt-native-(?:package|broker|runtime|client|values|tables|executor)\./u.test(path), `MCP-Paket enthaelt native Ausfuehrung: ${path}`);
 }
 
 for (const [label, packed] of [["API", api], ["MCP", mcp]]) {

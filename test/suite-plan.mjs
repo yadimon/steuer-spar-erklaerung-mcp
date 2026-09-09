@@ -84,6 +84,7 @@ export const parallelSteps = Object.freeze([
   nodeFile("file-dialog-folder-contract", "test/file-dialog-folder-contract.mjs"),
   nodeFile("native-build-cache", "test/native-build-cache.mjs"),
   nodeFile("qt-native-client", "test/qt-native-client.mjs"),
+  nodeFile("qt-native-runtime", "test/qt-native-runtime.mjs"),
   nodeFile("direct-worker-guard", "test/direct-worker-guard.mjs"),
   nodeFile("direct-worker-experimental-guard", "test/direct-worker-experimental-guard.mjs"),
   psFile("experimental-dialog-policy", "test/experimental-dialog-policy-contract.ps1"),
