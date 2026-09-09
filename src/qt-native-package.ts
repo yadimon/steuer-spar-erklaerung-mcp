@@ -14,7 +14,7 @@ const nativeProfileSchema = z.object({
   qtVersion: z.string().regex(/^\d+\.\d+\.\d+$/u),
 }).strict();
 const manifestSchema = z.object({
-  schemaVersion: z.literal(1), startupAbi: z.literal(2), bridgeProtocol: z.literal(1),
+  schemaVersion: z.literal(1), startupAbi: z.literal(2), bridgeProtocol: z.literal(1), discoveryProtocol: z.literal(1),
   buildIdentity: z.string().regex(/^SSE_NATIVE_BRIDGE_V2:[a-f0-9]{64}$/u),
   profile: nativeProfileSchema,
   loader: z.object({ file: z.literal("bridge-load.exe"), sha256 }).strict(),

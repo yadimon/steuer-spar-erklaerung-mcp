@@ -1,4 +1,31 @@
 // Bound process/window discovery without UIA, CIM, input or desktop switching.
+#include "bridge-windows.h"
+struct DiscoveryError : std::runtime_error {
+    std::string kind;
+    DiscoveryError(const char *code, const char *message) : std::runtime_error(message), kind(code) {}
+};
+static void selectDiscoveryTarget(Json &request) {
+    PhaseTimer timer(discoveryMs);
+    if (!request.contains("expectedImage")) throw DiscoveryError("native-binding", "Discovery requires an explicit executable");
+    if (request.contains("pid")) {
+        const auto process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, request.at("pid").get<DWORD>());
+        if (!process) {
+            if (GetLastError() == ERROR_INVALID_PARAMETER) throw DiscoveryError("desktop-marker-stale", "Owned desktop process is no longer running");
+            throw DiscoveryError("native-binding", "Owned desktop process identity is unavailable");
+        }
+        const auto state = WaitForSingleObject(process, 0); CloseHandle(process);
+        if (state != WAIT_TIMEOUT) throw DiscoveryError("desktop-marker-stale", "Owned desktop process is no longer running");
+    }
+    const auto windows = nativeMainWindows(wide(request.at("expectedImage").get<std::string>()), L"Qt692QWindowIcon");
+    Json matches = Json::array();
+    for (const auto &window : windows) {
+        if (!request.contains("hwnd") || request.at("hwnd") == window.at("hwnd")) matches.push_back(window);
+    }
+    if (matches.size() != 1) throw DiscoveryError(matches.empty() ? "no-window" : "ambiguous", "An unambiguous current product window is required");
+    if (request.contains("pid") && request.at("pid") != matches[0].at("pid"))
+        throw DiscoveryError("native-binding", "Selected window differs from the owned desktop process");
+    request["pid"] = matches[0].at("pid"); request["hwnd"] = matches[0].at("hwnd");
+}
 static std::string narrow(const std::wstring &value) {
     const int size = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value.data(),
         static_cast<int>(value.size()), nullptr, 0, nullptr, nullptr);

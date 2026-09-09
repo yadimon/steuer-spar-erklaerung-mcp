@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { extname, relative, resolve } from "node:path";
 
@@ -10,7 +11,7 @@ const listed = execFileSync("git", ["ls-files", "--cached", "--others", "--exclu
   windowsHide: true,
 });
 const textExtensions = new Set([
-  ".cmd", ".config", ".cpp", ".cs", ".csv", ".h", ".html", ".ini", ".js", ".json", ".map", ".md", ".mjs",
+  ".cmd", ".config", ".cpp", ".cs", ".csv", ".h", ".hpp", ".html", ".ini", ".js", ".json", ".map", ".md", ".mjs",
   ".ps1", ".svg", ".toml", ".ts", ".txt", ".vbs", ".xml", ".yaml", ".yml",
 ]);
 const sha256TokenPattern = /(?<![0-9A-Fa-f])[0-9A-Fa-f]{64}(?![0-9A-Fa-f])/gu;
@@ -90,6 +91,12 @@ assert.equal(ignoredProbes.status, 0, ignoredProbes.stderr);
 assert.deepEqual(ignoredProbes.stdout.split("\0").filter(Boolean), privatePathProbes,
   "Private Pfade müssen auch ohne den Vertrag bereits durch Git ignoriert werden.");
 const violations = [];
+// The exact unmodified upstream header contains public copyright contacts and
+// numeric conversion constants. No path-wide or contact-pattern exception is allowed.
+const upstreamSources = new Map([
+  ["native/qt/third_party/nlohmann/json.hpp", "665fa14b8af3837966949e8eb0052d583e2ac105d3438baba9951785512cf921"],
+]);
+const sha256 = bytes => createHash("sha256").update(bytes).digest("hex");
 let checked = 0;
 for (const file of listed.split("\0").filter(Boolean)) {
   const absolute = resolve(root, file);
@@ -99,6 +106,10 @@ for (const file of listed.split("\0").filter(Boolean)) {
     if (rule.pattern.test(normalizedFile)) violations.push(`${file}: ${rule.label}`);
   }
   if (!textExtensions.has(extname(file).toLowerCase())) continue;
+  if (upstreamSources.has(normalizedFile)) {
+    assert.equal(sha256(readFileSync(absolute)), upstreamSources.get(normalizedFile), "Vendored source differs from the reviewed upstream bytes.");
+    checked += 1; continue;
+  }
   const source = readFileSync(absolute, "utf8");
   checked += 1;
   for (const rule of rules) {
@@ -125,6 +136,7 @@ const historyPattern = rules
   .map(({ pattern, historyPattern: override }) => `(?:${override ?? pattern.source})`)
   .join("|");
 const historyViolations = [];
+const upstreamHistory = new Map();
 for (let offset = 0; offset < revisions.length; offset += 100) {
   const historyScan = spawnSync(
     "git",
@@ -135,7 +147,18 @@ for (let offset = 0; offset < revisions.length; offset += 100) {
     historyScan.status === 0 || historyScan.status === 1,
     `Git-Historie konnte nicht geprüft werden:\n${historyScan.stderr}`,
   );
-  if (historyScan.stdout) historyViolations.push(historyScan.stdout.trimEnd());
+  for (const line of historyScan.stdout.trimEnd().split(/\r?\n/u).filter(Boolean)) {
+    const match = /^([a-f0-9]{40,64}):([^:]+):[0-9]+:/u.exec(line);
+    if (match && upstreamSources.has(match[2])) {
+      const object = `${match[1]}:${match[2]}`;
+      if (!upstreamHistory.has(object)) {
+        const bytes = execFileSync("git", ["show", object], { cwd: root, windowsHide: true, maxBuffer: 2 * 1024 * 1024 });
+        upstreamHistory.set(object, sha256(bytes) === upstreamSources.get(match[2]));
+      }
+      if (upstreamHistory.get(object)) continue;
+    }
+    historyViolations.push(line);
+  }
 }
 assert.deepEqual(
   historyViolations,

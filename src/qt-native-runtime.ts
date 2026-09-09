@@ -4,21 +4,13 @@ import type { SseApiServerConfig } from "./api-config.js";
 import { detectSseExecutables } from "./api-first-run.js";
 import type { SseApiOperation, WorkerResult } from "./api-contract.js";
 import type { ProductProfile } from "./product-profiles.js";
-import type { ScenarioExecutor } from "./scenario.js";
 import { QtNativeTransportError, type QtNativeClient } from "./qt-native-client.js";
 import { loadQtNativePackage, type QtNativePackage } from "./qt-native-package.js";
 import { startQtNativeBroker, type QtNativeBrokerOptions, type QtNativeSession, type QtNativeTarget } from "./qt-native-broker.js";
 import { withCombinedAbortSignal } from "./abort.js";
+import { discoverQtNativeTarget, type QtNativeDiscoveryOptions } from "./qt-native-discovery.js";
+import { DesktopMarkerError, desktopMarkerPath, resolveDesktopMarkerForOperation, type DesktopMarker } from "./desktop-marker.js";
 
-const windowSchema = z.object({
-  pid: z.number().int().positive(), hwnd: z.number().int().positive(), title: z.string(),
-  w: z.number(), h: z.number(), minimiert: z.boolean().optional(),
-}).passthrough();
-const windowsSchema = z.object({ ok: z.literal(true), windows: z.array(windowSchema).max(256) });
-const desktopSchema = z.object({
-  ok: z.literal(true), aktiv: z.boolean(), markeVeraltet: z.boolean(),
-  desktop: z.string().nullable().optional(), pid: z.number().int().nonnegative().nullable().optional(),
-}).passthrough();
 const contextSchema = z.object({ ok: z.literal(true), boundMain: z.boolean(), unique: z.boolean() }).passthrough();
 
 export interface QtNativeRuntime {
@@ -31,10 +23,12 @@ export interface QtNativeRuntimeDependencies {
   /** Internal integration-test seam; package configuration never accepts a callback. */
   loadPackage?: (config: NonNullable<SseApiServerConfig["qtNativeRuntime"]>, profile: ProductProfile) => QtNativePackage;
   startSession?: (options: QtNativeBrokerOptions) => Promise<QtNativeSession>;
+  discoverTarget?: (options: QtNativeDiscoveryOptions) => Promise<QtNativeTarget>;
+  readMarker?: () => DesktopMarker | null;
 }
 
 export function createQtNativeRuntime(
-  config: SseApiServerConfig, profile: ProductProfile, worker: ScenarioExecutor,
+  config: SseApiServerConfig, profile: ProductProfile,
   shutdown: AbortSignal, dependencies: QtNativeRuntimeDependencies = {},
 ): QtNativeRuntime {
   if (!config.qtNativeRuntime) throw new Error("Native runtime configuration is required.");
@@ -42,6 +36,8 @@ export function createQtNativeRuntime(
   const executable = config.sseExecutable ? [config.sseExecutable] : detectSseExecutables(profile.id);
   if (executable.length !== 1) throw new Error("Native runtime requires exactly one configured or installed product executable.");
   const start = dependencies.startSession ?? startQtNativeBroker;
+  const discover = dependencies.discoverTarget ?? discoverQtNativeTarget;
+  const readMarker = dependencies.readMarker ?? (() => resolveDesktopMarkerForOperation(desktopMarkerPath(), "get_value", false));
   const sessions = new Map<number, QtNativeSession>();
   let selected: number | undefined, starting: Promise<QtNativeSession> | undefined;
   let startupAbort: AbortController | undefined;
@@ -66,22 +62,18 @@ export function createQtNativeRuntime(
     });
   }
   async function target(args: Readonly<Record<string, unknown>>, deadline: number, signal?: AbortSignal): Promise<QtNativeTarget> {
-    // The first worker inventory retains desktop-marker ownership and profile gates.
-    // Subsequent reads use a native context check on the retained connection.
-    const inventory = await worker("windows", {}, left(deadline), signal);
-    if (inventory.ok !== true) throw failure(String(inventory.error ?? "Native window inventory failed."), String(inventory.kind ?? "native-binding"));
-    const windows = windowsSchema.parse(inventory).windows;
-    const loaded = windows.filter(window => window.title.includes("SteuerSparErklärung") && (window.w >= 900 || window.minimiert));
-    const main = loaded.length ? loaded : windows.filter(window => window.title === "Steuerprogramm" && (window.w >= 900 || window.minimiert));
-    const matches = args.hwnd === undefined ? main : main.filter(window => window.hwnd === args.hwnd);
-    if (matches.length !== 1) throw failure("An unambiguous current product window is required.", matches.length ? "ambiguous" : "no-window");
-    const window = matches[0]!;
-    const rawDesktop = await worker("desktop_status", {}, left(deadline), signal);
-    if (rawDesktop.ok !== true) throw failure("Native desktop ownership could not be verified.", "native-binding");
-    const desktop = desktopSchema.parse(rawDesktop);
-    if (desktop.markeVeraltet) throw failure("The owned desktop marker is stale.", "desktop-marker-stale");
-    if (desktop.aktiv && (desktop.pid !== window.pid || !desktop.desktop)) throw failure("Native target differs from the owned desktop.", "native-binding");
-    return { pid: window.pid, hwnd: window.hwnd, ...(desktop.aktiv ? { desktop: desktop.desktop! } : {}) };
+    try {
+      const marker = readMarker();
+      const binding = await discover({ package: nativePackage, expectedImage: executable[0]!, marker,
+        ...(typeof args.hwnd === "number" ? { hwnd: args.hwnd } : {}), timeoutMs: Math.min(left(deadline), 60_000), ...(signal ? { signal } : {}) });
+      if (JSON.stringify(readMarker()) !== JSON.stringify(marker)) {
+        throw failure("Desktop ownership changed during native discovery.", "native-binding");
+      }
+      return binding;
+    } catch (error) {
+      if (error instanceof DesktopMarkerError) throw failure(error.message, error.kind);
+      throw error;
+    }
   }
   async function obtain(args: Readonly<Record<string, unknown>>, deadline: number, signal?: AbortSignal): Promise<QtNativeSession> {
     if (stopped || shutdown.aborted || signal?.aborted) throw failure("Native runtime is stopping or the request was cancelled.", "aborted");

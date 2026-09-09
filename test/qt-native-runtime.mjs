@@ -13,6 +13,8 @@ import { configurationFingerprint } from "../dist/configuration-fingerprint.js";
 import { createApiExecutor } from "../dist/api-executor.js";
 import { QtNativeTransportError } from "../dist/qt-native-client.js";
 import { startQtNativeBroker } from "../dist/qt-native-broker.js";
+import { discoverQtNativeTarget, parseQtNativeDiscovery } from "../dist/qt-native-discovery.js";
+import { DesktopMarkerError } from "../dist/desktop-marker.js";
 
 const temporary = mkdtempSync(join(tmpdir(), "sse-native-runtime-"));
 const digest = bytes => createHash("sha256").update(bytes).digest("hex");
@@ -20,7 +22,7 @@ const profile = loadProductProfile("2025");
 const nativeDirectory = join(temporary, "native");
 mkdirSync(nativeDirectory);
 const manifest = {
-  schemaVersion: 1, startupAbi: 2, bridgeProtocol: 1, buildIdentity: `SSE_NATIVE_BRIDGE_V2:${"a".repeat(64)}`,
+  schemaVersion: 1, startupAbi: 2, bridgeProtocol: 1, discoveryProtocol: 1, buildIdentity: `SSE_NATIVE_BRIDGE_V2:${"a".repeat(64)}`,
   profile: { id: profile.id, taxYear: profile.taxYear, engineFileMajor: profile.engineFileMajor,
     verifiedBuild: profile.verifiedBuild, qtVersion: profile.nativeQtVersion },
   loader: { file: "bridge-load.exe", sha256: digest("loader-fixture") },
@@ -38,7 +40,6 @@ const deferred = () => {
   return { promise, resolve: resolvePending, reject: rejectPending };
 };
 const kind = expected => error => error instanceof QtNativeTransportError && error.kind === expected;
-const window = (hwnd = 42, pid = 99) => ({ hwnd, pid, title: "SteuerSparErklärung – synthetic", w: 1000, h: 700 });
 
 try {
   writeFileSync(join(nativeDirectory, "bridge-load.exe"), "loader-fixture");
@@ -57,6 +58,7 @@ try {
   assert.throws(() => loadQtNativePackage(nativeConfig, { ...profile, nativeQtVersion: "0.0.0" }), /compatibility/);
   assert.throws(() => loadQtNativePackage(nativeConfig, { ...profile, status: "experimental" }), /no supported/);
   assert.throws(() => loadQtNativePackage(packageConfig({ ...manifest, extra: true }), profile));
+  assert.throws(() => loadQtNativePackage(packageConfig({ ...manifest, discoveryProtocol: undefined }), profile));
   assert.throws(() => loadQtNativePackage(packageConfig({ ...manifest, loader: { ...manifest.loader, file: "../loader.exe" } }), profile));
   packageConfig();
   writeFileSync(nativePackage.bridgePath, "tampered-fixture");
@@ -76,16 +78,17 @@ try {
 
   function harness(options = {}) {
     const shutdown = new AbortController(), calls = [], starts = [], sessions = [];
-    const state = { windows: [window()], context: { ok: true, boundMain: true, unique: true }, closed: 0, reads: 0 };
-    const worker = async (operation, args, timeout, signal) => {
-      calls.push(operation);
-      await options.inventoryWait?.(operation, signal);
-      if (operation === "windows") return options.inventoryError ?? { ok: true, windows: state.windows };
-      assert.equal(operation, "desktop_status");
-      return options.desktop ?? { ok: true, aktiv: false, markeVeraltet: false };
-    };
-    const runtime = createQtNativeRuntime(config, profile, worker, shutdown.signal, {
+    const state = { target: { pid: 99, hwnd: 42, creationTime: "1" }, marker: null,
+      context: { ok: true, boundMain: true, unique: true }, closed: 0, reads: 0 };
+    const runtime = createQtNativeRuntime(config, profile, shutdown.signal, {
       loadPackage: () => nativePackage,
+      readMarker: () => { if (state.markerError) throw state.markerError; return state.marker; },
+      discoverTarget: async request => {
+        calls.push("discover");
+        await options.inventoryWait?.("discover", request.signal);
+        if (state.discoveryError) throw state.discoveryError;
+        return { ...state.target, ...(request.marker ? { desktop: request.marker.name } : {}) };
+      },
       startSession: async request => {
         starts.push(request);
         await options.startWait?.(request);
@@ -107,7 +110,7 @@ try {
   const first = await h.runtime.client({}, 1000);
   assert.equal(await h.runtime.client({}, 1000), first);
   assert.equal(await h.runtime.client({ hwnd: 42 }, 1000), first);
-  assert.deepEqual(h.calls, ["windows", "desktop_status"]);
+  assert.deepEqual(h.calls, ["discover"]);
   assert.equal(h.starts.length, 1);
   assert.equal(h.state.reads, 3, "Every cached use must verify current native window context.");
   h.state.context.unique = false;
@@ -133,25 +136,33 @@ try {
   assert.equal(h.state.closed, 2);
   await assert.rejects(h.runtime.client({}, 1000), kind("aborted"));
 
-  const multiple = harness(); multiple.state.windows.push(window(43, 100));
+  const multiple = harness(); multiple.state.discoveryError = new QtNativeTransportError("Multiple windows", "ambiguous");
   await assert.rejects(multiple.runtime.client({}, 1000), kind("ambiguous"));
   assert.equal(multiple.starts.length, 0);
+  delete multiple.state.discoveryError; multiple.state.target = { hwnd: 43, pid: 100, creationTime: "2" };
   await multiple.runtime.client({ hwnd: 43 }, 1000);
   assert.equal(multiple.starts[0].target.hwnd, 43);
-  multiple.state.windows.push(window(44, 100));
+  multiple.state.target = { hwnd: 44, pid: 100, creationTime: "2" };
   await assert.rejects(multiple.runtime.client({ hwnd: 44 }, 1000), kind("native-window-conflict"));
   await multiple.runtime.close();
-  for (const [options, expected] of [
-    [{ inventoryError: { ok: false, kind: "desktop-owned-by-center-test", error: "Owned desktop" } }, "desktop-owned-by-center-test"],
-    [{ desktop: { ok: true, aktiv: true, markeVeraltet: true, desktop: "Private", pid: 99 } }, "desktop-marker-stale"],
-    [{ desktop: { ok: true, aktiv: true, markeVeraltet: false, desktop: "Private", pid: 98 } }, "native-binding"],
-  ]) {
-    const rejected = harness(options);
+  for (const expected of ["desktop-marker-stale", "native-binding"]) {
+    const rejected = harness(); rejected.state.discoveryError = new QtNativeTransportError("Discovery rejected", expected);
     await assert.rejects(rejected.runtime.client({}, 1000), kind(expected));
     assert.equal(rejected.starts.length, 0); await rejected.runtime.close();
   }
-  const owned = harness({ desktop: { ok: true, aktiv: true, markeVeraltet: false, desktop: "Private", pid: 99 } });
+  const malformed = harness(); malformed.state.markerError = new DesktopMarkerError("Invalid marker", "desktop-marker-invalid");
+  await assert.rejects(malformed.runtime.client({}, 1000), kind("desktop-marker-invalid"));
+  assert.equal(malformed.calls.length, 0); await malformed.runtime.close();
+  const foreign = harness(); foreign.state.markerError = new DesktopMarkerError("Foreign marker", "desktop-marker-owner");
+  await assert.rejects(foreign.runtime.client({}, 1000), kind("desktop-marker-owner"));
+  assert.equal(foreign.calls.length, 0); await foreign.runtime.close();
+  const owned = harness(); owned.state.marker = { schemaVersion: 1, owner: "sse", name: "Private", pid: 99 };
   await owned.runtime.client({}, 1000); assert.equal(owned.starts[0].target.desktop, "Private"); await owned.runtime.close();
+
+  const markerGate = deferred(), markerChanged = harness({ inventoryWait: () => markerGate.promise });
+  const staleMarker = assert.rejects(markerChanged.runtime.client({}, 5000), kind("native-binding"));
+  await nextTurn(); markerChanged.state.marker = { schemaVersion: 1, owner: "sse", name: "Private", pid: 99 };
+  markerGate.resolve(); await staleMarker; assert.equal(markerChanged.starts.length, 0); await markerChanged.runtime.close();
 
   const gate = deferred(), concurrent = harness({ startWait: () => gate.promise });
   const initial = concurrent.runtime.client({}, 5000); await nextTurn();
@@ -188,6 +199,22 @@ try {
   const failure = await execute("get_value", { aid: "field" }, 1000);
   assert.equal(failure.kind, "native-startup"); assert.equal(failure.outcomeUnknown, true); assert.equal(providerCalls, 1);
   const stopped = new AbortController(); stopped.abort();
+  const discoveryOptions = { package: nativePackage, expectedImage: config.sseExecutable, marker: null, timeoutMs: 1000 };
+  const identity = { ok: true, pid: 99, hwnd: 42, creationTime: "1", image: config.sseExecutable, sessionId: 1,
+    bindingDiscovered: true, binaryIdentityVerified: true, loaderBuildIdentity: manifest.buildIdentity, profile: manifest.profile };
+  assert.deepEqual(parseQtNativeDiscovery(identity, discoveryOptions), { pid: 99, hwnd: 42, creationTime: "1" });
+  for (const changed of [{ pid: 0 }, { creationTime: "18446744073709551616" }, { hwnd: 0 }, { image: "C:\\different.exe" },
+    { binaryIdentityVerified: false }, { loaderBuildIdentity: "other" }, { desktop: "Other" }, { profile: { ...manifest.profile, id: "2024" } }]) {
+    assert.throws(() => parseQtNativeDiscovery({ ...identity, ...changed }, discoveryOptions));
+  }
+  assert.throws(() => parseQtNativeDiscovery(identity, { ...discoveryOptions, hwnd: 43 }));
+  assert.throws(() => parseQtNativeDiscovery({ ...identity, desktop: "Private" }, {
+    ...discoveryOptions, marker: { schemaVersion: 1, owner: "sse", name: "Private", pid: 98 },
+  }));
+  await assert.rejects(discoverQtNativeTarget({ ...discoveryOptions, signal: stopped.signal }), kind("aborted"));
+  await assert.rejects(discoverQtNativeTarget({ ...discoveryOptions, timeoutMs: 0 }), kind("native-deadline"));
+  await assert.rejects(discoverQtNativeTarget({ ...discoveryOptions, expectedImage: "relative" }), kind("native-binding"));
+  await assert.rejects(discoverQtNativeTarget({ ...discoveryOptions, marker: { name: "../Other", owner: "sse", pid: 99 } }), kind("desktop-marker-invalid"));
   await assert.rejects(startQtNativeBroker({ package: nativePackage, target: { pid: 99, hwnd: 42 },
     expectedImage: config.sseExecutable, timeoutMs: 1000, signal: stopped.signal }), kind("aborted"));
   await assert.rejects(startQtNativeBroker({ package: nativePackage, target: { pid: 0, hwnd: 42 },

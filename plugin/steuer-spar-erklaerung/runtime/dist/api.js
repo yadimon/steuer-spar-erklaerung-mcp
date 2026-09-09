@@ -7977,14 +7977,14 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
       note: "Der neue Fall ist geoeffnet und leer gespeichert. Stammdaten jetzt mit fill_fields fuellen; vor der ersten weiteren Mutation den Dateistand nach backups: sichern."
     };
   } catch (error) {
-    const failure2 = error instanceof StepFailure ? error.result : operationError(error instanceof Error ? error.message : String(error), signal?.aborted ? "aborted" : "case-create");
+    const failure3 = error instanceof StepFailure ? error.result : operationError(error instanceof Error ? error.message : String(error), signal?.aborted ? "aborted" : "case-create");
     const created = target !== void 0 && existsSync7(target.path);
     if (pid > 0 && !created) {
       const cleanupState = await cleanupStartedProcess(dependencies.worker, pid);
-      return { ...failure2, created: false, steps, pid, ...cleanupState };
+      return { ...failure3, created: false, steps, pid, ...cleanupState };
     }
     return {
-      ...failure2,
+      ...failure3,
       created,
       steps,
       ...pid > 0 ? { pid, processStillRunning: true } : {},
@@ -16780,8 +16780,8 @@ function createSseApiServer(options) {
           }
         });
       } catch (error) {
-        const failure2 = error instanceof ApiRequestError ? error : error instanceof SyntaxError || error instanceof ZodError ? new ApiRequestError("Shutdown verlangt genau confirm=true und eine gueltige instanceId.") : new ApiRequestError("Shutdown-Anfrage konnte nicht sicher gelesen werden.");
-        sendJson(response, failure2.status, apiError(requestId, failure2.code, failure2.message));
+        const failure3 = error instanceof ApiRequestError ? error : error instanceof SyntaxError || error instanceof ZodError ? new ApiRequestError("Shutdown verlangt genau confirm=true und eine gueltige instanceId.") : new ApiRequestError("Shutdown-Anfrage konnte nicht sicher gelesen werden.");
+        sendJson(response, failure3.status, apiError(requestId, failure3.code, failure3.message));
       }
       return;
     }
@@ -17393,19 +17393,19 @@ function createWorkerArgumentsFile(args) {
   }
   const path = join13(tmpdir(), `sse-args-${randomUUID4().replaceAll("-", "")}.json`);
   const descriptor = openSync3(path, "wx", 384);
-  let failure2;
+  let failure3;
   try {
     writeFileSync3(descriptor, bytes);
   } catch (error) {
-    failure2 = error;
+    failure3 = error;
   } finally {
     try {
       closeSync3(descriptor);
     } catch (error) {
-      failure2 ??= error;
+      failure3 ??= error;
     }
   }
-  if (failure2 !== void 0) {
+  if (failure3 !== void 0) {
     const cleanupError = removeWorkerArgumentsFile(path);
     const detail = cleanupError ? ` ${cleanupError.message}` : "";
     throw new WorkerError(`Interne Worker-Argumentdatei liess sich nicht schreiben.${detail}`, "worker-transport");
@@ -17958,6 +17958,7 @@ var init_qt_native_package = __esm({
       schemaVersion: external_exports.literal(1),
       startupAbi: external_exports.literal(2),
       bridgeProtocol: external_exports.literal(1),
+      discoveryProtocol: external_exports.literal(1),
       buildIdentity: external_exports.string().regex(/^SSE_NATIVE_BRIDGE_V2:[a-f0-9]{64}$/u),
       profile: nativeProfileSchema,
       loader: external_exports.object({ file: external_exports.literal("bridge-load.exe"), sha256 }).strict(),
@@ -18128,22 +18129,119 @@ var init_qt_native_broker = __esm({
   }
 });
 
+// src/qt-native-discovery.ts
+import { execFile as execFile2 } from "node:child_process";
+import { isAbsolute as isAbsolute9 } from "node:path";
+function parseQtNativeDiscovery(value, options) {
+  const found = discoverySchema.parse(value);
+  if (found.loaderBuildIdentity !== options.package.manifest.buildIdentity || found.image.toLowerCase() !== options.expectedImage.toLowerCase() || found.desktop !== options.marker?.name || options.hwnd !== void 0 && found.hwnd !== options.hwnd || options.marker?.pid !== void 0 && options.marker?.pid !== null && found.pid !== options.marker.pid) {
+    throw failure2("native-binding", "Native discovery did not verify the requested image, desktop, process and window.");
+  }
+  const expected = options.package.manifest.profile;
+  if (Object.keys(found.profile).length !== Object.keys(expected).length || Object.entries(expected).some(([key, value2]) => found.profile[key] !== value2)) {
+    throw failure2("native-binding", "Native discovery profile differs from its pinned package.");
+  }
+  return { pid: found.pid, hwnd: found.hwnd, creationTime: found.creationTime, ...found.desktop ? { desktop: found.desktop } : {} };
+}
+async function discoverQtNativeTarget(options) {
+  if (options.signal?.aborted) throw failure2("aborted", "Native discovery cancelled before launch.");
+  if (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > 6e4) {
+    throw failure2("native-deadline", "Invalid native discovery deadline.");
+  }
+  if (!isAbsolute9(options.expectedImage) || /[\u0000-\u001f]/u.test(options.expectedImage) || options.hwnd !== void 0 && (!Number.isSafeInteger(options.hwnd) || options.hwnd < 1)) {
+    throw failure2("native-binding", "Invalid native discovery selector.");
+  }
+  const marker = options.marker;
+  if (marker && (marker.owner !== "sse" || !/^[A-Za-z0-9_-]{1,64}$/u.test(marker.name) || marker.pid !== null && (!Number.isSafeInteger(marker.pid) || marker.pid < 1 || marker.pid > 4294967295))) {
+    throw failure2("desktop-marker-invalid", "Native discovery requires a valid SSE desktop marker.");
+  }
+  const request = {
+    mode: "discover",
+    expectedImage: options.expectedImage,
+    expectedProfile: options.package.manifest.profile,
+    ...options.hwnd !== void 0 ? { hwnd: options.hwnd } : {},
+    ...marker ? { desktop: marker.name, ...marker.pid !== null ? { pid: marker.pid } : {} } : {}
+  };
+  const body = Buffer.from(JSON.stringify(request));
+  if (body.length > 65536) throw failure2("native-request-size", "Native discovery request exceeds its bound.");
+  return new Promise((resolveTarget, reject) => {
+    const child = execFile2(options.package.loaderPath, ["--stdin"], {
+      windowsHide: true,
+      encoding: "buffer",
+      maxBuffer: 65536,
+      timeout: options.timeoutMs,
+      signal: options.signal
+    }, (error, stdout, stderr) => {
+      if (options.signal?.aborted) {
+        reject(failure2("aborted", "Native discovery cancelled."));
+        return;
+      }
+      if (error) {
+        if (error.killed) {
+          reject(failure2("native-timeout", "Native discovery exceeded its deadline."));
+          return;
+        }
+        let kind = "native-binding";
+        try {
+          const diagnostic = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(stderr));
+          if (["no-window", "ambiguous", "desktop-marker-stale", "native-binding"].includes(String(diagnostic.kind))) kind = String(diagnostic.kind);
+        } catch {
+        }
+        reject(failure2(kind, "Native discovery could not verify an unambiguous current product window."));
+        return;
+      }
+      try {
+        resolveTarget(parseQtNativeDiscovery(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(stdout)), options));
+      } catch (error2) {
+        reject(error2 instanceof QtNativeTransportError ? error2 : failure2("native-contract", "Native discovery returned an invalid identity."));
+      }
+    });
+    child.stdin?.on("error", () => {
+    });
+    child.stdin?.end(body);
+  });
+}
+var discoverySchema, failure2;
+var init_qt_native_discovery = __esm({
+  "src/qt-native-discovery.ts"() {
+    "use strict";
+    init_zod();
+    init_qt_native_client();
+    discoverySchema = external_exports.object({
+      ok: external_exports.literal(true),
+      pid: external_exports.number().int().positive().max(4294967295),
+      hwnd: external_exports.number().int().positive().safe(),
+      creationTime: external_exports.string().regex(/^[1-9][0-9]{0,19}$/u).refine((value) => BigInt(value) <= 0xffffffffffffffffn),
+      image: external_exports.string(),
+      desktop: external_exports.string().optional(),
+      sessionId: external_exports.number().int().nonnegative(),
+      bindingDiscovered: external_exports.literal(true),
+      binaryIdentityVerified: external_exports.literal(true),
+      loaderBuildIdentity: external_exports.string(),
+      profile: external_exports.record(external_exports.unknown())
+    }).passthrough();
+    failure2 = (kind, message) => new QtNativeTransportError(message, kind);
+  }
+});
+
 // src/qt-native-runtime.ts
 import { performance as performance13 } from "node:perf_hooks";
-function createQtNativeRuntime(config, profile, worker, shutdown, dependencies = {}) {
+function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
   if (!config.qtNativeRuntime) throw new Error("Native runtime configuration is required.");
   const nativePackage = (dependencies.loadPackage ?? loadQtNativePackage)(config.qtNativeRuntime, profile);
   const executable = config.sseExecutable ? [config.sseExecutable] : detectSseExecutables(profile.id);
   if (executable.length !== 1) throw new Error("Native runtime requires exactly one configured or installed product executable.");
   const start = dependencies.startSession ?? startQtNativeBroker;
+  const discover = dependencies.discoverTarget ?? discoverQtNativeTarget;
+  const readMarker = dependencies.readMarker ?? (() => resolveDesktopMarkerForOperation(desktopMarkerPath(), "get_value", false));
   const sessions = /* @__PURE__ */ new Map();
   let selected, starting2;
   let startupAbort;
   let stopped = false, revision = 0;
-  const failure2 = (message, kind, outcomeUnknown = false) => new QtNativeTransportError(message, kind, outcomeUnknown);
+  const failure3 = (message, kind, outcomeUnknown = false) => new QtNativeTransportError(message, kind, outcomeUnknown);
   const left = (deadline) => {
     const value = Math.floor(deadline - performance13.now());
-    if (value < 1) throw failure2("Native operation deadline exceeded before dispatch.", "native-timeout");
+    if (value < 1) throw failure3("Native operation deadline exceeded before dispatch.", "native-timeout");
     return value;
   };
   async function waitForStartup(pending, deadline, signal) {
@@ -18154,46 +18252,50 @@ function createQtNativeRuntime(config, profile, worker, shutdown, dependencies =
         if (error) reject(error);
         else resolveWait();
       };
-      const abort = () => finish(failure2("Native startup wait cancelled.", "aborted"));
-      const timer = setTimeout(() => finish(failure2("Native startup wait exceeded its deadline.", "native-timeout")), left(deadline));
+      const abort = () => finish(failure3("Native startup wait cancelled.", "aborted"));
+      const timer = setTimeout(() => finish(failure3("Native startup wait exceeded its deadline.", "native-timeout")), left(deadline));
       signal?.addEventListener("abort", abort, { once: true });
       pending.then(() => finish(), (error) => finish(error));
       if (signal?.aborted) abort();
     });
   }
   async function target(args, deadline, signal) {
-    const inventory = await worker("windows", {}, left(deadline), signal);
-    if (inventory.ok !== true) throw failure2(String(inventory.error ?? "Native window inventory failed."), String(inventory.kind ?? "native-binding"));
-    const windows = windowsSchema.parse(inventory).windows;
-    const loaded = windows.filter((window2) => window2.title.includes("SteuerSparErklärung") && (window2.w >= 900 || window2.minimiert));
-    const main2 = loaded.length ? loaded : windows.filter((window2) => window2.title === "Steuerprogramm" && (window2.w >= 900 || window2.minimiert));
-    const matches = args.hwnd === void 0 ? main2 : main2.filter((window2) => window2.hwnd === args.hwnd);
-    if (matches.length !== 1) throw failure2("An unambiguous current product window is required.", matches.length ? "ambiguous" : "no-window");
-    const window = matches[0];
-    const rawDesktop = await worker("desktop_status", {}, left(deadline), signal);
-    if (rawDesktop.ok !== true) throw failure2("Native desktop ownership could not be verified.", "native-binding");
-    const desktop = desktopSchema.parse(rawDesktop);
-    if (desktop.markeVeraltet) throw failure2("The owned desktop marker is stale.", "desktop-marker-stale");
-    if (desktop.aktiv && (desktop.pid !== window.pid || !desktop.desktop)) throw failure2("Native target differs from the owned desktop.", "native-binding");
-    return { pid: window.pid, hwnd: window.hwnd, ...desktop.aktiv ? { desktop: desktop.desktop } : {} };
+    try {
+      const marker = readMarker();
+      const binding = await discover({
+        package: nativePackage,
+        expectedImage: executable[0],
+        marker,
+        ...typeof args.hwnd === "number" ? { hwnd: args.hwnd } : {},
+        timeoutMs: Math.min(left(deadline), 6e4),
+        ...signal ? { signal } : {}
+      });
+      if (JSON.stringify(readMarker()) !== JSON.stringify(marker)) {
+        throw failure3("Desktop ownership changed during native discovery.", "native-binding");
+      }
+      return binding;
+    } catch (error) {
+      if (error instanceof DesktopMarkerError) throw failure3(error.message, error.kind);
+      throw error;
+    }
   }
   async function obtain(args, deadline, signal) {
-    if (stopped || shutdown.aborted || signal?.aborted) throw failure2("Native runtime is stopping or the request was cancelled.", "aborted");
+    if (stopped || shutdown.aborted || signal?.aborted) throw failure3("Native runtime is stopping or the request was cancelled.", "aborted");
     const requested = typeof args.hwnd === "number" ? args.hwnd : selected;
     if (requested !== void 0 && sessions.has(requested)) return sessions.get(requested);
     if (starting2) {
       await waitForStartup(starting2, deadline, signal);
       return obtain(args, deadline, signal);
     }
-    if (sessions.size >= 4) throw failure2("Native window session limit reached.", "native-session-limit");
+    if (sessions.size >= 4) throw failure3("Native window session limit reached.", "native-session-limit");
     const expectedRevision = revision;
     startupAbort = new AbortController();
     const startupSignal = startupAbort.signal;
     starting2 = withCombinedAbortSignal([signal, shutdown, startupSignal], async (combined) => {
       const binding = await target(args, deadline, combined);
-      if (combined.aborted || stopped || expectedRevision !== revision) throw failure2("Native attachment was cancelled before launch.", "aborted");
+      if (combined.aborted || stopped || expectedRevision !== revision) throw failure3("Native attachment was cancelled before launch.", "aborted");
       if ([...sessions.values()].some((session2) => session2.client.binding.pid === binding.pid)) {
-        throw failure2("This process already has a native session bound to another window.", "native-window-conflict");
+        throw failure3("This process already has a native session bound to another window.", "native-window-conflict");
       }
       const session = await start({
         package: nativePackage,
@@ -18204,7 +18306,7 @@ function createQtNativeRuntime(config, profile, worker, shutdown, dependencies =
       });
       if (stopped || shutdown.aborted || expectedRevision !== revision) {
         await session.close();
-        throw failure2("Native attachment was superseded by a lifecycle change.", "native-session-changed");
+        throw failure3("Native attachment was superseded by a lifecycle change.", "native-session-changed");
       }
       sessions.set(binding.hwnd, session);
       selected = binding.hwnd;
@@ -18231,14 +18333,14 @@ function createQtNativeRuntime(config, profile, worker, shutdown, dependencies =
       return withCombinedAbortSignal([signal, shutdown], async (combined) => {
         const session = await obtain(args, deadline, combined);
         const checked = await session.client.request("window_context", {}, left(deadline), combined);
-        if (!checked.result.ok) throw failure2(
+        if (!checked.result.ok) throw failure3(
           String(checked.result.error ?? "Native window context failed."),
           String(checked.result.code ?? "native-binding"),
           checked.result.outcomeUnknown === true
         );
         const context = contextSchema.parse(checked.result);
-        if (!context.boundMain) throw failure2("The bound window is no longer a current main window.", "stale-window");
-        if (args.hwnd === void 0 && !context.unique) throw failure2("Multiple product windows require an explicit hwnd.", "ambiguous");
+        if (!context.boundMain) throw failure3("The bound window is no longer a current main window.", "stale-window");
+        if (args.hwnd === void 0 && !context.unique) throw failure3("Multiple product windows require an explicit hwnd.", "ambiguous");
         return session.client;
       });
     },
@@ -18261,7 +18363,7 @@ function createQtNativeRuntime(config, profile, worker, shutdown, dependencies =
   }, { once: true });
   return runtime;
 }
-var windowSchema, windowsSchema, desktopSchema, contextSchema;
+var contextSchema;
 var init_qt_native_runtime = __esm({
   "src/qt-native-runtime.ts"() {
     "use strict";
@@ -18271,22 +18373,8 @@ var init_qt_native_runtime = __esm({
     init_qt_native_package();
     init_qt_native_broker();
     init_abort();
-    windowSchema = external_exports.object({
-      pid: external_exports.number().int().positive(),
-      hwnd: external_exports.number().int().positive(),
-      title: external_exports.string(),
-      w: external_exports.number(),
-      h: external_exports.number(),
-      minimiert: external_exports.boolean().optional()
-    }).passthrough();
-    windowsSchema = external_exports.object({ ok: external_exports.literal(true), windows: external_exports.array(windowSchema).max(256) });
-    desktopSchema = external_exports.object({
-      ok: external_exports.literal(true),
-      aktiv: external_exports.boolean(),
-      markeVeraltet: external_exports.boolean(),
-      desktop: external_exports.string().nullable().optional(),
-      pid: external_exports.number().int().nonnegative().nullable().optional()
-    }).passthrough();
+    init_qt_native_discovery();
+    init_desktop_marker();
     contextSchema = external_exports.object({ ok: external_exports.literal(true), boundMain: external_exports.boolean(), unique: external_exports.boolean() }).passthrough();
   }
 });
@@ -18301,7 +18389,7 @@ __export(api_runtime_exports, {
 });
 import { setMaxListeners } from "node:events";
 import { realpathSync as realpathSync5 } from "node:fs";
-import { dirname as dirname14, isAbsolute as isAbsolute9, join as join15, relative as relative5 } from "node:path";
+import { dirname as dirname14, isAbsolute as isAbsolute10, join as join15, relative as relative5 } from "node:path";
 function installApiShutdown(server, shutdown, log, options = {}) {
   const forceAfterMs = options.forceAfterMs ?? 1e4;
   if (!Number.isFinite(forceAfterMs) || forceAfterMs < 1) {
@@ -18374,7 +18462,7 @@ function attachScreenshotImage(resultDir, operation, args, result) {
     const safeRoot = realpathSync5(resultDir);
     const imagePath = realpathSync5(path);
     const fromRoot = relative5(safeRoot, imagePath);
-    if (fromRoot.startsWith("..") || isAbsolute9(fromRoot)) {
+    if (fromRoot.startsWith("..") || isAbsolute10(fromRoot)) {
       return {
         ...result,
         imageReadError: "Kontrollbild liegt ausserhalb des konfigurierten Ergebnisbereichs; Bildinhalt wurde nicht gelesen."
@@ -18426,7 +18514,7 @@ async function runApiRuntime(configPath, overrides = {}) {
     const result = await withCombinedAbortSignal([signal, shutdown.signal], (combinedSignal) => (overrides.worker ?? callWorker)(operation, args, timeoutMs, combinedSignal));
     return attachScreenshotImage(config.resultDir, operation, args, result);
   };
-  const native = config.qtNativeRuntime ? createQtNativeRuntime(config, loadProductProfile(config.profileId), worker, shutdown.signal, overrides.qtNativeDependencies) : void 0;
+  const native = config.qtNativeRuntime ? createQtNativeRuntime(config, loadProductProfile(config.profileId), shutdown.signal, overrides.qtNativeDependencies) : void 0;
   const execute = createApiExecutor(config, async (operation, args, timeoutMs, signal) => {
     const result = await worker(operation, args, timeoutMs, signal);
     await native?.afterWorker(operation, result);

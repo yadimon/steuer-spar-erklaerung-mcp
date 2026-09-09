@@ -220,7 +220,7 @@ export async function runApiRuntime(
     return attachScreenshotImage(config.resultDir, operation, args, result);
   };
   const native = config.qtNativeRuntime
-    ? createQtNativeRuntime(config, loadProductProfile(config.profileId), worker, shutdown.signal, overrides.qtNativeDependencies)
+    ? createQtNativeRuntime(config, loadProductProfile(config.profileId), shutdown.signal, overrides.qtNativeDependencies)
     : undefined;
   const execute = createApiExecutor(config, async (operation, args, timeoutMs, signal) => {
     const result = await worker(operation, args, timeoutMs, signal);
