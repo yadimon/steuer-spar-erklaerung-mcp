@@ -12062,14 +12062,11 @@ var init_archive_executor = __esm({
   }
 });
 
-// src/qt-native-client.ts
-var MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES, UTF8, QtNativeTransportError;
-var init_qt_native_client = __esm({
-  "src/qt-native-client.ts"() {
+// src/qt-native-binding.ts
+var QtNativeTransportError;
+var init_qt_native_binding = __esm({
+  "src/qt-native-binding.ts"() {
     "use strict";
-    MAX_REQUEST_BYTES = 1024 * 1024;
-    MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
-    UTF8 = new TextDecoder("utf-8", { fatal: true });
     QtNativeTransportError = class extends Error {
       constructor(message, kind, outcomeUnknown = false) {
         super(message);
@@ -12080,6 +12077,19 @@ var init_qt_native_client = __esm({
       kind;
       outcomeUnknown;
     };
+  }
+});
+
+// src/qt-native-client.ts
+var MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES, UTF8;
+var init_qt_native_client = __esm({
+  "src/qt-native-client.ts"() {
+    "use strict";
+    init_qt_native_binding();
+    init_qt_native_binding();
+    MAX_REQUEST_BYTES = 1024 * 1024;
+    MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
+    UTF8 = new TextDecoder("utf-8", { fatal: true });
   }
 });
 

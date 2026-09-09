@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { createServer } from "node:net";
+import { createServer, createConnection } from "node:net";
+import { Duplex } from "node:stream";
 import { once } from "node:events";
 import { randomBytes } from "node:crypto";
 import { setImmediate as nextTurn } from "node:timers/promises";
@@ -80,6 +81,52 @@ await withPeer(async (socket, request) => {
 await withPeer(() => {}, async binding => {
   await assert.rejects(QtNativeClient.connect(binding), nativeError("native-peer"));
 }, { creationTime: "134000000000000001" });
+
+function byteStream(socket) {
+  const stream = new Duplex({
+    read() { socket.resume(); },
+    write(chunk, encoding, callback) { socket.write(chunk, encoding, callback); },
+    destroy(error, callback) { socket.destroy(); callback(error); },
+  });
+  socket.on("data", chunk => { if (!stream.push(chunk)) socket.pause(); });
+  socket.on("end", () => stream.push(null));
+  socket.on("error", error => stream.destroy(error));
+  return stream;
+}
+
+await withPeer((socket, request) => {
+  assert.equal(request.op, "objects");
+  socket.write(frame({ ok: true, id: request.id, value: "fresh binary stream" }));
+}, async binding => {
+  const socket = createConnection(binding.pipe); await once(socket, "connect");
+  const stream = byteStream(socket);
+  const client = await QtNativeClient.connectStream(binding, stream);
+  assert.equal((await client.request("objects")).result.value, "fresh binary stream");
+  client.close(); assert.equal(stream.destroyed, true); assert.equal(socket.destroyed, true);
+});
+
+await withPeer(socket => socket.end(), async (binding, requests) => {
+  const socket = createConnection(binding.pipe); await once(socket, "connect");
+  const stream = byteStream(socket), client = await QtNativeClient.connectStream(binding, stream);
+  await assert.rejects(client.request("table_set_cell", { value: "123,45" }),
+    error => nativeError("native-connection")(error) && error.outcomeUnknown);
+  await assert.rejects(client.request("table_set_cell"), nativeError("native-connection"));
+  assert.equal(requests.filter(request => request.op === "table_set_cell").length, 1);
+  assert.equal(stream.destroyed, true);
+});
+
+await withPeer(() => {}, async binding => {
+  const socket = createConnection(binding.pipe); await once(socket, "connect");
+  const stream = byteStream(socket);
+  await assert.rejects(QtNativeClient.connectStream(binding, stream), nativeError("native-peer"));
+  assert.equal(stream.destroyed, true);
+}, { hwnd: 43 });
+
+await withPeer(() => {}, async binding => {
+  const stream = new Duplex({ objectMode: true, read() {}, write(_chunk, _encoding, callback) { callback(); } });
+  await assert.rejects(QtNativeClient.connectStream(binding, stream), nativeError("native-stream"));
+  assert.equal(stream.destroyed, true);
+});
 
 await withPeer((socket, request) => socket.write(frame({ ok: true, id: request.id + 100 })), async binding => {
   const client = await QtNativeClient.connect(binding);

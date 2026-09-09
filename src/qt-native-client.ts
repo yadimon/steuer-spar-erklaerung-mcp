@@ -1,29 +1,14 @@
-import { createConnection, type Socket } from "node:net";
+import { createConnection } from "node:net";
 import { performance } from "node:perf_hooks";
+import type { Duplex } from "node:stream";
+import { QtNativeTransportError, validateQtNativeBinding } from "./qt-native-binding.js";
+import type { QtNativeBinding, QtNativeMeasurement, QtNativeReply } from "./qt-native-binding.js";
+export { QtNativeTransportError } from "./qt-native-binding.js";
+export type { QtNativeBinding, QtNativeMeasurement, QtNativeReply } from "./qt-native-binding.js";
 
 const MAX_REQUEST_BYTES = 1024 * 1024;
 const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
 const UTF8 = new TextDecoder("utf-8", { fatal: true });
-const PIPE_NAME = /^\\\\\.\\pipe\\sse-qt-read-([1-9][0-9]*)-[a-f0-9]{16}$/u;
-
-export interface QtNativeBinding {
-  pipe: string;
-  nonce: string;
-  pid: number;
-  hwnd: number;
-  creationTime: string;
-}
-
-export interface QtNativeReply {
-  ok: boolean;
-  id: number;
-  [field: string]: unknown;
-}
-
-export interface QtNativeMeasurement {
-  result: QtNativeReply;
-  durationMs: number;
-}
 
 interface PendingRequest {
   resolve(value: QtNativeMeasurement): void;
@@ -31,23 +16,6 @@ interface PendingRequest {
   startedAt: number;
   timer: NodeJS.Timeout;
   removeAbortListener(): void;
-}
-
-export class QtNativeTransportError extends Error {
-  constructor(message: string, readonly kind: string, readonly outcomeUnknown = false) {
-    super(message);
-    this.name = "QtNativeTransportError";
-  }
-}
-
-function validateBinding(binding: QtNativeBinding): void {
-  const pipe = PIPE_NAME.exec(binding.pipe);
-  if (!pipe || Number(pipe[1]) !== binding.pid || !Number.isSafeInteger(binding.pid) || binding.pid > 0xffffffff
-    || !Number.isSafeInteger(binding.hwnd) || binding.hwnd <= 0
-    || !/^[a-f0-9]{64}$/u.test(binding.nonce)
-    || !/^[1-9][0-9]{0,19}$/u.test(binding.creationTime) || BigInt(binding.creationTime) > 0xffffffffffffffffn) {
-    throw new QtNativeTransportError("Invalid native process, window or session binding.", "native-binding");
-  }
 }
 
 /**
@@ -61,17 +29,15 @@ export class QtNativeClient {
   private input = Buffer.alloc(0);
   private failure: QtNativeTransportError | undefined;
 
-  private constructor(private socket: Socket, readonly binding: Readonly<QtNativeBinding>) {
+  private constructor(private socket: Duplex, readonly binding: Readonly<QtNativeBinding>) {
     socket.on("data", chunk => this.acceptData(chunk));
     socket.on("error", error => this.fail("Native pipe failed: " + error.message, "native-connection", true));
     socket.on("close", () => this.fail("Native pipe closed.", "native-connection", true));
+    socket.on("end", () => this.fail("Native response stream ended.", "native-connection", true));
   }
 
   static async connect(binding: QtNativeBinding, timeoutMs = 5_000): Promise<QtNativeClient> {
-    validateBinding(binding);
-    if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000) {
-      throw new QtNativeTransportError("Invalid native connection deadline.", "native-deadline");
-    }
+    validateQtNativeBinding(binding, timeoutMs);
     const socket = createConnection(binding.pipe);
     const client = new QtNativeClient(socket, Object.freeze({ ...binding }));
     await new Promise<void>((resolve, reject) => {
@@ -93,15 +59,33 @@ export class QtNativeClient {
       socket.once("error", failed);
       socket.once("close", closed);
     });
+    return client.handshake(timeoutMs);
+  }
+
+  /** Take ownership of a ready byte stream whose OS peer the native broker has verified. */
+  static async connectStream(binding: QtNativeBinding, stream: Duplex, timeoutMs = 5_000): Promise<QtNativeClient> {
     try {
-      const { result } = await client.request("ping", {}, timeoutMs);
+      validateQtNativeBinding(binding, timeoutMs);
+      if (stream.destroyed || !stream.readable || !stream.writable || stream.readableObjectMode || stream.writableObjectMode) {
+        throw new QtNativeTransportError("Native transport must be a live binary duplex stream.", "native-stream");
+      }
+    } catch (error) { stream.destroy(); throw error; }
+    const client = new QtNativeClient(stream, Object.freeze({ ...binding }));
+    stream.resume();
+    return client.handshake(timeoutMs);
+  }
+
+  private async handshake(timeoutMs: number): Promise<QtNativeClient> {
+    try {
+      const binding = this.binding;
+      const { result } = await this.request("ping", {}, timeoutMs);
       if (result.ok !== true || result.pid !== binding.pid || result.hwnd !== binding.hwnd
         || result.creationTime !== binding.creationTime || result.bridgeProtocol !== 1 || result.guiThread !== true) {
         throw new QtNativeTransportError("Native peer did not confirm the bound process, window and protocol.", "native-peer");
       }
-      return client;
+      return this;
     } catch (error) {
-      client.close();
+      this.close();
       throw error;
     }
   }
