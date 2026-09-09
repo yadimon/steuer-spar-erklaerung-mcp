@@ -6,6 +6,8 @@ import { removeDirectoryWhenFree } from "./remove-when-free.mjs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApiExecutor } from "../dist/api-executor.js";
+import { createQtNativeRuntime } from "../dist/qt-native-runtime.js";
+import { loadProductProfile } from "../dist/product-profiles.js";
 import { createSseApiServer } from "../dist/api-server.js";
 import { callWorker } from "../dist/worker.js";
 import {
@@ -108,7 +110,21 @@ const config = {
   operateExperimental: process.env.SSE_OPERATE_EXPERIMENTAL === "1",
   ...(receiptLease ? { interactiveReceiptLeaseToken: receiptLease.token } : {}),
 };
-const execute = traceOperations("worker", createApiExecutor(config, worker));
+const nativeDirectory = process.env.SSE_TEST_NATIVE_PACKAGE;
+const nativeDigest = process.env.SSE_TEST_NATIVE_MANIFEST_SHA256;
+if (Boolean(nativeDirectory) !== Boolean(nativeDigest)) throw new Error("Native test package and manifest digest must be supplied together.");
+const nativeShutdown = new AbortController();
+const native = nativeDirectory ? createQtNativeRuntime({ ...config,
+  qtNativeRuntime: { directory: nativeDirectory, manifestSha256: nativeDigest },
+}, loadProductProfile(config.profileId), nativeShutdown.signal) : null;
+if (native && process.env.SSE_TEST_OPERATION_TRACE_DIR) throw new Error("Native benchmark cannot update the Worker coverage ledger.");
+const executor = createApiExecutor(config, async (...parameters) => {
+  const result = await worker(...parameters);
+  await native?.afterWorker(parameters[0], result);
+  return result;
+}, native ? { qtNativeClientFor: native.client, nativeDesktopStatus: native.desktopStatus,
+  nativeDesktopStart: native.desktopStart, nativeDesktopStop: native.desktopStop } : {});
+const execute = native ? executor : traceOperations("worker", executor);
 const server = createSseApiServer({
   execute,
   ...(useWorkerPrewarm ? {
@@ -166,6 +182,8 @@ try {
   process.exitCode = typeof code === "number" ? code : 1;
 } finally {
   await new Promise((resolve) => server.close(resolve));
+  nativeShutdown.abort();
+  await native?.close();
   if (useWorkerPrewarm) shutdownWarmSpare();
   if (childFailed && preserveTemporaryOnFailure) {
     process.stderr.write(`Test-Sandbox zur Diagnose erhalten: ${temporary}\n`);
