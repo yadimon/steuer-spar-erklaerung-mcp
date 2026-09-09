@@ -54,6 +54,11 @@ const configuredPoolTarget = (value) => Number(execFileSync(
 assert.equal(configuredPoolTarget("4"), 4, "Der schnelle Host darf vier Reserven konfigurieren.");
 assert.equal(configuredPoolTarget("999"), 4, "Der Reservevorrat muss nach oben auf vier begrenzt bleiben.");
 assert.equal(configuredPoolTarget("0"), 1, "Der Reservevorrat muss nach unten mindestens eins bleiben.");
+const configuredDeadline = execFileSync(process.execPath, ["--input-type=module", "-e",
+  'const m=await import("./dist/worker-prewarm.js");process.stdout.write(String(m.prewarmStartupTimeoutMs()));'], {
+  cwd: root, env: { ...process.env, SSE_WORKER_PREWARM_STARTUP_TIMEOUT_MS: "23000" }, encoding: "utf8",
+});
+assert.equal(configuredDeadline, "23000", "Readiness waiters must use the same deadline as the pool.");
 
 // Ohne ausdrueckliche Einstellung richtet sich der Vorrat nach der Ausstattung
 // des Rechners. Die Regel wird mit festen Zahlen geprueft, damit der Test auf

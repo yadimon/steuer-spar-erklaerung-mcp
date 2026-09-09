@@ -129,6 +129,11 @@ export function lastPrewarmFailure(): string | null {
   return failureReason;
 }
 
+/** Match readiness waiters to the configured pool startup deadline. */
+export function prewarmStartupTimeoutMs(): number {
+  return PREWARM_STARTUP_TIMEOUT_MS;
+}
+
 /** Steht mindestens ein einsatzbereiter Reservearbeiter bereit? */
 export function isWarmSpareReady(): boolean {
   return spares.some((candidate) => candidate.ready && !candidate.discarded);

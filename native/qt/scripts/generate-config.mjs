@@ -8,7 +8,7 @@ export const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const sourceFiles = [
   "CMakeLists.txt", "bridge.cpp", "bridge-load.cpp", "bridge-protocol.h", "bridge-session-server.h",
   "bridge-window-context.h", "bridge-windows.h", "bridge-table-snapshot.h", "bridge-discovery.h", "bridge-image.h",
-  "bridge-accessibility.h", "bridge-accessible-types.h", "bridge-desktop-marker.h", "bridge-desktop-launch.h", "bridge-desktop-start.h",
+  "bridge-interactive-session.h", "bridge-accessibility.h", "bridge-accessible-types.h", "bridge-desktop-marker.h", "bridge-desktop-launch.h", "bridge-desktop-start.h",
   "bridge-desktop-stop.h", "bridge-stop-policy.h", "bridge-stop-uia.h",
   "bridge-broker.h", "bridge-pipe-peer.h", "bridge-desktop-status.h", "compatibility.json", "scripts/generate-config.mjs", "scripts/package.mjs",
   "third_party/nlohmann/json.hpp", "third_party/nlohmann/LICENSE.MIT", "third_party/nlohmann/UPSTREAM.json", "THIRD_PARTY.md",
