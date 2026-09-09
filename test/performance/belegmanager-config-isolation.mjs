@@ -95,6 +95,10 @@ function assertOnlyKnownRuntimeDrift(current, swapped) {
   // schreibt [Files] erst beim ersten Fallkontakt), wird der neue Eintrag
   // entfernt statt ersetzt. Jede andere Abweichung bleibt fail-closed.
   const allowedRuntimeFields = [
+    // BelegManager schreibt waehrend eines Laufs einen Layoutwert. Er ist in
+    // einer frischen Vergleichskonfiguration nicht vorhanden und wird dann
+    // beim Normalisieren entfernt; jede andere Drift bleibt fail-closed.
+    ["BelegManager", "ColumnNameWidth"],
     ["Files", "LastWorkDir"],
     ["License", "LastCheck"],
     ["WerteInfoPos", "Size3"],
