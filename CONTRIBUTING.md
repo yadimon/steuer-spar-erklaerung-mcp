@@ -66,6 +66,11 @@ Arbeitskopie, Vorher-/Nachher-Readback und getrennte reale Evidenz.
 portabel. Wer die unterstützte SSE-2025-Standardinstallation besitzt, prüft die
 lokale Produktidentität zusätzlich mit `npm run test:product`.
 
+Für Änderungen am optionalen C++-Qt-Lesepfad kommt bei vorhandenem Qt-6.9.2-SDK
+der native Build samt `npm run test:qt-native` hinzu. Der Ablauf steht unter
+[NATIVE-QT.md](docs/NATIVE-QT.md). Die normale Offline-Suite prüft zusätzlich
+Quellenidentität und Paketvertrag, ohne CMake oder ein Qt-SDK vorauszusetzen.
+
 `npm run test:live` benötigt eine installierte SSE, herstellerseitige
 Musterfälle, eine unbenutzte entsperrte Windows-Sitzung und eine ausdrücklich
 aktivierte Live-Konfiguration. Fehlende Voraussetzungen sind kein Fehler eines

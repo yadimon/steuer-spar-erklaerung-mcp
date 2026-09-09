@@ -4,7 +4,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { availableParallelism } from "node:os";
 import { join, relative } from "node:path";
 
-const roots = ["scripts", "test"];
+const roots = ["scripts", "test", "native/qt/scripts"];
 
 function collectModules(directory) {
   const modules = [];
