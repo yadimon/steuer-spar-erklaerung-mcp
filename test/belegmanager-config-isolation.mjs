@@ -33,6 +33,9 @@ try {
   writeFileSync(iniPath, readFileSync(iniPath, "utf8").replace(
     "LastCheck=2026-08-28",
     "LastCheck=2026-08-29",
+  ).replace(
+    "[BelegManager]\r\nDataDir=",
+    "[BelegManager]\r\nColumnNameWidth=300\r\nDataDir=",
   ));
   first.restore();
   assert.deepEqual(readFileSync(iniPath), original);
