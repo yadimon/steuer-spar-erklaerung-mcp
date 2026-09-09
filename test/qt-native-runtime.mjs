@@ -15,6 +15,12 @@ import { QtNativeTransportError } from "../dist/qt-native-client.js";
 import { startQtNativeBroker } from "../dist/qt-native-broker.js";
 import { discoverQtNativeTarget, parseQtNativeDiscovery } from "../dist/qt-native-discovery.js";
 import { DesktopMarkerError } from "../dist/desktop-marker.js";
+import { executeNativeDesktopStatus, parseNativeDesktopStatus } from "../dist/native-desktop-status.js";
+import { verifyNativeDesktopStartContract } from "./native-desktop-start-contract.mjs";
+import { verifyNativeDesktopStopContract } from "./native-desktop-stop-contract.mjs";
+
+await verifyNativeDesktopStartContract();
+await verifyNativeDesktopStopContract();
 
 const temporary = mkdtempSync(join(tmpdir(), "sse-native-runtime-"));
 const digest = bytes => createHash("sha256").update(bytes).digest("hex");
@@ -53,6 +59,29 @@ try {
     assert.throws(() => parseQtNativeRuntimeConfig(invalid), /qtNativeRuntime/);
   }
   const nativePackage = loadQtNativePackage(nativeConfig, profile);
+  const statusMarker = { schemaVersion: 1, owner: "sse", name: "Owned", pid: 99 };
+  const statusOptions = { package: nativePackage, profile, timeoutMs: 1000 };
+  const rawStatus = { ok: true, desktop: "Owned", pid: 99, reachable: true, loaderBuildIdentity: manifest.buildIdentity, loaderMs: 1,
+    process: { image: "C:\\Product\\Steuerjahr 2025\\SSE.exe", creationTime: "1", fileMajor: 31, fileVersion: "31.0.2.0", productName: "SSE" },
+    windows: [{ hwnd: 42, pid: 99, x: 0, y: 0, w: 1200, h: 800, cls: "Qt692QWindowIcon", title: "Synthetic", hung: false, minimiert: false }] };
+  const activeStatus = parseNativeDesktopStatus(rawStatus, statusMarker, statusOptions);
+  assert.equal(activeStatus.aktiv, true); assert.equal(activeStatus.sseLaeuft, true); assert.equal(activeStatus.markeVeraltet, false);
+  assert.equal(activeStatus.processIdentity.taxYear, 2025); assert.equal(activeStatus.fenster[0].titleFingerprint, digest("Synthetic").toUpperCase());
+  for (const patch of [{ fileMajor: 30 }, { image: "C:\\Product\\Steuerjahr 2024\\SSE.exe" }, { image: "C:\\Product\\Steuerjahr 2025\\Other.exe" }]) {
+    const status = parseNativeDesktopStatus({ ...rawStatus, process: { ...rawStatus.process, ...patch } }, statusMarker, statusOptions);
+    assert.equal(status.aktiv, false); assert.equal(status.markeVeraltet, true); assert.deepEqual(status.fenster, []);
+  }
+  for (const patch of [{ desktop: "Other" }, { pid: 98 }, { loaderBuildIdentity: "other" }, { reachable: false },
+    { windows: [{ ...rawStatus.windows[0], pid: 98 }] }]) assert.throws(() => parseNativeDesktopStatus({ ...rawStatus, ...patch }, statusMarker, statusOptions));
+  const absent = await executeNativeDesktopStatus({ ...statusOptions, readMarker: () => null });
+  assert.equal(absent.ok, true); assert.equal(absent.aktiv, false); assert.equal(absent.markeVeraltet, false);
+  assert.equal((await executeNativeDesktopStatus({ ...statusOptions, timeoutMs: 0, readMarker: () => null })).kind, "native-deadline");
+  const cancelStatus = new AbortController(); cancelStatus.abort();
+  assert.equal((await executeNativeDesktopStatus({ ...statusOptions, signal: cancelStatus.signal, readMarker: () => null })).kind, "aborted");
+  let markerReads = 0;
+  assert.equal((await executeNativeDesktopStatus({ ...statusOptions, readMarker: () => ++markerReads === 1 ? null : statusMarker })).kind, "native-binding");
+  assert.equal((await executeNativeDesktopStatus({ ...statusOptions, readMarker: () => { throw new DesktopMarkerError("Malformed", "desktop-marker-invalid"); } })).kind,
+    "desktop-marker-invalid");
   assert.equal(nativePackage.loaderPath, join(nativeDirectory, "bridge-load.exe"));
   assert.throws(() => loadQtNativePackage({ ...nativeConfig, manifestSha256: "0".repeat(64) }, profile), /digest mismatch/);
   assert.throws(() => loadQtNativePackage(nativeConfig, { ...profile, nativeQtVersion: "0.0.0" }), /compatibility/);

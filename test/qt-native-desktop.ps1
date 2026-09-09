@@ -21,7 +21,9 @@ $desktop = [DSK]::CreateDesktop($name,[IntPtr]::Zero,[IntPtr]::Zero,0,0x10000000
 if($desktop -eq [IntPtr]::Zero){throw 'Could not create the isolated Qt test desktop'}
 $startup = New-Object DSK+SI
 $startup.cb = [Runtime.InteropServices.Marshal]::SizeOf($startup)
-$startup.desktop = 'winsta0\' + $name
+# Keep the API/helper on the caller's desktop. Only the owned fixture binds
+# its GUI thread to the created desktop, matching production cross-desktop reads.
+$startup.desktop = $null
 $startup.flags = 1
 $startup.show = 0
 $processInfo = New-Object DSK+PI
@@ -40,7 +42,10 @@ try {
     [uint32]$code = 0
     if(-not [DSK]::GetExitCodeProcess($processInfo.hProcess,[ref]$code)){throw 'Native test exit status unavailable'}
     if(-not (Test-Path -LiteralPath $report)){throw ('Native test produced no result; exit code ' + $code)}
-    Get-Content -LiteralPath $report -Raw
+    $reportText = [IO.File]::ReadAllText($report)
+    $reportResult = $reportText | ConvertFrom-Json
+    Write-Output $reportText
+    if($reportResult.ok -ne $true){throw 'Native integration assertions failed; inspect the report above'}
     Write-Output ('Native Qt integration test exit code: ' + $code)
     exit $code
 } finally {

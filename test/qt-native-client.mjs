@@ -11,6 +11,9 @@ import { QtNativeAcknowledgmentError, QtNativeClient, QtNativeTransportError } f
 import { createApiExecutor } from "../dist/api-executor.js";
 import { createSseApiServer } from "../dist/api-server.js";
 import { callApiOperationEnvelope } from "../dist/api-client.js";
+import { testNativePageProjections } from "./qt-native-page-projections.mjs";
+
+await testNativePageProjections();
 
 const frame = value => {
   const body = Buffer.from(JSON.stringify(value));
@@ -242,6 +245,36 @@ try {
       client.close();
       await new Promise(resolve => server.close(resolve));
     }
+  });
+  const snapshotNode = {
+    i: 0, p: -1, d: 0, type: "Edit", name: "Synthetic value", aid: "window.field", rid: "42.123.4.-2147483647",
+    x: 10, y: 20, w: 80, h: 25, on: true, val: "Fresh", ro: false, checked: null, selected: null, scroll: null,
+  };
+  let snapshotNodes = [snapshotNode], snapshotStats = { n: 1, err: 0, cyc: 0, cycleRid: "", cycleName: "",
+    truncated: false, depthLimited: false, valErr: 0, scrollErr: 0, source: "qt", fallbackReason: "", snapshotMs: 1 };
+  await withPeer((socket, request) => {
+    assert.equal(request.op, "accessibility_snapshot");
+    socket.write(frame({ ok: true, id: request.id, controllerBound: true, scope: "qt-accessibility-content",
+      hwnd: 42, windowRect: { x: 0, y: 0, w: 1000, h: 500 }, exactMatches: {},
+      windowEnabled: true, modalBlocked: false, nodes: snapshotNodes, stats: snapshotStats }));
+  }, async binding => {
+    const client = await QtNativeClient.connect(binding);
+    const execute = createApiExecutor(config, async () => { assert.fail("Native snapshot invoked the worker."); }, { qtNativeClient: client });
+    try {
+      const read = (operation, args = {}) => execute(operation, args, 5000);
+      const full = await read("snapshot"); assert.equal(full.ok, true, JSON.stringify(full));
+      assert.deepEqual(full.nodes, [snapshotNode]); assert.equal(full.canaryMs, null);
+      assert.equal((await read("get_value", { rid: snapshotNode.rid })).value, "Fresh");
+      snapshotNodes = [{ ...snapshotNode, val: "Changed" }];
+      assert.equal((await read("get_value", { rid: snapshotNode.rid })).value, "Changed");
+      snapshotNodes = [{ ...snapshotNode, p: 0 }];
+      assert.equal((await read("snapshot")).kind, "native-contract");
+      snapshotNodes = [snapshotNode, { ...snapshotNode, i: 1 }]; snapshotStats = { ...snapshotStats, n: 2 };
+      assert.equal((await read("snapshot")).kind, "native-contract", "Duplicate runtime IDs must fail closed.");
+      snapshotNodes = [snapshotNode]; snapshotStats = { ...snapshotStats, n: 1, truncated: true };
+      assert.equal((await read("get_value", { rid: snapshotNode.rid })).kind, "native-incomplete");
+      assert.equal((await read("snapshot", { toolWindow: "__proto__" })).kind, "bad-args");
+    } finally { client.close(); }
   });
   const cell = (display, checkState = null) => ({ display, edit: display, checkState, flags: checkState === null ? 35 : 63 });
   const record = (label, amount, check) => [cell(""), cell(label), cell(amount), cell(null, check)];

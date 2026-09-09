@@ -150,7 +150,7 @@ export const SSE_MCP_UI_SCHEMAS = {
     ),
     types: z.array(z.string()).max(SSE_OPERATION_LIMITS.snapshotTypes).optional().describe("Nur diese Steuerelementtypen, z. B. ['Button','Edit']; maximal 50"),
     namedOnly: z.boolean().optional().describe("Nur Elemente mit Beschriftung"),
-    maxNodes: SNAPSHOT_MAX_NODES.optional().describe("Maximale Knotenzahl; Vorgabe 2000, Maximum 5000"),
+    maxNodes: SNAPSHOT_MAX_NODES.optional().describe("Maximale Knotenzahl; Vorgabe 4000, Maximum 5000"),
   }).strict(),
   "sse_snapshot_compare": z.object({
     hwnd: WINDOW_HANDLE.optional(),

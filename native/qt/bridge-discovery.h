@@ -27,6 +27,7 @@ static void selectDiscoveryTarget(Json &request) {
     request["pid"] = matches[0].at("pid"); request["hwnd"] = matches[0].at("hwnd");
 }
 static std::string narrow(const std::wstring &value) {
+    if (value.empty()) return {};
     const int size = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value.data(),
         static_cast<int>(value.size()), nullptr, 0, nullptr, nullptr);
     if (size <= 0) throw std::runtime_error("Invalid UTF-16 identity text");

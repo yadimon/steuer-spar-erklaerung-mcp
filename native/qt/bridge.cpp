@@ -198,6 +198,7 @@ static Json describe(QObject *object, std::uint64_t parent) {
 }
 static Json execute(const Json &request);
 #include "bridge-table-snapshot.h"
+#include "bridge-accessibility.h"
 
 static Json execute(const Json &request) {
     const auto before = Clock::now();
@@ -223,6 +224,8 @@ static Json execute(const Json &request) {
             {"mutationAcknowledgmentRequired", guiSession && guiSession->pendingReceipt != 0}};
     } else if (op == "window_context") {
         result = windowContext();
+    } else if (op == "accessibility_snapshot") {
+        result = accessibilitySnapshot(root, request);
     } else if (op == "objects") {
         for (auto it = ids.begin(); it != ids.end();) {
             const auto object = objects.find(it->second);

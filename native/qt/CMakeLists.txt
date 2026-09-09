@@ -30,7 +30,8 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${identity_inputs
   "${CMAKE_CURRENT_SOURCE_DIR}/third_party/nlohmann/LICENSE.MIT"
   "${CMAKE_CURRENT_SOURCE_DIR}/third_party/nlohmann/UPSTREAM.json"
   "${CMAKE_CURRENT_SOURCE_DIR}/THIRD_PARTY.md"
-  "${CMAKE_CURRENT_SOURCE_DIR}/../../profiles/2025/profile.json")
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../profiles/2025/profile.json"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../profiles/2025/page-objects.json")
 execute_process(COMMAND "${NODE_EXECUTABLE}"
   "${CMAKE_CURRENT_SOURCE_DIR}/scripts/generate-config.mjs" "${CMAKE_CURRENT_BINARY_DIR}/generated"
   COMMAND_ERROR_IS_FATAL ANY)
@@ -43,8 +44,8 @@ foreach(target IN ITEMS sse-qt-read bridge-load)
   target_include_directories(${target} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated" "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
   set_target_properties(${target} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/bin")
 endforeach()
-target_link_libraries(sse-qt-read PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets Advapi32 User32 Shell32)
-target_link_libraries(bridge-load PRIVATE BCrypt User32)
+target_link_libraries(sse-qt-read PRIVATE Qt6::Core Qt6::Gui Qt6::GuiPrivate Qt6::Widgets Advapi32 User32 Shell32)
+target_link_libraries(bridge-load PRIVATE BCrypt User32 Version Ole32 OleAut32 Uiautomationcore)
 
 add_custom_target(native-package ALL
   COMMAND "${NODE_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/package.mjs"
@@ -55,6 +56,36 @@ add_custom_target(native-package ALL
 option(SSE_QT_BUILD_TESTS "Build the owned synthetic Qt fixture and enable the native integration test" OFF)
 if(SSE_QT_BUILD_TESTS)
   enable_testing()
+  add_executable(bridge-stop-test bridge-load.cpp)
+  target_compile_options(bridge-stop-test PRIVATE /Zc:__cplusplus /permissive- /EHsc /utf-8 /W4)
+  target_compile_definitions(bridge-stop-test PRIVATE QT_NO_KEYWORDS SSE_NATIVE_STOP_TEST)
+  target_include_directories(bridge-stop-test PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated" "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
+  target_link_libraries(bridge-stop-test PRIVATE BCrypt User32 Version Ole32 OleAut32 Uiautomationcore)
+  add_executable(bridge-stop-fixture tests/stop-fixture.cpp)
+  target_compile_options(bridge-stop-fixture PRIVATE /Zc:__cplusplus /permissive- /EHsc /utf-8 /W4)
+  target_include_directories(bridge-stop-fixture PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
+  target_link_libraries(bridge-stop-fixture PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets User32)
+  set_target_properties(bridge-stop-test bridge-stop-fixture PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/bin")
+  add_test(NAME native-desktop-stop COMMAND "${NODE_EXECUTABLE}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../test/native-desktop-stop-integration.mjs"
+    "${CMAKE_CURRENT_BINARY_DIR}/native-package.json" "$<TARGET_FILE:bridge-stop-test>"
+    "$<TARGET_FILE:bridge-stop-fixture>" "$<TARGET_FILE_DIR:Qt6::Core>")
+  set_tests_properties(native-desktop-stop PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE)
+  # A separate test executable enables the synthetic launch identity. It is never packaged.
+  add_executable(bridge-start-test bridge-load.cpp)
+  target_compile_options(bridge-start-test PRIVATE /Zc:__cplusplus /permissive- /EHsc /utf-8 /W4)
+  target_compile_definitions(bridge-start-test PRIVATE QT_NO_KEYWORDS SSE_NATIVE_START_TEST)
+  target_include_directories(bridge-start-test PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated" "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
+  target_link_libraries(bridge-start-test PRIVATE BCrypt User32 Version Ole32 OleAut32 Uiautomationcore)
+  add_executable(bridge-start-fixture tests/start-fixture.cpp tests/start-fixture.rc)
+  target_compile_options(bridge-start-fixture PRIVATE /permissive- /EHsc /utf-8 /W4)
+  target_include_directories(bridge-start-fixture PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
+  target_link_libraries(bridge-start-fixture PRIVATE User32)
+  set_target_properties(bridge-start-test bridge-start-fixture PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/bin")
+  add_test(NAME native-desktop-start COMMAND "${NODE_EXECUTABLE}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../test/native-desktop-start-integration.mjs"
+    "${CMAKE_CURRENT_BINARY_DIR}/native-package.json" "$<TARGET_FILE:bridge-start-test>" "$<TARGET_FILE:bridge-start-fixture>")
+  set_tests_properties(native-desktop-start PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE)
   add_executable(bridge-fixture tests/fixture.cpp)
   set_target_properties(bridge-fixture PROPERTIES AUTOMOC ON RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/bin")
   target_compile_options(bridge-fixture PRIVATE /Zc:__cplusplus /permissive- /EHsc /utf-8 /W4)

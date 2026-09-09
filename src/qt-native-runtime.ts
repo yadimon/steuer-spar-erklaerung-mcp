@@ -8,12 +8,18 @@ import { QtNativeTransportError, type QtNativeClient } from "./qt-native-client.
 import { loadQtNativePackage, type QtNativePackage } from "./qt-native-package.js";
 import { startQtNativeBroker, type QtNativeBrokerOptions, type QtNativeSession, type QtNativeTarget } from "./qt-native-broker.js";
 import { withCombinedAbortSignal } from "./abort.js";
+import { executeNativeDesktopStatus } from "./native-desktop-status.js";
+import { executeNativeDesktopStart } from "./native-desktop-start.js";
+import { executeNativeDesktopStop } from "./native-desktop-stop.js";
 import { discoverQtNativeTarget, type QtNativeDiscoveryOptions } from "./qt-native-discovery.js";
 import { DesktopMarkerError, desktopMarkerPath, resolveDesktopMarkerForOperation, type DesktopMarker } from "./desktop-marker.js";
 
 const contextSchema = z.object({ ok: z.literal(true), boundMain: z.boolean(), unique: z.boolean() }).passthrough();
 
 export interface QtNativeRuntime {
+  desktopStatus(timeoutMs: number, signal?: AbortSignal): Promise<WorkerResult>;
+  desktopStart(args: Readonly<Record<string, unknown>>, timeoutMs: number, signal?: AbortSignal): Promise<WorkerResult>;
+  desktopStop(args: Readonly<Record<string, unknown>>, timeoutMs: number, signal?: AbortSignal): Promise<WorkerResult>;
   client(args: Readonly<Record<string, unknown>>, timeoutMs: number, signal?: AbortSignal): Promise<QtNativeClient>;
   afterWorker(operation: SseApiOperation, result: WorkerResult): Promise<void>;
   close(): Promise<void>;
@@ -110,6 +116,26 @@ export function createQtNativeRuntime(
     await Promise.all(current.map(session => session.close()));
   }
   const runtime: QtNativeRuntime = {
+    async desktopStop(args, timeoutMs, signal) {
+      const deadline = performance.now() + timeoutMs;
+      await clear();
+      return withCombinedAbortSignal([signal, shutdown], combined => executeNativeDesktopStop({
+        package: nativePackage, executable: executable[0]!, args,
+        timeoutMs: Math.max(0, Math.floor(deadline - performance.now())), signal: combined,
+      }));
+    },
+    async desktopStart(args, timeoutMs, signal) {
+      const deadline = performance.now() + timeoutMs;
+      await clear();
+      return withCombinedAbortSignal([signal, shutdown], combined => executeNativeDesktopStart({
+        package: nativePackage, profile, executable: executable[0]!, args, timeoutMs: Math.max(0, Math.floor(deadline - performance.now())), signal: combined,
+      }));
+    },
+    async desktopStatus(timeoutMs, signal) {
+      return withCombinedAbortSignal([signal, shutdown], combined => executeNativeDesktopStatus({
+        package: nativePackage, profile, timeoutMs: Math.min(timeoutMs, 60_000), signal: combined,
+      }));
+    },
     async client(args, timeoutMs, signal) {
       const deadline = performance.now() + timeoutMs;
       return withCombinedAbortSignal([signal, shutdown], async combined => {

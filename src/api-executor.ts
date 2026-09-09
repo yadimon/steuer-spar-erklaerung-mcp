@@ -1,21 +1,15 @@
 import type { SseApiServerConfig } from "./api-config.js";
 import { existsSync, mkdirSync, readdirSync, rmdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { performance } from "node:perf_hooks";
 import { DEFAULT_OPERATION_TIMEOUT_MS, type SseApiOperation, type WorkerResult } from "./api-contract.js";
 import { SSE_CAPABILITIES } from "./capabilities.js";
-import {
-  CaseFileParserFallbackError,
-  listCaseFiles,
-  readCaseFileInfo,
-} from "./case-file.js";
+import { CaseFileParserFallbackError, listCaseFiles, readCaseFileInfo } from "./case-file.js";
 import { executeCheckerOpen } from "./checker-executor.js";
 import {
   executeFillFieldsPlan,
   executeReceiptManagerBulkPlan,
-  resolveReceiptManagerBulkReferences,
 } from "./bulk-plan-executor.js";
-import { API_RESOURCE_BINDINGS } from "./api-resource-bindings.js";
 import { executeCaseCreate } from "./case-create-executor.js";
 import { ExecutorArgumentError, executionError, operationError } from "./executor-errors.js";
 import { executeLaunchOperation } from "./launch-executor.js";
@@ -26,20 +20,12 @@ import {
   EXPERIMENTAL_PROFILE_BASE_OPERATIONS,
   EXPERIMENTAL_PROFILE_VERIFICATION_OPERATIONS,
 } from "./profile-operation-policy.js";
-import {
-  defaultProfilesRoot,
-  loadProductProfile,
-} from "./product-profiles.js";
+import { defaultProfilesRoot, loadProductProfile } from "./product-profiles.js";
 import { executeLocalPageObjects } from "./page-objects-executor.js";
 import type { ScenarioExecutor } from "./scenario.js";
 import { executeUstvaOperation, isUstvaOperation } from "./ustva-executor.js";
-import {
-  createResourcePathRedactor,
-  resolveResourceReference,
-  type ResourceArea,
-  type ResourceRoots,
-  type ResolvedResourceReference,
-} from "./resources.js";
+import { createResourcePathRedactor } from "./resources.js";
+import { configuredArgs, resourceRoots, type ConfiguredArguments } from "./configured-args.js";
 import { ensureWorkspace } from "./workspace.js";
 import { executeWorkspaceOperation, isWorkspaceExecutorOperation } from "./workspace-executor.js";
 import { readWorkspaceStatus } from "./workspace-status.js";
@@ -47,118 +33,9 @@ import { executeLocalVerify } from "./verify-executor.js";
 import { executeLocalWorkingCopy } from "./working-copy-executor.js";
 import { executeLocalBackup } from "./backup-executor.js";
 import { executeLocalArchive } from "./archive-executor.js";
-import { executeQtNativeRead, type QtNativeExecutorDependencies } from "./qt-native-executor.js";
-
-interface ConfiguredArguments {
-  args: Record<string, unknown>;
-  resourceRefs: Record<string, string>;
-}
+import { executeQtNativeRead, isQtNativeReadOperation, type QtNativeExecutorDependencies } from "./qt-native-executor.js";
 
 export { API_RESOURCE_BINDINGS } from "./api-resource-bindings.js";
-
-function resourceRoots(config: SseApiServerConfig): ResourceRoots {
-  return {
-    cases: config.caseDir,
-    documents: config.documentsDir ?? join(config.workspaceDir, "documents"),
-    workspace: config.workspaceDir,
-    results: config.resultDir,
-    backups: config.backupsDir ?? join(config.workspaceDir, "backups"),
-  };
-}
-
-function resolveAlias(
-  args: Record<string, unknown>,
-  resourceRefs: Record<string, string>,
-  roots: ResourceRoots,
-  alias: string,
-  legacy: string,
-  allowedAreas: readonly ResourceArea[],
-): void {
-  if (args[alias] === undefined) return;
-  if (args[legacy] !== undefined) {
-    throw new ExecutorArgumentError(`'${alias}' und '${legacy}' duerfen nicht gemeinsam angegeben werden.`);
-  }
-  if (typeof args[alias] !== "string") throw new ExecutorArgumentError(`'${alias}' muss eine Ressourcenreferenz sein.`);
-  let resolved: ResolvedResourceReference;
-  try {
-    resolved = resolveResourceReference(roots, args[alias], allowedAreas);
-  } catch (error) {
-    throw new ExecutorArgumentError(error instanceof Error ? error.message : String(error));
-  }
-  delete args[alias];
-  args[legacy] = resolved.path;
-  resourceRefs[alias] = resolved.ref;
-}
-
-function resolveSaveCorrectionReferences(
-  args: Record<string, unknown>,
-  resourceRefs: Record<string, string>,
-  roots: ResourceRoots,
-): void {
-  if (args.correction === undefined) return;
-  if (!args.correction || typeof args.correction !== "object" || Array.isArray(args.correction)) {
-    throw new ExecutorArgumentError("'correction' muss ein Objekt sein.");
-  }
-  const correction = { ...(args.correction as Record<string, unknown>) };
-  const bindings = [
-    ["sourceRef", "sourcePath", ["cases"]],
-    ["backupRef", "backupPath", ["backups"]],
-  ] as const;
-  for (const [alias, workerField, allowedAreas] of bindings) {
-    const value = correction[alias];
-    if (typeof value !== "string") {
-      throw new ExecutorArgumentError(`'correction.${alias}' muss eine Ressourcenreferenz sein.`);
-    }
-    let resolved: ResolvedResourceReference;
-    try {
-      resolved = resolveResourceReference(roots, value, allowedAreas);
-    } catch (error) {
-      throw new ExecutorArgumentError(error instanceof Error ? error.message : String(error));
-    }
-    delete correction[alias];
-    correction[workerField] = resolved.path;
-    resourceRefs[`correction.${alias}`] = resolved.ref;
-  }
-  args.correction = correction;
-}
-
-function configuredArgs(
-  operation: SseApiOperation,
-  args: Record<string, unknown>,
-  config: SseApiServerConfig,
-): ConfiguredArguments {
-  const result = { ...args };
-  const roots = resourceRoots(config);
-  const resourceRefs: Record<string, string> = {};
-  for (const binding of API_RESOURCE_BINDINGS[operation] ?? []) {
-    resolveAlias(
-      result,
-      resourceRefs,
-      roots,
-      binding.alias,
-      binding.workerField,
-      binding.allowedAreas,
-    );
-  }
-  if (operation === "save") resolveSaveCorrectionReferences(result, resourceRefs, roots);
-  if (operation === "receipt_manager_bulk_upsert") {
-    resolveReceiptManagerBulkReferences(result, resourceRefs, roots);
-  }
-  if (operation === "launch" || operation === "desktop_start") {
-    if (result.exe !== undefined) {
-      throw new ExecutorArgumentError("'exe' wird ausschliesslich in der lokalen API-Konfiguration festgelegt.");
-    }
-    if (config.sseExecutable) result.exe = config.sseExecutable;
-  }
-  if (
-    (operation === "list_cases" || operation === "backup_cases" || operation === "archive_cases") &&
-    result.dir === undefined &&
-    config.caseDir
-  ) {
-    result.dir = config.caseDir;
-  }
-  return { args: result, resourceRefs };
-}
 
 function withResourceIdentity(
   redactPaths: <T>(value: T) => T,
@@ -187,6 +64,9 @@ const EXPERIMENTAL_PROFILE_VERIFICATION = new Set<SseApiOperation>(
 );
 
 export interface ApiExecutorDependencies extends QtNativeExecutorDependencies {
+  nativeDesktopStatus?: (timeoutMs: number, signal?: AbortSignal) => Promise<WorkerResult>;
+  nativeDesktopStart?: (args: Readonly<Record<string, unknown>>, timeoutMs: number, signal?: AbortSignal) => Promise<WorkerResult>;
+  nativeDesktopStop?: (args: Readonly<Record<string, unknown>>, timeoutMs: number, signal?: AbortSignal) => Promise<WorkerResult>;
   /** Interne Testgrenze; kein benutzerkonfigurierbarer API-Dateipfad. */
   profilesRoot?: string;
   /** Interne Testgrenze fuer die fail-closed SSE-Prozesspruefung der Fallarchivierung. */
@@ -283,8 +163,12 @@ export function createApiExecutor(
       args = internalCheckerClick
         ? parseCheckerReadOnlyClickArgs(args)
         : parseApiOperationArgs(operation, args);
-      if ((operation === "get_value" || operation === "table_read") && (dependencies.qtNativeClient || dependencies.qtNativeClientFor)) {
-        return redactPaths(await executeQtNativeRead(operation, args, dependencies, timeoutMs, signal));
+      if (operation === "desktop_status" && dependencies.nativeDesktopStatus) {
+        return redactPaths(await dependencies.nativeDesktopStatus(timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS, signal));
+      }
+      if (isQtNativeReadOperation(operation)
+        && (dependencies.qtNativeClient || dependencies.qtNativeClientFor)) {
+        return redactPaths(await executeQtNativeRead(operation, args, dependencies, timeoutMs, signal, profile));
       }
       if (operation === "capabilities") {
         return {
@@ -450,6 +334,13 @@ export function createApiExecutor(
         });
       }
       const configured = configuredArgs(operation, args, config);
+      if (operation === "desktop_stop" && dependencies.nativeDesktopStop) {
+        return redactPaths(await dependencies.nativeDesktopStop(configured.args, timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS, signal));
+      }
+      if (operation === "desktop_start" && dependencies.nativeDesktopStart) {
+        return withResourceIdentity(redactPaths,
+          await dependencies.nativeDesktopStart(configured.args, timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS, signal), configured.resourceRefs);
+      }
       if (internalCheckerNavigation) {
         // Kein oeffentliches Argumentschema akzeptiert dieses Feld. Es wird
         // erst nach der strikten Validierung fuer den eng gebundenen
