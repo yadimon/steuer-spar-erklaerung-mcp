@@ -32,6 +32,63 @@ $block = $prewarmBloecke[0]
 $blockStart = $block.Extent.StartLineNumber
 $blockEnde = $block.Extent.EndLineNumber
 
+# Die einzige Dispatcherdefinition ist eine direkte Anweisung desselben
+# Skript-Scopes. Weder ein zweiter Kaltpfad noch dynamisches Auswerten des
+# Dispatcherquelltexts darf nach der Bereitschaft wieder Arbeit erzeugen.
+$dispatcherDefinitionen = @($ast.FindAll({
+  param($n)
+  $n -is [Management.Automation.Language.FunctionDefinitionAst] -and
+    $n.Name -ceq 'Invoke-SSEWorkerOperation'
+}, $true))
+if ($dispatcherDefinitionen.Count -ne 1 -or
+    $dispatcherDefinitionen[0] -notin $oberste -or
+    $dispatcherDefinitionen[0].Extent.EndLineNumber -ge $blockStart) {
+  throw 'Genau eine direkte Dispatcherdefinition vor dem Prewarm-Block erwartet.'
+}
+
+$sentinelReturn = @($dispatcherDefinitionen[0].Body.EndBlock.Statements)[0]
+if ($sentinelReturn -isnot [Management.Automation.Language.IfStatementAst] -or
+    $sentinelReturn.Extent.Text -cne
+      'if ($Operation -ceq $script:SSE_DISPATCHER_WARMUP) { return }') {
+  throw 'Der Warmlauf muss vor jeder echten Operationsanweisung ohne Wirkung zurueckkehren.'
+}
+
+$warmlaufAufrufe = @($block.FindAll({
+  param($n)
+  $n -is [Management.Automation.Language.CommandAst] -and
+    $n.GetCommandName() -ceq 'Invoke-SSEWorkerOperation'
+}, $true))
+if ($warmlaufAufrufe.Count -ne 1 -or
+    $warmlaufAufrufe[0].Extent.Text -cne
+      'Invoke-SSEWorkerOperation $script:SSE_DISPATCHER_WARMUP $null') {
+  throw 'Prewarm muss den Dispatcher genau einmal mit dem internen Sentinel aufwaermen.'
+}
+$bereitschaft = @($block.FindAll({
+  param($n)
+  $n -is [Management.Automation.Language.InvokeMemberExpressionAst] -and
+    $n.Member.Value -ceq 'WriteLine' -and $n.Extent.Text -match "prewarm='ready'"
+}, $true))
+if ($bereitschaft.Count -ne 1 -or
+    $warmlaufAufrufe[0].Extent.EndLineNumber -ge $bereitschaft[0].Extent.StartLineNumber) {
+  throw 'Der Dispatcher-Warmlauf muss vor genau einer Bereitschaftsmeldung enden.'
+}
+$dynamischeAuswertung = @($block.FindAll({
+  param($n)
+  if ($n -is [Management.Automation.Language.CommandAst]) {
+    return $n.GetCommandName() -in @('Invoke-Expression','iex') -or
+      $n.InvocationOperator -eq [Management.Automation.Language.TokenKind]::Dot
+  }
+  return $n -is [Management.Automation.Language.InvokeMemberExpressionAst] -and
+    $n.Member.Value -ceq 'Create' -and
+    $n.Expression -is [Management.Automation.Language.TypeExpressionAst] -and
+    $n.Expression.TypeName.FullName -in @(
+      'ScriptBlock','Management.Automation.ScriptBlock','System.Management.Automation.ScriptBlock'
+    )
+}, $true))
+if ($dynamischeAuswertung.Count) {
+  throw 'Prewarm darf Dispatcherquelltext nicht dynamisch erzeugen oder auswerten.'
+}
+
 # Welche Anweisungen auf oberster Ebene lesen den Auftrag?
 $auftragsVariablen = @('Op', 'a', 'ArgsFile', 'B64')
 $auftragsAnweisungen = @($oberste | Where-Object {

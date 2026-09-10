@@ -55,8 +55,8 @@ const findAllReceivers = [...worker.matchAll(/(\$[A-Za-z_][A-Za-z0-9_:]*)\.FindA
   .map((match) => match[1]);
 assert.deepEqual(
   findAllReceivers,
-  ["$workerAst"],
-  "Worker darf FindAll nur fuer die lokale PowerShell-AST-Suche verwenden, nie fuer UIA-Elemente",
+  [],
+  "Worker darf weder UIA-Elemente noch den bereits deklarierten Dispatcher mit FindAll durchsuchen",
 );
 assert(!worker.includes("Get-SSETableCellSemantics"), "Heuristische ControlType-Erkennung darf nicht mehr entscheiden");
 assert(worker.includes("function Get-SSEPageCheckerMessages"));
