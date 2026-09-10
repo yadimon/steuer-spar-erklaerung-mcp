@@ -209,3 +209,32 @@ export async function executeQtNativeSubpages(
       + "Reine oder unbeschriftete Buttons per rid mit sse_click oeffnen. "
       + "Zurueck ueber sse_click name='Zurück' oder den Verlaufspfeil (aid HistoryToolbarBtnSSE)." };
 }
+
+/** Read the catalogue overview's visible position links without a worker. */
+export async function executeQtNativePositions(
+  client: QtNativeClient, args: Readonly<Record<string, unknown>>, timeoutMs: number, signal?: AbortSignal,
+): Promise<WorkerResult> {
+  const action = args.aktion === undefined ? "list" : String(args.aktion);
+  if (action !== "list") {
+    if (action === "add" || action === "delete") {
+      return fail("blocked", "Positionen anlegen oder loeschen bleibt ohne eigenen Seiten-, Feld-, Summen- und Dialogvertrag gesperrt.");
+    }
+    return fail("bad-args", `Unbekannte aktion '${action}' (erlaubt: list)`);
+  }
+  const result = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 4000 }, timeoutMs, signal);
+  if (!result.windowEnabled || result.modalBlocked) return fail("window-obstructed", "The native window is disabled or blocked by a modal dialog.");
+  if (result.stats.truncated) return fail("native-incomplete", "The current native tree exceeds the native read bound.");
+  const positionen = [...new Set(result.nodes.flatMap(node => {
+    const match = /^»(.+)« bearbeiten$/u.exec(node.name);
+    return match?.[1] ? [match[1]] : [];
+  }))];
+  return {
+    ok: true,
+    backend: "qt",
+    positionen,
+    anzahl: positionen.length,
+    hinweis: positionen.length ? null
+      : "Keine Positionen sichtbar - erst auf die Uebersichtsseite ('Erlöse Lieferungen/Leistungen' bzw. 'Betriebsausgaben: Eigene Positionen') navigieren.",
+    nativeDurationMs: result.nativeDurationMs,
+  };
+}

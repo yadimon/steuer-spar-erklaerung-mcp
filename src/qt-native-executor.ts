@@ -5,11 +5,11 @@ import { executeQtNativeGetValue } from "./qt-native-values.js";
 import { executeQtNativeTableRead } from "./qt-native-tables.js";
 import { executeQtNativeSnapshot, executeQtSnapshotGetValue, qtSnapshotArguments } from "./qt-native-snapshot.js";
 import type { ProductProfile } from "./product-profiles.js";
-import { executeQtNativeKnownPageState, executeQtNativeReadPage, executeQtNativeSubpages } from "./qt-native-pages.js";
+import { executeQtNativeKnownPageState, executeQtNativePositions, executeQtNativeReadPage, executeQtNativeSubpages } from "./qt-native-pages.js";
 import { executeQtNativeFind } from "./qt-native-find.js";
 
 export const QT_NATIVE_READ_OPERATIONS = [
-  "get_value", "table_read", "snapshot", "find", "read_page", "subpages", "known_page_state",
+  "get_value", "table_read", "snapshot", "find", "read_page", "subpages", "known_page_state", "positions",
 ] as const;
 type QtNativeReadOperation = typeof QT_NATIVE_READ_OPERATIONS[number];
 export function isQtNativeReadOperation(operation: string): operation is QtNativeReadOperation {
@@ -33,6 +33,7 @@ export async function executeQtNativeRead(
     const remaining = Math.floor(timeoutMs - (performance.now() - started));
     if (remaining < 1) throw new QtNativeTransportError("Native operation deadline exceeded before reading.", "native-timeout");
     const execute = operation === "known_page_state" ? executeQtNativeKnownPageState
+      : operation === "positions" ? executeQtNativePositions
       : operation === "read_page" ? executeQtNativeReadPage : operation === "subpages" ? executeQtNativeSubpages
       : operation === "find" ? executeQtNativeFind : operation === "snapshot" ? executeQtNativeSnapshot : operation === "table_read" ? executeQtNativeTableRead
       : typeof args.rid === "string" && args.rid.startsWith("42.") ? executeQtSnapshotGetValue : executeQtNativeGetValue;

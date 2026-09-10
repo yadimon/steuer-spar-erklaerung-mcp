@@ -8,8 +8,8 @@ Der Live-Stand stammt aus bestehenden Tests; er belegt keinen Wechsel des Backen
 | Kennzahl | Anzahl |
 | --- | ---: |
 | API-Operationen | 102 |
-| Direkt an den optionalen Qt-DLL-Pfad angeschlossen | 7 |
-| Ohne direkten Qt-DLL-Pfad | 95 |
+| Direkt an den optionalen Qt-DLL-Pfad angeschlossen | 8 |
+| Ohne direkten Qt-DLL-Pfad | 94 |
 | Zusätzliche direkte Win32-Operationen im optionalen nativen Paket | 2 |
 | Zusätzliche Win32-/COM-UIA-Operationen im optionalen nativen Paket | 1 |
 | Funktional live belegt, unabhängig vom Backend | 94 |
@@ -95,7 +95,7 @@ Broker und Transportquittungen sind Infrastruktur, keine zusätzlichen API-Komma
 | `page` | Seite und Navigation | Nicht umgestellt | funktional belegt |
 | `page_objects` | Dateien und API | Nicht umgestellt | funktional belegt |
 | `position_create` | Felder und Bedienung | Nicht umgestellt | ungetestet |
-| `positions` | Seite und Navigation | Nicht umgestellt | funktional belegt |
+| `positions` | Seite und Navigation | **Qt optional** | funktional belegt |
 | `product_info` | Programm und Fenster | Nicht umgestellt | funktional belegt |
 | `read_full` | Seite und Navigation | Nicht umgestellt | funktional belegt |
 | `read_page` | Seite und Navigation | **Qt optional** | funktional belegt |
@@ -170,7 +170,8 @@ Broker und Transportquittungen sind Infrastruktur, keine zusätzlichen API-Komma
   eine schnelle Teiloperation belegt nicht den vollständigen Ablauf.
 
 Die ausgelieferte Qt-Brücke aktiviert keine experimentellen Schreib-, Navigations-
-oder Speicheroperationen. `known_page_state` ist dabei ein read-only-Katalogpfad:
+oder Speicheroperationen. `known_page_state` und die read-only-Listenansicht
+`positions` sind dabei katalog- bzw. snapshotgebundene Pfade:
 Er liest den persistenten Qt-Accessibility-Snapshot und bildet die katalogisierten
 Felder sowie die Epoch-Bindung ab; er führt keine Mutation aus. Ein Prototyp oder ein statisch gefundenes Herstellersymbol
 ändert den Status dieser Matrix erst nach Integration und passendem Nachweis.

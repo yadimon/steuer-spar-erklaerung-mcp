@@ -18,8 +18,8 @@
     },
     {
       "path": "dist/api.js",
-      "sha256": "31568aa6a0d3c150a81305c38dff3535a222be7cae9abd95bc0ea2cdd959853d",
-      "size": 825156
+      "sha256": "9efd1bc1e0e23c789c2ba3d1922719effe2f7b7472a761234e0174a22c8a4c1d",
+      "size": 826496
     },
     {
       "path": "dist/mcp.js",

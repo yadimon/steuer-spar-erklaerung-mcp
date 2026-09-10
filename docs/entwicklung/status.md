@@ -28,7 +28,7 @@ ist, nicht was fehlt.
 | Menueeintraege | 64 | 11 fertig, 9 teils, 4 zu |
 | Formularvorlagen (`.frb`) | 994 | 0 |
 | Operationen | – | 102: 94 funktional live belegt, 6 nur Fehlerpfad, 2 live ungetestet |
-| Direkte Qt-DLL-Handler | – | 7 optional: `get_value`, `table_read`, `snapshot`, `find`, `read_page`, `subpages`, `known_page_state`; 95 ohne direkten Qt-Pfad |
+| Direkte Qt-DLL-Handler | – | 8 optional: `get_value`, `table_read`, `snapshot`, `find`, `read_page`, `subpages`, `known_page_state`, `positions`; 94 ohne direkten Qt-Pfad |
 | MCP-Werkzeuge | – | 104: 102 direkte, 1 Komposition, 1 API-Lebenszykluswerkzeug |
 
 Die Qt-Brücke enthält keine öffentlichen Schreib-, Navigations- oder
@@ -123,7 +123,7 @@ Belege in der [Seitenlandkarte](funktionskatalog.md).
 | --- | --- | --- |
 | Zu einer Seite navigieren | **fertig** | `goto` – ueber Suchfeld und Doppelklick, weil die UIA-Muster des Baums nicht wirken |
 | Seite lesen | **fertig** | `page`, `read_page`, `known_page_state`, `ui_state` |
-| Tabellen lesen | **fertig** | `table_read` optional über Qt; `read_table` und `positions` behalten ihren bisherigen Pfad |
+| Tabellen lesen | **fertig** | `table_read` optional über Qt; `read_table` behält seinen bisherigen Pfad, `positions` liest optional über Qt |
 | Unterseiten finden | **fertig** | `subpages` – „Erfassen"-Verweise sind echte Schaltflaechen |
 | Baum blaettern | **teils** | `tree_top`, `tree_scroll` – Aufzaehlen der Seiten geht darueber nicht |
 | Suche als eigene Operation | **offen** | `goto` nutzt die Suche intern; es gibt keinen direkten Zugriff |
