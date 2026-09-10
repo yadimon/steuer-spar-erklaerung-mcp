@@ -16,6 +16,7 @@ export type QtSnapshotNode = z.infer<typeof nodeSchema>;
 const snapshotSchema = z.object({
   ok: z.literal(true), controllerBound: z.literal(true), scope: z.literal("qt-accessibility-content"),
   hwnd: integer.positive(), windowEnabled: z.boolean(), modalBlocked: z.boolean(), nodes: z.array(nodeSchema).max(5000),
+  foreground: z.boolean().optional(),
   windowRect: z.object({ x: integer, y: integer, w: integer.nonnegative(), h: integer.nonnegative() }).strict(),
   exactMatches: z.object({ name: z.array(integer.nonnegative()).optional(), aid: z.array(integer.nonnegative()).optional(),
     type: z.array(integer.nonnegative()).optional() }).strict(),

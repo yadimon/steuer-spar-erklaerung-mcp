@@ -33,8 +33,8 @@ Einstieg und ein API-Lebenszykluswerkzeug, zusammen 104. Die direkten Werkzeuge 
 ab: `checker_detail` hat kein eigenes Werkzeug, und `tracked_set_value` traegt
 deren zwei (`sse_change_field`, `sse_change_known_field`).
 
-**Sechs der 102 Operationen**, `get_value`, `table_read`, `snapshot`, `find`, `read_page` und `subpages`, besitzen einen
-direkten optionalen Qt-DLL-Pfad. Die übrigen 96 behalten ihre bestehenden
+**Sieben der 102 Operationen**, `get_value`, `table_read`, `snapshot`, `find`, `read_page`, `subpages` und `known_page_state`, besitzen einen
+direkten optionalen Qt-DLL-Pfad. Die übrigen 95 behalten ihre bestehenden
 Pfade. Dateioperationen brauchen häufig keine DLL in SSE; diese Zahl ist
 deshalb kein gewichteter Fertigstellungsgrad. Der Qt-Pfad verlangt explizite
 Konfiguration und ein separates kompatibles Paket. Öffentliche native

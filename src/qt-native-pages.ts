@@ -1,6 +1,7 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { WorkerResult } from "./api-contract.js";
-import type { ProductProfile } from "./product-profiles.js";
+import { resolvePageObjectDefinition, type ProductProfile } from "./product-profiles.js";
 import { QtNativeTransportError, type QtNativeClient } from "./qt-native-client.js";
 import { readQtNativeSnapshot, type QtSnapshotNode } from "./qt-native-snapshot.js";
 
@@ -31,6 +32,119 @@ function heading(nodes: QtSnapshotNode[], profile?: ProductProfile): string | nu
     }
   }
   return texts.sort(byPosition)[0]?.name ?? null;
+}
+
+function knownHeadingMatches(actual: string | null, page: Record<string, unknown>): boolean {
+  if (!actual) return false;
+  if (actual === page.heading) return true;
+  const prefix = typeof page.headingPrefix === "string" ? page.headingPrefix : "";
+  if (prefix && actual.startsWith(prefix)) return true;
+  const numberedLabel = typeof page.headingNumberedLabel === "string" ? page.headingNumberedLabel : "";
+  if (!numberedLabel) return false;
+  const match = /^(?<number>[1-9][0-9]*)\. (?<label>.+)$/u.exec(actual);
+  if (!match?.groups?.label) return false;
+  return match.groups.label === numberedLabel || match.groups.label.startsWith(numberedLabel + ": ");
+}
+
+function knownFieldValue(node: QtSnapshotNode, controlType: string): string | null {
+  if (controlType === "CheckBox") {
+    if (node.checked === true) return "True";
+    if (node.checked === false) return "False";
+    if (node.checked === "unbestimmt") return "Indeterminate";
+  }
+  return node.val;
+}
+
+const fail = (kind: string, error: string): WorkerResult => ({ ok: false, backend: "qt", kind, error });
+
+function knownEpoch(
+  hwnd: number,
+  currentHeading: string | null,
+  dirty: boolean | null,
+  fields: Array<{ id: string; value: string | null; enabled: boolean; readOnly: boolean | null; x: number; y: number; w: number; h: number }>,
+): string {
+  // This property order mirrors Get-KnownPageState's epochBody exactly.
+  return createHash("sha256").update(JSON.stringify({ hwnd, heading: currentHeading, dirty, fields }), "utf8")
+    .digest("hex").toUpperCase();
+}
+
+/** Read a catalogued page state without starting a PowerShell worker. */
+export async function executeQtNativeKnownPageState(
+  client: QtNativeClient,
+  args: Readonly<Record<string, unknown>>,
+  timeoutMs: number,
+  signal?: AbortSignal,
+  profile?: ProductProfile,
+): Promise<WorkerResult> {
+  if (!profile || typeof args.pageId !== "string" || !args.pageId) {
+    return fail("bad-args", "known_page_state requires pageId and a product profile.");
+  }
+  const resolved = resolvePageObjectDefinition(profile.pageObjectsCatalog, args.pageId);
+  if (resolved.status !== "found") {
+    return fail(resolved.status === "ambiguous" ? "ambiguous" : "not-found", "The requested page object is not unique.");
+  }
+  const result = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 5000 }, timeoutMs, signal);
+  if (!result.windowEnabled || result.modalBlocked) {
+    return fail("window-obstructed", "The native window is disabled or blocked by a modal dialog.");
+  }
+  if (result.stats.truncated) return fail("native-incomplete", "The current native tree exceeds the page-state read bound.");
+  const page = resolved.page as Record<string, unknown>;
+  const currentHeading = heading(result.nodes, profile);
+  const rawFields = page.fields && typeof page.fields === "object" && !Array.isArray(page.fields)
+    ? page.fields as Record<string, unknown> : {};
+  const fields: Array<Record<string, unknown>> = [];
+  const epochFields: Array<{ id: string; value: string | null; enabled: boolean; readOnly: boolean | null; x: number; y: number; w: number; h: number }> = [];
+  for (const [fieldId, rawDefinition] of Object.entries(rawFields)) {
+    const definition = rawDefinition as Record<string, unknown>;
+    const relativeAid = typeof definition.automationIdRelative === "string" ? definition.automationIdRelative : "";
+    const suffix = typeof definition.automationIdSuffix === "string" ? definition.automationIdSuffix : "";
+    const controlType = typeof definition.controlType === "string" ? definition.controlType : "";
+    const exact = relativeAid ? result.nodes.filter(node => node.aid === relativeAid || node.aid.endsWith(relativeAid)) : [];
+    const suffixMatches = suffix ? result.nodes.filter(node => node.aid.endsWith(suffix)) : [];
+    const candidates = (exact.length ? exact : suffixMatches).filter(node => node.type === controlType);
+    if (candidates.length > 1) return fail("ambiguous", `Known field '${fieldId}' is not uniquely bound in the native tree.`);
+    const node = candidates[0];
+    const value = node ? knownFieldValue(node, controlType) : null;
+    const enabled = node?.on ?? false;
+    const readOnly = node?.ro ?? null;
+    const field = {
+      fieldId,
+      label: String(definition.label ?? ""),
+      controlType,
+      valueKind: String(definition.valueKind ?? ""),
+      writeTool: typeof definition.writeTool === "string" ? definition.writeTool : null,
+      automationIdSuffix: suffix,
+      present: Boolean(node),
+      value,
+      enabled,
+      readOnly,
+      x: node?.x ?? -1,
+      y: node?.y ?? -1,
+      w: node?.w ?? 0,
+      h: node?.h ?? 0,
+    };
+    fields.push(field);
+    epochFields.push({ id: fieldId, value, enabled, readOnly, x: field.x, y: field.y, w: field.w, h: field.h });
+  }
+  const dirtyNode = result.nodes.find(node => node.type === "Button" && node.aid.endsWith(".MainToolBar.tb_sichern"));
+  const dirty = dirtyNode?.on ?? null;
+  return {
+    ok: true,
+    backend: "qt",
+    pageId: args.pageId,
+    expectedHeading: String(page.heading),
+    onExpectedPage: knownHeadingMatches(currentHeading, page) && fields.every(field => field.present === true),
+    heading: currentHeading,
+    dirty,
+    fields,
+    epoch: knownEpoch(result.hwnd, currentHeading, dirty, epochFields),
+    hwnd: result.hwnd,
+    pid: client.binding.pid,
+    foreground: result.foreground ?? false,
+    dialogs: [],
+    privateValuesPersisted: false,
+    nativeDurationMs: result.nativeDurationMs,
+  };
 }
 
 export async function executeQtNativeReadPage(

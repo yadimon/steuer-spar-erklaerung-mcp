@@ -129,6 +129,7 @@ static Json accessibilitySnapshot(QWidget *main, const Json &request) {
     }
     const auto count = nodes.size();
     return {{"ok", true}, {"nodes", std::move(nodes)}, {"hwnd", rootHost}, {"windowEnabled", root->isEnabled()},
+        {"foreground", GetForegroundWindow() == reinterpret_cast<HWND>(rootHost)},
         {"exactMatches", std::move(exactMatches)},
         {"windowRect", {{"x", windowRect.left}, {"y", windowRect.top},
             {"w", windowRect.right - windowRect.left}, {"h", windowRect.bottom - windowRect.top}}},

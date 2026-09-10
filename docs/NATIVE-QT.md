@@ -9,7 +9,7 @@ noch nicht. Dasselbe Paket führt `desktop_status` und `desktop_start` direkt ü
 Die übrigen Operationen behalten ihre bestehenden Ausführungspfade.
 
 Die [Native-Abdeckungsmatrix](NATIVE-COVERAGE.md) zählt alle 102 API-Operationen:
-sechs direkte optionale Qt-Handler und 96 ohne direkten Qt-Pfad. Sie trennt
+Sieben direkte optionale Qt-Handler und 95 ohne direkten Qt-Pfad. Sie trennt
 diesen Stand von funktionaler Live-Abdeckung und noch erforderlicher Integration.
 `sse-native.dll` bezeichnet dagegen die bestehende C#-Worker-Hilfsbibliothek;
 der hier beschriebene C++-Lesepfad verwendet `sse-qt-read.dll` in SSE.
