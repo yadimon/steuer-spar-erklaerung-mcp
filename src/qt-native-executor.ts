@@ -5,10 +5,12 @@ import { executeQtNativeGetValue } from "./qt-native-values.js";
 import { executeQtNativeTableRead } from "./qt-native-tables.js";
 import { executeQtNativeSnapshot, executeQtSnapshotGetValue, qtSnapshotArguments } from "./qt-native-snapshot.js";
 import type { ProductProfile } from "./product-profiles.js";
-import { executeQtNativeReadPage, executeQtNativeSubpages } from "./qt-native-pages.js";
+import { executeQtNativeKnownPageState, executeQtNativeReadPage, executeQtNativeSubpages } from "./qt-native-pages.js";
 import { executeQtNativeFind } from "./qt-native-find.js";
 
-export const QT_NATIVE_READ_OPERATIONS = ["get_value", "table_read", "snapshot", "find", "read_page", "subpages"] as const;
+export const QT_NATIVE_READ_OPERATIONS = [
+  "get_value", "table_read", "snapshot", "find", "read_page", "subpages", "known_page_state",
+] as const;
 type QtNativeReadOperation = typeof QT_NATIVE_READ_OPERATIONS[number];
 export function isQtNativeReadOperation(operation: string): operation is QtNativeReadOperation {
   return QT_NATIVE_READ_OPERATIONS.some(value => value === operation);
@@ -30,7 +32,8 @@ export async function executeQtNativeRead(
     const client = dependencies.qtNativeClient ?? await dependencies.qtNativeClientFor!(args, timeoutMs, signal);
     const remaining = Math.floor(timeoutMs - (performance.now() - started));
     if (remaining < 1) throw new QtNativeTransportError("Native operation deadline exceeded before reading.", "native-timeout");
-    const execute = operation === "read_page" ? executeQtNativeReadPage : operation === "subpages" ? executeQtNativeSubpages
+    const execute = operation === "known_page_state" ? executeQtNativeKnownPageState
+      : operation === "read_page" ? executeQtNativeReadPage : operation === "subpages" ? executeQtNativeSubpages
       : operation === "find" ? executeQtNativeFind : operation === "snapshot" ? executeQtNativeSnapshot : operation === "table_read" ? executeQtNativeTableRead
       : typeof args.rid === "string" && args.rid.startsWith("42.") ? executeQtSnapshotGetValue : executeQtNativeGetValue;
     return await execute(client, args, remaining, signal, profile);

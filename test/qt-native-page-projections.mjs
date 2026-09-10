@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { executeQtNativeRead } from "../dist/qt-native-executor.js";
+import { executeQtNativeKnownPageState } from "../dist/qt-native-pages.js";
 import { nativeWildcard } from "../dist/qt-native-find.js";
 import { loadProductProfile } from "../dist/product-profiles.js";
 
@@ -92,6 +93,44 @@ export async function testNativePageProjections() {
     assert.equal(backend, "qt"); assert.equal(nativeDurationMs, 1);
     assert.deepEqual(projection, oracle.results[index], JSON.stringify(test.args));
   }
+  const knownProfile = {
+    pageObjectsCatalog: {
+      windows: { main: { headingContainerAutomationIdSuffix: ".ClientFrameSSE.ClientHeader" } },
+      pages: { "synthetic.page": {
+        heading: "Synthetic heading", headingPrefix: "Synthetic heading",
+        fields: { amount: {
+          label: "Amount", controlType: "Edit", valueKind: "currency",
+          automationIdRelative: "window.RedThreadContent.Amount.Text", automationIdSuffix: ".Amount.Text",
+        } },
+      } },
+    },
+  };
+  const knownNodes = [
+    { i: 0, p: -1, d: 0, type: "Group", name: "", aid: "window", rid: "42.42", x: 0, y: 0, w: 1000, h: 500, on: true, val: null, ro: null, checked: null, selected: null, scroll: null },
+    { i: 1, p: 0, d: 1, type: "Group", name: "", aid: "window.ClientFrameSSE.ClientHeader", rid: "42.42.4.1", x: 200, y: 0, w: 700, h: 40, on: true, val: null, ro: null, checked: null, selected: null, scroll: null },
+    { i: 2, p: 1, d: 2, type: "Text", name: "Synthetic heading", aid: "window.ClientFrameSSE.ClientHeader.QLabel", rid: "42.42.4.2", x: 220, y: 10, w: 300, h: 20, on: true, val: null, ro: null, checked: null, selected: null, scroll: null },
+    { i: 3, p: 0, d: 1, type: "Edit", name: "", aid: "window.RedThreadContent.Amount.Text", rid: "42.42.4.3", x: 300, y: 100, w: 120, h: 25, on: true, val: "Before", ro: false, checked: null, selected: null, scroll: null },
+    { i: 4, p: 0, d: 1, type: "Button", name: "Speichern", aid: "window.MainToolBar.tb_sichern", rid: "42.42.4.4", x: 10, y: 10, w: 40, h: 20, on: true, val: null, ro: null, checked: null, selected: null, scroll: null },
+  ];
+  const knownClient = { binding: { hwnd: 42, pid: 99 }, request: async operation => {
+    assert.equal(operation, "accessibility_snapshot");
+    return { durationMs: 2, result: { ok: true, controllerBound: true, scope: "qt-accessibility-content", hwnd: 42,
+      windowRect: { x: 0, y: 0, w: 1000, h: 500 }, windowEnabled: true, modalBlocked: false, foreground: true,
+      exactMatches: {}, nodes: knownNodes, stats: { ...stats, n: knownNodes.length } } };
+  } };
+  const known = await executeQtNativeKnownPageState(knownClient, { pageId: "synthetic.page", hwnd: 42 }, 5000, undefined, knownProfile);
+  assert.equal(known.ok, true, JSON.stringify(known));
+  assert.equal(known.backend, "qt"); assert.equal(known.onExpectedPage, true); assert.equal(known.foreground, true);
+  assert.equal(known.dirty, true); assert.equal(known.fields.length, 1);
+  assert.deepEqual(known.fields[0], {
+    fieldId: "amount", label: "Amount", controlType: "Edit", valueKind: "currency", writeTool: null,
+    automationIdSuffix: ".Amount.Text", present: true, value: "Before", enabled: true, readOnly: false,
+    x: 300, y: 100, w: 120, h: 25,
+  });
+  assert.match(known.epoch, /^[A-F0-9]{64}$/u);
+  const missing = await executeQtNativeKnownPageState(knownClient, { pageId: "missing" }, 5000, undefined, knownProfile);
+  assert.equal(missing.kind, "not-found");
+
   const exhausted = nativeWildcard("?".repeat(1000));
   assert.throws(() => exhausted("x".repeat(20_000)), error => error.kind === "native-selector-limit");
 }

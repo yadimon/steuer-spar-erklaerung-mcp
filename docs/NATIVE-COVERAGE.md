@@ -8,8 +8,8 @@ Der Live-Stand stammt aus bestehenden Tests; er belegt keinen Wechsel des Backen
 | Kennzahl | Anzahl |
 | --- | ---: |
 | API-Operationen | 102 |
-| Direkt an den optionalen Qt-DLL-Pfad angeschlossen | 6 |
-| Ohne direkten Qt-DLL-Pfad | 96 |
+| Direkt an den optionalen Qt-DLL-Pfad angeschlossen | 7 |
+| Ohne direkten Qt-DLL-Pfad | 95 |
 | Zusätzliche direkte Win32-Operationen im optionalen nativen Paket | 2 |
 | Zusätzliche Win32-/COM-UIA-Operationen im optionalen nativen Paket | 1 |
 | Funktional live belegt, unabhängig vom Backend | 94 |
@@ -85,7 +85,7 @@ Broker und Transportquittungen sind Infrastruktur, keine zusätzlichen API-Komma
 | `health` | Programm und Fenster | Nicht umgestellt | funktional belegt |
 | `help` | Seite und Navigation | Nicht umgestellt | funktional belegt |
 | `instances` | Programm und Fenster | Nicht umgestellt | funktional belegt |
-| `known_page_state` | Seite und Navigation | Nicht umgestellt | funktional belegt |
+| `known_page_state` | Seite und Navigation | **Qt optional** | funktional belegt |
 | `launch` | Programm und Fenster | Nicht umgestellt | funktional belegt |
 | `list_cases` | Dateien und API | Nicht umgestellt | funktional belegt |
 | `make_working_copy` | Dateien und API | Nicht umgestellt | funktional belegt |
@@ -170,7 +170,9 @@ Broker und Transportquittungen sind Infrastruktur, keine zusätzlichen API-Komma
   eine schnelle Teiloperation belegt nicht den vollständigen Ablauf.
 
 Die ausgelieferte Qt-Brücke aktiviert keine experimentellen Schreib-, Navigations-
-oder Speicheroperationen. Ein Prototyp oder ein statisch gefundenes Herstellersymbol
+oder Speicheroperationen. `known_page_state` ist dabei ein read-only-Katalogpfad:
+Er liest den persistenten Qt-Accessibility-Snapshot und bildet die katalogisierten
+Felder sowie die Epoch-Bindung ab; er führt keine Mutation aus. Ein Prototyp oder ein statisch gefundenes Herstellersymbol
 ändert den Status dieser Matrix erst nach Integration und passendem Nachweis.
 
 ## Nachweise und Pflege

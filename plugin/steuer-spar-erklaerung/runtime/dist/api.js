@@ -12784,6 +12784,7 @@ var init_qt_native_snapshot = __esm({
       windowEnabled: external_exports.boolean(),
       modalBlocked: external_exports.boolean(),
       nodes: external_exports.array(nodeSchema).max(5e3),
+      foreground: external_exports.boolean().optional(),
       windowRect: external_exports.object({ x: integer, y: integer, w: integer.nonnegative(), h: integer.nonnegative() }).strict(),
       exactMatches: external_exports.object({
         name: external_exports.array(integer.nonnegative()).optional(),
@@ -12810,6 +12811,7 @@ var init_qt_native_snapshot = __esm({
 });
 
 // src/qt-native-pages.ts
+import { createHash as createHash12 } from "node:crypto";
 function roundEven(value) {
   const floor = Math.floor(value);
   return value - floor === 0.5 ? floor + Math.abs(floor) % 2 : Math.round(value);
@@ -12834,6 +12836,98 @@ function heading(nodes, profile) {
     }
   }
   return texts.sort(byPosition)[0]?.name ?? null;
+}
+function knownHeadingMatches(actual, page) {
+  if (!actual) return false;
+  if (actual === page.heading) return true;
+  const prefix = typeof page.headingPrefix === "string" ? page.headingPrefix : "";
+  if (prefix && actual.startsWith(prefix)) return true;
+  const numberedLabel = typeof page.headingNumberedLabel === "string" ? page.headingNumberedLabel : "";
+  if (!numberedLabel) return false;
+  const match = /^(?<number>[1-9][0-9]*)\. (?<label>.+)$/u.exec(actual);
+  if (!match?.groups?.label) return false;
+  return match.groups.label === numberedLabel || match.groups.label.startsWith(numberedLabel + ": ");
+}
+function knownFieldValue(node, controlType2) {
+  if (controlType2 === "CheckBox") {
+    if (node.checked === true) return "True";
+    if (node.checked === false) return "False";
+    if (node.checked === "unbestimmt") return "Indeterminate";
+  }
+  return node.val;
+}
+function knownEpoch(hwnd, currentHeading, dirty, fields) {
+  return createHash12("sha256").update(JSON.stringify({ hwnd, heading: currentHeading, dirty, fields }), "utf8").digest("hex").toUpperCase();
+}
+async function executeQtNativeKnownPageState(client, args, timeoutMs, signal, profile) {
+  if (!profile || typeof args.pageId !== "string" || !args.pageId) {
+    return fail4("bad-args", "known_page_state requires pageId and a product profile.");
+  }
+  const resolved = resolvePageObjectDefinition(profile.pageObjectsCatalog, args.pageId);
+  if (resolved.status !== "found") {
+    return fail4(resolved.status === "ambiguous" ? "ambiguous" : "not-found", "The requested page object is not unique.");
+  }
+  const result = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 5e3 }, timeoutMs, signal);
+  if (!result.windowEnabled || result.modalBlocked) {
+    return fail4("window-obstructed", "The native window is disabled or blocked by a modal dialog.");
+  }
+  if (result.stats.truncated) return fail4("native-incomplete", "The current native tree exceeds the page-state read bound.");
+  const page = resolved.page;
+  const currentHeading = heading(result.nodes, profile);
+  const rawFields = page.fields && typeof page.fields === "object" && !Array.isArray(page.fields) ? page.fields : {};
+  const fields = [];
+  const epochFields = [];
+  for (const [fieldId, rawDefinition] of Object.entries(rawFields)) {
+    const definition = rawDefinition;
+    const relativeAid = typeof definition.automationIdRelative === "string" ? definition.automationIdRelative : "";
+    const suffix = typeof definition.automationIdSuffix === "string" ? definition.automationIdSuffix : "";
+    const controlType2 = typeof definition.controlType === "string" ? definition.controlType : "";
+    const exact = relativeAid ? result.nodes.filter((node2) => node2.aid === relativeAid || node2.aid.endsWith(relativeAid)) : [];
+    const suffixMatches = suffix ? result.nodes.filter((node2) => node2.aid.endsWith(suffix)) : [];
+    const candidates = (exact.length ? exact : suffixMatches).filter((node2) => node2.type === controlType2);
+    if (candidates.length > 1) return fail4("ambiguous", `Known field '${fieldId}' is not uniquely bound in the native tree.`);
+    const node = candidates[0];
+    const value = node ? knownFieldValue(node, controlType2) : null;
+    const enabled2 = node?.on ?? false;
+    const readOnly = node?.ro ?? null;
+    const field = {
+      fieldId,
+      label: String(definition.label ?? ""),
+      controlType: controlType2,
+      valueKind: String(definition.valueKind ?? ""),
+      writeTool: typeof definition.writeTool === "string" ? definition.writeTool : null,
+      automationIdSuffix: suffix,
+      present: Boolean(node),
+      value,
+      enabled: enabled2,
+      readOnly,
+      x: node?.x ?? -1,
+      y: node?.y ?? -1,
+      w: node?.w ?? 0,
+      h: node?.h ?? 0
+    };
+    fields.push(field);
+    epochFields.push({ id: fieldId, value, enabled: enabled2, readOnly, x: field.x, y: field.y, w: field.w, h: field.h });
+  }
+  const dirtyNode = result.nodes.find((node) => node.type === "Button" && node.aid.endsWith(".MainToolBar.tb_sichern"));
+  const dirty = dirtyNode?.on ?? null;
+  return {
+    ok: true,
+    backend: "qt",
+    pageId: args.pageId,
+    expectedHeading: String(page.heading),
+    onExpectedPage: knownHeadingMatches(currentHeading, page) && fields.every((field) => field.present === true),
+    heading: currentHeading,
+    dirty,
+    fields,
+    epoch: knownEpoch(result.hwnd, currentHeading, dirty, epochFields),
+    hwnd: result.hwnd,
+    pid: client.binding.pid,
+    foreground: result.foreground ?? false,
+    dialogs: [],
+    privateValuesPersisted: false,
+    nativeDurationMs: result.nativeDurationMs
+  };
 }
 async function executeQtNativeReadPage(client, args, timeoutMs, signal, profile) {
   const result = await readQtNativeSnapshot(client, args, timeoutMs, signal);
@@ -12903,14 +12997,16 @@ async function executeQtNativeSubpages(client, args, timeoutMs, signal) {
     hinweis: "Hyperlinks sind bei doppelt exponierten Qt-Unterseiten der bevorzugte, PID-/Root-verifizierte Weg per sse_click_point. Reine oder unbeschriftete Buttons per rid mit sse_click oeffnen. Zurueck ueber sse_click name='Zurück' oder den Verlaufspfeil (aid HistoryToolbarBtnSSE)."
   };
 }
-var byPosition;
+var byPosition, fail4;
 var init_qt_native_pages = __esm({
   "src/qt-native-pages.ts"() {
     "use strict";
     init_zod();
+    init_product_profiles();
     init_qt_native_client();
     init_qt_native_snapshot();
     byPosition = (a, b) => a.y - b.y || a.x - b.x;
+    fail4 = (kind, error) => ({ ok: false, backend: "qt", kind, error });
   }
 });
 
@@ -13027,7 +13123,7 @@ async function executeQtNativeRead(operation, args, dependencies, timeoutMs = DE
     const client = dependencies.qtNativeClient ?? await dependencies.qtNativeClientFor(args, timeoutMs, signal);
     const remaining = Math.floor(timeoutMs - (performance10.now() - started));
     if (remaining < 1) throw new QtNativeTransportError("Native operation deadline exceeded before reading.", "native-timeout");
-    const execute = operation === "read_page" ? executeQtNativeReadPage : operation === "subpages" ? executeQtNativeSubpages : operation === "find" ? executeQtNativeFind : operation === "snapshot" ? executeQtNativeSnapshot : operation === "table_read" ? executeQtNativeTableRead : typeof args.rid === "string" && args.rid.startsWith("42.") ? executeQtSnapshotGetValue : executeQtNativeGetValue;
+    const execute = operation === "known_page_state" ? executeQtNativeKnownPageState : operation === "read_page" ? executeQtNativeReadPage : operation === "subpages" ? executeQtNativeSubpages : operation === "find" ? executeQtNativeFind : operation === "snapshot" ? executeQtNativeSnapshot : operation === "table_read" ? executeQtNativeTableRead : typeof args.rid === "string" && args.rid.startsWith("42.") ? executeQtSnapshotGetValue : executeQtNativeGetValue;
     return await execute(client, args, remaining, signal, profile);
   } catch (error) {
     return {
@@ -13050,7 +13146,15 @@ var init_qt_native_executor = __esm({
     init_qt_native_snapshot();
     init_qt_native_pages();
     init_qt_native_find();
-    QT_NATIVE_READ_OPERATIONS = ["get_value", "table_read", "snapshot", "find", "read_page", "subpages"];
+    QT_NATIVE_READ_OPERATIONS = [
+      "get_value",
+      "table_read",
+      "snapshot",
+      "find",
+      "read_page",
+      "subpages",
+      "known_page_state"
+    ];
   }
 });
 
@@ -17761,7 +17865,7 @@ var init_worker_prewarm = __esm({
 
 // src/worker.ts
 import { spawn as spawn2 } from "node:child_process";
-import { createHash as createHash12, randomUUID as randomUUID4 } from "node:crypto";
+import { createHash as createHash13, randomUUID as randomUUID4 } from "node:crypto";
 import { closeSync as closeSync3, openSync as openSync3, unlinkSync as unlinkSync3, writeFileSync as writeFileSync3 } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
@@ -17815,7 +17919,7 @@ function removeWorkerArgumentsFile(path) {
 function summarizeWorkerDiagnostic(value) {
   if (value.length <= MAX_WORKER_DIAGNOSTIC_CHARACTERS) return value;
   const bytes = Buffer.from(value, "utf8");
-  const digest = createHash12("sha256").update(bytes).digest("hex");
+  const digest = createHash13("sha256").update(bytes).digest("hex");
   return `${value.slice(0, MAX_WORKER_DIAGNOSTIC_CHARACTERS)}
 [Diagnose gekuerzt: ${bytes.length} UTF-8-Bytes, sha256=${digest}]`;
 }
@@ -18296,14 +18400,14 @@ var init_jsonl_logger = __esm({
 });
 
 // src/qt-native-package.ts
-import { createHash as createHash13 } from "node:crypto";
+import { createHash as createHash14 } from "node:crypto";
 import { lstatSync as lstatSync3, realpathSync as realpathSync4 } from "node:fs";
 import { join as join14 } from "node:path";
 function verifiedFile(path, expected, maximumBytes) {
   const info = lstatSync3(path);
   if (!info.isFile() || info.isSymbolicLink()) throw new Error("Native package entries must be regular files.");
   const bytes = readFileBounded(path, maximumBytes);
-  if (createHash13("sha256").update(bytes).digest("hex") !== expected) throw new Error("Native package file digest mismatch.");
+  if (createHash14("sha256").update(bytes).digest("hex") !== expected) throw new Error("Native package file digest mismatch.");
   return bytes;
 }
 function loadQtNativePackage(config, profile) {
@@ -18519,7 +18623,7 @@ var init_qt_native_broker = __esm({
 
 // src/native-desktop-status.ts
 import { execFile as execFile2 } from "node:child_process";
-import { createHash as createHash14 } from "node:crypto";
+import { createHash as createHash15 } from "node:crypto";
 import { win32 as win322 } from "node:path";
 import { performance as performance13 } from "node:perf_hooks";
 function parseNativeDesktopStatus(value, marker, options) {
@@ -18552,7 +18656,7 @@ function parseNativeDesktopStatus(value, marker, options) {
   const running = identity?.supported === true;
   const windows = running ? status.windows.map((window) => ({
     ...window,
-    titleFingerprint: createHash14("sha256").update(window.title, "utf8").digest("hex").toUpperCase()
+    titleFingerprint: createHash15("sha256").update(window.title, "utf8").digest("hex").toUpperCase()
   })) : [];
   const active = Boolean(marker.pid && running && status.reachable && windows.length);
   return {
@@ -18682,7 +18786,7 @@ var init_native_desktop_status = __esm({
 
 // src/native-desktop-start.ts
 import { execFile as execFile3 } from "node:child_process";
-import { createHash as createHash15 } from "node:crypto";
+import { createHash as createHash16 } from "node:crypto";
 import { statSync as statSync6 } from "node:fs";
 import { win32 as win323 } from "node:path";
 import { performance as performance14 } from "node:perf_hooks";
@@ -18730,7 +18834,7 @@ function parseNativeDesktopStart(value, prepared, options) {
   const profile = options.profile;
   const windows = (items) => items.map((window) => ({
     ...window,
-    titleFingerprint: createHash15("sha256").update(window.title, "utf8").digest("hex").toUpperCase()
+    titleFingerprint: createHash16("sha256").update(window.title, "utf8").digest("hex").toUpperCase()
   }));
   const product = {
     path: result.product.image,
