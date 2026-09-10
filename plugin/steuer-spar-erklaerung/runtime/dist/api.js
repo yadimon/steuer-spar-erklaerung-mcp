@@ -12997,6 +12997,30 @@ async function executeQtNativeSubpages(client, args, timeoutMs, signal) {
     hinweis: "Hyperlinks sind bei doppelt exponierten Qt-Unterseiten der bevorzugte, PID-/Root-verifizierte Weg per sse_click_point. Reine oder unbeschriftete Buttons per rid mit sse_click oeffnen. Zurueck ueber sse_click name='Zurück' oder den Verlaufspfeil (aid HistoryToolbarBtnSSE)."
   };
 }
+async function executeQtNativePositions(client, args, timeoutMs, signal) {
+  const action = args.aktion === void 0 ? "list" : String(args.aktion);
+  if (action !== "list") {
+    if (action === "add" || action === "delete") {
+      return fail4("blocked", "Positionen anlegen oder loeschen bleibt ohne eigenen Seiten-, Feld-, Summen- und Dialogvertrag gesperrt.");
+    }
+    return fail4("bad-args", `Unbekannte aktion '${action}' (erlaubt: list)`);
+  }
+  const result = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 4e3 }, timeoutMs, signal);
+  if (!result.windowEnabled || result.modalBlocked) return fail4("window-obstructed", "The native window is disabled or blocked by a modal dialog.");
+  if (result.stats.truncated) return fail4("native-incomplete", "The current native tree exceeds the native read bound.");
+  const positionen = [...new Set(result.nodes.flatMap((node) => {
+    const match = /^»(.+)« bearbeiten$/u.exec(node.name);
+    return match?.[1] ? [match[1]] : [];
+  }))];
+  return {
+    ok: true,
+    backend: "qt",
+    positionen,
+    anzahl: positionen.length,
+    hinweis: positionen.length ? null : "Keine Positionen sichtbar - erst auf die Uebersichtsseite navigieren.",
+    nativeDurationMs: result.nativeDurationMs
+  };
+}
 var byPosition, fail4;
 var init_qt_native_pages = __esm({
   "src/qt-native-pages.ts"() {
@@ -13123,7 +13147,7 @@ async function executeQtNativeRead(operation, args, dependencies, timeoutMs = DE
     const client = dependencies.qtNativeClient ?? await dependencies.qtNativeClientFor(args, timeoutMs, signal);
     const remaining = Math.floor(timeoutMs - (performance10.now() - started));
     if (remaining < 1) throw new QtNativeTransportError("Native operation deadline exceeded before reading.", "native-timeout");
-    const execute = operation === "known_page_state" ? executeQtNativeKnownPageState : operation === "read_page" ? executeQtNativeReadPage : operation === "subpages" ? executeQtNativeSubpages : operation === "find" ? executeQtNativeFind : operation === "snapshot" ? executeQtNativeSnapshot : operation === "table_read" ? executeQtNativeTableRead : typeof args.rid === "string" && args.rid.startsWith("42.") ? executeQtSnapshotGetValue : executeQtNativeGetValue;
+    const execute = operation === "known_page_state" ? executeQtNativeKnownPageState : operation === "positions" ? executeQtNativePositions : operation === "read_page" ? executeQtNativeReadPage : operation === "subpages" ? executeQtNativeSubpages : operation === "find" ? executeQtNativeFind : operation === "snapshot" ? executeQtNativeSnapshot : operation === "table_read" ? executeQtNativeTableRead : typeof args.rid === "string" && args.rid.startsWith("42.") ? executeQtSnapshotGetValue : executeQtNativeGetValue;
     return await execute(client, args, remaining, signal, profile);
   } catch (error) {
     return {
@@ -13153,7 +13177,8 @@ var init_qt_native_executor = __esm({
       "find",
       "read_page",
       "subpages",
-      "known_page_state"
+      "known_page_state",
+      "positions"
     ];
   }
 });

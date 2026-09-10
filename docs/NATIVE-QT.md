@@ -1,6 +1,6 @@
 # Optionaler Qt-Lesepfad
 
-Die API kann `get_value`, `table_read`, `snapshot`, `find`, `read_page` und `subpages` über eine dauerhaft gebundene
+Die API kann `get_value`, `table_read`, `snapshot`, `find`, `read_page`, `subpages`, `known_page_state` und `positions` über eine dauerhaft gebundene
 Qt-Verbindung ausführen. Der normale Runtime-Start aktiviert diesen Pfad nur,
 wenn die Konfigurationsdatei `qtNativeRuntime` enthält. Dafür wird ein separates,
 kompatibles natives Paket benötigt; die npm-Pakete enthalten diesen Qt-Helfer
@@ -9,7 +9,7 @@ noch nicht. Dasselbe Paket führt `desktop_status` und `desktop_start` direkt ü
 Die übrigen Operationen behalten ihre bestehenden Ausführungspfade.
 
 Die [Native-Abdeckungsmatrix](NATIVE-COVERAGE.md) zählt alle 102 API-Operationen:
-Sieben direkte optionale Qt-Handler und 95 ohne direkten Qt-Pfad. Sie trennt
+Acht direkte optionale Qt-Handler und 94 ohne direkten Qt-Pfad. Sie trennt
 diesen Stand von funktionaler Live-Abdeckung und noch erforderlicher Integration.
 `sse-native.dll` bezeichnet dagegen die bestehende C#-Worker-Hilfsbibliothek;
 der hier beschriebene C++-Lesepfad verwendet `sse-qt-read.dll` in SSE.
@@ -106,8 +106,10 @@ und die gegen den Zeilenanker berechnete Textgruppierung. `subpages` bindet
 Beschriftung und Wert über direkte Geschwister, filtert Übermittlungsaktionen
 und entfernt doppelt exponierte Verweise. Ein abgeschnittener Unterseitenbaum
 scheitert mit `native-incomplete`; `find` meldet wie bisher `incomplete` und
-`stats.truncated`. Die übrigen Seitenoperationen, etwa `page` und `read_full`,
-benutzen weiterhin ihre bestehenden Pfade.
+`stats.truncated`. `positions` liest die sichtbaren, eindeutig formatierten
+`»…« bearbeiten`-Verweise als read-only-Projektion; Anlegen und Löschen bleiben
+gesperrt. Die übrigen Seitenoperationen, etwa `page` und `read_full`, benutzen
+weiterhin ihre bestehenden Pfade.
 
 ## Natives Paket selbst bauen
 

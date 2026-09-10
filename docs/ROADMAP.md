@@ -33,8 +33,8 @@ Einstieg und ein API-Lebenszykluswerkzeug, zusammen 104. Die direkten Werkzeuge 
 ab: `checker_detail` hat kein eigenes Werkzeug, und `tracked_set_value` traegt
 deren zwei (`sse_change_field`, `sse_change_known_field`).
 
-**Sieben der 102 Operationen**, `get_value`, `table_read`, `snapshot`, `find`, `read_page`, `subpages` und `known_page_state`, besitzen einen
-direkten optionalen Qt-DLL-Pfad. Die übrigen 95 behalten ihre bestehenden
+**Acht der 102 Operationen**, `get_value`, `table_read`, `snapshot`, `find`, `read_page`, `subpages`, `known_page_state` und `positions`, besitzen einen
+direkten optionalen Qt-DLL-Pfad. Die übrigen 94 behalten ihre bestehenden
 Pfade. Dateioperationen brauchen häufig keine DLL in SSE; diese Zahl ist
 deshalb kein gewichteter Fertigstellungsgrad. Der Qt-Pfad verlangt explizite
 Konfiguration und ein separates kompatibles Paket. Öffentliche native
@@ -166,7 +166,7 @@ im Repository belegt sind.
 | **Steuerjahr 2024 im Vollbetrieb** | Profil steht auf `experimental` mit `verification-only`; nur mit ausdruecklichem Opt-in erreichbar | vorhandene Wege, neues Profil | vollstaendige Live-Verifikation gegen Engine 30, wie sie fuer 2025 vorliegt |
 | **Steuerjahr 2026** | es gibt kein Profil | vorhandene Wege, neues Profil | das Produkt muss erscheinen; danach Katalog, Profil und Live-Verifikation |
 | **Ausgabe ausser CSV** | es gibt genau `export_csv` | Vordergrund-Lease fuer den Druckdialog, danach PDF-Aufbereitung | Entscheidung, ob ein Druck-nach-PDF-Weg die Mutationsgrenze beruehrt |
-| **Weitere schnelle native Operationen** | Qt-Lesepfad für sechs Operationen vorhanden; weitere öffentliche Handler fehlen | Qt-Brücke für UI/Modell, direkte Systemzugriffe für Dateien/Lebenszyklus | vollständige Ergebnisparität, Commit/Readback, unbekannte Ausgänge und Ende-zu-Ende-Messung; siehe [Native-Matrix](NATIVE-COVERAGE.md) |
+| **Weitere schnelle native Operationen** | Qt-Lesepfad für acht Operationen vorhanden; weitere öffentliche Handler fehlen | Qt-Brücke für UI/Modell, direkte Systemzugriffe für Dateien/Lebenszyklus | vollständige Ergebnisparität, Commit/Readback, unbekannte Ausgänge und Ende-zu-Ende-Messung; siehe [Native-Matrix](NATIVE-COVERAGE.md) |
 | **`headingPrefix` trägt zwei Rollen** – Suchbegriff für `goto` und Präfix für die Seitenbindung können unterschiedliche Werte benötigen; ähnliche Überschriften können die Suche auf einen Nachbartreffer führen | beide Rollen wollen verschiedene Werte | Bindungsregel | ein eigenes Feld für das Navigationsziel, getrennt vom Bindungspräfix |
 | **Kaltes `goto` per `pageId` kann in der Gewinnermittlung scheitern** – ein verifiziertes Zwischenziel kann erforderlich sein | ungeklärt, ob Fallaufbau, Suchtreffer oder Blättertiefe die Ursache sind; die Feldbindung selbst ist davon nicht betroffen | Messung, dann Navigationsweg | Erreichbarkeit auf weiteren Herstellermusterfällen prüfen und erforderliche Zwischenziele im Profil festhalten |
 | **Seiten, deren Felder sich nicht eindeutig adressieren lassen** – etwa `Kapitalertraege, ermaessigt besteuert`: Die Felder beider Ehepartner tragen im adressierbaren Endstueck denselben Pfad, unterschieden werden sie erst weiter oben im Baum | ein Seitenobjekt braucht je Feld genau einen Treffer; hier waeren es zwei | UI, aber zuerst die Bindungsregel | entweder laengere Pfade im Seitenobjekt zulassen oder die Bindung um eine Positionsangabe erweitern |

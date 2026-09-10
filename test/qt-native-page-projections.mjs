@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { executeQtNativeRead } from "../dist/qt-native-executor.js";
-import { executeQtNativeKnownPageState } from "../dist/qt-native-pages.js";
+import { executeQtNativeKnownPageState, executeQtNativePositions } from "../dist/qt-native-pages.js";
 import { nativeWildcard } from "../dist/qt-native-find.js";
 import { loadProductProfile } from "../dist/product-profiles.js";
 
@@ -133,4 +133,16 @@ export async function testNativePageProjections() {
 
   const exhausted = nativeWildcard("?".repeat(1000));
   assert.throws(() => exhausted("x".repeat(20_000)), error => error.kind === "native-selector-limit");
+
+  const positionsClient = { binding: { hwnd: 42 }, request: async operation => {
+    assert.equal(operation, "accessibility_snapshot");
+    return { durationMs: 3, result: { ok: true, controllerBound: true, scope: "qt-accessibility-content", hwnd: 42,
+      windowRect: rect, windowEnabled: true, modalBlocked: false, exactMatches: {},
+      nodes: [{ ...knownNodes[0], name: "»Fahrzeugkosten« bearbeiten" }, { ...knownNodes[1], name: "»Fahrzeugkosten« bearbeiten" },
+        { ...knownNodes[2], name: "»Arbeitszimmer« bearbeiten" }], stats: { ...stats, n: 3 } } };
+  } };
+  const positions = await executeQtNativePositions(positionsClient, { hwnd: 42, aktion: "list" }, 5000);
+  assert.deepEqual(positions, { ok: true, backend: "qt", positionen: ["Fahrzeugkosten", "Arbeitszimmer"], anzahl: 2,
+    hinweis: null, nativeDurationMs: 3 });
+  assert.equal((await executeQtNativePositions(positionsClient, { aktion: "add" }, 5000)).kind, "blocked");
 }
