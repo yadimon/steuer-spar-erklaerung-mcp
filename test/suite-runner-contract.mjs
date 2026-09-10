@@ -20,6 +20,7 @@ import {
 } from "./suite-runner.mjs";
 
 const expectedNames = [
+  "execution-telemetry", "execution-telemetry-integration", "execution-trace-log", "api-mega-execution-traces",
   "api-control-shutdown", "api-control-runtime", "mcp-api-control",
   "api-monotonic-timing", "foreground-reporting-contract", "table-read-obstruction",
   "table-delete-name",
@@ -83,7 +84,7 @@ assert.deepEqual(controllerConflictSteps.map((step) => step.name).sort(), [
   "case-file", "checker-open-contract", "desktop-marker-contract",
   "direct-worker-collection-guard", "direct-worker-experimental-guard",
   "direct-worker-file-guard", "direct-worker-guard", "direct-worker-identity-guard",
-  "direct-worker-resource-guard", "file-operations-worker", "launch-orchestration",
+  "direct-worker-resource-guard", "execution-telemetry-integration", "file-operations-worker", "launch-orchestration",
   "mcp-selftest", "product-gate", "verify-collect", "verify-local-parity",
   "worker-inherited-pipe", "worker-input-file-contract", "worker-output-file-contract",
   "worker-timeout", "working-copy-local-parity",

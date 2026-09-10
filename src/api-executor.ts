@@ -2,7 +2,8 @@ import type { SseApiServerConfig } from "./api-config.js";
 import { existsSync, mkdirSync, readdirSync, rmdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { performance } from "node:perf_hooks";
-import { DEFAULT_OPERATION_TIMEOUT_MS, type SseApiOperation, type WorkerResult } from "./api-contract.js";
+import { DEFAULT_OPERATION_TIMEOUT_MS, isSseApiOperation, type SseApiOperation, type WorkerResult } from "./api-contract.js";
+import { type ExecutionTelemetry, sanitizeWorkerPerformance } from "./execution-telemetry.js";
 import { SSE_CAPABILITIES } from "./capabilities.js";
 import { CaseFileParserFallbackError, listCaseFiles, readCaseFileInfo } from "./case-file.js";
 import { executeCheckerOpen } from "./checker-executor.js";
@@ -64,6 +65,8 @@ const EXPERIMENTAL_PROFILE_VERIFICATION = new Set<SseApiOperation>(
 );
 
 export interface ApiExecutorDependencies extends QtNativeExecutorDependencies {
+  /** Internal opt-in; never supplied by public API arguments or configuration. */
+  telemetry?: ExecutionTelemetry;
   nativeDesktopStatus?: (timeoutMs: number, signal?: AbortSignal) => Promise<WorkerResult>;
   nativeDesktopStart?: (args: Readonly<Record<string, unknown>>, timeoutMs: number, signal?: AbortSignal) => Promise<WorkerResult>;
   nativeDesktopStop?: (args: Readonly<Record<string, unknown>>, timeoutMs: number, signal?: AbortSignal) => Promise<WorkerResult>;
@@ -85,9 +88,23 @@ function isExperimentalDialogAnswerCandidate(
 
 export function createApiExecutor(
   config: SseApiServerConfig,
-  worker: ScenarioExecutor,
+  rawWorker: ScenarioExecutor,
   dependencies: ApiExecutorDependencies = {},
 ): ScenarioExecutor {
+  const telemetry = dependencies.telemetry;
+  const worker: ScenarioExecutor = telemetry?.enabled ? (operation, args, timeoutMs, signal) =>
+    telemetry.runWorker(isSseApiOperation(operation) ? operation : undefined, async () => {
+      const result = await rawWorker(operation, args, timeoutMs, signal);
+      telemetry.recordWorkerPerformance({
+        ...sanitizeWorkerPerformance(result),
+        ...sanitizeWorkerPerformance(result.performance),
+      });
+      return result;
+    }) : rawWorker;
+  const local = async <T>(operation: SseApiOperation, task: () => T | Promise<T>): Promise<T> =>
+    telemetry?.enabled ? await telemetry.runNodeLocal(operation, task) : await task();
+  const win32 = (task: () => Promise<WorkerResult>): Promise<WorkerResult> =>
+    telemetry?.enabled ? telemetry.runWin32(task) : task();
   const roots = resourceRoots(config);
   const profilesRoot = dependencies.profilesRoot ?? defaultProfilesRoot;
   const profile = loadProductProfile(config.profileId, profilesRoot);
@@ -118,7 +135,7 @@ export function createApiExecutor(
     return withResourceIdentity(redactPaths, result, configured.resourceRefs);
   };
 
-  const executeOperation = async (
+  const executeOperationBody = async (
     operation: SseApiOperation,
     args: Record<string, unknown>,
     timeoutMs: number | undefined,
@@ -164,11 +181,12 @@ export function createApiExecutor(
         ? parseCheckerReadOnlyClickArgs(args)
         : parseApiOperationArgs(operation, args);
       if (operation === "desktop_status" && dependencies.nativeDesktopStatus) {
-        return redactPaths(await dependencies.nativeDesktopStatus(timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS, signal));
+        return redactPaths(await win32(() => dependencies.nativeDesktopStatus!(timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS, signal)));
       }
       if (isQtNativeReadOperation(operation)
         && (dependencies.qtNativeClient || dependencies.qtNativeClientFor)) {
-        return redactPaths(await executeQtNativeRead(operation, args, dependencies, timeoutMs, signal, profile));
+        const read = () => executeQtNativeRead(operation, args, dependencies, timeoutMs, signal, profile);
+        return redactPaths(await (telemetry?.enabled ? telemetry.runQtNative(read) : read()));
       }
       if (operation === "capabilities") {
         return {
@@ -191,77 +209,77 @@ export function createApiExecutor(
         };
       }
       if (operation === "workspace_status") {
-        return readWorkspaceStatus({
+        return await local(operation, () => readWorkspaceStatus({
           ...config,
           profileId: config.profileId ?? "2025",
           documentsDir: roots.documents!,
           backupsDir: roots.backups!,
-        });
+        }));
       }
       if (operation === "page_objects") {
         const configured = configuredArgs(operation, args, config);
-        const local = executeLocalPageObjects({
+        const localResult = await local(operation, () => executeLocalPageObjects({
           profileId: profile.id,
           profilesRoot,
           args: configured.args,
           timeoutMs,
           ...(signal ? { signal } : {}),
           redactPaths,
-        });
-        if (local.kind === "result") return local.result;
+        }));
+        if (localResult.kind === "result") return localResult.result;
         return await executeWorkerFallback(
           operation,
           configured,
-          local.effectiveTimeoutMs,
-          local.localStartedAt,
+          localResult.effectiveTimeoutMs,
+          localResult.localStartedAt,
           "Verbleibendes Zeitbudget reicht nicht fuer einen sicheren Worker-Fallback des Page-Object-Katalogs.",
           signal,
         );
       }
       if (operation === "verify") {
         const configured = configuredArgs(operation, args, config);
-        const local = await executeLocalVerify({
+        const localResult = await local(operation, () => executeLocalVerify({
           args: configured.args,
           resourceRefs: configured.resourceRefs,
           timeoutMs,
           ...(signal ? { signal } : {}),
           redactPaths,
-        });
-        if (local.kind === "result") return local.result;
+        }));
+        if (localResult.kind === "result") return localResult.result;
         return await executeWorkerFallback(
           operation,
           configured,
-          local.effectiveTimeoutMs,
-          local.localStartedAt,
+          localResult.effectiveTimeoutMs,
+          localResult.localStartedAt,
           "Verbleibendes Zeitbudget reicht nicht fuer einen sicheren Worker-Fallback der Collect-Verifikation.",
           signal,
         );
       }
       if (operation === "make_working_copy") {
         const configured = configuredArgs(operation, args, config);
-        return await executeLocalWorkingCopy({
+        return await local(operation, () => executeLocalWorkingCopy({
           args: configured.args,
           resourceRefs: configured.resourceRefs,
           profile,
           timeoutMs,
           ...(signal ? { signal } : {}),
           redactPaths,
-        });
+        }));
       }
       if (operation === "backup_cases") {
         const configured = configuredArgs(operation, args, config);
-        return await executeLocalBackup({
+        return await local(operation, () => executeLocalBackup({
           args: configured.args,
           resourceRefs: configured.resourceRefs,
           profile,
           timeoutMs,
           ...(signal ? { signal } : {}),
           redactPaths,
-        });
+        }));
       }
       if (operation === "archive_cases") {
         const configured = configuredArgs(operation, args, config);
-        return await executeLocalArchive({
+        return await local(operation, () => executeLocalArchive({
           args: configured.args,
           resourceRefs: configured.resourceRefs,
           profile,
@@ -271,7 +289,7 @@ export function createApiExecutor(
           ...(dependencies.archiveHasRunningSseProcess
             ? { hasRunningSseProcess: dependencies.archiveHasRunningSseProcess }
             : {}),
-        });
+        }));
       }
       if (isWorkspaceExecutorOperation(operation)) {
         return await executeWorkspaceOperation(operation, args, {
@@ -280,7 +298,7 @@ export function createApiExecutor(
           resultDir: config.resultDir,
           timeoutMs,
           ...(signal ? { signal } : {}),
-          execute,
+          execute: executeOperation,
           redactPaths,
         });
       }
@@ -335,11 +353,11 @@ export function createApiExecutor(
       }
       const configured = configuredArgs(operation, args, config);
       if (operation === "desktop_stop" && dependencies.nativeDesktopStop) {
-        return redactPaths(await dependencies.nativeDesktopStop(configured.args, timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS, signal));
+        return redactPaths(await win32(() => dependencies.nativeDesktopStop!(configured.args, timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS, signal)));
       }
       if (operation === "desktop_start" && dependencies.nativeDesktopStart) {
         return withResourceIdentity(redactPaths,
-          await dependencies.nativeDesktopStart(configured.args, timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS, signal), configured.resourceRefs);
+          await win32(() => dependencies.nativeDesktopStart!(configured.args, timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS, signal)), configured.resourceRefs);
       }
       if (internalCheckerNavigation) {
         // Kein oeffentliches Argumentschema akzeptiert dieses Feld. Es wird
@@ -369,11 +387,11 @@ export function createApiExecutor(
         const effectiveTimeoutMs = timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS;
         const localStartedAt = performance.now();
         try {
-          const result = await listCaseFiles(configured.args.dir, profile, {
+          const result = await local(operation, () => listCaseFiles(String(configured.args.dir), profile, {
             includeBackups: configured.args.includeBackups === true,
             timeoutMs: effectiveTimeoutMs,
             ...(signal ? { signal } : {}),
-          });
+          }));
           return withResourceIdentity(redactPaths, result, configured.resourceRefs);
         } catch (error) {
           if (!(error instanceof CaseFileParserFallbackError)) {
@@ -393,10 +411,10 @@ export function createApiExecutor(
         const path = configured.args.path;
         if (typeof path !== "string") throw new ExecutorArgumentError("'path' fehlt.");
         try {
-          const result = await readCaseFileInfo(path, profile, {
+          const result = await local(operation, () => readCaseFileInfo(path, profile, {
             ...(timeoutMs === undefined ? {} : { timeoutMs }),
             ...(signal ? { signal } : {}),
-          });
+          }));
           return withResourceIdentity(redactPaths, result, configured.resourceRefs);
         } catch (error) {
           return withResourceIdentity(redactPaths, executionError(operation, error), configured.resourceRefs);
@@ -486,7 +504,13 @@ export function createApiExecutor(
       return redactPaths(executionError(operation, error));
     }
   };
+  const executeOperation: typeof executeOperationBody = (operation, ...parameters) =>
+    telemetry?.enabled
+      ? telemetry.runCompositeChild(operation, () => executeOperationBody(operation, ...parameters))
+      : executeOperationBody(operation, ...parameters);
   const execute: ScenarioExecutor = (operation, args, timeoutMs, signal) =>
-    executeOperation(operation, args, timeoutMs, signal, false, false);
+    telemetry?.enabled
+      ? telemetry.runApi(operation, () => executeOperationBody(operation, args, timeoutMs, signal, false, false))
+      : executeOperationBody(operation, args, timeoutMs, signal, false, false);
   return execute;
 }

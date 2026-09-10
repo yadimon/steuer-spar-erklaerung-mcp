@@ -224,7 +224,7 @@ export async function runApiRuntime(
     : undefined;
   const execute = createApiExecutor(config, async (operation, args, timeoutMs, signal) => {
     const result = await worker(operation, args, timeoutMs, signal);
-    await native?.afterWorker(operation, result);
+    await native?.afterWorker(operation, result, args);
     return result;
   }, native ? { qtNativeClientFor: native.client, nativeDesktopStatus: native.desktopStatus,
     nativeDesktopStart: native.desktopStart, nativeDesktopStop: native.desktopStop } : {});

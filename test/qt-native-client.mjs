@@ -12,6 +12,7 @@ import { createApiExecutor } from "../dist/api-executor.js";
 import { createSseApiServer } from "../dist/api-server.js";
 import { callApiOperationEnvelope } from "../dist/api-client.js";
 import { testNativePageProjections } from "./qt-native-page-projections.mjs";
+import { testNativeAcknowledgmentDeadline } from "./qt-native-deadline-fixture.mjs";
 
 await testNativePageProjections();
 
@@ -404,20 +405,7 @@ await withPeer(async (socket, request) => {
   } finally { finishAck(); client.close(); }
 });
 
-await withPeer(async (socket, request) => {
-  await delay(request.op === "mutation_ack" ? 100 : 120);
-  socket.write(frame(request.op === "mutation_ack"
-    ? { ok: true, id: request.id, acknowledged: true, receipt: request.receipt }
-    : { ok: true, id: request.id, mutationAttempted: true, mutationReceipt: "9", after: "known-received-value" }));
-}, async (binding, requests) => {
-  const client = await QtNativeClient.connect(binding);
-  await assert.rejects(client.requestAcknowledged("table_set_cell", {}, 200), error =>
-    error instanceof QtNativeAcknowledgmentError && error.kind === "native-timeout" && error.outcomeUnknown
-      && error.mutationResult.after === "known-received-value");
-  assert.deepEqual(requests.slice(1).map(request => request.op), ["table_set_cell", "mutation_ack"]);
-  await assert.rejects(client.requestAcknowledged("table_set_cell"), nativeError("native-timeout"));
-  assert.equal(requests.length, 3, "The mutation must not be replayed after a lost acknowledgment.");
-});
+await testNativeAcknowledgmentDeadline();
 
 await withPeer((socket, request) => socket.write(frame(request.op === "mutation_ack"
   ? { ok: true, id: request.id, acknowledged: true, receipt: "different" }

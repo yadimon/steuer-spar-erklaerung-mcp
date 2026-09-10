@@ -8,6 +8,14 @@ noch nicht. Dasselbe Paket führt `desktop_status` und `desktop_start` direkt ü
 `desktop_stop` verwendet einen externen C++-Helfer mit Win32 und COM-UIA.
 Die übrigen Operationen behalten ihre bestehenden Ausführungspfade.
 
+Nach einem erfolgreichen Prozess- oder Fallwechsel verwirft die Runtime die
+betroffene native Bindung. `close` berücksichtigt die beendete PID; `save_as`
+invalidiert die adressierte Fallbindung. Fehlt eine sichere Zielidentität,
+werden die nicht mehr belegbaren Bindungen verworfen. Ein verifiziertes
+`window_close`, das ausschließlich ein bekanntes Nebenfenster entfernt, erhält
+dagegen die gesunde Hauptfensterverbindung. Fehler und unbekannte Ausgänge
+erlauben keine automatische Neuverbindung oder Wiederholung.
+
 Die [Native-Abdeckungsmatrix](NATIVE-COVERAGE.md) zählt alle 102 API-Operationen:
 Acht direkte optionale Qt-Handler und 94 ohne direkten Qt-Pfad. Sie trennt
 diesen Stand von funktionaler Live-Abdeckung und noch erforderlicher Integration.
@@ -65,7 +73,10 @@ begrenzt. API und Helfer verwenden einen gemeinsamen absoluten Deadline-Wert;
 Start, Hashprüfung und Hilfsfenster verbrauchen dasselbe Budget. Vor jeder Änderung
 muss genug Zeit für die anschließende Prozessbeobachtung verbleiben.
 Vor dem Invoke werden der vollständige Baum, die Fensteridentität und die
-gewählte Schaltfläche erneut geprüft. Ein verlorener Antwortweg oder ein unterbrochener
+gewählte Schaltfläche erneut geprüft. Die erneute Inventarprüfung vergleicht
+dieselben relevanten Fenster wie die Auswahl; bereits ausgeschlossene kleine
+Systemindikatoren und Schattenfenster verändern diese Menge nicht. Neue echte
+Dialoge oder veränderte relevante Fenster blockieren weiterhin jede Änderung. Ein verlorener Antwortweg oder ein unterbrochener
 Invoke wird nicht wiederholt. `outcomeUnknown` verlangt eine frische Statusprüfung.
 Der API-Timeout muss das Budget für Providerprüfung und bestätigtes Prozessende
 enthalten; ein kurzer durchschnittlicher Aufruf ist keine garantierte Höchstdauer.
@@ -110,6 +121,33 @@ scheitert mit `native-incomplete`; `find` meldet wie bisher `incomplete` und
 `»…« bearbeiten`-Verweise als read-only-Projektion; Anlegen und Löschen bleiben
 gesperrt. Die übrigen Seitenoperationen, etwa `page` und `read_full`, benutzen
 weiterhin ihre bestehenden Pfade.
+
+## Interne Laufzeitmessung
+
+Der kanonische Mega-Lauf erzeugt zusätzlich einen create-only JSONL-Sidecar
+außerhalb des Repositorys. Jede ausgeführte API-Operation wird über ihre echte
+HTTP-`requestId`, den Operationsnamen und die Serverdauer mit dem Bericht
+verbunden. Die öffentlichen API-Antworten und Argumentschemata bleiben unverändert.
+
+Die Traces enthalten nur katalogisierte Operationsnamen, numerische Zeiten,
+Backend-/Phasennamen, Elternbeziehungen und explizit zugelassene Zähler.
+Argumente, Feldwerte, Fehlermeldungen, Fenstertitel und Dateipfade werden nicht
+übernommen. Erfasst werden API-Orchestrierung, Workeraufrufe, instrumentierte
+lokale Arbeit, Qt-/Win32-Aufrufe sowie erstmalige Suche und Bindung.
+Nicht vorhandene Phasen oder Zähler sind **nicht gemessen**, nicht null.
+Die Zeiten sind inklusiv: Eltern enthalten ihre Kinder; verschachtelte
+Spans dürfen nicht als exklusive Gesamtzeit addiert werden.
+`worker-queue` misst die tatsächliche Wartezeit bis zur Übergabe oder zum Abbruch.
+Die Zuordnung bleibt auch beim Start aus der Fortsetzung eines anderen Aufrufs
+an den ursprünglichen Trace gebunden. `worker-prepare` misst ausschließlich die
+synchrone Node-Vorbereitung: Marker, Argumentdatei, Prozessstart beziehungsweise
+Übergabe an einen Reservearbeiter. PowerShell-Parsing, dessen Initialisierung
+und UI-Ausführung sind darin nicht enthalten.
+
+Unvollständige Traces, Pufferverluste, widersprüchliche Zuordnungen und
+Schreibfehler lassen die Benchmark-Verifikation scheitern, ohne eine
+ausgeführte Steueroperation zu wiederholen. Die Erfassung ist eine interne
+Testabhängigkeit und im regulären API-Start nicht aktiviert.
 
 ## Natives Paket selbst bauen
 

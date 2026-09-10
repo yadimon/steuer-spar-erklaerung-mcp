@@ -1,4 +1,5 @@
 import { performance } from "node:perf_hooks";
+import type { ExecutionTelemetry } from "./execution-telemetry.js";
 import { z } from "zod";
 import type { SseApiServerConfig } from "./api-config.js";
 import { detectSseExecutables } from "./api-first-run.js";
@@ -21,11 +22,12 @@ export interface QtNativeRuntime {
   desktopStart(args: Readonly<Record<string, unknown>>, timeoutMs: number, signal?: AbortSignal): Promise<WorkerResult>;
   desktopStop(args: Readonly<Record<string, unknown>>, timeoutMs: number, signal?: AbortSignal): Promise<WorkerResult>;
   client(args: Readonly<Record<string, unknown>>, timeoutMs: number, signal?: AbortSignal): Promise<QtNativeClient>;
-  afterWorker(operation: SseApiOperation, result: WorkerResult): Promise<void>;
+  afterWorker(operation: SseApiOperation, result: WorkerResult, args?: Readonly<Record<string, unknown>>): Promise<void>;
   close(): Promise<void>;
 }
 
 export interface QtNativeRuntimeDependencies {
+  telemetry?: ExecutionTelemetry;
   /** Internal integration-test seam; package configuration never accepts a callback. */
   loadPackage?: (config: NonNullable<SseApiServerConfig["qtNativeRuntime"]>, profile: ProductProfile) => QtNativePackage;
   startSession?: (options: QtNativeBrokerOptions) => Promise<QtNativeSession>;
@@ -41,8 +43,15 @@ export function createQtNativeRuntime(
   const nativePackage = (dependencies.loadPackage ?? loadQtNativePackage)(config.qtNativeRuntime, profile);
   const executable = config.sseExecutable ? [config.sseExecutable] : detectSseExecutables(profile.id);
   if (executable.length !== 1) throw new Error("Native runtime requires exactly one configured or installed product executable.");
-  const start = dependencies.startSession ?? startQtNativeBroker;
-  const discover = dependencies.discoverTarget ?? discoverQtNativeTarget;
+  const telemetry = dependencies.telemetry;
+  const start = (options: QtNativeBrokerOptions): Promise<QtNativeSession> => {
+    const action = () => (dependencies.startSession ?? startQtNativeBroker)(options);
+    return telemetry?.enabled ? telemetry.runBind(action) : action();
+  };
+  const discover = (options: QtNativeDiscoveryOptions): Promise<QtNativeTarget> => {
+    const action = () => (dependencies.discoverTarget ?? discoverQtNativeTarget)(options);
+    return telemetry?.enabled ? telemetry.runDiscovery(action) : action();
+  };
   const readMarker = dependencies.readMarker ?? (() => resolveDesktopMarkerForOperation(desktopMarkerPath(), "get_value", false));
   const sessions = new Map<number, QtNativeSession>();
   let selected: number | undefined, starting: Promise<QtNativeSession> | undefined;
@@ -86,13 +95,24 @@ export function createQtNativeRuntime(
     const requested = typeof args.hwnd === "number" ? args.hwnd : selected;
     if (requested !== undefined && sessions.has(requested)) return sessions.get(requested)!;
     if (starting) { await waitForStartup(starting, deadline, signal); return obtain(args, deadline, signal); }
-    if (sessions.size >= 4) throw failure("Native window session limit reached.", "native-session-limit");
     const expectedRevision = revision;
     startupAbort = new AbortController();
     const startupSignal = startupAbort.signal;
     starting = withCombinedAbortSignal([signal, shutdown, startupSignal], async combined => {
       const binding = await target(args, deadline, combined);
       if (combined.aborted || stopped || expectedRevision !== revision) throw failure("Native attachment was cancelled before launch.", "aborted");
+      const existing = sessions.get(binding.hwnd);
+      if (existing) {
+        if (existing.client.binding.pid !== binding.pid || existing.client.binding.creationTime !== binding.creationTime) {
+          throw failure("Rediscovered window does not match its retained process identity.", "native-binding");
+        }
+        // Rediscovery after an unrelated launch can select an existing session.
+        // Keep even a failed connection bound: client() must verify its context
+        // and must never treat rediscovery as permission to reconnect.
+        selected = binding.hwnd;
+        return existing;
+      }
+      if (sessions.size >= 4) throw failure("Native window session limit reached.", "native-session-limit");
       if ([...sessions.values()].some(session => session.client.binding.pid === binding.pid)) {
         throw failure("This process already has a native session bound to another window.", "native-window-conflict");
       }
@@ -114,6 +134,18 @@ export function createQtNativeRuntime(
     startupAbort?.abort(new Error("Native lifecycle changed during startup."));
     const current = [...sessions.values()]; sessions.clear();
     await Promise.all(current.map(session => session.close()));
+  }
+  async function invalidate(predicate: (session: QtNativeSession) => boolean): Promise<void> {
+    revision++;
+    startupAbort?.abort(new Error("Native lifecycle changed during startup."));
+    const retiring: QtNativeSession[] = [];
+    for (const [hwnd, session] of sessions) {
+      if (!predicate(session)) continue;
+      sessions.delete(hwnd);
+      if (selected === hwnd) selected = undefined;
+      retiring.push(session);
+    }
+    await Promise.all(retiring.map(session => session.close()));
   }
   const runtime: QtNativeRuntime = {
     async desktopStop(args, timeoutMs, signal) {
@@ -149,8 +181,32 @@ export function createQtNativeRuntime(
         return session.client;
       });
     },
-    async afterWorker(operation, result) {
-      if (result.ok === true && ["desktop_start", "desktop_stop", "window_close", "launch"].includes(operation)) await clear();
+    async afterWorker(operation, result, args = {}) {
+      // A failed/unknown mutation must retain its failed binding, not silently
+      // create a fresh session that could be mistaken for permission to retry.
+      if (result.ok !== true || result.outcomeUnknown === true) return;
+      const identity = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+      if (operation === "window_close") {
+        // The worker proves that only this known auxiliary window disappeared.
+        // Keep a healthy main-window session (and its object IDs) in the same PID.
+        if (result.onlyTargetRemoved === true && result.verified === true && identity(result.hwnd)) {
+          await invalidate(session => session.client.binding.hwnd === result.hwnd);
+        } else await clear();
+        return;
+      }
+      if (!["desktop_start", "desktop_stop", "launch", "close", "save_as", "case_create"].includes(operation)) return;
+      if (identity(result.pid)) {
+        await invalidate(session => session.client.binding.pid === result.pid);
+      } else if (identity(args.hwnd)) {
+        await invalidate(session => session.client.binding.hwnd === args.hwnd);
+      } else {
+        // Older lifecycle results can omit identity (including close when no
+        // process exists). Do not retain an unprovable case/window binding.
+        await clear();
+      }
+      // A new launch can change the implicit target while existing explicitly
+      // addressed processes remain healthy. Resolve implicit selection afresh.
+      if (operation === "launch" || operation === "desktop_start" || operation === "case_create") selected = undefined;
     },
     async close() {
       stopped = true; await clear();

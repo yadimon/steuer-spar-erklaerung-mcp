@@ -34,6 +34,7 @@ import {
 } from "./desktop-marker.js";
 import { ensureWarmSpare, takeWarmSpare } from "./worker-prewarm.js";
 import { workerOperationNeedsMarkedDesktop } from "./worker-operation-policy.js";
+import type { ExecutionTelemetry } from "./execution-telemetry.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const WORKER = join(HERE, "..", "powershell", "sse-worker.ps1");
@@ -156,6 +157,8 @@ interface QueuedWorkerCall {
   timeoutMs: number;
   signal?: AbortSignal;
   abortWhileQueued?: () => void;
+  finishQueue?: () => void;
+  run: () => Promise<WorkerResult>;
   resolve: (result: WorkerResult) => void;
   reject: (error: unknown) => void;
 }
@@ -177,16 +180,12 @@ function startNextWorkerCall(): void {
 }
 
 async function runQueuedWorkerCall(call: QueuedWorkerCall): Promise<void> {
+  call.finishQueue?.();
   try {
     if (workerRuntimeFailure) {
       throw new WorkerError(workerRuntimeFailure.message, workerRuntimeFailure.kind);
     }
-    const result = await callWorkerUnsynchronised(
-      call.op,
-      call.args,
-      call.timeoutMs,
-      call.signal,
-    );
+    const result = await call.run();
     call.resolve(result);
   } catch (error) {
     call.reject(error);
@@ -204,6 +203,8 @@ export function callWorker(
   args: Record<string, unknown> = {},
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
   signal?: AbortSignal,
+  /** Internal benchmark dependency; never read from operation arguments or environment. */
+  telemetry?: ExecutionTelemetry,
 ): Promise<WorkerResult> {
   if (workerRuntimeFailure) {
     return Promise.reject(new WorkerError(workerRuntimeFailure.message, workerRuntimeFailure.kind));
@@ -223,12 +224,17 @@ export function callWorker(
     );
   }
   return new Promise<WorkerResult>((resolve, reject) => {
-    const queued: QueuedWorkerCall = { op, args, timeoutMs, resolve, reject };
+    const invoke = () => callWorkerUnsynchronised(op, args, timeoutMs, signal);
+    const run = telemetry?.enabled
+      ? telemetry.bindContext(() => telemetry.measureWorkerPreparation(invoke)) : invoke;
+    const queued: QueuedWorkerCall = { op, args, timeoutMs, resolve, reject, run,
+      ...(telemetry?.enabled ? { finishQueue: telemetry.beginWorkerQueue() } : {}) };
     if (signal) queued.signal = signal;
     const abortWhileQueued = () => {
       const index = workerQueue.indexOf(queued);
       if (index < 0) return;
       workerQueue.splice(index, 1);
+      queued.finishQueue?.();
       signal?.removeEventListener("abort", abortWhileQueued);
       reject(new WorkerError("API-Client hat den wartenden Auftrag abgebrochen; kein Worker wurde gestartet.", "aborted"));
     };

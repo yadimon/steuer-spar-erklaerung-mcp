@@ -4878,6 +4878,39 @@ var init_api_first_run = __esm({
   }
 });
 
+// src/execution-telemetry.ts
+function safeCounter(value, integer2 = false) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return void 0;
+  if (integer2 && !Number.isInteger(value)) return void 0;
+  return value;
+}
+function sanitizeWorkerPerformance(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const source = value;
+  const counters = {};
+  for (const key of WORKER_PERFORMANCE_COUNTERS) {
+    const numeric = safeCounter(source[key], key.endsWith("Count") || key === "treeWalks");
+    if (numeric !== void 0) counters[key] = numeric;
+  }
+  return counters;
+}
+var WORKER_PERFORMANCE_COUNTERS;
+var init_execution_telemetry = __esm({
+  "src/execution-telemetry.ts"() {
+    "use strict";
+    init_api_contract();
+    WORKER_PERFORMANCE_COUNTERS = [
+      "workerProcessCount",
+      "internalOperationCount",
+      "reusedReadbackCount",
+      "treeWalks",
+      "treeWalkMs",
+      "workerMs",
+      "nativeMs"
+    ];
+  }
+});
+
 // src/operation-schema-primitives.ts
 var SSE_START_MODES, SSE_CLICK_PATTERNS, SSE_API_CLICK_PATTERNS, SSE_DIALOG_BUTTONS, SSE_START_MODE, WINDOWS_DEVICE_SEGMENT, RESOURCE_PATH, RESOURCE_REF, CASE_REF, CASE_COPY_TARGET_REF, RESULT_REF, WORKSPACE_REF, TEXT_WRITE_REF, BACKUP_REF, BARE_RESOURCE_REF, VERIFY_SOURCE_REF, SHA256, SSE_OPERATION_LIMITS, WINDOW_HANDLE, PROCESS_ID, UI_WAIT_MS, UI_OCCURRENCE, UI_COORDINATE, GOTO_MAX_STEPS, TABLE_MAX_ROWS, SNAPSHOT_MAX_NODES, USTVA_PERIOD_KEY;
 var init_operation_schema_primitives = __esm({
@@ -13017,7 +13050,7 @@ async function executeQtNativePositions(client, args, timeoutMs, signal) {
     backend: "qt",
     positionen,
     anzahl: positionen.length,
-    hinweis: positionen.length ? null : "Keine Positionen sichtbar - erst auf die Uebersichtsseite navigieren.",
+    hinweis: positionen.length ? null : "Keine Positionen sichtbar - erst auf die Uebersichtsseite ('Erlöse Lieferungen/Leistungen' bzw. 'Betriebsausgaben: Eigene Positionen') navigieren.",
     nativeDurationMs: result.nativeDurationMs
   };
 }
@@ -13198,7 +13231,18 @@ function remainingTimeoutMs(timeoutMs, startedAt) {
 function isExperimentalDialogAnswerCandidate(operation, args) {
   return operation === "dialog_answer" && args.button === "OK";
 }
-function createApiExecutor(config, worker, dependencies = {}) {
+function createApiExecutor(config, rawWorker, dependencies = {}) {
+  const telemetry = dependencies.telemetry;
+  const worker = telemetry?.enabled ? (operation, args, timeoutMs, signal) => telemetry.runWorker(isSseApiOperation(operation) ? operation : void 0, async () => {
+    const result = await rawWorker(operation, args, timeoutMs, signal);
+    telemetry.recordWorkerPerformance({
+      ...sanitizeWorkerPerformance(result),
+      ...sanitizeWorkerPerformance(result.performance)
+    });
+    return result;
+  }) : rawWorker;
+  const local = async (operation, task) => telemetry?.enabled ? await telemetry.runNodeLocal(operation, task) : await task();
+  const win325 = (task) => telemetry?.enabled ? telemetry.runWin32(task) : task();
   const roots = resourceRoots(config);
   const profilesRoot = dependencies.profilesRoot ?? defaultProfilesRoot;
   const profile = loadProductProfile(config.profileId, profilesRoot);
@@ -13220,7 +13264,7 @@ function createApiExecutor(config, worker, dependencies = {}) {
     const result = await worker(operation, configured.args, fallbackTimeoutMs, signal);
     return withResourceIdentity4(redactPaths, result, configured.resourceRefs);
   };
-  const executeOperation = async (operation, args, timeoutMs, signal, internalCheckerClick = false, internalCheckerNavigation = false) => {
+  const executeOperationBody = async (operation, args, timeoutMs, signal, internalCheckerClick = false, internalCheckerNavigation = false) => {
     try {
       if (profile.status === "disabled" && !EXPERIMENTAL_PROFILE_BASE.has(operation)) {
         return operationError(
@@ -13247,10 +13291,11 @@ function createApiExecutor(config, worker, dependencies = {}) {
       }
       args = internalCheckerClick ? parseCheckerReadOnlyClickArgs(args) : parseApiOperationArgs(operation, args);
       if (operation === "desktop_status" && dependencies.nativeDesktopStatus) {
-        return redactPaths(await dependencies.nativeDesktopStatus(timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS, signal));
+        return redactPaths(await win325(() => dependencies.nativeDesktopStatus(timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS, signal)));
       }
       if (isQtNativeReadOperation(operation) && (dependencies.qtNativeClient || dependencies.qtNativeClientFor)) {
-        return redactPaths(await executeQtNativeRead(operation, args, dependencies, timeoutMs, signal, profile));
+        const read = () => executeQtNativeRead(operation, args, dependencies, timeoutMs, signal, profile);
+        return redactPaths(await (telemetry?.enabled ? telemetry.runQtNative(read) : read()));
       }
       if (operation === "capabilities") {
         return {
@@ -13273,77 +13318,77 @@ function createApiExecutor(config, worker, dependencies = {}) {
         };
       }
       if (operation === "workspace_status") {
-        return readWorkspaceStatus({
+        return await local(operation, () => readWorkspaceStatus({
           ...config,
           profileId: config.profileId ?? "2025",
           documentsDir: roots.documents,
           backupsDir: roots.backups
-        });
+        }));
       }
       if (operation === "page_objects") {
         const configured2 = configuredArgs(operation, args, config);
-        const local = executeLocalPageObjects({
+        const localResult = await local(operation, () => executeLocalPageObjects({
           profileId: profile.id,
           profilesRoot,
           args: configured2.args,
           timeoutMs,
           ...signal ? { signal } : {},
           redactPaths
-        });
-        if (local.kind === "result") return local.result;
+        }));
+        if (localResult.kind === "result") return localResult.result;
         return await executeWorkerFallback(
           operation,
           configured2,
-          local.effectiveTimeoutMs,
-          local.localStartedAt,
+          localResult.effectiveTimeoutMs,
+          localResult.localStartedAt,
           "Verbleibendes Zeitbudget reicht nicht fuer einen sicheren Worker-Fallback des Page-Object-Katalogs.",
           signal
         );
       }
       if (operation === "verify") {
         const configured2 = configuredArgs(operation, args, config);
-        const local = await executeLocalVerify({
+        const localResult = await local(operation, () => executeLocalVerify({
           args: configured2.args,
           resourceRefs: configured2.resourceRefs,
           timeoutMs,
           ...signal ? { signal } : {},
           redactPaths
-        });
-        if (local.kind === "result") return local.result;
+        }));
+        if (localResult.kind === "result") return localResult.result;
         return await executeWorkerFallback(
           operation,
           configured2,
-          local.effectiveTimeoutMs,
-          local.localStartedAt,
+          localResult.effectiveTimeoutMs,
+          localResult.localStartedAt,
           "Verbleibendes Zeitbudget reicht nicht fuer einen sicheren Worker-Fallback der Collect-Verifikation.",
           signal
         );
       }
       if (operation === "make_working_copy") {
         const configured2 = configuredArgs(operation, args, config);
-        return await executeLocalWorkingCopy({
+        return await local(operation, () => executeLocalWorkingCopy({
           args: configured2.args,
           resourceRefs: configured2.resourceRefs,
           profile,
           timeoutMs,
           ...signal ? { signal } : {},
           redactPaths
-        });
+        }));
       }
       if (operation === "backup_cases") {
         const configured2 = configuredArgs(operation, args, config);
-        return await executeLocalBackup({
+        return await local(operation, () => executeLocalBackup({
           args: configured2.args,
           resourceRefs: configured2.resourceRefs,
           profile,
           timeoutMs,
           ...signal ? { signal } : {},
           redactPaths
-        });
+        }));
       }
       if (operation === "archive_cases") {
         const configured2 = configuredArgs(operation, args, config);
-        return await executeLocalArchive({
+        return await local(operation, () => executeLocalArchive({
           args: configured2.args,
           resourceRefs: configured2.resourceRefs,
           profile,
@@ -13351,7 +13396,7 @@ function createApiExecutor(config, worker, dependencies = {}) {
           ...signal ? { signal } : {},
           redactPaths,
           ...dependencies.archiveHasRunningSseProcess ? { hasRunningSseProcess: dependencies.archiveHasRunningSseProcess } : {}
-        });
+        }));
       }
       if (isWorkspaceExecutorOperation(operation)) {
         return await executeWorkspaceOperation(operation, args, {
@@ -13360,7 +13405,7 @@ function createApiExecutor(config, worker, dependencies = {}) {
           resultDir: config.resultDir,
           timeoutMs,
           ...signal ? { signal } : {},
-          execute,
+          execute: executeOperation,
           redactPaths
         });
       }
@@ -13411,12 +13456,12 @@ function createApiExecutor(config, worker, dependencies = {}) {
       }
       const configured = configuredArgs(operation, args, config);
       if (operation === "desktop_stop" && dependencies.nativeDesktopStop) {
-        return redactPaths(await dependencies.nativeDesktopStop(configured.args, timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS, signal));
+        return redactPaths(await win325(() => dependencies.nativeDesktopStop(configured.args, timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS, signal)));
       }
       if (operation === "desktop_start" && dependencies.nativeDesktopStart) {
         return withResourceIdentity4(
           redactPaths,
-          await dependencies.nativeDesktopStart(configured.args, timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS, signal),
+          await win325(() => dependencies.nativeDesktopStart(configured.args, timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS, signal)),
           configured.resourceRefs
         );
       }
@@ -13436,11 +13481,11 @@ function createApiExecutor(config, worker, dependencies = {}) {
         const effectiveTimeoutMs = timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS;
         const localStartedAt = performance11.now();
         try {
-          const result2 = await listCaseFiles(configured.args.dir, profile, {
+          const result2 = await local(operation, () => listCaseFiles(String(configured.args.dir), profile, {
             includeBackups: configured.args.includeBackups === true,
             timeoutMs: effectiveTimeoutMs,
             ...signal ? { signal } : {}
-          });
+          }));
           return withResourceIdentity4(redactPaths, result2, configured.resourceRefs);
         } catch (error) {
           if (!(error instanceof CaseFileParserFallbackError)) {
@@ -13460,10 +13505,10 @@ function createApiExecutor(config, worker, dependencies = {}) {
         const path = configured.args.path;
         if (typeof path !== "string") throw new ExecutorArgumentError("'path' fehlt.");
         try {
-          const result2 = await readCaseFileInfo(path, profile, {
+          const result2 = await local(operation, () => readCaseFileInfo(path, profile, {
             ...timeoutMs === void 0 ? {} : { timeoutMs },
             ...signal ? { signal } : {}
-          });
+          }));
           return withResourceIdentity4(redactPaths, result2, configured.resourceRefs);
         } catch (error) {
           return withResourceIdentity4(redactPaths, executionError(operation, error), configured.resourceRefs);
@@ -13518,7 +13563,8 @@ function createApiExecutor(config, worker, dependencies = {}) {
       return redactPaths(executionError(operation, error));
     }
   };
-  const execute = (operation, args, timeoutMs, signal) => executeOperation(operation, args, timeoutMs, signal, false, false);
+  const executeOperation = (operation, ...parameters) => telemetry?.enabled ? telemetry.runCompositeChild(operation, () => executeOperationBody(operation, ...parameters)) : executeOperationBody(operation, ...parameters);
+  const execute = (operation, args, timeoutMs, signal) => telemetry?.enabled ? telemetry.runApi(operation, () => executeOperationBody(operation, args, timeoutMs, signal, false, false)) : executeOperationBody(operation, args, timeoutMs, signal, false, false);
   return execute;
 }
 var MIN_WORKER_FALLBACK_TIMEOUT_MS, EXPERIMENTAL_PROFILE_BASE, EXPERIMENTAL_PROFILE_VERIFICATION;
@@ -13526,6 +13572,7 @@ var init_api_executor = __esm({
   "src/api-executor.ts"() {
     "use strict";
     init_api_contract();
+    init_execution_telemetry();
     init_capabilities();
     init_case_file();
     init_checker_executor();
@@ -17977,16 +18024,12 @@ function startNextWorkerCall() {
   void runQueuedWorkerCall(next);
 }
 async function runQueuedWorkerCall(call) {
+  call.finishQueue?.();
   try {
     if (workerRuntimeFailure) {
       throw new WorkerError(workerRuntimeFailure.message, workerRuntimeFailure.kind);
     }
-    const result = await callWorkerUnsynchronised(
-      call.op,
-      call.args,
-      call.timeoutMs,
-      call.signal
-    );
+    const result = await call.run();
     call.resolve(result);
   } catch (error) {
     call.reject(error);
@@ -17996,7 +18039,7 @@ async function runQueuedWorkerCall(call) {
     if (!workerRuntimeFailure) ensureWarmSpare();
   }
 }
-function callWorker(op, args = {}, timeoutMs = DEFAULT_TIMEOUT_MS, signal) {
+function callWorker(op, args = {}, timeoutMs = DEFAULT_TIMEOUT_MS, signal, telemetry) {
   if (workerRuntimeFailure) {
     return Promise.reject(new WorkerError(workerRuntimeFailure.message, workerRuntimeFailure.kind));
   }
@@ -18015,12 +18058,23 @@ function callWorker(op, args = {}, timeoutMs = DEFAULT_TIMEOUT_MS, signal) {
     );
   }
   return new Promise((resolve17, reject) => {
-    const queued = { op, args, timeoutMs, resolve: resolve17, reject };
+    const invoke = () => callWorkerUnsynchronised(op, args, timeoutMs, signal);
+    const run = telemetry?.enabled ? telemetry.bindContext(() => telemetry.measureWorkerPreparation(invoke)) : invoke;
+    const queued = {
+      op,
+      args,
+      timeoutMs,
+      resolve: resolve17,
+      reject,
+      run,
+      ...telemetry?.enabled ? { finishQueue: telemetry.beginWorkerQueue() } : {}
+    };
     if (signal) queued.signal = signal;
     const abortWhileQueued = () => {
       const index = workerQueue.indexOf(queued);
       if (index < 0) return;
       workerQueue.splice(index, 1);
+      queued.finishQueue?.();
       signal?.removeEventListener("abort", abortWhileQueued);
       reject(new WorkerError("API-Client hat den wartenden Auftrag abgebrochen; kein Worker wurde gestartet.", "aborted"));
     };
@@ -19269,8 +19323,15 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
   const nativePackage = (dependencies.loadPackage ?? loadQtNativePackage)(config.qtNativeRuntime, profile);
   const executable = config.sseExecutable ? [config.sseExecutable] : detectSseExecutables(profile.id);
   if (executable.length !== 1) throw new Error("Native runtime requires exactly one configured or installed product executable.");
-  const start = dependencies.startSession ?? startQtNativeBroker;
-  const discover = dependencies.discoverTarget ?? discoverQtNativeTarget;
+  const telemetry = dependencies.telemetry;
+  const start = (options) => {
+    const action = () => (dependencies.startSession ?? startQtNativeBroker)(options);
+    return telemetry?.enabled ? telemetry.runBind(action) : action();
+  };
+  const discover = (options) => {
+    const action = () => (dependencies.discoverTarget ?? discoverQtNativeTarget)(options);
+    return telemetry?.enabled ? telemetry.runDiscovery(action) : action();
+  };
   const readMarker = dependencies.readMarker ?? (() => resolveDesktopMarkerForOperation(desktopMarkerPath(), "get_value", false));
   const sessions = /* @__PURE__ */ new Map();
   let selected, starting2;
@@ -19325,13 +19386,21 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
       await waitForStartup(starting2, deadline, signal);
       return obtain(args, deadline, signal);
     }
-    if (sessions.size >= 4) throw failure6("Native window session limit reached.", "native-session-limit");
     const expectedRevision = revision;
     startupAbort = new AbortController();
     const startupSignal = startupAbort.signal;
     starting2 = withCombinedAbortSignal([signal, shutdown, startupSignal], async (combined) => {
       const binding = await target(args, deadline, combined);
       if (combined.aborted || stopped || expectedRevision !== revision) throw failure6("Native attachment was cancelled before launch.", "aborted");
+      const existing = sessions.get(binding.hwnd);
+      if (existing) {
+        if (existing.client.binding.pid !== binding.pid || existing.client.binding.creationTime !== binding.creationTime) {
+          throw failure6("Rediscovered window does not match its retained process identity.", "native-binding");
+        }
+        selected = binding.hwnd;
+        return existing;
+      }
+      if (sessions.size >= 4) throw failure6("Native window session limit reached.", "native-session-limit");
       if ([...sessions.values()].some((session2) => session2.client.binding.pid === binding.pid)) {
         throw failure6("This process already has a native session bound to another window.", "native-window-conflict");
       }
@@ -19364,6 +19433,18 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
     const current = [...sessions.values()];
     sessions.clear();
     await Promise.all(current.map((session) => session.close()));
+  }
+  async function invalidate(predicate) {
+    revision++;
+    startupAbort?.abort(new Error("Native lifecycle changed during startup."));
+    const retiring = [];
+    for (const [hwnd, session] of sessions) {
+      if (!predicate(session)) continue;
+      sessions.delete(hwnd);
+      if (selected === hwnd) selected = void 0;
+      retiring.push(session);
+    }
+    await Promise.all(retiring.map((session) => session.close()));
   }
   const runtime = {
     async desktopStop(args, timeoutMs, signal) {
@@ -19413,8 +19494,24 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
         return session.client;
       });
     },
-    async afterWorker(operation, result) {
-      if (result.ok === true && ["desktop_start", "desktop_stop", "window_close", "launch"].includes(operation)) await clear();
+    async afterWorker(operation, result, args = {}) {
+      if (result.ok !== true || result.outcomeUnknown === true) return;
+      const identity = (value) => typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+      if (operation === "window_close") {
+        if (result.onlyTargetRemoved === true && result.verified === true && identity(result.hwnd)) {
+          await invalidate((session) => session.client.binding.hwnd === result.hwnd);
+        } else await clear();
+        return;
+      }
+      if (!["desktop_start", "desktop_stop", "launch", "close", "save_as", "case_create"].includes(operation)) return;
+      if (identity(result.pid)) {
+        await invalidate((session) => session.client.binding.pid === result.pid);
+      } else if (identity(args.hwnd)) {
+        await invalidate((session) => session.client.binding.hwnd === args.hwnd);
+      } else {
+        await clear();
+      }
+      if (operation === "launch" || operation === "desktop_start" || operation === "case_create") selected = void 0;
     },
     async close() {
       stopped = true;
@@ -19589,7 +19686,7 @@ async function runApiRuntime(configPath, overrides = {}) {
   const native = config.qtNativeRuntime ? createQtNativeRuntime(config, loadProductProfile(config.profileId), shutdown.signal, overrides.qtNativeDependencies) : void 0;
   const execute = createApiExecutor(config, async (operation, args, timeoutMs, signal) => {
     const result = await worker(operation, args, timeoutMs, signal);
-    await native?.afterWorker(operation, result);
+    await native?.afterWorker(operation, result, args);
     return result;
   }, native ? {
     qtNativeClientFor: native.client,

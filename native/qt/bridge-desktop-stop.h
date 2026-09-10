@@ -119,7 +119,13 @@ static Json nativeDesktopStop(const Json &request) {
             if (!IsWindowEnabled(stopHwnd(main)) || main.at("hung") == true)
                 throw DiscoveryError("dialog-open", "Main window is disabled or unresponsive");
             // Re-inventory immediately before any close. No newly appearing auxiliary/dialog may be adopted.
-            if (launchWindows(desktop.value, pid) != windows) throw DiscoveryError("state-unknown", "Owned window inventory changed");
+            const auto currentWindows = launchWindows(desktop.value, pid);
+            if (stopRelevantInventory(currentWindows) != stopRelevantInventory(windows)) {
+#ifdef SSE_NATIVE_STOP_TEST
+                result["inventoryBefore"] = windows; result["inventoryAfter"] = currentWindows;
+#endif
+                throw DiscoveryError("state-unknown", "Owned window inventory changed");
+            }
             if (!discard && uia.dirty(stopHwnd(main)) != false) throw DiscoveryError("state-unknown", "Clean save state changed before closing");
             for (const auto &window : windows) {
                 if (window.at("hwnd") == main.at("hwnd") || !stopSafeAuxiliary(window)) continue;
