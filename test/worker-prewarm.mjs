@@ -158,19 +158,31 @@ assert.match(staticMarkerOutput, /gueltiger Privatdesktop-Marker nutzt den Warm-
 
 // runWorker schreibt die Auftragszeile unmittelbar nach spawn, also lange vor
 // der spaeter eintreffenden Bereitschaft. Zusaetzlich bindet die Quellstruktur
-// den warmen Aufruf vor die ausschliessliche Cold-Worker-Deklaration.
+// beide Startpfade an dieselbe vor der Bereitschaft registrierte Definition.
 const workerSource = readFileSync(worker, "utf8");
-const preloadIndex = workerSource.indexOf("[ScriptBlock]::Create($dispatcherDefinitions[0].Extent.Text)");
-const readyIndex = workerSource.indexOf("prewarm='ready'", preloadIndex);
-const warmDispatchIndex = workerSource.indexOf("if ($Prewarm) {\n  Invoke-SSEWorkerOperation $Op $a", readyIndex);
-const coldDeclarationIndex = workerSource.indexOf(
-  "if (-not $Prewarm) {\nfunction Invoke-SSEWorkerOperation([string]$Operation, $Arguments)",
-  warmDispatchIndex,
+assert.equal([...workerSource.matchAll(/^function Invoke-SSEWorkerOperation\(/gmu)].length, 1,
+  "Beide Startpfade muessen genau eine direkte Dispatcherdefinition teilen.");
+const declarationIndex = workerSource.indexOf("function Invoke-SSEWorkerOperation(");
+const warmupIndex = workerSource.indexOf(
+  "Invoke-SSEWorkerOperation $script:SSE_DISPATCHER_WARMUP $null",
 );
-assert(preloadIndex >= 0 && readyIndex > preloadIndex,
-  "Die exakt geparste Dispatcherdefinition muss vor prewarm=ready registriert werden.");
-assert(warmDispatchIndex > readyIndex && coldDeclarationIndex > warmDispatchIndex,
-  "Der Warm-Auftrag muss vor der nur fuer Cold-Worker ausgefuehrten Originaldeklaration dispatchen.");
+const readyIndex = workerSource.indexOf("prewarm='ready'");
+const warmDispatchIndex = workerSource.indexOf(
+  "if ($Prewarm) {\n  Invoke-SSEWorkerOperation $Op $a", readyIndex,
+);
+const coldDispatchIndex = workerSource.indexOf("\nInvoke-SSEWorkerOperation $Op $a", warmDispatchIndex);
+assert(declarationIndex >= 0 && warmupIndex > declarationIndex && readyIndex > warmupIndex,
+  "Der direkte Dispatcher muss vor Warmlauf und Bereitschaft registriert sein.");
+assert(warmDispatchIndex > readyIndex && coldDispatchIndex > warmDispatchIndex,
+  "Erst nach der Bereitschaft darf der warme oder kalte Auftrag dispatchen.");
+const prewarmIndex = workerSource.indexOf("if ($Prewarm) {\n  # Statische, validierte Profilkataloge");
+assert(prewarmIndex > declarationIndex && prewarmIndex < warmupIndex);
+const dynamicDispatcherText = /\[ScriptBlock\]::Create|Invoke-Expression|\biex\b|^[ \t]*\.[ \t]+\$dispatcher/imu;
+assert.doesNotMatch("# Hier gehoert er hin.\n  $dispatcherWarmupProbe = 1", dynamicDispatcherText,
+  "Ein Satzpunkt im Kommentar ist keine Dot-Sourcing-Anweisung.");
+assert.match("  . $dispatcherDefinition", dynamicDispatcherText);
+assert.doesNotMatch(workerSource.slice(prewarmIndex, readyIndex), dynamicDispatcherText,
+  "Der Prewarm-Pfad darf Dispatcherquelltext nicht erneut erzeugen oder auswerten.");
 
 // --------------------------------- 3) Die Transportgrenze gilt auch fuer Auftraege
 const rejected = [
@@ -215,6 +227,7 @@ const managedEnvironment = [
 ];
 const previousEnvironment = new Map(managedEnvironment.map((name) => [name, process.env[name]]));
 let prewarmPool;
+let fixtureError;
 const wallNow = Date.now;
 
 writeFileSync(fixtureSource, `
@@ -512,15 +525,34 @@ try {
     () => restartedPids.every((pid) => !processIsAlive(pid)),
     "Der neu aufgebaute Pool muss sauber herunterfahren.",
   );
+} catch (error) {
+  fixtureError = error;
 } finally {
   Date.now = wallNow;
-  prewarmPool?.shutdownWarmSpare();
+  let shutdownError;
+  try {
+    prewarmPool?.shutdownWarmSpare();
+    await waitFor(
+      () => fixtureLaunches().every(({ pid }) => !processIsAlive(pid)),
+      "Fixture shutdown left a recorded pool process alive.",
+      15_000,
+    );
+  } catch (error) {
+    shutdownError = error;
+  }
   for (const [name, previous] of previousEnvironment) {
     if (previous === undefined) delete process.env[name];
     else process.env[name] = previous;
   }
-  await delay(50);
-  rmSync(sandbox, { recursive: true, force: true });
+  // Keep the original assertion and its launch records if shutdown also fails.
+  // A fixed sleep neither proves process exit nor releases an executable lock.
+  const failures = [fixtureError, shutdownError].filter((error) => error !== undefined);
+  if (failures.length > 0) {
+    throw new AggregateError(failures, `Prewarm fixture failed; evidence retained at ${sandbox}`);
+  }
+  assert.equal(dirname(resolve(sandbox)).toLowerCase(), resolve(tmpdir()).toLowerCase());
+  assert.match(basename(sandbox), /^sse-prewarm-startup-timeout-[a-z0-9]+$/iu);
+  rmSync(sandbox, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 }
 
 process.stdout.write(

@@ -38,19 +38,24 @@ assert.deepEqual(
   "TS- und PowerShell-Vordergrundkatalog muessen identisch sein",
 );
 const interactionGateCall = workerSource.indexOf("$profilePolicyOperation -in $foregroundRequiredReceiptOps");
-const verificationGateCall = workerSource.indexOf("if ($verificationOnlyProfile");
+const verificationGateCall = workerSource.indexOf(
+  "if ($verificationOnlyProfile -and $profilePolicyOperation -notin $experimentalProfileBaseOps)",
+);
 const buildGateCall = workerSource.indexOf(
   "Assert-SSEVerifiedBuildForOperation $profilePolicyOperation $a",
   interactionGateCall,
 );
-const operationSwitch = workerSource.indexOf("switch ($Op) {", interactionGateCall);
+const operationCalls = [...workerSource.matchAll(/^[ \t]*Invoke-SSEWorkerOperation \$Op \$a[ \t]*$/gmu)];
+assert.equal(operationCalls.length, 2, "Genau ein warmer und ein kalter aeusserer Dispatcheraufruf erwartet");
 assert(interactionGateCall > 0 && interactionGateCall < buildGateCall,
   "Vordergrundpflichtige Belegoperationen muessen vor Buildaufloesung und Dispatcher stoppen");
 assert(interactionGateCall < verificationGateCall,
   "Der unveraenderliche BelegManager-Block darf nicht vom Experimental-Opt-in abhaengen");
-assert(buildGateCall > 0 && buildGateCall < operationSwitch,
+assert(buildGateCall > 0 && operationCalls.every(call => call.index > buildGateCall),
   "Build-Drift-Gate muss vor jeder Operationsausfuehrung liegen");
-const disabledGateCall = workerSource.indexOf("status -eq 'disabled'");
+const disabledGateCall = workerSource.indexOf(
+  "if ([string]$script:SSE_PROFILE.status -eq 'disabled' -and $profilePolicyOperation -notin $experimentalProfileBaseOps)",
+);
 assert(disabledGateCall > 0 && disabledGateCall < verificationGateCall,
   "Deaktivierte Profile muessen vor dem Experimental-Opt-in fail-closed stoppen");
 

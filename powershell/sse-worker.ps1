@@ -7570,306 +7570,10 @@ function Set-SSEDialogFieldText(
 # Ein vorgewaermter Arbeiter meldet sich jetzt einmal als bereit und wartet
 # auf seinen einen Auftrag. Schliesst der Elternprozess die Standardeingabe,
 # endet der Arbeiter ohne Nebenwirkung.
-if ($Prewarm) {
-  # Statische, validierte Profilkataloge vor der Bereitschaft laden. Fast alle
-  # UI-Operationen erhalten danach dieselben cachegebundenen Objekte schneller.
-  $staticProfileProbe = [Diagnostics.Stopwatch]::StartNew()
-  $null = Get-SSEExecutableIdentity $script:SSE_DEFAULT_EXE
-  $null = Get-SSEPageObjects
-  $staticProfileProbe.Stop()
-  $script:INIT_TIMINGS.staticProfileCacheMs = $staticProfileProbe.ElapsedMilliseconds
-
-  # PowerShell zerlegt das gesamte Skript vor der ersten Anweisung, registriert
-  # eine Funktionsdeklaration aber erst, wenn ihre Anweisung ausgefuehrt wird.
-  # Der grosse Operationsdispatcher lag dadurch trotz prewarm=ready noch auf
-  # dem Aufrufpfad. Fuer den Reservearbeiter registrieren wir exakt die eine
-  # bereits geparste eigene Definition jetzt; eine allgemeine Auswertung
-  # fremden Texts darf an dieser Vertrauensgrenze nicht stattfinden.
-  $dispatcherProbe = [Diagnostics.Stopwatch]::StartNew()
-  $workerAst = $MyInvocation.MyCommand.ScriptBlock.Ast
-  $dispatcherDefinitions = @($(if ($workerAst) {
-    $workerAst.FindAll({
-      param($node)
-      $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
-        $node.Name -ceq 'Invoke-SSEWorkerOperation'
-    }, $true)
-  }))
-  if ($dispatcherDefinitions.Count -ne 1) {
-    Fail "Worker-AST enthaelt $($dispatcherDefinitions.Count) Dispatcherdefinitionen statt genau einer." 'worker-init'
-  }
-  try {
-    $dispatcherDefinition = [ScriptBlock]::Create($dispatcherDefinitions[0].Extent.Text)
-    . $dispatcherDefinition
-  } catch {
-    Fail "Dispatcherdefinition liess sich nicht aus dem eigenen Worker-AST registrieren: $($_.Exception.Message)" 'worker-init'
-  }
-  if (-not (Test-Path -LiteralPath 'Function:\Invoke-SSEWorkerOperation')) {
-    Fail 'Dispatcherdefinition wurde vor der Bereitschaft nicht registriert.' 'worker-init'
-  }
-  $dispatcherProbe.Stop()
-  $script:INIT_TIMINGS.dispatcherRegistrationMs = $dispatcherProbe.ElapsedMilliseconds
-
-  # Registriert ist der Dispatcher damit, uebersetzt aber noch nicht. Genau
-  # dieser Schritt lag bisher im Aufrufpfad; hier gehoert er hin.
-  $dispatcherWarmupProbe = [Diagnostics.Stopwatch]::StartNew()
-  Invoke-SSEWorkerOperation $script:SSE_DISPATCHER_WARMUP $null
-  $dispatcherWarmupProbe.Stop()
-  $script:INIT_TIMINGS.dispatcherWarmupMs = $dispatcherWarmupProbe.ElapsedMilliseconds
-
-  # KEIN Warmlauf mehr fuer die beiden Umwandlungen: Ihr Rumpf liegt seit der
-  # Portierung in der DLL und ist damit kompiliert. Die Uebersetzung, die hier
-  # frueher vorgezogen wurde (41 ms fuer Knoten, 19 ms fuer Fenster je frischem
-  # Arbeitsprozess), gibt es nicht mehr - ein Warmlauf haette nur noch sich
-  # selbst gewaermt und kostete Bereitschaftszeit.
-
-  # Sammeln, BEVOR der Arbeiter parkt. Ohne das zahlt die erste
-  # allokationsreiche Anweisung nach dem Aufwachen eine Sammlung - gemessen
-  # rund 290 ms, und sie wandert: mal auf die Prozessaufzaehlung, mal auf einen
-  # frueheren Schritt, je nachdem was zuerst laeuft. Genau dieses Wandern hat
-  # die Ursache lange verdeckt. Hier kostet die Sammlung nichts, was den
-  # Aufrufer traefe: Der Reservearbeiter laeuft im Hintergrund mit gesenkter
-  # Prioritaet und wartet danach ohnehin.
-  [GC]::Collect()
-  [GC]::WaitForPendingFinalizers()
-  [GC]::Collect()
-
-  [Console]::Out.WriteLine((@{ prewarm='ready'; pid=$PID } | ConvertTo-Json -Compress))
-  [Console]::Out.Flush()
-  $auftragszeile = $null
-  try { $auftragszeile = [Console]::In.ReadLine() }
-  catch { exit 0 }
-  # EOF heisst: der Elternprozess braucht diesen Reservearbeiter nicht mehr.
-  if ($null -eq $auftragszeile) { exit 0 }
-  $auftrag = $null
-  try { $auftrag = $auftragszeile | ConvertFrom-Json }
-  catch { $auftrag = $null }
-  if ($null -eq $auftrag -or $auftrag -isnot [pscustomobject]) {
-    [Console]::Out.Write((@{ ok=$false; kind='bad-args'; error='Auftragszeile ist kein JSON-Objekt.' } | ConvertTo-Json -Compress))
-    exit 1
-  }
-  $auftragsFelder = @($auftrag.PSObject.Properties.Name)
-  if (@($auftragsFelder | Where-Object { $_ -notin @('op','argsFile') }).Count) {
-    [Console]::Out.Write((@{ ok=$false; kind='bad-args'; error='Auftragszeile kennt nur op und argsFile.' } | ConvertTo-Json -Compress))
-    exit 1
-  }
-  $Op = [string]$auftrag.op
-  if ($Op -notmatch '^[a-z][a-z0-9_]{0,63}$') {
-    [Console]::Out.Write((@{ ok=$false; kind='bad-args'; error='Auftragszeile nennt keinen gueltigen Operationsnamen.' } | ConvertTo-Json -Compress))
-    exit 1
-  }
-  $ArgsFile = [string]$auftrag.argsFile
-  # Erst ab hier laeuft die Uhr des Auftrags. Die Wartezeit des Reserve-
-  # arbeiters gehoert nicht zur gemessenen Dauer der Operation.
-  $script:T0 = [Diagnostics.Stopwatch]::StartNew()
-  Initialize-SSEWorkerTransport
-  Initialize-SSEWorkerArguments
-}
-
-$experimentalCheckerNavigation = [bool](
-  $Op -eq 'click' -and
-  (Arg $a 'experimentalCheckerNavigation') -eq $true -and
-  [string](Arg $a 'name') -eq 'Weiter' -and
-  [string](Arg $a 'type') -eq 'Button' -and
-  [string](Arg $a 'expectedPageBefore') -eq 'Prüfen und Abgeben' -and
-  [string](Arg $a 'expectedPageAfter') -eq 'Steuererklärung prüfen' -and
-  [string](Arg $a 'pattern' 'invoke') -eq 'invoke'
-)
-$experimentalDialogAnswerCandidate = [bool](
-  $Op -eq 'dialog_answer' -and
-  [string](Arg $a 'button') -ceq 'OK'
-)
-$verificationOnlyProfile = [bool](
-  [string]$script:SSE_PROFILE.status -ne 'supported' -or
-  [string]$script:SSE_PROFILE.operationAccess -ne 'full'
-)
-# launch_probe und checker_open_plan sind keine API-Katalogeintraege, sondern
-# streng typisierte private Workerplaene. Fuer Profil- und Buildfreigaben
-# erben sie exakt ihre oeffentliche Operation, ohne die API-Menge zu weiten.
-$profilePolicyOperation = $(
-  if ($Op -eq 'launch_probe') { 'launch' }
-  elseif ($Op -eq 'checker_open_plan') { 'checker_open' }
-  else { $Op }
-)
-if ([string]$script:SSE_PROFILE.status -eq 'disabled' -and $profilePolicyOperation -notin $experimentalProfileBaseOps) {
-  Fail "Produktprofil '$($script:SSE_PROFILE_ID)' ist deaktiviert; Betriebsoperationen sind gesperrt." 'profile-disabled'
-}
-
-# Diese Pfade sind weiterhin implementiert und statisch verifiziert, aber der
-# normale Produktvertrag kann sie nur ueber sichtbaren Vordergrund oder
-# globale physische Eingabe ausfuehren. Der kanonische Live-Benchmark darf sie
-# ausschliesslich ueber eine kurzlebige, nicht konfigurierbare Test-Lease
-# erreichen. API und Worker pruefen die Lease getrennt; der Worker bindet sie
-# zusaetzlich an Besitzerprozess, Ablaufzeit, aktive Benutzersitzung und das
-# tatsaechliche Vordergrundfenster derselben Sitzung. Direkte/background
-# Aufrufe ohne diese interne Bindung bleiben vor Dispatcher und UIA gesperrt.
-$interactiveReceiptLeaseActive = $false
-if ($profilePolicyOperation -in $foregroundRequiredReceiptOps) {
-  $presentedLease = [string](Arg $a '__interactiveReceiptLease')
-  if ($presentedLease) {
-    $expectedLease = [string]$env:SSE_TEST_INTERACTIVE_RECEIPT_TOKEN
-    $ownerPid = 0
-    $expiresAt = [DateTime]::MinValue
-    $owner = $null
-    $foreground = [SW]::GetForegroundWindow()
-    $foregroundPid = 0
-    if ($foreground -ne [IntPtr]::Zero) {
-      [SW]::GetWindowThreadProcessId($foreground, [ref]$foregroundPid) | Out-Null
-    }
-    $foregroundOwner = $(if ($foregroundPid -gt 0) {
-      Get-Process -Id $foregroundPid -ErrorAction SilentlyContinue
-    } else { $null })
-    $ownerPidOk = [int]::TryParse([string]$env:SSE_TEST_INTERACTIVE_RECEIPT_OWNER_PID, [ref]$ownerPid)
-    if ($ownerPidOk -and $ownerPid -gt 0) {
-      $owner = Get-Process -Id $ownerPid -ErrorAction SilentlyContinue
-    }
-    $expiresOk = [DateTime]::TryParse(
-      [string]$env:SSE_TEST_INTERACTIVE_RECEIPT_EXPIRES_AT,
-      [Globalization.CultureInfo]::InvariantCulture,
-      [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal,
-      [ref]$expiresAt
-    )
-    $now = [DateTime]::UtcNow
-    $currentSession = (Get-Process -Id $PID).SessionId
-    $interactiveReceiptLeaseActive = [bool](
-      $env:SSE_TEST_INTERACTIVE_RECEIPTS -ceq '1' -and
-      $presentedLease -cmatch '^[A-F0-9]{64}$' -and
-      $presentedLease -ceq $expectedLease -and
-      $owner -and [int]$owner.SessionId -eq [int]$currentSession -and
-      $expiresOk -and $expiresAt -gt $now -and $expiresAt -le $now.AddHours(1) -and
-      [Environment]::UserInteractive -and
-      -not (Test-Path -LiteralPath $script:DESKTOP_MARKE) -and
-      $foreground -ne [IntPtr]::Zero -and $foregroundOwner -and
-      [int]$foregroundOwner.SessionId -eq [int]$currentSession
-    )
-    # Der interne Transportwert darf die strikten fachlichen Operations-
-    # argumente nicht erweitern und nie in Ergebnis/Trace gelangen.
-    $a.PSObject.Properties.Remove('__interactiveReceiptLease')
-  }
-  if (-not $interactiveReceiptLeaseActive) {
-  Fail (
-    "Operation '$profilePolicyOperation' ist im Hintergrund gesperrt, weil der verifizierte BelegManager-Weg " +
-    'Vordergrund- oder globale physische Eingabe benoetigt. Keine UI wurde geaendert; nicht automatisch wiederholen.'
-  ) 'blocked' ([pscustomobject][ordered]@{
-    reason='foreground-required-operation-disabled'
-    retryable=$false
-    interactionRequirement='foreground-required'
-    mutationStarted=$false
-    resultingState='unchanged'
-    cleanupRequired=$false
-    physicalInputUsed=$false
-    foregroundLeaseUsed=$false
-  })
-  }
-}
-
-if ($verificationOnlyProfile -and $profilePolicyOperation -notin $experimentalProfileBaseOps) {
-  if ($env:SSE_OPERATE_EXPERIMENTAL -ne '1') {
-    Fail (
-      "Produktprofil '$($script:SSE_PROFILE_ID)' ist nicht vollstaendig freigegeben " +
-      "(status=$($script:SSE_PROFILE.status), operationAccess=$($script:SSE_PROFILE.operationAccess)). " +
-      "Nur Katalog- und Dateiauskuenfte sind erlaubt. Fuer eine bewusste Jahresverifikation " +
-      "operateExperimental: true in der API-Konfiguration setzen."
-    ) 'profile-unverified'
-  }
-  if ($profilePolicyOperation -notin $experimentalProfileVerificationOps -and
-      -not $experimentalCheckerNavigation -and
-      -not $experimentalDialogAnswerCandidate) {
-    Fail (
-      "Operation '$Op' ist fuer das eingeschraenkte Produktprofil '$($script:SSE_PROFILE_ID)' " +
-      "nicht im expliziten Verifikationskatalog. operateExperimental erlaubt nur den " +
-      "geprueften Lese-, Navigations- und Disposable-Copy-Lebenszyklus."
-    ) 'profile-operation-unverified'
-  }
-}
-
-$controllerLease = if (@('page_objects','product_info') -ccontains $profilePolicyOperation) {
-  [pscustomobject]@{ status='bypass' }
-} elseif ($null -ne $script:SSE_WORKER_CONTROLLER_LEASE) {
-  [pscustomobject]@{ status='unavailable'; reason='controller-lock-reentered' }
-} else {
-  try { [SSEWorkerControllerLease]::Acquire($script:SSE_WORKER_CONTROLLER_MUTEX_NAME) }
-  catch { [pscustomobject]@{ status='unavailable'; reason='controller-lock-unavailable' } }
-}
-switch -CaseSensitive ([string]$controllerLease.status) {
-  'acquired' { $script:SSE_WORKER_CONTROLLER_LEASE = $controllerLease }
-  'bypass' { }
-  'busy' {
-    Fail 'Ein anderer Prozess steuert die SteuerSparErklaerung in dieser Windows-Sitzung. Ohne Warten abgebrochen; nach dessen Abschluss mit frischen Bindungen erneut aufrufen.' 'busy' ([pscustomobject][ordered]@{
-      reason='session-controller-busy'
-      retryable=$true
-      waited=$false
-      mutationStarted=$false
-      resultingState='unchanged'
-      cleanupRequired=$false
-      physicalInputUsed=$false
-      foregroundLeaseUsed=$false
-    })
-  }
-  'abandoned' {
-    # WAIT_ABANDONED uebertraegt den Mutex bereits an diesen Thread. Emit muss
-    # den beobachteten Lease freigeben, darf aber niemals in SSE dispatchen.
-    $script:SSE_WORKER_CONTROLLER_LEASE = $controllerLease
-    Fail 'Ein abgebrochener Controller wurde in dieser Windows-Sitzung erkannt. Produktzustand ist unbekannt; vor weiteren Aenderungen zuerst gezielt lesen und sse_health pruefen.' 'worker-isolation-lost' ([pscustomobject][ordered]@{
-      reason='controller-lock-abandoned'
-      retryable=$false
-      mutationStarted=$false
-      resultingState='unknown'
-      cleanupRequired=$true
-      physicalInputUsed=$false
-      foregroundLeaseUsed=$false
-    })
-  }
-  default {
-    Fail 'Sitzungsweiter SSE-Controller konnte nicht sicher gebunden werden. Vor weiteren Operationen Prozess- und Produktzustand kontrollieren.' 'worker-isolation-lost' ([pscustomobject][ordered]@{
-      reason=[string]$controllerLease.reason
-      retryable=$false
-      mutationStarted=$false
-      resultingState='unknown'
-      cleanupRequired=$true
-      physicalInputUsed=$false
-      foregroundLeaseUsed=$false
-    })
-  }
-}
-
-if (Test-Path -LiteralPath $script:DESKTOP_MARKE) {
-  try {
-    $loadedDesktopMarker = Read-SSEDesktopMarker $script:DESKTOP_MARKE
-  } catch {
-    Fail 'Desktop-Marker ist ungueltig; sichtbarer Desktop wird nicht ersatzweise verwendet.' 'desktop-marker-invalid'
-  }
-  if ($loadedDesktopMarker.owner -ceq 'center-test' -and $Op -ne 'desktop_status' -and
-      ($env:SSE_CENTER_LIVE_TEST -ne '1' -or $Op -notin $script:SSE_CENTER_TEST_OPERATIONS)) {
-    Fail 'Desktop-Marker gehoert dem isolierten Center-Test; Operation wurde nicht dorthin geroutet.' 'desktop-marker-owner'
-  }
-  if ($loadedDesktopMarker.owner -ceq 'sse' -and $Op -in $script:SSE_CENTER_TEST_OPERATIONS) {
-    Fail 'SSE-Desktop-Marker besitzt keinen Steuertipps-Center; Center-Operation wurde nicht dorthin geroutet.' 'desktop-marker-owner'
-  }
-  $script:DESKTOP_NAME = [string]$loadedDesktopMarker.name
-  $script:DESKTOP_PID = [uint32]$loadedDesktopMarker.pid
-  $script:DESKTOP_OWNER = [string]$loadedDesktopMarker.owner
-  # Die Marke allein ist massgeblich. SetThreadDesktop kann NICHT als
-  # Nachweis dienen: es scheitert mit Fehler 170, sobald der Thread ein
-  # Fenster besitzt - und PowerShell hat beim Start eines. Wird der
-  # Arbeiter ueber run-on-desktop.ps1 gestartet, ist er ohnehin schon
-  # dort geboren; der Aufruf unten ist nur der Fall fuer Direktstarts.
-  if ($Op -ne 'desktop_start') {
-    $h = [DSK]::OpenDesktop($script:DESKTOP_NAME, 0, $false, 0x10000000)   # GENERIC_ALL
-    if ($h -ne [IntPtr]::Zero) { [DSK]::SetThreadDesktop($h) | Out-Null }
-  }
-}
-Assert-SSEVerifiedBuildForOperation $profilePolicyOperation $a
-
-# Der warme Dispatcher ist bereits vor seiner Bereitschaft registriert. Ihn
-# hier aufzurufen verhindert, dass PowerShell auf dem Aufrufpfad noch die
-# spaetere, sehr grosse Cold-Worker-Deklaration betreten muss. Jede Operation
-# endet ueber Emit/Fail; eine unerwartete Rueckkehr ist deshalb fail-closed.
-if ($Prewarm) {
-  Invoke-SSEWorkerOperation $Op $a
-  Fail 'Vorgewaermter Dispatcher kehrte ohne Ergebnis zurueck.' 'worker-init'
-}
-
-if (-not $Prewarm) {
+# Den Dispatcher genau einmal im Skript-Scope deklarieren, bevor die Reserve
+# Bereitschaft meldet. Beide Startpfade nutzen denselben bereits geparsten AST;
+# erneutes Erzeugen und Auswerten seines Quelltexts ist nicht erforderlich.
+if ($Prewarm) { $dispatcherProbe = [Diagnostics.Stopwatch]::StartNew() }
 function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
   # PowerShell uebersetzt den Rumpf eines Scriptblocks erst bei seinem ERSTEN
   # Aufruf in ausfuehrbaren Code. Bei diesem sehr grossen Dispatcher kostete
@@ -21647,7 +21351,281 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     default { Fail "Unbekannte Operation '$Op'" 'bad-args' }
   }
 }
+if ($Prewarm) {
+  $dispatcherProbe.Stop()
+  $script:INIT_TIMINGS.dispatcherRegistrationMs = $dispatcherProbe.ElapsedMilliseconds
 }
+
+if ($Prewarm) {
+  # Statische, validierte Profilkataloge vor der Bereitschaft laden. Fast alle
+  # UI-Operationen erhalten danach dieselben cachegebundenen Objekte schneller.
+  $staticProfileProbe = [Diagnostics.Stopwatch]::StartNew()
+  $null = Get-SSEExecutableIdentity $script:SSE_DEFAULT_EXE
+  $null = Get-SSEPageObjects
+  $staticProfileProbe.Stop()
+  $script:INIT_TIMINGS.staticProfileCacheMs = $staticProfileProbe.ElapsedMilliseconds
+
+  # Registriert ist der Dispatcher damit, uebersetzt aber noch nicht. Genau
+  # dieser Schritt lag bisher im Aufrufpfad; hier gehoert er hin.
+  $dispatcherWarmupProbe = [Diagnostics.Stopwatch]::StartNew()
+  Invoke-SSEWorkerOperation $script:SSE_DISPATCHER_WARMUP $null
+  $dispatcherWarmupProbe.Stop()
+  $script:INIT_TIMINGS.dispatcherWarmupMs = $dispatcherWarmupProbe.ElapsedMilliseconds
+
+  # KEIN Warmlauf mehr fuer die beiden Umwandlungen: Ihr Rumpf liegt seit der
+  # Portierung in der DLL und ist damit kompiliert. Die Uebersetzung, die hier
+  # frueher vorgezogen wurde (41 ms fuer Knoten, 19 ms fuer Fenster je frischem
+  # Arbeitsprozess), gibt es nicht mehr - ein Warmlauf haette nur noch sich
+  # selbst gewaermt und kostete Bereitschaftszeit.
+
+  # Sammeln, BEVOR der Arbeiter parkt. Ohne das zahlt die erste
+  # allokationsreiche Anweisung nach dem Aufwachen eine Sammlung - gemessen
+  # rund 290 ms, und sie wandert: mal auf die Prozessaufzaehlung, mal auf einen
+  # frueheren Schritt, je nachdem was zuerst laeuft. Genau dieses Wandern hat
+  # die Ursache lange verdeckt. Hier kostet die Sammlung nichts, was den
+  # Aufrufer traefe: Der Reservearbeiter laeuft im Hintergrund mit gesenkter
+  # Prioritaet und wartet danach ohnehin.
+  [GC]::Collect()
+  [GC]::WaitForPendingFinalizers()
+  [GC]::Collect()
+
+  [Console]::Out.WriteLine((@{ prewarm='ready'; pid=$PID } | ConvertTo-Json -Compress))
+  [Console]::Out.Flush()
+  $auftragszeile = $null
+  try { $auftragszeile = [Console]::In.ReadLine() }
+  catch { exit 0 }
+  # EOF heisst: der Elternprozess braucht diesen Reservearbeiter nicht mehr.
+  if ($null -eq $auftragszeile) { exit 0 }
+  $auftrag = $null
+  try { $auftrag = $auftragszeile | ConvertFrom-Json }
+  catch { $auftrag = $null }
+  if ($null -eq $auftrag -or $auftrag -isnot [pscustomobject]) {
+    [Console]::Out.Write((@{ ok=$false; kind='bad-args'; error='Auftragszeile ist kein JSON-Objekt.' } | ConvertTo-Json -Compress))
+    exit 1
+  }
+  $auftragsFelder = @($auftrag.PSObject.Properties.Name)
+  if (@($auftragsFelder | Where-Object { $_ -notin @('op','argsFile') }).Count) {
+    [Console]::Out.Write((@{ ok=$false; kind='bad-args'; error='Auftragszeile kennt nur op und argsFile.' } | ConvertTo-Json -Compress))
+    exit 1
+  }
+  $Op = [string]$auftrag.op
+  if ($Op -notmatch '^[a-z][a-z0-9_]{0,63}$') {
+    [Console]::Out.Write((@{ ok=$false; kind='bad-args'; error='Auftragszeile nennt keinen gueltigen Operationsnamen.' } | ConvertTo-Json -Compress))
+    exit 1
+  }
+  $ArgsFile = [string]$auftrag.argsFile
+  # Erst ab hier laeuft die Uhr des Auftrags. Die Wartezeit des Reserve-
+  # arbeiters gehoert nicht zur gemessenen Dauer der Operation.
+  $script:T0 = [Diagnostics.Stopwatch]::StartNew()
+  Initialize-SSEWorkerTransport
+  Initialize-SSEWorkerArguments
+}
+
+$experimentalCheckerNavigation = [bool](
+  $Op -eq 'click' -and
+  (Arg $a 'experimentalCheckerNavigation') -eq $true -and
+  [string](Arg $a 'name') -eq 'Weiter' -and
+  [string](Arg $a 'type') -eq 'Button' -and
+  [string](Arg $a 'expectedPageBefore') -eq 'Prüfen und Abgeben' -and
+  [string](Arg $a 'expectedPageAfter') -eq 'Steuererklärung prüfen' -and
+  [string](Arg $a 'pattern' 'invoke') -eq 'invoke'
+)
+$experimentalDialogAnswerCandidate = [bool](
+  $Op -eq 'dialog_answer' -and
+  [string](Arg $a 'button') -ceq 'OK'
+)
+$verificationOnlyProfile = [bool](
+  [string]$script:SSE_PROFILE.status -ne 'supported' -or
+  [string]$script:SSE_PROFILE.operationAccess -ne 'full'
+)
+# launch_probe und checker_open_plan sind keine API-Katalogeintraege, sondern
+# streng typisierte private Workerplaene. Fuer Profil- und Buildfreigaben
+# erben sie exakt ihre oeffentliche Operation, ohne die API-Menge zu weiten.
+$profilePolicyOperation = $(
+  if ($Op -eq 'launch_probe') { 'launch' }
+  elseif ($Op -eq 'checker_open_plan') { 'checker_open' }
+  else { $Op }
+)
+if ([string]$script:SSE_PROFILE.status -eq 'disabled' -and $profilePolicyOperation -notin $experimentalProfileBaseOps) {
+  Fail "Produktprofil '$($script:SSE_PROFILE_ID)' ist deaktiviert; Betriebsoperationen sind gesperrt." 'profile-disabled'
+}
+
+# Diese Pfade sind weiterhin implementiert und statisch verifiziert, aber der
+# normale Produktvertrag kann sie nur ueber sichtbaren Vordergrund oder
+# globale physische Eingabe ausfuehren. Der kanonische Live-Benchmark darf sie
+# ausschliesslich ueber eine kurzlebige, nicht konfigurierbare Test-Lease
+# erreichen. API und Worker pruefen die Lease getrennt; der Worker bindet sie
+# zusaetzlich an Besitzerprozess, Ablaufzeit, aktive Benutzersitzung und das
+# tatsaechliche Vordergrundfenster derselben Sitzung. Direkte/background
+# Aufrufe ohne diese interne Bindung bleiben vor Dispatcher und UIA gesperrt.
+$interactiveReceiptLeaseActive = $false
+if ($profilePolicyOperation -in $foregroundRequiredReceiptOps) {
+  $presentedLease = [string](Arg $a '__interactiveReceiptLease')
+  if ($presentedLease) {
+    $expectedLease = [string]$env:SSE_TEST_INTERACTIVE_RECEIPT_TOKEN
+    $ownerPid = 0
+    $expiresAt = [DateTime]::MinValue
+    $owner = $null
+    $foreground = [SW]::GetForegroundWindow()
+    $foregroundPid = 0
+    if ($foreground -ne [IntPtr]::Zero) {
+      [SW]::GetWindowThreadProcessId($foreground, [ref]$foregroundPid) | Out-Null
+    }
+    $foregroundOwner = $(if ($foregroundPid -gt 0) {
+      Get-Process -Id $foregroundPid -ErrorAction SilentlyContinue
+    } else { $null })
+    $ownerPidOk = [int]::TryParse([string]$env:SSE_TEST_INTERACTIVE_RECEIPT_OWNER_PID, [ref]$ownerPid)
+    if ($ownerPidOk -and $ownerPid -gt 0) {
+      $owner = Get-Process -Id $ownerPid -ErrorAction SilentlyContinue
+    }
+    $expiresOk = [DateTime]::TryParse(
+      [string]$env:SSE_TEST_INTERACTIVE_RECEIPT_EXPIRES_AT,
+      [Globalization.CultureInfo]::InvariantCulture,
+      [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal,
+      [ref]$expiresAt
+    )
+    $now = [DateTime]::UtcNow
+    $currentSession = (Get-Process -Id $PID).SessionId
+    $interactiveReceiptLeaseActive = [bool](
+      $env:SSE_TEST_INTERACTIVE_RECEIPTS -ceq '1' -and
+      $presentedLease -cmatch '^[A-F0-9]{64}$' -and
+      $presentedLease -ceq $expectedLease -and
+      $owner -and [int]$owner.SessionId -eq [int]$currentSession -and
+      $expiresOk -and $expiresAt -gt $now -and $expiresAt -le $now.AddHours(1) -and
+      [Environment]::UserInteractive -and
+      -not (Test-Path -LiteralPath $script:DESKTOP_MARKE) -and
+      $foreground -ne [IntPtr]::Zero -and $foregroundOwner -and
+      [int]$foregroundOwner.SessionId -eq [int]$currentSession
+    )
+    # Der interne Transportwert darf die strikten fachlichen Operations-
+    # argumente nicht erweitern und nie in Ergebnis/Trace gelangen.
+    $a.PSObject.Properties.Remove('__interactiveReceiptLease')
+  }
+  if (-not $interactiveReceiptLeaseActive) {
+  Fail (
+    "Operation '$profilePolicyOperation' ist im Hintergrund gesperrt, weil der verifizierte BelegManager-Weg " +
+    'Vordergrund- oder globale physische Eingabe benoetigt. Keine UI wurde geaendert; nicht automatisch wiederholen.'
+  ) 'blocked' ([pscustomobject][ordered]@{
+    reason='foreground-required-operation-disabled'
+    retryable=$false
+    interactionRequirement='foreground-required'
+    mutationStarted=$false
+    resultingState='unchanged'
+    cleanupRequired=$false
+    physicalInputUsed=$false
+    foregroundLeaseUsed=$false
+  })
+  }
+}
+
+if ($verificationOnlyProfile -and $profilePolicyOperation -notin $experimentalProfileBaseOps) {
+  if ($env:SSE_OPERATE_EXPERIMENTAL -ne '1') {
+    Fail (
+      "Produktprofil '$($script:SSE_PROFILE_ID)' ist nicht vollstaendig freigegeben " +
+      "(status=$($script:SSE_PROFILE.status), operationAccess=$($script:SSE_PROFILE.operationAccess)). " +
+      "Nur Katalog- und Dateiauskuenfte sind erlaubt. Fuer eine bewusste Jahresverifikation " +
+      "operateExperimental: true in der API-Konfiguration setzen."
+    ) 'profile-unverified'
+  }
+  if ($profilePolicyOperation -notin $experimentalProfileVerificationOps -and
+      -not $experimentalCheckerNavigation -and
+      -not $experimentalDialogAnswerCandidate) {
+    Fail (
+      "Operation '$Op' ist fuer das eingeschraenkte Produktprofil '$($script:SSE_PROFILE_ID)' " +
+      "nicht im expliziten Verifikationskatalog. operateExperimental erlaubt nur den " +
+      "geprueften Lese-, Navigations- und Disposable-Copy-Lebenszyklus."
+    ) 'profile-operation-unverified'
+  }
+}
+
+$controllerLease = if (@('page_objects','product_info') -ccontains $profilePolicyOperation) {
+  [pscustomobject]@{ status='bypass' }
+} elseif ($null -ne $script:SSE_WORKER_CONTROLLER_LEASE) {
+  [pscustomobject]@{ status='unavailable'; reason='controller-lock-reentered' }
+} else {
+  try { [SSEWorkerControllerLease]::Acquire($script:SSE_WORKER_CONTROLLER_MUTEX_NAME) }
+  catch { [pscustomobject]@{ status='unavailable'; reason='controller-lock-unavailable' } }
+}
+switch -CaseSensitive ([string]$controllerLease.status) {
+  'acquired' { $script:SSE_WORKER_CONTROLLER_LEASE = $controllerLease }
+  'bypass' { }
+  'busy' {
+    Fail 'Ein anderer Prozess steuert die SteuerSparErklaerung in dieser Windows-Sitzung. Ohne Warten abgebrochen; nach dessen Abschluss mit frischen Bindungen erneut aufrufen.' 'busy' ([pscustomobject][ordered]@{
+      reason='session-controller-busy'
+      retryable=$true
+      waited=$false
+      mutationStarted=$false
+      resultingState='unchanged'
+      cleanupRequired=$false
+      physicalInputUsed=$false
+      foregroundLeaseUsed=$false
+    })
+  }
+  'abandoned' {
+    # WAIT_ABANDONED uebertraegt den Mutex bereits an diesen Thread. Emit muss
+    # den beobachteten Lease freigeben, darf aber niemals in SSE dispatchen.
+    $script:SSE_WORKER_CONTROLLER_LEASE = $controllerLease
+    Fail 'Ein abgebrochener Controller wurde in dieser Windows-Sitzung erkannt. Produktzustand ist unbekannt; vor weiteren Aenderungen zuerst gezielt lesen und sse_health pruefen.' 'worker-isolation-lost' ([pscustomobject][ordered]@{
+      reason='controller-lock-abandoned'
+      retryable=$false
+      mutationStarted=$false
+      resultingState='unknown'
+      cleanupRequired=$true
+      physicalInputUsed=$false
+      foregroundLeaseUsed=$false
+    })
+  }
+  default {
+    Fail 'Sitzungsweiter SSE-Controller konnte nicht sicher gebunden werden. Vor weiteren Operationen Prozess- und Produktzustand kontrollieren.' 'worker-isolation-lost' ([pscustomobject][ordered]@{
+      reason=[string]$controllerLease.reason
+      retryable=$false
+      mutationStarted=$false
+      resultingState='unknown'
+      cleanupRequired=$true
+      physicalInputUsed=$false
+      foregroundLeaseUsed=$false
+    })
+  }
+}
+
+if (Test-Path -LiteralPath $script:DESKTOP_MARKE) {
+  try {
+    $loadedDesktopMarker = Read-SSEDesktopMarker $script:DESKTOP_MARKE
+  } catch {
+    Fail 'Desktop-Marker ist ungueltig; sichtbarer Desktop wird nicht ersatzweise verwendet.' 'desktop-marker-invalid'
+  }
+  if ($loadedDesktopMarker.owner -ceq 'center-test' -and $Op -ne 'desktop_status' -and
+      ($env:SSE_CENTER_LIVE_TEST -ne '1' -or $Op -notin $script:SSE_CENTER_TEST_OPERATIONS)) {
+    Fail 'Desktop-Marker gehoert dem isolierten Center-Test; Operation wurde nicht dorthin geroutet.' 'desktop-marker-owner'
+  }
+  if ($loadedDesktopMarker.owner -ceq 'sse' -and $Op -in $script:SSE_CENTER_TEST_OPERATIONS) {
+    Fail 'SSE-Desktop-Marker besitzt keinen Steuertipps-Center; Center-Operation wurde nicht dorthin geroutet.' 'desktop-marker-owner'
+  }
+  $script:DESKTOP_NAME = [string]$loadedDesktopMarker.name
+  $script:DESKTOP_PID = [uint32]$loadedDesktopMarker.pid
+  $script:DESKTOP_OWNER = [string]$loadedDesktopMarker.owner
+  # Die Marke allein ist massgeblich. SetThreadDesktop kann NICHT als
+  # Nachweis dienen: es scheitert mit Fehler 170, sobald der Thread ein
+  # Fenster besitzt - und PowerShell hat beim Start eines. Wird der
+  # Arbeiter ueber run-on-desktop.ps1 gestartet, ist er ohnehin schon
+  # dort geboren; der Aufruf unten ist nur der Fall fuer Direktstarts.
+  if ($Op -ne 'desktop_start') {
+    $h = [DSK]::OpenDesktop($script:DESKTOP_NAME, 0, $false, 0x10000000)   # GENERIC_ALL
+    if ($h -ne [IntPtr]::Zero) { [DSK]::SetThreadDesktop($h) | Out-Null }
+  }
+}
+Assert-SSEVerifiedBuildForOperation $profilePolicyOperation $a
+
+# Beide Startpfade haben dieselbe Dispatcherdefinition bereits registriert.
+# Der vorgewaermte Pfad hat zusaetzlich die Uebersetzung vor der Bereitschaft
+# erledigt. Jede Operation endet ueber Emit/Fail; eine unerwartete Rueckkehr
+# ist deshalb fail-closed.
+if ($Prewarm) {
+  Invoke-SSEWorkerOperation $Op $a
+  Fail 'Vorgewaermter Dispatcher kehrte ohne Ergebnis zurueck.' 'worker-init'
+}
+
+
 
 Invoke-SSEWorkerOperation $Op $a
 Fail 'Kalter Dispatcher kehrte ohne Ergebnis zurueck.' 'worker-init'

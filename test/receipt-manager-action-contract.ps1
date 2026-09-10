@@ -109,11 +109,18 @@ $policy = $catalog.windows.receiptManager
 $foregroundCatalogStart = $worker.IndexOf('$foregroundRequiredReceiptOps = @(')
 $foregroundGateStart = $worker.IndexOf('$profilePolicyOperation -in $foregroundRequiredReceiptOps')
 $buildGateStart = $worker.IndexOf('Assert-SSEVerifiedBuildForOperation $profilePolicyOperation $a', $foregroundGateStart)
-$dispatcherStart = $worker.IndexOf('function Invoke-SSEWorkerOperation(', $foregroundGateStart)
+$dispatchAufrufe = @($ast.FindAll({
+  param($node)
+  $node -is [Management.Automation.Language.CommandAst] -and
+    $node.GetCommandName() -ceq 'Invoke-SSEWorkerOperation' -and
+    $node.Extent.Text -ceq 'Invoke-SSEWorkerOperation $Op $a'
+}, $true))
+Assert-True ($dispatchAufrufe.Count -eq 2) 'Genau ein warmer und ein kalter aeusserer Dispatcheraufruf erwartet.'
 Assert-True ($foregroundCatalogStart -ge 0) 'Der Worker besitzt keinen zentralen BelegManager-Interaktionskatalog.'
 Assert-True ($foregroundGateStart -gt $foregroundCatalogStart) 'Der BelegManager-Interaktionsguard fehlt.'
 Assert-True ($buildGateStart -gt $foregroundGateStart) 'Der BelegManager-Interaktionsguard muss vor der Buildaufloesung stoppen.'
-Assert-True ($dispatcherStart -gt $buildGateStart) 'Der BelegManager-Interaktionsguard muss vor dem Operationsdispatcher stoppen.'
+Assert-True (@($dispatchAufrufe | Where-Object { $_.Extent.StartOffset -le $buildGateStart }).Count -eq 0) `
+  'Der BelegManager-Interaktionsguard muss vor beiden aeusseren Dispatcheraufrufen stoppen.'
 $foregroundGateEnd = $buildGateStart
 Assert-True ($foregroundGateEnd -gt $foregroundGateStart) 'Der BelegManager-Interaktionsguard ist nicht eindeutig abgrenzbar.'
 $foregroundGate = $worker.Substring($foregroundGateStart, $foregroundGateEnd - $foregroundGateStart)
