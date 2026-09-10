@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { attachMegaExecutionTraces } from "./performance/api-mega-execution-traces.mjs";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -123,6 +124,7 @@ updateStatus([
 ]);
 
 let raw = null;
+let executionEvidence = null;
 let child = null;
 let receiptConfigIsolation = null;
 const receiptConfigIsolationEvidence = {
@@ -175,6 +177,16 @@ try {
 if (existsSync(rawPath)) {
   try { raw = JSON.parse(readFileSync(rawPath, "utf8")); }
   catch (error) { setupFailure ??= new Error(`Rohbericht ist unlesbar: ${error.message}`); }
+}
+
+if (raw?.operations?.calls) {
+  try {
+    const joined = await attachMegaExecutionTraces(raw.operations.calls, rawPath + ".execution.jsonl");
+    raw.operations = { ...raw.operations, calls: joined.calls };
+    executionEvidence = joined.evidence;
+  } catch (error) {
+    setupFailure ??= new Error(`Execution timing correlation failed: ${error.message}`);
+  }
 }
 
 const postflightVerificationStartedAt = performance.now();
@@ -318,6 +330,7 @@ const report = {
     orchestrationWallMs: rounded(performance.now() - orchestrationStartedAt),
   },
   operations: raw?.operations ?? null,
+  executionEvidence,
   mutationCoverage: raw?.mutationCoverage ?? null,
   catalogCoverage: raw?.catalogCoverage ?? null,
   operationCatalog: raw?.operationCatalog ?? null,

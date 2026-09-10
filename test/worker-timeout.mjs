@@ -6,6 +6,7 @@ import {
   summarizeWorkerDiagnostic,
 } from "../dist/worker.js";
 import { MAX_WORKER_QUEUE_DEPTH } from "../dist/api-contract.js";
+import { createExecutionTelemetry } from "../dist/execution-telemetry.js";
 
 await assert.rejects(callWorker("health", {}, 1), /Zeitueberschreitung/);
 const controller = new AbortController();
@@ -60,6 +61,36 @@ for (const result of [blockerResult, recovered]) {
   assert.equal(typeof result.ok, "boolean");
   assert(Object.hasOwn(result, "running"), JSON.stringify(result));
 }
+// The second dispatch happens in the first request's asynchronous continuation.
+// Its queue/setup measurements must still belong to the second submitting trace.
+const telemetry = createExecutionTelemetry({ enabled: true });
+const measured = (rootOperation, signal) => telemetry.runApi(rootOperation, () =>
+  telemetry.runWorker("health", () => callWorker("health", {}, 90_000, signal, telemetry)));
+const firstMeasured = measured("health");
+const secondMeasured = measured("help");
+const cancelMeasured = new AbortController();
+const cancelledMeasured = assert.rejects(measured("capabilities", cancelMeasured.signal),
+  error => error?.kind === "aborted");
+cancelMeasured.abort();
+await Promise.all([firstMeasured, secondMeasured, cancelledMeasured]);
+const measuredTraces = telemetry.consumeCompleted();
+assert.equal(measuredTraces.length, 3);
+for (const entry of measuredTraces) {
+  const worker = entry.spans.find(span => span.phase === "worker");
+  const queued = entry.spans.filter(span => span.phase === "worker-queue");
+  const prepared = entry.spans.filter(span => span.phase === "worker-prepare");
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].parentId, worker.id);
+  assert.equal(prepared.length, entry.operation === "capabilities" ? 0 : 1);
+  for (const preparation of prepared) {
+    assert.equal(preparation.parentId, worker.id);
+    assert(preparation.startedAtMs >= queued[0].startedAtMs + queued[0].durationMs);
+  }
+  assert(entry.spans.every(span => span.completion === "completed" && Number.isFinite(span.durationMs)));
+  assert.equal(entry.droppedSpanCount, 0);
+}
+assert(measuredTraces.find(entry => entry.operation === "help").spans
+  .find(span => span.phase === "worker-queue").durationMs > 0);
 const longDiagnostic = "ä".repeat(MAX_WORKER_DIAGNOSTIC_CHARACTERS + 100);
 const summarized = summarizeWorkerDiagnostic(longDiagnostic);
 assert(summarized.startsWith("ä".repeat(MAX_WORKER_DIAGNOSTIC_CHARACTERS)));

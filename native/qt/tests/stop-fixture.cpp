@@ -18,11 +18,11 @@ using Json = nlohmann::json;
 class StopWindow : public QMainWindow {
 public:
     std::string mode, statePath;
-    int closes = 0, discardInvokes = 0, saveInvokes = 0;
+    int closes = 0, discardInvokes = 0, saveInvokes = 0, overlayChanges = 0;
     bool dialog = false;
     void persist() {
         std::ofstream(statePath) << Json({{"closeEvents", closes}, {"dialog", dialog}, {"discardInvokes", discardInvokes},
-            {"saveInvokes", saveInvokes}, {"pid", GetCurrentProcessId()}}).dump();
+            {"saveInvokes", saveInvokes}, {"overlayChanges", overlayChanges}, {"pid", GetCurrentProcessId()}}).dump();
     }
     void showDialog() {
         auto *window = new QDialog(this); window->setWindowTitle("Synthetic save confirmation");
@@ -69,7 +69,8 @@ int main(int argc, char **argv) {
     overlayClass.hInstance = GetModuleHandleW(nullptr); overlayClass.lpszClassName = L"UAC_SyntheticStop";
     if (!RegisterClassW(&overlayClass)) return 11;
     const auto overlay = CreateWindowExW(WS_EX_NOACTIVATE, overlayClass.lpszClassName, L"", WS_POPUP | WS_VISIBLE,
-        0, 0, 20, 20, nullptr, nullptr, overlayClass.hInstance, nullptr);
+        0, 0, mode == "large-overlay" ? 400 : 20, mode == "large-overlay" ? 400 : 20,
+        nullptr, nullptr, overlayClass.hInstance, nullptr);
     if (!overlay) return 12;
     window.setObjectName("SyntheticStopWindow");
     window.setWindowTitle(QString::fromUtf8(mode == "no-main" ? "Synthetic auxiliary" : "SteuerSparErklärung synthetic close fixture"));
@@ -80,6 +81,14 @@ int main(int argc, char **argv) {
     ShowWindow(reinterpret_cast<HWND>(window.winId()), SW_SHOWNOACTIVATE);
     if (!IsWindowVisible(reinterpret_cast<HWND>(window.winId()))) return 10;
     window.persist();
+    QTimer overlayPulse;
+    if (mode == "overlay-churn") {
+        QObject::connect(&overlayPulse, &QTimer::timeout, &window, [&] {
+            ++window.overlayChanges;
+            SetWindowPos(overlay, nullptr, window.overlayChanges, 0, 20, 20, SWP_NOACTIVATE | SWP_NOZORDER);
+        });
+        overlayPulse.start(1);
+    }
     if (mode == "modal") window.showDialog();
     FILETIME birth{}, end{}, kernel{}, user{};
     if (!GetProcessTimes(GetCurrentProcess(), &birth, &end, &kernel, &user)) return 8;

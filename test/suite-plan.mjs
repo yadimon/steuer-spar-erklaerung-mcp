@@ -15,7 +15,7 @@ const workerControllerSteps = new Set([
   "archive-cases", "archive-cases-synthetic", "archive-local-parity",
   "backup-cases-contract", "backup-local-parity", "bulk-action-worker-contract",
   "case-file", "checker-open-contract", "direct-worker-collection-guard",
-  "desktop-marker-contract",
+  "desktop-marker-contract", "execution-telemetry-integration",
   "direct-worker-experimental-guard", "direct-worker-file-guard", "direct-worker-guard",
   "direct-worker-identity-guard", "direct-worker-resource-guard", "file-operations-worker",
   "launch-orchestration", "mcp-selftest", "product-gate", "verify-collect",
@@ -85,6 +85,10 @@ export const parallelSteps = Object.freeze([
   nodeFile("native-build-cache", "test/native-build-cache.mjs"),
   nodeFile("qt-native-client", "test/qt-native-client.mjs"),
   nodeFile("qt-native-runtime", "test/qt-native-runtime.mjs"),
+  nodeFile("execution-telemetry", "test/execution-telemetry.mjs"),
+  nodeFile("execution-telemetry-integration", "test/execution-telemetry-integration.mjs"),
+  nodeFile("execution-trace-log", "test/execution-trace-log-contract.mjs"),
+  nodeFile("api-mega-execution-traces", "test/performance/api-mega-execution-traces-contract.mjs"),
   nodeFile("qt-native-build", "test/qt-native-build.mjs"),
   nodeFile("direct-worker-guard", "test/direct-worker-guard.mjs"),
   nodeFile("direct-worker-experimental-guard", "test/direct-worker-experimental-guard.mjs"),
@@ -219,6 +223,7 @@ export const finalSteps = Object.freeze([
 ]);
 
 const FAST_STEP_NAMES = new Set([
+  "execution-telemetry", "execution-telemetry-integration", "execution-trace-log", "api-mega-execution-traces",
   "suite-runner-contract",
   "public-skills",
   "repository-privacy",

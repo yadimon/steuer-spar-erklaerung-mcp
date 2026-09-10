@@ -22,6 +22,9 @@ import {
 import { SSE_FOREGROUND_REQUIRED_RECEIPT_OPERATIONS } from "../dist/receipt-interaction-policy.js";
 import { resolveWindowsPowerShell } from "../dist/windows-runtime.js";
 import { traceOperations } from "./operation-trace.mjs";
+import { createExecutionTelemetry } from "../dist/execution-telemetry.js";
+import { createExecutionTraceLog } from "./execution-trace-log.mjs";
+import { fileURLToPath } from "node:url";
 import { listenOnFetchablePort } from "./fetchable-port.mjs";
 
 const [, , command, ...args] = process.argv;
@@ -103,6 +106,7 @@ const worker = (operation, args, timeoutMs, signal) => callWorker(
     : args,
   timeoutMs,
   signal,
+  telemetry,
 );
 const config = {
   host: "127.0.0.1",
@@ -124,20 +128,27 @@ const config = {
 const nativeDirectory = process.env.SSE_TEST_NATIVE_PACKAGE;
 const nativeDigest = process.env.SSE_TEST_NATIVE_MANIFEST_SHA256;
 if (Boolean(nativeDirectory) !== Boolean(nativeDigest)) throw new Error("Native test package and manifest digest must be supplied together.");
+const telemetry = process.env.SSE_MEGA_RAW_REPORT
+  ? createExecutionTelemetry({ enabled: true, maxSpansPerTrace: 4096 }) : undefined;
+const executionLog = telemetry ? createExecutionTraceLog({
+  telemetry, outputPath: `${process.env.SSE_MEGA_RAW_REPORT}.execution.jsonl`,
+  repositoryRoot: fileURLToPath(new URL("../", import.meta.url)),
+}) : undefined;
 const nativeShutdown = new AbortController();
 const native = nativeDirectory ? createQtNativeRuntime({ ...config,
   qtNativeRuntime: { directory: nativeDirectory, manifestSha256: nativeDigest },
-}, loadProductProfile(config.profileId), nativeShutdown.signal) : null;
+}, loadProductProfile(config.profileId), nativeShutdown.signal, { telemetry }) : null;
 if (native && process.env.SSE_TEST_OPERATION_TRACE_DIR) throw new Error("Native benchmark cannot update the Worker coverage ledger.");
 const executor = createApiExecutor(config, async (...parameters) => {
   const result = await worker(...parameters);
-  await native?.afterWorker(parameters[0], result);
+  await native?.afterWorker(parameters[0], result, parameters[1]);
   return result;
-}, native ? { qtNativeClientFor: native.client, nativeDesktopStatus: native.desktopStatus,
-  nativeDesktopStart: native.desktopStart, nativeDesktopStop: native.desktopStop } : {});
+}, { telemetry, ...(native ? { qtNativeClientFor: native.client, nativeDesktopStatus: native.desktopStatus,
+  nativeDesktopStart: native.desktopStart, nativeDesktopStop: native.desktopStop } : {}) });
 const execute = native ? executor : traceOperations("worker", executor);
 const server = createSseApiServer({
   execute,
+  ...(executionLog ? { log: record => executionLog.record(record) } : {}),
   ...(useWorkerPrewarm ? {
     prewarmStatus: () => ({ ready: isWarmSpareReady(), failure: lastPrewarmFailure(), poolTarget: warmSparePoolStatus().target }),
   } : {}),
@@ -196,6 +207,7 @@ try {
   nativeShutdown.abort();
   await native?.close();
   if (useWorkerPrewarm) shutdownWarmSpare();
+  executionLog?.close();
   if (childFailed && preserveTemporaryOnFailure) {
     process.stderr.write(`Test-Sandbox zur Diagnose erhalten: ${temporary}\n`);
   } else {

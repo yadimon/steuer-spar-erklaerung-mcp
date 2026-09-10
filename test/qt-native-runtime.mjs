@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createExecutionTelemetry } from "../dist/execution-telemetry.js";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -110,6 +111,7 @@ try {
     const state = { target: { pid: 99, hwnd: 42, creationTime: "1" }, marker: null,
       context: { ok: true, boundMain: true, unique: true }, closed: 0, reads: 0 };
     const runtime = createQtNativeRuntime(config, profile, shutdown.signal, {
+      telemetry: options.telemetry,
       loadPackage: () => nativePackage,
       readMarker: () => { if (state.markerError) throw state.markerError; return state.marker; },
       discoverTarget: async request => {
@@ -135,6 +137,15 @@ try {
     return { runtime, shutdown, calls, starts, sessions, state };
   }
 
+  const measured = createExecutionTelemetry({ enabled: true });
+  const measuredHarness = harness({ telemetry: measured });
+  await measured.runApi("get_value", () => measuredHarness.runtime.client({}, 1000));
+  assert.deepEqual(measured.consumeCompleted()[0].spans.map(span => span.phase), ["api", "discovery", "bind"]);
+  await measured.runApi("get_value", () => measuredHarness.runtime.client({}, 1000));
+  assert.deepEqual(measured.consumeCompleted()[0].spans.map(span => span.phase), ["api"],
+    "Warm bound reads must not be reported as a new discovery or bind");
+  await measuredHarness.runtime.close();
+
   const h = harness();
   const first = await h.runtime.client({}, 1000);
   assert.equal(await h.runtime.client({}, 1000), first);
@@ -154,6 +165,10 @@ try {
   await assert.rejects(h.runtime.client({}, 1000), kind("native-connection"));
   await assert.rejects(h.runtime.client({}, 1000), kind("native-connection"));
   assert.equal(h.starts.length, 1, "Failed bound sessions must not automatically reconnect.");
+  await h.runtime.afterWorker("close", { ok: true, pid: 99, outcomeUnknown: true });
+  assert.equal(h.state.closed, 0, "Contradictory ok/unknown must retain the failed binding.");
+  await h.runtime.afterWorker("close", { ok: false, pid: 99, outcomeUnknown: true });
+  assert.equal(h.state.closed, 0, "An uncertain close must not clear and silently reconnect a failed binding.");
   await h.runtime.afterWorker("window_close", { ok: false });
   assert.equal(h.state.closed, 0);
   await h.runtime.afterWorker("window_close", { ok: true });
@@ -164,6 +179,58 @@ try {
   h.shutdown.abort(); await h.runtime.close();
   assert.equal(h.state.closed, 2);
   await assert.rejects(h.runtime.client({}, 1000), kind("aborted"));
+
+  const lifecycle = harness();
+  const mainClient = await lifecycle.runtime.client({ hwnd: 42 }, 1000);
+  await lifecycle.runtime.afterWorker("window_close", { ok: true, pid: 99, hwnd: 77, onlyTargetRemoved: true, verified: true });
+  assert.equal(lifecycle.state.closed, 0, "Closing a proven auxiliary window must retain its healthy main session.");
+  assert.equal(await lifecycle.runtime.client({ hwnd: 42 }, 1000), mainClient);
+  lifecycle.state.target = { pid: 100, hwnd: 43, creationTime: "2" };
+  const otherClient = await lifecycle.runtime.client({ hwnd: 43 }, 1000);
+  await lifecycle.runtime.afterWorker("close", { ok: true, pid: 99, stillRunning: false });
+  assert.equal(lifecycle.state.closed, 1, "Successful close must retire all bindings to the exited PID.");
+  assert.equal(await lifecycle.runtime.client({ hwnd: 43 }, 1000), otherClient);
+  await lifecycle.runtime.afterWorker("save_as", { ok: true, savedAs: true }, { hwnd: 43 });
+  assert.equal(lifecycle.state.closed, 2, "Save-as must invalidate the addressed case binding even without a result PID.");
+  lifecycle.state.target = { pid: 101, hwnd: 44, creationTime: "3" };
+  await lifecycle.runtime.client({ hwnd: 44 }, 1000);
+  await lifecycle.runtime.afterWorker("launch", { ok: true, pid: 102 });
+  assert.equal(lifecycle.state.closed, 2, "A new process launch must not retire an unrelated explicitly addressed process.");
+  lifecycle.state.target = { pid: 102, hwnd: 45, creationTime: "4" };
+  const newlySelected = await lifecycle.runtime.client({}, 1000);
+  assert.equal(newlySelected.binding.pid, 102, "Implicit target must be rediscovered after a new process launch.");
+  await lifecycle.runtime.afterWorker("case_create", { ok: true });
+  assert.equal(lifecycle.state.closed, 4, "A case lifecycle result without target identity invalidates unprovable bindings.");
+  await lifecycle.runtime.close();
+
+  const rediscovered = harness();
+  const retained = await rediscovered.runtime.client({}, 1000);
+  await rediscovered.runtime.afterWorker("launch", { ok: true, pid: 100 });
+  assert.equal(await rediscovered.runtime.client({}, 1000), retained);
+  assert.equal(rediscovered.starts.length, 1, "Rediscovery of the same identity must not attach a second broker.");
+  assert.equal(rediscovered.state.reads, 2, "Rediscovered cached clients still need a fresh window context.");
+  rediscovered.state.connectionError = new QtNativeTransportError("Disconnected", "native-connection", true);
+  await rediscovered.runtime.afterWorker("launch", { ok: true, pid: 100 });
+  await assert.rejects(rediscovered.runtime.client({}, 1000), kind("native-connection"));
+  assert.equal(rediscovered.starts.length, 1, "Rediscovery must not reconnect a failed retained session.");
+  delete rediscovered.state.connectionError;
+  await rediscovered.runtime.afterWorker("launch", { ok: true, pid: 100 });
+  rediscovered.state.target.creationTime = "2";
+  await assert.rejects(rediscovered.runtime.client({}, 1000), kind("native-binding"));
+  rediscovered.state.target = { pid: 101, hwnd: 42, creationTime: "1" };
+  await assert.rejects(rediscovered.runtime.client({}, 1000), kind("native-binding"));
+  assert.equal(rediscovered.starts.length, 1, "Recycled process/window identity must not overwrite a retained binding.");
+  await rediscovered.runtime.close();
+
+  const atCapacity = harness();
+  for (let index = 0; index < 4; index++) {
+    atCapacity.state.target = { pid: 200 + index, hwnd: 300 + index, creationTime: String(index + 1) };
+    await atCapacity.runtime.client({ hwnd: 300 + index }, 1000);
+  }
+  await atCapacity.runtime.afterWorker("launch", { ok: true, pid: 999 });
+  assert.equal((await atCapacity.runtime.client({}, 1000)).binding.hwnd, 303);
+  assert.equal(atCapacity.starts.length, 4, "The attachment limit must not reject reuse of an existing session.");
+  await atCapacity.runtime.close();
 
   const multiple = harness(); multiple.state.discoveryError = new QtNativeTransportError("Multiple windows", "ambiguous");
   await assert.rejects(multiple.runtime.client({}, 1000), kind("ambiguous"));

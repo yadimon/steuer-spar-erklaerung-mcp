@@ -2,14 +2,17 @@ import assert from "node:assert/strict";
 import { spawn, execFile } from "node:child_process";
 import { once } from "node:events";
 import { readFileSync, writeFileSync, mkdirSync, existsSync, mkdtempSync } from "node:fs";
-import { join, dirname, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
+import { loadProductProfile } from "../dist/product-profiles.js";
+import { loadQtNativePackage } from "../dist/qt-native-package.js";
 
 const [manifestPath, helperPath, fixturePath, qtBin] = process.argv.slice(2).map(value => resolve(value));
 assert.equal(process.argv.length, 6, "Expected native manifest, stop test helper, synthetic fixture and Qt bin");
 const attempt = mkdtempSync(join(tmpdir(), "sse-native-stop-"));
-const productionPath = resolve(dirname(manifestPath), "bin/bridge-load.exe");
+const configuration = JSON.parse(readFileSync(manifestPath, "utf8"));
+const productionPath = loadQtNativePackage(configuration.qtNativeRuntime, loadProductProfile("2025")).loaderPath;
 const report = { cases: [], fixtures: [] }, fixtures = [];
 const json = path => JSON.parse(readFileSync(path, "utf8"));
 const persist = () => writeFileSync(join(attempt, "result.json"), JSON.stringify(report, null, 2));
@@ -62,6 +65,7 @@ async function quit(owned, expected = 0) {
 try {
   const clean = await fixture("clean");
   const production = await helper(clean, {}, productionPath).finished;
+  assert(production.result, `Production loader returned no structured result: ${JSON.stringify(production)}`);
   assert.equal(production.result.ok, false); assert.equal(production.result.mutationAttempted, false); preserved(clean);
   const expired = await helper(clean, { deadlineUnixMs: Date.now() - 1000 }).finished;
   assert.equal(expired.result.kind, "native-deadline"); assert.equal(expired.result.mutationAttempted, false); preserved(clean);
@@ -82,6 +86,16 @@ try {
   assert.equal(allowed.result.ok, true, JSON.stringify(allowed)); assert.equal(allowed.result.processExited, true);
   assert.equal(allowed.result.desktopMarkeEntfernt, true); assert.equal(allowed.result.hartBeendet, false);
   assert(!existsSync(clean.markerPath)); await quit(clean); assert.equal(json(clean.statePath).closeEvents, 1);
+  const overlayChurn = await fixture("overlay-churn");
+  const overlayClosed = await helper(overlayChurn).finished;
+  assert.equal(overlayClosed.result.ok, true, JSON.stringify(overlayClosed));
+  assert.equal(overlayClosed.result.hartBeendet, false);
+  await quit(overlayChurn);
+  assert(json(overlayChurn.statePath).overlayChanges > 0, "The fixture must actually change its ignored overlay");
+  const largeOverlay = await fixture("large-overlay");
+  const largeOverlayDenied = await helper(largeOverlay).finished;
+  assert.equal(largeOverlayDenied.result.kind, "dialog-open", JSON.stringify(largeOverlayDenied));
+  assert.equal(largeOverlayDenied.result.mutationAttempted, false); preserved(largeOverlay); await quit(largeOverlay);
   const dirty = await fixture("dirty"); const deniedDirty = await helper(dirty).finished;
   assert.equal(deniedDirty.result.ungespeichert, true); assert.equal(deniedDirty.result.kind, "confirmation-required"); preserved(dirty);
   const discarded = await helper(dirty, { discardChanges: true, waitMs: 4000 }).finished;

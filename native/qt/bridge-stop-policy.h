@@ -33,6 +33,16 @@ static bool stopIgnored(const Json &window) {
     return launchContains(cls, L"Shadow") || launchContains(cls, L"PopupDropShadow")
         || ((cls.rfind(L"UAC_", 0) == 0 || cls.rfind(L"UAC ", 0) == 0) && window.at("w") <= 80 && window.at("h") <= 80);
 }
+static Json stopRelevantInventory(const Json &windows) {
+    Json relevant = Json::array();
+    for (const auto &window : windows) if (!stopIgnored(window)) relevant.push_back(window);
+    // Window identity is a set: ignored input/shadow overlays and their z-order
+    // cannot authorize an action or invalidate an unchanged application inventory.
+    std::sort(relevant.begin(), relevant.end(), [](const Json &a, const Json &b) {
+        return a.at("hwnd").get<std::uint64_t>() < b.at("hwnd").get<std::uint64_t>();
+    });
+    return relevant;
+}
 static bool stopSafeAuxiliary(const Json &window) {
     if (window.at("title").get<std::string>().empty()) return false;
     const auto title = wide(window.at("title").get<std::string>());
