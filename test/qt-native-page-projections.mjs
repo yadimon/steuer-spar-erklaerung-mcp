@@ -19,7 +19,10 @@ export async function pageProjectionOracle(cases, wildcards = []) {
       fileURLToPath(new URL("./qt-native-page-oracle.ps1", import.meta.url)), "-InputPath", input, "-OutputPath", output],
     { windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });
     let diagnostic = ""; run.stderr.on("data", chunk => { diagnostic += chunk; });
-    const timer = setTimeout(() => run.kill(), 30_000);
+    const oracleTimeoutMs = Number(process.env.SSE_PAGE_ORACLE_TIMEOUT_MS ?? 90_000);
+    assert(Number.isSafeInteger(oracleTimeoutMs) && oracleTimeoutMs >= 30_000 && oracleTimeoutMs <= 180_000,
+      "SSE_PAGE_ORACLE_TIMEOUT_MS must be an integer from 30000 through 180000");
+    const timer = setTimeout(() => run.kill(), oracleTimeoutMs);
     let code;
     try { [code] = await once(run, "exit"); } finally { clearTimeout(timer); }
     assert.equal(code, 0, diagnostic);
