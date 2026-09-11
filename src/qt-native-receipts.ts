@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
 import type { WorkerResult } from "./api-contract.js";
 import type { ProductProfile } from "./product-profiles.js";
@@ -11,7 +12,12 @@ const receiptPolicySchema = z.object({
   states: z.record(z.object({
     requiredAutomationIdSuffixes: z.array(z.string().min(1)).min(1),
   }).passthrough()),
-  actions: z.record(z.object({ automationIdSuffix: z.string().min(1).optional() }).passthrough()),
+  actions: z.record(z.object({
+    fromState: z.string().min(1),
+    toState: z.string().min(1),
+    automationIdSuffix: z.string().min(1),
+    expectedName: z.string().min(1).optional(),
+  }).passthrough()),
   list: z.object({
     tableAutomationIdSuffix: z.string().min(1),
     countLabelAutomationIdSuffixes: z.array(z.string().min(1)).length(3),
@@ -30,6 +36,41 @@ const filterSchema = z.object({
 
 const fail = (kind: string, error: string): WorkerResult => ({ ok: false, backend: "qt", kind, error });
 const sha256 = (value: unknown) => createHash("sha256").update(JSON.stringify(value), "utf8").digest("hex").toUpperCase();
+
+function receiptToolAidSuffixes(policy: z.infer<typeof receiptPolicySchema>): string[] {
+  return [...new Set([
+    ...Object.values(policy.states).flatMap(state => state.requiredAutomationIdSuffixes),
+    ...Object.values(policy.actions).map(action => action.automationIdSuffix),
+    policy.list.tableAutomationIdSuffix,
+    ...policy.list.countLabelAutomationIdSuffixes,
+    policy.list.searchAutomationIdSuffix,
+  ])];
+}
+
+async function receiptToolSnapshot(
+  client: QtNativeClient, policy: z.infer<typeof receiptPolicySchema>, timeoutMs: number, signal?: AbortSignal,
+) {
+  return readQtNativeSnapshot(client, {
+    maxNodes: 5000,
+    toolTitle: policy.title,
+    aidSuffixes: receiptToolAidSuffixes(policy),
+  }, timeoutMs, signal);
+}
+
+async function receiptDirtyState(
+  client: QtNativeClient, hwnd: unknown, allowedModalTitle: string, timeoutMs: number, signal?: AbortSignal,
+) {
+  const main = await readQtNativeSnapshot(client, {
+    hwnd,
+    maxNodes: 32,
+    aidSuffixes: [".MainToolBar.tb_sichern"],
+    allowedModalTitle,
+  }, timeoutMs, signal);
+  if (!main.windowEnabled || main.modalBlocked || main.stats.truncated) return { error: fail("window-obstructed", "The bound main window cannot provide a complete dirty-state readback.") };
+  const matches = main.nodes.filter(node => node.type === "Button" && node.aid.endsWith(".MainToolBar.tb_sichern"));
+  if (matches.length !== 1) return { error: fail("precondition-failed", "The bound main-window dirty state is not unique.") };
+  return { dirty: matches[0]!.on, durationMs: main.nativeDurationMs };
+}
 
 function receiptState(nodes: QtSnapshotNode[], hwnd: number, policy: z.infer<typeof receiptPolicySchema>) {
   const visible = nodes.filter(node => node.w > 0 && node.h > 0);
@@ -159,18 +200,7 @@ export async function executeQtNativeReceiptManagerList(
     return fail("bad-args", "filter requires exactTitle, titleContains or draft and accepts no other fields.");
   }
   const started = performance.now();
-  const toolAidSuffixes = [...new Set([
-    ...Object.values(parsedPolicy.data.states).flatMap(state => state.requiredAutomationIdSuffixes),
-    ...Object.values(parsedPolicy.data.actions).flatMap(action => action.automationIdSuffix ? [action.automationIdSuffix] : []),
-    parsedPolicy.data.list.tableAutomationIdSuffix,
-    ...parsedPolicy.data.list.countLabelAutomationIdSuffixes,
-    parsedPolicy.data.list.searchAutomationIdSuffix,
-  ])];
-  const tool = await readQtNativeSnapshot(client, {
-    maxNodes: 5000,
-    toolTitle: parsedPolicy.data.title,
-    aidSuffixes: toolAidSuffixes,
-  }, timeoutMs, signal);
+  const tool = await receiptToolSnapshot(client, parsedPolicy.data, timeoutMs, signal);
   if (!tool.windowEnabled || tool.modalBlocked) return fail("window-obstructed", "The receipt manager is disabled or blocked by a modal dialog.");
   if (tool.stats.truncated) return fail("native-incomplete", "The receipt-manager tree exceeds the native read bound.");
   const state = receiptState(tool.nodes, tool.hwnd, parsedPolicy.data);
@@ -180,17 +210,8 @@ export async function executeQtNativeReceiptManagerList(
   if (list.error) return list.error;
   const remaining = Math.floor(timeoutMs - (performance.now() - started));
   if (remaining < 1) return fail("native-timeout", "Native receipt read deadline expired before dirty-state verification.");
-  const main = await readQtNativeSnapshot(client, {
-    hwnd: args.hwnd,
-    maxNodes: 32,
-    aidSuffixes: [".MainToolBar.tb_sichern"],
-    allowedModalTitle: parsedPolicy.data.title,
-  }, remaining, signal);
-  if (!main.windowEnabled || main.modalBlocked || main.stats.truncated) {
-    return fail("window-obstructed", "The bound main window cannot provide a complete dirty-state readback.");
-  }
-  const dirtyNodes = main.nodes.filter(node => node.type === "Button" && node.aid.endsWith(".MainToolBar.tb_sichern"));
-  if (dirtyNodes.length !== 1) return fail("precondition-failed", "The bound main-window dirty state is not unique.");
+  const dirtyState = await receiptDirtyState(client, args.hwnd, parsedPolicy.data.title, remaining, signal);
+  if (dirtyState.error) return dirtyState.error;
   let matches = [...list.rows];
   const filter = parsedFilter?.success ? parsedFilter.data : undefined;
   if (filter && Object.hasOwn(filter, "exactTitle")) matches = matches.filter(row => row.primaryText === filter.exactTitle);
@@ -229,11 +250,96 @@ export async function executeQtNativeReceiptManagerList(
     matchedCount,
     matches: compactMatches,
     matchesComplete: matchedCount <= limit,
-    ungespeichert: dirtyNodes[0]!.on,
+    ungespeichert: dirtyState.dirty,
     physicalInputUsed: false,
     hinweis: list.rowsComplete
       ? "Alle vom BelegManager gezaehlten Zeilen sind im Qt-Baum enthalten."
       : `BelegManager zaehlt ${list.count} Belege, aber Qt exponiert aktuell ${list.rows.length} Zeilen; Ergebnis ist sichtbar, nicht vollstaendig.`,
-    nativeDurationMs: tool.nativeDurationMs + main.nativeDurationMs,
+    nativeDurationMs: tool.nativeDurationMs + dirtyState.durationMs!,
   };
+}
+
+/** Execute one catalogue-bound BelegManager navigation through an acknowledged in-process Qt action. */
+export async function executeQtNativeReceiptManagerAction(
+  client: QtNativeClient,
+  args: Readonly<Record<string, unknown>>,
+  timeoutMs: number,
+  signal?: AbortSignal,
+  profile?: ProductProfile,
+): Promise<WorkerResult> {
+  const parsedPolicy = receiptPolicySchema.safeParse(profile?.pageObjectsCatalog.windows.receiptManager);
+  if (!parsedPolicy.success) return fail("invalid-catalog", "The active profile has no complete receipt-manager action policy.");
+  const actionId = typeof args.actionId === "string" ? args.actionId : "";
+  const action = Object.hasOwn(parsedPolicy.data.actions, actionId) ? parsedPolicy.data.actions[actionId] : undefined;
+  if (!action) return fail("bad-args", `Unknown receipt-manager actionId '${actionId}'.`);
+  const waitMs = args.waitMs === undefined ? 2500 : Number(args.waitMs);
+  if (!Number.isSafeInteger(waitMs) || waitMs < 100 || waitMs > 10_000) return fail("bad-args", "waitMs must be an integer from 100 through 10000.");
+  const started = performance.now();
+  const remaining = () => Math.floor(timeoutMs - (performance.now() - started));
+  const before = await receiptToolSnapshot(client, parsedPolicy.data, remaining(), signal);
+  if (!before.windowEnabled || before.modalBlocked || before.stats.truncated) return fail("window-obstructed", "The receipt manager is unavailable or obstructed.");
+  const stateBefore = receiptState(before.nodes, before.hwnd, parsedPolicy.data);
+  if (stateBefore.error) return stateBefore.error;
+  if (stateBefore.state !== action.fromState) return fail("precondition-failed", `Receipt-manager action '${actionId}' requires state '${action.fromState}', current state is '${stateBefore.state}'.`);
+  const targets = before.nodes.filter(node => node.w > 0 && node.h > 0 && node.on && node.aid.endsWith(action.automationIdSuffix));
+  if (targets.length !== 1 || (action.expectedName && targets[0]!.name !== action.expectedName)) {
+    return fail("precondition-failed", `The catalogue-bound receipt-manager target '${action.automationIdSuffix}' is not unique and exact.`);
+  }
+  const dirtyBefore = await receiptDirtyState(client, args.hwnd, parsedPolicy.data.title, remaining(), signal);
+  if (dirtyBefore.error) return dirtyBefore.error;
+  const target = targets[0]!;
+  const actionReply = await client.requestAcknowledged("accessibility_action", {
+    toolTitle: parsedPolicy.data.title,
+    rid: target.rid,
+    aid: target.aid,
+    ...(action.expectedName ? { expectedName: action.expectedName } : {}),
+    action: "press",
+  }, remaining(), signal);
+  if (actionReply.result.ok !== true) {
+    return fail(String(actionReply.result.code ?? "native-action"), String(actionReply.result.error ?? "Native receipt-manager action failed."));
+  }
+  const postconditionDeadline = Math.min(started + timeoutMs, performance.now() + waitMs);
+  let after: Awaited<ReturnType<typeof receiptToolSnapshot>> | undefined;
+  let stateAfter: ReturnType<typeof receiptState> | undefined;
+  do {
+    if (signal?.aborted) return fail("aborted", "Native receipt-manager action was cancelled after its acknowledged effect.");
+    await delay(Math.min(100, Math.max(1, postconditionDeadline - performance.now())));
+    after = await receiptToolSnapshot(client, parsedPolicy.data, remaining(), signal);
+    stateAfter = receiptState(after.nodes, after.hwnd, parsedPolicy.data);
+    if (!stateAfter.error && stateAfter.state === action.toState) break;
+  } while (performance.now() < postconditionDeadline && remaining() > 0);
+  const dirtyAfter = await receiptDirtyState(client, args.hwnd, parsedPolicy.data.title, remaining(), signal);
+  if (dirtyAfter.error) return dirtyAfter.error;
+  const verified = Boolean(after && stateAfter && !stateAfter.error && stateAfter.state === action.toState
+    && after.hwnd === before.hwnd && after.windowEnabled && !after.modalBlocked && !after.stats.truncated
+    && dirtyAfter.dirty === dirtyBefore.dirty);
+  const windowSetFingerprint = sha256({ pid: client.binding.pid, mainHwnd: client.binding.hwnd,
+    managerHwnd: before.hwnd, title: parsedPolicy.data.title });
+  const common = {
+    backend: "qt",
+    actionId,
+    pid: client.binding.pid,
+    hwnd: before.hwnd,
+    controlAutomationId: target.aid,
+    controlName: target.name,
+    stateBefore: stateBefore.state,
+    stateAfter: stateAfter && !stateAfter.error ? stateAfter.state : null,
+    stateFingerprintBefore: stateBefore.fingerprint,
+    stateFingerprintAfter: stateAfter && !stateAfter.error ? stateAfter.fingerprint : null,
+    windowSetFingerprintBefore: windowSetFingerprint,
+    windowSetFingerprintAfter: windowSetFingerprint,
+    windowSetUnchanged: true,
+    ungespeichertVorher: dirtyBefore.dirty,
+    ungespeichertNachher: dirtyAfter.dirty,
+    dirtyStateUnchanged: dirtyAfter.dirty === dirtyBefore.dirty,
+    physicalInputUsed: false,
+    foregroundLeaseUsed: false,
+    verified,
+    clickBinding: { method: "qt-accessibility-press", rid: target.rid, aid: target.aid,
+      receiptAcknowledged: actionReply.receiptAcknowledged, mutationAckMs: actionReply.mutationAckMs },
+    nativeDurationMs: before.nativeDurationMs + dirtyBefore.durationMs! + (after?.nativeDurationMs ?? 0)
+      + dirtyAfter.durationMs! + actionReply.durationMs,
+  };
+  return verified ? { ok: true, ...common }
+    : { ok: false, kind: "postcondition-failed", error: "The acknowledged native receipt-manager action did not reach its exact catalogued state without dirty-state drift; do not replay.", ...common };
 }

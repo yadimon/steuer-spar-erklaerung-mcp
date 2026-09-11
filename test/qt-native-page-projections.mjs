@@ -227,6 +227,43 @@ export async function testNativePageProjections() {
       modalBlocked: false, exactMatches: {}, nodes: selectedNodes,
       stats: { ...(tool ? receiptStats : stats), n: selectedNodes.length } } };
   } };
+  const startNodes = [
+    { ...receiptNodes[0] },
+    { ...receiptNodes[1], i: 1, aid: "receipt.btn_neuenBelegAnlegen", name: "Neuen Beleg anlegen", rid: "42.84.4.50" },
+    { ...receiptNodes[2], i: 2, aid: "receipt.btn_mehrereBelegeAnlegen", name: "Mehrere Belege anlegen", rid: "42.84.4.51" },
+    { ...receiptNodes[3], i: 3, aid: "receipt.btn_alleBelegeAnzeigen", name: "Alle Belege anzeigen", rid: "42.84.4.52" },
+  ];
+  let actionState = "start";
+  const actionClient = { binding: { hwnd: 42, pid: 99 },
+    request: async (operation, args) => {
+      assert.equal(operation, "accessibility_snapshot");
+      const tool = args.toolTitle === "BelegManager";
+      const selectedNodes = tool ? (actionState === "start" ? startNodes : receiptNodes) : mainNodes;
+      return { durationMs: 2, result: { ok: true, controllerBound: true, scope: "qt-accessibility-content",
+        hwnd: tool ? 84 : 42, windowRect: { x: 0, y: 0, w: 1000, h: 600 }, windowEnabled: true,
+        modalBlocked: false, exactMatches: {}, nodes: selectedNodes,
+        stats: { ...stats, n: selectedNodes.length } } };
+    },
+    requestAcknowledged: async (operation, args) => {
+      assert.equal(operation, "accessibility_action");
+      assert.equal(args.toolTitle, "BelegManager");
+      assert.equal(args.aid, "receipt.btn_alleBelegeAnzeigen");
+      assert.equal(args.expectedName, "Alle Belege anzeigen");
+      actionState = "list";
+      return { durationMs: 3, mutationAckMs: 1, receiptAcknowledged: true,
+        result: { ok: true, mutationAttempted: true } };
+    },
+  };
+  const action = await executeQtNativeRead("receipt_manager_action", { actionId: "showAllReceipts" },
+    { qtNativeClient: actionClient }, 5000, undefined, loadProductProfile("2025"));
+  assert.equal(action.ok, true, JSON.stringify(action));
+  assert.equal(action.backend, "qt");
+  assert.equal(action.stateBefore, "start");
+  assert.equal(action.stateAfter, "list");
+  assert.equal(action.physicalInputUsed, false);
+  assert.equal(action.foregroundLeaseUsed, false);
+  assert.equal(action.verified, true);
+  assert.equal(action.clickBinding.method, "qt-accessibility-press");
   const receipts = await executeQtNativeRead("receipt_manager_list", { filter: { draft: true }, limit: 1 },
     { qtNativeClient: receiptClient }, 5000, undefined, loadProductProfile("2025"));
   assert.equal(receipts.ok, true, JSON.stringify(receipts));
