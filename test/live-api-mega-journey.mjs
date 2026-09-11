@@ -142,6 +142,7 @@ async function call(operation, args = {}, timeoutMs = 300_000, label = operation
       envelopeDurationMs: null,
       workerReportedMs: null,
       workerPerformance: null,
+      failureEvidence: null,
       resultSafety: null,
     });
     throw error;
@@ -160,6 +161,9 @@ async function call(operation, args = {}, timeoutMs = 300_000, label = operation
     envelopeDurationMs: envelope.durationMs,
     workerReportedMs: Number.isFinite(result.ms) ? rounded(result.ms) : null,
     workerPerformance: timingSubset(result.performance),
+    // Nur Zahlen und Booleans: diagnostisch genug fuer Guards, ohne Falltexte,
+    // Pfade, Fenstertitel oder andere private Ergebnisinhalte zu kopieren.
+    failureEvidence: result.ok === false ? timingSubset(result) : null,
     resultSafety: {
       verified: typeof result.verified === "boolean" ? result.verified : null,
       foregroundLeaseUsed: typeof result.foregroundLeaseUsed === "boolean" ? result.foregroundLeaseUsed : null,
