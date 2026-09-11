@@ -12334,8 +12334,16 @@ var init_qt_native_client = __esm({
         try {
           const binding = this.binding;
           const { result } = await this.request("ping", {}, timeoutMs);
-          if (result.ok !== true || result.pid !== binding.pid || result.hwnd !== binding.hwnd || result.creationTime !== binding.creationTime || result.bridgeProtocol !== 1 || result.guiThread !== true) {
-            throw new QtNativeTransportError("Native peer did not confirm the bound process, window and protocol.", "native-peer");
+          const mismatches = [
+            result.ok !== true ? "ok" : void 0,
+            result.pid !== binding.pid ? "pid" : void 0,
+            result.hwnd !== binding.hwnd ? "hwnd" : void 0,
+            result.creationTime !== binding.creationTime ? "creationTime" : void 0,
+            result.bridgeProtocol !== 1 ? "bridgeProtocol" : void 0,
+            result.guiThread !== true ? "guiThread" : void 0
+          ].filter((field) => field !== void 0);
+          if (mismatches.length) {
+            throw new QtNativeTransportError(`Native peer mismatch: ${mismatches.join(", ")}.`, "native-peer");
           }
           return this;
         } catch (error) {
