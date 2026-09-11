@@ -966,6 +966,21 @@ function Get-SSEReceiptManagerEditableValues($State, $Policy) {
   [pscustomobject]@{ complete=$complete; values=$(if ($complete) { [pscustomobject]$values } else { $null }) }
 }
 
+function Get-SSEReceiptManagerDetailBindingFingerprint($State, $Policy) {
+  $editable = Get-SSEReceiptManagerEditableValues $State $Policy
+  if (-not [bool]$editable.complete) { return $null }
+  $binding = [pscustomobject][ordered]@{
+    title=[string]$editable.values.title
+    date=[string]$editable.values.date
+    documentNumber=[string]$editable.values.documentNumber
+    amount=[string]$editable.values.amount
+    vatRate=[string]$editable.values.vatRate
+    net=[bool]$editable.values.net
+    note=[string]$editable.values.note
+  }
+  Get-SSETextSha256 ($binding | ConvertTo-Json -Depth 4 -Compress)
+}
+
 function Get-SSEReceiptManagerDetailIdentityTitle($Row, $Policy) {
   $title = [string]$Row.primaryText
   $marker = [string]$Policy.list.draftMarker
@@ -977,7 +992,7 @@ function Get-SSEReceiptManagerDetailIdentityTitle($Row, $Policy) {
 
 function Get-SSEReceiptManagerOpenDetailBinding($State, $Policy, $Row, [string]$ExpectedDetailFingerprint) {
   $fields = @(Get-SSEReceiptManagerDetailProjection $State)
-  $fingerprint = Get-SSEReceiptManagerDetailFingerprint $fields
+  $fingerprint = Get-SSEReceiptManagerDetailBindingFingerprint $State $Policy
   if (-not $fingerprint -or [string]$fingerprint -cne [string]$ExpectedDetailFingerprint) { return $null }
   $editable = Get-SSEReceiptManagerEditableValues $State $Policy
   if (-not [bool]$editable.complete -or
@@ -18925,7 +18940,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $detailState = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
     $detailList = Get-SSEReceiptManagerListProjection $detailState $policy
     $detailFields = @(Get-SSEReceiptManagerDetailProjection $detailState)
-    $detailFingerprint = Get-SSEReceiptManagerDetailFingerprint $detailFields
+    $detailFingerprint = Get-SSEReceiptManagerDetailBindingFingerprint $detailState $policy
     if ([string]$detailList.listFingerprint -ceq $expectedListFingerprint -and $detailFingerprint) {
       $openDetail = Get-SSEReceiptManagerOpenDetailBinding `
         $detailState $policy $rows[0] $detailFingerprint
@@ -18970,7 +18985,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       } while ([DateTime]::UtcNow -lt $deadline)
     }
 
-    $detailFingerprint = Get-SSEReceiptManagerDetailFingerprint $detailFields
+    $detailFingerprint = $(if ($stateAfter) {
+      Get-SSEReceiptManagerDetailBindingFingerprint $stateAfter $policy
+    } else { $null })
     $editableProjection = $(if ($stateAfter -and $detailFields.Count) {
       Get-SSEReceiptManagerEditableValues $stateAfter $policy
     } else { [pscustomobject]@{ complete=$false; values=$null } })
@@ -19179,7 +19196,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $selectedState = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
     $selectedList = Get-SSEReceiptManagerListProjection $selectedState $policy
     $detailFieldsBefore = @(Get-SSEReceiptManagerDetailProjection $selectedState)
-    $detailFingerprintBefore = Get-SSEReceiptManagerDetailFingerprint $detailFieldsBefore
+    $detailFingerprintBefore = Get-SSEReceiptManagerDetailBindingFingerprint $selectedState $policy
     if ([int]$selectedList.count -ne [int]$listBefore.count -or
         [string]$detailFingerprintBefore -cne $expectedDetailFingerprint) {
       Fail 'Belegzaehler oder Detailfingerprint hat sich seit sse_receipt_manager_read geaendert; NICHT befuellt.' 'stale'
@@ -19314,7 +19331,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $finalState = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
     $finalList = Get-SSEReceiptManagerListProjection $finalState $policy
     $detailFieldsAfter = @(Get-SSEReceiptManagerDetailProjection $finalState)
-    $detailFingerprintAfter = Get-SSEReceiptManagerDetailFingerprint $detailFieldsAfter
+    $detailFingerprintAfter = Get-SSEReceiptManagerDetailBindingFingerprint $finalState $policy
     $valuesAfter = [ordered]@{}
     $valuesMatch = $true
     foreach ($transaction in @($transactions)) {
@@ -19525,7 +19542,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $selectedState = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
       $selectedList = Get-SSEReceiptManagerListProjection $selectedState $policy
       $detailFields = @(Get-SSEReceiptManagerDetailProjection $selectedState)
-      $detailFingerprint = Get-SSEReceiptManagerDetailFingerprint $detailFields
+      $detailFingerprint = Get-SSEReceiptManagerDetailBindingFingerprint $selectedState $policy
     }
     if ([string]$selectedList.listFingerprint -cne $expectedListFingerprint -or
         [string]$detailFingerprint -cne $expectedDetailFingerprint) {
@@ -19544,7 +19561,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     }
     $detailStateAfter = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
     $finalDetail = @(Get-SSEReceiptManagerDetailProjection $detailStateAfter)
-    $finalDetailFingerprint = Get-SSEReceiptManagerDetailFingerprint $finalDetail
+    $finalDetailFingerprint = Get-SSEReceiptManagerDetailBindingFingerprint $detailStateAfter $policy
     try { $closedDetail = Close-SSEReceiptManagerDetailView $toolHwnd $detailStateAfter $policy ([int]$waitMs) }
     catch { Fail "Klassifikationsoptionen wurden gelesen, aber die Detailansicht blieb offen: $($_.Exception.Message)" 'postcondition-failed' }
     $finalState = $closedDetail.state
@@ -19642,7 +19659,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       Start-Sleep -Milliseconds 350
       $selectedState = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
       $selectedList = Get-SSEReceiptManagerListProjection $selectedState $policy
-      $detailFingerprintBefore = Get-SSEReceiptManagerDetailFingerprint @(Get-SSEReceiptManagerDetailProjection $selectedState)
+      $detailFingerprintBefore = Get-SSEReceiptManagerDetailBindingFingerprint $selectedState $policy
     }
     if ([string]$selectedList.listFingerprint -cne $expectedListFingerprint -or
         [string]$detailFingerprintBefore -cne $expectedDetailFingerprint) {
@@ -19710,7 +19727,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     }
 
     $detailStateAfter = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
-    $detailFingerprintAfter = Get-SSEReceiptManagerDetailFingerprint @(Get-SSEReceiptManagerDetailProjection $detailStateAfter)
+    $detailFingerprintAfter = Get-SSEReceiptManagerDetailBindingFingerprint $detailStateAfter $policy
     try { $closedDetail = Close-SSEReceiptManagerDetailView $toolHwnd $detailStateAfter $policy ([int]$waitMs) }
     catch {
       Emit ([pscustomobject]@{
@@ -20696,7 +20713,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $stateAfter = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
     $listAfter = Get-SSEReceiptManagerListProjection $stateAfter $policy
     $detailFieldsAfterImport = @(Get-SSEReceiptManagerDetailProjection $stateAfter)
-    $detailFingerprintAfterImport = Get-SSEReceiptManagerDetailFingerprint $detailFieldsAfterImport
+    $detailFingerprintAfterImport = Get-SSEReceiptManagerDetailBindingFingerprint $stateAfter $policy
     $afterCreatedRows = @($listAfter.rows | Where-Object { [bool]$_.draft })
     $attachAfterMatches = @($stateAfter.nodes | Where-Object {
       [string]$_.aid -and ([string]$_.aid).EndsWith(

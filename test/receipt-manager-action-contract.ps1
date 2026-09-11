@@ -23,6 +23,7 @@ foreach ($functionName in @(
   'Get-SSEReceiptManagerWindowSet',
   'ConvertTo-SSEReceiptManagerInputValue',
   'ConvertFrom-SSEReceiptManagerDisplayValue',
+  'Get-SSEReceiptManagerDetailBindingFingerprint',
   'Get-SSEReceiptManagerDetailIdentityTitle',
   'Test-SSEReceiptManagerPdfHeader'
 )) {
@@ -35,6 +36,26 @@ foreach ($functionName in @(
     Invoke-Expression $definitions[0].Extent.Text
   }
 }
+
+$detailBindingDefinition = @($ast.FindAll({
+  param($node)
+  $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+    $node.Name -eq 'Get-SSEReceiptManagerDetailBindingFingerprint'
+}, $true))[0].Extent.Text
+$bindingFieldOffsets = @('title','date','documentNumber','amount','vatRate','net','note') | ForEach-Object {
+  $detailBindingDefinition.IndexOf("$_=")
+}
+Assert-True (-not ($bindingFieldOffsets -contains -1)) 'Der kanonische Detail-Fingerprint muss alle sieben editierbaren Werte enthalten.'
+for ($bindingFieldIndex = 1; $bindingFieldIndex -lt $bindingFieldOffsets.Count; $bindingFieldIndex++) {
+  Assert-True ($bindingFieldOffsets[$bindingFieldIndex] -gt $bindingFieldOffsets[$bindingFieldIndex - 1]) `
+    'Die Feldreihenfolge des kanonischen Detail-Fingerprints darf nicht zwischen Qt und UIA driften.'
+}
+Assert-True ($detailBindingDefinition.Contains('Get-SSETextSha256 ($binding | ConvertTo-Json -Depth 4 -Compress)')) `
+  'Der kanonische Detail-Fingerprint muss das geordnete UTF-8-JSON hashen.'
+Assert-True (-not $worker.Contains('Get-SSEReceiptManagerDetailFingerprint $')) `
+  'Transaktionale Belegbindungen duerfen nicht mehr vom backend-spezifischen Vollbaum-Fingerprint abhaengen.'
+Assert-True (($worker.Split(@('Get-SSEReceiptManagerDetailBindingFingerprint'), [StringSplitOptions]::None).Count - 1) -eq 11) `
+  'Alle zehn Detailbindungen muessen denselben kanonischen Fingerprint verwenden.'
 
 # Die bisherige Eingangsklassifikation bleibt als Differentialreferenz
 # eingefroren; der komplette nachfolgende Projektor stammt aus derselben

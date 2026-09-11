@@ -174,6 +174,8 @@ Navigations- oder Speicheroperationen. `known_page_state`, die read-only-Listena
 `positions`, `ustva_read` und `receipt_manager_list` sind dabei katalog- bzw. snapshotgebundene Pfade.
 `receipt_manager_action` und `receipt_manager_read` verwenden ausschließlich
 exakt katalog- und Runtime-ID-gebundene, quittierte Qt-Aktionen im GUI-Thread.
+Der Detailfingerprint ist eine kanonische Bindung der sieben profilierten Werte,
+damit native Reads und workerbasierte Folgeoperationen denselben Guard verwenden.
 Sie lesen den persistenten Qt-Accessibility-Snapshot und bilden katalogisierte
 Felder, Epoch-Bindung beziehungsweise das bestehende fachliche UStVA-Modell ab;
 die Belegliste wird dabei an das exakte nichtmodale Tool-Fenster gebunden. Sie
