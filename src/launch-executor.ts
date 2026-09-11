@@ -143,6 +143,15 @@ export async function executeLaunchOperation(
       if (observed.ok === false) {
         lastProbeError = `launch_probe: ${String(observed.error ?? observed.kind ?? "Startinventur fehlgeschlagen.")}`;
         probeFailures += 1;
+        // launch_probe liest ausschliesslich den frischen Fensterzustand. Ein
+        // Worker, dessen sitzungsweiter Controller beim Beenden verloren ging,
+        // hat keine Mutation ausgefuehrt und darf deshalb durch einen neuen
+        // Probe-Worker ersetzt werden. Fuer normale API-Operationen bleibt
+        // worker-isolation-lost unveraendert nicht wiederholbar.
+        if (observed.kind === "worker-isolation-lost" && !signal?.aborted) {
+          await waitForNextProbe();
+          continue;
+        }
         break;
       }
       const reportedFailures = Number(observed.probeFailures);

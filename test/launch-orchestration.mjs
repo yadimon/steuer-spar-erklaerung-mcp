@@ -108,6 +108,45 @@ try {
   }
 
   {
+    const pid = 4112;
+    let probeCalls = 0;
+    let closeCalls = 0;
+    const execute = createApiExecutor(config, async (operation) => {
+      if (operation === "launch") return { ok: true, launched: true, pid };
+      if (operation === "launch_probe") {
+        probeCalls += 1;
+        return probeCalls === 1
+          ? {
+              ok: false,
+              kind: "worker-isolation-lost",
+              error: "Sitzungsweiter SSE-Controller konnte nicht sicher freigegeben werden.",
+              retryable: false,
+            }
+          : {
+              ok: true,
+              outcome: "observed",
+              windows: [mainWindow(pid)],
+              dialogs: [],
+              probeFailures: 0,
+            };
+      }
+      if (operation === "close") {
+        closeCalls += 1;
+        return { ok: true };
+      }
+      return { ok: false, kind: "fixture", error: operation };
+    });
+    const result = await execute("launch", { mode: "normal" }, 30_000);
+    assert.equal(result.ok, true);
+    assert.equal(result.ready, true);
+    assert.equal(result.probeFailures, 1);
+    assert.equal(probeCalls, 2,
+      "Ein verlorener Controller im rein lesenden Startprobe-Worker braucht genau einen frischen Versuch");
+    assert.equal(closeCalls, 0,
+      "Der transiente Probe-Worker-Fehler darf den erfolgreich gestarteten SSE-Prozess nicht beenden");
+  }
+
+  {
     const pid = 4102;
     const execute = createApiExecutor(config, async (operation, args) => {
       if (operation === "launch") return { ok: true, launched: true, pid };
