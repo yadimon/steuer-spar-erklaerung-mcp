@@ -101,8 +101,18 @@ function assertOnlyKnownRuntimeDrift(current, swapped) {
     ["BelegManager", "ColumnNameWidth"],
     ["Files", "LastWorkDir"],
     ["License", "LastCheck"],
+    ["WerteInfoPos", "Count"],
+    ["WerteInfoPos", "H"],
+    ["WerteInfoPos", "MinMax"],
+    ["WerteInfoPos", "Size1"],
+    ["WerteInfoPos", "Size2"],
     ["WerteInfoPos", "Size3"],
     ["WerteInfoPos", "Size4"],
+    ["WerteInfoPos", "W"],
+    ["WerteInfoPos", "X"],
+    ["WerteInfoPos", "Y"],
+    ["WerteInfo", "ShowGrid"],
+    ["WerteInfo", "ShowToolbar"],
   ];
   const normalized = allowedRuntimeFields.reduce((text, [sectionName, keyName]) => {
     const swappedLine = optionalSectionKeyLine(swappedText, sectionName, keyName);
