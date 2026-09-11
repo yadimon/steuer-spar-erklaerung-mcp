@@ -40,6 +40,7 @@ export async function readQtNativeSnapshot(
     maxNodes, ...(typeof args.toolTitle === "string" ? { toolTitle: args.toolTitle } : {}),
     ...(typeof args.allowedModalTitle === "string" ? { allowedModalTitle: args.allowedModalTitle } : {}),
     ...(args.withValues === false ? { withValues: false } : {}),
+    ...(Array.isArray(args.aidSuffixes) ? { aidSuffixes: args.aidSuffixes } : {}),
     ...(args.equalitySelectors ? { equalitySelectors: args.equalitySelectors } : {}),
   }, timeoutMs, signal);
   if (!read.result.ok) throw new QtNativeTransportError(String(read.result.error ?? "Native snapshot failed."),

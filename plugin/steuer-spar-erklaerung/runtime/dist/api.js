@@ -12722,6 +12722,7 @@ async function readQtNativeSnapshot(client, args, timeoutMs, signal) {
     ...typeof args.toolTitle === "string" ? { toolTitle: args.toolTitle } : {},
     ...typeof args.allowedModalTitle === "string" ? { allowedModalTitle: args.allowedModalTitle } : {},
     ...args.withValues === false ? { withValues: false } : {},
+    ...Array.isArray(args.aidSuffixes) ? { aidSuffixes: args.aidSuffixes } : {},
     ...args.equalitySelectors ? { equalitySelectors: args.equalitySelectors } : {}
   }, timeoutMs, signal);
   if (!read.result.ok) throw new QtNativeTransportError(
@@ -13354,9 +13355,17 @@ async function executeQtNativeReceiptManagerList(client, args, timeoutMs, signal
     return fail5("bad-args", "filter requires exactTitle, titleContains or draft and accepts no other fields.");
   }
   const started = performance.now();
+  const toolAidSuffixes = [.../* @__PURE__ */ new Set([
+    ...Object.values(parsedPolicy.data.states).flatMap((state2) => state2.requiredAutomationIdSuffixes),
+    ...Object.values(parsedPolicy.data.actions).flatMap((action) => action.automationIdSuffix ? [action.automationIdSuffix] : []),
+    parsedPolicy.data.list.tableAutomationIdSuffix,
+    ...parsedPolicy.data.list.countLabelAutomationIdSuffixes,
+    parsedPolicy.data.list.searchAutomationIdSuffix
+  ])];
   const tool = await readQtNativeSnapshot(client, {
     maxNodes: 5e3,
-    toolTitle: parsedPolicy.data.title
+    toolTitle: parsedPolicy.data.title,
+    aidSuffixes: toolAidSuffixes
   }, timeoutMs, signal);
   if (!tool.windowEnabled || tool.modalBlocked) return fail5("window-obstructed", "The receipt manager is disabled or blocked by a modal dialog.");
   if (tool.stats.truncated) return fail5("native-incomplete", "The receipt-manager tree exceeds the native read bound.");
@@ -13369,7 +13378,8 @@ async function executeQtNativeReceiptManagerList(client, args, timeoutMs, signal
   if (remaining < 1) return fail5("native-timeout", "Native receipt read deadline expired before dirty-state verification.");
   const main2 = await readQtNativeSnapshot(client, {
     hwnd: args.hwnd,
-    maxNodes: 5e3,
+    maxNodes: 32,
+    aidSuffixes: [".MainToolBar.tb_sichern"],
     allowedModalTitle: parsedPolicy.data.title
   }, remaining, signal);
   if (!main2.windowEnabled || main2.modalBlocked || main2.stats.truncated) {

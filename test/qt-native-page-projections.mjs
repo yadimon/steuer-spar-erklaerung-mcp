@@ -215,6 +215,12 @@ export async function testNativePageProjections() {
   const receiptClient = { binding: { hwnd: 42, pid: 99 }, request: async (operation, args) => {
     assert.equal(operation, "accessibility_snapshot");
     const tool = args.toolTitle === "BelegManager";
+    if (tool) {
+      assert(args.aidSuffixes.includes(".tableWidget_mainTabel"));
+      assert(args.aidSuffixes.includes(".label_infoText1"));
+    } else {
+      assert.deepEqual(args.aidSuffixes, [".MainToolBar.tb_sichern"]);
+    }
     const selectedNodes = tool ? receiptNodes : mainNodes;
     return { durationMs: tool ? 5 : 2, result: { ok: true, controllerBound: true, scope: "qt-accessibility-content",
       hwnd: tool ? 84 : 42, windowRect: { x: 0, y: 0, w: 1000, h: 600 }, windowEnabled: true,

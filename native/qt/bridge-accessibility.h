@@ -88,6 +88,19 @@ static Json accessibilitySnapshot(QWidget *main, const Json &request) {
         selectors.emplace_back(selector.key(), QString::fromUtf8(utf8.data(), static_cast<qsizetype>(utf8.size())).toStdWString());
         exactMatches[selector.key()] = Json::array();
     }
+    const Json suffixFilter = request.value("aidSuffixes", Json::array());
+    if (!suffixFilter.is_array() || suffixFilter.size() > 64)
+        throw std::runtime_error("Invalid accessibility ID suffix filter");
+    std::vector<std::string> aidSuffixes;
+    std::size_t suffixBytes = 0;
+    for (const auto &item : suffixFilter) {
+        if (!item.is_string()) throw std::runtime_error("Invalid accessibility ID suffix");
+        auto suffix = item.get<std::string>();
+        suffixBytes += suffix.size();
+        if (suffix.empty() || suffix.size() > 4096 || suffixBytes > 65536)
+            throw std::runtime_error("Accessibility ID suffix filter exceeds bound");
+        aidSuffixes.push_back(std::move(suffix));
+    }
     if (limit < 1 || limit > 5000) throw std::runtime_error("maxNodes must be 1..5000");
     QElapsedTimer timer; timer.start();
     Json nodes = Json::array();
@@ -112,27 +125,42 @@ static Json accessibilitySnapshot(QWidget *main, const Json &request) {
             if (const auto nativeHost = accessibleHost(iface)) work.host = nativeHost;
             work.next = 0;
             if (work.depth >= 0) {
-                if (nodes.size() >= static_cast<std::size_t>(limit)) { truncated = true; break; }
-                work.index = static_cast<int>(nodes.size());
-                auto node = accessibleNode(iface, work.index, work.parent, work.depth, work.host, values);
-                for (const auto &[key, wanted] : selectors) {
-                    const auto utf8 = node.at(key).get<std::string>();
-                    const auto actual = QString::fromUtf8(utf8.data(), static_cast<qsizetype>(utf8.size())).toStdWString();
-                    // Windows PowerShell -eq uses .NET Framework's invariant NLS comparison (including ligatures).
-                    const auto comparison = CompareStringEx(LOCALE_NAME_INVARIANT, NORM_IGNORECASE,
-                        actual.c_str(), static_cast<int>(actual.size()), wanted.c_str(), static_cast<int>(wanted.size()), nullptr, nullptr, 0);
-                    if (!comparison) throw std::runtime_error("Invariant selector comparison failed");
-                    if (comparison == CSTR_EQUAL) exactMatches[key].push_back(work.index);
+                bool include = aidSuffixes.empty();
+                if (!include) {
+                    const auto aid = accessibleText(QAccessibleBridgeUtils::accessibleId(iface));
+                    for (const auto &suffix : aidSuffixes) {
+                        if (aid.size() >= suffix.size()
+                            && aid.compare(aid.size() - suffix.size(), suffix.size(), suffix) == 0) {
+                            include = true;
+                            break;
+                        }
+                    }
                 }
-                bytes += node.dump().size();
-                if (bytes > 8 * 1024 * 1024) throw std::runtime_error("Accessible output exceeds bound");
-                nodes.push_back(std::move(node));
+                if (include) {
+                    if (nodes.size() >= static_cast<std::size_t>(limit)) { truncated = true; break; }
+                    const auto index = static_cast<int>(nodes.size());
+                    work.index = aidSuffixes.empty() ? index : work.parent;
+                    auto node = accessibleNode(iface, index, aidSuffixes.empty() ? work.parent : -1,
+                        aidSuffixes.empty() ? work.depth : 0, work.host, values);
+                    for (const auto &[key, wanted] : selectors) {
+                        const auto utf8 = node.at(key).get<std::string>();
+                        const auto actual = QString::fromUtf8(utf8.data(), static_cast<qsizetype>(utf8.size())).toStdWString();
+                        // Windows PowerShell -eq uses .NET Framework's invariant NLS comparison (including ligatures).
+                        const auto comparison = CompareStringEx(LOCALE_NAME_INVARIANT, NORM_IGNORECASE,
+                            actual.c_str(), static_cast<int>(actual.size()), wanted.c_str(), static_cast<int>(wanted.size()), nullptr, nullptr, 0);
+                        if (!comparison) throw std::runtime_error("Invariant selector comparison failed");
+                        if (comparison == CSTR_EQUAL) exactMatches[key].push_back(index);
+                    }
+                    bytes += node.dump().size();
+                    if (bytes > 8 * 1024 * 1024) throw std::runtime_error("Accessible output exceeds bound");
+                    nodes.push_back(std::move(node));
+                }
             }
         }
         const auto count = iface->childCount();
         if (count < 0) throw std::runtime_error("Negative accessible child count");
         if (work.next >= count) { stack.pop_back(); continue; }
-        if (work.depth >= 16) { depthLimited = true; stack.pop_back(); continue; }
+        if (work.depth >= (aidSuffixes.empty() ? 16 : 64)) { depthLimited = true; stack.pop_back(); continue; }
         auto *child = iface->child(work.next++);
         stack.push_back({child, work.index, work.depth + 1, work.host});
     }

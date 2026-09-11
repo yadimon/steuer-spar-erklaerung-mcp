@@ -151,6 +151,14 @@ try {
   const snapshot = await read("snapshot", { maxNodes: 5000 });
   assert.equal(snapshot.ok, true, JSON.stringify(snapshot)); assert.equal(snapshot.backend, "qt");
   assert.equal(snapshot.stats.truncated, false); assert.equal(snapshot.stats.n, snapshot.count);
+  const sparseRead = await sessions[0].client.request("accessibility_snapshot",
+    { maxNodes: 16, aidSuffixes: ["syntheticField"] }, 5000);
+  assert.equal(sparseRead.result.ok, true, JSON.stringify(sparseRead.result));
+  assert.equal(sparseRead.result.stats.truncated, false);
+  assert.equal(sparseRead.result.stats.n, 1);
+  assert.equal(sparseRead.result.nodes[0].aid.endsWith("syntheticField"), true);
+  assert.equal(sparseRead.result.nodes[0].p, -1);
+  assert.equal(sparseRead.result.nodes[0].d, 0);
   assert.equal(snapshot.canaryMs, null); assert.equal(snapshot.responsivenessCheck, "bounded-gui-thread");
   const independent = await uiaSnapshot(first.info.hwnd);
   const redactPassword = nodes => nodes.map(node => node.aid.endsWith("syntheticSecret") ? { ...node, val: null, ro: null } : node);
