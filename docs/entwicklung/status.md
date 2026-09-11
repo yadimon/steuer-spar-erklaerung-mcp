@@ -28,13 +28,13 @@ ist, nicht was fehlt.
 | Menueeintraege | 64 | 11 fertig, 9 teils, 4 zu |
 | Formularvorlagen (`.frb`) | 994 | 0 |
 | Operationen | – | 102: 94 funktional live belegt, 6 nur Fehlerpfad, 2 live ungetestet |
-| Direkte Qt-DLL-Handler | – | 8 optional: `get_value`, `table_read`, `snapshot`, `find`, `read_page`, `subpages`, `known_page_state`, `positions`; 94 ohne direkten Qt-Pfad |
+| Direkte Qt-DLL-Handler | – | 12 optional: `get_value`, `table_read`, `snapshot`, `find`, `read_page`, `subpages`, `known_page_state`, `positions`, `ustva_read`, `receipt_manager_list`, `receipt_manager_read`, `receipt_manager_action`; 90 ohne direkten Qt-Pfad |
 | MCP-Werkzeuge | – | 104: 102 direkte, 1 Komposition, 1 API-Lebenszykluswerkzeug |
 
-Die Qt-Brücke enthält keine öffentlichen Schreib-, Navigations- oder
-Speicherhandler. Ihr Paket wird separat gebaut und über `qtNativeRuntime`
-aktiviert; ohne diese Konfiguration bleiben auch die beiden Reads beim
-bisherigen Pfad. Die C#-Worker-Bibliothek `sse-native.dll` zählt nicht als
+Die Qt-Brücke enthält keine öffentlichen dauerhaften Schreib-, allgemeinen
+Seitennavigations- oder Speicherhandler. Ihr Paket wird separat gebaut und über
+`qtNativeRuntime` aktiviert; ohne diese Konfiguration wird kein Qt-Handler
+verwendet. Die C#-Worker-Bibliothek `sse-native.dll` zählt nicht als
 Umstellung auf die C++-Qt-Brücke `sse-qt-read.dll`.
 
 ## Was „22 katalogisierte Seiten" wirklich heisst

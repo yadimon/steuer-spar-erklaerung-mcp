@@ -9,11 +9,12 @@ Nachweis. Vorhandene Mechanismen werden erweitert; ihre Bindungs- und
 ## Aktueller Umsetzungsstand
 
 Die [Native-Matrix](../NATIVE-COVERAGE.md) führt jede der 102 Operationen.
-`get_value`, `table_read`, `snapshot`, `find`, `read_page` und `subpages` sind direkt an die optionale Qt-Brücke
-angeschlossen. Die folgende Bilanz ergänzt die Aufgaben; vorhandene
+Die zwölf dort als **Qt optional** markierten Operationen sind direkt an die
+optionale Qt-Brücke angeschlossen. Die folgende Bilanz ergänzt die Aufgaben; vorhandene
 Teilmechanismen erfüllen nicht automatisch deren gesamten Abnahmevertrag.
-`desktop_status` besitzt zusätzlich eine direkte Win32-Diagnose im optionalen
-nativen Paket. Start, Ende und weitere Lebenszyklus-Kompositionen bleiben in N07 offen.
+`desktop_status` und `desktop_start` besitzen zusätzlich direkte Win32-Pfade im
+optionalen nativen Paket; `desktop_stop` nutzt dort Win32 und begrenztes COM-UIA.
+Weitere Lebenszyklus-Kompositionen und Live-Varianten bleiben in N07 offen.
 
 | Aufgabe | Bereits vorhanden | Noch erforderlich |
 | --- | --- | --- |
@@ -33,8 +34,8 @@ nativen Paket. Start, Ende und weitere Lebenszyklus-Kompositionen bleiben in N07
 | N03 | Tabellenmutationen anbinden | Zellen sowie Anlage/Löschung getrennt prüfen; Zeilenidentität, unveränderte Nachbarn und unbekannte/teilweise Ausgänge belegen |
 | N04 | Navigation anbinden | Auswahl, Aktivierung und fertig geladene richtige Seite unterscheiden; kalter Seitenwechsel getrennt vom bereits erreichten Ziel messen |
 | N05 | Speichern anbinden | bestehende Pfad-/Hash-/Korrekturgrenzen erhalten; Datei und Abschluss statt fester Pause prüfen; Wiederöffnen als Persistenznachweis |
-| N06 | BelegManager untersuchen und anbinden | eigene Fenster-/Objektbindung, echte Detaildaten, Importabschluss, Duplikate und unveränderte Nachbarbelege nachweisen |
-| N07 | Lebenszyklus und weitere Kompositionen beschleunigen | Status über Win32 implementiert; vollständige Start-/Ende-Aufrufe und verbleibende Workerwege messen; native Discovery allein reicht nicht |
+| N06 | BelegManager weiter anbinden | Liste, Detaillesen und zwei reversible Aktionen sind Qt-gebunden; für Import, Klassifikation, Verknüpfung, Update, Löschen und Bulk-Upsert echte Abschlussdaten, Duplikate und unveränderte Nachbarbelege nachweisen |
+| N07 | Lebenszyklus und weitere Kompositionen beschleunigen | Status und Start über Win32 sowie Stop über Win32/COM-UIA sind implementiert; weitere Start-/Dialogvarianten und verbleibende Workerwege messen |
 | N08 | Vergleichbare Ende-zu-Ende-Matrix führen | Handler, Paket, Produkt, Erstbindung und warme Aufrufe kenntlich machen; nur verifizierten Abschluss als Erfolgsdauer zählen |
 
 Diese Abnahmen sind offen. Der öffentliche Qt-Lesepfad enthält keine

@@ -33,12 +33,15 @@ Einstieg und ein API-Lebenszykluswerkzeug, zusammen 104. Die direkten Werkzeuge 
 ab: `checker_detail` hat kein eigenes Werkzeug, und `tracked_set_value` traegt
 deren zwei (`sse_change_field`, `sse_change_known_field`).
 
-**Acht der 102 Operationen**, `get_value`, `table_read`, `snapshot`, `find`, `read_page`, `subpages`, `known_page_state` und `positions`, besitzen einen
-direkten optionalen Qt-DLL-Pfad. Die übrigen 94 behalten ihre bestehenden
-Pfade. Dateioperationen brauchen häufig keine DLL in SSE; diese Zahl ist
+**Zwölf der 102 Operationen**, `get_value`, `table_read`, `snapshot`, `find`,
+`read_page`, `subpages`, `known_page_state`, `positions`, `ustva_read`,
+`receipt_manager_list`, `receipt_manager_read` und `receipt_manager_action`,
+besitzen einen direkten optionalen Qt-DLL-Pfad. Die übrigen 90 behalten ihre
+bestehenden Pfade. Dateioperationen brauchen häufig keine DLL in SSE; diese Zahl ist
 deshalb kein gewichteter Fertigstellungsgrad. Der Qt-Pfad verlangt explizite
-Konfiguration und ein separates kompatibles Paket. Öffentliche native
-Schreib-, Navigations- und Speicheroperationen sind noch nicht angeschlossen.
+Konfiguration und ein separates kompatibles Paket. Öffentliche native dauerhafte
+Schreib-, allgemeine Seitennavigations- und Speicheroperationen sind noch nicht
+angeschlossen.
 
 Das ist keine Vollstaendigkeit gegenueber dem Produkt, und die Gesamtzahl ist
 irrefuehrend, wenn man sie allein liest. **Operationen sind Mechanismen, keine
@@ -146,8 +149,8 @@ Risiko und ob der Benutzer dabei zusehen muss.
 | **Fokusloses Schreiben** | Werte in ausdrücklich profilierten Feldpfaden schreiben, mit Commit und Readback | auf privatem Desktop nur für freigegebene Focusless-Pfade; generische Selektoren erweitern diese Freigabe nicht | ein profilierter Feldpfad; `tracked_set_value` und `fill_fields` behalten ihre Grenzen |
 | **Vordergrund-Lease mit physischer Eingabe** | Qt-Steuerelemente bedienen, die kein brauchbares UIA-Muster anbieten | der Benutzer sieht es und darf nicht dazwischenfunken; braucht ausdrueckliche Zustimmung | `click`, `combo_select`, neun der zehn BelegManager-Wege |
 | **C#-Worker-Helfer (`sse-native.dll`)** | Fensteraufzaehlung, Prozesskommandozeile, MSAA-Punktprobe, UIA-Baumlauf, Controller-Lease | bleibt Teil des bisherigen Worker-Pfads; nicht die Qt-Brücke in SSE | bestehende UIA-/Win32-Operationen |
-| **C++-Qt-Brücke (`sse-qt-read.dll`)** | frische QObject-Werte, begrenzte Tabellenmodelle und Qt-Accessibility-Bäume im SSE-Prozess | exakte Produkt-/Qt-Bindung, GUI-Thread, Controller-Lease und dauerhaft gebundener Transport | optional `get_value`, `table_read`, `snapshot`, `find`, `read_page`, `subpages`; [vollständige Matrix](NATIVE-COVERAGE.md) |
-| **Direkter Win32-Helfer** | Desktopstatus und eigentumsgebundener Prozessstart ohne Worker | Produkt-/Markerprüfung, atomare Prozesszuordnung, verifizierte Bereinigung | optional `desktop_status`, `desktop_start`; Start bisher synthetisch über HTTP geprüft, Herstellerfall-Nachweis separat erforderlich |
+| **C++-Qt-Brücke (`sse-qt-read.dll`)** | frische QObject-Werte, begrenzte Tabellenmodelle und Qt-Accessibility-Bäume im SSE-Prozess | exakte Produkt-/Qt-Bindung, GUI-Thread, Controller-Lease und dauerhaft gebundener Transport | optional die zwölf Operationen der [vollständigen Matrix](NATIVE-COVERAGE.md) |
+| **Direkte native Lebenszyklushelfer** | Desktopstatus und eigentumsgebundener Prozessstart über Win32; Stop über Win32 und begrenztes COM-UIA | Produkt-/Markerprüfung, atomare Prozesszuordnung, verifizierte Bereinigung; reale Dialogvarianten brauchen eigene Nachweise | optional `desktop_status`, `desktop_start`, `desktop_stop` |
 | **Dateiebene** | Falldateien hashen, sichern, archivieren, Kopien binden | keine UI noetig, aber auch kein Blick in den Inhalt | `case_hash`, `backup_cases`, `archive_cases` |
 | **OCR** (`Windows.Media.Ocr`) | Text aus Bildern lesen | Erkennungsqualitaet ist nicht zusicherbar | Belegbilder |
 | **PDF-Aufbereitung** (`render-pdf.ps1`) | PDF-Seiten rendern und lesen | eigener Prozess, eigene Grenzen | Belegdokumente |
@@ -166,7 +169,7 @@ im Repository belegt sind.
 | **Steuerjahr 2024 im Vollbetrieb** | Profil steht auf `experimental` mit `verification-only`; nur mit ausdruecklichem Opt-in erreichbar | vorhandene Wege, neues Profil | vollstaendige Live-Verifikation gegen Engine 30, wie sie fuer 2025 vorliegt |
 | **Steuerjahr 2026** | es gibt kein Profil | vorhandene Wege, neues Profil | das Produkt muss erscheinen; danach Katalog, Profil und Live-Verifikation |
 | **Ausgabe ausser CSV** | es gibt genau `export_csv` | Vordergrund-Lease fuer den Druckdialog, danach PDF-Aufbereitung | Entscheidung, ob ein Druck-nach-PDF-Weg die Mutationsgrenze beruehrt |
-| **Weitere schnelle native Operationen** | Qt-Lesepfad für acht Operationen vorhanden; weitere öffentliche Handler fehlen | Qt-Brücke für UI/Modell, direkte Systemzugriffe für Dateien/Lebenszyklus | vollständige Ergebnisparität, Commit/Readback, unbekannte Ausgänge und Ende-zu-Ende-Messung; siehe [Native-Matrix](NATIVE-COVERAGE.md) |
+| **Weitere schnelle native Operationen** | Qt-Pfad für zwölf Operationen und drei direkte native Lebenszykluspfade vorhanden; weitere öffentliche Handler fehlen | Qt-Brücke für UI/Modell, direkte Systemzugriffe für Dateien/Lebenszyklus | vollständige Ergebnisparität, Commit/Readback, unbekannte Ausgänge und Ende-zu-Ende-Messung; siehe [Native-Matrix](NATIVE-COVERAGE.md) |
 | **`headingPrefix` trägt zwei Rollen** – Suchbegriff für `goto` und Präfix für die Seitenbindung können unterschiedliche Werte benötigen; ähnliche Überschriften können die Suche auf einen Nachbartreffer führen | beide Rollen wollen verschiedene Werte | Bindungsregel | ein eigenes Feld für das Navigationsziel, getrennt vom Bindungspräfix |
 | **Kaltes `goto` per `pageId` kann in der Gewinnermittlung scheitern** – ein verifiziertes Zwischenziel kann erforderlich sein | ungeklärt, ob Fallaufbau, Suchtreffer oder Blättertiefe die Ursache sind; die Feldbindung selbst ist davon nicht betroffen | Messung, dann Navigationsweg | Erreichbarkeit auf weiteren Herstellermusterfällen prüfen und erforderliche Zwischenziele im Profil festhalten |
 | **Seiten, deren Felder sich nicht eindeutig adressieren lassen** – etwa `Kapitalertraege, ermaessigt besteuert`: Die Felder beider Ehepartner tragen im adressierbaren Endstueck denselben Pfad, unterschieden werden sie erst weiter oben im Baum | ein Seitenobjekt braucht je Feld genau einen Treffer; hier waeren es zwei | UI, aber zuerst die Bindungsregel | entweder laengere Pfade im Seitenobjekt zulassen oder die Bindung um eine Positionsangabe erweitern |

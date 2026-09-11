@@ -1,13 +1,13 @@
 # Produktarchitektur
 
-Der optionale [Qt-Lesepfad](NATIVE-QT.md) beschreibt Paketprüfung, dauerhafte
-Prozessbindung und den konfigurierten nativen Runtime-Start für sechs Leseoperationen.
+Der optionale [Qt-Pfad](NATIVE-QT.md) beschreibt Paketprüfung, dauerhafte
+Prozessbindung und den konfigurierten nativen Runtime-Start für zwölf API-Operationen.
 Die [Native-Matrix](NATIVE-COVERAGE.md) ordnet alle API-Operationen zu. Die
 C++-Qt-Brücke in SSE und der bisherige C#-Worker-Helfer sind getrennte Backends.
 Das optionale Paket führt zusätzlich `desktop_status` und `desktop_start` direkt über Win32 aus:
 Marker-Readback, Prozessversion und Desktopfenster werden ohne UIA oder Injektion
 diagnostiziert. Der Start bindet den Prozess atomar an ein Job Object und übergibt
-ihn erst nach Marker-Readback. Beide Systemoperationen zählen getrennt von den sechs Qt-Handlern.
+ihn erst nach Marker-Readback. Beide Systemoperationen zählen getrennt von den zwölf Qt-Handlern.
 `desktop_stop` ist ein weiterer externer nativer Pfad mit begrenztem COM-UIA für
 Dirty-State und Dialoge. Sein gehaltenes Prozessobjekt und sein exklusiver Marker
 verbinden die einmalige Schließanforderung mit dem überprüften Prozessende.
