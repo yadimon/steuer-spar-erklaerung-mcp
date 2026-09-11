@@ -6758,36 +6758,63 @@ function Commit-TrackedValue([IntPtr]$Hwnd, $Node, [string]$Value, [string]$Expe
       return New-SSECommitResult 'interference-before-click' $inputBefore $changedAt
     }
 
-    [SW]::SetCursorPos($px, $py) | Out-Null
-    [SW]::mouse_event(0x0002, 0, 0, 0, [IntPtr]::Zero)
-    [SW]::mouse_event(0x0004, 0, 0, 0, [IntPtr]::Zero)
-    Start-Sleep -Milliseconds 20
-    $afterClickInput = Get-SSELastInputTick
-    Set-SSEForegroundLeaseInputCheckpoint $afterClickInput ([pscustomobject]@{ x=$px; y=$py })
-    Start-Sleep -Milliseconds 60
-    if (-not (Test-SSELastInputUnchanged $afterClickInput) -or [SW]::GetForegroundWindow() -ne $Hwnd) {
-      $changedAt = Get-SSELastInputTick
-      Complete-SSEPhysicalSection $Hwnd
-      return New-SSECommitResult 'interference-before-input' $inputBefore $changedAt
-    }
-    $focused = [System.Windows.Automation.AutomationElement]::FocusedElement
     $focusBound = $false
+    $focusMethod = 'uia-set-focus'
     $focusChain = New-Object System.Collections.ArrayList
-    $focusProbe = $focused
-    for ($focusLevel = 0; $focusLevel -lt 8 -and $focusProbe; $focusLevel++) {
-      $probeRid = $(try { $focusProbe.GetRuntimeId() -join '.' } catch { '' })
-      $probeAid = $(try { [string]$focusProbe.Current.AutomationId } catch { '' })
-      $probeType = $(try { $focusProbe.Current.ControlType.ProgrammaticName.Replace('ControlType.','') } catch { '' })
-      $null = $focusChain.Add([pscustomobject]@{ level=$focusLevel; rid=$probeRid; aid=$probeAid; type=$probeType })
-      if (($Node.rid -and $probeRid -eq $Node.rid) -or ($Node.aid -and $probeAid -eq $Node.aid)) {
-        $focusBound = $true
-        break
+    # Qt-Felder koennen trotz korrekt gebundenem Bildschirmrechteck einen
+    # Mausklick an ein benachbartes Hilfepanel umleiten. UIA SetFocus ist hier
+    # die semantische, koordinatenfreie Primäraktion. Erst wenn Qt sie nicht
+    # exakt bestaetigt, bleibt der bestehende PID-/Punkt-gepruefte Klick als
+    # Rueckfall erhalten; vor Ctrl+A wird in beiden Faellen erneut gebunden.
+    try {
+      $target.SetFocus()
+      Start-Sleep -Milliseconds 60
+      $focusBound = [bool]$target.Current.HasKeyboardFocus
+    } catch { $focusBound = $false }
+    if ($focusBound) {
+      $null = $focusChain.Add([pscustomobject]@{
+        level=0; rid=$(try { $target.GetRuntimeId() -join '.' } catch { '' })
+        aid=$(try { [string]$target.Current.AutomationId } catch { '' })
+        type=$(try { $target.Current.ControlType.ProgrammaticName.Replace('ControlType.','') } catch { '' })
+      })
+      if (-not (Test-SSELastInputUnchanged $inputBefore) -or [SW]::GetForegroundWindow() -ne $Hwnd -or
+          -not (Test-SSEScalarEqual $vp.Current.Value $ExpectedCurrent)) {
+        $changedAt = Get-SSELastInputTick
+        Complete-SSEPhysicalSection $Hwnd
+        return New-SSECommitResult 'interference-before-input' $inputBefore $changedAt
       }
-      try { $focusProbe = $WLK.GetParent($focusProbe) } catch { $focusProbe = $null }
+    } else {
+      $focusMethod = 'verified-point'
+      [SW]::SetCursorPos($px, $py) | Out-Null
+      [SW]::mouse_event(0x0002, 0, 0, 0, [IntPtr]::Zero)
+      [SW]::mouse_event(0x0004, 0, 0, 0, [IntPtr]::Zero)
+      Start-Sleep -Milliseconds 20
+      $afterClickInput = Get-SSELastInputTick
+      Set-SSEForegroundLeaseInputCheckpoint $afterClickInput ([pscustomobject]@{ x=$px; y=$py })
+      Start-Sleep -Milliseconds 60
+      if (-not (Test-SSELastInputUnchanged $afterClickInput) -or [SW]::GetForegroundWindow() -ne $Hwnd) {
+        $changedAt = Get-SSELastInputTick
+        Complete-SSEPhysicalSection $Hwnd
+        return New-SSECommitResult 'interference-before-input' $inputBefore $changedAt
+      }
+      $focused = [System.Windows.Automation.AutomationElement]::FocusedElement
+      $focusProbe = $focused
+      for ($focusLevel = 0; $focusLevel -lt 8 -and $focusProbe; $focusLevel++) {
+        $probeRid = $(try { $focusProbe.GetRuntimeId() -join '.' } catch { '' })
+        $probeAid = $(try { [string]$focusProbe.Current.AutomationId } catch { '' })
+        $probeType = $(try { $focusProbe.Current.ControlType.ProgrammaticName.Replace('ControlType.','') } catch { '' })
+        $null = $focusChain.Add([pscustomobject]@{ level=$focusLevel; rid=$probeRid; aid=$probeAid; type=$probeType })
+        if (($Node.rid -and $probeRid -eq $Node.rid) -or ($Node.aid -and $probeAid -eq $Node.aid)) {
+          $focusBound = $true
+          break
+        }
+        try { $focusProbe = $WLK.GetParent($focusProbe) } catch { $focusProbe = $null }
+      }
     }
     if (-not $focusBound) {
       $focusDetails = [pscustomobject]@{
         expectedRid=[string]$Node.rid; expectedAid=[string]$Node.aid
+        focusMethod=$focusMethod
         foregroundHwnd=[int64][SW]::GetForegroundWindow()
         chain=@($focusChain)
       }
@@ -6851,6 +6878,7 @@ function Commit-TrackedValue([IntPtr]$Hwnd, $Node, [string]$Value, [string]$Expe
       }
     }
     $settleDetails = [pscustomobject]@{
+      focusMethod=$focusMethod
       settleMs=[int64]$settleWatch.ElapsedMilliseconds; settleAttempts=$settleAttempts
       settledEarly=$settledEarly; observedValue=$settledValue
     }
