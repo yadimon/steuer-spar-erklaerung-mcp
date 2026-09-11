@@ -8,8 +8,8 @@ Der Live-Stand stammt aus bestehenden Tests; er belegt keinen Wechsel des Backen
 | Kennzahl | Anzahl |
 | --- | ---: |
 | API-Operationen | 102 |
-| Direkt an den optionalen Qt-DLL-Pfad angeschlossen | 9 |
-| Ohne direkten Qt-DLL-Pfad | 93 |
+| Direkt an den optionalen Qt-DLL-Pfad angeschlossen | 10 |
+| Ohne direkten Qt-DLL-Pfad | 92 |
 | Zusätzliche direkte Win32-Operationen im optionalen nativen Paket | 2 |
 | Zusätzliche Win32-/COM-UIA-Operationen im optionalen nativen Paket | 1 |
 | Funktional live belegt, unabhängig vom Backend | 94 |
@@ -107,7 +107,7 @@ Broker und Transportquittungen sind Infrastruktur, keine zusätzlichen API-Komma
 | `receipt_manager_delete` | Belege | Nicht umgestellt | funktional belegt |
 | `receipt_manager_import` | Belege | Nicht umgestellt | funktional belegt |
 | `receipt_manager_link` | Belege | Nicht umgestellt | funktional belegt |
-| `receipt_manager_list` | Belege | Nicht umgestellt | funktional belegt |
+| `receipt_manager_list` | Belege | **Qt optional** | funktional belegt |
 | `receipt_manager_read` | Belege | Nicht umgestellt | funktional belegt |
 | `receipt_manager_update` | Belege | Nicht umgestellt | funktional belegt |
 | `result_details` | Seite und Navigation | Nicht umgestellt | funktional belegt |
@@ -171,10 +171,11 @@ Broker und Transportquittungen sind Infrastruktur, keine zusätzlichen API-Komma
 
 Die ausgelieferte Qt-Brücke aktiviert keine experimentellen Schreib-, Navigations-
 oder Speicheroperationen. `known_page_state`, die read-only-Listenansicht
-`positions` und `ustva_read` sind dabei katalog- bzw. snapshotgebundene Pfade.
+`positions`, `ustva_read` und `receipt_manager_list` sind dabei katalog- bzw. snapshotgebundene Pfade.
 Sie lesen den persistenten Qt-Accessibility-Snapshot und bilden katalogisierte
 Felder, Epoch-Bindung beziehungsweise das bestehende fachliche UStVA-Modell ab;
-sie führen keine Mutation aus. Ein Prototyp oder ein statisch gefundenes Herstellersymbol
+die Belegliste wird dabei an das exakte nichtmodale Tool-Fenster gebunden. Sie
+führen keine Mutation aus. Ein Prototyp oder ein statisch gefundenes Herstellersymbol
 ändert den Status dieser Matrix erst nach Integration und passendem Nachweis.
 
 ## Nachweise und Pflege
