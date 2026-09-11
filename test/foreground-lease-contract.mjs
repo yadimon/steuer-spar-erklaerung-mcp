@@ -120,6 +120,11 @@ for (const checkpoint of ["$afterClickInput", "$afterSelectInput", "$afterValueI
 for (const focusBinding of ["$focusProbe = $focused", "$WLK.GetParent($focusProbe)", "$focusBound = $true", "chain=@($focusChain)"]) {
   assert(commit.includes(focusBinding), `Qt-Kindfokus ist nicht sicher an die Zielzelle gebunden: ${focusBinding}`);
 }
+assert(commit.indexOf("$target.SetFocus()") < commit.indexOf("[SW]::SetCursorPos($px, $py)"),
+  "Koordinatenfreier UIA-Fokus muss vor dem verifizierten Point-Fallback versucht werden.");
+assert(commit.includes("$focusBound = [bool]$target.Current.HasKeyboardFocus") &&
+  commit.includes("$focusMethod = 'uia-set-focus'") && commit.includes("$focusMethod = 'verified-point'"),
+"Direktfokus und Point-Fallback muessen ihren exakten Fokusbeweis und die tatsaechliche Methode melden.");
 assert(commit.includes("while ($settleWatch.ElapsedMilliseconds -lt 700)") &&
   commit.includes("Test-SSEScalarEqual $settledValue $Value") &&
   commit.includes("Complete-SSEPhysicalSection $Hwnd") &&
