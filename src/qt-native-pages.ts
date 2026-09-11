@@ -34,6 +34,8 @@ function heading(nodes: QtSnapshotNode[], profile?: ProductProfile): string | nu
   return texts.sort(byPosition)[0]?.name ?? null;
 }
 
+export { contentBounds as qtNativeContentBounds, heading as qtNativeHeading };
+
 function knownHeadingMatches(actual: string | null, page: Record<string, unknown>): boolean {
   if (!actual) return false;
   if (actual === page.heading) return true;

@@ -148,4 +148,46 @@ export async function testNativePageProjections() {
   assert.deepEqual(positions, { ok: true, backend: "qt", positionen: ["Fahrzeugkosten", "Arbeitszimmer"], anzahl: 2,
     hinweis: null, nativeDurationMs: 3 });
   assert.equal((await executeQtNativePositions(positionsClient, { aktion: "add" }, 5000)).kind, "blocked");
+
+  const ustvaNodes = [];
+  const ustvaNode = (type, name, x, y, extra = {}) => {
+    const i = ustvaNodes.length;
+    const p = extra.p ?? 0;
+    ustvaNodes.push({ i, p: i === 0 ? -1 : p, d: i === 0 ? 0 : p === 0 ? 1 : 2, type, name,
+      aid: `window.RedThreadContent.Node${i}`, rid: i === 0 ? "42.42" : `42.42.4.${i}`,
+      x, y, w: 180, h: 20, on: true, val: null, ro: null, checked: null, selected: null, scroll: null, ...extra });
+    return i;
+  };
+  ustvaNode("Group", "", 0, 0, { w: 1000, h: 600 });
+  ustvaNode("Tree", "Navigation", 0, 0, { w: 200 });
+  const ustvaHeader = ustvaNode("Group", "", 220, 0, { aid: "window.ClientFrameSSE.ClientHeader" });
+  ustvaNode("Text", "Umsatzsteuer-Voranmeldungen 2025", 220, 20, { p: ustvaHeader });
+  ustvaNode("Text", "Voranmeldezeitraum", 220, 100);
+  ustvaNode("ComboBox", "", 500, 100, { val: "monatlich", ro: false,
+    aid: "window.AuswahlAnmeldezeitraum.Zeitraum.Combobox" });
+  ustvaNode("Text", "Auswahl Monat", 220, 130);
+  ustvaNode("ComboBox", "", 500, 130, { val: "Juni", ro: false,
+    aid: "window.AuswahlAnmeldezeitraum.AuswahlMonat.Combobox" });
+  ustvaNode("Text", "Beträge für die Umsatzsteuer-Voranmeldung manuell erfassen", 220, 160);
+  ustvaNode("CheckBox", "", 700, 160, { checked: true, ro: false,
+    aid: "window.RahmenWerteUebersicht.ManuelleEingabe" });
+  ustvaNode("Button", "ELSTER versenden", 600, 300);
+  const ustvaStats = { ...stats, n: ustvaNodes.length };
+  const ustvaClient = { binding: { hwnd: 42, pid: 99 }, request: async operation => {
+    assert.equal(operation, "accessibility_snapshot");
+    return { durationMs: 4, result: { ok: true, controllerBound: true, scope: "qt-accessibility-content", hwnd: 42,
+      windowRect: { x: 0, y: 0, w: 1000, h: 600 }, windowEnabled: true, modalBlocked: false,
+      exactMatches: {}, nodes: ustvaNodes, stats: ustvaStats } };
+  } };
+  const ustva = await executeQtNativeRead("ustva_read", { hwnd: 42 }, { qtNativeClient: ustvaClient },
+    5000, undefined, loadProductProfile("2025"));
+  assert.equal(ustva.ok, true, JSON.stringify(ustva));
+  assert.equal(ustva.backend, "qt");
+  assert.equal(ustva.nativeDurationMs, 4);
+  assert.equal(ustva.pageKind, "overview");
+  assert.equal(ustva.taxYear, 2025);
+  assert.deepEqual(ustva.period, { frequency: "monthly", frequencyDisplay: "monatlich", selector: "month", key: "june", display: "Juni" });
+  assert.equal(ustva.flags.manual_input, true);
+  assert.equal(ustva.transmission.blockedByApi, true);
+  assert.equal(ustva.transmission.uiGuardObserved, true);
 }
