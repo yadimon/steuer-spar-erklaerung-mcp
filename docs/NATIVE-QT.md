@@ -1,7 +1,9 @@
-# Optionaler Qt-Lesepfad
+# Optionaler Qt-Pfad
 
-Die API kann `get_value`, `table_read`, `snapshot`, `find`, `read_page`, `subpages`, `known_page_state`, `positions`, `ustva_read` und `receipt_manager_list` über eine dauerhaft gebundene
-Qt-Verbindung ausführen. Der normale Runtime-Start aktiviert diesen Pfad nur,
+Die API kann `get_value`, `table_read`, `snapshot`, `find`, `read_page`,
+`subpages`, `known_page_state`, `positions`, `ustva_read`,
+`receipt_manager_list`, `receipt_manager_read` und `receipt_manager_action`
+über eine dauerhaft gebundene Qt-Verbindung ausführen. Der normale Runtime-Start aktiviert diesen Pfad nur,
 wenn die Konfigurationsdatei `qtNativeRuntime` enthält. Dafür wird ein separates,
 kompatibles natives Paket benötigt; die npm-Pakete enthalten diesen Qt-Helfer
 noch nicht. Dasselbe Paket führt `desktop_status` und `desktop_start` direkt über Win32 aus;
@@ -17,7 +19,7 @@ dagegen die gesunde Hauptfensterverbindung. Fehler und unbekannte Ausgänge
 erlauben keine automatische Neuverbindung oder Wiederholung.
 
 Die [Native-Abdeckungsmatrix](NATIVE-COVERAGE.md) zählt alle 102 API-Operationen:
-Acht direkte optionale Qt-Handler und 94 ohne direkten Qt-Pfad. Sie trennt
+zwölf direkte optionale Qt-Handler und 90 ohne direkten Qt-Pfad. Sie trennt
 diesen Stand von funktionaler Live-Abdeckung und noch erforderlicher Integration.
 `sse-native.dll` bezeichnet dagegen die bestehende C#-Worker-Hilfsbibliothek;
 der hier beschriebene C++-Lesepfad verwendet `sse-qt-read.dll` in SSE.

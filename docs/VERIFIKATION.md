@@ -48,8 +48,11 @@ Manuelle Stichproben ersetzen den fehlenden automatisierten Nachweis für
 ## Native-Integration getrennt zählen
 
 Die [Native-Matrix](NATIVE-COVERAGE.md) führt für jede der 102 Operationen
-den Qt-DLL-Status neben dem bestehenden Live-Stand. Gegenwärtig sind nur
-`get_value`, `table_read`, `snapshot`, `find`, `read_page` und `subpages` direkt integriert, mit expliziter Konfiguration.
+den Qt-DLL-Status neben dem bestehenden Live-Stand. Gegenwärtig sind zwölf
+Operationen direkt integriert: `get_value`, `table_read`, `snapshot`, `find`,
+`read_page`, `subpages`, `known_page_state`, `positions`, `ustva_read`,
+`receipt_manager_list`, `receipt_manager_read` und `receipt_manager_action`.
+Sie werden nur mit expliziter Konfiguration aktiviert.
 Die native Qt-Prüfung vergleicht Suchtreffer, Seitenzeilen und Unterseiten mit
 den tatsächlichen Worker-Projektionsfunktionen über unabhängig gelesene UIA-Knoten
 und Win32-Fenstergrenzen. Die Offline-Suite prüft zusätzlich Wildcards,
