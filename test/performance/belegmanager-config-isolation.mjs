@@ -101,6 +101,14 @@ function assertOnlyKnownRuntimeDrift(current, swapped) {
     ["BelegManager", "ColumnNameWidth"],
     ["Files", "LastWorkDir"],
     ["License", "LastCheck"],
+    // Qt persistiert die normale Hauptfenster-Geometrie beim Schliessen. Ein
+    // Wechsel von VM-Aufloesung/DPI darf die private DataDir-Restauration
+    // nicht blockieren; andere MainWindowPos-Schluessel bleiben gesperrt.
+    ["MainWindowPos", "H"],
+    ["MainWindowPos", "MinMax"],
+    ["MainWindowPos", "W"],
+    ["MainWindowPos", "X"],
+    ["MainWindowPos", "Y"],
     ["WerteInfoPos", "Count"],
     ["WerteInfoPos", "H"],
     ["WerteInfoPos", "MinMax"],

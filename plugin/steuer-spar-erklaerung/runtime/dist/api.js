@@ -8094,7 +8094,8 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
       if (observed.ok === false) {
         lastProbeError = `launch_probe: ${String(observed.error ?? observed.kind ?? "Startinventur fehlgeschlagen.")}`;
         probeFailures += 1;
-        if (observed.kind === "worker-isolation-lost" && !signal?.aborted) {
+        const retryableControllerHandover = observed.kind === "busy" && observed.reason === "session-controller-busy" && observed.retryable === true && observed.waited === false && observed.mutationStarted === false && observed.resultingState === "unchanged" && observed.cleanupRequired === false;
+        if ((observed.kind === "worker-isolation-lost" || retryableControllerHandover) && !signal?.aborted) {
           await waitForNextProbe();
           continue;
         }

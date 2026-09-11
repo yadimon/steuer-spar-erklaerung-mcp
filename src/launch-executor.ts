@@ -146,9 +146,17 @@ export async function executeLaunchOperation(
         // launch_probe liest ausschliesslich den frischen Fensterzustand. Ein
         // Worker, dessen sitzungsweiter Controller beim Beenden verloren ging,
         // hat keine Mutation ausgefuehrt und darf deshalb durch einen neuen
-        // Probe-Worker ersetzt werden. Fuer normale API-Operationen bleibt
-        // worker-isolation-lost unveraendert nicht wiederholbar.
-        if (observed.kind === "worker-isolation-lost" && !signal?.aborted) {
+        // Probe-Worker ersetzt werden. Direkt nach dem getrennten Startworker
+        // kann Windows dessen Mutex noch fuer wenige Millisekunden als belegt
+        // melden. Nur der streng ausgewiesene, unveraenderte Zero-Wait-Busy-
+        // Zustand ist ebenfalls sicher wiederholbar. Fuer normale API-
+        // Operationen bleiben beide Ergebnisse unveraendert terminal.
+        const retryableControllerHandover = observed.kind === "busy" &&
+          observed.reason === "session-controller-busy" &&
+          observed.retryable === true && observed.waited === false &&
+          observed.mutationStarted === false && observed.resultingState === "unchanged" &&
+          observed.cleanupRequired === false;
+        if ((observed.kind === "worker-isolation-lost" || retryableControllerHandover) && !signal?.aborted) {
           await waitForNextProbe();
           continue;
         }
