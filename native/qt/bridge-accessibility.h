@@ -52,6 +52,15 @@ static Json accessibleNode(QAccessibleInterface *iface, int index, int parent, i
     else if (values && type == "TreeItem" && accessibleParent && accessibleParent->selectionInterface()) node["selected"] = bool(state.selected);
     return node;
 }
+static bool accessibilityModalBlocked(QWidget *root, const Json &request) {
+    auto *active = QApplication::activeModalWidget();
+    if (!active || active == root) return false;
+    if (request.contains("allowedModalTitle") && request.at("allowedModalTitle").is_string()) {
+        const auto allowed = QString::fromUtf8(request.at("allowedModalTitle").get<std::string>().c_str());
+        if (active->isVisible() && active->windowTitle() == allowed) return false;
+    }
+    return true;
+}
 static Json accessibilitySnapshot(QWidget *main, const Json &request) {
     auto *root = main;
     if (request.contains("toolTitle")) {
@@ -62,8 +71,8 @@ static Json accessibilitySnapshot(QWidget *main, const Json &request) {
         if (matches.empty()) return error("not-found", "The catalogued tool window is not open");
         if (matches.size() != 1) return error("ambiguous", "The catalogued tool window is not unique");
         root = matches.front();
-        if (root->thread() != QThread::currentThread() || root->isModal())
-            return error("blocked", "The tool window is modal or belongs to another GUI thread");
+        if (root->thread() != QThread::currentThread())
+            return error("blocked", "The tool window belongs to another GUI thread");
     }
     const int limit = request.value("maxNodes", 4000);
     const bool values = request.value("withValues", true);
@@ -133,7 +142,7 @@ static Json accessibilitySnapshot(QWidget *main, const Json &request) {
         {"exactMatches", std::move(exactMatches)},
         {"windowRect", {{"x", windowRect.left}, {"y", windowRect.top},
             {"w", windowRect.right - windowRect.left}, {"h", windowRect.bottom - windowRect.top}}},
-        {"modalBlocked", QApplication::activeModalWidget() != nullptr}, {"scope", "qt-accessibility-content"},
+        {"modalBlocked", accessibilityModalBlocked(root, request)}, {"scope", "qt-accessibility-content"},
         {"stats", {{"n", count}, {"err", 0}, {"cyc", 0}, {"cycleRid", ""}, {"cycleName", ""},
             {"truncated", truncated || depthLimited}, {"depthLimited", depthLimited}, {"valErr", 0}, {"scrollErr", 0},
             {"source", "qt"}, {"fallbackReason", ""}, {"snapshotMs", timer.nsecsElapsed() / 1e6}}}};

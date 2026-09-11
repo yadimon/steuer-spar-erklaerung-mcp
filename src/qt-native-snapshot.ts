@@ -38,6 +38,7 @@ export async function readQtNativeSnapshot(
   const maxNodes = typeof args.maxNodes === "number" ? args.maxNodes : 4000;
   const read = await client.request("accessibility_snapshot", {
     maxNodes, ...(typeof args.toolTitle === "string" ? { toolTitle: args.toolTitle } : {}),
+    ...(typeof args.allowedModalTitle === "string" ? { allowedModalTitle: args.allowedModalTitle } : {}),
     ...(args.withValues === false ? { withValues: false } : {}),
     ...(args.equalitySelectors ? { equalitySelectors: args.equalitySelectors } : {}),
   }, timeoutMs, signal);

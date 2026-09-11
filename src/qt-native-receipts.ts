@@ -172,7 +172,11 @@ export async function executeQtNativeReceiptManagerList(
   if (list.error) return list.error;
   const remaining = Math.floor(timeoutMs - (performance.now() - started));
   if (remaining < 1) return fail("native-timeout", "Native receipt read deadline expired before dirty-state verification.");
-  const main = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 5000 }, remaining, signal);
+  const main = await readQtNativeSnapshot(client, {
+    hwnd: args.hwnd,
+    maxNodes: 5000,
+    allowedModalTitle: parsedPolicy.data.title,
+  }, remaining, signal);
   if (!main.windowEnabled || main.modalBlocked || main.stats.truncated) {
     return fail("window-obstructed", "The bound main window cannot provide a complete dirty-state readback.");
   }
