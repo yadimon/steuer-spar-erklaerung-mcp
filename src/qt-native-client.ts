@@ -80,9 +80,16 @@ export class QtNativeClient {
     try {
       const binding = this.binding;
       const { result } = await this.request("ping", {}, timeoutMs);
-      if (result.ok !== true || result.pid !== binding.pid || result.hwnd !== binding.hwnd
-        || result.creationTime !== binding.creationTime || result.bridgeProtocol !== 1 || result.guiThread !== true) {
-        throw new QtNativeTransportError("Native peer did not confirm the bound process, window and protocol.", "native-peer");
+      const mismatches = [
+        result.ok !== true ? "ok" : undefined,
+        result.pid !== binding.pid ? "pid" : undefined,
+        result.hwnd !== binding.hwnd ? "hwnd" : undefined,
+        result.creationTime !== binding.creationTime ? "creationTime" : undefined,
+        result.bridgeProtocol !== 1 ? "bridgeProtocol" : undefined,
+        result.guiThread !== true ? "guiThread" : undefined,
+      ].filter((field): field is string => field !== undefined);
+      if (mismatches.length) {
+        throw new QtNativeTransportError(`Native peer mismatch: ${mismatches.join(", ")}.`, "native-peer");
       }
       return this;
     } catch (error) {
