@@ -586,7 +586,8 @@ try {
     (launchExecutorSource.match(/await worker\("launch"/g) ?? []).length === 1 &&
     launchExecutorSource.includes('await (worker as LaunchWorkerExecutor)("launch_probe"') &&
     launchExecutorSource.includes('planKind: "launch-readiness"') &&
-    launchExecutorSource.includes("deadlineUnixMs: deadline") &&
+    launchExecutorSource.includes("performance.now()") &&
+    launchExecutorSource.includes("budgetMs: Math.floor(remainingMs)") &&
     launchExecutorSource.includes('bindingMode: "launch-window"') &&
     launchExecutorSource.includes("cleanupStartedProcess") &&
     serverSource.includes("instance: r.instance, ready: r.ready") &&

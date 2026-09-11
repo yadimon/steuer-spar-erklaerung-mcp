@@ -11394,7 +11394,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # Dadurch sinkt die Zahl der Prozessstarts, ohne einen UIA-Arbeiter nach
     # einer anderen Operation wiederzuverwenden.
     if (-not (Test-SSEExactProperties $a @(
-      'schemaVersion','planKind','pid','hasCase','deadlineUnixMs'
+      'schemaVersion','planKind','pid','hasCase','budgetMs'
     ))) {
       Fail 'LaunchProbePlan enthaelt unbekannte oder fehlende Felder.' 'bad-args'
     }
@@ -11402,20 +11402,16 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $planKind = [string](Arg $a 'planKind')
     $targetPid = Get-SSEBoundedIntegerArg $a 'pid' 0 1 ([int]::MaxValue)
     $hasCaseRaw = Arg $a 'hasCase' $null
-    $deadlineUnixMs = Get-SSEBoundedIntegerArg $a 'deadlineUnixMs' 0 0 253402300799999
+    $probeBudgetMs = Get-SSEBoundedIntegerArg $a 'budgetMs' 0 1000 300000
     if ($schemaVersion -ne 1 -or $planKind -cne 'launch-readiness' -or $hasCaseRaw -isnot [bool]) {
       Fail 'LaunchProbePlan v1 braucht planKind=launch-readiness, eine PID und hasCase als booleschen Wert.' 'bad-args'
     }
-    $nowUnixMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-    if ($deadlineUnixMs -gt ($nowUnixMs + 300000)) {
-      Fail 'LaunchProbePlan darf hoechstens 300 Sekunden in die Zukunft reichen.' 'bad-args'
-    }
-
     $lastProbeError = $null
     $probeFailures = 0
     $lastStartupPrompts = @()
     $windowProbeSucceeded = $false
-    while (([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() + 1000) -lt $deadlineUnixMs) {
+    $probeTimer = [Diagnostics.Stopwatch]::StartNew()
+    while (($probeTimer.ElapsedMilliseconds + 1000) -lt $probeBudgetMs) {
       $windows = @()
       try {
         $windows = @(Get-Windows 'SSE' | Where-Object {

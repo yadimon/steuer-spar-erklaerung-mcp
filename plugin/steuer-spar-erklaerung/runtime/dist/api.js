@@ -7446,14 +7446,14 @@ async function executeCheckerOpen(args, timeoutMs, signal, worker) {
       Math.min(timeoutMs ?? 3e5, 3e5),
       signal
     );
-    const performance17 = result.performance && typeof result.performance === "object" && !Array.isArray(result.performance) ? result.performance : {};
+    const performance18 = result.performance && typeof result.performance === "object" && !Array.isArray(result.performance) ? result.performance : {};
     return {
       ...result,
       schemaVersion: 1,
       planKind: CHECKER_OPEN_PLAN_KIND,
       resultingState: typeof result.resultingState === "string" ? result.resultingState : result.ok === true ? "detail-verified" : "unknown",
       cleanupRequired: typeof result.cleanupRequired === "boolean" ? result.cleanupRequired : result.ok !== true,
-      performance: { ...performance17, workerProcessCount: 1 },
+      performance: { ...performance18, workerProcessCount: 1 },
       ...result.ok === true ? { kontrollbildEnthalten: typeof result.bildBase64 === "string" && result.bildBase64.length > 0 } : {}
     };
   } catch (error) {
@@ -8014,6 +8014,7 @@ var init_case_create_executor = __esm({
 });
 
 // src/launch-executor.ts
+import { performance as performance2 } from "node:perf_hooks";
 async function executeLaunchOperation(args, timeoutMs, signal, worker) {
   if (timeoutMs !== void 0 && timeoutMs < MINIMUM_LAUNCH_TIMEOUT_MS) {
     return operationError(
@@ -8021,7 +8022,7 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
       "bad-args"
     );
   }
-  const startedAt = Date.now();
+  const startedAt = performance2.now();
   const launchBudgetMs = Math.min(timeoutMs ?? MAXIMUM_LAUNCH_TIMEOUT_MS, MAXIMUM_LAUNCH_TIMEOUT_MS);
   const deadline = startedAt + launchBudgetMs;
   const started = await worker("launch", args, MINIMUM_LAUNCH_TIMEOUT_MS, signal);
@@ -8080,15 +8081,15 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
       };
     }
     let observed = { ok: true, outcome: "deadline", windows: [], dialogs: [] };
-    while (Date.now() < deadline) {
-      const remainingMs = deadline - Date.now();
+    while (performance2.now() < deadline) {
+      const remainingMs = deadline - performance2.now();
       if (remainingMs < 1e3) break;
       const launchProbePlan = {
         schemaVersion: 1,
         planKind: "launch-readiness",
         pid: pid2,
         hasCase: typeof args.file === "string" && args.file.length > 0,
-        deadlineUnixMs: deadline
+        budgetMs: Math.floor(remainingMs)
       };
       observed = await worker("launch_probe", launchProbePlan, remainingMs, signal);
       if (observed.ok === false) {
@@ -8153,7 +8154,7 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
       }
       return {
         ...started,
-        waitedSec: Math.round((Date.now() - startedAt) / 100) / 10,
+        waitedSec: Math.round((performance2.now() - startedAt) / 100) / 10,
         windows,
         instance,
         ready: instance !== null,
@@ -8183,7 +8184,7 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
     return {
       ok: false,
       kind: cleanupState.stillRunning ? "startup-timeout-cleanup" : "startup-timeout",
-      error: cleanupState.stillRunning ? `SSE-PID ${pid2} erzeugte kein verifiziertes Fallfenster und konnte nicht sicher beendet werden.` : `SSE-PID ${pid2} erzeugte innerhalb von ${Math.round((Date.now() - startedAt) / 100) / 10} Sekunden kein verifiziertes Fallfenster; der gestartete Prozess wurde beendet.`,
+      error: cleanupState.stillRunning ? `SSE-PID ${pid2} erzeugte kein verifiziertes Fallfenster und konnte nicht sicher beendet werden.` : `SSE-PID ${pid2} erzeugte innerhalb von ${Math.round((performance2.now() - startedAt) / 100) / 10} Sekunden kein verifiziertes Fallfenster; der gestartete Prozess wurde beendet.`,
       pid: pid2,
       processStillRunning: cleanupState.stillRunning,
       cleanup: cleanupState.cleanup,
@@ -8469,13 +8470,13 @@ var init_profile_operation_policy = __esm({
 });
 
 // src/page-objects-executor.ts
-import { performance as performance2 } from "node:perf_hooks";
+import { performance as performance3 } from "node:perf_hooks";
 function executeLocalPageObjects(options) {
   const effectiveTimeoutMs = options.timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS;
-  const localStartedAt = performance2.now();
+  const localStartedAt = performance3.now();
   const remainingTimeoutMs2 = () => Math.max(
     0,
-    Math.floor(effectiveTimeoutMs - (performance2.now() - localStartedAt))
+    Math.floor(effectiveTimeoutMs - (performance3.now() - localStartedAt))
   );
   const localStopResult = () => {
     if (options.signal?.aborted) {
@@ -9273,7 +9274,7 @@ import {
   writeFileSync as writeFileSync2
 } from "node:fs";
 import { dirname as dirname6, isAbsolute as isAbsolute6, relative as relative3, resolve as resolve11 } from "node:path";
-import { performance as performance3 } from "node:perf_hooks";
+import { performance as performance4 } from "node:perf_hooks";
 function hash(buffer) {
   return createHash3("sha256").update(buffer).digest("hex");
 }
@@ -9490,7 +9491,7 @@ async function listWorkspaceFilesBounded(root, ref = ".", limit = 500, includeHa
   if (!Number.isFinite(timeoutMs) || timeoutMs < 0) {
     throw new Error("Zeitbudget fuer die Dateiliste muss eine nicht negative Zahl sein.");
   }
-  const now = options.now ?? (() => performance3.now());
+  const now = options.now ?? (() => performance4.now());
   const startedAt = now();
   const checkStopped = () => {
     if (options.signal?.aborted) {
@@ -10039,7 +10040,7 @@ var init_scenario = __esm({
 });
 
 // src/workspace-executor.ts
-import { performance as performance4 } from "node:perf_hooks";
+import { performance as performance5 } from "node:perf_hooks";
 function isWorkspaceExecutorOperation(operation) {
   return WORKSPACE_EXECUTOR_OPERATIONS.includes(operation);
 }
@@ -10058,7 +10059,7 @@ function resourceArgument(roots, ref, area, defaultArea, allowedAreas) {
 }
 async function executeWorkspaceOperation(operation, args, context) {
   const { roots, workspaceDir, resultDir, timeoutMs, signal, execute, redactPaths } = context;
-  const now = context.now ?? (() => performance4.now());
+  const now = context.now ?? (() => performance5.now());
   const effectiveTimeoutMs = timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS;
   const startedAt = now();
   const stopped = (activity) => {
@@ -10541,7 +10542,7 @@ var init_collect_verification = __esm({
 import { createHash as createHash6 } from "node:crypto";
 import { open as open2, stat as stat2 } from "node:fs/promises";
 import { extname as extname2 } from "node:path";
-import { performance as performance5 } from "node:perf_hooks";
+import { performance as performance6 } from "node:perf_hooks";
 async function readStableJsonFile(path, signal, includeBytes) {
   if (signal.aborted) throw abortError();
   const opening = open2(path, "r");
@@ -10590,7 +10591,7 @@ function withResourceIdentity(result, resourceRefs) {
 }
 async function executeLocalVerify(options) {
   const effectiveTimeoutMs = options.timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS;
-  const localStartedAt = performance5.now();
+  const localStartedAt = performance6.now();
   const controller = new AbortController();
   let timedOut = false;
   const timer = setTimeout(() => {
@@ -10602,7 +10603,7 @@ async function executeLocalVerify(options) {
   if (options.signal?.aborted) abort();
   const stopped = () => {
     if (options.signal?.aborted) return operationError("API-Client hat die Collect-Verifikation abgebrochen.", "aborted");
-    if (timedOut || performance5.now() - localStartedAt >= effectiveTimeoutMs) {
+    if (timedOut || performance6.now() - localStartedAt >= effectiveTimeoutMs) {
       return operationError("Zeitbudget beim lokalen Pruefen des Collect-Stands aufgebraucht.", "timeout");
     }
     return void 0;
@@ -10798,7 +10799,7 @@ var init_owned_file = __esm({
 import { createHash as createHash8 } from "node:crypto";
 import { lstat as lstat2, open as open4, stat as stat4 } from "node:fs/promises";
 import { dirname as dirname8, extname as extname3, resolve as resolve13 } from "node:path";
-import { performance as performance6 } from "node:perf_hooks";
+import { performance as performance7 } from "node:perf_hooks";
 function errorCode2(error) {
   return error && typeof error === "object" && "code" in error ? String(error.code) : "";
 }
@@ -10885,7 +10886,7 @@ function appendHeaderBytes(chunks, chunk, currentBytes) {
 }
 async function executeLocalWorkingCopy(options) {
   const effectiveTimeoutMs = Math.max(0, options.timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS);
-  const startedAt = performance6.now();
+  const startedAt = performance7.now();
   const controller = new AbortController();
   let timedOut = false;
   const timer = setTimeout(() => {
@@ -10897,7 +10898,7 @@ async function executeLocalWorkingCopy(options) {
   if (options.signal?.aborted) abort();
   const stopped = () => {
     if (options.signal?.aborted) return operationError("API-Client hat die Arbeitskopie abgebrochen.", "aborted");
-    if (timedOut || performance6.now() - startedAt >= effectiveTimeoutMs) {
+    if (timedOut || performance7.now() - startedAt >= effectiveTimeoutMs) {
       return operationError("Zeitbudget beim lokalen Erstellen der Arbeitskopie aufgebraucht.", "timeout");
     }
     return void 0;
@@ -11295,7 +11296,7 @@ var init_local_file_transaction = __esm({
 import { createHash as createHash9 } from "node:crypto";
 import { open as open5, readdir as readdir3, stat as stat6 } from "node:fs/promises";
 import { join as join7, resolve as resolve14 } from "node:path";
-import { performance as performance7 } from "node:perf_hooks";
+import { performance as performance8 } from "node:perf_hooks";
 async function sourceInventoryStillStable(path, identity, expectedNames, profile) {
   if (!await directoryStillOwned(path, identity)) return false;
   const currentNames = (await readdir3(path, { withFileTypes: true })).filter((entry) => entry.isFile() && isProfileCaseFileName(entry.name, profile, true)).map((entry) => entry.name);
@@ -11317,14 +11318,14 @@ async function assertVerifiedTargetStillOwned(file, profile, timeoutMs, signal) 
 }
 async function executeLocalBackup(options) {
   const effectiveTimeoutMs = Math.max(0, options.timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS);
-  const startedAt = performance7.now();
+  const startedAt = performance8.now();
   let timedOut = false;
   const timer = setTimeout(() => {
     timedOut = true;
   }, effectiveTimeoutMs);
   const stopped = () => {
     if (options.signal?.aborted) return operationError("API-Client hat die Fallsicherung abgebrochen.", "aborted");
-    if (timedOut || performance7.now() - startedAt >= effectiveTimeoutMs) {
+    if (timedOut || performance8.now() - startedAt >= effectiveTimeoutMs) {
       return operationError("Zeitbudget beim lokalen Sichern der Steuerfaelle aufgebraucht.", "timeout");
     }
     return void 0;
@@ -11333,7 +11334,7 @@ async function executeLocalBackup(options) {
     const result = stopped();
     if (result) throw new LocalOperationStopped(result);
   };
-  const remainingMs = () => Math.max(0, Math.floor(effectiveTimeoutMs - (performance7.now() - startedAt)));
+  const remainingMs = () => Math.max(0, Math.floor(effectiveTimeoutMs - (performance8.now() - startedAt)));
   const localResult = (result) => options.redactPaths(withResourceIdentity3(result, options.resourceRefs));
   let destination = "";
   let destinationIdentity;
@@ -11760,7 +11761,7 @@ var init_sse_process_guard = __esm({
 import { createHash as createHash11 } from "node:crypto";
 import { open as open7, readdir as readdir4, stat as stat8, unlink as unlink3 } from "node:fs/promises";
 import { basename as basename5, join as join9, resolve as resolve15 } from "node:path";
-import { performance as performance8 } from "node:perf_hooks";
+import { performance as performance9 } from "node:perf_hooks";
 function asArchiveArguments(value) {
   if (!Array.isArray(value) || !value.length) return void 0;
   const result = [];
@@ -11880,14 +11881,14 @@ async function preserveRecoveryCopy(file, directory, directoryIdentity) {
 }
 async function executeLocalArchive(options) {
   const effectiveTimeoutMs = Math.max(0, options.timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS);
-  const startedAt = performance8.now();
+  const startedAt = performance9.now();
   let timedOut = false;
   const timer = setTimeout(() => {
     timedOut = true;
   }, effectiveTimeoutMs);
   const stopped = () => {
     if (options.signal?.aborted) return operationError("API-Client hat die Fallarchivierung abgebrochen.", "aborted");
-    if (timedOut || performance8.now() - startedAt >= effectiveTimeoutMs) {
+    if (timedOut || performance9.now() - startedAt >= effectiveTimeoutMs) {
       return operationError("Zeitbudget beim lokalen Archivieren der Steuerfaelle aufgebraucht.", "timeout");
     }
     return void 0;
@@ -11896,7 +11897,7 @@ async function executeLocalArchive(options) {
     const result = stopped();
     if (result) throw new LocalOperationStopped(result);
   };
-  const remainingMs = () => Math.max(0, Math.floor(effectiveTimeoutMs - (performance8.now() - startedAt)));
+  const remainingMs = () => Math.max(0, Math.floor(effectiveTimeoutMs - (performance9.now() - startedAt)));
   const localResult = (result) => options.redactPaths(withResourceIdentity3(result, options.resourceRefs));
   let directory = "";
   let destination = "";
@@ -12260,7 +12261,7 @@ var init_qt_native_binding = __esm({
 
 // src/qt-native-client.ts
 import { createConnection } from "node:net";
-import { performance as performance9 } from "node:perf_hooks";
+import { performance as performance10 } from "node:perf_hooks";
 var MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES, UTF8, QtNativeClient;
 var init_qt_native_client = __esm({
   "src/qt-native-client.ts"() {
@@ -12364,7 +12365,7 @@ var init_qt_native_client = __esm({
       async requestAcknowledged(operation, args = {}, timeoutMs = 5e3, signal) {
         if (this.acknowledging || this.pending.size) throw new QtNativeTransportError("The native transport already has an active request.", "native-transaction-busy");
         this.acknowledging = true;
-        const started = performance9.now();
+        const started = performance10.now();
         try {
           const received = await this.requestFrame(operation, args, timeoutMs, signal);
           const result = received.result, receipt = result.mutationReceipt;
@@ -12377,19 +12378,19 @@ var init_qt_native_client = __esm({
             throw invalid2("Native reply has inconsistent outcome evidence.");
           }
           if (receipt === void 0 && (!result.mutationAttempted || result.outcomeUnknown === true)) {
-            return { ...received, durationMs: performance9.now() - started, mutationAckMs: 0, receiptAcknowledged: false };
+            return { ...received, durationMs: performance10.now() - started, mutationAckMs: 0, receiptAcknowledged: false };
           }
           if (!result.mutationAttempted || result.outcomeUnknown === true || typeof receipt !== "string" || !/^[1-9][0-9]{0,19}$/u.test(receipt) || BigInt(receipt) > 0xffffffffffffffffn) {
             throw invalid2("Native reply has no valid receipt for its known attempted mutation.");
           }
-          const remaining = Math.floor(timeoutMs - (performance9.now() - started));
+          const remaining = Math.floor(timeoutMs - (performance10.now() - started));
           if (remaining < 1) throw invalid2("Mutation reply received after its acknowledgment budget expired.", "native-timeout");
           try {
             const acknowledgment = await this.requestFrame("mutation_ack", { receipt }, remaining, signal);
             if (acknowledgment.result.ok !== true || acknowledgment.result.acknowledged !== true || acknowledgment.result.receipt !== receipt || acknowledgment.result.outcomeUnknown !== void 0 && acknowledgment.result.outcomeUnknown !== false) {
               throw invalid2("Native peer did not acknowledge the exact mutation receipt.");
             }
-            return { ...received, durationMs: performance9.now() - started, mutationAckMs: acknowledgment.durationMs, receiptAcknowledged: true };
+            return { ...received, durationMs: performance10.now() - started, mutationAckMs: acknowledgment.durationMs, receiptAcknowledged: true };
           } catch (error) {
             if (error instanceof QtNativeAcknowledgmentError) throw error;
             throw invalid2(
@@ -12430,7 +12431,7 @@ var init_qt_native_client = __esm({
             resolve: resolve17,
             reject,
             timer,
-            startedAt: performance9.now(),
+            startedAt: performance10.now(),
             removeAbortListener: () => signal?.removeEventListener("abort", abort)
           });
           signal?.addEventListener("abort", abort, { once: true });
@@ -12461,7 +12462,7 @@ var init_qt_native_client = __esm({
             this.pending.delete(response.id);
             clearTimeout(pending.timer);
             pending.removeAbortListener();
-            pending.resolve({ result: response, durationMs: performance9.now() - pending.startedAt });
+            pending.resolve({ result: response, durationMs: performance10.now() - pending.startedAt });
           }
         } catch (error) {
           this.fail(error instanceof Error ? error.message : "Invalid native response.", "native-protocol", true);
@@ -13830,16 +13831,16 @@ var init_qt_native_receipts = __esm({
 });
 
 // src/qt-native-executor.ts
-import { performance as performance10 } from "node:perf_hooks";
+import { performance as performance11 } from "node:perf_hooks";
 function isQtNativeReadOperation(operation) {
   return QT_NATIVE_READ_OPERATIONS.some((value) => value === operation);
 }
 async function executeQtNativeRead(operation, args, dependencies, timeoutMs = DEFAULT_OPERATION_TIMEOUT_MS, signal, profile) {
   try {
-    const started = performance10.now();
+    const started = performance11.now();
     if (operation === "snapshot" && profile) args = qtSnapshotArguments(args, profile);
     const client = dependencies.qtNativeClient ?? await dependencies.qtNativeClientFor(args, timeoutMs, signal);
-    const remaining = Math.floor(timeoutMs - (performance10.now() - started));
+    const remaining = Math.floor(timeoutMs - (performance11.now() - started));
     if (remaining < 1) throw new QtNativeTransportError("Native operation deadline exceeded before reading.", "native-timeout");
     const execute = operation === "known_page_state" ? executeQtNativeKnownPageState : operation === "positions" ? executeQtNativePositions : operation === "ustva_read" ? executeQtNativeUstvaRead : operation === "receipt_manager_action" ? executeQtNativeReceiptManagerAction : operation === "receipt_manager_read" ? executeQtNativeReceiptManagerRead : operation === "receipt_manager_list" ? executeQtNativeReceiptManagerList : operation === "read_page" ? executeQtNativeReadPage : operation === "subpages" ? executeQtNativeSubpages : operation === "find" ? executeQtNativeFind : operation === "snapshot" ? executeQtNativeSnapshot : operation === "table_read" ? executeQtNativeTableRead : typeof args.rid === "string" && args.rid.startsWith("42.") ? executeQtSnapshotGetValue : executeQtNativeGetValue;
     return await execute(client, args, remaining, signal, profile);
@@ -13886,14 +13887,14 @@ var init_qt_native_executor = __esm({
 // src/api-executor.ts
 import { existsSync as existsSync9, mkdirSync as mkdirSync3, readdirSync as readdirSync3, rmdirSync } from "node:fs";
 import { dirname as dirname10 } from "node:path";
-import { performance as performance11 } from "node:perf_hooks";
+import { performance as performance12 } from "node:perf_hooks";
 function withResourceIdentity4(redactPaths, result, resourceRefs = {}) {
   const redacted = redactPaths(result);
   if (!Object.keys(resourceRefs).length) return redacted;
   return { ...redacted, resourceRefs };
 }
 function remainingTimeoutMs(timeoutMs, startedAt) {
-  return Math.max(0, Math.floor(timeoutMs - (performance11.now() - startedAt)));
+  return Math.max(0, Math.floor(timeoutMs - (performance12.now() - startedAt)));
 }
 function isExperimentalDialogAnswerCandidate(operation, args) {
   return operation === "dialog_answer" && args.button === "OK";
@@ -14146,7 +14147,7 @@ function createApiExecutor(config, rawWorker, dependencies = {}) {
       }
       if (operation === "list_cases" && configured.args.verbose !== true && typeof configured.args.dir === "string" && existsSync9(configured.args.dir)) {
         const effectiveTimeoutMs = timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS;
-        const localStartedAt = performance11.now();
+        const localStartedAt = performance12.now();
         try {
           const result2 = await local(operation, () => listCaseFiles(String(configured.args.dir), profile, {
             includeBackups: configured.args.includeBackups === true,
@@ -17792,7 +17793,7 @@ var init_api_supervisor_contract = __esm({
 
 // src/api-server.ts
 import { randomUUID as randomUUID3 } from "node:crypto";
-import { performance as performance12 } from "node:perf_hooks";
+import { performance as performance13 } from "node:perf_hooks";
 import {
   createServer
 } from "node:http";
@@ -17908,7 +17909,7 @@ function createSseApiServer(options) {
   const inFlightSnapshot = () => {
     if (!inFlight) return null;
     const { startedMonotonic, ...publicState } = inFlight;
-    return { ...publicState, elapsedMs: Math.round(performance12.now() - startedMonotonic) };
+    return { ...publicState, elapsedMs: Math.round(performance13.now() - startedMonotonic) };
   };
   const safeLog = (record) => {
     try {
@@ -17918,7 +17919,7 @@ function createSseApiServer(options) {
   };
   const server = createServer(async (request, response) => {
     const requestId = randomUUID3();
-    const started = performance12.now();
+    const started = performance13.now();
     const foreignClient = foreignClientReason(request);
     if (foreignClient) {
       sendJson(response, 403, apiError(requestId, "forbidden", foreignClient));
@@ -18092,7 +18093,7 @@ function createSseApiServer(options) {
         });
         return;
       }
-      inFlight = { operation: operationName, requestId, startedAt: Date.now(), startedMonotonic: performance12.now() };
+      inFlight = { operation: operationName, requestId, startedAt: Date.now(), startedMonotonic: performance13.now() };
       let rawResult;
       try {
         rawResult = await execute(operationName, args, body.timeoutMs, controller.signal);
@@ -18121,7 +18122,7 @@ function createSseApiServer(options) {
         apiVersion: SSE_API_VERSION,
         requestId,
         operation: operationName,
-        durationMs: Math.round(performance12.now() - started),
+        durationMs: Math.round(performance13.now() - started),
         result
       };
       const operationLog = {
@@ -18162,7 +18163,7 @@ function createSseApiServer(options) {
         event: "operation-error",
         requestId,
         operation: operationName,
-        durationMs: Math.round(performance12.now() - started),
+        durationMs: Math.round(performance13.now() - started),
         code,
         errorName: error instanceof Error ? error.name : "Error"
       });
@@ -19371,7 +19372,7 @@ var init_qt_native_broker = __esm({
 import { execFile as execFile2 } from "node:child_process";
 import { createHash as createHash16 } from "node:crypto";
 import { win32 as win322 } from "node:path";
-import { performance as performance13 } from "node:perf_hooks";
+import { performance as performance14 } from "node:perf_hooks";
 function parseNativeDesktopStatus(value, marker, options) {
   const status = statusSchema.parse(value), profile = options.profile;
   if (status.loaderBuildIdentity !== options.package.manifest.buildIdentity || status.desktop !== marker.name || status.pid !== (marker.pid ?? 0) || status.windows.some((window) => window.pid !== marker.pid) || !status.reachable && status.windows.length) throw failure2("Native status returned a different ownership binding.", "native-binding");
@@ -19455,14 +19456,14 @@ async function readNativeStatus(marker, options) {
   });
 }
 async function executeNativeDesktopStatus(options) {
-  const start = performance13.now();
+  const start = performance14.now();
   try {
     if (options.signal?.aborted) throw failure2("Native status cancelled before launch.", "aborted");
     if (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > 6e4)
       throw failure2("Invalid native status deadline.", "native-deadline");
     const readMarker = options.readMarker ?? (() => readDesktopMarker(desktopMarkerPath()));
     const marker = readMarker();
-    const remaining = Math.floor(options.timeoutMs - (performance13.now() - start));
+    const remaining = Math.floor(options.timeoutMs - (performance14.now() - start));
     if (remaining < 1) throw failure2("Native status deadline exceeded before launch.", "native-timeout");
     const result = marker ? await readNativeStatus(marker, { ...options, timeoutMs: remaining }) : {
       ok: true,
@@ -19479,14 +19480,14 @@ async function executeNativeDesktopStatus(options) {
     };
     if (options.signal?.aborted) throw failure2("Native status cancelled.", "aborted");
     if (JSON.stringify(readMarker()) !== JSON.stringify(marker)) throw failure2("Desktop ownership changed during native status.", "native-binding");
-    return { ...result, ms: performance13.now() - start };
+    return { ...result, ms: performance14.now() - start };
   } catch (error) {
     return {
       ok: false,
       backend: "win32",
       kind: error instanceof QtNativeTransportError || error instanceof DesktopMarkerError ? error.kind : "native-contract",
       error: error instanceof QtNativeTransportError || error instanceof DesktopMarkerError ? error.message : "Native desktop status failed.",
-      ms: performance13.now() - start
+      ms: performance14.now() - start
     };
   }
 }
@@ -19535,7 +19536,7 @@ import { execFile as execFile3 } from "node:child_process";
 import { createHash as createHash17 } from "node:crypto";
 import { statSync as statSync6 } from "node:fs";
 import { win32 as win323 } from "node:path";
-import { performance as performance14 } from "node:perf_hooks";
+import { performance as performance15 } from "node:perf_hooks";
 function localPath(value) {
   const path = win323.normalize(value);
   if (!/^[A-Za-z]:\\/u.test(path) || /["\u0000-\u001f]/u.test(path) || path.length > 32767)
@@ -19616,7 +19617,7 @@ function parseNativeDesktopStart(value, prepared, options) {
   };
 }
 async function executeNativeDesktopStart(options) {
-  const started = performance14.now();
+  const started = performance15.now();
   try {
     if (options.signal?.aborted) throw failure3("aborted", "Desktop start cancelled before launch.");
     if (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 6500 || options.timeoutMs > 12e4)
@@ -19624,7 +19625,7 @@ async function executeNativeDesktopStart(options) {
     const prepared = prepareNativeDesktopStart(options), markerPath = desktopMarkerPath();
     const marker = readDesktopMarker(markerPath);
     if (marker && marker.owner !== "sse") throw failure3("desktop-marker-owner", "Desktop belongs to a different controller.");
-    const remaining = Math.floor(options.timeoutMs - (performance14.now() - started));
+    const remaining = Math.floor(options.timeoutMs - (performance15.now() - started));
     if (remaining < 6500) throw failure3("native-deadline", "Not enough time remains for startup and verified cleanup.");
     const request = {
       mode: "desktop-start",
@@ -19701,7 +19702,7 @@ async function executeNativeDesktopStart(options) {
       });
       child.stdin?.end(body);
     });
-    return { ...result, ms: performance14.now() - started };
+    return { ...result, ms: performance15.now() - started };
   } catch (error) {
     return {
       ok: false,
@@ -19709,7 +19710,7 @@ async function executeNativeDesktopStart(options) {
       kind: error instanceof QtNativeTransportError || error instanceof DesktopMarkerError ? error.kind : "native-contract",
       error: error instanceof Error ? error.message : "Native desktop start failed.",
       outcomeUnknown: error instanceof QtNativeTransportError && error.outcomeUnknown,
-      ms: performance14.now() - started
+      ms: performance15.now() - started
     };
   }
 }
@@ -19769,7 +19770,7 @@ var init_native_desktop_start = __esm({
 
 // src/native-desktop-stop.ts
 import { execFile as execFile4 } from "node:child_process";
-import { performance as performance15 } from "node:perf_hooks";
+import { performance as performance16 } from "node:perf_hooks";
 import { win32 as win324 } from "node:path";
 function parseNativeDesktopStop(value, marker, options) {
   const result = resultSchema2.parse(value);
@@ -19786,7 +19787,7 @@ function parseNativeDesktopStop(value, marker, options) {
   };
 }
 async function executeNativeDesktopStop(options) {
-  const started = performance15.now();
+  const started = performance16.now();
   try {
     if (options.signal?.aborted) throw failure4("aborted", "Desktop stop cancelled before submission.");
     if (options.args.save === true && options.args.discardChanges === true) throw failure4("bad-args", "Save and discard cannot both be requested.");
@@ -19797,7 +19798,7 @@ async function executeNativeDesktopStop(options) {
     if (!marker?.pid || marker.owner !== "sse") throw failure4("ownership", "A valid owned SSE desktop marker with PID is required.");
     const image = win324.normalize(options.executable);
     if (!/^[A-Za-z]:\\/u.test(image) || /["\u0000-\u001f]/u.test(image)) throw failure4("bad-args", "An absolute configured executable is required.");
-    const remaining = Math.floor(options.timeoutMs - (performance15.now() - started));
+    const remaining = Math.floor(options.timeoutMs - (performance16.now() - started));
     if (remaining < 11500) throw failure4("native-deadline", "Insufficient time remains for close ownership checks.");
     const request = {
       mode: "desktop-stop",
@@ -19836,7 +19837,7 @@ async function executeNativeDesktopStop(options) {
       });
       child.stdin?.end(JSON.stringify(request));
     });
-    return { ...result, ms: performance15.now() - started };
+    return { ...result, ms: performance16.now() - started };
   } catch (error) {
     return {
       ok: false,
@@ -19844,7 +19845,7 @@ async function executeNativeDesktopStop(options) {
       kind: error instanceof QtNativeTransportError || error instanceof DesktopMarkerError ? error.kind : "native-contract",
       error: error instanceof Error ? error.message : "Native desktop stop failed.",
       outcomeUnknown: error instanceof QtNativeTransportError && error.outcomeUnknown,
-      ms: performance15.now() - started
+      ms: performance16.now() - started
     };
   }
 }
@@ -19984,7 +19985,7 @@ var init_qt_native_discovery = __esm({
 });
 
 // src/qt-native-runtime.ts
-import { performance as performance16 } from "node:perf_hooks";
+import { performance as performance17 } from "node:perf_hooks";
 function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
   if (!config.qtNativeRuntime) throw new Error("Native runtime configuration is required.");
   const nativePackage = (dependencies.loadPackage ?? loadQtNativePackage)(config.qtNativeRuntime, profile);
@@ -20006,7 +20007,7 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
   let stopped = false, revision = 0;
   const failure6 = (message, kind, outcomeUnknown = false) => new QtNativeTransportError(message, kind, outcomeUnknown);
   const left = (deadline) => {
-    const value = Math.floor(deadline - performance16.now());
+    const value = Math.floor(deadline - performance17.now());
     if (value < 1) throw failure6("Native operation deadline exceeded before dispatch.", "native-timeout");
     return value;
   };
@@ -20115,25 +20116,25 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
   }
   const runtime = {
     async desktopStop(args, timeoutMs, signal) {
-      const deadline = performance16.now() + timeoutMs;
+      const deadline = performance17.now() + timeoutMs;
       await clear();
       return withCombinedAbortSignal([signal, shutdown], (combined) => executeNativeDesktopStop({
         package: nativePackage,
         executable: executable[0],
         args,
-        timeoutMs: Math.max(0, Math.floor(deadline - performance16.now())),
+        timeoutMs: Math.max(0, Math.floor(deadline - performance17.now())),
         signal: combined
       }));
     },
     async desktopStart(args, timeoutMs, signal) {
-      const deadline = performance16.now() + timeoutMs;
+      const deadline = performance17.now() + timeoutMs;
       await clear();
       return withCombinedAbortSignal([signal, shutdown], (combined) => executeNativeDesktopStart({
         package: nativePackage,
         profile,
         executable: executable[0],
         args,
-        timeoutMs: Math.max(0, Math.floor(deadline - performance16.now())),
+        timeoutMs: Math.max(0, Math.floor(deadline - performance17.now())),
         signal: combined
       }));
     },
@@ -20146,7 +20147,7 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
       }));
     },
     async client(args, timeoutMs, signal) {
-      const deadline = performance16.now() + timeoutMs;
+      const deadline = performance17.now() + timeoutMs;
       return withCombinedAbortSignal([signal, shutdown], async (combined) => {
         const session = await obtain(args, deadline, combined);
         const checked = await session.client.request("window_context", {}, left(deadline), combined);

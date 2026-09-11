@@ -67,13 +67,13 @@ try {
       if (operation === "launch_probe") {
         probeCalls += 1;
         assert.deepEqual(Object.keys(args).sort(),
-          ["deadlineUnixMs", "hasCase", "pid", "planKind", "schemaVersion"].sort());
+          ["budgetMs", "hasCase", "pid", "planKind", "schemaVersion"].sort());
         assert.equal(args.schemaVersion, 1);
         assert.equal(args.planKind, "launch-readiness");
         assert.equal(args.pid, pid, "Startprobe muss vor jedem Readback PID-begrenzt sein");
         assert.equal(args.hasCase, false);
-        assert(args.deadlineUnixMs > Date.now());
-        assert(timeoutMs <= 30_000 && timeoutMs >= 29_000, "Workerfrist muss die absolute Startfrist fortsetzen");
+        assert(args.budgetMs <= 30_000 && args.budgetMs >= 29_000);
+        assert(timeoutMs <= 30_000 && timeoutMs >= 29_000, "Workerfrist muss das monotone Restbudget fortsetzen");
         return probeCalls === 1
           ? {
               ok: true,
@@ -360,13 +360,13 @@ try {
 
   {
     // Der private Worker-Vertrag bleibt streng typisiert und laeuft bei einer
-    // bereits erreichten absoluten Deadline garantiert ohne UI-Poll sofort aus.
+    // auf die Sicherheitsreserve reduzierten Frist garantiert ohne UI-Poll sofort aus.
     const result = directWorker("launch_probe", {
       schemaVersion: 1,
       planKind: "launch-readiness",
       pid: 2147483647,
       hasCase: true,
-      deadlineUnixMs: Date.now() - 1,
+      budgetMs: 1_000,
     }, { SSE_PROFILE_ID: "2024", SSE_OPERATE_EXPERIMENTAL: "1" });
     assert.equal(result.ok, true);
     assert.equal(result.outcome, "deadline");
