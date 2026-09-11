@@ -7,7 +7,7 @@ if ($errors.Count) { throw 'Worker AST could not be parsed' }
 . (Join-Path $PSScriptRoot '..\powershell\structure-binding.ps1')
 # Differential oracle: execute the actual worker's projection bodies against supplied observations.
 # Only the OS observation boundaries are supplied by the fixture; no product branch is copied.
-foreach ($name in @('Get-ContentBounds','Get-SSEHeading','ConvertTo-Vergleichsform','Test-Versand')) {
+foreach ($name in @('Get-ContentBounds','Get-SSEHeading','ConvertTo-Vergleichsform','Test-Versand','Get-SSETextSha256')) {
     $definitions = @($ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true))
     if ($definitions.Count -ne 1) { throw "Ambiguous worker function $name" }
     $definition = $definitions[0].Extent.Text
@@ -55,4 +55,11 @@ foreach ($case in $inputData.wildcards) {
     try { $wildcards += [pscustomobject]@{ match = [bool]($case.text -like $case.pattern) } }
     catch { $wildcards += [pscustomobject]@{ invalid = $true } }
 }
-[IO.File]::WriteAllText($OutputPath, (ConvertTo-Json -InputObject @{ results=$results; wildcards=$wildcards } -Depth 20), [Text.UTF8Encoding]::new($false))
+$receiptFingerprintJson = $inputData.receiptFingerprintValue | ConvertTo-Json -Depth 4 -Compress
+$receiptFingerprint = Get-SSETextSha256 $receiptFingerprintJson
+[IO.File]::WriteAllText($OutputPath, (ConvertTo-Json -InputObject @{
+    results=$results
+    wildcards=$wildcards
+    receiptFingerprintJson=$receiptFingerprintJson
+    receiptFingerprint=$receiptFingerprint
+  } -Depth 20), [Text.UTF8Encoding]::new($false))

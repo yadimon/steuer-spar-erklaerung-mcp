@@ -102,8 +102,8 @@ function assertOnlyKnownRuntimeDrift(current, swapped) {
     ["Files", "LastWorkDir"],
     ["License", "LastCheck"],
     // Qt persistiert die normale Hauptfenster-Geometrie beim Schliessen. Ein
-    // Wechsel von VM-Aufloesung/DPI darf die private DataDir-Restauration
-    // nicht blockieren; andere MainWindowPos-Schluessel bleiben gesperrt.
+    // Wechsel von Aufloesung/DPI darf die private DataDir-Restauration nicht
+    // blockieren; Darstellungsoptionen und andere Schluessel bleiben gesperrt.
     ["MainWindowPos", "H"],
     ["MainWindowPos", "MinMax"],
     ["MainWindowPos", "W"],
@@ -119,8 +119,6 @@ function assertOnlyKnownRuntimeDrift(current, swapped) {
     ["WerteInfoPos", "W"],
     ["WerteInfoPos", "X"],
     ["WerteInfoPos", "Y"],
-    ["WerteInfo", "ShowGrid"],
-    ["WerteInfo", "ShowToolbar"],
   ];
   const normalized = allowedRuntimeFields.reduce((text, [sectionName, keyName]) => {
     const swappedLine = optionalSectionKeyLine(swappedText, sectionName, keyName);

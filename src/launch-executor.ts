@@ -8,6 +8,8 @@ const MINIMUM_LAUNCH_TIMEOUT_MS = 30_000;
 // VMs ausdruecklich 280 Sekunden. Eine Obergrenze darunter haette diesen Wert
 // stillschweigend gekappt und den dokumentierten Weg unerreichbar gemacht.
 const MAXIMUM_LAUNCH_TIMEOUT_MS = 300_000;
+const LAUNCH_PROBE_HANDOVER_ALLOWANCE_MS = 1_000;
+const MAXIMUM_LAUNCH_PROBE_HANDOVER_RETRIES = 3;
 
 /**
  * SteuerSparErklaerung haengt nach einem unsauberen Ende `(Wiederhergestellt)`
@@ -109,6 +111,7 @@ export async function executeLaunchOperation(
 
   let lastProbeError: string | undefined;
   let probeFailures = 0;
+  let probeHandoverRetries = 0;
   let lastStartupPrompts: Record<string, unknown>[] = [];
   try {
     if (signal?.aborted) {
@@ -130,13 +133,13 @@ export async function executeLaunchOperation(
     let observed: WorkerResult = { ok: true, outcome: "deadline", windows: [], dialogs: [] };
     while (performance.now() < deadline) {
       const remainingMs = deadline - performance.now();
-      if (remainingMs < 1_000) break;
+      if (remainingMs < 2_000) break;
       const launchProbePlan = {
         schemaVersion: 1,
         planKind: "launch-readiness",
         pid,
         hasCase: typeof args.file === "string" && args.file.length > 0,
-        budgetMs: Math.floor(remainingMs),
+        budgetMs: Math.floor(remainingMs - LAUNCH_PROBE_HANDOVER_ALLOWANCE_MS),
       } satisfies LaunchProbePlan;
       // launch_probe ist ein privater Worker-Vertrag und deshalb bewusst kein
       // SseApiOperation. Der Cast bleibt an genau dieser internen Grenze.
@@ -157,12 +160,15 @@ export async function executeLaunchOperation(
           observed.retryable === true && observed.waited === false &&
           observed.mutationStarted === false && observed.resultingState === "unchanged" &&
           observed.cleanupRequired === false;
-        if ((observed.kind === "worker-isolation-lost" || retryableControllerHandover) && !signal?.aborted) {
+        if ((observed.kind === "worker-isolation-lost" || retryableControllerHandover) && !signal?.aborted
+          && probeHandoverRetries < MAXIMUM_LAUNCH_PROBE_HANDOVER_RETRIES) {
+          probeHandoverRetries += 1;
           await waitForNextProbe();
           continue;
         }
         break;
       }
+      probeHandoverRetries = 0;
       const reportedFailures = Number(observed.probeFailures);
       if (Number.isSafeInteger(reportedFailures) && reportedFailures >= 0) probeFailures += reportedFailures;
       if (typeof observed.lastProbeError === "string" && observed.lastProbeError.length > 0) {

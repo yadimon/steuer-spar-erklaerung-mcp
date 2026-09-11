@@ -42,8 +42,7 @@ try {
     .replace("Size4=200", "Size4=93")
     .replace("W=600", "W=1024")
     .replace("X=10", "X=120")
-    .replace("Y=20", "Y=80") +
-    "[WerteInfo]\r\nShowGrid=0\r\nShowToolbar=1\r\n");
+    .replace("Y=20", "Y=80"));
   writeFileSync(iniPath, readFileSync(iniPath, "utf8").replace(
     "LastCheck=2026-08-28",
     "LastCheck=2026-08-29",
@@ -83,12 +82,12 @@ try {
   freshRun.restore();
   assert.deepEqual(readFileSync(iniPath), freshOriginal);
 
-  // Ein NEUER Abschnitt ausserhalb der Erlaubnisliste bleibt dagegen
-  // fail-closed: nichts wird ueberschrieben, die Artefakte bleiben liegen.
+  // Darstellungsoptionen ausserhalb der Erlaubnisliste bleiben fail-closed:
+  // nichts wird ueberschrieben, die Artefakte bleiben liegen.
   rmSync(isolatedDataDir, { recursive: true, force: true });
   const guarded = beginBelegManagerConfigIsolation(options);
   writeFileSync(iniPath, readFileSync(iniPath, "utf8") +
-    "[Fremd]\r\nWert=1\r\n");
+    "[WerteInfo]\r\nShowGrid=0\r\nShowToolbar=1\r\n");
   assert.throws(() => guarded.restore(), /driftete ausserhalb der bekannten Laufzeitwerte/u);
   assert.equal(existsSync(join(evidenceRoot, ".api-mega-belegmanager-config-original.bin")), true);
 } finally {

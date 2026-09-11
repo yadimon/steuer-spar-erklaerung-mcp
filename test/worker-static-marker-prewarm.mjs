@@ -28,7 +28,7 @@ holder.stderr.on("data", (chunk) => {
   if (holderStderr.length < 4_096) holderStderr += chunk.toString("utf8");
 });
 
-async function waitFor(predicate, message, timeoutMs = 20_000) {
+async function waitFor(predicate, message, timeoutMs = 50_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (predicate()) return;

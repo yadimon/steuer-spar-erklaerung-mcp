@@ -7,14 +7,16 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { executeQtNativeRead } from "../dist/qt-native-executor.js";
 import { executeQtNativeKnownPageState, executeQtNativePositions } from "../dist/qt-native-pages.js";
+import { canonicalReceiptJson, receiptFingerprint } from "../dist/qt-native-receipts.js";
+import { QtNativeTransportError } from "../dist/qt-native-client.js";
 import { nativeWildcard } from "../dist/qt-native-find.js";
 import { loadProductProfile } from "../dist/product-profiles.js";
 
-export async function pageProjectionOracle(cases, wildcards = []) {
+export async function pageProjectionOracle(cases, wildcards = [], receiptFingerprintValue = {}) {
   const temporary = mkdtempSync(join(tmpdir(), "sse-page-oracle-"));
   try {
     const input = join(temporary, "input.json"), output = join(temporary, "output.json");
-    writeFileSync(input, JSON.stringify({ cases, wildcards }));
+    writeFileSync(input, JSON.stringify({ cases, wildcards, receiptFingerprintValue }));
     const run = spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
       fileURLToPath(new URL("./qt-native-page-oracle.ps1", import.meta.url)), "-InputPath", input, "-OutputPath", output],
     { windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });
@@ -76,7 +78,20 @@ export async function testNativePageProjections() {
     "[", "[]", "`", "a`", "`*", "a`?", "[a`-z]", "[a`]]", "*A`[B`]*", "*?*?*", "[A-Z]", "[ä-ü]"];
   const texts = ["", "a", "A", "b", "z", "!", "^", "-", "[", "]", "*", "a?", "a`", "Ä", "ä", "ö", "ü", "A[B]", "\n", "😀"];
   const wildcards = patterns.flatMap(pattern => texts.map(text => ({ pattern, text })));
-  const oracle = await pageProjectionOracle(cases, wildcards);
+  const receiptFingerprintValue = {
+    title: "Müller & <Sohn>'s",
+    date: "2026-09-11",
+    documentNumber: "A&B",
+    amount: "12,34",
+    vatRate: "19",
+    net: true,
+    note: "Zeile\u2028zwei\u2029<&>'",
+  };
+  const oracle = await pageProjectionOracle(cases, wildcards, receiptFingerprintValue);
+  assert.equal(canonicalReceiptJson(receiptFingerprintValue), oracle.receiptFingerprintJson,
+    "Qt/Node und Windows PowerShell 5.1 muessen dieselben kanonischen JSON-Bytes verwenden");
+  assert.equal(receiptFingerprint(receiptFingerprintValue), oracle.receiptFingerprint,
+    "Qt/Node und Worker muessen identische Belegfingerprints bilden");
   for (const [index, test] of wildcards.entries()) {
     let actual;
     try { actual = { match: nativeWildcard(test.pattern)(test.text) }; } catch { actual = { invalid: true }; }
@@ -212,6 +227,10 @@ export async function testNativePageProjections() {
   }
   const mainNodes = [{ ...knownNodes[0] }, { ...knownNodes[4], i: 1, on: false }];
   const receiptStats = { ...stats, n: receiptNodes.length };
+  const processWindows = [
+    { hwnd: 42, pid: 99, class: "Qt692QWindowIcon", title: "SteuerSparErklärung 2025", minimized: false, hung: false },
+    { hwnd: 84, pid: 99, class: "Qt692QWindowIcon", title: "BelegManager", minimized: false, hung: false },
+  ];
   const receiptClient = { binding: { hwnd: 42, pid: 99 }, request: async (operation, args) => {
     assert.equal(operation, "accessibility_snapshot");
     const tool = args.toolTitle === "BelegManager";
@@ -236,6 +255,10 @@ export async function testNativePageProjections() {
   let actionState = "start";
   const actionClient = { binding: { hwnd: 42, pid: 99 },
     request: async (operation, args) => {
+      if (operation === "window_inventory") {
+        assert.deepEqual(args, {});
+        return { durationMs: 1, result: { ok: true, windows: processWindows } };
+      }
       assert.equal(operation, "accessibility_snapshot");
       const tool = args.toolTitle === "BelegManager";
       const selectedNodes = tool ? (actionState === "start" ? startNodes : receiptNodes) : mainNodes;
@@ -263,7 +286,45 @@ export async function testNativePageProjections() {
   assert.equal(action.physicalInputUsed, false);
   assert.equal(action.foregroundLeaseUsed, false);
   assert.equal(action.verified, true);
+  assert.equal(action.windowSetUnchanged, true);
+  assert.match(action.windowSetFingerprintBefore, /^[A-F0-9]{64}$/u);
+  assert.equal(action.windowSetFingerprintAfter, action.windowSetFingerprintBefore);
   assert.equal(action.clickBinding.method, "qt-accessibility-press");
+  let timeoutMutationDispatched = false;
+  const timeoutActionClient = {
+    binding: { hwnd: 42, pid: 99 },
+    request: async (operation, args) => {
+      if (operation === "window_inventory") {
+        return { durationMs: 1, result: { ok: true, windows: processWindows } };
+      }
+      assert.equal(operation, "accessibility_snapshot");
+      const tool = args.toolTitle === "BelegManager";
+      if (tool && timeoutMutationDispatched) {
+        throw new QtNativeTransportError("Synthetic postcondition timeout.", "native-timeout", true);
+      }
+      const selectedNodes = tool ? startNodes : mainNodes;
+      return { durationMs: 2, result: { ok: true, controllerBound: true, scope: "qt-accessibility-content",
+        hwnd: tool ? 84 : 42, windowRect: { x: 0, y: 0, w: 1000, h: 600 }, windowEnabled: true,
+        modalBlocked: false, exactMatches: {}, nodes: selectedNodes,
+        stats: { ...stats, n: selectedNodes.length } } };
+    },
+    requestAcknowledged: async () => {
+      timeoutMutationDispatched = true;
+      return { durationMs: 3, mutationAckMs: 1, receiptAcknowledged: true,
+        result: { ok: true, mutationAttempted: true } };
+    },
+  };
+  const timedOutAction = await executeQtNativeRead("receipt_manager_action", { actionId: "showAllReceipts" },
+    { qtNativeClient: timeoutActionClient }, 5000, undefined, loadProductProfile("2025"));
+  assert.equal(timedOutAction.ok, false, JSON.stringify(timedOutAction));
+  assert.equal(timedOutAction.kind, "native-timeout");
+  assert.equal(timedOutAction.outcomeUnknown, true);
+  assert.equal(timedOutAction.mutationStarted, true);
+  assert.equal(timedOutAction.cleanupRequired, true);
+  assert.equal(timedOutAction.resultingState, "unknown");
+  assert.equal(timedOutAction.verified, false);
+  assert.match(timedOutAction.error, /Do not replay/u);
+  assert.equal(timedOutAction.clickBinding.method, "qt-accessibility-press");
   const receipts = await executeQtNativeRead("receipt_manager_list", { filter: { draft: true }, limit: 1 },
     { qtNativeClient: receiptClient }, 5000, undefined, loadProductProfile("2025"));
   assert.equal(receipts.ok, true, JSON.stringify(receipts));
@@ -306,6 +367,10 @@ export async function testNativePageProjections() {
   const detailActions = [];
   const detailClient = { binding: { hwnd: 42, pid: 99 },
     request: async (operation, args) => {
+      if (operation === "window_inventory") {
+        assert.deepEqual(args, {});
+        return { durationMs: 1, result: { ok: true, windows: processWindows } };
+      }
       assert.equal(operation, "accessibility_snapshot");
       const tool = args.toolTitle === "BelegManager";
       if (tool && args.aidContains) assert.deepEqual(args.aidContains, [".widget_detailPanel."]);

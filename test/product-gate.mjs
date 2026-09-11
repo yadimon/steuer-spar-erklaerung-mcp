@@ -587,7 +587,8 @@ try {
     launchExecutorSource.includes('await (worker as LaunchWorkerExecutor)("launch_probe"') &&
     launchExecutorSource.includes('planKind: "launch-readiness"') &&
     launchExecutorSource.includes("performance.now()") &&
-    launchExecutorSource.includes("budgetMs: Math.floor(remainingMs)") &&
+    launchExecutorSource.includes("budgetMs: Math.floor(remainingMs - LAUNCH_PROBE_HANDOVER_ALLOWANCE_MS)") &&
+    launchExecutorSource.includes("probeHandoverRetries < MAXIMUM_LAUNCH_PROBE_HANDOVER_RETRIES") &&
     launchExecutorSource.includes('bindingMode: "launch-window"') &&
     launchExecutorSource.includes("cleanupStartedProcess") &&
     serverSource.includes("instance: r.instance, ready: r.ready") &&

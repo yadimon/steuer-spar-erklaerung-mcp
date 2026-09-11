@@ -8,7 +8,9 @@ import type { ProductProfile } from "./product-profiles.js";
 import { executeQtNativeKnownPageState, executeQtNativePositions, executeQtNativeReadPage, executeQtNativeSubpages } from "./qt-native-pages.js";
 import { executeQtNativeFind } from "./qt-native-find.js";
 import { executeQtNativeUstvaRead } from "./qt-native-ustva.js";
-import { executeQtNativeReceiptManagerAction, executeQtNativeReceiptManagerList, executeQtNativeReceiptManagerRead } from "./qt-native-receipts.js";
+import { executeQtNativeReceiptManagerRead } from "./qt-native-receipt-read.js";
+import { executeQtNativeReceiptManagerAction } from "./qt-native-receipt-action.js";
+import { executeQtNativeReceiptManagerList } from "./qt-native-receipts.js";
 
 export const QT_NATIVE_READ_OPERATIONS = [
   "get_value", "table_read", "snapshot", "find", "read_page", "subpages", "known_page_state", "positions", "ustva_read", "receipt_manager_list", "receipt_manager_read", "receipt_manager_action",
