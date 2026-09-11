@@ -12716,6 +12716,7 @@ async function readQtNativeSnapshot(client, args, timeoutMs, signal) {
   const read = await client.request("accessibility_snapshot", {
     maxNodes,
     ...typeof args.toolTitle === "string" ? { toolTitle: args.toolTitle } : {},
+    ...typeof args.allowedModalTitle === "string" ? { allowedModalTitle: args.allowedModalTitle } : {},
     ...args.withValues === false ? { withValues: false } : {},
     ...args.equalitySelectors ? { equalitySelectors: args.equalitySelectors } : {}
   }, timeoutMs, signal);
@@ -13362,7 +13363,11 @@ async function executeQtNativeReceiptManagerList(client, args, timeoutMs, signal
   if (list.error) return list.error;
   const remaining = Math.floor(timeoutMs - (performance.now() - started));
   if (remaining < 1) return fail5("native-timeout", "Native receipt read deadline expired before dirty-state verification.");
-  const main2 = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 5e3 }, remaining, signal);
+  const main2 = await readQtNativeSnapshot(client, {
+    hwnd: args.hwnd,
+    maxNodes: 5e3,
+    allowedModalTitle: parsedPolicy.data.title
+  }, remaining, signal);
   if (!main2.windowEnabled || main2.modalBlocked || main2.stats.truncated) {
     return fail5("window-obstructed", "The bound main window cannot provide a complete dirty-state readback.");
   }
