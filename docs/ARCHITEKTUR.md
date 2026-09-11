@@ -661,6 +661,9 @@ Qt-GUI-Thread, liest die katalogisierten Detailfelder aus einer begrenzten
 Accessibility-Projektion und schließt die Detailansicht quittiert. Vor und nach
 der Transaktion müssen Dirty-State, Fenstersatz und das fachliche Zeilen-Multiset
 unverändert sein; Maus, Tastatur und Vordergrund-Lease werden nicht verwendet.
+Der Detailfingerprint wird backend-unabhängig aus den sieben kanonisch gelesenen,
+katalogisierten Detailwerten gebildet und bleibt dadurch zwischen Qt-Lesung und
+den noch workerbasierten Folgeoperationen exakt vergleichbar.
 `receipt_manager_update` verlangt zusätzlich den frischen Detailfingerprint
 und `acknowledgeUpdate=true`. Ein Aufruf kann Titel, Datum, Belegnummer,
 Betrag, Umsatzsteuersatz, Netto-Kennzeichen und Notiz gemeinsam setzen. Er

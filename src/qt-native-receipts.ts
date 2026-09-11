@@ -295,6 +295,19 @@ function detailIdentityMatches(values: Record<string, unknown> | null, row: Rece
     && (!row.documentNumber || values.documentNumber === row.documentNumber));
 }
 
+function detailBindingFingerprint(values: Record<string, unknown> | null) {
+  if (!values) return null;
+  return sha256({
+    title: String(values.title),
+    date: String(values.date),
+    documentNumber: String(values.documentNumber),
+    amount: String(values.amount),
+    vatRate: String(values.vatRate),
+    net: Boolean(values.net),
+    note: String(values.note),
+  });
+}
+
 /** Read the nonmodal receipt list from the in-process Qt accessibility tree. */
 export async function executeQtNativeReceiptManagerList(
   client: QtNativeClient,
@@ -462,7 +475,7 @@ export async function executeQtNativeReceiptManagerRead(
     } while (performance.now() < openDeadline && remaining() > 0);
   }
 
-  const detailFingerprint = fields.length ? sha256(fields) : null;
+  const detailFingerprint = editable.complete ? detailBindingFingerprint(editable.values) : null;
   const closeTargets = exactDetailClose(detail.nodes, policy);
   let closeBinding: Record<string, unknown> | null = null;
   let listAfter: ReceiptListProjection | null = null;

@@ -13438,6 +13438,18 @@ function exactDetailClose(nodes, policy) {
 function detailIdentityMatches(values, row, policy) {
   return Boolean(values && values.title === receiptDetailTitle(row, policy) && (!row.documentNumber || values.documentNumber === row.documentNumber));
 }
+function detailBindingFingerprint(values) {
+  if (!values) return null;
+  return sha256({
+    title: String(values.title),
+    date: String(values.date),
+    documentNumber: String(values.documentNumber),
+    amount: String(values.amount),
+    vatRate: String(values.vatRate),
+    net: Boolean(values.net),
+    note: String(values.note)
+  });
+}
 async function executeQtNativeReceiptManagerList(client, args, timeoutMs, signal, profile) {
   const parsedPolicy = receiptPolicySchema.safeParse(profile?.pageObjectsCatalog.windows.receiptManager);
   if (!parsedPolicy.success) return fail5("invalid-catalog", "The active profile has no complete receipt-manager read policy.");
@@ -13595,7 +13607,7 @@ async function executeQtNativeReceiptManagerRead(client, args, timeoutMs, signal
       if (fields.length && identityMatches && exactDetailClose(detail.nodes, policy).length === 1) break;
     } while (performance.now() < openDeadline && remaining() > 0);
   }
-  const detailFingerprint = fields.length ? sha256(fields) : null;
+  const detailFingerprint = editable.complete ? detailBindingFingerprint(editable.values) : null;
   const closeTargets = exactDetailClose(detail.nodes, policy);
   let closeBinding = null;
   let listAfter = null;
