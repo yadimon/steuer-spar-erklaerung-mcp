@@ -152,7 +152,16 @@ assert.equal(coldResult.workerInitializationMs.staticProfileCacheMs, undefined);
 const staticMarkerOutput = execFileSync(
   process.execPath,
   [join(root, "test", "worker-static-marker-prewarm.mjs")],
-  { cwd: root, encoding: "utf8", windowsHide: true, timeout: 90_000 },
+  {
+    cwd: root,
+    encoding: "utf8",
+    windowsHide: true,
+    timeout: 180_000,
+    // This subtest validates routing, not the separate startup-timeout path.
+    // Parallel Windows suites can make PowerShell startup exceed its 15 s
+    // production default, so give the isolated fixture its own bounded budget.
+    env: { ...process.env, SSE_WORKER_PREWARM_STARTUP_TIMEOUT_MS: "45000" },
+  },
 );
 assert.match(staticMarkerOutput, /gueltiger Privatdesktop-Marker nutzt den Warm-Pool/u);
 
@@ -318,6 +327,22 @@ async function waitFor(predicate, message, timeoutMs = 10_000) {
     await delay(10);
   }
   assert.fail(message);
+}
+
+async function removeSandboxAfterExecutableUnlock(path, timeoutMs = 30_000) {
+  const deadline = performance.now() + timeoutMs;
+  let lastError;
+  do {
+    try {
+      rmSync(path, { recursive: true, force: true, maxRetries: 2, retryDelay: 100 });
+      return;
+    } catch (error) {
+      if (!error || typeof error !== "object" || !["EBUSY", "ENOTEMPTY", "EPERM"].includes(error.code)) throw error;
+      lastError = error;
+      await delay(250);
+    }
+  } while (performance.now() < deadline);
+  throw lastError;
 }
 
 function assignedFixturePids(statePath) {
@@ -552,7 +577,10 @@ try {
   }
   assert.equal(dirname(resolve(sandbox)).toLowerCase(), resolve(tmpdir()).toLowerCase());
   assert.match(basename(sandbox), /^sse-prewarm-startup-timeout-[a-z0-9]+$/iu);
-  rmSync(sandbox, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  // Windows can keep the freshly executed fixture image mapped for several
+  // seconds after process exit (notably under VM antivirus scanning). Process
+  // identity and exit are already proven above; wait only for that OS handle.
+  await removeSandboxAfterExecutableUnlock(sandbox);
 }
 
 process.stdout.write(

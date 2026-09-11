@@ -6820,7 +6820,7 @@ var init_version = __esm({
     "use strict";
     SSE_PACKAGE_NAME = "steuer-spar-erklaerung-mcp";
     SSE_API_PACKAGE_NAME = "@yadimon/steuer-spar-erklaerung-api";
-    SSE_PACKAGE_VERSION = "0.1.0-beta.45";
+    SSE_PACKAGE_VERSION = "0.1.0-beta.46";
   }
 });
 
@@ -7930,8 +7930,8 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
       expectedPath: target.path,
       waitMs: 15e3
     });
-    const sha2563 = String(saved.sha256 ?? "");
-    if (saved.mode !== "save-new" || saved.verified !== true || !/^[A-F0-9]{64}$/iu.test(sha2563)) {
+    const sha2562 = String(saved.sha256 ?? "");
+    if (saved.mode !== "save-new" || saved.verified !== true || !/^[A-F0-9]{64}$/iu.test(sha2562)) {
       throw new StepFailure(operationError("Der Speicherdialog schloss ohne verifizierten save-new-Readback.", "postcondition-failed"));
     }
     const readback = await step("instances", { includeHash: true });
@@ -7941,14 +7941,14 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
     }
     const instanceHash = typeof bound.caseSha256 === "string" ? bound.caseSha256.toUpperCase() : null;
     const diskHash = instanceHash ?? createHash2("sha256").update(readFileSync(target.path)).digest("hex").toUpperCase();
-    if (diskHash !== sha2563.toUpperCase()) {
+    if (diskHash !== sha2562.toUpperCase()) {
       throw new StepFailure(operationError("Der Dateihash nach dem Speichern weicht vom Dialog-Readback ab.", "postcondition-failed"));
     }
     return {
       ok: true,
       created: true,
       caseRef: target.ref || target.path,
-      sha256: sha2563.toUpperCase(),
+      sha256: sha2562.toUpperCase(),
       pid: pid2,
       hwnd: Number(bound.hwnd),
       caseHashSource: instanceHash ? "instances" : "local-file",
@@ -8065,6 +8065,7 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
   };
   let lastProbeError;
   let probeFailures = 0;
+  let probeHandoverRetries = 0;
   let lastStartupPrompts = [];
   try {
     if (signal?.aborted) {
@@ -8083,25 +8084,27 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
     let observed = { ok: true, outcome: "deadline", windows: [], dialogs: [] };
     while (performance2.now() < deadline) {
       const remainingMs = deadline - performance2.now();
-      if (remainingMs < 1e3) break;
+      if (remainingMs < 2e3) break;
       const launchProbePlan = {
         schemaVersion: 1,
         planKind: "launch-readiness",
         pid: pid2,
         hasCase: typeof args.file === "string" && args.file.length > 0,
-        budgetMs: Math.floor(remainingMs)
+        budgetMs: Math.floor(remainingMs - LAUNCH_PROBE_HANDOVER_ALLOWANCE_MS)
       };
       observed = await worker("launch_probe", launchProbePlan, remainingMs, signal);
       if (observed.ok === false) {
         lastProbeError = `launch_probe: ${String(observed.error ?? observed.kind ?? "Startinventur fehlgeschlagen.")}`;
         probeFailures += 1;
         const retryableControllerHandover = observed.kind === "busy" && observed.reason === "session-controller-busy" && observed.retryable === true && observed.waited === false && observed.mutationStarted === false && observed.resultingState === "unchanged" && observed.cleanupRequired === false;
-        if ((observed.kind === "worker-isolation-lost" || retryableControllerHandover) && !signal?.aborted) {
+        if ((observed.kind === "worker-isolation-lost" || retryableControllerHandover) && !signal?.aborted && probeHandoverRetries < MAXIMUM_LAUNCH_PROBE_HANDOVER_RETRIES) {
+          probeHandoverRetries += 1;
           await waitForNextProbe();
           continue;
         }
         break;
       }
+      probeHandoverRetries = 0;
       const reportedFailures = Number(observed.probeFailures);
       if (Number.isSafeInteger(reportedFailures) && reportedFailures >= 0) probeFailures += reportedFailures;
       if (typeof observed.lastProbeError === "string" && observed.lastProbeError.length > 0) {
@@ -8225,7 +8228,7 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
 function waitForNextProbe() {
   return new Promise((resolve17) => setTimeout(resolve17, 250));
 }
-var MINIMUM_LAUNCH_TIMEOUT_MS, MAXIMUM_LAUNCH_TIMEOUT_MS, RECOVERED_STATE_TITLE, MIN_MAIN_WINDOW_WIDTH;
+var MINIMUM_LAUNCH_TIMEOUT_MS, MAXIMUM_LAUNCH_TIMEOUT_MS, LAUNCH_PROBE_HANDOVER_ALLOWANCE_MS, MAXIMUM_LAUNCH_PROBE_HANDOVER_RETRIES, RECOVERED_STATE_TITLE, MIN_MAIN_WINDOW_WIDTH;
 var init_launch_executor = __esm({
   "src/launch-executor.ts"() {
     "use strict";
@@ -8233,6 +8236,8 @@ var init_launch_executor = __esm({
     init_executor_errors();
     MINIMUM_LAUNCH_TIMEOUT_MS = 3e4;
     MAXIMUM_LAUNCH_TIMEOUT_MS = 3e5;
+    LAUNCH_PROBE_HANDOVER_ALLOWANCE_MS = 1e3;
+    MAXIMUM_LAUNCH_PROBE_HANDOVER_RETRIES = 3;
     RECOVERED_STATE_TITLE = /\(Wiederhergestellt\)/iu;
     MIN_MAIN_WINDOW_WIDTH = 900;
   }
@@ -9466,7 +9471,7 @@ function* walkWorkspaceFiles(root, ref, limit, includeHashes, maxDirectories, ma
           return;
         }
         const mayHash = includeHashes && bytes <= hashBudget.remaining;
-        const sha2563 = mayHash ? yield* hashFile(file, bytes, hashBudget) : null;
+        const sha2562 = mayHash ? yield* hashFile(file, bytes, hashBudget) : null;
         if (realpathSync3(path) !== file) {
           throw new Error("Dateireferenz wurde waehrend der Auflistung ausgetauscht.");
         }
@@ -9475,8 +9480,8 @@ function* walkWorkspaceFiles(root, ref, limit, includeHashes, maxDirectories, ma
           file: {
             ref: relative3(realRoot, file).replaceAll("\\", "/"),
             bytes,
-            sha256: sha2563,
-            ...sha2563 === null ? { hashOmitted: true } : {}
+            sha256: sha2562,
+            ...sha2562 === null ? { hashOmitted: true } : {}
           }
         };
       } catch (error) {
@@ -9635,8 +9640,8 @@ function capture(result, paths) {
 }
 function recordedError(error) {
   if (error.length <= MAX_RECORDED_ERROR_CHARS) return error;
-  const sha2563 = createHash4("sha256").update(error).digest("hex");
-  return `${error.slice(0, MAX_RECORDED_ERROR_CHARS)}… [gekuerzt; sha256=${sha2563}]`;
+  const sha2562 = createHash4("sha256").update(error).digest("hex");
+  return `${error.slice(0, MAX_RECORDED_ERROR_CHARS)}… [gekuerzt; sha256=${sha2562}]`;
 }
 function compactStepRecord(record) {
   const compacted = { ...record };
@@ -9794,10 +9799,10 @@ async function executeScenarioStep(step, workspaceDir, priorResults, deadline, s
     }
   };
 }
-function fallbackResultRef(requestedRef, sha2563) {
+function fallbackResultRef(requestedRef, sha2562) {
   const extension = extname(requestedRef);
   const stem = basename4(requestedRef, extension);
-  const fallbackName = `${stem}.conflict-${sha2563}${extension || ".json"}`;
+  const fallbackName = `${stem}.conflict-${sha2562}${extension || ".json"}`;
   const parent = dirname7(requestedRef);
   return (parent === "." ? fallbackName : join6(parent, fallbackName)).replaceAll("\\", "/");
 }
@@ -11827,14 +11832,14 @@ async function caseInventory(directory, profile) {
 async function writeVerifiedManifest(destination, rows, writeManifest) {
   const path = join9(destination, "pruefsummen.csv");
   const content = csvManifest(rows);
-  const sha2563 = createHash11("sha256").update(content).digest("hex").toUpperCase();
+  const sha2562 = createHash11("sha256").update(content).digest("hex").toUpperCase();
   const handle = await open7(path, "wx+");
   const identity = await handle.stat({ bigint: true });
   const manifest = {
     path,
     identity,
     bytes: content.length,
-    sha256: sha2563,
+    sha256: sha2562,
     content,
     complete: false
   };
@@ -11850,7 +11855,7 @@ async function writeVerifiedManifest(destination, rows, writeManifest) {
     return { manifest, handle };
   } catch (error) {
     await handle.close().catch(() => void 0);
-    const removal = manifest.complete ? await removeOwnedFile(path, identity, content.length, sha2563) : await removeOwnedFilePrefix(path, identity, content);
+    const removal = manifest.complete ? await removeOwnedFile(path, identity, content.length, sha2562) : await removeOwnedFilePrefix(path, identity, content);
     if (!removal.removed) {
       throw new LocalFileError("Unvollstaendiges Archivmanifest blieb zur manuellen Klaerung erhalten.", "postcondition-failed");
     }
@@ -13245,7 +13250,14 @@ var init_qt_native_ustva = __esm({
 
 // src/qt-native-receipts.ts
 import { createHash as createHash13 } from "node:crypto";
-import { setTimeout as delay } from "node:timers/promises";
+function canonicalReceiptJson(value) {
+  const serialized = JSON.stringify(value);
+  if (serialized === void 0) throw new TypeError("Receipt fingerprint value is not JSON serializable.");
+  return serialized.replace(
+    /[&<>'\u2028\u2029]/gu,
+    (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`
+  );
+}
 function receiptToolAidSuffixes(policy) {
   return [.../* @__PURE__ */ new Set([
     ...Object.values(policy.states).flatMap((state) => state.requiredAutomationIdSuffixes),
@@ -13286,6 +13298,20 @@ async function receiptDirtyState(client, hwnd, allowedModalTitle, timeoutMs, sig
   if (matches.length !== 1) return { error: fail5("precondition-failed", "The bound main-window dirty state is not unique.") };
   return { dirty: matches[0].on, durationMs: main2.nativeDurationMs };
 }
+async function receiptWindowSet(client, timeoutMs, signal) {
+  const measured = await client.request("window_inventory", {}, timeoutMs, signal);
+  const parsed = processWindowInventorySchema.safeParse(measured.result);
+  if (!parsed.success) return { error: fail5("native-contract", "The process window inventory is incomplete or invalid.") };
+  const windows = parsed.data.windows.map((window) => ({
+    hwnd: window.hwnd,
+    pid: window.pid,
+    cls: window.class,
+    titleFingerprint: receiptTextFingerprint(window.title),
+    minimiert: window.minimized,
+    hung: window.hung
+  }));
+  return { windows, fingerprint: receiptFingerprint(windows), durationMs: measured.durationMs };
+}
 function receiptState(nodes, hwnd, policy) {
   const visible = nodes.filter((node) => node.w > 0 && node.h > 0);
   const requirements = Object.entries(policy.states).map(([name, state2]) => ({
@@ -13314,7 +13340,7 @@ function receiptState(nodes, hwnd, policy) {
     h: node.h
   }));
   const state = matched[0].name;
-  return { state, fingerprint: sha256({ hwnd, state, nodes: stableNodes }) };
+  return { state, fingerprint: receiptFingerprint({ hwnd, state, nodes: stableNodes }) };
 }
 function toggleState(node) {
   if (node.checked === "unbestimmt") return "Indeterminate";
@@ -13367,8 +13393,8 @@ function receiptList(nodes, policy) {
     return {
       index,
       rowRid,
-      rowFingerprint: sha256({ index, rid: rowRid, cells: names }),
-      contentFingerprint: sha256({ primaryText }),
+      rowFingerprint: receiptFingerprint({ index, rid: rowRid, cells: names }),
+      contentFingerprint: receiptFingerprint({ primaryText }),
       primaryText,
       documentNumber,
       cells,
@@ -13376,7 +13402,7 @@ function receiptList(nodes, policy) {
       selected: cells.some((cell) => cell.selected === true)
     };
   });
-  const listFingerprint = sha256({ count, rows: rows.map((row) => row.rowFingerprint) });
+  const listFingerprint = receiptFingerprint({ count, rows: rows.map((row) => row.rowFingerprint) });
   return {
     count,
     countSource: "info-label",
@@ -13442,7 +13468,7 @@ function detailIdentityMatches(values, row, policy) {
 }
 function detailBindingFingerprint(values) {
   if (!values) return null;
-  return sha256({
+  return receiptFingerprint({
     title: String(values.title),
     date: String(values.date),
     documentNumber: String(values.documentNumber),
@@ -13518,267 +13544,7 @@ async function executeQtNativeReceiptManagerList(client, args, timeoutMs, signal
     nativeDurationMs: tool.nativeDurationMs + dirtyState.durationMs
   };
 }
-async function executeQtNativeReceiptManagerRead(client, args, timeoutMs, signal, profile) {
-  const parsedPolicy = receiptPolicySchema.safeParse(profile?.pageObjectsCatalog.windows.receiptManager);
-  if (!parsedPolicy.success) return fail5("invalid-catalog", "The active profile has no complete receipt-manager detail policy.");
-  const rowRid = typeof args.rowRid === "string" ? args.rowRid : "";
-  const rowFingerprint = typeof args.rowFingerprint === "string" ? args.rowFingerprint.toUpperCase() : "";
-  const expectedListFingerprint = typeof args.expectedListFingerprint === "string" ? args.expectedListFingerprint.toUpperCase() : "";
-  const waitMs = args.waitMs === void 0 ? 2500 : Number(args.waitMs);
-  if (!rowRid || !/^[A-F0-9]{64}$/u.test(rowFingerprint) || !/^[A-F0-9]{64}$/u.test(expectedListFingerprint)) {
-    return fail5("bad-args", "rowRid, rowFingerprint and expectedListFingerprint are required.");
-  }
-  if (!Number.isSafeInteger(waitMs) || waitMs < 100 || waitMs > 1e4) {
-    return fail5("bad-args", "waitMs must be an integer from 100 through 10000.");
-  }
-  const policy = parsedPolicy.data;
-  const started = performance.now();
-  const remaining = () => Math.floor(timeoutMs - (performance.now() - started));
-  let nativeDurationMs = 0;
-  const before = await receiptDetailSnapshot(client, policy, remaining(), signal);
-  nativeDurationMs += before.nativeDurationMs;
-  if (!before.windowEnabled || before.modalBlocked || before.stats.truncated) {
-    return fail5("window-obstructed", "The receipt manager is unavailable, obstructed or incomplete.");
-  }
-  const stateBefore = receiptState(before.nodes, before.hwnd, policy);
-  if (stateBefore.error) return stateBefore.error;
-  if (stateBefore.state !== "list") return fail5("precondition-failed", `Receipt detail requires state 'list', current state is '${stateBefore.state}'.`);
-  const listBefore = receiptList(before.nodes, policy);
-  if ("error" in listBefore) return listBefore.error;
-  if (listBefore.listFingerprint !== expectedListFingerprint) {
-    return fail5("stale", "The receipt list changed since receipt_manager_list; no native action was dispatched.");
-  }
-  const boundRows = listBefore.rows.filter((row) => row.rowRid === rowRid && row.rowFingerprint === rowFingerprint);
-  if (boundRows.length !== 1) return fail5("stale", `${boundRows.length} exact bound receipt rows found; no native action was dispatched.`);
-  const rowBefore = boundRows[0];
-  const dirtyBefore = await receiptDirtyState(client, args.hwnd, policy.title, remaining(), signal);
-  if (dirtyBefore.error) return dirtyBefore.error;
-  nativeDurationMs += dirtyBefore.durationMs;
-  const action = async (node, kind, method) => {
-    const reply = await client.requestAcknowledged("accessibility_action", {
-      toolTitle: policy.title,
-      rid: node.rid,
-      aid: node.aid,
-      expectedName: node.name,
-      action: kind
-    }, remaining(), signal);
-    nativeDurationMs += reply.durationMs;
-    return { reply, binding: {
-      method,
-      rid: node.rid,
-      aid: node.aid,
-      name: node.name,
-      receiptAcknowledged: reply.receiptAcknowledged,
-      mutationAckMs: reply.mutationAckMs
-    } };
-  };
-  let detail = before;
-  let fields = receiptDetailFields(detail.nodes);
-  let editable = receiptEditableValues(detail.nodes, policy);
-  let identityMatches = editable.complete && detailIdentityMatches(editable.values, rowBefore, policy) && listBefore.listFingerprint === expectedListFingerprint;
-  let clickBinding = { method: "already-open-detail", clickCount: 0 };
-  let rowVisibilityAttempts = 0;
-  if (!identityMatches) {
-    const targets = rowBefore.cells.filter((cell) => cell.rid === rowBefore.rowRid && cell.name);
-    if (targets.length !== 1) return fail5("stale", `${targets.length} exact native receipt cells found; no action was dispatched.`);
-    const target = before.nodes.filter((node) => node.rid === targets[0].rid && node.aid.endsWith(policy.list.tableAutomationIdSuffix) && node.name === targets[0].name && node.type === "DataItem");
-    if (target.length !== 1) return fail5("stale", `${target.length} live exact native receipt cells found; no action was dispatched.`);
-    const opened = await action(target[0], "activate-table-cell", "qt-table-cell-activate");
-    clickBinding = opened.binding;
-    rowVisibilityAttempts = 1;
-    if (opened.reply.result.ok !== true) {
-      return {
-        ok: false,
-        backend: "qt",
-        kind: String(opened.reply.result.code ?? "native-action"),
-        error: String(opened.reply.result.error ?? "The exact native receipt cell could not be activated; do not replay."),
-        physicalInputUsed: false,
-        foregroundLeaseUsed: false,
-        clickBinding,
-        nativeDurationMs
-      };
-    }
-    const openDeadline = Math.min(started + timeoutMs, performance.now() + waitMs);
-    do {
-      await delay(Math.min(100, Math.max(1, openDeadline - performance.now())));
-      detail = await receiptDetailSnapshot(client, policy, remaining(), signal);
-      nativeDurationMs += detail.nativeDurationMs;
-      fields = receiptDetailFields(detail.nodes);
-      editable = receiptEditableValues(detail.nodes, policy);
-      identityMatches = editable.complete && detailIdentityMatches(editable.values, rowBefore, policy);
-      if (fields.length && identityMatches && exactDetailClose(detail.nodes, policy).length === 1) break;
-    } while (performance.now() < openDeadline && remaining() > 0);
-  }
-  const detailFingerprint = editable.complete ? detailBindingFingerprint(editable.values) : null;
-  const closeTargets = exactDetailClose(detail.nodes, policy);
-  let closeBinding = null;
-  let listAfter = null;
-  let restored = null;
-  if (closeTargets.length === 1) {
-    const closed = await action(closeTargets[0], "press", "qt-accessibility-press");
-    closeBinding = closed.binding;
-    if (closed.reply.result.ok === true) {
-      const restoreDeadline = Math.min(started + timeoutMs, performance.now() + waitMs);
-      const expectedSemanticRows2 = listBefore.rows.map((row) => row.contentFingerprint).sort();
-      do {
-        await delay(Math.min(100, Math.max(1, restoreDeadline - performance.now())));
-        restored = await receiptToolSnapshot(client, policy, remaining(), signal);
-        nativeDurationMs += restored.nativeDurationMs;
-        const candidate = receiptList(restored.nodes, policy);
-        if (!("error" in candidate)) {
-          listAfter = candidate;
-          const actual = candidate.rows.map((row) => row.contentFingerprint).sort();
-          if (candidate.rowsComplete && candidate.count === listBefore.count && JSON.stringify(actual) === JSON.stringify(expectedSemanticRows2)) break;
-        }
-      } while (performance.now() < restoreDeadline && remaining() > 0);
-    }
-  }
-  const dirtyAfter = await receiptDirtyState(client, args.hwnd, policy.title, remaining(), signal);
-  if (dirtyAfter.error) return dirtyAfter.error;
-  nativeDurationMs += dirtyAfter.durationMs;
-  const expectedSemanticRows = listBefore.rows.map((row) => row.contentFingerprint).sort();
-  const actualSemanticRows = listAfter ? listAfter.rows.map((row) => row.contentFingerprint).sort() : [];
-  const exactRowsAfter = listAfter ? listAfter.rows.filter((row) => row.rowRid === rowBefore.rowRid && row.rowFingerprint === rowBefore.rowFingerprint) : [];
-  const semanticRowsAfter = listAfter ? listAfter.rows.filter((row) => sameSemanticRow(row, rowBefore)) : [];
-  const semanticListUnchanged = Boolean(listAfter && listAfter.rowsComplete && listAfter.count === listBefore.count && JSON.stringify(actualSemanticRows) === JSON.stringify(expectedSemanticRows) && semanticRowsAfter.length === 1);
-  const windowSetUnchanged = Boolean(restored && restored.hwnd === before.hwnd);
-  const dialogFreeAfter = Boolean(restored && restored.windowEnabled && !restored.modalBlocked);
-  const dirtyStateUnchanged = dirtyAfter.dirty === dirtyBefore.dirty;
-  const verified = Boolean(fields.length && detailFingerprint && editable.complete && identityMatches && semanticListUnchanged && windowSetUnchanged && dialogFreeAfter && dirtyStateUnchanged && closeBinding);
-  const common = {
-    backend: "qt",
-    pid: client.binding.pid,
-    hwnd: before.hwnd,
-    mainHwnd: client.binding.hwnd,
-    managerHwnd: before.hwnd,
-    row: semanticRowsAfter.length === 1 ? semanticRowsAfter[0] : rowBefore,
-    fields,
-    values: editable.values,
-    valuesComplete: editable.complete,
-    listFingerprint: listAfter ? listAfter.listFingerprint : null,
-    detailFingerprint,
-    listFingerprintBefore: expectedListFingerprint,
-    semanticListUnchanged,
-    targetRowRebound: exactRowsAfter.length === 1,
-    rowAfter: exactRowsAfter.length === 1 ? exactRowsAfter[0] : null,
-    targetSemanticRebound: semanticRowsAfter.length === 1,
-    semanticRowAfter: semanticRowsAfter.length === 1 ? semanticRowsAfter[0] : null,
-    detailIdentityMatchesTarget: identityMatches,
-    dialogFreeAfter,
-    windowSetUnchanged,
-    ungespeichertVorher: dirtyBefore.dirty,
-    ungespeichertNachher: dirtyAfter.dirty,
-    dirtyStateUnchanged,
-    physicalInputUsed: false,
-    foregroundLeaseUsed: false,
-    rowVisibilityMethod: rowVisibilityAttempts ? "qt-table-cell-activate" : "already-open-detail",
-    rowVisibilityAttempts,
-    verified,
-    clickBinding,
-    closeBinding,
-    nativeDurationMs
-  };
-  if (verified) return { ok: true, ...common };
-  const openConditions = [
-    ...!fields.length ? ["detail-fields-missing"] : [],
-    ...!identityMatches ? ["detail-identity-mismatch"] : [],
-    ...!semanticListUnchanged ? ["semantic-list-drift"] : [],
-    ...!windowSetUnchanged ? ["window-set-drift"] : [],
-    ...!dialogFreeAfter ? ["blocking-dialog"] : [],
-    ...!dirtyStateUnchanged ? ["dirty-state-drift"] : [],
-    ...!closeBinding ? ["detail-close-missing"] : []
-  ];
-  return {
-    ok: false,
-    kind: "postcondition-failed",
-    error: `The exact native receipt detail transaction was not fully proven (${openConditions.join(", ")}); do not replay.`,
-    offeneBedingungen: openConditions,
-    ...common
-  };
-}
-async function executeQtNativeReceiptManagerAction(client, args, timeoutMs, signal, profile) {
-  const parsedPolicy = receiptPolicySchema.safeParse(profile?.pageObjectsCatalog.windows.receiptManager);
-  if (!parsedPolicy.success) return fail5("invalid-catalog", "The active profile has no complete receipt-manager action policy.");
-  const actionId = typeof args.actionId === "string" ? args.actionId : "";
-  const action = Object.hasOwn(parsedPolicy.data.actions, actionId) ? parsedPolicy.data.actions[actionId] : void 0;
-  if (!action) return fail5("bad-args", `Unknown receipt-manager actionId '${actionId}'.`);
-  const waitMs = args.waitMs === void 0 ? 2500 : Number(args.waitMs);
-  if (!Number.isSafeInteger(waitMs) || waitMs < 100 || waitMs > 1e4) return fail5("bad-args", "waitMs must be an integer from 100 through 10000.");
-  const started = performance.now();
-  const remaining = () => Math.floor(timeoutMs - (performance.now() - started));
-  const before = await receiptToolSnapshot(client, parsedPolicy.data, remaining(), signal);
-  if (!before.windowEnabled || before.modalBlocked || before.stats.truncated) return fail5("window-obstructed", "The receipt manager is unavailable or obstructed.");
-  const stateBefore = receiptState(before.nodes, before.hwnd, parsedPolicy.data);
-  if (stateBefore.error) return stateBefore.error;
-  if (stateBefore.state !== action.fromState) return fail5("precondition-failed", `Receipt-manager action '${actionId}' requires state '${action.fromState}', current state is '${stateBefore.state}'.`);
-  const targets = before.nodes.filter((node) => node.w > 0 && node.h > 0 && node.on && node.aid.endsWith(action.automationIdSuffix));
-  if (targets.length !== 1 || action.expectedName && targets[0].name !== action.expectedName) {
-    return fail5("precondition-failed", `The catalogue-bound receipt-manager target '${action.automationIdSuffix}' is not unique and exact.`);
-  }
-  const dirtyBefore = await receiptDirtyState(client, args.hwnd, parsedPolicy.data.title, remaining(), signal);
-  if (dirtyBefore.error) return dirtyBefore.error;
-  const target = targets[0];
-  const actionReply = await client.requestAcknowledged("accessibility_action", {
-    toolTitle: parsedPolicy.data.title,
-    rid: target.rid,
-    aid: target.aid,
-    ...action.expectedName ? { expectedName: action.expectedName } : {},
-    action: "press"
-  }, remaining(), signal);
-  if (actionReply.result.ok !== true) {
-    return fail5(String(actionReply.result.code ?? "native-action"), String(actionReply.result.error ?? "Native receipt-manager action failed."));
-  }
-  const postconditionDeadline = Math.min(started + timeoutMs, performance.now() + waitMs);
-  let after;
-  let stateAfter;
-  do {
-    if (signal?.aborted) return fail5("aborted", "Native receipt-manager action was cancelled after its acknowledged effect.");
-    await delay(Math.min(100, Math.max(1, postconditionDeadline - performance.now())));
-    after = await receiptToolSnapshot(client, parsedPolicy.data, remaining(), signal);
-    stateAfter = receiptState(after.nodes, after.hwnd, parsedPolicy.data);
-    if (!stateAfter.error && stateAfter.state === action.toState) break;
-  } while (performance.now() < postconditionDeadline && remaining() > 0);
-  const dirtyAfter = await receiptDirtyState(client, args.hwnd, parsedPolicy.data.title, remaining(), signal);
-  if (dirtyAfter.error) return dirtyAfter.error;
-  const verified = Boolean(after && stateAfter && !stateAfter.error && stateAfter.state === action.toState && after.hwnd === before.hwnd && after.windowEnabled && !after.modalBlocked && !after.stats.truncated && dirtyAfter.dirty === dirtyBefore.dirty);
-  const windowSetFingerprint = sha256({
-    pid: client.binding.pid,
-    mainHwnd: client.binding.hwnd,
-    managerHwnd: before.hwnd,
-    title: parsedPolicy.data.title
-  });
-  const common = {
-    backend: "qt",
-    actionId,
-    pid: client.binding.pid,
-    hwnd: before.hwnd,
-    controlAutomationId: target.aid,
-    controlName: target.name,
-    stateBefore: stateBefore.state,
-    stateAfter: stateAfter && !stateAfter.error ? stateAfter.state : null,
-    stateFingerprintBefore: stateBefore.fingerprint,
-    stateFingerprintAfter: stateAfter && !stateAfter.error ? stateAfter.fingerprint : null,
-    windowSetFingerprintBefore: windowSetFingerprint,
-    windowSetFingerprintAfter: windowSetFingerprint,
-    windowSetUnchanged: true,
-    ungespeichertVorher: dirtyBefore.dirty,
-    ungespeichertNachher: dirtyAfter.dirty,
-    dirtyStateUnchanged: dirtyAfter.dirty === dirtyBefore.dirty,
-    physicalInputUsed: false,
-    foregroundLeaseUsed: false,
-    verified,
-    clickBinding: {
-      method: "qt-accessibility-press",
-      rid: target.rid,
-      aid: target.aid,
-      receiptAcknowledged: actionReply.receiptAcknowledged,
-      mutationAckMs: actionReply.mutationAckMs
-    },
-    nativeDurationMs: before.nativeDurationMs + dirtyBefore.durationMs + (after?.nativeDurationMs ?? 0) + dirtyAfter.durationMs + actionReply.durationMs
-  };
-  return verified ? { ok: true, ...common } : { ok: false, kind: "postcondition-failed", error: "The acknowledged native receipt-manager action did not reach its exact catalogued state without dirty-state drift; do not replay.", ...common };
-}
-var receiptPolicySchema, filterSchema, fail5, sha256;
+var receiptPolicySchema, filterSchema, processWindowInventorySchema, fail5, receiptTextFingerprint, receiptFingerprint;
 var init_qt_native_receipts = __esm({
   "src/qt-native-receipts.ts"() {
     "use strict";
@@ -13825,8 +13591,467 @@ var init_qt_native_receipts = __esm({
       titleContains: external_exports.string().optional(),
       draft: external_exports.boolean().optional()
     }).strict();
+    processWindowInventorySchema = external_exports.object({
+      ok: external_exports.literal(true),
+      windows: external_exports.array(external_exports.object({
+        hwnd: external_exports.number().int().positive(),
+        pid: external_exports.number().int().positive(),
+        class: external_exports.string().min(1).max(255),
+        title: external_exports.string().min(1).max(4095),
+        minimized: external_exports.boolean(),
+        hung: external_exports.boolean()
+      }).strict()).max(256)
+    }).passthrough();
     fail5 = (kind, error) => ({ ok: false, backend: "qt", kind, error });
-    sha256 = (value) => createHash13("sha256").update(JSON.stringify(value), "utf8").digest("hex").toUpperCase();
+    receiptTextFingerprint = (text3) => createHash13("sha256").update(text3, "utf8").digest("hex").toUpperCase();
+    receiptFingerprint = (value) => receiptTextFingerprint(canonicalReceiptJson(value));
+  }
+});
+
+// src/qt-native-receipt-read.ts
+import { setTimeout as delay } from "node:timers/promises";
+async function executeQtNativeReceiptManagerRead(client, args, timeoutMs, signal, profile) {
+  const parsedPolicy = receiptPolicySchema.safeParse(profile?.pageObjectsCatalog.windows.receiptManager);
+  if (!parsedPolicy.success) return fail5("invalid-catalog", "The active profile has no complete receipt-manager detail policy.");
+  const rowRid = typeof args.rowRid === "string" ? args.rowRid : "";
+  const rowFingerprint = typeof args.rowFingerprint === "string" ? args.rowFingerprint.toUpperCase() : "";
+  const expectedListFingerprint = typeof args.expectedListFingerprint === "string" ? args.expectedListFingerprint.toUpperCase() : "";
+  const waitMs = args.waitMs === void 0 ? 2500 : Number(args.waitMs);
+  if (!rowRid || !/^[A-F0-9]{64}$/u.test(rowFingerprint) || !/^[A-F0-9]{64}$/u.test(expectedListFingerprint)) {
+    return fail5("bad-args", "rowRid, rowFingerprint and expectedListFingerprint are required.");
+  }
+  if (!Number.isSafeInteger(waitMs) || waitMs < 100 || waitMs > 1e4) {
+    return fail5("bad-args", "waitMs must be an integer from 100 through 10000.");
+  }
+  const policy = parsedPolicy.data;
+  const started = performance.now();
+  const remaining = () => Math.floor(timeoutMs - (performance.now() - started));
+  let mutationDispatched = false;
+  let clickBinding = { method: "already-open-detail", clickCount: 0 };
+  let closeBinding = null;
+  let lastActionBinding = null;
+  const budget = () => {
+    const value = remaining();
+    if (value < 1) throw new QtNativeTransportError(
+      "Native receipt deadline expired before postcondition verification.",
+      "native-timeout",
+      mutationDispatched
+    );
+    return value;
+  };
+  let nativeDurationMs = 0;
+  const before = await receiptDetailSnapshot(client, policy, budget(), signal);
+  nativeDurationMs += before.nativeDurationMs;
+  if (!before.windowEnabled || before.modalBlocked || before.stats.truncated) {
+    return fail5("window-obstructed", "The receipt manager is unavailable, obstructed or incomplete.");
+  }
+  const stateBefore = receiptState(before.nodes, before.hwnd, policy);
+  if (stateBefore.error) return stateBefore.error;
+  if (stateBefore.state !== "list") return fail5("precondition-failed", `Receipt detail requires state 'list', current state is '${stateBefore.state}'.`);
+  const listBefore = receiptList(before.nodes, policy);
+  if ("error" in listBefore) return listBefore.error;
+  if (listBefore.listFingerprint !== expectedListFingerprint) {
+    return fail5("stale", "The receipt list changed since receipt_manager_list; no native action was dispatched.");
+  }
+  const boundRows = listBefore.rows.filter((row) => row.rowRid === rowRid && row.rowFingerprint === rowFingerprint);
+  if (boundRows.length !== 1) return fail5("stale", `${boundRows.length} exact bound receipt rows found; no native action was dispatched.`);
+  const rowBefore = boundRows[0];
+  const dirtyBefore = await receiptDirtyState(client, args.hwnd, policy.title, budget(), signal);
+  if (dirtyBefore.error) return dirtyBefore.error;
+  nativeDurationMs += dirtyBefore.durationMs;
+  const windowSetBefore = await receiptWindowSet(client, budget(), signal);
+  if (windowSetBefore.error) return windowSetBefore.error;
+  nativeDurationMs += windowSetBefore.durationMs;
+  const action = async (node, kind, method) => {
+    lastActionBinding = { method, rid: node.rid, aid: node.aid, name: node.name };
+    let reply;
+    try {
+      reply = await client.requestAcknowledged("accessibility_action", {
+        toolTitle: policy.title,
+        rid: node.rid,
+        aid: node.aid,
+        expectedName: node.name,
+        action: kind
+      }, budget(), signal);
+      mutationDispatched ||= reply.result.mutationAttempted === true;
+    } catch (error) {
+      if (error instanceof QtNativeAcknowledgmentError && error.mutationResult.mutationAttempted === true) {
+        mutationDispatched = true;
+      }
+      throw error;
+    }
+    nativeDurationMs += reply.durationMs;
+    const binding = {
+      method,
+      rid: node.rid,
+      aid: node.aid,
+      name: node.name,
+      receiptAcknowledged: reply.receiptAcknowledged,
+      mutationAckMs: reply.mutationAckMs
+    };
+    lastActionBinding = binding;
+    return { reply, binding };
+  };
+  try {
+    let detail = before;
+    let fields = receiptDetailFields(detail.nodes);
+    let editable = receiptEditableValues(detail.nodes, policy);
+    let identityMatches = editable.complete && detailIdentityMatches(editable.values, rowBefore, policy) && listBefore.listFingerprint === expectedListFingerprint;
+    let rowVisibilityAttempts = 0;
+    if (!identityMatches) {
+      const targets = rowBefore.cells.filter((cell) => cell.rid === rowBefore.rowRid && cell.name);
+      if (targets.length !== 1) return fail5("stale", `${targets.length} exact native receipt cells found; no action was dispatched.`);
+      const target = before.nodes.filter((node) => node.rid === targets[0].rid && node.aid.endsWith(policy.list.tableAutomationIdSuffix) && node.name === targets[0].name && node.type === "DataItem");
+      if (target.length !== 1) return fail5("stale", `${target.length} live exact native receipt cells found; no action was dispatched.`);
+      const opened = await action(target[0], "activate-table-cell", "qt-table-cell-activate");
+      clickBinding = opened.binding;
+      rowVisibilityAttempts = 1;
+      if (opened.reply.result.ok !== true) {
+        return {
+          ok: false,
+          backend: "qt",
+          kind: String(opened.reply.result.code ?? "native-action"),
+          error: String(opened.reply.result.error ?? "The exact native receipt cell could not be activated; do not replay."),
+          physicalInputUsed: false,
+          foregroundLeaseUsed: false,
+          clickBinding,
+          nativeDurationMs
+        };
+      }
+      const openDeadline = Math.min(started + timeoutMs, performance.now() + waitMs);
+      do {
+        await delay(Math.min(100, Math.max(1, openDeadline - performance.now())));
+        detail = await receiptDetailSnapshot(client, policy, budget(), signal);
+        nativeDurationMs += detail.nativeDurationMs;
+        fields = receiptDetailFields(detail.nodes);
+        editable = receiptEditableValues(detail.nodes, policy);
+        identityMatches = editable.complete && detailIdentityMatches(editable.values, rowBefore, policy);
+        if (fields.length && identityMatches && exactDetailClose(detail.nodes, policy).length === 1) break;
+      } while (performance.now() < openDeadline && remaining() > 0);
+    }
+    const detailFingerprint = editable.complete ? detailBindingFingerprint(editable.values) : null;
+    const closeTargets = exactDetailClose(detail.nodes, policy);
+    let listAfter = null;
+    let restored = null;
+    if (closeTargets.length === 1) {
+      const closed = await action(closeTargets[0], "press", "qt-accessibility-press");
+      closeBinding = closed.binding;
+      if (closed.reply.result.ok === true) {
+        const restoreDeadline = Math.min(started + timeoutMs, performance.now() + waitMs);
+        const expectedSemanticRows2 = listBefore.rows.map((row) => row.contentFingerprint).sort();
+        do {
+          await delay(Math.min(100, Math.max(1, restoreDeadline - performance.now())));
+          restored = await receiptToolSnapshot(client, policy, budget(), signal);
+          nativeDurationMs += restored.nativeDurationMs;
+          const candidate = receiptList(restored.nodes, policy);
+          if (!("error" in candidate)) {
+            listAfter = candidate;
+            const actual = candidate.rows.map((row) => row.contentFingerprint).sort();
+            if (candidate.rowsComplete && candidate.count === listBefore.count && JSON.stringify(actual) === JSON.stringify(expectedSemanticRows2)) break;
+          }
+        } while (performance.now() < restoreDeadline && remaining() > 0);
+      }
+    }
+    const dirtyAfter = await receiptDirtyState(client, args.hwnd, policy.title, budget(), signal);
+    if (dirtyAfter.error) throw new QtNativeTransportError(
+      String(dirtyAfter.error.error ?? "Dirty-state postcondition failed."),
+      String(dirtyAfter.error.kind ?? "postcondition-failed"),
+      true
+    );
+    nativeDurationMs += dirtyAfter.durationMs;
+    const windowSetAfter = await receiptWindowSet(client, budget(), signal);
+    if (windowSetAfter.error) throw new QtNativeTransportError(
+      String(windowSetAfter.error.error ?? "Window-set postcondition failed."),
+      String(windowSetAfter.error.kind ?? "postcondition-failed"),
+      true
+    );
+    nativeDurationMs += windowSetAfter.durationMs;
+    const expectedSemanticRows = listBefore.rows.map((row) => row.contentFingerprint).sort();
+    const actualSemanticRows = listAfter ? listAfter.rows.map((row) => row.contentFingerprint).sort() : [];
+    const exactRowsAfter = listAfter ? listAfter.rows.filter((row) => row.rowRid === rowBefore.rowRid && row.rowFingerprint === rowBefore.rowFingerprint) : [];
+    const semanticRowsAfter = listAfter ? listAfter.rows.filter((row) => sameSemanticRow(row, rowBefore)) : [];
+    const semanticListUnchanged = Boolean(listAfter && listAfter.rowsComplete && listAfter.count === listBefore.count && JSON.stringify(actualSemanticRows) === JSON.stringify(expectedSemanticRows) && semanticRowsAfter.length === 1);
+    const windowSetUnchanged = windowSetAfter.fingerprint === windowSetBefore.fingerprint;
+    const dialogFreeAfter = Boolean(restored && restored.windowEnabled && !restored.modalBlocked);
+    const dirtyStateUnchanged = dirtyAfter.dirty === dirtyBefore.dirty;
+    const verified = Boolean(fields.length && detailFingerprint && editable.complete && identityMatches && semanticListUnchanged && windowSetUnchanged && dialogFreeAfter && dirtyStateUnchanged && closeBinding);
+    const common = {
+      backend: "qt",
+      pid: client.binding.pid,
+      hwnd: before.hwnd,
+      mainHwnd: client.binding.hwnd,
+      managerHwnd: before.hwnd,
+      row: semanticRowsAfter.length === 1 ? semanticRowsAfter[0] : rowBefore,
+      fields,
+      values: editable.values,
+      valuesComplete: editable.complete,
+      listFingerprint: listAfter ? listAfter.listFingerprint : null,
+      detailFingerprint,
+      listFingerprintBefore: expectedListFingerprint,
+      semanticListUnchanged,
+      targetRowRebound: exactRowsAfter.length === 1,
+      rowAfter: exactRowsAfter.length === 1 ? exactRowsAfter[0] : null,
+      targetSemanticRebound: semanticRowsAfter.length === 1,
+      semanticRowAfter: semanticRowsAfter.length === 1 ? semanticRowsAfter[0] : null,
+      detailIdentityMatchesTarget: identityMatches,
+      dialogFreeAfter,
+      windowSetFingerprintBefore: windowSetBefore.fingerprint,
+      windowSetFingerprintAfter: windowSetAfter.fingerprint,
+      windowSetUnchanged,
+      ungespeichertVorher: dirtyBefore.dirty,
+      ungespeichertNachher: dirtyAfter.dirty,
+      dirtyStateUnchanged,
+      physicalInputUsed: false,
+      foregroundLeaseUsed: false,
+      rowVisibilityMethod: rowVisibilityAttempts ? "qt-table-cell-activate" : "already-open-detail",
+      rowVisibilityAttempts,
+      verified,
+      clickBinding,
+      closeBinding,
+      nativeDurationMs
+    };
+    if (verified) return { ok: true, ...common };
+    const openConditions = [
+      ...!fields.length ? ["detail-fields-missing"] : [],
+      ...!identityMatches ? ["detail-identity-mismatch"] : [],
+      ...!semanticListUnchanged ? ["semantic-list-drift"] : [],
+      ...!windowSetUnchanged ? ["window-set-drift"] : [],
+      ...!dialogFreeAfter ? ["blocking-dialog"] : [],
+      ...!dirtyStateUnchanged ? ["dirty-state-drift"] : [],
+      ...!closeBinding ? ["detail-close-missing"] : []
+    ];
+    return {
+      ok: false,
+      kind: "postcondition-failed",
+      error: `The exact native receipt detail transaction was not fully proven (${openConditions.join(", ")}); do not replay.`,
+      offeneBedingungen: openConditions,
+      ...common
+    };
+  } catch (error) {
+    if (!mutationDispatched) throw error;
+    const kind = error instanceof QtNativeTransportError ? error.kind : "postcondition-failed";
+    return {
+      ok: false,
+      backend: "qt",
+      kind,
+      error: `The acknowledged native receipt detail action could not complete its postcondition checks: ${error instanceof Error ? error.message : String(error)} Do not replay.`,
+      outcomeUnknown: true,
+      mutationStarted: true,
+      resultingState: "unknown",
+      cleanupRequired: true,
+      pid: client.binding.pid,
+      hwnd: before.hwnd,
+      mainHwnd: client.binding.hwnd,
+      managerHwnd: before.hwnd,
+      row: rowBefore,
+      listFingerprintBefore: expectedListFingerprint,
+      ungespeichertVorher: dirtyBefore.dirty,
+      physicalInputUsed: false,
+      foregroundLeaseUsed: false,
+      clickBinding,
+      closeBinding,
+      lastActionBinding,
+      nativeDurationMs,
+      verified: false
+    };
+  }
+}
+var init_qt_native_receipt_read = __esm({
+  "src/qt-native-receipt-read.ts"() {
+    "use strict";
+    init_qt_native_client();
+    init_qt_native_receipts();
+  }
+});
+
+// src/qt-native-receipt-action.ts
+import { setTimeout as delay2 } from "node:timers/promises";
+async function executeQtNativeReceiptManagerAction(client, args, timeoutMs, signal, profile) {
+  const parsedPolicy = receiptPolicySchema.safeParse(profile?.pageObjectsCatalog.windows.receiptManager);
+  if (!parsedPolicy.success) return fail5("invalid-catalog", "The active profile has no complete receipt-manager action policy.");
+  const actionId = typeof args.actionId === "string" ? args.actionId : "";
+  const action = Object.hasOwn(parsedPolicy.data.actions, actionId) ? parsedPolicy.data.actions[actionId] : void 0;
+  if (!action) return fail5("bad-args", `Unknown receipt-manager actionId '${actionId}'.`);
+  const waitMs = args.waitMs === void 0 ? 2500 : Number(args.waitMs);
+  if (!Number.isSafeInteger(waitMs) || waitMs < 100 || waitMs > 1e4) {
+    return fail5("bad-args", "waitMs must be an integer from 100 through 10000.");
+  }
+  const started = performance.now();
+  const remaining = () => Math.floor(timeoutMs - (performance.now() - started));
+  let mutationDispatched = false;
+  const budget = () => {
+    const value = remaining();
+    if (value < 1) {
+      throw new QtNativeTransportError(
+        "Native receipt deadline expired before postcondition verification.",
+        "native-timeout",
+        mutationDispatched
+      );
+    }
+    return value;
+  };
+  const before = await receiptToolSnapshot(client, parsedPolicy.data, budget(), signal);
+  if (!before.windowEnabled || before.modalBlocked || before.stats.truncated) {
+    return fail5("window-obstructed", "The receipt manager is unavailable or obstructed.");
+  }
+  const stateBefore = receiptState(before.nodes, before.hwnd, parsedPolicy.data);
+  if (stateBefore.error) return stateBefore.error;
+  if (stateBefore.state !== action.fromState) {
+    return fail5(
+      "precondition-failed",
+      `Receipt-manager action '${actionId}' requires state '${action.fromState}', current state is '${stateBefore.state}'.`
+    );
+  }
+  const targets = before.nodes.filter(
+    (node) => node.w > 0 && node.h > 0 && node.on && node.aid.endsWith(action.automationIdSuffix)
+  );
+  if (targets.length !== 1 || action.expectedName && targets[0].name !== action.expectedName) {
+    return fail5("precondition-failed", `The catalogue-bound receipt-manager target '${action.automationIdSuffix}' is not unique and exact.`);
+  }
+  const dirtyBefore = await receiptDirtyState(client, args.hwnd, parsedPolicy.data.title, budget(), signal);
+  if (dirtyBefore.error) return dirtyBefore.error;
+  const windowSetBefore = await receiptWindowSet(client, budget(), signal);
+  if (windowSetBefore.error) return windowSetBefore.error;
+  const target = targets[0];
+  const clickBinding = { method: "qt-accessibility-press", rid: target.rid, aid: target.aid, name: target.name };
+  let actionReply;
+  let after;
+  let stateAfter;
+  try {
+    try {
+      actionReply = await client.requestAcknowledged("accessibility_action", {
+        toolTitle: parsedPolicy.data.title,
+        rid: target.rid,
+        aid: target.aid,
+        ...action.expectedName ? { expectedName: action.expectedName } : {},
+        action: "press"
+      }, budget(), signal);
+      mutationDispatched = actionReply.result.mutationAttempted === true;
+    } catch (error) {
+      if (error instanceof QtNativeAcknowledgmentError && error.mutationResult.mutationAttempted === true) {
+        mutationDispatched = true;
+      }
+      throw error;
+    }
+    if (actionReply.result.ok !== true) {
+      return {
+        ok: false,
+        backend: "qt",
+        kind: String(actionReply.result.code ?? "native-action"),
+        error: String(actionReply.result.error ?? "Native receipt-manager action failed; do not replay."),
+        mutationStarted: mutationDispatched,
+        resultingState: mutationDispatched ? "unknown" : "unchanged",
+        cleanupRequired: mutationDispatched,
+        physicalInputUsed: false,
+        foregroundLeaseUsed: false,
+        clickBinding: {
+          ...clickBinding,
+          receiptAcknowledged: actionReply.receiptAcknowledged,
+          mutationAckMs: actionReply.mutationAckMs
+        }
+      };
+    }
+    const postconditionDeadline = Math.min(started + timeoutMs, performance.now() + waitMs);
+    do {
+      if (signal?.aborted) {
+        throw new QtNativeTransportError(
+          "Native receipt-manager action was cancelled after its acknowledged effect.",
+          "aborted",
+          true
+        );
+      }
+      await delay2(Math.min(100, Math.max(1, postconditionDeadline - performance.now())));
+      after = await receiptToolSnapshot(client, parsedPolicy.data, budget(), signal);
+      stateAfter = receiptState(after.nodes, after.hwnd, parsedPolicy.data);
+      if (!stateAfter.error && stateAfter.state === action.toState) break;
+    } while (performance.now() < postconditionDeadline && remaining() > 0);
+    const dirtyAfter = await receiptDirtyState(client, args.hwnd, parsedPolicy.data.title, budget(), signal);
+    if (dirtyAfter.error) {
+      throw new QtNativeTransportError(
+        String(dirtyAfter.error.error ?? "Dirty-state postcondition failed."),
+        String(dirtyAfter.error.kind ?? "postcondition-failed"),
+        true
+      );
+    }
+    const windowSetAfter = await receiptWindowSet(client, budget(), signal);
+    if (windowSetAfter.error) {
+      throw new QtNativeTransportError(
+        String(windowSetAfter.error.error ?? "Window-set postcondition failed."),
+        String(windowSetAfter.error.kind ?? "postcondition-failed"),
+        true
+      );
+    }
+    const windowSetUnchanged = windowSetAfter.fingerprint === windowSetBefore.fingerprint;
+    const verified = Boolean(
+      after && stateAfter && !stateAfter.error && stateAfter.state === action.toState && after.hwnd === before.hwnd && after.windowEnabled && !after.modalBlocked && !after.stats.truncated && dirtyAfter.dirty === dirtyBefore.dirty && windowSetUnchanged
+    );
+    const common = {
+      backend: "qt",
+      actionId,
+      pid: client.binding.pid,
+      hwnd: before.hwnd,
+      controlAutomationId: target.aid,
+      controlName: target.name,
+      stateBefore: stateBefore.state,
+      stateAfter: stateAfter && !stateAfter.error ? stateAfter.state : null,
+      stateFingerprintBefore: stateBefore.fingerprint,
+      stateFingerprintAfter: stateAfter && !stateAfter.error ? stateAfter.fingerprint : null,
+      windowSetFingerprintBefore: windowSetBefore.fingerprint,
+      windowSetFingerprintAfter: windowSetAfter.fingerprint,
+      windowSetUnchanged,
+      ungespeichertVorher: dirtyBefore.dirty,
+      ungespeichertNachher: dirtyAfter.dirty,
+      dirtyStateUnchanged: dirtyAfter.dirty === dirtyBefore.dirty,
+      physicalInputUsed: false,
+      foregroundLeaseUsed: false,
+      verified,
+      clickBinding: {
+        ...clickBinding,
+        receiptAcknowledged: actionReply.receiptAcknowledged,
+        mutationAckMs: actionReply.mutationAckMs
+      },
+      nativeDurationMs: before.nativeDurationMs + dirtyBefore.durationMs + windowSetBefore.durationMs + (after?.nativeDurationMs ?? 0) + dirtyAfter.durationMs + windowSetAfter.durationMs + actionReply.durationMs
+    };
+    return verified ? { ok: true, ...common } : {
+      ok: false,
+      kind: "postcondition-failed",
+      error: "The acknowledged native receipt-manager action did not reach its exact catalogued state without dirty-state drift; do not replay.",
+      ...common
+    };
+  } catch (error) {
+    if (!mutationDispatched) throw error;
+    return {
+      ok: false,
+      backend: "qt",
+      kind: error instanceof QtNativeTransportError ? error.kind : "postcondition-failed",
+      error: `The acknowledged native receipt-manager action could not complete its postcondition checks: ${error instanceof Error ? error.message : String(error)} Do not replay.`,
+      outcomeUnknown: true,
+      mutationStarted: true,
+      resultingState: "unknown",
+      cleanupRequired: true,
+      actionId,
+      pid: client.binding.pid,
+      hwnd: before.hwnd,
+      controlAutomationId: target.aid,
+      controlName: target.name,
+      stateBefore: stateBefore.state,
+      stateAfter: stateAfter && !stateAfter.error ? stateAfter.state : null,
+      stateFingerprintBefore: stateBefore.fingerprint,
+      stateFingerprintAfter: stateAfter && !stateAfter.error ? stateAfter.fingerprint : null,
+      windowSetFingerprintBefore: windowSetBefore.fingerprint,
+      ungespeichertVorher: dirtyBefore.dirty,
+      physicalInputUsed: false,
+      foregroundLeaseUsed: false,
+      clickBinding,
+      verified: false
+    };
+  }
+}
+var init_qt_native_receipt_action = __esm({
+  "src/qt-native-receipt-action.ts"() {
+    "use strict";
+    init_qt_native_client();
+    init_qt_native_receipts();
   }
 });
 
@@ -13866,6 +14091,8 @@ var init_qt_native_executor = __esm({
     init_qt_native_pages();
     init_qt_native_find();
     init_qt_native_ustva();
+    init_qt_native_receipt_read();
+    init_qt_native_receipt_action();
     init_qt_native_receipts();
     QT_NATIVE_READ_OPERATIONS = [
       "get_value",
@@ -19179,13 +19406,13 @@ function loadQtNativePackage(config, profile) {
   verifiedFile(bridgePath, manifest.bridge.sha256, 128 * 1024 * 1024);
   return { directory, loaderPath, bridgePath, manifest };
 }
-var sha2562, nativeProfileSchema, manifestSchema;
+var sha256, nativeProfileSchema, manifestSchema;
 var init_qt_native_package = __esm({
   "src/qt-native-package.ts"() {
     "use strict";
     init_zod();
     init_bounded_files();
-    sha2562 = external_exports.string().regex(/^[a-f0-9]{64}$/u);
+    sha256 = external_exports.string().regex(/^[a-f0-9]{64}$/u);
     nativeProfileSchema = external_exports.object({
       id: external_exports.string().regex(/^[0-9]{4}$/u),
       taxYear: external_exports.number().int(),
@@ -19200,8 +19427,8 @@ var init_qt_native_package = __esm({
       discoveryProtocol: external_exports.literal(1),
       buildIdentity: external_exports.string().regex(/^SSE_NATIVE_BRIDGE_V2:[a-f0-9]{64}$/u),
       profile: nativeProfileSchema,
-      loader: external_exports.object({ file: external_exports.literal("bridge-load.exe"), sha256: sha2562 }).strict(),
-      bridge: external_exports.object({ file: external_exports.literal("sse-qt-read.dll"), sha256: sha2562 }).strict()
+      loader: external_exports.object({ file: external_exports.literal("bridge-load.exe"), sha256 }).strict(),
+      bridge: external_exports.object({ file: external_exports.literal("sse-qt-read.dll"), sha256 }).strict()
     }).strict();
   }
 });

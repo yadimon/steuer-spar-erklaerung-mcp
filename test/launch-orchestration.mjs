@@ -72,7 +72,8 @@ try {
         assert.equal(args.planKind, "launch-readiness");
         assert.equal(args.pid, pid, "Startprobe muss vor jedem Readback PID-begrenzt sein");
         assert.equal(args.hasCase, false);
-        assert(args.budgetMs <= 30_000 && args.budgetMs >= 29_000);
+        assert(args.budgetMs <= 29_000 && args.budgetMs >= 28_000,
+          "Workerbudget muss eine eigene Uebergabereserve behalten");
         assert(timeoutMs <= 30_000 && timeoutMs >= 29_000, "Workerfrist muss das monotone Restbudget fortsetzen");
         return probeCalls === 1
           ? {
@@ -188,6 +189,36 @@ try {
       "Zero-Wait-Controlleruebergabe zwischen Start und passiver Probe braucht einen frischen Versuch");
     assert.equal(closeCalls, 0,
       "Sichere Controlleruebergabe darf den erfolgreich gestarteten SSE-Prozess nicht beenden");
+  }
+
+  {
+    const pid = 4114;
+    let probeCalls = 0;
+    let closeCalls = 0;
+    const started = performance.now();
+    const execute = createApiExecutor(config, async (operation) => {
+      if (operation === "launch") return { ok: true, launched: true, pid };
+      if (operation === "launch_probe") {
+        probeCalls += 1;
+        return {
+          ok: false,
+          kind: "worker-isolation-lost",
+          error: "Persistenter Sitzungscontrollerfehler.",
+          retryable: false,
+        };
+      }
+      if (operation === "close") {
+        closeCalls += 1;
+        return { ok: true, processStillRunning: false };
+      }
+      throw new Error(`Unerwartete Operation ${operation}`);
+    });
+    const result = await execute("launch", { mode: "normal" }, 30_000);
+    assert.equal(result.ok, false);
+    assert.equal(probeCalls, 4, "Persistente Uebergabefehler duerfen nur begrenzt neu gestartet werden");
+    assert.equal(closeCalls, 1);
+    assert.match(result.lastProbeError, /Persistenter Sitzungscontrollerfehler/);
+    assert(performance.now() - started < 5_000, "Persistenter Uebergabefehler darf nicht das Startbudget aussitzen");
   }
 
   {

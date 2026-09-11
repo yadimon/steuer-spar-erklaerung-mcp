@@ -133,10 +133,16 @@ static Json accessibilitySnapshot(QWidget *main, const Json &request) {
     std::unordered_set<QAccessible::Id> seen;
     int visited = 0; std::size_t bytes = 0; bool truncated = false, depthLimited = false;
     while (!stack.empty()) {
-        if (timer.elapsed() > 1500) throw std::runtime_error("Snapshot time bound reached");
+        if (timer.elapsed() > 1500) {
+            if (sparse) { truncated = true; break; }
+            throw std::runtime_error("Snapshot time bound reached");
+        }
         auto &work = stack.back(); auto *iface = work.iface;
         if (work.next == -1) {
-            if (++visited > 50000) throw std::runtime_error("Snapshot visit bound reached");
+            if (++visited > 50000) {
+                if (sparse) { truncated = true; break; }
+                throw std::runtime_error("Snapshot visit bound reached");
+            }
             if (!iface || !iface->isValid()) throw std::runtime_error("Invalid accessible interface");
             if (iface->state().invisible) { stack.pop_back(); continue; }
             if (!seen.insert(QAccessible::uniqueId(iface)).second) throw std::runtime_error("Repeated accessible interface");

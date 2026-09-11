@@ -166,6 +166,13 @@ try {
   assert(containsRead.result.nodes.length >= 4);
   assert(containsRead.result.nodes.every(node => node.aid.includes("synthetic")));
   assert(containsRead.result.nodes.every(node => node.p === -1 && node.d === 0));
+  const inventory = await sessions[0].client.request("window_inventory", {}, 5000);
+  assert.equal(inventory.result.ok, true, JSON.stringify(inventory.result));
+  assert(inventory.result.windows.some(window => window.hwnd === first.info.hwnd));
+  assert(inventory.result.windows.every(window => window.pid === first.info.pid));
+  assert(inventory.result.windows.every(window => typeof window.class === "string" && window.class.length > 0));
+  assert(inventory.result.windows.every(window => typeof window.title === "string" && window.title.length > 0));
+  assert(inventory.result.windows.every(window => typeof window.minimized === "boolean" && typeof window.hung === "boolean"));
   assert.equal(snapshot.canaryMs, null); assert.equal(snapshot.responsivenessCheck, "bounded-gui-thread");
   const independent = await uiaSnapshot(first.info.hwnd);
   const redactPassword = nodes => nodes.map(node => node.aid.endsWith("syntheticSecret") ? { ...node, val: null, ro: null } : node);

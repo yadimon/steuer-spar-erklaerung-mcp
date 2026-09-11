@@ -172,14 +172,15 @@ Broker und Transportquittungen sind Infrastruktur, keine zusätzlichen API-Komma
 Die ausgelieferte Qt-Brücke aktiviert keine freien experimentellen Schreib-,
 Navigations- oder Speicheroperationen. `known_page_state`, die read-only-Listenansicht
 `positions`, `ustva_read` und `receipt_manager_list` sind dabei katalog- bzw. snapshotgebundene Pfade.
-`receipt_manager_action` und `receipt_manager_read` verwenden ausschließlich
-exakt katalog- und Runtime-ID-gebundene, quittierte Qt-Aktionen im GUI-Thread.
+Die vier snapshotgebundenen Pfade lesen den persistenten Qt-Accessibility-Snapshot,
+bilden katalogisierte Felder, Epoch-Bindung beziehungsweise das bestehende
+fachliche UStVA-Modell ab und führen keine Mutation aus; die Belegliste bleibt
+an das exakte nichtmodale Tool-Fenster gebunden. `receipt_manager_action` und
+`receipt_manager_read` verwenden dagegen ausschließlich jeweils eine exakt
+katalog- und Runtime-ID-gebundene, quittierte und reversible Qt-Aktion im GUI-Thread.
 Der Detailfingerprint ist eine kanonische Bindung der sieben profilierten Werte,
 damit native Reads und workerbasierte Folgeoperationen denselben Guard verwenden.
-Sie lesen den persistenten Qt-Accessibility-Snapshot und bilden katalogisierte
-Felder, Epoch-Bindung beziehungsweise das bestehende fachliche UStVA-Modell ab;
-die Belegliste wird dabei an das exakte nichtmodale Tool-Fenster gebunden. Sie
-führen keine Mutation aus. Ein Prototyp oder ein statisch gefundenes Herstellersymbol
+Ein Prototyp oder ein statisch gefundenes Herstellersymbol
 ändert den Status dieser Matrix erst nach Integration und passendem Nachweis.
 
 ## Nachweise und Pflege

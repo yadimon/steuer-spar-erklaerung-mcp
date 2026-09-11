@@ -225,6 +225,8 @@ static Json execute(const Json &request) {
             {"mutationAcknowledgmentRequired", guiSession && guiSession->pendingReceipt != 0}};
     } else if (op == "window_context") {
         result = windowContext();
+    } else if (op == "window_inventory") {
+        result = processWindowInventory();
     } else if (op == "accessibility_snapshot") {
         result = accessibilitySnapshot(root, request);
     } else if (op == "accessibility_action") {
