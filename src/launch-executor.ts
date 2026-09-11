@@ -1,3 +1,4 @@
+import { performance } from "node:perf_hooks";
 import { asArray, type SseApiOperation, type WorkerResult } from "./api-contract.js";
 import { operationError } from "./executor-errors.js";
 import type { ScenarioExecutor } from "./scenario.js";
@@ -27,7 +28,7 @@ interface LaunchProbePlan {
   planKind: "launch-readiness";
   pid: number;
   hasCase: boolean;
-  deadlineUnixMs: number;
+  budgetMs: number;
 }
 
 /** Interne Worker-Oberflaeche; launch_probe ist absichtlich keine API-Operation. */
@@ -51,7 +52,7 @@ export async function executeLaunchOperation(
     );
   }
 
-  const startedAt = Date.now();
+  const startedAt = performance.now();
   const launchBudgetMs = Math.min(timeoutMs ?? MAXIMUM_LAUNCH_TIMEOUT_MS, MAXIMUM_LAUNCH_TIMEOUT_MS);
   const deadline = startedAt + launchBudgetMs;
   const started = await worker("launch", args, MINIMUM_LAUNCH_TIMEOUT_MS, signal);
@@ -127,15 +128,15 @@ export async function executeLaunchOperation(
     }
 
     let observed: WorkerResult = { ok: true, outcome: "deadline", windows: [], dialogs: [] };
-    while (Date.now() < deadline) {
-      const remainingMs = deadline - Date.now();
+    while (performance.now() < deadline) {
+      const remainingMs = deadline - performance.now();
       if (remainingMs < 1_000) break;
       const launchProbePlan = {
         schemaVersion: 1,
         planKind: "launch-readiness",
         pid,
         hasCase: typeof args.file === "string" && args.file.length > 0,
-        deadlineUnixMs: deadline,
+        budgetMs: Math.floor(remainingMs),
       } satisfies LaunchProbePlan;
       // launch_probe ist ein privater Worker-Vertrag und deshalb bewusst kein
       // SseApiOperation. Der Cast bleibt an genau dieser internen Grenze.
@@ -246,7 +247,7 @@ export async function executeLaunchOperation(
       }
       return {
         ...started,
-        waitedSec: Math.round((Date.now() - startedAt) / 100) / 10,
+        waitedSec: Math.round((performance.now() - startedAt) / 100) / 10,
         windows,
         instance,
         ready: instance !== null,
@@ -290,7 +291,7 @@ export async function executeLaunchOperation(
       kind: cleanupState.stillRunning ? "startup-timeout-cleanup" : "startup-timeout",
       error: cleanupState.stillRunning
         ? `SSE-PID ${pid} erzeugte kein verifiziertes Fallfenster und konnte nicht sicher beendet werden.`
-        : `SSE-PID ${pid} erzeugte innerhalb von ${Math.round((Date.now() - startedAt) / 100) / 10} Sekunden kein verifiziertes Fallfenster; der gestartete Prozess wurde beendet.`,
+        : `SSE-PID ${pid} erzeugte innerhalb von ${Math.round((performance.now() - startedAt) / 100) / 10} Sekunden kein verifiziertes Fallfenster; der gestartete Prozess wurde beendet.`,
       pid,
       processStillRunning: cleanupState.stillRunning,
       cleanup: cleanupState.cleanup,
