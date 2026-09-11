@@ -7930,8 +7930,8 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
       expectedPath: target.path,
       waitMs: 15e3
     });
-    const sha2562 = String(saved.sha256 ?? "");
-    if (saved.mode !== "save-new" || saved.verified !== true || !/^[A-F0-9]{64}$/iu.test(sha2562)) {
+    const sha2563 = String(saved.sha256 ?? "");
+    if (saved.mode !== "save-new" || saved.verified !== true || !/^[A-F0-9]{64}$/iu.test(sha2563)) {
       throw new StepFailure(operationError("Der Speicherdialog schloss ohne verifizierten save-new-Readback.", "postcondition-failed"));
     }
     const readback = await step("instances", { includeHash: true });
@@ -7941,14 +7941,14 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
     }
     const instanceHash = typeof bound.caseSha256 === "string" ? bound.caseSha256.toUpperCase() : null;
     const diskHash = instanceHash ?? createHash2("sha256").update(readFileSync(target.path)).digest("hex").toUpperCase();
-    if (diskHash !== sha2562.toUpperCase()) {
+    if (diskHash !== sha2563.toUpperCase()) {
       throw new StepFailure(operationError("Der Dateihash nach dem Speichern weicht vom Dialog-Readback ab.", "postcondition-failed"));
     }
     return {
       ok: true,
       created: true,
       caseRef: target.ref || target.path,
-      sha256: sha2562.toUpperCase(),
+      sha256: sha2563.toUpperCase(),
       pid: pid2,
       hwnd: Number(bound.hwnd),
       caseHashSource: instanceHash ? "instances" : "local-file",
@@ -9460,7 +9460,7 @@ function* walkWorkspaceFiles(root, ref, limit, includeHashes, maxDirectories, ma
           return;
         }
         const mayHash = includeHashes && bytes <= hashBudget.remaining;
-        const sha2562 = mayHash ? yield* hashFile(file, bytes, hashBudget) : null;
+        const sha2563 = mayHash ? yield* hashFile(file, bytes, hashBudget) : null;
         if (realpathSync3(path) !== file) {
           throw new Error("Dateireferenz wurde waehrend der Auflistung ausgetauscht.");
         }
@@ -9469,8 +9469,8 @@ function* walkWorkspaceFiles(root, ref, limit, includeHashes, maxDirectories, ma
           file: {
             ref: relative3(realRoot, file).replaceAll("\\", "/"),
             bytes,
-            sha256: sha2562,
-            ...sha2562 === null ? { hashOmitted: true } : {}
+            sha256: sha2563,
+            ...sha2563 === null ? { hashOmitted: true } : {}
           }
         };
       } catch (error) {
@@ -9629,8 +9629,8 @@ function capture(result, paths) {
 }
 function recordedError(error) {
   if (error.length <= MAX_RECORDED_ERROR_CHARS) return error;
-  const sha2562 = createHash4("sha256").update(error).digest("hex");
-  return `${error.slice(0, MAX_RECORDED_ERROR_CHARS)}… [gekuerzt; sha256=${sha2562}]`;
+  const sha2563 = createHash4("sha256").update(error).digest("hex");
+  return `${error.slice(0, MAX_RECORDED_ERROR_CHARS)}… [gekuerzt; sha256=${sha2563}]`;
 }
 function compactStepRecord(record) {
   const compacted = { ...record };
@@ -9788,10 +9788,10 @@ async function executeScenarioStep(step, workspaceDir, priorResults, deadline, s
     }
   };
 }
-function fallbackResultRef(requestedRef, sha2562) {
+function fallbackResultRef(requestedRef, sha2563) {
   const extension = extname(requestedRef);
   const stem = basename4(requestedRef, extension);
-  const fallbackName = `${stem}.conflict-${sha2562}${extension || ".json"}`;
+  const fallbackName = `${stem}.conflict-${sha2563}${extension || ".json"}`;
   const parent = dirname7(requestedRef);
   return (parent === "." ? fallbackName : join6(parent, fallbackName)).replaceAll("\\", "/");
 }
@@ -11821,14 +11821,14 @@ async function caseInventory(directory, profile) {
 async function writeVerifiedManifest(destination, rows, writeManifest) {
   const path = join9(destination, "pruefsummen.csv");
   const content = csvManifest(rows);
-  const sha2562 = createHash11("sha256").update(content).digest("hex").toUpperCase();
+  const sha2563 = createHash11("sha256").update(content).digest("hex").toUpperCase();
   const handle = await open7(path, "wx+");
   const identity = await handle.stat({ bigint: true });
   const manifest = {
     path,
     identity,
     bytes: content.length,
-    sha256: sha2562,
+    sha256: sha2563,
     content,
     complete: false
   };
@@ -11844,7 +11844,7 @@ async function writeVerifiedManifest(destination, rows, writeManifest) {
     return { manifest, handle };
   } catch (error) {
     await handle.close().catch(() => void 0);
-    const removal = manifest.complete ? await removeOwnedFile(path, identity, content.length, sha2562) : await removeOwnedFilePrefix(path, identity, content);
+    const removal = manifest.complete ? await removeOwnedFile(path, identity, content.length, sha2563) : await removeOwnedFilePrefix(path, identity, content);
     if (!removal.removed) {
       throw new LocalFileError("Unvollstaendiges Archivmanifest blieb zur manuellen Klaerung erhalten.", "postcondition-failed");
     }
@@ -13234,6 +13234,216 @@ var init_qt_native_ustva = __esm({
   }
 });
 
+// src/qt-native-receipts.ts
+import { createHash as createHash13 } from "node:crypto";
+function receiptState(nodes, hwnd, policy) {
+  const visible = nodes.filter((node) => node.w > 0 && node.h > 0);
+  const requirements = Object.entries(policy.states).map(([name, state2]) => ({
+    name,
+    required: state2.requiredAutomationIdSuffixes
+  }));
+  const matched = requirements.filter((state2) => state2.required.every((suffix) => {
+    const matches = visible.filter((node) => node.aid.endsWith(suffix));
+    return matches.length === 1 && matches[0].on;
+  }));
+  if (matched.length !== 1) return { error: fail5("state-unknown", `BelegManager state is not unique (${matched.length} matches).`) };
+  const suffixes = /* @__PURE__ */ new Set([
+    ...requirements.flatMap((state2) => state2.required),
+    ...Object.values(policy.actions).flatMap((action) => action.automationIdSuffix ? [action.automationIdSuffix] : [])
+  ]);
+  const stableNodes = visible.filter((node) => [...suffixes].some((suffix) => node.aid.endsWith(suffix))).sort((left, right) => left.aid.localeCompare(right.aid)).map((node) => ({
+    aid: node.aid,
+    name: node.name,
+    type: node.type,
+    enabled: node.on,
+    checked: node.checked,
+    selected: node.selected,
+    x: node.x,
+    y: node.y,
+    w: node.w,
+    h: node.h
+  }));
+  const state = matched[0].name;
+  return { state, fingerprint: sha256({ hwnd, state, nodes: stableNodes }) };
+}
+function toggleState(node) {
+  if (node.checked === "unbestimmt") return "Indeterminate";
+  if (node.checked === true) return "On";
+  if (node.checked === false) return "Off";
+  return null;
+}
+function receiptList(nodes, policy) {
+  const tableSuffix = policy.list.tableAutomationIdSuffix;
+  const visible = nodes.filter((node) => node.w > 0 && node.h > 0);
+  const tables = visible.filter((node) => node.type === "Table" && node.aid.endsWith(tableSuffix) && node.on);
+  if (tables.length !== 1) return { error: fail5("profile-contract", `${tables.length} visible receipt tables found.`) };
+  const table = tables[0];
+  const countLabels = [];
+  for (const [index, suffix] of policy.list.countLabelAutomationIdSuffixes.entries()) {
+    const matches = visible.filter((node) => node.aid.endsWith(suffix));
+    if (matches.length > 1 || index === 0 && matches.length !== 1) {
+      return { error: fail5("profile-contract", `${matches.length} receipt count labels '${suffix}' found.`) };
+    }
+    if (matches.length === 1) countLabels.push(matches[0]);
+  }
+  const countText = countLabels.map((node) => node.name).join(" ").replace(/\s+/gu, " ").trim();
+  const countMatch = /MEINE BELEGE\s*\((?:\d+\s+von\s+)?(?<total>\d+)\)/u.exec(countText);
+  if (!countMatch?.groups?.total) return { error: fail5("profile-contract", `Unknown receipt count format: '${countText}'.`) };
+  const count = Number.parseInt(countMatch.groups.total, 10);
+  const headers = visible.filter((node) => ["Header", "HeaderItem"].includes(node.type) && node.aid === table.aid).sort((left, right) => left.x - right.x).map((node) => node.name);
+  const groups = /* @__PURE__ */ new Map();
+  for (const node of visible.filter((candidate) => candidate.type === "DataItem" && candidate.aid === table.aid && candidate.y >= table.y)) {
+    const group = groups.get(node.y) ?? [];
+    group.push(node);
+    groups.set(node.y, group);
+  }
+  const rows = [...groups.entries()].sort(([left], [right]) => left - right).map(([, group], offset) => {
+    const cells = group.sort((left, right) => left.x - right.x).map((node) => ({
+      name: node.name,
+      rid: node.rid,
+      selected: node.selected,
+      toggleState: toggleState(node),
+      x: node.x,
+      y: node.y,
+      w: node.w,
+      h: node.h
+    }));
+    const named = cells.filter((cell) => cell.name);
+    const rowRid = (named[0] ?? cells[0]).rid;
+    const names = cells.map((cell) => cell.name);
+    const index = offset + 1;
+    const primaryText = named[0]?.name ?? "";
+    const documentNumber = cells.length > policy.list.documentNumberColumn ? cells[policy.list.documentNumberColumn].name : "";
+    return {
+      index,
+      rowRid,
+      rowFingerprint: sha256({ index, rid: rowRid, cells: names }),
+      contentFingerprint: sha256({ primaryText }),
+      primaryText,
+      documentNumber,
+      cells,
+      draft: names.some((name) => name.endsWith(policy.list.draftMarker)),
+      selected: cells.some((cell) => cell.selected === true)
+    };
+  });
+  const listFingerprint = sha256({ count, rows: rows.map((row) => row.rowFingerprint) });
+  return {
+    count,
+    countSource: "info-label",
+    countText,
+    headers,
+    rows,
+    draftCount: rows.filter((row) => row.draft).length,
+    listFingerprint,
+    rowsComplete: rows.length === count,
+    gridProjectionError: rows.length === count ? null : "Qt accessibility exposes only the current receipt rows."
+  };
+}
+async function executeQtNativeReceiptManagerList(client, args, timeoutMs, signal, profile) {
+  const parsedPolicy = receiptPolicySchema.safeParse(profile?.pageObjectsCatalog.windows.receiptManager);
+  if (!parsedPolicy.success) return fail5("invalid-catalog", "The active profile has no complete receipt-manager read policy.");
+  const limit = args.limit === void 0 ? 50 : Number(args.limit);
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200) return fail5("bad-args", "limit must be an integer from 1 through 200.");
+  const parsedFilter = args.filter === void 0 ? void 0 : filterSchema.safeParse(args.filter);
+  if (parsedFilter && (!parsedFilter.success || Object.keys(parsedFilter.data).length === 0)) {
+    return fail5("bad-args", "filter requires exactTitle, titleContains or draft and accepts no other fields.");
+  }
+  const started = performance.now();
+  const tool = await readQtNativeSnapshot(client, {
+    maxNodes: 5e3,
+    toolTitle: parsedPolicy.data.title
+  }, timeoutMs, signal);
+  if (!tool.windowEnabled || tool.modalBlocked) return fail5("window-obstructed", "The receipt manager is disabled or blocked by a modal dialog.");
+  if (tool.stats.truncated) return fail5("native-incomplete", "The receipt-manager tree exceeds the native read bound.");
+  const state = receiptState(tool.nodes, tool.hwnd, parsedPolicy.data);
+  if (state.error) return state.error;
+  if (state.state !== "list") return fail5("precondition-failed", `Receipt list requires state 'list', current state is '${state.state}'.`);
+  const list = receiptList(tool.nodes, parsedPolicy.data);
+  if (list.error) return list.error;
+  const remaining = Math.floor(timeoutMs - (performance.now() - started));
+  if (remaining < 1) return fail5("native-timeout", "Native receipt read deadline expired before dirty-state verification.");
+  const main2 = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 5e3 }, remaining, signal);
+  if (!main2.windowEnabled || main2.modalBlocked || main2.stats.truncated) {
+    return fail5("window-obstructed", "The bound main window cannot provide a complete dirty-state readback.");
+  }
+  const dirtyNodes = main2.nodes.filter((node) => node.type === "Button" && node.aid.endsWith(".MainToolBar.tb_sichern"));
+  if (dirtyNodes.length !== 1) return fail5("precondition-failed", "The bound main-window dirty state is not unique.");
+  let matches = [...list.rows];
+  const filter = parsedFilter?.success ? parsedFilter.data : void 0;
+  if (filter && Object.hasOwn(filter, "exactTitle")) matches = matches.filter((row) => row.primaryText === filter.exactTitle);
+  if (filter && Object.hasOwn(filter, "titleContains")) {
+    const wanted = filter.titleContains.toLocaleLowerCase("de-DE");
+    matches = matches.filter((row) => row.primaryText.toLocaleLowerCase("de-DE").includes(wanted));
+  }
+  if (filter && Object.hasOwn(filter, "draft")) matches = matches.filter((row) => row.draft === filter.draft);
+  const matchedCount = matches.length;
+  const compactMatches = matches.slice(0, limit).map((row) => ({
+    index: row.index,
+    title: row.primaryText,
+    documentNumber: row.documentNumber,
+    draft: row.draft,
+    rowRid: row.rowRid,
+    rowFingerprint: row.rowFingerprint,
+    contentFingerprint: row.contentFingerprint
+  }));
+  return {
+    ok: true,
+    backend: "qt",
+    pid: client.binding.pid,
+    hwnd: tool.hwnd,
+    mainHwnd: client.binding.hwnd,
+    managerHwnd: tool.hwnd,
+    state: state.state,
+    stateFingerprint: state.fingerprint,
+    count: list.count,
+    countSource: list.countSource,
+    headers: list.headers,
+    rows: list.rows,
+    draftCount: list.draftCount,
+    listFingerprint: list.listFingerprint,
+    rowsComplete: list.rowsComplete,
+    gridProjectionError: list.gridProjectionError,
+    matchedCount,
+    matches: compactMatches,
+    matchesComplete: matchedCount <= limit,
+    ungespeichert: dirtyNodes[0].on,
+    physicalInputUsed: false,
+    hinweis: list.rowsComplete ? "Alle vom BelegManager gezaehlten Zeilen sind im Qt-Baum enthalten." : `BelegManager zaehlt ${list.count} Belege, aber Qt exponiert aktuell ${list.rows.length} Zeilen; Ergebnis ist sichtbar, nicht vollstaendig.`,
+    nativeDurationMs: tool.nativeDurationMs + main2.nativeDurationMs
+  };
+}
+var receiptPolicySchema, filterSchema, fail5, sha256;
+var init_qt_native_receipts = __esm({
+  "src/qt-native-receipts.ts"() {
+    "use strict";
+    init_zod();
+    init_qt_native_snapshot();
+    receiptPolicySchema = external_exports.object({
+      title: external_exports.string().min(1).max(4096),
+      role: external_exports.literal("nonmodal-tool-window"),
+      states: external_exports.record(external_exports.object({
+        requiredAutomationIdSuffixes: external_exports.array(external_exports.string().min(1)).min(1)
+      }).passthrough()),
+      actions: external_exports.record(external_exports.object({ automationIdSuffix: external_exports.string().min(1).optional() }).passthrough()),
+      list: external_exports.object({
+        tableAutomationIdSuffix: external_exports.string().min(1),
+        countLabelAutomationIdSuffixes: external_exports.array(external_exports.string().min(1)).length(3),
+        searchAutomationIdSuffix: external_exports.string().min(1),
+        primaryTextColumn: external_exports.number().int().nonnegative(),
+        documentNumberColumn: external_exports.number().int().nonnegative(),
+        draftMarker: external_exports.string().min(1)
+      }).strict()
+    }).passthrough();
+    filterSchema = external_exports.object({
+      exactTitle: external_exports.string().optional(),
+      titleContains: external_exports.string().optional(),
+      draft: external_exports.boolean().optional()
+    }).strict();
+    fail5 = (kind, error) => ({ ok: false, backend: "qt", kind, error });
+    sha256 = (value) => createHash13("sha256").update(JSON.stringify(value), "utf8").digest("hex").toUpperCase();
+  }
+});
+
 // src/qt-native-executor.ts
 import { performance as performance10 } from "node:perf_hooks";
 function isQtNativeReadOperation(operation) {
@@ -13246,7 +13456,7 @@ async function executeQtNativeRead(operation, args, dependencies, timeoutMs = DE
     const client = dependencies.qtNativeClient ?? await dependencies.qtNativeClientFor(args, timeoutMs, signal);
     const remaining = Math.floor(timeoutMs - (performance10.now() - started));
     if (remaining < 1) throw new QtNativeTransportError("Native operation deadline exceeded before reading.", "native-timeout");
-    const execute = operation === "known_page_state" ? executeQtNativeKnownPageState : operation === "positions" ? executeQtNativePositions : operation === "ustva_read" ? executeQtNativeUstvaRead : operation === "read_page" ? executeQtNativeReadPage : operation === "subpages" ? executeQtNativeSubpages : operation === "find" ? executeQtNativeFind : operation === "snapshot" ? executeQtNativeSnapshot : operation === "table_read" ? executeQtNativeTableRead : typeof args.rid === "string" && args.rid.startsWith("42.") ? executeQtSnapshotGetValue : executeQtNativeGetValue;
+    const execute = operation === "known_page_state" ? executeQtNativeKnownPageState : operation === "positions" ? executeQtNativePositions : operation === "ustva_read" ? executeQtNativeUstvaRead : operation === "receipt_manager_list" ? executeQtNativeReceiptManagerList : operation === "read_page" ? executeQtNativeReadPage : operation === "subpages" ? executeQtNativeSubpages : operation === "find" ? executeQtNativeFind : operation === "snapshot" ? executeQtNativeSnapshot : operation === "table_read" ? executeQtNativeTableRead : typeof args.rid === "string" && args.rid.startsWith("42.") ? executeQtSnapshotGetValue : executeQtNativeGetValue;
     return await execute(client, args, remaining, signal, profile);
   } catch (error) {
     return {
@@ -13270,6 +13480,7 @@ var init_qt_native_executor = __esm({
     init_qt_native_pages();
     init_qt_native_find();
     init_qt_native_ustva();
+    init_qt_native_receipts();
     QT_NATIVE_READ_OPERATIONS = [
       "get_value",
       "table_read",
@@ -13279,7 +13490,8 @@ var init_qt_native_executor = __esm({
       "subpages",
       "known_page_state",
       "positions",
-      "ustva_read"
+      "ustva_read",
+      "receipt_manager_list"
     ];
   }
 });
@@ -18005,7 +18217,7 @@ var init_worker_prewarm = __esm({
 
 // src/worker.ts
 import { spawn as spawn2 } from "node:child_process";
-import { createHash as createHash13, randomUUID as randomUUID4 } from "node:crypto";
+import { createHash as createHash14, randomUUID as randomUUID4 } from "node:crypto";
 import { closeSync as closeSync3, openSync as openSync3, unlinkSync as unlinkSync3, writeFileSync as writeFileSync3 } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
@@ -18059,7 +18271,7 @@ function removeWorkerArgumentsFile(path) {
 function summarizeWorkerDiagnostic(value) {
   if (value.length <= MAX_WORKER_DIAGNOSTIC_CHARACTERS) return value;
   const bytes = Buffer.from(value, "utf8");
-  const digest = createHash13("sha256").update(bytes).digest("hex");
+  const digest = createHash14("sha256").update(bytes).digest("hex");
   return `${value.slice(0, MAX_WORKER_DIAGNOSTIC_CHARACTERS)}
 [Diagnose gekuerzt: ${bytes.length} UTF-8-Bytes, sha256=${digest}]`;
 }
@@ -18547,14 +18759,14 @@ var init_jsonl_logger = __esm({
 });
 
 // src/qt-native-package.ts
-import { createHash as createHash14 } from "node:crypto";
+import { createHash as createHash15 } from "node:crypto";
 import { lstatSync as lstatSync3, realpathSync as realpathSync4 } from "node:fs";
 import { join as join14 } from "node:path";
 function verifiedFile(path, expected, maximumBytes) {
   const info = lstatSync3(path);
   if (!info.isFile() || info.isSymbolicLink()) throw new Error("Native package entries must be regular files.");
   const bytes = readFileBounded(path, maximumBytes);
-  if (createHash14("sha256").update(bytes).digest("hex") !== expected) throw new Error("Native package file digest mismatch.");
+  if (createHash15("sha256").update(bytes).digest("hex") !== expected) throw new Error("Native package file digest mismatch.");
   return bytes;
 }
 function loadQtNativePackage(config, profile) {
@@ -18579,13 +18791,13 @@ function loadQtNativePackage(config, profile) {
   verifiedFile(bridgePath, manifest.bridge.sha256, 128 * 1024 * 1024);
   return { directory, loaderPath, bridgePath, manifest };
 }
-var sha256, nativeProfileSchema, manifestSchema;
+var sha2562, nativeProfileSchema, manifestSchema;
 var init_qt_native_package = __esm({
   "src/qt-native-package.ts"() {
     "use strict";
     init_zod();
     init_bounded_files();
-    sha256 = external_exports.string().regex(/^[a-f0-9]{64}$/u);
+    sha2562 = external_exports.string().regex(/^[a-f0-9]{64}$/u);
     nativeProfileSchema = external_exports.object({
       id: external_exports.string().regex(/^[0-9]{4}$/u),
       taxYear: external_exports.number().int(),
@@ -18600,8 +18812,8 @@ var init_qt_native_package = __esm({
       discoveryProtocol: external_exports.literal(1),
       buildIdentity: external_exports.string().regex(/^SSE_NATIVE_BRIDGE_V2:[a-f0-9]{64}$/u),
       profile: nativeProfileSchema,
-      loader: external_exports.object({ file: external_exports.literal("bridge-load.exe"), sha256 }).strict(),
-      bridge: external_exports.object({ file: external_exports.literal("sse-qt-read.dll"), sha256 }).strict()
+      loader: external_exports.object({ file: external_exports.literal("bridge-load.exe"), sha256: sha2562 }).strict(),
+      bridge: external_exports.object({ file: external_exports.literal("sse-qt-read.dll"), sha256: sha2562 }).strict()
     }).strict();
   }
 });
@@ -18770,7 +18982,7 @@ var init_qt_native_broker = __esm({
 
 // src/native-desktop-status.ts
 import { execFile as execFile2 } from "node:child_process";
-import { createHash as createHash15 } from "node:crypto";
+import { createHash as createHash16 } from "node:crypto";
 import { win32 as win322 } from "node:path";
 import { performance as performance13 } from "node:perf_hooks";
 function parseNativeDesktopStatus(value, marker, options) {
@@ -18803,7 +19015,7 @@ function parseNativeDesktopStatus(value, marker, options) {
   const running = identity?.supported === true;
   const windows = running ? status.windows.map((window) => ({
     ...window,
-    titleFingerprint: createHash15("sha256").update(window.title, "utf8").digest("hex").toUpperCase()
+    titleFingerprint: createHash16("sha256").update(window.title, "utf8").digest("hex").toUpperCase()
   })) : [];
   const active = Boolean(marker.pid && running && status.reachable && windows.length);
   return {
@@ -18933,7 +19145,7 @@ var init_native_desktop_status = __esm({
 
 // src/native-desktop-start.ts
 import { execFile as execFile3 } from "node:child_process";
-import { createHash as createHash16 } from "node:crypto";
+import { createHash as createHash17 } from "node:crypto";
 import { statSync as statSync6 } from "node:fs";
 import { win32 as win323 } from "node:path";
 import { performance as performance14 } from "node:perf_hooks";
@@ -18981,7 +19193,7 @@ function parseNativeDesktopStart(value, prepared, options) {
   const profile = options.profile;
   const windows = (items) => items.map((window) => ({
     ...window,
-    titleFingerprint: createHash16("sha256").update(window.title, "utf8").digest("hex").toUpperCase()
+    titleFingerprint: createHash17("sha256").update(window.title, "utf8").digest("hex").toUpperCase()
   }));
   const product = {
     path: result.product.image,

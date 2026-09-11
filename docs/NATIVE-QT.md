@@ -1,6 +1,6 @@
 # Optionaler Qt-Lesepfad
 
-Die API kann `get_value`, `table_read`, `snapshot`, `find`, `read_page`, `subpages`, `known_page_state`, `positions` und `ustva_read` über eine dauerhaft gebundene
+Die API kann `get_value`, `table_read`, `snapshot`, `find`, `read_page`, `subpages`, `known_page_state`, `positions`, `ustva_read` und `receipt_manager_list` über eine dauerhaft gebundene
 Qt-Verbindung ausführen. Der normale Runtime-Start aktiviert diesen Pfad nur,
 wenn die Konfigurationsdatei `qtNativeRuntime` enthält. Dafür wird ein separates,
 kompatibles natives Paket benötigt; die npm-Pakete enthalten diesen Qt-Helfer
@@ -124,7 +124,11 @@ in dasselbe fachliche UStVA-Modell wie der bisherige Worker-Pfad. Ein modaler
 Dialog oder ein abgeschnittener Baum bricht die Lesung fail-closed ab; die
 Übermittlung bleibt gesperrt. Die übrigen Seiten- und UStVA-Operationen, etwa
 `page`, `read_full` und die UStVA-Schreibwege, benutzen weiterhin ihre bestehenden
-Pfade.
+Pfade. `receipt_manager_list` liest das katalogisierte nichtmodale BelegManager-
+Fenster und den Dirty-State des gebundenen Hauptfensters direkt aus zwei
+begrenzten Qt-Snapshots. Runtime-IDs und Fingerprints bleiben mit den bestehenden
+quittierten Belegmutationen kompatibel; eine nicht vollständig exponierte Liste
+wird als unvollständig markiert und nicht als sichere Mutationsgrundlage ausgegeben.
 
 ## Interne Laufzeitmessung
 

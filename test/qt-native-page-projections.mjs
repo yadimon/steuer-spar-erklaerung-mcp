@@ -190,4 +190,58 @@ export async function testNativePageProjections() {
   assert.equal(ustva.flags.manual_input, true);
   assert.equal(ustva.transmission.blockedByApi, true);
   assert.equal(ustva.transmission.uiGuardObserved, true);
+
+  const receiptNodes = [];
+  const receiptNode = (type, name, aid, x, y, extra = {}) => {
+    const i = receiptNodes.length;
+    receiptNodes.push({ i, p: i === 0 ? -1 : 0, d: i === 0 ? 0 : 1,
+      type, name, aid, rid: i === 0 ? "42.84" : `42.84.4.${i + 1}`,
+      x, y, w: 80, h: 20, on: true, val: null, ro: null, checked: null, selected: null, scroll: null, ...extra });
+  };
+  receiptNode("Group", "", "receipt", 0, 0, { w: 1000, h: 600 });
+  receiptNode("Button", "Neuer Beleg", "receipt.btn_new", 0, 0);
+  receiptNode("Button", "Mehrere Belege", "receipt.btn_newPopup", 90, 0);
+  receiptNode("Button", "Home", "receipt.pushButton_home", 180, 0);
+  receiptNode("Table", "", "receipt.tableWidget_mainTabel", 0, 100, { w: 900, h: 300 });
+  receiptNode("Text", "MEINE BELEGE (1)", "receipt.label_infoText1", 0, 70);
+  receiptNode("Edit", "", "receipt.widget_mainWindowInfoBar.frame_container.lineEdit_suche", 500, 70, { val: "" });
+  receiptNode("Header", "Titel", "receipt.tableWidget_mainTabel", 160, 100);
+  for (let column = 0; column < 9; column += 1) {
+    receiptNode("DataItem", column === 2 ? "Synthetic receipt*" : column === 8 ? "DOC-1" : "",
+      "receipt.tableWidget_mainTabel", column * 80, 140, { selected: column === 2 });
+  }
+  const mainNodes = [{ ...knownNodes[0] }, { ...knownNodes[4], i: 1, on: false }];
+  const receiptStats = { ...stats, n: receiptNodes.length };
+  const receiptClient = { binding: { hwnd: 42, pid: 99 }, request: async (operation, args) => {
+    assert.equal(operation, "accessibility_snapshot");
+    const tool = args.toolTitle === "BelegManager";
+    const selectedNodes = tool ? receiptNodes : mainNodes;
+    return { durationMs: tool ? 5 : 2, result: { ok: true, controllerBound: true, scope: "qt-accessibility-content",
+      hwnd: tool ? 84 : 42, windowRect: { x: 0, y: 0, w: 1000, h: 600 }, windowEnabled: true,
+      modalBlocked: false, exactMatches: {}, nodes: selectedNodes,
+      stats: { ...(tool ? receiptStats : stats), n: selectedNodes.length } } };
+  } };
+  const receipts = await executeQtNativeRead("receipt_manager_list", { filter: { draft: true }, limit: 1 },
+    { qtNativeClient: receiptClient }, 5000, undefined, loadProductProfile("2025"));
+  assert.equal(receipts.ok, true, JSON.stringify(receipts));
+  assert.equal(receipts.backend, "qt");
+  assert.equal(receipts.pid, 99);
+  assert.equal(receipts.mainHwnd, 42);
+  assert.equal(receipts.managerHwnd, 84);
+  assert.equal(receipts.state, "list");
+  assert.equal(receipts.count, 1);
+  assert.equal(receipts.rowsComplete, true);
+  assert.equal(receipts.draftCount, 1);
+  assert.equal(receipts.matchedCount, 1);
+  assert.equal(receipts.matchesComplete, true);
+  assert.equal(receipts.matches[0].title, "Synthetic receipt*");
+  assert.equal(receipts.matches[0].documentNumber, "DOC-1");
+  assert.equal(receipts.rows[0].selected, true);
+  assert.equal(receipts.ungespeichert, false);
+  assert.equal(receipts.physicalInputUsed, false);
+  assert.equal(receipts.nativeDurationMs, 7);
+  assert.match(receipts.stateFingerprint, /^[A-F0-9]{64}$/u);
+  assert.match(receipts.listFingerprint, /^[A-F0-9]{64}$/u);
+  assert.match(receipts.rows[0].rowFingerprint, /^[A-F0-9]{64}$/u);
+  assert.match(receipts.rows[0].contentFingerprint, /^[A-F0-9]{64}$/u);
 }
