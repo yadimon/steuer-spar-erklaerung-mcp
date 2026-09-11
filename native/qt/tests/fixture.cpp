@@ -68,6 +68,7 @@ int main(int argc, char **argv) {
     for (int row = 0; row < 500; ++row) for (int column = 0; column < 7; ++column)
         model->setData(model->index(row, column), QString("row-%1-cell-%2").arg(row).arg(column));
     table->setModel(model); table->setColumnHidden(5, true); table->setRowHidden(2, true);
+    QObject::connect(table, &QTableView::clicked, field, [field](const QModelIndex &) { field->setText("Changed by table action"); });
     layout->addWidget(field); layout->addWidget(nativeAction); layout->addWidget(secret); layout->addWidget(table);
     window.setCentralWidget(panel); window.setWindowTitle(QString::fromUtf8("SteuerSparErklärung – synthetic fixture"));
     window.resize(1000, 400); window.show();

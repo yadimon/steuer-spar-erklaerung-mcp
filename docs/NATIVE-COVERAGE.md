@@ -100,7 +100,7 @@ Broker und Transportquittungen sind Infrastruktur, keine zusätzlichen API-Komma
 | `read_full` | Seite und Navigation | Nicht umgestellt | funktional belegt |
 | `read_page` | Seite und Navigation | **Qt optional** | funktional belegt |
 | `read_table` | Seite und Navigation | Nicht umgestellt | funktional belegt |
-| `receipt_manager_action` | Belege | Nicht umgestellt | funktional belegt |
+| `receipt_manager_action` | Belege | **Qt optional** | funktional belegt |
 | `receipt_manager_bulk_upsert` | Belege | Nicht umgestellt | funktional belegt |
 | `receipt_manager_classification_options` | Belege | Nicht umgestellt | funktional belegt |
 | `receipt_manager_classify` | Belege | Nicht umgestellt | funktional belegt |
@@ -108,7 +108,7 @@ Broker und Transportquittungen sind Infrastruktur, keine zusätzlichen API-Komma
 | `receipt_manager_import` | Belege | Nicht umgestellt | funktional belegt |
 | `receipt_manager_link` | Belege | Nicht umgestellt | funktional belegt |
 | `receipt_manager_list` | Belege | **Qt optional** | funktional belegt |
-| `receipt_manager_read` | Belege | Nicht umgestellt | funktional belegt |
+| `receipt_manager_read` | Belege | **Qt optional** | funktional belegt |
 | `receipt_manager_update` | Belege | Nicht umgestellt | funktional belegt |
 | `result_details` | Seite und Navigation | Nicht umgestellt | funktional belegt |
 | `save` | Speichern | Nicht umgestellt | funktional belegt |
@@ -169,9 +169,11 @@ Broker und Transportquittungen sind Infrastruktur, keine zusätzlichen API-Komma
 - Ende, Dateien und zusammengesetzte Abläufe werden gesondert optimiert;
   eine schnelle Teiloperation belegt nicht den vollständigen Ablauf.
 
-Die ausgelieferte Qt-Brücke aktiviert keine experimentellen Schreib-, Navigations-
-oder Speicheroperationen. `known_page_state`, die read-only-Listenansicht
+Die ausgelieferte Qt-Brücke aktiviert keine freien experimentellen Schreib-,
+Navigations- oder Speicheroperationen. `known_page_state`, die read-only-Listenansicht
 `positions`, `ustva_read` und `receipt_manager_list` sind dabei katalog- bzw. snapshotgebundene Pfade.
+`receipt_manager_action` und `receipt_manager_read` verwenden ausschließlich
+exakt katalog- und Runtime-ID-gebundene, quittierte Qt-Aktionen im GUI-Thread.
 Sie lesen den persistenten Qt-Accessibility-Snapshot und bilden katalogisierte
 Felder, Epoch-Bindung beziehungsweise das bestehende fachliche UStVA-Modell ab;
 die Belegliste wird dabei an das exakte nichtmodale Tool-Fenster gebunden. Sie

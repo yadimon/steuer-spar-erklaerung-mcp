@@ -12723,6 +12723,7 @@ async function readQtNativeSnapshot(client, args, timeoutMs, signal) {
     ...typeof args.allowedModalTitle === "string" ? { allowedModalTitle: args.allowedModalTitle } : {},
     ...args.withValues === false ? { withValues: false } : {},
     ...Array.isArray(args.aidSuffixes) ? { aidSuffixes: args.aidSuffixes } : {},
+    ...Array.isArray(args.aidContains) ? { aidContains: args.aidContains } : {},
     ...args.equalitySelectors ? { equalitySelectors: args.equalitySelectors } : {}
   }, timeoutMs, signal);
   if (!read.result.ok) throw new QtNativeTransportError(
@@ -13259,6 +13260,18 @@ async function receiptToolSnapshot(client, policy, timeoutMs, signal) {
     aidSuffixes: receiptToolAidSuffixes(policy)
   }, timeoutMs, signal);
 }
+async function receiptDetailSnapshot(client, policy, timeoutMs, signal) {
+  return readQtNativeSnapshot(client, {
+    maxNodes: 5e3,
+    toolTitle: policy.title,
+    aidSuffixes: [.../* @__PURE__ */ new Set([
+      ...receiptToolAidSuffixes(policy),
+      policy.controls.detailClose.automationIdSuffix,
+      ...Object.values(policy.controls.editableFields).map((field) => field.automationIdSuffix)
+    ])],
+    aidContains: [".widget_detailPanel."]
+  }, timeoutMs, signal);
+}
 async function receiptDirtyState(client, hwnd, allowedModalTitle, timeoutMs, signal) {
   const main2 = await readQtNativeSnapshot(client, {
     hwnd,
@@ -13374,6 +13387,57 @@ function receiptList(nodes, policy) {
     gridProjectionError: rows.length === count ? null : "Qt accessibility exposes only the current receipt rows."
   };
 }
+function receiptDetailFields(nodes) {
+  return nodes.filter((node) => node.aid.includes(".widget_detailPanel.") && node.w > 0 && node.h > 0 && (["Edit", "Spinner", "CheckBox", "ComboBox", "Button"].includes(node.type) || node.name || node.val !== null)).sort((left, right) => left.aid.localeCompare(right.aid)).map((node) => ({
+    automationId: node.aid,
+    name: node.name,
+    type: node.type,
+    value: node.val,
+    readOnly: node.ro,
+    enabled: node.on,
+    checked: node.checked,
+    selected: node.selected
+  }));
+}
+function receiptEditableValues(nodes, policy) {
+  const values = {};
+  for (const [name, field] of Object.entries(policy.controls.editableFields)) {
+    const matches = nodes.filter((node2) => node2.aid.endsWith(field.automationIdSuffix) && node2.type === field.controlType && node2.w > 0 && node2.h > 0 && node2.on);
+    if (matches.length !== 1) return { complete: false, values: null };
+    const node = matches[0];
+    if (field.valueKind === "boolean") {
+      if (typeof node.checked !== "boolean") return { complete: false, values: null };
+      values[name] = node.checked;
+      continue;
+    }
+    let value = String(node.val ?? node.name);
+    if (field.valueKind === "date") {
+      const match = /^(?<day>\d{2})\.(?<month>\d{2})\.(?<year>\d{4})$/u.exec(value.trim());
+      if (match?.groups) value = `${match.groups.year}-${match.groups.month}-${match.groups.day}`;
+      else value = value.trim();
+    } else if (field.valueKind === "vat-rate") {
+      value = value.replace(/[^0-9]/gu, "") || "0";
+    }
+    values[name] = value;
+  }
+  return { complete: true, values };
+}
+function receiptDetailTitle(row, policy) {
+  const title = String(row.primaryText);
+  return row.draft && title.endsWith(policy.list.draftMarker) ? title.slice(0, -policy.list.draftMarker.length) : title;
+}
+function stableCellNames(row) {
+  return row.cells.filter((_, index) => index !== 5 && index !== 6).map((cell) => cell.name);
+}
+function sameSemanticRow(left, right) {
+  return left.primaryText === right.primaryText && left.documentNumber === right.documentNumber && left.contentFingerprint === right.contentFingerprint && JSON.stringify(stableCellNames(left)) === JSON.stringify(stableCellNames(right));
+}
+function exactDetailClose(nodes, policy) {
+  return nodes.filter((node) => node.type === "Button" && node.aid.endsWith(policy.controls.detailClose.automationIdSuffix) && node.name === policy.controls.detailClose.expectedName && node.w > 0 && node.h > 0 && node.on);
+}
+function detailIdentityMatches(values, row, policy) {
+  return Boolean(values && values.title === receiptDetailTitle(row, policy) && (!row.documentNumber || values.documentNumber === row.documentNumber));
+}
 async function executeQtNativeReceiptManagerList(client, args, timeoutMs, signal, profile) {
   const parsedPolicy = receiptPolicySchema.safeParse(profile?.pageObjectsCatalog.windows.receiptManager);
   if (!parsedPolicy.success) return fail5("invalid-catalog", "The active profile has no complete receipt-manager read policy.");
@@ -13391,7 +13455,7 @@ async function executeQtNativeReceiptManagerList(client, args, timeoutMs, signal
   if (state.error) return state.error;
   if (state.state !== "list") return fail5("precondition-failed", `Receipt list requires state 'list', current state is '${state.state}'.`);
   const list = receiptList(tool.nodes, parsedPolicy.data);
-  if (list.error) return list.error;
+  if ("error" in list) return list.error;
   const remaining = Math.floor(timeoutMs - (performance.now() - started));
   if (remaining < 1) return fail5("native-timeout", "Native receipt read deadline expired before dirty-state verification.");
   const dirtyState = await receiptDirtyState(client, args.hwnd, parsedPolicy.data.title, remaining, signal);
@@ -13438,6 +13502,184 @@ async function executeQtNativeReceiptManagerList(client, args, timeoutMs, signal
     physicalInputUsed: false,
     hinweis: list.rowsComplete ? "Alle vom BelegManager gezaehlten Zeilen sind im Qt-Baum enthalten." : `BelegManager zaehlt ${list.count} Belege, aber Qt exponiert aktuell ${list.rows.length} Zeilen; Ergebnis ist sichtbar, nicht vollstaendig.`,
     nativeDurationMs: tool.nativeDurationMs + dirtyState.durationMs
+  };
+}
+async function executeQtNativeReceiptManagerRead(client, args, timeoutMs, signal, profile) {
+  const parsedPolicy = receiptPolicySchema.safeParse(profile?.pageObjectsCatalog.windows.receiptManager);
+  if (!parsedPolicy.success) return fail5("invalid-catalog", "The active profile has no complete receipt-manager detail policy.");
+  const rowRid = typeof args.rowRid === "string" ? args.rowRid : "";
+  const rowFingerprint = typeof args.rowFingerprint === "string" ? args.rowFingerprint.toUpperCase() : "";
+  const expectedListFingerprint = typeof args.expectedListFingerprint === "string" ? args.expectedListFingerprint.toUpperCase() : "";
+  const waitMs = args.waitMs === void 0 ? 2500 : Number(args.waitMs);
+  if (!rowRid || !/^[A-F0-9]{64}$/u.test(rowFingerprint) || !/^[A-F0-9]{64}$/u.test(expectedListFingerprint)) {
+    return fail5("bad-args", "rowRid, rowFingerprint and expectedListFingerprint are required.");
+  }
+  if (!Number.isSafeInteger(waitMs) || waitMs < 100 || waitMs > 1e4) {
+    return fail5("bad-args", "waitMs must be an integer from 100 through 10000.");
+  }
+  const policy = parsedPolicy.data;
+  const started = performance.now();
+  const remaining = () => Math.floor(timeoutMs - (performance.now() - started));
+  let nativeDurationMs = 0;
+  const before = await receiptDetailSnapshot(client, policy, remaining(), signal);
+  nativeDurationMs += before.nativeDurationMs;
+  if (!before.windowEnabled || before.modalBlocked || before.stats.truncated) {
+    return fail5("window-obstructed", "The receipt manager is unavailable, obstructed or incomplete.");
+  }
+  const stateBefore = receiptState(before.nodes, before.hwnd, policy);
+  if (stateBefore.error) return stateBefore.error;
+  if (stateBefore.state !== "list") return fail5("precondition-failed", `Receipt detail requires state 'list', current state is '${stateBefore.state}'.`);
+  const listBefore = receiptList(before.nodes, policy);
+  if ("error" in listBefore) return listBefore.error;
+  if (listBefore.listFingerprint !== expectedListFingerprint) {
+    return fail5("stale", "The receipt list changed since receipt_manager_list; no native action was dispatched.");
+  }
+  const boundRows = listBefore.rows.filter((row) => row.rowRid === rowRid && row.rowFingerprint === rowFingerprint);
+  if (boundRows.length !== 1) return fail5("stale", `${boundRows.length} exact bound receipt rows found; no native action was dispatched.`);
+  const rowBefore = boundRows[0];
+  const dirtyBefore = await receiptDirtyState(client, args.hwnd, policy.title, remaining(), signal);
+  if (dirtyBefore.error) return dirtyBefore.error;
+  nativeDurationMs += dirtyBefore.durationMs;
+  const action = async (node, kind, method) => {
+    const reply = await client.requestAcknowledged("accessibility_action", {
+      toolTitle: policy.title,
+      rid: node.rid,
+      aid: node.aid,
+      expectedName: node.name,
+      action: kind
+    }, remaining(), signal);
+    nativeDurationMs += reply.durationMs;
+    return { reply, binding: {
+      method,
+      rid: node.rid,
+      aid: node.aid,
+      name: node.name,
+      receiptAcknowledged: reply.receiptAcknowledged,
+      mutationAckMs: reply.mutationAckMs
+    } };
+  };
+  let detail = before;
+  let fields = receiptDetailFields(detail.nodes);
+  let editable = receiptEditableValues(detail.nodes, policy);
+  let identityMatches = editable.complete && detailIdentityMatches(editable.values, rowBefore, policy) && listBefore.listFingerprint === expectedListFingerprint;
+  let clickBinding = { method: "already-open-detail", clickCount: 0 };
+  let rowVisibilityAttempts = 0;
+  if (!identityMatches) {
+    const targets = rowBefore.cells.filter((cell) => cell.rid === rowBefore.rowRid && cell.name);
+    if (targets.length !== 1) return fail5("stale", `${targets.length} exact native receipt cells found; no action was dispatched.`);
+    const target = before.nodes.filter((node) => node.rid === targets[0].rid && node.aid.endsWith(policy.list.tableAutomationIdSuffix) && node.name === targets[0].name && node.type === "DataItem");
+    if (target.length !== 1) return fail5("stale", `${target.length} live exact native receipt cells found; no action was dispatched.`);
+    const opened = await action(target[0], "activate-table-cell", "qt-table-cell-activate");
+    clickBinding = opened.binding;
+    rowVisibilityAttempts = 1;
+    if (opened.reply.result.ok !== true) {
+      return {
+        ok: false,
+        backend: "qt",
+        kind: String(opened.reply.result.code ?? "native-action"),
+        error: String(opened.reply.result.error ?? "The exact native receipt cell could not be activated; do not replay."),
+        physicalInputUsed: false,
+        foregroundLeaseUsed: false,
+        clickBinding,
+        nativeDurationMs
+      };
+    }
+    const openDeadline = Math.min(started + timeoutMs, performance.now() + waitMs);
+    do {
+      await delay(Math.min(100, Math.max(1, openDeadline - performance.now())));
+      detail = await receiptDetailSnapshot(client, policy, remaining(), signal);
+      nativeDurationMs += detail.nativeDurationMs;
+      fields = receiptDetailFields(detail.nodes);
+      editable = receiptEditableValues(detail.nodes, policy);
+      identityMatches = editable.complete && detailIdentityMatches(editable.values, rowBefore, policy);
+      if (fields.length && identityMatches && exactDetailClose(detail.nodes, policy).length === 1) break;
+    } while (performance.now() < openDeadline && remaining() > 0);
+  }
+  const detailFingerprint = fields.length ? sha256(fields) : null;
+  const closeTargets = exactDetailClose(detail.nodes, policy);
+  let closeBinding = null;
+  let listAfter = null;
+  let restored = null;
+  if (closeTargets.length === 1) {
+    const closed = await action(closeTargets[0], "press", "qt-accessibility-press");
+    closeBinding = closed.binding;
+    if (closed.reply.result.ok === true) {
+      const restoreDeadline = Math.min(started + timeoutMs, performance.now() + waitMs);
+      const expectedSemanticRows2 = listBefore.rows.map((row) => row.contentFingerprint).sort();
+      do {
+        await delay(Math.min(100, Math.max(1, restoreDeadline - performance.now())));
+        restored = await receiptToolSnapshot(client, policy, remaining(), signal);
+        nativeDurationMs += restored.nativeDurationMs;
+        const candidate = receiptList(restored.nodes, policy);
+        if (!("error" in candidate)) {
+          listAfter = candidate;
+          const actual = candidate.rows.map((row) => row.contentFingerprint).sort();
+          if (candidate.rowsComplete && candidate.count === listBefore.count && JSON.stringify(actual) === JSON.stringify(expectedSemanticRows2)) break;
+        }
+      } while (performance.now() < restoreDeadline && remaining() > 0);
+    }
+  }
+  const dirtyAfter = await receiptDirtyState(client, args.hwnd, policy.title, remaining(), signal);
+  if (dirtyAfter.error) return dirtyAfter.error;
+  nativeDurationMs += dirtyAfter.durationMs;
+  const expectedSemanticRows = listBefore.rows.map((row) => row.contentFingerprint).sort();
+  const actualSemanticRows = listAfter ? listAfter.rows.map((row) => row.contentFingerprint).sort() : [];
+  const exactRowsAfter = listAfter ? listAfter.rows.filter((row) => row.rowRid === rowBefore.rowRid && row.rowFingerprint === rowBefore.rowFingerprint) : [];
+  const semanticRowsAfter = listAfter ? listAfter.rows.filter((row) => sameSemanticRow(row, rowBefore)) : [];
+  const semanticListUnchanged = Boolean(listAfter && listAfter.rowsComplete && listAfter.count === listBefore.count && JSON.stringify(actualSemanticRows) === JSON.stringify(expectedSemanticRows) && semanticRowsAfter.length === 1);
+  const windowSetUnchanged = Boolean(restored && restored.hwnd === before.hwnd);
+  const dialogFreeAfter = Boolean(restored && restored.windowEnabled && !restored.modalBlocked);
+  const dirtyStateUnchanged = dirtyAfter.dirty === dirtyBefore.dirty;
+  const verified = Boolean(fields.length && detailFingerprint && editable.complete && identityMatches && semanticListUnchanged && windowSetUnchanged && dialogFreeAfter && dirtyStateUnchanged && closeBinding);
+  const common = {
+    backend: "qt",
+    pid: client.binding.pid,
+    hwnd: before.hwnd,
+    mainHwnd: client.binding.hwnd,
+    managerHwnd: before.hwnd,
+    row: semanticRowsAfter.length === 1 ? semanticRowsAfter[0] : rowBefore,
+    fields,
+    values: editable.values,
+    valuesComplete: editable.complete,
+    listFingerprint: listAfter ? listAfter.listFingerprint : null,
+    detailFingerprint,
+    listFingerprintBefore: expectedListFingerprint,
+    semanticListUnchanged,
+    targetRowRebound: exactRowsAfter.length === 1,
+    rowAfter: exactRowsAfter.length === 1 ? exactRowsAfter[0] : null,
+    targetSemanticRebound: semanticRowsAfter.length === 1,
+    semanticRowAfter: semanticRowsAfter.length === 1 ? semanticRowsAfter[0] : null,
+    detailIdentityMatchesTarget: identityMatches,
+    dialogFreeAfter,
+    windowSetUnchanged,
+    ungespeichertVorher: dirtyBefore.dirty,
+    ungespeichertNachher: dirtyAfter.dirty,
+    dirtyStateUnchanged,
+    physicalInputUsed: false,
+    foregroundLeaseUsed: false,
+    rowVisibilityMethod: rowVisibilityAttempts ? "qt-table-cell-activate" : "already-open-detail",
+    rowVisibilityAttempts,
+    verified,
+    clickBinding,
+    closeBinding,
+    nativeDurationMs
+  };
+  if (verified) return { ok: true, ...common };
+  const openConditions = [
+    ...!fields.length ? ["detail-fields-missing"] : [],
+    ...!identityMatches ? ["detail-identity-mismatch"] : [],
+    ...!semanticListUnchanged ? ["semantic-list-drift"] : [],
+    ...!windowSetUnchanged ? ["window-set-drift"] : [],
+    ...!dialogFreeAfter ? ["blocking-dialog"] : [],
+    ...!dirtyStateUnchanged ? ["dirty-state-drift"] : [],
+    ...!closeBinding ? ["detail-close-missing"] : []
+  ];
+  return {
+    ok: false,
+    kind: "postcondition-failed",
+    error: `The exact native receipt detail transaction was not fully proven (${openConditions.join(", ")}); do not replay.`,
+    offeneBedingungen: openConditions,
+    ...common
   };
 }
 async function executeQtNativeReceiptManagerAction(client, args, timeoutMs, signal, profile) {
@@ -13547,7 +13789,22 @@ var init_qt_native_receipts = __esm({
         primaryTextColumn: external_exports.number().int().nonnegative(),
         documentNumberColumn: external_exports.number().int().nonnegative(),
         draftMarker: external_exports.string().min(1)
-      }).strict()
+      }).strict(),
+      controls: external_exports.object({
+        detailClose: external_exports.object({
+          automationIdSuffix: external_exports.string().min(1),
+          expectedName: external_exports.string().min(1)
+        }).passthrough(),
+        editableFields: external_exports.object({
+          title: external_exports.object({ automationIdSuffix: external_exports.string().min(1), controlType: external_exports.string().min(1), valueKind: external_exports.string().min(1) }).passthrough(),
+          date: external_exports.object({ automationIdSuffix: external_exports.string().min(1), controlType: external_exports.string().min(1), valueKind: external_exports.string().min(1) }).passthrough(),
+          documentNumber: external_exports.object({ automationIdSuffix: external_exports.string().min(1), controlType: external_exports.string().min(1), valueKind: external_exports.string().min(1) }).passthrough(),
+          amount: external_exports.object({ automationIdSuffix: external_exports.string().min(1), controlType: external_exports.string().min(1), valueKind: external_exports.string().min(1) }).passthrough(),
+          vatRate: external_exports.object({ automationIdSuffix: external_exports.string().min(1), controlType: external_exports.string().min(1), valueKind: external_exports.string().min(1) }).passthrough(),
+          net: external_exports.object({ automationIdSuffix: external_exports.string().min(1), controlType: external_exports.string().min(1), valueKind: external_exports.string().min(1) }).passthrough(),
+          note: external_exports.object({ automationIdSuffix: external_exports.string().min(1), controlType: external_exports.string().min(1), valueKind: external_exports.string().min(1) }).passthrough()
+        }).strict()
+      }).passthrough()
     }).passthrough();
     filterSchema = external_exports.object({
       exactTitle: external_exports.string().optional(),
@@ -13571,7 +13828,7 @@ async function executeQtNativeRead(operation, args, dependencies, timeoutMs = DE
     const client = dependencies.qtNativeClient ?? await dependencies.qtNativeClientFor(args, timeoutMs, signal);
     const remaining = Math.floor(timeoutMs - (performance10.now() - started));
     if (remaining < 1) throw new QtNativeTransportError("Native operation deadline exceeded before reading.", "native-timeout");
-    const execute = operation === "known_page_state" ? executeQtNativeKnownPageState : operation === "positions" ? executeQtNativePositions : operation === "ustva_read" ? executeQtNativeUstvaRead : operation === "receipt_manager_action" ? executeQtNativeReceiptManagerAction : operation === "receipt_manager_list" ? executeQtNativeReceiptManagerList : operation === "read_page" ? executeQtNativeReadPage : operation === "subpages" ? executeQtNativeSubpages : operation === "find" ? executeQtNativeFind : operation === "snapshot" ? executeQtNativeSnapshot : operation === "table_read" ? executeQtNativeTableRead : typeof args.rid === "string" && args.rid.startsWith("42.") ? executeQtSnapshotGetValue : executeQtNativeGetValue;
+    const execute = operation === "known_page_state" ? executeQtNativeKnownPageState : operation === "positions" ? executeQtNativePositions : operation === "ustva_read" ? executeQtNativeUstvaRead : operation === "receipt_manager_action" ? executeQtNativeReceiptManagerAction : operation === "receipt_manager_read" ? executeQtNativeReceiptManagerRead : operation === "receipt_manager_list" ? executeQtNativeReceiptManagerList : operation === "read_page" ? executeQtNativeReadPage : operation === "subpages" ? executeQtNativeSubpages : operation === "find" ? executeQtNativeFind : operation === "snapshot" ? executeQtNativeSnapshot : operation === "table_read" ? executeQtNativeTableRead : typeof args.rid === "string" && args.rid.startsWith("42.") ? executeQtSnapshotGetValue : executeQtNativeGetValue;
     return await execute(client, args, remaining, signal, profile);
   } catch (error) {
     return {
@@ -13607,6 +13864,7 @@ var init_qt_native_executor = __esm({
       "positions",
       "ustva_read",
       "receipt_manager_list",
+      "receipt_manager_read",
       "receipt_manager_action"
     ];
   }

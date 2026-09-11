@@ -105,6 +105,20 @@ static Json accessibilitySnapshot(QWidget *main, const Json &request) {
             throw std::runtime_error("Accessibility ID suffix filter exceeds bound");
         aidSuffixes.push_back(std::move(suffix));
     }
+    const Json containsFilter = request.value("aidContains", Json::array());
+    if (!containsFilter.is_array() || containsFilter.size() > 32)
+        throw std::runtime_error("Invalid accessibility ID contains filter");
+    std::vector<std::string> aidContains;
+    std::size_t containsBytes = 0;
+    for (const auto &item : containsFilter) {
+        if (!item.is_string()) throw std::runtime_error("Invalid accessibility ID fragment");
+        auto fragment = item.get<std::string>();
+        containsBytes += fragment.size();
+        if (fragment.empty() || fragment.size() > 4096 || containsBytes > 32768)
+            throw std::runtime_error("Accessibility ID contains filter exceeds bound");
+        aidContains.push_back(std::move(fragment));
+    }
+    const bool sparse = !aidSuffixes.empty() || !aidContains.empty();
     if (limit < 1 || limit > 5000) throw std::runtime_error("maxNodes must be 1..5000");
     QElapsedTimer timer; timer.start();
     Json nodes = Json::array();
@@ -129,7 +143,7 @@ static Json accessibilitySnapshot(QWidget *main, const Json &request) {
             if (const auto nativeHost = accessibleHost(iface)) work.host = nativeHost;
             work.next = 0;
             if (work.depth >= 0) {
-                bool include = aidSuffixes.empty();
+                bool include = !sparse;
                 if (!include) {
                     const auto aid = accessibleText(QAccessibleBridgeUtils::accessibleId(iface));
                     for (const auto &suffix : aidSuffixes) {
@@ -139,13 +153,19 @@ static Json accessibilitySnapshot(QWidget *main, const Json &request) {
                             break;
                         }
                     }
+                    if (!include) for (const auto &fragment : aidContains) {
+                        if (aid.find(fragment) != std::string::npos) {
+                            include = true;
+                            break;
+                        }
+                    }
                 }
                 if (include) {
                     if (nodes.size() >= static_cast<std::size_t>(limit)) { truncated = true; break; }
                     const auto index = static_cast<int>(nodes.size());
-                    work.index = aidSuffixes.empty() ? index : work.parent;
-                    auto node = accessibleNode(iface, index, aidSuffixes.empty() ? work.parent : -1,
-                        aidSuffixes.empty() ? work.depth : 0, work.host, values);
+                    work.index = sparse ? work.parent : index;
+                    auto node = accessibleNode(iface, index, sparse ? -1 : work.parent,
+                        sparse ? 0 : work.depth, work.host, values);
                     for (const auto &[key, wanted] : selectors) {
                         const auto utf8 = node.at(key).get<std::string>();
                         const auto actual = QString::fromUtf8(utf8.data(), static_cast<qsizetype>(utf8.size())).toStdWString();
@@ -164,7 +184,7 @@ static Json accessibilitySnapshot(QWidget *main, const Json &request) {
         const auto count = iface->childCount();
         if (count < 0) throw std::runtime_error("Negative accessible child count");
         if (work.next >= count) { stack.pop_back(); continue; }
-        if (work.depth >= (aidSuffixes.empty() ? 16 : 64)) { depthLimited = true; stack.pop_back(); continue; }
+        if (work.depth >= (sparse ? 64 : 16)) { depthLimited = true; stack.pop_back(); continue; }
         auto *child = iface->child(work.next++);
         stack.push_back({child, work.index, work.depth + 1, work.host});
     }
@@ -197,9 +217,10 @@ static Json accessibilityAction(QWidget *main, const Json &request) {
     const auto wantedRid = request.value("rid", std::string());
     const auto wantedAid = request.value("aid", std::string());
     const auto expectedName = request.value("expectedName", std::string());
-    if (operation != "press" || wantedRid.empty() || wantedRid.size() > 256
-        || wantedAid.empty() || wantedAid.size() > 65536 || expectedName.size() > 65536)
-        return noMutationError("INVALID_ACTION_TARGET", "The native action requires an exact bounded press target");
+    if ((operation != "press" && operation != "activate-table-cell")
+        || wantedRid.empty() || wantedRid.size() > 256 || wantedAid.empty()
+        || wantedAid.size() > 65536 || expectedName.size() > 65536)
+        return noMutationError("INVALID_ACTION_TARGET", "The native action requires an exact bounded target");
     auto *root = main;
     if (request.contains("toolTitle")) {
         if (!request.at("toolTitle").is_string())
@@ -249,12 +270,35 @@ static Json accessibilityAction(QWidget *main, const Json &request) {
     const auto state = target->state();
     if ((!expectedName.empty() && actualName != expectedName) || state.disabled || state.invisible)
         return noMutationError("stale", "The exact native action target changed before dispatch");
-    auto *actions = target->actionInterface();
-    const auto press = QAccessibleActionInterface::pressAction();
-    if (!actions || !actions->actionNames().contains(press))
-        return noMutationError("ACTION_UNSUPPORTED", "The exact native target has no accessible press action");
-    mutationStarted = true;
-    actions->doAction(press);
+    if (operation == "press") {
+        auto *actions = target->actionInterface();
+        const auto press = QAccessibleActionInterface::pressAction();
+        if (!actions || !actions->actionNames().contains(press))
+            return noMutationError("ACTION_UNSUPPORTED", "The exact native target has no accessible press action");
+        mutationStarted = true;
+        actions->doAction(press);
+    } else {
+        auto *cell = target->tableCellInterface();
+        auto *table = cell ? cell->table() : nullptr;
+        auto *view = table ? qobject_cast<QAbstractItemView *>(table->object()) : nullptr;
+        if (!cell || !view || !view->model() || !view->selectionModel()
+            || view->thread() != QThread::currentThread() || !belongsTo(view, root))
+            return noMutationError("ACTION_UNSUPPORTED", "The exact target is not a live Qt item-view cell");
+        const auto index = view->model()->index(cell->rowIndex(), cell->columnIndex(), view->rootIndex());
+        if (!index.isValid() || view->metaObject()->indexOfSignal("clicked(QModelIndex)") < 0)
+            return noMutationError("ACTION_UNSUPPORTED", "The exact Qt item-view cell cannot be activated");
+        QItemSelectionModel::SelectionFlags flags = QItemSelectionModel::ClearAndSelect;
+        if (view->selectionBehavior() == QAbstractItemView::SelectRows) flags |= QItemSelectionModel::Rows;
+        else if (view->selectionBehavior() == QAbstractItemView::SelectColumns) flags |= QItemSelectionModel::Columns;
+        mutationStarted = true;
+        view->selectionModel()->setCurrentIndex(index, flags);
+        const bool invoked = QMetaObject::invokeMethod(view, "clicked", Qt::DirectConnection, Q_ARG(QModelIndex, index));
+        if (!invoked) {
+            auto failure = error("ACTION_DISPATCH_FAILED", "The exact Qt table-cell click signal could not be dispatched");
+            failure["mutationAttempted"] = true;
+            return failure;
+        }
+    }
     return {{"ok", true}, {"action", operation}, {"rid", wantedRid}, {"aid", wantedAid},
         {"name", actualName}, {"lookupMs", timer.nsecsElapsed() / 1e6}};
 }

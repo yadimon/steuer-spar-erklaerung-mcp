@@ -440,10 +440,12 @@ Eigenes Programm ── HTTP/JSON ───────────────�
   Dirty-State-Readback erlaubt; nicht strukturiert bedienbare Qt-Controls
   benötigen eine sichtbare Vordergrund-Lease und Nutzerzustimmung. Ein privater
   Desktop ist Fokus-/UX-Isolation, keine Security-Sandbox.
-- Fuer den BelegManager gilt eine engere aktuelle Laufzeitgrenze: Nur
-  `receipt_manager_list` ist als `focusless-read` freigegeben. Alle neun Wege,
-  die Detailauswahl, Navigation oder Mutation ueber sichtbaren Vordergrund
-  beziehungsweise globale physische Eingabe benoetigen, stoppen nach der
+- Fuer den BelegManager gilt eine engere aktuelle Laufzeitgrenze:
+  `receipt_manager_list` ist als `focusless-read` freigegeben;
+  `receipt_manager_action` und `receipt_manager_read` laufen über exakt
+  gebundene, quittierte Qt-Aktionen ohne globale physische Eingabe. Alle sieben
+  verbleibenden Wege, die noch sichtbaren Vordergrund beziehungsweise globale
+  physische Eingabe benoetigen, stoppen nach der
   oeffentlichen Argumentpruefung, aber vor Ressourcenaufloesung, Workerstart,
   Buildpruefung und UIA. Derselbe Katalog und Block liegen zusaetzlich direkt
   im Worker; ein direkter Aufruf oder eine Komposition kann die API-Grenze
@@ -625,8 +627,9 @@ die beiden Klassifikationsoperationen, `receipt_manager_link` und
 `receipt_manager_bulk_upsert`. Auf einer frischen
 Installation lässt sich der Einwilligungsdialog weiterhin nicht beantworten.
 
-**Aktuelle Verfuegbarkeit:** Von diesen zehn Operationen ist ausschließlich
-`receipt_manager_list` aktiv. Die neun anderen Implementierungen bleiben als
+**Aktuelle Verfuegbarkeit:** Von diesen zehn Operationen sind
+`receipt_manager_list`, `receipt_manager_action` und `receipt_manager_read`
+über den privaten authentifizierten Qt-Broker aktiv. Die sieben anderen Implementierungen bleiben als
 historisch verifizierter, statisch gepruefter Vertrag im Worker erhalten, sind
 aber unerreichbar: API und Worker liefern
 `reason=foreground-required-operation-disabled`, `retryable=false`,
@@ -653,6 +656,11 @@ Treffermenge nach exaktem Titel, Titelbestandteil und Entwurfsstatus; die
 Mutation bleibt trotzdem an die vollständige Liste gebunden. `read` und `delete`
 akzeptieren nur solche frischen Zeilenbindungen; `delete` verlangt zusätzlich
 eine ausdrückliche Bestätigung und den exakt profilierten Löschdialog.
+`receipt_manager_read` bindet die exakte Tabellenzelle, aktiviert sie direkt im
+Qt-GUI-Thread, liest die katalogisierten Detailfelder aus einer begrenzten
+Accessibility-Projektion und schließt die Detailansicht quittiert. Vor und nach
+der Transaktion müssen Dirty-State, Fenstersatz und das fachliche Zeilen-Multiset
+unverändert sein; Maus, Tastatur und Vordergrund-Lease werden nicht verwendet.
 `receipt_manager_update` verlangt zusätzlich den frischen Detailfingerprint
 und `acknowledgeUpdate=true`. Ein Aufruf kann Titel, Datum, Belegnummer,
 Betrag, Umsatzsteuersatz, Netto-Kennzeichen und Notiz gemeinsam setzen. Er
