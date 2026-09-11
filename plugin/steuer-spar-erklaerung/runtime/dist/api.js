@@ -8094,6 +8094,10 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
       if (observed.ok === false) {
         lastProbeError = `launch_probe: ${String(observed.error ?? observed.kind ?? "Startinventur fehlgeschlagen.")}`;
         probeFailures += 1;
+        if (observed.kind === "worker-isolation-lost" && !signal?.aborted) {
+          await waitForNextProbe();
+          continue;
+        }
         break;
       }
       const reportedFailures = Number(observed.probeFailures);
