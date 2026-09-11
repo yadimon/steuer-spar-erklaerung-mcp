@@ -13176,6 +13176,64 @@ var init_qt_native_find = __esm({
   }
 });
 
+// src/qt-native-ustva.ts
+function transmissionName2(name) {
+  const normalized = name.toLowerCase().replaceAll("ä", "a").replaceAll("ö", "o").replaceAll("ü", "u").replaceAll("ß", "ss").replace(/[^\p{L}\p{N}]/gu, "");
+  return ["elster", "versend", "versand", "ubermittl", "ubermittel", "abschick", "nachreich", "abschliess", "datenubertrag", "transfer"].some((stem) => normalized.includes(stem)) || normalized.startsWith("senden");
+}
+async function executeQtNativeUstvaRead(client, args, timeoutMs, signal, profile) {
+  const snapshot = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 5e3 }, timeoutMs, signal);
+  if (!snapshot.windowEnabled || snapshot.modalBlocked) {
+    return {
+      ok: false,
+      backend: "qt",
+      kind: "dialog-open",
+      error: "Ein modaler Dialog blockiert die gebundene UStVA-Seite; keine Werte ausgegeben."
+    };
+  }
+  if (snapshot.stats.truncated) {
+    throw new QtNativeTransportError("The UStVA tree exceeds the native read bound.", "native-incomplete");
+  }
+  const bounds = contentBounds(snapshot.nodes, snapshot.windowRect);
+  const captionMinX = bounds.navErkannt ? bounds.minX : bounds.winX;
+  const texts = snapshot.nodes.filter((node) => node.type === "Text" && node.name && node.x >= captionMinX && node.x <= bounds.maxX);
+  const fields = snapshot.nodes.filter((node) => fieldTypes.has(node.type) && node.x >= bounds.minX && node.x <= bounds.maxX).sort(byPosition2).map((field) => {
+    const label = texts.filter((text3) => Math.abs(text3.y - field.y) <= 14 && text3.x < field.x).sort((a, b) => field.x - a.x - (field.x - b.x))[0]?.name || field.name;
+    return {
+      label,
+      typ: field.type,
+      wert: field.type === "CheckBox" ? field.checked : field.type === "RadioButton" ? field.selected : field.val,
+      schreibgeschuetzt: field.ro,
+      aid: field.aid.split(".").at(-1) ?? field.aid,
+      rid: field.rid,
+      y: field.y
+    };
+  });
+  const actions = snapshot.nodes.filter((node) => ["Button", "Hyperlink"].includes(node.type) && node.name).map((node) => ({ name: node.name, gesperrt: transmissionName2(node.name) }));
+  const normalized = normalizeUstvaCurrentPage({
+    ok: true,
+    ueberschrift: heading(snapshot.nodes, profile),
+    felder: fields,
+    aktionen: actions,
+    blockiert: false,
+    prueferMeldungen: [],
+    dialoge: []
+  });
+  return { ...normalized, backend: "qt", nativeDurationMs: snapshot.nativeDurationMs };
+}
+var fieldTypes, byPosition2;
+var init_qt_native_ustva = __esm({
+  "src/qt-native-ustva.ts"() {
+    "use strict";
+    init_qt_native_client();
+    init_qt_native_pages();
+    init_qt_native_snapshot();
+    init_ustva();
+    fieldTypes = /* @__PURE__ */ new Set(["Edit", "ComboBox", "CheckBox", "RadioButton"]);
+    byPosition2 = (a, b) => a.y - b.y || a.x - b.x;
+  }
+});
+
 // src/qt-native-executor.ts
 import { performance as performance10 } from "node:perf_hooks";
 function isQtNativeReadOperation(operation) {
@@ -13188,7 +13246,7 @@ async function executeQtNativeRead(operation, args, dependencies, timeoutMs = DE
     const client = dependencies.qtNativeClient ?? await dependencies.qtNativeClientFor(args, timeoutMs, signal);
     const remaining = Math.floor(timeoutMs - (performance10.now() - started));
     if (remaining < 1) throw new QtNativeTransportError("Native operation deadline exceeded before reading.", "native-timeout");
-    const execute = operation === "known_page_state" ? executeQtNativeKnownPageState : operation === "positions" ? executeQtNativePositions : operation === "read_page" ? executeQtNativeReadPage : operation === "subpages" ? executeQtNativeSubpages : operation === "find" ? executeQtNativeFind : operation === "snapshot" ? executeQtNativeSnapshot : operation === "table_read" ? executeQtNativeTableRead : typeof args.rid === "string" && args.rid.startsWith("42.") ? executeQtSnapshotGetValue : executeQtNativeGetValue;
+    const execute = operation === "known_page_state" ? executeQtNativeKnownPageState : operation === "positions" ? executeQtNativePositions : operation === "ustva_read" ? executeQtNativeUstvaRead : operation === "read_page" ? executeQtNativeReadPage : operation === "subpages" ? executeQtNativeSubpages : operation === "find" ? executeQtNativeFind : operation === "snapshot" ? executeQtNativeSnapshot : operation === "table_read" ? executeQtNativeTableRead : typeof args.rid === "string" && args.rid.startsWith("42.") ? executeQtSnapshotGetValue : executeQtNativeGetValue;
     return await execute(client, args, remaining, signal, profile);
   } catch (error) {
     return {
@@ -13211,6 +13269,7 @@ var init_qt_native_executor = __esm({
     init_qt_native_snapshot();
     init_qt_native_pages();
     init_qt_native_find();
+    init_qt_native_ustva();
     QT_NATIVE_READ_OPERATIONS = [
       "get_value",
       "table_read",
@@ -13219,7 +13278,8 @@ var init_qt_native_executor = __esm({
       "read_page",
       "subpages",
       "known_page_state",
-      "positions"
+      "positions",
+      "ustva_read"
     ];
   }
 });
