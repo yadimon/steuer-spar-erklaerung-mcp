@@ -8,8 +8,8 @@ Der Live-Stand stammt aus bestehenden Tests; er belegt keinen Wechsel des Backen
 | Kennzahl | Anzahl |
 | --- | ---: |
 | API-Operationen | 102 |
-| Direkt an den optionalen Qt-DLL-Pfad angeschlossen | 8 |
-| Ohne direkten Qt-DLL-Pfad | 94 |
+| Direkt an den optionalen Qt-DLL-Pfad angeschlossen | 9 |
+| Ohne direkten Qt-DLL-Pfad | 93 |
 | Zusätzliche direkte Win32-Operationen im optionalen nativen Paket | 2 |
 | Zusätzliche Win32-/COM-UIA-Operationen im optionalen nativen Paket | 1 |
 | Funktional live belegt, unabhängig vom Backend | 94 |
@@ -133,7 +133,7 @@ Broker und Transportquittungen sind Infrastruktur, keine zusätzlichen API-Komma
 | `ui_state` | Seite und Navigation | Nicht umgestellt | funktional belegt |
 | `ustva_change_value` | UStVA | Nicht umgestellt | funktional belegt |
 | `ustva_open_section` | UStVA | Nicht umgestellt | funktional belegt |
-| `ustva_read` | UStVA | Nicht umgestellt | funktional belegt |
+| `ustva_read` | UStVA | **Qt optional** | funktional belegt |
 | `ustva_select_period` | UStVA | Nicht umgestellt | funktional belegt |
 | `ustva_set_flag` | UStVA | Nicht umgestellt | funktional belegt |
 | `vast_apply` | VaSt | Nicht umgestellt | nur Fehlerpfad |
@@ -170,10 +170,11 @@ Broker und Transportquittungen sind Infrastruktur, keine zusätzlichen API-Komma
   eine schnelle Teiloperation belegt nicht den vollständigen Ablauf.
 
 Die ausgelieferte Qt-Brücke aktiviert keine experimentellen Schreib-, Navigations-
-oder Speicheroperationen. `known_page_state` und die read-only-Listenansicht
-`positions` sind dabei katalog- bzw. snapshotgebundene Pfade:
-Er liest den persistenten Qt-Accessibility-Snapshot und bildet die katalogisierten
-Felder sowie die Epoch-Bindung ab; er führt keine Mutation aus. Ein Prototyp oder ein statisch gefundenes Herstellersymbol
+oder Speicheroperationen. `known_page_state`, die read-only-Listenansicht
+`positions` und `ustva_read` sind dabei katalog- bzw. snapshotgebundene Pfade.
+Sie lesen den persistenten Qt-Accessibility-Snapshot und bilden katalogisierte
+Felder, Epoch-Bindung beziehungsweise das bestehende fachliche UStVA-Modell ab;
+sie führen keine Mutation aus. Ein Prototyp oder ein statisch gefundenes Herstellersymbol
 ändert den Status dieser Matrix erst nach Integration und passendem Nachweis.
 
 ## Nachweise und Pflege
