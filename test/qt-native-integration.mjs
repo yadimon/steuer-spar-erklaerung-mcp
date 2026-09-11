@@ -159,6 +159,13 @@ try {
   assert.equal(sparseRead.result.nodes[0].aid.endsWith("syntheticField"), true);
   assert.equal(sparseRead.result.nodes[0].p, -1);
   assert.equal(sparseRead.result.nodes[0].d, 0);
+  const containsRead = await sessions[0].client.request("accessibility_snapshot",
+    { maxNodes: 5000, aidContains: ["synthetic"] }, 5000);
+  assert.equal(containsRead.result.ok, true, JSON.stringify(containsRead.result));
+  assert.equal(containsRead.result.stats.truncated, false);
+  assert(containsRead.result.nodes.length >= 4);
+  assert(containsRead.result.nodes.every(node => node.aid.includes("synthetic")));
+  assert(containsRead.result.nodes.every(node => node.p === -1 && node.d === 0));
   assert.equal(snapshot.canaryMs, null); assert.equal(snapshot.responsivenessCheck, "bounded-gui-thread");
   const independent = await uiaSnapshot(first.info.hwnd);
   const redactPassword = nodes => nodes.map(node => node.aid.endsWith("syntheticSecret") ? { ...node, val: null, ro: null } : node);
@@ -218,6 +225,18 @@ try {
   await delay(200);
   assert.equal((await read("get_value", { aid: "syntheticField" })).value, "Changed by native action");
   report.checks.push("An exact runtime-ID, automation-ID and name-bound Qt action executes once and is receipt-acknowledged without physical input");
+  const tableActionTarget = snapshot.nodes.filter(node => node.type === "DataItem" && node.name === "row-0-cell-0");
+  assert.equal(tableActionTarget.length, 1);
+  const tableAction = await sessions[0].client.requestAcknowledged("accessibility_action", {
+    rid: tableActionTarget[0].rid, aid: tableActionTarget[0].aid,
+    expectedName: tableActionTarget[0].name, action: "activate-table-cell",
+  }, 5000);
+  assert.equal(tableAction.result.ok, true, JSON.stringify(tableAction.result));
+  assert.equal(tableAction.result.mutationAttempted, true);
+  assert.equal(tableAction.receiptAcknowledged, true);
+  await delay(200);
+  assert.equal((await read("get_value", { aid: "syntheticField" })).value, "Changed by table action");
+  report.checks.push("An exact Qt table-cell activation emits the table click without physical input");
   await first.command("change-field");
   assert.equal((await read("get_value", { aid: "syntheticField" })).value, "Changed by fixture");
   assert.equal((await read("get_value", { rid: fieldRid })).value, "Changed by fixture");

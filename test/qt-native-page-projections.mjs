@@ -287,4 +287,67 @@ export async function testNativePageProjections() {
   assert.match(receipts.listFingerprint, /^[A-F0-9]{64}$/u);
   assert.match(receipts.rows[0].rowFingerprint, /^[A-F0-9]{64}$/u);
   assert.match(receipts.rows[0].contentFingerprint, /^[A-F0-9]{64}$/u);
+  const detailNodes = receiptNodes.map(node => ({ ...node }));
+  const detailNode = (type, name, aid, extra = {}) => {
+    const i = detailNodes.length;
+    detailNodes.push({ i, p: 0, d: 1, type, name, aid, rid: `42.84.4.${i + 100}`,
+      x: 100, y: 200 + i, w: 200, h: 20, on: true, val: null, ro: null,
+      checked: null, selected: null, scroll: null, ...extra });
+  };
+  detailNode("Edit", "", "receipt.widget_detailPanel.lineEdit_detailsTitle", { val: "Synthetic receipt", ro: false });
+  detailNode("Edit", "", "receipt.widget_detailPanel.dateEdit_datum.AAVDateLineEdit", { val: "01.02.2026", ro: false });
+  detailNode("Edit", "", "receipt.widget_detailPanel.lineEdit_belegNummer", { val: "DOC-1", ro: false });
+  detailNode("Edit", "", "receipt.widget_detailPanel.lineEdit_betrag", { val: "12,34", ro: false });
+  detailNode("Edit", "", "receipt.widget_detailPanel.comboBox_umsatzsteuer.QLineEdit", { val: "19 %", ro: false });
+  detailNode("CheckBox", "Netto", "receipt.widget_detailPanel.checkBox_netto", { checked: true });
+  detailNode("Edit", "", "receipt.widget_detailPanel.textEdit_notiz", { val: "Synthetic note", ro: false });
+  detailNode("Button", "Detailansicht  schließen", "receipt.widget_detailPanel.pushButton_detailsClose");
+  let detailState = "list";
+  const detailActions = [];
+  const detailClient = { binding: { hwnd: 42, pid: 99 },
+    request: async (operation, args) => {
+      assert.equal(operation, "accessibility_snapshot");
+      const tool = args.toolTitle === "BelegManager";
+      if (tool && args.aidContains) assert.deepEqual(args.aidContains, [".widget_detailPanel."]);
+      const selectedNodes = tool ? (detailState === "detail" ? detailNodes : receiptNodes) : mainNodes;
+      return { durationMs: 2, result: { ok: true, controllerBound: true, scope: "qt-accessibility-content",
+        hwnd: tool ? 84 : 42, windowRect: { x: 0, y: 0, w: 1000, h: 600 }, windowEnabled: true,
+        modalBlocked: false, exactMatches: {}, nodes: selectedNodes,
+        stats: { ...stats, n: selectedNodes.length } } };
+    },
+    requestAcknowledged: async (operation, args) => {
+      assert.equal(operation, "accessibility_action");
+      detailActions.push(args.action);
+      if (args.action === "activate-table-cell") {
+        assert.equal(args.rid, receipts.rows[0].rowRid);
+        assert.equal(args.expectedName, "Synthetic receipt*");
+        detailState = "detail";
+      } else {
+        assert.equal(args.action, "press");
+        assert(args.aid.endsWith(".pushButton_detailsClose"));
+        detailState = "list";
+      }
+      return { durationMs: 3, mutationAckMs: 1, receiptAcknowledged: true,
+        result: { ok: true, mutationAttempted: true } };
+    },
+  };
+  const detailRead = await executeQtNativeRead("receipt_manager_read", {
+    rowRid: receipts.rows[0].rowRid,
+    rowFingerprint: receipts.rows[0].rowFingerprint,
+    expectedListFingerprint: receipts.listFingerprint,
+  }, { qtNativeClient: detailClient }, 5000, undefined, loadProductProfile("2025"));
+  assert.equal(detailRead.ok, true, JSON.stringify(detailRead));
+  assert.equal(detailRead.backend, "qt");
+  assert.equal(detailRead.valuesComplete, true);
+  assert.deepEqual(detailRead.values, { title: "Synthetic receipt", date: "2026-02-01", documentNumber: "DOC-1",
+    amount: "12,34", vatRate: "19", net: true, note: "Synthetic note" });
+  assert.match(detailRead.detailFingerprint, /^[A-F0-9]{64}$/u);
+  assert.equal(detailRead.semanticListUnchanged, true);
+  assert.equal(detailRead.detailIdentityMatchesTarget, true);
+  assert.equal(detailRead.physicalInputUsed, false);
+  assert.equal(detailRead.foregroundLeaseUsed, false);
+  assert.equal(detailRead.verified, true);
+  assert.equal(detailRead.clickBinding.method, "qt-table-cell-activate");
+  assert.equal(detailRead.closeBinding.method, "qt-accessibility-press");
+  assert.deepEqual(detailActions, ["activate-table-cell", "press"]);
 }
