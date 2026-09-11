@@ -71,7 +71,8 @@ static bool ownerAlive(const std::shared_ptr<NativeSession> &session) {
     return !session->released && WaitForSingleObject(session->owner, 0) == WAIT_TIMEOUT;
 }
 static bool isMutation(const std::string &op) {
-    return op == "table_set_cell" || op == "field_set_value" || op == "select_navigation" || op == "save_disposable";
+    return op == "table_set_cell" || op == "field_set_value" || op == "select_navigation" || op == "save_disposable"
+        || op == "accessibility_action";
 }
 static thread_local const NativeSession *guiSession = nullptr;
 static thread_local bool mutationStarted = false;
@@ -208,8 +209,8 @@ static Json execute(const Json &request) {
         return {{"ok", false}, {"code", "RECOVERY_REQUIRED"}, {"mutationAttempted", false},
             {"error", "A previous session lost confirmation of a mutation; inspect the current state before further writes"}};
     }
-    if (isMutation(op)
-        && (!root->isEnabled() || QApplication::activeModalWidget())) {
+    if (isMutation(op) && (op == "accessibility_action" ? accessibilityActionObstructed(root, request)
+        : (!root->isEnabled() || QApplication::activeModalWidget()))) {
         auto blocked = error("window-obstructed", "The bound window is disabled or blocked by a modal dialog");
         blocked["mutationAttempted"] = false;
         return blocked;
@@ -226,6 +227,8 @@ static Json execute(const Json &request) {
         result = windowContext();
     } else if (op == "accessibility_snapshot") {
         result = accessibilitySnapshot(root, request);
+    } else if (op == "accessibility_action") {
+        result = accessibilityAction(root, request);
     } else if (op == "objects") {
         for (auto it = ids.begin(); it != ids.end();) {
             const auto object = objects.find(it->second);

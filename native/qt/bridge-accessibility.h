@@ -27,13 +27,17 @@ static std::uint64_t accessibleHost(QAccessibleInterface *iface) {
         throw std::runtime_error("Accessible native host identity changed");
     return reinterpret_cast<std::uint64_t>(hwnd);
 }
+static std::string accessibleRuntimeId(QAccessibleInterface *iface, std::uint64_t host) {
+    std::string rid = "42." + std::to_string(static_cast<std::int32_t>(host));
+    if (!accessibleHost(iface)) rid += ".4." + std::to_string(static_cast<std::int32_t>(QAccessible::uniqueId(iface)));
+    return rid;
+}
 static Json accessibleNode(QAccessibleInterface *iface, int index, int parent, int depth, std::uint64_t host, bool values) {
     const auto state = iface->state();
     const std::string type = accessibleControlType(iface);
     const auto rect = QHighDpi::toNativePixels(QRectF(iface->rect()), accessibleWindow(iface));
     const bool empty = rect.isEmpty();
-    std::string rid = "42." + std::to_string(static_cast<std::int32_t>(host));
-    if (!accessibleHost(iface)) rid += ".4." + std::to_string(static_cast<std::int32_t>(QAccessible::uniqueId(iface)));
+    const auto rid = accessibleRuntimeId(iface, host);
     Json node = {{"i", index}, {"p", parent}, {"d", depth}, {"type", type},
         {"name", accessibleText(iface->text(QAccessible::Name), true)},
         {"aid", accessibleText(QAccessibleBridgeUtils::accessibleId(iface))}, {"rid", rid},
@@ -174,4 +178,83 @@ static Json accessibilitySnapshot(QWidget *main, const Json &request) {
         {"stats", {{"n", count}, {"err", 0}, {"cyc", 0}, {"cycleRid", ""}, {"cycleName", ""},
             {"truncated", truncated || depthLimited}, {"depthLimited", depthLimited}, {"valErr", 0}, {"scrollErr", 0},
             {"source", "qt"}, {"fallbackReason", ""}, {"snapshotMs", timer.nsecsElapsed() / 1e6}}}};
+}
+
+static bool accessibilityActionObstructed(QWidget *main, const Json &request) {
+    if (!request.contains("toolTitle") || !request.at("toolTitle").is_string())
+        return !main->isEnabled() || QApplication::activeModalWidget();
+    const auto title = QString::fromUtf8(request.at("toolTitle").get<std::string>().c_str());
+    std::vector<QWidget *> matches;
+    for (auto *widget : QApplication::topLevelWidgets())
+        if (widget != main && widget->isVisible() && widget->windowTitle() == title) matches.push_back(widget);
+    return matches.size() == 1 && (!matches.front()->isEnabled() || accessibilityModalBlocked(matches.front(), request));
+}
+
+// Private, exact-target mechanism for catalogued compound API transactions.
+// It is reachable only over the authenticated native broker and is not itself a public selector API.
+static Json accessibilityAction(QWidget *main, const Json &request) {
+    const auto operation = request.value("action", std::string());
+    const auto wantedRid = request.value("rid", std::string());
+    const auto wantedAid = request.value("aid", std::string());
+    const auto expectedName = request.value("expectedName", std::string());
+    if (operation != "press" || wantedRid.empty() || wantedRid.size() > 256
+        || wantedAid.empty() || wantedAid.size() > 65536 || expectedName.size() > 65536)
+        return noMutationError("INVALID_ACTION_TARGET", "The native action requires an exact bounded press target");
+    auto *root = main;
+    if (request.contains("toolTitle")) {
+        if (!request.at("toolTitle").is_string())
+            return noMutationError("INVALID_ACTION_TARGET", "The catalogued tool title is invalid");
+        const auto title = QString::fromUtf8(request.at("toolTitle").get<std::string>().c_str());
+        std::vector<QWidget *> matches;
+        for (auto *widget : QApplication::topLevelWidgets())
+            if (widget != main && widget->isVisible() && widget->windowTitle() == title) matches.push_back(widget);
+        if (matches.empty()) return noMutationError("not-found", "The catalogued tool window is not open");
+        if (matches.size() != 1) return noMutationError("ambiguous", "The catalogued tool window is not unique");
+        root = matches.front();
+    }
+    if (root->thread() != QThread::currentThread() || !root->isEnabled() || accessibilityModalBlocked(root, request))
+        return noMutationError("window-obstructed", "The exact native action root is unavailable or obstructed");
+    auto *rootInterface = QAccessible::queryAccessibleInterface(root);
+    if (!rootInterface || !rootInterface->isValid())
+        return noMutationError("INVALID_ACTION_TARGET", "The native action root has no valid accessible interface");
+    struct Work { QAccessibleInterface *iface; int depth; std::uint64_t host; };
+    std::vector<Work> stack{{rootInterface, -1, accessibleHost(rootInterface)}};
+    std::unordered_set<QAccessible::Id> seen;
+    QAccessibleInterface *target = nullptr;
+    int matches = 0, visited = 0;
+    QElapsedTimer timer; timer.start();
+    while (!stack.empty()) {
+        if (timer.elapsed() > 750) return noMutationError("ACTION_LOOKUP_TIMEOUT", "The exact native action lookup exceeded its bound");
+        const auto work = stack.back(); stack.pop_back();
+        auto *iface = work.iface;
+        if (++visited > 50000) return noMutationError("ACTION_LOOKUP_BOUND", "The exact native action lookup exceeded its node bound");
+        if (!iface || !iface->isValid()) return noMutationError("INVALID_ACTION_TARGET", "The native action tree changed during lookup");
+        if (iface->state().invisible) continue;
+        if (!seen.insert(QAccessible::uniqueId(iface)).second)
+            return noMutationError("INVALID_ACTION_TARGET", "The native action tree contains a repeated interface");
+        auto host = work.host;
+        if (const auto nativeHost = accessibleHost(iface)) host = nativeHost;
+        if (work.depth >= 0 && accessibleText(QAccessibleBridgeUtils::accessibleId(iface)) == wantedAid
+            && accessibleRuntimeId(iface, host) == wantedRid) {
+            ++matches; target = iface;
+        }
+        if (work.depth >= 64) continue;
+        const auto count = iface->childCount();
+        if (count < 0) return noMutationError("INVALID_ACTION_TARGET", "The native action target has an invalid child count");
+        for (int index = count - 1; index >= 0; --index) stack.push_back({iface->child(index), work.depth + 1, host});
+    }
+    if (matches != 1 || !target || !target->isValid())
+        return noMutationError(matches ? "ambiguous" : "not-found", "The exact native action target is not unique and live");
+    const auto actualName = accessibleText(target->text(QAccessible::Name), true);
+    const auto state = target->state();
+    if ((!expectedName.empty() && actualName != expectedName) || state.disabled || state.invisible)
+        return noMutationError("stale", "The exact native action target changed before dispatch");
+    auto *actions = target->actionInterface();
+    const auto press = QAccessibleActionInterface::pressAction();
+    if (!actions || !actions->actionNames().contains(press))
+        return noMutationError("ACTION_UNSUPPORTED", "The exact native target has no accessible press action");
+    mutationStarted = true;
+    actions->doAction(press);
+    return {{"ok", true}, {"action", operation}, {"rid", wantedRid}, {"aid", wantedAid},
+        {"name", actualName}, {"lookupMs", timer.nsecsElapsed() / 1e6}};
 }
