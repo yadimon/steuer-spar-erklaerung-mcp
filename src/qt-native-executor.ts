@@ -8,10 +8,10 @@ import type { ProductProfile } from "./product-profiles.js";
 import { executeQtNativeKnownPageState, executeQtNativePositions, executeQtNativeReadPage, executeQtNativeSubpages } from "./qt-native-pages.js";
 import { executeQtNativeFind } from "./qt-native-find.js";
 import { executeQtNativeUstvaRead } from "./qt-native-ustva.js";
-import { executeQtNativeReceiptManagerList } from "./qt-native-receipts.js";
+import { executeQtNativeReceiptManagerAction, executeQtNativeReceiptManagerList } from "./qt-native-receipts.js";
 
 export const QT_NATIVE_READ_OPERATIONS = [
-  "get_value", "table_read", "snapshot", "find", "read_page", "subpages", "known_page_state", "positions", "ustva_read", "receipt_manager_list",
+  "get_value", "table_read", "snapshot", "find", "read_page", "subpages", "known_page_state", "positions", "ustva_read", "receipt_manager_list", "receipt_manager_action",
 ] as const;
 type QtNativeReadOperation = typeof QT_NATIVE_READ_OPERATIONS[number];
 export function isQtNativeReadOperation(operation: string): operation is QtNativeReadOperation {
@@ -37,6 +37,7 @@ export async function executeQtNativeRead(
     const execute = operation === "known_page_state" ? executeQtNativeKnownPageState
       : operation === "positions" ? executeQtNativePositions
       : operation === "ustva_read" ? executeQtNativeUstvaRead
+      : operation === "receipt_manager_action" ? executeQtNativeReceiptManagerAction
       : operation === "receipt_manager_list" ? executeQtNativeReceiptManagerList
       : operation === "read_page" ? executeQtNativeReadPage : operation === "subpages" ? executeQtNativeSubpages
       : operation === "find" ? executeQtNativeFind : operation === "snapshot" ? executeQtNativeSnapshot : operation === "table_read" ? executeQtNativeTableRead
