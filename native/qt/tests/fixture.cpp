@@ -57,6 +57,9 @@ int main(int argc, char **argv) {
     auto *check = new QCheckBox(QString::fromUtf8("Synthetic Straße"), panel); check->setChecked(true); layout->addWidget(check);
     auto *field = new QLineEdit(QString::fromUtf8("Native field – пример"), panel);
     field->setObjectName("syntheticField");
+    auto *nativeAction = new QPushButton("Synthetic action", panel);
+    nativeAction->setObjectName("syntheticAction");
+    QObject::connect(nativeAction, &QPushButton::clicked, field, [field] { field->setText("Changed by native action"); });
     auto *secret = new QLineEdit("must-not-be-exposed", panel);
     secret->setObjectName("syntheticSecret"); secret->setEchoMode(QLineEdit::Password);
     auto *table = new DialogUITable(panel); table->setObjectName("syntheticTable");
@@ -65,7 +68,7 @@ int main(int argc, char **argv) {
     for (int row = 0; row < 500; ++row) for (int column = 0; column < 7; ++column)
         model->setData(model->index(row, column), QString("row-%1-cell-%2").arg(row).arg(column));
     table->setModel(model); table->setColumnHidden(5, true); table->setRowHidden(2, true);
-    layout->addWidget(field); layout->addWidget(secret); layout->addWidget(table);
+    layout->addWidget(field); layout->addWidget(nativeAction); layout->addWidget(secret); layout->addWidget(table);
     window.setCentralWidget(panel); window.setWindowTitle(QString::fromUtf8("SteuerSparErklärung – synthetic fixture"));
     window.resize(1000, 400); window.show();
     const auto hwnd = static_cast<std::uint64_t>(window.winId());

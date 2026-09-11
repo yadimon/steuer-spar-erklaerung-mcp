@@ -207,6 +207,17 @@ try {
   report.checks.push("Catalogue-bound nonmodal tool snapshots match independent UIA and reject duplicate window titles");
   report.checks.push("Public native snapshot matches independent UIA nodes, IDs, parents, geometry, types and values; limits and filters preserve original indices");
   report.checks.push("Actual Win32 discovery reads the owned marker and binds process/window birth without any PowerShell inventory or discovery seam");
+  const actionTarget = snapshot.nodes.filter(node => node.aid.endsWith("syntheticAction"));
+  assert.equal(actionTarget.length, 1);
+  const actionResult = await sessions[0].client.requestAcknowledged("accessibility_action", {
+    rid: actionTarget[0].rid, aid: actionTarget[0].aid, expectedName: "Synthetic action", action: "press",
+  }, 5000);
+  assert.equal(actionResult.result.ok, true, JSON.stringify(actionResult.result));
+  assert.equal(actionResult.result.mutationAttempted, true);
+  assert.equal(actionResult.receiptAcknowledged, true);
+  await delay(200);
+  assert.equal((await read("get_value", { aid: "syntheticField" })).value, "Changed by native action");
+  report.checks.push("An exact runtime-ID, automation-ID and name-bound Qt action executes once and is receipt-acknowledged without physical input");
   await first.command("change-field");
   assert.equal((await read("get_value", { aid: "syntheticField" })).value, "Changed by fixture");
   assert.equal((await read("get_value", { rid: fieldRid })).value, "Changed by fixture");
@@ -223,7 +234,7 @@ try {
     assert.equal(rejected.receiptAcknowledged, false);
   }
   assert.equal((await read("get_value", { aid: "syntheticField" })).value, "Changed by fixture");
-  report.checks.push("The distributed read bridge does not dispatch private experimental mutations");
+  report.checks.push("Generic field, table, navigation and save mutations remain unavailable through the distributed bridge");
   const second = await fixture();
   await assert.rejects(discoverQtNativeTarget(discoveryOptions), error => error.kind === "ambiguous");
   assert.equal((await discoverQtNativeTarget({ ...discoveryOptions, hwnd: first.info.hwnd })).pid, first.info.pid);
