@@ -14,6 +14,7 @@ try {
   mkdirSync(configDirectory, { recursive: true });
   const original = Buffer.from(
     "[Allgemein]\r\nWert=1\r\n[BelegManager]\r\nDataDir=C:\\private\\original\r\nBreite=42\r\n" +
+    "[MainWindowPos]\r\nH=1260\r\nMinMax=0\r\nW=1800\r\nX=50\r\nY=30\r\n" +
     "[Files]\r\nLastWorkDir=C:\\private\\work\r\n" +
     "[License]\r\nLastCheck=2026-08-28\r\n" +
     "[WerteInfoPos]\r\nCount=4\r\nH=400\r\nMinMax=-2\r\nSize1=288\r\nSize2=100\r\n" +
@@ -30,7 +31,9 @@ try {
   writeFileSync(iniPath, readFileSync(iniPath, "utf8").replace(
     "LastWorkDir=C:\\private\\work",
     "LastWorkDir=C:\\synthetic\\runtime",
-  ).replace("Count=4", "Count=5")
+  ).replace("[MainWindowPos]\r\nH=1260\r\nMinMax=0\r\nW=1800\r\nX=50\r\nY=30",
+    "[MainWindowPos]\r\nH=1036\r\nMinMax=-1\r\nW=1600\r\nX=0\r\nY=10")
+    .replace("Count=4", "Count=5")
     .replace("H=400", "H=768")
     .replace("MinMax=-2", "MinMax=0")
     .replace("Size1=288", "Size1=320")
