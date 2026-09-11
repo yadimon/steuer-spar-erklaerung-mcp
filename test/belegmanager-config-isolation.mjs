@@ -16,7 +16,8 @@ try {
     "[Allgemein]\r\nWert=1\r\n[BelegManager]\r\nDataDir=C:\\private\\original\r\nBreite=42\r\n" +
     "[Files]\r\nLastWorkDir=C:\\private\\work\r\n" +
     "[License]\r\nLastCheck=2026-08-28\r\n" +
-    "[WerteInfoPos]\r\nSize3=100\r\nSize4=200\r\n",
+    "[WerteInfoPos]\r\nCount=4\r\nH=400\r\nMinMax=-2\r\nSize1=288\r\nSize2=100\r\n" +
+    "Size3=100\r\nSize4=200\r\nW=600\r\nX=10\r\nY=20\r\n",
     "utf8",
   );
   writeFileSync(iniPath, original);
@@ -29,7 +30,17 @@ try {
   writeFileSync(iniPath, readFileSync(iniPath, "utf8").replace(
     "LastWorkDir=C:\\private\\work",
     "LastWorkDir=C:\\synthetic\\runtime",
-  ).replace("Size3=100", "Size3=348").replace("Size4=200", "Size4=93"));
+  ).replace("Count=4", "Count=5")
+    .replace("H=400", "H=768")
+    .replace("MinMax=-2", "MinMax=0")
+    .replace("Size1=288", "Size1=320")
+    .replace("Size2=100", "Size2=144")
+    .replace("Size3=100", "Size3=348")
+    .replace("Size4=200", "Size4=93")
+    .replace("W=600", "W=1024")
+    .replace("X=10", "X=120")
+    .replace("Y=20", "Y=80") +
+    "[WerteInfo]\r\nShowGrid=0\r\nShowToolbar=1\r\n");
   writeFileSync(iniPath, readFileSync(iniPath, "utf8").replace(
     "LastCheck=2026-08-28",
     "LastCheck=2026-08-29",
