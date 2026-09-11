@@ -159,9 +159,17 @@ export async function executeQtNativeReceiptManagerList(
     return fail("bad-args", "filter requires exactTitle, titleContains or draft and accepts no other fields.");
   }
   const started = performance.now();
+  const toolAidSuffixes = [...new Set([
+    ...Object.values(parsedPolicy.data.states).flatMap(state => state.requiredAutomationIdSuffixes),
+    ...Object.values(parsedPolicy.data.actions).flatMap(action => action.automationIdSuffix ? [action.automationIdSuffix] : []),
+    parsedPolicy.data.list.tableAutomationIdSuffix,
+    ...parsedPolicy.data.list.countLabelAutomationIdSuffixes,
+    parsedPolicy.data.list.searchAutomationIdSuffix,
+  ])];
   const tool = await readQtNativeSnapshot(client, {
     maxNodes: 5000,
     toolTitle: parsedPolicy.data.title,
+    aidSuffixes: toolAidSuffixes,
   }, timeoutMs, signal);
   if (!tool.windowEnabled || tool.modalBlocked) return fail("window-obstructed", "The receipt manager is disabled or blocked by a modal dialog.");
   if (tool.stats.truncated) return fail("native-incomplete", "The receipt-manager tree exceeds the native read bound.");
@@ -174,7 +182,8 @@ export async function executeQtNativeReceiptManagerList(
   if (remaining < 1) return fail("native-timeout", "Native receipt read deadline expired before dirty-state verification.");
   const main = await readQtNativeSnapshot(client, {
     hwnd: args.hwnd,
-    maxNodes: 5000,
+    maxNodes: 32,
+    aidSuffixes: [".MainToolBar.tb_sichern"],
     allowedModalTitle: parsedPolicy.data.title,
   }, remaining, signal);
   if (!main.windowEnabled || main.modalBlocked || main.stats.truncated) {
