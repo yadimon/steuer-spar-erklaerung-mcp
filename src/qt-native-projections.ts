@@ -273,6 +273,8 @@ export const processWindowInventorySchema = z.object({
   untitledWindows: z.array(processWindowSchema.omit({ title: true })).max(256),
   /** Every visible top-level window of the process, including untitled, shadow and tooltip windows. */
   visibleWindowCount: z.number().int().nonnegative(),
+  /** The same population across every process running the product image: what Get-Windows 'SSE' counts. */
+  productWindowCount: z.number().int().nonnegative(),
 }).passthrough();
 export type QtProcessWindow = z.infer<typeof processWindowSchema>;
 export type QtUntitledWindow = Omit<QtProcessWindow, "title">;
@@ -280,7 +282,9 @@ export type QtUntitledWindow = Omit<QtProcessWindow, "title">;
 /** The bound process's visible titled top-level windows, read through Win32 inside the product process. */
 export async function readProcessWindowInventory(
   client: QtNativeClient, timeoutMs: number, signal?: AbortSignal,
-): Promise<{ windows: QtProcessWindow[]; untitledWindows: QtUntitledWindow[]; visibleWindowCount: number; durationMs: number }> {
+): Promise<{
+  windows: QtProcessWindow[]; untitledWindows: QtUntitledWindow[]; visibleWindowCount: number; productWindowCount: number; durationMs: number;
+}> {
   const measured = await client.request("window_inventory", {}, timeoutMs, signal);
   if (!measured.result.ok) {
     throw new QtNativeTransportError(String(measured.result.error ?? "Native window inventory failed."),
@@ -288,12 +292,13 @@ export async function readProcessWindowInventory(
   }
   const parsed = processWindowInventorySchema.safeParse(measured.result);
   if (!parsed.success) throw new QtNativeTransportError("The process window inventory is incomplete or invalid.", "native-contract");
-  if (parsed.data.visibleWindowCount < parsed.data.windows.length + parsed.data.untitledWindows.length) {
+  if (parsed.data.visibleWindowCount < parsed.data.windows.length + parsed.data.untitledWindows.length
+    || parsed.data.productWindowCount < parsed.data.visibleWindowCount) {
     throw new QtNativeTransportError("The process window inventory counts fewer windows than it lists.", "native-contract");
   }
   return {
     windows: parsed.data.windows, untitledWindows: parsed.data.untitledWindows,
-    visibleWindowCount: parsed.data.visibleWindowCount, durationMs: measured.durationMs,
+    visibleWindowCount: parsed.data.visibleWindowCount, productWindowCount: parsed.data.productWindowCount, durationMs: measured.durationMs,
   };
 }
 

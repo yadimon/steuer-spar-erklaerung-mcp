@@ -25,8 +25,9 @@ const TOOLS = {
 
 function makeClient(nodes, rect, windows, overrides = {}) {
   const operations = [];
+  // The bridge lists and counts the bound process's windows; the product count spans every product process.
   const { snapshot: snapshotOverride = {}, tool: toolOverride = {},
-    inventory = { ok: true, windows, visibleWindowCount: windows.length, untitledWindows: [] } } = overrides;
+    inventory = { ok: true, windows, visibleWindowCount: windows.length, productWindowCount: windows.length, untitledWindows: [] } } = overrides;
   const base = { ok: true, controllerBound: true, scope: "qt-accessibility-content", windowEnabled: true, modalBlocked: false, exactMatches: {} };
   const snapshot = { ...base, hwnd: 42, windowRect: rect, nodes, stats: { ...stats, n: nodes.length }, ...snapshotOverride };
   const answers = {
@@ -275,16 +276,28 @@ assert.equal((await executeQtNativePage(oversizedTips.client, { hwnd: 42 }, 5000
 // Untitled and shadow windows count for the worker's "more than two windows" rule but never appear in the list.
 const untitledWindow = { hwnd: 90, pid: 99, class: "Qt692QWindow", x: 10, y: 10, w: 300, h: 200, minimized: false, hung: false };
 const shadowed = makeClient(full.nodes, fullRect, twoWindows,
-  { inventory: { ok: true, windows: twoWindows, visibleWindowCount: 3, untitledWindows: [] } });
+  { inventory: { ok: true, windows: twoWindows, visibleWindowCount: 3, productWindowCount: 3, untitledWindows: [] } });
 const withShadow = await executeQtNativePage(shadowed.client, { hwnd: 42 }, 5000, undefined, profile);
 assert.equal(withShadow.offeneFenster, 3);
 assert.equal(withShadow.blockiert, true);
 const undercounted = makeClient(full.nodes, fullRect, twoWindows,
-  { inventory: { ok: true, windows: twoWindows, visibleWindowCount: 2, untitledWindows: [untitledWindow] } });
+  { inventory: { ok: true, windows: twoWindows, visibleWindowCount: 2, productWindowCount: 2, untitledWindows: [untitledWindow] } });
 await assert.rejects(executeQtNativePage(undercounted.client, { hwnd: 42 }, 5000, undefined, profile), { kind: "native-contract" });
+const underProduct = makeClient(full.nodes, fullRect, twoWindows,
+  { inventory: { ok: true, windows: twoWindows, visibleWindowCount: 2, productWindowCount: 1, untitledWindows: [] } });
+await assert.rejects(executeQtNativePage(underProduct.client, { hwnd: 42 }, 5000, undefined, profile), { kind: "native-contract" });
+// Get-Windows 'SSE' spans every product process: a second instance raises the count and blocks the page like the
+// worker, while only the bound process's windows are listed, classified or read.
+const otherInstance = makeClient(full.nodes, fullRect, [twoWindows[0]],
+  { inventory: { ok: true, windows: [twoWindows[0]], visibleWindowCount: 1, productWindowCount: 3, untitledWindows: [] } });
+const withOtherInstance = await executeQtNativePage(otherInstance.client, { hwnd: 42 }, 5000, undefined, profile);
+assert.equal(withOtherInstance.offeneFenster, 3);
+assert.equal(withOtherInstance.blockiert, true);
+assert.deepEqual(withOtherInstance.ausgeschlosseneFenster, page.ausgeschlosseneFenster.slice(0, 1));
+assert.deepEqual(otherInstance.operations, ["window_inventory", "accessibility_snapshot"]);
 // An untitled window that is no tooltip, shadow or popup can be a dialog the inventory cannot name.
 const untitled = makeClient(full.nodes, fullRect, twoWindows,
-  { inventory: { ok: true, windows: twoWindows, visibleWindowCount: 3, untitledWindows: [untitledWindow] } });
+  { inventory: { ok: true, windows: twoWindows, visibleWindowCount: 3, productWindowCount: 3, untitledWindows: [untitledWindow] } });
 assert.equal((await executeQtNativePage(untitled.client, { hwnd: 42 }, 5000, undefined, profile)).kind, "dialog-open");
 assert.deepEqual(untitled.operations, ["window_inventory"]);
 // The worker's closable-window policy is case-sensitive on the catalogued title.
@@ -330,10 +343,10 @@ const inventoryFailed = makeClient(full.nodes, fullRect, twoWindows, { inventory
 await assert.rejects(executeQtNativePage(inventoryFailed.client, { hwnd: 42 }, 5000, undefined, profile),
   { kind: "native-read", message: "Synthetic inventory failure." });
 const inventoryInvalid = makeClient(full.nodes, fullRect, twoWindows,
-  { inventory: { ok: true, windows: [{ hwnd: 42, title: "Ohne Prozess" }], visibleWindowCount: 1, untitledWindows: [] } });
+  { inventory: { ok: true, windows: [{ hwnd: 42, title: "Ohne Prozess" }], visibleWindowCount: 1, productWindowCount: 1, untitledWindows: [] } });
 await assert.rejects(executeQtNativePage(inventoryInvalid.client, { hwnd: 42 }, 5000, undefined, profile), { kind: "native-contract" });
 const snapshotFailed = makeClient(full.nodes, fullRect, twoWindows, { snapshot: { ok: false, error: "Synthetic snapshot failure.", code: "native-read" } });
 await assert.rejects(executeQtNativePage(snapshotFailed.client, { hwnd: 42 }, 5000, undefined, profile),
   { kind: "native-read", message: "Synthetic snapshot failure." });
 
-console.log("qt-native-page-projection: 8 projections and 24 fail-closed guards pinned");
+console.log("qt-native-page-projection: 9 projections and 25 fail-closed guards pinned");

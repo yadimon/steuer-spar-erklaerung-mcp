@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { executeQtNativeCheckerResults } from "../dist/qt-native-checker.js";
 import { QtNativeTransportError } from "../dist/qt-native-client.js";
+import { loadProductProfile } from "../dist/product-profiles.js";
+
+const profile = loadProductProfile("2025");
 
 // Pins the direct Qt projection of the worker's 'checker_results' branch on
 // synthetic accessibility snapshots: the full contract for an open checker,
@@ -26,14 +29,20 @@ function buildNodes(specs) {
 const stats = { n: 0, err: 0, cyc: 0, cycleRid: "", cycleName: "", truncated: false, depthLimited: false,
   valErr: 0, scrollErr: 0, source: "qt", fallbackReason: "", snapshotMs: 3 };
 
-function fakeClient(nodes, overrides = {}, requests = []) {
+const MAIN_WINDOW = { hwnd: 42, pid: 99, class: "Qt692QWindowIcon", title: "SteuerSparErklärung 2025", x: 0, y: 0, w: 1600, h: 900,
+  minimized: false, hung: false };
+function fakeClient(nodes, overrides = {}, requests = [], windows = [MAIN_WINDOW]) {
   return { binding: { hwnd: 42, pid: 99, creationTime: "1" }, request: async (operation, args) => {
     requests.push({ operation, args });
+    if (operation === "window_inventory") {
+      return { durationMs: 2, result: { ok: true, windows, untitledWindows: [], visibleWindowCount: windows.length, productWindowCount: windows.length } };
+    }
     return { durationMs: 7, result: { ok: true, controllerBound: true, scope: "qt-accessibility-content", hwnd: 42,
       windowEnabled: true, modalBlocked: false, foreground: true, windowRect: { x: 0, y: 0, w: 1600, h: 900 },
       nodes, exactMatches: {}, stats: { ...stats, n: nodes.length }, ...overrides } };
   } };
 }
+const run = (client, args = { hwnd: 42 }, timeoutMs = 5000) => executeQtNativeCheckerResults(client, args, timeoutMs, undefined, profile);
 
 // Layout: item titles sit at the tree's left edge; an expanded card is a wide
 // TreeItem indented to the right with a tall (>= 70 px) body, named like its title.
@@ -56,8 +65,8 @@ const activeNodes = buildNodes(activeSpecs);
 
 {
   const requests = [];
-  const result = await executeQtNativeCheckerResults(fakeClient(activeNodes, {}, requests), { hwnd: 42 }, 5000);
-  assert.deepEqual(requests, [{ operation: "accessibility_snapshot", args: { maxNodes: 5000 } }]);
+  const result = await run(fakeClient(activeNodes, {}, requests), { hwnd: 42 }, 5000);
+  assert.deepEqual(requests, [{ operation: "window_inventory", args: {} }, { operation: "accessibility_snapshot", args: { maxNodes: 5000 } }]);
   assert.deepEqual(result, {
     ok: true,
     aktiv: true,
@@ -85,8 +94,33 @@ const activeNodes = buildNodes(activeSpecs);
     ungespeichert: true,
     hinweis: ACTIVE_HINT,
     backend: "qt",
-    nativeDurationMs: 7,
+    nativeDurationMs: 9,
   });
+}
+
+// Boundaries copied from the worker: a card of exactly 70 px is expanded, an item exactly 6 px right of the
+// left edge is still a top-level item, group headers match case-insensitively (-match), an item is expanded by a
+// card whose name differs only in case (-eq), and the expanded list is de-duplicated case-sensitively (-Unique).
+{
+  const boundary = buildNodes([
+    activeSpecs[0], activeSpecs[2],
+    { p: 1, type: "TreeItem", name: "2 FRAGEN ODER WARNUNGEN", aid: TREE_AID, x: 300, y: 150 },
+    { p: 1, type: "TreeItem", name: "Genau siebzig", aid: TREE_AID, x: 300, y: 180 },
+    { p: 1, type: "TreeItem", name: "Genau siebzig", aid: TREE_AID, x: 340, y: 200, w: 800, h: 70 },
+    { p: 1, type: "TreeItem", name: "Randfall", aid: TREE_AID, x: 306, y: 300, w: 800, h: 90 },
+    { p: 1, type: "TreeItem", name: "1 tipps oder zusatzinformationen", aid: TREE_AID, x: 300, y: 400 },
+    { p: 1, type: "TreeItem", name: "Karte", aid: TREE_AID, x: 300, y: 420 },
+    { p: 1, type: "TreeItem", name: "KARTE", aid: TREE_AID, x: 340, y: 440, w: 800, h: 100 },
+    { p: 1, type: "TreeItem", name: "Karte", aid: TREE_AID, x: 340, y: 560, w: 800, h: 100 },
+    { p: 1, type: "TreeItem", name: "Karte", aid: TREE_AID, x: 340, y: 680, w: 800, h: 100 },
+  ]);
+  const result = await run(fakeClient(boundary));
+  assert.equal(result.konsistent, true);
+  assert.deepEqual([result.fragenWarnungenAngekuendigt, result.tippsAngekuendigt], [2, 1]);
+  assert.deepEqual(result.fragenWarnungen.map(item => [item.text, item.aufgeklappt]), [["Genau siebzig", true], ["Randfall", false]]);
+  assert.deepEqual(result.tippsZusatzinfos.map(item => [item.text, item.aufgeklappt]), [["Karte", true]]);
+  assert.deepEqual(result.sonstige, []);
+  assert.deepEqual(result.aufgeklappt, ["Genau siebzig", "KARTE", "Karte"]);
 }
 
 // Sort by y then x: the group header wins over an item on the same row with a larger x.
@@ -97,7 +131,7 @@ const activeNodes = buildNodes(activeSpecs);
     { p: 1, type: "TreeItem", name: "1 Fragen oder Warnungen", aid: TREE_AID, x: 300, y: 150 },
     { p: 1, type: "TreeItem", name: "0 Tipps oder Zusatzinformationen", aid: TREE_AID, x: 300, y: 200 },
   ]);
-  const result = await executeQtNativeCheckerResults(fakeClient(shuffled), { hwnd: 42 }, 5000);
+  const result = await run(fakeClient(shuffled), { hwnd: 42 }, 5000);
   assert.equal(result.konsistent, true);
   assert.deepEqual(result.fragenWarnungen.map(item => item.text), ["Erst spaeter"]);
   assert.deepEqual(result.sonstige, []);
@@ -107,20 +141,20 @@ const activeNodes = buildNodes(activeSpecs);
 // Empty checker: a uniquely bound tree without any item is a finished null result.
 {
   const empty = buildNodes([activeSpecs[0], activeSpecs[1], activeSpecs[2]]);
-  const result = await executeQtNativeCheckerResults(fakeClient(empty), { hwnd: 42 }, 5000);
+  const result = await run(fakeClient(empty), { hwnd: 42 }, 5000);
   assert.deepEqual(result, {
     ok: true, aktiv: true, fragenWarnungenAngekuendigt: 0, tippsAngekuendigt: 0,
     fragenWarnungenGruppeGesehen: false, tippsGruppeGesehen: false,
     fragenWarnungen: [], tippsZusatzinfos: [], sonstige: [], gesamt: 0, aufgeklappt: [], konsistent: true,
     navigationSchritte: 0, fokusVerwendet: false, technischeFokusKarten: [], zyklen: [],
-    ungespeichert: true, hinweis: ACTIVE_HINT, backend: "qt", nativeDurationMs: 7,
+    ungespeichert: true, hinweis: ACTIVE_HINT, backend: "qt", nativeDurationMs: 9,
   });
 }
 
 // Unnamed items only: the checker is open but the result is deliberately inconsistent.
 {
   const unnamed = buildNodes([activeSpecs[0], activeSpecs[2], { p: 1, type: "TreeItem", name: "", aid: TREE_AID, x: 300, y: 120 }]);
-  const result = await executeQtNativeCheckerResults(fakeClient(unnamed), { hwnd: 42 }, 5000);
+  const result = await run(fakeClient(unnamed), { hwnd: 42 }, 5000);
   assert.equal(result.aktiv, true);
   assert.equal(result.gesamt, 0);
   assert.equal(result.konsistent, false);
@@ -130,20 +164,20 @@ const activeNodes = buildNodes(activeSpecs);
 // Closed checker: no tree binds, the save button reports the dirty state.
 {
   const closed = buildNodes([activeSpecs[0], { ...activeSpecs[1], on: false }, { p: 0, type: "Text", name: "Startseite", x: 400, y: 100 }]);
-  const result = await executeQtNativeCheckerResults(fakeClient(closed), { hwnd: 42 }, 5000);
+  const result = await run(fakeClient(closed), { hwnd: 42 }, 5000);
   assert.deepEqual(result, {
     ok: true, aktiv: false, fragenWarnungenAngekuendigt: 0, tippsAngekuendigt: 0,
     fragenWarnungenGruppeGesehen: false, tippsGruppeGesehen: false,
     fragenWarnungen: [], tippsZusatzinfos: [], sonstige: [], gesamt: 0, aufgeklappt: [], konsistent: false,
     navigationSchritte: 0, fokusVerwendet: false, technischeFokusKarten: [], zyklen: [],
-    ungespeichert: false, hinweis: CLOSED_HINT, backend: "qt", nativeDurationMs: 7,
+    ungespeichert: false, hinweis: CLOSED_HINT, backend: "qt", nativeDurationMs: 9,
   });
 }
 
 // Two trees with the checker suffix: the binding is ambiguous, nothing is guessed.
 {
   const ambiguous = buildNodes([...activeSpecs, { p: 0, type: "Tree", aid: `other.${TREE_AID}`, x: 1200, y: 100, w: 300, h: 300 }]);
-  const result = await executeQtNativeCheckerResults(fakeClient(ambiguous), { hwnd: 42 }, 5000);
+  const result = await run(fakeClient(ambiguous), { hwnd: 42 }, 5000);
   assert.equal(result.aktiv, false);
   assert.equal(result.konsistent, false);
   assert.equal(result.hinweis, CLOSED_HINT);
@@ -152,7 +186,7 @@ const activeNodes = buildNodes(activeSpecs);
 // Declared count differs from the visible items: active but inconsistent.
 {
   const inconsistent = activeNodes.map(node => node.name === "2 Fragen oder Warnungen" ? { ...node, name: "3 Fragen oder Warnungen" } : node);
-  const result = await executeQtNativeCheckerResults(fakeClient(inconsistent), { hwnd: 42 }, 5000);
+  const result = await run(fakeClient(inconsistent), { hwnd: 42 }, 5000);
   assert.equal(result.ok, true);
   assert.equal(result.aktiv, true);
   assert.equal(result.fragenWarnungenAngekuendigt, 3);
@@ -164,7 +198,7 @@ const activeNodes = buildNodes(activeSpecs);
 // One group header missing (unnamed row instead): the other group is still read, the result stays inconsistent.
 {
   const missingTips = activeNodes.map(node => node.name === "1 Tipps oder Zusatzinformationen" ? { ...node, name: "" } : node);
-  const result = await executeQtNativeCheckerResults(fakeClient(missingTips), { hwnd: 42 }, 5000);
+  const result = await run(fakeClient(missingTips), { hwnd: 42 }, 5000);
   assert.equal(result.tippsGruppeGesehen, false);
   assert.deepEqual(result.fragenWarnungen.map(item => item.text),
     ["Kirchensteuer pruefen", "Riester-Vertrag unvollstaendig", "Homeoffice-Pauschale moeglich"]);
@@ -173,30 +207,45 @@ const activeNodes = buildNodes(activeSpecs);
 
 // Fail-closed guards.
 {
-  const modal = await executeQtNativeCheckerResults(fakeClient(activeNodes, { modalBlocked: true }), { hwnd: 42 }, 5000);
+  const modal = await run(fakeClient(activeNodes, { modalBlocked: true }), { hwnd: 42 }, 5000);
   assert.deepEqual(modal, { ok: false, backend: "qt", kind: "dialog-open",
     error: "Ein modaler Dialog blockiert die gebundene Seite; kein Prueferergebnis ausgegeben." });
-  const disabled = await executeQtNativeCheckerResults(fakeClient(activeNodes, { windowEnabled: false }), { hwnd: 42 }, 5000);
+  const disabled = await run(fakeClient(activeNodes, { windowEnabled: false }), { hwnd: 42 }, 5000);
   assert.deepEqual(disabled, modal);
-  const deep = await executeQtNativeCheckerResults(
+  const deep = await run(
     fakeClient(activeNodes, { stats: { ...stats, n: activeNodes.length, truncated: true, depthLimited: true } }), { hwnd: 42 }, 5000);
   assert.deepEqual(deep, { ok: false, backend: "qt", kind: "native-incomplete",
     error: "Der native Seitenbaum ist tiefer als die Lesegrenze von 16 Ebenen; kein unvollstaendiges Prueferergebnis ausgegeben." });
   // An empty bulk snapshot is a failed read for the worker, never a closed checker.
-  assert.deepEqual(await executeQtNativeCheckerResults(fakeClient([]), { hwnd: 42 }, 5000), { ok: false, backend: "qt",
+  assert.deepEqual(await run(fakeClient([]), { hwnd: 42 }, 5000), { ok: false, backend: "qt",
     kind: "native-incomplete", error: "Der native Seitenbaum ist leer; kein Prueferergebnis ausgegeben." });
-  const truncated = await executeQtNativeCheckerResults(
+  const truncated = await run(
     fakeClient(activeNodes, { stats: { ...stats, n: activeNodes.length, truncated: true } }), { hwnd: 42 }, 5000);
   assert.deepEqual(truncated, { ok: false, backend: "qt", kind: "native-incomplete",
     error: "Der native Seitenbaum ueberschreitet die Lesegrenze; kein unvollstaendiges Prueferergebnis ausgegeben." });
-  await assert.rejects(executeQtNativeCheckerResults(fakeClient(activeNodes), { hwnd: 43 }, 5000),
+  // The worker restores a minimized main window before reading; the direct path never moves it and reads nothing.
+  const minimizedRequests = [];
+  assert.deepEqual(await run(fakeClient(activeNodes, {}, minimizedRequests, [{ ...MAIN_WINDOW, minimized: true }])), { ok: false, backend: "qt",
+    kind: "minimized", error: "Das gebundene SSE-Hauptfenster ist minimiert; der direkte Qt-Pfad stellt es nicht wieder her." });
+  assert.deepEqual(minimizedRequests.map(entry => entry.operation), ["window_inventory"]);
+  assert.deepEqual(await run(fakeClient(activeNodes, {}, [], [])), { ok: false, backend: "qt",
+    kind: "stale-window", error: "Das angegebene hwnd ist kein aktuelles Hauptfenster." });
+  await assert.rejects(run(fakeClient(activeNodes, {}, [], [{ ...MAIN_WINDOW, pid: 98 }])),
+    error => error instanceof QtNativeTransportError && error.kind === "native-contract");
+  // Other windows of the process are left alone, exactly as the worker's branch ignores them.
+  const dialog = { hwnd: 88, pid: 99, class: "#32770", title: "Datei öffnen", x: 10, y: 10, w: 500, h: 400, minimized: false, hung: false };
+  assert.equal((await run(fakeClient(activeNodes, {}, [], [MAIN_WINDOW, dialog]))).konsistent, true);
+  assert.deepEqual(await executeQtNativeCheckerResults(fakeClient(activeNodes), { hwnd: 42 }, 5000), { ok: false, backend: "qt",
+    kind: "bad-args", error: "checker_results requires a product profile." });
+  await assert.rejects(run(fakeClient(activeNodes), { hwnd: 42 }, 0), error => error instanceof QtNativeTransportError && error.kind === "native-timeout");
+  await assert.rejects(run(fakeClient(activeNodes), { hwnd: 43 }, 5000),
     error => error instanceof QtNativeTransportError && error.kind === "stale-window");
-  await assert.rejects(executeQtNativeCheckerResults(fakeClient(activeNodes, { hwnd: 43 }), { hwnd: 42 }, 5000),
+  await assert.rejects(run(fakeClient(activeNodes, { hwnd: 43 }), { hwnd: 42 }, 5000),
     error => error instanceof QtNativeTransportError && error.kind === "native-contract");
   const failing = { binding: { hwnd: 42, pid: 99, creationTime: "1" },
     request: async () => ({ durationMs: 1, result: { ok: false, code: "window-gone", error: "Fenster verloren." } }) };
-  await assert.rejects(executeQtNativeCheckerResults(failing, { hwnd: 42 }, 5000),
+  await assert.rejects(run(failing, { hwnd: 42 }, 5000),
     error => error instanceof QtNativeTransportError && error.kind === "window-gone" && error.message === "Fenster verloren.");
 }
 
-console.log("qt-native-checker-projection: 15 checker_results projection cases passed");
+console.log("qt-native-checker-projection: 22 checker_results projection cases passed");

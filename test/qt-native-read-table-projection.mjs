@@ -72,7 +72,8 @@ const makeClient = ({ windows = [MAIN_WINDOW], inventory = {}, snapshot = {}, to
   request: async (operation, args) => {
     requests.push({ operation, args });
     if (operation === "window_inventory") {
-      return { durationMs: 2, result: { ok: true, windows, untitledWindows: [], visibleWindowCount: windows.length, ...inventory } };
+      const reply = { ok: true, windows, untitledWindows: [], visibleWindowCount: windows.length, ...inventory };
+      return { durationMs: 2, result: { ...reply, productWindowCount: inventory.productWindowCount ?? reply.visibleWindowCount } };
     }
     assert.equal(operation, "accessibility_snapshot");
     const base = { ok: true, controllerBound: true, scope: "qt-accessibility-content", windowEnabled: true, modalBlocked: false, exactMatches: {} };

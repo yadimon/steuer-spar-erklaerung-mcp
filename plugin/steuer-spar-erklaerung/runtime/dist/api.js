@@ -13474,13 +13474,14 @@ async function readProcessWindowInventory(client, timeoutMs, signal) {
   }
   const parsed = processWindowInventorySchema.safeParse(measured.result);
   if (!parsed.success) throw new QtNativeTransportError("The process window inventory is incomplete or invalid.", "native-contract");
-  if (parsed.data.visibleWindowCount < parsed.data.windows.length + parsed.data.untitledWindows.length) {
+  if (parsed.data.visibleWindowCount < parsed.data.windows.length + parsed.data.untitledWindows.length || parsed.data.productWindowCount < parsed.data.visibleWindowCount) {
     throw new QtNativeTransportError("The process window inventory counts fewer windows than it lists.", "native-contract");
   }
   return {
     windows: parsed.data.windows,
     untitledWindows: parsed.data.untitledWindows,
     visibleWindowCount: parsed.data.visibleWindowCount,
+    productWindowCount: parsed.data.productWindowCount,
     durationMs: measured.durationMs
   };
 }
@@ -13543,7 +13544,9 @@ var init_qt_native_projections = __esm({
       /** Visible untitled windows that are no shadow windows; a title cannot classify them. */
       untitledWindows: external_exports.array(processWindowSchema.omit({ title: true })).max(256),
       /** Every visible top-level window of the process, including untitled, shadow and tooltip windows. */
-      visibleWindowCount: external_exports.number().int().nonnegative()
+      visibleWindowCount: external_exports.number().int().nonnegative(),
+      /** The same population across every process running the product image: what Get-Windows 'SSE' counts. */
+      productWindowCount: external_exports.number().int().nonnegative()
     }).passthrough();
     WERTE_INFO_TITLE = "Werte-Info: Werte vergleichen - Was wäre wenn";
     TIPS_TITLE = "Steuer-Spar-Tipps";
@@ -14341,7 +14344,7 @@ var init_qt_native_receipt_action = __esm({
 });
 
 // src/qt-native-owned-windows.ts
-async function readBoundWindows(client, profile, subject, budget, signal) {
+async function readMainWindowBinding(client, budget, signal) {
   const inventory = await readProcessWindowInventory(client, budget(), signal);
   const main2 = inventory.windows.find((window) => window.hwnd === client.binding.hwnd);
   if (!main2) return { failure: fail6("stale-window", "Das angegebene hwnd ist kein aktuelles Hauptfenster.") };
@@ -14349,6 +14352,12 @@ async function readBoundWindows(client, profile, subject, budget, signal) {
   if (main2.minimized) {
     return { failure: fail6("minimized", "Das gebundene SSE-Hauptfenster ist minimiert; der direkte Qt-Pfad stellt es nicht wieder her.") };
   }
+  return { binding: { inventory, main: main2 } };
+}
+async function readBoundWindows(client, profile, subject, budget, signal) {
+  const bound = await readMainWindowBinding(client, budget, signal);
+  if (bound.failure) return { failure: bound.failure };
+  const { inventory, main: main2 } = bound.binding;
   const others = inventory.windows.filter((window) => window.pid === main2.pid && window.hwnd !== main2.hwnd).map((window) => ({ window, kind: auxiliaryWindowKind(window, profile) }));
   if (others.some((entry) => entry.kind === null) || inventory.untitledWindows.length) {
     return { failure: fail6("dialog-open", `Ein nicht katalogisiertes Fenster des gebundenen Prozesses ist offen; ${subject} nicht gelesen. Dialoge mit sse_dialog_list lesen und bewusst beantworten.`) };
@@ -14502,7 +14511,7 @@ async function executeQtNativePage(client, args, timeoutMs, signal, profile) {
   const prueferMeldungen = checkerMessages(own, bounds);
   const leerePflichtfelder = felder.filter((field) => field.typ === "ComboBox" && !String(field.wert ?? "").trim()).map((field) => field.label);
   const hinweis = felder.length && felder.every((field) => !String(field.label ?? "").trim()) ? UNLABELLED_HINT : null;
-  const offeneFenster = inventory.visibleWindowCount;
+  const offeneFenster = inventory.productWindowCount;
   return {
     hinweis,
     ok: true,
@@ -14932,8 +14941,20 @@ var init_qt_native_read_table = __esm({
 });
 
 // src/qt-native-checker.ts
-async function executeQtNativeCheckerResults(client, args, timeoutMs, signal, _profile) {
-  const snapshot = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 5e3 }, timeoutMs, signal);
+async function executeQtNativeCheckerResults(client, args, timeoutMs, signal, profile) {
+  if (!profile) return fail11("bad-args", "checker_results requires a product profile.");
+  if (args.hwnd !== void 0 && args.hwnd !== client.binding.hwnd) {
+    throw new QtNativeTransportError("Requested window differs from the verified native session.", "stale-window");
+  }
+  const started = performance.now();
+  const budget = () => {
+    const remaining = Math.floor(timeoutMs - (performance.now() - started));
+    if (remaining < 1) throw new QtNativeTransportError("Native checker_results deadline exceeded before reading.", "native-timeout");
+    return remaining;
+  };
+  const bound = await readMainWindowBinding(client, budget, signal);
+  if (bound.failure) return bound.failure;
+  const snapshot = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 5e3 }, budget(), signal);
   if (!snapshot.windowEnabled || snapshot.modalBlocked) {
     return fail11("dialog-open", "Ein modaler Dialog blockiert die gebundene Seite; kein Prueferergebnis ausgegeben.");
   }
@@ -14962,13 +14983,15 @@ async function executeQtNativeCheckerResults(client, args, timeoutMs, signal, _p
     ungespeichert: dirtyState(snapshot.nodes),
     hinweis: result.aktiv ? ACTIVE_HINT : CLOSED_HINT,
     backend: "qt",
-    nativeDurationMs: snapshot.nativeDurationMs
+    nativeDurationMs: bound.binding.inventory.durationMs + snapshot.nativeDurationMs
   };
 }
 var ACTIVE_HINT, CLOSED_HINT, fail11;
 var init_qt_native_checker = __esm({
   "src/qt-native-checker.ts"() {
     "use strict";
+    init_qt_native_client();
+    init_qt_native_owned_windows();
     init_qt_native_projections();
     init_qt_native_snapshot();
     ACTIVE_HINT = "Fragen/Warnungen und Tipps sind getrennt. Ein Eintrag ist nicht automatisch ein Steuerfehler; mit sse_checker_open den Wortlaut oeffnen.";

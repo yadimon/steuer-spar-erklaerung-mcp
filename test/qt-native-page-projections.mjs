@@ -266,7 +266,7 @@ export async function testNativePageProjections() {
   for (const [index, test] of cases.entries()) {
     const client = { binding: { hwnd: 42, pid: 99, creationTime: "1" }, request: async (operation, args) => {
       if (operation === "window_inventory") {
-        return { durationMs: 1, result: { ok: true, windows: test.windows, visibleWindowCount: test.windows.length, untitledWindows: [] } };
+        return { durationMs: 1, result: { ok: true, windows: test.windows, visibleWindowCount: test.windows.length, productWindowCount: test.windows.length, untitledWindows: [] } };
       }
       assert.equal(operation, "accessibility_snapshot");
       assert.equal(args.withValues, test.operation === "find" ? false : undefined);
@@ -431,7 +431,7 @@ export async function testNativePageProjections() {
     request: async (operation, args) => {
       if (operation === "window_inventory") {
         assert.deepEqual(args, {});
-        return { durationMs: 1, result: { ok: true, windows: processWindows, visibleWindowCount: processWindows.length,
+        return { durationMs: 1, result: { ok: true, windows: processWindows, visibleWindowCount: processWindows.length, productWindowCount: processWindows.length,
           untitledWindows: [] } };
       }
       assert.equal(operation, "accessibility_snapshot");
@@ -470,7 +470,7 @@ export async function testNativePageProjections() {
     binding: { hwnd: 42, pid: 99 },
     request: async (operation, args) => {
       if (operation === "window_inventory") {
-        return { durationMs: 1, result: { ok: true, windows: processWindows, visibleWindowCount: processWindows.length,
+        return { durationMs: 1, result: { ok: true, windows: processWindows, visibleWindowCount: processWindows.length, productWindowCount: processWindows.length,
           untitledWindows: [] } };
       }
       assert.equal(operation, "accessibility_snapshot");
@@ -545,7 +545,7 @@ export async function testNativePageProjections() {
     request: async (operation, args) => {
       if (operation === "window_inventory") {
         assert.deepEqual(args, {});
-        return { durationMs: 1, result: { ok: true, windows: processWindows, visibleWindowCount: processWindows.length,
+        return { durationMs: 1, result: { ok: true, windows: processWindows, visibleWindowCount: processWindows.length, productWindowCount: processWindows.length,
           untitledWindows: [] } };
       }
       assert.equal(operation, "accessibility_snapshot");

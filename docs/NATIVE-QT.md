@@ -151,14 +151,18 @@ genauso und liest offene katalogisierte Nebenfenster wie die Steuer-Spar-Tipps
 über ihren Titel mit, weil der Worker-Baum sie unter dem Hauptfenster enthält. `page`, `help` und `checker_results`
 scheitern zusätzlich bei abgeschnittenem Baum mit `native-incomplete`, wobei
 die Meldung benennt, ob die Knotengrenze oder die Tiefengrenze von 16 Ebenen
-erreicht wurde; `read_table` meldet wie der Worker `incomplete`. Unsichtbare
+erreicht wurde; `read_table` meldet wie der Worker `incomplete`. `checker_results`
+prüft vorher nur, ob das gebundene Hauptfenster noch besteht und nicht
+minimiert ist, weil der Worker es vor dem Lesen wiederherstellt; weitere
+Fenster lässt es wie der Worker unbeachtet. Unsichtbare
 Teilbäume lässt die Bridge aus, genau wie Qt sie der UIA-Steuerungsansicht
 vorenthält; beide Pfade sehen von einer Liste deshalb nur die Zeilen im
 Sichtbereich, und `konsistent` vergleicht auf beiden Pfaden dieselben Zeilen
-mit der angekündigten Anzahl. `page` zählt in `offeneFenster`
-wie der Worker jedes sichtbare Fenster des gebundenen Prozesses, auch namenlose
-und Schattenfenster; `dialoge` bleibt dort immer leer, weil ein unbekanntes
-Fenster die Lesung bereits beendet hat. `page`, `help` und `checker_results`
+mit der angekündigten Anzahl. `page` zählt in `offeneFenster` wie
+`Get-Windows` beim Worker jedes sichtbare Fenster aller Prozesse mit dem
+Produktabbild, auch namenlose und Schattenfenster; gelistet, klassifiziert und
+gelesen werden nur Fenster des gebundenen Prozesses. `dialoge` bleibt dort
+immer leer, weil ein unbekanntes Fenster die Lesung bereits beendet hat. `page`, `help` und `checker_results`
 lesen bis zu 5000 statt 4000 Knoten, damit eine große Seite vollständig statt
 abgeschnitten gelesen wird, und ein leerer Baum gilt wie beim Worker als
 fehlgeschlagene Lesung; `read_table` behält die Grenze von 4000 Knoten und

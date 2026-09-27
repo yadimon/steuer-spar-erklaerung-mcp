@@ -18,17 +18,20 @@ import { nativeTreeBoundReason, readQtNativeSnapshot, type QtSnapshotNode } from
 
 const fail = (kind: string, error: string): WorkerResult => ({ ok: false, backend: "qt", kind, error });
 
-export interface BoundWindows {
+export interface MainWindowBinding {
   inventory: Awaited<ReturnType<typeof readProcessWindowInventory>>;
   main: QtProcessWindow;
+}
+
+export interface BoundWindows extends MainWindowBinding {
   /** Owned catalogued windows in inventory order; a second case window or a system overlay is not owned. */
   owned: QtProcessWindow[];
 }
 
-/** Bind the process inventory to the session's main window, failing closed on anything the path cannot describe. */
-export async function readBoundWindows(
-  client: QtNativeClient, profile: ProductProfile, subject: string, budget: () => number, signal?: AbortSignal,
-): Promise<{ failure: WorkerResult; windows?: undefined } | { failure?: undefined; windows: BoundWindows }> {
+/** Bind the process inventory to the session's main window as Resolve-Window does, without restoring it. */
+export async function readMainWindowBinding(
+  client: QtNativeClient, budget: () => number, signal?: AbortSignal,
+): Promise<{ failure: WorkerResult; binding?: undefined } | { failure?: undefined; binding: MainWindowBinding }> {
   const inventory = await readProcessWindowInventory(client, budget(), signal);
   const main = inventory.windows.find(window => window.hwnd === client.binding.hwnd);
   if (!main) return { failure: fail("stale-window", "Das angegebene hwnd ist kein aktuelles Hauptfenster.") };
@@ -37,6 +40,16 @@ export async function readBoundWindows(
   if (main.minimized) {
     return { failure: fail("minimized", "Das gebundene SSE-Hauptfenster ist minimiert; der direkte Qt-Pfad stellt es nicht wieder her.") };
   }
+  return { binding: { inventory, main } };
+}
+
+/** Bind the process inventory to the session's main window, failing closed on anything the path cannot describe. */
+export async function readBoundWindows(
+  client: QtNativeClient, profile: ProductProfile, subject: string, budget: () => number, signal?: AbortSignal,
+): Promise<{ failure: WorkerResult; windows?: undefined } | { failure?: undefined; windows: BoundWindows }> {
+  const bound = await readMainWindowBinding(client, budget, signal);
+  if (bound.failure) return { failure: bound.failure };
+  const { inventory, main } = bound.binding;
   const others = inventory.windows.filter(window => window.pid === main.pid && window.hwnd !== main.hwnd)
     .map(window => ({ window, kind: auxiliaryWindowKind(window, profile) }));
   if (others.some(entry => entry.kind === null) || inventory.untitledWindows.length) {
