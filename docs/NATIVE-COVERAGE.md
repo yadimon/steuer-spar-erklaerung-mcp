@@ -182,8 +182,9 @@ UStVA-Modell beziehungsweise die Seiten-, Hilfe-, Tabellen-, Prüfer- und
 Zustandsprojektionen des Workers ab und führen keine Mutation aus; die Belegliste
 bleibt an das exakte nichtmodale Tool-Fenster gebunden, und `ui_state` liest die
 Werte-Info nur über ihren exakten Titel. Fremde Dialoge beschreibt keiner dieser
-Pfade: `page`, `help`, `read_table` und `checker_results` scheitern bei einem
-modalen Dialog fail-closed, `ui_state` führt ihn als nicht lesbares Fenster. `receipt_manager_action` und
+Pfade: `page` scheitert bereits bei einem nicht katalogisierten Fenster des
+gebundenen Prozesses, `help`, `read_table` und `checker_results` bei einem
+modalen Dialog fail-closed, und `ui_state` führt ihn als nicht lesbares Fenster. `receipt_manager_action` und
 `receipt_manager_read` verwenden dagegen ausschließlich jeweils eine exakt
 katalog- und Runtime-ID-gebundene, quittierte und reversible Qt-Aktion im GUI-Thread.
 Der Detailfingerprint ist eine kanonische Bindung der sieben profilierten Werte,

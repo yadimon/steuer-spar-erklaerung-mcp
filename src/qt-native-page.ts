@@ -4,7 +4,7 @@ import type { ProductProfile } from "./product-profiles.js";
 import { QtNativeTransportError, type QtNativeClient } from "./qt-native-client.js";
 import { qtNativeContentBounds, qtNativeHeading } from "./qt-native-pages.js";
 import {
-  byPosition, navigationSelection, psEquals, readProcessWindowInventory, splitWindowScope, transmissionName,
+  auxiliaryWindowKind, byPosition, navigationSelection, psEquals, readProcessWindowInventory, splitWindowScope, transmissionName,
 } from "./qt-native-projections.js";
 import { readQtNativeSnapshot, type QtSnapshotNode } from "./qt-native-snapshot.js";
 
@@ -109,8 +109,29 @@ export async function executeQtNativePage(
   profile?: ProductProfile,
 ): Promise<WorkerResult> {
   if (!profile) return fail("bad-args", "page requires a product profile.");
+  if (args.hwnd !== undefined && args.hwnd !== client.binding.hwnd) {
+    throw new QtNativeTransportError("Requested window differs from the verified native session.", "stale-window");
+  }
   const started = performance.now();
-  const snapshot = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 5000 }, timeoutMs, signal);
+  const budget = () => {
+    const remaining = Math.floor(timeoutMs - (performance.now() - started));
+    if (remaining < 1) throw new QtNativeTransportError("Native page deadline exceeded before reading.", "native-timeout");
+    return remaining;
+  };
+  // The worker reads its dialog inventory for the bound process; this path can only prove that no
+  // unknown window exists, so anything it cannot classify fails closed before the page is read.
+  const inventory = await readProcessWindowInventory(client, budget(), signal);
+  const main = inventory.windows.find(window => window.hwnd === client.binding.hwnd);
+  if (!main) return fail("stale-window", "Das angegebene hwnd ist kein aktuelles Hauptfenster.");
+  if (main.pid !== client.binding.pid) throw new QtNativeTransportError("The bound main window belongs to another process.", "native-contract");
+  if (main.minimized) return fail("minimized", "Das gebundene SSE-Hauptfenster ist minimiert; der direkte Qt-Pfad stellt es nicht wieder her.");
+  const unknownWindows = inventory.windows.filter(window => window.pid === main.pid && window.hwnd !== main.hwnd
+    && auxiliaryWindowKind(window, profile) === null);
+  if (unknownWindows.length) {
+    return fail("dialog-open", "Ein nicht katalogisiertes Fenster des gebundenen Prozesses ist offen; Seite nicht gelesen. "
+      + "Dialoge mit sse_dialog_list lesen und bewusst beantworten.");
+  }
+  const snapshot = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 5000 }, budget(), signal);
   if (!snapshot.windowEnabled || snapshot.modalBlocked) {
     return fail("dialog-open", "Ein modaler Dialog blockiert die gebundene Seite; keine Werte ausgegeben. Dialoge mit sse_dialog_list lesen.");
   }
@@ -130,10 +151,8 @@ export async function executeQtNativePage(
   const leerePflichtfelder = felder.filter(field => field.typ === "ComboBox" && !String(field.wert ?? "").trim()).map(field => field.label);
   // Every field unlabelled means the caption column was not found; that must not pass silently.
   const hinweis = felder.length && felder.every(field => !String(field.label ?? "").trim()) ? UNLABELLED_HINT : null;
-  const remaining = Math.floor(timeoutMs - (performance.now() - started));
-  if (remaining < 1) throw new QtNativeTransportError("Native page deadline exceeded before the window inventory.", "native-timeout");
-  const inventory = await readProcessWindowInventory(client, remaining, signal);
-  const offeneFenster = inventory.windows.length;
+  // Get-Windows counts every visible window of the process, titled or not; the classified list above is narrower.
+  const offeneFenster = inventory.visibleWindowCount;
   return {
     hinweis,
     ok: true,
@@ -147,7 +166,7 @@ export async function executeQtNativePage(
     blockiert: prueferMeldungen.length > 0 || offeneFenster > 2,
     prueferMeldungen,
     leerePflichtfelder,
-    // A modal dialog already failed closed above; the worker's dialog inventory would be empty here as well.
+    // Unknown windows and modal dialogs already failed closed above; only catalogued auxiliary windows remain.
     dialoge: [],
     offeneFenster,
     stats: snapshot.stats,

@@ -93,7 +93,7 @@ function fakeClient(windows, main, tools = []) {
   const log = [];
   const snapshots = new Map([[undefined, main], ...tools]);
   const answers = {
-    window_inventory: () => ({ durationMs: 1, result: { ok: true, windows } }),
+    window_inventory: () => ({ durationMs: 1, result: { ok: true, windows, visibleWindowCount: windows.length } }),
     accessibility_snapshot: args => snapshotReply(snapshots.get(args.toolTitle)),
   };
   const client = { binding: { hwnd: 42, pid: 99, creationTime: "1" }, request: async (operation, args) => {
