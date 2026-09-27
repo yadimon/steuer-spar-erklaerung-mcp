@@ -1,15 +1,17 @@
 import type { WorkerResult } from "./api-contract.js";
 import type { ProductProfile } from "./product-profiles.js";
-import type { QtNativeClient } from "./qt-native-client.js";
+import { QtNativeTransportError, type QtNativeClient } from "./qt-native-client.js";
 import { qtNativeContentBounds } from "./qt-native-pages.js";
-import { byPosition, psEquals } from "./qt-native-projections.js";
+import { auxiliaryWindowKind, byPosition, psEquals, readProcessWindowInventory, type QtProcessWindow } from "./qt-native-projections.js";
 import { readQtNativeSnapshot, type QtSnapshotNode } from "./qt-native-snapshot.js";
 
 /**
  * Direct Qt port of the worker branch 'help': the right-hand help column
- * (Eingabehilfe, Steuertipps, Pruefer) read from one accessibility snapshot.
- * Every string and every field name below is the worker's; only the tree
- * source changed.
+ * (Eingabehilfe, Steuertipps, Pruefer) read from accessibility snapshots.
+ * The worker's UIA walk also contains the owned nonmodal windows, so their
+ * catalogued Qt trees are read through their titles and merged; a window
+ * this path cannot describe fails closed. Every string and every field name
+ * below is the worker's; only the tree source changed.
  */
 
 // Windows PowerShell `-in` compares strings case-insensitively like `-eq`.
@@ -89,21 +91,63 @@ export function qtNativeHelpProjection(
   return { seite: ueberschrift ? ueberschrift.name : null, abschnitte: ausgabe };
 }
 
+/** UIA lists an owned window as a named Window node with the window's own rectangle; the Qt snapshot omits that root. */
+function ownedWindowNode(window: QtProcessWindow, index: number): QtSnapshotNode {
+  return {
+    i: index, p: -1, d: 0, type: "Window", name: window.title, aid: "", rid: `42.${window.hwnd}`,
+    x: window.x, y: window.y, w: window.w, h: window.h, on: true, val: null, ro: null, checked: null, selected: null, scroll: null,
+  };
+}
+
 /** Read the help column of the bound page without starting a PowerShell worker. */
 export async function executeQtNativeHelp(
   client: QtNativeClient,
   args: Readonly<Record<string, unknown>>,
   timeoutMs: number,
   signal?: AbortSignal,
-  _profile?: ProductProfile,
+  profile?: ProductProfile,
 ): Promise<WorkerResult> {
-  const snapshot = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 4000 }, timeoutMs, signal);
+  if (!profile) return fail("bad-args", "help requires a product profile.");
+  if (args.hwnd !== undefined && args.hwnd !== client.binding.hwnd) {
+    throw new QtNativeTransportError("Requested window differs from the verified native session.", "stale-window");
+  }
+  const started = performance.now();
+  const budget = () => {
+    const remaining = Math.floor(timeoutMs - (performance.now() - started));
+    if (remaining < 1) throw new QtNativeTransportError("Native help deadline exceeded before reading.", "native-timeout");
+    return remaining;
+  };
+  const inventory = await readProcessWindowInventory(client, budget(), signal);
+  const main = inventory.windows.find(window => window.hwnd === client.binding.hwnd);
+  if (!main) return fail("stale-window", "Das angegebene hwnd ist kein aktuelles Hauptfenster.");
+  if (main.pid !== client.binding.pid) throw new QtNativeTransportError("The bound main window belongs to another process.", "native-contract");
+  if (main.minimized) return fail("minimized", "Das gebundene SSE-Hauptfenster ist minimiert; der direkte Qt-Pfad stellt es nicht wieder her.");
+  const others = inventory.windows.filter(window => window.pid === main.pid && window.hwnd !== main.hwnd)
+    .map(window => ({ window, kind: auxiliaryWindowKind(window, profile) }));
+  if (others.some(entry => entry.kind === null) || inventory.untitledWindows.length) {
+    return fail("dialog-open", "Ein nicht katalogisiertes Fenster des gebundenen Prozesses ist offen; Hilfe nicht gelesen. "
+      + "Dialoge mit sse_dialog_list lesen und bewusst beantworten.");
+  }
+  const snapshot = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 4000 }, budget(), signal);
   if (!snapshot.windowEnabled || snapshot.modalBlocked) {
     return fail("dialog-open", "Ein modaler Dialog blockiert die gebundene Seite; keine Hilfe ausgegeben.");
   }
   if (snapshot.stats.truncated) {
     return fail("native-incomplete", "Der native Seitenbaum ueberschreitet die Lesegrenze; keine unvollstaendige Hilfe ausgegeben.");
   }
-  const { seite, abschnitte } = qtNativeHelpProjection(snapshot.nodes, snapshot.windowRect);
-  return { ok: true, seite, abschnitte, hinweis: HELP_HINT, backend: "qt", nativeDurationMs: snapshot.nativeDurationMs };
+  let nativeDurationMs = inventory.durationMs + snapshot.nativeDurationMs;
+  const nodes: QtSnapshotNode[] = [...snapshot.nodes];
+  // The worker's tree hangs every owned nonmodal window under the main window; read each catalogued one by title.
+  for (const { window, kind } of others) {
+    if (kind === "system-overlay") continue;
+    const tool = await readQtNativeSnapshot(client, { maxNodes: 4000, toolTitle: window.title }, budget(), signal);
+    nativeDurationMs += tool.nativeDurationMs;
+    if (tool.hwnd !== window.hwnd) throw new QtNativeTransportError("The owned window snapshot returned another window.", "native-contract");
+    if (tool.stats.truncated) {
+      return fail("native-incomplete", "Der native Baum eines Nebenfensters ueberschreitet die Lesegrenze; keine unvollstaendige Hilfe ausgegeben.");
+    }
+    nodes.push(ownedWindowNode(window, nodes.length), ...tool.nodes);
+  }
+  const { seite, abschnitte } = qtNativeHelpProjection(nodes, snapshot.windowRect);
+  return { ok: true, seite, abschnitte, hinweis: HELP_HINT, backend: "qt", nativeDurationMs };
 }
