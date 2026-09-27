@@ -12,6 +12,7 @@ const profile = loadProductProfile("2025");
 const WERTE_INFO_TITLE = "Werte-Info: Werte vergleichen - Was wäre wenn";
 const UNREADABLE_HINT = "Der direkte Qt-Pfad liest fremde Dialoge und unbekannte Fenster nicht; mit sse_dialog_list oder sse_windows pruefen.";
 const UNTITLED_MODAL_HINT = "Ein modaler Dialog ohne Fenstertitel blockiert das gebundene Hauptfenster; der direkte Qt-Pfad liest ihn nicht.";
+const UNTITLED_WINDOW_HINT = "Ein namenloses Fenster des gebundenen Prozesses ist sichtbar; der direkte Qt-Pfad liest es nicht.";
 const sha256 = text => createHash("sha256").update(text, "utf8").digest("hex").toUpperCase();
 const stats = n => ({ n, err: 0, cyc: 0, cycleRid: "", cycleName: "", truncated: false, depthLimited: false,
   valErr: 0, scrollErr: 0, source: "qt", fallbackReason: "", snapshotMs: 7 });
@@ -89,11 +90,12 @@ const snapshotReply = spec => ({ durationMs: spec.durationMs, result: { ok: true
 const mainSpec = (nodes, overrides = {}) => ({ durationMs: 2, hwnd: 42, rect: MAIN_RECT, nodes, stats: stats(nodes.length), overrides });
 const werteSpec = (overrides = {}) => ({ durationMs: 3, hwnd: 84, rect: WERTE_RECT, nodes: werteInfoTree(), stats: stats(13), overrides });
 
-function fakeClient(windows, main, tools = []) {
+function fakeClient(windows, main, tools = [], inventoryExtra = {}) {
   const log = [];
   const snapshots = new Map([[undefined, main], ...tools]);
   const answers = {
-    window_inventory: () => ({ durationMs: 1, result: { ok: true, windows, visibleWindowCount: windows.length, untitledWindowCount: 0 } }),
+    window_inventory: () => ({ durationMs: 1,
+      result: { ok: true, windows, visibleWindowCount: windows.length, untitledWindows: [], ...inventoryExtra } }),
     accessibility_snapshot: args => snapshotReply(snapshots.get(args.toolTitle)),
   };
   const client = { binding: { hwnd: 42, pid: 99, creationTime: "1" }, request: async (operation, args) => {
@@ -159,7 +161,8 @@ const blockedFingerprint = sha256('{"instance":{"pid":99,"hwnd":42},"heading":"S
     },
     fensterAnzahl: 4,
     warnfensterAnzahl: 0,
-    nichtmodaleFenster: [werteInfoEntry, tipsEntry],
+    // Get-Windows lists the larger window first.
+    nichtmodaleFenster: [tipsEntry, werteInfoEntry],
     snapshot: { source: "qt", nodes: 29, truncated: false, cycles: 0, snapshotMs: 7 },
     rat: "Der Seitenpruefer verlangt Angaben: Bitte Anrede angeben; Kinder !. Erst klaeren, dann navigieren.",
     backend: "qt",
@@ -209,21 +212,49 @@ const cleanFingerprint = sha256('{"instance":{"pid":99,"hwnd":42},"heading":"Syn
   assert.equal(result.blockiert, true);
   assert.deepEqual(result.unsichereFenster, [{ hwnd: 0, pid: 99, cls: "", title: "", art: "nicht-lesbar", x: 0, y: 0, w: 0, h: 0, buttons: [], texte: [],
     fingerprint: null, uiaReadOk: false, uiaError: UNTITLED_MODAL_HINT, msaaReadOk: null, msaaError: null }]);
-  assert.equal(result.fensterAnzahl, 3);
+  assert.equal(result.fensterAnzahl, 2);
   assert.equal(result.rat, "Mindestens ein unbekanntes oder nicht lesbares SSE-Fenster ist offen. Zustand gilt als blockiert; per Screenshot/manuell klaeren.");
   assert.notEqual(result.stateFingerprint, cleanFingerprint);
   assert.deepEqual(result.dialoge, []);
 }
 
-// A disabled main window next to a titled unknown window: that window is the unreadable entry, nothing synthetic is added.
+// A catalogued nonmodal tool window is the worker's 'unbekannt' kind without a UIA/MSAA read; a disabled main
+// window beside it still points at a modal this path cannot name, so the synthetic entry follows.
+const receiptEntry = { hwnd: 87, pid: 99, cls: "Qt692QWindowIcon", title: "BelegManager", art: "unbekannt",
+  x: 100, y: 100, w: 800, h: 500, buttons: [], texte: [], fingerprint: null, uiaReadOk: false, uiaError: null, msaaReadOk: false, msaaError: null };
 {
   const { client } = fakeClient([MAIN_WINDOW, RECEIPT_WINDOW], mainSpec(mainTree(cleanNames), { windowEnabled: false }));
   const result = await executeQtNativeUiState(client, {}, 5000, undefined, profile);
   assert.equal(result.ok, true);
-  assert.deepEqual(result.unsichereFenster, [{ hwnd: 87, pid: 99, cls: "Qt692QWindowIcon", title: "BelegManager", art: "nicht-lesbar",
-    x: 100, y: 100, w: 800, h: 500, buttons: [], texte: [], fingerprint: null, uiaReadOk: false, uiaError: UNREADABLE_HINT, msaaReadOk: null, msaaError: null }]);
+  assert.deepEqual(result.unsichereFenster, [receiptEntry, { hwnd: 0, pid: 99, cls: "", title: "", art: "nicht-lesbar", x: 0, y: 0, w: 0, h: 0,
+    buttons: [], texte: [], fingerprint: null, uiaReadOk: false, uiaError: UNTITLED_MODAL_HINT, msaaReadOk: null, msaaError: null }]);
   assert.equal(result.fensterAnzahl, 2);
   assert.equal(result.blockiert, true);
+}
+// A titled window outside the catalogue is unreadable; an untitled non-transient window keeps its real identity.
+{
+  const untitledWindow = { hwnd: 90, pid: 99, class: "Qt692QWindow", x: 50, y: 50, w: 300, h: 200, minimized: false, hung: false };
+  const { client } = fakeClient([MAIN_WINDOW, RECEIPT_WINDOW, window(89, "Datei öffnen", [10, 10, 500, 400], { class: "#32770" })],
+    mainSpec(mainTree(cleanNames)), [], { visibleWindowCount: 6, untitledWindows: [untitledWindow] });
+  const result = await executeQtNativeUiState(client, {}, 5000, undefined, profile);
+  assert.equal(result.ok, true);
+  assert.equal(result.blockiert, true);
+  assert.equal(result.fensterAnzahl, 6);
+  assert.deepEqual(result.unsichereFenster, [
+    receiptEntry,
+    { hwnd: 89, pid: 99, cls: "#32770", title: "Datei öffnen", art: "nicht-lesbar", x: 10, y: 10, w: 500, h: 400, buttons: [], texte: [],
+      fingerprint: null, uiaReadOk: false, uiaError: UNREADABLE_HINT, msaaReadOk: null, msaaError: null },
+    { hwnd: 90, pid: 99, cls: "Qt692QWindow", title: "", art: "nicht-lesbar", x: 50, y: 50, w: 300, h: 200, buttons: [], texte: [],
+      fingerprint: null, uiaReadOk: false, uiaError: UNTITLED_WINDOW_HINT, msaaReadOk: null, msaaError: null },
+  ]);
+}
+// A Steuer-Spar-Tipps window beyond the tool-window bound keeps its kind by title alone, exactly like Get-DialogDescriptor.
+{
+  const { client } = fakeClient([MAIN_WINDOW, window(85, "Steuer-Spar-Tipps", [0, 0, 900, 700])], mainSpec(mainTree(cleanNames)));
+  const result = await executeQtNativeUiState(client, {}, 5000, undefined, profile);
+  assert.equal(result.blockiert, false);
+  assert.deepEqual(result.nichtmodaleFenster.map(entry => [entry.art, entry.uiaReadOk, entry.uiaError, entry.msaaReadOk]),
+    [["steuer-tipps", false, null, false]]);
 }
 
 // Truncation is reported, not hidden, exactly as the worker does.
@@ -279,15 +310,15 @@ const cleanFingerprint = sha256('{"instance":{"pid":99,"hwnd":42},"heading":"Syn
   await assert.rejects(executeQtNativeUiState(client, {}, 0, undefined, profile),
     error => error instanceof QtNativeTransportError && error.kind === "native-timeout");
 }
-// A Werte-Info wider than the tool-window bound is not a tool window; it stays unreadable and blocks.
+// A Werte-Info wider than the tool-window bound is no tool window; the catalogue makes it the worker's 'unbekannt' kind.
 {
   const { client, log } = fakeClient([MAIN_WINDOW, { ...WERTE_WINDOW, w: 901 }], mainSpec(mainTree(cleanNames)));
   const result = await executeQtNativeUiState(client, {}, 5000, undefined, profile);
   assert.equal(result.ok, true);
   assert.equal(result.blockiert, true);
-  assert.deepEqual(result.unsichereFenster.map(entry => [entry.hwnd, entry.art, entry.uiaError]), [[84, "nicht-lesbar", UNREADABLE_HINT]]);
+  assert.deepEqual(result.unsichereFenster.map(entry => [entry.hwnd, entry.art, entry.uiaError, entry.msaaReadOk]), [[84, "unbekannt", null, false]]);
   assert.equal(result.ergebnis.fensterOffen, false);
   assert.deepEqual(log.map(entry => entry.operation), ["window_inventory", "accessibility_snapshot"]);
 }
 
-console.log("qt-native-ui-state-projection: 13 scenarios passed");
+console.log("qt-native-ui-state-projection: 15 scenarios passed");

@@ -175,8 +175,8 @@ try {
   assert(inventory.result.windows.every(window => typeof window.minimized === "boolean" && typeof window.hung === "boolean"));
   assert(inventory.result.windows.every(window => [window.x, window.y, window.w, window.h].every(Number.isSafeInteger)));
   assert(inventory.result.windows.every(window => window.w > 0 && window.h > 0));
-  assert(Number.isSafeInteger(inventory.result.visibleWindowCount) && Number.isSafeInteger(inventory.result.untitledWindowCount));
-  assert(inventory.result.visibleWindowCount >= inventory.result.windows.length + inventory.result.untitledWindowCount);
+  assert(Array.isArray(inventory.result.untitledWindows) && Number.isSafeInteger(inventory.result.visibleWindowCount));
+  assert(inventory.result.visibleWindowCount >= inventory.result.windows.length + inventory.result.untitledWindows.length);
   assert.equal(snapshot.canaryMs, null); assert.equal(snapshot.responsivenessCheck, "bounded-gui-thread");
   const independent = await uiaSnapshot(first.info.hwnd);
   const redactPassword = nodes => nodes.map(node => node.aid.endsWith("syntheticSecret") ? { ...node, val: null, ro: null } : node);

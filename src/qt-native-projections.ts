@@ -269,17 +269,18 @@ const processWindowSchema = z.object({
 export const processWindowInventorySchema = z.object({
   ok: z.literal(true),
   windows: z.array(processWindowSchema).max(256),
+  /** Visible untitled windows that are no tooltip, shadow or popup; a title cannot classify them. */
+  untitledWindows: z.array(processWindowSchema.omit({ title: true })).max(256),
   /** Every visible top-level window of the process, including untitled, shadow and tooltip windows. */
   visibleWindowCount: z.number().int().nonnegative(),
-  /** Visible untitled windows that are no tooltip, shadow or popup; they are never listed and cannot be classified. */
-  untitledWindowCount: z.number().int().nonnegative(),
 }).passthrough();
 export type QtProcessWindow = z.infer<typeof processWindowSchema>;
+export type QtUntitledWindow = Omit<QtProcessWindow, "title">;
 
 /** The bound process's visible titled top-level windows, read through Win32 inside the product process. */
 export async function readProcessWindowInventory(
   client: QtNativeClient, timeoutMs: number, signal?: AbortSignal,
-): Promise<{ windows: QtProcessWindow[]; visibleWindowCount: number; untitledWindowCount: number; durationMs: number }> {
+): Promise<{ windows: QtProcessWindow[]; untitledWindows: QtUntitledWindow[]; visibleWindowCount: number; durationMs: number }> {
   const measured = await client.request("window_inventory", {}, timeoutMs, signal);
   if (!measured.result.ok) {
     throw new QtNativeTransportError(String(measured.result.error ?? "Native window inventory failed."),
@@ -287,12 +288,12 @@ export async function readProcessWindowInventory(
   }
   const parsed = processWindowInventorySchema.safeParse(measured.result);
   if (!parsed.success) throw new QtNativeTransportError("The process window inventory is incomplete or invalid.", "native-contract");
-  if (parsed.data.visibleWindowCount < parsed.data.windows.length + parsed.data.untitledWindowCount) {
+  if (parsed.data.visibleWindowCount < parsed.data.windows.length + parsed.data.untitledWindows.length) {
     throw new QtNativeTransportError("The process window inventory counts fewer windows than it lists.", "native-contract");
   }
   return {
-    windows: parsed.data.windows, visibleWindowCount: parsed.data.visibleWindowCount,
-    untitledWindowCount: parsed.data.untitledWindowCount, durationMs: measured.durationMs,
+    windows: parsed.data.windows, untitledWindows: parsed.data.untitledWindows,
+    visibleWindowCount: parsed.data.visibleWindowCount, durationMs: measured.durationMs,
   };
 }
 
@@ -319,4 +320,9 @@ export function auxiliaryWindowKind(
       && entry.closePolicy === "allow-exact-nonmodal-close" && typeof entry.title === "string" && window.title === entry.title;
   });
   return catalogued ? "known-nonmodal" : null;
+}
+
+/** The worker's window enumerator orders by area, largest first; the handle breaks ties deterministically. */
+export function byWindowArea<T extends { hwnd: number; w: number; h: number }>(left: T, right: T): number {
+  return right.w * right.h - left.w * left.h || left.hwnd - right.hwnd;
 }
