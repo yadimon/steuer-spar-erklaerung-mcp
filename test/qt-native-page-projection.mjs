@@ -237,6 +237,14 @@ assert.deepEqual(await executeQtNativePage(ownedTruncated.client, { hwnd: 42 }, 
   kind: "native-incomplete", error: "Der native Baum eines Nebenfensters ueberschreitet die Lesegrenze; Seite nicht gelesen." });
 const ownedMismatch = makeClient(full.nodes, fullRect, twoWindows, { tool: { hwnd: 85 } });
 await assert.rejects(executeQtNativePage(ownedMismatch.client, { hwnd: 42 }, 5000, undefined, profile), { kind: "native-contract" });
+// An owned window that closed or doubled between the inventory and its read is a changed window set, not a lookup failure.
+for (const code of ["not-found", "ambiguous"]) {
+  const vanished = makeClient(full.nodes, fullRect, twoWindows, { tool: { ok: false, error: "Synthetic tool window change.", code } });
+  await assert.rejects(executeQtNativePage(vanished.client, { hwnd: 42 }, 5000, undefined, profile),
+    { kind: "stale-window", message: `Das Nebenfenster '${WERTE_INFO}' hat sich waehrend des Lesens veraendert; Seite nicht gelesen.` });
+}
+const toolReadFailed = makeClient(full.nodes, fullRect, twoWindows, { tool: { ok: false, error: "Synthetic tool failure.", code: "native-read" } });
+await assert.rejects(executeQtNativePage(toolReadFailed.client, { hwnd: 42 }, 5000, undefined, profile), { kind: "native-read" });
 // A tool snapshot without its root identity cannot list the window the way UIA names it.
 const ownedNameless = makeClient(full.nodes, fullRect, twoWindows, { tool: { root: undefined } });
 await assert.rejects(executeQtNativePage(ownedNameless.client, { hwnd: 42 }, 5000, undefined, profile), { kind: "native-contract" });
@@ -369,4 +377,4 @@ const snapshotFailed = makeClient(full.nodes, fullRect, twoWindows, { snapshot: 
 await assert.rejects(executeQtNativePage(snapshotFailed.client, { hwnd: 42 }, 5000, undefined, profile),
   { kind: "native-read", message: "Synthetic snapshot failure." });
 
-console.log("qt-native-page-projection: 10 projections and 26 fail-closed guards pinned");
+console.log("qt-native-page-projection: 10 projections and 29 fail-closed guards pinned");

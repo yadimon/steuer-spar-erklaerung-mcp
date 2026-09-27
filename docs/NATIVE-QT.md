@@ -178,8 +178,9 @@ der Fensterwurzel meldet der Snapshot des Nebenfensters selbst. `read_table` pr�
 `page` und scheitert bei nicht katalogisierten Fenstern mit `dialog-open`.
 Ein Nebenfenster, das selbst modal blockiert oder deaktiviert ist, beendet
 die Lesung mit `dialog-open`, ein Nebenfenster über der Lesegrenze mit
-`native-incomplete`; ein Systemoverlay und ein zweites Fallfenster werden nur
-gezählt, nie gelesen.
+`native-incomplete`, ein Nebenfenster, das zwischen Inventar und Lesung
+verschwindet oder sich verdoppelt, mit `stale-window`; ein Systemoverlay und
+ein zweites Fallfenster werden nur gezählt, nie gelesen.
 
 `ui_state` liest Hauptfensterbaum und Win32-Fensterinventar des gebundenen
 Prozesses direkt; eine geöffnete Werte-Info wird unabhängig von ihrer Größe

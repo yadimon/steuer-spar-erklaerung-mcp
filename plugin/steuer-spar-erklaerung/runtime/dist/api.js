@@ -14397,7 +14397,15 @@ async function readOwnedWindowSubtrees(client, owned, maxNodes, subject, firstIn
   const nodes = [];
   let durationMs = 0;
   for (const window of owned) {
-    const tool = await readQtNativeSnapshot(client, { maxNodes, toolTitle: window.title }, budget(), signal);
+    let tool;
+    try {
+      tool = await readQtNativeSnapshot(client, { maxNodes, toolTitle: window.title }, budget(), signal);
+    } catch (error) {
+      if (error instanceof QtNativeTransportError && (error.kind === "not-found" || error.kind === "ambiguous")) {
+        throw new QtNativeTransportError(`Das Nebenfenster '${window.title}' hat sich waehrend des Lesens veraendert; ${subject} nicht gelesen.`, "stale-window");
+      }
+      throw error;
+    }
     durationMs += tool.nativeDurationMs;
     if (tool.hwnd !== window.hwnd) throw new QtNativeTransportError("The owned window snapshot returned another window.", "native-contract");
     if (!tool.windowEnabled || tool.modalBlocked) {
