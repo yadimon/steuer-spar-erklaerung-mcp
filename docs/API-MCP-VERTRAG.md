@@ -13,8 +13,9 @@
 
 ## Rollen
 
-Für die optionale dauerhafte Qt-Anbindung von `get_value`, `table_read`, `snapshot`, `find`, `read_page` und `subpages`
-gilt zusätzlich der [native Paket- und Laufzeitvertrag](NATIVE-QT.md).
+Für die optionale dauerhafte Qt-Anbindung der in der [Native-Matrix](NATIVE-COVERAGE.md)
+als **Qt optional** geführten Leseoperationen gilt zusätzlich der
+[native Paket- und Laufzeitvertrag](NATIVE-QT.md).
 Dasselbe optionale Paket übernimmt `desktop_status` und `desktop_start` direkt
 über Win32. Die Startoperation behält Ressourcenauflösung und Eigentumsprüfung;
 ein verlorener Antwortweg wird als unbekannter Ausgang ohne Wiederholung behandelt.

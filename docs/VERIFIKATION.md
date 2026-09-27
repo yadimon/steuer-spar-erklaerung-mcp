@@ -48,15 +48,20 @@ Manuelle Stichproben ersetzen den fehlenden automatisierten Nachweis für
 ## Native-Integration getrennt zählen
 
 Die [Native-Matrix](NATIVE-COVERAGE.md) führt für jede der 102 Operationen
-den Qt-DLL-Status neben dem bestehenden Live-Stand. Gegenwärtig sind zwölf
+den Qt-DLL-Status neben dem bestehenden Live-Stand. Gegenwärtig sind siebzehn
 Operationen direkt integriert: `get_value`, `table_read`, `snapshot`, `find`,
 `read_page`, `subpages`, `known_page_state`, `positions`, `ustva_read`,
-`receipt_manager_list`, `receipt_manager_read` und `receipt_manager_action`.
+`receipt_manager_list`, `receipt_manager_read`, `receipt_manager_action`,
+`page`, `ui_state`, `help`, `read_table` und `checker_results`.
 Sie werden nur mit expliziter Konfiguration aktiviert.
 Die native Qt-Prüfung vergleicht Suchtreffer, Seitenzeilen und Unterseiten mit
 den tatsächlichen Worker-Projektionsfunktionen über unabhängig gelesene UIA-Knoten
 und Win32-Fenstergrenzen. Die Offline-Suite prüft zusätzlich Wildcards,
-Zeilenanker, mehrdeutige Überschriftencontainer und Übermittlungsfilter.
+Zeilenanker, mehrdeutige Überschriftencontainer und Übermittlungsfilter sowie
+die Seiten-, Hilfe-, Tabellen-, Prüfer- und Zustandsprojektionen der fünf
+zuletzt angeschlossenen Lesepfade gegen synthetische Qt-Bäume; unter Windows
+führt der Differenzorakel-Test dieselben Worker-Zweige über denselben
+Knotenbestand aus.
 Die Zahl 94 funktional live belegter Operationen ist keine Qt-Abdeckung.
 
 Der native CTest-Lauf prüft reale DLL, Broker, Discovery und HTTP-Runtime mit
