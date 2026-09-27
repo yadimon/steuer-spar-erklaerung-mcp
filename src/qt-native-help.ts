@@ -128,21 +128,27 @@ export async function executeQtNativeHelp(
     return fail("dialog-open", "Ein nicht katalogisiertes Fenster des gebundenen Prozesses ist offen; Hilfe nicht gelesen. "
       + "Dialoge mit sse_dialog_list lesen und bewusst beantworten.");
   }
-  const snapshot = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 4000 }, budget(), signal);
+  const snapshot = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 5000 }, budget(), signal);
   if (!snapshot.windowEnabled || snapshot.modalBlocked) {
     return fail("dialog-open", "Ein modaler Dialog blockiert die gebundene Seite; keine Hilfe ausgegeben.");
   }
   if (snapshot.stats.truncated) {
     return fail("native-incomplete", "Der native Seitenbaum ueberschreitet die Lesegrenze; keine unvollstaendige Hilfe ausgegeben.");
   }
+  // The worker treats an empty bulk snapshot as a failed read, never as an empty help column.
+  if (!snapshot.nodes.length) return fail("native-incomplete", "Der native Seitenbaum ist leer; keine Hilfe ausgegeben.");
   let nativeDurationMs = inventory.durationMs + snapshot.nativeDurationMs;
   const nodes: QtSnapshotNode[] = [...snapshot.nodes];
-  // The worker's tree hangs every owned nonmodal window under the main window; read each catalogued one by title.
+  // The worker's tree hangs every owned nonmodal window under the main window; read each catalogued one by
+  // title. A second case window and a system overlay are not owned by this window and stay outside the tree.
   for (const { window, kind } of others) {
-    if (kind === "system-overlay") continue;
-    const tool = await readQtNativeSnapshot(client, { maxNodes: 4000, toolTitle: window.title }, budget(), signal);
+    if (kind === "system-overlay" || kind === "case-window") continue;
+    const tool = await readQtNativeSnapshot(client, { maxNodes: 5000, toolTitle: window.title }, budget(), signal);
     nativeDurationMs += tool.nativeDurationMs;
     if (tool.hwnd !== window.hwnd) throw new QtNativeTransportError("The owned window snapshot returned another window.", "native-contract");
+    if (!tool.windowEnabled || tool.modalBlocked) {
+      return fail("dialog-open", "Ein modaler Dialog blockiert ein Nebenfenster der gebundenen Seite; keine Hilfe ausgegeben.");
+    }
     if (tool.stats.truncated) {
       return fail("native-incomplete", "Der native Baum eines Nebenfensters ueberschreitet die Lesegrenze; keine unvollstaendige Hilfe ausgegeben.");
     }

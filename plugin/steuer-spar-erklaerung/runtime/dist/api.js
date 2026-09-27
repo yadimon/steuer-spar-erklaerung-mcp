@@ -13485,6 +13485,7 @@ function auxiliaryWindowKind(window, profile) {
   if (psEquals(window.title, WERTE_INFO_TITLE) && window.w <= 900 && window.h <= 700) return "werte-info";
   if (psEquals(window.title, TIPS_TITLE) && window.w <= 850 && window.h <= 650) return "steuer-tipps";
   if (/^UAC[ _]/iu.test(window.class) && window.w <= 80 && window.h <= 80) return "system-overlay";
+  if ((window.w >= 900 || window.minimized) && /SteuerSparErklärung/iu.test(window.title)) return "case-window";
   const catalogued = Object.values(profile?.pageObjectsCatalog.windows ?? {}).some((definition) => {
     const entry = definition;
     return typeof entry.role === "string" && CLOSABLE_NONMODAL_ROLES.has(entry.role) && entry.closePolicy === "allow-exact-nonmodal-close" && typeof entry.title === "string" && window.title === entry.title;
@@ -14422,6 +14423,7 @@ async function executeQtNativePage(client, args, timeoutMs, signal, profile) {
   if (snapshot.stats.truncated) {
     return fail6("native-incomplete", "Der native Seitenbaum ueberschreitet die Lesegrenze; keine unvollstaendige Seite ausgegeben.");
   }
+  if (!snapshot.nodes.length) return fail6("native-incomplete", "Der native Seitenbaum ist leer; keine Seite ausgegeben.");
   const scope = splitWindowScope(snapshot.nodes);
   const own = scope.own;
   const bounds = contentBounds(own, snapshot.windowRect);
@@ -14496,7 +14498,7 @@ function windowEntry(window, art, uiaReadOk, uiaError, msaaReadOk) {
 function classifiedEntry(window, profile) {
   const kind = auxiliaryWindowKind(window, profile);
   if (kind === "werte-info" || kind === "steuer-tipps" || kind === "system-overlay") return windowEntry(window, kind, null, null, null);
-  if ((window.w >= 900 || window.minimized) && /SteuerSparErklärung/iu.test(window.title)) return windowEntry(window, "unbekannt", false, null, false);
+  if (kind === "case-window") return windowEntry(window, "unbekannt", false, null, false);
   if (psEquals(window.title, TIPS_TITLE)) return windowEntry(window, "steuer-tipps", false, null, false);
   if (kind === "known-nonmodal") return windowEntry(window, "unbekannt", false, null, false);
   return windowEntry(window, "nicht-lesbar", false, UNREADABLE_HINT, null);
@@ -14715,20 +14717,24 @@ async function executeQtNativeHelp(client, args, timeoutMs, signal, profile) {
   if (others.some((entry) => entry.kind === null) || inventory.untitledWindows.length) {
     return fail8("dialog-open", "Ein nicht katalogisiertes Fenster des gebundenen Prozesses ist offen; Hilfe nicht gelesen. Dialoge mit sse_dialog_list lesen und bewusst beantworten.");
   }
-  const snapshot = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 4e3 }, budget(), signal);
+  const snapshot = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 5e3 }, budget(), signal);
   if (!snapshot.windowEnabled || snapshot.modalBlocked) {
     return fail8("dialog-open", "Ein modaler Dialog blockiert die gebundene Seite; keine Hilfe ausgegeben.");
   }
   if (snapshot.stats.truncated) {
     return fail8("native-incomplete", "Der native Seitenbaum ueberschreitet die Lesegrenze; keine unvollstaendige Hilfe ausgegeben.");
   }
+  if (!snapshot.nodes.length) return fail8("native-incomplete", "Der native Seitenbaum ist leer; keine Hilfe ausgegeben.");
   let nativeDurationMs = inventory.durationMs + snapshot.nativeDurationMs;
   const nodes = [...snapshot.nodes];
   for (const { window, kind } of others) {
-    if (kind === "system-overlay") continue;
-    const tool = await readQtNativeSnapshot(client, { maxNodes: 4e3, toolTitle: window.title }, budget(), signal);
+    if (kind === "system-overlay" || kind === "case-window") continue;
+    const tool = await readQtNativeSnapshot(client, { maxNodes: 5e3, toolTitle: window.title }, budget(), signal);
     nativeDurationMs += tool.nativeDurationMs;
     if (tool.hwnd !== window.hwnd) throw new QtNativeTransportError("The owned window snapshot returned another window.", "native-contract");
+    if (!tool.windowEnabled || tool.modalBlocked) {
+      return fail8("dialog-open", "Ein modaler Dialog blockiert ein Nebenfenster der gebundenen Seite; keine Hilfe ausgegeben.");
+    }
     if (tool.stats.truncated) {
       return fail8("native-incomplete", "Der native Baum eines Nebenfensters ueberschreitet die Lesegrenze; keine unvollstaendige Hilfe ausgegeben.");
     }

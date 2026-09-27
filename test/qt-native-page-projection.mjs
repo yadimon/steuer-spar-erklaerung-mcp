@@ -178,13 +178,15 @@ assert.deepEqual(await executeQtNativePage(unlabelled.client, { hwnd: 42 }, 5000
   nativeDurationMs: 5,
 });
 
-// --- Empty page: nothing is invented, and one window is not a blocking state.
+// --- Empty tree: the worker treats an empty bulk snapshot as a failed read, so nothing is projected from it.
 const empty = makeClient([], fullRect, [twoWindows[0]]);
-assert.deepEqual(await executeQtNativePage(empty.client, { hwnd: 42 }, 5000, undefined, profile), {
-  hinweis: null, ok: true, ueberschrift: null, ueberschriftQuelle: "nicht-gefunden", navigationAuswahl: null,
-  ausgeschlosseneFenster: [], felder: [], tabelle: null, aktionen: [], blockiert: false, prueferMeldungen: [],
-  leerePflichtfelder: [], dialoge: [], offeneFenster: 1, stats: { ...stats, n: 0 }, backend: "qt", nativeDurationMs: 5,
-});
+assert.deepEqual(await executeQtNativePage(empty.client, { hwnd: 42 }, 5000, undefined, profile),
+  { ok: false, backend: "qt", kind: "native-incomplete", error: "Der native Seitenbaum ist leer; keine Seite ausgegeben." });
+// --- A second case window of the process is no dialog for the worker either; only the window count sees it.
+const secondCase = makeClient(full.nodes, fullRect, [twoWindows[0], windowOf(91, "SteuerSparErklärung 2025 - zweiter Fall", { w: 950, h: 600 })]);
+const withSecondCase = await executeQtNativePage(secondCase.client, { hwnd: 42 }, 5000, undefined, profile);
+assert.equal(withSecondCase.ok, true);
+assert.equal(withSecondCase.offeneFenster, 2);
 
 // --- Fail closed: modal dialog, disabled window, truncated tree, foreign hwnd, missing profile, deadline, inventory faults.
 const dialogOpen = { ok: false, backend: "qt", kind: "dialog-open",
@@ -281,4 +283,4 @@ const snapshotFailed = makeClient(full.nodes, fullRect, twoWindows, { snapshot: 
 await assert.rejects(executeQtNativePage(snapshotFailed.client, { hwnd: 42 }, 5000, undefined, profile),
   { kind: "native-read", message: "Synthetic snapshot failure." });
 
-console.log("qt-native-page-projection: 6 projections and 17 fail-closed guards pinned");
+console.log("qt-native-page-projection: 6 projections and 18 fail-closed guards pinned");

@@ -138,6 +138,8 @@ export async function executeQtNativePage(
   if (snapshot.stats.truncated) {
     return fail("native-incomplete", "Der native Seitenbaum ueberschreitet die Lesegrenze; keine unvollstaendige Seite ausgegeben.");
   }
+  // The worker treats an empty bulk snapshot as a failed read, never as an empty page.
+  if (!snapshot.nodes.length) return fail("native-incomplete", "Der native Seitenbaum ist leer; keine Seite ausgegeben.");
   const scope = splitWindowScope(snapshot.nodes);
   const own = scope.own;
   const bounds = qtNativeContentBounds(own, snapshot.windowRect);
