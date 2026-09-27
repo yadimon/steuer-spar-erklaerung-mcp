@@ -14676,6 +14676,111 @@ var init_qt_native_help = __esm({
   }
 });
 
+// src/qt-native-read-table.ts
+function qtNativeTableCellSemantic(cell) {
+  if (cell.checked === null) return { type: "text", value: cell.name, checkboxState: null, ok: true, error: null };
+  const checkboxState = cell.checked === true ? "On" : cell.checked === false ? "Off" : "Indeterminate";
+  return { type: "boolean", value: cell.checked === true ? true : cell.checked === false ? false : null, checkboxState, ok: true, error: null };
+}
+function qtNativeTableRowDetails(rowIndex, cells) {
+  const errors = [];
+  cells.forEach((cell, column) => {
+    if (!cell) errors.push({ column, error: CELL_UNOBSERVED });
+  });
+  return {
+    rowIndex,
+    typedValues: cells.map((cell) => cell ? cell.value : null),
+    checkboxStates: cells.map((cell) => cell ? cell.checkboxState : null),
+    cellTypes: cells.map((cell) => cell ? cell.type : "unknown"),
+    semanticsComplete: errors.length === 0,
+    semanticReadErrors: errors
+  };
+}
+function qtNativeTableProjection(nodes) {
+  const headers = [];
+  for (const header of nodes.filter((node) => psEquals(node.type, "Header") && node.name && node.w > 0).sort((a, b) => a.x - b.x)) {
+    if (!headers.length || Math.abs(header.x - headers[headers.length - 1].x) > HEADER_MERGE_PX) headers.push(header);
+  }
+  const columnOf = (x) => {
+    let best = -1, distance = Number.POSITIVE_INFINITY;
+    headers.forEach((header, index) => {
+      const candidate = Math.abs(x - header.x);
+      if (candidate < distance) {
+        distance = candidate;
+        best = index;
+      }
+    });
+    return best;
+  };
+  const cells = nodes.filter((node) => psEquals(node.type, "DataItem") && node.w > 0).sort(byPosition3);
+  const rows = [];
+  const rowDetails = [];
+  let current = null;
+  let semantics = [];
+  let anchorY = -9999;
+  const close = () => {
+    if (current === null) return;
+    rowDetails.push(qtNativeTableRowDetails(rows.length, semantics));
+    rows.push(current);
+  };
+  for (const cell of cells) {
+    if (current === null || Math.abs(cell.y - anchorY) > ROW_BAND_PX) {
+      close();
+      anchorY = cell.y;
+      current = new Array(Math.max(1, headers.length)).fill(null);
+      semantics = new Array(Math.max(1, headers.length)).fill(null);
+    }
+    const index = columnOf(cell.x);
+    const semantic = qtNativeTableCellSemantic(cell);
+    if (index >= 0 && index < current.length) {
+      current[index] = cell.name;
+      semantics[index] = semantic;
+    } else {
+      current.push(cell.name);
+      semantics.push(semantic);
+    }
+  }
+  close();
+  return {
+    headers: headers.map((header) => header.name),
+    // The worker casts every slot with [string]: an unobserved cell is '' here while typedValues keeps null.
+    rows: rows.map((row) => row.map((value) => value === null ? "" : value)),
+    rowCount: rows.length,
+    rowDetails
+  };
+}
+async function executeQtNativeReadTable(client, args, timeoutMs, signal, _profile) {
+  const snapshot = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 4e3, withCellStates: true }, timeoutMs, signal);
+  if (!snapshot.windowEnabled || snapshot.modalBlocked) {
+    return fail9("dialog-open", "Ein modaler Dialog blockiert die gebundene Seite; keine Tabelle ausgegeben.");
+  }
+  const scope = splitWindowScope(snapshot.nodes);
+  return {
+    ok: true,
+    ...qtNativeTableProjection(scope.own),
+    ausgeschlosseneFenster: scope.foreign,
+    stats: snapshot.stats,
+    incomplete: snapshot.stats.truncated,
+    note: snapshot.stats.truncated ? NOTE_TRUNCATED : NOTE_VISIBLE_ONLY,
+    backend: "qt",
+    nativeDurationMs: snapshot.nativeDurationMs
+  };
+}
+var fail9, HEADER_MERGE_PX, ROW_BAND_PX, CELL_UNOBSERVED, NOTE_TRUNCATED, NOTE_VISIBLE_ONLY;
+var init_qt_native_read_table = __esm({
+  "src/qt-native-read-table.ts"() {
+    "use strict";
+    init_qt_native_projections();
+    init_qt_native_snapshot();
+    fail9 = (kind, error) => ({ ok: false, backend: "qt", kind, error });
+    HEADER_MERGE_PX = 8;
+    ROW_BAND_PX = 10;
+    CELL_UNOBSERVED = "Zelle nicht beobachtet.";
+    NOTE_TRUNCATED = "Baumlauf wurde abgeschnitten - es fehlen moeglicherweise Zeilen.";
+    NOTE_VISIBLE_ONLY = "Nur die SICHTBAREN Zeilen. Qt virtualisiert Tabellen: mehr Zeilen erscheinen erst, wenn der Cursor sie in den Blick holt (Pfeiltaste).";
+  }
+});
+
 // src/qt-native-executor.ts
 import { performance as performance12 } from "node:perf_hooks";
 function isQtNativeReadOperation(operation) {
@@ -14688,7 +14793,7 @@ async function executeQtNativeRead(operation, args, dependencies, timeoutMs = DE
     const client = dependencies.qtNativeClient ?? await dependencies.qtNativeClientFor(args, timeoutMs, signal);
     const remaining = Math.floor(timeoutMs - (performance12.now() - started));
     if (remaining < 1) throw new QtNativeTransportError("Native operation deadline exceeded before reading.", "native-timeout");
-    const execute = operation === "known_page_state" ? executeQtNativeKnownPageState : operation === "page" ? executeQtNativePage : operation === "ui_state" ? executeQtNativeUiState : operation === "help" ? executeQtNativeHelp : operation === "positions" ? executeQtNativePositions : operation === "ustva_read" ? executeQtNativeUstvaRead : operation === "receipt_manager_action" ? executeQtNativeReceiptManagerAction : operation === "receipt_manager_read" ? executeQtNativeReceiptManagerRead : operation === "receipt_manager_list" ? executeQtNativeReceiptManagerList : operation === "read_page" ? executeQtNativeReadPage : operation === "subpages" ? executeQtNativeSubpages : operation === "find" ? executeQtNativeFind : operation === "snapshot" ? executeQtNativeSnapshot : operation === "table_read" ? executeQtNativeTableRead : typeof args.rid === "string" && args.rid.startsWith("42.") ? executeQtSnapshotGetValue : executeQtNativeGetValue;
+    const execute = operation === "known_page_state" ? executeQtNativeKnownPageState : operation === "page" ? executeQtNativePage : operation === "ui_state" ? executeQtNativeUiState : operation === "help" ? executeQtNativeHelp : operation === "read_table" ? executeQtNativeReadTable : operation === "positions" ? executeQtNativePositions : operation === "ustva_read" ? executeQtNativeUstvaRead : operation === "receipt_manager_action" ? executeQtNativeReceiptManagerAction : operation === "receipt_manager_read" ? executeQtNativeReceiptManagerRead : operation === "receipt_manager_list" ? executeQtNativeReceiptManagerList : operation === "read_page" ? executeQtNativeReadPage : operation === "subpages" ? executeQtNativeSubpages : operation === "find" ? executeQtNativeFind : operation === "snapshot" ? executeQtNativeSnapshot : operation === "table_read" ? executeQtNativeTableRead : typeof args.rid === "string" && args.rid.startsWith("42.") ? executeQtSnapshotGetValue : executeQtNativeGetValue;
     return await execute(client, args, remaining, signal, profile);
   } catch (error) {
     return {
@@ -14718,6 +14823,7 @@ var init_qt_native_executor = __esm({
     init_qt_native_page();
     init_qt_native_ui_state();
     init_qt_native_help();
+    init_qt_native_read_table();
     QT_NATIVE_READ_OPERATIONS = [
       "get_value",
       "table_read",
@@ -14733,7 +14839,8 @@ var init_qt_native_executor = __esm({
       "receipt_manager_action",
       "page",
       "ui_state",
-      "help"
+      "help",
+      "read_table"
     ];
   }
 });
