@@ -228,8 +228,10 @@ export async function testNativePageProjections() {
   const mainNodes = [{ ...knownNodes[0] }, { ...knownNodes[4], i: 1, on: false }];
   const receiptStats = { ...stats, n: receiptNodes.length };
   const processWindows = [
-    { hwnd: 42, pid: 99, class: "Qt692QWindowIcon", title: "SteuerSparErklärung 2025", minimized: false, hung: false },
-    { hwnd: 84, pid: 99, class: "Qt692QWindowIcon", title: "BelegManager", minimized: false, hung: false },
+    { hwnd: 42, pid: 99, class: "Qt692QWindowIcon", title: "SteuerSparErklärung 2025", x: 0, y: 0, w: 1000, h: 600,
+      minimized: false, hung: false },
+    { hwnd: 84, pid: 99, class: "Qt692QWindowIcon", title: "BelegManager", x: 100, y: 100, w: 800, h: 500,
+      minimized: false, hung: false },
   ];
   const receiptClient = { binding: { hwnd: 42, pid: 99 }, request: async (operation, args) => {
     assert.equal(operation, "accessibility_snapshot");
