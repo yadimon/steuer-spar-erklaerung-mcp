@@ -12844,6 +12844,8 @@ var init_qt_native_snapshot = __esm({
       modalBlocked: external_exports.boolean(),
       nodes: external_exports.array(nodeSchema).max(5e3),
       foreground: external_exports.boolean().optional(),
+      /** The root's own AutomationId and name; the root is never a node, but an owned window is listed by them. */
+      root: external_exports.object({ aid: text2, name: text2 }).strict().optional(),
       windowRect: external_exports.object({ x: integer, y: integer, w: integer.nonnegative(), h: integer.nonnegative() }).strict(),
       exactMatches: external_exports.object({
         name: external_exports.array(integer.nonnegative()).optional(),
@@ -14369,14 +14371,14 @@ async function readBoundWindows(client, profile, subject, budget, signal) {
   const owned = others.filter((entry) => entry.kind !== "system-overlay" && entry.kind !== "case-window").map((entry) => entry.window);
   return { windows: { inventory, main: main2, owned } };
 }
-function ownedWindowNode(window, rect, index) {
+function ownedWindowNode(window, root, rect, index) {
   return {
     i: index,
     p: -1,
     d: 0,
     type: "Window",
-    name: window.title,
-    aid: "",
+    name: root.name,
+    aid: root.aid,
     rid: `42.${window.hwnd}`,
     x: rect.x,
     y: rect.y,
@@ -14404,9 +14406,10 @@ async function readOwnedWindowSubtrees(client, owned, maxNodes, subject, firstIn
     if (tool.stats.truncated) {
       return { failure: fail6("native-incomplete", `${nativeTreeBoundReason(tool.stats, "Der native Baum eines Nebenfensters")}; ${subject} nicht gelesen.`) };
     }
-    const root = ownedWindowNode(window, tool.windowRect, firstIndex + nodes.length);
+    if (!tool.root) throw new QtNativeTransportError("The owned window snapshot carries no root identity.", "native-contract");
+    const root = ownedWindowNode(window, tool.root, tool.windowRect, firstIndex + nodes.length);
     nodes.push(root, ...tool.nodes);
-    scopes.push({ rid: root.rid, name: window.title, aid: "", x: root.x, y: root.y, w: root.w, h: root.h, nodeCount: tool.nodes.length + 1 });
+    scopes.push({ rid: root.rid, name: root.name, aid: root.aid, x: root.x, y: root.y, w: root.w, h: root.h, nodeCount: tool.nodes.length + 1 });
   }
   return { subtrees: { scopes, nodes, durationMs } };
 }
@@ -14584,26 +14587,6 @@ function classifiedEntry(window, profile) {
   if (kind === "known-nonmodal") return windowEntry(window, "unbekannt", false, null, false);
   return windowEntry(window, "nicht-lesbar", false, UNREADABLE_HINT, null);
 }
-function untitledModalEntry(pid2) {
-  return {
-    hwnd: 0,
-    pid: pid2,
-    cls: "",
-    title: "",
-    art: "nicht-lesbar",
-    x: 0,
-    y: 0,
-    w: 0,
-    h: 0,
-    buttons: [],
-    texte: [],
-    fingerprint: null,
-    uiaReadOk: false,
-    uiaError: UNTITLED_MODAL_HINT,
-    msaaReadOk: null,
-    msaaError: null
-  };
-}
 async function executeQtNativeUiState(client, args, timeoutMs, signal, profile) {
   if (!profile) return fail8("bad-args", "ui_state requires a product profile.");
   if (args.hwnd !== void 0 && args.hwnd !== client.binding.hwnd) {
@@ -14630,7 +14613,9 @@ async function executeQtNativeUiState(client, args, timeoutMs, signal, profile) 
   ].sort((left, right) => byWindowArea(left.window, right.window));
   const fenster = processWindows.map((entry) => entry.untitled ? windowEntry(entry.window, "nicht-lesbar", false, UNTITLED_WINDOW_HINT, null) : entry.window.hwnd === main2.hwnd ? windowEntry(entry.window, "hauptfenster", true, null, null) : classifiedEntry(entry.window, profile));
   const obstructed = mainSnapshot.modalBlocked || !mainSnapshot.windowEnabled;
-  if (obstructed && !fenster.some((window) => window.art === "nicht-lesbar")) fenster.push(untitledModalEntry(main2.pid));
+  if (obstructed && !fenster.some((window) => window.art === "nicht-lesbar" || window.art === "unbekannt")) {
+    return fail8("dialog-open", "Das gebundene Hauptfenster ist durch einen nicht inventarisierten modalen Dialog blockiert; der direkte Qt-Pfad liest ihn nicht.");
+  }
   const werteInfo = inventory.windows.filter((window) => window.pid === main2.pid && psEquals(window.title, WERTE_INFO_TITLE));
   if (werteInfo.length > 1) return fail8("ambiguous", "Werte-Info ist nicht eindeutig.");
   const own = splitWindowScope(mainSnapshot.nodes).own;
@@ -14711,7 +14696,7 @@ async function executeQtNativeUiState(client, args, timeoutMs, signal, profile) 
     nativeDurationMs
   };
 }
-var PRUEFER_EXCLUDED, UNREADABLE_HINT, UNTITLED_MODAL_HINT, UNTITLED_WINDOW_HINT, fail8, unique, byRequiredField;
+var PRUEFER_EXCLUDED, UNREADABLE_HINT, UNTITLED_WINDOW_HINT, fail8, unique, byRequiredField;
 var init_qt_native_ui_state = __esm({
   "src/qt-native-ui-state.ts"() {
     "use strict";
@@ -14721,7 +14706,6 @@ var init_qt_native_ui_state = __esm({
     init_qt_native_snapshot();
     PRUEFER_EXCLUDED = ["Eingabehilfe", "Steuertipps", "Prüfer", "Mehr Details", "Steuer-Spar-Tipps", "Zurzeit keine Hinweise zu diesem Dialog."].map((name) => name.toLowerCase());
     UNREADABLE_HINT = "Der direkte Qt-Pfad liest fremde Dialoge und unbekannte Fenster nicht; mit sse_dialog_list oder sse_windows pruefen.";
-    UNTITLED_MODAL_HINT = "Ein modaler Dialog ohne Fenstertitel blockiert das gebundene Hauptfenster; der direkte Qt-Pfad liest ihn nicht.";
     UNTITLED_WINDOW_HINT = "Ein namenloses Fenster des gebundenen Prozesses ist sichtbar; der direkte Qt-Pfad liest es nicht.";
     fail8 = (kind, error) => ({ ok: false, backend: "qt", kind, error });
     unique = (values) => [...new Set(values)];

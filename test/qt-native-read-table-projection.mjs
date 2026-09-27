@@ -79,7 +79,8 @@ const makeClient = ({ windows = [MAIN_WINDOW], inventory = {}, snapshot = {}, to
     const base = { ok: true, controllerBound: true, scope: "qt-accessibility-content", windowEnabled: true, modalBlocked: false, exactMatches: {} };
     if (args.toolTitle !== undefined) {
       assert.equal(args.toolTitle, WERTE_INFO);
-      return { durationMs: 4, result: { ...base, hwnd: 84, windowRect: werteInfoRect, nodes: werteInfoNodes, stats: werteInfoStats, ...tool } };
+      return { durationMs: 4, result: { ...base, hwnd: 84, root: { aid: "window.WerteInfoFenster", name: WERTE_INFO }, windowRect: werteInfoRect,
+        nodes: werteInfoNodes, stats: werteInfoStats, ...tool } };
     }
     return { durationMs: 9, result: { ...base, hwnd: 42, windowRect: rect, nodes, stats, ...snapshot } };
   },
@@ -123,7 +124,7 @@ requests.length = 0;
 const withOwned = await read({ windows: [MAIN_WINDOW, WERTE_INFO_WINDOW, OVERLAY_WINDOW, FOREIGN_WERTE_INFO] });
 assert.deepEqual(withOwned.rows, result.rows);
 assert.deepEqual(withOwned.ausgeschlosseneFenster, [inTreeForeign,
-  { rid: "42.84", name: WERTE_INFO, aid: "", x: 600, y: 300, w: 400, h: 200, nodeCount: 4 }]);
+  { rid: "42.84", name: WERTE_INFO, aid: "window.WerteInfoFenster", x: 600, y: 300, w: 400, h: 200, nodeCount: 4 }]);
 assert.equal(withOwned.nativeDurationMs, 15);
 assert.deepEqual(requests.map(entry => entry.args), [{}, { maxNodes: 4000, withCellStates: true }, { maxNodes: 4000, toolTitle: WERTE_INFO }]);
 

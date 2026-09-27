@@ -18,10 +18,11 @@ const WERTE_INFO = "Werte-Info: Werte vergleichen - Was wäre wenn";
 const toolNode = (hwnd, i, type, name, x, y, extra = {}) => ({ i, p: -1, d: 0, type, name, aid: `tool.${hwnd}`, rid: `42.${hwnd}.4.${i + 1}`,
   x, y, w: 80, h: 20, on: true, val: null, ro: null, checked: null, selected: null, scroll: null, ...extra });
 const TOOLS = {
-  [WERTE_INFO]: { hwnd: 84, rect: { x: 0, y: 0, w: 400, h: 300 }, durationMs: 4,
+  [WERTE_INFO]: { hwnd: 84, aid: "window.WerteInfoFenster", rect: { x: 0, y: 0, w: 400, h: 300 }, durationMs: 4,
     nodes: [toolNode(84, 0, "Header", "Aktuell", 20, 40), toolNode(84, 1, "DataItem", "1.000,00", 20, 70)] },
-  "Steuer-Spar-Tipps": { hwnd: 85, rect: { x: 0, y: 0, w: 400, h: 300 }, durationMs: 6, nodes: [toolNode(85, 0, "Text", "Fahrtenbuch führen", 20, 40)] },
-  BelegManager: { hwnd: 87, rect: { x: 0, y: 0, w: 1800, h: 1200 }, durationMs: 8, nodes: [] },
+  "Steuer-Spar-Tipps": { hwnd: 85, aid: "window.SteuerSparTipps", rect: { x: 0, y: 0, w: 400, h: 300 }, durationMs: 6,
+    nodes: [toolNode(85, 0, "Text", "Fahrtenbuch führen", 20, 40)] },
+  BelegManager: { hwnd: 87, aid: "window.BelegManager", rect: { x: 0, y: 0, w: 1800, h: 1200 }, durationMs: 8, nodes: [] },
 };
 
 function makeClient(nodes, rect, windows, overrides = {}) {
@@ -37,8 +38,8 @@ function makeClient(nodes, rect, windows, overrides = {}) {
       const tool = TOOLS[args.toolTitle];
       assert(tool, `unexpected tool snapshot for ${args.toolTitle}`);
       assert.deepEqual(args, { maxNodes: 5000, toolTitle: args.toolTitle });
-      return { durationMs: tool.durationMs, result: { ...base, hwnd: tool.hwnd, windowRect: tool.rect, nodes: tool.nodes,
-        stats: { ...stats, n: tool.nodes.length }, ...toolOverride } };
+      return { durationMs: tool.durationMs, result: { ...base, hwnd: tool.hwnd, root: { aid: tool.aid, name: args.toolTitle },
+        windowRect: tool.rect, nodes: tool.nodes, stats: { ...stats, n: tool.nodes.length }, ...toolOverride } };
     },
     window_inventory: args => { assert.deepEqual(args, {}); return { durationMs: 2, result: inventory }; },
   };
@@ -128,7 +129,7 @@ assert.deepEqual(page, {
   // The in-tree foreign window comes first, the owned Werte-Info read by title follows with the window's own facts.
   ausgeschlosseneFenster: [
     { rid: "42.7", name: "Werte-Info", aid: "window.WerteInfo", x: 300, y: 300, w: 300, h: 200, nodeCount: 4 },
-    { rid: "42.84", name: WERTE_INFO, aid: "", x: 0, y: 0, w: 400, h: 300, nodeCount: 3 },
+    { rid: "42.84", name: WERTE_INFO, aid: "window.WerteInfoFenster", x: 0, y: 0, w: 400, h: 300, nodeCount: 3 },
   ],
   felder: [
     { label: "Betrag", typ: "Edit", wert: "12,00", schreibgeschuetzt: false, aid: "Text", rid: `42.42.4.${amount + 1}`, y: 104 },
@@ -183,8 +184,8 @@ assert.deepEqual(await executeQtNativePage(unlabelled.client, { hwnd: 42 }, 5000
   ueberschriftQuelle: "nicht-gefunden",
   navigationAuswahl: null,
   ausgeschlosseneFenster: [
-    { rid: "42.84", name: WERTE_INFO, aid: "", x: 0, y: 0, w: 400, h: 300, nodeCount: 3 },
-    { rid: "42.85", name: "Steuer-Spar-Tipps", aid: "", x: 0, y: 0, w: 400, h: 300, nodeCount: 2 },
+    { rid: "42.84", name: WERTE_INFO, aid: "window.WerteInfoFenster", x: 0, y: 0, w: 400, h: 300, nodeCount: 3 },
+    { rid: "42.85", name: "Steuer-Spar-Tipps", aid: "window.SteuerSparTipps", x: 0, y: 0, w: 400, h: 300, nodeCount: 2 },
   ],
   felder: [
     { label: "", typ: "Edit", wert: null, schreibgeschuetzt: true, aid: "", rid: `42.42.4.${plain + 1}`, y: 300 },
@@ -236,6 +237,9 @@ assert.deepEqual(await executeQtNativePage(ownedTruncated.client, { hwnd: 42 }, 
   kind: "native-incomplete", error: "Der native Baum eines Nebenfensters ueberschreitet die Lesegrenze; Seite nicht gelesen." });
 const ownedMismatch = makeClient(full.nodes, fullRect, twoWindows, { tool: { hwnd: 85 } });
 await assert.rejects(executeQtNativePage(ownedMismatch.client, { hwnd: 42 }, 5000, undefined, profile), { kind: "native-contract" });
+// A tool snapshot without its root identity cannot list the window the way UIA names it.
+const ownedNameless = makeClient(full.nodes, fullRect, twoWindows, { tool: { root: undefined } });
+await assert.rejects(executeQtNativePage(ownedNameless.client, { hwnd: 42 }, 5000, undefined, profile), { kind: "native-contract" });
 
 // --- Fail closed: modal dialog, disabled window, truncated tree, foreign hwnd, missing profile, deadline, inventory faults.
 const dialogOpen = { ok: false, backend: "qt", kind: "dialog-open",
@@ -365,4 +369,4 @@ const snapshotFailed = makeClient(full.nodes, fullRect, twoWindows, { snapshot: 
 await assert.rejects(executeQtNativePage(snapshotFailed.client, { hwnd: 42 }, 5000, undefined, profile),
   { kind: "native-read", message: "Synthetic snapshot failure." });
 
-console.log("qt-native-page-projection: 10 projections and 25 fail-closed guards pinned");
+console.log("qt-native-page-projection: 10 projections and 26 fail-closed guards pinned");

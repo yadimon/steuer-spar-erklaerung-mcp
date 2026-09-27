@@ -85,7 +85,8 @@ const tipsStats = { ...stats, n: tipsNodes.length };
 const snapshotReply = (spec, extra = {}) => ({ ok: true, controllerBound: true, scope: "qt-accessibility-content", exactMatches: {},
   windowEnabled: true, modalBlocked: false, ...spec, ...extra });
 const mainReply = extra => snapshotReply({ hwnd: 42, windowRect: rect, nodes, stats }, extra);
-const tipsReply = extra => snapshotReply({ hwnd: 85, windowRect: { x: 810, y: 100, w: 180, h: 120 }, nodes: tipsNodes, stats: tipsStats }, extra);
+const tipsReply = extra => snapshotReply({ hwnd: 85, root: { aid: "window.SteuerSparTipps", name: "Steuer-Spar-Tipps" },
+  windowRect: { x: 810, y: 100, w: 180, h: 120 }, nodes: tipsNodes, stats: tipsStats }, extra);
 const inventoryReply = (windows, extra = {}) => {
   const reply = { ok: true, windows, untitledWindows: [], visibleWindowCount: windows.length, ...extra };
   return { ...reply, productWindowCount: extra.productWindowCount ?? reply.visibleWindowCount };
@@ -142,7 +143,8 @@ const werteInfoNodes = [{ ...tipsNodes[0], name: "Aktuell", rid: "42.84.4.1", y:
 const withWerteInfo = await executeQtNativeHelp(makeClient({
   "window_inventory:": inventoryReply([MAIN_WINDOW, WERTE_INFO_WINDOW]),
   "accessibility_snapshot:": mainReply(),
-  "accessibility_snapshot:Werte-Info: Werte vergleichen - Was wäre wenn": snapshotReply({ hwnd: 84, windowRect: { x: 810, y: 150, w: 180, h: 120 },
+  "accessibility_snapshot:Werte-Info: Werte vergleichen - Was wäre wenn": snapshotReply({ hwnd: 84,
+    root: { aid: "window.WerteInfoFenster", name: "Werte-Info: Werte vergleichen - Was wäre wenn" }, windowRect: { x: 810, y: 150, w: 180, h: 120 },
     nodes: werteInfoNodes, stats: { ...stats, n: werteInfoNodes.length } }),
 }), { hwnd: 42 }, 5000, undefined, profile);
 assert.deepEqual(withWerteInfo.abschnitte, { ...expectedSections,

@@ -65,20 +65,20 @@ export async function readBoundWindows(
 interface WindowRect { x: number; y: number; w: number; h: number }
 
 /**
- * UIA lists an owned window as a named Window node with the window's own
- * rectangle; the Qt snapshot omits that root. It is synthesized from the title
- * and the rectangle the tool snapshot itself reports, so the root and its
- * subtree describe the same moment.
+ * UIA lists an owned window as a Window node carrying the window's own name,
+ * AutomationId and rectangle; the Qt snapshot omits that root but reports its
+ * identity and rectangle, so the synthesized root and its subtree describe the
+ * same moment.
  */
-function ownedWindowNode(window: QtProcessWindow, rect: WindowRect, index: number): QtSnapshotNode {
+function ownedWindowNode(window: QtProcessWindow, root: { aid: string; name: string }, rect: WindowRect, index: number): QtSnapshotNode {
   return {
-    i: index, p: -1, d: 0, type: "Window", name: window.title, aid: "", rid: `42.${window.hwnd}`,
+    i: index, p: -1, d: 0, type: "Window", name: root.name, aid: root.aid, rid: `42.${window.hwnd}`,
     x: rect.x, y: rect.y, w: rect.w, h: rect.h, on: true, val: null, ro: null, checked: null, selected: null, scroll: null,
   };
 }
 
 export interface OwnedWindowSubtrees {
-  /** One Split-SSEWindowScope entry per owned window; the aid of a Qt window root is not exposed. */
+  /** One Split-SSEWindowScope entry per owned window, named and identified like its UIA root. */
   scopes: ForeignWindowScope[];
   /** The window nodes followed by their subtrees, appended in inventory order after the main tree. */
   nodes: QtSnapshotNode[];
@@ -103,9 +103,10 @@ export async function readOwnedWindowSubtrees(
     if (tool.stats.truncated) {
       return { failure: fail("native-incomplete", `${nativeTreeBoundReason(tool.stats, "Der native Baum eines Nebenfensters")}; ${subject} nicht gelesen.`) };
     }
-    const root = ownedWindowNode(window, tool.windowRect, firstIndex + nodes.length);
+    if (!tool.root) throw new QtNativeTransportError("The owned window snapshot carries no root identity.", "native-contract");
+    const root = ownedWindowNode(window, tool.root, tool.windowRect, firstIndex + nodes.length);
     nodes.push(root, ...tool.nodes);
-    scopes.push({ rid: root.rid, name: window.title, aid: "", x: root.x, y: root.y, w: root.w, h: root.h, nodeCount: tool.nodes.length + 1 });
+    scopes.push({ rid: root.rid, name: root.name, aid: root.aid, x: root.x, y: root.y, w: root.w, h: root.h, nodeCount: tool.nodes.length + 1 });
   }
   return { subtrees: { scopes, nodes, durationMs } };
 }
