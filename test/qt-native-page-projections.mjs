@@ -10,13 +10,14 @@ import { executeQtNativeKnownPageState, executeQtNativePositions } from "../dist
 import { canonicalReceiptJson, receiptFingerprint } from "../dist/qt-native-receipts.js";
 import { QtNativeTransportError } from "../dist/qt-native-client.js";
 import { nativeWildcard } from "../dist/qt-native-find.js";
+import { checkerResults, resultDetailsFromNodes, splitWindowScope } from "../dist/qt-native-projections.js";
 import { loadProductProfile } from "../dist/product-profiles.js";
 
-export async function pageProjectionOracle(cases, wildcards = [], receiptFingerprintValue = {}) {
+export async function pageProjectionOracle(cases, wildcards = [], receiptFingerprintValue = {}, helpers = []) {
   const temporary = mkdtempSync(join(tmpdir(), "sse-page-oracle-"));
   try {
     const input = join(temporary, "input.json"), output = join(temporary, "output.json");
-    writeFileSync(input, JSON.stringify({ cases, wildcards, receiptFingerprintValue }));
+    writeFileSync(input, JSON.stringify({ cases, wildcards, receiptFingerprintValue, helpers }));
     const run = spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
       fileURLToPath(new URL("./qt-native-page-oracle.ps1", import.meta.url)), "-InputPath", input, "-OutputPath", output],
     { windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });
@@ -74,6 +75,123 @@ export async function testNativePageProjections() {
   cases.push({ operation: "read_page", args: {}, nodes: nodes.map(n => n.type === "Tree" ? { ...n, w: 0 } : n),
     rect: { x: -40, y: 0, w: 50, h: 500 }, stats });
   cases.push({ operation: "read_page", args: {}, nodes: nodes.map(n => n.i === 4 ? { ...n, aid: nodes[header].aid } : n), rect, stats });
+  // One richer synthetic main window for the page, help, table and checker branches: navigation
+  // tree, catalogue heading, toolbar, labelled fields, a table with a checkable cell, subpage
+  // actions, help column with sections, the global checker and one foreign owned window.
+  const pageNodes = [];
+  const pageNode = (type, name, x, y, extra = {}) => {
+    const i = pageNodes.length;
+    const p = extra.p ?? -1;
+    pageNodes.push({ i, p, d: p < 0 ? 0 : pageNodes[p].d + 1, type, name, aid: `window.RedThreadContent.Node${i}`,
+      rid: `42.42.4.${i + 1}`, x, y, w: 80, h: 20, on: true, val: null, ro: null, checked: null, selected: null, scroll: null,
+      ...extra, ...(extra.p === undefined ? {} : { p }) });
+    return i;
+  };
+  const nav = pageNode("Tree", "Navigation", 0, 100, { w: 300, h: 700, aid: "window.Navigation" });
+  pageNode("TreeItem", "Startseite", 10, 120, { p: nav, selected: false, aid: "window.Navigation.Item" });
+  pageNode("TreeItem", "Betriebsausgaben", 10, 140, { p: nav, selected: true, aid: "window.Navigation.Item" });
+  pageNode("TreeItem", "Fehlende Angabe !", 10, 160, { p: nav, selected: false, aid: "window.Navigation.Item" });
+  pageNode("Button", "Speichern", 10, 10, { aid: "window.MainToolBar.tb_sichern" });
+  pageNode("Button", "ELSTER versenden", 400, 30, { aid: "window.MainToolBar.tb_elster" });
+  const pageHeader = pageNode("Group", "", 320, 20, { w: 800, aid: "window.ClientFrameSSE.ClientHeader" });
+  pageNode("Text", "Betriebsausgaben Übersicht", 330, 24, { p: pageHeader, w: 300, aid: "window.ClientFrameSSE.ClientHeader.QLabel" });
+  pageNode("Button", "Eingabehilfe", 1200, 100, { aid: "window.HelpColumn.Eingabehilfe" });
+  pageNode("Text", "Kontoführungsgebühren", 320, 200, { w: 200 });
+  pageNode("Edit", "", 600, 202, { val: "12,00", ro: false, aid: "window.RedThreadContent.Konto.Text" });
+  pageNode("Text", "Umsatzsteuersatz", 320, 240, { w: 200 });
+  pageNode("ComboBox", "", 600, 240, { val: "", ro: false, aid: "window.RedThreadContent.Ust.Combobox" });
+  pageNode("Text", "Privatanteil", 320, 280, { w: 200 });
+  pageNode("CheckBox", "", 600, 280, { checked: true, aid: "window.RedThreadContent.Privat.CheckBox" });
+  pageNode("RadioButton", "Monatlich", 600, 320, { selected: true, aid: "window.RedThreadContent.Monatlich.Radio" });
+  pageNode("Header", "Bezeichnung", 320, 400, { w: 200, aid: "window.RedThreadContent.Tabelle" });
+  pageNode("Header", "Betrag", 700, 400, { w: 100, aid: "window.RedThreadContent.Tabelle" });
+  pageNode("Header", "Betrag", 704, 400, { w: 100, aid: "window.RedThreadContent.Tabelle" });
+  pageNode("Header", "Privat", 900, 400, { w: 60, aid: "window.RedThreadContent.Tabelle" });
+  pageNode("DataItem", "Miete", 320, 430, { w: 200, aid: "window.RedThreadContent.Tabelle" });
+  pageNode("DataItem", "500,00", 700, 430, { w: 100, aid: "window.RedThreadContent.Tabelle" });
+  pageNode("DataItem", "", 900, 430, { w: 60, checked: true, aid: "window.RedThreadContent.Tabelle" });
+  pageNode("DataItem", "", 320, 470, { w: 200, aid: "window.RedThreadContent.Tabelle" });
+  pageNode("DataItem", "0,00", 700, 470, { w: 100, aid: "window.RedThreadContent.Tabelle" });
+  pageNode("DataItem", "", 900, 470, { w: 60, checked: "unbestimmt", aid: "window.RedThreadContent.Tabelle" });
+  pageNode("Hyperlink", "Erfassen", 1000, 200, { aid: "window.RedThreadContent.Erfassen.Link" });
+  pageNode("Button", "Erfassen", 1000, 200, { aid: "window.RedThreadContent.Erfassen.Button" });
+  pageNode("Button", "Weiter", 1100, 800, { aid: "window.RedThreadContent.Weiter" });
+  pageNode("Text", "Hier tragen Sie die Gebühren ein.", 1210, 140, { w: 300, aid: "window.HelpColumn.Text" });
+  pageNode("Hyperlink", "Mehr dazu", 1210, 160, { aid: "window.HelpColumn.Link" });
+  pageNode("Text", "Mehr dazu", 1210, 160, { aid: "window.HelpColumn.Text" });
+  pageNode("TreeItem", "Steuertipps", 1210, 300, { aid: "window.HelpColumn.Tips" });
+  pageNode("TreeItem", "Tipp: Fahrtenbuch führen", 1210, 320, { aid: "window.HelpColumn.Tips" });
+  pageNode("Text", "Mehr Details", 1210, 340, { aid: "window.HelpColumn.Text" });
+  pageNode("Text", "Prüfer", 1210, 500, { aid: "window.HelpColumn.Text" });
+  pageNode("TreeItem", "Angabe fehlt: Betrag", 1210, 520, { aid: "window.HelpColumn.PrueferItem" });
+  const checker = pageNode("Tree", "", 320, 600, { w: 800, h: 250, aid: "window.PrueferWidgetSSE.SteuerPruefer" });
+  pageNode("TreeItem", "2 Fragen oder Warnungen", 330, 610, { p: checker, aid: "window.PrueferWidgetSSE.SteuerPruefer" });
+  pageNode("TreeItem", "Warnung A", 330, 630, { p: checker, aid: "window.PrueferWidgetSSE.SteuerPruefer" });
+  pageNode("TreeItem", "Warnung A", 360, 650, { p: checker, h: 80, aid: "window.PrueferWidgetSSE.SteuerPruefer" });
+  pageNode("TreeItem", "Warnung B", 330, 730, { p: checker, on: false, aid: "window.PrueferWidgetSSE.SteuerPruefer" });
+  pageNode("TreeItem", "1 Tipps oder Zusatzinformationen", 330, 750, { p: checker, aid: "window.PrueferWidgetSSE.SteuerPruefer" });
+  pageNode("TreeItem", "Tipp C", 330, 770, { p: checker, aid: "window.PrueferWidgetSSE.SteuerPruefer" });
+  const foreign = pageNode("Window", "Werte-Info: Werte vergleichen - Was wäre wenn", 800, 300,
+    { w: 400, h: 300, aid: "window.WerteInfo" });
+  pageNode("DataItem", "999,99", 810, 320, { p: foreign, aid: "window.WerteInfo.obj_Wertetabelle" });
+  // Removing leaves keeps every parent chain; only the pre-order indices need renumbering.
+  const reindex = nodes => {
+    const position = new Map(nodes.map((node, index) => [node.i, index]));
+    return nodes.map((node, index) => ({ ...node, i: index, p: node.p < 0 ? -1 : position.get(node.p) }));
+  };
+  const pageRect = { x: 0, y: 0, w: 1600, h: 900 };
+  const pageStats = { ...stats, n: pageNodes.length };
+  const pageWindows = [
+    { hwnd: 42, pid: 99, class: "Qt692QWindowIcon", title: "SteuerSparErklärung 2025", x: 0, y: 0, w: 1600, h: 900,
+      minimized: false, hung: false },
+    { hwnd: 84, pid: 99, class: "Qt692QWindow", title: "Werte-Info: Werte vergleichen - Was wäre wenn", x: 800, y: 300, w: 400, h: 300,
+      minimized: false, hung: false },
+    { hwnd: 85, pid: 99, class: "Qt692QWindow", title: "Steuer-Spar-Tipps", x: 900, y: 300, w: 400, h: 300,
+      minimized: false, hung: false },
+  ];
+  cases.push(
+    { operation: "page", args: {}, nodes: pageNodes, rect: pageRect, stats: pageStats, windows: pageWindows },
+    { operation: "page", args: {}, nodes: pageNodes, rect: pageRect, stats: pageStats, windows: pageWindows.slice(0, 1) },
+    { operation: "help", args: {}, nodes: pageNodes, rect: pageRect, stats: pageStats, windows: pageWindows },
+    { operation: "read_table", args: {}, nodes: pageNodes, rect: pageRect, stats: pageStats, windows: pageWindows },
+    { operation: "read_table", args: {}, nodes: pageNodes, rect: pageRect, stats: { ...pageStats, truncated: true }, windows: pageWindows },
+    { operation: "checker_results", args: {}, nodes: pageNodes, rect: pageRect, stats: pageStats, windows: pageWindows },
+    { operation: "checker_results", args: {}, nodes: reindex(pageNodes.filter(node => node.p !== checker)), rect: pageRect,
+      stats: pageStats, windows: pageWindows },
+  );
+  // Pure helper oracles: the Werte-Info projection (fingerprint bytes included) and the checker grouping.
+  const resultNodes = [];
+  const resultNode = (type, name, x, y, extra = {}) => {
+    const i = resultNodes.length;
+    const p = extra.p ?? -1;
+    resultNodes.push({ i, p, d: p < 0 ? 0 : resultNodes[p].d + 1, type, name, aid: "tool.WerteInfo.obj_Wertetabelle",
+      rid: `42.84.4.${i + 1}`, x, y, w: 100, h: 20, on: true, val: null, ro: null, checked: null, selected: null, scroll: null,
+      ...extra, ...(extra.p === undefined ? {} : { p }) });
+    return i;
+  };
+  const resultTable = resultNode("Table", "", 10, 10, { w: 500, h: 300 });
+  for (const [column, name] of ["Beobachteter Wert", "Aktuell", "Festgehaltener Vergleichswert", "Differenz"].entries()) {
+    resultNode("Header", name, 10 + column * 120, 40, { p: resultTable });
+  }
+  const resultRows = [["Einkommensteuer", "1.234,56", "1.000,00", "234,56"], ["Solidaritätszuschlag", "12,30", "10,00", "5,00"],
+    ["Kirchensteuer & Co", "abc", "10,00", "1,00"]];
+  for (const [rowIndex, cells] of resultRows.entries()) {
+    for (const [column, text] of cells.entries()) resultNode("DataItem", text, 10 + column * 120, 70 + rowIndex * 30, { p: resultTable });
+  }
+  resultNode("DataItem", "Zeile ohne Differenz", 10, 200, { p: resultTable });
+  resultNode("DataItem", "1,00", 130, 200, { p: resultTable });
+  resultNode("DataItem", "1,00", 250, 200, { p: resultTable });
+  resultNode("DataItem", "virtualisiert", -1, -1, { p: resultTable, w: 0, h: 0 });
+  const singleRowNodes = resultNodes.filter(node => node.i <= resultTable + 8);
+  const helpers = [
+    { helper: "resultDetails", nodes: resultNodes, stats: { ...stats, n: resultNodes.length } },
+    { helper: "resultDetails", nodes: singleRowNodes, stats: { ...stats, n: singleRowNodes.length } },
+    { helper: "resultDetails", nodes: resultNodes.filter(node => node.type !== "DataItem"), stats: { ...stats, n: 5 } },
+    { helper: "resultDetails", nodes: pageNodes, stats: pageStats },
+    { helper: "checkerResults", nodes: pageNodes, stats: pageStats },
+    { helper: "checkerResults", nodes: pageNodes.filter(node => node.p !== checker), stats: pageStats },
+    { helper: "windowScope", nodes: pageNodes, stats: pageStats },
+  ];
   const patterns = ["*", "?", "a*", "*ä*", "[a-c]", "[-a]", "[a-]", "[]]", "[[]", "[!a]", "[^a]", "[z-a]",
     "[", "[]", "`", "a`", "`*", "a`?", "[a`-z]", "[a`]]", "*A`[B`]*", "*?*?*", "[A-Z]", "[ä-ü]"];
   const texts = ["", "a", "A", "b", "z", "!", "^", "-", "[", "]", "*", "a?", "a`", "Ä", "ä", "ö", "ü", "A[B]", "\n", "😀"];
@@ -87,7 +205,12 @@ export async function testNativePageProjections() {
     net: true,
     note: "Zeile\u2028zwei\u2029<&>'",
   };
-  const oracle = await pageProjectionOracle(cases, wildcards, receiptFingerprintValue);
+  const oracle = await pageProjectionOracle(cases, wildcards, receiptFingerprintValue, helpers);
+  for (const [index, test] of helpers.entries()) {
+    const projected = test.helper === "resultDetails" ? resultDetailsFromNodes(test.nodes, test.stats)
+      : test.helper === "checkerResults" ? checkerResults(test.nodes) : splitWindowScope(test.nodes);
+    assert.deepEqual(projected, oracle.helpers[index], `${test.helper} #${index}`);
+  }
   assert.equal(canonicalReceiptJson(receiptFingerprintValue), oracle.receiptFingerprintJson,
     "Qt/Node und Windows PowerShell 5.1 muessen dieselben kanonischen JSON-Bytes verwenden");
   assert.equal(receiptFingerprint(receiptFingerprintValue), oracle.receiptFingerprint,
@@ -98,9 +221,11 @@ export async function testNativePageProjections() {
     assert.deepEqual(actual, oracle.wildcards[index], JSON.stringify(test));
   }
   for (const [index, test] of cases.entries()) {
-    const client = { binding: { hwnd: 42 }, request: async (operation, args) => {
+    const client = { binding: { hwnd: 42, pid: 99, creationTime: "1" }, request: async (operation, args) => {
+      if (operation === "window_inventory") return { durationMs: 1, result: { ok: true, windows: test.windows } };
       assert.equal(operation, "accessibility_snapshot");
       assert.equal(args.withValues, test.operation === "find" ? false : undefined);
+      assert.equal(args.withCellStates, test.operation === "read_table" ? true : undefined);
       return { durationMs: 1, result: { ok: true, controllerBound: true, scope: "qt-accessibility-content", hwnd: 42,
         windowEnabled: true, modalBlocked: false, windowRect: test.rect, nodes: test.nodes, stats: test.stats,
         exactMatches: Object.fromEntries(Object.entries(args.equalitySelectors ?? {}).map(([key, value]) =>
@@ -108,8 +233,8 @@ export async function testNativePageProjections() {
     } };
     const result = await executeQtNativeRead(test.operation, test.args, { qtNativeClient: client }, 5000, undefined, loadProductProfile("2025"));
     const { backend, nativeDurationMs, ...projection } = result;
-    assert.equal(backend, "qt"); assert.equal(nativeDurationMs, 1);
-    assert.deepEqual(projection, oracle.results[index], JSON.stringify(test.args));
+    assert.equal(backend, "qt"); assert(Number.isInteger(nativeDurationMs) && nativeDurationMs >= 1, test.operation);
+    assert.deepEqual(projection, oracle.results[index], `${test.operation} ${JSON.stringify(test.args)}`);
   }
   const knownProfile = {
     pageObjectsCatalog: {
