@@ -172,9 +172,9 @@ meldet Abschneidung, scheitert bei leerem Baum aber ebenso mit
 `native-incomplete`.
 Besessene Nebenfenster hängen im Qt-Accessibility-Baum nicht unter dem
 Hauptfenster; `page` und `read_table` lesen offene katalogisierte Nebenfenster
-deshalb über ihren Titel und führen sie mit Fensterkennung, Titel, Geometrie
-und Knotenzahl unter `ausgeschlosseneFenster`, während die AutomationId der
-Fensterwurzel dort leer bleibt. `read_table` prüft das Fensterinventar wie
+deshalb über ihren Titel und führen sie mit Fensterkennung, Name, AutomationId,
+Geometrie und Knotenzahl unter `ausgeschlosseneFenster`; Name und AutomationId
+der Fensterwurzel meldet der Snapshot des Nebenfensters selbst. `read_table` prüft das Fensterinventar wie
 `page` und scheitert bei nicht katalogisierten Fenstern mit `dialog-open`.
 Ein Nebenfenster, das selbst modal blockiert oder deaktiviert ist, beendet
 die Lesung mit `dialog-open`, ein Nebenfenster über der Lesegrenze mit

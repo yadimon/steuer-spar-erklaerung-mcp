@@ -11,7 +11,6 @@ import { loadProductProfile } from "../dist/product-profiles.js";
 const profile = loadProductProfile("2025");
 const WERTE_INFO_TITLE = "Werte-Info: Werte vergleichen - Was wäre wenn";
 const UNREADABLE_HINT = "Der direkte Qt-Pfad liest fremde Dialoge und unbekannte Fenster nicht; mit sse_dialog_list oder sse_windows pruefen.";
-const UNTITLED_MODAL_HINT = "Ein modaler Dialog ohne Fenstertitel blockiert das gebundene Hauptfenster; der direkte Qt-Pfad liest ihn nicht.";
 const UNTITLED_WINDOW_HINT = "Ein namenloses Fenster des gebundenen Prozesses ist sichtbar; der direkte Qt-Pfad liest es nicht.";
 const sha256 = text => createHash("sha256").update(text, "utf8").digest("hex").toUpperCase();
 const stats = n => ({ n, err: 0, cyc: 0, cycleRid: "", cycleName: "", truncated: false, depthLimited: false,
@@ -204,32 +203,26 @@ const cleanFingerprint = sha256('{"instance":{"pid":99,"hwnd":42},"heading":"Syn
   assert.equal(changed.changedSince, true);
 }
 
-// An untitled modal dialog is invisible to the inventory: the blocked main window yields one synthetic unreadable entry.
+// A modal the inventory cannot see (no unreadable or unknown window listed) is never invented: the read fails closed.
 {
   const { client } = fakeClient([MAIN_WINDOW, OVERLAY_WINDOW], mainSpec(mainTree(cleanNames), { modalBlocked: true }));
-  const result = await executeQtNativeUiState(client, { hwnd: 42 }, 5000, undefined, profile);
-  assert.equal(result.ok, true);
-  assert.equal(result.blockiert, true);
-  assert.deepEqual(result.unsichereFenster, [{ hwnd: 0, pid: 99, cls: "", title: "", art: "nicht-lesbar", x: 0, y: 0, w: 0, h: 0, buttons: [], texte: [],
-    fingerprint: null, uiaReadOk: false, uiaError: UNTITLED_MODAL_HINT, msaaReadOk: null, msaaError: null }]);
-  assert.equal(result.fensterAnzahl, 2);
-  assert.equal(result.rat, "Mindestens ein unbekanntes oder nicht lesbares SSE-Fenster ist offen. Zustand gilt als blockiert; per Screenshot/manuell klaeren.");
-  assert.notEqual(result.stateFingerprint, cleanFingerprint);
-  assert.deepEqual(result.dialoge, []);
+  assert.deepEqual(await executeQtNativeUiState(client, { hwnd: 42 }, 5000, undefined, profile), { ok: false, backend: "qt", kind: "dialog-open",
+    error: "Das gebundene Hauptfenster ist durch einen nicht inventarisierten modalen Dialog blockiert; der direkte Qt-Pfad liest ihn nicht." });
 }
 
 // A catalogued nonmodal tool window is the worker's 'unbekannt' kind without a UIA/MSAA read; a disabled main
-// window beside it still points at a modal this path cannot name, so the synthetic entry follows.
+// window beside it is already a blocked state, and only enumerated windows are ever listed.
 const receiptEntry = { hwnd: 87, pid: 99, cls: "Qt692QWindowIcon", title: "BelegManager", art: "unbekannt",
   x: 100, y: 100, w: 800, h: 500, buttons: [], texte: [], fingerprint: null, uiaReadOk: false, uiaError: null, msaaReadOk: false, msaaError: null };
 {
   const { client } = fakeClient([MAIN_WINDOW, RECEIPT_WINDOW], mainSpec(mainTree(cleanNames), { windowEnabled: false }));
   const result = await executeQtNativeUiState(client, {}, 5000, undefined, profile);
   assert.equal(result.ok, true);
-  assert.deepEqual(result.unsichereFenster, [receiptEntry, { hwnd: 0, pid: 99, cls: "", title: "", art: "nicht-lesbar", x: 0, y: 0, w: 0, h: 0,
-    buttons: [], texte: [], fingerprint: null, uiaReadOk: false, uiaError: UNTITLED_MODAL_HINT, msaaReadOk: null, msaaError: null }]);
+  assert.deepEqual(result.unsichereFenster, [receiptEntry]);
   assert.equal(result.fensterAnzahl, 2);
   assert.equal(result.blockiert, true);
+  assert.equal(result.rat, "Mindestens ein unbekanntes oder nicht lesbares SSE-Fenster ist offen. Zustand gilt als blockiert; per Screenshot/manuell klaeren.");
+  assert.notEqual(result.stateFingerprint, cleanFingerprint);
 }
 // A titled window outside the catalogue is unreadable; an untitled non-transient window keeps its real identity.
 {

@@ -60,7 +60,11 @@ function Walk-BoundTree {
     $scope = Split-SSEWindowScope $script:observedTree.nodes
     [pscustomobject]@{ nodes = @($scope.own); stats = $script:observedTree.stats; fremdeFenster = @($scope.foreign) }
 }
-function Get-Windows { param([string]$ProcName = 'SSE') @($script:observedWindows) }
+# SSEWindowEnumerator.Describe orders by area, largest first, then by enumeration order.
+function Get-Windows {
+    param([string]$ProcName = 'SSE')
+    @($script:observedWindows | Sort-Object @{ Expression = { -([int64]$_.w * [int64]$_.h) } }, @{ Expression = { [int]$_.order } })
+}
 function Get-DialogInventory { param([int]$TargetPid = 0) @() }
 # The descriptor's UIA/MSAA read is an OS boundary; the fixture names the kind it would have produced.
 # Only kinds the worker reads without UIA (tips, known-nonmodal) are admitted, with the worker's flags.
@@ -95,7 +99,7 @@ foreach ($case in $inputData.cases) {
     $script:observedRect = [pscustomobject]@{ L=$case.rect.x; T=$case.rect.y; R=($case.rect.x+$case.rect.w); B=($case.rect.y+$case.rect.h) }
     $script:observedWindows = @($case.windows | Where-Object { $null -ne $_ } | ForEach-Object {
         [pscustomobject]@{
-            hwnd = [int64]$_.hwnd; pid = [int]$_.pid; cls = [string]$_.class; title = [string]$_.title
+            hwnd = [int64]$_.hwnd; order = [int]$_.order; pid = [int]$_.pid; cls = [string]$_.class; title = [string]$_.title
             titleFingerprint = Get-SSETextSha256 ([string]$_.title)
             x = [int]$_.x; y = [int]$_.y; w = [int]$_.w; h = [int]$_.h; hung = [bool]$_.hung; minimiert = [bool]$_.minimized
         }

@@ -188,11 +188,17 @@ export async function testNativePageProjections() {
       minimized: false, hung: false },
     { hwnd: 86, order: 86, pid: 99, class: "UAC_Overlay", title: "UAC", x: 0, y: 0, w: 40, h: 40, minimized: false, hung: false },
   ];
+  // The same state with the windows listed out of area order and two equal-area windows whose enumeration
+  // order is the reverse of their handles: both sides must order by area, then by enumeration.
+  const shuffledWindows = [stateWindows[4], stateWindows[3], { ...stateWindows[2], w: 900, h: 700, order: 4 },
+    stateWindows[0], { ...stateWindows[1], w: 900, h: 700, order: 3 }];
+  const werteInfoTool = { title: "Werte-Info: Werte vergleichen - Was wäre wenn", hwnd: 84, nodes: toolNodes,
+    rect: { x: 800, y: 300, w: 400, h: 300 }, stats: { ...pageStats, n: toolNodes.length } };
   cases.push(
     { operation: "ui_state", args: { hwnd: 42 }, nodes: stateNodes, rect: pageRect, stats: { ...pageStats, n: stateNodes.length },
-      windows: stateWindows, kinds: { 87: "known-nonmodal", 85: "tips" },
-      tool: { title: "Werte-Info: Werte vergleichen - Was wäre wenn", hwnd: 84, nodes: toolNodes, rect: { x: 800, y: 300, w: 400, h: 300 },
-        stats: { ...pageStats, n: toolNodes.length } } },
+      windows: stateWindows, kinds: { 87: "known-nonmodal", 85: "tips" }, tool: werteInfoTool },
+    { operation: "ui_state", args: { hwnd: 42 }, nodes: stateNodes, rect: pageRect, stats: { ...pageStats, n: stateNodes.length },
+      windows: shuffledWindows, kinds: { 87: "known-nonmodal", 85: "tips" }, tool: werteInfoTool },
     { operation: "page", args: {}, nodes: pageNodes, rect: pageRect, stats: pageStats, windows: pageWindows },
     { operation: "page", args: {}, nodes: pageNodes, rect: pageRect, stats: pageStats, windows: pageWindows.slice(0, 1) },
     { operation: "help", args: {}, nodes: pageNodes, rect: pageRect, stats: pageStats, windows: pageWindows.slice(0, 1) },

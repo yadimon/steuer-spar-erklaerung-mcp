@@ -198,7 +198,10 @@ static Json accessibilitySnapshot(QWidget *main, const Json &request) {
         stack.push_back({child, work.index, work.depth + 1, work.host});
     }
     const auto count = nodes.size();
+    // The root itself is never a node; its identity lets a caller list the window the way UIA names it.
     return {{"ok", true}, {"nodes", std::move(nodes)}, {"hwnd", rootHost}, {"windowEnabled", root->isEnabled()},
+        {"root", {{"aid", accessibleText(QAccessibleBridgeUtils::accessibleId(rootInterface))},
+            {"name", accessibleText(rootInterface->text(QAccessible::Name))}}},
         {"foreground", GetForegroundWindow() == reinterpret_cast<HWND>(rootHost)},
         {"exactMatches", std::move(exactMatches)},
         {"windowRect", {{"x", windowRect.left}, {"y", windowRect.top},

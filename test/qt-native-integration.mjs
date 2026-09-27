@@ -166,6 +166,7 @@ try {
   assert(containsRead.result.nodes.length >= 4);
   assert(containsRead.result.nodes.every(node => node.aid.includes("synthetic")));
   assert(containsRead.result.nodes.every(node => node.p === -1 && node.d === 0));
+  assert.equal(typeof containsRead.result.root?.aid, "string"); assert.equal(typeof containsRead.result.root?.name, "string");
   const inventory = await sessions[0].client.request("window_inventory", {}, 5000);
   assert.equal(inventory.result.ok, true, JSON.stringify(inventory.result));
   assert(inventory.result.windows.some(window => window.hwnd === first.info.hwnd));

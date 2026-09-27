@@ -21,7 +21,6 @@ import { readQtNativeSnapshot, type QtSnapshotNode } from "./qt-native-snapshot.
 const PRUEFER_EXCLUDED = ["Eingabehilfe", "Steuertipps", "Prüfer", "Mehr Details", "Steuer-Spar-Tipps", "Zurzeit keine Hinweise zu diesem Dialog."]
   .map(name => name.toLowerCase());
 const UNREADABLE_HINT = "Der direkte Qt-Pfad liest fremde Dialoge und unbekannte Fenster nicht; mit sse_dialog_list oder sse_windows pruefen.";
-const UNTITLED_MODAL_HINT = "Ein modaler Dialog ohne Fenstertitel blockiert das gebundene Hauptfenster; der direkte Qt-Pfad liest ihn nicht.";
 const UNTITLED_WINDOW_HINT = "Ein namenloses Fenster des gebundenen Prozesses ist sichtbar; der direkte Qt-Pfad liest es nicht.";
 
 interface UiStateWindow {
@@ -58,13 +57,6 @@ function classifiedEntry(window: QtProcessWindow, profile: ProductProfile): UiSt
   if (psEquals(window.title, TIPS_TITLE)) return windowEntry(window, "steuer-tipps", false, null, false);
   if (kind === "known-nonmodal") return windowEntry(window, "unbekannt", false, null, false);
   return windowEntry(window, "nicht-lesbar", false, UNREADABLE_HINT, null);
-}
-
-function untitledModalEntry(pid: number): UiStateWindow {
-  return {
-    hwnd: 0, pid, cls: "", title: "", art: "nicht-lesbar", x: 0, y: 0, w: 0, h: 0, buttons: [], texte: [], fingerprint: null,
-    uiaReadOk: false, uiaError: UNTITLED_MODAL_HINT, msaaReadOk: null, msaaError: null,
-  };
 }
 
 // Sort-Object y, aid: numeric y, then a culture-aware case-insensitive string order.
@@ -113,7 +105,11 @@ export async function executeQtNativeUiState(
     ? windowEntry(entry.window, "nicht-lesbar", false, UNTITLED_WINDOW_HINT, null)
     : entry.window.hwnd === main.hwnd ? windowEntry(entry.window, "hauptfenster", true, null, null) : classifiedEntry(entry.window, profile));
   const obstructed = mainSnapshot.modalBlocked || !mainSnapshot.windowEnabled;
-  if (obstructed && !fenster.some(window => window.art === "nicht-lesbar")) fenster.push(untitledModalEntry(main.pid));
+  // The worker only ever lists enumerated windows. A blocked main window without any listed unreadable or
+  // unknown window means a modal this inventory cannot see; nothing is invented for it.
+  if (obstructed && !fenster.some(window => window.art === "nicht-lesbar" || window.art === "unbekannt")) {
+    return fail("dialog-open", "Das gebundene Hauptfenster ist durch einen nicht inventarisierten modalen Dialog blockiert; der direkte Qt-Pfad liest ihn nicht.");
+  }
 
   // The worker reads the Werte-Info table from its UIA walk whatever the window's size; the
   // descriptor kind only names the window, so the window to read is chosen by its exact title.
