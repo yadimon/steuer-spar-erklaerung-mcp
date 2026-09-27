@@ -182,6 +182,25 @@ try {
   assert(Number.isSafeInteger(inventory.result.productWindowCount) && inventory.result.productWindowCount >= inventory.result.visibleWindowCount);
   assert.equal(snapshot.canaryMs, null); assert.equal(snapshot.responsivenessCheck, "bounded-gui-thread");
   const independent = await uiaSnapshot(first.info.hwnd);
+  // The inventory's geometry is the same GetWindowRect the independent read reports, and its counters move
+  // with a real untitled Win32 window of the fixture process: one visible window more, no title, the Static class.
+  const mainInventory = inventory.result.windows.find(window => window.hwnd === first.info.hwnd);
+  assert.deepEqual({ x: mainInventory.x, y: mainInventory.y, w: mainInventory.w, h: mainInventory.h }, independent.rect);
+  assert.equal(inventory.result.productWindowCount, inventory.result.visibleWindowCount, "One fixture process: the product count is its own count");
+  await first.command("untitled-window");
+  const withUntitled = await sessions[0].client.request("window_inventory", {}, 5000);
+  assert.equal(withUntitled.result.ok, true, JSON.stringify(withUntitled.result));
+  assert.equal(withUntitled.result.untitledWindows.length, 1);
+  const [untitledEntry] = withUntitled.result.untitledWindows;
+  assert(!("title" in untitledEntry));
+  assert.equal(untitledEntry.class, "Static"); assert.equal(untitledEntry.pid, first.info.pid);
+  assert.equal(untitledEntry.w, 100); assert.equal(untitledEntry.h, 80);
+  assert.equal(withUntitled.result.windows.length, inventory.result.windows.length);
+  assert.equal(withUntitled.result.visibleWindowCount, inventory.result.visibleWindowCount + 1);
+  assert.equal(withUntitled.result.productWindowCount, withUntitled.result.visibleWindowCount);
+  await first.command("close-untitled");
+  assert.equal((await sessions[0].client.request("window_inventory", {}, 5000)).result.untitledWindows.length, 0);
+  report.checks.push("Process window inventory reports Win32 geometry, an untitled window and counters that move with it");
   const redactPassword = nodes => nodes.map(node => node.aid.endsWith("syntheticSecret") ? { ...node, val: null, ro: null } : node);
   assert.deepEqual(redactPassword(snapshot.nodes), redactPassword(independent.nodes), "Public native tree must match independent Windows UIA");
   assert(!JSON.stringify(snapshot).includes("must-not-be-exposed"));
