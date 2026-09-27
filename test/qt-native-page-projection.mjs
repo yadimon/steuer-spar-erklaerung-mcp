@@ -13,17 +13,35 @@ const windowOf = (hwnd, title, size = { w: 1000, h: 700 }, extra = {}) => ({
 });
 const WERTE_INFO = "Werte-Info: Werte vergleichen - Was wäre wenn";
 
+// Owned catalogued windows answer a snapshot by exact title: a small Werte-Info table, a tips line, an empty BelegManager.
+const toolNode = (hwnd, i, type, name, x, y, extra = {}) => ({ i, p: -1, d: 0, type, name, aid: `tool.${hwnd}`, rid: `42.${hwnd}.4.${i + 1}`,
+  x, y, w: 80, h: 20, on: true, val: null, ro: null, checked: null, selected: null, scroll: null, ...extra });
+const TOOLS = {
+  [WERTE_INFO]: { hwnd: 84, rect: { x: 0, y: 0, w: 400, h: 300 }, durationMs: 4,
+    nodes: [toolNode(84, 0, "Header", "Aktuell", 20, 40), toolNode(84, 1, "DataItem", "1.000,00", 20, 70)] },
+  "Steuer-Spar-Tipps": { hwnd: 85, rect: { x: 0, y: 0, w: 400, h: 300 }, durationMs: 6, nodes: [toolNode(85, 0, "Text", "Fahrtenbuch führen", 20, 40)] },
+  BelegManager: { hwnd: 87, rect: { x: 0, y: 0, w: 1800, h: 1200 }, durationMs: 8, nodes: [] },
+};
+
 function makeClient(nodes, rect, windows, overrides = {}) {
   const operations = [];
-  const { snapshot: snapshotOverride = {}, inventory = { ok: true, windows, visibleWindowCount: windows.length, untitledWindows: [] } } = overrides;
-  const snapshot = { ok: true, controllerBound: true, scope: "qt-accessibility-content", hwnd: 42, windowEnabled: true,
-    modalBlocked: false, windowRect: rect, nodes, exactMatches: {}, stats: { ...stats, n: nodes.length }, ...snapshotOverride };
+  const { snapshot: snapshotOverride = {}, tool: toolOverride = {},
+    inventory = { ok: true, windows, visibleWindowCount: windows.length, untitledWindows: [] } } = overrides;
+  const base = { ok: true, controllerBound: true, scope: "qt-accessibility-content", windowEnabled: true, modalBlocked: false, exactMatches: {} };
+  const snapshot = { ...base, hwnd: 42, windowRect: rect, nodes, stats: { ...stats, n: nodes.length }, ...snapshotOverride };
   const answers = {
-    accessibility_snapshot: args => { assert.deepEqual(args, { maxNodes: 5000 }); return { durationMs: 3, result: snapshot }; },
+    accessibility_snapshot: args => {
+      if (args.toolTitle === undefined) { assert.deepEqual(args, { maxNodes: 5000 }); return { durationMs: 3, result: snapshot }; }
+      const tool = TOOLS[args.toolTitle];
+      assert(tool, `unexpected tool snapshot for ${args.toolTitle}`);
+      assert.deepEqual(args, { maxNodes: 5000, toolTitle: args.toolTitle });
+      return { durationMs: tool.durationMs, result: { ...base, hwnd: tool.hwnd, windowRect: tool.rect, nodes: tool.nodes,
+        stats: { ...stats, n: tool.nodes.length }, ...toolOverride } };
+    },
     window_inventory: args => { assert.deepEqual(args, {}); return { durationMs: 2, result: inventory }; },
   };
   const client = { binding: { hwnd: 42, pid: 99, creationTime: "1" }, request: async (operation, args) => {
-    operations.push(operation);
+    operations.push(args?.toolTitle === undefined ? operation : `${operation}:${args.toolTitle}`);
     return answers[operation](args);
   } };
   return { client, operations };
@@ -95,7 +113,7 @@ const twoWindows = [windowOf(42, "SteuerSparErklärung 2025"), windowOf(84, WERT
 
 const happy = makeClient(full.nodes, fullRect, twoWindows);
 const page = await executeQtNativePage(happy.client, { hwnd: 42 }, 5000, undefined, profile);
-assert.deepEqual(happy.operations, ["window_inventory", "accessibility_snapshot"]);
+assert.deepEqual(happy.operations, ["window_inventory", "accessibility_snapshot", `accessibility_snapshot:${WERTE_INFO}`]);
 assert.deepEqual(Object.keys(page), ["hinweis", "ok", "ueberschrift", "ueberschriftQuelle", "navigationAuswahl", "ausgeschlosseneFenster",
   "felder", "tabelle", "aktionen", "blockiert", "prueferMeldungen", "leerePflichtfelder", "dialoge", "offeneFenster", "stats",
   "backend", "nativeDurationMs"]);
@@ -105,7 +123,11 @@ assert.deepEqual(page, {
   ueberschrift: "Synthetic heading",
   ueberschriftQuelle: "clientHeader",
   navigationAuswahl: "Einnahmen",
-  ausgeschlosseneFenster: [{ rid: "42.7", name: "Werte-Info", aid: "window.WerteInfo", x: 300, y: 300, w: 300, h: 200, nodeCount: 4 }],
+  // The in-tree foreign window comes first, the owned Werte-Info read by title follows with the window's own facts.
+  ausgeschlosseneFenster: [
+    { rid: "42.7", name: "Werte-Info", aid: "window.WerteInfo", x: 300, y: 300, w: 300, h: 200, nodeCount: 4 },
+    { rid: "42.84", name: WERTE_INFO, aid: "", x: 0, y: 0, w: 400, h: 300, nodeCount: 3 },
+  ],
   felder: [
     { label: "Betrag", typ: "Edit", wert: "12,00", schreibgeschuetzt: false, aid: "Text", rid: `42.42.4.${amount + 1}`, y: 104 },
     { label: "Hinweis", typ: "ComboBox", wert: "", schreibgeschuetzt: false, aid: "Combobox", rid: `42.42.4.${choice + 1}`, y: 130 },
@@ -134,7 +156,7 @@ assert.deepEqual(page, {
   offeneFenster: 2,
   stats: { ...stats, n: full.nodes.length },
   backend: "qt",
-  nativeDurationMs: 5,
+  nativeDurationMs: 9,
 });
 
 // --- Collapsed navigation, no heading container, unlabelled fields, ambiguous selection, three windows.
@@ -158,7 +180,10 @@ assert.deepEqual(await executeQtNativePage(unlabelled.client, { hwnd: 42 }, 5000
   ueberschrift: null,
   ueberschriftQuelle: "nicht-gefunden",
   navigationAuswahl: null,
-  ausgeschlosseneFenster: [],
+  ausgeschlosseneFenster: [
+    { rid: "42.84", name: WERTE_INFO, aid: "", x: 0, y: 0, w: 400, h: 300, nodeCount: 3 },
+    { rid: "42.85", name: "Steuer-Spar-Tipps", aid: "", x: 0, y: 0, w: 400, h: 300, nodeCount: 2 },
+  ],
   felder: [
     { label: "", typ: "Edit", wert: null, schreibgeschuetzt: true, aid: "", rid: `42.42.4.${plain + 1}`, y: 300 },
     { label: "", typ: "Edit", wert: "x", schreibgeschuetzt: false, aid: "Solo", rid: `42.42.4.${solo + 1}`, y: 300 },
@@ -175,8 +200,10 @@ assert.deepEqual(await executeQtNativePage(unlabelled.client, { hwnd: 42 }, 5000
   offeneFenster: 3,
   stats: { ...stats, n: bare.nodes.length },
   backend: "qt",
-  nativeDurationMs: 5,
+  nativeDurationMs: 15,
 });
+assert.deepEqual(unlabelled.operations, ["window_inventory", "accessibility_snapshot", `accessibility_snapshot:${WERTE_INFO}`,
+  "accessibility_snapshot:Steuer-Spar-Tipps"]);
 
 // --- Empty tree: the worker treats an empty bulk snapshot as a failed read, so nothing is projected from it.
 const empty = makeClient([], fullRect, [twoWindows[0]]);
@@ -187,6 +214,26 @@ const secondCase = makeClient(full.nodes, fullRect, [twoWindows[0], windowOf(91,
 const withSecondCase = await executeQtNativePage(secondCase.client, { hwnd: 42 }, 5000, undefined, profile);
 assert.equal(withSecondCase.ok, true);
 assert.equal(withSecondCase.offeneFenster, 2);
+assert.deepEqual(secondCase.operations, ["window_inventory", "accessibility_snapshot"]);
+// --- A system overlay and a Werte-Info of another process are neither owned nor read; only the overlay is counted.
+const unowned = makeClient(full.nodes, fullRect, [twoWindows[0], windowOf(86, "UAC", { w: 40, h: 40 }, { class: "UAC_Overlay" }),
+  { ...twoWindows[1], hwnd: 92, pid: 7 }]);
+const withUnowned = await executeQtNativePage(unowned.client, { hwnd: 42 }, 5000, undefined, profile);
+assert.deepEqual(withUnowned.ausgeschlosseneFenster, page.ausgeschlosseneFenster.slice(0, 1));
+assert.equal(withUnowned.offeneFenster, 3);
+assert.deepEqual(unowned.operations, ["window_inventory", "accessibility_snapshot"]);
+// --- An owned window that is blocked, disabled, truncated or answers under another handle ends the read.
+const ownedBlocked = makeClient(full.nodes, fullRect, twoWindows, { tool: { modalBlocked: true } });
+assert.deepEqual(await executeQtNativePage(ownedBlocked.client, { hwnd: 42 }, 5000, undefined, profile), { ok: false, backend: "qt",
+  kind: "dialog-open", error: "Ein modaler Dialog blockiert ein Nebenfenster der gebundenen Seite; Seite nicht gelesen." });
+assert.deepEqual(ownedBlocked.operations, ["window_inventory", "accessibility_snapshot", `accessibility_snapshot:${WERTE_INFO}`]);
+const ownedDisabled = makeClient(full.nodes, fullRect, twoWindows, { tool: { windowEnabled: false } });
+assert.equal((await executeQtNativePage(ownedDisabled.client, { hwnd: 42 }, 5000, undefined, profile)).kind, "dialog-open");
+const ownedTruncated = makeClient(full.nodes, fullRect, twoWindows, { tool: { stats: { ...stats, n: 2, truncated: true } } });
+assert.deepEqual(await executeQtNativePage(ownedTruncated.client, { hwnd: 42 }, 5000, undefined, profile), { ok: false, backend: "qt",
+  kind: "native-incomplete", error: "Der native Baum eines Nebenfensters ueberschreitet die Lesegrenze; Seite nicht gelesen." });
+const ownedMismatch = makeClient(full.nodes, fullRect, twoWindows, { tool: { hwnd: 85 } });
+await assert.rejects(executeQtNativePage(ownedMismatch.client, { hwnd: 42 }, 5000, undefined, profile), { kind: "native-contract" });
 
 // --- Fail closed: modal dialog, disabled window, truncated tree, foreign hwnd, missing profile, deadline, inventory faults.
 const dialogOpen = { ok: false, backend: "qt", kind: "dialog-open",
@@ -283,4 +330,4 @@ const snapshotFailed = makeClient(full.nodes, fullRect, twoWindows, { snapshot: 
 await assert.rejects(executeQtNativePage(snapshotFailed.client, { hwnd: 42 }, 5000, undefined, profile),
   { kind: "native-read", message: "Synthetic snapshot failure." });
 
-console.log("qt-native-page-projection: 6 projections and 18 fail-closed guards pinned");
+console.log("qt-native-page-projection: 8 projections and 22 fail-closed guards pinned");

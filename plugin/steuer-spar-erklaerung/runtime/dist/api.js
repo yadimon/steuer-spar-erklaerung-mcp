@@ -14337,6 +14337,74 @@ var init_qt_native_receipt_action = __esm({
   }
 });
 
+// src/qt-native-owned-windows.ts
+async function readBoundWindows(client, profile, subject, budget, signal) {
+  const inventory = await readProcessWindowInventory(client, budget(), signal);
+  const main2 = inventory.windows.find((window) => window.hwnd === client.binding.hwnd);
+  if (!main2) return { failure: fail6("stale-window", "Das angegebene hwnd ist kein aktuelles Hauptfenster.") };
+  if (main2.pid !== client.binding.pid) throw new QtNativeTransportError("The bound main window belongs to another process.", "native-contract");
+  if (main2.minimized) {
+    return { failure: fail6("minimized", "Das gebundene SSE-Hauptfenster ist minimiert; der direkte Qt-Pfad stellt es nicht wieder her.") };
+  }
+  const others = inventory.windows.filter((window) => window.pid === main2.pid && window.hwnd !== main2.hwnd).map((window) => ({ window, kind: auxiliaryWindowKind(window, profile) }));
+  if (others.some((entry) => entry.kind === null) || inventory.untitledWindows.length) {
+    return { failure: fail6("dialog-open", `Ein nicht katalogisiertes Fenster des gebundenen Prozesses ist offen; ${subject} nicht gelesen. Dialoge mit sse_dialog_list lesen und bewusst beantworten.`) };
+  }
+  const owned = others.filter((entry) => entry.kind !== "system-overlay" && entry.kind !== "case-window").map((entry) => entry.window);
+  return { windows: { inventory, main: main2, owned } };
+}
+function ownedWindowNode(window, rect, index) {
+  return {
+    i: index,
+    p: -1,
+    d: 0,
+    type: "Window",
+    name: window.title,
+    aid: "",
+    rid: `42.${window.hwnd}`,
+    x: rect.x,
+    y: rect.y,
+    w: rect.w,
+    h: rect.h,
+    on: true,
+    val: null,
+    ro: null,
+    checked: null,
+    selected: null,
+    scroll: null
+  };
+}
+async function readOwnedWindowSubtrees(client, owned, maxNodes, subject, firstIndex, budget, signal) {
+  const scopes = [];
+  const nodes = [];
+  let durationMs = 0;
+  for (const window of owned) {
+    const tool = await readQtNativeSnapshot(client, { maxNodes, toolTitle: window.title }, budget(), signal);
+    durationMs += tool.nativeDurationMs;
+    if (tool.hwnd !== window.hwnd) throw new QtNativeTransportError("The owned window snapshot returned another window.", "native-contract");
+    if (!tool.windowEnabled || tool.modalBlocked) {
+      return { failure: fail6("dialog-open", `Ein modaler Dialog blockiert ein Nebenfenster der gebundenen Seite; ${subject} nicht gelesen.`) };
+    }
+    if (tool.stats.truncated) {
+      return { failure: fail6("native-incomplete", `Der native Baum eines Nebenfensters ueberschreitet die Lesegrenze; ${subject} nicht gelesen.`) };
+    }
+    const root = ownedWindowNode(window, tool.windowRect, firstIndex + nodes.length);
+    nodes.push(root, ...tool.nodes);
+    scopes.push({ rid: root.rid, name: window.title, aid: "", x: root.x, y: root.y, w: root.w, h: root.h, nodeCount: tool.nodes.length + 1 });
+  }
+  return { subtrees: { scopes, nodes, durationMs } };
+}
+var fail6;
+var init_qt_native_owned_windows = __esm({
+  "src/qt-native-owned-windows.ts"() {
+    "use strict";
+    init_qt_native_client();
+    init_qt_native_projections();
+    init_qt_native_snapshot();
+    fail6 = (kind, error) => ({ ok: false, backend: "qt", kind, error });
+  }
+});
+
 // src/qt-native-page.ts
 import { performance as performance11 } from "node:perf_hooks";
 function pageFields(own, bounds, textMinX) {
@@ -14397,7 +14465,7 @@ function checkerMessages(own, bounds) {
   return [...new Set(own.filter((node) => node.type === "TreeItem" && node.name && node.x > bounds.maxX && node.name.length < 90).map((node) => node.name).filter((name) => !CHECKER_NOISE.has(name.toLowerCase())))];
 }
 async function executeQtNativePage(client, args, timeoutMs, signal, profile) {
-  if (!profile) return fail6("bad-args", "page requires a product profile.");
+  if (!profile) return fail7("bad-args", "page requires a product profile.");
   if (args.hwnd !== void 0 && args.hwnd !== client.binding.hwnd) {
     throw new QtNativeTransportError("Requested window differs from the verified native session.", "stale-window");
   }
@@ -14407,25 +14475,21 @@ async function executeQtNativePage(client, args, timeoutMs, signal, profile) {
     if (remaining < 1) throw new QtNativeTransportError("Native page deadline exceeded before reading.", "native-timeout");
     return remaining;
   };
-  const inventory = await readProcessWindowInventory(client, budget(), signal);
-  const main2 = inventory.windows.find((window) => window.hwnd === client.binding.hwnd);
-  if (!main2) return fail6("stale-window", "Das angegebene hwnd ist kein aktuelles Hauptfenster.");
-  if (main2.pid !== client.binding.pid) throw new QtNativeTransportError("The bound main window belongs to another process.", "native-contract");
-  if (main2.minimized) return fail6("minimized", "Das gebundene SSE-Hauptfenster ist minimiert; der direkte Qt-Pfad stellt es nicht wieder her.");
-  const unknownWindows = inventory.windows.filter((window) => window.pid === main2.pid && window.hwnd !== main2.hwnd && auxiliaryWindowKind(window, profile) === null);
-  if (unknownWindows.length || inventory.untitledWindows.length) {
-    return fail6("dialog-open", "Ein nicht katalogisiertes Fenster des gebundenen Prozesses ist offen; Seite nicht gelesen. Dialoge mit sse_dialog_list lesen und bewusst beantworten.");
-  }
+  const bound = await readBoundWindows(client, profile, "Seite", budget, signal);
+  if (bound.failure) return bound.failure;
+  const { inventory, owned } = bound.windows;
   const snapshot = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 5e3 }, budget(), signal);
   if (!snapshot.windowEnabled || snapshot.modalBlocked) {
-    return fail6("dialog-open", "Ein modaler Dialog blockiert die gebundene Seite; keine Werte ausgegeben. Dialoge mit sse_dialog_list lesen.");
+    return fail7("dialog-open", "Ein modaler Dialog blockiert die gebundene Seite; keine Werte ausgegeben. Dialoge mit sse_dialog_list lesen.");
   }
   if (snapshot.stats.truncated) {
-    return fail6("native-incomplete", "Der native Seitenbaum ueberschreitet die Lesegrenze; keine unvollstaendige Seite ausgegeben.");
+    return fail7("native-incomplete", "Der native Seitenbaum ueberschreitet die Lesegrenze; keine unvollstaendige Seite ausgegeben.");
   }
-  if (!snapshot.nodes.length) return fail6("native-incomplete", "Der native Seitenbaum ist leer; keine Seite ausgegeben.");
+  if (!snapshot.nodes.length) return fail7("native-incomplete", "Der native Seitenbaum ist leer; keine Seite ausgegeben.");
   const scope = splitWindowScope(snapshot.nodes);
   const own = scope.own;
+  const ownedRead = await readOwnedWindowSubtrees(client, owned, 5e3, "Seite", snapshot.nodes.length, budget, signal);
+  if (ownedRead.failure) return ownedRead.failure;
   const bounds = contentBounds(own, snapshot.windowRect);
   const textMinX = bounds.navErkannt ? bounds.minX : bounds.winX;
   const ueberschrift = heading(own, profile);
@@ -14442,7 +14506,7 @@ async function executeQtNativePage(client, args, timeoutMs, signal, profile) {
     ueberschrift,
     ueberschriftQuelle: ueberschrift === null ? "nicht-gefunden" : "clientHeader",
     navigationAuswahl: navigationSelection(own),
-    ausgeschlosseneFenster: scope.foreign,
+    ausgeschlosseneFenster: [...scope.foreign, ...ownedRead.subtrees.scopes],
     felder,
     tabelle,
     aktionen,
@@ -14454,18 +14518,19 @@ async function executeQtNativePage(client, args, timeoutMs, signal, profile) {
     offeneFenster,
     stats: snapshot.stats,
     backend: "qt",
-    nativeDurationMs: snapshot.nativeDurationMs + inventory.durationMs
+    nativeDurationMs: inventory.durationMs + snapshot.nativeDurationMs + ownedRead.subtrees.durationMs
   };
 }
-var fail6, FIELD_TYPES, CHECKER_NOISE, TABLE_HINT, UNLABELLED_HINT, inContent;
+var fail7, FIELD_TYPES, CHECKER_NOISE, TABLE_HINT, UNLABELLED_HINT, inContent;
 var init_qt_native_page = __esm({
   "src/qt-native-page.ts"() {
     "use strict";
     init_qt_native_client();
     init_qt_native_pages();
+    init_qt_native_owned_windows();
     init_qt_native_projections();
     init_qt_native_snapshot();
-    fail6 = (kind, error) => ({ ok: false, backend: "qt", kind, error });
+    fail7 = (kind, error) => ({ ok: false, backend: "qt", kind, error });
     FIELD_TYPES = /* @__PURE__ */ new Set(["Edit", "ComboBox", "CheckBox", "RadioButton"]);
     CHECKER_NOISE = new Set(["Eingabehilfe", "Steuertipps", "Prüfer", "Mehr Details", "Zurzeit keine Hinweise zu diesem Dialog."].map((name) => name.toLowerCase()));
     TABLE_HINT = "Nur die SICHTBAREN Zeilen. Bei mehr Zeilen sse_table_read benutzen.";
@@ -14524,7 +14589,7 @@ function untitledModalEntry(pid2) {
   };
 }
 async function executeQtNativeUiState(client, args, timeoutMs, signal, profile) {
-  if (!profile) return fail7("bad-args", "ui_state requires a product profile.");
+  if (!profile) return fail8("bad-args", "ui_state requires a product profile.");
   if (args.hwnd !== void 0 && args.hwnd !== client.binding.hwnd) {
     throw new QtNativeTransportError("Requested window differs from the verified native session.", "stale-window");
   }
@@ -14537,9 +14602,9 @@ async function executeQtNativeUiState(client, args, timeoutMs, signal, profile) 
   const inventory = await readProcessWindowInventory(client, budget(), signal);
   let nativeDurationMs = inventory.durationMs;
   const main2 = inventory.windows.find((window) => window.hwnd === client.binding.hwnd);
-  if (!main2) return fail7("stale-window", "Das angegebene hwnd ist kein aktuelles Hauptfenster.");
+  if (!main2) return fail8("stale-window", "Das angegebene hwnd ist kein aktuelles Hauptfenster.");
   if (main2.pid !== client.binding.pid) throw new QtNativeTransportError("The bound main window belongs to another process.", "native-contract");
-  if (main2.minimized) return fail7("minimized", "Das gebundene SSE-Hauptfenster ist minimiert; der direkte Qt-Pfad stellt es nicht wieder her.");
+  if (main2.minimized) return fail8("minimized", "Das gebundene SSE-Hauptfenster ist minimiert; der direkte Qt-Pfad stellt es nicht wieder her.");
   const mainSnapshot = await readQtNativeSnapshot(client, { hwnd: client.binding.hwnd, maxNodes: 5e3 }, budget(), signal);
   nativeDurationMs += mainSnapshot.nativeDurationMs;
   const fenster = [
@@ -14549,7 +14614,7 @@ async function executeQtNativeUiState(client, args, timeoutMs, signal, profile) 
   const obstructed = mainSnapshot.modalBlocked || !mainSnapshot.windowEnabled;
   if (obstructed && !fenster.some((window) => window.art === "nicht-lesbar")) fenster.push(untitledModalEntry(main2.pid));
   const werteInfo = fenster.filter((window) => window.art === "werte-info");
-  if (werteInfo.length > 1) return fail7("ambiguous", "Werte-Info ist nicht eindeutig.");
+  if (werteInfo.length > 1) return fail8("ambiguous", "Werte-Info ist nicht eindeutig.");
   const own = splitWindowScope(mainSnapshot.nodes).own;
   const bounds = contentBounds(own, mainSnapshot.windowRect);
   const heading2 = heading(own, profile);
@@ -14628,7 +14693,7 @@ async function executeQtNativeUiState(client, args, timeoutMs, signal, profile) 
     nativeDurationMs
   };
 }
-var PRUEFER_EXCLUDED, UNREADABLE_HINT, UNTITLED_MODAL_HINT, UNTITLED_WINDOW_HINT, fail7, unique, byRequiredField;
+var PRUEFER_EXCLUDED, UNREADABLE_HINT, UNTITLED_MODAL_HINT, UNTITLED_WINDOW_HINT, fail8, unique, byRequiredField;
 var init_qt_native_ui_state = __esm({
   "src/qt-native-ui-state.ts"() {
     "use strict";
@@ -14640,7 +14705,7 @@ var init_qt_native_ui_state = __esm({
     UNREADABLE_HINT = "Der direkte Qt-Pfad liest fremde Dialoge und unbekannte Fenster nicht; mit sse_dialog_list oder sse_windows pruefen.";
     UNTITLED_MODAL_HINT = "Ein modaler Dialog ohne Fenstertitel blockiert das gebundene Hauptfenster; der direkte Qt-Pfad liest ihn nicht.";
     UNTITLED_WINDOW_HINT = "Ein namenloses Fenster des gebundenen Prozesses ist sichtbar; der direkte Qt-Pfad liest es nicht.";
-    fail7 = (kind, error) => ({ ok: false, backend: "qt", kind, error });
+    fail8 = (kind, error) => ({ ok: false, backend: "qt", kind, error });
     unique = (values) => [...new Set(values)];
     byRequiredField = (a, b) => a.y - b.y || a.aid.localeCompare(b.aid, "de", { sensitivity: "accent" });
   }
@@ -14676,29 +14741,8 @@ function qtNativeHelpProjection(nodes, windowRect) {
   const ueberschrift = nodes.filter((node) => psEquals(node.type, "Text") && node.x >= bounds.minX && node.x <= bounds.maxX).sort((a, b) => a.y - b.y)[0];
   return { seite: ueberschrift ? ueberschrift.name : null, abschnitte: ausgabe };
 }
-function ownedWindowNode(window, index) {
-  return {
-    i: index,
-    p: -1,
-    d: 0,
-    type: "Window",
-    name: window.title,
-    aid: "",
-    rid: `42.${window.hwnd}`,
-    x: window.x,
-    y: window.y,
-    w: window.w,
-    h: window.h,
-    on: true,
-    val: null,
-    ro: null,
-    checked: null,
-    selected: null,
-    scroll: null
-  };
-}
 async function executeQtNativeHelp(client, args, timeoutMs, signal, profile) {
-  if (!profile) return fail8("bad-args", "help requires a product profile.");
+  if (!profile) return fail9("bad-args", "help requires a product profile.");
   if (args.hwnd !== void 0 && args.hwnd !== client.binding.hwnd) {
     throw new QtNativeTransportError("Requested window differs from the verified native session.", "stale-window");
   }
@@ -14708,47 +14752,30 @@ async function executeQtNativeHelp(client, args, timeoutMs, signal, profile) {
     if (remaining < 1) throw new QtNativeTransportError("Native help deadline exceeded before reading.", "native-timeout");
     return remaining;
   };
-  const inventory = await readProcessWindowInventory(client, budget(), signal);
-  const main2 = inventory.windows.find((window) => window.hwnd === client.binding.hwnd);
-  if (!main2) return fail8("stale-window", "Das angegebene hwnd ist kein aktuelles Hauptfenster.");
-  if (main2.pid !== client.binding.pid) throw new QtNativeTransportError("The bound main window belongs to another process.", "native-contract");
-  if (main2.minimized) return fail8("minimized", "Das gebundene SSE-Hauptfenster ist minimiert; der direkte Qt-Pfad stellt es nicht wieder her.");
-  const others = inventory.windows.filter((window) => window.pid === main2.pid && window.hwnd !== main2.hwnd).map((window) => ({ window, kind: auxiliaryWindowKind(window, profile) }));
-  if (others.some((entry) => entry.kind === null) || inventory.untitledWindows.length) {
-    return fail8("dialog-open", "Ein nicht katalogisiertes Fenster des gebundenen Prozesses ist offen; Hilfe nicht gelesen. Dialoge mit sse_dialog_list lesen und bewusst beantworten.");
-  }
+  const bound = await readBoundWindows(client, profile, "Hilfe", budget, signal);
+  if (bound.failure) return bound.failure;
+  const { inventory, owned } = bound.windows;
   const snapshot = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 5e3 }, budget(), signal);
   if (!snapshot.windowEnabled || snapshot.modalBlocked) {
-    return fail8("dialog-open", "Ein modaler Dialog blockiert die gebundene Seite; keine Hilfe ausgegeben.");
+    return fail9("dialog-open", "Ein modaler Dialog blockiert die gebundene Seite; keine Hilfe ausgegeben.");
   }
   if (snapshot.stats.truncated) {
-    return fail8("native-incomplete", "Der native Seitenbaum ueberschreitet die Lesegrenze; keine unvollstaendige Hilfe ausgegeben.");
+    return fail9("native-incomplete", "Der native Seitenbaum ueberschreitet die Lesegrenze; keine unvollstaendige Hilfe ausgegeben.");
   }
-  if (!snapshot.nodes.length) return fail8("native-incomplete", "Der native Seitenbaum ist leer; keine Hilfe ausgegeben.");
-  let nativeDurationMs = inventory.durationMs + snapshot.nativeDurationMs;
-  const nodes = [...snapshot.nodes];
-  for (const { window, kind } of others) {
-    if (kind === "system-overlay" || kind === "case-window") continue;
-    const tool = await readQtNativeSnapshot(client, { maxNodes: 5e3, toolTitle: window.title }, budget(), signal);
-    nativeDurationMs += tool.nativeDurationMs;
-    if (tool.hwnd !== window.hwnd) throw new QtNativeTransportError("The owned window snapshot returned another window.", "native-contract");
-    if (!tool.windowEnabled || tool.modalBlocked) {
-      return fail8("dialog-open", "Ein modaler Dialog blockiert ein Nebenfenster der gebundenen Seite; keine Hilfe ausgegeben.");
-    }
-    if (tool.stats.truncated) {
-      return fail8("native-incomplete", "Der native Baum eines Nebenfensters ueberschreitet die Lesegrenze; keine unvollstaendige Hilfe ausgegeben.");
-    }
-    nodes.push(ownedWindowNode(window, nodes.length), ...tool.nodes);
-  }
-  const { seite, abschnitte } = qtNativeHelpProjection(nodes, snapshot.windowRect);
+  if (!snapshot.nodes.length) return fail9("native-incomplete", "Der native Seitenbaum ist leer; keine Hilfe ausgegeben.");
+  const ownedRead = await readOwnedWindowSubtrees(client, owned, 5e3, "Hilfe", snapshot.nodes.length, budget, signal);
+  if (ownedRead.failure) return ownedRead.failure;
+  const { seite, abschnitte } = qtNativeHelpProjection([...snapshot.nodes, ...ownedRead.subtrees.nodes], snapshot.windowRect);
+  const nativeDurationMs = inventory.durationMs + snapshot.nativeDurationMs + ownedRead.subtrees.durationMs;
   return { ok: true, seite, abschnitte, hinweis: HELP_HINT, backend: "qt", nativeDurationMs };
 }
-var psIn, SECTION_HEADINGS, SKIPPED_NAMES, TEXT_TYPES, HELP_HINT, fail8, OrderedSections;
+var psIn, SECTION_HEADINGS, SKIPPED_NAMES, TEXT_TYPES, HELP_HINT, fail9, OrderedSections;
 var init_qt_native_help = __esm({
   "src/qt-native-help.ts"() {
     "use strict";
     init_qt_native_client();
     init_qt_native_pages();
+    init_qt_native_owned_windows();
     init_qt_native_projections();
     init_qt_native_snapshot();
     psIn = (value, set) => set.some((candidate) => psEquals(value, candidate));
@@ -14756,7 +14783,7 @@ var init_qt_native_help = __esm({
     SKIPPED_NAMES = ["Mehr Details", "Details"];
     TEXT_TYPES = ["Text", "Hyperlink", "TreeItem", "Button"];
     HELP_HINT = "Die Hilfe wechselt mit dem angewaehlten Feld. Fuer feldbezogene Hilfe erst das Feld anwaehlen.";
-    fail8 = (kind, error) => ({ ok: false, backend: "qt", kind, error });
+    fail9 = (kind, error) => ({ ok: false, backend: "qt", kind, error });
     OrderedSections = class {
       keys = [];
       entries = /* @__PURE__ */ new Map();
@@ -14851,30 +14878,48 @@ function qtNativeTableProjection(nodes) {
     rowDetails
   };
 }
-async function executeQtNativeReadTable(client, args, timeoutMs, signal, _profile) {
-  const snapshot = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 4e3, withCellStates: true }, timeoutMs, signal);
-  if (!snapshot.windowEnabled || snapshot.modalBlocked) {
-    return fail9("dialog-open", "Ein modaler Dialog blockiert die gebundene Seite; keine Tabelle ausgegeben.");
+async function executeQtNativeReadTable(client, args, timeoutMs, signal, profile) {
+  if (!profile) return fail10("bad-args", "read_table requires a product profile.");
+  if (args.hwnd !== void 0 && args.hwnd !== client.binding.hwnd) {
+    throw new QtNativeTransportError("Requested window differs from the verified native session.", "stale-window");
   }
+  const started = performance.now();
+  const budget = () => {
+    const remaining = Math.floor(timeoutMs - (performance.now() - started));
+    if (remaining < 1) throw new QtNativeTransportError("Native read_table deadline exceeded before reading.", "native-timeout");
+    return remaining;
+  };
+  const bound = await readBoundWindows(client, profile, "Tabelle", budget, signal);
+  if (bound.failure) return bound.failure;
+  const { inventory, owned } = bound.windows;
+  const snapshot = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 4e3, withCellStates: true }, budget(), signal);
+  if (!snapshot.windowEnabled || snapshot.modalBlocked) {
+    return fail10("dialog-open", "Ein modaler Dialog blockiert die gebundene Seite; keine Tabelle ausgegeben.");
+  }
+  if (!snapshot.nodes.length) return fail10("native-incomplete", "Der native Seitenbaum ist leer; keine Tabelle ausgegeben.");
   const scope = splitWindowScope(snapshot.nodes);
+  const ownedRead = await readOwnedWindowSubtrees(client, owned, 4e3, "Tabelle", snapshot.nodes.length, budget, signal);
+  if (ownedRead.failure) return ownedRead.failure;
   return {
     ok: true,
     ...qtNativeTableProjection(scope.own),
-    ausgeschlosseneFenster: scope.foreign,
+    ausgeschlosseneFenster: [...scope.foreign, ...ownedRead.subtrees.scopes],
     stats: snapshot.stats,
     incomplete: snapshot.stats.truncated,
     note: snapshot.stats.truncated ? NOTE_TRUNCATED : NOTE_VISIBLE_ONLY,
     backend: "qt",
-    nativeDurationMs: snapshot.nativeDurationMs
+    nativeDurationMs: inventory.durationMs + snapshot.nativeDurationMs + ownedRead.subtrees.durationMs
   };
 }
-var fail9, HEADER_MERGE_PX, ROW_BAND_PX, CELL_UNOBSERVED, NOTE_TRUNCATED, NOTE_VISIBLE_ONLY;
+var fail10, HEADER_MERGE_PX, ROW_BAND_PX, CELL_UNOBSERVED, NOTE_TRUNCATED, NOTE_VISIBLE_ONLY;
 var init_qt_native_read_table = __esm({
   "src/qt-native-read-table.ts"() {
     "use strict";
+    init_qt_native_client();
+    init_qt_native_owned_windows();
     init_qt_native_projections();
     init_qt_native_snapshot();
-    fail9 = (kind, error) => ({ ok: false, backend: "qt", kind, error });
+    fail10 = (kind, error) => ({ ok: false, backend: "qt", kind, error });
     HEADER_MERGE_PX = 8;
     ROW_BAND_PX = 10;
     CELL_UNOBSERVED = "Zelle nicht beobachtet.";
@@ -14887,10 +14932,10 @@ var init_qt_native_read_table = __esm({
 async function executeQtNativeCheckerResults(client, args, timeoutMs, signal, _profile) {
   const snapshot = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 5e3 }, timeoutMs, signal);
   if (!snapshot.windowEnabled || snapshot.modalBlocked) {
-    return fail10("dialog-open", "Ein modaler Dialog blockiert die gebundene Seite; kein Prueferergebnis ausgegeben.");
+    return fail11("dialog-open", "Ein modaler Dialog blockiert die gebundene Seite; kein Prueferergebnis ausgegeben.");
   }
   if (snapshot.stats.truncated) {
-    return fail10("native-incomplete", "Der native Seitenbaum ueberschreitet die Lesegrenze; kein unvollstaendiges Prueferergebnis ausgegeben.");
+    return fail11("native-incomplete", "Der native Seitenbaum ueberschreitet die Lesegrenze; kein unvollstaendiges Prueferergebnis ausgegeben.");
   }
   const result = checkerResults(snapshot.nodes);
   return {
@@ -14916,7 +14961,7 @@ async function executeQtNativeCheckerResults(client, args, timeoutMs, signal, _p
     nativeDurationMs: snapshot.nativeDurationMs
   };
 }
-var ACTIVE_HINT, CLOSED_HINT, fail10;
+var ACTIVE_HINT, CLOSED_HINT, fail11;
 var init_qt_native_checker = __esm({
   "src/qt-native-checker.ts"() {
     "use strict";
@@ -14924,7 +14969,7 @@ var init_qt_native_checker = __esm({
     init_qt_native_snapshot();
     ACTIVE_HINT = "Fragen/Warnungen und Tipps sind getrennt. Ein Eintrag ist nicht automatisch ein Steuerfehler; mit sse_checker_open den Wortlaut oeffnen.";
     CLOSED_HINT = "Der globale Steuerpruefer ist nicht offen. Zu 'Pruefen und Abgeben' und dann 'Steuererklaerung pruefen' navigieren; dort sse_checker_run aufrufen.";
-    fail10 = (kind, error) => ({ ok: false, backend: "qt", kind, error });
+    fail11 = (kind, error) => ({ ok: false, backend: "qt", kind, error });
   }
 });
 

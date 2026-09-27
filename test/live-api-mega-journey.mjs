@@ -617,7 +617,12 @@ try {
         assert.equal(formatCents(parseCents(result.summe)), result.summe);
       },
     );
-    await read("read_table", { hwnd: currentHwnd }, (result) => assert(Array.isArray(result.zeilen ?? [])));
+    await read("read_table", { hwnd: currentHwnd }, (result) => {
+      assert(Array.isArray(result.headers) && Array.isArray(result.rows) && Array.isArray(result.rowDetails));
+      assert.equal(result.rowCount, result.rows.length);
+      assert.equal(result.rowDetails.length, result.rows.length);
+      assert(result.headers.includes(tableProfile.amountColumn));
+    });
     const startSum = tableStart.summe;
     const startCents = parseCents(startSum);
     const addedAmount = "0,17";

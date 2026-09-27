@@ -1,6 +1,7 @@
 import type { WorkerResult } from "./api-contract.js";
 import type { ProductProfile } from "./product-profiles.js";
-import type { QtNativeClient } from "./qt-native-client.js";
+import { QtNativeTransportError, type QtNativeClient } from "./qt-native-client.js";
+import { readBoundWindows, readOwnedWindowSubtrees } from "./qt-native-owned-windows.js";
 import { byPosition, psEquals, splitWindowScope } from "./qt-native-projections.js";
 import { readQtNativeSnapshot, type QtSnapshotNode } from "./qt-native-snapshot.js";
 
@@ -123,22 +124,40 @@ export async function executeQtNativeReadTable(
   args: Readonly<Record<string, unknown>>,
   timeoutMs: number,
   signal?: AbortSignal,
-  _profile?: ProductProfile,
+  profile?: ProductProfile,
 ): Promise<WorkerResult> {
-  const snapshot = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 4000, withCellStates: true }, timeoutMs, signal);
+  if (!profile) return fail("bad-args", "read_table requires a product profile.");
+  if (args.hwnd !== undefined && args.hwnd !== client.binding.hwnd) {
+    throw new QtNativeTransportError("Requested window differs from the verified native session.", "stale-window");
+  }
+  const started = performance.now();
+  const budget = () => {
+    const remaining = Math.floor(timeoutMs - (performance.now() - started));
+    if (remaining < 1) throw new QtNativeTransportError("Native read_table deadline exceeded before reading.", "native-timeout");
+    return remaining;
+  };
+  const bound = await readBoundWindows(client, profile, "Tabelle", budget, signal);
+  if (bound.failure) return bound.failure;
+  const { inventory, owned } = bound.windows;
+  const snapshot = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 4000, withCellStates: true }, budget(), signal);
   if (!snapshot.windowEnabled || snapshot.modalBlocked) {
     return fail("dialog-open", "Ein modaler Dialog blockiert die gebundene Seite; keine Tabelle ausgegeben.");
   }
+  // The worker treats an empty bulk snapshot as a failed read, never as an empty table.
+  if (!snapshot.nodes.length) return fail("native-incomplete", "Der native Seitenbaum ist leer; keine Tabelle ausgegeben.");
   // A truncated walk is reported, not refused: the worker answers the same way and marks the gap.
   const scope = splitWindowScope(snapshot.nodes);
+  // Walk-BoundTree lists the owned windows it excluded; the Qt tree never contains them, so they are read by title.
+  const ownedRead = await readOwnedWindowSubtrees(client, owned, 4000, "Tabelle", snapshot.nodes.length, budget, signal);
+  if (ownedRead.failure) return ownedRead.failure;
   return {
     ok: true,
     ...qtNativeTableProjection(scope.own),
-    ausgeschlosseneFenster: scope.foreign,
+    ausgeschlosseneFenster: [...scope.foreign, ...ownedRead.subtrees.scopes],
     stats: snapshot.stats,
     incomplete: snapshot.stats.truncated,
     note: snapshot.stats.truncated ? NOTE_TRUNCATED : NOTE_VISIBLE_ONLY,
     backend: "qt",
-    nativeDurationMs: snapshot.nativeDurationMs,
+    nativeDurationMs: inventory.durationMs + snapshot.nativeDurationMs + ownedRead.subtrees.durationMs,
   };
 }
