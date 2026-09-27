@@ -269,7 +269,7 @@ const processWindowSchema = z.object({
 export const processWindowInventorySchema = z.object({
   ok: z.literal(true),
   windows: z.array(processWindowSchema).max(256),
-  /** Visible untitled windows that are no tooltip, shadow or popup; a title cannot classify them. */
+  /** Visible untitled windows that are no shadow windows; a title cannot classify them. */
   untitledWindows: z.array(processWindowSchema.omit({ title: true })).max(256),
   /** Every visible top-level window of the process, including untitled, shadow and tooltip windows. */
   visibleWindowCount: z.number().int().nonnegative(),

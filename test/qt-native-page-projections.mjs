@@ -134,13 +134,20 @@ export async function testNativePageProjections() {
   const foreign = pageNode("Window", "Werte-Info: Werte vergleichen - Was wäre wenn", 800, 300,
     { w: 400, h: 300, aid: "window.WerteInfo" });
   pageNode("DataItem", "999,99", 810, 320, { p: foreign, aid: "window.WerteInfo.obj_Wertetabelle" });
-  // Removing leaves keeps every parent chain; only the pre-order indices need renumbering.
+  // A pre-order subset stays a valid tree once indices, parents and depths are renumbered; a node whose parent
+  // was cut becomes a root of its own.
   const reindex = nodes => {
     const position = new Map(nodes.map((node, index) => [node.i, index]));
-    return nodes.map((node, index) => ({ ...node, i: index, p: node.p < 0 ? -1 : position.get(node.p) }));
+    const renumbered = [];
+    for (const [index, node] of nodes.entries()) {
+      const p = position.get(node.p) ?? -1;
+      renumbered.push({ ...node, i: index, p, d: p < 0 ? 0 : renumbered[p].d + 1 });
+    }
+    return renumbered;
   };
   const pageRect = { x: 0, y: 0, w: 1600, h: 900 };
   const pageStats = { ...stats, n: pageNodes.length };
+  const checkerless = reindex(pageNodes.filter(node => node.p !== checker));
   const pageWindows = [
     { hwnd: 42, pid: 99, class: "Qt692QWindowIcon", title: "SteuerSparErklärung 2025", x: 0, y: 0, w: 1600, h: 900,
       minimized: false, hung: false },
@@ -149,15 +156,49 @@ export async function testNativePageProjections() {
     { hwnd: 85, pid: 99, class: "Qt692QWindow", title: "Steuer-Spar-Tipps", x: 900, y: 300, w: 400, h: 300,
       minimized: false, hung: false },
   ];
+  // ui_state: the worker sees the Werte-Info table inside its UIA walk of the main window; the Qt path reads the
+  // same table through the tool snapshot. The descriptor kinds of the tips and BelegManager windows are fixture facts.
+  const stateNodes = pageNodes.map(node => ({ ...node }));
+  const stateWindow = stateNodes.length;
+  const stateNode = (type, name, x, y, extra = {}) => {
+    const i = stateNodes.length;
+    const p = extra.p ?? -1;
+    stateNodes.push({ i, p, d: p < 0 ? 0 : stateNodes[p].d + 1, type, name, aid: "window.WerteInfoFenster.obj_Wertetabelle",
+      rid: `42.84.4.${i - stateWindow + 1}`, x, y, w: 100, h: 20, on: true, val: null, ro: null, checked: null, selected: null, scroll: null,
+      ...extra, ...(extra.p === undefined ? {} : { p }) });
+    return i;
+  };
+  const stateOwned = stateNode("Window", "Werte-Info: Werte vergleichen - Was wäre wenn", 800, 300, { w: 400, h: 300, aid: "window.WerteInfoFenster", rid: "42.84" });
+  const stateTable = stateNode("Table", "", 810, 340, { p: stateOwned, w: 380, h: 200 });
+  for (const [column, name] of ["Beobachteter Wert", "Aktuell", "Festgehaltener Vergleichswert", "Differenz"].entries()) {
+    stateNode("Header", name, 810 + column * 90, 350, { p: stateTable });
+  }
+  for (const [rowIndex, cells] of [["Einkommensteuer", "1.000,00", "800,00", "200,00"], ["Soli & Kirche", "55,00", "44,00", "11,00"]].entries()) {
+    for (const [column, text] of cells.entries()) stateNode("DataItem", text, 810 + column * 90, 380 + rowIndex * 30, { p: stateTable });
+  }
+  const toolNodes = reindex(stateNodes.filter(node => node.i >= stateTable));
+  const stateWindows = [
+    { hwnd: 42, pid: 99, class: "Qt692QWindowIcon", title: "SteuerSparErklärung 2025", x: 0, y: 0, w: 1600, h: 900,
+      minimized: false, hung: false },
+    { hwnd: 87, pid: 99, class: "Qt692QWindow", title: "BelegManager", x: 100, y: 100, w: 1200, h: 700, minimized: false, hung: false },
+    { hwnd: 85, pid: 99, class: "Qt692QWindow", title: "Steuer-Spar-Tipps", x: 200, y: 200, w: 900, h: 700, minimized: false, hung: false },
+    { hwnd: 84, pid: 99, class: "Qt692QWindow", title: "Werte-Info: Werte vergleichen - Was wäre wenn", x: 800, y: 300, w: 400, h: 300,
+      minimized: false, hung: false },
+    { hwnd: 86, pid: 99, class: "UAC_Overlay", title: "UAC", x: 0, y: 0, w: 40, h: 40, minimized: false, hung: false },
+  ];
   cases.push(
+    { operation: "ui_state", args: { hwnd: 42 }, nodes: stateNodes, rect: pageRect, stats: { ...pageStats, n: stateNodes.length },
+      windows: stateWindows, kinds: { 87: "known-nonmodal", 85: "tips" },
+      tool: { title: "Werte-Info: Werte vergleichen - Was wäre wenn", hwnd: 84, nodes: toolNodes, rect: { x: 800, y: 300, w: 400, h: 300 },
+        stats: { ...pageStats, n: toolNodes.length } } },
     { operation: "page", args: {}, nodes: pageNodes, rect: pageRect, stats: pageStats, windows: pageWindows },
     { operation: "page", args: {}, nodes: pageNodes, rect: pageRect, stats: pageStats, windows: pageWindows.slice(0, 1) },
     { operation: "help", args: {}, nodes: pageNodes, rect: pageRect, stats: pageStats, windows: pageWindows },
     { operation: "read_table", args: {}, nodes: pageNodes, rect: pageRect, stats: pageStats, windows: pageWindows },
     { operation: "read_table", args: {}, nodes: pageNodes, rect: pageRect, stats: { ...pageStats, truncated: true }, windows: pageWindows },
     { operation: "checker_results", args: {}, nodes: pageNodes, rect: pageRect, stats: pageStats, windows: pageWindows },
-    { operation: "checker_results", args: {}, nodes: reindex(pageNodes.filter(node => node.p !== checker)), rect: pageRect,
-      stats: pageStats, windows: pageWindows },
+    { operation: "checker_results", args: {}, nodes: checkerless, rect: pageRect, stats: { ...pageStats, n: checkerless.length },
+      windows: pageWindows },
   );
   // Pure helper oracles: the Werte-Info projection (fingerprint bytes included) and the checker grouping.
   const resultNodes = [];
@@ -228,10 +269,12 @@ export async function testNativePageProjections() {
       assert.equal(operation, "accessibility_snapshot");
       assert.equal(args.withValues, test.operation === "find" ? false : undefined);
       assert.equal(args.withCellStates, test.operation === "read_table" ? true : undefined);
-      return { durationMs: 1, result: { ok: true, controllerBound: true, scope: "qt-accessibility-content", hwnd: 42,
-        windowEnabled: true, modalBlocked: false, windowRect: test.rect, nodes: test.nodes, stats: test.stats,
+      const view = args.toolTitle === undefined ? { hwnd: 42, rect: test.rect, nodes: test.nodes, stats: test.stats } : test.tool;
+      assert.equal(args.toolTitle, args.toolTitle === undefined ? undefined : test.tool.title);
+      return { durationMs: 1, result: { ok: true, controllerBound: true, scope: "qt-accessibility-content", hwnd: view.hwnd,
+        windowEnabled: true, modalBlocked: false, windowRect: view.rect, nodes: view.nodes, stats: view.stats,
         exactMatches: Object.fromEntries(Object.entries(args.equalitySelectors ?? {}).map(([key, value]) =>
-          [key, test.nodes.filter(n => n[key].toLowerCase() === value.toLowerCase()).map(n => n.i)])) } };
+          [key, view.nodes.filter(n => n[key].toLowerCase() === value.toLowerCase()).map(n => n.i)])) } };
     } };
     const result = await executeQtNativeRead(test.operation, test.args, { qtNativeClient: client }, 5000, undefined, loadProductProfile("2025"));
     const { backend, nativeDurationMs, ...projection } = result;
