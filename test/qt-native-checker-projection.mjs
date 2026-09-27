@@ -123,6 +123,20 @@ const activeNodes = buildNodes(activeSpecs);
   assert.deepEqual(result.aufgeklappt, ["Genau siebzig", "KARTE", "Karte"]);
 }
 
+// PowerShell -match uses .NET `$`, which also matches before one trailing newline in a header name.
+{
+  const trailing = buildNodes([
+    activeSpecs[0], activeSpecs[2],
+    { p: 1, type: "TreeItem", name: "1 Fragen oder Warnungen\n", aid: TREE_AID, x: 300, y: 150 },
+    { p: 1, type: "TreeItem", name: "Frage", aid: TREE_AID, x: 300, y: 180 },
+    { p: 1, type: "TreeItem", name: "0 Tipps oder Zusatzinformationen\n", aid: TREE_AID, x: 300, y: 200 },
+  ]);
+  const result = await run(fakeClient(trailing));
+  assert.deepEqual([result.fragenWarnungenAngekuendigt, result.tippsAngekuendigt, result.konsistent], [1, 0, true]);
+  assert.deepEqual(result.fragenWarnungen.map(item => item.text), ["Frage"]);
+  assert.deepEqual(result.sonstige, []);
+}
+
 // Sort by y then x: the group header wins over an item on the same row with a larger x.
 {
   const shuffled = buildNodes([
@@ -248,4 +262,4 @@ const activeNodes = buildNodes(activeSpecs);
     error => error instanceof QtNativeTransportError && error.kind === "window-gone" && error.message === "Fenster verloren.");
 }
 
-console.log("qt-native-checker-projection: 22 checker_results projection cases passed");
+console.log("qt-native-checker-projection: 23 checker_results projection cases passed");

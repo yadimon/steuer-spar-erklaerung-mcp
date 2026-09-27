@@ -246,7 +246,7 @@ export async function testNativePageProjections() {
     amount: "12,34",
     vatRate: "19",
     net: true,
-    note: "Zeile\u2028zwei\u2029<&>'",
+    note: "Zeile\u2028zwei\u2029<&>'\u0085",
   };
   const oracle = await pageProjectionOracle(cases, wildcards, receiptFingerprintValue, helpers);
   for (const [index, test] of helpers.entries()) {
