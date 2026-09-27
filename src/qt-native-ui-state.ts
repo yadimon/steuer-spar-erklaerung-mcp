@@ -54,7 +54,7 @@ function windowEntry(
 function classifiedEntry(window: QtProcessWindow, profile: ProductProfile): UiStateWindow {
   const kind = auxiliaryWindowKind(window, profile);
   if (kind === "werte-info" || kind === "steuer-tipps" || kind === "system-overlay") return windowEntry(window, kind, null, null, null);
-  if ((window.w >= 900 || window.minimized) && /SteuerSparErklärung/iu.test(window.title)) return windowEntry(window, "unbekannt", false, null, false);
+  if (kind === "case-window") return windowEntry(window, "unbekannt", false, null, false);
   if (psEquals(window.title, TIPS_TITLE)) return windowEntry(window, "steuer-tipps", false, null, false);
   if (kind === "known-nonmodal") return windowEntry(window, "unbekannt", false, null, false);
   return windowEntry(window, "nicht-lesbar", false, UNREADABLE_HINT, null);

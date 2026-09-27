@@ -303,17 +303,19 @@ export const TIPS_TITLE = "Steuer-Spar-Tipps";
 const CLOSABLE_NONMODAL_ROLES = new Set(["nonmodal-help-window", "nonmodal-result-window", "nonmodal-tool-window"]);
 
 /**
- * Resolve-SSEToolWindowKind, the UAC overlay rule and the worker's closable
- * nonmodal window policy (role, close policy and case-sensitive title). Any
- * other window of the bound process is a dialog candidate this path cannot
+ * Resolve-SSEToolWindowKind, the UAC overlay rule, the dialog descriptor's
+ * 'main' rule for a second wide case window and the worker's closable nonmodal
+ * window policy (role, close policy and case-sensitive title). Any other
+ * window of the bound process is a dialog candidate this path cannot
  * describe, so callers must treat null as unknown.
  */
 export function auxiliaryWindowKind(
-  window: { title: string; class: string; w: number; h: number }, profile?: ProductProfile,
-): "werte-info" | "steuer-tipps" | "system-overlay" | "known-nonmodal" | null {
+  window: { title: string; class: string; w: number; h: number; minimized: boolean }, profile?: ProductProfile,
+): "werte-info" | "steuer-tipps" | "system-overlay" | "case-window" | "known-nonmodal" | null {
   if (psEquals(window.title, WERTE_INFO_TITLE) && window.w <= 900 && window.h <= 700) return "werte-info";
   if (psEquals(window.title, TIPS_TITLE) && window.w <= 850 && window.h <= 650) return "steuer-tipps";
   if (/^UAC[ _]/iu.test(window.class) && window.w <= 80 && window.h <= 80) return "system-overlay";
+  if ((window.w >= 900 || window.minimized) && /SteuerSparErklärung/iu.test(window.title)) return "case-window";
   const catalogued = Object.values(profile?.pageObjectsCatalog.windows ?? {}).some(definition => {
     const entry = definition as Record<string, unknown>;
     return typeof entry.role === "string" && CLOSABLE_NONMODAL_ROLES.has(entry.role)

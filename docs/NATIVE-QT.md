@@ -152,8 +152,11 @@ scheitern zusätzlich bei abgeschnittenem Baum mit `native-incomplete`,
 `read_table` meldet wie der Worker `incomplete`. `page` zählt in `offeneFenster`
 wie der Worker jedes sichtbare Fenster des gebundenen Prozesses, auch namenlose
 und Schattenfenster; `dialoge` bleibt dort immer leer, weil ein unbekanntes
-Fenster die Lesung bereits beendet hat. Die Lesegrenze liegt bei 5000 statt 4000
-Knoten, damit eine große Seite vollständig statt abgeschnitten gelesen wird.
+Fenster die Lesung bereits beendet hat. `page`, `help` und `checker_results`
+lesen bis zu 5000 statt 4000 Knoten, damit eine große Seite vollständig statt
+abgeschnitten gelesen wird, und ein leerer Baum gilt wie beim Worker als
+fehlgeschlagene Lesung; `read_table` behält die Grenze von 4000 Knoten und
+meldet Abschneidung.
 Besessene Nebenfenster hängen im Qt-Accessibility-Baum nicht unter dem
 Hauptfenster; `ausgeschlosseneFenster` bleibt auf dem Qt-Pfad deshalb in der
 Regel leer, während `ui_state` die Werte-Info über ihren Titel getrennt liest.
