@@ -13536,7 +13536,7 @@ var init_qt_native_projections = __esm({
     processWindowInventorySchema = external_exports.object({
       ok: external_exports.literal(true),
       windows: external_exports.array(processWindowSchema).max(256),
-      /** Visible untitled windows that are no tooltip, shadow or popup; a title cannot classify them. */
+      /** Visible untitled windows that are no shadow windows; a title cannot classify them. */
       untitledWindows: external_exports.array(processWindowSchema.omit({ title: true })).max(256),
       /** Every visible top-level window of the process, including untitled, shadow and tooltip windows. */
       visibleWindowCount: external_exports.number().int().nonnegative()

@@ -35,10 +35,10 @@ static std::string processWindowUtf8(const wchar_t *value) {
     return result;
 }
 
+// The worker treats only shadow classes as harmless; Qt popups and tooltips carry "DropShadow" as well.
 static bool processWindowIgnoredClass(std::wstring value) {
     std::transform(value.begin(), value.end(), value.begin(), [](wchar_t character) { return std::towlower(character); });
-    return value.find(L"tooltip") != std::wstring::npos || value.find(L"shadow") != std::wstring::npos
-        || value.find(L"popup") != std::wstring::npos;
+    return value.find(L"shadow") != std::wstring::npos;
 }
 
 static BOOL CALLBACK collectProcessWindow(HWND window, LPARAM raw) {
@@ -55,7 +55,7 @@ static BOOL CALLBACK collectProcessWindow(HWND window, LPARAM raw) {
         if (processWindowIgnoredClass(className)) return TRUE;
         wchar_t title[4096]{};
         const bool titled = GetWindowTextW(window, title, 4096) && title[0];
-        // An untitled window that is no tooltip, shadow or popup cannot be classified by title; list it separately.
+        // An untitled window that is no shadow window cannot be classified by title; list it separately.
         auto &target = titled ? inventory.windows : inventory.untitled;
         if (target.size() >= 256) throw std::runtime_error("Process window inventory exceeds its bound");
         RECT bounds{};

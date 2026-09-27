@@ -145,7 +145,7 @@ des gebundenen Prozesses und scheitert ebenso mit `dialog-open`, sobald ein
 Fenster offen ist, das weder Werte-Info, Steuer-Spar-Tipps, ein Systemoverlay
 noch ein katalogisiertes nichtmodales Werkzeugfenster mit exakt gleichem Titel
 ist, oder ein namenloses Fenster sichtbar ist, das kein Tooltip, Schatten- oder
-Popupfenster ist; ein minimiertes Hauptfenster scheitert mit `minimized`. `page`, `help` und `checker_results`
+Popupfenster mit Schattenklasse ist; ein minimiertes Hauptfenster scheitert mit `minimized`. `page`, `help` und `checker_results`
 scheitern zusätzlich bei abgeschnittenem Baum mit `native-incomplete`,
 `read_table` meldet wie der Worker `incomplete`. `page` zählt in `offeneFenster`
 wie der Worker jedes sichtbare Fenster des gebundenen Prozesses, auch namenlose
@@ -165,13 +165,13 @@ katalogisierte nichtmodale Werkzeugfenster wie der BelegManager gelten wie beim
 Worker als `unbekannt`. Der Zustand gilt dann als blockiert, und
 `sse_dialog_list` bleibt der Weg zum fingerprintgebundenen Dialog. Die
 Fensterliste ist wie beim Worker nach Fläche absteigend geordnet, und
-`fensterAnzahl` zählt jedes sichtbare Fenster des Prozesses. Ein minimiertes Hauptfenster stellt dieser Lesepfad nicht wieder her,
+`fensterAnzahl` zählt jedes sichtbare Fenster des Prozesses; nur Fenster mit
+einer Schattenklasse fehlen wie beim Worker in der Liste. Ein minimiertes Hauptfenster stellt dieser Lesepfad nicht wieder her,
 sondern scheitert mit `minimized`; zwei gleichzeitig offene Werte-Info-Fenster
 scheitern mit `ambiguous`. Der `stateFingerprint` verwendet dieselbe
 Feldreihenfolge und dieselben JSON-Bytes wie der Worker, damit
 `previousFingerprint` backendübergreifend vergleichbar bleibt, solange kein
-fremdes Fenster offen ist; Schattenfenster und Tooltips zählen im nativen
-Inventar nicht mit, und `dialoge` bleibt auf diesem Pfad immer leer.
+fremdes Fenster offen ist; `dialoge` bleibt auf diesem Pfad immer leer.
 
 ## Interne Laufzeitmessung
 
