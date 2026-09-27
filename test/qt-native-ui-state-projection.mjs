@@ -247,6 +247,22 @@ const receiptEntry = { hwnd: 87, pid: 99, cls: "Qt692QWindowIcon", title: "Beleg
     { hwnd: 90, pid: 99, cls: "Qt692QWindow", title: "", art: "nicht-lesbar", x: 50, y: 50, w: 300, h: 200, buttons: [], texte: [],
       fingerprint: null, uiaReadOk: false, uiaError: UNTITLED_WINDOW_HINT, msaaReadOk: null, msaaError: null },
   ]);
+  // The uncertain entries enter the fingerprint largest window first, with the worker's key order.
+  assert.equal(result.stateFingerprint, sha256('{"instance":{"pid":99,"hwnd":42},"heading":"Synthetic heading","dirty":true,"blockiert":true,'
+    + '"dialogs":[],"uncertain":[{"hwnd":87,"cls":"Qt692QWindowIcon","title":"BelegManager","art":"unbekannt","uiaReadOk":false,"uiaError":null,'
+    + '"msaaReadOk":false,"msaaError":null},{"hwnd":89,"cls":"#32770","title":"Datei öffnen","art":"nicht-lesbar","uiaReadOk":false,'
+    + `"uiaError":"${UNREADABLE_HINT}","msaaReadOk":null,"msaaError":null},{"hwnd":90,"cls":"Qt692QWindow","title":"","art":"nicht-lesbar",`
+    + `"uiaReadOk":false,"uiaError":"${UNTITLED_WINDOW_HINT}","msaaReadOk":null,"msaaError":null}],`
+    + '"windowKinds":["hauptfenster","nicht-lesbar","nicht-lesbar","unbekannt"],"pruefer":[],"baumfehler":[],"leerePflicht":["cb_Titel","cb_Anrede"],'
+    + '"checker":{"aktiv":true,"fragen":2,"tipps":1,"konsistent":true},"ergebnisFingerprint":null}'));
+}
+// A second wide case window of the same process is the worker's 'main' descriptor kind without a read: art 'unbekannt'.
+{
+  const { client } = fakeClient([MAIN_WINDOW, window(91, "SteuerSparErklärung 2025 - zweiter Fall", [0, 0, 950, 600])], mainSpec(mainTree(cleanNames)));
+  const result = await executeQtNativeUiState(client, {}, 5000, undefined, profile);
+  assert.equal(result.blockiert, true);
+  assert.deepEqual(result.unsichereFenster.map(entry => [entry.hwnd, entry.art, entry.uiaReadOk, entry.uiaError, entry.msaaReadOk]),
+    [[91, "unbekannt", false, null, false]]);
 }
 // A Steuer-Spar-Tipps window beyond the tool-window bound keeps its kind by title alone, exactly like Get-DialogDescriptor.
 {
@@ -321,4 +337,4 @@ const receiptEntry = { hwnd: 87, pid: 99, cls: "Qt692QWindowIcon", title: "Beleg
   assert.deepEqual(log.map(entry => entry.operation), ["window_inventory", "accessibility_snapshot"]);
 }
 
-console.log("qt-native-ui-state-projection: 15 scenarios passed");
+console.log("qt-native-ui-state-projection: 16 scenarios passed");

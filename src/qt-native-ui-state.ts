@@ -47,12 +47,14 @@ function windowEntry(
 
 /**
  * The worker's classification of an auxiliary window: Resolve-SSEToolWindowKind first, then the
- * descriptor kinds 'tips' (title only) and 'known-nonmodal' (art 'unbekannt', no UIA/MSAA read),
+ * descriptor kinds it decides without a UIA/MSAA read ('main' for a second wide case window,
+ * 'tips' by title, 'known-nonmodal' from the catalogue; all art 'unbekannt' or 'steuer-tipps'),
  * and finally everything this path cannot describe as unreadable.
  */
 function classifiedEntry(window: QtProcessWindow, profile: ProductProfile): UiStateWindow {
   const kind = auxiliaryWindowKind(window, profile);
   if (kind === "werte-info" || kind === "steuer-tipps" || kind === "system-overlay") return windowEntry(window, kind, null, null, null);
+  if ((window.w >= 900 || window.minimized) && /SteuerSparErklärung/iu.test(window.title)) return windowEntry(window, "unbekannt", false, null, false);
   if (psEquals(window.title, TIPS_TITLE)) return windowEntry(window, "steuer-tipps", false, null, false);
   if (kind === "known-nonmodal") return windowEntry(window, "unbekannt", false, null, false);
   return windowEntry(window, "nicht-lesbar", false, UNREADABLE_HINT, null);
