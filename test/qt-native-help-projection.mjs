@@ -86,7 +86,10 @@ const snapshotReply = (spec, extra = {}) => ({ ok: true, controllerBound: true, 
   windowEnabled: true, modalBlocked: false, ...spec, ...extra });
 const mainReply = extra => snapshotReply({ hwnd: 42, windowRect: rect, nodes, stats }, extra);
 const tipsReply = extra => snapshotReply({ hwnd: 85, windowRect: { x: 810, y: 100, w: 180, h: 120 }, nodes: tipsNodes, stats: tipsStats }, extra);
-const inventoryReply = (windows, extra = {}) => ({ ok: true, windows, untitledWindows: [], visibleWindowCount: windows.length, ...extra });
+const inventoryReply = (windows, extra = {}) => {
+  const reply = { ok: true, windows, untitledWindows: [], visibleWindowCount: windows.length, ...extra };
+  return { ...reply, productWindowCount: extra.productWindowCount ?? reply.visibleWindowCount };
+};
 // Each scenario names its replies: the fake only looks them up by request shape, it decides nothing.
 const makeClient = (replies) => ({
   binding: { hwnd: 42, pid: 99, creationTime: "1" },

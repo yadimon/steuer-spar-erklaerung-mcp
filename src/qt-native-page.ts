@@ -147,8 +147,8 @@ export async function executeQtNativePage(
   const leerePflichtfelder = felder.filter(field => field.typ === "ComboBox" && !String(field.wert ?? "").trim()).map(field => field.label);
   // Every field unlabelled means the caption column was not found; that must not pass silently.
   const hinweis = felder.length && felder.every(field => !String(field.label ?? "").trim()) ? UNLABELLED_HINT : null;
-  // Get-Windows counts every visible window of the process, titled or not; the classified list above is narrower.
-  const offeneFenster = inventory.visibleWindowCount;
+  // Get-Windows 'SSE' counts every visible window of every product process, titled or not; the classified list above is narrower.
+  const offeneFenster = inventory.productWindowCount;
   return {
     hinweis,
     ok: true,

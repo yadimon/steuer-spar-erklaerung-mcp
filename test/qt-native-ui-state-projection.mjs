@@ -95,7 +95,7 @@ function fakeClient(windows, main, tools = [], inventoryExtra = {}) {
   const snapshots = new Map([[undefined, main], ...tools]);
   const answers = {
     window_inventory: () => ({ durationMs: 1,
-      result: { ok: true, windows, visibleWindowCount: windows.length, untitledWindows: [], ...inventoryExtra } }),
+      result: { ok: true, windows, visibleWindowCount: windows.length, productWindowCount: windows.length, untitledWindows: [], ...inventoryExtra } }),
     accessibility_snapshot: args => snapshotReply(snapshots.get(args.toolTitle)),
   };
   const client = { binding: { hwnd: 42, pid: 99, creationTime: "1" }, request: async (operation, args) => {
@@ -235,7 +235,7 @@ const receiptEntry = { hwnd: 87, pid: 99, cls: "Qt692QWindowIcon", title: "Beleg
 {
   const untitledWindow = { hwnd: 90, pid: 99, class: "Qt692QWindow", x: 50, y: 50, w: 300, h: 200, minimized: false, hung: false };
   const { client } = fakeClient([MAIN_WINDOW, RECEIPT_WINDOW, window(89, "Datei öffnen", [10, 10, 500, 400], { class: "#32770" })],
-    mainSpec(mainTree(cleanNames)), [], { visibleWindowCount: 6, untitledWindows: [untitledWindow] });
+    mainSpec(mainTree(cleanNames)), [], { visibleWindowCount: 6, productWindowCount: 6, untitledWindows: [untitledWindow] });
   const result = await executeQtNativeUiState(client, {}, 5000, undefined, profile);
   assert.equal(result.ok, true);
   assert.equal(result.blockiert, true);

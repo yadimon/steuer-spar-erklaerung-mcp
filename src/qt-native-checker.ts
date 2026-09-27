@@ -1,6 +1,7 @@
 import type { WorkerResult } from "./api-contract.js";
 import type { ProductProfile } from "./product-profiles.js";
-import type { QtNativeClient } from "./qt-native-client.js";
+import { QtNativeTransportError, type QtNativeClient } from "./qt-native-client.js";
+import { readMainWindowBinding } from "./qt-native-owned-windows.js";
 import { checkerResultComplete, checkerResults, dirtyState } from "./qt-native-projections.js";
 import { nativeTreeBoundReason, readQtNativeSnapshot } from "./qt-native-snapshot.js";
 
@@ -10,6 +11,9 @@ import { nativeTreeBoundReason, readQtNativeSnapshot } from "./qt-native-snapsho
  * UIA walk; the grouped list projection is shared with the ui_state handler.
  * The result stays a pure read: no focus navigation, no card is ever expanded,
  * so the interactive bookkeeping fields are the constants the worker reports.
+ * The worker's Resolve-Window restores a minimized main window first because
+ * its geometry is unusable; this path fails closed on it instead. Other windows
+ * of the process are left alone, exactly as the worker's branch ignores them.
  */
 
 const ACTIVE_HINT = "Fragen/Warnungen und Tipps sind getrennt. Ein Eintrag ist nicht automatisch ein Steuerfehler; mit sse_checker_open den Wortlaut oeffnen.";
@@ -22,9 +26,21 @@ export async function executeQtNativeCheckerResults(
   args: Readonly<Record<string, unknown>>,
   timeoutMs: number,
   signal?: AbortSignal,
-  _profile?: ProductProfile,
+  profile?: ProductProfile,
 ): Promise<WorkerResult> {
-  const snapshot = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 5000 }, timeoutMs, signal);
+  if (!profile) return fail("bad-args", "checker_results requires a product profile.");
+  if (args.hwnd !== undefined && args.hwnd !== client.binding.hwnd) {
+    throw new QtNativeTransportError("Requested window differs from the verified native session.", "stale-window");
+  }
+  const started = performance.now();
+  const budget = () => {
+    const remaining = Math.floor(timeoutMs - (performance.now() - started));
+    if (remaining < 1) throw new QtNativeTransportError("Native checker_results deadline exceeded before reading.", "native-timeout");
+    return remaining;
+  };
+  const bound = await readMainWindowBinding(client, budget, signal);
+  if (bound.failure) return bound.failure;
+  const snapshot = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 5000 }, budget(), signal);
   if (!snapshot.windowEnabled || snapshot.modalBlocked) {
     return fail("dialog-open", "Ein modaler Dialog blockiert die gebundene Seite; kein Prueferergebnis ausgegeben.");
   }
@@ -54,6 +70,6 @@ export async function executeQtNativeCheckerResults(
     ungespeichert: dirtyState(snapshot.nodes),
     hinweis: result.aktiv ? ACTIVE_HINT : CLOSED_HINT,
     backend: "qt",
-    nativeDurationMs: snapshot.nativeDurationMs,
+    nativeDurationMs: bound.binding.inventory.durationMs + snapshot.nativeDurationMs,
   };
 }

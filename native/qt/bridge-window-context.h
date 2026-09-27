@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cwchar>
 #include <cwctype>
+#include <map>
 #include "bridge-windows.h"
 static Json windowContext() {
     wchar_t image[32768]{};
@@ -17,11 +18,28 @@ static Json windowContext() {
 }
 
 struct ProcessWindowInventory {
+    std::wstring image;
+    std::map<DWORD, bool> productProcesses;
     Json windows = Json::array();
     Json untitled = Json::array();
     int visibleCount = 0;
+    int productCount = 0;
     bool failed = false;
 };
+
+// Get-Windows spans every process running the product image; a process this one may not query is no product process.
+static bool processRunsProductImage(ProcessWindowInventory &inventory, DWORD pid) {
+    const auto known = inventory.productProcesses.find(pid);
+    if (known != inventory.productProcesses.end()) return known->second;
+    bool same = false;
+    if (const auto process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid)) {
+        wchar_t image[32768]{}; DWORD size = 32768;
+        same = QueryFullProcessImageNameW(process, 0, image, &size) && _wcsicmp(inventory.image.c_str(), image) == 0;
+        CloseHandle(process);
+    }
+    inventory.productProcesses.emplace(pid, same);
+    return same;
+}
 
 static std::string processWindowUtf8(const wchar_t *value) {
     const auto characters = static_cast<int>(std::wcslen(value));
@@ -47,8 +65,12 @@ static BOOL CALLBACK collectProcessWindow(HWND window, LPARAM raw) {
         if (!IsWindowVisible(window)) return TRUE;
         DWORD pid = 0;
         if (!GetWindowThreadProcessId(window, &pid)) throw std::runtime_error("Window process is unavailable");
-        if (pid != GetCurrentProcessId()) return TRUE;
-        // The worker's window count includes untitled, shadow and tooltip windows; keep that population countable.
+        const bool own = pid == GetCurrentProcessId();
+        if (!own && !processRunsProductImage(inventory, pid)) return TRUE;
+        // The worker's page count spans every product process and includes untitled, shadow and tooltip windows;
+        // keep both populations countable while only this process's windows are listed and classified.
+        ++inventory.productCount;
+        if (!own) return TRUE;
         ++inventory.visibleCount;
         wchar_t className[256]{};
         if (!GetClassNameW(window, className, 256)) throw std::runtime_error("Window class is unavailable");
@@ -76,6 +98,10 @@ static BOOL CALLBACK collectProcessWindow(HWND window, LPARAM raw) {
 
 static Json processWindowInventory() {
     ProcessWindowInventory inventory;
+    wchar_t image[32768]{};
+    const auto size = GetModuleFileNameW(nullptr, image, 32768);
+    if (!size || size >= 32768) throw std::runtime_error("Native inventory image is unavailable");
+    inventory.image.assign(image, size);
     if (!EnumDesktopWindows(GetThreadDesktop(GetCurrentThreadId()), collectProcessWindow,
         reinterpret_cast<LPARAM>(&inventory)) || inventory.failed) {
         throw std::runtime_error("Process window inventory did not complete");
@@ -86,5 +112,5 @@ static Json processWindowInventory() {
     std::stable_sort(inventory.windows.begin(), inventory.windows.end(), byHandle);
     std::stable_sort(inventory.untitled.begin(), inventory.untitled.end(), byHandle);
     return {{"ok", true}, {"windows", std::move(inventory.windows)}, {"untitledWindows", std::move(inventory.untitled)},
-        {"visibleWindowCount", inventory.visibleCount}};
+        {"visibleWindowCount", inventory.visibleCount}, {"productWindowCount", inventory.productCount}};
 }
