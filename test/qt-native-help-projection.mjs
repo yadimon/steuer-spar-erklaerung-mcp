@@ -198,6 +198,9 @@ assert.deepEqual(await executeQtNativeHelp(makeClient(plain({ windowEnabled: fal
 assert.deepEqual(await executeQtNativeHelp(makeClient(plain({ stats: { ...stats, truncated: true } })), { hwnd: 42 }, 5000, undefined, profile),
   { ok: false, backend: "qt", kind: "native-incomplete",
     error: "Der native Seitenbaum ueberschreitet die Lesegrenze; keine unvollstaendige Hilfe ausgegeben." });
+assert.deepEqual(await executeQtNativeHelp(makeClient(plain({ stats: { ...stats, truncated: true, depthLimited: true } })), { hwnd: 42 }, 5000, undefined, profile),
+  { ok: false, backend: "qt", kind: "native-incomplete",
+    error: "Der native Seitenbaum ist tiefer als die Lesegrenze von 16 Ebenen; keine unvollstaendige Hilfe ausgegeben." });
 
 // Transport failures: foreign hwnd never reaches the bridge; a snapshot of another window is a contract breach.
 const before = requests.length;
@@ -207,4 +210,4 @@ assert.equal(requests.length, before);
 await assert.rejects(executeQtNativeHelp(makeClient(plain({ hwnd: 84 })), { hwnd: 42 }, 5000, undefined, profile),
   error => error instanceof QtNativeTransportError && error.kind === "native-contract");
 
-console.log("qt-native-help-projection: happy path, owned tips and Werte-Info windows, second case window, projection edge cases, 11 fail-closed and 3 transport cases ok");
+console.log("qt-native-help-projection: happy path, owned tips and Werte-Info windows, second case window, projection edge cases, 12 fail-closed and 3 transport cases ok");

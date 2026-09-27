@@ -69,6 +69,11 @@ export async function readQtNativeSnapshot(
   return { ...parsed, nativeDurationMs: read.durationMs };
 }
 
+/** The bridge folds its depth bound into `truncated`; a failure names the bound that was hit so the remedy fits. */
+export function nativeTreeBoundReason(stats: { depthLimited: boolean }, subject = "Der native Seitenbaum"): string {
+  return stats.depthLimited ? `${subject} ist tiefer als die Lesegrenze von 16 Ebenen` : `${subject} ueberschreitet die Lesegrenze`;
+}
+
 export function qtSnapshotArguments(args: Readonly<Record<string, unknown>>, profile: ProductProfile): Record<string, unknown> {
   if (args.toolWindow === undefined) return { ...args };
   const windows = profile.pageObjectsCatalog.windows;

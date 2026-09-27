@@ -247,6 +247,12 @@ const truncated = makeClient(full.nodes, fullRect, twoWindows, { snapshot: { sta
 assert.deepEqual(await executeQtNativePage(truncated.client, { hwnd: 42 }, 5000, undefined, profile), { ok: false, backend: "qt",
   kind: "native-incomplete", error: "Der native Seitenbaum ueberschreitet die Lesegrenze; keine unvollstaendige Seite ausgegeben." });
 assert.deepEqual(truncated.operations, ["window_inventory", "accessibility_snapshot"]);
+const deep = makeClient(full.nodes, fullRect, twoWindows, { snapshot: { stats: { ...stats, n: full.nodes.length, truncated: true, depthLimited: true } } });
+assert.deepEqual(await executeQtNativePage(deep.client, { hwnd: 42 }, 5000, undefined, profile), { ok: false, backend: "qt",
+  kind: "native-incomplete", error: "Der native Seitenbaum ist tiefer als die Lesegrenze von 16 Ebenen; keine unvollstaendige Seite ausgegeben." });
+const ownedDeep = makeClient(full.nodes, fullRect, twoWindows, { tool: { stats: { ...stats, n: 2, truncated: true, depthLimited: true } } });
+assert.deepEqual(await executeQtNativePage(ownedDeep.client, { hwnd: 42 }, 5000, undefined, profile), { ok: false, backend: "qt",
+  kind: "native-incomplete", error: "Der native Baum eines Nebenfensters ist tiefer als die Lesegrenze von 16 Ebenen; Seite nicht gelesen." });
 const foreignWindow = makeClient(full.nodes, fullRect, twoWindows);
 await assert.rejects(executeQtNativePage(foreignWindow.client, { hwnd: 43 }, 5000, undefined, profile), { kind: "stale-window" });
 assert.deepEqual(foreignWindow.operations, []);
@@ -330,4 +336,4 @@ const snapshotFailed = makeClient(full.nodes, fullRect, twoWindows, { snapshot: 
 await assert.rejects(executeQtNativePage(snapshotFailed.client, { hwnd: 42 }, 5000, undefined, profile),
   { kind: "native-read", message: "Synthetic snapshot failure." });
 
-console.log("qt-native-page-projection: 8 projections and 22 fail-closed guards pinned");
+console.log("qt-native-page-projection: 8 projections and 24 fail-closed guards pinned");

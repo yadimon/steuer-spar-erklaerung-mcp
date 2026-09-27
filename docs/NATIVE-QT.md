@@ -149,8 +149,13 @@ minimiertes Hauptfenster scheitert mit `minimized`, ein zweites Fallfenster
 desselben Prozesses wird wie beim Worker geduldet. `help` prüft das Inventar
 genauso und liest offene katalogisierte Nebenfenster wie die Steuer-Spar-Tipps
 über ihren Titel mit, weil der Worker-Baum sie unter dem Hauptfenster enthält. `page`, `help` und `checker_results`
-scheitern zusätzlich bei abgeschnittenem Baum mit `native-incomplete`,
-`read_table` meldet wie der Worker `incomplete`. `page` zählt in `offeneFenster`
+scheitern zusätzlich bei abgeschnittenem Baum mit `native-incomplete`, wobei
+die Meldung benennt, ob die Knotengrenze oder die Tiefengrenze von 16 Ebenen
+erreicht wurde; `read_table` meldet wie der Worker `incomplete`. Unsichtbare
+Teilbäume lässt die Bridge aus, genau wie Qt sie der UIA-Steuerungsansicht
+vorenthält; beide Pfade sehen von einer Liste deshalb nur die Zeilen im
+Sichtbereich, und `konsistent` vergleicht auf beiden Pfaden dieselben Zeilen
+mit der angekündigten Anzahl. `page` zählt in `offeneFenster`
 wie der Worker jedes sichtbare Fenster des gebundenen Prozesses, auch namenlose
 und Schattenfenster; `dialoge` bleibt dort immer leer, weil ein unbekanntes
 Fenster die Lesung bereits beendet hat. `page`, `help` und `checker_results`

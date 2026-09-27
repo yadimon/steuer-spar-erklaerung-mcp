@@ -4,7 +4,7 @@ import { QtNativeTransportError, type QtNativeClient } from "./qt-native-client.
 import { qtNativeContentBounds } from "./qt-native-pages.js";
 import { readBoundWindows, readOwnedWindowSubtrees } from "./qt-native-owned-windows.js";
 import { byPosition, psEquals } from "./qt-native-projections.js";
-import { readQtNativeSnapshot, type QtSnapshotNode } from "./qt-native-snapshot.js";
+import { nativeTreeBoundReason, readQtNativeSnapshot, type QtSnapshotNode } from "./qt-native-snapshot.js";
 
 /**
  * Direct Qt port of the worker branch 'help': the right-hand help column
@@ -118,7 +118,7 @@ export async function executeQtNativeHelp(
     return fail("dialog-open", "Ein modaler Dialog blockiert die gebundene Seite; keine Hilfe ausgegeben.");
   }
   if (snapshot.stats.truncated) {
-    return fail("native-incomplete", "Der native Seitenbaum ueberschreitet die Lesegrenze; keine unvollstaendige Hilfe ausgegeben.");
+    return fail("native-incomplete", `${nativeTreeBoundReason(snapshot.stats)}; keine unvollstaendige Hilfe ausgegeben.`);
   }
   // The worker treats an empty bulk snapshot as a failed read, never as an empty help column.
   if (!snapshot.nodes.length) return fail("native-incomplete", "Der native Seitenbaum ist leer; keine Hilfe ausgegeben.");

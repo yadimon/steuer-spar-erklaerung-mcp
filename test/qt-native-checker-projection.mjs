@@ -178,6 +178,13 @@ const activeNodes = buildNodes(activeSpecs);
     error: "Ein modaler Dialog blockiert die gebundene Seite; kein Prueferergebnis ausgegeben." });
   const disabled = await executeQtNativeCheckerResults(fakeClient(activeNodes, { windowEnabled: false }), { hwnd: 42 }, 5000);
   assert.deepEqual(disabled, modal);
+  const deep = await executeQtNativeCheckerResults(
+    fakeClient(activeNodes, { stats: { ...stats, n: activeNodes.length, truncated: true, depthLimited: true } }), { hwnd: 42 }, 5000);
+  assert.deepEqual(deep, { ok: false, backend: "qt", kind: "native-incomplete",
+    error: "Der native Seitenbaum ist tiefer als die Lesegrenze von 16 Ebenen; kein unvollstaendiges Prueferergebnis ausgegeben." });
+  // An empty bulk snapshot is a failed read for the worker, never a closed checker.
+  assert.deepEqual(await executeQtNativeCheckerResults(fakeClient([]), { hwnd: 42 }, 5000), { ok: false, backend: "qt",
+    kind: "native-incomplete", error: "Der native Seitenbaum ist leer; kein Prueferergebnis ausgegeben." });
   const truncated = await executeQtNativeCheckerResults(
     fakeClient(activeNodes, { stats: { ...stats, n: activeNodes.length, truncated: true } }), { hwnd: 42 }, 5000);
   assert.deepEqual(truncated, { ok: false, backend: "qt", kind: "native-incomplete",
@@ -192,4 +199,4 @@ const activeNodes = buildNodes(activeSpecs);
     error => error instanceof QtNativeTransportError && error.kind === "window-gone" && error.message === "Fenster verloren.");
 }
 
-console.log("qt-native-checker-projection: 13 checker_results projection cases passed");
+console.log("qt-native-checker-projection: 15 checker_results projection cases passed");
