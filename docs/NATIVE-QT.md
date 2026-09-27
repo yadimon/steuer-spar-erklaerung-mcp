@@ -143,8 +143,9 @@ und die gruppierte Prüferliste. Fremde Fensterteilbäume werden wie bisher als
 Qt-Pfad fremde Dialoge nicht beschreibt; `page` prüft davor das Win32-Fensterinventar
 des gebundenen Prozesses und scheitert ebenso mit `dialog-open`, sobald ein
 Fenster offen ist, das weder Werte-Info, Steuer-Spar-Tipps, ein Systemoverlay
-noch ein katalogisiertes nichtmodales Werkzeugfenster ist, und mit `minimized`
-bei minimiertem Hauptfenster. `page`, `help` und `checker_results`
+noch ein katalogisiertes nichtmodales Werkzeugfenster mit exakt gleichem Titel
+ist, oder ein namenloses Fenster sichtbar ist, das kein Tooltip, Schatten- oder
+Popupfenster ist; ein minimiertes Hauptfenster scheitert mit `minimized`. `page`, `help` und `checker_results`
 scheitern zusätzlich bei abgeschnittenem Baum mit `native-incomplete`,
 `read_table` meldet wie der Worker `incomplete`. `page` zählt in `offeneFenster`
 wie der Worker jedes sichtbare Fenster des gebundenen Prozesses, auch namenlose

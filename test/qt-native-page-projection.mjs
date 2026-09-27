@@ -15,7 +15,7 @@ const WERTE_INFO = "Werte-Info: Werte vergleichen - Was wäre wenn";
 
 function makeClient(nodes, rect, windows, overrides = {}) {
   const operations = [];
-  const { snapshot: snapshotOverride = {}, inventory = { ok: true, windows, visibleWindowCount: windows.length } } = overrides;
+  const { snapshot: snapshotOverride = {}, inventory = { ok: true, windows, visibleWindowCount: windows.length, untitledWindowCount: 0 } } = overrides;
   const snapshot = { ok: true, controllerBound: true, scope: "qt-accessibility-content", hwnd: 42, windowEnabled: true,
     modalBlocked: false, windowRect: rect, nodes, exactMatches: {}, stats: { ...stats, n: nodes.length }, ...snapshotOverride };
   const answers = {
@@ -218,12 +218,44 @@ assert.deepEqual(unknownWindow.operations, ["window_inventory"]);
 const oversizedTips = makeClient(full.nodes, fullRect, [...twoWindows, windowOf(85, "Steuer-Spar-Tipps", { w: 900, h: 700 })]);
 assert.equal((await executeQtNativePage(oversizedTips.client, { hwnd: 42 }, 5000, undefined, profile)).ok, true);
 // Untitled and shadow windows count for the worker's "more than two windows" rule but never appear in the list.
-const shadowed = makeClient(full.nodes, fullRect, twoWindows, { inventory: { ok: true, windows: twoWindows, visibleWindowCount: 3 } });
+const shadowed = makeClient(full.nodes, fullRect, twoWindows,
+  { inventory: { ok: true, windows: twoWindows, visibleWindowCount: 3, untitledWindowCount: 0 } });
 const withShadow = await executeQtNativePage(shadowed.client, { hwnd: 42 }, 5000, undefined, profile);
 assert.equal(withShadow.offeneFenster, 3);
 assert.equal(withShadow.blockiert, true);
-const undercounted = makeClient(full.nodes, fullRect, twoWindows, { inventory: { ok: true, windows: twoWindows, visibleWindowCount: 1 } });
+const undercounted = makeClient(full.nodes, fullRect, twoWindows,
+  { inventory: { ok: true, windows: twoWindows, visibleWindowCount: 2, untitledWindowCount: 1 } });
 await assert.rejects(executeQtNativePage(undercounted.client, { hwnd: 42 }, 5000, undefined, profile), { kind: "native-contract" });
+// An untitled window that is no tooltip, shadow or popup can be a dialog the inventory cannot name.
+const untitled = makeClient(full.nodes, fullRect, twoWindows,
+  { inventory: { ok: true, windows: twoWindows, visibleWindowCount: 3, untitledWindowCount: 1 } });
+assert.equal((await executeQtNativePage(untitled.client, { hwnd: 42 }, 5000, undefined, profile)).kind, "dialog-open");
+assert.deepEqual(untitled.operations, ["window_inventory"]);
+// The worker's closable-window policy is case-sensitive on the catalogued title.
+const caseVariant = makeClient(full.nodes, fullRect, [...twoWindows, windowOf(88, "belegmanager", { w: 1800, h: 1200 })]);
+assert.equal((await executeQtNativePage(caseVariant.client, { hwnd: 42 }, 5000, undefined, profile)).kind, "dialog-open");
+// --- Boundary constants copied from the worker: caption band, row band, toolbar band and checker name length.
+const edge = treeBuilder();
+edge.node("Tree", "Navigation", 0, 60, { w: 200, h: 600 });
+edge.node("Button", "Eingabehilfe", 800, 200);
+edge.node("Text", "Genau 14", 300, 86);
+edge.node("Edit", "", 400, 100, { val: "a", ro: false, aid: "window.RedThreadContent.Genau.Text" });
+edge.node("Text", "Genau 15", 300, 145);
+edge.node("Edit", "", 400, 160, { val: "b", ro: false, aid: "window.RedThreadContent.Knapp.Text" });
+edge.node("DataItem", "r1", 220, 300);
+edge.node("DataItem", "r1b", 300, 310);
+edge.node("DataItem", "r2", 220, 321);
+edge.node("Button", "Leiste", 400, 159);
+edge.node("Button", "Inhalt", 400, 160);
+edge.node("TreeItem", "y".repeat(89), 820, 400);
+edge.node("TreeItem", "z".repeat(90), 820, 420);
+const edges = await executeQtNativePage(makeClient(edge.nodes, fullRect, [twoWindows[0]]).client, { hwnd: 42 }, 5000, undefined, profile);
+assert.deepEqual(edges.felder.map(field => field.label), ["Genau 14", ""]);
+assert.deepEqual(edges.tabelle.zeilen, ["r1", "r1b", "r2"]);
+assert.equal(edges.tabelle.sichtbareZeilen, 2);
+assert.deepEqual(edges.aktionen.map(action => [action.name, action.bereich]),
+  [["Leiste", "werkzeugleiste"], ["Inhalt", "seite"], ["Eingabehilfe", "hilfespalte"]]);
+assert.deepEqual(edges.prueferMeldungen, ["y".repeat(89)]);
 const catalogued = makeClient(full.nodes, fullRect, [...twoWindows, windowOf(87, "BelegManager", { w: 1800, h: 1200 })]);
 const withManager = await executeQtNativePage(catalogued.client, { hwnd: 42 }, 5000, undefined, profile);
 assert.equal(withManager.ok, true);
@@ -242,10 +274,10 @@ const inventoryFailed = makeClient(full.nodes, fullRect, twoWindows, { inventory
 await assert.rejects(executeQtNativePage(inventoryFailed.client, { hwnd: 42 }, 5000, undefined, profile),
   { kind: "native-read", message: "Synthetic inventory failure." });
 const inventoryInvalid = makeClient(full.nodes, fullRect, twoWindows,
-  { inventory: { ok: true, windows: [{ hwnd: 42, title: "Ohne Prozess" }], visibleWindowCount: 1 } });
+  { inventory: { ok: true, windows: [{ hwnd: 42, title: "Ohne Prozess" }], visibleWindowCount: 1, untitledWindowCount: 0 } });
 await assert.rejects(executeQtNativePage(inventoryInvalid.client, { hwnd: 42 }, 5000, undefined, profile), { kind: "native-contract" });
 const snapshotFailed = makeClient(full.nodes, fullRect, twoWindows, { snapshot: { ok: false, error: "Synthetic snapshot failure.", code: "native-read" } });
 await assert.rejects(executeQtNativePage(snapshotFailed.client, { hwnd: 42 }, 5000, undefined, profile),
   { kind: "native-read", message: "Synthetic snapshot failure." });
 
-console.log("qt-native-page-projection: 5 projections and 15 fail-closed guards pinned");
+console.log("qt-native-page-projection: 6 projections and 17 fail-closed guards pinned");

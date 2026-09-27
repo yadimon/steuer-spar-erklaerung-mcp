@@ -19,6 +19,7 @@ static Json windowContext() {
 struct ProcessWindowInventory {
     Json windows = Json::array();
     int visibleCount = 0;
+    int untitledCount = 0;
     bool failed = false;
 };
 
@@ -49,11 +50,12 @@ static BOOL CALLBACK collectProcessWindow(HWND window, LPARAM raw) {
         if (pid != GetCurrentProcessId()) return TRUE;
         // The worker's window count includes untitled, shadow and tooltip windows; keep that population countable.
         ++inventory.visibleCount;
-        wchar_t title[4096]{};
-        if (!GetWindowTextW(window, title, 4096) || !title[0]) return TRUE;
         wchar_t className[256]{};
         if (!GetClassNameW(window, className, 256)) throw std::runtime_error("Window class is unavailable");
         if (processWindowIgnoredClass(className)) return TRUE;
+        wchar_t title[4096]{};
+        // An untitled window that is no tooltip, shadow or popup cannot be classified by title; report its count.
+        if (!GetWindowTextW(window, title, 4096) || !title[0]) { ++inventory.untitledCount; return TRUE; }
         if (inventory.windows.size() >= 256) throw std::runtime_error("Process window inventory exceeds its bound");
         RECT bounds{};
         if (!GetWindowRect(window, &bounds)) throw std::runtime_error("Window bounds are unavailable");
@@ -78,5 +80,6 @@ static Json processWindowInventory() {
     std::stable_sort(inventory.windows.begin(), inventory.windows.end(), [](const Json &left, const Json &right) {
         return left.at("hwnd").get<std::uint64_t>() < right.at("hwnd").get<std::uint64_t>();
     });
-    return {{"ok", true}, {"windows", std::move(inventory.windows)}, {"visibleWindowCount", inventory.visibleCount}};
+    return {{"ok", true}, {"windows", std::move(inventory.windows)}, {"visibleWindowCount", inventory.visibleCount},
+        {"untitledWindowCount", inventory.untitledCount}};
 }
