@@ -14601,6 +14601,81 @@ var init_qt_native_ui_state = __esm({
   }
 });
 
+// src/qt-native-help.ts
+function projectSection(entries) {
+  const zeilen = [];
+  for (const entry of entries) {
+    if (!psIn(entry.typ, TEXT_TYPES)) continue;
+    if (zeilen.length && zeilen[zeilen.length - 1] === entry.text) continue;
+    zeilen.push(entry.text);
+  }
+  const verweise = entries.filter((entry) => psEquals(entry.typ, "Hyperlink")).map((entry) => entry.text);
+  return { text: zeilen.join(" "), zeilen, verweise };
+}
+function qtNativeHelpProjection(nodes, windowRect) {
+  const bounds = contentBounds([...nodes], windowRect);
+  const rechts = nodes.filter((node) => node.x > bounds.maxX && node.name).sort(byPosition3);
+  const abschnitte = new OrderedSections();
+  let aktuell = "Allgemein";
+  for (const node of rechts) {
+    if (psIn(node.name, SECTION_HEADINGS)) {
+      aktuell = node.name;
+      abschnitte.ensure(aktuell);
+      continue;
+    }
+    if (psIn(node.name, SKIPPED_NAMES)) continue;
+    abschnitte.ensure(aktuell).push({ typ: node.type, text: node.name });
+  }
+  const ausgabe = {};
+  for (const [key, entries] of abschnitte.sections()) ausgabe[key] = projectSection(entries);
+  const ueberschrift = nodes.filter((node) => psEquals(node.type, "Text") && node.x >= bounds.minX && node.x <= bounds.maxX).sort((a, b) => a.y - b.y)[0];
+  return { seite: ueberschrift ? ueberschrift.name : null, abschnitte: ausgabe };
+}
+async function executeQtNativeHelp(client, args, timeoutMs, signal, _profile) {
+  const snapshot = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 4e3 }, timeoutMs, signal);
+  if (!snapshot.windowEnabled || snapshot.modalBlocked) {
+    return fail8("dialog-open", "Ein modaler Dialog blockiert die gebundene Seite; keine Hilfe ausgegeben.");
+  }
+  if (snapshot.stats.truncated) {
+    return fail8("native-incomplete", "Der native Seitenbaum ueberschreitet die Lesegrenze; keine unvollstaendige Hilfe ausgegeben.");
+  }
+  const { seite, abschnitte } = qtNativeHelpProjection(snapshot.nodes, snapshot.windowRect);
+  return { ok: true, seite, abschnitte, hinweis: HELP_HINT, backend: "qt", nativeDurationMs: snapshot.nativeDurationMs };
+}
+var psIn, SECTION_HEADINGS, SKIPPED_NAMES, TEXT_TYPES, HELP_HINT, fail8, OrderedSections;
+var init_qt_native_help = __esm({
+  "src/qt-native-help.ts"() {
+    "use strict";
+    init_qt_native_pages();
+    init_qt_native_projections();
+    init_qt_native_snapshot();
+    psIn = (value, set) => set.some((candidate) => psEquals(value, candidate));
+    SECTION_HEADINGS = ["Eingabehilfe", "Steuertipps", "Prüfer", "Steuer-Spar-Tipps"];
+    SKIPPED_NAMES = ["Mehr Details", "Details"];
+    TEXT_TYPES = ["Text", "Hyperlink", "TreeItem", "Button"];
+    HELP_HINT = "Die Hilfe wechselt mit dem angewaehlten Feld. Fuer feldbezogene Hilfe erst das Feld anwaehlen.";
+    fail8 = (kind, error) => ({ ok: false, backend: "qt", kind, error });
+    OrderedSections = class {
+      keys = [];
+      entries = /* @__PURE__ */ new Map();
+      lookup(key) {
+        return this.keys.find((known) => psEquals(known, key));
+      }
+      ensure(key) {
+        const known = this.lookup(key);
+        if (known !== void 0) return this.entries.get(known);
+        this.keys.push(key);
+        const list = [];
+        this.entries.set(key, list);
+        return list;
+      }
+      *sections() {
+        for (const key of this.keys) yield [key, this.entries.get(key)];
+      }
+    };
+  }
+});
+
 // src/qt-native-executor.ts
 import { performance as performance12 } from "node:perf_hooks";
 function isQtNativeReadOperation(operation) {
@@ -14613,7 +14688,7 @@ async function executeQtNativeRead(operation, args, dependencies, timeoutMs = DE
     const client = dependencies.qtNativeClient ?? await dependencies.qtNativeClientFor(args, timeoutMs, signal);
     const remaining = Math.floor(timeoutMs - (performance12.now() - started));
     if (remaining < 1) throw new QtNativeTransportError("Native operation deadline exceeded before reading.", "native-timeout");
-    const execute = operation === "known_page_state" ? executeQtNativeKnownPageState : operation === "page" ? executeQtNativePage : operation === "ui_state" ? executeQtNativeUiState : operation === "positions" ? executeQtNativePositions : operation === "ustva_read" ? executeQtNativeUstvaRead : operation === "receipt_manager_action" ? executeQtNativeReceiptManagerAction : operation === "receipt_manager_read" ? executeQtNativeReceiptManagerRead : operation === "receipt_manager_list" ? executeQtNativeReceiptManagerList : operation === "read_page" ? executeQtNativeReadPage : operation === "subpages" ? executeQtNativeSubpages : operation === "find" ? executeQtNativeFind : operation === "snapshot" ? executeQtNativeSnapshot : operation === "table_read" ? executeQtNativeTableRead : typeof args.rid === "string" && args.rid.startsWith("42.") ? executeQtSnapshotGetValue : executeQtNativeGetValue;
+    const execute = operation === "known_page_state" ? executeQtNativeKnownPageState : operation === "page" ? executeQtNativePage : operation === "ui_state" ? executeQtNativeUiState : operation === "help" ? executeQtNativeHelp : operation === "positions" ? executeQtNativePositions : operation === "ustva_read" ? executeQtNativeUstvaRead : operation === "receipt_manager_action" ? executeQtNativeReceiptManagerAction : operation === "receipt_manager_read" ? executeQtNativeReceiptManagerRead : operation === "receipt_manager_list" ? executeQtNativeReceiptManagerList : operation === "read_page" ? executeQtNativeReadPage : operation === "subpages" ? executeQtNativeSubpages : operation === "find" ? executeQtNativeFind : operation === "snapshot" ? executeQtNativeSnapshot : operation === "table_read" ? executeQtNativeTableRead : typeof args.rid === "string" && args.rid.startsWith("42.") ? executeQtSnapshotGetValue : executeQtNativeGetValue;
     return await execute(client, args, remaining, signal, profile);
   } catch (error) {
     return {
@@ -14642,6 +14717,7 @@ var init_qt_native_executor = __esm({
     init_qt_native_receipts();
     init_qt_native_page();
     init_qt_native_ui_state();
+    init_qt_native_help();
     QT_NATIVE_READ_OPERATIONS = [
       "get_value",
       "table_read",
@@ -14656,7 +14732,8 @@ var init_qt_native_executor = __esm({
       "receipt_manager_read",
       "receipt_manager_action",
       "page",
-      "ui_state"
+      "ui_state",
+      "help"
     ];
   }
 });
