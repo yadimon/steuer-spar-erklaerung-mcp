@@ -52,8 +52,12 @@ static BOOL CALLBACK collectProcessWindow(HWND window, LPARAM raw) {
         if (!GetClassNameW(window, className, 256)) throw std::runtime_error("Window class is unavailable");
         if (processWindowIgnoredClass(className)) return TRUE;
         if (inventory.windows.size() >= 256) throw std::runtime_error("Process window inventory exceeds its bound");
+        RECT bounds{};
+        if (!GetWindowRect(window, &bounds)) throw std::runtime_error("Window bounds are unavailable");
         inventory.windows.push_back({{"hwnd", reinterpret_cast<std::uint64_t>(window)}, {"pid", pid},
             {"class", processWindowUtf8(className)}, {"title", processWindowUtf8(title)},
+            {"x", static_cast<int>(bounds.left)}, {"y", static_cast<int>(bounds.top)},
+            {"w", static_cast<int>(bounds.right - bounds.left)}, {"h", static_cast<int>(bounds.bottom - bounds.top)},
             {"minimized", IsIconic(window) != FALSE}, {"hung", IsHungAppWindow(window) != FALSE}});
         return TRUE;
     } catch (...) {
