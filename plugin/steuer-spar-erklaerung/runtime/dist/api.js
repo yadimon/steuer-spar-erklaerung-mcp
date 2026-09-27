@@ -13266,9 +13266,30 @@ function transmissionName3(name) {
   if (VERSAND_FORMS.has(normalized)) return true;
   return ["elster", "versend", "versand", "ubermittl", "ubermittel", "abschick", "nachreich", "abschliess", "datenubertrag", "transfer"].some((stem) => normalized.includes(stem)) || normalized.startsWith("senden");
 }
+function findContainerNode(nodes, aidSuffix, containerType = "") {
+  if (!aidSuffix) return null;
+  const hits = nodes.filter((node) => (!containerType || node.type === containerType) && node.aid && node.aid.endsWith(aidSuffix));
+  return hits.length === 1 ? hits[0] : null;
+}
+function containerDescendants(nodes, aidSuffix, childType, containerType = "") {
+  const container = findContainerNode(nodes, aidSuffix, containerType);
+  if (!container) return [];
+  const inSubtree = /* @__PURE__ */ new Set([container.i]);
+  const hits = [];
+  for (const node of nodes) {
+    if (node.i === container.i || !inSubtree.has(node.p)) continue;
+    inSubtree.add(node.i);
+    if (node.type === childType) hits.push(node);
+  }
+  return hits.sort(byPosition3);
+}
 function navigationSelection(nodes) {
   const selected = nodes.filter((node) => node.type === "TreeItem" && node.selected === true);
   return selected.length === 1 ? selected[0].name : null;
+}
+function dirtyState(nodes) {
+  const save = nodes.find((node) => node.type === "Button" && node.aid.endsWith(".MainToolBar.tb_sichern"));
+  return save ? save.on : null;
 }
 function splitWindowScope(nodes, keepRid = "") {
   const rootOf = /* @__PURE__ */ new Map();
@@ -13294,6 +13315,151 @@ function splitWindowScope(nodes, keepRid = "") {
   }
   return { own, foreign: order.map((index) => foreignRoots.get(index)) };
 }
+function checkerTreeItems(nodes) {
+  return containerDescendants(nodes, CHECKER_TREE_SUFFIX, "TreeItem", "Tree").filter((node) => node.name);
+}
+function checkerResults(nodes) {
+  const checkerTree = findContainerNode(nodes, CHECKER_TREE_SUFFIX, "Tree");
+  const allItems = containerDescendants(nodes, CHECKER_TREE_SUFFIX, "TreeItem", "Tree");
+  const raw = checkerTreeItems(nodes).sort(byPosition3);
+  if (!raw.length) {
+    return {
+      aktiv: checkerTree !== null,
+      leer: checkerTree !== null && allItems.length === 0,
+      fragenWarnungenAngekuendigt: 0,
+      tippsAngekuendigt: 0,
+      fragenWarnungenGruppeGesehen: false,
+      tippsGruppeGesehen: false,
+      fragenWarnungen: [],
+      tippsZusatzinfos: [],
+      sonstige: [],
+      gesamt: 0,
+      aufgeklappt: []
+    };
+  }
+  const left = Math.min(...raw.map((node) => node.x));
+  const top = raw.filter((node) => node.x <= left + 6);
+  const details = raw.filter((node) => node.x > left + 6 && node.h >= 70);
+  const warn = [], tips = [], other = [];
+  let group = "sonstige", warnDeclared = 0, tipsDeclared = 0, warnSeen = false, tipsSeen = false;
+  for (const node of top) {
+    const warnHeader = /^(\d+)\s+Fragen oder Warnungen$/iu.exec(node.name);
+    if (warnHeader) {
+      warnDeclared = Number(warnHeader[1]);
+      warnSeen = true;
+      group = "fragenWarnungen";
+      continue;
+    }
+    const tipsHeader = /^(\d+)\s+Tipps oder Zusatzinformationen$/iu.exec(node.name);
+    if (tipsHeader) {
+      tipsDeclared = Number(tipsHeader[1]);
+      tipsSeen = true;
+      group = "tippsZusatzinfos";
+      continue;
+    }
+    const item = {
+      text: node.name,
+      rid: node.rid,
+      y: node.y,
+      aktiviert: node.on,
+      aufgeklappt: details.some((detail) => psEquals(detail.name, node.name))
+    };
+    if (group === "fragenWarnungen") warn.push(item);
+    else if (group === "tippsZusatzinfos") tips.push(item);
+    else other.push(item);
+  }
+  return {
+    aktiv: true,
+    leer: false,
+    fragenWarnungenAngekuendigt: warnDeclared,
+    tippsAngekuendigt: tipsDeclared,
+    fragenWarnungenGruppeGesehen: warnSeen,
+    tippsGruppeGesehen: tipsSeen,
+    fragenWarnungen: warn,
+    tippsZusatzinfos: tips,
+    sonstige: other,
+    gesamt: warn.length + tips.length + other.length,
+    aufgeklappt: [...new Set(details.map((detail) => detail.name))]
+  };
+}
+function checkerResultComplete(result) {
+  return result.aktiv && (result.leer && result.gesamt === 0 || result.fragenWarnungenGruppeGesehen && result.tippsGruppeGesehen && result.fragenWarnungenAngekuendigt === result.fragenWarnungen.length && result.tippsAngekuendigt === result.tippsZusatzinfos.length);
+}
+function comparableNumber(value) {
+  if (value === null || value === void 0) return null;
+  const text3 = String(value).replace(/\s+/gu, "").replaceAll(".", "").replaceAll(",", ".").replace(/[^0-9+\-.]/gu, "");
+  if (!text3 || ["+", "-", "."].includes(text3)) return null;
+  const parsed = Number(text3);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+function resultDetailsFromNodes(nodes, stats) {
+  const allData = containerDescendants(nodes, RESULT_TABLE_SUFFIX, "DataItem", "Table");
+  const unpositioned = allData.filter((node) => node.w <= 0 || node.h <= 0);
+  const data = allData.filter((node) => node.w > 0 && node.h > 0).sort(byPosition3);
+  const headers = containerDescendants(nodes, RESULT_TABLE_SUFFIX, "Header", "Table").filter((node) => node.w > 0 && node.h > 0).sort((a, b) => a.x - b.x).map((node) => node.name);
+  const table = findContainerNode(nodes, RESULT_TABLE_SUFFIX, "Table");
+  const scrollIncomplete = table !== null && table.scroll !== null;
+  const windowOpen = table !== null;
+  if (!data.length) {
+    return {
+      verfuegbar: false,
+      fensterOffen: windowOpen,
+      anzahl: 0,
+      vollstaendig: false,
+      zeilen: [],
+      unvollstaendigeZeilen: [],
+      nichtPositionierteZellenAnzahl: unpositioned.length,
+      uiaKopfzeilen: headers,
+      kopfVollstaendig: headers.length === 4,
+      vergleichsInvariantGeprueft: 0,
+      vergleichsInvariantFehler: [],
+      vertikalUnvollstaendig: scrollIncomplete,
+      fingerprint: null,
+      hinweis: windowOpen ? "Werte-Info ist offen, aber die Qt-Tabelle war in diesem Snapshot nicht lesbar." : "Werte-Info ist nicht offen. Einmal sse_result_details aufrufen; danach liest sse_ui_state die Werte ohne weiteren Fensterwechsel mit."
+    };
+  }
+  const groups = /* @__PURE__ */ new Map();
+  for (const node of data) groups.set(node.y, [...groups.get(node.y) ?? [], node]);
+  const rows = [], malformed = [], invariantErrors = [];
+  let invariantChecked = 0;
+  for (const y of [...groups.keys()].sort((a, b) => a - b)) {
+    const cells = [...groups.get(y)].sort((a, b) => a.x - b.x);
+    if (cells.length !== 4) {
+      malformed.push({ y, cells: cells.map((cell) => cell.name) });
+      continue;
+    }
+    const row = {
+      beobachteterWert: cells[0].name,
+      aktuell: cells[1].name,
+      festgehalten: cells[2].name,
+      differenz: cells[3].name
+    };
+    rows.push(row);
+    const actual = comparableNumber(row.aktuell), held = comparableNumber(row.festgehalten), difference = comparableNumber(row.differenz);
+    if (actual !== null && held !== null && difference !== null) {
+      invariantChecked += 1;
+      if (Math.abs(actual - held - difference) > 0.011) invariantErrors.push({ ...row });
+    }
+  }
+  const complete = rows.length > 0 && !malformed.length && !unpositioned.length && headers.length === 4 && !scrollIncomplete && !invariantErrors.length && !stats.truncated && !stats.cyc;
+  const fingerprintBody = powershellCompactJson(rows.length === 1 ? rows[0] : rows);
+  return {
+    verfuegbar: rows.length > 0,
+    fensterOffen: windowOpen,
+    anzahl: rows.length,
+    vollstaendig: complete,
+    zeilen: rows,
+    unvollstaendigeZeilen: malformed,
+    nichtPositionierteZellenAnzahl: unpositioned.length,
+    uiaKopfzeilen: headers,
+    kopfVollstaendig: headers.length === 4,
+    vergleichsInvariantGeprueft: invariantChecked,
+    vergleichsInvariantFehler: invariantErrors,
+    vertikalUnvollstaendig: scrollIncomplete,
+    fingerprint: rows.length ? textSha256(fingerprintBody) : null,
+    hinweis: "Aktuell ist der gegenwaertige Wert; festgehalten ist der Vergleichsstand; Differenz ist die Wirkung gegen diesen Stand."
+  };
+}
 async function readProcessWindowInventory(client, timeoutMs, signal) {
   const measured = await client.request("window_inventory", {}, timeoutMs, signal);
   if (!measured.result.ok) {
@@ -13307,7 +13473,7 @@ async function readProcessWindowInventory(client, timeoutMs, signal) {
   if (!parsed.success) throw new QtNativeTransportError("The process window inventory is incomplete or invalid.", "native-contract");
   return { windows: parsed.data.windows, durationMs: measured.durationMs };
 }
-var byPosition3, psEquals, textSha256, VERSAND, comparableForm, VERSAND_FORMS, processWindowSchema, processWindowInventorySchema;
+var byPosition3, psEquals, textSha256, VERSAND, comparableForm, VERSAND_FORMS, CHECKER_TREE_SUFFIX, RESULT_TABLE_SUFFIX, processWindowSchema, processWindowInventorySchema;
 var init_qt_native_projections = __esm({
   "src/qt-native-projections.ts"() {
     "use strict";
@@ -13332,6 +13498,8 @@ var init_qt_native_projections = __esm({
     ];
     comparableForm = (text3) => text3.replaceAll("…", "").replaceAll("...", "").replaceAll("&", "").toLowerCase().replaceAll("ä", "a").replaceAll("ö", "o").replaceAll("ü", "u").replaceAll("ß", "ss").replace(/[^\p{L}\p{N}]/gu, "");
     VERSAND_FORMS = new Set(VERSAND.map(comparableForm));
+    CHECKER_TREE_SUFFIX = "PrueferWidgetSSE.SteuerPruefer";
+    RESULT_TABLE_SUFFIX = "obj_Wertetabelle";
     processWindowSchema = external_exports.object({
       hwnd: external_exports.number().int().positive(),
       pid: external_exports.number().int().positive(),
@@ -13592,8 +13760,8 @@ async function executeQtNativeReceiptManagerList(client, args, timeoutMs, signal
   if ("error" in list) return list.error;
   const remaining = Math.floor(timeoutMs - (performance.now() - started));
   if (remaining < 1) return fail5("native-timeout", "Native receipt read deadline expired before dirty-state verification.");
-  const dirtyState = await receiptDirtyState(client, args.hwnd, parsedPolicy.data.title, remaining, signal);
-  if (dirtyState.error) return dirtyState.error;
+  const dirtyState2 = await receiptDirtyState(client, args.hwnd, parsedPolicy.data.title, remaining, signal);
+  if (dirtyState2.error) return dirtyState2.error;
   let matches = [...list.rows];
   const filter = parsedFilter?.success ? parsedFilter.data : void 0;
   if (filter && Object.hasOwn(filter, "exactTitle")) matches = matches.filter((row) => row.primaryText === filter.exactTitle);
@@ -13632,10 +13800,10 @@ async function executeQtNativeReceiptManagerList(client, args, timeoutMs, signal
     matchedCount,
     matches: compactMatches,
     matchesComplete: matchedCount <= limit,
-    ungespeichert: dirtyState.dirty,
+    ungespeichert: dirtyState2.dirty,
     physicalInputUsed: false,
     hinweis: list.rowsComplete ? "Alle vom BelegManager gezaehlten Zeilen sind im Qt-Baum enthalten." : `BelegManager zaehlt ${list.count} Belege, aber Qt exponiert aktuell ${list.rows.length} Zeilen; Ergebnis ist sichtbar, nicht vollstaendig.`,
-    nativeDurationMs: tool.nativeDurationMs + dirtyState.durationMs
+    nativeDurationMs: tool.nativeDurationMs + dirtyState2.durationMs
   };
 }
 var receiptPolicySchema, filterSchema, fail5, canonicalReceiptJson, receiptTextFingerprint, receiptFingerprint;
@@ -14262,6 +14430,177 @@ var init_qt_native_page = __esm({
   }
 });
 
+// src/qt-native-ui-state.ts
+function windowKind(window) {
+  if (psEquals(window.title, WERTE_INFO_TITLE) && window.w <= 900 && window.h <= 700) return "werte-info";
+  if (psEquals(window.title, TIPS_TITLE) && window.w <= 850 && window.h <= 650) return "steuer-tipps";
+  if (/^UAC[ _]/iu.test(window.class) && window.w <= 80 && window.h <= 80) return "system-overlay";
+  return "nicht-lesbar";
+}
+function windowEntry(window, art, uiaReadOk, uiaError) {
+  return {
+    hwnd: window.hwnd,
+    pid: window.pid,
+    cls: window.class,
+    title: window.title,
+    art,
+    x: window.x,
+    y: window.y,
+    w: window.w,
+    h: window.h,
+    buttons: [],
+    texte: [],
+    fingerprint: null,
+    uiaReadOk,
+    uiaError,
+    msaaReadOk: null,
+    msaaError: null
+  };
+}
+function untitledModalEntry(pid2) {
+  return {
+    hwnd: 0,
+    pid: pid2,
+    cls: "",
+    title: "",
+    art: "nicht-lesbar",
+    x: 0,
+    y: 0,
+    w: 0,
+    h: 0,
+    buttons: [],
+    texte: [],
+    fingerprint: null,
+    uiaReadOk: false,
+    uiaError: UNTITLED_MODAL_HINT,
+    msaaReadOk: null,
+    msaaError: null
+  };
+}
+async function executeQtNativeUiState(client, args, timeoutMs, signal, profile) {
+  if (!profile) return fail7("bad-args", "ui_state requires a product profile.");
+  if (args.hwnd !== void 0 && args.hwnd !== client.binding.hwnd) {
+    throw new QtNativeTransportError("Requested window differs from the verified native session.", "stale-window");
+  }
+  const started = performance.now();
+  const budget = () => {
+    const remaining = Math.floor(timeoutMs - (performance.now() - started));
+    if (remaining < 1) throw new QtNativeTransportError("Native ui_state deadline expired before reading.", "native-timeout");
+    return remaining;
+  };
+  const inventory = await readProcessWindowInventory(client, budget(), signal);
+  let nativeDurationMs = inventory.durationMs;
+  const main2 = inventory.windows.find((window) => window.hwnd === client.binding.hwnd);
+  if (!main2) return fail7("stale-window", "Das angegebene hwnd ist kein aktuelles Hauptfenster.");
+  if (main2.pid !== client.binding.pid) throw new QtNativeTransportError("The bound main window belongs to another process.", "native-contract");
+  if (main2.minimized) return fail7("minimized", "Das gebundene SSE-Hauptfenster ist minimiert; der direkte Qt-Pfad stellt es nicht wieder her.");
+  const mainSnapshot = await readQtNativeSnapshot(client, { hwnd: client.binding.hwnd, maxNodes: 5e3 }, budget(), signal);
+  nativeDurationMs += mainSnapshot.nativeDurationMs;
+  const fenster = inventory.windows.filter((window) => window.pid === main2.pid).map((window) => {
+    if (window.hwnd === main2.hwnd) return windowEntry(window, "hauptfenster", true, null);
+    const art = windowKind(window);
+    return art === "nicht-lesbar" ? windowEntry(window, art, false, UNREADABLE_HINT) : windowEntry(window, art, null, null);
+  });
+  const obstructed = mainSnapshot.modalBlocked || !mainSnapshot.windowEnabled;
+  if (obstructed && !fenster.some((window) => window.art === "nicht-lesbar")) fenster.push(untitledModalEntry(main2.pid));
+  const werteInfo = fenster.filter((window) => window.art === "werte-info");
+  if (werteInfo.length > 1) return fail7("ambiguous", "Werte-Info ist nicht eindeutig.");
+  const own = splitWindowScope(mainSnapshot.nodes).own;
+  const bounds = contentBounds(own, mainSnapshot.windowRect);
+  const heading2 = heading(own, profile);
+  const checker = checkerResults(own);
+  const steuerpruefer = { ...checker, konsistent: checkerResultComplete(checker) };
+  const pruefer = unique(own.filter((node) => node.type === "TreeItem" && node.name && node.x > bounds.maxX && node.name.length < 90).map((node) => node.name).filter((name) => !PRUEFER_EXCLUDED.includes(name.toLowerCase())));
+  const baumfehler = unique(own.filter((node) => node.type === "TreeItem" && node.name && node.x < bounds.minX && /!\s*$/u.test(node.name) && !node.aid.toLowerCase().includes("prueferwidgetsse")).map((node) => node.name));
+  const leerePflicht = own.filter((node) => node.type === "ComboBox" && node.x >= bounds.minX && node.x <= bounds.maxX && !(node.val ?? "").trim()).map((node) => ({ y: node.y, aid: node.aid.split(".").at(-1) ?? "", rid: node.rid }));
+  const dirty = dirtyState(own);
+  let ergebnis = resultDetailsFromNodes(own, mainSnapshot.stats);
+  if (werteInfo.length === 1) {
+    const tool = await readQtNativeSnapshot(client, { maxNodes: 5e3, toolTitle: werteInfo[0].title }, budget(), signal);
+    nativeDurationMs += tool.nativeDurationMs;
+    if (tool.hwnd !== werteInfo[0].hwnd) throw new QtNativeTransportError("The Werte-Info snapshot returned another window.", "native-contract");
+    ergebnis = resultDetailsFromNodes(tool.nodes, tool.stats);
+  }
+  const dialoge = [];
+  const unsicher = fenster.filter((window) => window.art === "unbekannt" || window.art === "nicht-lesbar");
+  const nichtmodal = fenster.filter((window) => window.art === "werte-info" || window.art === "steuer-tipps");
+  const blockiert = unsicher.length > 0 || pruefer.length > 0 || baumfehler.length > 0;
+  const stateCore = {
+    instance: { pid: main2.pid, hwnd: main2.hwnd },
+    heading: heading2,
+    dirty,
+    blockiert,
+    dialogs: [],
+    uncertain: unsicher.map((window) => ({
+      hwnd: window.hwnd,
+      cls: window.cls,
+      title: window.title,
+      art: window.art,
+      uiaReadOk: window.uiaReadOk,
+      uiaError: window.uiaError,
+      msaaReadOk: window.msaaReadOk,
+      msaaError: window.msaaError
+    })),
+    windowKinds: fenster.filter((window) => window.art !== "system-overlay" && window.art !== "shadow").map((window) => window.art).sort(),
+    pruefer,
+    baumfehler,
+    leerePflicht: [...leerePflicht].sort(byRequiredField).map((field) => field.aid),
+    checker: {
+      aktiv: checker.aktiv,
+      fragen: checker.fragenWarnungenAngekuendigt,
+      tipps: checker.tippsAngekuendigt,
+      konsistent: steuerpruefer.konsistent
+    },
+    ergebnisFingerprint: ergebnis.fingerprint
+  };
+  const stateFingerprint = textSha256(powershellCompactJson(stateCore));
+  const previous = args.previousFingerprint === void 0 || args.previousFingerprint === null ? "" : String(args.previousFingerprint);
+  const changedSince = previous ? !psEquals(previous, stateFingerprint) : null;
+  const rat = unsicher.length ? "Mindestens ein unbekanntes oder nicht lesbares SSE-Fenster ist offen. Zustand gilt als blockiert; per Screenshot/manuell klaeren." : pruefer.length || baumfehler.length ? `Der Seitenpruefer verlangt Angaben: ${[...pruefer, ...baumfehler].join("; ")}. Erst klaeren, dann navigieren.` : checker.aktiv && steuerpruefer.konsistent ? `Globaler Steuerpruefer aktiv: ${checker.fragenWarnungenAngekuendigt} Fragen/Warnungen und ${checker.tippsAngekuendigt} Tipps.` : checker.aktiv ? "Globaler Steuerpruefer aktiv, aber Qt liefert keinen vollstaendigen konsistenten Baum; gezielt oder per Screenshot kontrollieren." : !ergebnis.verfuegbar ? "frei; fuer Ergebniswerte einmal sse_result_details oeffnen, danach kommen sie in jedem sse_ui_state mit." : "frei";
+  return {
+    ok: true,
+    running: true,
+    instance: { pid: main2.pid, hwnd: main2.hwnd, title: main2.title },
+    stateFingerprint,
+    changedSince,
+    heading: heading2,
+    blockiert,
+    dialoge,
+    unsichereFenster: unsicher,
+    prueferMeldungen: pruefer,
+    baumFehler: baumfehler,
+    leerePflichtfelder: leerePflicht,
+    steuerpruefer,
+    ungespeichert: dirty,
+    ergebnis,
+    fensterAnzahl: fenster.length,
+    warnfensterAnzahl: 0,
+    nichtmodaleFenster: nichtmodal,
+    snapshot: { source: "qt", nodes: mainSnapshot.stats.n, truncated: mainSnapshot.stats.truncated, cycles: 0, snapshotMs: mainSnapshot.stats.snapshotMs },
+    rat,
+    backend: "qt",
+    nativeDurationMs
+  };
+}
+var WERTE_INFO_TITLE, TIPS_TITLE, PRUEFER_EXCLUDED, UNREADABLE_HINT, UNTITLED_MODAL_HINT, fail7, unique, byRequiredField;
+var init_qt_native_ui_state = __esm({
+  "src/qt-native-ui-state.ts"() {
+    "use strict";
+    init_qt_native_client();
+    init_qt_native_pages();
+    init_qt_native_projections();
+    init_qt_native_snapshot();
+    WERTE_INFO_TITLE = "Werte-Info: Werte vergleichen - Was wäre wenn";
+    TIPS_TITLE = "Steuer-Spar-Tipps";
+    PRUEFER_EXCLUDED = ["Eingabehilfe", "Steuertipps", "Prüfer", "Mehr Details", "Steuer-Spar-Tipps", "Zurzeit keine Hinweise zu diesem Dialog."].map((name) => name.toLowerCase());
+    UNREADABLE_HINT = "Der direkte Qt-Pfad liest fremde Dialoge und unbekannte Fenster nicht; mit sse_dialog_list oder sse_windows pruefen.";
+    UNTITLED_MODAL_HINT = "Ein modaler Dialog ohne Fenstertitel blockiert das gebundene Hauptfenster; der direkte Qt-Pfad liest ihn nicht.";
+    fail7 = (kind, error) => ({ ok: false, backend: "qt", kind, error });
+    unique = (values) => [...new Set(values)];
+    byRequiredField = (a, b) => a.y - b.y || a.aid.localeCompare(b.aid, "de", { sensitivity: "accent" });
+  }
+});
+
 // src/qt-native-executor.ts
 import { performance as performance12 } from "node:perf_hooks";
 function isQtNativeReadOperation(operation) {
@@ -14274,7 +14613,7 @@ async function executeQtNativeRead(operation, args, dependencies, timeoutMs = DE
     const client = dependencies.qtNativeClient ?? await dependencies.qtNativeClientFor(args, timeoutMs, signal);
     const remaining = Math.floor(timeoutMs - (performance12.now() - started));
     if (remaining < 1) throw new QtNativeTransportError("Native operation deadline exceeded before reading.", "native-timeout");
-    const execute = operation === "known_page_state" ? executeQtNativeKnownPageState : operation === "page" ? executeQtNativePage : operation === "positions" ? executeQtNativePositions : operation === "ustva_read" ? executeQtNativeUstvaRead : operation === "receipt_manager_action" ? executeQtNativeReceiptManagerAction : operation === "receipt_manager_read" ? executeQtNativeReceiptManagerRead : operation === "receipt_manager_list" ? executeQtNativeReceiptManagerList : operation === "read_page" ? executeQtNativeReadPage : operation === "subpages" ? executeQtNativeSubpages : operation === "find" ? executeQtNativeFind : operation === "snapshot" ? executeQtNativeSnapshot : operation === "table_read" ? executeQtNativeTableRead : typeof args.rid === "string" && args.rid.startsWith("42.") ? executeQtSnapshotGetValue : executeQtNativeGetValue;
+    const execute = operation === "known_page_state" ? executeQtNativeKnownPageState : operation === "page" ? executeQtNativePage : operation === "ui_state" ? executeQtNativeUiState : operation === "positions" ? executeQtNativePositions : operation === "ustva_read" ? executeQtNativeUstvaRead : operation === "receipt_manager_action" ? executeQtNativeReceiptManagerAction : operation === "receipt_manager_read" ? executeQtNativeReceiptManagerRead : operation === "receipt_manager_list" ? executeQtNativeReceiptManagerList : operation === "read_page" ? executeQtNativeReadPage : operation === "subpages" ? executeQtNativeSubpages : operation === "find" ? executeQtNativeFind : operation === "snapshot" ? executeQtNativeSnapshot : operation === "table_read" ? executeQtNativeTableRead : typeof args.rid === "string" && args.rid.startsWith("42.") ? executeQtSnapshotGetValue : executeQtNativeGetValue;
     return await execute(client, args, remaining, signal, profile);
   } catch (error) {
     return {
@@ -14302,6 +14641,7 @@ var init_qt_native_executor = __esm({
     init_qt_native_receipt_action();
     init_qt_native_receipts();
     init_qt_native_page();
+    init_qt_native_ui_state();
     QT_NATIVE_READ_OPERATIONS = [
       "get_value",
       "table_read",
@@ -14315,7 +14655,8 @@ var init_qt_native_executor = __esm({
       "receipt_manager_list",
       "receipt_manager_read",
       "receipt_manager_action",
-      "page"
+      "page",
+      "ui_state"
     ];
   }
 });

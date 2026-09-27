@@ -12,11 +12,12 @@ import { executeQtNativeReceiptManagerRead } from "./qt-native-receipt-read.js";
 import { executeQtNativeReceiptManagerAction } from "./qt-native-receipt-action.js";
 import { executeQtNativeReceiptManagerList } from "./qt-native-receipts.js";
 import { executeQtNativePage } from "./qt-native-page.js";
+import { executeQtNativeUiState } from "./qt-native-ui-state.js";
 
 export const QT_NATIVE_READ_OPERATIONS = [
   "get_value", "table_read", "snapshot", "find", "read_page", "subpages", "known_page_state", "positions", "ustva_read",
   "receipt_manager_list", "receipt_manager_read", "receipt_manager_action",
-  "page",
+  "page", "ui_state",
 ] as const;
 type QtNativeReadOperation = typeof QT_NATIVE_READ_OPERATIONS[number];
 export function isQtNativeReadOperation(operation: string): operation is QtNativeReadOperation {
@@ -41,6 +42,7 @@ export async function executeQtNativeRead(
     if (remaining < 1) throw new QtNativeTransportError("Native operation deadline exceeded before reading.", "native-timeout");
     const execute = operation === "known_page_state" ? executeQtNativeKnownPageState
       : operation === "page" ? executeQtNativePage
+      : operation === "ui_state" ? executeQtNativeUiState
       : operation === "positions" ? executeQtNativePositions
       : operation === "ustva_read" ? executeQtNativeUstvaRead
       : operation === "receipt_manager_action" ? executeQtNativeReceiptManagerAction
