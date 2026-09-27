@@ -8,11 +8,14 @@ import { loadProductProfile } from "../dist/product-profiles.js";
 const profile = loadProductProfile("2025");
 const stats = { n: 0, err: 0, cyc: 0, cycleRid: "", cycleName: "", truncated: false, depthLimited: false,
   valErr: 0, scrollErr: 0, source: "qt", fallbackReason: "", snapshotMs: 1 };
-const windowOf = (hwnd, title) => ({ hwnd, pid: 99, class: "Qt692QWindowIcon", title, x: 0, y: 0, w: 1000, h: 700, minimized: false, hung: false });
+const windowOf = (hwnd, title, size = { w: 1000, h: 700 }, extra = {}) => ({
+  hwnd, pid: 99, class: "Qt692QWindowIcon", title, x: 0, y: 0, ...size, minimized: false, hung: false, ...extra,
+});
+const WERTE_INFO = "Werte-Info: Werte vergleichen - Was wäre wenn";
 
 function makeClient(nodes, rect, windows, overrides = {}) {
   const operations = [];
-  const { snapshot: snapshotOverride = {}, inventory = { ok: true, windows } } = overrides;
+  const { snapshot: snapshotOverride = {}, inventory = { ok: true, windows, visibleWindowCount: windows.length } } = overrides;
   const snapshot = { ok: true, controllerBound: true, scope: "qt-accessibility-content", hwnd: 42, windowEnabled: true,
     modalBlocked: false, windowRect: rect, nodes, exactMatches: {}, stats: { ...stats, n: nodes.length }, ...snapshotOverride };
   const answers = {
@@ -88,11 +91,11 @@ full.node("Header", "Fremd", 310, 320, { p: foreign, w: 50, rid: "42.7.4.1" });
 full.node("DataItem", "99,99", 310, 340, { p: foreign, rid: "42.7.4.2" });
 full.node("Text", "Fremdtext", 310, 360, { p: foreign, rid: "42.7.4.3" });
 const fullRect = { x: 0, y: 0, w: 1000, h: 700 };
-const twoWindows = [windowOf(42, "SteuerSparErklärung 2025"), windowOf(84, "Werte-Info")];
+const twoWindows = [windowOf(42, "SteuerSparErklärung 2025"), windowOf(84, WERTE_INFO, { w: 400, h: 300 })];
 
 const happy = makeClient(full.nodes, fullRect, twoWindows);
 const page = await executeQtNativePage(happy.client, { hwnd: 42 }, 5000, undefined, profile);
-assert.deepEqual(happy.operations, ["accessibility_snapshot", "window_inventory"]);
+assert.deepEqual(happy.operations, ["window_inventory", "accessibility_snapshot"]);
 assert.deepEqual(Object.keys(page), ["hinweis", "ok", "ueberschrift", "ueberschriftQuelle", "navigationAuswahl", "ausgeschlosseneFenster",
   "felder", "tabelle", "aktionen", "blockiert", "prueferMeldungen", "leerePflichtfelder", "dialoge", "offeneFenster", "stats",
   "backend", "nativeDurationMs"]);
@@ -145,7 +148,7 @@ bare.node("Button", "Senden", 400, 300);
 bare.node("TreeItem", "Pick", 50, 400, { selected: true });
 bare.node("TreeItem", "Pick2", 50, 420, { selected: true });
 const bareRect = { x: 100, y: 50, w: 1000, h: 700 };
-const threeWindows = [...twoWindows, windowOf(85, "Steuer-Spar-Tipps")];
+const threeWindows = [...twoWindows, windowOf(85, "Steuer-Spar-Tipps", { w: 400, h: 300 })];
 const unlabelled = makeClient(bare.nodes, bareRect, threeWindows);
 assert.deepEqual(await executeQtNativePage(unlabelled.client, { hwnd: 42 }, 5000, undefined, profile), {
   hinweis: "Kein Feld dieser Seite hat eine Beschriftung - die Beschriftungsspalte liegt ausserhalb des erkannten Inhaltsbereichs. "
@@ -188,13 +191,13 @@ const dialogOpen = { ok: false, backend: "qt", kind: "dialog-open",
   error: "Ein modaler Dialog blockiert die gebundene Seite; keine Werte ausgegeben. Dialoge mit sse_dialog_list lesen." };
 const modal = makeClient(full.nodes, fullRect, twoWindows, { snapshot: { modalBlocked: true } });
 assert.deepEqual(await executeQtNativePage(modal.client, { hwnd: 42 }, 5000, undefined, profile), dialogOpen);
-assert.deepEqual(modal.operations, ["accessibility_snapshot"]);
+assert.deepEqual(modal.operations, ["window_inventory", "accessibility_snapshot"]);
 const disabled = makeClient(full.nodes, fullRect, twoWindows, { snapshot: { windowEnabled: false } });
 assert.deepEqual(await executeQtNativePage(disabled.client, { hwnd: 42 }, 5000, undefined, profile), dialogOpen);
 const truncated = makeClient(full.nodes, fullRect, twoWindows, { snapshot: { stats: { ...stats, n: full.nodes.length, truncated: true } } });
 assert.deepEqual(await executeQtNativePage(truncated.client, { hwnd: 42 }, 5000, undefined, profile), { ok: false, backend: "qt",
   kind: "native-incomplete", error: "Der native Seitenbaum ueberschreitet die Lesegrenze; keine unvollstaendige Seite ausgegeben." });
-assert.deepEqual(truncated.operations, ["accessibility_snapshot"]);
+assert.deepEqual(truncated.operations, ["window_inventory", "accessibility_snapshot"]);
 const foreignWindow = makeClient(full.nodes, fullRect, twoWindows);
 await assert.rejects(executeQtNativePage(foreignWindow.client, { hwnd: 43 }, 5000, undefined, profile), { kind: "stale-window" });
 assert.deepEqual(foreignWindow.operations, []);
@@ -204,14 +207,45 @@ assert.deepEqual(await executeQtNativePage(noProfile.client, { hwnd: 42 }, 5000)
 assert.deepEqual(noProfile.operations, []);
 const exhausted = makeClient(full.nodes, fullRect, twoWindows);
 await assert.rejects(executeQtNativePage(exhausted.client, { hwnd: 42 }, 0, undefined, profile), { kind: "native-timeout" });
-assert.deepEqual(exhausted.operations, ["accessibility_snapshot"]);
+assert.deepEqual(exhausted.operations, []);
+// --- Fail closed on windows this path cannot describe: an unknown window, a minimized or vanished main window.
+const unknownWindow = makeClient(full.nodes, fullRect, [...twoWindows, windowOf(86, "Datei öffnen", { w: 500, h: 400 }, { class: "#32770" })]);
+assert.deepEqual(await executeQtNativePage(unknownWindow.client, { hwnd: 42 }, 5000, undefined, profile), { ok: false, backend: "qt",
+  kind: "dialog-open", error: "Ein nicht katalogisiertes Fenster des gebundenen Prozesses ist offen; Seite nicht gelesen. "
+    + "Dialoge mit sse_dialog_list lesen und bewusst beantworten." });
+assert.deepEqual(unknownWindow.operations, ["window_inventory"]);
+// A catalogued nonmodal window stays known whatever its size, exactly like the worker's closable-window policy.
+const oversizedTips = makeClient(full.nodes, fullRect, [...twoWindows, windowOf(85, "Steuer-Spar-Tipps", { w: 900, h: 700 })]);
+assert.equal((await executeQtNativePage(oversizedTips.client, { hwnd: 42 }, 5000, undefined, profile)).ok, true);
+// Untitled and shadow windows count for the worker's "more than two windows" rule but never appear in the list.
+const shadowed = makeClient(full.nodes, fullRect, twoWindows, { inventory: { ok: true, windows: twoWindows, visibleWindowCount: 3 } });
+const withShadow = await executeQtNativePage(shadowed.client, { hwnd: 42 }, 5000, undefined, profile);
+assert.equal(withShadow.offeneFenster, 3);
+assert.equal(withShadow.blockiert, true);
+const undercounted = makeClient(full.nodes, fullRect, twoWindows, { inventory: { ok: true, windows: twoWindows, visibleWindowCount: 1 } });
+await assert.rejects(executeQtNativePage(undercounted.client, { hwnd: 42 }, 5000, undefined, profile), { kind: "native-contract" });
+const catalogued = makeClient(full.nodes, fullRect, [...twoWindows, windowOf(87, "BelegManager", { w: 1800, h: 1200 })]);
+const withManager = await executeQtNativePage(catalogued.client, { hwnd: 42 }, 5000, undefined, profile);
+assert.equal(withManager.ok, true);
+assert.equal(withManager.offeneFenster, 3);
+assert.equal(withManager.blockiert, true);
+const minimized = makeClient(full.nodes, fullRect, [windowOf(42, "SteuerSparErklärung 2025", undefined, { minimized: true }), twoWindows[1]]);
+assert.deepEqual(await executeQtNativePage(minimized.client, { hwnd: 42 }, 5000, undefined, profile), { ok: false, backend: "qt",
+  kind: "minimized", error: "Das gebundene SSE-Hauptfenster ist minimiert; der direkte Qt-Pfad stellt es nicht wieder her." });
+assert.deepEqual(minimized.operations, ["window_inventory"]);
+const vanished = makeClient(full.nodes, fullRect, [twoWindows[1]]);
+assert.deepEqual(await executeQtNativePage(vanished.client, { hwnd: 42 }, 5000, undefined, profile), { ok: false, backend: "qt",
+  kind: "stale-window", error: "Das angegebene hwnd ist kein aktuelles Hauptfenster." });
+const otherProcess = makeClient(full.nodes, fullRect, [{ ...twoWindows[0], pid: 98 }]);
+await assert.rejects(executeQtNativePage(otherProcess.client, { hwnd: 42 }, 5000, undefined, profile), { kind: "native-contract" });
 const inventoryFailed = makeClient(full.nodes, fullRect, twoWindows, { inventory: { ok: false, error: "Synthetic inventory failure.", code: "native-read" } });
 await assert.rejects(executeQtNativePage(inventoryFailed.client, { hwnd: 42 }, 5000, undefined, profile),
   { kind: "native-read", message: "Synthetic inventory failure." });
-const inventoryInvalid = makeClient(full.nodes, fullRect, twoWindows, { inventory: { ok: true, windows: [{ hwnd: 42, title: "Ohne Prozess" }] } });
+const inventoryInvalid = makeClient(full.nodes, fullRect, twoWindows,
+  { inventory: { ok: true, windows: [{ hwnd: 42, title: "Ohne Prozess" }], visibleWindowCount: 1 } });
 await assert.rejects(executeQtNativePage(inventoryInvalid.client, { hwnd: 42 }, 5000, undefined, profile), { kind: "native-contract" });
 const snapshotFailed = makeClient(full.nodes, fullRect, twoWindows, { snapshot: { ok: false, error: "Synthetic snapshot failure.", code: "native-read" } });
 await assert.rejects(executeQtNativePage(snapshotFailed.client, { hwnd: 42 }, 5000, undefined, profile),
   { kind: "native-read", message: "Synthetic snapshot failure." });
 
-console.log("qt-native-page-projection: 3 projections and 9 fail-closed guards pinned");
+console.log("qt-native-page-projection: 5 projections and 15 fail-closed guards pinned");

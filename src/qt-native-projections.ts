@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
+import type { ProductProfile } from "./product-profiles.js";
 import { QtNativeTransportError, type QtNativeClient } from "./qt-native-client.js";
 import type { QtSnapshotNode } from "./qt-native-snapshot.js";
 
@@ -268,13 +269,15 @@ const processWindowSchema = z.object({
 export const processWindowInventorySchema = z.object({
   ok: z.literal(true),
   windows: z.array(processWindowSchema).max(256),
+  /** Every visible top-level window of the process, including untitled, shadow and tooltip windows. */
+  visibleWindowCount: z.number().int().nonnegative(),
 }).passthrough();
 export type QtProcessWindow = z.infer<typeof processWindowSchema>;
 
 /** The bound process's visible titled top-level windows, read through Win32 inside the product process. */
 export async function readProcessWindowInventory(
   client: QtNativeClient, timeoutMs: number, signal?: AbortSignal,
-): Promise<{ windows: QtProcessWindow[]; durationMs: number }> {
+): Promise<{ windows: QtProcessWindow[]; visibleWindowCount: number; durationMs: number }> {
   const measured = await client.request("window_inventory", {}, timeoutMs, signal);
   if (!measured.result.ok) {
     throw new QtNativeTransportError(String(measured.result.error ?? "Native window inventory failed."),
@@ -282,5 +285,30 @@ export async function readProcessWindowInventory(
   }
   const parsed = processWindowInventorySchema.safeParse(measured.result);
   if (!parsed.success) throw new QtNativeTransportError("The process window inventory is incomplete or invalid.", "native-contract");
-  return { windows: parsed.data.windows, durationMs: measured.durationMs };
+  if (parsed.data.visibleWindowCount < parsed.data.windows.length) {
+    throw new QtNativeTransportError("The process window inventory counts fewer windows than it lists.", "native-contract");
+  }
+  return { windows: parsed.data.windows, visibleWindowCount: parsed.data.visibleWindowCount, durationMs: measured.durationMs };
+}
+
+export const WERTE_INFO_TITLE = "Werte-Info: Werte vergleichen - Was wäre wenn";
+export const TIPS_TITLE = "Steuer-Spar-Tipps";
+
+/**
+ * Resolve-SSEToolWindowKind, the UAC overlay rule and the catalogued nonmodal
+ * windows of the profile. Any other window of the bound process is a dialog
+ * candidate this path cannot describe, so callers must treat null as unknown.
+ */
+export function auxiliaryWindowKind(
+  window: { title: string; class: string; w: number; h: number }, profile?: ProductProfile,
+): "werte-info" | "steuer-tipps" | "system-overlay" | "known-nonmodal" | null {
+  if (psEquals(window.title, WERTE_INFO_TITLE) && window.w <= 900 && window.h <= 700) return "werte-info";
+  if (psEquals(window.title, TIPS_TITLE) && window.w <= 850 && window.h <= 650) return "steuer-tipps";
+  if (/^UAC[ _]/iu.test(window.class) && window.w <= 80 && window.h <= 80) return "system-overlay";
+  const catalogued = Object.values(profile?.pageObjectsCatalog.windows ?? {}).some(definition => {
+    const entry = definition as Record<string, unknown>;
+    return typeof entry.role === "string" && entry.role.startsWith("nonmodal-")
+      && typeof entry.title === "string" && psEquals(window.title, entry.title);
+  });
+  return catalogued ? "known-nonmodal" : null;
 }

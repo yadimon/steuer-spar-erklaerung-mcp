@@ -140,10 +140,20 @@ Worker-Zweigs: Beschriftungen, Felder, sichtbare Tabellenzeilen, Aktionen mit
 und die gruppierte Prüferliste. Fremde Fensterteilbäume werden wie bisher als
 `ausgeschlosseneFenster` ausgewiesen. Ein modaler Dialog bricht `page`, `help`,
 `read_table` und `checker_results` fail-closed mit `dialog-open` ab, weil der
-Qt-Pfad fremde Dialoge nicht beschreibt; `page`, `help` und `checker_results`
+Qt-Pfad fremde Dialoge nicht beschreibt; `page` prüft davor das Win32-Fensterinventar
+des gebundenen Prozesses und scheitert ebenso mit `dialog-open`, sobald ein
+Fenster offen ist, das weder Werte-Info, Steuer-Spar-Tipps, ein Systemoverlay
+noch ein katalogisiertes nichtmodales Werkzeugfenster ist, und mit `minimized`
+bei minimiertem Hauptfenster. `page`, `help` und `checker_results`
 scheitern zusätzlich bei abgeschnittenem Baum mit `native-incomplete`,
 `read_table` meldet wie der Worker `incomplete`. `page` zählt in `offeneFenster`
-nur die sichtbaren betitelten Fenster des gebundenen Prozesses.
+wie der Worker jedes sichtbare Fenster des gebundenen Prozesses, auch namenlose
+und Schattenfenster; `dialoge` bleibt dort immer leer, weil ein unbekanntes
+Fenster die Lesung bereits beendet hat. Die Lesegrenze liegt bei 5000 statt 4000
+Knoten, damit eine große Seite vollständig statt abgeschnitten gelesen wird.
+Besessene Nebenfenster hängen im Qt-Accessibility-Baum nicht unter dem
+Hauptfenster; `ausgeschlosseneFenster` bleibt auf dem Qt-Pfad deshalb in der
+Regel leer, während `ui_state` die Werte-Info über ihren Titel getrennt liest.
 
 `ui_state` liest Hauptfensterbaum und Win32-Fensterinventar des gebundenen
 Prozesses direkt; eine geöffnete Werte-Info wird über ihren exakten Titel als

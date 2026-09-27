@@ -3,8 +3,8 @@ import type { ProductProfile } from "./product-profiles.js";
 import { QtNativeTransportError, type QtNativeClient } from "./qt-native-client.js";
 import { qtNativeContentBounds, qtNativeHeading } from "./qt-native-pages.js";
 import {
-  checkerResultComplete, checkerResults, dirtyState, powershellCompactJson, psEquals, readProcessWindowInventory,
-  resultDetailsFromNodes, splitWindowScope, textSha256, type QtProcessWindow,
+  auxiliaryWindowKind, checkerResultComplete, checkerResults, dirtyState, powershellCompactJson, psEquals,
+  readProcessWindowInventory, resultDetailsFromNodes, splitWindowScope, textSha256, type QtProcessWindow,
 } from "./qt-native-projections.js";
 import { readQtNativeSnapshot, type QtSnapshotNode } from "./qt-native-snapshot.js";
 
@@ -16,8 +16,6 @@ import { readQtNativeSnapshot, type QtSnapshotNode } from "./qt-native-snapshot.
  * unreadable, which keeps the state blocked exactly as the worker would.
  */
 
-const WERTE_INFO_TITLE = "Werte-Info: Werte vergleichen - Was wäre wenn";
-const TIPS_TITLE = "Steuer-Spar-Tipps";
 // The worker's -notin list; compared case-insensitively like PowerShell.
 const PRUEFER_EXCLUDED = ["Eingabehilfe", "Steuertipps", "Prüfer", "Mehr Details", "Steuer-Spar-Tipps", "Zurzeit keine Hinweise zu diesem Dialog."]
   .map(name => name.toLowerCase());
@@ -34,12 +32,10 @@ interface UiStateWindow {
 const fail = (kind: string, error: string): WorkerResult => ({ ok: false, backend: "qt", kind, error });
 const unique = (values: string[]) => [...new Set(values)];
 
-/** Resolve-SSEToolWindowKind plus the UAC overlay rule; anything else is unreadable on this path. */
-function windowKind(window: QtProcessWindow): string {
-  if (psEquals(window.title, WERTE_INFO_TITLE) && window.w <= 900 && window.h <= 700) return "werte-info";
-  if (psEquals(window.title, TIPS_TITLE) && window.w <= 850 && window.h <= 650) return "steuer-tipps";
-  if (/^UAC[ _]/iu.test(window.class) && window.w <= 80 && window.h <= 80) return "system-overlay";
-  return "nicht-lesbar";
+/** Resolve-SSEToolWindowKind plus the UAC overlay rule; a catalogued tool window or anything else is unreadable here. */
+function windowKind(window: QtProcessWindow, profile: ProductProfile): string {
+  const kind = auxiliaryWindowKind(window, profile);
+  return kind === null || kind === "known-nonmodal" ? "nicht-lesbar" : kind;
 }
 
 function windowEntry(window: QtProcessWindow, art: string, uiaReadOk: boolean | null, uiaError: string | null): UiStateWindow {
@@ -93,7 +89,7 @@ export async function executeQtNativeUiState(
   // Only windows of the bound process may shape this case's state and fingerprint.
   const fenster: UiStateWindow[] = inventory.windows.filter(window => window.pid === main.pid).map(window => {
     if (window.hwnd === main.hwnd) return windowEntry(window, "hauptfenster", true, null);
-    const art = windowKind(window);
+    const art = windowKind(window, profile);
     return art === "nicht-lesbar" ? windowEntry(window, art, false, UNREADABLE_HINT) : windowEntry(window, art, null, null);
   });
   const obstructed = mainSnapshot.modalBlocked || !mainSnapshot.windowEnabled;

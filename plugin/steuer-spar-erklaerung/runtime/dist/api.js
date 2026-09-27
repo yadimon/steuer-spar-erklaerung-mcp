@@ -13471,9 +13471,22 @@ async function readProcessWindowInventory(client, timeoutMs, signal) {
   }
   const parsed = processWindowInventorySchema.safeParse(measured.result);
   if (!parsed.success) throw new QtNativeTransportError("The process window inventory is incomplete or invalid.", "native-contract");
-  return { windows: parsed.data.windows, durationMs: measured.durationMs };
+  if (parsed.data.visibleWindowCount < parsed.data.windows.length) {
+    throw new QtNativeTransportError("The process window inventory counts fewer windows than it lists.", "native-contract");
+  }
+  return { windows: parsed.data.windows, visibleWindowCount: parsed.data.visibleWindowCount, durationMs: measured.durationMs };
 }
-var byPosition3, psEquals, textSha256, VERSAND, comparableForm, VERSAND_FORMS, CHECKER_TREE_SUFFIX, RESULT_TABLE_SUFFIX, processWindowSchema, processWindowInventorySchema;
+function auxiliaryWindowKind(window, profile) {
+  if (psEquals(window.title, WERTE_INFO_TITLE) && window.w <= 900 && window.h <= 700) return "werte-info";
+  if (psEquals(window.title, TIPS_TITLE) && window.w <= 850 && window.h <= 650) return "steuer-tipps";
+  if (/^UAC[ _]/iu.test(window.class) && window.w <= 80 && window.h <= 80) return "system-overlay";
+  const catalogued = Object.values(profile?.pageObjectsCatalog.windows ?? {}).some((definition) => {
+    const entry = definition;
+    return typeof entry.role === "string" && entry.role.startsWith("nonmodal-") && typeof entry.title === "string" && psEquals(window.title, entry.title);
+  });
+  return catalogued ? "known-nonmodal" : null;
+}
+var byPosition3, psEquals, textSha256, VERSAND, comparableForm, VERSAND_FORMS, CHECKER_TREE_SUFFIX, RESULT_TABLE_SUFFIX, processWindowSchema, processWindowInventorySchema, WERTE_INFO_TITLE, TIPS_TITLE;
 var init_qt_native_projections = __esm({
   "src/qt-native-projections.ts"() {
     "use strict";
@@ -13514,8 +13527,12 @@ var init_qt_native_projections = __esm({
     }).strict();
     processWindowInventorySchema = external_exports.object({
       ok: external_exports.literal(true),
-      windows: external_exports.array(processWindowSchema).max(256)
+      windows: external_exports.array(processWindowSchema).max(256),
+      /** Every visible top-level window of the process, including untitled, shadow and tooltip windows. */
+      visibleWindowCount: external_exports.number().int().nonnegative()
     }).passthrough();
+    WERTE_INFO_TITLE = "Werte-Info: Werte vergleichen - Was wäre wenn";
+    TIPS_TITLE = "Steuer-Spar-Tipps";
   }
 });
 
@@ -14369,8 +14386,25 @@ function checkerMessages(own, bounds) {
 }
 async function executeQtNativePage(client, args, timeoutMs, signal, profile) {
   if (!profile) return fail6("bad-args", "page requires a product profile.");
+  if (args.hwnd !== void 0 && args.hwnd !== client.binding.hwnd) {
+    throw new QtNativeTransportError("Requested window differs from the verified native session.", "stale-window");
+  }
   const started = performance11.now();
-  const snapshot = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 5e3 }, timeoutMs, signal);
+  const budget = () => {
+    const remaining = Math.floor(timeoutMs - (performance11.now() - started));
+    if (remaining < 1) throw new QtNativeTransportError("Native page deadline exceeded before reading.", "native-timeout");
+    return remaining;
+  };
+  const inventory = await readProcessWindowInventory(client, budget(), signal);
+  const main2 = inventory.windows.find((window) => window.hwnd === client.binding.hwnd);
+  if (!main2) return fail6("stale-window", "Das angegebene hwnd ist kein aktuelles Hauptfenster.");
+  if (main2.pid !== client.binding.pid) throw new QtNativeTransportError("The bound main window belongs to another process.", "native-contract");
+  if (main2.minimized) return fail6("minimized", "Das gebundene SSE-Hauptfenster ist minimiert; der direkte Qt-Pfad stellt es nicht wieder her.");
+  const unknownWindows = inventory.windows.filter((window) => window.pid === main2.pid && window.hwnd !== main2.hwnd && auxiliaryWindowKind(window, profile) === null);
+  if (unknownWindows.length) {
+    return fail6("dialog-open", "Ein nicht katalogisiertes Fenster des gebundenen Prozesses ist offen; Seite nicht gelesen. Dialoge mit sse_dialog_list lesen und bewusst beantworten.");
+  }
+  const snapshot = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 5e3 }, budget(), signal);
   if (!snapshot.windowEnabled || snapshot.modalBlocked) {
     return fail6("dialog-open", "Ein modaler Dialog blockiert die gebundene Seite; keine Werte ausgegeben. Dialoge mit sse_dialog_list lesen.");
   }
@@ -14388,10 +14422,7 @@ async function executeQtNativePage(client, args, timeoutMs, signal, profile) {
   const prueferMeldungen = checkerMessages(own, bounds);
   const leerePflichtfelder = felder.filter((field) => field.typ === "ComboBox" && !String(field.wert ?? "").trim()).map((field) => field.label);
   const hinweis = felder.length && felder.every((field) => !String(field.label ?? "").trim()) ? UNLABELLED_HINT : null;
-  const remaining = Math.floor(timeoutMs - (performance11.now() - started));
-  if (remaining < 1) throw new QtNativeTransportError("Native page deadline exceeded before the window inventory.", "native-timeout");
-  const inventory = await readProcessWindowInventory(client, remaining, signal);
-  const offeneFenster = inventory.windows.length;
+  const offeneFenster = inventory.visibleWindowCount;
   return {
     hinweis,
     ok: true,
@@ -14405,7 +14436,7 @@ async function executeQtNativePage(client, args, timeoutMs, signal, profile) {
     blockiert: prueferMeldungen.length > 0 || offeneFenster > 2,
     prueferMeldungen,
     leerePflichtfelder,
-    // A modal dialog already failed closed above; the worker's dialog inventory would be empty here as well.
+    // Unknown windows and modal dialogs already failed closed above; only catalogued auxiliary windows remain.
     dialoge: [],
     offeneFenster,
     stats: snapshot.stats,
@@ -14431,11 +14462,9 @@ var init_qt_native_page = __esm({
 });
 
 // src/qt-native-ui-state.ts
-function windowKind(window) {
-  if (psEquals(window.title, WERTE_INFO_TITLE) && window.w <= 900 && window.h <= 700) return "werte-info";
-  if (psEquals(window.title, TIPS_TITLE) && window.w <= 850 && window.h <= 650) return "steuer-tipps";
-  if (/^UAC[ _]/iu.test(window.class) && window.w <= 80 && window.h <= 80) return "system-overlay";
-  return "nicht-lesbar";
+function windowKind(window, profile) {
+  const kind = auxiliaryWindowKind(window, profile);
+  return kind === null || kind === "known-nonmodal" ? "nicht-lesbar" : kind;
 }
 function windowEntry(window, art, uiaReadOk, uiaError) {
   return {
@@ -14498,7 +14527,7 @@ async function executeQtNativeUiState(client, args, timeoutMs, signal, profile) 
   nativeDurationMs += mainSnapshot.nativeDurationMs;
   const fenster = inventory.windows.filter((window) => window.pid === main2.pid).map((window) => {
     if (window.hwnd === main2.hwnd) return windowEntry(window, "hauptfenster", true, null);
-    const art = windowKind(window);
+    const art = windowKind(window, profile);
     return art === "nicht-lesbar" ? windowEntry(window, art, false, UNREADABLE_HINT) : windowEntry(window, art, null, null);
   });
   const obstructed = mainSnapshot.modalBlocked || !mainSnapshot.windowEnabled;
@@ -14582,7 +14611,7 @@ async function executeQtNativeUiState(client, args, timeoutMs, signal, profile) 
     nativeDurationMs
   };
 }
-var WERTE_INFO_TITLE, TIPS_TITLE, PRUEFER_EXCLUDED, UNREADABLE_HINT, UNTITLED_MODAL_HINT, fail7, unique, byRequiredField;
+var PRUEFER_EXCLUDED, UNREADABLE_HINT, UNTITLED_MODAL_HINT, fail7, unique, byRequiredField;
 var init_qt_native_ui_state = __esm({
   "src/qt-native-ui-state.ts"() {
     "use strict";
@@ -14590,8 +14619,6 @@ var init_qt_native_ui_state = __esm({
     init_qt_native_pages();
     init_qt_native_projections();
     init_qt_native_snapshot();
-    WERTE_INFO_TITLE = "Werte-Info: Werte vergleichen - Was wäre wenn";
-    TIPS_TITLE = "Steuer-Spar-Tipps";
     PRUEFER_EXCLUDED = ["Eingabehilfe", "Steuertipps", "Prüfer", "Mehr Details", "Steuer-Spar-Tipps", "Zurzeit keine Hinweise zu diesem Dialog."].map((name) => name.toLowerCase());
     UNREADABLE_HINT = "Der direkte Qt-Pfad liest fremde Dialoge und unbekannte Fenster nicht; mit sse_dialog_list oder sse_windows pruefen.";
     UNTITLED_MODAL_HINT = "Ein modaler Dialog ohne Fenstertitel blockiert das gebundene Hauptfenster; der direkte Qt-Pfad liest ihn nicht.";

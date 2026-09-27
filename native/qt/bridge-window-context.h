@@ -18,6 +18,7 @@ static Json windowContext() {
 
 struct ProcessWindowInventory {
     Json windows = Json::array();
+    int visibleCount = 0;
     bool failed = false;
 };
 
@@ -46,6 +47,8 @@ static BOOL CALLBACK collectProcessWindow(HWND window, LPARAM raw) {
         DWORD pid = 0;
         if (!GetWindowThreadProcessId(window, &pid)) throw std::runtime_error("Window process is unavailable");
         if (pid != GetCurrentProcessId()) return TRUE;
+        // The worker's window count includes untitled, shadow and tooltip windows; keep that population countable.
+        ++inventory.visibleCount;
         wchar_t title[4096]{};
         if (!GetWindowTextW(window, title, 4096) || !title[0]) return TRUE;
         wchar_t className[256]{};
@@ -75,5 +78,5 @@ static Json processWindowInventory() {
     std::stable_sort(inventory.windows.begin(), inventory.windows.end(), [](const Json &left, const Json &right) {
         return left.at("hwnd").get<std::uint64_t>() < right.at("hwnd").get<std::uint64_t>();
     });
-    return {{"ok", true}, {"windows", std::move(inventory.windows)}};
+    return {{"ok", true}, {"windows", std::move(inventory.windows)}, {"visibleWindowCount", inventory.visibleCount}};
 }

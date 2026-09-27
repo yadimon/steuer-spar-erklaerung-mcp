@@ -222,7 +222,9 @@ export async function testNativePageProjections() {
   }
   for (const [index, test] of cases.entries()) {
     const client = { binding: { hwnd: 42, pid: 99, creationTime: "1" }, request: async (operation, args) => {
-      if (operation === "window_inventory") return { durationMs: 1, result: { ok: true, windows: test.windows } };
+      if (operation === "window_inventory") {
+        return { durationMs: 1, result: { ok: true, windows: test.windows, visibleWindowCount: test.windows.length } };
+      }
       assert.equal(operation, "accessibility_snapshot");
       assert.equal(args.withValues, test.operation === "find" ? false : undefined);
       assert.equal(args.withCellStates, test.operation === "read_table" ? true : undefined);
@@ -384,7 +386,7 @@ export async function testNativePageProjections() {
     request: async (operation, args) => {
       if (operation === "window_inventory") {
         assert.deepEqual(args, {});
-        return { durationMs: 1, result: { ok: true, windows: processWindows } };
+        return { durationMs: 1, result: { ok: true, windows: processWindows, visibleWindowCount: processWindows.length } };
       }
       assert.equal(operation, "accessibility_snapshot");
       const tool = args.toolTitle === "BelegManager";
@@ -422,7 +424,7 @@ export async function testNativePageProjections() {
     binding: { hwnd: 42, pid: 99 },
     request: async (operation, args) => {
       if (operation === "window_inventory") {
-        return { durationMs: 1, result: { ok: true, windows: processWindows } };
+        return { durationMs: 1, result: { ok: true, windows: processWindows, visibleWindowCount: processWindows.length } };
       }
       assert.equal(operation, "accessibility_snapshot");
       const tool = args.toolTitle === "BelegManager";
@@ -496,7 +498,7 @@ export async function testNativePageProjections() {
     request: async (operation, args) => {
       if (operation === "window_inventory") {
         assert.deepEqual(args, {});
-        return { durationMs: 1, result: { ok: true, windows: processWindows } };
+        return { durationMs: 1, result: { ok: true, windows: processWindows, visibleWindowCount: processWindows.length } };
       }
       assert.equal(operation, "accessibility_snapshot");
       const tool = args.toolTitle === "BelegManager";
