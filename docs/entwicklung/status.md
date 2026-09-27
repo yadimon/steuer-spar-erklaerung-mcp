@@ -123,7 +123,7 @@ Belege in der [Seitenlandkarte](funktionskatalog.md).
 | --- | --- | --- |
 | Zu einer Seite navigieren | **fertig** | `goto` – ueber Suchfeld und Doppelklick, weil die UIA-Muster des Baums nicht wirken |
 | Seite lesen | **fertig** | `page`, `read_page`, `known_page_state`, `ui_state` |
-| Tabellen lesen | **fertig** | `table_read` optional über Qt; `read_table` behält seinen bisherigen Pfad, `positions` liest optional über Qt |
+| Tabellen lesen | **fertig** | `table_read`, `read_table` und `positions` lesen optional über Qt; `read_table` prüft dabei das Fensterinventar und führt offene Nebenfenster unter `ausgeschlosseneFenster` |
 | Unterseiten finden | **fertig** | `subpages` – „Erfassen"-Verweise sind echte Schaltflaechen |
 | Baum blaettern | **teils** | `tree_top`, `tree_scroll` – Aufzaehlen der Seiten geht darueber nicht |
 | Suche als eigene Operation | **offen** | `goto` nutzt die Suche intern; es gibt keinen direkten Zugriff |
