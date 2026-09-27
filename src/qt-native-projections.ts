@@ -271,13 +271,15 @@ export const processWindowInventorySchema = z.object({
   windows: z.array(processWindowSchema).max(256),
   /** Every visible top-level window of the process, including untitled, shadow and tooltip windows. */
   visibleWindowCount: z.number().int().nonnegative(),
+  /** Visible untitled windows that are no tooltip, shadow or popup; they are never listed and cannot be classified. */
+  untitledWindowCount: z.number().int().nonnegative(),
 }).passthrough();
 export type QtProcessWindow = z.infer<typeof processWindowSchema>;
 
 /** The bound process's visible titled top-level windows, read through Win32 inside the product process. */
 export async function readProcessWindowInventory(
   client: QtNativeClient, timeoutMs: number, signal?: AbortSignal,
-): Promise<{ windows: QtProcessWindow[]; visibleWindowCount: number; durationMs: number }> {
+): Promise<{ windows: QtProcessWindow[]; visibleWindowCount: number; untitledWindowCount: number; durationMs: number }> {
   const measured = await client.request("window_inventory", {}, timeoutMs, signal);
   if (!measured.result.ok) {
     throw new QtNativeTransportError(String(measured.result.error ?? "Native window inventory failed."),
@@ -285,19 +287,25 @@ export async function readProcessWindowInventory(
   }
   const parsed = processWindowInventorySchema.safeParse(measured.result);
   if (!parsed.success) throw new QtNativeTransportError("The process window inventory is incomplete or invalid.", "native-contract");
-  if (parsed.data.visibleWindowCount < parsed.data.windows.length) {
+  if (parsed.data.visibleWindowCount < parsed.data.windows.length + parsed.data.untitledWindowCount) {
     throw new QtNativeTransportError("The process window inventory counts fewer windows than it lists.", "native-contract");
   }
-  return { windows: parsed.data.windows, visibleWindowCount: parsed.data.visibleWindowCount, durationMs: measured.durationMs };
+  return {
+    windows: parsed.data.windows, visibleWindowCount: parsed.data.visibleWindowCount,
+    untitledWindowCount: parsed.data.untitledWindowCount, durationMs: measured.durationMs,
+  };
 }
 
 export const WERTE_INFO_TITLE = "Werte-Info: Werte vergleichen - Was wäre wenn";
 export const TIPS_TITLE = "Steuer-Spar-Tipps";
 
+const CLOSABLE_NONMODAL_ROLES = new Set(["nonmodal-help-window", "nonmodal-result-window", "nonmodal-tool-window"]);
+
 /**
- * Resolve-SSEToolWindowKind, the UAC overlay rule and the catalogued nonmodal
- * windows of the profile. Any other window of the bound process is a dialog
- * candidate this path cannot describe, so callers must treat null as unknown.
+ * Resolve-SSEToolWindowKind, the UAC overlay rule and the worker's closable
+ * nonmodal window policy (role, close policy and case-sensitive title). Any
+ * other window of the bound process is a dialog candidate this path cannot
+ * describe, so callers must treat null as unknown.
  */
 export function auxiliaryWindowKind(
   window: { title: string; class: string; w: number; h: number }, profile?: ProductProfile,
@@ -307,8 +315,8 @@ export function auxiliaryWindowKind(
   if (/^UAC[ _]/iu.test(window.class) && window.w <= 80 && window.h <= 80) return "system-overlay";
   const catalogued = Object.values(profile?.pageObjectsCatalog.windows ?? {}).some(definition => {
     const entry = definition as Record<string, unknown>;
-    return typeof entry.role === "string" && entry.role.startsWith("nonmodal-")
-      && typeof entry.title === "string" && psEquals(window.title, entry.title);
+    return typeof entry.role === "string" && CLOSABLE_NONMODAL_ROLES.has(entry.role)
+      && entry.closePolicy === "allow-exact-nonmodal-close" && typeof entry.title === "string" && window.title === entry.title;
   });
   return catalogued ? "known-nonmodal" : null;
 }

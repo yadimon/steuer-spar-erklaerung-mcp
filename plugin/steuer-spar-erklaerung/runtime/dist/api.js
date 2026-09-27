@@ -13471,10 +13471,15 @@ async function readProcessWindowInventory(client, timeoutMs, signal) {
   }
   const parsed = processWindowInventorySchema.safeParse(measured.result);
   if (!parsed.success) throw new QtNativeTransportError("The process window inventory is incomplete or invalid.", "native-contract");
-  if (parsed.data.visibleWindowCount < parsed.data.windows.length) {
+  if (parsed.data.visibleWindowCount < parsed.data.windows.length + parsed.data.untitledWindowCount) {
     throw new QtNativeTransportError("The process window inventory counts fewer windows than it lists.", "native-contract");
   }
-  return { windows: parsed.data.windows, visibleWindowCount: parsed.data.visibleWindowCount, durationMs: measured.durationMs };
+  return {
+    windows: parsed.data.windows,
+    visibleWindowCount: parsed.data.visibleWindowCount,
+    untitledWindowCount: parsed.data.untitledWindowCount,
+    durationMs: measured.durationMs
+  };
 }
 function auxiliaryWindowKind(window, profile) {
   if (psEquals(window.title, WERTE_INFO_TITLE) && window.w <= 900 && window.h <= 700) return "werte-info";
@@ -13482,11 +13487,11 @@ function auxiliaryWindowKind(window, profile) {
   if (/^UAC[ _]/iu.test(window.class) && window.w <= 80 && window.h <= 80) return "system-overlay";
   const catalogued = Object.values(profile?.pageObjectsCatalog.windows ?? {}).some((definition) => {
     const entry = definition;
-    return typeof entry.role === "string" && entry.role.startsWith("nonmodal-") && typeof entry.title === "string" && psEquals(window.title, entry.title);
+    return typeof entry.role === "string" && CLOSABLE_NONMODAL_ROLES.has(entry.role) && entry.closePolicy === "allow-exact-nonmodal-close" && typeof entry.title === "string" && window.title === entry.title;
   });
   return catalogued ? "known-nonmodal" : null;
 }
-var byPosition3, psEquals, textSha256, VERSAND, comparableForm, VERSAND_FORMS, CHECKER_TREE_SUFFIX, RESULT_TABLE_SUFFIX, processWindowSchema, processWindowInventorySchema, WERTE_INFO_TITLE, TIPS_TITLE;
+var byPosition3, psEquals, textSha256, VERSAND, comparableForm, VERSAND_FORMS, CHECKER_TREE_SUFFIX, RESULT_TABLE_SUFFIX, processWindowSchema, processWindowInventorySchema, WERTE_INFO_TITLE, TIPS_TITLE, CLOSABLE_NONMODAL_ROLES;
 var init_qt_native_projections = __esm({
   "src/qt-native-projections.ts"() {
     "use strict";
@@ -13529,10 +13534,13 @@ var init_qt_native_projections = __esm({
       ok: external_exports.literal(true),
       windows: external_exports.array(processWindowSchema).max(256),
       /** Every visible top-level window of the process, including untitled, shadow and tooltip windows. */
-      visibleWindowCount: external_exports.number().int().nonnegative()
+      visibleWindowCount: external_exports.number().int().nonnegative(),
+      /** Visible untitled windows that are no tooltip, shadow or popup; they are never listed and cannot be classified. */
+      untitledWindowCount: external_exports.number().int().nonnegative()
     }).passthrough();
     WERTE_INFO_TITLE = "Werte-Info: Werte vergleichen - Was wäre wenn";
     TIPS_TITLE = "Steuer-Spar-Tipps";
+    CLOSABLE_NONMODAL_ROLES = /* @__PURE__ */ new Set(["nonmodal-help-window", "nonmodal-result-window", "nonmodal-tool-window"]);
   }
 });
 
@@ -14401,7 +14409,7 @@ async function executeQtNativePage(client, args, timeoutMs, signal, profile) {
   if (main2.pid !== client.binding.pid) throw new QtNativeTransportError("The bound main window belongs to another process.", "native-contract");
   if (main2.minimized) return fail6("minimized", "Das gebundene SSE-Hauptfenster ist minimiert; der direkte Qt-Pfad stellt es nicht wieder her.");
   const unknownWindows = inventory.windows.filter((window) => window.pid === main2.pid && window.hwnd !== main2.hwnd && auxiliaryWindowKind(window, profile) === null);
-  if (unknownWindows.length) {
+  if (unknownWindows.length || inventory.untitledWindowCount > 0) {
     return fail6("dialog-open", "Ein nicht katalogisiertes Fenster des gebundenen Prozesses ist offen; Seite nicht gelesen. Dialoge mit sse_dialog_list lesen und bewusst beantworten.");
   }
   const snapshot = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 5e3 }, budget(), signal);
@@ -14486,7 +14494,7 @@ function windowEntry(window, art, uiaReadOk, uiaError) {
     msaaError: null
   };
 }
-function untitledModalEntry(pid2) {
+function untitledEntry(pid2, uiaError) {
   return {
     hwnd: 0,
     pid: pid2,
@@ -14501,7 +14509,7 @@ function untitledModalEntry(pid2) {
     texte: [],
     fingerprint: null,
     uiaReadOk: false,
-    uiaError: UNTITLED_MODAL_HINT,
+    uiaError,
     msaaReadOk: null,
     msaaError: null
   };
@@ -14530,8 +14538,9 @@ async function executeQtNativeUiState(client, args, timeoutMs, signal, profile) 
     const art = windowKind(window, profile);
     return art === "nicht-lesbar" ? windowEntry(window, art, false, UNREADABLE_HINT) : windowEntry(window, art, null, null);
   });
+  for (let count = 0; count < inventory.untitledWindowCount; count += 1) fenster.push(untitledEntry(main2.pid, UNTITLED_WINDOW_HINT));
   const obstructed = mainSnapshot.modalBlocked || !mainSnapshot.windowEnabled;
-  if (obstructed && !fenster.some((window) => window.art === "nicht-lesbar")) fenster.push(untitledModalEntry(main2.pid));
+  if (obstructed && !fenster.some((window) => window.art === "nicht-lesbar")) fenster.push(untitledEntry(main2.pid, UNTITLED_MODAL_HINT));
   const werteInfo = fenster.filter((window) => window.art === "werte-info");
   if (werteInfo.length > 1) return fail7("ambiguous", "Werte-Info ist nicht eindeutig.");
   const own = splitWindowScope(mainSnapshot.nodes).own;
@@ -14611,7 +14620,7 @@ async function executeQtNativeUiState(client, args, timeoutMs, signal, profile) 
     nativeDurationMs
   };
 }
-var PRUEFER_EXCLUDED, UNREADABLE_HINT, UNTITLED_MODAL_HINT, fail7, unique, byRequiredField;
+var PRUEFER_EXCLUDED, UNREADABLE_HINT, UNTITLED_MODAL_HINT, UNTITLED_WINDOW_HINT, fail7, unique, byRequiredField;
 var init_qt_native_ui_state = __esm({
   "src/qt-native-ui-state.ts"() {
     "use strict";
@@ -14622,6 +14631,7 @@ var init_qt_native_ui_state = __esm({
     PRUEFER_EXCLUDED = ["Eingabehilfe", "Steuertipps", "Prüfer", "Mehr Details", "Steuer-Spar-Tipps", "Zurzeit keine Hinweise zu diesem Dialog."].map((name) => name.toLowerCase());
     UNREADABLE_HINT = "Der direkte Qt-Pfad liest fremde Dialoge und unbekannte Fenster nicht; mit sse_dialog_list oder sse_windows pruefen.";
     UNTITLED_MODAL_HINT = "Ein modaler Dialog ohne Fenstertitel blockiert das gebundene Hauptfenster; der direkte Qt-Pfad liest ihn nicht.";
+    UNTITLED_WINDOW_HINT = "Ein namenloses Fenster des gebundenen Prozesses ist sichtbar; der direkte Qt-Pfad liest es nicht.";
     fail7 = (kind, error) => ({ ok: false, backend: "qt", kind, error });
     unique = (values) => [...new Set(values)];
     byRequiredField = (a, b) => a.y - b.y || a.aid.localeCompare(b.aid, "de", { sensitivity: "accent" });

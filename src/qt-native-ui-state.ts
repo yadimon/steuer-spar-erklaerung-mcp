@@ -21,6 +21,7 @@ const PRUEFER_EXCLUDED = ["Eingabehilfe", "Steuertipps", "Prüfer", "Mehr Detail
   .map(name => name.toLowerCase());
 const UNREADABLE_HINT = "Der direkte Qt-Pfad liest fremde Dialoge und unbekannte Fenster nicht; mit sse_dialog_list oder sse_windows pruefen.";
 const UNTITLED_MODAL_HINT = "Ein modaler Dialog ohne Fenstertitel blockiert das gebundene Hauptfenster; der direkte Qt-Pfad liest ihn nicht.";
+const UNTITLED_WINDOW_HINT = "Ein namenloses Fenster des gebundenen Prozesses ist sichtbar; der direkte Qt-Pfad liest es nicht.";
 
 interface UiStateWindow {
   hwnd: number; pid: number; cls: string; title: string; art: string;
@@ -46,10 +47,10 @@ function windowEntry(window: QtProcessWindow, art: string, uiaReadOk: boolean | 
   };
 }
 
-function untitledModalEntry(pid: number): UiStateWindow {
+function untitledEntry(pid: number, uiaError: string): UiStateWindow {
   return {
     hwnd: 0, pid, cls: "", title: "", art: "nicht-lesbar", x: 0, y: 0, w: 0, h: 0, buttons: [], texte: [], fingerprint: null,
-    uiaReadOk: false, uiaError: UNTITLED_MODAL_HINT, msaaReadOk: null, msaaError: null,
+    uiaReadOk: false, uiaError, msaaReadOk: null, msaaError: null,
   };
 }
 
@@ -92,8 +93,10 @@ export async function executeQtNativeUiState(
     const art = windowKind(window, profile);
     return art === "nicht-lesbar" ? windowEntry(window, art, false, UNREADABLE_HINT) : windowEntry(window, art, null, null);
   });
+  // The inventory never lists untitled windows; the worker would read each of them and call an unknown one blocking.
+  for (let count = 0; count < inventory.untitledWindowCount; count += 1) fenster.push(untitledEntry(main.pid, UNTITLED_WINDOW_HINT));
   const obstructed = mainSnapshot.modalBlocked || !mainSnapshot.windowEnabled;
-  if (obstructed && !fenster.some(window => window.art === "nicht-lesbar")) fenster.push(untitledModalEntry(main.pid));
+  if (obstructed && !fenster.some(window => window.art === "nicht-lesbar")) fenster.push(untitledEntry(main.pid, UNTITLED_MODAL_HINT));
 
   const werteInfo = fenster.filter(window => window.art === "werte-info");
   if (werteInfo.length > 1) return fail("ambiguous", "Werte-Info ist nicht eindeutig.");
