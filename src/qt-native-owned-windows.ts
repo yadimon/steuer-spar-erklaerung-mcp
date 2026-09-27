@@ -94,7 +94,16 @@ export async function readOwnedWindowSubtrees(
   const nodes: QtSnapshotNode[] = [];
   let durationMs = 0;
   for (const window of owned) {
-    const tool = await readQtNativeSnapshot(client, { maxNodes, toolTitle: window.title }, budget(), signal);
+    let tool: Awaited<ReturnType<typeof readQtNativeSnapshot>>;
+    try {
+      tool = await readQtNativeSnapshot(client, { maxNodes, toolTitle: window.title }, budget(), signal);
+    } catch (error) {
+      // A window that closed or doubled between the inventory and its read is the worker's changed window set.
+      if (error instanceof QtNativeTransportError && (error.kind === "not-found" || error.kind === "ambiguous")) {
+        throw new QtNativeTransportError(`Das Nebenfenster '${window.title}' hat sich waehrend des Lesens veraendert; ${subject} nicht gelesen.`, "stale-window");
+      }
+      throw error;
+    }
     durationMs += tool.nativeDurationMs;
     if (tool.hwnd !== window.hwnd) throw new QtNativeTransportError("The owned window snapshot returned another window.", "native-contract");
     if (!tool.windowEnabled || tool.modalBlocked) {

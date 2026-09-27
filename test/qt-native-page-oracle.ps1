@@ -67,10 +67,10 @@ function Get-Windows {
 }
 function Get-DialogInventory { param([int]$TargetPid = 0) @() }
 # The descriptor's UIA/MSAA read is an OS boundary; the fixture names the kind it would have produced.
-# Only kinds the worker reads without UIA (tips, known-nonmodal) are admitted, with the worker's flags.
+# Only kinds the worker decides without UIA (tips, known-nonmodal, main) are admitted, with the worker's flags.
 function Get-DialogDescriptor($Window, [IntPtr]$MainHwnd) {
     $kind = [string]$script:observedKinds.([string]$Window.hwnd)
-    if ($kind -notin @('tips', 'known-nonmodal')) { throw "Fixture supplies no descriptor kind for window $($Window.hwnd)" }
+    if ($kind -notin @('tips', 'known-nonmodal', 'main')) { throw "Fixture supplies no descriptor kind for window $($Window.hwnd)" }
     [pscustomobject]@{
         hwnd = [int64]$Window.hwnd; pid = [int]$Window.pid; cls = $Window.cls; title = $Window.title
         titleFingerprint = $Window.titleFingerprint; kind = $kind
