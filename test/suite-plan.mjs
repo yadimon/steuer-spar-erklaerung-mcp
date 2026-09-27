@@ -84,6 +84,7 @@ export const parallelSteps = Object.freeze([
   nodeFile("file-dialog-folder-contract", "test/file-dialog-folder-contract.mjs"),
   nodeFile("native-build-cache", "test/native-build-cache.mjs"),
   nodeFile("qt-native-client", "test/qt-native-client.mjs"),
+  nodeFile("qt-native-page-projection", "test/qt-native-page-projection.mjs"),
   nodeFile("qt-native-runtime", "test/qt-native-runtime.mjs"),
   nodeFile("execution-telemetry", "test/execution-telemetry.mjs"),
   nodeFile("execution-telemetry-integration", "test/execution-telemetry-integration.mjs"),
@@ -224,6 +225,7 @@ export const finalSteps = Object.freeze([
 
 const FAST_STEP_NAMES = new Set([
   "execution-telemetry", "execution-telemetry-integration", "execution-trace-log", "api-mega-execution-traces",
+  "qt-native-page-projection",
   "suite-runner-contract",
   "public-skills",
   "repository-privacy",
