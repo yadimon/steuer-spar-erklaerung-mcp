@@ -7446,14 +7446,14 @@ async function executeCheckerOpen(args, timeoutMs, signal, worker) {
       Math.min(timeoutMs ?? 3e5, 3e5),
       signal
     );
-    const performance18 = result.performance && typeof result.performance === "object" && !Array.isArray(result.performance) ? result.performance : {};
+    const performance19 = result.performance && typeof result.performance === "object" && !Array.isArray(result.performance) ? result.performance : {};
     return {
       ...result,
       schemaVersion: 1,
       planKind: CHECKER_OPEN_PLAN_KIND,
       resultingState: typeof result.resultingState === "string" ? result.resultingState : result.ok === true ? "detail-verified" : "unknown",
       cleanupRequired: typeof result.cleanupRequired === "boolean" ? result.cleanupRequired : result.ok !== true,
-      performance: { ...performance18, workerProcessCount: 1 },
+      performance: { ...performance19, workerProcessCount: 1 },
       ...result.ok === true ? { kontrollbildEnthalten: typeof result.bildBase64 === "string" && result.bildBase64.length > 0 } : {}
     };
   } catch (error) {
@@ -7676,7 +7676,7 @@ async function executeFillFieldsPlan(args, timeoutMs, signal, dependencies) {
     );
   }
   const fields = args.fields;
-  const pageFields = resolvedPage.page.fields ?? {};
+  const pageFields2 = resolvedPage.page.fields ?? {};
   const resourceRefs = {};
   const sharedKeys = [
     "trackResults",
@@ -7688,7 +7688,7 @@ async function executeFillFieldsPlan(args, timeoutMs, signal, dependencies) {
   ];
   const actions = fields.map((field, index) => {
     const fieldId = String(field.fieldId);
-    if (!Object.hasOwn(pageFields, fieldId)) {
+    if (!Object.hasOwn(pageFields2, fieldId)) {
       throw new ExecutorArgumentError(`Unbekannte fieldId '${fieldId}' auf Page-Object '${pageId}'.`);
     }
     const child = {
@@ -12729,6 +12729,7 @@ async function readQtNativeSnapshot(client, args, timeoutMs, signal) {
     ...typeof args.toolTitle === "string" ? { toolTitle: args.toolTitle } : {},
     ...typeof args.allowedModalTitle === "string" ? { allowedModalTitle: args.allowedModalTitle } : {},
     ...args.withValues === false ? { withValues: false } : {},
+    ...args.withCellStates === true ? { withCellStates: true } : {},
     ...Array.isArray(args.aidSuffixes) ? { aidSuffixes: args.aidSuffixes } : {},
     ...Array.isArray(args.aidContains) ? { aidContains: args.aidContains } : {},
     ...args.equalitySelectors ? { equalitySelectors: args.equalitySelectors } : {}
@@ -13248,16 +13249,109 @@ var init_qt_native_ustva = __esm({
   }
 });
 
-// src/qt-native-receipts.ts
+// src/qt-native-projections.ts
 import { createHash as createHash13 } from "node:crypto";
-function canonicalReceiptJson(value) {
+function powershellCompactJson(value) {
   const serialized = JSON.stringify(value);
-  if (serialized === void 0) throw new TypeError("Receipt fingerprint value is not JSON serializable.");
+  if (serialized === void 0) throw new TypeError("Fingerprint value is not JSON serializable.");
   return serialized.replace(
     /[&<>'\u2028\u2029]/gu,
     (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`
   );
 }
+function transmissionName3(name) {
+  if (!name) return false;
+  const normalized = comparableForm(name);
+  if (!normalized) return false;
+  if (VERSAND_FORMS.has(normalized)) return true;
+  return ["elster", "versend", "versand", "ubermittl", "ubermittel", "abschick", "nachreich", "abschliess", "datenubertrag", "transfer"].some((stem) => normalized.includes(stem)) || normalized.startsWith("senden");
+}
+function navigationSelection(nodes) {
+  const selected = nodes.filter((node) => node.type === "TreeItem" && node.selected === true);
+  return selected.length === 1 ? selected[0].name : null;
+}
+function splitWindowScope(nodes, keepRid = "") {
+  const rootOf = /* @__PURE__ */ new Map();
+  const foreignRoots = /* @__PURE__ */ new Map();
+  const order = [];
+  const own = [];
+  for (const node of nodes) {
+    const parentForeign = rootOf.has(node.p);
+    const foreignWindow = node.type === "Window" && (!keepRid || node.rid !== keepRid);
+    if (!parentForeign && !foreignWindow) {
+      own.push(node);
+      continue;
+    }
+    let rootIndex;
+    if (parentForeign) rootIndex = rootOf.get(node.p);
+    else {
+      rootIndex = node.i;
+      foreignRoots.set(node.i, { rid: node.rid, name: node.name, aid: node.aid, x: node.x, y: node.y, w: node.w, h: node.h, nodeCount: 0 });
+      order.push(node.i);
+    }
+    rootOf.set(node.i, rootIndex);
+    foreignRoots.get(rootIndex).nodeCount += 1;
+  }
+  return { own, foreign: order.map((index) => foreignRoots.get(index)) };
+}
+async function readProcessWindowInventory(client, timeoutMs, signal) {
+  const measured = await client.request("window_inventory", {}, timeoutMs, signal);
+  if (!measured.result.ok) {
+    throw new QtNativeTransportError(
+      String(measured.result.error ?? "Native window inventory failed."),
+      String(measured.result.code ?? "native-read"),
+      measured.result.outcomeUnknown === true
+    );
+  }
+  const parsed = processWindowInventorySchema.safeParse(measured.result);
+  if (!parsed.success) throw new QtNativeTransportError("The process window inventory is incomplete or invalid.", "native-contract");
+  return { windows: parsed.data.windows, durationMs: measured.durationMs };
+}
+var byPosition3, psEquals, textSha256, VERSAND, comparableForm, VERSAND_FORMS, processWindowSchema, processWindowInventorySchema;
+var init_qt_native_projections = __esm({
+  "src/qt-native-projections.ts"() {
+    "use strict";
+    init_zod();
+    init_qt_native_client();
+    byPosition3 = (a, b) => a.y - b.y || a.x - b.x;
+    psEquals = (left, right) => left.toLowerCase() === right.toLowerCase();
+    textSha256 = (text3) => createHash13("sha256").update(text3, "utf8").digest("hex").toUpperCase();
+    VERSAND = [
+      "ELSTER",
+      "Anmeldungen versenden",
+      "Jahreserklärungen abschließen",
+      "Belege nachreichen",
+      "Kommunikation mit dem Finanzamt per ELSTER",
+      "Senden",
+      "Senden & Drucken",
+      "Versenden",
+      "Übermitteln",
+      "Steuerdaten versenden",
+      "Abschicken",
+      "Elektronische Steuererklärung (ELSTER)"
+    ];
+    comparableForm = (text3) => text3.replaceAll("…", "").replaceAll("...", "").replaceAll("&", "").toLowerCase().replaceAll("ä", "a").replaceAll("ö", "o").replaceAll("ü", "u").replaceAll("ß", "ss").replace(/[^\p{L}\p{N}]/gu, "");
+    VERSAND_FORMS = new Set(VERSAND.map(comparableForm));
+    processWindowSchema = external_exports.object({
+      hwnd: external_exports.number().int().positive(),
+      pid: external_exports.number().int().positive(),
+      class: external_exports.string().min(1).max(255),
+      title: external_exports.string().min(1).max(4095),
+      x: external_exports.number().int().safe(),
+      y: external_exports.number().int().safe(),
+      w: external_exports.number().int().nonnegative(),
+      h: external_exports.number().int().nonnegative(),
+      minimized: external_exports.boolean(),
+      hung: external_exports.boolean()
+    }).strict();
+    processWindowInventorySchema = external_exports.object({
+      ok: external_exports.literal(true),
+      windows: external_exports.array(processWindowSchema).max(256)
+    }).passthrough();
+  }
+});
+
+// src/qt-native-receipts.ts
 function receiptToolAidSuffixes(policy) {
   return [.../* @__PURE__ */ new Set([
     ...Object.values(policy.states).flatMap((state) => state.requiredAutomationIdSuffixes),
@@ -13544,12 +13638,13 @@ async function executeQtNativeReceiptManagerList(client, args, timeoutMs, signal
     nativeDurationMs: tool.nativeDurationMs + dirtyState.durationMs
   };
 }
-var receiptPolicySchema, filterSchema, processWindowInventorySchema, fail5, receiptTextFingerprint, receiptFingerprint;
+var receiptPolicySchema, filterSchema, fail5, canonicalReceiptJson, receiptTextFingerprint, receiptFingerprint;
 var init_qt_native_receipts = __esm({
   "src/qt-native-receipts.ts"() {
     "use strict";
     init_zod();
     init_qt_native_snapshot();
+    init_qt_native_projections();
     receiptPolicySchema = external_exports.object({
       title: external_exports.string().min(1).max(4096),
       role: external_exports.literal("nonmodal-tool-window"),
@@ -13591,19 +13686,9 @@ var init_qt_native_receipts = __esm({
       titleContains: external_exports.string().optional(),
       draft: external_exports.boolean().optional()
     }).strict();
-    processWindowInventorySchema = external_exports.object({
-      ok: external_exports.literal(true),
-      windows: external_exports.array(external_exports.object({
-        hwnd: external_exports.number().int().positive(),
-        pid: external_exports.number().int().positive(),
-        class: external_exports.string().min(1).max(255),
-        title: external_exports.string().min(1).max(4095),
-        minimized: external_exports.boolean(),
-        hung: external_exports.boolean()
-      }).strict()).max(256)
-    }).passthrough();
     fail5 = (kind, error) => ({ ok: false, backend: "qt", kind, error });
-    receiptTextFingerprint = (text3) => createHash13("sha256").update(text3, "utf8").digest("hex").toUpperCase();
+    canonicalReceiptJson = (value) => powershellCompactJson(value);
+    receiptTextFingerprint = textSha256;
     receiptFingerprint = (value) => receiptTextFingerprint(canonicalReceiptJson(value));
   }
 });
@@ -14055,19 +14140,141 @@ var init_qt_native_receipt_action = __esm({
   }
 });
 
-// src/qt-native-executor.ts
+// src/qt-native-page.ts
 import { performance as performance11 } from "node:perf_hooks";
+function pageFields(own, bounds, textMinX) {
+  const texts = own.filter((node) => node.type === "Text" && node.name && node.x >= textMinX && node.x <= bounds.maxX);
+  return own.filter((node) => FIELD_TYPES.has(node.type) && inContent(node, bounds)).sort(byPosition3).map((field) => {
+    const caption = texts.filter((text3) => Math.abs(text3.y - field.y) <= 14 && text3.x < field.x).sort((a, b) => field.x - a.x - (field.x - b.x))[0];
+    return {
+      label: caption?.name || field.name,
+      typ: field.type,
+      wert: field.type === "CheckBox" ? field.checked : field.type === "RadioButton" ? field.selected : field.val,
+      schreibgeschuetzt: field.ro,
+      aid: field.aid.split(".").at(-1) ?? field.aid,
+      rid: field.rid,
+      y: field.y
+    };
+  });
+}
+function pageTable(own) {
+  const heads = own.filter((node) => node.type === "Header" && node.name && node.w > 0).sort((a, b) => a.x - b.x);
+  const cells = own.filter((node) => node.type === "DataItem" && node.w > 0).sort(byPosition3);
+  const rows = [];
+  for (const cell of cells) {
+    const current = rows.at(-1);
+    if (!current || Math.abs(cell.y - current.y) > 10) rows.push({ y: cell.y, zellen: [] });
+    rows.at(-1).zellen.push({ x: cell.x, text: cell.name, rid: cell.rid });
+  }
+  const free = rows.filter((row) => !row.zellen.some((cell) => cell.text && cell.text !== "0,00" && cell.text !== "0"));
+  if (!heads.length && !rows.length) return null;
+  return {
+    kopf: heads.map((head) => head.name),
+    // The worker pipes each row's cell array through ForEach-Object, which unrolls it: 'zeilen' is one flat list of cell texts.
+    zeilen: rows.flatMap((row) => row.zellen.map((cell) => cell.text)),
+    sichtbareZeilen: rows.length,
+    ersteFreieZeile: free.length ? free[0].zellen.map((cell) => ({ x: cell.x, rid: cell.rid })) : null,
+    hinweis: TABLE_HINT
+  };
+}
+function pageActions(own, bounds, windowTop) {
+  const candidates = own.filter((node) => (node.type === "Button" || node.type === "Hyperlink") && node.name).sort((a, b) => a.y - b.y || Number(a.type !== "Hyperlink") - Number(b.type !== "Hyperlink") || a.x - b.x);
+  const actions = [];
+  for (const node of candidates) {
+    const gesperrt = transmissionName3(node.name);
+    const bereich = node.y < windowTop + 160 ? "werkzeugleiste" : inContent(node, bounds) ? "seite" : "hilfespalte";
+    if (actions.some((action) => psEquals(action.name, node.name) && action.bereich === bereich)) continue;
+    actions.push({
+      name: node.name,
+      typ: node.type,
+      bereich,
+      aktiviert: node.on,
+      gesperrt,
+      // UIA invoke works on buttons; links and tree entries need a real click.
+      werkzeug: gesperrt ? "(gesperrt)" : node.type === "Button" ? "sse_click" : "sse_click_point"
+    });
+  }
+  return actions;
+}
+function checkerMessages(own, bounds) {
+  return [...new Set(own.filter((node) => node.type === "TreeItem" && node.name && node.x > bounds.maxX && node.name.length < 90).map((node) => node.name).filter((name) => !CHECKER_NOISE.has(name.toLowerCase())))];
+}
+async function executeQtNativePage(client, args, timeoutMs, signal, profile) {
+  if (!profile) return fail6("bad-args", "page requires a product profile.");
+  const started = performance11.now();
+  const snapshot = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 5e3 }, timeoutMs, signal);
+  if (!snapshot.windowEnabled || snapshot.modalBlocked) {
+    return fail6("dialog-open", "Ein modaler Dialog blockiert die gebundene Seite; keine Werte ausgegeben. Dialoge mit sse_dialog_list lesen.");
+  }
+  if (snapshot.stats.truncated) {
+    return fail6("native-incomplete", "Der native Seitenbaum ueberschreitet die Lesegrenze; keine unvollstaendige Seite ausgegeben.");
+  }
+  const scope = splitWindowScope(snapshot.nodes);
+  const own = scope.own;
+  const bounds = contentBounds(own, snapshot.windowRect);
+  const textMinX = bounds.navErkannt ? bounds.minX : bounds.winX;
+  const ueberschrift = heading(own, profile);
+  const felder = pageFields(own, bounds, textMinX);
+  const tabelle = pageTable(own);
+  const aktionen = pageActions(own, bounds, snapshot.windowRect.y);
+  const prueferMeldungen = checkerMessages(own, bounds);
+  const leerePflichtfelder = felder.filter((field) => field.typ === "ComboBox" && !String(field.wert ?? "").trim()).map((field) => field.label);
+  const hinweis = felder.length && felder.every((field) => !String(field.label ?? "").trim()) ? UNLABELLED_HINT : null;
+  const remaining = Math.floor(timeoutMs - (performance11.now() - started));
+  if (remaining < 1) throw new QtNativeTransportError("Native page deadline exceeded before the window inventory.", "native-timeout");
+  const inventory = await readProcessWindowInventory(client, remaining, signal);
+  const offeneFenster = inventory.windows.length;
+  return {
+    hinweis,
+    ok: true,
+    ueberschrift,
+    ueberschriftQuelle: ueberschrift === null ? "nicht-gefunden" : "clientHeader",
+    navigationAuswahl: navigationSelection(own),
+    ausgeschlosseneFenster: scope.foreign,
+    felder,
+    tabelle,
+    aktionen,
+    blockiert: prueferMeldungen.length > 0 || offeneFenster > 2,
+    prueferMeldungen,
+    leerePflichtfelder,
+    // A modal dialog already failed closed above; the worker's dialog inventory would be empty here as well.
+    dialoge: [],
+    offeneFenster,
+    stats: snapshot.stats,
+    backend: "qt",
+    nativeDurationMs: snapshot.nativeDurationMs + inventory.durationMs
+  };
+}
+var fail6, FIELD_TYPES, CHECKER_NOISE, TABLE_HINT, UNLABELLED_HINT, inContent;
+var init_qt_native_page = __esm({
+  "src/qt-native-page.ts"() {
+    "use strict";
+    init_qt_native_client();
+    init_qt_native_pages();
+    init_qt_native_projections();
+    init_qt_native_snapshot();
+    fail6 = (kind, error) => ({ ok: false, backend: "qt", kind, error });
+    FIELD_TYPES = /* @__PURE__ */ new Set(["Edit", "ComboBox", "CheckBox", "RadioButton"]);
+    CHECKER_NOISE = new Set(["Eingabehilfe", "Steuertipps", "Prüfer", "Mehr Details", "Zurzeit keine Hinweise zu diesem Dialog."].map((name) => name.toLowerCase()));
+    TABLE_HINT = "Nur die SICHTBAREN Zeilen. Bei mehr Zeilen sse_table_read benutzen.";
+    UNLABELLED_HINT = "Kein Feld dieser Seite hat eine Beschriftung - die Beschriftungsspalte liegt ausserhalb des erkannten Inhaltsbereichs. Felder hier nur ueber rid ansprechen; ein Zugriff ueber die Beschriftung scheitert mit bad-target. Abhilfe: Navigationsspalte einblenden oder das Fenster maximieren.";
+    inContent = (node, bounds) => node.x >= bounds.minX && node.x <= bounds.maxX;
+  }
+});
+
+// src/qt-native-executor.ts
+import { performance as performance12 } from "node:perf_hooks";
 function isQtNativeReadOperation(operation) {
   return QT_NATIVE_READ_OPERATIONS.some((value) => value === operation);
 }
 async function executeQtNativeRead(operation, args, dependencies, timeoutMs = DEFAULT_OPERATION_TIMEOUT_MS, signal, profile) {
   try {
-    const started = performance11.now();
+    const started = performance12.now();
     if (operation === "snapshot" && profile) args = qtSnapshotArguments(args, profile);
     const client = dependencies.qtNativeClient ?? await dependencies.qtNativeClientFor(args, timeoutMs, signal);
-    const remaining = Math.floor(timeoutMs - (performance11.now() - started));
+    const remaining = Math.floor(timeoutMs - (performance12.now() - started));
     if (remaining < 1) throw new QtNativeTransportError("Native operation deadline exceeded before reading.", "native-timeout");
-    const execute = operation === "known_page_state" ? executeQtNativeKnownPageState : operation === "positions" ? executeQtNativePositions : operation === "ustva_read" ? executeQtNativeUstvaRead : operation === "receipt_manager_action" ? executeQtNativeReceiptManagerAction : operation === "receipt_manager_read" ? executeQtNativeReceiptManagerRead : operation === "receipt_manager_list" ? executeQtNativeReceiptManagerList : operation === "read_page" ? executeQtNativeReadPage : operation === "subpages" ? executeQtNativeSubpages : operation === "find" ? executeQtNativeFind : operation === "snapshot" ? executeQtNativeSnapshot : operation === "table_read" ? executeQtNativeTableRead : typeof args.rid === "string" && args.rid.startsWith("42.") ? executeQtSnapshotGetValue : executeQtNativeGetValue;
+    const execute = operation === "known_page_state" ? executeQtNativeKnownPageState : operation === "page" ? executeQtNativePage : operation === "positions" ? executeQtNativePositions : operation === "ustva_read" ? executeQtNativeUstvaRead : operation === "receipt_manager_action" ? executeQtNativeReceiptManagerAction : operation === "receipt_manager_read" ? executeQtNativeReceiptManagerRead : operation === "receipt_manager_list" ? executeQtNativeReceiptManagerList : operation === "read_page" ? executeQtNativeReadPage : operation === "subpages" ? executeQtNativeSubpages : operation === "find" ? executeQtNativeFind : operation === "snapshot" ? executeQtNativeSnapshot : operation === "table_read" ? executeQtNativeTableRead : typeof args.rid === "string" && args.rid.startsWith("42.") ? executeQtSnapshotGetValue : executeQtNativeGetValue;
     return await execute(client, args, remaining, signal, profile);
   } catch (error) {
     return {
@@ -14094,6 +14301,7 @@ var init_qt_native_executor = __esm({
     init_qt_native_receipt_read();
     init_qt_native_receipt_action();
     init_qt_native_receipts();
+    init_qt_native_page();
     QT_NATIVE_READ_OPERATIONS = [
       "get_value",
       "table_read",
@@ -14106,7 +14314,8 @@ var init_qt_native_executor = __esm({
       "ustva_read",
       "receipt_manager_list",
       "receipt_manager_read",
-      "receipt_manager_action"
+      "receipt_manager_action",
+      "page"
     ];
   }
 });
@@ -14114,14 +14323,14 @@ var init_qt_native_executor = __esm({
 // src/api-executor.ts
 import { existsSync as existsSync9, mkdirSync as mkdirSync3, readdirSync as readdirSync3, rmdirSync } from "node:fs";
 import { dirname as dirname10 } from "node:path";
-import { performance as performance12 } from "node:perf_hooks";
+import { performance as performance13 } from "node:perf_hooks";
 function withResourceIdentity4(redactPaths, result, resourceRefs = {}) {
   const redacted = redactPaths(result);
   if (!Object.keys(resourceRefs).length) return redacted;
   return { ...redacted, resourceRefs };
 }
 function remainingTimeoutMs(timeoutMs, startedAt) {
-  return Math.max(0, Math.floor(timeoutMs - (performance12.now() - startedAt)));
+  return Math.max(0, Math.floor(timeoutMs - (performance13.now() - startedAt)));
 }
 function isExperimentalDialogAnswerCandidate(operation, args) {
   return operation === "dialog_answer" && args.button === "OK";
@@ -14374,7 +14583,7 @@ function createApiExecutor(config, rawWorker, dependencies = {}) {
       }
       if (operation === "list_cases" && configured.args.verbose !== true && typeof configured.args.dir === "string" && existsSync9(configured.args.dir)) {
         const effectiveTimeoutMs = timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS;
-        const localStartedAt = performance12.now();
+        const localStartedAt = performance13.now();
         try {
           const result2 = await local(operation, () => listCaseFiles(String(configured.args.dir), profile, {
             includeBackups: configured.args.includeBackups === true,
@@ -18020,7 +18229,7 @@ var init_api_supervisor_contract = __esm({
 
 // src/api-server.ts
 import { randomUUID as randomUUID3 } from "node:crypto";
-import { performance as performance13 } from "node:perf_hooks";
+import { performance as performance14 } from "node:perf_hooks";
 import {
   createServer
 } from "node:http";
@@ -18136,7 +18345,7 @@ function createSseApiServer(options) {
   const inFlightSnapshot = () => {
     if (!inFlight) return null;
     const { startedMonotonic, ...publicState } = inFlight;
-    return { ...publicState, elapsedMs: Math.round(performance13.now() - startedMonotonic) };
+    return { ...publicState, elapsedMs: Math.round(performance14.now() - startedMonotonic) };
   };
   const safeLog = (record) => {
     try {
@@ -18146,7 +18355,7 @@ function createSseApiServer(options) {
   };
   const server = createServer(async (request, response) => {
     const requestId = randomUUID3();
-    const started = performance13.now();
+    const started = performance14.now();
     const foreignClient = foreignClientReason(request);
     if (foreignClient) {
       sendJson(response, 403, apiError(requestId, "forbidden", foreignClient));
@@ -18320,7 +18529,7 @@ function createSseApiServer(options) {
         });
         return;
       }
-      inFlight = { operation: operationName, requestId, startedAt: Date.now(), startedMonotonic: performance13.now() };
+      inFlight = { operation: operationName, requestId, startedAt: Date.now(), startedMonotonic: performance14.now() };
       let rawResult;
       try {
         rawResult = await execute(operationName, args, body.timeoutMs, controller.signal);
@@ -18349,7 +18558,7 @@ function createSseApiServer(options) {
         apiVersion: SSE_API_VERSION,
         requestId,
         operation: operationName,
-        durationMs: Math.round(performance13.now() - started),
+        durationMs: Math.round(performance14.now() - started),
         result
       };
       const operationLog = {
@@ -18390,7 +18599,7 @@ function createSseApiServer(options) {
         event: "operation-error",
         requestId,
         operation: operationName,
-        durationMs: Math.round(performance13.now() - started),
+        durationMs: Math.round(performance14.now() - started),
         code,
         errorName: error instanceof Error ? error.name : "Error"
       });
@@ -19599,7 +19808,7 @@ var init_qt_native_broker = __esm({
 import { execFile as execFile2 } from "node:child_process";
 import { createHash as createHash16 } from "node:crypto";
 import { win32 as win322 } from "node:path";
-import { performance as performance14 } from "node:perf_hooks";
+import { performance as performance15 } from "node:perf_hooks";
 function parseNativeDesktopStatus(value, marker, options) {
   const status = statusSchema.parse(value), profile = options.profile;
   if (status.loaderBuildIdentity !== options.package.manifest.buildIdentity || status.desktop !== marker.name || status.pid !== (marker.pid ?? 0) || status.windows.some((window) => window.pid !== marker.pid) || !status.reachable && status.windows.length) throw failure2("Native status returned a different ownership binding.", "native-binding");
@@ -19683,14 +19892,14 @@ async function readNativeStatus(marker, options) {
   });
 }
 async function executeNativeDesktopStatus(options) {
-  const start = performance14.now();
+  const start = performance15.now();
   try {
     if (options.signal?.aborted) throw failure2("Native status cancelled before launch.", "aborted");
     if (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > 6e4)
       throw failure2("Invalid native status deadline.", "native-deadline");
     const readMarker = options.readMarker ?? (() => readDesktopMarker(desktopMarkerPath()));
     const marker = readMarker();
-    const remaining = Math.floor(options.timeoutMs - (performance14.now() - start));
+    const remaining = Math.floor(options.timeoutMs - (performance15.now() - start));
     if (remaining < 1) throw failure2("Native status deadline exceeded before launch.", "native-timeout");
     const result = marker ? await readNativeStatus(marker, { ...options, timeoutMs: remaining }) : {
       ok: true,
@@ -19707,14 +19916,14 @@ async function executeNativeDesktopStatus(options) {
     };
     if (options.signal?.aborted) throw failure2("Native status cancelled.", "aborted");
     if (JSON.stringify(readMarker()) !== JSON.stringify(marker)) throw failure2("Desktop ownership changed during native status.", "native-binding");
-    return { ...result, ms: performance14.now() - start };
+    return { ...result, ms: performance15.now() - start };
   } catch (error) {
     return {
       ok: false,
       backend: "win32",
       kind: error instanceof QtNativeTransportError || error instanceof DesktopMarkerError ? error.kind : "native-contract",
       error: error instanceof QtNativeTransportError || error instanceof DesktopMarkerError ? error.message : "Native desktop status failed.",
-      ms: performance14.now() - start
+      ms: performance15.now() - start
     };
   }
 }
@@ -19763,7 +19972,7 @@ import { execFile as execFile3 } from "node:child_process";
 import { createHash as createHash17 } from "node:crypto";
 import { statSync as statSync6 } from "node:fs";
 import { win32 as win323 } from "node:path";
-import { performance as performance15 } from "node:perf_hooks";
+import { performance as performance16 } from "node:perf_hooks";
 function localPath(value) {
   const path = win323.normalize(value);
   if (!/^[A-Za-z]:\\/u.test(path) || /["\u0000-\u001f]/u.test(path) || path.length > 32767)
@@ -19844,7 +20053,7 @@ function parseNativeDesktopStart(value, prepared, options) {
   };
 }
 async function executeNativeDesktopStart(options) {
-  const started = performance15.now();
+  const started = performance16.now();
   try {
     if (options.signal?.aborted) throw failure3("aborted", "Desktop start cancelled before launch.");
     if (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 6500 || options.timeoutMs > 12e4)
@@ -19852,7 +20061,7 @@ async function executeNativeDesktopStart(options) {
     const prepared = prepareNativeDesktopStart(options), markerPath = desktopMarkerPath();
     const marker = readDesktopMarker(markerPath);
     if (marker && marker.owner !== "sse") throw failure3("desktop-marker-owner", "Desktop belongs to a different controller.");
-    const remaining = Math.floor(options.timeoutMs - (performance15.now() - started));
+    const remaining = Math.floor(options.timeoutMs - (performance16.now() - started));
     if (remaining < 6500) throw failure3("native-deadline", "Not enough time remains for startup and verified cleanup.");
     const request = {
       mode: "desktop-start",
@@ -19929,7 +20138,7 @@ async function executeNativeDesktopStart(options) {
       });
       child.stdin?.end(body);
     });
-    return { ...result, ms: performance15.now() - started };
+    return { ...result, ms: performance16.now() - started };
   } catch (error) {
     return {
       ok: false,
@@ -19937,7 +20146,7 @@ async function executeNativeDesktopStart(options) {
       kind: error instanceof QtNativeTransportError || error instanceof DesktopMarkerError ? error.kind : "native-contract",
       error: error instanceof Error ? error.message : "Native desktop start failed.",
       outcomeUnknown: error instanceof QtNativeTransportError && error.outcomeUnknown,
-      ms: performance15.now() - started
+      ms: performance16.now() - started
     };
   }
 }
@@ -19997,7 +20206,7 @@ var init_native_desktop_start = __esm({
 
 // src/native-desktop-stop.ts
 import { execFile as execFile4 } from "node:child_process";
-import { performance as performance16 } from "node:perf_hooks";
+import { performance as performance17 } from "node:perf_hooks";
 import { win32 as win324 } from "node:path";
 function parseNativeDesktopStop(value, marker, options) {
   const result = resultSchema2.parse(value);
@@ -20014,7 +20223,7 @@ function parseNativeDesktopStop(value, marker, options) {
   };
 }
 async function executeNativeDesktopStop(options) {
-  const started = performance16.now();
+  const started = performance17.now();
   try {
     if (options.signal?.aborted) throw failure4("aborted", "Desktop stop cancelled before submission.");
     if (options.args.save === true && options.args.discardChanges === true) throw failure4("bad-args", "Save and discard cannot both be requested.");
@@ -20025,7 +20234,7 @@ async function executeNativeDesktopStop(options) {
     if (!marker?.pid || marker.owner !== "sse") throw failure4("ownership", "A valid owned SSE desktop marker with PID is required.");
     const image = win324.normalize(options.executable);
     if (!/^[A-Za-z]:\\/u.test(image) || /["\u0000-\u001f]/u.test(image)) throw failure4("bad-args", "An absolute configured executable is required.");
-    const remaining = Math.floor(options.timeoutMs - (performance16.now() - started));
+    const remaining = Math.floor(options.timeoutMs - (performance17.now() - started));
     if (remaining < 11500) throw failure4("native-deadline", "Insufficient time remains for close ownership checks.");
     const request = {
       mode: "desktop-stop",
@@ -20064,7 +20273,7 @@ async function executeNativeDesktopStop(options) {
       });
       child.stdin?.end(JSON.stringify(request));
     });
-    return { ...result, ms: performance16.now() - started };
+    return { ...result, ms: performance17.now() - started };
   } catch (error) {
     return {
       ok: false,
@@ -20072,7 +20281,7 @@ async function executeNativeDesktopStop(options) {
       kind: error instanceof QtNativeTransportError || error instanceof DesktopMarkerError ? error.kind : "native-contract",
       error: error instanceof Error ? error.message : "Native desktop stop failed.",
       outcomeUnknown: error instanceof QtNativeTransportError && error.outcomeUnknown,
-      ms: performance16.now() - started
+      ms: performance17.now() - started
     };
   }
 }
@@ -20212,7 +20421,7 @@ var init_qt_native_discovery = __esm({
 });
 
 // src/qt-native-runtime.ts
-import { performance as performance17 } from "node:perf_hooks";
+import { performance as performance18 } from "node:perf_hooks";
 function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
   if (!config.qtNativeRuntime) throw new Error("Native runtime configuration is required.");
   const nativePackage = (dependencies.loadPackage ?? loadQtNativePackage)(config.qtNativeRuntime, profile);
@@ -20234,7 +20443,7 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
   let stopped = false, revision = 0;
   const failure6 = (message, kind, outcomeUnknown = false) => new QtNativeTransportError(message, kind, outcomeUnknown);
   const left = (deadline) => {
-    const value = Math.floor(deadline - performance17.now());
+    const value = Math.floor(deadline - performance18.now());
     if (value < 1) throw failure6("Native operation deadline exceeded before dispatch.", "native-timeout");
     return value;
   };
@@ -20343,25 +20552,25 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
   }
   const runtime = {
     async desktopStop(args, timeoutMs, signal) {
-      const deadline = performance17.now() + timeoutMs;
+      const deadline = performance18.now() + timeoutMs;
       await clear();
       return withCombinedAbortSignal([signal, shutdown], (combined) => executeNativeDesktopStop({
         package: nativePackage,
         executable: executable[0],
         args,
-        timeoutMs: Math.max(0, Math.floor(deadline - performance17.now())),
+        timeoutMs: Math.max(0, Math.floor(deadline - performance18.now())),
         signal: combined
       }));
     },
     async desktopStart(args, timeoutMs, signal) {
-      const deadline = performance17.now() + timeoutMs;
+      const deadline = performance18.now() + timeoutMs;
       await clear();
       return withCombinedAbortSignal([signal, shutdown], (combined) => executeNativeDesktopStart({
         package: nativePackage,
         profile,
         executable: executable[0],
         args,
-        timeoutMs: Math.max(0, Math.floor(deadline - performance17.now())),
+        timeoutMs: Math.max(0, Math.floor(deadline - performance18.now())),
         signal: combined
       }));
     },
@@ -20374,7 +20583,7 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
       }));
     },
     async client(args, timeoutMs, signal) {
-      const deadline = performance17.now() + timeoutMs;
+      const deadline = performance18.now() + timeoutMs;
       return withCombinedAbortSignal([signal, shutdown], async (combined) => {
         const session = await obtain(args, deadline, combined);
         const checked = await session.client.request("window_context", {}, left(deadline), combined);
