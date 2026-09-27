@@ -28,7 +28,7 @@ ist, nicht was fehlt.
 | Menueeintraege | 64 | 11 fertig, 9 teils, 4 zu |
 | Formularvorlagen (`.frb`) | 994 | 0 |
 | Operationen | – | 102: 94 funktional live belegt, 6 nur Fehlerpfad, 2 live ungetestet |
-| Direkte Qt-DLL-Handler | – | 12 optional: `get_value`, `table_read`, `snapshot`, `find`, `read_page`, `subpages`, `known_page_state`, `positions`, `ustva_read`, `receipt_manager_list`, `receipt_manager_read`, `receipt_manager_action`; 90 ohne direkten Qt-Pfad |
+| Direkte Qt-DLL-Handler | – | 17 optional: `get_value`, `table_read`, `snapshot`, `find`, `read_page`, `subpages`, `known_page_state`, `positions`, `ustva_read`, `receipt_manager_list`, `receipt_manager_read`, `receipt_manager_action`, `page`, `ui_state`, `help`, `read_table`, `checker_results`; 85 ohne direkten Qt-Pfad |
 | MCP-Werkzeuge | – | 104: 102 direkte, 1 Komposition, 1 API-Lebenszykluswerkzeug |
 
 Die Qt-Brücke enthält keine öffentlichen dauerhaften Schreib-, allgemeinen

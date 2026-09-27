@@ -2,7 +2,8 @@
 
 Die API kann `get_value`, `table_read`, `snapshot`, `find`, `read_page`,
 `subpages`, `known_page_state`, `positions`, `ustva_read`,
-`receipt_manager_list`, `receipt_manager_read` und `receipt_manager_action`
+`receipt_manager_list`, `receipt_manager_read`, `receipt_manager_action`,
+`page`, `ui_state`, `help`, `read_table` und `checker_results`
 über eine dauerhaft gebundene Qt-Verbindung ausführen. Der normale Runtime-Start aktiviert diesen Pfad nur,
 wenn die Konfigurationsdatei `qtNativeRuntime` enthält. Dafür wird ein separates,
 kompatibles natives Paket benötigt; die npm-Pakete enthalten diesen Qt-Helfer
@@ -19,7 +20,7 @@ dagegen die gesunde Hauptfensterverbindung. Fehler und unbekannte Ausgänge
 erlauben keine automatische Neuverbindung oder Wiederholung.
 
 Die [Native-Abdeckungsmatrix](NATIVE-COVERAGE.md) zählt alle 102 API-Operationen:
-zwölf direkte optionale Qt-Handler und 90 ohne direkten Qt-Pfad. Sie trennt
+siebzehn direkte optionale Qt-Handler und 85 ohne direkten Qt-Pfad. Sie trennt
 diesen Stand von funktionaler Live-Abdeckung und noch erforderlicher Integration.
 `sse-native.dll` bezeichnet dagegen die bestehende C#-Worker-Hilfsbibliothek;
 der hier beschriebene C++-Lesepfad verwendet `sse-qt-read.dll` in SSE.
@@ -131,6 +132,32 @@ Fenster und den Dirty-State des gebundenen Hauptfensters direkt aus zwei
 begrenzten Qt-Snapshots. Runtime-IDs und Fingerprints bleiben mit den bestehenden
 quittierten Belegmutationen kompatibel; eine nicht vollständig exponierte Liste
 wird als unvollständig markiert und nicht als sichere Mutationsgrundlage ausgegeben.
+
+`page`, `help`, `read_table` und `checker_results` projizieren jeweils einen
+frischen, gebundenen GUI-Thread-Snapshot in genau die Ergebnisform des bisherigen
+Worker-Zweigs: Beschriftungen, Felder, sichtbare Tabellenzeilen, Aktionen mit
+Übermittlungssperre, Hilfeabschnitte, Kopfspalten mit typisierten Zellzuständen
+und die gruppierte Prüferliste. Fremde Fensterteilbäume werden wie bisher als
+`ausgeschlosseneFenster` ausgewiesen. Ein modaler Dialog bricht `page`, `help`,
+`read_table` und `checker_results` fail-closed mit `dialog-open` ab, weil der
+Qt-Pfad fremde Dialoge nicht beschreibt; `page`, `help` und `checker_results`
+scheitern zusätzlich bei abgeschnittenem Baum mit `native-incomplete`,
+`read_table` meldet wie der Worker `incomplete`. `page` zählt in `offeneFenster`
+nur die sichtbaren betitelten Fenster des gebundenen Prozesses.
+
+`ui_state` liest Hauptfensterbaum und Win32-Fensterinventar des gebundenen
+Prozesses direkt; eine geöffnete Werte-Info wird über ihren exakten Titel als
+zweiter Snapshot gelesen und in dasselbe `ergebnis`-Modell projiziert.
+Dialoge, unbekannte oder namenlose modale Fenster werden nicht beschrieben,
+sondern als `nicht-lesbar` unter `unsichereFenster` geführt; der Zustand gilt
+dann als blockiert, und `sse_dialog_list` bleibt der Weg zum fingerprintgebundenen
+Dialog. Ein minimiertes Hauptfenster stellt dieser Lesepfad nicht wieder her,
+sondern scheitert mit `minimized`; zwei gleichzeitig offene Werte-Info-Fenster
+scheitern mit `ambiguous`. Der `stateFingerprint` verwendet dieselbe
+Feldreihenfolge und dieselben JSON-Bytes wie der Worker, damit
+`previousFingerprint` backendübergreifend vergleichbar bleibt, solange kein
+fremdes Fenster offen ist; Schattenfenster und Tooltips zählen im nativen
+Inventar nicht mit, und `dialoge` bleibt auf diesem Pfad immer leer.
 
 ## Interne Laufzeitmessung
 

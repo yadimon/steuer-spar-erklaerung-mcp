@@ -8,8 +8,8 @@ Der Live-Stand stammt aus bestehenden Tests; er belegt keinen Wechsel des Backen
 | Kennzahl | Anzahl |
 | --- | ---: |
 | API-Operationen | 102 |
-| Direkt an den optionalen Qt-DLL-Pfad angeschlossen | 12 |
-| Ohne direkten Qt-DLL-Pfad | 90 |
+| Direkt an den optionalen Qt-DLL-Pfad angeschlossen | 17 |
+| Ohne direkten Qt-DLL-Pfad | 85 |
 | Zusätzliche direkte Win32-Operationen im optionalen nativen Paket | 2 |
 | Zusätzliche Win32-/COM-UIA-Operationen im optionalen nativen Paket | 1 |
 | Funktional live belegt, unabhängig vom Backend | 94 |
@@ -62,7 +62,7 @@ Broker und Transportquittungen sind Infrastruktur, keine zusätzlichen API-Komma
 | `checker_detail` | Prüfen und Steuerwissen | Nicht umgestellt | funktional belegt |
 | `checker_open` | Prüfen und Steuerwissen | Nicht umgestellt | funktional belegt |
 | `checker_reset` | Prüfen und Steuerwissen | Nicht umgestellt | funktional belegt |
-| `checker_results` | Prüfen und Steuerwissen | Nicht umgestellt | funktional belegt |
+| `checker_results` | Prüfen und Steuerwissen | **Qt optional** | funktional belegt |
 | `checker_run` | Prüfen und Steuerwissen | Nicht umgestellt | funktional belegt |
 | `click` | Felder und Bedienung | Nicht umgestellt | funktional belegt |
 | `click_point` | Felder und Bedienung | Nicht umgestellt | funktional belegt |
@@ -83,7 +83,7 @@ Broker und Transportquittungen sind Infrastruktur, keine zusätzlichen API-Komma
 | `get_value` | Felder und Bedienung | **Qt optional** | funktional belegt |
 | `goto` | Seite und Navigation | Nicht umgestellt | funktional belegt |
 | `health` | Programm und Fenster | Nicht umgestellt | funktional belegt |
-| `help` | Seite und Navigation | Nicht umgestellt | funktional belegt |
+| `help` | Seite und Navigation | **Qt optional** | funktional belegt |
 | `instances` | Programm und Fenster | Nicht umgestellt | funktional belegt |
 | `known_page_state` | Seite und Navigation | **Qt optional** | funktional belegt |
 | `launch` | Programm und Fenster | Nicht umgestellt | funktional belegt |
@@ -92,14 +92,14 @@ Broker und Transportquittungen sind Infrastruktur, keine zusätzlichen API-Komma
 | `menu` | Felder und Bedienung | Nicht umgestellt | funktional belegt |
 | `menu_click` | Felder und Bedienung | Nicht umgestellt | funktional belegt |
 | `menu_close` | Felder und Bedienung | Nicht umgestellt | funktional belegt |
-| `page` | Seite und Navigation | Nicht umgestellt | funktional belegt |
+| `page` | Seite und Navigation | **Qt optional** | funktional belegt |
 | `page_objects` | Dateien und API | Nicht umgestellt | funktional belegt |
 | `position_create` | Felder und Bedienung | Nicht umgestellt | ungetestet |
 | `positions` | Seite und Navigation | **Qt optional** | funktional belegt |
 | `product_info` | Programm und Fenster | Nicht umgestellt | funktional belegt |
 | `read_full` | Seite und Navigation | Nicht umgestellt | funktional belegt |
 | `read_page` | Seite und Navigation | **Qt optional** | funktional belegt |
-| `read_table` | Seite und Navigation | Nicht umgestellt | funktional belegt |
+| `read_table` | Seite und Navigation | **Qt optional** | funktional belegt |
 | `receipt_manager_action` | Belege | **Qt optional** | funktional belegt |
 | `receipt_manager_bulk_upsert` | Belege | Nicht umgestellt | funktional belegt |
 | `receipt_manager_classification_options` | Belege | Nicht umgestellt | funktional belegt |
@@ -130,7 +130,7 @@ Broker und Transportquittungen sind Infrastruktur, keine zusätzlichen API-Komma
 | `tracked_set_value` | Felder und Bedienung | Nicht umgestellt | funktional belegt |
 | `tree_scroll` | Seite und Navigation | Nicht umgestellt | funktional belegt |
 | `tree_top` | Seite und Navigation | Nicht umgestellt | funktional belegt |
-| `ui_state` | Seite und Navigation | Nicht umgestellt | funktional belegt |
+| `ui_state` | Seite und Navigation | **Qt optional** | funktional belegt |
 | `ustva_change_value` | UStVA | Nicht umgestellt | funktional belegt |
 | `ustva_open_section` | UStVA | Nicht umgestellt | funktional belegt |
 | `ustva_read` | UStVA | **Qt optional** | funktional belegt |
@@ -156,9 +156,12 @@ Broker und Transportquittungen sind Infrastruktur, keine zusätzlichen API-Komma
 
 - Seiten- und Orientierungsoperationen benötigen eine vollständige Ergebnisprojektion,
   eindeutige Referenzen und eigene Live-Paritätsprüfungen. `snapshot` hat einen
-  Qt-Accessibility-Handler mit UIA-kompatiblen Referenzen; `find`, `read_page`
-  und `subpages` verwenden ihn bereits. Weitere Seitenoperationen bleiben offen.
-  `read_table` ist nicht `table_read`.
+  Qt-Accessibility-Handler mit UIA-kompatiblen Referenzen; `find`, `read_page`,
+  `subpages`, `page`, `help`, `read_table`, `checker_results` und `ui_state`
+  verwenden ihn bereits und sind gegen die Worker-Projektionen synthetisch
+  geprüft; ihre unabhängige Live-Parität auf mehreren Produktseiten steht aus.
+  `read_full`, `scroll_page` und die Dialogbeschreibung bleiben offen, weil sie
+  Rollen oder fremde Fenster benötigen. `read_table` ist nicht `table_read`.
 - Schreiboperationen benötigen Fall-/Seiten-/Vorwertbindung, normalen SSE-Commit,
   frischen Readback und die jeweils geforderten Summen-/Ergebnisprüfungen.
   `set_value` bleibt auf das globale Suchfeld begrenzt.
@@ -171,11 +174,16 @@ Broker und Transportquittungen sind Infrastruktur, keine zusätzlichen API-Komma
 
 Die ausgelieferte Qt-Brücke aktiviert keine freien experimentellen Schreib-,
 Navigations- oder Speicheroperationen. `known_page_state`, die read-only-Listenansicht
-`positions`, `ustva_read` und `receipt_manager_list` sind dabei katalog- bzw. snapshotgebundene Pfade.
-Die vier snapshotgebundenen Pfade lesen den persistenten Qt-Accessibility-Snapshot,
-bilden katalogisierte Felder, Epoch-Bindung beziehungsweise das bestehende
-fachliche UStVA-Modell ab und führen keine Mutation aus; die Belegliste bleibt
-an das exakte nichtmodale Tool-Fenster gebunden. `receipt_manager_action` und
+`positions`, `ustva_read`, `receipt_manager_list`, `page`, `ui_state`, `help`,
+`read_table` und `checker_results` sind dabei katalog- bzw. snapshotgebundene Pfade.
+Die snapshotgebundenen Pfade lesen den persistenten Qt-Accessibility-Snapshot,
+bilden katalogisierte Felder, Epoch-Bindung, das bestehende fachliche
+UStVA-Modell beziehungsweise die Seiten-, Hilfe-, Tabellen-, Prüfer- und
+Zustandsprojektionen des Workers ab und führen keine Mutation aus; die Belegliste
+bleibt an das exakte nichtmodale Tool-Fenster gebunden, und `ui_state` liest die
+Werte-Info nur über ihren exakten Titel. Fremde Dialoge beschreibt keiner dieser
+Pfade: `page`, `help`, `read_table` und `checker_results` scheitern bei einem
+modalen Dialog fail-closed, `ui_state` führt ihn als nicht lesbares Fenster. `receipt_manager_action` und
 `receipt_manager_read` verwenden dagegen ausschließlich jeweils eine exakt
 katalog- und Runtime-ID-gebundene, quittierte und reversible Qt-Aktion im GUI-Thread.
 Der Detailfingerprint ist eine kanonische Bindung der sieben profilierten Werte,

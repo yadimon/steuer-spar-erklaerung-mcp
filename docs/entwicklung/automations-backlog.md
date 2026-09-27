@@ -9,7 +9,7 @@ Nachweis. Vorhandene Mechanismen werden erweitert; ihre Bindungs- und
 ## Aktueller Umsetzungsstand
 
 Die [Native-Matrix](../NATIVE-COVERAGE.md) führt jede der 102 Operationen.
-Die zwölf dort als **Qt optional** markierten Operationen sind direkt an die
+Die siebzehn dort als **Qt optional** markierten Operationen sind direkt an die
 optionale Qt-Brücke angeschlossen. Die folgende Bilanz ergänzt die Aufgaben; vorhandene
 Teilmechanismen erfüllen nicht automatisch deren gesamten Abnahmevertrag.
 `desktop_status` und `desktop_start` besitzen zusätzlich direkte Win32-Pfade im
