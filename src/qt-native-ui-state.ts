@@ -4,7 +4,7 @@ import { QtNativeTransportError, type QtNativeClient } from "./qt-native-client.
 import { qtNativeContentBounds, qtNativeHeading } from "./qt-native-pages.js";
 import {
   auxiliaryWindowKind, byWindowArea, checkerResultComplete, checkerResults, dirtyState, powershellCompactJson, psEquals,
-  readProcessWindowInventory, resultDetailsFromNodes, splitWindowScope, textSha256, TIPS_TITLE,
+  readProcessWindowInventory, resultDetailsFromNodes, splitWindowScope, textSha256, TIPS_TITLE, WERTE_INFO_TITLE,
   type QtProcessWindow, type QtUntitledWindow,
 } from "./qt-native-projections.js";
 import { readQtNativeSnapshot, type QtSnapshotNode } from "./qt-native-snapshot.js";
@@ -99,6 +99,8 @@ export async function executeQtNativeUiState(
 
   const mainSnapshot = await readQtNativeSnapshot(client, { hwnd: client.binding.hwnd, maxNodes: 5000 }, budget(), signal);
   nativeDurationMs += mainSnapshot.nativeDurationMs;
+  // The worker treats an empty bulk snapshot as a failed read, never as a free window.
+  if (!mainSnapshot.nodes.length) return fail("native-incomplete", "Der native Seitenbaum ist leer; kein Zustand ausgegeben.");
 
   // Only windows of the bound process may shape this case's state and fingerprint; the worker's
   // enumerator lists them largest first, and an untitled window is one it would read but this path cannot.
@@ -111,7 +113,9 @@ export async function executeQtNativeUiState(
   const obstructed = mainSnapshot.modalBlocked || !mainSnapshot.windowEnabled;
   if (obstructed && !fenster.some(window => window.art === "nicht-lesbar")) fenster.push(untitledModalEntry(main.pid));
 
-  const werteInfo = fenster.filter(window => window.art === "werte-info");
+  // The worker reads the Werte-Info table from its UIA walk whatever the window's size; the
+  // descriptor kind only names the window, so the window to read is chosen by its exact title.
+  const werteInfo = inventory.windows.filter(window => window.pid === main.pid && psEquals(window.title, WERTE_INFO_TITLE));
   if (werteInfo.length > 1) return fail("ambiguous", "Werte-Info ist nicht eindeutig.");
 
   // The worker's UIA walk also contains owned nonmodal windows; the Qt tree of the main window does
@@ -139,7 +143,8 @@ export async function executeQtNativeUiState(
     const tool = await readQtNativeSnapshot(client, { maxNodes: 5000, toolTitle: werteInfo[0]!.title }, budget(), signal);
     nativeDurationMs += tool.nativeDurationMs;
     if (tool.hwnd !== werteInfo[0]!.hwnd) throw new QtNativeTransportError("The Werte-Info snapshot returned another window.", "native-contract");
-    ergebnis = resultDetailsFromNodes(tool.nodes, tool.stats);
+    // The inventory proves the window; a tree without its table is 'open but unreadable', never 'not open'.
+    ergebnis = resultDetailsFromNodes(tool.nodes, tool.stats, true);
   }
 
   // This path never fingerprints a foreign dialog, so 'dialog'/'warnung' cannot occur here.
