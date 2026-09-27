@@ -14781,6 +14781,51 @@ var init_qt_native_read_table = __esm({
   }
 });
 
+// src/qt-native-checker.ts
+async function executeQtNativeCheckerResults(client, args, timeoutMs, signal, _profile) {
+  const snapshot = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 5e3 }, timeoutMs, signal);
+  if (!snapshot.windowEnabled || snapshot.modalBlocked) {
+    return fail10("dialog-open", "Ein modaler Dialog blockiert die gebundene Seite; kein Prueferergebnis ausgegeben.");
+  }
+  if (snapshot.stats.truncated) {
+    return fail10("native-incomplete", "Der native Seitenbaum ueberschreitet die Lesegrenze; kein unvollstaendiges Prueferergebnis ausgegeben.");
+  }
+  const result = checkerResults(snapshot.nodes);
+  return {
+    ok: true,
+    aktiv: result.aktiv,
+    fragenWarnungenAngekuendigt: result.fragenWarnungenAngekuendigt,
+    tippsAngekuendigt: result.tippsAngekuendigt,
+    fragenWarnungenGruppeGesehen: result.fragenWarnungenGruppeGesehen,
+    tippsGruppeGesehen: result.tippsGruppeGesehen,
+    fragenWarnungen: result.fragenWarnungen,
+    tippsZusatzinfos: result.tippsZusatzinfos,
+    sonstige: result.sonstige,
+    gesamt: result.gesamt,
+    aufgeklappt: result.aufgeklappt,
+    konsistent: checkerResultComplete(result),
+    navigationSchritte: 0,
+    fokusVerwendet: false,
+    technischeFokusKarten: [],
+    zyklen: [],
+    ungespeichert: dirtyState(snapshot.nodes),
+    hinweis: result.aktiv ? ACTIVE_HINT : CLOSED_HINT,
+    backend: "qt",
+    nativeDurationMs: snapshot.nativeDurationMs
+  };
+}
+var ACTIVE_HINT, CLOSED_HINT, fail10;
+var init_qt_native_checker = __esm({
+  "src/qt-native-checker.ts"() {
+    "use strict";
+    init_qt_native_projections();
+    init_qt_native_snapshot();
+    ACTIVE_HINT = "Fragen/Warnungen und Tipps sind getrennt. Ein Eintrag ist nicht automatisch ein Steuerfehler; mit sse_checker_open den Wortlaut oeffnen.";
+    CLOSED_HINT = "Der globale Steuerpruefer ist nicht offen. Zu 'Pruefen und Abgeben' und dann 'Steuererklaerung pruefen' navigieren; dort sse_checker_run aufrufen.";
+    fail10 = (kind, error) => ({ ok: false, backend: "qt", kind, error });
+  }
+});
+
 // src/qt-native-executor.ts
 import { performance as performance12 } from "node:perf_hooks";
 function isQtNativeReadOperation(operation) {
@@ -14793,7 +14838,7 @@ async function executeQtNativeRead(operation, args, dependencies, timeoutMs = DE
     const client = dependencies.qtNativeClient ?? await dependencies.qtNativeClientFor(args, timeoutMs, signal);
     const remaining = Math.floor(timeoutMs - (performance12.now() - started));
     if (remaining < 1) throw new QtNativeTransportError("Native operation deadline exceeded before reading.", "native-timeout");
-    const execute = operation === "known_page_state" ? executeQtNativeKnownPageState : operation === "page" ? executeQtNativePage : operation === "ui_state" ? executeQtNativeUiState : operation === "help" ? executeQtNativeHelp : operation === "read_table" ? executeQtNativeReadTable : operation === "positions" ? executeQtNativePositions : operation === "ustva_read" ? executeQtNativeUstvaRead : operation === "receipt_manager_action" ? executeQtNativeReceiptManagerAction : operation === "receipt_manager_read" ? executeQtNativeReceiptManagerRead : operation === "receipt_manager_list" ? executeQtNativeReceiptManagerList : operation === "read_page" ? executeQtNativeReadPage : operation === "subpages" ? executeQtNativeSubpages : operation === "find" ? executeQtNativeFind : operation === "snapshot" ? executeQtNativeSnapshot : operation === "table_read" ? executeQtNativeTableRead : typeof args.rid === "string" && args.rid.startsWith("42.") ? executeQtSnapshotGetValue : executeQtNativeGetValue;
+    const execute = operation === "known_page_state" ? executeQtNativeKnownPageState : operation === "page" ? executeQtNativePage : operation === "ui_state" ? executeQtNativeUiState : operation === "help" ? executeQtNativeHelp : operation === "read_table" ? executeQtNativeReadTable : operation === "checker_results" ? executeQtNativeCheckerResults : operation === "positions" ? executeQtNativePositions : operation === "ustva_read" ? executeQtNativeUstvaRead : operation === "receipt_manager_action" ? executeQtNativeReceiptManagerAction : operation === "receipt_manager_read" ? executeQtNativeReceiptManagerRead : operation === "receipt_manager_list" ? executeQtNativeReceiptManagerList : operation === "read_page" ? executeQtNativeReadPage : operation === "subpages" ? executeQtNativeSubpages : operation === "find" ? executeQtNativeFind : operation === "snapshot" ? executeQtNativeSnapshot : operation === "table_read" ? executeQtNativeTableRead : typeof args.rid === "string" && args.rid.startsWith("42.") ? executeQtSnapshotGetValue : executeQtNativeGetValue;
     return await execute(client, args, remaining, signal, profile);
   } catch (error) {
     return {
@@ -14824,6 +14869,7 @@ var init_qt_native_executor = __esm({
     init_qt_native_ui_state();
     init_qt_native_help();
     init_qt_native_read_table();
+    init_qt_native_checker();
     QT_NATIVE_READ_OPERATIONS = [
       "get_value",
       "table_read",
@@ -14840,7 +14886,8 @@ var init_qt_native_executor = __esm({
       "page",
       "ui_state",
       "help",
-      "read_table"
+      "read_table",
+      "checker_results"
     ];
   }
 });
