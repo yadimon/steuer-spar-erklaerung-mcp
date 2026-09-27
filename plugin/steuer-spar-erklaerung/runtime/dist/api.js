@@ -13258,7 +13258,7 @@ function powershellCompactJson(value) {
   const serialized = JSON.stringify(value);
   if (serialized === void 0) throw new TypeError("Fingerprint value is not JSON serializable.");
   return serialized.replace(
-    /[&<>'\u2028\u2029]/gu,
+    /[&<>'\u0085\u2028\u2029]/gu,
     (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`
   );
 }
@@ -13346,14 +13346,14 @@ function checkerResults(nodes) {
   const warn = [], tips = [], other = [];
   let group = "sonstige", warnDeclared = 0, tipsDeclared = 0, warnSeen = false, tipsSeen = false;
   for (const node of top) {
-    const warnHeader = /^(\d+)\s+Fragen oder Warnungen$/iu.exec(node.name);
+    const warnHeader = /^(\d+)\s+Fragen oder Warnungen\n?$/iu.exec(node.name);
     if (warnHeader) {
       warnDeclared = Number(warnHeader[1]);
       warnSeen = true;
       group = "fragenWarnungen";
       continue;
     }
-    const tipsHeader = /^(\d+)\s+Tipps oder Zusatzinformationen$/iu.exec(node.name);
+    const tipsHeader = /^(\d+)\s+Tipps oder Zusatzinformationen\n?$/iu.exec(node.name);
     if (tipsHeader) {
       tipsDeclared = Number(tipsHeader[1]);
       tipsSeen = true;
@@ -13491,6 +13491,7 @@ function auxiliaryWindowKind(window, profile) {
   if (/^UAC[ _]/iu.test(window.class) && window.w <= 80 && window.h <= 80) return "system-overlay";
   if ((window.w >= 900 || window.minimized) && /SteuerSparErklärung/iu.test(window.title)) return "case-window";
   const catalogued = Object.values(profile?.pageObjectsCatalog.windows ?? {}).some((definition) => {
+    if (typeof definition !== "object" || definition === null) return false;
     const entry = definition;
     return typeof entry.role === "string" && CLOSABLE_NONMODAL_ROLES.has(entry.role) && entry.closePolicy === "allow-exact-nonmodal-close" && typeof entry.title === "string" && window.title === entry.title;
   });

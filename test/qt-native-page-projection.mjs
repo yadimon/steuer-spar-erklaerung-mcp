@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { executeQtNativePage } from "../dist/qt-native-page.js";
+import { powershellCompactJson } from "../dist/qt-native-projections.js";
 import { loadProductProfile } from "../dist/product-profiles.js";
 
 // Direct Qt 'page' projection against synthetic trees: the happy paths pin the
@@ -300,6 +301,13 @@ const untitled = makeClient(full.nodes, fullRect, twoWindows,
   { inventory: { ok: true, windows: twoWindows, visibleWindowCount: 3, productWindowCount: 3, untitledWindows: [untitledWindow] } });
 assert.equal((await executeQtNativePage(untitled.client, { hwnd: 42 }, 5000, undefined, profile)).kind, "dialog-open");
 assert.deepEqual(untitled.operations, ["window_inventory"]);
+// A null or scalar catalogue entry is skipped like the worker's [string]$definition.role of $null.
+const brokenCatalogue = { ...profile, pageObjectsCatalog: { ...profile.pageObjectsCatalog,
+  windows: { broken: null, scalar: "x", ...profile.pageObjectsCatalog.windows } } };
+assert.equal((await executeQtNativePage(makeClient(full.nodes, fullRect, [...twoWindows, windowOf(87, "BelegManager", { w: 1800, h: 1200 })]).client,
+  { hwnd: 42 }, 5000, undefined, brokenCatalogue)).ok, true);
+// ConvertTo-Json -Compress escapes the HTML characters, the apostrophe, NEL and both Unicode line separators.
+assert.equal(powershellCompactJson({ a: "x\u0085y\u2028z\u2029<&>'" }), '{"a":"x\\u0085y\\u2028z\\u2029\\u003c\\u0026\\u003e\\u0027"}');
 // The worker's closable-window policy is case-sensitive on the catalogued title.
 const caseVariant = makeClient(full.nodes, fullRect, [...twoWindows, windowOf(88, "belegmanager", { w: 1800, h: 1200 })]);
 assert.equal((await executeQtNativePage(caseVariant.client, { hwnd: 42 }, 5000, undefined, profile)).kind, "dialog-open");
