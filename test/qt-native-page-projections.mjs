@@ -193,7 +193,7 @@ export async function testNativePageProjections() {
         stats: { ...pageStats, n: toolNodes.length } } },
     { operation: "page", args: {}, nodes: pageNodes, rect: pageRect, stats: pageStats, windows: pageWindows },
     { operation: "page", args: {}, nodes: pageNodes, rect: pageRect, stats: pageStats, windows: pageWindows.slice(0, 1) },
-    { operation: "help", args: {}, nodes: pageNodes, rect: pageRect, stats: pageStats, windows: pageWindows },
+    { operation: "help", args: {}, nodes: pageNodes, rect: pageRect, stats: pageStats, windows: pageWindows.slice(0, 1) },
     { operation: "read_table", args: {}, nodes: pageNodes, rect: pageRect, stats: pageStats, windows: pageWindows },
     { operation: "read_table", args: {}, nodes: pageNodes, rect: pageRect, stats: { ...pageStats, truncated: true }, windows: pageWindows },
     { operation: "checker_results", args: {}, nodes: pageNodes, rect: pageRect, stats: pageStats, windows: pageWindows },
