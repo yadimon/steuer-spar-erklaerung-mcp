@@ -13,11 +13,12 @@ import { executeQtNativeReceiptManagerAction } from "./qt-native-receipt-action.
 import { executeQtNativeReceiptManagerList } from "./qt-native-receipts.js";
 import { executeQtNativePage } from "./qt-native-page.js";
 import { executeQtNativeUiState } from "./qt-native-ui-state.js";
+import { executeQtNativeHelp } from "./qt-native-help.js";
 
 export const QT_NATIVE_READ_OPERATIONS = [
   "get_value", "table_read", "snapshot", "find", "read_page", "subpages", "known_page_state", "positions", "ustva_read",
   "receipt_manager_list", "receipt_manager_read", "receipt_manager_action",
-  "page", "ui_state",
+  "page", "ui_state", "help",
 ] as const;
 type QtNativeReadOperation = typeof QT_NATIVE_READ_OPERATIONS[number];
 export function isQtNativeReadOperation(operation: string): operation is QtNativeReadOperation {
@@ -43,6 +44,7 @@ export async function executeQtNativeRead(
     const execute = operation === "known_page_state" ? executeQtNativeKnownPageState
       : operation === "page" ? executeQtNativePage
       : operation === "ui_state" ? executeQtNativeUiState
+      : operation === "help" ? executeQtNativeHelp
       : operation === "positions" ? executeQtNativePositions
       : operation === "ustva_read" ? executeQtNativeUstvaRead
       : operation === "receipt_manager_action" ? executeQtNativeReceiptManagerAction
