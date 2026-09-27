@@ -327,14 +327,35 @@ const receiptEntry = { hwnd: 87, pid: 99, cls: "Qt692QWindowIcon", title: "Beleg
     error => error instanceof QtNativeTransportError && error.kind === "native-timeout");
 }
 // A Werte-Info wider than the tool-window bound is no tool window; the catalogue makes it the worker's 'unbekannt' kind.
+// Its table is still read, because the worker's tree contains the window whatever its size.
 {
-  const { client, log } = fakeClient([MAIN_WINDOW, { ...WERTE_WINDOW, w: 901 }], mainSpec(mainTree(cleanNames)));
+  const { client, log } = fakeClient([MAIN_WINDOW, { ...WERTE_WINDOW, w: 901 }], mainSpec(mainTree(cleanNames)), [[WERTE_INFO_TITLE, werteSpec()]]);
   const result = await executeQtNativeUiState(client, {}, 5000, undefined, profile);
   assert.equal(result.ok, true);
   assert.equal(result.blockiert, true);
   assert.deepEqual(result.unsichereFenster.map(entry => [entry.hwnd, entry.art, entry.uiaError, entry.msaaReadOk]), [[84, "unbekannt", null, false]]);
-  assert.equal(result.ergebnis.fensterOffen, false);
-  assert.deepEqual(log.map(entry => entry.operation), ["window_inventory", "accessibility_snapshot"]);
+  assert.equal(result.ergebnis.fensterOffen, true);
+  assert.equal(result.ergebnis.verfuegbar, true);
+  assert.deepEqual(log.map(entry => entry.args), [{}, { maxNodes: 5000 }, { maxNodes: 5000, toolTitle: WERTE_INFO_TITLE }]);
+}
+// The inventory proves the Werte-Info; a truncated tool tree without its table reports it open but unreadable, never closed.
+{
+  const cut = { ...werteSpec(), nodes: [], stats: { ...stats(0), truncated: true } };
+  const { client } = fakeClient([MAIN_WINDOW, WERTE_WINDOW], mainSpec(mainTree(cleanNames)), [[WERTE_INFO_TITLE, cut]]);
+  const result = await executeQtNativeUiState(client, {}, 5000, undefined, profile);
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.ergebnis, {
+    verfuegbar: false, fensterOffen: true, anzahl: 0, vollstaendig: false, zeilen: [], unvollstaendigeZeilen: [],
+    nichtPositionierteZellenAnzahl: 0, uiaKopfzeilen: [], kopfVollstaendig: false,
+    vergleichsInvariantGeprueft: 0, vergleichsInvariantFehler: [], vertikalUnvollstaendig: false, fingerprint: null,
+    hinweis: "Werte-Info ist offen, aber die Qt-Tabelle war in diesem Snapshot nicht lesbar.",
+  });
+}
+// An empty main tree is a failed read for the worker, never a free window.
+{
+  const { client } = fakeClient([MAIN_WINDOW], mainSpec([]));
+  assert.deepEqual(await executeQtNativeUiState(client, {}, 5000, undefined, profile),
+    { ok: false, backend: "qt", kind: "native-incomplete", error: "Der native Seitenbaum ist leer; kein Zustand ausgegeben." });
 }
 
-console.log("qt-native-ui-state-projection: 16 scenarios passed");
+console.log("qt-native-ui-state-projection: 18 scenarios passed");

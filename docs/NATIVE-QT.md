@@ -180,8 +180,12 @@ die Lesung mit `dialog-open`, ein Nebenfenster über der Lesegrenze mit
 gezählt, nie gelesen.
 
 `ui_state` liest Hauptfensterbaum und Win32-Fensterinventar des gebundenen
-Prozesses direkt; eine geöffnete Werte-Info wird über ihren exakten Titel als
-zweiter Snapshot gelesen und in dasselbe `ergebnis`-Modell projiziert.
+Prozesses direkt; eine geöffnete Werte-Info wird unabhängig von ihrer Größe
+über ihren exakten Titel als zweiter Snapshot gelesen und in dasselbe
+`ergebnis`-Modell projiziert. Das Inventar belegt dabei das Fenster: Ein Baum
+ohne die Wertetabelle meldet die Werte-Info als offen, aber nicht lesbar, nie
+als geschlossen. Ein leerer Hauptfensterbaum scheitert wie bei den anderen
+Lesungen mit `native-incomplete`.
 Dialoge, unbekannte oder namenlose Fenster werden nicht beschrieben, sondern
 mit ihrer Fensterkennung als `nicht-lesbar` unter `unsichereFenster` geführt;
 katalogisierte nichtmodale Werkzeugfenster wie der BelegManager gelten wie beim

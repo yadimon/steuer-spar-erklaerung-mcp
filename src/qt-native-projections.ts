@@ -200,8 +200,13 @@ export interface ResultDetails {
 const RESULT_TABLE_SUFFIX = "obj_Wertetabelle";
 
 /** The Werte-Info comparison table as Read-ResultDetailsFromTree projects it from one observed tree. */
+/**
+ * Read-ResultDetailsFromTree parity. The worker's tree contains the owned Werte-Info, so the
+ * table container alone proves the window; a caller that read the window's own tree passes
+ * the inventory's proof instead, and a tree without the table is then 'open but unreadable'.
+ */
 export function resultDetailsFromNodes(
-  nodes: readonly QtSnapshotNode[], stats: { truncated: boolean; cyc: number },
+  nodes: readonly QtSnapshotNode[], stats: { truncated: boolean; cyc: number }, windowKnownOpen = false,
 ): ResultDetails {
   const allData = containerDescendants(nodes, RESULT_TABLE_SUFFIX, "DataItem", "Table");
   const unpositioned = allData.filter(node => node.w <= 0 || node.h <= 0);
@@ -212,7 +217,7 @@ export function resultDetailsFromNodes(
   // Qt's UIA provider exposes no scroll pattern for item views, so the worker observes a null
   // scroll state here as well and can only report an incomplete vertical range when one exists.
   const scrollIncomplete = table !== null && table.scroll !== null;
-  const windowOpen = table !== null;
+  const windowOpen = table !== null || windowKnownOpen;
   if (!data.length) {
     return {
       verfuegbar: false, fensterOffen: windowOpen, anzahl: 0, vollstaendig: false, zeilen: [], unvollstaendigeZeilen: [],

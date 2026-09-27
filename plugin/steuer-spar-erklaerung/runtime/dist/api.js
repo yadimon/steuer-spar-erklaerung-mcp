@@ -13395,14 +13395,14 @@ function comparableNumber(value) {
   const parsed = Number(text3);
   return Number.isFinite(parsed) ? parsed : null;
 }
-function resultDetailsFromNodes(nodes, stats) {
+function resultDetailsFromNodes(nodes, stats, windowKnownOpen = false) {
   const allData = containerDescendants(nodes, RESULT_TABLE_SUFFIX, "DataItem", "Table");
   const unpositioned = allData.filter((node) => node.w <= 0 || node.h <= 0);
   const data = allData.filter((node) => node.w > 0 && node.h > 0).sort(byPosition3);
   const headers = containerDescendants(nodes, RESULT_TABLE_SUFFIX, "Header", "Table").filter((node) => node.w > 0 && node.h > 0).sort((a, b) => a.x - b.x).map((node) => node.name);
   const table = findContainerNode(nodes, RESULT_TABLE_SUFFIX, "Table");
   const scrollIncomplete = table !== null && table.scroll !== null;
-  const windowOpen = table !== null;
+  const windowOpen = table !== null || windowKnownOpen;
   if (!data.length) {
     return {
       verfuegbar: false,
@@ -14619,13 +14619,14 @@ async function executeQtNativeUiState(client, args, timeoutMs, signal, profile) 
   if (main2.minimized) return fail8("minimized", "Das gebundene SSE-Hauptfenster ist minimiert; der direkte Qt-Pfad stellt es nicht wieder her.");
   const mainSnapshot = await readQtNativeSnapshot(client, { hwnd: client.binding.hwnd, maxNodes: 5e3 }, budget(), signal);
   nativeDurationMs += mainSnapshot.nativeDurationMs;
+  if (!mainSnapshot.nodes.length) return fail8("native-incomplete", "Der native Seitenbaum ist leer; kein Zustand ausgegeben.");
   const fenster = [
     ...inventory.windows.filter((window) => window.pid === main2.pid).map((window) => window.hwnd === main2.hwnd ? windowEntry(window, "hauptfenster", true, null, null) : classifiedEntry(window, profile)),
     ...inventory.untitledWindows.filter((window) => window.pid === main2.pid).map((window) => windowEntry(window, "nicht-lesbar", false, UNTITLED_WINDOW_HINT, null))
   ].sort(byWindowArea);
   const obstructed = mainSnapshot.modalBlocked || !mainSnapshot.windowEnabled;
   if (obstructed && !fenster.some((window) => window.art === "nicht-lesbar")) fenster.push(untitledModalEntry(main2.pid));
-  const werteInfo = fenster.filter((window) => window.art === "werte-info");
+  const werteInfo = inventory.windows.filter((window) => window.pid === main2.pid && psEquals(window.title, WERTE_INFO_TITLE));
   if (werteInfo.length > 1) return fail8("ambiguous", "Werte-Info ist nicht eindeutig.");
   const own = splitWindowScope(mainSnapshot.nodes).own;
   const bounds = contentBounds(own, mainSnapshot.windowRect);
@@ -14641,7 +14642,7 @@ async function executeQtNativeUiState(client, args, timeoutMs, signal, profile) 
     const tool = await readQtNativeSnapshot(client, { maxNodes: 5e3, toolTitle: werteInfo[0].title }, budget(), signal);
     nativeDurationMs += tool.nativeDurationMs;
     if (tool.hwnd !== werteInfo[0].hwnd) throw new QtNativeTransportError("The Werte-Info snapshot returned another window.", "native-contract");
-    ergebnis = resultDetailsFromNodes(tool.nodes, tool.stats);
+    ergebnis = resultDetailsFromNodes(tool.nodes, tool.stats, true);
   }
   const dialoge = [];
   const unsicher = fenster.filter((window) => window.art === "unbekannt" || window.art === "nicht-lesbar");
