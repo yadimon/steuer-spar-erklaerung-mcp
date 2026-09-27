@@ -12760,6 +12760,9 @@ async function readQtNativeSnapshot(client, args, timeoutMs, signal) {
   }
   return { ...parsed, nativeDurationMs: read.durationMs };
 }
+function nativeTreeBoundReason(stats, subject = "Der native Seitenbaum") {
+  return stats.depthLimited ? `${subject} ist tiefer als die Lesegrenze von 16 Ebenen` : `${subject} ueberschreitet die Lesegrenze`;
+}
 function qtSnapshotArguments(args, profile) {
   if (args.toolWindow === void 0) return { ...args };
   const windows = profile.pageObjectsCatalog.windows;
@@ -14386,7 +14389,7 @@ async function readOwnedWindowSubtrees(client, owned, maxNodes, subject, firstIn
       return { failure: fail6("dialog-open", `Ein modaler Dialog blockiert ein Nebenfenster der gebundenen Seite; ${subject} nicht gelesen.`) };
     }
     if (tool.stats.truncated) {
-      return { failure: fail6("native-incomplete", `Der native Baum eines Nebenfensters ueberschreitet die Lesegrenze; ${subject} nicht gelesen.`) };
+      return { failure: fail6("native-incomplete", `${nativeTreeBoundReason(tool.stats, "Der native Baum eines Nebenfensters")}; ${subject} nicht gelesen.`) };
     }
     const root = ownedWindowNode(window, tool.windowRect, firstIndex + nodes.length);
     nodes.push(root, ...tool.nodes);
@@ -14483,7 +14486,7 @@ async function executeQtNativePage(client, args, timeoutMs, signal, profile) {
     return fail7("dialog-open", "Ein modaler Dialog blockiert die gebundene Seite; keine Werte ausgegeben. Dialoge mit sse_dialog_list lesen.");
   }
   if (snapshot.stats.truncated) {
-    return fail7("native-incomplete", "Der native Seitenbaum ueberschreitet die Lesegrenze; keine unvollstaendige Seite ausgegeben.");
+    return fail7("native-incomplete", `${nativeTreeBoundReason(snapshot.stats)}; keine unvollstaendige Seite ausgegeben.`);
   }
   if (!snapshot.nodes.length) return fail7("native-incomplete", "Der native Seitenbaum ist leer; keine Seite ausgegeben.");
   const scope = splitWindowScope(snapshot.nodes);
@@ -14760,7 +14763,7 @@ async function executeQtNativeHelp(client, args, timeoutMs, signal, profile) {
     return fail9("dialog-open", "Ein modaler Dialog blockiert die gebundene Seite; keine Hilfe ausgegeben.");
   }
   if (snapshot.stats.truncated) {
-    return fail9("native-incomplete", "Der native Seitenbaum ueberschreitet die Lesegrenze; keine unvollstaendige Hilfe ausgegeben.");
+    return fail9("native-incomplete", `${nativeTreeBoundReason(snapshot.stats)}; keine unvollstaendige Hilfe ausgegeben.`);
   }
   if (!snapshot.nodes.length) return fail9("native-incomplete", "Der native Seitenbaum ist leer; keine Hilfe ausgegeben.");
   const ownedRead = await readOwnedWindowSubtrees(client, owned, 5e3, "Hilfe", snapshot.nodes.length, budget, signal);
@@ -14935,8 +14938,9 @@ async function executeQtNativeCheckerResults(client, args, timeoutMs, signal, _p
     return fail11("dialog-open", "Ein modaler Dialog blockiert die gebundene Seite; kein Prueferergebnis ausgegeben.");
   }
   if (snapshot.stats.truncated) {
-    return fail11("native-incomplete", "Der native Seitenbaum ueberschreitet die Lesegrenze; kein unvollstaendiges Prueferergebnis ausgegeben.");
+    return fail11("native-incomplete", `${nativeTreeBoundReason(snapshot.stats)}; kein unvollstaendiges Prueferergebnis ausgegeben.`);
   }
+  if (!snapshot.nodes.length) return fail11("native-incomplete", "Der native Seitenbaum ist leer; kein Prueferergebnis ausgegeben.");
   const result = checkerResults(snapshot.nodes);
   return {
     ok: true,

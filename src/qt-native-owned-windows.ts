@@ -4,7 +4,7 @@ import { QtNativeTransportError, type QtNativeClient } from "./qt-native-client.
 import {
   auxiliaryWindowKind, readProcessWindowInventory, type ForeignWindowScope, type QtProcessWindow,
 } from "./qt-native-projections.js";
-import { readQtNativeSnapshot, type QtSnapshotNode } from "./qt-native-snapshot.js";
+import { nativeTreeBoundReason, readQtNativeSnapshot, type QtSnapshotNode } from "./qt-native-snapshot.js";
 
 /**
  * Shared window binding for the direct Qt page reads. The worker's UIA walk of
@@ -86,7 +86,7 @@ export async function readOwnedWindowSubtrees(
       return { failure: fail("dialog-open", `Ein modaler Dialog blockiert ein Nebenfenster der gebundenen Seite; ${subject} nicht gelesen.`) };
     }
     if (tool.stats.truncated) {
-      return { failure: fail("native-incomplete", `Der native Baum eines Nebenfensters ueberschreitet die Lesegrenze; ${subject} nicht gelesen.`) };
+      return { failure: fail("native-incomplete", `${nativeTreeBoundReason(tool.stats, "Der native Baum eines Nebenfensters")}; ${subject} nicht gelesen.`) };
     }
     const root = ownedWindowNode(window, tool.windowRect, firstIndex + nodes.length);
     nodes.push(root, ...tool.nodes);

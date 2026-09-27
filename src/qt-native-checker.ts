@@ -2,7 +2,7 @@ import type { WorkerResult } from "./api-contract.js";
 import type { ProductProfile } from "./product-profiles.js";
 import type { QtNativeClient } from "./qt-native-client.js";
 import { checkerResultComplete, checkerResults, dirtyState } from "./qt-native-projections.js";
-import { readQtNativeSnapshot } from "./qt-native-snapshot.js";
+import { nativeTreeBoundReason, readQtNativeSnapshot } from "./qt-native-snapshot.js";
 
 /**
  * Direct Qt port of the worker's 'checker_results' branch (Read-CheckerComplete
@@ -29,8 +29,10 @@ export async function executeQtNativeCheckerResults(
     return fail("dialog-open", "Ein modaler Dialog blockiert die gebundene Seite; kein Prueferergebnis ausgegeben.");
   }
   if (snapshot.stats.truncated) {
-    return fail("native-incomplete", "Der native Seitenbaum ueberschreitet die Lesegrenze; kein unvollstaendiges Prueferergebnis ausgegeben.");
+    return fail("native-incomplete", `${nativeTreeBoundReason(snapshot.stats)}; kein unvollstaendiges Prueferergebnis ausgegeben.`);
   }
+  // The worker treats an empty bulk snapshot as a failed read, never as a closed checker.
+  if (!snapshot.nodes.length) return fail("native-incomplete", "Der native Seitenbaum ist leer; kein Prueferergebnis ausgegeben.");
   const result = checkerResults(snapshot.nodes);
   return {
     ok: true,
