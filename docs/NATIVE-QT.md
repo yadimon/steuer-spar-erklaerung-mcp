@@ -145,7 +145,8 @@ des gebundenen Prozesses und scheitert ebenso mit `dialog-open`, sobald ein
 Fenster offen ist, das weder Werte-Info, Steuer-Spar-Tipps, ein Systemoverlay
 noch ein katalogisiertes nichtmodales Werkzeugfenster mit exakt gleichem Titel
 ist, oder ein namenloses Fenster sichtbar ist, das kein Schattenfenster ist; ein
-minimiertes Hauptfenster scheitert mit `minimized`. `help` prüft das Inventar
+minimiertes Hauptfenster scheitert mit `minimized`, ein zweites Fallfenster
+desselben Prozesses wird wie beim Worker geduldet. `help` prüft das Inventar
 genauso und liest offene katalogisierte Nebenfenster wie die Steuer-Spar-Tipps
 über ihren Titel mit, weil der Worker-Baum sie unter dem Hauptfenster enthält. `page`, `help` und `checker_results`
 scheitern zusätzlich bei abgeschnittenem Baum mit `native-incomplete`,
@@ -156,10 +157,18 @@ Fenster die Lesung bereits beendet hat. `page`, `help` und `checker_results`
 lesen bis zu 5000 statt 4000 Knoten, damit eine große Seite vollständig statt
 abgeschnitten gelesen wird, und ein leerer Baum gilt wie beim Worker als
 fehlgeschlagene Lesung; `read_table` behält die Grenze von 4000 Knoten und
-meldet Abschneidung.
+meldet Abschneidung, scheitert bei leerem Baum aber ebenso mit
+`native-incomplete`.
 Besessene Nebenfenster hängen im Qt-Accessibility-Baum nicht unter dem
-Hauptfenster; `ausgeschlosseneFenster` bleibt auf dem Qt-Pfad deshalb in der
-Regel leer, während `ui_state` die Werte-Info über ihren Titel getrennt liest.
+Hauptfenster; `page` und `read_table` lesen offene katalogisierte Nebenfenster
+deshalb über ihren Titel und führen sie mit Fensterkennung, Titel, Geometrie
+und Knotenzahl unter `ausgeschlosseneFenster`, während die AutomationId der
+Fensterwurzel dort leer bleibt. `read_table` prüft das Fensterinventar wie
+`page` und scheitert bei nicht katalogisierten Fenstern mit `dialog-open`.
+Ein Nebenfenster, das selbst modal blockiert oder deaktiviert ist, beendet
+die Lesung mit `dialog-open`, ein Nebenfenster über der Lesegrenze mit
+`native-incomplete`; ein Systemoverlay und ein zweites Fallfenster werden nur
+gezählt, nie gelesen.
 
 `ui_state` liest Hauptfensterbaum und Win32-Fensterinventar des gebundenen
 Prozesses direkt; eine geöffnete Werte-Info wird über ihren exakten Titel als

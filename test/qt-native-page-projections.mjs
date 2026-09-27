@@ -148,12 +148,14 @@ export async function testNativePageProjections() {
   const pageRect = { x: 0, y: 0, w: 1600, h: 900 };
   const pageStats = { ...stats, n: pageNodes.length };
   const checkerless = reindex(pageNodes.filter(node => node.p !== checker));
+  // page and read_table: the worker only counts the process windows here, while the Qt path reads every owned
+  // catalogued window through a tool snapshot the oracle cannot mirror. The counted windows are therefore ones
+  // neither side reads: a system overlay and a second case window.
   const pageWindows = [
     { hwnd: 42, pid: 99, class: "Qt692QWindowIcon", title: "SteuerSparErklärung 2025", x: 0, y: 0, w: 1600, h: 900,
       minimized: false, hung: false },
-    { hwnd: 84, pid: 99, class: "Qt692QWindow", title: "Werte-Info: Werte vergleichen - Was wäre wenn", x: 800, y: 300, w: 400, h: 300,
-      minimized: false, hung: false },
-    { hwnd: 85, pid: 99, class: "Qt692QWindow", title: "Steuer-Spar-Tipps", x: 900, y: 300, w: 400, h: 300,
+    { hwnd: 86, pid: 99, class: "UAC_Overlay", title: "UAC", x: 0, y: 0, w: 40, h: 40, minimized: false, hung: false },
+    { hwnd: 91, pid: 99, class: "Qt692QWindowIcon", title: "SteuerSparErklärung 2025 - zweiter Fall", x: 0, y: 0, w: 950, h: 600,
       minimized: false, hung: false },
   ];
   // ui_state: the worker sees the Werte-Info table inside its UIA walk of the main window; the Qt path reads the

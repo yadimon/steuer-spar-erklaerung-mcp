@@ -3,9 +3,8 @@ import type { WorkerResult } from "./api-contract.js";
 import type { ProductProfile } from "./product-profiles.js";
 import { QtNativeTransportError, type QtNativeClient } from "./qt-native-client.js";
 import { qtNativeContentBounds, qtNativeHeading } from "./qt-native-pages.js";
-import {
-  auxiliaryWindowKind, byPosition, navigationSelection, psEquals, readProcessWindowInventory, splitWindowScope, transmissionName,
-} from "./qt-native-projections.js";
+import { readBoundWindows, readOwnedWindowSubtrees } from "./qt-native-owned-windows.js";
+import { byPosition, navigationSelection, psEquals, splitWindowScope, transmissionName } from "./qt-native-projections.js";
 import { readQtNativeSnapshot, type QtSnapshotNode } from "./qt-native-snapshot.js";
 
 /**
@@ -120,17 +119,9 @@ export async function executeQtNativePage(
   };
   // The worker reads its dialog inventory for the bound process; this path can only prove that no
   // unknown window exists, so anything it cannot classify fails closed before the page is read.
-  const inventory = await readProcessWindowInventory(client, budget(), signal);
-  const main = inventory.windows.find(window => window.hwnd === client.binding.hwnd);
-  if (!main) return fail("stale-window", "Das angegebene hwnd ist kein aktuelles Hauptfenster.");
-  if (main.pid !== client.binding.pid) throw new QtNativeTransportError("The bound main window belongs to another process.", "native-contract");
-  if (main.minimized) return fail("minimized", "Das gebundene SSE-Hauptfenster ist minimiert; der direkte Qt-Pfad stellt es nicht wieder her.");
-  const unknownWindows = inventory.windows.filter(window => window.pid === main.pid && window.hwnd !== main.hwnd
-    && auxiliaryWindowKind(window, profile) === null);
-  if (unknownWindows.length || inventory.untitledWindows.length) {
-    return fail("dialog-open", "Ein nicht katalogisiertes Fenster des gebundenen Prozesses ist offen; Seite nicht gelesen. "
-      + "Dialoge mit sse_dialog_list lesen und bewusst beantworten.");
-  }
+  const bound = await readBoundWindows(client, profile, "Seite", budget, signal);
+  if (bound.failure) return bound.failure;
+  const { inventory, owned } = bound.windows;
   const snapshot = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 5000 }, budget(), signal);
   if (!snapshot.windowEnabled || snapshot.modalBlocked) {
     return fail("dialog-open", "Ein modaler Dialog blockiert die gebundene Seite; keine Werte ausgegeben. Dialoge mit sse_dialog_list lesen.");
@@ -142,6 +133,9 @@ export async function executeQtNativePage(
   if (!snapshot.nodes.length) return fail("native-incomplete", "Der native Seitenbaum ist leer; keine Seite ausgegeben.");
   const scope = splitWindowScope(snapshot.nodes);
   const own = scope.own;
+  // Walk-BoundTree lists the owned windows it excluded; the Qt tree never contains them, so they are read by title.
+  const ownedRead = await readOwnedWindowSubtrees(client, owned, 5000, "Seite", snapshot.nodes.length, budget, signal);
+  if (ownedRead.failure) return ownedRead.failure;
   const bounds = qtNativeContentBounds(own, snapshot.windowRect);
   // Get-CaptionMinX: without a recognised navigation tree the caption column lies left of the guessed content edge.
   const textMinX = bounds.navErkannt ? bounds.minX : bounds.winX;
@@ -161,7 +155,7 @@ export async function executeQtNativePage(
     ueberschrift,
     ueberschriftQuelle: ueberschrift === null ? "nicht-gefunden" : "clientHeader",
     navigationAuswahl: navigationSelection(own),
-    ausgeschlosseneFenster: scope.foreign,
+    ausgeschlosseneFenster: [...scope.foreign, ...ownedRead.subtrees.scopes],
     felder,
     tabelle,
     aktionen,
@@ -173,6 +167,6 @@ export async function executeQtNativePage(
     offeneFenster,
     stats: snapshot.stats,
     backend: "qt",
-    nativeDurationMs: snapshot.nativeDurationMs + inventory.durationMs,
+    nativeDurationMs: inventory.durationMs + snapshot.nativeDurationMs + ownedRead.subtrees.durationMs,
   };
 }

@@ -93,7 +93,8 @@ const makeClient = (replies) => ({
   request: async (operation, args) => {
     requests.push({ operation, args });
     const key = `${operation}:${args.toolTitle ?? ""}`;
-    const durations = { "window_inventory:": 1, "accessibility_snapshot:": 7, "accessibility_snapshot:Steuer-Spar-Tipps": 2 };
+    const durations = { "window_inventory:": 1, "accessibility_snapshot:": 7, "accessibility_snapshot:Steuer-Spar-Tipps": 2,
+      "accessibility_snapshot:Werte-Info: Werte vergleichen - Was wäre wenn": 3 };
     return { durationMs: durations[key], result: replies[key] };
   },
 });
@@ -128,6 +129,23 @@ assert.deepEqual(withTips.abschnitte, { ...expectedSections,
   "Steuer-Spar-Tipps": { text: "Fahrtenbuch führen Mehr dazu", zeilen: ["Fahrtenbuch führen", "Mehr dazu"], verweise: ["Mehr dazu"] } });
 assert.equal(withTips.nativeDurationMs, 10);
 assert.deepEqual(requests.map(entry => entry.args), [{}, { maxNodes: 5000 }, { maxNodes: 5000, toolTitle: "Steuer-Spar-Tipps" }]);
+// A Werte-Info window is owned as well: the worker's tree lists its window node and its cells in the help column,
+// so its text right of the content edge continues the last section exactly like the tips lines do, while the
+// Window and DataItem entries are no text types and stay out of the lines.
+requests.length = 0;
+const WERTE_INFO_WINDOW = windowOf(84, "Werte-Info: Werte vergleichen - Was wäre wenn", [810, 150, 180, 120]);
+const werteInfoNodes = [{ ...tipsNodes[0], name: "Aktuell", rid: "42.84.4.1", y: 160 },
+  { ...tipsNodes[0], i: 1, type: "DataItem", name: "1.000,00", rid: "42.84.4.2", y: 170 }];
+const withWerteInfo = await executeQtNativeHelp(makeClient({
+  "window_inventory:": inventoryReply([MAIN_WINDOW, WERTE_INFO_WINDOW]),
+  "accessibility_snapshot:": mainReply(),
+  "accessibility_snapshot:Werte-Info: Werte vergleichen - Was wäre wenn": snapshotReply({ hwnd: 84, windowRect: { x: 810, y: 150, w: 180, h: 120 },
+    nodes: werteInfoNodes, stats: { ...stats, n: werteInfoNodes.length } }),
+}), { hwnd: 42 }, 5000, undefined, profile);
+assert.deepEqual(withWerteInfo.abschnitte, { ...expectedSections,
+  Eingabehilfe: { text: "Verlinkte Zeile verlinkte zeile Punkt A Weiterlesen Verlinkte Zeile Nachtrag Aktuell",
+    zeilen: [...expectedSections.Eingabehilfe.zeilen, "Aktuell"], verweise: ["Verlinkte Zeile"] } });
+assert.deepEqual(requests.map(entry => entry.args), [{}, { maxNodes: 5000 }, { maxNodes: 5000, toolTitle: "Werte-Info: Werte vergleichen - Was wäre wenn" }]);
 // A second case window of the process is not owned by this one: it is tolerated and never merged.
 requests.length = 0;
 const secondCase = await executeQtNativeHelp(makeClient({ "window_inventory:": inventoryReply([MAIN_WINDOW, SECOND_CASE]),
@@ -152,9 +170,10 @@ assert.deepEqual(await executeQtNativeHelp(makeClient({ "window_inventory:": inv
   { ok: false, backend: "qt", kind: "stale-window", error: "Das angegebene hwnd ist kein aktuelles Hauptfenster." });
 assert.deepEqual(await executeQtNativeHelp(makeClient(withTipsWindow({}, { stats: { ...tipsStats, truncated: true } })),
   { hwnd: 42 }, 5000, undefined, profile), { ok: false, backend: "qt", kind: "native-incomplete",
-  error: "Der native Baum eines Nebenfensters ueberschreitet die Lesegrenze; keine unvollstaendige Hilfe ausgegeben." });
-assert.deepEqual(await executeQtNativeHelp(makeClient(withTipsWindow({}, { modalBlocked: true })), { hwnd: 42 }, 5000, undefined, profile),
-  { ok: false, backend: "qt", kind: "dialog-open", error: "Ein modaler Dialog blockiert ein Nebenfenster der gebundenen Seite; keine Hilfe ausgegeben." });
+  error: "Der native Baum eines Nebenfensters ueberschreitet die Lesegrenze; Hilfe nicht gelesen." });
+const ownedBlocked = { ok: false, backend: "qt", kind: "dialog-open", error: "Ein modaler Dialog blockiert ein Nebenfenster der gebundenen Seite; Hilfe nicht gelesen." };
+assert.deepEqual(await executeQtNativeHelp(makeClient(withTipsWindow({}, { modalBlocked: true })), { hwnd: 42 }, 5000, undefined, profile), ownedBlocked);
+assert.deepEqual(await executeQtNativeHelp(makeClient(withTipsWindow({}, { windowEnabled: false })), { hwnd: 42 }, 5000, undefined, profile), ownedBlocked);
 assert.deepEqual(await executeQtNativeHelp(makeClient(plain({ nodes: [], stats: { ...stats, n: 0 } })), { hwnd: 42 }, 5000, undefined, profile),
   { ok: false, backend: "qt", kind: "native-incomplete", error: "Der native Seitenbaum ist leer; keine Hilfe ausgegeben." });
 await assert.rejects(executeQtNativeHelp(makeClient(withTipsWindow({}, { hwnd: 86 })), { hwnd: 42 }, 5000, undefined, profile),
@@ -188,4 +207,4 @@ assert.equal(requests.length, before);
 await assert.rejects(executeQtNativeHelp(makeClient(plain({ hwnd: 84 })), { hwnd: 42 }, 5000, undefined, profile),
   error => error instanceof QtNativeTransportError && error.kind === "native-contract");
 
-console.log("qt-native-help-projection: happy path, owned tips window, second case window, projection edge cases, 10 fail-closed and 3 transport cases ok");
+console.log("qt-native-help-projection: happy path, owned tips and Werte-Info windows, second case window, projection edge cases, 11 fail-closed and 3 transport cases ok");
