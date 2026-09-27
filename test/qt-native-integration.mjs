@@ -175,6 +175,8 @@ try {
   assert(inventory.result.windows.every(window => typeof window.minimized === "boolean" && typeof window.hung === "boolean"));
   assert(inventory.result.windows.every(window => [window.x, window.y, window.w, window.h].every(Number.isSafeInteger)));
   assert(inventory.result.windows.every(window => window.w > 0 && window.h > 0));
+  const orders = [...inventory.result.windows, ...inventory.result.untitledWindows].map(window => window.order);
+  assert(orders.every(order => Number.isSafeInteger(order) && order >= 0) && new Set(orders).size === orders.length);
   assert(Array.isArray(inventory.result.untitledWindows) && Number.isSafeInteger(inventory.result.visibleWindowCount));
   assert(inventory.result.visibleWindowCount >= inventory.result.windows.length + inventory.result.untitledWindows.length);
   assert(Number.isSafeInteger(inventory.result.productWindowCount) && inventory.result.productWindowCount >= inventory.result.visibleWindowCount);

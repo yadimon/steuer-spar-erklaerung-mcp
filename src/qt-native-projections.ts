@@ -263,6 +263,8 @@ export function resultDetailsFromNodes(
 
 const processWindowSchema = z.object({
   hwnd: z.number().int().positive(),
+  /** Enumeration (Z) order among the listed windows; Get-Windows breaks equal areas by it. */
+  order: z.number().int().nonnegative(),
   pid: z.number().int().positive(),
   class: z.string().min(1).max(255),
   title: z.string().min(1).max(4095),
@@ -280,7 +282,7 @@ export const processWindowInventorySchema = z.object({
   untitledWindows: z.array(processWindowSchema.omit({ title: true })).max(256),
   /** Every visible top-level window of the process, including untitled, shadow and tooltip windows. */
   visibleWindowCount: z.number().int().nonnegative(),
-  /** The same population across every process running the product image: what Get-Windows 'SSE' counts. */
+  /** The same population across every process whose executable and folder names match: what Get-Windows 'SSE' counts. */
   productWindowCount: z.number().int().nonnegative(),
 }).passthrough();
 export type QtProcessWindow = z.infer<typeof processWindowSchema>;
@@ -339,6 +341,6 @@ export function auxiliaryWindowKind(
 }
 
 /** The worker's window enumerator orders by area, largest first; the handle breaks ties deterministically. */
-export function byWindowArea<T extends { hwnd: number; w: number; h: number }>(left: T, right: T): number {
-  return right.w * right.h - left.w * left.h || left.hwnd - right.hwnd;
+export function byWindowArea<T extends { order: number; w: number; h: number }>(left: T, right: T): number {
+  return right.w * right.h - left.w * left.h || left.order - right.order;
 }

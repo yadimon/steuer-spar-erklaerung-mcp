@@ -144,7 +144,8 @@ Qt-Pfad fremde Dialoge nicht beschreibt; `page` prüft davor das Win32-Fensterin
 des gebundenen Prozesses und scheitert ebenso mit `dialog-open`, sobald ein
 Fenster offen ist, das weder Werte-Info, Steuer-Spar-Tipps, ein Systemoverlay
 noch ein katalogisiertes nichtmodales Werkzeugfenster mit exakt gleichem Titel
-ist, oder ein namenloses Fenster sichtbar ist, das kein Schattenfenster ist; ein
+ist, oder ein namenloses Fenster sichtbar ist, das weder Schatten- noch
+Tooltip-Fenster ist; ein
 minimiertes Hauptfenster scheitert mit `minimized`, ein zweites Fallfenster
 desselben Prozesses wird wie beim Worker geduldet. `help` prüft das Inventar
 genauso und liest offene katalogisierte Nebenfenster wie die Steuer-Spar-Tipps
@@ -159,8 +160,9 @@ Teilbäume lässt die Bridge aus, genau wie Qt sie der UIA-Steuerungsansicht
 vorenthält; beide Pfade sehen von einer Liste deshalb nur die Zeilen im
 Sichtbereich, und `konsistent` vergleicht auf beiden Pfaden dieselben Zeilen
 mit der angekündigten Anzahl. `page` zählt in `offeneFenster` wie
-`Get-Windows` beim Worker jedes sichtbare Fenster aller Prozesse mit dem
-Produktabbild, auch namenlose und Schattenfenster; gelistet, klassifiziert und
+`Get-Windows` beim Worker jedes sichtbare Fenster aller Prozesse, deren
+Programmdatei und Installationsordner denselben Namen tragen, auch namenlose
+und Schattenfenster; gelistet, klassifiziert und
 gelesen werden nur Fenster des gebundenen Prozesses. `dialoge` bleibt dort
 immer leer, weil ein unbekanntes Fenster die Lesung bereits beendet hat. `page`, `help` und `checker_results`
 lesen bis zu 5000 statt 4000 Knoten, damit eine große Seite vollständig statt
@@ -191,7 +193,8 @@ mit ihrer Fensterkennung als `nicht-lesbar` unter `unsichereFenster` geführt;
 katalogisierte nichtmodale Werkzeugfenster wie der BelegManager gelten wie beim
 Worker als `unbekannt`. Der Zustand gilt dann als blockiert, und
 `sse_dialog_list` bleibt der Weg zum fingerprintgebundenen Dialog. Die
-Fensterliste ist wie beim Worker nach Fläche absteigend geordnet, und
+Fensterliste ist wie beim Worker nach Fläche absteigend und bei gleicher
+Fläche in Aufzählungsreihenfolge geordnet, und
 `fensterAnzahl` zählt jedes sichtbare Fenster des Prozesses; nur Fenster mit
 einer Schattenklasse fehlen wie beim Worker in der Liste. Ein minimiertes Hauptfenster stellt dieser Lesepfad nicht wieder her,
 sondern scheitert mit `minimized`; zwei gleichzeitig offene Werte-Info-Fenster

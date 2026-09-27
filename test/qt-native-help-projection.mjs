@@ -70,7 +70,7 @@ const expectedSections = {
 };
 
 const requests = [];
-const windowOf = (hwnd, title, geometry, extra = {}) => ({ hwnd, pid: 99, class: "Qt692QWindowIcon", title,
+const windowOf = (hwnd, title, geometry, extra = {}) => ({ hwnd, order: hwnd, pid: 99, class: "Qt692QWindowIcon", title,
   x: geometry[0], y: geometry[1], w: geometry[2], h: geometry[3], minimized: false, hung: false, ...extra });
 const MAIN_WINDOW = windowOf(42, "SteuerSparErklärung 2025", [0, 0, 1000, 500]);
 const TIPS_WINDOW = windowOf(85, "Steuer-Spar-Tipps", [810, 100, 180, 120]);
@@ -163,9 +163,13 @@ assert.deepEqual(await executeQtNativeHelp(makeClient({ "window_inventory:": inv
   error: "Ein nicht katalogisiertes Fenster des gebundenen Prozesses ist offen; Hilfe nicht gelesen. "
     + "Dialoge mit sse_dialog_list lesen und bewusst beantworten." });
 assert.deepEqual(requests.map(entry => entry.operation), ["window_inventory"]);
-const untitled = { hwnd: 90, pid: 99, class: "Qt692QWindow", x: 50, y: 50, w: 300, h: 200, minimized: false, hung: false };
+const untitled = { hwnd: 90, order: 90, pid: 99, class: "Qt692QWindow", x: 50, y: 50, w: 300, h: 200, minimized: false, hung: false };
 assert.equal((await executeQtNativeHelp(makeClient({ "window_inventory:": inventoryReply([MAIN_WINDOW],
   { untitledWindows: [untitled], visibleWindowCount: 2 }) }), { hwnd: 42 }, 5000, undefined, profile)).kind, "dialog-open");
+// A visible tooltip is untitled as well, but the worker never treats it as a dialog: the help is read.
+const tooltip = { ...untitled, hwnd: 94, order: 94, class: "Qt692QWindowToolTipSaveBits", w: 120, h: 30 };
+assert.equal((await executeQtNativeHelp(makeClient({ "window_inventory:": inventoryReply([MAIN_WINDOW],
+  { untitledWindows: [tooltip], visibleWindowCount: 2 }), "accessibility_snapshot:": mainReply() }), { hwnd: 42 }, 5000, undefined, profile)).ok, true);
 assert.deepEqual(await executeQtNativeHelp(makeClient({ "window_inventory:": inventoryReply([{ ...MAIN_WINDOW, minimized: true }]) }),
   { hwnd: 42 }, 5000, undefined, profile),
   { ok: false, backend: "qt", kind: "minimized", error: "Das gebundene SSE-Hauptfenster ist minimiert; der direkte Qt-Pfad stellt es nicht wieder her." });
@@ -213,4 +217,4 @@ assert.equal(requests.length, before);
 await assert.rejects(executeQtNativeHelp(makeClient(plain({ hwnd: 84 })), { hwnd: 42 }, 5000, undefined, profile),
   error => error instanceof QtNativeTransportError && error.kind === "native-contract");
 
-console.log("qt-native-help-projection: happy path, owned tips and Werte-Info windows, second case window, projection edge cases, 12 fail-closed and 3 transport cases ok");
+console.log("qt-native-help-projection: happy path, owned tips and Werte-Info windows, second case window, projection edge cases, 12 fail-closed, a tolerated tooltip and 3 transport cases ok");
