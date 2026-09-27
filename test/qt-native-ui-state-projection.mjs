@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { executeQtNativeUiState } from "../dist/qt-native-ui-state.js";
 import { QtNativeTransportError } from "../dist/qt-native-client.js";
 import { loadProductProfile } from "../dist/product-profiles.js";
+import { comparisonInvariantResidual, resultDetailsFromNodes } from "../dist/qt-native-projections.js";
 
 // Offline contract of the direct Qt ui_state projection: synthetic trees and a
 // fake bridge client, no window, no worker. Every assertion pins the worker's
@@ -352,6 +353,25 @@ const receiptEntry = { hwnd: 87, pid: 99, cls: "Qt692QWindowIcon", title: "Beleg
   const result = await executeQtNativeUiState(client, {}, 5000, undefined, profile);
   assert.deepEqual(result.nichtmodaleFenster.map(entry => entry.hwnd), [88, 85]);
 }
+// The comparison invariant subtracts [decimal] values exactly like Convert-SSEComparableNumber: 0,100 - 0,089 - 0,000 is
+// exactly 0.011 and within the bound, while binary doubles would overshoot it; 0,088 is out of bounds on both paths.
+{
+  assert.equal(comparisonInvariantResidual("0.100", "0.089", "0.000"), 0.011);
+  assert.equal(comparisonInvariantResidual("-1.5", "2", "-3.50"), 0);
+  assert.equal(comparisonInvariantResidual("1234.56", "1000", "234.56"), 0);
+  const boundary = [];
+  const cell = (type, name, x, y, extra = {}) => boundary.push({ i: boundary.length, p: boundary.length ? 0 : -1, d: boundary.length ? 1 : 0,
+    type, name, aid: "tool.obj_Wertetabelle", rid: `42.84.4.${boundary.length + 1}`, x, y, w: 100, h: 20, on: true, val: null, ro: null,
+    checked: null, selected: null, scroll: null, ...extra });
+  cell("Table", "", 0, 0, { w: 500, h: 200 });
+  for (const [column, name] of ["Beobachteter Wert", "Aktuell", "Festgehaltener Vergleichswert", "Differenz"].entries()) cell("Header", name, column * 120, 20);
+  for (const [row, cells] of [["Innerhalb", "0,100", "0,089", "0,000"], ["Ausserhalb", "0,100", "0,088", "0,000"]].entries()) {
+    for (const [column, text] of cells.entries()) cell("DataItem", text, column * 120, 50 + row * 30);
+  }
+  const details = resultDetailsFromNodes(boundary, { truncated: false, cyc: 0 });
+  assert.equal(details.vergleichsInvariantGeprueft, 2);
+  assert.deepEqual(details.vergleichsInvariantFehler.map(row => row.beobachteterWert), ["Ausserhalb"]);
+}
 // An empty main tree is a failed read for the worker, never a free window.
 {
   const { client } = fakeClient([MAIN_WINDOW], mainSpec([]));
@@ -359,4 +379,4 @@ const receiptEntry = { hwnd: 87, pid: 99, cls: "Qt692QWindowIcon", title: "Beleg
     { ok: false, backend: "qt", kind: "native-incomplete", error: "Der native Seitenbaum ist leer; kein Zustand ausgegeben." });
 }
 
-console.log("qt-native-ui-state-projection: 19 scenarios passed");
+console.log("qt-native-ui-state-projection: 20 scenarios passed");

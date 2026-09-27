@@ -182,13 +182,35 @@ export function checkerResultComplete(result: CheckerResults): boolean {
     && result.tippsAngekuendigt === result.tippsZusatzinfos.length));
 }
 
-/** German money/percent display to a comparable number; unparsable text is skipped, never treated as zero. */
-export function comparableNumber(value: unknown): number | null {
+/** German money/percent display normalised to decimal text; unparsable text is skipped, never treated as zero. */
+export function comparableDecimalText(value: unknown): string | null {
   if (value === null || value === undefined) return null;
   const text = String(value).replace(/\s+/gu, "").replaceAll(".", "").replaceAll(",", ".").replace(/[^0-9+\-.]/gu, "");
   if (!text || ["+", "-", "."].includes(text)) return null;
-  const parsed = Number(text);
-  return Number.isFinite(parsed) ? parsed : null;
+  return Number.isFinite(Number(text)) ? text : null;
+}
+
+/** German money/percent display to a comparable number; unparsable text is skipped, never treated as zero. */
+export function comparableNumber(value: unknown): number | null {
+  const text = comparableDecimalText(value);
+  return text === null ? null : Number(text);
+}
+
+/** The decimal text as an integer count of 10^-scale units, exact like a [decimal] value. */
+function scaledDecimal(text: string, scale: number): bigint {
+  const negative = text.startsWith("-");
+  const [whole = "", fraction = ""] = text.replace(/^[+-]/u, "").split(".");
+  const magnitude = BigInt(`${whole || "0"}${fraction.padEnd(scale, "0").slice(0, scale)}`);
+  return negative ? -magnitude : magnitude;
+}
+
+/** Convert-SSEComparableNumber parity: (aktuell - festgehalten) - differenz in exact decimal, cast to double at the end. */
+export function comparisonInvariantResidual(actual: string, held: string, difference: string): number {
+  const scale = Math.max(...[actual, held, difference].map(text => (text.split(".")[1] ?? "").length));
+  const residual = scaledDecimal(actual, scale) - scaledDecimal(held, scale) - scaledDecimal(difference, scale);
+  const digits = (residual < 0n ? -residual : residual).toString().padStart(scale + 1, "0");
+  const whole = digits.slice(0, digits.length - scale), fraction = digits.slice(digits.length - scale);
+  return Number(`${residual < 0n ? "-" : ""}${whole}${scale ? `.${fraction}` : ""}`);
 }
 
 export interface ResultDetailRow { beobachteterWert: string; aktuell: string; festgehalten: string; differenz: string }
@@ -241,10 +263,12 @@ export function resultDetailsFromNodes(
       beobachteterWert: cells[0]!.name, aktuell: cells[1]!.name, festgehalten: cells[2]!.name, differenz: cells[3]!.name,
     };
     rows.push(row);
-    const actual = comparableNumber(row.aktuell), held = comparableNumber(row.festgehalten), difference = comparableNumber(row.differenz);
+    const actual = comparableDecimalText(row.aktuell), held = comparableDecimalText(row.festgehalten);
+    const difference = comparableDecimalText(row.differenz);
     if (actual !== null && held !== null && difference !== null) {
       invariantChecked += 1;
-      if (Math.abs((actual - held) - difference) > 0.011) invariantErrors.push({ ...row });
+      // The worker subtracts [decimal] values exactly and only casts the residual to double for the bound.
+      if (Math.abs(comparisonInvariantResidual(actual, held, difference)) > 0.011) invariantErrors.push({ ...row });
     }
   }
   const complete = rows.length > 0 && !malformed.length && !unpositioned.length && headers.length === 4

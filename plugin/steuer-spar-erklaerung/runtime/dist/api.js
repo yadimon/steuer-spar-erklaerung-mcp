@@ -13390,12 +13390,24 @@ function checkerResults(nodes) {
 function checkerResultComplete(result) {
   return result.aktiv && (result.leer && result.gesamt === 0 || result.fragenWarnungenGruppeGesehen && result.tippsGruppeGesehen && result.fragenWarnungenAngekuendigt === result.fragenWarnungen.length && result.tippsAngekuendigt === result.tippsZusatzinfos.length);
 }
-function comparableNumber(value) {
+function comparableDecimalText(value) {
   if (value === null || value === void 0) return null;
   const text3 = String(value).replace(/\s+/gu, "").replaceAll(".", "").replaceAll(",", ".").replace(/[^0-9+\-.]/gu, "");
   if (!text3 || ["+", "-", "."].includes(text3)) return null;
-  const parsed = Number(text3);
-  return Number.isFinite(parsed) ? parsed : null;
+  return Number.isFinite(Number(text3)) ? text3 : null;
+}
+function scaledDecimal(text3, scale) {
+  const negative = text3.startsWith("-");
+  const [whole = "", fraction = ""] = text3.replace(/^[+-]/u, "").split(".");
+  const magnitude = BigInt(`${whole || "0"}${fraction.padEnd(scale, "0").slice(0, scale)}`);
+  return negative ? -magnitude : magnitude;
+}
+function comparisonInvariantResidual(actual, held, difference) {
+  const scale = Math.max(...[actual, held, difference].map((text3) => (text3.split(".")[1] ?? "").length));
+  const residual = scaledDecimal(actual, scale) - scaledDecimal(held, scale) - scaledDecimal(difference, scale);
+  const digits = (residual < 0n ? -residual : residual).toString().padStart(scale + 1, "0");
+  const whole = digits.slice(0, digits.length - scale), fraction = digits.slice(digits.length - scale);
+  return Number(`${residual < 0n ? "-" : ""}${whole}${scale ? `.${fraction}` : ""}`);
 }
 function resultDetailsFromNodes(nodes, stats, windowKnownOpen = false) {
   const allData = containerDescendants(nodes, RESULT_TABLE_SUFFIX, "DataItem", "Table");
@@ -13440,10 +13452,11 @@ function resultDetailsFromNodes(nodes, stats, windowKnownOpen = false) {
       differenz: cells[3].name
     };
     rows.push(row);
-    const actual = comparableNumber(row.aktuell), held = comparableNumber(row.festgehalten), difference = comparableNumber(row.differenz);
+    const actual = comparableDecimalText(row.aktuell), held = comparableDecimalText(row.festgehalten);
+    const difference = comparableDecimalText(row.differenz);
     if (actual !== null && held !== null && difference !== null) {
       invariantChecked += 1;
-      if (Math.abs(actual - held - difference) > 0.011) invariantErrors.push({ ...row });
+      if (Math.abs(comparisonInvariantResidual(actual, held, difference)) > 0.011) invariantErrors.push({ ...row });
     }
   }
   const complete = rows.length > 0 && !malformed.length && !unpositioned.length && headers.length === 4 && !scrollIncomplete && !invariantErrors.length && !stats.truncated && !stats.cyc;
