@@ -152,10 +152,10 @@ export async function testNativePageProjections() {
   // catalogued window through a tool snapshot the oracle cannot mirror. The counted windows are therefore ones
   // neither side reads: a system overlay and a second case window.
   const pageWindows = [
-    { hwnd: 42, pid: 99, class: "Qt692QWindowIcon", title: "SteuerSparErklärung 2025", x: 0, y: 0, w: 1600, h: 900,
+    { hwnd: 42, order: 42, pid: 99, class: "Qt692QWindowIcon", title: "SteuerSparErklärung 2025", x: 0, y: 0, w: 1600, h: 900,
       minimized: false, hung: false },
-    { hwnd: 86, pid: 99, class: "UAC_Overlay", title: "UAC", x: 0, y: 0, w: 40, h: 40, minimized: false, hung: false },
-    { hwnd: 91, pid: 99, class: "Qt692QWindowIcon", title: "SteuerSparErklärung 2025 - zweiter Fall", x: 0, y: 0, w: 950, h: 600,
+    { hwnd: 86, order: 86, pid: 99, class: "UAC_Overlay", title: "UAC", x: 0, y: 0, w: 40, h: 40, minimized: false, hung: false },
+    { hwnd: 91, order: 91, pid: 99, class: "Qt692QWindowIcon", title: "SteuerSparErklärung 2025 - zweiter Fall", x: 0, y: 0, w: 950, h: 600,
       minimized: false, hung: false },
   ];
   // ui_state: the worker sees the Werte-Info table inside its UIA walk of the main window; the Qt path reads the
@@ -180,13 +180,13 @@ export async function testNativePageProjections() {
   }
   const toolNodes = reindex(stateNodes.filter(node => node.i >= stateTable));
   const stateWindows = [
-    { hwnd: 42, pid: 99, class: "Qt692QWindowIcon", title: "SteuerSparErklärung 2025", x: 0, y: 0, w: 1600, h: 900,
+    { hwnd: 42, order: 42, pid: 99, class: "Qt692QWindowIcon", title: "SteuerSparErklärung 2025", x: 0, y: 0, w: 1600, h: 900,
       minimized: false, hung: false },
-    { hwnd: 87, pid: 99, class: "Qt692QWindow", title: "BelegManager", x: 100, y: 100, w: 1200, h: 700, minimized: false, hung: false },
-    { hwnd: 85, pid: 99, class: "Qt692QWindow", title: "Steuer-Spar-Tipps", x: 200, y: 200, w: 900, h: 700, minimized: false, hung: false },
-    { hwnd: 84, pid: 99, class: "Qt692QWindow", title: "Werte-Info: Werte vergleichen - Was wäre wenn", x: 800, y: 300, w: 400, h: 300,
+    { hwnd: 87, order: 87, pid: 99, class: "Qt692QWindow", title: "BelegManager", x: 100, y: 100, w: 1200, h: 700, minimized: false, hung: false },
+    { hwnd: 85, order: 85, pid: 99, class: "Qt692QWindow", title: "Steuer-Spar-Tipps", x: 200, y: 200, w: 900, h: 700, minimized: false, hung: false },
+    { hwnd: 84, order: 84, pid: 99, class: "Qt692QWindow", title: "Werte-Info: Werte vergleichen - Was wäre wenn", x: 800, y: 300, w: 400, h: 300,
       minimized: false, hung: false },
-    { hwnd: 86, pid: 99, class: "UAC_Overlay", title: "UAC", x: 0, y: 0, w: 40, h: 40, minimized: false, hung: false },
+    { hwnd: 86, order: 86, pid: 99, class: "UAC_Overlay", title: "UAC", x: 0, y: 0, w: 40, h: 40, minimized: false, hung: false },
   ];
   cases.push(
     { operation: "ui_state", args: { hwnd: 42 }, nodes: stateNodes, rect: pageRect, stats: { ...pageStats, n: stateNodes.length },
@@ -400,9 +400,9 @@ export async function testNativePageProjections() {
   const mainNodes = [{ ...knownNodes[0] }, { ...knownNodes[4], i: 1, on: false }];
   const receiptStats = { ...stats, n: receiptNodes.length };
   const processWindows = [
-    { hwnd: 42, pid: 99, class: "Qt692QWindowIcon", title: "SteuerSparErklärung 2025", x: 0, y: 0, w: 1000, h: 600,
+    { hwnd: 42, order: 42, pid: 99, class: "Qt692QWindowIcon", title: "SteuerSparErklärung 2025", x: 0, y: 0, w: 1000, h: 600,
       minimized: false, hung: false },
-    { hwnd: 84, pid: 99, class: "Qt692QWindowIcon", title: "BelegManager", x: 100, y: 100, w: 800, h: 500,
+    { hwnd: 84, order: 84, pid: 99, class: "Qt692QWindowIcon", title: "BelegManager", x: 100, y: 100, w: 800, h: 500,
       minimized: false, hung: false },
   ];
   const receiptClient = { binding: { hwnd: 42, pid: 99 }, request: async (operation, args) => {

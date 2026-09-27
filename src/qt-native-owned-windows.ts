@@ -52,7 +52,9 @@ export async function readBoundWindows(
   const { inventory, main } = bound.binding;
   const others = inventory.windows.filter(window => window.pid === main.pid && window.hwnd !== main.hwnd)
     .map(window => ({ window, kind: auxiliaryWindowKind(window, profile) }));
-  if (others.some(entry => entry.kind === null) || inventory.untitledWindows.length) {
+  // A tooltip is an untitled window the worker's descriptor never turns into a blocking dialog; the page stays readable.
+  const untitledUnknown = inventory.untitledWindows.filter(window => window.pid === main.pid && !/tooltip/iu.test(window.class));
+  if (others.some(entry => entry.kind === null) || untitledUnknown.length) {
     return { failure: fail("dialog-open", `Ein nicht katalogisiertes Fenster des gebundenen Prozesses ist offen; ${subject} nicht gelesen. `
       + "Dialoge mit sse_dialog_list lesen und bewusst beantworten.") };
   }

@@ -13498,7 +13498,7 @@ function auxiliaryWindowKind(window, profile) {
   return catalogued ? "known-nonmodal" : null;
 }
 function byWindowArea(left, right) {
-  return right.w * right.h - left.w * left.h || left.hwnd - right.hwnd;
+  return right.w * right.h - left.w * left.h || left.order - right.order;
 }
 var byPosition3, psEquals, textSha256, VERSAND, comparableForm, VERSAND_FORMS, CHECKER_TREE_SUFFIX, RESULT_TABLE_SUFFIX, processWindowSchema, processWindowInventorySchema, WERTE_INFO_TITLE, TIPS_TITLE, CLOSABLE_NONMODAL_ROLES;
 var init_qt_native_projections = __esm({
@@ -13529,6 +13529,8 @@ var init_qt_native_projections = __esm({
     RESULT_TABLE_SUFFIX = "obj_Wertetabelle";
     processWindowSchema = external_exports.object({
       hwnd: external_exports.number().int().positive(),
+      /** Enumeration (Z) order among the listed windows; Get-Windows breaks equal areas by it. */
+      order: external_exports.number().int().nonnegative(),
       pid: external_exports.number().int().positive(),
       class: external_exports.string().min(1).max(255),
       title: external_exports.string().min(1).max(4095),
@@ -13546,7 +13548,7 @@ var init_qt_native_projections = __esm({
       untitledWindows: external_exports.array(processWindowSchema.omit({ title: true })).max(256),
       /** Every visible top-level window of the process, including untitled, shadow and tooltip windows. */
       visibleWindowCount: external_exports.number().int().nonnegative(),
-      /** The same population across every process running the product image: what Get-Windows 'SSE' counts. */
+      /** The same population across every process whose executable and folder names match: what Get-Windows 'SSE' counts. */
       productWindowCount: external_exports.number().int().nonnegative()
     }).passthrough();
     WERTE_INFO_TITLE = "Werte-Info: Werte vergleichen - Was wäre wenn";
@@ -14360,7 +14362,8 @@ async function readBoundWindows(client, profile, subject, budget, signal) {
   if (bound.failure) return { failure: bound.failure };
   const { inventory, main: main2 } = bound.binding;
   const others = inventory.windows.filter((window) => window.pid === main2.pid && window.hwnd !== main2.hwnd).map((window) => ({ window, kind: auxiliaryWindowKind(window, profile) }));
-  if (others.some((entry) => entry.kind === null) || inventory.untitledWindows.length) {
+  const untitledUnknown = inventory.untitledWindows.filter((window) => window.pid === main2.pid && !/tooltip/iu.test(window.class));
+  if (others.some((entry) => entry.kind === null) || untitledUnknown.length) {
     return { failure: fail6("dialog-open", `Ein nicht katalogisiertes Fenster des gebundenen Prozesses ist offen; ${subject} nicht gelesen. Dialoge mit sse_dialog_list lesen und bewusst beantworten.`) };
   }
   const owned = others.filter((entry) => entry.kind !== "system-overlay" && entry.kind !== "case-window").map((entry) => entry.window);
@@ -14621,10 +14624,11 @@ async function executeQtNativeUiState(client, args, timeoutMs, signal, profile) 
   const mainSnapshot = await readQtNativeSnapshot(client, { hwnd: client.binding.hwnd, maxNodes: 5e3 }, budget(), signal);
   nativeDurationMs += mainSnapshot.nativeDurationMs;
   if (!mainSnapshot.nodes.length) return fail8("native-incomplete", "Der native Seitenbaum ist leer; kein Zustand ausgegeben.");
-  const fenster = [
-    ...inventory.windows.filter((window) => window.pid === main2.pid).map((window) => window.hwnd === main2.hwnd ? windowEntry(window, "hauptfenster", true, null, null) : classifiedEntry(window, profile)),
-    ...inventory.untitledWindows.filter((window) => window.pid === main2.pid).map((window) => windowEntry(window, "nicht-lesbar", false, UNTITLED_WINDOW_HINT, null))
-  ].sort(byWindowArea);
+  const processWindows = [
+    ...inventory.windows.filter((window) => window.pid === main2.pid).map((window) => ({ window, untitled: false })),
+    ...inventory.untitledWindows.filter((window) => window.pid === main2.pid).map((window) => ({ window, untitled: true }))
+  ].sort((left, right) => byWindowArea(left.window, right.window));
+  const fenster = processWindows.map((entry) => entry.untitled ? windowEntry(entry.window, "nicht-lesbar", false, UNTITLED_WINDOW_HINT, null) : entry.window.hwnd === main2.hwnd ? windowEntry(entry.window, "hauptfenster", true, null, null) : classifiedEntry(entry.window, profile));
   const obstructed = mainSnapshot.modalBlocked || !mainSnapshot.windowEnabled;
   if (obstructed && !fenster.some((window) => window.art === "nicht-lesbar")) fenster.push(untitledModalEntry(main2.pid));
   const werteInfo = inventory.windows.filter((window) => window.pid === main2.pid && psEquals(window.title, WERTE_INFO_TITLE));

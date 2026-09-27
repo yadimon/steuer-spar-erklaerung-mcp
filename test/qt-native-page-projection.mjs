@@ -10,7 +10,7 @@ const profile = loadProductProfile("2025");
 const stats = { n: 0, err: 0, cyc: 0, cycleRid: "", cycleName: "", truncated: false, depthLimited: false,
   valErr: 0, scrollErr: 0, source: "qt", fallbackReason: "", snapshotMs: 1 };
 const windowOf = (hwnd, title, size = { w: 1000, h: 700 }, extra = {}) => ({
-  hwnd, pid: 99, class: "Qt692QWindowIcon", title, x: 0, y: 0, ...size, minimized: false, hung: false, ...extra,
+  hwnd, order: hwnd, pid: 99, class: "Qt692QWindowIcon", title, x: 0, y: 0, ...size, minimized: false, hung: false, ...extra,
 });
 const WERTE_INFO = "Werte-Info: Werte vergleichen - Was wäre wenn";
 
@@ -275,7 +275,7 @@ assert.deepEqual(unknownWindow.operations, ["window_inventory"]);
 const oversizedTips = makeClient(full.nodes, fullRect, [...twoWindows, windowOf(85, "Steuer-Spar-Tipps", { w: 900, h: 700 })]);
 assert.equal((await executeQtNativePage(oversizedTips.client, { hwnd: 42 }, 5000, undefined, profile)).ok, true);
 // Untitled and shadow windows count for the worker's "more than two windows" rule but never appear in the list.
-const untitledWindow = { hwnd: 90, pid: 99, class: "Qt692QWindow", x: 10, y: 10, w: 300, h: 200, minimized: false, hung: false };
+const untitledWindow = { hwnd: 90, order: 90, pid: 99, class: "Qt692QWindow", x: 10, y: 10, w: 300, h: 200, minimized: false, hung: false };
 const shadowed = makeClient(full.nodes, fullRect, twoWindows,
   { inventory: { ok: true, windows: twoWindows, visibleWindowCount: 3, productWindowCount: 3, untitledWindows: [] } });
 const withShadow = await executeQtNativePage(shadowed.client, { hwnd: 42 }, 5000, undefined, profile);
@@ -308,6 +308,14 @@ assert.equal((await executeQtNativePage(makeClient(full.nodes, fullRect, [...two
   { hwnd: 42 }, 5000, undefined, brokenCatalogue)).ok, true);
 // ConvertTo-Json -Compress escapes the HTML characters, the apostrophe, NEL and both Unicode line separators.
 assert.equal(powershellCompactJson({ a: "x\u0085y\u2028z\u2029<&>'" }), '{"a":"x\\u0085y\\u2028z\\u2029\\u003c\\u0026\\u003e\\u0027"}');
+// A visible tooltip is an untitled window of the process that the worker never treats as a dialog; it is only counted.
+const tooltipWindow = { hwnd: 94, order: 94, pid: 99, class: "Qt692QWindowToolTipSaveBits", x: 10, y: 10, w: 120, h: 30, minimized: false, hung: false };
+const tooltip = makeClient(full.nodes, fullRect, twoWindows,
+  { inventory: { ok: true, windows: twoWindows, visibleWindowCount: 3, productWindowCount: 3, untitledWindows: [tooltipWindow] } });
+const withTooltip = await executeQtNativePage(tooltip.client, { hwnd: 42 }, 5000, undefined, profile);
+assert.equal(withTooltip.ok, true);
+assert.equal(withTooltip.offeneFenster, 3);
+assert.deepEqual(tooltip.operations, ["window_inventory", "accessibility_snapshot", `accessibility_snapshot:${WERTE_INFO}`]);
 // The worker's closable-window policy is case-sensitive on the catalogued title.
 const caseVariant = makeClient(full.nodes, fullRect, [...twoWindows, windowOf(88, "belegmanager", { w: 1800, h: 1200 })]);
 assert.equal((await executeQtNativePage(caseVariant.client, { hwnd: 42 }, 5000, undefined, profile)).kind, "dialog-open");
@@ -357,4 +365,4 @@ const snapshotFailed = makeClient(full.nodes, fullRect, twoWindows, { snapshot: 
 await assert.rejects(executeQtNativePage(snapshotFailed.client, { hwnd: 42 }, 5000, undefined, profile),
   { kind: "native-read", message: "Synthetic snapshot failure." });
 
-console.log("qt-native-page-projection: 9 projections and 25 fail-closed guards pinned");
+console.log("qt-native-page-projection: 10 projections and 25 fail-closed guards pinned");

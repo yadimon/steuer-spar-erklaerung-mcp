@@ -49,7 +49,7 @@ const stats = { n: nodes.length, err: 0, cyc: 0, cycleRid: "", cycleName: "", tr
 // Process windows: the bound main window, the owned Werte-Info read through its title, a system overlay
 // that is never read and a Werte-Info of another process that is not this window's.
 const WERTE_INFO = "Werte-Info: Werte vergleichen - Was wäre wenn";
-const windowOf = (hwnd, title, geometry, extra = {}) => ({ hwnd, pid: 99, class: "Qt692QWindow", title,
+const windowOf = (hwnd, title, geometry, extra = {}) => ({ hwnd, order: hwnd, pid: 99, class: "Qt692QWindow", title,
   x: geometry[0], y: geometry[1], w: geometry[2], h: geometry[3], minimized: false, hung: false, ...extra });
 const MAIN_WINDOW = windowOf(42, "SteuerSparErklärung 2025", [0, 0, 1000, 500], { class: "Qt692QWindowIcon" });
 const WERTE_INFO_WINDOW = windowOf(84, WERTE_INFO, [600, 300, 400, 200]);
@@ -180,8 +180,10 @@ assert.deepEqual(await read({ windows: [MAIN_WINDOW, windowOf(88, "Datei öffnen
   { ok: false, backend: "qt", kind: "dialog-open", error: "Ein nicht katalogisiertes Fenster des gebundenen Prozesses ist offen; Tabelle nicht gelesen. "
     + "Dialoge mit sse_dialog_list lesen und bewusst beantworten." });
 assert.deepEqual(requests.map(entry => entry.operation), ["window_inventory"]);
-const untitled = { hwnd: 90, pid: 99, class: "Qt692QWindow", x: 50, y: 50, w: 300, h: 200, minimized: false, hung: false };
+const untitled = { hwnd: 90, order: 90, pid: 99, class: "Qt692QWindow", x: 50, y: 50, w: 300, h: 200, minimized: false, hung: false };
 assert.equal((await read({ inventory: { untitledWindows: [untitled], visibleWindowCount: 2 } })).kind, "dialog-open");
+const tooltip = { ...untitled, hwnd: 94, order: 94, class: "Qt692QWindowToolTipSaveBits", w: 120, h: 30 };
+assert.equal((await read({ inventory: { untitledWindows: [tooltip], visibleWindowCount: 2 } })).ok, true);
 assert.deepEqual(await read({ windows: [{ ...MAIN_WINDOW, minimized: true }] }),
   { ok: false, backend: "qt", kind: "minimized", error: "Das gebundene SSE-Hauptfenster ist minimiert; der direkte Qt-Pfad stellt es nicht wieder her." });
 assert.deepEqual(await read({ windows: [WERTE_INFO_WINDOW] }),
@@ -207,4 +209,4 @@ await assert.rejects(read(withWerteInfo({ hwnd: 85 })), error => error instanceo
 await assert.rejects(read({}, { hwnd: 42 }, 0), error => error instanceof QtNativeTransportError && error.kind === "native-timeout");
 
 console.log("qt-native-read-table-projection: happy path, owned window listing, headless and header-merge projections, cell semantics, truncation, "
-  + "11 fail-closed and 5 transport cases ok");
+  + "11 fail-closed, a tolerated tooltip and 5 transport cases ok");

@@ -29,7 +29,7 @@ function buildNodes(specs) {
 const stats = { n: 0, err: 0, cyc: 0, cycleRid: "", cycleName: "", truncated: false, depthLimited: false,
   valErr: 0, scrollErr: 0, source: "qt", fallbackReason: "", snapshotMs: 3 };
 
-const MAIN_WINDOW = { hwnd: 42, pid: 99, class: "Qt692QWindowIcon", title: "SteuerSparErklärung 2025", x: 0, y: 0, w: 1600, h: 900,
+const MAIN_WINDOW = { hwnd: 42, order: 42, pid: 99, class: "Qt692QWindowIcon", title: "SteuerSparErklärung 2025", x: 0, y: 0, w: 1600, h: 900,
   minimized: false, hung: false };
 function fakeClient(nodes, overrides = {}, requests = [], windows = [MAIN_WINDOW]) {
   return { binding: { hwnd: 42, pid: 99, creationTime: "1" }, request: async (operation, args) => {
@@ -247,7 +247,7 @@ const activeNodes = buildNodes(activeSpecs);
   await assert.rejects(run(fakeClient(activeNodes, {}, [], [{ ...MAIN_WINDOW, pid: 98 }])),
     error => error instanceof QtNativeTransportError && error.kind === "native-contract");
   // Other windows of the process are left alone, exactly as the worker's branch ignores them.
-  const dialog = { hwnd: 88, pid: 99, class: "#32770", title: "Datei öffnen", x: 10, y: 10, w: 500, h: 400, minimized: false, hung: false };
+  const dialog = { hwnd: 88, order: 88, pid: 99, class: "#32770", title: "Datei öffnen", x: 10, y: 10, w: 500, h: 400, minimized: false, hung: false };
   assert.equal((await run(fakeClient(activeNodes, {}, [], [MAIN_WINDOW, dialog]))).konsistent, true);
   assert.deepEqual(await executeQtNativeCheckerResults(fakeClient(activeNodes), { hwnd: 42 }, 5000), { ok: false, backend: "qt",
     kind: "bad-args", error: "checker_results requires a product profile." });

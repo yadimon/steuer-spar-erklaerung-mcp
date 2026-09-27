@@ -104,12 +104,14 @@ export async function executeQtNativeUiState(
 
   // Only windows of the bound process may shape this case's state and fingerprint; the worker's
   // enumerator lists them largest first, and an untitled window is one it would read but this path cannot.
-  const fenster: UiStateWindow[] = [
-    ...inventory.windows.filter(window => window.pid === main.pid).map(window =>
-      window.hwnd === main.hwnd ? windowEntry(window, "hauptfenster", true, null, null) : classifiedEntry(window, profile)),
-    ...inventory.untitledWindows.filter(window => window.pid === main.pid)
-      .map(window => windowEntry(window, "nicht-lesbar", false, UNTITLED_WINDOW_HINT, null)),
-  ].sort(byWindowArea);
+  type ProcessWindowRef = { window: QtProcessWindow; untitled: false } | { window: QtUntitledWindow; untitled: true };
+  const processWindows: ProcessWindowRef[] = [
+    ...inventory.windows.filter(window => window.pid === main.pid).map(window => ({ window, untitled: false as const })),
+    ...inventory.untitledWindows.filter(window => window.pid === main.pid).map(window => ({ window, untitled: true as const })),
+  ].sort((left, right) => byWindowArea(left.window, right.window));
+  const fenster: UiStateWindow[] = processWindows.map(entry => entry.untitled
+    ? windowEntry(entry.window, "nicht-lesbar", false, UNTITLED_WINDOW_HINT, null)
+    : entry.window.hwnd === main.hwnd ? windowEntry(entry.window, "hauptfenster", true, null, null) : classifiedEntry(entry.window, profile));
   const obstructed = mainSnapshot.modalBlocked || !mainSnapshot.windowEnabled;
   if (obstructed && !fenster.some(window => window.art === "nicht-lesbar")) fenster.push(untitledModalEntry(main.pid));
 

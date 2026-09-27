@@ -76,7 +76,7 @@ function werteInfoTree() {
 
 const MAIN_RECT = { x: 0, y: 0, w: 1000, h: 600 };
 const WERTE_RECT = { x: 100, y: 100, w: 600, h: 400 };
-const window = (hwnd, title, geometry, extra = {}) => ({ hwnd, pid: 99, class: "Qt692QWindowIcon", title,
+const window = (hwnd, title, geometry, extra = {}) => ({ hwnd, order: hwnd, pid: 99, class: "Qt692QWindowIcon", title,
   x: geometry[0], y: geometry[1], w: geometry[2], h: geometry[3], minimized: false, hung: false, ...extra });
 const MAIN_WINDOW = window(42, "SteuerSparErklärung 2025", [0, 0, 1000, 600]);
 const WERTE_WINDOW = window(84, WERTE_INFO_TITLE, [100, 100, 600, 400]);
@@ -233,7 +233,7 @@ const receiptEntry = { hwnd: 87, pid: 99, cls: "Qt692QWindowIcon", title: "Beleg
 }
 // A titled window outside the catalogue is unreadable; an untitled non-transient window keeps its real identity.
 {
-  const untitledWindow = { hwnd: 90, pid: 99, class: "Qt692QWindow", x: 50, y: 50, w: 300, h: 200, minimized: false, hung: false };
+  const untitledWindow = { hwnd: 90, order: 90, pid: 99, class: "Qt692QWindow", x: 50, y: 50, w: 300, h: 200, minimized: false, hung: false };
   const { client } = fakeClient([MAIN_WINDOW, RECEIPT_WINDOW, window(89, "Datei öffnen", [10, 10, 500, 400], { class: "#32770" })],
     mainSpec(mainTree(cleanNames)), [], { visibleWindowCount: 6, productWindowCount: 6, untitledWindows: [untitledWindow] });
   const result = await executeQtNativeUiState(client, {}, 5000, undefined, profile);
@@ -351,6 +351,14 @@ const receiptEntry = { hwnd: 87, pid: 99, cls: "Qt692QWindowIcon", title: "Beleg
     hinweis: "Werte-Info ist offen, aber die Qt-Tabelle war in diesem Snapshot nicht lesbar.",
   });
 }
+// Get-Windows orders equal areas by enumeration order, not by handle: the later handle enumerated first comes first.
+{
+  const first = window(88, "Steuer-Spar-Tipps", [200, 200, 300, 300], { order: 1 });
+  const second = window(85, "Steuer-Spar-Tipps", [250, 250, 300, 300], { order: 2 });
+  const { client } = fakeClient([MAIN_WINDOW, second, first], mainSpec(mainTree(cleanNames)));
+  const result = await executeQtNativeUiState(client, {}, 5000, undefined, profile);
+  assert.deepEqual(result.nichtmodaleFenster.map(entry => entry.hwnd), [88, 85]);
+}
 // An empty main tree is a failed read for the worker, never a free window.
 {
   const { client } = fakeClient([MAIN_WINDOW], mainSpec([]));
@@ -358,4 +366,4 @@ const receiptEntry = { hwnd: 87, pid: 99, cls: "Qt692QWindowIcon", title: "Beleg
     { ok: false, backend: "qt", kind: "native-incomplete", error: "Der native Seitenbaum ist leer; kein Zustand ausgegeben." });
 }
 
-console.log("qt-native-ui-state-projection: 18 scenarios passed");
+console.log("qt-native-ui-state-projection: 19 scenarios passed");
