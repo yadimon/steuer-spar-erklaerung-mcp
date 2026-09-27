@@ -5,9 +5,12 @@ $tokens = $null; $errors = $null
 $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot '..\powershell\sse-worker.ps1'), [ref]$tokens, [ref]$errors)
 if ($errors.Count) { throw 'Worker AST could not be parsed' }
 . (Join-Path $PSScriptRoot '..\powershell\structure-binding.ps1')
+. (Join-Path $PSScriptRoot '..\powershell\window-scope.ps1')
 # Differential oracle: execute the actual worker's projection bodies against supplied observations.
 # Only the OS observation boundaries are supplied by the fixture; no product branch is copied.
-foreach ($name in @('Get-ContentBounds','Get-SSEHeading','ConvertTo-Vergleichsform','Test-Versand','Get-SSETextSha256')) {
+foreach ($name in @('Get-ContentBounds','Get-SSEHeading','ConvertTo-Vergleichsform','Test-Versand','Get-SSETextSha256',
+    'Get-CaptionMinX','Get-DirtyState','Get-SSECheckerTreeItems','Get-CheckerResults','Test-CheckerResultComplete',
+    'Read-CheckerComplete','Convert-SSEComparableNumber','Read-ResultDetailsFromTree','New-SSETableRowDetails')) {
     $definitions = @($ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true))
     if ($definitions.Count -ne 1) { throw "Ambiguous worker function $name" }
     $definition = $definitions[0].Extent.Text
@@ -18,15 +21,25 @@ foreach ($name in @('Get-ContentBounds','Get-SSEHeading','ConvertTo-Vergleichsfo
     }
     . ([scriptblock]::Create($definition))
 }
-$assignments = @($ast.FindAll({ param($node) $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -eq '$script:VERSAND' }, $true))
-if ($assignments.Count -ne 1) { throw 'Transmission list changed' }
-. ([scriptblock]::Create($assignments[0].Extent.Text))
+foreach ($variable in @('$script:VERSAND', '$script:SSE_CHECKER_TREE_SUFFIX')) {
+    $assignments = @($ast.FindAll({ param($node) $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -eq $variable }, $true))
+    if ($assignments.Count -ne 1) { throw "Worker constant $variable changed" }
+    . ([scriptblock]::Create($assignments[0].Extent.Text))
+}
 $branches = @{}
-foreach ($operation in @('read_page','subpages','find')) {
+foreach ($operation in @('read_page','subpages','find','page','help','read_table','checker_results')) {
     $matches = @($ast.FindAll({ param($node) $node -is [Management.Automation.Language.SwitchStatementAst] }, $true) |
         ForEach-Object { $_.Clauses } | Where-Object { $_.Item1.Extent.Text -eq "'$operation'" })
     if ($matches.Count -ne 1) { throw "Ambiguous worker operation $operation" }
-    $branches[$operation] = [scriptblock]::Create($matches[0].Item2.Extent.Text.Trim().Substring(1).TrimEnd().TrimEnd('}'))
+    $body = $matches[0].Item2.Extent.Text.Trim().Substring(1).TrimEnd().TrimEnd('}')
+    if ($operation -eq 'page') {
+        # The page branch reads two Win32 facts directly; the fixture supplies both observations.
+        $rectCall = '$r0 = New-Object SW+RC; [SW]::GetWindowRect($hwnd, [ref]$r0) | Out-Null'
+        $pidCall = '[SW]::GetWindowThreadProcessId($hwnd, [ref]$targetPid) | Out-Null'
+        if (-not $body.Contains($rectCall) -or -not $body.Contains($pidCall)) { throw 'Page observation adapter changed' }
+        $body = $body.Replace($rectCall, '$r0 = $script:observedRect').Replace($pidCall, '$targetPid = $script:observedPid')
+    }
+    $branches[$operation] = [scriptblock]::Create($body)
 }
 function Arg($argsObject, $key, $default = $null) {
     if ($argsObject.PSObject.Properties.Name -contains $key) { return $argsObject.$key }
@@ -40,15 +53,45 @@ function Get-SSEBoundedIntegerArg($argsObject, $key, $default, $min, $max) {
 function Get-SSEMainWindowSelectors { [pscustomobject]@{ heading = '.ClientFrameSSE.ClientHeader' } }
 function Resolve-Window { [IntPtr]42 }
 function Test-Canary { [pscustomobject]@{ ok = $true } }
-function Walk-Tree { param($hwnd, [switch]$WithValues) $script:observedTree }
+function Walk-Tree { param($hwnd, $MaxNodes, $TimeoutSec, $MaxDepth, [switch]$WithValues, [switch]$WithScroll) $script:observedTree }
+function Walk-BoundTree {
+    param($hwnd, $MaxNodes, $TimeoutSec, $MaxDepth, [switch]$WithValues, [switch]$WithScroll)
+    $scope = Split-SSEWindowScope $script:observedTree.nodes
+    [pscustomobject]@{ nodes = @($scope.own); stats = $script:observedTree.stats; fremdeFenster = @($scope.foreign) }
+}
+function Get-Windows { param([string]$ProcName = 'SSE') @($script:observedWindows) }
+function Get-DialogInventory { param([int]$TargetPid = 0) @() }
+# The Qt snapshot answers a checkable cell's toggle state directly; the worker asks the UIA toggle pattern.
+function Read-SSETableCellSemantic($Cell) {
+    if ($null -ne $Cell.checked) {
+        $state = $(if ($Cell.checked -eq $true) { 'On' } elseif ($Cell.checked -eq $false) { 'Off' } else { 'Indeterminate' })
+        return [pscustomobject]@{
+            type = 'boolean'; value = $(if ($state -eq 'On') { $true } elseif ($state -eq 'Off') { $false } else { $null })
+            checkboxState = $state; ok = $true; error = $null
+        }
+    }
+    [pscustomobject]@{ type = 'text'; value = [string]$Cell.name; checkboxState = $null; ok = $true; error = $null }
+}
 function Emit($value) { $value }
 function Fail($message, $kind) { throw "$kind`: $message" }
 $results = @()
 foreach ($case in $inputData.cases) {
     $script:observedTree = [pscustomobject]@{ nodes = @($case.nodes); stats = $case.stats }
     $script:observedRect = [pscustomobject]@{ L=$case.rect.x; T=$case.rect.y; R=($case.rect.x+$case.rect.w); B=($case.rect.y+$case.rect.h) }
+    $script:observedWindows = @($case.windows | Where-Object { $null -ne $_ })
+    $script:observedPid = 99
     $a = $case.args
     $results += & $branches[$case.operation]
+}
+$helpers = @()
+foreach ($case in $inputData.helpers) {
+    $tree = [pscustomobject]@{ nodes = @($case.nodes); stats = $case.stats }
+    $helpers += $(switch ($case.helper) {
+        'checkerResults' { Get-CheckerResults $tree }
+        'resultDetails' { Read-ResultDetailsFromTree $tree }
+        'windowScope' { Split-SSEWindowScope $tree.nodes }
+        default { throw "Unknown helper oracle $($case.helper)" }
+    })
 }
 $wildcards = @()
 foreach ($case in $inputData.wildcards) {
@@ -59,6 +102,7 @@ $receiptFingerprintJson = $inputData.receiptFingerprintValue | ConvertTo-Json -D
 $receiptFingerprint = Get-SSETextSha256 $receiptFingerprintJson
 [IO.File]::WriteAllText($OutputPath, (ConvertTo-Json -InputObject @{
     results=$results
+    helpers=$helpers
     wildcards=$wildcards
     receiptFingerprintJson=$receiptFingerprintJson
     receiptFingerprint=$receiptFingerprint
