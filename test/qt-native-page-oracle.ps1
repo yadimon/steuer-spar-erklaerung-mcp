@@ -70,7 +70,11 @@ function Get-DialogInventory { param([int]$TargetPid = 0) @() }
 # Only kinds the worker decides without UIA (tips, known-nonmodal, main) are admitted, with the worker's flags.
 function Get-DialogDescriptor($Window, [IntPtr]$MainHwnd) {
     $kind = [string]$script:observedKinds.([string]$Window.hwnd)
-    if ($kind -notin @('tips', 'known-nonmodal', 'main')) { throw "Fixture supplies no descriptor kind for window $($Window.hwnd)" }
+    if ($kind -notin @('tips', 'known-nonmodal', 'main')) {
+        # The ui_state branch catches this and lists the window as unreadable; the violation is re-raised after the branch.
+        $script:fixtureError = "Fixture supplies no descriptor kind for window $($Window.hwnd)"
+        throw $script:fixtureError
+    }
     [pscustomobject]@{
         hwnd = [int64]$Window.hwnd; pid = [int]$Window.pid; cls = $Window.cls; title = $Window.title
         titleFingerprint = $Window.titleFingerprint; kind = $kind
@@ -107,7 +111,9 @@ foreach ($case in $inputData.cases) {
     $script:observedKinds = $(if ($null -ne $case.kinds) { $case.kinds } else { [pscustomobject]@{} })
     $script:observedPid = 99
     $a = $case.args
+    $script:fixtureError = $null
     $results += & $branches[$case.operation]
+    if ($script:fixtureError) { throw $script:fixtureError }
 }
 $helpers = @()
 foreach ($case in $inputData.helpers) {

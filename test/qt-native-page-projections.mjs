@@ -157,7 +157,12 @@ export async function testNativePageProjections() {
     { hwnd: 86, order: 86, pid: 99, class: "UAC_Overlay", title: "UAC", x: 0, y: 0, w: 40, h: 40, minimized: false, hung: false },
     { hwnd: 91, order: 91, pid: 99, class: "Qt692QWindowIcon", title: "SteuerSparErklärung 2025 - zweiter Fall", x: 0, y: 0, w: 950, h: 600,
       minimized: false, hung: false },
+    // Get-Windows 'SSE' counts a second product process as well; the bridge only counts it, never lists it.
+    { hwnd: 93, order: 93, pid: 100, class: "Qt692QWindowIcon", title: "SteuerSparErklärung 2025", x: 0, y: 0, w: 1000, h: 700,
+      minimized: false, hung: false },
   ];
+  // page: without a checker message right of the content the blocked flag follows the window count alone.
+  const quietNodes = reindex(pageNodes.filter(node => !(node.type === "TreeItem" && node.x > 1190)));
   // ui_state: the worker sees the Werte-Info table inside its UIA walk of the main window; the Qt path reads the
   // same table through the tool snapshot. The descriptor kinds of the tips and BelegManager windows are fixture facts.
   const stateNodes = pageNodes.map(node => ({ ...node }));
@@ -190,11 +195,14 @@ export async function testNativePageProjections() {
     // A second wide case window is the descriptor's 'main' kind, decided without UIA, and the worker's 'unbekannt' entry.
     { hwnd: 91, order: 91, pid: 99, class: "Qt692QWindowIcon", title: "SteuerSparErklärung 2025 - zweiter Fall", x: 0, y: 0, w: 950, h: 600,
       minimized: false, hung: false },
+    { hwnd: 93, order: 93, pid: 100, class: "Qt692QWindowIcon", title: "SteuerSparErklärung 2025", x: 0, y: 0, w: 1000, h: 700,
+      minimized: false, hung: false },
   ];
-  // The same state with the windows listed out of area order and two equal-area windows whose enumeration
-  // order is the reverse of their handles: both sides must order by area, then by enumeration.
-  const shuffledWindows = [stateWindows[5], stateWindows[4], stateWindows[3], { ...stateWindows[2], w: 900, h: 700, order: 4 },
-    stateWindows[0], { ...stateWindows[1], w: 900, h: 700, order: 3 }];
+  // The same state with the windows listed out of area order and two equal-area 'unbekannt' windows whose
+  // enumeration order is the reverse of their handles: both sides must order by area, then by enumeration,
+  // and the pair lands in unsichereFenster and the fingerprint where the order is observable.
+  const shuffledWindows = [stateWindows[6], { ...stateWindows[5], w: 900, h: 700, order: 3 }, stateWindows[4], stateWindows[3],
+    stateWindows[2], stateWindows[0], { ...stateWindows[1], w: 900, h: 700, order: 4 }];
   const werteInfoTool = { title: "Werte-Info: Werte vergleichen - Was wäre wenn", hwnd: 84, nodes: toolNodes,
     rect: { x: 800, y: 300, w: 400, h: 300 }, stats: { ...pageStats, n: toolNodes.length } };
   cases.push(
@@ -204,6 +212,8 @@ export async function testNativePageProjections() {
       windows: shuffledWindows, kinds: { 87: "known-nonmodal", 85: "tips", 91: "main" }, tool: werteInfoTool },
     { operation: "page", args: {}, nodes: pageNodes, rect: pageRect, stats: pageStats, windows: pageWindows },
     { operation: "page", args: {}, nodes: pageNodes, rect: pageRect, stats: pageStats, windows: pageWindows.slice(0, 1) },
+    { operation: "page", args: {}, nodes: quietNodes, rect: pageRect, stats: { ...pageStats, n: quietNodes.length }, windows: pageWindows.slice(0, 3) },
+    { operation: "page", args: {}, nodes: quietNodes, rect: pageRect, stats: { ...pageStats, n: quietNodes.length }, windows: pageWindows.slice(0, 2) },
     { operation: "help", args: {}, nodes: pageNodes, rect: pageRect, stats: pageStats, windows: pageWindows.slice(0, 1) },
     { operation: "read_table", args: {}, nodes: pageNodes, rect: pageRect, stats: pageStats, windows: pageWindows },
     { operation: "read_table", args: {}, nodes: pageNodes, rect: pageRect, stats: { ...pageStats, truncated: true }, windows: pageWindows },
@@ -226,7 +236,7 @@ export async function testNativePageProjections() {
     resultNode("Header", name, 10 + column * 120, 40, { p: resultTable });
   }
   const resultRows = [["Einkommensteuer", "1.234,56", "1.000,00", "234,56"], ["Solidaritätszuschlag", "12,30", "10,00", "5,00"],
-    ["Kirchensteuer & Co", "abc", "10,00", "1,00"]];
+    ["Kirchensteuer & Co", "abc", "10,00", "1,00"], ["Grenzfall", "0,100", "0,089", "0,000"]];
   for (const [rowIndex, cells] of resultRows.entries()) {
     for (const [column, text] of cells.entries()) resultNode("DataItem", text, 10 + column * 120, 70 + rowIndex * 30, { p: resultTable });
   }
@@ -272,10 +282,13 @@ export async function testNativePageProjections() {
     try { actual = { match: nativeWildcard(test.pattern)(test.text) }; } catch { actual = { invalid: true }; }
     assert.deepEqual(actual, oracle.wildcards[index], JSON.stringify(test));
   }
+  const projections = [];
   for (const [index, test] of cases.entries()) {
     const client = { binding: { hwnd: 42, pid: 99, creationTime: "1" }, request: async (operation, args) => {
       if (operation === "window_inventory") {
-        return { durationMs: 1, result: { ok: true, windows: test.windows, visibleWindowCount: test.windows.length, productWindowCount: test.windows.length, untitledWindows: [] } };
+        // The bridge lists and counts the bound process's windows and counts every product process's windows.
+        const own = test.windows.filter(window => window.pid === 99);
+        return { durationMs: 1, result: { ok: true, windows: own, visibleWindowCount: own.length, productWindowCount: test.windows.length, untitledWindows: [] } };
       }
       assert.equal(operation, "accessibility_snapshot");
       assert.equal(args.withValues, test.operation === "find" ? false : undefined);
@@ -291,7 +304,17 @@ export async function testNativePageProjections() {
     const { backend, nativeDurationMs, ...projection } = result;
     assert.equal(backend, "qt"); assert(Number.isInteger(nativeDurationMs) && nativeDurationMs >= 1, test.operation);
     assert.deepEqual(projection, oracle.results[index], `${test.operation} ${JSON.stringify(test.args)}`);
+    projections.push(projection);
   }
+  // The counters and the tie-break are observable: page counts every product process, ui_state only its own, and the
+  // shuffled state lists the equal-area pair by enumeration order where the plain state lists it by area.
+  const projectionOf = predicate => projections[cases.findIndex(predicate)];
+  assert.deepEqual(projectionOf(test => test.operation === "page" && test.windows === pageWindows).offeneFenster, 4);
+  assert.deepEqual(projectionOf(test => test.operation === "page" && test.nodes === quietNodes && test.windows.length === 3).blockiert, true);
+  assert.deepEqual(projectionOf(test => test.operation === "page" && test.nodes === quietNodes && test.windows.length === 2).blockiert, false);
+  assert.equal(projectionOf(test => test.operation === "ui_state" && test.windows === stateWindows).fensterAnzahl, 6);
+  assert.deepEqual(projectionOf(test => test.windows === stateWindows).unsichereFenster.map(window => window.hwnd), [87, 91]);
+  assert.deepEqual(projectionOf(test => test.windows === shuffledWindows).unsichereFenster.map(window => window.hwnd), [91, 87]);
   const knownProfile = {
     pageObjectsCatalog: {
       windows: { main: { headingContainerAutomationIdSuffix: ".ClientFrameSSE.ClientHeader" } },
