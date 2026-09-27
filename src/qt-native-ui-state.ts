@@ -3,8 +3,9 @@ import type { ProductProfile } from "./product-profiles.js";
 import { QtNativeTransportError, type QtNativeClient } from "./qt-native-client.js";
 import { qtNativeContentBounds, qtNativeHeading } from "./qt-native-pages.js";
 import {
-  auxiliaryWindowKind, checkerResultComplete, checkerResults, dirtyState, powershellCompactJson, psEquals,
-  readProcessWindowInventory, resultDetailsFromNodes, splitWindowScope, textSha256, type QtProcessWindow,
+  auxiliaryWindowKind, byWindowArea, checkerResultComplete, checkerResults, dirtyState, powershellCompactJson, psEquals,
+  readProcessWindowInventory, resultDetailsFromNodes, splitWindowScope, textSha256, TIPS_TITLE,
+  type QtProcessWindow, type QtUntitledWindow,
 } from "./qt-native-projections.js";
 import { readQtNativeSnapshot, type QtSnapshotNode } from "./qt-native-snapshot.js";
 
@@ -27,30 +28,40 @@ interface UiStateWindow {
   hwnd: number; pid: number; cls: string; title: string; art: string;
   x: number; y: number; w: number; h: number;
   buttons: never[]; texte: never[]; fingerprint: null;
-  uiaReadOk: boolean | null; uiaError: string | null; msaaReadOk: null; msaaError: null;
+  uiaReadOk: boolean | null; uiaError: string | null; msaaReadOk: boolean | null; msaaError: null;
 }
 
 const fail = (kind: string, error: string): WorkerResult => ({ ok: false, backend: "qt", kind, error });
 const unique = (values: string[]) => [...new Set(values)];
 
-/** Resolve-SSEToolWindowKind plus the UAC overlay rule; a catalogued tool window or anything else is unreadable here. */
-function windowKind(window: QtProcessWindow, profile: ProductProfile): string {
-  const kind = auxiliaryWindowKind(window, profile);
-  return kind === null || kind === "known-nonmodal" ? "nicht-lesbar" : kind;
-}
-
-function windowEntry(window: QtProcessWindow, art: string, uiaReadOk: boolean | null, uiaError: string | null): UiStateWindow {
+function windowEntry(
+  window: QtUntitledWindow & { title?: string }, art: string,
+  uiaReadOk: boolean | null, uiaError: string | null, msaaReadOk: boolean | null,
+): UiStateWindow {
   return {
-    hwnd: window.hwnd, pid: window.pid, cls: window.class, title: window.title, art,
+    hwnd: window.hwnd, pid: window.pid, cls: window.class, title: window.title ?? "", art,
     x: window.x, y: window.y, w: window.w, h: window.h, buttons: [], texte: [], fingerprint: null,
-    uiaReadOk, uiaError, msaaReadOk: null, msaaError: null,
+    uiaReadOk, uiaError, msaaReadOk, msaaError: null,
   };
 }
 
-function untitledEntry(pid: number, uiaError: string): UiStateWindow {
+/**
+ * The worker's classification of an auxiliary window: Resolve-SSEToolWindowKind first, then the
+ * descriptor kinds 'tips' (title only) and 'known-nonmodal' (art 'unbekannt', no UIA/MSAA read),
+ * and finally everything this path cannot describe as unreadable.
+ */
+function classifiedEntry(window: QtProcessWindow, profile: ProductProfile): UiStateWindow {
+  const kind = auxiliaryWindowKind(window, profile);
+  if (kind === "werte-info" || kind === "steuer-tipps" || kind === "system-overlay") return windowEntry(window, kind, null, null, null);
+  if (psEquals(window.title, TIPS_TITLE)) return windowEntry(window, "steuer-tipps", false, null, false);
+  if (kind === "known-nonmodal") return windowEntry(window, "unbekannt", false, null, false);
+  return windowEntry(window, "nicht-lesbar", false, UNREADABLE_HINT, null);
+}
+
+function untitledModalEntry(pid: number): UiStateWindow {
   return {
     hwnd: 0, pid, cls: "", title: "", art: "nicht-lesbar", x: 0, y: 0, w: 0, h: 0, buttons: [], texte: [], fingerprint: null,
-    uiaReadOk: false, uiaError, msaaReadOk: null, msaaError: null,
+    uiaReadOk: false, uiaError: UNTITLED_MODAL_HINT, msaaReadOk: null, msaaError: null,
   };
 }
 
@@ -87,20 +98,22 @@ export async function executeQtNativeUiState(
   const mainSnapshot = await readQtNativeSnapshot(client, { hwnd: client.binding.hwnd, maxNodes: 5000 }, budget(), signal);
   nativeDurationMs += mainSnapshot.nativeDurationMs;
 
-  // Only windows of the bound process may shape this case's state and fingerprint.
-  const fenster: UiStateWindow[] = inventory.windows.filter(window => window.pid === main.pid).map(window => {
-    if (window.hwnd === main.hwnd) return windowEntry(window, "hauptfenster", true, null);
-    const art = windowKind(window, profile);
-    return art === "nicht-lesbar" ? windowEntry(window, art, false, UNREADABLE_HINT) : windowEntry(window, art, null, null);
-  });
-  // The inventory never lists untitled windows; the worker would read each of them and call an unknown one blocking.
-  for (let count = 0; count < inventory.untitledWindowCount; count += 1) fenster.push(untitledEntry(main.pid, UNTITLED_WINDOW_HINT));
+  // Only windows of the bound process may shape this case's state and fingerprint; the worker's
+  // enumerator lists them largest first, and an untitled window is one it would read but this path cannot.
+  const fenster: UiStateWindow[] = [
+    ...inventory.windows.filter(window => window.pid === main.pid).map(window =>
+      window.hwnd === main.hwnd ? windowEntry(window, "hauptfenster", true, null, null) : classifiedEntry(window, profile)),
+    ...inventory.untitledWindows.filter(window => window.pid === main.pid)
+      .map(window => windowEntry(window, "nicht-lesbar", false, UNTITLED_WINDOW_HINT, null)),
+  ].sort(byWindowArea);
   const obstructed = mainSnapshot.modalBlocked || !mainSnapshot.windowEnabled;
-  if (obstructed && !fenster.some(window => window.art === "nicht-lesbar")) fenster.push(untitledEntry(main.pid, UNTITLED_MODAL_HINT));
+  if (obstructed && !fenster.some(window => window.art === "nicht-lesbar")) fenster.push(untitledModalEntry(main.pid));
 
   const werteInfo = fenster.filter(window => window.art === "werte-info");
   if (werteInfo.length > 1) return fail("ambiguous", "Werte-Info ist nicht eindeutig.");
 
+  // The worker's UIA walk also contains owned nonmodal windows; the Qt tree of the main window does
+  // not, so page checker, tree errors and empty mandatory fields are read from the main window only.
   const own: QtSnapshotNode[] = splitWindowScope(mainSnapshot.nodes).own;
   const bounds = qtNativeContentBounds(own, mainSnapshot.windowRect);
   const heading = qtNativeHeading(own, profile);
@@ -182,7 +195,8 @@ export async function executeQtNativeUiState(
     steuerpruefer,
     ungespeichert: dirty,
     ergebnis,
-    fensterAnzahl: fenster.length,
+    // Get-Windows counts every visible window of the process, shadows and tooltips included.
+    fensterAnzahl: inventory.visibleWindowCount,
     warnfensterAnzahl: 0,
     nichtmodaleFenster: nichtmodal,
     snapshot: { source: "qt", nodes: mainSnapshot.stats.n, truncated: mainSnapshot.stats.truncated, cycles: 0, snapshotMs: mainSnapshot.stats.snapshotMs },

@@ -127,7 +127,7 @@ export async function executeQtNativePage(
   if (main.minimized) return fail("minimized", "Das gebundene SSE-Hauptfenster ist minimiert; der direkte Qt-Pfad stellt es nicht wieder her.");
   const unknownWindows = inventory.windows.filter(window => window.pid === main.pid && window.hwnd !== main.hwnd
     && auxiliaryWindowKind(window, profile) === null);
-  if (unknownWindows.length || inventory.untitledWindowCount > 0) {
+  if (unknownWindows.length || inventory.untitledWindows.length) {
     return fail("dialog-open", "Ein nicht katalogisiertes Fenster des gebundenen Prozesses ist offen; Seite nicht gelesen. "
       + "Dialoge mit sse_dialog_list lesen und bewusst beantworten.");
   }

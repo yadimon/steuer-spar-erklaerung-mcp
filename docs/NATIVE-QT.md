@@ -159,10 +159,13 @@ Regel leer, während `ui_state` die Werte-Info über ihren Titel getrennt liest.
 `ui_state` liest Hauptfensterbaum und Win32-Fensterinventar des gebundenen
 Prozesses direkt; eine geöffnete Werte-Info wird über ihren exakten Titel als
 zweiter Snapshot gelesen und in dasselbe `ergebnis`-Modell projiziert.
-Dialoge, unbekannte oder namenlose modale Fenster werden nicht beschrieben,
-sondern als `nicht-lesbar` unter `unsichereFenster` geführt; der Zustand gilt
-dann als blockiert, und `sse_dialog_list` bleibt der Weg zum fingerprintgebundenen
-Dialog. Ein minimiertes Hauptfenster stellt dieser Lesepfad nicht wieder her,
+Dialoge, unbekannte oder namenlose Fenster werden nicht beschrieben, sondern
+mit ihrer Fensterkennung als `nicht-lesbar` unter `unsichereFenster` geführt;
+katalogisierte nichtmodale Werkzeugfenster wie der BelegManager gelten wie beim
+Worker als `unbekannt`. Der Zustand gilt dann als blockiert, und
+`sse_dialog_list` bleibt der Weg zum fingerprintgebundenen Dialog. Die
+Fensterliste ist wie beim Worker nach Fläche absteigend geordnet, und
+`fensterAnzahl` zählt jedes sichtbare Fenster des Prozesses. Ein minimiertes Hauptfenster stellt dieser Lesepfad nicht wieder her,
 sondern scheitert mit `minimized`; zwei gleichzeitig offene Werte-Info-Fenster
 scheitern mit `ambiguous`. Der `stateFingerprint` verwendet dieselbe
 Feldreihenfolge und dieselben JSON-Bytes wie der Worker, damit
