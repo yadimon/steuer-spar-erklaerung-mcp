@@ -3,7 +3,7 @@ import type { ProductProfile } from "./product-profiles.js";
 import { QtNativeTransportError, type QtNativeClient } from "./qt-native-client.js";
 import { qtNativeContentBounds, qtNativeHeading } from "./qt-native-pages.js";
 import {
-  auxiliaryWindowKind, byWindowArea, checkerResultComplete, checkerResults, dirtyState, powershellCompactJson, psEquals,
+  auxiliaryWindowKind, byWindowArea, checkerResultComplete, checkerResults, dirtyState, isSystemOverlay, powershellCompactJson, psEquals,
   readProcessWindowInventory, resultDetailsFromNodes, splitWindowScope, textSha256, TIPS_TITLE, WERTE_INFO_TITLE,
   type QtProcessWindow, type QtUntitledWindow,
 } from "./qt-native-projections.js";
@@ -102,7 +102,8 @@ export async function executeQtNativeUiState(
     ...inventory.untitledWindows.filter(window => window.pid === main.pid).map(window => ({ window, untitled: true as const })),
   ].sort((left, right) => byWindowArea(left.window, right.window));
   const fenster: UiStateWindow[] = processWindows.map(entry => entry.untitled
-    ? windowEntry(entry.window, "nicht-lesbar", false, UNTITLED_WINDOW_HINT, null)
+    ? isSystemOverlay(entry.window) ? windowEntry(entry.window, "system-overlay", null, null, null)
+      : windowEntry(entry.window, "nicht-lesbar", false, UNTITLED_WINDOW_HINT, null)
     : entry.window.hwnd === main.hwnd ? windowEntry(entry.window, "hauptfenster", true, null, null) : classifiedEntry(entry.window, profile));
   const obstructed = mainSnapshot.modalBlocked || !mainSnapshot.windowEnabled;
   // The worker only ever lists enumerated windows. A blocked main window without any listed unreadable or

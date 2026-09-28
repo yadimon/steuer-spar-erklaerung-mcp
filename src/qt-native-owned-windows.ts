@@ -2,7 +2,7 @@ import type { WorkerResult } from "./api-contract.js";
 import type { ProductProfile } from "./product-profiles.js";
 import { QtNativeTransportError, type QtNativeClient } from "./qt-native-client.js";
 import {
-  auxiliaryWindowKind, readProcessWindowInventory, type ForeignWindowScope, type QtProcessWindow,
+  auxiliaryWindowKind, isSystemOverlay, readProcessWindowInventory, type ForeignWindowScope, type QtProcessWindow,
 } from "./qt-native-projections.js";
 import { nativeTreeBoundReason, readQtNativeSnapshot, type QtSnapshotNode } from "./qt-native-snapshot.js";
 
@@ -52,8 +52,9 @@ export async function readBoundWindows(
   const { inventory, main } = bound.binding;
   const others = inventory.windows.filter(window => window.pid === main.pid && window.hwnd !== main.hwnd)
     .map(window => ({ window, kind: auxiliaryWindowKind(window, profile) }));
-  // A tooltip is an untitled window the worker's descriptor never turns into a blocking dialog; the page stays readable.
-  const untitledUnknown = inventory.untitledWindows.filter(window => window.pid === main.pid && !/tooltip/iu.test(window.class));
+  // Tooltips and small Windows input indicators remain countable without blocking the page.
+  const untitledUnknown = inventory.untitledWindows.filter(window => window.pid === main.pid
+    && !isSystemOverlay(window) && !/tooltip/iu.test(window.class));
   if (others.some(entry => entry.kind === null) || untitledUnknown.length) {
     return { failure: fail("dialog-open", `Ein nicht katalogisiertes Fenster des gebundenen Prozesses ist offen; ${subject} nicht gelesen. `
       + "Dialoge mit sse_dialog_list lesen und bewusst beantworten.") };

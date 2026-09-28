@@ -340,6 +340,11 @@ export const TIPS_TITLE = "Steuer-Spar-Tipps";
 
 const CLOSABLE_NONMODAL_ROLES = new Set(["nonmodal-help-window", "nonmodal-result-window", "nonmodal-tool-window"]);
 
+/** The worker recognizes small Windows input indicators by class and size, even without a title. */
+export function isSystemOverlay(window: { class: string; w: number; h: number }): boolean {
+  return /^UAC[ _]/iu.test(window.class) && window.w <= 80 && window.h <= 80;
+}
+
 /**
  * Resolve-SSEToolWindowKind, the UAC overlay rule, the dialog descriptor's
  * 'main' rule for a second wide case window and the worker's closable nonmodal
@@ -352,7 +357,7 @@ export function auxiliaryWindowKind(
 ): "werte-info" | "steuer-tipps" | "system-overlay" | "case-window" | "known-nonmodal" | null {
   if (psEquals(window.title, WERTE_INFO_TITLE) && window.w <= 900 && window.h <= 700) return "werte-info";
   if (psEquals(window.title, TIPS_TITLE) && window.w <= 850 && window.h <= 650) return "steuer-tipps";
-  if (/^UAC[ _]/iu.test(window.class) && window.w <= 80 && window.h <= 80) return "system-overlay";
+  if (isSystemOverlay(window)) return "system-overlay";
   if ((window.w >= 900 || window.minimized) && /SteuerSparErklärung/iu.test(window.title)) return "case-window";
   const catalogued = Object.values(profile?.pageObjectsCatalog.windows ?? {}).some(definition => {
     // The worker reads [string]$definition.role of a null entry as '' and skips it; a non-object is no window here either.
