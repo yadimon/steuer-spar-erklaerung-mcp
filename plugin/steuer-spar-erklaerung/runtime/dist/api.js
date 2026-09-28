@@ -13500,10 +13500,13 @@ async function readProcessWindowInventory(client, timeoutMs, signal) {
     durationMs: measured.durationMs
   };
 }
+function isSystemOverlay(window) {
+  return /^UAC[ _]/iu.test(window.class) && window.w <= 80 && window.h <= 80;
+}
 function auxiliaryWindowKind(window, profile) {
   if (psEquals(window.title, WERTE_INFO_TITLE) && window.w <= 900 && window.h <= 700) return "werte-info";
   if (psEquals(window.title, TIPS_TITLE) && window.w <= 850 && window.h <= 650) return "steuer-tipps";
-  if (/^UAC[ _]/iu.test(window.class) && window.w <= 80 && window.h <= 80) return "system-overlay";
+  if (isSystemOverlay(window)) return "system-overlay";
   if ((window.w >= 900 || window.minimized) && /SteuerSparErklärung/iu.test(window.title)) return "case-window";
   const catalogued = Object.values(profile?.pageObjectsCatalog.windows ?? {}).some((definition) => {
     if (typeof definition !== "object" || definition === null) return false;
@@ -14377,7 +14380,7 @@ async function readBoundWindows(client, profile, subject, budget, signal) {
   if (bound.failure) return { failure: bound.failure };
   const { inventory, main: main2 } = bound.binding;
   const others = inventory.windows.filter((window) => window.pid === main2.pid && window.hwnd !== main2.hwnd).map((window) => ({ window, kind: auxiliaryWindowKind(window, profile) }));
-  const untitledUnknown = inventory.untitledWindows.filter((window) => window.pid === main2.pid && !/tooltip/iu.test(window.class));
+  const untitledUnknown = inventory.untitledWindows.filter((window) => window.pid === main2.pid && !isSystemOverlay(window) && !/tooltip/iu.test(window.class));
   if (others.some((entry) => entry.kind === null) || untitledUnknown.length) {
     return { failure: fail6("dialog-open", `Ein nicht katalogisiertes Fenster des gebundenen Prozesses ist offen; ${subject} nicht gelesen. Dialoge mit sse_dialog_list lesen und bewusst beantworten.`) };
   }
@@ -14632,7 +14635,7 @@ async function executeQtNativeUiState(client, args, timeoutMs, signal, profile) 
     ...inventory.windows.filter((window) => window.pid === main2.pid).map((window) => ({ window, untitled: false })),
     ...inventory.untitledWindows.filter((window) => window.pid === main2.pid).map((window) => ({ window, untitled: true }))
   ].sort((left, right) => byWindowArea(left.window, right.window));
-  const fenster = processWindows.map((entry) => entry.untitled ? windowEntry(entry.window, "nicht-lesbar", false, UNTITLED_WINDOW_HINT, null) : entry.window.hwnd === main2.hwnd ? windowEntry(entry.window, "hauptfenster", true, null, null) : classifiedEntry(entry.window, profile));
+  const fenster = processWindows.map((entry) => entry.untitled ? isSystemOverlay(entry.window) ? windowEntry(entry.window, "system-overlay", null, null, null) : windowEntry(entry.window, "nicht-lesbar", false, UNTITLED_WINDOW_HINT, null) : entry.window.hwnd === main2.hwnd ? windowEntry(entry.window, "hauptfenster", true, null, null) : classifiedEntry(entry.window, profile));
   const obstructed = mainSnapshot.modalBlocked || !mainSnapshot.windowEnabled;
   if (obstructed && !fenster.some((window) => window.art === "nicht-lesbar" || window.art === "unbekannt")) {
     return fail8("dialog-open", "Das gebundene Hauptfenster ist durch einen nicht inventarisierten modalen Dialog blockiert; der direkte Qt-Pfad liest ihn nicht.");

@@ -126,7 +126,7 @@ gesperrt. `ustva_read` projiziert einen einzelnen gebundenen GUI-Thread-Snapshot
 in dasselbe fachliche UStVA-Modell wie der bisherige Worker-Pfad. Ein modaler
 Dialog oder ein abgeschnittener Baum bricht die Lesung fail-closed ab; die
 Übermittlung bleibt gesperrt. Die übrigen Seiten- und UStVA-Operationen, etwa
-`page`, `read_full` und die UStVA-Schreibwege, benutzen weiterhin ihre bestehenden
+`read_full` und die UStVA-Schreibwege, benutzen weiterhin ihre bestehenden
 Pfade. `receipt_manager_list` liest das katalogisierte nichtmodale BelegManager-
 Fenster und den Dirty-State des gebundenen Hauptfensters direkt aus zwei
 begrenzten Qt-Snapshots. Runtime-IDs und Fingerprints bleiben mit den bestehenden
@@ -144,8 +144,8 @@ Qt-Pfad fremde Dialoge nicht beschreibt; `page` prüft davor das Win32-Fensterin
 des gebundenen Prozesses und scheitert ebenso mit `dialog-open`, sobald ein
 Fenster offen ist, das weder Werte-Info, Steuer-Spar-Tipps, ein Systemoverlay
 noch ein katalogisiertes nichtmodales Werkzeugfenster mit exakt gleichem Titel
-ist, oder ein namenloses Fenster sichtbar ist, das weder Schatten- noch
-Tooltip-Fenster ist; ein
+ist, oder ein namenloses Fenster sichtbar ist, das weder Schatten-,
+Tooltip- noch kleines Windows-Eingabeindikatorfenster ist; ein
 minimiertes Hauptfenster scheitert mit `minimized`, ein zweites Fallfenster
 desselben Prozesses wird wie beim Worker geduldet. `help` prüft das Inventar
 genauso und liest offene katalogisierte Nebenfenster wie die Steuer-Spar-Tipps
@@ -181,6 +181,8 @@ die Lesung mit `dialog-open`, ein Nebenfenster über der Lesegrenze mit
 `native-incomplete`, ein Nebenfenster, das zwischen Inventar und Lesung
 verschwindet oder sich verdoppelt, mit `stale-window`; ein Systemoverlay und
 ein zweites Fallfenster werden nur gezählt, nie gelesen.
+Die Liste ausgeschlossener Nebenfenster folgt dabei der Inventarreihenfolge;
+ihre Reihenfolge kann von der UIA-Baumreihenfolge abweichen.
 
 `ui_state` liest Hauptfensterbaum und Win32-Fensterinventar des gebundenen
 Prozesses direkt; eine geöffnete Werte-Info wird unabhängig von ihrer Größe
@@ -189,7 +191,9 @@ Prozesses direkt; eine geöffnete Werte-Info wird unabhängig von ihrer Größe
 ohne die Wertetabelle meldet die Werte-Info als offen, aber nicht lesbar, nie
 als geschlossen. Ein leerer Hauptfensterbaum scheitert wie bei den anderen
 Lesungen mit `native-incomplete`.
-Dialoge, unbekannte oder namenlose Fenster werden nicht beschrieben, sondern
+Kleine Windows-Eingabeindikatoren werden auch ohne Titel als `system-overlay`
+erfasst und beeinflussen weder den Blockzustand noch den Fingerprint.
+Dialoge, unbekannte und übrige namenlose Fenster werden nicht beschrieben, sondern
 mit ihrer Fensterkennung als `nicht-lesbar` unter `unsichereFenster` geführt;
 katalogisierte nichtmodale Werkzeugfenster wie der BelegManager gelten wie beim
 Worker als `unbekannt`. Der Zustand gilt dann als blockiert, und

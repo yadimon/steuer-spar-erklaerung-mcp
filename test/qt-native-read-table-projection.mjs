@@ -185,6 +185,13 @@ const untitled = { hwnd: 90, order: 90, pid: 99, class: "Qt692QWindow", x: 50, y
 assert.equal((await read({ inventory: { untitledWindows: [untitled], visibleWindowCount: 2 } })).kind, "dialog-open");
 const tooltip = { ...untitled, hwnd: 94, order: 94, class: "Qt692QWindowToolTipSaveBits", w: 120, h: 30 };
 assert.equal((await read({ inventory: { untitledWindows: [tooltip], visibleWindowCount: 2 } })).ok, true);
+for (const cls of ["UAC Input Indicator", "UAC_InputIndicatorOverlayWnd"]) {
+  const overlay = { ...untitled, class: cls, w: 80, h: 80 };
+  const visible = await read({ inventory: { untitledWindows: [overlay], visibleWindowCount: 2 } });
+  assert.equal(visible.ok, true);
+  assert.equal(visible.rowCount, 4);
+  assert.equal((await read({ inventory: { untitledWindows: [{ ...overlay, h: 81 }], visibleWindowCount: 2 } })).kind, "dialog-open");
+}
 assert.deepEqual(await read({ windows: [{ ...MAIN_WINDOW, minimized: true }] }),
   { ok: false, backend: "qt", kind: "minimized", error: "Das gebundene SSE-Hauptfenster ist minimiert; der direkte Qt-Pfad stellt es nicht wieder her." });
 assert.deepEqual(await read({ windows: [WERTE_INFO_WINDOW] }),

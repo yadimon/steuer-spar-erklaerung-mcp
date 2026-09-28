@@ -379,4 +379,22 @@ const receiptEntry = { hwnd: 87, pid: 99, cls: "Qt692QWindowIcon", title: "Beleg
     { ok: false, backend: "qt", kind: "native-incomplete", error: "Der native Seitenbaum ist leer; kein Zustand ausgegeben." });
 }
 
-console.log("qt-native-ui-state-projection: 20 scenarios passed");
+// Nameless input indicators preserve the worker's state fingerprint and counts; size still bounds the exception.
+for (const cls of ["UAC Input Indicator", "UAC_InputIndicatorOverlayWnd"]) {
+  const base = await executeQtNativeUiState(fakeClient([MAIN_WINDOW], mainSpec(mainTree(cleanNames))).client, {}, 5000, undefined, profile);
+  const { title, ...overlay } = window(90, "", [0, 0, 80, 80], { class: cls });
+  const inventory = { untitledWindows: [overlay], visibleWindowCount: 2, productWindowCount: 2 };
+  const visible = await executeQtNativeUiState(fakeClient([MAIN_WINDOW], mainSpec(mainTree(cleanNames)), [], inventory).client,
+    {}, 5000, undefined, profile);
+  assert.equal(visible.ok, true);
+  assert.equal(visible.blockiert, false);
+  assert.deepEqual(visible.unsichereFenster, []);
+  assert.equal(visible.fensterAnzahl, 2);
+  assert.equal(visible.stateFingerprint, base.stateFingerprint);
+  const larger = await executeQtNativeUiState(fakeClient([MAIN_WINDOW], mainSpec(mainTree(cleanNames)), [],
+    { ...inventory, untitledWindows: [{ ...overlay, w: 81 }] }).client, {}, 5000, undefined, profile);
+  assert.equal(larger.blockiert, true);
+  assert.deepEqual(larger.unsichereFenster.map(window => window.art), ["nicht-lesbar"]);
+}
+
+console.log("qt-native-ui-state-projection: state and untitled input-indicator scenarios passed");

@@ -313,6 +313,21 @@ const untitled = makeClient(full.nodes, fullRect, twoWindows,
   { inventory: { ok: true, windows: twoWindows, visibleWindowCount: 3, productWindowCount: 3, untitledWindows: [untitledWindow] } });
 assert.equal((await executeQtNativePage(untitled.client, { hwnd: 42 }, 5000, undefined, profile)).kind, "dialog-open");
 assert.deepEqual(untitled.operations, ["window_inventory"]);
+// Small unnamed Windows input indicators are counted, while a larger window of the same class still blocks.
+for (const cls of ["UAC Input Indicator", "UAC_InputIndicatorOverlayWnd"]) {
+  const overlay = { ...untitledWindow, class: cls, w: 80, h: 80 };
+  const indicator = makeClient(full.nodes, fullRect, twoWindows,
+    { inventory: { ok: true, windows: twoWindows, visibleWindowCount: 3, productWindowCount: 3, untitledWindows: [overlay] } });
+  const visible = await executeQtNativePage(indicator.client, { hwnd: 42 }, 5000, undefined, profile);
+  assert.equal(visible.ok, true);
+  assert.equal(visible.offeneFenster, 3);
+  assert.deepEqual(visible.felder, page.felder);
+  assert.deepEqual(indicator.operations, ["window_inventory", "accessibility_snapshot", `accessibility_snapshot:${WERTE_INFO}`]);
+  const larger = makeClient(full.nodes, fullRect, twoWindows,
+    { inventory: { ok: true, windows: twoWindows, visibleWindowCount: 3, productWindowCount: 3, untitledWindows: [{ ...overlay, w: 81 }] } });
+  assert.equal((await executeQtNativePage(larger.client, { hwnd: 42 }, 5000, undefined, profile)).kind, "dialog-open");
+  assert.deepEqual(larger.operations, ["window_inventory"]);
+}
 // A null or scalar catalogue entry is skipped like the worker's [string]$definition.role of $null.
 const brokenCatalogue = { ...profile, pageObjectsCatalog: { ...profile.pageObjectsCatalog,
   windows: { broken: null, scalar: "x", ...profile.pageObjectsCatalog.windows } } };
