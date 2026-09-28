@@ -14389,13 +14389,14 @@ async function readBoundWindows(client, profile, subject, budget, signal) {
 }
 function ownedWindowNode(window, root, rect, index) {
   return {
+    // UIA runtime IDs contain signed 32-bit integers, as accessibleRuntimeId emits in the bridge.
     i: index,
     p: -1,
     d: 0,
     type: "Window",
     name: root.name,
     aid: root.aid,
-    rid: `42.${window.hwnd}`,
+    rid: `42.${window.hwnd | 0}`,
     x: rect.x,
     y: rect.y,
     w: rect.w,
