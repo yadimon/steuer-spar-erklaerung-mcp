@@ -66,17 +66,18 @@ async function stopRuntime() {
   shutdown = true;
   await Promise.all(sessions.map(session => session.exited));
 }
-async function uiaSnapshot(hwnd) {
+async function uiaSnapshot(hwnd, withCellStates = false) {
   const output = join(temporary, "uia-snapshot.json");
   const script = fileURLToPath(new URL("./qt-native-snapshot-uia.ps1", import.meta.url));
   const child = spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-    "-File", script, "-Hwnd", String(hwnd), "-OutputPath", output, "-Desktop", desktop],
+    "-File", script, "-Hwnd", String(hwnd), "-OutputPath", output, "-Desktop", desktop, ...(withCellStates ? ["-WithCellStates"] : [])],
   { windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });
   let errors = ""; child.stderr.on("data", chunk => { errors += chunk; });
   const timer = setTimeout(() => child.kill(), 30_000);
   const [code] = await once(child, "exit"); clearTimeout(timer);
   assert.equal(code, 0, errors);
-  return { nodes: JSON.parse(readFileSync(output, "utf8")), rect: JSON.parse(readFileSync(output + ".window.json", "utf8")) };
+  return { nodes: JSON.parse(readFileSync(output, "utf8")), rect: JSON.parse(readFileSync(output + ".window.json", "utf8")),
+    cells: JSON.parse(readFileSync(output + ".cells.json", "utf8")) };
 }
 
 try {
@@ -182,7 +183,18 @@ try {
   assert(inventory.result.visibleWindowCount >= inventory.result.windows.length + inventory.result.untitledWindows.length);
   assert(Number.isSafeInteger(inventory.result.productWindowCount) && inventory.result.productWindowCount >= inventory.result.visibleWindowCount);
   assert.equal(snapshot.canaryMs, null); assert.equal(snapshot.responsivenessCheck, "bounded-gui-thread");
-  const independent = await uiaSnapshot(first.info.hwnd);
+  const independent = await uiaSnapshot(first.info.hwnd, true);
+  const cellSnapshot = await sessions[0].client.request("accessibility_snapshot", { withValues: true, withCellStates: true, maxNodes: 5000 }, 5000);
+  assert.equal(cellSnapshot.result.ok, true, JSON.stringify(cellSnapshot.result));
+  for (const cell of independent.cells) {
+    const nativeCell = cellSnapshot.result.nodes.find(node => node.rid === cell.rid);
+    assert(nativeCell, `Missing native cell ${cell.name}`);
+    assert.equal(nativeCell.checked, cell.checked, `Native cell ${cell.name} must match independent UIA TogglePattern`);
+  }
+  assert(snapshot.nodes.filter(node => node.type === "DataItem").every(node => node.checked === null));
+  const checkableRids = new Set(independent.cells.filter(cell => cell.toggleState !== null).map(cell => cell.rid));
+  assert(cellSnapshot.result.nodes.filter(node => node.type === "DataItem" && !checkableRids.has(node.rid))
+    .every(node => node.checked === null));
   // The inventory's geometry is the same GetWindowRect the independent read reports, and its counters move
   // with a real untitled Win32 window of the fixture process: one visible window more, no title, the Static class.
   const mainInventory = inventory.result.windows.find(window => window.hwnd === first.info.hwnd);
@@ -191,8 +203,11 @@ try {
   await first.command("untitled-window");
   const withUntitled = await sessions[0].client.request("window_inventory", {}, 5000);
   assert.equal(withUntitled.result.ok, true, JSON.stringify(withUntitled.result));
-  assert.equal(withUntitled.result.untitledWindows.length, 1);
-  const [untitledEntry] = withUntitled.result.untitledWindows;
+  const existingUntitled = new Set(inventory.result.untitledWindows.map(window => window.hwnd));
+  const addedUntitled = withUntitled.result.untitledWindows.filter(window => !existingUntitled.has(window.hwnd));
+  assert.equal(addedUntitled.length, 1);
+  assert.equal(withUntitled.result.untitledWindows.length, inventory.result.untitledWindows.length + 1);
+  const [untitledEntry] = addedUntitled;
   assert(!("title" in untitledEntry));
   assert.equal(untitledEntry.class, "Static"); assert.equal(untitledEntry.pid, first.info.pid);
   assert.equal(untitledEntry.w, 100); assert.equal(untitledEntry.h, 80);
@@ -200,8 +215,38 @@ try {
   assert.equal(withUntitled.result.visibleWindowCount, inventory.result.visibleWindowCount + 1);
   assert.equal(withUntitled.result.productWindowCount, withUntitled.result.visibleWindowCount);
   await first.command("close-untitled");
-  assert.equal((await sessions[0].client.request("window_inventory", {}, 5000)).result.untitledWindows.length, 0);
+  const afterUntitled = await sessions[0].client.request("window_inventory", {}, 5000);
+  assert.equal(afterUntitled.result.ok, true, JSON.stringify(afterUntitled.result));
+  assert.deepEqual(afterUntitled.result.untitledWindows.map(window => window.hwnd), [...existingUntitled]);
   report.checks.push("Process window inventory reports Win32 geometry, an untitled window and counters that move with it");
+  // Real Windows input indicators can be untitled; every new projection must still read this fixture through Qt.
+  const projectedPage = await read("page", { hwnd: first.info.hwnd });
+  assert.equal(projectedPage.ok, true, JSON.stringify(projectedPage)); assert.equal(projectedPage.backend, "qt");
+  assert.equal(projectedPage.ueberschrift, "Synthetic heading");
+  const projectedState = await read("ui_state", { hwnd: first.info.hwnd });
+  assert.equal(projectedState.ok, true, JSON.stringify(projectedState)); assert.equal(projectedState.backend, "qt");
+  assert.equal(projectedState.blockiert, false); assert.deepEqual(projectedState.unsichereFenster, []);
+  const projectedHelp = await read("help", { hwnd: first.info.hwnd });
+  assert.equal(projectedHelp.ok, true, JSON.stringify(projectedHelp)); assert.equal(projectedHelp.backend, "qt");
+  const projectedTable = await read("read_table", { hwnd: first.info.hwnd });
+  assert.equal(projectedTable.ok, true, JSON.stringify(projectedTable)); assert.equal(projectedTable.backend, "qt");
+  assert(projectedTable.rowCount > 0);
+  const checkedColumn = projectedTable.headers.indexOf("Column 0"), uncheckedColumn = projectedTable.headers.indexOf("Column 1");
+  const mixedColumn = projectedTable.headers.indexOf("Column 3");
+  assert(checkedColumn >= 0 && uncheckedColumn >= 0 && mixedColumn >= 0);
+  const firstRow = projectedTable.rowDetails[0];
+  assert.equal(firstRow.cellTypes[checkedColumn], "boolean"); assert.equal(firstRow.typedValues[checkedColumn], true);
+  assert.equal(firstRow.checkboxStates[checkedColumn], "On");
+  assert.equal(firstRow.cellTypes[uncheckedColumn], "boolean"); assert.equal(firstRow.typedValues[uncheckedColumn], false);
+  assert.equal(firstRow.checkboxStates[uncheckedColumn], "Off");
+  // Qt 6.9.2's table-cell accessibility reports a partially checked model item as Off; preserve UIA parity.
+  assert.equal(firstRow.cellTypes[mixedColumn], "boolean"); assert.equal(firstRow.typedValues[mixedColumn], false);
+  assert.equal(firstRow.checkboxStates[mixedColumn], independent.cells.find(cell => cell.name === "row-0-cell-3").toggleState);
+  const projectedChecker = await read("checker_results", { hwnd: first.info.hwnd });
+  assert.equal(projectedChecker.ok, true, JSON.stringify(projectedChecker)); assert.equal(projectedChecker.backend, "qt");
+  assert.equal(projectedChecker.aktiv, false);
+  assert.deepEqual(workerCalls, []);
+  report.checks.push("All five new public Qt projections read the owned fixture, including actual checked, unchecked and mixed table cells");
   const redactPassword = nodes => nodes.map(node => node.aid.endsWith("syntheticSecret") ? { ...node, val: null, ro: null } : node);
   assert.deepEqual(redactPassword(snapshot.nodes), redactPassword(independent.nodes), "Public native tree must match independent Windows UIA");
   assert(!JSON.stringify(snapshot).includes("must-not-be-exposed"));

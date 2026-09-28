@@ -4,6 +4,17 @@ $inputData = Get-Content -LiteralPath $InputPath -Raw -Encoding UTF8 | ConvertFr
 $tokens = $null; $errors = $null
 $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot '..\powershell\sse-worker.ps1'), [ref]$tokens, [ref]$errors)
 if ($errors.Count) { throw 'Worker AST could not be parsed' }
+# Index the worker once. Repeated full-tree delegate walks become the dominant
+# cost as the differential oracle adds projection bodies and their helpers.
+$oracleAstNodes = @($ast.FindAll({ param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -or
+    $node -is [Management.Automation.Language.AssignmentStatementAst] -or
+    $node -is [Management.Automation.Language.SwitchStatementAst]
+}, $true))
+$functionDefinitions = @($oracleAstNodes | Where-Object { $_ -is [Management.Automation.Language.FunctionDefinitionAst] })
+$assignmentStatements = @($oracleAstNodes | Where-Object { $_ -is [Management.Automation.Language.AssignmentStatementAst] })
+$switchClauses = @($oracleAstNodes | Where-Object { $_ -is [Management.Automation.Language.SwitchStatementAst] } |
+    ForEach-Object { $_.Clauses })
 . (Join-Path $PSScriptRoot '..\powershell\structure-binding.ps1')
 . (Join-Path $PSScriptRoot '..\powershell\window-scope.ps1')
 # Differential oracle: execute the actual worker's projection bodies against supplied observations.
@@ -12,7 +23,7 @@ foreach ($name in @('Get-ContentBounds','Get-SSEHeading','ConvertTo-Vergleichsfo
     'Get-CaptionMinX','Get-DirtyState','Get-SSECheckerTreeItems','Get-CheckerResults','Test-CheckerResultComplete',
     'Read-CheckerComplete','Convert-SSEComparableNumber','Read-ResultDetailsFromTree','New-SSETableRowDetails',
     'Resolve-SSEToolWindowKind','Get-SSEMainWindowCandidates','Resolve-SSEMainWindowDescriptor','Get-CurrentHeading')) {
-    $definitions = @($ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true))
+    $definitions = @($functionDefinitions | Where-Object { $_.Name -eq $name })
     if ($definitions.Count -ne 1) { throw "Ambiguous worker function $name" }
     $definition = $definitions[0].Extent.Text
     if ($name -eq 'Get-ContentBounds') {
@@ -23,14 +34,13 @@ foreach ($name in @('Get-ContentBounds','Get-SSEHeading','ConvertTo-Vergleichsfo
     . ([scriptblock]::Create($definition))
 }
 foreach ($variable in @('$script:VERSAND', '$script:SSE_CHECKER_TREE_SUFFIX', '$script:WERTE_INFO_TITEL')) {
-    $assignments = @($ast.FindAll({ param($node) $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -eq $variable }, $true))
+    $assignments = @($assignmentStatements | Where-Object { $_.Left.Extent.Text -eq $variable })
     if ($assignments.Count -ne 1) { throw "Worker constant $variable changed" }
     . ([scriptblock]::Create($assignments[0].Extent.Text))
 }
 $branches = @{}
 foreach ($operation in @('read_page','subpages','find','page','help','read_table','checker_results','ui_state')) {
-    $matches = @($ast.FindAll({ param($node) $node -is [Management.Automation.Language.SwitchStatementAst] }, $true) |
-        ForEach-Object { $_.Clauses } | Where-Object { $_.Item1.Extent.Text -eq "'$operation'" })
+    $matches = @($switchClauses | Where-Object { $_.Item1.Extent.Text -eq "'$operation'" })
     if ($matches.Count -ne 1) { throw "Ambiguous worker operation $operation" }
     $body = $matches[0].Item2.Extent.Text.Trim().Substring(1).TrimEnd().TrimEnd('}')
     if ($operation -eq 'page') {
