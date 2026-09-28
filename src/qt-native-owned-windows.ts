@@ -73,7 +73,8 @@ interface WindowRect { x: number; y: number; w: number; h: number }
  */
 function ownedWindowNode(window: QtProcessWindow, root: { aid: string; name: string }, rect: WindowRect, index: number): QtSnapshotNode {
   return {
-    i: index, p: -1, d: 0, type: "Window", name: root.name, aid: root.aid, rid: `42.${window.hwnd}`,
+    // UIA runtime IDs contain signed 32-bit integers, as accessibleRuntimeId emits in the bridge.
+    i: index, p: -1, d: 0, type: "Window", name: root.name, aid: root.aid, rid: `42.${window.hwnd | 0}`,
     x: rect.x, y: rect.y, w: rect.w, h: rect.h, on: true, val: null, ro: null, checked: null, selected: null, scroll: null,
   };
 }

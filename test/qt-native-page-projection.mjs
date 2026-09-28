@@ -225,6 +225,15 @@ const withUnowned = await executeQtNativePage(unowned.client, { hwnd: 42 }, 5000
 assert.deepEqual(withUnowned.ausgeschlosseneFenster, page.ausgeschlosseneFenster.slice(0, 1));
 assert.equal(withUnowned.offeneFenster, 3);
 assert.deepEqual(unowned.operations, ["window_inventory", "accessibility_snapshot"]);
+// A host handle's high bit must become a negative UIA integer, just like the real bridge's runtime ID.
+for (const [hwnd, expectedRid] of [[0x80000055, "42.-2147483563"], [0xffffffff, "42.-1"]]) {
+  const highHost = makeClient(full.nodes, fullRect, [twoWindows[0], windowOf(hwnd, WERTE_INFO, { w: 400, h: 300 })],
+    { tool: { hwnd } });
+  const highPage = await executeQtNativePage(highHost.client, { hwnd: 42 }, 5000, undefined, profile);
+  assert.equal(highPage.ok, true);
+  assert.equal(highPage.ausgeschlosseneFenster.at(-1).rid, expectedRid);
+}
+
 // --- An owned window that is blocked, disabled, truncated or answers under another handle ends the read.
 const ownedBlocked = makeClient(full.nodes, fullRect, twoWindows, { tool: { modalBlocked: true } });
 assert.deepEqual(await executeQtNativePage(ownedBlocked.client, { hwnd: 42 }, 5000, undefined, profile), { ok: false, backend: "qt",
