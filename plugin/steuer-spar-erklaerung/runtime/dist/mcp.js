@@ -6832,6 +6832,15 @@ var init_result_utility_fields = __esm({
         abschnitte: OPTIONAL_OBJECT,
         hinweis: OPTIONAL_STRING
       },
+      tax_knowledge_search: {
+        begriff: OPTIONAL_STRING,
+        fenster: OPTIONAL_NON_NEGATIVE_NUMBER,
+        pid: OPTIONAL_NON_NEGATIVE_NUMBER,
+        abschnitte: OPTIONAL_ARRAY,
+        verweise: OPTIONAL_STRING_ARRAY,
+        wartezeitMs: OPTIONAL_NON_NEGATIVE_NUMBER,
+        hinweis: OPTIONAL_STRING
+      },
       menu: {
         menues: OPTIONAL_ARRAY,
         menue: OPTIONAL_STRING,
@@ -7078,6 +7087,14 @@ function createOperationResultOutputSchema(operation) {
     kind: external_exports.string().min(1).nullable().optional().describe("Fehlerart"),
     error: external_exports.string().min(1).nullable().optional().describe("Fehlermeldung"),
     ms: external_exports.number().finite().nonnegative().nullable().optional().describe("Worker-Laufzeit in ms"),
+    // Emit appends these counters to every operation that walked a UIA tree.
+    treeWalks: external_exports.number().int().nonnegative().optional().describe("Anzahl der UIA-Baumlaeufe"),
+    treeWalkMs: external_exports.number().finite().nonnegative().optional().describe("Gesamtdauer der UIA-Baumlaeufe in ms"),
+    treeWalkDetail: external_exports.array(external_exports.object({
+      knoten: external_exports.number().int().nonnegative().describe("Gelesene Knoten"),
+      grenze: external_exports.number().int().nonnegative().describe("Knotengrenze des Laufs"),
+      ms: external_exports.number().finite().nonnegative().describe("Dauer dieses Baumlaufs in ms")
+    }).strict()).max(16).optional().describe("Begrenzte Detailzaehler der UIA-Baumlaeufe"),
     // Der Worker kann diese Telemetrie bei jeder Operation anhaengen, die den
     // universellen Foreground-Lease tatsaechlich erwirbt. Sie gehoert deshalb
     // zum gemeinsamen Ergebnisrand und nicht zu einzelnen Klickoperationen.
