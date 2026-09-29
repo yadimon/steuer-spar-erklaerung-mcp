@@ -3416,6 +3416,16 @@ function Test-SSESystemOverlayDescriptor($Descriptor) {
     $Descriptor.w -le 80 -and $Descriptor.h -le 80)
 }
 
+# Tooltip and native-shadow lifetimes follow their owner, not the case window.
+# Interactive Qt popups and unknown windows remain in the peer comparison.
+function Test-SSEWindowDecorationDescriptor($Descriptor) {
+  [bool]($Descriptor -and (
+    $Descriptor.cls -ceq 'SysShadow' -or
+    $Descriptor.cls -match '^Qt[0-9]+QWindowToolTip(?:DropShadow)?(?:SaveBits)?$' -or
+    (Test-SSESystemOverlayDescriptor $Descriptor)
+  ))
+}
+
 function Test-SSESafeAuxiliaryDescriptor($Descriptor) {
   if (-not $Descriptor) { return $false }
   if ($Descriptor.kind -eq 'tips' -and $Descriptor.w -le 850 -and $Descriptor.h -le 650) { return $true }
@@ -8616,7 +8626,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       Fail 'pid, hwnd und genau eines von titleFingerprint oder expectedTitle sind Pflicht.' 'bad-args'
     }
     $targetPid = [int](Get-SSEBoundedIntegerArg $a 'pid' 0 1 2147483647)
-    $beforeWindows = @(Get-Windows 'SSE' | Where-Object { [int]$_.pid -eq $targetPid })
+    $beforeWindows = @(Get-Windows 'SSE' | Where-Object {
+      [int]$_.pid -eq $targetPid -and -not (Test-SSEWindowDecorationDescriptor $_)
+    })
     $beforeHwnds = @($beforeWindows | ForEach-Object { [int64]$_.hwnd })
     $descInventory = @(Get-DialogInventory $targetPid)
     $desc = @($descInventory | Where-Object {
@@ -8668,7 +8680,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       if ($schliessUhr.ElapsedMilliseconds -ge 300 -and -not [SW]::IsWindow([IntPtr][int64]$hwndRaw)) { break }
     }
     $closed = -not [SW]::IsWindow([IntPtr][int64]$hwndRaw)
-    $afterWindows = @(Get-Windows 'SSE' | Where-Object { [int]$_.pid -eq $targetPid })
+    $afterWindows = @(Get-Windows 'SSE' | Where-Object {
+      [int]$_.pid -eq $targetPid -and -not (Test-SSEWindowDecorationDescriptor $_)
+    })
     $newWindows = @($afterWindows | Where-Object { [int64]$_.hwnd -notin $beforeHwnds } | ForEach-Object {
       [pscustomobject]@{ hwnd=[int64]$_.hwnd; titleFingerprint=([string]$_.titleFingerprint).ToUpperInvariant() }
     })
