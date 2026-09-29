@@ -415,27 +415,32 @@ if (duplicateOperations.length > 0) {
 const OPERATION_RESULT_FIELDS = Object.freeze(Object.assign({}, ...RESULT_FIELD_TABLES)) as
   Partial<Record<SseApiOperation, z.ZodRawShape>>;
 
+export const SSE_API_RESULT_COMMON_FIELDS = Object.freeze({
+  ok: z.boolean().describe("Operation erfolgreich"),
+  kind: z.string().min(1).nullable().optional().describe("Fehlerart"),
+  error: z.string().min(1).nullable().optional().describe("Fehlermeldung"),
+  ms: z.number().finite().nonnegative().nullable().optional().describe("Worker-Laufzeit in ms"),
+  // Emit appends these counters to every operation that walked a UIA tree.
+  treeWalks: z.number().int().nonnegative().optional().describe("Anzahl der UIA-Baumlaeufe"),
+  treeWalkMs: z.number().finite().nonnegative().optional().describe("Gesamtdauer der UIA-Baumlaeufe in ms"),
+  treeWalkDetail: z.array(z.object({
+    knoten: z.number().int().nonnegative().describe("Gelesene Knoten"),
+    grenze: z.number().int().nonnegative().describe("Knotengrenze des Laufs"),
+    ms: z.number().finite().nonnegative().describe("Dauer dieses Baumlaufs in ms"),
+  }).strict()).max(16).optional().describe("Begrenzte Detailzaehler der UIA-Baumlaeufe"),
+  // Der Worker kann diese Telemetrie bei jeder Operation anhaengen, die den
+  // universellen Foreground-Lease tatsaechlich erwirbt. Sie gehoert deshalb
+  // zum gemeinsamen Ergebnisrand und nicht zu einzelnen Klickoperationen.
+  focusTelemetry: OPTIONAL_OBJECT,
+});
+
+export const SSE_API_RESULT_ENVELOPE_SCHEMA = z.object(SSE_API_RESULT_COMMON_FIELDS).passthrough()
+  .describe("Gemeinsamer Transportumschlag jedes Operationsergebnisses");
+
 function createOperationResultOutputSchema(operation: SseApiOperation): z.AnyZodObject {
   const operationFields = OPERATION_RESULT_FIELDS[operation as keyof typeof OPERATION_RESULT_FIELDS] ?? {};
-  return z.object({
-    ok: z.boolean().describe("Operation erfolgreich"),
-    kind: z.string().min(1).nullable().optional().describe("Fehlerart"),
-    error: z.string().min(1).nullable().optional().describe("Fehlermeldung"),
-    ms: z.number().finite().nonnegative().nullable().optional().describe("Worker-Laufzeit in ms"),
-    // Emit appends these counters to every operation that walked a UIA tree.
-    treeWalks: z.number().int().nonnegative().optional().describe("Anzahl der UIA-Baumlaeufe"),
-    treeWalkMs: z.number().finite().nonnegative().optional().describe("Gesamtdauer der UIA-Baumlaeufe in ms"),
-    treeWalkDetail: z.array(z.object({
-      knoten: z.number().int().nonnegative().describe("Gelesene Knoten"),
-      grenze: z.number().int().nonnegative().describe("Knotengrenze des Laufs"),
-      ms: z.number().finite().nonnegative().describe("Dauer dieses Baumlaufs in ms"),
-    }).strict()).max(16).optional().describe("Begrenzte Detailzaehler der UIA-Baumlaeufe"),
-    // Der Worker kann diese Telemetrie bei jeder Operation anhaengen, die den
-    // universellen Foreground-Lease tatsaechlich erwirbt. Sie gehoert deshalb
-    // zum gemeinsamen Ergebnisrand und nicht zu einzelnen Klickoperationen.
-    focusTelemetry: OPTIONAL_OBJECT,
-    ...operationFields,
-  }).passthrough().describe(`Result_${operation} v${SSE_API_RESULT_SCHEMA_VERSION}`);
+  return SSE_API_RESULT_ENVELOPE_SCHEMA.extend(operationFields)
+    .describe(`Result_${operation} v${SSE_API_RESULT_SCHEMA_VERSION}`);
 }
 
 export const SSE_API_RESULT_OUTPUT_SCHEMAS = Object.freeze(Object.fromEntries(

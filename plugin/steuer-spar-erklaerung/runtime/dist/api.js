@@ -17975,25 +17975,7 @@ var init_result_utility_fields = __esm({
 // src/result-contract.ts
 function createOperationResultOutputSchema(operation) {
   const operationFields = OPERATION_RESULT_FIELDS[operation] ?? {};
-  return external_exports.object({
-    ok: external_exports.boolean().describe("Operation erfolgreich"),
-    kind: external_exports.string().min(1).nullable().optional().describe("Fehlerart"),
-    error: external_exports.string().min(1).nullable().optional().describe("Fehlermeldung"),
-    ms: external_exports.number().finite().nonnegative().nullable().optional().describe("Worker-Laufzeit in ms"),
-    // Emit appends these counters to every operation that walked a UIA tree.
-    treeWalks: external_exports.number().int().nonnegative().optional().describe("Anzahl der UIA-Baumlaeufe"),
-    treeWalkMs: external_exports.number().finite().nonnegative().optional().describe("Gesamtdauer der UIA-Baumlaeufe in ms"),
-    treeWalkDetail: external_exports.array(external_exports.object({
-      knoten: external_exports.number().int().nonnegative().describe("Gelesene Knoten"),
-      grenze: external_exports.number().int().nonnegative().describe("Knotengrenze des Laufs"),
-      ms: external_exports.number().finite().nonnegative().describe("Dauer dieses Baumlaufs in ms")
-    }).strict()).max(16).optional().describe("Begrenzte Detailzaehler der UIA-Baumlaeufe"),
-    // Der Worker kann diese Telemetrie bei jeder Operation anhaengen, die den
-    // universellen Foreground-Lease tatsaechlich erwirbt. Sie gehoert deshalb
-    // zum gemeinsamen Ergebnisrand und nicht zu einzelnen Klickoperationen.
-    focusTelemetry: OPTIONAL_OBJECT,
-    ...operationFields
-  }).passthrough().describe(`Result_${operation} v${SSE_API_RESULT_SCHEMA_VERSION}`);
+  return SSE_API_RESULT_ENVELOPE_SCHEMA.extend(operationFields).describe(`Result_${operation} v${SSE_API_RESULT_SCHEMA_VERSION}`);
 }
 function createOperationResultSchema(operation) {
   return SSE_API_RESULT_OUTPUT_SCHEMAS[operation].superRefine((result, context) => {
@@ -18053,7 +18035,7 @@ function createOperationResultSchema(operation) {
 function parseApiOperationResult(operation, value) {
   return SSE_API_RESULT_SCHEMAS[operation].parse(value);
 }
-var SSE_API_RESULT_SCHEMA_VERSION, API_OPERATION_NAME_SCHEMA, OPTIONAL_TABLE_ROW_DETAILS, OPTIONAL_SUPPORTED_CASE_YEARS, OPTIONAL_CASE_IDENTITY, OPTIONAL_USTVA_PERIOD, OPTIONAL_USTVA_FLAGS, OPTIONAL_USTVA_TRANSMISSION, OPTIONAL_USTVA_READ_EFFECTS, CORE_OPERATION_RESULT_FIELDS, RESULT_FIELD_TABLES, duplicateOperations, OPERATION_RESULT_FIELDS, SSE_API_RESULT_OUTPUT_SCHEMAS, SSE_API_RESULT_SCHEMAS;
+var SSE_API_RESULT_SCHEMA_VERSION, API_OPERATION_NAME_SCHEMA, OPTIONAL_TABLE_ROW_DETAILS, OPTIONAL_SUPPORTED_CASE_YEARS, OPTIONAL_CASE_IDENTITY, OPTIONAL_USTVA_PERIOD, OPTIONAL_USTVA_FLAGS, OPTIONAL_USTVA_TRANSMISSION, OPTIONAL_USTVA_READ_EFFECTS, CORE_OPERATION_RESULT_FIELDS, RESULT_FIELD_TABLES, duplicateOperations, OPERATION_RESULT_FIELDS, SSE_API_RESULT_COMMON_FIELDS, SSE_API_RESULT_ENVELOPE_SCHEMA, SSE_API_RESULT_OUTPUT_SCHEMAS, SSE_API_RESULT_SCHEMAS;
 var init_result_contract = __esm({
   "src/result-contract.ts"() {
     "use strict";
@@ -18445,6 +18427,25 @@ var init_result_contract = __esm({
       throw new Error(`Doppelte Operations-Ergebnisvertraege: ${[...new Set(duplicateOperations)].join(", ")}`);
     }
     OPERATION_RESULT_FIELDS = Object.freeze(Object.assign({}, ...RESULT_FIELD_TABLES));
+    SSE_API_RESULT_COMMON_FIELDS = Object.freeze({
+      ok: external_exports.boolean().describe("Operation erfolgreich"),
+      kind: external_exports.string().min(1).nullable().optional().describe("Fehlerart"),
+      error: external_exports.string().min(1).nullable().optional().describe("Fehlermeldung"),
+      ms: external_exports.number().finite().nonnegative().nullable().optional().describe("Worker-Laufzeit in ms"),
+      // Emit appends these counters to every operation that walked a UIA tree.
+      treeWalks: external_exports.number().int().nonnegative().optional().describe("Anzahl der UIA-Baumlaeufe"),
+      treeWalkMs: external_exports.number().finite().nonnegative().optional().describe("Gesamtdauer der UIA-Baumlaeufe in ms"),
+      treeWalkDetail: external_exports.array(external_exports.object({
+        knoten: external_exports.number().int().nonnegative().describe("Gelesene Knoten"),
+        grenze: external_exports.number().int().nonnegative().describe("Knotengrenze des Laufs"),
+        ms: external_exports.number().finite().nonnegative().describe("Dauer dieses Baumlaufs in ms")
+      }).strict()).max(16).optional().describe("Begrenzte Detailzaehler der UIA-Baumlaeufe"),
+      // Der Worker kann diese Telemetrie bei jeder Operation anhaengen, die den
+      // universellen Foreground-Lease tatsaechlich erwirbt. Sie gehoert deshalb
+      // zum gemeinsamen Ergebnisrand und nicht zu einzelnen Klickoperationen.
+      focusTelemetry: OPTIONAL_OBJECT
+    });
+    SSE_API_RESULT_ENVELOPE_SCHEMA = external_exports.object(SSE_API_RESULT_COMMON_FIELDS).passthrough().describe("Gemeinsamer Transportumschlag jedes Operationsergebnisses");
     SSE_API_RESULT_OUTPUT_SCHEMAS = Object.freeze(Object.fromEntries(
       SSE_API_OPERATIONS.map((operation) => [operation, createOperationResultOutputSchema(operation)])
     ));
@@ -18489,14 +18490,18 @@ function createOperationTraits() {
 }
 function createResultSchemas() {
   return Object.freeze(Object.fromEntries(
-    SSE_API_OPERATIONS.map((operation) => [
-      operation,
-      zodToJsonSchema(SSE_API_RESULT_OUTPUT_SCHEMAS[operation], {
-        target: "jsonSchema7",
-        $refStrategy: "none",
-        effectStrategy: "input"
-      })
-    ])
+    SSE_API_OPERATIONS.map((operation) => {
+      const schema = inlineResultSchemas[operation];
+      const required = schema.required?.filter((field) => !commonFields.has(field));
+      const compactSchema = {
+        ...schema,
+        properties: Object.fromEntries(Object.entries(schema.properties).filter(([field]) => !commonFields.has(field))),
+        allOf: [{ $ref: "#/definitions/OperationResultEnvelope" }]
+      };
+      if (required?.length) compactSchema.required = required;
+      else delete compactSchema.required;
+      return [operation, compactSchema];
+    })
   ));
 }
 function apiOperationDiscovery(operation) {
@@ -18506,7 +18511,12 @@ function apiOperationDiscovery(operation) {
     operation,
     argumentSchema: SSE_API_DISCOVERY.argumentSchemas[operation],
     resultSchemaVersion: SSE_API_DISCOVERY.resultSchemaVersion,
-    resultSchema: SSE_API_DISCOVERY.resultSchemas[operation],
+    // Die Gesamtansicht teilt Definitionen am Dokumentwurzelpunkt. Die
+    // Einzelansicht muss dagegen auch als isoliertes JSON-Schema aufloesbar sein.
+    resultSchema: {
+      ...SSE_API_DISCOVERY.resultSchemas[operation],
+      definitions: structuredClone(resultDefinitions)
+    },
     operationTraits: SSE_API_DISCOVERY.operationTraits[operation],
     planning: SSE_API_DISCOVERY.planning,
     limits: SSE_API_DISCOVERY.limits,
@@ -18514,7 +18524,7 @@ function apiOperationDiscovery(operation) {
     liveEvidence: SSE_API_DISCOVERY.liveEvidence
   });
 }
-var SSE_API_DISCOVERY;
+var inlineResultSchemas, commonResultEnvelope, commonFields, resultDefinitions, SSE_API_DISCOVERY;
 var init_api_discovery = __esm({
   "src/api-discovery.ts"() {
     "use strict";
@@ -18525,6 +18535,22 @@ var init_api_discovery = __esm({
     init_operation_traits();
     init_result_contract();
     init_api_control_contract();
+    inlineResultSchemas = Object.fromEntries(SSE_API_OPERATIONS.map((operation) => [
+      operation,
+      zodToJsonSchema(SSE_API_RESULT_OUTPUT_SCHEMAS[operation], {
+        target: "jsonSchema7",
+        $refStrategy: "none",
+        effectStrategy: "input"
+      })
+    ]));
+    commonResultEnvelope = zodToJsonSchema(SSE_API_RESULT_ENVELOPE_SCHEMA, {
+      target: "jsonSchema7",
+      $refStrategy: "none",
+      effectStrategy: "input"
+    });
+    commonFields = new Set(Object.keys(SSE_API_RESULT_COMMON_FIELDS).filter((field) => SSE_API_OPERATIONS.every((operation) => JSON.stringify(inlineResultSchemas[operation].properties[field]) === JSON.stringify(commonResultEnvelope.properties[field]))));
+    commonResultEnvelope.properties = Object.fromEntries(Object.entries(commonResultEnvelope.properties).filter(([field]) => commonFields.has(field)));
+    resultDefinitions = Object.freeze({ OperationResultEnvelope: commonResultEnvelope });
     SSE_API_DISCOVERY = Object.freeze({
       schemaVersion: 1,
       apiVersion: SSE_API_VERSION,
@@ -18532,6 +18558,7 @@ var init_api_discovery = __esm({
       argumentSchemas: createArgumentSchemas(),
       resultSchemaVersion: SSE_API_RESULT_SCHEMA_VERSION,
       resultSchemas: createResultSchemas(),
+      definitions: resultDefinitions,
       operationTraits: createOperationTraits(),
       controls: Object.freeze({
         shutdown: Object.freeze({
@@ -18562,7 +18589,8 @@ var init_api_discovery = __esm({
 // src/api-openapi.ts
 function resultProperty(operation, property) {
   const schema = SSE_API_DISCOVERY.resultSchemas[operation];
-  const value = schema.properties?.[property];
+  const envelope = SSE_API_DISCOVERY.definitions.OperationResultEnvelope;
+  const value = schema.properties?.[property] ?? envelope.properties?.[property];
   if (!value) throw new Error(`Result_${operation}.${property} fehlt fuer die OpenAPI-Komprimierung.`);
   return structuredClone(value);
 }
@@ -18580,7 +18608,7 @@ function compactResultSchema(schema) {
     description: typed.description
   };
 }
-var schemaName, resultSchemaName, argumentComponents, resultValueComponents, resultValueReferences, RESULT_TRANSPORT_PROPERTIES, resultEnvelopeComponent, resultComponents, operationPaths, SSE_OPENAPI_DOCUMENT;
+var schemaName, resultSchemaName, argumentComponents, resultValueComponents, resultValueReferences, commonResultEnvelope2, RESULT_TRANSPORT_PROPERTIES, resultEnvelopeComponent, resultComponents, operationPaths, SSE_OPENAPI_DOCUMENT;
 var init_api_openapi = __esm({
   "src/api-openapi.ts"() {
     "use strict";
@@ -18608,15 +18636,15 @@ var init_api_openapi = __esm({
       OptionalTransmissionState: resultProperty("case_hash", "transmitted")
     });
     resultValueReferences = new Map(Object.entries(resultValueComponents).map(([name, schema]) => [JSON.stringify(schema), { $ref: `#/components/schemas/${name}` }]));
-    RESULT_TRANSPORT_PROPERTIES = /* @__PURE__ */ new Set(["ok", "kind", "error", "ms"]);
+    commonResultEnvelope2 = SSE_API_DISCOVERY.definitions.OperationResultEnvelope;
+    RESULT_TRANSPORT_PROPERTIES = new Set(Object.keys(commonResultEnvelope2.properties));
     resultEnvelopeComponent = Object.freeze({
+      ...structuredClone(SSE_API_DISCOVERY.definitions.OperationResultEnvelope),
       type: "object",
-      properties: {
-        ok: { $ref: "#/components/schemas/ResultOk" },
-        kind: { $ref: "#/components/schemas/ResultKind" },
-        error: { $ref: "#/components/schemas/ResultError" },
-        ms: { $ref: "#/components/schemas/ResultWorkerMs" }
-      },
+      properties: Object.fromEntries(Object.entries(commonResultEnvelope2.properties).map(([field, value]) => [
+        field,
+        structuredClone(resultValueReferences.get(JSON.stringify(value)) ?? value)
+      ])),
       required: ["ok"],
       additionalProperties: true,
       description: "Gemeinsamer Transportumschlag jedes Operationsergebnisses"
