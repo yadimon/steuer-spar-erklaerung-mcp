@@ -14632,6 +14632,9 @@ async function executeQtNativeUiState(client, args, timeoutMs, signal, profile) 
   const mainSnapshot = await readQtNativeSnapshot(client, { hwnd: client.binding.hwnd, maxNodes: 5e3 }, budget(), signal);
   nativeDurationMs += mainSnapshot.nativeDurationMs;
   if (!mainSnapshot.nodes.length) return fail8("native-incomplete", "Der native Seitenbaum ist leer; kein Zustand ausgegeben.");
+  if (mainSnapshot.stats.truncated) {
+    return fail8("native-incomplete", `${nativeTreeBoundReason(mainSnapshot.stats)}; kein Zustand ausgegeben.`);
+  }
   const processWindows = [
     ...inventory.windows.filter((window) => window.pid === main2.pid).map((window) => ({ window, untitled: false })),
     ...inventory.untitledWindows.filter((window) => window.pid === main2.pid).map((window) => ({ window, untitled: true }))
