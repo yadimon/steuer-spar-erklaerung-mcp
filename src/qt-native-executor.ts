@@ -11,9 +11,16 @@ import { executeQtNativeUstvaRead } from "./qt-native-ustva.js";
 import { executeQtNativeReceiptManagerRead } from "./qt-native-receipt-read.js";
 import { executeQtNativeReceiptManagerAction } from "./qt-native-receipt-action.js";
 import { executeQtNativeReceiptManagerList } from "./qt-native-receipts.js";
+import { executeQtNativePage } from "./qt-native-page.js";
+import { executeQtNativeUiState } from "./qt-native-ui-state.js";
+import { executeQtNativeHelp } from "./qt-native-help.js";
+import { executeQtNativeReadTable } from "./qt-native-read-table.js";
+import { executeQtNativeCheckerResults } from "./qt-native-checker.js";
 
 export const QT_NATIVE_READ_OPERATIONS = [
-  "get_value", "table_read", "snapshot", "find", "read_page", "subpages", "known_page_state", "positions", "ustva_read", "receipt_manager_list", "receipt_manager_read", "receipt_manager_action",
+  "get_value", "table_read", "snapshot", "find", "read_page", "subpages", "known_page_state", "positions", "ustva_read",
+  "receipt_manager_list", "receipt_manager_read", "receipt_manager_action",
+  "page", "ui_state", "help", "read_table", "checker_results",
 ] as const;
 type QtNativeReadOperation = typeof QT_NATIVE_READ_OPERATIONS[number];
 export function isQtNativeReadOperation(operation: string): operation is QtNativeReadOperation {
@@ -37,6 +44,11 @@ export async function executeQtNativeRead(
     const remaining = Math.floor(timeoutMs - (performance.now() - started));
     if (remaining < 1) throw new QtNativeTransportError("Native operation deadline exceeded before reading.", "native-timeout");
     const execute = operation === "known_page_state" ? executeQtNativeKnownPageState
+      : operation === "page" ? executeQtNativePage
+      : operation === "ui_state" ? executeQtNativeUiState
+      : operation === "help" ? executeQtNativeHelp
+      : operation === "read_table" ? executeQtNativeReadTable
+      : operation === "checker_results" ? executeQtNativeCheckerResults
       : operation === "positions" ? executeQtNativePositions
       : operation === "ustva_read" ? executeQtNativeUstvaRead
       : operation === "receipt_manager_action" ? executeQtNativeReceiptManagerAction

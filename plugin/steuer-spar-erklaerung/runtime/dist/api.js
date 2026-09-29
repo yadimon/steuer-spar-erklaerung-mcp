@@ -7446,14 +7446,14 @@ async function executeCheckerOpen(args, timeoutMs, signal, worker) {
       Math.min(timeoutMs ?? 3e5, 3e5),
       signal
     );
-    const performance18 = result.performance && typeof result.performance === "object" && !Array.isArray(result.performance) ? result.performance : {};
+    const performance19 = result.performance && typeof result.performance === "object" && !Array.isArray(result.performance) ? result.performance : {};
     return {
       ...result,
       schemaVersion: 1,
       planKind: CHECKER_OPEN_PLAN_KIND,
       resultingState: typeof result.resultingState === "string" ? result.resultingState : result.ok === true ? "detail-verified" : "unknown",
       cleanupRequired: typeof result.cleanupRequired === "boolean" ? result.cleanupRequired : result.ok !== true,
-      performance: { ...performance18, workerProcessCount: 1 },
+      performance: { ...performance19, workerProcessCount: 1 },
       ...result.ok === true ? { kontrollbildEnthalten: typeof result.bildBase64 === "string" && result.bildBase64.length > 0 } : {}
     };
   } catch (error) {
@@ -7676,7 +7676,7 @@ async function executeFillFieldsPlan(args, timeoutMs, signal, dependencies) {
     );
   }
   const fields = args.fields;
-  const pageFields = resolvedPage.page.fields ?? {};
+  const pageFields2 = resolvedPage.page.fields ?? {};
   const resourceRefs = {};
   const sharedKeys = [
     "trackResults",
@@ -7688,7 +7688,7 @@ async function executeFillFieldsPlan(args, timeoutMs, signal, dependencies) {
   ];
   const actions = fields.map((field, index) => {
     const fieldId = String(field.fieldId);
-    if (!Object.hasOwn(pageFields, fieldId)) {
+    if (!Object.hasOwn(pageFields2, fieldId)) {
       throw new ExecutorArgumentError(`Unbekannte fieldId '${fieldId}' auf Page-Object '${pageId}'.`);
     }
     const child = {
@@ -12729,6 +12729,7 @@ async function readQtNativeSnapshot(client, args, timeoutMs, signal) {
     ...typeof args.toolTitle === "string" ? { toolTitle: args.toolTitle } : {},
     ...typeof args.allowedModalTitle === "string" ? { allowedModalTitle: args.allowedModalTitle } : {},
     ...args.withValues === false ? { withValues: false } : {},
+    ...args.withCellStates === true ? { withCellStates: true } : {},
     ...Array.isArray(args.aidSuffixes) ? { aidSuffixes: args.aidSuffixes } : {},
     ...Array.isArray(args.aidContains) ? { aidContains: args.aidContains } : {},
     ...args.equalitySelectors ? { equalitySelectors: args.equalitySelectors } : {}
@@ -12758,6 +12759,9 @@ async function readQtNativeSnapshot(client, args, timeoutMs, signal) {
       invalid2("Invalid native selector comparison indices.");
   }
   return { ...parsed, nativeDurationMs: read.durationMs };
+}
+function nativeTreeBoundReason(stats, subject = "Der native Seitenbaum") {
+  return stats.depthLimited ? `${subject} ist tiefer als die Lesegrenze von 16 Ebenen` : `${subject} ueberschreitet die Lesegrenze`;
 }
 function qtSnapshotArguments(args, profile) {
   if (args.toolWindow === void 0) return { ...args };
@@ -12840,6 +12844,8 @@ var init_qt_native_snapshot = __esm({
       modalBlocked: external_exports.boolean(),
       nodes: external_exports.array(nodeSchema).max(5e3),
       foreground: external_exports.boolean().optional(),
+      /** The root's own AutomationId and name; the root is never a node, but an owned window is listed by them. */
+      root: external_exports.object({ aid: text2, name: text2 }).strict().optional(),
       windowRect: external_exports.object({ x: integer, y: integer, w: integer.nonnegative(), h: integer.nonnegative() }).strict(),
       exactMatches: external_exports.object({
         name: external_exports.array(integer.nonnegative()).optional(),
@@ -13248,16 +13254,328 @@ var init_qt_native_ustva = __esm({
   }
 });
 
-// src/qt-native-receipts.ts
+// src/qt-native-projections.ts
 import { createHash as createHash13 } from "node:crypto";
-function canonicalReceiptJson(value) {
+function powershellCompactJson(value) {
   const serialized = JSON.stringify(value);
-  if (serialized === void 0) throw new TypeError("Receipt fingerprint value is not JSON serializable.");
+  if (serialized === void 0) throw new TypeError("Fingerprint value is not JSON serializable.");
   return serialized.replace(
-    /[&<>'\u2028\u2029]/gu,
+    /[&<>'\u0085\u2028\u2029]/gu,
     (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`
   );
 }
+function transmissionName3(name) {
+  if (!name) return false;
+  const normalized = comparableForm(name);
+  if (!normalized) return false;
+  if (VERSAND_FORMS.has(normalized)) return true;
+  return ["elster", "versend", "versand", "ubermittl", "ubermittel", "abschick", "nachreich", "abschliess", "datenubertrag", "transfer"].some((stem) => normalized.includes(stem)) || normalized.startsWith("senden");
+}
+function findContainerNode(nodes, aidSuffix, containerType = "") {
+  if (!aidSuffix) return null;
+  const hits = nodes.filter((node) => (!containerType || node.type === containerType) && node.aid && node.aid.endsWith(aidSuffix));
+  return hits.length === 1 ? hits[0] : null;
+}
+function containerDescendants(nodes, aidSuffix, childType, containerType = "") {
+  const container = findContainerNode(nodes, aidSuffix, containerType);
+  if (!container) return [];
+  const inSubtree = /* @__PURE__ */ new Set([container.i]);
+  const hits = [];
+  for (const node of nodes) {
+    if (node.i === container.i || !inSubtree.has(node.p)) continue;
+    inSubtree.add(node.i);
+    if (node.type === childType) hits.push(node);
+  }
+  return hits.sort(byPosition3);
+}
+function navigationSelection(nodes) {
+  const selected = nodes.filter((node) => node.type === "TreeItem" && node.selected === true);
+  return selected.length === 1 ? selected[0].name : null;
+}
+function dirtyState(nodes) {
+  const save = nodes.find((node) => node.type === "Button" && node.aid.endsWith(".MainToolBar.tb_sichern"));
+  return save ? save.on : null;
+}
+function splitWindowScope(nodes, keepRid = "") {
+  const rootOf = /* @__PURE__ */ new Map();
+  const foreignRoots = /* @__PURE__ */ new Map();
+  const order = [];
+  const own = [];
+  for (const node of nodes) {
+    const parentForeign = rootOf.has(node.p);
+    const foreignWindow = node.type === "Window" && (!keepRid || node.rid !== keepRid);
+    if (!parentForeign && !foreignWindow) {
+      own.push(node);
+      continue;
+    }
+    let rootIndex;
+    if (parentForeign) rootIndex = rootOf.get(node.p);
+    else {
+      rootIndex = node.i;
+      foreignRoots.set(node.i, { rid: node.rid, name: node.name, aid: node.aid, x: node.x, y: node.y, w: node.w, h: node.h, nodeCount: 0 });
+      order.push(node.i);
+    }
+    rootOf.set(node.i, rootIndex);
+    foreignRoots.get(rootIndex).nodeCount += 1;
+  }
+  return { own, foreign: order.map((index) => foreignRoots.get(index)) };
+}
+function checkerTreeItems(nodes) {
+  return containerDescendants(nodes, CHECKER_TREE_SUFFIX, "TreeItem", "Tree").filter((node) => node.name);
+}
+function checkerResults(nodes) {
+  const checkerTree = findContainerNode(nodes, CHECKER_TREE_SUFFIX, "Tree");
+  const allItems = containerDescendants(nodes, CHECKER_TREE_SUFFIX, "TreeItem", "Tree");
+  const raw = checkerTreeItems(nodes).sort(byPosition3);
+  if (!raw.length) {
+    return {
+      aktiv: checkerTree !== null,
+      leer: checkerTree !== null && allItems.length === 0,
+      fragenWarnungenAngekuendigt: 0,
+      tippsAngekuendigt: 0,
+      fragenWarnungenGruppeGesehen: false,
+      tippsGruppeGesehen: false,
+      fragenWarnungen: [],
+      tippsZusatzinfos: [],
+      sonstige: [],
+      gesamt: 0,
+      aufgeklappt: []
+    };
+  }
+  const left = Math.min(...raw.map((node) => node.x));
+  const top = raw.filter((node) => node.x <= left + 6);
+  const details = raw.filter((node) => node.x > left + 6 && node.h >= 70);
+  const warn = [], tips = [], other = [];
+  let group = "sonstige", warnDeclared = 0, tipsDeclared = 0, warnSeen = false, tipsSeen = false;
+  for (const node of top) {
+    const warnHeader = /^(\d+)\s+Fragen oder Warnungen\n?$/iu.exec(node.name);
+    if (warnHeader) {
+      warnDeclared = Number(warnHeader[1]);
+      warnSeen = true;
+      group = "fragenWarnungen";
+      continue;
+    }
+    const tipsHeader = /^(\d+)\s+Tipps oder Zusatzinformationen\n?$/iu.exec(node.name);
+    if (tipsHeader) {
+      tipsDeclared = Number(tipsHeader[1]);
+      tipsSeen = true;
+      group = "tippsZusatzinfos";
+      continue;
+    }
+    const item = {
+      text: node.name,
+      rid: node.rid,
+      y: node.y,
+      aktiviert: node.on,
+      aufgeklappt: details.some((detail) => psEquals(detail.name, node.name))
+    };
+    if (group === "fragenWarnungen") warn.push(item);
+    else if (group === "tippsZusatzinfos") tips.push(item);
+    else other.push(item);
+  }
+  return {
+    aktiv: true,
+    leer: false,
+    fragenWarnungenAngekuendigt: warnDeclared,
+    tippsAngekuendigt: tipsDeclared,
+    fragenWarnungenGruppeGesehen: warnSeen,
+    tippsGruppeGesehen: tipsSeen,
+    fragenWarnungen: warn,
+    tippsZusatzinfos: tips,
+    sonstige: other,
+    gesamt: warn.length + tips.length + other.length,
+    aufgeklappt: [...new Set(details.map((detail) => detail.name))]
+  };
+}
+function checkerResultComplete(result) {
+  return result.aktiv && (result.leer && result.gesamt === 0 || result.fragenWarnungenGruppeGesehen && result.tippsGruppeGesehen && result.fragenWarnungenAngekuendigt === result.fragenWarnungen.length && result.tippsAngekuendigt === result.tippsZusatzinfos.length);
+}
+function comparableDecimalText(value) {
+  if (value === null || value === void 0) return null;
+  const text3 = String(value).replace(/\s+/gu, "").replaceAll(".", "").replaceAll(",", ".").replace(/[^0-9+\-.]/gu, "");
+  if (!text3 || ["+", "-", "."].includes(text3)) return null;
+  return Number.isFinite(Number(text3)) ? text3 : null;
+}
+function scaledDecimal(text3, scale) {
+  const negative = text3.startsWith("-");
+  const [whole = "", fraction = ""] = text3.replace(/^[+-]/u, "").split(".");
+  const magnitude = BigInt(`${whole || "0"}${fraction.padEnd(scale, "0").slice(0, scale)}`);
+  return negative ? -magnitude : magnitude;
+}
+function comparisonInvariantResidual(actual, held, difference) {
+  const scale = Math.max(...[actual, held, difference].map((text3) => (text3.split(".")[1] ?? "").length));
+  const residual = scaledDecimal(actual, scale) - scaledDecimal(held, scale) - scaledDecimal(difference, scale);
+  const digits = (residual < 0n ? -residual : residual).toString().padStart(scale + 1, "0");
+  const whole = digits.slice(0, digits.length - scale), fraction = digits.slice(digits.length - scale);
+  return Number(`${residual < 0n ? "-" : ""}${whole}${scale ? `.${fraction}` : ""}`);
+}
+function resultDetailsFromNodes(nodes, stats, windowKnownOpen = false) {
+  const allData = containerDescendants(nodes, RESULT_TABLE_SUFFIX, "DataItem", "Table");
+  const unpositioned = allData.filter((node) => node.w <= 0 || node.h <= 0);
+  const data = allData.filter((node) => node.w > 0 && node.h > 0).sort(byPosition3);
+  const headers = containerDescendants(nodes, RESULT_TABLE_SUFFIX, "Header", "Table").filter((node) => node.w > 0 && node.h > 0).sort((a, b) => a.x - b.x).map((node) => node.name);
+  const table = findContainerNode(nodes, RESULT_TABLE_SUFFIX, "Table");
+  const scrollIncomplete = table !== null && table.scroll !== null;
+  const windowOpen = table !== null || windowKnownOpen;
+  if (!data.length) {
+    return {
+      verfuegbar: false,
+      fensterOffen: windowOpen,
+      anzahl: 0,
+      vollstaendig: false,
+      zeilen: [],
+      unvollstaendigeZeilen: [],
+      nichtPositionierteZellenAnzahl: unpositioned.length,
+      uiaKopfzeilen: headers,
+      kopfVollstaendig: headers.length === 4,
+      vergleichsInvariantGeprueft: 0,
+      vergleichsInvariantFehler: [],
+      vertikalUnvollstaendig: scrollIncomplete,
+      fingerprint: null,
+      hinweis: windowOpen ? "Werte-Info ist offen, aber die Qt-Tabelle war in diesem Snapshot nicht lesbar." : "Werte-Info ist nicht offen. Einmal sse_result_details aufrufen; danach liest sse_ui_state die Werte ohne weiteren Fensterwechsel mit."
+    };
+  }
+  const groups = /* @__PURE__ */ new Map();
+  for (const node of data) groups.set(node.y, [...groups.get(node.y) ?? [], node]);
+  const rows = [], malformed = [], invariantErrors = [];
+  let invariantChecked = 0;
+  for (const y of [...groups.keys()].sort((a, b) => a - b)) {
+    const cells = [...groups.get(y)].sort((a, b) => a.x - b.x);
+    if (cells.length !== 4) {
+      malformed.push({ y, cells: cells.map((cell) => cell.name) });
+      continue;
+    }
+    const row = {
+      beobachteterWert: cells[0].name,
+      aktuell: cells[1].name,
+      festgehalten: cells[2].name,
+      differenz: cells[3].name
+    };
+    rows.push(row);
+    const actual = comparableDecimalText(row.aktuell), held = comparableDecimalText(row.festgehalten);
+    const difference = comparableDecimalText(row.differenz);
+    if (actual !== null && held !== null && difference !== null) {
+      invariantChecked += 1;
+      if (Math.abs(comparisonInvariantResidual(actual, held, difference)) > 0.011) invariantErrors.push({ ...row });
+    }
+  }
+  const complete = rows.length > 0 && !malformed.length && !unpositioned.length && headers.length === 4 && !scrollIncomplete && !invariantErrors.length && !stats.truncated && !stats.cyc;
+  const fingerprintBody = powershellCompactJson(rows.length === 1 ? rows[0] : rows);
+  return {
+    verfuegbar: rows.length > 0,
+    fensterOffen: windowOpen,
+    anzahl: rows.length,
+    vollstaendig: complete,
+    zeilen: rows,
+    unvollstaendigeZeilen: malformed,
+    nichtPositionierteZellenAnzahl: unpositioned.length,
+    uiaKopfzeilen: headers,
+    kopfVollstaendig: headers.length === 4,
+    vergleichsInvariantGeprueft: invariantChecked,
+    vergleichsInvariantFehler: invariantErrors,
+    vertikalUnvollstaendig: scrollIncomplete,
+    fingerprint: rows.length ? textSha256(fingerprintBody) : null,
+    hinweis: "Aktuell ist der gegenwaertige Wert; festgehalten ist der Vergleichsstand; Differenz ist die Wirkung gegen diesen Stand."
+  };
+}
+async function readProcessWindowInventory(client, timeoutMs, signal) {
+  const measured = await client.request("window_inventory", {}, timeoutMs, signal);
+  if (!measured.result.ok) {
+    throw new QtNativeTransportError(
+      String(measured.result.error ?? "Native window inventory failed."),
+      String(measured.result.code ?? "native-read"),
+      measured.result.outcomeUnknown === true
+    );
+  }
+  const parsed = processWindowInventorySchema.safeParse(measured.result);
+  if (!parsed.success) throw new QtNativeTransportError("The process window inventory is incomplete or invalid.", "native-contract");
+  if (parsed.data.visibleWindowCount < parsed.data.windows.length + parsed.data.untitledWindows.length || parsed.data.productWindowCount < parsed.data.visibleWindowCount) {
+    throw new QtNativeTransportError("The process window inventory counts fewer windows than it lists.", "native-contract");
+  }
+  return {
+    windows: parsed.data.windows,
+    untitledWindows: parsed.data.untitledWindows,
+    visibleWindowCount: parsed.data.visibleWindowCount,
+    productWindowCount: parsed.data.productWindowCount,
+    durationMs: measured.durationMs
+  };
+}
+function isSystemOverlay(window) {
+  return /^UAC[ _]/iu.test(window.class) && window.w <= 80 && window.h <= 80;
+}
+function auxiliaryWindowKind(window, profile) {
+  if (psEquals(window.title, WERTE_INFO_TITLE) && window.w <= 900 && window.h <= 700) return "werte-info";
+  if (psEquals(window.title, TIPS_TITLE) && window.w <= 850 && window.h <= 650) return "steuer-tipps";
+  if (isSystemOverlay(window)) return "system-overlay";
+  if ((window.w >= 900 || window.minimized) && /SteuerSparErklärung/iu.test(window.title)) return "case-window";
+  const catalogued = Object.values(profile?.pageObjectsCatalog.windows ?? {}).some((definition) => {
+    if (typeof definition !== "object" || definition === null) return false;
+    const entry = definition;
+    return typeof entry.role === "string" && CLOSABLE_NONMODAL_ROLES.has(entry.role) && entry.closePolicy === "allow-exact-nonmodal-close" && typeof entry.title === "string" && window.title === entry.title;
+  });
+  return catalogued ? "known-nonmodal" : null;
+}
+function byWindowArea(left, right) {
+  return right.w * right.h - left.w * left.h || left.order - right.order;
+}
+var byPosition3, psEquals, textSha256, VERSAND, comparableForm, VERSAND_FORMS, CHECKER_TREE_SUFFIX, RESULT_TABLE_SUFFIX, processWindowSchema, processWindowInventorySchema, WERTE_INFO_TITLE, TIPS_TITLE, CLOSABLE_NONMODAL_ROLES;
+var init_qt_native_projections = __esm({
+  "src/qt-native-projections.ts"() {
+    "use strict";
+    init_zod();
+    init_qt_native_client();
+    byPosition3 = (a, b) => a.y - b.y || a.x - b.x;
+    psEquals = (left, right) => left.toLowerCase() === right.toLowerCase();
+    textSha256 = (text3) => createHash13("sha256").update(text3, "utf8").digest("hex").toUpperCase();
+    VERSAND = [
+      "ELSTER",
+      "Anmeldungen versenden",
+      "Jahreserklärungen abschließen",
+      "Belege nachreichen",
+      "Kommunikation mit dem Finanzamt per ELSTER",
+      "Senden",
+      "Senden & Drucken",
+      "Versenden",
+      "Übermitteln",
+      "Steuerdaten versenden",
+      "Abschicken",
+      "Elektronische Steuererklärung (ELSTER)"
+    ];
+    comparableForm = (text3) => text3.replaceAll("…", "").replaceAll("...", "").replaceAll("&", "").toLowerCase().replaceAll("ä", "a").replaceAll("ö", "o").replaceAll("ü", "u").replaceAll("ß", "ss").replace(/[^\p{L}\p{N}]/gu, "");
+    VERSAND_FORMS = new Set(VERSAND.map(comparableForm));
+    CHECKER_TREE_SUFFIX = "PrueferWidgetSSE.SteuerPruefer";
+    RESULT_TABLE_SUFFIX = "obj_Wertetabelle";
+    processWindowSchema = external_exports.object({
+      hwnd: external_exports.number().int().positive(),
+      /** Enumeration (Z) order among the listed windows; Get-Windows breaks equal areas by it. */
+      order: external_exports.number().int().nonnegative(),
+      pid: external_exports.number().int().positive(),
+      class: external_exports.string().min(1).max(255),
+      title: external_exports.string().min(1).max(4095),
+      x: external_exports.number().int().safe(),
+      y: external_exports.number().int().safe(),
+      w: external_exports.number().int().nonnegative(),
+      h: external_exports.number().int().nonnegative(),
+      minimized: external_exports.boolean(),
+      hung: external_exports.boolean()
+    }).strict();
+    processWindowInventorySchema = external_exports.object({
+      ok: external_exports.literal(true),
+      windows: external_exports.array(processWindowSchema).max(256),
+      /** Visible untitled windows that are no shadow windows; a title cannot classify them. */
+      untitledWindows: external_exports.array(processWindowSchema.omit({ title: true })).max(256),
+      /** Every visible top-level window of the process, including untitled, shadow and tooltip windows. */
+      visibleWindowCount: external_exports.number().int().nonnegative(),
+      /** The same population across every process whose executable and folder names match: what Get-Windows 'SSE' counts. */
+      productWindowCount: external_exports.number().int().nonnegative()
+    }).passthrough();
+    WERTE_INFO_TITLE = "Werte-Info: Werte vergleichen - Was wäre wenn";
+    TIPS_TITLE = "Steuer-Spar-Tipps";
+    CLOSABLE_NONMODAL_ROLES = /* @__PURE__ */ new Set(["nonmodal-help-window", "nonmodal-result-window", "nonmodal-tool-window"]);
+  }
+});
+
+// src/qt-native-receipts.ts
 function receiptToolAidSuffixes(policy) {
   return [.../* @__PURE__ */ new Set([
     ...Object.values(policy.states).flatMap((state) => state.requiredAutomationIdSuffixes),
@@ -13498,8 +13816,8 @@ async function executeQtNativeReceiptManagerList(client, args, timeoutMs, signal
   if ("error" in list) return list.error;
   const remaining = Math.floor(timeoutMs - (performance.now() - started));
   if (remaining < 1) return fail5("native-timeout", "Native receipt read deadline expired before dirty-state verification.");
-  const dirtyState = await receiptDirtyState(client, args.hwnd, parsedPolicy.data.title, remaining, signal);
-  if (dirtyState.error) return dirtyState.error;
+  const dirtyState2 = await receiptDirtyState(client, args.hwnd, parsedPolicy.data.title, remaining, signal);
+  if (dirtyState2.error) return dirtyState2.error;
   let matches = [...list.rows];
   const filter = parsedFilter?.success ? parsedFilter.data : void 0;
   if (filter && Object.hasOwn(filter, "exactTitle")) matches = matches.filter((row) => row.primaryText === filter.exactTitle);
@@ -13538,18 +13856,19 @@ async function executeQtNativeReceiptManagerList(client, args, timeoutMs, signal
     matchedCount,
     matches: compactMatches,
     matchesComplete: matchedCount <= limit,
-    ungespeichert: dirtyState.dirty,
+    ungespeichert: dirtyState2.dirty,
     physicalInputUsed: false,
     hinweis: list.rowsComplete ? "Alle vom BelegManager gezaehlten Zeilen sind im Qt-Baum enthalten." : `BelegManager zaehlt ${list.count} Belege, aber Qt exponiert aktuell ${list.rows.length} Zeilen; Ergebnis ist sichtbar, nicht vollstaendig.`,
-    nativeDurationMs: tool.nativeDurationMs + dirtyState.durationMs
+    nativeDurationMs: tool.nativeDurationMs + dirtyState2.durationMs
   };
 }
-var receiptPolicySchema, filterSchema, processWindowInventorySchema, fail5, receiptTextFingerprint, receiptFingerprint;
+var receiptPolicySchema, filterSchema, fail5, canonicalReceiptJson, receiptTextFingerprint, receiptFingerprint;
 var init_qt_native_receipts = __esm({
   "src/qt-native-receipts.ts"() {
     "use strict";
     init_zod();
     init_qt_native_snapshot();
+    init_qt_native_projections();
     receiptPolicySchema = external_exports.object({
       title: external_exports.string().min(1).max(4096),
       role: external_exports.literal("nonmodal-tool-window"),
@@ -13591,19 +13910,9 @@ var init_qt_native_receipts = __esm({
       titleContains: external_exports.string().optional(),
       draft: external_exports.boolean().optional()
     }).strict();
-    processWindowInventorySchema = external_exports.object({
-      ok: external_exports.literal(true),
-      windows: external_exports.array(external_exports.object({
-        hwnd: external_exports.number().int().positive(),
-        pid: external_exports.number().int().positive(),
-        class: external_exports.string().min(1).max(255),
-        title: external_exports.string().min(1).max(4095),
-        minimized: external_exports.boolean(),
-        hung: external_exports.boolean()
-      }).strict()).max(256)
-    }).passthrough();
     fail5 = (kind, error) => ({ ok: false, backend: "qt", kind, error });
-    receiptTextFingerprint = (text3) => createHash13("sha256").update(text3, "utf8").digest("hex").toUpperCase();
+    canonicalReceiptJson = (value) => powershellCompactJson(value);
+    receiptTextFingerprint = textSha256;
     receiptFingerprint = (value) => receiptTextFingerprint(canonicalReceiptJson(value));
   }
 });
@@ -14055,19 +14364,673 @@ var init_qt_native_receipt_action = __esm({
   }
 });
 
-// src/qt-native-executor.ts
+// src/qt-native-owned-windows.ts
+async function readMainWindowBinding(client, budget, signal) {
+  const inventory = await readProcessWindowInventory(client, budget(), signal);
+  const main2 = inventory.windows.find((window) => window.hwnd === client.binding.hwnd);
+  if (!main2) return { failure: fail6("stale-window", "Das angegebene hwnd ist kein aktuelles Hauptfenster.") };
+  if (main2.pid !== client.binding.pid) throw new QtNativeTransportError("The bound main window belongs to another process.", "native-contract");
+  if (main2.minimized) {
+    return { failure: fail6("minimized", "Das gebundene SSE-Hauptfenster ist minimiert; der direkte Qt-Pfad stellt es nicht wieder her.") };
+  }
+  return { binding: { inventory, main: main2 } };
+}
+async function readBoundWindows(client, profile, subject, budget, signal) {
+  const bound = await readMainWindowBinding(client, budget, signal);
+  if (bound.failure) return { failure: bound.failure };
+  const { inventory, main: main2 } = bound.binding;
+  const others = inventory.windows.filter((window) => window.pid === main2.pid && window.hwnd !== main2.hwnd).map((window) => ({ window, kind: auxiliaryWindowKind(window, profile) }));
+  const untitledUnknown = inventory.untitledWindows.filter((window) => window.pid === main2.pid && !isSystemOverlay(window) && !/tooltip/iu.test(window.class));
+  if (others.some((entry) => entry.kind === null) || untitledUnknown.length) {
+    return { failure: fail6("dialog-open", `Ein nicht katalogisiertes Fenster des gebundenen Prozesses ist offen; ${subject} nicht gelesen. Dialoge mit sse_dialog_list lesen und bewusst beantworten.`) };
+  }
+  const owned = others.filter((entry) => entry.kind !== "system-overlay" && entry.kind !== "case-window").map((entry) => entry.window);
+  return { windows: { inventory, main: main2, owned } };
+}
+function ownedWindowNode(window, root, rect, index) {
+  return {
+    // UIA runtime IDs contain signed 32-bit integers, as accessibleRuntimeId emits in the bridge.
+    i: index,
+    p: -1,
+    d: 0,
+    type: "Window",
+    name: root.name,
+    aid: root.aid,
+    rid: `42.${window.hwnd | 0}`,
+    x: rect.x,
+    y: rect.y,
+    w: rect.w,
+    h: rect.h,
+    on: true,
+    val: null,
+    ro: null,
+    checked: null,
+    selected: null,
+    scroll: null
+  };
+}
+async function readOwnedWindowSubtrees(client, owned, maxNodes, subject, firstIndex, budget, signal) {
+  const scopes = [];
+  const nodes = [];
+  let durationMs = 0;
+  for (const window of owned) {
+    let tool;
+    try {
+      tool = await readQtNativeSnapshot(client, { maxNodes, toolTitle: window.title }, budget(), signal);
+    } catch (error) {
+      if (error instanceof QtNativeTransportError && (error.kind === "not-found" || error.kind === "ambiguous")) {
+        throw new QtNativeTransportError(`Das Nebenfenster '${window.title}' hat sich waehrend des Lesens veraendert; ${subject} nicht gelesen.`, "stale-window");
+      }
+      throw error;
+    }
+    durationMs += tool.nativeDurationMs;
+    if (tool.hwnd !== window.hwnd) throw new QtNativeTransportError("The owned window snapshot returned another window.", "native-contract");
+    if (!tool.windowEnabled || tool.modalBlocked) {
+      return { failure: fail6("dialog-open", `Ein modaler Dialog blockiert ein Nebenfenster der gebundenen Seite; ${subject} nicht gelesen.`) };
+    }
+    if (tool.stats.truncated) {
+      return { failure: fail6("native-incomplete", `${nativeTreeBoundReason(tool.stats, "Der native Baum eines Nebenfensters")}; ${subject} nicht gelesen.`) };
+    }
+    if (!tool.root) throw new QtNativeTransportError("The owned window snapshot carries no root identity.", "native-contract");
+    const root = ownedWindowNode(window, tool.root, tool.windowRect, firstIndex + nodes.length);
+    nodes.push(root, ...tool.nodes);
+    scopes.push({ rid: root.rid, name: root.name, aid: root.aid, x: root.x, y: root.y, w: root.w, h: root.h, nodeCount: tool.nodes.length + 1 });
+  }
+  return { subtrees: { scopes, nodes, durationMs } };
+}
+var fail6;
+var init_qt_native_owned_windows = __esm({
+  "src/qt-native-owned-windows.ts"() {
+    "use strict";
+    init_qt_native_client();
+    init_qt_native_projections();
+    init_qt_native_snapshot();
+    fail6 = (kind, error) => ({ ok: false, backend: "qt", kind, error });
+  }
+});
+
+// src/qt-native-page.ts
 import { performance as performance11 } from "node:perf_hooks";
+function pageFields(own, bounds, textMinX) {
+  const texts = own.filter((node) => node.type === "Text" && node.name && node.x >= textMinX && node.x <= bounds.maxX);
+  return own.filter((node) => FIELD_TYPES.has(node.type) && inContent(node, bounds)).sort(byPosition3).map((field) => {
+    const caption = texts.filter((text3) => Math.abs(text3.y - field.y) <= 14 && text3.x < field.x).sort((a, b) => field.x - a.x - (field.x - b.x))[0];
+    return {
+      label: caption?.name || field.name,
+      typ: field.type,
+      wert: field.type === "CheckBox" ? field.checked : field.type === "RadioButton" ? field.selected : field.val,
+      schreibgeschuetzt: field.ro,
+      aid: field.aid.split(".").at(-1) ?? field.aid,
+      rid: field.rid,
+      y: field.y
+    };
+  });
+}
+function pageTable(own) {
+  const heads = own.filter((node) => node.type === "Header" && node.name && node.w > 0).sort((a, b) => a.x - b.x);
+  const cells = own.filter((node) => node.type === "DataItem" && node.w > 0).sort(byPosition3);
+  const rows = [];
+  for (const cell of cells) {
+    const current = rows.at(-1);
+    if (!current || Math.abs(cell.y - current.y) > 10) rows.push({ y: cell.y, zellen: [] });
+    rows.at(-1).zellen.push({ x: cell.x, text: cell.name, rid: cell.rid });
+  }
+  const free = rows.filter((row) => !row.zellen.some((cell) => cell.text && cell.text !== "0,00" && cell.text !== "0"));
+  if (!heads.length && !rows.length) return null;
+  return {
+    kopf: heads.map((head) => head.name),
+    // The worker pipes each row's cell array through ForEach-Object, which unrolls it: 'zeilen' is one flat list of cell texts.
+    zeilen: rows.flatMap((row) => row.zellen.map((cell) => cell.text)),
+    sichtbareZeilen: rows.length,
+    ersteFreieZeile: free.length ? free[0].zellen.map((cell) => ({ x: cell.x, rid: cell.rid })) : null,
+    hinweis: TABLE_HINT
+  };
+}
+function pageActions(own, bounds, windowTop) {
+  const candidates = own.filter((node) => (node.type === "Button" || node.type === "Hyperlink") && node.name).sort((a, b) => a.y - b.y || Number(a.type !== "Hyperlink") - Number(b.type !== "Hyperlink") || a.x - b.x);
+  const actions = [];
+  for (const node of candidates) {
+    const gesperrt = transmissionName3(node.name);
+    const bereich = node.y < windowTop + 160 ? "werkzeugleiste" : inContent(node, bounds) ? "seite" : "hilfespalte";
+    if (actions.some((action) => psEquals(action.name, node.name) && action.bereich === bereich)) continue;
+    actions.push({
+      name: node.name,
+      typ: node.type,
+      bereich,
+      aktiviert: node.on,
+      gesperrt,
+      // UIA invoke works on buttons; links and tree entries need a real click.
+      werkzeug: gesperrt ? "(gesperrt)" : node.type === "Button" ? "sse_click" : "sse_click_point"
+    });
+  }
+  return actions;
+}
+function checkerMessages(own, bounds) {
+  return [...new Set(own.filter((node) => node.type === "TreeItem" && node.name && node.x > bounds.maxX && node.name.length < 90).map((node) => node.name).filter((name) => !CHECKER_NOISE.has(name.toLowerCase())))];
+}
+async function executeQtNativePage(client, args, timeoutMs, signal, profile) {
+  if (!profile) return fail7("bad-args", "page requires a product profile.");
+  if (args.hwnd !== void 0 && args.hwnd !== client.binding.hwnd) {
+    throw new QtNativeTransportError("Requested window differs from the verified native session.", "stale-window");
+  }
+  const started = performance11.now();
+  const budget = () => {
+    const remaining = Math.floor(timeoutMs - (performance11.now() - started));
+    if (remaining < 1) throw new QtNativeTransportError("Native page deadline exceeded before reading.", "native-timeout");
+    return remaining;
+  };
+  const bound = await readBoundWindows(client, profile, "Seite", budget, signal);
+  if (bound.failure) return bound.failure;
+  const { inventory, owned } = bound.windows;
+  const snapshot = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 5e3 }, budget(), signal);
+  if (!snapshot.windowEnabled || snapshot.modalBlocked) {
+    return fail7("dialog-open", "Ein modaler Dialog blockiert die gebundene Seite; keine Werte ausgegeben. Dialoge mit sse_dialog_list lesen.");
+  }
+  if (snapshot.stats.truncated) {
+    return fail7("native-incomplete", `${nativeTreeBoundReason(snapshot.stats)}; keine unvollstaendige Seite ausgegeben.`);
+  }
+  if (!snapshot.nodes.length) return fail7("native-incomplete", "Der native Seitenbaum ist leer; keine Seite ausgegeben.");
+  const scope = splitWindowScope(snapshot.nodes);
+  const own = scope.own;
+  const ownedRead = await readOwnedWindowSubtrees(client, owned, 5e3, "Seite", snapshot.nodes.length, budget, signal);
+  if (ownedRead.failure) return ownedRead.failure;
+  const bounds = contentBounds(own, snapshot.windowRect);
+  const textMinX = bounds.navErkannt ? bounds.minX : bounds.winX;
+  const ueberschrift = heading(own, profile);
+  const felder = pageFields(own, bounds, textMinX);
+  const tabelle = pageTable(own);
+  const aktionen = pageActions(own, bounds, snapshot.windowRect.y);
+  const prueferMeldungen = checkerMessages(own, bounds);
+  const leerePflichtfelder = felder.filter((field) => field.typ === "ComboBox" && !String(field.wert ?? "").trim()).map((field) => field.label);
+  const hinweis = felder.length && felder.every((field) => !String(field.label ?? "").trim()) ? UNLABELLED_HINT : null;
+  const offeneFenster = inventory.productWindowCount;
+  return {
+    hinweis,
+    ok: true,
+    ueberschrift,
+    ueberschriftQuelle: ueberschrift === null ? "nicht-gefunden" : "clientHeader",
+    navigationAuswahl: navigationSelection(own),
+    ausgeschlosseneFenster: [...scope.foreign, ...ownedRead.subtrees.scopes],
+    felder,
+    tabelle,
+    aktionen,
+    blockiert: prueferMeldungen.length > 0 || offeneFenster > 2,
+    prueferMeldungen,
+    leerePflichtfelder,
+    // Unknown windows and modal dialogs already failed closed above; only catalogued auxiliary windows remain.
+    dialoge: [],
+    offeneFenster,
+    stats: snapshot.stats,
+    backend: "qt",
+    nativeDurationMs: inventory.durationMs + snapshot.nativeDurationMs + ownedRead.subtrees.durationMs
+  };
+}
+var fail7, FIELD_TYPES, CHECKER_NOISE, TABLE_HINT, UNLABELLED_HINT, inContent;
+var init_qt_native_page = __esm({
+  "src/qt-native-page.ts"() {
+    "use strict";
+    init_qt_native_client();
+    init_qt_native_pages();
+    init_qt_native_owned_windows();
+    init_qt_native_projections();
+    init_qt_native_snapshot();
+    fail7 = (kind, error) => ({ ok: false, backend: "qt", kind, error });
+    FIELD_TYPES = /* @__PURE__ */ new Set(["Edit", "ComboBox", "CheckBox", "RadioButton"]);
+    CHECKER_NOISE = new Set(["Eingabehilfe", "Steuertipps", "Prüfer", "Mehr Details", "Zurzeit keine Hinweise zu diesem Dialog."].map((name) => name.toLowerCase()));
+    TABLE_HINT = "Nur die SICHTBAREN Zeilen. Bei mehr Zeilen sse_table_read benutzen.";
+    UNLABELLED_HINT = "Kein Feld dieser Seite hat eine Beschriftung - die Beschriftungsspalte liegt ausserhalb des erkannten Inhaltsbereichs. Felder hier nur ueber rid ansprechen; ein Zugriff ueber die Beschriftung scheitert mit bad-target. Abhilfe: Navigationsspalte einblenden oder das Fenster maximieren.";
+    inContent = (node, bounds) => node.x >= bounds.minX && node.x <= bounds.maxX;
+  }
+});
+
+// src/qt-native-ui-state.ts
+function windowEntry(window, art, uiaReadOk, uiaError, msaaReadOk) {
+  return {
+    hwnd: window.hwnd,
+    pid: window.pid,
+    cls: window.class,
+    title: window.title ?? "",
+    art,
+    x: window.x,
+    y: window.y,
+    w: window.w,
+    h: window.h,
+    buttons: [],
+    texte: [],
+    fingerprint: null,
+    uiaReadOk,
+    uiaError,
+    msaaReadOk,
+    msaaError: null
+  };
+}
+function classifiedEntry(window, profile) {
+  const kind = auxiliaryWindowKind(window, profile);
+  if (kind === "werte-info" || kind === "steuer-tipps" || kind === "system-overlay") return windowEntry(window, kind, null, null, null);
+  if (kind === "case-window") return windowEntry(window, "unbekannt", false, null, false);
+  if (psEquals(window.title, TIPS_TITLE)) return windowEntry(window, "steuer-tipps", false, null, false);
+  if (kind === "known-nonmodal") return windowEntry(window, "unbekannt", false, null, false);
+  return windowEntry(window, "nicht-lesbar", false, UNREADABLE_HINT, null);
+}
+async function executeQtNativeUiState(client, args, timeoutMs, signal, profile) {
+  if (!profile) return fail8("bad-args", "ui_state requires a product profile.");
+  if (args.hwnd !== void 0 && args.hwnd !== client.binding.hwnd) {
+    throw new QtNativeTransportError("Requested window differs from the verified native session.", "stale-window");
+  }
+  const started = performance.now();
+  const budget = () => {
+    const remaining = Math.floor(timeoutMs - (performance.now() - started));
+    if (remaining < 1) throw new QtNativeTransportError("Native ui_state deadline expired before reading.", "native-timeout");
+    return remaining;
+  };
+  const inventory = await readProcessWindowInventory(client, budget(), signal);
+  let nativeDurationMs = inventory.durationMs;
+  const main2 = inventory.windows.find((window) => window.hwnd === client.binding.hwnd);
+  if (!main2) return fail8("stale-window", "Das angegebene hwnd ist kein aktuelles Hauptfenster.");
+  if (main2.pid !== client.binding.pid) throw new QtNativeTransportError("The bound main window belongs to another process.", "native-contract");
+  if (main2.minimized) return fail8("minimized", "Das gebundene SSE-Hauptfenster ist minimiert; der direkte Qt-Pfad stellt es nicht wieder her.");
+  const mainSnapshot = await readQtNativeSnapshot(client, { hwnd: client.binding.hwnd, maxNodes: 5e3 }, budget(), signal);
+  nativeDurationMs += mainSnapshot.nativeDurationMs;
+  if (!mainSnapshot.nodes.length) return fail8("native-incomplete", "Der native Seitenbaum ist leer; kein Zustand ausgegeben.");
+  if (mainSnapshot.stats.truncated) {
+    return fail8("native-incomplete", `${nativeTreeBoundReason(mainSnapshot.stats)}; kein Zustand ausgegeben.`);
+  }
+  const processWindows = [
+    ...inventory.windows.filter((window) => window.pid === main2.pid).map((window) => ({ window, untitled: false })),
+    ...inventory.untitledWindows.filter((window) => window.pid === main2.pid).map((window) => ({ window, untitled: true }))
+  ].sort((left, right) => byWindowArea(left.window, right.window));
+  const fenster = processWindows.map((entry) => entry.untitled ? isSystemOverlay(entry.window) ? windowEntry(entry.window, "system-overlay", null, null, null) : windowEntry(entry.window, "nicht-lesbar", false, UNTITLED_WINDOW_HINT, null) : entry.window.hwnd === main2.hwnd ? windowEntry(entry.window, "hauptfenster", true, null, null) : classifiedEntry(entry.window, profile));
+  const obstructed = mainSnapshot.modalBlocked || !mainSnapshot.windowEnabled;
+  if (obstructed && !fenster.some((window) => window.art === "nicht-lesbar" || window.art === "unbekannt")) {
+    return fail8("dialog-open", "Das gebundene Hauptfenster ist durch einen nicht inventarisierten modalen Dialog blockiert; der direkte Qt-Pfad liest ihn nicht.");
+  }
+  const werteInfo = inventory.windows.filter((window) => window.pid === main2.pid && psEquals(window.title, WERTE_INFO_TITLE));
+  if (werteInfo.length > 1) return fail8("ambiguous", "Werte-Info ist nicht eindeutig.");
+  const own = splitWindowScope(mainSnapshot.nodes).own;
+  const bounds = contentBounds(own, mainSnapshot.windowRect);
+  const heading2 = heading(own, profile);
+  const checker = checkerResults(own);
+  const steuerpruefer = { ...checker, konsistent: checkerResultComplete(checker) };
+  const pruefer = unique(own.filter((node) => node.type === "TreeItem" && node.name && node.x > bounds.maxX && node.name.length < 90).map((node) => node.name).filter((name) => !PRUEFER_EXCLUDED.includes(name.toLowerCase())));
+  const baumfehler = unique(own.filter((node) => node.type === "TreeItem" && node.name && node.x < bounds.minX && /!\s*$/u.test(node.name) && !node.aid.toLowerCase().includes("prueferwidgetsse")).map((node) => node.name));
+  const leerePflicht = own.filter((node) => node.type === "ComboBox" && node.x >= bounds.minX && node.x <= bounds.maxX && !(node.val ?? "").trim()).map((node) => ({ y: node.y, aid: node.aid.split(".").at(-1) ?? "", rid: node.rid }));
+  const dirty = dirtyState(own);
+  let ergebnis = resultDetailsFromNodes(own, mainSnapshot.stats);
+  if (werteInfo.length === 1) {
+    const tool = await readQtNativeSnapshot(client, { maxNodes: 5e3, toolTitle: werteInfo[0].title }, budget(), signal);
+    nativeDurationMs += tool.nativeDurationMs;
+    if (tool.hwnd !== werteInfo[0].hwnd) throw new QtNativeTransportError("The Werte-Info snapshot returned another window.", "native-contract");
+    ergebnis = resultDetailsFromNodes(tool.nodes, tool.stats, true);
+  }
+  const dialoge = [];
+  const unsicher = fenster.filter((window) => window.art === "unbekannt" || window.art === "nicht-lesbar");
+  const nichtmodal = fenster.filter((window) => window.art === "werte-info" || window.art === "steuer-tipps");
+  const blockiert = unsicher.length > 0 || pruefer.length > 0 || baumfehler.length > 0;
+  const stateCore = {
+    instance: { pid: main2.pid, hwnd: main2.hwnd },
+    heading: heading2,
+    dirty,
+    blockiert,
+    dialogs: [],
+    uncertain: unsicher.map((window) => ({
+      hwnd: window.hwnd,
+      cls: window.cls,
+      title: window.title,
+      art: window.art,
+      uiaReadOk: window.uiaReadOk,
+      uiaError: window.uiaError,
+      msaaReadOk: window.msaaReadOk,
+      msaaError: window.msaaError
+    })),
+    windowKinds: fenster.filter((window) => window.art !== "system-overlay" && window.art !== "shadow").map((window) => window.art).sort(),
+    pruefer,
+    baumfehler,
+    leerePflicht: [...leerePflicht].sort(byRequiredField).map((field) => field.aid),
+    checker: {
+      aktiv: checker.aktiv,
+      fragen: checker.fragenWarnungenAngekuendigt,
+      tipps: checker.tippsAngekuendigt,
+      konsistent: steuerpruefer.konsistent
+    },
+    ergebnisFingerprint: ergebnis.fingerprint
+  };
+  const stateFingerprint = textSha256(powershellCompactJson(stateCore));
+  const previous = args.previousFingerprint === void 0 || args.previousFingerprint === null ? "" : String(args.previousFingerprint);
+  const changedSince = previous ? !psEquals(previous, stateFingerprint) : null;
+  const rat = unsicher.length ? "Mindestens ein unbekanntes oder nicht lesbares SSE-Fenster ist offen. Zustand gilt als blockiert; per Screenshot/manuell klaeren." : pruefer.length || baumfehler.length ? `Der Seitenpruefer verlangt Angaben: ${[...pruefer, ...baumfehler].join("; ")}. Erst klaeren, dann navigieren.` : checker.aktiv && steuerpruefer.konsistent ? `Globaler Steuerpruefer aktiv: ${checker.fragenWarnungenAngekuendigt} Fragen/Warnungen und ${checker.tippsAngekuendigt} Tipps.` : checker.aktiv ? "Globaler Steuerpruefer aktiv, aber Qt liefert keinen vollstaendigen konsistenten Baum; gezielt oder per Screenshot kontrollieren." : !ergebnis.verfuegbar ? "frei; fuer Ergebniswerte einmal sse_result_details oeffnen, danach kommen sie in jedem sse_ui_state mit." : "frei";
+  return {
+    ok: true,
+    running: true,
+    instance: { pid: main2.pid, hwnd: main2.hwnd, title: main2.title },
+    stateFingerprint,
+    changedSince,
+    heading: heading2,
+    blockiert,
+    dialoge,
+    unsichereFenster: unsicher,
+    prueferMeldungen: pruefer,
+    baumFehler: baumfehler,
+    leerePflichtfelder: leerePflicht,
+    steuerpruefer,
+    ungespeichert: dirty,
+    ergebnis,
+    // Get-Windows counts every visible window of the process, shadows and tooltips included.
+    fensterAnzahl: inventory.visibleWindowCount,
+    warnfensterAnzahl: 0,
+    nichtmodaleFenster: nichtmodal,
+    snapshot: { source: "qt", nodes: mainSnapshot.stats.n, truncated: mainSnapshot.stats.truncated, cycles: 0, snapshotMs: mainSnapshot.stats.snapshotMs },
+    rat,
+    backend: "qt",
+    nativeDurationMs
+  };
+}
+var PRUEFER_EXCLUDED, UNREADABLE_HINT, UNTITLED_WINDOW_HINT, fail8, unique, byRequiredField;
+var init_qt_native_ui_state = __esm({
+  "src/qt-native-ui-state.ts"() {
+    "use strict";
+    init_qt_native_client();
+    init_qt_native_pages();
+    init_qt_native_projections();
+    init_qt_native_snapshot();
+    PRUEFER_EXCLUDED = ["Eingabehilfe", "Steuertipps", "Prüfer", "Mehr Details", "Steuer-Spar-Tipps", "Zurzeit keine Hinweise zu diesem Dialog."].map((name) => name.toLowerCase());
+    UNREADABLE_HINT = "Der direkte Qt-Pfad liest fremde Dialoge und unbekannte Fenster nicht; mit sse_dialog_list oder sse_windows pruefen.";
+    UNTITLED_WINDOW_HINT = "Ein namenloses Fenster des gebundenen Prozesses ist sichtbar; der direkte Qt-Pfad liest es nicht.";
+    fail8 = (kind, error) => ({ ok: false, backend: "qt", kind, error });
+    unique = (values) => [...new Set(values)];
+    byRequiredField = (a, b) => a.y - b.y || a.aid.localeCompare(b.aid, "de", { sensitivity: "accent" });
+  }
+});
+
+// src/qt-native-help.ts
+function projectSection(entries) {
+  const zeilen = [];
+  for (const entry of entries) {
+    if (!psIn(entry.typ, TEXT_TYPES)) continue;
+    if (zeilen.length && zeilen[zeilen.length - 1] === entry.text) continue;
+    zeilen.push(entry.text);
+  }
+  const verweise = entries.filter((entry) => psEquals(entry.typ, "Hyperlink")).map((entry) => entry.text);
+  return { text: zeilen.join(" "), zeilen, verweise };
+}
+function qtNativeHelpProjection(nodes, windowRect) {
+  const bounds = contentBounds([...nodes], windowRect);
+  const rechts = nodes.filter((node) => node.x > bounds.maxX && node.name).sort(byPosition3);
+  const abschnitte = new OrderedSections();
+  let aktuell = "Allgemein";
+  for (const node of rechts) {
+    if (psIn(node.name, SECTION_HEADINGS)) {
+      aktuell = node.name;
+      abschnitte.ensure(aktuell);
+      continue;
+    }
+    if (psIn(node.name, SKIPPED_NAMES)) continue;
+    abschnitte.ensure(aktuell).push({ typ: node.type, text: node.name });
+  }
+  const ausgabe = {};
+  for (const [key, entries] of abschnitte.sections()) ausgabe[key] = projectSection(entries);
+  const ueberschrift = nodes.filter((node) => psEquals(node.type, "Text") && node.x >= bounds.minX && node.x <= bounds.maxX).sort((a, b) => a.y - b.y)[0];
+  return { seite: ueberschrift ? ueberschrift.name : null, abschnitte: ausgabe };
+}
+async function executeQtNativeHelp(client, args, timeoutMs, signal, profile) {
+  if (!profile) return fail9("bad-args", "help requires a product profile.");
+  if (args.hwnd !== void 0 && args.hwnd !== client.binding.hwnd) {
+    throw new QtNativeTransportError("Requested window differs from the verified native session.", "stale-window");
+  }
+  const started = performance.now();
+  const budget = () => {
+    const remaining = Math.floor(timeoutMs - (performance.now() - started));
+    if (remaining < 1) throw new QtNativeTransportError("Native help deadline exceeded before reading.", "native-timeout");
+    return remaining;
+  };
+  const bound = await readBoundWindows(client, profile, "Hilfe", budget, signal);
+  if (bound.failure) return bound.failure;
+  const { inventory, owned } = bound.windows;
+  const snapshot = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 5e3 }, budget(), signal);
+  if (!snapshot.windowEnabled || snapshot.modalBlocked) {
+    return fail9("dialog-open", "Ein modaler Dialog blockiert die gebundene Seite; keine Hilfe ausgegeben.");
+  }
+  if (snapshot.stats.truncated) {
+    return fail9("native-incomplete", `${nativeTreeBoundReason(snapshot.stats)}; keine unvollstaendige Hilfe ausgegeben.`);
+  }
+  if (!snapshot.nodes.length) return fail9("native-incomplete", "Der native Seitenbaum ist leer; keine Hilfe ausgegeben.");
+  const ownedRead = await readOwnedWindowSubtrees(client, owned, 5e3, "Hilfe", snapshot.nodes.length, budget, signal);
+  if (ownedRead.failure) return ownedRead.failure;
+  const { seite, abschnitte } = qtNativeHelpProjection([...snapshot.nodes, ...ownedRead.subtrees.nodes], snapshot.windowRect);
+  const nativeDurationMs = inventory.durationMs + snapshot.nativeDurationMs + ownedRead.subtrees.durationMs;
+  return { ok: true, seite, abschnitte, hinweis: HELP_HINT, backend: "qt", nativeDurationMs };
+}
+var psIn, SECTION_HEADINGS, SKIPPED_NAMES, TEXT_TYPES, HELP_HINT, fail9, OrderedSections;
+var init_qt_native_help = __esm({
+  "src/qt-native-help.ts"() {
+    "use strict";
+    init_qt_native_client();
+    init_qt_native_pages();
+    init_qt_native_owned_windows();
+    init_qt_native_projections();
+    init_qt_native_snapshot();
+    psIn = (value, set) => set.some((candidate) => psEquals(value, candidate));
+    SECTION_HEADINGS = ["Eingabehilfe", "Steuertipps", "Prüfer", "Steuer-Spar-Tipps"];
+    SKIPPED_NAMES = ["Mehr Details", "Details"];
+    TEXT_TYPES = ["Text", "Hyperlink", "TreeItem", "Button"];
+    HELP_HINT = "Die Hilfe wechselt mit dem angewaehlten Feld. Fuer feldbezogene Hilfe erst das Feld anwaehlen.";
+    fail9 = (kind, error) => ({ ok: false, backend: "qt", kind, error });
+    OrderedSections = class {
+      keys = [];
+      entries = /* @__PURE__ */ new Map();
+      lookup(key) {
+        return this.keys.find((known) => psEquals(known, key));
+      }
+      ensure(key) {
+        const known = this.lookup(key);
+        if (known !== void 0) return this.entries.get(known);
+        this.keys.push(key);
+        const list = [];
+        this.entries.set(key, list);
+        return list;
+      }
+      *sections() {
+        for (const key of this.keys) yield [key, this.entries.get(key)];
+      }
+    };
+  }
+});
+
+// src/qt-native-read-table.ts
+function qtNativeTableCellSemantic(cell) {
+  if (cell.checked === null) return { type: "text", value: cell.name, checkboxState: null, ok: true, error: null };
+  const checkboxState = cell.checked === true ? "On" : cell.checked === false ? "Off" : "Indeterminate";
+  return { type: "boolean", value: cell.checked === true ? true : cell.checked === false ? false : null, checkboxState, ok: true, error: null };
+}
+function qtNativeTableRowDetails(rowIndex, cells) {
+  const errors = [];
+  cells.forEach((cell, column) => {
+    if (!cell) errors.push({ column, error: CELL_UNOBSERVED });
+  });
+  return {
+    rowIndex,
+    typedValues: cells.map((cell) => cell ? cell.value : null),
+    checkboxStates: cells.map((cell) => cell ? cell.checkboxState : null),
+    cellTypes: cells.map((cell) => cell ? cell.type : "unknown"),
+    semanticsComplete: errors.length === 0,
+    semanticReadErrors: errors
+  };
+}
+function qtNativeTableProjection(nodes) {
+  const headers = [];
+  for (const header of nodes.filter((node) => psEquals(node.type, "Header") && node.name && node.w > 0).sort((a, b) => a.x - b.x)) {
+    if (!headers.length || Math.abs(header.x - headers[headers.length - 1].x) > HEADER_MERGE_PX) headers.push(header);
+  }
+  const columnOf = (x) => {
+    let best = -1, distance = Number.POSITIVE_INFINITY;
+    headers.forEach((header, index) => {
+      const candidate = Math.abs(x - header.x);
+      if (candidate < distance) {
+        distance = candidate;
+        best = index;
+      }
+    });
+    return best;
+  };
+  const cells = nodes.filter((node) => psEquals(node.type, "DataItem") && node.w > 0).sort(byPosition3);
+  const rows = [];
+  const rowDetails = [];
+  let current = null;
+  let semantics = [];
+  let anchorY = -9999;
+  const close = () => {
+    if (current === null) return;
+    rowDetails.push(qtNativeTableRowDetails(rows.length, semantics));
+    rows.push(current);
+  };
+  for (const cell of cells) {
+    if (current === null || Math.abs(cell.y - anchorY) > ROW_BAND_PX) {
+      close();
+      anchorY = cell.y;
+      current = new Array(Math.max(1, headers.length)).fill(null);
+      semantics = new Array(Math.max(1, headers.length)).fill(null);
+    }
+    const index = columnOf(cell.x);
+    const semantic = qtNativeTableCellSemantic(cell);
+    if (index >= 0 && index < current.length) {
+      current[index] = cell.name;
+      semantics[index] = semantic;
+    } else {
+      current.push(cell.name);
+      semantics.push(semantic);
+    }
+  }
+  close();
+  return {
+    headers: headers.map((header) => header.name),
+    // The worker casts every slot with [string]: an unobserved cell is '' here while typedValues keeps null.
+    rows: rows.map((row) => row.map((value) => value === null ? "" : value)),
+    rowCount: rows.length,
+    rowDetails
+  };
+}
+async function executeQtNativeReadTable(client, args, timeoutMs, signal, profile) {
+  if (!profile) return fail10("bad-args", "read_table requires a product profile.");
+  if (args.hwnd !== void 0 && args.hwnd !== client.binding.hwnd) {
+    throw new QtNativeTransportError("Requested window differs from the verified native session.", "stale-window");
+  }
+  const started = performance.now();
+  const budget = () => {
+    const remaining = Math.floor(timeoutMs - (performance.now() - started));
+    if (remaining < 1) throw new QtNativeTransportError("Native read_table deadline exceeded before reading.", "native-timeout");
+    return remaining;
+  };
+  const bound = await readBoundWindows(client, profile, "Tabelle", budget, signal);
+  if (bound.failure) return bound.failure;
+  const { inventory, owned } = bound.windows;
+  const snapshot = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 4e3, withCellStates: true }, budget(), signal);
+  if (!snapshot.windowEnabled || snapshot.modalBlocked) {
+    return fail10("dialog-open", "Ein modaler Dialog blockiert die gebundene Seite; keine Tabelle ausgegeben.");
+  }
+  if (!snapshot.nodes.length) return fail10("native-incomplete", "Der native Seitenbaum ist leer; keine Tabelle ausgegeben.");
+  const scope = splitWindowScope(snapshot.nodes);
+  const ownedRead = await readOwnedWindowSubtrees(client, owned, 4e3, "Tabelle", snapshot.nodes.length, budget, signal);
+  if (ownedRead.failure) return ownedRead.failure;
+  return {
+    ok: true,
+    ...qtNativeTableProjection(scope.own),
+    ausgeschlosseneFenster: [...scope.foreign, ...ownedRead.subtrees.scopes],
+    stats: snapshot.stats,
+    incomplete: snapshot.stats.truncated,
+    note: snapshot.stats.truncated ? NOTE_TRUNCATED : NOTE_VISIBLE_ONLY,
+    backend: "qt",
+    nativeDurationMs: inventory.durationMs + snapshot.nativeDurationMs + ownedRead.subtrees.durationMs
+  };
+}
+var fail10, HEADER_MERGE_PX, ROW_BAND_PX, CELL_UNOBSERVED, NOTE_TRUNCATED, NOTE_VISIBLE_ONLY;
+var init_qt_native_read_table = __esm({
+  "src/qt-native-read-table.ts"() {
+    "use strict";
+    init_qt_native_client();
+    init_qt_native_owned_windows();
+    init_qt_native_projections();
+    init_qt_native_snapshot();
+    fail10 = (kind, error) => ({ ok: false, backend: "qt", kind, error });
+    HEADER_MERGE_PX = 8;
+    ROW_BAND_PX = 10;
+    CELL_UNOBSERVED = "Zelle nicht beobachtet.";
+    NOTE_TRUNCATED = "Baumlauf wurde abgeschnitten - es fehlen moeglicherweise Zeilen.";
+    NOTE_VISIBLE_ONLY = "Nur die SICHTBAREN Zeilen. Qt virtualisiert Tabellen: mehr Zeilen erscheinen erst, wenn der Cursor sie in den Blick holt (Pfeiltaste).";
+  }
+});
+
+// src/qt-native-checker.ts
+async function executeQtNativeCheckerResults(client, args, timeoutMs, signal, profile) {
+  if (!profile) return fail11("bad-args", "checker_results requires a product profile.");
+  if (args.hwnd !== void 0 && args.hwnd !== client.binding.hwnd) {
+    throw new QtNativeTransportError("Requested window differs from the verified native session.", "stale-window");
+  }
+  const started = performance.now();
+  const budget = () => {
+    const remaining = Math.floor(timeoutMs - (performance.now() - started));
+    if (remaining < 1) throw new QtNativeTransportError("Native checker_results deadline exceeded before reading.", "native-timeout");
+    return remaining;
+  };
+  const bound = await readMainWindowBinding(client, budget, signal);
+  if (bound.failure) return bound.failure;
+  const snapshot = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 5e3 }, budget(), signal);
+  if (!snapshot.windowEnabled || snapshot.modalBlocked) {
+    return fail11("dialog-open", "Ein modaler Dialog blockiert die gebundene Seite; kein Prueferergebnis ausgegeben.");
+  }
+  if (snapshot.stats.truncated) {
+    return fail11("native-incomplete", `${nativeTreeBoundReason(snapshot.stats)}; kein unvollstaendiges Prueferergebnis ausgegeben.`);
+  }
+  if (!snapshot.nodes.length) return fail11("native-incomplete", "Der native Seitenbaum ist leer; kein Prueferergebnis ausgegeben.");
+  const result = checkerResults(snapshot.nodes);
+  return {
+    ok: true,
+    aktiv: result.aktiv,
+    fragenWarnungenAngekuendigt: result.fragenWarnungenAngekuendigt,
+    tippsAngekuendigt: result.tippsAngekuendigt,
+    fragenWarnungenGruppeGesehen: result.fragenWarnungenGruppeGesehen,
+    tippsGruppeGesehen: result.tippsGruppeGesehen,
+    fragenWarnungen: result.fragenWarnungen,
+    tippsZusatzinfos: result.tippsZusatzinfos,
+    sonstige: result.sonstige,
+    gesamt: result.gesamt,
+    aufgeklappt: result.aufgeklappt,
+    konsistent: checkerResultComplete(result),
+    navigationSchritte: 0,
+    fokusVerwendet: false,
+    technischeFokusKarten: [],
+    zyklen: [],
+    ungespeichert: dirtyState(snapshot.nodes),
+    hinweis: result.aktiv ? ACTIVE_HINT : CLOSED_HINT,
+    backend: "qt",
+    nativeDurationMs: bound.binding.inventory.durationMs + snapshot.nativeDurationMs
+  };
+}
+var ACTIVE_HINT, CLOSED_HINT, fail11;
+var init_qt_native_checker = __esm({
+  "src/qt-native-checker.ts"() {
+    "use strict";
+    init_qt_native_client();
+    init_qt_native_owned_windows();
+    init_qt_native_projections();
+    init_qt_native_snapshot();
+    ACTIVE_HINT = "Fragen/Warnungen und Tipps sind getrennt. Ein Eintrag ist nicht automatisch ein Steuerfehler; mit sse_checker_open den Wortlaut oeffnen.";
+    CLOSED_HINT = "Der globale Steuerpruefer ist nicht offen. Zu 'Pruefen und Abgeben' und dann 'Steuererklaerung pruefen' navigieren; dort sse_checker_run aufrufen.";
+    fail11 = (kind, error) => ({ ok: false, backend: "qt", kind, error });
+  }
+});
+
+// src/qt-native-executor.ts
+import { performance as performance12 } from "node:perf_hooks";
 function isQtNativeReadOperation(operation) {
   return QT_NATIVE_READ_OPERATIONS.some((value) => value === operation);
 }
 async function executeQtNativeRead(operation, args, dependencies, timeoutMs = DEFAULT_OPERATION_TIMEOUT_MS, signal, profile) {
   try {
-    const started = performance11.now();
+    const started = performance12.now();
     if (operation === "snapshot" && profile) args = qtSnapshotArguments(args, profile);
     const client = dependencies.qtNativeClient ?? await dependencies.qtNativeClientFor(args, timeoutMs, signal);
-    const remaining = Math.floor(timeoutMs - (performance11.now() - started));
+    const remaining = Math.floor(timeoutMs - (performance12.now() - started));
     if (remaining < 1) throw new QtNativeTransportError("Native operation deadline exceeded before reading.", "native-timeout");
-    const execute = operation === "known_page_state" ? executeQtNativeKnownPageState : operation === "positions" ? executeQtNativePositions : operation === "ustva_read" ? executeQtNativeUstvaRead : operation === "receipt_manager_action" ? executeQtNativeReceiptManagerAction : operation === "receipt_manager_read" ? executeQtNativeReceiptManagerRead : operation === "receipt_manager_list" ? executeQtNativeReceiptManagerList : operation === "read_page" ? executeQtNativeReadPage : operation === "subpages" ? executeQtNativeSubpages : operation === "find" ? executeQtNativeFind : operation === "snapshot" ? executeQtNativeSnapshot : operation === "table_read" ? executeQtNativeTableRead : typeof args.rid === "string" && args.rid.startsWith("42.") ? executeQtSnapshotGetValue : executeQtNativeGetValue;
+    const execute = operation === "known_page_state" ? executeQtNativeKnownPageState : operation === "page" ? executeQtNativePage : operation === "ui_state" ? executeQtNativeUiState : operation === "help" ? executeQtNativeHelp : operation === "read_table" ? executeQtNativeReadTable : operation === "checker_results" ? executeQtNativeCheckerResults : operation === "positions" ? executeQtNativePositions : operation === "ustva_read" ? executeQtNativeUstvaRead : operation === "receipt_manager_action" ? executeQtNativeReceiptManagerAction : operation === "receipt_manager_read" ? executeQtNativeReceiptManagerRead : operation === "receipt_manager_list" ? executeQtNativeReceiptManagerList : operation === "read_page" ? executeQtNativeReadPage : operation === "subpages" ? executeQtNativeSubpages : operation === "find" ? executeQtNativeFind : operation === "snapshot" ? executeQtNativeSnapshot : operation === "table_read" ? executeQtNativeTableRead : typeof args.rid === "string" && args.rid.startsWith("42.") ? executeQtSnapshotGetValue : executeQtNativeGetValue;
     return await execute(client, args, remaining, signal, profile);
   } catch (error) {
     return {
@@ -14094,6 +15057,11 @@ var init_qt_native_executor = __esm({
     init_qt_native_receipt_read();
     init_qt_native_receipt_action();
     init_qt_native_receipts();
+    init_qt_native_page();
+    init_qt_native_ui_state();
+    init_qt_native_help();
+    init_qt_native_read_table();
+    init_qt_native_checker();
     QT_NATIVE_READ_OPERATIONS = [
       "get_value",
       "table_read",
@@ -14106,7 +15074,12 @@ var init_qt_native_executor = __esm({
       "ustva_read",
       "receipt_manager_list",
       "receipt_manager_read",
-      "receipt_manager_action"
+      "receipt_manager_action",
+      "page",
+      "ui_state",
+      "help",
+      "read_table",
+      "checker_results"
     ];
   }
 });
@@ -14114,14 +15087,14 @@ var init_qt_native_executor = __esm({
 // src/api-executor.ts
 import { existsSync as existsSync9, mkdirSync as mkdirSync3, readdirSync as readdirSync3, rmdirSync } from "node:fs";
 import { dirname as dirname10 } from "node:path";
-import { performance as performance12 } from "node:perf_hooks";
+import { performance as performance13 } from "node:perf_hooks";
 function withResourceIdentity4(redactPaths, result, resourceRefs = {}) {
   const redacted = redactPaths(result);
   if (!Object.keys(resourceRefs).length) return redacted;
   return { ...redacted, resourceRefs };
 }
 function remainingTimeoutMs(timeoutMs, startedAt) {
-  return Math.max(0, Math.floor(timeoutMs - (performance12.now() - startedAt)));
+  return Math.max(0, Math.floor(timeoutMs - (performance13.now() - startedAt)));
 }
 function isExperimentalDialogAnswerCandidate(operation, args) {
   return operation === "dialog_answer" && args.button === "OK";
@@ -14374,7 +15347,7 @@ function createApiExecutor(config, rawWorker, dependencies = {}) {
       }
       if (operation === "list_cases" && configured.args.verbose !== true && typeof configured.args.dir === "string" && existsSync9(configured.args.dir)) {
         const effectiveTimeoutMs = timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS;
-        const localStartedAt = performance12.now();
+        const localStartedAt = performance13.now();
         try {
           const result2 = await local(operation, () => listCaseFiles(String(configured.args.dir), profile, {
             includeBackups: configured.args.includeBackups === true,
@@ -16830,6 +17803,15 @@ var init_result_utility_fields = __esm({
         abschnitte: OPTIONAL_OBJECT,
         hinweis: OPTIONAL_STRING
       },
+      tax_knowledge_search: {
+        begriff: OPTIONAL_STRING,
+        fenster: OPTIONAL_NON_NEGATIVE_NUMBER,
+        pid: OPTIONAL_NON_NEGATIVE_NUMBER,
+        abschnitte: OPTIONAL_ARRAY,
+        verweise: OPTIONAL_STRING_ARRAY,
+        wartezeitMs: OPTIONAL_NON_NEGATIVE_NUMBER,
+        hinweis: OPTIONAL_STRING
+      },
       menu: {
         menues: OPTIONAL_ARRAY,
         menue: OPTIONAL_STRING,
@@ -16996,17 +17978,7 @@ var init_result_utility_fields = __esm({
 // src/result-contract.ts
 function createOperationResultOutputSchema(operation) {
   const operationFields = OPERATION_RESULT_FIELDS[operation] ?? {};
-  return external_exports.object({
-    ok: external_exports.boolean().describe("Operation erfolgreich"),
-    kind: external_exports.string().min(1).nullable().optional().describe("Fehlerart"),
-    error: external_exports.string().min(1).nullable().optional().describe("Fehlermeldung"),
-    ms: external_exports.number().finite().nonnegative().nullable().optional().describe("Worker-Laufzeit in ms"),
-    // Der Worker kann diese Telemetrie bei jeder Operation anhaengen, die den
-    // universellen Foreground-Lease tatsaechlich erwirbt. Sie gehoert deshalb
-    // zum gemeinsamen Ergebnisrand und nicht zu einzelnen Klickoperationen.
-    focusTelemetry: OPTIONAL_OBJECT,
-    ...operationFields
-  }).passthrough().describe(`Result_${operation} v${SSE_API_RESULT_SCHEMA_VERSION}`);
+  return SSE_API_RESULT_ENVELOPE_SCHEMA.extend(operationFields).describe(`Result_${operation} v${SSE_API_RESULT_SCHEMA_VERSION}`);
 }
 function createOperationResultSchema(operation) {
   return SSE_API_RESULT_OUTPUT_SCHEMAS[operation].superRefine((result, context) => {
@@ -17066,7 +18038,7 @@ function createOperationResultSchema(operation) {
 function parseApiOperationResult(operation, value) {
   return SSE_API_RESULT_SCHEMAS[operation].parse(value);
 }
-var SSE_API_RESULT_SCHEMA_VERSION, API_OPERATION_NAME_SCHEMA, OPTIONAL_TABLE_ROW_DETAILS, OPTIONAL_SUPPORTED_CASE_YEARS, OPTIONAL_CASE_IDENTITY, OPTIONAL_USTVA_PERIOD, OPTIONAL_USTVA_FLAGS, OPTIONAL_USTVA_TRANSMISSION, OPTIONAL_USTVA_READ_EFFECTS, CORE_OPERATION_RESULT_FIELDS, RESULT_FIELD_TABLES, duplicateOperations, OPERATION_RESULT_FIELDS, SSE_API_RESULT_OUTPUT_SCHEMAS, SSE_API_RESULT_SCHEMAS;
+var SSE_API_RESULT_SCHEMA_VERSION, API_OPERATION_NAME_SCHEMA, OPTIONAL_TABLE_ROW_DETAILS, OPTIONAL_SUPPORTED_CASE_YEARS, OPTIONAL_CASE_IDENTITY, OPTIONAL_USTVA_PERIOD, OPTIONAL_USTVA_FLAGS, OPTIONAL_USTVA_TRANSMISSION, OPTIONAL_USTVA_READ_EFFECTS, CORE_OPERATION_RESULT_FIELDS, RESULT_FIELD_TABLES, duplicateOperations, OPERATION_RESULT_FIELDS, SSE_API_RESULT_COMMON_FIELDS, SSE_API_RESULT_ENVELOPE_SCHEMA, SSE_API_RESULT_OUTPUT_SCHEMAS, SSE_API_RESULT_SCHEMAS;
 var init_result_contract = __esm({
   "src/result-contract.ts"() {
     "use strict";
@@ -17458,6 +18430,25 @@ var init_result_contract = __esm({
       throw new Error(`Doppelte Operations-Ergebnisvertraege: ${[...new Set(duplicateOperations)].join(", ")}`);
     }
     OPERATION_RESULT_FIELDS = Object.freeze(Object.assign({}, ...RESULT_FIELD_TABLES));
+    SSE_API_RESULT_COMMON_FIELDS = Object.freeze({
+      ok: external_exports.boolean().describe("Operation erfolgreich"),
+      kind: external_exports.string().min(1).nullable().optional().describe("Fehlerart"),
+      error: external_exports.string().min(1).nullable().optional().describe("Fehlermeldung"),
+      ms: external_exports.number().finite().nonnegative().nullable().optional().describe("Worker-Laufzeit in ms"),
+      // Emit appends these counters to every operation that walked a UIA tree.
+      treeWalks: external_exports.number().int().nonnegative().optional().describe("Anzahl der UIA-Baumlaeufe"),
+      treeWalkMs: external_exports.number().finite().nonnegative().optional().describe("Gesamtdauer der UIA-Baumlaeufe in ms"),
+      treeWalkDetail: external_exports.array(external_exports.object({
+        knoten: external_exports.number().int().nonnegative().describe("Gelesene Knoten"),
+        grenze: external_exports.number().int().nonnegative().describe("Knotengrenze des Laufs"),
+        ms: external_exports.number().finite().nonnegative().describe("Dauer dieses Baumlaufs in ms")
+      }).strict()).max(16).optional().describe("Begrenzte Detailzaehler der UIA-Baumlaeufe"),
+      // Der Worker kann diese Telemetrie bei jeder Operation anhaengen, die den
+      // universellen Foreground-Lease tatsaechlich erwirbt. Sie gehoert deshalb
+      // zum gemeinsamen Ergebnisrand und nicht zu einzelnen Klickoperationen.
+      focusTelemetry: OPTIONAL_OBJECT
+    });
+    SSE_API_RESULT_ENVELOPE_SCHEMA = external_exports.object(SSE_API_RESULT_COMMON_FIELDS).passthrough().describe("Gemeinsamer Transportumschlag jedes Operationsergebnisses");
     SSE_API_RESULT_OUTPUT_SCHEMAS = Object.freeze(Object.fromEntries(
       SSE_API_OPERATIONS.map((operation) => [operation, createOperationResultOutputSchema(operation)])
     ));
@@ -17502,14 +18493,18 @@ function createOperationTraits() {
 }
 function createResultSchemas() {
   return Object.freeze(Object.fromEntries(
-    SSE_API_OPERATIONS.map((operation) => [
-      operation,
-      zodToJsonSchema(SSE_API_RESULT_OUTPUT_SCHEMAS[operation], {
-        target: "jsonSchema7",
-        $refStrategy: "none",
-        effectStrategy: "input"
-      })
-    ])
+    SSE_API_OPERATIONS.map((operation) => {
+      const schema = inlineResultSchemas[operation];
+      const required = schema.required?.filter((field) => !commonFields.has(field));
+      const compactSchema = {
+        ...schema,
+        properties: Object.fromEntries(Object.entries(schema.properties).filter(([field]) => !commonFields.has(field))),
+        allOf: [{ $ref: "#/definitions/OperationResultEnvelope" }]
+      };
+      if (required?.length) compactSchema.required = required;
+      else delete compactSchema.required;
+      return [operation, compactSchema];
+    })
   ));
 }
 function apiOperationDiscovery(operation) {
@@ -17519,7 +18514,12 @@ function apiOperationDiscovery(operation) {
     operation,
     argumentSchema: SSE_API_DISCOVERY.argumentSchemas[operation],
     resultSchemaVersion: SSE_API_DISCOVERY.resultSchemaVersion,
-    resultSchema: SSE_API_DISCOVERY.resultSchemas[operation],
+    // Die Gesamtansicht teilt Definitionen am Dokumentwurzelpunkt. Die
+    // Einzelansicht muss dagegen auch als isoliertes JSON-Schema aufloesbar sein.
+    resultSchema: {
+      ...SSE_API_DISCOVERY.resultSchemas[operation],
+      definitions: structuredClone(resultDefinitions)
+    },
     operationTraits: SSE_API_DISCOVERY.operationTraits[operation],
     planning: SSE_API_DISCOVERY.planning,
     limits: SSE_API_DISCOVERY.limits,
@@ -17527,7 +18527,7 @@ function apiOperationDiscovery(operation) {
     liveEvidence: SSE_API_DISCOVERY.liveEvidence
   });
 }
-var SSE_API_DISCOVERY;
+var inlineResultSchemas, commonResultEnvelope, commonFields, resultDefinitions, SSE_API_DISCOVERY;
 var init_api_discovery = __esm({
   "src/api-discovery.ts"() {
     "use strict";
@@ -17538,6 +18538,22 @@ var init_api_discovery = __esm({
     init_operation_traits();
     init_result_contract();
     init_api_control_contract();
+    inlineResultSchemas = Object.fromEntries(SSE_API_OPERATIONS.map((operation) => [
+      operation,
+      zodToJsonSchema(SSE_API_RESULT_OUTPUT_SCHEMAS[operation], {
+        target: "jsonSchema7",
+        $refStrategy: "none",
+        effectStrategy: "input"
+      })
+    ]));
+    commonResultEnvelope = zodToJsonSchema(SSE_API_RESULT_ENVELOPE_SCHEMA, {
+      target: "jsonSchema7",
+      $refStrategy: "none",
+      effectStrategy: "input"
+    });
+    commonFields = new Set(Object.keys(SSE_API_RESULT_COMMON_FIELDS).filter((field) => SSE_API_OPERATIONS.every((operation) => JSON.stringify(inlineResultSchemas[operation].properties[field]) === JSON.stringify(commonResultEnvelope.properties[field]))));
+    commonResultEnvelope.properties = Object.fromEntries(Object.entries(commonResultEnvelope.properties).filter(([field]) => commonFields.has(field)));
+    resultDefinitions = Object.freeze({ OperationResultEnvelope: commonResultEnvelope });
     SSE_API_DISCOVERY = Object.freeze({
       schemaVersion: 1,
       apiVersion: SSE_API_VERSION,
@@ -17545,6 +18561,7 @@ var init_api_discovery = __esm({
       argumentSchemas: createArgumentSchemas(),
       resultSchemaVersion: SSE_API_RESULT_SCHEMA_VERSION,
       resultSchemas: createResultSchemas(),
+      definitions: resultDefinitions,
       operationTraits: createOperationTraits(),
       controls: Object.freeze({
         shutdown: Object.freeze({
@@ -17575,7 +18592,8 @@ var init_api_discovery = __esm({
 // src/api-openapi.ts
 function resultProperty(operation, property) {
   const schema = SSE_API_DISCOVERY.resultSchemas[operation];
-  const value = schema.properties?.[property];
+  const envelope = SSE_API_DISCOVERY.definitions.OperationResultEnvelope;
+  const value = schema.properties?.[property] ?? envelope.properties?.[property];
   if (!value) throw new Error(`Result_${operation}.${property} fehlt fuer die OpenAPI-Komprimierung.`);
   return structuredClone(value);
 }
@@ -17593,7 +18611,7 @@ function compactResultSchema(schema) {
     description: typed.description
   };
 }
-var schemaName, resultSchemaName, argumentComponents, resultValueComponents, resultValueReferences, RESULT_TRANSPORT_PROPERTIES, resultEnvelopeComponent, resultComponents, operationPaths, SSE_OPENAPI_DOCUMENT;
+var schemaName, resultSchemaName, argumentComponents, resultValueComponents, resultValueReferences, commonResultEnvelope2, RESULT_TRANSPORT_PROPERTIES, resultEnvelopeComponent, resultComponents, operationPaths, SSE_OPENAPI_DOCUMENT;
 var init_api_openapi = __esm({
   "src/api-openapi.ts"() {
     "use strict";
@@ -17621,15 +18639,15 @@ var init_api_openapi = __esm({
       OptionalTransmissionState: resultProperty("case_hash", "transmitted")
     });
     resultValueReferences = new Map(Object.entries(resultValueComponents).map(([name, schema]) => [JSON.stringify(schema), { $ref: `#/components/schemas/${name}` }]));
-    RESULT_TRANSPORT_PROPERTIES = /* @__PURE__ */ new Set(["ok", "kind", "error", "ms"]);
+    commonResultEnvelope2 = SSE_API_DISCOVERY.definitions.OperationResultEnvelope;
+    RESULT_TRANSPORT_PROPERTIES = new Set(Object.keys(commonResultEnvelope2.properties));
     resultEnvelopeComponent = Object.freeze({
+      ...structuredClone(SSE_API_DISCOVERY.definitions.OperationResultEnvelope),
       type: "object",
-      properties: {
-        ok: { $ref: "#/components/schemas/ResultOk" },
-        kind: { $ref: "#/components/schemas/ResultKind" },
-        error: { $ref: "#/components/schemas/ResultError" },
-        ms: { $ref: "#/components/schemas/ResultWorkerMs" }
-      },
+      properties: Object.fromEntries(Object.entries(commonResultEnvelope2.properties).map(([field, value]) => [
+        field,
+        structuredClone(resultValueReferences.get(JSON.stringify(value)) ?? value)
+      ])),
       required: ["ok"],
       additionalProperties: true,
       description: "Gemeinsamer Transportumschlag jedes Operationsergebnisses"
@@ -18020,7 +19038,7 @@ var init_api_supervisor_contract = __esm({
 
 // src/api-server.ts
 import { randomUUID as randomUUID3 } from "node:crypto";
-import { performance as performance13 } from "node:perf_hooks";
+import { performance as performance14 } from "node:perf_hooks";
 import {
   createServer
 } from "node:http";
@@ -18136,7 +19154,7 @@ function createSseApiServer(options) {
   const inFlightSnapshot = () => {
     if (!inFlight) return null;
     const { startedMonotonic, ...publicState } = inFlight;
-    return { ...publicState, elapsedMs: Math.round(performance13.now() - startedMonotonic) };
+    return { ...publicState, elapsedMs: Math.round(performance14.now() - startedMonotonic) };
   };
   const safeLog = (record) => {
     try {
@@ -18146,7 +19164,7 @@ function createSseApiServer(options) {
   };
   const server = createServer(async (request, response) => {
     const requestId = randomUUID3();
-    const started = performance13.now();
+    const started = performance14.now();
     const foreignClient = foreignClientReason(request);
     if (foreignClient) {
       sendJson(response, 403, apiError(requestId, "forbidden", foreignClient));
@@ -18320,7 +19338,7 @@ function createSseApiServer(options) {
         });
         return;
       }
-      inFlight = { operation: operationName, requestId, startedAt: Date.now(), startedMonotonic: performance13.now() };
+      inFlight = { operation: operationName, requestId, startedAt: Date.now(), startedMonotonic: performance14.now() };
       let rawResult;
       try {
         rawResult = await execute(operationName, args, body.timeoutMs, controller.signal);
@@ -18349,7 +19367,7 @@ function createSseApiServer(options) {
         apiVersion: SSE_API_VERSION,
         requestId,
         operation: operationName,
-        durationMs: Math.round(performance13.now() - started),
+        durationMs: Math.round(performance14.now() - started),
         result
       };
       const operationLog = {
@@ -18390,7 +19408,7 @@ function createSseApiServer(options) {
         event: "operation-error",
         requestId,
         operation: operationName,
-        durationMs: Math.round(performance13.now() - started),
+        durationMs: Math.round(performance14.now() - started),
         code,
         errorName: error instanceof Error ? error.name : "Error"
       });
@@ -19599,7 +20617,7 @@ var init_qt_native_broker = __esm({
 import { execFile as execFile2 } from "node:child_process";
 import { createHash as createHash16 } from "node:crypto";
 import { win32 as win322 } from "node:path";
-import { performance as performance14 } from "node:perf_hooks";
+import { performance as performance15 } from "node:perf_hooks";
 function parseNativeDesktopStatus(value, marker, options) {
   const status = statusSchema.parse(value), profile = options.profile;
   if (status.loaderBuildIdentity !== options.package.manifest.buildIdentity || status.desktop !== marker.name || status.pid !== (marker.pid ?? 0) || status.windows.some((window) => window.pid !== marker.pid) || !status.reachable && status.windows.length) throw failure2("Native status returned a different ownership binding.", "native-binding");
@@ -19683,14 +20701,14 @@ async function readNativeStatus(marker, options) {
   });
 }
 async function executeNativeDesktopStatus(options) {
-  const start = performance14.now();
+  const start = performance15.now();
   try {
     if (options.signal?.aborted) throw failure2("Native status cancelled before launch.", "aborted");
     if (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > 6e4)
       throw failure2("Invalid native status deadline.", "native-deadline");
     const readMarker = options.readMarker ?? (() => readDesktopMarker(desktopMarkerPath()));
     const marker = readMarker();
-    const remaining = Math.floor(options.timeoutMs - (performance14.now() - start));
+    const remaining = Math.floor(options.timeoutMs - (performance15.now() - start));
     if (remaining < 1) throw failure2("Native status deadline exceeded before launch.", "native-timeout");
     const result = marker ? await readNativeStatus(marker, { ...options, timeoutMs: remaining }) : {
       ok: true,
@@ -19707,14 +20725,14 @@ async function executeNativeDesktopStatus(options) {
     };
     if (options.signal?.aborted) throw failure2("Native status cancelled.", "aborted");
     if (JSON.stringify(readMarker()) !== JSON.stringify(marker)) throw failure2("Desktop ownership changed during native status.", "native-binding");
-    return { ...result, ms: performance14.now() - start };
+    return { ...result, ms: performance15.now() - start };
   } catch (error) {
     return {
       ok: false,
       backend: "win32",
       kind: error instanceof QtNativeTransportError || error instanceof DesktopMarkerError ? error.kind : "native-contract",
       error: error instanceof QtNativeTransportError || error instanceof DesktopMarkerError ? error.message : "Native desktop status failed.",
-      ms: performance14.now() - start
+      ms: performance15.now() - start
     };
   }
 }
@@ -19763,7 +20781,7 @@ import { execFile as execFile3 } from "node:child_process";
 import { createHash as createHash17 } from "node:crypto";
 import { statSync as statSync6 } from "node:fs";
 import { win32 as win323 } from "node:path";
-import { performance as performance15 } from "node:perf_hooks";
+import { performance as performance16 } from "node:perf_hooks";
 function localPath(value) {
   const path = win323.normalize(value);
   if (!/^[A-Za-z]:\\/u.test(path) || /["\u0000-\u001f]/u.test(path) || path.length > 32767)
@@ -19844,7 +20862,7 @@ function parseNativeDesktopStart(value, prepared, options) {
   };
 }
 async function executeNativeDesktopStart(options) {
-  const started = performance15.now();
+  const started = performance16.now();
   try {
     if (options.signal?.aborted) throw failure3("aborted", "Desktop start cancelled before launch.");
     if (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 6500 || options.timeoutMs > 12e4)
@@ -19852,7 +20870,7 @@ async function executeNativeDesktopStart(options) {
     const prepared = prepareNativeDesktopStart(options), markerPath = desktopMarkerPath();
     const marker = readDesktopMarker(markerPath);
     if (marker && marker.owner !== "sse") throw failure3("desktop-marker-owner", "Desktop belongs to a different controller.");
-    const remaining = Math.floor(options.timeoutMs - (performance15.now() - started));
+    const remaining = Math.floor(options.timeoutMs - (performance16.now() - started));
     if (remaining < 6500) throw failure3("native-deadline", "Not enough time remains for startup and verified cleanup.");
     const request = {
       mode: "desktop-start",
@@ -19929,7 +20947,7 @@ async function executeNativeDesktopStart(options) {
       });
       child.stdin?.end(body);
     });
-    return { ...result, ms: performance15.now() - started };
+    return { ...result, ms: performance16.now() - started };
   } catch (error) {
     return {
       ok: false,
@@ -19937,7 +20955,7 @@ async function executeNativeDesktopStart(options) {
       kind: error instanceof QtNativeTransportError || error instanceof DesktopMarkerError ? error.kind : "native-contract",
       error: error instanceof Error ? error.message : "Native desktop start failed.",
       outcomeUnknown: error instanceof QtNativeTransportError && error.outcomeUnknown,
-      ms: performance15.now() - started
+      ms: performance16.now() - started
     };
   }
 }
@@ -19997,7 +21015,7 @@ var init_native_desktop_start = __esm({
 
 // src/native-desktop-stop.ts
 import { execFile as execFile4 } from "node:child_process";
-import { performance as performance16 } from "node:perf_hooks";
+import { performance as performance17 } from "node:perf_hooks";
 import { win32 as win324 } from "node:path";
 function parseNativeDesktopStop(value, marker, options) {
   const result = resultSchema2.parse(value);
@@ -20014,7 +21032,7 @@ function parseNativeDesktopStop(value, marker, options) {
   };
 }
 async function executeNativeDesktopStop(options) {
-  const started = performance16.now();
+  const started = performance17.now();
   try {
     if (options.signal?.aborted) throw failure4("aborted", "Desktop stop cancelled before submission.");
     if (options.args.save === true && options.args.discardChanges === true) throw failure4("bad-args", "Save and discard cannot both be requested.");
@@ -20025,7 +21043,7 @@ async function executeNativeDesktopStop(options) {
     if (!marker?.pid || marker.owner !== "sse") throw failure4("ownership", "A valid owned SSE desktop marker with PID is required.");
     const image = win324.normalize(options.executable);
     if (!/^[A-Za-z]:\\/u.test(image) || /["\u0000-\u001f]/u.test(image)) throw failure4("bad-args", "An absolute configured executable is required.");
-    const remaining = Math.floor(options.timeoutMs - (performance16.now() - started));
+    const remaining = Math.floor(options.timeoutMs - (performance17.now() - started));
     if (remaining < 11500) throw failure4("native-deadline", "Insufficient time remains for close ownership checks.");
     const request = {
       mode: "desktop-stop",
@@ -20064,7 +21082,7 @@ async function executeNativeDesktopStop(options) {
       });
       child.stdin?.end(JSON.stringify(request));
     });
-    return { ...result, ms: performance16.now() - started };
+    return { ...result, ms: performance17.now() - started };
   } catch (error) {
     return {
       ok: false,
@@ -20072,7 +21090,7 @@ async function executeNativeDesktopStop(options) {
       kind: error instanceof QtNativeTransportError || error instanceof DesktopMarkerError ? error.kind : "native-contract",
       error: error instanceof Error ? error.message : "Native desktop stop failed.",
       outcomeUnknown: error instanceof QtNativeTransportError && error.outcomeUnknown,
-      ms: performance16.now() - started
+      ms: performance17.now() - started
     };
   }
 }
@@ -20212,7 +21230,7 @@ var init_qt_native_discovery = __esm({
 });
 
 // src/qt-native-runtime.ts
-import { performance as performance17 } from "node:perf_hooks";
+import { performance as performance18 } from "node:perf_hooks";
 function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
   if (!config.qtNativeRuntime) throw new Error("Native runtime configuration is required.");
   const nativePackage = (dependencies.loadPackage ?? loadQtNativePackage)(config.qtNativeRuntime, profile);
@@ -20234,7 +21252,7 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
   let stopped = false, revision = 0;
   const failure6 = (message, kind, outcomeUnknown = false) => new QtNativeTransportError(message, kind, outcomeUnknown);
   const left = (deadline) => {
-    const value = Math.floor(deadline - performance17.now());
+    const value = Math.floor(deadline - performance18.now());
     if (value < 1) throw failure6("Native operation deadline exceeded before dispatch.", "native-timeout");
     return value;
   };
@@ -20343,25 +21361,25 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
   }
   const runtime = {
     async desktopStop(args, timeoutMs, signal) {
-      const deadline = performance17.now() + timeoutMs;
+      const deadline = performance18.now() + timeoutMs;
       await clear();
       return withCombinedAbortSignal([signal, shutdown], (combined) => executeNativeDesktopStop({
         package: nativePackage,
         executable: executable[0],
         args,
-        timeoutMs: Math.max(0, Math.floor(deadline - performance17.now())),
+        timeoutMs: Math.max(0, Math.floor(deadline - performance18.now())),
         signal: combined
       }));
     },
     async desktopStart(args, timeoutMs, signal) {
-      const deadline = performance17.now() + timeoutMs;
+      const deadline = performance18.now() + timeoutMs;
       await clear();
       return withCombinedAbortSignal([signal, shutdown], (combined) => executeNativeDesktopStart({
         package: nativePackage,
         profile,
         executable: executable[0],
         args,
-        timeoutMs: Math.max(0, Math.floor(deadline - performance17.now())),
+        timeoutMs: Math.max(0, Math.floor(deadline - performance18.now())),
         signal: combined
       }));
     },
@@ -20374,7 +21392,7 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
       }));
     },
     async client(args, timeoutMs, signal) {
-      const deadline = performance17.now() + timeoutMs;
+      const deadline = performance18.now() + timeoutMs;
       return withCombinedAbortSignal([signal, shutdown], async (combined) => {
         const session = await obtain(args, deadline, combined);
         const checked = await session.client.request("window_context", {}, left(deadline), combined);

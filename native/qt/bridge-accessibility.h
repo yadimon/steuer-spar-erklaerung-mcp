@@ -32,7 +32,8 @@ static std::string accessibleRuntimeId(QAccessibleInterface *iface, std::uint64_
     if (!accessibleHost(iface)) rid += ".4." + std::to_string(static_cast<std::int32_t>(QAccessible::uniqueId(iface)));
     return rid;
 }
-static Json accessibleNode(QAccessibleInterface *iface, int index, int parent, int depth, std::uint64_t host, bool values) {
+static Json accessibleNode(QAccessibleInterface *iface, int index, int parent, int depth, std::uint64_t host, bool values,
+    bool cellStates = false) {
     const auto state = iface->state();
     const std::string type = accessibleControlType(iface);
     const auto rect = QHighDpi::toNativePixels(QRectF(iface->rect()), accessibleWindow(iface));
@@ -47,7 +48,8 @@ static Json accessibleNode(QAccessibleInterface *iface, int index, int parent, i
     if (values && !state.passwordEdit && (type == "Edit" || type == "ComboBox" || type == "Spinner")) {
         node["val"] = accessibleText(iface->text(QAccessible::Value)); node["ro"] = bool(state.readOnly);
     }
-    if (values && type == "CheckBox" && state.checkable) {
+    // A checkable table cell answers the same toggle state the UIA toggle pattern exposes for it.
+    if (values && state.checkable && (type == "CheckBox" || (cellStates && type == "DataItem"))) {
         if (state.checkStateMixed) node["checked"] = "unbestimmt";
         else node["checked"] = bool(state.checked);
     }
@@ -80,6 +82,7 @@ static Json accessibilitySnapshot(QWidget *main, const Json &request) {
     }
     const int limit = request.value("maxNodes", 4000);
     const bool values = request.value("withValues", true);
+    const bool cellStates = request.value("withCellStates", false);
     const Json equality = request.value("equalitySelectors", Json::object());
     if (!equality.is_object() || equality.size() > 3) throw std::runtime_error("Invalid equality selectors");
     Json exactMatches = Json::object();
@@ -171,7 +174,7 @@ static Json accessibilitySnapshot(QWidget *main, const Json &request) {
                     const auto index = static_cast<int>(nodes.size());
                     work.index = sparse ? work.parent : index;
                     auto node = accessibleNode(iface, index, sparse ? -1 : work.parent,
-                        sparse ? 0 : work.depth, work.host, values);
+                        sparse ? 0 : work.depth, work.host, values, cellStates);
                     for (const auto &[key, wanted] : selectors) {
                         const auto utf8 = node.at(key).get<std::string>();
                         const auto actual = QString::fromUtf8(utf8.data(), static_cast<qsizetype>(utf8.size())).toStdWString();
@@ -195,7 +198,10 @@ static Json accessibilitySnapshot(QWidget *main, const Json &request) {
         stack.push_back({child, work.index, work.depth + 1, work.host});
     }
     const auto count = nodes.size();
+    // The root itself is never a node; its identity lets a caller list the window the way UIA names it.
     return {{"ok", true}, {"nodes", std::move(nodes)}, {"hwnd", rootHost}, {"windowEnabled", root->isEnabled()},
+        {"root", {{"aid", accessibleText(QAccessibleBridgeUtils::accessibleId(rootInterface))},
+            {"name", accessibleText(rootInterface->text(QAccessible::Name))}}},
         {"foreground", GetForegroundWindow() == reinterpret_cast<HWND>(rootHost)},
         {"exactMatches", std::move(exactMatches)},
         {"windowRect", {{"x", windowRect.left}, {"y", windowRect.top},

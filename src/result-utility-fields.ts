@@ -8,6 +8,7 @@ import {
   OPTIONAL_OBJECT,
   OPTIONAL_SHA256,
   OPTIONAL_STRING,
+  OPTIONAL_STRING_ARRAY,
 } from "./result-schema-types.js";
 
 /**
@@ -151,6 +152,15 @@ export const UTILITY_OPERATION_RESULT_FIELDS = {
   help: {
     seite: OPTIONAL_STRING,
     abschnitte: OPTIONAL_OBJECT,
+    hinweis: OPTIONAL_STRING,
+  },
+  tax_knowledge_search: {
+    begriff: OPTIONAL_STRING,
+    fenster: OPTIONAL_NON_NEGATIVE_NUMBER,
+    pid: OPTIONAL_NON_NEGATIVE_NUMBER,
+    abschnitte: OPTIONAL_ARRAY,
+    verweise: OPTIONAL_STRING_ARRAY,
+    wartezeitMs: OPTIONAL_NON_NEGATIVE_NUMBER,
     hinweis: OPTIONAL_STRING,
   },
   menu: {

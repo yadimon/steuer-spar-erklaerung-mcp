@@ -28,7 +28,28 @@ const localExecutors = new Map([
 ]);
 
 /** Transportfelder, die jeder Vertrag traegt und die der Worker generisch setzt. */
-const TRANSPORT_FIELDS = new Set(["ok", "kind", "error", "ms", "focusTelemetry"]);
+const APPENDED_TRANSPORT_FIELDS = ["ms", "focusTelemetry", "treeWalks", "treeWalkMs", "treeWalkDetail"];
+const TRANSPORT_FIELDS = new Set(["ok", "kind", "error", ...APPENDED_TRANSPORT_FIELDS]);
+function appendedTransportFields(body) {
+  return new Set([...body.matchAll(
+    /^\s*\$obj\s*\|\s*Add-Member\s+-NotePropertyName\s+([A-Za-z][A-Za-z0-9_]*)\s+-NotePropertyValue\b/gmu,
+  )].map((match) => match[1]));
+}
+assert.deepEqual([...appendedTransportFields(
+  "# $obj | Add-Member -NotePropertyName comment -NotePropertyValue 1\n" +
+  "$nested | Add-Member -NotePropertyName nested -NotePropertyValue 1\n" +
+  "$obj | Add-Member -NotePropertyName actual -NotePropertyValue @(1)",
+)], ["actual"], "Nur an den echten Ergebnisumschlag angehaengte Felder duerfen als Transportbeleg gelten.");
+const emitStart = workerSource.indexOf("\nfunction Emit(");
+assert(emitStart >= 0, "Gemeinsamer Worker-Emit-Pfad fehlt.");
+const emitEnd = workerSource.indexOf("\nfunction ", emitStart + 10);
+const emitBody = workerSource.slice(emitStart, emitEnd >= 0 ? emitEnd : workerSource.length);
+const appendedFields = appendedTransportFields(emitBody);
+for (const field of APPENDED_TRANSPORT_FIELDS) {
+  assert(appendedFields.has(field), `Gemeinsamer Worker-Emit-Pfad setzt '${field}' nicht.`);
+}
+assert(/^\s*\$obj\s*\|\s*Add-Member\s+-NotePropertyName\s+treeWalkDetail\s+-NotePropertyValue\s+@\(\$script:SSE_TREE_WALK_DETAIL\)/mu
+  .test(emitBody), "Auch ein einzelner Baumlauf muss als Detail-Array emittiert werden.");
 const RECEIPT_FOREGROUND_BLOCK_FIELDS = new Set([
   "reason", "retryable", "interactionRequirement", "mutationStarted", "resultingState",
   "cleanupRequired", "physicalInputUsed", "foregroundLeaseUsed",

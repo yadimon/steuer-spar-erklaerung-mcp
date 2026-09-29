@@ -2,7 +2,8 @@
 
 Die API kann `get_value`, `table_read`, `snapshot`, `find`, `read_page`,
 `subpages`, `known_page_state`, `positions`, `ustva_read`,
-`receipt_manager_list`, `receipt_manager_read` und `receipt_manager_action`
+`receipt_manager_list`, `receipt_manager_read`, `receipt_manager_action`,
+`page`, `ui_state`, `help`, `read_table` und `checker_results`
 über eine dauerhaft gebundene Qt-Verbindung ausführen. Der normale Runtime-Start aktiviert diesen Pfad nur,
 wenn die Konfigurationsdatei `qtNativeRuntime` enthält. Dafür wird ein separates,
 kompatibles natives Paket benötigt; die npm-Pakete enthalten diesen Qt-Helfer
@@ -19,7 +20,7 @@ dagegen die gesunde Hauptfensterverbindung. Fehler und unbekannte Ausgänge
 erlauben keine automatische Neuverbindung oder Wiederholung.
 
 Die [Native-Abdeckungsmatrix](NATIVE-COVERAGE.md) zählt alle 102 API-Operationen:
-zwölf direkte optionale Qt-Handler und 90 ohne direkten Qt-Pfad. Sie trennt
+siebzehn direkte optionale Qt-Handler und 85 ohne direkten Qt-Pfad. Sie trennt
 diesen Stand von funktionaler Live-Abdeckung und noch erforderlicher Integration.
 `sse-native.dll` bezeichnet dagegen die bestehende C#-Worker-Hilfsbibliothek;
 der hier beschriebene C++-Lesepfad verwendet `sse-qt-read.dll` in SSE.
@@ -125,12 +126,89 @@ gesperrt. `ustva_read` projiziert einen einzelnen gebundenen GUI-Thread-Snapshot
 in dasselbe fachliche UStVA-Modell wie der bisherige Worker-Pfad. Ein modaler
 Dialog oder ein abgeschnittener Baum bricht die Lesung fail-closed ab; die
 Übermittlung bleibt gesperrt. Die übrigen Seiten- und UStVA-Operationen, etwa
-`page`, `read_full` und die UStVA-Schreibwege, benutzen weiterhin ihre bestehenden
+`read_full` und die UStVA-Schreibwege, benutzen weiterhin ihre bestehenden
 Pfade. `receipt_manager_list` liest das katalogisierte nichtmodale BelegManager-
 Fenster und den Dirty-State des gebundenen Hauptfensters direkt aus zwei
 begrenzten Qt-Snapshots. Runtime-IDs und Fingerprints bleiben mit den bestehenden
 quittierten Belegmutationen kompatibel; eine nicht vollständig exponierte Liste
 wird als unvollständig markiert und nicht als sichere Mutationsgrundlage ausgegeben.
+
+`page`, `help`, `read_table` und `checker_results` projizieren jeweils einen
+frischen, gebundenen GUI-Thread-Snapshot in genau die Ergebnisform des bisherigen
+Worker-Zweigs: Beschriftungen, Felder, sichtbare Tabellenzeilen, Aktionen mit
+Übermittlungssperre, Hilfeabschnitte, Kopfspalten mit typisierten Zellzuständen
+und die gruppierte Prüferliste. Fremde Fensterteilbäume werden wie bisher als
+`ausgeschlosseneFenster` ausgewiesen. Ein modaler Dialog bricht `page`, `help`,
+`read_table` und `checker_results` fail-closed mit `dialog-open` ab, weil der
+Qt-Pfad fremde Dialoge nicht beschreibt; `page` prüft davor das Win32-Fensterinventar
+des gebundenen Prozesses und scheitert ebenso mit `dialog-open`, sobald ein
+Fenster offen ist, das weder Werte-Info, Steuer-Spar-Tipps, ein Systemoverlay
+noch ein katalogisiertes nichtmodales Werkzeugfenster mit exakt gleichem Titel
+ist, oder ein namenloses Fenster sichtbar ist, das weder Schatten-,
+Tooltip- noch kleines Windows-Eingabeindikatorfenster ist; ein
+minimiertes Hauptfenster scheitert mit `minimized`, ein zweites Fallfenster
+desselben Prozesses wird wie beim Worker geduldet. `help` prüft das Inventar
+genauso und liest offene katalogisierte Nebenfenster wie die Steuer-Spar-Tipps
+über ihren Titel mit, weil der Worker-Baum sie unter dem Hauptfenster enthält. `page`, `help` und `checker_results`
+scheitern zusätzlich bei abgeschnittenem Baum mit `native-incomplete`, wobei
+die Meldung benennt, ob die Knotengrenze oder die Tiefengrenze von 16 Ebenen
+erreicht wurde; `read_table` meldet wie der Worker `incomplete`. `checker_results`
+prüft vorher nur, ob das gebundene Hauptfenster noch besteht und nicht
+minimiert ist, weil der Worker es vor dem Lesen wiederherstellt; weitere
+Fenster lässt es wie der Worker unbeachtet. Unsichtbare
+Teilbäume lässt die Bridge aus, genau wie Qt sie der UIA-Steuerungsansicht
+vorenthält; beide Pfade sehen von einer Liste deshalb nur die Zeilen im
+Sichtbereich, und `konsistent` vergleicht auf beiden Pfaden dieselben Zeilen
+mit der angekündigten Anzahl. `page` zählt in `offeneFenster` wie
+`Get-Windows` beim Worker jedes sichtbare Fenster aller Prozesse, deren
+Programmdatei und Installationsordner denselben Namen tragen, auch namenlose
+und Schattenfenster; gelistet, klassifiziert und
+gelesen werden nur Fenster des gebundenen Prozesses. `dialoge` bleibt dort
+immer leer, weil ein unbekanntes Fenster die Lesung bereits beendet hat. `page`, `help` und `checker_results`
+lesen bis zu 5000 statt 4000 Knoten, damit eine große Seite vollständig statt
+abgeschnitten gelesen wird, und ein leerer Baum gilt wie beim Worker als
+fehlgeschlagene Lesung; `read_table` behält die Grenze von 4000 Knoten und
+meldet Abschneidung, scheitert bei leerem Baum aber ebenso mit
+`native-incomplete`.
+Besessene Nebenfenster hängen im Qt-Accessibility-Baum nicht unter dem
+Hauptfenster; `page` und `read_table` lesen offene katalogisierte Nebenfenster
+deshalb über ihren Titel und führen sie mit Fensterkennung, Name, AutomationId,
+Geometrie und Knotenzahl unter `ausgeschlosseneFenster`; Name und AutomationId
+der Fensterwurzel meldet der Snapshot des Nebenfensters selbst. `read_table` prüft das Fensterinventar wie
+`page` und scheitert bei nicht katalogisierten Fenstern mit `dialog-open`.
+Ein Nebenfenster, das selbst modal blockiert oder deaktiviert ist, beendet
+die Lesung mit `dialog-open`, ein Nebenfenster über der Lesegrenze mit
+`native-incomplete`, ein Nebenfenster, das zwischen Inventar und Lesung
+verschwindet oder sich verdoppelt, mit `stale-window`; ein Systemoverlay und
+ein zweites Fallfenster werden nur gezählt, nie gelesen.
+Die Liste ausgeschlossener Nebenfenster folgt dabei der Inventarreihenfolge;
+ihre Reihenfolge kann von der UIA-Baumreihenfolge abweichen.
+
+`ui_state` liest Hauptfensterbaum und Win32-Fensterinventar des gebundenen
+Prozesses direkt; eine geöffnete Werte-Info wird unabhängig von ihrer Größe
+über ihren exakten Titel als zweiter Snapshot gelesen und in dasselbe
+`ergebnis`-Modell projiziert. Das Inventar belegt dabei das Fenster: Ein Baum
+ohne die Wertetabelle meldet die Werte-Info als offen, aber nicht lesbar, nie
+als geschlossen. Ein leerer oder abgeschnittener Hauptfensterbaum scheitert
+wie bei den anderen Lesungen mit `native-incomplete`; dabei werden weder ein
+erfolgreicher Zustand noch ein `stateFingerprint` aus Teilinformationen
+ausgegeben. Die Fehlermeldung unterscheidet die Knoten- von der Tiefengrenze.
+Kleine Windows-Eingabeindikatoren werden auch ohne Titel als `system-overlay`
+erfasst und beeinflussen weder den Blockzustand noch den Fingerprint.
+Dialoge, unbekannte und übrige namenlose Fenster werden nicht beschrieben, sondern
+mit ihrer Fensterkennung als `nicht-lesbar` unter `unsichereFenster` geführt;
+katalogisierte nichtmodale Werkzeugfenster wie der BelegManager gelten wie beim
+Worker als `unbekannt`. Der Zustand gilt dann als blockiert, und
+`sse_dialog_list` bleibt der Weg zum fingerprintgebundenen Dialog. Die
+Fensterliste ist wie beim Worker nach Fläche absteigend und bei gleicher
+Fläche in Aufzählungsreihenfolge geordnet, und
+`fensterAnzahl` zählt jedes sichtbare Fenster des Prozesses; nur Fenster mit
+einer Schattenklasse fehlen wie beim Worker in der Liste. Ein minimiertes Hauptfenster stellt dieser Lesepfad nicht wieder her,
+sondern scheitert mit `minimized`; zwei gleichzeitig offene Werte-Info-Fenster
+scheitern mit `ambiguous`. Der `stateFingerprint` verwendet dieselbe
+Feldreihenfolge und dieselben JSON-Bytes wie der Worker, damit
+`previousFingerprint` backendübergreifend vergleichbar bleibt, solange kein
+fremdes Fenster offen ist; `dialoge` bleibt auf diesem Pfad immer leer.
 
 ## Interne Laufzeitmessung
 

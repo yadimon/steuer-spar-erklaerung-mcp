@@ -5,11 +5,14 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
+  readFileSync,
   readdirSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { build as bundle } from "esbuild";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const apiRoot = join(root, "packages", "api");
@@ -55,6 +58,70 @@ for (const config of ["tsconfig.npm-api.json", "tsconfig.npm-mcp.json"]) {
     process.exit(compiled.status ?? 1);
   }
 }
+
+// A fresh npm installation otherwise loads hundreds of SDK/schema files before
+// the stdio handshake. Bundle the CLI and its exact locked dependencies so cold
+// startup needs one JavaScript read; the API remains an ordinary npm dependency.
+const mcpBundle = await bundle({
+  absWorkingDir: root,
+  entryPoints: ["src/index.ts"],
+  outfile: "index.js",
+  bundle: true,
+  platform: "node",
+  format: "esm",
+  target: "node22",
+  packages: "bundle",
+  preserveSymlinks: true,
+  charset: "utf8",
+  legalComments: "eof",
+  sourcemap: false,
+  minify: false,
+  treeShaking: true,
+  write: false,
+  metafile: true,
+  logLevel: "warning",
+});
+if (mcpBundle.outputFiles.length !== 1 || Object.keys(mcpBundle.metafile.outputs).length !== 1) {
+  throw new Error("MCP CLI bundle must contain exactly one JavaScript output.");
+}
+for (const imported of Object.values(mcpBundle.metafile.outputs)[0].imports) {
+  if (imported.external && !imported.path.startsWith("node:")) {
+    throw new Error(`MCP CLI bundle has an external JavaScript dependency: ${imported.path}`);
+  }
+}
+const bundledText = mcpBundle.outputFiles[0].text;
+if ([root, root.replaceAll("\\", "/")].some(path => bundledText.toLowerCase().includes(path.toLowerCase()))) {
+  throw new Error("MCP CLI bundle contains an absolute build path.");
+}
+writeFileSync(join(mcpRoot, "dist", "index.js"), mcpBundle.outputFiles[0].contents);
+
+// Every dependency actually included in the bundle carries its original license.
+const bundledPackages = new Set();
+for (const input of Object.keys(mcpBundle.metafile.inputs)) {
+  const normalized = input.replaceAll("\\", "/");
+  const marker = "node_modules/";
+  const index = normalized.lastIndexOf(marker);
+  if (index < 0) continue;
+  const parts = normalized.slice(index + marker.length).split("/");
+  bundledPackages.add(parts[0].startsWith("@") ? `${parts[0]}/${parts[1]}` : parts[0]);
+}
+const notices = ["# Bundled MCP CLI dependencies", "", "Generated from the esbuild input manifest.", ""];
+for (const name of [...bundledPackages].sort()) {
+  const dependencyRoot = join(root, "node_modules", ...name.split("/"));
+  const manifest = JSON.parse(readFileSync(join(dependencyRoot, "package.json"), "utf8"));
+  if (manifest.name !== name || !manifest.version || typeof manifest.license !== "string" || !manifest.license) {
+    throw new Error(`Bundled dependency metadata is incomplete: ${name}`);
+  }
+  const licenses = readdirSync(dependencyRoot, { withFileTypes: true })
+    .filter(entry => entry.isFile() && /^(?:licen[cs]e|copying)(?:\..*)?$/iu.test(entry.name))
+    .map(entry => entry.name).sort();
+  if (!licenses.length) throw new Error(`Bundled dependency license is missing: ${name}`);
+  notices.push(`## ${name}@${manifest.version} (${manifest.license})`, "");
+  for (const license of licenses) {
+    notices.push(readFileSync(join(dependencyRoot, license), "utf8").replaceAll("\r\n", "\n").trimEnd(), "");
+  }
+}
+writeFileSync(join(mcpRoot, "dist", "THIRD_PARTY_NOTICES.md"), notices.join("\n"), "utf8");
 
 const nativeDll = join(root, "powershell", "sse-native.dll");
 const nativeHash = join(root, "powershell", "sse-native.sha256");

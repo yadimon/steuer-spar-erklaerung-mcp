@@ -34,7 +34,9 @@ for (const operation of ["read_table", "table_read"]) {
 assert.deepEqual(Object.keys(SSE_API_RESULT_OUTPUT_SCHEMAS), [...SSE_API_OPERATIONS]);
 assert.deepEqual(Object.keys(SSE_API_RESULT_SCHEMAS), [...SSE_API_OPERATIONS]);
 
-const TRANSPORT_RESULT_FIELDS = new Set(["ok", "kind", "error", "ms"]);
+const TRANSPORT_RESULT_FIELDS = new Set([
+  "ok", "kind", "error", "ms", "treeWalks", "treeWalkMs", "treeWalkDetail", "focusTelemetry",
+]);
 const operationsWithoutSpecificResultContract = SSE_API_OPERATIONS.filter((operation) =>
   Object.keys(SSE_API_RESULT_OUTPUT_SCHEMAS[operation].shape)
     .every((field) => TRANSPORT_RESULT_FIELDS.has(field))
@@ -53,6 +55,21 @@ assert.deepEqual(
   [],
   "Destruktive Operationen duerfen nicht nur einen generischen Ergebnisumschlag veroeffentlichen.",
 );
+
+const traversalCounters = { treeWalks: 1, treeWalkMs: 3, treeWalkDetail: [{ knoten: 87, grenze: 4000, ms: 3 }] };
+const traversed = parseApiOperationResult("get_value", { ok: true, value: "synthetic", ...traversalCounters });
+assert.deepEqual(traversed.treeWalkDetail, traversalCounters.treeWalkDetail);
+assert.equal(traversed.treeWalks, 1);
+for (const malformed of [
+  { treeWalks: 1.5 },
+  { treeWalkMs: -1 },
+  { treeWalkMs: Infinity },
+  { treeWalkDetail: [{ knoten: 87, grenze: 4000, ms: "3" }] },
+  { treeWalkDetail: Array(17).fill(traversalCounters.treeWalkDetail[0]) },
+]) {
+  assert.throws(() => parseApiOperationResult("get_value", { ok: true, ...malformed }),
+    undefined, "Malformed traversal telemetry must not pass as an untyped extension.");
+}
 assert.deepEqual(
   Object.keys(SSE_API_RESULT_OUTPUT_SCHEMAS.case_hash.shape).filter((key) =>
     ["path", "exists", "size", "mtimeUtc", "sha256", "header", "transmitted", "transmittedReason"].includes(key)),
