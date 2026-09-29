@@ -617,6 +617,13 @@ allgemeinen Werkzeuge nur öffnen, lesen und schließen dürfen. Seine Freigabe
 hängt allein am exakten, gross-/kleinschreibungsgenauen Titel, nicht an einer
 Größenschranke: Ein Werkzeugfenster wächst mit dem Bildschirm.
 
+`window_close` prüft nach genau einer Zustellung, dass nur das gebundene
+Nebenfenster geschlossen wurde und alle übrigen Anwendungsfenster sowie die
+Dialogfreiheit erhalten bleiben. Native `SysShadow`-Fenster, exakt erkannte
+Qt-Tooltips und kleine Windows-Eingabeindikatoren gehören als kurzlebige
+Dekorationen nicht zum Peer-Vergleich. Interaktive Qt-Menüs, unbekannte Fenster
+und Änderungen der Identität eines anderen Anwendungsfensters bleiben Fehler.
+
 Der BelegManager wird **nicht** durch eine gelockerte allgemeine Bindung
 bedienbar — ein „Klick auf ein beliebiges Fenster derselben PID" würde denselben
 Weg für Versand- und Speicherdialoge öffnen. Stattdessen besitzt er zehn
