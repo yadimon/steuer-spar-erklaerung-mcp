@@ -393,6 +393,7 @@
           },
           "transport": {
             "types": [
+              "object:{\"apiOperations\":\"array-many:string-other\",\"apiVersion\":\"string-other\",\"directApiWithoutMcp\":\"boolean\",\"directCliWithoutMcp\":\"boolean\",\"discoveryPath\":\"string-other\",\"mcpCancellationPropagatesToApi\":\"boolean\",\"mcpComposedToolOperations\":\"object\",\"mcpControlToolActions\":\"object\",\"mcpToolOperations\":\"object\",\"nonDestructiveStatefulOperations\":\"array-many:string-other\",\"openApiPath\":\"string-other\",\"operationDiscoveryPathTemplate\":\"string-other\",\"packageName\":\"string-other\",\"packageVersion\":\"string-other\",\"potentiallyDestructiveOperations\":\"array-many:string-other\",\"readOnlyOperations\":\"array-many:string-other\",\"statefulOperations\":\"array-many:string-other\",\"workerArguments\":\"string-other\",\"workerArgumentsVisibleInProcessList\":\"boolean\",\"workerQueueDepth\":\"nonnegative-number\"}",
               "object:{\"apiOperations\":\"array-many:string-other\",\"apiVersion\":\"string-other\",\"directApiWithoutMcp\":\"boolean\",\"directCliWithoutMcp\":\"boolean\",\"discoveryPath\":\"string-other\",\"mcpCancellationPropagatesToApi\":\"boolean\",\"mcpComposedToolOperations\":\"object\",\"mcpToolOperations\":\"object\",\"nonDestructiveStatefulOperations\":\"array-many:string-other\",\"openApiPath\":\"string-other\",\"operationDiscoveryPathTemplate\":\"string-other\",\"packageName\":\"string-other\",\"packageVersion\":\"string-other\",\"potentiallyDestructiveOperations\":\"array-many:string-other\",\"readOnlyOperations\":\"array-many:string-other\",\"statefulOperations\":\"array-many:string-other\",\"workerArguments\":\"string-other\",\"workerArgumentsVisibleInProcessList\":\"boolean\",\"workerQueueDepth\":\"nonnegative-number\"}",
               "object:{\"apiOperations\":\"array-many:string-other\",\"apiVersion\":\"string-other\",\"directApiWithoutMcp\":\"boolean\",\"directCliWithoutMcp\":\"boolean\",\"discoveryPath\":\"string-other\",\"mcpCancellationPropagatesToApi\":\"boolean\",\"mcpToolOperations\":\"object\",\"nonDestructiveStatefulOperations\":\"array-many:string-other\",\"openApiPath\":\"string-other\",\"operationDiscoveryPathTemplate\":\"string-other\",\"packageName\":\"string-other\",\"packageVersion\":\"string-other\",\"potentiallyDestructiveOperations\":\"array-many:string-other\",\"readOnlyOperations\":\"array-many:string-other\",\"statefulOperations\":\"array-many:string-other\",\"workerArguments\":\"string-other\",\"workerArgumentsVisibleInProcessList\":\"boolean\",\"workerQueueDepth\":\"nonnegative-number\"}"
             ],
@@ -608,6 +609,39 @@
           "textCandidates": {
             "types": [
               "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-one:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
             ],
             "labels": [
               "worker"
@@ -2106,6 +2140,39 @@
               "success"
             ]
           },
+          "treeWalkDetail": {
+            "types": [
+              "array-one:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "verzeichnis": {
             "types": [
               "null",
@@ -2364,6 +2431,39 @@
               "success"
             ]
           },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "verzeichnis": {
             "types": [
               "null",
@@ -2593,6 +2693,39 @@
           "steuerpruefer": {
             "types": [
               "object:{\"aktiv\":\"boolean\",\"aufgeklappt\":\"array-empty\",\"fragenWarnungen\":\"array-empty\",\"fragenWarnungenAngekuendigt\":\"nonnegative-number\",\"fragenWarnungenGruppeGesehen\":\"boolean\",\"gesamt\":\"nonnegative-number\",\"konsistent\":\"boolean\",\"leer\":\"boolean\",\"sonstige\":\"array-empty\",\"tippsAngekuendigt\":\"nonnegative-number\",\"tippsGruppeGesehen\":\"boolean\",\"tippsZusatzinfos\":\"array-empty\"}"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-one:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
             ],
             "labels": [
               "worker"
@@ -2850,6 +2983,39 @@
           "ok": {
             "types": [
               "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
             ],
             "labels": [
               "worker"
@@ -3162,6 +3328,39 @@
           "text": {
             "types": [
               "string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-one:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
             ],
             "labels": [
               "worker"
@@ -3636,6 +3835,39 @@
               "success"
             ]
           },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "ungespeichert": {
             "types": [
               "boolean"
@@ -4059,6 +4291,39 @@
               "success"
             ]
           },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "ungespeichert": {
             "types": [
               "boolean"
@@ -4395,6 +4660,39 @@
               "success"
             ]
           },
+          "treeWalkDetail": {
+            "types": [
+              "array-one:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "ungespeichert": {
             "types": [
               "boolean"
@@ -4633,6 +4931,39 @@
           "tippsZusatzinfos": {
             "types": [
               "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
             ],
             "labels": [
               "worker"
@@ -4910,6 +5241,43 @@
               "success"
             ]
           },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object",
+              "array-one:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
           "ueberschriftNachher": {
             "types": [
               "string-other"
@@ -5141,6 +5509,39 @@
           "seiteGewechselt": {
             "types": [
               "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
             ],
             "labels": [
               "worker"
@@ -5434,6 +5835,40 @@
           "stillRunning": {
             "types": [
               "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object",
+              "array-one:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
             ],
             "labels": [
               "worker"
@@ -5821,6 +6256,42 @@
               "success"
             ]
           },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
           "ueberschriften": {
             "types": [
               "array-many:string-other",
@@ -6028,6 +6499,42 @@
             "outcomes": [
               "success"
             ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
           }
         }
       }
@@ -6223,6 +6730,39 @@
           "selected": {
             "types": [
               "string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
             ],
             "labels": [
               "worker"
@@ -6965,6 +7505,39 @@
             "outcomes": [
               "success"
             ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
           }
         }
       }
@@ -7226,6 +7799,42 @@
               "success"
             ]
           },
+          "treeWalkDetail": {
+            "types": [
+              "array-one:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
           "ungespeichertEingefuehrt": {
             "types": [
               "boolean"
@@ -7387,6 +7996,39 @@
               "success"
             ]
           },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "windows": {
             "types": [
               "array-many:object",
@@ -7535,6 +8177,39 @@
             ]
           },
           "systemOverlaysIgnoriert": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
             "types": [
               "nonnegative-number"
             ],
@@ -7749,6 +8424,39 @@
           "ok": {
             "types": [
               "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
             ],
             "labels": [
               "worker"
@@ -8313,6 +9021,39 @@
               "success"
             ]
           },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "verified": {
             "types": [
               "boolean"
@@ -8483,6 +9224,39 @@
             "outcomes": [
               "success"
             ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-one:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
           }
         }
       }
@@ -8617,6 +9391,39 @@
           "readOnly": {
             "types": [
               "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-one:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
             ],
             "labels": [
               "worker"
@@ -8797,6 +9604,40 @@
             ]
           },
           "schritte": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object",
+              "array-one:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
             "types": [
               "nonnegative-number"
             ],
@@ -9132,6 +9973,39 @@
               "success"
             ]
           },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "windows": {
             "types": [
               "array-empty",
@@ -9251,6 +10125,39 @@
           "seite": {
             "types": [
               "string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-one:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
             ],
             "labels": [
               "worker"
@@ -10635,6 +11542,40 @@
             "outcomes": [
               "success"
             ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object",
+              "array-one:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
           }
         }
       }
@@ -10827,6 +11768,39 @@
               "success"
             ]
           },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "ungespeichertNachher": {
             "types": [
               "boolean"
@@ -10996,6 +11970,39 @@
             ]
           },
           "popupCountBefore": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-one:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
             "types": [
               "nonnegative-number"
             ],
@@ -11280,6 +12287,40 @@
               "success"
             ]
           },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object",
+              "array-one:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "ueberschrift": {
             "types": [
               "string-other"
@@ -11516,6 +12557,39 @@
           "positionen": {
             "types": [
               "array-empty"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-one:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
             ],
             "labels": [
               "worker"
@@ -12080,6 +13154,39 @@
               "success"
             ]
           },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "ueberschrift": {
             "types": [
               "string-other"
@@ -12231,6 +13338,39 @@
           "stats": {
             "types": [
               "object:{\"cyc\":\"nonnegative-number\",\"cycleName\":\"string-empty\",\"cycleRid\":\"string-empty\",\"err\":\"nonnegative-number\",\"fallbackReason\":\"string-empty\",\"n\":\"nonnegative-number\",\"scrollErr\":\"nonnegative-number\",\"snapshotMs\":\"nonnegative-number\",\"source\":\"string-other\",\"truncated\":\"boolean\",\"valErr\":\"nonnegative-number\"}"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-one:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
             ],
             "labels": [
               "worker"
@@ -12408,6 +13548,17 @@
               "success"
             ]
           },
+          "rowDetails": {
+            "types": [
+              "array-empty"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "rows": {
             "types": [
               "array-empty"
@@ -12422,6 +13573,39 @@
           "stats": {
             "types": [
               "object:{\"cyc\":\"nonnegative-number\",\"cycleName\":\"string-empty\",\"cycleRid\":\"string-empty\",\"err\":\"nonnegative-number\",\"fallbackReason\":\"string-empty\",\"n\":\"nonnegative-number\",\"scrollErr\":\"nonnegative-number\",\"snapshotMs\":\"nonnegative-number\",\"source\":\"string-other\",\"truncated\":\"boolean\",\"valErr\":\"nonnegative-number\"}"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-one:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
             ],
             "labels": [
               "worker"
@@ -15066,8 +16250,132 @@
         }
       },
       "live": {
-        "profiles": [],
-        "fields": {}
+        "profiles": [
+          "2025"
+        ],
+        "fields": {
+          "cleanupRequired": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
+          "error": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
+          "foregroundLeaseUsed": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
+          "interactionRequirement": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
+          "kind": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
+          "mutationStarted": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
+          "ok": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
+          "physicalInputUsed": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
+          "reason": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
+          "resultingState": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
+          "retryable": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          }
+        }
       }
     },
     "result_details": {
@@ -15372,6 +16680,40 @@
             "types": [
               "object:{\"aktuell\":\"string-other\",\"beobachteterWert\":\"string-other\",\"differenz\":\"string-other\",\"festgehalten\":\"string-other\",\"uiaKopfzeilen\":\"array-many:mixed\"}",
               "object:{\"aktuell\":\"string-other\",\"beobachteterWert\":\"string-other\",\"differenz\":\"string-other\",\"festgehalten\":\"string-other\",\"uiaKopfzeilen\":\"array-many:string\"}"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object",
+              "array-one:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
             ],
             "labels": [
               "worker"
@@ -15759,6 +17101,39 @@
               "success"
             ]
           },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "verified": {
             "types": [
               "boolean"
@@ -16029,6 +17404,39 @@
           "transmitted": {
             "types": [
               "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
             ],
             "labels": [
               "worker"
@@ -16496,6 +17904,42 @@
             "outcomes": [
               "success"
             ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
           }
         }
       }
@@ -16614,6 +18058,39 @@
           "scrollbar": {
             "types": [
               "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-one:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
             ],
             "labels": [
               "worker"
@@ -16890,6 +18367,42 @@
               "error"
             ]
           },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
           "verified": {
             "types": [
               "boolean"
@@ -17052,6 +18565,39 @@
           "toolWindow": {
             "types": [
               "string-empty"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-one:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
             ],
             "labels": [
               "worker"
@@ -17361,6 +18907,39 @@
               "success"
             ]
           },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "valueMismatchCount": {
             "types": [
               "nonnegative-number"
@@ -17456,6 +19035,39 @@
           "ok": {
             "types": [
               "boolean"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-one:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
             ],
             "labels": [
               "worker"
@@ -17640,6 +19252,7 @@
           },
           "inputGuard": {
             "types": [
+              "object:{\"aktiv\":\"boolean\",\"baseline\":\"nonnegative-number\",\"beobachtet\":\"nonnegative-number\",\"eingriffErkannt\":\"boolean\",\"foreignForegroundIsolation\":\"boolean\",\"lockScreenIsolation\":\"boolean\"}",
               "object:{\"aktiv\":\"boolean\",\"baseline\":\"nonnegative-number\",\"beobachtet\":\"nonnegative-number\",\"eingriffErkannt\":\"boolean\",\"lockScreenIsolation\":\"boolean\"}"
             ],
             "labels": [
@@ -17768,6 +19381,42 @@
           "tableBinding": {
             "types": [
               "object:{\"previousSummaryY\":\"null\",\"rowY\":\"nonnegative-number\",\"sumOccurrence\":\"nonnegative-number\",\"sumY\":\"nonnegative-number\"}"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
             ],
             "labels": [
               "worker"
@@ -18156,6 +19805,39 @@
               "success"
             ]
           },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "verified": {
             "types": [
               "boolean"
@@ -18338,7 +20020,52 @@
               "success"
             ]
           },
+          "rowDetails": {
+            "types": [
+              "array-empty",
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "schritte": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "stapel": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "stapelGroesse": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "stapelKorrekturen": {
             "types": [
               "nonnegative-number"
             ],
@@ -18383,7 +20110,53 @@
               "success"
             ]
           },
+          "summen": {
+            "types": [
+              "array-empty",
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "tabelleAnzahl": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object",
+              "array-one:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
             "types": [
               "nonnegative-number"
             ],
@@ -18578,6 +20351,7 @@
           },
           "inputGuard": {
             "types": [
+              "object:{\"aktiv\":\"boolean\",\"baseline\":\"nonnegative-number\",\"beobachtet\":\"nonnegative-number\",\"eingriffErkannt\":\"boolean\",\"foreignForegroundIsolation\":\"boolean\",\"lockScreenIsolation\":\"boolean\"}",
               "object:{\"aktiv\":\"boolean\",\"baseline\":\"nonnegative-number\",\"beobachtet\":\"nonnegative-number\",\"eingriffErkannt\":\"boolean\",\"lockScreenIsolation\":\"boolean\"}"
             ],
             "labels": [
@@ -18684,6 +20458,42 @@
           "tableBinding": {
             "types": [
               "object:{\"previousSummaryY\":\"null\",\"rowY\":\"nonnegative-number\",\"sumOccurrence\":\"nonnegative-number\",\"sumY\":\"nonnegative-number\",\"targetRid\":\"string-other\"}"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
             ],
             "labels": [
               "worker"
@@ -18981,6 +20791,42 @@
               "error"
             ]
           },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
           "ungespeichertNachher": {
             "types": [
               "boolean"
@@ -19167,6 +21013,7 @@
           "commitDetails": {
             "types": [
               "object:{\"desktop\":\"string-other\",\"focusMode\":\"string-other\",\"focusMs\":\"nonnegative-number\",\"focusVerified\":\"boolean\",\"foregroundLeaseUsed\":\"boolean\",\"observedValue\":\"string-other\",\"physicalInputUsed\":\"boolean\",\"selectedByPattern\":\"boolean\",\"setValueMs\":\"nonnegative-number\",\"settleAttempts\":\"nonnegative-number\",\"settleMs\":\"nonnegative-number\",\"settledEarly\":\"boolean\",\"strategy\":\"string-other\",\"targetPid\":\"nonnegative-number\",\"typeMs\":\"nonnegative-number\",\"writeMs\":\"nonnegative-number\"}",
+              "object:{\"focusMethod\":\"string-other\",\"observedValue\":\"string-other\",\"settleAttempts\":\"nonnegative-number\",\"settleMs\":\"nonnegative-number\",\"settledEarly\":\"boolean\"}",
               "object:{\"observedValue\":\"string-other\",\"settleAttempts\":\"nonnegative-number\",\"settleMs\":\"nonnegative-number\",\"settledEarly\":\"boolean\"}"
             ],
             "labels": [
@@ -19447,6 +21294,43 @@
               "success"
             ]
           },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object",
+              "array-one:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "error",
+              "success"
+            ]
+          },
           "ungespeichert": {
             "types": [
               "boolean"
@@ -19659,6 +21543,39 @@
             "outcomes": [
               "success"
             ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
           }
         }
       }
@@ -19799,6 +21716,39 @@
           "sichtbareKnoten": {
             "types": [
               "array-many:string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
             ],
             "labels": [
               "worker"
@@ -20194,6 +22144,39 @@
               "success"
             ]
           },
+          "treeWalkDetail": {
+            "types": [
+              "array-one:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "ungespeichert": {
             "types": [
               "boolean"
@@ -20428,6 +22411,7 @@
           },
           "commitDetails": {
             "types": [
+              "object:{\"focusMethod\":\"string-other\",\"observedValue\":\"string-other\",\"settleAttempts\":\"nonnegative-number\",\"settleMs\":\"nonnegative-number\",\"settledEarly\":\"boolean\"}",
               "object:{\"observedValue\":\"string-other\",\"settleAttempts\":\"nonnegative-number\",\"settleMs\":\"nonnegative-number\",\"settledEarly\":\"boolean\"}"
             ],
             "labels": [
@@ -20671,6 +22655,39 @@
           "summen": {
             "types": [
               "array-empty"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
             ],
             "labels": [
               "worker"
@@ -20949,6 +22966,39 @@
           "pattern": {
             "types": [
               "string-other"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
             ],
             "labels": [
               "worker"
@@ -21676,6 +23726,39 @@
               "success"
             ]
           },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
           "ustva": {
             "types": [
               "object:{\"before\":\"string-other\",\"effects\":\"object\",\"selected\":\"string-other\",\"selector\":\"string-other\"}"
@@ -21940,6 +24023,39 @@
           "resourceRefs": {
             "types": [
               "object:{\"expectedCaseRef\":\"string-other\"}"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkDetail": {
+            "types": [
+              "array-many:object"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalkMs": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "worker"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "treeWalks": {
+            "types": [
+              "nonnegative-number"
             ],
             "labels": [
               "worker"

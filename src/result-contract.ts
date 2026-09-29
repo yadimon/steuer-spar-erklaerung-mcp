@@ -422,6 +422,14 @@ function createOperationResultOutputSchema(operation: SseApiOperation): z.AnyZod
     kind: z.string().min(1).nullable().optional().describe("Fehlerart"),
     error: z.string().min(1).nullable().optional().describe("Fehlermeldung"),
     ms: z.number().finite().nonnegative().nullable().optional().describe("Worker-Laufzeit in ms"),
+    // Emit appends these counters to every operation that walked a UIA tree.
+    treeWalks: z.number().int().nonnegative().optional().describe("Anzahl der UIA-Baumlaeufe"),
+    treeWalkMs: z.number().finite().nonnegative().optional().describe("Gesamtdauer der UIA-Baumlaeufe in ms"),
+    treeWalkDetail: z.array(z.object({
+      knoten: z.number().int().nonnegative().describe("Gelesene Knoten"),
+      grenze: z.number().int().nonnegative().describe("Knotengrenze des Laufs"),
+      ms: z.number().finite().nonnegative().describe("Dauer dieses Baumlaufs in ms"),
+    }).strict()).max(16).optional().describe("Begrenzte Detailzaehler der UIA-Baumlaeufe"),
     // Der Worker kann diese Telemetrie bei jeder Operation anhaengen, die den
     // universellen Foreground-Lease tatsaechlich erwirbt. Sie gehoert deshalb
     // zum gemeinsamen Ergebnisrand und nicht zu einzelnen Klickoperationen.

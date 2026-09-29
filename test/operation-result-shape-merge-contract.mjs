@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { z } from "zod";
+import { SSE_API_RESULT_OUTPUT_SCHEMAS } from "../dist/result-contract.js";
 import {
   isResultTypeTag,
   mergeFieldEvidence,
@@ -51,6 +52,23 @@ assert.deepEqual(
   ["synthetic"],
   "Offene String-Schemas brauchen keine schemaabhaengigen Werte.",
 );
+const numericRecords = z.array(z.object({ count: z.number().int().nonnegative(), ms: z.number().nonnegative() }).strict())
+  .max(16).nullable().optional();
+for (const tag of ["array-one:object", "array-many:object"]) {
+  const samples = samplesForResultTypeTagWithSchemaLiteral(tag, numericRecords);
+  assert(samples.some(sample => numericRecords.safeParse(sample).success),
+    "Numeric object arrays need a schema-compatible sample with the observed cardinality.");
+  assert(samples.every(sample => resultTypeTag(sample) === tag), "Schema samples must preserve the observed type tag.");
+}
+assert(samplesForResultTypeTagWithSchemaLiteral("array-one:string-other", numericRecords)
+  .every(sample => !numericRecords.safeParse(sample).success), "A schema cannot convert an incompatible observed element type.");
+const rowDetails = SSE_API_RESULT_OUTPUT_SCHEMAS.table_read.shape.rowDetails;
+for (const tag of ["array-one:object", "array-many:object"]) {
+  const samples = samplesForResultTypeTagWithSchemaLiteral(tag, rowDetails);
+  assert(samples.some(sample => rowDetails.safeParse(sample).success),
+    "The live table's structured row details need a schema-compatible sample.");
+  assert(samples.every(sample => resultTypeTag(sample) === tag));
+}
 const objectTag = resultObjectTypeTag({ path: "results:synthetic.png", w: 1, h: 2 });
 assert.equal(objectTag, 'object:{"h":"nonnegative-number","path":"string-other","w":"nonnegative-number"}');
 assert.equal(isResultTypeTag(objectTag), true);
