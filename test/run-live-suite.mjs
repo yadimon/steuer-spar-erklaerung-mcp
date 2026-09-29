@@ -64,6 +64,22 @@ function runCenterCoverage() {
   assert.equal(run.status, 0, `Center-Livevertrag scheiterte mit Exit ${run.status}.`);
 }
 
+/** Case creation and page-object writes use a fresh, synthetic case of their own. */
+function runCaseCreateCoverage() {
+  process.stdout.write("\n> Fallanlage und gebundene Stammdaten (2025)\n");
+  const run = spawnSync(process.execPath, ["test/run-live-case-create.mjs"], {
+    cwd: root,
+    env: { ...process.env, SSE_PROFILE_ID: "2025", SSE_PRESERVE_TEST_SANDBOX_ON_FAILURE: "1" },
+    stdio: "inherit",
+    windowsHide: true,
+  });
+  if (run.error) throw new Error(`Fallanlage-Livevertrag konnte nicht laufen: ${run.error.message}`, { cause: run.error });
+  assert.equal(run.signal, null, `Fallanlage-Livevertrag endete mit Signal ${run.signal}.`);
+  assert.equal(run.status, 0, `Fallanlage-Livevertrag scheiterte mit Exit ${run.status}.`);
+  assertNoSse("Nach dem Fallanlage-Livevertrag");
+  assertNoRecoveryFile("Die Fallanlage");
+}
+
 function assertCaseFileParity(profileId) {
   process.stdout.write(`\n> ${profileId}-Fallhash-Paritaet\n`);
   const env = { ...process.env, SSE_PROFILE_ID: profileId };
@@ -470,6 +486,7 @@ try {
     runFixtureScripts(profileId);
     assertNoRecoveryFile(`Die Fixture-Skripte des Profils ${profileId}`);
   }
+  runCaseCreateCoverage();
   runCenterCoverage();
   for (const profileId of ["2025", "2024"]) assertProfileReadCoverage(profileId);
   assertLiveLedgers();

@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { loadProductProfile } from "../dist/product-profiles.js";
 import { ssePids } from "./direct-worker-helpers.mjs";
-import { OPERATION_TRACE_DIRECTORY_KEY } from "./operation-trace.mjs";
+import { OPERATION_TRACE_DIRECTORY_KEY, operationTraceDirectory } from "./operation-trace.mjs";
 
 if (process.platform !== "win32") throw new Error("Der Livebeweis der Fallanlage benoetigt Windows.");
 
@@ -46,12 +46,16 @@ assert.equal(ssePids(), "", "Der Livebeweis startet nur ohne vorhandene SSE-Proz
 assertNoRecoveryFile("Der Zustand vor der Fallanlage");
 
 const caseDir = mkdtempSync(join(tmpdir(), `sse-case-create-${profileId}-`));
-const traceDirectory = mkdtempSync(join(tmpdir(), "sse-case-create-trace-"));
+// A full live suite owns its aggregate trace. A standalone invocation owns
+// a separate trace and may remove it after successful verification.
+const inheritedTraceDirectory = operationTraceDirectory();
+const traceDirectory = inheritedTraceDirectory || mkdtempSync(join(tmpdir(), "sse-case-create-trace-"));
 let completed = false;
 try {
   runNode(`Live case_create (${profileId})`, ["test/with-api.mjs", process.execPath, "test/live-case-create.mjs"], {
     SSE_PROFILE_ID: profileId,
     SSE_CASE_DIR: caseDir,
+    SSE_TEST_INTERACTIVE_RECEIPTS: "0",
     [OPERATION_TRACE_DIRECTORY_KEY]: traceDirectory,
   });
   assert.equal(ssePids(), "", "Nach der Fallanlage: verbliebene SSE-Prozesse.");
@@ -69,7 +73,7 @@ try {
 } finally {
   if (completed) {
     rmSync(caseDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
-    rmSync(traceDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    if (!inheritedTraceDirectory) rmSync(traceDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   } else {
     process.stderr.write(`Fallordner und Trace zur Diagnose erhalten: ${caseDir} / ${traceDirectory}\n`);
   }
