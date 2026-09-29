@@ -7082,25 +7082,7 @@ var init_operation_live_evidence = __esm({
 // src/result-contract.ts
 function createOperationResultOutputSchema(operation) {
   const operationFields = OPERATION_RESULT_FIELDS[operation] ?? {};
-  return external_exports.object({
-    ok: external_exports.boolean().describe("Operation erfolgreich"),
-    kind: external_exports.string().min(1).nullable().optional().describe("Fehlerart"),
-    error: external_exports.string().min(1).nullable().optional().describe("Fehlermeldung"),
-    ms: external_exports.number().finite().nonnegative().nullable().optional().describe("Worker-Laufzeit in ms"),
-    // Emit appends these counters to every operation that walked a UIA tree.
-    treeWalks: external_exports.number().int().nonnegative().optional().describe("Anzahl der UIA-Baumlaeufe"),
-    treeWalkMs: external_exports.number().finite().nonnegative().optional().describe("Gesamtdauer der UIA-Baumlaeufe in ms"),
-    treeWalkDetail: external_exports.array(external_exports.object({
-      knoten: external_exports.number().int().nonnegative().describe("Gelesene Knoten"),
-      grenze: external_exports.number().int().nonnegative().describe("Knotengrenze des Laufs"),
-      ms: external_exports.number().finite().nonnegative().describe("Dauer dieses Baumlaufs in ms")
-    }).strict()).max(16).optional().describe("Begrenzte Detailzaehler der UIA-Baumlaeufe"),
-    // Der Worker kann diese Telemetrie bei jeder Operation anhaengen, die den
-    // universellen Foreground-Lease tatsaechlich erwirbt. Sie gehoert deshalb
-    // zum gemeinsamen Ergebnisrand und nicht zu einzelnen Klickoperationen.
-    focusTelemetry: OPTIONAL_OBJECT,
-    ...operationFields
-  }).passthrough().describe(`Result_${operation} v${SSE_API_RESULT_SCHEMA_VERSION}`);
+  return SSE_API_RESULT_ENVELOPE_SCHEMA.extend(operationFields).describe(`Result_${operation} v${SSE_API_RESULT_SCHEMA_VERSION}`);
 }
 function createOperationResultSchema(operation) {
   return SSE_API_RESULT_OUTPUT_SCHEMAS[operation].superRefine((result, context) => {
@@ -7160,7 +7142,7 @@ function createOperationResultSchema(operation) {
 function parseApiOperationResult(operation, value) {
   return SSE_API_RESULT_SCHEMAS[operation].parse(value);
 }
-var SSE_API_RESULT_SCHEMA_VERSION, API_OPERATION_NAME_SCHEMA, OPTIONAL_TABLE_ROW_DETAILS, OPTIONAL_SUPPORTED_CASE_YEARS, OPTIONAL_CASE_IDENTITY, OPTIONAL_USTVA_PERIOD, OPTIONAL_USTVA_FLAGS, OPTIONAL_USTVA_TRANSMISSION, OPTIONAL_USTVA_READ_EFFECTS, CORE_OPERATION_RESULT_FIELDS, RESULT_FIELD_TABLES, duplicateOperations, OPERATION_RESULT_FIELDS, SSE_API_RESULT_OUTPUT_SCHEMAS, SSE_API_RESULT_SCHEMAS;
+var SSE_API_RESULT_SCHEMA_VERSION, API_OPERATION_NAME_SCHEMA, OPTIONAL_TABLE_ROW_DETAILS, OPTIONAL_SUPPORTED_CASE_YEARS, OPTIONAL_CASE_IDENTITY, OPTIONAL_USTVA_PERIOD, OPTIONAL_USTVA_FLAGS, OPTIONAL_USTVA_TRANSMISSION, OPTIONAL_USTVA_READ_EFFECTS, CORE_OPERATION_RESULT_FIELDS, RESULT_FIELD_TABLES, duplicateOperations, OPERATION_RESULT_FIELDS, SSE_API_RESULT_COMMON_FIELDS, SSE_API_RESULT_ENVELOPE_SCHEMA, SSE_API_RESULT_OUTPUT_SCHEMAS, SSE_API_RESULT_SCHEMAS;
 var init_result_contract = __esm({
   "src/result-contract.ts"() {
     "use strict";
@@ -7552,6 +7534,25 @@ var init_result_contract = __esm({
       throw new Error(`Doppelte Operations-Ergebnisvertraege: ${[...new Set(duplicateOperations)].join(", ")}`);
     }
     OPERATION_RESULT_FIELDS = Object.freeze(Object.assign({}, ...RESULT_FIELD_TABLES));
+    SSE_API_RESULT_COMMON_FIELDS = Object.freeze({
+      ok: external_exports.boolean().describe("Operation erfolgreich"),
+      kind: external_exports.string().min(1).nullable().optional().describe("Fehlerart"),
+      error: external_exports.string().min(1).nullable().optional().describe("Fehlermeldung"),
+      ms: external_exports.number().finite().nonnegative().nullable().optional().describe("Worker-Laufzeit in ms"),
+      // Emit appends these counters to every operation that walked a UIA tree.
+      treeWalks: external_exports.number().int().nonnegative().optional().describe("Anzahl der UIA-Baumlaeufe"),
+      treeWalkMs: external_exports.number().finite().nonnegative().optional().describe("Gesamtdauer der UIA-Baumlaeufe in ms"),
+      treeWalkDetail: external_exports.array(external_exports.object({
+        knoten: external_exports.number().int().nonnegative().describe("Gelesene Knoten"),
+        grenze: external_exports.number().int().nonnegative().describe("Knotengrenze des Laufs"),
+        ms: external_exports.number().finite().nonnegative().describe("Dauer dieses Baumlaufs in ms")
+      }).strict()).max(16).optional().describe("Begrenzte Detailzaehler der UIA-Baumlaeufe"),
+      // Der Worker kann diese Telemetrie bei jeder Operation anhaengen, die den
+      // universellen Foreground-Lease tatsaechlich erwirbt. Sie gehoert deshalb
+      // zum gemeinsamen Ergebnisrand und nicht zu einzelnen Klickoperationen.
+      focusTelemetry: OPTIONAL_OBJECT
+    });
+    SSE_API_RESULT_ENVELOPE_SCHEMA = external_exports.object(SSE_API_RESULT_COMMON_FIELDS).passthrough().describe("Gemeinsamer Transportumschlag jedes Operationsergebnisses");
     SSE_API_RESULT_OUTPUT_SCHEMAS = Object.freeze(Object.fromEntries(
       SSE_API_OPERATIONS.map((operation) => [operation, createOperationResultOutputSchema(operation)])
     ));

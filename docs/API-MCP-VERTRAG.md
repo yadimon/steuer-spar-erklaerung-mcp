@@ -83,6 +83,13 @@ Ein fachlich erwartbarer Fehlschlag kann als gültige Operationsantwort mit
 Fehler vor der Ausführung, etwa Herkunftsschutz, unbekannte Operation oder
 ungültige Argumente, verwenden eine HTTP-Fehlerhülle.
 
+Die Gesamt-Discovery teilt den gemeinsamen Ergebnisumschlag einschließlich
+optionaler UIA-Baumzähler einmal unter `definitions.OperationResultEnvelope`.
+Die `allOf`-Referenzen der `resultSchemas` werden gegen dieses Gesamtdokument
+aufgelöst. Die Einzel-Discovery liefert die Definition zusätzlich innerhalb
+ihres `resultSchema`, sodass es auch isoliert validiert werden kann. OpenAPI
+verwendet dafür die entsprechende gemeinsame Schema-Komponente.
+
 ## Dauerhaftes CLI-Journal
 
 Die ausgelieferte CLI kann mit `--journal-file <neue.jsonl>` einen
