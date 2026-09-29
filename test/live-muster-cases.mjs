@@ -108,6 +108,18 @@ const callCanonical = async (name, args = {}, timeout = 180_000) => {
 };
 const withoutWorkerTiming = (result) => {
   const { ms: _ignored, ...stable } = result;
+  // Separate executions have different durations. Keep every diagnostic key
+  // and the traversal counts/bounds in the parity check, but compare durations
+  // only by their numeric contract rather than by their measured value.
+  const normalizedDuration = (value) => {
+    assert(Number.isFinite(value) && value >= 0, "Worker duration must be finite and non-negative.");
+    return 0;
+  };
+  if (Object.hasOwn(stable, "treeWalkMs")) stable.treeWalkMs = normalizedDuration(stable.treeWalkMs);
+  if (Object.hasOwn(stable, "treeWalkDetail")) {
+    assert(Array.isArray(stable.treeWalkDetail), "Worker traversal details must be an array.");
+    stable.treeWalkDetail = stable.treeWalkDetail.map((walk) => ({ ...walk, ms: normalizedDuration(walk.ms) }));
+  }
   return stable;
 };
 const sha256 = (path) => createHash("sha256").update(readFileSync(path)).digest("hex").toUpperCase();
