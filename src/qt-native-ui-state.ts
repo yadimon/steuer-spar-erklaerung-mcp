@@ -7,7 +7,7 @@ import {
   readProcessWindowInventory, resultDetailsFromNodes, splitWindowScope, textSha256, TIPS_TITLE, WERTE_INFO_TITLE,
   type QtProcessWindow, type QtUntitledWindow,
 } from "./qt-native-projections.js";
-import { readQtNativeSnapshot, type QtSnapshotNode } from "./qt-native-snapshot.js";
+import { nativeTreeBoundReason, readQtNativeSnapshot, type QtSnapshotNode } from "./qt-native-snapshot.js";
 
 /**
  * Direct Qt port of the worker's 'ui_state' branch. One window inventory and
@@ -93,6 +93,11 @@ export async function executeQtNativeUiState(
   nativeDurationMs += mainSnapshot.nativeDurationMs;
   // The worker treats an empty bulk snapshot as a failed read, never as a free window.
   if (!mainSnapshot.nodes.length) return fail("native-incomplete", "Der native Seitenbaum ist leer; kein Zustand ausgegeben.");
+  // Qt's depth bound is lower than the worker's checker walk. No successful
+  // state or decision fingerprint may be derived from a partial native tree.
+  if (mainSnapshot.stats.truncated) {
+    return fail("native-incomplete", `${nativeTreeBoundReason(mainSnapshot.stats)}; kein Zustand ausgegeben.`);
+  }
 
   // Only windows of the bound process may shape this case's state and fingerprint; the worker's
   // enumerator lists them largest first, and an untitled window is one it would read but this path cannot.

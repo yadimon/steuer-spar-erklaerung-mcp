@@ -267,13 +267,27 @@ const receiptEntry = { hwnd: 87, pid: 99, cls: "Qt692QWindowIcon", title: "Beleg
     [["steuer-tipps", false, null, false]]);
 }
 
-// Truncation is reported, not hidden, exactly as the worker does.
+// The Qt depth bound is lower than the worker's checker walk. Incomplete trees
+// cannot produce a successful state or a fingerprint for later decisions.
 {
   const truncatedNodes = mainTree(cleanNames);
-  const { client } = fakeClient([MAIN_WINDOW], { ...mainSpec(truncatedNodes), stats: { ...stats(truncatedNodes.length), truncated: true } });
+  const { client, log } = fakeClient([MAIN_WINDOW, WERTE_WINDOW],
+    { ...mainSpec(truncatedNodes), stats: { ...stats(truncatedNodes.length), truncated: true } },
+    [[WERTE_INFO_TITLE, werteSpec()]]);
   const result = await executeQtNativeUiState(client, {}, 5000, undefined, profile);
-  assert.equal(result.ok, true);
-  assert.deepEqual(result.snapshot, { source: "qt", nodes: 29, truncated: true, cycles: 0, snapshotMs: 7 });
+  assert.deepEqual(result, { ok: false, backend: "qt", kind: "native-incomplete",
+    error: "Der native Seitenbaum ueberschreitet die Lesegrenze; kein Zustand ausgegeben." });
+  assert.deepEqual(log.map(entry => entry.operation), ["window_inventory", "accessibility_snapshot"]);
+}
+{
+  const depthLimitedNodes = mainTree(cleanNames);
+  const { client, log } = fakeClient([MAIN_WINDOW, WERTE_WINDOW],
+    { ...mainSpec(depthLimitedNodes), stats: { ...stats(depthLimitedNodes.length), truncated: true, depthLimited: true } },
+    [[WERTE_INFO_TITLE, werteSpec()]]);
+  const result = await executeQtNativeUiState(client, {}, 5000, undefined, profile);
+  assert.deepEqual(result, { ok: false, backend: "qt", kind: "native-incomplete",
+    error: "Der native Seitenbaum ist tiefer als die Lesegrenze von 16 Ebenen; kein Zustand ausgegeben." });
+  assert.deepEqual(log.map(entry => entry.operation), ["window_inventory", "accessibility_snapshot"]);
 }
 
 // Fail-closed guards.

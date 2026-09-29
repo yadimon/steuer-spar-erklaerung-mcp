@@ -189,8 +189,10 @@ Prozesses direkt; eine geöffnete Werte-Info wird unabhängig von ihrer Größe
 über ihren exakten Titel als zweiter Snapshot gelesen und in dasselbe
 `ergebnis`-Modell projiziert. Das Inventar belegt dabei das Fenster: Ein Baum
 ohne die Wertetabelle meldet die Werte-Info als offen, aber nicht lesbar, nie
-als geschlossen. Ein leerer Hauptfensterbaum scheitert wie bei den anderen
-Lesungen mit `native-incomplete`.
+als geschlossen. Ein leerer oder abgeschnittener Hauptfensterbaum scheitert
+wie bei den anderen Lesungen mit `native-incomplete`; dabei werden weder ein
+erfolgreicher Zustand noch ein `stateFingerprint` aus Teilinformationen
+ausgegeben. Die Fehlermeldung unterscheidet die Knoten- von der Tiefengrenze.
 Kleine Windows-Eingabeindikatoren werden auch ohne Titel als `system-overlay`
 erfasst und beeinflussen weder den Blockzustand noch den Fingerprint.
 Dialoge, unbekannte und übrige namenlose Fenster werden nicht beschrieben, sondern
