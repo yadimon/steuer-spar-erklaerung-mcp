@@ -15577,9 +15577,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     function AktuelleUeberschrift {
       param([IntPtr]$h)
       if ($knownTarget) { return (Get-KnownPageHeading $h $knownTarget) }
-      # 400 Knoten genuegen: die Ueberschrift steht weit oben im Baum.
-      $t = Walk-Tree $h 400
-      (Get-SSEHeading $t).text
+      # Die gebundene Ueberschriften-ID wird nach dem ersten Baumlauf je
+      # Fenster wiederverwendet und vor jeder Antwort erneut typgeprueft.
+      # Das erspart den vollen UIA-Baumlauf in jeder Pollrunde.
+      return (Get-CurrentHeading $h)
     }
     function IstZielseite {
       param([IntPtr]$h, [string]$heading)
@@ -16356,9 +16357,14 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       }
     }
 
-    # Auch bei einem abgebrochenen Cursorbeweis den letzten lesbaren Viewport
-    # mitnehmen. Seine RuntimeIds verhindern doppelte Ueberlappungszeilen.
-    if ($geklickt) {
+    # Nur bei einem offenen Cursor- oder Identitaetsbeweis den letzten Viewport
+    # erneut lesen. Beim vollstaendigen Endbeweis wurde er direkt nach dem
+    # letzten DOWN bereits gelesen und mit RuntimeIds in $alle aufgenommen.
+    $vollstaendigerCursorbeweis = [bool](
+      $endProven -and $schritte -lt $maxSchritte -and
+      -not $cursorUnavailable -and -not $identityState.fehlend
+    )
+    if ($geklickt -and -not $vollstaendigerCursorbeweis) {
       $finalSnapshot = LiesZeilen $hwnd
       if (-not $finalSnapshot.error) { & $addSnapshotRows $finalSnapshot }
     }
