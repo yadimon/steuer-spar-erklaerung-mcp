@@ -1,9 +1,9 @@
-import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { WorkerResult } from "./api-contract.js";
 import type { ProductProfile } from "./product-profiles.js";
 import type { QtNativeClient } from "./qt-native-client.js";
 import { readQtNativeSnapshot, type QtSnapshotNode } from "./qt-native-snapshot.js";
+import { powershellCompactJson, processWindowInventorySchema, textSha256 } from "./qt-native-projections.js";
 
 export const receiptPolicySchema = z.object({
   title: z.string().min(1).max(4096),
@@ -48,30 +48,13 @@ const filterSchema = z.object({
   draft: z.boolean().optional(),
 }).strict();
 
-const processWindowInventorySchema = z.object({
-  ok: z.literal(true),
-  windows: z.array(z.object({
-    hwnd: z.number().int().positive(),
-    pid: z.number().int().positive(),
-    class: z.string().min(1).max(255),
-    title: z.string().min(1).max(4095),
-    minimized: z.boolean(),
-    hung: z.boolean(),
-  }).strict()).max(256),
-}).passthrough();
 
 export const fail = (kind: string, error: string): WorkerResult => ({ ok: false, backend: "qt", kind, error });
 
 /** Match Windows PowerShell 5.1 ConvertTo-Json so native and worker guards hash identical bytes. */
-export function canonicalReceiptJson(value: unknown): string {
-  const serialized = JSON.stringify(value);
-  if (serialized === undefined) throw new TypeError("Receipt fingerprint value is not JSON serializable.");
-  return serialized.replace(/[&<>'\u2028\u2029]/gu,
-    character => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`);
-}
+export const canonicalReceiptJson = (value: unknown): string => powershellCompactJson(value);
 
-export const receiptTextFingerprint = (text: string) => createHash("sha256")
-  .update(text, "utf8").digest("hex").toUpperCase();
+export const receiptTextFingerprint = textSha256;
 export const receiptFingerprint = (value: unknown) => receiptTextFingerprint(canonicalReceiptJson(value));
 
 function receiptToolAidSuffixes(policy: z.infer<typeof receiptPolicySchema>): string[] {

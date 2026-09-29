@@ -9,7 +9,7 @@ Nachweis. Vorhandene Mechanismen werden erweitert; ihre Bindungs- und
 ## Aktueller Umsetzungsstand
 
 Die [Native-Matrix](../NATIVE-COVERAGE.md) führt jede der 102 Operationen.
-Die zwölf dort als **Qt optional** markierten Operationen sind direkt an die
+Die siebzehn dort als **Qt optional** markierten Operationen sind direkt an die
 optionale Qt-Brücke angeschlossen. Die folgende Bilanz ergänzt die Aufgaben; vorhandene
 Teilmechanismen erfüllen nicht automatisch deren gesamten Abnahmevertrag.
 `desktop_status` und `desktop_start` besitzen zusätzlich direkte Win32-Pfade im
@@ -82,6 +82,15 @@ Die [Live-Bilanz](../VERIFIKATION.md) führt diese Lücke ausdrücklich.
 | T03 | Prozessausgabe und Prozessende getrennt prüfen | Ein `PASS` im Ausgabestrom genügt nicht. Der Harnisch benötigt einen belegten Exitcode, vollständige Ausgabe, Deadline und Nachweis für die Bereinigung eigener Prozesse. Ein Harnischfehler bleibt als solcher sichtbar, auch wenn eine innere Assertion erfolgreich war. |
 | T05 | Architekturvarianten am vollständigen Ablauf vergleichen | Datei-/Exportlesung, begrenzte UIA-Komposition, weniger Baumdurchläufe und ein anderer Executor werden nach beseitigtem Aufwand und Integrationskosten verglichen. Wechsel zu C# oder einem langlebigen Worker ist eine Hypothese, kein Geschwindigkeitsnachweis. |
 | T06 | Agentenaufwand neben API-Latenz messen | Zusätzlich zu p50/p95 die Anzahl der Aufrufe, Ausgabevolumen, erfolgreiche Abschlüsse und notwendige Nachprüfungen erfassen. API-Zeit und gesamter Agentenablauf erhalten getrennte Messreihen. |
+
+Prüfbare Tabellenzellen sind im nativen Qt-Fixture abgedeckt: Der
+Integrationstest vergleicht den Snapshot mit Zellzuständen und den öffentlichen
+`read_table`-Aufruf mit einer unabhängigen UIA-TogglePattern-Lesung derselben
+Laufzeitkennungen. Angekreuzte und nicht angekreuzte Zellen liefern `true` und
+`false`; gewöhnliche Tabellenzellen und der Standard-Snapshot behalten
+`checked: null`. Eine teilweise angekreuzte Modellzelle wird ebenfalls gegen
+den tatsächlichen UIA-Zustand geprüft. Der Seiten-Oracle benennt die
+ersetzte Betriebssystem-Lesung von `Read-SSETableCellSemantic` als Grenze.
 
 Die Testmatrix für Tabellen umfasst 1, 10 und 100 synthetische Rechnungen,
 gemischte Steuersätze, gleiche Beschriftungen, wiederholte Aufträge,

@@ -28,7 +28,7 @@ ist, nicht was fehlt.
 | Menueeintraege | 64 | 11 fertig, 9 teils, 4 zu |
 | Formularvorlagen (`.frb`) | 994 | 0 |
 | Operationen | – | 102: 94 funktional live belegt, 6 nur Fehlerpfad, 2 live ungetestet |
-| Direkte Qt-DLL-Handler | – | 12 optional: `get_value`, `table_read`, `snapshot`, `find`, `read_page`, `subpages`, `known_page_state`, `positions`, `ustva_read`, `receipt_manager_list`, `receipt_manager_read`, `receipt_manager_action`; 90 ohne direkten Qt-Pfad |
+| Direkte Qt-DLL-Handler | – | 17 optional: `get_value`, `table_read`, `snapshot`, `find`, `read_page`, `subpages`, `known_page_state`, `positions`, `ustva_read`, `receipt_manager_list`, `receipt_manager_read`, `receipt_manager_action`, `page`, `ui_state`, `help`, `read_table`, `checker_results`; 85 ohne direkten Qt-Pfad |
 | MCP-Werkzeuge | – | 104: 102 direkte, 1 Komposition, 1 API-Lebenszykluswerkzeug |
 
 Die Qt-Brücke enthält keine öffentlichen dauerhaften Schreib-, allgemeinen
@@ -123,7 +123,7 @@ Belege in der [Seitenlandkarte](funktionskatalog.md).
 | --- | --- | --- |
 | Zu einer Seite navigieren | **fertig** | `goto` – ueber Suchfeld und Doppelklick, weil die UIA-Muster des Baums nicht wirken |
 | Seite lesen | **fertig** | `page`, `read_page`, `known_page_state`, `ui_state` |
-| Tabellen lesen | **fertig** | `table_read` optional über Qt; `read_table` behält seinen bisherigen Pfad, `positions` liest optional über Qt |
+| Tabellen lesen | **fertig** | `table_read`, `read_table` und `positions` lesen optional über Qt; `read_table` prüft dabei das Fensterinventar und führt offene Nebenfenster unter `ausgeschlosseneFenster` |
 | Unterseiten finden | **fertig** | `subpages` – „Erfassen"-Verweise sind echte Schaltflaechen |
 | Baum blaettern | **teils** | `tree_top`, `tree_scroll` – Aufzaehlen der Seiten geht darueber nicht |
 | Suche als eigene Operation | **offen** | `goto` nutzt die Suche intern; es gibt keinen direkten Zugriff |

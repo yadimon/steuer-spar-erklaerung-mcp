@@ -159,11 +159,19 @@ for (const required of [
   "dist/mcp-tools-ui.js",
   "dist/operation-catalog.js",
   "dist/result-contract.js",
+  "dist/THIRD_PARTY_NOTICES.md",
   "README.md",
   "LICENSE",
 ]) {
   assert(mcp.paths.has(required), `MCP-Paket enthaelt Pflichtdatei nicht: ${required}`);
 }
+const bundledLicenses = readFileSync("packages/mcp/dist/THIRD_PARTY_NOTICES.md", "utf8");
+for (const name of ["@modelcontextprotocol/sdk", "zod", "zod-to-json-schema"]) {
+  const dependency = JSON.parse(readFileSync(join("node_modules", ...name.split("/"), "package.json"), "utf8"));
+  assert(bundledLicenses.includes(`## ${name}@${dependency.version} (${dependency.license})`),
+    `MCP-Paket nennt die gebundelte Dependency nicht: ${name}`);
+}
+assert.match(bundledLicenses, /Permission is hereby granted/u, "MCP-Paket enthaelt keine vollstaendigen MIT-Lizenztexte.");
 for (const path of mcp.paths) {
   assert(!/^(?:powershell|profiles)\//u.test(path), `MCP-Paket kennt PC-Runtime: ${path}`);
   assert(!/^dist\/(?:api-main|api-runtime|setup|worker|product-profile)/u.test(path), `MCP-Paket enthaelt API-/PC-Modul: ${path}`);

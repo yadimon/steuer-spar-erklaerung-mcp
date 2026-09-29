@@ -36,6 +36,30 @@ $processInfo.UseShellExecute = $false
 $processInfo.CreateNoWindow = $true
 $child = [Diagnostics.Process]::Start($processInfo)
 try {
+  $nativeCommandLine = [SSEProcessCommandLine]::TryGet($child.Id)
+  Assert-True ($null -ne $nativeCommandLine) 'Der Native-Pfad konnte den harmlosen Kindprozess nicht lesen.'
+  Assert-True ($nativeCommandLine.Contains($unicodeArgument)) 'Die native Kommandozeile verlor Unicode oder Leerzeichen.'
+
+  # Native-Handles vor der ersten CIM-Abfrage messen. Deren kalte
+  # Initialisierung darf keine Hintergrund-Handles in die Messung einbringen.
+  # Aufwaermen und Messen verwenden dieselben PowerShell-Aufrufstellen.
+  # Zwei getrennte Schleifen initialisieren getrennte dynamische Binder; auch
+  # eine erstmals aufgerufene Prozessabfrage gehoert nicht in die Messstrecke.
+  $observer = [Diagnostics.Process]::GetCurrentProcess()
+  try {
+    $null = Get-ContractHandleCount $observer
+    $nativeTimer = [Diagnostics.Stopwatch]::StartNew()
+    Assert-NativeCommandLineBatch $child.Id $nativeCommandLine
+    $nativeTimer.Stop()
+    $handlesBefore = Get-ContractHandleCount $observer
+    Assert-NativeCommandLineBatch $child.Id $nativeCommandLine
+    $handlesAfter = Get-ContractHandleCount $observer
+    Assert-True (($handlesAfter - $handlesBefore) -le 2) `
+      "Native Wiederholungsabfragen liessen Prozess-Handles wachsen ($handlesBefore -> $handlesAfter)."
+  } finally {
+    $observer.Dispose()
+  }
+
   $deadline = [DateTime]::UtcNow.AddSeconds(10)
   $cimCommandLine = $null
   do {
@@ -44,28 +68,7 @@ try {
   } while (-not $cimCommandLine -and [DateTime]::UtcNow -lt $deadline)
   Assert-True ([bool]$cimCommandLine) 'CIM lieferte fuer den harmlosen Kindprozess keine Kommandozeile.'
   Assert-True ($cimCommandLine.Contains($unicodeArgument)) 'Die Referenzkommandozeile verlor Unicode oder Leerzeichen.'
-
-  $nativeCommandLine = [SSEProcessCommandLine]::TryGet($child.Id)
-  Assert-True ($null -ne $nativeCommandLine) 'Der Native-Pfad konnte den harmlosen Kindprozess nicht lesen.'
   Assert-True ($nativeCommandLine -ceq $cimCommandLine) 'Native- und CIM-Kommandozeile weichen byteinhaltlich ab.'
-
-  # Aufwaermen und Messen verwenden dieselben PowerShell-Aufrufstellen.
-  # Zwei getrennte Schleifen initialisieren getrennte dynamische Binder; auch
-  # eine erstmals aufgerufene Prozessabfrage gehoert nicht in die Messstrecke.
-  $observer = [Diagnostics.Process]::GetCurrentProcess()
-  try {
-    $null = Get-ContractHandleCount $observer
-    $nativeTimer = [Diagnostics.Stopwatch]::StartNew()
-    Assert-NativeCommandLineBatch $child.Id $cimCommandLine
-    $nativeTimer.Stop()
-    $handlesBefore = Get-ContractHandleCount $observer
-    Assert-NativeCommandLineBatch $child.Id $cimCommandLine
-    $handlesAfter = Get-ContractHandleCount $observer
-    Assert-True (($handlesAfter - $handlesBefore) -le 2) `
-      "Native Wiederholungsabfragen liessen Prozess-Handles wachsen ($handlesBefore -> $handlesAfter)."
-  } finally {
-    $observer.Dispose()
-  }
 
   $cimTimer = [Diagnostics.Stopwatch]::StartNew()
   foreach ($iteration in 1..3) {

@@ -81,7 +81,7 @@ for (const operation of SSE_API_OPERATIONS) {
   assert(post.responses["200"] && post.responses["400"] && post.responses["405"] && post.responses["502"]);
 }
 
-for (const field of ["ok", "kind", "error", "ms"]) {
+for (const field of ["ok", "error", "ms", "treeWalks", "treeWalkMs", "treeWalkDetail", "focusTelemetry"]) {
   assert(!Object.hasOwn(SSE_OPENAPI_DOCUMENT.components.schemas.Result_health.properties, field),
     `Result_health darf den gemeinsamen Transportwert '${field}' nicht erneut inline duplizieren.`);
 }
@@ -89,6 +89,12 @@ assert.equal(SSE_OPENAPI_DOCUMENT.components.schemas.Result_health.allOf[0].$ref
   "#/components/schemas/OperationResultEnvelope");
 assert.equal(SSE_OPENAPI_DOCUMENT.components.schemas.OperationResultEnvelope.properties.ok.$ref,
   "#/components/schemas/ResultOk");
+assert.equal(SSE_OPENAPI_DOCUMENT.components.schemas.OperationResultEnvelope.properties.kind, undefined,
+  "Operationsspezifische kind-Vertraege duerfen nicht durch den Umschlag verschaerft werden.");
+assert.equal(SSE_OPENAPI_DOCUMENT.components.schemas.Result_health.properties.kind.$ref,
+  "#/components/schemas/ResultKind");
+assert.equal(SSE_OPENAPI_DOCUMENT.components.schemas.Result_receipt_manager_classification_options.properties.kind.$ref,
+  "#/components/schemas/OptionalText");
 assert.deepEqual(SSE_OPENAPI_DOCUMENT.components.schemas.OperationResultEnvelope.required, ["ok"]);
 assert.equal(SSE_OPENAPI_DOCUMENT.components.schemas.Result_toggle.properties.verified.$ref,
   "#/components/schemas/OptionalFlag");
@@ -97,9 +103,16 @@ assert.notEqual(
   SSE_OPENAPI_DOCUMENT.components.schemas.Result_save.properties.verified,
   "Result-Schemas duerfen auch ihre kompakten Referenzobjekte nicht gemeinsam mutierbar teilen.",
 );
-assert.deepEqual(SSE_OPENAPI_DOCUMENT.components.schemas.ResultOk, SSE_API_DISCOVERY.resultSchemas.health.properties.ok);
-assert.notEqual(SSE_OPENAPI_DOCUMENT.components.schemas.ResultOk, SSE_API_DISCOVERY.resultSchemas.health.properties.ok,
+assert.deepEqual(SSE_OPENAPI_DOCUMENT.components.schemas.ResultOk,
+  SSE_API_DISCOVERY.definitions.OperationResultEnvelope.properties.ok);
+assert.notEqual(SSE_OPENAPI_DOCUMENT.components.schemas.ResultOk,
+  SSE_API_DISCOVERY.definitions.OperationResultEnvelope.properties.ok,
   "OpenAPI-Komponenten duerfen die Discovery-Objekte nicht per Referenz teilen.");
+for (const field of ["treeWalks", "treeWalkMs", "treeWalkDetail"]) {
+  assert.deepEqual(SSE_OPENAPI_DOCUMENT.components.schemas.OperationResultEnvelope.properties[field],
+    SSE_API_DISCOVERY.definitions.OperationResultEnvelope.properties[field],
+    `${field}: Der einmal veroeffentlichte OpenAPI-Vertrag muss alle Zaehlergrenzen behalten.`);
+}
 
 const commonResultComponentNames = [
   "ResultOk", "ResultKind", "ResultError", "ResultWorkerMs", "OptionalText", "OptionalFlag",

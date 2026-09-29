@@ -18,6 +18,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { isFunctionalPolicyBlock } from "./operation-trace.mjs";
 
 const apiUrl = process.env.SSE_API_URL;
 const caseDir = process.env.SSE_TEST_CASE_DIR;
@@ -61,6 +62,16 @@ try {
   assert.equal((await call("instances", {})).count, 0, "Der Livetest startet nur ohne offene SSE-Instanz.");
   assert.equal((await call("desktop_status", {})).aktiv, false, "Der versteckte Desktop darf nicht aktiv sein.");
   assert(!existsSync(targetPath), "Der Fallordner muss frisch sein.");
+
+  // The background receipt update contract is an explicit policy block before
+  // any UI access. Synthetic, schema-valid identities must never reach a receipt.
+  const policyHash = "A".repeat(64);
+  const receiptUpdate = await request("receipt_manager_update", {
+    rowRid: "1.2.3", rowFingerprint: policyHash, expectedListFingerprint: policyHash,
+    expectedDetailFingerprint: policyHash, values: { title: "Policy probe" }, acknowledgeUpdate: true,
+  });
+  assert(isFunctionalPolicyBlock("receipt_manager_update", receiptUpdate),
+    `Receipt update did not return the complete background policy block: ${JSON.stringify(receiptUpdate)}`);
 
   const created = await call("case_create", { targetRef: CASE_REF, mode: "einurvor" }, 300_000);
   hwnd = Number(created.hwnd);
