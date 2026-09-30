@@ -15577,6 +15577,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     function AktuelleUeberschrift {
       param([IntPtr]$h)
       if ($knownTarget) { return (Get-KnownPageHeading $h $knownTarget) }
+      # Nur Engine 31 gibt dem Blattknoten eine eigene AutomationId. Dort
+      # kann Get-CurrentHeading ihn nach dem ersten Baumlauf gezielt lesen.
+      # Engine 30 hat nur am Container eine ID und behaelt den kleinen Walk.
+      if ($script:SSE_ENGINE_MAJOR -eq 31) { return (Get-CurrentHeading $h) }
       # 400 Knoten genuegen: die Ueberschrift steht weit oben im Baum.
       $t = Walk-Tree $h 400
       (Get-SSEHeading $t).text
@@ -15624,10 +15628,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # WarteAufUeberschrift, damit die Providerlast sich nicht aendert.
     function WarteAufSeitenwechsel {
       param([IntPtr]$h, [string]$vorher, [int]$obergrenzeMs = 900)
-      # Der Poll kostet je Runde einen Lesezugriff auf die Ueberschrift: mit
-      # bekanntem Seitenobjekt einen gebundenen Einzelzugriff, sonst einen
-      # Baumlauf ueber 400 Knoten. Die Sorge, dass der teure Fall eine Seite am
-      # Ende langsamer macht, ist gemessen und trat nicht ein - siehe unten.
+      # Der Poll nutzt bei bekannten Seitenobjekten oder Engine 31 eine
+      # gebundene Ueberschrift; Engine 30 liest den kleinen Baum erneut.
       if (-not $vorher) { Start-Sleep -Milliseconds $obergrenzeMs; return }
       $sw = [Diagnostics.Stopwatch]::StartNew()
       while ($sw.ElapsedMilliseconds -lt $obergrenzeMs) {
