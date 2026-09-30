@@ -110,4 +110,39 @@ function Assert-DelayedNavigationStops([string[]]$Headings, [int]$ExpectedClicks
 Assert-DelayedNavigationStops @('Zielseite') 0
 Assert-DelayedNavigationStops @('Startseite','Zwischenseite','Zielseite') 1
 
+# Der Engine-30-Blattknoten hat keine AutomationId. Der schnelle Einzelzugriff
+# darf dort nicht in jeder Pollrunde auf einen groesseren Baumlauf zurueckfallen.
+# Fuehre die echte Routingfunktion mit zwei Engines und einem bekannten Ziel aus.
+$headingDefinitions = @($ast.FindAll({
+  param($node)
+  $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'AktuelleUeberschrift'
+}, $true))
+if ($headingDefinitions.Count -ne 1) { throw 'AktuelleUeberschrift ist nicht eindeutig vorhanden.' }
+Invoke-Expression $headingDefinitions[0].Extent.Text
+
+$script:headingRoute = New-Object System.Collections.ArrayList
+function Get-KnownPageHeading { param($h, $target) $null = $script:headingRoute.Add('known'); 'known' }
+function Get-CurrentHeading { param($h) $null = $script:headingRoute.Add('cache'); 'cached' }
+function Walk-Tree { param($h, $budget) $null = $script:headingRoute.Add("walk:$budget"); [pscustomobject]@{} }
+function Get-SSEHeading { param($tree) [pscustomobject]@{ text='walked' } }
+
+$knownTarget = $null
+$script:SSE_ENGINE_MAJOR = 30
+if ((AktuelleUeberschrift ([IntPtr]::Zero)) -ne 'walked' -or
+    (@($script:headingRoute) -join ',') -ne 'walk:400') {
+  throw 'Engine 30 muss den kleinen Heading-Baumlauf verwenden.'
+}
+$script:headingRoute.Clear()
+$script:SSE_ENGINE_MAJOR = 31
+if ((AktuelleUeberschrift ([IntPtr]::Zero)) -ne 'cached' -or
+    (@($script:headingRoute) -join ',') -ne 'cache') {
+  throw 'Engine 31 muss die gebundene Ueberschrift verwenden.'
+}
+$script:headingRoute.Clear()
+$knownTarget = [pscustomobject]@{ pageId='known' }
+if ((AktuelleUeberschrift ([IntPtr]::Zero)) -ne 'known' -or
+    (@($script:headingRoute) -join ',') -ne 'known') {
+  throw 'Ein bekanntes Seitenobjekt muss seinen eigenen Heading-Bindungspfad behalten.'
+}
+
 Write-Output 'goto-Wartezeiten: begrenzt; verzoegert erreichte Ziele werden vor weiterem Invoke bestaetigt - bestanden'
