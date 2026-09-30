@@ -5688,7 +5688,7 @@ function Get-KnownPageState([IntPtr]$Hwnd, $Known) {
 # Merker ueberlebt ihn also nicht.
 $script:SSE_HEADING_NODE_AID = @{}
 
-function Get-CurrentHeading([IntPtr]$Hwnd, $Tree = $null) {
+function Get-CurrentHeading([IntPtr]$Hwnd, $Tree = $null, [switch]$CompactFallback) {
   # Hat der Aufrufer den Baum ohnehin gelesen, bleibt alles wie bisher.
   if ($null -ne $Tree) { return (Get-SSEHeading $Tree).text }
 
@@ -5715,7 +5715,11 @@ function Get-CurrentHeading([IntPtr]$Hwnd, $Tree = $null) {
     $script:SSE_HEADING_NODE_AID.Remove($key)
   }
 
-  $walked = Walk-Tree $Hwnd 1200 25 12 -WithValues
+  # Goto hat die Ueberschrift bereits mit dem kleinen Baum gebunden. Falls
+  # Qt sie beim Seitenwechsel neu aufbaut, bleibt dessen Rueckfall genauso
+  # begrenzt wie der erste Read; andere Aufrufer behalten ihren vollen Baum.
+  if ($CompactFallback) { $walked = Walk-Tree $Hwnd 400 }
+  else { $walked = Walk-Tree $Hwnd 1200 25 12 -WithValues }
   $headingNode = Get-SSEContainerChild $walked.nodes (Get-SSEMainWindowSelectors).heading 'Text'
   if ($headingNode -and [string]$headingNode.aid) {
     $script:SSE_HEADING_NODE_AID[$key] = [string]$headingNode.aid
@@ -15582,7 +15586,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       # Engine 30 hat nur am Container eine ID und behaelt den kleinen Walk.
       $headingKey = [string][int64]$h
       if ($script:SSE_ENGINE_MAJOR -eq 31 -and [string]$script:SSE_HEADING_NODE_AID[$headingKey]) {
-        return (Get-CurrentHeading $h)
+        return (Get-CurrentHeading $h $null -CompactFallback)
       }
       # 400 Knoten genuegen: die Ueberschrift steht weit oben im Baum.
       $t = Walk-Tree $h 400
