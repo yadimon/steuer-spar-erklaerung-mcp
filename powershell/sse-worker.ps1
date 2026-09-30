@@ -15626,9 +15626,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     function WarteAufSeitenwechsel {
       param([IntPtr]$h, [string]$vorher, [int]$obergrenzeMs = 900)
       # Der Poll kostet je Runde einen Lesezugriff auf die Ueberschrift: mit
-      # bekanntem Seitenobjekt einen gebundenen Einzelzugriff, sonst einen
-      # Baumlauf ueber 400 Knoten. Die Sorge, dass der teure Fall eine Seite am
-      # Ende langsamer macht, ist gemessen und trat nicht ein - siehe unten.
+      # bekanntem Seitenobjekt oder nach der ersten Bindung einen gezielten
+      # Einzelzugriff, sonst einen einmaligen Baumlauf.
       if (-not $vorher) { Start-Sleep -Milliseconds $obergrenzeMs; return }
       $sw = [Diagnostics.Stopwatch]::StartNew()
       while ($sw.ElapsedMilliseconds -lt $obergrenzeMs) {
