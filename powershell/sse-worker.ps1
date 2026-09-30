@@ -15577,10 +15577,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     function AktuelleUeberschrift {
       param([IntPtr]$h)
       if ($knownTarget) { return (Get-KnownPageHeading $h $knownTarget) }
-      # Die gebundene Ueberschriften-ID wird nach dem ersten Baumlauf je
-      # Fenster wiederverwendet und vor jeder Antwort erneut typgeprueft.
-      # Das erspart den vollen UIA-Baumlauf in jeder Pollrunde.
-      return (Get-CurrentHeading $h)
+      # 400 Knoten genuegen: die Ueberschrift steht weit oben im Baum.
+      $t = Walk-Tree $h 400
+      (Get-SSEHeading $t).text
     }
     function IstZielseite {
       param([IntPtr]$h, [string]$heading)
@@ -15626,8 +15625,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     function WarteAufSeitenwechsel {
       param([IntPtr]$h, [string]$vorher, [int]$obergrenzeMs = 900)
       # Der Poll kostet je Runde einen Lesezugriff auf die Ueberschrift: mit
-      # bekanntem Seitenobjekt oder nach der ersten Bindung einen gezielten
-      # Einzelzugriff, sonst einen einmaligen Baumlauf.
+      # bekanntem Seitenobjekt einen gebundenen Einzelzugriff, sonst einen
+      # Baumlauf ueber 400 Knoten. Die Sorge, dass der teure Fall eine Seite am
+      # Ende langsamer macht, ist gemessen und trat nicht ein - siehe unten.
       if (-not $vorher) { Start-Sleep -Milliseconds $obergrenzeMs; return }
       $sw = [Diagnostics.Stopwatch]::StartNew()
       while ($sw.ElapsedMilliseconds -lt $obergrenzeMs) {
