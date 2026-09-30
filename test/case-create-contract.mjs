@@ -11,6 +11,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApiExecutor } from "../dist/api-executor.js";
+import { executeCaseCreate } from "../dist/case-create-executor.js";
 
 const temporary = mkdtempSync(join(tmpdir(), "sse-case-create-"));
 const caseDir = join(temporary, "cases");
@@ -272,6 +273,30 @@ try {
     const result = await createApiExecutor(config, worker)("case_create", { targetRef: TARGET, mode: "einurvor" }, 240_000);
     assert.equal(result.ok, true, JSON.stringify(result));
     assert.equal(calls.filter((entry) => entry.operation === "ui_state").length, 3);
+    resetTarget();
+  }
+
+  {
+    // Der Qt-Snapshot exponiert den Startlink erst nach einem UIA-Baumlauf.
+    // Der Assistent muss genau diesen Read direkt ueber den Worker ausfuehren.
+    const { worker, calls } = scriptedWorker();
+    let nativeSubpageCalls = 0;
+    const execute = (operation, args, timeoutMs, signal) => {
+      if (operation === "subpages") {
+        nativeSubpageCalls += 1;
+        return Promise.resolve({ ok: true, anzahl: 0, unterseiten: [] });
+      }
+      return worker(operation, args, timeoutMs, signal);
+    };
+    const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 240_000, undefined, {
+      execute, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
+      profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
+    });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(nativeSubpageCalls, 0);
+    assert.equal(calls.filter((entry) => entry.operation === "subpages").length, 1);
+    assert.equal(calls.filter((entry) => entry.operation === "click")[0].args.rid, "42.1.4.-1");
+    assert.equal(closes(calls).length, 0);
     resetTarget();
   }
 

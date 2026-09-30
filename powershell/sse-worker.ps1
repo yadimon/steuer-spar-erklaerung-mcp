@@ -5688,7 +5688,7 @@ function Get-KnownPageState([IntPtr]$Hwnd, $Known) {
 # Merker ueberlebt ihn also nicht.
 $script:SSE_HEADING_NODE_AID = @{}
 
-function Get-CurrentHeading([IntPtr]$Hwnd, $Tree = $null) {
+function Get-CurrentHeading([IntPtr]$Hwnd, $Tree = $null, [switch]$CompactFallback) {
   # Hat der Aufrufer den Baum ohnehin gelesen, bleibt alles wie bisher.
   if ($null -ne $Tree) { return (Get-SSEHeading $Tree).text }
 
@@ -5715,7 +5715,11 @@ function Get-CurrentHeading([IntPtr]$Hwnd, $Tree = $null) {
     $script:SSE_HEADING_NODE_AID.Remove($key)
   }
 
-  $walked = Walk-Tree $Hwnd 1200 25 12 -WithValues
+  # Goto hat die Ueberschrift bereits mit dem kleinen Baum gebunden. Falls
+  # Qt sie beim Seitenwechsel neu aufbaut, bleibt dessen Rueckfall genauso
+  # begrenzt wie der erste Read; andere Aufrufer behalten ihren vollen Baum.
+  if ($CompactFallback) { $walked = Walk-Tree $Hwnd 400 }
+  else { $walked = Walk-Tree $Hwnd 1200 25 12 -WithValues }
   $headingNode = Get-SSEContainerChild $walked.nodes (Get-SSEMainWindowSelectors).heading 'Text'
   if ($headingNode -and [string]$headingNode.aid) {
     $script:SSE_HEADING_NODE_AID[$key] = [string]$headingNode.aid
@@ -15577,8 +15581,21 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     function AktuelleUeberschrift {
       param([IntPtr]$h)
       if ($knownTarget) { return (Get-KnownPageHeading $h $knownTarget) }
+      # Nur Engine 31 gibt dem Blattknoten eine eigene AutomationId. Dort
+      # bindet der ohnehin noetige kleine Erstread den Knoten fuer Folge-Polls.
+      # Engine 30 hat nur am Container eine ID und behaelt den kleinen Walk.
+      $headingKey = [string][int64]$h
+      if ($script:SSE_ENGINE_MAJOR -eq 31 -and [string]$script:SSE_HEADING_NODE_AID[$headingKey]) {
+        return (Get-CurrentHeading $h $null -CompactFallback)
+      }
       # 400 Knoten genuegen: die Ueberschrift steht weit oben im Baum.
       $t = Walk-Tree $h 400
+      if ($script:SSE_ENGINE_MAJOR -eq 31) {
+        $headingNode = Get-SSEContainerChild $t.nodes (Get-SSEMainWindowSelectors).heading 'Text'
+        if ($headingNode -and [string]$headingNode.aid) {
+          $script:SSE_HEADING_NODE_AID[$headingKey] = [string]$headingNode.aid
+        }
+      }
       (Get-SSEHeading $t).text
     }
     function IstZielseite {
@@ -15624,10 +15641,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # WarteAufUeberschrift, damit die Providerlast sich nicht aendert.
     function WarteAufSeitenwechsel {
       param([IntPtr]$h, [string]$vorher, [int]$obergrenzeMs = 900)
-      # Der Poll kostet je Runde einen Lesezugriff auf die Ueberschrift: mit
-      # bekanntem Seitenobjekt einen gebundenen Einzelzugriff, sonst einen
-      # Baumlauf ueber 400 Knoten. Die Sorge, dass der teure Fall eine Seite am
-      # Ende langsamer macht, ist gemessen und trat nicht ein - siehe unten.
+      # Bekannte Seitenobjekte lesen gezielt. Bei generischen Zielen lesen
+      # beide Engines zuerst den kleinen Baum; nur Engine 31 bindet daraus
+      # die Ueberschrift fuer folgende Pollrunden.
       if (-not $vorher) { Start-Sleep -Milliseconds $obergrenzeMs; return }
       $sw = [Diagnostics.Stopwatch]::StartNew()
       while ($sw.ElapsedMilliseconds -lt $obergrenzeMs) {
@@ -16356,9 +16372,14 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       }
     }
 
-    # Auch bei einem abgebrochenen Cursorbeweis den letzten lesbaren Viewport
-    # mitnehmen. Seine RuntimeIds verhindern doppelte Ueberlappungszeilen.
-    if ($geklickt) {
+    # Nur bei einem offenen Cursor- oder Identitaetsbeweis den letzten Viewport
+    # erneut lesen. Beim vollstaendigen Endbeweis wurde er direkt nach dem
+    # letzten DOWN bereits gelesen und mit RuntimeIds in $alle aufgenommen.
+    $vollstaendigerCursorbeweis = [bool](
+      $endProven -and $schritte -lt $maxSchritte -and
+      -not $cursorUnavailable -and -not $identityState.fehlend
+    )
+    if ($geklickt -and -not $vollstaendigerCursorbeweis) {
       $finalSnapshot = LiesZeilen $hwnd
       if (-not $finalSnapshot.error) { & $addSnapshotRows $finalSnapshot }
     }

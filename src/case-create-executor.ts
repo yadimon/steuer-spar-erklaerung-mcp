@@ -140,12 +140,13 @@ export async function executeCaseCreate(
   let hwnd = 0;
   let target: CaseCreateTarget | undefined;
 
-  const step = async (operation: SseApiOperation, stepArgs: Record<string, unknown>, ceilingMs = budgetMs): Promise<WorkerResult> => {
+  const step = async (operation: SseApiOperation, stepArgs: Record<string, unknown>, ceilingMs = budgetMs,
+    run: NestedApiExecutor = dependencies.execute): Promise<WorkerResult> => {
     if (signal?.aborted) fail("aborted", "API-Client hat die Fallanlage abgebrochen.");
     const remaining = deadline - now();
     if (remaining < MIN_STEP_MS) fail("timeout", `Zeitbudget der Fallanlage ist vor '${operation}' erschoepft.`);
     steps.push(operation);
-    const result = await dependencies.execute(operation, stepArgs, Math.min(remaining, ceilingMs), signal);
+    const result = await run(operation, stepArgs, Math.min(remaining, ceilingMs), signal);
     if (result.ok !== true) throw new StepFailure({ ...result, failedStep: operation });
     return result;
   };
@@ -203,7 +204,11 @@ export async function executeCaseCreate(
       await wait(START_PAGE_POLL_MS);
     }
 
-    const subpages = await step("subpages", { hwnd });
+    // Der Startassistent exponiert seine Links im nativen Qt-Snapshot erst,
+    // nachdem ein UIA-Baumlauf sie materialisiert hat. Diesen einen
+    // Wizard-Read deshalb bewusst ueber den Worker binden; der folgende
+    // Klick verifiziert weiterhin die exakte Seite und RuntimeId.
+    const subpages = await step("subpages", { hwnd }, budgetMs, dependencies.worker);
     const begin = asArray<Record<string, unknown>>(subpages.unterseiten)
       .find((entry) => String(entry.schalter ?? "") === wizard.beginLink && typeof entry.rid === "string" && entry.rid);
     if (!begin) fail("wizard-page", `Der Startlink '${wizard.beginLink}' fehlt auf '${startHeading}'.`);

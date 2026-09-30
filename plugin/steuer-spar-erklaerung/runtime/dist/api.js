@@ -7831,12 +7831,12 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
   let pid2 = 0;
   let hwnd = 0;
   let target;
-  const step = async (operation, stepArgs, ceilingMs = budgetMs) => {
+  const step = async (operation, stepArgs, ceilingMs = budgetMs, run = dependencies.execute) => {
     if (signal?.aborted) fail("aborted", "API-Client hat die Fallanlage abgebrochen.");
     const remaining = deadline - now();
     if (remaining < MIN_STEP_MS) fail("timeout", `Zeitbudget der Fallanlage ist vor '${operation}' erschoepft.`);
     steps.push(operation);
-    const result = await dependencies.execute(operation, stepArgs, Math.min(remaining, ceilingMs), signal);
+    const result = await run(operation, stepArgs, Math.min(remaining, ceilingMs), signal);
     if (result.ok !== true) throw new StepFailure({ ...result, failedStep: operation });
     return result;
   };
@@ -7885,7 +7885,7 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
       }
       await wait(START_PAGE_POLL_MS);
     }
-    const subpages = await step("subpages", { hwnd });
+    const subpages = await step("subpages", { hwnd }, budgetMs, dependencies.worker);
     const begin = asArray(subpages.unterseiten).find((entry2) => String(entry2.schalter ?? "") === wizard.beginLink && typeof entry2.rid === "string" && entry2.rid);
     if (!begin) fail("wizard-page", `Der Startlink '${wizard.beginLink}' fehlt auf '${startHeading}'.`);
     const began = await step("click", {
