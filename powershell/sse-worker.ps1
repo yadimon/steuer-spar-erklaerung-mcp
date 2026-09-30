@@ -1322,10 +1322,9 @@ function Set-SSEReceiptManagerVatRateSelection(
   $selectionError = $null
   try { ([Windows.Automation.SelectionItemPattern]$selectionObject).Select() }
   catch { $selectionError = $_.Exception.Message }
-  Start-Sleep -Milliseconds ([Math]::Min([Math]::Max($WaitMs, 300), 1200))
-  $readState = Get-SSEReceiptManagerState $ToolHwnd $Policy -WithValues
-  $readField = Resolve-SSEReceiptManagerEditableFieldNode $readState $Policy 'vatRate'
-  $afterRate = & $normalizeRate ([string](Get-SSEReceiptManagerFieldValue $readField))
+  $selectionReadback = Wait-SSEReceiptManagerLiveFieldValue `
+    $ToolHwnd $ResolvedField $Wanted 'vat-rate' ([Math]::Min([Math]::Max($WaitMs, 150), 300))
+  $afterRate = & $normalizeRate ([string]$selectionReadback.value)
   $selected = $(try { [bool]([Windows.Automation.SelectionItemPattern]$selectionObject).Current.IsSelected } catch { $false })
   $commitMethod = 'expand+selection-item'
   $physicalCommit = $null
@@ -1351,10 +1350,9 @@ function Set-SSEReceiptManagerVatRateSelection(
       if ([bool]$obstruction.isBoundTarget -and [int]$obstruction.boundPid -eq $TargetPid) {
         $click = Click-VerifiedPoint ([IntPtr][int64]$postTargets[0].sourceHwnd) $targetNode `
           (Get-SSELastInputTick) -RequireForeground
-        Start-Sleep -Milliseconds ([Math]::Min([Math]::Max($WaitMs, 300), 1200))
-        $readState = Get-SSEReceiptManagerState $ToolHwnd $Policy -WithValues
-        $readField = Resolve-SSEReceiptManagerEditableFieldNode $readState $Policy 'vatRate'
-        $afterRate = & $normalizeRate ([string](Get-SSEReceiptManagerFieldValue $readField))
+        $physicalReadback = Wait-SSEReceiptManagerLiveFieldValue `
+          $ToolHwnd $ResolvedField $Wanted 'vat-rate' ([Math]::Min([Math]::Max($WaitMs, 300), 1200))
+        $afterRate = & $normalizeRate ([string]$physicalReadback.value)
         $commitMethod = 'expand+selection-item+verified-list-item-point'
         $physicalCommit = [pscustomobject]@{
           x=[int]$click.x; y=[int]$click.y; sourceHwnd=[int64]$postTargets[0].sourceHwnd
