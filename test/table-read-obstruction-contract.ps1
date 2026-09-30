@@ -25,6 +25,16 @@ $completionNodes=@(
 )
 $completion=[scriptblock]::Create(($completionNodes.Extent.Text -join "`n"))
 $finish=[scriptblock]::Create(($statements[$finishStart..($statements.Count-1)].Extent.Text -join "`n"))
+$finalReadStart=StatementIndex '$vollstaendigerCursorbeweis ='
+$limitStart=StatementIndex '$limitReached ='
+if ($limitStart -le $finalReadStart) { throw 'Finaler Tabellenread steht nicht vor dem Abschlussbeweis.' }
+$finalRead=[scriptblock]::Create(($statements[$finalReadStart..($limitStart-1)].Extent.Text -join "`n"))
+$tableBranch=$clauses[0].Item2.Extent.Text
+$lastAdd=$tableBranch.IndexOf('& $addSnapshotRows $snapshot',[StringComparison]::Ordinal)
+$endProof=$tableBranch.IndexOf('$endProven = $true',[StringComparison]::Ordinal)
+if ($lastAdd -lt 0 -or $endProof -le $lastAdd) {
+  throw 'Der letzte Viewport muss vor dem Tabellen-Endbeweis aufgenommen werden.'
+}
 
 # No Win32 imports. These counters make any physical-input attempt a failure.
 # The old activation block also runs against these doubles for the regression.
@@ -53,6 +63,30 @@ public static class SW {
 function Same($Actual,$Expected,[string]$Message) {
   if (($Actual | ConvertTo-Json -Depth 10 -Compress) -cne ($Expected | ConvertTo-Json -Depth 10 -Compress)) { throw $Message }
 }
+function Run-FinalReadCase([string]$Name,[bool]$Clicked,[bool]$EndProven,[int]$Steps,[int]$MaxSteps,
+                           [bool]$CursorUnavailable,[bool]$IdentityMissing,[bool]$ReadError,[int]$ExpectedReads) {
+  $script:finalReadCalls=0; $script:finalAdds=0; $script:finalReadError=$ReadError
+  $hwnd=[IntPtr]111; $geklickt=$Clicked; $endProven=$EndProven
+  $schritte=$Steps; $maxSchritte=$MaxSteps; $cursorUnavailable=$CursorUnavailable
+  $identityState=[pscustomobject]@{ fehlend=$IdentityMissing }
+  $addSnapshotRows={ param($snapshot) $script:finalAdds++ }
+  function LiesZeilen($Window) {
+    $script:finalReadCalls++
+    [pscustomobject]@{ error=$(if ($script:finalReadError) { 'read failed' } else { $null }) }
+  }
+  . $finalRead
+  Same $script:finalReadCalls $ExpectedReads "$Name`: falsche Anzahl finaler Viewport-Reads."
+  Same $script:finalAdds $(if ($ReadError) { 0 } else { $ExpectedReads }) `
+    "$Name`: finaler Viewport wurde trotz Lesefehler uebernommen oder trotz Erfolg verworfen."
+}
+
+Run-FinalReadCase 'vollstaendiger Endbeweis' $true $true 9 10 $false $false $false 0
+Run-FinalReadCase 'max-rows' $true $true 10 10 $false $false $false 1
+Run-FinalReadCase 'Cursor fehlt' $true $true 9 10 $true $false $false 1
+Run-FinalReadCase 'Zeilenidentitaet fehlt' $true $true 9 10 $false $true $false 1
+Run-FinalReadCase 'Ende nicht bewiesen' $true $false 9 10 $false $false $false 1
+Run-FinalReadCase 'finaler Lesefehler' $true $false 9 10 $false $false $true 1
+Run-FinalReadCase 'kein Cursor aktiviert' $false $false 0 10 $false $false $false 0
 function Run-Observation([bool]$NoKeys,[string]$BlockerKind,[int]$HitPid,[int]$HitRoot) {
   [SW]::InputCalls=0; [SW]::Releases=0; [SW]::HitPid=$HitPid; [SW]::HitRoot=[IntPtr]$HitRoot
   $script:pointQueries=0; $script:raises=0; $script:captured=$null

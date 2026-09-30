@@ -110,4 +110,74 @@ function Assert-DelayedNavigationStops([string[]]$Headings, [int]$ExpectedClicks
 Assert-DelayedNavigationStops @('Zielseite') 0
 Assert-DelayedNavigationStops @('Startseite','Zwischenseite','Zielseite') 1
 
+# Der Engine-30-Blattknoten hat keine AutomationId. Der schnelle Einzelzugriff
+# darf dort nicht in jeder Pollrunde auf einen groesseren Baumlauf zurueckfallen.
+# Fuehre die echte Routingfunktion mit zwei Engines und einem bekannten Ziel aus.
+$headingDefinitions = @($ast.FindAll({
+  param($node)
+  $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'AktuelleUeberschrift'
+}, $true))
+if ($headingDefinitions.Count -ne 1) { throw 'AktuelleUeberschrift ist nicht eindeutig vorhanden.' }
+Invoke-Expression $headingDefinitions[0].Extent.Text
+
+$script:headingRoute = New-Object System.Collections.ArrayList
+$script:SSE_HEADING_NODE_AID = @{}
+function Get-KnownPageHeading { param($h, $target) $null = $script:headingRoute.Add('known'); 'known' }
+function Get-CurrentHeading { param($h, $tree, [switch]$CompactFallback)
+  $null = $script:headingRoute.Add($(if ($CompactFallback) { 'cache-compact' } else { 'cache-default' }))
+  'cached'
+}
+function Walk-Tree { param($h, $budget) $null = $script:headingRoute.Add("walk:$budget"); [pscustomobject]@{ nodes=@() } }
+function Get-SSEHeading { param($tree) [pscustomobject]@{ text='walked' } }
+function Get-SSEMainWindowSelectors { [pscustomobject]@{ heading='.header' } }
+function Get-SSEContainerChild { param($nodes, $suffix, $childType) [pscustomobject]@{ aid='heading-AID' } }
+
+$knownTarget = $null
+$script:SSE_ENGINE_MAJOR = 30
+if ((AktuelleUeberschrift ([IntPtr]::Zero)) -ne 'walked' -or
+    (@($script:headingRoute) -join ',') -ne 'walk:400' -or $script:SSE_HEADING_NODE_AID.Count -ne 0) {
+  throw 'Engine 30 muss den kleinen Heading-Baumlauf verwenden.'
+}
+$script:headingRoute.Clear()
+$script:SSE_ENGINE_MAJOR = 31
+if ((AktuelleUeberschrift ([IntPtr]::Zero)) -ne 'walked' -or
+    (@($script:headingRoute) -join ',') -ne 'walk:400' -or
+    [string]$script:SSE_HEADING_NODE_AID['0'] -ne 'heading-AID') {
+  throw 'Engine 31 muss die Ueberschrift beim kleinen Erstread binden.'
+}
+$script:headingRoute.Clear()
+if ((AktuelleUeberschrift ([IntPtr]::Zero)) -ne 'cached' -or
+    (@($script:headingRoute) -join ',') -ne 'cache-compact') {
+  throw 'Engine 31 muss danach die gebundene Ueberschrift verwenden.'
+}
+$script:headingRoute.Clear()
+$script:SSE_ENGINE_MAJOR = 32
+if ((AktuelleUeberschrift ([IntPtr]::Zero)) -ne 'walked' -or
+    (@($script:headingRoute) -join ',') -ne 'walk:400') {
+  throw 'Unbekannte Engines muessen beim kleinen Heading-Baumlauf bleiben.'
+}
+$script:headingRoute.Clear()
+$knownTarget = [pscustomobject]@{ pageId='known' }
+if ((AktuelleUeberschrift ([IntPtr]::Zero)) -ne 'known' -or
+    (@($script:headingRoute) -join ',') -ne 'known') {
+  throw 'Ein bekanntes Seitenobjekt muss seinen eigenen Heading-Bindungspfad behalten.'
+}
+
+# Wenn Qt die gebundene Ueberschrift neu baut, muss der echte Helper den
+# veralteten Merker verwerfen und fuer goto nur den kleinen Baum lesen.
+$helperDefinitions = @($ast.FindAll({
+  param($node)
+  $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Get-CurrentHeading'
+}, $true))
+if ($helperDefinitions.Count -ne 1) { throw 'Get-CurrentHeading ist nicht eindeutig vorhanden.' }
+Invoke-Expression $helperDefinitions[0].Extent.Text
+function Find-ExactAutomationElement { param($h, $aid) $null = $script:headingRoute.Add('miss'); $null }
+$script:SSE_HEADING_NODE_AID['0'] = 'stale-AID'
+$script:headingRoute.Clear()
+if ((Get-CurrentHeading ([IntPtr]::Zero) $null -CompactFallback) -ne 'walked' -or
+    (@($script:headingRoute) -join ',') -ne 'miss,walk:400' -or
+    [string]$script:SSE_HEADING_NODE_AID['0'] -ne 'heading-AID') {
+  throw 'Ein verlorener Engine-31-Merker muss mit kleinem Baum neu gebunden werden.'
+}
+
 Write-Output 'goto-Wartezeiten: begrenzt; verzoegert erreichte Ziele werden vor weiterem Invoke bestaetigt - bestanden'
