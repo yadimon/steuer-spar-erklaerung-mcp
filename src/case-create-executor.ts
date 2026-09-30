@@ -219,7 +219,7 @@ export async function executeCaseCreate(
     if (String(began.ueberschriftNachher ?? "") !== wizard.modeChoiceHeading) {
       fail("wizard-page", `Nach '${wizard.beginLink}' steht '${String(began.ueberschriftNachher ?? "")}' statt '${wizard.modeChoiceHeading}'.`);
     }
-    await step("click", { aid: wizard.modeChoiceAid, hwnd, expectedPageBefore: wizard.modeChoiceHeading, waitMs: 3_000 });
+    await step("click", { aid: wizard.modeChoiceAid, hwnd, expectedPageBefore: wizard.modeChoiceHeading, waitMs: 100 });
     const master = await step("click", {
       name: wizard.nextButton, hwnd, expectedPageBefore: wizard.modeChoiceHeading, expectedPageAfter: wizard.masterDataHeading, waitMs: 9_000,
     });
@@ -235,12 +235,17 @@ export async function executeCaseCreate(
       fail("menu-entry", `Menueeintrag '${wizard.saveMenuEntry}' ist nicht aktiv verfuegbar.`);
     }
     try {
-      await step("menu_click", { name: wizard.saveMenuEntry, hwnd, waitMs: 5_000 });
-      const dialogs = await step("dialog_list", { pid });
-      const saveDialogs = asArray<Record<string, unknown>>(dialogs.dialogs).filter((dialog) =>
-        String(dialog.kind ?? "") === "native-dialog" && String(dialog.title ?? "") === wizard.saveDialogTitle);
-      if (saveDialogs.length !== 1) {
-        fail("save-dialog", `Erwartet genau einen nativen Dialog '${wizard.saveDialogTitle}', gefunden ${saveDialogs.length}.`);
+      await step("menu_click", { name: wizard.saveMenuEntry, hwnd, waitMs: 100 });
+      const dialogDeadline = Math.min(deadline, now() + 5_000);
+      for (;;) {
+        const dialogs = await step("dialog_list", { pid });
+        const saveDialogs = asArray<Record<string, unknown>>(dialogs.dialogs).filter((dialog) =>
+          String(dialog.kind ?? "") === "native-dialog" && String(dialog.title ?? "") === wizard.saveDialogTitle);
+        if (saveDialogs.length === 1) break;
+        if (saveDialogs.length > 1 || now() >= dialogDeadline) {
+          fail("save-dialog", `Erwartet genau einen nativen Dialog '${wizard.saveDialogTitle}', gefunden ${saveDialogs.length}.`);
+        }
+        await wait(100);
       }
     } catch (error) {
       // Ein offen gebliebenes Menue darf das Cleanup nicht blockieren.

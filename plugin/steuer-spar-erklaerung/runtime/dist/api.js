@@ -7898,7 +7898,7 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
     if (String(began.ueberschriftNachher ?? "") !== wizard.modeChoiceHeading) {
       fail("wizard-page", `Nach '${wizard.beginLink}' steht '${String(began.ueberschriftNachher ?? "")}' statt '${wizard.modeChoiceHeading}'.`);
     }
-    await step("click", { aid: wizard.modeChoiceAid, hwnd, expectedPageBefore: wizard.modeChoiceHeading, waitMs: 3e3 });
+    await step("click", { aid: wizard.modeChoiceAid, hwnd, expectedPageBefore: wizard.modeChoiceHeading, waitMs: 100 });
     const master = await step("click", {
       name: wizard.nextButton,
       hwnd,
@@ -7915,11 +7915,16 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
       fail("menu-entry", `Menueeintrag '${wizard.saveMenuEntry}' ist nicht aktiv verfuegbar.`);
     }
     try {
-      await step("menu_click", { name: wizard.saveMenuEntry, hwnd, waitMs: 5e3 });
-      const dialogs = await step("dialog_list", { pid: pid2 });
-      const saveDialogs = asArray(dialogs.dialogs).filter((dialog) => String(dialog.kind ?? "") === "native-dialog" && String(dialog.title ?? "") === wizard.saveDialogTitle);
-      if (saveDialogs.length !== 1) {
-        fail("save-dialog", `Erwartet genau einen nativen Dialog '${wizard.saveDialogTitle}', gefunden ${saveDialogs.length}.`);
+      await step("menu_click", { name: wizard.saveMenuEntry, hwnd, waitMs: 100 });
+      const dialogDeadline = Math.min(deadline, now() + 5e3);
+      for (; ; ) {
+        const dialogs = await step("dialog_list", { pid: pid2 });
+        const saveDialogs = asArray(dialogs.dialogs).filter((dialog) => String(dialog.kind ?? "") === "native-dialog" && String(dialog.title ?? "") === wizard.saveDialogTitle);
+        if (saveDialogs.length === 1) break;
+        if (saveDialogs.length > 1 || now() >= dialogDeadline) {
+          fail("save-dialog", `Erwartet genau einen nativen Dialog '${wizard.saveDialogTitle}', gefunden ${saveDialogs.length}.`);
+        }
+        await wait(100);
       }
     } catch (error) {
       await dependencies.execute("menu_close", { hwnd }, MIN_STEP_MS * 5, signal).catch(() => void 0);

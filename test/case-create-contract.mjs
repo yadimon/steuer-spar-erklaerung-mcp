@@ -142,6 +142,26 @@ try {
   }
 
   {
+    // Ein modal oeffnender Menueklick darf den Dialog erst beim zweiten
+    // Readback liefern; die Fallanlage wartet auf genau den gebundenen Titel.
+    let dialogReads = 0;
+    const { worker, calls } = scriptedWorker({
+      dialog_list: () => {
+        dialogReads += 1;
+        return { ok: true, count: dialogReads === 1 ? 0 : 1, dialogs: dialogReads === 1 ? [] : [
+          { hwnd: 7001, pid: PID, kind: "native-dialog", title: SAVE_TITLE },
+        ] };
+      },
+    });
+    const result = await createApiExecutor(config, worker)("case_create", { targetRef: TARGET, mode: "einurvor" }, 240_000);
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(dialogReads, 2);
+    assert.equal(calls.find((entry) => entry.operation === "menu_click").args.waitMs, 100);
+    assert.equal(closes(calls).length, 0);
+    resetTarget();
+  }
+
+  {
     // 2 Offene Instanz: nichts starten.
     const { worker, calls } = scriptedWorker({ instances: () => instance() });
     const result = await createApiExecutor(config, worker)("case_create", { targetRef: TARGET, mode: "einurvor" }, 240_000);

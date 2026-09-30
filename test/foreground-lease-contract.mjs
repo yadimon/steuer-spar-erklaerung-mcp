@@ -97,8 +97,12 @@ const semanticClickStart = worker.indexOf("\n  'click' {");
 const semanticClickEnd = worker.indexOf("\n  'toggle' {", semanticClickStart);
 assert(semanticClickStart >= 0 && semanticClickEnd > semanticClickStart, "click-Workerblock fehlt.");
 const semanticClick = worker.slice(semanticClickStart, semanticClickEnd);
-assert.match(semanticClick, /\$activationMethod = \$\(if \(\$radioSelectionMethod\) \{ \$radioSelectionMethod \} else \{ "uia-\$pattern" \}\)/u,
-  "sse_click muss im Erfolgsresultat das tatsaechlich ausgefuehrte UIA-Pattern melden.");
+assert.match(semanticClick, /\$activationMethod = \$\(if \(\$radioSelectionMethod\) \{ \$radioSelectionMethod \} elseif \(\$directNavigationLink\) \{ 'verified-point' \} else \{ "uia-\$pattern" \}\)/u,
+  "sse_click muss im Erfolgsresultat UIA, Radio-Punkt oder direkten Navigations-Punkt korrekt melden.");
+assert.match(semanticClick, /\$directNavigationLink = \[bool\]\([\s\S]*\$expectedPageBefore -and \$expectedPageAfter -and[\s\S]*\$cands\.Count -eq 1 -and \$cands\[0\]\.type -eq 'Hyperlink'/u,
+  "Der direkte Linkklick braucht beide Seitenbindungen und genau einen Hyperlink.");
+assert.match(semanticClick, /if \(\$directNavigationLink\) \{\s*\$null = Click-VerifiedPoint \$hwnd \$node/u,
+  "Der direkte Linkklick muss den gemeinsamen root-verifizierten Helfer nutzen.");
 assert.match(semanticClick, /\$requiresHyperlinkPageChange = \[bool\]\([\s\S]*\[string\]\$erfolg\.type -ceq 'Hyperlink'/u,
   "Ein gebundener Qt-Hyperlink muss auch ohne bekannte Zielueberschrift einen Seitenwechselvertrag erhalten.");
 assert.match(semanticClick, /\$hasNavigationPostcondition[\s\S]*uia-invoke\+verified-point-fallback/u,

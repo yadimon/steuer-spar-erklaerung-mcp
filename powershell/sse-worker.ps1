@@ -9584,6 +9584,23 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     if ((Arg $a 'contains') -eq $true -and $cands.Count -ne 1) {
       Fail "Teilstringsuche ist nicht eindeutig ($($cands.Count) Treffer); nichts ausgeloest." 'ambiguous'
     }
+    # Ein exakt gebundener Navigationslink braucht bei Qt keinen zunaechst
+    # wirkungslosen Invoke-Versuch. Der sichtbare Punktklick behaelt die
+    # Prozess-/Root- und Seitenbindung; bei Mehrdeutigkeit bleibt der alte
+    # Pfad und dessen Nachbedingung erhalten.
+    $directNavigationLink = [bool](
+      $pattern -eq 'invoke' -and $expectedPageBefore -and $expectedPageAfter -and
+      $cands.Count -eq 1 -and $cands[0].type -eq 'Hyperlink'
+    )
+    if ($directNavigationLink -and $script:DESKTOP_NAME) {
+      Fail 'Der gebundene Navigationslink braucht einen sichtbaren, verifizierten Klick.' 'hidden-desktop'
+    }
+    if ($script:SSE_ENGINE_MAJOR -eq 31 -and $pattern -eq 'invoke' -and $expectedPageAfter) {
+      $headingNode = Get-SSEContainerChild $t.nodes (Get-SSEMainWindowSelectors).heading 'Text'
+      if ($headingNode -and [string]$headingNode.aid) {
+        $script:SSE_HEADING_NODE_AID[[string][int64]$hwnd] = [string]$headingNode.aid
+      }
+    }
     $radioGroupPrefix = ''; $radioBefore = @(); $radioPreviouslySelected = $null; $radioSelectionMethod = $null
     $radioGuardUserInput = $false; $radioInputBaseline = $null; $radioInteractionBefore = $null
     if ($pattern -eq 'select') {
@@ -9634,6 +9651,11 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       Assert-SSEDestructiveAcknowledgement $a @($node.name, $node.aid)
       $el = Get-LiveElement $hwnd $node.rid
       if (-not $el) { $letzterFehler = 'Knoten nicht mehr greifbar'; continue }
+      if ($directNavigationLink) {
+        $null = Click-VerifiedPoint $hwnd $node
+        $erfolg = $node
+        break
+      }
       try {
         switch ($pattern) {
           'invoke'   { $el.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() }
@@ -9691,7 +9713,16 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $pattern -eq 'invoke' -and $expectedPageBefore -and [string]$erfolg.type -ceq 'Hyperlink'
     )
     $hasNavigationPostcondition = [bool]($hasPagePostcondition -or $requiresHyperlinkPageChange)
-    Start-Sleep -Milliseconds $waitMs
+    if ($pattern -eq 'invoke' -and $expectedPageAfter) {
+      $headingWait = [Diagnostics.Stopwatch]::StartNew()
+      do {
+        $observedHeading = Get-CurrentHeading $hwnd $null -CompactFallback
+        if ($observedHeading -eq $expectedPageAfter -or $headingWait.ElapsedMilliseconds -ge $waitMs) { break }
+        Start-Sleep -Milliseconds 100
+      } while ($true)
+    } else {
+      Start-Sleep -Milliseconds $waitMs
+    }
 
     # Manche Qt-Schaltflaechen melden ein erfolgreiches InvokePattern, fuehren
     # ihre Navigation aber nur bei einem echten Mausklick aus. Nur wenn der
@@ -9702,8 +9733,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # Die Antwort beschreibt die tatsaechlich ausgefuehrte UIA-Aktion. Das ist
     # besonders fuer TreeItems wichtig: expand/collapse aendert nur den Ast,
     # es behauptet keine Seitennavigation.
-    $activationMethod = $(if ($radioSelectionMethod) { $radioSelectionMethod } else { "uia-$pattern" })
-    if ($hasNavigationPostcondition -and -not $isNavigation -and $pattern -eq 'invoke') {
+    $activationMethod = $(if ($radioSelectionMethod) { $radioSelectionMethod } elseif ($directNavigationLink) { 'verified-point' } else { "uia-$pattern" })
+    if ($hasNavigationPostcondition -and -not $isNavigation -and -not $directNavigationLink -and $pattern -eq 'invoke') {
       $probeTree = Walk-Tree $hwnd 900
       $probeHeading = Get-CurrentHeading $hwnd $probeTree
       if ($probeHeading -ne $expectedPageAfter) {
@@ -11901,7 +11932,15 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       Emit ([pscustomobject]@{ ok=$false; kind='dialog-unmapped'; error="$($openButtons.Count) aktive Dateidialog-Aktionsschaltflaechen gefunden."; dialog=$dialog; nodes=$treeAfterInput.nodes })
     }
     $null = Click-VerifiedPoint $dialogHwnd $openButtons[0]
-    Start-Sleep -Milliseconds ([int](Arg $a 'waitMs' 1800))
+    # waitMs ist die Obergrenze fuer die Dialogreaktion, keine Mindestpause.
+    # Gerade beim Speichern waere ein stets ausgeschlafener 15-Sekunden-Wert
+    # reine Leerlaufzeit. Der verschwundene, zuvor exakt gebundene Dialog ist
+    # die eigentliche Nachbedingung.
+    $dialogCloseWaitMs = [int](Arg $a 'waitMs' 1800)
+    $dialogCloseWait = [Diagnostics.Stopwatch]::StartNew()
+    while ([SW]::IsWindow($dialogHwnd) -and $dialogCloseWait.ElapsedMilliseconds -lt $dialogCloseWaitMs) {
+      Start-Sleep -Milliseconds 100
+    }
     if ([SW]::IsWindow($dialogHwnd)) {
       Emit ([pscustomobject]@{
         ok=$false; kind='postcondition-failed'; error='Dateidialog ist nach der Aktion noch vorhanden.'
@@ -11909,6 +11948,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       })
     }
     if ($isSaveDialog) {
+      while (-not (Test-Path -LiteralPath $path -PathType Leaf) -and
+             $dialogCloseWait.ElapsedMilliseconds -lt $dialogCloseWaitMs) {
+        Start-Sleep -Milliseconds 100
+      }
       if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
         Fail 'Speicherdialog wurde geschlossen, aber die erwartete Zieldatei fehlt.' 'postcondition-failed'
       }
