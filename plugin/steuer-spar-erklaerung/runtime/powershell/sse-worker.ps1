@@ -15578,11 +15578,20 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       param([IntPtr]$h)
       if ($knownTarget) { return (Get-KnownPageHeading $h $knownTarget) }
       # Nur Engine 31 gibt dem Blattknoten eine eigene AutomationId. Dort
-      # kann Get-CurrentHeading ihn nach dem ersten Baumlauf gezielt lesen.
+      # bindet der ohnehin noetige kleine Erstread den Knoten fuer Folge-Polls.
       # Engine 30 hat nur am Container eine ID und behaelt den kleinen Walk.
-      if ($script:SSE_ENGINE_MAJOR -eq 31) { return (Get-CurrentHeading $h) }
+      $headingKey = [string][int64]$h
+      if ($script:SSE_ENGINE_MAJOR -eq 31 -and [string]$script:SSE_HEADING_NODE_AID[$headingKey]) {
+        return (Get-CurrentHeading $h)
+      }
       # 400 Knoten genuegen: die Ueberschrift steht weit oben im Baum.
       $t = Walk-Tree $h 400
+      if ($script:SSE_ENGINE_MAJOR -eq 31) {
+        $headingNode = Get-SSEContainerChild $t.nodes (Get-SSEMainWindowSelectors).heading 'Text'
+        if ($headingNode -and [string]$headingNode.aid) {
+          $script:SSE_HEADING_NODE_AID[$headingKey] = [string]$headingNode.aid
+        }
+      }
       (Get-SSEHeading $t).text
     }
     function IstZielseite {
@@ -15628,8 +15637,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # WarteAufUeberschrift, damit die Providerlast sich nicht aendert.
     function WarteAufSeitenwechsel {
       param([IntPtr]$h, [string]$vorher, [int]$obergrenzeMs = 900)
-      # Der Poll nutzt bei bekannten Seitenobjekten oder Engine 31 eine
-      # gebundene Ueberschrift; Engine 30 liest den kleinen Baum erneut.
+      # Bekannte Seitenobjekte lesen gezielt. Bei generischen Zielen lesen
+      # beide Engines zuerst den kleinen Baum; nur Engine 31 bindet daraus
+      # die Ueberschrift fuer folgende Pollrunden.
       if (-not $vorher) { Start-Sleep -Milliseconds $obergrenzeMs; return }
       $sw = [Diagnostics.Stopwatch]::StartNew()
       while ($sw.ElapsedMilliseconds -lt $obergrenzeMs) {

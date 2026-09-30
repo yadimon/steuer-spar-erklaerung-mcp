@@ -121,22 +121,37 @@ if ($headingDefinitions.Count -ne 1) { throw 'AktuelleUeberschrift ist nicht ein
 Invoke-Expression $headingDefinitions[0].Extent.Text
 
 $script:headingRoute = New-Object System.Collections.ArrayList
+$script:SSE_HEADING_NODE_AID = @{}
 function Get-KnownPageHeading { param($h, $target) $null = $script:headingRoute.Add('known'); 'known' }
 function Get-CurrentHeading { param($h) $null = $script:headingRoute.Add('cache'); 'cached' }
-function Walk-Tree { param($h, $budget) $null = $script:headingRoute.Add("walk:$budget"); [pscustomobject]@{} }
+function Walk-Tree { param($h, $budget) $null = $script:headingRoute.Add("walk:$budget"); [pscustomobject]@{ nodes=@() } }
 function Get-SSEHeading { param($tree) [pscustomobject]@{ text='walked' } }
+function Get-SSEMainWindowSelectors { [pscustomobject]@{ heading='.header' } }
+function Get-SSEContainerChild { param($nodes, $suffix, $childType) [pscustomobject]@{ aid='heading-AID' } }
 
 $knownTarget = $null
 $script:SSE_ENGINE_MAJOR = 30
 if ((AktuelleUeberschrift ([IntPtr]::Zero)) -ne 'walked' -or
-    (@($script:headingRoute) -join ',') -ne 'walk:400') {
+    (@($script:headingRoute) -join ',') -ne 'walk:400' -or $script:SSE_HEADING_NODE_AID.Count -ne 0) {
   throw 'Engine 30 muss den kleinen Heading-Baumlauf verwenden.'
 }
 $script:headingRoute.Clear()
 $script:SSE_ENGINE_MAJOR = 31
+if ((AktuelleUeberschrift ([IntPtr]::Zero)) -ne 'walked' -or
+    (@($script:headingRoute) -join ',') -ne 'walk:400' -or
+    [string]$script:SSE_HEADING_NODE_AID['0'] -ne 'heading-AID') {
+  throw 'Engine 31 muss die Ueberschrift beim kleinen Erstread binden.'
+}
+$script:headingRoute.Clear()
 if ((AktuelleUeberschrift ([IntPtr]::Zero)) -ne 'cached' -or
     (@($script:headingRoute) -join ',') -ne 'cache') {
-  throw 'Engine 31 muss die gebundene Ueberschrift verwenden.'
+  throw 'Engine 31 muss danach die gebundene Ueberschrift verwenden.'
+}
+$script:headingRoute.Clear()
+$script:SSE_ENGINE_MAJOR = 32
+if ((AktuelleUeberschrift ([IntPtr]::Zero)) -ne 'walked' -or
+    (@($script:headingRoute) -join ',') -ne 'walk:400') {
+  throw 'Unbekannte Engines muessen beim kleinen Heading-Baumlauf bleiben.'
 }
 $script:headingRoute.Clear()
 $knownTarget = [pscustomobject]@{ pageId='known' }
