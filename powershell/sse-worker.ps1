@@ -8960,7 +8960,31 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     try { $method = Invoke-DialogButtonInfo $dialog $buttonInfo[0] }
     catch { Fail "Dialogschaltflaeche konnte nicht sicher ausgeloest werden: $($_.Exception.Message)" 'stale' }
     $defaultAnswerWaitMs = $(if ($isRecoveryPrompt) { 5000 } else { 900 })
-    Start-Sleep -Milliseconds ([int](Arg $a 'waitMs' $defaultAnswerWaitMs))
+    $answerWaitMs = [int](Arg $a 'waitMs' $defaultAnswerWaitMs)
+    $expectsExportFolder = [bool](
+      $dialog.title -like 'Export für das Finanzamt (*.csv)*' -and
+      $buttonName -eq 'Klicken Sie hier, um Ihre Daten zu exportieren'
+    )
+    if ($isRecoveryPrompt) {
+      # Nach der Recovery-Frage muss auch das regulaere Hauptfenster fertig
+      # gebunden sein; dessen spaeterer Hash-/Fenstervertrag bleibt massgeblich.
+      Start-Sleep -Milliseconds $answerWaitMs
+    } else {
+      $answerWait = [Diagnostics.Stopwatch]::StartNew()
+      while ($answerWait.ElapsedMilliseconds -lt $answerWaitMs) {
+        if (-not [SW]::IsWindow([IntPtr][int64]$dialog.hwnd)) { break }
+        if ($expectsExportFolder) {
+          $folderAppeared = @(Get-Windows 'SSE' | Where-Object {
+            [int]$_.pid -eq [int]$dialog.pid -and
+            [int64]$_.hwnd -ne [int64]$dialog.hwnd -and
+            -not $beforeHandles.ContainsKey([int64]$_.hwnd) -and
+            [string]$_.title -ceq 'Ausgabe-Verzeichnis wählen'
+          })
+          if ($folderAppeared.Count -eq 1) { break }
+        }
+        Start-Sleep -Milliseconds 100
+      }
+    }
     $closed = -not [SW]::IsWindow([IntPtr][int64]$dialog.hwnd)
     $windowsAfter = @(Get-Windows 'SSE')
     $newWindows = @($windowsAfter | Where-Object { -not $beforeHandles.ContainsKey([int64]$_.hwnd) })
@@ -9011,8 +9035,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         $recoveryBindingModeAfter = [string]$recoveryBindingAfter.mode
       }
     }
-    $allowsChildDialog = ($dialog.title -like 'Export für das Finanzamt (*.csv)*' -and
-      $buttonName -eq 'Klicken Sie hier, um Ihre Daten zu exportieren')
+    $allowsChildDialog = $expectsExportFolder
     if (-not $closed -and -not ($allowsChildDialog -and $newDialogs.Count -eq 1)) {
       $currentWindow = @($windowsAfter | Where-Object { [int64]$_.hwnd -eq [int64]$dialog.hwnd } | Select-Object -First 1)
       $current = $(if ($currentWindow.Count) { Get-DialogDescriptor $currentWindow[0] $mainBeforeHwnd } else { $null })
@@ -11887,7 +11910,11 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $fieldReadback = Set-SSEDialogFieldText $dialogHwnd $fieldHandle $field $path 'Ordnerfeld'
 
       $null = Click-VerifiedPoint $dialogHwnd $folderButton
-      Start-Sleep -Milliseconds ([int](Arg $a 'waitMs' 1800))
+      $folderCloseWaitMs = [int](Arg $a 'waitMs' 1800)
+      $folderCloseWait = [Diagnostics.Stopwatch]::StartNew()
+      while ([SW]::IsWindow($dialogHwnd) -and $folderCloseWait.ElapsedMilliseconds -lt $folderCloseWaitMs) {
+        Start-Sleep -Milliseconds 100
+      }
       if ([SW]::IsWindow($dialogHwnd)) {
         Fail 'Ordnerdialog ist nach der Auswahl noch vorhanden; keine Wiederholung.' 'postcondition-failed'
       }
