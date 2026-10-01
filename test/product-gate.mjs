@@ -517,7 +517,7 @@ try {
     closeBlock.includes("$dialogDeadline = [DateTime]::UtcNow.AddMilliseconds(1800)") &&
     closeBlock.includes("$dismissDeadline = [DateTime]::UtcNow.AddMilliseconds(1800)") &&
     closeBlock.includes("[SW]::IsWindow($h)") &&
-    closeBlock.includes("Wait-SSEProcessExit $targetProcessHandle 20000") &&
+    closeBlock.includes("Wait-SSEProcessExit $targetProcessHandle $(if ($force -or $hung) { 0 } else { 20000 })") &&
     !closeBlock.includes("$targetProcess.WaitForExit(") &&
     !closeBlock.includes("Start-Sleep -Milliseconds 1500") &&
     !closeBlock.includes("Start-Sleep -Seconds 2"),

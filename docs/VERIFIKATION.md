@@ -115,6 +115,8 @@ Win32-Helfer ohne PowerShell-Kompilierung. Ohne diese beiden Einstellungen
 misst der Test den Worker-Pfad. Native Messungen ändern das Worker-Coverage-Ledger nicht.
 Der Bereitschaftstest übernimmt `SSE_WORKER_PREWARM_STARTUP_TIMEOUT_MS` aus der
 Pool-Konfiguration; eine längere erlaubte Vorbereitung ist keine schnellere API-Operation.
+Ohne eigene Einstellung beträgt das begrenzte Startbudget 30 Sekunden; es gilt
+für das Vorwärmen im Hintergrund und verändert kein Operationszeitlimit.
 Ein vor dem ersten Aufruf fehlgeschlagener Lauf liefert keine Gesamtlatenz der Reise.
 
 Für produktfreie Teilstrecken stehen `npm run perf:tax-journeys`,
