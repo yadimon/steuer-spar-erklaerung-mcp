@@ -246,6 +246,20 @@ einer veralteten Antwort bedient wird.
   eine Zweiggrenze erfordert einmal sichtbar den Baumklick.
 - Nach jedem Baumklick die Überschrift erneut lesen. Ein erfolgreicher Klick
   ist keine erfolgreiche Navigation.
+- „Weiter“ folgt dem Blätterpfad, „Zurück“ dagegen dem Seitenverlauf der
+  Sitzung: Nach einem Sprung über Baum oder Suche führt „Zurück“ auf die zuvor
+  angezeigte Seite, nicht auf den Vorgänger im Pfad. Nur nach einer Folge von
+  „Weiter“-Schritten fährt „Zurück“ denselben Weg zurück, und „Weiter“ führt
+  danach wieder in den Pfad. `sse_goto` blättert deshalb in genau einer
+  Richtung und nutzt „Zurück“ automatisch nur als geprüften Rückweg.
+- Die beiden Verlaufspfeile tragen dieselbe AutomationId
+  (`HistoryToolbarBtnSSE`), links „zurück“, rechts „vor“. Am Anfang des
+  Verlaufs ist nur „vor“ aktiv; ein Ausweg „ersten aktiven Verlaufspfeil
+  drücken“ pendelt dort zwischen Startseite und zuletzt besuchter Seite.
+- Die Startseite der Gewinnermittlung hat weder „Weiter“ noch „Zurück“.
+- Ein Seitentitel ist keine Position im Pfad: Die §-13b-Unterseite kehrt
+  hinter mehreren Ausgabenseiten wieder, und hinter der UStVA laufen Seiten mit
+  denselben Titeln wie im Zweig der Umsatzsteuererklärung.
 - Für lange Bäume zuerst an den Anfang rollen, dann in kleinen Schritten
   scrollen. Nicht zwanzig Seiten ohne Zwischenprüfung abfahren.
 - Menü-Popups explizit lesen und schließen. Keine globalen Tastenkürzel als

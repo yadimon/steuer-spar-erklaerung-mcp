@@ -36,9 +36,12 @@ export const SSE_MCP_UI_SCHEMAS = {
     pageId: z.string().min(1).max(200).optional().describe(
       "Bevorzugte stabile pageId aus sse_page_objects; erkennt auch dynamische nummerierte Ueberschriften",
     ),
-    maxSteps: GOTO_MAX_STEPS.optional().describe("Hoechstzahl der Blaetterschritte, Vorgabe automatisch, maximal 200"),
+    maxSteps: GOTO_MAX_STEPS.optional().describe(
+      "Obergrenze der Blaetterschritte; das automatische Budget (Abstand plus Reserve) wird nie ueberschritten, maximal 200",
+    ),
     direction: z.enum(["Weiter", "Zurück"]).optional().describe(
-      "Bei unbekannten Seiten die Suchrichtung fest vorgeben; verhindert einen langen Lauf in die falsche Richtung",
+      "Richtung fest vorgeben. 'Weiter' folgt dem Blaetterpfad, 'Zurück' dem Seitenverlauf der Sitzung und " +
+      "wird dann nicht gegen den Pfad geprueft",
     ),
     useSearch: z.boolean().optional().describe(
       "Globale Qt-Suche zuerst versuchen; Vorgabe true. Auf verstecktem Desktop fuer einen rein linearen Lauf false setzen.",

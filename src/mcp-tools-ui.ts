@@ -47,13 +47,15 @@ export function registerUiTools(registry: McpRegistry): void {
         "Navigiert bevorzugt ueber eine stabile pageId, alternativ ueber die exakte Ueberschrift. " +
         "Die pageId erkennt auch dynamische nummerierte Seiten wie '1. Fahrzeug: ...'. Steht das Ziel exakt und eindeutig " +
         "im sichtbaren Navigationsbaum, klickt es auf dem sichtbaren Desktop direkt diesen Eintrag. Sonst versucht es " +
-        "die globale Suche und blaettert danach mit den fokusfreien UIA-Schaltflaechen 'Weiter'/'Zurueck'. " +
+        "die globale Suche und blaettert danach fokusfrei in genau einer Richtung: 'Weiter' folgt dem Blaetterpfad, " +
+        "'Zurueck' dagegen dem Seitenverlauf und gilt automatisch nur als gepruefter Rueckweg; die erste Landung " +
+        "neben dem Pfad beendet den Lauf und nennt die aktuelle Seite. " +
         "Qt-Suchtreffer lassen sich auf einem versteckten Windows-Desktop zwar lesen, aber je nach " +
         "Programmseite nicht aktivieren; dann faellt das Werkzeug auf den Blaetterpfad zurueck. Bei " +
-        "einem blockierenden Pruefhinweis stoppt es nach dem ersten Klick, statt Warnfenster zu stapeln, und " +
-        "meldet den vollstaendigen Weg statt einen Scheinerfolg. Fuer einen rein linearen Lauf kann " +
-        "useSearch=false gesetzt werden. Ein Navigationsbaum-Klick braucht den sichtbaren Desktop. " +
-        "'Gewinnermittlung beginnen' bleibt eine bekannte Sackgasse ohne Vor-/Zurueck-Schalter.",
+        "einem blockierenden Pruefhinweis stoppt es nach dem ersten Klick, statt Warnfenster zu stapeln; Seiten " +
+        "ohne Blaetterschalter wie die Startseite und Kreise beenden den Lauf sofort. Gemeldet wird der " +
+        "vollstaendige Weg statt eines Scheinerfolgs. Fuer einen rein linearen Lauf kann " +
+        "useSearch=false gesetzt werden. Ein Navigationsbaum-Klick braucht den sichtbaren Desktop.",
       inputSchema: SSE_MCP_TOOL_SCHEMAS.sse_goto.shape,
       outputSchema: apiResultOutputSchema("goto"),
     },
