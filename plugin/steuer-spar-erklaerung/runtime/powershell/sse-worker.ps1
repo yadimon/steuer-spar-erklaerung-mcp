@@ -6460,7 +6460,7 @@ function Get-SSEValueInfoWindows([int]$TargetPid) {
 # einer langsamen Maschine war das zu kurz, und der erlaubte Schreibweg
 # scheiterte hart mit 'Werte-Info nicht eindeutig (0 Fenster)'. Deshalb wird
 # bis zu einer Frist gepollt statt geraten.
-function Open-SSEValueInfoWindow([IntPtr]$MainHwnd, [int]$TargetPid, [int]$TimeoutMs = 8000) {
+function Open-SSEValueInfoWindow([IntPtr]$MainHwnd, [int]$TargetPid, [int]$TimeoutMs = 8000, [switch]$DeferContentReadiness) {
   $vorhandene = @(Get-SSEValueInfoWindows $TargetPid)
   if ($vorhandene.Count) {
     return [pscustomobject]@{
@@ -6504,7 +6504,9 @@ function Open-SSEValueInfoWindow([IntPtr]$MainHwnd, [int]$TargetPid, [int]$Timeo
   # Das Fenster erscheint vor seinem Inhalt: Qt fuellt die Vergleichstabelle
   # erst danach. Ohne diese Nachlaufzeit liest der Aufrufer eine halbe Tabelle
   # und meldet sie als unvollstaendig.
-  if ($gefunden.Count -eq 1) { Start-Sleep -Milliseconds 900 }
+  # Feldtransaktionen pruefen die vollstaendige Tabelle selbst vor jedem
+  # Schreibzugriff. Dort ersetzt dieser verpflichtende Readback die Nachlaufzeit.
+  if ($gefunden.Count -eq 1 -and -not $DeferContentReadiness) { Start-Sleep -Milliseconds 900 }
   if ($gefunden.Count -ne 1) {
     return [pscustomobject]@{
       ok=$false; opened=$true; anzahl=$gefunden.Count; window=$null
@@ -6633,19 +6635,36 @@ function Open-TrackedResultWindow([IntPtr]$MainHwnd) {
   if ($main.Count -ne 1) {
     return [pscustomobject]@{ ok=$false; error='SSE-Hauptfenster fuer Ergebnis-Tracking nicht mehr eindeutig.' }
   }
-  Open-SSEValueInfoWindow $MainHwnd ([int]$main[0].pid)
+  Open-SSEValueInfoWindow $MainHwnd ([int]$main[0].pid) -DeferContentReadiness
 }
 
 # Qt fuellt die Vergleichstabelle erst nach dem Erscheinen des Fensters, und
 # nach einer Aenderung rechnet es sie neu. Ein einzelner Leseversuch traf sie
 # beim ersten Oeffnen oft halb gefuellt; der erlaubte Schreibweg scheiterte
 # dann an einer Vorbedingung, die eine Sekunde spaeter erfuellt war.
-function Read-TrackedResultWindowComplete($Window, [int]$TimeoutMs = 8000) {
+function Read-TrackedResultWindowComplete($Window, [int]$TimeoutMs = 8000, [switch]$RequireStable) {
   $gelesen = Read-TrackedResultWindow $Window
   $frist = [Diagnostics.Stopwatch]::StartNew()
-  while (-not $gelesen.ok -and $frist.ElapsedMilliseconds -lt $TimeoutMs) {
-    Start-Sleep -Milliseconds 400
+  $vorigerFingerprint = $null
+  while ($true) {
+    if ($gelesen.ok) {
+      if (-not $RequireStable) { return $gelesen }
+      # Auch ein formal vollstaendiger Zeilen-Praefix kann noch wachsen.
+      # Erst zwei identische Inhalts-Readbacks bilden den Schreib-Baseline.
+      if ($gelesen.fingerprint -and $gelesen.fingerprint -ceq $vorigerFingerprint) { return $gelesen }
+      $vorigerFingerprint = $gelesen.fingerprint
+    } else {
+      $vorigerFingerprint = $null
+    }
+    $rest = $TimeoutMs - $frist.ElapsedMilliseconds
+    if ($rest -le 0) { break }
+    Start-Sleep -Milliseconds ([int][Math]::Min($rest, $(if ($gelesen.ok) { 100 } else { 400 })))
     $gelesen = Read-TrackedResultWindow $Window
+  }
+  if ($RequireStable -and $gelesen.ok) {
+    $gelesen.ok = $false
+    $gelesen.complete = $false
+    $gelesen | Add-Member -NotePropertyName error -NotePropertyValue 'Ergebniszeilen wurden innerhalb der Frist nicht stabil.' -Force
   }
   $gelesen
 }
@@ -6669,6 +6688,7 @@ function Read-TrackedResultWindow($Window) {
     unpositioned=[int]$result.nichtPositionierteZellenAnzahl
     invariantErrors=@($result.vergleichsInvariantFehler)
     headers=@($result.uiaKopfzeilen)
+    fingerprint=$result.fingerprint
   }
 }
 
@@ -6694,7 +6714,10 @@ function Close-TrackedResultWindow($Tracking) {
   if (-not [SW]::IsWindow($hwnd)) { return $true }
   $res = [IntPtr]::Zero
   $null = [SW]::SendMessageTimeout($hwnd, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero, 0x0002, 3000, [ref]$res)
-  Start-Sleep -Milliseconds 250
+  $closeWatch = [Diagnostics.Stopwatch]::StartNew()
+  while ([SW]::IsWindow($hwnd) -and $closeWatch.ElapsedMilliseconds -lt 250) {
+    Start-Sleep -Milliseconds 15
+  }
   -not [SW]::IsWindow($hwnd)
 }
 
@@ -10286,6 +10309,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     }
     $sumChecks = @((Arg $a 'sumChecks') | Where-Object { $null -ne $_ })
     $trackResults = [bool](Arg $a 'trackResults' $(if ($script:DESKTOP_NAME) { $false } else { $true }))
+    $labels = @((Arg $a 'resultLabels') | Where-Object { $null -ne $_ } | ForEach-Object { [string]$_ })
+    if (@($labels | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count) {
+      Fail 'resultLabels darf keine leeren Beschriftungen enthalten; fuer alle Zeilen [] verwenden.' 'bad-args'
+    }
     $fastKnown = [bool]($known -and $sumChecks.Count -eq 0)
     $phaseLog = New-SSEPhaseLog
 
@@ -10375,7 +10402,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           'Entweder die Werte-Info einmal mit result_details (MCP: sse_result_details) oeffnen ' +
           'oder die Aenderung bewusst mit trackResults=false ohne Ergebnisvergleich schreiben.') 'precondition-failed'
       }
-      $resultBefore = Read-TrackedResultWindowComplete $tracking.window
+      $resultBefore = Read-TrackedResultWindowComplete $tracking.window -RequireStable:$tracking.opened
       if (-not $resultBefore.ok) {
         $null = Close-TrackedResultWindow $tracking
         # Ohne diese Zahlen ist die Meldung eine Sackgasse: Sie sagt nicht, ob
@@ -10383,7 +10410,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         Fail ("Ergebnisstand vor der Aenderung war nicht vollstaendig lesbar: " +
           "$(@($resultBefore.rows).Count) Zeilen, $(@($resultBefore.malformed).Count) unvollstaendig, " +
           "$($resultBefore.unpositioned) nicht positioniert, $(@($resultBefore.invariantErrors).Count) Invariantenfehler, " +
-          "$(@($resultBefore.headers).Count) Kopfzeilen.") 'precondition-failed'
+          "$(@($resultBefore.headers).Count) Kopfzeilen. $($resultBefore.error)") 'precondition-failed'
       }
       $ergebnisFensterVerschoben = Move-SSEValueInfoAside $tracking.window $hwnd $node
     }
@@ -10533,7 +10560,6 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $resultAfter = Read-TrackedResultWindowComplete $tracking.window
       $resultOk = [bool]$resultAfter.ok
       if ($resultOk) {
-        $labels = @((Arg $a 'resultLabels') | ForEach-Object { [string]$_ })
         $resultDiff = @(Compare-TrackedResultRows $resultBefore $resultAfter $labels)
       }
     }
@@ -12316,7 +12342,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # SSE beendet sich nach der letzten Antwort nicht sofort. Ein einzelner
     # Blick direkt danach meldete deshalb 'Programm laeuft noch', obwohl es
     # Sekunden spaeter regulaer weg war - ein Fehlschlag, den es nicht gab.
-    $still = Wait-SSEProcessExit $targetProcessHandle 20000
+    # Force und Haenger senden oben keinen regulären Schliessbefehl. Dort
+    # gibt es keinen ausstehenden Exit, auf den gewartet werden koennte.
+    $still = Wait-SSEProcessExit $targetProcessHandle $(if ($force -or $hung) { 0 } else { 20000 })
     $killed = $false
     if ($still -and ($force -or $hung) -and $discard) {
       Stop-Process -InputObject $targetProcess -Force -ErrorAction SilentlyContinue
@@ -12331,6 +12359,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       speichernAntwort = $antwort; sollteSpeichern = $save
       discardChanges = $discard; pid = $targetPid
       note = $(if ($laeuftNoch) { 'Laeuft noch - vermutlich steht ein Dialog offen. sse_ui_state ansehen.' }
+               elseif ($killed) { 'Exakt gebundener SSE-Prozess wurde ohne Speichern hart beendet.' }
                elseif ($antwort) { "Rueckfrage mit '$antwort' beantwortet." }
                else { 'Ohne Rueckfrage beendet (keine ungespeicherten Aenderungen).' })
     })
