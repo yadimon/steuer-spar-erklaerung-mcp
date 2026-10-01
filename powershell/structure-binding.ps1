@@ -113,6 +113,56 @@ function Get-SSEVisibleNavigationItem {
 }
 
 <#
+Trefferzelle der globalen Suche fuer eine Seitenueberschrift.
+
+Die Ergebnistabelle hat zwei Spalten: links der Titel der Fundstelle, rechts
+ihr Ort im Formular. Zaehlt nur die Titelspalte - die Pfadzelle nennt die
+Seite eines Feldtreffers, und ein Doppelklick darauf oeffnet diese, nicht die
+gesuchte Seite. Die Titelspalte ist je Zeile die linke Zelle, auch wenn sie
+leer ist; sonst wuerde bei leerem Titel die Pfadzelle zum Titel.
+
+Der Navigationsbaum ist kein Kandidat: Waehrend die Suche offen ist, steht er
+verschoben im selben Fensterausschnitt, und sichtbare Baumziele klickt goto
+vorher selbst. Suchecho und Formulartexte ausserhalb der Tabelle zaehlen
+ebenso wenig.
+
+Geliefert wird die eindeutige Titelzelle mit genau dieser Ueberschrift. Steht
+der Titel nicht in der Zelle selbst, sondern in einem Text darin, zaehlt die
+Zelle, die diesen Text traegt. Kein oder mehr als ein Treffer liefert $null.
+#>
+function Select-SSESearchHit {
+  param(
+    [Parameter(Mandatory)][AllowEmptyCollection()]$Nodes,
+    [string]$Target
+  )
+  if (-not $Target) { return $null }
+  $tabelleEndung = 'DialogSearchResultsTableView'
+  $tabelle = Find-SSEContainerNode $Nodes $tabelleEndung 'Table'
+  if (-not $tabelle) { return $null }
+  $titelZellen = @{}
+  foreach ($zeile in @(Get-SSEContainerDescendants $Nodes $tabelleEndung 'DataItem' 'Table' | Group-Object y)) {
+    $links = @($zeile.Group | Sort-Object x)[0]
+    $titelZellen[[int]$links.i] = $links
+  }
+  # Nachfahren der Tabelle in Vorordnung; je Knoten die naechste Zelle darueber.
+  $zelleVon = @{}
+  $zelleVon[[int]$tabelle.i] = $null
+  $treffer = New-Object System.Collections.ArrayList
+  foreach ($knoten in @($Nodes)) {
+    $index = [int]$knoten.i
+    if ($index -eq [int]$tabelle.i -or -not $zelleVon.ContainsKey([int]$knoten.p)) { continue }
+    $zelle = $(if ($titelZellen.ContainsKey($index)) { $titelZellen[$index] } else { $zelleVon[[int]$knoten.p] })
+    $zelleVon[$index] = $zelle
+    if ($zelle -and [string]$knoten.name -ceq $Target -and $knoten.type -in @('DataItem', 'Text', 'Hyperlink') -and
+        -not ($treffer -contains $zelle)) {
+      $null = $treffer.Add($zelle)
+    }
+  }
+  if ($treffer.Count -ne 1) { return $null }
+  $treffer[0]
+}
+
+<#
 Name des ausgewaehlten Navigationsknotens.
 
 Unabhaengige Gegenprobe zur Seitenueberschrift; auf Hauptseiten stimmen beide

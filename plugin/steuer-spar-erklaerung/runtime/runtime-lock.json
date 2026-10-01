@@ -88,13 +88,13 @@
     },
     {
       "path": "powershell/sse-worker.ps1",
-      "sha256": "219767979835f340696b791f82b34500f01f2cae57cdd9c5db34c4eb15b90fe7",
-      "size": 1206354
+      "sha256": "621ec8f15930d67e5c32ddfa1b35e5c96cd2085cbf978fdbfe13b92f55b1f2a8",
+      "size": 1204279
     },
     {
       "path": "powershell/structure-binding.ps1",
-      "sha256": "32fccf8134a35c1a0f3365e132cb5e3c930a42548c5140f909de551d1750f9f0",
-      "size": 5162
+      "sha256": "5003d743dee37c32726d34f3a7316ff910d4dcd9cf6aea948ba5cefdcbc2ff1b",
+      "size": 7375
     },
     {
       "path": "powershell/table-combobox.ps1",

@@ -14916,15 +14916,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           Start-Sleep -Milliseconds 1800
           $null = $weg.Add("Suche nach '$ziel' gesetzt$(if($ausgeloest){' und ausgeloest'}else{' (Lupe nicht ausloesbar)'})")
 
-          # Trefferliste: Eintraege stehen als DataItem oberhalb des Arbeitsbereichs
+          # Trefferliste: dieselbe Auswahl wie goto - nur eine Titelzelle der
+          # Ergebnistabelle mit genau dieser Ueberschrift (Select-SSESearchHit).
           $tt = Walk-Tree $hwnd
-          $bb = Get-ContentBounds $tt $hwnd
-          $rr = New-Object SW+RC; [SW]::GetWindowRect($hwnd, [ref]$rr) | Out-Null
-          $treffer = @($tt.nodes | Where-Object {
-            $_.type -eq 'DataItem' -and $_.name -and $_.y -lt ($rr.T + 420) -and $_.x -lt $bb.maxX
-          } | Sort-Object y)
-          $genau = @($treffer | Where-Object { $_.name -eq $ziel })[0]
-          if (-not $genau) { $genau = @($treffer | Where-Object { $_.name -like "*$ziel*" })[0] }
+          $genau = Select-SSESearchHit $tt.nodes $ziel
           if ($genau) {
             $null = $weg.Add("Treffer gefunden: '$($genau.name)'")
             # Aktivieren: erst SelectionItem/Invoke ohne Fokus versuchen
@@ -16088,52 +16083,18 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           # kostet nur einen zusaetzlichen; ein gestufter Versuch wurde
           # deshalb wieder verworfen.
           $tt = Walk-Tree $hwnd
-          $bb = Get-ContentBounds $tt $hwnd
           $rr = New-Object SW+RC; [SW]::GetWindowRect($hwnd, [ref]$rr) | Out-Null
-          $treffer = @($tt.nodes | Where-Object {
-            $_.type -in @('DataItem','ListItem','TreeItem') -and $_.name -and
-            $_.y -lt ($rr.T + 520) -and $_.x -lt $bb.maxX
-          } | Sort-Object y)
-          # Bei mehreren exakten Namensgleichheiten den LINKESTEN nehmen: ein
-          # Navigationszweig ("Prüfen und Abgeben") erscheint als Ergebnis
-          # dreifach - als eingerueckte Unterpunkt-Kachel (grosses x, fuehrt in
-          # den Unterbereich), als Hauptkachel und als Knoten des
-          # Navigationsbaums ganz links (x~25). Nur der linke fuehrt auf die
-          # Zielseite selbst; die Sortierung nach y allein griff sonst die
-          # oberste Kachel und landete daneben.
-          $genau = @($treffer | Where-Object { $_.name -eq $ziel } | Sort-Object x, y)[0]
-          if (-not $genau) { $genau = @($treffer | Where-Object { $_.name -like "*$ziel*" } | Sort-Object x, y)[0] }
-          if (-not $genau) {
-            $genau = @($treffer | Where-Object {
-              $_.x -lt ($rr.L + 250) -and $_.y -lt ($rr.T + 400) -and
-              $ziel -like "*$($_.name)*"
-            } | Sort-Object { $_.name.Length } -Descending)[0]
-          }
-          # Qt benennt den auswählbaren DataItem-Knoten oft nur mit der
-          # Oberkategorie (z. B. "Arbeitnehmer"); der eigentliche Seitentitel
-          # steht in einem Text-Nachfahren. Den exakten Texttreffer deshalb
-          # bis zum nächsten aktivierbaren Vorfahren hochverfolgen.
-          if (-not $genau) {
-            $zielText = @($tt.nodes | Where-Object {
-              $_.type -in @('Text','Hyperlink') -and $_.name -and
-              (($_.name -eq $ziel) -or ($_.name -like "*$ziel*")) -and
-              $_.y -lt ($rr.T + 700)
-            } | Sort-Object y)[0]
-            $cur = $zielText
-            for ($up = 0; $cur -and $up -lt 8; $up++) {
-              if ($cur.type -in @('DataItem','ListItem','TreeItem')) { $genau = $cur; break }
-              $parentIndex = $cur.p
-              if ($null -eq $parentIndex -or [int]$parentIndex -lt 0) { break }
-              $cur = @($tt.nodes | Where-Object { $_.i -eq $parentIndex })[0]
-            }
-          }
-          # Kein beliebiges Ergebnis als Anker verwenden. Ein Suchbegriff kann
-          # in Hilfetexten vieler fachfremder Seiten vorkommen (z. B.
-          # "Steuernummer" in einem Fristverlaengerungsantrag). Ohne exakten,
-          # enthaltenen oder ueber einen exakten Text-Nachfahren gebundenen
-          # Treffer wird die Suchseite nur geschlossen und der kontrollierte
-          # lineare Pfad verwendet; auf dem sichtbaren Desktop niemals einen
-          # unscharfen Treffer doppelklicken.
+          # Nur eine Titelzelle der Ergebnistabelle mit genau dieser
+          # Ueberschrift ist ein Anker (Select-SSESearchHit). Ein Suchbegriff
+          # kann in Feld- und Hilfetreffern vieler fachfremder Seiten stehen;
+          # deren Pfadzelle nennt die Seite des Feldes, und der verschobene
+          # Navigationsbaum liegt waehrend der Suche im selben Ausschnitt. Ohne
+          # solchen Treffer wird die Suchseite nur geschlossen und der
+          # kontrollierte Blaetterweg verwendet; auf dem sichtbaren Desktop
+          # niemals einen unscharfen Treffer doppelklicken.
+          $genau = Select-SSESearchHit $tt.nodes $ziel
+          $treffer = @(Get-SSEContainerDescendants $tt.nodes 'DialogSearchResultsTableView' 'DataItem' 'Table' |
+            Where-Object { [string]$_.name })
           $suchWeg = New-Object System.Collections.ArrayList
           $null = $suchWeg.Add("Suche nach '$ziel'")
           $null = $suchWeg.Add("sichtbare Treffer: $((@($treffer | Select-Object -First 12 | ForEach-Object { $_.name })) -join ' | ')")
@@ -16218,9 +16179,12 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
                 Emit ([pscustomobject]@{ ok = $true; erreicht = $true; pageId=$(if ($pageId) { $pageId } else { $null }); ueberschrift = $nachSuche; schritte = 1
                   richtung = 'Suche'; weg = @(@($weg | Select-Object -Skip 1) + @($suchWeg)); fokusfrei = $true })
               }
-              # Der Suchbegriff kann im Hilfetext einer anders benannten Seite
-              # liegen (Kontoführungsgebühren -> Sonstige Werbungskosten/Fahrten).
-              # Von dieser verifizierten Ankerseite aus normal weiterblaettern.
+              # Der Treffer kann auf eine anders benannte Seite fuehren
+              # (Kontoführungsgebühren -> Sonstige Werbungskosten/Fahrten). Der
+              # Blaetterweg beginnt dann dort; steht diese Seite nicht in der
+              # Blaetterfolge, gilt ihr Ort als unbekannt, und Get-SSEGotoRoute
+              # erlaubt nur 'Weiter' - ein automatisches 'Zurück' liefe in den
+              # Verlauf der Sitzung.
               $start = $nachSuche
             }
           }
