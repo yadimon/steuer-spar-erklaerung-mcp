@@ -8,7 +8,9 @@ export const SSE_API_GOTO_SCHEMA = z.object({
     "Stabile Page-Object-ID; bindet dynamische Ueberschriften und Pflichtfelder semantisch",
   ),
   maxSteps: GOTO_MAX_STEPS.optional(),
-  direction: z.enum(["Weiter", "Zurück"]).optional().describe("Explizite lineare Suchrichtung"),
+  direction: z.enum(["Weiter", "Zurück"]).optional().describe(
+    "Feste Richtung: 'Weiter' folgt dem Blaetterpfad, 'Zurück' dem Seitenverlauf",
+  ),
   useSearch: z.boolean().optional().describe("Moderne Option fuer die globale Qt-Suche; Vorgabe true"),
   viaSuche: z.boolean().optional().describe("Historischer Alias fuer useSearch"),
   hwnd: WINDOW_HANDLE.optional(),

@@ -2461,6 +2461,11 @@ if (-not (Test-Path -LiteralPath $structureBindingHelpers -PathType Leaf)) {
   Fail "Strukturbindungs-Helfer fehlt: $structureBindingHelpers" 'not-found'
 }
 . $structureBindingHelpers
+$gotoRouteHelpers = Join-Path $PSScriptRoot 'goto-route.ps1'
+if (-not (Test-Path -LiteralPath $gotoRouteHelpers -PathType Leaf)) {
+  Fail "Blaetterweg-Helfer fehlt: $gotoRouteHelpers" 'not-found'
+}
+. $gotoRouteHelpers
 $profileVerificationHelpers = Join-Path $PSScriptRoot 'profile-verification.ps1'
 if (-not (Test-Path -LiteralPath $profileVerificationHelpers -PathType Leaf)) {
   Fail "Build-Verifikations-Helfer fehlt: $profileVerificationHelpers" 'not-found'
@@ -15250,7 +15255,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       })
     }
     Emit ([pscustomobject]@{ ok = $true; anzahl = $liste.Count; unterseiten = @($liste)
-      hinweis = "Hyperlinks sind bei doppelt exponierten Qt-Unterseiten der bevorzugte, PID-/Root-verifizierte Weg per sse_click_point. Reine oder unbeschriftete Buttons per rid mit sse_click oeffnen. Zurueck ueber sse_click name='Zurück' oder den Verlaufspfeil (aid HistoryToolbarBtnSSE)." })
+      hinweis = "Hyperlinks sind bei doppelt exponierten Qt-Unterseiten der bevorzugte, PID-/Root-verifizierte Weg per sse_click_point. Reine oder unbeschriftete Buttons per rid mit sse_click oeffnen. Zurueck ueber sse_click name='Zurück'; es fuehrt zur zuvor angezeigten Seite, nicht zum Vorgaenger im Blaetterpfad." })
   }
 
   'check' {
@@ -15783,9 +15788,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # Fensterwurzel nichts offen).
     #
     # Was fokusfrei WIRKT, ist Invoke auf echte Schaltflaechen:
-    #   'Weiter' / 'Zurück'          - Blaetterpfad
-    #   HistoryToolbarBtnSSE         - Verlauf zurueck/vor, entkommt Sackgassen
-    # Darauf setzt dieses Werkzeug auf.
+    #   'Weiter'   - naechste Seite im Blaetterpfad
+    #   'Zurück'   - vorherige Seite im Seitenverlauf, NICHT im Blaetterpfad
+    # Darauf setzt dieses Werkzeug auf; den Weg plant goto-route.ps1.
     $ziel = [string](Arg $a 'ziel')
     $pageId = [string](Arg $a 'pageId')
     if ([bool]$ziel -eq [bool]$pageId) {
@@ -15802,6 +15807,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $requestedMaxSteps = $(if ($null -ne (Arg $a 'maxSteps')) {
       Get-SSEBoundedIntegerArg $a 'maxSteps' 40 1 200
     } else { $null })
+    $richtungVorgegeben = [string](Arg $a 'direction')
+    if ($richtungVorgegeben -and $richtungVorgegeben -cnotin @('Weiter','Zurück')) {
+      Fail "direction muss 'Weiter' oder 'Zurück' sein." 'bad-args'
+    }
     # Schrittzahl GESAMT, nicht je Richtung. Vorher waren es maxSteps pro
     # Richtung - bei 40 also 80 Seitenwechsel, die das Programm sichtbar
     # durch das ganze Formular blaettern liessen. Das ist fuer den Nutzer
@@ -15811,32 +15820,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     [SW]::GetWindowThreadProcessId($hwnd, [ref]$gotoPid) | Out-Null
     $verbraucht = 0
 
-    # Bekannte Reihenfolge des Blaetterpfads (aus der Kartierung der 78 Seiten).
-    # Damit laesst sich RICHTUNG und ENTFERNUNG berechnen, statt blind in beide
-    # Richtungen zu laufen. Vorher scheiterte 'Umsatzsteuererklaerung 2025' von
-    # 'Reisekosten' aus, weil 25 Schritte nicht reichten - es sind 26.
-    $FOLGE = @(
-      'Umsatzsteuerzahlungen/-Erstattungen','Übersicht Betriebseinnahmen','Erlöse Lieferungen/Leistungen',
-      'Einnahmen: Freiberufler','Erlöse aus Anlagenverkäufen','Kapitalerträge und sonstige Einnahmen',
-      'Private Nutzungen: Sonstiges','Unberechtigt ausgewiesene Umsatzsteuer','Betriebsausgaben',
-      'Material-/Wareneinkauf','Innergem. Erwerb, § 13b UStG und Einfuhr','Fremdleistungen','Personalkosten',
-      'Abschreibung','Wirtschaftsgüter des Anlagevermögen','Investitionsabzugsbeträge (IAB)',
-      'Raum- und Grundstückskosten/Homeoffice','Arbeitszimmer/andere Arbeitsräume/Homeoffice',
-      '1. Arbeitszimmer/Arbeitsraum/Homeoffice','Schuldzinsen','Beiträge, Gebühren und Abgaben',
-      'Versicherungen (ohne Gebäude oder Kfz)','Reisekosten','1. Reise','Öffentliche Verkehrsmittel',
-      '1. Reise: Verpflegung / Übernachtung','1. Reise: Übernachtung','Sonstige Kosten','Privatanteil Reisekosten',
-      'Geschenke bis 50,- €','Bewirtungskosten','Wege zum Betrieb (Entfernungspauschale)','Portokosten',
-      'Telefon/Mobilfunk/Internet','Bürobedarf','Fachliteratur','Fortbildungskosten','Rechts- und Beratungkosten',
-      'Miete/Leasing beweglicher Wirtschaftsgüter','Werbung und Reklame','Sonstige Betriebsausgaben',
-      'Werkzeuge und Kleingeräte','EDV-Kosten','Vorsteuer (Übersicht)','Sonstige Vorsteuerbeträge',
-      'Betriebsausgaben: Eigene Positionen','Journal und BWA','Zusatzangaben zur Anlage EÜR','Entnahmen/Einlagen',
-      "Umsatzsteuererklärung $($script:SSE_TAX_YEAR)",'Lieferungen/Leistungen zu 19%','Unentgeltliche Wertabgaben zu 19%',
-      'Lieferungen/Leistungen zu 7%','Unentgeltliche Wertabgaben zu 7%','Umsätze zu anderen Steuersätzen',
-      'Warenbezug von Unternehmen aus dem EU-Ausland','Steuerschuldner nach § 13b UStG','Abziehbare Vorsteuer',
-      'Vorsteuer aus anderen Rechnungen',"Vorsteuerberichtigungen $($script:SSE_TAX_YEAR)",'Steuerfreie Umsätze',
-      'Meldepflichtige oder nicht steuerbare Umsätze',"Umsatzsteuer-Voranmeldungen $($script:SSE_TAX_YEAR)",'Weitere Erlöse zu 19%',
-      'Weitere Umsätze','Steuerschuldnerschaft nach § 13b UStG'
-    )
+    # Bekannte Reihenfolge des Blaetterpfads; Richtung und Budget plant
+    # Get-SSEGotoRoute daraus, statt blind in beide Richtungen zu laufen.
+    $FOLGE = Get-SSEPagingOrder $script:SSE_TAX_YEAR
     $iZiel = [array]::IndexOf($FOLGE, $ziel)
 
     # Ein geratener Seitenname liess das Programm durch das ganze Formular
@@ -15944,32 +15930,24 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         if ($jetzt -and $jetzt -ne $vorher) { return }
       }
     }
+    # Aktive Blaetterschaltflaeche per FindFirst statt Baumlauf: Ein Lauf je
+    # Schritt liess goto auf langen Wegen in den Timeout laufen. Name UND Typ,
+    # denn eine Suche nur ueber den Namen trifft auch das Textelement 'Weiter'.
+    # Nur eine aktive Schaltflaeche zaehlt; ein fehlgeschlagener
+    # Eigenschaftsabruf liefert $null und gilt als inaktiv.
+    function AktiverBlaetterknopf {
+      param([IntPtr]$h, [string]$name)
+      $cName = New-Object System.Windows.Automation.PropertyCondition($script:AE::NameProperty, $name)
+      $cTyp  = New-Object System.Windows.Automation.PropertyCondition($script:AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)
+      $el = $null
+      try { $el = $script:AE::FromHandle($h).FindFirst($script:TS::Descendants, (New-Object System.Windows.Automation.AndCondition($cName, $cTyp))) }
+      catch { return $null }
+      if (-not $el -or $el.Current.IsEnabled -ne $true) { return $null }
+      $el
+    }
     function DrueckeKnopf {
-      param([IntPtr]$h, [string]$name, [string]$aid, [string]$wechselVon = '')
-      # FindFirst statt Baumlauf: ~20 ms gegen ~2 s. Bei 25 Schritten macht
-      # das den Unterschied zwischen 8 s und ueber einer Minute - vorher lief
-      # goto deshalb in den Timeout.
-      if ($name) {
-        $root = $script:AE::FromHandle($h)
-        # Name UND Typ: eine Suche nur ueber den Namen trifft auch das
-        # Textelement 'Weiter' statt der Schaltflaeche - Invoke schlaegt dann
-        # fehl und die Seite bleibt stehen.
-        $cName = New-Object System.Windows.Automation.PropertyCondition($script:AE::NameProperty, $name)
-        $cTyp  = New-Object System.Windows.Automation.PropertyCondition($script:AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)
-        $c = New-Object System.Windows.Automation.AndCondition($cName, $cTyp)
-        $el = $null
-        try { $el = $root.FindFirst($script:TS::Descendants, $c) } catch { return $false }
-        if (-not $el) { return $false }
-        # AKTIV pruefen: 'Zurueck' ist an Zweiggrenzen deaktiviert. Ohne das
-        # klickt der Aufrufer dort endlos ins Leere, statt die Richtung zu wechseln.
-        try { if (-not $el.Current.IsEnabled) { return $false } } catch { return $false }
-        try { $el.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); WarteAufSeitenwechsel $h $wechselVon; return $true }
-        catch { return $false }
-      }
-      $t = Walk-Tree $h 1200
-      $k = @($t.nodes | Where-Object { $_.aid -like "*$aid" -and $_.type -eq 'Button' -and $_.on })[0]
-      if (-not $k) { return $false }
-      $el = Get-LiveElement $h $k.rid
+      param([IntPtr]$h, [string]$name, [string]$wechselVon = '')
+      $el = AktiverBlaetterknopf $h $name
       if (-not $el) { return $false }
       try { $el.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); WarteAufSeitenwechsel $h $wechselVon; return $true }
       catch { return $false }
@@ -16266,117 +16244,101 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $besucht = New-Object System.Collections.ArrayList
     $null = $besucht.Add($start)
 
-    # Richtung und Entfernung aus der bekannten Reihenfolge ableiten.
-    # Nur wenn beide Seiten dort stehen; sonst wie bisher beide Richtungen.
-    $iStart = [array]::IndexOf($FOLGE, $start)
-    $reihenfolge = @('Weiter', 'Zurück')
-    $vorgabe = 20
-    $richtungVorgegeben = [string](Arg $a 'direction')
-    if ($richtungVorgegeben) {
-      if ($richtungVorgegeben -notin @('Weiter','Zurück')) { Fail "direction muss 'Weiter' oder 'Zurück' sein." 'bad-args' }
-      $reihenfolge = @($richtungVorgegeben)
-    }
-    if (-not $richtungVorgegeben -and $iStart -ge 0 -and $iZiel -ge 0) {
-      $abstand = $iZiel - $iStart
-      $reihenfolge = if ($abstand -ge 0) { @('Weiter', 'Zurück') } else { @('Zurück', 'Weiter') }
-      # Reserve fuer Zwischenseiten, die nicht in der Liste stehen
-      # Rueckwaerts kann gesperrt sein; dann muss vorwaerts einmal ganz
-      # herum gelaufen werden. Deshalb Platz fuer den vollen Zyklus lassen.
-      $vorgabe = [Math]::Max(90, [Math]::Abs($abstand) * 2 + 20)
-    } elseif (-not $richtungVorgegeben -and ($iZiel -ge 0 -or $iStart -ge 0)) {
-      $vorgabe = 90      # eine Seite unbekannt: grosszuegig, kostet versteckt nichts
-    }
-    $maxS = $(if ($null -ne $requestedMaxSteps) { $requestedMaxSteps } else { $vorgabe })
-
-    foreach ($richtung in $reihenfolge) {
-      $stillstand = 0
-      for ($i = 1; $i -le $maxS; $i++) {
-        if ($verbraucht -ge $maxS) { break }
-        $vorher = AktuelleUeberschrift $hwnd
-        # Ein verzoegerter Seitenaufbau kann seit der letzten Gegenprobe das
-        # Ziel erreicht haben. Die ohnehin frische Lesung vor dem naechsten
-        # Invoke muss es bestaetigen, bevor Weiter/Zurueck es wieder verlaesst.
-        if (IstZielseite $hwnd $vorher) {
-          $null = $weg.Add("Ziel vor weiterem Blaettern bestaetigt -> $vorher")
-          Emit ([pscustomobject]@{
-            ok=$true; erreicht=$true; pageId=$(if ($pageId) { $pageId } else { $null })
-            ueberschrift=$vorher; schritte=$verbraucht; richtung=$richtung; weg=@($weg)
-          })
-        }
-        $verbraucht++
-        $ok = DrueckeKnopf $hwnd $richtung '' $vorher
-        if (-not $ok) {
-          # Schalter fehlt oder ist deaktiviert. Sonderfall: Sackgassenseiten
-          # wie 'Gewinnermittlung beginnen' haben WEDER Weiter NOCH Zurueck -
-          # der Blaetterpfad endet dort, er laeuft nicht im Kreis. Einziger
-          # fokusfreier Ausweg ist der Verlaufspfeil (eine Schaltflaeche, also
-          # per Invoke erreichbar).
-          $andere = if ($richtung -eq 'Weiter') { 'Zurück' } else { 'Weiter' }
-          $tK = Walk-Tree $hwnd 1200
-          $andereDa = @($tK.nodes | Where-Object { $_.name -eq $andere -and $_.type -eq 'Button' -and $_.on }).Count -gt 0
-          if (-not $andereDa) {
-            if (DrueckeKnopf $hwnd '' 'HistoryToolbarBtnSSE') {
-              $null = $weg.Add('Sackgasse - Verlauf zurück')
-              continue
-            }
-          }
-          $null = $weg.Add("$richtung nicht verfuegbar")
-          break
-        }
-        $jetzt = AktuelleUeberschrift $hwnd
-        $null = $weg.Add("$richtung -> $jetzt")
-
-        # Ein automatischer Pruefhinweis blockiert den Seitenwechsel. Ohne
-        # diese Gegenprobe wuerde die Schleife denselben Weiter-Knopf bis zu
-        # fuenfmal erneut ausloesen und fuenf identische Warnfenster stapeln.
-        # Beim ersten wirkungslosen Klick sofort stoppen; Inhalt und Antwort
-        # bleiben bewusst sse_warning_popup_read/sse_dialog_answer vorbehalten.
-        if ($jetzt -eq $vorher) {
-          $warnfenster = @(Get-Windows 'SSE' | Where-Object {
-            [int]$_.pid -eq [int]$gotoPid -and $_.title -like 'Die Prüfung hat ergeben*'
-          })
-          if ($warnfenster.Count) {
-            Fail ("Blaettern auf '$jetzt' wurde von einem Pruefhinweis blockiert; keine Wiederholung. " +
-                  'Warnfenster zuerst lesen und fingerprintgebunden beantworten.') 'warning-dialog' `
-              ([pscustomobject]@{
-                ueberschrift=$jetzt
-                warnfenster=@($warnfenster | ForEach-Object { [pscustomobject]@{
-                  hwnd=[int64]$_.hwnd; pid=[int]$_.pid; title=[string]$_.title
-                } })
-                naechsterSchritt='sse_warning_popup_read mit dem gemeldeten Dialog-HWND'
-              })
-          }
-        }
-
-        # SACKGASSE. 'Gewinnermittlung beginnen' steht am Ende des
-        # Blaetterpfads und hat weder Weiter noch Zurueck. Der Pfad laeuft
-        # NICHT im Kreis, und der Verlaufspfeil fuehrt von dort auch nicht
-        # heraus (gemessen: 90 Schritte ohne Erfolg). Sofort melden, statt
-        # den Rest des Schrittkontingents zu verbrennen.
-        if ($jetzt -eq 'Gewinnermittlung beginnen' -and -not (IstZielseite $hwnd $jetzt)) {
-          Fail ("Der Blaetterpfad endet auf der Startseite 'Gewinnermittlung beginnen'; von dort fuehrt " +
-                "kein fokusfreier Weg zurueck ins Formular. '$ziel' liegt in der anderen Richtung. " +
-                "Abhilfe: entweder von einer Seite im Formular aus erneut starten, oder " +
-                "sse_desktop_stop und im sichtbaren Modus per sse_click_point den Navigationsbaum benutzen, " +
-                "oder das Programm mit sse_launch neu oeffnen - es startet dann wieder im Formular.") 'dead-end'
-        }
-
-        if (IstZielseite $hwnd $jetzt) {
-          Emit ([pscustomobject]@{ ok = $true; erreicht = $true; pageId=$(if ($pageId) { $pageId } else { $null }); ueberschrift = $jetzt; schritte = $weg.Count
-            richtung = $richtung; weg = @($weg); fokusfrei = $true })
-        }
-        if ($jetzt -eq $vorher) { $stillstand++ } else { $stillstand = 0 }
-        if ($stillstand -ge 5) {
-          # Blaettern wirkungslos. Die Fensterzahl taugt NICHT als Indiz:
-          # das Programm haelt dauerhaft eine Vorschlagsliste (479x333) und
-          # zwei 50x50-Helfer offen - vier Fenster sind der Normalfall.
-          # Deshalb hier nur den Befund melden und auf die Pruefung verweisen.
-          Fail ("Blaettern bleibt auf '$jetzt' wirkungslos (5 Versuche ohne Seitenwechsel). " +
-                "Moegliche Gruende: Seite ohne Blaetterschalter, oder ein leeres Pflichtfeld sperrt sie. " +
-                "sse_check_page zeigt, ob etwas beanstandet wird.") 'no-progress'
-        }
-        $null = $besucht.Add($jetzt)
+    # Genau eine Richtung: Ein Wechsel auf die andere liefe vom Ziel weg oder
+    # in den Verlauf der Sitzung. Richtung, Budget und Bewertung jeder Landung
+    # kommen aus goto-route.ps1.
+    $route = Get-SSEGotoRoute -Order $FOLGE -Start $start -Target $ziel -Direction $richtungVorgegeben -MaxSteps $requestedMaxSteps
+    $richtung = $route.direction
+    $position = $route.startIndex
+    # Wie collect merkt sich der Weg gerichtete Uebergaenge statt Titel: Eine
+    # Ueberschrift kommt im Formular mehrfach vor, ein wiederholter Uebergang
+    # aber nur, wenn der Weg im Kreis laeuft.
+    $gesehenWege = @{}
+    $stillstand = 0
+    while ($verbraucht -lt $route.budget) {
+      $vorher = AktuelleUeberschrift $hwnd
+      # Ein verzoegerter Seitenaufbau kann seit der letzten Gegenprobe das
+      # Ziel erreicht haben. Die ohnehin frische Lesung vor dem naechsten
+      # Invoke muss es bestaetigen, bevor Weiter/Zurueck es wieder verlaesst.
+      if (IstZielseite $hwnd $vorher) {
+        $null = $weg.Add("Ziel vor weiterem Blaettern bestaetigt -> $vorher")
+        Emit ([pscustomobject]@{
+          ok=$true; erreicht=$true; pageId=$(if ($pageId) { $pageId } else { $null })
+          ueberschrift=$vorher; schritte=$verbraucht; richtung=$richtung; weg=@($weg)
+        })
       }
+      $verbraucht++
+      $ok = DrueckeKnopf $hwnd $richtung $vorher
+      if (-not $ok) {
+        # Fehlt auch der Gegenschalter, hat die Seite keinen Blaetterweg,
+        # etwa die Startseite der Gewinnermittlung. Der Verlaufspfeil ist kein
+        # Ausweg: Am Anfang des Verlaufs ist nur 'vor' aktiv, und im Wechsel
+        # mit 'Zurück' lief der Weg dann bis zum Budget im Kreis.
+        $andere = if ($richtung -eq 'Weiter') { 'Zurück' } else { 'Weiter' }
+        if (-not (AktiverBlaetterknopf $hwnd $andere)) {
+          Fail ("Seite '$ziel' nicht erreicht: '$vorher' hat weder 'Weiter' noch 'Zurück', von hier fuehrt " +
+                "kein Blaetterweg weiter. Abhilfe: Auf dem sichtbaren Desktop klickt goto einen sichtbaren " +
+                "Eintrag des Navigationsbaums selbst; sonst zuerst eine Formularseite oeffnen und goto von " +
+                "dort starten. Weg: $((@($weg)) -join ' | ')") 'dead-end'
+        }
+        $null = $weg.Add("$richtung nicht verfuegbar")
+        break
+      }
+      $jetzt = AktuelleUeberschrift $hwnd
+      $null = $weg.Add("$richtung -> $jetzt")
+
+      # Ein automatischer Pruefhinweis blockiert den Seitenwechsel. Ohne
+      # diese Gegenprobe wuerde die Schleife denselben Weiter-Knopf bis zu
+      # fuenfmal erneut ausloesen und fuenf identische Warnfenster stapeln.
+      # Beim ersten wirkungslosen Klick sofort stoppen; Inhalt und Antwort
+      # bleiben bewusst sse_warning_popup_read/sse_dialog_answer vorbehalten.
+      if ($jetzt -eq $vorher) {
+        $warnfenster = @(Get-Windows 'SSE' | Where-Object {
+          [int]$_.pid -eq [int]$gotoPid -and $_.title -like 'Die Prüfung hat ergeben*'
+        })
+        if ($warnfenster.Count) {
+          Fail ("Blaettern auf '$jetzt' wurde von einem Pruefhinweis blockiert; keine Wiederholung. " +
+                'Warnfenster zuerst lesen und fingerprintgebunden beantworten.') 'warning-dialog' `
+            ([pscustomobject]@{
+              ueberschrift=$jetzt
+              warnfenster=@($warnfenster | ForEach-Object { [pscustomobject]@{
+                hwnd=[int64]$_.hwnd; pid=[int]$_.pid; title=[string]$_.title
+              } })
+              naechsterSchritt='sse_warning_popup_read mit dem gemeldeten Dialog-HWND'
+            })
+        }
+      }
+
+      if (IstZielseite $hwnd $jetzt) {
+        Emit ([pscustomobject]@{ ok = $true; erreicht = $true; pageId=$(if ($pageId) { $pageId } else { $null }); ueberschrift = $jetzt; schritte = $weg.Count
+          richtung = $richtung; weg = @($weg); fokusfrei = $true })
+      }
+      if ($jetzt -ne $vorher) {
+        $uebergang = "$vorher$([char]0x1F)$jetzt"
+        if ($gesehenWege.ContainsKey($uebergang)) {
+          Fail ("Seite '$ziel' nicht erreicht: '$richtung' fuehrte erneut von '$vorher' auf '$jetzt', der Weg " +
+                "laeuft im Kreis. Weg: $((@($weg)) -join ' | ')") 'no-progress'
+        }
+        $gesehenWege[$uebergang] = $true
+        $landung = Test-SSEGotoLanding $route $FOLGE $position $vorher $jetzt
+        if ($landung.verdict -ne 'continue') {
+          Fail ("Seite '$ziel' nicht erreicht. $($landung.message) Weg: $((@($weg)) -join ' | ')") 'not-found'
+        }
+        $position = $landung.position
+        $stillstand = 0
+      } else {
+        $stillstand++
+      }
+      if ($stillstand -ge 5) {
+        # Blaettern wirkungslos. Die Fensterzahl taugt NICHT als Indiz:
+        # das Programm haelt dauerhaft eine Vorschlagsliste (479x333) und
+        # zwei 50x50-Helfer offen - vier Fenster sind der Normalfall.
+        # Deshalb hier nur den Befund melden und auf die Pruefung verweisen.
+        Fail ("Blaettern bleibt auf '$jetzt' wirkungslos (5 Versuche ohne Seitenwechsel). " +
+              "Moegliche Gruende: Seite ohne Blaetterschalter, oder ein leeres Pflichtfeld sperrt sie. " +
+              "sse_check_page zeigt, ob etwas beanstandet wird.") 'no-progress'
+      }
+      $null = $besucht.Add($jetzt)
     }
     # Letzte Gegenprobe: Ein Qt-Seitenwechsel kann erst nach dem letzten
     # Navigationsversuch fertig werden. Dann ist das Ziel erreicht und darf

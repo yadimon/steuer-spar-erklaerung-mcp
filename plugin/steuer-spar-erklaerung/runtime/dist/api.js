@@ -5852,9 +5852,11 @@ var init_mcp_schemas_ui = __esm({
         pageId: external_exports.string().min(1).max(200).optional().describe(
           "Bevorzugte stabile pageId aus sse_page_objects; erkennt auch dynamische nummerierte Ueberschriften"
         ),
-        maxSteps: GOTO_MAX_STEPS.optional().describe("Hoechstzahl der Blaetterschritte, Vorgabe automatisch, maximal 200"),
+        maxSteps: GOTO_MAX_STEPS.optional().describe(
+          "Obergrenze der Blaetterschritte; das automatische Budget (Abstand plus Reserve) wird nie ueberschritten, maximal 200"
+        ),
         direction: external_exports.enum(["Weiter", "Zurück"]).optional().describe(
-          "Bei unbekannten Seiten die Suchrichtung fest vorgeben; verhindert einen langen Lauf in die falsche Richtung"
+          "Richtung fest vorgeben. 'Weiter' folgt dem Blaetterpfad, 'Zurück' dem Seitenverlauf der Sitzung und wird dann nicht gegen den Pfad geprueft"
         ),
         useSearch: external_exports.boolean().optional().describe(
           "Globale Qt-Suche zuerst versuchen; Vorgabe true. Auf verstecktem Desktop fuer einen rein linearen Lauf false setzen."
@@ -6067,7 +6069,9 @@ var init_operation_schema_goto = __esm({
         "Stabile Page-Object-ID; bindet dynamische Ueberschriften und Pflichtfelder semantisch"
       ),
       maxSteps: GOTO_MAX_STEPS.optional(),
-      direction: external_exports.enum(["Weiter", "Zurück"]).optional().describe("Explizite lineare Suchrichtung"),
+      direction: external_exports.enum(["Weiter", "Zurück"]).optional().describe(
+        "Feste Richtung: 'Weiter' folgt dem Blaetterpfad, 'Zurück' dem Seitenverlauf"
+      ),
       useSearch: external_exports.boolean().optional().describe("Moderne Option fuer die globale Qt-Suche; Vorgabe true"),
       viaSuche: external_exports.boolean().optional().describe("Historischer Alias fuer useSearch"),
       hwnd: WINDOW_HANDLE.optional()
@@ -13070,7 +13074,7 @@ async function executeQtNativeSubpages(client, args, timeoutMs, signal) {
     anzahl: subpages.length,
     unterseiten: subpages,
     nativeDurationMs: result.nativeDurationMs,
-    hinweis: "Hyperlinks sind bei doppelt exponierten Qt-Unterseiten der bevorzugte, PID-/Root-verifizierte Weg per sse_click_point. Reine oder unbeschriftete Buttons per rid mit sse_click oeffnen. Zurueck ueber sse_click name='Zurück' oder den Verlaufspfeil (aid HistoryToolbarBtnSSE)."
+    hinweis: "Hyperlinks sind bei doppelt exponierten Qt-Unterseiten der bevorzugte, PID-/Root-verifizierte Weg per sse_click_point. Reine oder unbeschriftete Buttons per rid mit sse_click oeffnen. Zurueck ueber sse_click name='Zurück'; es fuehrt zur zuvor angezeigten Seite, nicht zum Vorgaenger im Blaetterpfad."
   };
 }
 async function executeQtNativePositions(client, args, timeoutMs, signal) {

@@ -51,7 +51,7 @@ if ($quelltext -notmatch [regex]::Escape('if ($jetzt -and $jetzt -ne $vorher) { 
 
 # 4. Der Blaetterklick reicht die vorherige Ueberschrift durch - sonst waere die
 #    Bedingung nie erfuellbar und der Poll liefe stets in die Obergrenze.
-if ($workerSource -notmatch [regex]::Escape('$ok = DrueckeKnopf $hwnd $richtung '''' $vorher')) {
+if ($workerSource -notmatch [regex]::Escape('$ok = DrueckeKnopf $hwnd $richtung $vorher')) {
   throw 'Die Blaetterschleife reicht die vorherige Ueberschrift nicht mehr an DrueckeKnopf durch.'
 }
 
@@ -72,10 +72,11 @@ if ($workerSource -notmatch [regex]::Escape('if ($gelesen -ceq $ziel) { break }'
 # Ein Seitenaufbau darf zwischen zwei Lesungen fertig werden. Fuehre die
 # echte Blaetterschleife mit vorgegebenen Beobachtungen aus; jeder zusaetzliche
 # Invoke nach dem beobachteten Ziel ist ein Fehler, auch ohne echte UI.
+. (Join-Path $root 'powershell\goto-route.ps1')
 $navigationLoops = @($ast.FindAll({
   param($node)
-  $node -is [Management.Automation.Language.ForEachStatementAst] -and
-  $node.Variable.VariablePath.UserPath -eq 'richtung' -and
+  $node -is [Management.Automation.Language.WhileStatementAst] -and
+  $node.Condition.Extent.Text -ceq '$verbraucht -lt $route.budget' -and
   $node.Extent.Text.Contains('$stillstand')
 }, $true))
 if ($navigationLoops.Count -ne 1) { throw 'Blaetterschleife nicht eindeutig vorhanden.' }
@@ -87,13 +88,16 @@ function Assert-DelayedNavigationStops([string[]]$Headings, [int]$ExpectedClicks
   $script:gotoClicks = 0
   $script:gotoResult = $null
   $ziel = 'Zielseite'; $pageId = ''; $hwnd = [IntPtr]::Zero
-  $reihenfolge = @('Weiter'); $verbraucht = 0; $maxS = 3
+  $FOLGE = @()
+  $route = Get-SSEGotoRoute -Order $FOLGE -Start 'Startseite' -Target $ziel -MaxSteps 3
+  $richtung = $route.direction; $position = $route.startIndex
+  $verbraucht = 0; $stillstand = 0; $gesehenWege = @{}
   $weg = New-Object System.Collections.ArrayList
   $besucht = New-Object System.Collections.ArrayList
   function AktuelleUeberschrift { param($h) $script:gotoHeadings.Dequeue() }
   function IstZielseite { param($h, $heading) $heading -eq $ziel }
   function DrueckeKnopf {
-    param($h, $name, $aid, $wechselVon)
+    param($h, $name, $wechselVon)
     $script:gotoClicks++
     if ($script:gotoClicks -gt $ExpectedClicks) { throw 'Zusaetzlicher Invoke verliess die erreichte Zielseite.' }
     $true
