@@ -9,8 +9,13 @@
 #   2. Nie ein Uebermittlungsweg (Test-Versand), nie ein unsichtbarer Eintrag.
 #   3. Genau ein Klick auf den labelnahen Punkt, kein Doppelklick; verdeckt
 #      ein eigenes SSE-Fenster den Punkt, bleibt es ohne Klick beim Suchweg.
-#   4. Erfolg nur ueber IstZielseite; eine andere Seite wird neuer Startpunkt
-#      der Suche, ein Pruefhinweis stoppt sofort wie beim Blaettern.
+#   4. Unmittelbar vor dem Klick wird der Eintrag frisch gelesen: Punkt aus
+#      dem aktuellen Rechteck, Klick an dessen RuntimeId gebunden. Hat er sich
+#      seit dem Baumlauf veraendert oder ist er weg, bleibt es ohne Klick beim
+#      Suchweg.
+#   5. Erfolg nur ueber IstZielseite; eine andere Seite wird neuer Startpunkt
+#      der Suche, ein Pruefhinweis stoppt sofort wie beim Blaettern, und ohne
+#      jeden Seitenwechsel endet goto, statt eine zweite Navigation zu starten.
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path $PSScriptRoot -Parent
@@ -61,13 +66,21 @@ $navTree = [pscustomobject]@{ nodes = @(
   (NavNode 3  0 'TreeItem' 'Anmeldungen versenden'     272)
 ) }
 $rewalkedTree = [pscustomobject]@{ nodes = @() }
+# Frisch gelesener Zustand des Zieleintrags unmittelbar vor dem Klick; ohne
+# Abweichung identisch mit dem Baumlauf.
+function FreshTarget([hashtable]$Changes = @{}) {
+  $node = NavNode 2 0 'TreeItem' 'Zielseite' 229
+  foreach ($key in @($Changes.Keys)) { $node.$key = $Changes[$key] }
+  $node
+}
 
 function Invoke-NavigationBlock {
   param([string]$Target, [string]$DesktopName, [string]$HeadingAfter, [object[]]$Windows,
-        [string]$Blocker = 'none')
+        [string]$Blocker = 'none', $Fresh = (FreshTarget))
   $script:clicks = New-Object System.Collections.ArrayList
   $script:waits = New-Object System.Collections.ArrayList
   $script:probes = New-Object System.Collections.ArrayList
+  $script:liveReads = New-Object System.Collections.ArrayList
   $script:walks = 0
   $script:emitted = $null
   $script:failed = $null
@@ -86,10 +99,18 @@ function Invoke-NavigationBlock {
     $null = $script:probes.Add([pscustomobject]@{ window=[int64]$BoundWindow; x=$X; y=$Y })
     [pscustomobject]@{ blockerKind=$Blocker; isBoundTarget=($Blocker -ceq 'none') }
   }
+  function Get-LiveElement {
+    param([IntPtr]$hwnd, [string]$Rid, [string]$Aid = '')
+    $null = $script:liveReads.Add([pscustomobject]@{ window=[int64]$hwnd; rid=$Rid })
+    [pscustomobject]@{ liveRid=$Rid }
+  }
+  function Convert-ExactElementToNode { param($Element) $Fresh }
   function Click-VerifiedPoint {
     param([IntPtr]$Window, $Node, $ExpectedInputTick = $null, [switch]$RequireForeground, [int]$SettleMs = 250,
-          [int]$ClickCount = 1)
-    $null = $script:clicks.Add([pscustomobject]@{ window=[int64]$Window; x=$Node.x; y=$Node.y; w=$Node.w; h=$Node.h; count=$ClickCount })
+          [int]$ClickCount = 1, [int]$ForegroundAttempts = 3, [string]$ExpectedRuntimeId = '')
+    $null = $script:clicks.Add([pscustomobject]@{
+      window=[int64]$Window; x=$Node.x; y=$Node.y; w=$Node.w; h=$Node.h; count=$ClickCount; rid=$ExpectedRuntimeId
+    })
   }
   function WarteAufUeberschrift {
     param([IntPtr]$h, [string]$vorher, [string]$erwartet, [int]$timeoutMs = 3000)
@@ -106,17 +127,22 @@ function Invoke-NavigationBlock {
       "Navigationsbaum-Weg warf unerwartet: $($_.Exception.Message)"
   }
   [pscustomobject]@{
-    clicks=@($script:clicks); waits=@($script:waits); probes=@($script:probes); walks=$script:walks
-    emitted=$script:emitted; failed=$script:failed; start=$start; tree=$ts; weg=@($weg)
+    clicks=@($script:clicks); waits=@($script:waits); probes=@($script:probes); liveReads=@($script:liveReads)
+    walks=$script:walks; emitted=$script:emitted; failed=$script:failed; start=$start; tree=$ts; weg=@($weg)
   }
 }
 
-# 1. Sichtbarer Eintrag, Klick erreicht das Ziel: ein Klick, labelnaher Punkt.
+# 1. Sichtbarer Eintrag, Klick erreicht das Ziel: ein Klick, labelnaher Punkt,
+#    gebunden an den unmittelbar zuvor frisch gelesenen Eintrag.
 $reached = Invoke-NavigationBlock 'Zielseite' '' 'Zielseite' @()
 Assert-True ($reached.clicks.Count -eq 1 -and $reached.clicks[0].count -eq 1) 'Der Baumweg klickte nicht genau einmal einfach.'
 Assert-True ($reached.clicks[0].x -eq 74 -and $reached.clicks[0].y -eq 249 -and $reached.clicks[0].w -eq 2 -and $reached.clicks[0].h -eq 2) `
   "Der Baumweg klickte nicht den labelnahen Punkt: $($reached.clicks[0] | ConvertTo-Json -Compress)"
 Assert-True ($reached.clicks[0].window -eq 4242) 'Der Baumweg klickte nicht im gebundenen Fenster.'
+Assert-True ($reached.liveReads.Count -eq 1 -and $reached.liveReads[0].rid -ceq '7.2' -and $reached.liveReads[0].window -eq 4242) `
+  "Der Eintrag wurde vor dem Klick nicht frisch gelesen: $($reached.liveReads | ConvertTo-Json -Compress)"
+Assert-True ($reached.clicks[0].rid -ceq '7.2') `
+  "Der Baumklick ist nicht an die RuntimeId des Eintrags gebunden: '$($reached.clicks[0].rid)'"
 Assert-True ($reached.waits.Count -eq 1 -and $reached.waits[0].vorher -ceq 'Startseite' -and
              $reached.waits[0].erwartet -ceq 'Zielseite' -and $reached.waits[0].timeoutMs -eq 4000) `
   "Der Baumweg wartet nicht begrenzt auf den Seitenwechsel: $($reached.waits | ConvertTo-Json -Compress)"
@@ -129,15 +155,16 @@ Assert-True ((@($reached.emitted.weg) -join ' | ') -ceq "Startseite | Navigation
 
 # 2. Versteckter Desktop: kein physischer Klick, die Suche bleibt zustaendig.
 $hidden = Invoke-NavigationBlock 'Zielseite' 'sse-hidden' 'Zielseite' @()
-Assert-True ($hidden.clicks.Count -eq 0 -and $null -eq $hidden.emitted -and $null -eq $hidden.failed) `
-  'Auf dem versteckten Desktop wurde der Navigationsbaum geklickt.'
+Assert-True ($hidden.clicks.Count -eq 0 -and $hidden.liveReads.Count -eq 0 -and $null -eq $hidden.emitted -and $null -eq $hidden.failed) `
+  'Auf dem versteckten Desktop wurde der Navigationsbaum gelesen oder geklickt.'
 Assert-True ($hidden.start -ceq 'Startseite' -and $hidden.tree -eq $navTree) 'Der versteckte Desktop veraenderte den Suchvorlauf.'
 
 # 3. Uebermittlungsweg und 4. nicht sichtbarer Name: nie klicken.
 $transmission = Invoke-NavigationBlock 'Anmeldungen versenden' '' 'Anmeldungen versenden' @()
-Assert-True ($transmission.clicks.Count -eq 0 -and $null -eq $transmission.emitted) 'Ein Uebermittlungsweg wurde im Baum geklickt.'
+Assert-True ($transmission.clicks.Count -eq 0 -and $transmission.liveReads.Count -eq 0 -and $null -eq $transmission.emitted) `
+  'Ein Uebermittlungsweg wurde im Baum gebunden oder geklickt.'
 $absent = Invoke-NavigationBlock 'Nicht im Baum' '' 'Nicht im Baum' @()
-Assert-True ($absent.clicks.Count -eq 0 -and $null -eq $absent.emitted -and $absent.waits.Count -eq 0) `
+Assert-True ($absent.clicks.Count -eq 0 -and $absent.liveReads.Count -eq 0 -and $null -eq $absent.emitted -and $absent.waits.Count -eq 0) `
   'Ein nicht sichtbarer Name loeste einen Baumklick aus.'
 
 # 5. Der Klick fuehrt auf eine andere Seite: kein Erfolg, neuer Startpunkt,
@@ -155,12 +182,13 @@ $blocked = Invoke-NavigationBlock 'Zielseite' '' 'Startseite' @($warning)
 Assert-True ($blocked.failed.kind -ceq 'warning-dialog' -and $null -eq $blocked.emitted) `
   'Ein Pruefhinweis nach dem Baumklick wurde nicht als warning-dialog gemeldet.'
 
-# 7. Keine Wirkung ohne Pruefhinweis: die Suche laeuft unveraendert weiter.
+# 7. Keine Wirkung ohne Pruefhinweis: goto endet, statt mit der Suche eine
+#    zweite Navigation zu starten, die einen spaeten Wechsel ueberholen koennte.
 $unchanged = Invoke-NavigationBlock 'Zielseite' '' 'Startseite' @()
-Assert-True ($null -eq $unchanged.emitted -and $null -eq $unchanged.failed -and $unchanged.walks -eq 0) `
-  'Ein wirkungsloser Baumklick beendete goto oder wiederholte den Vorlauf.'
-Assert-True ($unchanged.start -ceq 'Startseite' -and $unchanged.tree -eq $navTree) `
-  'Ein wirkungsloser Baumklick veraenderte den Startpunkt der Suche.'
+Assert-True ($unchanged.failed.kind -ceq 'navigation-blocked' -and $null -eq $unchanged.emitted -and $unchanged.walks -eq 0) `
+  "Ein wirkungsloser Baumklick endete nicht als navigation-blocked: $($unchanged.failed | ConvertTo-Json -Compress)"
+Assert-True ($unchanged.clicks.Count -eq 1 -and $unchanged.start -ceq 'Startseite') `
+  'Ein wirkungsloser Baumklick wurde wiederholt oder veraenderte den Startpunkt.'
 
 # 8. Ein eigenes SSE-Fenster verdeckt den Punkt: kein Klick, Suche wie bisher.
 $covered = Invoke-NavigationBlock 'Zielseite' '' 'Zielseite' @() 'other-sse-window'
@@ -178,7 +206,37 @@ $foreign = Invoke-NavigationBlock 'Zielseite' '' 'Zielseite' @() 'foreign-app'
 Assert-True ($foreign.clicks.Count -eq 1 -and $foreign.emitted.richtung -ceq 'Navigationsbaum') `
   'Ein fremdes Fenster vor SSE verhinderte den Baumweg.'
 
-# 10. Endet goto danach ueber einen Suchtreffer, nennt der Weg den
+# 10. Der Eintrag ist seit dem Baumlauf verrutscht: Verdeckung und Klick
+#     nehmen den labelnahen Punkt des frischen Rechtecks.
+$moved = Invoke-NavigationBlock 'Zielseite' '' 'Zielseite' @() -Fresh (FreshTarget @{ x=40; y=300; w=300; h=40 })
+Assert-True ($moved.probes.Count -eq 1 -and $moved.probes[0].x -eq 90 -and $moved.probes[0].y -eq 320) `
+  "Die Verdeckung wurde nicht am frischen Punkt geprueft: $($moved.probes | ConvertTo-Json -Compress)"
+Assert-True ($moved.clicks.Count -eq 1 -and $moved.clicks[0].x -eq 89 -and $moved.clicks[0].y -eq 319 -and
+             $moved.clicks[0].rid -ceq '7.2' -and $moved.emitted.richtung -ceq 'Navigationsbaum') `
+  "Der Baumklick nahm nicht den Punkt des frischen Rechtecks: $($moved.clicks | ConvertTo-Json -Compress)"
+
+# 11. Der Eintrag hat sich seit dem Baumlauf veraendert oder ist weg: kein
+#     Klick, kein Warten, die Suche bleibt zustaendig und der Weg nennt den Grund.
+$changedEntries = [ordered]@{
+  'umbenannt'          = (FreshTarget @{ name='Zielseite (alt)' })
+  'anderer Typ'        = (FreshTarget @{ type='ListItem' })
+  'andere RuntimeId'   = (FreshTarget @{ rid='7.99' })
+  'nicht aktivierbar'  = (FreshTarget @{ on=$false })
+  'nicht mehr lesbar'  = $null
+}
+foreach ($case in $changedEntries.GetEnumerator()) {
+  $changed = Invoke-NavigationBlock 'Zielseite' '' 'Zielseite' @() -Fresh $case.Value
+  Assert-True ($changed.liveReads.Count -eq 1 -and $changed.liveReads[0].rid -ceq '7.2') `
+    "Fall '$($case.Key)': der Eintrag wurde nicht genau einmal frisch gelesen."
+  Assert-True ($changed.clicks.Count -eq 0 -and $changed.probes.Count -eq 0 -and $changed.waits.Count -eq 0 -and
+               $null -eq $changed.emitted -and $null -eq $changed.failed) `
+    "Fall '$($case.Key)': ein veraenderter Eintrag wurde trotzdem geklickt oder beendete goto."
+  Assert-True ($changed.start -ceq 'Startseite' -and $changed.tree -eq $navTree -and
+               (@($changed.weg) -join ' | ') -ceq "Startseite | Navigationsbaum 'Zielseite' vor dem Klick veraendert") `
+    "Fall '$($case.Key)': der Suchvorlauf wurde veraendert oder der Grund verschwiegen: $(@($changed.weg) -join ' | ')"
+}
+
+# 12. Endet goto danach ueber einen Suchtreffer, nennt der Weg den
 #     vorherigen Baumversuch weiterhin.
 $searchEmits = @($gotoBody.FindAll({
   param($node)
