@@ -14401,7 +14401,13 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
 
       $gesehenWege[$seitenWeg] = $true
 
-      $navigationTree = Walk-Tree $hwnd 1200
+      # Der Weiter-Schalter gehoert zum eigenen Fensterinhalt und steht damit
+      # bereits im eben gelesenen Seitenbaum; zwischen beiden Lesungen geschieht
+      # nichts. Ein eigener 1200-Knoten-Lauf je Seite wiederholte nur dessen
+      # Ergebnis. Derselbe Lauf bindet den Ueberschriftenknoten fuer die
+      # gezielten Folgelesungen nach dem Blaettern.
+      $navigationTree = $t
+      $null = Get-CurrentHeading $hwnd $t
       $wtr = @($navigationTree.nodes | Where-Object {
         $_.name -eq 'Weiter' -and $_.type -eq 'Button'
       })[0]
@@ -14433,7 +14439,25 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       # nicht faelschlich die alte Seite als aktuelle Lage ausgegeben werden.
       $currentHeadingAfter = $null
       $advancedAfterLastCaptured = $false
-      Start-Sleep -Milliseconds 950
+      # Die 950 ms bleiben Obergrenze, keine Mindestpause: Sobald der gebundene
+      # Ueberschriftenknoten eine andere Seite meldet, ist der Wechsel sichtbar.
+      # Bleibt die Ueberschrift stehen - etwa weil ein Pruefhinweis das
+      # Blaettern sperrt -, laeuft wie bisher die volle Frist ab, und dieselben
+      # Prozess-, Kanarien-, Eingabe-, Dialog- und Ueberschriftenpruefungen
+      # entscheiden unveraendert. Nur Engine 31 bindet den Knoten gezielt;
+      # ohne diese Bindung kostete jede Pollrunde einen Baumlauf, dort bleibt
+      # es bei der festen Frist.
+      if ($script:SSE_ENGINE_MAJOR -eq 31) {
+        $advanceWait = [Diagnostics.Stopwatch]::StartNew()
+        do {
+          Start-Sleep -Milliseconds 100
+          $polledHeading = $null
+          try { $polledHeading = Get-CurrentHeading $hwnd } catch { $polledHeading = $null }
+          if ($polledHeading -and $polledHeading -ne $head) { break }
+        } while ($advanceWait.ElapsedMilliseconds -lt 950)
+      } else {
+        Start-Sleep -Milliseconds 950
+      }
       try {
         $collectProcess = Get-Process -Id $targetPid -ErrorAction Stop
         $collectProcess.Refresh()
