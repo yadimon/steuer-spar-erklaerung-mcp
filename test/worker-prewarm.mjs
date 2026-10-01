@@ -158,8 +158,8 @@ const staticMarkerOutput = execFileSync(
     windowsHide: true,
     timeout: 180_000,
     // This subtest validates routing, not the separate startup-timeout path.
-    // Parallel Windows suites can make PowerShell startup exceed its 15 s
-    // production default, so give the isolated fixture its own bounded budget.
+    // Parallel Windows suites can delay PowerShell startup, so give the
+    // isolated fixture its own bounded budget.
     env: { ...process.env, SSE_WORKER_PREWARM_STARTUP_TIMEOUT_MS: "45000" },
   },
 );

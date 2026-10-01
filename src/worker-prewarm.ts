@@ -46,10 +46,15 @@ function setSparePriority(child: ChildProcessWithoutNullStreams, priority: numbe
 
 /** Eine Bereitschaftszeile ist kurz. Alles Laengere ist keine. */
 const MAX_HANDSHAKE_BYTES = 4_096;
-/** Ein Kind ohne Bereitschaft darf den Pool nicht dauerhaft blockieren. */
+/**
+ * Ein Kind ohne Bereitschaft darf den Pool nicht dauerhaft blockieren.
+ * Das Budget gilt fuer die Vorbereitung im Hintergrund, nicht fuer Auftraege.
+ * Gesunde Worker auf langsamen Hosts brauchen mehr als 15 Sekunden; sie vorher
+ * zu beenden verhindert den Vorrat und erzwingt immer neue teure Kaltstarts.
+ */
 const PREWARM_STARTUP_TIMEOUT_MS = positiveDurationFromEnvironment(
   "SSE_WORKER_PREWARM_STARTUP_TIMEOUT_MS",
-  15_000,
+  30_000,
 );
 /** Nach einem fehlgeschlagenen Vorwaermen nicht sofort wieder versuchen. */
 const PREWARM_RETRY_DELAY_MS = positiveDurationFromEnvironment(
