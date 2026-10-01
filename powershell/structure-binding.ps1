@@ -85,6 +85,34 @@ function Get-SSEContainerChild {
 }
 
 <#
+Eintrag des linken Navigationsbaums, der exakt so heisst wie verlangt.
+
+Gebunden wird wie beim Steuerpruefer ueber den Baum-Container: Engine 30 gibt
+nur dem Tree eine AutomationId, Engine 31 vererbt sie zusaetzlich an die
+Eintraege. Der Baum ist virtualisiert; geliefert wird nur ein eindeutiger,
+aktiver Eintrag, dessen Zeile ganz im sichtbaren Baumausschnitt liegt. Eine
+angeschnittene Randzeile oder eine Namensgleichheit liefert $null.
+#>
+function Get-SSEVisibleNavigationItem {
+  param(
+    [Parameter(Mandatory)][AllowEmptyCollection()]$Nodes,
+    [string]$Name
+  )
+  if (-not $Name) { return $null }
+  $baumEndung = 'NavWidgetSSE'
+  $baum = Find-SSEContainerNode $Nodes $baumEndung 'Tree'
+  if (-not $baum -or $baum.w -le 0 -or $baum.h -le 0) { return $null }
+  $treffer = @(Get-SSEContainerDescendants $Nodes $baumEndung 'TreeItem' 'Tree' |
+    Where-Object { [string]$_.name -ceq $Name })
+  if ($treffer.Count -ne 1) { return $null }
+  $eintrag = $treffer[0]
+  if (-not $eintrag.on -or $eintrag.w -le 0 -or $eintrag.h -le 0) { return $null }
+  if ($eintrag.x -lt $baum.x -or $eintrag.y -lt $baum.y -or
+      ($eintrag.y + $eintrag.h) -gt ($baum.y + $baum.h)) { return $null }
+  $eintrag
+}
+
+<#
 Name des ausgewaehlten Navigationsknotens.
 
 Unabhaengige Gegenprobe zur Seitenueberschrift; auf Hauptseiten stimmen beide
