@@ -10,7 +10,9 @@
 # Die vollstaendige Id laesst sich danach aber gezielt abfragen.
 #
 # Dieser Vertrag zurrt die Sicherheitseigenschaften der Abkuerzung fest:
-#   1. Mit uebergebenem Baum aendert sich nichts.
+#   1. Mit uebergebenem Baum antwortet die Funktion weiterhin allein aus
+#      diesem Baum. Der Merker wird dort nie gelesen; Engine 31 darf ihn nur
+#      mit der AutomationId genau des Knotens setzen, dessen Text sie liefert.
 #   2. Der Merker gilt je Fenster und lebt nur im Prozess.
 #   3. Er wird nur benutzt, wenn er weiterhin einen `Text`-Knoten bindet.
 #   4. Passt er nicht mehr, wird er verworfen und der Baumlauf entscheidet neu.
@@ -36,13 +38,28 @@ function Assert-True([bool]$Condition, [string]$Message) {
   if (-not $Condition) { throw $Message }
 }
 
-# 1 Der Weg mit fertigem Baum bleibt unveraendert und fasst den Merker nicht an.
-$treePath = [regex]::Match($body, 'if \(\$null -ne \$Tree\) \{ return \(Get-SSEHeading \$Tree\)\.text \}')
+# 1 Der Weg mit fertigem Baum antwortet allein aus diesem Baum. Er bindet
+#   denselben Containerknoten wie Get-SSEHeading, liefert dessen Text und darf
+#   den Merker nur in Engine 31 mit der AutomationId genau dieses Knotens
+#   SETZEN - lesen darf er ihn nie, sonst haenge die Antwort am Merker.
+$treePath = [regex]::Match($body, '(?s)if \(\$null -ne \$Tree\) \{(?<inner>.*?)\r?\n  \}')
 Assert-True $treePath.Success `
-  'Mit uebergebenem Baum muss Get-CurrentHeading unveraendert direkt antworten.'
-$beforeTreeReturn = $body.Substring(0, $treePath.Index)
-Assert-True (-not ($beforeTreeReturn -match 'SSE_HEADING_NODE_AID')) `
-  'Der Merker darf den Weg mit uebergebenem Baum nicht beeinflussen.'
+  'Mit uebergebenem Baum muss Get-CurrentHeading einen eigenen, direkten Antwortweg haben.'
+$treeBody = $treePath.Groups['inner'].Value
+Assert-True ($treeBody -match "\`$treeHeading = Get-SSEContainerChild \`$Tree\.nodes \(Get-SSEMainWindowSelectors\)\.heading 'Text'") `
+  'Der Baumweg muss denselben Containerknoten wie Get-SSEHeading binden.'
+Assert-True ($treeBody -match 'if \(\$treeHeading\) \{ return \[string\]\$treeHeading\.name \}') `
+  'Der Baumweg muss den Text genau dieses Knotens liefern.'
+Assert-True ($treeBody -match 'return \$null') `
+  'Ohne Ueberschriftenknoten im Baum darf nichts geraten werden.'
+Assert-True (-not ($treeBody -match 'Find-ExactAutomationElement|Walk-Tree')) `
+  'Der Baumweg darf weder gezielt abfragen noch einen eigenen Lauf starten.'
+$cacheUses = @([regex]::Matches($treeBody, 'SSE_HEADING_NODE_AID[^\r\n]*'))
+Assert-True ($cacheUses.Count -eq 1 -and
+  $cacheUses[0].Value -eq 'SSE_HEADING_NODE_AID[[string][int64]$Hwnd] = [string]$treeHeading.aid') `
+  'Der Baumweg darf den Merker nur mit der AutomationId des zurueckgegebenen Knotens setzen, nie lesen.'
+Assert-True ($treeBody -match '\$script:SSE_ENGINE_MAJOR -eq 31') `
+  'Nur Engine 31 bindet den Blattknoten ueber eine eigene AutomationId; nur dort darf gesetzt werden.'
 
 # 2 Der Merker ist fensterbezogen.
 Assert-True ($source -match '\$script:SSE_HEADING_NODE_AID = @\{\}') `
