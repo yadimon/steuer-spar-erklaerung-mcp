@@ -5712,8 +5712,19 @@ function Get-KnownPageState([IntPtr]$Hwnd, $Known) {
 $script:SSE_HEADING_NODE_AID = @{}
 
 function Get-CurrentHeading([IntPtr]$Hwnd, $Tree = $null, [switch]$CompactFallback) {
-  # Hat der Aufrufer den Baum ohnehin gelesen, bleibt alles wie bisher.
-  if ($null -ne $Tree) { return (Get-SSEHeading $Tree).text }
+  # Hat der Aufrufer den Baum ohnehin gelesen, bleibt das Ergebnis wie bisher.
+  # In Engine 31 bindet derselbe Lauf zusaetzlich den Ueberschriftenknoten:
+  # Spaetere baumlose Lesungen desselben Auftrags - etwa nach dem Aufklappen
+  # einer ComboBox oder in Pollrunden - fragen dann gezielt diesen Knoten ab,
+  # statt jeweils einen eigenen 1200-Knoten-Lauf zu bezahlen.
+  if ($null -ne $Tree) {
+    $treeHeading = Get-SSEContainerChild $Tree.nodes (Get-SSEMainWindowSelectors).heading 'Text'
+    if ($script:SSE_ENGINE_MAJOR -eq 31 -and $Hwnd -ne [IntPtr]::Zero -and $treeHeading -and [string]$treeHeading.aid) {
+      $script:SSE_HEADING_NODE_AID[[string][int64]$Hwnd] = [string]$treeHeading.aid
+    }
+    if ($treeHeading) { return [string]$treeHeading.name }
+    return $null
+  }
 
   # Ohne Baum kostete jede Lesung einen vollstaendigen Lauf - an zwoelf
   # Aufrufstellen, davon fuenf in Warteschleifen, also einen Lauf je Pollrunde.
@@ -5748,6 +5759,68 @@ function Get-CurrentHeading([IntPtr]$Hwnd, $Tree = $null, [switch]$CompactFallba
     $script:SSE_HEADING_NODE_AID[$key] = [string]$headingNode.aid
   }
   (Get-SSEHeading $walked).text
+}
+
+# Wartet begrenzt, bis eine bereits gebundene ComboBox den Zielwert meldet.
+# Jede Runde ist ein einzelner ValuePattern-Abruf am gelaufenen Element; die
+# Frist ist die bisherige feste Wartezeit und damit die Obergrenze. Ein
+# Fehlschlag aendert nichts: Danach entscheidet derselbe Readback wie bisher.
+function Wait-SSEComboValue([IntPtr]$Hwnd, $Combo, [string]$Wanted, [int]$TimeoutMs) {
+  $wait = [Diagnostics.Stopwatch]::StartNew()
+  do {
+    Start-Sleep -Milliseconds 50
+    $current = $null
+    try {
+      $element = Get-LiveElement $Hwnd $Combo.rid $Combo.aid
+      $pattern = $null
+      if ($element -and $element.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$pattern)) {
+        $current = [string]$pattern.Current.Value
+      }
+    } catch { $current = $null }
+    if ($current -ceq $Wanted) { return $true }
+  } while ($wait.ElapsedMilliseconds -lt $TimeoutMs)
+  $false
+}
+
+# Wartet begrenzt, bis eine umgeschaltete CheckBox den Zielzustand meldet UND
+# SSE den Fall als geaendert fuehrt ('Sichern' aktiv). Beides sind
+# Einzelabrufe an Elementen des bereits gelaufenen Baums. Ohne gebundene
+# Sichern-Schaltflaeche gibt es keinen Fruehausstieg; die Frist ist die
+# bisherige feste Wartezeit und bleibt Obergrenze.
+function Wait-SSEToggleSettled($TogglePattern, $Tree, [IntPtr]$Hwnd, [bool]$Wanted, [int]$TimeoutMs) {
+  $saveNodes = @($Tree.nodes | Where-Object {
+    $_.type -eq 'Button' -and $_.aid -like '*MainToolBar.tb_sichern'
+  } | Select-Object -First 1)
+  $saveElement = $(if ($saveNodes.Count) { Get-LiveElement $Hwnd $saveNodes[0].rid } else { $null })
+  $wantedState = $(if ($Wanted) { 'On' } else { 'Off' })
+  $wait = [Diagnostics.Stopwatch]::StartNew()
+  do {
+    Start-Sleep -Milliseconds 50
+    if ($saveElement) {
+      $state = $null; $dirty = $false
+      try { $state = [string]$TogglePattern.Current.ToggleState } catch { $state = $null }
+      try { $dirty = [bool]$saveElement.Current.IsEnabled } catch { $dirty = $false }
+      if ($dirty -and $state -ceq $wantedState) { return $true }
+    }
+  } while ($wait.ElapsedMilliseconds -lt $TimeoutMs)
+  $false
+}
+
+# Wartet begrenzt, bis die bereits gebundene Schaltflaeche 'Sichern' ueber eine
+# Bestaetigungsfrist hinweg deaktiviert bleibt. Ein Lesefehler zaehlt als
+# 'noch aktiv'; ohne beobachtete Deaktivierung laeuft die volle Frist ab.
+function Wait-SSESaveButtonDisabled($SaveElement, [int]$TimeoutMs, [int]$ConfirmMs) {
+  $wait = [Diagnostics.Stopwatch]::StartNew()
+  $disabledSinceMs = $null
+  do {
+    Start-Sleep -Milliseconds 50
+    $enabled = $true
+    try { $enabled = [bool]$SaveElement.Current.IsEnabled } catch { $enabled = $true }
+    if ($enabled) { $disabledSinceMs = $null; continue }
+    if ($null -eq $disabledSinceMs) { $disabledSinceMs = $wait.ElapsedMilliseconds; continue }
+    if (($wait.ElapsedMilliseconds - $disabledSinceMs) -ge $ConfirmMs) { return $true }
+  } while ($wait.ElapsedMilliseconds -lt $TimeoutMs)
+  $false
 }
 
 function Read-LabeledValueFromTree($Tree, [IntPtr]$Hwnd, [string]$Label, [int]$Occurrence = 1) {
@@ -9798,6 +9871,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $pattern -eq 'invoke' -and $expectedPageBefore -and [string]$erfolg.type -ceq 'Hyperlink'
     )
     $hasNavigationPostcondition = [bool]($hasPagePostcondition -or $requiresHyperlinkPageChange)
+    # Hat die Pollschleife die exakt erwartete Zielueberschrift bereits am
+    # gebundenen Ueberschriftenknoten gelesen, ist das dieselbe Aussage, die
+    # danach ein eigener 900-Knoten-Lauf nur wiederholen wuerde.
+    $pollConfirmedHeading = $null
     if ($pattern -eq 'invoke' -and $expectedPageAfter) {
       $headingWait = [Diagnostics.Stopwatch]::StartNew()
       do {
@@ -9805,6 +9882,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         if ($observedHeading -eq $expectedPageAfter -or $headingWait.ElapsedMilliseconds -ge $waitMs) { break }
         Start-Sleep -Milliseconds 100
       } while ($true)
+      if ($observedHeading -and $observedHeading -eq $expectedPageAfter) { $pollConfirmedHeading = [string]$observedHeading }
     } else {
       Start-Sleep -Milliseconds $waitMs
     }
@@ -9819,7 +9897,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # besonders fuer TreeItems wichtig: expand/collapse aendert nur den Ast,
     # es behauptet keine Seitennavigation.
     $activationMethod = $(if ($radioSelectionMethod) { $radioSelectionMethod } elseif ($directNavigationLink) { 'verified-point' } else { "uia-$pattern" })
-    if ($hasNavigationPostcondition -and -not $isNavigation -and -not $directNavigationLink -and $pattern -eq 'invoke') {
+    if ($hasNavigationPostcondition -and -not $isNavigation -and -not $directNavigationLink -and $pattern -eq 'invoke' -and
+        -not $pollConfirmedHeading) {
       $probeTree = Walk-Tree $hwnd 900
       $probeHeading = Get-CurrentHeading $hwnd $probeTree
       if ($probeHeading -ne $expectedPageAfter) {
@@ -9937,8 +10016,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # into the navigation-only postcondition, where an identical expected
     # heading would otherwise be reported as a false navigation failure.
     if ($isNavigation -or ($hasNavigationPostcondition -and $pattern -ne 'select')) {
-      $t2 = Walk-Tree $hwnd 900
-      $nachher = Get-CurrentHeading $hwnd $t2
+      $nachher = $(if ($pollConfirmedHeading) { $pollConfirmedHeading } else { Get-CurrentHeading $hwnd (Walk-Tree $hwnd 900) })
       $navigiert = [bool]($nachher -and $nachher -ne $headingBefore)
       $dialogsAfter = @(Get-DialogInventory | Where-Object {
         [int]$_.pid -eq $targetPid -and $_.kind -in @('native-dialog','qt-dialog')
@@ -10053,7 +10131,11 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     if ($before -ne $wanted) {
       $togglePattern.Toggle()
       $method = 'toggle-pattern'
-      Start-Sleep -Milliseconds 500
+      # Die 500 ms bleiben Obergrenze: Sobald die CheckBox den Zielzustand
+      # meldet und SSE den Fall als geaendert fuehrt, liest der Nachher-Lauf
+      # denselben Stand wie nach der vollen Frist. Bleibt eines davon aus,
+      # laeuft die alte Frist ab und dieselbe Nachbedingung entscheidet.
+      $null = Wait-SSEToggleSettled $togglePattern $tree $hwnd $wanted 500
     }
 
     $afterTree = Walk-Tree $hwnd -WithValues
@@ -10417,8 +10499,13 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
 
     # Nach dem Oeffnen von Werte-Info das Hauptfenster und Zielfeld frisch
     # aufloesen; keine RuntimeId aus einem alten Baum blind weiterverwenden.
+    # Ohne Ergebnis-Tracking oeffnet und verschiebt diese Operation zwischen
+    # beiden Lesungen nichts: Der Vorher-Baum ist dann derselbe frische Stand,
+    # und ein zweiter 5000-Knoten-Lauf wiederholt nur dessen Ergebnis. Zielfeld,
+    # Beschreibbarkeit und Vorwert werden unten trotzdem am lebenden Element
+    # erneut geprueft, der Commit selbst bindet Wert, Vordergrund und Eingabe.
     Complete-SSEPhase $phaseLog 'preconditions'
-    $liveTree = $(if ($fastKnown) { $null } else { Walk-Tree $hwnd 5000 60 20 -WithValues })
+    $liveTree = $(if ($fastKnown) { $null } elseif (-not $trackResults) { $beforeTree } else { Walk-Tree $hwnd 5000 60 20 -WithValues })
     Complete-SSEPhase $phaseLog 'liveTree'
     $knownStateLive = $(if ($known) { Get-KnownPageState $hwnd $known } else { $null })
     if ($fastKnown -and (-not (Test-KnownPageHeading $knownStateLive.heading $known.page) -or
@@ -11034,8 +11121,17 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     } elseif ($matches.Count -eq 1) {
       if (Test-Versand $matches[0].name) { try { $ec.Collapse() } catch { }; Fail "GESPERRT: Option '$wanted' hat Uebermittlungsbezug." 'blocked' }
       $option = Get-LiveElement $hwnd $matches[0].rid
+      # Engine 31 quittiert SelectionItem.Select auf einer Option der
+      # aufgeklappten Liste, uebernimmt die Auswahl aber nicht: Live gemessen
+      # blieb der Wert jedes Mal stehen, und erst der anschliessende
+      # verifizierte Klick waehlte - nach Wartefrist, Einklappen, erneutem
+      # Aufklappen und einem weiteren Baumlauf. Auf dem sichtbaren Desktop wird
+      # die exakt gebundene, noch lebende Option deshalb direkt verifiziert
+      # angeklickt. Der versteckte Desktop behaelt Select als einzigen Weg.
+      $directOptionClick = [bool]($script:SSE_ENGINE_MAJOR -eq 31 -and -not $script:DESKTOP_NAME -and $option)
       $selection = $null
-      if ($option -and $option.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$selection)) {
+      if (-not $directOptionClick -and $option -and
+          $option.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$selection)) {
         $selection.Select()
       } else {
         if ($script:DESKTOP_NAME) {
@@ -11060,7 +11156,11 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       try { $ec.Collapse() } catch { }
       Fail "$($matches.Count) exakt passende Optionen '$wanted' gefunden; NICHT geaendert." 'ambiguous'
     }
-    Start-Sleep -Milliseconds 550
+    # Die 550 ms bleiben Obergrenze, keine Mindestpause: Sobald die ComboBox
+    # den Zielwert meldet, ist die Auswahl uebernommen. Bleibt der Wert
+    # stehen, laeuft die volle Frist ab und der bisherige Pruef- und
+    # Wiederholungsweg entscheidet unveraendert.
+    $null = Wait-SSEComboValue $hwnd $combo $wanted 550
     $fresh = Get-LiveElement $hwnd $combo.rid $combo.aid
     $freshValue = $null
     if ($fresh) {
@@ -11104,7 +11204,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
             })
           }
           $method = 'select-then-verified-point'
-          Start-Sleep -Milliseconds 550
+          $null = Wait-SSEComboValue $hwnd $combo $wanted 550
           $afterRetry = Get-LiveElement $hwnd $combo.rid $combo.aid
           if ($afterRetry) {
             $retryVp = $null
@@ -11783,8 +11883,17 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     try { $saveElement.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() }
     catch { Fail "Sichern liess sich nicht ausloesen: $($_.Exception.Message.Split("`n")[0])" 'pattern-failed' }
 
+    # waitMs ist die Obergrenze fuer den Speichervorgang, keine Mindestpause.
+    # SSE schreibt ueber eine temporaere Datei, benennt sie um und deaktiviert
+    # erst danach 'Sichern': Live gemessen trug die Falldatei in jedem Lauf
+    # bereits im Moment der Deaktivierung die neue Datei-Id und den neuen Hash
+    # und blieb danach unveraendert. Gepollt wird deshalb nur die Schaltflaeche
+    # am bereits gebundenen Element - die Falldatei wird waehrend des
+    # Speicherns nicht geoeffnet und kann das Ersetzen nicht behindern. Nach
+    # einer kurzen Bestaetigungsfrist entscheidet dieselbe vollstaendige
+    # Nachbedingung wie bisher; bleibt 'Sichern' aktiv, laeuft die ganze Frist.
     $waitMs = [Math]::Min(30000, [Math]::Max(800, [int](Arg $a 'waitMs' 2200)))
-    Start-Sleep -Milliseconds $waitMs
+    $null = Wait-SSESaveButtonDisabled $saveElement $waitMs 150
     $after = Get-Sha256 $expectedPath
     $itemAfter = Get-Item -LiteralPath $expectedPath
     $summaryAfter = Get-CaseSummary $expectedPath
