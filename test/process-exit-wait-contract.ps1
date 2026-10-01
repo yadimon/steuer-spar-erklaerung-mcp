@@ -149,6 +149,48 @@ try {
   Assert-True ($closeBlock -notmatch '\$targetProcess\.WaitForExit\(') 'Close kann nach der Mutation weiterhin per Process/PID neu oeffnen.'
   Assert-True ($closeBlock -notmatch '\$stillRunning\s*=\s*\[bool\]\(Get-Process') 'Der Sonderpfad prueft nach dem Kill weiterhin eine wiederverwendbare PID.'
 
+  # Execute the production close tail with a modeled kernel signal. This
+  # verifies the wait requested before termination, without actually waiting
+  # twenty seconds or terminating a product process in an offline test.
+  $tailStart = $closeBlock.IndexOf('$still = Wait-SSEProcessExit')
+  Assert-True ($tailStart -ge 0) 'Close exit policy is missing.'
+  $tailText = $closeBlock.Substring($tailStart)
+  $tailText = $tailText.Substring(0, $tailText.LastIndexOf('}'))
+  $closeTail = [scriptblock]::Create($tailText)
+  function Assert-CloseWaitPolicy([bool]$Force, [bool]$Hung, [bool]$InitiallyRunning, [int]$ExpectedWait) {
+    $force = $Force; $hung = $Hung; $discard = $true
+    $save = $false; $antwort = $null; $targetPid = 7
+    $targetProcess = [pscustomobject]@{ identity='owned-process' }
+    $targetProcessHandle = [pscustomobject]@{ identity='pinned-handle' }
+    $state = [pscustomobject]@{ running=$InitiallyRunning; waits=(New-Object Collections.ArrayList); stops=0; result=$null }
+    function Wait-SSEProcessExit($ProcessHandle, [int]$TimeoutMs) {
+      Assert-True ([object]::ReferenceEquals($ProcessHandle, $targetProcessHandle)) 'Close wait lost the pinned handle.'
+      $null = $state.waits.Add($TimeoutMs)
+      $state.running
+    }
+    function Stop-Process($InputObject, [switch]$Force, $ErrorAction) {
+      Assert-True ([object]::ReferenceEquals($InputObject, $targetProcess)) 'Close termination lost the owned process.'
+      Assert-True $Force 'Close termination did not request force.'
+      $state.stops++
+      $state.running = $false
+    }
+    function Emit($Result) { $state.result = $Result }
+    & $closeTail
+    Assert-True ($state.waits[0] -eq $ExpectedWait) "Unexpected pre-termination wait: $($state.waits[0])."
+    Assert-True ($state.result.ok -and -not $state.result.stillRunning) 'Close did not verify process exit.'
+    $expectedStops = $(if ($InitiallyRunning) { 1 } else { 0 })
+    Assert-True ($state.stops -eq $expectedStops) 'Close termination count changed.'
+    Assert-True ($state.result.killed -eq $InitiallyRunning) 'Close reported an incorrect termination result.'
+    if ($InitiallyRunning) {
+      Assert-True ($state.result.note -match 'hart beendet') 'Forced close claimed a regular unchanged exit.'
+      Assert-True (@($state.waits | Select-Object -Skip 1 | Where-Object { $_ -ne 5000 }).Count -eq 0) 'Termination lost its bounded exit verification.'
+    }
+  }
+  Assert-CloseWaitPolicy $true $false $true 0
+  Assert-CloseWaitPolicy $false $true $true 0
+  Assert-CloseWaitPolicy $true $false $false 0
+  Assert-CloseWaitPolicy $false $false $false 20000
+
   $waitCalls = @($ast.FindAll({
     param($node)
     $node -is [Management.Automation.Language.CommandAst] -and
