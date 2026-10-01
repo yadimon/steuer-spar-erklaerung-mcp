@@ -162,6 +162,31 @@ try {
   }
 
   {
+    // Der Dateidialog kann vor dem aktualisierten Fenstertitel schliessen.
+    // Ein alter Titel beim ersten Readback darf keine erstellte Datei als
+    // Fehler zuruecklassen.
+    let savedReads = 0;
+    let allReads = 0;
+    const { worker, calls } = scriptedWorker({
+      instances: (args) => {
+        allReads += 1;
+        if (allReads === 1) return noInstance;
+        if (args.includeHash === true) {
+          savedReads += 1;
+          writeFileSync(targetPath, "neu");
+          return instance({ caseName: savedReads === 1 ? "Gewinn-Erfassung 2026" : "neu.GewErfass2026", caseSha256: HASH });
+        }
+        return instance();
+      },
+    });
+    const result = await createApiExecutor(config, worker)("case_create", { targetRef: TARGET, mode: "einurvor" }, 240_000);
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(savedReads, 2);
+    assert.equal(calls.filter((entry) => entry.operation === "instances" && entry.args.includeHash === true).length, 2);
+    resetTarget();
+  }
+
+  {
     // 2 Offene Instanz: nichts starten.
     const { worker, calls } = scriptedWorker({ instances: () => instance() });
     const result = await createApiExecutor(config, worker)("case_create", { targetRef: TARGET, mode: "einurvor" }, 240_000);
@@ -230,8 +255,14 @@ try {
   {
     // 8 Kein passender nativer Dialog: Menue schliessen, dann Cleanup.
     const { worker, calls } = scriptedWorker({ dialog_list: () => ({ ok: true, count: 0, dialogs: [], windows: [] }) });
-    const result = await createApiExecutor(config, worker)("case_create", { targetRef: TARGET, mode: "einurvor" }, 240_000);
+    let clock = 0;
+    const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 240_000, undefined, {
+      execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
+      profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
+      now: () => clock, wait: async (ms) => { clock += ms; },
+    });
     assert.equal(result.kind, "save-dialog");
+    assert(clock >= 5_000);
     const tail = operationsOf(calls).slice(-4);
     assert.deepEqual(tail, ["dialog_list", "menu_close", "close", "product_info"]);
   }
