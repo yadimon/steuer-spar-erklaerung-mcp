@@ -17,6 +17,14 @@ import { DesktopMarkerError, desktopMarkerPath, resolveDesktopMarkerForOperation
 
 const contextSchema = z.object({ ok: z.literal(true), boundMain: z.boolean(), unique: z.boolean() }).passthrough();
 
+// Right after a launch the named main window can briefly miss the native
+// criteria (visible, unowned, at least 900 px, product title) while the same
+// HWND qualifies moments later. Only for an explicitly addressed window and
+// only for 'no-window', discovery is therefore repeated for a bounded time -
+// never towards another target. Without an HWND 'no-window' stays immediate.
+const NAMED_WINDOW_SETTLE_MS = 2_000;
+const NAMED_WINDOW_POLL_MS = 150;
+
 export interface QtNativeRuntime {
   desktopStatus(timeoutMs: number, signal?: AbortSignal): Promise<WorkerResult>;
   desktopStart(args: Readonly<Record<string, unknown>>, timeoutMs: number, signal?: AbortSignal): Promise<WorkerResult>;
@@ -76,7 +84,7 @@ export function createQtNativeRuntime(
       if (signal?.aborted) abort();
     });
   }
-  async function target(args: Readonly<Record<string, unknown>>, deadline: number, signal?: AbortSignal): Promise<QtNativeTarget> {
+  async function discoverOnce(args: Readonly<Record<string, unknown>>, deadline: number, signal?: AbortSignal): Promise<QtNativeTarget> {
     try {
       const marker = readMarker();
       const binding = await discover({ package: nativePackage, expectedImage: executable[0]!, marker,
@@ -89,6 +97,23 @@ export function createQtNativeRuntime(
       if (error instanceof DesktopMarkerError) throw failure(error.message, error.kind);
       throw error;
     }
+  }
+  async function target(args: Readonly<Record<string, unknown>>, deadline: number, signal?: AbortSignal): Promise<QtNativeTarget> {
+    const settleUntil = Math.min(performance.now() + NAMED_WINDOW_SETTLE_MS, deadline);
+    for (;;) {
+      try { return await discoverOnce(args, deadline, signal); } catch (error) {
+        const settling = typeof args.hwnd === "number" && error instanceof QtNativeTransportError && error.kind === "no-window";
+        if (!settling || signal?.aborted || performance.now() + NAMED_WINDOW_POLL_MS >= settleUntil) throw error;
+      }
+      await pause(NAMED_WINDOW_POLL_MS, signal);
+    }
+  }
+  function pause(milliseconds: number, signal?: AbortSignal): Promise<void> {
+    return new Promise<void>((resolvePause, reject) => {
+      const abort = () => { clearTimeout(timer); reject(failure("Native discovery cancelled.", "aborted")); };
+      const timer = setTimeout(() => { signal?.removeEventListener("abort", abort); resolvePause(); }, milliseconds);
+      signal?.addEventListener("abort", abort, { once: true });
+    });
   }
   async function obtain(args: Readonly<Record<string, unknown>>, deadline: number, signal?: AbortSignal): Promise<QtNativeSession> {
     if (stopped || shutdown.aborted || signal?.aborted) throw failure("Native runtime is stopping or the request was cancelled.", "aborted");
