@@ -209,6 +209,57 @@ Assert-True (@(Get-SSEContainerDescendants $treeInTree $prueferSuffix 'Tree' 'Tr
   'Container zaehlte sich selbst als Nachfahren oder verlor ein echtes Tree-Kind.'
 
 # --------------------------------------------------------------------------
+# Sichtbarer Navigationseintrag: Grundlage des direkten Baumklicks in goto.
+# Nur ein eindeutiger, aktiver, ganz im Baumausschnitt liegender Eintrag mit
+# exakt gleichem Namen; alles andere liefert $null und laesst goto suchen.
+# --------------------------------------------------------------------------
+function NavNode([int]$I, [int]$P, [string]$Type, [string]$Name, [string]$Aid, [int]$Y,
+                 [bool]$On = $true, [int]$X = 25, [int]$W = 494, [int]$H = 43) {
+  [pscustomobject]@{ i=$I; p=$P; d=1; type=$Type; name=$Name; aid=$Aid; x=$X; y=$Y; w=$W; h=$H; on=$On; rid="7.$I" }
+}
+$navAid31 = 'SSE_Application.AAV4GLEngineWindow31.centralWidget.SearchSplitter.TopLevelHSplitter.NavFrameSSE.QWidget.NavWidgetSSE'
+$navBaum31 = @(
+  (NavNode 0 -1 'Tree'     ''                                 $navAid31 186 -X 0 -W 529 -H 600)
+  (NavNode 1  0 'TreeItem' 'Steuererklaerung'                  $navAid31 186)
+  (NavNode 2  0 'TreeItem' 'Umsatzsteuer-Voranmeldungen 2025' $navAid31 229)
+  (NavNode 3  0 'TreeItem' 'Gesperrt'                         $navAid31 272 $false)
+  (NavNode 4  0 'TreeItem' 'Doppelt'                          $navAid31 315)
+  (NavNode 5  0 'TreeItem' 'Doppelt'                          $navAid31 358)
+  (NavNode 6  0 'TreeItem' 'Randzeile'                        $navAid31 770)
+  (NavNode 7  0 'TreeItem' 'Darueber'                         $navAid31 160)
+  (NavNode 8 -1 'Tree'     ''                                 'NavFrameSSE.PrueferWidgetSSE.SteuerPruefer' 900 -X 0 -W 529 -H 200)
+  (NavNode 9  8 'TreeItem' 'Pruefermeldung'                   'NavFrameSSE.PrueferWidgetSSE.SteuerPruefer' 920)
+)
+Assert-True ((Get-SSEVisibleNavigationItem $navBaum31 'Umsatzsteuer-Voranmeldungen 2025').rid -ceq '7.2') `
+  'Sichtbarer Navigationseintrag wurde nicht exakt gebunden.'
+Assert-True ($null -eq (Get-SSEVisibleNavigationItem $navBaum31 'umsatzsteuer-voranmeldungen 2025')) `
+  'Ein nur in Gross-/Kleinschreibung gleicher Name wurde gebunden.'
+Assert-True ($null -eq (Get-SSEVisibleNavigationItem $navBaum31 'Umsatzsteuer')) `
+  'Ein Namensanfang wurde wie ein exakter Name gebunden.'
+Assert-True ($null -eq (Get-SSEVisibleNavigationItem $navBaum31 'Gesperrt')) `
+  'Ein deaktivierter Navigationseintrag wurde gebunden.'
+Assert-True ($null -eq (Get-SSEVisibleNavigationItem $navBaum31 'Doppelt')) `
+  'Bei zwei gleichnamigen Navigationseintraegen wurde einer geraten.'
+Assert-True ($null -eq (Get-SSEVisibleNavigationItem $navBaum31 'Randzeile')) `
+  'Eine unten angeschnittene Zeile wurde als sichtbar gebunden.'
+Assert-True ($null -eq (Get-SSEVisibleNavigationItem $navBaum31 'Darueber')) `
+  'Eine oberhalb des Baumausschnitts liegende Zeile wurde gebunden.'
+Assert-True ($null -eq (Get-SSEVisibleNavigationItem $navBaum31 'Pruefermeldung')) `
+  'Ein Eintrag des Prueferbaums wurde als Navigationseintrag gebunden.'
+Assert-True ($null -eq (Get-SSEVisibleNavigationItem $navBaum31 '')) `
+  'Ein leerer Name hat einen Navigationseintrag gebunden.'
+Assert-True ($null -eq (Get-SSEVisibleNavigationItem @($navBaum31[1..9]) 'Steuererklaerung')) `
+  'Ohne Navigationsbaum-Container wurde ein Eintrag gebunden.'
+
+# Engine-30-Form: nur der Tree traegt die Id, die Eintraege keine.
+$navBaum30 = @(
+  (NavNode 0 -1 'Tree'     ''                 'NavWidgetSSE' 186 -X 0 -W 510 -H 600)
+  (NavNode 1  0 'TreeItem' 'Steuererklaerung'  ''             272)
+)
+Assert-True ((Get-SSEVisibleNavigationItem $navBaum30 'Steuererklaerung').rid -ceq '7.1') `
+  'Engine-30-Navigationseintrag ohne eigene Id wurde nicht ueber den Container gebunden.'
+
+# --------------------------------------------------------------------------
 # Aufgezeichnete Baeume beider Engines
 #
 # Die synthetischen Faelle oben binden die Regel; diese Fixtures binden die
@@ -242,6 +293,20 @@ foreach ($jahr in @('2024', '2025')) {
   }
 }
 Assert-True ($fixtureAnzahl -ge 4) "Zu wenige Fixtures: $fixtureAnzahl"
+
+# Navigationsbaum: In beiden Engines bindet die Container-Endung genau den Tree,
+# und seine Eintraege sind ueber den Teilbaum erreichbar, auch ohne Blatt-Ids.
+foreach ($jahr in @('2024', '2025')) {
+  foreach ($datei in Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot "..\profiles\$jahr\fixtures") -Filter '*.json') {
+    $fixture = Get-Content -LiteralPath $datei.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+    $navContainer = Find-SSEContainerNode $fixture.nodes 'NavWidgetSSE' 'Tree'
+    Assert-True ($null -ne $navContainer -and $navContainer.type -ceq 'Tree') `
+      "$jahr/$($datei.Name): Navigationsbaum nicht eindeutig ueber 'NavWidgetSSE' gebunden."
+    $navNamen = @(Get-SSEContainerDescendants $fixture.nodes 'NavWidgetSSE' 'TreeItem' 'Tree' | ForEach-Object { [string]$_.name })
+    Assert-True ($navNamen -ccontains "Daten$([char]0x00FC)bernahme") `
+      "$jahr/$($datei.Name): Navigationseintraege nicht ueber den Container erreichbar: $($navNamen -join ' | ')"
+  }
+}
 Assert-True (@($gesehendeEngines | Sort-Object -Unique) -join ',' -eq '30,31') `
   "Beide Engines muessen vertreten sein, gesehen: $(@($gesehendeEngines | Sort-Object -Unique) -join ',')"
 

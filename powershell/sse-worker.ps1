@@ -15991,6 +15991,63 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # wirkungslos und gehoeren nicht in den Produktionspfad.
     if ((Arg $a 'viaSuche') -ne $false) {
       $ts = Walk-Tree $hwnd 1500
+      # Steht das Ziel exakt im sichtbaren Navigationsbaum, fuehrt ein
+      # einzelner Klick auf diesen Eintrag direkt hin. Die Suche ist hier der
+      # teure und unsichere Weg: Nach dem Absenden antwortet die Anwendung
+      # lange auf keinen UIA-Zugriff, und ihre Trefferliste kennt nicht jede
+      # Seite - fuer 'Umsatzsteuererklaerung <Jahr>' etwa nur Hilfetexte, so
+      # dass der Rest ueber den Blaetterpfad lief. Auf dem sichtbaren Desktop
+      # klickt die Suche ihren Treffer ohnehin physisch doppelt an; derselbe
+      # Eingabeweg gilt hier fuer einen eindeutig gebundenen Baumeintrag.
+      # Der Klick nutzt den labelnahen Punkt wie click_point; die Mitte der
+      # Zeile loest keine Auswahl aus. Erfolg zaehlt nur ueber dieselbe
+      # Zielpruefung wie jeder andere Weg. Bleibt die Seite stehen oder fuehrt
+      # der Klick woanders hin, laeuft die Suche wie bisher von der dann
+      # offenen Seite; ein Pruefhinweis stoppt wie beim Blaettern sofort.
+      # useSearch=false bleibt rein fokusfrei und erreicht diesen Weg nie.
+      $baumZiel = $(if ($script:DESKTOP_NAME) { $null } else { Get-SSEVisibleNavigationItem $ts.nodes $ziel })
+      $baumPunkt = $(if ($baumZiel -and -not (Test-Versand $baumZiel.name)) {
+        [pscustomobject]@{
+          x = [int]($baumZiel.x + [Math]::Min(50, [Math]::Max(8, $baumZiel.w / 3))) - 1
+          y = [int]($baumZiel.y + $baumZiel.h / 2) - 1
+          w = 2; h = 2; source = 'tree-label-point'
+        }
+      } else { $null })
+      # Ein eigenes Werkzeugfenster (Werte-Info, Tipps) bleibt auch ueber dem
+      # angehobenen Hauptfenster liegen. Verdeckt es den Eintrag, bleibt es
+      # beim Suchweg, statt den Klick fail-closed abzubrechen.
+      if ($baumPunkt -and (Get-SSEPointObstruction $hwnd ($baumPunkt.x + 1) ($baumPunkt.y + 1)).blockerKind -eq 'other-sse-window') {
+        $null = $weg.Add("Navigationsbaum '$($baumZiel.name)' von einem SSE-Fenster verdeckt")
+        $baumPunkt = $null
+      }
+      if ($baumPunkt) {
+        $null = Click-VerifiedPoint $hwnd $baumPunkt
+        $nachBaum = WarteAufUeberschrift $hwnd $start $ziel 4000
+        $null = $weg.Add("Navigationsbaum '$($baumZiel.name)' -> '$nachBaum'")
+        if (IstZielseite $hwnd $nachBaum) {
+          Emit ([pscustomobject]@{ ok = $true; erreicht = $true; pageId=$(if ($pageId) { $pageId } else { $null }); ueberschrift = $nachBaum; schritte = 1
+            richtung = 'Navigationsbaum'; weg = @($weg); fokusfrei = $false })
+        }
+        if ($nachBaum -and $nachBaum -ne $start) {
+          $start = $nachBaum
+          $ts = Walk-Tree $hwnd 1500
+        } else {
+          $warnfenster = @(Get-Windows 'SSE' | Where-Object {
+            [int]$_.pid -eq [int]$gotoPid -and $_.title -like 'Die Prüfung hat ergeben*'
+          })
+          if ($warnfenster.Count) {
+            Fail ("Der Navigationsbaum-Klick auf '$($baumZiel.name)' wurde von einem Pruefhinweis blockiert; keine Wiederholung. " +
+                  'Warnfenster zuerst lesen und fingerprintgebunden beantworten.') 'warning-dialog' `
+              ([pscustomobject]@{
+                ueberschrift=$nachBaum
+                warnfenster=@($warnfenster | ForEach-Object { [pscustomobject]@{
+                  hwnd=[int64]$_.hwnd; pid=[int]$_.pid; title=[string]$_.title
+                } })
+                naechsterSchritt='sse_warning_popup_read mit dem gemeldeten Dialog-HWND'
+              })
+          }
+        }
+      }
       $suchfeld = Get-SSESearchFieldNode $ts
       if ($suchfeld) {
         $se = Get-LiveElement $hwnd $suchfeld.rid
@@ -16152,8 +16209,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
               $nachSuche = AktuelleUeberschrift $hwnd
               $null = $suchWeg.Add("Suchseite geöffnet: '$nachSuche'")
               if ($aktiviert) {
+                # Ein vorher versuchter Navigationsbaum-Klick steht hinter dem
+                # Startpunkt in $weg; der Weg soll ihn nicht verschweigen.
                 Emit ([pscustomobject]@{ ok = $true; erreicht = $true; pageId=$(if ($pageId) { $pageId } else { $null }); ueberschrift = $nachSuche; schritte = 1
-                  richtung = 'Suche'; weg = @($suchWeg); fokusfrei = $true })
+                  richtung = 'Suche'; weg = @(@($weg | Select-Object -Skip 1) + @($suchWeg)); fokusfrei = $true })
               }
               # Der Suchbegriff kann im Hilfetext einer anders benannten Seite
               # liegen (Kontoführungsgebühren -> Sonstige Werbungskosten/Fahrten).

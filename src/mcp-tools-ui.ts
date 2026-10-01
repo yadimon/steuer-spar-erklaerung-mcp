@@ -45,8 +45,9 @@ export function registerUiTools(registry: McpRegistry): void {
       title: "Seite ansteuern",
       description:
         "Navigiert bevorzugt ueber eine stabile pageId, alternativ ueber die exakte Ueberschrift. " +
-        "Die pageId erkennt auch dynamische nummerierte Seiten wie '1. Fahrzeug: ...'. Versucht zuerst die globale Suche " +
-        "und blaettert danach mit den fokusfreien UIA-Schaltflaechen 'Weiter'/'Zurueck'. " +
+        "Die pageId erkennt auch dynamische nummerierte Seiten wie '1. Fahrzeug: ...'. Steht das Ziel exakt und eindeutig " +
+        "im sichtbaren Navigationsbaum, klickt es auf dem sichtbaren Desktop direkt diesen Eintrag. Sonst versucht es " +
+        "die globale Suche und blaettert danach mit den fokusfreien UIA-Schaltflaechen 'Weiter'/'Zurueck'. " +
         "Qt-Suchtreffer lassen sich auf einem versteckten Windows-Desktop zwar lesen, aber je nach " +
         "Programmseite nicht aktivieren; dann faellt das Werkzeug auf den Blaetterpfad zurueck. Bei " +
         "einem blockierenden Pruefhinweis stoppt es nach dem ersten Klick, statt Warnfenster zu stapeln, und " +

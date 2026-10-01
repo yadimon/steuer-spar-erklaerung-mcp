@@ -1,0 +1,192 @@
+# Direkter Navigationsbaum-Klick in `goto`.
+#
+# Steht das Ziel exakt im sichtbaren Navigationsbaum, ersetzt ein einzelner
+# Klick auf diesen Eintrag die globale Suche. Der Weg ist nur zulaessig, weil
+# die Suche auf dem sichtbaren Desktop in genau diesem Fall ohnehin physisch
+# doppelklickt. Daraus folgen die Grenzen, die dieser Vertrag festhaelt:
+#
+#   1. Nur der sichtbare Desktop klickt; useSearch=false erreicht den Weg nie.
+#   2. Nie ein Uebermittlungsweg (Test-Versand), nie ein unsichtbarer Eintrag.
+#   3. Genau ein Klick auf den labelnahen Punkt, kein Doppelklick; verdeckt
+#      ein eigenes SSE-Fenster den Punkt, bleibt es ohne Klick beim Suchweg.
+#   4. Erfolg nur ueber IstZielseite; eine andere Seite wird neuer Startpunkt
+#      der Suche, ein Pruefhinweis stoppt sofort wie beim Blaettern.
+$ErrorActionPreference = 'Stop'
+
+$root = Split-Path $PSScriptRoot -Parent
+. (Join-Path $root 'powershell\structure-binding.ps1')
+$workerPath = Join-Path $root 'powershell\sse-worker.ps1'
+$errors = $null
+$ast = [Management.Automation.Language.Parser]::ParseFile($workerPath, [ref]$null, [ref]$errors)
+if ($errors.Count) { throw "Worker-Parserfehler: $($errors[0].Message)" }
+
+function Assert-True([bool]$Condition, [string]$Message) {
+  if (-not $Condition) { throw $Message }
+}
+
+$gotoClauses = @($ast.FindAll({
+  param($node)
+  $node -is [Management.Automation.Language.SwitchStatementAst] -and
+  @($node.Clauses | Where-Object { $_.Item1.Extent.Text -ceq "'goto'" }).Count -eq 1
+}, $true))
+Assert-True ($gotoClauses.Count -eq 1) 'Der goto-Zweig ist nicht eindeutig vorhanden.'
+$gotoBody = @($gotoClauses[0].Clauses | Where-Object { $_.Item1.Extent.Text -ceq "'goto'" })[0].Item2
+
+$searchBlocks = @($gotoBody.FindAll({
+  param($node)
+  $node -is [Management.Automation.Language.IfStatementAst] -and
+  $node.Clauses[0].Item1.Extent.Text -ceq "(Arg `$a 'viaSuche') -ne `$false"
+}, $true))
+Assert-True ($searchBlocks.Count -eq 1) 'Der Suchblock von goto ist nicht eindeutig vorhanden.'
+$searchStatements = @($searchBlocks[0].Clauses[0].Item2.Statements)
+
+$statementTexts = @($searchStatements | ForEach-Object { $_.Extent.Text })
+$selectionIndex = [array]::IndexOf($statementTexts,
+  '$baumZiel = $(if ($script:DESKTOP_NAME) { $null } else { Get-SSEVisibleNavigationItem $ts.nodes $ziel })')
+$searchIndex = [array]::IndexOf($statementTexts, '$suchfeld = Get-SSESearchFieldNode $ts')
+Assert-True ($statementTexts[0] -ceq '$ts = Walk-Tree $hwnd 1500') `
+  'Der Suchblock beginnt nicht mehr mit dem gemeinsamen Vorlauf.'
+Assert-True ($selectionIndex -eq 1 -and $searchIndex -gt $selectionIndex) `
+  'Der Navigationsbaum-Weg steht nicht zwischen dem Vorlauf und der Suche.'
+$block = [scriptblock]::Create(($statementTexts[$selectionIndex..($searchIndex - 1)]) -join "`n")
+
+$navAid = 'SSE_Application.AAV4GLEngineWindow31.centralWidget.SearchSplitter.TopLevelHSplitter.NavFrameSSE.QWidget.NavWidgetSSE'
+function NavNode([int]$I, [int]$P, [string]$Type, [string]$Name, [int]$Y, [int]$X = 25, [int]$W = 494, [int]$H = 43) {
+  [pscustomobject]@{ i=$I; p=$P; d=1; type=$Type; name=$Name; aid=$navAid; x=$X; y=$Y; w=$W; h=$H; on=$true; rid="7.$I" }
+}
+$navTree = [pscustomobject]@{ nodes = @(
+  (NavNode 0 -1 'Tree'     ''                          186 -X 0 -W 529 -H 600)
+  (NavNode 1  0 'TreeItem' 'Steuererklaerung'          186)
+  (NavNode 2  0 'TreeItem' 'Zielseite'                 229)
+  (NavNode 3  0 'TreeItem' 'Anmeldungen versenden'     272)
+) }
+$rewalkedTree = [pscustomobject]@{ nodes = @() }
+
+function Invoke-NavigationBlock {
+  param([string]$Target, [string]$DesktopName, [string]$HeadingAfter, [object[]]$Windows,
+        [string]$Blocker = 'none')
+  $script:clicks = New-Object System.Collections.ArrayList
+  $script:waits = New-Object System.Collections.ArrayList
+  $script:probes = New-Object System.Collections.ArrayList
+  $script:walks = 0
+  $script:emitted = $null
+  $script:failed = $null
+  $script:DESKTOP_NAME = $DesktopName
+  $ziel = $Target
+  $hwnd = [IntPtr]4242
+  $gotoPid = 3131
+  $pageId = ''
+  $start = 'Startseite'
+  $ts = $navTree
+  $weg = New-Object System.Collections.ArrayList
+  $null = $weg.Add($start)
+  function Test-Versand { param([string]$name) $name -ceq 'Anmeldungen versenden' }
+  function Get-SSEPointObstruction {
+    param([IntPtr]$BoundWindow, [int]$X, [int]$Y)
+    $null = $script:probes.Add([pscustomobject]@{ window=[int64]$BoundWindow; x=$X; y=$Y })
+    [pscustomobject]@{ blockerKind=$Blocker; isBoundTarget=($Blocker -ceq 'none') }
+  }
+  function Click-VerifiedPoint {
+    param([IntPtr]$Window, $Node, $ExpectedInputTick = $null, [switch]$RequireForeground, [int]$SettleMs = 250,
+          [int]$ClickCount = 1)
+    $null = $script:clicks.Add([pscustomobject]@{ window=[int64]$Window; x=$Node.x; y=$Node.y; w=$Node.w; h=$Node.h; count=$ClickCount })
+  }
+  function WarteAufUeberschrift {
+    param([IntPtr]$h, [string]$vorher, [string]$erwartet, [int]$timeoutMs = 3000)
+    $null = $script:waits.Add([pscustomobject]@{ vorher=$vorher; erwartet=$erwartet; timeoutMs=$timeoutMs })
+    $HeadingAfter
+  }
+  function IstZielseite { param([IntPtr]$h, [string]$heading) [bool]($heading -ceq $ziel) }
+  function Walk-Tree { param([IntPtr]$h, [int]$MaxNodes) $script:walks++; $rewalkedTree }
+  function Get-Windows { param([string]$Filter) @($Windows) }
+  function Emit { param($result) $script:emitted = $result; throw 'goto-navigation-emitted' }
+  function Fail { param($msg, $kind = 'error', $details = $null) $script:failed = [pscustomobject]@{ kind=$kind; error=$msg }; throw 'goto-navigation-failed' }
+  try { . $block } catch {
+    Assert-True ($_.Exception.Message -in @('goto-navigation-emitted', 'goto-navigation-failed')) `
+      "Navigationsbaum-Weg warf unerwartet: $($_.Exception.Message)"
+  }
+  [pscustomobject]@{
+    clicks=@($script:clicks); waits=@($script:waits); probes=@($script:probes); walks=$script:walks
+    emitted=$script:emitted; failed=$script:failed; start=$start; tree=$ts; weg=@($weg)
+  }
+}
+
+# 1. Sichtbarer Eintrag, Klick erreicht das Ziel: ein Klick, labelnaher Punkt.
+$reached = Invoke-NavigationBlock 'Zielseite' '' 'Zielseite' @()
+Assert-True ($reached.clicks.Count -eq 1 -and $reached.clicks[0].count -eq 1) 'Der Baumweg klickte nicht genau einmal einfach.'
+Assert-True ($reached.clicks[0].x -eq 74 -and $reached.clicks[0].y -eq 249 -and $reached.clicks[0].w -eq 2 -and $reached.clicks[0].h -eq 2) `
+  "Der Baumweg klickte nicht den labelnahen Punkt: $($reached.clicks[0] | ConvertTo-Json -Compress)"
+Assert-True ($reached.clicks[0].window -eq 4242) 'Der Baumweg klickte nicht im gebundenen Fenster.'
+Assert-True ($reached.waits.Count -eq 1 -and $reached.waits[0].vorher -ceq 'Startseite' -and
+             $reached.waits[0].erwartet -ceq 'Zielseite' -and $reached.waits[0].timeoutMs -eq 4000) `
+  "Der Baumweg wartet nicht begrenzt auf den Seitenwechsel: $($reached.waits | ConvertTo-Json -Compress)"
+Assert-True ($reached.emitted.ok -eq $true -and $reached.emitted.erreicht -eq $true -and
+             $reached.emitted.ueberschrift -ceq 'Zielseite' -and $reached.emitted.richtung -ceq 'Navigationsbaum' -and
+             $reached.emitted.schritte -eq 1 -and $reached.emitted.fokusfrei -eq $false) `
+  "Der Baumweg meldete keinen eindeutigen Erfolg: $($reached.emitted | ConvertTo-Json -Compress)"
+Assert-True ((@($reached.emitted.weg) -join ' | ') -ceq "Startseite | Navigationsbaum 'Zielseite' -> 'Zielseite'") `
+  "Der Baumweg meldete einen unvollstaendigen Weg: $(@($reached.emitted.weg) -join ' | ')"
+
+# 2. Versteckter Desktop: kein physischer Klick, die Suche bleibt zustaendig.
+$hidden = Invoke-NavigationBlock 'Zielseite' 'sse-hidden' 'Zielseite' @()
+Assert-True ($hidden.clicks.Count -eq 0 -and $null -eq $hidden.emitted -and $null -eq $hidden.failed) `
+  'Auf dem versteckten Desktop wurde der Navigationsbaum geklickt.'
+Assert-True ($hidden.start -ceq 'Startseite' -and $hidden.tree -eq $navTree) 'Der versteckte Desktop veraenderte den Suchvorlauf.'
+
+# 3. Uebermittlungsweg und 4. nicht sichtbarer Name: nie klicken.
+$transmission = Invoke-NavigationBlock 'Anmeldungen versenden' '' 'Anmeldungen versenden' @()
+Assert-True ($transmission.clicks.Count -eq 0 -and $null -eq $transmission.emitted) 'Ein Uebermittlungsweg wurde im Baum geklickt.'
+$absent = Invoke-NavigationBlock 'Nicht im Baum' '' 'Nicht im Baum' @()
+Assert-True ($absent.clicks.Count -eq 0 -and $null -eq $absent.emitted -and $absent.waits.Count -eq 0) `
+  'Ein nicht sichtbarer Name loeste einen Baumklick aus.'
+
+# 5. Der Klick fuehrt auf eine andere Seite: kein Erfolg, neuer Startpunkt,
+#    frischer Vorlauf fuer die Suche.
+$elsewhere = Invoke-NavigationBlock 'Zielseite' '' 'Andere Seite' @()
+Assert-True ($null -eq $elsewhere.emitted -and $null -eq $elsewhere.failed) 'Eine falsche Seite wurde als Erfolg gemeldet.'
+Assert-True ($elsewhere.start -ceq 'Andere Seite' -and $elsewhere.walks -eq 1 -and $elsewhere.tree -eq $rewalkedTree) `
+  'Nach einem Seitenwechsel auf eine andere Seite startet die Suche nicht frisch von dort.'
+Assert-True ((@($elsewhere.weg) -join ' | ') -ceq "Startseite | Navigationsbaum 'Zielseite' -> 'Andere Seite'") `
+  'Der Weg verschweigt den wirkungslosen Baumklick.'
+
+# 6. Keine Wirkung und ein Pruefhinweis: sofort stoppen, nicht weitersuchen.
+$warning = [pscustomobject]@{ hwnd=[int64]777; pid=3131; title="Die Pr$([char]0x00FC)fung hat ergeben, dass ..." }
+$blocked = Invoke-NavigationBlock 'Zielseite' '' 'Startseite' @($warning)
+Assert-True ($blocked.failed.kind -ceq 'warning-dialog' -and $null -eq $blocked.emitted) `
+  'Ein Pruefhinweis nach dem Baumklick wurde nicht als warning-dialog gemeldet.'
+
+# 7. Keine Wirkung ohne Pruefhinweis: die Suche laeuft unveraendert weiter.
+$unchanged = Invoke-NavigationBlock 'Zielseite' '' 'Startseite' @()
+Assert-True ($null -eq $unchanged.emitted -and $null -eq $unchanged.failed -and $unchanged.walks -eq 0) `
+  'Ein wirkungsloser Baumklick beendete goto oder wiederholte den Vorlauf.'
+Assert-True ($unchanged.start -ceq 'Startseite' -and $unchanged.tree -eq $navTree) `
+  'Ein wirkungsloser Baumklick veraenderte den Startpunkt der Suche.'
+
+# 8. Ein eigenes SSE-Fenster verdeckt den Punkt: kein Klick, Suche wie bisher.
+$covered = Invoke-NavigationBlock 'Zielseite' '' 'Zielseite' @() 'other-sse-window'
+Assert-True ($covered.probes.Count -eq 1 -and $covered.probes[0].x -eq 75 -and $covered.probes[0].y -eq 250 -and
+             $covered.probes[0].window -eq 4242) `
+  "Die Verdeckung wurde nicht am Klickpunkt geprueft: $($covered.probes | ConvertTo-Json -Compress)"
+Assert-True ($covered.clicks.Count -eq 0 -and $covered.waits.Count -eq 0 -and $null -eq $covered.emitted -and $null -eq $covered.failed) `
+  'Ein von einem SSE-Fenster verdeckter Eintrag wurde trotzdem geklickt.'
+Assert-True ($covered.start -ceq 'Startseite' -and $covered.tree -eq $navTree -and
+             (@($covered.weg) -join ' | ') -ceq "Startseite | Navigationsbaum 'Zielseite' von einem SSE-Fenster verdeckt") `
+  'Ein verdeckter Eintrag veraenderte den Suchvorlauf oder verschwieg den Grund.'
+
+# 9. Ein fremdes Fenster davor hebt der verifizierte Klick selbst an; der Weg bleibt.
+$foreign = Invoke-NavigationBlock 'Zielseite' '' 'Zielseite' @() 'foreign-app'
+Assert-True ($foreign.clicks.Count -eq 1 -and $foreign.emitted.richtung -ceq 'Navigationsbaum') `
+  'Ein fremdes Fenster vor SSE verhinderte den Baumweg.'
+
+# 10. Endet goto danach ueber einen Suchtreffer, nennt der Weg den
+#     vorherigen Baumversuch weiterhin.
+$searchEmits = @($gotoBody.FindAll({
+  param($node)
+  $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -ceq 'Emit' -and
+  $node.Extent.Text -match "richtung = 'Suche';"
+}, $true))
+Assert-True ($searchEmits.Count -eq 1 -and
+             $searchEmits[0].Extent.Text.Contains('weg = @(@($weg | Select-Object -Skip 1) + @($suchWeg))')) `
+  'Der Erfolg ueber einen Suchtreffer verschweigt einen vorherigen Navigationsbaum-Versuch.'
+
+Write-Output 'goto-Navigationsbaum: alle Vertraege bestanden'

@@ -23,8 +23,8 @@
     },
     {
       "path": "dist/mcp.js",
-      "sha256": "ddbfb5f49da4ebc87137956dbd1750f9d3b3860a57d208b02a2118ee33925d62",
-      "size": 1185079
+      "sha256": "f65f0093dde5ed406fcc24777ec9d347fb6184cbaf8d7dc746f3304e9bc98428",
+      "size": 1185207
     },
     {
       "path": "powershell/akad-parser.ps1",
@@ -83,13 +83,13 @@
     },
     {
       "path": "powershell/sse-worker.ps1",
-      "sha256": "2c994afcd81f89da051428a9cbe15d79099486d8d4f6219b1768b0fd7e8451d8",
-      "size": 1204192
+      "sha256": "01e405d2187bf4a708e8548651d8f6ac4c2f26d3f1ad12405d08c504d4e619ed",
+      "size": 1207834
     },
     {
       "path": "powershell/structure-binding.ps1",
-      "sha256": "592c30c920c6d11ef7d0369a356ce81783a1474ea9da77c524fc242fe3c5674b",
-      "size": 3959
+      "sha256": "32fccf8134a35c1a0f3365e132cb5e3c930a42548c5140f909de551d1750f9f0",
+      "size": 5162
     },
     {
       "path": "powershell/table-combobox.ps1",
