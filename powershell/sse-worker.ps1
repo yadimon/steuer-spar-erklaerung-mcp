@@ -6642,12 +6642,29 @@ function Open-TrackedResultWindow([IntPtr]$MainHwnd) {
 # nach einer Aenderung rechnet es sie neu. Ein einzelner Leseversuch traf sie
 # beim ersten Oeffnen oft halb gefuellt; der erlaubte Schreibweg scheiterte
 # dann an einer Vorbedingung, die eine Sekunde spaeter erfuellt war.
-function Read-TrackedResultWindowComplete($Window, [int]$TimeoutMs = 8000) {
+function Read-TrackedResultWindowComplete($Window, [int]$TimeoutMs = 8000, [switch]$RequireStable) {
   $gelesen = Read-TrackedResultWindow $Window
   $frist = [Diagnostics.Stopwatch]::StartNew()
-  while (-not $gelesen.ok -and $frist.ElapsedMilliseconds -lt $TimeoutMs) {
-    Start-Sleep -Milliseconds 400
+  $vorigerFingerprint = $null
+  while ($true) {
+    if ($gelesen.ok) {
+      if (-not $RequireStable) { return $gelesen }
+      # Auch ein formal vollstaendiger Zeilen-Praefix kann noch wachsen.
+      # Erst zwei identische Inhalts-Readbacks bilden den Schreib-Baseline.
+      if ($gelesen.fingerprint -and $gelesen.fingerprint -ceq $vorigerFingerprint) { return $gelesen }
+      $vorigerFingerprint = $gelesen.fingerprint
+    } else {
+      $vorigerFingerprint = $null
+    }
+    $rest = $TimeoutMs - $frist.ElapsedMilliseconds
+    if ($rest -le 0) { break }
+    Start-Sleep -Milliseconds ([int][Math]::Min($rest, $(if ($gelesen.ok) { 100 } else { 400 })))
     $gelesen = Read-TrackedResultWindow $Window
+  }
+  if ($RequireStable -and $gelesen.ok) {
+    $gelesen.ok = $false
+    $gelesen.complete = $false
+    $gelesen | Add-Member -NotePropertyName error -NotePropertyValue 'Ergebniszeilen wurden innerhalb der Frist nicht stabil.' -Force
   }
   $gelesen
 }
@@ -6671,6 +6688,7 @@ function Read-TrackedResultWindow($Window) {
     unpositioned=[int]$result.nichtPositionierteZellenAnzahl
     invariantErrors=@($result.vergleichsInvariantFehler)
     headers=@($result.uiaKopfzeilen)
+    fingerprint=$result.fingerprint
   }
 }
 
@@ -10291,6 +10309,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     }
     $sumChecks = @((Arg $a 'sumChecks') | Where-Object { $null -ne $_ })
     $trackResults = [bool](Arg $a 'trackResults' $(if ($script:DESKTOP_NAME) { $false } else { $true }))
+    $labels = @((Arg $a 'resultLabels') | Where-Object { $null -ne $_ } | ForEach-Object { [string]$_ })
+    if (@($labels | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count) {
+      Fail 'resultLabels darf keine leeren Beschriftungen enthalten; fuer alle Zeilen [] verwenden.' 'bad-args'
+    }
     $fastKnown = [bool]($known -and $sumChecks.Count -eq 0)
     $phaseLog = New-SSEPhaseLog
 
@@ -10380,7 +10402,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           'Entweder die Werte-Info einmal mit result_details (MCP: sse_result_details) oeffnen ' +
           'oder die Aenderung bewusst mit trackResults=false ohne Ergebnisvergleich schreiben.') 'precondition-failed'
       }
-      $resultBefore = Read-TrackedResultWindowComplete $tracking.window
+      $resultBefore = Read-TrackedResultWindowComplete $tracking.window -RequireStable:$tracking.opened
       if (-not $resultBefore.ok) {
         $null = Close-TrackedResultWindow $tracking
         # Ohne diese Zahlen ist die Meldung eine Sackgasse: Sie sagt nicht, ob
@@ -10388,7 +10410,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         Fail ("Ergebnisstand vor der Aenderung war nicht vollstaendig lesbar: " +
           "$(@($resultBefore.rows).Count) Zeilen, $(@($resultBefore.malformed).Count) unvollstaendig, " +
           "$($resultBefore.unpositioned) nicht positioniert, $(@($resultBefore.invariantErrors).Count) Invariantenfehler, " +
-          "$(@($resultBefore.headers).Count) Kopfzeilen.") 'precondition-failed'
+          "$(@($resultBefore.headers).Count) Kopfzeilen. $($resultBefore.error)") 'precondition-failed'
       }
       $ergebnisFensterVerschoben = Move-SSEValueInfoAside $tracking.window $hwnd $node
     }
@@ -10538,7 +10560,6 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $resultAfter = Read-TrackedResultWindowComplete $tracking.window
       $resultOk = [bool]$resultAfter.ok
       if ($resultOk) {
-        $labels = @((Arg $a 'resultLabels') | Where-Object { $null -ne $_ } | ForEach-Object { [string]$_ })
         $resultDiff = @(Compare-TrackedResultRows $resultBefore $resultAfter $labels)
       }
     }

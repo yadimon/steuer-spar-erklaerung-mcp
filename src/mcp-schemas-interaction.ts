@@ -11,6 +11,8 @@ import {
   SSE_CLICK_PATTERNS,
 } from "./operation-schema-primitives.js";
 
+const RESULT_ROW_LABEL = z.string().regex(/\S/u, "Ergebniszeilen brauchen eine nichtleere Beschriftung.");
+
 /**
  * Die Ueberschrift der offenen UStVA-Seite, so wie `sse_ustva_read` sie unter
  * `page` gemeldet hat.
@@ -118,8 +120,8 @@ export const SSE_MCP_INTERACTION_SCHEMAS = {
       after: z.string().describe("Exakter Summenwert nach dem Schreiben"),
     }).strict()).max(SSE_OPERATION_LIMITS.readbackChecks).optional().describe("Optionale Seiten-Summenvertraege; jede Abweichung loest Rollback aus"),
     trackResults: z.boolean().optional().describe("Werte-Info vor/nach lesen; Vorgabe true"),
-    resultLabels: z.array(z.string()).max(SSE_OPERATION_LIMITS.resultLabels).optional().describe(
-      "Optional nur diese Ergebniszeilen vergleichen; sonst alle geaenderten",
+    resultLabels: z.array(RESULT_ROW_LABEL).max(SSE_OPERATION_LIMITS.resultLabels).optional().describe(
+      "Optional nur diese exakten Ergebniszeilen vergleichen; fehlend oder [] vergleicht alle. Nicht vorhandene Beschriftungen liefern keinen Eintrag",
     ),
     hwnd: WINDOW_HANDLE.optional(),
     pid: PROCESS_ID.optional(),
@@ -141,8 +143,8 @@ export const SSE_MCP_INTERACTION_SCHEMAS = {
     }).strict()).max(SSE_OPERATION_LIMITS.readbackChecks).optional()
       .describe("Optionale Summenvertraege; jede Abweichung loest Rollback aus"),
     trackResults: z.boolean().optional().describe("Werte-Info vor/nach lesen; Vorgabe true"),
-    resultLabels: z.array(z.string()).max(SSE_OPERATION_LIMITS.resultLabels).optional()
-      .describe("Optional nur diese Werte-Info-Zeilen vergleichen"),
+    resultLabels: z.array(RESULT_ROW_LABEL).max(SSE_OPERATION_LIMITS.resultLabels).optional()
+      .describe("Optional nur diese exakten Werte-Info-Zeilen vergleichen; fehlend oder [] vergleicht alle. Nicht vorhandene Beschriftungen liefern keinen Eintrag"),
     hwnd: WINDOW_HANDLE.optional(),
     pid: PROCESS_ID.optional(),
     expectedCaseRef: CASE_REF().optional(),
@@ -176,8 +178,8 @@ export const SSE_MCP_INTERACTION_SCHEMAS = {
     rollback: z.literal("best-effort").optional().describe("Erfolgreiche vorherige Feldschritte werden in umgekehrter Reihenfolge zurueckgesetzt"),
     finalReadback: z.literal(true).optional().describe("Vollstaendiger Page-Object-Readback ist verpflichtend"),
     trackResults: z.boolean().optional().describe("Werte-Info je Feld verfolgen; Vorgabe wie bei sse_change_known_field"),
-    resultLabels: z.array(z.string()).max(SSE_OPERATION_LIMITS.resultLabels).optional().describe(
-      "Optional nur diese Werte-Info-Zeilen bei jedem Feldschritt vergleichen",
+    resultLabels: z.array(RESULT_ROW_LABEL).max(SSE_OPERATION_LIMITS.resultLabels).optional().describe(
+      "Optional nur diese exakten Werte-Info-Zeilen bei jedem Feldschritt vergleichen; fehlend oder [] vergleicht alle. Nicht vorhandene Beschriftungen liefern keinen Eintrag",
     ),
     hwnd: WINDOW_HANDLE.optional(),
     pid: PROCESS_ID.optional(),
