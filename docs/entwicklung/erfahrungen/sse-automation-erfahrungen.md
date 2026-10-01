@@ -260,6 +260,13 @@ einer veralteten Antwort bedient wird.
 - Ein Seitentitel ist keine Position im Pfad: Die §-13b-Unterseite kehrt
   hinter mehreren Ausgabenseiten wieder, und hinter der UStVA laufen Seiten mit
   denselben Titeln wie im Zweig der Umsatzsteuererklärung.
+- Die Ergebnistabelle der globalen Suche hat links den Titel der Fundstelle,
+  rechts ihren Ort im Formular. Ein Doppelklick auf die rechte Zelle öffnet
+  die Seite des Feldtreffers, nicht die dort genannte Seite. Während die Suche
+  offen ist, steht der Navigationsbaum verschoben im selben Ausschnitt. Die
+  Bereichsseite „Umsatzsteuererklärung <Jahr>“ erschien in der Trefferliste
+  nicht als eigene Zeile, nur Feld- und Hilfetreffer. Anker ist deshalb nur
+  eine Titelzelle mit genau der gesuchten Überschrift.
 - Für lange Bäume zuerst an den Anfang rollen, dann in kleinen Schritten
   scrollen. Nicht zwanzig Seiten ohne Zwischenprüfung abfahren.
 - Menü-Popups explizit lesen und schließen. Keine globalen Tastenkürzel als
