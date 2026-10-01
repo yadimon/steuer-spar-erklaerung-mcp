@@ -99,10 +99,12 @@ assert(semanticClickStart >= 0 && semanticClickEnd > semanticClickStart, "click-
 const semanticClick = worker.slice(semanticClickStart, semanticClickEnd);
 assert.match(semanticClick, /\$activationMethod = \$\(if \(\$radioSelectionMethod\) \{ \$radioSelectionMethod \} elseif \(\$directNavigationLink\) \{ 'verified-point' \} else \{ "uia-\$pattern" \}\)/u,
   "sse_click muss im Erfolgsresultat UIA, Radio-Punkt oder direkten Navigations-Punkt korrekt melden.");
-assert.match(semanticClick, /\$directNavigationLink = \[bool\]\([\s\S]*\$expectedPageBefore -and \$expectedPageAfter -and[\s\S]*\$cands\.Count -eq 1 -and \$cands\[0\]\.type -eq 'Hyperlink'/u,
-  "Der direkte Linkklick braucht beide Seitenbindungen und genau einen Hyperlink.");
-assert.match(semanticClick, /if \(\$directNavigationLink\) \{\s*\$null = Click-VerifiedPoint \$hwnd \$node/u,
-  "Der direkte Linkklick muss den gemeinsamen root-verifizierten Helfer nutzen.");
+assert.match(semanticClick, /\$directNavigationLink = \[bool\]\([\s\S]*\$script:SSE_ENGINE_MAJOR -eq 31[\s\S]*\$expectedPageBefore -and \$expectedPageAfter -and[\s\S]*\$cands\.Count -eq 1 -and \$cands\[0\]\.type -eq 'Hyperlink'/u,
+  "Der direkte Linkklick braucht Qt 31, beide Seitenbindungen und genau einen Hyperlink.");
+assert.match(semanticClick, /\$freshLink = Convert-ExactElementToNode \$el[\s\S]*Click-VerifiedPoint \$hwnd \$freshLink -ExpectedRuntimeId \(\[string\]\$freshLink\.rid\)/u,
+  "Der direkte Linkklick muss einen frisch gebundenen Knoten samt RuntimeId-Punktpruefung nutzen.");
+assert.match(click, /\$script:AE::FromPoint[\s\S]*\$pointBound[\s\S]*if \(-not \$pointBound\)/u,
+  "Der verifizierte Punktklick muss den UIA-Treffer unmittelbar vor dem Input binden.");
 assert.match(semanticClick, /\$requiresHyperlinkPageChange = \[bool\]\([\s\S]*\[string\]\$erfolg\.type -ceq 'Hyperlink'/u,
   "Ein gebundener Qt-Hyperlink muss auch ohne bekannte Zielueberschrift einen Seitenwechselvertrag erhalten.");
 assert.match(semanticClick, /\$hasNavigationPostcondition[\s\S]*uia-invoke\+verified-point-fallback/u,
