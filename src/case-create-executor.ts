@@ -36,6 +36,7 @@ export interface CaseCreateDependencies {
   resolveTarget: (args: Record<string, unknown>) => CaseCreateTarget;
   profile: Pick<ProductProfile, "taxYear" | "startModes" | "additionalCaseYears">;
   now?: () => number;
+  wait?: (ms: number) => Promise<void>;
 }
 
 interface CaseCreateWizard {
@@ -150,7 +151,7 @@ export async function executeCaseCreate(
     if (result.ok !== true) throw new StepFailure({ ...result, failedStep: operation });
     return result;
   };
-  const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+  const wait = dependencies.wait ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
 
   try {
     const mode = String(args.mode ?? "");
@@ -219,7 +220,7 @@ export async function executeCaseCreate(
     if (String(began.ueberschriftNachher ?? "") !== wizard.modeChoiceHeading) {
       fail("wizard-page", `Nach '${wizard.beginLink}' steht '${String(began.ueberschriftNachher ?? "")}' statt '${wizard.modeChoiceHeading}'.`);
     }
-    await step("click", { aid: wizard.modeChoiceAid, hwnd, expectedPageBefore: wizard.modeChoiceHeading, waitMs: 3_000 });
+    await step("click", { aid: wizard.modeChoiceAid, hwnd, expectedPageBefore: wizard.modeChoiceHeading, waitMs: 100 });
     const master = await step("click", {
       name: wizard.nextButton, hwnd, expectedPageBefore: wizard.modeChoiceHeading, expectedPageAfter: wizard.masterDataHeading, waitMs: 9_000,
     });
@@ -235,12 +236,17 @@ export async function executeCaseCreate(
       fail("menu-entry", `Menueeintrag '${wizard.saveMenuEntry}' ist nicht aktiv verfuegbar.`);
     }
     try {
-      await step("menu_click", { name: wizard.saveMenuEntry, hwnd, waitMs: 5_000 });
-      const dialogs = await step("dialog_list", { pid });
-      const saveDialogs = asArray<Record<string, unknown>>(dialogs.dialogs).filter((dialog) =>
-        String(dialog.kind ?? "") === "native-dialog" && String(dialog.title ?? "") === wizard.saveDialogTitle);
-      if (saveDialogs.length !== 1) {
-        fail("save-dialog", `Erwartet genau einen nativen Dialog '${wizard.saveDialogTitle}', gefunden ${saveDialogs.length}.`);
+      await step("menu_click", { name: wizard.saveMenuEntry, hwnd, waitMs: 100 });
+      const dialogDeadline = Math.min(deadline, now() + 5_000);
+      for (;;) {
+        const dialogs = await step("dialog_list", { pid });
+        const saveDialogs = asArray<Record<string, unknown>>(dialogs.dialogs).filter((dialog) =>
+          String(dialog.kind ?? "") === "native-dialog" && String(dialog.title ?? "") === wizard.saveDialogTitle);
+        if (saveDialogs.length === 1) break;
+        if (saveDialogs.length > 1 || now() >= dialogDeadline) {
+          fail("save-dialog", `Erwartet genau einen nativen Dialog '${wizard.saveDialogTitle}', gefunden ${saveDialogs.length}.`);
+        }
+        await wait(100);
       }
     } catch (error) {
       // Ein offen gebliebenes Menue darf das Cleanup nicht blockieren.
@@ -255,10 +261,19 @@ export async function executeCaseCreate(
     if (saved.mode !== "save-new" || saved.verified !== true || !/^[A-F0-9]{64}$/iu.test(sha256)) {
       throw new StepFailure(operationError("Der Speicherdialog schloss ohne verifizierten save-new-Readback.", "postcondition-failed"));
     }
-    const readback = await step("instances", { includeHash: true });
-    const bound = asArray<Record<string, unknown>>(readback.instances).find((entry) => Number(entry.pid) === pid);
-    if (!bound || String(bound.caseName ?? "") !== fileName || bound.recoveredState === true) {
-      throw new StepFailure(operationError("Die gespeicherte Datei ist nicht exakt an das offene Fallfenster gebunden.", "postcondition-failed"));
+    const bindingDeadline = Math.min(deadline, now() + 15_000);
+    let bound: Record<string, unknown> | undefined;
+    for (;;) {
+      const readback = await step("instances", { includeHash: true });
+      bound = asArray<Record<string, unknown>>(readback.instances).find((entry) => Number(entry.pid) === pid);
+      if (bound?.recoveredState === true) {
+        fail("postcondition-failed", "Der gespeicherte Fall wurde als Wiederherstellung statt als regulaeres Fallfenster erkannt.");
+      }
+      if (Number(readback.count) === 1 && bound && String(bound.caseName ?? "") === fileName) break;
+      if (now() >= bindingDeadline) {
+        fail("postcondition-failed", "Die gespeicherte Datei ist nicht exakt an das offene Fallfenster gebunden.");
+      }
+      await wait(100);
     }
     // Ein ohne Datei gestarteter Prozess traegt den Pfad nicht in der
     // Kommandozeile, und ein langer Pfad wird im Fenstertitel gekuerzt. Dann

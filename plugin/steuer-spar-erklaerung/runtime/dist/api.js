@@ -7840,7 +7840,7 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
     if (result.ok !== true) throw new StepFailure({ ...result, failedStep: operation });
     return result;
   };
-  const wait = (ms) => new Promise((resolve17) => setTimeout(resolve17, ms));
+  const wait = dependencies.wait ?? ((ms) => new Promise((resolve17) => setTimeout(resolve17, ms)));
   try {
     const mode = String(args.mode ?? "");
     const wizard = CASE_CREATE_WIZARDS[mode] ?? fail("bad-args", `Startmodus '${mode}' besitzt keinen live verifizierten Assistentenweg fuer neue Faelle.`);
@@ -7898,7 +7898,7 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
     if (String(began.ueberschriftNachher ?? "") !== wizard.modeChoiceHeading) {
       fail("wizard-page", `Nach '${wizard.beginLink}' steht '${String(began.ueberschriftNachher ?? "")}' statt '${wizard.modeChoiceHeading}'.`);
     }
-    await step("click", { aid: wizard.modeChoiceAid, hwnd, expectedPageBefore: wizard.modeChoiceHeading, waitMs: 3e3 });
+    await step("click", { aid: wizard.modeChoiceAid, hwnd, expectedPageBefore: wizard.modeChoiceHeading, waitMs: 100 });
     const master = await step("click", {
       name: wizard.nextButton,
       hwnd,
@@ -7915,11 +7915,16 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
       fail("menu-entry", `Menueeintrag '${wizard.saveMenuEntry}' ist nicht aktiv verfuegbar.`);
     }
     try {
-      await step("menu_click", { name: wizard.saveMenuEntry, hwnd, waitMs: 5e3 });
-      const dialogs = await step("dialog_list", { pid: pid2 });
-      const saveDialogs = asArray(dialogs.dialogs).filter((dialog) => String(dialog.kind ?? "") === "native-dialog" && String(dialog.title ?? "") === wizard.saveDialogTitle);
-      if (saveDialogs.length !== 1) {
-        fail("save-dialog", `Erwartet genau einen nativen Dialog '${wizard.saveDialogTitle}', gefunden ${saveDialogs.length}.`);
+      await step("menu_click", { name: wizard.saveMenuEntry, hwnd, waitMs: 100 });
+      const dialogDeadline = Math.min(deadline, now() + 5e3);
+      for (; ; ) {
+        const dialogs = await step("dialog_list", { pid: pid2 });
+        const saveDialogs = asArray(dialogs.dialogs).filter((dialog) => String(dialog.kind ?? "") === "native-dialog" && String(dialog.title ?? "") === wizard.saveDialogTitle);
+        if (saveDialogs.length === 1) break;
+        if (saveDialogs.length > 1 || now() >= dialogDeadline) {
+          fail("save-dialog", `Erwartet genau einen nativen Dialog '${wizard.saveDialogTitle}', gefunden ${saveDialogs.length}.`);
+        }
+        await wait(100);
       }
     } catch (error) {
       await dependencies.execute("menu_close", { hwnd }, MIN_STEP_MS * 5, signal).catch(() => void 0);
@@ -7934,10 +7939,19 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
     if (saved.mode !== "save-new" || saved.verified !== true || !/^[A-F0-9]{64}$/iu.test(sha2562)) {
       throw new StepFailure(operationError("Der Speicherdialog schloss ohne verifizierten save-new-Readback.", "postcondition-failed"));
     }
-    const readback = await step("instances", { includeHash: true });
-    const bound = asArray(readback.instances).find((entry2) => Number(entry2.pid) === pid2);
-    if (!bound || String(bound.caseName ?? "") !== fileName || bound.recoveredState === true) {
-      throw new StepFailure(operationError("Die gespeicherte Datei ist nicht exakt an das offene Fallfenster gebunden.", "postcondition-failed"));
+    const bindingDeadline = Math.min(deadline, now() + 15e3);
+    let bound;
+    for (; ; ) {
+      const readback = await step("instances", { includeHash: true });
+      bound = asArray(readback.instances).find((entry2) => Number(entry2.pid) === pid2);
+      if (bound?.recoveredState === true) {
+        fail("postcondition-failed", "Der gespeicherte Fall wurde als Wiederherstellung statt als regulaeres Fallfenster erkannt.");
+      }
+      if (Number(readback.count) === 1 && bound && String(bound.caseName ?? "") === fileName) break;
+      if (now() >= bindingDeadline) {
+        fail("postcondition-failed", "Die gespeicherte Datei ist nicht exakt an das offene Fallfenster gebunden.");
+      }
+      await wait(100);
     }
     const instanceHash = typeof bound.caseSha256 === "string" ? bound.caseSha256.toUpperCase() : null;
     const diskHash = instanceHash ?? createHash2("sha256").update(readFileSync(target.path)).digest("hex").toUpperCase();

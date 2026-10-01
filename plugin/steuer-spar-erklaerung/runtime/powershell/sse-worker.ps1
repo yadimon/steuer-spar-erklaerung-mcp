@@ -1322,10 +1322,9 @@ function Set-SSEReceiptManagerVatRateSelection(
   $selectionError = $null
   try { ([Windows.Automation.SelectionItemPattern]$selectionObject).Select() }
   catch { $selectionError = $_.Exception.Message }
-  Start-Sleep -Milliseconds ([Math]::Min([Math]::Max($WaitMs, 300), 1200))
-  $readState = Get-SSEReceiptManagerState $ToolHwnd $Policy -WithValues
-  $readField = Resolve-SSEReceiptManagerEditableFieldNode $readState $Policy 'vatRate'
-  $afterRate = & $normalizeRate ([string](Get-SSEReceiptManagerFieldValue $readField))
+  $selectionReadback = Wait-SSEReceiptManagerLiveFieldValue `
+    $ToolHwnd $ResolvedField $Wanted 'vat-rate' ([Math]::Min([Math]::Max($WaitMs, 150), 300))
+  $afterRate = & $normalizeRate ([string]$selectionReadback.value)
   $selected = $(try { [bool]([Windows.Automation.SelectionItemPattern]$selectionObject).Current.IsSelected } catch { $false })
   $commitMethod = 'expand+selection-item'
   $physicalCommit = $null
@@ -1351,10 +1350,9 @@ function Set-SSEReceiptManagerVatRateSelection(
       if ([bool]$obstruction.isBoundTarget -and [int]$obstruction.boundPid -eq $TargetPid) {
         $click = Click-VerifiedPoint ([IntPtr][int64]$postTargets[0].sourceHwnd) $targetNode `
           (Get-SSELastInputTick) -RequireForeground
-        Start-Sleep -Milliseconds ([Math]::Min([Math]::Max($WaitMs, 300), 1200))
-        $readState = Get-SSEReceiptManagerState $ToolHwnd $Policy -WithValues
-        $readField = Resolve-SSEReceiptManagerEditableFieldNode $readState $Policy 'vatRate'
-        $afterRate = & $normalizeRate ([string](Get-SSEReceiptManagerFieldValue $readField))
+        $physicalReadback = Wait-SSEReceiptManagerLiveFieldValue `
+          $ToolHwnd $ResolvedField $Wanted 'vat-rate' ([Math]::Min([Math]::Max($WaitMs, 300), 1200))
+        $afterRate = & $normalizeRate ([string]$physicalReadback.value)
         $commitMethod = 'expand+selection-item+verified-list-item-point'
         $physicalCommit = [pscustomobject]@{
           x=[int]$click.x; y=[int]$click.y; sourceHwnd=[int64]$postTargets[0].sourceHwnd
@@ -1363,12 +1361,20 @@ function Set-SSEReceiptManagerVatRateSelection(
       }
     }
   }
+  if ($afterRate -cne $wantedRate -and $selectionError -eq $null) {
+    # Ein bereits geschlossenes Popup kann die semantische Auswahl noch
+    # nachliefern. Erst nach dem bisherigen 1200-ms-Fenster scheitern.
+    $lateReadback = Wait-SSEReceiptManagerLiveFieldValue `
+      $ToolHwnd $ResolvedField $Wanted 'vat-rate' ([Math]::Min([Math]::Max($WaitMs, 300), 1200))
+    $afterRate = & $normalizeRate ([string]$lateReadback.value)
+  }
   try { ([Windows.Automation.ExpandCollapsePattern]$expandObject).Collapse() } catch { }
   $ok = [bool]($afterRate -ceq $wantedRate -and ($selected -or -not $selectionError -or $physicalCommit))
   [pscustomobject]@{
     ok=$ok; error=$(if ($ok) { $null } else { "USt-Auswahl blieb bei '$afterRate' statt '$wantedRate'." })
     method=$commitMethod; before=$expectedRate; requested=$wantedRate; after=$afterRate
-    semanticSelected=$selected; selectionError=$selectionError; mutationStarted=[bool]($afterRate -ne $expectedRate)
+    semanticSelected=$selected; selectionError=$selectionError
+    mutationStarted=[bool]($null -eq $selectionError -or $physicalCommit -or $afterRate -ne $expectedRate)
     optionRates=@($options | ForEach-Object { [string]$_.rate }); physicalCommit=$physicalCommit
     taxOptionDiagnostics=@($taxOptionDiagnostics)
   }
@@ -2927,7 +2933,8 @@ function Click-VerifiedPoint(
   [switch]$RequireForeground,
   [int]$SettleMs = 250,
   [ValidateRange(1,2)][int]$ClickCount = 1,
-  [ValidateRange(1,3)][int]$ForegroundAttempts = 3
+  [ValidateRange(1,3)][int]$ForegroundAttempts = 3,
+  [string]$ExpectedRuntimeId = ''
 ) {
   if (-not $Node -or $Node.w -le 0 -or $Node.h -le 0) { Fail 'Klickziel hat keine sichtbare Flaeche.' 'offscreen' }
   $px = [int]($Node.x + $Node.w / 2); $py = [int]($Node.y + $Node.h / 2)
@@ -2986,6 +2993,22 @@ function Click-VerifiedPoint(
   $foregroundBoundBeforeClick = [bool]($foregroundHwndBeforeClick -eq [int64]$Window)
   [SW]::SetCursorPos($px, $py) | Out-Null
   Start-Sleep -Milliseconds 100
+  if ($ExpectedRuntimeId) {
+    $pointElement = $null
+    try { $pointElement = $script:AE::FromPoint((New-Object Windows.Point($px,$py))) } catch { }
+    $pointBound = $false
+    for ($level = 0; $level -lt 8 -and $pointElement; $level++) {
+      if ($(try { $pointElement.GetRuntimeId() -join '.' } catch { '' }) -ceq $ExpectedRuntimeId) {
+        $pointBound = $true
+        break
+      }
+      try { $pointElement = $WLK.GetParent($pointElement) } catch { $pointElement = $null }
+    }
+    if (-not $pointBound) {
+      Hide-SSETopmost $Window
+      Fail 'Der Klickpunkt gehoert nicht mehr zum exakt gebundenen UIA-Element. NICHT geklickt.' 'stale'
+    }
+  }
   for ($clickNumber = 1; $clickNumber -le $ClickCount; $clickNumber++) {
     [SW]::mouse_event(0x0002, 0, 0, 0, [IntPtr]::Zero)
     [SW]::mouse_event(0x0004, 0, 0, 0, [IntPtr]::Zero)
@@ -8960,7 +8983,39 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     try { $method = Invoke-DialogButtonInfo $dialog $buttonInfo[0] }
     catch { Fail "Dialogschaltflaeche konnte nicht sicher ausgeloest werden: $($_.Exception.Message)" 'stale' }
     $defaultAnswerWaitMs = $(if ($isRecoveryPrompt) { 5000 } else { 900 })
-    Start-Sleep -Milliseconds ([int](Arg $a 'waitMs' $defaultAnswerWaitMs))
+    $answerWaitMs = [int](Arg $a 'waitMs' $defaultAnswerWaitMs)
+    $expectsExportFolder = [bool](
+      $dialog.title -like 'Export für das Finanzamt (*.csv)*' -and
+      $buttonName -eq 'Klicken Sie hier, um Ihre Daten zu exportieren'
+    )
+    if ($isRecoveryPrompt) {
+      # Nach der Recovery-Frage muss auch das regulaere Hauptfenster fertig
+      # gebunden sein; dessen spaeterer Hash-/Fenstervertrag bleibt massgeblich.
+      Start-Sleep -Milliseconds $answerWaitMs
+    } else {
+      $answerWait = [Diagnostics.Stopwatch]::StartNew()
+      while ($answerWait.ElapsedMilliseconds -lt $answerWaitMs) {
+        if (-not [SW]::IsWindow([IntPtr][int64]$dialog.hwnd)) {
+          # Qt kann den Folgedialog oder Dirty-State erst nach dem Schliessen
+          # des beantworteten Fensters publizieren.
+          Start-Sleep -Milliseconds 200
+          break
+        }
+        if ($expectsExportFolder) {
+          $folderAppeared = @(Get-Windows 'SSE' | Where-Object {
+            [int]$_.pid -eq [int]$dialog.pid -and
+            [int64]$_.hwnd -ne [int64]$dialog.hwnd -and
+            -not $beforeHandles.ContainsKey([int64]$_.hwnd) -and
+            [string]$_.title -ceq 'Ausgabe-Verzeichnis wählen'
+          })
+          if ($folderAppeared.Count -eq 1 -and
+              [int64](Get-SSEDeepestLastActivePopup $mainBeforeHwnd) -eq [int64]$folderAppeared[0].hwnd) {
+            break
+          }
+        }
+        Start-Sleep -Milliseconds 100
+      }
+    }
     $closed = -not [SW]::IsWindow([IntPtr][int64]$dialog.hwnd)
     $windowsAfter = @(Get-Windows 'SSE')
     $newWindows = @($windowsAfter | Where-Object { -not $beforeHandles.ContainsKey([int64]$_.hwnd) })
@@ -9011,8 +9066,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         $recoveryBindingModeAfter = [string]$recoveryBindingAfter.mode
       }
     }
-    $allowsChildDialog = ($dialog.title -like 'Export für das Finanzamt (*.csv)*' -and
-      $buttonName -eq 'Klicken Sie hier, um Ihre Daten zu exportieren')
+    $allowsChildDialog = $expectsExportFolder
     if (-not $closed -and -not ($allowsChildDialog -and $newDialogs.Count -eq 1)) {
       $currentWindow = @($windowsAfter | Where-Object { [int64]$_.hwnd -eq [int64]$dialog.hwnd } | Select-Object -First 1)
       $current = $(if ($currentWindow.Count) { Get-DialogDescriptor $currentWindow[0] $mainBeforeHwnd } else { $null })
@@ -9584,6 +9638,23 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     if ((Arg $a 'contains') -eq $true -and $cands.Count -ne 1) {
       Fail "Teilstringsuche ist nicht eindeutig ($($cands.Count) Treffer); nichts ausgeloest." 'ambiguous'
     }
+    # Ein exakt gebundener Navigationslink braucht bei Qt keinen zunaechst
+    # wirkungslosen Invoke-Versuch. Der sichtbare Punktklick behaelt die
+    # Prozess-/Root- und Seitenbindung; bei Mehrdeutigkeit bleibt der alte
+    # Pfad und dessen Nachbedingung erhalten.
+    $directNavigationLink = [bool](
+      $script:SSE_ENGINE_MAJOR -eq 31 -and $pattern -eq 'invoke' -and $expectedPageBefore -and $expectedPageAfter -and
+      $cands.Count -eq 1 -and $cands[0].type -eq 'Hyperlink'
+    )
+    if ($directNavigationLink -and $script:DESKTOP_NAME) {
+      Fail 'Der gebundene Navigationslink braucht einen sichtbaren, verifizierten Klick.' 'hidden-desktop'
+    }
+    if ($script:SSE_ENGINE_MAJOR -eq 31 -and $pattern -eq 'invoke' -and $expectedPageAfter) {
+      $headingNode = Get-SSEContainerChild $t.nodes (Get-SSEMainWindowSelectors).heading 'Text'
+      if ($headingNode -and [string]$headingNode.aid) {
+        $script:SSE_HEADING_NODE_AID[[string][int64]$hwnd] = [string]$headingNode.aid
+      }
+    }
     $radioGroupPrefix = ''; $radioBefore = @(); $radioPreviouslySelected = $null; $radioSelectionMethod = $null
     $radioGuardUserInput = $false; $radioInputBaseline = $null; $radioInteractionBefore = $null
     if ($pattern -eq 'select') {
@@ -9634,6 +9705,19 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       Assert-SSEDestructiveAcknowledgement $a @($node.name, $node.aid)
       $el = Get-LiveElement $hwnd $node.rid
       if (-not $el) { $letzterFehler = 'Knoten nicht mehr greifbar'; continue }
+      if ($directNavigationLink) {
+        $freshLink = Convert-ExactElementToNode $el
+        if (-not $freshLink -or -not $freshLink.on -or
+            [string]$freshLink.rid -cne [string]$node.rid -or
+            [string]$freshLink.name -cne [string]$node.name -or
+            [string]$freshLink.aid -cne [string]$node.aid -or
+            [string]$freshLink.type -cne 'Hyperlink') {
+          Fail 'Navigationslink hat sich vor dem Klick veraendert. NICHT geklickt.' 'stale'
+        }
+        $null = Click-VerifiedPoint $hwnd $freshLink -ExpectedRuntimeId ([string]$freshLink.rid)
+        $erfolg = $freshLink
+        break
+      }
       try {
         switch ($pattern) {
           'invoke'   { $el.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() }
@@ -9691,7 +9775,16 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $pattern -eq 'invoke' -and $expectedPageBefore -and [string]$erfolg.type -ceq 'Hyperlink'
     )
     $hasNavigationPostcondition = [bool]($hasPagePostcondition -or $requiresHyperlinkPageChange)
-    Start-Sleep -Milliseconds $waitMs
+    if ($pattern -eq 'invoke' -and $expectedPageAfter) {
+      $headingWait = [Diagnostics.Stopwatch]::StartNew()
+      do {
+        $observedHeading = Get-CurrentHeading $hwnd $null -CompactFallback
+        if ($observedHeading -eq $expectedPageAfter -or $headingWait.ElapsedMilliseconds -ge $waitMs) { break }
+        Start-Sleep -Milliseconds 100
+      } while ($true)
+    } else {
+      Start-Sleep -Milliseconds $waitMs
+    }
 
     # Manche Qt-Schaltflaechen melden ein erfolgreiches InvokePattern, fuehren
     # ihre Navigation aber nur bei einem echten Mausklick aus. Nur wenn der
@@ -9702,8 +9795,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # Die Antwort beschreibt die tatsaechlich ausgefuehrte UIA-Aktion. Das ist
     # besonders fuer TreeItems wichtig: expand/collapse aendert nur den Ast,
     # es behauptet keine Seitennavigation.
-    $activationMethod = $(if ($radioSelectionMethod) { $radioSelectionMethod } else { "uia-$pattern" })
-    if ($hasNavigationPostcondition -and -not $isNavigation -and $pattern -eq 'invoke') {
+    $activationMethod = $(if ($radioSelectionMethod) { $radioSelectionMethod } elseif ($directNavigationLink) { 'verified-point' } else { "uia-$pattern" })
+    if ($hasNavigationPostcondition -and -not $isNavigation -and -not $directNavigationLink -and $pattern -eq 'invoke') {
       $probeTree = Walk-Tree $hwnd 900
       $probeHeading = Get-CurrentHeading $hwnd $probeTree
       if ($probeHeading -ne $expectedPageAfter) {
@@ -11856,7 +11949,11 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $fieldReadback = Set-SSEDialogFieldText $dialogHwnd $fieldHandle $field $path 'Ordnerfeld'
 
       $null = Click-VerifiedPoint $dialogHwnd $folderButton
-      Start-Sleep -Milliseconds ([int](Arg $a 'waitMs' 1800))
+      $folderCloseWaitMs = [int](Arg $a 'waitMs' 1800)
+      $folderCloseWait = [Diagnostics.Stopwatch]::StartNew()
+      while ([SW]::IsWindow($dialogHwnd) -and $folderCloseWait.ElapsedMilliseconds -lt $folderCloseWaitMs) {
+        Start-Sleep -Milliseconds 100
+      }
       if ([SW]::IsWindow($dialogHwnd)) {
         Fail 'Ordnerdialog ist nach der Auswahl noch vorhanden; keine Wiederholung.' 'postcondition-failed'
       }
@@ -11901,7 +11998,15 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       Emit ([pscustomobject]@{ ok=$false; kind='dialog-unmapped'; error="$($openButtons.Count) aktive Dateidialog-Aktionsschaltflaechen gefunden."; dialog=$dialog; nodes=$treeAfterInput.nodes })
     }
     $null = Click-VerifiedPoint $dialogHwnd $openButtons[0]
-    Start-Sleep -Milliseconds ([int](Arg $a 'waitMs' 1800))
+    # waitMs ist die Obergrenze fuer die Dialogreaktion, keine Mindestpause.
+    # Gerade beim Speichern waere ein stets ausgeschlafener 15-Sekunden-Wert
+    # reine Leerlaufzeit. Der verschwundene, zuvor exakt gebundene Dialog ist
+    # die eigentliche Nachbedingung.
+    $dialogCloseWaitMs = [int](Arg $a 'waitMs' 1800)
+    $dialogCloseWait = [Diagnostics.Stopwatch]::StartNew()
+    while ([SW]::IsWindow($dialogHwnd) -and $dialogCloseWait.ElapsedMilliseconds -lt $dialogCloseWaitMs) {
+      Start-Sleep -Milliseconds 100
+    }
     if ([SW]::IsWindow($dialogHwnd)) {
       Emit ([pscustomobject]@{
         ok=$false; kind='postcondition-failed'; error='Dateidialog ist nach der Aktion noch vorhanden.'
@@ -11909,10 +12014,28 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       })
     }
     if ($isSaveDialog) {
-      if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
-        Fail 'Speicherdialog wurde geschlossen, aber die erwartete Zieldatei fehlt.' 'postcondition-failed'
+      $lastSavedSignature = $null
+      while ($dialogCloseWait.ElapsedMilliseconds -lt $dialogCloseWaitMs) {
+        if (Test-Path -LiteralPath $path -PathType Leaf) {
+          try {
+            $savedFile = Get-Item -LiteralPath $path -ErrorAction Stop
+            $candidateHash = Get-Sha256 $path
+            $savedSignature = "$($savedFile.Length):$($savedFile.LastWriteTimeUtc.Ticks):$candidateHash"
+            if ($candidateHash -and $savedSignature -ceq $lastSavedSignature) {
+              $actualHash = $candidateHash
+              break
+            }
+            $lastSavedSignature = $savedSignature
+          } catch {
+            # Die Datei kann noch vom schreibenden Programm gesperrt sein.
+            $lastSavedSignature = $null
+          }
+        }
+        Start-Sleep -Milliseconds 100
       }
-      $actualHash = Get-Sha256 $path
+      if (-not $actualHash) {
+        Fail 'Speicherdialog wurde geschlossen, aber die Zieldatei ist nicht stabil lesbar.' 'postcondition-failed'
+      }
     }
     Emit ([pscustomobject]@{
       ok=$true; selected=$path; sha256=$actualHash; dialogTitle=$expectedTitle
@@ -19280,7 +19403,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     }
 
     $changedFields = New-Object System.Collections.ArrayList
-    $failedField = $null; $failedReason = $null
+    $failedField = $null; $failedReason = $null; $uncertainFieldMutation = $false
     foreach ($transaction in @($transactions)) {
       $resolved = Get-SSEReceiptManagerLiveEditableField $toolHwnd $transaction.binding
       if (-not $resolved) {
@@ -19310,6 +19433,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           }) -join ', '
           $failedField = $transaction.name
           $failedReason = [string]$vatCommit.error + $(if ($vatDiagnostics) { " Beobachtet: $vatDiagnostics" } else { '' })
+          $uncertainFieldMutation = [bool]$vatCommit.mutationStarted
           break
         }
       } elseif ($transaction.kind -ceq 'boolean') {
@@ -19339,7 +19463,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     if ($failedField) {
       $rollbackEntries = New-Object System.Collections.ArrayList
       $rollbackOk = $true
-      $changedTransactions = @($transactions | Where-Object { $_.changed })
+      $changedTransactions = @($transactions | Where-Object {
+        $_.changed -or ($uncertainFieldMutation -and [string]$_.name -ceq [string]$failedField)
+      })
       [array]::Reverse($changedTransactions)
       foreach ($transaction in $changedTransactions) {
         $resolved = Get-SSEReceiptManagerLiveEditableField $toolHwnd $transaction.binding

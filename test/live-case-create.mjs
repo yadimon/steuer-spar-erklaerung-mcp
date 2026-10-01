@@ -172,3 +172,4 @@ try {
 }
 
 process.stdout.write(`Live case_create: Fall angelegt, Stammdaten ueber Page-Objects geschrieben, ohne Speichern geschlossen (${schritte.length} Aufrufe).\n`);
+process.stdout.write(`Live-Zeiten: ${schritte.join(" | ")}\n`);
