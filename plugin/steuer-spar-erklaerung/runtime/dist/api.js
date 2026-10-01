@@ -21290,7 +21290,7 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
       if (signal?.aborted) abort();
     });
   }
-  async function target(args, deadline, signal) {
+  async function discoverOnce(args, deadline, signal) {
     try {
       const marker = readMarker();
       const binding = await discover({
@@ -21309,6 +21309,31 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
       if (error instanceof DesktopMarkerError) throw failure6(error.message, error.kind);
       throw error;
     }
+  }
+  async function target(args, deadline, signal) {
+    const settleUntil = Math.min(performance18.now() + NAMED_WINDOW_SETTLE_MS, deadline);
+    for (; ; ) {
+      try {
+        return await discoverOnce(args, deadline, signal);
+      } catch (error) {
+        const settling = typeof args.hwnd === "number" && error instanceof QtNativeTransportError && error.kind === "no-window";
+        if (!settling || signal?.aborted || performance18.now() + NAMED_WINDOW_POLL_MS >= settleUntil) throw error;
+      }
+      await pause(NAMED_WINDOW_POLL_MS, signal);
+    }
+  }
+  function pause(milliseconds, signal) {
+    return new Promise((resolvePause, reject) => {
+      const abort = () => {
+        clearTimeout(timer);
+        reject(failure6("Native discovery cancelled.", "aborted"));
+      };
+      const timer = setTimeout(() => {
+        signal?.removeEventListener("abort", abort);
+        resolvePause();
+      }, milliseconds);
+      signal?.addEventListener("abort", abort, { once: true });
+    });
   }
   async function obtain(args, deadline, signal) {
     if (stopped || shutdown.aborted || signal?.aborted) throw failure6("Native runtime is stopping or the request was cancelled.", "aborted");
@@ -21461,7 +21486,7 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
   }, { once: true });
   return runtime;
 }
-var contextSchema;
+var contextSchema, NAMED_WINDOW_SETTLE_MS, NAMED_WINDOW_POLL_MS;
 var init_qt_native_runtime = __esm({
   "src/qt-native-runtime.ts"() {
     "use strict";
@@ -21477,6 +21502,8 @@ var init_qt_native_runtime = __esm({
     init_qt_native_discovery();
     init_desktop_marker();
     contextSchema = external_exports.object({ ok: external_exports.literal(true), boundMain: external_exports.boolean(), unique: external_exports.boolean() }).passthrough();
+    NAMED_WINDOW_SETTLE_MS = 2e3;
+    NAMED_WINDOW_POLL_MS = 150;
   }
 });
 
