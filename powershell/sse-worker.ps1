@@ -12316,7 +12316,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # SSE beendet sich nach der letzten Antwort nicht sofort. Ein einzelner
     # Blick direkt danach meldete deshalb 'Programm laeuft noch', obwohl es
     # Sekunden spaeter regulaer weg war - ein Fehlschlag, den es nicht gab.
-    $still = Wait-SSEProcessExit $targetProcessHandle 20000
+    # Force und Haenger senden oben keinen regulären Schliessbefehl. Dort
+    # gibt es keinen ausstehenden Exit, auf den gewartet werden koennte.
+    $still = Wait-SSEProcessExit $targetProcessHandle $(if ($force -or $hung) { 0 } else { 20000 })
     $killed = $false
     if ($still -and ($force -or $hung) -and $discard) {
       Stop-Process -InputObject $targetProcess -Force -ErrorAction SilentlyContinue
@@ -12331,6 +12333,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       speichernAntwort = $antwort; sollteSpeichern = $save
       discardChanges = $discard; pid = $targetPid
       note = $(if ($laeuftNoch) { 'Laeuft noch - vermutlich steht ein Dialog offen. sse_ui_state ansehen.' }
+               elseif ($killed) { 'Exakt gebundener SSE-Prozess wurde ohne Speichern hart beendet.' }
                elseif ($antwort) { "Rueckfrage mit '$antwort' beantwortet." }
                else { 'Ohne Rueckfrage beendet (keine ungespeicherten Aenderungen).' })
     })
