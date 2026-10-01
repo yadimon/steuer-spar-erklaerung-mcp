@@ -233,6 +233,7 @@ const managedEnvironment = [
   "SSE_WORKER_PREWARM_RETRY_DELAY_MS",
   "SSE_PREWARM_FIXTURE_STATE",
   "SSE_PREWARM_FIXTURE_MUTEX",
+  "SSE_PREWARM_FIXTURE_MODE",
 ];
 const previousEnvironment = new Map(managedEnvironment.map((name) => [name, process.env[name]]));
 let prewarmPool;
@@ -291,7 +292,9 @@ public static class Program {
       Console.Out.Flush();
       return 0;
     }
-    if (launch == 1 || launch == 4) {
+    if (mode == "slow-start") {
+      Thread.Sleep(17000);
+    } else if (launch == 1 || launch == 4) {
       Thread.Sleep(Timeout.Infinite);
       return 0;
     }
@@ -550,6 +553,31 @@ try {
     () => restartedPids.every((pid) => !processIsAlive(pid)),
     "Der neu aufgebaute Pool muss sauber herunterfahren.",
   );
+
+  // Exercise the production default with a healthy child that announces
+  // readiness after a slow startup. A short default must not kill this child
+  // and silently replace warm dispatch with repeated cold starts.
+  process.env.SSE_WORKER_PREWARM_POOL_SIZE = "1";
+  delete process.env.SSE_WORKER_PREWARM_STARTUP_TIMEOUT_MS;
+  process.env.SSE_WORKER_PREWARM_RETRY_DELAY_MS = "50000";
+  process.env.SSE_PREWARM_FIXTURE_MODE = "slow-start";
+  const launchesBeforeSlowStart = fixtureLaunches().length;
+  prewarmPool = await import(`../dist/worker-prewarm.js?healthy-slow-start=${randomUUID()}`);
+  prewarmPool.enableWorkerPrewarm();
+  await waitFor(
+    () => prewarmPool.warmSparePoolStatus().ready === 1,
+    "The default startup budget killed a healthy slow-starting spare.",
+    35_000,
+  );
+  assert.equal(prewarmPool.lastPrewarmFailure(), null);
+  assert.equal(fixtureLaunches().length, launchesBeforeSlowStart + 1,
+    "A healthy slow-starting spare must reach readiness without replacement.");
+  const slowSpare = prewarmPool.takeWarmSpare();
+  assert(slowSpare, "The healthy slow-starting spare must be available for dispatch.");
+  const slowClose = once(slowSpare.child, "close");
+  slowSpare.child.stdin.end();
+  await slowClose;
+  prewarmPool.shutdownWarmSpare();
 } catch (error) {
   fixtureError = error;
 } finally {
