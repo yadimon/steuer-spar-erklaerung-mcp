@@ -61,3 +61,73 @@ $zwei = @(Get-SSEValueInfoWindows 42)
 Assert-True ($zwei.Count -eq 2) "Zwei Treffer erwartet, waren $($zwei.Count)."
 
 Write-Output 'Werte-Info-Fenstersuche: leer, eindeutig, fremde PID und mehrdeutig geprueft.'
+
+# Exercise the real open/readiness/close helpers against an adapter whose
+# window appears immediately but whose content can arrive in stages.
+foreach ($name in @('Open-SSEValueInfoWindow','Open-TrackedResultWindow','Read-TrackedResultWindowComplete','Close-TrackedResultWindow')) {
+  $definitions = @($ast.FindAll({
+    param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name
+  }, $true))
+  Assert-True ($definitions.Count -eq 1) "Missing helper $name."
+  Invoke-Expression $definitions[0].Extent.Text
+}
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -TypeDefinition @'
+using System;
+public static class SW {
+  public static bool Open;
+  public static bool CloseSucceeds;
+  public static int CloseCalls;
+  public static bool IsWindow(IntPtr hwnd) { return Open; }
+  public static IntPtr SendMessageTimeout(IntPtr hwnd, uint message, IntPtr wParam,
+    IntPtr lParam, uint flags, uint timeout, ref IntPtr result) {
+    CloseCalls++;
+    if (CloseSucceeds) Open = false;
+    return new IntPtr(1);
+  }
+}
+'@
+function Walk-Tree { [pscustomobject]@{ nodes=@([pscustomobject]@{ type='Button'; aid='hoverBtnMehrDetails'; rid='button' }) } }
+function Get-LiveElement { $null }
+function Click-VerifiedPoint {
+  $script:FensterStub = @((Fenster 42 'Main' 111), (Fenster 42 $script:WERTE_INFO_TITEL 222))
+}
+$script:Sleeps = New-Object Collections.ArrayList
+function Start-Sleep([int]$Milliseconds) { $null = $script:Sleeps.Add($Milliseconds) }
+$script:FensterStub = @(Fenster 42 'Main' 111)
+$regular = Open-SSEValueInfoWindow ([IntPtr]111) 42
+Assert-True ($regular.ok -and $regular.opened) 'Regular value-info open failed.'
+Assert-True ($script:Sleeps.Contains(900)) 'Regular content-readiness delay changed.'
+
+$script:Sleeps.Clear()
+$script:FensterStub = @(Fenster 42 'Main' 111)
+$tracking = Open-TrackedResultWindow ([IntPtr]111)
+Assert-True ($tracking.ok -and $tracking.opened) 'Tracked value-info open failed.'
+Assert-True (-not $script:Sleeps.Contains(900)) 'Tracked open waits before its mandatory complete readback.'
+
+$script:Reads = New-Object Collections.Queue
+function Read-TrackedResultWindow { $script:Reads.Dequeue() }
+$script:Reads.Enqueue([pscustomobject]@{ ok=$false; rows=@() })
+$script:Reads.Enqueue([pscustomobject]@{ ok=$false; rows=@('partial') })
+$script:Reads.Enqueue([pscustomobject]@{ ok=$true; rows=@('complete') })
+$complete = Read-TrackedResultWindowComplete $tracking.window
+Assert-True ($complete.ok -and $complete.rows[0] -ceq 'complete') 'Partial result content was accepted.'
+Assert-True ($script:Reads.Count -eq 0) 'Readiness did not re-read incomplete content.'
+$script:Reads.Enqueue([pscustomobject]@{ ok=$false; rows=@('partial') })
+$incomplete = Read-TrackedResultWindowComplete $tracking.window 0
+Assert-True (-not $incomplete.ok) 'Incomplete content became successful at the deadline.'
+
+[SW]::Open = $true; [SW]::CloseSucceeds = $true; [SW]::CloseCalls = 0
+$script:Sleeps.Clear()
+Assert-True (Close-TrackedResultWindow $tracking) 'Immediately closed tracked window remained open.'
+Assert-True ([SW]::CloseCalls -eq 1 -and $script:Sleeps.Count -eq 0) 'Verified immediate close still slept or repeated the close mutation.'
+[SW]::Open = $true; [SW]::CloseCalls = 0
+$borrowed = [pscustomobject]@{ ok=$true; opened=$false; window=$tracking.window }
+Assert-True (Close-TrackedResultWindow $borrowed) 'Borrowed window cleanup failed.'
+Assert-True ([SW]::Open -and [SW]::CloseCalls -eq 0) 'Cleanup closed a window it did not open.'
+[SW]::CloseSucceeds = $false
+Assert-True (-not (Close-TrackedResultWindow $tracking)) 'Unclosed tracked window was reported as closed.'
+Assert-True ([SW]::CloseCalls -eq 1) 'Close mutation was repeated while waiting for window disappearance.'
+
+Write-Output 'Tracked results: deferred complete readback, partial/deadline rejection and owned close readiness passed.'

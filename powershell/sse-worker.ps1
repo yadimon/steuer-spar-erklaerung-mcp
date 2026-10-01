@@ -6460,7 +6460,7 @@ function Get-SSEValueInfoWindows([int]$TargetPid) {
 # einer langsamen Maschine war das zu kurz, und der erlaubte Schreibweg
 # scheiterte hart mit 'Werte-Info nicht eindeutig (0 Fenster)'. Deshalb wird
 # bis zu einer Frist gepollt statt geraten.
-function Open-SSEValueInfoWindow([IntPtr]$MainHwnd, [int]$TargetPid, [int]$TimeoutMs = 8000) {
+function Open-SSEValueInfoWindow([IntPtr]$MainHwnd, [int]$TargetPid, [int]$TimeoutMs = 8000, [switch]$DeferContentReadiness) {
   $vorhandene = @(Get-SSEValueInfoWindows $TargetPid)
   if ($vorhandene.Count) {
     return [pscustomobject]@{
@@ -6504,7 +6504,9 @@ function Open-SSEValueInfoWindow([IntPtr]$MainHwnd, [int]$TargetPid, [int]$Timeo
   # Das Fenster erscheint vor seinem Inhalt: Qt fuellt die Vergleichstabelle
   # erst danach. Ohne diese Nachlaufzeit liest der Aufrufer eine halbe Tabelle
   # und meldet sie als unvollstaendig.
-  if ($gefunden.Count -eq 1) { Start-Sleep -Milliseconds 900 }
+  # Feldtransaktionen pruefen die vollstaendige Tabelle selbst vor jedem
+  # Schreibzugriff. Dort ersetzt dieser verpflichtende Readback die Nachlaufzeit.
+  if ($gefunden.Count -eq 1 -and -not $DeferContentReadiness) { Start-Sleep -Milliseconds 900 }
   if ($gefunden.Count -ne 1) {
     return [pscustomobject]@{
       ok=$false; opened=$true; anzahl=$gefunden.Count; window=$null
@@ -6633,7 +6635,7 @@ function Open-TrackedResultWindow([IntPtr]$MainHwnd) {
   if ($main.Count -ne 1) {
     return [pscustomobject]@{ ok=$false; error='SSE-Hauptfenster fuer Ergebnis-Tracking nicht mehr eindeutig.' }
   }
-  Open-SSEValueInfoWindow $MainHwnd ([int]$main[0].pid)
+  Open-SSEValueInfoWindow $MainHwnd ([int]$main[0].pid) -DeferContentReadiness
 }
 
 # Qt fuellt die Vergleichstabelle erst nach dem Erscheinen des Fensters, und
@@ -6694,7 +6696,10 @@ function Close-TrackedResultWindow($Tracking) {
   if (-not [SW]::IsWindow($hwnd)) { return $true }
   $res = [IntPtr]::Zero
   $null = [SW]::SendMessageTimeout($hwnd, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero, 0x0002, 3000, [ref]$res)
-  Start-Sleep -Milliseconds 250
+  $closeWatch = [Diagnostics.Stopwatch]::StartNew()
+  while ([SW]::IsWindow($hwnd) -and $closeWatch.ElapsedMilliseconds -lt 250) {
+    Start-Sleep -Milliseconds 15
+  }
   -not [SW]::IsWindow($hwnd)
 }
 
