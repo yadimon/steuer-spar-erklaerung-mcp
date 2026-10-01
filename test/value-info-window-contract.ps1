@@ -175,3 +175,84 @@ $a = [pscustomobject]@{ resultLabels=@('Unchanged') }
 Invoke-Expression $labelAssignments[0].Extent.Text
 Assert-True (@(Compare-TrackedResultRows $resultBefore $resultAfter $labels).Count -eq 0) 'Equivalent result formatting produced a false change.'
 Write-Output 'Tracked result diffs: absent/null/empty filters, changed currency rows and explicit filtering passed.'
+
+# A requested row may only appear after a calculation. An unmatched filter
+# therefore cannot be rejected against the baseline before the write.
+$newAfter = [pscustomobject]@{ rows=@([pscustomobject]@{ name='New tax'; aktuell='250,00' }) }
+$newDiff = @(Compare-TrackedResultRows ([pscustomobject]@{ rows=@() }) $newAfter @('New tax'))
+Assert-True ($newDiff.Count -eq 1 -and $null -eq $newDiff[0].vorher -and $newDiff[0].nachher -ceq '250,00') 'A requested newly calculated row was lost.'
+Assert-True (@(Compare-TrackedResultRows $resultBefore $resultAfter @('Absent row')).Count -eq 0) 'An unmatched filter must not invent changed rows.'
+$labelGuards = @($ast.FindAll({
+  param($node)
+  $node -is [Management.Automation.Language.IfStatementAst] -and
+    $node.Extent.Text.Contains('$labels | Where-Object { [string]::IsNullOrWhiteSpace($_) }')
+}, $true))
+Assert-True ($labelGuards.Count -eq 1) 'Blank result-label guard is not unique.'
+function Fail([string]$Message, [string]$Kind) { throw "$Kind`: $Message" }
+foreach ($blank in @('', ' ', "`t`n")) {
+  $a = [pscustomobject]@{ resultLabels=@($blank) }
+  Invoke-Expression $labelAssignments[0].Extent.Text
+  $rejected = $false
+  try { Invoke-Expression $labelGuards[0].Extent.Text }
+  catch { $rejected = $_.Exception.Message -like 'bad-args:*' }
+  Assert-True $rejected 'The worker accepted a blank result label.'
+}
+$a = [pscustomobject]@{ resultLabels=@('New tax') }
+Invoke-Expression $labelAssignments[0].Extent.Text
+Invoke-Expression $labelGuards[0].Extent.Text
+
+# Use the real parser: a whole-row prefix passes structural completeness.
+# The transaction must still wait for consecutive identical content snapshots.
+. (Join-Path $root 'powershell/structure-binding.ps1')
+foreach ($name in @('Convert-SSEComparableNumber', 'Get-SSETextSha256', 'Read-ResultDetailsFromTree', 'Read-TrackedResultWindow')) {
+  $definitions = @($ast.FindAll({
+    param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name
+  }, $true))
+  Assert-True ($definitions.Count -eq 1) "Missing helper $name."
+  Invoke-Expression $definitions[0].Extent.Text
+}
+function Result-Tree([int]$RowCount, [string]$Tax = '2.000,00') {
+  $nodes = New-Object Collections.ArrayList
+  $null = $nodes.Add([pscustomobject]@{ i=0; p=-1; aid='obj_Wertetabelle'; type='Table' })
+  foreach ($label in @('Name', 'Aktuell', 'Festgehalten', 'Differenz')) {
+    $index = $nodes.Count
+    $null = $nodes.Add([pscustomobject]@{ i=$index; p=0; type='Header'; name=$label; x=($index-1)*100; y=0; w=100; h=20 })
+  }
+  $rows = @(@('Refund', '1.000,50', '1.000,50', '0,00'), @('Tax', $Tax, $Tax, '0,00'))
+  for ($row = 0; $row -lt $RowCount; $row++) {
+    for ($column = 0; $column -lt 4; $column++) {
+      $null = $nodes.Add([pscustomobject]@{ i=$nodes.Count; p=0; type='DataItem'; name=$rows[$row][$column]; x=$column*100; y=($row+1)*20; w=100; h=20 })
+    }
+  }
+  [pscustomobject]@{ nodes=@($nodes); stats=[pscustomobject]@{ truncated=$false; cyc=$false } }
+}
+$prefix = Result-Tree 1
+$full = Result-Tree 2
+$changed = Result-Tree 2 '2.100,00'
+$parsedPrefix = Read-ResultDetailsFromTree $prefix
+Assert-True ($parsedPrefix.vollstaendig -and $parsedPrefix.anzahl -eq 1) 'The regression fixture must be a structurally complete prefix.'
+$beforeAssignments = @($ast.FindAll({
+  param($node)
+  $node -is [Management.Automation.Language.AssignmentStatementAst] -and
+    $node.Left.Extent.Text -ceq '$resultBefore' -and $node.Right.Extent.Text.Contains('Read-TrackedResultWindowComplete')
+}, $true))
+Assert-True ($beforeAssignments.Count -eq 1) 'Transaction baseline readback is not unique.'
+$script:Trees = New-Object Collections.Queue
+function Walk-Tree { $script:Trees.Dequeue() }
+[SW]::Open = $true
+$tracking.opened = $true
+foreach ($tree in @($prefix, $full, $full)) { $script:Trees.Enqueue($tree) }
+Invoke-Expression $beforeAssignments[0].Extent.Text
+Assert-True ($resultBefore.ok -and $resultBefore.rows.Count -eq 2 -and $script:Trees.Count -eq 0) 'The transaction accepted a growing whole-row prefix as its baseline.'
+foreach ($tree in @($full, $changed, $changed)) { $script:Trees.Enqueue($tree) }
+Invoke-Expression $beforeAssignments[0].Extent.Text
+Assert-True ($resultBefore.ok -and $resultBefore.rows[1].aktuell -ceq '2.100,00' -and $script:Trees.Count -eq 0) 'Readiness checked row count without checking content stability.'
+$script:Trees.Enqueue($prefix)
+$unstable = Read-TrackedResultWindowComplete $tracking.window 0 -RequireStable
+Assert-True (-not $unstable.ok -and -not $unstable.complete -and $unstable.error) 'An unproven baseline became successful at the deadline.'
+$tracking.opened = $false
+$script:Trees.Enqueue($full)
+Invoke-Expression $beforeAssignments[0].Extent.Text
+Assert-True ($resultBefore.ok -and $script:Trees.Count -eq 0) 'An already open complete result window unnecessarily required fresh-open stability.'
+Write-Output 'Tracked baseline: real-parser prefixes, same-size content changes, deadline and borrowed-window readiness passed.'

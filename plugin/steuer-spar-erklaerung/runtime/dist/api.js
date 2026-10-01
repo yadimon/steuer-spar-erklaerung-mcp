@@ -5287,12 +5287,13 @@ var init_mcp_schemas_diagnostics = __esm({
 });
 
 // src/mcp-schemas-interaction.ts
-var USTVA_EXPECTED_PAGE, SSE_MCP_INTERACTION_SCHEMAS;
+var RESULT_ROW_LABEL, USTVA_EXPECTED_PAGE, SSE_MCP_INTERACTION_SCHEMAS;
 var init_mcp_schemas_interaction = __esm({
   "src/mcp-schemas-interaction.ts"() {
     "use strict";
     init_zod();
     init_operation_schema_primitives();
+    RESULT_ROW_LABEL = external_exports.string().regex(/\S/u, "Ergebniszeilen brauchen eine nichtleere Beschriftung.");
     USTVA_EXPECTED_PAGE = () => external_exports.string().min(1).optional().describe(
       "Seitenueberschrift aus sse_ustva_read (Feld 'page'); spart die zusaetzliche Seitenlesung und wird vor der Aenderung geprueft."
     );
@@ -5379,8 +5380,8 @@ var init_mcp_schemas_interaction = __esm({
           after: external_exports.string().describe("Exakter Summenwert nach dem Schreiben")
         }).strict()).max(SSE_OPERATION_LIMITS.readbackChecks).optional().describe("Optionale Seiten-Summenvertraege; jede Abweichung loest Rollback aus"),
         trackResults: external_exports.boolean().optional().describe("Werte-Info vor/nach lesen; Vorgabe true"),
-        resultLabels: external_exports.array(external_exports.string()).max(SSE_OPERATION_LIMITS.resultLabels).optional().describe(
-          "Optional nur diese Ergebniszeilen vergleichen; sonst alle geaenderten"
+        resultLabels: external_exports.array(RESULT_ROW_LABEL).max(SSE_OPERATION_LIMITS.resultLabels).optional().describe(
+          "Optional nur diese exakten Ergebniszeilen vergleichen; fehlend oder [] vergleicht alle. Nicht vorhandene Beschriftungen liefern keinen Eintrag"
         ),
         hwnd: WINDOW_HANDLE.optional(),
         pid: PROCESS_ID.optional(),
@@ -5401,7 +5402,7 @@ var init_mcp_schemas_interaction = __esm({
           after: external_exports.string().describe("Exakter Summenwert nach dem Schreiben")
         }).strict()).max(SSE_OPERATION_LIMITS.readbackChecks).optional().describe("Optionale Summenvertraege; jede Abweichung loest Rollback aus"),
         trackResults: external_exports.boolean().optional().describe("Werte-Info vor/nach lesen; Vorgabe true"),
-        resultLabels: external_exports.array(external_exports.string()).max(SSE_OPERATION_LIMITS.resultLabels).optional().describe("Optional nur diese Werte-Info-Zeilen vergleichen"),
+        resultLabels: external_exports.array(RESULT_ROW_LABEL).max(SSE_OPERATION_LIMITS.resultLabels).optional().describe("Optional nur diese exakten Werte-Info-Zeilen vergleichen; fehlend oder [] vergleicht alle. Nicht vorhandene Beschriftungen liefern keinen Eintrag"),
         hwnd: WINDOW_HANDLE.optional(),
         pid: PROCESS_ID.optional(),
         expectedCaseRef: CASE_REF().optional(),
@@ -5435,8 +5436,8 @@ var init_mcp_schemas_interaction = __esm({
         rollback: external_exports.literal("best-effort").optional().describe("Erfolgreiche vorherige Feldschritte werden in umgekehrter Reihenfolge zurueckgesetzt"),
         finalReadback: external_exports.literal(true).optional().describe("Vollstaendiger Page-Object-Readback ist verpflichtend"),
         trackResults: external_exports.boolean().optional().describe("Werte-Info je Feld verfolgen; Vorgabe wie bei sse_change_known_field"),
-        resultLabels: external_exports.array(external_exports.string()).max(SSE_OPERATION_LIMITS.resultLabels).optional().describe(
-          "Optional nur diese Werte-Info-Zeilen bei jedem Feldschritt vergleichen"
+        resultLabels: external_exports.array(RESULT_ROW_LABEL).max(SSE_OPERATION_LIMITS.resultLabels).optional().describe(
+          "Optional nur diese exakten Werte-Info-Zeilen bei jedem Feldschritt vergleichen; fehlend oder [] vergleicht alle. Nicht vorhandene Beschriftungen liefern keinen Eintrag"
         ),
         hwnd: WINDOW_HANDLE.optional(),
         pid: PROCESS_ID.optional(),
