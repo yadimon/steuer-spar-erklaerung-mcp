@@ -1177,9 +1177,10 @@ function Get-SSEReceiptManagerLiveEditableField([IntPtr]$Window, $Binding) {
     if (-not $element.TryGetCurrentPattern([Windows.Automation.TogglePattern]::Pattern, [ref]$toggle)) {
       return $null
     }
-    $node | Add-Member -NotePropertyName checked -NotePropertyValue (
-      $toggle.Current.ToggleState -eq [Windows.Automation.ToggleState]::On
-    ) -Force
+    # Ein unlesbarer Zustand bindet nicht; sonst gaelte er als 'aus'.
+    $toggleState = Read-SSEToggleState $toggle
+    if ($toggleState -cnotin @('On', 'Off')) { return $null }
+    $node | Add-Member -NotePropertyName checked -NotePropertyValue ($toggleState -ceq 'On') -Force
   }
   [pscustomobject]@{ name=[string]$Binding.name; policy=$Binding.policy; node=$node }
 }
@@ -1658,7 +1659,11 @@ function Get-SSEReceiptManagerClassificationOptions($Dialog, $DialogPolicy) {
         [Windows.Automation.TogglePattern]::Pattern, [ref]$toggleObject)) {
       throw "Auswahltabellenzeile $row ist nicht ueber die profilierten Name-/Toggle-Spalten gebunden."
     }
-    $selected = [bool]($toggleObject.Current.ToggleState -eq [Windows.Automation.ToggleState]::On)
+    $toggleState = Read-SSEToggleState $toggleObject
+    if ($toggleState -cnotin @('On', 'Off')) {
+      throw "Auswahltabellenzeile $row meldet keinen eindeutigen Auswahlzustand."
+    }
+    $selected = [bool]($toggleState -ceq 'On')
     $null = $options.Add([pscustomobject][ordered]@{
       index=$row; name=$name; selected=$selected
       toggleRid=($toggleCell.GetRuntimeId() -join '.')
@@ -5598,6 +5603,19 @@ function Find-ExactAutomationElement([IntPtr]$Hwnd, [string]$RelativeAutomationI
   try { $root.FindFirst($script:TS::Descendants, $condition) } catch { $null }
 }
 
+<#
+Zustand eines TogglePattern aus genau einer Lesung: 'On', 'Off',
+'Indeterminate' oder $null, wenn er nicht lesbar ist. Ein fehlgeschlagener
+Eigenschaftsabruf wirft in PowerShell keine Ausnahme, sondern liefert $null;
+ein [string]- oder -eq-Vergleich daraus waere ein scheinbar fester Zustand.
+Wer entscheidet, liest deshalb einmal und prueft das Ergebnis.
+#>
+function Read-SSEToggleState($TogglePattern) {
+  $state = $null
+  try { $state = [string]$TogglePattern.Current.ToggleState } catch { $state = $null }
+  $(if ($state -cin @('On', 'Off', 'Indeterminate')) { $state } else { $null })
+}
+
 function Convert-ExactElementToNode($Element) {
   if (-not $Element) { return $null }
   try {
@@ -5606,7 +5624,8 @@ function Convert-ExactElementToNode($Element) {
     $vp = $null; $value = $null; $readOnly = $null
     if ($Element.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$vp)) {
       $value = $vp.Current.Value
-      $readOnly = [bool]$vp.Current.IsReadOnly
+      # Unlesbar bleibt $null (unbekannt) statt 'beschreibbar'.
+      $readOnly = $vp.Current.IsReadOnly
     }
     if ([string]::IsNullOrEmpty([string]$value)) {
       # Qt-Kontrollkaestchen tragen ein ValuePattern mit leerem Text; ihr
@@ -5615,8 +5634,12 @@ function Convert-ExactElementToNode($Element) {
       # lesbar bleiben.
       $tp = $null
       if ($Element.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$tp)) {
-        $toggleState = [string]$tp.Current.ToggleState
-        $value = $(if ($toggleState -eq 'On') { 'True' } elseif ($toggleState -eq 'Off') { 'False' } else { 'Indeterminate' })
+        $value = switch (Read-SSEToggleState $tp) {
+          'On' { 'True' }
+          'Off' { 'False' }
+          'Indeterminate' { 'Indeterminate' }
+          default { $null }
+        }
         $readOnly = $false
       }
     }
@@ -5671,10 +5694,15 @@ function Test-KnownPageHeading([string]$Heading, $Page) {
   $false
 }
 
+# Geaendert-Zustand ueber 'Sichern': $true, $false oder $null (unbekannt).
+# Ein unlesbarer Schalter ist nicht 'gesichert' - sonst liefen die
+# Pruefungen, die bei $null abbrechen, ins Leere.
 function Get-DirtyStateFast([IntPtr]$Hwnd) {
   $button = Find-ExactAutomationElement $Hwnd '.MainToolBar.tb_sichern'
   if (-not $button) { return $null }
-  try { [bool]$button.Current.IsEnabled } catch { $null }
+  $enabled = $null
+  try { $enabled = $button.Current.IsEnabled } catch { $enabled = $null }
+  $(if ($enabled -is [bool]) { $enabled } else { $null })
 }
 
 function Get-KnownPageState([IntPtr]$Hwnd, $Known) {
@@ -17736,8 +17764,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       if ($requested -match '^(?i:true|false)$') { $toggleRequested = $requested.ToLowerInvariant() -eq 'true' }
       $tp = $null
       if ($null -ne $toggleRequested -and $el.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$tp)) {
-        $toggleBeforeRaw = [string]$tp.Current.ToggleState
-        if ($toggleBeforeRaw -notin @('On','Off')) {
+        $toggleBeforeRaw = Read-SSEToggleState $tp
+        if ($toggleBeforeRaw -cnotin @('On','Off')) {
           Fail "Spalte $i hat keinen eindeutigen Toggle-Ausgangszustand; nichts geaendert." 'precondition-failed'
         }
         $old = $(if ($toggleBeforeRaw -eq 'On') { 'true' } else { 'false' })
@@ -17854,12 +17882,14 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         $interference = $true; break
       }
       if ($entry.mode -eq 'toggle') {
-        if (-not $live.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$livePattern) -or
-            [string]$livePattern.Current.ToggleState -notin @('On','Off')) {
+        $liveState = $(if ($live.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$livePattern)) {
+          Read-SSEToggleState $livePattern
+        } else { $null })
+        if ($liveState -cnotin @('On','Off')) {
           $failure = "Toggle-Spalte $($entry.spalte) ist unmittelbar vor dem Schreiben nicht mehr eindeutig gebunden."
           $interference = $true; break
         }
-        $liveBefore = $(if ([string]$livePattern.Current.ToggleState -eq 'On') { 'true' } else { 'false' })
+        $liveBefore = $(if ($liveState -ceq 'On') { 'true' } else { 'false' })
       } else {
         if (-not $live.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$livePattern) -or $livePattern.Current.IsReadOnly) {
           $failure = "Wert-Spalte $($entry.spalte) ist unmittelbar vor dem Schreiben nicht mehr gebunden."
@@ -17880,7 +17910,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           if (-not (Test-SSETableCellEquivalent $liveBefore $entry.requested)) {
             $livePattern.Toggle(); $mutationMethod = 'toggle-pattern'
             Start-Sleep -Milliseconds 300
-            $probeState = $(if ([string]$livePattern.Current.ToggleState -eq 'On') { 'true' } else { 'false' })
+            # Unlesbar bleibt $null: Dann folgt kein zweiter physischer Klick,
+            # und die Nachbedingung entscheidet.
+            $probeState = switch (Read-SSEToggleState $livePattern) { 'On' { 'true' } 'Off' { 'false' } default { $null } }
             if (-not (Test-SSETableCellEquivalent $probeState $entry.requested) -and
                 (Test-SSETableCellEquivalent $probeState $liveBefore)) {
               if ($script:DESKTOP_NAME) {
@@ -17917,9 +17949,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         $fresh = Get-LiveElement $hwnd $entry.cell.rid
         $actual = $null; $freshPattern = $null
         if ($entry.mode -eq 'toggle') {
-          if ($fresh -and $fresh.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$freshPattern) -and
-              [string]$freshPattern.Current.ToggleState -in @('On','Off')) {
-            $actual = $(if ([string]$freshPattern.Current.ToggleState -eq 'On') { 'true' } else { 'false' })
+          if ($fresh -and $fresh.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$freshPattern)) {
+            $actual = switch (Read-SSEToggleState $freshPattern) { 'On' { 'true' } 'Off' { 'false' } default { $null } }
           }
         } else {
           if ($fresh -and $fresh.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$freshPattern)) {
@@ -18021,11 +18052,13 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           }
         }
         if ($entry.mode -eq 'toggle') {
-          if (-not $live.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$rollbackPattern) -or
-              [string]$rollbackPattern.Current.ToggleState -notin @('On','Off')) {
+          $rollbackState = $(if ($live.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$rollbackPattern)) {
+            Read-SSEToggleState $rollbackPattern
+          } else { $null })
+          if ($rollbackState -cnotin @('On','Off')) {
             $rollbackInterference=$true; $rollbackReason="Toggle-Spalte $($entry.spalte) ist vor Rollback nicht eindeutig gebunden."; break
           }
-          $current = $(if ([string]$rollbackPattern.Current.ToggleState -eq 'On') { 'true' } else { 'false' })
+          $current = $(if ($rollbackState -ceq 'On') { 'true' } else { 'false' })
         } elseif ($entry.mode -eq 'value') {
           if (-not $live.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$rollbackPattern) -or $rollbackPattern.Current.IsReadOnly) {
             $rollbackInterference=$true; $rollbackReason="Wert-Spalte $($entry.spalte) ist vor Rollback nicht gebunden."; break
@@ -18089,7 +18122,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
                 $item.pattern.Toggle()
               }
               Start-Sleep -Milliseconds 250
-              $actualRollback=$(if ([string]$item.pattern.Current.ToggleState -eq 'On') { 'true' } else { 'false' })
+              $actualRollback = switch (Read-SSEToggleState $item.pattern) { 'On' { 'true' } 'Off' { 'false' } default { $null } }
             } else {
               $item.pattern.SetValue($item.entry.before); Start-Sleep -Milliseconds 250
               $actualRollback=[string]$item.pattern.Current.Value
@@ -20529,7 +20562,11 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       if (-not $toggleElement -or -not [bool]$toggleElement.Current.IsEnabled -or
           -not $toggleElement.TryGetCurrentPattern(
             [Windows.Automation.TogglePattern]::Pattern, [ref]$toggleObject)) { return $null }
-      $currentLinked = [bool]([string]([Windows.Automation.TogglePattern]$toggleObject).Current.ToggleState -ceq 'On')
+      $linkState = Read-SSEToggleState $toggleObject
+      if ($linkState -cnotin @('On', 'Off')) {
+        Fail 'Direkte Link-Zelle meldet unmittelbar vor TogglePattern.Toggle keinen eindeutigen Zustand; nicht umgeschaltet.' 'stale'
+      }
+      $currentLinked = [bool]($linkState -ceq 'On')
       if ($currentLinked -ne [bool]$Projection.linked) {
         Fail 'Direkte Link-Zelle driftete unmittelbar vor TogglePattern.Toggle.' 'stale'
       }
