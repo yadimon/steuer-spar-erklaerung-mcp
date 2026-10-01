@@ -10538,7 +10538,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $resultAfter = Read-TrackedResultWindowComplete $tracking.window
       $resultOk = [bool]$resultAfter.ok
       if ($resultOk) {
-        $labels = @((Arg $a 'resultLabels') | ForEach-Object { [string]$_ })
+        $labels = @((Arg $a 'resultLabels') | Where-Object { $null -ne $_ } | ForEach-Object { [string]$_ })
         $resultDiff = @(Compare-TrackedResultRows $resultBefore $resultAfter $labels)
       }
     }

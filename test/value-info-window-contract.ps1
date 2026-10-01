@@ -131,3 +131,47 @@ Assert-True (-not (Close-TrackedResultWindow $tracking)) 'Unclosed tracked windo
 Assert-True ([SW]::CloseCalls -eq 1) 'Close mutation was repeated while waiting for window disappearance.'
 
 Write-Output 'Tracked results: deferred complete readback, partial/deadline rejection and owned close readiness passed.'
+
+# An omitted optional filter must compare every result row. Exercise the
+# actual transaction's argument conversion as well as the real comparator:
+# PowerShell can otherwise turn a missing argument into one empty label.
+. (Join-Path $root 'powershell/table-values.ps1')
+foreach ($name in @('Arg', 'Compare-TrackedResultRows')) {
+  $definitions = @($ast.FindAll({
+    param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name
+  }, $true))
+  Assert-True ($definitions.Count -eq 1) "Missing helper $name."
+  Invoke-Expression $definitions[0].Extent.Text
+}
+$labelAssignments = @($ast.FindAll({
+  param($node)
+  $node -is [Management.Automation.Language.AssignmentStatementAst] -and
+    $node.Left.Extent.Text -ceq '$labels' -and $node.Right.Extent.Text.Contains("'resultLabels'")
+}, $true))
+Assert-True ($labelAssignments.Count -eq 1) 'Tracked result-label conversion is not unique.'
+$resultBefore = [pscustomobject]@{ rows=@(
+  [pscustomobject]@{ name='Refund'; aktuell='1.000,50' },
+  [pscustomobject]@{ name='Tax'; aktuell='2.000,00' },
+  [pscustomobject]@{ name='Unchanged'; aktuell='100,00' }
+) }
+$resultAfter = [pscustomobject]@{ rows=@(
+  [pscustomobject]@{ name='Refund'; aktuell='1.500,75' },
+  [pscustomobject]@{ name='Tax'; aktuell='1.500,00' },
+  [pscustomobject]@{ name='Unchanged'; aktuell='100.00' }
+) }
+foreach ($a in @([pscustomobject]@{}, [pscustomobject]@{ resultLabels=$null }, [pscustomobject]@{ resultLabels=@() })) {
+  Invoke-Expression $labelAssignments[0].Extent.Text
+  Assert-True ($labels.Count -eq 0) 'Absent resultLabels became a nonempty filter.'
+  $diff = @(Compare-TrackedResultRows $resultBefore $resultAfter $labels)
+  Assert-True ($diff.Count -eq 2) 'Unfiltered result comparison lost changed currency rows.'
+  Assert-True ($diff[0].name -ceq 'Refund' -and $diff[0].vorher -ceq '1.000,50' -and $diff[0].nachher -ceq '1.500,75') 'Result diff lost its actual before/after values.'
+}
+$a = [pscustomobject]@{ resultLabels=@('Tax') }
+Invoke-Expression $labelAssignments[0].Extent.Text
+$filtered = @(Compare-TrackedResultRows $resultBefore $resultAfter $labels)
+Assert-True ($filtered.Count -eq 1 -and $filtered[0].name -ceq 'Tax') 'Explicit resultLabels did not restrict the comparison.'
+$a = [pscustomobject]@{ resultLabels=@('Unchanged') }
+Invoke-Expression $labelAssignments[0].Extent.Text
+Assert-True (@(Compare-TrackedResultRows $resultBefore $resultAfter $labels).Count -eq 0) 'Equivalent result formatting produced a false change.'
+Write-Output 'Tracked result diffs: absent/null/empty filters, changed currency rows and explicit filtering passed.'
