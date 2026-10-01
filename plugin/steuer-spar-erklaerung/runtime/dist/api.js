@@ -19845,7 +19845,7 @@ var init_worker_prewarm = __esm({
     MAX_HANDSHAKE_BYTES = 4096;
     PREWARM_STARTUP_TIMEOUT_MS = positiveDurationFromEnvironment(
       "SSE_WORKER_PREWARM_STARTUP_TIMEOUT_MS",
-      15e3
+      3e4
     );
     PREWARM_RETRY_DELAY_MS = positiveDurationFromEnvironment(
       "SSE_WORKER_PREWARM_RETRY_DELAY_MS",
