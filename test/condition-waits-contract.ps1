@@ -1,6 +1,6 @@
-# Bedingte Wartezeiten fuer CheckBox, ComboBox und Sichern.
+# Bedingte Wartezeiten fuer CheckBox, ComboBox, Sichern und Tabellenzellen.
 #
-# Drei feste Fristen wurden durch Warten auf genau die Bedingung ersetzt, fuer
+# Vier feste Fristen wurden durch Warten auf genau die Bedingung ersetzt, fuer
 # die sie standen. Jede alte Frist bleibt Obergrenze. Der Vertrag fuehrt die
 # echten Hilfsfunktionen mit vorgegebenen Beobachtungen aus und haelt fest:
 #
@@ -26,7 +26,8 @@ function Assert-True([bool]$Condition, [string]$Message) {
   if (-not $Condition) { throw $Message }
 }
 
-foreach ($name in @('Wait-SSEToggleSettled', 'Wait-SSEComboValue', 'Wait-SSESaveButtonDisabled')) {
+. (Join-Path $root 'powershell\table-values.ps1')
+foreach ($name in @('Wait-SSEToggleSettled', 'Wait-SSEComboValue', 'Wait-SSESaveButtonDisabled', 'Wait-SSETableCellValue')) {
   $definitions = @($ast.FindAll({
     param($node)
     $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name
@@ -196,5 +197,33 @@ foreach ($case in @(
 }
 Assert-True ($workerSource.Contains('$null = Wait-SSESaveButtonDisabled $saveElement $waitMs 150')) `
   'Sichern wartet nicht mehr mit waitMs als Obergrenze und der Bestaetigungsfrist.'
+
+# --- 4. Tabellenzelle ---------------------------------------------------------
+# Nach SetValue zaehlt der erste gleichwertige Zellinhalt; ein Lesefehler ist
+# kein Signal - auch nicht beim Leeren einer Zelle, wo $null wie '' aussaehe.
+$script:liveElement = New-ComboElement @('API-Mega 42')
+$cellNow = Measure-Wait { Wait-SSETableCellValue $hwnd '7.1' 'API-Mega 42' 2000 }
+Assert-True ($cellNow.result -eq $true -and $script:liveElement.pattern.reads.Count -eq 1 -and $cellNow.liveReads[0].rid -ceq '7.1') `
+  'Die Tabellenzelle wartete trotz gemeldetem Wert weiter oder war falsch gebunden.'
+$script:liveElement = New-ComboElement @('', '', 'API-Mega 42')
+$cellLate = Measure-Wait { Wait-SSETableCellValue $hwnd '7.1' 'API-Mega 42' 2000 }
+Assert-True ($cellLate.result -eq $true -and $script:liveElement.pattern.reads.Count -eq 3) `
+  'Die Tabellenzelle kehrte nicht genau mit dem ersten gemeldeten Wert zurueck.'
+$failingCell = [pscustomobject]@{ pattern=(New-FailingElement) }
+$failingCell | Add-Member -MemberType ScriptMethod -Name TryGetCurrentPattern -Value { param($Pattern, $Out) $Out.Value = $this.pattern; $true }
+foreach ($case in @(
+  [pscustomobject]@{ name='Wert bleibt alt'; element=(New-ComboElement @('alt')); requested='API-Mega 42' }
+  [pscustomobject]@{ name='Lesefehler beim Leeren'; element=$failingCell; requested='' }
+  [pscustomobject]@{ name='Zelle nicht greifbar'; element=$null; requested='API-Mega 42' }
+)) {
+  $script:liveElement = $case.element
+  $waited = Measure-Wait { Wait-SSETableCellValue $hwnd '7.1' $case.requested 250 }
+  Assert-True ($waited.result -eq $false -and $waited.elapsedMs -ge 250 -and $waited.liveReads.Count -ge 2) `
+    "Tabellenzelle, Fall '$($case.name)': kein voller, weiter lesender Ablauf der Frist ($($waited.elapsedMs) ms, Ergebnis $($waited.result))."
+}
+Assert-True (([regex]::Matches($workerSource, [regex]::Escape('$null = Wait-SSETableCellValue $hwnd ([string]$entry.cell.rid) ([string]$entry.requested) 350'))).Count -eq 2) `
+  'table_add und table_update warten nach SetValue nicht mehr mit der alten Frist als Obergrenze.'
+Assert-True ($workerSource.Contains("if (`$entry.mode -eq 'toggle') { Start-Sleep -Milliseconds 350 }")) `
+  'Umgeschaltete Tabellenzellen behalten ihre feste Frist nicht mehr.'
 
 Write-Output 'Bedingte Wartezeiten: volles Signal oder volle Frist, zeichengenau, Sichern bestaetigt - bestanden'
