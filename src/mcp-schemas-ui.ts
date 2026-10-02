@@ -114,7 +114,11 @@ export const SSE_MCP_UI_SCHEMAS = {
     expectedAfter: z.string().describe("Exakter Wert der Kontrollsumme nach dem Loeschen, z. B. '83.940,00'"),
     hwnd: WINDOW_HANDLE.optional(),
   }).strict(),
-  "sse_menu": z.object({ name: z.string().optional().describe("z. B. 'Extras'"), hwnd: WINDOW_HANDLE.optional() }).strict(),
+  "sse_menu": z.object({
+    name: z.string().optional().describe("z. B. 'Extras'"),
+    alle: z.boolean().optional().describe("true liest alle Hauptmenues samt Eintraegen in einem Aufruf; nicht zusammen mit name"),
+    hwnd: WINDOW_HANDLE.optional(),
+  }).strict(),
   "sse_menu_click": z.object({
     name: z.string().describe("Exakter sichtbarer Menueeintrag aus sse_menu"),
     waitMs: UI_WAIT_MS.optional(),

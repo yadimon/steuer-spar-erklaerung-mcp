@@ -11426,6 +11426,39 @@
       "offline": {
         "profiles": [],
         "fields": {
+          "anzahl": {
+            "types": [
+              "nonnegative-number"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "baum": {
+            "types": [
+              "array-many:object"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "success"
+            ]
+          },
+          "error": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
           "hinweis": {
             "types": [
               "null"
@@ -11437,9 +11470,21 @@
               "success"
             ]
           },
+          "kind": {
+            "types": [
+              "string-other"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
           "menues": {
             "types": [
-              "array-many:object"
+              "array-many:object",
+              "array-many:string-other"
             ],
             "labels": [
               "stateful-mock"
@@ -11456,6 +11501,7 @@
               "stateful-mock"
             ],
             "outcomes": [
+              "error",
               "success"
             ]
           }

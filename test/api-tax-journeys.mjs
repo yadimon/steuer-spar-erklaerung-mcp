@@ -944,6 +944,13 @@ test("23 menu keeps ELSTER closed and opens only safe dialogs", async () => {
     const menu = await harness.call("menu", { hwnd: 4242 });
     const elster = menu.menues.find((entry) => entry.name === "ELSTER");
     assert(elster.eintraege.every((entry) => entry.gesperrt === true), "ELSTER-Eintraege muessen gesperrt bleiben");
+    const tree = await harness.call("menu", { alle: true, hwnd: 4242 });
+    assert.deepEqual(tree.menues, tree.baum.map((entry) => entry.name));
+    assert(tree.baum.find((entry) => entry.name === "ELSTER").eintraege.every((entry) => entry.gesperrt === true),
+      "menu mit alle=true muss die ELSTER-Eintraege als gesperrt melden");
+    const mixed = await harness.request("menu", { alle: true, name: "Datei", hwnd: 4242 });
+    assert.equal(mixed.body.result.kind, "bad-args");
+    assert.equal((await harness.call("menu_close", { hwnd: 4242 })).verified, true);
 
     const blocked = await harness.request("menu_click", { name: "Anmeldungen versenden", acknowledgeDestructive: true });
     assert.equal(blocked.body.result.ok, false);
