@@ -7752,6 +7752,103 @@ function Open-SSEMenuByName([IntPtr]$MainHwnd, [string]$MenuName) {
   $menu
 }
 
+# Sichtbare Menue-Popups des Prozesses; Qt zeigt ein offenes Menue als
+# Popupfenster mit Schlagschatten.
+function Get-SSEMenuPopupWindows([int]$TargetPid) {
+  @(Get-Windows 'SSE' | Where-Object { [int]$_.pid -eq $TargetPid -and $_.cls -match 'PopupDropShadow|SysShadow' })
+}
+
+# Wartet begrenzt, bis ein Hauptmenue offen (aufgeklappt und mit Popup) bzw.
+# geschlossen (kein Popup mehr) ist. Ein nicht lesbarer Zustand zaehlt beim
+# Oeffnen nicht als offen.
+function Wait-SSEMenuPopup($Pattern, [int]$TargetPid, [bool]$Open, [int]$TimeoutMs) {
+  $wait = [Diagnostics.Stopwatch]::StartNew()
+  do {
+    $popups = @(Get-SSEMenuPopupWindows $TargetPid).Count
+    if (-not $Open -and $popups -eq 0) { return $true }
+    if ($Open -and $popups -gt 0) {
+      $state = $null
+      try { $state = $Pattern.Current.ExpandCollapseState } catch { $state = $null }
+      if ($state -eq [System.Windows.Automation.ExpandCollapseState]::Expanded) { return $true }
+    }
+    Start-Sleep -Milliseconds 50
+  } while ($wait.ElapsedMilliseconds -lt $TimeoutMs)
+  $false
+}
+
+# Eintraege aller offenen Menue-Popups. Qt stellt dasselbe Popup teilweise
+# ueber sein echtes Popupfenster und ein SysShadow-Fenster bereit;
+# RuntimeId + normalisierte Beschriftung zaehlen deshalb nur einmal.
+function Read-SSEOpenMenuEntries([int]$TargetPid) {
+  $entries = New-Object System.Collections.ArrayList
+  $seen = @{}
+  $popups = @(Get-SSEMenuPopupWindows $TargetPid | Sort-Object @{ Expression = {
+    if ($_.cls -match 'PopupDropShadow') { 0 } else { 1 }
+  } })
+  foreach ($window in $popups) {
+    $windowTree = $null
+    try { $windowTree = Walk-Tree ([IntPtr][int64]$window.hwnd) 400 10 } catch { continue }
+    foreach ($node in @($windowTree.nodes | Where-Object { $_.type -eq 'MenuItem' -and $_.name })) {
+      $key = "$(ConvertTo-MenuLabel $node.name)|$($node.rid)"
+      if ($seen.ContainsKey($key)) { continue }
+      $seen[$key] = $true
+      $null = $entries.Add([pscustomobject]@{
+        name = $node.name; aktiv = [bool]$node.on; gesperrt = [bool](Test-Versand $node.name)
+        destruktiv = [bool](Test-SSEDestructiveAction $node.name)
+      })
+    }
+  }
+  @($entries)
+}
+
+<#
+Die ganze Menueleiste: jedes Hauptmenue per UIA aufklappen, seine Eintraege
+lesen und wieder zuklappen. Keine Maus, keine Tasten, kein Eintrag wird
+ausgeloest. Jedes geoeffnete Menue wird auch im Fehlerfall zugeklappt; bleibt
+ein Popup sichtbar, endet der Aufruf mit einem Fehler statt mit einer
+Teilliste. Menues mit Uebermittlungsbezug werden nicht geoeffnet.
+#>
+function Read-SSEMenuTree([IntPtr]$MainHwnd, [int]$TargetPid) {
+  if (@(Get-SSEMenuPopupWindows $TargetPid).Count) {
+    Fail 'Ein Menue-Popup ist bereits offen; zuerst sse_menu_close aufrufen.' 'precondition-failed'
+  }
+  $tree = Walk-Tree $MainHwnd 1200
+  $menuNodes = @($tree.nodes | Where-Object {
+    $_.type -eq 'MenuItem' -and $_.name -and $_.p -ge 0 -and $tree.nodes[[int]$_.p].type -eq 'MenuBar'
+  } | Sort-Object x)
+  if (-not $menuNodes.Count) { Fail 'Keine Menueleiste gefunden.' 'not-found' }
+  $menues = New-Object System.Collections.ArrayList
+  foreach ($menuNode in $menuNodes) {
+    if (Test-Versand $menuNode.name) {
+      $null = $menues.Add([pscustomobject]@{ name=$menuNode.name; gesperrt=$true; anzahl=0; eintraege=@() })
+      continue
+    }
+    $element = Get-LiveElement $MainHwnd $menuNode.rid
+    $pattern = $null
+    if (-not $element -or
+        -not $element.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$pattern)) {
+      Fail "Menue '$($menuNode.name)' laesst sich nicht per UIA aufklappen; nichts gelesen." 'pattern-failed'
+    }
+    $eintraege = @()
+    $closed = $false
+    try {
+      $pattern.Expand()
+      $null = Wait-SSEMenuPopup $pattern $TargetPid $true 700
+      $eintraege = @(Read-SSEOpenMenuEntries $TargetPid)
+    } finally {
+      try { $pattern.Collapse() } catch { }
+      $closed = Wait-SSEMenuPopup $pattern $TargetPid $false 500
+    }
+    if (-not $closed) {
+      Fail "Menue '$($menuNode.name)' blieb nach dem Zuklappen sichtbar; keine Tasten gesendet." 'postcondition-failed'
+    }
+    $null = $menues.Add([pscustomobject]@{
+      name=$menuNode.name; gesperrt=$false; anzahl=$eintraege.Count; eintraege=$eintraege
+    })
+  }
+  @($menues)
+}
+
 function Get-SSEOpenMenuEntryMatches([IntPtr]$MainHwnd, [int]$TargetPid, [string]$EntryName) {
   $matches = New-Object System.Collections.ArrayList
   $seen = @{}
@@ -18898,6 +18995,14 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $hwnd = [IntPtr][int64]$mainWindow.hwnd
     $targetPid = [int]$mainWindow.pid
     $wunsch = [string](Arg $a 'name')
+    if ((Arg $a 'alle' $false) -eq $true) {
+      if ($wunsch) { Fail 'alle=true liest jedes Hauptmenue; name ist dann nicht erlaubt.' 'bad-args' }
+      $baum = @(Read-SSEMenuTree $hwnd $targetPid)
+      Emit ([pscustomobject]@{
+        ok = $true; anzahl = $baum.Count; menues = @($baum | ForEach-Object { $_.name }); baum = $baum
+        hinweis = 'Eintraege mit sse_menu name="<Menue>" oeffnen und mit sse_menu_click ausloesen; gesperrte und destruktive sind markiert.'
+      })
+    }
     if (-not $wunsch) {
       $t = Walk-Tree $hwnd 1200
       $menues = @($t.nodes | Where-Object {

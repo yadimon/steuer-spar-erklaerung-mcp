@@ -978,6 +978,20 @@ try {
         "Das exakt gebundene Datei-Menue-Popup ist im unmittelbaren windows-Readback noch vorhanden."),
       { mutationTimeoutMs: 120_000 },
     );
+    await read("menu", { alle: true, hwnd: currentHwnd }, (result) => {
+      const menus = result.baum ?? [];
+      assert.deepEqual(result.menues, menus.map((menu) => menu.name), "menu alle=true: menues und baum weichen ab.");
+      assert.deepEqual(menus.filter((menu) => ["Datei", "Extras"].includes(menu.name)).map((menu) => menu.name),
+        ["Datei", "Extras"], "menu alle=true liefert Datei und Extras nicht in Leisten-Reihenfolge.");
+      assert(menus.every((menu) => menu.gesperrt === true || menu.anzahl > 0),
+        "menu alle=true lieferte ein ungesperrtes Menue ohne Eintraege.");
+      assert(menus.find((menu) => menu.name === "Datei").eintraege
+        .some((entry) => entry.name === "Export für das Finanzamt (CSV-Dateien)" && entry.gesperrt === false),
+      "menu alle=true: Datei-Menue ohne den profilierten CSV-Export.");
+    }, "menu-all:read", 120_000);
+    await read("windows", {}, (result) => assert(!(result.windows ?? []).some((entry) =>
+      entry.pid === currentPid && /PopupDropShadow|SysShadow/u.test(String(entry.cls ?? ""))),
+    "Nach menu alle=true ist noch ein Menue-Popup sichtbar."), "menu-all:windows");
   });
 
   await phase("est-and-collect", async () => {

@@ -193,11 +193,16 @@ export function registerUiTools(registry: McpRegistry): void {
       description:
         "Ohne name: listet die Menuezeile (Datei, Bearbeiten, Ansicht, Extras, Musterbriefe, Service, ?). " +
         "Mit name: oeffnet das Menue und liefert seine Eintraege samt Aktivierungszustand und " +
-        "Sperrkennzeichen. Ueber die Menuezeile erreicht man Optionen, Datenuebernahme, Steuerrechner " +
+        "Sperrkennzeichen. Mit alle=true: liest alle Hauptmenues samt Eintraegen in einem Aufruf (baum); " +
+        "jedes Menue wird per ExpandCollapsePattern auf- und wieder zugeklappt, ohne Maus und Tasten. " +
+        "Ueber die Menuezeile erreicht man Optionen, Datenuebernahme, Steuerrechner " +
         "und Druckfunktionen - sonst waeren sie unerreichbar. " +
         "Menues mit Uebermittlungsbezug sind gesperrt. Sicher schliessen mit sse_menu_close.",
     },
-    (r) => ({ menue: r.menue, menues: asArray(r.menues), eintraege: asArray(r.eintraege), hinweis: r.hinweis }),
+    (r) => ({
+      menue: r.menue, menues: asArray(r.menues), eintraege: asArray(r.eintraege), baum: asArray(r.baum),
+      hinweis: r.hinweis,
+    }),
   );
 
   registerApiTool(

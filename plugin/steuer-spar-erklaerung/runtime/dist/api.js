@@ -5918,7 +5918,11 @@ var init_mcp_schemas_ui = __esm({
         expectedAfter: external_exports.string().describe("Exakter Wert der Kontrollsumme nach dem Loeschen, z. B. '83.940,00'"),
         hwnd: WINDOW_HANDLE.optional()
       }).strict(),
-      "sse_menu": external_exports.object({ name: external_exports.string().optional().describe("z. B. 'Extras'"), hwnd: WINDOW_HANDLE.optional() }).strict(),
+      "sse_menu": external_exports.object({
+        name: external_exports.string().optional().describe("z. B. 'Extras'"),
+        alle: external_exports.boolean().optional().describe("true liest alle Hauptmenues samt Eintraegen in einem Aufruf; nicht zusammen mit name"),
+        hwnd: WINDOW_HANDLE.optional()
+      }).strict(),
       "sse_menu_click": external_exports.object({
         name: external_exports.string().describe("Exakter sichtbarer Menueeintrag aus sse_menu"),
         waitMs: UI_WAIT_MS.optional(),
@@ -17836,6 +17840,7 @@ var init_result_utility_fields = __esm({
         menue: OPTIONAL_STRING,
         anzahl: OPTIONAL_NON_NEGATIVE_NUMBER,
         eintraege: OPTIONAL_ARRAY,
+        baum: OPTIONAL_ARRAY,
         hinweis: OPTIONAL_STRING
       },
       menu_close: {

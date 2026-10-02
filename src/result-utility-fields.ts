@@ -168,6 +168,7 @@ export const UTILITY_OPERATION_RESULT_FIELDS = {
     menue: OPTIONAL_STRING,
     anzahl: OPTIONAL_NON_NEGATIVE_NUMBER,
     eintraege: OPTIONAL_ARRAY,
+    baum: OPTIONAL_ARRAY,
     hinweis: OPTIONAL_STRING,
   },
   menu_close: {
