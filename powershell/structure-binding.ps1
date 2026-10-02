@@ -128,12 +128,20 @@ ebenso wenig.
 
 Geliefert wird die eindeutige Titelzelle mit genau dieser Ueberschrift. Steht
 der Titel nicht in der Zelle selbst, sondern in einem Text darin, zaehlt die
-Zelle, die diesen Text traegt. Kein oder mehr als ein Treffer liefert $null.
+Zelle, die diesen Text traegt. Mehr als ein exakter Treffer liefert $null.
+
+Ohne exakten Treffer entscheidet, falls angegeben, Accept ueber den Titel -
+fuer Seitenobjekte, deren Ueberschrift ein Praefix oder eine nummerierte
+Bezeichnung ist ('Sonstige Werbungskosten/Fahrten Eva' und '... Heinz' sind
+dieselbe Seitenart). Jede solche Seite erfuellt das Seitenobjekt; geliefert
+wird die erste passende Titelzelle in Tabellenreihenfolge. Auch hier zaehlt
+nur die Titelspalte. Ohne Accept bleibt es beim exakten Titel.
 #>
 function Select-SSESearchHit {
   param(
     [Parameter(Mandatory)][AllowEmptyCollection()]$Nodes,
-    [string]$Target
+    [string]$Target,
+    [scriptblock]$Accept = $null
   )
   if (-not $Target) { return $null }
   $tabelleEndung = 'DialogSearchResultsTableView'
@@ -148,18 +156,22 @@ function Select-SSESearchHit {
   $zelleVon = @{}
   $zelleVon[[int]$tabelle.i] = $null
   $treffer = New-Object System.Collections.ArrayList
+  $passend = New-Object System.Collections.ArrayList
   foreach ($knoten in @($Nodes)) {
     $index = [int]$knoten.i
     if ($index -eq [int]$tabelle.i -or -not $zelleVon.ContainsKey([int]$knoten.p)) { continue }
     $zelle = $(if ($titelZellen.ContainsKey($index)) { $titelZellen[$index] } else { $zelleVon[[int]$knoten.p] })
     $zelleVon[$index] = $zelle
-    if ($zelle -and [string]$knoten.name -ceq $Target -and $knoten.type -in @('DataItem', 'Text', 'Hyperlink') -and
-        -not ($treffer -contains $zelle)) {
-      $null = $treffer.Add($zelle)
+    if (-not $zelle -or $knoten.type -notin @('DataItem', 'Text', 'Hyperlink')) { continue }
+    if ([string]$knoten.name -ceq $Target) {
+      if (-not ($treffer -contains $zelle)) { $null = $treffer.Add($zelle) }
+    } elseif ($Accept -and [string]$knoten.name -and -not ($passend -contains $zelle) -and (& $Accept ([string]$knoten.name))) {
+      $null = $passend.Add($zelle)
     }
   }
-  if ($treffer.Count -ne 1) { return $null }
-  $treffer[0]
+  if ($treffer.Count -eq 1) { return $treffer[0] }
+  if ($treffer.Count -eq 0 -and $passend.Count) { return $passend[0] }
+  $null
 }
 
 <#

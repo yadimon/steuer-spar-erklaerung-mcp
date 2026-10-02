@@ -16260,7 +16260,11 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           # solchen Treffer wird die Suchseite nur geschlossen und der
           # kontrollierte Blaetterweg verwendet; auf dem sichtbaren Desktop
           # niemals einen unscharfen Treffer doppelklicken.
-          $genau = Select-SSESearchHit $tt.nodes $ziel
+          # Ein bekanntes Seitenobjekt kann eine Praefix-Ueberschrift haben
+          # ('Sonstige Werbungskosten/Fahrten Eva'); dann entscheidet ohne
+          # exakten Titel dieselbe Regel wie auf der Zielseite.
+          $titelRegel = $(if ($knownTarget) { { param($titel) Test-KnownPageHeading $titel $knownTarget.page } } else { $null })
+          $genau = Select-SSESearchHit $tt.nodes $ziel -Accept $titelRegel
           $treffer = @(Get-SSEContainerDescendants $tt.nodes 'DialogSearchResultsTableView' 'DataItem' 'Table' |
             Where-Object { [string]$_.name })
           $suchWeg = New-Object System.Collections.ArrayList

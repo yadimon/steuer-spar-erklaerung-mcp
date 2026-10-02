@@ -13,6 +13,8 @@
 #   2. Ein Titel in einem Text der Titelzelle bindet diese Zelle.
 #   3. Kein oder mehr als ein Treffer liefert keinen Anker.
 #   4. Ueberschriften werden zeichengenau verglichen, ohne Platzhalter.
+#   5. Fuer Seitenobjekte mit Praefix-Ueberschrift entscheidet ohne exakten
+#      Titel deren Regel - nur ueber Titelzellen, erste passende Zeile.
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path $PSScriptRoot -Parent
@@ -157,4 +159,33 @@ foreach ($operation in @('goto', 'goto_tree')) {
     "$operation vergleicht Ueberschriften wieder mit Platzhaltern."
 }
 
-Write-Output 'goto-Suchtreffer: nur exakte Titelzellen der Ergebnistabelle - bestanden'
+# J. Seitenobjekte mit Praefix-Ueberschrift (eine Seite je Person). Ohne
+#    exakten Titel gilt die Regel des Seitenobjekts, aber nur fuer
+#    Titelzellen; die erste passende Zeile gewinnt, ein exakter Titel geht vor.
+$prefix = 'Sonstige Werbungskosten/Fahrten'
+$prefixRule = { param($titel) $titel.StartsWith('Sonstige Werbungskosten/Fahrten', [StringComparison]::Ordinal) }
+$personList = SearchPage $prefix @(
+  (Row @('Kontoführungsgebühren', "$prefix Heinz"))
+  (Row @('Arbeitnehmer Eva', 'Steuererklärung'))
+  (Row @("$prefix Eva", 'Steuererklärung/Arbeitnehmer Eva'))
+  (Row @("$prefix Heinz", 'Steuererklärung/Arbeitnehmer Heinz'))
+  (Row @('Ergebnisse mit mindestens einem der Suchbegriffe anzeigen'))
+) @("$prefix Eva")
+Assert-True ($null -eq (Hit $personList $prefix)) 'Ohne Seitenobjektregel wurde ein Praefixtreffer gewaehlt.'
+$person = Select-SSESearchHit $personList $prefix -Accept $prefixRule
+Assert-True ($person.type -ceq 'DataItem' -and $person.x -eq 80 -and $person.y -eq 302 -and $person.name -ceq "$prefix Eva") `
+  "Die erste passende Titelzelle wurde nicht gewaehlt: $($person | ConvertTo-Json -Compress)"
+$exactFirst = SearchPage $prefix @((Row @("$prefix Eva", 'A')), (Row @($prefix, 'B')))
+Assert-True ((Select-SSESearchHit $exactFirst $prefix -Accept $prefixRule).y -eq 277) 'Ein exakter Titel ging nicht vor.'
+$exactTwice = SearchPage $prefix @((Row @($prefix, 'A')), (Row @($prefix, 'B')), (Row @("$prefix Eva", 'C')))
+Assert-True ($null -eq (Select-SSESearchHit $exactTwice $prefix -Accept $prefixRule)) 'Ein mehrdeutiger exakter Titel wurde durch die Regel aufgeloest.'
+$gotoClause = @(@($ast.FindAll({
+  param($node)
+  $node -is [Management.Automation.Language.SwitchStatementAst] -and
+  @($node.Clauses | Where-Object { $_.Item1.Extent.Text -ceq "'goto'" }).Count -eq 1
+}, $true))[0].Clauses | Where-Object { $_.Item1.Extent.Text -ceq "'goto'" })[0].Item2.Extent.Text
+Assert-True ($gotoClause.Contains('$titelRegel = $(if ($knownTarget) { { param($titel) Test-KnownPageHeading $titel $knownTarget.page } } else { $null })') -and
+  $gotoClause.Contains('$genau = Select-SSESearchHit $tt.nodes $ziel -Accept $titelRegel')) `
+  'goto gibt die Seitenobjektregel nicht nur fuer bekannte Ziele an die Trefferauswahl.'
+
+Write-Output 'goto-Suchtreffer: nur Titelzellen der Ergebnistabelle, exakt oder nach Seitenobjektregel - bestanden'
