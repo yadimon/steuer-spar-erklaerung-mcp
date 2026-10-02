@@ -121,6 +121,30 @@ erfolgreicher Programmstart. Nach Ablauf der Startfrist ausschließlich die beim
 Start erzeugte PID beenden, die Desktop-Marke entfernen und `startup-timeout`
 melden.
 
+### UIA-Last und fremde UIA-Clients
+
+Jede UIA-Anfrage arbeitet SSE in seinem GUI-Thread ab. Eine Suche über einen
+Teilbaum (`FindFirst`/`FindAll` mit `Descendants` oder `Subtree`, ebenso
+`GetUpdatedCache` über einen Teilbaum) läuft dort vollständig; Qt legt dabei für
+jede besuchte Tabellenzelle – auch auf verdeckten Seiten – ein Zugriffsobjekt
+an. Fehlt das Ziel, etwa während eines Seitenaufbaus, wird der ganze Baum
+durchsucht, und SSE reagiert bis zum Ende nicht. Ein Zeitlimit auf Clientseite
+schützt nicht: SSE rechnet weiter, auch wenn der Client aufgegeben hat.
+
+- Der Worker verwendet keine Teilbaumsuche. Einzelelemente kommen aus einem
+  Merker mit Identitätsprüfung, aus dem letzten Baumlauf desselben Fensters
+  oder über den Abstieg entlang der AutomationId über die direkten Kinder der
+  Knoten auf dem Weg (`test/bounded-element-lookup-contract.ps1`).
+- Überschrift (`…ClientFrameSSE.ClientHeader.QLabel`), die
+  Blätterschaltflächen und „Sichern“ bleiben über Seitenwechsel dieselben
+  UIA-Elemente. „Weiter“ und „Zurück“ teilen sich dieselbe AutomationId
+  (`…ClientFooterSSE.HoverButton`); nur der Name trennt sie.
+- Auch fremde UIA-Clients (Computer-Use-Agenten, Bildschirmleser) können SSE so
+  blockieren. Erkennbar ist das an „Keine Rückmeldung“, einem dauerhaft
+  ausgelasteten Kern und stetig wachsendem Speicher; Worker-Aufrufe warten dann
+  schon in `AutomationElement.FromHandle`. Bevor eigener Code verdächtigt wird,
+  fremde UIA-Clients ausschließen.
+
 ### Fensterklassifikation
 
 - Das Hauptfenster ist ein großes SSE-Fenster, nicht einfach das erste Fenster

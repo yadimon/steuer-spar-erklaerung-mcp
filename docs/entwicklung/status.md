@@ -214,7 +214,7 @@ Belege in der [Seitenlandkarte](funktionskatalog.md).
 | Steuertipps-Center | **fertig** | `center_cases`, `center_refresh` |
 | Diagnose, Arbeitsbereich | **fertig** | `health`, `product_info`, `capabilities`, `workspace_*` |
 | Privater Desktop | **fertig** | `desktop_start`, `desktop_status`, `desktop_stop` |
-| Menuezeile bedienen | **fertig** | `menu`, `menu_click`, `menu_close` |
+| Menuezeile bedienen | **fertig** | `menu` (mit `alle` die ganze Leiste in einem Aufruf), `menu_click`, `menu_close` |
 | Update-Angebot erkennen | **fertig** | `updatePrompt` am Dialog – ausloesen bleibt gesperrt |
 | Optionen und Einstellungen | **offen** | Menue Extras |
 | Steuerrechner, Steuertabellen, Kalender | **offen** | Menue Extras |
