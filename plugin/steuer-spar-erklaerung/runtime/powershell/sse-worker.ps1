@@ -7732,23 +7732,10 @@ function Open-SSEMenuByName([IntPtr]$MainHwnd, [string]$MenuName) {
   }
   $targetPid = 0
   [SW]::GetWindowThreadProcessId($MainHwnd, [ref]$targetPid) | Out-Null
-  $openDeadline = [DateTime]::UtcNow.AddMilliseconds(700)
-  do {
-    $expanded = $false
-    try {
-      $freshElement = Get-LiveElement $MainHwnd $menu.rid
-      $freshPattern = $null
-      if ($freshElement -and
-          $freshElement.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$freshPattern)) {
-        $expanded = [bool]($freshPattern.Current.ExpandCollapseState -eq [System.Windows.Automation.ExpandCollapseState]::Expanded)
-      }
-    } catch { }
-    $popupReady = [bool](@(Get-Windows 'SSE' | Where-Object {
-      [int]$_.pid -eq $targetPid -and $_.cls -match 'PopupDropShadow|SysShadow'
-    }).Count -gt 0)
-    if (($expanded -and $popupReady) -or [DateTime]::UtcNow -ge $openDeadline) { break }
-    Start-Sleep -Milliseconds 50
-  } while ($true)
+  # Bis das Menue aufgeklappt UND sein Popup sichtbar ist, hoechstens 700 ms.
+  $pattern = $null
+  $null = $element.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$pattern)
+  $null = Wait-SSEMenuPopup $pattern $targetPid $true 700
   $menu
 }
 
@@ -19092,9 +19079,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $hwnd = [IntPtr][int64]$mainWindow.hwnd
     $targetPid = [int]$mainWindow.pid
     $name = [string](Arg $a 'name')
-    $before = @(Get-Windows 'SSE' | Where-Object {
-      [int]$_.pid -eq $targetPid -and $_.cls -match 'PopupDropShadow|SysShadow'
-    })
+    $before = @(Get-SSEMenuPopupWindows $targetPid)
     $tree = Walk-Tree $hwnd 1400
     $menuNodes = @($tree.nodes | Where-Object {
       $_.type -eq 'MenuItem' -and $_.name -and $_.p -ge 0 -and $tree.nodes[[int]$_.p].type -eq 'MenuBar' -and
@@ -19110,14 +19095,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         }
       }
     }
-    $closeDeadline = [DateTime]::UtcNow.AddMilliseconds(500)
-    do {
-      $after = @(Get-Windows 'SSE' | Where-Object {
-        [int]$_.pid -eq $targetPid -and $_.cls -match 'PopupDropShadow|SysShadow'
-      })
-      if (-not $after.Count -or [DateTime]::UtcNow -ge $closeDeadline) { break }
-      Start-Sleep -Milliseconds 50
-    } while ($true)
+    # Bis kein Menue-Popup mehr sichtbar ist, hoechstens 500 ms; entschieden
+    # wird ueber die abschliessende Lesung, die auch gemeldet wird.
+    $null = Wait-SSEMenuPopup $null $targetPid $false 500
+    $after = @(Get-SSEMenuPopupWindows $targetPid)
     $verified = [bool]($after.Count -eq 0)
     Emit ([pscustomobject]@{
       ok = $verified; collapsed = $collapsed

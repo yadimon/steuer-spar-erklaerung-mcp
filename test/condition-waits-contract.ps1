@@ -1,4 +1,4 @@
-# Bedingte Wartezeiten fuer CheckBox, ComboBox, Sichern und Tabellenzellen.
+# Bedingte Wartezeiten fuer CheckBox, ComboBox, Sichern, Tabellenzellen und Menue-Popups.
 #
 # Vier feste Fristen wurden durch Warten auf genau die Bedingung ersetzt, fuer
 # die sie standen. Jede alte Frist bleibt Obergrenze. Der Vertrag fuehrt die
@@ -27,7 +27,7 @@ function Assert-True([bool]$Condition, [string]$Message) {
 }
 
 . (Join-Path $root 'powershell\table-values.ps1')
-foreach ($name in @('Wait-SSEToggleSettled', 'Wait-SSEComboValue', 'Wait-SSESaveButtonDisabled', 'Wait-SSETableCellValue')) {
+foreach ($name in @('Wait-SSEToggleSettled', 'Wait-SSEComboValue', 'Wait-SSESaveButtonDisabled', 'Wait-SSETableCellValue', 'Wait-SSEMenuPopup')) {
   $definitions = @($ast.FindAll({
     param($node)
     $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name
@@ -225,5 +225,34 @@ Assert-True (([regex]::Matches($workerSource, [regex]::Escape('$null = Wait-SSET
   'table_add und table_update warten nach SetValue nicht mehr mit der alten Frist als Obergrenze.'
 Assert-True ($workerSource.Contains("if (`$entry.mode -eq 'toggle') { Start-Sleep -Milliseconds 350 }")) `
   'Umgeschaltete Tabellenzellen behalten ihre feste Frist nicht mehr.'
+
+# --- 5. Menue-Popup -------------------------------------------------------------
+# Offen erst bei sichtbarem Popup UND aufgeklapptem Menue, geschlossen erst ohne
+# Popup; sonst laeuft die volle Frist. Die Popupliste kommt aus einer Folge von
+# Beobachtungen, die letzte bleibt stehen.
+$script:popupCounts = $null
+$script:popupReads = 0
+function Get-SSEMenuPopupWindows([int]$TargetPid) {
+  $count = $script:popupCounts[[Math]::Min($script:popupReads, $script:popupCounts.Count - 1)]
+  $script:popupReads++
+  @(for ($window = 1; $window -le $count; $window++) { [pscustomobject]@{ hwnd=$window; pid=$TargetPid } })
+}
+$expandedPattern = New-ObservedElement 'ExpandCollapseState' @([System.Windows.Automation.ExpandCollapseState]::Expanded)
+$script:popupCounts = @(0, 0, 1); $script:popupReads = 0
+$opened = Measure-Wait { Wait-SSEMenuPopup $expandedPattern 77 $true 2000 }
+Assert-True ($opened.result -eq $true -and $script:popupReads -eq 3) 'Das Menue galt nicht genau mit dem ersten sichtbaren Popup als offen.'
+$script:popupCounts = @(1); $script:popupReads = 0
+$collapsedPattern = New-ObservedElement 'ExpandCollapseState' @([System.Windows.Automation.ExpandCollapseState]::Collapsed)
+$notOpen = Measure-Wait { Wait-SSEMenuPopup $collapsedPattern 77 $true 250 }
+Assert-True ($notOpen.result -eq $false -and $notOpen.elapsedMs -ge 250) 'Ein Popup ohne aufgeklapptes Menue galt als offen.'
+$script:popupCounts = @(1); $script:popupReads = 0
+$noPattern = Measure-Wait { Wait-SSEMenuPopup $null 77 $true 250 }
+Assert-True ($noPattern.result -eq $false -and $noPattern.elapsedMs -ge 250) 'Ohne lesbaren Menuezustand galt das Menue als offen.'
+$script:popupCounts = @(1, 1, 0); $script:popupReads = 0
+$closed = Measure-Wait { Wait-SSEMenuPopup $null 77 $false 2000 }
+Assert-True ($closed.result -eq $true -and $script:popupReads -eq 3) 'Das Menue galt nicht genau mit dem verschwundenen Popup als geschlossen.'
+$script:popupCounts = @(1); $script:popupReads = 0
+$stillOpen = Measure-Wait { Wait-SSEMenuPopup $null 77 $false 250 }
+Assert-True ($stillOpen.result -eq $false -and $stillOpen.elapsedMs -ge 250) 'Ein sichtbares Popup galt als geschlossen.'
 
 Write-Output 'Bedingte Wartezeiten: volles Signal oder volle Frist, zeichengenau, Sichern bestaetigt - bestanden'
