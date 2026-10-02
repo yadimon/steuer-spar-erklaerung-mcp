@@ -88,8 +88,8 @@
     },
     {
       "path": "powershell/sse-worker.ps1",
-      "sha256": "ee022054fb00c1561eda3067a39ad9f6670f20b3c46e605e354ae2c0619337e7",
-      "size": 1205790
+      "sha256": "05ab24e5a3de7eaa53dac9e3a39f61226c8c38b068322dcca261f086219c0b51",
+      "size": 1212425
     },
     {
       "path": "powershell/structure-binding.ps1",

@@ -4214,6 +4214,9 @@ function Get-UiSnapshot {
       $hwnd, $MaxNodes, ($TimeoutSec * 1000), $MaxDepth, [bool]$WithValues, [bool]$WithScroll)
 
     $out = ConvertTo-SSESnapshotNodes $native.Nodes
+    # Einzelabrufe per AutomationId nehmen ihren Knoten zuerst aus diesem Lauf
+    # (siehe Find-ExactAutomationElement).
+    $script:SSE_LAST_SNAPSHOT = [pscustomobject]@{ window = [string][int64]$hwnd; nodes = $out }
     # Ein Baumlauf ist der teuerste wiederkehrende Schritt einer Operation.
     # Wie oft er faellt, sieht man ohne Zaehler nicht - und ohne diese Zahl
     # optimiert man an geratenen statt an gemessenen Kosten.
@@ -4816,13 +4819,13 @@ function Get-LiveElement {
     return $script:UIAElementCache[$Rid]
   }
   # Katalogisierte Einzelfelder werden direkt per stabiler, vollstaendiger Aid
-  # aufgeloest und liegen nicht zwingend im Snapshot-Cache.
+  # aufgeloest und liegen nicht zwingend im Snapshot-Cache. Begrenzt ueber den
+  # Id-Pfad, nie per FindFirst ueber den ganzen Baum (siehe
+  # Find-ExactAutomationElement).
   if ($Aid) {
-    try {
-      $aidCondition = New-Object System.Windows.Automation.PropertyCondition($AE::AutomationIdProperty, $Aid)
-      $exact = $root.FindFirst($TS::Descendants, $aidCondition)
-      if ($exact) { return $exact }
-    } catch { }
+    $exact = $null
+    try { $exact = Find-ExactAutomationElement $hwnd $Aid } catch { $exact = $null }
+    if ($exact) { return $exact }
   }
   $seen = New-Object 'System.Collections.Generic.HashSet[string]'
   $found = $null
@@ -5592,15 +5595,151 @@ function Get-SSEInteractionWindowSet([int]$ProcessId, [IntPtr]$MainHwnd) {
   }
 }
 
-function Find-ExactAutomationElement([IntPtr]$Hwnd, [string]$RelativeAutomationId) {
+<#
+Einzelelement ueber seine vollstaendige AutomationId - mit begrenztem Aufwand.
+
+Bewusst KEIN FindFirst(TreeScope.Descendants): Diese Suche laeuft vollstaendig
+im GUI-Thread von SSE. UIA geht dort den Providerbaum ab, und Qt legt fuer jede
+besuchte Tabellenzelle - auch auf verdeckten Seiten - ein Zugriffsobjekt an.
+Fehlt das Ziel gerade, etwa waehrend eines Seitenaufbaus, wird der GANZE Baum
+durchsucht - in einer einzigen Anfrage, die SSE bis zum Ende abarbeitet, auch
+wenn der Client laengst aufgegeben hat. Solange sie laeuft, reagiert SSE nicht.
+Dasselbe Muster ist fuer FindAll(Children) und GetUpdatedCache(Subtree) am
+nativen Baumlauf belegt (siehe sse-native.cs).
+
+Stattdessen nur begrenzte Wege, jeder Treffer mit Identitaetspruefung:
+  1. der Merker eines frueheren Treffers - er gilt nur, solange RuntimeId,
+     AutomationId und gegebenenfalls Name noch stimmen;
+  2. der Knoten aus dem letzten Baumlauf desselben Fensters;
+  3. der Abstieg entlang der AutomationId. Qt bildet sie aus den Objektnamen
+     der Vorfahren, jeder Knoten auf dem Weg traegt also ein Praefix der
+     Ziel-Id. Gelesen werden nur die direkten Kinder solcher Knoten; eine
+     Tabelle neben dem Weg wird nie betreten. Begonnen wird beim tiefsten
+     bereits bekannten Vorfahren, ohne Treffer dort noch einmal an der Wurzel.
+Die Reihenfolge entspricht der bisherigen Suche: das erste passende Element in
+Vorordnung. Ein Name trennt gleichnamige Geschwister - die beiden
+Blaetterschaltflaechen teilen sich dieselbe Id.
+
+Ueberschrift, Blaetterschaltflaechen und 'Sichern' bleiben ueber Seitenwechsel
+dieselben Elemente; ihr Merker kostet je Lesung nur die Identitaetspruefung.
+Der Abstieg ab der Wurzel braucht fuer die Ueberschrift rund 30 Einzelabrufe.
+#>
+$script:SSE_AID_ELEMENTS = @{}
+$script:SSE_LAST_SNAPSHOT = $null
+
+# Methoden statt Eigenschaften: Ein fehlgeschlagener Eigenschaftsabruf liefert
+# in PowerShell $null statt einer Ausnahme und saehe wie ein Wert aus.
+function Test-SSEElementIdentity($Element, [string]$RuntimeId, [string]$AutomationId, [string]$Name = '') {
+  if (-not $Element -or -not $RuntimeId) { return $false }
+  try {
+    if (($Element.GetRuntimeId() -join '.') -cne $RuntimeId) { return $false }
+    if ($AutomationId -and [string]$Element.GetCurrentPropertyValue($script:AE::AutomationIdProperty) -cne $AutomationId) {
+      return $false
+    }
+    if ($Name -and [string]$Element.GetCurrentPropertyValue($script:AE::NameProperty) -cne $Name) { return $false }
+    $true
+  } catch { $false }
+}
+
+function Set-SSEAidElement([string]$Key, $Element) {
+  $rid = $null
+  try { $rid = $Element.GetRuntimeId() -join '.' } catch { return $false }
+  $script:SSE_AID_ELEMENTS[$Key] = [pscustomobject]@{ element = $Element; rid = $rid }
+  $true
+}
+
+function Get-SSEAidElement([string]$Key, [string]$AutomationId, [string]$Name) {
+  $cached = $script:SSE_AID_ELEMENTS[$Key]
+  if (-not $cached) { return $null }
+  if (Test-SSEElementIdentity $cached.element $cached.rid $AutomationId $Name) { return $cached.element }
+  $script:SSE_AID_ELEMENTS.Remove($Key)
+  $null
+}
+
+function Find-SSEAutomationIdBelow($Parent, [string]$ParentAid, [string]$FullAid, [string]$Name, $Search, [int]$Depth) {
+  if ($Depth -ge 40) { return $null }
+  $child = $null
+  try { $child = $script:WLK.GetFirstChild($Parent) } catch { return $null }
+  while ($child -and $Search.remaining -gt 0) {
+    $Search.remaining--
+    $childAid = $null
+    try { $childAid = [string]$child.GetCurrentPropertyValue($script:AE::AutomationIdProperty) } catch { $childAid = $null }
+    if ($childAid -ceq $FullAid) {
+      $childName = $null
+      if ($Name) { try { $childName = [string]$child.GetCurrentPropertyValue($script:AE::NameProperty) } catch { $childName = $null } }
+      if (-not $Name -or $childName -ceq $Name) { return $child }
+    } elseif ($childAid -and $childAid.Length -gt $ParentAid.Length -and
+              $FullAid.StartsWith("$childAid.", [StringComparison]::Ordinal)) {
+      $null = Set-SSEAidElement "$($Search.window)|$childAid|" $child
+      $found = Find-SSEAutomationIdBelow $child $childAid $FullAid $Name $Search ($Depth + 1)
+      if ($found) { return $found }
+    }
+    try { $child = $script:WLK.GetNextSibling($child) } catch { $child = $null }
+  }
+  $null
+}
+
+function Find-ExactAutomationElement([IntPtr]$Hwnd, [string]$RelativeAutomationId, [string]$Name = '') {
   if (-not $RelativeAutomationId) { return $null }
   $root = $script:AE::FromHandle($Hwnd)
-  $rootAid = [string]$root.Current.AutomationId
+  $rootAid = $null
+  try { $rootAid = [string]$root.GetCurrentPropertyValue($script:AE::AutomationIdProperty) } catch { return $null }
   $fullAid = $(if ($RelativeAutomationId.StartsWith($rootAid)) { $RelativeAutomationId } else { "$rootAid$RelativeAutomationId" })
-  $condition = New-Object System.Windows.Automation.PropertyCondition(
-    $script:AE::AutomationIdProperty, $fullAid
-  )
-  try { $root.FindFirst($script:TS::Descendants, $condition) } catch { $null }
+  $window = [string][int64]$Hwnd
+  $key = "$window|$fullAid|$Name"
+
+  # 1. Merker
+  $element = Get-SSEAidElement $key $fullAid $Name
+  if ($element) { return $element }
+
+  # 2. Letzter Baumlauf desselben Fensters: erster Knoten mit dieser Id.
+  $snapshot = $script:SSE_LAST_SNAPSHOT
+  if ($snapshot -and $snapshot.window -ceq $window) {
+    foreach ($node in $snapshot.nodes) {
+      if ([string]$node.aid -cne $fullAid -or ($Name -and [string]$node.name -cne $Name)) { continue }
+      $candidate = $script:UIAElementCache[[string]$node.rid]
+      if ((Test-SSEElementIdentity $candidate ([string]$node.rid) $fullAid $Name) -and (Set-SSEAidElement $key $candidate)) {
+        return $candidate
+      }
+      break
+    }
+  }
+
+  # 3. Abstieg entlang der Id, ab dem tiefsten bekannten Vorfahren.
+  $search = @{ remaining = 2000; window = $window }
+  $prefix = $fullAid
+  while (($cut = $prefix.LastIndexOf('.')) -gt $rootAid.Length) {
+    $prefix = $prefix.Substring(0, $cut)
+    $ancestor = Get-SSEAidElement "$window|$prefix|" $prefix ''
+    if (-not $ancestor) { continue }
+    $element = Find-SSEAutomationIdBelow $ancestor $prefix $fullAid $Name $search 0
+    break
+  }
+  if (-not $element) { $element = Find-SSEAutomationIdBelow $root $rootAid $fullAid $Name $search 0 }
+  if (-not $element -or -not (Set-SSEAidElement $key $element)) { return $null }
+  $element
+}
+
+<#
+Schaltflaeche per exaktem Namen, etwa die Blaetterschaltflaechen 'Weiter' und
+'Zurück'. Ihre AutomationId lernt einmal ein begrenzter Baumlauf; danach
+genuegt der begrenzte Abstieg aus Find-ExactAutomationElement. Wie die
+bisherige Suche gilt die erste Schaltflaeche dieses Namens in Vorordnung.
+#>
+$script:SSE_NAMED_BUTTON_AIDS = @{}
+function Find-SSENamedButton([IntPtr]$Hwnd, [string]$Name) {
+  if (-not $Name) { return $null }
+  $key = "$([int64]$Hwnd)|$Name"
+  $aid = [string]$script:SSE_NAMED_BUTTON_AIDS[$key]
+  if ($aid) {
+    $element = Find-ExactAutomationElement $Hwnd $aid $Name
+    if ($element) { return $element }
+  }
+  $walked = Walk-Tree $Hwnd 1200
+  $node = @($walked.nodes | Where-Object { $_.type -eq 'Button' -and [string]$_.name -ceq $Name } | Select-Object -First 1)
+  if (-not $node.Count) { return $null }
+  if ([string]$node[0].aid) { $script:SSE_NAMED_BUTTON_AIDS[$key] = [string]$node[0].aid }
+  $script:UIAElementCache[[string]$node[0].rid]
 }
 
 <#
@@ -15953,19 +16092,20 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         if ($jetzt -and $jetzt -ne $vorher) { return }
       }
     }
-    # Aktive Blaetterschaltflaeche per FindFirst statt Baumlauf: Ein Lauf je
-    # Schritt liess goto auf langen Wegen in den Timeout laufen. Name UND Typ,
-    # denn eine Suche nur ueber den Namen trifft auch das Textelement 'Weiter'.
-    # Nur eine aktive Schaltflaeche zaehlt; ein fehlgeschlagener
-    # Eigenschaftsabruf liefert $null und gilt als inaktiv.
+    # Aktive Blaetterschaltflaeche ohne Baumlauf je Schritt (der liess goto auf
+    # langen Wegen in den Timeout laufen) und ohne FindFirst ueber den ganzen
+    # Baum (siehe Find-ExactAutomationElement). Name UND Typ, denn derselbe
+    # Name traegt auch ein Textelement 'Weiter'. Nur eine aktive Schaltflaeche
+    # zaehlt; ein nicht lesbarer Zustand gilt als inaktiv.
     function AktiverBlaetterknopf {
       param([IntPtr]$h, [string]$name)
-      $cName = New-Object System.Windows.Automation.PropertyCondition($script:AE::NameProperty, $name)
-      $cTyp  = New-Object System.Windows.Automation.PropertyCondition($script:AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)
       $el = $null
-      try { $el = $script:AE::FromHandle($h).FindFirst($script:TS::Descendants, (New-Object System.Windows.Automation.AndCondition($cName, $cTyp))) }
-      catch { return $null }
-      if (-not $el -or $el.Current.IsEnabled -ne $true) { return $null }
+      try { $el = Find-SSENamedButton $h $name } catch { return $null }
+      if (-not $el) { return $null }
+      try {
+        if ($el.GetCurrentPropertyValue($script:AE::ControlTypeProperty) -ne [System.Windows.Automation.ControlType]::Button -or
+            $el.GetCurrentPropertyValue($script:AE::IsEnabledProperty) -ne $true) { return $null }
+      } catch { return $null }
       $el
     }
     function DrueckeKnopf {
