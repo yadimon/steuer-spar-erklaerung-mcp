@@ -194,20 +194,33 @@ Assert-True ($openNamedIndex -gt $listWalkIndex) `
 Assert-True (([regex]::Matches($menuBlock, [regex]::Escape('$t = Walk-Tree $hwnd 1200'))).Count -eq 1) `
   'Der menu-Block enthaelt mehr als einen Menuezeilen-Walk.'
 
-$menuOpenStart = $worker.IndexOf('function Open-SSEMenuByName(')
-$menuOpenEnd = $worker.IndexOf('function Get-SSEOpenMenuEntryMatches(', $menuOpenStart)
-Assert-True ($menuOpenStart -ge 0 -and $menuOpenEnd -gt $menuOpenStart) `
-  'Open-SSEMenuByName ist nicht eindeutig abgrenzbar.'
-$menuOpenBlock = $worker.Substring($menuOpenStart, $menuOpenEnd - $menuOpenStart)
-foreach ($required in @(
-  '$openDeadline = [DateTime]::UtcNow.AddMilliseconds(700)',
-  'ExpandCollapseState]::Expanded',
-  "`$_.cls -match 'PopupDropShadow|SysShadow'",
-  'if (($expanded -and $popupReady) -or [DateTime]::UtcNow -ge $openDeadline) { break }',
-  'Start-Sleep -Milliseconds 50'
-)) {
-  Assert-True ($menuOpenBlock.Contains($required)) "Open-SSEMenuByName fehlt der Popup-Bereitschaftsvertrag '$required'."
+$workerAst = [Management.Automation.Language.Parser]::ParseInput($worker, [ref]$null, [ref]$null)
+function Get-WorkerFunctionText([string]$Name) {
+  $definitions = @($workerAst.FindAll({
+    param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $Name
+  }, $true))
+  Assert-True ($definitions.Count -eq 1) "$Name ist nicht eindeutig vorhanden."
+  $definitions[0].Extent.Text
 }
+# Popup-Bereitschaft und -Ende werden an genau einer Stelle beobachtet: begrenzt,
+# im 50-ms-Takt, offen erst bei aufgeklapptem Menue UND sichtbarem Popup.
+$popupWindows = Get-WorkerFunctionText 'Get-SSEMenuPopupWindows'
+Assert-True ($popupWindows.Contains("`$_.cls -match 'PopupDropShadow|SysShadow'")) `
+  'Menue-Popups werden nicht mehr ueber ihre Schattenfensterklasse erkannt.'
+$popupWait = Get-WorkerFunctionText 'Wait-SSEMenuPopup'
+foreach ($required in @(
+  '@(Get-SSEMenuPopupWindows $TargetPid).Count',
+  'if (-not $Open -and $popups -eq 0) { return $true }',
+  'ExpandCollapseState]::Expanded) { return $true }',
+  'Start-Sleep -Milliseconds 50',
+  '} while ($wait.ElapsedMilliseconds -lt $TimeoutMs)'
+)) {
+  Assert-True ($popupWait.Contains($required)) "Wait-SSEMenuPopup fehlt der Popup-Vertrag '$required'."
+}
+$menuOpenBlock = Get-WorkerFunctionText 'Open-SSEMenuByName'
+Assert-True ($menuOpenBlock.Contains('$null = Wait-SSEMenuPopup $pattern $targetPid $true 700')) `
+  'Open-SSEMenuByName wartet nicht mehr begrenzt bis zum beobachteten Popup-Zustand.'
 Assert-True (-not $menuOpenBlock.Contains('Start-Sleep -Milliseconds 700')) `
   'Open-SSEMenuByName wartet weiterhin fest statt bis zum beobachteten Popup-Zustand.'
 
@@ -217,10 +230,9 @@ Assert-True ($menuCloseStart -ge 0 -and $menuCloseEnd -gt $menuCloseStart) `
   'menu_close-Operationsblock ist nicht eindeutig abgrenzbar.'
 $menuCloseBlock = $worker.Substring($menuCloseStart, $menuCloseEnd - $menuCloseStart)
 foreach ($required in @(
-  '$closeDeadline = [DateTime]::UtcNow.AddMilliseconds(500)',
-  "`$_.cls -match 'PopupDropShadow|SysShadow'",
-  'if (-not $after.Count -or [DateTime]::UtcNow -ge $closeDeadline) { break }',
-  'Start-Sleep -Milliseconds 50',
+  '$before = @(Get-SSEMenuPopupWindows $targetPid)',
+  '$null = Wait-SSEMenuPopup $null $targetPid $false 500',
+  '$after = @(Get-SSEMenuPopupWindows $targetPid)',
   '$verified = [bool]($after.Count -eq 0)'
 )) {
   Assert-True ($menuCloseBlock.Contains($required)) "menu_close fehlt der Popup-Postcondition-Vertrag '$required'."
