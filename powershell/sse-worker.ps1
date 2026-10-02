@@ -5954,6 +5954,29 @@ function Wait-SSEComboValue([IntPtr]$Hwnd, $Combo, [string]$Wanted, [int]$Timeou
   $false
 }
 
+# Wartet begrenzt, bis eine per ValuePattern beschriebene Tabellenzelle einen
+# zum Wunschwert gleichwertigen Inhalt meldet. Jede Runde ist ein einzelner
+# Abruf an derselben Zelle; nur ein tatsaechlich gelesener Text zaehlt, ein
+# fehlgeschlagener Abruf liefert in PowerShell $null und gilt als 'noch
+# nicht'. Die Frist ist die bisherige feste Wartezeit und damit die
+# Obergrenze; danach entscheidet derselbe Readback wie bisher.
+function Wait-SSETableCellValue([IntPtr]$Hwnd, [string]$Rid, [string]$Requested, [int]$TimeoutMs) {
+  $wait = [Diagnostics.Stopwatch]::StartNew()
+  do {
+    Start-Sleep -Milliseconds 25
+    $current = $null
+    try {
+      $element = Get-LiveElement $Hwnd $Rid
+      $pattern = $null
+      if ($element -and $element.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$pattern)) {
+        $current = $pattern.Current.Value
+      }
+    } catch { $current = $null }
+    if ($current -is [string] -and (Test-SSETableCellEquivalent $current $Requested)) { return $true }
+  } while ($wait.ElapsedMilliseconds -lt $TimeoutMs)
+  $false
+}
+
 # Wartet begrenzt, bis eine umgeschaltete CheckBox den Zielzustand meldet UND
 # SSE den Fall als geaendert fuehrt ('Sichern' aktiv). Beides sind
 # Einzelabrufe an Elementen des bereits gelaufenen Baums. Ein Signal ist nur
@@ -17404,7 +17427,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       try {
         $null = $changed.Add($entry)
         $entry.pattern.SetValue($entry.requested)
-        Start-Sleep -Milliseconds 350
+        # Bis die Zelle den Wert meldet, hoechstens die bisherigen 350 ms.
+        $null = Wait-SSETableCellValue $hwnd ([string]$entry.cell.rid) ([string]$entry.requested) 350
         if (Test-SSEIsolationEnded $lockScreenIsolation $foreignForegroundIsolation $hwnd) {
           $failure = "$script:SSE_ISOLATION_BREACH - nach einer Zellschreibung."
           $interference = $true
@@ -18081,7 +18105,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           $livePattern.SetValue($entry.requested)
           $entry | Add-Member -NotePropertyName mutationMethod -NotePropertyValue 'value-pattern'
         }
-        Start-Sleep -Milliseconds 350
+        # Wertzellen: bis die Zelle den Wert meldet, hoechstens die bisherigen
+        # 350 ms. Umgeschaltete Zellen behalten die feste Frist.
+        if ($entry.mode -eq 'toggle') { Start-Sleep -Milliseconds 350 }
+        else { $null = Wait-SSETableCellValue $hwnd ([string]$entry.cell.rid) ([string]$entry.requested) 350 }
         if (Test-SSEIsolationEnded $lockScreenIsolation $foreignForegroundIsolation $hwnd) {
           $failure = "$script:SSE_ISOLATION_BREACH - nach einer Zellaktualisierung."
           $interference = $true; break
