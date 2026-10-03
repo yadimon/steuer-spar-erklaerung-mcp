@@ -1346,13 +1346,13 @@ Assert-ImportWait $boundaryClosed 'Die letzte Dialog-Beobachtung an der Fristgre
 [ReceiptImportWaitContract.WindowSystem]::Watch = $null
 $script:proofBoundaryWatch = [Diagnostics.Stopwatch]::StartNew()
 function Get-SSEReceiptManagerState {
-  if ($script:proofBoundaryWatch.ElapsedMilliseconds -ge 390) {
+  if ($script:proofBoundaryWatch.ElapsedMilliseconds -ge 190) {
     $script:currentObservation = New-ImportObservation
   } else { $script:currentObservation = New-ImportObservation 'preview' }
   $script:currentObservation
 }
 . $observation
-Assert-ImportWait ($verified -and $script:proofBoundaryWatch.ElapsedMilliseconds -ge 590) `
+Assert-ImportWait ($verified -and $script:proofBoundaryWatch.ElapsedMilliseconds -ge 390) `
   'Ein rechtzeitig stabiler vollstaendiger Import-Nachweis wurde uebersehen.'
 
 # Ein erster vollstaendiger Read kurz vor Ablauf beweist noch keine Ruhephase.
