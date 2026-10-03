@@ -1,4 +1,4 @@
-﻿# Die Wartezeiten in `goto` sind bedingt und nach oben begrenzt - beides muss so
+# Die Wartezeiten in `goto` sind bedingt und nach oben begrenzt - beides muss so
 # bleiben.
 #
 # Zwei feste Fristen wurden durch Warten auf die Bedingung ersetzt, fuer die sie
