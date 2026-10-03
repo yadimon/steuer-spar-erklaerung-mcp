@@ -1,4 +1,4 @@
-# Die Wartezeiten in `goto` sind bedingt und nach oben begrenzt - beides muss so
+﻿# Die Wartezeiten in `goto` sind bedingt und nach oben begrenzt - beides muss so
 # bleiben.
 #
 # Zwei feste Fristen wurden durch Warten auf die Bedingung ersetzt, fuer die sie
@@ -87,7 +87,7 @@ function Assert-DelayedNavigationStops([string[]]$Headings, [int]$ExpectedClicks
   foreach ($heading in $Headings) { $script:gotoHeadings.Enqueue($heading) }
   $script:gotoClicks = 0
   $script:gotoResult = $null
-  $ziel = 'Zielseite'; $pageId = ''; $hwnd = [IntPtr]::Zero
+  $ziel = 'Zielseite'; $pageId = ''; $hwnd = [IntPtr]7
   $FOLGE = @()
   $route = Get-SSEGotoRoute -Order $FOLGE -Start 'Startseite' -Target $ziel -MaxSteps 3
   $richtung = $route.direction; $position = $route.startIndex
@@ -130,7 +130,7 @@ function Get-KnownPageHeading { param($h, $target) $null = $script:headingRoute.
 function Get-CurrentHeading { param($h, $tree, [switch]$CompactFallback)
   if ($null -ne $tree) {
     $null = $script:headingRoute.Add('tree-visible')
-    if ($script:SSE_ENGINE_MAJOR -eq 31) { $script:SSE_HEADING_NODE_AID[[string][int64]$h] = 'heading-AID' }
+    if ($script:SSE_ENGINE_MAJOR -eq 31 -and $h -ne [IntPtr]::Zero) { $script:SSE_HEADING_NODE_AID[[string][int64]$h] = 'heading-AID' }
     return 'walked'
   }
   $null = $script:headingRoute.Add($(if ($CompactFallback) { 'cache-compact' } else { 'cache-default' }))
@@ -143,31 +143,31 @@ function Get-SSEContainerChild { param($nodes, $suffix, $childType) [pscustomobj
 
 $knownTarget = $null
 $script:SSE_ENGINE_MAJOR = 30
-if ((AktuelleUeberschrift ([IntPtr]::Zero)) -ne 'walked' -or
+if ((AktuelleUeberschrift ([IntPtr]7)) -ne 'walked' -or
     (@($script:headingRoute) -join ',') -ne 'walk:400,tree-visible' -or $script:SSE_HEADING_NODE_AID.Count -ne 0) {
   throw 'Engine 30 muss den kleinen Heading-Baumlauf verwenden.'
 }
 $script:headingRoute.Clear()
 $script:SSE_ENGINE_MAJOR = 31
-if ((AktuelleUeberschrift ([IntPtr]::Zero)) -ne 'walked' -or
+if ((AktuelleUeberschrift ([IntPtr]7)) -ne 'walked' -or
     (@($script:headingRoute) -join ',') -ne 'walk:400,tree-visible' -or
-    [string]$script:SSE_HEADING_NODE_AID['0'] -ne 'heading-AID') {
+    [string]$script:SSE_HEADING_NODE_AID['7'] -ne 'heading-AID') {
   throw 'Engine 31 muss die Ueberschrift beim kleinen Erstread binden.'
 }
 $script:headingRoute.Clear()
-if ((AktuelleUeberschrift ([IntPtr]::Zero)) -ne 'cached' -or
+if ((AktuelleUeberschrift ([IntPtr]7)) -ne 'cached' -or
     (@($script:headingRoute) -join ',') -ne 'cache-compact') {
   throw 'Engine 31 muss danach die gebundene Ueberschrift verwenden.'
 }
 $script:headingRoute.Clear()
 $script:SSE_ENGINE_MAJOR = 32
-if ((AktuelleUeberschrift ([IntPtr]::Zero)) -ne 'walked' -or
+if ((AktuelleUeberschrift ([IntPtr]7)) -ne 'walked' -or
     (@($script:headingRoute) -join ',') -ne 'walk:400,tree-visible') {
   throw 'Unbekannte Engines muessen beim kleinen Heading-Baumlauf bleiben.'
 }
 $script:headingRoute.Clear()
 $knownTarget = [pscustomobject]@{ pageId='known' }
-if ((AktuelleUeberschrift ([IntPtr]::Zero)) -ne 'known' -or
+if ((AktuelleUeberschrift ([IntPtr]7)) -ne 'known' -or
     (@($script:headingRoute) -join ',') -ne 'known') {
   throw 'Ein bekanntes Seitenobjekt muss seinen eigenen Heading-Bindungspfad behalten.'
 }
@@ -182,11 +182,11 @@ if ($helperDefinitions.Count -ne 1) { throw 'Get-CurrentHeading ist nicht eindeu
 Invoke-Expression $helperDefinitions[0].Extent.Text
 function Get-SSEVisibleHeadingNode { param($h, $tree) [pscustomobject]@{ aid='heading-AID'; name='walked' } }
 function Find-ExactAutomationElement { param($h, $aid) $null = $script:headingRoute.Add('miss'); $null }
-$script:SSE_HEADING_NODE_AID['0'] = 'stale-AID'
+$script:SSE_HEADING_NODE_AID['7'] = 'stale-AID'
 $script:headingRoute.Clear()
-if ((Get-CurrentHeading ([IntPtr]::Zero) $null -CompactFallback) -ne 'walked' -or
+if ((Get-CurrentHeading ([IntPtr]7) $null -CompactFallback) -ne 'walked' -or
     (@($script:headingRoute) -join ',') -ne 'miss,walk:400' -or
-    [string]$script:SSE_HEADING_NODE_AID['0'] -ne 'heading-AID') {
+    [string]$script:SSE_HEADING_NODE_AID['7'] -ne 'heading-AID') {
   throw 'Ein verlorener Engine-31-Merker muss mit kleinem Baum neu gebunden werden.'
 }
 
