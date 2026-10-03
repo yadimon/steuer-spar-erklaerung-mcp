@@ -5927,6 +5927,24 @@ function Get-KnownPageState([IntPtr]$Hwnd, $Known) {
 # Merker ueberlebt ihn also nicht.
 $script:SSE_HEADING_NODE_AID = @{}
 
+# Ein Baum enthaelt auch verdeckte, noch lebendige Qt-Labels. Erst frische
+# Sichtbarkeit und Identitaet machen daraus eine aktuelle Seitenueberschrift.
+function Get-SSEVisibleHeadingNode([IntPtr]$Hwnd, $Tree) {
+  foreach ($candidate in @(Get-SSEContainerDescendants $Tree.nodes (Get-SSEMainWindowSelectors).heading 'Text')) {
+    if (-not [string]$candidate.rid) { continue }
+    $element = Get-LiveElement $Hwnd $candidate.rid
+    if (-not (Test-SSEElementVisible $element)) { continue }
+    $current = $null
+    try { $current = $element.Current } catch { continue }
+    if (-not $current -or $current.ControlType -ne [System.Windows.Automation.ControlType]::Text) { continue }
+    if ([string]$candidate.aid -and [string]$current.AutomationId -cne [string]$candidate.aid) { continue }
+    $name = ("$($current.Name)" -replace "`r|`n|`t", ' ').Trim()
+    if ($name -cne [string]$candidate.name) { continue }
+    return $candidate
+  }
+  $null
+}
+
 function Get-CurrentHeading([IntPtr]$Hwnd, $Tree = $null, [switch]$CompactFallback) {
   # Hat der Aufrufer den Baum ohnehin gelesen, bleibt das Ergebnis wie bisher.
   # In Engine 31 bindet derselbe Lauf zusaetzlich den Ueberschriftenknoten:
@@ -5934,7 +5952,7 @@ function Get-CurrentHeading([IntPtr]$Hwnd, $Tree = $null, [switch]$CompactFallba
   # einer ComboBox oder in Pollrunden - fragen dann gezielt diesen Knoten ab,
   # statt jeweils einen eigenen 1200-Knoten-Lauf zu bezahlen.
   if ($null -ne $Tree) {
-    $treeHeading = Get-SSEContainerChild $Tree.nodes (Get-SSEMainWindowSelectors).heading 'Text'
+    $treeHeading = Get-SSEVisibleHeadingNode $Hwnd $Tree
     if ($script:SSE_ENGINE_MAJOR -eq 31 -and $Hwnd -ne [IntPtr]::Zero -and $treeHeading -and [string]$treeHeading.aid) {
       $script:SSE_HEADING_NODE_AID[[string][int64]$Hwnd] = [string]$treeHeading.aid
     }
@@ -5970,11 +5988,12 @@ function Get-CurrentHeading([IntPtr]$Hwnd, $Tree = $null, [switch]$CompactFallba
   # begrenzt wie der erste Read; andere Aufrufer behalten ihren vollen Baum.
   if ($CompactFallback) { $walked = Walk-Tree $Hwnd 400 }
   else { $walked = Walk-Tree $Hwnd 1200 25 12 -WithValues }
-  $headingNode = Get-SSEContainerChild $walked.nodes (Get-SSEMainWindowSelectors).heading 'Text'
+  $headingNode = Get-SSEVisibleHeadingNode $Hwnd $walked
   if ($headingNode -and [string]$headingNode.aid) {
     $script:SSE_HEADING_NODE_AID[$key] = [string]$headingNode.aid
   }
-  (Get-SSEHeading $walked).text
+  if ($headingNode) { return [string]$headingNode.name }
+  $null
 }
 
 # Wartet begrenzt, bis eine bereits gebundene ComboBox den Zielwert meldet.
@@ -7818,17 +7837,17 @@ function Open-SSEMenuByName([IntPtr]$MainHwnd, [string]$MenuName) {
   }
   $element = Get-LiveElement $MainHwnd $menu.rid
   if (-not $element) { Fail "Menue '$MenuName' nicht mehr greifbar." 'stale' }
-  try {
-    $null = $element.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Expand()
-  } catch {
-    try { $null = $element.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() }
-    catch { Fail "Menue '$MenuName' liess sich nicht oeffnen: $($_.Exception.Message.Split("`n")[0])" 'pattern-failed' }
-  }
+  # Ohne lesbares ExpandCollapse-Pattern waere der Oeffnungserfolg nicht
+  # beweisbar. Vor jeder Aktion stoppen, statt ein unpruefbares Invoke zu senden.
+  $pattern = $null
+  try { $pattern = $element.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern) }
+  catch { Fail "Menue '$MenuName' hat kein lesbares ExpandCollapse-Pattern." 'pattern-failed' }
+  if (-not $pattern) { Fail "Menue '$MenuName' hat kein ExpandCollapse-Pattern." 'pattern-failed' }
+  try { $pattern.Expand() }
+  catch { Fail "Menue '$MenuName' liess sich nicht oeffnen: $($_.Exception.Message.Split("`n")[0])" 'pattern-failed' }
   $targetPid = 0
   [SW]::GetWindowThreadProcessId($MainHwnd, [ref]$targetPid) | Out-Null
   # Bis das Menue aufgeklappt UND sein Popup sichtbar ist, hoechstens 700 ms.
-  $pattern = $null
-  $null = $element.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$pattern)
   if (-not (Wait-SSEMenuPopup $pattern $targetPid $true 700)) {
     try { if ($pattern) { $pattern.Collapse() } } catch { }
     Fail "Menue '$MenuName' wurde nicht als offen bestaetigt." 'postcondition-failed'
@@ -16257,13 +16276,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       }
       # 400 Knoten genuegen: die Ueberschrift steht weit oben im Baum.
       $t = Walk-Tree $h 400
-      if ($script:SSE_ENGINE_MAJOR -eq 31) {
-        $headingNode = Get-SSEContainerChild $t.nodes (Get-SSEMainWindowSelectors).heading 'Text'
-        if ($headingNode -and [string]$headingNode.aid) {
-          $script:SSE_HEADING_NODE_AID[$headingKey] = [string]$headingNode.aid
-        }
-      }
-      (Get-SSEHeading $t).text
+      Get-CurrentHeading $h $t
     }
     function IstZielseite {
       param([IntPtr]$h, [string]$heading)
@@ -21497,6 +21510,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # alle Datei-, Bild-, Listen-, Fenster-, Dialog- und Dirty-Nachweise stehen.
     $settleBudget = [Math]::Max(0, $waitMs + 700 - $selection.dialogWaitMs)
     $settleWatch = [Diagnostics.Stopwatch]::StartNew()
+    $proofStableSince = $null
     do {
       $stateAfter = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
       $listAfter = Get-SSEReceiptManagerListProjection $stateAfter $policy
@@ -21536,7 +21550,13 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         $afterCreatedRows.Count -eq 1 -and $existingRowsUnchanged -and
         -not $blockingAfter.Count -and $windowSetUnchanged -and $dirtyStateUnchanged
       )
-      if ($verified) { break }
+      # Auch die Abwesenheit spaeter Warnungen und Aenderungen braucht eine
+      # zweite vollstaendige Beobachtung nach einer kurzen Ruhephase.
+      if ($verified) {
+        if ($null -eq $proofStableSince) { $proofStableSince = $settleWatch.ElapsedMilliseconds }
+        if (($settleWatch.ElapsedMilliseconds - $proofStableSince) -ge 200) { break }
+      } else { $proofStableSince = $null }
+      $verified = $false
       $remaining = $settleBudget - $settleWatch.ElapsedMilliseconds
       if ($remaining -le 0) { break }
       Start-Sleep -Milliseconds ([Math]::Min(100, $remaining))

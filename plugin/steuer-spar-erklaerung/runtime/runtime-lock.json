@@ -38,8 +38,8 @@
     },
     {
       "path": "powershell/goto-route.ps1",
-      "sha256": "76e52e36aad705a9074eb42eaed2f45cf090ad5628f281119d02255c2e258499",
-      "size": 9835
+      "sha256": "34881fe0d3f7e081dc8a0fa753923539865463a7bd29a5f17821af26180ce368",
+      "size": 9920
     },
     {
       "path": "powershell/instance-identity.ps1",
@@ -88,8 +88,8 @@
     },
     {
       "path": "powershell/sse-worker.ps1",
-      "sha256": "258702d3e74c41c5659a9529f9345cfe93989794afc0db60a05ed5c4c642d0cb",
-      "size": 1226368
+      "sha256": "28c366cba6273c7c81bacb0209496e68ac42528bb03e06dc2530a67aae159b49",
+      "size": 1227521
     },
     {
       "path": "powershell/structure-binding.ps1",

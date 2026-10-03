@@ -146,6 +146,8 @@ Assert-True ((@($navtop0.buttons) -join ',') -ceq 'Zurück') 'Nach dem Fehlschri
 # 2. Verlauf weicht vom Pfad ab (nav-visibility) und 3. Altfall Reisekosten.
 foreach ($case in @(
   [pscustomobject]@{ name='Vorsteuerberichtigung -> UStE'; start='Vorsteuerberichtigungen 2025'; target=$UStE; landing=$UStVA; expected='Vorsteuer aus anderen Rechnungen' }
+  [pscustomobject]@{ name='Vorsteuerberichtigung -> falsche Vorsteuerseite'; start='Vorsteuerberichtigungen 2025'; target=$UStE; landing='Abziehbare Vorsteuer'; expected='Vorsteuer aus anderen Rechnungen' }
+  [pscustomobject]@{ name='Voranmeldung -> fremder Vorsteuer-Verlauf'; start=$UStVA; target=$UStE; landing='Vorsteuer aus anderen Rechnungen'; expected='Meldepflichtige oder nicht steuerbare Umsätze' }
   [pscustomobject]@{ name='1. Reise -> Reisekosten'; start='1. Reise'; target='Reisekosten'; landing='Telefon/Mobilfunk/Internet'; expected='Reisekosten' }
 )) {
   $result = Invoke-Walk $case.start $case.target @{ "$($case.start)|Zurück" = $case.landing }
