@@ -185,3 +185,22 @@ if ((Get-CurrentHeading ([IntPtr]::Zero) $null -CompactFallback) -ne 'walked' -o
 }
 
 Write-Output 'goto-Wartezeiten: begrenzt; verzoegert erreichte Ziele werden vor weiterem Invoke bestaetigt - bestanden'
+
+$headingWait = @($ast.FindAll({param($node)
+  $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'WarteAufUeberschrift'
+}, $true))[0]
+Invoke-Expression $headingWait.Extent.Text
+$knownTarget = [pscustomobject]@{page='target'}
+$script:targetReads = 0
+function AktuelleUeberschrift { param($window) 'Zielseite' }
+function Test-KnownPageHeading { param($heading,$page) $heading -ceq 'Zielseite' }
+function IstZielseite { param($window,$heading) $script:targetReads++; $script:targetReads -ge $script:readyAt }
+function Fail { param($message,$kind,$details) throw $kind }
+$script:readyAt = 3
+$landed = WarteAufUeberschrift ([IntPtr]4242) 'Startseite' 'Zielseite' 1000
+if ($landed -cne 'Zielseite' -or $script:targetReads -ne 3) { throw 'Eine fruehe Zielueberschrift ueberholte die vollstaendige Feldbindung.' }
+$script:targetReads=0; $script:readyAt=[int]::MaxValue
+$incompleteTargetFailed=$false
+try { $null = WarteAufUeberschrift ([IntPtr]4242) 'Startseite' 'Zielseite' 250 }
+catch { $incompleteTargetFailed=$_.Exception.Message -ceq 'navigation-blocked' }
+if (-not $incompleteTargetFailed) { throw 'Eine Zielueberschrift ohne gebundene Felder erlaubte eine weitere Navigation.' }

@@ -213,13 +213,13 @@ foreach ($required in @(
   '@(Get-SSEMenuPopupWindows $TargetPid).Count',
   'if (-not $Open -and $popups -eq 0) { return $true }',
   'ExpandCollapseState]::Expanded) { return $true }',
-  'Start-Sleep -Milliseconds 50',
-  '} while ($wait.ElapsedMilliseconds -lt $TimeoutMs)'
+  'Start-Sleep -Milliseconds ([Math]::Min(50, $remaining))',
+  '} while ($true)'
 )) {
   Assert-True ($popupWait.Contains($required)) "Wait-SSEMenuPopup fehlt der Popup-Vertrag '$required'."
 }
 $menuOpenBlock = Get-WorkerFunctionText 'Open-SSEMenuByName'
-Assert-True ($menuOpenBlock.Contains('$null = Wait-SSEMenuPopup $pattern $targetPid $true 700')) `
+Assert-True ($menuOpenBlock.Contains('if (-not (Wait-SSEMenuPopup $pattern $targetPid $true 700))')) `
   'Open-SSEMenuByName wartet nicht mehr begrenzt bis zum beobachteten Popup-Zustand.'
 Assert-True (-not $menuOpenBlock.Contains('Start-Sleep -Milliseconds 700')) `
   'Open-SSEMenuByName wartet weiterhin fest statt bis zum beobachteten Popup-Zustand.'
@@ -1150,3 +1150,64 @@ foreach ($forbidden in @("Arg `$a 'name'", "Arg `$a 'aid'", "Arg `$a 'x'", "Arg 
 }
 
 Write-Output 'BelegManager: focusless Liste aktiv; neun historische Vordergrundpfade vor Dispatcher und UI blockiert.'
+
+# Menue-Lesungen duerfen nie mit einer stillen Teilliste erfolgreich enden.
+# Die echten Funktionen laufen hier mit getrennten Wurzel-/Popup-Beobachtungen.
+Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+Invoke-Expression (Get-WorkerFunctionText 'Read-SSEOpenMenuEntries')
+Invoke-Expression (Get-WorkerFunctionText 'Read-SSEMenuTree')
+function Fail { param($message,$kind) throw $kind }
+function Test-Versand { param($name) $name -ceq 'ELSTER' }
+function Test-SSEDestructiveAction { param($name) $false }
+function ConvertTo-MenuLabel { param($name) $name }
+function Get-SSEMenuPopupWindows {
+  param($targetPid)
+  if ($script:menuPopupVisible) { [pscustomobject]@{hwnd=22;cls='Popup'} }
+}
+function Walk-Tree {
+  param($window,$maxNodes,$maxDepth)
+  if ([int64]$window -eq 11) { return $script:menuRoot }
+  if ($script:menuMode -ceq 'read-failed') { throw 'Unreadable popup' }
+  [pscustomobject]@{
+    stats=[pscustomobject]@{truncated=($script:menuMode -ceq 'popup-truncated');err=0}
+    nodes=$(if ($script:menuMode -ceq 'empty') { @() } else {
+      @([pscustomobject]@{type='MenuItem';name='Sichern';rid='save';on=$true})
+    })
+  }
+}
+$script:menuPattern = [pscustomobject]@{expands=0;collapses=0}
+$script:menuPattern | Add-Member ScriptMethod Expand { $this.expands++; $script:menuPopupVisible=$true }
+$script:menuPattern | Add-Member ScriptMethod Collapse { $this.collapses++; $script:menuPopupVisible=$false }
+$script:menuElement = [pscustomobject]@{}
+$script:menuElement | Add-Member ScriptMethod TryGetCurrentPattern {param($key,$pattern) $pattern.Value=$script:menuPattern; $true}
+function Get-LiveElement { param($window,$rid) $script:menuElement }
+function Wait-SSEMenuPopup {
+  param($pattern,$targetPid,$opened,$timeoutMs)
+  if ($opened) { return $script:menuMode -cne 'open-unconfirmed' }
+  $script:menuMode -cne 'close-unconfirmed'
+}
+$script:menuRoot = [pscustomobject]@{
+  stats=[pscustomobject]@{truncated=$false;err=0}
+  nodes=@(
+    [pscustomobject]@{type='MenuBar';name='';p=-1;x=0}
+    [pscustomobject]@{type='MenuItem';name='Datei';p=0;x=1;rid='file'}
+    [pscustomobject]@{type='MenuItem';name='ELSTER';p=0;x=2;rid='elster'}
+  )
+}
+$script:menuMode='complete'; $script:menuPopupVisible=$false
+$completeMenus = @(Read-SSEMenuTree ([IntPtr]11) 42)
+Assert-True ($completeMenus.Count -eq 2 -and $completeMenus[0].anzahl -eq 1 -and
+  $completeMenus[1].gesperrt -and $script:menuPattern.expands -eq 1 -and $script:menuPattern.collapses -eq 1) `
+  'Vollstaendiges Menue oder gesperrter Uebermittlungsweg wurde falsch gelesen.'
+foreach ($mode in @('open-unconfirmed','read-failed','popup-truncated','empty','close-unconfirmed','root-truncated')) {
+  $script:menuMode=$mode; $script:menuPopupVisible=$false
+  $script:menuPattern.expands=0; $script:menuPattern.collapses=0
+  $script:menuRoot.stats.truncated=$mode -ceq 'root-truncated'
+  $failed=$false
+  try { $null = Read-SSEMenuTree ([IntPtr]11) 42 } catch { $failed=$true }
+  Assert-True $failed "Unvollstaendige Menue-Beobachtung '$mode' lieferte Erfolg."
+  $expectedOpens = $(if ($mode -ceq 'root-truncated') {0} else {1})
+  Assert-True ($script:menuPattern.expands -eq $expectedOpens -and $script:menuPattern.collapses -eq $expectedOpens -and
+    -not $script:menuPopupVisible) "Menue '$mode' wurde im Fehlerfall nicht genau einmal geschlossen."
+}
+Write-Output 'Menue: nur vollstaendige Lesung, bestaetigtes Oeffnen und Zuklappen im Fehlerfall - bestanden'

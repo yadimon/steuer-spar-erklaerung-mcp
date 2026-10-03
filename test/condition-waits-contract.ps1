@@ -165,6 +165,14 @@ Assert-True ([regex]::Matches($workerSource, [regex]::Escape('$null = Wait-SSECo
   'Optionslesen und Auswahl muessen beide mit der bisherigen Oeffnungsfrist beobachten.'
 Assert-True ($workerSource.Contains('if (-not $freshPattern -or -not (Wait-SSEComboExpansionState $freshPattern $false 200))')) `
   'Optionslesen muss das Schliessen ueber den frisch gebundenen Zustand bestaetigen.'
+$deadlinePattern = [pscustomobject]@{watch=[Diagnostics.Stopwatch]::StartNew()}
+$deadlinePattern | Add-Member -MemberType ScriptProperty -Name Current -Value {
+  [pscustomobject]@{ExpandCollapseState=$(if ($this.watch.ElapsedMilliseconds -ge 90) {
+    [System.Windows.Automation.ExpandCollapseState]::Collapsed
+  } else { [System.Windows.Automation.ExpandCollapseState]::Expanded })}
+}
+Assert-True (Wait-SSEComboExpansionState $deadlinePattern $false 100) `
+  'Ein im letzten Pollintervall geschlossener Dropdown braucht noch eine abschliessende Beobachtung.'
 
 $combo = [pscustomobject]@{ rid='42.1'; aid='SSE_Application.AAV4GLEngineWindow31.centralWidget.Zeitraum' }
 function New-ComboElement([object[]]$Values) {
@@ -286,3 +294,62 @@ $stillOpen = Measure-Wait { Wait-SSEMenuPopup $null 77 $false 250 }
 Assert-True ($stillOpen.result -eq $false -and $stillOpen.elapsedMs -ge 250) 'Ein sichtbares Popup galt als geschlossen.'
 
 Write-Output 'Bedingte Wartezeiten: volles Signal oder volle Frist, zeichengenau, Sichern bestaetigt - bestanden'
+
+# Engine 31 liefert fuer FromPoint das Fenster unter seinem Combo-Popup.
+# Die letzte Pruefung vor mouse-down muss deshalb die aktuelle Option UND
+# ihren sichtbaren Listen-Vorfahren am gebundenen Punkt nachweisen.
+$pointDefinition = @($ast.FindAll({ param($node)
+  $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Test-SSEComboOptionPoint'
+}, $true))[0]
+Invoke-Expression $pointDefinition.Extent.Text
+Add-Type -TypeDefinition 'public static class ComboPointProperties { public static string ControlTypeProperty = "type"; }'
+$script:AE = [ComboPointProperties]
+$script:WLK = [pscustomobject]@{}
+$script:WLK | Add-Member ScriptMethod GetParent { param($element) $element.parent }
+function New-PointElement($Node, $Parent = $null) {
+  $element = [pscustomobject]@{ node=$Node; parent=$Parent; visible=$true; pattern=$null }
+  $element | Add-Member ScriptMethod GetCurrentPropertyValue { param($property)
+    if ($this.node.type -ceq 'List') { [System.Windows.Automation.ControlType]::List }
+    else { [System.Windows.Automation.ControlType]::ComboBox }
+  }
+  $element | Add-Member ScriptMethod TryGetCurrentPattern { param($key, $result)
+    $result.Value = $this.pattern; $null -ne $this.pattern
+  }
+  $element
+}
+function Get-LiveElement { param($window,$rid,$aid) $script:pointElements[$rid] }
+function Test-SSEElementVisible { param($element) $element.visible -is [bool] -and $element.visible -eq $true }
+function Test-SSEElementIdentity { param($element,$rid,$aid) $element.node.rid -ceq $rid -and $element.node.aid -ceq $aid }
+function Convert-ExactElementToNode { param($element) $element.node }
+$pointBinding = [pscustomobject]@{comboRid='1';comboAid='combo';optionRid='2';optionAid='combo.item';optionName='Option'}
+foreach ($failure in @('none','combo-hidden','combo-unknown','combo-stale','collapsed','option-hidden','option-unknown','option-stale','renamed','disabled','outside-option','outside-list','missing-list','hidden-list')) {
+  $list = New-PointElement ([pscustomobject]@{type='List';on=$true;x=10;y=10;w=100;h=100})
+  $option = New-PointElement ([pscustomobject]@{type='ListItem';rid='2';aid='combo.item';name='Option';on=$true;x=10;y=10;w=100;h=30}) $list
+  $comboPoint = New-PointElement ([pscustomobject]@{type='ComboBox';rid='1';aid='combo'})
+  $comboPoint.pattern = [pscustomobject]@{Current=[pscustomobject]@{ExpandCollapseState=[System.Windows.Automation.ExpandCollapseState]::Expanded}}
+  switch ($failure) {
+    'combo-hidden' {$comboPoint.visible=$false}
+    'combo-unknown' {$comboPoint.visible=$null}
+    'combo-stale' {$comboPoint.node.rid='old'}
+    'collapsed' {$comboPoint.pattern.Current.ExpandCollapseState=[System.Windows.Automation.ExpandCollapseState]::Collapsed}
+    'option-hidden' {$option.visible=$false}
+    'option-unknown' {$option.visible=$null}
+    'option-stale' {$option.node.rid='old'}
+    'renamed' {$option.node.name='Other'}
+    'disabled' {$option.node.on=$false}
+    'outside-option' {$option.node.x=30}
+    'outside-list' {$list.node.x=30}
+    'missing-list' {$option.parent=$null}
+    'hidden-list' {$list.visible=$false}
+  }
+  $script:pointElements = @{'1'=$comboPoint;'2'=$option}
+  $validPoint = Test-SSEComboOptionPoint ([IntPtr]4242) $pointBinding 20 20
+  Assert-True ($validPoint -eq ($failure -ceq 'none')) "Combo-Punktpruefung akzeptiert unvollstaendigen Zustand '$failure'."
+}
+$clickDefinition = @($ast.FindAll({ param($node)
+  $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Click-VerifiedPoint'
+}, $true))[0].Extent.Text
+$checkOffset = $clickDefinition.IndexOf('if ($BeforeClickCheck -and')
+Assert-True ($checkOffset -gt $clickDefinition.IndexOf('[SW]::SetCursorPos') -and
+  $checkOffset -lt $clickDefinition.IndexOf('[SW]::mouse_event(0x0002')) 'Die Popup-Bindung wird nicht unmittelbar vor dem ersten mouse-down geprueft.'
+Write-Output 'Combo-Punkt: frische Identitaet, sichtbares Popup und gebundene Geometrie vor mouse-down - bestanden'
