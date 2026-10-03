@@ -55,9 +55,11 @@ Ueberschriften, die im Blaetterpfad wiederkehren. Die §-13b-Unterseite steht
 in der Reihenfolge nur hinter dem Wareneinkauf, folgt gemessen aber auch auf
 'Bürobedarf' (Bürobedarf -> §-13b-Unterseite -> Fachliteratur), und 'Zurück'
 faehrt nach einem 'Weiter'-Lauf ueber dieselbe Seite zurueck.
+Die beiden Vorsteuer-Ueberschriften kommen sowohl in der Jahreserklaerung
+als auch in der Voranmeldung vor und beweisen deshalb keine Routenposition.
 #>
 function Get-SSERepeatedPagingTitles {
-  @('Innergem. Erwerb, § 13b UStG und Einfuhr')
+  @('Innergem. Erwerb, § 13b UStG und Einfuhr', 'Abziehbare Vorsteuer', 'Vorsteuer aus anderen Rechnungen')
 }
 
 <#
@@ -89,7 +91,9 @@ function Get-SSEGotoRoute {
     $MaxSteps = $null,
     [int]$Reserve = 20
   )
-  $startIndex = [array]::IndexOf($Order, $Start)
+  $startIndex = $(if ($Start -cin @(Get-SSERepeatedPagingTitles)) {
+    -1
+  } else { [array]::IndexOf($Order, $Start) })
   $targetIndex = [array]::IndexOf($Order, $Target)
   $known = [bool]($startIndex -ge 0 -and $targetIndex -ge 0)
   $checkedBack = [bool](-not $Direction -and $known -and $targetIndex -lt $startIndex)
@@ -155,6 +159,9 @@ function Test-SSEGotoLanding {
   }
   if ($Route.direction -cne 'Weiter') {
     return [pscustomobject]@{ verdict='continue'; position=[array]::IndexOf($Order, $Landing); message=$null }
+  }
+  if ($Landing -cin @(Get-SSERepeatedPagingTitles)) {
+    return [pscustomobject]@{ verdict='continue'; position=$Position; message=$null }
   }
   $index = [array]::IndexOf($Order, $Landing, $Position + 1)
   if ($index -lt 0) {

@@ -2944,7 +2944,9 @@ function Click-VerifiedPoint(
   [int]$SettleMs = 250,
   [ValidateRange(1,2)][int]$ClickCount = 1,
   [ValidateRange(1,3)][int]$ForegroundAttempts = 3,
-  [string]$ExpectedRuntimeId = ''
+  [string]$ExpectedRuntimeId = '',
+  [scriptblock]$BeforeClickCheck = $null,
+  $BeforeClickBinding = $null
 ) {
   if (-not $Node -or $Node.w -le 0 -or $Node.h -le 0) { Fail 'Klickziel hat keine sichtbare Flaeche.' 'offscreen' }
   $px = [int]($Node.x + $Node.w / 2); $py = [int]($Node.y + $Node.h / 2)
@@ -3017,6 +3019,17 @@ function Click-VerifiedPoint(
     if (-not $pointBound) {
       Hide-SSETopmost $Window
       Fail 'Der Klickpunkt gehoert nicht mehr zum exakt gebundenen UIA-Element. NICHT geklickt.' 'stale'
+    }
+  }
+  if ($BeforeClickCheck -and -not (& $BeforeClickCheck $Window $BeforeClickBinding $px $py)) {
+    Hide-SSETopmost $Window
+    Fail 'Das gebundene Klickziel ist unmittelbar vor dem Mausklick nicht mehr bestaetigt. NICHT geklickt.' 'stale'
+  }
+  if ($BeforeClickCheck) {
+    if (($null -ne $ExpectedInputTick -and -not (Test-SSELastInputUnchanged $ExpectedInputTick)) -or
+        -not (Get-SSEPointObstruction $Window $px $py).isBoundTarget) {
+      Hide-SSETopmost $Window
+      Fail 'Benutzereingabe oder Verdeckung nach der letzten Zielpruefung erkannt. NICHT geklickt.' 'interference'
     }
   }
   for ($clickNumber = 1; $clickNumber -le $ClickCount; $clickNumber++) {
@@ -5629,6 +5642,14 @@ $script:SSE_LAST_SNAPSHOT = $null
 
 # Methoden statt Eigenschaften: Ein fehlgeschlagener Eigenschaftsabruf liefert
 # in PowerShell $null statt einer Ausnahme und saehe wie ein Wert aus.
+function Test-SSEElementVisible($Element) {
+  if (-not $Element) { return $false }
+  try {
+    $offscreen = $Element.GetCurrentPropertyValue($script:AE::IsOffscreenProperty)
+    return [bool]($offscreen -is [bool] -and -not $offscreen)
+  } catch { $false }
+}
+
 function Test-SSEElementIdentity($Element, [string]$RuntimeId, [string]$AutomationId, [string]$Name = '') {
   if (-not $Element -or -not $RuntimeId) { return $false }
   try {
@@ -5648,10 +5669,11 @@ function Set-SSEAidElement([string]$Key, $Element) {
   $true
 }
 
-function Get-SSEAidElement([string]$Key, [string]$AutomationId, [string]$Name) {
+function Get-SSEAidElement([string]$Key, [string]$AutomationId, [string]$Name, [switch]$VisibleOnly) {
   $cached = $script:SSE_AID_ELEMENTS[$Key]
   if (-not $cached) { return $null }
-  if (Test-SSEElementIdentity $cached.element $cached.rid $AutomationId $Name) { return $cached.element }
+  if ((Test-SSEElementIdentity $cached.element $cached.rid $AutomationId $Name) -and
+      (-not $VisibleOnly -or (Test-SSEElementVisible $cached.element))) { return $cached.element }
   $script:SSE_AID_ELEMENTS.Remove($Key)
   $null
 }
@@ -5667,7 +5689,8 @@ function Find-SSEAutomationIdBelow($Parent, [string]$ParentAid, [string]$FullAid
     if ($childAid -ceq $FullAid) {
       $childName = $null
       if ($Name) { try { $childName = [string]$child.GetCurrentPropertyValue($script:AE::NameProperty) } catch { $childName = $null } }
-      if (-not $Name -or $childName -ceq $Name) { return $child }
+      if ((-not $Name -or $childName -ceq $Name) -and
+          (-not $Search.visibleOnly -or (Test-SSEElementVisible $child))) { return $child }
     } elseif ($childAid -and $childAid.Length -gt $ParentAid.Length -and
               $FullAid.StartsWith("$childAid.", [StringComparison]::Ordinal)) {
       $null = Set-SSEAidElement "$($Search.window)|$childAid|" $child
@@ -5679,7 +5702,7 @@ function Find-SSEAutomationIdBelow($Parent, [string]$ParentAid, [string]$FullAid
   $null
 }
 
-function Find-ExactAutomationElement([IntPtr]$Hwnd, [string]$RelativeAutomationId, [string]$Name = '') {
+function Find-ExactAutomationElement([IntPtr]$Hwnd, [string]$RelativeAutomationId, [string]$Name = '', [switch]$VisibleOnly) {
   if (-not $RelativeAutomationId) { return $null }
   $root = $script:AE::FromHandle($Hwnd)
   $rootAid = $null
@@ -5687,9 +5710,10 @@ function Find-ExactAutomationElement([IntPtr]$Hwnd, [string]$RelativeAutomationI
   $fullAid = $(if ($RelativeAutomationId.StartsWith($rootAid)) { $RelativeAutomationId } else { "$rootAid$RelativeAutomationId" })
   $window = [string][int64]$Hwnd
   $key = "$window|$fullAid|$Name"
+  if ($VisibleOnly) { $key += '|visible' }
 
   # 1. Merker
-  $element = Get-SSEAidElement $key $fullAid $Name
+  $element = Get-SSEAidElement $key $fullAid $Name -VisibleOnly:$VisibleOnly
   if ($element) { return $element }
 
   # 2. Letzter Baumlauf desselben Fensters: erster Knoten mit dieser Id.
@@ -5698,15 +5722,16 @@ function Find-ExactAutomationElement([IntPtr]$Hwnd, [string]$RelativeAutomationI
     foreach ($node in $snapshot.nodes) {
       if ([string]$node.aid -cne $fullAid -or ($Name -and [string]$node.name -cne $Name)) { continue }
       $candidate = $script:UIAElementCache[[string]$node.rid]
-      if ((Test-SSEElementIdentity $candidate ([string]$node.rid) $fullAid $Name) -and (Set-SSEAidElement $key $candidate)) {
+      if ((Test-SSEElementIdentity $candidate ([string]$node.rid) $fullAid $Name) -and
+          (-not $VisibleOnly -or (Test-SSEElementVisible $candidate)) -and (Set-SSEAidElement $key $candidate)) {
         return $candidate
       }
-      break
+      if (-not $VisibleOnly) { break }
     }
   }
 
   # 3. Abstieg entlang der Id, ab dem tiefsten bekannten Vorfahren.
-  $search = @{ remaining = 2000; window = $window }
+  $search = @{ remaining = 2000; window = $window; visibleOnly = [bool]$VisibleOnly }
   $prefix = $fullAid
   while (($cut = $prefix.LastIndexOf('.')) -gt $rootAid.Length) {
     $prefix = $prefix.Substring(0, $cut)
@@ -5732,12 +5757,20 @@ function Find-SSENamedButton([IntPtr]$Hwnd, [string]$Name) {
   $key = "$([int64]$Hwnd)|$Name"
   $aid = [string]$script:SSE_NAMED_BUTTON_AIDS[$key]
   if ($aid) {
-    $element = Find-ExactAutomationElement $Hwnd $aid $Name
+    $element = Find-ExactAutomationElement $Hwnd $aid $Name -VisibleOnly
     if ($element) { return $element }
   }
   $walked = Walk-Tree $Hwnd 1200
-  $node = @($walked.nodes | Where-Object { $_.type -eq 'Button' -and [string]$_.name -ceq $Name } | Select-Object -First 1)
-  if (-not $node.Count) { return $null }
+  $node = @($walked.nodes | Where-Object {
+    $_.type -eq 'Button' -and [string]$_.name -ceq $Name -and
+    (Test-SSEElementVisible $script:UIAElementCache[[string]$_.rid])
+  } | Select-Object -First 1)
+  if (-not $node.Count) {
+    if (-not $walked.stats -or $walked.stats.truncated -or $walked.stats.err) {
+      Fail "Schaltflaeche '$Name' ist im unvollstaendigen Baum nicht nachgewiesen; ihre Abwesenheit ist unbekannt." 'snapshot-truncated'
+    }
+    return $null
+  }
   if ([string]$node[0].aid) { $script:SSE_NAMED_BUTTON_AIDS[$key] = [string]$node[0].aid }
   $script:UIAElementCache[[string]$node[0].rid]
 }
@@ -5805,7 +5838,7 @@ function Resolve-KnownFieldNode([IntPtr]$Hwnd, $Known) {
 
 function Get-KnownPageHeading([IntPtr]$Hwnd, $Known) {
   $node = Convert-ExactElementToNode (
-    Find-ExactAutomationElement $Hwnd ([string]$Known.page.headingAutomationIdRelative)
+    Find-ExactAutomationElement $Hwnd ([string]$Known.page.headingAutomationIdRelative) -VisibleOnly
   )
   if (-not $node -or -not $node.on) { return $null }
   [string]$node.name
@@ -5907,7 +5940,7 @@ function Get-CurrentHeading([IntPtr]$Hwnd, $Tree = $null, [switch]$CompactFallba
   $key = [string][int64]$Hwnd
   $cachedAid = [string]$script:SSE_HEADING_NODE_AID[$key]
   if ($cachedAid) {
-    $node = Find-ExactAutomationElement $Hwnd $cachedAid
+    $node = Find-ExactAutomationElement $Hwnd $cachedAid -VisibleOnly
     # Der Merker gilt nur, solange er denselben Knotentyp bindet. Wechselt die
     # Seite ihre Struktur, wird er verworfen und der Baumlauf entscheidet neu -
     # geraten wird nichts.
@@ -5949,13 +5982,44 @@ function Wait-SSEComboExpansionState($Pattern, [bool]$Expanded, [int]$TimeoutMs)
     $remaining = $TimeoutMs - $timer.ElapsedMilliseconds
     if ($remaining -le 0) { break }
     Start-Sleep -Milliseconds ([Math]::Min(25, $remaining))
-  } while ($timer.ElapsedMilliseconds -lt $TimeoutMs)
+  } while ($true)
   $false
 }
 
 # Jede Runde ist ein einzelner ValuePattern-Abruf am gelaufenen Element; die
 # Frist ist die bisherige feste Wartezeit und damit die Obergrenze. Ein
 # Fehlschlag aendert nichts: Danach entscheidet derselbe Readback wie bisher.
+function Test-SSEComboOptionPoint([IntPtr]$Window, $Binding, [int]$X, [int]$Y) {
+  try {
+    $comboElement = Get-LiveElement $Window $Binding.comboRid $Binding.comboAid
+    $pattern = $null
+    if (-not (Test-SSEElementIdentity $comboElement $Binding.comboRid $Binding.comboAid) -or
+        -not (Test-SSEElementVisible $comboElement) -or
+        -not $comboElement.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$pattern) -or
+        $pattern.Current.ExpandCollapseState -ne [System.Windows.Automation.ExpandCollapseState]::Expanded) { return $false }
+    $optionElement = Get-LiveElement $Window $Binding.optionRid $Binding.optionAid
+    if (-not (Test-SSEElementVisible $optionElement)) { return $false }
+    $option = Convert-ExactElementToNode $optionElement
+    if (-not $option -or -not $option.on -or $option.type -cne 'ListItem' -or
+        $option.rid -cne $Binding.optionRid -or $option.aid -cne $Binding.optionAid -or
+        $option.name -cne $Binding.optionName -or
+        -not $option.aid.StartsWith([string]$Binding.comboAid, [StringComparison]::Ordinal) -or
+        $X -lt $option.x -or $X -ge ($option.x + $option.w) -or
+        $Y -lt $option.y -or $Y -ge ($option.y + $option.h)) { return $false }
+    $parent = $script:WLK.GetParent($optionElement)
+    for ($level = 0; $level -lt 8 -and $parent; $level++) {
+      if ($parent.GetCurrentPropertyValue($script:AE::ControlTypeProperty) -eq [System.Windows.Automation.ControlType]::List) {
+        if (-not (Test-SSEElementVisible $parent)) { return $false }
+        $list = Convert-ExactElementToNode $parent
+        return [bool]($list -and $list.on -and $X -ge $list.x -and $X -lt ($list.x + $list.w) -and
+          $Y -ge $list.y -and $Y -lt ($list.y + $list.h))
+      }
+      $parent = $script:WLK.GetParent($parent)
+    }
+    $false
+  } catch { $false }
+}
+
 function Wait-SSEComboValue([IntPtr]$Hwnd, $Combo, [string]$Wanted, [int]$TimeoutMs) {
   $wait = [Diagnostics.Stopwatch]::StartNew()
   do {
@@ -7754,7 +7818,10 @@ function Open-SSEMenuByName([IntPtr]$MainHwnd, [string]$MenuName) {
   # Bis das Menue aufgeklappt UND sein Popup sichtbar ist, hoechstens 700 ms.
   $pattern = $null
   $null = $element.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$pattern)
-  $null = Wait-SSEMenuPopup $pattern $targetPid $true 700
+  if (-not (Wait-SSEMenuPopup $pattern $targetPid $true 700)) {
+    try { if ($pattern) { $pattern.Collapse() } } catch { }
+    Fail "Menue '$MenuName' wurde nicht als offen bestaetigt." 'postcondition-failed'
+  }
   $menu
 }
 
@@ -7777,8 +7844,10 @@ function Wait-SSEMenuPopup($Pattern, [int]$TargetPid, [bool]$Open, [int]$Timeout
       try { $state = $Pattern.Current.ExpandCollapseState } catch { $state = $null }
       if ($state -eq [System.Windows.Automation.ExpandCollapseState]::Expanded) { return $true }
     }
-    Start-Sleep -Milliseconds 50
-  } while ($wait.ElapsedMilliseconds -lt $TimeoutMs)
+    $remaining = $TimeoutMs - $wait.ElapsedMilliseconds
+    if ($remaining -le 0) { break }
+    Start-Sleep -Milliseconds ([Math]::Min(50, $remaining))
+  } while ($true)
   $false
 }
 
@@ -7793,7 +7862,11 @@ function Read-SSEOpenMenuEntries([int]$TargetPid) {
   } })
   foreach ($window in $popups) {
     $windowTree = $null
-    try { $windowTree = Walk-Tree ([IntPtr][int64]$window.hwnd) 400 10 } catch { continue }
+    try { $windowTree = Walk-Tree ([IntPtr][int64]$window.hwnd) 400 10 }
+    catch { Fail 'Ein Menue-Popup konnte nicht vollstaendig gelesen werden.' 'snapshot-failed' }
+    if (-not $windowTree -or -not $windowTree.stats -or $windowTree.stats.truncated -or $windowTree.stats.err) {
+      Fail 'Ein Menue-Popup lieferte einen unvollstaendigen Baum; keine Teilliste zurueckgegeben.' 'snapshot-truncated'
+    }
     foreach ($node in @($windowTree.nodes | Where-Object { $_.type -eq 'MenuItem' -and $_.name })) {
       $key = "$(ConvertTo-MenuLabel $node.name)|$($node.rid)"
       if ($seen.ContainsKey($key)) { continue }
@@ -7819,6 +7892,9 @@ function Read-SSEMenuTree([IntPtr]$MainHwnd, [int]$TargetPid) {
     Fail 'Ein Menue-Popup ist bereits offen; zuerst sse_menu_close aufrufen.' 'precondition-failed'
   }
   $tree = Walk-Tree $MainHwnd 1200
+  if (-not $tree.stats -or $tree.stats.truncated -or $tree.stats.err) {
+    Fail 'Die Menueleiste ist im unvollstaendigen Baum nicht vollstaendig nachgewiesen.' 'snapshot-truncated'
+  }
   $menuNodes = @($tree.nodes | Where-Object {
     $_.type -eq 'MenuItem' -and $_.name -and $_.p -ge 0 -and $tree.nodes[[int]$_.p].type -eq 'MenuBar'
   } | Sort-Object x)
@@ -7839,8 +7915,13 @@ function Read-SSEMenuTree([IntPtr]$MainHwnd, [int]$TargetPid) {
     $closed = $false
     try {
       $pattern.Expand()
-      $null = Wait-SSEMenuPopup $pattern $TargetPid $true 700
+      if (-not (Wait-SSEMenuPopup $pattern $TargetPid $true 700)) {
+        Fail "Menue '$($menuNode.name)' wurde nicht als offen bestaetigt." 'postcondition-failed'
+      }
       $eintraege = @(Read-SSEOpenMenuEntries $TargetPid)
+      if (-not $eintraege.Count) {
+        Fail "Menue '$($menuNode.name)' lieferte keine bestaetigten Eintraege; keine Teilliste zurueckgegeben." 'postcondition-failed'
+      }
     } finally {
       try { $pattern.Collapse() } catch { }
       $closed = Wait-SSEMenuPopup $pattern $TargetPid $false 500
@@ -11450,12 +11531,17 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           # wuerde also jeden Direktklick verweigern. Die Wurzelpruefung des
           # Klickpunkts und der anschliessende Readback bleiben.
           $optionNode = Convert-ExactElementToNode $option
-          if (-not $optionNode -or [string]$optionNode.type -cne 'ListItem' -or
+          if (-not $optionNode -or -not $optionNode.on -or [string]$optionNode.type -cne 'ListItem' -or
               [string]$optionNode.name -cne [string]$matches[0].name -or [string]$optionNode.rid -cne [string]$matches[0].rid) {
             try { $ec.Collapse() } catch { }
             Fail "Option '$wanted' hat sich vor dem Klick veraendert. NICHT geklickt." 'stale'
           }
-          $null = Click-VerifiedPoint $hwnd $optionNode
+          $optionBinding = [pscustomobject]@{
+            comboRid=$combo.rid; comboAid=$combo.aid
+            optionRid=$matches[0].rid; optionAid=$matches[0].aid; optionName=$matches[0].name
+          }
+          $null = Click-VerifiedPoint $hwnd $optionNode $inputBaseline `
+            -BeforeClickCheck ${function:Test-SSEComboOptionPoint} -BeforeClickBinding $optionBinding
         } else {
           $null = Click-VerifiedPoint $hwnd $matches[0]
         }
@@ -16189,12 +16275,20 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $letzte = $null
       do {
         $letzte = AktuelleUeberschrift $h
-        if ((IstZielseite $h $letzte) -or ($letzte -and $letzte -ne $vorher)) {
+        $headingMatchesTarget = $(if ($knownTarget) {
+          Test-KnownPageHeading $letzte $knownTarget.page
+        } else { [bool]($letzte -eq $erwartet) })
+        if ((IstZielseite $h $letzte) -or ($letzte -and $letzte -ne $vorher -and -not $headingMatchesTarget)) {
           return $letzte
         }
         Start-Sleep -Milliseconds 200
       } while ($sw.ElapsedMilliseconds -lt $timeoutMs)
-      return (AktuelleUeberschrift $h)
+      $letzte = AktuelleUeberschrift $h
+      if ($knownTarget -and (Test-KnownPageHeading $letzte $knownTarget.page) -and -not (IstZielseite $h $letzte)) {
+        Fail 'Die Zielueberschrift ist sichtbar, aber ihre profilierten Felder sind noch nicht vollstaendig gebunden; keine weitere Navigation ausgeloest.' `
+          'navigation-blocked' ([pscustomobject]@{ueberschrift=$letzte})
+      }
+      return $letzte
     }
     # Nach dem Invoke wartet der Klick auf den Seitenwechsel. Die festen 900 ms
     # waren dafuer das GESAMTE Budget: Die Blaetterschleife liest die
@@ -16281,7 +16375,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       # eintreffender Wechsel wuerde sonst eine zweite Navigation ueberholen.
       # Ein Pruefhinweis stoppt wie beim Blaettern sofort.
       # useSearch=false bleibt rein fokusfrei und erreicht diesen Weg nie.
-      $baumZiel = $(if ($script:DESKTOP_NAME) { $null } else { Get-SSEVisibleNavigationItem $ts.nodes $ziel })
+      $baumZiel = $(if ($script:DESKTOP_NAME -or $ts.stats.truncated -or $ts.stats.err) {
+        $null
+      } else { Get-SSEVisibleNavigationItem $ts.nodes $ziel })
       # Unmittelbar vor dem Klick frisch binden: Typ, Name, RuntimeId und
       # Aktivierbarkeit muessen noch stimmen, und der Punkt kommt aus dem
       # aktuellen Rechteck. Hat sich der Eintrag veraendert, ist nichts

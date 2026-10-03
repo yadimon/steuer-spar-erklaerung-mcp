@@ -56,7 +56,7 @@ Add-Type -TypeDefinition @'
 using System;
 using System.Collections.Generic;
 public sealed class FakeUiaElement {
-  public string Aid; public string Name; public int[] Rid; public bool Dead;
+  public string Aid; public string Name; public int[] Rid; public bool Dead; public object Offscreen = false;
   public FakeUiaElement Parent;
   public List<FakeUiaElement> Children = new List<FakeUiaElement>();
   public int[] GetRuntimeId() { FakeUia.Calls++; if (Dead) throw new InvalidOperationException("stale"); return Rid; }
@@ -65,6 +65,7 @@ public sealed class FakeUiaElement {
     if (Dead) throw new InvalidOperationException("stale");
     if ((string)property == "aid") return Aid;
     if ((string)property == "name") return Name;
+    if ((string)property == "offscreen") return Offscreen;
     throw new ArgumentException("property");
   }
 }
@@ -86,6 +87,7 @@ public static class FakeUia {
   public static FakeUiaElement Root;
   public static object AutomationIdProperty = "aid";
   public static object NameProperty = "name";
+  public static object IsOffscreenProperty = "offscreen";
   static int next = 1;
   public static FakeUiaElement FromHandle(IntPtr handle) { return Root; }
   public static FakeUiaElement Add(FakeUiaElement parent, string aid, string name) {
@@ -100,7 +102,7 @@ public static class FakeUia {
 $errors = $null
 $ast = [Management.Automation.Language.Parser]::ParseFile($workerPath, [ref]$null, [ref]$errors)
 Assert-True ($errors.Count -eq 0) "Worker-Parserfehler: $($errors[0].Message)"
-foreach ($name in @('Test-SSEElementIdentity', 'Set-SSEAidElement', 'Get-SSEAidElement',
+foreach ($name in @('Test-SSEElementVisible', 'Test-SSEElementIdentity', 'Set-SSEAidElement', 'Get-SSEAidElement',
                     'Find-SSEAutomationIdBelow', 'Find-ExactAutomationElement')) {
   $definition = @($ast.FindAll({
     param($node)
@@ -191,4 +193,40 @@ $script:SSE_AID_ELEMENTS = @{}
 $afterRebuild = Find-ExactAutomationElement ([IntPtr]1) '.MainToolBar.tb_sichern'
 Assert-True ([object]::ReferenceEquals($afterRebuild, $saveRebuilt)) 'Ein veralteter Knoten des letzten Baumlaufs wurde benutzt.'
 
-Write-Output 'Begrenzte Elementsuche: keine Teilbaumsuche, Abstieg entlang der Id, Identitaet vor jedem Merker - bestanden'
+# Der bisherige Treffer bleibt lebendig, wird aber verdeckt. Die sichtbare
+# Abfrage muss sowohl den Merker als auch einen alten Snapshot verwerfen und
+# den gleichnamigen neuen Knoten finden; Datenlesungen ohne Sichtbarkeits-
+# anforderung behalten ihre bisherigen Regeln.
+$script:SSE_LAST_SNAPSHOT = $null
+$visibleBefore = Find-ExactAutomationElement ([IntPtr]1) '.central.frame.Header.QLabel' -VisibleOnly
+Assert-True ([object]::ReferenceEquals($visibleBefore, $rebuilt)) 'Sichtbarer Ausgangsknoten fehlt.'
+$rebuilt.Offscreen = $true
+$visibleAfter = [FakeUia]::Add($header, 'App.Win.central.frame.Header.QLabel', 'Aktuelle Seite')
+$script:UIAElementCache[[string]$rebuilt.Rid[0]] = $rebuilt
+$script:SSE_LAST_SNAPSHOT = [pscustomobject]@{
+  window='1'; nodes=@([pscustomobject]@{aid=$rebuilt.Aid;name=$rebuilt.Name;rid=[string]$rebuilt.Rid[0]})
+}
+$freshVisible = Find-ExactAutomationElement ([IntPtr]1) '.central.frame.Header.QLabel' -VisibleOnly
+Assert-True ([object]::ReferenceEquals($freshVisible, $visibleAfter)) 'Ein lebendiger, aber verdeckter Merker oder Snapshot verdeckt die neue Ueberschrift.'
+$visibleAfter.Offscreen = $null
+Assert-True (-not (Test-SSEElementVisible $visibleAfter)) 'Unbekannte Sichtbarkeit galt als sichtbar.'
+$visibleAfter.Offscreen = $true
+Assert-True ($null -eq (Find-ExactAutomationElement ([IntPtr]1) '.central.frame.Header.QLabel' -VisibleOnly)) 'Nur verdeckte Treffer galten als sichtbares Ziel.'
+
+Write-Output 'Begrenzte Elementsuche: keine Teilbaumsuche, Abstieg entlang der Id, Identitaet und erforderliche Sichtbarkeit vor jedem Merker - bestanden'
+
+# Nicht gefundene Blaetterschalter: erst ein vollstaendiger Baum beweist ihre
+# Abwesenheit. Ein limitierter Baum muss unbekannt melden, nicht dead-end.
+$buttonDefinition = @($ast.FindAll({ param($node)
+  $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Find-SSENamedButton'
+}, $true))[0]
+Invoke-Expression $buttonDefinition.Extent.Text
+$script:SSE_NAMED_BUTTON_AIDS = @{}
+$script:buttonTree = [pscustomobject]@{nodes=@();stats=[pscustomobject]@{truncated=$true;err=0}}
+function Walk-Tree { $script:buttonTree }
+function Fail { param($Message,$Kind) throw $Kind }
+$unknown = $false
+try { $null = Find-SSENamedButton ([IntPtr]1) 'Weiter' } catch { $unknown = $_.Exception.Message -ceq 'snapshot-truncated' }
+Assert-True $unknown 'Ein abgeschnittener Baum behauptete einen fehlenden Blaetterschalter.'
+$script:buttonTree.stats.truncated = $false
+Assert-True ($null -eq (Find-SSENamedButton ([IntPtr]1) 'Weiter')) 'Eine bestaetigte Abwesenheit muss ohne geratenen Schalter enden.'

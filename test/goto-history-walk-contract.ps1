@@ -145,7 +145,7 @@ Assert-True ((@($navtop0.buttons) -join ',') -ceq 'Zurück') 'Nach dem Fehlschri
 
 # 2. Verlauf weicht vom Pfad ab (nav-visibility) und 3. Altfall Reisekosten.
 foreach ($case in @(
-  [pscustomobject]@{ name='Abziehbare Vorsteuer -> UStE'; start='Abziehbare Vorsteuer'; target=$UStE; landing=$UStVA; expected='Steuerschuldner nach § 13b UStG' }
+  [pscustomobject]@{ name='Vorsteuerberichtigung -> UStE'; start='Vorsteuerberichtigungen 2025'; target=$UStE; landing=$UStVA; expected='Vorsteuer aus anderen Rechnungen' }
   [pscustomobject]@{ name='1. Reise -> Reisekosten'; start='1. Reise'; target='Reisekosten'; landing='Telefon/Mobilfunk/Internet'; expected='Reisekosten' }
 )) {
   $result = Invoke-Walk $case.start $case.target @{ "$($case.start)|Zurück" = $case.landing }
@@ -224,3 +224,12 @@ $gotoText = (@($gotoClauses[0].Clauses | Where-Object { $_.Item1.Extent.Text -ce
 Assert-True (-not $gotoText.Contains('HistoryToolbarBtnSSE')) 'goto drueckt wieder einen Verlaufspfeil.'
 
 Write-Output 'goto-Blaetterweg: eine Richtung, gepruefter Rueckweg, Sackgasse, Kreis und Budget - bestanden'
+
+# Wiederkehrende UStE-/UStVA-Titel bestimmen keine eindeutige Startposition.
+foreach ($title in @(Get-SSERepeatedPagingTitles)) {
+  $ambiguousRoute = Route $title 'Bürobedarf'
+  Assert-True ($ambiguousRoute.startIndex -eq -1 -and -not $ambiguousRoute.checkedBack -and
+               $ambiguousRoute.direction -ceq 'Weiter') 'Ein wiederkehrender Titel erzeugt einen geratenen Rueckweg.'
+  $landing = Test-SSEGotoLanding -Route $ambiguousRoute -Order $order -Position -1 -From 'Unbekannt' -Landing $title
+  Assert-True ($landing.verdict -ceq 'continue' -and $landing.position -eq -1) 'Eine mehrdeutige Landung erzeugt eine falsche Position oder ein Ueberspringen.'
+}

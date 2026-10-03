@@ -46,8 +46,11 @@ Assert-True ($searchBlocks.Count -eq 1) 'Der Suchblock von goto ist nicht eindeu
 $searchStatements = @($searchBlocks[0].Clauses[0].Item2.Statements)
 
 $statementTexts = @($searchStatements | ForEach-Object { $_.Extent.Text })
-$selectionIndex = [array]::IndexOf($statementTexts,
-  '$baumZiel = $(if ($script:DESKTOP_NAME) { $null } else { Get-SSEVisibleNavigationItem $ts.nodes $ziel })')
+$selectionIndex = [array]::FindIndex($statementTexts, [Predicate[string]]{
+  param($text) $text.StartsWith('$baumZiel = ')
+})
+Assert-True ($statementTexts[$selectionIndex].Contains('$ts.stats.truncated -or $ts.stats.err')) `
+  'Ein unvollstaendiger Baum darf keinen eindeutigen Navigationsknoten behaupten.'
 $searchIndex = [array]::IndexOf($statementTexts, '$suchfeld = Get-SSESearchFieldNode $ts')
 Assert-True ($statementTexts[0] -ceq '$ts = Walk-Tree $hwnd 1500') `
   'Der Suchblock beginnt nicht mehr mit dem gemeinsamen Vorlauf.'
@@ -59,7 +62,7 @@ $navAid = 'SSE_Application.AAV4GLEngineWindow31.centralWidget.SearchSplitter.Top
 function NavNode([int]$I, [int]$P, [string]$Type, [string]$Name, [int]$Y, [int]$X = 25, [int]$W = 494, [int]$H = 43) {
   [pscustomobject]@{ i=$I; p=$P; d=1; type=$Type; name=$Name; aid=$navAid; x=$X; y=$Y; w=$W; h=$H; on=$true; rid="7.$I" }
 }
-$navTree = [pscustomobject]@{ nodes = @(
+$navTree = [pscustomobject]@{ stats=[pscustomobject]@{truncated=$false;err=0}; nodes = @(
   (NavNode 0 -1 'Tree'     ''                          186 -X 0 -W 529 -H 600)
   (NavNode 1  0 'TreeItem' 'Steuererklaerung'          186)
   (NavNode 2  0 'TreeItem' 'Zielseite'                 229)
@@ -248,3 +251,14 @@ Assert-True ($searchEmits.Count -eq 1 -and
   'Der Erfolg ueber einen Suchtreffer verschweigt einen vorherigen Navigationsbaum-Versuch.'
 
 Write-Output 'goto-Navigationsbaum: alle Vertraege bestanden'
+
+# Ein Name kann in einem abgeschnittenen Baum nur scheinbar eindeutig sein.
+$navTree.stats.truncated = $true
+$incompleteTree = Invoke-NavigationBlock 'Zielseite' '' 'Zielseite' @()
+Assert-True ($incompleteTree.clicks.Count -eq 0 -and $incompleteTree.liveReads.Count -eq 0 -and
+  $incompleteTree.waits.Count -eq 0 -and $null -eq $incompleteTree.emitted) 'Ein abgeschnittener Navigationsbaum loeste einen Klick aus.'
+$navTree.stats.truncated = $false
+$navTree.stats.err = 1
+$failedTree = Invoke-NavigationBlock 'Zielseite' '' 'Zielseite' @()
+Assert-True ($failedTree.clicks.Count -eq 0 -and $failedTree.liveReads.Count -eq 0) 'Ein fehlerhafter Navigationsbaum loeste einen Klick aus.'
+$navTree.stats.err = 0
