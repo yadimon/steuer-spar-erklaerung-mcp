@@ -7954,12 +7954,17 @@ function Get-SSEOpenMenuEntryMatches([IntPtr]$MainHwnd, [int]$TargetPid, [string
   # Qt stellt dasselbe Popup teilweise sowohl ueber sein echtes Popupfenster als
   # auch ueber ein SysShadow-Fenster bereit. RuntimeId + normalisierte
   # Beschriftung duerfen deshalb nur einmal zaehlen.
-  $menuWindows = @(Get-Windows 'SSE' | Where-Object { [int]$_.pid -eq $TargetPid } | Sort-Object @{ Expression = {
+  $menuWindows = @(Get-SSEMenuPopupWindows $TargetPid | Sort-Object @{ Expression = {
     if ($_.cls -match 'PopupDropShadow') { 0 } elseif ($_.cls -eq 'SysShadow') { 2 } else { 1 }
   } })
   foreach ($window in $menuWindows) {
+    $windowTree = $null
     try {
       $windowTree = Walk-Tree ([IntPtr][int64]$window.hwnd) 600 10
+    } catch { Fail 'Ein offenes Menue-Popup konnte nicht sicher gelesen werden; kein Eintrag geklickt.' 'snapshot-failed' }
+    if (-not $windowTree -or -not $windowTree.stats -or $windowTree.stats.truncated -or $windowTree.stats.err) {
+      Fail 'Ein offenes Menue-Popup lieferte keinen vollstaendigen Baum; Eindeutigkeit des Eintrags ist unbekannt.' 'snapshot-truncated'
+    }
       foreach ($node in @($windowTree.nodes | Where-Object {
         $_.type -eq 'MenuItem' -and $_.name -and
         ($_.name -eq $EntryName -or (ConvertTo-MenuLabel $_.name) -eq $wantedLabel)
@@ -7969,7 +7974,6 @@ function Get-SSEOpenMenuEntryMatches([IntPtr]$MainHwnd, [int]$TargetPid, [string
         $seen[$key] = $true
         $null = $matches.Add([pscustomobject]@{ hwnd = [IntPtr][int64]$window.hwnd; node = $node })
       }
-    } catch { }
   }
   @($matches)
 }
