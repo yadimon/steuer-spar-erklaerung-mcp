@@ -5934,6 +5934,25 @@ function Get-CurrentHeading([IntPtr]$Hwnd, $Tree = $null, [switch]$CompactFallba
 }
 
 # Wartet begrenzt, bis eine bereits gebundene ComboBox den Zielwert meldet.
+# Nur ein expliziter vollstaendiger Zustand bestaetigt das Oeffnen oder
+# Schliessen. Ein veraltetes Pattern, Lesefehler und Teilzustaende bleiben
+# unbekannt; die bisherige feste Wartezeit bleibt die Obergrenze.
+function Wait-SSEComboExpansionState($Pattern, [bool]$Expanded, [int]$TimeoutMs) {
+  $expected = $(if ($Expanded) {
+    [System.Windows.Automation.ExpandCollapseState]::Expanded
+  } else { [System.Windows.Automation.ExpandCollapseState]::Collapsed })
+  $timer = [Diagnostics.Stopwatch]::StartNew()
+  do {
+    $observed = $null
+    try { $observed = $Pattern.Current.ExpandCollapseState } catch { }
+    if ($null -ne $observed -and $observed -eq $expected) { return $true }
+    $remaining = $TimeoutMs - $timer.ElapsedMilliseconds
+    if ($remaining -le 0) { break }
+    Start-Sleep -Milliseconds ([Math]::Min(25, $remaining))
+  } while ($timer.ElapsedMilliseconds -lt $TimeoutMs)
+  $false
+}
+
 # Jede Runde ist ein einzelner ValuePattern-Abruf am gelaufenen Element; die
 # Frist ist die bisherige feste Wartezeit und damit die Obergrenze. Ein
 # Fehlschlag aendert nichts: Danach entscheidet derselbe Readback wie bisher.
@@ -11140,7 +11159,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       Fail 'ComboBox bietet kein ExpandCollapsePattern.' 'no-expand-pattern'
     }
     if ($ec.Current.ExpandCollapseState -ne [System.Windows.Automation.ExpandCollapseState]::Expanded) { $ec.Expand() }
-    Start-Sleep -Milliseconds 450
+    $null = Wait-SSEComboExpansionState $ec $true 450
     $expanded = Walk-Tree $hwnd 1800 18
     $prefix = "$($combo.aid)"
     $options = @($expanded.nodes | Where-Object {
@@ -11156,7 +11175,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         $freshPattern.Collapse()
       }
     } catch { }
-    Start-Sleep -Milliseconds 200
+    if (-not $freshPattern -or -not (Wait-SSEComboExpansionState $freshPattern $false 200)) {
+      Fail 'ComboBox blieb nach dem Optionslesen unbestaetigt offen.' 'postcondition-failed'
+    }
     if (-not $options.Count) { Fail 'ComboBox wurde geoeffnet, aber keine zugeordneten Optionen waren lesbar.' 'not-found' }
     Emit ([pscustomobject]@{
       ok = $true; current = $current; combo = [pscustomobject]@{ rid = $combo.rid; aid = $combo.aid }
@@ -11236,7 +11257,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       Fail 'ComboBox bietet kein ExpandCollapsePattern.' 'no-expand-pattern'
     }
     if ($ec.Current.ExpandCollapseState -ne [System.Windows.Automation.ExpandCollapseState]::Expanded) { $ec.Expand() }
-    Start-Sleep -Milliseconds 450
+    $null = Wait-SSEComboExpansionState $ec $true 450
     if ($guardUserInput -and -not (Test-SSELastInputUnchanged $inputBaseline)) {
       try { $ec.Collapse() } catch { }
       Fail 'Fremde Benutzereingabe beim Oeffnen der ComboBox erkannt. NICHT ausgewaehlt.' 'interference'
