@@ -10,8 +10,8 @@
 # Die vollstaendige Id laesst sich danach aber gezielt abfragen.
 #
 # Dieser Vertrag zurrt die Sicherheitseigenschaften der Abkuerzung fest:
-#   1. Mit uebergebenem Baum antwortet die Funktion weiterhin allein aus
-#      diesem Baum. Der Merker wird dort nie gelesen; Engine 31 darf ihn nur
+#   1. Mit uebergebenem Baum bestimmt die Funktion den Kandidaten weiterhin aus
+#      diesem Baum und prueft seine frische Sichtbarkeit. Der Merker wird dort nie gelesen; Engine 31 darf ihn nur
 #      mit der AutomationId genau des Knotens setzen, dessen Text sie liefert.
 #   2. Der Merker gilt je Fenster und lebt nur im Prozess.
 #   3. Er wird nur benutzt, wenn er weiterhin einen `Text`-Knoten bindet.
@@ -46,14 +46,14 @@ $treePath = [regex]::Match($body, '(?s)if \(\$null -ne \$Tree\) \{(?<inner>.*?)\
 Assert-True $treePath.Success `
   'Mit uebergebenem Baum muss Get-CurrentHeading einen eigenen, direkten Antwortweg haben.'
 $treeBody = $treePath.Groups['inner'].Value
-Assert-True ($treeBody -match "\`$treeHeading = Get-SSEContainerChild \`$Tree\.nodes \(Get-SSEMainWindowSelectors\)\.heading 'Text'") `
+Assert-True ($treeBody -match "\`$treeHeading = Get-SSEVisibleHeadingNode \`$Hwnd \`$Tree") `
   'Der Baumweg muss denselben Containerknoten wie Get-SSEHeading binden.'
 Assert-True ($treeBody -match 'if \(\$treeHeading\) \{ return \[string\]\$treeHeading\.name \}') `
   'Der Baumweg muss den Text genau dieses Knotens liefern.'
 Assert-True ($treeBody -match 'return \$null') `
   'Ohne Ueberschriftenknoten im Baum darf nichts geraten werden.'
-Assert-True (-not ($treeBody -match 'Find-ExactAutomationElement|Walk-Tree')) `
-  'Der Baumweg darf weder gezielt abfragen noch einen eigenen Lauf starten.'
+Assert-True (-not ($treeBody -match 'Walk-Tree')) `
+  'Der Baumweg darf keinen eigenen Lauf starten.'
 $cacheUses = @([regex]::Matches($treeBody, 'SSE_HEADING_NODE_AID[^\r\n]*'))
 Assert-True ($cacheUses.Count -eq 1 -and
   $cacheUses[0].Value -eq 'SSE_HEADING_NODE_AID[[string][int64]$Hwnd] = [string]$treeHeading.aid') `
@@ -90,7 +90,56 @@ Assert-True ($walkIndex -ge 0) `
 
 # 6 Gemerkt wird die AutomationId genau des Knotens, den der bisherige Weg
 #   ausgewaehlt haette - nicht irgendein Text im Fenster.
-Assert-True ($body -match "Get-SSEContainerChild \`$walked\.nodes \(Get-SSEMainWindowSelectors\)\.heading 'Text'") `
+Assert-True ($body -match "Get-SSEVisibleHeadingNode \`$Hwnd \`$walked") `
   'Der zu merkende Knoten muss ueber denselben Containerweg bestimmt werden.'
 
 Write-Output 'Ueberschrift: Merker je Fenster, nur typgeprueft verwendet, sonst Baumlauf.'
+
+# Both tree paths must reject live, hidden labels before selecting a heading.
+Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+. (Join-Path $root 'powershell/structure-binding.ps1')
+foreach($name in @('Test-SSEElementVisible','Get-SSEVisibleHeadingNode','Get-CurrentHeading','AktuelleUeberschrift')) {
+  $definitions=@($ast.FindAll({param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name
+  },$true))
+  Assert-True ($definitions.Count -eq 1) "Heading function '$name' must be uniquely defined."
+  Invoke-Expression $definitions[0].Extent.Text
+}
+function Get-SSEMainWindowSelectors { [pscustomobject]@{heading='.clientHeader'} }
+function New-HeadingElement($Node,$Offscreen) {
+  $item=[pscustomobject]@{Offscreen=$Offscreen;Current=[pscustomobject]@{
+    ControlType=[System.Windows.Automation.ControlType]::Text;Name=$Node.name;AutomationId=$Node.aid
+  }}
+  $item|Add-Member ScriptMethod GetCurrentPropertyValue {param($property) $this.Offscreen}
+  $item
+}
+$oldNode=[pscustomobject]@{i=1;p=0;type='Text';name='Old page';aid='App.clientHeader.label';rid='1';on=$true;x=0;y=0}
+$newNode=[pscustomobject]@{i=2;p=0;type='Text';name='Current page';aid='App.clientHeader.label';rid='2';on=$true;x=0;y=10}
+$script:headingTree=[pscustomobject]@{nodes=@(
+  [pscustomobject]@{i=0;p=-1;type='Pane';aid='App.clientHeader'}
+  $oldNode;$newNode
+)}
+$script:headingElements=@{'1'=(New-HeadingElement $oldNode $true);'2'=(New-HeadingElement $newNode $false)}
+function Get-LiveElement {param($Hwnd,$Rid) $script:headingElements[[string]$Rid]}
+$script:headingWalks=0; $script:headingQueries=0
+function Walk-Tree {param($Hwnd,$MaxNodes) $script:headingWalks++; $script:headingTree}
+function Find-ExactAutomationElement {param($Hwnd,$Aid,[switch]$VisibleOnly)
+  Assert-True $VisibleOnly 'The cached heading must require fresh visibility.'
+  $script:headingQueries++; $null
+}
+$script:SSE_ENGINE_MAJOR=31; $script:SSE_HEADING_NODE_AID=@{}
+Assert-True ((Get-CurrentHeading ([IntPtr]1) $script:headingTree) -ceq 'Current page') `
+  'A hidden first tree label hid the current page.'
+Assert-True ($script:headingWalks -eq 0 -and $script:headingQueries -eq 0) `
+  'A supplied tree triggered another walk or used the old cached identity.'
+Assert-True ((Get-CurrentHeading ([IntPtr]1) $null -CompactFallback) -ceq 'Current page') `
+  'The fallback walk reused a hidden first label.'
+Assert-True ($script:headingWalks -eq 1 -and $script:headingQueries -eq 1) `
+  'An invalid cached heading did not use exactly one bounded fallback walk.'
+$script:SSE_HEADING_NODE_AID=@{}; $knownTarget=$null
+Assert-True ((AktuelleUeberschrift ([IntPtr]1)) -ceq 'Current page') `
+  'The first goto heading read bypassed visibility.'
+$script:headingElements['2'].Offscreen=$null
+Assert-True ($null -eq (Get-CurrentHeading ([IntPtr]1) $script:headingTree)) `
+  'An unknown or hidden tree label proved the current page.'
+Write-Output 'Heading tree fallbacks: fresh visibility, cached rejection and no hidden-label guessing - passed'

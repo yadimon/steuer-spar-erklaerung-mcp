@@ -1199,14 +1199,22 @@ $completeMenus = @(Read-SSEMenuTree ([IntPtr]11) 42)
 Assert-True ($completeMenus.Count -eq 2 -and $completeMenus[0].anzahl -eq 1 -and
   $completeMenus[1].gesperrt -and $script:menuPattern.expands -eq 1 -and $script:menuPattern.collapses -eq 1) `
   'Vollstaendiges Menue oder gesperrter Uebermittlungsweg wurde falsch gelesen.'
-foreach ($mode in @('open-unconfirmed','read-failed','popup-truncated','empty','close-unconfirmed','root-truncated')) {
+foreach ($case in @(
+  [pscustomobject]@{mode='open-unconfirmed';opens=1}
+  [pscustomobject]@{mode='read-failed';opens=1}
+  [pscustomobject]@{mode='popup-truncated';opens=1}
+  [pscustomobject]@{mode='empty';opens=1}
+  [pscustomobject]@{mode='close-unconfirmed';opens=1}
+  [pscustomobject]@{mode='root-truncated';opens=0}
+)) {
+  $mode=$case.mode
   $script:menuMode=$mode; $script:menuPopupVisible=$false
   $script:menuPattern.expands=0; $script:menuPattern.collapses=0
   $script:menuRoot.stats.truncated=$mode -ceq 'root-truncated'
   $failed=$false
   try { $null = Read-SSEMenuTree ([IntPtr]11) 42 } catch { $failed=$true }
   Assert-True $failed "Unvollstaendige Menue-Beobachtung '$mode' lieferte Erfolg."
-  $expectedOpens = $(if ($mode -ceq 'root-truncated') {0} else {1})
+  $expectedOpens = $case.opens
   Assert-True ($script:menuPattern.expands -eq $expectedOpens -and $script:menuPattern.collapses -eq $expectedOpens -and
     -not $script:menuPopupVisible) "Menue '$mode' wurde im Fehlerfall nicht genau einmal geschlossen."
 }
@@ -1240,7 +1248,6 @@ Invoke-Expression ($definition[0].Extent.Text.Replace('[SW]', '[ReceiptImportWai
 foreach ($case in @(
   [pscustomobject]@{ values=@($false); expected=$true; reads=1 }
   [pscustomobject]@{ values=@($true,$true,$false); expected=$true; reads=3 }
-  [pscustomobject]@{ values=@($true); expected=$false; reads=0 }
 )) {
   [ReceiptImportWaitContract.WindowSystem]::Observations = [bool[]]$case.values
   [ReceiptImportWaitContract.WindowSystem]::Reads = 0
@@ -1248,12 +1255,12 @@ foreach ($case in @(
   $result = Wait-SSEReceiptImportDialogClosed ([IntPtr]4711) 150
   Assert-ImportWait ($result -eq $case.expected) 'Wrong dialog close result.'
   Assert-ImportWait ([ReceiptImportWaitContract.WindowSystem]::LastHandle -eq 4711) 'Dialog wait lost its bound HWND.'
-  if ($case.expected) {
-    Assert-ImportWait ([ReceiptImportWaitContract.WindowSystem]::Reads -eq $case.reads) 'Wait did not stop on first confirmed close.'
-  } else {
-    Assert-ImportWait ($watch.ElapsedMilliseconds -ge 150) 'An open dialog lost part of its wait budget.'
-  }
+  Assert-ImportWait ([ReceiptImportWaitContract.WindowSystem]::Reads -eq $case.reads) 'Wait did not stop on first confirmed close.'
 }
+[ReceiptImportWaitContract.WindowSystem]::Observations = [bool[]]@($true)
+$watch = [Diagnostics.Stopwatch]::StartNew()
+Assert-ImportWait (-not (Wait-SSEReceiptImportDialogClosed ([IntPtr]4711) 150)) 'An open dialog was accepted as closed.'
+Assert-ImportWait ($watch.ElapsedMilliseconds -ge 150) 'An open dialog lost part of its wait budget.'
 [ReceiptImportWaitContract.WindowSystem]::Fail = $true
 $threw = $false
 try { $null = Wait-SSEReceiptImportDialogClosed ([IntPtr]4711) 150 } catch { $threw = $true }
@@ -1286,6 +1293,7 @@ function New-ImportObservation([string]$Failure = '') {
     'dialog' { $item.blocking = $true }
     'window-set' { $item.window = 'CHANGED' }
     'dirty-unknown' { $item.dirty = $null }
+    'dirty-changed' { $item.dirty = $true }
   }
   $item
 }
@@ -1313,7 +1321,13 @@ $windowSetBefore = [pscustomobject]@{fingerprint='WINDOWS'}; $dirtyBefore = $fal
 $script:sequence = @((New-ImportObservation 'preview'), (New-ImportObservation 'dialog'), (New-ImportObservation))
 $script:observationReads = 0
 . $observation
-Assert-ImportWait ($verified -and $script:observationReads -eq 3) 'Import must wait for the first complete proof, without an early partial result.'
+Assert-ImportWait ($verified -and $script:observationReads -ge 4) 'Import needs repeated complete proof after delayed readiness.'
+foreach ($lateFailure in @('dialog','dirty-unknown','dirty-changed','count','existing-row')) {
+  $script:sequence = @((New-ImportObservation), (New-ImportObservation $lateFailure))
+  $script:observationReads = 0
+  . $observation
+  Assert-ImportWait (-not $verified -and $script:observationReads -gt 1) "A late '$lateFailure' change was hidden by the first complete proof."
+}
 foreach ($failure in @('preview','incomplete-list','count','draft','existing-row','source-hash','dialog','window-set','dirty-unknown')) {
   $script:sequence = @((New-ImportObservation $failure)); $script:observationReads = 0
   $watch = [Diagnostics.Stopwatch]::StartNew()
@@ -1332,14 +1346,25 @@ Assert-ImportWait $boundaryClosed 'Die letzte Dialog-Beobachtung an der Fristgre
 [ReceiptImportWaitContract.WindowSystem]::Watch = $null
 $script:proofBoundaryWatch = [Diagnostics.Stopwatch]::StartNew()
 function Get-SSEReceiptManagerState {
+  if ($script:proofBoundaryWatch.ElapsedMilliseconds -ge 390) {
+    $script:currentObservation = New-ImportObservation
+  } else { $script:currentObservation = New-ImportObservation 'preview' }
+  $script:currentObservation
+}
+. $observation
+Assert-ImportWait ($verified -and $script:proofBoundaryWatch.ElapsedMilliseconds -ge 590) `
+  'Ein rechtzeitig stabiler vollstaendiger Import-Nachweis wurde uebersehen.'
+
+# Ein erster vollstaendiger Read kurz vor Ablauf beweist noch keine Ruhephase.
+$script:proofBoundaryWatch = [Diagnostics.Stopwatch]::StartNew()
+function Get-SSEReceiptManagerState {
   if ($script:proofBoundaryWatch.ElapsedMilliseconds -ge 690) {
     $script:currentObservation = New-ImportObservation
   } else { $script:currentObservation = New-ImportObservation 'preview' }
   $script:currentObservation
 }
 . $observation
-Assert-ImportWait ($verified -and $script:proofBoundaryWatch.ElapsedMilliseconds -ge 690) `
-  'Der vollstaendige Import-Nachweis waehrend der letzten Schlafstrecke wurde uebersehen.'
+Assert-ImportWait (-not $verified) 'Ein erstmalig vollstaendiger Read an der Fristgrenze wurde ohne Ruhephase akzeptiert.'
 
 # Offene Menueeintraege brauchen vollstaendige Popup-Nachweise.
 $definition=@($ast.FindAll({param($node)
@@ -1374,3 +1399,31 @@ foreach($mode in @('truncated','error','throw','missing-tree','missing-stats')) 
 $script:popups=@(); $script:walked.Clear()
 if(@(Get-SSEOpenMenuEntryMatches ([IntPtr]11) 42 'Sichern').Count -ne 0 -or $script:walked.Count){throw 'A closed menu triggered a root search'}
 Write-Output 'Menu lookup: popup scope, complete evidence, uniqueness and shadow deduplication - passed'
+
+# A missing expansion pattern must fail before any mutation or popup wait.
+$definition=@($ast.FindAll({param($node)
+  $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Open-SSEMenuByName'
+},$true))[0]
+Invoke-Expression $definition.Extent.Text
+$script:menuPatternRequests=New-Object System.Collections.ArrayList
+$script:unsupportedMenu=[pscustomobject]@{}
+$script:unsupportedMenu|Add-Member ScriptMethod GetCurrentPattern {
+  param($pattern)
+  $null=$script:menuPatternRequests.Add($pattern)
+  throw 'No expansion pattern'
+}
+function Walk-Tree {
+  [pscustomobject]@{nodes=@(
+    [pscustomobject]@{i=0;p=-1;type='MenuBar';name='Menu'}
+    [pscustomobject]@{i=1;p=0;type='MenuItem';name='Datei';rid='77';x=0}
+  )}
+}
+function Get-LiveElement { $script:unsupportedMenu }
+function Wait-SSEMenuPopup {throw 'An unsupported menu reached the popup wait'}
+$failed=$false
+try{$null=Open-SSEMenuByName ([IntPtr]11) 'Datei'}catch{$failed=$_.Exception.Message -ceq 'pattern-failed'}
+Assert-True $failed 'An unobservable menu expansion did not fail before acting.'
+Assert-True ($script:menuPatternRequests.Count -eq 1 -and
+  $script:menuPatternRequests[0] -eq [System.Windows.Automation.ExpandCollapsePattern]::Pattern) `
+  'An unsupported expansion invoked a different mutation pattern.'
+Write-Output 'Menu expansion: unsupported patterns rejected before mutation - passed'

@@ -145,7 +145,8 @@ function Test-SSEGotoLanding {
     if ($expected -and $Landing -ceq $expected) {
       return [pscustomobject]@{ verdict='continue'; position=$Position - 1; message=$null }
     }
-    if ($Landing -cin @(Get-SSERepeatedPagingTitles)) {
+    # Nur die bekannte wiederkehrende Detailseite gehoert zum Rueckweg.
+    if ($Landing -ceq 'Innergem. Erwerb, § 13b UStG und Einfuhr') {
       return [pscustomobject]@{ verdict='continue'; position=$Position; message=$null }
     }
     return [pscustomobject]@{
