@@ -27,7 +27,7 @@ function Assert-True([bool]$Condition, [string]$Message) {
 }
 
 . (Join-Path $root 'powershell\table-values.ps1')
-foreach ($name in @('Wait-SSEToggleSettled', 'Wait-SSEComboValue', 'Wait-SSESaveButtonDisabled', 'Wait-SSETableCellValue', 'Wait-SSEMenuPopup')) {
+foreach ($name in @('Wait-SSEToggleSettled', 'Wait-SSEComboValue', 'Wait-SSEComboExpansionState', 'Wait-SSESaveButtonDisabled', 'Wait-SSETableCellValue', 'Wait-SSEMenuPopup')) {
   $definitions = @($ast.FindAll({
     param($node)
     $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name
@@ -136,6 +136,36 @@ Assert-True ($workerSource.Contains('$null = Wait-SSEToggleSettled $togglePatter
   'Der Toggle wartet nicht mehr mit der alten Frist oder wertet einen unbekannten Vorzustand als gesichert.'
 
 # --- 2. ComboBox --------------------------------------------------------------
+$expanded = [System.Windows.Automation.ExpandCollapseState]::Expanded
+$collapsed = [System.Windows.Automation.ExpandCollapseState]::Collapsed
+$partial = [System.Windows.Automation.ExpandCollapseState]::PartiallyExpanded
+foreach ($case in @(
+  [pscustomobject]@{ name='schon offen'; wanted=$true; sequence=@($expanded); reads=1 }
+  [pscustomobject]@{ name='vollstaendig offen nach Zwischenzustand'; wanted=$true; sequence=@($collapsed,$partial,$expanded); reads=3 }
+  [pscustomobject]@{ name='schon geschlossen'; wanted=$false; sequence=@($collapsed); reads=1 }
+  [pscustomobject]@{ name='spaeter geschlossen'; wanted=$false; sequence=@($expanded,$collapsed); reads=2 }
+)) {
+  $pattern = New-ObservedElement 'ExpandCollapseState' $case.sequence
+  $stateWait = Measure-Wait { Wait-SSEComboExpansionState $pattern $case.wanted 2000 }
+  Assert-True ($stateWait.result -eq $true -and $pattern.reads.Count -eq $case.reads) `
+    "ComboBox '$($case.name)': Rueckkehr ohne den exakten bestaetigten Zustand."
+}
+foreach ($case in @(
+  [pscustomobject]@{ name='nur teilweise offen'; wanted=$true; pattern=(New-ObservedElement 'ExpandCollapseState' @($partial)) }
+  [pscustomobject]@{ name='weiter geschlossen'; wanted=$true; pattern=(New-ObservedElement 'ExpandCollapseState' @($collapsed)) }
+  [pscustomobject]@{ name='weiter offen'; wanted=$false; pattern=(New-ObservedElement 'ExpandCollapseState' @($expanded)) }
+  [pscustomobject]@{ name='Zustand unbekannt'; wanted=$false; pattern=(New-ObservedElement 'ExpandCollapseState' @($null)) }
+  [pscustomobject]@{ name='Element nicht mehr verfuegbar'; wanted=$false; pattern=(New-FailingElement) }
+)) {
+  $stateWait = Measure-Wait { Wait-SSEComboExpansionState $case.pattern $case.wanted 100 }
+  Assert-True ($stateWait.result -eq $false -and $stateWait.elapsedMs -ge 100) `
+    "ComboBox '$($case.name)': unbekannter oder falscher Zustand galt als bestaetigt."
+}
+Assert-True ([regex]::Matches($workerSource, [regex]::Escape('$null = Wait-SSEComboExpansionState $ec $true 450')).Count -eq 2) `
+  'Optionslesen und Auswahl muessen beide mit der bisherigen Oeffnungsfrist beobachten.'
+Assert-True ($workerSource.Contains('if (-not $freshPattern -or -not (Wait-SSEComboExpansionState $freshPattern $false 200))')) `
+  'Optionslesen muss das Schliessen ueber den frisch gebundenen Zustand bestaetigen.'
+
 $combo = [pscustomobject]@{ rid='42.1'; aid='SSE_Application.AAV4GLEngineWindow31.centralWidget.Zeitraum' }
 function New-ComboElement([object[]]$Values) {
   $element = [pscustomobject]@{ pattern=(New-ObservedElement 'Value' $Values) }
