@@ -5362,9 +5362,11 @@ var init_mcp_schemas_ui = __esm({
         pageId: external_exports.string().min(1).max(200).optional().describe(
           "Bevorzugte stabile pageId aus sse_page_objects; erkennt auch dynamische nummerierte Ueberschriften"
         ),
-        maxSteps: GOTO_MAX_STEPS.optional().describe("Hoechstzahl der Blaetterschritte, Vorgabe automatisch, maximal 200"),
+        maxSteps: GOTO_MAX_STEPS.optional().describe(
+          "Obergrenze der Blaetterschritte; das automatische Budget (Abstand plus Reserve) wird nie ueberschritten, maximal 200"
+        ),
         direction: external_exports.enum(["Weiter", "Zurück"]).optional().describe(
-          "Bei unbekannten Seiten die Suchrichtung fest vorgeben; verhindert einen langen Lauf in die falsche Richtung"
+          "Richtung fest vorgeben. 'Weiter' folgt dem Blaetterpfad, 'Zurück' dem Seitenverlauf der Sitzung und wird dann nicht gegen den Pfad geprueft"
         ),
         useSearch: external_exports.boolean().optional().describe(
           "Globale Qt-Suche zuerst versuchen; Vorgabe true. Auf verstecktem Desktop fuer einen rein linearen Lauf false setzen."
@@ -5426,7 +5428,11 @@ var init_mcp_schemas_ui = __esm({
         expectedAfter: external_exports.string().describe("Exakter Wert der Kontrollsumme nach dem Loeschen, z. B. '83.940,00'"),
         hwnd: WINDOW_HANDLE.optional()
       }).strict(),
-      "sse_menu": external_exports.object({ name: external_exports.string().optional().describe("z. B. 'Extras'"), hwnd: WINDOW_HANDLE.optional() }).strict(),
+      "sse_menu": external_exports.object({
+        name: external_exports.string().optional().describe("z. B. 'Extras'"),
+        alle: external_exports.boolean().optional().describe("true liest alle Hauptmenues samt Eintraegen in einem Aufruf; nicht zusammen mit name"),
+        hwnd: WINDOW_HANDLE.optional()
+      }).strict(),
       "sse_menu_click": external_exports.object({
         name: external_exports.string().describe("Exakter sichtbarer Menueeintrag aus sse_menu"),
         waitMs: UI_WAIT_MS.optional(),
@@ -5580,7 +5586,9 @@ var init_operation_schema_goto = __esm({
         "Stabile Page-Object-ID; bindet dynamische Ueberschriften und Pflichtfelder semantisch"
       ),
       maxSteps: GOTO_MAX_STEPS.optional(),
-      direction: external_exports.enum(["Weiter", "Zurück"]).optional().describe("Explizite lineare Suchrichtung"),
+      direction: external_exports.enum(["Weiter", "Zurück"]).optional().describe(
+        "Feste Richtung: 'Weiter' folgt dem Blaetterpfad, 'Zurück' dem Seitenverlauf"
+      ),
       useSearch: external_exports.boolean().optional().describe("Moderne Option fuer die globale Qt-Suche; Vorgabe true"),
       viaSuche: external_exports.boolean().optional().describe("Historischer Alias fuer useSearch"),
       hwnd: WINDOW_HANDLE.optional()
@@ -6847,6 +6855,7 @@ var init_result_utility_fields = __esm({
         menue: OPTIONAL_STRING,
         anzahl: OPTIONAL_NON_NEGATIVE_NUMBER,
         eintraege: OPTIONAL_ARRAY,
+        baum: OPTIONAL_ARRAY,
         hinweis: OPTIONAL_STRING
       },
       menu_close: {
@@ -29018,7 +29027,7 @@ function registerUiTools(registry2) {
     "sse_goto",
     {
       title: "Seite ansteuern",
-      description: "Navigiert bevorzugt ueber eine stabile pageId, alternativ ueber die exakte Ueberschrift. Die pageId erkennt auch dynamische nummerierte Seiten wie '1. Fahrzeug: ...'. Versucht zuerst die globale Suche und blaettert danach mit den fokusfreien UIA-Schaltflaechen 'Weiter'/'Zurueck'. Qt-Suchtreffer lassen sich auf einem versteckten Windows-Desktop zwar lesen, aber je nach Programmseite nicht aktivieren; dann faellt das Werkzeug auf den Blaetterpfad zurueck. Bei einem blockierenden Pruefhinweis stoppt es nach dem ersten Klick, statt Warnfenster zu stapeln, und meldet den vollstaendigen Weg statt einen Scheinerfolg. Fuer einen rein linearen Lauf kann useSearch=false gesetzt werden. Ein Navigationsbaum-Klick braucht den sichtbaren Desktop. 'Gewinnermittlung beginnen' bleibt eine bekannte Sackgasse ohne Vor-/Zurueck-Schalter.",
+      description: "Navigiert bevorzugt ueber eine stabile pageId, alternativ ueber die exakte Ueberschrift. Die pageId erkennt auch dynamische nummerierte Seiten wie '1. Fahrzeug: ...'. Steht das Ziel exakt und eindeutig im sichtbaren Navigationsbaum, klickt es auf dem sichtbaren Desktop direkt diesen Eintrag. Sonst versucht es die globale Suche und blaettert danach fokusfrei in genau einer Richtung: 'Weiter' folgt dem Blaetterpfad, 'Zurueck' dagegen dem Seitenverlauf und gilt automatisch nur als gepruefter Rueckweg; die erste Landung neben dem Pfad beendet den Lauf und nennt die aktuelle Seite. Qt-Suchtreffer lassen sich auf einem versteckten Windows-Desktop zwar lesen, aber je nach Programmseite nicht aktivieren; dann faellt das Werkzeug auf den Blaetterpfad zurueck. Bei einem blockierenden Pruefhinweis stoppt es nach dem ersten Klick, statt Warnfenster zu stapeln; Seiten ohne Blaetterschalter wie die Startseite und Kreise beenden den Lauf sofort. Gemeldet wird der vollstaendige Weg statt eines Scheinerfolgs. Fuer einen rein linearen Lauf kann useSearch=false gesetzt werden. Ein Navigationsbaum-Klick braucht den sichtbaren Desktop.",
       inputSchema: SSE_MCP_TOOL_SCHEMAS.sse_goto.shape,
       outputSchema: apiResultOutputSchema("goto")
     },
@@ -29099,9 +29108,15 @@ function registerUiTools(registry2) {
     "sse_menu",
     {
       title: "Menue oeffnen und lesen",
-      description: "Ohne name: listet die Menuezeile (Datei, Bearbeiten, Ansicht, Extras, Musterbriefe, Service, ?). Mit name: oeffnet das Menue und liefert seine Eintraege samt Aktivierungszustand und Sperrkennzeichen. Ueber die Menuezeile erreicht man Optionen, Datenuebernahme, Steuerrechner und Druckfunktionen - sonst waeren sie unerreichbar. Menues mit Uebermittlungsbezug sind gesperrt. Sicher schliessen mit sse_menu_close."
+      description: "Ohne name: listet die Menuezeile (Datei, Bearbeiten, Ansicht, Extras, Musterbriefe, Service, ?). Mit name: oeffnet das Menue und liefert seine Eintraege samt Aktivierungszustand und Sperrkennzeichen. Mit alle=true: liest alle Hauptmenues samt Eintraegen in einem Aufruf (baum); jedes Menue wird per ExpandCollapsePattern auf- und wieder zugeklappt, ohne Maus und Tasten. Ueber die Menuezeile erreicht man Optionen, Datenuebernahme, Steuerrechner und Druckfunktionen - sonst waeren sie unerreichbar. Menues mit Uebermittlungsbezug sind gesperrt. Sicher schliessen mit sse_menu_close."
     },
-    (r) => ({ menue: r.menue, menues: asArray(r.menues), eintraege: asArray(r.eintraege), hinweis: r.hinweis })
+    (r) => ({
+      menue: r.menue,
+      menues: asArray(r.menues),
+      eintraege: asArray(r.eintraege),
+      baum: asArray(r.baum),
+      hinweis: r.hinweis
+    })
   );
   registerApiTool(
     "sse_menu_click",

@@ -5852,9 +5852,11 @@ var init_mcp_schemas_ui = __esm({
         pageId: external_exports.string().min(1).max(200).optional().describe(
           "Bevorzugte stabile pageId aus sse_page_objects; erkennt auch dynamische nummerierte Ueberschriften"
         ),
-        maxSteps: GOTO_MAX_STEPS.optional().describe("Hoechstzahl der Blaetterschritte, Vorgabe automatisch, maximal 200"),
+        maxSteps: GOTO_MAX_STEPS.optional().describe(
+          "Obergrenze der Blaetterschritte; das automatische Budget (Abstand plus Reserve) wird nie ueberschritten, maximal 200"
+        ),
         direction: external_exports.enum(["Weiter", "Zurück"]).optional().describe(
-          "Bei unbekannten Seiten die Suchrichtung fest vorgeben; verhindert einen langen Lauf in die falsche Richtung"
+          "Richtung fest vorgeben. 'Weiter' folgt dem Blaetterpfad, 'Zurück' dem Seitenverlauf der Sitzung und wird dann nicht gegen den Pfad geprueft"
         ),
         useSearch: external_exports.boolean().optional().describe(
           "Globale Qt-Suche zuerst versuchen; Vorgabe true. Auf verstecktem Desktop fuer einen rein linearen Lauf false setzen."
@@ -5916,7 +5918,11 @@ var init_mcp_schemas_ui = __esm({
         expectedAfter: external_exports.string().describe("Exakter Wert der Kontrollsumme nach dem Loeschen, z. B. '83.940,00'"),
         hwnd: WINDOW_HANDLE.optional()
       }).strict(),
-      "sse_menu": external_exports.object({ name: external_exports.string().optional().describe("z. B. 'Extras'"), hwnd: WINDOW_HANDLE.optional() }).strict(),
+      "sse_menu": external_exports.object({
+        name: external_exports.string().optional().describe("z. B. 'Extras'"),
+        alle: external_exports.boolean().optional().describe("true liest alle Hauptmenues samt Eintraegen in einem Aufruf; nicht zusammen mit name"),
+        hwnd: WINDOW_HANDLE.optional()
+      }).strict(),
       "sse_menu_click": external_exports.object({
         name: external_exports.string().describe("Exakter sichtbarer Menueeintrag aus sse_menu"),
         waitMs: UI_WAIT_MS.optional(),
@@ -6067,7 +6073,9 @@ var init_operation_schema_goto = __esm({
         "Stabile Page-Object-ID; bindet dynamische Ueberschriften und Pflichtfelder semantisch"
       ),
       maxSteps: GOTO_MAX_STEPS.optional(),
-      direction: external_exports.enum(["Weiter", "Zurück"]).optional().describe("Explizite lineare Suchrichtung"),
+      direction: external_exports.enum(["Weiter", "Zurück"]).optional().describe(
+        "Feste Richtung: 'Weiter' folgt dem Blaetterpfad, 'Zurück' dem Seitenverlauf"
+      ),
       useSearch: external_exports.boolean().optional().describe("Moderne Option fuer die globale Qt-Suche; Vorgabe true"),
       viaSuche: external_exports.boolean().optional().describe("Historischer Alias fuer useSearch"),
       hwnd: WINDOW_HANDLE.optional()
@@ -13070,7 +13078,7 @@ async function executeQtNativeSubpages(client, args, timeoutMs, signal) {
     anzahl: subpages.length,
     unterseiten: subpages,
     nativeDurationMs: result.nativeDurationMs,
-    hinweis: "Hyperlinks sind bei doppelt exponierten Qt-Unterseiten der bevorzugte, PID-/Root-verifizierte Weg per sse_click_point. Reine oder unbeschriftete Buttons per rid mit sse_click oeffnen. Zurueck ueber sse_click name='Zurück' oder den Verlaufspfeil (aid HistoryToolbarBtnSSE)."
+    hinweis: "Hyperlinks sind bei doppelt exponierten Qt-Unterseiten der bevorzugte, PID-/Root-verifizierte Weg per sse_click_point. Reine oder unbeschriftete Buttons per rid mit sse_click oeffnen. Zurueck ueber sse_click name='Zurück'; es fuehrt zur zuvor angezeigten Seite, nicht zum Vorgaenger im Blaetterpfad."
   };
 }
 async function executeQtNativePositions(client, args, timeoutMs, signal) {
@@ -17832,6 +17840,7 @@ var init_result_utility_fields = __esm({
         menue: OPTIONAL_STRING,
         anzahl: OPTIONAL_NON_NEGATIVE_NUMBER,
         eintraege: OPTIONAL_ARRAY,
+        baum: OPTIONAL_ARRAY,
         hinweis: OPTIONAL_STRING
       },
       menu_close: {
@@ -21286,7 +21295,7 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
       if (signal?.aborted) abort();
     });
   }
-  async function target(args, deadline, signal) {
+  async function discoverOnce(args, deadline, signal) {
     try {
       const marker = readMarker();
       const binding = await discover({
@@ -21305,6 +21314,31 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
       if (error instanceof DesktopMarkerError) throw failure6(error.message, error.kind);
       throw error;
     }
+  }
+  async function target(args, deadline, signal) {
+    const settleUntil = Math.min(performance18.now() + NAMED_WINDOW_SETTLE_MS, deadline);
+    for (; ; ) {
+      try {
+        return await discoverOnce(args, deadline, signal);
+      } catch (error) {
+        const settling = typeof args.hwnd === "number" && error instanceof QtNativeTransportError && error.kind === "no-window";
+        if (!settling || signal?.aborted || performance18.now() + NAMED_WINDOW_POLL_MS >= settleUntil) throw error;
+      }
+      await pause(NAMED_WINDOW_POLL_MS, signal);
+    }
+  }
+  function pause(milliseconds, signal) {
+    return new Promise((resolvePause, reject) => {
+      const abort = () => {
+        clearTimeout(timer);
+        reject(failure6("Native discovery cancelled.", "aborted"));
+      };
+      const timer = setTimeout(() => {
+        signal?.removeEventListener("abort", abort);
+        resolvePause();
+      }, milliseconds);
+      signal?.addEventListener("abort", abort, { once: true });
+    });
   }
   async function obtain(args, deadline, signal) {
     if (stopped || shutdown.aborted || signal?.aborted) throw failure6("Native runtime is stopping or the request was cancelled.", "aborted");
@@ -21457,7 +21491,7 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
   }, { once: true });
   return runtime;
 }
-var contextSchema;
+var contextSchema, NAMED_WINDOW_SETTLE_MS, NAMED_WINDOW_POLL_MS;
 var init_qt_native_runtime = __esm({
   "src/qt-native-runtime.ts"() {
     "use strict";
@@ -21473,6 +21507,8 @@ var init_qt_native_runtime = __esm({
     init_qt_native_discovery();
     init_desktop_marker();
     contextSchema = external_exports.object({ ok: external_exports.literal(true), boundMain: external_exports.boolean(), unique: external_exports.boolean() }).passthrough();
+    NAMED_WINDOW_SETTLE_MS = 2e3;
+    NAMED_WINDOW_POLL_MS = 150;
   }
 });
 

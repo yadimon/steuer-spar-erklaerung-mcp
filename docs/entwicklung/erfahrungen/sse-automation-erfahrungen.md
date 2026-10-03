@@ -121,6 +121,30 @@ erfolgreicher Programmstart. Nach Ablauf der Startfrist ausschließlich die beim
 Start erzeugte PID beenden, die Desktop-Marke entfernen und `startup-timeout`
 melden.
 
+### UIA-Last und fremde UIA-Clients
+
+Jede UIA-Anfrage arbeitet SSE in seinem GUI-Thread ab. Eine Suche über einen
+Teilbaum (`FindFirst`/`FindAll` mit `Descendants` oder `Subtree`, ebenso
+`GetUpdatedCache` über einen Teilbaum) läuft dort vollständig; Qt legt dabei für
+jede besuchte Tabellenzelle – auch auf verdeckten Seiten – ein Zugriffsobjekt
+an. Fehlt das Ziel, etwa während eines Seitenaufbaus, wird der ganze Baum
+durchsucht, und SSE reagiert bis zum Ende nicht. Ein Zeitlimit auf Clientseite
+schützt nicht: SSE rechnet weiter, auch wenn der Client aufgegeben hat.
+
+- Der Worker verwendet keine Teilbaumsuche. Einzelelemente kommen aus einem
+  Merker mit Identitätsprüfung, aus dem letzten Baumlauf desselben Fensters
+  oder über den Abstieg entlang der AutomationId über die direkten Kinder der
+  Knoten auf dem Weg (`test/bounded-element-lookup-contract.ps1`).
+- Überschrift (`…ClientFrameSSE.ClientHeader.QLabel`), die
+  Blätterschaltflächen und „Sichern“ bleiben über Seitenwechsel dieselben
+  UIA-Elemente. „Weiter“ und „Zurück“ teilen sich dieselbe AutomationId
+  (`…ClientFooterSSE.HoverButton`); nur der Name trennt sie.
+- Auch fremde UIA-Clients (Computer-Use-Agenten, Bildschirmleser) können SSE so
+  blockieren. Erkennbar ist das an „Keine Rückmeldung“, einem dauerhaft
+  ausgelasteten Kern und stetig wachsendem Speicher; Worker-Aufrufe warten dann
+  schon in `AutomationElement.FromHandle`. Bevor eigener Code verdächtigt wird,
+  fremde UIA-Clients ausschließen.
+
 ### Fensterklassifikation
 
 - Das Hauptfenster ist ein großes SSE-Fenster, nicht einfach das erste Fenster
@@ -246,6 +270,27 @@ einer veralteten Antwort bedient wird.
   eine Zweiggrenze erfordert einmal sichtbar den Baumklick.
 - Nach jedem Baumklick die Überschrift erneut lesen. Ein erfolgreicher Klick
   ist keine erfolgreiche Navigation.
+- „Weiter“ folgt dem Blätterpfad, „Zurück“ dagegen dem Seitenverlauf der
+  Sitzung: Nach einem Sprung über Baum oder Suche führt „Zurück“ auf die zuvor
+  angezeigte Seite, nicht auf den Vorgänger im Pfad. Nur nach einer Folge von
+  „Weiter“-Schritten fährt „Zurück“ denselben Weg zurück, und „Weiter“ führt
+  danach wieder in den Pfad. `sse_goto` blättert deshalb in genau einer
+  Richtung und nutzt „Zurück“ automatisch nur als geprüften Rückweg.
+- Die beiden Verlaufspfeile tragen dieselbe AutomationId
+  (`HistoryToolbarBtnSSE`), links „zurück“, rechts „vor“. Am Anfang des
+  Verlaufs ist nur „vor“ aktiv; ein Ausweg „ersten aktiven Verlaufspfeil
+  drücken“ pendelt dort zwischen Startseite und zuletzt besuchter Seite.
+- Die Startseite der Gewinnermittlung hat weder „Weiter“ noch „Zurück“.
+- Ein Seitentitel ist keine Position im Pfad: Die §-13b-Unterseite kehrt
+  hinter mehreren Ausgabenseiten wieder, und hinter der UStVA laufen Seiten mit
+  denselben Titeln wie im Zweig der Umsatzsteuererklärung.
+- Die Ergebnistabelle der globalen Suche hat links den Titel der Fundstelle,
+  rechts ihren Ort im Formular. Ein Doppelklick auf die rechte Zelle öffnet
+  die Seite des Feldtreffers, nicht die dort genannte Seite. Während die Suche
+  offen ist, steht der Navigationsbaum verschoben im selben Ausschnitt. Die
+  Bereichsseite „Umsatzsteuererklärung <Jahr>“ erschien in der Trefferliste
+  nicht als eigene Zeile, nur Feld- und Hilfetreffer. Anker ist deshalb nur
+  eine Titelzelle mit genau der gesuchten Überschrift.
 - Für lange Bäume zuerst an den Anfang rollen, dann in kleinen Schritten
   scrollen. Nicht zwanzig Seiten ohne Zwischenprüfung abfahren.
 - Menü-Popups explizit lesen und schließen. Keine globalen Tastenkürzel als

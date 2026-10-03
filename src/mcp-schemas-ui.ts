@@ -36,9 +36,12 @@ export const SSE_MCP_UI_SCHEMAS = {
     pageId: z.string().min(1).max(200).optional().describe(
       "Bevorzugte stabile pageId aus sse_page_objects; erkennt auch dynamische nummerierte Ueberschriften",
     ),
-    maxSteps: GOTO_MAX_STEPS.optional().describe("Hoechstzahl der Blaetterschritte, Vorgabe automatisch, maximal 200"),
+    maxSteps: GOTO_MAX_STEPS.optional().describe(
+      "Obergrenze der Blaetterschritte; das automatische Budget (Abstand plus Reserve) wird nie ueberschritten, maximal 200",
+    ),
     direction: z.enum(["Weiter", "Zurück"]).optional().describe(
-      "Bei unbekannten Seiten die Suchrichtung fest vorgeben; verhindert einen langen Lauf in die falsche Richtung",
+      "Richtung fest vorgeben. 'Weiter' folgt dem Blaetterpfad, 'Zurück' dem Seitenverlauf der Sitzung und " +
+      "wird dann nicht gegen den Pfad geprueft",
     ),
     useSearch: z.boolean().optional().describe(
       "Globale Qt-Suche zuerst versuchen; Vorgabe true. Auf verstecktem Desktop fuer einen rein linearen Lauf false setzen.",
@@ -111,7 +114,11 @@ export const SSE_MCP_UI_SCHEMAS = {
     expectedAfter: z.string().describe("Exakter Wert der Kontrollsumme nach dem Loeschen, z. B. '83.940,00'"),
     hwnd: WINDOW_HANDLE.optional(),
   }).strict(),
-  "sse_menu": z.object({ name: z.string().optional().describe("z. B. 'Extras'"), hwnd: WINDOW_HANDLE.optional() }).strict(),
+  "sse_menu": z.object({
+    name: z.string().optional().describe("z. B. 'Extras'"),
+    alle: z.boolean().optional().describe("true liest alle Hauptmenues samt Eintraegen in einem Aufruf; nicht zusammen mit name"),
+    hwnd: WINDOW_HANDLE.optional(),
+  }).strict(),
   "sse_menu_click": z.object({
     name: z.string().describe("Exakter sichtbarer Menueeintrag aus sse_menu"),
     waitMs: UI_WAIT_MS.optional(),

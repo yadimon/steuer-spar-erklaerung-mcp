@@ -1621,6 +1621,19 @@ export function createStatefulSseWorker({
           name,
           eintraege: eintraege.map((entry) => ({ name: entry.name, aktiv: true, gesperrt: entry.blocked === true })),
         }));
+        if (args.alle === true) {
+          // Wie im echten Worker: jedes Hauptmenue einmal auf- und wieder zugeklappt,
+          // danach ist kein Menue offen.
+          if (typeof args.name === "string" && args.name) {
+            return { ok: false, kind: "bad-args", error: "alle=true liest jedes Hauptmenue; name ist dann nicht erlaubt." };
+          }
+          openMenu = null;
+          const baum = menues.map((menu) => ({
+            name: menu.name, gesperrt: false, anzahl: menu.eintraege.length,
+            eintraege: menu.eintraege.map((entry) => ({ ...entry, destruktiv: false })),
+          }));
+          return { ok: true, anzahl: baum.length, menues: baum.map((menu) => menu.name), baum, hinweis: null };
+        }
         if (typeof args.name === "string" && args.name) {
           // Wie im echten Worker: mit name liegen die Eintraege des einen Menues flach vor.
           const opened = menues.find((menu) => menu.name === args.name);
@@ -1629,6 +1642,7 @@ export function createStatefulSseWorker({
         }
         return { ok: true, menues, hinweis: null };
       }
+
       case "menu_click": {
         const caseState = requireOpenCase();
         if (caseState.error) return caseState.error;

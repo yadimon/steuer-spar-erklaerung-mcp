@@ -117,6 +117,7 @@ try {
       discoverTarget: async request => {
         calls.push("discover");
         await options.inventoryWait?.("discover", request.signal);
+        if (state.discoveryFailures?.length) throw state.discoveryFailures.shift();
         if (state.discoveryError) throw state.discoveryError;
         return { ...state.target, ...(request.marker ? { desktop: request.marker.name } : {}) };
       },
@@ -241,6 +242,30 @@ try {
   multiple.state.target = { hwnd: 44, pid: 100, creationTime: "2" };
   await assert.rejects(multiple.runtime.client({ hwnd: 44 }, 1000), kind("native-window-conflict"));
   await multiple.runtime.close();
+  // A just-launched, explicitly named window may briefly miss the native main
+  // window criteria; discovery settles on the same HWND instead of failing.
+  const settling = harness();
+  settling.state.discoveryFailures = [
+    new QtNativeTransportError("No window yet", "no-window"), new QtNativeTransportError("No window yet", "no-window"),
+  ];
+  assert.equal((await settling.runtime.client({ hwnd: 42 }, 5000)).binding.hwnd, 42);
+  assert.deepEqual(settling.calls, ["discover", "discover", "discover"], "A named window must settle within its bounded wait.");
+  await settling.runtime.close();
+  const implicitNoWindow = harness();
+  implicitNoWindow.state.discoveryFailures = [new QtNativeTransportError("No window", "no-window")];
+  await assert.rejects(implicitNoWindow.runtime.client({}, 5000), kind("no-window"));
+  assert.deepEqual(implicitNoWindow.calls, ["discover"], "Without an HWND 'no-window' must stay immediate.");
+  await implicitNoWindow.runtime.close();
+  const shortDeadline = harness();
+  shortDeadline.state.discoveryError = new QtNativeTransportError("No window", "no-window");
+  await assert.rejects(shortDeadline.runtime.client({ hwnd: 42 }, 100), kind("no-window"));
+  assert.deepEqual(shortDeadline.calls, ["discover"], "The settle wait must never outlive the request deadline.");
+  await shortDeadline.runtime.close();
+  const otherFailure = harness();
+  otherFailure.state.discoveryFailures = [new QtNativeTransportError("Two windows", "ambiguous")];
+  await assert.rejects(otherFailure.runtime.client({ hwnd: 42 }, 5000), kind("ambiguous"));
+  assert.deepEqual(otherFailure.calls, ["discover"], "Only 'no-window' may settle; other discovery failures stay terminal.");
+  await otherFailure.runtime.close();
   for (const expected of ["desktop-marker-stale", "native-binding"]) {
     const rejected = harness(); rejected.state.discoveryError = new QtNativeTransportError("Discovery rejected", expected);
     await assert.rejects(rejected.runtime.client({}, 1000), kind(expected));

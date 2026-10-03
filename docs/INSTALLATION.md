@@ -323,6 +323,13 @@ abwarten und den Hash erneut lesen.
   Clientprozess beziehungsweise dessen MCP-Umgebung geben.
 - **SSE ist nicht gestartet:** Dem stabilen `nextTool` aus `sse_preflight`
   folgen. Der Preflight selbst startet keinen Steuerfall.
+- **SSE reagiert nicht mehr („Keine Rückmeldung“), der Speicher wächst:**
+  Programme, die Bedienoberflächen per UI Automation auslesen – etwa
+  Computer-Use-Agenten, Bildschirmleser oder Automatisierungswerkzeuge –,
+  können SSE mit einer einzigen Abfrage über große Tabellen lange blockieren.
+  SSE arbeitet eine solche Abfrage zu Ende, auch wenn das andere Programm
+  längst aufgegeben hat. Solche Programme während der Arbeit mit SSE beenden.
+  Hängt SSE bereits, gehen ungesicherte Änderungen beim Beenden verloren.
 
 ## Fortgeschrittene standalone-Nutzung
 

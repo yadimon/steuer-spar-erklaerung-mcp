@@ -51,7 +51,7 @@ if ($quelltext -notmatch [regex]::Escape('if ($jetzt -and $jetzt -ne $vorher) { 
 
 # 4. Der Blaetterklick reicht die vorherige Ueberschrift durch - sonst waere die
 #    Bedingung nie erfuellbar und der Poll liefe stets in die Obergrenze.
-if ($workerSource -notmatch [regex]::Escape('$ok = DrueckeKnopf $hwnd $richtung '''' $vorher')) {
+if ($workerSource -notmatch [regex]::Escape('$ok = DrueckeKnopf $hwnd $richtung $vorher')) {
   throw 'Die Blaetterschleife reicht die vorherige Ueberschrift nicht mehr an DrueckeKnopf durch.'
 }
 
@@ -72,10 +72,11 @@ if ($workerSource -notmatch [regex]::Escape('if ($gelesen -ceq $ziel) { break }'
 # Ein Seitenaufbau darf zwischen zwei Lesungen fertig werden. Fuehre die
 # echte Blaetterschleife mit vorgegebenen Beobachtungen aus; jeder zusaetzliche
 # Invoke nach dem beobachteten Ziel ist ein Fehler, auch ohne echte UI.
+. (Join-Path $root 'powershell\goto-route.ps1')
 $navigationLoops = @($ast.FindAll({
   param($node)
-  $node -is [Management.Automation.Language.ForEachStatementAst] -and
-  $node.Variable.VariablePath.UserPath -eq 'richtung' -and
+  $node -is [Management.Automation.Language.WhileStatementAst] -and
+  $node.Condition.Extent.Text -ceq '$verbraucht -lt $route.budget' -and
   $node.Extent.Text.Contains('$stillstand')
 }, $true))
 if ($navigationLoops.Count -ne 1) { throw 'Blaetterschleife nicht eindeutig vorhanden.' }
@@ -86,14 +87,17 @@ function Assert-DelayedNavigationStops([string[]]$Headings, [int]$ExpectedClicks
   foreach ($heading in $Headings) { $script:gotoHeadings.Enqueue($heading) }
   $script:gotoClicks = 0
   $script:gotoResult = $null
-  $ziel = 'Zielseite'; $pageId = ''; $hwnd = [IntPtr]::Zero
-  $reihenfolge = @('Weiter'); $verbraucht = 0; $maxS = 3
+  $ziel = 'Zielseite'; $pageId = ''; $hwnd = [IntPtr]7
+  $FOLGE = @()
+  $route = Get-SSEGotoRoute -Order $FOLGE -Start 'Startseite' -Target $ziel -MaxSteps 3
+  $richtung = $route.direction; $position = $route.startIndex
+  $verbraucht = 0; $stillstand = 0; $gesehenWege = @{}
   $weg = New-Object System.Collections.ArrayList
   $besucht = New-Object System.Collections.ArrayList
   function AktuelleUeberschrift { param($h) $script:gotoHeadings.Dequeue() }
   function IstZielseite { param($h, $heading) $heading -eq $ziel }
   function DrueckeKnopf {
-    param($h, $name, $aid, $wechselVon)
+    param($h, $name, $wechselVon)
     $script:gotoClicks++
     if ($script:gotoClicks -gt $ExpectedClicks) { throw 'Zusaetzlicher Invoke verliess die erreichte Zielseite.' }
     $true
@@ -124,6 +128,11 @@ $script:headingRoute = New-Object System.Collections.ArrayList
 $script:SSE_HEADING_NODE_AID = @{}
 function Get-KnownPageHeading { param($h, $target) $null = $script:headingRoute.Add('known'); 'known' }
 function Get-CurrentHeading { param($h, $tree, [switch]$CompactFallback)
+  if ($null -ne $tree) {
+    $null = $script:headingRoute.Add('tree-visible')
+    if ($script:SSE_ENGINE_MAJOR -eq 31 -and $h -ne [IntPtr]::Zero) { $script:SSE_HEADING_NODE_AID[[string][int64]$h] = 'heading-AID' }
+    return 'walked'
+  }
   $null = $script:headingRoute.Add($(if ($CompactFallback) { 'cache-compact' } else { 'cache-default' }))
   'cached'
 }
@@ -134,31 +143,31 @@ function Get-SSEContainerChild { param($nodes, $suffix, $childType) [pscustomobj
 
 $knownTarget = $null
 $script:SSE_ENGINE_MAJOR = 30
-if ((AktuelleUeberschrift ([IntPtr]::Zero)) -ne 'walked' -or
-    (@($script:headingRoute) -join ',') -ne 'walk:400' -or $script:SSE_HEADING_NODE_AID.Count -ne 0) {
+if ((AktuelleUeberschrift ([IntPtr]7)) -ne 'walked' -or
+    (@($script:headingRoute) -join ',') -ne 'walk:400,tree-visible' -or $script:SSE_HEADING_NODE_AID.Count -ne 0) {
   throw 'Engine 30 muss den kleinen Heading-Baumlauf verwenden.'
 }
 $script:headingRoute.Clear()
 $script:SSE_ENGINE_MAJOR = 31
-if ((AktuelleUeberschrift ([IntPtr]::Zero)) -ne 'walked' -or
-    (@($script:headingRoute) -join ',') -ne 'walk:400' -or
-    [string]$script:SSE_HEADING_NODE_AID['0'] -ne 'heading-AID') {
+if ((AktuelleUeberschrift ([IntPtr]7)) -ne 'walked' -or
+    (@($script:headingRoute) -join ',') -ne 'walk:400,tree-visible' -or
+    [string]$script:SSE_HEADING_NODE_AID['7'] -ne 'heading-AID') {
   throw 'Engine 31 muss die Ueberschrift beim kleinen Erstread binden.'
 }
 $script:headingRoute.Clear()
-if ((AktuelleUeberschrift ([IntPtr]::Zero)) -ne 'cached' -or
+if ((AktuelleUeberschrift ([IntPtr]7)) -ne 'cached' -or
     (@($script:headingRoute) -join ',') -ne 'cache-compact') {
   throw 'Engine 31 muss danach die gebundene Ueberschrift verwenden.'
 }
 $script:headingRoute.Clear()
 $script:SSE_ENGINE_MAJOR = 32
-if ((AktuelleUeberschrift ([IntPtr]::Zero)) -ne 'walked' -or
-    (@($script:headingRoute) -join ',') -ne 'walk:400') {
+if ((AktuelleUeberschrift ([IntPtr]7)) -ne 'walked' -or
+    (@($script:headingRoute) -join ',') -ne 'walk:400,tree-visible') {
   throw 'Unbekannte Engines muessen beim kleinen Heading-Baumlauf bleiben.'
 }
 $script:headingRoute.Clear()
 $knownTarget = [pscustomobject]@{ pageId='known' }
-if ((AktuelleUeberschrift ([IntPtr]::Zero)) -ne 'known' -or
+if ((AktuelleUeberschrift ([IntPtr]7)) -ne 'known' -or
     (@($script:headingRoute) -join ',') -ne 'known') {
   throw 'Ein bekanntes Seitenobjekt muss seinen eigenen Heading-Bindungspfad behalten.'
 }
@@ -171,13 +180,33 @@ $helperDefinitions = @($ast.FindAll({
 }, $true))
 if ($helperDefinitions.Count -ne 1) { throw 'Get-CurrentHeading ist nicht eindeutig vorhanden.' }
 Invoke-Expression $helperDefinitions[0].Extent.Text
+function Get-SSEVisibleHeadingNode { param($h, $tree) [pscustomobject]@{ aid='heading-AID'; name='walked' } }
 function Find-ExactAutomationElement { param($h, $aid) $null = $script:headingRoute.Add('miss'); $null }
-$script:SSE_HEADING_NODE_AID['0'] = 'stale-AID'
+$script:SSE_HEADING_NODE_AID['7'] = 'stale-AID'
 $script:headingRoute.Clear()
-if ((Get-CurrentHeading ([IntPtr]::Zero) $null -CompactFallback) -ne 'walked' -or
+if ((Get-CurrentHeading ([IntPtr]7) $null -CompactFallback) -ne 'walked' -or
     (@($script:headingRoute) -join ',') -ne 'miss,walk:400' -or
-    [string]$script:SSE_HEADING_NODE_AID['0'] -ne 'heading-AID') {
+    [string]$script:SSE_HEADING_NODE_AID['7'] -ne 'heading-AID') {
   throw 'Ein verlorener Engine-31-Merker muss mit kleinem Baum neu gebunden werden.'
 }
 
 Write-Output 'goto-Wartezeiten: begrenzt; verzoegert erreichte Ziele werden vor weiterem Invoke bestaetigt - bestanden'
+
+$headingWait = @($ast.FindAll({param($node)
+  $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'WarteAufUeberschrift'
+}, $true))[0]
+Invoke-Expression $headingWait.Extent.Text
+$knownTarget = [pscustomobject]@{page='target'}
+$script:targetReads = 0
+function AktuelleUeberschrift { param($window) 'Zielseite' }
+function Test-KnownPageHeading { param($heading,$page) $heading -ceq 'Zielseite' }
+function IstZielseite { param($window,$heading) $script:targetReads++; $script:targetReads -ge $script:readyAt }
+function Fail { param($message,$kind,$details) throw $kind }
+$script:readyAt = 3
+$landed = WarteAufUeberschrift ([IntPtr]4242) 'Startseite' 'Zielseite' 1000
+if ($landed -cne 'Zielseite' -or $script:targetReads -ne 3) { throw 'Eine fruehe Zielueberschrift ueberholte die vollstaendige Feldbindung.' }
+$script:targetReads=0; $script:readyAt=[int]::MaxValue
+$incompleteTargetFailed=$false
+try { $null = WarteAufUeberschrift ([IntPtr]4242) 'Startseite' 'Zielseite' 250 }
+catch { $incompleteTargetFailed=$_.Exception.Message -ceq 'navigation-blocked' }
+if (-not $incompleteTargetFailed) { throw 'Eine Zielueberschrift ohne gebundene Felder erlaubte eine weitere Navigation.' }
