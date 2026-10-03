@@ -128,6 +128,11 @@ $script:headingRoute = New-Object System.Collections.ArrayList
 $script:SSE_HEADING_NODE_AID = @{}
 function Get-KnownPageHeading { param($h, $target) $null = $script:headingRoute.Add('known'); 'known' }
 function Get-CurrentHeading { param($h, $tree, [switch]$CompactFallback)
+  if ($null -ne $tree) {
+    $null = $script:headingRoute.Add('tree-visible')
+    if ($script:SSE_ENGINE_MAJOR -eq 31) { $script:SSE_HEADING_NODE_AID[[string][int64]$h] = 'heading-AID' }
+    return 'walked'
+  }
   $null = $script:headingRoute.Add($(if ($CompactFallback) { 'cache-compact' } else { 'cache-default' }))
   'cached'
 }
@@ -139,13 +144,13 @@ function Get-SSEContainerChild { param($nodes, $suffix, $childType) [pscustomobj
 $knownTarget = $null
 $script:SSE_ENGINE_MAJOR = 30
 if ((AktuelleUeberschrift ([IntPtr]::Zero)) -ne 'walked' -or
-    (@($script:headingRoute) -join ',') -ne 'walk:400' -or $script:SSE_HEADING_NODE_AID.Count -ne 0) {
+    (@($script:headingRoute) -join ',') -ne 'walk:400,tree-visible' -or $script:SSE_HEADING_NODE_AID.Count -ne 0) {
   throw 'Engine 30 muss den kleinen Heading-Baumlauf verwenden.'
 }
 $script:headingRoute.Clear()
 $script:SSE_ENGINE_MAJOR = 31
 if ((AktuelleUeberschrift ([IntPtr]::Zero)) -ne 'walked' -or
-    (@($script:headingRoute) -join ',') -ne 'walk:400' -or
+    (@($script:headingRoute) -join ',') -ne 'walk:400,tree-visible' -or
     [string]$script:SSE_HEADING_NODE_AID['0'] -ne 'heading-AID') {
   throw 'Engine 31 muss die Ueberschrift beim kleinen Erstread binden.'
 }
@@ -157,7 +162,7 @@ if ((AktuelleUeberschrift ([IntPtr]::Zero)) -ne 'cached' -or
 $script:headingRoute.Clear()
 $script:SSE_ENGINE_MAJOR = 32
 if ((AktuelleUeberschrift ([IntPtr]::Zero)) -ne 'walked' -or
-    (@($script:headingRoute) -join ',') -ne 'walk:400') {
+    (@($script:headingRoute) -join ',') -ne 'walk:400,tree-visible') {
   throw 'Unbekannte Engines muessen beim kleinen Heading-Baumlauf bleiben.'
 }
 $script:headingRoute.Clear()
@@ -175,6 +180,7 @@ $helperDefinitions = @($ast.FindAll({
 }, $true))
 if ($helperDefinitions.Count -ne 1) { throw 'Get-CurrentHeading ist nicht eindeutig vorhanden.' }
 Invoke-Expression $helperDefinitions[0].Extent.Text
+function Get-SSEVisibleHeadingNode { param($h, $tree) [pscustomobject]@{ aid='heading-AID'; name='walked' } }
 function Find-ExactAutomationElement { param($h, $aid) $null = $script:headingRoute.Add('miss'); $null }
 $script:SSE_HEADING_NODE_AID['0'] = 'stale-AID'
 $script:headingRoute.Clear()
