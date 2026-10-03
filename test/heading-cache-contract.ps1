@@ -139,6 +139,10 @@ Assert-True ($script:headingWalks -eq 1 -and $script:headingQueries -eq 1) `
 $script:SSE_HEADING_NODE_AID=@{}; $knownTarget=$null
 Assert-True ((AktuelleUeberschrift ([IntPtr]1)) -ceq 'Current page') `
   'The first goto heading read bypassed visibility.'
+$script:SSE_ENGINE_MAJOR=30; $script:SSE_HEADING_NODE_AID=@{}
+$newNode.aid=''; $script:headingElements['2'].Current.AutomationId=''
+Assert-True ((AktuelleUeberschrift ([IntPtr]1)) -ceq 'Current page' -and $script:SSE_HEADING_NODE_AID.Count -eq 0) `
+  'An Engine-30 heading without a leaf AutomationId lost visibility checking or populated an invalid cache.'
 $script:headingElements['2'].Offscreen=$null
 Assert-True ($null -eq (Get-CurrentHeading ([IntPtr]1) $script:headingTree)) `
   'An unknown or hidden tree label proved the current page.'
