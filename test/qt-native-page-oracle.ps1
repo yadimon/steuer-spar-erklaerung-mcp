@@ -1,5 +1,6 @@
 param([string]$InputPath, [string]$OutputPath)
 $ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 $inputData = Get-Content -LiteralPath $InputPath -Raw -Encoding UTF8 | ConvertFrom-Json
 $tokens = $null; $errors = $null
 $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot '..\powershell\sse-worker.ps1'), [ref]$tokens, [ref]$errors)
@@ -22,7 +23,8 @@ $switchClauses = @($oracleAstNodes | Where-Object { $_ -is [Management.Automatio
 foreach ($name in @('Get-ContentBounds','Get-SSEHeading','ConvertTo-Vergleichsform','Test-Versand','Get-SSETextSha256',
     'Get-CaptionMinX','Get-DirtyState','Get-SSECheckerTreeItems','Get-CheckerResults','Test-CheckerResultComplete',
     'Read-CheckerComplete','Convert-SSEComparableNumber','Read-ResultDetailsFromTree','New-SSETableRowDetails',
-    'Resolve-SSEToolWindowKind','Get-SSEMainWindowCandidates','Resolve-SSEMainWindowDescriptor','Get-CurrentHeading')) {
+    'Resolve-SSEToolWindowKind','Get-SSEMainWindowCandidates','Resolve-SSEMainWindowDescriptor',
+    'Test-SSEElementVisible','Get-SSEVisibleHeadingNode','Get-CurrentHeading')) {
     $definitions = @($functionDefinitions | Where-Object { $_.Name -eq $name })
     if ($definitions.Count -ne 1) { throw "Ambiguous worker function $name" }
     $definition = $definitions[0].Extent.Text
@@ -62,6 +64,23 @@ function Get-SSEBoundedIntegerArg($argsObject, $key, $default, $min, $max) {
     [int]$value
 }
 function Get-SSEMainWindowSelectors { [pscustomobject]@{ heading = '.ClientFrameSSE.ClientHeader' } }
+# These authored projection fixtures observe visible text controls. Supply
+# only the fresh UIA boundary; execute the real heading visibility resolver.
+function Get-LiveElement($Hwnd, $RuntimeId) {
+    $matches = @($script:observedTree.nodes | Where-Object { [string]$_.rid -ceq [string]$RuntimeId })
+    if ($matches.Count -ne 1) { return $null }
+    $node = $matches[0]
+    $element = [pscustomobject]@{
+        Offscreen = $false
+        Current = [pscustomobject]@{
+            ControlType = [System.Windows.Automation.ControlType]::Text
+            AutomationId = [string]$node.aid
+            Name = [string]$node.name
+        }
+    }
+    $element | Add-Member ScriptMethod GetCurrentPropertyValue { param($property) $this.Offscreen }
+    $element
+}
 function Resolve-Window { [IntPtr]42 }
 function Test-Canary { [pscustomobject]@{ ok = $true } }
 function Walk-Tree { param($hwnd, $MaxNodes, $TimeoutSec, $MaxDepth, [switch]$WithValues, [switch]$WithScroll) $script:observedTree }
