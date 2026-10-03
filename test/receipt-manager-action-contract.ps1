@@ -1211,3 +1211,132 @@ foreach ($mode in @('open-unconfirmed','read-failed','popup-truncated','empty','
     -not $script:menuPopupVisible) "Menue '$mode' wurde im Fehlerfall nicht genau einmal geschlossen."
 }
 Write-Output 'Menue: nur vollstaendige Lesung, bestaetigtes Oeffnen und Zuklappen im Fehlerfall - bestanden'
+
+# Bedingter Import: echte Dialog- und vollstaendige Nachbeobachtung.
+function Assert-ImportWait([bool]$Condition, [string]$Message) {
+  if (-not $Condition) { throw $Message }
+}
+Add-Type -TypeDefinition @'
+namespace ReceiptImportWaitContract {
+ public static class WindowSystem {
+  public static bool[] Observations;
+  public static int Reads;
+  public static long LastHandle;
+  public static bool Fail; public static System.Diagnostics.Stopwatch Watch; public static int CloseAt;
+  public static bool IsWindow(System.IntPtr handle) {
+   LastHandle = handle.ToInt64(); if (Watch != null) return Watch.ElapsedMilliseconds < CloseAt;
+   if (Fail) throw new System.InvalidOperationException("Unreadable window");
+   return Observations[System.Math.Min(Reads++, Observations.Length - 1)];
+  }
+ }
+}
+'@
+$definition = @($ast.FindAll({ param($node)
+  $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+  $node.Name -ceq 'Wait-SSEReceiptImportDialogClosed'
+}, $true))
+Assert-ImportWait ($definition.Count -eq 1) 'Import dialog wait must be uniquely defined.'
+Invoke-Expression ($definition[0].Extent.Text.Replace('[SW]', '[ReceiptImportWaitContract.WindowSystem]'))
+foreach ($case in @(
+  [pscustomobject]@{ values=@($false); expected=$true; reads=1 }
+  [pscustomobject]@{ values=@($true,$true,$false); expected=$true; reads=3 }
+  [pscustomobject]@{ values=@($true); expected=$false; reads=0 }
+)) {
+  [ReceiptImportWaitContract.WindowSystem]::Observations = [bool[]]$case.values
+  [ReceiptImportWaitContract.WindowSystem]::Reads = 0
+  $watch = [Diagnostics.Stopwatch]::StartNew()
+  $result = Wait-SSEReceiptImportDialogClosed ([IntPtr]4711) 150
+  Assert-ImportWait ($result -eq $case.expected) 'Wrong dialog close result.'
+  Assert-ImportWait ([ReceiptImportWaitContract.WindowSystem]::LastHandle -eq 4711) 'Dialog wait lost its bound HWND.'
+  if ($case.expected) {
+    Assert-ImportWait ([ReceiptImportWaitContract.WindowSystem]::Reads -eq $case.reads) 'Wait did not stop on first confirmed close.'
+  } else {
+    Assert-ImportWait ($watch.ElapsedMilliseconds -ge 150) 'An open dialog lost part of its wait budget.'
+  }
+}
+[ReceiptImportWaitContract.WindowSystem]::Fail = $true
+$threw = $false
+try { $null = Wait-SSEReceiptImportDialogClosed ([IntPtr]4711) 150 } catch { $threw = $true }
+Assert-ImportWait $threw 'An unreadable dialog was treated as closed.'
+
+$loops = @($ast.FindAll({ param($node)
+  $node -is [Management.Automation.Language.DoWhileStatementAst] -and
+  $node.Extent.Text.Contains('$previewChanged -and [bool]$listAfter.rowsComplete')
+}, $true))
+Assert-ImportWait ($loops.Count -eq 1) 'The complete import proof must be a single observation loop.'
+$loop = $loops[0].Extent.Text
+Assert-ImportWait (-not ($loop -match 'Click-VerifiedPoint|\.Invoke\(|Invoke-SSEReceiptManagerOpenFileDialog')) 'Import must not be retriggered while observing readiness.'
+$start = $worker.IndexOf('    $settleBudget = [Math]::Max(0, $waitMs + 700 - $selection.dialogWaitMs)')
+Assert-ImportWait ($start -ge 0 -and $start -lt $loops[0].Extent.StartOffset) 'Import must preserve the remaining combined wait budget.'
+$observation = [scriptblock]::Create($worker.Substring($start, $loops[0].Extent.EndOffset - $start))
+function New-ImportObservation([string]$Failure = '') {
+  $rows = @([pscustomobject]@{draft=$true;contentFingerprint='NEW'}, [pscustomobject]@{draft=$false;contentFingerprint='OLD'})
+  $item = [pscustomobject]@{
+    nodes=@([pscustomobject]@{aid='control.attach';on=$true;x=1;y=1;w=100;h=100})
+    list=[pscustomobject]@{rowsComplete=$true;count=2;rows=$rows}
+    preview='AFTER';hash='HASH';blocking=$false;window='WINDOWS';dirty=$false
+  }
+  switch ($Failure) {
+    'preview' { $item.preview = 'BEFORE' }
+    'incomplete-list' { $item.list.rowsComplete = $false }
+    'count' { $item.list.count = 1 }
+    'draft' { $item.list.rows[0].draft = $false }
+    'existing-row' { $item.list.rows[1].contentFingerprint = 'CHANGED' }
+    'source-hash' { $item.hash = 'CHANGED' }
+    'dialog' { $item.blocking = $true }
+    'window-set' { $item.window = 'CHANGED' }
+    'dirty-unknown' { $item.dirty = $null }
+  }
+  $item
+}
+function Get-SSEReceiptManagerState {
+  $script:currentObservation = $script:sequence[[Math]::Min($script:observationReads++, $script:sequence.Count - 1)]
+  $script:currentObservation
+}
+function Get-SSEReceiptManagerListProjection { $script:currentObservation.list }
+function Get-SSEReceiptManagerDetailProjection { @() }
+function Get-SSEReceiptManagerDetailBindingFingerprint { 'DETAIL' }
+function Get-SSEWindowRegionPixelFingerprint { $script:currentObservation.preview }
+function Get-Sha256 { $script:currentObservation.hash }
+function Get-DialogInventory {
+  if ($script:currentObservation.blocking) { [pscustomobject]@{kind='native-dialog'} }
+}
+function Get-SSEReceiptManagerWindowSet { [pscustomobject]@{fingerprint=$script:currentObservation.window} }
+function Get-DirtyStateFast { $script:currentObservation.dirty }
+$selection = [pscustomobject]@{verified=$true;dialogClosed=$true;dialogWaitMs=500}
+$waitMs = 500
+$policy = [pscustomobject]@{controls=[pscustomobject]@{attachFile=[pscustomobject]@{automationIdSuffix='.attach'}}}
+$toolHwnd = [IntPtr]4711; $mainHwnd = [IntPtr]4712; $targetPid = 42
+$previewFingerprintBefore = 'BEFORE'; $path = 'bound.pdf'; $expectedHash = 'HASH'
+$oldContentFingerprints = @('OLD'); $expectedCountBefore = 1
+$windowSetBefore = [pscustomobject]@{fingerprint='WINDOWS'}; $dirtyBefore = $false
+$script:sequence = @((New-ImportObservation 'preview'), (New-ImportObservation 'dialog'), (New-ImportObservation))
+$script:observationReads = 0
+. $observation
+Assert-ImportWait ($verified -and $script:observationReads -eq 3) 'Import must wait for the first complete proof, without an early partial result.'
+foreach ($failure in @('preview','incomplete-list','count','draft','existing-row','source-hash','dialog','window-set','dirty-unknown')) {
+  $script:sequence = @((New-ImportObservation $failure)); $script:observationReads = 0
+  $watch = [Diagnostics.Stopwatch]::StartNew()
+  . $observation
+  Assert-ImportWait (-not $verified -and $watch.ElapsedMilliseconds -ge 700) "Import accepted incomplete '$failure' evidence or shortened its remaining wait."
+}
+Write-Output 'Receipt import waits: pinned dialog, full proof, retained deadline and no repeated action - passed'
+
+# Ein Zustand kann erst waehrend der letzten Schlafstrecke eintreten. Auch
+# die Fristgrenze braucht eine Beobachtung, bevor sie als Fehler gilt.
+[ReceiptImportWaitContract.WindowSystem]::Fail = $false
+[ReceiptImportWaitContract.WindowSystem]::Watch = [Diagnostics.Stopwatch]::StartNew()
+[ReceiptImportWaitContract.WindowSystem]::CloseAt = 110
+$boundaryClosed = Wait-SSEReceiptImportDialogClosed ([IntPtr]4711) 125
+Assert-ImportWait $boundaryClosed 'Die letzte Dialog-Beobachtung an der Fristgrenze fehlt.'
+[ReceiptImportWaitContract.WindowSystem]::Watch = $null
+$script:proofBoundaryWatch = [Diagnostics.Stopwatch]::StartNew()
+function Get-SSEReceiptManagerState {
+  if ($script:proofBoundaryWatch.ElapsedMilliseconds -ge 690) {
+    $script:currentObservation = New-ImportObservation
+  } else { $script:currentObservation = New-ImportObservation 'preview' }
+  $script:currentObservation
+}
+. $observation
+Assert-ImportWait ($verified -and $script:proofBoundaryWatch.ElapsedMilliseconds -ge 690) `
+  'Der vollstaendige Import-Nachweis waehrend der letzten Schlafstrecke wurde uebersehen.'

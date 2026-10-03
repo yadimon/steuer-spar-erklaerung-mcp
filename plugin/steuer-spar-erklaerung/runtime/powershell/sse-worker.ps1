@@ -1440,6 +1440,17 @@ function Get-SSEWindowRegionPixelFingerprint([IntPtr]$Window, $Node) {
   }
 }
 
+function Wait-SSEReceiptImportDialogClosed([IntPtr]$Window, [int]$TimeoutMs) {
+  $watch = [Diagnostics.Stopwatch]::StartNew()
+  do {
+    if (-not [SW]::IsWindow($Window)) { return $true }
+    $remaining = $TimeoutMs - $watch.ElapsedMilliseconds
+    if ($remaining -le 0) { break }
+    Start-Sleep -Milliseconds ([Math]::Min(50, $remaining))
+  } while ($true)
+  $false
+}
+
 function Invoke-SSEReceiptManagerOpenFileDialog(
   [int]$TargetPid,
   [IntPtr]$MainHwnd,
@@ -1532,8 +1543,8 @@ function Invoke-SSEReceiptManagerOpenFileDialog(
     if ($buttonSent -eq [IntPtr]::Zero) { Fail 'Nativer Oeffnen-Schalter antwortete nicht auf BM_CLICK.' 'timeout' }
     $openMethod = 'native-bm-click'
   }
-  Start-Sleep -Milliseconds $WaitMs
-  if ([SW]::IsWindow($dialogHwnd)) {
+  $dialogWait = [Diagnostics.Stopwatch]::StartNew()
+  if (-not (Wait-SSEReceiptImportDialogClosed $dialogHwnd $WaitMs)) {
     Fail 'Belegimport-Dialog ist nach Oeffnen noch vorhanden; keine Wiederholung.' 'postcondition-failed'
   }
   $actualHashAfter = Get-Sha256 $Path
@@ -1548,7 +1559,7 @@ function Invoke-SSEReceiptManagerOpenFileDialog(
     warning=$(if ($profileFingerprintMatched) { $null } else {
       'Windows-Dateidialog-Fingerprint ist gegenueber dem Profil gedriftet; die engere Importstruktur wurde vollstaendig verifiziert.'
     })
-    openMethod=$openMethod; dialogClosed=$true; verified=$true
+    openMethod=$openMethod; dialogClosed=$true; verified=$true; dialogWaitMs=$dialogWait.ElapsedMilliseconds
   }
 }
 
@@ -21478,45 +21489,54 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $targetPid $mainHwnd ([string]$policy.importDialog.title) ([string]$policy.importDialog.class) `
       (([string]$policy.importDialog.fingerprint).ToUpperInvariant()) $path $expectedHash ([int]$waitMs)
 
-    Start-Sleep -Milliseconds 700
-    $stateAfter = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
-    $listAfter = Get-SSEReceiptManagerListProjection $stateAfter $policy
-    $detailFieldsAfterImport = @(Get-SSEReceiptManagerDetailProjection $stateAfter)
-    $detailFingerprintAfterImport = Get-SSEReceiptManagerDetailBindingFingerprint $stateAfter $policy
-    $afterCreatedRows = @($listAfter.rows | Where-Object { [bool]$_.draft })
-    $attachAfterMatches = @($stateAfter.nodes | Where-Object {
-      [string]$_.aid -and ([string]$_.aid).EndsWith(
-        [string]$policy.controls.attachFile.automationIdSuffix,
-        [StringComparison]::Ordinal
-      ) -and [bool]$_.on -and $_.w -gt 0 -and $_.h -gt 0
-    })
-    $previewFingerprintAfter = $(if ($attachAfterMatches.Count -eq 1) {
-      Get-SSEWindowRegionPixelFingerprint $toolHwnd $attachAfterMatches[0]
-    } else { $null })
-    $previewChanged = [bool](
-      $previewFingerprintAfter -and [string]$previewFingerprintAfter -cne [string]$previewFingerprintBefore
-    )
-    $sourceHashAfter = Get-Sha256 $path
-    $sourceHashStable = [bool]([string]$sourceHashAfter -ceq $expectedHash)
-    $remainingContentAfter = @($listAfter.rows | Where-Object {
-      -not [bool]$_.draft
-    } | ForEach-Object { [string]$_.contentFingerprint })
-    $existingRowsUnchanged = [bool](
-      ($oldContentFingerprints | Sort-Object | ConvertTo-Json -Compress) -ceq
-      ($remainingContentAfter | Sort-Object | ConvertTo-Json -Compress)
-    )
-    $blockingAfter = @(Get-DialogInventory $targetPid | Where-Object { $_.kind -in @('native-dialog','qt-dialog') })
-    $windowSetAfter = Get-SSEReceiptManagerWindowSet $targetPid
-    $windowSetUnchanged = [bool]($windowSetAfter.fingerprint -eq $windowSetBefore.fingerprint)
-    $dirtyAfter = Get-DirtyStateFast $mainHwnd
-    $dirtyStateUnchanged = [bool]($null -ne $dirtyAfter -and [bool]$dirtyAfter -eq [bool]$dirtyBefore)
-    $verified = [bool](
-      [bool]$selection.verified -and [bool]$selection.dialogClosed -and $sourceHashStable -and
-      $previewChanged -and [bool]$listAfter.rowsComplete -and
-      [int]$listAfter.count -eq ([int]$expectedCountBefore + 1) -and
-      $afterCreatedRows.Count -eq 1 -and $existingRowsUnchanged -and
-      -not $blockingAfter.Count -and $windowSetUnchanged -and $dirtyStateUnchanged
-    )
+    # Die alte gemeinsame Frist bleibt erhalten. Frueh zurueck erst, wenn
+    # alle Datei-, Bild-, Listen-, Fenster-, Dialog- und Dirty-Nachweise stehen.
+    $settleBudget = [Math]::Max(0, $waitMs + 700 - $selection.dialogWaitMs)
+    $settleWatch = [Diagnostics.Stopwatch]::StartNew()
+    do {
+      $stateAfter = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
+      $listAfter = Get-SSEReceiptManagerListProjection $stateAfter $policy
+      $detailFieldsAfterImport = @(Get-SSEReceiptManagerDetailProjection $stateAfter)
+      $detailFingerprintAfterImport = Get-SSEReceiptManagerDetailBindingFingerprint $stateAfter $policy
+      $afterCreatedRows = @($listAfter.rows | Where-Object { [bool]$_.draft })
+      $attachAfterMatches = @($stateAfter.nodes | Where-Object {
+        [string]$_.aid -and ([string]$_.aid).EndsWith(
+          [string]$policy.controls.attachFile.automationIdSuffix,
+          [StringComparison]::Ordinal
+        ) -and [bool]$_.on -and $_.w -gt 0 -and $_.h -gt 0
+      })
+      $previewFingerprintAfter = $(if ($attachAfterMatches.Count -eq 1) {
+        Get-SSEWindowRegionPixelFingerprint $toolHwnd $attachAfterMatches[0]
+      } else { $null })
+      $previewChanged = [bool](
+        $previewFingerprintAfter -and [string]$previewFingerprintAfter -cne [string]$previewFingerprintBefore
+      )
+      $sourceHashAfter = Get-Sha256 $path
+      $sourceHashStable = [bool]([string]$sourceHashAfter -ceq $expectedHash)
+      $remainingContentAfter = @($listAfter.rows | Where-Object {
+        -not [bool]$_.draft
+      } | ForEach-Object { [string]$_.contentFingerprint })
+      $existingRowsUnchanged = [bool](
+        ($oldContentFingerprints | Sort-Object | ConvertTo-Json -Compress) -ceq
+        ($remainingContentAfter | Sort-Object | ConvertTo-Json -Compress)
+      )
+      $blockingAfter = @(Get-DialogInventory $targetPid | Where-Object { $_.kind -in @('native-dialog','qt-dialog') })
+      $windowSetAfter = Get-SSEReceiptManagerWindowSet $targetPid
+      $windowSetUnchanged = [bool]($windowSetAfter.fingerprint -eq $windowSetBefore.fingerprint)
+      $dirtyAfter = Get-DirtyStateFast $mainHwnd
+      $dirtyStateUnchanged = [bool]($null -ne $dirtyAfter -and [bool]$dirtyAfter -eq [bool]$dirtyBefore)
+      $verified = [bool](
+        [bool]$selection.verified -and [bool]$selection.dialogClosed -and $sourceHashStable -and
+        $previewChanged -and [bool]$listAfter.rowsComplete -and
+        [int]$listAfter.count -eq ([int]$expectedCountBefore + 1) -and
+        $afterCreatedRows.Count -eq 1 -and $existingRowsUnchanged -and
+        -not $blockingAfter.Count -and $windowSetUnchanged -and $dirtyStateUnchanged
+      )
+      if ($verified) { break }
+      $remaining = $settleBudget - $settleWatch.ElapsedMilliseconds
+      if ($remaining -le 0) { break }
+      Start-Sleep -Milliseconds ([Math]::Min(100, $remaining))
+    } while ($true)
     if (-not $verified) {
       Emit ([pscustomobject]@{
         ok=$false; kind='postcondition-failed'; error='Belegimport wurde ausgeloest, aber Datei-, Vorschau-, Listen-, Fenster-, Dialog- oder Dirty-State-Nachweis ist unvollstaendig; NICHT wiederholen. Den gemeldeten neuen Entwurf zuerst lesen oder loeschen.'
