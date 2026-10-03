@@ -1340,3 +1340,37 @@ function Get-SSEReceiptManagerState {
 . $observation
 Assert-ImportWait ($verified -and $script:proofBoundaryWatch.ElapsedMilliseconds -ge 690) `
   'Der vollstaendige Import-Nachweis waehrend der letzten Schlafstrecke wurde uebersehen.'
+
+# Offene Menueeintraege brauchen vollstaendige Popup-Nachweise.
+$definition=@($ast.FindAll({param($node)
+  $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Get-SSEOpenMenuEntryMatches'
+},$true))[0]
+Invoke-Expression $definition.Extent.Text
+function Fail {param($message,$kind) throw $kind}
+function ConvertTo-MenuLabel {param($name) ($name -replace '&','').Trim()}
+$script:popups=@([pscustomobject]@{hwnd=22;cls='SysShadow'},[pscustomobject]@{hwnd=21;cls='QtPopupDropShadow'})
+function Get-SSEMenuPopupWindows {param($targetPid) $script:popups}
+function Get-Windows {throw 'Main-window traversal is forbidden in an opened-menu lookup'}
+function Walk-Tree {
+ param($window,$maxNodes,$maxDepth)
+ $null=$script:walked.Add([int64]$window)
+ if($script:mode -ceq 'throw' -and [int64]$window -eq 22){throw 'Unreadable popup'}
+ if($script:mode -ceq 'missing-tree' -and [int64]$window -eq 22){return $null}
+ [pscustomobject]@{
+  stats=$(if($script:mode -ceq 'missing-stats' -and [int64]$window -eq 22){$null}else{[pscustomobject]@{truncated=($script:mode -ceq 'truncated' -and [int64]$window -eq 22);err=$(if($script:mode -ceq 'error'){1}else{0})}})
+  nodes=@([pscustomobject]@{type='MenuItem';name='&Sichern';rid=$(if($script:mode -ceq 'ambiguous'){[string][int64]$window}else{'7.1'})})
+ }
+}
+$script:mode='complete'; $script:walked=[Collections.ArrayList]::new()
+$matches=@(Get-SSEOpenMenuEntryMatches ([IntPtr]11) 42 'Sichern')
+if($matches.Count -ne 1 -or $matches[0].hwnd.ToInt64() -ne 21 -or ($script:walked -join ',') -cne '21,22'){throw 'Popup ordering or shadow deduplication changed'}
+$script:mode='ambiguous'
+if(@(Get-SSEOpenMenuEntryMatches ([IntPtr]11) 42 'Sichern').Count -ne 2){throw 'Distinct popup entries were falsely unique'}
+foreach($mode in @('truncated','error','throw','missing-tree','missing-stats')) {
+ $script:mode=$mode; $failed=$false
+ try{$null=Get-SSEOpenMenuEntryMatches ([IntPtr]11) 42 'Sichern'}catch{$failed=$_.Exception.Message -in @('snapshot-truncated','snapshot-failed')}
+ if(-not $failed){throw "Incomplete popup '$mode' returned a usable partial match"}
+}
+$script:popups=@(); $script:walked.Clear()
+if(@(Get-SSEOpenMenuEntryMatches ([IntPtr]11) 42 'Sichern').Count -ne 0 -or $script:walked.Count){throw 'A closed menu triggered a root search'}
+Write-Output 'Menu lookup: popup scope, complete evidence, uniqueness and shadow deduplication - passed'
