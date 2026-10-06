@@ -4,6 +4,9 @@ import { SSE_API_OPERATIONS } from "../dist/api-contract.js";
 import { apiOperationDiscovery, SSE_API_DISCOVERY } from "../dist/api-discovery.js";
 import { SSE_CAPABILITIES } from "../dist/capabilities.js";
 import { parseApiOperationArgs } from "../dist/operation-catalog.js";
+import { SSE_API_RESULT_OUTPUT_SCHEMAS } from "../dist/result-contract.js";
+import { zodToJsonSchema } from "zod-to-json-schema";
+import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
 
 assert.equal(SSE_API_DISCOVERY.schemaVersion, 1);
 assert.equal(SSE_API_DISCOVERY.safety.elsterAndSubmissionBlocked, true);
@@ -44,6 +47,19 @@ function assertPropertyDescriptions(schema, path) {
   }
 }
 
+const resultEnvelope = SSE_API_DISCOVERY.definitions.OperationResultEnvelope;
+assert.equal(resultEnvelope.properties.ok.type, "boolean");
+assert.deepEqual(resultEnvelope.required, ["ok"]);
+assertPropertyDescriptions(resultEnvelope, "OperationResultEnvelope");
+const jsonValidator = new AjvJsonSchemaValidator();
+const validTraversal = { ok: true, treeWalks: 1, treeWalkMs: 3,
+  treeWalkDetail: [{ knoten: 87, grenze: 4000, ms: 1.25 }] };
+const resultSamples = [
+  [{ ok: true }, true], [validTraversal, true], [{}, false], [{ ok: "true" }, false],
+  [{ ...validTraversal, treeWalks: 1.5 }, false], [{ ...validTraversal, treeWalkMs: -1 }, false],
+  [{ ...validTraversal, treeWalkDetail: [{ knoten: 87, grenze: 4000, ms: "3" }] }, false],
+  [{ ...validTraversal, treeWalkDetail: Array(17).fill(validTraversal.treeWalkDetail[0]) }, false],
+];
 for (const operation of SSE_API_OPERATIONS) {
   const schema = SSE_API_DISCOVERY.argumentSchemas[operation];
   assert.equal(schema.$schema, "http://json-schema.org/draft-07/schema#", `${operation}: Draft-07-Marker fehlt.`);
@@ -54,8 +70,21 @@ for (const operation of SSE_API_OPERATIONS) {
   assertPropertyDescriptions(schema, operation);
   const resultSchema = SSE_API_DISCOVERY.resultSchemas[operation];
   assert.equal(resultSchema.$schema, "http://json-schema.org/draft-07/schema#", `${operation}: Result-Draft fehlt.`);
-  assert.equal(resultSchema.properties?.ok?.type, "boolean", `${operation}: Result.ok fehlt.`);
-  assert(resultSchema.required?.includes("ok"), `${operation}: Result.ok ist nicht verpflichtend.`);
+  assert.deepEqual(resultSchema.allOf, [{ $ref: "#/definitions/OperationResultEnvelope" }]);
+  const expanded = { ...resultSchema,
+    properties: { ...resultEnvelope.properties, ...resultSchema.properties },
+    required: [...new Set([...resultEnvelope.required, ...(resultSchema.required ?? [])])],
+  };
+  delete expanded.allOf;
+  assert.deepEqual(expanded, zodToJsonSchema(SSE_API_RESULT_OUTPUT_SCHEMAS[operation], {
+    target: "jsonSchema7", $refStrategy: "none", effectStrategy: "input",
+  }), `${operation}: Komprimierung aendert den vollstaendigen Ergebnisvertrag.`);
+  const fullValidator = jsonValidator.getValidator({ ...SSE_API_DISCOVERY, $ref: `#/resultSchemas/${operation}` });
+  const singleValidator = jsonValidator.getValidator(apiOperationDiscovery(operation).resultSchema);
+  for (const [sample, expected] of resultSamples) {
+    assert.equal(fullValidator(sample).valid, expected, `${operation}: Gesamt-Discovery verliert Validierung.`);
+    assert.equal(singleValidator(sample).valid, expected, `${operation}: Einzel-Schema ist nicht eigenstaendig validierbar.`);
+  }
   assertPropertyDescriptions(resultSchema, `Result_${operation}`);
   const traits = SSE_API_DISCOVERY.operationTraits[operation];
   assert.equal(typeof traits.readOnlyHint, "boolean", `${operation}: readOnlyHint fehlt.`);
@@ -86,7 +115,11 @@ const singleFind = apiOperationDiscovery("find");
 assert.equal(singleFind.operation, "find");
 assert.deepEqual(singleFind.argumentSchema, SSE_API_DISCOVERY.argumentSchemas.find);
 assert.equal(singleFind.resultSchemaVersion, SSE_API_DISCOVERY.resultSchemaVersion);
-assert.deepEqual(singleFind.resultSchema, SSE_API_DISCOVERY.resultSchemas.find);
+const { definitions: singleDefinitions, ...singleSchema } = singleFind.resultSchema;
+assert.deepEqual(singleSchema, SSE_API_DISCOVERY.resultSchemas.find);
+assert.deepEqual(singleDefinitions, SSE_API_DISCOVERY.definitions);
+assert.notEqual(singleDefinitions.OperationResultEnvelope, resultEnvelope,
+  "Einzel-Discovery darf die gemeinsame Definition nicht mutierbar teilen.");
 assert.deepEqual(singleFind.operationTraits, SSE_API_DISCOVERY.operationTraits.find);
 assert.deepEqual(singleFind.planning, SSE_API_DISCOVERY.planning);
 assert.deepEqual(singleFind.liveEvidence, SSE_API_DISCOVERY.liveEvidence);

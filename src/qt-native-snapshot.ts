@@ -17,6 +17,8 @@ const snapshotSchema = z.object({
   ok: z.literal(true), controllerBound: z.literal(true), scope: z.literal("qt-accessibility-content"),
   hwnd: integer.positive(), windowEnabled: z.boolean(), modalBlocked: z.boolean(), nodes: z.array(nodeSchema).max(5000),
   foreground: z.boolean().optional(),
+  /** The root's own AutomationId and name; the root is never a node, but an owned window is listed by them. */
+  root: z.object({ aid: text, name: text }).strict().optional(),
   windowRect: z.object({ x: integer, y: integer, w: integer.nonnegative(), h: integer.nonnegative() }).strict(),
   exactMatches: z.object({ name: z.array(integer.nonnegative()).optional(), aid: z.array(integer.nonnegative()).optional(),
     type: z.array(integer.nonnegative()).optional() }).strict(),
@@ -40,6 +42,7 @@ export async function readQtNativeSnapshot(
     maxNodes, ...(typeof args.toolTitle === "string" ? { toolTitle: args.toolTitle } : {}),
     ...(typeof args.allowedModalTitle === "string" ? { allowedModalTitle: args.allowedModalTitle } : {}),
     ...(args.withValues === false ? { withValues: false } : {}),
+    ...(args.withCellStates === true ? { withCellStates: true } : {}),
     ...(Array.isArray(args.aidSuffixes) ? { aidSuffixes: args.aidSuffixes } : {}),
     ...(Array.isArray(args.aidContains) ? { aidContains: args.aidContains } : {}),
     ...(args.equalitySelectors ? { equalitySelectors: args.equalitySelectors } : {}),
@@ -66,6 +69,11 @@ export async function readQtNativeSnapshot(
       invalid("Invalid native selector comparison indices.");
   }
   return { ...parsed, nativeDurationMs: read.durationMs };
+}
+
+/** The bridge folds its depth bound into `truncated`; a failure names the bound that was hit so the remedy fits. */
+export function nativeTreeBoundReason(stats: { depthLimited: boolean }, subject = "Der native Seitenbaum"): string {
+  return stats.depthLimited ? `${subject} ist tiefer als die Lesegrenze von 16 Ebenen` : `${subject} ueberschreitet die Lesegrenze`;
 }
 
 export function qtSnapshotArguments(args: Readonly<Record<string, unknown>>, profile: ProductProfile): Record<string, unknown> {

@@ -11,6 +11,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApiExecutor } from "../dist/api-executor.js";
+import { executeCaseCreate } from "../dist/case-create-executor.js";
 
 const temporary = mkdtempSync(join(tmpdir(), "sse-case-create-"));
 const caseDir = join(temporary, "cases");
@@ -141,6 +142,51 @@ try {
   }
 
   {
+    // Ein modal oeffnender Menueklick darf den Dialog erst beim zweiten
+    // Readback liefern; die Fallanlage wartet auf genau den gebundenen Titel.
+    let dialogReads = 0;
+    const { worker, calls } = scriptedWorker({
+      dialog_list: () => {
+        dialogReads += 1;
+        return { ok: true, count: dialogReads === 1 ? 0 : 1, dialogs: dialogReads === 1 ? [] : [
+          { hwnd: 7001, pid: PID, kind: "native-dialog", title: SAVE_TITLE },
+        ] };
+      },
+    });
+    const result = await createApiExecutor(config, worker)("case_create", { targetRef: TARGET, mode: "einurvor" }, 240_000);
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(dialogReads, 2);
+    assert.equal(calls.find((entry) => entry.operation === "menu_click").args.waitMs, 100);
+    assert.equal(closes(calls).length, 0);
+    resetTarget();
+  }
+
+  {
+    // Der Dateidialog kann vor dem aktualisierten Fenstertitel schliessen.
+    // Ein alter Titel beim ersten Readback darf keine erstellte Datei als
+    // Fehler zuruecklassen.
+    let savedReads = 0;
+    let allReads = 0;
+    const { worker, calls } = scriptedWorker({
+      instances: (args) => {
+        allReads += 1;
+        if (allReads === 1) return noInstance;
+        if (args.includeHash === true) {
+          savedReads += 1;
+          writeFileSync(targetPath, "neu");
+          return instance({ caseName: savedReads === 1 ? "Gewinn-Erfassung 2026" : "neu.GewErfass2026", caseSha256: HASH });
+        }
+        return instance();
+      },
+    });
+    const result = await createApiExecutor(config, worker)("case_create", { targetRef: TARGET, mode: "einurvor" }, 240_000);
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(savedReads, 2);
+    assert.equal(calls.filter((entry) => entry.operation === "instances" && entry.args.includeHash === true).length, 2);
+    resetTarget();
+  }
+
+  {
     // 2 Offene Instanz: nichts starten.
     const { worker, calls } = scriptedWorker({ instances: () => instance() });
     const result = await createApiExecutor(config, worker)("case_create", { targetRef: TARGET, mode: "einurvor" }, 240_000);
@@ -209,8 +255,14 @@ try {
   {
     // 8 Kein passender nativer Dialog: Menue schliessen, dann Cleanup.
     const { worker, calls } = scriptedWorker({ dialog_list: () => ({ ok: true, count: 0, dialogs: [], windows: [] }) });
-    const result = await createApiExecutor(config, worker)("case_create", { targetRef: TARGET, mode: "einurvor" }, 240_000);
+    let clock = 0;
+    const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 240_000, undefined, {
+      execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
+      profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
+      now: () => clock, wait: async (ms) => { clock += ms; },
+    });
     assert.equal(result.kind, "save-dialog");
+    assert(clock >= 5_000);
     const tail = operationsOf(calls).slice(-4);
     assert.deepEqual(tail, ["dialog_list", "menu_close", "close", "product_info"]);
   }
@@ -272,6 +324,30 @@ try {
     const result = await createApiExecutor(config, worker)("case_create", { targetRef: TARGET, mode: "einurvor" }, 240_000);
     assert.equal(result.ok, true, JSON.stringify(result));
     assert.equal(calls.filter((entry) => entry.operation === "ui_state").length, 3);
+    resetTarget();
+  }
+
+  {
+    // Der Qt-Snapshot exponiert den Startlink erst nach einem UIA-Baumlauf.
+    // Der Assistent muss genau diesen Read direkt ueber den Worker ausfuehren.
+    const { worker, calls } = scriptedWorker();
+    let nativeSubpageCalls = 0;
+    const execute = (operation, args, timeoutMs, signal) => {
+      if (operation === "subpages") {
+        nativeSubpageCalls += 1;
+        return Promise.resolve({ ok: true, anzahl: 0, unterseiten: [] });
+      }
+      return worker(operation, args, timeoutMs, signal);
+    };
+    const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 240_000, undefined, {
+      execute, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
+      profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
+    });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(nativeSubpageCalls, 0);
+    assert.equal(calls.filter((entry) => entry.operation === "subpages").length, 1);
+    assert.equal(calls.filter((entry) => entry.operation === "click")[0].args.rid, "42.1.4.-1");
+    assert.equal(closes(calls).length, 0);
     resetTarget();
   }
 

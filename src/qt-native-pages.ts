@@ -209,7 +209,7 @@ export async function executeQtNativeSubpages(
   return { ok: true, backend: "qt", anzahl: subpages.length, unterseiten: subpages, nativeDurationMs: result.nativeDurationMs,
     hinweis: "Hyperlinks sind bei doppelt exponierten Qt-Unterseiten der bevorzugte, PID-/Root-verifizierte Weg per sse_click_point. "
       + "Reine oder unbeschriftete Buttons per rid mit sse_click oeffnen. "
-      + "Zurueck ueber sse_click name='Zurück' oder den Verlaufspfeil (aid HistoryToolbarBtnSSE)." };
+      + "Zurueck ueber sse_click name='Zurück'; es fuehrt zur zuvor angezeigten Seite, nicht zum Vorgaenger im Blaetterpfad." };
 }
 
 /** Read the catalogue overview's visible position links without a worker. */

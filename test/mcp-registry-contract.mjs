@@ -49,3 +49,13 @@ assert.match(missingSelectorText, /name, aid, type/);
 assert.equal(callbackCalls, 1, "Semantisch ungueltige MCP-Argumente duerfen den Tool-Handler nicht erreichen.");
 
 process.stdout.write("MCP-Registry: globale Handlerfehler, Pfadredaktion und Argumentbudget bestanden\n");
+
+for (const tool of ["sse_change_field", "sse_change_known_field", "sse_fill_fields"]) {
+  const labels = SSE_MCP_TOOL_SCHEMAS[tool].shape.resultLabels;
+  for (const blank of ["", " ", "\t\n"]) {
+    assert.equal(labels.safeParse([blank]).success, false, `${tool} accepted a blank result label.`);
+  }
+  assert.equal(labels.safeParse(undefined).success, true);
+  assert.equal(labels.safeParse([]).success, true);
+  assert.deepEqual(labels.parse(["New tax"]), ["New tax"]);
+}

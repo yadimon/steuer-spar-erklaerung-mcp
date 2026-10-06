@@ -17,7 +17,8 @@ const argumentComponents = Object.freeze(Object.fromEntries(
 
 function resultProperty(operation: SseApiOperation, property: string): object {
   const schema = SSE_API_DISCOVERY.resultSchemas[operation] as { properties?: Record<string, object>; };
-  const value = schema.properties?.[property];
+  const envelope = SSE_API_DISCOVERY.definitions.OperationResultEnvelope as { properties?: Record<string, object> };
+  const value = schema.properties?.[property] ?? envelope.properties?.[property];
   if (!value) throw new Error(`Result_${operation}.${property} fehlt fuer die OpenAPI-Komprimierung.`);
   return structuredClone(value);
 }
@@ -39,15 +40,16 @@ const resultValueComponents = Object.freeze({
 });
 const resultValueReferences = new Map(Object.entries(resultValueComponents)
   .map(([name, schema]) => [JSON.stringify(schema), { $ref: `#/components/schemas/${name}` }]));
-const RESULT_TRANSPORT_PROPERTIES = new Set(["ok", "kind", "error", "ms"]);
+const commonResultEnvelope = SSE_API_DISCOVERY.definitions.OperationResultEnvelope as {
+  properties: Record<string, object>;
+};
+const RESULT_TRANSPORT_PROPERTIES = new Set(Object.keys(commonResultEnvelope.properties));
 const resultEnvelopeComponent = Object.freeze({
+  ...structuredClone(SSE_API_DISCOVERY.definitions.OperationResultEnvelope),
   type: "object",
-  properties: {
-    ok: { $ref: "#/components/schemas/ResultOk" },
-    kind: { $ref: "#/components/schemas/ResultKind" },
-    error: { $ref: "#/components/schemas/ResultError" },
-    ms: { $ref: "#/components/schemas/ResultWorkerMs" },
-  },
+  properties: Object.fromEntries(Object.entries(commonResultEnvelope.properties).map(([field, value]) => [
+    field, structuredClone(resultValueReferences.get(JSON.stringify(value)) ?? value),
+  ])),
   required: ["ok"],
   additionalProperties: true,
   description: "Gemeinsamer Transportumschlag jedes Operationsergebnisses",

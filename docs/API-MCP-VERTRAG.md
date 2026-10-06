@@ -13,8 +13,9 @@
 
 ## Rollen
 
-Für die optionale dauerhafte Qt-Anbindung von `get_value`, `table_read`, `snapshot`, `find`, `read_page` und `subpages`
-gilt zusätzlich der [native Paket- und Laufzeitvertrag](NATIVE-QT.md).
+Für die optionale dauerhafte Qt-Anbindung der in der [Native-Matrix](NATIVE-COVERAGE.md)
+als **Qt optional** geführten Leseoperationen gilt zusätzlich der
+[native Paket- und Laufzeitvertrag](NATIVE-QT.md).
 Dasselbe optionale Paket übernimmt `desktop_status` und `desktop_start` direkt
 über Win32. Die Startoperation behält Ressourcenauflösung und Eigentumsprüfung;
 ein verlorener Antwortweg wird als unbekannter Ausgang ohne Wiederholung behandelt.
@@ -81,6 +82,13 @@ Ein fachlich erwartbarer Fehlschlag kann als gültige Operationsantwort mit
 `result.ok=false`, `kind`, `error` und Readback-/Recovery-Feldern erscheinen.
 Fehler vor der Ausführung, etwa Herkunftsschutz, unbekannte Operation oder
 ungültige Argumente, verwenden eine HTTP-Fehlerhülle.
+
+Die Gesamt-Discovery teilt den gemeinsamen Ergebnisumschlag einschließlich
+optionaler UIA-Baumzähler einmal unter `definitions.OperationResultEnvelope`.
+Die `allOf`-Referenzen der `resultSchemas` werden gegen dieses Gesamtdokument
+aufgelöst. Die Einzel-Discovery liefert die Definition zusätzlich innerhalb
+ihres `resultSchema`, sodass es auch isoliert validiert werden kann. OpenAPI
+verwendet dafür die entsprechende gemeinsame Schema-Komponente.
 
 ## Dauerhaftes CLI-Journal
 

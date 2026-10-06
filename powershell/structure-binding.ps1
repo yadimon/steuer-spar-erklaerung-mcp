@@ -85,6 +85,96 @@ function Get-SSEContainerChild {
 }
 
 <#
+Eintrag des linken Navigationsbaums, der exakt so heisst wie verlangt.
+
+Gebunden wird wie beim Steuerpruefer ueber den Baum-Container: Engine 30 gibt
+nur dem Tree eine AutomationId, Engine 31 vererbt sie zusaetzlich an die
+Eintraege. Der Baum ist virtualisiert; geliefert wird nur ein eindeutiger,
+aktiver Eintrag, dessen Zeile ganz im sichtbaren Baumausschnitt liegt. Eine
+angeschnittene Randzeile oder eine Namensgleichheit liefert $null.
+#>
+function Get-SSEVisibleNavigationItem {
+  param(
+    [Parameter(Mandatory)][AllowEmptyCollection()]$Nodes,
+    [string]$Name
+  )
+  if (-not $Name) { return $null }
+  $baumEndung = 'NavWidgetSSE'
+  $baum = Find-SSEContainerNode $Nodes $baumEndung 'Tree'
+  if (-not $baum -or $baum.w -le 0 -or $baum.h -le 0) { return $null }
+  $treffer = @(Get-SSEContainerDescendants $Nodes $baumEndung 'TreeItem' 'Tree' |
+    Where-Object { [string]$_.name -ceq $Name })
+  if ($treffer.Count -ne 1) { return $null }
+  $eintrag = $treffer[0]
+  if (-not $eintrag.on -or $eintrag.w -le 0 -or $eintrag.h -le 0) { return $null }
+  if ($eintrag.x -lt $baum.x -or $eintrag.y -lt $baum.y -or
+      ($eintrag.y + $eintrag.h) -gt ($baum.y + $baum.h)) { return $null }
+  $eintrag
+}
+
+<#
+Trefferzelle der globalen Suche fuer eine Seitenueberschrift.
+
+Die Ergebnistabelle hat zwei Spalten: links der Titel der Fundstelle, rechts
+ihr Ort im Formular. Zaehlt nur die Titelspalte - die Pfadzelle nennt die
+Seite eines Feldtreffers, und ein Doppelklick darauf oeffnet diese, nicht die
+gesuchte Seite. Die Titelspalte ist je Zeile die linke Zelle, auch wenn sie
+leer ist; sonst wuerde bei leerem Titel die Pfadzelle zum Titel.
+
+Der Navigationsbaum ist kein Kandidat: Waehrend die Suche offen ist, steht er
+verschoben im selben Fensterausschnitt, und sichtbare Baumziele klickt goto
+vorher selbst. Suchecho und Formulartexte ausserhalb der Tabelle zaehlen
+ebenso wenig.
+
+Geliefert wird die eindeutige Titelzelle mit genau dieser Ueberschrift. Steht
+der Titel nicht in der Zelle selbst, sondern in einem Text darin, zaehlt die
+Zelle, die diesen Text traegt. Mehr als ein exakter Treffer liefert $null.
+
+Ohne exakten Treffer entscheidet, falls angegeben, Accept ueber den Titel -
+fuer Seitenobjekte, deren Ueberschrift ein Praefix oder eine nummerierte
+Bezeichnung ist ('Sonstige Werbungskosten/Fahrten Eva' und '... Heinz' sind
+dieselbe Seitenart). Jede solche Seite erfuellt das Seitenobjekt; geliefert
+wird die erste passende Titelzelle in Tabellenreihenfolge. Auch hier zaehlt
+nur die Titelspalte. Ohne Accept bleibt es beim exakten Titel.
+#>
+function Select-SSESearchHit {
+  param(
+    [Parameter(Mandatory)][AllowEmptyCollection()]$Nodes,
+    [string]$Target,
+    [scriptblock]$Accept = $null
+  )
+  if (-not $Target) { return $null }
+  $tabelleEndung = 'DialogSearchResultsTableView'
+  $tabelle = Find-SSEContainerNode $Nodes $tabelleEndung 'Table'
+  if (-not $tabelle) { return $null }
+  $titelZellen = @{}
+  foreach ($zeile in @(Get-SSEContainerDescendants $Nodes $tabelleEndung 'DataItem' 'Table' | Group-Object y)) {
+    $links = @($zeile.Group | Sort-Object x)[0]
+    $titelZellen[[int]$links.i] = $links
+  }
+  # Nachfahren der Tabelle in Vorordnung; je Knoten die naechste Zelle darueber.
+  $zelleVon = @{}
+  $zelleVon[[int]$tabelle.i] = $null
+  $treffer = New-Object System.Collections.ArrayList
+  $passend = New-Object System.Collections.ArrayList
+  foreach ($knoten in @($Nodes)) {
+    $index = [int]$knoten.i
+    if ($index -eq [int]$tabelle.i -or -not $zelleVon.ContainsKey([int]$knoten.p)) { continue }
+    $zelle = $(if ($titelZellen.ContainsKey($index)) { $titelZellen[$index] } else { $zelleVon[[int]$knoten.p] })
+    $zelleVon[$index] = $zelle
+    if (-not $zelle -or $knoten.type -notin @('DataItem', 'Text', 'Hyperlink')) { continue }
+    if ([string]$knoten.name -ceq $Target) {
+      if (-not ($treffer -contains $zelle)) { $null = $treffer.Add($zelle) }
+    } elseif ($Accept -and [string]$knoten.name -and -not ($passend -contains $zelle) -and (& $Accept ([string]$knoten.name))) {
+      $null = $passend.Add($zelle)
+    }
+  }
+  if ($treffer.Count -eq 1) { return $treffer[0] }
+  if ($treffer.Count -eq 0 -and $passend.Count) { return $passend[0] }
+  $null
+}
+
+<#
 Name des ausgewaehlten Navigationsknotens.
 
 Unabhaengige Gegenprobe zur Seitenueberschrift; auf Hauptseiten stimmen beide

@@ -4797,12 +4797,13 @@ var init_mcp_schemas_diagnostics = __esm({
 });
 
 // src/mcp-schemas-interaction.ts
-var USTVA_EXPECTED_PAGE, SSE_MCP_INTERACTION_SCHEMAS;
+var RESULT_ROW_LABEL, USTVA_EXPECTED_PAGE, SSE_MCP_INTERACTION_SCHEMAS;
 var init_mcp_schemas_interaction = __esm({
   "src/mcp-schemas-interaction.ts"() {
     "use strict";
     init_zod();
     init_operation_schema_primitives();
+    RESULT_ROW_LABEL = external_exports.string().regex(/\S/u, "Ergebniszeilen brauchen eine nichtleere Beschriftung.");
     USTVA_EXPECTED_PAGE = () => external_exports.string().min(1).optional().describe(
       "Seitenueberschrift aus sse_ustva_read (Feld 'page'); spart die zusaetzliche Seitenlesung und wird vor der Aenderung geprueft."
     );
@@ -4889,8 +4890,8 @@ var init_mcp_schemas_interaction = __esm({
           after: external_exports.string().describe("Exakter Summenwert nach dem Schreiben")
         }).strict()).max(SSE_OPERATION_LIMITS.readbackChecks).optional().describe("Optionale Seiten-Summenvertraege; jede Abweichung loest Rollback aus"),
         trackResults: external_exports.boolean().optional().describe("Werte-Info vor/nach lesen; Vorgabe true"),
-        resultLabels: external_exports.array(external_exports.string()).max(SSE_OPERATION_LIMITS.resultLabels).optional().describe(
-          "Optional nur diese Ergebniszeilen vergleichen; sonst alle geaenderten"
+        resultLabels: external_exports.array(RESULT_ROW_LABEL).max(SSE_OPERATION_LIMITS.resultLabels).optional().describe(
+          "Optional nur diese exakten Ergebniszeilen vergleichen; fehlend oder [] vergleicht alle. Nicht vorhandene Beschriftungen liefern keinen Eintrag"
         ),
         hwnd: WINDOW_HANDLE.optional(),
         pid: PROCESS_ID.optional(),
@@ -4911,7 +4912,7 @@ var init_mcp_schemas_interaction = __esm({
           after: external_exports.string().describe("Exakter Summenwert nach dem Schreiben")
         }).strict()).max(SSE_OPERATION_LIMITS.readbackChecks).optional().describe("Optionale Summenvertraege; jede Abweichung loest Rollback aus"),
         trackResults: external_exports.boolean().optional().describe("Werte-Info vor/nach lesen; Vorgabe true"),
-        resultLabels: external_exports.array(external_exports.string()).max(SSE_OPERATION_LIMITS.resultLabels).optional().describe("Optional nur diese Werte-Info-Zeilen vergleichen"),
+        resultLabels: external_exports.array(RESULT_ROW_LABEL).max(SSE_OPERATION_LIMITS.resultLabels).optional().describe("Optional nur diese exakten Werte-Info-Zeilen vergleichen; fehlend oder [] vergleicht alle. Nicht vorhandene Beschriftungen liefern keinen Eintrag"),
         hwnd: WINDOW_HANDLE.optional(),
         pid: PROCESS_ID.optional(),
         expectedCaseRef: CASE_REF().optional(),
@@ -4945,8 +4946,8 @@ var init_mcp_schemas_interaction = __esm({
         rollback: external_exports.literal("best-effort").optional().describe("Erfolgreiche vorherige Feldschritte werden in umgekehrter Reihenfolge zurueckgesetzt"),
         finalReadback: external_exports.literal(true).optional().describe("Vollstaendiger Page-Object-Readback ist verpflichtend"),
         trackResults: external_exports.boolean().optional().describe("Werte-Info je Feld verfolgen; Vorgabe wie bei sse_change_known_field"),
-        resultLabels: external_exports.array(external_exports.string()).max(SSE_OPERATION_LIMITS.resultLabels).optional().describe(
-          "Optional nur diese Werte-Info-Zeilen bei jedem Feldschritt vergleichen"
+        resultLabels: external_exports.array(RESULT_ROW_LABEL).max(SSE_OPERATION_LIMITS.resultLabels).optional().describe(
+          "Optional nur diese exakten Werte-Info-Zeilen bei jedem Feldschritt vergleichen; fehlend oder [] vergleicht alle. Nicht vorhandene Beschriftungen liefern keinen Eintrag"
         ),
         hwnd: WINDOW_HANDLE.optional(),
         pid: PROCESS_ID.optional(),
@@ -5361,9 +5362,11 @@ var init_mcp_schemas_ui = __esm({
         pageId: external_exports.string().min(1).max(200).optional().describe(
           "Bevorzugte stabile pageId aus sse_page_objects; erkennt auch dynamische nummerierte Ueberschriften"
         ),
-        maxSteps: GOTO_MAX_STEPS.optional().describe("Hoechstzahl der Blaetterschritte, Vorgabe automatisch, maximal 200"),
+        maxSteps: GOTO_MAX_STEPS.optional().describe(
+          "Obergrenze der Blaetterschritte; das automatische Budget (Abstand plus Reserve) wird nie ueberschritten, maximal 200"
+        ),
         direction: external_exports.enum(["Weiter", "Zurück"]).optional().describe(
-          "Bei unbekannten Seiten die Suchrichtung fest vorgeben; verhindert einen langen Lauf in die falsche Richtung"
+          "Richtung fest vorgeben. 'Weiter' folgt dem Blaetterpfad, 'Zurück' dem Seitenverlauf der Sitzung und wird dann nicht gegen den Pfad geprueft"
         ),
         useSearch: external_exports.boolean().optional().describe(
           "Globale Qt-Suche zuerst versuchen; Vorgabe true. Auf verstecktem Desktop fuer einen rein linearen Lauf false setzen."
@@ -5425,7 +5428,11 @@ var init_mcp_schemas_ui = __esm({
         expectedAfter: external_exports.string().describe("Exakter Wert der Kontrollsumme nach dem Loeschen, z. B. '83.940,00'"),
         hwnd: WINDOW_HANDLE.optional()
       }).strict(),
-      "sse_menu": external_exports.object({ name: external_exports.string().optional().describe("z. B. 'Extras'"), hwnd: WINDOW_HANDLE.optional() }).strict(),
+      "sse_menu": external_exports.object({
+        name: external_exports.string().optional().describe("z. B. 'Extras'"),
+        alle: external_exports.boolean().optional().describe("true liest alle Hauptmenues samt Eintraegen in einem Aufruf; nicht zusammen mit name"),
+        hwnd: WINDOW_HANDLE.optional()
+      }).strict(),
       "sse_menu_click": external_exports.object({
         name: external_exports.string().describe("Exakter sichtbarer Menueeintrag aus sse_menu"),
         waitMs: UI_WAIT_MS.optional(),
@@ -5579,7 +5586,9 @@ var init_operation_schema_goto = __esm({
         "Stabile Page-Object-ID; bindet dynamische Ueberschriften und Pflichtfelder semantisch"
       ),
       maxSteps: GOTO_MAX_STEPS.optional(),
-      direction: external_exports.enum(["Weiter", "Zurück"]).optional().describe("Explizite lineare Suchrichtung"),
+      direction: external_exports.enum(["Weiter", "Zurück"]).optional().describe(
+        "Feste Richtung: 'Weiter' folgt dem Blaetterpfad, 'Zurück' dem Seitenverlauf"
+      ),
       useSearch: external_exports.boolean().optional().describe("Moderne Option fuer die globale Qt-Suche; Vorgabe true"),
       viaSuche: external_exports.boolean().optional().describe("Historischer Alias fuer useSearch"),
       hwnd: WINDOW_HANDLE.optional()
@@ -6832,11 +6841,21 @@ var init_result_utility_fields = __esm({
         abschnitte: OPTIONAL_OBJECT,
         hinweis: OPTIONAL_STRING
       },
+      tax_knowledge_search: {
+        begriff: OPTIONAL_STRING,
+        fenster: OPTIONAL_NON_NEGATIVE_NUMBER,
+        pid: OPTIONAL_NON_NEGATIVE_NUMBER,
+        abschnitte: OPTIONAL_ARRAY,
+        verweise: OPTIONAL_STRING_ARRAY,
+        wartezeitMs: OPTIONAL_NON_NEGATIVE_NUMBER,
+        hinweis: OPTIONAL_STRING
+      },
       menu: {
         menues: OPTIONAL_ARRAY,
         menue: OPTIONAL_STRING,
         anzahl: OPTIONAL_NON_NEGATIVE_NUMBER,
         eintraege: OPTIONAL_ARRAY,
+        baum: OPTIONAL_ARRAY,
         hinweis: OPTIONAL_STRING
       },
       menu_close: {
@@ -7073,17 +7092,7 @@ var init_operation_live_evidence = __esm({
 // src/result-contract.ts
 function createOperationResultOutputSchema(operation) {
   const operationFields = OPERATION_RESULT_FIELDS[operation] ?? {};
-  return external_exports.object({
-    ok: external_exports.boolean().describe("Operation erfolgreich"),
-    kind: external_exports.string().min(1).nullable().optional().describe("Fehlerart"),
-    error: external_exports.string().min(1).nullable().optional().describe("Fehlermeldung"),
-    ms: external_exports.number().finite().nonnegative().nullable().optional().describe("Worker-Laufzeit in ms"),
-    // Der Worker kann diese Telemetrie bei jeder Operation anhaengen, die den
-    // universellen Foreground-Lease tatsaechlich erwirbt. Sie gehoert deshalb
-    // zum gemeinsamen Ergebnisrand und nicht zu einzelnen Klickoperationen.
-    focusTelemetry: OPTIONAL_OBJECT,
-    ...operationFields
-  }).passthrough().describe(`Result_${operation} v${SSE_API_RESULT_SCHEMA_VERSION}`);
+  return SSE_API_RESULT_ENVELOPE_SCHEMA.extend(operationFields).describe(`Result_${operation} v${SSE_API_RESULT_SCHEMA_VERSION}`);
 }
 function createOperationResultSchema(operation) {
   return SSE_API_RESULT_OUTPUT_SCHEMAS[operation].superRefine((result, context) => {
@@ -7143,7 +7152,7 @@ function createOperationResultSchema(operation) {
 function parseApiOperationResult(operation, value) {
   return SSE_API_RESULT_SCHEMAS[operation].parse(value);
 }
-var SSE_API_RESULT_SCHEMA_VERSION, API_OPERATION_NAME_SCHEMA, OPTIONAL_TABLE_ROW_DETAILS, OPTIONAL_SUPPORTED_CASE_YEARS, OPTIONAL_CASE_IDENTITY, OPTIONAL_USTVA_PERIOD, OPTIONAL_USTVA_FLAGS, OPTIONAL_USTVA_TRANSMISSION, OPTIONAL_USTVA_READ_EFFECTS, CORE_OPERATION_RESULT_FIELDS, RESULT_FIELD_TABLES, duplicateOperations, OPERATION_RESULT_FIELDS, SSE_API_RESULT_OUTPUT_SCHEMAS, SSE_API_RESULT_SCHEMAS;
+var SSE_API_RESULT_SCHEMA_VERSION, API_OPERATION_NAME_SCHEMA, OPTIONAL_TABLE_ROW_DETAILS, OPTIONAL_SUPPORTED_CASE_YEARS, OPTIONAL_CASE_IDENTITY, OPTIONAL_USTVA_PERIOD, OPTIONAL_USTVA_FLAGS, OPTIONAL_USTVA_TRANSMISSION, OPTIONAL_USTVA_READ_EFFECTS, CORE_OPERATION_RESULT_FIELDS, RESULT_FIELD_TABLES, duplicateOperations, OPERATION_RESULT_FIELDS, SSE_API_RESULT_COMMON_FIELDS, SSE_API_RESULT_ENVELOPE_SCHEMA, SSE_API_RESULT_OUTPUT_SCHEMAS, SSE_API_RESULT_SCHEMAS;
 var init_result_contract = __esm({
   "src/result-contract.ts"() {
     "use strict";
@@ -7535,6 +7544,25 @@ var init_result_contract = __esm({
       throw new Error(`Doppelte Operations-Ergebnisvertraege: ${[...new Set(duplicateOperations)].join(", ")}`);
     }
     OPERATION_RESULT_FIELDS = Object.freeze(Object.assign({}, ...RESULT_FIELD_TABLES));
+    SSE_API_RESULT_COMMON_FIELDS = Object.freeze({
+      ok: external_exports.boolean().describe("Operation erfolgreich"),
+      kind: external_exports.string().min(1).nullable().optional().describe("Fehlerart"),
+      error: external_exports.string().min(1).nullable().optional().describe("Fehlermeldung"),
+      ms: external_exports.number().finite().nonnegative().nullable().optional().describe("Worker-Laufzeit in ms"),
+      // Emit appends these counters to every operation that walked a UIA tree.
+      treeWalks: external_exports.number().int().nonnegative().optional().describe("Anzahl der UIA-Baumlaeufe"),
+      treeWalkMs: external_exports.number().finite().nonnegative().optional().describe("Gesamtdauer der UIA-Baumlaeufe in ms"),
+      treeWalkDetail: external_exports.array(external_exports.object({
+        knoten: external_exports.number().int().nonnegative().describe("Gelesene Knoten"),
+        grenze: external_exports.number().int().nonnegative().describe("Knotengrenze des Laufs"),
+        ms: external_exports.number().finite().nonnegative().describe("Dauer dieses Baumlaufs in ms")
+      }).strict()).max(16).optional().describe("Begrenzte Detailzaehler der UIA-Baumlaeufe"),
+      // Der Worker kann diese Telemetrie bei jeder Operation anhaengen, die den
+      // universellen Foreground-Lease tatsaechlich erwirbt. Sie gehoert deshalb
+      // zum gemeinsamen Ergebnisrand und nicht zu einzelnen Klickoperationen.
+      focusTelemetry: OPTIONAL_OBJECT
+    });
+    SSE_API_RESULT_ENVELOPE_SCHEMA = external_exports.object(SSE_API_RESULT_COMMON_FIELDS).passthrough().describe("Gemeinsamer Transportumschlag jedes Operationsergebnisses");
     SSE_API_RESULT_OUTPUT_SCHEMAS = Object.freeze(Object.fromEntries(
       SSE_API_OPERATIONS.map((operation) => [operation, createOperationResultOutputSchema(operation)])
     ));
@@ -28999,7 +29027,7 @@ function registerUiTools(registry2) {
     "sse_goto",
     {
       title: "Seite ansteuern",
-      description: "Navigiert bevorzugt ueber eine stabile pageId, alternativ ueber die exakte Ueberschrift. Die pageId erkennt auch dynamische nummerierte Seiten wie '1. Fahrzeug: ...'. Versucht zuerst die globale Suche und blaettert danach mit den fokusfreien UIA-Schaltflaechen 'Weiter'/'Zurueck'. Qt-Suchtreffer lassen sich auf einem versteckten Windows-Desktop zwar lesen, aber je nach Programmseite nicht aktivieren; dann faellt das Werkzeug auf den Blaetterpfad zurueck. Bei einem blockierenden Pruefhinweis stoppt es nach dem ersten Klick, statt Warnfenster zu stapeln, und meldet den vollstaendigen Weg statt einen Scheinerfolg. Fuer einen rein linearen Lauf kann useSearch=false gesetzt werden. Ein Navigationsbaum-Klick braucht den sichtbaren Desktop. 'Gewinnermittlung beginnen' bleibt eine bekannte Sackgasse ohne Vor-/Zurueck-Schalter.",
+      description: "Navigiert bevorzugt ueber eine stabile pageId, alternativ ueber die exakte Ueberschrift. Die pageId erkennt auch dynamische nummerierte Seiten wie '1. Fahrzeug: ...'. Steht das Ziel exakt und eindeutig im sichtbaren Navigationsbaum, klickt es auf dem sichtbaren Desktop direkt diesen Eintrag. Sonst versucht es die globale Suche und blaettert danach fokusfrei in genau einer Richtung: 'Weiter' folgt dem Blaetterpfad, 'Zurueck' dagegen dem Seitenverlauf und gilt automatisch nur als gepruefter Rueckweg; die erste Landung neben dem Pfad beendet den Lauf und nennt die aktuelle Seite. Qt-Suchtreffer lassen sich auf einem versteckten Windows-Desktop zwar lesen, aber je nach Programmseite nicht aktivieren; dann faellt das Werkzeug auf den Blaetterpfad zurueck. Bei einem blockierenden Pruefhinweis stoppt es nach dem ersten Klick, statt Warnfenster zu stapeln; Seiten ohne Blaetterschalter wie die Startseite und Kreise beenden den Lauf sofort. Gemeldet wird der vollstaendige Weg statt eines Scheinerfolgs. Fuer einen rein linearen Lauf kann useSearch=false gesetzt werden. Ein Navigationsbaum-Klick braucht den sichtbaren Desktop.",
       inputSchema: SSE_MCP_TOOL_SCHEMAS.sse_goto.shape,
       outputSchema: apiResultOutputSchema("goto")
     },
@@ -29080,9 +29108,15 @@ function registerUiTools(registry2) {
     "sse_menu",
     {
       title: "Menue oeffnen und lesen",
-      description: "Ohne name: listet die Menuezeile (Datei, Bearbeiten, Ansicht, Extras, Musterbriefe, Service, ?). Mit name: oeffnet das Menue und liefert seine Eintraege samt Aktivierungszustand und Sperrkennzeichen. Ueber die Menuezeile erreicht man Optionen, Datenuebernahme, Steuerrechner und Druckfunktionen - sonst waeren sie unerreichbar. Menues mit Uebermittlungsbezug sind gesperrt. Sicher schliessen mit sse_menu_close."
+      description: "Ohne name: listet die Menuezeile (Datei, Bearbeiten, Ansicht, Extras, Musterbriefe, Service, ?). Mit name: oeffnet das Menue und liefert seine Eintraege samt Aktivierungszustand und Sperrkennzeichen. Mit alle=true: liest alle Hauptmenues samt Eintraegen in einem Aufruf (baum); jedes Menue wird per ExpandCollapsePattern auf- und wieder zugeklappt, ohne Maus und Tasten. Ueber die Menuezeile erreicht man Optionen, Datenuebernahme, Steuerrechner und Druckfunktionen - sonst waeren sie unerreichbar. Menues mit Uebermittlungsbezug sind gesperrt. Sicher schliessen mit sse_menu_close."
     },
-    (r) => ({ menue: r.menue, menues: asArray(r.menues), eintraege: asArray(r.eintraege), hinweis: r.hinweis })
+    (r) => ({
+      menue: r.menue,
+      menues: asArray(r.menues),
+      eintraege: asArray(r.eintraege),
+      baum: asArray(r.baum),
+      hinweis: r.hinweis
+    })
   );
   registerApiTool(
     "sse_menu_click",

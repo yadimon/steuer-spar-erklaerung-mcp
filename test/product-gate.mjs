@@ -517,7 +517,7 @@ try {
     closeBlock.includes("$dialogDeadline = [DateTime]::UtcNow.AddMilliseconds(1800)") &&
     closeBlock.includes("$dismissDeadline = [DateTime]::UtcNow.AddMilliseconds(1800)") &&
     closeBlock.includes("[SW]::IsWindow($h)") &&
-    closeBlock.includes("Wait-SSEProcessExit $targetProcessHandle 20000") &&
+    closeBlock.includes("Wait-SSEProcessExit $targetProcessHandle $(if ($force -or $hung) { 0 } else { 20000 })") &&
     !closeBlock.includes("$targetProcess.WaitForExit(") &&
     !closeBlock.includes("Start-Sleep -Milliseconds 1500") &&
     !closeBlock.includes("Start-Sleep -Seconds 2"),
@@ -552,7 +552,7 @@ try {
     workerOpBlock("goto").includes("niemals einen") &&
     workerOpBlock("goto").includes("unscharfen Treffer doppelklicken"),
   "sse_goto kann ohne fachlich gebundenen Suchtreffer weiterhin eine beliebige Seite oeffnen.");
-  assert((workerOpBlock("goto").match(/erreicht\s*=\s*\$true/g) ?? []).length === 6,
+  assert((workerOpBlock("goto").match(/erreicht\s*=\s*\$true/g) ?? []).length === 7,
     "Mindestens ein erfolgreicher sse_goto-Pfad meldet erreicht=true nicht konsistent.");
   const checkerCloseBlock = workerOpBlock("checker_close");
   assert(checkerCloseBlock.includes("Get-SSEContainerDescendants $before.nodes '.PrueferWidgetSSE.FrameTitle' 'Button' 'Group'") &&
