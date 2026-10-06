@@ -158,3 +158,57 @@ foreach ($call in @($expectedDecisionCalls + $expectedEvidenceCalls)) {
 Assert-True (@($calls | Where-Object { $_ -match '(?i)-DecisionOnly' }).Count -eq 3) 'DecisionOnly muss exakt auf drei interne Bindungsentscheidungen begrenzt bleiben.'
 
 Write-Output 'Steuerfallbindung: exakter Decision-only-Titel ohne Kommandozeilenabfrage; Native-/CIM-Fallbacks sowie Save-/Recovery-Evidenz unveraendert.'
+
+# Speichern unter muss auch mit einem zweiten, groesseren Hauptfenster den
+# zuvor gebundenen Fall pruefen. Dialoge anderer Prozesse sind kein Dialog
+# dieses Falls; ein unerwarteter Dialog im Zielprozess bleibt eine Sperre.
+$saveAsClause = @($ast.FindAll({
+  param($node)
+  $node -is [Management.Automation.Language.SwitchStatementAst] -and
+  @($node.Clauses | Where-Object { $_.Item1.Extent.Text -ceq "'save_as'" }).Count -eq 1
+}, $true))
+Assert-True ($saveAsClause.Count -eq 1) 'save_as ist nicht eindeutig vorhanden.'
+$saveAsBody = @($saveAsClause[0].Clauses | Where-Object { $_.Item1.Extent.Text -ceq "'save_as'" })[0].Item2
+$readbackAssignments = @($saveAsBody.Statements | Where-Object {
+  $_ -is [Management.Automation.Language.AssignmentStatementAst] -and
+  $_.Left.Extent.Text -in @('$remaining', '$mainAfter')
+})
+Assert-True ($readbackAssignments.Count -eq 2) 'Die Fenster-Readbacks von save_as fehlen.'
+$saveAsReadback = [scriptblock]::Create(($readbackAssignments | ForEach-Object { $_.Extent.Text }) -join "`n")
+$hwnd = [IntPtr]4242
+$targetPid = 4711
+$boundMain = [pscustomobject]@{ hwnd=4242; pid=4711; title='Ziel'; w=800; h=600 }
+$foreignMain = [pscustomobject]@{ hwnd=9999; pid=9998; title='Anderer Fall'; w=2400; h=1800 }
+$foreignDialog = [pscustomobject]@{ hwnd=9997; pid=9998; title='Speichern'; w=600; h=400 }
+$ownedDialog = [pscustomobject]@{ hwnd=4243; pid=4711; title='Unerwartete Rueckfrage'; w=600; h=400 }
+$script:SaveWindows = @($foreignMain, $boundMain, $foreignDialog)
+function Get-Windows { param([string]$Filter) $script:SaveWindows }
+. $saveAsReadback
+Assert-True ($remaining.Count -eq 0 -and $mainAfter -eq $boundMain) 'save_as verwechselte einen fremden Fall mit dem gebundenen Fenster.'
+$script:SaveWindows = @($foreignMain, $boundMain, $ownedDialog)
+. $saveAsReadback
+Assert-True ($remaining.Count -eq 1 -and $remaining[0] -eq $ownedDialog -and $mainAfter -eq $boundMain) 'save_as verlor den unerwarteten Dialog des Zielprozesses.'
+$script:SaveWindows = @($foreignMain, [pscustomobject]@{ hwnd=4242; pid=9998; title='Wiederverwendetes Handle'; w=800; h=600 })
+. $saveAsReadback
+Assert-True ($null -eq $mainAfter) 'save_as akzeptierte ein wiederverwendetes Handle aus einem anderen Prozess.'
+
+$identityDefinition = @($ast.FindAll({
+  param($node)
+  $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+  $node.Name -ceq 'Test-SSEImmutableSavedCaseIdentity'
+}, $true))
+Assert-True ($identityDefinition.Count -eq 1) 'Die unveraenderliche Speicheridentitaet fehlt.'
+Invoke-Expression $identityDefinition[0].Extent.Text
+$beforeIdentity = [ordered]@{ FileType='GewErfass'; VJahr='2026'; Steuernummer=''; ElsterTransferTime=''; MitElsterVersendetText='' }
+$afterIdentity = [ordered]@{ FileType='GewErfass'; VJahr='2026'; Steuernummer='123/456/78901'; ElsterTransferTime=''; MitElsterVersendetText='' }
+Assert-True (Test-SSEImmutableSavedCaseIdentity $beforeIdentity $afterIdentity) 'Eine editierte Steuernummer wurde als Wechsel der Falldatei behandelt.'
+foreach ($field in @('FileType','VJahr','ElsterTransferTime','MitElsterVersendetText')) {
+  $original = $afterIdentity[$field]
+  $afterIdentity[$field] = 'geaendert'
+  Assert-True (-not (Test-SSEImmutableSavedCaseIdentity $beforeIdentity $afterIdentity)) "Die unveraenderliche Speicheridentitaet akzeptierte ein geaendertes Feld $field."
+  $afterIdentity[$field] = $original
+}
+Assert-True (-not (Test-SSEImmutableSavedCaseIdentity $beforeIdentity $null)) 'Ein fehlender Dateikopf wurde akzeptiert.'
+$afterIdentity.Remove('VJahr')
+Assert-True (-not (Test-SSEImmutableSavedCaseIdentity $beforeIdentity $afterIdentity)) 'Ein fehlendes Steuerjahr wurde akzeptiert.'
+Write-Output 'Speicherbindung: exakt gebundener Prozess und HWND, eigene Rueckfragen, editierbare Steuernummer und unveraenderlicher Uebermittlungsstatus bestanden.'

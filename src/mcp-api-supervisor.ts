@@ -463,13 +463,15 @@ export async function assertApiSingletonIdentity(): Promise<ApiHealthDocument> {
   if (current.state === "compatible") {
     if (activeProcessId !== undefined && current.health.processId !== activeProcessId) {
       throw new ApiClientError(
-        "SSE-API-Healthz ist inkompatibel: Der Prozess am konfigurierten Port wurde ausgetauscht.",
+        "SSE-API-Healthz ist inkompatibel: Der Prozess am konfigurierten Port wurde ausgetauscht. " +
+          "Nach einem beabsichtigten API-Neustart die MCP-Verbindung neu starten und sse_preflight erneut aufrufen.",
         "protocol",
       );
     }
     if (activeInstanceId !== undefined && current.health.instanceId !== activeInstanceId) {
       throw new ApiClientError(
-        "SSE-API-Healthz ist inkompatibel: Die Instanz am konfigurierten Port wurde ausgetauscht.",
+        "SSE-API-Healthz ist inkompatibel: Die Instanz am konfigurierten Port wurde ausgetauscht. " +
+          "Nach einem beabsichtigten API-Neustart die MCP-Verbindung neu starten und sse_preflight erneut aufrufen.",
         "protocol",
       );
     }

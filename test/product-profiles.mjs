@@ -68,6 +68,25 @@ assert.equal(masterData.fields.einkunftsart.writeTool, "sse_combo_select",
   "Auswahlfelder schreibt nicht fill_fields, sondern der typisierte Combo-Weg.");
 assert.deepEqual(masterData.fields.einkunftsart.options, ["Gewerbebetrieb", "selbstständige Tätigkeit", "Land- u. Forstwirtschaft"]);
 assert.equal(masterData.fields.gruendungsdatum.valueKind, "date");
+const taxOffice = profile.pageObjectsCatalog.pages["gew_erfass.steuernummer_finanzamt"];
+assert.equal(taxOffice.heading, "Steuernummer, Finanzamt, etc.");
+assert.equal(taxOffice.navigationTreeItemName, "Angaben zum Finanzamt");
+assert.equal(taxOffice.documentType, "GewErfass2026");
+for (const fieldId of ["bundesland", "finanzamt", "steuernummer", "wirtschafts_id", "umsatzsteuer_id"]) {
+  const field = taxOffice.fields[fieldId];
+  assert(field, `Finanzamtsfeld ${fieldId} fehlt.`);
+  assert.match(field.automationIdRelative, /^\.centralWidget\./u);
+  assert(field.automationIdRelative.endsWith(field.automationIdSuffix));
+  assert.equal(field.verification.fieldReadback, true);
+}
+for (const fieldId of ["bundesland", "finanzamt"]) {
+  assert.equal(taxOffice.fields[fieldId].controlType, "ComboBox");
+  assert.equal(taxOffice.fields[fieldId].writeTool, "sse_combo_select");
+}
+assert.equal(taxOffice.fields.steuernummer.controlType, "Edit");
+assert.equal(taxOffice.fields.steuernummer.valueKind, "text");
+assert.equal(Object.hasOwn(taxOffice.fields, "steuer_id"), false,
+  "Der GewErfass-Finanzamtskatalog darf die persoenliche Steuer-ID nicht mit der Wirtschafts-ID verwechseln.");
 const vatPage = profile.pageObjectsCatalog.pages["gew_erfass.themenfilter_umsatzsteuer"];
 assert.equal(vatPage.fields.lohnsteueranmeldungen.controlType, "CheckBox");
 assert.equal(vatPage.fields.lohnsteueranmeldungen.valueKind, "boolean");
@@ -186,6 +205,27 @@ try {
   assert.throws(() => loadProductProfile("2025", emptyCatalogRoot), /Seitenkatalog darf nicht leer/);
 } finally {
   rmSync(emptyCatalogRoot, { recursive: true, force: true });
+}
+
+const navigationCatalogRoot = mkdtempSync(join(tmpdir(), "sse-product-navigation-catalog-"));
+try {
+  const copiedProfile = join(navigationCatalogRoot, "2025");
+  cpSync(join(root, "profiles", "2025"), copiedProfile, { recursive: true });
+  const pageObjectsPath = join(copiedProfile, "page-objects.json");
+  const pageObjects = JSON.parse(readFileSync(pageObjectsPath, "utf8"));
+  const page = pageObjects.pages["gew_erfass.steuernummer_finanzamt"];
+  for (const invalidName of ["", "   ", 42, ["Angaben zum Finanzamt"]]) {
+    page.navigationTreeItemName = invalidName;
+    writeFileSync(pageObjectsPath, `${JSON.stringify(pageObjects, null, 2)}\n`, "utf8");
+    assert.throws(() => loadProductProfile("2025", navigationCatalogRoot), /navigationTreeItemName/);
+  }
+  page.navigationTreeItemName = " Angaben zum Finanzamt ";
+  writeFileSync(pageObjectsPath, `${JSON.stringify(pageObjects, null, 2)}\n`, "utf8");
+  assert.equal(loadProductProfile("2025", navigationCatalogRoot)
+    .pageObjectsCatalog.pages["gew_erfass.steuernummer_finanzamt"].navigationTreeItemName,
+  " Angaben zum Finanzamt ", "Der Katalog darf exakte Qt-Namen nicht normalisieren.");
+} finally {
+  rmSync(navigationCatalogRoot, { recursive: true, force: true });
 }
 
 const caseCollisionRoot = mkdtempSync(join(tmpdir(), "sse-product-case-collision-"));

@@ -2,8 +2,23 @@
 #include <QtGui/QWindow>
 #include <QtGui/private/qaccessiblebridgeutils_p.h>
 #include <QtGui/private/qhighdpiscaling_p.h>
+#include <QtGui/private/qguiapplication_p.h>
+#include <QtGui/qpa/qplatformintegration.h>
+#include <QtGui/qpa/qplatformaccessibility.h>
 #include <unordered_set>
 #include "bridge-accessible-types.h"
+
+// A direct accessibility client must activate the platform before caching model
+// interfaces. Qt otherwise omits the table-model events that invalidate them.
+static void activateAccessibilityClient() {
+    if (!qApp || qApp->thread() != QThread::currentThread())
+        throw std::runtime_error("Accessibility activation requires the GUI thread");
+    auto *integration = QGuiApplicationPrivate::platformIntegration();
+    auto *accessibility = integration ? integration->accessibility() : nullptr;
+    if (!accessibility) throw std::runtime_error("No platform accessibility service");
+    if (!accessibility->isActive()) accessibility->setActive(true);
+    if (!QAccessible::isActive()) throw std::runtime_error("Platform accessibility did not activate");
+}
 
 static std::string accessibleText(QString value, bool normalize = false) {
     if (value.size() > 16384) throw std::runtime_error("Accessible text exceeds bound");
@@ -63,11 +78,14 @@ static bool accessibilityModalBlocked(QWidget *root, const Json &request) {
     if (!active || active == root) return false;
     if (request.contains("allowedModalTitle") && request.at("allowedModalTitle").is_string()) {
         const auto allowed = QString::fromUtf8(request.at("allowedModalTitle").get<std::string>().c_str());
-        if (active->isVisible() && active->windowTitle() == allowed) return false;
+        if (active->isVisible() && active->windowTitle() == allowed
+            && (!request.contains("allowedModalHwnd")
+                || request.at("allowedModalHwnd").get<std::uint64_t>() == static_cast<std::uint64_t>(active->winId()))) return false;
     }
     return true;
 }
 static Json accessibilitySnapshot(QWidget *main, const Json &request) {
+    activateAccessibilityClient();
     auto *root = main;
     if (request.contains("toolTitle")) {
         const auto title = QString::fromUtf8(request.at("toolTitle").get<std::string>().c_str());
@@ -194,7 +212,20 @@ static Json accessibilitySnapshot(QWidget *main, const Json &request) {
         if (count < 0) throw std::runtime_error("Negative accessible child count");
         if (work.next >= count) { stack.pop_back(); continue; }
         if (work.depth >= (sparse ? 64 : 16)) { depthLimited = true; stack.pop_back(); continue; }
-        auto *child = iface->child(work.next++);
+        const int childIndex = work.next++;
+        auto *child = iface->child(childIndex);
+        if (!child || !child->isValid()) {
+            const auto parentAid = accessibleText(QAccessibleBridgeUtils::accessibleId(iface));
+            const auto parentType = accessibleControlType(iface);
+            auto incomplete = error("NATIVE_ACCESSIBILITY_INCOMPLETE", std::string("Accessible ") + parentType + " '" + parentAid
+                + "' reports an invalid child " + std::to_string(childIndex) + "/" + std::to_string(count));
+            incomplete["readIncomplete"] = true;
+            incomplete["parentAid"] = parentAid;
+            incomplete["parentType"] = parentType;
+            incomplete["childIndex"] = childIndex;
+            incomplete["childCount"] = count;
+            return incomplete;
+        }
         stack.push_back({child, work.index, work.depth + 1, work.host});
     }
     const auto count = nodes.size();
@@ -206,7 +237,10 @@ static Json accessibilitySnapshot(QWidget *main, const Json &request) {
         {"exactMatches", std::move(exactMatches)},
         {"windowRect", {{"x", windowRect.left}, {"y", windowRect.top},
             {"w", windowRect.right - windowRect.left}, {"h", windowRect.bottom - windowRect.top}}},
-        {"modalBlocked", accessibilityModalBlocked(root, request)}, {"scope", "qt-accessibility-content"},
+        {"modalBlocked", accessibilityModalBlocked(root, request)},
+        {"activeModalHwnd", QApplication::activeModalWidget()
+            ? static_cast<std::uint64_t>(QApplication::activeModalWidget()->winId()) : 0},
+        {"scope", "qt-accessibility-content"},
         {"stats", {{"n", count}, {"err", 0}, {"cyc", 0}, {"cycleRid", ""}, {"cycleName", ""},
             {"truncated", truncated || depthLimited}, {"depthLimited", depthLimited}, {"valErr", 0}, {"scrollErr", 0},
             {"source", "qt"}, {"fallbackReason", ""}, {"snapshotMs", timer.nsecsElapsed() / 1e6}}}};
@@ -222,17 +256,28 @@ static bool accessibilityActionObstructed(QWidget *main, const Json &request) {
     return matches.size() == 1 && (!matches.front()->isEnabled() || accessibilityModalBlocked(matches.front(), request));
 }
 
+#include "bridge-accessible-options.h"
 // Private, exact-target mechanism for catalogued compound API transactions.
 // It is reachable only over the authenticated native broker and is not itself a public selector API.
+#include "bridge-edit-actions.h"
+#include "bridge-table-edit-actions.h"
+#include "bridge-navigation-actions.h"
 static Json accessibilityAction(QWidget *main, const Json &request) {
+    activateAccessibilityClient();
     const auto operation = request.value("action", std::string());
     const auto wantedRid = request.value("rid", std::string());
     const auto wantedAid = request.value("aid", std::string());
     const auto expectedName = request.value("expectedName", std::string());
-    if ((operation != "press" && operation != "activate-table-cell")
+    const bool editOperation = operation == "replace-edit-text" || operation == "select-combo-value"
+        || operation == "toggle-check-box" || operation == "set-table-check-state";
+    if ((operation != "press" && operation != "activate-table-cell" && operation != "activate-navigation-item" && operation != "replace-edit-text"
+            && operation != "select-combo-value" && operation != "toggle-check-box" && operation != "set-table-check-state")
         || wantedRid.empty() || wantedRid.size() > 256 || wantedAid.empty()
         || wantedAid.size() > 65536 || expectedName.size() > 65536)
         return noMutationError("INVALID_ACTION_TARGET", "The native action requires an exact bounded target");
+    if (((editOperation || operation == "activate-navigation-item") && !request.contains("expectedRootHwnd"))
+        || (request.contains("expectedRootHwnd") && !request.at("expectedRootHwnd").is_number_integer()))
+        return noMutationError("INVALID_ACTION_TARGET", "Persistent Qt edits require the exact observed root window");
     auto *root = main;
     if (request.contains("toolTitle")) {
         if (!request.at("toolTitle").is_string())
@@ -250,14 +295,17 @@ static Json accessibilityAction(QWidget *main, const Json &request) {
     auto *rootInterface = QAccessible::queryAccessibleInterface(root);
     if (!rootInterface || !rootInterface->isValid())
         return noMutationError("INVALID_ACTION_TARGET", "The native action root has no valid accessible interface");
+    const auto rootHost = accessibleHost(rootInterface);
+    if (request.contains("expectedRootHwnd") && (!rootHost || request.at("expectedRootHwnd").get<std::uint64_t>() != rootHost))
+        return noMutationError("stale-window", "The exact native action root window changed before dispatch");
     struct Work { QAccessibleInterface *iface; int depth; std::uint64_t host; };
-    std::vector<Work> stack{{rootInterface, -1, accessibleHost(rootInterface)}};
+    std::vector<Work> stack{{rootInterface, -1, rootHost}};
     std::unordered_set<QAccessible::Id> seen;
     QAccessibleInterface *target = nullptr;
     int matches = 0, visited = 0;
     QElapsedTimer timer; timer.start();
     while (!stack.empty()) {
-        if (timer.elapsed() > 750) return noMutationError("ACTION_LOOKUP_TIMEOUT", "The exact native action lookup exceeded its bound");
+        if (timer.elapsed() > 500) return noMutationError("ACTION_LOOKUP_TIMEOUT", "The exact native action lookup exceeded its bound");
         const auto work = stack.back(); stack.pop_back();
         auto *iface = work.iface;
         if (++visited > 50000) return noMutationError("ACTION_LOOKUP_BOUND", "The exact native action lookup exceeded its node bound");
@@ -274,7 +322,13 @@ static Json accessibilityAction(QWidget *main, const Json &request) {
         if (work.depth >= 64) continue;
         const auto count = iface->childCount();
         if (count < 0) return noMutationError("INVALID_ACTION_TARGET", "The native action target has an invalid child count");
-        for (int index = count - 1; index >= 0; --index) stack.push_back({iface->child(index), work.depth + 1, host});
+        for (int index = count - 1; index >= 0; --index) {
+            // Creating every accessible table-cell child can itself dominate
+            // the GUI lease. Bound that work before any mutation can begin.
+            if (timer.elapsed() > 500)
+                return noMutationError("ACTION_LOOKUP_TIMEOUT", "The exact native action lookup exceeded its bound");
+            stack.push_back({iface->child(index), work.depth + 1, host});
+        }
     }
     if (matches != 1 || !target || !target->isValid())
         return noMutationError(matches ? "ambiguous" : "not-found", "The exact native action target is not unique and live");
@@ -282,7 +336,20 @@ static Json accessibilityAction(QWidget *main, const Json &request) {
     const auto state = target->state();
     if ((!expectedName.empty() && actualName != expectedName) || state.disabled || state.invisible)
         return noMutationError("stale", "The exact native action target changed before dispatch");
-    if (operation == "press") {
+    if (editOperation) {
+        auto result = operation == "replace-edit-text" ? replaceAccessibleEdit(root, target, request)
+            : operation == "select-combo-value" ? selectAccessibleCombo(root, target, request)
+            : operation == "toggle-check-box" ? toggleAccessibleCheckBox(root, target, request)
+            : setAccessibleTableCheckState(root, target, request);
+        result["action"] = operation; result["rid"] = wantedRid; result["aid"] = wantedAid;
+        result["name"] = actualName; result["lookupMs"] = timer.nsecsElapsed() / 1e6;
+        return result;
+    } else if (operation == "activate-navigation-item") {
+        auto result = activateAccessibleNavigationItem(root, target);
+        result["action"] = operation; result["rid"] = wantedRid; result["aid"] = wantedAid;
+        result["name"] = actualName; result["lookupMs"] = timer.nsecsElapsed() / 1e6;
+        return result;
+    } else if (operation == "press") {
         auto *actions = target->actionInterface();
         const auto press = QAccessibleActionInterface::pressAction();
         if (!actions || !actions->actionNames().contains(press))

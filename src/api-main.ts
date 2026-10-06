@@ -32,7 +32,7 @@ async function main(): Promise<void> {
     .catch((error: unknown) => { throw describePortConflict(error); });
   if (firstRun.created) process.stdout.write(`Lokale Standardkonfiguration erstellt: ${firstRun.configPath}\n`);
   process.stdout.write(
-    `SSE-API bereit: ${ready.baseUrl} (${args.caseDir ? "Fallordner fuer diesen Lauf gebunden" : "kein Fallordner gebunden"}).\n` +
+    `SSE-API bereit: ${ready.baseUrl} (${ready.caseDirectoryConfigured ? "Fallordner gebunden" : "kein Fallordner gebunden"}).\n` +
     "Dieses Terminal offen lassen; Strg+C beendet die API.\n",
   );
 }

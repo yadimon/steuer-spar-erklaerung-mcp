@@ -60,6 +60,7 @@ const annotationsForTool = (name) => {
 const calls = [];
 const API_INSTANCE_ID = "44444444-4444-4444-8444-444444444444";
 let forcedResult;
+let forcedOperationResults = {};
 let forceTransportReset = false;
 const api = createServer(async (request, response) => {
   if (request.url === "/healthz") {
@@ -132,7 +133,7 @@ const api = createServer(async (request, response) => {
       "/home/person/drittes.txt": "drei",
     },
   };
-  const result = forcedResult ?? defaultResult;
+  const result = forcedOperationResults[operation] ?? forcedResult ?? defaultResult;
   forcedResult = undefined;
   const envelope = { apiVersion: "v1", requestId: randomUUID(), operation, durationMs: 0, result };
   const json = JSON.stringify(envelope);
@@ -633,13 +634,40 @@ try {
     assert.equal(calls.length, beforeInvalid, `${name} darf semantisch ungueltig keinen HTTP-Aufruf ausloesen`);
     strictRejections += 1;
   }
+  for (const [index, operation] of ["workspace_status", "product_info", "health"].entries()) {
+    const beforePreflightError = calls.length;
+    forcedOperationResults = { [operation]: {
+      ok: false, kind: "busy", error: "Synthetic session guard", reason: "session-controller-busy", waited: false,
+      retryable: true, mutationStarted: false, resultingState: "unchanged", cleanupRequired: false,
+      physicalInputUsed: false, foregroundLeaseUsed: false,
+    } };
+    const preflightError = await client.callTool({ name: "sse_preflight", arguments: {} });
+    forcedOperationResults = {};
+    assert.equal(preflightError.isError, true, `${operation}: MCP muss den Fehler durchreichen`);
+    assert.equal(preflightError.structuredContent.ok, false);
+    assert.equal(preflightError.structuredContent.kind, "busy");
+    assert.equal(preflightError.structuredContent.reason, "session-controller-busy");
+    assert.equal(preflightError.structuredContent.waited, false);
+    assert.equal(preflightError.structuredContent.mutationStarted, false);
+    assert.equal(preflightError.structuredContent.physicalInputUsed, false);
+    assert.equal(preflightError.structuredContent.ready, undefined,
+      "Eine abgebrochene Pruefung darf keine erfundene Bereitschaft liefern.");
+    assert.match(preflightError.structuredContent.hint, /keine parallelen Retries/u);
+    assert.deepEqual(calls.slice(beforePreflightError).map((call) => call.operation),
+      ["workspace_status", "product_info", "health"].slice(0, index + 1),
+      "Preflight darf nach der fehlgeschlagenen Basisoperation nicht weiterlaufen.");
+  }
   forceTransportReset = true;
   const transportReset = await client.callTool(
     { name: "sse_health", arguments: {} },
     undefined,
     { timeout: 10_000, maxTotalTimeout: 10_000 },
   );
+  const preflightTransportReset = await client.callTool({ name: "sse_preflight", arguments: {} });
   forceTransportReset = false;
+  assert.equal(preflightTransportReset.isError, true);
+  assert.equal(preflightTransportReset.structuredContent.kind, "transport-unknown",
+    "Auch ein abgefangener Transportfehler muss durch den echten SDK-Client strukturiert lesbar bleiben.");
   const transportResetText = transportReset.content
     .filter((entry) => entry.type === "text").map((entry) => entry.text).join("\n");
   assert.equal(transportReset.isError, true);

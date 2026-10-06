@@ -54,6 +54,7 @@ export interface ApiRuntimeOverrides {
 export interface ApiRuntimeReady {
   baseUrl: string;
   configPath: string;
+  caseDirectoryConfigured: boolean;
 }
 
 /**
@@ -252,5 +253,9 @@ export async function runApiRuntime(
   // (Profil-Id, Programmpfad, Fallordner) steht zu diesem Zeitpunkt fest.
   enableWorkerPrewarm();
   log({ event: "ready", host: config.host, port: config.port });
-  return { baseUrl: configuredBaseUrl, configPath: config.configPath };
+  return {
+    baseUrl: configuredBaseUrl,
+    configPath: config.configPath,
+    caseDirectoryConfigured: Boolean(config.caseDir),
+  };
 }

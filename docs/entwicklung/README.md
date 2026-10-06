@@ -1,26 +1,15 @@
-# Entwicklungswissen und Erfahrungen
+# Produktkatalog und Automationsgrenzen
 
-Dieser Ordner ist bewusst **kein installierter Agent Skill**. Er sammelt
-sanitisierte Entwicklungsbeobachtungen, verworfene Ansätze, Ursachen früherer
-Fehler, Messungen und Architekturentscheidungen.
+Dieser Ordner beschreibt den unterstützten Produktaufbau, den aktuellen
+Funktionsumfang und nachvollziehbare Abnahmekriterien für Erweiterungen.
 
 Zur aktuellen Nutzer- und Vertragsdokumentation führt der
 [Dokumentationsindex](../README.md).
 
-## Trennregel
-
-| Gehört hierher | Gehört in `skills/` |
-|---|---|
-| „Ansatz X hing wegen Qt-`FindAll`“ | „Kein ungebremstes `FindAll` verwenden“ |
-| genaue Fehlerhistorie und Reparatur | aktuelle sichere Recovery-Anweisung |
-| Benchmarks und Versuchsaufbau | belastbarer Laufzeit-Default |
-| Refactoring- und Reviewnotizen | nur der resultierende Nutzervertrag |
-| interne Backlog-Hypothesen | keine unfertigen Versprechen |
-
-Entwicklungswissen darf echte Steuerdaten, Namen, Konten, lokale private Pfade
-oder Zugangsdaten auch hier nicht enthalten. Wiederverwendbare Erkenntnisse
-werden erst nach Verifikation als kurze aktuelle Regel in einen Skill
-übernommen. Die historische Begründung bleibt in diesem Ordner.
+Persönliche Entwicklungsnotizen, Messungen einzelner Rechner, Reviewartefakte
+und Versuchsprotokolle bleiben außerhalb des Repositorys. Verifizierte
+Bedienregeln stehen in `skills/`; diese Dokumente beschreiben die Produktgrenzen
+und deren reproduzierbare Prüfung.
 
 ## Aktueller Inhalt
 
@@ -39,9 +28,6 @@ werden erst nach Verifikation als kurze aktuelle Regel in einen Skill
   Gewinnermittlung mit ihrer Bauart. Beantwortet vor dem Profilieren die Frage,
   ob sich ein Seitenobjekt lohnt — und zeigt, dass die Antwort je Modul
   verschieden ausfällt;
-- `erfahrungen/sse-automation-erfahrungen.md`: sanitisierte Qt/UIA-Fehler,
-  verifizierte Gegenmaßnahmen, Fall-/Backup-Sitzungsgrenzen,
-  BelegManager-Bindungen, Sicherheitsnachbedingungen und offene Grenzen.
 
 ## Wie diese Dokumente ehrlich bleiben
 

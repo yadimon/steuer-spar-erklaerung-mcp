@@ -5108,6 +5108,7 @@ var init_mcp_schemas_lifecycle = __esm({
         sourceRef: CASE_REF().describe("Exakte Referenz des aktuell geoeffneten Quellfalls"),
         expectedSourceHash: SHA256(),
         targetRef: CASE_REF().describe("Explizit vom Menschen verlangte neue Falldatei; kein automatischer Sicherheitsweg"),
+        hwnd: WINDOW_HANDLE.optional().describe("Exaktes SSE-Hauptfenster; bei mehreren offenen Steuerfaellen Pflicht"),
         waitMs: external_exports.number().int().min(800).max(3e4).optional().describe("Wartezeit auf Ziel-, Hash- und Fenstertitel-Readback")
       }).strict(),
       "sse_close": external_exports.object({
@@ -7587,7 +7588,7 @@ var init_version = __esm({
     SSE_PACKAGE_NAME = "steuer-spar-erklaerung-mcp";
     SSE_API_PACKAGE_NAME = "@yadimon/steuer-spar-erklaerung-api";
     SSE_PLUGIN_NAME = "steuer-spar-erklaerung";
-    SSE_PACKAGE_VERSION = "0.1.0-beta.46";
+    SSE_PACKAGE_VERSION = "0.1.0-beta.47";
   }
 });
 
@@ -8657,13 +8658,13 @@ async function assertApiSingletonIdentity() {
   if (current.state === "compatible") {
     if (activeProcessId !== void 0 && current.health.processId !== activeProcessId) {
       throw new ApiClientError(
-        "SSE-API-Healthz ist inkompatibel: Der Prozess am konfigurierten Port wurde ausgetauscht.",
+        "SSE-API-Healthz ist inkompatibel: Der Prozess am konfigurierten Port wurde ausgetauscht. Nach einem beabsichtigten API-Neustart die MCP-Verbindung neu starten und sse_preflight erneut aufrufen.",
         "protocol"
       );
     }
     if (activeInstanceId !== void 0 && current.health.instanceId !== activeInstanceId) {
       throw new ApiClientError(
-        "SSE-API-Healthz ist inkompatibel: Die Instanz am konfigurierten Port wurde ausgetauscht.",
+        "SSE-API-Healthz ist inkompatibel: Die Instanz am konfigurierten Port wurde ausgetauscht. Nach einem beabsichtigten API-Neustart die MCP-Verbindung neu starten und sse_preflight erneut aufrufen.",
         "protocol"
       );
     }
@@ -17177,6 +17178,9 @@ var init_protocol = __esm({
           this.setRequestHandler(GetTaskPayloadRequestSchema, async (request2, extra) => {
             const handleTaskResult = async () => {
               const taskId = request2.params.taskId;
+              if (!await this._taskStore.getTask(taskId, extra.sessionId)) {
+                throw new McpError(ErrorCode.InvalidParams, `Task not found: ${taskId}`);
+              }
               if (this._taskMessageQueue) {
                 let queuedMessage;
                 while (queuedMessage = await this._taskMessageQueue.dequeue(taskId, extra.sessionId)) {
@@ -17207,12 +17211,12 @@ var init_protocol = __esm({
                 throw new McpError(ErrorCode.InvalidParams, `Task not found: ${taskId}`);
               }
               if (!isTerminal(task.status)) {
-                await this._waitForTaskUpdate(taskId, extra.signal);
+                await this._waitForTaskUpdate(taskId, extra.signal, extra.sessionId);
                 return await handleTaskResult();
               }
               if (isTerminal(task.status)) {
                 const result = await this._taskStore.getTaskResult(taskId, extra.sessionId);
-                this._clearTaskQueue(taskId);
+                this._clearTaskQueue(taskId, extra.sessionId);
                 return {
                   ...result,
                   _meta: {
@@ -17249,7 +17253,7 @@ var init_protocol = __esm({
                 throw new McpError(ErrorCode.InvalidParams, `Cannot cancel task in terminal status: ${task.status}`);
               }
               await this._taskStore.updateTaskStatus(request2.params.taskId, "cancelled", "Client cancelled task execution.", extra.sessionId);
-              this._clearTaskQueue(request2.params.taskId);
+              this._clearTaskQueue(request2.params.taskId, extra.sessionId);
               const cancelledTask = await this._taskStore.getTask(request2.params.taskId, extra.sessionId);
               if (!cancelledTask) {
                 throw new McpError(ErrorCode.InvalidParams, `Task not found after cancellation: ${request2.params.taskId}`);
@@ -17377,6 +17381,19 @@ var init_protocol = __esm({
         const handler = this._requestHandlers.get(request2.method) ?? this.fallbackRequestHandler;
         const capturedTransport = this._transport;
         const relatedTaskId = request2.params?._meta?.[RELATED_TASK_META_KEY]?.taskId;
+        const sessionId = capturedTransport?.sessionId;
+        const store = this._taskStore;
+        let relatedTaskFound = true;
+        let relatedTaskLookup;
+        if (relatedTaskId && store && this._taskMessageQueue && sessionId !== void 0) {
+          relatedTaskFound = false;
+          relatedTaskLookup = (async () => {
+            if (!await store.getTask(relatedTaskId, sessionId)) {
+              throw new McpError(ErrorCode.InvalidParams, `Task not found: ${relatedTaskId}`);
+            }
+            relatedTaskFound = true;
+          })();
+        }
         if (handler === void 0) {
           const errorResponse = {
             jsonrpc: "2.0",
@@ -17386,7 +17403,10 @@ var init_protocol = __esm({
               message: "Method not found"
             }
           };
-          if (relatedTaskId && this._taskMessageQueue) {
+          if (relatedTaskId && relatedTaskLookup) {
+            const queuedError = { type: "error", message: errorResponse, timestamp: Date.now() };
+            relatedTaskLookup.then(() => this._enqueueTaskMessage(relatedTaskId, queuedError, sessionId), () => capturedTransport?.send(errorResponse)).catch((error2) => this._onerror(new Error(`Failed to send an error response: ${error2}`)));
+          } else if (relatedTaskId && this._taskMessageQueue) {
             this._enqueueTaskMessage(relatedTaskId, {
               type: "error",
               message: errorResponse,
@@ -17437,7 +17457,10 @@ var init_protocol = __esm({
           closeSSEStream: extra?.closeSSEStream,
           closeStandaloneSSEStream: extra?.closeStandaloneSSEStream
         };
-        Promise.resolve().then(() => {
+        (relatedTaskLookup ?? Promise.resolve()).then(() => {
+          if (relatedTaskLookup && abortController.signal.aborted) {
+            throw new McpError(ErrorCode.ConnectionClosed, "Request was cancelled");
+          }
           if (taskCreationParams) {
             this.assertTaskHandlerCapability(request2.method);
           }
@@ -17472,7 +17495,7 @@ var init_protocol = __esm({
               ...error2["data"] !== void 0 && { data: error2["data"] }
             }
           };
-          if (relatedTaskId && this._taskMessageQueue) {
+          if (relatedTaskId && this._taskMessageQueue && relatedTaskFound) {
             await this._enqueueTaskMessage(relatedTaskId, {
               type: "error",
               message: errorResponse,
@@ -17952,7 +17975,7 @@ var init_protocol = __esm({
           throw new Error("Cannot enqueue task message: taskStore and taskMessageQueue are not configured");
         }
         const maxQueueSize = this._options?.maxTaskQueueSize;
-        await this._taskMessageQueue.enqueue(taskId, message, sessionId, maxQueueSize);
+        await this._taskMessageQueue.enqueue(taskId, message, sessionId ?? this._transport?.sessionId, maxQueueSize);
       }
       /**
        * Clears the message queue for a task and rejects any pending request resolvers.
@@ -17981,12 +18004,13 @@ var init_protocol = __esm({
        * Uses polling to check for updates at the task's configured poll interval.
        * @param taskId The task ID to wait for
        * @param signal Abort signal to cancel the wait
+       * @param sessionId Session of the request that waits, passed to the task store
        * @returns Promise that resolves when an update occurs or rejects if aborted
        */
-      async _waitForTaskUpdate(taskId, signal) {
+      async _waitForTaskUpdate(taskId, signal, sessionId) {
         let interval = this._options?.defaultTaskPollInterval ?? 1e3;
         try {
-          const task = await this._taskStore?.getTask(taskId);
+          const task = await this._taskStore?.getTask(taskId, sessionId);
           if (task?.pollInterval) {
             interval = task.pollInterval;
           }
@@ -22188,13 +22212,14 @@ var require_fast_uri = __commonJS({
         if (!malformedIPLiteral) {
           malformedHost = canonicalizeHost(parsed, options, schemeHandler, isIP);
         }
-        if (!schemeHandler || schemeHandler && !schemeHandler.skipNormalize) {
-          if (uri.indexOf("%") !== -1) {
-            if (parsed.host !== void 0 && !malformedIPLiteral) {
-              const host = isIP ? parsed.host : normalizePercentEncoding(parsed.host, true);
-              parsed.host = reescapeHostDelimiters(host, isIP);
-            }
+        if (uri.indexOf("%") !== -1 && parsed.host !== void 0 && !malformedIPLiteral) {
+          let host = isIP ? parsed.host : normalizePercentEncoding(parsed.host, true);
+          if (!isIP) {
+            host = normalizePercentEncoding(host.toLowerCase());
           }
+          parsed.host = reescapeHostDelimiters(host, isIP);
+        }
+        if (!schemeHandler || schemeHandler && !schemeHandler.skipNormalize) {
           if (parsed.path) {
             parsed.path = normalizePathEncoding(parsed.path);
           }
@@ -26285,6 +26310,42 @@ __export(mcp_exports, {
   McpServer: () => McpServer,
   ResourceTemplate: () => ResourceTemplate
 });
+function toolInputElementCount(value, max) {
+  let count = 0;
+  const stack = [value];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (node === null || typeof node !== "object")
+      continue;
+    if (Array.isArray(node)) {
+      for (const child of node) {
+        if (++count > max)
+          return count;
+        if (child !== null && typeof child === "object")
+          stack.push(child);
+      }
+    } else {
+      for (const key in node) {
+        if (!Object.prototype.hasOwnProperty.call(node, key))
+          continue;
+        if (++count > max)
+          return count;
+        const child = node[key];
+        if (child !== null && typeof child === "object")
+          stack.push(child);
+      }
+    }
+  }
+  return count;
+}
+function resolveMaxToolInputElements(value) {
+  if (value === void 0 || value === Infinity)
+    return void 0;
+  if (typeof value !== "number" || Number.isNaN(value) || value < 1) {
+    throw new RangeError(`maxToolInputElements must be a number of at least 1, or Infinity, got ${String(value)}`);
+  }
+  return value;
+}
 function isZodTypeLike(value) {
   return value !== null && typeof value === "object" && "parse" in value && typeof value.parse === "function" && "safeParse" in value && typeof value.safeParse === "function";
 }
@@ -26373,6 +26434,7 @@ var init_mcp = __esm({
         this._resourceHandlersInitialized = false;
         this._promptHandlersInitialized = false;
         this.server = new Server(serverInfo, options);
+        this._maxToolInputElements = resolveMaxToolInputElements(options?.maxToolInputElements);
       }
       /**
        * Access experimental features.
@@ -26503,12 +26565,15 @@ var init_mcp = __esm({
        * Validates tool input arguments against the tool's input schema.
        */
       async validateToolInput(tool, args, toolName) {
+        if (this._maxToolInputElements !== void 0 && toolInputElementCount(args, this._maxToolInputElements) > this._maxToolInputElements) {
+          throw new McpError(ErrorCode.InvalidParams, `Invalid arguments for tool ${toolName}: arguments contain more than the maximum of ${this._maxToolInputElements} elements`);
+        }
         if (!tool.inputSchema) {
           return void 0;
         }
         const inputObj = normalizeObjectSchema(tool.inputSchema);
         const schemaToParse = inputObj ?? tool.inputSchema;
-        const parseResult = await safeParseAsync2(schemaToParse, args);
+        const parseResult = await safeParseAsync2(schemaToParse, args ?? {});
         if (!parseResult.success) {
           const error2 = "error" in parseResult ? parseResult.error : "Unknown error";
           const errorMessage = getParseErrorMessage(error2);
@@ -26746,7 +26811,7 @@ var init_mcp = __esm({
           }
           if (prompt.argsSchema) {
             const argsObj = normalizeObjectSchema(prompt.argsSchema);
-            const parseResult = await safeParseAsync2(argsObj, request2.params.arguments);
+            const parseResult = await safeParseAsync2(argsObj, request2.params.arguments ?? {});
             if (!parseResult.success) {
               const error2 = "error" in parseResult ? parseResult.error : "Unknown error";
               const errorMessage = getParseErrorMessage(error2);
@@ -27945,7 +28010,7 @@ function evaluateMcpPreflight(workspaceStatus, productInfo, health) {
   }
   const setupReady = !blockers.some((entry) => entry.scope === "setup");
   const runtimeReady = !blockers.some((entry) => entry.scope === "runtime");
-  return MCP_PREFLIGHT_OUTPUT_SCHEMA.parse({
+  return MCP_PREFLIGHT_SUCCESS_SCHEMA.parse({
     ok: true,
     ready: setupReady && runtimeReady,
     setupReady,
@@ -27985,7 +28050,7 @@ function evaluateMcpPreflight(workspaceStatus, productInfo, health) {
     nextTool: blockers[0]?.nextTool ?? "sse_instances"
   });
 }
-var PREFLIGHT_BLOCKER_CODES, PREFLIGHT_NOTICE_CODES, PREFLIGHT_NEXT_TOOLS, PREFLIGHT_ISSUE_SCHEMA, PREFLIGHT_NOTICE_SCHEMA, MCP_PREFLIGHT_OUTPUT_SCHEMA;
+var PREFLIGHT_BLOCKER_CODES, PREFLIGHT_NOTICE_CODES, PREFLIGHT_NEXT_TOOLS, PREFLIGHT_ISSUE_SCHEMA, PREFLIGHT_NOTICE_SCHEMA, MCP_PREFLIGHT_SUCCESS_SCHEMA, MCP_PREFLIGHT_OUTPUT_SCHEMA;
 var init_mcp_preflight = __esm({
   "src/mcp-preflight.ts"() {
     "use strict";
@@ -28025,7 +28090,7 @@ var init_mcp_preflight = __esm({
       message: external_exports.string().min(1),
       nextTool: external_exports.enum(PREFLIGHT_NEXT_TOOLS)
     }).strict();
-    MCP_PREFLIGHT_OUTPUT_SCHEMA = external_exports.object({
+    MCP_PREFLIGHT_SUCCESS_SCHEMA = external_exports.object({
       ok: external_exports.literal(true).describe("Alle drei read-only Preflight-Abfragen wurden erfolgreich ausgefuehrt"),
       ready: external_exports.boolean().describe("Setup und laufende Anwendung sind fuer die weitere Orientierung bereit"),
       setupReady: external_exports.boolean().describe("Arbeitsbereich, Produktprofil und installierte Anwendung sind kompatibel"),
@@ -28064,6 +28129,12 @@ var init_mcp_preflight = __esm({
       notices: external_exports.array(PREFLIGHT_NOTICE_SCHEMA),
       nextTool: external_exports.enum(PREFLIGHT_NEXT_TOOLS)
     }).strict();
+    MCP_PREFLIGHT_OUTPUT_SCHEMA = MCP_PREFLIGHT_SUCCESS_SCHEMA.partial().extend({
+      ok: external_exports.boolean().describe("Ob alle drei read-only Preflight-Abfragen erfolgreich ausgefuehrt wurden"),
+      kind: external_exports.string().optional().describe("Fehlerart bei abgebrochener Preflight-Pruefung"),
+      error: external_exports.string().optional().describe("Redigierte Fehlermeldung der fehlgeschlagenen Basisoperation"),
+      hint: external_exports.string().optional().describe("Sicherer naechster Schritt bei einer abgebrochenen Pruefung")
+    }).passthrough();
   }
 });
 
@@ -28617,7 +28688,7 @@ function registerLifecycleTools(registry2) {
     "sse_save_as",
     {
       title: "Steuerfall sicher speichern unter",
-      description: "Oeffnet den echten SSE-Dialog 'Speichern unter...' mit Strg+Alt+S, setzt den Zielpfad ueber UI Automation und prueft anschliessend Zieldatei, SHA256 und Fenstertitel. Quelldateipfad und Quell-Hash sind Pflicht. Das Ziel muss neu sein; vorhandene Ziele werden ausnahmslos vor jeder UI-Aktion abgelehnt und ein Ueberschreibdialog wird nie automatisch bestaetigt. Nur nach dem ausdruecklichen Wunsch nach einer neuen Datei/Kopie verwenden; niemals als automatische Sicherheitsmassnahme oder Korrektur-Ausweichweg."
+      description: "Oeffnet den echten SSE-Dialog 'Speichern unter...' ueber das exakt gebundene Datei-Menue, setzt den Zielpfad ueber UI Automation und prueft anschliessend Zieldatei, SHA256 und Fenstertitel. Quelldateipfad und Quell-Hash sind Pflicht; bei mehreren offenen Faellen auch das Hauptfenster per hwnd. Das Ziel muss neu sein; vorhandene Ziele werden ausnahmslos vor jeder UI-Aktion abgelehnt und ein Ueberschreibdialog wird nie automatisch bestaetigt. Nur nach dem ausdruecklichen Wunsch nach einer neuen Datei/Kopie verwenden; niemals als automatische Sicherheitsmassnahme oder Korrektur-Ausweichweg."
     },
     { timeoutMs: 12e4 }
   );

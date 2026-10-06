@@ -350,6 +350,8 @@ try {
     assert.equal(replacementResult.isError, true,
       "Ein nach dem Handshake ausgetauschter API-Prozess wurde weiterverwendet.");
     assert.match(replacementText, /ausgetauscht|inkompatibel/iu);
+    assert.match(replacementText, /MCP-Verbindung neu starten und sse_preflight erneut aufrufen/u,
+      "Nach einer API-Auswechslung fehlt der sichere Wiederaufnahmeweg.");
     assert.equal(replacementCounters.operations, 0,
       "MCP rief eine Operation auf dem nach dem Handshake inkompatiblen Prozess auf.");
   } finally {

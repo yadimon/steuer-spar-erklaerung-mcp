@@ -210,3 +210,57 @@ $incompleteTargetFailed=$false
 try { $null = WarteAufUeberschrift ([IntPtr]4242) 'Startseite' 'Zielseite' 250 }
 catch { $incompleteTargetFailed=$_.Exception.Message -ceq 'navigation-blocked' }
 if (-not $incompleteTargetFailed) { throw 'Eine Zielueberschrift ohne gebundene Felder erlaubte eine weitere Navigation.' }
+
+# The generic heading route must enforce the same readiness boundary. A
+# displayed target with an incomplete profiled table may not trigger another
+# navigation action when the bounded wait expires.
+$knownTarget = $null
+$script:targetReads=0; $script:readyAt=[int]::MaxValue
+$genericTargetFailed=$false
+try { $null = WarteAufUeberschrift ([IntPtr]4242) 'Startseite' 'Zielseite' 250 }
+catch { $genericTargetFailed=$_.Exception.Message -ceq 'navigation-blocked' }
+if (-not $genericTargetFailed) { throw 'Eine generische Zielueberschrift ohne fertige Tabelle erlaubte weitere Navigation.' }
+
+$bodyReadiness = @($ast.FindAll({param($node)
+  $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Test-SSEGotoTableReadiness'
+}, $true))
+if ($bodyReadiness.Count -ne 1) { throw 'Tabellen-Fertigpruefung fehlt oder ist mehrdeutig.' }
+Invoke-Expression $bodyReadiness[0].Extent.Text
+$script:bodyWalks=0
+$script:bodyPolicy=[pscustomobject]@{heading='Zielseite';controlType='DataItem';automationIdSuffix='.Target.Tab';requiredSumChecks=@([pscustomobject]@{label='Summe';occurrence=1})}
+function Get-SSEPageObjects { [pscustomobject]@{focuslessCommits=[pscustomobject]@{synthetic=$script:bodyPolicy}} }
+function Arg { param($object,$name,$default) $property=$object.PSObject.Properties[$name]; if ($property) { return $property.Value }; $default }
+function Walk-BoundTree { param($window,$maxNodes,[switch]$WithValues) $script:bodyWalks++; if ($window -ne [IntPtr]4242 -or $maxNodes -ne 4000 -or -not $WithValues) { throw 'Ungebundener Inhaltsread ohne Werte.' }; $script:bodyTree }
+function Get-CurrentHeading { param($window,$tree) $script:bodyHeading }
+function Read-LabeledValueFromTree { param($tree,$window,$label,$occurrence)
+  if ($label -cne 'Summe' -or $occurrence -ne 1) { throw 'Summenbindung driftete.' }; $script:bodySum
+}
+function Reset-BodyFixture {
+  $script:bodyHeading='Zielseite'
+  $script:bodyTree=[pscustomobject]@{stats=[pscustomobject]@{err=0;cyc=0;truncated=$false;depthLimited=$false};nodes=@([pscustomobject]@{type='Table';on=$true;w=400;h=200;aid='Root.Target.Tab'})}
+  $script:bodySum=[pscustomobject]@{selected=[pscustomobject]@{label='Summe'};value='20,45'}
+}
+Reset-BodyFixture
+if (-not (Test-SSEGotoTableReadiness ([IntPtr]4242) 'Andere Seite') -or $script:bodyWalks -ne 0) { throw 'Eine unprofilierte Seite bekam einen Tabellenread.' }
+if (-not (Test-SSEGotoTableReadiness ([IntPtr]4242) 'Zielseite')) { throw 'Vollstaendige Tabelle mit lesbarer Summe wurde abgelehnt.' }
+Reset-BodyFixture; $script:bodyTree.nodes=@()
+if (Test-SSEGotoTableReadiness ([IntPtr]4242) 'Zielseite') { throw 'Fruehe Ueberschrift ohne Tabelle wurde bestaetigt.' }
+Reset-BodyFixture; $script:bodyTree.nodes[0].aid='Root.Other.Tab'
+if (Test-SSEGotoTableReadiness ([IntPtr]4242) 'Zielseite') { throw 'Fremde Tabelle wurde als Zielinhalt bestaetigt.' }
+Reset-BodyFixture; $script:bodyTree.nodes[0].on=$false
+if (Test-SSEGotoTableReadiness ([IntPtr]4242) 'Zielseite') { throw 'Unsichtbare Tabelle wurde bestaetigt.' }
+Reset-BodyFixture; $script:bodyTree.nodes += $script:bodyTree.nodes[0]
+if (Test-SSEGotoTableReadiness ([IntPtr]4242) 'Zielseite') { throw 'Mehrdeutige Tabellenbindung wurde bestaetigt.' }
+Reset-BodyFixture; $script:bodySum.selected=$null
+if (Test-SSEGotoTableReadiness ([IntPtr]4242) 'Zielseite') { throw 'Noch fehlende Summenzeile wurde bestaetigt.' }
+Reset-BodyFixture; $script:bodySum.value=''
+if (Test-SSEGotoTableReadiness ([IntPtr]4242) 'Zielseite') { throw 'Noch leerer Summenwert wurde bestaetigt.' }
+Reset-BodyFixture; $script:bodySum.selected.label='Summe der Vorsteuer'
+if (Test-SSEGotoTableReadiness ([IntPtr]4242) 'Zielseite') { throw 'Ein aehnliches Summenlabel ersetzte die exakte Bindung.' }
+Reset-BodyFixture; $script:bodyHeading='Andere Seite'
+if (Test-SSEGotoTableReadiness ([IntPtr]4242) 'Zielseite') { throw 'Ein waehrend des Inhaltsreads geaendertes Ziel wurde bestaetigt.' }
+foreach ($incompleteFlag in @('err','cyc','truncated','depthLimited')) {
+  Reset-BodyFixture; $script:bodyTree.stats.$incompleteFlag=1
+  if (Test-SSEGotoTableReadiness ([IntPtr]4242) 'Zielseite') { throw "Unvollstaendiger Inhaltsread ($incompleteFlag) wurde bestaetigt." }
+}
+Write-Output 'goto: generische Tabellenziele bestaetigen Tabelle und exakte lesbare Summe vor Erfolg.'

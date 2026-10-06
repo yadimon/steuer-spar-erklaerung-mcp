@@ -36,7 +36,16 @@ function heading(nodes: QtSnapshotNode[], profile?: ProductProfile): string | nu
 
 export { contentBounds as qtNativeContentBounds, heading as qtNativeHeading };
 
-function knownHeadingMatches(actual: string | null, page: Record<string, unknown>): boolean {
+/** A known page uses its exact catalogue label, just as the worker does. */
+export function qtNativeKnownHeading(nodes: QtSnapshotNode[], profile: ProductProfile, page: Record<string, unknown>): string | null {
+  const relativeAid = typeof page.headingAutomationIdRelative === "string" ? page.headingAutomationIdRelative : "";
+  if (!relativeAid) return heading(nodes, profile);
+  const matches = nodes.filter(node => node.type === "Text" && node.on && node.w > 0 && node.h > 0
+    && (node.aid === relativeAid || node.aid.endsWith(relativeAid)));
+  return matches.length === 1 ? matches[0]!.name : null;
+}
+
+export function knownHeadingMatches(actual: string | null, page: Record<string, unknown>): boolean {
   if (!actual) return false;
   if (actual === page.heading) return true;
   const prefix = typeof page.headingPrefix === "string" ? page.headingPrefix : "";
@@ -91,7 +100,7 @@ export async function executeQtNativeKnownPageState(
   }
   if (result.stats.truncated) return fail("native-incomplete", "The current native tree exceeds the page-state read bound.");
   const page = resolved.page as Record<string, unknown>;
-  const currentHeading = heading(result.nodes, profile);
+  const currentHeading = qtNativeKnownHeading(result.nodes, profile, page);
   const rawFields = page.fields && typeof page.fields === "object" && !Array.isArray(page.fields)
     ? page.fields as Record<string, unknown> : {};
   const fields: Array<Record<string, unknown>> = [];

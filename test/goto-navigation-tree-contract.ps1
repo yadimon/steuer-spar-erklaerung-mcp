@@ -49,7 +49,7 @@ $statementTexts = @($searchStatements | ForEach-Object { $_.Extent.Text })
 $selectionIndex = [array]::FindIndex($statementTexts, [Predicate[string]]{
   param($text) $text.StartsWith('$baumZiel = ')
 })
-Assert-True ($statementTexts[$selectionIndex].Contains('$ts.stats.truncated -or $ts.stats.err')) `
+Assert-True ($statementTexts[$selectionIndex].Contains('$ts.stats.truncated -or $ts.stats.err -or $ts.stats.cyc')) `
   'Ein unvollstaendiger Baum darf keinen eindeutigen Navigationsknoten behaupten.'
 $searchIndex = [array]::IndexOf($statementTexts, '$suchfeld = Get-SSESearchFieldNode $ts')
 Assert-True ($statementTexts[0] -ceq '$ts = Walk-Tree $hwnd 1500') `
@@ -62,7 +62,7 @@ $navAid = 'SSE_Application.AAV4GLEngineWindow31.centralWidget.SearchSplitter.Top
 function NavNode([int]$I, [int]$P, [string]$Type, [string]$Name, [int]$Y, [int]$X = 25, [int]$W = 494, [int]$H = 43) {
   [pscustomobject]@{ i=$I; p=$P; d=1; type=$Type; name=$Name; aid=$navAid; x=$X; y=$Y; w=$W; h=$H; on=$true; rid="7.$I" }
 }
-$navTree = [pscustomobject]@{ stats=[pscustomobject]@{truncated=$false;err=0}; nodes = @(
+$navTree = [pscustomobject]@{ stats=[pscustomobject]@{truncated=$false;err=0;cyc=0}; nodes = @(
   (NavNode 0 -1 'Tree'     ''                          186 -X 0 -W 529 -H 600)
   (NavNode 1  0 'TreeItem' 'Steuererklaerung'          186)
   (NavNode 2  0 'TreeItem' 'Zielseite'                 229)
@@ -79,7 +79,7 @@ function FreshTarget([hashtable]$Changes = @{}) {
 
 function Invoke-NavigationBlock {
   param([string]$Target, [string]$DesktopName, [string]$HeadingAfter, [object[]]$Windows,
-        [string]$Blocker = 'none', $Fresh = (FreshTarget))
+        [string]$Blocker = 'none', $Fresh = (FreshTarget), [string]$NavigationName = '')
   $script:clicks = New-Object System.Collections.ArrayList
   $script:waits = New-Object System.Collections.ArrayList
   $script:probes = New-Object System.Collections.ArrayList
@@ -89,6 +89,9 @@ function Invoke-NavigationBlock {
   $script:failed = $null
   $script:DESKTOP_NAME = $DesktopName
   $ziel = $Target
+  $knownTarget = $(if ($NavigationName) {
+    [pscustomobject]@{ page=[pscustomobject]@{ navigationTreeItemName=$NavigationName } }
+  } else { $null })
   $hwnd = [IntPtr]4242
   $gotoPid = 3131
   $pageId = ''
@@ -155,6 +158,22 @@ Assert-True ($reached.emitted.ok -eq $true -and $reached.emitted.erreicht -eq $t
   "Der Baumweg meldete keinen eindeutigen Erfolg: $($reached.emitted | ConvertTo-Json -Compress)"
 Assert-True ((@($reached.emitted.weg) -join ' | ') -ceq "Startseite | Navigationsbaum 'Zielseite' -> 'Zielseite'") `
   "Der Baumweg meldete einen unvollstaendigen Weg: $(@($reached.emitted.weg) -join ' | ')"
+
+# Ein abweichender Katalogname darf den Baumknoten bestimmen, aber niemals
+# die Zielueberschrift ersetzen oder allein einen Erfolg behaupten.
+$navTree.nodes[2].name = 'Baumtitel'
+$named = Invoke-NavigationBlock 'Zielseite' '' 'Zielseite' @() `
+  -NavigationName 'Baumtitel' -Fresh (FreshTarget @{ name='Baumtitel' })
+Assert-True ($named.clicks.Count -eq 1 -and $named.emitted.ueberschrift -ceq 'Zielseite' -and
+  $named.waits[0].erwartet -ceq 'Zielseite') 'Der katalogisierte Baumname wurde nicht mit der echten Zielueberschrift verifiziert.'
+$wrongHeading = Invoke-NavigationBlock 'Zielseite' '' 'Baumtitel' @() `
+  -NavigationName 'Baumtitel' -Fresh (FreshTarget @{ name='Baumtitel' })
+Assert-True ($wrongHeading.clicks.Count -eq 1 -and $null -eq $wrongHeading.emitted -and
+  $wrongHeading.start -ceq 'Baumtitel') 'Der Baumname wurde faelschlich als Zielueberschrift akzeptiert.'
+$blockedName = Invoke-NavigationBlock 'Zielseite' '' 'Zielseite' @() -NavigationName 'Anmeldungen versenden'
+Assert-True ($blockedName.clicks.Count -eq 0 -and $blockedName.liveReads.Count -eq 0 -and
+  $null -eq $blockedName.emitted) 'Ein katalogisierter Uebermittlungsname umging Test-Versand.'
+$navTree.nodes[2].name = 'Zielseite'
 
 # 2. Versteckter Desktop: kein physischer Klick, die Suche bleibt zustaendig.
 $hidden = Invoke-NavigationBlock 'Zielseite' 'sse-hidden' 'Zielseite' @()
@@ -262,3 +281,8 @@ $navTree.stats.err = 1
 $failedTree = Invoke-NavigationBlock 'Zielseite' '' 'Zielseite' @()
 Assert-True ($failedTree.clicks.Count -eq 0 -and $failedTree.liveReads.Count -eq 0) 'Ein fehlerhafter Navigationsbaum loeste einen Klick aus.'
 $navTree.stats.err = 0
+$navTree.stats.cyc = 1
+$cyclicTree = Invoke-NavigationBlock 'Zielseite' '' 'Zielseite' @()
+Assert-True ($cyclicTree.clicks.Count -eq 0 -and $cyclicTree.liveReads.Count -eq 0 -and
+  $cyclicTree.waits.Count -eq 0 -and $null -eq $cyclicTree.emitted) 'Ein zyklischer Navigationsbaum loeste einen Klick aus.'
+$navTree.stats.cyc = 0

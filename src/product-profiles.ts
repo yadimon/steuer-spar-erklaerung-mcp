@@ -126,6 +126,7 @@ const pageObjectTableSchema = z.object({
 
 const pageObjectSchema = z.object({
   heading: z.string().min(1),
+  navigationTreeItemName: z.string().regex(/\S/u).optional(),
   fields: z.record(z.unknown()).optional(),
   tables: z.record(pageObjectTableSchema).optional(),
 }).passthrough();

@@ -8,8 +8,8 @@ Der Live-Stand stammt aus bestehenden Tests; er belegt keinen Wechsel des Backen
 | Kennzahl | Anzahl |
 | --- | ---: |
 | API-Operationen | 102 |
-| Direkt an den optionalen Qt-DLL-Pfad angeschlossen | 17 |
-| Ohne direkten Qt-DLL-Pfad | 85 |
+| Direkt an den optionalen Qt-DLL-Pfad angeschlossen | 22 |
+| Ohne direkten Qt-DLL-Pfad | 80 |
 | Zusätzliche direkte Win32-Operationen im optionalen nativen Paket | 2 |
 | Zusätzliche Win32-/COM-UIA-Operationen im optionalen nativen Paket | 1 |
 | Funktional live belegt, unabhängig vom Backend | 94 |
@@ -81,7 +81,7 @@ Broker und Transportquittungen sind Infrastruktur, keine zusätzlichen API-Komma
 | `fill_fields` | Felder und Bedienung | Nicht umgestellt | funktional belegt |
 | `find` | Seite und Navigation | **Qt optional** | funktional belegt |
 | `get_value` | Felder und Bedienung | **Qt optional** | funktional belegt |
-| `goto` | Seite und Navigation | Nicht umgestellt | funktional belegt |
+| `goto` | Seite und Navigation | **Qt optional** | funktional belegt |
 | `health` | Programm und Fenster | Nicht umgestellt | funktional belegt |
 | `help` | Seite und Navigation | **Qt optional** | funktional belegt |
 | `instances` | Programm und Fenster | Nicht umgestellt | funktional belegt |
@@ -102,14 +102,14 @@ Broker und Transportquittungen sind Infrastruktur, keine zusätzlichen API-Komma
 | `read_table` | Seite und Navigation | **Qt optional** | funktional belegt |
 | `receipt_manager_action` | Belege | **Qt optional** | funktional belegt |
 | `receipt_manager_bulk_upsert` | Belege | Nicht umgestellt | funktional belegt |
-| `receipt_manager_classification_options` | Belege | Nicht umgestellt | funktional belegt |
-| `receipt_manager_classify` | Belege | Nicht umgestellt | funktional belegt |
+| `receipt_manager_classification_options` | Belege | **Qt optional** | funktional belegt |
+| `receipt_manager_classify` | Belege | Qt optional | funktional belegt |
 | `receipt_manager_delete` | Belege | Nicht umgestellt | funktional belegt |
 | `receipt_manager_import` | Belege | Nicht umgestellt | funktional belegt |
-| `receipt_manager_link` | Belege | Nicht umgestellt | funktional belegt |
+| `receipt_manager_link` | Belege | **Qt optional** | funktional belegt |
 | `receipt_manager_list` | Belege | **Qt optional** | funktional belegt |
 | `receipt_manager_read` | Belege | **Qt optional** | funktional belegt |
-| `receipt_manager_update` | Belege | Nicht umgestellt | funktional belegt |
+| `receipt_manager_update` | Belege | **Qt optional** | funktional belegt |
 | `result_details` | Seite und Navigation | Nicht umgestellt | funktional belegt |
 | `save` | Speichern | Nicht umgestellt | funktional belegt |
 | `save_as` | Speichern | Nicht umgestellt | funktional belegt |
@@ -166,7 +166,9 @@ Broker und Transportquittungen sind Infrastruktur, keine zusätzlichen API-Komma
   frischen Readback und die jeweils geforderten Summen-/Ergebnisprüfungen.
   `set_value` bleibt auf das globale Suchfeld begrenzt.
 - Navigation muss die tatsächlich erreichte Seite bestätigen; eine Auswahl oder
-  ein ausgelöstes Signal reicht nicht. Speichern muss Datei und Abschluss prüfen.
+  ein ausgelöstes Signal reicht nicht. `goto` prüft über denselben vollständigen
+  Qt-Baum die Überschrift, alle katalogisierten Pflichtfelder sowie profilierte
+  Tabellen und sämtliche Kontrollsummen. Speichern muss Datei und Abschluss prüfen.
 - Tabellenanlage/-löschung und Belege benötigen zusätzlich Struktur-, Identitäts-,
   Duplikat- und Wiederherstellungsregeln. Ein einzelner Zellschreibpfad deckt sie nicht ab.
 - Ende, Dateien und zusammengesetzte Abläufe werden gesondert optimiert;
@@ -189,6 +191,10 @@ modalen Dialog fail-closed, und `ui_state` führt ihn als nicht lesbares Fenster
 katalog- und Runtime-ID-gebundene, quittierte und reversible Qt-Aktion im GUI-Thread.
 Der Detailfingerprint ist eine kanonische Bindung der sieben profilierten Werte,
 damit native Reads und workerbasierte Folgeoperationen denselben Guard verwenden.
+`receipt_manager_update` verwendet die gleiche Bindung für seine quittierten
+Widget-Commits. Es prüft alle Detailwerte erneut sowie die vollständige Liste,
+die übrigen Belege, Fenster und Dirty-State. Unklare Ergebnisse werden nicht
+wiederholt; eine Wiederherstellung ist nur für frisch belegte eigene Werte erlaubt.
 Ein Prototyp oder ein statisch gefundenes Herstellersymbol
 ändert den Status dieser Matrix erst nach Integration und passendem Nachweis.
 

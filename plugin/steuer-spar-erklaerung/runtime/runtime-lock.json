@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
   "packageName": "steuer-spar-erklaerung-mcp",
-  "packageVersion": "0.1.0-beta.46",
+  "packageVersion": "0.1.0-beta.47",
   "apiPackageName": "@yadimon/steuer-spar-erklaerung-api",
   "mcpPackageName": "@yadimon/steuer-spar-erklaerung-mcp",
   "pluginName": "steuer-spar-erklaerung",
-  "pluginVersion": "0.1.0-beta.46",
+  "pluginVersion": "0.1.0-beta.47",
   "entries": {
     "mcp": "dist/mcp.js",
     "api": "dist/api.js"
@@ -18,13 +18,13 @@
     },
     {
       "path": "dist/api.js",
-      "sha256": "c4841c3c3f692a0c1752c903c94c55ef5e0ad22dee310bddd19c3df838184d36",
-      "size": 932618
+      "sha256": "8e6a2f66a53d9ecc1f0d772b24bdcd1c2b13bf5ec408ea83d33f05a094ba7a71",
+      "size": 1045142
     },
     {
       "path": "dist/mcp.js",
-      "sha256": "cd7e76b86cdb5d3c978bd453bf4224506e04aacd98572b0f4d6d1436fcd91d23",
-      "size": 1185977
+      "sha256": "e146d9de5e172d97ffe0a2257764b1f556c557f6fb1854877bd8039d44947a12",
+      "size": 1190129
     },
     {
       "path": "powershell/akad-parser.ps1",
@@ -88,8 +88,8 @@
     },
     {
       "path": "powershell/sse-worker.ps1",
-      "sha256": "28c366cba6273c7c81bacb0209496e68ac42528bb03e06dc2530a67aae159b49",
-      "size": 1227521
+      "sha256": "dec635c6df82c428fc00224fdadc2fb4039ebc64757625808721e9f0ce1637eb",
+      "size": 1242396
     },
     {
       "path": "powershell/structure-binding.ps1",
@@ -133,8 +133,8 @@
     },
     {
       "path": "profiles/2025/page-objects.json",
-      "sha256": "09394c5b093ba02c2c5f9072d9e821846ce0676069637cd7a465d9cac180a15d",
-      "size": 134524
+      "sha256": "1c14e255a792241b3de2de4aa90acfccdc6def3f95368f0d095fa510ff9d0ad1",
+      "size": 138953
     },
     {
       "path": "profiles/2025/profile.json",
@@ -148,7 +148,7 @@
     },
     {
       "path": "third-party/NOTICE.json",
-      "sha256": "0357a6fb3589aec6fc82aa767e0e5000277ddfa6fdb56dbab4056932ec59cf68",
+      "sha256": "7a4e031534ea83c62fccce749cbed96fd83278cb5bc4e20bf8879bec26c1add6",
       "size": 1808
     },
     {

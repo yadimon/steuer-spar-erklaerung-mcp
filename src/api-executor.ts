@@ -34,7 +34,7 @@ import { executeLocalVerify } from "./verify-executor.js";
 import { executeLocalWorkingCopy } from "./working-copy-executor.js";
 import { executeLocalBackup } from "./backup-executor.js";
 import { executeLocalArchive } from "./archive-executor.js";
-import { executeQtNativeRead, isQtNativeReadOperation, type QtNativeExecutorDependencies } from "./qt-native-executor.js";
+import { executeQtNativeOperation, isQtNativeOperation, type QtNativeExecutorDependencies } from "./qt-native-executor.js";
 
 export { API_RESOURCE_BINDINGS } from "./api-resource-bindings.js";
 
@@ -183,10 +183,10 @@ export function createApiExecutor(
       if (operation === "desktop_status" && dependencies.nativeDesktopStatus) {
         return redactPaths(await win32(() => dependencies.nativeDesktopStatus!(timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS, signal)));
       }
-      if (isQtNativeReadOperation(operation)
+      if (isQtNativeOperation(operation)
         && (dependencies.qtNativeClient || dependencies.qtNativeClientFor)) {
-        const read = () => executeQtNativeRead(operation, args, dependencies, timeoutMs, signal, profile);
-        return redactPaths(await (telemetry?.enabled ? telemetry.runQtNative(read) : read()));
+        const executeNative = () => executeQtNativeOperation(operation, args, dependencies, timeoutMs, signal, profile);
+        return redactPaths(await (telemetry?.enabled ? telemetry.runQtNative(executeNative) : executeNative()));
       }
       if (operation === "capabilities") {
         return {

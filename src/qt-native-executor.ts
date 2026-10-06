@@ -9,6 +9,8 @@ import { executeQtNativeKnownPageState, executeQtNativePositions, executeQtNativ
 import { executeQtNativeFind } from "./qt-native-find.js";
 import { executeQtNativeUstvaRead } from "./qt-native-ustva.js";
 import { executeQtNativeReceiptManagerRead } from "./qt-native-receipt-read.js";
+import { executeQtNativeReceiptManagerUpdate } from "./qt-native-receipt-update.js";
+import { executeQtNativeReceiptManagerLink } from "./qt-native-receipt-link.js";
 import { executeQtNativeReceiptManagerAction } from "./qt-native-receipt-action.js";
 import { executeQtNativeReceiptManagerList } from "./qt-native-receipts.js";
 import { executeQtNativePage } from "./qt-native-page.js";
@@ -16,15 +18,18 @@ import { executeQtNativeUiState } from "./qt-native-ui-state.js";
 import { executeQtNativeHelp } from "./qt-native-help.js";
 import { executeQtNativeReadTable } from "./qt-native-read-table.js";
 import { executeQtNativeCheckerResults } from "./qt-native-checker.js";
+import { executeQtNativeGoto } from "./qt-native-goto.js";
+import { executeQtNativeClassificationOptions } from "./qt-native-classification-options.js";
+import { executeQtNativeClassify } from "./qt-native-classify.js";
 
-export const QT_NATIVE_READ_OPERATIONS = [
+export const QT_NATIVE_OPERATIONS = [
   "get_value", "table_read", "snapshot", "find", "read_page", "subpages", "known_page_state", "positions", "ustva_read",
-  "receipt_manager_list", "receipt_manager_read", "receipt_manager_action",
-  "page", "ui_state", "help", "read_table", "checker_results",
+  "receipt_manager_list", "receipt_manager_read", "receipt_manager_action", "receipt_manager_update", "receipt_manager_link",
+  "page", "ui_state", "help", "read_table", "checker_results", "goto", "receipt_manager_classification_options", "receipt_manager_classify",
 ] as const;
-type QtNativeReadOperation = typeof QT_NATIVE_READ_OPERATIONS[number];
-export function isQtNativeReadOperation(operation: string): operation is QtNativeReadOperation {
-  return QT_NATIVE_READ_OPERATIONS.some(value => value === operation);
+type QtNativeOperation = typeof QT_NATIVE_OPERATIONS[number];
+export function isQtNativeOperation(operation: string): operation is QtNativeOperation {
+  return QT_NATIVE_OPERATIONS.some(value => value === operation);
 }
 
 export interface QtNativeExecutorDependencies {
@@ -33,8 +38,8 @@ export interface QtNativeExecutorDependencies {
   qtNativeClientFor?: (args: Readonly<Record<string, unknown>>, timeoutMs: number, signal?: AbortSignal) => Promise<QtNativeClient>;
 }
 
-export async function executeQtNativeRead(
-  operation: QtNativeReadOperation, args: Readonly<Record<string, unknown>>, dependencies: QtNativeExecutorDependencies,
+export async function executeQtNativeOperation(
+  operation: QtNativeOperation, args: Readonly<Record<string, unknown>>, dependencies: QtNativeExecutorDependencies,
   timeoutMs = DEFAULT_OPERATION_TIMEOUT_MS, signal?: AbortSignal, profile?: ProductProfile,
 ): Promise<WorkerResult> {
   try {
@@ -42,8 +47,8 @@ export async function executeQtNativeRead(
     if (operation === "snapshot" && profile) args = qtSnapshotArguments(args, profile);
     const client = dependencies.qtNativeClient ?? await dependencies.qtNativeClientFor!(args, timeoutMs, signal);
     const remaining = Math.floor(timeoutMs - (performance.now() - started));
-    if (remaining < 1) throw new QtNativeTransportError("Native operation deadline exceeded before reading.", "native-timeout");
-    const execute = operation === "known_page_state" ? executeQtNativeKnownPageState
+    if (remaining < 1) throw new QtNativeTransportError("Native operation deadline exceeded before dispatch.", "native-timeout");
+    const execute = operation === "goto" ? executeQtNativeGoto : operation === "known_page_state" ? executeQtNativeKnownPageState
       : operation === "page" ? executeQtNativePage
       : operation === "ui_state" ? executeQtNativeUiState
       : operation === "help" ? executeQtNativeHelp
@@ -53,6 +58,10 @@ export async function executeQtNativeRead(
       : operation === "ustva_read" ? executeQtNativeUstvaRead
       : operation === "receipt_manager_action" ? executeQtNativeReceiptManagerAction
       : operation === "receipt_manager_read" ? executeQtNativeReceiptManagerRead
+      : operation === "receipt_manager_update" ? executeQtNativeReceiptManagerUpdate
+      : operation === "receipt_manager_link" ? executeQtNativeReceiptManagerLink
+      : operation === "receipt_manager_classification_options" ? executeQtNativeClassificationOptions
+      : operation === "receipt_manager_classify" ? executeQtNativeClassify
       : operation === "receipt_manager_list" ? executeQtNativeReceiptManagerList
       : operation === "read_page" ? executeQtNativeReadPage : operation === "subpages" ? executeQtNativeSubpages
       : operation === "find" ? executeQtNativeFind : operation === "snapshot" ? executeQtNativeSnapshot : operation === "table_read" ? executeQtNativeTableRead

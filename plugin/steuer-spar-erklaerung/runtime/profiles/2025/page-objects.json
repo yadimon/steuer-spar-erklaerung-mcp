@@ -775,6 +775,84 @@
         ]
       }
     },
+    "gew_erfass.steuernummer_finanzamt": {
+      "heading": "Steuernummer, Finanzamt, etc.",
+      "navigationTreeItemName": "Angaben zum Finanzamt",
+      "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
+      "documentType": "GewErfass2026",
+      "reachedBy": "Von gew_erfass.allgemeine_angaben_unternehmen ueber sse_click aid=AngabenUnternehmen.GotosFAundMitwirk.AngabenFA.Button oder den Navigator-Eintrag Angaben zum Finanzamt.",
+      "fields": {
+        "bundesland": {
+          "label": "Bundesland",
+          "controlType": "ComboBox",
+          "valueKind": "enum",
+          "writeTool": "sse_combo_select",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.AngabenFinanzamt./.AngabenFinanzamt.FinanzamtBundeslandUN./.AngabenFinanzamt.FinanzamtBundeslandUN.Combobox",
+          "automationIdSuffix": ".AngabenFinanzamt.FinanzamtBundeslandUN.Combobox",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "finanzamt": {
+          "label": "Aktuelles Finanzamt",
+          "controlType": "ComboBox",
+          "valueKind": "enum",
+          "writeTool": "sse_combo_select",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.AngabenFinanzamt./.AngabenFinanzamt.Finanzamt./.AngabenFinanzamt.Finanzamt.Combobox",
+          "automationIdSuffix": ".AngabenFinanzamt.Finanzamt.Combobox",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "steuernummer": {
+          "label": "Steuernummer",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.AngabenFinanzamt./.AngabenFinanzamt.SteuernummerUN./.AngabenFinanzamt.SteuernummerUN.Text",
+          "automationIdSuffix": ".AngabenFinanzamt.SteuernummerUN.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "wirtschafts_id": {
+          "label": "Wirtschafts-Identifikationsnummer",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Identifikationsnummer./.Identifikationsnummer.WirtschaftsIDNr./.Identifikationsnummer.WirtschaftsIDNr.Text",
+          "automationIdSuffix": ".Identifikationsnummer.WirtschaftsIDNr.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        },
+        "umsatzsteuer_id": {
+          "label": "Umsatzsteuer-Identifikationsnummer",
+          "controlType": "Edit",
+          "valueKind": "text",
+          "automationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Identifikationsnummer./.Identifikationsnummer.UmsatzsteuerIdentifikationsnummer./.Identifikationsnummer.UmsatzsteuerIdentifikationsnummer.Text",
+          "automationIdSuffix": ".Identifikationsnummer.UmsatzsteuerIdentifikationsnummer.Text",
+          "verification": {
+            "fieldReadback": true,
+            "resultComparison": false,
+            "pageTotals": []
+          }
+        }
+      },
+      "notes": {
+        "behaviour": [
+          "Bundesland und Finanzamt ueber sse_combo_select mit exaktem vorherigem Wert auswaehlen; die angebotenen Finanzamtsnamen haengen vom Bundesland und Programmstand ab.",
+          "Nach der Finanzamtswahl die Seite neu lesen, da SSE Adresse und Feldbindungen aktualisieren kann.",
+          "Die persoenliche elfstellige Steuer-ID ist weder Wirtschafts-ID noch Umsatzsteuer-ID und gehoert nicht in diese beiden Felder."
+        ]
+      }
+    },
     "gew_erfass.themenfilter_umsatzsteuer": {
       "heading": "Themenfilter/Angaben zur Umsatzsteuer",
       "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",

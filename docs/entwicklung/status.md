@@ -28,11 +28,12 @@ ist, nicht was fehlt.
 | Menueeintraege | 64 | 11 fertig, 9 teils, 4 zu |
 | Formularvorlagen (`.frb`) | 994 | 0 |
 | Operationen | – | 102: 94 funktional live belegt, 6 nur Fehlerpfad, 2 live ungetestet |
-| Direkte Qt-DLL-Handler | – | 17 optional: `get_value`, `table_read`, `snapshot`, `find`, `read_page`, `subpages`, `known_page_state`, `positions`, `ustva_read`, `receipt_manager_list`, `receipt_manager_read`, `receipt_manager_action`, `page`, `ui_state`, `help`, `read_table`, `checker_results`; 85 ohne direkten Qt-Pfad |
+| Direkte Qt-DLL-Handler | – | Ausführungsweg und Grenzen je Operation in der [Native-Matrix](../NATIVE-COVERAGE.md) |
 | MCP-Werkzeuge | – | 104: 102 direkte, 1 Komposition, 1 API-Lebenszykluswerkzeug |
 
-Die Qt-Brücke enthält keine öffentlichen dauerhaften Schreib-, allgemeinen
-Seitennavigations- oder Speicherhandler. Ihr Paket wird separat gebaut und über
+Die Qt-Brücke enthält begrenzte, quittierte Belegänderungen und Navigation;
+allgemeine Schreibzugriffe und Speichern verwenden die bestehenden
+Transaktionswege. Ihr Paket wird separat gebaut und über
 `qtNativeRuntime` aktiviert; ohne diese Konfiguration wird kein Qt-Handler
 verwendet. Die C#-Worker-Bibliothek `sse-native.dll` zählt nicht als
 Umstellung auf die C++-Qt-Brücke `sse-qt-read.dll`.
@@ -143,7 +144,7 @@ Belege in der [Seitenlandkarte](funktionskatalog.md).
 | Rueckgaengig / Wiederherstellen | **offen** | es gibt kein Undo ueber die API |
 | Zwischenablage | **offen** | Ausschneiden, Kopieren, Einfuegen |
 | Erlaeuterung, Notiz | **offen** | Menue Bearbeiten |
-| Beliebige Herstellerkommandos ins Datenmodell senden | **zu** | kein allgemeiner `WriteToDM`-Zugang; ein begrenzter Qt-Schreibhandler müsste separat Commit und Readback belegen und ist öffentlich noch nicht vorhanden |
+| Beliebige Herstellerkommandos ins Datenmodell senden | **zu** | kein allgemeiner `WriteToDM`-Zugang; begrenzte Qt-Belegänderungen prüfen Commit und Readback gemäß [Native-Matrix](../NATIVE-COVERAGE.md) |
 
 ## Belege
 

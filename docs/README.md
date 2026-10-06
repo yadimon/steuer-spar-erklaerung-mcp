@@ -54,8 +54,8 @@ Diese Wege bleiben unterstützt, sind aber nicht der normale Einstieg.
   mit ihrem Stand bei uns; der Einstieg für „haben wir das schon?";
 - [Seitenlandkarte](entwicklung/seitenlandkarte.md) — gemessene Bauart der
   Seiten beider Module; sagt, wo ein Seitenobjekt etwas bringt und wo nicht;
-- [Entwicklungswissen](entwicklung/README.md) — Funktionskatalog,
-  Aktionsinventar, historische Ursachen und verworfene Ansätze;
+- [Produktkatalog](entwicklung/README.md) — Funktionskatalog,
+  Aktionsinventar und Automationsgrenzen;
 - [Performance-Harness](../test/performance/README.md) — produktfreie
   Benchmarks und ihre Beweisgrenzen.
 

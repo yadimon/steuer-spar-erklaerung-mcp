@@ -1229,8 +1229,8 @@ var init_types = __esm({
       promise() {
         return ZodPromise.create(this, this._def);
       }
-      or(option) {
-        return ZodUnion.create([this, option], this._def);
+      or(option2) {
+        return ZodUnion.create([this, option2], this._def);
       }
       and(incoming) {
         return ZodIntersection.create(this, incoming, this._def);
@@ -2983,7 +2983,7 @@ var init_types = __esm({
           return INVALID;
         }
         if (ctx.common.async) {
-          return Promise.all(options.map(async (option) => {
+          return Promise.all(options.map(async (option2) => {
             const childCtx = {
               ...ctx,
               common: {
@@ -2993,7 +2993,7 @@ var init_types = __esm({
               parent: null
             };
             return {
-              result: await option._parseAsync({
+              result: await option2._parseAsync({
                 data: ctx.data,
                 path: ctx.path,
                 parent: childCtx
@@ -3004,7 +3004,7 @@ var init_types = __esm({
         } else {
           let dirty = void 0;
           const issues = [];
-          for (const option of options) {
+          for (const option2 of options) {
             const childCtx = {
               ...ctx,
               common: {
@@ -3013,7 +3013,7 @@ var init_types = __esm({
               },
               parent: null
             };
-            const result = option._parseSync({
+            const result = option2._parseSync({
               data: ctx.data,
               path: ctx.path,
               parent: childCtx
@@ -3094,8 +3094,8 @@ var init_types = __esm({
         }
         const discriminator = this.discriminator;
         const discriminatorValue = ctx.data[discriminator];
-        const option = this.optionsMap.get(discriminatorValue);
-        if (!option) {
+        const option2 = this.optionsMap.get(discriminatorValue);
+        if (!option2) {
           addIssueToContext(ctx, {
             code: ZodIssueCode.invalid_union_discriminator,
             options: Array.from(this.optionsMap.keys()),
@@ -3104,13 +3104,13 @@ var init_types = __esm({
           return INVALID;
         }
         if (ctx.common.async) {
-          return option._parseAsync({
+          return option2._parseAsync({
             data: ctx.data,
             path: ctx.path,
             parent: ctx
           });
         } else {
-          return option._parseSync({
+          return option2._parseSync({
             data: ctx.data,
             path: ctx.path,
             parent: ctx
@@ -4705,6 +4705,7 @@ var init_product_profiles = __esm({
     });
     pageObjectSchema = external_exports.object({
       heading: external_exports.string().min(1),
+      navigationTreeItemName: external_exports.string().regex(/\S/u).optional(),
       fields: external_exports.record(external_exports.unknown()).optional(),
       tables: external_exports.record(pageObjectTableSchema).optional()
     }).passthrough();
@@ -5426,7 +5427,7 @@ var init_mcp_schemas_interaction = __esm({
             "Optionale Summenvertraege fuer diesen einzelnen Feldschritt"
           )
         }).strict()).min(1).max(20).refine(
-          (fields) => new Set(fields.map((field) => field.fieldId)).size === fields.length,
+          (fields2) => new Set(fields2.map((field) => field.fieldId)).size === fields2.length,
           "Jede fieldId darf im Plan nur einmal vorkommen."
         ).describe("Ein bis 20 katalogisierte Felder derselben bereits geoeffneten Seite"),
         expectedEpoch: SHA256().optional().describe(
@@ -5598,6 +5599,7 @@ var init_mcp_schemas_lifecycle = __esm({
         sourceRef: CASE_REF().describe("Exakte Referenz des aktuell geoeffneten Quellfalls"),
         expectedSourceHash: SHA256(),
         targetRef: CASE_REF().describe("Explizit vom Menschen verlangte neue Falldatei; kein automatischer Sicherheitsweg"),
+        hwnd: WINDOW_HANDLE.optional().describe("Exaktes SSE-Hauptfenster; bei mehreren offenen Steuerfaellen Pflicht"),
         waitMs: external_exports.number().int().min(800).max(3e4).optional().describe("Wartezeit auf Ziel-, Hash- und Fenstertitel-Readback")
       }).strict(),
       "sse_close": external_exports.object({
@@ -6228,7 +6230,7 @@ function acceptedArgumentKeys(schema, keys = /* @__PURE__ */ new Set()) {
   if (def.typeName === "ZodObject") {
     for (const key of Object.keys(schema.shape)) keys.add(key);
   } else if (def.typeName === "ZodUnion") {
-    for (const option of def.options) acceptedArgumentKeys(option, keys);
+    for (const option2 of def.options) acceptedArgumentKeys(option2, keys);
   } else if (def.typeName === "ZodEffects") {
     acceptedArgumentKeys(def.schema, keys);
   } else if (def.typeName === "ZodIntersection") {
@@ -6829,7 +6831,7 @@ var init_version = __esm({
     "use strict";
     SSE_PACKAGE_NAME = "steuer-spar-erklaerung-mcp";
     SSE_API_PACKAGE_NAME = "@yadimon/steuer-spar-erklaerung-api";
-    SSE_PACKAGE_VERSION = "0.1.0-beta.46";
+    SSE_PACKAGE_VERSION = "0.1.0-beta.47";
   }
 });
 
@@ -7684,7 +7686,7 @@ async function executeFillFieldsPlan(args, timeoutMs, signal, dependencies) {
       resolvedPage.status === "ambiguous" ? `Page-Object-ID '${pageId}' ist bei Gross-/Kleinschreibung mehrdeutig.` : `Unbekannte Page-Object-ID '${pageId}'.`
     );
   }
-  const fields = args.fields;
+  const fields2 = args.fields;
   const pageFields2 = resolvedPage.page.fields ?? {};
   const resourceRefs = {};
   const sharedKeys = [
@@ -7695,7 +7697,7 @@ async function executeFillFieldsPlan(args, timeoutMs, signal, dependencies) {
     "expectedCaseRef",
     "expectedCaseHash"
   ];
-  const actions = fields.map((field, index) => {
+  const actions = fields2.map((field, index) => {
     const fieldId = String(field.fieldId);
     if (!Object.hasOwn(pageFields2, fieldId)) {
       throw new ExecutorArgumentError(`Unbekannte fieldId '${fieldId}' auf Page-Object '${pageId}'.`);
@@ -7928,7 +7930,7 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
       const dialogDeadline = Math.min(deadline, now() + 5e3);
       for (; ; ) {
         const dialogs = await step("dialog_list", { pid: pid2 });
-        const saveDialogs = asArray(dialogs.dialogs).filter((dialog) => String(dialog.kind ?? "") === "native-dialog" && String(dialog.title ?? "") === wizard.saveDialogTitle);
+        const saveDialogs = asArray(dialogs.dialogs).filter((dialog2) => String(dialog2.kind ?? "") === "native-dialog" && String(dialog2.title ?? "") === wizard.saveDialogTitle);
         if (saveDialogs.length === 1) break;
         if (saveDialogs.length > 1 || now() >= dialogDeadline) {
           fail("save-dialog", `Erwartet genau einen nativen Dialog '${wizard.saveDialogTitle}', gefunden ${saveDialogs.length}.`);
@@ -8156,7 +8158,7 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
     if (terminalProbeResult) {
       lastStartupPrompts = titledLikeSse.filter((window) => !mainCandidates.includes(window));
     }
-    const dialogs = (terminalProbeResult ? asArray(observed.dialogs) : []).filter((dialog) => Number(dialog.pid) === pid2 && ["native-dialog", "qt-dialog"].includes(String(dialog.kind)));
+    const dialogs = (terminalProbeResult ? asArray(observed.dialogs) : []).filter((dialog2) => Number(dialog2.pid) === pid2 && ["native-dialog", "qt-dialog"].includes(String(dialog2.kind)));
     if (mainCandidates.length > 0 || dialogs.length > 0) {
       const mainCandidate = mainCandidates[0];
       const instance = mainCandidates.length === 1 ? {
@@ -8585,26 +8587,26 @@ function amount(display) {
   const text3 = typeof display === "string" ? display : null;
   return { display: text3, cents: cents(text3) };
 }
-function findFields(fields, label, type) {
-  return fields.filter((field) => normalizedLabel(field.label) === label && (!type || field.typ === type));
+function findFields(fields2, label, type) {
+  return fields2.filter((field) => normalizedLabel(field.label) === label && (!type || field.typ === type));
 }
-function firstValue(fields, label, type) {
-  return findFields(fields, label, type)[0]?.wert;
+function firstValue(fields2, label, type) {
+  return findFields(fields2, label, type)[0]?.wert;
 }
-function flagValue(fields, label) {
-  const value = firstValue(fields, label, "CheckBox");
+function flagValue(fields2, label) {
+  const value = firstValue(fields2, label, "CheckBox");
   return typeof value === "boolean" ? value : null;
 }
-function pair(fields, label) {
-  const matches = findFields(fields, label, "Edit");
+function pair(fields2, label) {
+  const matches = findFields(fields2, label, "Edit");
   const byAid = (...aids) => matches.find((field) => aids.includes(String(field.aid ?? "")))?.wert;
   return {
     base: amount(byAid("Wert", "BetragEigen")),
     tax: amount(byAid("WertUSt", "BetragUStEigen"))
   };
 }
-function detailPair(fields, label) {
-  const matches = findFields(fields, label, "Edit");
+function detailPair(fields2, label) {
+  const matches = findFields(fields2, label, "Edit");
   return {
     base: amount(matches[0]?.wert),
     tax: amount(matches[1]?.wert)
@@ -8653,12 +8655,12 @@ function normalizeUstvaPage(page) {
       error: `UStVA-Lesung braucht '${USTVA_PAGE_HEADING_PREFIX}<Jahr>'; aktuell ist '${String(page.ueberschrift ?? "")}' offen.`
     };
   }
-  const fields = Array.isArray(page.felder) ? page.felder : [];
-  const frequencyDisplay = firstValue(fields, "Voranmeldezeitraum", "ComboBox");
-  const monthDisplay = firstValue(fields, "Auswahl Monat", "ComboBox");
-  const quarterDisplay = firstValue(fields, "Auswahl Quartal", "ComboBox");
-  const settlementPayment = firstValue(fields, "Umsatzsteuerzahllast", "Edit");
-  const settlementRefund = firstValue(fields, "Umsatzsteuererstattung", "Edit");
+  const fields2 = Array.isArray(page.felder) ? page.felder : [];
+  const frequencyDisplay = firstValue(fields2, "Voranmeldezeitraum", "ComboBox");
+  const monthDisplay = firstValue(fields2, "Auswahl Monat", "ComboBox");
+  const quarterDisplay = firstValue(fields2, "Auswahl Quartal", "ComboBox");
+  const settlementPayment = firstValue(fields2, "Umsatzsteuerzahllast", "Edit");
+  const settlementRefund = firstValue(fields2, "Umsatzsteuererstattung", "Edit");
   const actions = Array.isArray(page.aktionen) ? page.aktionen : [];
   const elster = actions.find((action) => normalizedLabel(action.name).includes("ELSTER"));
   const flags = Object.fromEntries(Object.entries({
@@ -8668,7 +8670,7 @@ function normalizeUstvaPage(page) {
     revoke_sepa: "Widerruf SEPA-Lastschriftmandat",
     additional_information: "Ergänzende Angaben zur Umsatzsteuer-Voranmeldung",
     manual_input: "Beträge für die Umsatzsteuer-Voranmeldung manuell erfassen"
-  }).map(([key, label]) => [key, flagValue(fields, label)]));
+  }).map(([key, label]) => [key, flagValue(fields2, label)]));
   return {
     ok: true,
     pageKind: "overview",
@@ -8680,20 +8682,20 @@ function normalizeUstvaPage(page) {
     ),
     flags,
     amounts: {
-      taxable19: pair(fields, "Lieferungen/Leistungen zu 19%"),
-      taxable7: pair(fields, "Lieferungen/Leistungen zu 7%"),
-      taxableZero: amount(firstValue(fields, "Lieferungen/Leistungen zu 0%", "Edit")),
-      otherRates: pair(fields, "Umsätze zu anderen Steuersätzen"),
-      taxableTotal: pair(fields, "Steuerpflichtige Umsätze"),
-      otherSales: amount(firstValue(fields, "Weitere Umsätze", "Edit")),
-      reverseCharge: amount(firstValue(fields, "Steuerschuldner nach § 13b UStG", "Edit")),
-      inputTax: amount(firstValue(fields, "Vorsteuer", "Edit")),
-      inputTaxAdjustment: amount(firstValue(fields, "Vorsteuerberichtigung nach § 15a UStG", "Edit")),
-      unauthorizedTax: amount(firstValue(fields, "unberechtigt ausgewiesene Steuerbeträge", "Edit")),
-      specialAdvancePayment: amount(firstValue(fields, "Anrechnung Sondervorauszahlung", "Edit")),
+      taxable19: pair(fields2, "Lieferungen/Leistungen zu 19%"),
+      taxable7: pair(fields2, "Lieferungen/Leistungen zu 7%"),
+      taxableZero: amount(firstValue(fields2, "Lieferungen/Leistungen zu 0%", "Edit")),
+      otherRates: pair(fields2, "Umsätze zu anderen Steuersätzen"),
+      taxableTotal: pair(fields2, "Steuerpflichtige Umsätze"),
+      otherSales: amount(firstValue(fields2, "Weitere Umsätze", "Edit")),
+      reverseCharge: amount(firstValue(fields2, "Steuerschuldner nach § 13b UStG", "Edit")),
+      inputTax: amount(firstValue(fields2, "Vorsteuer", "Edit")),
+      inputTaxAdjustment: amount(firstValue(fields2, "Vorsteuerberichtigung nach § 15a UStG", "Edit")),
+      unauthorizedTax: amount(firstValue(fields2, "unberechtigt ausgewiesene Steuerbeträge", "Edit")),
+      specialAdvancePayment: amount(firstValue(fields2, "Anrechnung Sondervorauszahlung", "Edit")),
       settlement: settlementPayment !== void 0 ? { kind: "payment", ...amount(settlementPayment) } : settlementRefund !== void 0 ? { kind: "refund", ...amount(settlementRefund) } : { kind: "unknown", ...amount(null) },
-      reductionTaxableBase: amount(firstValue(fields, "Minderung der Bemessungsgrundlage", "Edit")),
-      reductionInputTax: amount(firstValue(fields, "Minderung der abziehbaren Vorsteuer", "Edit"))
+      reductionTaxableBase: amount(firstValue(fields2, "Minderung der Bemessungsgrundlage", "Edit")),
+      reductionInputTax: amount(firstValue(fields2, "Minderung der abziehbaren Vorsteuer", "Edit"))
     },
     sections: Object.keys(USTVA_SECTIONS),
     blocked: page.blockiert === true,
@@ -8717,17 +8719,17 @@ function normalizeUstvaCurrentPage(page) {
   const blocked = blockedPage(page);
   if (blocked) return blocked;
   if (parseUstvaPageHeading(page.ueberschrift)) return normalizeUstvaPage(page);
-  const fields = Array.isArray(page.felder) ? page.felder : [];
+  const fields2 = Array.isArray(page.felder) ? page.felder : [];
   if (page.ueberschrift === USTVA_REVERSE_CHARGE_PAGE) {
     return {
       ok: true,
       pageKind: "reverse_charge",
       page: USTVA_REVERSE_CHARGE_PAGE,
       amounts: {
-        euServices: detailPair(fields, "Sonst. Leistungen ausländ. Unternehmer EU"),
-        foreignWorkSupplies: detailPair(fields, "Werklieferungen ausländ. Unternehmer"),
-        foreignServices: detailPair(fields, "Sonst. Leistungen ausländ. Unternehmer"),
-        total: detailPair(fields, "Umsatzsteuer als Leistungsempfänger nach § 13b UStG")
+        euServices: detailPair(fields2, "Sonst. Leistungen ausländ. Unternehmer EU"),
+        foreignWorkSupplies: detailPair(fields2, "Werklieferungen ausländ. Unternehmer"),
+        foreignServices: detailPair(fields2, "Sonst. Leistungen ausländ. Unternehmer"),
+        total: detailPair(fields2, "Umsatzsteuer als Leistungsempfänger nach § 13b UStG")
       },
       effects: { savePerformed: false, submissionPerformed: false },
       note: "Read-only §13b-Snapshot. Diese Operation speichert und uebermittelt nichts."
@@ -8739,12 +8741,12 @@ function normalizeUstvaCurrentPage(page) {
       pageKind: "input_tax",
       page: USTVA_INPUT_TAX_PAGE,
       amounts: {
-        invoices: amount(firstValue(fields, "Vorsteuer aus Rechnungen von anderen Unternehmern", "Edit")),
-        reverseCharge: amount(firstValue(fields, "Vorsteuer als Steuerschuldner nach § 13b UStG", "Edit")),
-        intraCommunityAcquisitions: amount(firstValue(fields, "Vorsteuer aus innergemeinschaftlichen Erwerben", "Edit")),
-        import: amount(firstValue(fields, "Entrichtete Einfuhrumsatzsteuer", "Edit")),
-        intraCommunityTriangular: amount(firstValue(fields, "Vorsteuer aus innergemeinschaftl. Dreiecksgeschäften", "Edit")),
-        total: amount(firstValue(fields, "Summe der abziehbaren Vorsteuerbeträge", "Edit"))
+        invoices: amount(firstValue(fields2, "Vorsteuer aus Rechnungen von anderen Unternehmern", "Edit")),
+        reverseCharge: amount(firstValue(fields2, "Vorsteuer als Steuerschuldner nach § 13b UStG", "Edit")),
+        intraCommunityAcquisitions: amount(firstValue(fields2, "Vorsteuer aus innergemeinschaftlichen Erwerben", "Edit")),
+        import: amount(firstValue(fields2, "Entrichtete Einfuhrumsatzsteuer", "Edit")),
+        intraCommunityTriangular: amount(firstValue(fields2, "Vorsteuer aus innergemeinschaftl. Dreiecksgeschäften", "Edit")),
+        total: amount(firstValue(fields2, "Summe der abziehbaren Vorsteuerbeträge", "Edit"))
       },
       effects: { savePerformed: false, submissionPerformed: false },
       note: "Read-only Vorsteuer-Snapshot. Diese Operation speichert und uebermittelt nichts."
@@ -10342,20 +10344,20 @@ function parseTableNumber(value) {
   text3 = text3.replace(/\s*(?:€|EUR|%)$/iu, "");
   text3 = removeDotNetWhitespace(text3);
   if (!text3) return null;
-  let normalized;
+  let normalized2;
   if (/^-?[0-9]+$/u.test(text3)) {
-    normalized = text3;
+    normalized2 = text3;
   } else if (/^-?(?:[0-9]{1,3}(?:\.[0-9]{3})+|[0-9]+),[0-9]+$/u.test(text3)) {
-    normalized = text3.replaceAll(".", "").replace(",", ".");
+    normalized2 = text3.replaceAll(".", "").replace(",", ".");
   } else if (/^-?[0-9]+\.[0-9]+$/u.test(text3)) {
     const fraction = text3.replace(/^-/, "").split(".", 2)[1] ?? "";
-    normalized = fraction.length === 3 ? text3.replace(".", "") : text3;
+    normalized2 = fraction.length === 3 ? text3.replace(".", "") : text3;
   } else if (/^-?[0-9]{1,3}(?:\.[0-9]{3}){2,}$/u.test(text3)) {
-    normalized = text3.replaceAll(".", "");
+    normalized2 = text3.replaceAll(".", "");
   } else {
     return null;
   }
-  return decimalFromNormalized(normalized);
+  return decimalFromNormalized(normalized2);
 }
 function decimalEqual(left, right) {
   const scale = Math.max(left.scale, right.scale);
@@ -12555,11 +12557,11 @@ async function executeQtNativeGetValue(client, args, timeoutMs = 5e3, signal) {
     let selected = candidates[0];
     let resolvedVia = "selektor";
     if (selected.kind === "label" && args.name && !args.aid && !args.rid) {
-      const fields = nodes.filter((node) => node.parentId === selected.parentId && ["lineEdit", "spinBox", "plainTextEdit", "comboBox"].includes(node.kind ?? ""));
-      if (fields.length !== 1) {
-        return failure(fields.length ? "ambiguous" : "not-found", "The observed Qt label has no unique value control in its group.");
+      const fields2 = nodes.filter((node) => node.parentId === selected.parentId && ["lineEdit", "spinBox", "plainTextEdit", "comboBox"].includes(node.kind ?? ""));
+      if (fields2.length !== 1) {
+        return failure(fields2.length ? "ambiguous" : "not-found", "The observed Qt label has no unique value control in its group.");
       }
-      selected = fields[0];
+      selected = fields2[0];
       resolvedVia = "beschriftung";
     }
     if (selected.sensitive || !["lineEdit", "spinBox", "plainTextEdit", "comboBox"].includes(selected.kind ?? "") || typeof selected.value !== "string") {
@@ -12751,6 +12753,7 @@ async function readQtNativeSnapshot(client, args, timeoutMs, signal) {
     maxNodes,
     ...typeof args.toolTitle === "string" ? { toolTitle: args.toolTitle } : {},
     ...typeof args.allowedModalTitle === "string" ? { allowedModalTitle: args.allowedModalTitle } : {},
+    ...typeof args.allowedModalHwnd === "number" ? { allowedModalHwnd: args.allowedModalHwnd } : {},
     ...args.withValues === false ? { withValues: false } : {},
     ...args.withCellStates === true ? { withCellStates: true } : {},
     ...Array.isArray(args.aidSuffixes) ? { aidSuffixes: args.aidSuffixes } : {},
@@ -12866,6 +12869,7 @@ var init_qt_native_snapshot = __esm({
       windowEnabled: external_exports.boolean(),
       modalBlocked: external_exports.boolean(),
       nodes: external_exports.array(nodeSchema).max(5e3),
+      activeModalHwnd: integer.nonnegative().optional(),
       foreground: external_exports.boolean().optional(),
       /** The root's own AutomationId and name; the root is never a node, but an owned window is listed by them. */
       root: external_exports.object({ aid: text2, name: text2 }).strict().optional(),
@@ -12921,6 +12925,12 @@ function heading(nodes, profile) {
   }
   return texts.sort(byPosition)[0]?.name ?? null;
 }
+function qtNativeKnownHeading(nodes, profile, page) {
+  const relativeAid = typeof page.headingAutomationIdRelative === "string" ? page.headingAutomationIdRelative : "";
+  if (!relativeAid) return heading(nodes, profile);
+  const matches = nodes.filter((node) => node.type === "Text" && node.on && node.w > 0 && node.h > 0 && (node.aid === relativeAid || node.aid.endsWith(relativeAid)));
+  return matches.length === 1 ? matches[0].name : null;
+}
 function knownHeadingMatches(actual, page) {
   if (!actual) return false;
   if (actual === page.heading) return true;
@@ -12940,8 +12950,8 @@ function knownFieldValue(node, controlType2) {
   }
   return node.val;
 }
-function knownEpoch(hwnd, currentHeading, dirty, fields) {
-  return createHash12("sha256").update(JSON.stringify({ hwnd, heading: currentHeading, dirty, fields }), "utf8").digest("hex").toUpperCase();
+function knownEpoch(hwnd, currentHeading, dirty, fields2) {
+  return createHash12("sha256").update(JSON.stringify({ hwnd, heading: currentHeading, dirty, fields: fields2 }), "utf8").digest("hex").toUpperCase();
 }
 async function executeQtNativeKnownPageState(client, args, timeoutMs, signal, profile) {
   if (!profile || typeof args.pageId !== "string" || !args.pageId) {
@@ -12957,9 +12967,9 @@ async function executeQtNativeKnownPageState(client, args, timeoutMs, signal, pr
   }
   if (result.stats.truncated) return fail4("native-incomplete", "The current native tree exceeds the page-state read bound.");
   const page = resolved.page;
-  const currentHeading = heading(result.nodes, profile);
+  const currentHeading = qtNativeKnownHeading(result.nodes, profile, page);
   const rawFields = page.fields && typeof page.fields === "object" && !Array.isArray(page.fields) ? page.fields : {};
-  const fields = [];
+  const fields2 = [];
   const epochFields = [];
   for (const [fieldId, rawDefinition] of Object.entries(rawFields)) {
     const definition = rawDefinition;
@@ -12990,7 +13000,7 @@ async function executeQtNativeKnownPageState(client, args, timeoutMs, signal, pr
       w: node?.w ?? 0,
       h: node?.h ?? 0
     };
-    fields.push(field);
+    fields2.push(field);
     epochFields.push({ id: fieldId, value, enabled: enabled2, readOnly, x: field.x, y: field.y, w: field.w, h: field.h });
   }
   const dirtyNode = result.nodes.find((node) => node.type === "Button" && node.aid.endsWith(".MainToolBar.tb_sichern"));
@@ -13000,10 +13010,10 @@ async function executeQtNativeKnownPageState(client, args, timeoutMs, signal, pr
     backend: "qt",
     pageId: args.pageId,
     expectedHeading: String(page.heading),
-    onExpectedPage: knownHeadingMatches(currentHeading, page) && fields.every((field) => field.present === true),
+    onExpectedPage: knownHeadingMatches(currentHeading, page) && fields2.every((field) => field.present === true),
     heading: currentHeading,
     dirty,
-    fields,
+    fields: fields2,
     epoch: knownEpoch(result.hwnd, currentHeading, dirty, epochFields),
     hwnd: result.hwnd,
     pid: client.binding.pid,
@@ -13041,8 +13051,8 @@ async function executeQtNativeReadPage(client, args, timeoutMs, signal, profile)
   };
 }
 function transmissionName(name) {
-  const normalized = name.toLowerCase().replaceAll("ä", "a").replaceAll("ö", "o").replaceAll("ü", "u").replaceAll("ß", "ss").replace(/[^\p{L}\p{N}]/gu, "");
-  return ["elster", "versend", "versand", "ubermittl", "ubermittel", "abschick", "nachreich", "abschliess", "datenubertrag", "transfer"].some((stem) => normalized.includes(stem)) || normalized.startsWith("senden");
+  const normalized2 = name.toLowerCase().replaceAll("ä", "a").replaceAll("ö", "o").replaceAll("ü", "u").replaceAll("ß", "ss").replace(/[^\p{L}\p{N}]/gu, "");
+  return ["elster", "versend", "versand", "ubermittl", "ubermittel", "abschick", "nachreich", "abschliess", "datenubertrag", "transfer"].some((stem) => normalized2.includes(stem)) || normalized2.startsWith("senden");
 }
 async function executeQtNativeSubpages(client, args, timeoutMs, signal) {
   const result = await readQtNativeSnapshot(client, args, timeoutMs, signal);
@@ -13221,8 +13231,8 @@ var init_qt_native_find = __esm({
 
 // src/qt-native-ustva.ts
 function transmissionName2(name) {
-  const normalized = name.toLowerCase().replaceAll("ä", "a").replaceAll("ö", "o").replaceAll("ü", "u").replaceAll("ß", "ss").replace(/[^\p{L}\p{N}]/gu, "");
-  return ["elster", "versend", "versand", "ubermittl", "ubermittel", "abschick", "nachreich", "abschliess", "datenubertrag", "transfer"].some((stem) => normalized.includes(stem)) || normalized.startsWith("senden");
+  const normalized2 = name.toLowerCase().replaceAll("ä", "a").replaceAll("ö", "o").replaceAll("ü", "u").replaceAll("ß", "ss").replace(/[^\p{L}\p{N}]/gu, "");
+  return ["elster", "versend", "versand", "ubermittl", "ubermittel", "abschick", "nachreich", "abschliess", "datenubertrag", "transfer"].some((stem) => normalized2.includes(stem)) || normalized2.startsWith("senden");
 }
 async function executeQtNativeUstvaRead(client, args, timeoutMs, signal, profile) {
   const snapshot = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 5e3 }, timeoutMs, signal);
@@ -13240,7 +13250,7 @@ async function executeQtNativeUstvaRead(client, args, timeoutMs, signal, profile
   const bounds = contentBounds(snapshot.nodes, snapshot.windowRect);
   const captionMinX = bounds.navErkannt ? bounds.minX : bounds.winX;
   const texts = snapshot.nodes.filter((node) => node.type === "Text" && node.name && node.x >= captionMinX && node.x <= bounds.maxX);
-  const fields = snapshot.nodes.filter((node) => fieldTypes.has(node.type) && node.x >= bounds.minX && node.x <= bounds.maxX).sort(byPosition2).map((field) => {
+  const fields2 = snapshot.nodes.filter((node) => fieldTypes.has(node.type) && node.x >= bounds.minX && node.x <= bounds.maxX).sort(byPosition2).map((field) => {
     const label = texts.filter((text3) => Math.abs(text3.y - field.y) <= 14 && text3.x < field.x).sort((a, b) => field.x - a.x - (field.x - b.x))[0]?.name || field.name;
     return {
       label,
@@ -13253,16 +13263,16 @@ async function executeQtNativeUstvaRead(client, args, timeoutMs, signal, profile
     };
   });
   const actions = snapshot.nodes.filter((node) => ["Button", "Hyperlink"].includes(node.type) && node.name).map((node) => ({ name: node.name, gesperrt: transmissionName2(node.name) }));
-  const normalized = normalizeUstvaCurrentPage({
+  const normalized2 = normalizeUstvaCurrentPage({
     ok: true,
     ueberschrift: heading(snapshot.nodes, profile),
-    felder: fields,
+    felder: fields2,
     aktionen: actions,
     blockiert: false,
     prueferMeldungen: [],
     dialoge: []
   });
-  return { ...normalized, backend: "qt", nativeDurationMs: snapshot.nativeDurationMs };
+  return { ...normalized2, backend: "qt", nativeDurationMs: snapshot.nativeDurationMs };
 }
 var fieldTypes, byPosition2;
 var init_qt_native_ustva = __esm({
@@ -13289,10 +13299,10 @@ function powershellCompactJson(value) {
 }
 function transmissionName3(name) {
   if (!name) return false;
-  const normalized = comparableForm(name);
-  if (!normalized) return false;
-  if (VERSAND_FORMS.has(normalized)) return true;
-  return ["elster", "versend", "versand", "ubermittl", "ubermittel", "abschick", "nachreich", "abschliess", "datenubertrag", "transfer"].some((stem) => normalized.includes(stem)) || normalized.startsWith("senden");
+  const normalized2 = comparableForm(name);
+  if (!normalized2) return false;
+  if (VERSAND_FORMS.has(normalized2)) return true;
+  return ["elster", "versend", "versand", "ubermittl", "ubermittel", "abschick", "nachreich", "abschliess", "datenubertrag", "transfer"].some((stem) => normalized2.includes(stem)) || normalized2.startsWith("senden");
 }
 function findContainerNode(nodes, aidSuffix, containerType = "") {
   if (!aidSuffix) return null;
@@ -14026,7 +14036,7 @@ async function executeQtNativeReceiptManagerRead(client, args, timeoutMs, signal
   };
   try {
     let detail = before;
-    let fields = receiptDetailFields(detail.nodes);
+    let fields2 = receiptDetailFields(detail.nodes);
     let editable = receiptEditableValues(detail.nodes, policy);
     let identityMatches = editable.complete && detailIdentityMatches(editable.values, rowBefore, policy) && listBefore.listFingerprint === expectedListFingerprint;
     let rowVisibilityAttempts = 0;
@@ -14055,10 +14065,10 @@ async function executeQtNativeReceiptManagerRead(client, args, timeoutMs, signal
         await delay(Math.min(100, Math.max(1, openDeadline - performance.now())));
         detail = await receiptDetailSnapshot(client, policy, budget(), signal);
         nativeDurationMs += detail.nativeDurationMs;
-        fields = receiptDetailFields(detail.nodes);
+        fields2 = receiptDetailFields(detail.nodes);
         editable = receiptEditableValues(detail.nodes, policy);
         identityMatches = editable.complete && detailIdentityMatches(editable.values, rowBefore, policy);
-        if (fields.length && identityMatches && exactDetailClose(detail.nodes, policy).length === 1) break;
+        if (fields2.length && identityMatches && exactDetailClose(detail.nodes, policy).length === 1) break;
       } while (performance.now() < openDeadline && remaining() > 0);
     }
     const detailFingerprint = editable.complete ? detailBindingFingerprint(editable.values) : null;
@@ -14106,7 +14116,7 @@ async function executeQtNativeReceiptManagerRead(client, args, timeoutMs, signal
     const windowSetUnchanged = windowSetAfter.fingerprint === windowSetBefore.fingerprint;
     const dialogFreeAfter = Boolean(restored && restored.windowEnabled && !restored.modalBlocked);
     const dirtyStateUnchanged = dirtyAfter.dirty === dirtyBefore.dirty;
-    const verified = Boolean(fields.length && detailFingerprint && editable.complete && identityMatches && semanticListUnchanged && windowSetUnchanged && dialogFreeAfter && dirtyStateUnchanged && closeBinding);
+    const verified = Boolean(fields2.length && detailFingerprint && editable.complete && identityMatches && semanticListUnchanged && windowSetUnchanged && dialogFreeAfter && dirtyStateUnchanged && closeBinding);
     const common = {
       backend: "qt",
       pid: client.binding.pid,
@@ -14114,7 +14124,7 @@ async function executeQtNativeReceiptManagerRead(client, args, timeoutMs, signal
       mainHwnd: client.binding.hwnd,
       managerHwnd: before.hwnd,
       row: semanticRowsAfter.length === 1 ? semanticRowsAfter[0] : rowBefore,
-      fields,
+      fields: fields2,
       values: editable.values,
       valuesComplete: editable.complete,
       listFingerprint: listAfter ? listAfter.listFingerprint : null,
@@ -14144,7 +14154,7 @@ async function executeQtNativeReceiptManagerRead(client, args, timeoutMs, signal
     };
     if (verified) return { ok: true, ...common };
     const openConditions = [
-      ...!fields.length ? ["detail-fields-missing"] : [],
+      ...!fields2.length ? ["detail-fields-missing"] : [],
       ...!identityMatches ? ["detail-identity-mismatch"] : [],
       ...!semanticListUnchanged ? ["semantic-list-drift"] : [],
       ...!windowSetUnchanged ? ["window-set-drift"] : [],
@@ -14196,8 +14206,963 @@ var init_qt_native_receipt_read = __esm({
   }
 });
 
-// src/qt-native-receipt-action.ts
+// src/qt-native-receipt-update.ts
 import { setTimeout as delay2 } from "node:timers/promises";
+function amountCents(value) {
+  let text3 = String(value);
+  if (/^-?\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?$/u.test(text3)) text3 = text3.replaceAll(".", "");
+  const match = /^(-?)(\d+)(?:[.,](\d{1,2}))?$/u.exec(text3);
+  if (!match) return null;
+  const magnitude = BigInt(match[2]) * 100n + BigInt((match[3] ?? "").padEnd(2, "0") || "0");
+  return match[1] ? -magnitude : magnitude;
+}
+function equalValue(field, actual, expected) {
+  if (actual === expected) return true;
+  if (field === "amount") {
+    const left = amountCents(actual), right = amountCents(expected);
+    return left !== null && right !== null && left === right;
+  }
+  return actual === expected;
+}
+function rawValue(field, value) {
+  if (field === "date") {
+    if (!/^\d{4}-\d{2}-\d{2}$/u.test(String(value))) return String(value);
+    const [year, month, day] = String(value).split("-");
+    return `${day}.${month}.${year}`;
+  }
+  if (field === "amount") {
+    if (value === "") return "";
+    const cents2 = amountCents(value);
+    if (cents2 === null) throw new ReceiptUpdateError("Receipt amount is not an exact decimal.", "bad-args");
+    const magnitude = cents2 < 0n ? -cents2 : cents2;
+    return `${cents2 < 0n ? "-" : ""}${magnitude / 100n},${String(magnitude % 100n).padStart(2, "0")}`;
+  }
+  return String(value);
+}
+function validDate(value) {
+  const [year, month, day] = value.split("-").map(Number);
+  const date = /* @__PURE__ */ new Date(0);
+  date.setUTCFullYear(year, month - 1, day);
+  return year > 0 && date.getUTCFullYear() === year && date.getUTCMonth() + 1 === month && date.getUTCDate() === day;
+}
+function fieldNode(detail, policy, field) {
+  const definition = policy.controls.editableFields[field];
+  const matches = detail.nodes.filter((node) => node.aid.endsWith(definition.automationIdSuffix) && node.type === definition.controlType && node.w > 0 && node.h > 0 && node.on && (field === "net" ? typeof node.checked === "boolean" : node.ro === false && node.val !== null));
+  if (matches.length !== 1) throw new ReceiptUpdateError(`The exact writable receipt field '${field}' is not unique.`, "stale");
+  return matches[0];
+}
+function rawReceiptValues(detail, policy, selectedFields) {
+  return Object.fromEntries(selectedFields.map((field) => {
+    const definition = policy.controls.editableFields[field];
+    const node = detail.nodes.find((node2) => node2.aid.endsWith(definition.automationIdSuffix) && node2.type === definition.controlType && node2.w > 0 && node2.h > 0 && node2.on);
+    return [field, field === "net" ? node.checked : node.val ?? node.name];
+  }));
+}
+function reboundRow(list, values, policy) {
+  const title = String(values.title), documentNumber = String(values.documentNumber);
+  const titleRows = list.rows.filter((row) => row.primaryText === title || row.draft && row.primaryText === title + policy.list.draftMarker);
+  const documentRows = list.rows.filter((row) => row.documentNumber === documentNumber);
+  const exact = titleRows.filter((row) => row.documentNumber === documentNumber);
+  const documentNumberCellIndices = [...new Set(list.rows.flatMap((row) => row.cells.flatMap((cell, index) => documentNumber && cell.name === documentNumber ? [index] : [])))].sort((left, right) => left - right);
+  const titleOnly = exact.length === 0 && titleRows.length === 1 && documentNumberCellIndices.length === 0;
+  return {
+    row: exact.length === 1 ? exact[0] : titleOnly ? titleRows[0] : null,
+    targetIdentityMatchCount: exact.length,
+    titleIdentityMatchCount: titleRows.length,
+    documentNumberIdentityMatchCount: documentRows.length,
+    documentNumberCellIndices,
+    identityProjectionComplete: exact.length === 1 || titleOnly
+  };
+}
+function otherRowsEqual(before, targetBefore, after, targetAfter) {
+  const remaining = after.rows.filter((row) => row !== targetAfter);
+  for (const row of before.rows.filter((candidate) => candidate !== targetBefore)) {
+    const index = remaining.findIndex((candidate) => sameSemanticRow(row, candidate));
+    if (index < 0) return false;
+    remaining.splice(index, 1);
+  }
+  return remaining.length === 0;
+}
+async function executeQtNativeReceiptManagerUpdate(client, input, timeoutMs, signal, profile) {
+  const parsed = SSE_MCP_RECEIPT_SCHEMAS.sse_receipt_manager_update.safeParse(input);
+  if (!parsed.success) return fail5("bad-args", parsed.error.message);
+  const args = parsed.data;
+  if (args.values.date && !validDate(args.values.date)) return fail5("bad-args", "Receipt date is not a valid calendar date.");
+  if (args.values.amount && Number(args.values.amount.replace(",", ".")) > 999999999)
+    return fail5("bad-args", "Receipt amount exceeds the supported maximum.");
+  const parsedPolicy = receiptPolicySchema.safeParse(profile?.pageObjectsCatalog.windows.receiptManager);
+  if (!parsedPolicy.success) return fail5("invalid-catalog", "The active profile has no complete receipt-manager edit policy.");
+  const policy = parsedPolicy.data, waitMs = args.waitMs ?? 3500;
+  const requestedFields = fields.filter((field) => args.values[field] !== void 0);
+  const requestedValues = Object.fromEntries(requestedFields.map((field) => [
+    field,
+    field === "net" ? args.values[field] : field === "vatRate" ? `${args.values[field]} %` : rawValue(field, args.values[field])
+  ]));
+  const started = performance.now();
+  let mutationStarted = false, persistentMutationStarted = false, nativeDurationMs = 0;
+  let detailCloseStarted = false;
+  let managerHwnd = null;
+  let lastActionBinding = null;
+  let selectionBinding = { method: "already-open-detail" };
+  let closeBinding = null;
+  let valuesBefore = null, valuesAfter = null;
+  let rawBefore = null, rawAfter = null;
+  const edits = [];
+  const budget = () => {
+    const left = Math.floor(timeoutMs - (performance.now() - started));
+    if (left < 1) throw new QtNativeTransportError("Receipt update deadline expired.", "native-timeout", mutationStarted);
+    return left;
+  };
+  const detailRead = async () => {
+    const detail = await receiptDetailSnapshot(client, policy, budget(), signal);
+    nativeDurationMs += detail.nativeDurationMs;
+    if (managerHwnd !== null && detail.hwnd !== managerHwnd)
+      throw new ReceiptUpdateError("The bound receipt manager window changed; no further action dispatched.", "stale-window", true);
+    managerHwnd = detail.hwnd;
+    if (!detail.windowEnabled || detail.modalBlocked || detail.stats.truncated)
+      throw new ReceiptUpdateError("Receipt detail is obstructed or incomplete.", "window-obstructed");
+    return detail;
+  };
+  const action = async (node, kind, extra = {}) => {
+    const persistent = ["replace-edit-text", "select-combo-value", "toggle-check-box"].includes(kind);
+    lastActionBinding = { method: `qt-${kind}`, rid: node.rid, aid: node.aid, name: node.name };
+    let reply;
+    try {
+      reply = await client.requestAcknowledged("accessibility_action", {
+        toolTitle: policy.title,
+        expectedRootHwnd: managerHwnd,
+        rid: node.rid,
+        aid: node.aid,
+        expectedName: node.name,
+        action: kind,
+        ...extra
+      }, budget(), signal);
+    } catch (error) {
+      if (error instanceof QtNativeAcknowledgmentError && error.mutationResult.mutationAttempted === true || error instanceof QtNativeTransportError && error.outcomeUnknown) {
+        mutationStarted = true;
+        persistentMutationStarted ||= persistent;
+      }
+      throw error;
+    }
+    mutationStarted ||= reply.result.mutationAttempted === true;
+    persistentMutationStarted ||= persistent && reply.result.mutationAttempted === true;
+    nativeDurationMs += reply.durationMs;
+    lastActionBinding = { ...lastActionBinding, receiptAcknowledged: reply.receiptAcknowledged, mutationAckMs: reply.mutationAckMs };
+    if (reply.result.ok !== true) throw new ReceiptUpdateError(
+      String(reply.result.error ?? "The exact Qt action was rejected."),
+      String(reply.result.code ?? "native-action"),
+      reply.result.outcomeUnknown === true || reply.result.mutationAttempted === true
+    );
+    return lastActionBinding;
+  };
+  const editField = async (detail, field, requested) => {
+    const node = fieldNode(detail, policy, field);
+    return action(
+      node,
+      field === "net" ? "toggle-check-box" : field === "vatRate" ? "select-combo-value" : "replace-edit-text",
+      field === "net" ? { expectedChecked: node.checked, checked: requested } : { expectedValue: node.val, value: rawValue(field, requested) }
+    );
+  };
+  const readValues = (detail) => {
+    const result = receiptEditableValues(detail.nodes, policy);
+    if (!result.complete || !result.values) throw new ReceiptUpdateError("All receipt detail fields must remain readable.", "stale");
+    return result.values;
+  };
+  const waitDetail = async (predicate) => {
+    const deadline = Math.min(started + timeoutMs, performance.now() + waitMs);
+    let detail = await detailRead();
+    while (!predicate(detail) && performance.now() < deadline) {
+      await delay2(Math.min(25, Math.max(1, deadline - performance.now())), void 0, { signal });
+      detail = await detailRead();
+    }
+    return detail;
+  };
+  const closeDetail = async (detail) => {
+    const close = exactDetailClose(detail.nodes, policy);
+    if (close.length !== 1) throw new ReceiptUpdateError("The exact receipt detail close action is not unique.", "stale");
+    closeBinding = await action(close[0], "press");
+    detailCloseStarted = true;
+    const deadline = Math.min(started + timeoutMs, performance.now() + waitMs);
+    let restored;
+    do {
+      restored = await detailRead();
+      if (exactDetailClose(restored.nodes, policy).length === 0) return restored;
+      await delay2(Math.min(25, Math.max(1, deadline - performance.now())), void 0, { signal });
+    } while (performance.now() < deadline);
+    throw new ReceiptUpdateError("Receipt detail did not close within its bound.");
+  };
+  const before = await detailRead();
+  const state = receiptState(before.nodes, before.hwnd, policy);
+  if (state.error) return state.error;
+  if (state.state !== "list") return fail5("precondition-failed", "Receipt update requires the receipt list state.");
+  const listBefore = receiptList(before.nodes, policy);
+  if ("error" in listBefore) return listBefore.error;
+  if (!listBefore.rowsComplete) return fail5("native-incomplete", "Receipt update requires the complete counted receipt list.");
+  if (listBefore.listFingerprint !== args.expectedListFingerprint.toUpperCase()) return fail5("stale", "Receipt list fingerprint changed; no action dispatched.");
+  const rows = listBefore.rows.filter((row) => row.rowRid === args.rowRid && row.rowFingerprint === args.rowFingerprint.toUpperCase());
+  if (rows.length !== 1) return fail5("stale", "The exact bound receipt row changed; no action dispatched.");
+  const rowBefore = rows[0];
+  const dirtyBefore = await receiptDirtyState(client, args.hwnd, policy.title, budget(), signal);
+  if (dirtyBefore.error) return dirtyBefore.error;
+  nativeDurationMs += dirtyBefore.durationMs;
+  const windowsBefore = await receiptWindowSet(client, budget(), signal);
+  if (windowsBefore.error) return windowsBefore.error;
+  nativeDurationMs += windowsBefore.durationMs;
+  const common = () => ({
+    backend: "qt",
+    pid: client.binding.pid,
+    hwnd: before.hwnd,
+    mainHwnd: client.binding.hwnd,
+    managerHwnd: before.hwnd,
+    rowBefore,
+    valuesBefore: rawBefore,
+    valuesAfter: rawAfter,
+    requestedValues,
+    changedFields: edits.filter((edit) => edit.verified).map((edit) => edit.field),
+    listFingerprintBefore: listBefore.listFingerprint,
+    detailFingerprintBefore: args.expectedDetailFingerprint.toUpperCase(),
+    ungespeichertVorher: dirtyBefore.dirty,
+    mutationStarted,
+    persistentMutationStarted,
+    physicalInputUsed: false,
+    foregroundLeaseUsed: false,
+    selectionBinding,
+    closeBinding,
+    lastActionBinding,
+    nativeDurationMs
+  });
+  try {
+    let detail = before;
+    if (!detailIdentityMatches(receiptEditableValues(detail.nodes, policy).values, rowBefore, policy)) {
+      const target = detail.nodes.filter((node) => node.rid === rowBefore.rowRid && node.type === "DataItem" && node.aid.endsWith(policy.list.tableAutomationIdSuffix) && node.name === rowBefore.primaryText);
+      if (target.length !== 1) return fail5("stale", "The exact receipt cell is not visible and unique; no action dispatched.");
+      selectionBinding = await action(target[0], "activate-table-cell");
+      detail = await waitDetail((candidate) => detailIdentityMatches(receiptEditableValues(candidate.nodes, policy).values, rowBefore, policy) && exactDetailClose(candidate.nodes, policy).length === 1);
+    }
+    valuesBefore = readValues(detail);
+    rawBefore = rawReceiptValues(detail, policy, requestedFields);
+    if (!detailIdentityMatches(valuesBefore, rowBefore, policy)) throw new ReceiptUpdateError("Receipt detail belongs to another row.", "stale");
+    if (detailBindingFingerprint(valuesBefore) !== args.expectedDetailFingerprint.toUpperCase()) {
+      const restored2 = await closeDetail(detail);
+      const list = receiptList(restored2.nodes, policy);
+      const unchanged = !("error" in list) && list.rowsComplete && list.listFingerprint === listBefore.listFingerprint;
+      return {
+        ok: false,
+        kind: "stale",
+        error: "Receipt detail fingerprint changed; no receipt fields were edited.",
+        ...common(),
+        detailClosed: true,
+        cleanupRequired: !unchanged,
+        verified: false
+      };
+    }
+    let working = { ...valuesBefore };
+    for (const field of requestedFields) {
+      const requested = args.values[field];
+      detail = await detailRead();
+      const liveValues = readValues(detail);
+      if (!fields.every((name) => equalValue(name, liveValues[name], working[name])))
+        throw new ReceiptUpdateError("Receipt values changed outside this transaction; no further edit dispatched.", "stale", true);
+      if (equalValue(field, liveValues[field], requested)) continue;
+      const edit = { field, before: liveValues[field], requested, verified: false };
+      edits.push(edit);
+      await editField(detail, field, requested);
+      detail = await waitDetail((candidate) => equalValue(field, receiptEditableValues(candidate.nodes, policy).values?.[field], requested));
+      const updated = readValues(detail);
+      if (!equalValue(field, updated[field], requested)) throw new ReceiptUpdateError(`Receipt field '${field}' did not commit the requested value.`);
+      if (!fields.filter((name) => name !== field).every((name) => equalValue(name, updated[name], working[name])))
+        throw new ReceiptUpdateError(`Other receipt fields changed during '${field}'; no further edit dispatched.`, "stale", true);
+      edit.verified = true;
+      working = updated;
+    }
+    detail = await detailRead();
+    valuesAfter = readValues(detail);
+    rawAfter = rawReceiptValues(detail, policy, requestedFields);
+    const requestedMatch = fields.every((field) => equalValue(field, valuesAfter[field], args.values[field] ?? valuesBefore[field]));
+    if (!requestedMatch) throw new ReceiptUpdateError("Final receipt detail readback differs from the requested transaction.", "postcondition-failed", true);
+    let restored = await closeDetail(detail);
+    let listAfter = receiptList(restored.nodes, policy);
+    const deadline = Math.min(started + timeoutMs, performance.now() + waitMs);
+    while (("error" in listAfter || !listAfter.rowsComplete || !reboundRow(listAfter, valuesAfter, policy).identityProjectionComplete) && performance.now() < deadline) {
+      await delay2(Math.min(25, Math.max(1, deadline - performance.now())), void 0, { signal });
+      restored = await detailRead();
+      listAfter = receiptList(restored.nodes, policy);
+    }
+    if ("error" in listAfter) throw new ReceiptUpdateError(String(listAfter.error.error ?? "Final receipt list is unreadable."));
+    const identity = reboundRow(listAfter, valuesAfter, policy);
+    const dirtyAfter = await receiptDirtyState(client, args.hwnd, policy.title, budget(), signal);
+    if (dirtyAfter.error) throw new ReceiptUpdateError(String(dirtyAfter.error.error));
+    nativeDurationMs += dirtyAfter.durationMs;
+    const windowsAfter = await receiptWindowSet(client, budget(), signal);
+    if (windowsAfter.error) throw new ReceiptUpdateError(String(windowsAfter.error.error));
+    nativeDurationMs += windowsAfter.durationMs;
+    const countUnchanged = listAfter.rowsComplete && listAfter.count === listBefore.count;
+    const otherRowsUnchanged = Boolean(identity.row && otherRowsEqual(listBefore, rowBefore, listAfter, identity.row));
+    const windowSetUnchanged = windowsBefore.fingerprint === windowsAfter.fingerprint;
+    const dirtyStateUnchanged = dirtyBefore.dirty === dirtyAfter.dirty;
+    const detailClosed = exactDetailClose(restored.nodes, policy).length === 0;
+    const verified = countUnchanged && otherRowsUnchanged && windowSetUnchanged && dirtyStateUnchanged && detailClosed && identity.identityProjectionComplete;
+    const { row: rowAfter, ...identityProof } = identity;
+    const result = {
+      ...common(),
+      rowAfter,
+      ...identityProof,
+      valuesComplete: true,
+      draftBefore: rowBefore.draft,
+      draftAfter: identity.row?.draft ?? null,
+      listFingerprintAfter: listAfter.listFingerprint,
+      detailFingerprintAfter: detailBindingFingerprint(valuesAfter),
+      detailClosed,
+      countUnchanged,
+      otherRowsUnchanged,
+      windowSetUnchanged,
+      windowSetFingerprintBefore: windowsBefore.fingerprint,
+      windowSetFingerprintAfter: windowsAfter.fingerprint,
+      ungespeichertNachher: dirtyAfter.dirty,
+      dirtyStateUnchanged,
+      rollback: { attempted: false, ok: true, complete: null, fields: [] },
+      cleanupRequired: !verified,
+      verified
+    };
+    if (verified) return { ok: true, ...result };
+    const offeneBedingungen = [
+      !countUnchanged && "count-drift",
+      !otherRowsUnchanged && "other-row-drift",
+      !windowSetUnchanged && "window-set-drift",
+      !dirtyStateUnchanged && "dirty-state-drift",
+      !detailClosed && "detail-not-closed",
+      !identity.identityProjectionComplete && "target-identity-ambiguous"
+    ].filter(Boolean);
+    return { ok: false, kind: "postcondition-failed", error: "Receipt update postconditions were not fully proven; do not replay.", offeneBedingungen, ...result };
+  } catch (error) {
+    const uncertain = detailCloseStarted || signal?.aborted === true || error instanceof QtNativeTransportError || error instanceof ReceiptUpdateError && error.outcomeUnknown;
+    const rollback = { attempted: false, complete: null, fields: [] };
+    if (!uncertain && valuesBefore && edits.length) {
+      rollback.attempted = true;
+      rollback.complete = true;
+      try {
+        for (const edit of [...edits].reverse()) {
+          let detail2 = await detailRead();
+          const live = readValues(detail2)[edit.field];
+          if (equalValue(edit.field, live, edit.before)) {
+            rollback.fields.push({ field: edit.field, verified: true, action: "unchanged" });
+            continue;
+          }
+          if (!equalValue(edit.field, live, edit.requested)) {
+            rollback.complete = false;
+            rollback.fields.push({ field: edit.field, verified: false, action: "unexpected-value-preserved" });
+            continue;
+          }
+          await editField(detail2, edit.field, edit.before);
+          detail2 = await waitDetail((candidate) => equalValue(edit.field, receiptEditableValues(candidate.nodes, policy).values?.[edit.field], edit.before));
+          const verified = equalValue(edit.field, readValues(detail2)[edit.field], edit.before);
+          rollback.complete &&= verified;
+          rollback.fields.push({ field: edit.field, verified, action: "restored" });
+        }
+        const detail = await detailRead();
+        valuesAfter = readValues(detail);
+        rawAfter = rawReceiptValues(detail, policy, requestedFields);
+        rollback.complete &&= fields.every((field) => equalValue(field, valuesAfter[field], valuesBefore[field]));
+      } catch {
+        rollback.complete = false;
+      }
+    }
+    let cleanupVerified = false;
+    if (rollback.complete && valuesBefore) {
+      try {
+        const restored = await closeDetail(await detailRead());
+        const list = receiptList(restored.nodes, policy);
+        const dirty = await receiptDirtyState(client, args.hwnd, policy.title, budget(), signal);
+        const windows = await receiptWindowSet(client, budget(), signal);
+        if (!dirty.error) nativeDurationMs += dirty.durationMs;
+        if (!windows.error) nativeDurationMs += windows.durationMs;
+        cleanupVerified = !("error" in list) && list.rowsComplete && list.count === listBefore.count && list.rows.filter((row) => sameSemanticRow(row, rowBefore)).length === 1 && listBefore.rows.every((row) => list.rows.filter((candidate) => sameSemanticRow(row, candidate)).length === 1) && !dirty.error && dirty.dirty === dirtyBefore.dirty && !windows.error && windows.fingerprint === windowsBefore.fingerprint;
+      } catch {
+        cleanupVerified = false;
+      }
+    }
+    return {
+      ok: false,
+      ...common(),
+      kind: error instanceof QtNativeTransportError || error instanceof ReceiptUpdateError ? error.kind : "native-contract",
+      error: `${error instanceof Error ? error.message : String(error)} Do not replay.`,
+      outcomeUnknown: uncertain && mutationStarted,
+      resultingState: cleanupVerified ? "restored" : mutationStarted ? "unknown" : "unchanged",
+      rollback: { ...rollback, ok: rollback.complete === true },
+      detailClosed: cleanupVerified,
+      cleanupRequired: mutationStarted && !cleanupVerified,
+      verified: false
+    };
+  }
+}
+var fields, ReceiptUpdateError;
+var init_qt_native_receipt_update = __esm({
+  "src/qt-native-receipt-update.ts"() {
+    "use strict";
+    init_mcp_schemas_receipts();
+    init_qt_native_client();
+    init_qt_native_receipts();
+    fields = ["title", "date", "documentNumber", "amount", "net", "vatRate", "note"];
+    ReceiptUpdateError = class extends Error {
+      constructor(message, kind = "postcondition-failed", outcomeUnknown = false) {
+        super(message);
+        this.kind = kind;
+        this.outcomeUnknown = outcomeUnknown;
+      }
+      kind;
+      outcomeUnknown;
+    };
+  }
+});
+
+// src/qt-native-receipt-link-projection.ts
+function exactLinkControl(nodes, suffix, name) {
+  const matches = nodes.filter((node) => node.aid.endsWith(suffix) && node.w > 0 && node.h > 0 && node.on && (name === void 0 || node.name === name));
+  if (matches.length !== 1) throw new ReceiptLinkError("The exact catalogue-bound link control is not unique and enabled.", "stale");
+  return matches[0];
+}
+function checkedLinkRow(row, policy) {
+  const cell = row.cells[policy.controls.linkManagement.rowToggleColumn];
+  if (!cell || !["On", "Off"].includes(cell.toggleState ?? ""))
+    throw new ReceiptLinkError("The exact receipt link cell has no readable binary state.", "profile-contract");
+  return cell.toggleState === "On";
+}
+function linkRowIdentity(row, policy) {
+  return receiptFingerprint({
+    title: row.primaryText,
+    documentNumber: row.documentNumber,
+    draft: row.draft,
+    cells: row.cells.filter((_, index) => index !== policy.controls.linkManagement.rowToggleColumn).map((cell) => cell.name)
+  });
+}
+function linkListIdentity(list, policy) {
+  return receiptFingerprint({ count: list.count, rows: list.rows.map((row) => linkRowIdentity(row, policy)).sort() });
+}
+function resolveLinkRow(mode, item) {
+  const matches = mode.list.rows.filter((row) => row.primaryText === item.expectedReceiptTitle && (item.expectedDocumentNumber === void 0 || row.documentNumber === item.expectedDocumentNumber) && (item.receiptContentFingerprint === void 0 || row.contentFingerprint === item.receiptContentFingerprint.toUpperCase()));
+  if (matches.length !== 1) throw new ReceiptLinkError("The exact receipt title/document/content selector is missing or ambiguous.", matches.length ? "ambiguous" : "stale");
+  return matches[0];
+}
+function projectLinkMode(snapshot, policy, target) {
+  if (!snapshot.windowEnabled || snapshot.modalBlocked || snapshot.stats.truncated)
+    throw new ReceiptLinkError("The bound receipt link window is obstructed or incomplete.", "window-obstructed");
+  const state = receiptState(snapshot.nodes, snapshot.hwnd, policy);
+  if (state.error || state.state !== "list") return null;
+  const list = receiptList(snapshot.nodes, policy);
+  if ("error" in list || !list.rowsComplete) return null;
+  if (list.draftCount !== 0) throw new ReceiptLinkError("Receipt linking requires a complete list without drafts.", "precondition-failed");
+  const link = policy.controls.linkManagement;
+  const countNode = exactLinkControl(snapshot.nodes, link.footerCountAutomationIdSuffix);
+  if (!/^\d+$/u.test(countNode.name)) throw new ReceiptLinkError("The exact receipt link footer count is unreadable.", "profile-contract");
+  const footerCount = Number(countNode.name);
+  if (!Number.isSafeInteger(footerCount) || footerCount < 0 || footerCount > list.count)
+    throw new ReceiptLinkError("The receipt link footer count exceeds the complete list.", "profile-contract");
+  const footer = exactLinkControl(snapshot.nodes, link.footerTextAutomationIdSuffix);
+  const expectedFooter = `${footerCount === 1 ? "Beleg" : "Belege"} mit "${target}" verknüpft`;
+  if (footer.name.normalize("NFC") !== expectedFooter.normalize("NFC"))
+    throw new ReceiptLinkError("The receipt link footer differs from the acknowledged target and count.", "stale");
+  const states = /* @__PURE__ */ new Map();
+  for (const row of list.rows) {
+    const identity = linkRowIdentity(row, policy);
+    const values = states.get(identity) ?? [];
+    values.push(checkedLinkRow(row, policy));
+    states.set(identity, values);
+  }
+  if ([...states.values()].flat().filter(Boolean).length !== footerCount) return null;
+  return { snapshot, list, footerCount, states };
+}
+function linkStatesEqual(mode, expected) {
+  return mode.states.size === expected.size && [...expected].every(([identity, linked]) => {
+    const actual = mode.states.get(identity);
+    return actual?.length === linked.length && actual.filter(Boolean).length === linked.filter(Boolean).length;
+  });
+}
+var receiptLinkPolicySchema, ReceiptLinkError;
+var init_qt_native_receipt_link_projection = __esm({
+  "src/qt-native-receipt-link-projection.ts"() {
+    "use strict";
+    init_zod();
+    init_qt_native_receipts();
+    receiptLinkPolicySchema = receiptPolicySchema.extend({
+      classPattern: external_exports.string().min(1).max(256),
+      controls: receiptPolicySchema.shape.controls.extend({
+        linkManagement: external_exports.object({
+          mainToolbarAutomationIdSuffix: external_exports.string().min(1),
+          startTargetAutomationIdSuffix: external_exports.string().min(1),
+          rowToggleColumn: external_exports.number().int().nonnegative().max(32),
+          footerCountAutomationIdSuffix: external_exports.string().min(1),
+          footerTextAutomationIdSuffix: external_exports.string().min(1),
+          cancelAutomationIdSuffix: external_exports.string().min(1),
+          cancelExpectedName: external_exports.string().min(1),
+          applyAutomationIdSuffix: external_exports.string().min(1),
+          applyExpectedName: external_exports.string().min(1)
+        }).passthrough()
+      }),
+      linkValueTransferDialog: external_exports.object({
+        title: external_exports.string().min(1),
+        classPattern: external_exports.string().min(1).max(256),
+        cancelButton: external_exports.literal("Abbrechen"),
+        fingerprints: external_exports.array(external_exports.string().regex(/^[A-Fa-f0-9]{64}$/u)).min(1)
+      }).passthrough()
+    });
+    ReceiptLinkError = class extends Error {
+      constructor(message, kind = "postcondition-failed", outcomeUnknown = false) {
+        super(message);
+        this.kind = kind;
+        this.outcomeUnknown = outcomeUnknown;
+      }
+      kind;
+      outcomeUnknown;
+    };
+  }
+});
+
+// src/qt-native-receipt-link-dialog.ts
+import { setTimeout as delay3 } from "node:timers/promises";
+function receiptLinkDialogFingerprint(title, nodes) {
+  const observed = [...new Set(nodes.filter((node) => ["Button", "Pane"].includes(node.type) && node.name).map((node) => normalized(node.name)))];
+  const canonical = (name) => SSE_DIALOG_BUTTONS.find((button) => button.toLowerCase() === name.toLowerCase());
+  const buttons = nodes.filter((node) => ["Button", "Pane"].includes(node.type) && canonical(node.name)).map((node) => `${canonical(node.name)}=${node.on ? 1 : 0}`);
+  const unsupported = observed.filter((name) => !canonical(name));
+  const texts = [...new Set(nodes.filter((node) => ["Text", "TreeItem"].includes(node.type) && node.name).map((node) => normalized(node.name)).filter(Boolean))];
+  return textSha256([normalized(title), sorted(buttons).join("|"), sorted(unsupported).join("|"), sorted(texts).join("|")].join("\0"));
+}
+async function cancelKnownReceiptLinkTransfer(client, policy, waitMs, budget, press, measured, signal) {
+  const transfer = policy.linkValueTransferDialog;
+  const deadline = performance.now() + Math.min(waitMs, 1500, budget());
+  let observed;
+  do {
+    const inventory = await readProcessWindowInventory(client, budget(), signal);
+    measured(inventory.durationMs);
+    const candidates = inventory.windows.filter((window) => window.pid === client.binding.pid && window.title === transfer.title);
+    if (candidates.length > 1) throw new ReceiptLinkError("The receipt value-transfer dialog is ambiguous.", "ambiguous", true);
+    if (candidates.length === 1) {
+      observed = candidates[0];
+      break;
+    }
+    if (performance.now() >= deadline) break;
+    await delay3(Math.min(25, Math.max(1, deadline - performance.now())), void 0, { signal });
+  } while (performance.now() < deadline);
+  if (!observed) return { transferDialogObserved: false, valueTransferCancelled: false };
+  if (!new RegExp(transfer.classPattern, "u").test(observed.class) || observed.minimized || observed.hung)
+    throw new ReceiptLinkError("The receipt value-transfer window differs from its catalogue.", "stale-window", true);
+  const snapshot = await readQtNativeSnapshot(client, { toolTitle: transfer.title, maxNodes: 1200 }, budget(), signal);
+  measured(snapshot.nativeDurationMs);
+  if (snapshot.hwnd !== observed.hwnd || !snapshot.windowEnabled || snapshot.modalBlocked || snapshot.stats.truncated)
+    throw new ReceiptLinkError("The receipt value-transfer dialog cannot be completely and exactly read.", "window-obstructed", true);
+  const fingerprint = receiptLinkDialogFingerprint(transfer.title, snapshot.nodes);
+  if (!transfer.fingerprints.some((allowed) => allowed.toUpperCase() === fingerprint))
+    throw new ReceiptLinkError("The receipt value-transfer dialog has an unknown decision fingerprint; no button dispatched.", "fingerprint-mismatch", true);
+  const buttons = snapshot.nodes.filter((node) => node.type === "Button" && node.name === transfer.cancelButton && node.on && node.w > 0 && node.h > 0);
+  if (buttons.length !== 1) throw new ReceiptLinkError("The exact receipt value-transfer cancel button is not unique.", "stale", true);
+  const cancelBinding = await press(snapshot, buttons[0], transfer.title);
+  const closeDeadline = performance.now() + Math.min(waitMs, budget());
+  do {
+    const inventory = await readProcessWindowInventory(client, budget(), signal);
+    measured(inventory.durationMs);
+    if (!inventory.windows.some((window) => window.hwnd === observed.hwnd) && !inventory.windows.some((window) => window.pid === client.binding.pid && window.title === transfer.title))
+      return { transferDialogObserved: true, valueTransferCancelled: true, transferDialogFingerprint: fingerprint, transferCancelClick: cancelBinding };
+    await delay3(Math.min(25, Math.max(1, closeDeadline - performance.now())), void 0, { signal });
+  } while (performance.now() < closeDeadline);
+  throw new ReceiptLinkError("The exact receipt value-transfer dialog remained open after cancellation; do not replay.", "postcondition-failed", true);
+}
+var normalized, sorted;
+var init_qt_native_receipt_link_dialog = __esm({
+  "src/qt-native-receipt-link-dialog.ts"() {
+    "use strict";
+    init_operation_schema_primitives();
+    init_qt_native_projections();
+    init_qt_native_snapshot();
+    init_qt_native_receipt_link_projection();
+    normalized = (text3) => text3.replace(/[\s\u0085]+/gu, " ").trim();
+    sorted = (values) => [...values].sort((left, right) => left.localeCompare(right, "de", { sensitivity: "accent" }));
+  }
+});
+
+// src/qt-native-receipt-link.ts
+import { setTimeout as delay4 } from "node:timers/promises";
+async function executeQtNativeReceiptManagerLink(client, input, timeoutMs, signal, profile) {
+  const parsed = SSE_API_RECEIPT_MANAGER_LINK_SCHEMA.safeParse(input);
+  if (!parsed.success) return fail5("bad-args", parsed.error.message);
+  const parsedPolicy = receiptLinkPolicySchema.safeParse(profile?.pageObjectsCatalog.windows.receiptManager);
+  if (!profile || !parsedPolicy.success) return fail5("invalid-catalog", "The active profile has no complete receipt-link policy.");
+  const args = parsed.data, policy = parsedPolicy.data, activeProfile = profile;
+  const link = policy.controls.linkManagement;
+  const items = "items" in args ? args.items : [{
+    expectedReceiptTitle: args.expectedReceiptTitle,
+    expectedDocumentNumber: args.expectedDocumentNumber,
+    receiptContentFingerprint: args.receiptContentFingerprint,
+    linked: args.linked
+  }];
+  const started = performance.now(), waitMs = args.waitMs ?? 4e3;
+  let nativeDurationMs = 0, mutationStarted = false, persistentApplyStarted = false, applied = false, outcomeUnknown = false;
+  let managerCloseAcknowledged = false;
+  let managerHwnd = null, lastMode = null, modeBefore = null;
+  let dirtyBefore = null, dirtyAfter = null, windowIdentityBefore = null;
+  let openClick = null, showClick = null;
+  let applyClick = null, cancelClick = null;
+  const toggleClicks = [];
+  const budget = () => {
+    const remaining = Math.floor(timeoutMs - (performance.now() - started));
+    if (remaining < 1) throw new QtNativeTransportError("Receipt-link deadline expired.", "native-timeout", mutationStarted);
+    return remaining;
+  };
+  const measured = (durationMs) => {
+    nativeDurationMs += durationMs;
+  };
+  const inventory = async () => {
+    const value = await readProcessWindowInventory(client, budget(), signal);
+    measured(value.durationMs);
+    return value;
+  };
+  const windowIdentity = (value) => receiptFingerprint({
+    // Applying links can change the main window's dirty title. Its immutable
+    // native binding remains required; every other window's title stays bound.
+    windows: value.windows.filter((window) => !isSystemOverlay(window)).map((window) => ({
+      hwnd: window.hwnd,
+      pid: window.pid,
+      class: window.class,
+      minimized: window.minimized,
+      hung: window.hung,
+      title: window.hwnd === client.binding.hwnd ? null : window.title
+    })).sort((left, right) => left.hwnd - right.hwnd),
+    untitled: value.untitledWindows.filter((window) => !isSystemOverlay(window)).map((window) => ({
+      hwnd: window.hwnd,
+      pid: window.pid,
+      class: window.class,
+      minimized: window.minimized,
+      hung: window.hung
+    })).sort((left, right) => left.hwnd - right.hwnd)
+  });
+  const mainRead = async () => {
+    const snapshot = await readQtNativeSnapshot(client, {
+      hwnd: args.hwnd,
+      maxNodes: 5e3,
+      ...managerHwnd === null ? {} : { allowedModalTitle: policy.title, allowedModalHwnd: managerHwnd }
+    }, budget(), signal);
+    measured(snapshot.nativeDurationMs);
+    if (!snapshot.windowEnabled || snapshot.modalBlocked || snapshot.stats.truncated)
+      throw new ReceiptLinkError("The bound target page is obstructed or incomplete.", "window-obstructed", managerHwnd !== null);
+    if (managerHwnd !== null && snapshot.activeModalHwnd !== 0 && snapshot.activeModalHwnd !== managerHwnd)
+      throw new ReceiptLinkError("The target page's active modal window differs from the owned manager.", "stale-window", true);
+    if (heading(snapshot.nodes, activeProfile) !== args.expectedTargetPage)
+      throw new ReceiptLinkError("The bound target page changed; no further link action dispatched.", "stale", managerHwnd !== null);
+    const save = snapshot.nodes.filter((node) => node.type === "Button" && node.aid.endsWith(".MainToolBar.tb_sichern"));
+    if (save.length !== 1) throw new ReceiptLinkError("The target page has no unique readable dirty state.", "precondition-failed");
+    return { snapshot, dirty: save[0].on };
+  };
+  const toolRead = async () => {
+    if (managerHwnd === null) throw new ReceiptLinkError("No exact receipt manager is owned by this transaction.", "stale-window");
+    const snapshot = await readQtNativeSnapshot(client, { toolTitle: policy.title, maxNodes: 5e3, withCellStates: true }, budget(), signal);
+    measured(snapshot.nativeDurationMs);
+    if (snapshot.hwnd !== managerHwnd)
+      throw new ReceiptLinkError("The exact receipt link manager was recreated; no further action dispatched.", "stale-window", true);
+    if (!snapshot.windowEnabled || snapshot.modalBlocked || snapshot.stats.truncated)
+      throw new ReceiptLinkError("The exact receipt link manager is obstructed or incomplete.", "window-obstructed");
+    return snapshot;
+  };
+  const dispatch = async (snapshot, node, action, toolTitle, extra = {}, persistent = false) => {
+    let reply;
+    try {
+      reply = await client.requestAcknowledged("accessibility_action", {
+        expectedRootHwnd: snapshot.hwnd,
+        rid: node.rid,
+        aid: node.aid,
+        expectedName: node.name,
+        action,
+        ...toolTitle === void 0 ? {} : { toolTitle },
+        ...extra
+      }, budget(), signal);
+    } catch (error) {
+      if (error instanceof QtNativeAcknowledgmentError && error.mutationResult.mutationAttempted === true || error instanceof QtNativeTransportError && error.outcomeUnknown) {
+        mutationStarted = true;
+        persistentApplyStarted ||= persistent;
+        outcomeUnknown = true;
+      }
+      throw error;
+    }
+    measured(reply.durationMs);
+    mutationStarted ||= reply.result.mutationAttempted === true;
+    persistentApplyStarted ||= persistent && reply.result.mutationAttempted === true;
+    if (reply.result.ok !== true) throw new ReceiptLinkError(
+      String(reply.result.error ?? "The exact Qt receipt-link action failed."),
+      String(reply.result.code ?? "native-action"),
+      reply.result.outcomeUnknown === true || reply.result.mutationAttempted === true
+    );
+    return {
+      method: `qt-${action}`,
+      hwnd: snapshot.hwnd,
+      rid: node.rid,
+      aid: node.aid,
+      name: node.name,
+      receiptAcknowledged: reply.receiptAcknowledged,
+      mutationAckMs: reply.mutationAckMs
+    };
+  };
+  const press = (snapshot, node, toolTitle, persistent = false) => {
+    if (node.type !== "Button") throw new ReceiptLinkError("The exact link action is not a button.", "profile-contract");
+    return dispatch(snapshot, node, "press", toolTitle, {}, persistent);
+  };
+  const poll = async (read, message) => {
+    const deadline = performance.now() + Math.min(waitMs, budget());
+    do {
+      const value = await read();
+      if (value !== null) return value;
+      if (performance.now() >= deadline) break;
+      await delay4(Math.min(25, Math.max(1, deadline - performance.now())), void 0, { signal });
+    } while (performance.now() < deadline);
+    throw new ReceiptLinkError(message);
+  };
+  const readMode = async () => {
+    const mode = projectLinkMode(await toolRead(), policy, args.expectedLinkTarget);
+    if (mode) lastMode = mode;
+    return mode;
+  };
+  const openMode = async () => {
+    const beforeOpen = await inventory();
+    if (beforeOpen.windows.some((window2) => window2.pid === client.binding.pid && window2.title === policy.title))
+      throw new ReceiptLinkError("A receipt manager is already open; no additional manager dispatched.", "precondition-failed");
+    const main2 = await mainRead();
+    const open8 = exactLinkControl(main2.snapshot.nodes, link.mainToolbarAutomationIdSuffix);
+    const opened = await press(main2.snapshot, open8);
+    openClick ??= opened;
+    const window = await poll(async () => {
+      const candidates = (await inventory()).windows.filter((candidate) => candidate.pid === client.binding.pid && candidate.title === policy.title);
+      if (candidates.length > 1) throw new ReceiptLinkError("The newly opened receipt link manager is ambiguous.", "ambiguous", true);
+      return candidates[0] ?? null;
+    }, "The receipt link manager did not open within its bound.");
+    if (!new RegExp(policy.classPattern, "u").test(window.class) || window.minimized || window.hung)
+      throw new ReceiptLinkError("The receipt link manager differs from its catalogue.", "stale-window", true);
+    managerHwnd = window.hwnd;
+    const start = await poll(async () => {
+      const snapshot = await toolRead();
+      const state = receiptState(snapshot.nodes, snapshot.hwnd, policy);
+      return !state.error && state.state === "start" ? snapshot : null;
+    }, "The receipt link manager did not reach its catalogue start state.");
+    const target = exactLinkControl(start.nodes, link.startTargetAutomationIdSuffix);
+    if (target.name !== `Belege mit "${args.expectedLinkTarget}" verknüpfen`)
+      throw new ReceiptLinkError("The exact receipt link start target differs from the acknowledged target.", "stale");
+    const show = policy.actions.showAllReceipts;
+    const shown = await press(start, exactLinkControl(start.nodes, show.automationIdSuffix, show.expectedName), policy.title);
+    showClick ??= shown;
+    return poll(readMode, "The receipt link manager did not expose a complete, counted link list.");
+  };
+  const closeMode = async (kind) => {
+    const snapshot = await toolRead(), boundHwnd = snapshot.hwnd;
+    const button = exactLinkControl(
+      snapshot.nodes,
+      kind === "apply" ? link.applyAutomationIdSuffix : link.cancelAutomationIdSuffix,
+      kind === "apply" ? link.applyExpectedName : link.cancelExpectedName
+    );
+    const binding = await press(snapshot, button, policy.title, kind === "apply");
+    managerCloseAcknowledged = true;
+    if (kind === "cancel") cancelClick = binding;
+    if (kind === "apply") applied = true;
+    await poll(async () => {
+      const windows = (await inventory()).windows;
+      return !windows.some((window) => window.hwnd === boundHwnd) && !windows.some((window) => window.pid === client.binding.pid && window.title === policy.title) ? true : null;
+    }, "The exact receipt link manager did not close after its acknowledged button; do not replay.");
+    managerHwnd = null;
+    lastMode = null;
+    managerCloseAcknowledged = false;
+    if (kind === "apply") {
+      const transfer = await cancelKnownReceiptLinkTransfer(
+        client,
+        policy,
+        waitMs,
+        budget,
+        (dialog2, cancel, title) => press(dialog2, cancel, title),
+        measured,
+        signal
+      );
+      return { applyClick: binding, ...transfer };
+    }
+    return binding;
+  };
+  const common = () => ({
+    backend: "qt",
+    pid: client.binding.pid,
+    hwnd: client.binding.hwnd,
+    mainHwnd: client.binding.hwnd,
+    managerHwnd: modeBefore?.snapshot.hwnd ?? managerHwnd,
+    expectedTargetPage: args.expectedTargetPage,
+    expectedLinkTarget: args.expectedLinkTarget,
+    mutationStarted,
+    persistentApplyStarted,
+    applied,
+    physicalInputUsed: false,
+    foregroundLeaseUsed: false,
+    ungespeichertVorher: dirtyBefore,
+    ungespeichertNachher: dirtyAfter,
+    openClick,
+    showClick,
+    toggleClicks,
+    applyClick,
+    cancelClick,
+    nativeDurationMs
+  });
+  try {
+    const initialMain = await mainRead();
+    dirtyBefore = initialMain.dirty;
+    const initialWindows = await inventory();
+    windowIdentityBefore = windowIdentity(initialWindows);
+    if (initialWindows.windows.some((window) => window.pid === client.binding.pid && window.title === policy.title))
+      return { ok: false, ...common(), kind: "precondition-failed", error: "Receipt manager is already open; no action dispatched.", cleanupRequired: false, verified: false };
+    modeBefore = await openMode();
+    const initialRows = items.map((item) => resolveLinkRow(modeBefore, item));
+    if (new Set(initialRows.map((row) => row.rowRid)).size !== initialRows.length)
+      throw new ReceiptLinkError("Multiple receipt selectors resolve to the same row; no checkbox edit dispatched.", "ambiguous");
+    const linkedBefore = initialRows.map((row) => checkedLinkRow(row, policy));
+    const changes = items.map((item, index) => linkedBefore[index] === item.linked ? -1 : index).filter((index) => index >= 0);
+    const identityBefore = linkListIdentity(modeBefore.list, policy);
+    const expectedStates = new Map([...modeBefore.states].map(([identity, states]) => [identity, [...states]]));
+    let expectedCount = modeBefore.footerCount, finalMode = modeBefore;
+    if (changes.length === 0) {
+      cancelClick = await closeMode("cancel");
+      const main2 = await mainRead();
+      dirtyAfter = main2.dirty;
+      const windowsAfter = await inventory();
+      const verified2 = dirtyAfter === dirtyBefore && windowIdentity(windowsAfter) === windowIdentityBefore;
+      return {
+        ok: verified2,
+        ...common(),
+        ...verified2 ? {} : { kind: "postcondition-failed", error: "Receipt-link no-op cleanup or dirty state changed; do not replay." },
+        receipt: initialRows[0],
+        items: initialRows.map((receipt, index) => ({
+          receipt,
+          expectedReceiptTitle: items[index].expectedReceiptTitle,
+          linkedBefore: linkedBefore[index],
+          linkedAfter: linkedBefore[index],
+          changed: false,
+          verified: verified2
+        })),
+        linkedBefore: linkedBefore[0],
+        linkedAfter: linkedBefore[0],
+        footerCountBefore: modeBefore.footerCount,
+        footerCountAfter: modeBefore.footerCount,
+        noChanges: true,
+        changedCount: 0,
+        persistenceVerified: verified2,
+        dirtyStateUnchangedBeforeApply: verified2,
+        windowIdentitiesUnchanged: verified2,
+        cleanupRequired: !verified2,
+        verified: verified2
+      };
+    }
+    for (const index of changes) {
+      const fresh = await readMode();
+      if (!fresh || linkListIdentity(fresh.list, policy) !== identityBefore || !linkStatesEqual(fresh, expectedStates))
+        throw new ReceiptLinkError("Receipt content or link states changed outside this transaction; no further edit dispatched.", "stale", true);
+      const item = items[index], row = resolveLinkRow(fresh, item), cell = row.cells[link.rowToggleColumn];
+      const targets = fresh.snapshot.nodes.filter((node) => node.rid === cell.rid && node.type === "DataItem" && node.aid.endsWith(policy.list.tableAutomationIdSuffix) && node.on && node.w > 0 && node.h > 0);
+      if (targets.length !== 1) throw new ReceiptLinkError("The exact receipt link cell is not unique and visible.", "stale");
+      const previousStates = new Map([...expectedStates].map(([identity, states]) => [identity, [...states]]));
+      const previousCount = expectedCount;
+      toggleClicks.push(await dispatch(fresh.snapshot, targets[0], "set-table-check-state", policy.title, {
+        expectedChecked: checkedLinkRow(row, policy),
+        checked: item.linked,
+        titleColumn: policy.list.primaryTextColumn,
+        expectedRowTitle: item.expectedReceiptTitle
+      }));
+      expectedStates.set(linkRowIdentity(row, policy), [item.linked]);
+      expectedCount += item.linked ? 1 : -1;
+      finalMode = await poll(async () => {
+        const candidate = await readMode();
+        if (!candidate) return null;
+        if (linkListIdentity(candidate.list, policy) !== identityBefore)
+          throw new ReceiptLinkError("Receipt content changed during the exact link checkbox commit.", "stale", true);
+        if (candidate.footerCount === expectedCount && linkStatesEqual(candidate, expectedStates)) return candidate;
+        if (candidate.footerCount === previousCount && linkStatesEqual(candidate, previousStates)) return null;
+        throw new ReceiptLinkError("Other receipt link states changed during the exact checkbox commit; no further action dispatched.", "stale", true);
+      }, "The exact receipt checkbox and footer did not reach the requested staged state; do not replay.");
+    }
+    const mainBeforeApply = await mainRead();
+    if (mainBeforeApply.dirty !== dirtyBefore)
+      throw new ReceiptLinkError("Main dirty state changed before applying the staged receipt links.", "stale", true);
+    const beforeApply = await readMode();
+    if (!beforeApply || linkListIdentity(beforeApply.list, policy) !== identityBefore || !linkStatesEqual(beforeApply, expectedStates) || beforeApply.footerCount !== expectedCount)
+      throw new ReceiptLinkError("The final staged receipt link projection changed before applying.", "stale", true);
+    applyClick = await closeMode("apply");
+    await mainRead();
+    finalMode = await openMode();
+    const finalRows = items.map((item) => resolveLinkRow(finalMode, item));
+    const persistenceVerified = linkListIdentity(finalMode.list, policy) === identityBefore && linkStatesEqual(finalMode, expectedStates) && finalMode.footerCount === expectedCount;
+    cancelClick = await closeMode("cancel");
+    const finalMain = await mainRead();
+    dirtyAfter = finalMain.dirty;
+    const windowIdentityAfter = windowIdentity(await inventory());
+    const windowIdentitiesUnchanged = windowIdentityAfter === windowIdentityBefore;
+    const verified = persistenceVerified && windowIdentitiesUnchanged;
+    return {
+      ok: verified,
+      ...common(),
+      ...verified ? {} : { kind: "postcondition-failed", error: "Applied receipt links failed persistence or window cleanup proofs; do not replay." },
+      receipt: finalRows[0],
+      items: finalRows.map((receipt, index) => ({
+        receipt,
+        expectedReceiptTitle: items[index].expectedReceiptTitle,
+        linkedBefore: linkedBefore[index],
+        linkedAfter: checkedLinkRow(receipt, policy),
+        changed: changes.includes(index),
+        verified: persistenceVerified && checkedLinkRow(receipt, policy) === items[index].linked
+      })),
+      linkedBefore: linkedBefore[0],
+      linkedAfter: checkedLinkRow(finalRows[0], policy),
+      footerCountBefore: modeBefore.footerCount,
+      footerCountAfter: expectedCount,
+      noChanges: false,
+      changedCount: changes.length,
+      persistenceVerified,
+      dirtyStateUnchangedBeforeApply: true,
+      windowIdentitiesUnchanged,
+      windowIdentityFingerprintBefore: windowIdentityBefore,
+      windowIdentityFingerprintAfter: windowIdentityAfter,
+      cleanupRequired: !verified,
+      verified
+    };
+  } catch (error) {
+    outcomeUnknown ||= managerCloseAcknowledged || signal?.aborted === true || error instanceof QtNativeTransportError || error instanceof ReceiptLinkError && error.outcomeUnknown;
+    let cleanupVerified = false;
+    if (!outcomeUnknown && !persistentApplyStarted && lastMode && managerHwnd !== null) {
+      try {
+        cancelClick = await closeMode("cancel");
+        const main2 = await mainRead();
+        dirtyAfter = main2.dirty;
+        cleanupVerified = dirtyAfter === dirtyBefore && windowIdentity(await inventory()) === windowIdentityBefore;
+      } catch {
+        outcomeUnknown ||= managerCloseAcknowledged;
+        cleanupVerified = false;
+      }
+    }
+    return {
+      ok: false,
+      ...common(),
+      kind: error instanceof QtNativeTransportError || error instanceof ReceiptLinkError ? error.kind : "native-contract",
+      error: `${error instanceof Error ? error.message : String(error)} Do not replay.`,
+      outcomeUnknown: outcomeUnknown && mutationStarted,
+      resultingState: cleanupVerified ? "cancelled" : mutationStarted ? "unknown" : "unchanged",
+      persistenceVerified: false,
+      cleanupRequired: mutationStarted && !cleanupVerified,
+      verified: false
+    };
+  }
+}
+var init_qt_native_receipt_link = __esm({
+  "src/qt-native-receipt-link.ts"() {
+    "use strict";
+    init_mcp_schemas_receipts();
+    init_qt_native_client();
+    init_qt_native_pages();
+    init_qt_native_projections();
+    init_qt_native_snapshot();
+    init_qt_native_receipts();
+    init_qt_native_receipt_link_dialog();
+    init_qt_native_receipt_link_projection();
+  }
+});
+
+// src/qt-native-receipt-action.ts
+import { setTimeout as delay5 } from "node:timers/promises";
 async function executeQtNativeReceiptManagerAction(client, args, timeoutMs, signal, profile) {
   const parsedPolicy = receiptPolicySchema.safeParse(profile?.pageObjectsCatalog.windows.receiptManager);
   if (!parsedPolicy.success) return fail5("invalid-catalog", "The active profile has no complete receipt-manager action policy.");
@@ -14292,7 +15257,7 @@ async function executeQtNativeReceiptManagerAction(client, args, timeoutMs, sign
           true
         );
       }
-      await delay2(Math.min(100, Math.max(1, postconditionDeadline - performance.now())));
+      await delay5(Math.min(100, Math.max(1, postconditionDeadline - performance.now())));
       after = await receiptToolSnapshot(client, parsedPolicy.data, budget(), signal);
       stateAfter = receiptState(after.nodes, after.hwnd, parsedPolicy.data);
       if (!stateAfter.error && stateAfter.state === action.toState) break;
@@ -15041,19 +16006,1092 @@ var init_qt_native_checker = __esm({
   }
 });
 
+// src/qt-native-goto-projection.ts
+function pagingOrder(year) {
+  return [
+    "Umsatzsteuerzahlungen/-Erstattungen",
+    "Übersicht Betriebseinnahmen",
+    "Erlöse Lieferungen/Leistungen",
+    "Einnahmen: Freiberufler",
+    "Erlöse aus Anlagenverkäufen",
+    "Kapitalerträge und sonstige Einnahmen",
+    "Private Nutzungen: Sonstiges",
+    "Unberechtigt ausgewiesene Umsatzsteuer",
+    "Betriebsausgaben",
+    "Material-/Wareneinkauf",
+    "Innergem. Erwerb, § 13b UStG und Einfuhr",
+    "Fremdleistungen",
+    "Personalkosten",
+    "Abschreibung",
+    "Wirtschaftsgüter des Anlagevermögen",
+    "Investitionsabzugsbeträge (IAB)",
+    "Raum- und Grundstückskosten/Homeoffice",
+    "Arbeitszimmer/andere Arbeitsräume/Homeoffice",
+    "1. Arbeitszimmer/Arbeitsraum/Homeoffice",
+    "Schuldzinsen",
+    "Beiträge, Gebühren und Abgaben",
+    "Versicherungen (ohne Gebäude oder Kfz)",
+    "Reisekosten",
+    "1. Reise",
+    "Öffentliche Verkehrsmittel",
+    "1. Reise: Verpflegung / Übernachtung",
+    "1. Reise: Übernachtung",
+    "Sonstige Kosten",
+    "Privatanteil Reisekosten",
+    "Geschenke bis 50,- €",
+    "Bewirtungskosten",
+    "Wege zum Betrieb (Entfernungspauschale)",
+    "Portokosten",
+    "Telefon/Mobilfunk/Internet",
+    "Bürobedarf",
+    "Fachliteratur",
+    "Fortbildungskosten",
+    "Rechts- und Beratungkosten",
+    "Miete/Leasing beweglicher Wirtschaftsgüter",
+    "Werbung und Reklame",
+    "Sonstige Betriebsausgaben",
+    "Werkzeuge und Kleingeräte",
+    "EDV-Kosten",
+    "Vorsteuer (Übersicht)",
+    "Sonstige Vorsteuerbeträge",
+    "Betriebsausgaben: Eigene Positionen",
+    "Journal und BWA",
+    "Zusatzangaben zur Anlage EÜR",
+    "Entnahmen/Einlagen",
+    `Umsatzsteuererklärung ${year}`,
+    "Lieferungen/Leistungen zu 19%",
+    "Unentgeltliche Wertabgaben zu 19%",
+    "Lieferungen/Leistungen zu 7%",
+    "Unentgeltliche Wertabgaben zu 7%",
+    "Umsätze zu anderen Steuersätzen",
+    "Warenbezug von Unternehmen aus dem EU-Ausland",
+    "Steuerschuldner nach § 13b UStG",
+    "Abziehbare Vorsteuer",
+    "Vorsteuer aus anderen Rechnungen",
+    `Vorsteuerberichtigungen ${year}`,
+    "Steuerfreie Umsätze",
+    "Meldepflichtige oder nicht steuerbare Umsätze",
+    `Umsatzsteuer-Voranmeldungen ${year}`,
+    "Weitere Erlöse zu 19%",
+    "Weitere Umsätze",
+    "Steuerschuldnerschaft nach § 13b UStG"
+  ];
+}
+function gotoRoute(order, start, target, direction, maxSteps) {
+  const startIndex = repeatedPagingTitles.includes(start) ? -1 : order.indexOf(start), targetIndex = order.indexOf(target);
+  const known = startIndex >= 0 && targetIndex >= 0;
+  const checkedBack = !direction && known && targetIndex < startIndex;
+  const budget = known ? startIndex === targetIndex ? 0 : Math.abs(targetIndex - startIndex) + 20 : startIndex >= 0 ? order.length - 1 - startIndex + 20 : targetIndex >= 0 ? targetIndex + 1 + 20 : order.length + 20;
+  return {
+    direction: direction ?? (checkedBack ? "Zurück" : "Weiter"),
+    checkedBack,
+    budget: maxSteps === void 0 ? budget : Math.min(budget, maxSteps),
+    target,
+    startIndex,
+    targetIndex
+  };
+}
+function gotoLanding(route, order, position, landing) {
+  if (route.checkedBack) {
+    if (position > 0 && landing === order[position - 1]) return { verdict: "continue", position: position - 1 };
+    if (landing === repeatedPagingTitles[0]) return { verdict: "continue", position };
+    return { verdict: "deviation", position };
+  }
+  if (route.direction !== "Weiter") return { verdict: "continue", position: order.indexOf(landing) };
+  if (repeatedPagingTitles.includes(landing)) return { verdict: "continue", position };
+  const index = order.indexOf(landing, position + 1);
+  if (index < 0) return { verdict: "continue", position };
+  return { verdict: route.targetIndex >= 0 && index > route.targetIndex ? "overshoot" : "continue", position: index };
+}
+function visibleNavigationItem(nodes, name) {
+  const tree = findContainerNode(nodes, "NavWidgetSSE", "Tree");
+  if (!name || !tree || tree.w <= 0 || tree.h <= 0) return null;
+  const matches = containerDescendants(nodes, "NavWidgetSSE", "TreeItem", "Tree").filter((node) => node.name === name);
+  const item = matches.length === 1 ? matches[0] : null;
+  return item && item.on && item.w > 0 && item.h > 0 && item.x >= tree.x && item.y >= tree.y && item.y + item.h <= tree.y + tree.h ? item : null;
+}
+function selectSearchHit(nodes, target, page) {
+  const table = findContainerNode(nodes, "DialogSearchResultsTableView", "Table");
+  if (!target || !table) return null;
+  const rowFirsts = /* @__PURE__ */ new Map();
+  for (const cell of containerDescendants(nodes, "DialogSearchResultsTableView", "DataItem", "Table")) {
+    const first = rowFirsts.get(cell.y);
+    if (!first || cell.x < first.x) rowFirsts.set(cell.y, cell);
+  }
+  const titles = new Map([...rowFirsts.values()].map((node) => [node.i, node]));
+  const cellOf = /* @__PURE__ */ new Map([[table.i, null]]);
+  const exact = /* @__PURE__ */ new Set(), accepted = /* @__PURE__ */ new Set();
+  for (const node of nodes) {
+    if (node.i === table.i || !cellOf.has(node.p)) continue;
+    const cell = titles.get(node.i) ?? cellOf.get(node.p) ?? null;
+    cellOf.set(node.i, cell);
+    if (!cell || !["DataItem", "Text", "Hyperlink"].includes(node.type)) continue;
+    if (node.name === target) exact.add(cell);
+    else if (page && node.name && knownHeadingMatches(node.name, page)) accepted.add(cell);
+  }
+  if (exact.size === 1) return [...exact][0];
+  return exact.size === 0 && accepted.size ? [...accepted][0] : null;
+}
+function summaryFromNodes(snapshot, label, occurrence) {
+  const bounds = contentBounds(snapshot.nodes, snapshot.windowRect);
+  const texts = snapshot.nodes.filter((node) => node.type === "Text" && node.name && node.x >= bounds.minX && node.x <= bounds.maxX);
+  const fields2 = snapshot.nodes.filter((node) => ["Edit", "ComboBox", "Spinner"].includes(node.type) && node.x >= bounds.minX && node.x <= bounds.maxX);
+  const found = [];
+  for (const field of fields2) {
+    const caption = texts.filter((text3) => text3.x < field.x && Math.abs(text3.y - field.y) <= 14).sort((a, b) => b.x - a.x)[0];
+    if (caption && (psEquals(caption.name, label) || caption.name.startsWith(label)))
+      found.push({ label: caption.name, value: field.val || field.name, y: field.y, x: field.x });
+  }
+  found.sort((a, b) => a.y - b.y || a.x - b.x);
+  const exact = found.filter((item) => psEquals(item.label, label));
+  const unique2 = /* @__PURE__ */ new Map();
+  for (const item of exact.length ? exact : found) {
+    const key = `${item.y}|${item.value}`;
+    if (!unique2.has(key)) unique2.set(key, item);
+  }
+  return [...unique2.values()].sort((a, b) => a.y - b.y)[occurrence - 1] ?? null;
+}
+function gotoTargetState(snapshot, profile, target, page) {
+  const heading2 = page ? qtNativeKnownHeading(snapshot.nodes, profile, page) : heading(snapshot.nodes, profile);
+  const headingMatches = page ? knownHeadingMatches(heading2, page) : heading2 !== null && psEquals(heading2, target);
+  if (!headingMatches) return { heading: heading2, headingMatches, ready: false };
+  const fields2 = page?.fields && typeof page.fields === "object" ? Object.values(page.fields) : [];
+  for (const raw of fields2) {
+    const field = raw, relative6 = String(field.automationIdRelative ?? "");
+    const matches = relative6 ? snapshot.nodes.filter((node) => node.aid.endsWith(relative6)) : [];
+    if (matches.length !== 1 || matches[0].type !== field.controlType) return { heading: heading2, headingMatches, ready: false };
+  }
+  const policies = Object.values(profile.pageObjectsCatalog.focuslessCommits ?? {}).filter((raw) => {
+    const policy = raw;
+    return policy.heading === heading2 && policy.controlType === "DataItem";
+  });
+  for (const raw of policies) {
+    const policy = raw, suffix = String(policy.automationIdSuffix ?? "");
+    const checks = Array.isArray(policy.requiredSumChecks) ? policy.requiredSumChecks : [];
+    const tables = snapshot.nodes.filter((node) => node.type === "Table" && node.on && node.w > 0 && node.h > 0 && node.aid.endsWith(suffix));
+    if (!suffix || !checks.length || tables.length !== 1 || heading(snapshot.nodes, profile) !== heading2)
+      return { heading: heading2, headingMatches, ready: false };
+    for (const rawCheck of checks) {
+      const check = rawCheck;
+      const label = String(check.label ?? ""), occurrence = Number(check.occurrence ?? 1);
+      if (!label || !Number.isSafeInteger(occurrence) || occurrence < 1) return { heading: heading2, headingMatches, ready: false };
+      const sum = summaryFromNodes(snapshot, label, occurrence);
+      if (!sum || sum.label !== label || !sum.value.trim()) return { heading: heading2, headingMatches, ready: false };
+    }
+  }
+  return { heading: heading2, headingMatches, ready: true };
+}
+var repeatedPagingTitles;
+var init_qt_native_goto_projection = __esm({
+  "src/qt-native-goto-projection.ts"() {
+    "use strict";
+    init_qt_native_pages();
+    init_qt_native_projections();
+    repeatedPagingTitles = ["Innergem. Erwerb, § 13b UStG und Einfuhr", "Abziehbare Vorsteuer", "Vorsteuer aus anderen Rechnungen"];
+  }
+});
+
+// src/qt-native-goto.ts
+import { setTimeout as delay6 } from "node:timers/promises";
+async function executeQtNativeGoto(client, input, timeoutMs, signal, profile) {
+  const parsed = SSE_API_GOTO_SCHEMA.safeParse(input);
+  if (!parsed.success || !profile) return { ok: false, backend: "qt", kind: "bad-args", error: parsed.success ? "goto requires a product profile." : parsed.error.message };
+  const args = parsed.data;
+  let page;
+  if (args.pageId) {
+    const resolved = resolvePageObjectDefinition(profile.pageObjectsCatalog, args.pageId);
+    if (resolved.status !== "found") return { ok: false, backend: "qt", kind: resolved.status, error: "The target page object is not uniquely defined." };
+    page = resolved.page;
+  }
+  const target = page ? String(page.headingNumberedLabel || page.headingPrefix || page.heading || "") : args.ziel ?? "";
+  if (!target) return { ok: false, backend: "qt", kind: "bad-args", error: "The target heading is empty." };
+  if (transmissionName3(target)) return { ok: false, backend: "qt", kind: "blocked", error: "Transmission navigation is not an allowed native goto target." };
+  const activeProfile = profile, started = performance.now(), path = [], visited = [];
+  let mutationStarted = false, nativeDurationMs = 0, steps = 0, lastHeading = null, phase = "precondition";
+  const budget = () => {
+    const remaining = Math.floor(timeoutMs - (performance.now() - started));
+    if (remaining < 1) throw new QtNativeTransportError("Native goto deadline expired.", "native-timeout", mutationStarted);
+    return remaining;
+  };
+  const wait = async (deadline) => {
+    await delay6(Math.max(1, Math.min(25, deadline - performance.now(), budget())), void 0, { signal });
+  };
+  const read = async () => {
+    const snapshot = await readQtNativeSnapshot(client, { hwnd: args.hwnd, maxNodes: 5e3 }, budget(), signal);
+    nativeDurationMs += snapshot.nativeDurationMs;
+    if (snapshot.stats.truncated || snapshot.stats.depthLimited || snapshot.stats.err || snapshot.stats.cyc || snapshot.stats.valErr)
+      throw new GotoError("The navigation tree is incomplete or contains read errors.", "native-incomplete");
+    if (!snapshot.windowEnabled || snapshot.modalBlocked) {
+      const inventory = await readProcessWindowInventory(client, budget(), signal);
+      nativeDurationMs += inventory.durationMs;
+      const warnings = inventory.windows.filter((window) => window.pid === client.binding.pid && window.title.startsWith("Die Prüfung hat ergeben"));
+      throw new GotoError(warnings.length ? "A validation warning blocks navigation; read and answer its fingerprint before continuing." : "The exact navigation window is disabled or obstructed.", warnings.length ? "warning-dialog" : "window-obstructed");
+    }
+    lastHeading = gotoTargetState(snapshot, activeProfile, target, page).heading;
+    return snapshot;
+  };
+  const stateOf = (snapshot) => gotoTargetState(snapshot, activeProfile, target, page);
+  const complete = (snapshot, direction) => ({
+    ok: true,
+    backend: "qt",
+    erreicht: true,
+    pageId: args.pageId ?? null,
+    ueberschrift: stateOf(snapshot).heading,
+    schritte: steps,
+    weg: steps === 0 ? ["schon dort"] : path,
+    ...direction ? { richtung: direction } : {},
+    fokusfrei: true,
+    physicalInputUsed: false,
+    nativeDurationMs
+  });
+  const dispatch = async (snapshot, node, action, extra = {}) => {
+    if (!node.on || node.w <= 0 || node.h <= 0 || transmissionName3(node.name))
+      throw new GotoError("The exact navigation control is inactive, invisible or blocked.", "stale");
+    let reply;
+    try {
+      reply = await client.requestAcknowledged("accessibility_action", {
+        expectedRootHwnd: snapshot.hwnd,
+        rid: node.rid,
+        aid: node.aid,
+        expectedName: node.name,
+        action,
+        ...extra
+      }, budget(), signal);
+    } catch (error) {
+      if (error instanceof QtNativeAcknowledgmentError && error.mutationResult.mutationAttempted === true || error instanceof QtNativeTransportError && error.outcomeUnknown) mutationStarted = true;
+      throw error;
+    }
+    nativeDurationMs += reply.durationMs;
+    mutationStarted ||= reply.result.mutationAttempted === true;
+    if (reply.result.ok !== true) throw new GotoError(
+      String(reply.result.error ?? "The exact navigation action failed."),
+      String(reply.result.code ?? "native-action"),
+      reply.result.outcomeUnknown === true || reply.result.mutationAttempted === true
+    );
+  };
+  const button = (snapshot, name) => {
+    const matches = snapshot.nodes.filter((node) => node.type === "Button" && node.name === name && node.on && node.w > 0 && node.h > 0);
+    if (matches.length > 1) throw new GotoError(`Navigation button '${name}' is ambiguous.`, "ambiguous");
+    return matches[0] ?? null;
+  };
+  const pollPage = async (previous, waitMs, stopOnOther = true) => {
+    const deadline = performance.now() + Math.min(waitMs, budget());
+    let snapshot;
+    do {
+      snapshot = await read();
+      const state = stateOf(snapshot);
+      if (state.ready || stopOnOther && state.heading && state.heading !== previous && !state.headingMatches) return snapshot;
+      if (performance.now() >= deadline) break;
+      await wait(deadline);
+    } while (performance.now() < deadline);
+    if (stateOf(snapshot).headingMatches) throw new GotoError("The target heading is visible, but its exact fields, tables or sums are incomplete; no further navigation dispatched.");
+    return snapshot;
+  };
+  const closeSearch = async (snapshot) => {
+    const close = button(snapshot, "Suche schließen");
+    if (close) {
+      await dispatch(snapshot, close, "press");
+      const deadline = performance.now() + Math.min(1800, budget());
+      do {
+        snapshot = await read();
+        if (!button(snapshot, "Suche schließen")) return snapshot;
+        if (performance.now() >= deadline) break;
+        await wait(deadline);
+      } while (performance.now() < deadline);
+      throw new GotoError("The owned search view did not close; no form-path navigation dispatched.");
+    }
+    return snapshot;
+  };
+  try {
+    let snapshot = await read();
+    if (stateOf(snapshot).ready) return complete(snapshot);
+    if (stateOf(snapshot).headingMatches) {
+      snapshot = await pollPage(lastHeading, 1800, false);
+      if (stateOf(snapshot).ready) return complete(snapshot);
+    }
+    if (button(snapshot, "Suche schließen")) throw new GotoError("A search view is already open; close it before starting a new native goto.", "precondition-failed");
+    let start = lastHeading;
+    path.push(start ?? "");
+    if (args.viaSuche !== false) {
+      const navName = page ? String(page.navigationTreeItemName || target) : target;
+      const item = visibleNavigationItem(snapshot.nodes, navName);
+      if (item && !transmissionName3(item.name)) {
+        phase = "navigation-tree";
+        await dispatch(snapshot, item, "activate-navigation-item");
+        steps++;
+        snapshot = await pollPage(start, 4e3);
+        path.push(`Navigationsbaum '${item.name}' -> '${lastHeading ?? ""}'`);
+        if (stateOf(snapshot).ready) return complete(snapshot, "Navigationsbaum");
+        if (!lastHeading || lastHeading === start) throw new GotoError("The exact navigation-tree activation produced no verified page change; no second navigation dispatched.");
+        start = lastHeading;
+      }
+      const suffix = activeProfile.pageObjectsCatalog.windows.main.searchContainerAutomationIdSuffix;
+      if (typeof suffix !== "string" || !suffix) throw new GotoError("The profile has no search container binding.", "invalid-catalog");
+      const searchNodes = containerDescendants(snapshot.nodes, suffix, "Edit");
+      const fields2 = searchNodes.filter((node) => node.on && node.w > 0 && node.h > 0 && node.ro === false && node.val !== null);
+      if (fields2.length > 1) throw new GotoError("The exact catalogue search field is ambiguous.", "ambiguous");
+      if (fields2.length === 1) {
+        phase = "search-edit";
+        const field = fields2[0];
+        await dispatch(snapshot, field, "replace-edit-text", { expectedValue: field.val, value: target });
+        snapshot = await read();
+        const entered = snapshot.nodes.filter((node) => node.rid === field.rid && node.aid === field.aid && node.val === target && node.on && node.ro === false);
+        if (entered.length !== 1) throw new GotoError("The bound search field did not report the exact target text.", "stale");
+        const searchButtons = containerDescendants(snapshot.nodes, suffix, "Button").filter((node) => !node.name && node.on && node.w > 0 && node.h > 0 && node.x > entered[0].x && Math.abs(node.y - entered[0].y) <= 12);
+        if (searchButtons.length !== 1) throw new GotoError("The exact search button is not uniquely bound.", "ambiguous");
+        await dispatch(snapshot, searchButtons[0], "press");
+        phase = "search-results";
+        const deadline = performance.now() + Math.min(1e4, budget());
+        do {
+          snapshot = await read();
+          if (findContainerNode(snapshot.nodes, "DialogSearchResultsTableView", "Table")) break;
+          if (performance.now() >= deadline) throw new GotoError("The search result table did not become ready.");
+          await wait(deadline);
+        } while (performance.now() < deadline);
+        const hit = selectSearchHit(snapshot.nodes, target, page);
+        path.push(`Suche nach '${target}'`);
+        if (hit) {
+          phase = "search-hit";
+          await dispatch(snapshot, hit, "activate-table-cell");
+          steps++;
+          snapshot = await pollPage(start, 1500);
+          path.push(`Qt-Suchtreffer '${hit.name}' -> '${lastHeading ?? ""}'`);
+        }
+        phase = "search-close";
+        snapshot = await closeSearch(snapshot);
+        phase = "search-close-readback";
+        snapshot = await pollPage(start, 1800);
+        if (stateOf(snapshot).ready) return complete(snapshot, "Suche");
+        if (hit && (!lastHeading || lastHeading === start))
+          throw new GotoError("The acknowledged search hit produced no verified page change; no form-path action dispatched.");
+        if (lastHeading) start = lastHeading;
+      }
+    }
+    const order = pagingOrder(activeProfile.taxYear), route = gotoRoute(order, start ?? "", target, args.direction, args.maxSteps);
+    let position = route.startIndex, stagnant = 0, consumed = 0;
+    const transitions = /* @__PURE__ */ new Set();
+    visited.push(start ?? "");
+    while (consumed < route.budget) {
+      phase = "paging";
+      snapshot = await read();
+      if (stateOf(snapshot).ready) return complete(snapshot, route.direction);
+      if (stateOf(snapshot).headingMatches) {
+        snapshot = await pollPage(lastHeading, 1800, false);
+        if (stateOf(snapshot).ready) return complete(snapshot, route.direction);
+      }
+      const previous = lastHeading;
+      const next = button(snapshot, route.direction);
+      if (!next) {
+        const opposite = button(snapshot, route.direction === "Weiter" ? "Zurück" : "Weiter");
+        if (!opposite) throw new GotoError(`Page '${previous ?? ""}' has neither 'Weiter' nor 'Zurück'; no form path continues.`, "dead-end");
+        break;
+      }
+      consumed++;
+      steps++;
+      await dispatch(snapshot, next, "press");
+      const deadline = performance.now() + Math.min(900, budget());
+      do {
+        snapshot = await read();
+        if (stateOf(snapshot).ready || previous && lastHeading && lastHeading !== previous) break;
+        if (performance.now() >= deadline) break;
+        await wait(deadline);
+      } while (performance.now() < deadline);
+      path.push(`${route.direction} -> ${lastHeading ?? ""}`);
+      if (stateOf(snapshot).ready) return complete(snapshot, route.direction);
+      if (stateOf(snapshot).headingMatches) {
+        snapshot = await pollPage(previous, 1800, false);
+        if (stateOf(snapshot).ready) return complete(snapshot, route.direction);
+      }
+      if (lastHeading === previous) {
+        const inventory = await readProcessWindowInventory(client, budget(), signal);
+        nativeDurationMs += inventory.durationMs;
+        if (inventory.windows.some((window) => window.pid === client.binding.pid && window.title.startsWith("Die Prüfung hat ergeben")))
+          throw new GotoError("A validation warning blocks navigation; no repeated paging action dispatched.", "warning-dialog");
+        if (++stagnant >= 5) throw new GotoError("Five bounded paging attempts produced no page change.", "no-progress");
+      } else {
+        const transition = `${previous ?? ""}${lastHeading ?? ""}`;
+        if (transitions.has(transition)) throw new GotoError("The directed navigation transition repeated; the form path is cycling.", "no-progress");
+        transitions.add(transition);
+        const landing = gotoLanding(route, order, position, lastHeading ?? "");
+        if (landing.verdict !== "continue") throw new GotoError(landing.verdict === "deviation" ? "Back history deviated from the checked form path; no further paging action dispatched." : "The form path overshot the target; no further paging action dispatched.", "not-found");
+        position = landing.position;
+        stagnant = 0;
+      }
+      visited.push(lastHeading ?? "");
+    }
+    phase = "late-readback";
+    snapshot = await pollPage(null, 1200);
+    if (stateOf(snapshot).ready) return complete(snapshot, "spaete Gegenprobe");
+    throw new GotoError(`Page '${target}' was not reached within the bounded route. Visited: ${[...new Set(visited)].join(" | ")}.`, "not-found");
+  } catch (error) {
+    const unknown = error instanceof GotoError ? error.unknown || mutationStarted : error instanceof QtNativeTransportError ? error.outcomeUnknown || mutationStarted : error instanceof QtNativeAcknowledgmentError && error.mutationResult.mutationAttempted === true || mutationStarted;
+    return {
+      ok: false,
+      backend: "qt",
+      kind: error instanceof GotoError ? error.kind : error instanceof QtNativeTransportError ? error.kind : "native-contract",
+      error: error instanceof Error ? error.message : "Invalid native navigation response.",
+      outcomeUnknown: unknown,
+      mutationAttempted: mutationStarted,
+      pageId: args.pageId ?? null,
+      ueberschrift: lastHeading,
+      weg: path,
+      schritte: steps,
+      physicalInputUsed: false,
+      nativeDurationMs,
+      phase
+    };
+  }
+}
+var GotoError;
+var init_qt_native_goto = __esm({
+  "src/qt-native-goto.ts"() {
+    "use strict";
+    init_operation_schema_goto();
+    init_product_profiles();
+    init_qt_native_client();
+    init_qt_native_projections();
+    init_qt_native_snapshot();
+    init_qt_native_goto_projection();
+    GotoError = class extends Error {
+      constructor(message, kind = "navigation-blocked", unknown = false) {
+        super(message);
+        this.kind = kind;
+        this.unknown = unknown;
+      }
+      kind;
+      unknown;
+    };
+  }
+});
+
+// src/qt-native-classification-projection.ts
+function classificationOptionsFingerprint(options) {
+  const values = options.map(({ index, name, selected }) => ({ index, name, selected }));
+  return textSha256(values.length === 0 ? "" : powershellCompactJson(values.length === 1 ? values[0] : values));
+}
+function validateClassificationGrid(raw, hwnd, policy) {
+  const result = classificationGridSchema.parse(raw);
+  if (result.hwnd !== hwnd || result.tableAid !== policy.tableAutomationId || result.rowCount !== result.options.length || policy.toggleColumn >= result.columnCount || policy.labelColumn >= result.columnCount || policy.toggleColumn === policy.labelColumn)
+    throw new ClassificationError("The complete option grid differs from its exact window/table/column binding.", "stale");
+  const names = /* @__PURE__ */ new Set(), targets = /* @__PURE__ */ new Set();
+  for (const [index, value] of result.options.entries()) {
+    const name = value.name.toLowerCase();
+    if (value.index !== index || value.name !== value.name.trim() || names.has(name) || targets.has(value.toggleRid) || value.toggleAid !== policy.tableAutomationId)
+      throw new ClassificationError("The option grid has a missing, duplicate or differently bound row.", "profile-contract");
+    names.add(name);
+    targets.add(value.toggleRid);
+  }
+  return result;
+}
+var chooser, dialog, classificationPolicySchema, option, classificationGridSchema, ClassificationError, selectedClassification, sameClassificationDomain, sameClassificationGrid, sameClassificationSet;
+var init_qt_native_classification_projection = __esm({
+  "src/qt-native-classification-projection.ts"() {
+    "use strict";
+    init_zod();
+    init_qt_native_receipts();
+    init_qt_native_projections();
+    chooser = external_exports.object({
+      chooserAutomationIdSuffix: external_exports.string().min(1),
+      chooserExpectedName: external_exports.string().min(1),
+      listAutomationIdSuffix: external_exports.string().min(1)
+    }).strict();
+    dialog = external_exports.object({
+      title: external_exports.string().min(1),
+      classPattern: external_exports.string().min(1),
+      rootAutomationId: external_exports.string().min(1),
+      tableAutomationId: external_exports.string().min(1),
+      toggleColumn: external_exports.number().int().nonnegative(),
+      labelColumn: external_exports.number().int().nonnegative(),
+      saveAutomationId: external_exports.string().min(1),
+      cancelAutomationId: external_exports.string().min(1),
+      manageAutomationId: external_exports.string().min(1),
+      manageExpectedName: external_exports.string().min(1),
+      fingerprint: external_exports.string().regex(/^[A-Fa-f0-9]{64}$/u)
+    }).strict();
+    classificationPolicySchema = receiptPolicySchema.extend({
+      controls: receiptPolicySchema.shape.controls.extend({ classification: external_exports.object({ categories: chooser, persons: chooser }).strict() }),
+      classificationDialogs: external_exports.object({ categories: dialog, persons: dialog }).strict()
+    });
+    option = external_exports.object({
+      index: external_exports.number().int().nonnegative(),
+      name: external_exports.string().min(1),
+      selected: external_exports.boolean(),
+      toggleRid: external_exports.string().regex(/^42\.-?\d+(?:\.4\.-?\d+)?$/u),
+      toggleAid: external_exports.string().min(1),
+      toggleName: external_exports.string(),
+      enabled: external_exports.boolean(),
+      visible: external_exports.boolean()
+    }).strict();
+    classificationGridSchema = external_exports.object({
+      ok: external_exports.literal(true),
+      hwnd: external_exports.number().int().safe().positive(),
+      tableAid: external_exports.string().min(1),
+      rowCount: external_exports.number().int().min(0).max(500),
+      columnCount: external_exports.number().int().min(2).max(20),
+      complete: external_exports.literal(true),
+      canFetchMore: external_exports.literal(false),
+      options: external_exports.array(option).max(500)
+    }).passthrough();
+    ClassificationError = class extends Error {
+      constructor(message, kind = "postcondition-failed", outcomeUnknown = false) {
+        super(message);
+        this.kind = kind;
+        this.outcomeUnknown = outcomeUnknown;
+      }
+      kind;
+      outcomeUnknown;
+    };
+    selectedClassification = (grid) => grid.options.filter((value) => value.selected).map((value) => value.name);
+    sameClassificationDomain = (left, right) => left.rowCount === right.rowCount && left.columnCount === right.columnCount && left.options.every((value, index) => value.index === right.options[index]?.index && value.name === right.options[index]?.name);
+    sameClassificationGrid = (left, right) => sameClassificationDomain(left, right) && left.options.every((value, index) => value.selected === right.options[index]?.selected);
+    sameClassificationSet = (left, right) => left.length === right.length && left.every((value) => right.includes(value));
+  }
+});
+
+// src/qt-native-classification-session.ts
+import { setTimeout as delay7 } from "node:timers/promises";
+var ReceiptClassificationSession;
+var init_qt_native_classification_session = __esm({
+  "src/qt-native-classification-session.ts"() {
+    "use strict";
+    init_qt_native_client();
+    init_qt_native_snapshot();
+    init_qt_native_projections();
+    init_qt_native_receipt_link_dialog();
+    init_qt_native_classification_projection();
+    init_qt_native_receipts();
+    ReceiptClassificationSession = class {
+      constructor(client, args, policy, timeoutMs, signal) {
+        this.client = client;
+        this.args = args;
+        this.policy = policy;
+        this.timeoutMs = timeoutMs;
+        this.signal = signal;
+        this.waitMs = args.waitMs ?? 3e3;
+      }
+      client;
+      args;
+      policy;
+      timeoutMs;
+      signal;
+      started = performance.now();
+      nativeDurationMs = 0;
+      mutationStarted = false;
+      outcomeUnknown = false;
+      managerHwnd = null;
+      row;
+      listBefore;
+      selectionBinding = { method: "already-open-detail", clickCount: 0 };
+      chooserBinding = null;
+      detailCloseBinding = null;
+      lastActionBinding = null;
+      modal = null;
+      windowsBefore;
+      dirtyBefore;
+      waitMs;
+      get hasModal() {
+        return this.modal !== null;
+      }
+      get closingModal() {
+        return this.modal?.closeStarted === true;
+      }
+      get dialogFingerprint() {
+        return this.modal?.fingerprint ?? null;
+      }
+      budget() {
+        const value = Math.floor(this.timeoutMs - (performance.now() - this.started));
+        if (value < 1) throw new QtNativeTransportError("Classification deadline expired.", "native-timeout", this.mutationStarted);
+        return value;
+      }
+      markError(error) {
+        this.outcomeUnknown ||= error instanceof QtNativeTransportError && error.outcomeUnknown || error instanceof ClassificationError && error.outcomeUnknown || this.mutationStarted && this.signal?.aborted === true;
+      }
+      error(message, kind = "postcondition-failed", unknown = false) {
+        this.outcomeUnknown ||= unknown;
+        throw new ClassificationError(message, kind, unknown);
+      }
+      async action(hwnd, title, node, method, extra = {}) {
+        this.lastActionBinding = { method: `qt-${method}`, rid: node.rid, aid: node.aid, name: node.name, hwnd };
+        let reply;
+        try {
+          reply = await this.client.requestAcknowledged("accessibility_action", {
+            toolTitle: title,
+            expectedRootHwnd: hwnd,
+            action: method,
+            rid: node.rid,
+            aid: node.aid,
+            expectedName: node.name,
+            ...extra
+          }, this.budget(), this.signal);
+        } catch (error) {
+          if (error instanceof QtNativeAcknowledgmentError && error.mutationResult.mutationAttempted === true || error instanceof QtNativeTransportError && error.outcomeUnknown) {
+            this.mutationStarted = true;
+            this.outcomeUnknown = true;
+          }
+          throw error;
+        }
+        this.mutationStarted ||= reply.result.mutationAttempted === true;
+        this.nativeDurationMs += reply.durationMs;
+        this.lastActionBinding = {
+          ...this.lastActionBinding,
+          receiptAcknowledged: reply.receiptAcknowledged,
+          mutationAckMs: reply.mutationAckMs,
+          mutationAttempted: reply.result.mutationAttempted
+        };
+        if (reply.result.ok !== true) this.error(
+          String(reply.result.error ?? "The exact Qt action was rejected."),
+          String(reply.result.code ?? "native-action"),
+          reply.result.outcomeUnknown === true || reply.result.mutationAttempted === true
+        );
+        if (extra.notifyClicked === true && reply.result.notificationDispatched !== true)
+          this.error("The required typed checkbox business notification was not confirmed; update the native package.", "native-contract", true);
+        return this.lastActionBinding;
+      }
+      async detailRead() {
+        const detail = await receiptDetailSnapshot(this.client, this.policy, this.budget(), this.signal);
+        this.nativeDurationMs += detail.nativeDurationMs;
+        if (this.managerHwnd !== null && detail.hwnd !== this.managerHwnd) this.error("The exact receipt manager was replaced.", "stale-window");
+        this.managerHwnd = detail.hwnd;
+        if (!detail.windowEnabled || detail.modalBlocked || detail.stats.truncated)
+          this.error("The receipt manager is obstructed or incomplete.", "window-obstructed");
+        return detail;
+      }
+      boundDetail(detail) {
+        const editable = receiptEditableValues(detail.nodes, this.policy);
+        return editable.complete && detailIdentityMatches(editable.values, this.row, this.policy) && detailBindingFingerprint(editable.values) === this.args.expectedDetailFingerprint.toUpperCase();
+      }
+      listIdentity(list) {
+        if (!list.rowsComplete || list.count !== this.listBefore.count) return false;
+        const target = list.rows.filter((row) => row.primaryText === this.row.primaryText && row.documentNumber === this.row.documentNumber);
+        if (target.length !== 1) return false;
+        const remaining = list.rows.filter((row) => row !== target[0]);
+        for (const before of this.listBefore.rows.filter((row) => row !== this.row)) {
+          const index = remaining.findIndex((row) => sameSemanticRow(row, before));
+          if (index < 0) return false;
+          remaining.splice(index, 1);
+        }
+        return remaining.length === 0;
+      }
+      async guardedDetail() {
+        const detail = await this.detailRead(), list = receiptList(detail.nodes, this.policy);
+        if (!this.boundDetail(detail) || "error" in list || !this.listIdentity(list))
+          this.error("The seven detail fields, target identity or other complete receipt rows changed.", "stale", this.mutationStarted);
+        return detail;
+      }
+      async prepare() {
+        let detail = await this.detailRead();
+        const state = receiptState(detail.nodes, detail.hwnd, this.policy);
+        if (state.error) this.error(String(state.error.error), String(state.error.kind));
+        if (state.state !== "list") this.error("Classification requires the complete receipt list.", "precondition-failed");
+        const list = receiptList(detail.nodes, this.policy);
+        if ("error" in list) this.error(String(list.error.error), String(list.error.kind));
+        if (!list.rowsComplete || list.listFingerprint !== this.args.expectedListFingerprint.toUpperCase())
+          this.error("The complete receipt list differs from its fresh binding.", "stale");
+        this.listBefore = list;
+        const rows = list.rows.filter((row) => row.rowRid === this.args.rowRid && row.rowFingerprint === this.args.rowFingerprint.toUpperCase());
+        if (rows.length !== 1) this.error("The exact receipt row is not unique.", "stale");
+        this.row = rows[0];
+        if (!this.listIdentity(list)) this.error("The target's title/document identity is ambiguous.", "stale");
+        this.windowsBefore = await receiptWindowSet(this.client, this.budget(), this.signal);
+        if (this.windowsBefore.error) this.error(String(this.windowsBefore.error.error), String(this.windowsBefore.error.kind));
+        this.dirtyBefore = await receiptDirtyState(this.client, this.args.hwnd, this.policy.title, this.budget(), this.signal);
+        if (this.dirtyBefore.error) this.error(String(this.dirtyBefore.error.error), String(this.dirtyBefore.error.kind));
+        this.nativeDurationMs += this.windowsBefore.durationMs + this.dirtyBefore.durationMs;
+        if (!this.boundDetail(detail)) {
+          const targets = detail.nodes.filter((node) => node.rid === this.row.rowRid && node.type === "DataItem" && node.aid.endsWith(this.policy.list.tableAutomationIdSuffix) && node.on && node.w > 0 && node.h > 0);
+          if (targets.length !== 1) this.error("The live bound receipt cell is not unique.", "stale");
+          this.selectionBinding = await this.action(detail.hwnd, this.policy.title, targets[0], "activate-table-cell");
+          const deadline = performance.now() + Math.min(this.waitMs, this.budget());
+          do {
+            detail = await this.detailRead();
+            if (this.boundDetail(detail)) break;
+            await delay7(Math.min(25, Math.max(1, deadline - performance.now())), void 0, { signal: this.signal });
+          } while (performance.now() < deadline);
+        }
+        const selected = receiptList(detail.nodes, this.policy);
+        if (!this.boundDetail(detail) || "error" in selected || selected.listFingerprint !== list.listFingerprint)
+          this.error("The complete detail/list binding changed before opening the chooser.", "stale");
+      }
+      async presence(kind, wanted, hwnd) {
+        const policy = this.policy.classificationDialogs[kind], deadline = performance.now() + Math.min(this.waitMs, this.budget());
+        do {
+          const inventory = await readProcessWindowInventory(this.client, this.budget(), this.signal);
+          this.nativeDurationMs += inventory.durationMs;
+          const matches = inventory.windows.filter((window2) => window2.pid === this.client.binding.pid && window2.title === policy.title);
+          if (matches.length > 1) this.error("The exact classification dialog is ambiguous.", "ambiguous");
+          const window = matches[0];
+          if (wanted && window) {
+            if (!new RegExp(policy.classPattern, "u").test(window.class) || window.minimized || window.hung)
+              this.error("The classification window differs from the catalogue.", "stale-window");
+            return window;
+          }
+          if (!wanted && !window && !inventory.windows.some((window2) => window2.hwnd === hwnd)) return null;
+          await delay7(Math.min(25, Math.max(1, deadline - performance.now())), void 0, { signal: this.signal });
+        } while (performance.now() < deadline);
+        this.error("The classification window did not reach its required presence state.", "postcondition-failed", this.modal?.closeStarted === true);
+      }
+      async modalRead() {
+        const modal = this.modal;
+        if (!modal) this.error("No owned classification dialog is open.", "stale");
+        const policy = this.policy.classificationDialogs[modal.kind];
+        const snapshot = await readQtNativeSnapshot(this.client, { toolTitle: policy.title, maxNodes: 5e3 }, this.budget(), this.signal);
+        this.nativeDurationMs += snapshot.nativeDurationMs;
+        if (snapshot.hwnd !== modal.hwnd || snapshot.root?.aid !== policy.rootAutomationId || !snapshot.windowEnabled || snapshot.modalBlocked || snapshot.stats.truncated)
+          this.error("The complete exact classification dialog is not readable.", "window-obstructed", modal.staged);
+        const nodes = modal.verified && modal.staged ? snapshot.nodes.map((node) => node.type === "Button" && node.aid === policy.saveAutomationId ? { ...node, on: modal.saveOn } : node) : snapshot.nodes;
+        const fingerprint = receiptLinkDialogFingerprint(policy.title, nodes);
+        if (fingerprint !== policy.fingerprint.toUpperCase())
+          this.error("The classification decision fingerprint is unknown.", "fingerprint-mismatch", modal.staged);
+        return { snapshot, fingerprint };
+      }
+      async open(kind) {
+        if (this.modal || this.outcomeUnknown) this.error("An active or unknown classification action prevents another dialog.", "outcome-unknown", true);
+        const detail = await this.guardedDetail(), chooser2 = this.policy.controls.classification[kind];
+        const buttons = detail.nodes.filter((node) => node.type === "Button" && node.aid.endsWith(chooser2.chooserAutomationIdSuffix) && node.name === chooser2.chooserExpectedName && node.on && node.w > 0 && node.h > 0);
+        if (buttons.length !== 1) this.error("The exact classification chooser is not unique.", "stale");
+        this.chooserBinding = await this.action(detail.hwnd, this.policy.title, buttons[0], "press");
+        let window;
+        try {
+          window = await this.presence(kind, true);
+        } catch (error) {
+          this.outcomeUnknown = true;
+          throw error;
+        }
+        if (!window) this.error("The acknowledged chooser has no proved dialog.", "outcome-unknown", true);
+        this.modal = { kind, hwnd: window.hwnd, fingerprint: "", verified: false, closeStarted: false, saveOn: false, staged: false, expected: null };
+        const read = await this.modalRead(), policy = this.policy.classificationDialogs[kind];
+        const saves = read.snapshot.nodes.filter((node) => node.type === "Button" && node.aid === policy.saveAutomationId && node.name === "Speichern");
+        if (saves.length !== 1) this.error("The exact classification save control is not unique.", "stale");
+        this.modal.fingerprint = read.fingerprint;
+        this.modal.saveOn = saves[0].on;
+        this.modal.verified = true;
+        return this.readGrid();
+      }
+      async readGrid() {
+        const modal = this.modal;
+        if (!modal?.verified) this.error("The exact modal decision is not verified.", "stale");
+        const policy = this.policy.classificationDialogs[modal.kind];
+        const reply = await this.client.request("accessibility_table_options", {
+          toolTitle: policy.title,
+          expectedRootHwnd: modal.hwnd,
+          tableAid: policy.tableAutomationId,
+          toggleColumn: policy.toggleColumn,
+          labelColumn: policy.labelColumn
+        }, this.budget(), this.signal);
+        this.nativeDurationMs += reply.durationMs;
+        const grid = validateClassificationGrid(reply.result, modal.hwnd, policy);
+        modal.expected ??= grid;
+        return grid;
+      }
+      async toggle(name, wanted) {
+        const modal = this.modal;
+        if (!modal?.verified || !modal.expected) this.error("The exact option grid is not bound.", "stale");
+        const current = await this.readGrid();
+        if (!sameClassificationGrid(current, modal.expected)) this.error("Option names or states changed outside this transaction.", "stale", true);
+        const option2 = current.options.find((value) => value.name === name);
+        if (!option2 || !option2.enabled || !option2.visible) this.error("The exact option is not enabled and visible.", "stale");
+        if (option2.selected === wanted) return;
+        const previous = modal.expected;
+        modal.expected = { ...current, options: current.options.map((value) => value.name === name ? { ...value, selected: wanted } : value) };
+        const policy = this.policy.classificationDialogs[modal.kind];
+        try {
+          await this.action(
+            modal.hwnd,
+            policy.title,
+            { rid: option2.toggleRid, aid: option2.toggleAid, name: option2.toggleName },
+            "set-table-check-state",
+            {
+              expectedChecked: option2.selected,
+              checked: wanted,
+              expectedRowTitle: name,
+              titleColumn: policy.labelColumn,
+              notifyClicked: true,
+              expectedRootAid: policy.rootAutomationId,
+              expectedTableAid: policy.tableAutomationId
+            }
+          );
+        } catch (error) {
+          if (this.lastActionBinding?.mutationAttempted === false && !this.outcomeUnknown) modal.expected = previous;
+          throw error;
+        }
+        modal.staged = true;
+        const after = await this.readGrid();
+        if (!sameClassificationGrid(after, modal.expected)) this.error("The exact checkbox commit changed an unexpected option state.", "stale", true);
+      }
+      async closeModal(save) {
+        const modal = this.modal;
+        if (!modal?.verified || modal.closeStarted || this.outcomeUnknown)
+          this.error("No verified unreplayed classification close action is available.", "outcome-unknown", true);
+        const policy = this.policy.classificationDialogs[modal.kind];
+        const name = save ? "Speichern" : "Abbrechen", aid = save ? policy.saveAutomationId : policy.cancelAutomationId;
+        const deadline = performance.now() + Math.min(this.waitMs, this.budget());
+        let snapshot, button;
+        while (true) {
+          snapshot = (await this.modalRead()).snapshot;
+          if (modal.staged && (!modal.expected || !sameClassificationGrid(await this.readGrid(), modal.expected)))
+            this.error("Staged option states changed before dialog completion.", "stale", true);
+          const buttons = snapshot.nodes.filter((node) => node.type === "Button" && node.aid === aid && node.name === name && node.w > 0 && node.h > 0);
+          if (buttons.length !== 1) this.error("The exact dialog completion button is not unique.", "stale");
+          if (buttons[0].on) {
+            button = buttons[0];
+            break;
+          }
+          if (!save || performance.now() >= deadline) this.error("The exact dialog completion button did not become enabled.", "button-not-ready");
+          await delay7(Math.min(25, Math.max(1, deadline - performance.now())), void 0, { signal: this.signal });
+        }
+        modal.closeStarted = true;
+        await this.action(snapshot.hwnd, policy.title, button, "press");
+        await this.presence(modal.kind, false, modal.hwnd);
+        this.modal = null;
+      }
+      async finish(requireExactList, requireUnchangedTarget = false) {
+        let detail = await this.guardedDetail();
+        const closers = exactDetailClose(detail.nodes, this.policy);
+        if (closers.length !== 1) this.error("The exact detail close action is not unique.", "stale");
+        this.detailCloseBinding = await this.action(detail.hwnd, this.policy.title, closers[0], "press");
+        const deadline = performance.now() + Math.min(this.waitMs, this.budget());
+        do {
+          detail = await this.detailRead();
+          if (exactDetailClose(detail.nodes, this.policy).length === 0) break;
+          await delay7(Math.min(25, Math.max(1, deadline - performance.now())), void 0, { signal: this.signal });
+        } while (performance.now() < deadline);
+        const list = receiptList(detail.nodes, this.policy);
+        const windows = await receiptWindowSet(this.client, this.budget(), this.signal);
+        if (windows.error) this.error(String(windows.error.error));
+        const dirty = await receiptDirtyState(this.client, this.args.hwnd, this.policy.title, this.budget(), this.signal);
+        if (dirty.error) this.error(String(dirty.error.error));
+        this.nativeDurationMs += windows.durationMs + dirty.durationMs;
+        if ("error" in list || !this.listIdentity(list) || requireExactList && list.listFingerprint !== this.listBefore.listFingerprint || requireUnchangedTarget && !list.rows.some((row) => sameSemanticRow(row, this.row)) || exactDetailClose(detail.nodes, this.policy).length || windows.fingerprint !== this.windowsBefore.fingerprint || dirty.dirty !== this.dirtyBefore.dirty)
+          this.error("The complete receipt list, other rows, window set and dirty state were not restored.");
+        return {
+          list,
+          ungespeichertVorher: this.dirtyBefore.dirty,
+          ungespeichertNachher: dirty.dirty,
+          dirtyStateUnchanged: true,
+          countUnchanged: true,
+          otherRowsUnchanged: true,
+          windowSetUnchanged: true,
+          detailClosed: true
+        };
+      }
+      failure(error, cleanupError = null) {
+        this.markError(error);
+        return {
+          ok: false,
+          kind: error instanceof ClassificationError || error instanceof QtNativeTransportError ? error.kind : "native-contract",
+          error: error instanceof Error ? error.message : String(error),
+          outcomeUnknown: this.outcomeUnknown,
+          mutationStarted: this.mutationStarted,
+          cleanupRequired: this.mutationStarted,
+          cleanupError,
+          verified: false,
+          ...this.bindings()
+        };
+      }
+      bindings() {
+        return {
+          backend: "qt",
+          pid: this.client.binding.pid,
+          hwnd: this.managerHwnd,
+          mainHwnd: this.client.binding.hwnd,
+          managerHwnd: this.managerHwnd,
+          selectionBinding: this.selectionBinding,
+          chooserBinding: this.chooserBinding,
+          detailCloseBinding: this.detailCloseBinding,
+          lastActionBinding: this.lastActionBinding,
+          physicalInputUsed: false,
+          foregroundLeaseUsed: false,
+          nativeDurationMs: this.nativeDurationMs
+        };
+      }
+    };
+  }
+});
+
+// src/qt-native-classification-options.ts
+async function executeQtNativeClassificationOptions(client, rawArgs, timeoutMs, signal, profile) {
+  const parsed = SSE_MCP_RECEIPT_SCHEMAS.sse_receipt_manager_classification_options.safeParse(rawArgs);
+  if (!parsed.success) return fail5("bad-args", parsed.error.message);
+  const policy = classificationPolicySchema.safeParse(profile?.pageObjectsCatalog.windows.receiptManager);
+  if (!policy.success) return fail5("invalid-catalog", "The complete classification policy is required.");
+  const args = parsed.data, session = new ReceiptClassificationSession(client, args, policy.data, timeoutMs, signal);
+  try {
+    await session.prepare();
+    const grid = await session.open(args.kind), dialogFingerprint = session.dialogFingerprint;
+    await session.closeModal(false);
+    const { list, ...proof } = await session.finish(true);
+    return {
+      ok: true,
+      ...session.bindings(),
+      ...proof,
+      kind: args.kind,
+      row: session.row,
+      options: grid.options.map(({ name, selected }) => ({ name, selected })),
+      selected: selectedClassification(grid),
+      optionsFingerprint: classificationOptionsFingerprint(grid.options),
+      dialogFingerprint,
+      dialogClosed: true,
+      listFingerprint: list.listFingerprint,
+      detailFingerprint: args.expectedDetailFingerprint.toUpperCase(),
+      cleanupRequired: false,
+      verified: true
+    };
+  } catch (error) {
+    session.markError(error);
+    let cleanupError = null;
+    if (session.hasModal && !session.closingModal && !session.outcomeUnknown) {
+      try {
+        await session.closeModal(false);
+      } catch (cleanup) {
+        cleanupError = cleanup instanceof Error ? cleanup.message : String(cleanup);
+      }
+    }
+    return session.failure(error, cleanupError);
+  }
+}
+var init_qt_native_classification_options = __esm({
+  "src/qt-native-classification-options.ts"() {
+    "use strict";
+    init_mcp_schemas_receipts();
+    init_qt_native_receipts();
+    init_qt_native_classification_projection();
+    init_qt_native_classification_session();
+  }
+});
+
+// src/qt-native-classify.ts
+async function executeQtNativeClassify(client, rawArgs, timeoutMs, signal, profile) {
+  const parsed = SSE_MCP_RECEIPT_SCHEMAS.sse_receipt_manager_classify.safeParse(rawArgs);
+  if (!parsed.success) return fail5("bad-args", parsed.error.message);
+  const policy = classificationPolicySchema.safeParse(profile?.pageObjectsCatalog.windows.receiptManager);
+  if (!policy.success) return fail5("invalid-catalog", "The complete classification policy is required.");
+  const args = parsed.data, session = new ReceiptClassificationSession(client, { ...args, waitMs: args.waitMs ?? 3500 }, policy.data, timeoutMs, signal);
+  const transactions = [];
+  let finishing = false, prepared = false;
+  const setOpen = async (grid, desired) => {
+    const known = grid.options.map((option2) => option2.name);
+    if (desired.some((name) => !known.includes(name))) throw new ClassificationError("The requested classification contains an unknown option.", "bad-args");
+    const changed = [];
+    for (const option2 of grid.options) {
+      const wanted = desired.includes(option2.name);
+      if (option2.selected !== wanted) {
+        await session.toggle(option2.name, wanted);
+        changed.push(option2.name);
+      }
+    }
+    const after = await session.readGrid();
+    if (!sameClassificationDomain(grid, after) || !sameClassificationSet(selectedClassification(after), desired))
+      throw new ClassificationError("The complete staged option set differs from its exact requested set.", "postcondition-failed", changed.length > 0);
+    await session.closeModal(changed.length > 0);
+    return { after: selectedClassification(after), changed };
+  };
+  const provePersisted = async (kind, initial, expected) => {
+    const fresh = await session.open(kind);
+    if (!sameClassificationDomain(fresh, initial) || !sameClassificationSet(selectedClassification(fresh), expected))
+      throw new ClassificationError("Reopening did not prove the exact saved classification and option domain.", "postcondition-failed");
+    await session.closeModal(false);
+    return selectedClassification(fresh);
+  };
+  try {
+    await session.prepare();
+    prepared = true;
+    for (const kind of ["categories", "persons"]) {
+      const desired = args.values[kind];
+      if (desired === void 0) continue;
+      const initialGrid = await session.open(kind), before = selectedClassification(initialGrid);
+      const result = await setOpen(initialGrid, desired);
+      const transaction = { kind, initialGrid, before, after: result.after, changed: result.changed, persisted: false };
+      transactions.push(transaction);
+      transaction.after = await provePersisted(kind, initialGrid, desired);
+      transaction.persisted = true;
+    }
+    finishing = true;
+    const { list, ...proof } = await session.finish(false);
+    const rowAfter = list.rows.find((row) => row.primaryText === session.row.primaryText && row.documentNumber === session.row.documentNumber);
+    return {
+      ok: true,
+      ...session.bindings(),
+      ...proof,
+      rowBefore: session.row,
+      rowAfter,
+      requestedValues: args.values,
+      valuesBefore: Object.fromEntries(transactions.map((value) => [value.kind, value.before])),
+      valuesAfter: Object.fromEntries(transactions.map((value) => [value.kind, value.after])),
+      changedKinds: transactions.filter((value) => value.changed.length).map((value) => value.kind),
+      persistenceVerified: transactions.every((value) => value.persisted),
+      listFingerprintBefore: session.listBefore.listFingerprint,
+      listFingerprintAfter: list.listFingerprint,
+      detailFingerprintBefore: args.expectedDetailFingerprint.toUpperCase(),
+      detailFingerprintAfter: args.expectedDetailFingerprint.toUpperCase(),
+      rollback: { attempted: false, ok: null, entries: [] },
+      cleanupRequired: false,
+      verified: true
+    };
+  } catch (error) {
+    session.markError(error);
+    let cleanupError = null;
+    if (session.hasModal && !session.closingModal && !session.outcomeUnknown) {
+      try {
+        await session.closeModal(false);
+      } catch (cleanup) {
+        session.markError(cleanup);
+        cleanupError = cleanup instanceof Error ? cleanup.message : String(cleanup);
+      }
+    }
+    const entries = [];
+    let restored = false;
+    if (prepared && !finishing && !session.outcomeUnknown && !session.hasModal) {
+      try {
+        for (const transaction of [...transactions].reverse()) {
+          const current = await session.open(transaction.kind);
+          if (!sameClassificationDomain(current, transaction.initialGrid) || !sameClassificationSet(selectedClassification(current), transaction.after))
+            throw new ClassificationError("Rollback cannot prove the current exact state belongs to this transaction.", "stale", true);
+          await setOpen(current, transaction.before);
+          const before = await provePersisted(transaction.kind, transaction.initialGrid, transaction.before);
+          entries.push({ kind: transaction.kind, ok: true, restored: before });
+        }
+        await session.finish(false, true);
+        restored = true;
+      } catch (rollbackError) {
+        session.markError(rollbackError);
+        entries.push({ ok: false, error: rollbackError instanceof Error ? rollbackError.message : String(rollbackError) });
+        cleanupError ??= rollbackError instanceof Error ? rollbackError.message : String(rollbackError);
+      }
+    }
+    return {
+      ...session.failure(error, cleanupError),
+      rowBefore: session.row ?? null,
+      listFingerprintBefore: args.expectedListFingerprint.toUpperCase(),
+      detailFingerprintBefore: args.expectedDetailFingerprint.toUpperCase(),
+      rollback: { attempted: entries.length > 0, ok: restored ? true : entries.length ? false : null, entries },
+      persistenceVerified: false,
+      cleanupRequired: !restored && session.mutationStarted
+    };
+  }
+}
+var init_qt_native_classify = __esm({
+  "src/qt-native-classify.ts"() {
+    "use strict";
+    init_mcp_schemas_receipts();
+    init_qt_native_receipts();
+    init_qt_native_classification_projection();
+    init_qt_native_classification_session();
+  }
+});
+
 // src/qt-native-executor.ts
 import { performance as performance12 } from "node:perf_hooks";
-function isQtNativeReadOperation(operation) {
-  return QT_NATIVE_READ_OPERATIONS.some((value) => value === operation);
+function isQtNativeOperation(operation) {
+  return QT_NATIVE_OPERATIONS.some((value) => value === operation);
 }
-async function executeQtNativeRead(operation, args, dependencies, timeoutMs = DEFAULT_OPERATION_TIMEOUT_MS, signal, profile) {
+async function executeQtNativeOperation(operation, args, dependencies, timeoutMs = DEFAULT_OPERATION_TIMEOUT_MS, signal, profile) {
   try {
     const started = performance12.now();
     if (operation === "snapshot" && profile) args = qtSnapshotArguments(args, profile);
     const client = dependencies.qtNativeClient ?? await dependencies.qtNativeClientFor(args, timeoutMs, signal);
     const remaining = Math.floor(timeoutMs - (performance12.now() - started));
-    if (remaining < 1) throw new QtNativeTransportError("Native operation deadline exceeded before reading.", "native-timeout");
-    const execute = operation === "known_page_state" ? executeQtNativeKnownPageState : operation === "page" ? executeQtNativePage : operation === "ui_state" ? executeQtNativeUiState : operation === "help" ? executeQtNativeHelp : operation === "read_table" ? executeQtNativeReadTable : operation === "checker_results" ? executeQtNativeCheckerResults : operation === "positions" ? executeQtNativePositions : operation === "ustva_read" ? executeQtNativeUstvaRead : operation === "receipt_manager_action" ? executeQtNativeReceiptManagerAction : operation === "receipt_manager_read" ? executeQtNativeReceiptManagerRead : operation === "receipt_manager_list" ? executeQtNativeReceiptManagerList : operation === "read_page" ? executeQtNativeReadPage : operation === "subpages" ? executeQtNativeSubpages : operation === "find" ? executeQtNativeFind : operation === "snapshot" ? executeQtNativeSnapshot : operation === "table_read" ? executeQtNativeTableRead : typeof args.rid === "string" && args.rid.startsWith("42.") ? executeQtSnapshotGetValue : executeQtNativeGetValue;
+    if (remaining < 1) throw new QtNativeTransportError("Native operation deadline exceeded before dispatch.", "native-timeout");
+    const execute = operation === "goto" ? executeQtNativeGoto : operation === "known_page_state" ? executeQtNativeKnownPageState : operation === "page" ? executeQtNativePage : operation === "ui_state" ? executeQtNativeUiState : operation === "help" ? executeQtNativeHelp : operation === "read_table" ? executeQtNativeReadTable : operation === "checker_results" ? executeQtNativeCheckerResults : operation === "positions" ? executeQtNativePositions : operation === "ustva_read" ? executeQtNativeUstvaRead : operation === "receipt_manager_action" ? executeQtNativeReceiptManagerAction : operation === "receipt_manager_read" ? executeQtNativeReceiptManagerRead : operation === "receipt_manager_update" ? executeQtNativeReceiptManagerUpdate : operation === "receipt_manager_link" ? executeQtNativeReceiptManagerLink : operation === "receipt_manager_classification_options" ? executeQtNativeClassificationOptions : operation === "receipt_manager_classify" ? executeQtNativeClassify : operation === "receipt_manager_list" ? executeQtNativeReceiptManagerList : operation === "read_page" ? executeQtNativeReadPage : operation === "subpages" ? executeQtNativeSubpages : operation === "find" ? executeQtNativeFind : operation === "snapshot" ? executeQtNativeSnapshot : operation === "table_read" ? executeQtNativeTableRead : typeof args.rid === "string" && args.rid.startsWith("42.") ? executeQtSnapshotGetValue : executeQtNativeGetValue;
     return await execute(client, args, remaining, signal, profile);
   } catch (error) {
     return {
@@ -15065,7 +17103,7 @@ async function executeQtNativeRead(operation, args, dependencies, timeoutMs = DE
     };
   }
 }
-var QT_NATIVE_READ_OPERATIONS;
+var QT_NATIVE_OPERATIONS;
 var init_qt_native_executor = __esm({
   "src/qt-native-executor.ts"() {
     "use strict";
@@ -15078,6 +17116,8 @@ var init_qt_native_executor = __esm({
     init_qt_native_find();
     init_qt_native_ustva();
     init_qt_native_receipt_read();
+    init_qt_native_receipt_update();
+    init_qt_native_receipt_link();
     init_qt_native_receipt_action();
     init_qt_native_receipts();
     init_qt_native_page();
@@ -15085,7 +17125,10 @@ var init_qt_native_executor = __esm({
     init_qt_native_help();
     init_qt_native_read_table();
     init_qt_native_checker();
-    QT_NATIVE_READ_OPERATIONS = [
+    init_qt_native_goto();
+    init_qt_native_classification_options();
+    init_qt_native_classify();
+    QT_NATIVE_OPERATIONS = [
       "get_value",
       "table_read",
       "snapshot",
@@ -15098,11 +17141,16 @@ var init_qt_native_executor = __esm({
       "receipt_manager_list",
       "receipt_manager_read",
       "receipt_manager_action",
+      "receipt_manager_update",
+      "receipt_manager_link",
       "page",
       "ui_state",
       "help",
       "read_table",
-      "checker_results"
+      "checker_results",
+      "goto",
+      "receipt_manager_classification_options",
+      "receipt_manager_classify"
     ];
   }
 });
@@ -15184,9 +17232,9 @@ function createApiExecutor(config, rawWorker, dependencies = {}) {
       if (operation === "desktop_status" && dependencies.nativeDesktopStatus) {
         return redactPaths(await win325(() => dependencies.nativeDesktopStatus(timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS, signal)));
       }
-      if (isQtNativeReadOperation(operation) && (dependencies.qtNativeClient || dependencies.qtNativeClientFor)) {
-        const read = () => executeQtNativeRead(operation, args, dependencies, timeoutMs, signal, profile);
-        return redactPaths(await (telemetry?.enabled ? telemetry.runQtNative(read) : read()));
+      if (isQtNativeOperation(operation) && (dependencies.qtNativeClient || dependencies.qtNativeClientFor)) {
+        const executeNative = () => executeQtNativeOperation(operation, args, dependencies, timeoutMs, signal, profile);
+        return redactPaths(await (telemetry?.enabled ? telemetry.runQtNative(executeNative) : executeNative()));
       }
       if (operation === "capabilities") {
         return {
@@ -19694,6 +21742,9 @@ function discard(candidate, reason) {
     candidate.child.kill();
   } catch {
   }
+  candidate.child.stdin.destroy();
+  candidate.child.stdout.destroy();
+  candidate.child.stderr.destroy();
 }
 function startWarmSpare() {
   let child;
@@ -21681,7 +23732,11 @@ async function runApiRuntime(configPath, overrides = {}) {
   shutdown.signal.addEventListener("abort", shutdownWarmSpare, { once: true });
   enableWorkerPrewarm();
   log({ event: "ready", host: config.host, port: config.port });
-  return { baseUrl: configuredBaseUrl, configPath: config.configPath };
+  return {
+    baseUrl: configuredBaseUrl,
+    configPath: config.configPath,
+    caseDirectoryConfigured: Boolean(config.caseDir)
+  };
 }
 var MAX_SCREENSHOT_IMAGE_BYTES, PNG_SIGNATURE;
 var init_api_runtime = __esm({
@@ -21724,12 +23779,12 @@ function parseApiMainArguments(argv) {
   let configPath;
   let caseDir;
   for (let index = 0; index < argv.length; index += 1) {
-    const option = argv[index];
+    const option2 = argv[index];
     const value = argv[index + 1];
-    if (!["--config", "--case-dir"].includes(option ?? "") || !value || value.startsWith("--")) {
+    if (!["--config", "--case-dir"].includes(option2 ?? "") || !value || value.startsWith("--")) {
       throw new Error(`Ungueltige API-Startargumente. ${API_MAIN_USAGE}`);
     }
-    if (option === "--config") {
+    if (option2 === "--config") {
       if (configPath) throw new Error(`--config darf nur einmal angegeben werden. ${API_MAIN_USAGE}`);
       if (!isAbsolute(value) || /[\u0000-\u001f]/u.test(value)) {
         throw new Error(`Ungueltige API-Startargumente: --config muss ein absoluter Pfad ohne Steuerzeichen sein. ${API_MAIN_USAGE}`);
@@ -21778,7 +23833,7 @@ async function main() {
   if (firstRun.created) process.stdout.write(`Lokale Standardkonfiguration erstellt: ${firstRun.configPath}
 `);
   process.stdout.write(
-    `SSE-API bereit: ${ready.baseUrl} (${args.caseDir ? "Fallordner fuer diesen Lauf gebunden" : "kein Fallordner gebunden"}).
+    `SSE-API bereit: ${ready.baseUrl} (${ready.caseDirectoryConfigured ? "Fallordner gebunden" : "kein Fallordner gebunden"}).
 Dieses Terminal offen lassen; Strg+C beendet die API.
 `
   );

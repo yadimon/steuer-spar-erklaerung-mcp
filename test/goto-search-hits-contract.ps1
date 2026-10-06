@@ -188,4 +188,52 @@ Assert-True ($gotoClause.Contains('$titelRegel = $(if ($knownTarget) { { param($
   $gotoClause.Contains('$genau = Select-SSESearchHit $tt.nodes $ziel -Accept $titelRegel')) `
   'goto gibt die Seitenobjektregel nicht nur fuer bekannte Ziele an die Trefferauswahl.'
 
-Write-Output 'goto-Suchtreffer: nur Titelzellen der Ergebnistabelle, exakt oder nach Seitenobjektregel - bestanden'
+# The search activation flag predates closing the search panel. Execute the
+# actual success block: a stale flag must never publish success for another
+# heading or for a known page whose required fields are still unavailable.
+$gotoBody = @(@($ast.FindAll({
+  param($node)
+  $node -is [Management.Automation.Language.SwitchStatementAst] -and
+  @($node.Clauses | Where-Object { $_.Item1.Extent.Text -ceq "'goto'" }).Count -eq 1
+}, $true))[0].Clauses | Where-Object { $_.Item1.Extent.Text -ceq "'goto'" })[0].Item2
+$activatedBlocks = @($gotoBody.FindAll({
+  param($node)
+  $node -is [Management.Automation.Language.IfStatementAst] -and
+  $node.Clauses[0].Item1.Extent.Text -ceq '$aktiviert'
+}, $true))
+Assert-True ($activatedBlocks.Count -eq 1) 'Der Sucherfolgsblock ist nicht eindeutig.'
+$activatedBlock = [scriptblock]::Create($activatedBlocks[0].Extent.Text)
+function Test-SearchSuccess([string]$HeadingAfter, [bool]$FieldsReady) {
+  $script:searchEmitted = $null; $script:searchFailure = $null
+  $script:searchWaits = New-Object System.Collections.ArrayList
+  $aktiviert = $true; $hwnd = [IntPtr]4242; $nachSuche = 'Frueher bestaetigt'
+  $ziel = 'Zielseite'; $pageId = 'synthetic.page'
+  $weg = @('Startseite'); $suchWeg = @('Suchtreffer aktiviert')
+  function WarteAufUeberschrift {
+    param([IntPtr]$h, [string]$vorher, [string]$erwartet, [int]$timeoutMs)
+    $null = $script:searchWaits.Add([pscustomobject]@{h=[int64]$h;target=$erwartet;timeoutMs=$timeoutMs})
+    $HeadingAfter
+  }
+  function IstZielseite { param([IntPtr]$h, [string]$heading) $FieldsReady -and $heading -ceq $ziel }
+  function Emit { param($result) $script:searchEmitted=$result; throw 'search-emitted' }
+  function Fail { param($msg,$kind,$details) $script:searchFailure=[pscustomobject]@{kind=$kind;details=$details}; throw 'search-failed' }
+  try { . $activatedBlock } catch {
+    Assert-True ($_.Exception.Message -in @('search-emitted','search-failed')) "Unerwarteter Suchabschluss: $($_.Exception.Message)"
+  }
+  [pscustomobject]@{emitted=$script:searchEmitted;failure=$script:searchFailure;waits=@($script:searchWaits)}
+}
+foreach ($case in @(
+  [pscustomobject]@{heading='Andere Seite';fields=$true},
+  [pscustomobject]@{heading='';fields=$true},
+  [pscustomobject]@{heading='Zielseite';fields=$false}
+)) {
+  $result = Test-SearchSuccess $case.heading $case.fields
+  Assert-True ($null -eq $result.emitted -and $result.failure.kind -ceq 'navigation-blocked') `
+    'Ein frueherer Sucherfolg ueberging die frische Ziel-/Feldpruefung nach Suchschluss.'
+}
+$ready = Test-SearchSuccess 'Zielseite' $true
+Assert-True ($ready.emitted.erreicht -eq $true -and $ready.emitted.ueberschrift -ceq 'Zielseite' -and
+  $ready.waits.Count -eq 1 -and $ready.waits[0].h -eq 4242 -and $ready.waits[0].target -ceq 'Zielseite' -and
+  $ready.waits[0].timeoutMs -eq 1800) 'Der Sucherfolg ist nicht frisch und begrenzt an die Zielseite gebunden.'
+
+Write-Output 'goto-Suchtreffer: genaue Titelzellen und frische Zielpruefung nach Suchschluss - bestanden'

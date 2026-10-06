@@ -180,6 +180,12 @@ function discard(candidate: PooledSpare, reason: string): void {
   failureReason = reason;
   try { candidate.child.stdin.end(); } catch { /* Pipe ist schon zu. */ }
   try { candidate.child.kill(); } catch { /* Prozess ist schon weg. */ }
+  // An unassigned reserve has no result to retain. A descendant or console
+  // host can keep inherited pipe handles open after the direct child exits;
+  // those pipes must not keep the API alive after this reserve is discarded.
+  candidate.child.stdin.destroy();
+  candidate.child.stdout.destroy();
+  candidate.child.stderr.destroy();
 }
 
 /**

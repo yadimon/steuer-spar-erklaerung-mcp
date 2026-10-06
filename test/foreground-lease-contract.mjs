@@ -144,6 +144,11 @@ assert.doesNotMatch(saveAs, /SendWait\('\^%s'\)/u,
   "save_as darf den unzuverlaessigen globalen Shortcut nicht mehr senden.");
 assert.match(saveAs, /Open-SSEMenuByName \$hwnd 'Datei'/u,
   "save_as muss das exakt gebundene Datei-Menue ueber UI Automation oeffnen.");
+assert.match(saveAs, /if \(-not \(Show-SSEWindow \$hwnd\)\)/u,
+  "save_as muss das gebundene Hauptfenster vor dem Qt-Menue nachweisbar aktivieren.");
+assert(saveAs.indexOf("$sourceBinding = Test-CaseBinding") < saveAs.indexOf("Show-SSEWindow $hwnd") &&
+  saveAs.indexOf("Show-SSEWindow $hwnd") < saveAs.indexOf("Open-SSEMenuByName $hwnd 'Datei'"),
+  "save_as darf den Benutzerfokus erst nach der Quelldateibindung und vor der Menueoeffnung verwenden.");
 assert.match(saveAs, /Get-SSEOpenMenuEntryMatches \$hwnd \$targetPid 'Speichern unter\.\.\.'/u,
   "save_as muss den sichtbaren Menueeintrag mit derselben Suche wie menu_click binden.");
 assert.match(saveAs, /Click-VerifiedPoint \$saveAsMatch\.hwnd \$saveAsMatch\.node/u,

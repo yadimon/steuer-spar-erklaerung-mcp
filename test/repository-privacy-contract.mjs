@@ -59,12 +59,14 @@ const forbiddenPaths = [
 const currentOnlyPaths = [
   { label: "lokales Wartungsprofil", pattern: /^skills-data(?:\/|$)/iu },
   { label: "lokale Lernnotiz", pattern: /^docs\/ai-learning(?:\/|$)/iu },
+  { label: "lokale Erfahrungsnotiz", pattern: /^docs\/entwicklung\/erfahrungen(?:\/|$)/iu },
 ];
 const currentPathRules = [...forbiddenPaths, ...currentOnlyPaths];
 const privatePathProbes = [
   ".private/example.txt", ".tmp/example.json", "localdev/example.md", "documents/example.txt",
   "backups/example.zip", "cases/example.json", "results/example.json", "workspace/example.txt",
   "tmp/example.txt", "skills-data/example.md", "docs/ai-learning/example.md",
+  "docs/entwicklung/erfahrungen/example.md",
   "sample.vbox", "sample.vbox-prev", "sample.vdi", "sample.vhd", "sample.vhdx",
   "sample.avhd", "sample.avhdx", "sample.vmdk", "sample.ova", "sample.ovf", "sample.sav",
   "sample.nvram", "sample.vmem", "sample.vmrs", "sample.vmcx",

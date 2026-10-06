@@ -259,7 +259,7 @@ public static class Program {
     }
   }
 
-  public static int Main() {
+  public static int Main(string[] args) {
     string state = Environment.GetEnvironmentVariable("SSE_PREWARM_FIXTURE_STATE");
     string mutexName = Environment.GetEnvironmentVariable("SSE_PREWARM_FIXTURE_MUTEX");
     string mode = Environment.GetEnvironmentVariable("SSE_PREWARM_FIXTURE_MODE") ?? "pool";
@@ -269,13 +269,29 @@ public static class Program {
       mutex.WaitOne();
       try {
         launch = File.Exists(state) ? File.ReadAllLines(state).Length + 1 : 1;
-        string launchLine = mode == "assigned-timeout"
+        string launchLine = (mode == "assigned-timeout" || mode == "inherited-pipe")
           ? "launch|" + launch + "|" + pid
           : launch + "|" + pid;
         File.AppendAllText(state, launchLine + Environment.NewLine);
       } finally {
         mutex.ReleaseMutex();
       }
+    }
+    if (mode == "inherited-pipe") {
+      if (args.Length > 0 && args[0] == "--pipe-keeper") {
+        Thread.Sleep(Timeout.Infinite);
+        return 0;
+      }
+      var info = new ProcessStartInfo(Process.GetCurrentProcess().MainModule.FileName, "--pipe-keeper");
+      info.UseShellExecute = false;
+      Process.Start(info);
+      var deadline = DateTime.UtcNow.AddSeconds(5);
+      while (File.ReadAllLines(state).Length < 2 && DateTime.UtcNow < deadline) Thread.Sleep(10);
+      if (File.ReadAllLines(state).Length < 2) return 2;
+      Console.WriteLine("{\\\"prewarm\\\":\\\"ready\\\",\\\"pid\\\":" + pid + "}");
+      Console.Out.Flush();
+      Console.ReadLine();
+      return 0;
     }
     if (mode == "assigned-timeout") {
       Console.WriteLine("{\\\"prewarm\\\":\\\"ready\\\",\\\"pid\\\":" + pid + "}");
@@ -419,6 +435,27 @@ try {
     windowsHide: true,
     stdio: "pipe",
   });
+  const inheritedState = join(sandbox, "inherited-pipe-state.txt");
+  try {
+    const inheritedOutput = execFileSync(process.execPath,
+      [join(root, "test", "fixtures", "worker-warm-discarded-pipes.mjs")], {
+        cwd: root, windowsHide: true, timeout: 20_000, encoding: "utf8",
+        env: { ...process.env, TEMP: sandbox, TMP: sandbox,
+          SSE_POWERSHELL_EXE: fixtureExecutable, SSE_WORKER_PREWARM_POOL_SIZE: "1",
+          SSE_WORKER_PREWARM_STARTUP_TIMEOUT_MS: "10000",
+          SSE_PREWARM_FIXTURE_STATE: inheritedState,
+          SSE_PREWARM_FIXTURE_MUTEX: `Local\\SSEInheritedPipes${randomUUID().replaceAll("-", "")}`,
+          SSE_PREWARM_FIXTURE_MODE: "inherited-pipe" },
+      });
+    assert.match(inheritedOutput, /Discarded spare releases inherited pipes/u);
+    const ownedPids = assignedFixturePids(inheritedState);
+    assert.equal(ownedPids.length, 2, "Both owned inherited-pipe processes must be recorded.");
+    assert.equal(processIsAlive(ownedPids[1]), true,
+      "The pipe keeper must still be alive when the Node fixture exits.");
+  } finally {
+    const errors = cleanupAssignedFixtureProcesses(inheritedState, fixtureExecutable);
+    if (errors.length > 0) throw new AggregateError(errors, "Inherited-pipe fixture cleanup failed.");
+  }
   const assignedState = join(sandbox, "assigned-job-state.txt");
   try {
     const assignedOutput = execFileSync(

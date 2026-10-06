@@ -67,6 +67,7 @@ akad.json
 out.json
 err.txt
 docs/seiten-roh/
+/docs/entwicklung/erfahrungen/
 docs/*.json
 
 # Niemals Steuerdaten ins Repo

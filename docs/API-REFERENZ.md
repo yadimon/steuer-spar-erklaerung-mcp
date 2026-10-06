@@ -687,7 +687,7 @@ Operation: `save` (destruktiv, drift-gesperrt).
 
 **Steuerfall sicher speichern unter**
 
-Oeffnet den echten SSE-Dialog 'Speichern unter...' mit Strg+Alt+S, setzt den Zielpfad ueber UI Automation und prueft anschliessend Zieldatei, SHA256 und Fenstertitel.
+Oeffnet den echten SSE-Dialog 'Speichern unter...' ueber das exakt gebundene Datei-Menue, setzt den Zielpfad ueber UI Automation und prueft anschliessend Zieldatei, SHA256 und Fenstertitel.
 
 Operation: `save_as` (destruktiv, drift-gesperrt).
 

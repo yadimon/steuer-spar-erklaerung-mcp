@@ -353,3 +353,47 @@ $checkOffset = $clickDefinition.IndexOf('if ($BeforeClickCheck -and')
 Assert-True ($checkOffset -gt $clickDefinition.IndexOf('[SW]::SetCursorPos') -and
   $checkOffset -lt $clickDefinition.IndexOf('[SW]::mouse_event(0x0002')) 'Die Popup-Bindung wird nicht unmittelbar vor dem ersten mouse-down geprueft.'
 Write-Output 'Combo-Punkt: frische Identitaet, sichtbares Popup und gebundene Geometrie vor mouse-down - bestanden'
+
+$popupRootDefinition = @($ast.FindAll({ param($node)
+  $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Test-SSEComboPopupRoot'
+}, $true))[0]
+Invoke-Expression $popupRootDefinition.Extent.Text
+$popupPointBinding = [pscustomobject]@{
+  mainHwnd=4242;clickHwnd=5252;processId=9001;expectedPage='Seite';expectedCurrent=''
+  comboRid='1';comboAid='combo';optionRid='2';optionAid='combo.item';optionName='Option'
+  listRid='3';listAid='combo.list'
+}
+function Get-CurrentHeading { $script:popupPointHeading }
+function Get-SSEPointObstruction { $script:popupPointObstruction }
+function Get-LiveElement { param($window,$rid,$aid)
+  Assert-True ([int64]$window -eq 4242) 'Combo und Option werden im Popup statt im gebundenen Hauptfenster gesucht.'
+  $script:pointElements[$rid]
+}
+foreach ($failure in @('none','foreign-pid','foreign-bound-pid','foreign-root','foreign-class','moved-popup','resized-popup','replaced-list','changed-before','changed-page','wrong-click-window')) {
+  $script:popupPointHeading = 'Seite'
+  $script:popupPointObstruction = [pscustomobject]@{
+    boundPid=9001;hitPid=9001;hitRoot=5252;className='Qt692QWindowPopupDropShadowSaveBits'
+    rootRect=[pscustomobject]@{x=10;y=10;w=100;h=100}
+  }
+  $list = New-PointElement ([pscustomobject]@{type='List';rid='3';aid='combo.list';on=$true;x=10;y=10;w=100;h=100})
+  $option = New-PointElement ([pscustomobject]@{type='ListItem';rid='2';aid='combo.item';name='Option';on=$true;x=10;y=10;w=100;h=30}) $list
+  $comboPoint = New-PointElement ([pscustomobject]@{type='ComboBox';rid='1';aid='combo'})
+  $comboPoint.pattern = [pscustomobject]@{Current=[pscustomobject]@{ExpandCollapseState=[System.Windows.Automation.ExpandCollapseState]::Expanded;Value=''}}
+  $clickWindow = [IntPtr]5252
+  switch ($failure) {
+    'foreign-pid' {$script:popupPointObstruction.hitPid=9002}
+    'foreign-bound-pid' {$script:popupPointObstruction.boundPid=9002}
+    'foreign-root' {$script:popupPointObstruction.hitRoot=6262}
+    'foreign-class' {$script:popupPointObstruction.className='Qt692QWindowIcon'}
+    'moved-popup' {$script:popupPointObstruction.rootRect.x=100}
+    'resized-popup' {$script:popupPointObstruction.rootRect.h=200}
+    'replaced-list' {$list.node.rid='old'}
+    'changed-before' {$comboPoint.pattern.Current.Value='Other'}
+    'changed-page' {$script:popupPointHeading='Andere Seite'}
+    'wrong-click-window' {$clickWindow=[IntPtr]6262}
+  }
+  $script:pointElements = @{'1'=$comboPoint;'2'=$option}
+  $validPoint = Test-SSEComboOptionPoint $clickWindow $popupPointBinding 20 20
+  Assert-True ($validPoint -eq ($failure -ceq 'none')) "Virtualisierter Popup-Punkt akzeptiert falsche Bindung '$failure'."
+}
+Write-Output 'Virtualisierte Combo: exaktes Qt-Popup, Prozess, Liste, Seite und Vorwert vor mouse-down - bestanden'

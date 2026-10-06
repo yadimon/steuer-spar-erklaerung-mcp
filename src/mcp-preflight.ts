@@ -41,7 +41,7 @@ const PREFLIGHT_NOTICE_SCHEMA = z.object({
   nextTool: z.enum(PREFLIGHT_NEXT_TOOLS),
 }).strict();
 
-export const MCP_PREFLIGHT_OUTPUT_SCHEMA = z.object({
+export const MCP_PREFLIGHT_SUCCESS_SCHEMA = z.object({
   ok: z.literal(true).describe("Alle drei read-only Preflight-Abfragen wurden erfolgreich ausgefuehrt"),
   ready: z.boolean().describe("Setup und laufende Anwendung sind fuer die weitere Orientierung bereit"),
   setupReady: z.boolean().describe("Arbeitsbereich, Produktprofil und installierte Anwendung sind kompatibel"),
@@ -81,7 +81,17 @@ export const MCP_PREFLIGHT_OUTPUT_SCHEMA = z.object({
   nextTool: z.enum(PREFLIGHT_NEXT_TOOLS),
 }).strict();
 
-export type McpPreflightResult = z.infer<typeof MCP_PREFLIGHT_OUTPUT_SCHEMA>;
+// The SDK publishes an object schema and validates structured tool errors too.
+// API errors carry their original guard details instead of invented readiness
+// facts. Successful projections still pass the complete strict schema below.
+export const MCP_PREFLIGHT_OUTPUT_SCHEMA = MCP_PREFLIGHT_SUCCESS_SCHEMA.partial().extend({
+  ok: z.boolean().describe("Ob alle drei read-only Preflight-Abfragen erfolgreich ausgefuehrt wurden"),
+  kind: z.string().optional().describe("Fehlerart bei abgebrochener Preflight-Pruefung"),
+  error: z.string().optional().describe("Redigierte Fehlermeldung der fehlgeschlagenen Basisoperation"),
+  hint: z.string().optional().describe("Sicherer naechster Schritt bei einer abgebrochenen Pruefung"),
+}).passthrough();
+
+export type McpPreflightResult = z.infer<typeof MCP_PREFLIGHT_SUCCESS_SCHEMA>;
 
 function objectValue(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -255,7 +265,7 @@ export function evaluateMcpPreflight(
 
   const setupReady = !blockers.some((entry) => entry.scope === "setup");
   const runtimeReady = !blockers.some((entry) => entry.scope === "runtime");
-  return MCP_PREFLIGHT_OUTPUT_SCHEMA.parse({
+  return MCP_PREFLIGHT_SUCCESS_SCHEMA.parse({
     ok: true,
     ready: setupReady && runtimeReady,
     setupReady,

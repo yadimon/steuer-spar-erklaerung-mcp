@@ -193,20 +193,23 @@ try {
   );
   assert.match(quickStdout, /Lokale Standardkonfiguration erstellt/);
   assert.match(quickStdout, /SSE-API bereit/);
+  assert.match(quickStdout, /\(Fallordner gebunden\)/);
   assert.match(quickStdout, /Strg\+C beendet die API/);
   rmSync(quickRoot, { recursive: true, force: true });
 }
 
 const temporary = mkdtempSync(join(tmpdir(), "sse-api-main-smoke-"));
+const caseDir = join(temporary, "cases");
 const workspaceDir = join(temporary, "workspace");
 const resultDir = join(temporary, "results");
 const configPath = join(temporary, "config.json");
 mkdirSync(workspaceDir, { recursive: true });
+mkdirSync(caseDir, { recursive: true });
 mkdirSync(resultDir, { recursive: true });
 const port = await reservePort();
 writeFileSync(
   configPath,
-  `${JSON.stringify({ host: "127.0.0.1", port, workspaceDir, resultDir }, null, 2)}\n`,
+  `${JSON.stringify({ host: "127.0.0.1", port, caseDir, workspaceDir, resultDir }, null, 2)}\n`,
   "utf8",
 );
 
@@ -390,7 +393,9 @@ const child = spawn(process.execPath, ["dist/api-main.js", "--config", configPat
   },
   stdio: ["ignore", "pipe", "pipe"],
 });
+let stdout = "";
 let stderr = "";
+child.stdout.on("data", (chunk) => { stdout += chunk.toString("utf8"); });
 child.stderr.on("data", (chunk) => { stderr += chunk.toString("utf8"); });
 
 try {
@@ -410,6 +415,7 @@ try {
 
   const expectedConfigurationFingerprint = configurationFingerprint({
     profileId: "2025",
+    caseDir,
     documentsDir: join(workspaceDir, "documents"),
     workspaceDir,
     resultDir,
@@ -465,6 +471,8 @@ try {
     code === 0 || (process.platform === "win32" && signal === "SIGTERM"),
     `API beendete sich unerwartet (Exit ${code}, Signal ${signal}): ${stderr}`,
   );
+  assert.match(stdout, /\(Fallordner gebunden\)/);
+  assert(!stdout.includes("kein Fallordner gebunden"), "Konfigurierter Fallordner wurde im Startstatus uebersehen.");
   const log = readFileSync(join(temporary, "logs", "api.jsonl"), "utf8");
   assert.match(log, /"event":"ready"/);
   assert.match(log, /"operation":"workspace_status"/);

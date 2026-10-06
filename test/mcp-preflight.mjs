@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { evaluateMcpPreflight, MCP_PREFLIGHT_OUTPUT_SCHEMA } from "../dist/mcp-preflight.js";
+import { evaluateMcpPreflight, MCP_PREFLIGHT_OUTPUT_SCHEMA, MCP_PREFLIGHT_SUCCESS_SCHEMA } from "../dist/mcp-preflight.js";
 import { SSE_MCP_TOOL_SCHEMAS } from "../dist/operation-catalog.js";
 
-for (const nextTool of MCP_PREFLIGHT_OUTPUT_SCHEMA.shape.nextTool.options) {
+for (const nextTool of MCP_PREFLIGHT_SUCCESS_SCHEMA.shape.nextTool.options) {
   assert(nextTool in SSE_MCP_TOOL_SCHEMAS, `Preflight-nextTool ist nicht registriert: ${nextTool}`);
 }
 
@@ -70,6 +70,12 @@ assert.equal(ready.nextTool, "sse_instances");
 assert.deepEqual(ready.blockers, []);
 assert.deepEqual(ready.notices, []);
 assert.equal(MCP_PREFLIGHT_OUTPUT_SCHEMA.parse(ready).ok, true);
+assert.equal(MCP_PREFLIGHT_SUCCESS_SCHEMA.parse(ready).ok, true);
+assert.throws(() => MCP_PREFLIGHT_SUCCESS_SCHEMA.parse({ ok: true }),
+  "Eine unvollstaendige erfolgreiche Projektion darf nicht freigegeben werden.");
+const guardedError = { ok: false, kind: "busy", error: "Basisoperation blockiert", reason: "session-controller-busy", waited: false };
+assert.deepEqual(MCP_PREFLIGHT_OUTPUT_SCHEMA.parse(guardedError), guardedError,
+  "Strukturierte Guard-Details muessen im oeffentlichen Fehlerschema erhalten bleiben.");
 assert(!JSON.stringify(ready).includes("Private"), "Preflight darf keine lokalen Pfade oder Fenstertitel spiegeln.");
 
 const stoppedWithoutCaseDir = evaluateMcpPreflight(

@@ -191,4 +191,53 @@ $nearPopupCell.aid = 'Root/.grpEmpf13bX./.grpEmpf13bX.Empf13b'
 $nearPopupBound = Resolve-SSETableComboPopup @($mainSource) $nearPopupCell 'Sonst. Leistung EU' 'Noch nicht zugeordnet' $aidFallbackBinding
 Assert-True (-not $nearPopupBound.ok -and $nearPopupBound.kind -eq 'profile-binding-mismatch') 'Popup-Resolver akzeptierte einen Zell-AID-Nahmatch.'
 
+$workerAst = [Management.Automation.Language.Parser]::ParseInput($workerSource, [ref]$null, [ref]$null)
+$pointGuard = $workerAst.Find({
+  param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+    $node.Name -ceq 'Test-SSETableComboOptionPoint'
+}, $true)
+Assert-True ($null -ne $pointGuard) 'Frische Tabellen-Popup-Optionspruefung fehlt.'
+Invoke-Expression $pointGuard.Extent.Text
+$popupSource = $mainSource.PSObject.Copy()
+$popupSource.hwnd = 200
+$popupSource.isMain = $false
+$popupSource.isNewPopup = $true
+$script:CommitSources = @($popupSource)
+$script:CommitCellState = $freshOpenState
+$script:CommitWindows = @([pscustomobject]@{hwnd=200;pid=9001})
+$script:CommitNode = [pscustomobject]@{
+  type='ListItem';name=$wanted.name;rid=$wanted.rid;aid=$wanted.aid;on=$true
+  x=$wanted.x;y=$wanted.y;w=$wanted.w;h=$wanted.h
+}
+function Read-SSETableComboCellState { $script:CommitCellState }
+function Get-SSETableComboPopupSources { @($script:CommitSources) }
+function Get-Windows { @($script:CommitWindows) }
+function Get-LiveElement { $script:CommitNode }
+function Convert-ExactElementToNode { param($Element) $Element }
+$commitPopup = Resolve-SSETableComboPopup @($popupSource) $cell 'Sonst. Leistung EU' 'Noch nicht zugeordnet' $tableBinding
+$commitBinding = [pscustomobject]@{
+  mainHwnd=[IntPtr]100;processId=9001;popup=$commitPopup;cellState=$initialOpenState
+  expectedPage=$initialOpenState.heading;sumLabel='Summe';sumOccurrence=2
+  rowY=100;columnIndex=3;tableProfile=$tableBinding
+  expectedCurrent='Noch nicht zugeordnet';wanted='Sonst. Leistung EU';windowIdsBefore=@(100)
+}
+Assert-True (Test-SSETableComboOptionPoint ([IntPtr]100) $commitBinding 430 195) 'Exakt gebundene Popup-Option wurde beim Qt-Hauptfenster-Root abgewiesen.'
+Assert-True (Test-SSETableComboOptionPoint ([IntPtr]200) $commitBinding 430 195) 'Exakt gebundene Popup-Option wurde beim Popup-Root abgewiesen.'
+Assert-True (-not (Test-SSETableComboOptionPoint ([IntPtr]300) $commitBinding 430 195)) 'Fremder Klick-Root wurde akzeptiert.'
+Assert-True (-not (Test-SSETableComboOptionPoint ([IntPtr]100) $commitBinding 290 195)) 'Klickpunkt ausserhalb der frischen Option wurde akzeptiert.'
+$script:CommitNode.on = $false
+Assert-True (-not (Test-SSETableComboOptionPoint ([IntPtr]100) $commitBinding 430 195)) 'Deaktivierte Popup-Option wurde akzeptiert.'
+$script:CommitNode.on = $true
+$script:CommitNode.rid = 'replaced-option'
+Assert-True (-not (Test-SSETableComboOptionPoint ([IntPtr]100) $commitBinding 430 195)) 'Ausgetauschte Popup-Option wurde akzeptiert.'
+$script:CommitNode.rid = $wanted.rid
+$script:CommitWindows = @([pscustomobject]@{hwnd=200;pid=9002})
+Assert-True (-not (Test-SSETableComboOptionPoint ([IntPtr]100) $commitBinding 430 195)) 'Popup eines anderen Prozesses wurde akzeptiert.'
+$script:CommitWindows = @([pscustomobject]@{hwnd=200;pid=9001})
+$script:CommitSources = @()
+Assert-True (-not (Test-SSETableComboOptionPoint ([IntPtr]100) $commitBinding 430 195)) 'Verschwundenes Popup wurde akzeptiert.'
+$script:CommitSources = @($popupSource)
+$script:CommitCellState = $staleOpenState
+Assert-True (-not (Test-SSETableComboOptionPoint ([IntPtr]100) $commitBinding 430 195)) 'Ausgetauschte Tabellenzelle wurde akzeptiert.'
+
 Write-Output 'OK: Tabellen-ComboBox-Popup ist an Profil, Zelle, Liste, Ziel- und Rollbackoption gebunden.'

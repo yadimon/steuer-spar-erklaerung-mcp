@@ -229,6 +229,8 @@ static Json execute(const Json &request) {
         result = processWindowInventory();
     } else if (op == "accessibility_snapshot") {
         result = accessibilitySnapshot(root, request);
+    } else if (op == "accessibility_table_options") {
+        result = accessibleTableOptions(root, request);
     } else if (op == "accessibility_action") {
         result = accessibilityAction(root, request);
     } else if (op == "objects") {
@@ -424,7 +426,9 @@ static Json dispatch(const Json &request, const std::shared_ptr<NativeSession> &
     if (!queued) { --activeGuiRequests; return noMutationError("GUI_DISPATCH_FAILED", "Could not queue the Qt operation"); }
     std::unique_lock<std::mutex> lock(pending->mutex);
     const auto operation = request.value("op", std::string());
-    const auto deadlineMs = 1500;
+    // Keep a transport margin inside the 2500 ms pipe-frame bound. Lookup
+    // budgets leave room for typed application commit slots on the GUI thread.
+    const auto deadlineMs = 2000;
     if (!pending->changed.wait_for(lock, std::chrono::milliseconds(deadlineMs), [&] { return pending->state == Pending::Done; })) {
         auto expected = Pending::Queued;
         const bool cancelled = pending->state.compare_exchange_strong(expected, Pending::Cancelled);

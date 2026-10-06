@@ -17,6 +17,7 @@ import { discoverQtNativeTarget } from "../dist/qt-native-discovery.js";
 import { desktopMarkerPath } from "../dist/desktop-marker.js";
 import { executeNativeDesktopStatus } from "../dist/native-desktop-status.js";
 import { pageProjectionOracle } from "./qt-native-page-projections.mjs";
+import { readQtNativeSnapshot } from "../dist/qt-native-snapshot.js";
 
 assert.equal(process.argv.length, 7, "Run this test through qt-native-desktop.ps1 or CTest.");
 const [packageConfig, executable, qtBin] = process.argv.slice(2, 5).map(path => resolve(path));
@@ -144,6 +145,25 @@ try {
   assert.equal((await read("get_value", { aid: "syntheticField" })).kind, "desktop-marker-owner");
   assert.equal(sessions.length, 0);
   writeFileSync(markerPath, JSON.stringify(marker));
+  await first.command("accessibility-status");
+  const preActivation = await read("get_value", { aid: "syntheticRateModel" });
+  assert.equal(preActivation.ok, true, JSON.stringify(preActivation));
+  assert.equal(preActivation.value, "inactive", "Fresh fixture must start without an external accessibility client");
+  assert.equal((await read("snapshot", { maxNodes: 5000 })).ok, true);
+  await first.command("accessibility-status");
+  assert.equal((await read("get_value", { aid: "syntheticRateModel" })).value, "active");
+  // Cache a nested cell, replace its model row, and read it again before any
+  // Windows UIA client can activate accessibility on our behalf.
+  await first.command("open-navigation-tool");
+  const beforeReset = await readQtNativeSnapshot(sessions[0].client, { toolTitle: "Synthetic navigation" }, 5000);
+  assert(beforeReset.nodes.some(node => node.name === "Nested target"));
+  await first.command("replace-navigation-row");
+  const afterReset = await readQtNativeSnapshot(sessions[0].client, { toolTitle: "Synthetic navigation" }, 5000);
+  assert(afterReset.nodes.some(node => node.name === "Replacement target"));
+  assert(!afterReset.nodes.some(node => node.name === "Nested target"));
+  await first.command("close-navigation-tool");
+  await first.command("reset-accessibility-status");
+  report.checks.push("The direct client activates platform accessibility before caching; replaced nested model rows remain complete before any UIA client attaches");
   for (let count = 0; count < 12; ++count) {
     const result = await read("get_value", { aid: "syntheticField" });
     assert.equal(result.ok, true, JSON.stringify(result)); assert.equal(result.backend, "qt"); assert.equal(result.value, "Native field – пример");
@@ -291,6 +311,82 @@ try {
   assert.equal((await read("snapshot", { toolWindow: "receiptManager" })).kind, "ambiguous");
   await first.command("close-tools");
   report.checks.push("Catalogue-bound nonmodal tool snapshots match independent UIA and reject duplicate window titles");
+  await first.command("open-modal-tool");
+  const modalTool = await readQtNativeSnapshot(sessions[0].client, { toolTitle: "BelegManager" }, 5000);
+  const blockedMain = await readQtNativeSnapshot(sessions[0].client, {}, 5000);
+  assert.equal(blockedMain.modalBlocked, true); assert.equal(blockedMain.activeModalHwnd, modalTool.hwnd);
+  const allowedMain = await readQtNativeSnapshot(sessions[0].client,
+    { allowedModalTitle: "BelegManager", allowedModalHwnd: modalTool.hwnd }, 5000);
+  assert.equal(allowedMain.modalBlocked, false); assert.equal(allowedMain.windowEnabled, true);
+  assert.equal(allowedMain.activeModalHwnd, modalTool.hwnd);
+  const wrongModal = await readQtNativeSnapshot(sessions[0].client,
+    { allowedModalTitle: "BelegManager", allowedModalHwnd: first.info.hwnd }, 5000);
+  assert.equal(wrongModal.modalBlocked, true, "A matching title cannot authorize another modal HWND");
+  await first.command("close-tools");
+  report.checks.push("Main reads behind an owned modal tool require its exact native HWND as well as its title");
+  await first.command("open-option-tool");
+  const optionWindow = await readQtNativeSnapshot(sessions[0].client, { toolTitle: "Synthetic options", withCellStates: true }, 5000);
+  const optionTables = optionWindow.nodes.filter(node => node.type === "Table"); assert.equal(optionTables.length, 1);
+  const optionArgs = { toolTitle: "Synthetic options", expectedRootHwnd: optionWindow.hwnd,
+    tableAid: optionTables[0].aid, toggleColumn: 0, labelColumn: 2 };
+  const optionsRead = async extra => (await sessions[0].client.request("accessibility_table_options", { ...optionArgs, ...extra }, 5000)).result;
+  assert.equal((await optionsRead({ expectedRootHwnd: optionWindow.hwnd + 1 })).code, "stale-window");
+  assert.equal((await optionsRead({ tableAid: optionTables[0].aid + ".stale" })).code, "stale");
+  assert.equal((await optionsRead({ labelColumn: 0 })).code, "INVALID_OPTION_TABLE");
+  const allOptions = await optionsRead({}); assert.equal(allOptions.ok, true, JSON.stringify(allOptions));
+  assert.equal(allOptions.complete, true); assert.equal(allOptions.canFetchMore, false);
+  assert.equal(allOptions.rowCount, 40); assert.equal(allOptions.columnCount, 3); assert.equal(allOptions.options.length, 40);
+  assert.equal(allOptions.options[39].name, "option-39"); assert.equal(allOptions.options[39].selected, true);
+  assert.equal(allOptions.options[39].visible, false, "The complete read must include the offscreen last row.");
+    const optionSaves = optionWindow.nodes.filter(node => node.type === "Button" && node.aid.endsWith(".optionSave"));
+    const optionCounters = optionWindow.nodes.filter(node => node.type === "Text" && node.aid.endsWith(".optionClickCount"));
+    assert.equal(optionSaves.length, 1); assert.equal(optionCounters.length, 1); assert.equal(optionSaves[0].on, false);
+    const optionOracleRead = async label => {
+    const optionOraclePath = join(temporary, `uia-options-${label}.json`);
+  const optionOracle = spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+    "-File", fileURLToPath(new URL("./qt-native-snapshot-uia.ps1", import.meta.url)),
+    "-Hwnd", String(optionWindow.hwnd), "-OptionTableAid", optionTables[0].aid, "-OutputPath", optionOraclePath,
+      "-OptionSaveAid", optionSaves[0].aid, "-OptionCounterAid", optionCounters[0].aid,
+    "-Desktop", desktop], { windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });
+  let optionOracleErrors = ""; optionOracle.stderr.on("data", chunk => { optionOracleErrors += chunk; });
+  const optionOracleTimer = setTimeout(() => optionOracle.kill(), 30_000);
+  const [optionOracleCode] = await once(optionOracle, "exit"); clearTimeout(optionOracleTimer);
+  assert.equal(optionOracleCode, 0, "Independent UIA option-grid read failed: " + optionOracleErrors);
+    return JSON.parse(readFileSync(optionOraclePath, "utf8"));
+    };
+    const oracleOptions = await optionOracleRead("initial");
+  assert.deepEqual(allOptions.options.map(({ index, name, selected }) => ({ index, name, selected })), oracleOptions.options);
+  assert.equal(allOptions.rowCount, oracleOptions.rowCount); assert.equal(allOptions.columnCount, oracleOptions.columnCount);
+    assert.equal(oracleOptions.saveEnabled, false); assert.equal(oracleOptions.clickCount, 0);
+    const optionCheck = async (expectedChecked, checked, notifyClicked, extra = {}) => {
+      const fresh = await optionsRead({}); assert.equal(fresh.ok, true);
+      const target = fresh.options[0];
+      return sessions[0].client.requestAcknowledged("accessibility_action", { toolTitle: "Synthetic options", expectedRootHwnd: optionWindow.hwnd,
+        action: "set-table-check-state", rid: target.toggleRid, aid: target.toggleAid, expectedName: target.toggleName,
+        expectedChecked, checked, expectedRowTitle: target.name, titleColumn: 2,
+        ...(notifyClicked ? { notifyClicked: true, expectedRootAid: optionWindow.root.aid, expectedTableAid: optionTables[0].aid } : {}), ...extra }, 5000);
+    };
+    const rawOption = await optionCheck(false, true, false); assert.equal(rawOption.result.ok, true); assert.equal(rawOption.result.notificationDispatched, false);
+    const rawSnapshot = await readQtNativeSnapshot(sessions[0].client, { toolTitle: "Synthetic options" }, 5000);
+    assert.equal(rawSnapshot.nodes.find(node => node.aid === optionSaves[0].aid).on, false, "A model-role commit alone does not notify application dirty tracking");
+    const staleNotification = await optionCheck(true, false, true, { expectedRootAid: optionWindow.root.aid + ".stale" });
+    assert.equal(staleNotification.result.ok, false); assert.equal(staleNotification.result.mutationAttempted, false);
+    assert.equal((await optionsRead({})).options[0].selected, true);
+    const notifiedOption = await optionCheck(true, false, true); assert.equal(notifiedOption.result.ok, true);
+    assert.equal(notifiedOption.result.notificationDispatched, true); assert.equal(notifiedOption.receiptAcknowledged, true);
+    const notifiedOracle = await optionOracleRead("notified");
+    assert.equal(notifiedOracle.options[0].selected, false); assert.equal(notifiedOracle.options[39].selected, true);
+    assert.equal(notifiedOracle.saveEnabled, true); assert.equal(notifiedOracle.clickCount, 1, "One typed business notification must enable completion exactly once");
+    const noopOption = await optionCheck(false, false, true); assert.equal(noopOption.result.ok, true); assert.equal(noopOption.result.notificationDispatched, false);
+    const noopSnapshot = await readQtNativeSnapshot(sessions[0].client, { toolTitle: "Synthetic options" }, 5000);
+    assert.equal(noopSnapshot.nodes.find(node => node.aid === optionCounters[0].aid).name, "1");
+  await first.command("mixed-option-tool"); assert.equal((await optionsRead({})).code, "INVALID_OPTION_TABLE");
+  await first.command("empty-option-tool");
+  const emptyOptions = await optionsRead({}); assert.equal(emptyOptions.ok, true); assert.equal(emptyOptions.rowCount, 0);
+  assert.deepEqual(emptyOptions.options, []); await first.command("close-option-tool");
+  assert.equal((await optionsRead({})).code, "not-found");
+  report.checks.push("Complete Qt option-grid reads match independent UIA across offscreen rows and hidden columns; empty grids are explicit and stale/partial bindings are refused");
+    report.checks.push("Exact checkbox model commits optionally notify the typed clicked signal once; independent UIA proves application save readiness, stale roots/no-ops do not notify, and callback-invalidated bindings report unknown outcomes");
   report.checks.push("Public native snapshot matches independent UIA nodes, IDs, parents, geometry, types and values; limits and filters preserve original indices");
   report.checks.push("Actual Win32 discovery reads the owned marker and binds process/window birth without any PowerShell inventory or discovery seam");
   const actionTarget = snapshot.nodes.filter(node => node.aid.endsWith("syntheticAction"));
@@ -316,6 +412,143 @@ try {
   await delay(200);
   assert.equal((await read("get_value", { aid: "syntheticField" })).value, "Changed by table action");
   report.checks.push("An exact Qt table-cell activation emits the table click without physical input");
+  await first.command("open-navigation-tool");
+  const navigationTree = await readQtNativeSnapshot(sessions[0].client, { toolTitle: "Synthetic navigation" }, 5000);
+  const nestedTargets = navigationTree.nodes.filter(node => node.type === "TreeItem" && node.name === "Nested target");
+  assert.equal(nestedTargets.length, 1);
+  const nestedTarget = nestedTargets[0];
+  const navigationAction = async extra => sessions[0].client.requestAcknowledged("accessibility_action", {
+    toolTitle: "Synthetic navigation", expectedRootHwnd: navigationTree.hwnd,
+    rid: nestedTarget.rid, aid: nestedTarget.aid, expectedName: nestedTarget.name, action: "activate-navigation-item", ...extra,
+  }, 5000);
+  const wrongNavigationRoot = await navigationAction({ expectedRootHwnd: first.info.hwnd });
+  assert.equal(wrongNavigationRoot.result.ok, false); assert.equal(wrongNavigationRoot.result.mutationAttempted, false);
+  assert.equal(wrongNavigationRoot.result.code, "stale-window");
+  const wrongNavigationName = await navigationAction({ expectedName: "Foreign heading" });
+  assert.equal(wrongNavigationName.result.ok, false); assert.equal(wrongNavigationName.result.mutationAttempted, false);
+  const nestedAction = await navigationAction({});
+  assert.equal(nestedAction.result.ok, true, JSON.stringify(nestedAction)); assert.equal(nestedAction.receiptAcknowledged, true);
+  assert.equal(nestedAction.result.modelIndexBinding, "viewport-hierarchical");
+  assert.equal(nestedAction.result.dispatch, "qt-navigation-signal");
+  const navigationAfter = await readQtNativeSnapshot(sessions[0].client, { toolTitle: "Synthetic navigation" }, 5000);
+  assert.equal(navigationAfter.nodes.find(node => node.aid.endsWith("navigationBusinessModel")).val, "Parent heading/Nested target");
+  assert.equal(navigationAfter.nodes.find(node => node.aid.endsWith("navigationClickCount")).val, "1");
+  const independentNavigation = await uiaSnapshot(navigationTree.hwnd);
+  assert.equal(independentNavigation.nodes.find(node => node.aid.endsWith("navigationBusinessModel")).val, "Parent heading/Nested target");
+  assert.equal(independentNavigation.nodes.find(node => node.aid.endsWith("navigationClickCount")).val, "1");
+  const flatNavigation = await sessions[0].client.requestAcknowledged("accessibility_action", {
+    expectedRootHwnd: first.info.hwnd, rid: tableActionTarget[0].rid, aid: tableActionTarget[0].aid,
+    expectedName: tableActionTarget[0].name, action: "activate-navigation-item",
+  }, 5000);
+  assert.equal(flatNavigation.result.ok, false); assert.equal(flatNavigation.result.mutationAttempted, false);
+  assert.equal(flatNavigation.result.code, "ACTION_UNSUPPORTED");
+  await first.command("close-navigation-tool");
+  report.checks.push("An exact hierarchical navigation label activates its nested model index once; independent UIA confirms the business model, while stale bindings and flat tables are refused");
+  const editTarget = async suffix => {
+    const current = await read("snapshot");
+    assert.equal(current.ok, true, JSON.stringify(current));
+    const candidates = current.nodes.filter(node => node.aid.endsWith(suffix));
+    assert.equal(candidates.length, 1, suffix); return candidates[0];
+  };
+  const editAction = async (target, action, args = {}) => {
+    const result = await sessions[0].client.requestAcknowledged("accessibility_action", {
+      rid: target.rid, aid: target.aid, expectedName: target.name, expectedRootHwnd: first.info.hwnd, action, ...args,
+    }, 5000);
+    return result;
+  };
+  const literal = "Native +^%~(){}[] äÖß € Україна 🚀 middle";
+  const lineTarget = await editTarget(".syntheticField");
+  const replaced = await editAction(lineTarget, "replace-edit-text", { expectedValue: "Changed by table action", value: literal });
+  assert.equal(replaced.result.ok, true, JSON.stringify(replaced.result)); assert.equal(replaced.receiptAcknowledged, true);
+  assert.equal((await read("get_value", { aid: "syntheticField" })).value, literal);
+  assert.equal((await read("get_value", { aid: "syntheticCommittedModel" })).value, literal);
+  assert.equal((await read("get_value", { aid: "syntheticEditedCount" })).value, "1");
+  const wrongRoot = await editAction(await editTarget(".syntheticField"), "replace-edit-text", {
+    expectedValue: literal, value: "Must not commit", expectedRootHwnd: first.info.hwnd + 1,
+  });
+  assert.equal(wrongRoot.result.ok, false); assert.equal(wrongRoot.result.code, "stale-window");
+  assert.equal(wrongRoot.result.mutationAttempted, false); assert.equal(wrongRoot.receiptAcknowledged, false);
+  assert.equal((await read("get_value", { aid: "syntheticCommittedModel" })).value, literal);
+  assert.equal((await read("get_value", { aid: "syntheticEditedCount" })).value, "1");
+  const staleEdit = await editAction(lineTarget, "replace-edit-text", { expectedValue: "Changed by table action", value: "Do not write" });
+  assert.equal(staleEdit.result.ok, false); assert.equal(staleEdit.result.mutationAttempted, false);
+  assert.equal((await read("get_value", { aid: "syntheticCommittedModel" })).value, literal);
+  for (const suffix of [".syntheticSecret", ".syntheticCommittedModel"]) {
+    const target = await editTarget(suffix);
+    const rejected = await editAction(target, "replace-edit-text", { expectedValue: "", value: "Do not write" });
+    assert.equal(rejected.result.ok, false); assert.equal(rejected.result.mutationAttempted, false);
+    assert.equal(rejected.receiptAcknowledged, false);
+  }
+  const cleared = await editAction(await editTarget(".syntheticField"), "replace-edit-text", { expectedValue: literal, value: "" });
+  assert.equal(cleared.result.ok, true); assert.equal(cleared.receiptAcknowledged, true);
+  assert.equal((await read("get_value", { aid: "syntheticCommittedModel" })).value, "");
+  assert.equal((await read("get_value", { aid: "syntheticEditedCount" })).value, "2");
+  const dateTarget = await editTarget(".syntheticDateEdit");
+  const dateEdit = await editAction(dateTarget, "replace-edit-text", { expectedValue: "01.01.2025", value: "15.01.2025" });
+  assert.equal(dateEdit.result.ok, true, JSON.stringify(dateEdit.result)); assert.equal(dateEdit.receiptAcknowledged, true);
+  assert.equal((await read("get_value", { aid: "syntheticDateModel" })).value, "2025-01-15");
+  assert.equal(await first.command("date-commit-count"), "1", "The spin-box commit signal must reach its model exactly once");
+  for (const rate of ["19", "7", "0"]) {
+    const rateTarget = await editTarget(".syntheticRateEdit");
+    const chosen = await editAction(rateTarget, "select-combo-value", { expectedValue: rateTarget.val, value: rate });
+    assert.equal(chosen.result.ok, true, JSON.stringify(chosen.result)); assert.equal(chosen.receiptAcknowledged, true);
+    assert.equal((await read("get_value", { aid: "syntheticRateModel" })).value.replace(/[^0-9]/gu, "") || "0", rate);
+  }
+  const toggle = await editAction(await editTarget(".syntheticCheck"), "toggle-check-box", { expectedChecked: true, checked: false });
+  assert.equal(toggle.result.ok, true); assert.equal(toggle.receiptAcknowledged, true);
+  assert.equal((await read("get_value", { aid: "syntheticCheckModel" })).value, "false");
+  const wrongToggle = await editAction(await editTarget(".syntheticCheck"), "toggle-check-box", { expectedChecked: true, checked: true });
+  assert.equal(wrongToggle.result.ok, false); assert.equal(wrongToggle.result.mutationAttempted, false);
+  for (const value of ["Literal Ελληνικά 🚀 middle +^%~(){}[]", ""]) {
+    const noteTarget = await editTarget(".syntheticNote");
+    const changed = await editAction(noteTarget, "replace-edit-text", { expectedValue: noteTarget.val, value });
+    assert.equal(changed.result.ok, true, JSON.stringify(changed.result)); assert.equal(changed.receiptAcknowledged, true);
+    assert.equal((await read("get_value", { aid: "syntheticNoteModel" })).value, value);
+    const independentlyObserved = await uiaSnapshot(first.info.hwnd);
+    assert.equal(independentlyObserved.nodes.filter(node => node.aid.endsWith(".syntheticNote"))[0].val, value);
+  }
+  report.checks.push("Exact Qt edit/date/combo/checkbox commits update independent business-signal models and UIA; literals, Unicode, empty values, stale/readonly/password guards and receipt acknowledgments pass");
+  const tableCheckTarget = async name => {
+    const current = await read("snapshot");
+    const candidates = current.nodes.filter(node => node.type === "DataItem" && node.name === name);
+    assert.equal(candidates.length, 1); return candidates[0];
+  };
+  const tableCheckArgs = { expectedChecked: false, checked: true, titleColumn: 2, expectedRowTitle: "row-0-cell-2" };
+  const wrongTableRow = await editAction(await tableCheckTarget("row-0-cell-1"), "set-table-check-state", {
+    ...tableCheckArgs, expectedRowTitle: "row-1-cell-2",
+  });
+  assert.equal(wrongTableRow.result.ok, false); assert.equal(wrongTableRow.result.mutationAttempted, false);
+  assert.equal((await read("get_value", { aid: "syntheticTableCheckCommits" })).value, "0");
+  const wrongTableRoot = await editAction(await tableCheckTarget("row-0-cell-1"), "set-table-check-state", {
+    ...tableCheckArgs, expectedRootHwnd: first.info.hwnd + 1,
+  });
+  assert.equal(wrongTableRoot.result.ok, false); assert.equal(wrongTableRoot.result.code, "stale-window");
+  assert.equal(wrongTableRoot.result.mutationAttempted, false);
+  for (const name of ["row-0-cell-3", "row-0-cell-4"]) {
+    const rejected = await editAction(await tableCheckTarget(name), "set-table-check-state", tableCheckArgs);
+    assert.equal(rejected.result.ok, false); assert.equal(rejected.result.mutationAttempted, false);
+  }
+  const checkedTable = await editAction(await tableCheckTarget("row-0-cell-1"), "set-table-check-state", tableCheckArgs);
+  assert.equal(checkedTable.result.ok, true, JSON.stringify(checkedTable.result)); assert.equal(checkedTable.receiptAcknowledged, true);
+  assert.equal((await read("get_value", { aid: "syntheticTableCheckModel" })).value, "true");
+  assert.equal((await read("get_value", { aid: "syntheticTableCheckCommits" })).value, "1");
+  assert.equal((await uiaSnapshot(first.info.hwnd, true)).cells.find(cell => cell.name === "row-0-cell-1").toggleState, "On");
+  const staleTableCheck = await editAction(await tableCheckTarget("row-0-cell-1"), "set-table-check-state", tableCheckArgs);
+  assert.equal(staleTableCheck.result.ok, false); assert.equal(staleTableCheck.result.mutationAttempted, false);
+  assert.equal((await read("get_value", { aid: "syntheticTableCheckCommits" })).value, "1");
+  const uncheckedTable = await editAction(await tableCheckTarget("row-0-cell-1"), "set-table-check-state", {
+    ...tableCheckArgs, expectedChecked: true, checked: false,
+  });
+  assert.equal(uncheckedTable.result.ok, true); assert.equal(uncheckedTable.receiptAcknowledged, true);
+  assert.equal((await read("get_value", { aid: "syntheticTableCheckModel" })).value, "false");
+  assert.equal((await read("get_value", { aid: "syntheticTableCheckCommits" })).value, "2");
+  assert.equal((await uiaSnapshot(first.info.hwnd, true)).cells.find(cell => cell.name === "row-0-cell-1").toggleState, "Off");
+  const sameTableCheck = await editAction(await tableCheckTarget("row-0-cell-1"), "set-table-check-state", {
+    ...tableCheckArgs, expectedChecked: false, checked: false,
+  });
+  assert.equal(sameTableCheck.result.ok, true); assert.equal(sameTableCheck.result.mutationAttempted, false);
+  assert.equal((await read("get_value", { aid: "syntheticTableCheckCommits" })).value, "2");
+  report.checks.push("Exact table CheckStateRole commits reach the independent dataChanged business model and UIA; stale row/window/state, partial and noncheckable cells are rejected without a commit");
   await first.command("change-field");
   assert.equal((await read("get_value", { aid: "syntheticField" })).value, "Changed by fixture");
   assert.equal((await read("get_value", { rid: fieldRid })).value, "Changed by fixture");
@@ -354,6 +587,66 @@ try {
   await first.command("delete-field"); assert.equal((await read("get_value", { aid: "syntheticField" })).kind, "not-found");
   assert.equal((await read("get_value", { rid: fieldRid })).kind, "not-found");
   report.checks.push("New window ambiguity, disabled windows and destroyed QObjects are observed on the retained connection");
+  // Unknown mutation outcomes deliberately make this application refuse later
+  // writes. Exercise that permanent barrier after the other mutation oracles.
+  await first.command("open-option-tool");
+  const invalidatingWindow = await readQtNativeSnapshot(sessions[0].client, { toolTitle: "Synthetic options" }, 5000);
+  const invalidatingTables = invalidatingWindow.nodes.filter(node => node.type === "Table"); assert.equal(invalidatingTables.length, 1);
+  const invalidatingGrid = (await sessions[0].client.request("accessibility_table_options", { toolTitle: "Synthetic options",
+    expectedRootHwnd: invalidatingWindow.hwnd, tableAid: invalidatingTables[0].aid, toggleColumn: 0, labelColumn: 2 }, 5000)).result;
+  assert.equal(invalidatingGrid.ok, true); const invalidatingTarget = invalidatingGrid.options[0];
+  await first.command("remove-option-on-click");
+  const disappearingOption = await sessions[0].client.requestAcknowledged("accessibility_action", { action: "set-table-check-state",
+    toolTitle: "Synthetic options", expectedRootHwnd: invalidatingWindow.hwnd, rid: invalidatingTarget.toggleRid,
+    aid: invalidatingTarget.toggleAid, expectedName: invalidatingTarget.toggleName, expectedChecked: false, checked: true,
+    expectedRowTitle: invalidatingTarget.name, titleColumn: 2, notifyClicked: true,
+    expectedRootAid: invalidatingWindow.root.aid, expectedTableAid: invalidatingTables[0].aid }, 5000);
+  assert.equal(disappearingOption.result.ok, false); assert.equal(disappearingOption.result.mutationAttempted, true);
+  assert.equal(disappearingOption.result.outcomeUnknown, true, "A notification that invalidates its persistent index must never report success");
+  const blockedReplay = await sessions[0].client.requestAcknowledged("accessibility_action", {
+    rid: actionTarget[0].rid, aid: actionTarget[0].aid, expectedName: "Synthetic action", action: "press" }, 5000);
+  assert.equal(blockedReplay.result.code, "RECOVERY_REQUIRED"); assert.equal(blockedReplay.result.mutationAttempted, false);
+  await first.command("close-option-tool");
+  for (const command of ["validate-field", "mask-field"]) {
+    const validatedFixture = await fixture();
+    await validatedFixture.command(command);
+    const validationSession = await startQtNativeBroker({ package: nativePackage, expectedImage: executable,
+      timeoutMs: 5000, target: validatedFixture.info });
+    try {
+      const before = await readQtNativeSnapshot(validationSession.client, { maxNodes: 5000 }, 5000);
+      const target = before.nodes.find(node => node.aid.endsWith(".syntheticField"));
+      assert(target); assert.equal(target.val, "10");
+      const refusal = await validationSession.client.requestAcknowledged("accessibility_action", {
+        expectedRootHwnd: validatedFixture.info.hwnd, rid: target.rid, aid: target.aid, expectedName: target.name,
+        action: "replace-edit-text", expectedValue: "10", value: "1",
+      }, 5000);
+      assert.equal(refusal.result.ok, false, command);
+      assert.equal(refusal.result.code, "EDIT_VALIDATION_FAILED");
+      assert.equal(refusal.result.mutationAttempted, true);
+      assert.equal(refusal.receiptAcknowledged, true, "The rejected attempted edit must retain its exact acknowledgment");
+      const after = await readQtNativeSnapshot(validationSession.client, { maxNodes: 5000 }, 5000);
+      assert.equal(after.nodes.find(node => node.aid.endsWith(".syntheticCommittedModel")).val, "Uncommitted model",
+        "Intermediate or incomplete input must never emit the model commit signal");
+    } finally { await validationSession.close(); }
+  }
+  report.checks.push("Intermediate validators and incomplete input masks refuse model commits; spin-box editingFinished reaches the model once");
+  const slowFixture = await fixture();
+  await slowFixture.command("slow-field-commit");
+  const slowSession = await startQtNativeBroker({ package: nativePackage, expectedImage: executable,
+    timeoutMs: 5000, target: slowFixture.info });
+  try {
+    const before = await readQtNativeSnapshot(slowSession.client, { maxNodes: 5000 }, 5000);
+    const target = before.nodes.find(node => node.aid.endsWith(".syntheticField")); assert(target);
+    const committed = await slowSession.client.requestAcknowledged("accessibility_action", {
+      expectedRootHwnd: slowFixture.info.hwnd, rid: target.rid, aid: target.aid, expectedName: target.name,
+      action: "replace-edit-text", expectedValue: target.val, value: "Slow verified commit",
+    }, 5000);
+    assert.equal(committed.result.ok, true, JSON.stringify(committed.result));
+    assert.equal(committed.receiptAcknowledged, true);
+    const after = await readQtNativeSnapshot(slowSession.client, { maxNodes: 5000 }, 5000);
+    assert.equal(after.nodes.find(node => node.aid.endsWith(".syntheticCommittedModel")).val, "Slow verified commit");
+  } finally { await slowSession.close(); }
+  report.checks.push("A bounded slow application commit completes inside the GUI/pipe budget with exact acknowledgment and model readback");
   await stopRuntime(); assert.equal(first.child.exitCode, null);
   report.checks.push("API shutdown ends every native helper while the target application remains alive");
   report.ok = true;

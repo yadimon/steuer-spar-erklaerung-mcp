@@ -138,6 +138,33 @@ function Get-SSEPageObjects {
   catch { Fail "Page-Object-Katalog ist ungueltig: $($_.Exception.Message)" 'invalid-catalog' }
   $script:SSE_PAGE_OBJECTS
 }
+function Test-SSEGotoTableReadiness([IntPtr]$Hwnd, [string]$Heading) {
+  $catalog = Get-SSEPageObjects
+  $policies = @($catalog.focuslessCommits.PSObject.Properties | ForEach-Object { $_.Value } |
+    Where-Object { [string]$_.heading -ceq $Heading -and [string]$_.controlType -ceq 'DataItem' })
+  if (-not $policies.Count) { return $true }
+  # Qt setzt den Seitentitel vor dem Formularinhalt. Nur die ohnehin
+  # profilierten Tabellen verlangen daher einen frischen Inhaltsbeweis.
+  $tree = Walk-BoundTree $Hwnd 4000 -WithValues
+  if (-not $tree -or -not $tree.stats -or [int]$tree.stats.err -ne 0 -or
+      [int]$tree.stats.cyc -ne 0 -or [bool]$tree.stats.truncated -or [bool]$tree.stats.depthLimited -or
+      (Get-CurrentHeading $Hwnd $tree) -cne $Heading) { return $false }
+  foreach ($policy in $policies) {
+    $suffix = [string]$policy.automationIdSuffix
+    if (-not $suffix -or -not @($policy.requiredSumChecks).Count) { return $false }
+    $tables = @($tree.nodes | Where-Object {
+      $_.type -ceq 'Table' -and [bool]$_.on -and $_.w -gt 0 -and $_.h -gt 0 -and
+      [string]$_.aid -and ([string]$_.aid).EndsWith($suffix, [StringComparison]::Ordinal)
+    })
+    if ($tables.Count -ne 1) { return $false }
+    foreach ($required in @($policy.requiredSumChecks)) {
+      $sum = Read-LabeledValueFromTree $tree $Hwnd ([string]$required.label) ([int](Arg $required 'occurrence' 1))
+      if (-not $sum.selected -or [string]$sum.selected.label -cne [string]$required.label -or
+          [string]::IsNullOrWhiteSpace([string]$sum.value)) { return $false }
+    }
+  }
+  $true
+}
 function Resolve-SSEFocuslessCommitPolicy([string]$Heading, $Node, [string]$ValueKind, [object[]]$SumChecks, $Tree) {
   $catalog = Get-SSEPageObjects
   foreach ($entry in @($catalog.focuslessCommits.PSObject.Properties)) {
@@ -2762,6 +2789,17 @@ function Get-SSEStartModeForCaseType([string]$DocumentType) {
     if ([string]$mode.Value -ieq $DocumentType) { return [string]$mode.Name }
   }
   ''
+}
+
+function Test-SSEImmutableSavedCaseIdentity([Collections.IDictionary]$Before, [Collections.IDictionary]$After) {
+  if (-not $Before -or -not $After) { return $false }
+  # Die Steuernummer ist ein editierbares Stammdatum. Fallart, Jahr und
+  # Uebermittlungsnachweis muessen beim Speichern hingegen erhalten bleiben.
+  foreach ($field in @('FileType', 'VJahr', 'ElsterTransferTime', 'MitElsterVersendetText')) {
+    if (-not $Before.Contains($field) -or -not $After.Contains($field) -or
+        [string]$Before[$field] -cne [string]$After[$field]) { return $false }
+  }
+  return $true
 }
 
 function Test-CaseBinding($Window, [string]$ExpectedPath, [switch]$DecisionOnly) {
@@ -6019,15 +6057,35 @@ function Wait-SSEComboExpansionState($Pattern, [bool]$Expanded, [int]$TimeoutMs)
 # Jede Runde ist ein einzelner ValuePattern-Abruf am gelaufenen Element; die
 # Frist ist die bisherige feste Wartezeit und damit die Obergrenze. Ein
 # Fehlschlag aendert nichts: Danach entscheidet derselbe Readback wie bisher.
+function Test-SSEComboPopupRoot($Obstruction, $List, [int]$ProcessId, [IntPtr]$PopupHwnd) {
+  [bool]($Obstruction -and $List -and [int64]$PopupHwnd -gt 0 -and
+    [int]$Obstruction.boundPid -eq $ProcessId -and [int]$Obstruction.hitPid -eq $ProcessId -and
+    [int64]$Obstruction.hitRoot -eq [int64]$PopupHwnd -and
+    [string]$Obstruction.className -cmatch '^Qt[0-9]+QWindowPopup(DropShadowSaveBits)?$' -and
+    $Obstruction.rootRect -and [int]$List.w -gt 0 -and [int]$List.h -gt 0 -and
+    [Math]::Abs([int]$Obstruction.rootRect.x - [int]$List.x) -le 25 -and
+    [Math]::Abs([int]$Obstruction.rootRect.y - [int]$List.y) -le 25 -and
+    [Math]::Abs([int]$Obstruction.rootRect.w - [int]$List.w) -le 35 -and
+    [Math]::Abs([int]$Obstruction.rootRect.h - [int]$List.h) -le 35)
+}
+
 function Test-SSEComboOptionPoint([IntPtr]$Window, $Binding, [int]$X, [int]$Y) {
   try {
-    $comboElement = Get-LiveElement $Window $Binding.comboRid $Binding.comboAid
+    $mainWindow = $(if ($Binding.mainHwnd) { [IntPtr][int64]$Binding.mainHwnd } else { $Window })
+    if ($Binding.clickHwnd -and [int64]$Window -ne [int64]$Binding.clickHwnd) { return $false }
+    if ($Binding.expectedPage -and (Get-CurrentHeading $mainWindow) -cne [string]$Binding.expectedPage) { return $false }
+    $comboElement = Get-LiveElement $mainWindow $Binding.comboRid $Binding.comboAid
     $pattern = $null
     if (-not (Test-SSEElementIdentity $comboElement $Binding.comboRid $Binding.comboAid) -or
         -not (Test-SSEElementVisible $comboElement) -or
         -not $comboElement.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$pattern) -or
         $pattern.Current.ExpandCollapseState -ne [System.Windows.Automation.ExpandCollapseState]::Expanded) { return $false }
-    $optionElement = Get-LiveElement $Window $Binding.optionRid $Binding.optionAid
+    if ($Binding.PSObject.Properties['expectedCurrent']) {
+      $valuePattern = $null
+      if (-not $comboElement.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$valuePattern) -or
+          [string]$valuePattern.Current.Value -cne [string]$Binding.expectedCurrent) { return $false }
+    }
+    $optionElement = Get-LiveElement $mainWindow $Binding.optionRid $Binding.optionAid
     if (-not (Test-SSEElementVisible $optionElement)) { return $false }
     $option = Convert-ExactElementToNode $optionElement
     if (-not $option -or -not $option.on -or $option.type -cne 'ListItem' -or
@@ -6041,8 +6099,13 @@ function Test-SSEComboOptionPoint([IntPtr]$Window, $Binding, [int]$X, [int]$Y) {
       if ($parent.GetCurrentPropertyValue($script:AE::ControlTypeProperty) -eq [System.Windows.Automation.ControlType]::List) {
         if (-not (Test-SSEElementVisible $parent)) { return $false }
         $list = Convert-ExactElementToNode $parent
-        return [bool]($list -and $list.on -and $X -ge $list.x -and $X -lt ($list.x + $list.w) -and
-          $Y -ge $list.y -and $Y -lt ($list.y + $list.h))
+        if (-not ($list -and $list.on -and $X -ge $list.x -and $X -lt ($list.x + $list.w) -and
+          $Y -ge $list.y -and $Y -lt ($list.y + $list.h))) { return $false }
+        if ($Binding.listRid -and ($list.rid -cne $Binding.listRid -or $list.aid -cne $Binding.listAid)) { return $false }
+        if ([int64]$Window -ne [int64]$mainWindow) {
+          return (Test-SSEComboPopupRoot (Get-SSEPointObstruction $mainWindow $X $Y) $list $Binding.processId $Window)
+        }
+        return $true
       }
       $parent = $script:WLK.GetParent($parent)
     }
@@ -6310,6 +6373,32 @@ function Read-SSETableComboCellState(
   } catch {
     [pscustomobject]@{ ok=$false; interference=$true; error=$_.Exception.Message; tree=$null }
   }
+}
+
+function Test-SSETableComboOptionPoint([IntPtr]$Window, $Binding, [int]$X, [int]$Y) {
+  if (-not $Binding -or [int64]$Window -notin @([int64]$Binding.mainHwnd, [int64]$Binding.popup.sourceHwnd)) { return $false }
+  $state = Read-SSETableComboCellState $Binding.mainHwnd $Binding.expectedPage $Binding.sumLabel `
+    $Binding.sumOccurrence $Binding.rowY $Binding.columnIndex $Binding.tableProfile
+  $cellBinding = Test-SSETableComboOpenFallbackBinding $Binding.cellState $state $Binding.tableProfile `
+    $Binding.expectedCurrent $Binding.columnIndex $Binding.sumOccurrence
+  if (-not $cellBinding.ok) { return $false }
+  $sources = @(Get-SSETableComboPopupSources $Binding.processId $Binding.mainHwnd $Binding.windowIdsBefore)
+  $popup = Resolve-SSETableComboPopup $sources $state.cell $Binding.wanted $Binding.expectedCurrent $Binding.tableProfile
+  if (-not (Test-SSETableComboPopupBindingEquivalent $Binding.popup $popup)) { return $false }
+  $popupWindows = @(Get-Windows 'SSE' | Where-Object {
+    [int]$_.pid -eq [int]$Binding.processId -and [int64]$_.hwnd -eq [int64]$popup.sourceHwnd
+  })
+  if ($popupWindows.Count -ne 1) { return $false }
+  $element = Get-LiveElement ([IntPtr][int64]$popup.sourceHwnd) $popup.target.rid $popup.target.aid
+  if (-not $element) { return $false }
+  $node = Convert-ExactElementToNode $element
+  [bool]($node -and $node.on -and [string]$node.type -ceq 'ListItem' -and
+    [string]$node.name -ceq [string]$Binding.wanted -and
+    [string]$node.rid -ceq [string]$popup.target.rid -and
+    [string]$node.aid -ceq [string]$popup.target.aid -and
+    [int]$node.w -gt 0 -and [int]$node.h -gt 0 -and
+    $X -ge [int]$node.x -and $X -lt ([int]$node.x + [int]$node.w) -and
+    $Y -ge [int]$node.y -and $Y -lt ([int]$node.y + [int]$node.h))
 }
 
 function Invoke-SSETableComboSelection {
@@ -6658,16 +6747,33 @@ function Invoke-SSETableComboSelection {
         $targetX=[int]($targetNode.x + $targetNode.w / 2)
         $targetY=[int]($targetNode.y + $targetNode.h / 2)
         $targetObstruction=Get-SSEPointObstruction ([IntPtr][int64]$postPopup.sourceHwnd) $targetX $targetY
+        $commitWindow = [IntPtr][int64]$postPopup.sourceHwnd
+        # Qt 31 kann am sichtbaren Optionspunkt den Hauptfenster-Root statt
+        # des Popups melden. Die frische Popup-/Zell-/Optionsbindung muss in
+        # diesem Fall unmittelbar vor dem Klick weiterhin exakt bestehen.
+        # Fremde Roots und andere SSE-Hauptfenster bleiben gesperrt.
+        if (-not $targetObstruction.isBoundTarget -and $script:SSE_ENGINE_MAJOR -eq 31 -and
+            [int]$targetObstruction.hitPid -eq $ProcessId -and [int64]$targetObstruction.hitRoot -eq [int64]$Hwnd) {
+          $commitWindow = $Hwnd
+          $targetObstruction = Get-SSEPointObstruction $commitWindow $targetX $targetY
+        }
         if (-not $targetObstruction.isBoundTarget -or [int]$targetObstruction.boundPid -ne $ProcessId -or
             -not (Test-SSELastInputUnchanged $InputBaseline)) {
           $selectionEvidence['fallbackError']='Popup-ListItem-Mittelpunkt ist nicht mehr an Popup-Root, PID und Eingabe-Epoche gebunden.'
           $selectionEvidence['obstruction']=$targetObstruction
         } else {
-          $popupClick=Click-VerifiedPoint -Window ([IntPtr][int64]$postPopup.sourceHwnd) -Node $targetNode `
-            -ExpectedInputTick $InputBaseline -RequireForeground
+          $commitBinding = [pscustomobject]@{
+            mainHwnd=$Hwnd; processId=$ProcessId; popup=$postPopup; cellState=$stateBefore
+            expectedPage=$ExpectedPage; sumLabel=$SumLabel; sumOccurrence=$SumOccurrence
+            rowY=$RowY; columnIndex=$ColumnIndex; tableProfile=$TableProfile
+            expectedCurrent=$ExpectedCurrent; wanted=$Wanted; windowIdsBefore=$windowIdsBefore
+          }
+          $popupClick=Click-VerifiedPoint -Window $commitWindow -Node $targetNode `
+            -ExpectedInputTick $InputBaseline -RequireForeground `
+            -BeforeClickCheck ${function:Test-SSETableComboOptionPoint} -BeforeClickBinding $commitBinding
           $InputBaseline=Get-SSELastInputTick
           $selectionEvidence['verifiedPoint']=[pscustomobject]@{
-            x=$popupClick.x; y=$popupClick.y; hwnd=[int64]$postPopup.sourceHwnd; pid=$ProcessId
+            x=$popupClick.x; y=$popupClick.y; hwnd=[int64]$postPopup.sourceHwnd; clickRoot=[int64]$commitWindow; pid=$ProcessId
             listRid=[string]$postPopup.list.rid; targetRid=[string]$postPopup.target.rid
             targetAid=[string]$postPopup.target.aid; obstruction=$targetObstruction
           }
@@ -7107,8 +7213,59 @@ function Close-TrackedResultWindow($Tracking) {
   -not [SW]::IsWindow($hwnd)
 }
 
+function Send-SSETrackedLiteralText([IntPtr]$Hwnd, $Target, $ValuePattern, [string]$Value, $InputBefore, $Point) {
+  # Qt queues ordinary key events but commits surrogate pairs synchronously
+  # through its input method. Prove each preceding chunk before dispatching the
+  # next one so a supplementary character cannot overtake the queued prefix.
+  $chunks = @([regex]::Split($Value, '([\uD800-\uDBFF][\uDC00-\uDFFF])') | Where-Object { $_.Length })
+  $inputCheckpoint = Get-SSELastInputTick
+  $mutationStarted = $false
+  $prefix = ''
+  for ($index = 0; $index -lt $chunks.Count; $index++) {
+    if (-not (Test-SSELastInputUnchanged $inputCheckpoint) -or
+        [SW]::GetForegroundWindow() -ne $Hwnd -or -not $Target.Current.HasKeyboardFocus) {
+      return New-SSECommitResult 'interference-during-native-input' $InputBefore (Get-SSELastInputTick) ([pscustomobject]@{
+        mutationStarted=$mutationStarted
+      })
+    }
+    $mutationStarted = $true
+    $sent = [SW]::SendUnicodeText([string]$chunks[$index])
+    $inputCheckpoint = Get-SSELastInputTick
+    Set-SSEForegroundLeaseInputCheckpoint $inputCheckpoint $Point
+    if (-not $sent) {
+      return New-SSECommitResult 'native-input-incomplete' $InputBefore $inputCheckpoint ([pscustomobject]@{
+        mutationStarted=$mutationStarted
+      })
+    }
+    $prefix += [string]$chunks[$index]
+    if ($index -lt $chunks.Count - 1) {
+      $prefixWatch = [Diagnostics.Stopwatch]::StartNew()
+      $prefixReady = $false
+      do {
+        if (-not (Test-SSELastInputUnchanged $inputCheckpoint) -or
+            [SW]::GetForegroundWindow() -ne $Hwnd -or -not $Target.Current.HasKeyboardFocus) {
+          return New-SSECommitResult 'interference-during-native-input' $InputBefore (Get-SSELastInputTick) ([pscustomobject]@{
+            mutationStarted=$mutationStarted
+          })
+        }
+        if ([string]$ValuePattern.Current.Value -ceq $prefix) { $prefixReady=$true; break }
+        Start-Sleep -Milliseconds 10
+      } while ($prefixWatch.ElapsedMilliseconds -lt 700)
+      if (-not $prefixReady) {
+        return New-SSECommitResult 'native-input-unsettled' $InputBefore $inputCheckpoint ([pscustomobject]@{
+          mutationStarted=$mutationStarted
+        })
+      }
+    }
+  }
+  New-SSECommitResult 'verified-native-text' $InputBefore $inputCheckpoint ([pscustomobject]@{
+    mutationStarted=$mutationStarted
+  })
+}
+
 function Commit-TrackedValue([IntPtr]$Hwnd, $Node, [string]$Value, [string]$ExpectedCurrent) {
   if ($script:DESKTOP_NAME) { return New-SSECommitResult 'none-hidden-desktop' }
+  $mutationStarted = $false
   try {
     # Qt uebernimmt ValuePattern optisch, aber nicht in sein Rechenmodell:
     # Feld 12,00, Summen weiter 0,00 - sogar nach UIA-Fokuswechsel und TAB.
@@ -7277,19 +7434,31 @@ function Commit-TrackedValue([IntPtr]$Hwnd, $Node, [string]$Value, [string]$Expe
       return New-SSECommitResult 'interference-before-value' $inputBefore $changedAt
     }
     if ($Value) {
-      [System.Windows.Forms.SendKeys]::SendWait((ConvertTo-SendKeysLiteral $Value))
+      # Literal Unicode input avoids SendKeys' per-character pacing and command
+      # syntax. The same fresh focus/input binding above still owns this write;
+      # TAB and the independent caller readback must prove the Qt model commit.
+      $mutationStarted = $true
+      $literalCommit = Send-SSETrackedLiteralText $Hwnd $target $vp $Value $inputBefore ([pscustomobject]@{ x=$px; y=$py })
+      $mutationStarted = [bool]$literalCommit.details.mutationStarted
+      if ($literalCommit.method -cne 'verified-native-text') {
+        Complete-SSEPhysicalSection $Hwnd
+        return $literalCommit
+      }
       $afterValueInput = Get-SSELastInputTick
       Set-SSEForegroundLeaseInputCheckpoint $afterValueInput ([pscustomobject]@{ x=$px; y=$py })
       Start-Sleep -Milliseconds 60
       if (-not (Test-SSELastInputUnchanged $afterValueInput) -or [SW]::GetForegroundWindow() -ne $Hwnd) {
         $changedAt = Get-SSELastInputTick
         Complete-SSEPhysicalSection $Hwnd
-        return New-SSECommitResult 'interference-after-value' $inputBefore $changedAt
+        return New-SSECommitResult 'interference-after-value' $inputBefore $changedAt ([pscustomobject]@{
+          mutationStarted=$mutationStarted
+        })
       }
     } else {
       # Ctrl+A allein veraendert den Qt-Wert nicht. Ein leerer Sollwert muss
       # deshalb die markierte Eingabe explizit loeschen, bevor TAB das
       # textChanged-/editingFinished-Signal ausloest.
+      $mutationStarted = $true
       [System.Windows.Forms.SendKeys]::SendWait('{BACKSPACE}')
       $afterValueInput = Get-SSELastInputTick
       Set-SSEForegroundLeaseInputCheckpoint $afterValueInput ([pscustomobject]@{ x=$px; y=$py })
@@ -7297,7 +7466,9 @@ function Commit-TrackedValue([IntPtr]$Hwnd, $Node, [string]$Value, [string]$Expe
       if (-not (Test-SSELastInputUnchanged $afterValueInput) -or [SW]::GetForegroundWindow() -ne $Hwnd) {
         $changedAt = Get-SSELastInputTick
         Complete-SSEPhysicalSection $Hwnd
-        return New-SSECommitResult 'interference-after-value' $inputBefore $changedAt
+        return New-SSECommitResult 'interference-after-value' $inputBefore $changedAt ([pscustomobject]@{
+          mutationStarted=$mutationStarted
+        })
       }
     }
     [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
@@ -7315,6 +7486,7 @@ function Commit-TrackedValue([IntPtr]$Hwnd, $Node, [string]$Value, [string]$Expe
         Complete-SSEPhysicalSection $Hwnd
         return New-SSECommitResult 'interference-after-commit' $inputBefore $changedAt ([pscustomobject]@{
           settleMs=[int64]$settleWatch.ElapsedMilliseconds; settleAttempts=$settleAttempts
+          mutationStarted=$mutationStarted
         })
       }
       try { $settledValue = [string]$vp.Current.Value } catch { $settledValue = $null }
@@ -7327,10 +7499,16 @@ function Commit-TrackedValue([IntPtr]$Hwnd, $Node, [string]$Value, [string]$Expe
       focusMethod=$focusMethod
       settleMs=[int64]$settleWatch.ElapsedMilliseconds; settleAttempts=$settleAttempts
       settledEarly=$settledEarly; observedValue=$settledValue
+      mutationStarted=$mutationStarted
     }
     Complete-SSEPhysicalSection $Hwnd
     return New-SSECommitResult 'verified-keyboard-replace' $inputBefore $afterCommitInput $settleDetails
-  } catch { Complete-SSEPhysicalSection $Hwnd; return New-SSECommitResult 'failed' }
+  } catch {
+    Complete-SSEPhysicalSection $Hwnd
+    return New-SSECommitResult 'failed' $inputBefore (Get-SSELastInputTick) ([pscustomobject]@{
+      mutationStarted=$mutationStarted
+    })
+  }
 }
 
 function Commit-TrackedValueFocusless([IntPtr]$Hwnd, $Node, [string]$Value, [string]$ExpectedCurrent) {
@@ -7756,14 +7934,14 @@ $foregroundRequiredReceiptOps = @(
   'receipt_manager_read', 'receipt_manager_update'
 )
 
-function Resolve-SSEBuildIdentityForOperation([string]$Operation, $Args) {
+function Resolve-SSEBuildIdentityForOperation([string]$Operation, $OperationArguments) {
   # Launch besitzt noch kein gebundenes Fenster; alle anderen UI-/Steuerfall-
   # Mutationen muessen den Build der tatsaechlich laufenden SSE pruefen, nicht
   # bloss den konfigurierten Standardinstallationspfad.
   if ($Operation -eq 'launch') {
     return [pscustomobject]@{ identity=(Get-SSEExecutableIdentity $script:SSE_DEFAULT_EXE); source='configured' }
   }
-  $requestedPid = $(if ($Args -and $Args.PSObject.Properties['pid']) { [int]$Args.pid } else { 0 })
+  $requestedPid = $(if ($OperationArguments -and $OperationArguments.PSObject.Properties['pid']) { [int]$OperationArguments.pid } else { 0 })
   if ($requestedPid -gt 0) {
     $process = Get-Process -Id $requestedPid -ErrorAction SilentlyContinue
     if (-not $process -or $process.ProcessName -ne 'SSE') {
@@ -7771,7 +7949,7 @@ function Resolve-SSEBuildIdentityForOperation([string]$Operation, $Args) {
     }
     return [pscustomobject]@{ identity=(Get-SSEExecutableIdentity ([string]$process.Path)); source='pid' }
   }
-  $requestedHwnd = $(if ($Args -and $Args.PSObject.Properties['hwnd']) { [int64]$Args.hwnd } else { 0 })
+  $requestedHwnd = $(if ($OperationArguments -and $OperationArguments.PSObject.Properties['hwnd']) { [int64]$OperationArguments.hwnd } else { 0 })
   if ($requestedHwnd -gt 0) {
     $ownerPid = 0
     [SW]::GetWindowThreadProcessId([IntPtr]$requestedHwnd, [ref]$ownerPid) | Out-Null
@@ -7799,9 +7977,9 @@ function Resolve-SSEBuildIdentityForOperation([string]$Operation, $Args) {
   [pscustomobject]@{ identity=(Get-SSEExecutableIdentity $script:SSE_DEFAULT_EXE); source='configured' }
 }
 
-function Assert-SSEVerifiedBuildForOperation([string]$Operation, $Args = $null) {
+function Assert-SSEVerifiedBuildForOperation([string]$Operation, $OperationArguments = $null) {
   if ($Operation -notin $buildDriftBlockedOps) { return }
-  $resolved = Resolve-SSEBuildIdentityForOperation $Operation $Args
+  $resolved = Resolve-SSEBuildIdentityForOperation $Operation $OperationArguments
   if ($resolved.error) { Fail $resolved.error 'build-identity-unverified' }
   $identity = $resolved.identity
   # Ohne laufende Instanz delegieren wir weiter an die bestehende Operations-
@@ -11519,7 +11697,42 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         Fail ("Option '$wanted' wurde in der virtualisierten Liste nicht materialisiert. Aehnliche Optionen: " +
               ($nearVirtualNames -join ', ') + '. Letzter Ausschnitt: ' + ($lastVirtualNames -join ', ')) 'not-found'
       }
-      $null = Click-VerifiedPoint $hwnd $virtualMatch
+      $virtualOption = Get-LiveElement $hwnd $virtualMatch.rid $virtualMatch.aid
+      $virtualOptionNode = $(if ($virtualOption) { Convert-ExactElementToNode $virtualOption } else { $null })
+      if (-not $virtualOptionNode -or -not $virtualOptionNode.on -or $virtualOptionNode.type -cne 'ListItem' -or
+          $virtualOptionNode.rid -cne $virtualMatch.rid -or $virtualOptionNode.aid -cne $virtualMatch.aid -or
+          $virtualOptionNode.name -cne $wanted) {
+        Fail 'Virtualisierte Option wechselte vor dem gebundenen Optionsklick. NICHT geklickt.' 'stale'
+      }
+      $virtualOptionLists = @($virtualTree.nodes | Where-Object {
+        $_.type -eq 'List' -and $_.aid -and $_.aid.StartsWith($prefix) -and
+        $virtualOptionNode.x -ge $_.x -and $virtualOptionNode.y -ge $_.y -and
+        ($virtualOptionNode.x + $virtualOptionNode.w) -le ($_.x + $_.w) -and
+        ($virtualOptionNode.y + $virtualOptionNode.h) -le ($_.y + $_.h)
+      })
+      if ($virtualOptionLists.Count -ne 1) {
+        Fail 'Virtualisierte Option hat keine eindeutig gebundene sichtbare Liste. NICHT geklickt.' 'ambiguous'
+      }
+      $virtualClickWindow = $hwnd
+      $virtualPointX = [int]($virtualOptionNode.x + $virtualOptionNode.w / 2)
+      $virtualPointY = [int]($virtualOptionNode.y + $virtualOptionNode.h / 2)
+      $virtualObstruction = Get-SSEPointObstruction $hwnd $virtualPointX $virtualPointY
+      if (-not $virtualObstruction.isBoundTarget) {
+        $popupRoot = [IntPtr][int64]$virtualObstruction.hitRoot
+        if ($script:SSE_ENGINE_MAJOR -ne 31 -or
+            -not (Test-SSEComboPopupRoot $virtualObstruction $virtualOptionLists[0] $targetPid $popupRoot)) {
+          Fail 'Virtualisierte Option liegt nicht im gebundenen Hauptfenster oder seinem exakten Qt-Popup. NICHT geklickt.' 'obstructed'
+        }
+        $virtualClickWindow = $popupRoot
+      }
+      $virtualOptionBinding = [pscustomobject]@{
+        mainHwnd=$hwnd; clickHwnd=$virtualClickWindow; processId=$targetPid; expectedPage=$expectedPage
+        comboRid=$combo.rid; comboAid=$combo.aid; expectedCurrent=$expectedCurrent
+        optionRid=$virtualMatch.rid; optionAid=$virtualMatch.aid; optionName=$wanted
+        listRid=$virtualOptionLists[0].rid; listAid=$virtualOptionLists[0].aid
+      }
+      $null = Click-VerifiedPoint -Window $virtualClickWindow -Node $virtualOptionNode -ExpectedInputTick $inputBaseline `
+        -BeforeClickCheck ${function:Test-SSEComboOptionPoint} -BeforeClickBinding $virtualOptionBinding
       $inputBaseline = Get-SSELastInputTick
       Start-Sleep -Milliseconds 80
       if ($null -eq $inputBaseline -or -not (Test-SSELastInputUnchanged $inputBaseline)) {
@@ -12340,9 +12553,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $saveAfter = @($treeAfter.nodes | Where-Object { $_.type -eq 'Button' -and $_.name -eq 'Sichern' })[0]
     $dialogWindows = @(Get-DialogInventory | Where-Object { $_.kind -in @('native-dialog','qt-dialog') })
     # FileSavedBy darf sich beim ersten Speichern nach einem Programmupdate
-    # legitim aendern (z. B. 31.26 -> 31.30). Identitaet, Steuerjahr,
-    # Steuernummer und insbesondere der Uebermittlungsstatus muessen dagegen
-    # unveraendert bleiben.
+    # legitim aendern (z. B. 31.26 -> 31.30). Auch eine editierte Steuernummer
+    # wird gespeichert. Fallart, Steuerjahr und der Uebermittlungsstatus
+    # muessen dagegen unveraendert bleiben.
     # 'Kein Zeitstempel' schreibt SSE je nach Build als '-' oder leer. Gemessen
     # am Herstellermusterfall: vor dem Speichern '-', danach ''. Beides heisst
     # unuebermittelt; ein echter Zeitstempel bliebe weiterhin ein Unterschied.
@@ -12365,8 +12578,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       ElsterTransferTime = & $normalisiereTransferZeit $summaryAfter.header.ElsterTransferTime
       MitElsterVersendetText = $summaryAfter.header.MitElsterVersendetText
     } } else { $null })
-    $headerStable = ($null -ne $identityAfter -and
-                     ($identityBefore | ConvertTo-Json -Compress) -eq ($identityAfter | ConvertTo-Json -Compress) -and
+    $headerStable = ((Test-SSEImmutableSavedCaseIdentity $identityBefore $identityAfter) -and
                      $summaryBefore.transmitted -eq $summaryAfter.transmitted)
     # Nicht '-gt': SSE speichert ueber eine temporaere Datei und benennt um.
     # Windows uebernimmt dabei per File Tunneling die alten Zeitstempel des
@@ -12386,7 +12598,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       elseif ($after -eq $before) { $offen += 'hash-unveraendert' }
       if (-not $mtimeNichtZurueckgedreht) { $offen += 'schreibzeit-zurueckgedreht' }
       if (-not $headerStable) {
-        $offen += $(if (($identityBefore | ConvertTo-Json -Compress) -ne ($identityAfter | ConvertTo-Json -Compress)) {
+        $offen += $(if (-not (Test-SSEImmutableSavedCaseIdentity $identityBefore $identityAfter)) {
           'fallidentitaet-geaendert'
         } else { 'uebermittlungsstatus-geaendert' })
       }
@@ -12644,6 +12856,12 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     if (-not $sourceBinding.ok) {
       Fail "Fensterpfad stimmt nicht mit '$sourcePath' ueberein." 'precondition-failed'
     }
+    # Qt oeffnet das Datei-Menue hinter einem anderen aktiven Programm nicht
+    # verlaesslich per ExpandCollapse. Erst nach Pfad- und Hashpruefung das
+    # gebundene Fenster ueber die bestehende Foreground-Lease aktivieren.
+    if (-not (Show-SSEWindow $hwnd)) {
+      Fail 'Das gebundene Hauptfenster konnte fuer Speichern unter nicht aktiviert werden.' 'foreground-failed'
+    }
     $null = Open-SSEMenuByName $hwnd 'Datei'
     $saveAsMatches = @(Get-SSEOpenMenuEntryMatches $hwnd $targetPid 'Speichern unter...')
     if ($saveAsMatches.Count -ne 1) {
@@ -12696,7 +12914,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # Ein unerwarteter Dialog (einschliesslich eines durch ein Rennen neu
     # entstandenen Ueberschreibdialogs) wird niemals automatisch bestaetigt.
     $remaining = @(Get-Windows 'SSE' | Where-Object {
-      [int64]$_.hwnd -ne [int64]$hwnd -and $_.title -ne 'Steuer-Spar-Tipps'
+      [int]$_.pid -eq $targetPid -and [int64]$_.hwnd -ne [int64]$hwnd -and $_.title -ne 'Steuer-Spar-Tipps'
     })
     if ($remaining.Count) {
       Emit ([pscustomobject]@{
@@ -12708,7 +12926,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $sourceHashAfter = Get-Sha256 $sourcePath
     $sourceSummary = Get-CaseSummary $sourcePath
     $targetSummary = Get-CaseSummary $targetPath
-    $mainAfter = @(Get-Windows 'SSE' | Sort-Object { $_.w * $_.h } -Descending)[0]
+    $mainAfter = @(Get-Windows 'SSE' | Where-Object {
+      [int64]$_.hwnd -eq [int64]$hwnd -and [int]$_.pid -eq $targetPid
+    })[0]
     $targetBinding = Test-CaseBinding $mainAfter $targetPath
     $attachedPath = $targetBinding.titlePath
     $headerMatches = ($sourceSummary -and $targetSummary -and
@@ -16280,13 +16500,15 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     }
     function IstZielseite {
       param([IntPtr]$h, [string]$heading)
-      if (-not $knownTarget) { return [bool]($heading -eq $ziel) }
+      if (-not $knownTarget) {
+        return [bool]($heading -eq $ziel -and (Test-SSEGotoTableReadiness $h $heading))
+      }
       if (-not (Test-KnownPageHeading $heading $knownTarget.page)) { return $false }
       foreach ($fieldProperty in @($knownTarget.page.fields.PSObject.Properties)) {
         $fieldKnown = [pscustomobject]@{ page=$knownTarget.page; field=$fieldProperty.Value }
         if (-not (Resolve-KnownFieldNode $h $fieldKnown)) { return $false }
       }
-      $true
+      Test-SSEGotoTableReadiness $h $heading
     }
     function WarteAufUeberschrift {
       param(
@@ -16312,8 +16534,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         Start-Sleep -Milliseconds 200
       } while ($sw.ElapsedMilliseconds -lt $timeoutMs)
       $letzte = AktuelleUeberschrift $h
-      if ($knownTarget -and (Test-KnownPageHeading $letzte $knownTarget.page) -and -not (IstZielseite $h $letzte)) {
-        Fail 'Die Zielueberschrift ist sichtbar, aber ihre profilierten Felder sind noch nicht vollstaendig gebunden; keine weitere Navigation ausgeloest.' `
+      $headingMatchesTarget = $(if ($knownTarget) { Test-KnownPageHeading $letzte $knownTarget.page } else { $letzte -eq $erwartet })
+      if ($headingMatchesTarget -and -not (IstZielseite $h $letzte)) {
+        Fail 'Die Zielueberschrift ist sichtbar, aber ihre profilierten Felder oder Tabellen sind noch nicht vollstaendig gebunden; keine weitere Navigation ausgeloest.' `
           'navigation-blocked' ([pscustomobject]@{ueberschrift=$letzte})
       }
       return $letzte
@@ -16403,9 +16626,18 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       # eintreffender Wechsel wuerde sonst eine zweite Navigation ueberholen.
       # Ein Pruefhinweis stoppt wie beim Blaettern sofort.
       # useSearch=false bleibt rein fokusfrei und erreicht diesen Weg nie.
-      $baumZiel = $(if ($script:DESKTOP_NAME -or $ts.stats.truncated -or $ts.stats.err) {
+      $baumZiel = $(if ($script:DESKTOP_NAME -or $ts.stats.truncated -or $ts.stats.err -or $ts.stats.cyc) {
         $null
-      } else { Get-SSEVisibleNavigationItem $ts.nodes $ziel })
+      } else {
+        # Manche Seiten tragen im Navigator einen anderen Namen als in der
+        # Ueberschrift. Nur der katalogisierte Baumname ersetzt hier das
+        # Klickziel; die Erfolgspruefung bleibt an Ueberschrift und Felder
+        # des Seitenobjekts gebunden.
+        $baumName = $(if ($knownTarget -and [string]$knownTarget.page.navigationTreeItemName) {
+          [string]$knownTarget.page.navigationTreeItemName
+        } else { $ziel })
+        Get-SSEVisibleNavigationItem $ts.nodes $baumName
+      })
       # Unmittelbar vor dem Klick frisch binden: Typ, Name, RuntimeId und
       # Aktivierbarkeit muessen noch stimmen, und der Punkt kommt aus dem
       # aktuellen Rechteck. Hat sich der Eintrag veraendert, ist nichts
@@ -16598,6 +16830,13 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
               $nachSuche = AktuelleUeberschrift $hwnd
               $null = $suchWeg.Add("Suchseite geöffnet: '$nachSuche'")
               if ($aktiviert) {
+                # Das Aktivierungssignal stammt von vor dem Suchschluss. Erst
+                # die frische Zielpruefung bestaetigt die danach sichtbare Seite.
+                $nachSuche = WarteAufUeberschrift $hwnd $nachSuche $ziel 1800
+                if (-not (IstZielseite $hwnd $nachSuche)) {
+                  Fail 'Die Zielseite ist nach dem Suchschluss nicht bereit; keine weitere Navigation.' 'navigation-blocked' `
+                    ([pscustomobject]@{ ueberschrift = $nachSuche; weg = @($suchWeg) })
+                }
                 # Ein vorher versuchter Navigationsbaum-Klick steht hinter dem
                 # Startpunkt in $weg; der Weg soll ihn nicht verschweigen.
                 Emit ([pscustomobject]@{ ok = $true; erreicht = $true; pageId=$(if ($pageId) { $pageId } else { $null }); ueberschrift = $nachSuche; schritte = 1
@@ -20011,7 +20250,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     }
 
     $changedFields = New-Object System.Collections.ArrayList
-    $failedField = $null; $failedReason = $null; $uncertainFieldMutation = $false
+    $failedField = $null; $failedReason = $null; $uncertainFieldMutation = $false; $failedInputGuard = $false
     foreach ($transaction in @($transactions)) {
       $resolved = Get-SSEReceiptManagerLiveEditableField $toolHwnd $transaction.binding
       if (-not $resolved) {
@@ -20053,9 +20292,13 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       } else {
         $commit = Commit-TrackedValue $toolHwnd $resolved.node ([string]$transaction.requested) ([string]$currentValue)
         if ([string]$commit.method -cne 'verified-keyboard-replace') {
-          $failedField = $transaction.name; $failedReason = "Feldcommit meldete '$([string]$commit.method)'."; break
+          $failedField = $transaction.name; $failedReason = "Feldcommit meldete '$([string]$commit.method)'."
+          $uncertainFieldMutation = [bool]$commit.details.mutationStarted
+          $failedInputGuard = [bool]$commit.interference
+          break
         }
       }
+      $uncertainFieldMutation = $true
       $afterField = Wait-SSEReceiptManagerLiveFieldValue `
         $toolHwnd $resolved $transaction.requested $transaction.kind ([int]$waitMs)
       if (-not $afterField.ok) {
@@ -20066,6 +20309,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $transaction.binding = $afterField.resolved
       $transaction.changed = $true
       $null = $changedFields.Add([string]$transaction.name)
+      $uncertainFieldMutation = $false
     }
 
     if ($failedField) {
@@ -20079,7 +20323,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         $resolved = Get-SSEReceiptManagerLiveEditableField $toolHwnd $transaction.binding
         $currentValue = $(if ($resolved) { Get-SSEReceiptManagerFieldValue $resolved } else { $null })
         $entryOk = $false; $method = 'not-attempted'
-        if ($resolved -and (Test-SSEReceiptManagerFieldValue $currentValue $transaction.requested $transaction.kind)) {
+        if ($resolved -and (Test-SSEReceiptManagerFieldValue $currentValue $transaction.before $transaction.kind)) {
+          $entryOk = $true; $method = 'verified-unchanged'
+        } elseif (-not $failedInputGuard -and $resolved -and
+            (Test-SSEReceiptManagerFieldValue $currentValue $transaction.requested $transaction.kind)) {
           if ([string]$transaction.name -ceq 'vatRate') {
             $rollbackState = Get-SSEReceiptManagerState $toolHwnd $policy -WithValues
             $resolved = Resolve-SSEReceiptManagerEditableFieldNode $rollbackState $policy 'vatRate'

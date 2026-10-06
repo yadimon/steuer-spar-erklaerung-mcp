@@ -116,7 +116,10 @@ assert(comboFunction.includes("Test-SSETableComboBoundListPresent $postSources $
 assert(comboFunction.includes("[int64]$postPopup.sourceHwnd -eq [int64]$Hwnd"));
 assert(comboFunction.includes("[int]$_.pid -eq $ProcessId -and [int64]$_.hwnd -eq [int64]$postPopup.sourceHwnd"));
 assert(comboFunction.includes("Get-SSEPointObstruction ([IntPtr][int64]$postPopup.sourceHwnd)"));
-assert(comboFunction.includes("Click-VerifiedPoint -Window ([IntPtr][int64]$postPopup.sourceHwnd) -Node $targetNode"));
+assert(comboFunction.includes("Click-VerifiedPoint -Window $commitWindow -Node $targetNode"));
+assert(comboFunction.includes("-BeforeClickCheck ${function:Test-SSETableComboOptionPoint} -BeforeClickBinding $commitBinding"));
+assert(comboFunction.includes("[int64]$targetObstruction.hitRoot -eq [int64]$Hwnd"));
+assert(comboFunction.includes("[int]$targetObstruction.hitPid -eq $ProcessId"));
 assert(comboFunction.includes("selection-item+verified-list-item-point"));
 assert(comboFunction.includes("$selectionEvidence['boundListGone']=$popupClosed"));
 assert(comboFunction.includes("$visualOk"));

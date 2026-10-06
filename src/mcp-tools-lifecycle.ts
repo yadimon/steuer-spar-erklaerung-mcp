@@ -108,9 +108,9 @@ export function registerLifecycleTools(registry: McpRegistry): void {
     {
       title: "Steuerfall sicher speichern unter",
       description:
-        "Oeffnet den echten SSE-Dialog 'Speichern unter...' mit Strg+Alt+S, setzt den Zielpfad ueber " +
+        "Oeffnet den echten SSE-Dialog 'Speichern unter...' ueber das exakt gebundene Datei-Menue, setzt den Zielpfad ueber " +
         "UI Automation und prueft anschliessend Zieldatei, SHA256 und Fenstertitel. Quelldateipfad und " +
-        "Quell-Hash sind Pflicht. Das Ziel muss neu sein; vorhandene Ziele werden ausnahmslos vor jeder " +
+        "Quell-Hash sind Pflicht; bei mehreren offenen Faellen auch das Hauptfenster per hwnd. Das Ziel muss neu sein; vorhandene Ziele werden ausnahmslos vor jeder " +
         "UI-Aktion abgelehnt und ein Ueberschreibdialog wird nie automatisch bestaetigt. Nur nach dem " +
         "ausdruecklichen Wunsch nach einer neuen Datei/Kopie verwenden; niemals als automatische " +
         "Sicherheitsmassnahme oder Korrektur-Ausweichweg.",

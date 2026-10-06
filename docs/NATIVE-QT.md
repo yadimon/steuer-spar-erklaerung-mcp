@@ -2,8 +2,9 @@
 
 Die API kann `get_value`, `table_read`, `snapshot`, `find`, `read_page`,
 `subpages`, `known_page_state`, `positions`, `ustva_read`,
-`receipt_manager_list`, `receipt_manager_read`, `receipt_manager_action`,
-`page`, `ui_state`, `help`, `read_table` und `checker_results`
+`receipt_manager_list`, `receipt_manager_read`, `receipt_manager_action`, `receipt_manager_update`, `receipt_manager_link`,
+`receipt_manager_classification_options`, `receipt_manager_classify`,
+`page`, `ui_state`, `help`, `read_table`, `checker_results` und `goto`
 über eine dauerhaft gebundene Qt-Verbindung ausführen. Der normale Runtime-Start aktiviert diesen Pfad nur,
 wenn die Konfigurationsdatei `qtNativeRuntime` enthält. Dafür wird ein separates,
 kompatibles natives Paket benötigt; die npm-Pakete enthalten diesen Qt-Helfer
@@ -20,10 +21,10 @@ dagegen die gesunde Hauptfensterverbindung. Fehler und unbekannte Ausgänge
 erlauben keine automatische Neuverbindung oder Wiederholung.
 
 Die [Native-Abdeckungsmatrix](NATIVE-COVERAGE.md) zählt alle 102 API-Operationen:
-siebzehn direkte optionale Qt-Handler und 85 ohne direkten Qt-Pfad. Sie trennt
+22 direkte optionale Qt-Handler und 80 ohne direkten Qt-Pfad. Sie trennt
 diesen Stand von funktionaler Live-Abdeckung und noch erforderlicher Integration.
 `sse-native.dll` bezeichnet dagegen die bestehende C#-Worker-Hilfsbibliothek;
-der hier beschriebene C++-Lesepfad verwendet `sse-qt-read.dll` in SSE.
+die hier beschriebene C++-Brücke verwendet `sse-qt-read.dll` in SSE.
 
 `desktop_status` liefert `backend: "win32"`. Der gebundene Loader liest Prozessversion
 und sichtbare Fenster ausschließlich für die markierte PID auf dem ausdrücklich
@@ -98,6 +99,11 @@ die bisherigen `qt:`-Referenzen bleiben ebenfalls gültig. `types` und `namedOnl
 filtern nach dem begrenzten Baumlauf, ohne Knoten- oder Elternindizes umzunummerieren.
 Katalogisierte nichtmodale `toolWindow`-Ziele werden innerhalb derselben gebundenen
 PID anhand ihres exakten Titels gelesen; fehlende und mehrdeutige Fenster scheitern.
+Vor dem ersten Accessibility-Zugriff aktiviert der Client im GUI-Thread den
+Qt-Plattformdienst. Dadurch verarbeitet Qt Modelländerungen auch ohne einen
+Windows-UIA-Client und verwirft veraltete Tabellen- und Baumzellen. Ungültige
+Kinder liefern `NATIVE_ACCESSIBILITY_INCOMPLETE`; sie werden weder übersprungen
+noch als vollständiger Baum ausgegeben. Der Client deaktiviert den Dienst nicht.
 
 Die Wurzel wird wie beim Worker nicht ausgegeben. Vorgabe sind 4000 Knoten,
 Maximum 5000 und Tiefe 16; `stats.truncated` meldet eine überschrittene Grenze.
@@ -132,6 +138,49 @@ Fenster und den Dirty-State des gebundenen Hauptfensters direkt aus zwei
 begrenzten Qt-Snapshots. Runtime-IDs und Fingerprints bleiben mit den bestehenden
 quittierten Belegmutationen kompatibel; eine nicht vollständig exponierte Liste
 wird als unvollständig markiert und nicht als sichere Mutationsgrundlage ausgegeben.
+
+`goto` führt Navigation vollständig über die gebundene Qt-Verbindung aus.
+Es unterstützt die bestehenden Ziel-/Suchaliase, `pageId`, Schrittgrenzen und
+Richtungen. Ein sichtbarer Navigationseintrag bindet über seinen exakten Namen,
+Runtime-ID, das Fenster und die Viewportposition den hierarchischen Modellindex;
+ein abgeflachter Accessibility-Zeilenindex wird nicht als Wurzelindex verwendet.
+Der gebundene Index wird über das vorhandene Qt-Signal `gotoModelIndex` geöffnet;
+eine bloße Auswahl oder ein physischer Mausklick ist dafür nicht erforderlich.
+Die globale Suche bindet Feldvorwert, Suchschaltfläche und die Titelspalte des
+Ergebnisses. Der bestehende Formularpfad berücksichtigt Rückwärtsverlauf,
+Wiederholungen, Überschreiten, Stillstand und Prüferdialoge. Jeder Weg verlangt
+einen vollständigen frischen Inhaltsbeweis einschließlich aller Pflichtfelder
+und profilierten Tabellen-/Summenprüfungen. Eine bereits sichtbare, aber
+unvollständige Zielseite beendet weitere Navigation. Unbestätigte Aktionen werden
+nicht wiederholt; ein ausgewählter Treffer gilt noch nicht als erreichte Seite.
+
+`receipt_manager_update` bindet die vollständige Liste, die exakte Zeile und den
+Detailfingerprint vor jeder Feldänderung. Die sieben profilierten Belegfelder
+bleiben an dasselbe BelegManager-HWND gebunden; ein neu geöffnetes Fenster
+beendet die Transaktion vor weiteren Eingaben. Die Felder
+werden im GUI-Thread über ihre Qt-Widgets geändert: literal eingefügter Text mit
+Modell-Commit, typisierte Steuersatzauswahl und binärer Netto-Schalter. Jede Aktion
+prüft den frischen Vorwert und erhält eine Transportquittung; danach folgen ein
+unabhängiger Detail-Readback, das Schließen der Detailansicht und die Prüfung von
+Zielidentität, allen übrigen Zeilen, Belegzähler, Fenstermenge und Dirty-State.
+Unbekannte Ausgänge werden nicht wiederholt. Ein Rollback schreibt ausschließlich
+eindeutig eigene, weiterhin unveränderte Zielwerte zurück und prüft den Abschluss.
+Ohne beweisbaren Abschluss meldet die API `cleanupRequired`. Die interaktive
+Belegfreigabe und die Profilgrenzen gelten auch für diesen Pfad. Ein innerhalb
+des Worker-Batchs ausgeführtes Upsert verwendet weiterhin dessen bestehenden Pfad.
+
+`receipt_manager_link` bindet Zielseite, Start- und Footertext sowie die vollständige
+Belegliste ohne Entwürfe. Jede binäre Checkboxänderung prüft im GUI-Thread das
+unveränderte Fenster, die exakte Zeile und den alten Modellzustand, bevor sie
+`Qt::CheckStateRole` setzt. Nach jeder Änderung müssen sämtliche Beleginhalte,
+übrigen Checkboxzustände und der Zähler stimmen. Der Dirty-State der Hauptseite
+wird vor Übernehmen hinter dem eigenen Dialog gelesen; dessen Titel und konkrete
+Fenster-ID müssen zusammenpassen. Fremde Dialoge bleiben gesperrt. Nach Übernehmen
+folgen die bestehende Beobachtungsfrist für den fingerprintgebundenen
+Belegwerte-Dialog und ein erneutes Öffnen mit vollständiger Persistenzprüfung.
+Ein unveränderter Auftrag schließt mit Abbrechen. Unbestätigte Änderungen werden
+weder wiederholt noch durch eine Gegenänderung verdeckt; unsichere Zustände melden
+`cleanupRequired`. Batch- und Legacy-Einzelmodus behalten ihre API-Verträge.
 
 `page`, `help`, `read_table` und `checker_results` projizieren jeweils einen
 frischen, gebundenen GUI-Thread-Snapshot in genau die Ergebnisform des bisherigen
@@ -183,6 +232,37 @@ verschwindet oder sich verdoppelt, mit `stale-window`; ein Systemoverlay und
 ein zweites Fallfenster werden nur gezählt, nie gelesen.
 Die Liste ausgeschlossener Nebenfenster folgt dabei der Inventarreihenfolge;
 ihre Reihenfolge kann von der UIA-Baumreihenfolge abweichen.
+
+`receipt_manager_classification_options` liest nach exakter Zeilen-, Listen-
+und Sieben-Felder-Detailbindung den katalogisierten Kategorie- oder Personendialog.
+Eine private Qt-Abfrage enumeriert dessen gesamte `QAccessibleTableInterface`
+einschließlich Zeilen außerhalb des Sichtbereichs. Fensterkennung, AutomationId,
+Modell-/Tabellendimensionen, profilierte Spalten und binäre Checkbox-Zustände
+müssen übereinstimmen; nachladbare Modelle, doppelte Namen, unbestimmte Zustände
+und unvollständige Tabellen werden abgewiesen. Der Dialog-Fingerprint sowie
+Abbruch und Rückkehr werden unabhängig geprüft. Die Operation speichert keine
+Klassifikation und beweist anschließend unveränderte Detailfelder, vollständige
+Belegliste, Fenster und Dirty-State. Verlorene Quittungen führen ohne erneuten
+Klick zu einem expliziten unbekannten Ausgang. Der allgemeine Snapshot bleibt
+auf den sichtbaren Baum begrenzt; diese vollständige Grid-Abfrage ist ausschließlich
+an den profilierten Auswahldialog gebunden.
+
+`receipt_manager_classify` verwendet dieselbe vollständige Dialog- und
+Detailbindung. Es ändert ausschließlich abweichende binäre Modellzustände und
+sendet dabei einmal die exakt gebundene `clicked(QModelIndex)`-Benachrichtigung,
+auf die der Anwendungsdialog seine Speicherbereitschaft stützt. Ein identischer
+Zielzustand löst weder Checkbox-Änderung noch Speichern aus. Nach dem Speichern
+wird jeder bearbeitete Dialog erneut geöffnet und sein gesamter Optionssatz
+unabhängig geprüft. Die sieben Detailfelder, übrigen Belege, vollständige
+Liste, Fenster und Dirty-State bleiben durch eigene Nachprüfungen geschützt.
+Scheitert eine spätere Zuordnung eindeutig, werden bereits gespeicherte
+Zuordnungen in umgekehrter Reihenfolge zurückgesetzt, sofern ihre aktuellen
+Werte noch genau zur Transaktion gehören. Unbekannte Quittungen, geänderte
+Bindungen oder fremde Optionszustände sperren weitere Schreibversuche;
+Speichern und Benachrichtigung werden niemals wiederholt.
+Lässt SSE den Speichern-Schalter für die gewünschte Auswahl deaktiviert,
+meldet die Operation einen Fehler und prüft den Abbruch sowie die Rückkehr
+zum ursprünglichen Belegzustand; sie umgeht die Anwendungsbedingung nicht.
 
 `ui_state` liest Hauptfensterbaum und Win32-Fensterinventar des gebundenen
 Prozesses direkt; eine geöffnete Werte-Info wird unabhängig von ihrer Größe
@@ -276,8 +356,9 @@ regulären API-Prozess, mit einer ausdrücklich synthetischen Testabhängigkeit 
 die Profilauswahl. Das Fensterinventar wird tatsächlich über Win32 gelesen.
 Geprüft werden frische HTTP-Lesewerte,
 Tabellen, Fenster-/Objektlebensdauer, Passwortfelder und Helfer-Shutdown. Das ist
-kein Funktionsnachweis an einer installierten SSE. Die ausgelieferte DLL führt
-keine experimentellen Feld-, Tabellen-, Navigations- oder Speichermutationen aus.
+kein Funktionsnachweis an einer installierten SSE. Freie Feld-, Tabellen-,
+Speichermutationen bleiben gesperrt; quittierte Widgetaktionen stehen ausschließlich
+den gebundenen Navigationen und katalogisierten Belegtransaktionen zur Verfügung.
 
 ## Konfiguration und Paketvertrag
 

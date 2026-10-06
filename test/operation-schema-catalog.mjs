@@ -321,6 +321,17 @@ assert.deepEqual(parseApiOperationArgs("save_as", {
   expectedSourceHash: "a".repeat(64),
   targetPath: "C:\\Faelle\\ziel.Gew2025",
 });
+const boundSaveAs = {
+  sourceRef: "cases:quelle.Gew2025",
+  expectedSourceHash: "a".repeat(64),
+  targetRef: "cases:ziel.Gew2025",
+  hwnd: 4242,
+};
+assert.deepEqual(SSE_MCP_TOOL_SCHEMAS.sse_save_as.parse(boundSaveAs), boundSaveAs);
+assert.deepEqual(parseApiOperationArgs("save_as", boundSaveAs), boundSaveAs);
+for (const hwnd of [0, -1, 1.5, "4242"]) {
+  assert.throws(() => parseApiOperationArgs("save_as", { ...boundSaveAs, hwnd }));
+}
 const correctionSave = {
   caseRef: "cases:arbeit-korrektur.Gew2025",
   expectedHashBefore: "a".repeat(64),

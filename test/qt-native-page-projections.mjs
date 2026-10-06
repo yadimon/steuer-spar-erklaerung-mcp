@@ -5,7 +5,7 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { executeQtNativeRead } from "../dist/qt-native-executor.js";
+import { executeQtNativeOperation } from "../dist/qt-native-executor.js";
 import { executeQtNativeKnownPageState, executeQtNativePositions } from "../dist/qt-native-pages.js";
 import { canonicalReceiptJson, receiptFingerprint } from "../dist/qt-native-receipts.js";
 import { QtNativeTransportError } from "../dist/qt-native-client.js";
@@ -300,7 +300,7 @@ export async function testNativePageProjections() {
         exactMatches: Object.fromEntries(Object.entries(args.equalitySelectors ?? {}).map(([key, value]) =>
           [key, view.nodes.filter(n => n[key].toLowerCase() === value.toLowerCase()).map(n => n.i)])) } };
     } };
-    const result = await executeQtNativeRead(test.operation, test.args, { qtNativeClient: client }, 5000, undefined, loadProductProfile("2025"));
+    const result = await executeQtNativeOperation(test.operation, test.args, { qtNativeClient: client }, 5000, undefined, loadProductProfile("2025"));
     const { backend, nativeDurationMs, ...projection } = result;
     assert.equal(backend, "qt"); assert(Number.isInteger(nativeDurationMs) && nativeDurationMs >= 1, test.operation);
     assert.deepEqual(projection, oracle.results[index], `${test.operation} ${JSON.stringify(test.args)}`);
@@ -350,6 +350,38 @@ export async function testNativePageProjections() {
     x: 300, y: 100, w: 120, h: 25,
   });
   assert.match(known.epoch, /^[A-F0-9]{64}$/u);
+  const cataloguedProfile = { ...knownProfile, pageObjectsCatalog: { ...knownProfile.pageObjectsCatalog,
+    pages: { "synthetic.page": { ...knownProfile.pageObjectsCatalog.pages["synthetic.page"],
+      headingAutomationIdRelative: ".ClientFrameSSE.ClientHeader.QLabel" } } } };
+  const knownSnapshotClient = nodes => ({ ...knownClient, request: async operation => {
+    const response = await knownClient.request(operation);
+    return { ...response, result: { ...response.result, nodes, stats: { ...stats, n: nodes.length } } };
+  } });
+  const unrelatedHeaderText = { ...knownNodes[2], i: 5, p: 1, rid: "42.42.4.5", y: -10,
+    aid: "window.ClientFrameSSE.ClientHeader.RetiredLabel", name: "Old page label", on: false, w: 0, h: 0 };
+  const boundHeading = await executeQtNativeKnownPageState(knownSnapshotClient([...knownNodes, unrelatedHeaderText]),
+    { pageId: "synthetic.page", hwnd: 42 }, 5000, undefined, cataloguedProfile);
+  assert.equal(boundHeading.onExpectedPage, true);
+  assert.equal(boundHeading.heading, "Synthetic heading");
+  assert.equal(boundHeading.epoch, known.epoch, "Unrelated hidden labels cannot change the bound page epoch");
+  const unboundHeaderText = { ...unrelatedHeaderText, on: true, y: 0, w: 200, h: 20 };
+  const visibleUnrelated = await executeQtNativeKnownPageState(knownSnapshotClient([...knownNodes, unboundHeaderText]),
+    { pageId: "synthetic.page", hwnd: 42 }, 5000, undefined, cataloguedProfile);
+  assert.equal(visibleUnrelated.heading, "Synthetic heading", "Another header caption cannot replace the exact catalogue label");
+  for (const changes of [{ aid: "window.UnrelatedHeading" }, { on: false }, { w: 0 }, { h: 0 }]) {
+    const result = await executeQtNativeKnownPageState(knownSnapshotClient(knownNodes.map(node => node.i === 2 ? { ...node, ...changes } : node)),
+      { pageId: "synthetic.page", hwnd: 42 }, 5000, undefined, cataloguedProfile);
+    assert.equal(result.heading, null); assert.equal(result.onExpectedPage, false, "No generic fallback when a supplied heading binding fails");
+  }
+  const ambiguousHeading = await executeQtNativeKnownPageState(knownSnapshotClient([...knownNodes,
+    { ...knownNodes[2], i: 5, rid: "42.42.4.5" }]), { pageId: "synthetic.page", hwnd: 42 }, 5000, undefined, cataloguedProfile);
+  assert.equal(ambiguousHeading.heading, null); assert.equal(ambiguousHeading.onExpectedPage, false);
+  const wrongBoundHeading = await executeQtNativeKnownPageState(knownSnapshotClient(knownNodes.map(node => node.i === 2
+    ? { ...node, name: "Foreign page" } : node)), { pageId: "synthetic.page", hwnd: 42 }, 5000, undefined, cataloguedProfile);
+  assert.equal(wrongBoundHeading.heading, "Foreign page"); assert.equal(wrongBoundHeading.onExpectedPage, false);
+  const absentField = await executeQtNativeKnownPageState(knownSnapshotClient(knownNodes.map(node => node.i === 3
+    ? { ...node, aid: "window.ForeignField" } : node)), { pageId: "synthetic.page", hwnd: 42 }, 5000, undefined, cataloguedProfile);
+  assert.equal(absentField.heading, "Synthetic heading"); assert.equal(absentField.onExpectedPage, false);
   const missing = await executeQtNativeKnownPageState(knownClient, { pageId: "missing" }, 5000, undefined, knownProfile);
   assert.equal(missing.kind, "not-found");
 
@@ -398,7 +430,7 @@ export async function testNativePageProjections() {
       windowRect: { x: 0, y: 0, w: 1000, h: 600 }, windowEnabled: true, modalBlocked: false,
       exactMatches: {}, nodes: ustvaNodes, stats: ustvaStats } };
   } };
-  const ustva = await executeQtNativeRead("ustva_read", { hwnd: 42 }, { qtNativeClient: ustvaClient },
+  const ustva = await executeQtNativeOperation("ustva_read", { hwnd: 42 }, { qtNativeClient: ustvaClient },
     5000, undefined, loadProductProfile("2025"));
   assert.equal(ustva.ok, true, JSON.stringify(ustva));
   assert.equal(ustva.backend, "qt");
@@ -484,7 +516,7 @@ export async function testNativePageProjections() {
         result: { ok: true, mutationAttempted: true } };
     },
   };
-  const action = await executeQtNativeRead("receipt_manager_action", { actionId: "showAllReceipts" },
+  const action = await executeQtNativeOperation("receipt_manager_action", { actionId: "showAllReceipts" },
     { qtNativeClient: actionClient }, 5000, undefined, loadProductProfile("2025"));
   assert.equal(action.ok, true, JSON.stringify(action));
   assert.equal(action.backend, "qt");
@@ -522,7 +554,7 @@ export async function testNativePageProjections() {
         result: { ok: true, mutationAttempted: true } };
     },
   };
-  const timedOutAction = await executeQtNativeRead("receipt_manager_action", { actionId: "showAllReceipts" },
+  const timedOutAction = await executeQtNativeOperation("receipt_manager_action", { actionId: "showAllReceipts" },
     { qtNativeClient: timeoutActionClient }, 5000, undefined, loadProductProfile("2025"));
   assert.equal(timedOutAction.ok, false, JSON.stringify(timedOutAction));
   assert.equal(timedOutAction.kind, "native-timeout");
@@ -533,7 +565,7 @@ export async function testNativePageProjections() {
   assert.equal(timedOutAction.verified, false);
   assert.match(timedOutAction.error, /Do not replay/u);
   assert.equal(timedOutAction.clickBinding.method, "qt-accessibility-press");
-  const receipts = await executeQtNativeRead("receipt_manager_list", { filter: { draft: true }, limit: 1 },
+  const receipts = await executeQtNativeOperation("receipt_manager_list", { filter: { draft: true }, limit: 1 },
     { qtNativeClient: receiptClient }, 5000, undefined, loadProductProfile("2025"));
   assert.equal(receipts.ok, true, JSON.stringify(receipts));
   assert.equal(receipts.backend, "qt");
@@ -605,7 +637,7 @@ export async function testNativePageProjections() {
         result: { ok: true, mutationAttempted: true } };
     },
   };
-  const detailRead = await executeQtNativeRead("receipt_manager_read", {
+  const detailRead = await executeQtNativeOperation("receipt_manager_read", {
     rowRid: receipts.rows[0].rowRid,
     rowFingerprint: receipts.rows[0].rowFingerprint,
     expectedListFingerprint: receipts.listFingerprint,

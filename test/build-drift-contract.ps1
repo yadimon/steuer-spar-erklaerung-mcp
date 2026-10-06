@@ -83,4 +83,33 @@ try { Assert-SSEVerifiedBuildForOperation 'tracked_set_value' }
 catch { $ambiguous = $_.Exception.Message }
 Assert-True ($ambiguous -like 'build-identity-unverified|*') 'Mehrere laufende SSE-Instanzen duerfen ohne Bindung nicht den Default-Build verwenden.'
 
+Add-Type -TypeDefinition @'
+public static class SW {
+  public static uint GetWindowThreadProcessId(System.IntPtr window, ref int processId) {
+    processId = window.ToInt64() == 4242 ? 9002 : 9003;
+    return 1;
+  }
+}
+'@
+function Get-Process {
+  param([int]$Id, [string]$ErrorAction)
+  if ($Id -eq 9001) { return [pscustomobject]@{ ProcessName='SSE'; Path='D:\one\SSE.exe' } }
+  if ($Id -eq 9002) { return [pscustomobject]@{ ProcessName='SSE'; Path='D:\two\SSE.exe' } }
+  [pscustomobject]@{ ProcessName='Other'; Path='D:\other\app.exe' }
+}
+$script:StubIdentity.fileVersion = '30, 0, 127, 0'
+Assert-SSEVerifiedBuildForOperation 'tracked_set_value' ([pscustomobject]@{pid=9001})
+Assert-True ($script:LastIdentityPath -ceq 'D:\one\SSE.exe') 'Explizite PID ging beim Weiterreichen an die Build-Pruefung verloren.'
+Assert-SSEVerifiedBuildForOperation 'tracked_set_value' ([pscustomobject]@{hwnd=4242})
+Assert-True ($script:LastIdentityPath -ceq 'D:\two\SSE.exe') 'Explizites HWND ging beim Weiterreichen an die Build-Pruefung verloren.'
+$script:StubIdentity.fileVersion = '30, 0, 140, 0'
+$boundDrift = $null
+try { Assert-SSEVerifiedBuildForOperation 'tracked_set_value' ([pscustomobject]@{hwnd=4242}) }
+catch { $boundDrift = $_.Exception.Message }
+Assert-True ($boundDrift -like 'build-drift|*') 'Explizite Fensterbindung darf die Build-Drift-Pruefung nicht umgehen.'
+$foreignWindow = $null
+try { Assert-SSEVerifiedBuildForOperation 'tracked_set_value' ([pscustomobject]@{hwnd=4243}) }
+catch { $foreignWindow = $_.Exception.Message }
+Assert-True ($foreignWindow -like 'build-identity-unverified|*') 'Fremdes HWND wurde von der Build-Pruefung akzeptiert.'
+
 Write-Output 'Build-Drift: alle Vertraege bestanden'

@@ -432,7 +432,9 @@ try {
     workerSource.includes("Virtualisierte Liste ist am berechneten Mausradpunkt nicht mehr PID-/Root-verifiziert") &&
     workerSource.includes("[SW]::mouse_event(0x0800") &&
     workerSource.includes("$method = 'virtualized-paged-click'") &&
-    workerSource.includes("$null = Click-VerifiedPoint $hwnd $virtualMatch") &&
+    workerSource.includes("Click-VerifiedPoint -Window $virtualClickWindow -Node $virtualOptionNode -ExpectedInputTick $inputBaseline") &&
+    workerSource.includes("Test-SSEComboPopupRoot $virtualObstruction $virtualOptionLists[0] $targetPid $popupRoot") &&
+    workerSource.includes("-BeforeClickCheck ${function:Test-SSEComboOptionPoint} -BeforeClickBinding $virtualOptionBinding") &&
     workerSource.includes("Kein blinder Rollback nach Eingabe-, Fenster-, Seiten- oder Binding-Interferenz") &&
     workerSource.includes("Ausgangsoption bietet kein rollbackfaehiges SelectionItemPattern") &&
     workerSource.includes("$rollbackFinalWindows.fingerprint -eq $interactionBefore.fingerprint"),

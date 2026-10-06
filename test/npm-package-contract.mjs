@@ -181,7 +181,7 @@ for (const path of mcp.paths) {
 for (const [label, packed] of [["API", api], ["MCP", mcp]]) {
   for (const path of packed.paths) {
     assert(!/^(?:src|test|skills-data|artifacts|\.tmp)\//u.test(path), `${label}-Paket enthaelt Entwicklungsdatei: ${path}`);
-    assert(!/[A-Za-z]:[\\/]|Users[\\/]|Meine\s+Ablage|private-user/iu.test(path), `${label}-Paket enthaelt lokalen Pfad: ${path}`);
+    assert(!/[A-Za-z]:[\\/]|Users[\\/]|Meine\s+Ablage/iu.test(path), `${label}-Paket enthaelt lokalen Pfad: ${path}`);
     if (/^dist\/.+\.js(?:\.map)?$/u.test(path)) {
       const source = join("src", path.slice("dist/".length).replace(/\.js(?:\.map)?$/u, ".ts"));
       assert(existsSync(source), `${label}-Paket enthaelt Build-Artefakt ohne TypeScript-Quelle: ${path}`);

@@ -16,6 +16,7 @@ export type QtSnapshotNode = z.infer<typeof nodeSchema>;
 const snapshotSchema = z.object({
   ok: z.literal(true), controllerBound: z.literal(true), scope: z.literal("qt-accessibility-content"),
   hwnd: integer.positive(), windowEnabled: z.boolean(), modalBlocked: z.boolean(), nodes: z.array(nodeSchema).max(5000),
+  activeModalHwnd: integer.nonnegative().optional(),
   foreground: z.boolean().optional(),
   /** The root's own AutomationId and name; the root is never a node, but an owned window is listed by them. */
   root: z.object({ aid: text, name: text }).strict().optional(),
@@ -41,6 +42,7 @@ export async function readQtNativeSnapshot(
   const read = await client.request("accessibility_snapshot", {
     maxNodes, ...(typeof args.toolTitle === "string" ? { toolTitle: args.toolTitle } : {}),
     ...(typeof args.allowedModalTitle === "string" ? { allowedModalTitle: args.allowedModalTitle } : {}),
+    ...(typeof args.allowedModalHwnd === "number" ? { allowedModalHwnd: args.allowedModalHwnd } : {}),
     ...(args.withValues === false ? { withValues: false } : {}),
     ...(args.withCellStates === true ? { withCellStates: true } : {}),
     ...(Array.isArray(args.aidSuffixes) ? { aidSuffixes: args.aidSuffixes } : {}),

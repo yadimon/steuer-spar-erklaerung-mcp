@@ -72,6 +72,7 @@ export const SSE_MCP_LIFECYCLE_SCHEMAS = {
     sourceRef: CASE_REF().describe("Exakte Referenz des aktuell geoeffneten Quellfalls"),
     expectedSourceHash: SHA256(),
     targetRef: CASE_REF().describe("Explizit vom Menschen verlangte neue Falldatei; kein automatischer Sicherheitsweg"),
+    hwnd: WINDOW_HANDLE.optional().describe("Exaktes SSE-Hauptfenster; bei mehreren offenen Steuerfaellen Pflicht"),
     waitMs: z.number().int().min(800).max(30000).optional().describe("Wartezeit auf Ziel-, Hash- und Fenstertitel-Readback"),
   }).strict(),
   "sse_close": z.object({
