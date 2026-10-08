@@ -26,7 +26,11 @@ interface PendingRequest {
 export class QtNativeClient {
   private nextId = 0;
   private pending = new Map<number, PendingRequest>();
-  private input = Buffer.alloc(0);
+  private responseHeader = Buffer.allocUnsafe(4);
+  private responseHeaderBytes = 0;
+  private responseLength = 0;
+  private responseBody: Buffer | undefined;
+  private responseBodyBytes = 0;
   private failure: QtNativeTransportError | undefined;
   private acknowledging = false;
 
@@ -193,31 +197,70 @@ export class QtNativeClient {
   private acceptData(chunk: Buffer): void {
     if (this.failure) return;
     try {
+      if (!Buffer.isBuffer(chunk)) throw new Error("Native response stream must provide binary chunks.");
       // No request can return more than one bounded response. Outstanding
       // request count is also bounded, preventing an unbounded receive queue.
-      if (this.input.byteLength + chunk.byteLength > (MAX_RESPONSE_BYTES + 4) * Math.max(1, this.pending.size)) {
+      const bufferedBytes = this.responseLength ? 4 + this.responseBodyBytes : this.responseHeaderBytes;
+      if (bufferedBytes + chunk.byteLength > (MAX_RESPONSE_BYTES + 4) * Math.max(1, this.pending.size)) {
         throw new Error("Native receive buffer exceeded its bound.");
       }
-      this.input = Buffer.concat([this.input, chunk]);
-      while (this.input.byteLength >= 4) {
-        const length = this.input.readUInt32LE(0);
-        if (length === 0 || length > MAX_RESPONSE_BYTES) throw new Error("Invalid native response frame length.");
-        if (this.input.byteLength < length + 4) return;
-        const value: unknown = JSON.parse(UTF8.decode(this.input.subarray(4, length + 4)));
-        this.input = this.input.subarray(length + 4);
-        if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Native response must be an object.");
-        const response = value as Partial<QtNativeReply>;
-        if (!Number.isSafeInteger(response.id) || typeof response.ok !== "boolean") throw new Error("Invalid native response envelope.");
-        const pending = this.pending.get(response.id!);
-        if (!pending) throw new Error("Native response has an unknown or repeated request id.");
-        this.pending.delete(response.id!);
-        clearTimeout(pending.timer);
-        pending.removeAbortListener();
-        pending.resolve({ result: response as QtNativeReply, durationMs: performance.now() - pending.startedAt });
+      let offset = 0;
+      while (offset < chunk.byteLength) {
+        if (this.responseLength === 0) {
+          const headerBytes = Math.min(4 - this.responseHeaderBytes, chunk.byteLength - offset);
+          chunk.copy(this.responseHeader, this.responseHeaderBytes, offset, offset + headerBytes);
+          this.responseHeaderBytes += headerBytes;
+          offset += headerBytes;
+          if (this.responseHeaderBytes < 4) return;
+          this.responseLength = this.responseHeader.readUInt32LE(0);
+          if (this.responseLength === 0 || this.responseLength > MAX_RESPONSE_BYTES) {
+            throw new Error("Invalid native response frame length.");
+          }
+        }
+        const available = chunk.byteLength - offset;
+        if (available === 0) return;
+        if (!this.responseBody && available >= this.responseLength) {
+          // A complete body can be decoded directly. Fragmented bodies own one
+          // bounded allocation; each arriving byte is copied only once.
+          const body = chunk.subarray(offset, offset + this.responseLength);
+          offset += this.responseLength;
+          this.resetResponseFrame();
+          this.acceptResponse(body);
+        } else {
+          this.responseBody ??= Buffer.allocUnsafe(this.responseLength);
+          const bodyBytes = Math.min(this.responseLength - this.responseBodyBytes, available);
+          chunk.copy(this.responseBody, this.responseBodyBytes, offset, offset + bodyBytes);
+          this.responseBodyBytes += bodyBytes;
+          offset += bodyBytes;
+          if (this.responseBodyBytes < this.responseLength) return;
+          const body = this.responseBody;
+          this.resetResponseFrame();
+          this.acceptResponse(body);
+        }
       }
     } catch (error) {
       this.fail(error instanceof Error ? error.message : "Invalid native response.", "native-protocol", true);
     }
+  }
+
+  private resetResponseFrame(): void {
+    this.responseHeaderBytes = 0;
+    this.responseLength = 0;
+    this.responseBody = undefined;
+    this.responseBodyBytes = 0;
+  }
+
+  private acceptResponse(body: Buffer): void {
+    const value: unknown = JSON.parse(UTF8.decode(body));
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Native response must be an object.");
+    const response = value as Partial<QtNativeReply>;
+    if (!Number.isSafeInteger(response.id) || typeof response.ok !== "boolean") throw new Error("Invalid native response envelope.");
+    const pending = this.pending.get(response.id!);
+    if (!pending) throw new Error("Native response has an unknown or repeated request id.");
+    this.pending.delete(response.id!);
+    clearTimeout(pending.timer);
+    pending.removeAbortListener();
+    pending.resolve({ result: response as QtNativeReply, durationMs: performance.now() - pending.startedAt });
   }
 
   private fail(message: string, kind: string, outcomeUnknown = false): QtNativeTransportError {
@@ -228,7 +271,7 @@ export class QtNativeClient {
       pending.reject(this.failure);
     }
     this.pending.clear();
-    this.input = Buffer.alloc(0);
+    this.resetResponseFrame();
     this.socket.destroy();
     return this.failure;
   }
