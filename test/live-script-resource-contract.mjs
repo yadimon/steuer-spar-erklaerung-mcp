@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve, sep } from "node:path";
+import { pathToFileURL } from "node:url";
 import { SSE_MCP_TOOL_SCHEMAS } from "../dist/operation-catalog.js";
 
 const readCompact = (name) => readFileSync(join(process.cwd(), "test", name), "utf8").replace(/\s+/gu, " ");
@@ -108,5 +110,82 @@ assert(
 );
 assert.match(centerLauncher, /-not \$assignedToJob[\s\S]{0,250}TerminateProcess\(\$processHandle/u,
   "Ein vor der Jobzuordnung gescheiterter suspendierter Center muss ueber sein Handle beendet werden.");
+
+// Execute the actual state-journey module with a recording transport. A
+// failure immediately after launch must close only that exact owned instance,
+// and a cleanup failure must preserve the primary failure in its diagnostic.
+const sandbox = mkdtempSync(join(tmpdir(), "sse-state-cleanup-contract-"));
+const statePath = resolve("test/live-state-journey.mjs");
+const originalStateSource = readFileSync(statePath, "utf8");
+const savedEnvironment = new Map(["SSE_PROFILE_ID", "SSE_TEST_CASE_DIR", "SSE_STATE_FIXTURE"]
+  .map(name => [name, process.env[name]]));
+try {
+  const fixture = join(sandbox, "synthetic.Gew2025");
+  writeFileSync(fixture, "synthetic transport fixture", { flag: "wx" });
+  Object.assign(process.env, { SSE_PROFILE_ID: "2025", SSE_TEST_CASE_DIR: sandbox, SSE_STATE_FIXTURE: fixture });
+  const transportPath = join(sandbox, "recording-transport.mjs");
+  writeFileSync(transportPath, `
+export const calls = [];
+export let closeFails = false;
+export let noWindow = false;
+export function configure(fails, absentWindow) { calls.length = 0; closeFails = fails; noWindow = absentWindow; }
+export class Client {
+  async connect() { calls.push({name:"connect"}); }
+  async close() { calls.push({name:"client-close"}); }
+  async callTool(request) {
+    calls.push(request);
+    if(request.name === "sse_launch") return {content:[{type:"text",text:JSON.stringify({ok:true,pid:27182,instance:noWindow ? null : {pid:27182,hwnd:31415}})}]};
+    if(request.name === "sse_page") throw new Error("intentional-primary-failure");
+    if(request.name === "sse_close") {
+      if(closeFails) throw new Error("intentional-cleanup-failure");
+      return {content:[{type:"text",text:JSON.stringify({ok:true,stillRunning:false})}]};
+    }
+    throw new Error("Unexpected mutation after primary failure: " + request.name);
+  }
+}
+export class StdioClientTransport { constructor(options) { this.options = options; } }
+`, { flag: "wx" });
+  const sdk = await import(pathToFileURL(transportPath).href);
+  const adapted = originalStateSource
+    .replace(/from (["'])([^"']+)\1/gu, (whole, quote, specifier) => {
+      if (specifier.startsWith("node:")) return whole;
+      const target = specifier.startsWith("@modelcontextprotocol/") ? transportPath
+        : resolve("test", specifier);
+      return `from ${JSON.stringify(pathToFileURL(target).href)}`;
+    })
+    .replace("const here = dirname(fileURLToPath(import.meta.url));",
+      `const here = ${JSON.stringify(resolve("test"))};`);
+  const adaptedPath = join(sandbox, "actual-state-journey.mjs");
+  writeFileSync(adaptedPath, adapted, { flag: "wx" });
+  for (const [index, scenario] of [
+    { closeFails: false, noWindow: false },
+    { closeFails: true, noWindow: false },
+    { closeFails: false, noWindow: true },
+  ].entries()) {
+    const { closeFails, noWindow } = scenario;
+    sdk.configure(closeFails, noWindow);
+    let failure;
+    try { await import(`${pathToFileURL(adaptedPath).href}?failure-case=${index}`); }
+    catch (error) { failure = error; }
+    assert(failure instanceof Error && failure.message.includes(noWindow
+      ? "Start lieferte kein Hauptfenster" : "intentional-primary-failure"));
+    const closeCalls = sdk.calls.filter(call => call.name === "sse_close");
+    assert.equal(closeCalls.length, 1, "Failed state journey leaked its owned instance or closed it repeatedly");
+    assert.deepEqual(closeCalls[0].arguments, noWindow
+      ? { pid: 27182, discardChanges: true, force: true }
+      : { pid: 27182, hwnd: 31415, discardChanges: true });
+    assert.equal(sdk.calls.at(-1).name, "client-close");
+    assert.deepEqual(sdk.calls.filter(call => call.arguments).map(call => call.name),
+      noWindow ? ["sse_launch", "sse_close"] : ["sse_launch", "sse_page", "sse_close"],
+      "Cleanup executed a foreign action or continued the failed journey");
+    assert.equal(failure.message.includes("intentional-cleanup-failure"), closeFails,
+      "Cleanup failure must be reported alongside the original failure");
+  }
+  assert.equal(readFileSync(statePath, "utf8"), originalStateSource);
+} finally {
+  for (const [name, value] of savedEnvironment) value === undefined ? delete process.env[name] : process.env[name] = value;
+  assert(resolve(sandbox).startsWith(resolve(tmpdir()) + sep), "Owned cleanup sandbox escaped the temporary directory");
+  rmSync(sandbox, { recursive: true, force: true });
+}
 
 process.stdout.write("Optionale MCP-Liveskripte: Ressourcenreferenzen und enger Eigentums-Cleanup gebunden.\n");
