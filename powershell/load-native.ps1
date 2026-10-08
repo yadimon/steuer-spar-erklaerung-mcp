@@ -86,7 +86,7 @@ function Test-SSENativeSurface {
     SSEWindowNode=@()
     SSEAccessible=@('Describe','DescribePoint','DescribePointBasic','Invoke')
     SSEWorkerControllerLease=@('Acquire','ReleaseAndClose')
-    SSEUiaTree=@('Describe','ToViews','Resolve')
+    SSEUiaTree=@('Describe','DescribeElement','ToViews','Resolve')
     SSEUiaNode=@()
     SSEUiaScrollState=@()
     SSEUiaSnapshot=@()

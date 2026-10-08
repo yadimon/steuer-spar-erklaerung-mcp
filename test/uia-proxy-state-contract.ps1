@@ -48,6 +48,25 @@ $form.Location = New-Object System.Drawing.Point(-20000, -20000)
 $form.Size = New-Object System.Drawing.Size(320, 200)
 $form.ShowInTaskbar = $false
 $form.Opacity = 0.01
+$content = New-Object System.Windows.Forms.Panel
+$content.AccessibleName = 'scope-body'
+$content.Size = New-Object System.Drawing.Size(160, 120)
+$inside = New-Object System.Windows.Forms.Button
+$inside.Text = 'Inside scope'
+$content.Controls.Add($inside)
+$nested = New-Object System.Windows.Forms.Panel
+$nested.Location = New-Object System.Drawing.Point(0, 40)
+$deep = New-Object System.Windows.Forms.Panel
+$leaf = New-Object System.Windows.Forms.Label
+$leaf.Text = 'Deep scope leaf'
+$deep.Controls.Add($leaf)
+$nested.Controls.Add($deep)
+$content.Controls.Add($nested)
+$outside = New-Object System.Windows.Forms.Button
+$outside.Text = 'Outside scope'
+$outside.Location = New-Object System.Drawing.Point(180, 0)
+$form.Controls.Add($content)
+$form.Controls.Add($outside)
 $form.Show()
 [System.Windows.Forms.Application]::DoEvents()
 $hwnd = [int64]$form.Handle
@@ -62,6 +81,23 @@ if ($Mode -eq 'powershell-first') {
   $null = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$Hwnd)
 }
 $snapshot = [SSEUiaTree]::Describe([IntPtr]$Hwnd, 400, 10000, 8, $false, $false)
+if ($Mode -eq 'scoped') {
+  # WinForms legacy controls require their client-side proxy. This separate
+  # native subtree oracle leaves the two worker proxy-state assertions intact.
+  $root = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$Hwnd)
+  $condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, 'scope-body')
+  $pane = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
+  if (-not $pane) { throw 'Owned content pane missing.' }
+  $scoped = [SSEUiaTree]::DescribeElement($pane, 400, 10000, 8, $false, $false)
+  if ($scoped.WalkErrors -or $scoped.CycleHits -or $scoped.Truncated -or $scoped.DepthLimited -or
+      @($scoped.Nodes | Where-Object { $_.Name -eq 'Inside scope' }).Count -ne 1 -or
+      @($scoped.Nodes | Where-Object { $_.Name -eq 'Deep scope leaf' }).Count -ne 1 -or
+      @($scoped.Nodes | Where-Object { $_.Name -eq 'Outside scope' }).Count) { throw 'Scoped native snapshot changed its owned subtree or included a sibling.' }
+  $bounded = [SSEUiaTree]::DescribeElement($pane, 1, 10000, 8, $false, $false)
+  if (-not $bounded.Truncated -or $bounded.NodeCount -ne 1) { throw 'Scoped node limit was weakened.' }
+  $depth = [SSEUiaTree]::DescribeElement($pane, 400, 10000, 1, $false, $false)
+  if (-not $depth.DepthLimited -or @($depth.Nodes | Where-Object { $_.Name -eq 'Deep scope leaf' }).Count) { throw 'Scoped depth boundary hid omitted descendants.' }
+}
 $titleBars = @($snapshot.Nodes | Where-Object { $_.ControlType -eq 'TitleBar' }).Count
 $proxies = @([AppDomain]::CurrentDomain.GetAssemblies() | Where-Object { $_.GetName().Name -eq 'UIAutomationClientsideProviders' }).Count
 "$($snapshot.NodeCount);$titleBars;$proxies"
@@ -107,6 +143,7 @@ function Invoke-Child([string]$Mode) {
 try {
   $compiledFirst = Invoke-Child 'native-first'
   $powershellFirst = Invoke-Child 'powershell-first'
+  $null = Invoke-Child 'scoped'
 } finally {
   Remove-Item -LiteralPath $childPath -Force -ErrorAction SilentlyContinue
   $form.Close(); $form.Dispose()

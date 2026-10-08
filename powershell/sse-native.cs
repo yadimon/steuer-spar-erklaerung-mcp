@@ -678,6 +678,7 @@ public sealed class SSEUiaSnapshot {
   public int ScrollErrors;
   public string CycleRuntimeId = "";
   public bool Truncated;
+  public bool DepthLimited;
 }
 
 public static class SSEUiaTree {
@@ -702,6 +703,7 @@ public static class SSEUiaTree {
     public int MaxDepth;
     public bool WithValues;
     public bool WithScroll;
+    public bool CheckDepthLimit;
     public CacheRequest Request;
     public TreeWalker Walker;
   }
@@ -853,6 +855,14 @@ public static class SSEUiaTree {
       try { state.Output.Add(BuildNode(state, child, index, parentIndex, depth, runtimeId)); }
       catch { state.Result.WalkErrors++; }
       if (depth < state.MaxDepth) Walk(state, child, depth + 1, index);
+      else if (state.CheckDepthLimit && !LimitReached(state)) {
+        // A scoped completeness proof must distinguish an actual leaf from
+        // a subtree cut off by the depth budget. Never descend beyond it.
+        try {
+          if (state.Walker.GetFirstChild(child, state.Request) != null)
+            state.Result.DepthLimited = true;
+        } catch { state.Result.WalkErrors++; }
+      }
       if (LimitReached(state)) return;
       try { child = state.Walker.GetNextSibling(child, state.Request); }
       catch {
@@ -868,18 +878,37 @@ public static class SSEUiaTree {
     if (maxNodes <= 0) throw new ArgumentException("maxNodes muss positiv sein.");
     if (timeoutMs <= 0) throw new ArgumentException("timeoutMs muss positiv sein.");
     if (maxDepth <= 0) throw new ArgumentException("maxDepth muss positiv sein.");
+    WalkState state = CreateState(maxNodes, timeoutMs, maxDepth, withValues, withScroll, false);
+    return DescribeRoot(state, AutomationElement.FromHandle(hwnd));
+  }
+
+  public static SSEUiaSnapshot DescribeElement(
+    AutomationElement root, int maxNodes, int timeoutMs, int maxDepth, bool withValues, bool withScroll) {
+    if (root == null) throw new ArgumentNullException("root");
+    if (maxNodes <= 0) throw new ArgumentException("maxNodes muss positiv sein.");
+    if (timeoutMs <= 0) throw new ArgumentException("timeoutMs muss positiv sein.");
+    if (maxDepth <= 0) throw new ArgumentException("maxDepth muss positiv sein.");
+    WalkState state = CreateState(maxNodes, timeoutMs, maxDepth, withValues, withScroll, true);
+    return DescribeRoot(state, root);
+  }
+
+  static WalkState CreateState(
+    int maxNodes, int timeoutMs, int maxDepth, bool withValues, bool withScroll, bool checkDepthLimit) {
     CacheRequest request = BuildRequest();
-    var state = new WalkState {
+    return new WalkState {
       MaxNodes = maxNodes,
       TimeoutMs = timeoutMs,
       MaxDepth = maxDepth,
       WithValues = withValues,
       WithScroll = withScroll,
+      CheckDepthLimit = checkDepthLimit,
       Request = request,
       Walker = TreeWalker.ControlViewWalker,
     };
-    AutomationElement root = AutomationElement.FromHandle(hwnd);
-    AutomationElement cachedRoot = root.GetUpdatedCache(request);
+  }
+
+  static SSEUiaSnapshot DescribeRoot(WalkState state, AutomationElement root) {
+    AutomationElement cachedRoot = root.GetUpdatedCache(state.Request);
     if (cachedRoot == null) throw new InvalidOperationException("GetUpdatedCache lieferte keinen Wurzelknoten.");
     Walk(state, cachedRoot, 0, -1);
     state.Result.Nodes = state.Output.ToArray();

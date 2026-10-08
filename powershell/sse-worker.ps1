@@ -145,9 +145,10 @@ function Test-SSEGotoTableReadiness([IntPtr]$Hwnd, [string]$Heading) {
   if (-not $policies.Count) { return $true }
   # Qt setzt den Seitentitel vor dem Formularinhalt. Nur die ohnehin
   # profilierten Tabellen verlangen daher einen frischen Inhaltsbeweis.
-  $tree = Walk-BoundTree $Hwnd 4000 -WithValues
+  $tree = Get-SSEMainContentTree $Hwnd 4000 -WithValues
   if (-not $tree -or -not $tree.stats -or [int]$tree.stats.err -ne 0 -or
-      [int]$tree.stats.cyc -ne 0 -or [bool]$tree.stats.truncated -or [bool]$tree.stats.depthLimited -or
+      [int]$tree.stats.cyc -ne 0 -or [int]$tree.stats.valErr -ne 0 -or
+      [bool]$tree.stats.truncated -or [bool]$tree.stats.depthLimited -or -not $tree.contentBounds -or
       (Get-CurrentHeading $Hwnd $tree) -cne $Heading) { return $false }
   foreach ($policy in $policies) {
     $suffix = [string]$policy.automationIdSuffix
@@ -158,7 +159,7 @@ function Test-SSEGotoTableReadiness([IntPtr]$Hwnd, [string]$Heading) {
     })
     if ($tables.Count -ne 1) { return $false }
     foreach ($required in @($policy.requiredSumChecks)) {
-      $sum = Read-LabeledValueFromTree $tree $Hwnd ([string]$required.label) ([int](Arg $required 'occurrence' 1))
+      $sum = Select-SSESummaryFromNodes $tree.nodes $tree.contentBounds ([string]$required.label) ([int](Arg $required 'occurrence' 1))
       if (-not $sum.selected -or [string]$sum.selected.label -cne [string]$required.label -or
           [string]::IsNullOrWhiteSpace([string]$sum.value)) { return $false }
     }
@@ -4246,7 +4247,7 @@ function ConvertTo-SSESnapshotNodes($NativeNodes) {
 
 function Get-UiSnapshot {
   param([IntPtr]$hwnd, [int]$MaxNodes = 4000, [int]$TimeoutSec = 45, [int]$MaxDepth = 16,
-        [switch]$WithValues, [switch]$WithScroll)
+        [switch]$WithValues, [switch]$WithScroll, $RootElement = $null)
   $snapshotWatch = [Diagnostics.Stopwatch]::StartNew()
   try {
     # Der ERSTE UIA-Aufruf eines Arbeitsprozesses muss aus PowerShell kommen.
@@ -4272,8 +4273,13 @@ function Get-UiSnapshot {
     # der bisherige PowerShell-Lauf. test/uia-proxy-state-contract.ps1 haelt
     # beide Seiten dieses Verhaltens fest.
     $null = $AE::FromHandle($hwnd)
-    $native = [SSEUiaTree]::Describe(
-      $hwnd, $MaxNodes, ($TimeoutSec * 1000), $MaxDepth, [bool]$WithValues, [bool]$WithScroll)
+    if ($null -ne $RootElement) {
+      $native = [SSEUiaTree]::DescribeElement(
+        $RootElement, $MaxNodes, ($TimeoutSec * 1000), $MaxDepth, [bool]$WithValues, [bool]$WithScroll)
+    } else {
+      $native = [SSEUiaTree]::Describe(
+        $hwnd, $MaxNodes, ($TimeoutSec * 1000), $MaxDepth, [bool]$WithValues, [bool]$WithScroll)
+    }
 
     $out = ConvertTo-SSESnapshotNodes $native.Nodes
     # Einzelabrufe per AutomationId nehmen ihren Knoten zuerst aus diesem Lauf
@@ -4297,9 +4303,14 @@ function Get-UiSnapshot {
       source='cache'; fallbackReason=''; snapshotMs=0
     }
     $st.snapshotMs = $snapshotWatch.ElapsedMilliseconds
+    if ($null -ne $RootElement) {
+      $st | Add-Member -NotePropertyName depthLimited -NotePropertyValue ([bool]$native.DepthLimited)
+    }
     if (-not $out.Count) { throw 'Bulk-Snapshot war unerwartet leer.' }
     return [pscustomobject]@{ nodes=@($out); stats=$st }
   } catch {
+    # A scoped read must never replace its evidence with a whole-window tree.
+    if ($null -ne $RootElement) { throw }
     $reason = $_.Exception.Message
     $legacy = Walk-TreeLegacy $hwnd $MaxNodes $TimeoutSec $MaxDepth -WithValues:$WithValues -WithScroll:$WithScroll
     $legacy.stats | Add-Member -NotePropertyName source -NotePropertyValue 'treewalker' -Force
@@ -4333,6 +4344,101 @@ function Walk-BoundTree {
     stats = $roh.stats
     fremdeFenster = @($scope.foreign)
   }
+}
+
+# Prove the profiled content path belongs uniquely to this exact window.
+# Only ancestors and their direct siblings are read, never adjacent subtrees.
+function Test-SSEMainContentAncestry([IntPtr]$Hwnd, $Element, $WindowBinding) {
+  if ($Hwnd -eq [IntPtr]::Zero -or -not $Element -or -not $WindowBinding) { return $false }
+  try {
+    $windowPid = 0
+    [SW]::GetWindowThreadProcessId($Hwnd, [ref]$windowPid) | Out-Null
+    if ($windowPid -le 0 -or $windowPid -ne [int]$WindowBinding.processId) { return $false }
+    $seen = New-Object 'System.Collections.Generic.HashSet[string]'
+    $remaining = 2000
+    $current = $Element
+    for ($depth = 0; $depth -lt 16 -and $current; $depth++) {
+      $rid = $current.GetRuntimeId() -join '.'
+      $aid = [string]$current.GetCurrentPropertyValue($script:AE::AutomationIdProperty)
+      $processId = [int]$current.GetCurrentPropertyValue($script:AE::ProcessIdProperty)
+      $controlType = $current.GetCurrentPropertyValue($script:AE::ControlTypeProperty)
+      if (-not $rid -or -not $aid -or -not $seen.Add($rid) -or $processId -ne $windowPid) { return $false }
+      if ($rid -ceq [string]$WindowBinding.rid) {
+        return [bool]($aid -ceq [string]$WindowBinding.aid -and
+          $controlType -eq [System.Windows.Automation.ControlType]::Window -and
+          [int64]$current.GetCurrentPropertyValue($script:AE::NativeWindowHandleProperty) -eq [int64]$Hwnd)
+      }
+      if ($controlType -eq [System.Windows.Automation.ControlType]::Window) { return $false }
+      $parent = $script:WLK.GetParent($current)
+      if (-not $parent) { return $false }
+      $siblings = New-Object 'System.Collections.Generic.HashSet[string]'
+      $matches = 0
+      $matchedRid = ''
+      $sibling = $script:WLK.GetFirstChild($parent)
+      while ($sibling) {
+        if ($remaining -le 0) { return $false }
+        $remaining--
+        $siblingRid = $sibling.GetRuntimeId() -join '.'
+        if (-not $siblingRid -or -not $siblings.Add($siblingRid)) { return $false }
+        if ([string]$sibling.GetCurrentPropertyValue($script:AE::AutomationIdProperty) -ceq $aid) {
+          $matches++
+          $matchedRid = $siblingRid
+        }
+        $sibling = $script:WLK.GetNextSibling($sibling)
+      }
+      if ($matches -ne 1 -or $matchedRid -cne $rid) { return $false }
+      $current = $parent
+    }
+  } catch { return $false }
+  $false
+}
+
+# Fresh page evidence excludes navigation, while retaining every traversal
+# completeness check and the normal exclusion of owned nonmodal windows.
+function Get-SSEMainContentTree {
+  param([IntPtr]$Hwnd, [int]$MaxNodes = 4000, [int]$TimeoutSec = 45, [int]$MaxDepth = 16,
+        [switch]$WithValues, [switch]$WithScroll)
+  try {
+    if ($Hwnd -eq [IntPtr]::Zero) { return $null }
+    $relativeAid = [string](Arg ((Get-SSEPageObjects).windows.main) 'contentAutomationId' '')
+    if (-not $relativeAid -or -not $relativeAid.StartsWith('.', [StringComparison]::Ordinal)) { return $null }
+    $window = $script:AE::FromHandle($Hwnd)
+    $rootAid = [string]$window.GetCurrentPropertyValue($script:AE::AutomationIdProperty)
+    $rootRid = $window.GetRuntimeId() -join '.'
+    $windowPid = 0
+    [SW]::GetWindowThreadProcessId($Hwnd, [ref]$windowPid) | Out-Null
+    if (-not $rootAid -or -not $rootRid -or $windowPid -le 0 -or
+        [int]$window.GetCurrentPropertyValue($script:AE::ProcessIdProperty) -ne $windowPid -or
+        [int64]$window.GetCurrentPropertyValue($script:AE::NativeWindowHandleProperty) -ne [int64]$Hwnd) { return $null }
+    $windowBinding = [pscustomobject]@{ aid=$rootAid; rid=$rootRid; processId=$windowPid }
+    $fullAid = "$rootAid$relativeAid"
+    $element = Find-ExactAutomationElement $Hwnd $relativeAid -VisibleOnly
+    $before = Convert-ExactElementToNode $element
+    if (-not $before -or -not $before.rid -or $before.aid -cne $fullAid -or
+        -not $before.on -or $before.w -le 0 -or $before.h -le 0 -or
+        -not (Test-SSEElementIdentity $element $before.rid $fullAid) -or
+        -not (Test-SSEElementVisible $element) -or
+        -not (Test-SSEMainContentAncestry $Hwnd $element $windowBinding)) { return $null }
+    $raw = Get-UiSnapshot $Hwnd $MaxNodes $TimeoutSec $MaxDepth -WithValues:$WithValues -WithScroll:$WithScroll -RootElement $element
+    $after = Convert-ExactElementToNode $element
+    if (-not $after -or $after.rid -cne $before.rid -or $after.aid -cne $fullAid -or
+        -not $after.on -or $after.w -le 0 -or $after.h -le 0 -or
+        $after.x -ne $before.x -or $after.y -ne $before.y -or
+        $after.w -ne $before.w -or $after.h -ne $before.h -or
+        -not (Test-SSEElementIdentity $element $before.rid $fullAid) -or
+        -not (Test-SSEElementVisible $element) -or
+        -not (Test-SSEMainContentAncestry $Hwnd $element $windowBinding)) { return $null }
+    $scope = Split-SSEWindowScope $raw.nodes
+    [pscustomobject]@{
+      nodes = @($scope.own)
+      stats = $raw.stats
+      fremdeFenster = @($scope.foreign)
+      contentBounds = [pscustomobject]@{
+        minX = [int]$after.x
+        maxX = [int64]$after.x + [int64]$after.w
+      }
+    }
+  } catch { return $null }
 }
 
 # Selektorendungen aus dem Profilkatalog. Einmal je Arbeitsprozess gelesen;
