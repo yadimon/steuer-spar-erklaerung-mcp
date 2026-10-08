@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { runStep } from "../suite-runner.mjs";
 import {
   API_LOAD_CALLER_SHAPES,
   createFairPlan,
@@ -27,6 +28,20 @@ import {
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(here, "..", "..");
+
+test("resource observation retains exact handles, refreshes metrics and refuses stale identity", { timeout: 45_000 }, async () => {
+  const powershell = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+  await runStep({
+    name: "windows-resource-observer-contract",
+    command: powershell,
+    args: [
+      "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+      "-File", join(here, "windows-resource-observer-contract.ps1"), "-NodeExecutable", process.execPath,
+    ],
+    timeoutMs: 40_000,
+    maxOutputBytes: 1024 * 1024,
+  });
+});
 
 function readJson(path) {
   return JSON.parse(readFileSync(path, "utf8"));

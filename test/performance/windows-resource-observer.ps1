@@ -164,6 +164,121 @@ function Get-IdentityKey($Identity) {
   "$($Identity.creationTimeUtcTicks)|$($Identity.imageNameLower)|$($Identity.imagePathTextSha256)"
 }
 
+function Get-ObservedProcess([int]$ProcessId) {
+  $key = [string]$ProcessId
+  if ($script:BoundProcesses.ContainsKey($key)) { return $script:BoundProcesses[$key] }
+  $process = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+  if (-not $process) { return $null }
+  try {
+    # Keep the exact kernel object until observation ends. Its PID cannot be
+    # recycled while this handle remains open, including after process exit.
+    if ($process.Handle -eq [IntPtr]::Zero) {
+      throw [InvalidOperationException]::new('Process handle unavailable.')
+    }
+    $script:BoundProcesses[$key] = $process
+    return $process
+  }
+  catch {
+    $process.Dispose()
+    throw
+  }
+}
+
+function Close-ObservedProcesses {
+  foreach ($process in @($script:BoundProcesses.Values)) { $process.Dispose() }
+  $script:BoundProcesses.Clear()
+}
+
+function Test-ObservedDescendant([int]$ProcessId) {
+  return @([SseLoadWindowObserver]::Descendants($RootPid, $PID)) -contains $ProcessId
+}
+
+function Get-ObservedWindowCounts([int]$ProcessId) {
+  return [SseLoadWindowObserver]::Counts($ProcessId)
+}
+
+function Measure-OwnedProcess($Entry) {
+  $process = $null
+  $identity = $null
+  try {
+    $process = Get-ObservedProcess ([int]$Entry.pid)
+    if (-not $process -or $process.HasExited) {
+      return [pscustomobject][ordered]@{ pid = $Entry.pid; role = $Entry.role; alive = $false }
+    }
+    $process.Refresh()
+    $identity = Get-ProcessIdentity $process
+    $identityKey = Get-IdentityKey $identity
+    $boundKey = [string]$Entry.pid
+    if ($Entry.expectedIdentity -and (Get-IdentityKey $Entry.expectedIdentity) -ne $identityKey) {
+      throw [IO.InvalidDataException]::new('Registered process identity does not match.')
+    }
+    if (-not $script:BoundIdentity.ContainsKey($boundKey)) {
+      if (-not $Entry.expectedIdentity -and -not (Test-ObservedDescendant ([int]$Entry.pid))) {
+        throw [IO.InvalidDataException]::new('Descendant ownership changed before identity binding.')
+      }
+      $script:BoundIdentity[$boundKey] = $identityKey
+    }
+    elseif ($script:BoundIdentity[$boundKey] -ne $identityKey) {
+      throw [IO.InvalidDataException]::new('Bound process identity changed.')
+    }
+    $windows = Get-ObservedWindowCounts ([int]$process.Id)
+    if ($windows[4] -ne 1) { throw [InvalidOperationException]::new('EnumWindows failed.') }
+    $sample = [pscustomobject][ordered]@{
+      pid = [int]$process.Id
+      role = $Entry.role
+      alive = $true
+      identity = $identity
+      cpuTotalMs = [math]::Round($process.TotalProcessorTime.TotalMilliseconds, 3)
+      workingSetBytes = [int64]$process.WorkingSet64
+      privateBytes = [int64]$process.PrivateMemorySize64
+      handleCount = [int]$process.HandleCount
+      windows = [pscustomobject][ordered]@{
+        total = [int]$windows[0]
+        visible = [int]$windows[1]
+        visibleEnabled = [int]$windows[2]
+        modalCandidates = [int]$windows[3]
+      }
+    }
+    # Metric getters may race with exit. Check the same pinned generation after
+    # reading them rather than accepting data from a subsequent PID occupancy.
+    if ($process.HasExited) {
+      return [pscustomobject][ordered]@{ pid = $Entry.pid; role = $Entry.role; alive = $false }
+    }
+    return $sample
+  }
+  catch {
+    $sampleError = $_.Exception.GetType().Name
+    $exited = $false
+    if ($process) {
+      try { $exited = $process.HasExited } catch { $exited = $false }
+    }
+    if ($exited) {
+      return [pscustomobject][ordered]@{ pid = $Entry.pid; role = $Entry.role; alive = $false }
+    }
+    return [pscustomobject][ordered]@{
+      pid = $Entry.pid
+      role = $Entry.role
+      alive = $true
+      identity = $identity
+      sampleError = $sampleError
+    }
+  }
+}
+
+function Measure-KnownOwnedProcesses {
+  foreach ($entry in @($script:KnownOwned.Values)) {
+    $sample = Measure-OwnedProcess $entry
+    if ($sample.alive -eq $false -and -not $sample.sampleError -and
+        $entry.role -eq 'owned-descendant' -and -not $entry.expectedIdentity -and
+        -not $script:BoundProcesses.ContainsKey([string]$entry.pid)) {
+      # This child disappeared before a handle could bind its generation.
+      # Keep its dead observation, but require fresh discovery for future PIDs.
+      $script:KnownOwned.Remove([string]$entry.pid)
+    }
+    $sample
+  }
+}
+
 function Read-Registry {
   $entries = [ordered]@{}
   if (-not (Test-Path -LiteralPath $RegistryPath -PathType Leaf)) { return @() }
@@ -174,7 +289,17 @@ function Read-Registry {
       $entryPid = [int]$entry.pid
       $role = [string]$entry.role
       if ($entryPid -lt 1 -or $role -notmatch '^[a-z][a-z0-9-]{0,31}$') { continue }
-      $entries["$entryPid"] = [pscustomobject][ordered]@{ pid = $entryPid; role = $role }
+      $expectedIdentity = $entry.identity
+      if ($entryPid -eq $RootPid -and $role -eq 'runner') {
+        $expectedIdentity = $script:RootIdentity
+      }
+      if (-not $expectedIdentity -or
+          [string]$expectedIdentity.creationTimeUtcTicks -notmatch '^\d{10,20}$' -or
+          [string]$expectedIdentity.imageNameLower -notmatch '^[a-z0-9._-]{1,128}$' -or
+          [string]$expectedIdentity.imagePathTextSha256 -notmatch '^[A-F0-9]{64}$') { continue }
+      $entries["$entryPid"] = [pscustomobject][ordered]@{
+        pid = $entryPid; role = $role; expectedIdentity = $expectedIdentity
+      }
     }
     catch {
       # appendFileSync writes one complete line; a partial final line is ignored
@@ -186,6 +311,7 @@ function Read-Registry {
 
 $script:KnownOwned = [ordered]@{}
 $script:BoundIdentity = @{}
+$script:BoundProcesses = @{}
 
 function Sample-Resources(
   [Diagnostics.Stopwatch]$Clock,
@@ -207,71 +333,8 @@ function Sample-Resources(
       }
     }
   }
-  foreach ($entry in @($script:KnownOwned.Values)) {
-    $process = Get-Process -Id $entry.pid -ErrorAction SilentlyContinue
-    if (-not $process) {
-      $tracked += [pscustomobject][ordered]@{
-        pid = $entry.pid
-        role = $entry.role
-        alive = $false
-      }
-      continue
-    }
-    try {
-      $windows = [SseLoadWindowObserver]::Counts([int]$process.Id)
-      if ($windows[4] -ne 1) { throw [InvalidOperationException]::new('EnumWindows failed.') }
-      $identity = Get-ProcessIdentity $process
-      $identityKey = Get-IdentityKey $identity
-      $boundKey = "$($entry.pid)"
-      if (-not $script:BoundIdentity.ContainsKey($boundKey)) {
-        $script:BoundIdentity[$boundKey] = $identityKey
-      }
-      elseif ($script:BoundIdentity[$boundKey] -ne $identityKey) {
-        throw [InvalidOperationException]::new('Registered process identity changed.')
-      }
-      $tracked += [pscustomobject][ordered]@{
-        pid = [int]$process.Id
-        role = $entry.role
-        alive = $true
-        identity = $identity
-        cpuTotalMs = [math]::Round($process.TotalProcessorTime.TotalMilliseconds, 3)
-        workingSetBytes = [int64]$process.WorkingSet64
-        privateBytes = [int64]$process.PrivateMemorySize64
-        handleCount = [int]$process.HandleCount
-        windows = [pscustomobject][ordered]@{
-          total = [int]$windows[0]
-          visible = [int]$windows[1]
-          visibleEnabled = [int]$windows[2]
-          modalCandidates = [int]$windows[3]
-        }
-      }
-    }
-    catch {
-      # A registered child can exit between Get-Process and a metric getter.
-      # That is an expected lifecycle observation, not a telemetry failure.
-      $stillAlive = Get-Process -Id $entry.pid -ErrorAction SilentlyContinue
-      if ($stillAlive) {
-        $errors += 1
-        $tracked += [pscustomobject][ordered]@{
-          pid = $entry.pid
-          role = $entry.role
-          alive = $true
-          sampleError = $_.Exception.GetType().Name
-        }
-        $stillAlive.Dispose()
-      }
-      else {
-        $tracked += [pscustomobject][ordered]@{
-          pid = $entry.pid
-          role = $entry.role
-          alive = $false
-        }
-      }
-    }
-    finally {
-      if ($process) { $process.Dispose() }
-    }
-  }
+  $tracked = @(Measure-KnownOwnedProcesses)
+  foreach ($sample in $tracked) { if ($sample.sampleError) { $errors += 1 } }
   $sse = @(Get-Process -Name 'SSE' -ErrorAction SilentlyContinue)
   foreach ($process in $sse) { $process.Dispose() }
   [pscustomobject][ordered]@{
@@ -295,19 +358,15 @@ $clock = [Diagnostics.Stopwatch]::StartNew()
 $sequence = 0
 $nextScheduledMs = 0.0
 $missedIntervals = 0
-$rootProcess = Get-Process -Id $RootPid -ErrorAction Stop
-try { $rootIdentityKey = Get-IdentityKey (Get-ProcessIdentity $rootProcess) }
-finally { $rootProcess.Dispose() }
 try {
+  $rootProcess = Get-ObservedProcess $RootPid
+  if (-not $rootProcess -or $rootProcess.HasExited) { throw [InvalidOperationException]::new('Root process exited.') }
+  $script:RootIdentity = Get-ProcessIdentity $rootProcess
+  $rootIdentityKey = Get-IdentityKey $script:RootIdentity
   while ($true) {
-    $rootProcess = Get-Process -Id $RootPid -ErrorAction SilentlyContinue
-    if (-not $rootProcess) { break }
-    try {
-      if ((Get-IdentityKey (Get-ProcessIdentity $rootProcess)) -ne $rootIdentityKey) { break }
-    }
-    finally {
-      $rootProcess.Dispose()
-    }
+    if ($rootProcess.HasExited) { break }
+    $rootProcess.Refresh()
+    if ((Get-IdentityKey (Get-ProcessIdentity $rootProcess)) -ne $rootIdentityKey) { break }
     $sequence += 1
     Sample-Resources $clock $sequence $nextScheduledMs $missedIntervals | ConvertTo-Json -Compress -Depth 8
     if (Test-Path -LiteralPath $StopPath -PathType Leaf) { break }
@@ -330,4 +389,7 @@ catch {
     errorName = $_.Exception.GetType().Name
   } | ConvertTo-Json -Compress
   exit 1
+}
+finally {
+  Close-ObservedProcesses
 }
