@@ -8,6 +8,7 @@ import { sameFileState } from "./file-identity.js";
 import type { ProductProfile } from "./product-profiles.js";
 
 export const AKAD_MAX_HEADER_BYTES = 512 * 1024;
+const CASE_HEADER_READ_CONCURRENCY = 4;
 const HEADER_KEYS = [
   "FileType",
   "VJahr",
@@ -370,15 +371,14 @@ export async function listCaseFiles(
       .map((entry) => entry.name);
     if (!names.length) return { ok: true, dir: directoryInput, count: 0, cases: [] };
 
-    const cases: ListedCaseFile[] = [];
-    for (const name of names) {
+    const readCase = async (name: string): Promise<ListedCaseFile> => {
       if (controller.signal.aborted) throw abortError();
       const path = resolve(dir, name);
       const { data, stats } = await readStableCaseHeader(path, controller.signal);
       const parsed = parseAkadCaseListSummary(data);
       if (!parsed) throw new CaseFileParserFallbackError(`AKAD-Kopf von '${name}' braucht den Worker-Parser.`);
       const header = parsed.header;
-      cases.push({
+      return {
         name,
         path,
         kb: roundedKilobytes(stats.size),
@@ -393,7 +393,20 @@ export async function listCaseFiles(
         transmittedReason: parsed.transmittedReason,
         encryptedBytes: parsed.encryptedBytes,
         meta: null,
-      });
+      };
+    };
+    const cases: ListedCaseFile[] = [];
+    for (let offset = 0; offset < names.length; offset += CASE_HEADER_READ_CONCURRENCY) {
+      // Drain every started read before selecting the first error in directory
+      // order or handing parser fallback to the worker.
+      const settled = await Promise.allSettled(
+        names.slice(offset, offset + CASE_HEADER_READ_CONCURRENCY).map(readCase),
+      );
+      if (controller.signal.aborted) throw abortError();
+      for (const result of settled) {
+        if (result.status === "rejected") throw result.reason;
+        cases.push(result.value);
+      }
     }
     if (controller.signal.aborted) throw abortError();
     return { ok: true, dir: directoryInput, count: cases.length, cases, parserError: null };

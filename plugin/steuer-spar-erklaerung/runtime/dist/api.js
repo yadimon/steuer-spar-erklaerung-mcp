@@ -7258,15 +7258,14 @@ async function listCaseFiles(directoryInput, profile, options = {}) {
     const entries = await abortable(readdir(dir, { withFileTypes: true }), controller.signal);
     const names = entries.filter((entry) => entry.isFile() && isProfileCaseFileName(entry.name, profile, options.includeBackups === true)).map((entry) => entry.name);
     if (!names.length) return { ok: true, dir: directoryInput, count: 0, cases: [] };
-    const cases = [];
-    for (const name of names) {
+    const readCase = async (name) => {
       if (controller.signal.aborted) throw abortError();
       const path = resolve9(dir, name);
       const { data, stats } = await readStableCaseHeader(path, controller.signal);
       const parsed = parseAkadCaseListSummary(data);
       if (!parsed) throw new CaseFileParserFallbackError(`AKAD-Kopf von '${name}' braucht den Worker-Parser.`);
       const header = parsed.header;
-      cases.push({
+      return {
         name,
         path,
         kb: roundedKilobytes(stats.size),
@@ -7281,7 +7280,18 @@ async function listCaseFiles(directoryInput, profile, options = {}) {
         transmittedReason: parsed.transmittedReason,
         encryptedBytes: parsed.encryptedBytes,
         meta: null
-      });
+      };
+    };
+    const cases = [];
+    for (let offset = 0; offset < names.length; offset += CASE_HEADER_READ_CONCURRENCY) {
+      const settled = await Promise.allSettled(
+        names.slice(offset, offset + CASE_HEADER_READ_CONCURRENCY).map(readCase)
+      );
+      if (controller.signal.aborted) throw abortError();
+      for (const result of settled) {
+        if (result.status === "rejected") throw result.reason;
+        cases.push(result.value);
+      }
     }
     if (controller.signal.aborted) throw abortError();
     return { ok: true, dir: directoryInput, count: cases.length, cases, parserError: null };
@@ -7375,7 +7385,7 @@ async function readCaseFileInfo(pathInput, profile, options = {}) {
     await handle?.close().catch(() => void 0);
   }
 }
-var AKAD_MAX_HEADER_BYTES, HEADER_KEYS, AKAD_TYPE_NAMES, CaseFileError, CaseFileParserFallbackError;
+var AKAD_MAX_HEADER_BYTES, CASE_HEADER_READ_CONCURRENCY, HEADER_KEYS, AKAD_TYPE_NAMES, CaseFileError, CaseFileParserFallbackError;
 var init_case_file = __esm({
   "src/case-file.ts"() {
     "use strict";
@@ -7383,6 +7393,7 @@ var init_case_file = __esm({
     init_api_contract();
     init_file_identity();
     AKAD_MAX_HEADER_BYTES = 512 * 1024;
+    CASE_HEADER_READ_CONCURRENCY = 4;
     HEADER_KEYS = [
       "FileType",
       "VJahr",

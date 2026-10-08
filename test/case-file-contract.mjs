@@ -12,6 +12,7 @@ import {
 } from "../dist/case-file.js";
 import { loadProductProfile } from "../dist/product-profiles.js";
 import { callWorker } from "../dist/worker.js";
+import { testParallelCaseListing } from "./case-file-list-parallel-fixture.mjs";
 
 /** Fuehrt fn in jedem Eventloop-Durchlauf aus, bis die Rueckgabe aufgerufen wird. */
 function everyLoopTurn(fn) {
@@ -278,6 +279,7 @@ try {
   writeFileSync(join(listDirectory, "notiz.txt"), "kein Fall");
 
   const listed = await listCaseFiles(listDirectory, loadProductProfile("2025"));
+  await testParallelCaseListing(temporary, loadProductProfile("2025"), akadFixture);
   assert.equal(listed.count, 2);
   assert.deepEqual(listed.cases.map((entry) => entry.name).sort(), ["folge.GewErfass2026", "primaer.Gew2025"]);
   const primary = listed.cases.find((entry) => entry.name === "primaer.Gew2025");
