@@ -15,7 +15,8 @@
 #      Zwischenseiten; ein uebersprungenes Ziel beendet den Weg sofort.
 #   3. Eine Seite ohne Blaetterschalter endet als 'dead-end'; der
 #      Verlaufspfeil wird nie gedrueckt.
-#   4. Ein wiederholter Uebergang endet als 'no-progress'.
+#   4. Ein wiederholter Uebergang innerhalb desselben nummerierten Eintrags
+#      endet als 'no-progress'; gleiche Unterseiten anderer Eintraege laufen.
 #   5. Das Budget ist Abstand plus Reserve, ohne feste Untergrenze; maxSteps
 #      begrenzt es nur.
 $ErrorActionPreference = 'Stop'
@@ -87,25 +88,34 @@ Assert-True ($routeIndex -ge 0 -and $loopIndex.Count -eq 1 -and $loopIndex[0] -g
 $walk = [scriptblock]::Create(($texts[$routeIndex..$loopIndex[0]]) -join "`n")
 
 function Invoke-Walk {
-  param([string]$Start, [string]$Target, [hashtable]$Transitions, [string]$Direction = '', $MaxSteps = $null)
+  param([string]$Start, [string]$Target, [hashtable]$Transitions, [string]$Direction = '', $MaxSteps = $null,
+    [hashtable]$StateHeadings = @{})
   $script:page = $Start
   $script:transitions = $Transitions
+  $script:stateHeadings = @{}
+  foreach ($key in $Transitions.Keys) {
+    $source = $key.Substring(0,$key.LastIndexOf('|'))
+    $script:stateHeadings[$source] = $source
+    $script:stateHeadings[[string]$Transitions[$key]] = [string]$Transitions[$key]
+  }
+  $script:stateHeadings[$Start] = $Start
+  foreach ($stateId in $StateHeadings.Keys) { $script:stateHeadings[$stateId] = $StateHeadings[$stateId] }
   $script:presses = New-Object System.Collections.ArrayList
   $script:emitted = $null
   $script:failed = $null
   $FOLGE = $order
-  $start = $Start; $ziel = $Target; $richtungVorgegeben = $Direction; $requestedMaxSteps = $MaxSteps
+  $start = [string]$script:stateHeadings[$Start]; $ziel = $Target; $richtungVorgegeben = $Direction; $requestedMaxSteps = $MaxSteps
   $hwnd = [IntPtr]4242; $gotoPid = 3131; $pageId = ''; $verbraucht = 0
   $weg = New-Object System.Collections.ArrayList
-  $null = $weg.Add($Start)
+  $null = $weg.Add($start)
   $besucht = New-Object System.Collections.ArrayList
-  function AktuelleUeberschrift { param([IntPtr]$h) $script:page }
+  function AktuelleUeberschrift { param([IntPtr]$h) $script:stateHeadings[$script:page] }
   function IstZielseite { param([IntPtr]$h, [string]$heading) [bool]($heading -ceq $ziel) }
   function DrueckeKnopf {
     param([IntPtr]$h, [string]$name, [string]$wechselVon = '')
     $key = "$($script:page)|$name"
     $exists = $script:transitions.ContainsKey($key)
-    $null = $script:presses.Add([pscustomobject]@{ from=$script:page; button=$name; pressed=$exists })
+    $null = $script:presses.Add([pscustomobject]@{ from=$script:stateHeadings[$script:page]; stateId=$script:page; button=$name; pressed=$exists })
     $script:page = @($script:page, $script:transitions[$key])[[int]$exists]
     $exists
   }
@@ -121,7 +131,7 @@ function Invoke-Walk {
   }
   $pressed = @($script:presses | Where-Object { $_.pressed })
   [pscustomobject]@{
-    emitted=$script:emitted; failed=$script:failed; page=$script:page; weg=@($weg)
+    emitted=$script:emitted; failed=$script:failed; page=$script:stateHeadings[$script:page]; stateId=$script:page; weg=@($weg)
     presses=@($script:presses); clicks=$pressed.Count; buttons=@($script:presses | ForEach-Object { $_.button } | Select-Object -Unique)
   }
 }
@@ -207,6 +217,45 @@ $pingPong = Invoke-Walk 'Seite A' 'Sonstige Kfz-Kosten: Passat' @{ 'Seite A|Weit
 Assert-True ($pingPong.failed.kind -ceq 'no-progress' -and $pingPong.clicks -eq 3 -and
              $pingPong.failed.error.Contains("erneut von 'Seite A' auf 'Seite B'")) `
   "Ein Kreis wurde nicht am wiederholten Uebergang erkannt: $($pingPong.failed | ConvertTo-Json -Compress)"
+
+# Gleich benannte Unterseiten zweier Eintraege sind verschiedene Stationen.
+# Die echte Worker-Schleife muss beide vollstaendig durchlaufen, ohne Budget
+# oder Kreispruefung zu lockern.
+$entryHeadings = @{
+  assetA='1. Inventar Alpha'; assetB='2. Inventar Beta'; target='Zielseite'
+  costsA='Weitere Kosten zur Anschaffung'; costsB='Weitere Kosten zur Anschaffung'
+  withdrawalA='Einlage oder Ausscheiden des Wirtschaftsguts'; withdrawalB='Einlage oder Ausscheiden des Wirtschaftsguts'
+  allowanceA='Investitionsabzugsbetrag oder Sonderabschreibung'; allowanceB='Investitionsabzugsbetrag oder Sonderabschreibung'
+  lifetimeA='Änderung der Restnutzungsdauer'; lifetimeB='Änderung der Restnutzungsdauer'
+}
+$entryPages = @{
+  'assetA|Weiter'='costsA'; 'costsA|Weiter'='withdrawalA'; 'withdrawalA|Weiter'='allowanceA'
+  'allowanceA|Weiter'='lifetimeA'; 'lifetimeA|Weiter'='assetB'
+  'assetB|Weiter'='costsB'; 'costsB|Weiter'='withdrawalB'; 'withdrawalB|Weiter'='allowanceB'
+  'allowanceB|Weiter'='lifetimeB'; 'lifetimeB|Weiter'='target'
+}
+$entries = Invoke-Walk 'assetA' 'Zielseite' $entryPages 'Weiter' 12 -StateHeadings $entryHeadings
+Assert-True ($entries.emitted.erreicht -eq $true -and $entries.stateId -ceq 'target' -and
+  $entries.clicks -eq 10 -and $null -eq $entries.failed) `
+  "Unterseiten unterschiedlicher Eintraege wurden als Kreis gewertet: $($entries.failed | ConvertTo-Json -Compress)"
+
+$sameEntryCycle = Invoke-Walk '1. Inventar Alpha' 'Zielseite' @{
+  '1. Inventar Alpha|Weiter' = 'Weitere Kosten'
+  'Weitere Kosten|Weiter' = 'Einlage'
+  'Einlage|Weiter' = 'Weitere Kosten'
+} 'Weiter' 12
+Assert-True ($sameEntryCycle.failed.kind -ceq 'no-progress' -and $sameEntryCycle.clicks -eq 4) `
+  'Ein Kreis innerhalb desselben Eintrags wurde nicht am ersten wiederholten Uebergang beendet.'
+
+$returnedEntryCycle = Invoke-Walk 'assetA' 'Zielseite' @{
+  'assetA|Weiter'='costsA'; 'costsA|Weiter'='withdrawalA'; 'withdrawalA|Weiter'='assetB'
+  'assetB|Weiter'='costsB'; 'costsB|Weiter'='withdrawalB'; 'withdrawalB|Weiter'='assetA'
+} 'Weiter' 12 -StateHeadings $entryHeadings
+Assert-True ($returnedEntryCycle.failed.kind -ceq 'no-progress' -and $returnedEntryCycle.clicks -eq 7) `
+  'Die Rueckkehr zu einem frueheren Eintrag hat dessen bereits besuchte Uebergaenge vergessen.'
+
+Assert-True ((Get-SSEGotoEntryContext '1. Inventar Alpha') -cne (Get-SSEGotoEntryContext '1. Reise Beta')) `
+  'Gleiche Nummern verschiedener Listen wurden als derselbe Eintrag behandelt.'
 
 # 11. Budget ohne Untergrenze: Bürobedarf -> UStE ueber lauter unbekannte Seiten
 #     endet nach 35 Klicks, nicht nach 90.

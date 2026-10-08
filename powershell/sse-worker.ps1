@@ -16877,10 +16877,12 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $route = Get-SSEGotoRoute -Order $FOLGE -Start $start -Target $ziel -Direction $richtungVorgegeben -MaxSteps $requestedMaxSteps
     $richtung = $route.direction
     $position = $route.startIndex
-    # Wie collect merkt sich der Weg gerichtete Uebergaenge statt Titel: Eine
-    # Ueberschrift kommt im Formular mehrfach vor, ein wiederholter Uebergang
-    # aber nur, wenn der Weg im Kreis laeuft.
+    # Nummerierte Eintraege teilen dieselben Unterseitentitel. Gerichtete
+    # Uebergaenge gelten deshalb im Kontext des zuletzt beobachteten Eintrags.
+    # Alte Kontexte bleiben gespeichert, damit auch die Rueckkehr zu einem
+    # frueheren Eintrag einen wiederholten Weg weiterhin beendet.
     $gesehenWege = @{}
+    $eintragsKontext = Get-SSEGotoEntryContext -Heading $start
     $stillstand = 0
     while ($verbraucht -lt $route.budget) {
       $vorher = AktuelleUeberschrift $hwnd
@@ -16894,6 +16896,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           ueberschrift=$vorher; schritte=$verbraucht; richtung=$richtung; weg=@($weg)
         })
       }
+      $eintragsKontext = Get-SSEGotoEntryContext -Heading $vorher -Current $eintragsKontext
       $verbraucht++
       $ok = DrueckeKnopf $hwnd $richtung $vorher
       if (-not $ok) {
@@ -16941,7 +16944,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           richtung = $richtung; weg = @($weg); fokusfrei = $true })
       }
       if ($jetzt -ne $vorher) {
-        $uebergang = "$vorher$([char]0x1F)$jetzt"
+        $uebergang = "$eintragsKontext$([char]0x1F)$vorher$([char]0x1F)$jetzt"
         if ($gesehenWege.ContainsKey($uebergang)) {
           Fail ("Seite '$ziel' nicht erreicht: '$richtung' fuehrte erneut von '$vorher' auf '$jetzt', der Weg " +
                 "laeuft im Kreis. Weg: $((@($weg)) -join ' | ')") 'no-progress'
