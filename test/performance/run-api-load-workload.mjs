@@ -1262,7 +1262,8 @@ export async function runApiLoadWorkload(options, testOnly = {}) {
     assert.deepEqual(staleMcpProbe.structuredContent, {
       ok: false,
       kind: "protocol",
-      error: "SSE-API-Healthz ist inkompatibel: Die Instanz am konfigurierten Port wurde ausgetauscht.",
+      error: "SSE-API-Healthz ist inkompatibel: Die Instanz am konfigurierten Port wurde ausgetauscht. " +
+        "Nach einem beabsichtigten API-Neustart die MCP-Verbindung neu starten und sse_preflight erneut aufrufen.",
     });
     assert.equal(executor.snapshot().journal.length, executorCallsBeforeStaleMcpProbe,
       "Stale MCP binding reached the executor after an API instance replacement.");

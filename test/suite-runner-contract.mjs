@@ -20,6 +20,7 @@ import {
 } from "./suite-runner.mjs";
 
 const expectedNames = [
+  "performance-harness",
   "execution-telemetry", "execution-telemetry-integration", "execution-trace-log", "api-mega-execution-traces",
   "api-control-shutdown", "api-control-runtime", "mcp-api-control",
   "api-monotonic-timing", "foreground-reporting-contract", "table-read-obstruction",
@@ -80,9 +81,15 @@ assert.deepEqual(externalLiveOperations, [
   "vast_row_set_expanded",
 ], "Nur BelegManager, instances und VaSt duerfen auf den privaten abgeschotteten Nachweis angewiesen sein.");
 assert.deepEqual(exclusiveSteps.map((step) => step.name), [
-  "worker-controller-lock", "mcp-api-supervisor", "api-control-runtime", "mcp-api-control", "agent-plugin-runtime", "no-console-window",
+  "worker-controller-lock", "mcp-api-supervisor", "api-control-runtime", "mcp-api-control", "agent-plugin-runtime", "performance-harness", "no-console-window",
 ]);
 assert.equal(exclusiveSteps[0].timeoutMs, 420_000);
+assert.deepEqual(exclusiveSteps.find(step => step.name === "performance-harness").args, [
+  "--test", "--test-concurrency=1",
+  "test/performance/performance-harness-contract.mjs",
+  "test/performance/receipt-workload-contract.mjs",
+  "test/performance/api-load-workload-contract.mjs",
+]);
 const controllerConflictSteps = parallelSteps.filter((step) => step.conflictKey !== undefined);
 assert.deepEqual(controllerConflictSteps.map((step) => step.name).sort(), [
   "archive-cases", "archive-cases-synthetic", "archive-local-parity",
@@ -99,6 +106,7 @@ assert(controllerConflictSteps.every((step) => step.conflictKey === "windows-ses
 assert(!parallelSteps.some((step) => step.name === "no-console-window"));
 assert(!parallelSteps.some((step) => step.name === "mcp-api-supervisor"));
 assert(!parallelSteps.some((step) => step.name === "agent-plugin-runtime"));
+assert(!parallelSteps.some((step) => step.name === "performance-harness"));
 // Die Abdeckungsbilanz wertet das Protokoll aller anderen Schritte aus und
 // darf deshalb weder parallel noch vor ihnen laufen.
 assert.deepEqual(finalSteps.map((step) => step.name), [
