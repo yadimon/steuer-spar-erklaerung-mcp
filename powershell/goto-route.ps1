@@ -62,6 +62,16 @@ function Get-SSERepeatedPagingTitles {
   @('Innergem. Erwerb, § 13b UStG und Einfuhr', 'Abziehbare Vorsteuer', 'Vorsteuer aus anderen Rechnungen')
 }
 
+# Nummerierte Eintraege haben eigene Unterseiten mit wiederkehrenden Titeln.
+# Nur ein frisch beobachteter Eintrag aendert den Kontext; generische Titel
+# behalten ihn. Der vollstaendige Name trennt auch gleich nummerierte Eintraege
+# verschiedener Listen, ohne einen Seitenzustand oder ein Ziel zu erraten.
+function Get-SSEGotoEntryContext {
+  param([AllowEmptyString()][string]$Heading, [AllowEmptyString()][string]$Current = '')
+  if ($Heading -cmatch '^[1-9][0-9]*\. .+') { return $Heading }
+  $Current
+}
+
 <#
 Plant den Blaetterweg von $Start zu $Target.
 

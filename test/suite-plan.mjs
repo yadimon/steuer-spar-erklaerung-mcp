@@ -224,6 +224,10 @@ export const exclusiveSteps = Object.freeze([
   nodeFile("api-control-runtime", "test/api-control-runtime.mjs"),
   nodeFile("mcp-api-control", "test/mcp-api-control.mjs"),
   nodeFile("agent-plugin-runtime", "test/agent-plugin-runtime.mjs"),
+  nodeFile("performance-harness", "--test", "--test-concurrency=1",
+    "test/performance/performance-harness-contract.mjs",
+    "test/performance/receipt-workload-contract.mjs",
+    "test/performance/api-load-workload-contract.mjs"),
   withApi("no-console-window", "test/no-console-window.mjs"),
 ]);
 

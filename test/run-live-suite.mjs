@@ -239,6 +239,7 @@ function positionTemplate(profileId, fixture) {
 function runFixtureScript(profileId, { label, script, fixtureVariable }, template) {
   const fixture = provisionDisposableCase(profileId, template);
   process.stdout.write(`\n> ${label} (${profileId})\n`);
+  let primaryError = null;
   try {
     const run = spawnSync(
       process.execPath,
@@ -266,8 +267,18 @@ function runFixtureScript(profileId, { label, script, fixtureVariable }, templat
     assert.equal(leakedPids, "", `Nach ${label} (${profileId}): verbliebene SSE-Prozesse (${leakedPids}).`);
     assert.equal(sha256(fixture.copy), fixture.copyHash, `${label}: die Wegwerfkopie wurde auf der Platte veraendert.`);
     assert.equal(sha256(fixture.source), fixture.sourceHash, `${label}: der offizielle Musterfall wurde veraendert.`);
+  } catch (error) {
+    primaryError = error;
+    throw error;
   } finally {
-    rmSync(fixture.directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    const leakedPids = ssePids();
+    if (leakedPids) {
+      const message = `${label}: SSE-Prozesse (${leakedPids}) sind noch offen; Wegwerfkopie zur Diagnose erhalten.`;
+      if (primaryError instanceof Error) primaryError.message += ` Cleanup: ${message}`;
+      else throw new Error(message);
+    } else {
+      rmSync(fixture.directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    }
   }
 }
 

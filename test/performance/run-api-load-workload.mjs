@@ -428,11 +428,12 @@ function startResourceObserver({ scratchRoot, intervalMs, beforeStopSignal }) {
   return {
     samples,
     parseErrors,
-    register(pid, role) {
+    register(pid, role, expectedIdentity) {
       if (!Number.isSafeInteger(pid) || pid < 1 || !/^[a-z][a-z0-9-]{0,31}$/u.test(role)) {
         throw new Error("Unsafe observed-process registration.");
       }
-      appendFileSync(registryPath, `${JSON.stringify({ pid, role })}\n`, "utf8");
+      const identity = validateProcessIdentity(expectedIdentity);
+      appendFileSync(registryPath, `${JSON.stringify({ pid, role, identity })}\n`, "utf8");
       explicitlyRegisteredPids.add(pid);
     },
     async waitForSample(predicate, timeoutMs = Math.max(15_000, intervalMs * 4), minimumSequence = 0) {
@@ -905,7 +906,7 @@ export async function runApiLoadWorkload(options, testOnly = {}) {
       mcp.binding = { pid, identity: mcp.identity, identityMatchedAlive: true };
       ownedMcpPids.push(pid);
       ownedMcpBindings.push(mcp.binding);
-      observer.register(pid, role);
+      observer.register(pid, role, mcp.identity);
       const floor = observer.samples.at(-1)?.sequence ?? 0;
       await observer.waitForSample(
         (sample) => sample.tracked.some((entry) => (
@@ -919,7 +920,7 @@ export async function runApiLoadWorkload(options, testOnly = {}) {
       const pid = current.pid ?? transport.pid;
       if (Number.isSafeInteger(pid) && pid > 0 && !ownedMcpPids.includes(pid)) {
         ownedMcpPids.push(pid);
-        try { observer.register(pid, role); } catch { /* cleanup still owns the exact transport PID */ }
+        try { observer.register(pid, role, current.identity); } catch { /* cleanup still owns the exact transport PID */ }
       }
       const cleanupErrors = [];
       try { await client.close(); } catch (cleanupError) { cleanupErrors.push(cleanupError); }
@@ -1262,7 +1263,8 @@ export async function runApiLoadWorkload(options, testOnly = {}) {
     assert.deepEqual(staleMcpProbe.structuredContent, {
       ok: false,
       kind: "protocol",
-      error: "SSE-API-Healthz ist inkompatibel: Die Instanz am konfigurierten Port wurde ausgetauscht.",
+      error: "SSE-API-Healthz ist inkompatibel: Die Instanz am konfigurierten Port wurde ausgetauscht. " +
+        "Nach einem beabsichtigten API-Neustart die MCP-Verbindung neu starten und sse_preflight erneut aufrufen.",
     });
     assert.equal(executor.snapshot().journal.length, executorCallsBeforeStaleMcpProbe,
       "Stale MCP binding reached the executor after an API instance replacement.");

@@ -13,8 +13,10 @@ import { createSseApiServer } from "../dist/api-server.js";
 import { callApiOperationEnvelope } from "../dist/api-client.js";
 import { testNativePageProjections } from "./qt-native-page-projections.mjs";
 import { testNativeAcknowledgmentDeadline } from "./qt-native-deadline-fixture.mjs";
+import { testNativeFrameBoundaries } from "./qt-native-frame-fixture.mjs";
 
 await testNativePageProjections();
+await testNativeFrameBoundaries();
 
 const frame = value => {
   const body = Buffer.from(JSON.stringify(value));

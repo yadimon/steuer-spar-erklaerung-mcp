@@ -82,10 +82,16 @@ const MARKER = ["11,11", "22,22", "33,33", "44,44", "55,55", "66,66"];
 
 await client.connect(transport);
 let hwnd = 0;
+let ownedInstance = null;
+let primaryError = null;
 try {
   const gestartet = await call("sse_launch", { caseRef, mode: "einur" });
+  const pid = gestartet.instance?.pid ?? gestartet.pid;
+  assert(Number.isInteger(pid) && pid > 0, "Start lieferte keine bindbare Prozessidentitaet.");
+  ownedInstance = { pid };
   hwnd = gestartet.instance?.hwnd ?? 0;
   assert(Number.isInteger(hwnd) && hwnd > 0, `Start lieferte kein Hauptfenster: ${JSON.stringify(gestartet)}`);
+  ownedInstance.hwnd = hwnd;
 
   const seite = await call("sse_page", { hwnd });
   assert.equal(seite.ueberschrift, heading,
@@ -267,8 +273,9 @@ Zeilen: ${JSON.stringify(gelesen.zeilen)}`;
     "Nach zwoelf Mutationen meldet die Anwendung keinen ungespeicherten Stand.");
   assert.deepEqual(zustand.dialoge ?? [], [], "Am Ende der Reise steht ein Dialog offen.");
 
-  const geschlossen = await call("sse_close", { discardChanges: true, hwnd }, 300_000);
+  const geschlossen = await call("sse_close", { ...ownedInstance, discardChanges: true }, 300_000);
   assert.equal(geschlossen.stillRunning, false, "Nach dem Schliessen laeuft das Programm noch.");
+  ownedInstance = null;
 
   process.stdout.write(`Schritte: ${protokoll.join(" | ")}\n`);
   process.stdout.write(
@@ -276,6 +283,23 @@ Zeilen: ${JSON.stringify(gelesen.zeilen)}`;
     `'${andereSeite}', Werte-Info, Hilfespalte und eine Betragsaenderung dazwischen, Tabellensicht und Suche stimmten in jedem ` +
     `Schritt ueberein, Summe zurueck auf ${startSumme}, nichts gespeichert.\n`,
   );
+} catch (error) {
+  primaryError = error;
+  throw error;
 } finally {
-  await client.close().catch(() => {});
+  const cleanupErrors = [];
+  if (ownedInstance) {
+    try {
+      const cleanup = { ...ownedInstance, discardChanges: true };
+      if (!ownedInstance.hwnd) cleanup.force = true;
+      const closed = await call("sse_close", cleanup, 120_000);
+      assert.equal(closed.stillRunning, false, "Die eigene SSE-Instanz blieb nach dem Abbruch offen.");
+    } catch (error) { cleanupErrors.push(error); }
+  }
+  try { await client.close(); } catch (error) { cleanupErrors.push(error); }
+  if (cleanupErrors.length) {
+    const message = cleanupErrors.map(error => error.message).join(" ");
+    if (primaryError instanceof Error) primaryError.message += ` Cleanup: ${message}`;
+    else throw new AggregateError(cleanupErrors, "Zustandsreise konnte nicht vollstaendig aufraeumen.");
+  }
 }

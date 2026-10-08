@@ -106,7 +106,7 @@ function Assert-SSENativeAssemblySurface([Reflection.Assembly]$Assembly) {
     SSEAccessible=@('Describe','DescribePoint','DescribePointBasic','Invoke')
     SSEAccNode=@()
     SSEWorkerControllerLease=@('Acquire','ReleaseAndClose')
-    SSEUiaTree=@('Describe','ToViews','Resolve')
+    SSEUiaTree=@('Describe','DescribeElement','ToViews','Resolve')
     SSEUiaNode=@()
     SSEUiaScrollState=@()
     SSEUiaSnapshot=@()

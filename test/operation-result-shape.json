@@ -6258,7 +6258,8 @@
           },
           "treeWalkDetail": {
             "types": [
-              "array-many:object"
+              "array-many:object",
+              "array-one:object"
             ],
             "labels": [
               "worker"
@@ -21059,6 +21060,7 @@
           "commitDetails": {
             "types": [
               "object:{\"desktop\":\"string-other\",\"focusMode\":\"string-other\",\"focusMs\":\"nonnegative-number\",\"focusVerified\":\"boolean\",\"foregroundLeaseUsed\":\"boolean\",\"observedValue\":\"string-other\",\"physicalInputUsed\":\"boolean\",\"selectedByPattern\":\"boolean\",\"setValueMs\":\"nonnegative-number\",\"settleAttempts\":\"nonnegative-number\",\"settleMs\":\"nonnegative-number\",\"settledEarly\":\"boolean\",\"strategy\":\"string-other\",\"targetPid\":\"nonnegative-number\",\"typeMs\":\"nonnegative-number\",\"writeMs\":\"nonnegative-number\"}",
+              "object:{\"focusMethod\":\"string-other\",\"mutationStarted\":\"boolean\",\"observedValue\":\"string-other\",\"settleAttempts\":\"nonnegative-number\",\"settleMs\":\"nonnegative-number\",\"settledEarly\":\"boolean\"}",
               "object:{\"focusMethod\":\"string-other\",\"observedValue\":\"string-other\",\"settleAttempts\":\"nonnegative-number\",\"settleMs\":\"nonnegative-number\",\"settledEarly\":\"boolean\"}",
               "object:{\"observedValue\":\"string-other\",\"settleAttempts\":\"nonnegative-number\",\"settleMs\":\"nonnegative-number\",\"settledEarly\":\"boolean\"}"
             ],
@@ -22457,6 +22459,7 @@
           },
           "commitDetails": {
             "types": [
+              "object:{\"focusMethod\":\"string-other\",\"mutationStarted\":\"boolean\",\"observedValue\":\"string-other\",\"settleAttempts\":\"nonnegative-number\",\"settleMs\":\"nonnegative-number\",\"settledEarly\":\"boolean\"}",
               "object:{\"focusMethod\":\"string-other\",\"observedValue\":\"string-other\",\"settleAttempts\":\"nonnegative-number\",\"settleMs\":\"nonnegative-number\",\"settledEarly\":\"boolean\"}",
               "object:{\"observedValue\":\"string-other\",\"settleAttempts\":\"nonnegative-number\",\"settleMs\":\"nonnegative-number\",\"settledEarly\":\"boolean\"}"
             ],

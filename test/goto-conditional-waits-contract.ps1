@@ -230,14 +230,14 @@ $script:bodyWalks=0
 $script:bodyPolicy=[pscustomobject]@{heading='Zielseite';controlType='DataItem';automationIdSuffix='.Target.Tab';requiredSumChecks=@([pscustomobject]@{label='Summe';occurrence=1})}
 function Get-SSEPageObjects { [pscustomobject]@{focuslessCommits=[pscustomobject]@{synthetic=$script:bodyPolicy}} }
 function Arg { param($object,$name,$default) $property=$object.PSObject.Properties[$name]; if ($property) { return $property.Value }; $default }
-function Walk-BoundTree { param($window,$maxNodes,[switch]$WithValues) $script:bodyWalks++; if ($window -ne [IntPtr]4242 -or $maxNodes -ne 4000 -or -not $WithValues) { throw 'Ungebundener Inhaltsread ohne Werte.' }; $script:bodyTree }
+function Get-SSEMainContentTree { param($window,$maxNodes,[switch]$WithValues) $script:bodyWalks++; if ($window -ne [IntPtr]4242 -or $maxNodes -ne 4000 -or -not $WithValues) { throw 'Ungebundener Inhaltsread ohne Werte.' }; $script:bodyTree }
 function Get-CurrentHeading { param($window,$tree) $script:bodyHeading }
-function Read-LabeledValueFromTree { param($tree,$window,$label,$occurrence)
-  if ($label -cne 'Summe' -or $occurrence -ne 1) { throw 'Summenbindung driftete.' }; $script:bodySum
+function Select-SSESummaryFromNodes { param($nodes,$bounds,$label,$occurrence)
+  if ($label -cne 'Summe' -or $occurrence -ne 1 -or $bounds.minX -ne 37 -or $bounds.maxX -ne 2501) { throw 'Exakte Summenbindung oder gemessene Inhaltsgrenzen drifteten.' }; $script:bodySum
 }
 function Reset-BodyFixture {
   $script:bodyHeading='Zielseite'
-  $script:bodyTree=[pscustomobject]@{stats=[pscustomobject]@{err=0;cyc=0;truncated=$false;depthLimited=$false};nodes=@([pscustomobject]@{type='Table';on=$true;w=400;h=200;aid='Root.Target.Tab'})}
+  $script:bodyTree=[pscustomobject]@{contentBounds=[pscustomobject]@{minX=37;maxX=2501};stats=[pscustomobject]@{err=0;valErr=0;cyc=0;truncated=$false;depthLimited=$false};nodes=@([pscustomobject]@{type='Table';on=$true;w=400;h=200;aid='Root.Target.Tab'})}
   $script:bodySum=[pscustomobject]@{selected=[pscustomobject]@{label='Summe'};value='20,45'}
 }
 Reset-BodyFixture
@@ -259,8 +259,263 @@ Reset-BodyFixture; $script:bodySum.selected.label='Summe der Vorsteuer'
 if (Test-SSEGotoTableReadiness ([IntPtr]4242) 'Zielseite') { throw 'Ein aehnliches Summenlabel ersetzte die exakte Bindung.' }
 Reset-BodyFixture; $script:bodyHeading='Andere Seite'
 if (Test-SSEGotoTableReadiness ([IntPtr]4242) 'Zielseite') { throw 'Ein waehrend des Inhaltsreads geaendertes Ziel wurde bestaetigt.' }
-foreach ($incompleteFlag in @('err','cyc','truncated','depthLimited')) {
+foreach ($incompleteFlag in @('err','valErr','cyc','truncated','depthLimited')) {
   Reset-BodyFixture; $script:bodyTree.stats.$incompleteFlag=1
   if (Test-SSEGotoTableReadiness ([IntPtr]4242) 'Zielseite') { throw "Unvollstaendiger Inhaltsread ($incompleteFlag) wurde bestaetigt." }
 }
+Reset-BodyFixture; $script:bodyTree=$null
+if (Test-SSEGotoTableReadiness ([IntPtr]4242) 'Zielseite') { throw 'Fehlende Inhaltsbindung wurde bestaetigt.' }
+
+# Exercise the actual summary selector with pane widths that a whole-window
+# percentage would omit, and preserve duplicate aliases/exact occurrences.
+. (Join-Path $root 'powershell\table-region.ps1')
+Reset-BodyFixture
+$script:bodyTree.nodes += @(
+  [pscustomobject]@{type='Text';name='Summe';x=40;y=300},
+  [pscustomobject]@{type='Edit';name='';val='17,25';x=100;y=300},
+  [pscustomobject]@{type='Edit';name='';val='17,25';x=110;y=300},
+  [pscustomobject]@{type='Text';name='Summe der Vorsteuer';x=40;y=350},
+  [pscustomobject]@{type='Edit';name='';val='0,00';x=100;y=350},
+  [pscustomobject]@{type='Text';name='Summe';x=2400;y=450},
+  [pscustomobject]@{type='Edit';name='';val='31,40';x=2480;y=450}
+)
+if (-not (Test-SSEGotoTableReadiness ([IntPtr]4242) 'Zielseite')) { throw 'Gebundene schmale Inhaltsregion verlor ihre lesbare Summe.' }
+$script:bodyPolicy.requiredSumChecks[0].occurrence=2
+if (-not (Test-SSEGotoTableReadiness ([IntPtr]4242) 'Zielseite')) { throw 'Summenalias oder aehnliches Label verschob das zweite exakte Vorkommen.' }
+$script:bodyPolicy.requiredSumChecks[0].occurrence=3
+if (Test-SSEGotoTableReadiness ([IntPtr]4242) 'Zielseite') { throw 'Nicht vorhandenes Summenvorkommen wurde bestaetigt.' }
+$script:bodyPolicy.requiredSumChecks[0].occurrence=1
 Write-Output 'goto: generische Tabellenziele bestaetigen Tabelle und exakte lesbare Summe vor Erfolg.'
+
+# Execute the actual scope helpers against an owned provider model. Adjacent
+# navigation has cyclic descendants; reading even its first child is forbidden.
+Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, WindowsBase
+Add-Type -ReferencedAssemblies @('System.dll',
+  [System.Windows.Automation.AutomationElement].Assembly.Location,
+  [System.Windows.Automation.ControlType].Assembly.Location,
+  [System.Windows.Rect].Assembly.Location) -TypeDefinition @'
+using System;
+using System.Collections;
+using System.Windows;
+using System.Windows.Automation;
+public sealed class GotoScopeCurrent {
+  public string Name = "content";
+  public string AutomationId;
+  public ControlType ControlType;
+  public Rect BoundingRectangle;
+  public bool IsEnabled;
+  public bool IsOffscreen;
+}
+public sealed class GotoScopeElement {
+  public string Aid;
+  public int[] Rid;
+  public int ProcessId = 7331;
+  public int WindowHandle;
+  public ControlType Kind = ControlType.Group;
+  public Rect Rectangle = new Rect(37, 80, 2464, 600);
+  public bool Enabled = true;
+  public bool Offscreen;
+  public bool Navigation;
+  public object VisibilityOverride;
+  public bool ThrowIdentity;
+  public int ChangeRidAt;
+  public int RidReads;
+  public int CurrentReads;
+  public GotoScopeElement Parent;
+  public GotoScopeElement FirstChild;
+  public GotoScopeElement NextSibling;
+  public GotoScopeCurrent Current {
+    get {
+      CurrentReads++;
+      return new GotoScopeCurrent { AutomationId=Aid, ControlType=Kind,
+        BoundingRectangle=Rectangle, IsEnabled=Enabled, IsOffscreen=Offscreen };
+    }
+  }
+  public int[] GetRuntimeId() {
+    RidReads++;
+    if (ThrowIdentity) throw new InvalidOperationException("identity unavailable");
+    if (ChangeRidAt != 0 && RidReads == ChangeRidAt) Rid = new int[] { 999 };
+    return (int[])Rid.Clone();
+  }
+  public object GetCurrentPropertyValue(AutomationProperty property) {
+    if (property == AutomationElement.AutomationIdProperty) return Aid;
+    if (property == AutomationElement.ProcessIdProperty) return ProcessId;
+    if (property == AutomationElement.NativeWindowHandleProperty) return WindowHandle;
+    if (property == AutomationElement.ControlTypeProperty) return Kind;
+    if (property == AutomationElement.IsOffscreenProperty)
+      return VisibilityOverride ?? (object)Offscreen;
+    throw new InvalidOperationException("Unexpected property");
+  }
+  public bool TryGetCurrentPattern(AutomationPattern pattern, out object result) {
+    result = null; return false;
+  }
+}
+public static class GotoScopeAE {
+  public static GotoScopeElement Root;
+  public static int FromHandleCalls;
+  public static AutomationProperty AutomationIdProperty = AutomationElement.AutomationIdProperty;
+  public static AutomationProperty ProcessIdProperty = AutomationElement.ProcessIdProperty;
+  public static AutomationProperty NativeWindowHandleProperty = AutomationElement.NativeWindowHandleProperty;
+  public static AutomationProperty ControlTypeProperty = AutomationElement.ControlTypeProperty;
+  public static AutomationProperty IsOffscreenProperty = AutomationElement.IsOffscreenProperty;
+  public static GotoScopeElement FromHandle(IntPtr hwnd) {
+    FromHandleCalls++;
+    if (hwnd.ToInt64() != 4242) throw new InvalidOperationException("Foreign HWND");
+    return Root;
+  }
+}
+public sealed class GotoScopeWalker {
+  public int ForbiddenDescents;
+  public GotoScopeElement GetParent(GotoScopeElement element) { return element.Parent; }
+  public GotoScopeElement GetFirstChild(GotoScopeElement element) {
+    if (element.Navigation) {
+      ForbiddenDescents++; throw new InvalidOperationException("Adjacent navigation was entered");
+    }
+    return element.FirstChild;
+  }
+  public GotoScopeElement GetNextSibling(GotoScopeElement element) { return element.NextSibling; }
+}
+public static class SW {
+  public static int GetWindowThreadProcessId(IntPtr hwnd, ref int processId) {
+    processId = hwnd.ToInt64() == 4242 ? 7331 : 0; return processId == 0 ? 0 : 1;
+  }
+}
+public sealed class GotoScopeNativeSnapshot {
+  public object[] Nodes;
+  public int NodeCount = 2;
+  public int WalkErrors, CycleHits, ValueErrors, ScrollErrors;
+  public string CycleRuntimeId = "";
+  public bool Truncated, DepthLimited;
+}
+public static class SSEUiaTree {
+  public static GotoScopeNativeSnapshot Snapshot;
+  public static object LastRoot;
+  public static int Calls, WholeWindowCalls, MaxNodes, TimeoutMs, MaxDepth;
+  public static bool WithValues, WithScroll, Fail;
+  public static Action AfterRead;
+  public static GotoScopeNativeSnapshot DescribeElement(object root, int nodes, int timeout,
+      int depth, bool values, bool scroll) {
+    Calls++; LastRoot=root; MaxNodes=nodes; TimeoutMs=timeout; MaxDepth=depth;
+    WithValues=values; WithScroll=scroll;
+    if (Fail) throw new InvalidOperationException("scope-snapshot-failed");
+    if (AfterRead != null) AfterRead();
+    return Snapshot;
+  }
+  public static GotoScopeNativeSnapshot Describe(IntPtr hwnd, int nodes, int timeout,
+      int depth, bool values, bool scroll) {
+    WholeWindowCalls++; throw new InvalidOperationException("Global snapshot forbidden");
+  }
+  public static object[] ToViews(object[] nodes, IDictionary cache) { return nodes; }
+}
+'@
+foreach ($functionName in @('Test-SSEElementIdentity','Test-SSEElementVisible','Convert-ExactElementToNode',
+    'ConvertTo-SSESnapshotNodes','Get-UiSnapshot','Test-SSEMainContentAncestry','Get-SSEMainContentTree')) {
+  $definitions=@($ast.FindAll({param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $functionName
+  },$true))
+  if ($definitions.Count -ne 1) { throw "Scope helper is ambiguous: $functionName" }
+  Invoke-Expression $definitions[0].Extent.Text
+}
+. (Join-Path $root 'powershell\window-scope.ps1')
+$script:AE=[GotoScopeAE]
+function Get-SSEPageObjects {
+  [pscustomobject]@{windows=[pscustomobject]@{main=[pscustomobject]@{contentAutomationId=$script:scopeRelativeAid}}}
+}
+function Find-ExactAutomationElement { param($window,$aid,[switch]$VisibleOnly)
+  $script:scopeFinds++
+  if ($window -ne [IntPtr]4242 -or $aid -cne '.ClientFrameSSE' -or -not $VisibleOnly) { throw 'Content selector changed.' }
+  $script:scopeCandidate
+}
+function Walk-TreeLegacy { $script:scopeLegacyCalls++; throw 'Global fallback forbidden.' }
+function Reset-ScopeFixture {
+  $script:scopeRelativeAid='.ClientFrameSSE'
+  $script:scopeFinds=0; $script:scopeLegacyCalls=0
+  $script:UIAElementCache=@{}
+  $script:SSE_TREE_WALK_DETAIL=New-Object System.Collections.ArrayList
+  $script:scopeWindow=New-Object GotoScopeElement
+  $script:scopeWindow.Aid='OwnedRoot'; $script:scopeWindow.Rid=@(101)
+  $script:scopeWindow.Kind=[Windows.Automation.ControlType]::Window
+  $script:scopeWindow.WindowHandle=4242
+  $script:scopePane=New-Object GotoScopeElement
+  $script:scopePane.Aid='OwnedRoot.ClientFrameSSE'; $script:scopePane.Rid=@(102)
+  $script:scopePane.Parent=$script:scopeWindow
+  $script:scopeNav=New-Object GotoScopeElement
+  $script:scopeNav.Aid='OwnedRoot.NavFrameSSE'; $script:scopeNav.Rid=@(103)
+  $script:scopeNav.Parent=$script:scopeWindow; $script:scopeNav.Navigation=$true
+  $script:scopeNav.FirstChild=$script:scopeNav
+  $script:scopeWindow.FirstChild=$script:scopeNav; $script:scopeNav.NextSibling=$script:scopePane
+  $script:scopeCandidate=$script:scopePane
+  $script:WLK=New-Object GotoScopeWalker
+  [GotoScopeAE]::Root=$script:scopeWindow; [GotoScopeAE]::FromHandleCalls=0
+  [SSEUiaTree]::Calls=0; [SSEUiaTree]::WholeWindowCalls=0
+  [SSEUiaTree]::Fail=$false; [SSEUiaTree]::AfterRead=$null
+  $snapshot=New-Object GotoScopeNativeSnapshot
+  $snapshot.Nodes=@(
+    [pscustomobject]@{i=0;p=-1;rid='104';type='Table';aid='OwnedRoot.ClientFrameSSE.Target.Tab'},
+    [pscustomobject]@{i=1;p=-1;rid='105';type='Edit';aid='OwnedRoot.ClientFrameSSE.Summe'})
+  [SSEUiaTree]::Snapshot=$snapshot
+}
+Reset-ScopeFixture
+$scoped=Get-SSEMainContentTree ([IntPtr]4242) 123 7 9 -WithValues -WithScroll
+if (-not $scoped -or $scoped.nodes.Count -ne 2 -or $scoped.stats.source -cne 'cache' -or
+    $scoped.contentBounds.minX -ne 37 -or $scoped.contentBounds.maxX -ne 2501 -or
+    [SSEUiaTree]::Calls -ne 1 -or [SSEUiaTree]::WholeWindowCalls -ne 0 -or $script:scopeLegacyCalls -ne 0 -or
+    -not [object]::ReferenceEquals([SSEUiaTree]::LastRoot,$script:scopePane) -or
+    [SSEUiaTree]::MaxNodes -ne 123 -or [SSEUiaTree]::TimeoutMs -ne 7000 -or [SSEUiaTree]::MaxDepth -ne 9 -or
+    -not [SSEUiaTree]::WithValues -or -not [SSEUiaTree]::WithScroll -or
+    [GotoScopeAE]::FromHandleCalls -ne 2 -or $script:scopePane.CurrentReads -ne 2 -or
+    $script:WLK.ForbiddenDescents -ne 0) { throw 'Exact scoped snapshot, fresh bounds or before/after proof failed.' }
+
+function Assert-ScopeRejected([string]$Scenario,[scriptblock]$Arrange,[int]$ExpectedSnapshots=0) {
+  Reset-ScopeFixture
+  & $Arrange
+  $result=Get-SSEMainContentTree ([IntPtr]4242) 123 7 9 -WithValues -WithScroll
+  if ($null -ne $result -or [SSEUiaTree]::Calls -ne $ExpectedSnapshots -or
+      [SSEUiaTree]::WholeWindowCalls -ne 0 -or $script:scopeLegacyCalls -ne 0 -or
+      $script:WLK.ForbiddenDescents -ne 0) { throw "Unsafe content scope accepted: $Scenario" }
+}
+Assert-ScopeRejected 'missing catalog path' {$script:scopeRelativeAid=''}
+Assert-ScopeRejected 'missing pane' {$script:scopeCandidate=$null}
+Assert-ScopeRejected 'wrong pane aid' {$script:scopePane.Aid='OwnedRoot.Other'}
+Assert-ScopeRejected 'stale pane identity' {$script:scopePane.ChangeRidAt=2}
+Assert-ScopeRejected 'unreadable pane identity' {$script:scopePane.ThrowIdentity=$true}
+Assert-ScopeRejected 'offscreen pane' {$script:scopePane.Offscreen=$true}
+Assert-ScopeRejected 'unknown visibility' {$script:scopePane.VisibilityOverride='false'}
+Assert-ScopeRejected 'disabled pane' {$script:scopePane.Enabled=$false}
+Assert-ScopeRejected 'empty rectangle' {$script:scopePane.Rectangle=New-Object Windows.Rect(37,80,0,600)}
+Assert-ScopeRejected 'foreign pane pid' {$script:scopePane.ProcessId=7332}
+Assert-ScopeRejected 'foreign root hwnd' {$script:scopeWindow.WindowHandle=4243}
+Assert-ScopeRejected 'foreign root pid' {$script:scopeWindow.ProcessId=7332}
+Assert-ScopeRejected 'foreign window ancestor' {
+  $foreign=New-Object GotoScopeElement; $foreign.Aid='OwnedRoot.Foreign'; $foreign.Rid=@(106)
+  $foreign.Kind=[Windows.Automation.ControlType]::Window; $foreign.Parent=$script:scopeWindow
+  $foreign.FirstChild=$script:scopePane; $script:scopePane.Parent=$foreign
+}
+Assert-ScopeRejected 'duplicate sibling aid' {
+  $duplicate=New-Object GotoScopeElement; $duplicate.Aid=$script:scopePane.Aid; $duplicate.Rid=@(106)
+  $duplicate.Parent=$script:scopeWindow; $script:scopePane.NextSibling=$duplicate
+}
+Assert-ScopeRejected 'sibling runtime cycle' {$script:scopePane.NextSibling=$script:scopeNav}
+Assert-ScopeRejected 'ancestor runtime cycle' {$script:scopePane.Parent=$script:scopePane; $script:scopePane.FirstChild=$script:scopePane}
+Assert-ScopeRejected 'ancestry depth bound' {
+  $child=$script:scopePane
+  for ($level=0; $level -lt 16; $level++) {
+    $parent=New-Object GotoScopeElement; $parent.Aid="OwnedRoot.Ancestor$level"; $parent.Rid=@(200+$level)
+    $parent.FirstChild=$child; $child.Parent=$parent; $child=$parent
+  }
+  $child.Parent=$script:scopeWindow; $script:scopeWindow.FirstChild=$child
+}
+Assert-ScopeRejected 'replaced pane rid after snapshot' {[SSEUiaTree]::AfterRead=[Action]{$script:scopePane.Rid=@(999)}} 1
+Assert-ScopeRejected 'changed pane aid after snapshot' {[SSEUiaTree]::AfterRead=[Action]{$script:scopePane.Aid='OwnedRoot.Other'}} 1
+Assert-ScopeRejected 'changed geometry after snapshot' {[SSEUiaTree]::AfterRead=[Action]{$script:scopePane.Rectangle=New-Object Windows.Rect(38,80,2464,600)}} 1
+Assert-ScopeRejected 'changed owning hwnd after snapshot' {[SSEUiaTree]::AfterRead=[Action]{$script:scopeWindow.WindowHandle=4243}} 1
+Assert-ScopeRejected 'changed owning pid after snapshot' {[SSEUiaTree]::AfterRead=[Action]{$script:scopePane.ProcessId=7332}} 1
+Assert-ScopeRejected 'scoped snapshot failure' {[SSEUiaTree]::Fail=$true} 1
+Reset-ScopeFixture; [SSEUiaTree]::Fail=$true
+$scopeError=$false
+try { $null=Get-UiSnapshot ([IntPtr]4242) 123 7 9 -WithValues -RootElement $script:scopePane }
+catch { $scopeError=$_.Exception.Message.Contains('scope-snapshot-failed') }
+if (-not $scopeError -or [SSEUiaTree]::WholeWindowCalls -ne 0 -or $script:scopeLegacyCalls -ne 0) {
+  throw 'Scoped native failure was replaced by a global fallback.'
+}
+Write-Output 'goto: exact content scope proves owned identity before/after; adjacent cycles stay outside, scoped failures stay closed.'
