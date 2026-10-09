@@ -118,7 +118,8 @@ public static class SseLoadWindowObserver
         return false;
     }
 
-    private static bool ReadCreationTime(int processId, Dictionary<int, long> creationTimes)
+    private static bool ReadCreationTime(int processId, Dictionary<int, long> creationTimes,
+        Dictionary<int, IntPtr> handles)
     {
         if (creationTimes.ContainsKey(processId)) return true;
         const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
@@ -129,26 +130,29 @@ public static class SseLoadWindowObserver
             if (error == 87) return false; // The snapshot member already exited.
             throw new System.ComponentModel.Win32Exception(error);
         }
+        bool retained = false;
         try
         {
             long created, exited, kernel, user;
             if (!GetProcessTimes(process, out created, out exited, out kernel, out user))
                 throw new System.ComponentModel.Win32Exception();
             creationTimes[processId] = created;
+            handles[processId] = process;
+            retained = true;
             return true;
         }
-        finally { CloseHandle(process); }
+        finally { if (!retained) CloseHandle(process); }
     }
 
     private static bool ChronologicalBelow(int processId, int rootId, Dictionary<int, int> parents,
-        Dictionary<int, long> creationTimes)
+        Dictionary<int, long> creationTimes, Dictionary<int, IntPtr> handles)
     {
         if (!Below(processId, rootId, parents)) return false;
         var seen = new HashSet<int>();
         var current = processId;
         while (current > 0 && seen.Add(current))
         {
-            if (!ReadCreationTime(current, creationTimes)) return false;
+            if (!ReadCreationTime(current, creationTimes, handles)) return false;
             if (current == rootId) break;
             int parent;
             if (!parents.TryGetValue(current, out parent)) return false;
@@ -157,7 +161,8 @@ public static class SseLoadWindowObserver
         return IsChronologicalDescendant(processId, rootId, parents, creationTimes);
     }
 
-    public static int[] Descendants(int rootProcessId, int excludedRootProcessId)
+    private static int[] FindDescendants(int rootProcessId, int excludedRootProcessId,
+        Dictionary<int, long> creationTimes, Dictionary<int, IntPtr> handles)
     {
         const uint TH32CS_SNAPPROCESS = 0x00000002;
         var snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
@@ -177,12 +182,11 @@ public static class SseLoadWindowObserver
                 while (Process32Next(snapshot, ref entry));
             }
             var result = new List<int>();
-            var creationTimes = new Dictionary<int, long>();
             foreach (var processId in parents.Keys)
             {
-                if (!ChronologicalBelow(processId, rootProcessId, parents, creationTimes)) continue;
+                if (!ChronologicalBelow(processId, rootProcessId, parents, creationTimes, handles)) continue;
                 if (processId == excludedRootProcessId ||
-                    ChronologicalBelow(processId, excludedRootProcessId, parents, creationTimes)) continue;
+                    ChronologicalBelow(processId, excludedRootProcessId, parents, creationTimes, handles)) continue;
                 result.Add(processId);
             }
             result.Sort();
@@ -192,6 +196,61 @@ public static class SseLoadWindowObserver
         {
             CloseHandle(snapshot);
         }
+    }
+
+    private static void CloseDiscoveryHandles(Dictionary<int, IntPtr> handles)
+    {
+        foreach (var handle in handles.Values) CloseHandle(handle);
+    }
+
+    public static int[] Descendants(int rootProcessId, int excludedRootProcessId)
+    {
+        var handles = new Dictionary<int, IntPtr>();
+        try { return FindDescendants(rootProcessId, excludedRootProcessId,
+            new Dictionary<int, long>(), handles); }
+        finally { CloseDiscoveryHandles(handles); }
+    }
+
+    public static System.Diagnostics.Process[] BindDescendants(int rootProcessId,
+        int excludedRootProcessId, int[] alreadyBound)
+    {
+        var handles = new Dictionary<int, IntPtr>();
+        var creationTimes = new Dictionary<int, long>();
+        var result = new List<System.Diagnostics.Process>();
+        var existing = new HashSet<int>(alreadyBound);
+        try
+        {
+            foreach (var processId in FindDescendants(rootProcessId, excludedRootProcessId,
+                creationTimes, handles))
+            {
+                if (existing.Contains(processId)) continue;
+                System.Diagnostics.Process process;
+                try { process = System.Diagnostics.Process.GetProcessById(processId); }
+                catch (ArgumentException) { continue; } // Exited after the snapshot.
+                bool retained = false;
+                try
+                {
+                    long created, exited, kernel, user;
+                    if (!GetProcessTimes(process.Handle, out created, out exited, out kernel, out user))
+                        throw new System.ComponentModel.Win32Exception();
+                    if (created != creationTimes[processId])
+                        throw new System.IO.InvalidDataException("Discovered process generation changed.");
+                    if (process.HasExited) continue;
+                    result.Add(process);
+                    retained = true;
+                }
+                finally { if (!retained) process.Dispose(); }
+            }
+            return result.ToArray();
+        }
+        catch
+        {
+            foreach (var process in result) process.Dispose();
+            throw;
+        }
+        // Keep query handles through managed binding, so neither the child
+        // nor a disappearing ancestor can acquire another PID generation.
+        finally { CloseDiscoveryHandles(handles); }
     }
 
     public static int[] Counts(int expectedProcessId)
@@ -272,6 +331,27 @@ function Get-ObservedProcess([int]$ProcessId) {
 function Close-ObservedProcesses {
   foreach ($process in @($script:BoundProcesses.Values)) { $process.Dispose() }
   $script:BoundProcesses.Clear()
+  $script:DiscoveredBindings.Clear()
+}
+
+function Discover-OwnedProcesses([int]$ExcludedRootPid = $PID) {
+  $knownPids = [int[]]@($script:BoundProcesses.Keys | ForEach-Object { [int]$_ })
+  $processes = @([SseLoadWindowObserver]::BindDescendants($RootPid, $ExcludedRootPid, $knownPids))
+  try {
+    foreach ($process in $processes) {
+      $key = [string]$process.Id
+      $script:BoundProcesses[$key] = $process
+      $script:DiscoveredBindings[$key] = $process
+      if (-not $script:KnownOwned.Contains($key)) {
+        $script:KnownOwned[$key] = [pscustomobject][ordered]@{ pid = $process.Id; role = 'owned-descendant' }
+      }
+    }
+  }
+  finally {
+    foreach ($process in $processes) {
+      if (-not [object]::ReferenceEquals($script:BoundProcesses[[string]$process.Id], $process)) { $process.Dispose() }
+    }
+  }
 }
 
 function Test-ObservedDescendant([int]$ProcessId) {
@@ -298,7 +378,8 @@ function Measure-OwnedProcess($Entry) {
       throw [IO.InvalidDataException]::new('Registered process identity does not match.')
     }
     if (-not $script:BoundIdentity.ContainsKey($boundKey)) {
-      if (-not $Entry.expectedIdentity -and -not (Test-ObservedDescendant ([int]$Entry.pid))) {
+      $discovered = [object]::ReferenceEquals($script:DiscoveredBindings[$boundKey], $process)
+      if (-not $Entry.expectedIdentity -and -not $discovered -and -not (Test-ObservedDescendant ([int]$Entry.pid))) {
         throw [IO.InvalidDataException]::new('Descendant ownership changed before identity binding.')
       }
       $script:BoundIdentity[$boundKey] = $identityKey
@@ -397,6 +478,7 @@ function Read-Registry {
 $script:KnownOwned = [ordered]@{}
 $script:BoundIdentity = @{}
 $script:BoundProcesses = @{}
+$script:DiscoveredBindings = @{}
 
 function Sample-Resources(
   [Diagnostics.Stopwatch]$Clock,
@@ -410,14 +492,7 @@ function Sample-Resources(
   foreach ($entry in @(Read-Registry)) {
     $script:KnownOwned["$($entry.pid)"] = $entry
   }
-  foreach ($descendantPid in @([SseLoadWindowObserver]::Descendants($RootPid, $PID))) {
-    if (-not $script:KnownOwned.Contains("$descendantPid")) {
-      $script:KnownOwned["$descendantPid"] = [pscustomobject][ordered]@{
-        pid = [int]$descendantPid
-        role = 'owned-descendant'
-      }
-    }
-  }
+  Discover-OwnedProcesses
   $tracked = @(Measure-KnownOwnedProcesses)
   foreach ($sample in $tracked) { if ($sample.sampleError) { $errors += 1 } }
   $sse = @(Get-Process -Name 'SSE' -ErrorAction SilentlyContinue)

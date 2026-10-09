@@ -13,7 +13,7 @@ $nativeSources = @($ast.FindAll({
 if ($nativeSources.Count -ne 1) { throw 'Observer native source is not unique.' }
 Add-Type -TypeDefinition $nativeSources[0].Value
 foreach ($name in @('Get-PathTextHash', 'Get-ProcessIdentity', 'Get-IdentityKey',
-    'Get-ObservedProcess', 'Close-ObservedProcesses', 'Measure-OwnedProcess', 'Measure-KnownOwnedProcesses')) {
+    'Get-ObservedProcess', 'Close-ObservedProcesses', 'Discover-OwnedProcesses', 'Measure-OwnedProcess', 'Measure-KnownOwnedProcesses')) {
   $definitions = @($ast.FindAll({
     param($node)
     $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -24,6 +24,7 @@ foreach ($name in @('Get-PathTextHash', 'Get-ProcessIdentity', 'Get-IdentityKey'
 
 $script:BoundProcesses = @{}
 $script:BoundIdentity = @{}
+$script:DiscoveredBindings = @{}
 $script:ForbidLookups = $false
 $script:LookupCount = 0
 $script:WindowCalls = 0
@@ -101,6 +102,53 @@ public static class SseObserverContractHandles {
     private static extern bool CloseHandle(IntPtr handle);
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool TerminateProcess(IntPtr process, uint exitCode);
+    [StructLayout(LayoutKind.Sequential)]
+    private struct BasicLimits {
+        public long processTime; public long jobTime; public uint flags;
+        public UIntPtr minWorkingSet; public UIntPtr maxWorkingSet; public uint activeProcesses;
+        public UIntPtr affinity; public uint priorityClass; public uint schedulingClass;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct IoCounters {
+        public ulong readOperations; public ulong writeOperations; public ulong otherOperations;
+        public ulong readBytes; public ulong writeBytes; public ulong otherBytes;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ExtendedLimits {
+        public BasicLimits basic; public IoCounters io;
+        public UIntPtr processMemory; public UIntPtr jobMemory;
+        public UIntPtr peakProcessMemory; public UIntPtr peakJobMemory;
+    }
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr CreateJobObject(IntPtr attributes, string name);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool SetInformationJobObject(IntPtr job, int kind,
+        ref ExtendedLimits limits, uint size);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool IsProcessInJob(IntPtr process, IntPtr job, out bool inside);
+
+    public static IntPtr ContainParent(IntPtr process) {
+        var job = CreateJobObject(IntPtr.Zero, null);
+        if (job == IntPtr.Zero) throw new System.ComponentModel.Win32Exception();
+        try {
+            var limits = new ExtendedLimits();
+            limits.basic.flags = 0x2000; // KILL_ON_JOB_CLOSE; no breakaway.
+            if (!SetInformationJobObject(job, 9, ref limits, (uint)Marshal.SizeOf(typeof(ExtendedLimits))) ||
+                !AssignProcessToJobObject(job, process)) throw new System.ComponentModel.Win32Exception();
+            return job;
+        }
+        catch { CloseHandle(job); throw; }
+    }
+    public static bool InsideJob(IntPtr process, IntPtr job) {
+        bool inside;
+        if (!IsProcessInJob(process, job, out inside)) throw new System.ComponentModel.Win32Exception();
+        return inside;
+    }
+    public static void CloseOwnedJob(IntPtr job) {
+        if (!CloseHandle(job)) throw new System.ComponentModel.Win32Exception();
+    }
 
     public static System.Diagnostics.Process StartSuspended(string executable) {
         var startup = new STARTUPINFO();
@@ -143,6 +191,7 @@ readline.createInterface({input: process.stdin}).on('line', line => {
 process.stdout.write('ready\n');
 '@)
 $children = New-Object Collections.ArrayList
+$ownedParentJob = [IntPtr]::Zero
 function Start-OwnedChild {
   $info = New-Object Diagnostics.ProcessStartInfo
   $info.FileName = $NodeExecutable
@@ -253,22 +302,89 @@ try {
   $null = @(Measure-KnownOwnedProcesses)
   Assert-True ($script:KnownOwned.Contains($registeredKey)) 'Registered missing generation lost its expected identity.'
   $script:MissingLookupPid = 0
+  $nestedPath = Join-Path $scratch 'nested-child.cjs'
+  [IO.File]::WriteAllText($nestedPath, 'setInterval(() => {}, 1000);')
+  $parentPath = Join-Path $scratch 'parent.cjs'
+  [IO.File]::WriteAllText($parentPath, @'
+const { spawn } = require('node:child_process');
+const { join } = require('node:path');
+const readline = require('node:readline');
+process.stdout.write('ready\n');
+readline.createInterface({input: process.stdin}).on('line', line => {
+  if (line === 'spawn') {
+    const child = spawn(process.execPath, [join(__dirname, 'nested-child.cjs')], {stdio: 'ignore', windowsHide: true, detached: true});
+    child.unref();
+    process.stdout.write(String(child.pid) + '\n');
+  } else process.exit(0);
+});
+'@)
+  $parentInfo = New-Object Diagnostics.ProcessStartInfo
+  $parentInfo.FileName = $NodeExecutable
+  $parentInfo.Arguments = '"' + $parentPath + '"'
+  $parentInfo.UseShellExecute = $false
+  $parentInfo.CreateNoWindow = $true
+  $parentInfo.RedirectStandardInput = $true
+  $parentInfo.RedirectStandardOutput = $true
+  $parent = [Diagnostics.Process]::Start($parentInfo)
+  $null = $children.Add($parent)
+  # The child is detached from Node's parent lifetime, but remains inside this
+  # fixture job. The parent cannot spawn it before job assignment succeeds.
+  $ownedParentJob = [SseObserverContractHandles]::ContainParent($parent.Handle)
+  $parentReady = $parent.StandardOutput.ReadLineAsync()
+  Assert-True ($parentReady.Wait(10000) -and $parentReady.Result -eq 'ready') 'Owned parent did not become ready.'
+  Assert-True ([SseObserverContractHandles]::InsideJob($parent.Handle,$ownedParentJob)) 'Parent escaped its fixture job.'
+  Assert-True (-not [SseObserverContractHandles]::InsideJob([IntPtr](-1),$ownedParentJob)) 'Fixture job included the contract owner.'
+  $parent.StandardInput.WriteLine('spawn')
+  $nestedPidRead = $parent.StandardOutput.ReadLineAsync()
+  Assert-True ($nestedPidRead.Wait(10000)) 'Nested child PID was not returned.'
+  $nestedPid = [int]$nestedPidRead.Result
+  $nested = [Diagnostics.Process]::GetProcessById($nestedPid)
+  $null = $children.Add($nested)
+  Assert-True ([SseObserverContractHandles]::InsideJob($nested.Handle,$ownedParentJob)) 'Detached child escaped fixture cleanup ownership.'
+  $RootPid = $PID
+  Discover-OwnedProcesses 0
+  $nestedKey = [string]$nestedPid
+  Assert-True ($script:BoundProcesses.ContainsKey($nestedKey)) 'Initial discovery did not pin the child.'
+  $discoveredProcess = $script:BoundProcesses[$nestedKey]
+  $discoveryHandle = $discoveredProcess.Handle
+  Assert-True ([object]::ReferenceEquals($discoveredProcess,$script:DiscoveredBindings[$nestedKey])) 'Discovery proof lost its exact process object.'
+  $parent.StandardInput.WriteLine('exit')
+  Assert-True ($parent.WaitForExit(5000)) 'Owned parent did not exit.'
+  Assert-True (-not $nested.HasExited) 'Nested fixture did not survive its parent.'
+  Assert-True ($nestedPid -notin [SseLoadWindowObserver]::Descendants($RootPid,0)) 'Fixture retained a discoverable parent edge.'
+  $script:DescendantOwned = $false
+  $script:ForbidLookups = $true
+  $surviving = Measure-OwnedProcess $script:KnownOwned[$nestedKey]
+  Assert-True ($surviving.alive -and -not $surviving.sampleError -and $surviving.identity) 'Parent exit invalidated an already pinned discovery.'
+  Assert-True ([object]::ReferenceEquals($discoveredProcess,$script:BoundProcesses[$nestedKey])) 'Surviving child changed process bindings.'
+  $script:ForbidLookups = $false
+  $script:DescendantOwned = $true
   $flags = [uint32]0
   Assert-True ([SseObserverContractHandles]::GetHandleInformation($retainedHandle, [ref]$flags)) 'Handle was released before observation ended.'
   Close-ObservedProcesses
   Assert-True ($script:BoundProcesses.Count -eq 0) 'Observer retained process bindings after cleanup.'
   Assert-True (-not [SseObserverContractHandles]::GetHandleInformation($retainedHandle, [ref]$flags)) 'Cleanup did not close the retained handle.'
+  Assert-True ($script:DiscoveredBindings.Count -eq 0) 'Cleanup retained discovery ownership proofs.'
+  Assert-True (-not [SseObserverContractHandles]::GetHandleInformation($discoveryHandle,[ref]$flags)) 'Cleanup retained the discovery handle.'
   Close-ObservedProcesses
-  '{"passed":true,"checks":30}'
+  '{"passed":true,"checks":45}'
 }
 finally {
-  Close-ObservedProcesses
-  foreach ($process in $children) {
-    try { if (-not $process.HasExited) { $process.Kill(); $null = $process.WaitForExit(5000) } }
-    finally { $process.Dispose() }
+  try {
+    if ($ownedParentJob -ne [IntPtr]::Zero) {
+      [SseObserverContractHandles]::CloseOwnedJob($ownedParentJob)
+      if ($nested) { Assert-True ($nested.WaitForExit(5000)) 'Fixture job did not terminate its surviving child.' }
+    }
   }
-  if (-not $scratch.StartsWith($tempRoot + 'sse-observer-contract-', [StringComparison]::OrdinalIgnoreCase)) {
-    throw 'Owned scratch path escaped its temporary prefix.'
+  finally {
+    Close-ObservedProcesses
+    foreach ($process in $children) {
+      try { if (-not $process.HasExited) { $process.Kill(); $null = $process.WaitForExit(5000) } }
+      finally { $process.Dispose() }
+    }
+    if (-not $scratch.StartsWith($tempRoot + 'sse-observer-contract-', [StringComparison]::OrdinalIgnoreCase)) {
+      throw 'Owned scratch path escaped its temporary prefix.'
+    }
+    [IO.Directory]::Delete($scratch, $true)
   }
-  [IO.Directory]::Delete($scratch, $true)
 }
