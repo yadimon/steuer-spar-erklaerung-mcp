@@ -4,6 +4,8 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { extname, relative, resolve } from "node:path";
 
+import { createReviewedUpstreamHistory } from "./repository-privacy-upstream.mjs";
+
 const root = resolve(process.cwd());
 const listed = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z"], {
   cwd: root,
@@ -138,7 +140,7 @@ const historyPattern = rules
   .map(({ pattern, historyPattern: override }) => `(?:${override ?? pattern.source})`)
   .join("|");
 const historyViolations = [];
-const upstreamHistory = new Map();
+const filterReviewedUpstream = createReviewedUpstreamHistory(root, upstreamSources);
 for (let offset = 0; offset < revisions.length; offset += 100) {
   const historyScan = spawnSync(
     "git",
@@ -149,18 +151,7 @@ for (let offset = 0; offset < revisions.length; offset += 100) {
     historyScan.status === 0 || historyScan.status === 1,
     `Git-Historie konnte nicht geprüft werden:\n${historyScan.stderr}`,
   );
-  for (const line of historyScan.stdout.trimEnd().split(/\r?\n/u).filter(Boolean)) {
-    const match = /^([a-f0-9]{40,64}):([^:]+):[0-9]+:/u.exec(line);
-    if (match && upstreamSources.has(match[2])) {
-      const object = `${match[1]}:${match[2]}`;
-      if (!upstreamHistory.has(object)) {
-        const bytes = execFileSync("git", ["show", object], { cwd: root, windowsHide: true, maxBuffer: 2 * 1024 * 1024 });
-        upstreamHistory.set(object, sha256(bytes) === upstreamSources.get(match[2]));
-      }
-      if (upstreamHistory.get(object)) continue;
-    }
-    historyViolations.push(line);
-  }
+  historyViolations.push(...filterReviewedUpstream(historyScan.stdout.trimEnd().split(/\r?\n/u).filter(Boolean)));
 }
 assert.deepEqual(
   historyViolations,
