@@ -5,10 +5,16 @@ import { basename, join } from "node:path";
 import { CaseFileParserFallbackError, listCaseFiles } from "../dist/case-file.js";
 
 function gate() {
-  let release;
+  let release, timer;
   const ready = new Promise(resolve => { release = resolve; });
-  const timer = setTimeout(release, 2000);
-  return { ready, release: () => { clearTimeout(timer); release(); } };
+  let released = false;
+  return {
+    get ready() {
+      if (!released && !timer) timer = setTimeout(release, 2000);
+      return ready;
+    },
+    release: () => { released = true; clearTimeout(timer); release(); },
+  };
 }
 
 async function observeReads(directory, hooks, action) {
@@ -60,11 +66,14 @@ export async function testParallelCaseListing(root, profile, fixture) {
   };
 
   const ordered = provision("parallel-order");
-  const secondClosed = gate();
+  const firstStarted = gate(), secondClosed = gate();
   let orderedState;
   try {
     orderedState = await observeReads(ordered.directory, {
-      firstStat: name => name === ordered.names[0] ? secondClosed.ready : undefined,
+      firstStat: name => {
+        if (name === ordered.names[0]) { firstStarted.release(); return secondClosed.ready; }
+        return firstStarted.ready;
+      },
       closed: name => { if (name === ordered.names[1]) secondClosed.release(); },
     }, async state => {
       const result = await listCaseFiles(ordered.directory, profile, { timeoutMs: 10000 });
@@ -74,7 +83,7 @@ export async function testParallelCaseListing(root, profile, fixture) {
       assert(state.closed.indexOf(ordered.names[1]) < state.closed.indexOf(ordered.names[0]),
         "The fixture must force out-of-order completion.");
     });
-  } finally { secondClosed.release(); }
+  } finally { firstStarted.release(); secondClosed.release(); }
   assert.equal(orderedState.opened.length, ordered.names.length);
   assert.equal(orderedState.closed.length, ordered.names.length);
   fs.writeFileSync(join(ordered.directory, ordered.names[0]), fixture("sent", 1024));
