@@ -65,6 +65,9 @@ public static class SseLoadWindowObserver
     private static extern IntPtr OpenProcess(uint access, bool inheritHandle, uint processId);
 
     [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetProcessTimes(IntPtr process, out long creation, out long exit,
         out long kernel, out long user);
@@ -123,7 +126,8 @@ public static class SseLoadWindowObserver
     {
         if (creationTimes.ContainsKey(processId)) return true;
         const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
-        var process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, (uint)processId);
+        const uint SYNCHRONIZE = 0x00100000;
+        var process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, false, (uint)processId);
         if (process == IntPtr.Zero)
         {
             int error = Marshal.GetLastWin32Error();
@@ -227,19 +231,8 @@ public static class SseLoadWindowObserver
                 System.Diagnostics.Process process;
                 try { process = System.Diagnostics.Process.GetProcessById(processId); }
                 catch (ArgumentException) { continue; } // Exited after the snapshot.
-                bool retained = false;
-                try
-                {
-                    long created, exited, kernel, user;
-                    if (!GetProcessTimes(process.Handle, out created, out exited, out kernel, out user))
-                        throw new System.ComponentModel.Win32Exception();
-                    if (created != creationTimes[processId])
-                        throw new System.IO.InvalidDataException("Discovered process generation changed.");
-                    if (process.HasExited) continue;
-                    result.Add(process);
-                    retained = true;
-                }
-                finally { if (!retained) process.Dispose(); }
+                var bound = BindDiscoveredProcess(process, creationTimes[processId], handles[processId]);
+                if (bound != null) result.Add(bound);
             }
             return result.ToArray();
         }
@@ -251,6 +244,34 @@ public static class SseLoadWindowObserver
         // Keep query handles through managed binding, so neither the child
         // nor a disappearing ancestor can acquire another PID generation.
         finally { CloseDiscoveryHandles(handles); }
+    }
+
+    private static System.Diagnostics.Process BindDiscoveredProcess(System.Diagnostics.Process process,
+        long expectedCreationTime, IntPtr discoveryHandle)
+    {
+        bool retained = false;
+        try
+        {
+            long created, exited, kernel, user;
+            if (!GetProcessTimes(process.Handle, out created, out exited, out kernel, out user))
+                throw new System.ComponentModel.Win32Exception();
+            if (created != expectedCreationTime)
+                throw new System.IO.InvalidDataException("Discovered process generation changed.");
+            if (process.HasExited) return null;
+            retained = true;
+            return process;
+        }
+        catch (InvalidOperationException)
+        {
+            // The loader can exit before .NET opens its handle. Only the
+            // already pinned snapshot generation can prove that exit.
+            uint state = WaitForSingleObject(discoveryHandle, 0);
+            if (state == 0) return null;
+            if (state == 0xFFFFFFFF) throw new System.ComponentModel.Win32Exception();
+            if (state != 258) throw new System.IO.InvalidDataException("Discovery wait state is invalid.");
+            throw;
+        }
+        finally { if (!retained) process.Dispose(); }
     }
 
     public static int[] Counts(int expectedProcessId)

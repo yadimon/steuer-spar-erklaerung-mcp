@@ -187,6 +187,8 @@ readline.createInterface({input: process.stdin}).on('line', line => {
     for (let i = 0; i < 128; i++) retained.push(fs.openSync(__filename, 'r'));
     process.stdout.write('grown\n');
   }
+  if (line === 'exit-zero') process.exit(0);
+  if (line === 'exit-special') process.exit(259);
 });
 process.stdout.write('ready\n');
 '@)
@@ -216,6 +218,47 @@ try {
   Assert-True ($suspendedIdentity.imageNameLower -eq 'node') 'Suspended child lost its executable name.'
   $suspended.Kill()
   Assert-True ($suspended.WaitForExit(5000)) 'Suspended owned child did not exit.'
+  $bindMethod = [SseLoadWindowObserver].GetMethod('BindDiscoveredProcess', [Reflection.BindingFlags]'NonPublic,Static')
+  Assert-True ($null -ne $bindMethod) 'Discovery binding is not independently testable.'
+  $bindingChild = Start-OwnedChild
+  $bindingHandle = $bindingChild.Handle
+  $bindingCreated = [long]$bindingChild.StartTime.ToFileTimeUtc()
+  $unboundLive = [Diagnostics.Process]::GetProcessById($bindingChild.Id)
+  $liveBinding = $bindMethod.Invoke($null, [object[]]@($unboundLive,$bindingCreated,$bindingHandle))
+  Assert-True ([object]::ReferenceEquals($liveBinding,$unboundLive) -and -not $liveBinding.HasExited) 'Live discovered generation was not retained.'
+  $liveBinding.Dispose()
+  $wrongBirth = [Diagnostics.Process]::GetProcessById($bindingChild.Id)
+  $wrongBirthError = $null
+  try { $null = $bindMethod.Invoke($null, [object[]]@($wrongBirth,($bindingCreated+1L),$bindingHandle)) }
+  catch { $wrongBirthError = $_.Exception.GetBaseException() }
+  Assert-True ($wrongBirthError -is [IO.InvalidDataException] -and -not $bindingChild.HasExited) 'Live generation mismatch was hidden as an exit.'
+  $disposedLive = [Diagnostics.Process]::GetProcessById($bindingChild.Id)
+  $disposedLive.Dispose()
+  $liveGetterError = $null
+  try { $null = $bindMethod.Invoke($null, [object[]]@($disposedLive,$bindingCreated,$bindingHandle)) }
+  catch { $liveGetterError = $_.Exception.GetBaseException() }
+  Assert-True ($liveGetterError -is [InvalidOperationException] -and -not $bindingChild.HasExited) 'A live managed getter error was hidden as an exit.'
+  # GetProcessById has not opened the managed handle yet. End the exact child
+  # before invoking the actual binding helper, while its kernel object is pinned.
+  $unboundDead = [Diagnostics.Process]::GetProcessById($bindingChild.Id)
+  $bindingChild.StandardInput.WriteLine('exit-zero')
+  Assert-True ($bindingChild.WaitForExit(5000)) 'Binding fixture did not exit.'
+  $deadBinding = $bindMethod.Invoke($null, [object[]]@($unboundDead,$bindingCreated,$bindingHandle))
+  Assert-True ($null -eq $deadBinding) 'Exit before managed handle binding stopped discovery.'
+  $specialChild = Start-OwnedChild
+  $specialHandle = $specialChild.Handle
+  $specialCreated = [long]$specialChild.StartTime.ToFileTimeUtc()
+  $unboundSpecial = [Diagnostics.Process]::GetProcessById($specialChild.Id)
+  $invalidProofProcess = [Diagnostics.Process]::GetProcessById($specialChild.Id)
+  $specialChild.StandardInput.WriteLine('exit-special')
+  Assert-True ($specialChild.WaitForExit(5000) -and $specialChild.ExitCode -eq 259) 'Special exit fixture did not retain its actual exit code.'
+  $specialBinding = $bindMethod.Invoke($null, [object[]]@($unboundSpecial,$specialCreated,$specialHandle))
+  Assert-True ($null -eq $specialBinding) 'Exit code equal to STILL_ACTIVE was mistaken for a live process.'
+  $invalidProofProcess.Dispose()
+  $invalidProofError = $null
+  try { $null = $bindMethod.Invoke($null, [object[]]@($invalidProofProcess,$specialCreated,[IntPtr]::Zero)) }
+  catch { $invalidProofError = $_.Exception.GetBaseException() }
+  Assert-True ($invalidProofError -is [ComponentModel.Win32Exception]) 'Unverifiable discovery handle concealed an observation failure.'
   $child = Start-OwnedChild
   Assert-True ($child.Id -in [SseLoadWindowObserver]::Descendants($PID,0)) 'Actual owned child was not discovered.'
   Assert-True ($child.Id -notin [SseLoadWindowObserver]::Descendants($PID,$child.Id)) 'Excluded observer root was counted.'
@@ -367,7 +410,7 @@ readline.createInterface({input: process.stdin}).on('line', line => {
   Assert-True ($script:DiscoveredBindings.Count -eq 0) 'Cleanup retained discovery ownership proofs.'
   Assert-True (-not [SseObserverContractHandles]::GetHandleInformation($discoveryHandle,[ref]$flags)) 'Cleanup retained the discovery handle.'
   Close-ObservedProcesses
-  '{"passed":true,"checks":45}'
+  '{"passed":true,"checks":54}'
 }
 finally {
   try {
