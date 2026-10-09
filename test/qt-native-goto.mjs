@@ -102,6 +102,7 @@ try {
 
 function fixture(options = {}) {
   let current = options.start ?? "Start page", searchOpen = false, term = "", reads = 0, targetReads = 0, incompleteNativeReads = 0;
+  let pendingReadObserved = false;
   const actions = [], route = [...(options.landings ?? ["Target page"])];
   const nodes = () => {
     const { nodes: value, add } = builder();
@@ -120,8 +121,10 @@ function fixture(options = {}) {
     add("Button", "", "main.SearchSSE.searchButton", search, { x: 810, y: 50 });
     if (searchOpen) {
       add("Button", "Suche schließen", "main.searchClose");
-      const table = add("Table", "", "main.DialogSearchResultsTableView");
-      if (!options.noHit) add("DataItem", "Target page", "main.DialogSearchResultsTableView", table, { x: 80, y: 200 });
+      if (!options.pendingSearch) {
+        const table = add("Table", "", "main.DialogSearchResultsTableView");
+        if (!options.noHit) add("DataItem", "Target page", "main.DialogSearchResultsTableView", table, { x: 80, y: 200 });
+      }
     }
     return value;
   };
@@ -136,6 +139,9 @@ function fixture(options = {}) {
       if (actions.at(-1)?.expectedName === "Suche schließen" && incompleteNativeReads < (options.incompleteNativeReads ?? 0)) {
         incompleteNativeReads++;
         return { durationMs: 1, result: { ok: false, code: "NATIVE_ACCESSIBILITY_INCOMPLETE", error: "Validation preview rebuilding" } };
+      }
+      if (searchOpen && options.pendingSearch && !pendingReadObserved) {
+        pendingReadObserved = true; options.onPendingRead();
       }
       const result = snapshot(nodes());
       result.stats.truncated = Boolean(options.truncated || options.depthLimited);
@@ -161,7 +167,7 @@ function fixture(options = {}) {
     },
   };
   return { actions, get reads() { return reads; }, run: args => executeQtNativeOperation("goto",
-    { pageId: "synthetic.target", hwnd: 42, ...args }, { qtNativeClient: client }, 8000, undefined, knownProfile) };
+    { pageId: "synthetic.target", hwnd: 42, ...args }, { qtNativeClient: client }, options.timeoutMs ?? 8000, undefined, knownProfile) };
 }
 assert(isQtNativeOperation("goto"));
 const already = fixture({ start: "Target page" });
@@ -209,6 +215,25 @@ const lost = fixture({ visibleTarget: true, lostAcknowledgment: true });
 assert.equal((await lost.run()).outcomeUnknown, true); assert.equal(lost.actions.length, 1);
 const stale = fixture({ visibleTarget: true, rejectAction: true });
 assert.equal((await stale.run()).kind, "stale"); assert.equal(stale.actions.length, 1);
+// Expiry during a readiness wait must not close search or dispatch form navigation.
+const actualPerformance = globalThis.performance;
+let clockOffset = 0, clockValue = 0, clockAdvancing = false, clockTimer;
+const pendingSearch = fixture({ pendingSearch: true, timeoutMs: 20_000,
+  onPendingRead() {
+    clockValue = 9_995;
+    clockTimer = setTimeout(() => {
+      clockOffset = 10_005 - actualPerformance.now(); clockAdvancing = true;
+    }, 1);
+  } });
+globalThis.performance = { now: () => clockAdvancing ? actualPerformance.now() + clockOffset : clockValue };
+let pendingResult;
+try { pendingResult = await pendingSearch.run(); }
+finally { clearTimeout(clockTimer); globalThis.performance = actualPerformance; }
+assert.equal(pendingResult.kind, "navigation-blocked", "Expiry between polls must remain a search readiness failure");
+assert.equal(pendingResult.phase, "search-results");
+assert.equal(pendingResult.outcomeUnknown, true);
+assert.deepEqual(pendingSearch.actions.map(action => action.action), ["replace-edit-text", "press"],
+  "An unready search cannot close search or start another navigation strategy after its deadline");
 const wrongWindow = fixture();
 assert.equal((await wrongWindow.run({ hwnd: 43 })).kind, "stale-window"); assert.equal(wrongWindow.actions.length, 0);
 const forbidden = fixture();
