@@ -225,7 +225,9 @@ export const exclusiveSteps = Object.freeze([
   nodeFile("api-control-runtime", "test/api-control-runtime.mjs"),
   nodeFile("mcp-api-control", "test/mcp-api-control.mjs"),
   nodeFile("agent-plugin-runtime", "test/agent-plugin-runtime.mjs"),
-  nodeFile("performance-harness", "--test", "--test-concurrency=1",
+  // A nested Windows test process can allocate a console that outlives its helpers.
+  // The already exclusive harness executes all test files in its console-free step.
+  nodeFile("performance-harness", "--test", "--experimental-test-isolation=none", "--test-concurrency=1",
     "test/performance/performance-harness-contract.mjs",
     "test/performance/receipt-workload-contract.mjs",
     "test/performance/api-load-workload-contract.mjs"),

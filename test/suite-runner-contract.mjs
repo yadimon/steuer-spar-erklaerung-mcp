@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, rmdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   exclusiveSteps,
   fastBuildSteps,
@@ -85,7 +87,7 @@ assert.deepEqual(exclusiveSteps.map((step) => step.name), [
 ]);
 assert.equal(exclusiveSteps[0].timeoutMs, 420_000);
 assert.deepEqual(exclusiveSteps.find(step => step.name === "performance-harness").args, [
-  "--test", "--test-concurrency=1",
+  "--test", "--experimental-test-isolation=none", "--test-concurrency=1",
   "test/performance/performance-harness-contract.mjs",
   "test/performance/receipt-workload-contract.mjs",
   "test/performance/api-load-workload-contract.mjs",
@@ -215,6 +217,20 @@ await runStep({
   command: process.execPath,
   args: ["-e", consoleProgram],
 });
+const consoleFixtureRoot = mkdtempSync(join(tmpdir(), "sse-suite-console-"));
+const consoleFixture = join(consoleFixtureRoot, "console.test.cjs");
+try {
+  writeFileSync(consoleFixture, `require('node:test')('test body has no console', () => { ${consoleProgram} });`, "utf8");
+  const performanceStep = exclusiveSteps.find(step => step.name === "performance-harness");
+  await runStep({
+    name: "windows-test-body-console-association",
+    command: performanceStep.command,
+    args: [...performanceStep.args.slice(0, 3), consoleFixture],
+  });
+} finally {
+  rmSync(consoleFixture, { force: true });
+  rmdirSync(consoleFixtureRoot);
+}
 
 let maximumActive = 0;
 const completed = [];
