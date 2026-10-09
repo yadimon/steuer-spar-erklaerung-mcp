@@ -412,6 +412,12 @@ test("injected API, MCP and observer close failures retain ownership, retry clea
     assert.equal(cleanup.ownedDescendantAliveCount, 0);
     assert(cleanup.ownedMcpProcessStates.every((entry) => entry.identityBound && entry.identityMatchedAlive === false));
     assert.deepEqual(cleanup.unboundMcpPidOccupancies, []);
+    assert(cleanup.finalQuiescence, "Failure cleanup needs fresh owned-process quiescence evidence.");
+    assert(cleanup.finalQuiescence.first.sequence > cleanup.finalQuiescence.floorSequence);
+    assert(cleanup.finalQuiescence.second.sequence > cleanup.finalQuiescence.first.sequence);
+    assert(cleanup.finalQuiescence.gapMs >= common.quiescenceGapMs);
+    assert.equal(cleanup.finalQuiescence.first.liveOwnedChildren, 0);
+    assert.equal(cleanup.finalQuiescence.second.liveOwnedChildren, 0);
     assert.equal(cleanup.lastObserverState.liveOwnedChildren, 0);
     assert.equal(cleanup.lastObserverState.sseProcessCount, 0);
     assert.equal(existsSync(join(output, ".scratch")), false);

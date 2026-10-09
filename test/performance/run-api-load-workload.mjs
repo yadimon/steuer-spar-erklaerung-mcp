@@ -817,6 +817,21 @@ export async function runApiLoadWorkload(options, testOnly = {}) {
   let failApiCloseOnce = testOnly.failBeforeApiCloseOnce === true;
   let failMcpCloseOnce = testOnly.failBeforeMcpCloseOnce === true;
   let failObserverStopSignalOnce = testOnly.failBeforeObserverStopSignalOnce === true;
+  const observeOwnedQuiescence = async () => {
+    const quietFloorSequence = observer.samples.at(-1)?.sequence ?? 0;
+    const firstQuiet = await observer.waitForSample(
+      sampleHasCleanOwnedState, undefined, quietFloorSequence,
+    );
+    const secondQuiet = await observer.waitForSample((sample) => (
+      sampleHasCleanOwnedState(sample) && sample.monotonicMs - firstQuiet.monotonicMs >= settings.quiescenceGapMs
+    ), Math.max(15_000, settings.quiescenceGapMs + settings.observerIntervalMs * 3), firstQuiet.sequence);
+    finalQuiescence = {
+      floorSequence: quietFloorSequence,
+      first: compactQuiescenceSample(firstQuiet),
+      second: compactQuiescenceSample(secondQuiet),
+      gapMs: rounded(secondQuiet.monotonicMs - firstQuiet.monotonicMs),
+    };
+  };
   const nextLifecycle = (phase, outcome, extra) => {
     const record = lifecycleRecord(++lifecycleSequence, phase, outcome, extra);
     lifecycleRecords.push(record);
@@ -1332,21 +1347,7 @@ export async function runApiLoadWorkload(options, testOnly = {}) {
     await executor.waitForIdle();
     nextLifecycle("clean-shutdown", "owned-roots-closed");
     eventLoop.disable();
-    const quietFloorSequence = observer.samples.at(-1)?.sequence ?? 0;
-    const firstQuiet = await observer.waitForSample(
-      sampleHasCleanOwnedState,
-      undefined,
-      quietFloorSequence,
-    );
-    const secondQuiet = await observer.waitForSample((sample) => (
-      sampleHasCleanOwnedState(sample) && sample.monotonicMs - firstQuiet.monotonicMs >= settings.quiescenceGapMs
-    ), Math.max(15_000, settings.quiescenceGapMs + settings.observerIntervalMs * 3), firstQuiet.sequence);
-    finalQuiescence = {
-      floorSequence: quietFloorSequence,
-      first: compactQuiescenceSample(firstQuiet),
-      second: compactQuiescenceSample(secondQuiet),
-      gapMs: rounded(secondQuiet.monotonicMs - firstQuiet.monotonicMs),
-    };
+    await observeOwnedQuiescence();
     await observer.stop();
     const resourceSummary = summarizeResourceSamples(observer.samples, { expectedIntervalMs: settings.observerIntervalMs });
     if (resourceSummary.maximumSseProcessCount !== 0 || resourceSummary.sampleErrorCount !== 0 ||
@@ -1468,6 +1469,13 @@ export async function runApiLoadWorkload(options, testOnly = {}) {
       failureStage = "api-cleanup";
     }
     if (observer && !observer.stopped) {
+      try {
+        await executor.waitForIdle();
+        await observeOwnedQuiescence();
+      } catch (error) {
+        primaryError = primaryError ? new AggregateError([primaryError, error], "Load workload and owned-process quiescence failed.") : error;
+        failureStage = "owned-quiescence";
+      }
       try { await observer.stop(); } catch (error) {
         primaryError = primaryError ? new AggregateError([primaryError, error], "Load workload and observer cleanup failed.") : error;
         failureStage = "observer-cleanup";
