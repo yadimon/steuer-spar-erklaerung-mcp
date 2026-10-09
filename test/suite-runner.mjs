@@ -92,6 +92,9 @@ export async function runStep(step) {
     env: { ...process.env },
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
+    // A hidden console host can outlive helpers and invalidate owned-process
+    // quiescence. Piped Windows steps do not need a console association.
+    detached: process.platform === "win32",
   });
   let stdout = "";
   let stderr = "";

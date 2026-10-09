@@ -202,6 +202,20 @@ try {
 }
 
 let active = 0;
+const consoleProbe = `
+Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class FixtureConsole { [DllImport("kernel32.dll")] public static extern bool FreeConsole(); [DllImport("kernel32.dll", SetLastError=true)] public static extern bool AttachConsole(uint pid); }'
+[FixtureConsole]::FreeConsole() | Out-Null
+if ([FixtureConsole]::AttachConsole(PARENT_PID)) { [FixtureConsole]::FreeConsole() | Out-Null; throw 'Piped Node test step retained a console association.' }
+if ([Runtime.InteropServices.Marshal]::GetLastWin32Error() -ne 6) { throw 'Console absence was not proven by ERROR_INVALID_HANDLE.' }
+`;
+const powershellCommand = serialBuildSteps.find(step => step.name === "native-build").command;
+const consoleProgram = `const {execFileSync}=require('node:child_process'); const probe=${JSON.stringify(consoleProbe)}.replace('PARENT_PID',String(process.pid)); execFileSync(${JSON.stringify(powershellCommand)},['-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(probe,'utf16le').toString('base64')],{windowsHide:true,stdio:['ignore','pipe','pipe']});`;
+await runStep({
+  name: "windows-console-association",
+  command: process.execPath,
+  args: ["-e", consoleProgram],
+});
+
 let maximumActive = 0;
 const completed = [];
 await runWithConcurrency([1, 2, 3, 4, 5, 6], 3, async (value) => {
