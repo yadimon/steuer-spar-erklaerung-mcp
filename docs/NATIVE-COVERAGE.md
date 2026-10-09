@@ -174,8 +174,9 @@ Broker und Transportquittungen sind Infrastruktur, keine zusätzlichen API-Komma
 - Ende, Dateien und zusammengesetzte Abläufe werden gesondert optimiert;
   eine schnelle Teiloperation belegt nicht den vollständigen Ablauf.
 
-Die ausgelieferte Qt-Brücke aktiviert keine freien experimentellen Schreib-,
-Navigations- oder Speicheroperationen. `known_page_state`, die read-only-Listenansicht
+Die ausgelieferte Qt-Brücke enthält gebundene Navigation und begrenzte
+Belegmutationen; allgemeine Feld-/Tabellenmutationen und Speichern bleiben auf
+den bestehenden Transaktionswegen. `known_page_state`, die read-only-Listenansicht
 `positions`, `ustva_read`, `receipt_manager_list`, `page`, `ui_state`, `help`,
 `read_table` und `checker_results` sind dabei katalog- bzw. snapshotgebundene Pfade.
 Die snapshotgebundenen Pfade lesen den persistenten Qt-Accessibility-Snapshot,

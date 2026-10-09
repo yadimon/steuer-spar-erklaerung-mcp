@@ -9,7 +9,7 @@ Nachweis. Vorhandene Mechanismen werden erweitert; ihre Bindungs- und
 ## Aktueller Umsetzungsstand
 
 Die [Native-Matrix](../NATIVE-COVERAGE.md) führt jede der 102 Operationen.
-Die siebzehn dort als **Qt optional** markierten Operationen sind direkt an die
+Die 22 dort als **Qt optional** markierten Operationen sind direkt an die
 optionale Qt-Brücke angeschlossen. Die folgende Bilanz ergänzt die Aufgaben; vorhandene
 Teilmechanismen erfüllen nicht automatisch deren gesamten Abnahmevertrag.
 `desktop_status` und `desktop_start` besitzen zusätzlich direkte Win32-Pfade im
@@ -21,7 +21,7 @@ Weitere Lebenszyklus-Kompositionen und Live-Varianten bleiben in N07 offen.
 | B03: semantisches Tabellenlesen | typisierte Checkboxzustände; Qt-Tabellenmodell mit sichtbarer Spaltenreihenfolge und Zeilenidentität | vollständige fachliche Projektion weiterer Zelltypen und Auswahlvarianten |
 | B04: Vollständigkeit | begrenzter atomarer Qt-Modellsnapshot; Teilstände ausdrücklich markiert; Worker meldet blockierte vollständige Lesung als Fehler | breitere Größen-/Zustandsmatrix und vergleichbarer Gesamtablauf |
 | B05: Datum | kalender- und jahresgenauer Vergleich einschließlich zulässiger Anzeigeverkürzung | kurze Eingabe anhand des gebundenen Falljahrs vervollständigen |
-| B10: Navigation | bestehende Schleife endet bei bereits erreichtem Ziel | allgemeiner nativer Handler und Nachweis der tatsächlich aufgebauten Zielseite |
+| B10: Navigation | nativer `goto`-Handler mit frischem Zielseitenbeweis; bereits erreichtes Ziel beendet die Schleife; abgelaufene Suchbereitschaft beendet den Auftrag vor weiteren Navigationsaktionen | kalte Suche und vollständiger normaler Ende-zu-Ende-Ablauf auf Herstellerfallkopien |
 | B08: unbekannter Schreibausgang | nativer Transport erhält bekannte Antworten, quittiert sie und wiederholt keine Mutation | fachliche zeilengenaue Wiederherstellung; Quittung ist kein Readback |
 | B01/B02/B06/B07/B09/B11 | einzelne bestehende Operationen und Bindungsregeln | vollständige Batch-, Duplikat-, Struktur- und Steuerwirkungsnachweise laut Aufgabe |
 
@@ -32,14 +32,17 @@ Weitere Lebenszyklus-Kompositionen und Live-Varianten bleiben in N07 offen.
 | N01 | Seiten- und Orientierungslesung anbinden | öffentliches Ergebnisschema einschließlich Kindfenstern, Zuständen, Geometrie und eindeutigen Referenzen; unabhängige Live-Parität auf mehreren Seiten |
 | N02 | Feldtransaktion nativ ausführen | Fall/Seite/Vorwert prüfen, normalen Commit auslösen, frischen Wert und geforderte Summen lesen; spätere Fokuswechsel dürfen nicht doppelt committen |
 | N03 | Tabellenmutationen anbinden | Zellen sowie Anlage/Löschung getrennt prüfen; Zeilenidentität, unveränderte Nachbarn und unbekannte/teilweise Ausgänge belegen |
-| N04 | Navigation anbinden | Auswahl, Aktivierung und fertig geladene richtige Seite unterscheiden; kalter Seitenwechsel getrennt vom bereits erreichten Ziel messen |
+| N04 | Native Navigation vollständig abnehmen | `goto` ist angebunden; Auswahl, Aktivierung und fertig geladene richtige Seite getrennt nachweisen; kalte Suchbereitschaft und vollständige Reise prüfen, ohne Fehler durch längere Zeitlimits zu verdecken |
 | N05 | Speichern anbinden | bestehende Pfad-/Hash-/Korrekturgrenzen erhalten; Datei und Abschluss statt fester Pause prüfen; Wiederöffnen als Persistenznachweis |
-| N06 | BelegManager weiter anbinden | Liste, Detaillesen und zwei reversible Aktionen sind Qt-gebunden; für Import, Klassifikation, Verknüpfung, Update, Löschen und Bulk-Upsert echte Abschlussdaten, Duplikate und unveränderte Nachbarbelege nachweisen |
+| N06 | BelegManager weiter abnehmen und anbinden | Liste, Detaillesen, reversible Aktionen, Update, Verknüpfung, Klassifikationsoptionen und Klassifikation sind Qt-gebunden; vollständige reale Reise mit Abschlussdaten, Duplikaten und unveränderten Nachbarn belegen; Import, Löschen und Bulk-Upsert behalten ihre bestehenden Wege |
 | N07 | Lebenszyklus und weitere Kompositionen beschleunigen | Status und Start über Win32 sowie Stop über Win32/COM-UIA sind implementiert; weitere Start-/Dialogvarianten und verbleibende Workerwege messen |
 | N08 | Vergleichbare Ende-zu-Ende-Matrix führen | Handler, Paket, Produkt, Erstbindung und warme Aufrufe kenntlich machen; nur verifizierten Abschluss als Erfolgsdauer zählen |
 
-Diese Abnahmen sind offen. Der öffentliche Qt-Lesepfad enthält keine
-experimentellen Schreib-, Navigations- oder Speicherhandler.
+Diese vollständigen Abnahmen bleiben offen; vorhandene Handler sind Teilumsetzungen.
+Die öffentliche Qt-Brücke enthält begrenzte, gebundene Belegmutationen und
+Navigation. Allgemeine Feld-/Tabellenschreibzugriffe und Speichern bleiben auf
+den bestehenden Transaktionswegen. Handlerzahl und bestandene Offline-Verträge
+ersetzen keinen vollständigen nativen Live-Lauf.
 
 ## Priorität 1: Tabellen und Belege
 

@@ -154,6 +154,12 @@ und profilierten Tabellen-/Summenprüfungen. Eine bereits sichtbare, aber
 unvollständige Zielseite beendet weitere Navigation. Unbestätigte Aktionen werden
 nicht wiederholt; ein ausgewählter Treffer gilt noch nicht als erreichte Seite.
 
+Läuft die begrenzte Bereitschaft der globalen Suche ab, endet `goto` mit einem
+Fehler, bevor weitere Navigationsaktionen beginnen. Später erscheinende Treffer
+machen den abgebrochenen Auftrag nicht erfolgreich. Der vollständige normale
+Such-/Tabellen-/Belegablauf benötigt einen eigenen Live-Nachweis; ein bestandener
+Timeout-/Bereinigungsvertrag ersetzt ihn nicht.
+
 `receipt_manager_update` bindet die vollständige Liste, die exakte Zeile und den
 Detailfingerprint vor jeder Feldänderung. Die sieben profilierten Belegfelder
 bleiben an dasselbe BelegManager-HWND gebunden; ein neu geöffnetes Fenster

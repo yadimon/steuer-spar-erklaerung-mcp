@@ -48,11 +48,13 @@ Manuelle Stichproben ersetzen den fehlenden automatisierten Nachweis für
 ## Native-Integration getrennt zählen
 
 Die [Native-Matrix](NATIVE-COVERAGE.md) führt für jede der 102 Operationen
-den Qt-DLL-Status neben dem bestehenden Live-Stand. Gegenwärtig sind siebzehn
+den Qt-DLL-Status neben dem bestehenden Live-Stand. Gegenwärtig sind 22
 Operationen direkt integriert: `get_value`, `table_read`, `snapshot`, `find`,
 `read_page`, `subpages`, `known_page_state`, `positions`, `ustva_read`,
 `receipt_manager_list`, `receipt_manager_read`, `receipt_manager_action`,
-`page`, `ui_state`, `help`, `read_table` und `checker_results`.
+`page`, `ui_state`, `help`, `read_table`, `checker_results`, `goto`,
+`receipt_manager_update`, `receipt_manager_link`,
+`receipt_manager_classification_options` und `receipt_manager_classify`.
 Sie werden nur mit expliziter Konfiguration aktiviert.
 Die native Qt-Prüfung vergleicht Suchtreffer, Seitenzeilen und Unterseiten mit
 den tatsächlichen Worker-Projektionsfunktionen über unabhängig gelesene UIA-Knoten
@@ -68,7 +70,9 @@ Der native CTest-Lauf prüft reale DLL, Broker, Discovery und HTTP-Runtime mit
 einem synthetischen Qt-Programm. Er ersetzt weder SSE-Live-Parität noch einen
 vollständigen Lauf mit dem ausgelieferten Produktprofil. Ein statisch gefundenes
 Symbol, ein privater Prototyp und ein integrierter Handler sind unterschiedliche
-Nachweisstufen. Die öffentliche Qt-Brücke aktiviert keine Mutation.
+Nachweisstufen. Die öffentliche Qt-Brücke führt begrenzte, quittierte
+Belegmutationen und Navigation aus. Allgemeine Feld-/Tabellenmutationen und
+Speichern behalten ihre bestehenden Transaktionswege.
 
 Für `snapshot` vergleicht der native Test alle Knoten mit einem unabhängig
 gestarteten Windows-UIA-Client, einschließlich nativer Kindfenster, Runtime-IDs,
@@ -123,3 +127,19 @@ Für produktfreie Teilstrecken stehen `npm run perf:tax-journeys`,
 `npm run perf:receipt-workload` und `npm run perf:api-load-soak` bereit; der
 Rahmen dazu ist in [`test/performance/README.md`](../test/performance/README.md)
 beschrieben.
+
+Die drei Nachweise sind getrennt zu bewerten: `test:live` prüft die installierte
+Anwendung über seine deklarierten Live-Schritte; `perf:api-mega` prüft eine
+zusammenhängende HTTP-Reise im ausdrücklich gewählten Backend; der produktfreie
+HTTP/MCP-Soak verwendet einen synthetischen Executor. Ein grüner Worker-Lauf
+oder Soak beweist keine vollständige native Qt-Reise. Ein abgebrochener
+Mega-Lauf mit erfolgreicher Bereinigung bleibt ein fehlgeschlagener Lauf und
+ist keine Gesamtzeit-Baseline.
+
+`test:privacy` prüft Arbeitsbaum, nicht ignorierte neue Textdateien und die
+Git-Historie aller Referenzen auf private Daten und verbotene Pfade. Die eng
+geprüfte Ausnahme für eine unveränderte Herstellerbibliothek bindet Pfad und
+SHA-256. Historische Treffer werden über Git-Blob-Identitäten geprüft; derselbe
+unveränderliche Blob wird innerhalb eines Laufs nur einmal gehasht. Alle
+Revisionen und Suchregeln bleiben geprüft; unbekannte oder beschädigte
+Blob-Metadaten führen zum Fehler.
