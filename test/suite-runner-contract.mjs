@@ -211,6 +211,11 @@ if ([FixtureConsole]::AttachConsole(PARENT_PID)) { [FixtureConsole]::FreeConsole
 if ([Runtime.InteropServices.Marshal]::GetLastWin32Error() -ne 6) { throw 'Console absence was not proven by ERROR_INVALID_HANDLE.' }
 `;
 const powershellCommand = serialBuildSteps.find(step => step.name === "native-build").command;
+await assert.rejects(runStep({
+  name: "powershell-step-executes",
+  command: powershellCommand,
+  args: ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from("exit 7", "utf16le").toString("base64")],
+}), /powershell-step-executes.*Exit 7/u);
 const consoleProgram = `const {execFileSync}=require('node:child_process'); const probe=${JSON.stringify(consoleProbe)}.replace('PARENT_PID',String(process.pid)); execFileSync(${JSON.stringify(powershellCommand)},['-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(probe,'utf16le').toString('base64')],{windowsHide:true,stdio:['ignore','pipe','pipe']});`;
 await runStep({
   name: "windows-console-association",
