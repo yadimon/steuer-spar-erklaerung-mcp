@@ -79,6 +79,49 @@ public static class SseObserverContractHandles {
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool GetHandleInformation(IntPtr handle, out uint flags);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct STARTUPINFO {
+        public uint size; public string reserved; public string desktop; public string title;
+        public uint x; public uint y; public uint xSize; public uint ySize;
+        public uint xCountChars; public uint yCountChars; public uint fillAttribute; public uint flags;
+        public ushort showWindow; public ushort reservedSize; public IntPtr reservedBytes;
+        public IntPtr standardInput; public IntPtr standardOutput; public IntPtr standardError;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PROCESS_INFORMATION {
+        public IntPtr process; public IntPtr thread; public uint processId; public uint threadId;
+    }
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CreateProcess(string application, System.Text.StringBuilder command,
+        IntPtr processAttributes, IntPtr threadAttributes, bool inheritHandles, uint flags,
+        IntPtr environment, string directory, ref STARTUPINFO startup, out PROCESS_INFORMATION information);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool CloseHandle(IntPtr handle);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool TerminateProcess(IntPtr process, uint exitCode);
+
+    public static System.Diagnostics.Process StartSuspended(string executable) {
+        var startup = new STARTUPINFO();
+        startup.size = (uint)Marshal.SizeOf(typeof(STARTUPINFO));
+        PROCESS_INFORMATION information;
+        const uint CREATE_SUSPENDED = 0x4, CREATE_NO_WINDOW = 0x08000000;
+        if (!CreateProcess(executable, new System.Text.StringBuilder("\"" + executable + "\""),
+            IntPtr.Zero, IntPtr.Zero, false, CREATE_SUSPENDED | CREATE_NO_WINDOW,
+            IntPtr.Zero, null, ref startup, out information))
+            throw new System.ComponentModel.Win32Exception();
+        try {
+            var process = System.Diagnostics.Process.GetProcessById((int)information.processId);
+            try {
+                if (process.Handle == IntPtr.Zero) throw new InvalidOperationException("Child handle unavailable.");
+                return process;
+            }
+            catch { process.Dispose(); throw; }
+        }
+        catch { TerminateProcess(information.process, 1); throw; }
+        finally { CloseHandle(information.thread); CloseHandle(information.process); }
+    }
 }
 '@
 
@@ -116,10 +159,20 @@ function Start-OwnedChild {
 }
 
 try {
+  $suspended = [SseObserverContractHandles]::StartSuspended($NodeExecutable)
+  $null = $children.Add($suspended)
+  Assert-True ([string]::IsNullOrEmpty([string]$suspended.Path)) 'Fixture did not expose pre-initialization module-path absence.'
+  $suspendedIdentity = Get-ProcessIdentity $suspended
+  Assert-True ($suspendedIdentity.imagePathTextSha256 -eq (Get-PathTextHash $NodeExecutable)) 'Suspended child lost its exact executable path.'
+  Assert-True ($suspendedIdentity.imageNameLower -eq 'node') 'Suspended child lost its executable name.'
+  $suspended.Kill()
+  Assert-True ($suspended.WaitForExit(5000)) 'Suspended owned child did not exit.'
   $child = Start-OwnedChild
   Assert-True ($child.Id -in [SseLoadWindowObserver]::Descendants($PID,0)) 'Actual owned child was not discovered.'
   Assert-True ($child.Id -notin [SseLoadWindowObserver]::Descendants($PID,$child.Id)) 'Excluded observer root was counted.'
   $entry = [pscustomobject]@{ pid = $child.Id; role = 'mcp-test'; expectedIdentity = (Get-ProcessIdentity $child) }
+  Assert-True ($entry.expectedIdentity.imagePathTextSha256 -eq (Get-PathTextHash ([string]$child.Path))) 'Initialized path identity changed.'
+  Assert-True ($entry.expectedIdentity.imageNameLower -eq $child.ProcessName.ToLowerInvariant()) 'Initialized image name changed.'
   $first = Measure-OwnedProcess $entry
   Assert-True ($first.alive -and -not $first.sampleError) 'Initial identity-bound sample failed.'
   $pinned = $script:BoundProcesses[[string]$child.Id]
@@ -206,7 +259,7 @@ try {
   Assert-True ($script:BoundProcesses.Count -eq 0) 'Observer retained process bindings after cleanup.'
   Assert-True (-not [SseObserverContractHandles]::GetHandleInformation($retainedHandle, [ref]$flags)) 'Cleanup did not close the retained handle.'
   Close-ObservedProcesses
-  '{"passed":true,"checks":24}'
+  '{"passed":true,"checks":30}'
 }
 finally {
   Close-ObservedProcesses

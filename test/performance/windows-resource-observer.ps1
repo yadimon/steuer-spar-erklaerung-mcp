@@ -69,6 +69,20 @@ public static class SseLoadWindowObserver
     private static extern bool GetProcessTimes(IntPtr process, out long creation, out long exit,
         out long kernel, out long user);
 
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool QueryFullProcessImageName(IntPtr process, uint flags,
+        System.Text.StringBuilder imageName, ref uint size);
+
+    public static string ImagePath(IntPtr process)
+    {
+        var imageName = new System.Text.StringBuilder(32768);
+        uint size = (uint)imageName.Capacity;
+        if (!QueryFullProcessImageName(process, 0, imageName, ref size))
+            throw new System.ComponentModel.Win32Exception();
+        return imageName.ToString();
+    }
+
     private static bool Below(int processId, int rootId, Dictionary<int, int> parents)
     {
         var seen = new HashSet<int>();
@@ -219,13 +233,14 @@ function Get-PathTextHash([string]$Value) {
 }
 
 function Get-ProcessIdentity([Diagnostics.Process]$Process) {
-  $path = $null
-  try { $path = [string]$Process.Path } catch { $path = $null }
+  # MainModule/Path may be absent until the child's loader initializes.
+  # Query the executable image on the already retained kernel handle.
+  $path = [SseLoadWindowObserver]::ImagePath($Process.Handle)
   $pathHash = Get-PathTextHash $path
   if (-not $pathHash) { throw [InvalidOperationException]::new('Process path identity unavailable.') }
   [pscustomobject][ordered]@{
     creationTimeUtcTicks = [string]([int64]$Process.StartTime.ToUniversalTime().Ticks)
-    imageNameLower = ([string]$Process.ProcessName).ToLowerInvariant()
+    imageNameLower = ([IO.Path]::GetFileNameWithoutExtension($path)).ToLowerInvariant()
     imagePathTextSha256 = $pathHash
   }
 }
