@@ -61,6 +61,14 @@ public static class SseLoadWindowObserver
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool CloseHandle(IntPtr handle);
 
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenProcess(uint access, bool inheritHandle, uint processId);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetProcessTimes(IntPtr process, out long creation, out long exit,
+        out long kernel, out long user);
+
     private static bool Below(int processId, int rootId, Dictionary<int, int> parents)
     {
         var seen = new HashSet<int>();
@@ -73,6 +81,66 @@ public static class SseLoadWindowObserver
             current = parent;
         }
         return false;
+    }
+
+    public static bool IsChronologicalDescendant(int processId, int rootId,
+        Dictionary<int, int> parents, Dictionary<int, long> creationTimes)
+    {
+        var seen = new HashSet<int>();
+        var current = processId;
+        while (current > 0 && seen.Add(current))
+        {
+            int parent;
+            long childCreated, parentCreated;
+            if (!parents.TryGetValue(current, out parent) ||
+                !creationTimes.TryGetValue(current, out childCreated) ||
+                !creationTimes.TryGetValue(parent, out parentCreated)) return false;
+            // A surviving child keeps its original parent PID after that
+            // parent exits. Reuse of that PID cannot create a new ancestry.
+            if (parentCreated > childCreated) return false;
+            if (parent == rootId) return true;
+            current = parent;
+        }
+        return false;
+    }
+
+    private static bool ReadCreationTime(int processId, Dictionary<int, long> creationTimes)
+    {
+        if (creationTimes.ContainsKey(processId)) return true;
+        const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+        var process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, (uint)processId);
+        if (process == IntPtr.Zero)
+        {
+            int error = Marshal.GetLastWin32Error();
+            if (error == 87) return false; // The snapshot member already exited.
+            throw new System.ComponentModel.Win32Exception(error);
+        }
+        try
+        {
+            long created, exited, kernel, user;
+            if (!GetProcessTimes(process, out created, out exited, out kernel, out user))
+                throw new System.ComponentModel.Win32Exception();
+            creationTimes[processId] = created;
+            return true;
+        }
+        finally { CloseHandle(process); }
+    }
+
+    private static bool ChronologicalBelow(int processId, int rootId, Dictionary<int, int> parents,
+        Dictionary<int, long> creationTimes)
+    {
+        if (!Below(processId, rootId, parents)) return false;
+        var seen = new HashSet<int>();
+        var current = processId;
+        while (current > 0 && seen.Add(current))
+        {
+            if (!ReadCreationTime(current, creationTimes)) return false;
+            if (current == rootId) break;
+            int parent;
+            if (!parents.TryGetValue(current, out parent)) return false;
+            current = parent;
+        }
+        return IsChronologicalDescendant(processId, rootId, parents, creationTimes);
     }
 
     public static int[] Descendants(int rootProcessId, int excludedRootProcessId)
@@ -95,10 +163,12 @@ public static class SseLoadWindowObserver
                 while (Process32Next(snapshot, ref entry));
             }
             var result = new List<int>();
+            var creationTimes = new Dictionary<int, long>();
             foreach (var processId in parents.Keys)
             {
-                if (!Below(processId, rootProcessId, parents)) continue;
-                if (processId == excludedRootProcessId || Below(processId, excludedRootProcessId, parents)) continue;
+                if (!ChronologicalBelow(processId, rootProcessId, parents, creationTimes)) continue;
+                if (processId == excludedRootProcessId ||
+                    ChronologicalBelow(processId, excludedRootProcessId, parents, creationTimes)) continue;
                 result.Add(processId);
             }
             result.Sort();

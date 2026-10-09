@@ -5,6 +5,13 @@ $observerPath = Join-Path $PSScriptRoot 'windows-resource-observer.ps1'
 $errors = $null
 $ast = [Management.Automation.Language.Parser]::ParseFile($observerPath, [ref]$null, [ref]$errors)
 if ($errors.Count) { throw 'Observer syntax is invalid.' }
+$nativeSources = @($ast.FindAll({
+  param($node)
+  $node -is [Management.Automation.Language.StringConstantExpressionAst] -and
+    $node.Value.Contains('public static class SseLoadWindowObserver')
+}, $true))
+if ($nativeSources.Count -ne 1) { throw 'Observer native source is not unique.' }
+Add-Type -TypeDefinition $nativeSources[0].Value
 foreach ($name in @('Get-PathTextHash', 'Get-ProcessIdentity', 'Get-IdentityKey',
     'Get-ObservedProcess', 'Close-ObservedProcesses', 'Measure-OwnedProcess', 'Measure-KnownOwnedProcesses')) {
   $definitions = @($ast.FindAll({
@@ -46,6 +53,24 @@ function Get-ObservedWindowCounts([int]$ProcessId) {
 function Assert-True([bool]$Condition, [string]$Message) {
   if (-not $Condition) { throw $Message }
 }
+
+$parents = [Collections.Generic.Dictionary[int,int]]::new()
+$parents[2] = 1; $parents[3] = 2
+$births = [Collections.Generic.Dictionary[int,long]]::new()
+$births[1] = 10; $births[2] = 20; $births[3] = 30
+Assert-True ([SseLoadWindowObserver]::IsChronologicalDescendant(3,1,$parents,$births)) 'Valid nested ancestry was lost.'
+Assert-True (-not [SseLoadWindowObserver]::IsChronologicalDescendant(1,1,$parents,$births)) 'Root was counted as its own child.'
+$births[3] = 15
+Assert-True (-not [SseLoadWindowObserver]::IsChronologicalDescendant(3,1,$parents,$births)) 'Reused intermediate parent PID was accepted.'
+$births[3] = 30; $births[1] = 25
+Assert-True (-not [SseLoadWindowObserver]::IsChronologicalDescendant(3,1,$parents,$births)) 'Reused root PID was accepted.'
+$births[1] = 10; $births[2] = 10
+Assert-True ([SseLoadWindowObserver]::IsChronologicalDescendant(3,1,$parents,$births)) 'Equal-resolution creation times were rejected.'
+$births.Remove(2) | Out-Null
+Assert-True (-not [SseLoadWindowObserver]::IsChronologicalDescendant(3,1,$parents,$births)) 'Missing parent birth was accepted.'
+$births[2] = 20; $parents[2] = 3
+Assert-True (-not [SseLoadWindowObserver]::IsChronologicalDescendant(3,1,$parents,$births)) 'Parent cycle was accepted.'
+$parents[2] = 1
 
 Add-Type -TypeDefinition @'
 using System;
@@ -92,6 +117,8 @@ function Start-OwnedChild {
 
 try {
   $child = Start-OwnedChild
+  Assert-True ($child.Id -in [SseLoadWindowObserver]::Descendants($PID,0)) 'Actual owned child was not discovered.'
+  Assert-True ($child.Id -notin [SseLoadWindowObserver]::Descendants($PID,$child.Id)) 'Excluded observer root was counted.'
   $entry = [pscustomobject]@{ pid = $child.Id; role = 'mcp-test'; expectedIdentity = (Get-ProcessIdentity $child) }
   $first = Measure-OwnedProcess $entry
   Assert-True ($first.alive -and -not $first.sampleError) 'Initial identity-bound sample failed.'
@@ -179,7 +206,7 @@ try {
   Assert-True ($script:BoundProcesses.Count -eq 0) 'Observer retained process bindings after cleanup.'
   Assert-True (-not [SseObserverContractHandles]::GetHandleInformation($retainedHandle, [ref]$flags)) 'Cleanup did not close the retained handle.'
   Close-ObservedProcesses
-  '{"passed":true,"checks":15}'
+  '{"passed":true,"checks":24}'
 }
 finally {
   Close-ObservedProcesses
