@@ -228,10 +228,8 @@ public static class SseLoadWindowObserver
                 creationTimes, handles))
             {
                 if (existing.Contains(processId)) continue;
-                System.Diagnostics.Process process;
-                try { process = System.Diagnostics.Process.GetProcessById(processId); }
-                catch (ArgumentException) { continue; } // Exited after the snapshot.
-                var bound = BindDiscoveredProcess(process, creationTimes[processId], handles[processId]);
+                var bound = BindDiscoveredProcessId(processId, creationTimes[processId], handles[processId],
+                    System.Diagnostics.Process.GetProcessById);
                 if (bound != null) result.Add(bound);
             }
             return result.ToArray();
@@ -244,6 +242,28 @@ public static class SseLoadWindowObserver
         // Keep query handles through managed binding, so neither the child
         // nor a disappearing ancestor can acquire another PID generation.
         finally { CloseDiscoveryHandles(handles); }
+    }
+
+    private static System.Diagnostics.Process BindDiscoveredProcessId(int processId,
+        long expectedCreationTime, IntPtr discoveryHandle,
+        Func<int, System.Diagnostics.Process> lookup)
+    {
+        System.Diagnostics.Process process;
+        try { process = lookup(processId); }
+        catch (ArgumentException) { if (DiscoveryExited(discoveryHandle)) return null; throw; }
+        catch (InvalidOperationException) { if (DiscoveryExited(discoveryHandle)) return null; throw; }
+        return BindDiscoveredProcess(process, expectedCreationTime, discoveryHandle);
+    }
+
+    private static bool DiscoveryExited(IntPtr discoveryHandle)
+    {
+        // Managed exit reporting can precede the signal of this exact kernel
+        // object. Require that signal; a still-live or unverifiable handle fails.
+        uint state = WaitForSingleObject(discoveryHandle, 100);
+        if (state == 0) return true;
+        if (state == 0xFFFFFFFF) throw new System.ComponentModel.Win32Exception();
+        if (state != 258) throw new System.IO.InvalidDataException("Discovery wait state is invalid.");
+        return false;
     }
 
     private static System.Diagnostics.Process BindDiscoveredProcess(System.Diagnostics.Process process,
@@ -265,10 +285,7 @@ public static class SseLoadWindowObserver
         {
             // The loader can exit before .NET opens its handle. Only the
             // already pinned snapshot generation can prove that exit.
-            uint state = WaitForSingleObject(discoveryHandle, 0);
-            if (state == 0) return null;
-            if (state == 0xFFFFFFFF) throw new System.ComponentModel.Win32Exception();
-            if (state != 258) throw new System.IO.InvalidDataException("Discovery wait state is invalid.");
+            if (DiscoveryExited(discoveryHandle)) return null;
             throw;
         }
         finally { if (!retained) process.Dispose(); }

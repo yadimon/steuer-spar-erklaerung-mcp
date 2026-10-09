@@ -372,7 +372,8 @@ function startResourceObserver({ scratchRoot, intervalMs, beforeStopSignal }) {
     try {
       const value = JSON.parse(line);
       if (value?.type !== "windows-resource-sample") {
-        parseErrors.push(value?.type ?? "unknown-record");
+        parseErrors.push(value?.type === "windows-resource-observer-error" && /^[A-Za-z]{1,128}$/u.test(value.errorName ?? "")
+          ? `${value.type}:${value.errorName}` : value?.type ?? "unknown-record");
         return;
       }
       const currentByPid = new Map(value.tracked.map((entry) => [entry.pid, entry]));
@@ -438,7 +439,11 @@ function startResourceObserver({ scratchRoot, intervalMs, beforeStopSignal }) {
     },
     async waitForSample(predicate, timeoutMs = Math.max(15_000, intervalMs * 4), minimumSequence = 0) {
       return await waitForCondition(
-        () => samples.findLast((sample) => sample.sequence > minimumSequence && predicate(sample)),
+        () => {
+          const sample = samples.findLast((sample) => sample.sequence > minimumSequence && predicate(sample));
+          if (!sample && closed) throw new Error(`Windows resource observer exited before the required sample (exit ${exitCode}, records ${parseErrors.join(",") || "none"}).`);
+          return sample;
+        },
         timeoutMs,
         `Windows resource observer did not produce the required sample (${stderr ? "stderr-present" : "no-stderr"}).`,
         Math.min(50, intervalMs),
@@ -1025,6 +1030,7 @@ export async function runApiLoadWorkload(options, testOnly = {}) {
     eventLoop.enable();
     failureStage = "api-mcp-start";
     await startApi();
+    if (testOnly.failAfterApiStartOnce === true) throw new Error("Injected API workload startup failure.");
     await startMcp();
     nextLifecycle("synthetic-cold", "started");
 
@@ -1467,6 +1473,9 @@ export async function runApiLoadWorkload(options, testOnly = {}) {
     try { await stopApi(); } catch (error) {
       primaryError = primaryError ? new AggregateError([primaryError, error], "Load workload and API cleanup failed.") : error;
       failureStage = "api-cleanup";
+      try { await stopApi(); } catch (retryError) {
+        primaryError = new AggregateError([primaryError, retryError], "API cleanup recovery failed.");
+      }
     }
     if (observer && !observer.stopped) {
       try {

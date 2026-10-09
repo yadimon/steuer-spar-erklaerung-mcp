@@ -390,13 +390,14 @@ test("injected API, MCP and observer close failures retain ownership, retry clea
     silent: true,
   };
   for (const [name, injection, expected] of [
-    ["api", "failBeforeApiCloseOnce", /Injected API close failure/u],
-    ["mcp", "failBeforeMcpCloseOnce", /Injected MCP close failure/u],
-    ["observer", "failBeforeObserverStopSignalOnce", /Injected observer stop-signal failure/u],
+    ["api", { failBeforeApiCloseOnce: true }, /Injected API close failure/u],
+    ["mcp", { failBeforeMcpCloseOnce: true }, /Injected MCP close failure/u],
+    ["observer", { failBeforeObserverStopSignalOnce: true }, /Injected observer stop-signal failure/u],
+    ["startup-api-close", { failAfterApiStartOnce: true, failBeforeApiCloseOnce: true }, /Load workload and API cleanup failed/u],
   ]) {
     const output = join(parent, name);
     await assert.rejects(
-      runApiLoadWorkload({ output }, { ...common, [injection]: true }),
+      runApiLoadWorkload({ output }, { ...common, ...injection }),
       expected,
     );
     const cleanup = readJson(join(output, "cleanup.json"));

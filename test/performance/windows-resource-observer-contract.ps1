@@ -77,6 +77,18 @@ Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 public static class SseObserverContractHandles {
+    public static Func<int, System.Diagnostics.Process> ExitedLookup() {
+        return pid => { throw new InvalidOperationException("Injected process lookup exit."); };
+    }
+    public static Func<int, System.Diagnostics.Process> MissingLookup() {
+        return pid => { throw new ArgumentException("Injected process lookup disappearance."); };
+    }
+    public static System.Threading.Tasks.Task EndPinnedAfterDelay(IntPtr process) {
+        return System.Threading.Tasks.Task.Run(() => {
+            System.Threading.Thread.Sleep(10);
+            if (!TerminateProcess(process, 0)) throw new System.ComponentModel.Win32Exception();
+        });
+    }
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool GetHandleInformation(IntPtr handle, out uint flags);
@@ -223,6 +235,14 @@ try {
   $bindingChild = Start-OwnedChild
   $bindingHandle = $bindingChild.Handle
   $bindingCreated = [long]$bindingChild.StartTime.ToFileTimeUtc()
+  $bindIdMethod = [SseLoadWindowObserver].GetMethod('BindDiscoveredProcessId', [Reflection.BindingFlags]'NonPublic,Static')
+  Assert-True ($null -ne $bindIdMethod) 'Lookup-before-binding race is not independently testable.'
+  foreach ($lookup in @([SseObserverContractHandles]::ExitedLookup(), [SseObserverContractHandles]::MissingLookup())) {
+    $lookupError = $null
+    try { $null = $bindIdMethod.Invoke($null, [object[]]@($bindingChild.Id,$bindingCreated,$bindingHandle,$lookup)) }
+    catch { $lookupError = $_.Exception.GetBaseException() }
+    Assert-True (($lookupError -is [InvalidOperationException] -or $lookupError -is [ArgumentException]) -and -not $bindingChild.HasExited) 'Live lookup failure was hidden as an exit.'
+  }
   $unboundLive = [Diagnostics.Process]::GetProcessById($bindingChild.Id)
   $liveBinding = $bindMethod.Invoke($null, [object[]]@($unboundLive,$bindingCreated,$bindingHandle))
   Assert-True ([object]::ReferenceEquals($liveBinding,$unboundLive) -and -not $liveBinding.HasExited) 'Live discovered generation was not retained.'
@@ -243,6 +263,10 @@ try {
   $unboundDead = [Diagnostics.Process]::GetProcessById($bindingChild.Id)
   $bindingChild.StandardInput.WriteLine('exit-zero')
   Assert-True ($bindingChild.WaitForExit(5000)) 'Binding fixture did not exit.'
+  foreach ($lookup in @([SseObserverContractHandles]::ExitedLookup(), [SseObserverContractHandles]::MissingLookup())) {
+    $deadLookup = $bindIdMethod.Invoke($null, [object[]]@($bindingChild.Id,$bindingCreated,$bindingHandle,$lookup))
+    Assert-True ($null -eq $deadLookup) 'Pinned exit before managed process lookup stopped discovery.'
+  }
   $deadBinding = $bindMethod.Invoke($null, [object[]]@($unboundDead,$bindingCreated,$bindingHandle))
   Assert-True ($null -eq $deadBinding) 'Exit before managed handle binding stopped discovery.'
   $specialChild = Start-OwnedChild
@@ -259,6 +283,14 @@ try {
   try { $null = $bindMethod.Invoke($null, [object[]]@($invalidProofProcess,$specialCreated,[IntPtr]::Zero)) }
   catch { $invalidProofError = $_.Exception.GetBaseException() }
   Assert-True ($invalidProofError -is [ComponentModel.Win32Exception]) 'Unverifiable discovery handle concealed an observation failure.'
+  $pendingExitChild = Start-OwnedChild
+  $pendingExitHandle = $pendingExitChild.Handle
+  $pendingExitBirth = [long]$pendingExitChild.StartTime.ToFileTimeUtc()
+  $pendingManaged = [Diagnostics.Process]::GetProcessById($pendingExitChild.Id)
+  $pendingManaged.Dispose()
+  $pendingTermination = [SseObserverContractHandles]::EndPinnedAfterDelay($pendingExitHandle)
+  $pendingBinding = $bindMethod.Invoke($null, [object[]]@($pendingManaged,$pendingExitBirth,$pendingExitHandle))
+  Assert-True ($pendingTermination.Wait(5000) -and $pendingExitChild.WaitForExit(5000) -and $null -eq $pendingBinding) 'Managed exit reporting before the pinned signal stopped discovery.'
   $child = Start-OwnedChild
   Assert-True ($child.Id -in [SseLoadWindowObserver]::Descendants($PID,0)) 'Actual owned child was not discovered.'
   Assert-True ($child.Id -notin [SseLoadWindowObserver]::Descendants($PID,$child.Id)) 'Excluded observer root was counted.'
