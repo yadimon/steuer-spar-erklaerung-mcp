@@ -17,7 +17,7 @@ import { nativeTreeBoundReason, readQtNativeSnapshot } from "./qt-native-snapsho
  */
 
 const ACTIVE_HINT = "Fragen/Warnungen und Tipps sind getrennt. Ein Eintrag ist nicht automatisch ein Steuerfehler; mit sse_checker_open den Wortlaut oeffnen.";
-const CLOSED_HINT = "Der globale Steuerpruefer ist nicht offen. Zu 'Pruefen und Abgeben' und dann 'Steuererklaerung pruefen' navigieren; dort sse_checker_run aufrufen.";
+const CLOSED_HINT = "Der globale Steuerpruefer ist nicht offen. sse_checker_run prueft den profilierten Startweg der gebundenen Fallart.";
 
 const fail = (kind: string, error: string): WorkerResult => ({ ok: false, backend: "qt", kind, error });
 

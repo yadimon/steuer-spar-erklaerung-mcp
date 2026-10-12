@@ -22,11 +22,23 @@ import {
 } from "./suite-runner.mjs";
 
 const expectedNames = [
+  "checker-start-contract",
   "performance-harness",
   "execution-telemetry", "execution-telemetry-integration", "execution-trace-log", "api-mega-execution-traces",
   "api-control-shutdown", "api-control-runtime", "mcp-api-control",
+  "mcp-operation-budget-contract",
   "api-monotonic-timing", "foreground-reporting-contract", "table-read-obstruction",
   "table-delete-name",
+  "table-editor-contract",
+  "table-cursor-contract", "table-viewport-contract",
+  "table-native-focus-contract", "table-cursor-lease-contract", "table-footer-focus-contract",
+  "accessibility-ancestry-contract",
+  "table-cursor-diagnostics-contract",
+  "table-native-step-contract", "table-cursor-step-contract",
+  "worker-table-capability",
+  "table-private-transport-contract", "table-native-mutation-contract",
+  "table-mutation-target-contract", "table-typed-editor-contract",
+  "table-add-checkbox-contract",
   "position-create",
   "tracked-native-text",
   "qt-native-receipt-update",
@@ -124,6 +136,10 @@ assert(!fastSteps.some((step) => step.name === "operation-result-shape"));
 assert.deepEqual(fastBuildSteps.map((step) => step.name), ["dist-prune", "typescript-build"]);
 assert(fastSteps.length >= 20, "Der schnelle Lauf muss die breite API-/MCP-Vertragsflaeche behalten.");
 assert(fastSteps.every((step) => allSteps.includes(step)), "Schnelle Schritte muessen aus dem Vollplan stammen.");
+assert(!fastSteps.some(step => step.name === "checker-open-contract"),
+  "The no-window checker worker probe must not inspect a user's open product in the fast suite.");
+assert(parallelSteps.some(step => step.name === "checker-open-contract"),
+  "The checker worker probe remains mandatory behind the full suite's closed-product gate.");
 for (const heavyweight of [
   "direct-worker-guard", "product-gate", "mcp-api-supervisor", "no-console-window",
   "file-operations-worker",
@@ -135,6 +151,8 @@ for (const required of [
   "mcp-api-all-operations", "api-tax-journeys", "case-create-contract", "operation-schema-catalog", "verification-doc-coverage", "operation-live-evidence", "live-core-read-contract", "result-contract", "result-field-worker-guard", "source-architecture", "mcp-module-boundaries", "mcp-main-contract", "mcp-preflight", "repository-privacy", "repository-privacy-upstream", "repository-links", "readme-contract", "javascript-syntax", "powershell-syntax",
   "foreground-lease-contract", "focusless-commit-contract", "file-dialog-folder-contract", "desktop-enumeration", "desktop-marker-contract", "desktop-marker-write-contract", "checker-zero-results", "snapshot-runtime-id", "experimental-dialog-policy", "startup-dialog-policy", "table-delete-rebinding", "table-window-scope", "dirty-state-binding", "profile-operation-policy", "receipt-interaction-policy", "belegmanager-config-isolation", "api-mega-contract", "receipt-manager-action", "bulk-action-executor", "bulk-action-worker-contract",
   "case-binding", "recovery-answer-policy", "desktop-stop-policy", "process-exit-wait", "describe-point-basic", "case-file", "live-script-resource-contract", "sse-process-guard", "workspace-file-cancellation", "api-static-documents", "api-client-body-abort", "api-client-transport-timeout", "api-local-http-transport", "api-single-flight", "dist-artifacts", "release-metadata", "agent-plugin-contract",
+  "mcp-operation-budget-contract",
+  "table-add-checkbox-contract",
 ]) {
   assert(fastSteps.some((step) => step.name === required), `${required} fehlt im schnellen Sicherheitsnetz.`);
 }

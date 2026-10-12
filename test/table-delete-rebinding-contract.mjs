@@ -24,5 +24,10 @@ const preDelete = tableDelete.indexOf("Resolve-TableDeleteFreshTarget $preDelete
 const deleteKeys = tableDelete.indexOf("SendWait('^+{DEL}')");
 assert(resolver >= 0 && preDelete > resolver && deleteKeys > preDelete,
   "Der frische Resolver muss sowohl vor der Auswahl als auch unmittelbar vor dem Loeschbefehl laufen.");
+assert.match(tableDelete, /\$inputBaseline -eq \$preDeleteInput/u,
+  "Die eigene Auswahl-Epoche darf vor dem letzten Readback nicht durch eine fremde Eingabe ersetzt werden.");
+assert(tableDelete.includes("inputEpoch=[pscustomobject]@{ sinceSelection=$selectionInputEvidence; duringRead=$readInputEvidence }") &&
+  tableDelete.includes("foregroundOk=($preDeleteForegroundAfter -eq [int64]$hwnd)"),
+  "Der Loeschstopp muss Eingabe-Epochen und denselben gebundenen Vordergrundwert wie der Guard melden.");
 
 process.stdout.write("table_delete: RuntimeId-Churn mit mehrdeutiger AutomationId bleibt nur ueber die summengebundene Zeile/Spalte erlaubt.\n");

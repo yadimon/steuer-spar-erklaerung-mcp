@@ -88,6 +88,26 @@ Assert-True ($vollstaendig.aktiv -and -not $vollstaendig.leer) 'Nichtleerer Prue
 Assert-True ($vollstaendig.gesamt -eq 1) 'Nichtleerer Pruefer zaehlt Findings falsch.'
 Assert-True (Test-CheckerResultComplete $vollstaendig) 'Vollstaendiger normaler Pruefer gilt nicht mehr als konsistent.'
 
+# SSE verwendet bei genau einem Eintrag grammatisch eigene Gruppenkoepfe.
+$singular = Get-CheckerResults (Tree @(
+  (Node 0 -1 0 'Tree' '' 'NavFrameSSE.PrueferWidgetSSE.SteuerPruefer' 30 180)
+  (Node 1 0 1 'TreeItem' '1 Frage oder Warnung' '' 30 200)
+  (Node 2 0 1 'TreeItem' 'Synthetische Warnung' '' 30 240)
+  (Node 3 0 1 'TreeItem' '1 Tipp oder Zusatzinformation' '' 30 280)
+  (Node 4 0 1 'TreeItem' 'Synthetischer Tipp' '' 30 320)
+))
+Assert-True (Test-CheckerResultComplete $singular) 'Singular-Gruppen wurden nicht vollstaendig erkannt.'
+Assert-True ($singular.fragenWarnungenAngekuendigt -eq 1 -and $singular.tippsAngekuendigt -eq 1) 'Singular-Zaehler sind falsch.'
+Assert-True (@($singular.sonstige).Count -eq 0) 'Ein Singular-Gruppenkopf wurde als Meldung gezaehlt.'
+
+$invalidSingular = Get-CheckerResults (Tree @(
+  (Node 0 -1 0 'Tree' '' 'NavFrameSSE.PrueferWidgetSSE.SteuerPruefer' 30 180)
+  (Node 1 0 1 'TreeItem' '0 Fragen oder Warnungen' '' 30 200)
+  (Node 2 0 1 'TreeItem' '2 Tipp oder Zusatzinformation' '' 30 240)
+  (Node 3 0 1 'TreeItem' 'Synthetischer Tipp' '' 30 280)
+))
+Assert-True (-not (Test-CheckerResultComplete $invalidSingular)) 'Unbekannter Gruppenwortlaut wurde als vollstaendig akzeptiert.'
+
 # Zwei passende Container bleiben mehrdeutig und deshalb geschlossen/fail-closed.
 $mehrdeutig = Get-CheckerResults (Tree @(
   (Node 0 -1 0 'Tree' '' 'A.PrueferWidgetSSE.SteuerPruefer')

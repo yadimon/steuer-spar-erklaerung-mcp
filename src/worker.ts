@@ -33,6 +33,7 @@ import {
   resolveDesktopMarkerForOperation,
 } from "./desktop-marker.js";
 import { ensureWarmSpare, takeWarmSpare } from "./worker-prewarm.js";
+import { bindTableWorkerArguments, createTableWorkerCapability, tableWorkerEnvironment } from "./worker-table-capability.js";
 import { workerOperationNeedsMarkedDesktop } from "./worker-operation-policy.js";
 import type { ExecutionTelemetry } from "./execution-telemetry.js";
 
@@ -288,9 +289,22 @@ async function callWorkerUnsynchronised(
   // Kaltstart auf dem markierten Desktop unveraendert erhalten.
   const markerAllowsWarmSpare = marker?.owner === "sse" && !workerOperationNeedsMarkedDesktop(op);
 
-  // JSON in einer exklusiven Tempdatei vermeidet Windows' Kommandozeilenlimit
-  // und legt Steuerwerte nicht als Base64 im Prozessargument offen.
-  const argsFile = createWorkerArgumentsFile(args);
+  // The private plan belongs to this concrete child, including an already
+  // warmed spare. Caller environment never supplies the capability.
+  const spare = !desk || markerAllowsWarmSpare ? takeWarmSpare() : null;
+  const transportCapability = spare?.transportCapability ?? createTableWorkerCapability();
+  let argsFile: string;
+  try {
+    argsFile = createWorkerArgumentsFile(bindTableWorkerArguments(args, transportCapability));
+  } catch (error) {
+    // An assigned reserve must not wait forever when no valid job can be sent.
+    if (spare) {
+      try { spare.child.stdin.end(); } catch { /* Owned pipe already closed. */ }
+      try { spare.child.kill(); } catch { /* Owned child already exited. */ }
+      spare.child.stdin.destroy(); spare.child.stdout.destroy(); spare.child.stderr.destroy();
+    }
+    throw error instanceof TypeError ? new WorkerError(error.message, "bad-args") : error;
+  }
 
   // Nur desktop_start muss auf dem sichtbaren Desktop geboren werden, damit
   // es den Ziel-Desktop anlegen kann. status und stop muessen dagegen auf dem
@@ -309,7 +323,6 @@ async function callWorkerUnsynchronised(
 
   // Der Weg ueber den alternativen Desktop hat einen eigenen Prozessbaum und
   // kann keinen Reservearbeiter des sichtbaren Desktops verwenden.
-  const spare = !desk || markerAllowsWarmSpare ? takeWarmSpare() : null;
   // Nachfuellen, waehrend die Operation laeuft, statt erst nach ihr: Vorwaermen
   // dauert rund 1,4 s und ueberlappt so mit der laufenden Arbeit, statt den
   // naechsten Aufruf kalt zu treffen (gemessen 0,25 s gegen 2,2 s). Der
@@ -357,7 +370,7 @@ async function callWorkerUnsynchronised(
         child = spawn(
           resolveWindowsPowerShell(),
           ["-ExecutionPolicy", "Bypass", ...argv],
-          { windowsHide: true },
+          { windowsHide: true, env: tableWorkerEnvironment(transportCapability) },
         );
       } catch (error) {
         const spawnError = new WorkerError(`PowerShell liess sich nicht starten: ${String(error)}`, "spawn");

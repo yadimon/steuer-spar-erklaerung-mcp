@@ -10690,6 +10690,7 @@
               "stateful-mock"
             ],
             "outcomes": [
+              "error",
               "success"
             ]
           },
@@ -10738,6 +10739,17 @@
               "success"
             ]
           },
+          "outcomeUnknown": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
           "path": {
             "types": [
               "string-other"
@@ -10771,6 +10783,28 @@
               "success"
             ]
           },
+          "processPreserved": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
+          "processStillRunning": {
+            "types": [
+              "null"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error"
+            ]
+          },
           "ready": {
             "types": [
               "boolean"
@@ -10779,7 +10813,19 @@
               "stateful-mock"
             ],
             "outcomes": [
+              "error",
               "success"
+            ]
+          },
+          "reconciliationRequired": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error"
             ]
           },
           "resourceRefs": {
@@ -10792,6 +10838,17 @@
             "outcomes": [
               "error",
               "success"
+            ]
+          },
+          "retryable": {
+            "types": [
+              "boolean"
+            ],
+            "labels": [
+              "stateful-mock"
+            ],
+            "outcomes": [
+              "error"
             ]
           },
           "sha256": {
@@ -12399,6 +12456,7 @@
         "fields": {
           "catalog": {
             "types": [
+              "object:{\"checkerStartBindings\":\"array-many:object\",\"compatibility\":\"object\",\"engineFileMajor\":\"nonnegative-number\",\"focuslessCommits\":\"object\",\"pages\":\"object\",\"privacy\":\"string-other\",\"product\":\"string-other\",\"schemaVersion\":\"nonnegative-number\",\"tableComboFocusOut\":\"object\",\"tableRegionBindings\":\"array-many:object\",\"taxYear\":\"nonnegative-number\",\"windows\":\"object\"}",
               "object:{\"compatibility\":\"object\",\"engineFileMajor\":\"nonnegative-number\",\"focuslessCommits\":\"object\",\"pages\":\"object\",\"privacy\":\"string-other\",\"product\":\"string-other\",\"schemaVersion\":\"nonnegative-number\",\"taxYear\":\"nonnegative-number\",\"windows\":\"object\"}"
             ],
             "labels": [
@@ -12446,7 +12504,7 @@
           "page": {
             "types": [
               "object:{\"documentType\":\"string-other\",\"fields\":\"object\",\"heading\":\"string-other\"}",
-              "object:{\"fields\":\"object\",\"heading\":\"string-other\",\"tables\":\"object\"}"
+              "object:{\"documentType\":\"string-other\",\"heading\":\"string-other\",\"navigationTreeItemName\":\"string-other\"}"
             ],
             "labels": [
               "profile-catalog",

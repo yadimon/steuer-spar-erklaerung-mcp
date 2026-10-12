@@ -7,7 +7,8 @@ import { fileURLToPath } from "node:url";
 export const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const sourceFiles = [
   "CMakeLists.txt", "bridge.cpp", "bridge-load.cpp", "bridge-protocol.h", "bridge-session-server.h",
-  "bridge-window-context.h", "bridge-windows.h", "bridge-table-snapshot.h", "bridge-discovery.h", "bridge-image.h",
+  "bridge-window-context.h", "bridge-windows.h", "bridge-table-snapshot.h", "bridge-table-focus.h", "bridge-table-focus-policy.h", "bridge-discovery.h", "bridge-image.h",
+  "bridge-table-position.h", "bridge-table-position-policy.h", "bridge-table-summary-policy.h", "bridge-table-model-read.h",
   "bridge-interactive-session.h", "bridge-accessibility.h", "bridge-accessible-types.h", "bridge-accessible-options.h", "bridge-desktop-marker.h", "bridge-desktop-launch.h", "bridge-desktop-start.h",
   "bridge-desktop-stop.h", "bridge-stop-policy.h", "bridge-stop-uia.h", "bridge-edit-actions.h", "bridge-table-edit-actions.h", "bridge-navigation-actions.h",
   "bridge-broker.h", "bridge-pipe-peer.h", "bridge-desktop-status.h", "compatibility.json", "scripts/generate-config.mjs", "scripts/package.mjs",
@@ -46,6 +47,8 @@ export function generate(directory) {
     .map(key => [key, profile[key]]));
   lines.push(`#define SSE_NATIVE_START_PROFILE_JSON ${JSON.stringify(JSON.stringify(startProfile))}`);
   const pages = JSON.parse(readFileSync(join(root, "../../profiles/2025/page-objects.json"), "utf8"));
+  assert(Array.isArray(pages.tableRegionBindings), "Native table region bindings must come from the shipped catalogue.");
+  lines.push(`#define SSE_NATIVE_TABLE_REGION_BINDINGS_JSON ${JSON.stringify(JSON.stringify(pages.tableRegionBindings))}`);
   const tools = Object.values(pages.windows).filter(item => item.role === "nonmodal-tool-window"
     && item.closePolicy === "allow-exact-nonmodal-close").map(item => item.title);
   lines.push(`#define SSE_NATIVE_STOP_TOOLS_JSON ${JSON.stringify(JSON.stringify(tools))}`);

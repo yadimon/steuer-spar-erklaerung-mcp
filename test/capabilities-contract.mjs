@@ -186,6 +186,17 @@ assert.equal(result.click.genericToggleBlocked, true);
 assert(result.click.safePatterns.includes("invoke") && !result.click.safePatterns.includes("toggle"));
 assert(!result.click.patterns.includes("toggle") && result.click.blockedLegacyPatterns.includes("toggle"));
 assert.equal(result.dialogs.unsupportedButtonsAreReportedButBlocked, true);
+assert.equal(result.batching.levels.find(level => level.operations.includes("scenario_run")).intent,
+  "Begrenzte serielle Schrittfolge ueber den Executor");
+assert(result.batching.rule.includes("scenario_run fuehrt seine Schritte seriell ueber den Executor aus"));
+assert(result.batching.rule.includes("mit einem eigenen Auftrag je Worker-Schritt"));
+assert(result.batching.rule.includes("keinen gemeinsamen Tabellen-Worker"));
+assert(result.batching.rule.includes("vorgewaermten Arbeitsprozess"));
+assert(!JSON.stringify(result.batching).includes("in einem Arbeitsprozess"));
+const scenarioSource = readFileSync(new URL("../src/scenario.ts", import.meta.url), "utf8");
+assert(scenarioSource.includes("for (const step of scenario.steps) {") && scenarioSource.includes("await executeScenarioStep("));
+assert(scenarioSource.includes("result = await execute(operation, args, stepTimeoutMs, signal);"),
+  "Scenario capabilities must describe the actual serial per-operation executor dispatch.");
 
 const fallbackOperations = result.fallbackStages.flatMap((stage) => stage.operations);
 for (const operation of fallbackOperations) {

@@ -18,6 +18,9 @@ import { desktopMarkerPath } from "../dist/desktop-marker.js";
 import { executeNativeDesktopStatus } from "../dist/native-desktop-status.js";
 import { pageProjectionOracle } from "./qt-native-page-projections.mjs";
 import { readQtNativeSnapshot } from "../dist/qt-native-snapshot.js";
+import { executeQtNativeGetValue } from "../dist/qt-native-values.js";
+import { testPassiveModelWorkload, testPassiveGuiTimeouts } from "./qt-native-passive-workload.mjs";
+import { firstEditTraceCoverage } from "./qt-native-edit-trace-coverage.mjs";
 
 assert.equal(process.argv.length, 7, "Run this test through qt-native-desktop.ps1 or CTest.");
 const [packageConfig, executable, qtBin] = process.argv.slice(2, 5).map(path => resolve(path));
@@ -25,21 +28,97 @@ const [desktop, reportPath] = process.argv.slice(5);
 assert.match(desktop, /^SSEQtNativeTest_[0-9]+$/u);
 const temporary = mkdtempSync(join(tmpdir(), "sse-native-integration-"));
 const config = JSON.parse(readFileSync(packageConfig, "utf8"));
-const report = { scope: "Built native package, public API runtime, native discovery and owned Qt fixture; synthetic profile seam", checks: [], http: [] };
+const report = { scope: "Built native package, public API runtime, native discovery and owned Qt fixture; synthetic profile seam", checks: [], http: [], fixtureTraces: [] };
 const sessions = [], fixtures = [], workerCalls = [];
-let ready, shutdown = false;
+let ready, shutdown = false, firstEditContext;
+
+const editDiagnosticFields = ["syntheticField", "syntheticCommittedModel", "syntheticEditedCount"];
+function editDiagnosticSnapshot(snapshot) {
+  return { hwnd: snapshot.hwnd, scope: snapshot.scope, stats: snapshot.stats,
+    nativeDurationMs: snapshot.nativeDurationMs,
+    fields: Object.fromEntries(editDiagnosticFields.map(aid => [aid,
+      snapshot.nodes.filter(node => node.aid === aid || node.aid.endsWith("." + aid))])) };
+}
+function editDiagnosticError(error) {
+  return { name: error.name, message: error.message, kind: error.kind,
+    outcomeUnknown: error.outcomeUnknown, mutationResult: error.mutationResult };
+}
+function fixtureDiagnostic(item) {
+  const maxCharacters = 65_536;
+  return { text: item.diagnostic.slice(-maxCharacters), characters: item.diagnostic.length,
+    truncated: item.diagnostic.length > maxCharacters, capturedAt: new Date().toISOString(),
+    exitCode: item.child.exitCode, signalCode: item.child.signalCode, stderrDrained: item.stderrDrained === true };
+}
+async function reconcileUnknownFirstEdit(error) {
+  const context = firstEditContext;
+  if (!context || !(context.response?.result.outcomeUnknown === true
+    || (!context.response && error.outcomeUnknown === true))) return;
+  const { item, session } = context;
+  const diagnostic = report.editFailureReconciliation = {
+    fixture: { pid: item.info.pid, hwnd: item.info.hwnd, creationTime: item.info.creationTime, desktop: item.info.desktop },
+    request: { ...context.request, id: context.response?.result.id ?? error.mutationResult?.id ?? null },
+    before: context.before, response: context.response,
+    caught: editDiagnosticError(error), startedAt: new Date().toISOString(), reads: [],
+    fixtureDiagnosticAtCatch: fixtureDiagnostic(item),
+    testOutcomeRemainsFailed: true,
+  };
+  const bound = () => item.child.exitCode === null && item.child.pid === item.info.pid
+    && session.client.binding.pid === item.info.pid && session.client.binding.hwnd === item.info.hwnd
+    && session.client.binding.creationTime === item.info.creationTime;
+  const observe = async (operation, action) => {
+    const observation = { operation, startedAt: new Date().toISOString() };
+    diagnostic.reads.push(observation);
+    const started = performance.now();
+    try {
+      if (!bound()) { observation.skipped = "Original owned fixture/session is no longer live and exactly bound."; return; }
+      observation.response = await action();
+      return observation.response;
+    } catch (readError) { observation.error = editDiagnosticError(readError); }
+    finally { observation.completedAt = new Date().toISOString(); observation.ms = performance.now() - started; }
+  };
+  // These observations use the existing verified session only. They never
+  // acknowledge, replay, reconnect or change the original mutation deadline.
+  const ping = await observe("ping", () => session.client.request("ping", {}, 5000));
+  if (ping?.result.ok === true && (ping.result.pid !== item.info.pid || ping.result.hwnd !== item.info.hwnd
+    || ping.result.creationTime !== item.info.creationTime)) {
+    diagnostic.stopped = "Passive ping no longer matches the original fixture identity.";
+  } else {
+    await observe("snapshot", async () => editDiagnosticSnapshot(
+      await readQtNativeSnapshot(session.client, { maxNodes: 5000 }, 5000)));
+    for (const aid of editDiagnosticFields) {
+      await observe("get_value:" + aid, () => executeQtNativeGetValue(session.client, { aid, hwnd: item.info.hwnd }, 5000));
+    }
+  }
+  diagnostic.fixtureDiagnosticBeforeCleanup = fixtureDiagnostic(item);
+  diagnostic.completedAt = new Date().toISOString();
+}
 
 async function fixture() {
   const infoPath = join(temporary, `fixture-${fixtures.length}.json`);
   const child = spawn(executable, [infoPath, desktop], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"],
     env: { ...process.env, PATH: `${qtBin};${process.env.PATH}`, QT_QPA_PLATFORM_PLUGIN_PATH: join(dirname(qtBin), "plugins/platforms") } });
-  const item = { child, exited: once(child, "exit"), diagnostic: "", output: "", pending: [] };
+  const item = { child, exited: once(child, "exit"), diagnostic: "", output: "", pending: [],
+    passiveEvents: [], passiveWaiters: [] };
+  item.closed = new Promise(resolveClosed => child.once("close", () => { item.stderrDrained = true; resolveClosed(); }));
   fixtures.push(item);
   child.stderr.on("data", chunk => { item.diagnostic += chunk; });
   child.stdout.on("data", chunk => {
     item.output += chunk;
     while (item.output.includes("\n")) {
       const end = item.output.indexOf("\n"), line = item.output.slice(0, end).trim(); item.output = item.output.slice(end + 1);
+      const event = line.startsWith("{") ? JSON.parse(line) : null;
+      if (event?.event) {
+        assert(["passive-gui-stall-enter", "passive-gui-stall-leave",
+          "passive-model-read-enter", "passive-model-read-leave"].includes(event.event));
+        assert(item.passiveEvents.length < 16, "Passive fixture event export must remain bounded.");
+        item.passiveEvents.push(event);
+        for (const waiting of [...item.passiveWaiters]) if (waiting.event === event.event
+          && item.passiveEvents.length > waiting.after) {
+          clearTimeout(waiting.timer); item.passiveWaiters.splice(item.passiveWaiters.indexOf(waiting), 1);
+          waiting.resolve(event);
+        }
+        continue;
+      }
       const waiting = item.pending.shift(); if (waiting) { clearTimeout(waiting.timer); waiting.resolve(line); }
     }
   });
@@ -50,9 +129,23 @@ async function fixture() {
   assert.equal(item.info.pid, child.pid); assert.equal(item.info.desktop, desktop);
   assert.notEqual(item.info.inputDesktop, desktop); assert.equal(item.info.visible, true);
   item.command = command => new Promise((resolveLine, reject) => {
-    const waiting = { resolve: resolveLine, timer: setTimeout(() => reject(Error("Fixture command timed out")), 5000) };
+    const waiting = { resolve: resolveLine, timer: setTimeout(() => {
+      item.pending.splice(item.pending.indexOf(waiting), 1);
+      reject(Error("Fixture command timed out"));
+    }, 5000) };
     item.pending.push(waiting); child.stdin.write(command + "\n");
   });
+  item.waitForPassiveEvent = (event, after = item.passiveEvents.length) => {
+    const found = item.passiveEvents.slice(after).find(value => value.event === event);
+    if (found) return Promise.resolve(found);
+    return new Promise((resolveEvent, reject) => {
+      const waiting = { event, after, resolve: resolveEvent, timer: setTimeout(() => {
+        item.passiveWaiters.splice(item.passiveWaiters.indexOf(waiting), 1);
+        reject(Error("Owned passive fixture event timed out: " + event));
+      }, 5000) };
+      item.passiveWaiters.push(waiting);
+    });
+  };
   return item;
 }
 async function read(op, args = {}) {
@@ -84,6 +177,8 @@ async function uiaSnapshot(hwnd, withCellStates = false) {
 try {
   // Real production manifest/hash/profile verification comes before the fixture-only profile substitution.
   const validated = loadQtNativePackage(config.qtNativeRuntime, loadProductProfile("2025"));
+  report.nativePackage = { buildIdentity: validated.manifest.buildIdentity,
+    bridgeSha256: validated.manifest.bridge.sha256, loaderSha256: validated.manifest.loader.sha256 };
   const nativePackage = { ...validated, manifest: { ...validated.manifest, profile: { id: "synthetic", qtVersion: "6.9.2" } } };
   const first = await fixture();
   process.env.TEMP = temporary; process.env.TMP = temporary;
@@ -145,6 +240,17 @@ try {
   assert.equal((await read("get_value", { aid: "syntheticField" })).kind, "desktop-marker-owner");
   assert.equal(sessions.length, 0);
   writeFileSync(markerPath, JSON.stringify(marker));
+  // Native model pressure must run while Qt accessibility is still inactive.
+  // Start the broker through one passive public read; every fixture transition
+  // afterward is acknowledged by the fixture GUI thread, without UIA or keys.
+  assert.equal((await read("table_read", { maxRows: 600 })).ok, true);
+  assert.equal(sessions.length, 1);
+  report.passiveModelPressure = await testPassiveModelWorkload({ fixture: first,
+    client: sessions[0].client, read, sessionCount: () => sessions.length });
+  report.passiveGuiTimeouts = await testPassiveGuiTimeouts({ fixture: first,
+    client: sessions[0].client, sessionCount: () => sessions.length });
+  assert.deepEqual(workerCalls, []);
+  report.checks.push("Passive model pressure preserves complete generation evidence through model/page replacement without accessibility activation or a new broker");
   await first.command("accessibility-status");
   const preActivation = await read("get_value", { aid: "syntheticRateModel" });
   assert.equal(preActivation.ok, true, JSON.stringify(preActivation));
@@ -269,6 +375,54 @@ try {
   report.checks.push("All five new public Qt projections read the owned fixture, including actual checked, unchecked and mixed table cells");
   const redactPassword = nodes => nodes.map(node => node.aid.endsWith("syntheticSecret") ? { ...node, val: null, ro: null } : node);
   assert.deepEqual(redactPassword(snapshot.nodes), redactPassword(independent.nodes), "Public native tree must match independent Windows UIA");
+  const geometryModel = async () => {
+    const reply = await sessions[0].client.request("table_snapshot", { maxRows: 1000 }, 5000);
+    assert.equal(reply.result.ok, true, JSON.stringify(reply.result)); assert.equal(reply.result.complete, true);
+    return reply.result;
+  };
+  const geometryBefore = await geometryModel();
+  const objectReply = await sessions[0].client.request("objects", { projection: "full", visibleOnly: true, maxObjects: 20_000 }, 5000);
+  assert.equal(objectReply.result.ok, true, JSON.stringify(objectReply.result)); assert.equal(objectReply.result.complete, true);
+  assert.equal(objectReply.result.windowEnabled, true); assert.equal(objectReply.result.modalBlocked, false);
+  const geometryObjects = objectReply.result.objects;
+  assert.equal(new Set(geometryObjects.map(object => object.id)).size, geometryObjects.length);
+  const geometryTables = geometryObjects.filter(object => object.class === "DialogUITable" && object.name === "syntheticTable");
+  assert.equal(geometryTables.length, 1); const geometryTable = geometryTables[0];
+  assert.equal(geometryTable.id, geometryBefore.table.id); assert.equal(geometryTable.name, geometryBefore.table.name);
+  const geometryViewports = geometryObjects.filter(object => object.parentId === geometryTable.id
+    && object.class === "QWidget" && object.name === "qt_scrollarea_viewport");
+  assert.equal(geometryViewports.length, 1); const geometryViewport = geometryViewports[0];
+  for (const object of [geometryTable, geometryViewport]) {
+    assert.equal(object.visible, true); assert.equal(object.enabled, true);
+    assert(Array.isArray(object.nativeScreenRect) && object.nativeScreenRect.length === 4
+      && object.nativeScreenRect.every(Number.isFinite) && object.nativeScreenRect[2] > 0 && object.nativeScreenRect[3] > 0);
+    assert(Array.isArray(object.rootRect) && object.rootRect.length === 4
+      && object.rootRect.every(Number.isSafeInteger) && object.rootRect[2] > 0 && object.rootRect[3] > 0);
+  }
+  const containsRect = (outer, inner) => inner[0] >= outer[0] && inner[1] >= outer[1]
+    && inner[0] + inner[2] <= outer[0] + outer[2] && inner[1] + inner[3] <= outer[1] + outer[3];
+  assert(containsRect(geometryTable.nativeScreenRect, geometryViewport.nativeScreenRect), "Native viewport must belong to the native table bounds");
+  assert(containsRect(geometryTable.rootRect, geometryViewport.rootRect), "Qt-root geometry remains a separate contained coordinate space");
+  const geometrySnapshot = await read("snapshot", { types: ["Table"], maxNodes: 5000 });
+  assert.equal(geometrySnapshot.ok, true); assert.equal(geometrySnapshot.hwnd, first.info.hwnd); assert.equal(geometrySnapshot.stats.truncated, false);
+  const accessibleTables = geometrySnapshot.nodes.filter(node => node.type === "Table" && node.aid.endsWith(".syntheticTable"));
+  assert.equal(accessibleTables.length, 1); const accessibleTable = accessibleTables[0];
+  const accessibleRect = [accessibleTable.x, accessibleTable.y, accessibleTable.w, accessibleTable.h];
+  const nativePixels = geometryTable.nativeScreenRect.map(Math.trunc);
+  assert(nativePixels.every(Number.isSafeInteger) && nativePixels[2] > 0 && nativePixels[3] > 0);
+  assert(accessibleRect.every((value, index) => Math.abs(value - nativePixels[index]) <= 1), "Producer and fresh Qt accessibility must agree in native pixels");
+  const independentTable = independent.nodes.filter(node => node.type === "Table" && node.rid === accessibleTable.rid && node.aid === accessibleTable.aid);
+  assert.equal(independentTable.length, 1);
+  assert([independentTable[0].x, independentTable[0].y, independentTable[0].w, independentTable[0].h]
+    .every((value, index) => Math.abs(value - nativePixels[index]) <= 1), "Native pixels must also match the independently observed UIA table");
+  const geometryAfter = await geometryModel();
+  for (const key of ["rows", "columns", "headers", "hiddenColumns", "hiddenRows", "values", "rowFingerprints", "readRows",
+    "canFetchMore", "complete", "cursorFocusBinding", "table", "tableCount", "summary", "binding", "summaries"])
+    assert.deepEqual(geometryAfter[key], geometryBefore[key], "Read-only geometry must preserve model and identity: " + key);
+  report.nativeViewportGeometry = { coordinateSpace: "qt-native-screen", tableId: geometryTable.id, viewportId: geometryViewport.id,
+    tableNativeScreenRect: geometryTable.nativeScreenRect, viewportNativeScreenRect: geometryViewport.nativeScreenRect,
+    tableRootRect: geometryTable.rootRect, viewportRootRect: geometryViewport.rootRect, accessibleRect, modelUnchanged: true };
+  report.checks.push("Exact table and genuine viewport producer geometry matches fresh native accessibility and independent UIA without DPI inference; model and identity remain unchanged");
   assert(!JSON.stringify(snapshot).includes("must-not-be-exposed"));
   assert(snapshot.nodes.some(node => /^42\.-?\d+$/u.test(node.rid)), "Fixture must cover a native child-window fragment root");
   const fields = snapshot.nodes.filter(node => node.aid.endsWith("syntheticField"));
@@ -444,11 +598,13 @@ try {
   assert.equal(flatNavigation.result.code, "ACTION_UNSUPPORTED");
   await first.command("close-navigation-tool");
   report.checks.push("An exact hierarchical navigation label activates its nested model index once; independent UIA confirms the business model, while stale bindings and flat tables are refused");
-  const editTarget = async suffix => {
+  const editTarget = async (suffix, capture) => {
     const current = await read("snapshot");
     assert.equal(current.ok, true, JSON.stringify(current));
     const candidates = current.nodes.filter(node => node.aid.endsWith(suffix));
-    assert.equal(candidates.length, 1, suffix); return candidates[0];
+    assert.equal(candidates.length, 1, suffix);
+    if (capture) capture(editDiagnosticSnapshot(current));
+    return candidates[0];
   };
   const editAction = async (target, action, args = {}) => {
     const result = await sessions[0].client.requestAcknowledged("accessibility_action", {
@@ -457,8 +613,28 @@ try {
     return result;
   };
   const literal = "Native +^%~(){}[] äÖß € Україна 🚀 middle";
-  const lineTarget = await editTarget(".syntheticField");
+  const armStarted = performance.now();
+  report.firstEditWindow = { command: "trace-first-edit-arm", startedAt: new Date().toISOString(),
+    schedulingIntrusion: "Diagnostic-only queued GUI arm and two passive clock probes; no native mutation deadline is changed." };
+  report.firstEditWindow.acknowledgment = await first.command(report.firstEditWindow.command);
+  report.firstEditWindow.completedAt = new Date().toISOString();
+  report.firstEditWindow.ms = performance.now() - armStarted;
+  assert.equal(report.firstEditWindow.acknowledgment, "trace-first-edit-arm");
+  let firstEditBefore;
+  const lineTarget = await editTarget(".syntheticField", snapshot => { firstEditBefore = snapshot; });
+  report.firstEditWindow.nativeClockBefore = JSON.parse(await first.command("trace-clock-probe"));
+  firstEditContext = { item: first, session: sessions[0], before: firstEditBefore,
+    request: { operation: "accessibility_action", action: "replace-edit-text", startedAt: new Date().toISOString(),
+      target: { rid: lineTarget.rid, aid: lineTarget.aid, expectedName: lineTarget.name, expectedRootHwnd: first.info.hwnd },
+      expectedValue: "Changed by table action", value: literal } };
+  const firstEditStarted = performance.now();
+  firstEditContext.startedPerformanceMs = firstEditStarted;
+  report.firstEditMeasurement = { request: firstEditContext.request, before: firstEditBefore };
   const replaced = await editAction(lineTarget, "replace-edit-text", { expectedValue: "Changed by table action", value: literal });
+  firstEditContext.response = { ...replaced, completedAt: new Date().toISOString(), ms: performance.now() - firstEditStarted };
+  report.firstEditMeasurement.request = { ...firstEditContext.request, id: replaced.result.id };
+  report.firstEditMeasurement.response = firstEditContext.response;
+  report.firstEditWindow.nativeClockAfter = JSON.parse(await first.command("trace-clock-probe"));
   assert.equal(replaced.result.ok, true, JSON.stringify(replaced.result)); assert.equal(replaced.receiptAcknowledged, true);
   assert.equal((await read("get_value", { aid: "syntheticField" })).value, literal);
   assert.equal((await read("get_value", { aid: "syntheticCommittedModel" })).value, literal);
@@ -652,13 +828,36 @@ try {
   report.ok = true;
 } catch (error) {
   report.error = error.stack; process.exitCode = 1;
+  if (firstEditContext && !firstEditContext.response) {
+    report.firstEditMeasurement.error = editDiagnosticError(error);
+    report.firstEditMeasurement.completedAt = new Date().toISOString();
+    report.firstEditMeasurement.ms = performance.now() - firstEditContext.startedPerformanceMs;
+  }
+  try { await reconcileUnknownFirstEdit(error); }
+  catch (diagnosticError) { report.editReconciliationError = editDiagnosticError(diagnosticError); }
 } finally {
   try { await stopRuntime(); } catch (error) { report.shutdownError = error.message; process.exitCode = 1; }
   for (const session of sessions) await session.close();
   for (const item of fixtures) {
     if (item.child.exitCode === null) { item.child.stdin.write("quit\n"); await Promise.race([item.exited, delay(3000)]); }
     if (item.child.exitCode === null) { item.child.kill(); process.exitCode = 1; }
-    await item.exited; assert.equal(item.child.exitCode, 0, item.diagnostic);
+    await item.exited;
+    await item.closed;
+    report.fixtureTraces.push({ fixture: { pid: item.info?.pid, hwnd: item.info?.hwnd, creationTime: item.info?.creationTime },
+      diagnostic: fixtureDiagnostic(item) });
+    if (report.editFailureReconciliation && item === firstEditContext.item)
+      report.editFailureReconciliation.fixtureDiagnosticAtExit = fixtureDiagnostic(item);
+    assert.equal(item.child.exitCode, 0, item.diagnostic);
+  }
+  if (firstEditContext) {
+    const diagnostic = report.fixtureTraces.find(trace => trace.fixture.pid === firstEditContext.item.info.pid).diagnostic;
+    report.firstEditTraceCoverage = firstEditTraceCoverage(diagnostic, report.firstEditMeasurement, report.firstEditWindow);
+    // This is an additional diagnostic assertion after stderr drains. It never
+    // replaces the mutation/model assertions or turns an unknown edit into PASS.
+    if (report.ok && !process.exitCode) {
+      try { assert.equal(report.firstEditTraceCoverage.complete, true, JSON.stringify(report.firstEditTraceCoverage)); }
+      catch (error) { report.diagnosticCoverageError = error.stack; process.exitCode = 1; }
+    }
   }
   report.ok = Boolean(report.ok && !process.exitCode); report.fixtureCount = fixtures.length;
   writeFileSync(reportPath, JSON.stringify(report, null, 2));

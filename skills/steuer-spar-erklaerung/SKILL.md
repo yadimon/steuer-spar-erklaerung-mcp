@@ -130,8 +130,11 @@ eine Falldatei-Sicherung ersetzt sie nicht.
    führende Spalten wie eine automatische „Nr." gehören als leerer Wert dazu,
    sonst rutscht jeder Wert eine Spalte nach links.
 6. **Prüfen:** Nach einer vollständigen Bearbeitung den Programm-Prüfer mit
-   `sse_checker_open` laufen lassen und jede Meldung mit Fundstelle und einem
-   Vorschlag auflisten, statt sie still zu übergehen. Erscheint beim Navigieren
+   `sse_checker_run` starten und mit `sse_checker_results` lesen. Die Fallart
+   bestimmt den profilierten Startweg; im Einkommensteuerfall muss die
+   Prüfseite geöffnet sein. Einzelne Meldungen über ihren exakt gelesenen Namen
+   mit `sse_checker_open` öffnen und mit Fundstelle und Vorschlag auflisten.
+   Erscheint beim Navigieren
    der automatische Hinweis „Die Prüfung hat ergeben …“, mit
    `sse_warning_popup_read` lesen und nur fingerprintgebunden über
    `sse_dialog_answer` („Jetzt ignorieren“ oder „Als gelesen markieren“)

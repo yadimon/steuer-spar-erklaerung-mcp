@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApiExecutor } from "../dist/api-executor.js";
-import { directWorker } from "./direct-worker-helpers.mjs";
+import { executeLaunchOperation } from "../dist/launch-executor.js";
 
 const temporary = mkdtempSync(join(tmpdir(), "sse-launch-orchestration-"));
 const config = {
@@ -37,6 +37,18 @@ const waitForProbeAbort = (signal, onStart) => new Promise((_, reject) => {
   else signal?.addEventListener("abort", abort, { once: true });
 });
 
+function assertPreserved(result, pid, processStillRunning = null) {
+  assert.equal(result.pid, pid);
+  assert.equal(result.processPreserved, true, "Preservation means that the executor did not close, not proven liveness");
+  assert.equal(result.processStillRunning, processStillRunning);
+  assert.equal(result.outcomeUnknown, true);
+  assert.equal(result.reconciliationRequired, true);
+  assert.equal(result.retryable, false);
+  assert.equal(result.ready, false);
+  assert.equal(Object.hasOwn(result, "cleanup"), false);
+  assert.equal(Object.hasOwn(result, "cleanupError"), false);
+}
+
 try {
   {
     let calls = 0;
@@ -56,6 +68,7 @@ try {
     const result = await execute("launch", { mode: "normal" }, 30_000);
     assert.equal(result.ok, false);
     assert.equal(result.kind, "startup-pid");
+    assertPreserved(result, undefined);
   }
 
   {
@@ -216,7 +229,8 @@ try {
     const result = await execute("launch", { mode: "normal" }, 30_000);
     assert.equal(result.ok, false);
     assert.equal(probeCalls, 4, "Persistente Uebergabefehler duerfen nur begrenzt neu gestartet werden");
-    assert.equal(closeCalls, 1);
+    assert.equal(closeCalls, 0, "Persistente Probe-Fehler duerfen den gestarteten Prozess nicht schliessen");
+    assertPreserved(result, pid);
     assert.match(result.lastProbeError, /Persistenter Sitzungscontrollerfehler/);
     assert(performance.now() - started < 5_000, "Persistenter Uebergabefehler darf nicht das Startbudget aussitzen");
   }
@@ -241,6 +255,7 @@ try {
     assert.equal(result.ready, false);
     assert.equal(result.blockedByDialog, true);
     assert.equal(result.instance, null);
+    assertPreserved(result, pid, true);
   }
 
   {
@@ -271,7 +286,10 @@ try {
     assert.equal(result.ok, false, "Ein wiederhergestellter Fall darf nicht als bereit gelten.");
     assert.equal(result.kind, "recovered-state");
     assert.match(result.error, /Wiederherstellungsdatei/u);
-    assert.equal(result.instance.hwnd, 8109, "Der Agent braucht das Fenster zum kontrollierten Schliessen.");
+    assert.equal(result.instance.hwnd, 8109, "Der Agent braucht das Fenster fuer die lesende Zustandsklaerung.");
+    assertPreserved(result, pid, true);
+    assert.doesNotMatch(result.error, /Wiederherstellung im Programm verwerfen|Fall ohne Speichern schliessen/u);
+    assert.match(result.error, /Wiederhergestellte Daten erhalten/u);
   }
 
   {
@@ -312,6 +330,7 @@ try {
     assert.equal(result.startupPrompts[0].hwnd, 8111);
     assert.match(result.error, /Wiederherstellungsdatei/u);
     assert.equal(result.processStillRunning, true);
+    assertPreserved(result, pid, true);
     assert.deepEqual(
       closeCalls,
       [],
@@ -335,26 +354,20 @@ try {
     assert.equal(result.windows.length, 2);
   }
 
-  for (const cleanupStillRunning of [false, true]) {
-    const pid = cleanupStillRunning ? 4105 : 4104;
+  for (const abortOutcome of ["throw", "returned"]) {
+    const pid = abortOutcome === "throw" ? 4104 : 4105;
     let probeCalls = 0;
     let closeCalls = 0;
     const controller = new AbortController();
     const execute = createApiExecutor(config, async (operation, _args, _timeoutMs, signal) => {
       if (operation === "launch") return { ok: true, launched: true, pid };
-      if (operation === "launch_probe") return waitForProbeAbort(signal, () => { probeCalls += 1; });
+      if (operation === "launch_probe") {
+        const probe = waitForProbeAbort(signal, () => { probeCalls += 1; });
+        return abortOutcome === "throw" ? probe : probe.catch(() => ({ ok: false, kind: "aborted", error: "Probe abgebrochen" }));
+      }
       if (operation === "close") {
         closeCalls += 1;
-        return cleanupStillRunning
-          ? { ok: false, stillRunning: true, error: "Test-Cleanup fehlgeschlagen" }
-          : { ok: true, stillRunning: false };
-      }
-      if (operation === "product_info") {
-        return {
-          ok: true,
-          supportedRunning: cleanupStillRunning ? [{ pid, supported: true }] : [],
-          ignoredRunning: [],
-        };
+        throw new Error("Synthetischer SSE-Prozess darf nicht geschlossen werden");
       }
       return { ok: false, kind: "fixture", error: operation };
     });
@@ -362,50 +375,133 @@ try {
     await waitUntil(() => probeCalls > 0);
     controller.abort();
     const result = await pending;
-    assert.equal(closeCalls, 1);
-    assert.equal(result.pid, pid);
-    assert.equal(result.processStillRunning, cleanupStillRunning);
-    assert.equal(result.kind, cleanupStillRunning ? "startup-abort-cleanup" : "aborted");
+    assert.equal(closeCalls, 0);
+    assertPreserved(result, pid);
+    assert.equal(result.kind, "aborted");
   }
 
   {
     const pid = 4106;
-    let probeCalls = 0;
     const controller = new AbortController();
-    const execute = createApiExecutor(config, async (operation, _args, _timeoutMs, signal) => {
-      if (operation === "launch") return { ok: true, launched: true, pid };
-      if (operation === "launch_probe") return waitForProbeAbort(signal, () => { probeCalls += 1; });
-      if (operation === "close") throw new Error("Cleanup-Worker nicht startbar");
-      if (operation === "product_info") return { ok: false, error: "Status unbekannt" };
-      return { ok: false, kind: "fixture", error: operation };
+    const calls = [];
+    const execute = createApiExecutor(config, async (operation) => {
+      calls.push(operation);
+      assert.equal(operation, "launch");
+      controller.abort();
+      return { ok: true, launched: true, pid };
     });
-    const pending = execute("launch", { mode: "normal" }, 30_000, controller.signal);
-    await waitUntil(() => probeCalls > 0);
-    controller.abort();
-    const result = await pending;
-    assert.equal(result.kind, "startup-abort-cleanup");
-    assert.equal(result.pid, pid);
-    assert.equal(result.processStillRunning, true, "Unbekannter Cleanup-Status muss fail-closed sein");
-    assert.match(result.cleanupError, /Cleanup-Worker|unvollstaendig/);
+    const result = await execute("launch", { mode: "normal" }, 30_000, controller.signal);
+    assert.equal(result.kind, "aborted");
+    assertPreserved(result, pid);
+    assert.deepEqual(calls, ["launch"], "Abbruch nach Prozessstart darf weder Probe noch Cleanup starten");
   }
 
   {
-    // Der private Worker-Vertrag bleibt streng typisiert und laeuft bei einer
-    // auf die Sicherheitsreserve reduzierten Frist garantiert ohne UI-Poll sofort aus.
-    const result = directWorker("launch_probe", {
-      schemaVersion: 1,
-      planKind: "launch-readiness",
-      pid: 2147483647,
-      hasCase: true,
-      budgetMs: 1_000,
-    }, { SSE_PROFILE_ID: "2024", SSE_OPERATE_EXPERIMENTAL: "1" });
-    assert.equal(result.ok, true);
-    assert.equal(result.outcome, "deadline");
-    assert.deepEqual(result.windows, []);
-    assert.deepEqual(result.dialogs, []);
+    for (const args of [{ mode: "normal" }, { mode: "normal", file: "synthetic.case" }]) {
+      const calls = [];
+      const pid = 4120;
+      const result = await executeLaunchOperation(args, 30_000, undefined, async (operation, probeArgs) => {
+        calls.push(operation);
+        if (operation === "launch") return { ok: true, launched: true, pid };
+        assert.equal(operation, "launch_probe", "Kein indirekter Close-/Discard-/Dialog-Ausweichweg");
+        assert.equal(probeArgs.hasCase, Boolean(args.file));
+        return { ok: true, outcome: "deadline", windows: [], dialogs: [] };
+      });
+      assert.equal(result.kind, "startup-timeout");
+      assertPreserved(result, pid);
+      assert.deepEqual(calls, ["launch", "launch_probe"]);
+    }
   }
 
-  process.stdout.write("Launch-Orchestrierung: PID-Scope, Retry, Dialog, Ambiguitaet und Cleanup-Gates bestanden\n");
+  {
+    const calls = [];
+    const pid = 4121;
+    const result = await executeLaunchOperation({}, 30_000, undefined, async (operation) => {
+      calls.push(operation);
+      if (operation === "launch") return { ok: true, launched: true, pid };
+      assert.equal(operation, "launch_probe");
+      throw new Error("Unbekannter Startprobe-Fehler");
+    });
+    assert.equal(result.kind, "startup-probe");
+    assertPreserved(result, pid);
+    assert.deepEqual(calls, ["launch", "launch_probe"]);
+  }
+
+  {
+    const calls = [];
+    const result = await executeLaunchOperation({}, 30_000, undefined, async (operation) => {
+      calls.push(operation);
+      throw new Error("Startantwort verloren; Prozesszustand unbekannt");
+    });
+    assert.equal(result.kind, "startup-launch");
+    assertPreserved(result, undefined);
+    assert.deepEqual(calls, ["launch"]);
+  }
+
+  for (const initial of [
+    { ok: false, kind: "worker", error: "Startantwort unbekannt" },
+    { ok: false, kind: "worker", error: "Startantwort unvollstaendig", pid: 4122 },
+    { ok: false, kind: "worker", error: "Startantwort mit ungueltiger PID", pid: "unknown" },
+  ]) {
+    const calls = [];
+    const result = await executeLaunchOperation({}, 30_000, undefined, async (operation) => {
+      calls.push(operation);
+      return initial;
+    });
+    assertPreserved(result, Number.isInteger(initial.pid) ? initial.pid : undefined);
+    assert.deepEqual(calls, ["launch"]);
+  }
+
+  {
+    const unchanged = { ok: false, kind: "bad-args", error: "Vor Start blockiert", mutationStarted: false, resultingState: "unchanged" };
+    const result = await executeLaunchOperation({}, 30_000, undefined, async () => unchanged);
+    assert.equal(result, unchanged, "Nachweislich unveraenderter Vor-Start-Block bleibt unveraendert");
+  }
+
+  {
+    const pid = 4123;
+    const calls = [];
+    const result = await executeLaunchOperation({}, 30_000, undefined, async (operation) => {
+      calls.push(operation);
+      if (operation === "launch") return { ok: true, launched: true, pid };
+      assert.equal(operation, "launch_probe");
+      return { ok: true, outcome: "observed", windows: [mainWindow(pid)],
+        dialogs: [{ pid, hwnd: 9123, kind: "qt-dialog", recoveryPrompt: true }] };
+    });
+    assert.equal(result.blockedByDialog, true);
+    assert.equal(result.instance.hwnd, 9001);
+    assertPreserved(result, pid, true);
+    assert.deepEqual(calls, ["launch", "launch_probe"]);
+  }
+
+  {
+    const pid = 4124;
+    let probeCalls = 0;
+    const result = await executeLaunchOperation({}, 30_000, undefined, async (operation) => {
+      if (operation === "launch") return { ok: true, launched: true, pid };
+      assert.equal(operation, "launch_probe");
+      probeCalls += 1;
+      return probeCalls === 1
+        ? { ok: true, outcome: "retry-fresh", windowProbeSucceeded: true, windows: [], dialogs: [],
+            startupPrompts: [{ pid, hwnd: 9124, title: "SteuerSparErklärung", w: 518, h: 260 }] }
+        : { ok: false, kind: "worker", error: "Aktueller Fensterzustand unbekannt" };
+    });
+    assert.equal(result.kind, "startup-question");
+    assertPreserved(result, pid);
+  }
+
+  {
+    const pid = 4125;
+    const result = await executeLaunchOperation({}, 30_000, undefined, async (operation) => {
+      if (operation === "launch") return { ok: true, launched: true, pid };
+      assert.equal(operation, "launch_probe");
+      return { ok: false, kind: "aborted", error: "Probe meldet Abbruch" };
+    });
+    assert.equal(result.kind, "aborted");
+    assertPreserved(result, pid);
+  }
+
+  process.stdout.write("Launch-Orchestrierung: synthetischer PID-Scope, Retry, Dialog, Abort und Prozess-Erhalt bestanden\n");
 } finally {
   rmSync(temporary, { recursive: true, force: true });
 }

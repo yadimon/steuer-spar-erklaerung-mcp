@@ -12,6 +12,26 @@ noch nicht. Dasselbe Paket führt `desktop_status` und `desktop_start` direkt ü
 `desktop_stop` verwendet einen externen C++-Helfer mit Win32 und COM-UIA.
 Die übrigen Operationen behalten ihre bestehenden Ausführungspfade.
 
+Gewöhnliches `table_read` liest das gebundene QWidget-/QAbstractItemModel ohne
+Accessibility-Aktivierung, Provider-Geometrie oder Cursorbindung. Der begrenzte
+Modellread erhält Display/Edit/CheckState/Flags, ausgeblendete Zeilen und Spalten,
+Header, Fingerprints und Vollständigkeitsnachweise. Lokale, auf diesen Read
+begrenzte Model-Signale sowie frische View-/Model-/Root-Prüfungen zwischen jedem
+virtuellen Callback verhindern ein erfolgreiches Ergebnis bei Invalidierung.
+Katalogisierte Kfz-Teilsummen behalten ihre exakte AID-/Gruppenbindung und die
+dafür benötigte Accessibility-Abfrage. Private Cursortransaktionen fordern ihren
+zusätzlichen Fokus- und Geometrienachweis ausdrücklich an; öffentliche
+Leseparameter können diesen internen Pfad nicht einschalten.
+
+Die native Fixture prüft wiederholte Modell-/Seitenwechsel vor der ersten
+Accessibility-Aktivierung sowie kontrollierte GUI-Blockaden vor und während
+eines Modellreads. Ein vor Dispatch abgesagter Callback darf später nicht
+ausgeführt werden; ein unbekannter Ausgang bleibt auch nach einem erfolgreichen
+Diagnoseread unbekannt. Drucktests am framed Client prüfen zusätzlich die
+begrenzte Warteschlange, fragmentierte Antworten und fehlendes Replay.
+Diese synthetischen Nachweise beweisen keine Ursache oder Reparatur eines
+tatsächlichen SSE-Hängers. Sie ersetzen keine Live-Abnahme des konkreten Pfads.
+
 Nach einem erfolgreichen Prozess- oder Fallwechsel verwirft die Runtime die
 betroffene native Bindung. `close` berücksichtigt die beendete PID; `save_as`
 invalidiert die adressierte Fallbindung. Fehlt eine sichere Zielidentität,
@@ -432,6 +452,19 @@ Ein zweites Hauptfenster derselben Installation verlangt ein explizites
 `hwnd`; ein nicht mehr gültiges gebundenes Fenster wird abgelehnt. Bis zu vier
 Prozesse können gebunden sein, jeweils mit einem Hauptfenster. Die erstmalige
 Erkennung bleibt teurer als ein Aufruf über eine bestehende Verbindung.
+
+Bei ausgeschöpfter Kapazität darf nur eine nachweislich tote alte Bindung einen
+Platz freigeben: Der eigene Broker muss bereits beendet sein und eine passive
+Prozessprüfung muss die frühere Ziel-PID ausdrücklich als nicht existent
+bestätigen. Nur das tatsächliche Broker-`exit`-Ereignis beweist sein Ende;
+ein Prozessfehler oder eine erfüllte Cleanup-Promise genügt nicht.
+Die Prüfung verwendet ausschließlich Signal 0; andere Fehler oder
+eine lebende beziehungsweise wiederverwendete PID behalten die Bindung. Ein
+beendeter Broker allein, ein verschwundenes Fenster oder ein Transportfehler
+genügen nicht. Der frisch erkannte Zielprozess und eine unmittelbar angeforderte
+bestehende Bindung werden auf diesem Weg nicht neu verbunden. Das Limit von vier
+Bindungen bleibt bestehen. Eine Platzfreigabe erklärt frühere unbekannte
+Mutationsausgänge nicht für geklärt und wiederholt keinen Auftrag.
 
 Erfolgreiche Worker-Operationen `launch`, `window_close`, `desktop_start` und
 `desktop_stop` verwerfen bestehende Bindungen und verhindern, dass eine ältere

@@ -129,7 +129,11 @@ export async function executeQtNativeGoto(
         path.push(`Navigationsbaum '${item.name}' -> '${lastHeading ?? ""}'`);
         if (stateOf(snapshot).ready) return complete(snapshot, "Navigationsbaum");
         if (!lastHeading || lastHeading === start) throw new GotoError("The exact navigation-tree activation produced no verified page change; no second navigation dispatched.");
-        start = lastHeading;
+        throw new GotoError(
+          `The exact navigation-tree activation reached '${lastHeading}' instead of '${target}'; ` +
+          "use the exact page heading or a catalogued pageId. No further navigation dispatched.",
+          "not-found",
+        );
       }
       const suffix = (activeProfile.pageObjectsCatalog.windows.main as Record<string, unknown>).searchContainerAutomationIdSuffix;
       if (typeof suffix !== "string" || !suffix) throw new GotoError("The profile has no search container binding.", "invalid-catalog");

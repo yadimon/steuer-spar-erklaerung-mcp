@@ -12,7 +12,7 @@ const profile = loadProductProfile("2025");
 const TREE_AID = "window.CentralWidget.PrueferWidgetSSE.SteuerPruefer";
 const SAVE_AID = "window.MainToolBar.tb_sichern";
 const ACTIVE_HINT = "Fragen/Warnungen und Tipps sind getrennt. Ein Eintrag ist nicht automatisch ein Steuerfehler; mit sse_checker_open den Wortlaut oeffnen.";
-const CLOSED_HINT = "Der globale Steuerpruefer ist nicht offen. Zu 'Pruefen und Abgeben' und dann 'Steuererklaerung pruefen' navigieren; dort sse_checker_run aufrufen.";
+const CLOSED_HINT = "Der globale Steuerpruefer ist nicht offen. sse_checker_run prueft den profilierten Startweg der gebundenen Fallart.";
 
 function buildNodes(specs) {
   const nodes = [];
@@ -62,6 +62,30 @@ const activeSpecs = [
   { p: 0, type: "TreeItem", name: "Navigationseintrag", aid: "window.NavTree", x: 20, y: 200 },
 ];
 const activeNodes = buildNodes(activeSpecs);
+
+// Exactly one finding has a singular group header in the real UI; it must not
+// become an extra finding or make an otherwise complete snapshot inconsistent.
+{
+  const singularNodes = buildNodes([
+    activeSpecs[0], activeSpecs[2],
+    { p: 1, type: "TreeItem", name: "1 Frage oder Warnung", aid: TREE_AID, x: 300, y: 150 },
+    { p: 1, type: "TreeItem", name: "Synthetische Warnung", aid: TREE_AID, x: 300, y: 180 },
+    { p: 1, type: "TreeItem", name: "1 Tipp oder Zusatzinformation", aid: TREE_AID, x: 300, y: 220 },
+    { p: 1, type: "TreeItem", name: "Synthetischer Tipp", aid: TREE_AID, x: 300, y: 250 },
+  ]);
+  const singular = await run(fakeClient(singularNodes));
+  assert.equal(singular.konsistent, true);
+  assert.equal(singular.gesamt, 2);
+  assert.equal(singular.fragenWarnungenAngekuendigt, 1);
+  assert.equal(singular.tippsAngekuendigt, 1);
+  assert.deepEqual(singular.sonstige, []);
+  assert.deepEqual(singular.fragenWarnungen.map(item => item.text), ["Synthetische Warnung"]);
+  assert.deepEqual(singular.tippsZusatzinfos.map(item => item.text), ["Synthetischer Tipp"]);
+
+  const invalidNodes = singularNodes.map(node => node.name === "1 Tipp oder Zusatzinformation"
+    ? { ...node, name: "2 Tipp oder Zusatzinformation" } : node);
+  assert.equal((await run(fakeClient(invalidNodes))).konsistent, false);
+}
 
 {
   const requests = [];

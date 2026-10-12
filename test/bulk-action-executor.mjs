@@ -168,3 +168,142 @@ test("receipt bulk still rejects malformed public arguments before the policy bl
   assert.equal(result.kind, "bad-args");
   assert.equal(workerCalls, 0);
 });
+
+const appendArgs = {
+  expectedPage: "Synthetic table", werte: ["", "02.01", "Synthetic expense", "1,00"],
+  sumLabel: "Summe", sumOccurrence: 2, expectedBefore: "1,00", expectedAfter: "2,00", hwnd: 4242,
+};
+const missingAppendRow = {
+  ok: false, kind: "not-found", error: "Keine freie Tabellenzeile gefunden.",
+  mutationStarted: false, resultingState: "unchanged", physicalInputUsed: false,
+};
+
+async function appendWithCursor(cursor, retried = { ok: true, verified: true, sumAfter: "2,00" }, original = missingAppendRow) {
+  const calls = [];
+  const execute = createApiExecutor(config, async (operation, args) => {
+    calls.push({ operation, args });
+    if (operation === "table_read") {
+      assert.equal(args.noKeys, false);
+      assert.equal(args.maxRows, 400);
+      for (const key of ["sumLabel", "sumOccurrence", "hwnd"]) assert.equal(args[key], appendArgs[key]);
+      return typeof cursor === "function" ? cursor() : cursor;
+    }
+    assert.equal(operation, "table_add");
+    return calls.length === 1 ? original : retried;
+  });
+  return { result: await execute("table_add", appendArgs, 30_000), calls };
+}
+
+test("append preserves a rejected cursor's bounded diagnosis and unknown cleanup without another write", async () => {
+  const { result, calls } = await appendWithCursor({
+    ok: false, kind: "interference", phase: "cursor-resume", proofCheck: "native-focus-resume-worker-result",
+    vollstaendig: false, anzahl: 6, steps: 0, outcomeUnknown: true, reconciliationRequired: true,
+    cleanupRequired: true, activationSubmitted: true, physicalInputAttempted: false, physicalInputUsed: false,
+  });
+  assert.deepEqual(calls.map(value => value.operation), ["table_add", "table_read"]);
+  assert.equal(result.ok, false);
+  assert.equal(result.kind, "cursor-proof-failed");
+  assert.equal(result.verified, false);
+  assert.equal(result.retryable, false);
+  assert.equal(result.outcomeUnknown, true);
+  assert.equal(result.reconciliationRequired, true);
+  assert.equal(result.cleanupRequired, true);
+  assert.equal(result.mutationStarted, null, "A cursor's unknown outcome must not inherit a global no-mutation claim.");
+  assert.equal(result.resultingState, "unknown");
+  assert.equal(result.physicalInputUsed, false);
+  assert.equal(result.freeRowSearch.retriedAfterTableWalk, false);
+  assert.equal(result.freeRowSearch.rowsWalked, 6);
+  assert.equal(result.freeRowSearch.originalKind, "not-found");
+  assert.equal(result.freeRowSearch.cursorResult.kind, "interference");
+  assert.equal(result.freeRowSearch.cursorResult.phase, "cursor-resume");
+  assert.equal(result.freeRowSearch.cursorResult.proofCheck, "native-focus-resume-worker-result");
+});
+
+test("append stops on incomplete or uncertain cursor successes and on known pre-input rejection", async () => {
+  for (const cursor of [
+    { ok: true, vollstaendig: false, anzahl: 6, stopKind: "cursor-unavailable", outcomeUnknown: false, cleanupRequired: false },
+    { ok: false, phase: "native-preproof", proofCheck: "native-session-not-ready", outcomeUnknown: false, cleanupRequired: false },
+    { ok: true, vollstaendig: true, outcomeUnknown: true, cleanupRequired: false },
+    { ok: true, vollstaendig: true, outcomeUnknown: false, cleanupRequired: true },
+    { ok: true, vollstaendig: true, outcomeUnknown: false, reconciliationRequired: true },
+  ]) {
+    const { result, calls } = await appendWithCursor(cursor);
+    assert.deepEqual(calls.map(value => value.operation), ["table_add", "table_read"]);
+    assert.equal(result.ok, false);
+    assert.equal(result.retryable, false);
+    assert.equal(result.reconciliationRequired, true);
+    assert.equal(result.outcomeUnknown, cursor.outcomeUnknown || cursor.cleanupRequired === true);
+    assert.equal(result.freeRowSearch.cursorResult.ok, cursor.ok);
+    assert.equal(result.freeRowSearch.cursorResult.vollstaendig, cursor.vollstaendig === true);
+  }
+  const absentProof = await appendWithCursor({ ok: true, vollstaendig: false });
+  assert.equal(absentProof.result.outcomeUnknown, true, "Missing outcome evidence cannot prove an unchanged composite.");
+  assert.equal(absentProof.result.mutationStarted, null);
+});
+
+test("append cursor diagnostics exclude cells, free text, identities, authority and invalid scalar types", async () => {
+  const secret = "synthetic-private-evidence";
+  const { result, calls } = await appendWithCursor({
+    ok: false, kind: secret, phase: secret, proofCheck: secret, stopKind: secret, error: secret,
+    anzahl: 401, steps: -1, schritte: "3", physicalInputAttempted: { secret }, cleanupRequired: { secret },
+    cursorBinding: { secret }, cursorLease: { secret }, cursorInputEpoch: 123, selectedRids: [secret],
+    cursorActivation: { secret }, zeilen: [[secret]], windowTitle: secret, receipt: secret,
+  });
+  assert.deepEqual(calls.map(value => value.operation), ["table_add", "table_read"]);
+  assert.equal(JSON.stringify(result).includes(secret), false);
+  for (const key of ["kind", "phase", "proofCheck", "stopKind"]) assert.equal(result.freeRowSearch.cursorResult[key], "unclassified");
+  for (const key of ["steps", "schritte", "physicalInputAttempted", "cleanupRequired"]) assert.equal(result.freeRowSearch.cursorResult[key], null);
+  assert.equal(result.freeRowSearch.rowsWalked, null);
+  assert.equal(result.cleanupRequired, null);
+  assert.equal(result.outcomeUnknown, true);
+  const wrongEnum = await appendWithCursor({
+    ok: false, kind: "native-focus-only", phase: "interference", proofCheck: "cursor-resume", stopKind: "native-preproof",
+  });
+  for (const key of ["kind", "phase", "proofCheck", "stopKind"]) assert.equal(wrongEnum.result.freeRowSearch.cursorResult[key], "unclassified");
+});
+
+test("append returns a conservative structured result if cursor transport throws and never exports the exception", async () => {
+  const secret = "synthetic-private-transport-evidence";
+  const { result, calls } = await appendWithCursor(() => { throw new Error(secret); });
+  assert.deepEqual(calls.map(value => value.operation), ["table_add", "table_read"]);
+  assert.equal(result.ok, false);
+  assert.equal(result.retryable, false);
+  assert.equal(result.outcomeUnknown, true);
+  assert.equal(result.reconciliationRequired, true);
+  assert.equal(result.cleanupRequired, true);
+  assert.equal(result.mutationStarted, null);
+  assert.equal(result.resultingState, "unknown");
+  assert.equal(result.freeRowSearch.cursorResult.proofCheck, "cursor-transport-error");
+  assert.equal(JSON.stringify(result).includes(secret), false);
+});
+
+test("append retains own earlier flags and retries exactly once only after a complete proven cursor result", async () => {
+  const priorInput = await appendWithCursor({ ok: false, outcomeUnknown: false, physicalInputUsed: false, cleanupRequired: false },
+    undefined, { ...missingAppendRow, physicalInputUsed: true, cleanupRequired: true });
+  assert.equal(priorInput.result.physicalInputUsed, true);
+  assert.equal(priorInput.result.cleanupRequired, true);
+  assert.equal(priorInput.result.outcomeUnknown, true);
+
+  for (const original of [
+    { ...missingAppendRow, outcomeUnknown: true },
+    { ...missingAppendRow, reconciliationRequired: true },
+    { ...missingAppendRow, cleanupRequired: true },
+  ]) {
+    const uncertainFirstAdd = await appendWithCursor({ ok: true, vollstaendig: true, outcomeUnknown: false }, undefined, original);
+    assert.deepEqual(uncertainFirstAdd.calls.map(value => value.operation), ["table_add", "table_read"]);
+    assert.equal(uncertainFirstAdd.result.ok, false);
+    assert.equal(uncertainFirstAdd.result.retryable, false);
+    assert.equal(uncertainFirstAdd.result.reconciliationRequired, true);
+    assert.equal(uncertainFirstAdd.result.outcomeUnknown, original.outcomeUnknown === true || original.cleanupRequired === true);
+  }
+
+  for (const retried of [{ ok: true, verified: true, sumAfter: "2,00" }, missingAppendRow]) {
+    const { result, calls } = await appendWithCursor({ ok: true, vollstaendig: true, anzahl: 7 }, retried);
+    assert.deepEqual(calls.map(value => value.operation), ["table_add", "table_read", "table_add"]);
+    assert.deepEqual(result, { ...retried, freeRowSearch: { retriedAfterTableWalk: true, rowsWalked: 7 } });
+  }
+  const differentError = { ...missingAppendRow, error: "Different rejection." };
+  const noSeek = await appendWithCursor({ ok: true, vollstaendig: true }, undefined, differentError);
+  assert.deepEqual(noSeek.calls.map(value => value.operation), ["table_add"]);
+  assert.deepEqual(noSeek.result, differentError);
+});

@@ -66,4 +66,24 @@ $single = New-SSETableRowDetails 0 @($cells[1]) | ConvertTo-Json -Depth 6 | Conv
 Assert-True ($single.typedValues -is [array] -and $single.typedValues.Count -eq 1) 'Einzellige Zeile verlor ihre Arrayform.'
 Assert-True ($single.semanticsComplete -and $single.semanticReadErrors.Count -eq 0) 'Verifizierte Off-Zelle wurde als unvollstaendig gemeldet.'
 
+$addedValues = @('', '03.02.2025', 'Synthetic vehicle receipt', '3,21', '0', '')
+$addedCells = @(0..5 | ForEach-Object {
+  [pscustomobject]@{ x=100 + ($_ * 100); y=220; name=@('18','03.02','Synthetic vehicle receipt','3,21','0','3,21')[$_]; val=''; rid="synthetic-cell-$_" }
+})
+$addedRegion = [pscustomobject]@{ ok=$true; profileMappingId='vehicle_costs_without_input_tax'; cells=$addedCells }
+$addedRowProof = Resolve-SSEVehicleCostAddedRow $addedRegion $addedValues
+Assert-True ($addedRowProof.ok -and $addedRowProof.rowY -eq 220 -and $addedRowProof.row.Count -eq 6) 'Complete zero-tax receipt did not bind independently of old Y.'
+$shiftedCells = @($addedCells | ForEach-Object { $copy=$_.PSObject.Copy(); $copy.y=180; $copy })
+$shiftedProof = Resolve-SSEVehicleCostAddedRow ([pscustomobject]@{ ok=$true; profileMappingId=$addedRegion.profileMappingId; cells=$shiftedCells }) $addedValues
+Assert-True ($shiftedProof.ok -and $shiftedProof.rowY -eq 180) 'Layout shift was mistaken for receipt identity loss.'
+$duplicateProof = Resolve-SSEVehicleCostAddedRow ([pscustomobject]@{
+  ok=$true; profileMappingId=$addedRegion.profileMappingId; cells=@($addedCells) + @($shiftedCells)
+}) $addedValues
+Assert-True (-not $duplicateProof.ok -and $duplicateProof.matchCount -eq 2) 'Ambiguous complete receipt rows were accepted.'
+$wrongNet = @($addedCells | ForEach-Object { $_.PSObject.Copy() }); $wrongNet[5].name='3,20'
+$wrongNetProof = Resolve-SSEVehicleCostAddedRow ([pscustomobject]@{ ok=$true; profileMappingId=$addedRegion.profileMappingId; cells=$wrongNet }) $addedValues
+Assert-True (-not $wrongNetProof.ok) 'Description and date alone overrode a mismatching net amount.'
+$incompleteProof = Resolve-SSEVehicleCostAddedRow ([pscustomobject]@{ ok=$true; profileMappingId=$addedRegion.profileMappingId; cells=@($addedCells[0..4]) }) $addedValues
+Assert-True (-not $incompleteProof.ok) 'Incomplete row was presented as a full receipt proof.'
+
 Write-Output 'OK: Tabellenwerte sind exakt, gruppierungsgebunden und nicht prefix-tolerant.'

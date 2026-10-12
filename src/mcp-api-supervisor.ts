@@ -449,9 +449,7 @@ export async function assertApiSingletonIdentity(): Promise<ApiHealthDocument> {
     INITIAL_PROBE_TIMEOUT_MS,
     endpoint.expectedConfigurationFingerprint,
   );
-  // Ein Transportfehler kann von einer beim Prozesswechsel abgerissenen
-  // Verbindung stammen. Genau ein frisches, lesendes /healthz-GET unterscheidet
-  // diesen Austausch von einer unerreichbaren API, ohne einen Ersatz zu starten.
+  // One fresh read-only probe distinguishes a torn socket from replacement; never restart here.
   if (current.state === "absent") {
     current = await probe(
       endpoint.baseUrl,
@@ -511,7 +509,15 @@ function controlSnapshot(ok = true, detail: Record<string, unknown> = {}): Recor
 async function controlStatus(): Promise<Record<string, unknown>> {
   if (controlBusy) return controlSnapshot();
   if (controlState === "running") {
-    await assertApiSingletonIdentity();
+    try {
+      await assertApiSingletonIdentity();
+    } catch (error) {
+      // Absence plus proven bound-process exit reconciles an external stop; never start or adopt here.
+      if (!(error instanceof ApiClientError) || error.kind !== "network" || !boundProcessExited()) throw error;
+      controlState = "stopped";
+      pendingRestart = false;
+      shutdownAccepted = null;
+    }
     return controlSnapshot();
   }
   if (boundProcessExited()) {

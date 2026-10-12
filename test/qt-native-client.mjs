@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { createServer, createConnection } from "node:net";
-import { Duplex } from "node:stream";
+import { Duplex, PassThrough, Writable } from "node:stream";
+import { EventEmitter } from "node:events";
+import { createRequire, syncBuiltinESMExports } from "node:module";
 import { once } from "node:events";
 import { randomBytes } from "node:crypto";
 import { setImmediate as nextTurn, setTimeout as delay } from "node:timers/promises";
@@ -8,15 +10,19 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { QtNativeAcknowledgmentError, QtNativeClient, QtNativeTransportError } from "../dist/qt-native-client.js";
+import { startQtNativeBroker } from "../dist/qt-native-broker.js";
 import { createApiExecutor } from "../dist/api-executor.js";
 import { createSseApiServer } from "../dist/api-server.js";
 import { callApiOperationEnvelope } from "../dist/api-client.js";
 import { testNativePageProjections } from "./qt-native-page-projections.mjs";
 import { testNativeAcknowledgmentDeadline } from "./qt-native-deadline-fixture.mjs";
 import { testNativeFrameBoundaries } from "./qt-native-frame-fixture.mjs";
+import { executeQtNativeTableRead } from "../dist/qt-native-tables.js";
+import { testNativeEditTraceCoverage } from "./qt-native-edit-trace-contract.mjs";
 
 await testNativePageProjections();
 await testNativeFrameBoundaries();
+testNativeEditTraceCoverage();
 
 const frame = value => {
   const body = Buffer.from(JSON.stringify(value));
@@ -88,6 +94,38 @@ await withPeer(() => {}, async binding => {
   await assert.rejects(QtNativeClient.connect(binding), nativeError("native-peer"));
 }, { creationTime: "134000000000000001" });
 
+const failedPing = reply => ({
+  ok: false, pid: undefined, hwnd: undefined, creationTime: undefined, bridgeProtocol: undefined, guiThread: undefined,
+  error: "synthetic-private-native-error", ...reply,
+});
+const pingFailures = [
+  { code: "GUI_QUEUE_TIMEOUT", outcomeUnknown: false, expectedKind: "GUI_QUEUE_TIMEOUT", expectedUnknown: false },
+  { code: "GUI_OPERATION_TIMEOUT", outcomeUnknown: true, expectedKind: "GUI_OPERATION_TIMEOUT", expectedUnknown: true },
+  { code: "GUI_QUEUE_TIMEOUT", outcomeUnknown: "false", expectedKind: "GUI_QUEUE_TIMEOUT", expectedUnknown: true },
+  { code: "GUI_OPERATION_TIMEOUT", expectedKind: "GUI_OPERATION_TIMEOUT", expectedUnknown: true },
+  { code: "synthetic-private-native-code", outcomeUnknown: false, expectedKind: "native-handshake", expectedUnknown: false },
+];
+for (const reply of pingFailures) {
+  await withPeer(() => assert.fail("A rejected handshake must not dispatch application work."), async (binding, requests) => {
+    await assert.rejects(QtNativeClient.connect(binding), error => {
+      assert(nativeError(reply.expectedKind)(error));
+      assert.equal(error.outcomeUnknown, reply.expectedUnknown);
+      assert.equal(error.message.includes("synthetic-private"), false);
+      return true;
+    });
+    assert.deepEqual(requests.map(request => request.op), ["ping"], "Readiness failure must not retry or dispatch work.");
+  }, failedPing(reply));
+}
+for (const handshake of [
+  { pid: process.pid + 1 }, { hwnd: 43 }, { creationTime: "134000000000000001" },
+  { bridgeProtocol: 2 }, { guiThread: false }, { pid: undefined },
+]) {
+  await withPeer(() => assert.fail("An unbound peer must not dispatch application work."), async (binding, requests) => {
+    await assert.rejects(QtNativeClient.connect(binding), nativeError("native-peer"));
+    assert.deepEqual(requests.map(request => request.op), ["ping"]);
+  }, handshake);
+}
+
 function byteStream(socket) {
   const stream = new Duplex({
     read() { socket.resume(); },
@@ -98,6 +136,18 @@ function byteStream(socket) {
   socket.on("end", () => stream.push(null));
   socket.on("error", error => stream.destroy(error));
   return stream;
+}
+
+for (const reply of pingFailures.slice(0, 2)) {
+  await withPeer(() => assert.fail("A rejected stream handshake must not dispatch work."), async (binding, requests) => {
+    const socket = createConnection(binding.pipe); await once(socket, "connect");
+    const stream = byteStream(socket);
+    await assert.rejects(QtNativeClient.connectStream(binding, stream), error =>
+      nativeError(reply.expectedKind)(error) && error.outcomeUnknown === reply.expectedUnknown);
+    assert.equal(stream.destroyed, true);
+    assert.equal(socket.destroyed, true);
+    assert.deepEqual(requests.map(request => request.op), ["ping"]);
+  }, failedPing(reply));
 }
 
 await withPeer((socket, request) => {
@@ -177,6 +227,20 @@ try {
     host: "127.0.0.1", port: 1, configPath: join(fixture, "config.json"),
     caseDir: join(fixture, "cases"), workspaceDir: join(fixture, "workspace"), resultDir: join(fixture, "results"),
   };
+  for (const reply of pingFailures.slice(0, 2)) {
+    await withPeer(() => assert.fail("A rejected handshake must not dispatch native reads."), async (binding, requests) => {
+      let startups = 0, workerCalls = 0;
+      const execute = createApiExecutor(config, async () => { workerCalls++; assert.fail("No UIA fallback after a failed native ping."); }, {
+        qtNativeClientFor: async () => { startups++; return QtNativeClient.connect(binding); },
+      });
+      const result = await execute("get_value", { aid: "Connection.Text", hwnd: binding.hwnd }, 1000);
+      assert.equal(result.ok, false); assert.equal(result.backend, "qt");
+      assert.equal(result.kind, reply.expectedKind); assert.equal(result.outcomeUnknown, reply.expectedUnknown);
+      assert.equal(result.error.includes("synthetic-private"), false);
+      assert.equal(startups, 1); assert.equal(workerCalls, 0);
+      assert.deepEqual(requests.map(request => request.op), ["ping"]);
+    }, failedPing(reply));
+  }
   const node = (id, name, value, extra = {}) => ({
     id, parentId: 100, class: "QLineEdit", kind: "lineEdit", name, value, visible: true, enabled: true, readOnly: false, ...extra,
   });
@@ -293,28 +357,61 @@ try {
     summaries: [{ label: "Summe", vorkommen: 1, wert: "4,00" }],
   };
   let tableReply = structuredClone(completeTable);
+  tableReply.values[0][0].flags = 33;
+  tableReply.values[0][2].flags = 34;
+  tableReply.values[1][1].flags = 1;
+  tableReply.values[1][2].flags = 32;
   await withPeer((socket, request) => {
     assert.equal(request.op, "table_snapshot");
     assert.equal(request.noKeys, undefined, "Native table reads must not dispatch physical-input options.");
+    assert.equal(request.withCursorFocusBinding, undefined,
+      "Ordinary public model reads must not request cursor binding or accessibility geometry.");
     socket.write(frame({ ...tableReply, id: request.id }));
   }, async (binding, requests) => {
     const client = await QtNativeClient.connect(binding);
-    const execute = createApiExecutor(config, async () => { assert.fail("Native table read fell back to UIA."); }, { qtNativeClient: client });
+    const workerReads = [];
+    const execute = createApiExecutor(config, async (operation, args) => {
+      assert.equal(operation, "table_read"); assert.equal(args.noKeys, false, "Native failure must not fall back to UIA.");
+      workerReads.push(args);
+      assert.equal(args.__tableCursorPlan.phase, "prebind");
+          return { ok: false, kind: "synthetic-cursor-prebind-stop", error: "Synthetic prebind stopped before any input." };
+    }, { qtNativeClient: client });
     const server = createSseApiServer({ execute });
     server.listen(0, "127.0.0.1"); await once(server, "listening");
     const baseUrl = `http://127.0.0.1:${server.address().port}`;
     const read = async args => (await callApiOperationEnvelope("table_read", args, 5000, { baseUrl })).result;
     try {
+      assert.equal((await executeQtNativeTableRead(client, { hwnd: binding.hwnd,
+        withCursorFocusBinding: true })).ok, true,
+      "An unrecognized caller option must not promote a public passive read into a private cursor read.");
       const result = await read({ noKeys: true, sumLabel: "Summe", sumOccurrence: 1 });
       assert.equal(result.ok, true); assert.equal(result.vollstaendig, true); assert.equal(result.physicalInputUsed, false);
       assert.equal(result.anzahl, 3); assert.equal(result.summe, "4,00");
       assert.deepEqual(result.kopf, ["Text", "Betrag", "Flag"]);
       assert.deepEqual(result.zeilen, [["Duplicate", "1,00", ""], ["Duplicate", "1,00", ""], ["Third", "2,00", ""]]);
       assert.deepEqual(result.rowDetails.map(row => row.modelRowIndex), [0, 1, 3]);
+      assert.deepEqual(result.nativeTable.visibleColumns, [1, 2, 3]);
+      assert.deepEqual(result.rowDetails.map(row => row.modelCellFlags), [[35, 34, 63], [1, 32, 63], [35, 35, 63]],
+        "Flags must follow the filtered rows and visible native model columns exactly.");
+      assert.equal(result.rowDetails[0].rowFingerprint, tableReply.rowFingerprints[0]);
+      tableReply.hiddenColumns = [];
+      const withNumber = await read({ noKeys: true });
+      assert.deepEqual(withNumber.nativeTable.visibleColumns, [0, 1, 2, 3]);
+      assert.deepEqual(withNumber.rowDetails[0].modelCellFlags, [33, 35, 34, 63]);
+      assert.equal(withNumber.zeilen[0][0], "", "Expose model flags without inventing a displayed row number.");
+      assert.equal(withNumber.physicalInputUsed, false);
+      tableReply.hiddenColumns = [0];
       assert.deepEqual(result.rowDetails[0].typedValues, ["Duplicate", "1,00", true]);
       assert.deepEqual(result.rowDetails[2].checkboxStates, [null, null, "Indeterminate"]);
       assert.equal(result.rowDetails[2].typedValues[2], null);
       assert(result.rowDetails.every(row => row.semanticsComplete));
+      const beforeCursorRead = requests.length;
+      const cursorRead = await read({ noKeys: false, hwnd: binding.hwnd, maxRows: 80, sumLabel: "Summe", sumOccurrence: 2 });
+      assert.equal(cursorRead.kind, "synthetic-cursor-prebind-stop");
+      assert.equal(requests.length, beforeCursorRead, "Explicit cursor route must not dispatch a native table_snapshot.");
+      assert.equal(workerReads.length, 1);
+      assert.equal(workerReads[0].hwnd, binding.hwnd); assert.equal(workerReads[0].maxRows, 80);
+      assert.equal(workerReads[0].sumLabel, "Summe"); assert.equal(workerReads[0].sumOccurrence, 2);
       const beforeRejected = requests.length;
       assert.equal((await read({ hwnd: binding.hwnd + 1 })).kind, "stale-window");
       assert.equal(requests.length, beforeRejected);
@@ -323,10 +420,15 @@ try {
       const partial = await read({ maxRows: 2 });
       assert.equal(partial.anzahl, 2); assert.equal(partial.vollstaendig, false);
       assert.equal(partial.limitReached, true); assert.equal(partial.stopKind, "max-rows");
+      assert.deepEqual(partial.rowDetails.map(row => row.modelCellFlags), [[35, 34, 63], [1, 32, 63]]);
       tableReply.complete = true;
       assert.equal((await read({ maxRows: 2 })).kind, "native-contract", "Partial model data must not claim completeness.");
       tableReply = structuredClone(completeTable); tableReply.hiddenColumns = [4];
       assert.equal((await read({})).kind, "native-contract");
+      for (const invalidFlags of [-1, 1.5, "33"]) {
+        tableReply = structuredClone(completeTable); tableReply.values[0][0].flags = invalidFlags;
+        assert.equal((await read({})).kind, "native-contract", "Unknown or malformed native flags must fail closed.");
+      }
       tableReply = structuredClone(completeTable); tableReply.values[0][3].checkState = 7;
       const uncertain = await read({});
       assert.equal(uncertain.rowDetails[0].semanticsComplete, false);
@@ -431,4 +533,115 @@ await withPeer((socket, request) => {
   assert.deepEqual(requests.slice(1).map(request => request.op), ["table_set_cell", "mutation_ack"]);
 });
 
+async function withMockBroker(replyAtPing, action) {
+  const childProcess = createRequire(import.meta.url)("node:child_process");
+  const originalSpawn = childProcess.spawn;
+  const state = { spawns: 0, kills: 0, requests: [], exited: false };
+  const ownerCreationTime = "134000000000000002";
+  childProcess.spawn = (_file, args, options) => {
+    state.spawns++;
+    assert.deepEqual(args, ["--broker"]);
+    assert.equal(options.windowsHide, true);
+    const child = new EventEmitter();
+    child.pid = 4242;
+    child.stdout = new PassThrough(); child.stderr = new PassThrough();
+    let input = Buffer.alloc(0), bootstrap, pings = 0;
+    child.stdin = new Writable({ write(chunk, _encoding, callback) {
+      input = Buffer.concat([input, chunk]);
+      while (input.length >= 4 && input.length >= input.readUInt32LE(0) + 4) {
+        const length = input.readUInt32LE(0), request = JSON.parse(input.subarray(4, 4 + length));
+        input = input.subarray(4 + length); state.requests.push(request);
+        if (request.mode === "attach") {
+          bootstrap = request;
+          queueMicrotask(() => child.stdout.write(JSON.stringify({
+            ok: true, pipePeerVerified: true, binaryIdentityVerified: true, bindingDiscovered: true, bridgeImageVerified: true,
+            controllerPid: process.pid, brokerPid: child.pid, ownerPid: child.pid, pid: request.pid, hwnd: request.hwnd,
+            ownerCreationTime, creationTime: "134000000000000000", image: request.expectedImage,
+            profile: request.expectedProfile, bridgeBuildIdentity: "a".repeat(64),
+          }) + "\n"));
+        } else {
+          assert.equal(request.op, "ping", "A rejected startup may only attempt its two required readiness pings.");
+          assert.equal(request.nonce, bootstrap.nonce);
+          const ping = ++pings;
+          queueMicrotask(() => child.stdout.write(frame({
+            ok: true, id: request.id, pid: bootstrap.pid, hwnd: bootstrap.hwnd, creationTime: "134000000000000000",
+            bridgeProtocol: 1, guiThread: true, ownerPid: child.pid, ownerCreationTime, ...replyAtPing(ping),
+          })));
+        }
+      }
+      callback();
+    } });
+    state.emitProcessError = () => child.emit("error", Error("Synthetic broker error without process exit"));
+    child.kill = () => {
+      state.kills++;
+      if (!state.exited) { state.exited = true; queueMicrotask(() => child.emit("exit", 0, null)); }
+      return true;
+    };
+    return child;
+  };
+  syncBuiltinESMExports();
+  try {
+    const session = () => startQtNativeBroker({
+      package: { loaderPath: "synthetic-loader", bridgePath: process.execPath,
+        manifest: { buildIdentity: "a".repeat(64), profile: { taxYear: 2025, engineFileMajor: 31 } } },
+      target: { pid: process.pid, hwnd: 42, creationTime: "134000000000000000" },
+      expectedImage: process.execPath, timeoutMs: 1000,
+    });
+    await action(session, state);
+  } finally {
+    childProcess.spawn = originalSpawn; syncBuiltinESMExports();
+    assert.equal(childProcess.spawn, originalSpawn);
+  }
+}
+
+let brokerRejections = 0;
+for (const rejectedPing of [1, 2]) {
+  for (const reply of pingFailures.slice(0, 2)) {
+    await withMockBroker(ping => ping === rejectedPing ? failedPing(reply) : {}, async (start, state) => {
+      await assert.rejects(start(), error => {
+        assert(nativeError(reply.expectedKind)(error)); assert.equal(error.outcomeUnknown, reply.expectedUnknown);
+        assert.equal(error.message.includes("synthetic-private"), false);
+        return true;
+      });
+      assert.equal(state.spawns, 1, "A negative ping must not bootstrap another broker.");
+      assert.deepEqual(state.requests.map(request => request.op ?? request.mode), ["attach", ...Array(rejectedPing).fill("ping")]);
+      assert.equal(state.exited, true); assert(state.kills >= 1, "Rejected broker must be disposed without dispatching work.");
+      brokerRejections++;
+    });
+  }
+}
+await withMockBroker(ping => ping === 2 ? { ownerPid: 4243 } : {}, async (start, state) => {
+  await assert.rejects(start(), error => nativeError("native-peer")(error) && error.outcomeUnknown === false);
+  assert.equal(state.spawns, 1); assert.equal(state.exited, true);
+});
+await withMockBroker(ping => ping === 2 ? { ownerCreationTime: "134000000000000003" } : {}, async (start, state) => {
+  await assert.rejects(start(), error => nativeError("native-peer")(error) && error.outcomeUnknown === false);
+  assert.equal(state.spawns, 1); assert.equal(state.exited, true);
+});
+await withMockBroker(ping => ping === 2 ? { ok: false, code: "GUI_OPERATION_TIMEOUT", outcomeUnknown: true } : {}, async (start, state) => {
+  await assert.rejects(start(), error => nativeError("GUI_OPERATION_TIMEOUT")(error) && error.outcomeUnknown);
+  assert.equal(state.spawns, 1); assert.equal(state.exited, true);
+  assert.equal(state.requests.length, 3, "Matching owner fields cannot validate a negative ping.");
+  brokerRejections++;
+});
+await withMockBroker(() => ({}), async (start, state) => {
+  const session = await start();
+  assert.equal(session.brokerPid, 4242); assert.equal(state.spawns, 1);
+  assert.equal(state.requests.length, 3); assert.equal(state.kills, 0);
+  assert.equal(session.processExited, false);
+  await session.close(); assert.equal(state.exited, true);
+  assert.equal(session.processExited, true);
+});
+await withMockBroker(() => ({}), async (start, state) => {
+  const session = await start();
+  state.emitProcessError(); await session.exited;
+  assert.equal(state.exited, false, "The synthetic process remains alive after its error event.");
+  assert.equal(state.kills, 0);
+  assert.equal(session.processExited, false, "An error-fulfilled cleanup Promise must never count as an exit proof.");
+  assert.equal(state.spawns, 1); assert.equal(state.requests.length, 3);
+  await session.close();
+  assert.equal(session.processExited, true, "The later actual exit must still publish authoritative exit evidence.");
+});
+
+console.log(`OK: native readiness failures preserved (${pingFailures.length + 2} client, 2 API, ${brokerRejections} broker cases), exact peer/owner checks and no replay.`);
 console.log("OK: bound native reads and receipt transactions preserve results, share deadlines, reject interleaving and never replay mutations.");

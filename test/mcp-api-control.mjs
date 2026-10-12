@@ -132,9 +132,39 @@ try {
     assert.equal(secondHealth.configurationFingerprint, firstHealth.configurationFingerprint);
     recordOwnedApi(secondHealth, configPath, transport.pid);
     assert.notEqual((await client.callTool({ name: "sse_product_info", arguments: {} })).isError, true);
-    const secondStop = await control(client, { action: "shutdown", confirm: true, instanceId: secondHealth.instanceId });
-    assert.equal(state(secondStop).state, "stopped");
+
+    // Stop the exact API outside the MCP lifecycle path, as another expert
+    // client can. An ordinary tool must fail; status may only observe the
+    // proven old-process exit. No implicit restart or connection reload.
+    await requestApiShutdown({ confirm: true, instanceId: secondHealth.instanceId }, {
+      baseUrl, expectedInstanceId: secondHealth.instanceId,
+    });
+    const externalExitDeadline = Date.now() + 15_000;
+    while (!isGone(secondHealth.processId) && Date.now() < externalExitDeadline) {
+      await new Promise((done) => setTimeout(done, 50));
+    }
     assert.equal(isGone(secondHealth.processId), true);
+    const absentOperation = await client.callTool({ name: "sse_product_info", arguments: {} });
+    assert.equal(absentOperation.isError, true);
+    assert.equal(state(absentOperation).kind, "network");
+    const externallyStopped = state(await control(client, { action: "status" }));
+    assert.equal(externallyStopped.state, "stopped");
+    assert.equal(externallyStopped.processExited, true);
+    assert.equal(externallyStopped.accepted, null, "MCP did not accept this external stop.");
+    assert.equal(externallyStopped.instanceId, secondHealth.instanceId);
+    await assert.rejects(readApiHealthz({ baseUrl }), (error) => error.kind === "network");
+    assert.equal((await client.callTool({ name: "sse_product_info", arguments: {} })).structuredContent.kind, "api-stopped");
+    const explicitlyRestarted = await control(client, { action: "start", confirm: true, instanceId: externallyStopped.instanceId });
+    assert.notEqual(explicitlyRestarted.isError, true, JSON.stringify(explicitlyRestarted));
+    const thirdHealth = await readApiHealthz({ baseUrl });
+    recordOwnedApi(thirdHealth, configPath, transport.pid);
+    assert.notEqual(thirdHealth.instanceId, secondHealth.instanceId);
+    assert.equal(thirdHealth.configurationFingerprint, firstHealth.configurationFingerprint);
+    assert.equal(state(explicitlyRestarted).instanceId, thirdHealth.instanceId);
+    assert.notEqual((await client.callTool({ name: "sse_product_info", arguments: {} })).isError, true);
+    const secondStop = await control(client, { action: "shutdown", confirm: true, instanceId: thirdHealth.instanceId });
+    assert.equal(state(secondStop).state, "stopped");
+    assert.equal(isGone(thirdHealth.processId), true);
 
     let replacementStops = 0;
     const replacement = createSseApiServer({
@@ -144,7 +174,7 @@ try {
     });
     await new Promise((done, reject) => { replacement.once("error", reject); replacement.listen(port, "127.0.0.1", done); });
     try {
-      const refused = await control(client, { action: "start", confirm: true, instanceId: secondHealth.instanceId });
+      const refused = await control(client, { action: "start", confirm: true, instanceId: thirdHealth.instanceId });
       assert.equal(refused.isError, true);
       assert.equal(state(refused).kind, "api-replaced");
       assert.equal(replacementStops, 0);
@@ -223,6 +253,18 @@ try {
   assert.equal(busyStops, 0);
   release.resolve();
   assert.notEqual((await operation).isError, true);
+
+  // A health endpoint can disappear while its bound process remains alive.
+  // Network absence alone must never authorize a second API process.
+  await closeServer(busyServer);
+  assert.equal(isGone(initial.processId), false);
+  const unreachable = await control(busyMcp.client, { action: "status" });
+  assert.equal(unreachable.isError, true);
+  assert.equal(state(unreachable).kind, "network");
+  const unprovenExit = await control(busyMcp.client, { action: "start", confirm: true, instanceId: initial.instanceId });
+  assert.equal(unprovenExit.isError, true);
+  assert.equal(state(unprovenExit).kind, "api-lifecycle-pending");
+  assert.equal(busyStops, 0);
 } finally {
   release.resolve();
   await busyMcp.client.close();

@@ -31,7 +31,7 @@ assert(ueberlappung >= 0, "Die Ueberlappung zweier aufeinanderfolgender Ansichte
 const gapBranch = tableRead.indexOf("$ueberlappung -eq 0");
 assert(gapBranch > ueberlappung, "Die fehlende Ueberlappung fuehrt zu keiner Entscheidung.");
 const gapBody = tableRead.slice(gapBranch, gapBranch + 2000);
-assert.match(gapBody, /SendWait\("\{UP \$dieserStapel\}"\)/,
+assert.match(gapBody, /& \$sendTableNavigation '\{UP\}' \$dieserStapel 'table-read-overlap-up'/,
   "Ein Sprung ohne Ueberlappung muss zurueckgenommen werden.");
 assert.match(gapBody, /\$stapelObergrenze = \[Math\]::Max\(1, \[int\]\[Math\]::Floor\(\$dieserStapel \/ 2\)\)/,
   "Nach einer fehlenden Ueberlappung muss die Obergrenze dauerhaft sinken.");
@@ -63,6 +63,43 @@ assert(schleife.indexOf("$snapshot = LiesZeilen $hwnd") > 0,
   "Nach jedem Stapel muss die Ansicht gelesen werden.");
 assert.doesNotMatch(schleife, /\$i % 3 -eq 0/,
   "Ein festes Leseraster passt nicht mehr zur Stapelgroesse.");
+assert.match(tableRead, /for \(\$keyIndex=0; \$keyIndex -lt \$Count; \$keyIndex\+\+\) \{\s*if \(-not \(& \$readNavigationGuard \$Phase -RequireKeyboard\)\)/,
+  "Jede einzelne eigene Taste braucht vorher einen strengen Epoch-/Fenster-/Dirty-Guard.");
+assert.doesNotMatch(tableRead, /\.FindAll\(/,
+  "Ein Tabellenleser darf keinen unbeschraenkten Qt-Unterbaum lesen.");
+const viewportStart = tableRead.indexOf("if ($cursorPhase -ceq 'activate') {", tableRead.indexOf("$focusedSnapshot=LiesZeilen"));
+const viewportEnd = tableRead.indexOf("$z0 = $focusedSnapshot.ersteZelle", viewportStart);
+assert(viewportStart >= 0 && viewportEnd > viewportStart, "Der private Viewport-Fokuspfad fehlt.");
+const viewport = tableRead.slice(viewportStart, viewportEnd);
+assert.equal((viewport.match(/Click-VerifiedPoint/g) ?? []).length, 1, "Genau ein gebundener Table-only-Klick ist erlaubt.");
+assert.match(viewport, /Find-SSETableReadViewportPoint[\s\S]*Click-VerifiedPoint \$hwnd \$freePoint/,
+  "Der eigene Fokuspunkt muss frisch aus der echten Viewportflaeche gebunden sein.");
+assert.match(viewport, /-ExpectedRuntimeId[\s\S]*-BeforeClickCheck/,
+  "Der Table-only-Klick muss unmittelbar davor RID, Epoche und direkten Table-Hit beweisen.");
+assert.doesNotMatch(tableRead.slice(0, viewportStart) + tableRead.slice(viewportEnd), /Click-VerifiedPoint/,
+  "Ausserhalb des privaten Native-geprueften Viewportpfads bleibt jeder Readerklick verboten.");
+assert.match(tableRead, /\$selectionItem\.Select\(\)[\s\S]*Invoke-SSETableReadSemanticFocus/,
+  "Der Cursoranker muss ausschliesslich durch gebundene semantische Auswahl und Tabellenfokus entstehen.");
+assert.match(tableRead, /cursorAnchorIsNumber=[\s\S]*\^Nr/,
+  "Der alternative Fokusanker muss zur frisch gebundenen Nr.-Spalte gehoeren.");
+assert.match(tableRead, /semantic-table-focus' -RequireKeyboard/,
+  "HOME darf erst nach frischem editorfreiem Tabellen-/Auswahlfokus folgen.");
+assert.match(tableRead, /\$anchoredSnapshot=LiesZeilen \$hwnd[\s\S]*semantic-table-focus' -RequireKeyboard[\s\S]*\$sendTableNavigation '\^\{HOME\}'/,
+  "Auch ein SetFocus-S_OK ohne Fokuswirkung darf HOME nicht erreichen.");
+assert.match(tableRead, /Test-SSETableReadSnapshotBinding \$erst \$focusedSnapshot -BeforeNavigation/,
+  "Nach der Fokus-Uebernahme muss der unveraenderte Zellbestand frisch gebunden sein.");
+const uncached = worker.slice(worker.indexOf("function Get-SSETableReadUncachedElement"),
+  worker.indexOf("function Invoke-SSETableReadSemanticFocus"));
+assert.match(uncached, /\$AE::FromHandle\(\$Hwnd\)[\s\S]*\$RAW\.GetFirstChild/,
+  "Der letzte Fokusbezug muss cachefrei ab dem gebundenen Main-Handle entstehen.");
+assert.doesNotMatch(uncached, /UIAElementCache|Find-ExactAutomationElement|Get-LiveElement/,
+  "Ein finaler Fokusbezug darf keinen alten Snapshot-/AIDbezug verwenden.");
+const focusCheckpoint = tableRead.slice(tableRead.indexOf("$readFocusCheckpoint ="),
+  tableRead.indexOf("$sendTableNavigation ="));
+assert.doesNotMatch(focusCheckpoint, /Get-UiSnapshot|Get-CurrentHeading|Get-DirtyStateFast|Get-SSETableLiveInputState/,
+  "Nach dem frischen Fokusbezug darf der Schlusscheckpoint keinen UIA-Bezug erneut materialisieren.");
+assert.match(tableRead, /\{ LiesZeilen \$hwnd \} \$readFocusCheckpoint/,
+  "Die Fokusaktion braucht den getrennten, UIA-freien Eingabe-/Fenstercheckpoint.");
 
 process.stdout.write(
   "OK: Der Tabellenlauf geht in Stapeln und belegt ueber die Ueberlappung, dass keine Zeile uebersprungen wurde.\n",

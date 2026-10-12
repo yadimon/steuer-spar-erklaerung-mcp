@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { SSE_MCP_UI_SCHEMAS } from "../dist/mcp-schemas-ui.js";
 import { SSE_MCP_TOOL_SCHEMAS } from "../dist/mcp-operation-schemas.js";
 import { SSE_API_OPERATION_SCHEMAS } from "../dist/operation-catalog.js";
@@ -37,6 +39,9 @@ for (const [name, next] of [["table_add", "table_update"], ["table_update", "tab
   assert(block.includes("checkerMessagesBefore=$checkerBefore"));
   assert(block.includes("newCheckerMessages=$newCheckerMessages"));
   assert(block.includes("Get-SSETableComboDiagnosticProjection $comboResult"));
+  assert(block.includes("interferenceEvidence=$comboDiagnostic.interferenceEvidence"));
+  assert(block.includes("[bool]$typedInterferenceEvidence.inputEpoch.changed"));
+  assert(block.includes("Bind-SSEPreparedTableRowAfterCombo $hwnd $prepared $comboResult.rowAfter"));
   assert(block.includes("error=$comboDiagnostic.error; kind=$comboDiagnostic.kind"));
   assert(block.includes("mutationStarted=$comboDiagnostic.mutationStarted; interference=$comboDiagnostic.interference"));
   assert(block.includes("editorClosed=$comboDiagnostic.editorClosed"));
@@ -104,7 +109,11 @@ assert(comboFunction.includes("-ExpectedInputTick"));
 assert(comboFunction.includes("-RequireForeground"));
 assert(comboFunction.includes("verifiedPointPopupCandidateCount"));
 assert(comboFunction.includes("Test-SSETableComboOpenFallbackBinding $clickState $arrowState"));
-assert(comboFunction.includes("if (-not $popup.ok -and @($popup.candidates).Count -eq 0)"));
+assert(comboFunction.includes("if (-not $popup.ok -and $popup.kind -ne 'popup-snapshot-incomplete' -and @($popup.candidates).Count -eq 0)"),
+  "Unvollstaendige Popup-Captures duerfen keine weitere physische Oeffnung ausloesen.");
+assert(comboHelpers.includes("kind='popup-snapshot-incomplete'"));
+assert(comboFunction.includes("invokeSourceDiagnostics") && comboFunction.includes("dropArrowSourceDiagnostics"));
+assert(worker.includes("viewportEvidence=(Get-SSETableComboViewportEvidence $tree $cell $region)"));
 assert(comboFunction.includes("Get-SSETableComboDropArrowPoint $arrowState.cell $arrowState.nextCell"));
 assert(comboFunction.includes("Get-SSEPointObstruction $Hwnd $arrowPoint.x $arrowPoint.y"));
 assert(comboHelpers.includes("profile-bound-table-combobox-drop-arrow"));
@@ -124,6 +133,11 @@ assert(comboFunction.includes("selection-item+verified-list-item-point"));
 assert(comboFunction.includes("$selectionEvidence['boundListGone']=$popupClosed"));
 assert(comboFunction.includes("$visualOk"));
 assert(comboFunction.includes("$windowChanged"));
+assert(comboFunction.includes("Get-SSETableComboInterferenceEvidence"));
+assert(comboFunction.includes("interferenceEvidence=$selectionInterferenceEvidence"));
+assert(comboFunction.includes("Resolve-SSETableComboSelectedRow $stateBefore $stateAfter"));
+assert(comboFunction.includes("rowAfter=$rowAfter"));
+assert(comboFunction.includes("$interactionAfter.fingerprint -eq $interactionBefore.fingerprint"));
 assert(comboFunction.includes("$rollbackResult = Invoke-SSETableComboSelection"));
 assert(comboFunction.includes("$rollbackMethod = [string]$rollbackResult.method"));
 assert(comboFunction.includes("$openEvidence['clickBinding'] = $clickBinding"));
@@ -148,6 +162,29 @@ const table = page.tables.sonstige_leistung_eu;
 assert.equal(table.sumLabel, "Summe");
 assert.equal(table.sumOccurrence, 2);
 assert.equal(table.automationIdSection, "grpEmpf13b");
+assert.deepEqual(table.confirmedEmptyRowCategoryDefaults, ["Sonst. Leistung EU"]);
+assert.equal(profile.pageObjectsCatalog.tableRegionBindings.length, 2);
+assert(profile.pageObjectsCatalog.tableRegionBindings.every(binding => binding.headingPrefix === "Sonstige Kfz-Kosten: "));
+const temporaryProfilesRoot = mkdtempSync(join(tmpdir(), "sse-table-profile-contract-"));
+try {
+  const copiedProfile = join(temporaryProfilesRoot, "2025");
+  cpSync(profile.profileDir, copiedProfile, { recursive: true });
+  const catalogPath = join(copiedProfile, "page-objects.json");
+  for (const mutate of [
+    (catalog) => { catalog.pages["gew.innergem_erwerb_13b_einfuhr"].tables.sonstige_leistung_eu.confirmedEmptyRowCategoryDefaults = ["Arbitrary"]; },
+    (catalog) => { catalog.pages["gew.innergem_erwerb_13b_einfuhr"].tables.sonstige_leistung_eu.automationIdSection = "Other"; },
+    (catalog) => { catalog.tableRegionBindings[1].summaryAidSuffix = catalog.tableRegionBindings[0].summaryAidSuffix; },
+    (catalog) => { catalog.tableRegionBindings.push(catalog.tableRegionBindings[0]); },
+    (catalog) => { catalog.tableRegionBindings[0].headingPrefix = "Arbitrary: "; },
+  ]) {
+    const invalidCatalog = structuredClone(pageObjects);
+    mutate(invalidCatalog);
+    writeFileSync(catalogPath, `${JSON.stringify(invalidCatalog)}\n`, "utf8");
+    assert.throws(() => loadProductProfile("2025", temporaryProfilesRoot), /confirmedEmptyRowCategoryDefaults|bestaetigt|doppelt|headingPrefix/);
+  }
+} finally {
+  rmSync(temporaryProfilesRoot, { recursive: true, force: true });
+}
 const category = table.columns.find((column) => column.index === 3);
 assert.deepEqual(
   {

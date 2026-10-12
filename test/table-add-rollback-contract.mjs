@@ -18,6 +18,12 @@ const rollback = tableAdd.slice(rollbackStart);
 
 assert.match(tableAdd, /beforeRaw=\[string\]\$snapshotPattern\.Current\.Value/);
 assert.match(tableAdd, /beforeDisplay=\[string\]\$snapshotElement\.Current\.Name/);
+assert(tableAdd.includes("$freeRead.profileMappingId -eq 'vehicle_costs_without_input_tax'") &&
+  tableAdd.includes("Test-SSEScalarEqual $expectedAfter $expectedBefore"),
+  "Profilierte Kfz-Kosten ohne Vorsteuer brauchen eine veraenderte exakte Nachsumme.");
+assert(tableAdd.includes("$rowIdentityEvidence = Resolve-SSEVehicleCostAddedRow $finalRegion $werte") &&
+  rollback.includes("$semanticRebind = Resolve-SSEVehicleCostAddedRow"),
+  "Neue Kfz-Zeile und Rollbackziel muessen aus allen Zellen statt alter Y-Position gebunden werden.");
 assert.match(rollback, /SetValue\(\[string\]\$snapshot\.beforeRaw\)/,
   "Rollback muss den rohen ValuePattern-Ausgangswert statt des sichtbaren '0,00'-Fallbacks schreiben.");
 assert.doesNotMatch(rollback, /SetValue\(\$entry\.before\)/);

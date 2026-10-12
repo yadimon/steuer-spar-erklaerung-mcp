@@ -153,10 +153,10 @@ export function checkerResults(nodes: readonly QtSnapshotNode[]): CheckerResults
   let group = "sonstige", warnDeclared = 0, tipsDeclared = 0, warnSeen = false, tipsSeen = false;
   for (const node of top) {
     // .NET's `$` also matches before one final newline; JavaScript's does not without the explicit alternative.
-    const warnHeader = /^(\d+)\s+Fragen oder Warnungen\n?$/iu.exec(node.name);
-    if (warnHeader) { warnDeclared = Number(warnHeader[1]); warnSeen = true; group = "fragenWarnungen"; continue; }
-    const tipsHeader = /^(\d+)\s+Tipps oder Zusatzinformationen\n?$/iu.exec(node.name);
-    if (tipsHeader) { tipsDeclared = Number(tipsHeader[1]); tipsSeen = true; group = "tippsZusatzinfos"; continue; }
+    const warnHeader = /^(?:(\d+)\s+Fragen oder Warnungen|(1)\s+Frage oder Warnung)\n?$/iu.exec(node.name);
+    if (warnHeader) { warnDeclared = Number(warnHeader[1] ?? warnHeader[2]); warnSeen = true; group = "fragenWarnungen"; continue; }
+    const tipsHeader = /^(?:(\d+)\s+Tipps oder Zusatzinformationen|(1)\s+Tipp oder Zusatzinformation)\n?$/iu.exec(node.name);
+    if (tipsHeader) { tipsDeclared = Number(tipsHeader[1] ?? tipsHeader[2]); tipsSeen = true; group = "tippsZusatzinfos"; continue; }
     const item: CheckerItem = {
       text: node.name, rid: node.rid, y: node.y, aktiviert: node.on,
       aufgeklappt: details.some(detail => psEquals(detail.name, node.name)),

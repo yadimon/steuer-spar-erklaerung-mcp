@@ -77,6 +77,13 @@ const workerOpBlock = (op) => {
   const next = workerSource.indexOf("\n  '", start + marker.length);
   return workerSource.slice(start, next >= 0 ? next : workerSource.length);
 };
+const workerHelperBlock = (name) => {
+  const marker = `\nfunction ${name}(`;
+  const start = workerSource.indexOf(marker);
+  assert(start >= 0, `Worker-Hilfsfunktion '${name}' fehlt.`);
+  const next = workerSource.indexOf("\nfunction ", start + marker.length);
+  return workerSource.slice(start, next >= 0 ? next : workerSource.length);
+};
 const ssePids = () => execFileSync(
     "powershell.exe",
   ["-NoLogo", "-NoProfile", "-Command", "@(Get-Process -Name SSE -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id | Sort-Object) -join ','"],
@@ -381,12 +388,23 @@ try {
     workerSource.includes("Screenshot-Ziel existiert bereits") &&
     !workerSource.includes("$bmp.Save($Path, [System.Drawing.Imaging.ImageFormat]::Png)"),
   "Screenshot-Schreiben kann ein zwischen Preflight und Save angelegtes Ergebnisziel ueberschreiben.");
+  const tableMutationFocus = workerHelperBlock("Initialize-SSETableMutationFocus");
+  const tableAdd = workerOpBlock("table_add");
+  const tableUpdate = workerOpBlock("table_update");
+  const tableDelete = workerOpBlock("table_delete");
   assert(workerSource.includes("function Test-SSEForegroundIsLockScreen") &&
-    workerOpBlock("table_add").includes("$lockScreenIsolation") &&
-    workerOpBlock("table_update").includes("$lockScreenIsolation") &&
-    workerOpBlock("table_add").includes("Test-SSEForegroundIsLockScreen") &&
-    workerOpBlock("table_update").includes("Test-SSEForegroundIsLockScreen") &&
-    !workerOpBlock("table_delete").includes("$lockScreenIsolation"),
+    tableMutationFocus.includes("$lockScreen = [bool](-not $script:DESKTOP_NAME -and (Test-SSEForegroundIsLockScreen))") &&
+    tableMutationFocus.includes("if ($script:DESKTOP_NAME -or $lockScreen)") &&
+    tableMutationFocus.includes("lockScreenIsolation=$lockScreen; foreignForegroundIsolation=$false; guardUserInput=$false; inputBaseline=$null") &&
+    tableMutationFocus.indexOf("inputBaseline=$null") < tableMutationFocus.indexOf("Show-SSEWindow $Hwnd") &&
+    tableMutationFocus.includes("guardUserInput=$true; inputBaseline=$inputBeforeFocus") &&
+    tableAdd.includes("$focus = Initialize-SSETableMutationFocus $hwnd $targetPid $expectedPage $sumLabel $sumOccurrence") &&
+    tableUpdate.includes("$focus = Initialize-SSETableMutationFocus $hwnd $targetPid $expectedPage $sumLabel $sumOccurrence") &&
+    tableAdd.includes("$lockScreenIsolation=[bool]$focus.lockScreenIsolation") &&
+    tableUpdate.includes("$lockScreenIsolation=[bool]$focus.lockScreenIsolation") &&
+    tableAdd.includes("$guardUserInput=[bool]$focus.guardUserInput; $inputBaseline=$focus.inputBaseline") &&
+    tableUpdate.includes("$guardUserInput=[bool]$focus.guardUserInput; $inputBaseline=$focus.inputBaseline") &&
+    !tableDelete.includes("$lockScreenIsolation") && !tableDelete.includes("Initialize-SSETableMutationFocus"),
   "UIA-Tabellenschreiben behandelt Lockscreen-Ticks nicht isoliert oder lockert physische Loeschaktionen.");
   assert(workerSource.includes("function Get-SSEPointObstruction") &&
     workerOpBlock("table_delete").includes("Get-SSEPointObstruction $hwnd $px $py") &&
@@ -504,10 +522,36 @@ try {
   // vollstaendiger Lesevorgang die Tabelle ans Ende bringt. Diese Kenntnis
   // darf nicht wieder Voraussetzung werden.
   const executorSource = readFileSync(join(root, "src", "api-executor.ts"), "utf8");
-  assert(executorSource.includes('result.error.includes("Keine freie Tabellenzeile")') &&
-    executorSource.includes('const scrolled = await worker("table_read"') &&
-    executorSource.includes("retriedAfterTableWalk: true"),
+  const cursorImport = /^import \{ ([^}\r\n]+) \} from "\.\/table-cursor-executor\.js";$/mu.exec(executorSource);
+  const cursorImports = new Set((cursorImport?.[1] ?? "").split(",").map(name => name.trim()));
+  const addRetryStart = executorSource.indexOf('operation === "table_add" &&');
+  const addRetryEnd = executorSource.indexOf("return withResourceIdentity(redactPaths, result, configured.resourceRefs);", addRetryStart);
+  const addRetry = executorSource.slice(addRetryStart, addRetryEnd);
+  assert(addRetryStart >= 0 && addRetryEnd > addRetryStart &&
+    cursorImports.has("executeTableCursorRead") && cursorImports.has("executeTableCursorMutation") &&
+    addRetry.includes("result?.ok !== true") && addRetry.includes('result?.kind === "not-found"') &&
+    addRetry.includes('typeof result?.error === "string"') && addRetry.includes('result.error.includes("Keine freie Tabellenzeile")') &&
+    addRetry.includes('const readArgs: Record<string, unknown> = { maxRows: 400, noKeys: false };') &&
+    /const scrolled = await executeTableCursorRead\(configuredRead\.args, worker, dependencies, timeoutMs, signal\)\.catch\(\(\): WorkerResult => \(\{\s*ok: false, kind: "cursor-proof-failed", proofCheck: "cursor-transport-error",\s*outcomeUnknown: true, reconciliationRequired: true, cleanupRequired: true,\s*\}\)\);/u.test(addRetry) &&
+    addRetry.includes("if (scrolled?.ok === true && scrolled.vollstaendig === true)") &&
+    addRetry.includes("scrolled.outcomeUnknown === true || scrolled.reconciliationRequired === true || scrolled.cleanupRequired === true") &&
+    addRetry.includes("result.outcomeUnknown === true || result.reconciliationRequired === true || result.cleanupRequired === true") &&
+    addRetry.match(/return withResourceIdentity\(redactPaths, tableAddCursorFailure\(result, scrolled\), configured\.resourceRefs\);/gu)?.length === 2 &&
+    executorSource.includes('import { tableAddCursorFailure } from "./table-add-cursor-result.js";') &&
+    addRetry.indexOf("scrolled.vollstaendig === true") < addRetry.indexOf("const retried = await worker(operation, configured.args, timeoutMs, signal);") &&
+    addRetry.indexOf("result.outcomeUnknown === true") < addRetry.indexOf("const retried = await worker(operation, configured.args, timeoutMs, signal);") &&
+    addRetry.match(/await worker\(operation, configured\.args, timeoutMs, signal\)/gu)?.length === 1 &&
+    addRetry.includes("retriedAfterTableWalk: true") &&
+    addBlock.includes("ok=$false; kind='not-found'; mutationStarted=$false; resultingState='unchanged'") &&
+    addBlock.indexOf('error=("Keine freie Tabellenzeile') >= 0 &&
+    addBlock.indexOf('error=("Keine freie Tabellenzeile') < addBlock.indexOf("$prepared = New-Object System.Collections.ArrayList"),
   "table_add holt die Anlegezeile nicht mehr selbst in den Sichtbereich.");
+  const catalogMutationCall = "executeTableCursorMutation(operation, configured.args, worker, dependencies, timeoutMs, signal, profile.pageObjectsCatalog)";
+  assert(executorSource.includes("const profile = loadProductProfile(config.profileId, profilesRoot);") &&
+    executorSource.includes(catalogMutationCall) && !executorSource.includes("args.pageObjectsCatalog") &&
+    executorSource.indexOf("parseApiOperationArgs(operation, args)") >= 0 &&
+    executorSource.indexOf("parseApiOperationArgs(operation, args)") < executorSource.indexOf(catalogMutationCall),
+  "Native Tabellenmutation muss den geladenen Serverkatalog nach strikter Argumentpruefung binden; kein Caller-Katalog ist zulaessig.");
   const closeBlock = workerOpBlock("close");
   assert(workerSource.includes("function Get-SSEPinnedProcessHandle([Diagnostics.Process]$Process)") &&
     workerSource.includes("function Wait-SSEProcessExit([Microsoft.Win32.SafeHandles.SafeProcessHandle]$ProcessHandle") &&
@@ -535,13 +579,19 @@ try {
   "Page Objects werden nicht pro API-Aufruf neu geladen oder verlieren ihren Worker-Kompatibilitaetspfad.");
   const strictMainWindowOps = [
     "click", "set_value", "combo_options", "click_point",
-    "positions", "export_csv", "collect", "goto_tree", "goto", "table_read",
+    "positions", "export_csv", "collect", "goto_tree", "goto",
     "table_add", "table_update", "table_delete", "menu", "menu_click", "menu_close",
   ];
   for (const op of strictMainWindowOps) {
     assert(workerOpBlock(op).includes("Resolve-SSEMainWindowDescriptor $a -RestoreMinimized"),
       `${op} waehlt bei mehreren SSE-Faellen weiterhin implizit ein Fenster.`);
   }
+  const tableRead = workerOpBlock("table_read");
+  assert(tableRead.includes("$main = Resolve-SSEMainWindowDescriptor $a") &&
+    !tableRead.includes("Resolve-SSEMainWindowDescriptor $a -RestoreMinimized") &&
+    tableRead.includes("if ($main.minimiert) { Fail 'Gebundenes SSE-Fenster ist minimiert; vor dem Cursorlauf sse_window_restore verwenden.' 'minimized' }") &&
+    tableRead.indexOf("if ($main.minimiert)") < tableRead.indexOf("Walk-BoundTree"),
+  "table_read bindet das Hauptfenster nicht eindeutig und passiv vor dem Cursorlauf.");
   for (const op of ["toggle", "combo_select"]) {
     assert(workerOpBlock(op).includes("Resolve-BoundWriteWindow $a"),
       `${op} ist nicht an eindeutiges Fenster und optionale Fall-/Hashidentitaet gebunden.`);
@@ -592,7 +642,9 @@ try {
     launchExecutorSource.includes("budgetMs: Math.floor(remainingMs - LAUNCH_PROBE_HANDOVER_ALLOWANCE_MS)") &&
     launchExecutorSource.includes("probeHandoverRetries < MAXIMUM_LAUNCH_PROBE_HANDOVER_RETRIES") &&
     launchExecutorSource.includes('bindingMode: "launch-window"') &&
-    launchExecutorSource.includes("cleanupStartedProcess") &&
+    launchExecutorSource.includes("preservedLaunchState") &&
+    !launchExecutorSource.includes('worker("close"') &&
+    !launchExecutorSource.includes("discardChanges") &&
     serverSource.includes("instance: r.instance, ready: r.ready") &&
     liveWriteJourneySource.includes("const hwnd = launched.instance?.hwnd") &&
     liveWriteJourneySource.includes('sse_ui_state", { hwnd }'),

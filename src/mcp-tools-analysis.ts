@@ -169,11 +169,12 @@ export function registerAnalysisTools(registry: McpRegistry): void {
     {
       title: "Globalen Steuerpruefer starten",
       description:
-        "Startet auf der Seite 'Steuererklaerung pruefen' den fallweiten Software-Pruefer und " +
+        "Startet den fallweiten Software-Pruefer ueber den exakten Profilweg der gebundenen Fallart und " +
         "liefert die sicher erreichbaren Fragen/Warnungen und Tipps samt Konsistenzstatus. " +
         "Loest weder 'Steuererklaerung abschliessen' noch ELSTER oder eine andere Abgabe aus. " +
-        "Falls die Seite noch nicht offen ist, per MCP zu 'Pruefen und Abgeben' und danach " +
-        "'Steuererklaerung pruefen' navigieren.",
+        "Einkommensteuer braucht die Seite 'Steuererklaerung pruefen'; Gewinnermittlung und Gewinn-Erfassung " +
+        "verwenden den eindeutig gebundenen, ausgeschalteten Toolbar-Schalter 'Pruefer'. " +
+        "Ein bereits aktiver Pruefer wird nur gelesen und nie erneut umgeschaltet.",
     },
     (r) => ({
       gestartet: r.gestartet,

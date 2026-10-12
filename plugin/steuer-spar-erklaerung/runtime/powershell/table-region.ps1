@@ -138,7 +138,9 @@ function Get-SSETableRegionFromNodes {
   param(
     [Parameter(Mandatory)]$Nodes,
     [Parameter(Mandatory)]$Bounds,
-    [Parameter(Mandatory)]$TargetSumRead
+    [Parameter(Mandatory)]$TargetSumRead,
+    [string]$Page = '',
+    [object[]]$ProfileBindings = @()
   )
 
   if (-not $TargetSumRead -or -not $TargetSumRead.selected) {
@@ -156,6 +158,32 @@ function Get-SSETableRegionFromNodes {
   # AutomationId-Bindung ist genauer als reine Bildschirmgeometrie und
   # funktioniert auch dann, wenn die Summenzeile am unteren Fensterrand liegt.
   $targetAid = [string]$TargetSumRead.selected.aid
+  $profileCandidates = @($ProfileBindings | Where-Object {
+    ($_.page -ceq $Page -or ($_.headingPrefix -and
+      $Page.StartsWith([string]$_.headingPrefix,[StringComparison]::Ordinal) -and
+      $Page.Length -gt ([string]$_.headingPrefix).Length)) -and
+      $_.sumLabel -ceq [string]$TargetSumRead.selected.label
+  })
+  if ($profileCandidates.Count) {
+    $profileMatches = @($profileCandidates | Where-Object {
+      $_.summaryAidSuffix -and $targetAid.EndsWith([string]$_.summaryAidSuffix, [StringComparison]::Ordinal)
+    })
+    if ($profileMatches.Count -ne 1) {
+      return [pscustomobject]@{ ok=$false; error='Profilierte Summen-/Tabellenbindung fehlt oder ist mehrdeutig.'; cells=@(); targetSumY=$targetSumY }
+    }
+    $mapping = $profileMatches[0]
+    $rootPrefix = $targetAid.Substring(0, $targetAid.Length - ([string]$mapping.summaryAidSuffix).Length)
+    $tableAid = $rootPrefix + [string]$mapping.tableAidSuffix
+    $mappedCells = @($Nodes | Where-Object {
+      $_.type -ceq 'DataItem' -and $_.w -gt 0 -and $_.h -gt 0 -and
+      ([string]$_.aid -ceq $tableAid -or ([string]$_.aid).StartsWith($tableAid + '/', [StringComparison]::Ordinal))
+    } | Sort-Object y, x)
+    return [pscustomobject]@{
+      ok=[bool]$mappedCells.Count; error=$(if ($mappedCells.Count) { $null } else { 'Profilierte Kostentabelle ist nicht sichtbar.' })
+      cells=$mappedCells; targetSumY=$targetSumY; previousSummaryY=$null
+      selectionMethod='profiled-summary-table-aid'; scopePrefix=$tableAid; profileMappingId=[string]$mapping.id
+    }
+  }
   $scopePrefix = $null
   if ($targetAid -match '^(?<prefix>.+?/\.(?<section>[A-Za-z0-9_]+)\./\.\k<section>\.)(?:SummeTab|SummeImZeitraum|VergleichSummeImZeitraum)(?:\.|/|$)') {
     $scopePrefix = [string]$Matches.prefix

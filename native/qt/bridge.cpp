@@ -72,7 +72,7 @@ static bool ownerAlive(const std::shared_ptr<NativeSession> &session) {
 }
 static bool isMutation(const std::string &op) {
     return op == "table_set_cell" || op == "field_set_value" || op == "select_navigation" || op == "save_disposable"
-        || op == "accessibility_action";
+        || op == "accessibility_action" || op == "table_focus_only" || op == "table_position_number";
 }
 static thread_local const NativeSession *guiSession = nullptr;
 static thread_local bool mutationStarted = false;
@@ -128,26 +128,9 @@ static QObject* resolve(const Json &request, QWidget *root) {
         throw std::runtime_error("Object reference is stale or outside the bound window");
     return found->second.data();
 }
-static Json variant(const QVariant &v) {
-    if (!v.isValid() || v.isNull()) return nullptr;
-    switch (v.metaType().id()) {
-    case QMetaType::Bool: return v.toBool();
-    case QMetaType::Int: case QMetaType::LongLong: case QMetaType::Short: return v.toLongLong();
-    case QMetaType::UInt: case QMetaType::ULongLong: case QMetaType::UShort: return v.toULongLong();
-    case QMetaType::Double: case QMetaType::Float: return v.toDouble();
-    default: return utf8(v.toString());
-    }
-}
-static Json cellValue(QAbstractItemModel *model, const QModelIndex &index) {
-    return {{"display", variant(model->data(index, Qt::DisplayRole))},
-        {"edit", variant(model->data(index, Qt::EditRole))},
-        {"checkState", variant(model->data(index, Qt::CheckStateRole))},
-        {"flags", static_cast<int>(model->flags(index))}};
-}
-static std::string cellsFingerprint(const Json &values) {
-    return QCryptographicHash::hash(QByteArray::fromStdString(values.dump()), QCryptographicHash::Sha256).toHex().toStdString();
-}
-static Json describe(QObject *object, std::uint64_t parent) {
+#include "bridge-table-model-read.h"
+static Json nativeWidgetScreenRect(QWidget *widget);
+static Json describe(QObject *object, std::uint64_t parent, bool withNativeGeometry = true) {
     Json item = {{"id", objectId(object)}, {"parentId", parent},
         {"class", object->metaObject()->className()}, {"name", utf8(object->objectName())}};
     if (auto *widget = qobject_cast<QWidget*>(object)) {
@@ -158,6 +141,11 @@ static Json describe(QObject *object, std::uint64_t parent) {
         if (boundRoot) {
             const auto point = widget->mapTo(boundRoot, QPoint(0, 0));
             item["rootRect"] = {point.x(), point.y(), widget->width(), widget->height()};
+            // Only the table and its genuine viewport need a native pixel
+            // proof. Windows DPI is not necessarily Qt's effective scale.
+            if (withNativeGeometry && (qobject_cast<QTableView*>(widget) || (widget->objectName() == QStringLiteral("qt_scrollarea_viewport")
+                && qobject_cast<QTableView*>(widget->parentWidget()))))
+                item["nativeScreenRect"] = nativeWidgetScreenRect(widget);
         }
     }
     if (auto *edit = qobject_cast<QLineEdit*>(object)) {
@@ -198,8 +186,28 @@ static Json describe(QObject *object, std::uint64_t parent) {
     return item;
 }
 static Json execute(const Json &request);
-#include "bridge-table-snapshot.h"
+static Json tableCursorFocusBinding(QTableView *view, const Json &model);
 #include "bridge-accessibility.h"
+#include "bridge-table-snapshot.h"
+#include "bridge-table-focus.h"
+#include "bridge-table-position.h"
+
+static Json nativeWidgetScreenRect(QWidget *widget) {
+    if (!widget || !boundRoot || !belongsTo(widget, boundRoot) || !widget->isVisible()) return nullptr;
+    activateAccessibilityClient();
+    auto *iface = QAccessible::queryAccessibleInterface(widget);
+    if (!iface || !iface->isValid()) return nullptr;
+    auto *window = accessibleWindow(iface);
+    // Existing handles only. This read must never create a native window.
+    if (!window || !window->handle()) return nullptr;
+    DWORD pid = 0;
+    const auto hwnd = reinterpret_cast<HWND>(window->winId());
+    if (!IsWindow(hwnd) || !GetWindowThreadProcessId(hwnd, &pid) || pid != GetCurrentProcessId()) return nullptr;
+    const auto global = widget->mapToGlobal(QPoint(0, 0));
+    const auto native = QHighDpi::toNativePixels(QRectF(QPointF(global), QSizeF(widget->size())), window);
+    if (native.isEmpty()) return nullptr;
+    return {native.x(), native.y(), native.width(), native.height()};
+}
 
 static Json execute(const Json &request) {
     const auto before = Clock::now();
@@ -220,6 +228,7 @@ static Json execute(const Json &request) {
         result = {{"ok", true}, {"pid", GetCurrentProcessId()}, {"hwnd", config.window},
             {"qtVersion", qVersion()}, {"guiThread", true}, {"rootClass", root->metaObject()->className()},
             {"bridgeProtocol", 1}, {"creationTime", std::to_string(config.creationTime)},
+            {"capabilities", {{"tableFocusOnlyProtocol", 1}, {"tablePositionNumberProtocol", 1}}},
             {"sessionGeneration", generation.load()}, {"ownerPid", config.ownerProcessId},
             {"ownerCreationTime", std::to_string(config.ownerCreationTime)}, {"recoveryRequired", recoveryRequired.load()},
             {"mutationAcknowledgmentRequired", guiSession && guiSession->pendingReceipt != 0}};
@@ -246,6 +255,7 @@ static Json execute(const Json &request) {
         const auto projection = request.value("projection", std::string("full"));
         if (projection != "full" && projection != "values" && projection != "table-context") throw std::runtime_error("Unknown object projection");
         const bool visibleOnly = request.value("visibleOnly", true);
+        const bool withNativeGeometry = request.value("withNativeGeometry", true);
         int visited = 0;
         Json items = Json::array();
         std::vector<std::pair<QObject*, std::uint64_t>> pending{{root, 0}};
@@ -258,7 +268,8 @@ static Json execute(const Json &request) {
                 || qobject_cast<QAbstractButton*>(object) || qobject_cast<QComboBox*>(object)
                 || qobject_cast<QAbstractSpinBox*>(object) || qobject_cast<QPlainTextEdit*>(object));
             const bool included = valueControl || (projection == "table-context" && qobject_cast<QTableView*>(object));
-            if (projection == "full" || (included && (!visibleOnly || widget->isVisible()))) items.push_back(describe(object, parent));
+            if (projection == "full" || (included && (!visibleOnly || widget->isVisible())))
+                items.push_back(describe(object, parent, withNativeGeometry));
             const auto children = object->children();
             for (auto it = children.crbegin(); it != children.crend(); ++it) pending.emplace_back(*it, id);
         }
@@ -303,40 +314,13 @@ static Json execute(const Json &request) {
         result = {{"ok", true}, {"nodes", std::move(nodes)}, {"complete", complete}};
     } else if (op == "table_snapshot") {
         result = tableSnapshot(request, root);
+    } else if (op == "table_focus_only") {
+        result = tableFocusOnly(root, request);
+    } else if (op == "table_position_number") {
+        result = tablePositionNumber(root, request);
     } else if (op == "table_read") {
         auto *view = qobject_cast<QTableView*>(resolve(request, root));
-        if (!view || !view->model()) throw std::runtime_error("Object has no QAbstractItemModel");
-        auto *model = view->model();
-        const auto rootIndex = view->rootIndex();
-        const int rows = model->rowCount(rootIndex), columns = model->columnCount(rootIndex);
-        const int maxRows = request.value("maxRows", 10000), maxColumns = request.value("maxColumns", 100);
-        const bool allowPartial = request.value("allowPartial", false);
-        const int readRows = allowPartial ? std::min(rows, maxRows) : rows;
-        if (rows < 0 || columns < 0 || maxRows < 1 || maxRows > 10000 || maxColumns < 1 || maxColumns > 100
-            || readRows > maxRows || columns > maxColumns || std::int64_t(readRows) * columns > 100000)
-            throw std::runtime_error("Model dimensions exceed explicit read bounds");
-        Json headers = Json::array(), values = Json::array(), fingerprints = Json::array();
-        Json hiddenColumns = Json::array(), hiddenRows = Json::array();
-        for (int c = 0; c < columns; ++c) if (view->isColumnHidden(c)) hiddenColumns.push_back(c);
-        for (int r = 0; r < readRows; ++r) if (view->isRowHidden(r)) hiddenRows.push_back(r);
-        for (int c = 0; c < columns; ++c) headers.push_back(variant(model->headerData(c, Qt::Horizontal, Qt::DisplayRole)));
-        for (int r = 0; r < readRows; ++r) {
-            Json cells = Json::array();
-            for (int c = 0; c < columns; ++c) {
-                const auto index = model->index(r, c, rootIndex);
-                if (!index.isValid()) throw std::runtime_error("Model returned an invalid cell index");
-                cells.push_back(cellValue(model, index));
-            }
-            fingerprints.push_back(cellsFingerprint(cells));
-            values.push_back(std::move(cells));
-        }
-        if (model->rowCount(rootIndex) != rows || model->columnCount(rootIndex) != columns)
-            throw std::runtime_error("Model dimensions changed during the read");
-        result = {{"ok", true}, {"rows", rows}, {"columns", columns}, {"headers", std::move(headers)},
-            {"hiddenColumns", std::move(hiddenColumns)}, {"hiddenRows", std::move(hiddenRows)},
-            {"values", std::move(values)}, {"rowFingerprints", std::move(fingerprints)},
-            {"readRows", readRows}, {"canFetchMore", model->canFetchMore(rootIndex)},
-            {"complete", readRows == rows && !model->canFetchMore(rootIndex)}};
+        result = tableModelRead(view, request);
     } else {
         return error("UNSUPPORTED_OPERATION", "Operation is not supported by this native read bridge");
     }

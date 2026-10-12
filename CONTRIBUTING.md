@@ -37,6 +37,13 @@ Python und PowerShell 7 sind keine Laufzeitabhängigkeiten des
 Produkts. PowerShell 7 kann lokal für robuste Entwickler-Skripte verwendet
 werden.
 
+Der schnelle Lauf enthält keine Checker-Worker-Probe, die ein fehlendes
+SSE-Fenster voraussetzt. Dieser Vertrag bleibt im vollständigen `npm test`,
+das vor dem Start ein geschlossenes SSE verlangt. Die getrennte native
+Qt-Fixture läuft auf einem eigenen inaktiven Desktop und darf parallel zu
+einem offenen Produkt geprüft werden; gleichzeitig darf keine Automation
+des echten SSE den sitzungsweiten Controller verwenden.
+
 ## Branches und Commits
 
 Erstelle einen kurzen Themenbranch und mische keine unabhängigen Änderungen.

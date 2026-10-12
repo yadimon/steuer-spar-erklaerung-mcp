@@ -4593,7 +4593,7 @@ function loadProductProfile(id = "2025", root = defaultProfilesRoot) {
   }
   return { ...parsed, profileDir, manifestPath, pageObjectsPath, pageObjectsCatalog };
 }
-var profileSchema, pageObjectTableColumnSchema, pageObjectTableSchema, pageObjectSchema, pageObjectsCompatibilitySchema, here, defaultProfilesRoot;
+var profileSchema, pageObjectTableColumnSchema, pageObjectTableSchema, vehicleCostRegionBindingSchema, pageObjectSchema, pageObjectsCompatibilitySchema, here, defaultProfilesRoot;
 var init_product_profiles = __esm({
   "src/product-profiles.ts"() {
     "use strict";
@@ -4691,6 +4691,7 @@ var init_product_profiles = __esm({
       sumLabel: external_exports.string().min(1),
       sumOccurrence: external_exports.number().int().positive(),
       automationIdSection: external_exports.string().regex(/^[A-Za-z0-9_]+$/u).optional(),
+      confirmedEmptyRowCategoryDefaults: external_exports.array(external_exports.literal("Sonst. Leistung EU")).length(1).optional(),
       bindingPolicy: external_exports.string().min(1),
       columns: external_exports.array(pageObjectTableColumnSchema).min(1)
     }).strict().superRefine((table, context) => {
@@ -4700,6 +4701,35 @@ var init_product_profiles = __esm({
           code: external_exports.ZodIssueCode.custom,
           path: ["columns"],
           message: "Tabellenspalten duerfen pro Page-Object nicht doppelt definiert sein."
+        });
+      }
+      if (table.confirmedEmptyRowCategoryDefaults !== void 0 && (table.sumLabel !== "Summe" || table.sumOccurrence !== 2 || table.automationIdSection !== "grpEmpf13b" || !table.columns.some((column) => column.index === 3 && column.header === "Kategorie" && column.writePolicy === "typed-selection-required"))) {
+        context.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["confirmedEmptyRowCategoryDefaults"],
+          message: "Der bestaetigte EU-Leerzeilendefault braucht die exakt profilierte zweite §13b-Kategoriespalte."
+        });
+      }
+    });
+    vehicleCostRegionBindingSchema = external_exports.object({
+      id: external_exports.enum(["vehicle_costs_with_input_tax", "vehicle_costs_without_input_tax"]),
+      page: external_exports.literal("Sonstige Kfz-Kosten"),
+      headingPrefix: external_exports.literal("Sonstige Kfz-Kosten: ").optional(),
+      sumLabel: external_exports.enum([
+        "Summe der sonstigen Kfz-Kosten mit Vorsteuerabzug",
+        "Summe der sonstigen Kfz-Kosten ohne Vorsteuerabzug"
+      ]),
+      summaryAidSuffix: external_exports.string().min(1),
+      tableAidSuffix: external_exports.literal("/.SonstigeKfzkosten./.SonstigeKfzkosten.Kosten")
+    }).strict().superRefine((binding, context) => {
+      const withInputTax = binding.id === "vehicle_costs_with_input_tax";
+      const expectedLabel = `Summe der sonstigen Kfz-Kosten ${withInputTax ? "mit" : "ohne"} Vorsteuerabzug`;
+      const section = withInputTax ? "TabSumKostMit" : "TabSumKostOhne";
+      const expectedSuffix = `/.SonstigeKfzkosten./.SonstigeKfzkosten.Summen./.SonstigeKfzkosten.Summen.${section}./.SonstigeKfzkosten.Summen.${section}.Wert`;
+      if (binding.sumLabel !== expectedLabel || binding.summaryAidSuffix !== expectedSuffix) {
+        context.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          message: "Kfz-Summenbindung muss dem exakt bestaetigten Summen-AutomationId entsprechen."
         });
       }
     });
@@ -4719,8 +4749,48 @@ var init_product_profiles = __esm({
         installationFolderName: external_exports.string().min(1)
       }).passthrough(),
       windows: external_exports.record(external_exports.unknown()).refine((value) => Object.keys(value).length > 0, "Fensterkatalog darf nicht leer sein."),
+      tableRegionBindings: external_exports.array(vehicleCostRegionBindingSchema).optional(),
+      checkerStartBindings: external_exports.array(external_exports.object({
+        id: external_exports.string().regex(/^[a-z][a-z0-9_]+$/u),
+        documentTypes: external_exports.array(external_exports.enum(["ESt", "Gew", "GewErfass"])).min(1),
+        controlType: external_exports.enum(["Button", "CheckBox"]),
+        name: external_exports.string().min(1),
+        automationIdSuffix: external_exports.string().regex(/^\.[^\u0000-\u001f]+$/u),
+        heading: external_exports.string().min(1).optional(),
+        pattern: external_exports.literal("Invoke"),
+        expectedToggleState: external_exports.literal("Off").optional()
+      }).strict().superRefine((binding, context) => {
+        if (binding.controlType === "CheckBox" && (binding.expectedToggleState !== "Off" || binding.heading !== void 0) || binding.controlType === "Button" && (!binding.heading || binding.expectedToggleState !== void 0)) {
+          context.addIssue({ code: external_exports.ZodIssueCode.custom, message: "Checker start must invoke either an exact page button or a proven unchecked toolbar command." });
+        }
+      })).optional(),
+      tableComboFocusOut: external_exports.object({
+        id: external_exports.literal("main_footer_next_focus"),
+        controlType: external_exports.literal("Button"),
+        name: external_exports.literal("Weiter"),
+        automationIdSuffix: external_exports.literal(".RedThreadContent.ClientFrameSSE.ClientFooterSSE.HoverButton"),
+        action: external_exports.literal("SetFocus"),
+        policy: external_exports.literal("own-typed-table-editor-only")
+      }).strict().optional(),
       pages: external_exports.record(pageObjectSchema).refine((value) => Object.keys(value).length > 0, "Seitenkatalog darf nicht leer sein.")
     }).passthrough().superRefine((catalog, context) => {
+      const checkerTypes = (catalog.checkerStartBindings ?? []).flatMap((binding) => binding.documentTypes);
+      const checkerIds = (catalog.checkerStartBindings ?? []).map((binding) => binding.id);
+      if (new Set(checkerTypes).size !== checkerTypes.length || new Set(checkerIds).size !== checkerIds.length) {
+        context.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["checkerStartBindings"],
+          message: "Checker start bindings must be unique by document type and policy id."
+        });
+      }
+      const regionIds = (catalog.tableRegionBindings ?? []).map((binding) => binding.id);
+      if (new Set(regionIds).size !== regionIds.length) {
+        context.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["tableRegionBindings"],
+          message: "Profilierte Summen-/Tabellenbindungen duerfen nicht doppelt definiert sein."
+        });
+      }
       const foldedIds = /* @__PURE__ */ new Map();
       for (const pageId of Object.keys(catalog.pages)) {
         const folded = pageId.toLocaleLowerCase("de-DE");
@@ -5868,7 +5938,7 @@ var init_mcp_schemas_ui = __esm({
       "sse_table_read": external_exports.object({
         maxRows: TABLE_MAX_ROWS.optional().describe("Leselimit, Vorgabe 200, maximal 1000: UIA-Cursorschritte oder Ausgabezeilen beim nativen Qt-Zugriff"),
         noKeys: external_exports.boolean().optional().describe(
-          "Keine physische Eingabe oder Vordergrundaktivierung. Der UIA-Zugriff liest dann nur sichtbare Zeilen und meldet vollstaendig false / stopKind visible-only. Ein explizit gebundener nativer Qt-Zugriff liest das Modell ohne Cursorschritte und kann damit trotzdem die vollstaendige Tabelle belegen."
+          "Ohne Angabe oder mit true liest der native Qt-Zugriff das Modell ohne Eingabe und Fokuswechsel; ein UIA-Zugriff mit true liefert nur sichtbare Zeilen. Explizites false fordert den gebundenen UIA-Cursorlauf mit Vordergrund-, Eingabe- und Tabellenpruefungen an und macht die letzte Zeile sichtbar."
         ),
         sumLabel: external_exports.string().optional().describe("Bei mehreren Tabellen: Beschriftung der zugehoerigen Kontrollsumme"),
         sumOccurrence: UI_OCCURRENCE.optional().describe("1-basierte Position der Kontrollsumme; Vorgabe 1"),
@@ -6952,12 +7022,12 @@ var init_capabilities = __esm({
         rule: "Es laeuft immer nur eine Operation. Ein zweiter Aufruf wird mit 'busy' abgelehnt, nicht eingereiht. Warte auf das Ergebnis statt parallel erneut aufzurufen; /healthz meldet jederzeit, welche Operation seit wann laeuft. Abbrechen geschieht ausschliesslich durch Trennen der HTTP-Verbindung, nie durch einen zweiten Aufruf."
       },
       batching: {
-        rule: "Jeder Aufruf startet einen frischen Arbeitsprozess und laedt das Workerskript neu. Diese Fixkosten fallen pro Aufruf an, nicht pro Schritt. Buendele deshalb, statt Feld fuer Feld einzeln abzurufen.",
+        rule: "Worker-Auftraege werden einzeln ausgefuehrt; ein Auftrag kann einen vorgewaermten Arbeitsprozess verwenden. scenario_run fuehrt seine Schritte seriell ueber den Executor aus, mit einem eigenen Auftrag je Worker-Schritt. Ein Szenario haelt keinen gemeinsamen Tabellen-Worker und ist keine Tabellen-Bulk-API.",
         levels: [
           { intent: "Einzelner Handgriff", operations: ["click", "click_point", "set_value", "read_page"] },
           { intent: "Navigieren und lesen in einem Aufruf", operations: ["checker_open", "subpages", "table_read"] },
           { intent: "Ganze Seitenstrecke", operations: ["collect", "read_full", "export_csv"] },
-          { intent: "Beliebige Schrittfolge in einem Arbeitsprozess", operations: ["scenario_run"] }
+          { intent: "Begrenzte serielle Schrittfolge ueber den Executor", operations: ["scenario_run"] }
         ]
       },
       liveEvidence: SSE_LIVE_EVIDENCE,
@@ -7468,14 +7538,14 @@ async function executeCheckerOpen(args, timeoutMs, signal, worker) {
       Math.min(timeoutMs ?? 3e5, 3e5),
       signal
     );
-    const performance19 = result.performance && typeof result.performance === "object" && !Array.isArray(result.performance) ? result.performance : {};
+    const performance21 = result.performance && typeof result.performance === "object" && !Array.isArray(result.performance) ? result.performance : {};
     return {
       ...result,
       schemaVersion: 1,
       planKind: CHECKER_OPEN_PLAN_KIND,
       resultingState: typeof result.resultingState === "string" ? result.resultingState : result.ok === true ? "detail-verified" : "unknown",
       cleanupRequired: typeof result.cleanupRequired === "boolean" ? result.cleanupRequired : result.ok !== true,
-      performance: { ...performance19, workerProcessCount: 1 },
+      performance: { ...performance21, workerProcessCount: 1 },
       ...result.ok === true ? { kontrollbildEnthalten: typeof result.bildBase64 === "string" && result.bildBase64.length > 0 } : {}
     };
   } catch (error) {
@@ -8051,6 +8121,17 @@ var init_case_create_executor = __esm({
 
 // src/launch-executor.ts
 import { performance as performance2 } from "node:perf_hooks";
+function preservedLaunchState(pid2, processStillRunning = null) {
+  return {
+    ...pid2 === void 0 ? {} : { pid: pid2 },
+    ready: false,
+    processPreserved: true,
+    processStillRunning,
+    outcomeUnknown: true,
+    reconciliationRequired: true,
+    retryable: false
+  };
+}
 async function executeLaunchOperation(args, timeoutMs, signal, worker) {
   if (timeoutMs !== void 0 && timeoutMs < MINIMUM_LAUNCH_TIMEOUT_MS) {
     return operationError(
@@ -8061,59 +8142,49 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
   const startedAt = performance2.now();
   const launchBudgetMs = Math.min(timeoutMs ?? MAXIMUM_LAUNCH_TIMEOUT_MS, MAXIMUM_LAUNCH_TIMEOUT_MS);
   const deadline = startedAt + launchBudgetMs;
-  const started = await worker("launch", args, MINIMUM_LAUNCH_TIMEOUT_MS, signal);
-  if (started.ok === false) return started;
+  let started;
+  try {
+    started = await worker("launch", args, MINIMUM_LAUNCH_TIMEOUT_MS, signal);
+  } catch (error) {
+    return {
+      ok: false,
+      kind: signal?.aborted ? "aborted" : "startup-launch",
+      error: `${error instanceof Error ? error.message : String(error)} ${PRESERVED_LAUNCH_NOTICE}`,
+      ...preservedLaunchState(),
+      effectiveTimeoutMs: launchBudgetMs
+    };
+  }
+  if (started.ok === false) {
+    if (started.mutationStarted === false && started.resultingState === "unchanged") return started;
+    const reportedPid = Number(started.pid);
+    const failedStart = { ...started };
+    delete failedStart.pid;
+    return {
+      ...failedStart,
+      error: `${String(started.error ?? "Der Prozessstart wurde nicht bestaetigt.")} ${PRESERVED_LAUNCH_NOTICE}`,
+      ...preservedLaunchState(Number.isInteger(reportedPid) && reportedPid > 0 ? reportedPid : void 0),
+      effectiveTimeoutMs: launchBudgetMs
+    };
+  }
   const pid2 = Number(started.pid);
   if (!Number.isInteger(pid2) || pid2 <= 0) {
-    return operationError(
-      "SSE-Start lieferte keine verifizierbare PID; Zustand vor Wiederholung manuell pruefen.",
-      "startup-pid"
-    );
-  }
-  const cleanupStartedProcess2 = async () => {
-    let cleanup = { ok: false, kind: "cleanup-not-run", error: "Cleanup wurde nicht ausgefuehrt." };
-    const errors = [];
-    try {
-      cleanup = await worker("close", { pid: pid2, force: true, discardChanges: true }, 3e4);
-    } catch (error) {
-      errors.push(`close: ${error instanceof Error ? error.message : String(error)}`);
-    }
-    let stillRunning = true;
-    try {
-      const status = await worker("product_info", {}, 3e4);
-      if (status.ok === true && Object.hasOwn(status, "supportedRunning") && Object.hasOwn(status, "ignoredRunning")) {
-        const running = [
-          ...asArray(status.supportedRunning),
-          ...asArray(status.ignoredRunning)
-        ];
-        stillRunning = running.some((entry) => Number(entry.pid) === pid2);
-      } else {
-        errors.push("product_info: Prozessstatus war unvollstaendig.");
-      }
-    } catch (error) {
-      errors.push(`product_info: ${error instanceof Error ? error.message : String(error)}`);
-    }
     return {
-      cleanup,
-      stillRunning,
-      ...errors.length ? { cleanupError: errors.join(" ") } : {}
+      ...operationError(`SSE-Start lieferte keine verifizierbare PID. ${PRESERVED_LAUNCH_NOTICE}`, "startup-pid"),
+      ...preservedLaunchState(),
+      effectiveTimeoutMs: launchBudgetMs
     };
-  };
+  }
   let lastProbeError;
   let probeFailures = 0;
   let probeHandoverRetries = 0;
   let lastStartupPrompts = [];
   try {
     if (signal?.aborted) {
-      const cleanupState2 = await cleanupStartedProcess2();
       return {
         ok: false,
-        kind: cleanupState2.stillRunning ? "startup-abort-cleanup" : "aborted",
-        error: cleanupState2.stillRunning ? `API-Client brach den Start ab; die exakt gestartete SSE-PID ${pid2} laeuft trotz Cleanup noch.` : "API-Client hat den Start abgebrochen; die exakt gestartete SSE-PID wurde ohne Speichern beendet.",
-        pid: pid2,
-        processStillRunning: cleanupState2.stillRunning,
-        cleanup: cleanupState2.cleanup,
-        cleanupError: cleanupState2.cleanupError,
+        kind: "aborted",
+        error: `API-Client hat den Start abgebrochen. ${PRESERVED_LAUNCH_NOTICE}`,
+        ...preservedLaunchState(pid2),
         effectiveTimeoutMs: launchBudgetMs
       };
     }
@@ -8158,6 +8229,17 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
       }
       if (!signal?.aborted) await waitForNextProbe();
     }
+    if (signal?.aborted || observed.kind === "aborted") {
+      return {
+        ok: false,
+        kind: "aborted",
+        error: `API-Client hat den Start abgebrochen. ${PRESERVED_LAUNCH_NOTICE}`,
+        ...preservedLaunchState(pid2),
+        effectiveTimeoutMs: launchBudgetMs,
+        lastProbeError,
+        probeFailures
+      };
+    }
     const terminalProbeResult = observed.ok === true && ["observed", "deadline"].includes(String(observed.outcome));
     const windows = (terminalProbeResult ? asArray(observed.windows) : []).filter((window) => Number(window.pid) === pid2 && Number(window.hwnd) > 0);
     const hasCase = typeof args.file === "string" && args.file.length > 0;
@@ -8182,8 +8264,8 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
         return {
           ok: false,
           kind: "recovered-state",
-          error: "SteuerSparErklaerung hat eine Wiederherstellungsdatei geladen; der geoeffnete Fall entspricht nicht mehr der verifizierten Datei. Fall ohne Speichern schliessen, die Wiederherstellung im Programm verwerfen und danach erneut oeffnen.",
-          pid: pid2,
+          error: "SteuerSparErklaerung hat eine Wiederherstellungsdatei geladen; der geoeffnete Fall entspricht nicht mehr der verifizierten Datei. Wiederhergestellte Daten erhalten und mit dem Menschen klaeren, welcher Stand weiterbearbeitet werden soll; weder speichern noch verwerfen oder schliessen.",
+          ...preservedLaunchState(pid2, true),
           windows,
           instance,
           dialogs,
@@ -8193,10 +8275,11 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
       }
       return {
         ...started,
+        ...dialogs.length > 0 || instance === null ? preservedLaunchState(pid2, true) : {},
         waitedSec: Math.round((performance2.now() - startedAt) / 100) / 10,
         windows,
         instance,
-        ready: instance !== null,
+        ready: instance !== null && dialogs.length === 0,
         blockedByDialog: dialogs.length > 0,
         dialogs,
         effectiveTimeoutMs: launchBudgetMs,
@@ -8207,9 +8290,8 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
       return {
         ok: false,
         kind: "startup-question",
-        error: "SteuerSparErklaerung zeigt statt des Fallfensters ein schmales Fenster und wartet auf eine Antwort. Meist ist das die Startfrage nach einer Wiederherstellungsdatei nach einem unsauberen Ende. Diese Frage im Programm beantworten - eine Wiederherstellung gehoert verworfen, weil ihr Inhalt nicht mehr zur geprueften Falldatei passt - und danach erneut oeffnen. Der gestartete Prozess laeuft absichtlich weiter; ihn hier zu beenden erzeugte die naechste Wiederherstellungsdatei.",
-        pid: pid2,
-        processStillRunning: true,
+        error: "SteuerSparErklaerung zeigt statt des Fallfensters ein schmales Fenster und wartet auf eine Antwort. Meist ist das die Startfrage nach einer Wiederherstellungsdatei nach einem unsauberen Ende. Diese Frage und ihren Wiederherstellungszustand frisch lesen und die Entscheidung mit dem Menschen klaeren. Der gestartete Prozess bleibt erhalten; keine automatische Antwort und kein Verwerfen.",
+        ...preservedLaunchState(pid2, terminalProbeResult ? true : null),
         windows: lastStartupPrompts,
         startupPrompts: lastStartupPrompts,
         instance: null,
@@ -8219,42 +8301,31 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
         probeFailures
       };
     }
-    const cleanupState = await cleanupStartedProcess2();
     return {
       ok: false,
-      kind: cleanupState.stillRunning ? "startup-timeout-cleanup" : "startup-timeout",
-      error: cleanupState.stillRunning ? `SSE-PID ${pid2} erzeugte kein verifiziertes Fallfenster und konnte nicht sicher beendet werden.` : `SSE-PID ${pid2} erzeugte innerhalb von ${Math.round((performance2.now() - startedAt) / 100) / 10} Sekunden kein verifiziertes Fallfenster; der gestartete Prozess wurde beendet.`,
-      pid: pid2,
-      processStillRunning: cleanupState.stillRunning,
-      cleanup: cleanupState.cleanup,
-      cleanupError: cleanupState.cleanupError,
+      kind: observed.ok === false ? "startup-probe" : "startup-timeout",
+      error: `SSE-PID ${pid2} lieferte kein verifiziertes Fallfenster. ${PRESERVED_LAUNCH_NOTICE}`,
+      ...preservedLaunchState(pid2),
       effectiveTimeoutMs: launchBudgetMs,
       lastProbeError,
       probeFailures
     };
   } catch (error) {
-    const cleanupState = await cleanupStartedProcess2();
     const kind = error && typeof error === "object" && typeof error.kind === "string" ? String(error.kind) : "startup-probe";
     if (signal?.aborted || kind === "aborted") {
       return {
         ok: false,
-        kind: cleanupState.stillRunning ? "startup-abort-cleanup" : "aborted",
-        error: cleanupState.stillRunning ? `API-Client brach den Start ab; die exakt gestartete SSE-PID ${pid2} laeuft trotz Cleanup noch.` : "API-Client hat den Start abgebrochen; die exakt gestartete SSE-PID wurde ohne Speichern beendet.",
-        pid: pid2,
-        processStillRunning: cleanupState.stillRunning,
-        cleanup: cleanupState.cleanup,
-        cleanupError: cleanupState.cleanupError,
+        kind: "aborted",
+        error: `API-Client hat den Start abgebrochen. ${PRESERVED_LAUNCH_NOTICE}`,
+        ...preservedLaunchState(pid2),
         effectiveTimeoutMs: launchBudgetMs
       };
     }
     return {
       ok: false,
-      kind: cleanupState.stillRunning ? "startup-probe-cleanup" : kind,
-      error: cleanupState.stillRunning ? `${error instanceof Error ? error.message : String(error)} Die exakt gestartete PID ${pid2} laeuft trotz Cleanup noch.` : `${error instanceof Error ? error.message : String(error)} Die exakt gestartete PID wurde ohne Speichern beendet.`,
-      pid: pid2,
-      processStillRunning: cleanupState.stillRunning,
-      cleanup: cleanupState.cleanup,
-      cleanupError: cleanupState.cleanupError,
+      kind,
+      error: `${error instanceof Error ? error.message : String(error)} ${PRESERVED_LAUNCH_NOTICE}`,
+      ...preservedLaunchState(pid2),
       effectiveTimeoutMs: launchBudgetMs,
       lastProbeError,
       probeFailures
@@ -8264,7 +8335,7 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
 function waitForNextProbe() {
   return new Promise((resolve17) => setTimeout(resolve17, 250));
 }
-var MINIMUM_LAUNCH_TIMEOUT_MS, MAXIMUM_LAUNCH_TIMEOUT_MS, LAUNCH_PROBE_HANDOVER_ALLOWANCE_MS, MAXIMUM_LAUNCH_PROBE_HANDOVER_RETRIES, RECOVERED_STATE_TITLE, MIN_MAIN_WINDOW_WIDTH;
+var MINIMUM_LAUNCH_TIMEOUT_MS, MAXIMUM_LAUNCH_TIMEOUT_MS, LAUNCH_PROBE_HANDOVER_ALLOWANCE_MS, MAXIMUM_LAUNCH_PROBE_HANDOVER_RETRIES, RECOVERED_STATE_TITLE, MIN_MAIN_WINDOW_WIDTH, PRESERVED_LAUNCH_NOTICE;
 var init_launch_executor = __esm({
   "src/launch-executor.ts"() {
     "use strict";
@@ -8276,6 +8347,7 @@ var init_launch_executor = __esm({
     MAXIMUM_LAUNCH_PROBE_HANDOVER_RETRIES = 3;
     RECOVERED_STATE_TITLE = /\(Wiederhergestellt\)/iu;
     MIN_MAIN_WINDOW_WIDTH = 900;
+    PRESERVED_LAUNCH_NOTICE = "Ein moeglicherweise gestarteter SSE-Prozess wird nicht automatisch geschlossen oder verworfen. Vor weiteren Aktionen PID, Fenster und einen moeglichen Wiederherstellungszustand frisch lesen; den Start nicht wiederholen.";
   }
 });
 
@@ -12303,6 +12375,11 @@ var init_qt_native_binding = __esm({
 // src/qt-native-client.ts
 import { createConnection } from "node:net";
 import { performance as performance10 } from "node:perf_hooks";
+function rejectQtNativePing(result) {
+  if (result.ok !== false) return;
+  const kind = result.code === "GUI_QUEUE_TIMEOUT" || result.code === "GUI_OPERATION_TIMEOUT" ? result.code : "native-handshake";
+  throw new QtNativeTransportError(`Native readiness rejected: ${kind}.`, kind, result.outcomeUnknown !== false);
+}
 var MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES, UTF8, QtNativeClient;
 var init_qt_native_client = __esm({
   "src/qt-native-client.ts"() {
@@ -12385,6 +12462,7 @@ var init_qt_native_client = __esm({
         try {
           const binding = this.binding;
           const { result } = await this.request("ping", {}, timeoutMs);
+          rejectQtNativePing(result);
           const mismatches = [
             result.ok !== true ? "ok" : void 0,
             result.pid !== binding.pid ? "pid" : void 0,
@@ -12706,6 +12784,7 @@ function normalizeTable(raw, maxRows) {
       rowIndex,
       modelRowIndex: row.modelRowIndex,
       rowFingerprint: raw.rowFingerprints[row.modelRowIndex],
+      modelCellFlags: row.cells.map((cell) => cell.flags),
       typedValues: cells.map((cell) => cell.value),
       checkboxStates: cells.map((cell) => cell.state),
       cellTypes: cells.map((cell) => cell.type),
@@ -12743,6 +12822,36 @@ function normalizeTable(raw, maxRows) {
     }
   };
 }
+function projectQtNativeCompleteTable(raw, maxRows = 1e3) {
+  return normalizeTable(raw, maxRows);
+}
+function findQtNativeTableTarget(raw, wanted) {
+  const matches = [];
+  for (let row = 0; row < raw.rows; row++) {
+    if (raw.hiddenRows.includes(row)) continue;
+    for (let column = 0; column < raw.columns; column++) {
+      const value = raw.values[row][column];
+      if (!raw.hiddenColumns.includes(column) && (value.flags & 16) === 0 && value.checkState === null && text(value.display) === wanted) matches.push({ row, column });
+    }
+  }
+  return matches.length === 1 ? matches[0] : null;
+}
+async function readQtNativeCompleteTable(client, args, timeoutMs, signal) {
+  if (args.hwnd !== client.binding.hwnd) throw new Error("Cursor proof targets another native window.");
+  const read = await client.request("table_snapshot", {
+    // Cursor transactions alone need accessibility geometry and selection proof.
+    // Ordinary public model reads must not activate that separate read path.
+    withCursorFocusBinding: true,
+    maxRows: 1e3,
+    ...args.sumLabel ? { sumLabel: args.sumLabel } : {},
+    ...args.sumOccurrence ? { sumOccurrence: args.sumOccurrence } : {}
+  }, timeoutMs, signal);
+  const raw = TABLE.parse(read.result);
+  if (normalizeTable(raw, 1e3).ok !== true || !raw.complete || raw.canFetchMore || raw.readRows !== raw.rows) {
+    throw new Error("Cursor proof requires a complete, unfiltered native model.");
+  }
+  return raw;
+}
 async function executeQtNativeTableRead(client, args, timeoutMs = 5e3, signal) {
   if (args.hwnd !== void 0 && args.hwnd !== client.binding.hwnd) return fail2("stale-window", "Requested window differs from the native session.");
   const maxRows = typeof args.maxRows === "number" ? args.maxRows : 200;
@@ -12759,7 +12868,7 @@ async function executeQtNativeTableRead(client, args, timeoutMs = 5e3, signal) {
     return fail2("native-contract", error instanceof Error ? error.message : "Invalid native table response.");
   }
 }
-var SCALAR, CELL, TABLE, text, fail2;
+var SCALAR, CELL, QT_TABLE_FOCUS_BINDING, TABLE, text, fail2;
 var init_qt_native_tables = __esm({
   "src/qt-native-tables.ts"() {
     "use strict";
@@ -12767,6 +12876,15 @@ var init_qt_native_tables = __esm({
     init_qt_native_client();
     SCALAR = external_exports.union([external_exports.string(), external_exports.number(), external_exports.boolean(), external_exports.null()]);
     CELL = external_exports.object({ display: SCALAR, edit: SCALAR, checkState: external_exports.number().int().nullable(), flags: external_exports.number().int().nonnegative() });
+    QT_TABLE_FOCUS_BINDING = external_exports.object({
+      tableId: external_exports.number().int().safe().positive(),
+      modelId: external_exports.number().int().safe().positive(),
+      tableAid: external_exports.string().min(1),
+      tableName: external_exports.string().min(1),
+      currentIndex: external_exports.tuple([external_exports.number().int().min(-1), external_exports.number().int().min(-1)]),
+      selectedIndexes: external_exports.array(external_exports.tuple([external_exports.number().int().nonnegative(), external_exports.number().int().nonnegative()])).max(1e5),
+      modelFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/u)
+    }).strict();
     TABLE = external_exports.object({
       ok: external_exports.literal(true),
       controllerBound: external_exports.literal(true),
@@ -12786,7 +12904,8 @@ var init_qt_native_tables = __esm({
       table: external_exports.object({ id: external_exports.number().int().positive(), name: external_exports.string(), class: external_exports.string(), visible: external_exports.literal(true) }).passthrough(),
       summary: external_exports.string().nullable(),
       binding: external_exports.record(external_exports.unknown()).nullable(),
-      summaries: external_exports.array(external_exports.object({ label: external_exports.string(), vorkommen: external_exports.number().int().positive(), wert: external_exports.string().nullable() })).max(12)
+      summaries: external_exports.array(external_exports.object({ label: external_exports.string(), vorkommen: external_exports.number().int().positive(), wert: external_exports.string().nullable() })).max(12),
+      cursorFocusBinding: QT_TABLE_FOCUS_BINDING.nullable().optional()
     });
     text = (value) => value === null ? "" : String(value);
     fail2 = (kind, error) => ({ ok: false, backend: "qt", kind, error });
@@ -12954,11 +13073,11 @@ function roundEven(value) {
   const floor = Math.floor(value);
   return value - floor === 0.5 ? floor + Math.abs(floor) % 2 : Math.round(value);
 }
-function contentBounds(nodes, rect) {
+function contentBounds(nodes, rect2) {
   const nav = nodes.filter((node) => node.type === "Tree" && node.w > 100).sort((a, b) => a.x - b.x)[0];
-  const minX = nav ? nav.x + nav.w + 5 : roundEven(rect.x + rect.w * 0.28);
+  const minX = nav ? nav.x + nav.w + 5 : roundEven(rect2.x + rect2.w * 0.28);
   const help = nodes.filter((node) => ["eingabehilfe", "steuertipps"].includes(node.name.toLowerCase()) && node.x > minX).sort((a, b) => a.x - b.x)[0];
-  return { minX, maxX: help ? help.x - 10 : roundEven(rect.x + rect.w * 0.79), winX: rect.x, winW: rect.w, navErkannt: !!nav };
+  return { minX, maxX: help ? help.x - 10 : roundEven(rect2.x + rect2.w * 0.79), winX: rect2.x, winW: rect2.w, navErkannt: !!nav };
 }
 function heading(nodes, profile) {
   const parsed = external_exports.object({ headingContainerAutomationIdSuffix: external_exports.string().min(1) }).safeParse(profile?.pageObjectsCatalog.windows.main);
@@ -13431,16 +13550,16 @@ function checkerResults(nodes) {
   const warn = [], tips = [], other = [];
   let group = "sonstige", warnDeclared = 0, tipsDeclared = 0, warnSeen = false, tipsSeen = false;
   for (const node of top) {
-    const warnHeader = /^(\d+)\s+Fragen oder Warnungen\n?$/iu.exec(node.name);
+    const warnHeader = /^(?:(\d+)\s+Fragen oder Warnungen|(1)\s+Frage oder Warnung)\n?$/iu.exec(node.name);
     if (warnHeader) {
-      warnDeclared = Number(warnHeader[1]);
+      warnDeclared = Number(warnHeader[1] ?? warnHeader[2]);
       warnSeen = true;
       group = "fragenWarnungen";
       continue;
     }
-    const tipsHeader = /^(\d+)\s+Tipps oder Zusatzinformationen\n?$/iu.exec(node.name);
+    const tipsHeader = /^(?:(\d+)\s+Tipps oder Zusatzinformationen|(1)\s+Tipp oder Zusatzinformation)\n?$/iu.exec(node.name);
     if (tipsHeader) {
-      tipsDeclared = Number(tipsHeader[1]);
+      tipsDeclared = Number(tipsHeader[1] ?? tipsHeader[2]);
       tipsSeen = true;
       group = "tippsZusatzinfos";
       continue;
@@ -15425,7 +15544,7 @@ async function readBoundWindows(client, profile, subject, budget, signal) {
   const owned = others.filter((entry) => entry.kind !== "system-overlay" && entry.kind !== "case-window").map((entry) => entry.window);
   return { windows: { inventory, main: main2, owned } };
 }
-function ownedWindowNode(window, root, rect, index) {
+function ownedWindowNode(window, root, rect2, index) {
   return {
     // UIA runtime IDs contain signed 32-bit integers, as accessibleRuntimeId emits in the bridge.
     i: index,
@@ -15435,10 +15554,10 @@ function ownedWindowNode(window, root, rect, index) {
     name: root.name,
     aid: root.aid,
     rid: `42.${window.hwnd | 0}`,
-    x: rect.x,
-    y: rect.y,
-    w: rect.w,
-    h: rect.h,
+    x: rect2.x,
+    y: rect2.y,
+    w: rect2.w,
+    h: rect2.h,
     on: true,
     val: null,
     ro: null,
@@ -16051,7 +16170,7 @@ var init_qt_native_checker = __esm({
     init_qt_native_projections();
     init_qt_native_snapshot();
     ACTIVE_HINT = "Fragen/Warnungen und Tipps sind getrennt. Ein Eintrag ist nicht automatisch ein Steuerfehler; mit sse_checker_open den Wortlaut oeffnen.";
-    CLOSED_HINT = "Der globale Steuerpruefer ist nicht offen. Zu 'Pruefen und Abgeben' und dann 'Steuererklaerung pruefen' navigieren; dort sse_checker_run aufrufen.";
+    CLOSED_HINT = "Der globale Steuerpruefer ist nicht offen. sse_checker_run prueft den profilierten Startweg der gebundenen Fallart.";
     fail11 = (kind, error) => ({ ok: false, backend: "qt", kind, error });
   }
 });
@@ -16373,7 +16492,10 @@ async function executeQtNativeGoto(client, input, timeoutMs, signal, profile) {
         path.push(`Navigationsbaum '${item.name}' -> '${lastHeading ?? ""}'`);
         if (stateOf(snapshot).ready) return complete(snapshot, "Navigationsbaum");
         if (!lastHeading || lastHeading === start) throw new GotoError("The exact navigation-tree activation produced no verified page change; no second navigation dispatched.");
-        start = lastHeading;
+        throw new GotoError(
+          `The exact navigation-tree activation reached '${lastHeading}' instead of '${target}'; use the exact page heading or a catalogued pageId. No further navigation dispatched.`,
+          "not-found"
+        );
       }
       const suffix = activeProfile.pageObjectsCatalog.windows.main.searchContainerAutomationIdSuffix;
       if (typeof suffix !== "string" || !suffix) throw new GotoError("The profile has no search container binding.", "invalid-catalog");
@@ -17207,17 +17329,1219 @@ var init_qt_native_executor = __esm({
   }
 });
 
+// src/table-cursor-proofs.ts
+import { createHash as createHash14 } from "node:crypto";
+function publicCursorResult(result) {
+  const {
+    cursorBinding: _binding,
+    cursorLease: _lease,
+    cursorInputEpoch: _epoch,
+    selectedRids: _selection,
+    cursorStep: _step,
+    mutationTarget: _target,
+    mutationPostProof: _post,
+    ...publicResult
+  } = result;
+  return publicResult;
+}
+function cursorProofActivation(error) {
+  return error instanceof CursorProofFailure && error.nativeViewport ? {
+    cursorActivation: {
+      subphase: "native-viewport-dpi-geometry",
+      source: "qt-native",
+      activationAttempted: false,
+      nativeViewport: error.nativeViewport
+    }
+  } : {};
+}
+function sameContext(before, after) {
+  return after.hwnd === before.hwnd && after.pid === before.pid && after.dpi === before.dpi && after.dirty === before.dirty && after.windowTitle === before.windowTitle && after.windowFingerprint === before.windowFingerprint && JSON.stringify(after.clientOrigin) === JSON.stringify(before.clientOrigin) && after.snapshot.navigationBinding.contentSignature === before.snapshot.navigationBinding.contentSignature;
+}
+function tableCursorModelFingerprint(model) {
+  return createHash14("sha256").update(JSON.stringify({
+    table: model.table,
+    rows: model.rows,
+    readRows: model.readRows,
+    columns: model.columns,
+    headers: model.headers,
+    values: model.values,
+    rowFingerprints: model.rowFingerprints,
+    hiddenRows: model.hiddenRows,
+    hiddenColumns: model.hiddenColumns,
+    complete: model.complete,
+    canFetchMore: model.canFetchMore,
+    tableCount: model.tableCount,
+    summary: model.summary,
+    binding: model.binding,
+    summaries: model.summaries,
+    windowEnabled: model.windowEnabled,
+    modalBlocked: model.modalBlocked
+  })).digest("hex");
+}
+async function bindNativeViewport(client, binding, model, remaining, signal) {
+  const snapshot = await readQtNativeSnapshot(client, { hwnd: binding.hwnd, maxNodes: 5e3 }, remaining(), signal);
+  if (snapshot.stats.truncated || !snapshot.windowEnabled || snapshot.modalBlocked) rejectProof("native-tree-complete-unblocked");
+  const expected = binding.snapshot.navigationBinding;
+  const tables = snapshot.nodes.filter((node) => ["Table", "DataGrid"].includes(node.type) && node.rid === expected.tableRootRid && node.aid === expected.tableRootAid && node.on && node.w > 0 && node.h > 0);
+  if (tables.length !== 1 || !expected.tableRootAid.includes(".RedThreadContent.") || !model.table.name.startsWith("/.") || !expected.tableRootAid.endsWith(model.table.name)) {
+    rejectProof("native-accessible-table-identity");
+  }
+  const table = tables[0];
+  const headers = expected.headers.map((header) => {
+    const matches = snapshot.nodes.filter((node) => node.p === table.i && node.type === "Header" && node.w > 0 && node.rid === header.rid && node.aid === header.aid && node.name === header.name);
+    if (matches.length !== 1) rejectProof("native-column-header-identity");
+    return matches[0];
+  }).sort((a, b) => a.x - b.x);
+  const columns = model.headers.filter((_, index) => !model.hiddenColumns.includes(index)).map((value) => value === null ? "" : String(value));
+  if (JSON.stringify(headers.map((node) => node.name)) !== JSON.stringify(binding.snapshot.kopf) || JSON.stringify(columns) !== JSON.stringify(binding.snapshot.kopf)) rejectProof("native-column-headers");
+  const reply = await client.request("objects", { projection: "full", visibleOnly: true, maxObjects: 2e4 }, remaining(), signal);
+  const objects = external_exports.object({
+    ok: external_exports.literal(true),
+    complete: external_exports.literal(true),
+    windowEnabled: external_exports.literal(true),
+    modalBlocked: external_exports.literal(false),
+    objects: external_exports.array(objectSchema).max(2e4)
+  }).parse(reply.result).objects;
+  const namedTables = objects.filter((object) => object.name === model.table.name && object.class === "DialogUITable");
+  const nativeTables = namedTables.filter((object) => object.id === model.table.id && object.class === "DialogUITable" && object.visible === true && object.enabled === true && object.rootRect && object.nativeScreenRect);
+  if (namedTables.length !== 1 || nativeTables.length !== 1 || new Set(objects.map((object) => object.id)).size !== objects.length) {
+    rejectProof("native-qobject-table-identity");
+  }
+  const viewports = objects.filter((object) => object.parentId === model.table.id && object.name === "qt_scrollarea_viewport" && object.class === "QWidget" && object.visible === true && object.enabled === true && object.rootRect && object.nativeScreenRect);
+  if (viewports.length !== 1) rejectProof("native-genuine-viewport");
+  const tableRect = nativeTables[0].rootRect, viewportRect = viewports[0].rootRect;
+  const nativeTable = nativeTables[0].nativeScreenRect, nativeViewport = viewports[0].nativeScreenRect;
+  const expectedPhysicalRect = nativeTable.map((value) => Math.trunc(value));
+  const nativeViewportRect = [
+    Math.ceil(nativeViewport[0]),
+    Math.ceil(nativeViewport[1]),
+    Math.floor(nativeViewport[0] + nativeViewport[2]) - Math.ceil(nativeViewport[0]),
+    Math.floor(nativeViewport[1] + nativeViewport[3]) - Math.ceil(nativeViewport[1])
+  ];
+  const checks = {
+    tablePositiveBounds: tableRect[2] > 0 && tableRect[3] > 0,
+    viewportPositiveBounds: viewportRect[2] > 0 && viewportRect[3] > 0,
+    nativeTablePositiveBounds: nativeTable[2] > 0 && nativeTable[3] > 0,
+    nativeViewportPositiveBounds: nativeViewportRect[2] > 0 && nativeViewportRect[3] > 0,
+    xMatch: Math.abs(table.x - expectedPhysicalRect[0]) <= 1,
+    yMatch: Math.abs(table.y - expectedPhysicalRect[1]) <= 1,
+    widthMatch: Math.abs(table.w - expectedPhysicalRect[2]) <= 1,
+    heightMatch: Math.abs(table.h - expectedPhysicalRect[3]) <= 1,
+    viewportLeftInside: viewportRect[0] >= tableRect[0],
+    viewportTopInside: viewportRect[1] >= tableRect[1],
+    viewportRightInside: viewportRect[0] + viewportRect[2] <= tableRect[0] + tableRect[2],
+    viewportBottomInside: viewportRect[1] + viewportRect[3] <= tableRect[1] + tableRect[3],
+    nativeViewportLeftInside: nativeViewport[0] >= nativeTable[0],
+    nativeViewportTopInside: nativeViewport[1] >= nativeTable[1],
+    nativeViewportRightInside: nativeViewport[0] + nativeViewport[2] <= nativeTable[0] + nativeTable[2],
+    nativeViewportBottomInside: nativeViewport[1] + nativeViewport[3] <= nativeTable[1] + nativeTable[3]
+  };
+  if (Object.values(checks).some((value) => !value)) throw new CursorProofFailure("native-viewport-dpi-geometry", {
+    dpi: binding.dpi,
+    clientOrigin: [...binding.clientOrigin],
+    tableRect: [...tableRect],
+    viewportRect: [...viewportRect],
+    nativeTableRect: [...nativeTable],
+    nativeViewportRect: [...nativeViewport],
+    accessibleTableRect: [table.x, table.y, table.w, table.h],
+    expectedPhysicalRect,
+    checks
+  });
+  return { coordinateSpace: "qt-native-screen", tableRect, viewportRect, nativeTableRect: expectedPhysicalRect, nativeViewportRect };
+}
+function nativeFocusBinding(model, binding, requireCursor = false) {
+  const parsed = QT_TABLE_FOCUS_BINDING.safeParse(model.cursorFocusBinding);
+  if (!parsed.success) return rejectProof("native-focus-binding-schema");
+  const focus = parsed.data;
+  if (focus.tableId !== model.table.id || focus.tableName !== model.table.name || focus.tableAid !== binding.snapshot.navigationBinding.tableRootAid || requireCursor && (focus.currentIndex.some((index) => index < 0) || !focus.selectedIndexes.length)) {
+    rejectProof("native-focus-table-cursor-identity");
+  }
+  if (requireCursor && !focus.selectedIndexes.some((index) => index[0] === focus.currentIndex[0] && index[1] === focus.currentIndex[1])) {
+    rejectProof("native-focus-current-selection-alignment");
+  }
+  return focus;
+}
+function numberPolicy(model, binding) {
+  const headers = model.headers.filter((_, index) => !model.hiddenColumns.includes(index)).map((value) => value === null ? "" : String(value));
+  if (!/^\/\.[A-Za-z0-9_.-]{1,200}$/u.test(model.table.name) || !binding.snapshot.navigationBinding.tableRootAid.endsWith(model.table.name) || !binding.snapshot.navigationBinding.tableRootAid.includes(".RedThreadContent.") || !/^Nr\.?$/u.test(headers[0] ?? "") || headers.some((value) => !value) || JSON.stringify(headers) !== JSON.stringify(binding.snapshot.kopf)) rejectProof("native-number-policy");
+  return { tableName: model.table.name, headers };
+}
+var uint, rect, nativePixel, nativeRect, bindingSchema, leaseSchema, CursorProofFailure, rejectProof, objectSchema;
+var init_table_cursor_proofs = __esm({
+  "src/table-cursor-proofs.ts"() {
+    "use strict";
+    init_zod();
+    init_qt_native_tables();
+    init_qt_native_snapshot();
+    uint = external_exports.number().int().min(0).max(4294967295);
+    rect = external_exports.tuple([external_exports.number().int(), external_exports.number().int(), external_exports.number().int().nonnegative(), external_exports.number().int().nonnegative()]);
+    nativePixel = external_exports.number().finite().min(-2147483648).max(2147483647);
+    nativeRect = external_exports.tuple([nativePixel, nativePixel, nativePixel.nonnegative(), nativePixel.nonnegative()]);
+    bindingSchema = external_exports.object({
+      hwnd: external_exports.number().int().positive(),
+      pid: external_exports.number().int().positive(),
+      inputEpoch: uint,
+      dirty: external_exports.boolean(),
+      dpi: external_exports.number().int().min(96).max(768),
+      clientOrigin: external_exports.tuple([external_exports.number().int(), external_exports.number().int()]),
+      windowTitle: external_exports.string().min(1).max(4096),
+      windowFingerprint: external_exports.string().regex(/^[A-Fa-f0-9]{64}$/u),
+      snapshot: external_exports.object({
+        kopf: external_exports.array(external_exports.string()).min(2).max(100),
+        navigationBinding: external_exports.object({
+          complete: external_exports.literal(true),
+          editorFree: external_exports.literal(true),
+          heading: external_exports.string().min(1),
+          tableRootAid: external_exports.string().min(1),
+          tableRootRid: external_exports.string().min(1),
+          headers: external_exports.array(external_exports.object({ aid: external_exports.string().min(1), rid: external_exports.string().min(1), name: external_exports.string().min(1) })).min(2).max(100),
+          contentSignature: external_exports.string().regex(/^[A-Fa-f0-9]{64}$/u)
+        }).passthrough()
+      }).passthrough()
+    }).strict();
+    leaseSchema = external_exports.object({
+      schemaVersion: external_exports.literal(1),
+      nonce: external_exports.string().uuid(),
+      rootHwnd: external_exports.number().int().safe().positive(),
+      targetPid: external_exports.number().int().positive(),
+      inputEpoch: uint,
+      previous: external_exports.object({
+        hwnd: external_exports.number().int().safe().nonnegative(),
+        pid: uint,
+        start: external_exports.string().regex(/^(0|[1-9][0-9]{0,19})$/u),
+        class: external_exports.string()
+      }).strict(),
+      previousCursor: external_exports.object({ x: external_exports.number().int(), y: external_exports.number().int() }).strict().nullable()
+    }).strict();
+    CursorProofFailure = class extends Error {
+      constructor(proofCheck, nativeViewport) {
+        super("Cursor proof failed.");
+        this.proofCheck = proofCheck;
+        this.nativeViewport = nativeViewport;
+      }
+      proofCheck;
+      nativeViewport;
+    };
+    rejectProof = (check) => {
+      throw new CursorProofFailure(check);
+    };
+    objectSchema = external_exports.object({
+      id: external_exports.number().int().positive(),
+      parentId: external_exports.number().int().nonnegative(),
+      name: external_exports.string(),
+      class: external_exports.string(),
+      rootRect: rect.optional(),
+      nativeScreenRect: nativeRect.nullable().optional(),
+      visible: external_exports.boolean().optional(),
+      enabled: external_exports.boolean().optional()
+    }).passthrough();
+  }
+});
+
+// src/table-cursor-step.ts
+import { randomUUID as randomUUID3 } from "node:crypto";
+function sameSteppedContext(before, after) {
+  const a = before.snapshot.navigationBinding, b = after.snapshot.navigationBinding;
+  return after.hwnd === before.hwnd && after.pid === before.pid && after.dpi === before.dpi && after.dirty === before.dirty && after.windowTitle === before.windowTitle && after.windowFingerprint === before.windowFingerprint && JSON.stringify(after.clientOrigin) === JSON.stringify(before.clientOrigin) && JSON.stringify(before.snapshot.kopf) === JSON.stringify(after.snapshot.kopf) && a.heading === b.heading && a.tableRootAid === b.tableRootAid && a.tableRootRid === b.tableRootRid && JSON.stringify(a.headers) === JSON.stringify(b.headers) && ["scopePrefix", "selectionMethod", "summaryIdentity", "summaryValue", "summaryRid", "summaryAid"].every((key) => a[key] === b[key]);
+}
+async function executeNativeSteppedCursor(client, phase, args, initial, before, remaining, release, signal, targetRow) {
+  const fingerprint = tableCursorModelFingerprint(before), transactionNonce = randomUUID3();
+  const visibleRows = Array.from({ length: before.rows }, (_, row) => row).filter((row) => !before.hiddenRows.includes(row));
+  if (targetRow !== void 0 && !visibleRows.includes(targetRow)) rejectProof("native-seek-target-row");
+  const rows = targetRow === void 0 ? visibleRows : visibleRows.slice(0, visibleRows.indexOf(targetRow) + 1);
+  const policy = numberPolicy(before, initial);
+  if (!rows.length || before.hiddenColumns.includes(0) || !/^Nr\.?$/u.test(String(before.headers[0])) || before.rows > 1e3 || before.values.some((row) => (row[0].flags & 33) !== 33 || (row[0].flags & 16) !== 0 || row[0].checkState !== null || row[0].display !== null && typeof row[0].display !== "string" || row[0].edit !== null && typeof row[0].edit !== "string")) {
+    rejectProof("native-step-number-model");
+  }
+  const numberModel = before.values.map((row) => ({ display: row[0].display, edit: row[0].edit, flags: row[0].flags }));
+  const nativeArgs = { ...args, hwnd: initial.hwnd }, spent = /* @__PURE__ */ new Set();
+  let binding = initial, heldLease, selection;
+  let currentPhase = "native-preproof", steps = 0, submitted = false, cleanupRequired = false;
+  let physicalInputAttempted = false;
+  let nativeCursorFocusEvidence;
+  let workerFailure, final = before;
+  let result;
+  const verifyModel = async () => {
+    const model = await readQtNativeCompleteTable(client, nativeArgs, remaining(), signal);
+    if (tableCursorModelFingerprint(model) !== fingerprint) rejectProof("native-step-whole-model");
+    return model;
+  };
+  const focusOnce = async (model) => {
+    const focus = nativeFocusBinding(model, binding, true);
+    nativeCursorFocusEvidence = {
+      currentIndex: [...focus.currentIndex],
+      selectedIndexCount: focus.selectedIndexes.length,
+      selectedIndexes: focus.selectedIndexes.slice(0, 32).map((index) => [...index]),
+      selectedIndexesTruncated: focus.selectedIndexes.length > 32,
+      focusActionVerified: false
+    };
+    currentPhase = "native-step-focus-only";
+    submitted = true;
+    const reply = await client.requestAcknowledged("table_focus_only", {
+      objectId: focus.tableId,
+      binding: focus,
+      expectedRootHwnd: binding.hwnd,
+      expectedPid: binding.pid,
+      expectedInputTick: binding.inputEpoch,
+      expectedWindowTitle: binding.windowTitle
+    }, remaining(), signal);
+    if (reply.result.ok !== true || reply.result.focused !== true || reply.result.physicalInputUsed !== false || reply.result.inputTick !== binding.inputEpoch || reply.result.outcomeUnknown === true || typeof reply.result.mutationAttempted !== "boolean" || reply.result.mutationAttempted && !reply.receiptAcknowledged || JSON.stringify(QT_TABLE_FOCUS_BINDING.parse(reply.result.binding)) !== JSON.stringify(focus)) {
+      rejectProof("native-step-focus-acknowledged-postcondition");
+    }
+    const after = await verifyModel();
+    if (JSON.stringify(nativeFocusBinding(after, binding, true)) !== JSON.stringify(focus)) rejectProof("native-step-focus-current-selection");
+    nativeCursorFocusEvidence.focusActionVerified = true;
+    return after;
+  };
+  try {
+    nativeFocusBinding(before, binding);
+    const geometry = await bindNativeViewport(client, binding, before, remaining, signal);
+    currentPhase = "native-acquire";
+    const acquired = await phase("native-acquire", binding, { numberPolicy: policy, numberModel });
+    if (!acquired.ok) return { ...publicCursorResult(acquired), retryable: false };
+    cleanupRequired = true;
+    heldLease = leaseSchema.parse(acquired.cursorLease);
+    const acquiredBinding = bindingSchema.parse(acquired.cursorBinding);
+    if (!sameContext(binding, acquiredBinding) || heldLease.rootHwnd !== binding.hwnd || heldLease.targetPid !== binding.pid || heldLease.inputEpoch !== binding.inputEpoch || acquiredBinding.inputEpoch !== binding.inputEpoch) rejectProof("native-step-acquire-context");
+    binding = acquiredBinding;
+    selection = stepSelectionSchema.parse(acquired.selectedRids);
+    cleanupRequired = false;
+    let model = await verifyModel();
+    model = await focusOnce(model);
+    for (let sequence = 0; sequence <= rows.length; sequence++) {
+      if (remaining() < 1500) rejectProof("native-step-deadline-reserve");
+      const parent = heldLease;
+      if (spent.has(parent.nonce)) rejectProof("native-step-lease-replay");
+      const focus = nativeFocusBinding(model, binding, true);
+      if (focus.currentIndex[1] !== 0) rejectProof("native-step-number-current-column");
+      const key = sequence === 0 ? "home" : "down", stepNonce = randomUUID3();
+      const expectedRow = sequence === 0 ? rows[0] : rows[sequence];
+      if (expectedRow === void 0) rejectProof("native-step-row-budget");
+      currentPhase = `native-step-${key}`;
+      spent.add(parent.nonce);
+      heldLease = void 0;
+      cleanupRequired = true;
+      physicalInputAttempted = steps > 0 ? true : null;
+      const stepped = await phase("native-step", binding, { lease: parent, selectedRids: selection, step: {
+        transactionNonce,
+        stepNonce,
+        parentLeaseNonce: parent.nonce,
+        sequence,
+        key,
+        modelFingerprint: fingerprint,
+        currentIndex: focus.currentIndex,
+        expectedRow,
+        numberModel,
+        numberPolicy: policy,
+        geometry
+      } });
+      if (typeof stepped.steps === "number") {
+        steps += stepped.steps;
+        physicalInputAttempted = steps > 0;
+      }
+      if (!stepped.ok) {
+        workerFailure = publicCursorResult(stepped);
+        cleanupRequired = stepped.cleanupRequired === true || !(stepped.focusTelemetry && typeof stepped.focusTelemetry === "object" && stepped.focusTelemetry.releasedByEmit === true);
+        rejectProof("native-step-worker-result");
+      }
+      const nextBinding = bindingSchema.parse(stepped.cursorBinding), nextLease = leaseSchema.parse(stepped.cursorLease);
+      if (nextLease.nonce === parent.nonce || spent.has(nextLease.nonce) || nextLease.rootHwnd !== binding.hwnd || nextLease.targetPid !== binding.pid || nextLease.inputEpoch !== nextBinding.inputEpoch || !sameSteppedContext(binding, nextBinding) || JSON.stringify(nextLease.previous) !== JSON.stringify(parent.previous) || JSON.stringify(nextLease.previousCursor) !== JSON.stringify(parent.previousCursor)) rejectProof("native-step-handover-context");
+      heldLease = nextLease;
+      binding = nextBinding;
+      selection = stepSelectionSchema.parse(stepped.selectedRids);
+      cleanupRequired = false;
+      const checkpoint = stepCheckpointSchema.parse(stepped.cursorStep);
+      if (checkpoint.transactionNonce !== transactionNonce || checkpoint.stepNonce !== stepNonce || checkpoint.parentLeaseNonce !== parent.nonce || checkpoint.sequence !== sequence || checkpoint.key !== key || checkpoint.modelFingerprint !== fingerprint || checkpoint.row !== expectedRow || stepped.steps !== 1) {
+        rejectProof("native-step-checkpoint-progress");
+      }
+      currentPhase = "native-step-model-readback";
+      model = await verifyModel();
+      const current = nativeFocusBinding(model, binding, true);
+      if (current.currentIndex[0] !== checkpoint.row || current.currentIndex[1] !== checkpoint.column) rejectProof("native-step-model-current-index");
+      if (checkpoint.row === rows.at(-1)) {
+        if (!checkpoint.rowFullyContained) rejectProof(targetRow === void 0 ? "native-step-last-row-clipped" : "native-seek-target-row-clipped");
+        final = model;
+        const lastCheckpoint = await phase("checkpoint", binding);
+        if (!lastCheckpoint.ok || lastCheckpoint.cursorCheckpoint !== true) rejectProof("native-step-final-epoch");
+        const maxRows = typeof args.maxRows === "number" ? args.maxRows : 1e3;
+        result = {
+          ...projectQtNativeCompleteTable(final, maxRows),
+          steps,
+          schritte: steps,
+          physicalInputUsed: true,
+          nativeWholeModelUnchanged: true,
+          lastRowFullyContained: true,
+          cursorTransaction: "native-step-focus-only",
+          retryable: false,
+          ...targetRow === void 0 ? {} : { cursorBinding: binding }
+        };
+        break;
+      }
+      model = await focusOnce(model);
+    }
+    if (!result) rejectProof("native-step-row-budget");
+  } catch (error) {
+    result = {
+      ...workerFailure,
+      ok: false,
+      kind: workerFailure?.kind ?? "cursor-proof-failed",
+      phase: currentPhase,
+      proofCheck: error instanceof CursorProofFailure ? error.proofCheck : "native-step-contract",
+      error: workerFailure?.error ?? "Tabellen-Cursorschritt verlor seinen Nachweis; frisch abgleichen, keine Taste wiederholen.",
+      ...cursorProofActivation(error),
+      steps,
+      schritte: steps,
+      physicalInputAttempted,
+      activationSubmitted: submitted,
+      outcomeUnknown: steps > 0 || cleanupRequired,
+      reconciliationRequired: submitted || steps > 0,
+      ...nativeCursorFocusEvidence ? { nativeCursorFocusEvidence } : {},
+      retryable: false,
+      vollstaendig: false
+    };
+  } finally {
+    if (heldLease) {
+      try {
+        spent.add(heldLease.nonce);
+        const released = await release("native-release", binding, { lease: heldLease });
+        const telemetry = released.focusTelemetry;
+        cleanupRequired = released.ok !== true || released.cursorLeaseReleased !== true || !telemetry || typeof telemetry !== "object" || telemetry.releasedByEmit !== true;
+        if (!cleanupRequired) result = { ...result, focusTelemetry: telemetry };
+      } catch {
+        cleanupRequired = true;
+      }
+    }
+  }
+  return { ...result, ...cleanupRequired ? {
+    ok: false,
+    vollstaendig: false,
+    cleanupRequired: true,
+    reconciliationRequired: true
+  } : {} };
+}
+var stepCheckpointSchema, stepSelectionSchema;
+var init_table_cursor_step = __esm({
+  "src/table-cursor-step.ts"() {
+    "use strict";
+    init_zod();
+    init_qt_native_tables();
+    init_table_cursor_proofs();
+    stepCheckpointSchema = external_exports.object({
+      transactionNonce: external_exports.string().uuid(),
+      stepNonce: external_exports.string().uuid(),
+      parentLeaseNonce: external_exports.string().uuid(),
+      sequence: external_exports.number().int().nonnegative(),
+      key: external_exports.enum(["home", "down"]),
+      modelFingerprint: external_exports.string().regex(/^[a-f0-9]{64}$/u),
+      row: external_exports.number().int().nonnegative(),
+      column: external_exports.literal(0),
+      rowFullyContained: external_exports.boolean()
+    }).strict();
+    stepSelectionSchema = external_exports.array(external_exports.string().min(1)).min(1).max(32).refine((value) => new Set(value).size === value.length);
+  }
+});
+
+// src/table-cursor-position.ts
+function nativePositionDiagnostic(operation, epoch, result, acknowledged, transportKind) {
+  const bool = (value) => typeof value === "boolean" ? value : null;
+  const receipt = result?.mutationReceipt;
+  return {
+    operation,
+    replyReceived: result !== void 0,
+    code: typeof result?.code === "string" ? nativeCodes.has(result.code) ? result.code : "unrecognized" : null,
+    reason: typeof result?.error === "string" ? nativeReasons.get(result.error) ?? "unrecognized" : null,
+    ok: bool(result?.ok),
+    completed: bool(result?.[operation === "table_position_number" ? "positioned" : "focused"]),
+    physicalInputUsed: bool(result?.physicalInputUsed),
+    inputEpochMatches: Number.isInteger(result?.inputTick) ? result?.inputTick === epoch : null,
+    mutationAttempted: bool(result?.mutationAttempted),
+    outcomeUnknown: bool(result?.outcomeUnknown),
+    receiptPresent: result !== void 0 && Object.hasOwn(result, "mutationReceipt"),
+    receiptFormatValid: typeof receipt === "string" && /^[1-9][0-9]{0,19}$/u.test(receipt) && BigInt(receipt) <= 0xffffffffffffffffn,
+    receiptAcknowledged: bool(acknowledged),
+    numberEditorPending: bool(result?.numberEditorPending),
+    transportKind: transportKind === void 0 ? null : nativeTransportKinds.has(transportKind) ? transportKind : "unrecognized"
+  };
+}
+async function executeNativeTargetPosition(client, phase, args, initial, before, remaining, release, targetRow, signal) {
+  const fingerprint = tableCursorModelFingerprint(before), policy = numberPolicy(before, initial);
+  if (!Number.isInteger(targetRow) || targetRow < 0 || targetRow >= before.rows || before.rows > 1e3 || before.hiddenRows.includes(targetRow) || before.hiddenColumns.includes(0)) rejectProof("native-position-target-row");
+  const numberModel = before.values.map((row) => ({ display: row[0].display, edit: row[0].edit, flags: row[0].flags }));
+  if (before.values.some((row) => (row[0].flags & 33) !== 33 || (row[0].flags & 16) !== 0 || row[0].checkState !== null || row[0].display !== null && typeof row[0].display !== "string" || row[0].edit !== null && typeof row[0].edit !== "string")) rejectProof("native-position-number-model");
+  let binding = initial, lease, unknownAuthority = false, nativeQuiescent = true;
+  const issuedNonces = /* @__PURE__ */ new Set();
+  let submitted = false, positioned = false, stage = "native-position-preproof", result;
+  let nativeDiagnostic;
+  const verify = async () => {
+    const model = await readQtNativeCompleteTable(client, { ...args, hwnd: binding.hwnd }, remaining(), signal);
+    if (tableCursorModelFingerprint(model) !== fingerprint) rejectProof("native-position-whole-model");
+    return model;
+  };
+  const acknowledged = async (op, expected, extra = {}) => {
+    submitted = true;
+    nativeQuiescent = false;
+    nativeDiagnostic = nativePositionDiagnostic(op, binding.inputEpoch);
+    let reply;
+    try {
+      reply = await client.requestAcknowledged(op, {
+        objectId: expected.tableId,
+        binding: expected,
+        expectedRootHwnd: binding.hwnd,
+        expectedPid: binding.pid,
+        expectedInputTick: binding.inputEpoch,
+        expectedWindowTitle: binding.windowTitle,
+        ...extra
+      }, remaining(), signal);
+    } catch (error) {
+      nativeDiagnostic = nativePositionDiagnostic(
+        op,
+        binding.inputEpoch,
+        error instanceof QtNativeAcknowledgmentError ? error.mutationResult : void 0,
+        void 0,
+        error instanceof QtNativeTransportError ? error.kind : "unrecognized"
+      );
+      throw error;
+    }
+    nativeDiagnostic = nativePositionDiagnostic(op, binding.inputEpoch, reply.result, reply.receiptAcknowledged);
+    nativeQuiescent = reply.result.outcomeUnknown !== true && typeof reply.result.mutationAttempted === "boolean" && (!reply.result.mutationAttempted || reply.receiptAcknowledged);
+    if (reply.result.ok !== true || reply.result[op === "table_position_number" ? "positioned" : "focused"] !== true || reply.result.physicalInputUsed !== false || reply.result.inputTick !== binding.inputEpoch || reply.result.outcomeUnknown === true || typeof reply.result.mutationAttempted !== "boolean" || reply.result.mutationAttempted && !reply.receiptAcknowledged) rejectProof("native-position-acknowledgment");
+    if (op === "table_position_number" && typeof reply.result.numberEditorPending !== "boolean") rejectProof("native-position-editor-inventory");
+    if (reply.result.numberEditorPending === true) nativeQuiescent = false;
+    return { focus: QT_TABLE_FOCUS_BINDING.parse(reply.result.binding), numberEditorPending: reply.result.numberEditorPending === true };
+  };
+  const adopt = (checkpoint, parent) => {
+    const next = leaseSchema.parse(checkpoint.cursorLease), nextBinding = bindingSchema.parse(checkpoint.cursorBinding);
+    if (issuedNonces.has(next.nonce) || next.nonce === parent.nonce || next.rootHwnd !== parent.rootHwnd || next.targetPid !== parent.targetPid || next.inputEpoch !== initial.inputEpoch || nextBinding.inputEpoch !== initial.inputEpoch || JSON.stringify(next.previous) !== JSON.stringify(parent.previous) || JSON.stringify(next.previousCursor) !== JSON.stringify(parent.previousCursor) || !sameSteppedContext(binding, nextBinding) || checkpoint.cursorCheckpoint !== true) rejectProof("native-position-checkpoint-context");
+    issuedNonces.add(next.nonce);
+    lease = next;
+    binding = nextBinding;
+    unknownAuthority = false;
+  };
+  try {
+    await bindNativeViewport(client, initial, before, remaining, signal);
+    stage = "native-position-acquire";
+    const acquired = await phase("native-acquire", binding, { numberPolicy: policy, numberModel });
+    if (!acquired.ok) return { ...publicCursorResult(acquired), retryable: false };
+    unknownAuthority = true;
+    lease = leaseSchema.parse(acquired.cursorLease);
+    issuedNonces.add(lease.nonce);
+    const fresh = bindingSchema.parse(acquired.cursorBinding);
+    if (!sameContext(binding, fresh) || lease.rootHwnd !== binding.hwnd || lease.targetPid !== binding.pid || lease.inputEpoch !== binding.inputEpoch || fresh.inputEpoch !== binding.inputEpoch) rejectProof("native-position-acquire-context");
+    binding = fresh;
+    unknownAuthority = false;
+    let model = await verify(), focus = nativeFocusBinding(model, binding, true);
+    stage = "native-position-dispatch";
+    const positionReply = await acknowledged("table_position_number", focus, { targetRow }), afterPosition = positionReply.focus;
+    positioned = true;
+    if (afterPosition.tableId !== focus.tableId || afterPosition.modelId !== focus.modelId || afterPosition.tableAid !== focus.tableAid || afterPosition.tableName !== focus.tableName || afterPosition.modelFingerprint !== focus.modelFingerprint || JSON.stringify(afterPosition.currentIndex) !== JSON.stringify([targetRow, 0]) || JSON.stringify(afterPosition.selectedIndexes) !== JSON.stringify([[targetRow, 0]])) rejectProof("native-position-target-selection");
+    model = await verify();
+    focus = nativeFocusBinding(model, binding, true);
+    if (JSON.stringify(focus) !== JSON.stringify(afterPosition)) rejectProof("native-position-current-model-readback");
+    if (positionReply.numberEditorPending) {
+      nativeQuiescent = false;
+      stage = "native-position-number-preparation";
+      const geometry2 = await bindNativeViewport(client, binding, model, remaining, signal);
+      const parent2 = lease;
+      lease = void 0;
+      unknownAuthority = true;
+      const prepared = await phase("native-position-prepare", binding, {
+        lease: parent2,
+        position: { targetRow, numberModel, numberPolicy: policy, geometry: geometry2 }
+      });
+      if (!prepared.ok) rejectProof("native-position-number-closure");
+      adopt(prepared, parent2);
+      nativeQuiescent = true;
+      model = await verify();
+      if (JSON.stringify(nativeFocusBinding(model, binding, true)) !== JSON.stringify(focus)) rejectProof("native-position-number-closure-model");
+    }
+    stage = "native-position-focus-only";
+    const afterFocus = (await acknowledged("table_focus_only", focus)).focus;
+    if (JSON.stringify(afterFocus) !== JSON.stringify(focus)) rejectProof("native-position-focus-binding");
+    model = await verify();
+    if (JSON.stringify(nativeFocusBinding(model, binding, true)) !== JSON.stringify(focus)) rejectProof("native-position-focus-current-selection");
+    const geometry = await bindNativeViewport(client, binding, model, remaining, signal);
+    stage = "native-position-checkpoint";
+    if (!lease) rejectProof("native-position-missing-checkpoint-authority");
+    const parent = leaseSchema.parse(lease);
+    lease = void 0;
+    unknownAuthority = true;
+    const checkpoint = await phase("native-position-checkpoint", binding, {
+      lease: parent,
+      position: { targetRow, numberModel, numberPolicy: policy, geometry }
+    });
+    if (!checkpoint.ok) {
+      result = { ...publicCursorResult(checkpoint), ok: false, cleanupRequired: true, reconciliationRequired: true, retryable: false };
+    } else {
+      adopt(checkpoint, parent);
+      await verify();
+      const final = await phase("checkpoint", binding);
+      if (!final.ok || final.cursorCheckpoint !== true) rejectProof("native-position-final-epoch");
+      result = {
+        ok: true,
+        cursorBinding: binding,
+        physicalInputUsed: false,
+        steps: 0,
+        nativeWholeModelUnchanged: true,
+        lastRowFullyContained: true,
+        cursorTransaction: "native-target-position",
+        retryable: false
+      };
+    }
+  } catch (error) {
+    result = {
+      ok: false,
+      kind: "cursor-proof-failed",
+      phase: stage,
+      proofCheck: error instanceof CursorProofFailure ? error.proofCheck : "native-position-contract",
+      error: "Native Zielpositionierung verlor ihren Nachweis; frisch abgleichen, nicht wiederholen.",
+      physicalInputAttempted: false,
+      physicalInputUsed: false,
+      steps: 0,
+      activationSubmitted: submitted,
+      ...nativeDiagnostic ? { cursorActivation: {
+        source: "qt-native",
+        subphase: stage,
+        activationAttempted: submitted,
+        nativePosition: nativeDiagnostic
+      } } : {},
+      outcomeUnknown: !nativeQuiescent,
+      reconciliationRequired: submitted || positioned || unknownAuthority,
+      retryable: false,
+      vollstaendig: false
+    };
+  } finally {
+    if (lease && nativeQuiescent) {
+      try {
+        const released = await release("native-release", binding, { lease });
+        const telemetry = released.focusTelemetry;
+        unknownAuthority = released.ok !== true || released.cursorLeaseReleased !== true || !telemetry || typeof telemetry !== "object" || telemetry.releasedByEmit !== true;
+        if (!unknownAuthority) result = { ...result, focusTelemetry: telemetry };
+      } catch {
+        unknownAuthority = true;
+      }
+    } else if (lease) unknownAuthority = true;
+  }
+  return { ...result, ...unknownAuthority ? { ok: false, cleanupRequired: true, reconciliationRequired: true } : {} };
+}
+var nativeCodes, nativeReasons, nativeTransportKinds;
+var init_table_cursor_position = __esm({
+  "src/table-cursor-position.ts"() {
+    "use strict";
+    init_qt_native_client();
+    init_qt_native_tables();
+    init_table_cursor_proofs();
+    init_table_cursor_step();
+    nativeCodes = /* @__PURE__ */ new Set([
+      "INVALID_POSITION_TARGET",
+      "precondition-failed",
+      "position-outcome-unknown",
+      "stale-window",
+      "stale",
+      "editor-open",
+      "worker-isolation-lost",
+      "busy",
+      "NATIVE_OPERATION_FAILED",
+      "GUI_DISPATCH_FAILED",
+      "GUI_QUEUE_TIMEOUT",
+      "GUI_OPERATION_TIMEOUT",
+      "NO_QT_APPLICATION",
+      "SESSION_OWNER_GONE",
+      "UNAUTHORIZED",
+      "SESSION_RELEASING",
+      "RECOVERY_REQUIRED",
+      "MUTATION_ACK_REQUIRED",
+      "INVALID_REQUEST",
+      "INVALID_MUTATION_RECEIPT"
+    ]);
+    nativeReasons = /* @__PURE__ */ new Map([
+      ["The exact root, foreground, title or original input epoch changed", "root-or-input-epoch"],
+      ["The exact complete table/model/current-selection binding changed", "prior-complete-binding"],
+      ["The new viewport editor is not the exact current Nr. delegate", "new-number-delegate"],
+      ["The fresh Nr. delegate has no exact profiled accessible identity", "new-number-accessible-identity"],
+      ["The final exact model, target or original input epoch changed", "final-model-target-or-epoch"],
+      ["The exact table is unavailable or blocked by a modal/popup", "table-unavailable-or-modal"],
+      ["The exact table has no directly focusable flat model", "table-flat-focus-model"],
+      ["The currently focused widget is not a proven owned passive focus source", "focused-source-not-passive"],
+      ["The exact table editor inventory exceeds its bound", "editor-inventory-bound"],
+      ["The exact table contains an unproven visible viewport widget", "other-visible-viewport-widget"],
+      ["The exact table model is not completely bounded", "model-size-bound"],
+      ["The exact table has no already bound current model index", "missing-current-index"],
+      ["The exact table contains an invalid model index", "invalid-model-index"],
+      ["The exact table contains a live index widget", "live-index-widget"],
+      ["The exact target Nr. index is hidden or outside its flat model", "hidden-or-outside-target"],
+      ["The exact target Nr. index is not an enabled plain selectable cell", "target-number-flags"],
+      ["The complete model or exact target identity changed before positioning", "prior-model-or-target-identity"],
+      ["The exact model, root or index changed during Nr. selection", "selection-object-lifetime"],
+      ["The exact target Nr. cell did not retain current index and sole selection", "target-current-and-selection"],
+      ["Nr. selection changed the complete raw model", "selection-changed-model"],
+      ["The exact model, root or index changed during target scrolling", "scroll-object-lifetime"],
+      ["The exact sole target Nr. selection is not fully contained in its genuine viewport", "target-not-contained"],
+      ["Target scrolling changed the complete raw model", "scroll-changed-model"],
+      ["Operation is still executing on the GUI thread; verify its outcome before retry", "gui-operation-running"],
+      ["Operation cancelled before GUI dispatch", "gui-queue-cancelled"],
+      ["The previous controller ended without releasing its lease", "prior-controller-abandoned"],
+      ["Session controller lease could not be released", "controller-release"]
+    ]);
+    nativeTransportKinds = /* @__PURE__ */ new Set([
+      "native-mutation-receipt",
+      "native-timeout",
+      "native-connection",
+      "native-protocol",
+      "native-closed",
+      "native-transaction-busy",
+      "native-request",
+      "native-request-size",
+      "native-queue-full",
+      "aborted"
+    ]);
+  }
+});
+
+// src/table-cursor-edit-roles.ts
+function amountEqual(actual, expected) {
+  const normalize = (value) => {
+    const text3 = String(value ?? "").trim().replace(/\s|€/gu, "");
+    const canonical = text3.includes(",") ? text3.replaceAll(".", "").replace(",", ".") : text3;
+    return /^[+-]?[0-9]+(?:\.[0-9]{1,2})?$/u.test(canonical) ? Number(canonical) : null;
+  };
+  const a = normalize(actual), b = normalize(expected);
+  return a !== null && b !== null && a === b;
+}
+function knownEditRole(model, row, column, wanted) {
+  const prior = model.values[row][column];
+  const candidates = model.values.map((cells) => cells[column]).filter((cell) => String(cell.display ?? "") === wanted && cell.flags === prior.flags && cell.checkState === null && cell.edit !== null);
+  const roles = new Map(candidates.map((cell) => [JSON.stringify([typeof cell.edit, cell.edit]), cell.edit]));
+  if (roles.size !== 1) rejectProof("mutation-requested-edit-role-unknown-or-ambiguous");
+  return [...roles.values()][0];
+}
+function bindRequestedNativeEditRoles(model, row, columns, args, tableAid, catalog) {
+  const values = args.werte;
+  if (!Array.isArray(values) || values.length > columns.length) return rejectProof("mutation-requested-values-shape");
+  const expected = /* @__PURE__ */ new Map();
+  for (let visible = 0; visible < columns.length; visible++) {
+    const wanted = values[visible];
+    if (wanted === null || wanted === void 0) continue;
+    if (typeof wanted !== "string") return rejectProof("mutation-requested-value-type");
+    const column = columns[visible], header = String(model.headers[column] ?? ""), prior = model.values[row][column];
+    if ((prior.flags & 16) !== 0 || prior.checkState !== null) {
+      if (!["true", "false"].includes(wanted)) rejectProof("mutation-requested-checkbox-value");
+      expected.set(column, { wanted, edit: typeof prior.edit === "boolean" ? wanted === "true" : prior.edit, mode: "checkbox" });
+      continue;
+    }
+    const profiled = Object.values(catalog?.pages ?? {}).flatMap((page) => Object.values(page.tables ?? {})).filter((table) => table.automationIdSection && table.sumLabel === args.sumLabel && table.sumOccurrence === (args.sumOccurrence ?? 1) && tableAid.split(/[./]/u).includes(table.automationIdSection)).flatMap((table) => table.columns).filter((profile) => profile.index === visible && profile.header === header && profile.controlType === "ComboBox" && profile.valueKind === "enum" && profile.writePolicy === "typed-selection-required");
+    if (profiled.length > 1) rejectProof("mutation-requested-enum-profile-ambiguous");
+    if (profiled.length === 1) {
+      expected.set(column, { wanted, edit: knownEditRole(model, row, column, wanted), mode: "exact" });
+    } else if (header === "Kategorie") {
+      rejectProof("mutation-requested-enum-profile-missing");
+    } else if (header === "Datum") {
+      expected.set(column, { wanted, edit: knownEditRole(model, row, column, wanted), mode: "exact" });
+    } else if (["Betrag", "Netto", "%", "MwSt"].includes(header)) {
+      if (!["string", "number"].includes(typeof prior.edit) || !amountEqual(prior.display, prior.edit) || !amountEqual(wanted, wanted)) rejectProof("mutation-requested-numeric-edit-format");
+      expected.set(column, { wanted, edit: wanted, mode: "numeric" });
+    } else {
+      const cells = model.values.map((cells2) => cells2[column]);
+      if (typeof prior.edit !== "string" || prior.display !== prior.edit || cells.some((cell) => String(cell.display ?? "") !== "" && (typeof cell.edit !== "string" || cell.display !== cell.edit))) {
+        rejectProof("mutation-requested-text-edit-format");
+      }
+      expected.set(column, { wanted, edit: wanted, mode: "exact" });
+    }
+  }
+  return expected;
+}
+var init_table_cursor_edit_roles = __esm({
+  "src/table-cursor-edit-roles.ts"() {
+    "use strict";
+    init_table_cursor_proofs();
+  }
+});
+
+// src/table-cursor-mutation.ts
+import { performance as performance13 } from "node:perf_hooks";
+async function executeTableCursorMutation(operation, args, worker, dependencies, timeoutMs = DEFAULT_OPERATION_TIMEOUT_MS, signal, pageObjectsCatalog) {
+  if (!dependencies.qtNativeClient && !dependencies.qtNativeClientFor) return publicCursorResult(await worker(operation, args, timeoutMs, signal));
+  const started = performance13.now();
+  const remaining = () => {
+    const value = Math.floor(timeoutMs - (performance13.now() - started));
+    if (signal?.aborted || value < 1) throw new Error("Table target transaction expired.");
+    return value;
+  };
+  const readArgs = { hwnd: args.hwnd, noKeys: false, sumLabel: args.sumLabel, sumOccurrence: args.sumOccurrence ?? 1, maxRows: 1e3 };
+  const phase = (name, binding, extra = {}) => worker("table_read", {
+    ...readArgs,
+    ...binding ? { hwnd: binding.hwnd, pid: binding.pid } : {},
+    __tableCursorPlan: { schemaVersion: 1, phase: name, ...binding ? { binding } : {}, ...extra }
+  }, remaining(), signal);
+  const release = (name, binding, extra = {}) => worker("table_read", {
+    ...readArgs,
+    hwnd: binding.hwnd,
+    pid: binding.pid,
+    __tableCursorPlan: { schemaVersion: 1, phase: name, binding, ...extra }
+  }, 5e3);
+  let mutationSubmitted = false, cursorAttempted = false, stage = "mutation-prebind";
+  let cursorResult;
+  try {
+    const prebound = await phase("prebind");
+    if (!prebound.ok) return { ...publicCursorResult(prebound), mutationStarted: false, retryable: false };
+    let binding = bindingSchema.parse(prebound.cursorBinding);
+    if (binding.snapshot.navigationBinding.heading !== args.expectedPage || !amountEqual(binding.snapshot.navigationBinding.summaryValue, args.expectedBefore)) rejectProof("mutation-page-summary-before");
+    const client = dependencies.qtNativeClient ?? await dependencies.qtNativeClientFor({ hwnd: binding.hwnd }, remaining(), signal);
+    if (client.binding.hwnd !== binding.hwnd || client.binding.pid !== binding.pid) rejectProof("mutation-native-session");
+    const nativeArgs = { ...readArgs, hwnd: binding.hwnd };
+    const before = await readQtNativeCompleteTable(client, nativeArgs, remaining(), signal);
+    if (!amountEqual(before.summary, args.expectedBefore)) rejectProof("mutation-native-summary-before");
+    const matched = findQtNativeTableTarget(before, String(args.text)) ?? rejectProof("mutation-unique-native-target");
+    const fingerprint = tableCursorModelFingerprint(before);
+    const columns = Array.from({ length: before.columns }, (_, column) => column).filter((column) => !before.hiddenColumns.includes(column));
+    stage = "mutation-requested-role-preflight";
+    const requestedRoles = operation === "table_update" ? bindRequestedNativeEditRoles(before, matched.row, columns, args, binding.snapshot.navigationBinding.tableRootAid, pageObjectsCatalog) : /* @__PURE__ */ new Map();
+    const target = {
+      ...matched,
+      text: args.text,
+      tableAid: binding.snapshot.navigationBinding.tableRootAid,
+      tableRid: binding.snapshot.navigationBinding.tableRootRid,
+      modelFingerprint: fingerprint,
+      headers: columns.map((column) => String(before.headers[column] ?? "")),
+      cells: columns.map((nativeColumn) => ({ nativeColumn, ...before.values[matched.row][nativeColumn] }))
+    };
+    numberPolicy(before, binding);
+    if (args.targetRid !== void 0) {
+      const supplied = await phase("mutation-target", binding, { target, targetRid: args.targetRid });
+      if (!supplied.ok) return { ...publicCursorResult(supplied), mutationStarted: false, retryable: false };
+      const proof2 = external_exports.object({ row: external_exports.literal(matched.row), column: external_exports.literal(matched.column), targetRid: external_exports.literal(String(args.targetRid)) }).strict();
+      proof2.parse(supplied.mutationTarget);
+    }
+    const ping = await client.request("ping", {}, remaining(), signal);
+    if (ping.result.ok !== true || ping.result.pid !== binding.pid || ping.result.hwnd !== binding.hwnd || ping.result.recoveryRequired !== false || ping.result.mutationAcknowledgmentRequired !== false || !ping.result.capabilities || typeof ping.result.capabilities !== "object" || ping.result.capabilities.tableFocusOnlyProtocol !== 1 || ping.result.capabilities.tablePositionNumberProtocol !== 1) rejectProof("mutation-native-position-protocol");
+    stage = "mutation-target-seek";
+    cursorAttempted = true;
+    cursorResult = await executeNativeTargetPosition(client, phase, readArgs, binding, before, remaining, release, matched.row, signal);
+    if (!cursorResult.ok) return { ...publicCursorResult(cursorResult), mutationStarted: false, retryable: false };
+    binding = bindingSchema.parse(cursorResult.cursorBinding);
+    stage = "mutation-target-readback";
+    const afterSeek = await readQtNativeCompleteTable(client, nativeArgs, remaining(), signal);
+    if (tableCursorModelFingerprint(afterSeek) !== fingerprint) rejectProof("mutation-seek-whole-model");
+    const fresh = await phase("mutation-target", binding, { target, ...args.targetRid === void 0 ? {} : { targetRid: args.targetRid } });
+    if (!fresh.ok) return { ...publicCursorResult(fresh), mutationStarted: false, retryable: false };
+    const proof = external_exports.object({ row: external_exports.literal(matched.row), column: external_exports.literal(matched.column), targetRid: external_exports.string().min(1) }).strict().parse(fresh.mutationTarget);
+    if (tableCursorModelFingerprint(await readQtNativeCompleteTable(client, nativeArgs, remaining(), signal)) !== fingerprint) {
+      rejectProof("mutation-final-whole-model");
+    }
+    const mutationTimeout = remaining();
+    stage = "mutation-worker";
+    mutationSubmitted = true;
+    const result = await worker(operation, {
+      ...args,
+      hwnd: binding.hwnd,
+      pid: binding.pid,
+      targetRid: args.targetRid ?? proof.targetRid,
+      __tableMutationBinding: { schemaVersion: 1, operation, binding, target }
+    }, mutationTimeout, signal);
+    if (!result.ok) return { ...publicCursorResult(result), retryable: false };
+    if (result.verified !== true) rejectProof("mutation-worker-verified-readback");
+    const postProof = external_exports.object({ inputEpoch: external_exports.number().int().min(0).max(4294967295), dirty: external_exports.boolean() }).strict().parse(result.mutationPostProof);
+    stage = "mutation-native-postcondition";
+    const after = await readQtNativeCompleteTable(client, nativeArgs, remaining(), signal);
+    const structure = (model) => JSON.stringify({
+      table: model.table,
+      columns: model.columns,
+      headers: model.headers,
+      hiddenColumns: model.hiddenColumns,
+      tableCount: model.tableCount,
+      windowEnabled: model.windowEnabled,
+      modalBlocked: model.modalBlocked
+    });
+    if (structure(before) !== structure(after) || !amountEqual(after.summary, args.expectedAfter)) rejectProof("mutation-native-structure-summary");
+    const untouched = before.values.filter((_, row) => row !== matched.row);
+    const actual = operation === "table_update" ? after.values.filter((_, row) => row !== matched.row) : after.values;
+    if (after.rows !== before.rows - (operation === "table_delete" ? 1 : 0) || JSON.stringify(untouched) !== JSON.stringify(actual) || JSON.stringify(after.hiddenRows) !== JSON.stringify(before.hiddenRows.filter((row) => row !== matched.row).map((row) => operation === "table_delete" && row > matched.row ? row - 1 : row))) rejectProof("mutation-native-untouched-rows");
+    if (operation === "table_update") {
+      for (let visible = 0; visible < columns.length; visible++) {
+        const column = columns[visible], prior = before.values[matched.row][column], current = after.values[matched.row][column];
+        const requested = requestedRoles.get(column);
+        if (prior.flags !== current.flags) rejectProof("mutation-native-target-flags");
+        if (requested) {
+          const { wanted } = requested;
+          if (requested.mode === "checkbox") {
+            if (!["true", "false"].includes(wanted) || current.checkState !== (wanted === "true" ? 2 : 0)) rejectProof("mutation-native-target-checkbox");
+            if (current.edit !== requested.edit) rejectProof("mutation-native-target-requested-edit");
+          } else {
+            const numeric = requested.mode === "numeric";
+            if (String(current.display ?? "") !== wanted && !(numeric && amountEqual(current.display, wanted))) {
+              rejectProof("mutation-native-target-requested");
+            }
+            if (current.edit !== requested.edit && !(numeric && ["string", "number"].includes(typeof current.edit) && amountEqual(current.edit, wanted))) {
+              rejectProof("mutation-native-target-requested-edit");
+            }
+          }
+        } else if ((prior.flags & 2) !== 0 || (prior.flags & 16) !== 0 || prior.checkState !== null) {
+          if (JSON.stringify(prior) !== JSON.stringify(current)) rejectProof("mutation-native-target-unrequested");
+        }
+      }
+      for (const column of before.hiddenColumns) {
+        if (JSON.stringify(before.values[matched.row][column]) !== JSON.stringify(after.values[matched.row][column])) {
+          rejectProof("mutation-native-target-hidden-cell");
+        }
+      }
+    }
+    stage = "mutation-passive-final-checkpoint";
+    const finalBinding = { ...binding, ...postProof, snapshot: { ...binding.snapshot, navigationBinding: {
+      ...binding.snapshot.navigationBinding,
+      summaryValue: String(after.summary)
+    } } };
+    const finalCheckpoint = await phase("mutation-checkpoint", finalBinding);
+    if (!finalCheckpoint.ok || finalCheckpoint.cursorCheckpoint !== true) rejectProof("mutation-final-epoch-window");
+    return {
+      ...publicCursorResult(result),
+      nativeTargetRowVerified: true,
+      nativeUntouchedRowsVerified: true,
+      cursorSteps: cursorResult.steps,
+      retryable: false
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      kind: "cursor-proof-failed",
+      phase: stage,
+      proofCheck: error instanceof CursorProofFailure ? error.proofCheck : "mutation-target-contract",
+      error: "Native Zielzeile verlor ihren Nachweis; frisch abgleichen, Mutation nicht wiederholen.",
+      mutationStarted: mutationSubmitted ? null : false,
+      outcomeUnknown: mutationSubmitted,
+      reconciliationRequired: cursorAttempted || mutationSubmitted,
+      retryable: false,
+      ...cursorResult ? { cursorSteps: cursorResult.steps } : {}
+    };
+  }
+}
+var init_table_cursor_mutation = __esm({
+  "src/table-cursor-mutation.ts"() {
+    "use strict";
+    init_zod();
+    init_api_contract();
+    init_qt_native_tables();
+    init_table_cursor_proofs();
+    init_table_cursor_position();
+    init_table_cursor_edit_roles();
+  }
+});
+
+// src/table-cursor-executor.ts
+import { performance as performance14 } from "node:perf_hooks";
+async function executeNativeCursorFocus(client, phase, args, initial, before, remaining, release, signal) {
+  nativeFocusBinding(before, initial);
+  const fingerprint = tableCursorModelFingerprint(before);
+  const nativeArgs = { ...args, hwnd: initial.hwnd };
+  let binding = initial, lease, consumed = false, submitted = false;
+  let physicalInputAttempted = false;
+  let currentPhase = "native-acquire", cleanupRequired = false, handoverReported = false;
+  let resumeFailure;
+  let nativeFocusEvidence;
+  let result;
+  try {
+    const acquired = await phase("native-acquire", binding);
+    if (!acquired.ok) return {
+      ...publicCursorResult(acquired),
+      retryable: false,
+      ...acquired.kind === "worker-isolation-lost" ? { cleanupRequired: true, reconciliationRequired: true } : {}
+    };
+    handoverReported = true;
+    lease = leaseSchema.parse(acquired.cursorLease);
+    const acquiredBinding = bindingSchema.parse(acquired.cursorBinding);
+    if (!sameContext(binding, acquiredBinding) || acquiredBinding.inputEpoch !== binding.inputEpoch || lease.rootHwnd !== binding.hwnd || lease.targetPid !== binding.pid || lease.inputEpoch !== binding.inputEpoch) {
+      rejectProof("native-focus-lease-context");
+    }
+    binding = acquiredBinding;
+    currentPhase = "native-focus-preproof";
+    const prepared = await readQtNativeCompleteTable(client, nativeArgs, remaining(), signal);
+    if (tableCursorModelFingerprint(prepared) !== fingerprint) rejectProof("native-focus-pre-model");
+    const focus = nativeFocusBinding(prepared, binding, true);
+    nativeFocusEvidence = {
+      currentIndex: [...focus.currentIndex],
+      selectedIndexCount: focus.selectedIndexes.length,
+      selectedIndexes: focus.selectedIndexes.slice(0, 32).map((index) => [...index]),
+      selectedIndexesTruncated: focus.selectedIndexes.length > 32,
+      focusActionVerified: false
+    };
+    currentPhase = "native-focus-only";
+    submitted = true;
+    const focused = await client.requestAcknowledged("table_focus_only", {
+      objectId: focus.tableId,
+      binding: focus,
+      expectedRootHwnd: binding.hwnd,
+      expectedPid: binding.pid,
+      expectedInputTick: binding.inputEpoch,
+      expectedWindowTitle: binding.windowTitle
+    }, remaining(), signal);
+    if (focused.result.ok !== true || focused.result.focused !== true || focused.result.physicalInputUsed !== false || focused.result.inputTick !== binding.inputEpoch || focused.result.outcomeUnknown === true || typeof focused.result.mutationAttempted !== "boolean" || focused.result.mutationAttempted && !focused.receiptAcknowledged || JSON.stringify(QT_TABLE_FOCUS_BINDING.parse(focused.result.binding)) !== JSON.stringify(focus)) {
+      rejectProof("native-focus-acknowledged-postcondition");
+    }
+    currentPhase = "native-focus-readback";
+    const post = await readQtNativeCompleteTable(client, nativeArgs, remaining(), signal);
+    if (tableCursorModelFingerprint(post) !== fingerprint || JSON.stringify(nativeFocusBinding(post, binding, true)) !== JSON.stringify(focus)) rejectProof("native-focus-post-model-selection");
+    nativeFocusEvidence.focusActionVerified = true;
+    currentPhase = "cursor-resume";
+    physicalInputAttempted = null;
+    const resumed = await phase("resume", binding, { lease, selectedRids: acquired.selectedRids });
+    physicalInputAttempted = typeof resumed.steps === "number" ? resumed.steps > 0 : null;
+    consumed = Boolean(resumed.focusTelemetry && typeof resumed.focusTelemetry === "object" && resumed.focusTelemetry.releasedByEmit === true);
+    if (!resumed.ok) {
+      resumeFailure = publicCursorResult(resumed);
+      rejectProof("native-focus-resume-worker-result");
+    }
+    if (!consumed) rejectProof("native-focus-resume-lease-completion");
+    binding = bindingSchema.parse(resumed.cursorBinding);
+    currentPhase = "native-final-readback";
+    const final = await readQtNativeCompleteTable(client, nativeArgs, remaining(), signal);
+    if (tableCursorModelFingerprint(final) !== fingerprint) rejectProof("native-focus-final-model");
+    currentPhase = "passive-final-checkpoint";
+    const checkpoint = await phase("checkpoint", binding);
+    if (!checkpoint.ok || checkpoint.cursorCheckpoint !== true) rejectProof("native-focus-final-epoch");
+    result = { ...publicCursorResult(resumed), nativeWholeModelUnchanged: true, cursorTransaction: "native-focus-only", retryable: false };
+  } catch (error) {
+    result = {
+      ...resumeFailure,
+      ok: false,
+      kind: resumeFailure?.kind ?? "cursor-proof-failed",
+      phase: currentPhase,
+      proofCheck: error instanceof CursorProofFailure ? error.proofCheck : "native-or-worker-contract",
+      error: resumeFailure?.error ?? "Nativer Tabellenfokus hat seinen vollstaendigen Nachweis verloren; frisch abgleichen, nicht wiederholen.",
+      activationSubmitted: submitted,
+      physicalInputAttempted,
+      outcomeUnknown: submitted || handoverReported,
+      ...nativeFocusEvidence ? { nativeCursorFocusEvidence: nativeFocusEvidence } : {},
+      reconciliationRequired: submitted || handoverReported,
+      retryable: false,
+      vollstaendig: false
+    };
+  } finally {
+    if (lease && !consumed) {
+      try {
+        const released = await release("native-release", binding, { lease });
+        cleanupRequired = released.ok !== true || released.cursorLeaseReleased !== true;
+      } catch {
+        cleanupRequired = true;
+      }
+    }
+    if (handoverReported && !lease) cleanupRequired = true;
+  }
+  return { ...result, ...cleanupRequired ? { cleanupRequired: true, reconciliationRequired: true } : {} };
+}
+async function executeTableCursorRead(args, worker, dependencies, timeoutMs = DEFAULT_OPERATION_TIMEOUT_MS, signal) {
+  if (!dependencies.qtNativeClient && !dependencies.qtNativeClientFor) return worker("table_read", args, timeoutMs, signal);
+  const started = performance14.now();
+  const remaining = () => {
+    const value = Math.floor(timeoutMs - (performance14.now() - started));
+    if (signal?.aborted || value < 1) throw new Error(signal?.aborted ? "Cursor transaction aborted." : "Cursor transaction deadline exceeded.");
+    return value;
+  };
+  const phase = (name, binding, extra = {}) => worker("table_read", {
+    ...args,
+    noKeys: false,
+    ...binding ? { hwnd: binding.hwnd, pid: binding.pid } : {},
+    __tableCursorPlan: { schemaVersion: 1, phase: name, ...binding ? { binding } : {}, ...extra }
+  }, remaining(), signal);
+  const release = (name, binding, extra = {}) => worker("table_read", {
+    ...args,
+    noKeys: false,
+    hwnd: binding.hwnd,
+    pid: binding.pid,
+    __tableCursorPlan: { schemaVersion: 1, phase: name, binding, ...extra }
+  }, 5e3);
+  let activationSubmitted = false;
+  let physicalInputAttempted = false;
+  let currentPhase = "prebind";
+  try {
+    const prebind = await phase("prebind");
+    if (!prebind.ok) return prebind;
+    const binding = bindingSchema.parse(prebind.cursorBinding);
+    const client = dependencies.qtNativeClient ?? await dependencies.qtNativeClientFor({ hwnd: binding.hwnd }, remaining(), signal);
+    if (client.binding.hwnd !== binding.hwnd || client.binding.pid !== binding.pid) throw new Error("Native session differs from the prebound process/window.");
+    currentPhase = "native-preproof";
+    const nativeArgs = { ...args, hwnd: binding.hwnd };
+    const before = await readQtNativeCompleteTable(client, nativeArgs, remaining(), signal);
+    const ping = await client.request("ping", {}, remaining(), signal);
+    if (ping.result.ok !== true || ping.result.pid !== binding.pid || ping.result.hwnd !== binding.hwnd || ping.result.recoveryRequired !== false || ping.result.mutationAcknowledgmentRequired !== false) {
+      rejectProof("native-session-not-ready");
+    }
+    const capabilities = ping.result.capabilities;
+    if (capabilities && typeof capabilities === "object" && capabilities.tableFocusOnlyProtocol === 1) {
+      const profiledEdv = binding.snapshot.navigationBinding.heading === "EDV-Kosten" && JSON.stringify(binding.snapshot.kopf) === JSON.stringify(["Nr.", "Datum", "Bezeichnung", "Betrag", "N", "%", "Netto"]);
+      if (profiledEdv || binding.snapshot.navigationBinding.tableRootAid.endsWith(".grpEmpf13b.Empf13b") && before.table.name === "/.grpEmpf13b.Empf13b" && /^Nr\.?$/u.test(binding.snapshot.kopf[0] ?? "")) {
+        return await executeNativeSteppedCursor(client, phase, args, binding, before, remaining, release, signal);
+      }
+      return await executeNativeCursorFocus(client, phase, args, binding, before, remaining, release, signal);
+    }
+    const fingerprint = tableCursorModelFingerprint(before);
+    const geometry = await bindNativeViewport(client, binding, before, remaining, signal);
+    currentPhase = "viewport-activation";
+    activationSubmitted = true;
+    physicalInputAttempted = null;
+    const activated = await phase("activate", binding, { geometry });
+    physicalInputAttempted = activated.physicalInputUsed === true || activated.physicalInputAttempted === true ? true : activated.physicalInputUsed === false || activated.physicalInputAttempted === false ? false : null;
+    currentPhase = "native-activation-readback";
+    const post = await readQtNativeCompleteTable(client, nativeArgs, remaining(), signal);
+    if (tableCursorModelFingerprint(post) !== fingerprint) throw new Error("Table model changed during viewport activation; no cursor key is allowed.");
+    if (!activated.ok) return { ...publicCursorResult(activated), nativeWholeModelUnchanged: true, retryable: false };
+    const afterBinding = bindingSchema.parse(activated.cursorBinding);
+    if (!sameContext(binding, afterBinding)) {
+      throw new Error("Cursor activation changed its bound page/model context.");
+    }
+    currentPhase = "cursor-resume";
+    const result = await phase("resume", afterBinding, { selectedRids: activated.selectedRids });
+    if (typeof result.steps === "number" && result.steps > 0) physicalInputAttempted = true;
+    currentPhase = "native-final-readback";
+    const final = await readQtNativeCompleteTable(client, nativeArgs, remaining(), signal);
+    if (tableCursorModelFingerprint(final) !== fingerprint) throw new Error("Table model changed during cursor traversal; do not repeat.");
+    if (result.ok) {
+      currentPhase = "passive-final-checkpoint";
+      const checkpoint = await phase("checkpoint", bindingSchema.parse(result.cursorBinding));
+      if (!checkpoint.ok || checkpoint.cursorCheckpoint !== true) throw new Error("Final native read lost the inherited input/window checkpoint.");
+    }
+    return { ...publicCursorResult(result), nativeWholeModelUnchanged: true, cursorTransaction: "guarded-table-viewport", retryable: false };
+  } catch (error) {
+    return {
+      ok: false,
+      kind: "cursor-proof-failed",
+      error: "Geschuetzter Tabellenlauf konnte seinen vollstaendigen Zustandsnachweis nicht halten; frisch abgleichen, nicht wiederholen.",
+      phase: currentPhase,
+      proofCheck: error instanceof CursorProofFailure ? error.proofCheck : "native-or-worker-contract",
+      ...cursorProofActivation(error),
+      activationSubmitted,
+      physicalInputAttempted,
+      outcomeUnknown: activationSubmitted,
+      reconciliationRequired: activationSubmitted,
+      retryable: false,
+      vollstaendig: false
+    };
+  }
+}
+var init_table_cursor_executor = __esm({
+  "src/table-cursor-executor.ts"() {
+    "use strict";
+    init_api_contract();
+    init_qt_native_tables();
+    init_table_cursor_proofs();
+    init_table_cursor_step();
+    init_table_cursor_proofs();
+    init_table_cursor_mutation();
+  }
+});
+
+// src/table-add-cursor-result.ts
+function tableAddCursorFailure(original, cursor) {
+  const code = (value, allowed) => typeof value === "string" && allowed.has(value) ? value : "unclassified";
+  const count = (value) => typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 400 ? value : null;
+  const flag = (key) => typeof cursor[key] === "boolean" ? cursor[key] : null;
+  const combinedFlag = (key) => original[key] === true || cursor[key] === true ? true : flag(key);
+  const cleanupRequired = combinedFlag("cleanupRequired");
+  const outcomeUnknown = original.outcomeUnknown === true || cursor.outcomeUnknown !== false || cleanupRequired === true;
+  return {
+    ...original,
+    ok: false,
+    kind: "cursor-proof-failed",
+    error: "Anlegezeile nach Tabellenlauf nicht vollstaendig bewiesen; Teilzustand frisch abgleichen, nicht wiederholen.",
+    verified: false,
+    retryable: false,
+    outcomeUnknown,
+    reconciliationRequired: true,
+    cleanupRequired,
+    mutationStarted: original.mutationStarted === true ? true : outcomeUnknown ? null : original.mutationStarted,
+    resultingState: outcomeUnknown ? "unknown" : original.resultingState,
+    physicalInputAttempted: combinedFlag("physicalInputAttempted"),
+    physicalInputUsed: combinedFlag("physicalInputUsed"),
+    freeRowSearch: {
+      retriedAfterTableWalk: false,
+      rowsWalked: count(cursor.anzahl),
+      originalKind: "not-found",
+      cursorResult: {
+        ok: cursor.ok === true,
+        vollstaendig: cursor.vollstaendig === true,
+        kind: code(cursor.kind, kinds),
+        phase: code(cursor.phase, phases),
+        proofCheck: code(cursor.proofCheck, proofChecks),
+        stopKind: code(cursor.stopKind, stopKinds),
+        steps: count(cursor.steps),
+        schritte: count(cursor.schritte),
+        outcomeUnknown: flag("outcomeUnknown"),
+        reconciliationRequired: flag("reconciliationRequired"),
+        cleanupRequired: flag("cleanupRequired"),
+        activationSubmitted: flag("activationSubmitted"),
+        physicalInputAttempted: flag("physicalInputAttempted"),
+        physicalInputUsed: flag("physicalInputUsed"),
+        nativeWholeModelUnchanged: flag("nativeWholeModelUnchanged")
+      }
+    }
+  };
+}
+var kinds, phases, proofChecks, stopKinds;
+var init_table_add_cursor_result = __esm({
+  "src/table-add-cursor-result.ts"() {
+    "use strict";
+    kinds = /* @__PURE__ */ new Set([
+      "aborted",
+      "busy",
+      "cancelled",
+      "cursor-proof-failed",
+      "cursor-unavailable",
+      "interference",
+      "not-found",
+      "precondition-failed",
+      "postcondition-failed",
+      "timeout",
+      "worker-isolation-lost",
+      "native-contract",
+      "native-timeout",
+      "GUI_QUEUE_TIMEOUT",
+      "GUI_OPERATION_TIMEOUT",
+      "MUTATION_ACK_REQUIRED",
+      "SESSION_DRAINING"
+    ]);
+    phases = /* @__PURE__ */ new Set([
+      "prebind",
+      "native-preproof",
+      "native-acquire",
+      "native-focus-preproof",
+      "native-focus-only",
+      "native-focus-readback",
+      "cursor-resume",
+      "native-final-readback",
+      "passive-final-checkpoint",
+      "viewport-activation",
+      "native-activation-readback",
+      "native-step-home",
+      "native-step-down",
+      "native-step-focus-only",
+      "native-step-model-readback"
+    ]);
+    proofChecks = /* @__PURE__ */ new Set([
+      "native-or-worker-contract",
+      "native-step-contract",
+      "native-session-not-ready",
+      "native-viewport-dpi-geometry",
+      "native-focus-resume-worker-result",
+      "native-focus-resume-lease-completion",
+      "native-focus-final-model",
+      "native-focus-final-epoch",
+      "native-step-worker-result",
+      "native-step-last-row-clipped",
+      "native-step-final-epoch",
+      "cursor-transport-error"
+    ]);
+    stopKinds = /* @__PURE__ */ new Set(["cursor-unavailable", "max-rows", "cursor-stalled"]);
+  }
+});
+
 // src/api-executor.ts
 import { existsSync as existsSync9, mkdirSync as mkdirSync3, readdirSync as readdirSync3, rmdirSync } from "node:fs";
 import { dirname as dirname10 } from "node:path";
-import { performance as performance13 } from "node:perf_hooks";
+import { performance as performance15 } from "node:perf_hooks";
 function withResourceIdentity4(redactPaths, result, resourceRefs = {}) {
   const redacted = redactPaths(result);
   if (!Object.keys(resourceRefs).length) return redacted;
   return { ...redacted, resourceRefs };
 }
 function remainingTimeoutMs(timeoutMs, startedAt) {
-  return Math.max(0, Math.floor(timeoutMs - (performance13.now() - startedAt)));
+  return Math.max(0, Math.floor(timeoutMs - (performance15.now() - startedAt)));
 }
 function isExperimentalDialogAnswerCandidate(operation, args) {
   return operation === "dialog_answer" && args.button === "OK";
@@ -17284,7 +18608,7 @@ function createApiExecutor(config, rawWorker, dependencies = {}) {
       if (operation === "desktop_status" && dependencies.nativeDesktopStatus) {
         return redactPaths(await win325(() => dependencies.nativeDesktopStatus(timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS, signal)));
       }
-      if (isQtNativeOperation(operation) && (dependencies.qtNativeClient || dependencies.qtNativeClientFor)) {
+      if (isQtNativeOperation(operation) && !(operation === "table_read" && args.noKeys === false) && (dependencies.qtNativeClient || dependencies.qtNativeClientFor)) {
         const executeNative = () => executeQtNativeOperation(operation, args, dependencies, timeoutMs, signal, profile);
         return redactPaths(await (telemetry?.enabled ? telemetry.runQtNative(executeNative) : executeNative()));
       }
@@ -17446,6 +18770,20 @@ function createApiExecutor(config, rawWorker, dependencies = {}) {
         });
       }
       const configured = configuredArgs(operation, args, config);
+      if (operation === "table_read" && args.noKeys === false) {
+        return withResourceIdentity4(
+          redactPaths,
+          await executeTableCursorRead(configured.args, worker, dependencies, timeoutMs, signal),
+          configured.resourceRefs
+        );
+      }
+      if (operation === "table_update" || operation === "table_delete") {
+        return withResourceIdentity4(
+          redactPaths,
+          await executeTableCursorMutation(operation, configured.args, worker, dependencies, timeoutMs, signal, profile.pageObjectsCatalog),
+          configured.resourceRefs
+        );
+      }
       if (operation === "desktop_stop" && dependencies.nativeDesktopStop) {
         return redactPaths(await win325(() => dependencies.nativeDesktopStop(configured.args, timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS, signal)));
       }
@@ -17470,7 +18808,7 @@ function createApiExecutor(config, rawWorker, dependencies = {}) {
       }
       if (operation === "list_cases" && configured.args.verbose !== true && typeof configured.args.dir === "string" && existsSync9(configured.args.dir)) {
         const effectiveTimeoutMs = timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS;
-        const localStartedAt = performance13.now();
+        const localStartedAt = performance15.now();
         try {
           const result2 = await local(operation, () => listCaseFiles(String(configured.args.dir), profile, {
             includeBackups: configured.args.includeBackups === true,
@@ -17532,13 +18870,23 @@ function createApiExecutor(config, rawWorker, dependencies = {}) {
         }
       }
       if (operation === "table_add" && result?.ok !== true && result?.kind === "not-found" && typeof result?.error === "string" && result.error.includes("Keine freie Tabellenzeile")) {
-        const readArgs = { maxRows: 400 };
+        const readArgs = { maxRows: 400, noKeys: false };
         for (const key of ["sumLabel", "sumOccurrence", "hwnd", "pid"]) {
           if (configured.args[key] !== void 0) readArgs[key] = configured.args[key];
         }
         const configuredRead = configuredArgs("table_read", readArgs, config);
-        const scrolled = await worker("table_read", configuredRead.args, timeoutMs, signal);
-        if (scrolled?.ok === true) {
+        const scrolled = await executeTableCursorRead(configuredRead.args, worker, dependencies, timeoutMs, signal).catch(() => ({
+          ok: false,
+          kind: "cursor-proof-failed",
+          proofCheck: "cursor-transport-error",
+          outcomeUnknown: true,
+          reconciliationRequired: true,
+          cleanupRequired: true
+        }));
+        if (scrolled?.ok === true && scrolled.vollstaendig === true) {
+          if (scrolled.outcomeUnknown === true || scrolled.reconciliationRequired === true || scrolled.cleanupRequired === true || result.outcomeUnknown === true || result.reconciliationRequired === true || result.cleanupRequired === true) {
+            return withResourceIdentity4(redactPaths, tableAddCursorFailure(result, scrolled), configured.resourceRefs);
+          }
           const retried = await worker(operation, configured.args, timeoutMs, signal);
           return withResourceIdentity4(redactPaths, {
             ...retried,
@@ -17548,6 +18896,7 @@ function createApiExecutor(config, rawWorker, dependencies = {}) {
             }
           }, configured.resourceRefs);
         }
+        return withResourceIdentity4(redactPaths, tableAddCursorFailure(result, scrolled), configured.resourceRefs);
       }
       return withResourceIdentity4(redactPaths, result, configured.resourceRefs);
     } catch (error) {
@@ -17587,6 +18936,8 @@ var init_api_executor = __esm({
     init_backup_executor();
     init_archive_executor();
     init_qt_native_executor();
+    init_table_cursor_executor();
+    init_table_add_cursor_result();
     init_api_resource_bindings();
     init_profile_operation_policy();
     MIN_WORKER_FALLBACK_TIMEOUT_MS = 2e3;
@@ -20176,6 +21527,9 @@ var init_result_contract = __esm({
     API_OPERATION_NAME_SCHEMA = external_exports.enum(SSE_API_OPERATIONS);
     OPTIONAL_TABLE_ROW_DETAILS = external_exports.array(external_exports.object({
       rowIndex: external_exports.number().int().nonnegative().describe("Nullbasierter Ausgabezeilenindex"),
+      modelCellFlags: external_exports.array(external_exports.number().int().nonnegative()).optional().describe(
+        "Native Qt-ItemFlags je sichtbarer Ausgabespalte, positionsgleich zu nativeTable.visibleColumns; kein UIA-Fokus- oder Klicknachweis"
+      ),
       typedValues: external_exports.array(external_exports.union([external_exports.string(), external_exports.boolean(), external_exports.null()])).describe(
         "Zellwerte; Checkboxen boolesch, unbestimmte/unbekannte Werte null"
       ),
@@ -20348,7 +21702,8 @@ var init_result_contract = __esm({
         rowDetails: OPTIONAL_TABLE_ROW_DETAILS,
         vollstaendig: OPTIONAL_BOOLEAN,
         anzahl: OPTIONAL_NON_NEGATIVE_NUMBER,
-        summe: OPTIONAL_STRING
+        summe: OPTIONAL_STRING,
+        cursorActivation: OPTIONAL_OBJECT.describe("Technischer Nachweis des semantischen Tabellenfokus; kein Zellklick")
       },
       result_details: { zeilen: OPTIONAL_ARRAY, vollstaendig: OPTIONAL_BOOLEAN, anzahl: OPTIONAL_NON_NEGATIVE_NUMBER },
       snapshot: { nodes: OPTIONAL_ARRAY, count: OPTIONAL_NON_NEGATIVE_NUMBER, stats: OPTIONAL_OBJECT, toolWindow: OPTIONAL_STRING },
@@ -20464,7 +21819,12 @@ var init_result_contract = __esm({
         pid: OPTIONAL_NON_NEGATIVE_NUMBER,
         instance: OPTIONAL_OBJECT,
         ready: OPTIONAL_BOOLEAN,
-        case: OPTIONAL_CASE_IDENTITY
+        case: OPTIONAL_CASE_IDENTITY,
+        processPreserved: OPTIONAL_BOOLEAN.describe("Der Executor hat den gestarteten Prozess nicht automatisch geschlossen"),
+        processStillRunning: OPTIONAL_BOOLEAN.describe("Beobachteter Prozesszustand; null bedeutet unbekannt"),
+        outcomeUnknown: OPTIONAL_BOOLEAN,
+        reconciliationRequired: OPTIONAL_BOOLEAN.describe("Fenster und Wiederherstellungszustand vor weiteren Aktionen frisch klaeren"),
+        retryable: OPTIONAL_BOOLEAN
       },
       close: { stillRunning: OPTIONAL_BOOLEAN, killed: OPTIONAL_BOOLEAN },
       desktop_start: { pid: OPTIONAL_NON_NEGATIVE_NUMBER, desktop: OPTIONAL_STRING },
@@ -21161,8 +22521,8 @@ var init_api_supervisor_contract = __esm({
 });
 
 // src/api-server.ts
-import { randomUUID as randomUUID3 } from "node:crypto";
-import { performance as performance14 } from "node:perf_hooks";
+import { randomUUID as randomUUID4 } from "node:crypto";
+import { performance as performance16 } from "node:perf_hooks";
 import {
   createServer
 } from "node:http";
@@ -21271,14 +22631,14 @@ function parseOperationRequest(value) {
 }
 function createSseApiServer(options) {
   const { execute, requestShutdown } = options;
-  const instanceId = options.instanceId ?? randomUUID3();
+  const instanceId = options.instanceId ?? randomUUID4();
   const log = options.log ?? (() => void 0);
   let inFlight = null;
   let stopping = false;
   const inFlightSnapshot = () => {
     if (!inFlight) return null;
     const { startedMonotonic, ...publicState } = inFlight;
-    return { ...publicState, elapsedMs: Math.round(performance14.now() - startedMonotonic) };
+    return { ...publicState, elapsedMs: Math.round(performance16.now() - startedMonotonic) };
   };
   const safeLog = (record) => {
     try {
@@ -21287,8 +22647,8 @@ function createSseApiServer(options) {
     }
   };
   const server = createServer(async (request, response) => {
-    const requestId = randomUUID3();
-    const started = performance14.now();
+    const requestId = randomUUID4();
+    const started = performance16.now();
     const foreignClient = foreignClientReason(request);
     if (foreignClient) {
       sendJson(response, 403, apiError(requestId, "forbidden", foreignClient));
@@ -21462,7 +22822,7 @@ function createSseApiServer(options) {
         });
         return;
       }
-      inFlight = { operation: operationName, requestId, startedAt: Date.now(), startedMonotonic: performance14.now() };
+      inFlight = { operation: operationName, requestId, startedAt: Date.now(), startedMonotonic: performance16.now() };
       let rawResult;
       try {
         rawResult = await execute(operationName, args, body.timeoutMs, controller.signal);
@@ -21491,7 +22851,7 @@ function createSseApiServer(options) {
         apiVersion: SSE_API_VERSION,
         requestId,
         operation: operationName,
-        durationMs: Math.round(performance14.now() - started),
+        durationMs: Math.round(performance16.now() - started),
         result
       };
       const operationLog = {
@@ -21532,7 +22892,7 @@ function createSseApiServer(options) {
         event: "operation-error",
         requestId,
         operation: operationName,
-        durationMs: Math.round(performance14.now() - started),
+        durationMs: Math.round(performance16.now() - started),
         code,
         errorName: error instanceof Error ? error.name : "Error"
       });
@@ -21730,6 +23090,30 @@ var init_desktop_marker = __esm({
   }
 });
 
+// src/worker-table-capability.ts
+import { randomBytes } from "node:crypto";
+function createTableWorkerCapability() {
+  return randomBytes(32).toString("hex");
+}
+function tableWorkerEnvironment(capability, base = process.env) {
+  if (!/^[a-f0-9]{64}$/u.test(capability)) throw new TypeError("Invalid internal worker capability.");
+  return { ...base, [environmentKey]: capability };
+}
+function bindTableWorkerArguments(args, capability) {
+  if (Object.hasOwn(args, argumentKey)) throw new TypeError("Caller-supplied internal worker capability is forbidden.");
+  if (!Object.hasOwn(args, "__tableCursorPlan") && !Object.hasOwn(args, "__tableMutationBinding")) return args;
+  if (!/^[a-f0-9]{64}$/u.test(capability)) throw new TypeError("Invalid internal worker capability.");
+  return { ...args, [argumentKey]: capability };
+}
+var environmentKey, argumentKey;
+var init_worker_table_capability = __esm({
+  "src/worker-table-capability.ts"() {
+    "use strict";
+    environmentKey = "SSE_INTERNAL_TABLE_CAPABILITY";
+    argumentKey = "__tableTransportCapability";
+  }
+});
+
 // src/worker-prewarm.ts
 import { spawn } from "node:child_process";
 import { availableParallelism, constants as osConstants, setPriority, totalmem } from "node:os";
@@ -21800,11 +23184,12 @@ function discard(candidate, reason) {
 }
 function startWarmSpare() {
   let child;
+  const transportCapability = createTableWorkerCapability();
   try {
     child = spawn(
       resolveWindowsPowerShell(),
       ["-ExecutionPolicy", "Bypass", "-NoLogo", "-NoProfile", "-NonInteractive", "-File", WORKER_SCRIPT, "-Prewarm"],
-      { windowsHide: true }
+      { windowsHide: true, env: tableWorkerEnvironment(transportCapability) }
     );
   } catch (error) {
     blockedUntil = performance.now() + PREWARM_RETRY_DELAY_MS;
@@ -21814,6 +23199,7 @@ function startWarmSpare() {
   setSparePriority(child, osConstants.priority.PRIORITY_BELOW_NORMAL);
   const candidate = {
     child,
+    transportCapability,
     environmentFingerprint: environmentFingerprint(),
     residualStdout: [],
     ready: false,
@@ -21936,7 +23322,7 @@ function takeWarmSpare() {
   candidate.release();
   candidate.child.ref();
   setSparePriority(candidate.child, osConstants.priority.PRIORITY_NORMAL);
-  return { child: candidate.child, residualStdout: candidate.residualStdout };
+  return { child: candidate.child, transportCapability: candidate.transportCapability, residualStdout: candidate.residualStdout };
 }
 function enableWorkerPrewarm() {
   enabled = true;
@@ -21953,6 +23339,7 @@ var init_worker_prewarm = __esm({
   "src/worker-prewarm.ts"() {
     "use strict";
     init_windows_runtime();
+    init_worker_table_capability();
     HERE = dirname11(fileURLToPath2(import.meta.url));
     WORKER_SCRIPT = join12(HERE, "..", "powershell", "sse-worker.ps1");
     MAX_HANDSHAKE_BYTES = 4096;
@@ -21977,7 +23364,7 @@ var init_worker_prewarm = __esm({
 
 // src/worker.ts
 import { spawn as spawn2 } from "node:child_process";
-import { createHash as createHash14, randomUUID as randomUUID4 } from "node:crypto";
+import { createHash as createHash15, randomUUID as randomUUID5 } from "node:crypto";
 import { closeSync as closeSync3, openSync as openSync3, unlinkSync as unlinkSync3, writeFileSync as writeFileSync3 } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
@@ -21995,7 +23382,7 @@ function createWorkerArgumentsFile(args) {
       "payload-too-large"
     );
   }
-  const path = join13(tmpdir(), `sse-args-${randomUUID4().replaceAll("-", "")}.json`);
+  const path = join13(tmpdir(), `sse-args-${randomUUID5().replaceAll("-", "")}.json`);
   const descriptor = openSync3(path, "wx", 384);
   let failure6;
   try {
@@ -22031,7 +23418,7 @@ function removeWorkerArgumentsFile(path) {
 function summarizeWorkerDiagnostic(value) {
   if (value.length <= MAX_WORKER_DIAGNOSTIC_CHARACTERS) return value;
   const bytes = Buffer.from(value, "utf8");
-  const digest = createHash14("sha256").update(bytes).digest("hex");
+  const digest = createHash15("sha256").update(bytes).digest("hex");
   return `${value.slice(0, MAX_WORKER_DIAGNOSTIC_CHARACTERS)}
 [Diagnose gekuerzt: ${bytes.length} UTF-8-Bytes, sha256=${digest}]`;
 }
@@ -22141,7 +23528,27 @@ async function callWorkerUnsynchronised(op, args = {}, timeoutMs = DEFAULT_TIMEO
   );
   const desk = marker?.name ?? null;
   const markerAllowsWarmSpare = marker?.owner === "sse" && !workerOperationNeedsMarkedDesktop(op);
-  const argsFile = createWorkerArgumentsFile(args);
+  const spare = !desk || markerAllowsWarmSpare ? takeWarmSpare() : null;
+  const transportCapability = spare?.transportCapability ?? createTableWorkerCapability();
+  let argsFile;
+  try {
+    argsFile = createWorkerArgumentsFile(bindTableWorkerArguments(args, transportCapability));
+  } catch (error) {
+    if (spare) {
+      try {
+        spare.child.stdin.end();
+      } catch {
+      }
+      try {
+        spare.child.kill();
+      } catch {
+      }
+      spare.child.stdin.destroy();
+      spare.child.stdout.destroy();
+      spare.child.stderr.destroy();
+    }
+    throw error instanceof TypeError ? new WorkerError(error.message, "bad-args") : error;
+  }
   const argv = desk ? [
     "-NoLogo",
     "-NoProfile",
@@ -22157,7 +23564,6 @@ async function callWorkerUnsynchronised(op, args = {}, timeoutMs = DEFAULT_TIMEO
     "-TimeoutSec",
     String(Math.max(30, Math.floor(timeoutMs / 1e3) - 5))
   ] : ["-NoLogo", "-NoProfile", "-NonInteractive", "-File", WORKER, "-Op", op, "-ArgsFile", argsFile];
-  const spare = !desk || markerAllowsWarmSpare ? takeWarmSpare() : null;
   if (!workerRuntimeFailure) setImmediate(refillWarmSpareLater);
   return new Promise((resolve17, reject) => {
     let child;
@@ -22184,7 +23590,7 @@ async function callWorkerUnsynchronised(op, args = {}, timeoutMs = DEFAULT_TIMEO
         child = spawn2(
           resolveWindowsPowerShell(),
           ["-ExecutionPolicy", "Bypass", ...argv],
-          { windowsHide: true }
+          { windowsHide: true, env: tableWorkerEnvironment(transportCapability) }
         );
       } catch (error) {
         const spawnError = new WorkerError(`PowerShell liess sich nicht starten: ${String(error)}`, "spawn");
@@ -22341,6 +23747,7 @@ var init_worker = __esm({
     init_api_contract();
     init_desktop_marker();
     init_worker_prewarm();
+    init_worker_table_capability();
     init_worker_operation_policy();
     HERE2 = dirname12(fileURLToPath3(import.meta.url));
     WORKER = join13(HERE2, "..", "powershell", "sse-worker.ps1");
@@ -22519,14 +23926,14 @@ var init_jsonl_logger = __esm({
 });
 
 // src/qt-native-package.ts
-import { createHash as createHash15 } from "node:crypto";
+import { createHash as createHash16 } from "node:crypto";
 import { lstatSync as lstatSync3, realpathSync as realpathSync4 } from "node:fs";
 import { join as join14 } from "node:path";
 function verifiedFile(path, expected, maximumBytes) {
   const info = lstatSync3(path);
   if (!info.isFile() || info.isSymbolicLink()) throw new Error("Native package entries must be regular files.");
   const bytes = readFileBounded(path, maximumBytes);
-  if (createHash15("sha256").update(bytes).digest("hex") !== expected) throw new Error("Native package file digest mismatch.");
+  if (createHash16("sha256").update(bytes).digest("hex") !== expected) throw new Error("Native package file digest mismatch.");
   return bytes;
 }
 function loadQtNativePackage(config, profile) {
@@ -22580,7 +23987,7 @@ var init_qt_native_package = __esm({
 
 // src/qt-native-broker.ts
 import { spawn as spawn3 } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { randomBytes as randomBytes2 } from "node:crypto";
 import { Duplex } from "node:stream";
 import { isAbsolute as isAbsolute8 } from "node:path";
 async function readReadiness(child, timeoutMs, signal) {
@@ -22641,8 +24048,8 @@ async function startQtNativeBroker(options) {
     expectedImage,
     expectedProfile: nativePackage.manifest.profile,
     dll: nativePackage.bridgePath,
-    pipe: `\\\\.\\pipe\\sse-qt-read-${target.pid}-${randomBytes(8).toString("hex")}`,
-    nonce: randomBytes(32).toString("hex")
+    pipe: `\\\\.\\pipe\\sse-qt-read-${target.pid}-${randomBytes2(8).toString("hex")}`,
+    nonce: randomBytes2(32).toString("hex")
   };
   const body = Buffer.from(JSON.stringify(request));
   if (body.length > 65536) throw new QtNativeTransportError("Native bootstrap exceeds the protocol bound.", "native-request-size");
@@ -22656,8 +24063,12 @@ async function startQtNativeBroker(options) {
   });
   child.stdin.on("error", () => {
   });
+  let processExited = false;
   const exited = new Promise((resolveExit) => {
-    child.once("exit", () => resolveExit());
+    child.once("exit", () => {
+      processExited = true;
+      resolveExit();
+    });
     child.once("error", () => resolveExit());
   });
   const abort = () => {
@@ -22687,14 +24098,23 @@ async function startQtNativeBroker(options) {
     remaining = Math.floor(options.timeoutMs - (performance.now() - started));
     if (remaining < 1) throw new QtNativeTransportError("Native startup deadline exceeded before owner verification.", "native-startup-timeout", true);
     const ping = (await client.request("ping", {}, remaining, signal)).result;
+    rejectQtNativePing(ping);
     if (ping.ownerPid !== child.pid || ping.ownerCreationTime !== loaded.ownerCreationTime) {
       throw new QtNativeTransportError("Native session owner does not match its broker.", "native-peer");
     }
-    return { client, brokerPid: child.pid, exited, async close() {
-      client.close();
-      child.kill();
-      await exited;
-    } };
+    return {
+      client,
+      brokerPid: child.pid,
+      exited,
+      get processExited() {
+        return processExited;
+      },
+      async close() {
+        client.close();
+        child.kill();
+        await exited;
+      }
+    };
   } catch (error) {
     client?.close();
     stream?.destroy();
@@ -22742,9 +24162,9 @@ var init_qt_native_broker = __esm({
 
 // src/native-desktop-status.ts
 import { execFile as execFile2 } from "node:child_process";
-import { createHash as createHash16 } from "node:crypto";
+import { createHash as createHash17 } from "node:crypto";
 import { win32 as win322 } from "node:path";
-import { performance as performance15 } from "node:perf_hooks";
+import { performance as performance17 } from "node:perf_hooks";
 function parseNativeDesktopStatus(value, marker, options) {
   const status = statusSchema.parse(value), profile = options.profile;
   if (status.loaderBuildIdentity !== options.package.manifest.buildIdentity || status.desktop !== marker.name || status.pid !== (marker.pid ?? 0) || status.windows.some((window) => window.pid !== marker.pid) || !status.reachable && status.windows.length) throw failure2("Native status returned a different ownership binding.", "native-binding");
@@ -22775,7 +24195,7 @@ function parseNativeDesktopStatus(value, marker, options) {
   const running = identity?.supported === true;
   const windows = running ? status.windows.map((window) => ({
     ...window,
-    titleFingerprint: createHash16("sha256").update(window.title, "utf8").digest("hex").toUpperCase()
+    titleFingerprint: createHash17("sha256").update(window.title, "utf8").digest("hex").toUpperCase()
   })) : [];
   const active = Boolean(marker.pid && running && status.reachable && windows.length);
   return {
@@ -22828,14 +24248,14 @@ async function readNativeStatus(marker, options) {
   });
 }
 async function executeNativeDesktopStatus(options) {
-  const start = performance15.now();
+  const start = performance17.now();
   try {
     if (options.signal?.aborted) throw failure2("Native status cancelled before launch.", "aborted");
     if (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > 6e4)
       throw failure2("Invalid native status deadline.", "native-deadline");
     const readMarker = options.readMarker ?? (() => readDesktopMarker(desktopMarkerPath()));
     const marker = readMarker();
-    const remaining = Math.floor(options.timeoutMs - (performance15.now() - start));
+    const remaining = Math.floor(options.timeoutMs - (performance17.now() - start));
     if (remaining < 1) throw failure2("Native status deadline exceeded before launch.", "native-timeout");
     const result = marker ? await readNativeStatus(marker, { ...options, timeoutMs: remaining }) : {
       ok: true,
@@ -22852,14 +24272,14 @@ async function executeNativeDesktopStatus(options) {
     };
     if (options.signal?.aborted) throw failure2("Native status cancelled.", "aborted");
     if (JSON.stringify(readMarker()) !== JSON.stringify(marker)) throw failure2("Desktop ownership changed during native status.", "native-binding");
-    return { ...result, ms: performance15.now() - start };
+    return { ...result, ms: performance17.now() - start };
   } catch (error) {
     return {
       ok: false,
       backend: "win32",
       kind: error instanceof QtNativeTransportError || error instanceof DesktopMarkerError ? error.kind : "native-contract",
       error: error instanceof QtNativeTransportError || error instanceof DesktopMarkerError ? error.message : "Native desktop status failed.",
-      ms: performance15.now() - start
+      ms: performance17.now() - start
     };
   }
 }
@@ -22905,10 +24325,10 @@ var init_native_desktop_status = __esm({
 
 // src/native-desktop-start.ts
 import { execFile as execFile3 } from "node:child_process";
-import { createHash as createHash17 } from "node:crypto";
+import { createHash as createHash18 } from "node:crypto";
 import { statSync as statSync6 } from "node:fs";
 import { win32 as win323 } from "node:path";
-import { performance as performance16 } from "node:perf_hooks";
+import { performance as performance18 } from "node:perf_hooks";
 function localPath(value) {
   const path = win323.normalize(value);
   if (!/^[A-Za-z]:\\/u.test(path) || /["\u0000-\u001f]/u.test(path) || path.length > 32767)
@@ -22953,7 +24373,7 @@ function parseNativeDesktopStart(value, prepared, options) {
   const profile = options.profile;
   const windows = (items) => items.map((window) => ({
     ...window,
-    titleFingerprint: createHash17("sha256").update(window.title, "utf8").digest("hex").toUpperCase()
+    titleFingerprint: createHash18("sha256").update(window.title, "utf8").digest("hex").toUpperCase()
   }));
   const product = {
     path: result.product.image,
@@ -22989,7 +24409,7 @@ function parseNativeDesktopStart(value, prepared, options) {
   };
 }
 async function executeNativeDesktopStart(options) {
-  const started = performance16.now();
+  const started = performance18.now();
   try {
     if (options.signal?.aborted) throw failure3("aborted", "Desktop start cancelled before launch.");
     if (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 6500 || options.timeoutMs > 12e4)
@@ -22997,7 +24417,7 @@ async function executeNativeDesktopStart(options) {
     const prepared = prepareNativeDesktopStart(options), markerPath = desktopMarkerPath();
     const marker = readDesktopMarker(markerPath);
     if (marker && marker.owner !== "sse") throw failure3("desktop-marker-owner", "Desktop belongs to a different controller.");
-    const remaining = Math.floor(options.timeoutMs - (performance16.now() - started));
+    const remaining = Math.floor(options.timeoutMs - (performance18.now() - started));
     if (remaining < 6500) throw failure3("native-deadline", "Not enough time remains for startup and verified cleanup.");
     const request = {
       mode: "desktop-start",
@@ -23074,7 +24494,7 @@ async function executeNativeDesktopStart(options) {
       });
       child.stdin?.end(body);
     });
-    return { ...result, ms: performance16.now() - started };
+    return { ...result, ms: performance18.now() - started };
   } catch (error) {
     return {
       ok: false,
@@ -23082,7 +24502,7 @@ async function executeNativeDesktopStart(options) {
       kind: error instanceof QtNativeTransportError || error instanceof DesktopMarkerError ? error.kind : "native-contract",
       error: error instanceof Error ? error.message : "Native desktop start failed.",
       outcomeUnknown: error instanceof QtNativeTransportError && error.outcomeUnknown,
-      ms: performance16.now() - started
+      ms: performance18.now() - started
     };
   }
 }
@@ -23142,7 +24562,7 @@ var init_native_desktop_start = __esm({
 
 // src/native-desktop-stop.ts
 import { execFile as execFile4 } from "node:child_process";
-import { performance as performance17 } from "node:perf_hooks";
+import { performance as performance19 } from "node:perf_hooks";
 import { win32 as win324 } from "node:path";
 function parseNativeDesktopStop(value, marker, options) {
   const result = resultSchema2.parse(value);
@@ -23159,7 +24579,7 @@ function parseNativeDesktopStop(value, marker, options) {
   };
 }
 async function executeNativeDesktopStop(options) {
-  const started = performance17.now();
+  const started = performance19.now();
   try {
     if (options.signal?.aborted) throw failure4("aborted", "Desktop stop cancelled before submission.");
     if (options.args.save === true && options.args.discardChanges === true) throw failure4("bad-args", "Save and discard cannot both be requested.");
@@ -23170,7 +24590,7 @@ async function executeNativeDesktopStop(options) {
     if (!marker?.pid || marker.owner !== "sse") throw failure4("ownership", "A valid owned SSE desktop marker with PID is required.");
     const image = win324.normalize(options.executable);
     if (!/^[A-Za-z]:\\/u.test(image) || /["\u0000-\u001f]/u.test(image)) throw failure4("bad-args", "An absolute configured executable is required.");
-    const remaining = Math.floor(options.timeoutMs - (performance17.now() - started));
+    const remaining = Math.floor(options.timeoutMs - (performance19.now() - started));
     if (remaining < 11500) throw failure4("native-deadline", "Insufficient time remains for close ownership checks.");
     const request = {
       mode: "desktop-stop",
@@ -23209,7 +24629,7 @@ async function executeNativeDesktopStop(options) {
       });
       child.stdin?.end(JSON.stringify(request));
     });
-    return { ...result, ms: performance17.now() - started };
+    return { ...result, ms: performance19.now() - started };
   } catch (error) {
     return {
       ok: false,
@@ -23217,7 +24637,7 @@ async function executeNativeDesktopStop(options) {
       kind: error instanceof QtNativeTransportError || error instanceof DesktopMarkerError ? error.kind : "native-contract",
       error: error instanceof Error ? error.message : "Native desktop stop failed.",
       outcomeUnknown: error instanceof QtNativeTransportError && error.outcomeUnknown,
-      ms: performance17.now() - started
+      ms: performance19.now() - started
     };
   }
 }
@@ -23357,7 +24777,7 @@ var init_qt_native_discovery = __esm({
 });
 
 // src/qt-native-runtime.ts
-import { performance as performance18 } from "node:perf_hooks";
+import { performance as performance20 } from "node:perf_hooks";
 function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
   if (!config.qtNativeRuntime) throw new Error("Native runtime configuration is required.");
   const nativePackage = (dependencies.loadPackage ?? loadQtNativePackage)(config.qtNativeRuntime, profile);
@@ -23374,12 +24794,20 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
   };
   const readMarker = dependencies.readMarker ?? (() => resolveDesktopMarkerForOperation(desktopMarkerPath(), "get_value", false));
   const sessions = /* @__PURE__ */ new Map();
+  const processExists = dependencies.processExists ?? ((pid2) => {
+    try {
+      process.kill(pid2, 0);
+      return true;
+    } catch (error) {
+      return error.code === "ESRCH" ? false : null;
+    }
+  });
   let selected, starting2;
   let startupAbort;
   let stopped = false, revision = 0;
   const failure6 = (message, kind, outcomeUnknown = false) => new QtNativeTransportError(message, kind, outcomeUnknown);
   const left = (deadline) => {
-    const value = Math.floor(deadline - performance18.now());
+    const value = Math.floor(deadline - performance20.now());
     if (value < 1) throw failure6("Native operation deadline exceeded before dispatch.", "native-timeout");
     return value;
   };
@@ -23419,13 +24847,13 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
     }
   }
   async function target(args, deadline, signal) {
-    const settleUntil = Math.min(performance18.now() + NAMED_WINDOW_SETTLE_MS, deadline);
+    const settleUntil = Math.min(performance20.now() + NAMED_WINDOW_SETTLE_MS, deadline);
     for (; ; ) {
       try {
         return await discoverOnce(args, deadline, signal);
       } catch (error) {
         const settling = typeof args.hwnd === "number" && error instanceof QtNativeTransportError && error.kind === "no-window";
-        if (!settling || signal?.aborted || performance18.now() + NAMED_WINDOW_POLL_MS >= settleUntil) throw error;
+        if (!settling || signal?.aborted || performance20.now() + NAMED_WINDOW_POLL_MS >= settleUntil) throw error;
       }
       await pause(NAMED_WINDOW_POLL_MS, signal);
     }
@@ -23464,6 +24892,20 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
         }
         selected = binding.hwnd;
         return existing;
+      }
+      if (sessions.size >= 4) {
+        for (const [hwnd, retained] of sessions) {
+          if (retained.client.binding.pid === binding.pid || retained.processExited !== true) continue;
+          let exists;
+          try {
+            exists = processExists(retained.client.binding.pid);
+          } catch {
+            continue;
+          }
+          if (exists !== false) continue;
+          sessions.delete(hwnd);
+          if (selected === hwnd) selected = void 0;
+        }
       }
       if (sessions.size >= 4) throw failure6("Native window session limit reached.", "native-session-limit");
       if ([...sessions.values()].some((session2) => session2.client.binding.pid === binding.pid)) {
@@ -23513,25 +24955,25 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
   }
   const runtime = {
     async desktopStop(args, timeoutMs, signal) {
-      const deadline = performance18.now() + timeoutMs;
+      const deadline = performance20.now() + timeoutMs;
       await clear();
       return withCombinedAbortSignal([signal, shutdown], (combined) => executeNativeDesktopStop({
         package: nativePackage,
         executable: executable[0],
         args,
-        timeoutMs: Math.max(0, Math.floor(deadline - performance18.now())),
+        timeoutMs: Math.max(0, Math.floor(deadline - performance20.now())),
         signal: combined
       }));
     },
     async desktopStart(args, timeoutMs, signal) {
-      const deadline = performance18.now() + timeoutMs;
+      const deadline = performance20.now() + timeoutMs;
       await clear();
       return withCombinedAbortSignal([signal, shutdown], (combined) => executeNativeDesktopStart({
         package: nativePackage,
         profile,
         executable: executable[0],
         args,
-        timeoutMs: Math.max(0, Math.floor(deadline - performance18.now())),
+        timeoutMs: Math.max(0, Math.floor(deadline - performance20.now())),
         signal: combined
       }));
     },
@@ -23544,7 +24986,7 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
       }));
     },
     async client(args, timeoutMs, signal) {
-      const deadline = performance18.now() + timeoutMs;
+      const deadline = performance20.now() + timeoutMs;
       return withCombinedAbortSignal([signal, shutdown], async (combined) => {
         const session = await obtain(args, deadline, combined);
         const checked = await session.client.request("window_context", {}, left(deadline), combined);

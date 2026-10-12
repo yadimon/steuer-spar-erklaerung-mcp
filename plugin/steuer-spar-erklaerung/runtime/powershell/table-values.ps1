@@ -74,3 +74,47 @@ function Test-SSETableCellEquivalent([string]$Actual, [string]$Requested) {
   }
   $false
 }
+
+function Test-SSETableReadSnapshotBinding {
+  param([Parameter(Mandatory)]$Before, [Parameter(Mandatory)]$After, [switch]$BeforeNavigation)
+  $initial=$Before.navigationBinding; $fresh=$After.navigationBinding
+  if (-not $initial -or -not $fresh -or -not $initial.complete -or -not $fresh.complete -or
+      -not $initial.heading -or -not $initial.tableIdentity -or
+      $initial.heading -cne $fresh.heading -or $initial.tableIdentity -cne $fresh.tableIdentity -or
+      $initial.tableRootAid -cne $fresh.tableRootAid -or
+      $initial.tableRootRid -cne $fresh.tableRootRid -or
+      $initial.scopePrefix -cne $fresh.scopePrefix -or $initial.selectionMethod -cne $fresh.selectionMethod -or
+      $initial.summaryIdentity -cne $fresh.summaryIdentity -or
+      -not (Test-SSEScalarEqual $initial.summaryValue $fresh.summaryValue) -or
+      $Before.tabelleAnzahl -ne 1 -or $After.tabelleAnzahl -ne 1 -or
+      $Before.error -or $After.error) { return $false }
+  if ($BeforeNavigation -and $initial.contentSignature -cne $fresh.contentSignature) { return $false }
+  $true
+}
+
+function Resolve-SSEVehicleCostAddedRow {
+  param([Parameter(Mandatory)]$Region, [Parameter(Mandatory)][object[]]$Values)
+  if (-not $Region.ok -or $Region.profileMappingId -cne 'vehicle_costs_without_input_tax' -or
+      $Values.Count -ne 6 -or -not [string]$Values[1] -or -not [string]$Values[2] -or
+      -not (Test-SSEScalarEqual $Values[4] '0')) {
+    return [pscustomobject]@{ ok=$false; matchCount=0; row=@(); reason='zero-tax-cost-row-contract-unbound' }
+  }
+  $matches = New-Object System.Collections.ArrayList
+  foreach ($group in @($Region.cells | Group-Object y)) {
+    $cells = @($group.Group | Sort-Object x)
+    if ($cells.Count -ne 6) { continue }
+    $allEqual = $true
+    foreach ($column in @(1,2,3,4,5)) {
+      $expected = $(if ($column -eq 5) { [string]$Values[3] } else { [string]$Values[$column] })
+      $actual = $(if ([string]$cells[$column].val) { [string]$cells[$column].val } else { [string]$cells[$column].name })
+      if (-not (Test-SSETableCellEquivalent $actual $expected)) { $allEqual=$false; break }
+    }
+    if ($allEqual) { $null = $matches.Add([pscustomobject]@{ row=$cells; rowY=[int]$group.Name }) }
+  }
+  [pscustomobject]@{
+    ok=[bool]($matches.Count -eq 1); matchCount=$matches.Count
+    row=$(if ($matches.Count -eq 1) { @($matches[0].row) } else { @() })
+    rowY=$(if ($matches.Count -eq 1) { $matches[0].rowY } else { $null })
+    reason=$(if ($matches.Count -eq 1) { 'exact-date-description-amount-rate-net-row' } else { 'row-absent-or-ambiguous' })
+  }
+}

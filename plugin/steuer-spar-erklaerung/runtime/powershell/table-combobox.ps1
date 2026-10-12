@@ -37,12 +37,55 @@ function Get-SSETableComboExpectedBefore {
   }
 }
 
-function Test-SSETableRowFreeWithProfileDefaults {
+function Get-SSETableRowDefaultEvidence {
   param(
     [Parameter(Mandatory)]$Cells,
-    $TableProfile = $null
+    $TableProfile = $null,
+    $ExpectedArgs = $null
   )
   $rowCells = @($Cells | Sort-Object x)
+  $expected=$(if ($null -ne $ExpectedArgs) { Get-SSETableComboExpectedBefore $ExpectedArgs 3 }
+    else { [pscustomobject]@{ present=$false; value=$null } })
+  $rowValues=@($rowCells | ForEach-Object { if ([string]$_.val) { [string]$_.val } else { [string]$_.name } })
+  $categoryColumn=@($TableProfile.columns | Where-Object {
+    [int]$_.index -eq 3 -and $_.header -ceq 'Kategorie' -and $_.controlType -ceq 'ComboBox' -and
+    $_.writePolicy -ceq 'typed-selection-required'
+  })
+  $exactCellScope=[bool]($rowCells.Count -eq 6 -and $TableProfile.automationIdSection -ceq 'grpEmpf13b' -and
+    @($rowCells | Where-Object {
+      $_.type -cne 'DataItem' -or -not $_.rid -or
+      -not (Test-SSETableComboCellAidProfileFragment ([string]$_.aid) 'grpEmpf13b')
+    }).Count -eq 0 -and @($rowCells.rid | Select-Object -Unique).Count -eq 6)
+  $checks=[ordered]@{
+    profileBound=[bool]($TableProfile.known -and $TableProfile.bindingOk)
+    categoryColumnBound=[bool]($categoryColumn.Count -eq 1)
+    aidBound=[bool]($TableProfile.aidBound -or ($TableProfile.aidFallback -and $exactCellScope))
+    sixCells=[bool]($rowCells.Count -eq 6)
+    numberDateDescriptionEmpty=[bool]($rowCells.Count -eq 6 -and
+      @(0,1,2 | Where-Object { $rowValues[$_] -cne '' }).Count -eq 0)
+    rateDefault=[bool]($rowCells.Count -eq 6 -and $rowValues[4] -ceq '19')
+    amountZero=[bool]($rowCells.Count -eq 6 -and $rowValues[5] -cin @('0','0,00','0.00'))
+    expectedCategoryPresent=[bool]$expected.present
+    categoryMatches=[bool]($rowCells.Count -eq 6 -and $expected.present -and [string]$expected.value -ceq $rowValues[3])
+    categoryConfirmed=[bool]($expected.present -and
+      [string]$expected.value -cin @($TableProfile.confirmedEmptyRowCategoryDefaults))
+  }
+  [pscustomobject]@{
+    free=[bool](@($checks.Values | Where-Object { -not $_ }).Count -eq 0)
+    checks=[pscustomobject]$checks; exactCellScope=$exactCellScope
+    profileKnown=[bool]$TableProfile.known; profileAidBound=[bool]$TableProfile.aidBound
+    profileAidFallback=[bool]$TableProfile.aidFallback
+  }
+}
+
+function Test-SSETableRowFreeWithProfileDefaults {
+  param([Parameter(Mandatory)]$Cells, $TableProfile = $null, $ExpectedArgs = $null)
+  $rowCells = @($Cells | Sort-Object x)
+  # Some repeated cost subpages use the same second summary as Material but
+  # populate a category default. Accept only the profiled six-column empty
+  # shape and an explicitly supplied, exact expected category, never an
+  # arbitrary non-empty selector or a partially entered receipt.
+  if ($ExpectedArgs -and (Get-SSETableRowDefaultEvidence $rowCells $TableProfile $ExpectedArgs).free) { return $true }
   for ($columnIndex = 0; $columnIndex -lt $rowCells.Count; $columnIndex++) {
     $cell = $rowCells[$columnIndex]
     $cellName = [string]$cell.name
@@ -114,6 +157,70 @@ function Get-SSETableComboDropArrowPoint {
   }
 }
 
+function Get-SSETableComboViewportEvidence {
+  param([Parameter(Mandatory)]$Tree, [Parameter(Mandatory)]$Cell, [Parameter(Mandatory)]$Region)
+  $matches = @($Tree.nodes | Where-Object { [string]$_.rid -ceq [string]$Cell.rid })
+  $viewport = $null
+  if ($Cell.rid -and $matches.Count -eq 1) {
+    $parentIndex = [int]$matches[0].p
+    $seen = New-Object 'System.Collections.Generic.HashSet[int]'
+    for ($level=0; $level -lt 32 -and $parentIndex -ge 0 -and $seen.Add($parentIndex); $level++) {
+      $parents = @($Tree.nodes | Where-Object { [int]$_.i -eq $parentIndex })
+      if ($parents.Count -ne 1) { break }
+      $parent = $parents[0]
+      if ($parent.type -in @('Table','DataGrid') -and $parent.w -gt 0 -and $parent.h -gt 0) { $viewport=$parent; break }
+      $parentIndex = [int]$parent.p
+    }
+  }
+  $cellRectangle = [pscustomobject]@{ x=[int]$Cell.x; y=[int]$Cell.y; w=[int]$Cell.w; h=[int]$Cell.h }
+  $viewportRectangle = $null; $fullyContained = $null; $centerInside = $null
+  if ($viewport) {
+    $viewportRectangle = [pscustomobject]@{ x=[int]$viewport.x; y=[int]$viewport.y; w=[int]$viewport.w; h=[int]$viewport.h }
+    $fullyContained = [bool]($Cell.x -ge $viewport.x -and $Cell.y -ge $viewport.y -and
+      ($Cell.x + $Cell.w) -le ($viewport.x + $viewport.w) -and ($Cell.y + $Cell.h) -le ($viewport.y + $viewport.h))
+    $centerX = $Cell.x + $Cell.w / 2; $centerY = $Cell.y + $Cell.h / 2
+    $centerInside = [bool]($centerX -ge $viewport.x -and $centerY -ge $viewport.y -and
+      $centerX -lt ($viewport.x + $viewport.w) -and $centerY -lt ($viewport.y + $viewport.h))
+  }
+  [pscustomobject]@{
+    known=[bool]$viewport; method=$(if ($viewport) { 'exact-cell-table-ancestor' } else { 'table-ancestor-not-proven' })
+    cellRectangle=$cellRectangle; tableRectangle=$viewportRectangle
+    cellFullyContained=$fullyContained; cellCenterInside=$centerInside
+    tableRid=$(if ($viewport) { [string]$viewport.rid } else { $null })
+    targetSumY=$Region.targetSumY; visibleRowCount=@($Region.cells | Group-Object y).Count
+    scopePrefix=$Region.scopePrefix
+  }
+}
+
+function Get-SSETableComboSourceDiagnostics {
+  param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Sources, $Cell = $null)
+  @($Sources | ForEach-Object {
+    $source = $_; $stats = $source.tree.stats
+    $nodes = @($source.tree.nodes | Where-Object { $null -ne $_ })
+    $complete = [bool]($source.tree -and $stats -and -not $source.captureError -and
+      -not $stats.truncated -and -not $stats.depthLimited -and -not $stats.err -and -not $stats.cyc)
+    [pscustomobject]@{
+      sourceHwnd=[int64]$source.hwnd; isMain=[bool]$source.isMain; isNewPopup=[bool]$source.isNewPopup
+      captureComplete=$complete; captureError=$source.captureError; statsPresent=[bool]$stats
+      nodeCount=$nodes.Count; listCount=@($nodes | Where-Object { $_.type -eq 'List' }).Count
+      listItemCount=@($nodes | Where-Object { $_.type -eq 'ListItem' }).Count
+      truncated=[bool]$stats.truncated; depthLimited=[bool]$stats.depthLimited
+      traversalErrors=[int]$stats.err; cycles=[int]$stats.cyc
+      captureLimits=$source.captureLimits
+      lists=@($nodes | Where-Object { $_.type -eq 'List' } | Select-Object -First 8 | ForEach-Object {
+        $list = $_
+        [pscustomobject]@{
+          rid=[string]$list.rid; rectangle=[pscustomobject]@{ x=[int]$list.x; y=[int]$list.y; w=[int]$list.w; h=[int]$list.h }
+          attachedToCell=$(if ($Cell) { Test-SSETableComboAttachedRectangle $Cell $list } else { $null })
+          descendantItemCount=@($nodes | Where-Object {
+            $_.type -eq 'ListItem' -and (Test-SSETableComboNodeDescendant $nodes ([int]$_.i) ([int]$list.i))
+          }).Count
+        }
+      })
+    }
+  })
+}
+
 function Test-SSETableComboOpenFallbackBinding {
   param(
     [Parameter(Mandatory)]$InitialState,
@@ -178,6 +285,7 @@ function Test-SSETableComboOpenFallbackBinding {
         cellRid=[string]$InitialState.cell.rid; cellAid=[string]$InitialState.cell.aid
         rectangle=[pscustomobject]@{ x=[int]$InitialState.cell.x; y=[int]$InitialState.cell.y; w=[int]$InitialState.cell.w; h=[int]$InitialState.cell.h }
         value=[string]$InitialState.value; rowCellCount=[int]$InitialState.rowCellCount; ridMatchCount=[int]$InitialState.ridMatchCount
+        viewport=$InitialState.viewportEvidence
       }
       fresh=[pscustomobject]@{
         heading=[string]$FreshState.heading; sumRid=[string]$FreshState.sumRead.selected.rid
@@ -185,6 +293,7 @@ function Test-SSETableComboOpenFallbackBinding {
         cellRid=[string]$FreshState.cell.rid; cellAid=[string]$FreshState.cell.aid
         rectangle=[pscustomobject]@{ x=[int]$FreshState.cell.x; y=[int]$FreshState.cell.y; w=[int]$FreshState.cell.w; h=[int]$FreshState.cell.h }
         value=[string]$FreshState.value; rowCellCount=[int]$FreshState.rowCellCount; ridMatchCount=[int]$FreshState.ridMatchCount
+        viewport=$FreshState.viewportEvidence
       }
       checks=[pscustomobject]$checks; mismatches=$mismatches
     }
@@ -239,6 +348,305 @@ function ConvertTo-SSETableComboBoundedDiagnosticValue {
   $fallback
 }
 
+function Get-SSETableRowSnapshotValues($Cells) {
+  @($Cells | Sort-Object x | ForEach-Object {
+    if ([string]$_.val) { [string]$_.val } else { [string]$_.name }
+  })
+}
+
+function Get-SSETableContentSignature($Region) {
+  if (-not $Region.ok -or -not @($Region.cells).Count) { return $null }
+  $rows = @($Region.cells | Group-Object y | Sort-Object { [int]$_.Name } | ForEach-Object {
+    [pscustomobject]@{ values=@(Get-SSETableRowSnapshotValues $_.Group) }
+  })
+  ConvertTo-Json -InputObject $rows -Depth 4 -Compress
+}
+
+function Get-SSETableSnapshotInputState {
+  param($Tree, [string]$TableAid, [string]$TableRid)
+  $reject=[pscustomobject]@{ok=$false; editorFree=$false; editorCount=0; table=$null; reason='table-snapshot-unbound'}
+  $stats=$Tree.stats
+  if (-not $stats -or $stats.truncated -or $stats.depthLimited -or $stats.err -or $stats.cyc -or $stats.valErr -or
+      -not $TableAid -or -not $TableRid) { return $reject }
+  $roots=@($Tree.nodes | Where-Object { $_.rid -ceq $TableRid -and $_.aid -ceq $TableAid -and $_.type -cin @('Table','DataGrid') })
+  if ($roots.Count -ne 1 -or @($Tree.nodes.i | Select-Object -Unique).Count -ne @($Tree.nodes).Count) { return $reject }
+  $byIndex=@{}; foreach ($node in @($Tree.nodes)) { $byIndex[[int]$node.i]=$node }
+  $editors=New-Object System.Collections.ArrayList
+  foreach ($node in @($Tree.nodes | Where-Object { $_.on -and $_.w -gt 0 -and $_.h -gt 0 -and $_.type -cin @('ComboBox','Edit','Spinner','List','ListItem','Custom') })) {
+    $probe=$node; $seen=New-Object 'System.Collections.Generic.HashSet[int]'
+    for ($level=0; $level -lt 64 -and $probe; $level++) {
+      if (-not $seen.Add([int]$probe.i)) { return $reject }
+      if ([int]$probe.i -eq [int]$roots[0].i) { $null=$editors.Add($node); break }
+      if ([int]$probe.p -lt 0) { break }
+      if (-not $byIndex.ContainsKey([int]$probe.p)) { return $reject }
+      $probe=$byIndex[[int]$probe.p]
+    }
+  }
+  [pscustomobject]@{ok=$true; editorFree=[bool]($editors.Count -eq 0); editorCount=$editors.Count; editorNodes=@($editors); table=$roots[0];
+    reason=$(if ($editors.Count) {'active-table-editor'} else {'complete-bound-table-without-editor'})}
+}
+
+function Resolve-SSETableFooterFocusNode {
+  param($Tree,[string]$TableAid,$Policy)
+  $stats=$Tree.stats
+  $suffix='.RedThreadContent.ClientFrameSSE.ClientFooterSSE.HoverButton'
+  if (-not $stats -or $stats.truncated -or $stats.depthLimited -or $stats.err -or $stats.cyc -or $stats.valErr -or
+      $Policy.id -cne 'main_footer_next_focus' -or $Policy.controlType -cne 'Button' -or $Policy.name -cne 'Weiter' -or
+      $Policy.automationIdSuffix -cne $suffix -or $Policy.action -cne 'SetFocus' -or
+      $Policy.policy -cne 'own-typed-table-editor-only') { return $null }
+  $matches=@($Tree.nodes | Where-Object {
+    $_.type -ceq 'Button' -and $_.name -ceq 'Weiter' -and $_.on -and $_.w -gt 0 -and $_.h -gt 0 -and $_.rid -and
+    ([string]$_.aid).EndsWith($suffix,[StringComparison]::Ordinal)
+  })
+  if ($matches.Count -ne 1) { return $null }
+  $button=$matches[0]
+  $root=([string]$button.aid).Substring(0,([string]$button.aid).Length-'.ClientFooterSSE.HoverButton'.Length)
+  if (-not $TableAid.StartsWith($root+'.',[StringComparison]::Ordinal)) { return $null }
+  $button
+}
+
+function Test-SSETableFooterFocusSource {
+  param($Tree,[string]$FocusedRid,[string]$FocusedAid,[string]$TableAid,[string]$TableRid,$OwnedCell)
+  $state=Get-SSETableSnapshotInputState $Tree $TableAid $TableRid
+  $focused=@($Tree.nodes | Where-Object {$_.rid -ceq $FocusedRid -and $_.aid -ceq $FocusedAid -and $_.on -and $_.w -gt 0 -and $_.h -gt 0})
+  if (-not $state.ok -or $focused.Count -ne 1) {return $false}
+  if ($state.editorFree) {
+    # Only positively typed passive controls may lose focus. An arbitrary
+    # Custom/Edit widget outside the table is never a commit authority.
+    return [bool]($focused[0].type -cin @('Table','DataGrid','DataItem','Button','Tree','TreeItem'))
+  }
+  if (-not $OwnedCell -or $OwnedCell.type -cne 'DataItem' -or $OwnedCell.aid -cne $TableAid) {return $false}
+  foreach ($editor in @($state.editorNodes)) {
+    if ($editor.type -cnotin @('ComboBox','Edit') -or
+        -not ([string]$editor.aid).StartsWith($TableAid+'.',[StringComparison]::Ordinal) -or
+        $editor.x -lt $OwnedCell.x-2 -or $editor.y -lt $OwnedCell.y-2 -or
+        $editor.x+$editor.w -gt $OwnedCell.x+$OwnedCell.w+2 -or
+        $editor.y+$editor.h -gt $OwnedCell.y+$OwnedCell.h+2) {return $false}
+  }
+  if ($focused[0].type -cin @('ComboBox','Edit')) {
+    return [bool](@($state.editorNodes | Where-Object {$_.rid -ceq $FocusedRid -and $_.aid -ceq $FocusedAid}).Count -eq 1)
+  }
+  [bool]($focused[0].type -cin @('Table','DataGrid','DataItem') -and
+    ($FocusedAid -ceq $TableAid))
+}
+
+function Get-SSETableRowRoot {
+  param($Tree, $Cells)
+  if (@($Cells).Count -ne 6) { return $null }
+  $roots=New-Object System.Collections.ArrayList
+  foreach ($cell in @($Cells)) {
+    $matches=@($Tree.nodes | Where-Object { $_.rid -ceq $cell.rid -and $_.aid -ceq $cell.aid -and $_.type -ceq 'DataItem' })
+    if ($matches.Count -ne 1) { return $null }
+    $probe=$matches[0]; $found=$null
+    for ($level=0; $level -lt 16 -and $probe; $level++) {
+      if ($probe.type -cin @('Table','DataGrid')) { $found=$probe; break }
+      $parents=@($Tree.nodes | Where-Object { [int]$_.i -eq [int]$probe.p })
+      if ($parents.Count -ne 1) { return $null }
+      $probe=$parents[0]
+    }
+    if (-not $found -or -not $found.rid -or -not $found.aid) { return $null }
+    $null=$roots.Add($found)
+  }
+  if (@($roots.rid | Select-Object -Unique).Count -ne 1 -or @($roots.aid | Select-Object -Unique).Count -ne 1) { return $null }
+  $roots[0]
+}
+
+function Resolve-SSETableComboEditorAuthority {
+  param($State,$Row,$TableProfile,$Popup,[string]$Wanted,[int]$ColumnIndex,$ModelCell)
+  $reject=[pscustomobject]@{ok=$false;reason='typed-editor-authority-unbound'}
+  $cells=@($Row | Sort-Object x)
+  $root=Get-SSETableRowRoot $State.tree $cells
+  $column=@($TableProfile.columns | Where-Object {$_.index -eq 3 -and $_.header -ceq 'Kategorie' -and
+    $_.controlType -ceq 'ComboBox' -and $_.writePolicy -ceq 'typed-selection-required'})
+  if ($ColumnIndex -ne 3 -or $column.Count -ne 1 -or -not $root -or
+      -not (Test-SSETableComboRowProfileBinding $cells $TableProfile ([string]$State.region.scopePrefix)) -or
+      -not $Popup.ok -or $Popup.kind -cne 'bound' -or $Popup.list.type -cne 'List' -or
+      $Popup.binding.automationIdSection -cne 'grpEmpf13b' -or $Popup.binding.cellAid -cne $root.aid -or
+      -not $Popup.binding.cellRid -or $Popup.binding.listAid -cne $Popup.list.aid -or
+      $Popup.binding.listRid -cne $Popup.list.rid -or $Popup.target.type -cne 'ListItem' -or
+      [string]$Popup.target.name -cne $Wanted -or -not $Popup.target.rid -or
+      [string](Get-SSETableRowSnapshotValues $cells)[$ColumnIndex] -cne $Wanted) {return $reject}
+  # The delegate identity comes from the list actually bound for this selection,
+  # never from an arbitrary focused control or a guessed row number.
+  if (-not ([string]$Popup.list.aid).StartsWith([string]$root.aid+'.',[StringComparison]::Ordinal)) {return $reject}
+  $pattern='\.\(([1-9][0-9]{0,3})\)\.Kategorie13b\.QComboBoxListView$'
+  $match=[regex]::Match([string]$Popup.list.aid,$pattern)
+  if (-not $match.Success) {$reject.reason='typed-editor-popup-field-unbound';return $reject}
+  $rowIndex=[int]$match.Groups[1].Value-1
+  if ($rowIndex -ge 1000 -or -not $ModelCell.ok -or $ModelCell.tableAid -cne $root.aid -or
+      $ModelCell.tableRid -cne $root.rid -or $ModelCell.row -isnot [int] -or $ModelCell.row -ne $rowIndex -or
+      $ModelCell.column -isnot [int] -or $ModelCell.column -lt 3 -or $ModelCell.column -ge 100 -or
+      $ModelCell.cellAid -cne $Popup.binding.cellAid -or $ModelCell.cellRid -cne $Popup.binding.cellRid) {
+    $reject.reason='typed-editor-initial-model-cell-unbound';return $reject
+  }
+  [pscustomobject]@{ok=$true;reason='own-bound-category-popup-and-full-row';tableAid=$root.aid;tableRid=$root.rid;
+    editorAid=([string]$Popup.list.aid).Substring(0,([string]$Popup.list.aid).Length-'.QComboBoxListView'.Length);
+    modelRow=$rowIndex;modelColumn=$ModelCell.column;columnIndex=3;wanted=$Wanted;cell=$cells[3];row=$cells;
+    rowValues=@(Get-SSETableRowSnapshotValues $cells);tableProfile=$TableProfile;scopePrefix=[string]$State.region.scopePrefix}
+}
+
+function Test-SSETableComboRowProfileBinding {
+  param($Cells, $TableProfile, [AllowEmptyString()][string]$ScopePrefix)
+  $row=@($Cells | Sort-Object x)
+  if (-not $TableProfile.known -or -not $TableProfile.bindingOk -or
+      $TableProfile.automationIdSection -cne 'grpEmpf13b' -or $row.Count -ne 6 -or
+      @($row.rid | Select-Object -Unique).Count -ne 6 -or
+      @($row | Where-Object {
+        $_.type -cne 'DataItem' -or -not $_.rid -or $_.w -le 0 -or $_.h -le 0 -or
+        [Math]::Abs([int]$_.y - [int]$row[0].y) -gt 4 -or
+        -not (Test-SSETableComboCellAidProfileFragment ([string]$_.aid) 'grpEmpf13b')
+      }).Count) { return $false }
+  if ($ScopePrefix) {
+    return [bool]($TableProfile.aidBound -and
+      $ScopePrefix -ceq [string]$TableProfile.observedScopePrefix -and
+      $ScopePrefix.EndsWith('/.grpEmpf13b./.grpEmpf13b.',[StringComparison]::Ordinal) -and
+      @($row | Where-Object { -not ([string]$_.aid).StartsWith($ScopePrefix,[StringComparison]::Ordinal) }).Count -eq 0)
+  }
+  [bool]($TableProfile.aidFallback -and -not [string]$TableProfile.observedScopePrefix)
+}
+
+function Resolve-SSETableComboNoopRow {
+  param($State, $TableProfile, [string]$Wanted, [int]$ColumnIndex)
+  $reject=[pscustomobject]@{ ok=$false; row=@(); reason='noop-full-row-unbound' }
+  $stats=$State.tree.stats
+  $row=@($State.rowCells | Sort-Object x)
+  $column=@($TableProfile.columns | Where-Object {
+    [int]$_.index -eq 3 -and $_.header -ceq 'Kategorie' -and $_.controlType -ceq 'ComboBox' -and
+    $_.writePolicy -ceq 'typed-selection-required'
+  })
+  if (-not $State.ok -or -not $State.region.ok -or -not $stats -or
+      $stats.truncated -or $stats.depthLimited -or $stats.err -or $stats.cyc -or $stats.valErr -or
+      $ColumnIndex -ne 3 -or $column.Count -ne 1 -or
+      -not (Test-SSETableComboRowProfileBinding $row $TableProfile ([string]$State.region.scopePrefix)) -or
+      $row[$ColumnIndex].rid -cne $State.cell.rid -or $row[$ColumnIndex].aid -cne $State.cell.aid -or
+      [string](Get-SSETableRowSnapshotValues $row)[$ColumnIndex] -cne $Wanted) { return $reject }
+  [pscustomobject]@{ ok=$true; row=$row; rowY=[int]$row[0].y; reason='exact-profiled-full-row-already-target' }
+}
+
+function Resolve-SSETableUpdateFocusRow {
+  param($InitialTarget, $InitialCells, $FreshRegion)
+  $before=@($InitialCells | Sort-Object x)
+  $reject=[pscustomobject]@{ ok=$false; row=@(); target=$null; matchCount=0; reason='initial-full-row-unbound' }
+  if (-not $FreshRegion.ok -or -not $before.Count -or
+      @($before.rid | Select-Object -Unique).Count -ne $before.Count -or
+      @($before | Where-Object { -not $_.rid -or -not $_.aid -or $_.type -cne 'DataItem' -or $_.w -le 0 -or $_.h -le 0 }).Count) { return $reject }
+  $targetColumns=@(for ($i=0; $i -lt $before.Count; $i++) {
+    if ($before[$i].rid -ceq $InitialTarget.rid -and $before[$i].aid -ceq $InitialTarget.aid) { $i }
+  })
+  if ($targetColumns.Count -ne 1) { return $reject }
+  $beforeValues=@(Get-SSETableRowSnapshotValues $before)
+  $matches=New-Object System.Collections.ArrayList
+  foreach ($group in @($FreshRegion.cells | Group-Object y)) {
+    $row=@($group.Group | Sort-Object x)
+    if ($row.Count -ne $before.Count -or @($row.rid | Select-Object -Unique).Count -ne $row.Count) { continue }
+    $afterValues=@(Get-SSETableRowSnapshotValues $row)
+    $same=$true
+    for ($i=0; $i -lt $before.Count; $i++) {
+      if (-not $row[$i].rid -or $row[$i].w -le 0 -or $row[$i].h -le 0 -or
+          $row[$i].type -cne $before[$i].type -or $row[$i].aid -cne $before[$i].aid -or
+          $afterValues[$i] -cne $beforeValues[$i]) { $same=$false; break }
+    }
+    if ($same) { $null=$matches.Add([pscustomobject]@{row=$row;target=$row[$targetColumns[0]]}) }
+  }
+  [pscustomobject]@{
+    ok=[bool]($matches.Count -eq 1); matchCount=$matches.Count
+    row=$(if ($matches.Count -eq 1) {@($matches[0].row)} else {@()})
+    target=$(if ($matches.Count -eq 1) {$matches[0].target} else {$null})
+    reason=$(if ($matches.Count -eq 1) {'exact-full-row-values-types-and-cell-aids'} else {'full-row-absent-or-ambiguous'})
+  }
+}
+
+function Resolve-SSETableComboSelectedRow {
+  param($InitialState, $FreshState, $TableProfile, [string]$ExpectedCurrent, [string]$Wanted, [int]$ColumnIndex)
+  $reject = [pscustomobject]@{ ok=$false; matchCount=0; row=@(); reason='full-row-profile-or-region-unbound' }
+  $stats = $FreshState.tree.stats
+  if (-not $InitialState.ok -or -not $FreshState.region.ok -or -not $stats -or
+      $stats.truncated -or $stats.depthLimited -or $stats.err -or $stats.cyc -or
+      -not $TableProfile.known -or -not $TableProfile.bindingOk -or
+      $TableProfile.automationIdSection -cne 'grpEmpf13b' -or $ColumnIndex -ne 3 -or
+      $InitialState.heading -cne $FreshState.heading -or -not $InitialState.sumRead.selected.aid -or
+      $InitialState.sumRead.selected.aid -cne $FreshState.sumRead.selected.aid -or
+      $InitialState.sumRead.value -cne $FreshState.sumRead.value -or
+      $InitialState.region.scopePrefix -cne $FreshState.region.scopePrefix -or
+      -not (Test-SSETableComboRowProfileBinding $InitialState.rowCells $TableProfile ([string]$InitialState.region.scopePrefix))) { return $reject }
+  $columns = @($TableProfile.columns | Where-Object {
+    $_.index -eq 3 -and $_.header -ceq 'Kategorie' -and $_.writePolicy -ceq 'typed-selection-required'
+  })
+  $before = @(Get-SSETableRowSnapshotValues $InitialState.rowCells)
+  if ($columns.Count -ne 1 -or $before.Count -ne 6 -or $before[3] -cne $ExpectedCurrent) { return $reject }
+  $emptyArgs = [pscustomobject]@{ comboExpectedBefore=@{ '3'=$ExpectedCurrent } }
+  $mayAssignNumber = [bool]($before[0] -ceq '' -and $before[1] -ceq '' -and $before[2] -ceq '' -and
+    $before[4] -ceq '19' -and $before[5] -cin @('0','0,00','0.00') -and
+    (Test-SSETableRowFreeWithProfileDefaults $InitialState.rowCells $TableProfile $emptyArgs))
+  $rowMatches = New-Object System.Collections.ArrayList
+  $oldNumbers=@($InitialState.region.cells | Group-Object y | ForEach-Object {
+    $oldRow=@($_.Group | Sort-Object x)
+    if ($oldRow.Count -eq 6) { [string](Get-SSETableRowSnapshotValues $oldRow)[0] }
+  })
+  $freshNumbers=@($FreshState.region.cells | Group-Object y | ForEach-Object {
+    $freshRow=@($_.Group | Sort-Object x)
+    if ($freshRow.Count -eq 6) { [string](Get-SSETableRowSnapshotValues $freshRow)[0] }
+  })
+  foreach ($group in @($FreshState.region.cells | Group-Object y)) {
+    $row = @($group.Group | Sort-Object x)
+    if (-not (Test-SSETableComboRowProfileBinding $row $TableProfile ([string]$FreshState.region.scopePrefix))) { continue }
+    $after = @(Get-SSETableRowSnapshotValues $row)
+    if ($after[3] -cne $Wanted) { continue }
+    $same = $true
+    foreach ($column in @(0,1,2,4,5)) {
+      if ($column -eq 0 -and $mayAssignNumber -and $after[0] -cne $before[0]) {
+        if ($after[0] -match '^[1-9][0-9]*$' -and $after[0] -cnotin $oldNumbers -and
+            @($freshNumbers | Where-Object { $_ -ceq $after[0] }).Count -eq 1) { continue }
+        $same=$false; break
+      }
+      if ($after[$column] -cne $before[$column]) { $same=$false; break }
+    }
+    if ($same) { $null=$rowMatches.Add([pscustomobject]@{ row=$row; rowY=[int]$group.Name; assignedNumber=($after[0] -cne $before[0]) }) }
+  }
+  [pscustomobject]@{
+    ok=[bool]($rowMatches.Count -eq 1); matchCount=$rowMatches.Count
+    row=$(if ($rowMatches.Count -eq 1) { @($rowMatches[0].row) } else { @() })
+    rowY=$(if ($rowMatches.Count -eq 1) { $rowMatches[0].rowY } else { $null })
+    assignedNumber=$(if ($rowMatches.Count -eq 1) { [bool]$rowMatches[0].assignedNumber } else { $false })
+    reason=$(if ($rowMatches.Count -eq 1) { 'exact-profiled-full-row-after-selection' } else { 'full-row-absent-or-ambiguous' })
+  }
+}
+
+function Get-SSETableComboInterferenceEvidence {
+  param(
+    [bool]$GuardUserInput, $InputBaseline, $InputObserved, $InteractionBefore, $InteractionAfter,
+    [bool]$PopupClosed, $StateAfter, [int]$RowY, [int]$ColumnIndex
+  )
+  $readable = [bool]($null -ne $InputBaseline -and $null -ne $InputObserved)
+  $inputUnchanged = [bool]($readable -and [uint64]$InputBaseline -eq [uint64]$InputObserved)
+  $inputGuardChanged = [bool]($GuardUserInput -and -not $inputUnchanged)
+  $windowChanged = [bool]($InteractionAfter.fingerprint -ne $InteractionBefore.fingerprint)
+  $cellReadbackInvalid = [bool](-not $StateAfter.ok -and $StateAfter.interference)
+  $popupClosureUnproved = [bool](-not $PopupClosed)
+  $reasons = @(
+    if ($inputGuardChanged) { 'input-epoch-changed-or-unreadable' }
+    if ($windowChanged) { 'interaction-window-set-changed' }
+    if ($popupClosureUnproved) { 'popup-closure-not-proven' }
+    if ($cellReadbackInvalid) { 'cell-readback-binding-not-proven' }
+  )
+  [pscustomobject]@{
+    interference=[bool]($inputGuardChanged -or $windowChanged -or $popupClosureUnproved -or $cellReadbackInvalid)
+    reasons=$reasons; inputGuardChanged=$inputGuardChanged; windowChanged=$windowChanged
+    popupClosureUnproved=$popupClosureUnproved; cellReadbackInvalid=$cellReadbackInvalid
+    inputEpoch=[pscustomobject]@{
+      source='GetLastInputInfo'; baseline=$InputBaseline; observed=$InputObserved; readable=$readable
+      unchanged=$inputUnchanged; changed=[bool]($readable -and -not $inputUnchanged); attribution='undetermined'
+      lastOwnAction='typed-table-option-selection'
+    }
+    windowGuard=[pscustomobject]@{ before=$InteractionBefore.fingerprint; after=$InteractionAfter.fingerprint }
+    cellGuard=[pscustomobject]@{
+      readOk=[bool]$StateAfter.ok; error=[string]$StateAfter.error; heading=[string]$StateAfter.heading
+      expectedRowY=$RowY; columnIndex=$ColumnIndex; rowCellCount=$StateAfter.rowCellCount
+      cellRid=[string]$StateAfter.cell.rid; cellAid=[string]$StateAfter.cell.aid
+    }
+  }
+}
+
 function Get-SSETableComboDiagnosticProjection {
   param([Parameter(Mandatory)]$ComboResult)
   $nodes = 0
@@ -247,13 +655,13 @@ function Get-SSETableComboDiagnosticProjection {
   if (-not $kind) { $kind = $(if ($ComboResult.ok) { 'ok' } else { 'typed-table-combo-failed' }) }
   $editorClosed = $null
   if ($null -ne $ComboResult.editorClosed) { $editorClosed = [bool]$ComboResult.editorClosed }
-  elseif ($null -ne $ComboResult.popupClosed) { $editorClosed = [bool]$ComboResult.popupClosed }
   [pscustomobject]@{
     error=ConvertTo-SSETableComboBoundedDiagnosticValue ([string]$ComboResult.error) ([ref]$nodes)
     kind=ConvertTo-SSETableComboBoundedDiagnosticValue $kind ([ref]$nodes)
     mutationStarted=[bool]$ComboResult.mutationStarted
     interference=[bool]$ComboResult.interference
     editorClosed=$editorClosed
+    interferenceEvidence=ConvertTo-SSETableComboBoundedDiagnosticValue $ComboResult.interferenceEvidence ([ref]$nodes)
     openEvidence=ConvertTo-SSETableComboBoundedDiagnosticValue $ComboResult.openEvidence ([ref]$nodes)
     popupBinding=ConvertTo-SSETableComboBoundedDiagnosticValue $ComboResult.popupBinding ([ref]$nodes)
     diagnosticBounds=[pscustomobject]@{ maxDepth=8; maxItemsPerCollection=64; maxNodes=512; maxStringChars=2048 }
@@ -292,6 +700,15 @@ function Resolve-SSETableComboPopup {
       ok=$false; kind='profile-binding-mismatch'
       error='Weder Tabellenregion noch Tabellenzelle ist an den Automation-ID-Abschnitt des Produktprofils gebunden.'
       candidates=@()
+    }
+  }
+
+  $sourceDiagnostics = @(Get-SSETableComboSourceDiagnostics @($Sources) $Cell)
+  if (-not $sourceDiagnostics.Count -or @($sourceDiagnostics | Where-Object { -not $_.captureComplete }).Count) {
+    return [pscustomobject]@{
+      ok=$false; kind='popup-snapshot-incomplete'
+      error='Optionsquellen sind unvollstaendig oder nicht lesbar; keine Auswahl und kein weiterer Oeffnungsklick.'
+      candidates=@(); sourceDiagnostics=$sourceDiagnostics
     }
   }
 
@@ -338,6 +755,7 @@ function Resolve-SSETableComboPopup {
           duplicateNames=@($_.duplicateNames | ForEach-Object { [string]$_.Name })
         }
       })
+      sourceDiagnostics=$sourceDiagnostics
     }
   }
   $selected = $complete[0]
@@ -345,6 +763,7 @@ function Resolve-SSETableComboPopup {
     ok=$true; kind='bound'; sourceHwnd=$selected.sourceHwnd
     list=$selected.list; target=$selected.wantedMatches[0]; rollback=$selected.currentMatches[0]
     options=@($selected.items | ForEach-Object { [string]$_.name })
+    sourceDiagnostics=$sourceDiagnostics
     binding=[pscustomobject]@{
       cellRid=$Cell.rid; cellAid=$Cell.aid; automationIdSection=$automationIdSection
       profileEvidence=$(if ($regionAidBound) { 'summary-region-scope-prefix' } else { 'cell-automation-id' })

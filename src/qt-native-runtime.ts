@@ -41,6 +41,8 @@ export interface QtNativeRuntimeDependencies {
   startSession?: (options: QtNativeBrokerOptions) => Promise<QtNativeSession>;
   discoverTarget?: (options: QtNativeDiscoveryOptions) => Promise<QtNativeTarget>;
   readMarker?: () => DesktopMarker | null;
+  /** Passive process existence only; null retains an unprovable binding. Not configurable through the API. */
+  processExists?: (pid: number) => boolean | null;
 }
 
 export function createQtNativeRuntime(
@@ -62,6 +64,10 @@ export function createQtNativeRuntime(
   };
   const readMarker = dependencies.readMarker ?? (() => resolveDesktopMarkerForOperation(desktopMarkerPath(), "get_value", false));
   const sessions = new Map<number, QtNativeSession>();
+  const processExists = dependencies.processExists ?? ((pid: number): boolean | null => {
+    try { process.kill(pid, 0); return true; }
+    catch (error) { return (error as NodeJS.ErrnoException).code === "ESRCH" ? false : null; }
+  });
   let selected: number | undefined, starting: Promise<QtNativeSession> | undefined;
   let startupAbort: AbortController | undefined;
   let stopped = false, revision = 0;
@@ -137,6 +143,19 @@ export function createQtNativeRuntime(
         selected = binding.hwnd;
         return existing;
       }
+      if (sessions.size >= 4) {
+        // Only an exited owned broker AND an absent target process can free a slot.
+        // Failed transports, live/reused PIDs and uncertain existence retain their binding.
+        // Never use this cleanup to reconnect the just-discovered process or resolve an old outcome.
+        for (const [hwnd, retained] of sessions) {
+          if (retained.client.binding.pid === binding.pid || retained.processExited !== true) continue;
+          let exists: boolean | null;
+          try { exists = processExists(retained.client.binding.pid); } catch { continue; }
+          if (exists !== false) continue;
+          sessions.delete(hwnd);
+          if (selected === hwnd) selected = undefined;
+        }
+      }
       if (sessions.size >= 4) throw failure("Native window session limit reached.", "native-session-limit");
       if ([...sessions.values()].some(session => session.client.binding.pid === binding.pid)) {
         throw failure("This process already has a native session bound to another window.", "native-window-conflict");
@@ -148,7 +167,7 @@ export function createQtNativeRuntime(
         await session.close(); throw failure("Native attachment was superseded by a lifecycle change.", "native-session-changed");
       }
       sessions.set(binding.hwnd, session); selected = binding.hwnd;
-      // A failed connection is kept bound until a lifecycle operation or API restart;
+      // Failed connections to live or unprovable processes stay bound until an explicit lifecycle change;
       // later requests do not silently reconnect or replay work.
       return session;
     });

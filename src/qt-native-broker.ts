@@ -2,7 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { Duplex } from "node:stream";
 import { isAbsolute } from "node:path";
-import { QtNativeClient, QtNativeTransportError, type QtNativeBinding } from "./qt-native-client.js";
+import { QtNativeClient, QtNativeTransportError, rejectQtNativePing, type QtNativeBinding } from "./qt-native-client.js";
 import type { QtNativePackage } from "./qt-native-package.js";
 
 export interface QtNativeTarget {
@@ -16,7 +16,10 @@ export interface QtNativeSession {
   client: QtNativeClient;
   brokerPid: number;
   close(): Promise<void>;
+  /** Cleanup completion can also report a child-process error; it is not proof of exit. */
   exited: Promise<void>;
+  /** True only after the owned child's actual exit event. */
+  readonly processExited: boolean;
 }
 
 export interface QtNativeBrokerOptions {
@@ -104,7 +107,11 @@ export async function startQtNativeBroker(options: QtNativeBrokerOptions): Promi
   // Diagnostics are bounded and never copied into API errors, where they could disclose local paths.
   child.stderr.on("data", (data: Buffer) => { stderrBytes += data.length; if (stderrBytes > 65536) child.kill(); });
   child.stdin.on("error", () => {});
-  const exited = new Promise<void>(resolveExit => { child.once("exit", () => resolveExit()); child.once("error", () => resolveExit()); });
+  let processExited = false;
+  const exited = new Promise<void>(resolveExit => {
+    child.once("exit", () => { processExited = true; resolveExit(); });
+    child.once("error", () => resolveExit());
+  });
   const abort = () => { client?.close(); child.kill(); };
   signal?.addEventListener("abort", abort, { once: true });
   try {
@@ -134,10 +141,12 @@ export async function startQtNativeBroker(options: QtNativeBrokerOptions): Promi
     remaining = Math.floor(options.timeoutMs - (performance.now() - started));
     if (remaining < 1) throw new QtNativeTransportError("Native startup deadline exceeded before owner verification.", "native-startup-timeout", true);
     const ping = (await client.request("ping", {}, remaining, signal)).result;
+    rejectQtNativePing(ping);
     if (ping.ownerPid !== child.pid || ping.ownerCreationTime !== loaded.ownerCreationTime) {
       throw new QtNativeTransportError("Native session owner does not match its broker.", "native-peer");
     }
-    return { client, brokerPid: child.pid!, exited, async close() { client!.close(); child.kill(); await exited; } };
+    return { client, brokerPid: child.pid!, exited, get processExited() { return processExited; },
+      async close() { client!.close(); child.kill(); await exited; } };
   } catch (error) {
     client?.close(); stream?.destroy(); child.kill(); await exited;
     if (error instanceof QtNativeTransportError) throw error;

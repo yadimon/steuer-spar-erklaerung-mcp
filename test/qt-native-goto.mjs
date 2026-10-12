@@ -109,7 +109,7 @@ function fixture(options = {}) {
     const header = add("Group", "", "main.ClientFrameSSE.ClientHeader");
     if (!searchOpen || current === "Target page") add("Text", current, "main.ClientFrameSSE.ClientHeader.QLabel", header);
     const nav = add("Tree", "", "main.NavWidgetSSE", -1, { x: 10, y: 100, w: 240, h: 500 });
-    if (options.visibleTarget) add("TreeItem", "Target page", "main.NavWidgetSSE", nav, { x: 20, y: 150 });
+    if (options.visibleTarget) add("TreeItem", options.navigationName ?? "Target page", "main.NavWidgetSSE", nav, { x: 20, y: 150 });
     if (current === "Target page") {
       targetReads++;
       if (targetReads > (options.incompleteReads ?? 0)) add("Edit", "", "main.requiredField", -1, { val: "17,00", ro: false });
@@ -157,7 +157,7 @@ function fixture(options = {}) {
       if (options.rejectAction) return { durationMs: 1, receiptAcknowledged: false,
         result: { ok: false, mutationAttempted: false, code: "stale", error: "Stale target" } };
       if (args.action === "replace-edit-text") { assert.equal(args.expectedValue, term); term = args.value; }
-      else if (args.action === "activate-navigation-item" || args.action === "activate-table-cell") current = options.noActivation ? current : "Target page";
+      else if (args.action === "activate-navigation-item" || args.action === "activate-table-cell") current = options.noActivation ? current : options.activationHeading ?? "Target page";
       else if (target.aid.endsWith("searchButton")) searchOpen = true;
       else if (target.name === "Suche schließen") searchOpen = false;
       else { assert(["Weiter", "Zurück"].includes(target.name)); current = route.shift() ?? current; }
@@ -167,7 +167,7 @@ function fixture(options = {}) {
     },
   };
   return { actions, get reads() { return reads; }, run: args => executeQtNativeOperation("goto",
-    { pageId: "synthetic.target", hwnd: 42, ...args }, { qtNativeClient: client }, options.timeoutMs ?? 8000, undefined, knownProfile) };
+    { pageId: "synthetic.target", hwnd: 42, ...args }, { qtNativeClient: client }, options.timeoutMs ?? 8000, undefined, options.profile ?? knownProfile) };
 }
 assert(isQtNativeOperation("goto"));
 const already = fixture({ start: "Target page" });
@@ -177,6 +177,24 @@ assert.equal((await delayed.run()).erreicht, true); assert.equal(delayed.actions
 const tree = fixture({ visibleTarget: true });
 assert.equal((await tree.run()).richtung, "Navigationsbaum"); assert.equal(tree.actions.length, 1);
 assert.equal(tree.actions[0].action, "activate-navigation-item");
+const wrongTree = fixture({ visibleTarget: true, activationHeading: "Other page" });
+const wrongTreeFailure = await wrongTree.run();
+assert.equal(wrongTreeFailure.ok, false);
+assert.equal(wrongTreeFailure.kind, "not-found");
+assert.equal(wrongTreeFailure.ueberschrift, "Other page");
+assert.equal(wrongTreeFailure.outcomeUnknown, true);
+assert.match(wrongTreeFailure.error, /exact page heading or a catalogued pageId/);
+assert.deepEqual(wrongTree.actions.map(action => action.action), ["activate-navigation-item"],
+  "A wrong tree landing reports the actual page without starting search or paging");
+const groupedProfile = { ...knownProfile, pageObjectsCatalog: { ...knownProfile.pageObjectsCatalog,
+  pages: { ...knownProfile.pageObjectsCatalog.pages,
+    "synthetic.target": { ...page, navigationTreeItemName: "Target group" } } } };
+const groupedTree = fixture({ visibleTarget: true, navigationName: "Target group", profile: groupedProfile });
+const groupedTreeResult = await groupedTree.run();
+assert.equal(groupedTreeResult.erreicht, true);
+assert.equal(groupedTreeResult.ueberschrift, "Target page");
+assert.deepEqual(groupedTree.actions.map(action => action.expectedName), ["Target group"],
+  "A catalogued group label remains valid when the exact target page is verified");
 const unchangedTree = fixture({ visibleTarget: true, noActivation: true });
 const treeFailure = await unchangedTree.run();
 assert.equal(treeFailure.ok, false); assert.equal(treeFailure.outcomeUnknown, true);

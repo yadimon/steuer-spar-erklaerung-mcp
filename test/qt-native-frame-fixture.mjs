@@ -57,6 +57,31 @@ export async function testNativeFrameBoundaries() {
     assert(replies.every(reply => reply.result.value === value));
   });
 
+  // Fill and drain the actual bounded client queue repeatedly. Correlating
+  // reversed, fragmented responses also proves that old generations cannot
+  // be reused after pressure; overflow must never be sent or replayed.
+  const pressureBatch = [];
+  await withBytePeer((stream, request) => {
+    pressureBatch.push(request);
+    if (pressureBatch.length !== 32) return;
+    const replies = Buffer.concat(pressureBatch.reverse().map(entry =>
+      frame({ ok: true, id: entry.id, generation: entry.generation })));
+    pressureBatch.length = 0;
+    for (let offset = 0; offset < replies.length; offset += 37) stream.push(replies.subarray(offset, offset + 37));
+  }, async (client, sent) => {
+    for (let batch = 0; batch < 8; batch++) {
+      const pending = Array.from({ length: 32 }, (_, index) =>
+        client.request("table_snapshot", { generation: batch * 32 + index }));
+      await assert.rejects(client.request("table_snapshot", { generation: -1 }), error =>
+        error instanceof QtNativeTransportError && error.kind === "native-queue-full" && !error.outcomeUnknown);
+      const replies = await Promise.all(pending);
+      assert.deepEqual(replies.map(reply => reply.result.generation),
+        Array.from({ length: 32 }, (_, index) => batch * 32 + index));
+    }
+    assert.equal(sent.length, 257, "One handshake and 256 reads; rejected overflow must not dispatch or retry.");
+    assert(sent.slice(1).every(entry => entry.generation >= 0));
+  });
+
   for (const length of [0, 16 * 1024 * 1024 + 1]) {
     await withBytePeer(stream => {
       const header = Buffer.alloc(4); header.writeUInt32LE(length);

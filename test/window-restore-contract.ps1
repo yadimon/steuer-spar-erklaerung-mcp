@@ -10,6 +10,8 @@ if ($errors.Count) { throw "Worker-Parserfehler: $($errors[0].Message)" }
 $functionNames = @(
   'Get-SSETextSha256',
   'Get-SSEPeerWindowSet',
+  'Get-SSEWindowRestorePeerSet',
+  'Resolve-SSEClosableNonmodalWindowPolicy',
   'Test-SSERecoveryPromptWindowCandidate',
   'Test-SSERecoveryPromptDescriptor',
   'Test-SSEUpdatePromptDescriptor',
@@ -24,7 +26,8 @@ foreach ($functionName in $functionNames) {
   Invoke-Expression $definition[0].Extent.Text
 }
 
-function Resolve-SSEClosableNonmodalWindowPolicy($Window) { $null }
+$script:restoreCatalog=Get-Content -LiteralPath (Join-Path $root 'profiles\2025\page-objects.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+function Get-SSEPageObjects { $script:restoreCatalog }
 $script:DIALOG_BUTTONS = @()
 
 $minimizedMain = [pscustomobject]@{
@@ -53,6 +56,71 @@ if ($before.fingerprint -eq $afterPeerChange.fingerprint) {
   throw 'Eine Peer-Fensteraenderung muss den Restore-Readback-Fingerprint veraendern.'
 }
 
+function Restore-Record($Window, [bool]$Visible=$true, [bool]$Enabled=$true, [int64]$Owner=0, [int64]$RootOwner=0) {
+  $record=$Window.PSObject.Copy()
+  foreach ($entry in @{
+    visible=$Visible; enabled=$Enabled; ownerHwnd=$Owner; rootOwnerHwnd=$RootOwner
+    placementKnown=$true; normalX=200; normalY=300; normalW=640; normalH=480
+  }.GetEnumerator()) { $record | Add-Member -NotePropertyName $entry.Key -NotePropertyValue $entry.Value -Force }
+  $record
+}
+function Assert-RestorePeerFailure($BeforeInventory, $AfterInventory, [string]$Reason) {
+  $beforeSet=Get-SSEWindowRestorePeerSet $BeforeInventory 7 ([IntPtr]101)
+  $afterSet=Get-SSEWindowRestorePeerSet $AfterInventory 7 ([IntPtr]101) $BeforeInventory
+  if ($beforeSet.complete -and $afterSet.complete -and $beforeSet.windows.Count -eq $afterSet.windows.Count -and
+      $beforeSet.fingerprint -ceq $afterSet.fingerprint) { throw $Reason }
+}
+$mainInventory=Restore-Record $minimizedMain $true $true 0 101
+$restoredInventory=Restore-Record $targetChanged $true $true 0 101
+$hiddenTool=Restore-Record $peer $false $true 101 101
+$hiddenTool.title=[string]$script:restoreCatalog.windows.resultComparison.title
+$hiddenTool.titleFingerprint=Get-SSETextSha256 $hiddenTool.title
+$hiddenTool.x=200; $hiddenTool.y=300; $hiddenTool.w=640; $hiddenTool.h=480
+$shownTool=$hiddenTool.PSObject.Copy(); $shownTool.visible=$true
+$restoreBefore=@($mainInventory,$hiddenTool)
+$hiddenBeforeSet=Get-SSEWindowRestorePeerSet $restoreBefore 7 ([IntPtr]101)
+$shownAfterSet=Get-SSEWindowRestorePeerSet @($restoredInventory,$shownTool) 7 ([IntPtr]101) $restoreBefore
+if (-not $shownAfterSet.complete -or $hiddenBeforeSet.windows.Count -ne 1 -or $shownAfterSet.windows.Count -ne 1 -or
+    $shownAfterSet.restoreTransitionCount -ne 1 -or $shownAfterSet.fingerprint -cne $hiddenBeforeSet.fingerprint) {
+  throw 'Vorhandenes verborgenes Eigentümer-gebundenes Werte-Info-Fenster wurde als neuer Peer behandelt.'
+}
+$minimizedTool=$shownTool.PSObject.Copy(); $minimizedTool.minimiert=$true
+$minimizedTool.x=-32000; $minimizedTool.y=-32000; $minimizedTool.w=160; $minimizedTool.h=30
+$minimizedInventory=@($mainInventory,$minimizedTool)
+$minimizedSet=Get-SSEWindowRestorePeerSet $minimizedInventory 7 ([IntPtr]101)
+$minimizedAfterSet=Get-SSEWindowRestorePeerSet @($restoredInventory,$shownTool) 7 ([IntPtr]101) $minimizedInventory
+if ($minimizedAfterSet.restoreTransitionCount -ne 1 -or $minimizedSet.fingerprint -cne $minimizedAfterSet.fingerprint) {
+  throw 'Vorhandenes minimiertes Werkzeugfenster mit unveraenderter Normalposition wurde nicht gebunden.'
+}
+Assert-RestorePeerFailure @($mainInventory) @($restoredInventory,$shownTool) 'Ein neu entstandenes bekanntes Werkzeugfenster wurde blind freigegeben.'
+Assert-RestorePeerFailure $restoreBefore @($restoredInventory) 'Ein verschwundener alter Peer wurde freigegeben.'
+$unknownHidden=$hiddenTool.PSObject.Copy(); $unknownHidden.title='Synthetic unknown dialog'; $unknownHidden.titleFingerprint=Get-SSETextSha256 $unknownHidden.title
+$unknownShown=$unknownHidden.PSObject.Copy(); $unknownShown.visible=$true
+Assert-RestorePeerFailure @($mainInventory,$unknownHidden) @($restoredInventory,$unknownShown) 'Ein unbekanntes verborgenes Fenster durfte erscheinen.'
+$unownedHidden=$hiddenTool.PSObject.Copy(); $unownedHidden.ownerHwnd=0; $unownedHidden.rootOwnerHwnd=$unownedHidden.hwnd
+$unownedShown=$unownedHidden.PSObject.Copy(); $unownedShown.visible=$true
+Assert-RestorePeerFailure @($mainInventory,$unownedHidden) @($restoredInventory,$unownedShown) 'Gleiche PID und bekannter Titel ersetzten die Eigentümerbindung.'
+$wrongMainHidden=$hiddenTool.PSObject.Copy(); $wrongMainHidden.rootOwnerHwnd=303
+$wrongMainShown=$wrongMainHidden.PSObject.Copy(); $wrongMainShown.visible=$true
+Assert-RestorePeerFailure @($mainInventory,$wrongMainHidden) @($restoredInventory,$wrongMainShown) 'Werkzeugfenster eines anderen Hauptfensters wurde freigegeben.'
+$ownerChanged=$shownTool.PSObject.Copy(); $ownerChanged.ownerHwnd=303
+Assert-RestorePeerFailure $restoreBefore @($restoredInventory,$ownerChanged) 'Geaenderte Eigentümeridentitaet wurde ignoriert.'
+$placementChanged=$shownTool.PSObject.Copy(); $placementChanged.normalW++
+Assert-RestorePeerFailure $restoreBefore @($restoredInventory,$placementChanged) 'Geaenderte Normalposition wurde ignoriert.'
+$placementUnknown=$shownTool.PSObject.Copy(); $placementUnknown.placementKnown=$false
+Assert-RestorePeerFailure $restoreBefore @($restoredInventory,$placementUnknown) 'Nicht nachgewiesene Normalposition wurde ignoriert.'
+$disabledShown=$shownTool.PSObject.Copy(); $disabledShown.enabled=$false
+Assert-RestorePeerFailure $restoreBefore @($restoredInventory,$disabledShown) 'Deaktiviertes/modales Peerfenster wurde normalisiert.'
+$classChanged=$shownTool.PSObject.Copy(); $classChanged.cls='#32770'
+Assert-RestorePeerFailure $restoreBefore @($restoredInventory,$classChanged) 'Ein Modal-Dialogklassentausch wurde normalisiert.'
+$titleChanged=$shownTool.PSObject.Copy(); $titleChanged.titleFingerprint='D' * 64
+Assert-RestorePeerFailure $restoreBefore @($restoredInventory,$titleChanged) 'Geaenderte Peer-Titelidentitaet wurde normalisiert.'
+$visibleMoved=$shownTool.PSObject.Copy(); $visibleMoved.x++
+Assert-RestorePeerFailure @($mainInventory,$shownTool) @($restoredInventory,$visibleMoved) 'Ein bereits sichtbarer Peer durfte unerwartet bewegt werden.'
+$missingOwner=$shownTool.PSObject.Copy(); $missingOwner.PSObject.Properties.Remove('ownerHwnd')
+Assert-RestorePeerFailure $restoreBefore @($restoredInventory,$missingOwner) 'Unvollstaendiges Peerinventar wurde freigegeben.'
+Assert-RestorePeerFailure $restoreBefore @($restoredInventory,$shownTool,$shownTool) 'Doppelte HWND-Identitaet wurde freigegeben.'
+
 $marker = "`n  'window_restore' {"
 $start = $worker.IndexOf($marker, [StringComparison]::Ordinal)
 if ($start -lt 0) { throw 'window_restore fehlt im Worker.' }
@@ -63,8 +131,12 @@ foreach ($required in @(
   "Get-SSEBoundedIntegerArg `$a 'hwnd'",
   '$actualTitleFingerprint -ne $titleFingerprint',
   'Get-SSEMainWindowCandidates $beforeWindows',
-  'Get-SSEPeerWindowSet $beforeWindows',
-  'Get-SSEPeerWindowSet $afterWindows',
+  'Get-SSEWindowRestorePeerSet $beforeWindows',
+  'Get-SSEWindowRestorePeerSet $afterWindows',
+  '$afterWindows = @(Get-SSEWindowRestoreInventory $targetPid)',
+  '$beforeWindows = @(Get-SSEWindowRestoreInventory $targetPid)',
+  '$afterTarget.enabled',
+  '-not $targetBefore.enabled',
   '$peerWindowsUnchanged',
   '-not [bool]$afterTarget.minimiert',
   '[SW]::ShowWindow([IntPtr]$targetHwnd, 9)',
@@ -72,6 +144,17 @@ foreach ($required in @(
 )) {
   if (-not $block.Contains($required)) { throw "window_restore-Vertrag fehlt: $required" }
 }
+
+$native=[IO.File]::ReadAllText((Join-Path $root 'powershell\sse-native.cs'))
+foreach ($required in @(
+  'return DescribeCore(allowedProcessIds, false);',
+  'return DescribeCore(allowedProcessIds, true);',
+  'if (!includeHidden && !visible) return true;',
+  'node.OwnerHwnd = SW.GetWindow(hwnd, 4).ToInt64();',
+  'node.RootOwnerHwnd = SW.GetAncestor(hwnd, 3).ToInt64();',
+  'node.PlacementKnown = SW.GetWindowPlacement(hwnd, ref placement);',
+  'EnsureEnumerationCompleted(completed, nativeError, callbacksVisited, callbackFailure);'
+)) { if (-not $native.Contains($required)) { throw "Vollstaendiger Restore-Inventarvertrag fehlt: $required" } }
 if ($block -match 'SendKeys|Click-VerifiedPoint|SetCursorPos|mouse_event|WM_CLOSE') {
   throw 'window_restore darf weder Tastatur/Maus/Koordinatenklick noch Fensterschliessen verwenden.'
 }

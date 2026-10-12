@@ -162,6 +162,17 @@ public sealed class SSEWorkerControllerLease {
 public class SW {
   [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h,IntPtr hdc,uint f);
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h,out RC r);
+  [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr h);
+  [DllImport("user32.dll")] private static extern bool ClientToScreen(IntPtr h,ref PT point);
+  [DllImport("user32.dll")] private static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
+  public static int[] GetPhysicalClientOrigin(IntPtr h) {
+    var previous = SetThreadDpiAwarenessContext(new IntPtr(-4));
+    if (previous == IntPtr.Zero) return null;
+    try {
+      var point = new PT();
+      return ClientToScreen(h,ref point) ? new int[] { point.X,point.Y } : null;
+    } finally { SetThreadDpiAwarenessContext(previous); }
+  }
   [DllImport("user32.dll")] public static extern IntPtr GetDlgItem(IntPtr h,int id);
   [DllImport("user32.dll", SetLastError=true)] public static extern bool EnumWindows(EP cb,IntPtr l);
   [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr parent,EP cb,IntPtr l);
@@ -170,6 +181,9 @@ public class SW {
   [DllImport("user32.dll", CharSet=CharSet.Unicode, ExactSpelling=true)] public static extern int GetWindowTextW(IntPtr h,StringBuilder s,int n);
   [DllImport("user32.dll", CharSet=CharSet.Unicode, ExactSpelling=true)] public static extern int GetClassNameW(IntPtr h,StringBuilder s,int n);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool IsWindowEnabled(IntPtr h);
+  [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr h,uint relation);
+  [DllImport("user32.dll")] public static extern bool GetWindowPlacement(IntPtr h,ref WP placement);
   [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern bool IsWindowUnicode(IntPtr h);
   [DllImport("user32.dll")] public static extern bool IsHungAppWindow(IntPtr h);
@@ -198,6 +212,12 @@ public class SW {
   [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
   public struct RC { public int L,T,R,B; }
   public struct PT { public int X,Y; }
+  [StructLayout(LayoutKind.Sequential)]
+  public struct WP {
+    public uint length, flags, showCmd;
+    public PT minPosition, maxPosition;
+    public RC normalPosition;
+  }
   [StructLayout(LayoutKind.Sequential)]
   public struct GUIINFO {
     public int cbSize;
@@ -252,6 +272,9 @@ public sealed class SSEWindowNode {
   public string TitleFingerprint;
   public bool Hung;
   public bool Minimized;
+  public bool Visible, Enabled, PlacementKnown;
+  public long OwnerHwnd, RootOwnerHwnd;
+  public int NormalX, NormalY, NormalW, NormalH;
   internal int EnumerationOrder;
 }
 
@@ -318,6 +341,16 @@ public static class SSEWindowEnumerator {
   }
 
   public static SSEWindowNode[] Describe(int[] allowedProcessIds) {
+    return DescribeCore(allowedProcessIds, false);
+  }
+
+  // Restore needs evidence of already existing hidden owned windows. Keep the
+  // ordinary public visible-window projection and its record shape unchanged.
+  public static SSEWindowNode[] DescribeIncludingHidden(int[] allowedProcessIds) {
+    return DescribeCore(allowedProcessIds, true);
+  }
+
+  static SSEWindowNode[] DescribeCore(int[] allowedProcessIds, bool includeHidden) {
     if (allowedProcessIds == null || allowedProcessIds.Length == 0) return new SSEWindowNode[0];
     var allowed = new HashSet<int>(allowedProcessIds);
     var output = new List<SSEWindowNode>();
@@ -329,7 +362,9 @@ public static class SSEWindowEnumerator {
         callbacksVisited++;
         uint processId = 0;
         SW.GetWindowThreadProcessId(hwnd, out processId);
-        if (!allowed.Contains(unchecked((int)processId)) || !SW.IsWindowVisible(hwnd)) return true;
+        if (!allowed.Contains(unchecked((int)processId))) return true;
+        bool visible = SW.IsWindowVisible(hwnd);
+        if (!includeHidden && !visible) return true;
 
         var title = new StringBuilder(512);
         var className = new StringBuilder(256);
@@ -338,7 +373,7 @@ public static class SSEWindowEnumerator {
         SW.RC rectangle;
         SW.GetWindowRect(hwnd, out rectangle);
         string titleText = title.ToString();
-        output.Add(new SSEWindowNode {
+        var node = new SSEWindowNode {
           Hwnd = hwnd.ToInt64(), Pid = unchecked((int)processId),
           X = rectangle.L, Y = rectangle.T,
           W = rectangle.R - rectangle.L, H = rectangle.B - rectangle.T,
@@ -346,7 +381,23 @@ public static class SSEWindowEnumerator {
           TitleFingerprint = Sha256(titleText),
           Hung = SW.IsHungAppWindow(hwnd), Minimized = SW.IsIconic(hwnd),
           EnumerationOrder = order++
-        });
+        };
+        if (includeHidden) {
+          SW.WP placement = new SW.WP();
+          placement.length = unchecked((uint)Marshal.SizeOf(typeof(SW.WP)));
+          node.Visible = visible;
+          node.Enabled = SW.IsWindowEnabled(hwnd);
+          node.OwnerHwnd = SW.GetWindow(hwnd, 4).ToInt64(); // GW_OWNER
+          node.RootOwnerHwnd = SW.GetAncestor(hwnd, 3).ToInt64(); // GA_ROOTOWNER
+          node.PlacementKnown = SW.GetWindowPlacement(hwnd, ref placement);
+          if (node.PlacementKnown) {
+            node.NormalX = placement.normalPosition.L;
+            node.NormalY = placement.normalPosition.T;
+            node.NormalW = placement.normalPosition.R - placement.normalPosition.L;
+            node.NormalH = placement.normalPosition.B - placement.normalPosition.T;
+          }
+        }
+        output.Add(node);
         return true;
       } catch (Exception failure) {
         callbackFailure = failure;

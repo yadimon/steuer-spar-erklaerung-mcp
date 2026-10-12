@@ -4,6 +4,13 @@ import { QtNativeTransportError, type QtNativeClient } from "./qt-native-client.
 
 const SCALAR = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 const CELL = z.object({ display: SCALAR, edit: SCALAR, checkState: z.number().int().nullable(), flags: z.number().int().nonnegative() });
+export const QT_TABLE_FOCUS_BINDING = z.object({
+  tableId: z.number().int().safe().positive(), modelId: z.number().int().safe().positive(),
+  tableAid: z.string().min(1), tableName: z.string().min(1),
+  currentIndex: z.tuple([z.number().int().min(-1), z.number().int().min(-1)]),
+  selectedIndexes: z.array(z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative()])).max(100_000),
+  modelFingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
+}).strict();
 const TABLE = z.object({
   ok: z.literal(true), controllerBound: z.literal(true), windowEnabled: z.boolean(), modalBlocked: z.boolean(),
   rows: z.number().int().nonnegative(), readRows: z.number().int().min(0).max(1001), columns: z.number().int().min(1).max(100),
@@ -14,6 +21,7 @@ const TABLE = z.object({
   table: z.object({ id: z.number().int().positive(), name: z.string(), class: z.string(), visible: z.literal(true) }).passthrough(),
   summary: z.string().nullable(), binding: z.record(z.unknown()).nullable(),
   summaries: z.array(z.object({ label: z.string(), vorkommen: z.number().int().positive(), wert: z.string().nullable() })).max(12),
+  cursorFocusBinding: QT_TABLE_FOCUS_BINDING.nullable().optional(),
 });
 const text = (value: z.infer<typeof SCALAR>): string => value === null ? "" : String(value);
 const fail = (kind: string, error: string): WorkerResult => ({ ok: false, backend: "qt", kind, error });
@@ -51,6 +59,7 @@ function normalizeTable(raw: z.infer<typeof TABLE>, maxRows: number): WorkerResu
     });
     return {
       rowIndex, modelRowIndex: row.modelRowIndex, rowFingerprint: raw.rowFingerprints[row.modelRowIndex],
+      modelCellFlags: row.cells.map(cell => cell.flags),
       typedValues: cells.map(cell => cell.value), checkboxStates: cells.map(cell => cell.state), cellTypes: cells.map(cell => cell.type),
       semanticsComplete: cells.every(cell => !cell.error), semanticReadErrors: cells.flatMap(cell => cell.error ? [cell.error] : []),
     };
@@ -66,6 +75,43 @@ function normalizeTable(raw: z.infer<typeof TABLE>, maxRows: number): WorkerResu
       visibleColumns: columns, tableCount: raw.tableCount, readModelRows: raw.readRows,
       rowFilter: "nonempty-nonzero-display", dirtyStateVerified: false },
   };
+}
+
+/** Project already verified private model evidence without another native read. */
+export function projectQtNativeCompleteTable(raw: Awaited<ReturnType<typeof readQtNativeCompleteTable>>, maxRows = 1000): WorkerResult {
+  return normalizeTable(raw, maxRows);
+}
+
+/** Exact, unique visible model cell; hidden and checkbox cells are never targets. */
+export function findQtNativeTableTarget(raw: Awaited<ReturnType<typeof readQtNativeCompleteTable>>, wanted: string) {
+  const matches: { row: number; column: number }[] = [];
+  for (let row = 0; row < raw.rows; row++) {
+    if (raw.hiddenRows.includes(row)) continue;
+    for (let column = 0; column < raw.columns; column++) {
+      const value = raw.values[row]![column]!;
+      if (!raw.hiddenColumns.includes(column) && (value.flags & 16) === 0 && value.checkState === null
+        && text(value.display) === wanted) matches.push({ row, column });
+    }
+  }
+  return matches.length === 1 ? matches[0]! : null;
+}
+
+/** Private, unfiltered model evidence for a guarded cursor transaction. */
+export async function readQtNativeCompleteTable(
+  client: QtNativeClient, args: Readonly<Record<string, unknown>>, timeoutMs: number, signal?: AbortSignal,
+) {
+  if (args.hwnd !== client.binding.hwnd) throw new Error("Cursor proof targets another native window.");
+  const read = await client.request("table_snapshot", {
+    // Cursor transactions alone need accessibility geometry and selection proof.
+    // Ordinary public model reads must not activate that separate read path.
+    withCursorFocusBinding: true, maxRows: 1000, ...(args.sumLabel ? { sumLabel: args.sumLabel } : {}),
+    ...(args.sumOccurrence ? { sumOccurrence: args.sumOccurrence } : {}),
+  }, timeoutMs, signal);
+  const raw = TABLE.parse(read.result);
+  if (normalizeTable(raw, 1000).ok !== true || !raw.complete || raw.canFetchMore || raw.readRows !== raw.rows) {
+    throw new Error("Cursor proof requires a complete, unfiltered native model.");
+  }
+  return raw;
 }
 
 export async function executeQtNativeTableRead(

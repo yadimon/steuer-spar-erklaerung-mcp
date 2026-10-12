@@ -43,7 +43,9 @@ for (const required of [
   "if ([int]$lease.depth -gt 0) { return }",
   "$lease.releasedByEmit = ($Reason -eq 'emit')",
   "[SW]::SetWindowPos($raised, $HWND_NOTOPMOST",
-  "Test-SSELastInputUnchanged $lease.lastOwnedInputTick",
+  "$releaseInputTick = Get-SSELastInputTick",
+  "Get-SSEInputEpochEvidence $lease.lastOwnedInputTick $releaseInputTick $lease.lastOwnedInputContext",
+  "$inputUnchanged = [bool]$lease.releaseInputEvidence.unchanged",
   "$lease.cursorRestored = [bool][SW]::SetCursorPos",
   "$currentPid -ne [int]$lease.targetPid",
   "Test-SSEWindowIsLockScreen $previous",
@@ -55,6 +57,14 @@ assert(
   "TOPMOST-Cleanup haengt faelschlich von der Eingabe-Epoche ab.",
 );
 assert.match(exit, /if \(-not \$inputUnchanged\).*restoreSkippedReason = 'input-changed'/s);
+assert.equal((exit.match(/Get-SSELastInputTick/gu) ?? []).length, 1,
+  "Restore-Guard und Diagnose muessen dieselbe einmal gelesene Eingabe-Epoche verwenden.");
+const telemetry = functionBlock("Get-SSEForegroundLeaseTelemetry");
+assert(telemetry.includes("inputEpoch=$lease.releaseInputEvidence") &&
+  telemetry.includes("beforeRestoreHwnd=$lease.foregroundBeforeRestore; afterRestoreHwnd=$lease.foregroundAfterRestore"),
+  "Eingabe-Epoche und Vordergrundwechsel muessen getrennt diagnostiziert werden.");
+assert(checkpoint.includes("$lease.lastOwnedInputContext = $Context"),
+  "Ein eigener Eingabe-Checkpoint braucht den zugehoerigen Aktionskontext.");
 assert(
   exit.indexOf("if (-not $Force)") < exit.indexOf("$lease.foregroundRestored"),
   "Explizites Zwischen-Hide darf den Benutzerfokus nicht wiederherstellen.",

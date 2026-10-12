@@ -22,6 +22,9 @@ export const SSE_API_RESULT_SCHEMA_VERSION = 1;
 const API_OPERATION_NAME_SCHEMA = z.enum(SSE_API_OPERATIONS);
 const OPTIONAL_TABLE_ROW_DETAILS = z.array(z.object({
   rowIndex: z.number().int().nonnegative().describe("Nullbasierter Ausgabezeilenindex"),
+  modelCellFlags: z.array(z.number().int().nonnegative()).optional().describe(
+    "Native Qt-ItemFlags je sichtbarer Ausgabespalte, positionsgleich zu nativeTable.visibleColumns; kein UIA-Fokus- oder Klicknachweis",
+  ),
   typedValues: z.array(z.union([z.string(), z.boolean(), z.null()])).describe(
     "Zellwerte; Checkboxen boolesch, unbestimmte/unbekannte Werte null",
   ),
@@ -205,6 +208,7 @@ const CORE_OPERATION_RESULT_FIELDS = {
     vollstaendig: OPTIONAL_BOOLEAN,
     anzahl: OPTIONAL_NON_NEGATIVE_NUMBER,
     summe: OPTIONAL_STRING,
+    cursorActivation: OPTIONAL_OBJECT.describe("Technischer Nachweis des semantischen Tabellenfokus; kein Zellklick"),
   },
   result_details: { zeilen: OPTIONAL_ARRAY, vollstaendig: OPTIONAL_BOOLEAN, anzahl: OPTIONAL_NON_NEGATIVE_NUMBER },
   snapshot: { nodes: OPTIONAL_ARRAY, count: OPTIONAL_NON_NEGATIVE_NUMBER, stats: OPTIONAL_OBJECT, toolWindow: OPTIONAL_STRING },
@@ -321,6 +325,11 @@ const CORE_OPERATION_RESULT_FIELDS = {
     instance: OPTIONAL_OBJECT,
     ready: OPTIONAL_BOOLEAN,
     case: OPTIONAL_CASE_IDENTITY,
+    processPreserved: OPTIONAL_BOOLEAN.describe("Der Executor hat den gestarteten Prozess nicht automatisch geschlossen"),
+    processStillRunning: OPTIONAL_BOOLEAN.describe("Beobachteter Prozesszustand; null bedeutet unbekannt"),
+    outcomeUnknown: OPTIONAL_BOOLEAN,
+    reconciliationRequired: OPTIONAL_BOOLEAN.describe("Fenster und Wiederherstellungszustand vor weiteren Aktionen frisch klaeren"),
+    retryable: OPTIONAL_BOOLEAN,
   },
   close: { stillRunning: OPTIONAL_BOOLEAN, killed: OPTIONAL_BOOLEAN },
   desktop_start: { pid: OPTIONAL_NON_NEGATIVE_NUMBER, desktop: OPTIONAL_STRING },

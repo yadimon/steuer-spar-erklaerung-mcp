@@ -111,6 +111,7 @@ const pageObjectTableSchema = z.object({
   sumLabel: z.string().min(1),
   sumOccurrence: z.number().int().positive(),
   automationIdSection: z.string().regex(/^[A-Za-z0-9_]+$/u).optional(),
+  confirmedEmptyRowCategoryDefaults: z.array(z.literal("Sonst. Leistung EU")).length(1).optional(),
   bindingPolicy: z.string().min(1),
   columns: z.array(pageObjectTableColumnSchema).min(1),
 }).strict().superRefine((table, context) => {
@@ -120,6 +121,41 @@ const pageObjectTableSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ["columns"],
       message: "Tabellenspalten duerfen pro Page-Object nicht doppelt definiert sein.",
+    });
+  }
+  if (table.confirmedEmptyRowCategoryDefaults !== undefined && (
+    table.sumLabel !== "Summe" || table.sumOccurrence !== 2 || table.automationIdSection !== "grpEmpf13b" ||
+    !table.columns.some((column) => column.index === 3 && column.header === "Kategorie" &&
+      column.writePolicy === "typed-selection-required")
+  )) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["confirmedEmptyRowCategoryDefaults"],
+      message: "Der bestaetigte EU-Leerzeilendefault braucht die exakt profilierte zweite §13b-Kategoriespalte.",
+    });
+  }
+});
+
+const vehicleCostRegionBindingSchema = z.object({
+  id: z.enum(["vehicle_costs_with_input_tax", "vehicle_costs_without_input_tax"]),
+  page: z.literal("Sonstige Kfz-Kosten"),
+  headingPrefix: z.literal("Sonstige Kfz-Kosten: ").optional(),
+  sumLabel: z.enum([
+    "Summe der sonstigen Kfz-Kosten mit Vorsteuerabzug",
+    "Summe der sonstigen Kfz-Kosten ohne Vorsteuerabzug",
+  ]),
+  summaryAidSuffix: z.string().min(1),
+  tableAidSuffix: z.literal("/.SonstigeKfzkosten./.SonstigeKfzkosten.Kosten"),
+}).strict().superRefine((binding, context) => {
+  const withInputTax = binding.id === "vehicle_costs_with_input_tax";
+  const expectedLabel = `Summe der sonstigen Kfz-Kosten ${withInputTax ? "mit" : "ohne"} Vorsteuerabzug`;
+  const section = withInputTax ? "TabSumKostMit" : "TabSumKostOhne";
+  const expectedSuffix = "/.SonstigeKfzkosten./.SonstigeKfzkosten.Summen." +
+    `/.SonstigeKfzkosten.Summen.${section}./.SonstigeKfzkosten.Summen.${section}.Wert`;
+  if (binding.sumLabel !== expectedLabel || binding.summaryAidSuffix !== expectedSuffix) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Kfz-Summenbindung muss dem exakt bestaetigten Summen-AutomationId entsprechen.",
     });
   }
 });
@@ -141,8 +177,41 @@ const pageObjectsCompatibilitySchema = z.object({
     installationFolderName: z.string().min(1),
   }).passthrough(),
   windows: z.record(z.unknown()).refine((value) => Object.keys(value).length > 0, "Fensterkatalog darf nicht leer sein."),
+  tableRegionBindings: z.array(vehicleCostRegionBindingSchema).optional(),
+  checkerStartBindings: z.array(z.object({
+    id: z.string().regex(/^[a-z][a-z0-9_]+$/u),
+    documentTypes: z.array(z.enum(["ESt", "Gew", "GewErfass"])).min(1),
+    controlType: z.enum(["Button", "CheckBox"]), name: z.string().min(1),
+    automationIdSuffix: z.string().regex(/^\.[^\u0000-\u001f]+$/u),
+    heading: z.string().min(1).optional(), pattern: z.literal("Invoke"),
+    expectedToggleState: z.literal("Off").optional(),
+  }).strict().superRefine((binding, context) => {
+    if (binding.controlType === "CheckBox" && (binding.expectedToggleState !== "Off" || binding.heading !== undefined)
+      || binding.controlType === "Button" && (!binding.heading || binding.expectedToggleState !== undefined)) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "Checker start must invoke either an exact page button or a proven unchecked toolbar command." });
+    }
+  })).optional(),
+  tableComboFocusOut: z.object({
+    id: z.literal("main_footer_next_focus"), controlType: z.literal("Button"), name: z.literal("Weiter"),
+    automationIdSuffix: z.literal(".RedThreadContent.ClientFrameSSE.ClientFooterSSE.HoverButton"),
+    action: z.literal("SetFocus"), policy: z.literal("own-typed-table-editor-only"),
+  }).strict().optional(),
   pages: z.record(pageObjectSchema).refine((value) => Object.keys(value).length > 0, "Seitenkatalog darf nicht leer sein."),
 }).passthrough().superRefine((catalog, context) => {
+  const checkerTypes = (catalog.checkerStartBindings ?? []).flatMap((binding) => binding.documentTypes);
+  const checkerIds = (catalog.checkerStartBindings ?? []).map((binding) => binding.id);
+  if (new Set(checkerTypes).size !== checkerTypes.length || new Set(checkerIds).size !== checkerIds.length) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["checkerStartBindings"],
+      message: "Checker start bindings must be unique by document type and policy id." });
+  }
+  const regionIds = (catalog.tableRegionBindings ?? []).map((binding) => binding.id);
+  if (new Set(regionIds).size !== regionIds.length) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["tableRegionBindings"],
+      message: "Profilierte Summen-/Tabellenbindungen duerfen nicht doppelt definiert sein.",
+    });
+  }
   const foldedIds = new Map<string, string>();
   for (const pageId of Object.keys(catalog.pages)) {
     const folded = pageId.toLocaleLowerCase("de-DE");

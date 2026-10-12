@@ -20,6 +20,7 @@ import {
 import { operationAnnotations } from "./operation-traits.js";
 import { SSE_API_RESULT_OUTPUT_SCHEMAS } from "./result-contract.js";
 import { assertApiSingletonIdentity } from "./mcp-api-supervisor.js";
+import { McpBudgetError, McpOperationBudget } from "./mcp-operation-budget.js";
 
 type ToolConfig = { title: string; description: string; };
 type ApiResultShape = (result: Record<string, unknown>) => unknown;
@@ -33,24 +34,32 @@ export function apiResultOutputSchema(operation: SseApiOperation): z.ZodTypeAny 
  * Request-Abbruch und die einheitliche Uebersetzung von API-Antworten.
  */
 export function createMcpRegistry(server: McpServer) {
-  const requestAbortSignal = new AsyncLocalStorage<AbortSignal>();
+  const requestBudget = new AsyncLocalStorage<McpOperationBudget>();
 
   async function callApiOperation(
     operation: SseApiOperation,
     args: Record<string, unknown> = {},
     timeoutMs?: number,
   ) {
-    const signal = requestAbortSignal.getStore();
+    const budget = requestBudget.getStore();
+    budget?.operationTimeout(timeoutMs);
     const health = await assertApiSingletonIdentity();
-    return callApiOperationDirect(operation, args, timeoutMs, {
+    const boundedTimeout = budget?.operationTimeout(timeoutMs) ?? timeoutMs;
+    return callApiOperationDirect(operation, args, boundedTimeout, {
       expectedInstanceId: health.instanceId,
-      ...(signal ? { signal } : {}),
+      ...(budget ? { signal: budget.signal } : {}),
     });
   }
 
   function caughtErrorResult(operation: SseApiOperation, error: unknown): CallToolResult {
+    if (error instanceof McpBudgetError) {
+      return apiErrorResult(operation, { ok: false, kind: error.kind, error: error.message,
+        outcomeUnknown: true, reconciliationRequired: true, retryable: false });
+    }
     if (error instanceof ApiClientError) {
-      return apiErrorResult(operation, { ok: false, kind: error.kind, error: error.message });
+      const unknown = ["timeout", "aborted", "transport-unknown"].includes(error.kind);
+      return apiErrorResult(operation, { ok: false, kind: error.kind, error: error.message,
+        ...(unknown ? { outcomeUnknown: true, reconciliationRequired: true, retryable: false } : {}) });
     }
     return errorResult(String(error));
   }
@@ -107,26 +116,33 @@ export function createMcpRegistry(server: McpServer) {
           openWorldHint: false,
         },
       },
-      (args, extra) => requestAbortSignal.run(extra.signal, async () => {
-        let validationOperation = firstOperation;
+      async (args, extra) => {
+        const budget = new McpOperationBudget(extra.signal);
         try {
-          for (const operation of operations) {
-            validationOperation = operation;
-            assertApiArgumentBudget(operation, args);
-            parseApiOperationArgs(operation, args);
-          }
-        } catch (error) {
-          const message = error instanceof z.ZodError
-            ? formatOperationArgumentError(error, validationOperation)
-            : error instanceof Error ? error.message : String(error);
-          return errorResult(`Ungueltige MCP-Argumente: ${message}`);
-        }
-        try {
-          return await callback(args);
+          return await budget.run(() => requestBudget.run(budget, async () => {
+            let validationOperation = firstOperation;
+            try {
+              for (const operation of operations) {
+                validationOperation = operation;
+                assertApiArgumentBudget(operation, args);
+                parseApiOperationArgs(operation, args);
+              }
+            } catch (error) {
+              const message = error instanceof z.ZodError
+                ? formatOperationArgumentError(error, validationOperation)
+                : error instanceof Error ? error.message : String(error);
+              return errorResult(`Ungueltige MCP-Argumente: ${message}`);
+            }
+            try {
+              return await callback(args);
+            } catch (error) {
+              return caughtErrorResult(firstOperation, error);
+            }
+          }));
         } catch (error) {
           return caughtErrorResult(firstOperation, error);
         }
-      }),
+      },
     );
   }
 

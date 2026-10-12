@@ -109,11 +109,15 @@ try {
   function harness(options = {}) {
     const shutdown = new AbortController(), calls = [], starts = [], sessions = [];
     const state = { target: { pid: 99, hwnd: 42, creationTime: "1" }, marker: null,
-      context: { ok: true, boundMain: true, unique: true }, closed: 0, reads: 0 };
+      context: { ok: true, boundMain: true, unique: true }, closed: 0, reads: 0,
+      processPresence: () => true, processProbes: [] };
     const runtime = createQtNativeRuntime(config, profile, shutdown.signal, {
       telemetry: options.telemetry,
       loadPackage: () => nativePackage,
       readMarker: () => { if (state.markerError) throw state.markerError; return state.marker; },
+      ...(!options.useDefaultProcessProbe ? { processExists: pid => {
+        state.processProbes.push(pid); return state.processPresence(pid);
+      } } : {}),
       discoverTarget: async request => {
         calls.push("discover");
         await options.inventoryWait?.("discover", request.signal);
@@ -130,7 +134,8 @@ try {
             if (state.connectionError) throw state.connectionError;
             return { result: state.context };
           } },
-          brokerPid: 123, exited: Promise.resolve(), async close() { state.closed++; },
+          brokerPid: 123, exited: Promise.resolve(), processExited: options.brokerProcessExited ?? true,
+          async close() { state.closed++; },
         };
         sessions.push(session); return session;
       },
@@ -231,7 +236,85 @@ try {
   await atCapacity.runtime.afterWorker("launch", { ok: true, pid: 999 });
   assert.equal((await atCapacity.runtime.client({}, 1000)).binding.hwnd, 303);
   assert.equal(atCapacity.starts.length, 4, "The attachment limit must not reject reuse of an existing session.");
+  atCapacity.state.target = { pid: 204, hwnd: 304, creationTime: "5" };
+  await assert.rejects(atCapacity.runtime.client({ hwnd: 304 }, 1000), kind("native-session-limit"));
+  assert.equal(atCapacity.starts.length, 4, "Exited brokers alone must not free live target-process slots.");
+  assert.deepEqual(atCapacity.state.processProbes, [200, 201, 202, 203]);
   await atCapacity.runtime.close();
+
+  async function capacityHarness(options = {}) {
+    const retained = harness(options);
+    for (let index = 0; index < 4; index++) {
+      retained.state.target = { pid: 400 + index, hwnd: 500 + index, creationTime: String(index + 1) };
+      await retained.runtime.client({ hwnd: 500 + index }, 1000);
+    }
+    retained.state.target = { pid: 404, hwnd: 504, creationTime: "5" };
+    return retained;
+  }
+  const deadTarget = await capacityHarness();
+  deadTarget.state.processPresence = pid => pid !== 400;
+  const freshTarget = await deadTarget.runtime.client({ hwnd: 504 }, 1000);
+  assert.equal(freshTarget.binding.pid, 404);
+  assert.equal(deadTarget.starts.length, 5, "A proven exited broker and absent former target free one slot for a different process.");
+  assert.equal(deadTarget.state.closed, 0, "Capacity cleanup must not kill a broker, target or any live session.");
+  await deadTarget.runtime.close();
+  assert.equal(deadTarget.state.closed, 4, "Exactly four retained slots remain after dead-target eviction.");
+
+  for (const [label, presence] of [["unknown existence", () => null],
+    ["unreadable existence", () => { throw Error("Synthetic probe failure"); }], ["reused live PID", () => true]]) {
+    const retained = await capacityHarness(); retained.state.processPresence = presence;
+    await assert.rejects(retained.runtime.client({ hwnd: 504 }, 1000), kind("native-session-limit"), label);
+    assert.equal(retained.starts.length, 4); assert.equal(retained.state.closed, 0);
+    await retained.runtime.close();
+  }
+  const unprovenExit = await capacityHarness({ brokerProcessExited: false });
+  unprovenExit.state.processPresence = () => false;
+  await assert.rejects(unprovenExit.runtime.client({ hwnd: 504 }, 1000), kind("native-session-limit"));
+  assert.deepEqual(unprovenExit.state.processProbes, [], "An error-fulfilled completion Promise cannot prove an alive broker exited.");
+  await unprovenExit.runtime.close();
+
+  const failedExit = await capacityHarness({ brokerProcessExited: "true" });
+  failedExit.state.processPresence = () => false;
+  await assert.rejects(failedExit.runtime.client({ hwnd: 504 }, 1000), kind("native-session-limit"));
+  assert.deepEqual(failedExit.state.processProbes, [], "Malformed exit metadata must not authorize capacity cleanup.");
+  await failedExit.runtime.close();
+
+  const failedLive = await capacityHarness();
+  failedLive.state.connectionError = new QtNativeTransportError("Unknown former request", "native-connection", true);
+  await assert.rejects(failedLive.runtime.client({ hwnd: 500 }, 1000), error => kind("native-connection")(error) && error.outcomeUnknown);
+  await assert.rejects(failedLive.runtime.client({ hwnd: 504 }, 1000), kind("native-session-limit"));
+  assert.equal(failedLive.starts.length, 4, "Unknown live bindings must not reconnect or free capacity.");
+  assert.equal(failedLive.state.closed, 0); await failedLive.runtime.close();
+
+  const sameProcess = await capacityHarness(); sameProcess.state.processPresence = () => false;
+  sameProcess.state.target = { pid: 400, hwnd: 505, creationTime: "1" };
+  await assert.rejects(sameProcess.runtime.client({ hwnd: 505 }, 1000), kind("native-window-conflict"));
+  assert.equal(sameProcess.starts.length, 4, "Even a contradictory absent probe must not evict the current discovered process.");
+  assert.equal(sameProcess.state.processProbes.includes(400), false); await sameProcess.runtime.close();
+
+  const sameWindow = await capacityHarness(); sameWindow.state.processPresence = () => false;
+  sameWindow.state.connectionError = new QtNativeTransportError("Closed retained window", "native-connection", true);
+  await assert.rejects(sameWindow.runtime.client({ hwnd: 500 }, 1000), kind("native-connection"));
+  assert.equal(sameWindow.starts.length, 4); assert.deepEqual(sameWindow.state.processProbes, []);
+  await sameWindow.runtime.close();
+
+  const originalKill = process.kill;
+  try {
+    const probeCalls = [];
+    process.kill = (pid, signal) => {
+      probeCalls.push({ pid, signal });
+      if (pid === 400) throw Object.assign(Error("Synthetic absent process"), { code: "ESRCH" });
+      return true;
+    };
+    const absentProbe = await capacityHarness({ useDefaultProcessProbe: true });
+    assert.equal((await absentProbe.runtime.client({ hwnd: 504 }, 1000)).binding.pid, 404);
+    assert.deepEqual(probeCalls, [400, 401, 402, 403].map(pid => ({ pid, signal: 0 })));
+    await absentProbe.runtime.close();
+    process.kill = () => { throw Object.assign(Error("Synthetic inaccessible process"), { code: "EPERM" }); };
+    const inaccessibleProbe = await capacityHarness({ useDefaultProcessProbe: true });
+    await assert.rejects(inaccessibleProbe.runtime.client({ hwnd: 504 }, 1000), kind("native-session-limit"));
+    assert.equal(inaccessibleProbe.starts.length, 4); await inaccessibleProbe.runtime.close();
+  } finally { process.kill = originalKill; }
 
   const multiple = harness(); multiple.state.discoveryError = new QtNativeTransportError("Multiple windows", "ambiguous");
   await assert.rejects(multiple.runtime.client({}, 1000), kind("ambiguous"));

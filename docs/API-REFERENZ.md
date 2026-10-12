@@ -279,7 +279,7 @@ Operation: `checker_results` (lesend).
 
 **Globalen Steuerpruefer starten**
 
-Startet auf der Seite 'Steuererklaerung pruefen' den fallweiten Software-Pruefer und liefert die sicher erreichbaren Fragen/Warnungen und Tipps samt Konsistenzstatus.
+Startet den fallweiten Software-Pruefer ueber den exakten Profilweg der gebundenen Fallart und liefert die sicher erreichbaren Fragen/Warnungen und Tipps samt Konsistenzstatus.
 
 Operation: `checker_run` (zustandsaendernd, drift-gesperrt).
 

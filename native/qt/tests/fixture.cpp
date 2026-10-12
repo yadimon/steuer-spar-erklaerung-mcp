@@ -21,16 +21,201 @@
 #include <QtGui/QIntValidator>
 #include <QtCore/QTimer>
 #include <QtCore/QThread>
+#include <QtCore/QEvent>
+#include <QtCore/QPointer>
 #include <fstream>
 #include <iostream>
 #include <thread>
 #include <memory>
+#include <chrono>
+#include <cstdio>
+#include <cstring>
+#include <array>
+#include <atomic>
+#include <condition_variable>
+#include <mutex>
 #include <nlohmann/json.hpp>
+
+class FixtureTraceJournal {
+    struct Record {
+        const char *phase;
+        long long monotonicUs, utcMs;
+        DWORD threadId;
+        unsigned long delayMs;
+        unsigned int callId;
+    };
+    static constexpr unsigned int capacity = 256, overflowBit = 1u << 16, stopBit = 1u << 17;
+    std::array<Record, capacity> records_{};
+    const std::chrono::steady_clock::time_point began_ = std::chrono::steady_clock::now();
+    unsigned int count_ = 0, nextCall_ = 0, currentCall_ = 0;
+    unsigned int firstEditCall_ = 0, committedCall_ = 0;
+    bool overflow_ = false, armed_ = false, armUsed_ = false, currentCaptured_ = false;
+    std::atomic<unsigned int> published_{0};
+    std::condition_variable changed_;
+    std::thread exporter_;
+
+    void exportRecords() {
+        unsigned int read = 0;
+        std::mutex waitMutex;
+        std::unique_lock<std::mutex> waitLock(waitMutex);
+        for (;;) {
+            const auto state = published_.load(std::memory_order_acquire);
+            const auto count = state & 0xffffu;
+            while (read < count) {
+                const auto &entry = records_[read++];
+                std::fprintf(stderr, "SSE_FIXTURE_EDIT_PHASE {\"sequence\":%u,\"phase\":\"%s\",\"monotonicUs\":%lld,\"utcMs\":%lld,\"threadId\":%lu,\"delayMs\":%lu,\"callId\":%u}\n",
+                    read, entry.phase, entry.monotonicUs, entry.utcMs, static_cast<unsigned long>(entry.threadId),
+                    entry.delayMs, entry.callId);
+            }
+            std::fflush(stderr);
+            if (state & stopBit) {
+                std::fprintf(stderr, "SSE_FIXTURE_EDIT_JOURNAL {\"exportComplete\":true,\"records\":%u,\"overflow\":%s}\n",
+                    read, state & overflowBit ? "true" : "false");
+                std::fflush(stderr);
+                return;
+            }
+            // The GUI producer never locks this mutex. A bounded passive wait
+            // also covers a notification arriving before the waiter sleeps.
+            changed_.wait_for(waitLock, std::chrono::milliseconds(25), [this, state] {
+                return published_.load(std::memory_order_acquire) != state;
+            });
+        }
+    }
+public:
+    struct MetaCallToken {
+        unsigned int parent, callId;
+        bool captured, parentCaptured;
+    };
+    FixtureTraceJournal() : exporter_([this] { exportRecords(); }) {}
+    nlohmann::json clockProbe() const {
+        return {{"monotonicUs", std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - began_).count()},
+            {"utcMs", std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count()},
+            {"threadId", GetCurrentThreadId()}};
+    }
+    ~FixtureTraceJournal() {
+        published_.fetch_or(stopBit, std::memory_order_release);
+        changed_.notify_one();
+        exporter_.join();
+    }
+    void mark(const char *phase, unsigned long delayMs = 0) noexcept {
+        if (count_ == capacity) {
+            if (!overflow_) {
+                overflow_ = true;
+                published_.fetch_or(overflowBit, std::memory_order_release);
+                changed_.notify_one();
+            }
+            return;
+        }
+        auto &entry = records_[count_];
+        entry = {phase,
+            std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - began_).count(),
+            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count(),
+            GetCurrentThreadId(), delayMs, currentCall_};
+        // Each slot is written once and becomes immutable before publication.
+        published_.store(++count_, std::memory_order_release);
+        changed_.notify_one();
+    }
+    bool armFirstEditWindow() noexcept {
+        if (armUsed_ || count_ == capacity) return false;
+        armUsed_ = true;
+        armed_ = true;
+        mark("firstEditWindow.arm");
+        return true;
+    }
+    void markEditPhase(const char *phase, unsigned long delayMs) noexcept {
+        mark(phase, delayMs);
+        if (!armed_ || !currentCaptured_) return;
+        if (!firstEditCall_ && std::strcmp(phase, "textEdited.enter") == 0)
+            firstEditCall_ = currentCall_;
+        if (currentCall_ == firstEditCall_ && std::strcmp(phase, "commit.leave") == 0)
+            committedCall_ = currentCall_;
+    }
+    MetaCallToken enterMetaCall() noexcept {
+        const MetaCallToken token{currentCall_, nextCall_ + 1, armed_, currentCaptured_};
+        currentCall_ = ++nextCall_;
+        currentCaptured_ = token.captured;
+        if (token.captured) mark("metaCall.enter");
+        return token;
+    }
+    void leaveMetaCall(const MetaCallToken &token) noexcept {
+        // Entry-time authority prevents an arm command from adding an orphan
+        // leave, and preserves the parent when a MetaCall is nested.
+        if (token.captured) {
+            mark("metaCall.leave");
+            if (armed_ && token.callId == committedCall_) {
+                mark("firstEditWindow.complete");
+                armed_ = false;
+            }
+        }
+        currentCall_ = token.parent;
+        currentCaptured_ = token.parentCaptured;
+    }
+};
+
+class FixtureApplication : public QApplication {
+    FixtureTraceJournal &journal_;
+public:
+    FixtureApplication(int &argc, char **argv, FixtureTraceJournal &journal) : QApplication(argc, argv), journal_(journal) {}
+    bool notify(QObject *receiver, QEvent *event) override {
+        const bool traced = receiver == this && event && event->type() == QEvent::MetaCall;
+        const auto token = traced ? journal_.enterMetaCall() : FixtureTraceJournal::MetaCallToken{};
+        struct Leave {
+            FixtureTraceJournal &journal;
+            bool traced;
+            FixtureTraceJournal::MetaCallToken token;
+            ~Leave() { if (traced) journal.leaveMetaCall(token); }
+        } leave{journal_, traced, token};
+        return QApplication::notify(receiver, event);
+    }
+};
 
 class DialogUITable : public QTableView {
     Q_OBJECT
 public:
     explicit DialogUITable(QWidget *parent) : QTableView(parent) {}
+};
+class FixtureAccessibilityObserver : public QAccessible::ActivationObserver {
+public:
+    unsigned int changes = 0;
+    FixtureAccessibilityObserver() { QAccessible::installActivationObserver(this); }
+    ~FixtureAccessibilityObserver() override { QAccessible::removeActivationObserver(this); }
+    void accessibilityActiveChanged(bool) override { ++changes; }
+};
+struct PassiveReadCounters {
+    unsigned int generation = 0, replacements = 0, modelReads = 0;
+    unsigned int slowReadStarted = 0, slowReadCompleted = 0, slowReadArms = 0, stalls = 0, events = 0;
+    void event(const char *name) {
+        std::cout << nlohmann::json({{"event", name}, {"generation", generation},
+            {"sequence", ++events}, {"delayMs", 2600}}).dump() << std::endl;
+    }
+};
+class PassiveTableModel : public QStandardItemModel {
+    PassiveReadCounters &counters_;
+    mutable bool slowNext_ = false;
+public:
+    explicit PassiveTableModel(QObject *parent, PassiveReadCounters &counters)
+        : QStandardItemModel(4, 7, parent), counters_(counters) {
+        for (int column = 0; column < 7; ++column) setHeaderData(column, Qt::Horizontal, QString("Column %1").arg(column));
+        for (int row = 0; row < 4; ++row) for (int column = 0; column < 7; ++column)
+            setData(index(row, column), QString("passive-%1-row-%2-cell-%3").arg(counters.generation).arg(row).arg(column));
+    }
+    void armSlowRead() { slowNext_ = true; }
+    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override {
+        if (index.row() == 0 && index.column() == 0 && role == Qt::EditRole) {
+            ++counters_.modelReads;
+            if (slowNext_) {
+                slowNext_ = false;
+                ++counters_.slowReadStarted;
+                counters_.event("passive-model-read-enter");
+                QThread::msleep(2600);
+                ++counters_.slowReadCompleted;
+                counters_.event("passive-model-read-leave");
+            }
+        }
+        return QStandardItemModel::data(index, role);
+    }
 };
 class SyntheticNavigationTree : public QTreeView {
     Q_OBJECT
@@ -54,7 +239,12 @@ int main(int argc, char **argv) {
     if (!input) return 3;
     const auto inputName = desktopName(input); CloseDesktop(input);
     if (ownDesktop != argv[2] || ownDesktop.rfind("SSEQtNativeTest_", 0) != 0 || ownDesktop == inputName) return 4;
-    QApplication app(argc, argv);
+    FixtureTraceJournal journal;
+    FixtureApplication app(argc, argv, journal);
+    // A probe is queued on the GUI thread without extending the application's
+    // first-edit MetaCall journal, including while its capture window is armed.
+    QObject clockProbeReceiver;
+    FixtureAccessibilityObserver accessibilityObserver;
     QMainWindow window;
     auto *panel = new QWidget(&window);
     panel->setAttribute(Qt::WA_NativeWindow);
@@ -87,11 +277,21 @@ int main(int argc, char **argv) {
     auto *editedCount = modelField("syntheticEditedCount", "0", 0, 1);
     auto pendingEdited = std::make_shared<QString>();
     auto commitDelayMs = std::make_shared<unsigned long>(0);
-    QObject::connect(field, &QLineEdit::textEdited, committed, [pendingEdited, editedCount](const QString &value) {
+    const auto traceEditPhase = [&journal](const char *phase, unsigned long delayMs) { journal.markEditPhase(phase, delayMs); };
+    QObject::connect(field, &QLineEdit::textEdited, committed, [pendingEdited, editedCount, commitDelayMs, traceEditPhase](const QString &value) {
+        traceEditPhase("textEdited.enter", *commitDelayMs);
         *pendingEdited=value; editedCount->setText(QString::number(editedCount->text().toInt()+1));
+        traceEditPhase("textEdited.leave", *commitDelayMs);
     });
-    QObject::connect(field, &QLineEdit::editingFinished, committed, [pendingEdited, committed, commitDelayMs] {
-        QThread::msleep(*commitDelayMs); committed->setText(*pendingEdited);
+    QObject::connect(field, &QLineEdit::editingFinished, committed, [pendingEdited, committed, commitDelayMs, traceEditPhase] {
+        traceEditPhase("commit.enter", *commitDelayMs);
+        traceEditPhase("delay.before", *commitDelayMs);
+        QThread::msleep(*commitDelayMs);
+        traceEditPhase("delay.after", *commitDelayMs);
+        traceEditPhase("modelSet.before", *commitDelayMs);
+        committed->setText(*pendingEdited);
+        traceEditPhase("modelSet.after", *commitDelayMs);
+        traceEditPhase("commit.leave", *commitDelayMs);
     });
     auto *rate = new QComboBox(editPanel); rate->setObjectName("syntheticTaxCombo"); rate->setEditable(true);
     rate->lineEdit()->setObjectName("syntheticRateEdit"); rate->addItems({"", "7 %", "19 %"});
@@ -141,6 +341,28 @@ int main(int argc, char **argv) {
     HANDLE controller = nullptr;
     HWND untitled = nullptr;
     QDialog *tool = nullptr, *duplicateTool = nullptr, *navigationTool = nullptr, *optionTool = nullptr;
+    PassiveReadCounters passiveCounters;
+    QPointer<QWidget> passivePage;
+    QPointer<DialogUITable> passiveTable;
+    const auto makePassiveTable = [&](QWidget *parent) {
+        auto *view = new DialogUITable(parent); view->setObjectName("syntheticPassiveTable");
+        view->setModel(new PassiveTableModel(view, passiveCounters));
+        view->setColumnHidden(5, true); view->setRowHidden(2, true);
+        view->setMinimumHeight(80);
+        return view;
+    };
+    const auto makePassivePage = [&] {
+        auto *page = new QWidget(panel); page->setObjectName("syntheticPassivePage");
+        auto *pageLayout = new QVBoxLayout(page);
+        passiveTable = makePassiveTable(page); pageLayout->addWidget(passiveTable);
+        auto *summary = new QWidget(page); summary->setObjectName("syntheticPassiveSummary");
+        auto *summaryLayout = new QHBoxLayout(summary);
+        summaryLayout->addWidget(new QLabel("Summe", summary));
+        auto *total = new QLineEdit("4,00", summary); total->setReadOnly(true);
+        total->setObjectName("syntheticPassiveTotal"); summaryLayout->addWidget(total);
+        pageLayout->addWidget(summary); layout->addWidget(page); page->show();
+        passivePage = page;
+    };
     const auto makeTool = [&](bool modal = false) {
         auto *dialog = new QDialog(&window, Qt::Tool);
         dialog->setModal(modal);
@@ -155,14 +377,73 @@ int main(int argc, char **argv) {
         std::string command;
         while (std::getline(std::cin, command)) {
             if (command == "quit") break;
+            if (command == "trace-clock-probe") {
+                QMetaObject::invokeMethod(&clockProbeReceiver, [&] {
+                    std::cout << journal.clockProbe().dump() << std::endl;
+                }, Qt::QueuedConnection);
+                continue;
+            }
             QMetaObject::invokeMethod(&app, [&, command] {
-                if (command == "change-field") field->setText("Changed by fixture");
+                if (command == "trace-first-edit-arm") {
+                    if (!journal.armFirstEditWindow()) { std::cout << "trace-first-edit-arm-refused" << std::endl; return; }
+                }
+                else if (command == "change-field") field->setText("Changed by fixture");
                 else if (command == "validate-field") { field->setText("10"); field->setValidator(new QIntValidator(10, 99, field)); }
                 else if (command == "mask-field") { field->setInputMask("99;_"); field->setText("10"); }
                 else if (command == "slow-field-commit") *commitDelayMs = 1600;
                 else if (command == "date-commit-count") { std::cout << date->property("syntheticCommitCount").toInt() << std::endl; return; }
                 else if (command == "accessibility-status") rateModel->setText(QAccessible::isActive() ? "active" : "inactive");
                 else if (command == "reset-accessibility-status") rateModel->setText("Unactivated");
+                else if (command == "passive-accessibility-state") {
+                    std::cout << nlohmann::json({{"active", QAccessible::isActive()}, {"activationChanges", accessibilityObserver.changes},
+                        {"generation", passiveCounters.generation}, {"replacements", passiveCounters.replacements},
+                        {"modelReads", passiveCounters.modelReads}, {"slowReadStarted", passiveCounters.slowReadStarted},
+                        {"slowReadCompleted", passiveCounters.slowReadCompleted}}).dump() << std::endl;
+                    return;
+                }
+                else if (command == "passive-table-open") {
+                    if (passivePage || passiveCounters.generation >= 64) { std::cout << "passive-command-refused" << std::endl; return; }
+                    ++passiveCounters.generation; table->hide(); makePassivePage();
+                }
+                else if (command == "passive-table-replace-model") {
+                    if (!passiveTable || !passiveTable->model() || passiveCounters.generation >= 64) {
+                        std::cout << "passive-command-refused" << std::endl; return;
+                    }
+                    ++passiveCounters.generation; ++passiveCounters.replacements;
+                    auto *previous = passiveTable->model();
+                    passiveTable->setModel(new PassiveTableModel(passiveTable, passiveCounters)); delete previous;
+                    passiveTable->setColumnHidden(5, true); passiveTable->setRowHidden(2, true);
+                }
+                else if (command == "passive-table-replace-page") {
+                    if (!passivePage || passiveCounters.generation >= 64) { std::cout << "passive-command-refused" << std::endl; return; }
+                    ++passiveCounters.generation; ++passiveCounters.replacements;
+                    delete passivePage.data(); makePassivePage();
+                }
+                else if (command == "passive-table-remove-model") {
+                    if (!passiveTable || !passiveTable->model()) { std::cout << "passive-command-refused" << std::endl; return; }
+                    auto *previous = passiveTable->model(); passiveTable->setModel(nullptr); delete previous;
+                }
+                else if (command == "passive-table-duplicate") {
+                    if (!passivePage || passivePage->findChildren<DialogUITable *>().size() != 1) {
+                        std::cout << "passive-command-refused" << std::endl; return;
+                    }
+                    qobject_cast<QVBoxLayout *>(passivePage->layout())->insertWidget(0, makePassiveTable(passivePage));
+                }
+                else if (command == "passive-table-close") {
+                    if (!passivePage) { std::cout << "passive-command-refused" << std::endl; return; }
+                    delete passivePage.data(); table->show();
+                }
+                else if (command == "passive-gui-stall") {
+                    if (++passiveCounters.stalls > 8) { std::cout << "passive-command-refused" << std::endl; return; }
+                    std::cout << command << std::endl;
+                    passiveCounters.event("passive-gui-stall-enter"); QThread::msleep(2600);
+                    passiveCounters.event("passive-gui-stall-leave"); return;
+                }
+                else if (command == "passive-model-slow-read") {
+                    auto *passiveModel = passiveTable ? dynamic_cast<PassiveTableModel *>(passiveTable->model()) : nullptr;
+                    if (!passiveModel || ++passiveCounters.slowReadArms > 8) { std::cout << "passive-command-refused" << std::endl; return; }
+                    passiveModel->armSlowRead();
+                }
                 else if (command == "change-cell") model->setData(model->index(0, 4), "Changed cell");
                 else if (command == "delete-field") { delete field; field = nullptr; }
                 else if (command == "disable") window.setEnabled(false);

@@ -10,6 +10,13 @@ const MAX_REQUEST_BYTES = 1024 * 1024;
 const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
 const UTF8 = new TextDecoder("utf-8", { fatal: true });
 
+/** A rejected GUI ping proves no peer identity; preserve only fixed failure codes and truthful outcome evidence. */
+export function rejectQtNativePing(result: QtNativeReply): void {
+  if (result.ok !== false) return;
+  const kind = result.code === "GUI_QUEUE_TIMEOUT" || result.code === "GUI_OPERATION_TIMEOUT" ? result.code : "native-handshake";
+  throw new QtNativeTransportError(`Native readiness rejected: ${kind}.`, kind, result.outcomeUnknown !== false);
+}
+
 interface PendingRequest {
   resolve(value: QtNativeMeasurement): void;
   reject(error: Error): void;
@@ -84,6 +91,7 @@ export class QtNativeClient {
     try {
       const binding = this.binding;
       const { result } = await this.request("ping", {}, timeoutMs);
+      rejectQtNativePing(result);
       const mismatches = [
         result.ok !== true ? "ok" : undefined,
         result.pid !== binding.pid ? "pid" : undefined,

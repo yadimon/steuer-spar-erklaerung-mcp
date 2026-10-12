@@ -41,6 +41,22 @@ type LaunchWorkerExecutor = (
   signal?: AbortSignal,
 ) => Promise<WorkerResult>;
 
+/** Preservation proves that this executor did not close; it does not prove liveness. */
+function preservedLaunchState(pid?: number, processStillRunning: boolean | null = null): Record<string, unknown> {
+  return {
+    ...(pid === undefined ? {} : { pid }),
+    ready: false,
+    processPreserved: true,
+    processStillRunning,
+    outcomeUnknown: true,
+    reconciliationRequired: true,
+    retryable: false,
+  };
+}
+
+const PRESERVED_LAUNCH_NOTICE = "Ein moeglicherweise gestarteter SSE-Prozess wird nicht automatisch geschlossen oder verworfen. " +
+  "Vor weiteren Aktionen PID, Fenster und einen moeglichen Wiederherstellungszustand frisch lesen; den Start nicht wiederholen.";
+
 export async function executeLaunchOperation(
   args: Record<string, unknown>,
   timeoutMs: number | undefined,
@@ -57,57 +73,39 @@ export async function executeLaunchOperation(
   const startedAt = performance.now();
   const launchBudgetMs = Math.min(timeoutMs ?? MAXIMUM_LAUNCH_TIMEOUT_MS, MAXIMUM_LAUNCH_TIMEOUT_MS);
   const deadline = startedAt + launchBudgetMs;
-  const started = await worker("launch", args, MINIMUM_LAUNCH_TIMEOUT_MS, signal);
-  if (started.ok === false) return started;
+  let started: WorkerResult;
+  try {
+    started = await worker("launch", args, MINIMUM_LAUNCH_TIMEOUT_MS, signal);
+  } catch (error) {
+    return {
+      ok: false,
+      kind: signal?.aborted ? "aborted" : "startup-launch",
+      error: `${error instanceof Error ? error.message : String(error)} ${PRESERVED_LAUNCH_NOTICE}`,
+      ...preservedLaunchState(),
+      effectiveTimeoutMs: launchBudgetMs,
+    };
+  }
+  if (started.ok === false) {
+    if (started.mutationStarted === false && started.resultingState === "unchanged") return started;
+    const reportedPid = Number(started.pid);
+    const failedStart = { ...started };
+    delete failedStart.pid;
+    return {
+      ...failedStart,
+      error: `${String(started.error ?? "Der Prozessstart wurde nicht bestaetigt.")} ${PRESERVED_LAUNCH_NOTICE}`,
+      ...preservedLaunchState(Number.isInteger(reportedPid) && reportedPid > 0 ? reportedPid : undefined),
+      effectiveTimeoutMs: launchBudgetMs,
+    };
+  }
 
   const pid = Number(started.pid);
   if (!Number.isInteger(pid) || pid <= 0) {
-    return operationError(
-      "SSE-Start lieferte keine verifizierbare PID; Zustand vor Wiederholung manuell pruefen.",
-      "startup-pid",
-    );
-  }
-
-  const cleanupStartedProcess = async (): Promise<{
-    cleanup: WorkerResult;
-    stillRunning: boolean;
-    cleanupError?: string;
-  }> => {
-    let cleanup: WorkerResult = { ok: false, kind: "cleanup-not-run", error: "Cleanup wurde nicht ausgefuehrt." };
-    const errors: string[] = [];
-    try {
-      cleanup = await worker("close", { pid, force: true, discardChanges: true }, 30_000);
-    } catch (error) {
-      errors.push(`close: ${error instanceof Error ? error.message : String(error)}`);
-    }
-
-    // Unbekannter Status gilt fail-closed als weiterhin laufend. Erst beide
-    // realen product_info-Listen mit garantiert fehlender PID beweisen Cleanup.
-    let stillRunning = true;
-    try {
-      const status = await worker("product_info", {}, 30_000);
-      if (
-        status.ok === true &&
-        Object.hasOwn(status, "supportedRunning") &&
-        Object.hasOwn(status, "ignoredRunning")
-      ) {
-        const running = [
-          ...asArray<Record<string, unknown>>(status.supportedRunning),
-          ...asArray<Record<string, unknown>>(status.ignoredRunning),
-        ];
-        stillRunning = running.some((entry) => Number(entry.pid) === pid);
-      } else {
-        errors.push("product_info: Prozessstatus war unvollstaendig.");
-      }
-    } catch (error) {
-      errors.push(`product_info: ${error instanceof Error ? error.message : String(error)}`);
-    }
     return {
-      cleanup,
-      stillRunning,
-      ...(errors.length ? { cleanupError: errors.join(" ") } : {}),
+      ...operationError(`SSE-Start lieferte keine verifizierbare PID. ${PRESERVED_LAUNCH_NOTICE}`, "startup-pid"),
+      ...preservedLaunchState(),
+      effectiveTimeoutMs: launchBudgetMs,
     };
-  };
+  }
 
   let lastProbeError: string | undefined;
   let probeFailures = 0;
@@ -115,17 +113,11 @@ export async function executeLaunchOperation(
   let lastStartupPrompts: Record<string, unknown>[] = [];
   try {
     if (signal?.aborted) {
-      const cleanupState = await cleanupStartedProcess();
       return {
         ok: false,
-        kind: cleanupState.stillRunning ? "startup-abort-cleanup" : "aborted",
-        error: cleanupState.stillRunning
-          ? `API-Client brach den Start ab; die exakt gestartete SSE-PID ${pid} laeuft trotz Cleanup noch.`
-          : "API-Client hat den Start abgebrochen; die exakt gestartete SSE-PID wurde ohne Speichern beendet.",
-        pid,
-        processStillRunning: cleanupState.stillRunning,
-        cleanup: cleanupState.cleanup,
-        cleanupError: cleanupState.cleanupError,
+        kind: "aborted",
+        error: `API-Client hat den Start abgebrochen. ${PRESERVED_LAUNCH_NOTICE}`,
+        ...preservedLaunchState(pid),
         effectiveTimeoutMs: launchBudgetMs,
       };
     }
@@ -192,6 +184,18 @@ export async function executeLaunchOperation(
       if (!signal?.aborted) await waitForNextProbe();
     }
 
+    if (signal?.aborted || observed.kind === "aborted") {
+      return {
+        ok: false,
+        kind: "aborted",
+        error: `API-Client hat den Start abgebrochen. ${PRESERVED_LAUNCH_NOTICE}`,
+        ...preservedLaunchState(pid),
+        effectiveTimeoutMs: launchBudgetMs,
+        lastProbeError,
+        probeFailures,
+      };
+    }
+
     const terminalProbeResult = observed.ok === true && ["observed", "deadline"].includes(String(observed.outcome));
     const windows = (terminalProbeResult ? asArray<Record<string, unknown>>(observed.windows) : [])
       .filter((window) => Number(window.pid) === pid && Number(window.hwnd) > 0);
@@ -241,9 +245,9 @@ export async function executeLaunchOperation(
           kind: "recovered-state",
           error:
             "SteuerSparErklaerung hat eine Wiederherstellungsdatei geladen; der geoeffnete Fall entspricht " +
-            "nicht mehr der verifizierten Datei. Fall ohne Speichern schliessen, die Wiederherstellung im " +
-            "Programm verwerfen und danach erneut oeffnen.",
-          pid,
+            "nicht mehr der verifizierten Datei. Wiederhergestellte Daten erhalten und mit dem Menschen " +
+            "klaeren, welcher Stand weiterbearbeitet werden soll; weder speichern noch verwerfen oder schliessen.",
+          ...preservedLaunchState(pid, true),
           windows,
           instance,
           dialogs,
@@ -253,10 +257,11 @@ export async function executeLaunchOperation(
       }
       return {
         ...started,
+        ...(dialogs.length > 0 || instance === null ? preservedLaunchState(pid, true) : {}),
         waitedSec: Math.round((performance.now() - startedAt) / 100) / 10,
         windows,
         instance,
-        ready: instance !== null,
+        ready: instance !== null && dialogs.length === 0,
         blockedByDialog: dialogs.length > 0,
         dialogs,
         effectiveTimeoutMs: launchBudgetMs,
@@ -276,11 +281,9 @@ export async function executeLaunchOperation(
         error:
           "SteuerSparErklaerung zeigt statt des Fallfensters ein schmales Fenster und wartet auf eine Antwort. " +
           "Meist ist das die Startfrage nach einer Wiederherstellungsdatei nach einem unsauberen Ende. Diese Frage " +
-          "im Programm beantworten - eine Wiederherstellung gehoert verworfen, weil ihr Inhalt nicht mehr zur " +
-          "geprueften Falldatei passt - und danach erneut oeffnen. Der gestartete Prozess laeuft absichtlich " +
-          "weiter; ihn hier zu beenden erzeugte die naechste Wiederherstellungsdatei.",
-        pid,
-        processStillRunning: true,
+          "und ihren Wiederherstellungszustand frisch lesen und die Entscheidung mit dem Menschen klaeren. " +
+          "Der gestartete Prozess bleibt erhalten; keine automatische Antwort und kein Verwerfen.",
+        ...preservedLaunchState(pid, terminalProbeResult ? true : null),
         windows: lastStartupPrompts,
         startupPrompts: lastStartupPrompts,
         instance: null,
@@ -291,50 +294,33 @@ export async function executeLaunchOperation(
       };
     }
 
-    const cleanupState = await cleanupStartedProcess();
     return {
       ok: false,
-      kind: cleanupState.stillRunning ? "startup-timeout-cleanup" : "startup-timeout",
-      error: cleanupState.stillRunning
-        ? `SSE-PID ${pid} erzeugte kein verifiziertes Fallfenster und konnte nicht sicher beendet werden.`
-        : `SSE-PID ${pid} erzeugte innerhalb von ${Math.round((performance.now() - startedAt) / 100) / 10} Sekunden kein verifiziertes Fallfenster; der gestartete Prozess wurde beendet.`,
-      pid,
-      processStillRunning: cleanupState.stillRunning,
-      cleanup: cleanupState.cleanup,
-      cleanupError: cleanupState.cleanupError,
+      kind: observed.ok === false ? "startup-probe" : "startup-timeout",
+      error: `SSE-PID ${pid} lieferte kein verifiziertes Fallfenster. ${PRESERVED_LAUNCH_NOTICE}`,
+      ...preservedLaunchState(pid),
       effectiveTimeoutMs: launchBudgetMs,
       lastProbeError,
       probeFailures,
     };
   } catch (error) {
-    const cleanupState = await cleanupStartedProcess();
     const kind = error && typeof error === "object" && typeof (error as { kind?: unknown }).kind === "string"
       ? String((error as { kind: string }).kind)
       : "startup-probe";
     if (signal?.aborted || kind === "aborted") {
       return {
         ok: false,
-        kind: cleanupState.stillRunning ? "startup-abort-cleanup" : "aborted",
-        error: cleanupState.stillRunning
-          ? `API-Client brach den Start ab; die exakt gestartete SSE-PID ${pid} laeuft trotz Cleanup noch.`
-          : "API-Client hat den Start abgebrochen; die exakt gestartete SSE-PID wurde ohne Speichern beendet.",
-        pid,
-        processStillRunning: cleanupState.stillRunning,
-        cleanup: cleanupState.cleanup,
-        cleanupError: cleanupState.cleanupError,
+        kind: "aborted",
+        error: `API-Client hat den Start abgebrochen. ${PRESERVED_LAUNCH_NOTICE}`,
+        ...preservedLaunchState(pid),
         effectiveTimeoutMs: launchBudgetMs,
       };
     }
     return {
       ok: false,
-      kind: cleanupState.stillRunning ? "startup-probe-cleanup" : kind,
-      error: cleanupState.stillRunning
-        ? `${error instanceof Error ? error.message : String(error)} Die exakt gestartete PID ${pid} laeuft trotz Cleanup noch.`
-        : `${error instanceof Error ? error.message : String(error)} Die exakt gestartete PID wurde ohne Speichern beendet.`,
-      pid,
-      processStillRunning: cleanupState.stillRunning,
-      cleanup: cleanupState.cleanup,
-      cleanupError: cleanupState.cleanupError,
+      kind,
+      error: `${error instanceof Error ? error.message : String(error)} ${PRESERVED_LAUNCH_NOTICE}`,
+      ...preservedLaunchState(pid),
       effectiveTimeoutMs: launchBudgetMs,
       lastProbeError,
       probeFailures,

@@ -9,6 +9,52 @@
     "policy": "Fail closed. Other tax-year installations, case years, and incompatible start modes are never controlled."
   },
   "privacy": "Only public UI metadata. Never store case values, names, tax IDs, file paths, or calculation results here.",
+  "checkerStartBindings": [
+    {
+      "id": "income_tax_checker_page",
+      "documentTypes": ["ESt"],
+      "controlType": "Button",
+      "name": "Steuerprüfer starten",
+      "automationIdSuffix": ".Abgabe.Pruefen.GrosserButton",
+      "heading": "Steuererklärung prüfen",
+      "pattern": "Invoke"
+    },
+    {
+      "id": "business_checker_toolbar",
+      "documentTypes": ["Gew", "GewErfass"],
+      "controlType": "CheckBox",
+      "name": "Prüfer",
+      "automationIdSuffix": ".MainToolBar.tb_pruefer",
+      "pattern": "Invoke",
+      "expectedToggleState": "Off"
+    }
+  ],
+  "tableComboFocusOut": {
+    "id": "main_footer_next_focus",
+    "controlType": "Button",
+    "name": "Weiter",
+    "automationIdSuffix": ".RedThreadContent.ClientFrameSSE.ClientFooterSSE.HoverButton",
+    "action": "SetFocus",
+    "policy": "own-typed-table-editor-only"
+  },
+  "tableRegionBindings": [
+    {
+      "id": "vehicle_costs_with_input_tax",
+      "page": "Sonstige Kfz-Kosten",
+      "headingPrefix": "Sonstige Kfz-Kosten: ",
+      "sumLabel": "Summe der sonstigen Kfz-Kosten mit Vorsteuerabzug",
+      "summaryAidSuffix": "/.SonstigeKfzkosten./.SonstigeKfzkosten.Summen./.SonstigeKfzkosten.Summen.TabSumKostMit./.SonstigeKfzkosten.Summen.TabSumKostMit.Wert",
+      "tableAidSuffix": "/.SonstigeKfzkosten./.SonstigeKfzkosten.Kosten"
+    },
+    {
+      "id": "vehicle_costs_without_input_tax",
+      "page": "Sonstige Kfz-Kosten",
+      "headingPrefix": "Sonstige Kfz-Kosten: ",
+      "sumLabel": "Summe der sonstigen Kfz-Kosten ohne Vorsteuerabzug",
+      "summaryAidSuffix": "/.SonstigeKfzkosten./.SonstigeKfzkosten.Summen./.SonstigeKfzkosten.Summen.TabSumKostOhne./.SonstigeKfzkosten.Summen.TabSumKostOhne.Wert",
+      "tableAidSuffix": "/.SonstigeKfzkosten./.SonstigeKfzkosten.Kosten"
+    }
+  ],
   "windows": {
     "main": {
       "process": "SSE",
@@ -246,6 +292,11 @@
     }
   },
   "pages": {
+    "gew_erfass.einnahmen_ausgaben": {
+      "heading": "Gewinnermittlung",
+      "navigationTreeItemName": "Einnahmen/Ausgaben",
+      "documentType": "GewErfass2026"
+    },
     "gew.innergem_erwerb_13b_einfuhr": {
       "heading": "Innergem. Erwerb, § 13b UStG und Einfuhr",
       "fields": {},
@@ -279,6 +330,7 @@
           "sumLabel": "Summe",
           "sumOccurrence": 2,
           "automationIdSection": "grpEmpf13b",
+          "confirmedEmptyRowCategoryDefaults": ["Sonst. Leistung EU"],
           "bindingPolicy": "Prefer automationIdSection from the selected summary region; if the snapshot does not expose it, fail closed by heading, sumLabel, sumOccurrence and column index.",
           "columns": [
             {

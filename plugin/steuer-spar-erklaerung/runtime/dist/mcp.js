@@ -5377,7 +5377,7 @@ var init_mcp_schemas_ui = __esm({
       "sse_table_read": external_exports.object({
         maxRows: TABLE_MAX_ROWS.optional().describe("Leselimit, Vorgabe 200, maximal 1000: UIA-Cursorschritte oder Ausgabezeilen beim nativen Qt-Zugriff"),
         noKeys: external_exports.boolean().optional().describe(
-          "Keine physische Eingabe oder Vordergrundaktivierung. Der UIA-Zugriff liest dann nur sichtbare Zeilen und meldet vollstaendig false / stopKind visible-only. Ein explizit gebundener nativer Qt-Zugriff liest das Modell ohne Cursorschritte und kann damit trotzdem die vollstaendige Tabelle belegen."
+          "Ohne Angabe oder mit true liest der native Qt-Zugriff das Modell ohne Eingabe und Fokuswechsel; ein UIA-Zugriff mit true liefert nur sichtbare Zeilen. Explizites false fordert den gebundenen UIA-Cursorlauf mit Vordergrund-, Eingabe- und Tabellenpruefungen an und macht die letzte Zeile sichtbar."
         ),
         sumLabel: external_exports.string().optional().describe("Bei mehreren Tabellen: Beschriftung der zugehoerigen Kontrollsumme"),
         sumOccurrence: UI_OCCURRENCE.optional().describe("1-basierte Position der Kontrollsumme; Vorgabe 1"),
@@ -7167,6 +7167,9 @@ var init_result_contract = __esm({
     API_OPERATION_NAME_SCHEMA = external_exports.enum(SSE_API_OPERATIONS);
     OPTIONAL_TABLE_ROW_DETAILS = external_exports.array(external_exports.object({
       rowIndex: external_exports.number().int().nonnegative().describe("Nullbasierter Ausgabezeilenindex"),
+      modelCellFlags: external_exports.array(external_exports.number().int().nonnegative()).optional().describe(
+        "Native Qt-ItemFlags je sichtbarer Ausgabespalte, positionsgleich zu nativeTable.visibleColumns; kein UIA-Fokus- oder Klicknachweis"
+      ),
       typedValues: external_exports.array(external_exports.union([external_exports.string(), external_exports.boolean(), external_exports.null()])).describe(
         "Zellwerte; Checkboxen boolesch, unbestimmte/unbekannte Werte null"
       ),
@@ -7339,7 +7342,8 @@ var init_result_contract = __esm({
         rowDetails: OPTIONAL_TABLE_ROW_DETAILS,
         vollstaendig: OPTIONAL_BOOLEAN,
         anzahl: OPTIONAL_NON_NEGATIVE_NUMBER,
-        summe: OPTIONAL_STRING
+        summe: OPTIONAL_STRING,
+        cursorActivation: OPTIONAL_OBJECT.describe("Technischer Nachweis des semantischen Tabellenfokus; kein Zellklick")
       },
       result_details: { zeilen: OPTIONAL_ARRAY, vollstaendig: OPTIONAL_BOOLEAN, anzahl: OPTIONAL_NON_NEGATIVE_NUMBER },
       snapshot: { nodes: OPTIONAL_ARRAY, count: OPTIONAL_NON_NEGATIVE_NUMBER, stats: OPTIONAL_OBJECT, toolWindow: OPTIONAL_STRING },
@@ -7455,7 +7459,12 @@ var init_result_contract = __esm({
         pid: OPTIONAL_NON_NEGATIVE_NUMBER,
         instance: OPTIONAL_OBJECT,
         ready: OPTIONAL_BOOLEAN,
-        case: OPTIONAL_CASE_IDENTITY
+        case: OPTIONAL_CASE_IDENTITY,
+        processPreserved: OPTIONAL_BOOLEAN.describe("Der Executor hat den gestarteten Prozess nicht automatisch geschlossen"),
+        processStillRunning: OPTIONAL_BOOLEAN.describe("Beobachteter Prozesszustand; null bedeutet unbekannt"),
+        outcomeUnknown: OPTIONAL_BOOLEAN,
+        reconciliationRequired: OPTIONAL_BOOLEAN.describe("Fenster und Wiederherstellungszustand vor weiteren Aktionen frisch klaeren"),
+        retryable: OPTIONAL_BOOLEAN
       },
       close: { stillRunning: OPTIONAL_BOOLEAN, killed: OPTIONAL_BOOLEAN },
       desktop_start: { pid: OPTIONAL_NON_NEGATIVE_NUMBER, desktop: OPTIONAL_STRING },
@@ -8697,7 +8706,14 @@ function controlSnapshot(ok = true, detail = {}) {
 async function controlStatus() {
   if (controlBusy) return controlSnapshot();
   if (controlState === "running") {
-    await assertApiSingletonIdentity();
+    try {
+      await assertApiSingletonIdentity();
+    } catch (error2) {
+      if (!(error2 instanceof ApiClientError) || error2.kind !== "network" || !boundProcessExited()) throw error2;
+      controlState = "stopped";
+      pendingRestart = false;
+      shutdownAccepted = null;
+    }
     return controlSnapshot();
   }
   if (boundProcessExited()) {
@@ -27397,24 +27413,111 @@ var init_operation_traits = __esm({
   }
 });
 
+// src/mcp-operation-budget.ts
+var MCP_RESPONSE_BUDGET_MS, MCP_API_CLEANUP_MARGIN_MS, MCP_DEFAULT_OPERATION_MS, McpBudgetError, McpOperationBudget;
+var init_mcp_operation_budget = __esm({
+  "src/mcp-operation-budget.ts"() {
+    "use strict";
+    MCP_RESPONSE_BUDGET_MS = 28e4;
+    MCP_API_CLEANUP_MARGIN_MS = 2e4;
+    MCP_DEFAULT_OPERATION_MS = 9e4;
+    McpBudgetError = class extends Error {
+      constructor(kind) {
+        super(kind === "timeout" ? "Internes MCP-Zeitbudget erreicht. Der Operationszustand ist unbekannt; zuerst passiv abgleichen, nicht wiederholen." : "MCP-Auftrag abgebrochen. Der Operationszustand ist unbekannt; zuerst passiv abgleichen, nicht wiederholen.");
+        this.kind = kind;
+        this.name = "McpBudgetError";
+      }
+      kind;
+    };
+    McpOperationBudget = class {
+      constructor(parent, clock = {}) {
+        this.parent = parent;
+        this.clock = { now: () => performance.now(), setTimer: setTimeout, clearTimer: clearTimeout, ...clock };
+        this.deadline = this.clock.now() + MCP_RESPONSE_BUDGET_MS;
+        this.onParentAbort = () => this.controller.abort(new McpBudgetError("aborted"));
+        this.timer = this.clock.setTimer(() => this.controller.abort(new McpBudgetError("timeout")), MCP_RESPONSE_BUDGET_MS);
+        parent.addEventListener("abort", this.onParentAbort, { once: true });
+        if (parent.aborted) this.onParentAbort();
+      }
+      parent;
+      controller = new AbortController();
+      deadline;
+      clock;
+      timer;
+      onParentAbort;
+      get signal() {
+        return this.controller.signal;
+      }
+      operationTimeout(requested = MCP_DEFAULT_OPERATION_MS) {
+        this.throwIfAborted();
+        const remaining = Math.floor(this.deadline - this.clock.now() - MCP_API_CLEANUP_MARGIN_MS);
+        if (remaining < 200) {
+          this.controller.abort(new McpBudgetError("timeout"));
+          this.throwIfAborted();
+        }
+        return Math.min(requested, remaining);
+      }
+      throwIfAborted() {
+        if (this.signal.aborted) throw this.signal.reason;
+      }
+      async run(action) {
+        let onAbort;
+        try {
+          this.throwIfAborted();
+          const aborted2 = new Promise((_, reject) => {
+            onAbort = () => reject(this.signal.reason);
+            this.signal.addEventListener("abort", onAbort, { once: true });
+          });
+          return await Promise.race([Promise.resolve().then(() => {
+            this.throwIfAborted();
+            return action();
+          }), aborted2]);
+        } finally {
+          if (onAbort) this.signal.removeEventListener("abort", onAbort);
+          this.parent.removeEventListener("abort", this.onParentAbort);
+          this.clock.clearTimer(this.timer);
+        }
+      }
+    };
+  }
+});
+
 // src/mcp-registry.ts
 import { AsyncLocalStorage } from "node:async_hooks";
 function apiResultOutputSchema(operation) {
   return SSE_API_RESULT_OUTPUT_SCHEMAS[operation];
 }
 function createMcpRegistry(server) {
-  const requestAbortSignal = new AsyncLocalStorage();
+  const requestBudget = new AsyncLocalStorage();
   async function callApiOperation2(operation, args = {}, timeoutMs) {
-    const signal = requestAbortSignal.getStore();
+    const budget = requestBudget.getStore();
+    budget?.operationTimeout(timeoutMs);
     const health = await assertApiSingletonIdentity();
-    return callApiOperation(operation, args, timeoutMs, {
+    const boundedTimeout = budget?.operationTimeout(timeoutMs) ?? timeoutMs;
+    return callApiOperation(operation, args, boundedTimeout, {
       expectedInstanceId: health.instanceId,
-      ...signal ? { signal } : {}
+      ...budget ? { signal: budget.signal } : {}
     });
   }
   function caughtErrorResult(operation, error2) {
+    if (error2 instanceof McpBudgetError) {
+      return apiErrorResult(operation, {
+        ok: false,
+        kind: error2.kind,
+        error: error2.message,
+        outcomeUnknown: true,
+        reconciliationRequired: true,
+        retryable: false
+      });
+    }
     if (error2 instanceof ApiClientError) {
-      return apiErrorResult(operation, { ok: false, kind: error2.kind, error: error2.message });
+      const unknown2 = ["timeout", "aborted", "transport-unknown"].includes(error2.kind);
+      return apiErrorResult(operation, {
+        ok: false,
+        kind: error2.kind,
+        error: error2.message,
+        ...unknown2 ? { outcomeUnknown: true, reconciliationRequired: true, retryable: false } : {}
+      });
     }
     return errorResult(String(error2));
   }
@@ -27445,24 +27548,31 @@ function createMcpRegistry(server) {
           openWorldHint: false
         }
       },
-      (args, extra) => requestAbortSignal.run(extra.signal, async () => {
-        let validationOperation = firstOperation;
+      async (args, extra) => {
+        const budget = new McpOperationBudget(extra.signal);
         try {
-          for (const operation of operations) {
-            validationOperation = operation;
-            assertApiArgumentBudget(operation, args);
-            parseApiOperationArgs(operation, args);
-          }
-        } catch (error2) {
-          const message = error2 instanceof external_exports.ZodError ? formatOperationArgumentError(error2, validationOperation) : error2 instanceof Error ? error2.message : String(error2);
-          return errorResult(`Ungueltige MCP-Argumente: ${message}`);
-        }
-        try {
-          return await callback(args);
+          return await budget.run(() => requestBudget.run(budget, async () => {
+            let validationOperation = firstOperation;
+            try {
+              for (const operation of operations) {
+                validationOperation = operation;
+                assertApiArgumentBudget(operation, args);
+                parseApiOperationArgs(operation, args);
+              }
+            } catch (error2) {
+              const message = error2 instanceof external_exports.ZodError ? formatOperationArgumentError(error2, validationOperation) : error2 instanceof Error ? error2.message : String(error2);
+              return errorResult(`Ungueltige MCP-Argumente: ${message}`);
+            }
+            try {
+              return await callback(args);
+            } catch (error2) {
+              return caughtErrorResult(firstOperation, error2);
+            }
+          }));
         } catch (error2) {
           return caughtErrorResult(firstOperation, error2);
         }
-      })
+      }
     );
   }
   function registerStrictTool(name, config2, callback) {
@@ -27508,6 +27618,7 @@ var init_mcp_registry = __esm({
     init_operation_traits();
     init_result_contract();
     init_mcp_api_supervisor();
+    init_mcp_operation_budget();
   }
 });
 
@@ -27623,7 +27734,7 @@ function registerAnalysisTools(registry2) {
     "sse_checker_run",
     {
       title: "Globalen Steuerpruefer starten",
-      description: "Startet auf der Seite 'Steuererklaerung pruefen' den fallweiten Software-Pruefer und liefert die sicher erreichbaren Fragen/Warnungen und Tipps samt Konsistenzstatus. Loest weder 'Steuererklaerung abschliessen' noch ELSTER oder eine andere Abgabe aus. Falls die Seite noch nicht offen ist, per MCP zu 'Pruefen und Abgeben' und danach 'Steuererklaerung pruefen' navigieren."
+      description: "Startet den fallweiten Software-Pruefer ueber den exakten Profilweg der gebundenen Fallart und liefert die sicher erreichbaren Fragen/Warnungen und Tipps samt Konsistenzstatus. Loest weder 'Steuererklaerung abschliessen' noch ELSTER oder eine andere Abgabe aus. Einkommensteuer braucht die Seite 'Steuererklaerung pruefen'; Gewinnermittlung und Gewinn-Erfassung verwenden den eindeutig gebundenen, ausgeschalteten Toolbar-Schalter 'Pruefer'. Ein bereits aktiver Pruefer wird nur gelesen und nie erneut umgeschaltet."
     },
     (r) => ({
       gestartet: r.gestartet,

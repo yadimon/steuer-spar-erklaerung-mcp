@@ -170,4 +170,14 @@ for (const operation of ["click", "table_update", "tracked_set_value", "vast_app
   assert.match(result.error, /nicht im expliziten Verifikationskatalog/u);
 }
 
+// Private passive probe: a reserve-only budget expires before any UI polling.
+const passiveProbe = directWorker("launch_probe", {
+  schemaVersion: 1, planKind: "launch-readiness", pid: 2147483647,
+  hasCase: true, budgetMs: 1_000,
+}, { SSE_PROFILE_ID: "2024", SSE_OPERATE_EXPERIMENTAL: "1" });
+assert.equal(passiveProbe.ok, true);
+assert.equal(passiveProbe.outcome, "deadline");
+assert.deepEqual(passiveProbe.windows, []);
+assert.deepEqual(passiveProbe.dialogs, []);
+
 process.stdout.write("Direkter Worker: Experimental-Opt-in bleibt auf den paritaetischen Verifikationskatalog begrenzt\n");

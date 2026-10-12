@@ -54,8 +54,29 @@ UStVA-Änderung.
      Tabellen „(Steuersatz manuell)“ haben eine freie Prozentspalte, Tabellen
      „(Steuersatzauswahl)“ eine typisierte Auswahl (0/7/19). `Reisekosten` ist
      ein Formular je Reise, keine flache Tabelle.
-   - `sse_table_add` schreibt höchstens sechs Zeilen je Tabelle. Danach eine
-     weitere Position beziehungsweise Tabelle anlegen, nicht scrollen.
+   - Qt zeigt bei manchen Tabellen nur sechs Zeilen zugleich im UIA-Baum.
+     Das ist keine Höchstzahl der Datensätze. `sse_table_add` sucht die freie
+     Anlegezeile innerhalb derselben gebundenen Tabelle. Fehlt eine eindeutig
+     sichtbare Zeile oder Optionsliste, stoppe und lies den Teilstand frisch;
+     lege deshalb keine zusätzliche Position oder Tabelle an und wiederhole
+     einen fehlgeschlagenen Schreibaufruf nicht blind.
+     Ist eine bereits begonnene Zeile außerhalb der sichtbaren Ansicht,
+     fordere `sse_table_read` ausdrücklich mit `noKeys: false`, gebundenem
+     HWND und frisch gelesenem `sumLabel`/`sumOccurrence` an. Dieser Weg
+     erwirbt den Tabellenfokus und prüft Eingabe-Epoche, Seite, Summe und
+     Tabellenidentität vor jeder Taste. Ein aktiver Zell-Editor oder
+     ComboBox-Delegate stoppt diesen Leser bereits vor der Fokusübernahme;
+     der Leser schließt oder bestätigt ihn nicht. Die Cursoraktivierung
+     verwendet nur gebundene Auswahl und Tabellenfokus, keinen Zellklick.
+     In einer vollständig gebundenen Tabelle mit `Nr.`-Spalte wird direkt
+     ihre frisch gebundene Nummernzelle einmal semantisch fokussiert. Vor
+     jeder Cursortaste bleiben Editorfreiheit und tatsächlicher Auswahlfokus
+     erforderlich; `cursorActivation` beschreibt den technischen Nachweis.
+     Ein erfolgreicher vollständiger Lauf
+     lässt die letzte Zeile sichtbar. Lies danach den Snapshot und die ganze
+     Tabelle frisch; ergänze ausschließlich die eindeutig belegte Teilzeile
+     mit `sse_table_update`. Standard-/`noKeys: true`-Lesungen verwenden das
+     native Modell ohne Fokuswechsel und verändern die Ansicht nicht.
    - Seitensummen der Vorsteuerseite tragen den gewählten Zeitraum im Label
      („… »2. Vierteljahr«“) und sind dann gefiltert: `sumLabel` vor jedem
      `sse_table_add`/`sse_table_delete` frisch aus `sse_read_page` nehmen.

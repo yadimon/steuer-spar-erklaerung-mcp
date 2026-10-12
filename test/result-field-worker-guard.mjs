@@ -12,6 +12,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 import { SSE_API_OPERATIONS } from "../dist/api-contract.js";
 import { SSE_API_RESULT_OUTPUT_SCHEMAS } from "../dist/result-contract.js";
 import { SSE_FOREGROUND_REQUIRED_RECEIPT_OPERATIONS } from "../dist/receipt-interaction-policy.js";
@@ -25,6 +26,7 @@ const localExecutors = new Map([
   ["backup_cases", readFileSync(join(here, "..", "src", "backup-executor.ts"), "utf8")],
   ["archive_cases", readFileSync(join(here, "..", "src", "archive-executor.ts"), "utf8")],
   ["fill_fields", readFileSync(join(here, "..", "src", "bulk-plan-executor.ts"), "utf8")],
+  ["launch", readFileSync(join(here, "..", "src", "launch-executor.ts"), "utf8")],
 ]);
 
 /** Transportfelder, die jeder Vertrag traegt und die der Worker generisch setzt. */
@@ -88,6 +90,64 @@ const API_LOCAL_RESULT_FIELDS = new Map([
   ["archive_cases", new Set(["recoveryFiles", "retainedTargets"])],
 ]);
 
+/** Felder eines lokalen Helpers, der in echte Executor-Ergebnisse gespreadet wird. */
+const SHARED_API_RESULT_FIELDS = new Map([
+  ["launch", {
+    executor: "executeLaunchOperation",
+    helper: "preservedLaunchState",
+    fields: new Set(["processPreserved", "processStillRunning", "outcomeUnknown", "reconciliationRequired", "retryable"]),
+  }],
+]);
+
+function emittedApiHelperFields(source, executorName, helperName) {
+  const tree = ts.createSourceFile("executor.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const namedFunction = (name) => tree.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === name);
+  const helper = namedFunction(helperName);
+  const executor = namedFunction(executorName);
+  assert(helper?.body && executor?.body, `Lokaler Executor oder Ergebnishelper '${helperName}' fehlt.`);
+  const returns = helper.body.statements.filter(ts.isReturnStatement);
+  assert(returns.length === 1 && returns[0].expression && ts.isObjectLiteralExpression(returns[0].expression),
+    `Ergebnishelper '${helperName}' muss ein direktes Ergebnisobjekt zurueckgeben.`);
+  const fields = new Set();
+  for (const property of returns[0].expression.properties) {
+    if (!(ts.isPropertyAssignment(property) || ts.isShorthandPropertyAssignment(property))) continue;
+    if (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)) fields.add(property.name.text);
+  }
+  let spreadIntoResult = false;
+  const visit = (node) => {
+    if (ts.isFunctionLike(node)) return;
+    if (ts.isReturnStatement(node) && node.expression && ts.isObjectLiteralExpression(node.expression)) {
+      spreadIntoResult ||= node.expression.properties.some((property) => ts.isSpreadAssignment(property) &&
+        ts.isCallExpression(property.expression) && ts.isIdentifier(property.expression.expression) &&
+        property.expression.expression.text === helperName);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(executor.body);
+  assert(spreadIntoResult, `Ergebnishelper '${helperName}' wird nicht in ein Ergebnis von '${executorName}' gespreadet.`);
+  return fields;
+}
+
+const apiHelperFixture = "function state(value) { return { explicit: true, value, nested: { absent: true } }; }\n";
+assert.deepEqual([...emittedApiHelperFields(apiHelperFixture +
+  "function execute() { return { ...state(1) }; }", "execute", "state")].sort(),
+["explicit", "nested", "value"], "Nur Top-Level-Properties und shorthand eines gespreadeten Ergebnishelpers zaehlen.");
+assert.throws(() => emittedApiHelperFields(apiHelperFixture +
+  "function execute() { state(1); return { nested: { ...state(1) } }; }", "execute", "state"),
+/wird nicht in ein Ergebnis/u, "Ein blosser Aufruf oder verschachtelter Spread ist kein Ergebnisproducer.");
+assert.throws(() => emittedApiHelperFields(apiHelperFixture +
+  "function execute() { function unused() { return { ...state(1) }; } return {}; }", "execute", "state"),
+/wird nicht in ein Ergebnis/u, "Der Return einer ungenutzten inneren Funktion ist kein Executor-Ergebnis.");
+
+for (const [operation, producer] of SHARED_API_RESULT_FIELDS) {
+  assert(SSE_API_OPERATIONS.includes(operation) && !API_INTERNAL_OPERATIONS.includes(operation),
+    `Unbekannte dual implementierte Operation '${operation}'.`);
+  const fields = emittedApiHelperFields(localExecutors.get(operation) ?? "", producer.executor, producer.helper);
+  for (const field of producer.fields) {
+    assert(fields.has(field), `Lokaler Ergebnishelper '${producer.helper}' setzt '${field}' nicht mehr.`);
+  }
+}
+
 /** Ergebnisfelder aus gemeinsam genutzten Worker-Hilfsfunktionen. */
 const SHARED_WORKER_RESULT_FIELDS = new Map([
   ["Set-SSEDialogFieldText", new Set(["expected", "actual"])],
@@ -129,11 +189,58 @@ function emittedResultObjects(body) {
   }
   for (const emittedVariable of body.matchAll(/\bEmit \$([A-Za-z_][A-Za-z0-9_]*)\s*$/gmu)) {
     const assignment = new RegExp(`\\$${emittedVariable[1]}\\s*=\\s*\\[pscustomobject\\]@\\{`, "u").exec(body);
-    if (!assignment) throw new Error(`Emit-Variable '$${emittedVariable[1]}' hat kein lokales PSCustomObject.`);
+    if (!assignment) {
+      results.push(...emittedWorkerHelperObjects(body, emittedVariable[1], workerSource));
+      continue;
+    }
     const openingBrace = assignment.index + assignment[0].length - 1;
     results.push(readOuterPowerShellObject(body, openingBrace));
   }
   return results;
+}
+
+/** Only this actual one-key helper's two direct result producers may cross a local Emit assignment. */
+function emittedWorkerHelperObjects(body, variable, source) {
+  assert.equal(variable, "stepResult", `Emit-Variable '$${variable}' hat kein lokales PSCustomObject.`);
+  const calls = [...body.matchAll(/^\s*\$stepResult\s*=\s*Invoke-SSETableNativeCursorStep\b/gmu)];
+  assert.equal(calls.length, 1, "Der emittierte Cursorschritt muss genau einen produktiven Helper-Aufruf besitzen.");
+  assert.equal([...body.matchAll(/^\s*\$stepResult\s*=/gmu)].length, 1, "Der belegte Cursorschritt darf nicht ueberschrieben werden.");
+  assert(calls[0].index < body.indexOf("Emit $stepResult"), "Der belegte Helper-Aufruf muss dem Emit vorausgehen.");
+  const definitions = [...source.matchAll(/^function Invoke-SSETableNativeCursorStep\s*\{/gmu)];
+  assert.equal(definitions.length, 1, "Der produktive Cursorschritt-Ergebnishelper muss eindeutig sein.");
+  const definition = definitions[0];
+  const helper = readOuterPowerShellObject(source, definition.index + definition[0].length - 1).source;
+  assert(!/^\s*return\b/mu.test(helper), "Indirekte Return-Producer im Cursorschritt brauchen einen eigenen Ergebnisnachweis.");
+  const results = [];
+  for (const match of helper.matchAll(/^[ \t]*\[pscustomobject\]@\{/gmu)) {
+    const opening = match.index + match[0].length - 1;
+    assert.equal(powerShellBraceDepth(helper, opening), 2,
+      "Nur direkte aeussere Try/Catch-Ergebnisse des Cursorschritts gelten als Ergebnisproducer.");
+    results.push(readOuterPowerShellObject(helper, opening));
+  }
+  assert.equal(results.length, 2, "Der Cursorschritt muss einen direkten Erfolg und einen direkten Fehler produzieren.");
+  assert.match(results[0].source, /^\{\s*ok=\$true\b/u);
+  assert.match(results[1].source, /^\{\s*ok=\$false\b/u);
+  for (const field of ["kind", "error"]) assert(results[1].fields.has(field), `Cursorschritt-Fehlerumschlag ohne '${field}'.`);
+  return results;
+}
+
+function powerShellBraceDepth(source, until) {
+  let depth = 0, quote = "", comment = false;
+  for (let index = 0; index < until; index++) {
+    const char = source[index], next = source[index + 1] ?? "";
+    if (comment) { if (char === "\n") comment = false; continue; }
+    if (quote) {
+      if ((quote === "'" && char === "'" && next === "'") || (quote === '"' && char === "`")) index++;
+      else if (char === quote) quote = "";
+      continue;
+    }
+    if (char === "#") comment = true;
+    else if (char === "'" || char === '"') quote = char;
+    else if (char === "{") depth++;
+    else if (char === "}") depth--;
+  }
+  return depth;
 }
 
 function readOuterPowerShellObject(source, openingBrace) {
@@ -198,6 +305,20 @@ assert.deepEqual(
   ["ok", "value"],
   "Explizit aufgebaute und anschliessend emittierte Ergebnisobjekte muessen belegt bleiben.",
 );
+const workerHelperFixture = "function Invoke-SSETableNativeCursorStep {\n  try {\n" +
+  "    [pscustomobject]@{ok=$true;steps=1;binding=[pscustomobject]@{privateOnly=1}}\n  } catch {\n" +
+  "    [pscustomobject]@{ok=$false;kind='failed';error='failed'}\n  }\n}";
+const workerHelperCall = "$stepResult=Invoke-SSETableNativeCursorStep $bound\nEmit $stepResult";
+assert.deepEqual([...new Set(emittedWorkerHelperObjects(workerHelperCall, "stepResult", workerHelperFixture)
+  .flatMap(result => [...result.fields]))].sort(), ["binding", "error", "kind", "ok", "steps"]);
+assert.throws(() => emittedWorkerHelperObjects(workerHelperCall.replace("Invoke-SSETableNativeCursorStep", "Unknown-Producer"),
+  "stepResult", workerHelperFixture), /Helper-Aufruf/u);
+assert.throws(() => emittedWorkerHelperObjects(workerHelperCall, "otherResult", workerHelperFixture), /kein lokales PSCustomObject/u);
+assert.throws(() => emittedWorkerHelperObjects(workerHelperCall.replace("Emit $stepResult", "$stepResult=Unknown-Producer\nEmit $stepResult"),
+  "stepResult", workerHelperFixture), /ueberschrieben/u);
+assert.throws(() => emittedWorkerHelperObjects(workerHelperCall, "stepResult",
+  workerHelperFixture.replace("    [pscustomobject]@{ok=$true", "    if ($unused) {\n    [pscustomobject]@{ok=$true")
+    .replace("privateOnly=1}}", "privateOnly=1}}\n    }")), /direkte aeussere/u);
 
 const missingInWorker = SSE_API_OPERATIONS.filter(
   (operation) => !blockStart.has(operation) && !API_INTERNAL_OPERATIONS.includes(operation),
@@ -290,6 +411,7 @@ for (const operation of SSE_API_OPERATIONS) {
   if (API_INTERNAL_OPERATIONS.includes(operation)) continue;
   const body = blockBody(operation);
   const emittedFields = emittedResultFields(body);
+  for (const field of SHARED_API_RESULT_FIELDS.get(operation)?.fields ?? []) emittedFields.add(field);
   for (const [helper, fields] of SHARED_WORKER_RESULT_FIELDS) {
     if (!body.includes(`${helper} `)) continue;
     for (const field of fields) emittedFields.add(field);

@@ -133,6 +133,23 @@ try {
   assert.equal(valueOf("einkunftsart"), "Gewerbebetrieb");
   assert.equal(valueOf("firmenname"), "");
 
+  // This business case has no income-tax checker start page. Exercise its
+  // actual profiled toolbar, and prove that a second run only reads the
+  // already active checker rather than toggling it closed.
+  const checkerBefore = await call("ui_state", { hwnd });
+  const startedChecker = await call("checker_run", { hwnd }, 120_000);
+  assert.equal(startedChecker.gestartet, true, JSON.stringify(startedChecker));
+  assert.equal(startedChecker.konsistent, true, JSON.stringify(startedChecker));
+  const existingChecker = await call("checker_run", { hwnd }, 120_000);
+  assert.equal(existingChecker.gestartet, false, JSON.stringify(existingChecker));
+  assert.equal(existingChecker.bereitsAktiv, true, JSON.stringify(existingChecker));
+  assert.equal((await call("checker_results", { hwnd })).aktiv, true);
+  await call("checker_close", { hwnd });
+  const checkerAfter = await call("ui_state", { hwnd });
+  assert.equal(checkerAfter.heading, checkerBefore.heading, "Checker start/close navigated the business case.");
+  assert.equal(checkerAfter.ungespeichert, checkerBefore.ungespeichert, "Checker start/close changed dirty state.");
+  assert.equal(sha256(targetPath), createdHash, "Checker start/close wrote the case file.");
+
   const toVat = await call("click", {
     aid: "AngabenUnternehmen.Steuerarten.Button", hwnd, expectedPageBefore: MASTER_HEADING, expectedPageAfter: VAT_HEADING, waitMs: 9_000,
   });

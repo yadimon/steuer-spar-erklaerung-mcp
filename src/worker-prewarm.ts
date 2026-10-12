@@ -19,6 +19,7 @@ import { availableParallelism, constants as osConstants, setPriority, totalmem }
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { resolveWindowsPowerShell } from "./windows-runtime.js";
+import { createTableWorkerCapability, tableWorkerEnvironment } from "./worker-table-capability.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const WORKER_SCRIPT = join(HERE, "..", "powershell", "sse-worker.ps1");
@@ -105,6 +106,8 @@ function defaultPoolSize(): number {
 
 export interface WarmSpare {
   child: ChildProcessWithoutNullStreams;
+  /** Internal single-job transport authority; never returned by API health/results. */
+  transportCapability: string;
   /** Bytes, die nach der Bereitschaftszeile eintrafen - normalerweise keine. */
   residualStdout: Buffer[];
 }
@@ -197,11 +200,12 @@ function discard(candidate: PooledSpare, reason: string): void {
  */
 function startWarmSpare(): boolean {
   let child: ChildProcessWithoutNullStreams;
+  const transportCapability = createTableWorkerCapability();
   try {
     child = spawn(
       resolveWindowsPowerShell(),
       ["-ExecutionPolicy", "Bypass", "-NoLogo", "-NoProfile", "-NonInteractive", "-File", WORKER_SCRIPT, "-Prewarm"],
-      { windowsHide: true },
+      { windowsHide: true, env: tableWorkerEnvironment(transportCapability) },
     );
   } catch (error) {
     blockedUntil = performance.now() + PREWARM_RETRY_DELAY_MS;
@@ -212,6 +216,7 @@ function startWarmSpare(): boolean {
 
   const candidate: PooledSpare = {
     child,
+    transportCapability,
     environmentFingerprint: environmentFingerprint(),
     residualStdout: [],
     ready: false,
@@ -355,7 +360,7 @@ export function takeWarmSpare(): WarmSpare | null {
   // Ab jetzt fuehrt dieser Prozess den echten Auftrag aus und darf nicht mehr
   // hinter anderer Arbeit zurueckstehen.
   setSparePriority(candidate.child, osConstants.priority.PRIORITY_NORMAL);
-  return { child: candidate.child, residualStdout: candidate.residualStdout };
+  return { child: candidate.child, transportCapability: candidate.transportCapability, residualStdout: candidate.residualStdout };
 }
 
 /**

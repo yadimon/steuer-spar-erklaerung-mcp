@@ -35,6 +35,8 @@ import { executeLocalWorkingCopy } from "./working-copy-executor.js";
 import { executeLocalBackup } from "./backup-executor.js";
 import { executeLocalArchive } from "./archive-executor.js";
 import { executeQtNativeOperation, isQtNativeOperation, type QtNativeExecutorDependencies } from "./qt-native-executor.js";
+import { executeTableCursorRead, executeTableCursorMutation } from "./table-cursor-executor.js";
+import { tableAddCursorFailure } from "./table-add-cursor-result.js";
 
 export { API_RESOURCE_BINDINGS } from "./api-resource-bindings.js";
 
@@ -184,6 +186,7 @@ export function createApiExecutor(
         return redactPaths(await win32(() => dependencies.nativeDesktopStatus!(timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS, signal)));
       }
       if (isQtNativeOperation(operation)
+        && !(operation === "table_read" && args.noKeys === false)
         && (dependencies.qtNativeClient || dependencies.qtNativeClientFor)) {
         const executeNative = () => executeQtNativeOperation(operation, args, dependencies, timeoutMs, signal, profile);
         return redactPaths(await (telemetry?.enabled ? telemetry.runQtNative(executeNative) : executeNative()));
@@ -352,6 +355,14 @@ export function createApiExecutor(
         });
       }
       const configured = configuredArgs(operation, args, config);
+      if (operation === "table_read" && args.noKeys === false) {
+        return withResourceIdentity(redactPaths,
+          await executeTableCursorRead(configured.args, worker, dependencies, timeoutMs, signal), configured.resourceRefs);
+      }
+      if (operation === "table_update" || operation === "table_delete") {
+        return withResourceIdentity(redactPaths,
+          await executeTableCursorMutation(operation, configured.args, worker, dependencies, timeoutMs, signal, profile.pageObjectsCatalog), configured.resourceRefs);
+      }
       if (operation === "desktop_stop" && dependencies.nativeDesktopStop) {
         return redactPaths(await win32(() => dependencies.nativeDesktopStop!(configured.args, timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS, signal)));
       }
@@ -461,20 +472,10 @@ export function createApiExecutor(
           }
         }
       }
-      // Eine Zeile anzuhaengen scheitert, solange die Anlegezeile ausserhalb
-      // des Sichtbereichs liegt: Qt haelt nur rund sechs Zeilen im
-      // UIA-Baum, und die Tastaturnavigation zum Tabellenende bewegt diese
-      // Tabelle nachweislich nicht - gemessen blieb die unterste sichtbare
-      // Zeile nach 41 Pfeiltasten unveraendert.
-      //
-      // Der Cursorlauf von table_read schafft dieselbe Strecke dagegen
-      // zuverlaessig durch 45 Zeilen. Bisher musste der Aufrufer das wissen
-      // und selbst einen vollstaendigen Lesevorgang vorschalten. Genau das
-      // macht "haenge eine Zeile an" unbrauchbar.
-      //
-      // Deshalb hier: einmal lesen, einmal wiederholen - und nur auf diesem
-      // langsamen Pfad. Der schnelle Weg mit sichtbarer Anlegezeile bleibt
-      // ein einziger Workeraufruf.
+      // Eine virtualisierte Anlegezeile kann ausserhalb des sichtbaren UIA-Baums liegen.
+      // Genau ein geschuetzter Cursorlauf darf sie materialisieren. Nur sein
+      // vollstaendiger, bekannter Erfolg erlaubt einen weiteren Add-Aufruf;
+      // fehlende Nachweise behalten ihren eigenen Teilzustand und enden ohne Retry.
       if (
         operation === "table_add" &&
         result?.ok !== true &&
@@ -482,13 +483,20 @@ export function createApiExecutor(
         typeof result?.error === "string" &&
         result.error.includes("Keine freie Tabellenzeile")
       ) {
-        const readArgs: Record<string, unknown> = { maxRows: 400 };
+        const readArgs: Record<string, unknown> = { maxRows: 400, noKeys: false };
         for (const key of ["sumLabel", "sumOccurrence", "hwnd", "pid"] as const) {
           if (configured.args[key] !== undefined) readArgs[key] = configured.args[key];
         }
         const configuredRead = configuredArgs("table_read", readArgs, config);
-        const scrolled = await worker("table_read", configuredRead.args, timeoutMs, signal);
-        if (scrolled?.ok === true) {
+        const scrolled = await executeTableCursorRead(configuredRead.args, worker, dependencies, timeoutMs, signal).catch((): WorkerResult => ({
+          ok: false, kind: "cursor-proof-failed", proofCheck: "cursor-transport-error",
+          outcomeUnknown: true, reconciliationRequired: true, cleanupRequired: true,
+        }));
+        if (scrolled?.ok === true && scrolled.vollstaendig === true) {
+          if (scrolled.outcomeUnknown === true || scrolled.reconciliationRequired === true || scrolled.cleanupRequired === true
+            || result.outcomeUnknown === true || result.reconciliationRequired === true || result.cleanupRequired === true) {
+            return withResourceIdentity(redactPaths, tableAddCursorFailure(result, scrolled), configured.resourceRefs);
+          }
           const retried = await worker(operation, configured.args, timeoutMs, signal);
           return withResourceIdentity(redactPaths, {
             ...retried,
@@ -498,6 +506,7 @@ export function createApiExecutor(
             },
           }, configured.resourceRefs);
         }
+        return withResourceIdentity(redactPaths, tableAddCursorFailure(result, scrolled), configured.resourceRefs);
       }
       return withResourceIdentity(redactPaths, result, configured.resourceRefs);
     } catch (error) {

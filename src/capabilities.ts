@@ -145,14 +145,14 @@ export const SSE_CAPABILITIES = Object.freeze({
       "durch Trennen der HTTP-Verbindung, nie durch einen zweiten Aufruf.",
   },
   batching: {
-    rule: "Jeder Aufruf startet einen frischen Arbeitsprozess und laedt das Workerskript neu. " +
-      "Diese Fixkosten fallen pro Aufruf an, nicht pro Schritt. Buendele deshalb, statt Feld " +
-      "fuer Feld einzeln abzurufen.",
+    rule: "Worker-Auftraege werden einzeln ausgefuehrt; ein Auftrag kann einen vorgewaermten Arbeitsprozess verwenden. " +
+      "scenario_run fuehrt seine Schritte seriell ueber den Executor aus, mit einem eigenen Auftrag je Worker-Schritt. " +
+      "Ein Szenario haelt keinen gemeinsamen Tabellen-Worker und ist keine Tabellen-Bulk-API.",
     levels: [
       { intent: "Einzelner Handgriff", operations: ["click", "click_point", "set_value", "read_page"] },
       { intent: "Navigieren und lesen in einem Aufruf", operations: ["checker_open", "subpages", "table_read"] },
       { intent: "Ganze Seitenstrecke", operations: ["collect", "read_full", "export_csv"] },
-      { intent: "Beliebige Schrittfolge in einem Arbeitsprozess", operations: ["scenario_run"] },
+      { intent: "Begrenzte serielle Schrittfolge ueber den Executor", operations: ["scenario_run"] },
     ],
   },
   liveEvidence: SSE_LIVE_EVIDENCE,

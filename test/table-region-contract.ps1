@@ -176,6 +176,44 @@ Assert-True (($zmIds -join ',') -eq 'zm-date,zm-land,zm-id,zm-amount') "ZM-Scope
 Assert-True ((Json $legacyZmRegion) -ceq (Json $zmRegion)) `
   'AutomationId-Scope weicht ausserhalb des ersetzten Label-Scans von der Produktivlogik ab.'
 
+# Nested vehicle subtotals belong to one exact cost table, not the rectangle
+# between its two summary fields. All names and values here are synthetic.
+$regionCatalog = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\profiles\2025\page-objects.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+$withoutBinding = @($regionCatalog.tableRegionBindings | Where-Object { $_.id -ceq 'vehicle_costs_without_input_tax' })[0]
+$vehicleCells = @(
+  (Node 'DataItem' 'Synthetic cost' 300 150 120 $null 'cost-cell' ('Root' + $withoutBinding.tableAidSuffix))
+  (Node 'DataItem' 'Foreign table' 450 150 120 $null 'foreign-cell' ('OtherRoot' + $withoutBinding.tableAidSuffix))
+  (Node 'DataItem' 'Near table' 600 150 120 $null 'near-cell' ('Root' + $withoutBinding.tableAidSuffix + 'X'))
+  (Node 'Text' 'Summe der sonstigen Kfz-Kosten mit Vorsteuerabzug' 300 210)
+  (Node 'Edit' '' 700 210 100 '4,00' 'cost-with-sum')
+  (Node 'Text' $withoutBinding.sumLabel 300 260)
+  (Node 'Edit' '' 700 260 100 '2,00' 'cost-without-sum' ('Root' + $withoutBinding.summaryAidSuffix))
+)
+$vehicleSum = Select-SSESummaryFromNodes $vehicleCells $bounds $withoutBinding.sumLabel 1
+$legacyVehicleRegion = Get-SSETableRegionFromNodes $vehicleCells $bounds $vehicleSum
+Assert-True (-not $legacyVehicleRegion.ok) 'Synthetic subtotals do not reproduce the excluded table geometry.'
+$boundVehicleRegion = Get-SSETableRegionFromNodes $vehicleCells $bounds $vehicleSum 'Sonstige Kfz-Kosten' $regionCatalog.tableRegionBindings
+Assert-True ($boundVehicleRegion.ok -and $boundVehicleRegion.selectionMethod -ceq 'profiled-summary-table-aid') 'Nested cost subtotal did not bind its exact table.'
+Assert-True ($boundVehicleRegion.cells.Count -eq 1 -and $boundVehicleRegion.cells[0].rid -ceq 'cost-cell') 'Profile mapping admitted a foreign root or near table.'
+$dynamicVehicleRegion=Get-SSETableRegionFromNodes $vehicleCells $bounds $vehicleSum 'Sonstige Kfz-Kosten: Synthetic Vehicle' $regionCatalog.tableRegionBindings
+Assert-True ($dynamicVehicleRegion.ok -and $dynamicVehicleRegion.profileMappingId -ceq 'vehicle_costs_without_input_tax' -and
+  $dynamicVehicleRegion.cells.Count -eq 1 -and $dynamicVehicleRegion.cells[0].rid -ceq 'cost-cell') `
+  'Known dynamic vehicle heading did not bind the exact subtotal and cost-table AutomationIds.'
+foreach ($wrongHeading in @('Sonstige Kfz-Kosten: ','Sonstige Kfz-KostenX: Synthetic','Other page: Synthetic')) {
+  $wrongDynamic=Get-SSETableRegionFromNodes $vehicleCells $bounds $vehicleSum $wrongHeading $regionCatalog.tableRegionBindings
+  Assert-True (-not $wrongDynamic.ok) 'Empty or foreign vehicle heading obtained the profiled cost mapping.'
+}
+$wrongPageRegion = Get-SSETableRegionFromNodes $vehicleCells $bounds $vehicleSum 'Other page' $regionCatalog.tableRegionBindings
+Assert-True (-not $wrongPageRegion.ok) 'Wrong page obtained the profiled cost mapping.'
+$ambiguousMapping = Get-SSETableRegionFromNodes $vehicleCells $bounds $vehicleSum 'Sonstige Kfz-Kosten' @($withoutBinding,$withoutBinding)
+Assert-True (-not $ambiguousMapping.ok) 'Duplicate profile mappings were accepted.'
+$wrongAidSum = $vehicleSum.PSObject.Copy(); $wrongAidSum.selected = $vehicleSum.selected.PSObject.Copy()
+$wrongAidSum.selected.aid = 'Root/.Unexpected.Wert'
+$wrongAidRegion = Get-SSETableRegionFromNodes $vehicleCells $bounds $wrongAidSum 'Sonstige Kfz-Kosten' $regionCatalog.tableRegionBindings
+Assert-True (-not $wrongAidRegion.ok -and -not $wrongAidRegion.selectionMethod) 'Known profiled subtotal fell back to geometry after an AutomationId mismatch.'
+$wrongDynamicAid=Get-SSETableRegionFromNodes $vehicleCells $bounds $wrongAidSum 'Sonstige Kfz-Kosten: Synthetic Vehicle' $regionCatalog.tableRegionBindings
+Assert-True (-not $wrongDynamicAid.ok -and -not $wrongDynamicAid.selectionMethod) 'Dynamic heading bypassed the exact summary-AID proof.'
+
 # Der Sweep bewahrt alle harten Geometriegrenzen: Text-Y +/-14 ist inklusiv,
 # +/-15 nicht, Label muessen strikt links stehen und Text/Feld-X bleiben in
 # ihren unterschiedlichen Bounds. Die Rueckgabe folgt der Node-Reihenfolge.

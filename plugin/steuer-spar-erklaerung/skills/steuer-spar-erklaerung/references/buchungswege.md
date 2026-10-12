@@ -4,6 +4,13 @@ Lies diese Referenz, bevor du eine Ausgabe, eine Einnahme oder einen
 Reverse-Charge-Beleg in eine Gewinn-Erfassung einträgst. Sie hält fest, was am
 laufenden Programm belegt ist — nicht, was plausibel klingt.
 
+Auf dem entsperrten sichtbaren Desktop übernehmen `sse_table_add` und
+`sse_table_update` den Fokus des exakt gebundenen Hauptfensters vor der
+Änderung. Ein minimiertes Ziel wird über dasselbe HWND/PID wiederhergestellt.
+Danach müssen Seite, Summe, Tabellenprofil, Zellbestand und unveränderte
+Eingabe-Epoche frisch bestätigt sein. Fremder Fokus oder eine geänderte
+Eingabe-Epoche stoppt weitere Klicks, Tasten und Zellschreibungen.
+
 ## Seitensummen addieren netto
 
 Die Kontrollsumme einer Buchungsseite summiert die **Nettobeträge**, nicht die
@@ -17,6 +24,34 @@ Nachsumme doch angibt, muss SSEs Rundung selbst nachbilden und scheitert an
 korrekt geschriebenen Zeilen.
 
 `expectedBefore` bleibt Pflicht und ist billig: `sse_table_read` liefert es.
+
+Bei gemischten Steuersätzen kann dieselbe Tabelle getrennte Teilsummen mit
+und ohne Vorsteuerabzug führen. Eine 0-%-Zeile bewegt dann nur die Summe ohne
+Vorsteuerabzug. Binde vor der Änderung die fachlich passende Summe **und**
+ihre tatsächliche Tabellenregion frisch; der Labelwechsel allein genügt
+nicht. Liegen mehrere Summen unter derselben Tabelle und schließt die
+geometrische Regionsbindung die Zellen aus, ist dieser Schreibweg nicht
+nachgewiesen. Stoppe statt eine unpassende Kontrollsumme zu verwenden.
+
+Für die profilierte Seite `Sonstige Kfz-Kosten` bindet das Produktprofil die
+Summen mit und ohne Vorsteuerabzug über ihre exakten Automation-IDs an
+dieselbe Kostentabelle. Bei 0-%-Zeilen sind sechs Spalten, Datum, eindeutige
+Bezeichnung und eine veränderte exakte `expectedAfter`-Summe Pflicht. Der
+Nachweis der vollständigen Zeile verwendet ihre Werte; ihre Y-Position darf
+sich beim Sortieren ändern. Ein fehlender oder mehrdeutiger Zeilennachweis
+erlaubt keine Erfolgsmeldung oder ungebundene Rücksetzung.
+
+Die sechs Argumentwerte für eine solche 0-%-Kostenzeile lauten
+`["", Datum, Bezeichnung, Betrag, "0", ""]`: Die letzte Netto-Spalte bleibt
+explizit leer, damit SSE sie berechnet. Fünf Werte sind kein vollständiger
+Zeilenvertrag.
+
+Ein fehlgeschlagener Nachsummen- oder Zeilenvergleich bedeutet nicht, dass
+nichts geschrieben wurde. Lies den Teilstand vollständig zurück: exakt eine
+neue Zeile mit Datum, Bezeichnung, Betrag, Steuersatz und Netto sowie alle
+unveränderten Altzeilen und die passenden Teilsummen nachweisen. Ist die
+Buchung bereits vorhanden, nicht erneut anlegen. Bleibt der Bestand unklar,
+keine Wiederholung, kein blindes Löschen und kein Speichern.
 
 ## Eigene Einnahmenposition anlegen
 
@@ -41,12 +76,35 @@ EDV-Kosten zu erfassen, ist **keine** § 13b-Buchung. Die Ausgabe steht dann in
 der Gewinnermittlung, die Steuerschuld entsteht aber nicht; in der
 Voranmeldung bleibt § 13b auf 0,00.
 
-Die Bemessung entsteht auf der Seite `Innergem. Erwerb, § 13b UStG und
-Einfuhr`. Sie führt drei Tabellen; die zweite (`sumLabel` = `Summe`,
-`sumOccurrence` = 2) hat die Spalten Nr., Datum, Bezeichnung, **Kategorie**, %,
-Netto. Die Spalte Kategorie ist eine typisierte Auswahl; das Produktprofil
-kennt dort `Sonst. Leistung EU`. Der eingetragene Betrag ist der **Netto**wert,
-also bei Reverse Charge der Rechnungsbetrag.
+Die Bemessung entsteht durch die passende §13b-Buchung. Lies zuerst, ob die
+Kostenart eine eigene Unterseite `Rechnungen nach § 13b UStG` anbietet. Fehlt
+sie etwa bei EDV-Kosten, führt der belegte Weg über `Fremdleistungen` zu dieser
+Unterseite. Erfasse denselben Nettobetrag nur einmal; eine zusätzliche
+0-%-EDV-Zeile würde die Betriebsausgabe verdoppeln.
+
+Die Überschrift `Innergem. Erwerb, § 13b UStG und Einfuhr` allein bindet keine
+Tabelle: Je nach Navigationsweg stehen dort eine oder mehrere Tabellen.
+Lies `sumLabel`, `sumOccurrence`, Spalten und Automation-ID-Abschnitt frisch
+mit `sse_table_read`; übernimm kein universelles zweites Summenvorkommen.
+Die Kategorie-Tabelle der Kostenart kann `Summe`, Vorkommen 1 sein, während
+der Materialbereich dieselbe Kategorie-Tabelle an Vorkommen 2 enthält.
+Die Spalten Nr., Datum, Bezeichnung, **Kategorie**, %, Netto müssen zur
+gebundenen Tabelle passen. Kategorie ist eine typisierte Auswahl: Übernimm
+den exakten Vorwert aus dem Readback und wähle die belegte EU- oder
+Drittlandsleistung anhand des Anbietersitzes. Der eingetragene Betrag ist
+der **Netto**wert, bei Reverse Charge der Rechnungsbetrag.
+
+Eine ansonsten leere zweite §13b-Tabelle kann bereits `Sonst. Leistung EU`
+als Kategorie zeigen. Nur beim exakt gebundenen Profil darf der ausdrücklich
+gleiche `comboExpectedBefore` diesen bestätigten Default als freie Anlegezeile
+einordnen; Datum und Bezeichnung müssen leer und der Nettobetrag 0 sein.
+
+Eine Kategorieauswahl kann die Anlegezeile materialisieren und ihre
+Y-Position verschieben. Die API bindet dann nur genau eine vollständige
+frische Zeile mit der gewünschten Kategorie und identischen übrigen Werten.
+Eine neue Zeilennummer darf ausschließlich bei der zuvor bestätigten leeren
+Anlegezeile entstehen. Alle vorbereiteten Textzellen werden an diese Zeile
+neu gebunden; fehlende oder mehrdeutige Nachweise stoppen weitere Änderungen.
 
 Die § 13b-Felder auf `Steuerschuldnerschaft nach § 13b UStG` sind
 **schreibgeschützt**: SSE rechnet sie aus den Buchungen. Ein Schreibversuch

@@ -1,89 +1,63 @@
-# Schreiben, waehrend der Benutzer weiterarbeitet - und nur dann.
-#
-# GetLastInputInfo zaehlt jede Eingabe im System, gleichgueltig wohin sie
-# geht. Deshalb brach jede Zellschreibung ab, sobald der Benutzer irgendwo
-# tippte - auch in einem voellig anderen Fenster, dessen Anschlaege SSE nie
-# erreichen. Genau das machte paralleles Arbeiten unmoeglich.
-#
-# Fuer den Sperrbildschirm war die Ausnahme laengst begruendet: Kann der
-# Benutzer SSE nachweislich nicht bedienen, darf eine reine
-# ValuePattern-Schreibung nicht am systemweiten Tick scheitern. Dieselbe
-# Begruendung traegt fuer ein fremdes Vordergrundfenster.
-#
-# Vier Eigenschaften duerfen dabei nie verlorengehen:
-#
-#   1. **Verglichen wird der Prozess, nicht das Fenster.** Ein Dialog derselben
-#      SSE-Instanz gehoert zu SSE; dort waere eine Fremdeingabe gefaehrlich.
-#   2. **Im Zweifel streng.** Laesst sich der Vordergrund nicht bestimmen,
-#      gilt er nicht als fremd und der Schutz bleibt an.
-#   3. **Kein Pfad, der den Fokus braucht.** Der Weg zum Tabellenende und jede
-#      Auswahlliste verlangen Klick und Tastatur; beides wuerde dem Benutzer
-#      den Fokus mitten im Satz entreissen und wird deshalb abgewiesen statt
-#      ausgefuehrt.
-#   4. **Endet die Abschirmung, endet die Ausnahme.** Wird SSE waehrend der
-#      Transaktion nach vorn geholt, gilt das als Interferenz - und die
-#      Meldung nennt, welche der beiden Lagen endete.
+# Pure source/semantic contracts. Never acquire real focus or call native UI.
 $ErrorActionPreference = 'Stop'
-
 $root = Split-Path $PSScriptRoot -Parent
-$worker = Get-Content -LiteralPath (Join-Path $root 'powershell\sse-worker.ps1') -Raw
-
-function Assert-Enthalten([string]$Muster, [string]$Meldung, [int]$Erwartet = 1) {
-  $treffer = ([regex]::Matches($worker, [regex]::Escape($Muster))).Count
-  if ($treffer -ne $Erwartet) { throw "$Meldung (gefunden: $treffer, erwartet: $Erwartet)" }
+$worker = Get-Content -LiteralPath (Join-Path $root 'powershell\sse-worker.ps1') -Raw -Encoding UTF8
+. (Join-Path $root 'powershell\table-combobox.ps1')
+function Assert-True([bool]$Condition, [string]$Message) { if (-not $Condition) { throw $Message } }
+function Function-Text([string]$Name) {
+  $tokens=$null; $errors=$null
+  $ast=[Management.Automation.Language.Parser]::ParseInput($worker,[ref]$tokens,[ref]$errors)
+  $definitions=@($ast.FindAll({ param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $Name
+  },$true))
+  Assert-True ($definitions.Count -eq 1) "Function is not uniquely present: $Name"
+  $definitions[0].Extent.Text
 }
-
-# --- 1. Der Schutz kennt die neue Lage, in beiden Schreiboperationen ---
-Assert-Enthalten '$foreignForegroundIsolation = [bool](-not $script:DESKTOP_NAME -and -not $lockScreenIsolation -and' `
-  'Die Abschirmung ueber den Fremdvordergrund fehlt in einer Schreiboperation.' 2
-Assert-Enthalten '-not $foreignForegroundIsolation)' `
-  'guardUserInput beruecksichtigt die neue Abschirmung nicht.' 2
-
-# --- 2. Alle Nachpruefstellen decken beide Lagen ab ---
-if ($worker -match '\$lockScreenIsolation -and -not \(Test-SSEForegroundIsLockScreen\)') {
-  throw 'Eine Nachpruefstelle prueft nur den Sperrbildschirm; der Fremdvordergrund bliebe dort unbemerkt.'
+$focus=Function-Text 'Initialize-SSETableMutationFocus'
+Assert-True ($focus.IndexOf('$inputBeforeFocus = Get-SSELastInputTick') -lt $focus.IndexOf('Show-SSEWindow $Hwnd')) 'Input baseline is read after acquiring focus.'
+Assert-True ($focus.Contains('Test-SSELastInputUnchanged $inputBeforeFocus')) 'Focus acquisition hides an input epoch change.'
+Assert-True ($focus.Contains('GetForegroundWindow() -ne $Hwnd')) 'Acquisition does not prove the bound foreground.'
+Assert-True ($focus.IndexOf('Show-SSEWindow $Hwnd') -lt $focus.IndexOf('Walk-BoundTree $Hwnd -WithValues')) 'Table bindings are not refreshed after focus acquisition.'
+Assert-True ($focus.Contains('Get-SSETableContentSignature $InitialRegion') -and $focus.Contains('Get-SSETableContentSignature $freshRegion')) 'Focus acquisition does not preserve the semantic cell snapshot.'
+Assert-True ($focus.Contains('guardUserInput=$true; inputBaseline=$inputBeforeFocus')) 'Visible writes do not retain the proven strict input epoch.'
+Assert-True ($focus.Contains('$script:DESKTOP_NAME -or $lockScreen')) 'Hidden or locked desktop acquired visible focus.'
+Assert-True ($focus.Contains('foreignForegroundIsolation=$false')) 'A visible mutation retained foreign foreground isolation after acquisition.'
+$resolver=Function-Text 'Resolve-SSEMainWindowDescriptor'
+Assert-True ($resolver.Contains('[SW]::ShowWindow([IntPtr][int64]$main.hwnd, 9)') -and
+  $resolver.Contains('[int64]$_.hwnd -eq [int64]$main.hwnd -and [int]$_.pid -eq [int]$main.pid') -and
+  $resolver.Contains('$fresh.Count -ne 1 -or $fresh[0].minimiert')) 'Minimized restoration did not prove the exact target HWND/PID.'
+$click=Function-Text 'Click-VerifiedPoint'
+$finalClickGuard=$click.LastIndexOf('if (($null -ne $ExpectedInputTick')
+Assert-True ($finalClickGuard -gt $click.IndexOf('Start-Sleep -Milliseconds 100') -and
+  $finalClickGuard -lt $click.IndexOf('[SW]::mouse_event')) 'Final physical click guard does not follow cursor settling.'
+Assert-True (-not $click.Contains('if ($BeforeClickCheck) {')) 'Final physical click guard still depends on an optional callback.'
+Assert-True ($click.Substring($finalClickGuard,$click.IndexOf('[SW]::mouse_event')-$finalClickGuard).Contains('$RequireForeground -and [SW]::GetForegroundWindow() -ne $Window')) 'Final physical click guard lost exact foreground.'
+Assert-True ($click.Contains('inputTickAfterClick=$inputTickAfterClick') -and
+  $click.Contains('Test-SSELastInputUnchanged $inputTickAfterClick')) 'Settling after a click silently accepts a new input epoch.'
+foreach ($operation in @('table_add','table_update')) {
+  $start=$worker.IndexOf("  '$operation' {")
+  $finish=$worker.IndexOf("`n  '",$start+5)
+  $block=$worker.Substring($start,$finish-$start)
+  Assert-True ($block.Contains('Initialize-SSETableMutationFocus $hwnd $targetPid')) "Missing acquisition: $operation"
+  Assert-True ($block.IndexOf('Initialize-SSETableMutationFocus') -lt $block.IndexOf('$prepared = New-Object')) "Old prepared cells survive focus acquisition: $operation"
+  Assert-True (([regex]::Matches($block,'Test-SSETableMutationForegroundLost')).Count -ge 3) "Foreground is not guarded before/after writes and readback: $operation"
+  Assert-True ($block.Contains('Test-SSEIsolationEnded $lockScreenIsolation $foreignForegroundIsolation $hwnd')) "Isolation-ended guard was lost: $operation"
+  Assert-True ($block.Contains('-RestoreMinimized')) "Known minimized target is not restored: $operation"
 }
-Assert-Enthalten 'Test-SSEIsolationEnded $lockScreenIsolation $foreignForegroundIsolation $hwnd' `
-  'Nicht alle Nachpruefstellen nutzen die gemeinsame Pruefung.' 8
-
-# --- 3. Fokuspflichtige Pfade werden abgewiesen, nicht ausgefuehrt ---
-Assert-Enthalten "'foreground-needed'" `
-  'Der Weg zum Tabellenende wird unter Fremdvordergrund nicht abgewiesen.'
-Assert-Enthalten 'ist eine Auswahlliste und braucht Klick und Vordergrund' `
-  'Auswahllisten werden unter Fremdvordergrund nicht abgewiesen.' 2
-
-# --- 4. Die Antwort legt die Lage offen ---
-Assert-Enthalten 'foreignForegroundIsolation=$foreignForegroundIsolation' `
-  'Die Telemetrie verschweigt die Abschirmung.' 4
-
-# --- 5. Verhalten der Prozesspruefung, wirklich ausgefuehrt ---
-. (Join-Path $root 'powershell\load-native.ps1')
-$null = Import-SSENativeInterop
-
-$muster = '(?ms)^function Test-SSEForegroundIsForeignProcess\(\[IntPtr\]\$Hwnd\) \{.*?\n\}'
-$treffer = [regex]::Match($worker, $muster)
-if (-not $treffer.Success) { throw 'Test-SSEForegroundIsForeignProcess ist nicht auffindbar.' }
-. ([scriptblock]::Create($treffer.Value))
-
-# Ohne Fensterhandle keine Aussage - und damit kein Freibrief.
-if (Test-SSEForegroundIsForeignProcess ([IntPtr]::Zero)) {
-  throw 'Ohne Fensterhandle wird faelschlich auf fremden Vordergrund erkannt.'
-}
-# Ein Handle, zu dem es keinen Prozess gibt, ebenso wenig.
-if (Test-SSEForegroundIsForeignProcess ([IntPtr]0x7FFFFFFF)) {
-  throw 'Ein unbekanntes Fensterhandle darf nicht als fremder Vordergrund gelten.'
-}
-
-# --- 6. Die Begruendung unterscheidet die beiden Lagen ---
-$pruefer = [regex]::Match($worker, '(?ms)^function Test-SSEIsolationEnded\(.*?\n\}')
-if (-not $pruefer.Success) { throw 'Test-SSEIsolationEnded ist nicht auffindbar.' }
-foreach ($grund in @('Windows-Lockscreen wurde verlassen', 'SSE wurde in den Vordergrund geholt')) {
-  if ($pruefer.Value -notmatch [regex]::Escape($grund)) {
-    throw "Die gemeinsame Pruefung nennt die Ursache '$grund' nicht."
-  }
-}
-if (([regex]::Matches($worker, [regex]::Escape('$script:SSE_ISOLATION_BREACH'))).Count -lt 9) {
-  throw 'Die Meldungen nennen die tatsaechliche Ursache nicht durchgaengig.'
-}
-
-Write-Output 'Parallelbetrieb: Abschirmung, strenger Zweifelsfall, abgewiesene Fokuspfade, Telemetrie und Ursachenmeldung geprueft'
+$addStart=$worker.IndexOf("  'table_add' {"); $addEnd=$worker.IndexOf("`n  '",$addStart+5)
+$add=$worker.Substring($addStart,$addEnd-$addStart)
+Assert-True ($add.Contains('Click-VerifiedPoint $hwnd $freeRead.firstCell -ExpectedInputTick $inputBaseline -RequireForeground')) 'Navigation anchor can reacquire focus or swallow a changed input epoch.'
+Assert-True ($add.Contains('$inputBaseline = $anchorClick.inputTickAfterClick')) 'Navigation baseline was reset after a possibly changed epoch.'
+$down=$add.IndexOf("[System.Windows.Forms.SendKeys]::SendWait('{DOWN}')")
+$keyLoop=$add.LastIndexOf('for ($imBuendel', $down)
+Assert-True ($keyLoop -ge 0 -and $add.Substring($keyLoop,$down-$keyLoop).Contains('Test-SSELastInputUnchanged $inputBaseline')) 'A navigation bundle lacks per-key input guards.'
+Assert-True ($add.Substring($down).Contains("-Context 'table-add-navigation-down'")) 'Own navigation keys lack immediate input checkpoints.'
+$beforeRegion=[pscustomobject]@{ ok=$true; cells=@(
+  [pscustomobject]@{ x=100; y=200; name='Synthetic'; val='' }
+  [pscustomobject]@{ x=200; y=200; name='0,00'; val='' }
+) }
+$shiftedRegion=[pscustomobject]@{ ok=$true; cells=@($beforeRegion.cells | ForEach-Object { $cell=$_.PSObject.Copy(); $cell.y=160; $cell }) }
+Assert-True ((Get-SSETableContentSignature $beforeRegion) -ceq (Get-SSETableContentSignature $shiftedRegion)) 'Pure signature treated Y as semantic identity.'
+$shiftedRegion.cells[1].val='1,00'
+Assert-True ((Get-SSETableContentSignature $beforeRegion) -cne (Get-SSETableContentSignature $shiftedRegion)) 'Changed cell was hidden behind display text.'
+Write-Output 'Table focus: bound acquisition, unchanged input epoch, fresh semantic binding and strict mutation guards passed.'

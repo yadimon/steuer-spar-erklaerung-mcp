@@ -51,9 +51,9 @@ export const SSE_MCP_UI_SCHEMAS = {
   "sse_table_read": z.object({
     maxRows: TABLE_MAX_ROWS.optional().describe("Leselimit, Vorgabe 200, maximal 1000: UIA-Cursorschritte oder Ausgabezeilen beim nativen Qt-Zugriff"),
     noKeys: z.boolean().optional().describe(
-      "Keine physische Eingabe oder Vordergrundaktivierung. Der UIA-Zugriff liest dann nur sichtbare Zeilen "
-      + "und meldet vollstaendig false / stopKind visible-only. Ein explizit gebundener nativer Qt-Zugriff "
-      + "liest das Modell ohne Cursorschritte und kann damit trotzdem die vollstaendige Tabelle belegen.",
+      "Ohne Angabe oder mit true liest der native Qt-Zugriff das Modell ohne Eingabe und Fokuswechsel; "
+      + "ein UIA-Zugriff mit true liefert nur sichtbare Zeilen. Explizites false fordert den gebundenen "
+      + "UIA-Cursorlauf mit Vordergrund-, Eingabe- und Tabellenpruefungen an und macht die letzte Zeile sichtbar.",
     ),
     sumLabel: z.string().optional().describe("Bei mehreren Tabellen: Beschriftung der zugehoerigen Kontrollsumme"),
     sumOccurrence: UI_OCCURRENCE.optional().describe("1-basierte Position der Kontrollsumme; Vorgabe 1"),

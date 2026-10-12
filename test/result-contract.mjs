@@ -13,6 +13,21 @@ import {
 } from "../dist/result-contract.js";
 
 assert.equal(SSE_API_RESULT_SCHEMA_VERSION, 1);
+assert.deepEqual(parseApiOperationResult("table_read", {
+  ok: true, vollstaendig: false, cursorActivation: { method: "number-cell-set-focus", anchorVerified: false },
+}).cursorActivation, { method: "number-cell-set-focus", anchorVerified: false });
+assert.throws(() => parseApiOperationResult("table_read", { ok: true, cursorActivation: "unknown" }),
+  undefined, "Cursor-Aktivierung muss ein technisches Teilresultat bleiben.");
+const preservedLaunch = {
+  ok: false, kind: "startup-timeout", error: "Frische Zustandsklaerung erforderlich", pid: 4120,
+  ready: false, processPreserved: true, processStillRunning: null,
+  outcomeUnknown: true, reconciliationRequired: true, retryable: false,
+};
+assert.deepEqual(parseApiOperationResult("launch", preservedLaunch), preservedLaunch);
+for (const field of ["processPreserved", "processStillRunning", "outcomeUnknown", "reconciliationRequired", "retryable"]) {
+  assert.throws(() => parseApiOperationResult("launch", { ...preservedLaunch, [field]: "true" }),
+    undefined, `launch ${field}: strukturierter Zustand muss typisiert bleiben`);
+}
 for (const operation of ["read_table", "table_read"]) {
   const details = [{
     rowIndex: 0,
@@ -24,6 +39,14 @@ for (const operation of ["read_table", "table_read"]) {
   }];
   assert.deepEqual(parseApiOperationResult(operation, { ok: true, rowDetails: details }).rowDetails, details,
     `${operation}: boolesche Tabellenwerte muessen den API-Readback unveraendert ueberleben.`);
+  const nativeDetails = [{ ...details[0], modelCellFlags: [33, 35, 0, 63] }];
+  assert.deepEqual(parseApiOperationResult(operation, { ok: true, rowDetails: nativeDetails }).rowDetails, nativeDetails,
+    `${operation}: native ItemFlags muessen unveraendert erhalten bleiben.`);
+  for (const invalidFlags of [[-1], [1.5], ["33"]]) {
+    assert.throws(() => parseApiOperationResult(operation, {
+      ok: true, rowDetails: [{ ...details[0], modelCellFlags: invalidFlags }],
+    }), undefined, `${operation}: native ItemFlags muessen nichtnegative ganze Zahlen sein.`);
+  }
   assert.throws(() => parseApiOperationResult(operation, {
     ok: true, rowDetails: [{ ...details[0], checkboxStates: ["false"] }],
   }), undefined, `${operation}: Checkbox-Zustand darf kein boolescher Anzeigetext sein.`);

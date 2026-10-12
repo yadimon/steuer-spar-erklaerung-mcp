@@ -27,6 +27,9 @@ assert.equal(profile.pageObjectsCatalog.schemaVersion, 1);
 assert.equal(profile.pageObjectsCatalog.taxYear, 2025);
 assert(Object.hasOwn(profile.pageObjectsCatalog.pages, "est.sonstige_werbungskosten_fahrten"));
 const firstPage = profile.pageObjectsCatalog.pages["est.sonstige_werbungskosten_fahrten"];
+assert.deepEqual(profile.pageObjectsCatalog.checkerStartBindings.map(binding => ({
+  types: binding.documentTypes, pattern: binding.pattern,
+})), [{ types: ["ESt"], pattern: "Invoke" }, { types: ["Gew", "GewErfass"], pattern: "Invoke" }]);
 assert.equal(firstPage.headingPrefix, "Sonstige Werbungskosten/Fahrten",
   "Die personengebundene ESt-Seite muss dynamische Ueberschrift-Suffixe akzeptieren.");
 // Die Stammdatenseiten eines neu angelegten Folgejahr-Falls sind katalogisiert,
@@ -69,6 +72,10 @@ assert.equal(masterData.fields.einkunftsart.writeTool, "sse_combo_select",
 assert.deepEqual(masterData.fields.einkunftsart.options, ["Gewerbebetrieb", "selbstständige Tätigkeit", "Land- u. Forstwirtschaft"]);
 assert.equal(masterData.fields.gruendungsdatum.valueKind, "date");
 const taxOffice = profile.pageObjectsCatalog.pages["gew_erfass.steuernummer_finanzamt"];
+const businessOverview = profile.pageObjectsCatalog.pages["gew_erfass.einnahmen_ausgaben"];
+assert.equal(businessOverview.heading, "Gewinnermittlung");
+assert.equal(businessOverview.navigationTreeItemName, "Einnahmen/Ausgaben");
+assert.equal(businessOverview.documentType, "GewErfass2026");
 assert.equal(taxOffice.heading, "Steuernummer, Finanzamt, etc.");
 assert.equal(taxOffice.navigationTreeItemName, "Angaben zum Finanzamt");
 assert.equal(taxOffice.documentType, "GewErfass2026");
@@ -224,6 +231,21 @@ try {
   assert.equal(loadProductProfile("2025", navigationCatalogRoot)
     .pageObjectsCatalog.pages["gew_erfass.steuernummer_finanzamt"].navigationTreeItemName,
   " Angaben zum Finanzamt ", "Der Katalog darf exakte Qt-Namen nicht normalisieren.");
+  const checkerPolicies = profile.pageObjectsCatalog.checkerStartBindings;
+  for (const invalidBindings of [
+    [checkerPolicies[0], checkerPolicies[0]],
+    [checkerPolicies[0], { ...checkerPolicies[1], documentTypes: ["ESt"] }],
+    [{ ...checkerPolicies[1], expectedToggleState: "On" }],
+    [{ ...checkerPolicies[1], pattern: "Toggle" }],
+    [{ ...checkerPolicies[1], controlType: "Button" }],
+    [{ ...checkerPolicies[0], heading: undefined }],
+    [{ ...checkerPolicies[0], expectedToggleState: "Off" }],
+    [{ ...checkerPolicies[1], unrestrictedSelector: true }],
+  ]) {
+    pageObjects.checkerStartBindings = invalidBindings;
+    writeFileSync(pageObjectsPath, `${JSON.stringify(pageObjects, null, 2)}\n`, "utf8");
+    assert.throws(() => loadProductProfile("2025", navigationCatalogRoot));
+  }
 } finally {
   rmSync(navigationCatalogRoot, { recursive: true, force: true });
 }

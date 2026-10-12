@@ -76,12 +76,13 @@ function Test-SSENativeSurface {
       'WaitForSingleObject','GetExitCodeProcess','CreateJobObject','SetInformationJobObject',
       'AssignProcessToJobObject','ResumeThread','CreateProcess')
     SW=@('PrintWindow','GetWindowRect','GetDlgItem','EnumWindows','EnumChildWindows','GetDlgCtrlID',
-      'GetWindowThreadProcessId','GetWindowTextW','GetClassNameW','IsWindowVisible','IsWindow','IsWindowUnicode','IsHungAppWindow',
+      'GetWindowThreadProcessId','GetWindowTextW','GetClassNameW','IsWindowVisible','IsWindowEnabled','GetWindow','GetWindowPlacement',
+      'IsWindow','IsWindowUnicode','IsHungAppWindow',
       'SetForegroundWindow','SendMessageTimeout','SendMessageTimeoutA','SendMessageTimeoutW','SetCursorPos','GetCursorPos','mouse_event','keybd_event',
-      'WindowFromPoint','GetAncestor','ShowWindow','SetWindowPos','BringWindowToTop','ScreenToClient','PostMessage',
+      'WindowFromPoint','GetAncestor','ShowWindow','SetWindowPos','BringWindowToTop','ScreenToClient','GetDpiForWindow','GetPhysicalClientOrigin','PostMessage',
       'SendMessage','GetForegroundWindow','GetLastActivePopup','GetLastInputInfo','IsIconic','AttachThreadInput',
       'GetGUIThreadInfo','GetCurrentThreadId','SendUnicodeText')
-    SSEWindowEnumerator=@('Describe','ToViews')
+    SSEWindowEnumerator=@('Describe','DescribeIncludingHidden','ToViews')
     SSEProcessCommandLine=@('TryGet')
     SSEWindowNode=@()
     SSEAccessible=@('Describe','DescribePoint','DescribePointBasic','Invoke')
