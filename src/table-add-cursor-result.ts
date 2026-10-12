@@ -14,7 +14,7 @@ const proofChecks = new Set([
   "native-or-worker-contract", "native-step-contract", "native-session-not-ready", "native-viewport-dpi-geometry",
   "native-focus-resume-worker-result", "native-focus-resume-lease-completion", "native-focus-final-model",
   "native-focus-final-epoch", "native-step-worker-result", "native-step-last-row-clipped", "native-step-final-epoch",
-  "cursor-transport-error",
+  "cursor-transport-error", "cursor-deadline", "append-no-mutation-proof",
 ]);
 const stopKinds = new Set(["cursor-unavailable", "max-rows", "cursor-stalled"]);
 

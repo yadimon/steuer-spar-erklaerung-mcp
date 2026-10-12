@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { performance } from "node:perf_hooks";
 import { createApiExecutor } from "../dist/api-executor.js";
 
 const temporary = mkdtempSync(join(tmpdir(), "sse-bulk-action-"));
@@ -283,6 +284,7 @@ test("append retains own earlier flags and retries exactly once only after a com
   assert.equal(priorInput.result.physicalInputUsed, true);
   assert.equal(priorInput.result.cleanupRequired, true);
   assert.equal(priorInput.result.outcomeUnknown, true);
+  assert.deepEqual(priorInput.calls.map(value => value.operation), ["table_add"]);
 
   for (const original of [
     { ...missingAppendRow, outcomeUnknown: true },
@@ -290,7 +292,7 @@ test("append retains own earlier flags and retries exactly once only after a com
     { ...missingAppendRow, cleanupRequired: true },
   ]) {
     const uncertainFirstAdd = await appendWithCursor({ ok: true, vollstaendig: true, outcomeUnknown: false }, undefined, original);
-    assert.deepEqual(uncertainFirstAdd.calls.map(value => value.operation), ["table_add", "table_read"]);
+    assert.deepEqual(uncertainFirstAdd.calls.map(value => value.operation), ["table_add"]);
     assert.equal(uncertainFirstAdd.result.ok, false);
     assert.equal(uncertainFirstAdd.result.retryable, false);
     assert.equal(uncertainFirstAdd.result.reconciliationRequired, true);
@@ -306,4 +308,52 @@ test("append retains own earlier flags and retries exactly once only after a com
   const noSeek = await appendWithCursor({ ok: true, vollstaendig: true }, undefined, differentError);
   assert.deepEqual(noSeek.calls.map(value => value.operation), ["table_add"]);
   assert.deepEqual(noSeek.result, differentError);
+});
+
+test("append phases share one monotonic budget and stop before another dispatch when exhausted or cancelled", async (context) => {
+  let now = 0;
+  context.mock.method(performance, "now", () => now);
+  for (const scenario of [
+    { durations: [100, 100, 100], timeouts: [300, 200, 100], ok: true },
+    { durations: [300], timeouts: [300], ok: false, phase: "prebind" },
+    { durations: [100, 200], timeouts: [300, 200], ok: false, phase: "passive-final-checkpoint" },
+    { durations: [100], timeouts: [300], ok: false, phase: "prebind", abortAt: 1 },
+    { durations: [100, 100], timeouts: [300, 200], ok: false, phase: "passive-final-checkpoint", abortAt: 2 },
+  ]) {
+    now = 0;
+    const calls = [], abort = new AbortController();
+    const execute = createApiExecutor(config, async (operation, args, timeout) => {
+      calls.push({ operation, timeout });
+      now += scenario.durations[calls.length - 1];
+      if (calls.length === scenario.abortAt) abort.abort();
+      if (operation === "table_read") return { ok: true, vollstaendig: true, anzahl: 7,
+        outcomeUnknown: false, cleanupRequired: false, physicalInputUsed: false };
+      assert.equal(operation, "table_add");
+      return calls.length === 1 ? missingAppendRow : { ok: true, verified: true };
+    });
+    const result = await execute("table_add", appendArgs, 300, abort.signal);
+    assert.deepEqual(calls.map(value => value.timeout), scenario.timeouts);
+    assert.equal(result.ok, scenario.ok);
+    if (!scenario.ok) {
+      assert.equal(result.freeRowSearch.cursorResult.kind, scenario.abortAt ? "aborted" : "timeout");
+      assert.equal(result.freeRowSearch.cursorResult.phase, scenario.phase);
+      assert.equal(result.freeRowSearch.cursorResult.proofCheck, "cursor-deadline");
+      assert.equal(result.mutationStarted, false);
+      assert.equal(result.outcomeUnknown, false);
+      assert.equal(result.retryable, false);
+    }
+  }
+});
+
+test("append cannot seek or write again without an explicit unchanged mutation outcome", async () => {
+  for (const mutationStarted of [undefined, true, "false"]) {
+    const { result, calls } = await appendWithCursor({ ok: true, vollstaendig: true, outcomeUnknown: false },
+      undefined, { ...missingAppendRow, mutationStarted });
+    assert.deepEqual(calls.map(value => value.operation), ["table_add"]);
+    assert.equal(result.ok, false);
+    assert.equal(result.outcomeUnknown, true);
+    assert.equal(result.reconciliationRequired, true);
+    assert.equal(result.retryable, false);
+    assert.equal(result.freeRowSearch.cursorResult.proofCheck, "append-no-mutation-proof");
+  }
 });

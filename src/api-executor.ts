@@ -36,7 +36,7 @@ import { executeLocalBackup } from "./backup-executor.js";
 import { executeLocalArchive } from "./archive-executor.js";
 import { executeQtNativeOperation, isQtNativeOperation, type QtNativeExecutorDependencies } from "./qt-native-executor.js";
 import { executeTableCursorRead, executeTableCursorMutation } from "./table-cursor-executor.js";
-import { tableAddCursorFailure } from "./table-add-cursor-result.js";
+import { executeTableAddSeek } from "./table-add-seek.js";
 
 export { API_RESOURCE_BINDINGS } from "./api-resource-bindings.js";
 
@@ -449,6 +449,7 @@ export function createApiExecutor(
         // keine leere verschachtelte results:-Struktur hinterlaesst.
         createdExportDirectory = firstCreatedDirectory;
       }
+      const workerStartedAt = performance.now();
       let result: WorkerResult | undefined;
       try {
         result = await worker(operation, configured.args, timeoutMs, signal);
@@ -488,25 +489,9 @@ export function createApiExecutor(
           if (configured.args[key] !== undefined) readArgs[key] = configured.args[key];
         }
         const configuredRead = configuredArgs("table_read", readArgs, config);
-        const scrolled = await executeTableCursorRead(configuredRead.args, worker, dependencies, timeoutMs, signal, true).catch((): WorkerResult => ({
-          ok: false, kind: "cursor-proof-failed", proofCheck: "cursor-transport-error",
-          outcomeUnknown: true, reconciliationRequired: true, cleanupRequired: true,
-        }));
-        if (scrolled?.ok === true && scrolled.vollstaendig === true) {
-          if (scrolled.outcomeUnknown === true || scrolled.reconciliationRequired === true || scrolled.cleanupRequired === true
-            || result.outcomeUnknown === true || result.reconciliationRequired === true || result.cleanupRequired === true) {
-            return withResourceIdentity(redactPaths, tableAddCursorFailure(result, scrolled), configured.resourceRefs);
-          }
-          const retried = await worker(operation, configured.args, timeoutMs, signal);
-          return withResourceIdentity(redactPaths, {
-            ...retried,
-            freeRowSearch: {
-              retriedAfterTableWalk: true,
-              rowsWalked: scrolled.anzahl ?? null,
-            },
-          }, configured.resourceRefs);
-        }
-        return withResourceIdentity(redactPaths, tableAddCursorFailure(result, scrolled), configured.resourceRefs);
+        return withResourceIdentity(redactPaths,
+          await executeTableAddSeek(result, configured.args, configuredRead.args, worker, dependencies,
+            timeoutMs, workerStartedAt, signal), configured.resourceRefs);
       }
       return withResourceIdentity(redactPaths, result, configured.resourceRefs);
     } catch (error) {

@@ -527,21 +527,22 @@ try {
   const addRetryStart = executorSource.indexOf('operation === "table_add" &&');
   const addRetryEnd = executorSource.indexOf("return withResourceIdentity(redactPaths, result, configured.resourceRefs);", addRetryStart);
   const addRetry = executorSource.slice(addRetryStart, addRetryEnd);
+  const addSeek = readFileSync(join(root, "src", "table-add-seek.ts"), "utf8");
   assert(addRetryStart >= 0 && addRetryEnd > addRetryStart &&
     cursorImports.has("executeTableCursorRead") && cursorImports.has("executeTableCursorMutation") &&
     addRetry.includes("result?.ok !== true") && addRetry.includes('result?.kind === "not-found"') &&
     addRetry.includes('typeof result?.error === "string"') && addRetry.includes('result.error.includes("Keine freie Tabellenzeile")') &&
     addRetry.includes('const readArgs: Record<string, unknown> = { maxRows: 400, noKeys: false };') &&
-    /const scrolled = await executeTableCursorRead\(configuredRead\.args, worker, dependencies, timeoutMs, signal, true\)\.catch\(\(\): WorkerResult => \(\{\s*ok: false, kind: "cursor-proof-failed", proofCheck: "cursor-transport-error",\s*outcomeUnknown: true, reconciliationRequired: true, cleanupRequired: true,\s*\}\)\);/u.test(addRetry) &&
-    addRetry.includes("if (scrolled?.ok === true && scrolled.vollstaendig === true)") &&
-    addRetry.includes("scrolled.outcomeUnknown === true || scrolled.reconciliationRequired === true || scrolled.cleanupRequired === true") &&
-    addRetry.includes("result.outcomeUnknown === true || result.reconciliationRequired === true || result.cleanupRequired === true") &&
-    addRetry.match(/return withResourceIdentity\(redactPaths, tableAddCursorFailure\(result, scrolled\), configured\.resourceRefs\);/gu)?.length === 2 &&
-    executorSource.includes('import { tableAddCursorFailure } from "./table-add-cursor-result.js";') &&
-    addRetry.indexOf("scrolled.vollstaendig === true") < addRetry.indexOf("const retried = await worker(operation, configured.args, timeoutMs, signal);") &&
-    addRetry.indexOf("result.outcomeUnknown === true") < addRetry.indexOf("const retried = await worker(operation, configured.args, timeoutMs, signal);") &&
-    addRetry.match(/await worker\(operation, configured\.args, timeoutMs, signal\)/gu)?.length === 1 &&
-    addRetry.includes("retriedAfterTableWalk: true") &&
+    executorSource.includes('import { executeTableAddSeek } from "./table-add-seek.js";') &&
+    addRetry.includes("executeTableAddSeek(result, configured.args, configuredRead.args, worker, dependencies,") &&
+    addRetry.includes("timeoutMs, workerStartedAt, signal)") &&
+    addSeek.includes("executeTableCursorRead(readArgs, worker, dependencies, cursorBudget, signal, true)") &&
+    addSeek.includes("original.mutationStarted !== false") && addSeek.includes("scrolled.vollstaendig !== true") &&
+    addSeek.includes("scrolled.reconciliationRequired === true || scrolled.cleanupRequired === true") &&
+    addSeek.indexOf("scrolled.vollstaendig !== true") < addSeek.indexOf('await worker("table_add"') &&
+    addSeek.match(/await worker\("table_add", args, appendBudget, signal\)/gu)?.length === 1 &&
+    addSeek.includes("cursorBudget < 1 || signal?.aborted") && addSeek.includes("appendBudget < 1 || signal?.aborted") &&
+    addSeek.includes("retriedAfterTableWalk: true") &&
     addBlock.includes("ok=$false; kind='not-found'; mutationStarted=$false; resultingState='unchanged'") &&
     addBlock.indexOf('error=("Keine freie Tabellenzeile') >= 0 &&
     addBlock.indexOf('error=("Keine freie Tabellenzeile') < addBlock.indexOf("$prepared = New-Object System.Collections.ArrayList"),
