@@ -40,6 +40,7 @@ const expectedNames = [
   "table-mutation-target-contract", "table-typed-editor-contract",
   "table-add-checkbox-contract",
   "position-create",
+  "cursor-input",
   "tracked-native-text",
   "qt-native-receipt-update",
   "qt-native-receipt-link",

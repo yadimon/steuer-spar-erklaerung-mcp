@@ -922,7 +922,7 @@ function Resolve-SSEReceiptManagerVisibleRowTarget(
       throw 'Belegliste ist verdeckt; der sichere Wheel-Scroll wurde nicht ausgefuehrt.'
     }
     $oldCursor = New-Object SW+PT; [SW]::GetCursorPos([ref]$oldCursor) | Out-Null
-    [SW]::SetCursorPos($wheelX, $wheelY) | Out-Null
+    Set-SSECursorPoint $wheelX $wheelY
     Start-Sleep -Milliseconds 100
     $targetRect = $titleCell.Current.BoundingRectangle
     $targetCenterY = [double]$targetRect.Y + ([double]$targetRect.Height / 2)
@@ -933,6 +933,7 @@ function Resolve-SSEReceiptManagerVisibleRowTarget(
     $wheelSteps = [Math]::Min(24, [Math]::Max(2, [int][Math]::Ceiling($distance / 38.0) + 2))
     $wheelDelta = $(if ($below) { [uint32]([int64]0x100000000 - 120) } else { [uint32]120 })
     for ($wheelStep = 0; $wheelStep -lt $wheelSteps; $wheelStep++) {
+      Assert-SSECursorPoint $wheelX $wheelY
       [SW]::mouse_event(0x0800, 0, 0, $wheelDelta, [IntPtr]::Zero)
     }
     Start-Sleep -Milliseconds 500
@@ -1806,7 +1807,7 @@ function Get-SSEReceiptManagerClassificationToggleElement($Dialog, $DialogPolicy
           throw "Option '$ExpectedName' ist verdeckt; die Auswahltabelle wurde nicht gerollt."
         }
         $oldCursor = New-Object SW+PT; [SW]::GetCursorPos([ref]$oldCursor) | Out-Null
-        [SW]::SetCursorPos($wheelX, $wheelY) | Out-Null
+        Set-SSECursorPoint $wheelX $wheelY
         Start-Sleep -Milliseconds 100
         $below = $cellY -ge ([double]$tableRect.Y + [double]$tableRect.Height)
         $distance = $(if ($below) {
@@ -1815,6 +1816,7 @@ function Get-SSEReceiptManagerClassificationToggleElement($Dialog, $DialogPolicy
         $wheelSteps = [Math]::Min(20, [Math]::Max(2, [int][Math]::Ceiling($distance / 38.0) + 2))
         $wheelDelta = $(if ($below) { [uint32]([int64]0x100000000 - 120) } else { [uint32]120 })
         for ($wheelStep = 0; $wheelStep -lt $wheelSteps; $wheelStep++) {
+          Assert-SSECursorPoint $wheelX $wheelY
           [SW]::mouse_event(0x0800, 0, 0, $wheelDelta, [IntPtr]::Zero)
         }
         Start-Sleep -Milliseconds 500
@@ -5017,9 +5019,10 @@ function Read-CheckerCompleteInteractiveLegacy {
     if (($row.y + $row.h) -ge ($checkerRect.B - 170)) {
       $wheelX = [int]($row.x + [Math]::Min(80, [Math]::Max(20, $row.w / 3)))
       $wheelY = [int][Math]::Min($checkerRect.B - 100, [Math]::Max($checkerRect.T + 180, $row.y + 20))
-      [SW]::SetCursorPos($wheelX, $wheelY) | Out-Null
+      Set-SSECursorPoint $wheelX $wheelY
       $wheelDown = [uint32]([int64]0x100000000 - 120)
       for ($wheelStep = 0; $wheelStep -lt 6; $wheelStep++) {
+        Assert-SSECursorPoint $wheelX $wheelY
         [SW]::mouse_event(0x0800, 0, 0, $wheelDown, [IntPtr]::Zero)
       }
       Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick) ([pscustomobject]@{ x=$wheelX; y=$wheelY })
@@ -9558,7 +9561,13 @@ function Commit-TrackedValue([IntPtr]$Hwnd, $Node, [string]$Value, [string]$Expe
       }
     } else {
       $focusMethod = 'verified-point'
-      [SW]::SetCursorPos($px, $py) | Out-Null
+      $cursorPoint = New-Object SW+PT
+      if (-not [SW]::SetCursorPos($px, $py) -or -not [SW]::GetCursorPos([ref]$cursorPoint) -or
+          $cursorPoint.X -ne $px -or $cursorPoint.Y -ne $py) {
+        Complete-SSEPhysicalSection $Hwnd
+        return New-SSECommitResult 'interference-cursor-position' $inputBefore (Get-SSELastInputTick) `
+          ([pscustomobject]@{ mutationStarted=$false })
+      }
       [SW]::mouse_event(0x0002, 0, 0, 0, [IntPtr]::Zero)
       [SW]::mouse_event(0x0004, 0, 0, 0, [IntPtr]::Zero)
       Start-Sleep -Milliseconds 20
@@ -12267,8 +12276,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     }
     $klickX = [int]($suchfeld.x + $suchfeld.w / 2)
     $klickY = [int]($suchfeld.y + $suchfeld.h / 2)
-    [SW]::SetCursorPos($klickX, $klickY) | Out-Null
+    Set-SSECursorPoint $klickX $klickY
     Start-Sleep -Milliseconds 150
+    Assert-SSECursorPoint $klickX $klickY
     [SW]::mouse_event(0x0002, 0, 0, 0, [IntPtr]::Zero)
     [SW]::mouse_event(0x0004, 0, 0, 0, [IntPtr]::Zero)
     Start-Sleep -Milliseconds 350
@@ -13855,13 +13865,14 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           Hide-SSETopmost $hwnd
           Fail 'Virtualisierte Liste ist am berechneten Mausradpunkt nicht mehr PID-/Root-verifiziert.' 'obstructed'
         }
-        [SW]::SetCursorPos($wheelX, $wheelY) | Out-Null
+        Set-SSECursorPoint $wheelX $wheelY
         $wheelDelta = $(if ($virtualScrollUp) { [uint32]120 } else { [uint32]([int64]0x100000000 - 120) })
         # Genau ein Standard-Wheel-Schritt pro Readback: je nach Windows-/Qt-
         # Einstellung kann ein Schritt bereits deutlich mehr als drei Zeilen
         # bewegen. Mehrere gebuendelte Schritte uebersprangen sonst kurze
         # alphabetische Bereiche (z. B. Bulgarien zwischen D und A).
         for ($wheelStep = 0; $wheelStep -lt 1; $wheelStep++) {
+          Assert-SSECursorPoint $wheelX $wheelY
           [SW]::mouse_event(0x0800, 0, 0, $wheelDelta, [IntPtr]::Zero)
         }
         $inputBaseline = Get-SSELastInputTick
@@ -15956,12 +15967,13 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           Fail 'Prueferkarte ist durch ein fremdes oder anderes SSE-Fenster verdeckt; fuer OCR nicht gerollt.' 'obstructed'
         }
         $oldCursor = New-Object SW+PT; [SW]::GetCursorPos([ref]$oldCursor) | Out-Null
-        [SW]::SetCursorPos($px, $py) | Out-Null
+        Set-SSECursorPoint $px $py
         Start-Sleep -Milliseconds 100
         $distance = $(if ($tooLow) { ($detail[0].y + $detail[0].h) - ($viewRect.B - 20) } else { ($viewRect.T + 100) - $detail[0].y })
         $wheelSteps = [Math]::Min(16, [Math]::Max(2, [int][Math]::Ceiling($distance / 90.0) + 1))
         $delta = $(if ($tooLow) { [uint32]([int64]0x100000000 - 120) } else { [uint32]120 })
         for ($wheelIndex = 0; $wheelIndex -lt $wheelSteps; $wheelIndex++) {
+          Assert-SSECursorPoint $px $py
           [SW]::mouse_event(0x0800, 0, 0, $delta, [IntPtr]::Zero)
         }
         Start-Sleep -Milliseconds 600
@@ -16360,7 +16372,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       # SSE-PID und unveraenderte Eingabe-Epoche gebunden.
       $oldCursor = New-Object SW+PT; [SW]::GetCursorPos([ref]$oldCursor) | Out-Null
       try {
-        [SW]::SetCursorPos($px,$py)|Out-Null; Start-Sleep -Milliseconds 80
+        Set-SSECursorPoint $px $py; Start-Sleep -Milliseconds 80
+        Assert-SSECursorPoint $px $py
         [SW]::mouse_event(0x0002,0,0,0,[IntPtr]::Zero); [SW]::mouse_event(0x0004,0,0,0,[IntPtr]::Zero)
         $selected=$true; Start-Sleep -Milliseconds 300
       } finally {
@@ -18519,10 +18532,11 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       Hide-SSETopmost $hwnd
       Fail "An Position $px,$py liegt nicht das gebundene Hauptfenster - Baum nicht gerollt." 'obstructed'
     }
-    [SW]::SetCursorPos($px, $py) | Out-Null
+    Set-SSECursorPoint $px $py
     Start-Sleep -Milliseconds 100
     $MOUSEEVENTF_WHEEL = 0x0800
     for ($i = 0; $i -lt $steps; $i++) {
+      Assert-SSECursorPoint $px $py
       [SW]::mouse_event($MOUSEEVENTF_WHEEL, 0, 0, 120, [IntPtr]::Zero)
     }
     Set-SSEForegroundLeaseInputCheckpoint (Get-SSELastInputTick) ([pscustomobject]@{ x=$px; y=$py })
@@ -18573,13 +18587,14 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       Fail "An Position $px,$py liegt nicht das gebundene Hauptfenster - Baum nicht gerollt." 'obstructed'
     }
     $alt = New-Object SW+PT; [SW]::GetCursorPos([ref]$alt) | Out-Null
-    [SW]::SetCursorPos($px, $py) | Out-Null
+    Set-SSECursorPoint $px $py
     Start-Sleep -Milliseconds 100
     $MOUSEEVENTF_WHEEL = 0x0800
     # mouse_event deklariert dwData als UInt32. Ein negativer WHEEL_DELTA
     # muss deshalb als Zweierkomplement uebergeben werden.
     $delta = $(if ($richtung -eq 'up') { [uint32]120 } else { [uint32]([int64]0x100000000 - 120) })
     for ($i = 0; $i -lt $steps; $i++) {
+      Assert-SSECursorPoint $px $py
       [SW]::mouse_event($MOUSEEVENTF_WHEEL, 0, 0, $delta, [IntPtr]::Zero)
     }
     Start-Sleep -Milliseconds 700

@@ -43,13 +43,20 @@ public static class SW {
   public static uint Tick = 1;
   public static IntPtr Foreground = new IntPtr(7);
   public static bool Valid = true, ForeignHit = false, Selected = false, QueuedModel = false;
+  public static bool CursorAccepted = true, CursorReadable = true, CursorDrift = false;
+  public static int CursorX, CursorY;
   public static string Outcome = "success", LastText, Pending="";
   public static bool IsWindow(IntPtr hwnd) { return Valid; }
   public static IntPtr GetForegroundWindow() { return Foreground; }
   public static uint GetWindowThreadProcessId(IntPtr hwnd, out int pid) { pid=hwnd.ToInt64()==7?100:200; return 1; }
   public static IntPtr WindowFromPoint(PT point) { return new IntPtr(ForeignHit?8:7); }
   public static IntPtr GetAncestor(IntPtr hwnd, uint flags) { return hwnd; }
-  public static bool SetCursorPos(int x, int y) { Events.Add("cursor"); return true; }
+  public static bool SetCursorPos(int x, int y) {
+    Events.Add("cursor"); if(CursorAccepted) { CursorX=x; CursorY=y; } return CursorAccepted;
+  }
+  public static bool GetCursorPos(out PT point) {
+    point=new PT { X=CursorX+(CursorDrift?1:0),Y=CursorY }; return CursorReadable;
+  }
   public static void mouse_event(uint flags, uint x, uint y, uint data, IntPtr extra) { Events.Add("mouse"); }
   public static bool SendUnicodeText(string text) {
     Events.Add("unicode"); LastText+=text; Tick++;
@@ -102,6 +109,7 @@ function Reset-TestState {
   [SW]::Events.Clear(); [SW]::LastText=$null; [SW]::Tick=1
   [SW]::Foreground=[IntPtr]7; [SW]::Valid=$true; [SW]::ForeignHit=$false; [SW]::Outcome='success'
   [SW]::Selected=$false; [SW]::QueuedModel=$false; [SW]::Pending=''
+  [SW]::CursorAccepted=$true; [SW]::CursorReadable=$true; [SW]::CursorDrift=$false
   $script:guardChecks=0; $script:failGuard=0; $script:completed=0
   $script:sleeps = New-Object 'System.Collections.Generic.List[int]'
   $script:checkpoints = New-Object 'System.Collections.Generic.List[uint32]'
@@ -169,6 +177,17 @@ foreach ($precondition in @('readonly','changed-value','moved','stale','foreign-
   }
   $result = Commit-TrackedValue ([IntPtr]7) $script:node 'requested' 'before'
   Assert-True ($result.method -cne 'verified-keyboard-replace' -and -not [SW]::Events.Contains('unicode')) "Unsafe native input: $precondition"
+}
+foreach ($failure in @('denied','unreadable','drift')) {
+  Reset-TestState; $script:target.Current.HasKeyboardFocus=$false
+  [SW]::CursorAccepted=($failure -cne 'denied')
+  [SW]::CursorReadable=($failure -cne 'unreadable')
+  [SW]::CursorDrift=($failure -ceq 'drift')
+  $result = Commit-TrackedValue ([IntPtr]7) $script:node 'requested' 'before'
+  Assert-True ($result.method -ceq 'interference-cursor-position' -and $result.interference) "Unverified cursor was accepted: $failure"
+  Assert-True (-not $result.details.mutationStarted -and [SW]::Value.Current.Value -ceq 'before') 'Cursor failure hid or began a field mutation.'
+  Assert-True (-not [SW]::Events.Contains('mouse') -and -not [SW]::Events.Contains('unicode')) 'Cursor failure dispatched physical input.'
+  Assert-True ($script:completed -eq 1) 'Cursor failure left its physical section open.'
 }
 # Exercise the real receipt failure/rollback blocks, including a transport that
 # wrote only a prefix. No rollback may replace an unknown or interfered value.

@@ -88,7 +88,9 @@ try {
   const savedHash = (await call("case_hash", { ref: caseRef })).sha256;
   assert.notEqual(savedHash, originalHash, "Saving the two positions must change the file.");
   const backups = await call("workspace_file_list", { ref: "backups:.", includeHashes: true });
-  assert.equal(backups.files.find(file => file.ref === backupRef)?.sha256, originalHash);
+  const backupHash = backups.files.find(file => file.ref === backupRef)?.sha256;
+  assert.match(backupHash, /^[a-f0-9]{64}$/i, "The backup must have a complete SHA-256 hash.");
+  assert.equal(backupHash.toLowerCase(), originalHash.toLowerCase());
   await call("close", { ...instance, discardChanges: true });
   instance = undefined;
   assert.equal((await call("instances")).count, 0);
