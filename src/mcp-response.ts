@@ -146,8 +146,10 @@ function apiErrorHint(operation: string, result: Record<string, unknown>): strin
   if (result.kind === "network") {
     return "Die vom MCP verwaltete lokale SSE-API ist in dieser MCP-Sitzung nicht erreichbar. " +
       "Keinen zweiten API-Prozess und keinen Namens-basierten Prozessstopp versuchen. " +
-      "Den MCP-Server ueber den Client neu starten; tritt der Fehler beim Start erneut auf, " +
-      "den redigierten Startfehler pruefen und der Installationsanleitung folgen.";
+      "Zuerst sse_api_control mit action=status lesen. Nur wenn der Status stopped und das Ende " +
+      "des gebundenen API-Prozesses bestaetigt sind, ausdruecklich action=start verwenden. " +
+      "Ein lebender API-Prozess ohne Health oder ein fremder Portinhaber bleiben gesperrt; " +
+      "den redigierten Kontrollfehler pruefen und der Installationsanleitung folgen.";
   }
   if (result.kind === "setup") {
     return "Die konfigurierte API-Adresse ist unbrauchbar. SSE_API_URL muss eine reine " +

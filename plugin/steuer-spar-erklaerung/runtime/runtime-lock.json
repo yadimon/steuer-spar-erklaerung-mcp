@@ -23,8 +23,8 @@
     },
     {
       "path": "dist/mcp.js",
-      "sha256": "eeabd959c65dbde6b10dcb05f8916250b9968d88683f30fd3d5938a6d72c1362",
-      "size": 1195078
+      "sha256": "2a1e85d5c4c2dfed91332f5fcf4b1cc9ab8af7209ad0e0db95d5359516af29d5",
+      "size": 1195253
     },
     {
       "path": "powershell/akad-parser.ps1",

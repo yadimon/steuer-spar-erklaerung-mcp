@@ -8942,7 +8942,7 @@ function apiErrorHint(operation, result) {
     return "Ein anderer lokaler API- oder Direkt-Worker steuert SSE in dieser Windows-Sitzung. Dessen Abschluss abwarten und danach mit frischen Bindungen erneut aufrufen; keine parallelen Retries starten.";
   }
   if (result.kind === "network") {
-    return "Die vom MCP verwaltete lokale SSE-API ist in dieser MCP-Sitzung nicht erreichbar. Keinen zweiten API-Prozess und keinen Namens-basierten Prozessstopp versuchen. Den MCP-Server ueber den Client neu starten; tritt der Fehler beim Start erneut auf, den redigierten Startfehler pruefen und der Installationsanleitung folgen.";
+    return "Die vom MCP verwaltete lokale SSE-API ist in dieser MCP-Sitzung nicht erreichbar. Keinen zweiten API-Prozess und keinen Namens-basierten Prozessstopp versuchen. Zuerst sse_api_control mit action=status lesen. Nur wenn der Status stopped und das Ende des gebundenen API-Prozesses bestaetigt sind, ausdruecklich action=start verwenden. Ein lebender API-Prozess ohne Health oder ein fremder Portinhaber bleiben gesperrt; den redigierten Kontrollfehler pruefen und der Installationsanleitung folgen.";
   }
   if (result.kind === "setup") {
     return "Die konfigurierte API-Adresse ist unbrauchbar. SSE_API_URL muss eine reine Loopback-Adresse sein; sonst der Installationsanleitung folgen.";

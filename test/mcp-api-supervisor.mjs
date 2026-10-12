@@ -212,7 +212,10 @@ try {
     .join("\n") ?? "";
   assert.equal(deathResult.isError, true, "Ein API-Tod waehrend der Sitzung muss fail-closed stoppen.");
   assert.equal(deathResult.structuredContent?.kind, "network");
-  assert.match(deathText, /MCP-Server ueber den Client neu starten/u);
+  assert.match(deathText, /sse_api_control mit action=status/u);
+  assert.match(deathText, /Nur wenn der Status stopped/u);
+  assert.match(deathText, /ausdruecklich action=start/u);
+  assert.doesNotMatch(deathText, /MCP-Server ueber den Client neu starten/u);
   await assert.rejects(fetch(`http://127.0.0.1:${deathPort}/healthz`),
     "Ein API-Tod waehrend der Sitzung startete unerwartet einen Ersatzprozess.");
   await deathClient.close();
