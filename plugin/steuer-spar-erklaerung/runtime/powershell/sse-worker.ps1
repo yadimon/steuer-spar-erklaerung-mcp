@@ -3041,6 +3041,18 @@ function Get-SSEPointObstruction([IntPtr]$BoundWindow, [int]$X, [int]$Y) {
   }
 }
 
+function Assert-SSECursorPoint([int]$X, [int]$Y) {
+  $point = New-Object SW+PT
+  if (-not [SW]::GetCursorPos([ref]$point) -or $point.X -ne $X -or $point.Y -ne $Y) {
+    Fail 'Der Cursor steht nicht am verifizierten Zielpunkt. NICHT geklickt.' 'interference'
+  }
+}
+function Set-SSECursorPoint([int]$X, [int]$Y) {
+  if (-not [SW]::SetCursorPos($X, $Y)) {
+    Fail 'Windows hat die Cursorpositionierung abgelehnt. NICHT geklickt.' 'interference'
+  }
+  Assert-SSECursorPoint $X $Y
+}
 function Click-VerifiedPoint(
   [IntPtr]$Window,
   $Node,
@@ -3108,7 +3120,7 @@ function Click-VerifiedPoint(
   }
   $foregroundHwndBeforeClick = [int64][SW]::GetForegroundWindow()
   $foregroundBoundBeforeClick = [bool]($foregroundHwndBeforeClick -eq [int64]$Window)
-  [SW]::SetCursorPos($px, $py) | Out-Null
+  Set-SSECursorPoint $px $py
   Start-Sleep -Milliseconds 100
   if ($ExpectedRuntimeId) {
     $pointElement = $null
@@ -3136,6 +3148,7 @@ function Click-VerifiedPoint(
     Hide-SSETopmost $Window
     Fail 'Eingabe-Epoche, Vordergrund oder Verdeckung nach der letzten Zielpruefung geaendert. NICHT geklickt.' 'interference'
   }
+  Assert-SSECursorPoint $px $py
   for ($clickNumber = 1; $clickNumber -le $ClickCount; $clickNumber++) {
     [SW]::mouse_event(0x0002, 0, 0, 0, [IntPtr]::Zero)
     [SW]::mouse_event(0x0004, 0, 0, 0, [IntPtr]::Zero)
@@ -16850,21 +16863,36 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     }
     function Read-PositionOverview {
       $tree = Walk-Tree $hwnd -WithValues
-      if ($tree.stats.truncated -or $tree.stats.err -or (Get-CurrentHeading $hwnd $tree) -ne 'Erlöse Lieferungen/Leistungen') {
+      if ($tree.stats.truncated -or $tree.stats.err -or $tree.stats.cyc -or $tree.stats.valErr -or
+          $tree.stats.depthLimited -or (Get-CurrentHeading $hwnd $tree) -ne 'Erlöse Lieferungen/Leistungen') {
         throw 'Vollstaendige Einnahmen-Uebersicht wird erwartet.'
       }
-      $buttons = @($tree.nodes | Where-Object { $_.type -eq 'Hyperlink' -and $_.aid -like '*.GuideViewer.*' -and $_.name -match '^»(.+)« bearbeiten$' })
+      $buttons = @($tree.nodes | Where-Object { $_.type -eq 'Hyperlink' -and $_.on -and
+        $_.aid -like '*.GuideViewer.*' -and $_.name -match '^»(.+)« bearbeiten$' })
       $rows = @($buttons | ForEach-Object {
         $button = $_
         $amount = @($tree.nodes | Where-Object {
-          $_.type -eq 'Text' -and $_.aid -like '*.GuideViewer.*' -and
+          $_.type -eq 'Text' -and $_.on -and $_.aid -like '*.GuideViewer.*' -and
           [Math]::Abs($_.y - $button.y) -lt 10 -and $_.name -match '^-?(?:\d{1,3}(?:\.\d{3})*|\d+),\d{2}$'
         })
         if ($amount.Count -ne 1) { throw 'Positionssumme fehlt oder ist mehrdeutig.' }
         [pscustomobject]@{ name=($button.name -replace '^»|« bearbeiten$', ''); net=[string]$amount[0].name }
       })
       if (@($rows | Group-Object name | Where-Object Count -ne 1).Count) { throw 'Doppelte Positionen in der Uebersicht.' }
-      [pscustomobject]@{ tree=$tree; rows=@($rows) }
+      # Die erste Position hat einen anderen Befehl als eine weitere. Eine
+      # fruehe Ueberschrift ohne HTML-Inhalt darf dabei kein leeres Inventar
+      # vortaeuschen: Leermeldung und genau ein sichtbarer GuideViewer-Befehl
+      # muessen dieselbe vollstaendige Uebersicht belegen.
+      $empty = @($tree.nodes | Where-Object { $_.type -eq 'Text' -and $_.on -and
+        $_.aid -like '*.GuideViewer.*' -and $_.name -ceq 'Sie haben noch keine Angaben erfasst' })
+      $caption = $(if ($rows.Count) { 'Weitere Position erfassen' } else { 'Position erfassen' })
+      $commands = @($tree.nodes | Where-Object { $_.type -eq 'Hyperlink' -and $_.on -and
+        $_.aid -like '*.GuideViewer.*' -and $_.name -in @('Position erfassen','Weitere Position erfassen') })
+      if (($rows.Count -eq 0 -and $empty.Count -ne 1) -or ($rows.Count -gt 0 -and $empty.Count -ne 0) -or
+          $commands.Count -ne 1 -or [string]$commands[0].name -cne $caption) {
+        throw 'Positionsinventar und Erfassungsbefehl sind nicht vollstaendig und eindeutig gebunden.'
+      }
+      [pscustomobject]@{ tree=$tree; rows=@($rows); createCaption=$caption }
     }
     function Assert-PositionRows($Actual, $ExpectedRows) {
       if (@($Actual).Count -ne @($ExpectedRows).Count) { throw 'Anzahl der Positionen stimmt nicht.' }
@@ -16886,7 +16914,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         throw 'Seite hat sich vor dem Positionsbefehl veraendert.'
       }
       $controlType = $(if ($Caption -eq 'Zurück') { 'Button' } else { 'Hyperlink' })
-      $buttons = @($Tree.nodes | Where-Object { $_.type -eq $controlType -and $_.name -ceq $Caption -and $_.on })
+      $buttons = @($Tree.nodes | Where-Object { $_.type -eq $controlType -and $_.name -ceq $Caption -and $_.on -and
+        ($controlType -eq 'Button' -or $_.aid -like '*.GuideViewer.*') })
       if ($buttons.Count -ne 1) { throw 'Positionsbefehl ist nicht eindeutig.' }
       $node = $buttons[0]
       $live = Get-LiveElement $hwnd $node.rid
@@ -16902,8 +16931,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $px = [int]($rect.X + $rect.Width / 2); $py = [int]($rect.Y + $rect.Height / 2)
       if (-not (Get-SSEPointObstruction $hwnd $px $py).isBoundTarget) { throw 'Positionsbefehl ist verdeckt.' }
       Assert-PositionEpoch
-      if ($Caption -ceq 'Weitere Position erfassen') { Set-Variable -Name started -Value $true -Scope 1 }
-      [SW]::SetCursorPos($px, $py) | Out-Null
+      Set-SSECursorPoint $px $py
+      if ($Caption -in @('Position erfassen','Weitere Position erfassen')) { Set-Variable -Name started -Value $true -Scope 1 }
       [SW]::mouse_event(0x0002, 0, 0, 0, [IntPtr]::Zero)
       [SW]::mouse_event(0x0004, 0, 0, 0, [IntPtr]::Zero)
       $ownedTick = Get-SSELastInputTick
@@ -16940,7 +16969,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $overview = Read-PositionOverview
       $beforePositions = @($overview.rows)
       Assert-PositionRows $beforePositions $expected
-      Invoke-PositionButton $overview.tree 'Weitere Position erfassen'
+      Invoke-PositionButton $overview.tree $overview.createCaption
       $new = Read-NewPosition '' $false
       $live = Get-LiveElement $hwnd $new.field.rid
       $valuePattern = $null
@@ -21922,7 +21951,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     Start-Sleep -Milliseconds 180
     if ($mutationAuthority -and -not (Test-SSETableMutationActionEpoch $hwnd $targetPid $inputBaseline `
         $mutationAuthority.binding.windowFingerprint -RequireForeground)) {Fail 'Eingabe vor Zielklick verlor ihre Epoche.' 'interference'}
-    [SW]::SetCursorPos($px, $py) | Out-Null
+    Set-SSECursorPoint $px $py
     if ($mutationAuthority) {
       $inputBaseline=Get-SSELastInputTick
       Set-SSEForegroundLeaseInputCheckpoint $inputBaseline -Context 'private-table-delete-own-cursor-position'
@@ -21931,6 +21960,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     if ($mutationAuthority -and (-not (Test-SSETableMutationActionEpoch $hwnd $targetPid $inputBaseline `
         $mutationAuthority.binding.windowFingerprint -RequireForeground) -or
         -not (Get-SSEPointObstruction $hwnd $px $py).isBoundTarget)) {Fail 'Frischer Zielklick verlor Eingabe oder Root-Bindung.' 'interference'}
+    Assert-SSECursorPoint $px $py
     [SW]::mouse_event(0x0002, 0, 0, 0, [IntPtr]::Zero); [SW]::mouse_event(0x0004, 0, 0, 0, [IntPtr]::Zero)
     $inputBaseline = Get-SSELastInputTick
     Set-SSEForegroundLeaseInputCheckpoint $inputBaseline ([pscustomobject]@{ x=$px; y=$py }) 'table-delete-exclusive-selection-click'

@@ -350,7 +350,7 @@ $clickDefinition = @($ast.FindAll({ param($node)
   $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Click-VerifiedPoint'
 }, $true))[0].Extent.Text
 $checkOffset = $clickDefinition.IndexOf('if ($BeforeClickCheck -and')
-Assert-True ($checkOffset -gt $clickDefinition.IndexOf('[SW]::SetCursorPos') -and
+Assert-True ($checkOffset -gt $clickDefinition.IndexOf('Set-SSECursorPoint $px $py') -and
   $checkOffset -lt $clickDefinition.IndexOf('[SW]::mouse_event(0x0002')) 'Die Popup-Bindung wird nicht unmittelbar vor dem ersten mouse-down geprueft.'
 Write-Output 'Combo-Punkt: frische Identitaet, sichtbares Popup und gebundene Geometrie vor mouse-down - bestanden'
 

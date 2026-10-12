@@ -7978,10 +7978,11 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
       await wait(START_PAGE_POLL_MS);
     }
     const subpages = await step("subpages", { hwnd }, budgetMs, dependencies.worker);
-    const begin = asArray(subpages.unterseiten).find((entry2) => String(entry2.schalter ?? "") === wizard.beginLink && typeof entry2.rid === "string" && entry2.rid);
-    if (!begin) fail("wizard-page", `Der Startlink '${wizard.beginLink}' fehlt auf '${startHeading}'.`);
+    const begin = asArray(subpages.unterseiten).filter((entry2) => String(entry2.schalter ?? "") === wizard.beginLink && entry2.typ === "Hyperlink" && entry2.aktiviert === true);
+    if (begin.length !== 1) fail("wizard-page", `Der Startlink '${wizard.beginLink}' ist auf '${startHeading}' nicht eindeutig aktiv gebunden.`);
     const began = await step("click", {
-      rid: begin.rid,
+      name: wizard.beginLink,
+      type: "Hyperlink",
       hwnd,
       expectedPageBefore: startHeading,
       expectedPageAfter: wizard.modeChoiceHeading,

@@ -294,8 +294,10 @@
   "pages": {
     "gew_erfass.einnahmen_ausgaben": {
       "heading": "Gewinnermittlung",
+      "headingAutomationIdRelative": ".centralWidget.SearchSplitter.TopLevelHSplitter.RedThreadContent.ClientFrameSSE.ClientHeader.QLabel",
       "navigationTreeItemName": "Einnahmen/Ausgaben",
-      "documentType": "GewErfass2026"
+      "documentType": "GewErfass2026",
+      "fields": {}
     },
     "gew.innergem_erwerb_13b_einfuhr": {
       "heading": "Innergem. Erwerb, § 13b UStG und Einfuhr",

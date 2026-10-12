@@ -127,7 +127,9 @@ try {
     assert.equal(closes(calls).length, 0, "Erfolg darf nichts schliessen");
     assert(!JSON.stringify(result).includes(caseDir), "Kein lokaler Pfad darf die API verlassen");
     const clicks = calls.filter((entry) => entry.operation === "click").map((entry) => entry.args);
-    assert.equal(clicks[0].rid, "42.1.4.-1");
+    assert.equal(clicks[0].name, "Jetzt beginnen");
+    assert.equal(clicks[0].type, "Hyperlink");
+    assert.equal(clicks[0].rid, undefined, "A recycled GuideViewer RuntimeId must not select an anonymous button.");
     assert.equal(clicks[0].expectedPageBefore, START_PAGE);
     assert.equal(clicks[0].expectedPageAfter, MODE_PAGE);
     assert.equal(clicks[1].aid, "btnNavigatormodusEinURVor");
@@ -229,7 +231,7 @@ try {
   {
     // 6 Falsche Seite nach 'Jetzt beginnen': Cleanup der gestarteten PID.
     const { worker, calls } = scriptedWorker({
-      click: (args) => ({ ok: true, ueberschriftVorher: START_PAGE, ueberschriftNachher: args.rid ? "Datenübernahme" : MASTER_PAGE }),
+      click: (args) => ({ ok: true, ueberschriftVorher: START_PAGE, ueberschriftNachher: args.name === "Jetzt beginnen" ? "Datenübernahme" : MASTER_PAGE }),
     });
     const result = await createApiExecutor(config, worker)("case_create", { targetRef: TARGET, mode: "einurvor" }, 240_000);
     assert.equal(result.kind, "wizard-page");
@@ -346,7 +348,7 @@ try {
     assert.equal(result.ok, true, JSON.stringify(result));
     assert.equal(nativeSubpageCalls, 0);
     assert.equal(calls.filter((entry) => entry.operation === "subpages").length, 1);
-    assert.equal(calls.filter((entry) => entry.operation === "click")[0].args.rid, "42.1.4.-1");
+    assert.equal(calls.filter((entry) => entry.operation === "click")[0].args.name, "Jetzt beginnen");
     assert.equal(closes(calls).length, 0);
     resetTarget();
   }
@@ -374,6 +376,26 @@ try {
     assert.equal(result.caseHashSource, "local-file");
     assert.equal(closes(calls).length, 0);
     resetTarget();
+  }
+  for (const links of [
+    [],
+    [{ schalter: "Jetzt beginnen", typ: "Button", aktiviert: true }],
+    [{ schalter: "Jetzt beginnen", typ: "Hyperlink", aktiviert: false }],
+    [
+      { schalter: "Jetzt beginnen", typ: "Hyperlink", aktiviert: true },
+      { schalter: "Jetzt beginnen", typ: "Hyperlink", aktiviert: true },
+    ],
+  ]) {
+    const { worker, calls } = scriptedWorker({
+      subpages: () => ({ ok: true, anzahl: links.length, unterseiten: links }),
+    });
+    const result = await createApiExecutor(config, worker)("case_create", { targetRef: TARGET, mode: "einurvor" }, 240_000);
+    assert.equal(result.kind, "wizard-page");
+    assert.equal(result.created, false);
+    assert.equal(calls.filter(entry => entry.operation === "click").length, 0,
+      "Missing, disabled, anonymous or ambiguous wizard links must fail before dispatch.");
+    assert.equal(closes(calls).length, 1);
+    assert.equal(result.processStillRunning, false);
   }
 } finally {
   rmSync(temporary, { recursive: true, force: true });

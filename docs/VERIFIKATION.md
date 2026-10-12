@@ -45,6 +45,13 @@ Die Bilanz zählt ausschließlich, was ein Suitelauf selbst protokolliert.
 Manuelle Stichproben ersetzen den fehlenden automatisierten Nachweis für
 `tax_knowledge_search` nicht.
 
+`node test/with-api.mjs node test/live-income-positions.mjs` ist eine separate,
+optionale Live-Prüfung mit einem vollständig neuen synthetischen Folgejahresfall.
+Sie prüft die erste und eine weitere Einnahmenposition, das genaue Inventar,
+Speichern und Wiederöffnen. Sie benötigt eine freie sichtbare Windows-Sitzung.
+Der Lauf verwendet die gewählte Backend-Konfiguration und überspringt keine
+Schritte; seine Einzelbelege ersetzen nicht die aggregierte Live-Matrix.
+
 ## Native-Integration getrennt zählen
 
 Die [Native-Matrix](NATIVE-COVERAGE.md) führt für jede der 102 Operationen

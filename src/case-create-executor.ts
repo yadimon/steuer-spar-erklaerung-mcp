@@ -210,12 +210,16 @@ export async function executeCaseCreate(
     // Wizard-Read deshalb bewusst ueber den Worker binden; der folgende
     // Klick verifiziert weiterhin die exakte Seite und RuntimeId.
     const subpages = await step("subpages", { hwnd }, budgetMs, dependencies.worker);
-    const begin = asArray<Record<string, unknown>>(subpages.unterseiten)
-      .find((entry) => String(entry.schalter ?? "") === wizard.beginLink && typeof entry.rid === "string" && entry.rid);
-    if (!begin) fail("wizard-page", `Der Startlink '${wizard.beginLink}' fehlt auf '${startHeading}'.`);
+    const begin = asArray<Record<string, unknown>>(subpages.unterseiten).filter((entry) =>
+      String(entry.schalter ?? "") === wizard.beginLink && entry.typ === "Hyperlink" && entry.aktiviert === true);
+    if (begin.length !== 1) fail("wizard-page", `Der Startlink '${wizard.beginLink}' ist auf '${startHeading}' nicht eindeutig aktiv gebunden.`);
 
+    // GuideViewer can recycle an accessibility RuntimeId between workers.
+    // Bind the one semantic link afresh, including its type and exact page,
+    // rather than dispatching to an unrelated anonymous button with that ID.
     const began = await step("click", {
-      rid: begin!.rid, hwnd, expectedPageBefore: startHeading, expectedPageAfter: wizard.modeChoiceHeading, waitMs: 6_000,
+      name: wizard.beginLink, type: "Hyperlink", hwnd,
+      expectedPageBefore: startHeading, expectedPageAfter: wizard.modeChoiceHeading, waitMs: 6_000,
     });
     if (String(began.ueberschriftNachher ?? "") !== wizard.modeChoiceHeading) {
       fail("wizard-page", `Nach '${wizard.beginLink}' steht '${String(began.ueberschriftNachher ?? "")}' statt '${wizard.modeChoiceHeading}'.`);

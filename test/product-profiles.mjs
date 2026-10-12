@@ -76,6 +76,9 @@ const businessOverview = profile.pageObjectsCatalog.pages["gew_erfass.einnahmen_
 assert.equal(businessOverview.heading, "Gewinnermittlung");
 assert.equal(businessOverview.navigationTreeItemName, "Einnahmen/Ausgaben");
 assert.equal(businessOverview.documentType, "GewErfass2026");
+assert.equal(businessOverview.headingAutomationIdRelative,
+  profile.pageObjectsCatalog.pages["gew_erfass.allgemeine_angaben_unternehmen"].headingAutomationIdRelative);
+assert.deepEqual(businessOverview.fields, {});
 assert.equal(taxOffice.heading, "Steuernummer, Finanzamt, etc.");
 assert.equal(taxOffice.navigationTreeItemName, "Angaben zum Finanzamt");
 assert.equal(taxOffice.documentType, "GewErfass2026");

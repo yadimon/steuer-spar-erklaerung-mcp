@@ -12503,8 +12503,8 @@
           },
           "page": {
             "types": [
-              "object:{\"documentType\":\"string-other\",\"fields\":\"object\",\"heading\":\"string-other\"}",
-              "object:{\"documentType\":\"string-other\",\"heading\":\"string-other\",\"navigationTreeItemName\":\"string-other\"}"
+              "object:{\"documentType\":\"string-other\",\"fields\":\"object\",\"heading\":\"string-other\",\"headingAutomationIdRelative\":\"string-other\",\"navigationTreeItemName\":\"string-other\"}",
+              "object:{\"documentType\":\"string-other\",\"fields\":\"object\",\"heading\":\"string-other\"}"
             ],
             "labels": [
               "profile-catalog",
