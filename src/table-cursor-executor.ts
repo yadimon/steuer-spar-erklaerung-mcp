@@ -3,7 +3,8 @@ import { DEFAULT_OPERATION_TIMEOUT_MS, type WorkerResult } from "./api-contract.
 import type { ScenarioExecutor } from "./scenario.js";
 import type { QtNativeClient } from "./qt-native-client.js";
 import type { QtNativeExecutorDependencies } from "./qt-native-executor.js";
-import { QT_TABLE_FOCUS_BINDING, readQtNativeCompleteTable } from "./qt-native-tables.js";
+import { QT_TABLE_FOCUS_BINDING, projectQtNativeCompleteTable, readQtNativeCompleteTable } from "./qt-native-tables.js";
+import { executeNativeTargetPosition } from "./table-cursor-position.js";
 import { bindingSchema, leaseSchema, nativeFocusBinding, publicCursorResult, rejectProof, sameContext,
   tableCursorModelFingerprint, bindNativeViewport, cursorProofActivation, CursorProofFailure,
   type CursorBinding, type CursorLease, type CursorPhase, type CompleteModel } from "./table-cursor-proofs.js";
@@ -106,7 +107,8 @@ async function executeNativeCursorFocus(client: QtNativeClient, phase: CursorPha
 
 /** Public noKeys:false compiles private phases; callers cannot supply proof, coordinates or an epoch. */
 export async function executeTableCursorRead(args: Record<string, unknown>, worker: ScenarioExecutor,
-  dependencies: QtNativeExecutorDependencies, timeoutMs = DEFAULT_OPERATION_TIMEOUT_MS, signal?: AbortSignal): Promise<WorkerResult> {
+  dependencies: QtNativeExecutorDependencies, timeoutMs = DEFAULT_OPERATION_TIMEOUT_MS, signal?: AbortSignal,
+  seekToEnd = false): Promise<WorkerResult> {
   if (!dependencies.qtNativeClient && !dependencies.qtNativeClientFor) return worker("table_read", args, timeoutMs, signal);
   const started = performance.now();
   const remaining = () => {
@@ -140,6 +142,19 @@ export async function executeTableCursorRead(args: Record<string, unknown>, work
       rejectProof("native-session-not-ready");
     }
     const capabilities = ping.result.capabilities;
+    if (seekToEnd) {
+      if (!capabilities || typeof capabilities !== "object"
+        || (capabilities as Record<string, unknown>).tableFocusOnlyProtocol !== 1
+        || (capabilities as Record<string, unknown>).tablePositionNumberProtocol !== 1) {
+        rejectProof("native-append-position-protocol");
+      }
+      const targetRow = Array.from({ length: before.rows }, (_, row) => row)
+        .filter(row => !before.hiddenRows.includes(row)).at(-1);
+      if (targetRow === undefined) return rejectProof("native-append-position-empty-model");
+      const positioned = await executeNativeTargetPosition(client, phase, args, binding, before, remaining, release, targetRow, signal);
+      if (!positioned.ok) return publicCursorResult(positioned);
+      return { ...projectQtNativeCompleteTable(before, Number(args.maxRows) || 400), ...publicCursorResult(positioned) };
+    }
     if (capabilities && typeof capabilities === "object"
       && (capabilities as Record<string, unknown>).tableFocusOnlyProtocol === 1) {
       const profiledEdv = binding.snapshot.navigationBinding.heading === "EDV-Kosten"

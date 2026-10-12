@@ -46,12 +46,9 @@ foreach ($operation in @('table_add','table_update')) {
 }
 $addStart=$worker.IndexOf("  'table_add' {"); $addEnd=$worker.IndexOf("`n  '",$addStart+5)
 $add=$worker.Substring($addStart,$addEnd-$addStart)
-Assert-True ($add.Contains('Click-VerifiedPoint $hwnd $freeRead.firstCell -ExpectedInputTick $inputBaseline -RequireForeground')) 'Navigation anchor can reacquire focus or swallow a changed input epoch.'
-Assert-True ($add.Contains('$inputBaseline = $anchorClick.inputTickAfterClick')) 'Navigation baseline was reset after a possibly changed epoch.'
-$down=$add.IndexOf("[System.Windows.Forms.SendKeys]::SendWait('{DOWN}')")
-$keyLoop=$add.LastIndexOf('for ($imBuendel', $down)
-Assert-True ($keyLoop -ge 0 -and $add.Substring($keyLoop,$down-$keyLoop).Contains('Test-SSELastInputUnchanged $inputBaseline')) 'A navigation bundle lacks per-key input guards.'
-Assert-True ($add.Substring($down).Contains("-Context 'table-add-navigation-down'")) 'Own navigation keys lack immediate input checkpoints.'
+$appendPreflight=$add.Substring(0,$add.IndexOf('$prepared = New-Object'))
+Assert-True (-not ($appendPreflight -match 'Click-VerifiedPoint|SendKeys|mouse_event')) 'Append preflight can activate an existing editor instead of using the guarded cursor journey.'
+Assert-True ($appendPreflight.Contains('physicalInputAttempted=$false; physicalInputUsed=$false; outcomeUnknown=$false')) 'Missing append-row rejection hides its known no-input outcome.'
 $beforeRegion=[pscustomobject]@{ ok=$true; cells=@(
   [pscustomobject]@{ x=100; y=200; name='Synthetic'; val='' }
   [pscustomobject]@{ x=200; y=200; name='0,00'; val='' }

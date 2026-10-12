@@ -52,6 +52,17 @@ Speichern und Wiederöffnen. Sie benötigt eine freie sichtbare Windows-Sitzung.
 Der Lauf verwendet die gewählte Backend-Konfiguration und überspringt keine
 Schritte; seine Einzelbelege ersetzen nicht die aggregierte Live-Matrix.
 
+`node test/with-api.mjs node test/live-income-table.mjs --rows=60` prüft eine
+weitere neue Einnahmenposition mit vielen synthetischen Buchungen. Nach jeder
+Anlage müssen sämtliche Zeilen, Netto-/Bruttobeträge und die Summe stimmen.
+Danach folgen ein absichtlich fehlgeschlagenes Update mit Rollback, ein
+erfolgreiches Update, die Löschung einer nicht sichtbaren Zeile sowie
+Speichern/Wiederöffnen und unveränderte Backup-Hashes. Der normale Lauf nutzt
+den vollständigen Cursorread. Mit ausdrücklich konfiguriertem nativen
+Testbackend wählt `--model-read` den vollständigen Qt-Modellread; beide Wege
+verlangen denselben vollständigen Inventarnachweis und überspringen keine
+Mutationen. Ein fehlgeschlagener Lauf bleibt ein fehlgeschlagener Live-Nachweis.
+
 ## Native-Integration getrennt zählen
 
 Die [Native-Matrix](NATIVE-COVERAGE.md) führt für jede der 102 Operationen

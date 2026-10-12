@@ -41,6 +41,7 @@ const expectedNames = [
   "table-add-checkbox-contract",
   "position-create",
   "cursor-input",
+  "table-add-seek",
   "tracked-native-text",
   "qt-native-receipt-update",
   "qt-native-receipt-link",

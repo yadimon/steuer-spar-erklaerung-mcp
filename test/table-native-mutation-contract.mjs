@@ -72,6 +72,8 @@ async function run(options = {}) {
     for (const row of model.values) row.push(scalar("Unchanged hidden metadata"));
   }
   options.initial?.(model, binding);
+  const positionRow = options.appendSeek
+    ? Array.from({ length: model.rows }, (_, row) => row).filter(row => !model.hiddenRows.includes(row)).at(-1) : 7;
   const client = { binding: { hwnd: 111, pid: 7 }, request: async op => {
     if (op === "ping") return { result: { ok: true, pid: 7, hwnd: 111, recoveryRequired: false,
       mutationAcknowledgmentRequired: false, capabilities: { tableFocusOnlyProtocol: 1, tablePositionNumberProtocol: options.noPositionProtocol ? 0 : 1 } } };
@@ -82,15 +84,15 @@ async function run(options = {}) {
   }, requestAcknowledged: async (op, args) => {
     if (op === "table_position_number") {
       positions.push(copy(args)); assert.equal(positions.length, 1, "Direct positioning must never replay.");
-      assert.equal(args.targetRow, 7); assert.deepEqual(args.binding, model.cursorFocusBinding);
+      assert.equal(args.targetRow, positionRow); assert.deepEqual(args.binding, model.cursorFocusBinding);
       assert.equal(args.expectedInputTick, 123, "Positioning must retain the original input epoch.");
       if (options.positionThrows) throw new Error("Synthetic unknown positioning transport outcome");
       if (options.positionAckThrows) throw new QtNativeAcknowledgmentError("Do not project raw transport messages", "native-mutation-receipt",
         { id: 4, ok: true, positioned: true, mutationAttempted: true, mutationReceipt: "987654321", physicalInputUsed: false,
           inputTick: 123, numberEditorPending: false, binding: copy(model.cursorFocusBinding) });
       if (options.positionRejects) return { result: { ok: false, mutationAttempted: false }, receiptAcknowledged: false };
-      model.cursorFocusBinding.currentIndex = [options.wrongPosition ? 6 : 7, 0];
-      model.cursorFocusBinding.selectedIndexes = [[7, options.wrongSelection ? 1 : 0]];
+      model.cursorFocusBinding.currentIndex = [options.wrongPosition ? positionRow - 1 : positionRow, 0];
+      model.cursorFocusBinding.selectedIndexes = [[positionRow, options.wrongSelection ? 1 : 0]];
       if (options.positionUnknown) return { result: { ok: false, mutationAttempted: true, outcomeUnknown: true,
         code: options.nativeCode ?? "position-outcome-unknown",
         error: options.nativeReason ?? "The fresh Nr. delegate has no exact profiled accessible identity",
@@ -158,7 +160,7 @@ async function run(options = {}) {
     if (plan.phase === "checkpoint") return { ok: true, cursorCheckpoint: true };
     if (plan.phase === "native-position-prepare") {
       preparations.push(copy(plan)); assert.equal(preparations.length, 1);
-      assert.equal(options.freshNumberEditor, true); assert.equal(plan.position.targetRow, 7);
+      assert.equal(options.freshNumberEditor, true); assert.equal(plan.position.targetRow, positionRow);
       assert.equal(plan.binding.inputEpoch, 123); assert.equal(plan.lease.nonce, lease.nonce);
       assert.equal(focuses.length, 0, "No focus-only operation may close the fresh Nr. delegate before its proof.");
       if (options.numberClosureFails) return { ok: false, kind: "interference" };
@@ -167,7 +169,7 @@ async function run(options = {}) {
       return { ok: true, cursorBinding: copy(binding), cursorLease: copy(lease), cursorCheckpoint: true };
     }
     if (plan.phase === "native-position-checkpoint") {
-      assert.equal(plan.position.targetRow, 7); assert.equal(plan.position.numberModel.length, 10);
+      assert.equal(plan.position.targetRow, positionRow); assert.equal(plan.position.numberModel.length, 10);
       assert.equal(plan.binding.inputEpoch, 123); assert.equal(plan.lease.nonce, lease.nonce);
       if (options.positionCheckpointFails || options.clipped) return { ok: false, kind: "interference" };
       binding.snapshot.navigationBinding.contentSignature = "d".repeat(64);
@@ -208,8 +210,8 @@ async function run(options = {}) {
   if (options.profileWrongSection) catalog.pages.synthetic.tables.exact.automationIdSection = "OtherSection";
   if (options.profileWrongOccurrence) catalog.pages.synthetic.tables.exact.sumOccurrence = 2;
   if (options.profileAmbiguous) catalog.pages.synthetic.tables.duplicate = copy(catalog.pages.synthetic.tables.exact);
-  const result = options.publicRead
-    ? await executeTableCursorRead({ hwnd: 111, noKeys: false, sumLabel: "Summe" }, worker, { qtNativeClient: client }, 30000)
+  const result = options.publicRead || options.appendSeek
+    ? await executeTableCursorRead({ hwnd: 111, noKeys: false, sumLabel: "Summe" }, worker, { qtNativeClient: client }, 30000, undefined, options.appendSeek === true)
     : await executeTableCursorMutation(operation, args, worker, { qtNativeClient: client }, 30000, undefined, catalog);
   return { result, keys, positions, mutations, focuses, probes, releases, preparations };
 }
@@ -224,6 +226,28 @@ for (const operation of ["table_update", "table_delete"]) {
 const profiledRead = await run({ publicRead: true });
 assert.equal(profiledRead.result.ok, true); assert.deepEqual(profiledRead.keys, ["home", ...Array(9).fill("down")]);
 assert.equal(profiledRead.mutations.length, 0);
+for (const options of [{}, { freshNumberEditor: true }, { initial: model => { model.hiddenRows = [9]; } }]) {
+  const append = await run({ ...options, appendSeek: true });
+  assert.equal(append.result.ok, true);
+  assert.equal(append.result.vollstaendig, true);
+  assert.equal(append.result.nativeWholeModelUnchanged, true);
+  assert.equal(append.result.physicalInputUsed, false);
+  assert.deepEqual(append.keys, []);
+  assert.equal(append.positions.length, 1);
+  assert.equal(append.probes.length, 0);
+  assert.equal(append.mutations.length, 0);
+  assert.equal(append.releases.length, 1);
+  for (const field of ["cursorBinding", "cursorLease", "numberModel", "numberPolicy"]) {
+    assert.equal(Object.hasOwn(append.result, field), false);
+  }
+}
+for (const options of [{ noPositionProtocol: true }, { noPositionAck: true }, { wrongPosition: true },
+  { positionModelChanged: true }, { clipped: true }, { freshNumberEditor: true, numberClosureFails: true }]) {
+  const failedAppend = await run({ ...options, appendSeek: true });
+  assert.equal(failedAppend.result.ok, false);
+  assert.deepEqual(failedAppend.keys, []);
+  assert.equal(failedAppend.mutations.length, 0);
+}
 const freshNumber = await run({ freshNumberEditor: true });
 assert.equal(freshNumber.result.ok, true); assert.equal(freshNumber.preparations.length, 1);
 assert.equal(freshNumber.positions.length, 1); assert.equal(freshNumber.focuses.length, 1); assert.equal(freshNumber.mutations.length, 1);

@@ -18327,7 +18327,7 @@ async function executeNativeCursorFocus(client, phase, args, initial, before, re
   }
   return { ...result, ...cleanupRequired ? { cleanupRequired: true, reconciliationRequired: true } : {} };
 }
-async function executeTableCursorRead(args, worker, dependencies, timeoutMs = DEFAULT_OPERATION_TIMEOUT_MS, signal) {
+async function executeTableCursorRead(args, worker, dependencies, timeoutMs = DEFAULT_OPERATION_TIMEOUT_MS, signal, seekToEnd = false) {
   if (!dependencies.qtNativeClient && !dependencies.qtNativeClientFor) return worker("table_read", args, timeoutMs, signal);
   const started = performance14.now();
   const remaining = () => {
@@ -18365,6 +18365,16 @@ async function executeTableCursorRead(args, worker, dependencies, timeoutMs = DE
       rejectProof("native-session-not-ready");
     }
     const capabilities = ping.result.capabilities;
+    if (seekToEnd) {
+      if (!capabilities || typeof capabilities !== "object" || capabilities.tableFocusOnlyProtocol !== 1 || capabilities.tablePositionNumberProtocol !== 1) {
+        rejectProof("native-append-position-protocol");
+      }
+      const targetRow = Array.from({ length: before.rows }, (_, row) => row).filter((row) => !before.hiddenRows.includes(row)).at(-1);
+      if (targetRow === void 0) return rejectProof("native-append-position-empty-model");
+      const positioned = await executeNativeTargetPosition(client, phase, args, binding, before, remaining, release, targetRow, signal);
+      if (!positioned.ok) return publicCursorResult(positioned);
+      return { ...projectQtNativeCompleteTable(before, Number(args.maxRows) || 400), ...publicCursorResult(positioned) };
+    }
     if (capabilities && typeof capabilities === "object" && capabilities.tableFocusOnlyProtocol === 1) {
       const profiledEdv = binding.snapshot.navigationBinding.heading === "EDV-Kosten" && JSON.stringify(binding.snapshot.kopf) === JSON.stringify(["Nr.", "Datum", "Bezeichnung", "Betrag", "N", "%", "Netto"]);
       if (profiledEdv || binding.snapshot.navigationBinding.tableRootAid.endsWith(".grpEmpf13b.Empf13b") && before.table.name === "/.grpEmpf13b.Empf13b" && /^Nr\.?$/u.test(binding.snapshot.kopf[0] ?? "")) {
@@ -18421,6 +18431,7 @@ var init_table_cursor_executor = __esm({
     "use strict";
     init_api_contract();
     init_qt_native_tables();
+    init_table_cursor_position();
     init_table_cursor_proofs();
     init_table_cursor_step();
     init_table_cursor_proofs();
@@ -18876,7 +18887,7 @@ function createApiExecutor(config, rawWorker, dependencies = {}) {
           if (configured.args[key] !== void 0) readArgs[key] = configured.args[key];
         }
         const configuredRead = configuredArgs("table_read", readArgs, config);
-        const scrolled = await executeTableCursorRead(configuredRead.args, worker, dependencies, timeoutMs, signal).catch(() => ({
+        const scrolled = await executeTableCursorRead(configuredRead.args, worker, dependencies, timeoutMs, signal, true).catch(() => ({
           ok: false,
           kind: "cursor-proof-failed",
           proofCheck: "cursor-transport-error",

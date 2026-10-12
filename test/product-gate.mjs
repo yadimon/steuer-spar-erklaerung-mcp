@@ -532,7 +532,7 @@ try {
     addRetry.includes("result?.ok !== true") && addRetry.includes('result?.kind === "not-found"') &&
     addRetry.includes('typeof result?.error === "string"') && addRetry.includes('result.error.includes("Keine freie Tabellenzeile")') &&
     addRetry.includes('const readArgs: Record<string, unknown> = { maxRows: 400, noKeys: false };') &&
-    /const scrolled = await executeTableCursorRead\(configuredRead\.args, worker, dependencies, timeoutMs, signal\)\.catch\(\(\): WorkerResult => \(\{\s*ok: false, kind: "cursor-proof-failed", proofCheck: "cursor-transport-error",\s*outcomeUnknown: true, reconciliationRequired: true, cleanupRequired: true,\s*\}\)\);/u.test(addRetry) &&
+    /const scrolled = await executeTableCursorRead\(configuredRead\.args, worker, dependencies, timeoutMs, signal, true\)\.catch\(\(\): WorkerResult => \(\{\s*ok: false, kind: "cursor-proof-failed", proofCheck: "cursor-transport-error",\s*outcomeUnknown: true, reconciliationRequired: true, cleanupRequired: true,\s*\}\)\);/u.test(addRetry) &&
     addRetry.includes("if (scrolled?.ok === true && scrolled.vollstaendig === true)") &&
     addRetry.includes("scrolled.outcomeUnknown === true || scrolled.reconciliationRequired === true || scrolled.cleanupRequired === true") &&
     addRetry.includes("result.outcomeUnknown === true || result.reconciliationRequired === true || result.cleanupRequired === true") &&
@@ -675,7 +675,8 @@ try {
     assert(workerOpBlock(op).includes("Test-SSEScalarEqual") && !workerOpBlock(op).includes("$norm ="),
       `${op} vergleicht Kontrollsummen weiterhin durch verlustreiches Entfernen aller Punkte.`);
   }
-  assert(workerOpBlock("table_add").includes("Tabellenend-Navigation ueberschritt die interne Frist; nichts geschrieben.") &&
+  assert(!workerOpBlock("table_add").slice(0, workerOpBlock("table_add").indexOf("$prepared = New-Object"))
+    .match(/Click-VerifiedPoint|SendKeys|mouse_event/u) &&
     workerOpBlock("table_delete").includes("Tabellen-Zielsuche ueberschritt die interne Frist; nichts geloescht."),
   "Tabellen-Zielsuche kann ohne interne Frist bis in den externen Kill-Timeout laufen.");
   assert(skillSource.includes("Fensterbindung") && skillSource.includes("`HWND`") &&

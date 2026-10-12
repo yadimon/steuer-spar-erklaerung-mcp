@@ -45,6 +45,7 @@ export const parallelSteps = Object.freeze([
   psFile("table-delete-name", "test/table-delete-name-contract.ps1"),
   psFile("position-create", "test/position-create-contract.ps1"),
   psFile("cursor-input", "test/cursor-input-contract.ps1"),
+  psFile("table-add-seek", "test/table-add-seek-contract.ps1"),
   psFile("tracked-date-rollback", "test/tracked-date-rollback-contract.ps1"),
   psFile("tracked-native-text", "test/tracked-native-text-contract.ps1"),
   psFile("value-info-window", "test/value-info-window-contract.ps1"),

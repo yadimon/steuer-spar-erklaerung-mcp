@@ -1,5 +1,10 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
+$workerBytes = [IO.File]::ReadAllBytes((Join-Path $root 'powershell/sse-worker.ps1'))
+if ($workerBytes.Length -lt 3 -or $workerBytes[0] -ne 239 -or
+    $workerBytes[1] -ne 187 -or $workerBytes[2] -ne 191) {
+  throw 'The UTF-8 worker requires its BOM for Windows PowerShell 5.1 source decoding.'
+}
 $files = @(
   Get-ChildItem -LiteralPath (Join-Path $root 'powershell') -Filter '*.ps1' -File -Recurse
   Get-ChildItem -LiteralPath (Join-Path $root 'test') -Filter '*.ps1' -File -Recurse

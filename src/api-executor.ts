@@ -488,7 +488,7 @@ export function createApiExecutor(
           if (configured.args[key] !== undefined) readArgs[key] = configured.args[key];
         }
         const configuredRead = configuredArgs("table_read", readArgs, config);
-        const scrolled = await executeTableCursorRead(configuredRead.args, worker, dependencies, timeoutMs, signal).catch((): WorkerResult => ({
+        const scrolled = await executeTableCursorRead(configuredRead.args, worker, dependencies, timeoutMs, signal, true).catch((): WorkerResult => ({
           ok: false, kind: "cursor-proof-failed", proofCheck: "cursor-transport-error",
           outcomeUnknown: true, reconciliationRequired: true, cleanupRequired: true,
         }));

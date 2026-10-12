@@ -20328,12 +20328,6 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       Fail "$($freeRead.error) NICHT geaendert." $(if ($freeRead.profileMismatch) { 'table-profile-mismatch' } else { 'precondition-failed' })
     }
     $navigationSteps = 0
-    $searchDeadlineMs = 60000
-    $testDeadlineMs = 0
-    if ([int]::TryParse([string]$env:SSE_MCP_TEST_SEARCH_DEADLINE_MS, [ref]$testDeadlineMs) -and $testDeadlineMs -gt 0) {
-      $searchDeadlineMs = $testDeadlineMs
-    }
-    $searchWatch = [Diagnostics.Stopwatch]::StartNew()
     # Eine beauftragte sichtbare Tabellenmutation erwirbt den gebundenen
     # Vordergrund vor Navigation und Zellmustern und liest danach frisch.
     $regionBeforeFocus = Get-SSETableRegion $beforeTree $hwnd $sumBeforeRead
@@ -20349,101 +20343,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $foreignForegroundIsolation=[bool]$focus.foreignForegroundIsolation
     $guardUserInput=[bool]$focus.guardUserInput; $inputBaseline=$focus.inputBaseline
     $navigationVersuche = 0
-    if (-not $freeRead.free.Count -and $freeRead.firstCell) {
-      if ($script:DESKTOP_NAME -or $lockScreenIsolation) {
-        Fail ("Keine sichtbare freie Tabellenzeile gefunden. Auf dem versteckten Desktop kann Qt nicht " +
-              "per Tastatur zum Tabellenende bewegt werden. Eine sichtbare freie Zeile kann sse_table_add " +
-              "vollstaendig per ValuePattern beschreiben; andernfalls sichtbar arbeiten.") 'hidden-desktop'
-      }
-      # Sichtbare Tabellenmutationen haben den gebundenen Vordergrund bereits
-      # erworben und den Zellbestand frisch gelesen. Isolation erlaubt keine
-      # physische Navigation; jede eigene Eingabe behält einen Epoch-Checkpoint.
-      if ($foreignForegroundIsolation) {
-        Fail ("Keine sichtbare freie Tabellenzeile gefunden, und der Vordergrund liegt bei einem anderen " +
-              "Programm. Der Weg zum Tabellenende braeuchte Klick und Tastatur und wuerde den Fokus " +
-              "entreissen; das unterbleibt waehrend paralleler Arbeit. Die Tabelle einmal ans Ende " +
-              "blaettern - eine sichtbare freie Zeile wird dann ohne Fokuswechsel beschrieben.") 'foreground-needed'
-      }
-      if ((Test-SSETableMutationForegroundLost $guardUserInput $hwnd) -or
-          ($guardUserInput -and -not (Test-SSELastInputUnchanged $inputBaseline))) {
-        Fail 'Eingabe-Epoche oder Tabellenfokus vor der Navigation geaendert; nichts geschrieben.' 'interference'
-      }
-      $anchorClick = Click-VerifiedPoint $hwnd $freeRead.firstCell -ExpectedInputTick $inputBaseline -RequireForeground
-      if ($guardUserInput) {
-        $inputBaseline = $anchorClick.inputTickAfterClick
-        if ($null -eq $inputBaseline) { Fail 'Eingabe-Epoche nach dem Tabellenanker-Klick fehlt.' 'interference' }
-        Set-SSEForegroundLeaseInputCheckpoint $inputBaseline -Context 'table-add-navigation-anchor'
-      }
-      Start-Sleep -Milliseconds 180
-      if ([SW]::GetForegroundWindow() -ne $hwnd -or
-          ($guardUserInput -and -not (Test-SSELastInputUnchanged $inputBaseline))) {
-        Fail 'Tabellenfokus oder Eingabe-Epoche vor der Navigation geaendert; nichts geschrieben.' 'interference'
-      }
-      # Strg+Ende bewegte diese Qt-Tabelle nicht: gemessen 41 Tastendrücke
-      # ohne jede Aenderung der untersten sichtbaren Zeile. Strg+Pos1 wirkt
-      # dagegen nachweislich - table_read laeuft damit durch 45 Zeilen. Also
-      # von oben beginnen und mit Pfeiltasten nach unten wandern.
-      [System.Windows.Forms.SendKeys]::SendWait('^{HOME}')
-      if ($guardUserInput) {
-        $inputBaseline = Get-SSELastInputTick
-        if ($null -eq $inputBaseline) { Fail 'Eingabe-Epoche nach Tabellen-Home fehlt.' 'interference' }
-        Set-SSEForegroundLeaseInputCheckpoint $inputBaseline -Context 'table-add-navigation-home'
-      }
-      Start-Sleep -Milliseconds 350
-      # Der Weg zum Tabellenende las frueher vor JEDEM Tastendruck den ganzen
-      # Baum: 41 Baumlaeufe fuer 41 Schritte, und bei einer Tabelle mit 45
-      # Zeilen reichte das Budget trotzdem nicht - gemessen 14 Sekunden und
-      # danach 'keine freie Zeile'. Der Aufrufer musste erst einen
-      # vollstaendigen table_read fahren, nur damit die Anlegezeile sichtbar
-      # wurde.
-      #
-      # Gedrueckt wird deshalb in Buendeln und nur dazwischen gelesen. Die
-      # Schleife endet, sobald eine freie Zeile auftaucht - oder sobald sich
-      # die letzte sichtbare Zeile nicht mehr aendert: Dann ist das Ende
-      # erreicht und weiteres Druecken bringt nichts.
-      $buendel = 8
-      $letzteSignatur = $null
-      for ($navigationRunden = 0; $navigationRunden -le 60; $navigationRunden++) {
-        if ($searchWatch.ElapsedMilliseconds -ge $searchDeadlineMs) {
-          Fail 'Tabellenend-Navigation ueberschritt die interne Frist; nichts geschrieben.' 'timeout'
-        }
-        if ((Test-SSETableMutationForegroundLost $guardUserInput $hwnd) -or
-            ($guardUserInput -and -not (Test-SSELastInputUnchanged $inputBaseline))) {
-          Fail 'Eingabe-Epoche oder Tabellenfokus waehrend der Navigation geaendert; nichts geschrieben.' 'interference'
-        }
-        $freeRead = Find-FreeTableRow $hwnd
-        if ($freeRead.error) {
-          Fail "$($freeRead.error) NICHT geschrieben." $(if ($freeRead.profileMismatch) { 'table-profile-mismatch' } else { 'precondition-failed' })
-        }
-        if ($freeRead.free.Count) { break }
-
-        $unterste = @($freeRead.byY.Keys | Sort-Object -Descending | Select-Object -First 1)
-        $signatur = $(if ($unterste.Count) {
-          "$($unterste[0])::" + ((@($freeRead.byY[$unterste[0]] | Sort-Object x | ForEach-Object { [string]$_.name })) -join "`u{001F}")
-        } else { '' })
-        if ($null -ne $letzteSignatur -and $signatur -eq $letzteSignatur) { break }
-        $letzteSignatur = $signatur
-
-        if ([SW]::GetForegroundWindow() -ne $hwnd) {
-          Fail 'Tabellenfokus ging waehrend der Navigation verloren; nichts geschrieben.' 'interference'
-        }
-        for ($imBuendel = 0; $imBuendel -lt $buendel; $imBuendel++) {
-          if ((Test-SSETableMutationForegroundLost $guardUserInput $hwnd) -or
-              ($guardUserInput -and -not (Test-SSELastInputUnchanged $inputBaseline))) {
-            Fail 'Eingabe-Epoche oder Tabellenfokus vor einem Navigationsschritt geaendert; nichts geschrieben.' 'interference'
-          }
-          [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
-          if ($guardUserInput) {
-            $inputBaseline = Get-SSELastInputTick
-            if ($null -eq $inputBaseline) { Fail 'Eingabe-Epoche nach Tabellen-Down fehlt.' 'interference' }
-            Set-SSEForegroundLeaseInputCheckpoint $inputBaseline -Context 'table-add-navigation-down'
-          }
-          $navigationVersuche++
-          Start-Sleep -Milliseconds 35
-        }
-        Start-Sleep -Milliseconds 120
-      }
-    }
+    # An offscreen append row is materialized only by the API executor's
+    # guarded table cursor journey. Clicking a date cell can open an editor;
+    # HOME/DOWN must never be sent by the append preflight.
     $nachY = $freeRead.byY
     $freie = @($freeRead.free)
     if (-not $freie.Count) {
@@ -20453,6 +20355,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       })
       Emit ([pscustomobject]@{
         ok=$false; kind='not-found'; mutationStarted=$false; resultingState='unchanged'
+        physicalInputAttempted=$false; physicalInputUsed=$false; outcomeUnknown=$false
         rowDefaultEvidence=$defaultEvidence
         error=("Keine freie Tabellenzeile gefunden. Die gebundene Tabellenregion zeigte " +
             "$([int]$befund.rowCount) Zeilen, davon $([int]$befund.populatedRowCount) belegt; " +
