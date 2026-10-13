@@ -63,6 +63,15 @@ function New-SyntheticCellElement($Cell,$Container,$Column) {
   }
   $element
 }
+function Set-SyntheticHiddenColumnBeforeTarget($Target,$Cells,$Elements) {
+  # Native column 1 is hidden; visible index 2 therefore refers to native column 3.
+  $nativeColumns=@(0,2,3,4,5,6,7)
+  $Target.column=[int]3
+  for ($index=0;$index -lt $nativeColumns.Count;$index++) {
+    $Target.cells[$index].nativeColumn=[int]$nativeColumns[$index]
+    $Elements[$Cells[$index].rid].grid.Current.Column=[int]$nativeColumns[$index]
+  }
+}
 $expectedReject=@{
   'wrong-row'=@('grid-row-equal','grid-identity',0);'wrong-column'=@('grid-column-equal','grid-identity',3)
   'foreign-grid'=@('grid-pid-equal','grid-identity',0);'grid-rid'=@('grid-rid-equal','grid-identity',0)
@@ -87,6 +96,7 @@ $expectedReject=@{
   'target-flags'=@('target-flags-enabled-selectable','target-capability',2)
   'target-column'=@('target-column-header','target-unique',$null);'target-other-cell'=@('unique-text-target','target-unique',$null)
   'caller-rid-other-column'=@('unique-text-target','target-unique',$null)
+  'hidden-before-target-wrong-rid'=@('unique-text-target','target-unique',$null)
   'native-column-duplicate'=@('native-column-unique','cell-schema-geometry',1)
   'native-column-order'=@('native-column-order','cell-schema-geometry',1)
   'many-candidates'=@('unique-text-target','target-unique',$null)
@@ -132,7 +142,7 @@ function Assert-SafeTargetDiagnostic($Proof) {
     if ($safe.Contains($forbidden)) {throw 'Target diagnostics disclose model values, identities or exception text.'}
   }
 }
-foreach ($case in @('exact-seven-columns','duplicate-calculated-column','caller-rid-other-column','cell-grid-line','cell-inset-two','wrong-row','wrong-column','foreign-grid','grid-rid','grid-aid','other-text','changed-cell',
+foreach ($case in @('exact-seven-columns','duplicate-calculated-column','caller-rid-other-column','hidden-before-target','hidden-before-target-wrong-rid','cell-grid-line','cell-inset-two','wrong-row','wrong-column','foreign-grid','grid-rid','grid-aid','other-text','changed-cell',
   'changed-checkbox','missing-checkbox','duplicate','caller-rid-stale','clipped','hidden-column','extra-prior-field','bad-native-flags','active-editor',
   'extra-target-field','bad-row-type','bad-column-type','model-count','table-state','header-count','shared-row','row-rids','raw-missing',
   'header-name','header-x','header-width','table-left','table-right','header-bottom','live-bounds','live-name','grid-pattern','grid-absent',
@@ -146,6 +156,15 @@ foreach ($case in @('exact-seven-columns','duplicate-calculated-column','caller-
   $script:elements=@{};$script:editorFree=$true;$rid=''
   for ($column=0;$column -lt 7;$column++) {$script:elements[$cells[$column].rid]=New-SyntheticCellElement $cells[$column] $container $column}
   switch ($case) {
+    'hidden-before-target' {
+      Set-SyntheticHiddenColumnBeforeTarget $target $cells $script:elements
+      $rid=$cells[2].rid
+    }
+    'hidden-before-target-wrong-rid' {
+      Set-SyntheticHiddenColumnBeforeTarget $target $cells $script:elements
+      $cells[3].name='Target';$cells[3].val='Target';$target.cells[3].display='Target';$target.cells[3].edit='Target'
+      $script:elements[$cells[3].rid].Current.Name='Target';$rid=$cells[3].rid
+    }
     'duplicate-calculated-column' {
       $cells[6].on=$true;$cells[6].name='Target';$cells[6].val='Target';
       $target.cells[6].display='Target';$target.cells[6].edit='Target';
@@ -204,7 +223,7 @@ foreach ($case in @('exact-seven-columns','duplicate-calculated-column','caller-
     'proof-exception' {$container | Add-Member ScriptMethod GetRuntimeId {throw 'synthetic-private-exception'} -Force}
   }
   $result=Get-SSETableMutationTargetProof ([IntPtr]111) 7 $script:tree $target $rid
-  if ($result.ok -ne ($case -cin @('exact-seven-columns','duplicate-calculated-column','cell-grid-line'))) {throw "$case native row/GridItem/checkbox proof disagreed."}
+  if ($result.ok -ne ($case -cin @('exact-seven-columns','duplicate-calculated-column','hidden-before-target','cell-grid-line'))) {throw "$case native row/GridItem/checkbox proof disagreed."}
   if ($result.ok -and ($result.cells.Count -ne 7 -or $result.target.rid -cne $cells[2].rid)) {throw 'Exact seven-column model target was not returned.'}
   if ($result.ok) {
     if (@($result.PSObject.Properties.Name | Sort-Object) -join ',' -cne 'cells,ok,reason,target') {throw 'Successful target proof changed its output contract.'}

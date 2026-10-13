@@ -65,6 +65,7 @@ function nativeGeometry(op, model, binding) {
 
 async function run(options = {}) {
   const model = copy(base), binding = copy(baseBinding), keys = [], positions = [], mutations = [], focuses = [], probes = [], releases = [], preparations = [];
+  const targetColumn = options.hiddenColumnBeforeTarget ? 3 : 2;
   const activeHeaders = options.category ? ["Nr.", "Datum", "Bezeichnung", "Kategorie", "%", "Netto"] : headers;
   if (options.category) {
     model.columns = 6; model.headers = activeHeaders; model.table.name = "/.grpEmpf13b.Empf13b";
@@ -85,6 +86,11 @@ async function run(options = {}) {
   if (options.hiddenColumn) {
     model.columns = 8; model.headers = [...headers, "Hidden metadata"]; model.hiddenColumns = [7];
     for (const row of model.values) row.push(scalar("Unchanged hidden metadata"));
+  }
+  if (options.hiddenColumnBeforeTarget) {
+    model.columns = 8; model.table.columns = 8;
+    model.headers = [...headers]; model.headers.splice(1, 0, "Hidden metadata"); model.hiddenColumns = [1];
+    for (const row of model.values) row.splice(1, 0, scalar("Unchanged hidden metadata"));
   }
   options.initial?.(model, binding);
   const positionRow = options.appendSeek
@@ -134,7 +140,7 @@ async function run(options = {}) {
       assert.equal(args.__tableCursorPlan, undefined);
       assert.equal(args.__tableMutationBinding.operation, op);
       assert.equal(args.__tableMutationBinding.target.row, 7);
-      assert.equal(args.__tableMutationBinding.target.column, 2);
+      assert.equal(args.__tableMutationBinding.target.column, targetColumn);
       assert.equal(args.__tableMutationBinding.target.cells.length, activeHeaders.length);
       assert.equal(args.targetRid, options.targetRid ?? "Synthetic.target.7");
       assert.deepEqual(args.__tableMutationBinding.binding, binding);
@@ -146,7 +152,7 @@ async function run(options = {}) {
         else if (options.date) model.values[7][1] = { ...scalar(options.date), edit: options.dateWrongRole ? "Unexpected date edit" : model.values[0][1].edit };
         else if (options.numeric) model.values[7][3] = { ...scalar("10,00"), edit: 10 };
         else if (options.checkbox) model.values[7][4] = { display: "", edit: true, flags: 49, checkState: 2 };
-        else model.values[7][2] = scalar("Updated");
+        else model.values[7][targetColumn] = scalar("Updated");
       }
       else {
         model.values.splice(7, 1); model.rowFingerprints.splice(7, 1); model.rows--; model.readRows--;
@@ -161,7 +167,7 @@ async function run(options = {}) {
       if (options.targetChanged) model.values[7][2] = scalar("Unexpected target");
       if (options.targetEditChanged) model.values[7][2].edit = "Unexpected target edit";
       if (options.targetOtherColumnChanged) model.values[7][1] = scalar("02.01");
-      if (options.targetHiddenChanged) model.values[7][7].edit = "Changed hidden metadata";
+      if (options.targetHiddenChanged) model.values[7][options.hiddenColumnBeforeTarget ? 1 : 7].edit = "Changed hidden metadata";
       return { ok: true, verified: !options.unverified, mutationStarted: true,
         mutationPostProof: { inputEpoch: binding.inputEpoch, dirty: true } };
     }
@@ -170,8 +176,9 @@ async function run(options = {}) {
     if (plan.phase === "mutation-target") {
       probes.push(copy(plan));
       if (options.probeFails || (plan.targetRid && options.staleRid)) return { ok: false, kind: "stale" };
-      assert.equal(plan.target.row, 7); assert.equal(plan.target.column, 2); assert.equal(plan.target.cells.length, activeHeaders.length);
-      return { ok: true, mutationTarget: { row: 7, column: 2, targetRid: plan.targetRid ?? "Synthetic.target.7" } };
+      assert.equal(plan.target.row, 7); assert.equal(plan.target.column, targetColumn); assert.equal(plan.target.cells.length, activeHeaders.length);
+      if (options.hiddenColumnBeforeTarget) assert.deepEqual(plan.target.cells.map(cell => cell.nativeColumn), [0, 2, 3, 4, 5, 6, 7]);
+      return { ok: true, mutationTarget: { row: 7, column: targetColumn, targetRid: plan.targetRid ?? "Synthetic.target.7" } };
     }
     if (plan.phase === "native-acquire" || plan.phase === "native-position-acquire") {
       assert.deepEqual(plan.numberPolicy, { tableName: model.table.name, headers: activeHeaders });
@@ -466,6 +473,9 @@ assert.equal(rid.mutations[0].args.targetRid, "Caller.exact.rid", "A supplied RI
 const hidden = await run({ hiddenColumn: true });
 assert.equal(hidden.result.ok, true); assert.equal(hidden.result.nativeTargetRowVerified, true);
 assert.equal(hidden.mutations.length, 1, "An unchanged hidden target cell remains part of the complete model proof.");
+const hiddenBeforeTarget = await run({ hiddenColumnBeforeTarget: true, targetRid: "Synthetic.target.7" });
+assert.equal(hiddenBeforeTarget.result.ok, true); assert.equal(hiddenBeforeTarget.result.nativeTargetRowVerified, true);
+assert.equal(hiddenBeforeTarget.mutations.length, 1, "A hidden column before the target must preserve visible-to-native column binding.");
 const category = await run({ category: true });
 assert.equal(category.result.ok, true, "Known typed category numeric EditRole is bound before writing.");
 assert.equal(category.mutations.length, 1);
@@ -511,7 +521,8 @@ for (const options of [{ focusNoop: true }, { clipped: true }, { probeFails: tru
 }
 for (const options of [{ workerFails: true }, { workerThrows: true }, { otherRowChanged: true },
   { targetChanged: true }, { targetEditChanged: true }, { targetOtherColumnChanged: true },
-  { hiddenColumn: true, targetHiddenChanged: true }, { unverified: true }, { finalEpochChanged: true }]) {
+  { hiddenColumn: true, targetHiddenChanged: true }, { hiddenColumnBeforeTarget: true, targetHiddenChanged: true },
+  { unverified: true }, { finalEpochChanged: true }]) {
   const failure = await run(options); assert.equal(failure.result.ok, false); assert.equal(failure.mutations.length, 1);
   assert.equal(failure.result.retryable, false);
 }
