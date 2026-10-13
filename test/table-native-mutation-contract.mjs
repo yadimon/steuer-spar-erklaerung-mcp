@@ -114,9 +114,9 @@ async function run(options = {}) {
     return { result: { ok: true, focused: !options.focusNoop, physicalInputUsed: false, mutationAttempted: true,
       inputTick: binding.inputEpoch, binding: copy(model.cursorFocusBinding) }, receiptAcknowledged: true };
   } };
-  const worker = async (op, args) => {
+  const worker = async (op, args, timeoutMs) => {
     if (op !== "table_read") {
-      mutations.push({ op, args: copy(args) });
+      mutations.push({ op, args: copy(args), timeoutMs });
       assert.equal(mutations.length, 1, "Only one mutation worker may be submitted.");
       assert.equal(args.__tableCursorPlan, undefined);
       assert.equal(args.__tableMutationBinding.operation, op);
@@ -229,7 +229,7 @@ async function run(options = {}) {
   if (options.profileAmbiguous) catalog.pages.synthetic.tables.duplicate = copy(catalog.pages.synthetic.tables.exact);
   const result = options.publicRead || options.appendSeek
     ? await executeTableCursorRead({ hwnd: 111, noKeys: false, sumLabel: "Summe" }, worker, { qtNativeClient: client }, 30000, undefined, options.appendSeek === true)
-    : await executeTableCursorMutation(operation, args, worker, { qtNativeClient: client }, 30000, undefined, catalog);
+    : await executeTableCursorMutation(operation, args, worker, { qtNativeClient: client }, options.timeoutMs ?? 30000, undefined, catalog);
   return { result, keys, positions, mutations, focuses, probes, releases, preparations };
 }
 for (const operation of ["table_update", "table_delete"]) {
@@ -301,6 +301,32 @@ for (const operation of ["table_update", "table_delete"]) {
 const profiledRead = await run({ publicRead: true });
 assert.equal(profiledRead.result.ok, true); assert.deepEqual(profiledRead.keys, ["home", ...Array(9).fill("down")]);
 assert.equal(profiledRead.mutations.length, 0);
+for (const operation of ["table_update", "table_delete"]) {
+  const insufficient = await run({ operation, timeoutMs: 6_499 });
+  assert.equal(insufficient.result.mutationStarted, false);
+  assert.equal(insufficient.result.outcomeUnknown, false);
+  assert.equal(insufficient.result.phase, "mutation-prebind");
+  assert.equal(insufficient.positions.length, 0);
+  assert.equal(insufficient.probes.length, 0);
+  assert.equal(insufficient.mutations.length, 0);
+  for (const available of [0, 4_999, 5_000]) {
+    let now = 0;
+    mock.method(performance, "now", () => now);
+    try {
+      const finalBudget = await run({ operation, read: (_model, _keys, mutations, probes) => {
+        if (mutations === 0 && probes === 1) now = 30_000 - available;
+      } });
+      assert.equal(finalBudget.result.ok, available === 5_000);
+      assert.equal(finalBudget.mutations.length, available === 5_000 ? 1 : 0);
+      if (available < 5_000) {
+        assert.equal(finalBudget.result.proofCheck, "mutation-deadline-reserve");
+        assert.equal(finalBudget.result.mutationStarted, false);
+        assert.equal(finalBudget.result.outcomeUnknown, false);
+        assert.equal(finalBudget.result.resultingState, "unchanged");
+      } else assert.equal(finalBudget.mutations[0].timeoutMs, 3_000, "Keep a separate complete-model/checkpoint reserve.");
+    } finally { mock.restoreAll(); }
+  }
+}
 for (const options of [{ positionModelChanged: true }, { wrongSelection: true }]) {
   const append = await run({ ...options, appendSeek: true });
   assert.equal(append.result.ok, false);

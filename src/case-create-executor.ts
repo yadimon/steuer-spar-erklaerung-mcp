@@ -148,7 +148,7 @@ export async function executeCaseCreate(
     if (signal?.aborted) fail("aborted", "API-Client hat die Fallanlage abgebrochen.");
     const remaining = deadline - now();
     if (remaining < MIN_STEP_MS) fail("timeout", `Zeitbudget der Fallanlage ist vor '${operation}' erschoepft.`);
-    if (operation === "launch" && Math.min(remaining, ceilingMs) < MIN_LAUNCH_MS) {
+    if (operation === "launch" && (Math.min(remaining, ceilingMs) < MIN_LAUNCH_MS || remaining < MIN_LAUNCH_MS + WIZARD_RESERVE_MS)) {
       fail("timeout", "Zeitbudget der Fallanlage reicht vor dem Programmstart nicht fuer den Mindest-Startvertrag.");
     }
     steps.push(operation);

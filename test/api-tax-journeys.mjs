@@ -1445,7 +1445,7 @@ test("32 the checker detail and reset are reachable without the composition", as
 test("33 case_create builds a new follow-year case through the wizard and the save dialog", async () => {
   await withHarness(async (harness) => {
     const targetRef = "cases:neu.GewErfass2026";
-    const created = await harness.call("case_create", { targetRef, mode: "einurvor" }, 60_000);
+    const created = await harness.call("case_create", { targetRef, mode: "einurvor" }, 120_000);
     assert.equal(created.ok, true, JSON.stringify(created));
     assert.equal(created.created, true);
     assert.equal(created.caseRef, targetRef);

@@ -9,6 +9,7 @@ import { bindingSchema, numberPolicy, publicCursorResult, rejectProof, tableCurs
   type CursorPhase, type CompleteModel } from "./table-cursor-proofs.js";
 import { executeNativeTargetPosition } from "./table-cursor-position.js";
 import { amountEqual, bindRequestedNativeEditRoles } from "./table-cursor-edit-roles.js";
+import { TABLE_WRITE_MINIMUM_BUDGET_MS, TABLE_NATIVE_POSTCONDITION_RESERVE_MS, TABLE_TARGET_SEEK_ALLOWANCE_MS } from "./table-write-budget.js";
 
 /** Server-private row seek before exactly one existing mutation worker. */
 export async function executeTableCursorMutation(operation: "table_update" | "table_delete", args: Record<string, unknown>,
@@ -32,6 +33,11 @@ export async function executeTableCursorMutation(operation: "table_update" | "ta
   }, 5_000);
   let mutationSubmitted = false, cursorAttempted = false, stage = "mutation-prebind";
   let cursorResult: WorkerResult | undefined;
+  if (signal?.aborted || timeoutMs < TABLE_WRITE_MINIMUM_BUDGET_MS + TABLE_TARGET_SEEK_ALLOWANCE_MS) {
+    return { ok: false, kind: signal?.aborted ? "aborted" : "timeout", phase: stage, proofCheck: "mutation-deadline-reserve",
+      error: "Restbudget reicht nicht fuer Zielsuche, Tabellenmutation und Nachweis.",
+      mutationStarted: false, outcomeUnknown: false, resultingState: "unchanged", retryable: false };
+  }
   try {
     const prebound = await phase("prebind");
     if (!prebound.ok) return { ...publicCursorResult(prebound), mutationStarted: false, retryable: false };
@@ -87,7 +93,12 @@ export async function executeTableCursorMutation(operation: "table_update" | "ta
     if (tableCursorModelFingerprint(await readQtNativeCompleteTable(client, nativeArgs, remaining(), signal)) !== fingerprint) {
       rejectProof("mutation-final-whole-model");
     }
-    const mutationTimeout = remaining();
+    const available = Math.floor(timeoutMs - (performance.now() - started));
+    if (signal?.aborted || available < TABLE_WRITE_MINIMUM_BUDGET_MS) return { ok: false, kind: signal?.aborted ? "aborted" : "timeout", phase: "mutation-worker",
+      proofCheck: "mutation-deadline-reserve", error: "Restbudget reicht nicht fuer Tabellenmutation und anschliessenden Nachweis.",
+      mutationStarted: false, outcomeUnknown: false, resultingState: "unchanged", cursorSteps: cursorResult.steps,
+      cursorTransaction: "native-target-position", retryable: false };
+    const mutationTimeout = available - TABLE_NATIVE_POSTCONDITION_RESERVE_MS;
     stage = "mutation-worker"; mutationSubmitted = true;
     const result = await worker(operation, { ...args, hwnd: binding.hwnd, pid: binding.pid,
       targetRid: args.targetRid ?? proof.targetRid,

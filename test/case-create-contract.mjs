@@ -417,6 +417,8 @@ try {
   }
   for (const spec of [
     { budget: 29_999, consumeAfterDesktop: 0 },
+    { budget: 59_999, consumeAfterDesktop: 0 },
+    { budget: 89_999, consumeAfterDesktop: 0 },
     { budget: 240_000, consumeAfterDesktop: 210_001 },
   ]) {
     let clock = 0;

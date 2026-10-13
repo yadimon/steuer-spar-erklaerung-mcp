@@ -393,11 +393,14 @@ test("append phases share one monotonic budget and stop before another dispatch 
   let now = 0;
   context.mock.method(performance, "now", () => now);
   for (const scenario of [
-    { durations: [100, 100, 100], timeouts: [300, 200, 100], ok: true },
-    { durations: [300], timeouts: [300], ok: false, phase: "prebind" },
-    { durations: [100, 200], timeouts: [300, 200], ok: false, phase: "passive-final-checkpoint" },
-    { durations: [100], timeouts: [300], ok: false, phase: "prebind", abortAt: 1 },
-    { durations: [100, 100], timeouts: [300, 200], ok: false, phase: "passive-final-checkpoint", abortAt: 2 },
+    { durations: [100, 100, 100], timeouts: [7600, 7500, 7400], ok: true },
+    { durations: [7600], timeouts: [7600], ok: false, phase: "prebind" },
+    { durations: [1101], timeouts: [7600], ok: false, phase: "prebind" },
+    { durations: [100, 7500], timeouts: [7600, 7500], ok: false, phase: "append-deadline-reserve" },
+    { durations: [100, 2501], timeouts: [7600, 7500], ok: false, phase: "append-deadline-reserve" },
+    { durations: [100, 2500, 0], timeouts: [7600, 7500, 5000], ok: true },
+    { durations: [100], timeouts: [7600], ok: false, phase: "prebind", abortAt: 1 },
+    { durations: [100, 100], timeouts: [7600, 7500], ok: false, phase: "append-deadline-reserve", abortAt: 2 },
   ]) {
     now = 0;
     const calls = [], abort = new AbortController();
@@ -410,7 +413,7 @@ test("append phases share one monotonic budget and stop before another dispatch 
       assert.equal(operation, "table_add");
       return calls.length === 1 ? missingAppendRow : { ok: true, verified: true };
     });
-    const result = await execute("table_add", appendArgs, 300, abort.signal);
+    const result = await execute("table_add", appendArgs, 7600, abort.signal);
     assert.deepEqual(calls.map(value => value.timeout), scenario.timeouts);
     assert.equal(result.ok, scenario.ok);
     if (!scenario.ok) {

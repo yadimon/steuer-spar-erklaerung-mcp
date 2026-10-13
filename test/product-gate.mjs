@@ -541,7 +541,8 @@ try {
     addSeek.includes("scrolled.reconciliationRequired === true || scrolled.cleanupRequired === true") &&
     addSeek.indexOf("scrolled.vollstaendig !== true") < addSeek.indexOf('await worker("table_add"') &&
     addSeek.match(/await worker\("table_add", args, appendBudget, signal\)/gu)?.length === 1 &&
-    addSeek.includes("cursorBudget < 1 || signal?.aborted") && addSeek.includes("appendBudget < 1 || signal?.aborted") &&
+    addSeek.includes("cursorBudget < TABLE_WRITE_MINIMUM_BUDGET_MS + TABLE_TARGET_SEEK_ALLOWANCE_MS || signal?.aborted") &&
+    addSeek.includes("appendBudget < TABLE_WRITE_MINIMUM_BUDGET_MS || signal?.aborted") &&
     addSeek.includes("retriedAfterTableWalk: true") &&
     addBlock.includes("ok=$false; kind='not-found'; mutationStarted=$false; resultingState='unchanged'") &&
     addBlock.indexOf('error=("Keine freie Tabellenzeile') >= 0 &&

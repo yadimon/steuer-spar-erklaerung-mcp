@@ -7939,7 +7939,7 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
     if (signal?.aborted) fail("aborted", "API-Client hat die Fallanlage abgebrochen.");
     const remaining = deadline - now();
     if (remaining < MIN_STEP_MS) fail("timeout", `Zeitbudget der Fallanlage ist vor '${operation}' erschoepft.`);
-    if (operation === "launch" && Math.min(remaining, ceilingMs) < MIN_LAUNCH_MS) {
+    if (operation === "launch" && (Math.min(remaining, ceilingMs) < MIN_LAUNCH_MS || remaining < MIN_LAUNCH_MS + WIZARD_RESERVE_MS)) {
       fail("timeout", "Zeitbudget der Fallanlage reicht vor dem Programmstart nicht fuer den Mindest-Startvertrag.");
     }
     steps.push(operation);
@@ -18246,6 +18246,17 @@ var init_table_cursor_edit_roles = __esm({
   }
 });
 
+// src/table-write-budget.ts
+var TABLE_WRITE_MINIMUM_BUDGET_MS, TABLE_NATIVE_POSTCONDITION_RESERVE_MS, TABLE_TARGET_SEEK_ALLOWANCE_MS;
+var init_table_write_budget = __esm({
+  "src/table-write-budget.ts"() {
+    "use strict";
+    TABLE_WRITE_MINIMUM_BUDGET_MS = 5e3;
+    TABLE_NATIVE_POSTCONDITION_RESERVE_MS = 2e3;
+    TABLE_TARGET_SEEK_ALLOWANCE_MS = 1500;
+  }
+});
+
 // src/table-cursor-mutation.ts
 import { performance as performance13 } from "node:perf_hooks";
 async function executeTableCursorMutation(operation, args, worker, dependencies, timeoutMs = DEFAULT_OPERATION_TIMEOUT_MS, signal, pageObjectsCatalog) {
@@ -18270,6 +18281,19 @@ async function executeTableCursorMutation(operation, args, worker, dependencies,
   }, 5e3);
   let mutationSubmitted = false, cursorAttempted = false, stage = "mutation-prebind";
   let cursorResult;
+  if (signal?.aborted || timeoutMs < TABLE_WRITE_MINIMUM_BUDGET_MS + TABLE_TARGET_SEEK_ALLOWANCE_MS) {
+    return {
+      ok: false,
+      kind: signal?.aborted ? "aborted" : "timeout",
+      phase: stage,
+      proofCheck: "mutation-deadline-reserve",
+      error: "Restbudget reicht nicht fuer Zielsuche, Tabellenmutation und Nachweis.",
+      mutationStarted: false,
+      outcomeUnknown: false,
+      resultingState: "unchanged",
+      retryable: false
+    };
+  }
   try {
     const prebound = await phase("prebind");
     if (!prebound.ok) return { ...publicCursorResult(prebound), mutationStarted: false, retryable: false };
@@ -18326,7 +18350,21 @@ async function executeTableCursorMutation(operation, args, worker, dependencies,
     if (tableCursorModelFingerprint(await readQtNativeCompleteTable(client, nativeArgs, remaining(), signal)) !== fingerprint) {
       rejectProof("mutation-final-whole-model");
     }
-    const mutationTimeout = remaining();
+    const available = Math.floor(timeoutMs - (performance13.now() - started));
+    if (signal?.aborted || available < TABLE_WRITE_MINIMUM_BUDGET_MS) return {
+      ok: false,
+      kind: signal?.aborted ? "aborted" : "timeout",
+      phase: "mutation-worker",
+      proofCheck: "mutation-deadline-reserve",
+      error: "Restbudget reicht nicht fuer Tabellenmutation und anschliessenden Nachweis.",
+      mutationStarted: false,
+      outcomeUnknown: false,
+      resultingState: "unchanged",
+      cursorSteps: cursorResult.steps,
+      cursorTransaction: "native-target-position",
+      retryable: false
+    };
+    const mutationTimeout = available - TABLE_NATIVE_POSTCONDITION_RESERVE_MS;
     stage = "mutation-worker";
     mutationSubmitted = true;
     const result = await worker(operation, {
@@ -18428,6 +18466,7 @@ var init_table_cursor_mutation = __esm({
     init_table_cursor_proofs();
     init_table_cursor_position();
     init_table_cursor_edit_roles();
+    init_table_write_budget();
   }
 });
 
@@ -18743,7 +18782,8 @@ var init_table_add_cursor_result = __esm({
       "native-position-dispatch",
       "native-position-number-preparation",
       "native-position-focus-only",
-      "native-position-checkpoint"
+      "native-position-checkpoint",
+      "append-deadline-reserve"
     ]);
     proofChecks = /* @__PURE__ */ new Set([
       "native-or-worker-contract",
@@ -18807,7 +18847,7 @@ async function executeTableAddSeek(original, args, readArgs, worker, dependencie
     outcomeUnknown: false
   });
   const cursorBudget = remaining();
-  if (cursorBudget < 1 || signal?.aborted) return deadline("prebind");
+  if (cursorBudget < TABLE_WRITE_MINIMUM_BUDGET_MS + TABLE_TARGET_SEEK_ALLOWANCE_MS || signal?.aborted) return deadline("prebind");
   const scrolled = await executeTableCursorRead(readArgs, worker, dependencies, cursorBudget, signal, true).catch(() => ({
     ok: false,
     kind: "cursor-proof-failed",
@@ -18820,7 +18860,7 @@ async function executeTableAddSeek(original, args, readArgs, worker, dependencie
     return tableAddCursorFailure(original, scrolled);
   }
   const appendBudget = remaining();
-  if (appendBudget < 1 || signal?.aborted) return deadline("passive-final-checkpoint", scrolled);
+  if (appendBudget < TABLE_WRITE_MINIMUM_BUDGET_MS || signal?.aborted) return deadline("append-deadline-reserve", scrolled);
   const retried = await worker("table_add", args, appendBudget, signal);
   const inputSources = [original, scrolled, retried];
   const cursorKeysUsed = typeof scrolled.steps === "number" && scrolled.steps > 0;
@@ -18841,6 +18881,7 @@ var init_table_add_seek = __esm({
     init_api_contract();
     init_table_cursor_executor();
     init_table_add_cursor_result();
+    init_table_write_budget();
   }
 });
 

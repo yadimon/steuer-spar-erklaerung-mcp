@@ -4,6 +4,7 @@ import type { ScenarioExecutor } from "./scenario.js";
 import type { QtNativeExecutorDependencies } from "./qt-native-executor.js";
 import { executeTableCursorRead } from "./table-cursor-executor.js";
 import { tableAddCursorFailure } from "./table-add-cursor-result.js";
+import { TABLE_WRITE_MINIMUM_BUDGET_MS, TABLE_TARGET_SEEK_ALLOWANCE_MS } from "./table-write-budget.js";
 
 /** One guarded seek and one write, sharing the original append deadline. */
 export async function executeTableAddSeek(original: WorkerResult, args: Record<string, unknown>,
@@ -21,7 +22,7 @@ export async function executeTableAddSeek(original: WorkerResult, args: Record<s
     ok: false, kind: signal?.aborted ? "aborted" : "timeout", phase, proofCheck: "cursor-deadline", outcomeUnknown: false,
   });
   const cursorBudget = remaining();
-  if (cursorBudget < 1 || signal?.aborted) return deadline("prebind");
+  if (cursorBudget < TABLE_WRITE_MINIMUM_BUDGET_MS + TABLE_TARGET_SEEK_ALLOWANCE_MS || signal?.aborted) return deadline("prebind");
   const scrolled = await executeTableCursorRead(readArgs, worker, dependencies, cursorBudget, signal, true)
     .catch((): WorkerResult => ({ ok: false, kind: "cursor-proof-failed", proofCheck: "cursor-transport-error",
       outcomeUnknown: true, reconciliationRequired: true, cleanupRequired: true }));
@@ -30,7 +31,7 @@ export async function executeTableAddSeek(original: WorkerResult, args: Record<s
     return tableAddCursorFailure(original, scrolled);
   }
   const appendBudget = remaining();
-  if (appendBudget < 1 || signal?.aborted) return deadline("passive-final-checkpoint", scrolled);
+  if (appendBudget < TABLE_WRITE_MINIMUM_BUDGET_MS || signal?.aborted) return deadline("append-deadline-reserve", scrolled);
   const retried = await worker("table_add", args, appendBudget, signal);
   const inputSources = [original, scrolled, retried];
   const cursorKeysUsed = typeof scrolled.steps === "number" && scrolled.steps > 0;

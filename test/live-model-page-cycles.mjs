@@ -32,7 +32,7 @@ const client = { baseUrl: process.env.SSE_API_URL };
 client.expectedInstanceId = (await readApiHealthz(client)).instanceId;
 let instance, preserveStartup = false, workingCopyCreated = false, calls = 0;
 
-async function call(operation, args = {}, timeoutMs = 120_000) {
+async function call(operation, args = {}, timeoutMs = 120_000, requireOk = true) {
   const result = (await callApiOperationEnvelope(operation, args, timeoutMs, client)).result;
   if (operation === "launch") {
     preserveStartup = result.processPreserved === true || result.kind === "recovered-state";
@@ -41,10 +41,12 @@ async function call(operation, args = {}, timeoutMs = 120_000) {
     }
   }
   process.stdout.write(`${++calls}: ${operation}: ${result.ok ? "ok" : result.kind}\n`);
-  assert.equal(result.ok, true, JSON.stringify(result));
+  if (requireOk) assert.equal(result.ok, true, JSON.stringify(result));
   return result;
 }
 
+let primaryFailure;
+const finalFailures = [];
 try {
   assert.equal((await call("instances")).count, 0);
   const copied = await call("make_working_copy", { sourceRef: `cases:${sourceName}`, targetRef: caseRef, expectedSourceHash: originalHash });
@@ -60,30 +62,48 @@ try {
     for (const heading of ["EDV-Kosten", "Geschenke bis 50,- €"]) {
       const navigation = await call("goto", { hwnd: instance.hwnd, name: heading, useSearch: true, maxSteps: 200 });
       assert.equal(navigation.backend, "qt");
+      assert.equal(navigation.erreicht, true);
+      assert.equal(navigation.ueberschrift, heading);
       assert.equal(navigation.fokusfrei, true);
       assert.equal(navigation.physicalInputUsed, false);
-      await call("read_page", { hwnd: instance.hwnd });
+      assert.equal((await call("read_page", { hwnd: instance.hwnd })).heading, heading);
       const table = await call("table_read", { hwnd: instance.hwnd, sumLabel: "Summe", sumOccurrence: 1, noKeys: true, maxRows: 400 });
       assert.equal(table.backend, "qt");
       assert.equal(table.vollstaendig, true);
       assert.equal(table.physicalInputUsed, false);
       assert.equal(table.limitReached, false);
       assert(table.anzahl > 0, "The sample must exercise populated model rows.");
+      assert.equal((await call("read_page", { hwnd: instance.hwnd })).heading, heading,
+        "The table must remain on its requested page through the model read.");
       const inventory = { kopf: table.kopf, zeilen: table.zeilen, summe: table.summe };
       if (cycle === 0) inventories.set(heading, inventory);
       else assert.deepEqual(inventory, inventories.get(heading), "Navigation must retain the exact populated inventory and sum.");
       assert.equal(hash(original), originalHash);
       assert.equal(hash(casePath), originalHash);
     }
+    assert.notDeepEqual(inventories.get("EDV-Kosten"), inventories.get("Geschenke bis 50,- €"),
+      "Both distinct populated tables must be reached, not one unchanged page twice.");
   }
   await call("close", { ...instance, discardChanges: true });
   instance = undefined;
   assert.equal((await call("instances")).count, 0);
+} catch (error) {
+  primaryFailure = error;
 } finally {
-  if (instance && !preserveStartup) await call("close", { ...instance, discardChanges: true, force: true });
+  if (instance && !preserveStartup) {
+    try {
+      const cleanup = await call("close", { ...instance, discardChanges: true, force: true }, 120_000, false);
+      assert.equal(cleanup.ok, true, JSON.stringify(cleanup));
+    } catch (error) { finalFailures.push(error); }
+  }
   if (preserveStartup) process.stderr.write("Startup state preserved; inspect the process and recovery before another live test.\n");
-  assert.equal(hash(original), originalHash);
-  assert.equal(hash(sourcePath), originalHash);
-  if (workingCopyCreated) assert.equal(hash(casePath), originalHash);
+  for (const path of [original, sourcePath, ...(workingCopyCreated || existsSync(casePath) ? [casePath] : [])]) {
+    try { assert.equal(hash(path), originalHash); }
+    catch (error) { finalFailures.push(error); }
+  }
 }
+if (primaryFailure && finalFailures.length) throw new AggregateError([primaryFailure, ...finalFailures],
+  "Model navigation failed; cleanup/integrity failures are attached.", { cause: primaryFailure });
+if (primaryFailure) throw primaryFailure;
+if (finalFailures.length) throw new AggregateError(finalFailures, "Model navigation cleanup/integrity failed.");
 process.stdout.write(`Native model/page navigation: ${cycles} cycles, complete unchanged inventories and original parity passed (${calls} API calls).\n`);
