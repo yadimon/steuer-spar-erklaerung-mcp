@@ -536,6 +536,17 @@ die Vollständigkeit einer virtualisierten Tabelle. Sichtbares Lesen ersetzt
 weiterhin keinen Tabellenlauf mit Endbeweis. Steuerbeträge werden aus diesen
 Checkbox-Zuständen nicht abgeleitet.
 
+Ein fehlender Cursor- oder Zeilenidentitätsnachweis bei `table_read` liefert
+`ok=false` mit `kind=cursor-unavailable` oder `kind=row-identity-unavailable`.
+Bereits eindeutig beobachtete Zeilen, `rowDetails`, Summen und die
+Aktivierungsdiagnose bleiben erhalten. Auch bei `noKeys=true` ist ein Bestand
+mit nicht identifizierbaren Zeilen ein Fehler; die Meldung bezeichnet dann
+ausdrücklich den sichtbaren Teilbestand. Das gilt auch, wenn eine mehrdeutige
+Tabelle nur passiv gelesen wurde. Dagegen bleibt eine Abfrage, die nur
+das angeforderte `maxRows`-Limit erreicht, erfolgreich mit `vollstaendig=false`
+und `stopKind=max-rows`. Ein gleichzeitig fehlender Nachweis hat Vorrang vor
+dieser absichtlichen Begrenzung.
+
 Beim Tabellen-Readback müssen zwei explizit angegebene Datumsjahre
 übereinstimmen. Ungültige Kalendertage gelten auch bei gleichem Text nicht als
 bestätigt. Für Datumseingaben ist weiterhin das vollständige Jahr anzugeben;

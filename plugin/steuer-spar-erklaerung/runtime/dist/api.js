@@ -18472,6 +18472,27 @@ var init_table_cursor_mutation = __esm({
 
 // src/table-cursor-executor.ts
 import { performance as performance14 } from "node:perf_hooks";
+function cursorFailureEvidence(result, modelUnchanged = false) {
+  const source = result ? publicCursorResult(result) : {};
+  const evidence = {};
+  const keys = [
+    "kind",
+    "steps",
+    "schritte",
+    "cursorActivation",
+    "navigationEvidence",
+    "focusTelemetry",
+    "physicalInputAttempted",
+    "physicalInputUsed",
+    "activationSubmitted",
+    "cleanupRequired"
+  ];
+  if (modelUnchanged) keys.push("kopf", "zeilen", "rowDetails", "summe", "summen", "anzahl");
+  for (const key of keys) {
+    if (Object.hasOwn(source, key)) evidence[key] = source[key];
+  }
+  return evidence;
+}
 async function executeNativeCursorFocus(client, phase, args, initial, before, remaining, release, signal) {
   nativeFocusBinding(before, initial);
   const fingerprint = tableCursorModelFingerprint(before);
@@ -18479,7 +18500,7 @@ async function executeNativeCursorFocus(client, phase, args, initial, before, re
   let binding = initial, lease, consumed = false, submitted = false;
   let physicalInputAttempted = false;
   let currentPhase = "native-acquire", cleanupRequired = false, handoverReported = false;
-  let resumeFailure;
+  let resumeResult, nativeWholeModelUnchanged = false;
   let nativeFocusEvidence;
   let result;
   try {
@@ -18527,10 +18548,15 @@ async function executeNativeCursorFocus(client, phase, args, initial, before, re
     currentPhase = "cursor-resume";
     physicalInputAttempted = null;
     const resumed = await phase("resume", binding, { lease, selectedRids: acquired.selectedRids });
+    resumeResult = publicCursorResult(resumed);
     physicalInputAttempted = typeof resumed.steps === "number" ? resumed.steps > 0 : null;
     consumed = Boolean(resumed.focusTelemetry && typeof resumed.focusTelemetry === "object" && resumed.focusTelemetry.releasedByEmit === true);
     if (!resumed.ok) {
-      resumeFailure = publicCursorResult(resumed);
+      currentPhase = "native-final-readback";
+      const final2 = await readQtNativeCompleteTable(client, nativeArgs, remaining(), signal);
+      if (tableCursorModelFingerprint(final2) !== fingerprint) rejectProof("native-focus-final-model");
+      nativeWholeModelUnchanged = true;
+      currentPhase = "cursor-resume";
       rejectProof("native-focus-resume-worker-result");
     }
     if (!consumed) rejectProof("native-focus-resume-lease-completion");
@@ -18544,12 +18570,13 @@ async function executeNativeCursorFocus(client, phase, args, initial, before, re
     result = { ...publicCursorResult(resumed), nativeWholeModelUnchanged: true, cursorTransaction: "native-focus-only", retryable: false };
   } catch (error) {
     result = {
-      ...resumeFailure,
+      ...cursorFailureEvidence(resumeResult, nativeWholeModelUnchanged),
       ok: false,
-      kind: resumeFailure?.kind ?? "cursor-proof-failed",
+      kind: resumeResult?.kind ?? "cursor-proof-failed",
       phase: currentPhase,
       proofCheck: error instanceof CursorProofFailure ? error.proofCheck : "native-or-worker-contract",
-      error: resumeFailure?.error ?? "Nativer Tabellenfokus hat seinen vollstaendigen Nachweis verloren; frisch abgleichen, nicht wiederholen.",
+      error: nativeWholeModelUnchanged && resumeResult?.error ? resumeResult.error : "Nativer Tabellenfokus hat seinen vollstaendigen Nachweis verloren; frisch abgleichen, nicht wiederholen.",
+      ...nativeWholeModelUnchanged ? { nativeWholeModelUnchanged: true } : {},
       activationSubmitted: submitted,
       physicalInputAttempted,
       outcomeUnknown: submitted || handoverReported,
@@ -18595,6 +18622,7 @@ async function executeTableCursorRead(args, worker, dependencies, timeoutMs = DE
   let activationSubmitted = false;
   let physicalInputAttempted = false;
   let currentPhase = "prebind";
+  let traversalResult;
   try {
     const prebind = await phase("prebind");
     if (!prebind.ok) return prebind;
@@ -18643,6 +18671,7 @@ async function executeTableCursorRead(args, worker, dependencies, timeoutMs = DE
     }
     currentPhase = "cursor-resume";
     const result = await phase("resume", afterBinding, { selectedRids: activated.selectedRids });
+    traversalResult = publicCursorResult(result);
     if (typeof result.steps === "number" && result.steps > 0) physicalInputAttempted = true;
     currentPhase = "native-final-readback";
     const final = await readQtNativeCompleteTable(client, nativeArgs, remaining(), signal);
@@ -18652,11 +18681,19 @@ async function executeTableCursorRead(args, worker, dependencies, timeoutMs = DE
       const checkpoint = await phase("checkpoint", bindingSchema.parse(result.cursorBinding));
       if (!checkpoint.ok || checkpoint.cursorCheckpoint !== true) throw new Error("Final native read lost the inherited input/window checkpoint.");
     }
-    return { ...publicCursorResult(result), nativeWholeModelUnchanged: true, cursorTransaction: "guarded-table-viewport", retryable: false };
+    return {
+      ...publicCursorResult(result),
+      physicalInputAttempted,
+      ...!result.ok ? { outcomeUnknown: activationSubmitted, reconciliationRequired: activationSubmitted } : {},
+      nativeWholeModelUnchanged: true,
+      cursorTransaction: "guarded-table-viewport",
+      retryable: false
+    };
   } catch (error) {
     return {
+      ...cursorFailureEvidence(traversalResult),
       ok: false,
-      kind: "cursor-proof-failed",
+      kind: traversalResult?.kind ?? "cursor-proof-failed",
       error: "Geschuetzter Tabellenlauf konnte seinen vollstaendigen Zustandsnachweis nicht halten; frisch abgleichen, nicht wiederholen.",
       phase: currentPhase,
       proofCheck: error instanceof CursorProofFailure ? error.proofCheck : "native-or-worker-contract",
@@ -18748,6 +18785,7 @@ var init_table_add_cursor_result = __esm({
       "cancelled",
       "cursor-proof-failed",
       "cursor-unavailable",
+      "row-identity-unavailable",
       "interference",
       "not-found",
       "precondition-failed",
@@ -18821,7 +18859,7 @@ var init_table_add_cursor_result = __esm({
       "native-position-final-epoch",
       "native-position-checkpoint-worker-result"
     ]);
-    stopKinds = /* @__PURE__ */ new Set(["cursor-unavailable", "max-rows", "cursor-stalled"]);
+    stopKinds = /* @__PURE__ */ new Set(["cursor-unavailable", "row-identity-unavailable", "max-rows", "cursor-stalled"]);
   }
 });
 

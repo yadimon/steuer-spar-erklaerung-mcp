@@ -262,7 +262,7 @@ foreach ($mode in @('number','number-with-readonly','number-noop','table-only','
                     'changed-content','changed-summary','input-before-number','editor','foreign-pid','wrong-aid',
                     'foreign-parent','foreign-selection-container','selection-not-selected','number-not-focusable','fresh-root-pid','fresh-root-hwnd',
                     'fresh-table-rid','fresh-table-aid','fresh-table-disabled','fresh-table-hidden','fresh-walk-cycle','focus-final-input',
-                    'number-writable','number-value-mismatch','number-toggle','number-expand')) {
+                    'number-writable','number-readonly-unknown','number-value-mismatch','number-toggle','number-expand')) {
   $script:semanticFocusMode=$mode;$script:tableFocusCalls=0;$script:numberFocusCalls=0;$script:cachedFocusCalls=0;$script:refreshCalls=0
   $script:scopedTree=[pscustomobject]@{nodes=@($rootNode)+@($selectedRow);stats=$stats}
   $freshTable.rid='10.1';$freshTable.Current.AutomationId=$tableAid;$freshTable.Current.IsEnabled=$true;$freshTable.Current.IsOffscreen=$false
@@ -300,6 +300,7 @@ foreach ($mode in @('number','number-with-readonly','number-noop','table-only','
     'fresh-walk-cycle' {$freshRoot.children=@($freshTable,$freshTable)}
     'number-with-readonly' {$number.valuePattern=[pscustomobject]@{Current=[pscustomobject]@{IsReadOnly=$true;Value='7'}}}
     'number-writable' {$number.valuePattern=[pscustomobject]@{Current=[pscustomobject]@{IsReadOnly=$false;Value='7'}}}
+    'number-readonly-unknown' {$number.valuePattern=[pscustomobject]@{Current=[pscustomobject]@{IsReadOnly=$null;Value='7'}}}
     'number-value-mismatch' {$number.valuePattern=[pscustomobject]@{Current=[pscustomobject]@{IsReadOnly=$true;Value='8'}}}
     'number-toggle' {$number.editorPatternType='toggle'}
     'number-expand' {$number.editorPatternType='expand'}
@@ -317,6 +318,15 @@ foreach ($mode in @('number','number-with-readonly','number-noop','table-only','
   }
   if ($mode -eq 'number-unavailable') {
     Assert-True ($result.exceptionType -ceq 'ElementNotAvailableException' -and $result.reason -ceq 'number-anchor-focus-failed') 'Unavailable number focus was retried or hidden.'
+  }
+  if ($mode -eq 'number-writable') {
+    Assert-True ($result.reason -ceq 'number-anchor-writable-value-pattern') 'Writable anchor was hidden as a value mismatch.'
+  }
+  if ($mode -eq 'number-readonly-unknown') {
+    Assert-True ($result.reason -ceq 'number-anchor-readonly-unavailable') 'Unknown readonly capability was hidden as a value mismatch.'
+  }
+  if ($mode -eq 'number-value-mismatch') {
+    Assert-True ($result.reason -ceq 'number-anchor-value-mismatch') 'Changed anchor value was hidden as a capability failure.'
   }
   if ($mode -eq 'number-noop') {
     Assert-True (-not (Get-SSETableLiveInputState ([IntPtr]111) 7 $tableAid '10.1' -RequireKeyboard -RequireSelection).ok) `

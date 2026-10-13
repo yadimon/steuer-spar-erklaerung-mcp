@@ -111,15 +111,16 @@ Run-FinalReadCase 'Zeilenidentitaet fehlt' $true $true 9 10 $false $true $false 
 Run-FinalReadCase 'Ende nicht bewiesen' $true $false 9 10 $false $false $false 1
 Run-FinalReadCase 'finaler Lesefehler' $true $false 9 10 $false $false $true 1
 Run-FinalReadCase 'kein Cursor aktiviert' $false $false 0 10 $false $false $false 0
-function Run-Observation([bool]$NoKeys,[string]$BlockerKind,[int]$HitPid,[int]$HitRoot,[bool]$ActiveEditor=$false) {
+function Run-Observation([bool]$NoKeys,[string]$BlockerKind,[int]$HitPid,[int]$HitRoot,[bool]$ActiveEditor=$false,[bool]$CursorActivationFails=$false,[bool]$IdentityMissing=$false,[int]$TableCount=1) {
   [SW]::InputCalls=0; [SW]::Releases=0; [SW]::HitPid=$HitPid; [SW]::HitRoot=[IntPtr]$HitRoot
   $script:pointQueries=0; $script:raises=0; $script:captured=$null
   $hwnd=[IntPtr]111; $a=@{noKeys=$NoKeys}
   $proof=[pscustomobject]@{complete=$true;editorFree=$true;tableRootAid='Synthetic.Table';tableRootRid='10.1';heading='Synthetic';tableIdentity='Synthetic.Header';scopePrefix='';selectionMethod='';summaryIdentity='Synthetic.Sum';summaryValue='20,00';contentSignature='initial'}
   $proof.editorFree=-not $ActiveEditor
   $erst=[pscustomobject]@{ersteZelle=[pscustomobject]@{x=10;y=20;w=40;h=24};tabelleAnzahl=1;bindung=[pscustomobject]@{sumLabel='Summe'};navigationBinding=$proof}
+  $erst.tabelleAnzahl=$TableCount
   $script:pointObservation=[pscustomobject]@{
-    isBoundTarget=$false; blockerKind=$BlockerKind; processName='SyntheticBlocker'; className='SyntheticWindow'
+    isBoundTarget=$CursorActivationFails; blockerKind=$BlockerKind; processName='SyntheticBlocker'; className='SyntheticWindow'
     boundWindow=111;boundPid=7;hitWindow=222;hitRoot=$HitRoot;hitPid=$HitPid
     point=[pscustomobject]@{x=30;y=32}
   }
@@ -139,6 +140,7 @@ function Run-Observation([bool]$NoKeys,[string]$BlockerKind,[int]$HitPid,[int]$H
   }
   function Get-DirtyStateFast($Window) { $false }
   function Get-SSETableLiveInputState { [pscustomobject]@{ok=$true;editorClosed=$true} }
+  function Get-LiveElement { throw 'Synthetic table anchor cannot be resolved.' }
   function Emit($Result) { $script:captured=$Result; throw 'SSE_TEST_CAPTURED_RESULT' }
   $kopf=@('Datum','N','Betrag')
   $echte=@(@('15.01','', '10,00'),@('15.01','', '10,00'))
@@ -147,7 +149,7 @@ function Run-Observation([bool]$NoKeys,[string]$BlockerKind,[int]$HitPid,[int]$H
     [pscustomobject]@{rowIndex=1;typedValues=@('15.01',$true,'10,00');semanticsComplete=$true}
   )
   $sumLabel='Summe'; $summe='20,00'; $summen=@([pscustomobject]@{label='Summe';wert='20,00';vorkommen=1})
-  $dirtyBefore=$false; $identityState=@{fehlend=$false}; $endProven=$false
+  $dirtyBefore=$false; $identityState=@{fehlend=$IdentityMissing}; $endProven=$false
   $schritte=0; $maxSchritte=100; $stapel=0; $stapelGroesse=1; $stapelKorrekturen=0
   . $activation
   . $completion
@@ -184,6 +186,69 @@ Same $visible.result.obstruction $null 'NoKeys result invented an obstruction.'
 Same @($visible.result.cursorActivation.reason,$visible.result.cursorActivation.exceptionType,
   $visible.result.cursorActivation.exceptionMessage,$visible.result.cursorActivation.errorRecord) @($null,$null,$null,$null) `
   'Explicit noKeys read unexpectedly entered the activation catch.'
+$unavailable=Run-Observation $false 'cursor-unavailable' 7 111 $false $true
+Same $unavailable.result.ok $false 'A failed full cursor read was reported as success.'
+Same $unavailable.result.kind 'cursor-unavailable' 'A failed full cursor read lost its failure kind.'
+Same $unavailable.result.stopKind 'cursor-unavailable' 'A failed full cursor read lost its stop cause.'
+Same $unavailable.result.cursorActivation.reason 'cursor-activation-exception' 'A failed full cursor read lost its reason.'
+if ($unavailable.result.error -notlike 'Vollstaendiger Tabellenlauf*') {throw 'Full cursor failure has no explicit full-read error.'}
+Same $unavailable.result.cursorActivation.exceptionMessage 'Synthetic table anchor cannot be resolved.' `
+  'A failed full cursor read lost its precise activation diagnostic.'
+Same @($unavailable.pointQueries,$unavailable.raises,$unavailable.releases) @(1,1,1) `
+  'Cursor failure performed an unexpected activation or cleanup.'
+$missingIdentity=Run-Observation $true 'identity-unavailable' 7 111 $false $false $true
+Same $missingIdentity.result.ok $false 'An unbound row inventory was reported as success.'
+Same $missingIdentity.result.kind 'row-identity-unavailable' 'An unbound inventory lost its failure kind.'
+if ($missingIdentity.result.error -notlike 'Zeilenidentitaet des sichtbaren Teilbestands*') {
+  throw 'Passive identity failure claimed an attempted full cursor read.'
+}
+Same @($missingIdentity.pointQueries,$missingIdentity.raises,$missingIdentity.releases) @(0,0,0) `
+  'A passive identity failure attempted foreground input.'
+$ambiguousIdentity=Run-Observation $false 'ambiguous-table' 7 111 $false $false $true 2
+Same $ambiguousIdentity.result.ok $false 'Passive ambiguous-table inventory lost its identity failure.'
+Same $ambiguousIdentity.result.kind 'row-identity-unavailable' 'Passive ambiguity hid a missing identity.'
+Same $ambiguousIdentity.result.error $missingIdentity.result.error 'Passive ambiguity claimed an attempted cursor run.'
+Same @($ambiguousIdentity.pointQueries,$ambiguousIdentity.raises,$ambiguousIdentity.releases) @(0,0,0) `
+  'Passive ambiguous table attempted cursor activation.'
+
+# Execute the real completion/finish slices for failures AFTER cursor steps.
+# Intentional truncation must stay successful; a simultaneous proof failure
+# has priority and must retain all already observed rows and typed values.
+function Get-DirtyStateFast($Window) { $false }
+function Emit($Result) { $script:captured=$Result;throw 'SSE_TEST_CAPTURED_RESULT' }
+function Arg($Arguments,$Name,$Default=$null) { $Arguments[$Name] }
+foreach ($scenario in @(
+  [pscustomobject]@{name='bounded-partial';cursor=$false;identity=$false;steps=10;kind='max-rows';failureKind=$null;error=$null;hint='*bewusst als unvollstaendig*';ok=$true},
+  [pscustomobject]@{name='cursor-after-steps';cursor=$true;identity=$false;steps=4;kind='cursor-unavailable';failureKind='cursor-unavailable';error='Vollstaendiger Tabellenlauf*';hint='*nicht sicher beweisbar*';ok=$false},
+  [pscustomobject]@{name='identity-after-steps';cursor=$false;identity=$true;steps=4;kind='row-identity-unavailable';failureKind='row-identity-unavailable';error='Vollstaendiger Tabellenlauf*';hint='*nicht sicher beweisbar*';ok=$false},
+  [pscustomobject]@{name='cursor-at-limit';cursor=$true;identity=$false;steps=10;kind='cursor-unavailable';failureKind='cursor-unavailable';error='Vollstaendiger Tabellenlauf*';hint='*nicht sicher beweisbar*';ok=$false},
+  [pscustomobject]@{name='identity-at-limit';cursor=$false;identity=$true;steps=10;kind='row-identity-unavailable';failureKind='row-identity-unavailable';error='Vollstaendiger Tabellenlauf*';hint='*nicht sicher beweisbar*';ok=$false},
+  [pscustomobject]@{name='both-at-limit';cursor=$true;identity=$true;steps=10;kind='row-identity-unavailable';failureKind='row-identity-unavailable';error='Vollstaendiger Tabellenlauf*';hint='*nicht sicher beweisbar*';ok=$false}
+)) {
+  $script:captured=$null;$hwnd=[IntPtr]111;$a=@{noKeys=$false}
+  $geklickt=$true;$cursorUnavailable=$scenario.cursor;$identityState=@{fehlend=$scenario.identity}
+  $endProven=$false;$schritte=$scenario.steps;$maxSchritte=10;$stapel=1;$stapelGroesse=1;$stapelKorrekturen=0
+  $dirtyBefore=$false;$navigationState=[pscustomobject]@{failure=$null};$readNavigationGuard={param($Phase) $true}
+  $erst=[pscustomobject]@{tabelleAnzahl=1;ersteZelle=[pscustomobject]@{};bindung=[pscustomobject]@{sumLabel='Summe'}}
+  $kopf=@('Datum','N','Betrag');$echte=@(@('15.01','','10,00'),@('15.01','','10,00'))
+  $rowDetails=@([pscustomobject]@{rowIndex=0;typedValues=@('15.01',$false,'10,00')},
+    [pscustomobject]@{rowIndex=1;typedValues=@('15.01',$true,'10,00')})
+  $summe='20,00';$summen=@([pscustomobject]@{label='Summe';wert=$summe;vorkommen=1})
+  $cursorActivation=[pscustomobject]@{reason='observed-cursor-proof-failure'}
+  . $completion
+  try {. $finish} catch {if($_.Exception.Message -cne 'SSE_TEST_CAPTURED_RESULT'){throw}}
+  Same $script:captured.ok $scenario.ok "$($scenario.name): incorrect success flag."
+  Same $script:captured.stopKind $scenario.kind "$($scenario.name): incorrect stop cause."
+  Same $script:captured.kind $scenario.failureKind "$($scenario.name): incorrect failure kind."
+  Same $script:captured.steps $scenario.steps "$($scenario.name): lost traversed steps."
+  Same $script:captured.zeilen $echte "$($scenario.name): lost observed duplicate rows."
+  Same $script:captured.rowDetails $rowDetails "$($scenario.name): lost typed observations."
+  Same $script:captured.summe $summe "$($scenario.name): lost observed sum."
+  Same $script:captured.limitReached ($scenario.steps -eq 10) "$($scenario.name): lost limit evidence."
+  Same $script:captured.vollstaendig $false "$($scenario.name): unproven inventory claimed completion."
+  Same ([string]$script:captured.error -like [string]$scenario.error) $true "$($scenario.name): incorrect error wording."
+  Same ($script:captured.hinweis -like $scenario.hint) $true "$($scenario.name): incorrect partial-read hint."
+}
 $activeBeforeFocus=Run-Observation $false 'active-editor' 7 111 $true
 Same @($activeBeforeFocus.pointQueries,$activeBeforeFocus.raises) @(0,0) 'Reader touched focus or cell points before rejecting an active editor.'
 Same $activeBeforeFocus.result.kind 'interference' 'An active editor was not a fail-closed cursor precondition.'

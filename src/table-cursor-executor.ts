@@ -12,6 +12,18 @@ import { executeNativeSteppedCursor } from "./table-cursor-step.js";
 export { tableCursorModelFingerprint } from "./table-cursor-proofs.js";
 export { executeTableCursorMutation } from "./table-cursor-mutation.js";
 
+function cursorFailureEvidence(result: WorkerResult | undefined, modelUnchanged = false): Partial<WorkerResult> {
+  const source: Partial<WorkerResult> = result ? publicCursorResult(result) : {};
+  const evidence: Partial<WorkerResult> = {};
+  const keys = ["kind", "steps", "schritte", "cursorActivation", "navigationEvidence", "focusTelemetry",
+    "physicalInputAttempted", "physicalInputUsed", "activationSubmitted", "cleanupRequired"];
+  if (modelUnchanged) keys.push("kopf", "zeilen", "rowDetails", "summe", "summen", "anzahl");
+  for (const key of keys) {
+    if (Object.hasOwn(source, key)) evidence[key] = source[key];
+  }
+  return evidence;
+}
+
 async function executeNativeCursorFocus(client: QtNativeClient, phase: CursorPhase, args: Record<string, unknown>,
   initial: CursorBinding, before: CompleteModel, remaining: () => number, release: CursorPhase,
   signal?: AbortSignal): Promise<WorkerResult> {
@@ -21,7 +33,7 @@ async function executeNativeCursorFocus(client: QtNativeClient, phase: CursorPha
   let binding = initial, lease: CursorLease | undefined, consumed = false, submitted = false;
   let physicalInputAttempted: boolean | null = false;
   let currentPhase = "native-acquire", cleanupRequired = false, handoverReported = false;
-  let resumeFailure: WorkerResult | undefined;
+  let resumeResult: WorkerResult | undefined, nativeWholeModelUnchanged = false;
   let nativeFocusEvidence: Record<string, unknown> | undefined;
   let result: WorkerResult;
   try {
@@ -64,6 +76,7 @@ async function executeNativeCursorFocus(client: QtNativeClient, phase: CursorPha
     currentPhase = "cursor-resume";
     physicalInputAttempted = null;
     const resumed = await phase("resume", binding, { lease, selectedRids: acquired.selectedRids });
+    resumeResult = publicCursorResult(resumed);
     physicalInputAttempted = typeof resumed.steps === "number" ? resumed.steps > 0 : null;
     // Emit has already consumed the imported lease, even when restoration was
     // deliberately skipped for changed input. Never reacquire it after that.
@@ -72,7 +85,11 @@ async function executeNativeCursorFocus(client: QtNativeClient, phase: CursorPha
     if (!resumed.ok) {
       // A rejected cursor proof is different from an unconsumed lease. Keep
       // the worker's public diagnosis while finally enforces cleanup itself.
-      resumeFailure = publicCursorResult(resumed);
+      currentPhase = "native-final-readback";
+      const final = await readQtNativeCompleteTable(client, nativeArgs, remaining(), signal);
+      if (tableCursorModelFingerprint(final) !== fingerprint) rejectProof("native-focus-final-model");
+      nativeWholeModelUnchanged = true;
+      currentPhase = "cursor-resume";
       rejectProof("native-focus-resume-worker-result");
     }
     if (!consumed) rejectProof("native-focus-resume-lease-completion");
@@ -85,9 +102,12 @@ async function executeNativeCursorFocus(client: QtNativeClient, phase: CursorPha
     if (!checkpoint.ok || checkpoint.cursorCheckpoint !== true) rejectProof("native-focus-final-epoch");
     result = { ...publicCursorResult(resumed), nativeWholeModelUnchanged: true, cursorTransaction: "native-focus-only", retryable: false };
   } catch (error) {
-    result = { ...resumeFailure, ok: false, kind: resumeFailure?.kind ?? "cursor-proof-failed", phase: currentPhase,
+    result = { ...cursorFailureEvidence(resumeResult, nativeWholeModelUnchanged), ok: false,
+      kind: resumeResult?.kind ?? "cursor-proof-failed", phase: currentPhase,
       proofCheck: error instanceof CursorProofFailure ? error.proofCheck : "native-or-worker-contract",
-      error: resumeFailure?.error ?? "Nativer Tabellenfokus hat seinen vollstaendigen Nachweis verloren; frisch abgleichen, nicht wiederholen.",
+      error: nativeWholeModelUnchanged && resumeResult?.error ? resumeResult.error
+        : "Nativer Tabellenfokus hat seinen vollstaendigen Nachweis verloren; frisch abgleichen, nicht wiederholen.",
+      ...(nativeWholeModelUnchanged ? { nativeWholeModelUnchanged: true } : {}),
       activationSubmitted: submitted, physicalInputAttempted, outcomeUnknown: submitted || handoverReported,
       ...(nativeFocusEvidence ? { nativeCursorFocusEvidence: nativeFocusEvidence } : {}),
       reconciliationRequired: submitted || handoverReported, retryable: false, vollstaendig: false };
@@ -127,6 +147,7 @@ export async function executeTableCursorRead(args: Record<string, unknown>, work
   let activationSubmitted = false;
   let physicalInputAttempted: boolean | null = false;
   let currentPhase = "prebind";
+  let traversalResult: WorkerResult | undefined;
   try {
     const prebind = await phase("prebind");
     if (!prebind.ok) return prebind;
@@ -184,6 +205,7 @@ export async function executeTableCursorRead(args: Record<string, unknown>, work
     }
     currentPhase = "cursor-resume";
     const result = await phase("resume", afterBinding, { selectedRids: activated.selectedRids });
+    traversalResult = publicCursorResult(result);
     if (typeof result.steps === "number" && result.steps > 0) physicalInputAttempted = true;
     currentPhase = "native-final-readback";
     const final = await readQtNativeCompleteTable(client, nativeArgs, remaining(), signal);
@@ -193,9 +215,12 @@ export async function executeTableCursorRead(args: Record<string, unknown>, work
       const checkpoint = await phase("checkpoint", bindingSchema.parse(result.cursorBinding));
       if (!checkpoint.ok || checkpoint.cursorCheckpoint !== true) throw new Error("Final native read lost the inherited input/window checkpoint.");
     }
-    return { ...publicCursorResult(result), nativeWholeModelUnchanged: true, cursorTransaction: "guarded-table-viewport", retryable: false };
+    return { ...publicCursorResult(result), physicalInputAttempted,
+      ...(!result.ok ? { outcomeUnknown: activationSubmitted, reconciliationRequired: activationSubmitted } : {}),
+      nativeWholeModelUnchanged: true, cursorTransaction: "guarded-table-viewport", retryable: false };
   } catch (error) {
-    return { ok: false, kind: "cursor-proof-failed", error: "Geschuetzter Tabellenlauf konnte seinen vollstaendigen Zustandsnachweis nicht halten; frisch abgleichen, nicht wiederholen.",
+    return { ...cursorFailureEvidence(traversalResult), ok: false, kind: traversalResult?.kind ?? "cursor-proof-failed",
+      error: "Geschuetzter Tabellenlauf konnte seinen vollstaendigen Zustandsnachweis nicht halten; frisch abgleichen, nicht wiederholen.",
       phase: currentPhase, proofCheck: error instanceof CursorProofFailure ? error.proofCheck : "native-or-worker-contract",
       ...cursorProofActivation(error),
       activationSubmitted, physicalInputAttempted, outcomeUnknown: activationSubmitted,

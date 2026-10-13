@@ -2,7 +2,7 @@ import type { WorkerResult } from "./api-contract.js";
 import { sanitizeNativePositionDiagnostic, sanitizePositionCheckpoint } from "./table-cursor-position.js";
 
 const kinds = new Set([
-  "aborted", "busy", "cancelled", "cursor-proof-failed", "cursor-unavailable", "interference", "not-found",
+  "aborted", "busy", "cancelled", "cursor-proof-failed", "cursor-unavailable", "row-identity-unavailable", "interference", "not-found",
   "precondition-failed", "postcondition-failed", "timeout", "worker-isolation-lost", "native-contract", "native-timeout",
   "GUI_QUEUE_TIMEOUT", "GUI_OPERATION_TIMEOUT", "MUTATION_ACK_REQUIRED", "SESSION_DRAINING",
 ]);
@@ -28,7 +28,7 @@ const proofChecks = new Set([
   "native-position-final-epoch",
   "native-position-checkpoint-worker-result",
 ]);
-const stopKinds = new Set(["cursor-unavailable", "max-rows", "cursor-stalled"]);
+const stopKinds = new Set(["cursor-unavailable", "row-identity-unavailable", "max-rows", "cursor-stalled"]);
 
 /** Preserve a rejected append seek without exporting its cells, raw errors or private cursor authority. */
 export function tableAddCursorFailure(original: WorkerResult, cursor: WorkerResult): WorkerResult {

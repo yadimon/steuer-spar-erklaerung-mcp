@@ -99,7 +99,11 @@ async function run(options = {}) {
     assert.equal(plan.binding.inputEpoch, 124, "Cursor must inherit exactly the proven own click epoch.");
     assert.deepEqual(plan.selectedRids, ["42.777.4.-23"]);
     const finalBinding = copy(binding); finalBinding.inputEpoch = 128;
-    return { ok: true, cursorBinding: finalBinding, vollstaendig: true, steps: 4, zeilen: [["", "Example"]] };
+    if (options.resumeFailure) return { ok: false, kind: options.resumeFailure, error: "Bounded cursor proof failed.",
+      cursorBinding: finalBinding, vollstaendig: false, steps: 4, schritte: 4, zeilen: [["", "Example"]] };
+    return { ok: true, cursorBinding: finalBinding, vollstaendig: true, steps: 4, zeilen: [["", "Example"]],
+      rowDetails: [{ rowIndex: 0, typedValues: ["", "Example"] }], summe: "4,00",
+      stopKind: "end-of-table", limitReached: false, hinweis: "Complete traversal proven." };
   };
   const result = await executeTableCursorRead({ hwnd: 111, noKeys: false, sumLabel: "Summe", sumOccurrence: 1 }, worker,
     { qtNativeClient: client }, 10_000);
@@ -112,6 +116,39 @@ assert.equal(success.result.nativeWholeModelUnchanged, true);
 assert.deepEqual(success.calls, ["prebind", "activate", "resume", "checkpoint"]);
 assert.deepEqual(success.native, ["table_snapshot", "ping", "accessibility_snapshot", "objects", "table_snapshot", "table_snapshot"]);
 assert.equal(JSON.stringify(success.result).includes("inputEpoch"), false, "Private authority must not escape.");
+for (const kind of ["cursor-unavailable", "row-identity-unavailable"]) {
+  const failedRead = await run({ resumeFailure: kind });
+  assert.equal(failedRead.result.ok, false);
+  assert.equal(failedRead.result.kind, kind);
+  assert.equal(failedRead.result.steps, 4);
+  assert.deepEqual(failedRead.result.zeilen, [["", "Example"]]);
+  assert.equal(failedRead.result.nativeWholeModelUnchanged, true);
+  assert.equal(failedRead.result.physicalInputAttempted, true);
+  assert.equal(failedRead.result.outcomeUnknown, true);
+  assert.equal(failedRead.result.reconciliationRequired, true);
+  assert.deepEqual(failedRead.calls, ["prebind", "activate", "resume"], "An unproven cursor binding must not reach another checkpoint action.");
+  assert.equal(JSON.stringify(failedRead.result).includes("inputEpoch"), false);
+}
+for (const change of [
+  value => { value.values[2][1].display = "Changed after failed traversal"; },
+  () => { throw new Error("Synthetic passive final read failed."); },
+]) {
+  const failedRead = await run({ resumeFailure: "row-identity-unavailable",
+    model: (value, count) => { if (count === 3) change(value); } });
+  assert.equal(failedRead.result.ok, false);
+  assert.equal(failedRead.result.kind, "row-identity-unavailable");
+  assert.equal(failedRead.result.steps, 4);
+  assert.equal(failedRead.result.schritte, 4);
+  assert.equal(failedRead.result.phase, "native-final-readback");
+  assert.equal(failedRead.result.physicalInputAttempted, true);
+  assert.equal(failedRead.result.outcomeUnknown, true);
+  assert.equal(failedRead.result.reconciliationRequired, true);
+  assert.equal(Object.hasOwn(failedRead.result, "zeilen"), false);
+  assert.equal(Object.hasOwn(failedRead.result, "rowDetails"), false);
+  assert.equal(Object.hasOwn(failedRead.result, "summe"), false);
+  assert.equal(Object.hasOwn(failedRead.result, "nativeWholeModelUnchanged"), false);
+  assert.deepEqual(failedRead.calls, ["prebind", "activate", "resume"]);
+}
 
 for (const change of [
   value => { value.values[2][1].display = "Changed blank"; },
@@ -131,6 +168,13 @@ for (const change of [
 const finalChange = await run({ model: (value, count) => { if (count === 3) value.values[2][1].display = "Changed final blank"; } });
 assert.equal(finalChange.result.ok, false);
 assert.equal(finalChange.result.phase, "native-final-readback");
+assert.equal(finalChange.result.steps, 4);
+assert.equal(Object.hasOwn(finalChange.result, "stopKind"), false);
+assert.equal(Object.hasOwn(finalChange.result, "limitReached"), false);
+assert.equal(Object.hasOwn(finalChange.result, "hinweis"), false);
+assert.equal(Object.hasOwn(finalChange.result, "zeilen"), false);
+assert.equal(Object.hasOwn(finalChange.result, "rowDetails"), false);
+assert.equal(Object.hasOwn(finalChange.result, "summe"), false);
 
 for (const options of [
   { foreignPid: true },
@@ -165,6 +209,10 @@ const finalInputChanged = await run({ finalInputChanged: true });
 assert.equal(finalInputChanged.result.ok, false);
 assert.equal(finalInputChanged.result.phase, "passive-final-checkpoint");
 assert.equal(finalInputChanged.result.reconciliationRequired, true);
+assert.equal(finalInputChanged.result.steps, 4);
+assert.equal(Object.hasOwn(finalInputChanged.result, "stopKind"), false);
+assert.equal(Object.hasOwn(finalInputChanged.result, "limitReached"), false);
+assert.equal(Object.hasOwn(finalInputChanged.result, "hinweis"), false);
 const rowHeaders = await run({ snapshot: value => {
   for (let i = 3; i < 30; i++) value.nodes.push(node(i, 0, "Header", "", 1000, 2));
   value.stats.n = value.nodes.length;

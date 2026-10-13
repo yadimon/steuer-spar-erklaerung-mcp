@@ -7261,9 +7261,14 @@ function Invoke-SSETableReadSemanticFocus {
     }
     if ($anchor.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern,[ref]$valuePattern)) {
       $beforeNumber=$(if ([string]$node.val) {[string]$node.val} else {[string]$node.name})
-      if ($valuePattern.Current.IsReadOnly -isnot [bool] -or -not $valuePattern.Current.IsReadOnly -or
-          -not (Test-SSETableCellEquivalent ([string]$valuePattern.Current.Value) $beforeNumber)) {
-        $result.reason='number-anchor-value-pattern-unbound';return $result
+      if ($valuePattern.Current.IsReadOnly -isnot [bool]) {
+        $result.reason='number-anchor-readonly-unavailable';return $result
+      }
+      if (-not $valuePattern.Current.IsReadOnly) {
+        $result.reason='number-anchor-writable-value-pattern';return $result
+      }
+      if (-not (Test-SSETableCellEquivalent ([string]$valuePattern.Current.Value) $beforeNumber)) {
+        $result.reason='number-anchor-value-mismatch';return $result
       }
     }
     $result.anchorFocusable=$anchor.Current.IsKeyboardFocusable
@@ -20091,9 +20096,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       -not $limitReached -and -not $cursorUnavailable -and -not $identityState.fehlend
     )
     $stopKind = $(
-      if ($limitReached) { 'max-rows' }
-      elseif ($identityState.fehlend) { 'row-identity-unavailable' }
+      if ($identityState.fehlend) { 'row-identity-unavailable' }
       elseif ($cursorUnavailable) { 'cursor-unavailable' }
+      elseif ($limitReached) { 'max-rows' }
       elseif ($endProven) { 'end-of-table' }
       elseif ($erst.tabelleAnzahl -gt 1 -and -not $sumLabel) { 'ambiguous-table' }
       elseif (-not $erst.ersteZelle -or $erst.tabelleAnzahl -eq 0) { 'no-table' }
@@ -20195,7 +20200,16 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $navigationState.snapshot=$completionSnapshot
     }
     $completedTableRead=[pscustomobject]@{
-      ok = $true; kopf = $kopf; zeilen = $echte; anzahl = $echte.Count
+      ok = [bool](-not $cursorUnavailable -and -not $identityState.fehlend)
+      kind = $(if ($cursorUnavailable -or $identityState.fehlend) { $stopKind } else { $null })
+      error = $(if ($cursorUnavailable -or $identityState.fehlend) {
+        if (-not $geklickt -and -not $cursorUnavailable) {
+          'Zeilenidentitaet des sichtbaren Teilbestands nicht bewiesen; nur eindeutig beobachtete Zeilen sind erhalten. Keine Eingabe ausgefuehrt.'
+        } else {
+          'Vollstaendiger Tabellenlauf konnte Cursor- oder Zeilenidentitaet nicht beweisen; nur der beobachtete Teilbestand ist erhalten. Keine weitere Eingabe.'
+        }
+      } else { $null })
+      kopf = $kopf; zeilen = $echte; anzahl = $echte.Count
       rowDetails = @($rowDetails)
       summe = $summe
       summen = @($summen)
@@ -20216,10 +20230,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       ungespeichertNachher = $dirtyAfter
       ungespeichertEingefuehrt = [bool]((-not $dirtyBefore) -and $dirtyAfter)
       hinweis = $(if ($vollstaendig) { 'Das Tabellenende wurde ueber die UIA-Auswahl bewiesen - Summe der Seite trotzdem zur Gegenprobe vergleichen.' }
-                  elseif ($limitReached) {
-                    "Nach $schritte DOWN-Schritten ist maxRows erreicht; Ergebnis ist bewusst als unvollstaendig markiert."
-                  } elseif ($cursorUnavailable -or $identityState.fehlend) {
+                  elseif ($cursorUnavailable -or $identityState.fehlend) {
                     'Cursor- oder Zeilenidentitaet war nicht sicher beweisbar; nur die gelesenen Zeilen werden als Teilstand gemeldet.'
+                  } elseif ($limitReached) {
+                    "Nach $schritte DOWN-Schritten ist maxRows erreicht; Ergebnis ist bewusst als unvollstaendig markiert."
                   }
                   elseif ($erst.tabelleAnzahl -gt 1 -and -not $sumLabel) {
                     "$($erst.tabelleAnzahl) Eingabetabellen gefunden. Fuer einen Vollstaendigkeitsbeweis sumLabel und sumOccurrence angeben; nichts fokussiert."

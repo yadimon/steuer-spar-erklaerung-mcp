@@ -18,8 +18,8 @@
     },
     {
       "path": "dist/api.js",
-      "sha256": "75c23345ef85952e4ff2f2967082d3514b93fa7d491196fd08853476936f1555",
-      "size": 1145242
+      "sha256": "eb7def12dea9e0f0fe557de5ad0cb52986f4e47296f5230e02d07a843ef87985",
+      "size": 1146749
     },
     {
       "path": "dist/mcp.js",
@@ -88,8 +88,8 @@
     },
     {
       "path": "powershell/sse-worker.ps1",
-      "sha256": "47f500c3e378833fd7113a053525ef5d601210c7bd18b23f95f62ded601a072a",
-      "size": 1451670
+      "sha256": "b0dac7368742b34a1808dc2600c3d4f680c98d8ff8ae3f08ecd7fd669bd29bda",
+      "size": 1452488
     },
     {
       "path": "powershell/structure-binding.ps1",

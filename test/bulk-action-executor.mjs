@@ -242,6 +242,18 @@ test("append stops on incomplete or uncertain cursor successes and on known pre-
   assert.equal(absentProof.result.mutationStarted, null);
 });
 
+test("append preserves a bounded row-identity failure without retrying the write", async () => {
+  const { result, calls } = await appendWithCursor({ ok: false, kind: "row-identity-unavailable",
+    stopKind: "row-identity-unavailable", vollstaendig: false, anzahl: 6, steps: 4,
+    outcomeUnknown: false, cleanupRequired: false });
+  assert.deepEqual(calls.map(value => value.operation), ["table_add", "table_read"]);
+  assert.equal(result.ok, false);
+  assert.equal(result.freeRowSearch.cursorResult.kind, "row-identity-unavailable");
+  assert.equal(result.freeRowSearch.cursorResult.stopKind, "row-identity-unavailable");
+  assert.equal(result.freeRowSearch.cursorResult.steps, 4);
+  assert.equal(result.retryable, false);
+});
+
 test("append cursor diagnostics exclude cells, free text, identities, authority and invalid scalar types", async () => {
   const secret = "synthetic-private-evidence";
   const { result, calls } = await appendWithCursor({

@@ -71,7 +71,9 @@ async function run(options = {}) {
       assert.deepEqual(plan.lease, lease);
       assert.deepEqual(plan.selectedRids, ["42.777.4.-23"]);
       const final = copy(binding); final.inputEpoch = 128;
-      const resumed = { ok: true, cursorBinding: final, focusTelemetry: { releasedByEmit: true }, steps: 4, vollstaendig: true };
+      const resumed = { ok: true, cursorBinding: final, focusTelemetry: { releasedByEmit: true }, steps: 4, vollstaendig: true,
+        zeilen: [["", "Example"]], rowDetails: [{ rowIndex: 0, typedValues: ["", "Example"] }], summe: "4,00",
+        stopKind: "end-of-table", limitReached: false, hinweis: "Complete traversal proven." };
       options.resume?.(resumed);
       return resumed;
     }
@@ -89,6 +91,44 @@ assert.deepEqual(success.calls, ["prebind", "native-acquire", "resume", "checkpo
 assert.equal(success.native.filter(op => op === "table_focus_only").length, 1);
 assert.equal(JSON.stringify(success.result).includes("SyntheticCaller"), false);
 assert.equal(JSON.stringify(success.result).includes("windowTitle"), false);
+
+const failedTraversal = value => {
+  value.ok = false; value.kind = "row-identity-unavailable"; value.error = "Synthetic row identity missing.";
+  value.vollstaendig = false; value.zeilen = [["", "Example"]];
+  value.rowDetails = [{ rowIndex: 0, typedValues: ["", "Example"] }]; value.schritte = 4;
+};
+const identityFailure = await run({ resume: failedTraversal });
+assert.equal(identityFailure.result.kind, "row-identity-unavailable");
+assert.equal(identityFailure.result.steps, 4);
+assert.equal(identityFailure.result.schritte, 4);
+assert.deepEqual(identityFailure.result.zeilen, [["", "Example"]]);
+assert.equal(identityFailure.result.nativeWholeModelUnchanged, true);
+assert.equal(identityFailure.result.physicalInputAttempted, true);
+assert.equal(identityFailure.result.outcomeUnknown, true);
+assert.equal(identityFailure.result.reconciliationRequired, true);
+assert.deepEqual(identityFailure.calls, ["prebind", "native-acquire", "resume"]);
+
+const changedAfterFailure = await run({ resume: failedTraversal,
+  model: (value, count) => { if (count === 4) value.values[1][1].display = "Changed after traversal"; } });
+assert.equal(changedAfterFailure.result.kind, "row-identity-unavailable");
+assert.equal(changedAfterFailure.result.steps, 4);
+assert.equal(changedAfterFailure.result.proofCheck, "native-focus-final-model");
+assert.equal(Object.hasOwn(changedAfterFailure.result, "zeilen"), false);
+assert.equal(Object.hasOwn(changedAfterFailure.result, "rowDetails"), false);
+assert.equal(Object.hasOwn(changedAfterFailure.result, "nativeWholeModelUnchanged"), false);
+assert.equal(changedAfterFailure.result.outcomeUnknown, true);
+assert.deepEqual(changedAfterFailure.calls, ["prebind", "native-acquire", "resume"]);
+
+const finalReadFailure = await run({ resume: failedTraversal,
+  model: (_value, count) => { if (count === 4) throw new Error("Synthetic passive final read failed."); } });
+assert.equal(finalReadFailure.result.kind, "row-identity-unavailable");
+assert.equal(finalReadFailure.result.steps, 4);
+assert.equal(finalReadFailure.result.physicalInputAttempted, true);
+assert.equal(finalReadFailure.result.phase, "native-final-readback");
+assert.equal(finalReadFailure.result.proofCheck, "native-or-worker-contract");
+assert.equal(Object.hasOwn(finalReadFailure.result, "zeilen"), false);
+assert.equal(Object.hasOwn(finalReadFailure.result, "nativeWholeModelUnchanged"), false);
+assert.deepEqual(finalReadFailure.calls, ["prebind", "native-acquire", "resume"]);
 
 for (const options of [
   { noAck: true }, { throwFocus: true }, { focus: value => { value.inputTick++; } },
@@ -127,6 +167,20 @@ const finalEpoch = await run({ finalEpochChanged: true });
 assert.equal(finalEpoch.result.ok, false);
 assert.equal(finalEpoch.result.proofCheck, "native-focus-final-epoch");
 assert.equal(finalEpoch.calls.includes("native-release"), false, "Consumed lease is never reacquired after input interference.");
+assert.equal(finalEpoch.result.steps, 4);
+assert.equal(Object.hasOwn(finalEpoch.result, "stopKind"), false);
+assert.equal(Object.hasOwn(finalEpoch.result, "limitReached"), false);
+assert.equal(Object.hasOwn(finalEpoch.result, "hinweis"), false);
+const finalModelChanged = await run({ model: (value, count) => { if (count === 4) value.values[1][1].display = "Changed final model"; } });
+assert.equal(finalModelChanged.result.ok, false);
+assert.equal(finalModelChanged.result.steps, 4);
+assert.equal(finalModelChanged.result.proofCheck, "native-focus-final-model");
+assert.equal(Object.hasOwn(finalModelChanged.result, "stopKind"), false);
+assert.equal(Object.hasOwn(finalModelChanged.result, "limitReached"), false);
+assert.equal(Object.hasOwn(finalModelChanged.result, "hinweis"), false);
+assert.equal(Object.hasOwn(finalModelChanged.result, "zeilen"), false);
+assert.equal(Object.hasOwn(finalModelChanged.result, "rowDetails"), false);
+assert.equal(Object.hasOwn(finalModelChanged.result, "summe"), false);
 for (const released of [true, false]) {
   const failure = await run({ resume: value => {
     value.ok = false; value.kind = "interference"; value.error = "Synthetic cursor selection changed.";
