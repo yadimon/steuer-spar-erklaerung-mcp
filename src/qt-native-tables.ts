@@ -82,14 +82,14 @@ export function projectQtNativeCompleteTable(raw: Awaited<ReturnType<typeof read
   return normalizeTable(raw, maxRows);
 }
 
-/** Exact, unique visible model cell; hidden and checkbox cells are never targets. */
+/** Exact, unique enabled/selectable model cell; hidden, disabled and checkbox cells cannot be targets. */
 export function findQtNativeTableTarget(raw: Awaited<ReturnType<typeof readQtNativeCompleteTable>>, wanted: string) {
   const matches: { row: number; column: number }[] = [];
   for (let row = 0; row < raw.rows; row++) {
     if (raw.hiddenRows.includes(row)) continue;
     for (let column = 0; column < raw.columns; column++) {
       const value = raw.values[row]![column]!;
-      if (!raw.hiddenColumns.includes(column) && (value.flags & 16) === 0 && value.checkState === null
+      if (!raw.hiddenColumns.includes(column) && (value.flags & 33) === 33 && (value.flags & 16) === 0 && value.checkState === null
         && text(value.display) === wanted) matches.push({ row, column });
     }
   }

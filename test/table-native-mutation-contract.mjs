@@ -4,6 +4,7 @@ import { performance } from "node:perf_hooks";
 import { mock } from "node:test";
 import { executeTableCursorMutation, executeTableCursorRead } from "../dist/table-cursor-executor.js";
 import { QtNativeAcknowledgmentError } from "../dist/qt-native-client.js";
+import { findQtNativeTableTarget } from "../dist/qt-native-tables.js";
 
 // Synthetic complete Qt model and workers; no API, process or desktop.
 const copy = value => structuredClone(value);
@@ -26,6 +27,18 @@ const baseBinding = { hwnd: 111, pid: 7, inputEpoch: 123, dirty: true, dpi: 96, 
     contentSignature: "b".repeat(64), scopePrefix: "Synthetic.Scope", selectionMethod: "synthetic",
     summaryIdentity: "Synthetic.Sum", summaryValue: "100,00", summaryRid: "42.777.4.-21", summaryAid: "Synthetic.Sum",
     headers: headers.map((name, column) => ({ name, aid: `${aid}.${column}`, rid: `42.777.4.-${30 + column}` })) } } };
+const duplicateCalculated = copy(base);
+duplicateCalculated.values[7][3] = scalar('0,17');
+duplicateCalculated.values[7][6] = { ...scalar('0,17'), flags: 1 };
+assert.deepEqual(findQtNativeTableTarget(duplicateCalculated, '0,17'), { row: 7, column: 3 });
+const duplicateEnabled = copy(duplicateCalculated); duplicateEnabled.values[7][6].flags = 35;
+assert.equal(findQtNativeTableTarget(duplicateEnabled, '0,17'), null, 'Two enabled cells remain ambiguous.');
+const duplicateRows = copy(duplicateCalculated); duplicateRows.values[8][3] = scalar('0,17');
+assert.equal(findQtNativeTableTarget(duplicateRows, '0,17'), null, 'Two eligible rows must remain ambiguous.');
+const disabledTarget = copy(duplicateCalculated); disabledTarget.values[7][3].flags = 1;
+assert.equal(findQtNativeTableTarget(disabledTarget, '0,17'), null, 'Disabled cells cannot supply cursor authority.');
+const unselectableTarget = copy(duplicateCalculated); unselectableTarget.values[7][3].flags = 32;
+assert.equal(findQtNativeTableTarget(unselectableTarget, '0,17'), null, 'Enabled alone does not prove selection capability.');
 const originalArgs = { hwnd: 111, expectedPage: "EDV-Kosten", text: "Target", sumLabel: "Summe", expectedBefore: "100,00",
   expectedAfter: "100,00", werte: [null, null, "Updated", null, null, null, null] };
 const enumCatalog = { pages: { synthetic: { tables: { exact: {

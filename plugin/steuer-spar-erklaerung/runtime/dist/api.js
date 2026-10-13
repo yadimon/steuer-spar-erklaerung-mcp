@@ -12909,7 +12909,7 @@ function findQtNativeTableTarget(raw, wanted) {
     if (raw.hiddenRows.includes(row)) continue;
     for (let column = 0; column < raw.columns; column++) {
       const value = raw.values[row][column];
-      if (!raw.hiddenColumns.includes(column) && (value.flags & 16) === 0 && value.checkState === null && text(value.display) === wanted) matches.push({ row, column });
+      if (!raw.hiddenColumns.includes(column) && (value.flags & 33) === 33 && (value.flags & 16) === 0 && value.checkState === null && text(value.display) === wanted) matches.push({ row, column });
     }
   }
   return matches.length === 1 ? matches[0] : null;

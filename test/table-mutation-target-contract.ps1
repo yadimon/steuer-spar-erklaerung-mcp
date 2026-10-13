@@ -85,7 +85,8 @@ $expectedReject=@{
   'grid-absent'=@('grid-present','grid-identity',1);'grid-type'=@('grid-type-bound','grid-identity',0)
   'bad-checkbox-state'=@('toggle-state-valid','toggle',4);'target-disabled'=@('target-enabled','target-capability',2)
   'target-flags'=@('target-flags-enabled-selectable','target-capability',2)
-  'target-column'=@('target-column-bound','target-column',6);'target-other-cell'=@('target-rid-equal','target-capability',1)
+  'target-column'=@('target-column-header','target-unique',$null);'target-other-cell'=@('unique-text-target','target-unique',$null)
+  'caller-rid-other-column'=@('unique-text-target','target-unique',$null)
   'native-column-duplicate'=@('native-column-unique','cell-schema-geometry',1)
   'native-column-order'=@('native-column-order','cell-schema-geometry',1)
   'many-candidates'=@('unique-text-target','target-unique',$null)
@@ -93,7 +94,7 @@ $expectedReject=@{
 }
 $allowedChecks=@('schema-exact','row-type','row-lower-bound','row-upper-bound','column-type','column-lower-bound','column-upper-bound',
   'text-type','text-present','fingerprint-format','headers-lower-bound','headers-upper-bound','model-cell-count','table-state','editor-free',
-  'header-count','unique-text-target','row-cell-count','row-rids-unique','raw-resolve','cell-schema-exact','native-column-type',
+  'header-count','target-column-header','unique-text-target','row-cell-count','row-rids-unique','raw-resolve','cell-schema-exact','native-column-type',
   'native-column-lower-bound','native-column-upper-bound','native-column-unique','native-column-order','flags-type','cell-selectable',
   'header-name-equal','header-x-equal','header-width-contained','table-left-contained','table-right-contained','header-bottom-contained',
   'table-bottom-contained','live-x-equal','live-y-equal','live-width-equal','live-height-equal','live-name-equal','grid-pattern-present',
@@ -131,7 +132,7 @@ function Assert-SafeTargetDiagnostic($Proof) {
     if ($safe.Contains($forbidden)) {throw 'Target diagnostics disclose model values, identities or exception text.'}
   }
 }
-foreach ($case in @('exact-seven-columns','cell-grid-line','cell-inset-two','wrong-row','wrong-column','foreign-grid','grid-rid','grid-aid','other-text','changed-cell',
+foreach ($case in @('exact-seven-columns','duplicate-calculated-column','caller-rid-other-column','cell-grid-line','cell-inset-two','wrong-row','wrong-column','foreign-grid','grid-rid','grid-aid','other-text','changed-cell',
   'changed-checkbox','missing-checkbox','duplicate','caller-rid-stale','clipped','hidden-column','extra-prior-field','bad-native-flags','active-editor',
   'extra-target-field','bad-row-type','bad-column-type','model-count','table-state','header-count','shared-row','row-rids','raw-missing',
   'header-name','header-x','header-width','table-left','table-right','header-bottom','live-bounds','live-name','grid-pattern','grid-absent',
@@ -145,6 +146,14 @@ foreach ($case in @('exact-seven-columns','cell-grid-line','cell-inset-two','wro
   $script:elements=@{};$script:editorFree=$true;$rid=''
   for ($column=0;$column -lt 7;$column++) {$script:elements[$cells[$column].rid]=New-SyntheticCellElement $cells[$column] $container $column}
   switch ($case) {
+    'duplicate-calculated-column' {
+      $cells[6].on=$true;$cells[6].name='Target';$cells[6].val='Target';
+      $target.cells[6].display='Target';$target.cells[6].edit='Target';
+      $script:elements[$cells[6].rid].Current.Name='Target'
+    }
+    'caller-rid-other-column' {
+      $cells[6].on=$true;$cells[6].name='Target';$rid=$cells[6].rid
+    }
     'wrong-row' {$script:elements[$cells[0].rid].grid.Current.Row=[int]6}
     'wrong-column' {$script:elements[$cells[3].rid].grid.Current.Column=[int]2}
     'foreign-grid' {$container.Current.ProcessId=8}
@@ -195,7 +204,7 @@ foreach ($case in @('exact-seven-columns','cell-grid-line','cell-inset-two','wro
     'proof-exception' {$container | Add-Member ScriptMethod GetRuntimeId {throw 'synthetic-private-exception'} -Force}
   }
   $result=Get-SSETableMutationTargetProof ([IntPtr]111) 7 $script:tree $target $rid
-  if ($result.ok -ne ($case -cin @('exact-seven-columns','cell-grid-line'))) {throw "$case native row/GridItem/checkbox proof disagreed."}
+  if ($result.ok -ne ($case -cin @('exact-seven-columns','duplicate-calculated-column','cell-grid-line'))) {throw "$case native row/GridItem/checkbox proof disagreed."}
   if ($result.ok -and ($result.cells.Count -ne 7 -or $result.target.rid -cne $cells[2].rid)) {throw 'Exact seven-column model target was not returned.'}
   if ($result.ok) {
     if (@($result.PSObject.Properties.Name | Sort-Object) -join ',' -cne 'cells,ok,reason,target') {throw 'Successful target proof changed its output contract.'}

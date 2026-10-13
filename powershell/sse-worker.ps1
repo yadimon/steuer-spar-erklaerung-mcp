@@ -8040,9 +8040,14 @@ function Get-SSETableMutationTargetProof {
     $diagnostic.counts.headerActual=[Math]::Min(2048,$headers.Count)
     if ((& $failed 'header-count' ($headers.Count -ne @($Target.headers).Count))) {return $reject}
     $diagnostic.phase='target-unique'
+    $targetHeaderIndices=@(for($index=0;$index -lt @($Target.cells).Count;$index++) {
+      if ($Target.cells[$index].nativeColumn -is [int] -and $Target.cells[$index].nativeColumn -eq $Target.column) {$index}
+    })
+    if ((& $failed 'target-column-header' ($targetHeaderIndices.Count -ne 1))) {return $reject}
+    $targetHeader=$headers[$targetHeaderIndices[0]]
     $candidates=@($Tree.nodes | Where-Object {$_.p -eq $state.table.i -and $_.type -ceq 'DataItem' -and
       $_.aid -ceq $Target.tableAid -and $_.on -and $_.w -gt 0 -and $_.h -gt 0 -and
-      $_.name -ceq $Target.text -and (-not $TargetRid -or $_.rid -ceq $TargetRid)})
+      $_.x -eq $targetHeader.x -and $_.name -ceq $Target.text -and (-not $TargetRid -or $_.rid -ceq $TargetRid)})
     $diagnostic.counts.candidate=[Math]::Min(2048,$candidates.Count)
     if ((& $failed 'unique-text-target' ($candidates.Count -ne 1))) {return $reject}
     $diagnostic.phase='shared-row'
