@@ -42,6 +42,7 @@ export async function executeTableCursorMutation(operation: "table_update" | "ta
     if (client.binding.hwnd !== binding.hwnd || client.binding.pid !== binding.pid) rejectProof("mutation-native-session");
     const nativeArgs = { ...readArgs, hwnd: binding.hwnd };
     const before = await readQtNativeCompleteTable(client, nativeArgs, remaining(), signal);
+    if (Object.hasOwn(before.table, "rows") && before.table.rows !== before.rows) rejectProof("mutation-native-table-row-count");
     if (!amountEqual(before.summary, args.expectedBefore)) rejectProof("mutation-native-summary-before");
     const matched = findQtNativeTableTarget(before, String(args.text)) ?? rejectProof("mutation-unique-native-target");
     const fingerprint = tableCursorModelFingerprint(before);
@@ -70,7 +71,11 @@ export async function executeTableCursorMutation(operation: "table_update" | "ta
       || (ping.result.capabilities as Record<string, unknown>).tablePositionNumberProtocol !== 1) rejectProof("mutation-native-position-protocol");
     stage = "mutation-target-seek"; cursorAttempted = true;
     cursorResult = await executeNativeTargetPosition(client, phase, readArgs, binding, before, remaining, release, matched.row, signal);
-    if (!cursorResult.ok) return { ...publicCursorResult(cursorResult), mutationStarted: false, retryable: false };
+    if (!cursorResult.ok) {
+      const unknown = cursorResult.outcomeUnknown === true || cursorResult.cleanupRequired === true;
+      return { ...publicCursorResult(cursorResult), mutationStarted: unknown ? null : false,
+        ...(unknown ? { resultingState: "unknown" } : {}), retryable: false };
+    }
     binding = bindingSchema.parse(cursorResult.cursorBinding);
     stage = "mutation-target-readback";
     const afterSeek = await readQtNativeCompleteTable(client, nativeArgs, remaining(), signal);
@@ -93,8 +98,18 @@ export async function executeTableCursorMutation(operation: "table_update" | "ta
     const postProof = z.object({ inputEpoch: z.number().int().min(0).max(0xffff_ffff), dirty: z.boolean() }).strict().parse(result.mutationPostProof);
     stage = "mutation-native-postcondition";
     const after = await readQtNativeCompleteTable(client, nativeArgs, remaining(), signal);
-    const structure = (model: CompleteModel) => JSON.stringify({ table: model.table, columns: model.columns, headers: model.headers,
-      hiddenColumns: model.hiddenColumns, tableCount: model.tableCount, windowEnabled: model.windowEnabled, modalBlocked: model.modalBlocked });
+    if (Object.hasOwn(before.table, "rows") !== Object.hasOwn(after.table, "rows")
+      || (Object.hasOwn(before.table, "rows") && after.table.rows !== after.rows)) {
+      rejectProof("mutation-native-table-row-count");
+    }
+    const structure = (model: CompleteModel) => {
+      // Row deletion changes the descriptor's row count as well as model.rows.
+      // Its exact expected change is checked below; every other table property
+      // and the complete inventory must still retain their original identity.
+      const { rows: _rows, ...table } = model.table;
+      return JSON.stringify({ table, columns: model.columns, headers: model.headers,
+        hiddenColumns: model.hiddenColumns, tableCount: model.tableCount, windowEnabled: model.windowEnabled, modalBlocked: model.modalBlocked });
+    };
     if (structure(before) !== structure(after) || !amountEqual(after.summary, args.expectedAfter)) rejectProof("mutation-native-structure-summary");
     const untouched = before.values.filter((_, row) => row !== matched.row);
     const actual = operation === "table_update" ? after.values.filter((_, row) => row !== matched.row) : after.values;
@@ -143,7 +158,8 @@ export async function executeTableCursorMutation(operation: "table_update" | "ta
     return { ok: false, kind: "cursor-proof-failed", phase: stage,
       proofCheck: error instanceof CursorProofFailure ? error.proofCheck : "mutation-target-contract",
       error: "Native Zielzeile verlor ihren Nachweis; frisch abgleichen, Mutation nicht wiederholen.",
-      mutationStarted: mutationSubmitted ? null : false, outcomeUnknown: mutationSubmitted,
+      mutationStarted: mutationSubmitted || cursorAttempted ? null : false, outcomeUnknown: mutationSubmitted || cursorAttempted,
+      ...(mutationSubmitted || cursorAttempted ? { resultingState: "unknown" } : {}),
       reconciliationRequired: cursorAttempted || mutationSubmitted, retryable: false,
       ...(cursorResult ? { cursorSteps: cursorResult.steps } : {}) };
   }

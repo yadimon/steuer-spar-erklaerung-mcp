@@ -36,7 +36,7 @@ static Json tablePositionNumber(QWidget *root, const Json &request) {
         return noMutationError("INVALID_POSITION_TARGET", "The exact model has no leading Nr. column");
     const auto capture = [&]() { return tableCursorFocusBinding(view, execute({{"op", "table_read"},
         {"objectId", objectId(view)}, {"maxRows", 10000}, {"maxColumns", 100}})); };
-    if (const auto *blocked = tableFocusWidgetObstruction(root, view)) return noMutationError("editor-open", blocked);
+    if (const auto *blocked = tableFocusWidgetObstruction(root, view, nullptr, true)) return noMutationError("editor-open", blocked);
     if (capture() != binding) return noMutationError("stale", "The exact complete table/model/current-selection binding changed");
     const auto captureModel = [&]() { return capture().at("modelFingerprint"); };
     bool numberEditorPending = false;

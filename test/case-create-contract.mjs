@@ -56,7 +56,7 @@ function scriptedWorker(overrides = {}, calls = []) {
       return instance();
     },
     desktop_status: () => ({ ok: true, aktiv: false, desktop: null, sseLaeuft: false }),
-    launch: () => ({ ok: true, launched: true, pid: PID }),
+    launch: () => ({ ok: true, launched: true, pid: PID, ready: true, blockedByDialog: false }),
     launch_probe: () => ({
       ok: true, outcome: "observed", dialogs: [],
       windows: [{ pid: PID, hwnd: HWND, title: "Steuerprogramm", w: 1200, h: 800, minimiert: false }],
@@ -305,6 +305,150 @@ try {
   }
 
   {
+    // A real launch can succeed in creating a process while a recovery
+    // question blocks the wizard. Preserve that state without polling or cleanup.
+    const { worker, calls } = scriptedWorker({ launch_probe: () => ({ ok: true, outcome: "observed",
+      windows: [{ pid: PID, hwnd: HWND, title: "SteuerSparErklärung", w: 518, h: 260, minimiert: false }],
+      dialogs: [{ pid: PID, hwnd: HWND, kind: "qt-dialog", recoveryPrompt: true, requiresCaseBinding: true }],
+    }) });
+    const result = await createApiExecutor(config, worker)("case_create", { targetRef: TARGET, mode: "einurvor" }, 240_000);
+    assert.equal(result.ok, false);
+    assert.equal(result.kind, "startup-not-ready");
+    assert.equal(result.blockedByDialog, true);
+    assert.equal(result.processPreserved, true);
+    assert.equal(result.processStillRunning, true);
+    assert.equal(result.pid, PID);
+    assert.equal(result.created, false);
+    assert.equal(result.dialogs[0].recoveryPrompt, true);
+    assert.deepEqual(operationsOf(calls), ["instances", "desktop_status", "launch", "launch_probe"]);
+  }
+  for (const launch of [
+    { ready: false }, { ready: undefined }, { ready: true, blockedByDialog: true },
+    { ready: true, outcomeUnknown: true }, { ready: true, processPreserved: true },
+  ]) {
+    const { worker, calls } = scriptedWorker({ launch: () => ({ ok: true, pid: PID, ...launch }) });
+    const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 240_000, undefined, {
+      execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
+      profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
+    });
+    assert.equal(result.kind, "startup-not-ready");
+    assert.equal(result.processPreserved, true);
+    assert.equal(result.processStillRunning, null);
+    assert.equal(result.pid, PID);
+    assert.equal(result.created, false);
+    assert.equal(result.failedStep, "launch");
+    assert.deepEqual(operationsOf(calls), ["instances", "desktop_status", "launch"]);
+  }
+
+  for (const instanceState of [{ recoveredState: true }, { hung: true }]) {
+    let reads = 0;
+    const { worker, calls } = scriptedWorker({ instances: () => ++reads === 1 ? noInstance : instance(instanceState) });
+    const result = await createApiExecutor(config, worker)("case_create", { targetRef: TARGET, mode: "einurvor" }, 240_000);
+    assert.equal(result.kind, instanceState.recoveredState ? "recovered-state" : "startup-not-ready");
+    assert.equal(result.processPreserved, true);
+    assert.equal(result.processStillRunning, true);
+    assert.equal(result.pid, PID);
+    assert.equal(result.failedStep, "instances");
+    assert.deepEqual(operationsOf(calls), ["instances", "desktop_status", "launch", "launch_probe", "instances"]);
+  }
+  {
+    const { worker, calls } = scriptedWorker({ ui_state: () => ({ ok: true, heading: START_PAGE, blockiert: true }) });
+    const result = await createApiExecutor(config, worker)("case_create", { targetRef: TARGET, mode: "einurvor" }, 240_000);
+    assert.equal(result.kind, "startup-not-ready");
+    assert.equal(result.processPreserved, true);
+    assert.equal(result.processStillRunning, true);
+    assert.equal(result.failedStep, "ui_state");
+    assert.deepEqual(operationsOf(calls), ["instances", "desktop_status", "launch", "launch_probe", "instances", "ui_state"]);
+  }
+  for (const spec of [
+    { kind: "startup-question", title: "SteuerSparErklärung", width: 518 },
+    { kind: "recovered-state", title: "SteuerSparErklärung (Wiederhergestellt)", width: 1200 },
+    { kind: "startup-timeout", title: null, width: 0 },
+  ]) {
+    const { worker, calls } = scriptedWorker({ launch_probe: () => ({ ok: true, outcome: "deadline", dialogs: [],
+      windows: spec.title ? [{ pid: PID, hwnd: HWND, title: spec.title, w: spec.width, h: 800, minimiert: false }] : [],
+    }) });
+    const result = await createApiExecutor(config, worker)("case_create", { targetRef: TARGET, mode: "einurvor" }, 240_000);
+    assert.equal(result.kind, spec.kind);
+    assert.equal(result.processPreserved, true);
+    assert.equal(result.processStillRunning, spec.kind === "startup-timeout" ? null : true);
+    assert.equal(result.pid, PID);
+    assert.equal(result.created, false);
+    assert.equal(result.failedStep, "launch");
+    assert.equal(result.reconciliationRequired, true);
+    assert.deepEqual(operationsOf(calls), ["instances", "desktop_status", "launch", "launch_probe"]);
+  }
+  for (const invalidLaunch of [
+    () => { throw new Error("Synthetic response lost after launch dispatch"); },
+    () => ({ ok: true, ready: true }),
+    () => ({ ok: true, ready: true, pid: "not-a-pid" }),
+  ]) {
+    const { worker, calls } = scriptedWorker({ launch: invalidLaunch });
+    const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 240_000, undefined, {
+      execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
+      profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
+    });
+    assert.equal(result.processPreserved, true);
+    assert.equal(result.processStillRunning, null);
+    assert.equal(result.outcomeUnknown, true);
+    assert.equal(result.reconciliationRequired, true);
+    assert.equal(result.retryable, false);
+    assert.equal(result.failedStep, "launch");
+    assert.equal(result.created, false);
+    assert.equal(Object.hasOwn(result, "pid"), false);
+    assert.deepEqual(operationsOf(calls), ["instances", "desktop_status", "launch"]);
+  }
+  for (const spec of [
+    { kind: "startup-launch", launch: () => { throw new Error("Synthetic launch worker response lost"); } },
+    { kind: "startup-pid", launch: () => ({ ok: true, launched: true }) },
+    { kind: "startup-pid", launch: () => ({ ok: true, launched: true, pid: "not-a-pid" }) },
+  ]) {
+    const { worker, calls } = scriptedWorker({ launch: spec.launch });
+    const result = await createApiExecutor(config, worker)("case_create", { targetRef: TARGET, mode: "einurvor" }, 240_000);
+    assert.equal(result.kind, spec.kind);
+    assert.equal(result.processPreserved, true);
+    assert.equal(result.processStillRunning, null);
+    assert.equal(result.outcomeUnknown, true);
+    assert.equal(result.failedStep, "launch");
+    assert.equal(result.reconciliationRequired, true);
+    assert.equal(result.retryable, false);
+    assert.equal(Object.hasOwn(result, "pid"), false);
+    assert.deepEqual(operationsOf(calls), ["instances", "desktop_status", "launch"]);
+  }
+  for (const spec of [
+    { budget: 29_999, consumeAfterDesktop: 0 },
+    { budget: 240_000, consumeAfterDesktop: 210_001 },
+  ]) {
+    let clock = 0;
+    const { worker, calls } = scriptedWorker({ desktop_status: () => {
+      clock = spec.consumeAfterDesktop;return { ok: true, aktiv: false };
+    } });
+    const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, spec.budget, undefined, {
+      execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
+      profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
+      now: () => clock,
+    });
+    assert.equal(result.kind, "timeout");
+    assert.equal(result.created, false);
+    for (const key of ["processPreserved", "processStillRunning", "pid", "outcomeUnknown", "reconciliationRequired", "retryable"]) {
+      assert.equal(Object.hasOwn(result, key), false);
+    }
+    assert.deepEqual(operationsOf(calls), ["instances", "desktop_status"]);
+  }
+  {
+    const { worker, calls } = scriptedWorker({ launch: () => ({ ok: false, kind: "precondition-failed",
+      mutationStarted: false, resultingState: "unchanged", outcomeUnknown: false }) });
+    const result = await createApiExecutor(config, worker)("case_create", { targetRef: TARGET, mode: "einurvor" }, 240_000);
+    assert.equal(result.kind, "precondition-failed");
+    assert.equal(result.outcomeUnknown, false);
+    assert.notEqual(result.processPreserved, true);
+    for (const key of ["processPreserved", "processStillRunning", "pid", "reconciliationRequired", "retryable"]) {
+      assert.equal(Object.hasOwn(result, key), false);
+    }
+    assert.deepEqual(operationsOf(calls), ["instances", "desktop_status", "launch"]);
+  }
+
+  {
     // 11 Abbruch vor dem Start: kein Prozess.
     const controller = new AbortController();
     controller.abort();
@@ -327,6 +471,71 @@ try {
     assert.equal(result.ok, true, JSON.stringify(result));
     assert.equal(calls.filter((entry) => entry.operation === "ui_state").length, 3);
     resetTarget();
+  }
+
+  {
+    // A named native main window can still be absent from passive discovery
+    // during startup. Re-read only a known pre-dispatch absence, retaining
+    // the launched PID and the original wizard deadline.
+    let stateCalls = 0, clock = 0;
+    const { worker, calls } = scriptedWorker({
+      ui_state: () => ++stateCalls < 3
+        ? { ok: false, backend: "qt", kind: "no-window", outcomeUnknown: false, error: "Not materialized yet" }
+        : { ok: true, running: true, heading: START_PAGE, blockiert: false },
+    });
+    const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 240_000, undefined, {
+      execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
+      profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
+      now: () => clock, wait: async ms => { clock += ms; },
+    });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(stateCalls, 3);
+    assert.equal(clock, 3_000);
+    assert.equal(calls.filter(entry => entry.operation === "launch").length, 1);
+    assert.deepEqual(calls.filter(entry => entry.operation === "ui_state").map(entry => entry.args.hwnd), [HWND, HWND, HWND]);
+    assert.deepEqual(operationsOf(calls).slice(2, 8), ["launch", "instances", "ui_state", "instances", "ui_state", "instances"]);
+    assert.equal(closes(calls).length, 0);
+    resetTarget();
+  }
+
+  for (const failure of [
+    { backend: "qt", kind: "no-window", outcomeUnknown: true },
+    { backend: "qt", kind: "no-window" },
+    { kind: "no-window", outcomeUnknown: false },
+    { backend: "qt", kind: "ambiguous", outcomeUnknown: false },
+    { backend: "qt", kind: "native-binding", outcomeUnknown: false },
+  ]) {
+    const { worker, calls } = scriptedWorker({ ui_state: () => ({ ok: false, ...failure, error: "Terminal binding failure" }) });
+    let clock = 0;
+    const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 240_000, undefined, {
+      execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
+      profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
+      now: () => clock, wait: async ms => { clock += ms; },
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.kind, failure.kind);
+    assert.equal(calls.filter(entry => entry.operation === "ui_state").length, 1);
+    assert.equal(calls.filter(entry => entry.operation === "click").length, 0);
+    assert.equal(clock, 0);
+    assert.equal(closes(calls).length, 1);
+  }
+
+  {
+    let clock = 0;
+    const { worker, calls } = scriptedWorker({ ui_state: () => ({
+      ok: false, backend: "qt", kind: "no-window", outcomeUnknown: false,
+    }) });
+    const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 90_000, undefined, {
+      execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
+      profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
+      now: () => clock, wait: async ms => { clock += ms; },
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.kind, "wizard-page");
+    assert.equal(clock, 61_500);
+    assert.equal(calls.filter(entry => entry.operation === "launch").length, 1);
+    assert.equal(calls.filter(entry => entry.operation === "click").length, 0);
+    assert.equal(closes(calls).length, 1);
   }
 
   {

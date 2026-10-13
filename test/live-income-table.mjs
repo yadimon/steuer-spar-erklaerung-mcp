@@ -41,7 +41,7 @@ async function call(operation, args = {}, timeoutMs = 120_000, expectedOk = true
 const tableArgs = () => ({ hwnd: instance.hwnd, sumLabel: "Summe der Einnahmen (netto)", sumOccurrence: 1 });
 async function assertTable() {
   const table = await call("table_read", { ...tableArgs(), noKeys: modelRead, maxRows: 200 }, 180_000);
-  assert.equal(table.vollstaendig, true, "Visible rows alone cannot prove the inventory.");
+  assert.equal(table.vollstaendig, true, `Visible rows alone cannot prove the inventory: ${JSON.stringify(table)}`);
   assert.deepEqual(table.kopf, headers);
   assert.equal(cents(table.summe), total());
   assert.deepEqual(table.zeilen.map(row => {
@@ -68,7 +68,7 @@ try {
   assert.equal((await call("make_working_copy", {
     sourceRef: caseRef, targetRef: backupRef, expectedSourceHash: originalHash,
   })).verified, true);
-  const binding = { ...instance, expectedCaseRef: caseRef, expectedCaseHash: originalHash };
+  const binding = { hwnd: instance.hwnd, expectedCaseRef: caseRef, expectedCaseHash: originalHash };
   await call("fill_fields", { ...binding, pageId: "gew_erfass.allgemeine_angaben_unternehmen", fields: [
     { fieldId: "name_unternehmer", expectedBefore: "", value: "Muster", expectedAfter: "Muster" },
     { fieldId: "vorname_unternehmer", expectedBefore: "", value: "Test", expectedAfter: "Test" },
@@ -107,7 +107,7 @@ try {
     werte: [null, null, `${last.name} corrected`, euros(changedGross), "false", null],
     expectedBefore: euros(total()) };
   const rolledBack = await call("table_update", { ...updateArgs, expectedAfter: euros(total() + 1) }, 180_000, false);
-  assert.equal(rolledBack.kind, "postcondition-failed");
+  assert.equal(rolledBack.kind, "postcondition-failed", JSON.stringify(rolledBack));
   assert.equal(rolledBack.rollback?.versucht, true);
   assert.equal(rolledBack.rollback?.erfolgreich, true);
   await assertTable();

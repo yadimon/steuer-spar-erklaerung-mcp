@@ -32,5 +32,13 @@ export async function executeTableAddSeek(original: WorkerResult, args: Record<s
   const appendBudget = remaining();
   if (appendBudget < 1 || signal?.aborted) return deadline("passive-final-checkpoint", scrolled);
   const retried = await worker("table_add", args, appendBudget, signal);
-  return { ...retried, freeRowSearch: { retriedAfterTableWalk: true, rowsWalked: scrolled.anzahl ?? null } };
+  const inputSources = [original, scrolled, retried];
+  const cursorKeysUsed = typeof scrolled.steps === "number" && scrolled.steps > 0;
+  const inputFlag = (key: string) => {
+    if (cursorKeysUsed || inputSources.some(source => source[key] === true)
+      || key === "physicalInputAttempted" && inputSources.some(source => source.physicalInputUsed === true)) return true;
+    return inputSources.every(source => source[key] === false) ? false : null;
+  };
+  return { ...retried, physicalInputUsed: inputFlag("physicalInputUsed"), physicalInputAttempted: inputFlag("physicalInputAttempted"),
+    freeRowSearch: { retriedAfterTableWalk: true, rowsWalked: scrolled.anzahl ?? null } };
 }

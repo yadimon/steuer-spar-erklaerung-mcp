@@ -31,11 +31,13 @@ function Get-SSETableReadViewportBounds {
     throw 'Native viewport lost its private geometry/client-origin authority.'
   }
   if ($script:mode -eq 'viewport-unbound') {return $null}
+  if ($script:mode -eq 'viewport-exception') {throw 'Synthetic private viewport failure'}
   [pscustomobject]@{left=100;top=124;right=700;bottom=200}
 }
 function Get-SSETableLiveInputState {
   param($Window,$ProcessId,$Aid,$Rid,[switch]$RequireKeyboard,[switch]$RequireSelection)
   $selected=@('Synthetic.row.'+$script:currentRow)
+  if ($script:mode -eq 'selection-count') {$selected=@()}
   if ($script:mode -eq 'stale-selection-rids') {$selected=@('Synthetic.rematerialized.'+$script:currentRow)}
   [pscustomobject]@{ok=$script:mode -ne 'live-selection-lost';selectedRids=$selected;selectedCount=$selected.Count;
     reason=$(if ($script:mode -eq 'live-selection-lost') {'selected-table-cursor-unbound'} else {'exact-table-without-editor'});
@@ -168,7 +170,7 @@ foreach ($case in @('home-delegate','down-delegate','no-delegate','clipped-row',
       -not $result.physicalInputAttempted -or -not $result.outcomeUnknown)) {throw 'Unknown SendWait outcome was reported as completed input.'}
 }
 $initial | Add-Member NoteProperty kopf @('Nr.','Datum','Text')
-foreach ($case in @('valid','wrong-row','initial-row-clipped','live-selection-lost','viewport-unbound','bad-policy','bad-flags','extra-field')) {
+foreach ($case in @('valid','wrong-row','initial-row-clipped','live-selection-lost','selection-count','viewport-unbound','viewport-exception','bad-policy','bad-flags','extra-field')) {
   $script:mode=$case;$script:keys=@();$script:currentRow=1;$script:footerCalls=0;$script:focusCalls=0;$script:selectCalls=0;$script:publications=0
   $position=[pscustomobject]@{targetRow=[int]1;numberModel=$script:step.numberModel;geometry=$script:step.geometry;
     numberPolicy=[pscustomobject]@{tableName='/.grpEmpf13b.Empf13b';headers=@($initial.kopf)}}
@@ -180,6 +182,17 @@ foreach ($case in @('valid','wrong-row','initial-row-clipped','live-selection-lo
   if ($case -eq 'extra-field') {$position | Add-Member NoteProperty freeKeys '{DOWN}'}
   $proof=Get-SSETableNativePositionCheckpointProof ([IntPtr]111) 7 $null $initial $position 96 @(100,200)
   if ($proof.ok -ne ($case -eq 'valid')) {throw "Native target checkpoint accepted an unbound row/selection/viewport/policy: $case"}
+  $expectedReason=switch($case) {
+    'valid' {'exact-native-position-current-selected-contained'}
+    'wrong-row' {'current-number-cell-grid-unbound'}
+    'initial-row-clipped' {'current-number-row-outside-native-viewport'}
+    'live-selection-lost' {'native-position-checkpoint-live-input'}
+    'selection-count' {'native-position-checkpoint-selection-count'}
+    'viewport-unbound' {'native-position-checkpoint-viewport'}
+    'viewport-exception' {'native-position-checkpoint-proof-exception'}
+    default {'native-position-checkpoint-plan'}
+  }
+  if($proof.reason -cne $expectedReason) {throw "$case`: fixed checkpoint cause was lost."}
   if ($script:keys.Count -or $script:footerCalls -or $script:focusCalls -or $script:selectCalls -or $script:publications) {
     throw 'Passive target checkpoint performed input, closure, selection or handover before its exact proof.'
   }

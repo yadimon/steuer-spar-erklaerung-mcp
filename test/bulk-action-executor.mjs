@@ -302,12 +302,91 @@ test("append retains own earlier flags and retries exactly once only after a com
   for (const retried of [{ ok: true, verified: true, sumAfter: "2,00" }, missingAppendRow]) {
     const { result, calls } = await appendWithCursor({ ok: true, vollstaendig: true, anzahl: 7 }, retried);
     assert.deepEqual(calls.map(value => value.operation), ["table_add", "table_read", "table_add"]);
-    assert.deepEqual(result, { ...retried, freeRowSearch: { retriedAfterTableWalk: true, rowsWalked: 7 } });
+    assert.deepEqual(result, { ...retried, physicalInputUsed: null, physicalInputAttempted: null,
+      freeRowSearch: { retriedAfterTableWalk: true, rowsWalked: 7 } });
   }
   const differentError = { ...missingAppendRow, error: "Different rejection." };
   const noSeek = await appendWithCursor({ ok: true, vollstaendig: true }, undefined, differentError);
   assert.deepEqual(noSeek.calls.map(value => value.operation), ["table_add"]);
   assert.deepEqual(noSeek.result, differentError);
+});
+
+test("append retains physical input from every completed phase and cannot turn absent evidence into false", async () => {
+  for (const cursor of [
+    { physicalInputUsed: true, physicalInputAttempted: true },
+    { steps: 5 },
+  ]) {
+    const { result, calls } = await appendWithCursor({ ok: true, vollstaendig: true, anzahl: 7, ...cursor },
+      { ok: true, verified: true, physicalInputUsed: false, physicalInputAttempted: false });
+    assert.equal(result.physicalInputUsed, true);
+    assert.equal(result.physicalInputAttempted, true);
+    assert.equal(calls.length, 3);
+  }
+  const prior = await appendWithCursor({ ok: true, vollstaendig: true, physicalInputUsed: false, physicalInputAttempted: false },
+    { ok: true, verified: true, physicalInputUsed: false, physicalInputAttempted: false },
+    { ...missingAppendRow, physicalInputUsed: true, physicalInputAttempted: true });
+  assert.equal(prior.result.physicalInputUsed, true);
+  assert.equal(prior.result.physicalInputAttempted, true);
+  const none = await appendWithCursor({ ok: true, vollstaendig: true, physicalInputUsed: false, physicalInputAttempted: false },
+    { ok: true, verified: true, physicalInputUsed: false, physicalInputAttempted: false },
+    { ...missingAppendRow, physicalInputAttempted: false });
+  assert.equal(none.result.physicalInputUsed, false);
+  assert.equal(none.result.physicalInputAttempted, false);
+});
+
+test("append preserves native position failure codes and only fixed scalar diagnosis", async () => {
+  const secret = "synthetic-private-position-evidence";
+  const { result, calls } = await appendWithCursor({ ok: false, vollstaendig: false, outcomeUnknown: true,
+    phase: "native-position-dispatch", proofCheck: "native-position-acknowledgment", cursorActivation: {
+      nativePosition: { operation: "table_position_number", code: "GUI_OPERATION_TIMEOUT", reason: "gui-operation-running",
+        replyReceived: true, receiptAcknowledged: false, outcomeUnknown: true, numberEditorPending: null,
+        receipt: secret, model: secret, windowTitle: secret, physicalInputUsed: secret }, secret,
+    },
+  });
+  assert.equal(calls.length, 2);
+  assert.equal(result.freeRowSearch.cursorResult.phase, "native-position-dispatch");
+  assert.equal(result.freeRowSearch.cursorResult.proofCheck, "native-position-acknowledgment");
+  const diagnosis = result.freeRowSearch.cursorResult.nativePosition;
+  assert.equal(diagnosis.operation, "table_position_number");
+  assert.equal(diagnosis.code, "GUI_OPERATION_TIMEOUT");
+  assert.equal(diagnosis.reason, "gui-operation-running");
+  assert.equal(diagnosis.physicalInputUsed, null);
+  assert.equal(diagnosis.receiptAcknowledged, false);
+  assert.equal(JSON.stringify(result).includes(secret), false);
+});
+
+test("append cannot claim unchanged after a dispatched footer focus with lost proof", async () => {
+  const { result, calls } = await appendWithCursor({ ok: false, vollstaendig: false, outcomeUnknown: false,
+    phase: "native-position-acquire", proofCheck: "native-position-acquire-worker-result",
+    cursorActivation: { footerFocus: { focusAttempted: true, sourceValue: "synthetic-private-name" } },
+  });
+  assert.equal(calls.length, 2);
+  assert.equal(result.outcomeUnknown, true);
+  assert.equal(result.mutationStarted, null);
+  assert.equal(result.resultingState, "unknown");
+  assert.equal(result.freeRowSearch.cursorResult.footerFocusAttempted, true);
+  assert.equal(result.freeRowSearch.cursorResult.activationSubmitted, true);
+  assert.equal(JSON.stringify(result).includes("synthetic-private-name"), false);
+});
+
+test("append keeps bounded checkpoint causes and unknown producer classifications", async () => {
+  const secret = "synthetic-private-checkpoint";
+  const { result } = await appendWithCursor({ ok: false, outcomeUnknown: true,
+    phase: "native-position-checkpoint", proofCheck: "native-position-checkpoint-worker-result", cursorActivation: {
+      nativePosition: { operation: "table_focus_only", code: "unrecognized", reason: "unrecognized", transportKind: "unrecognized" },
+      positionCheckpoint: { reason: "inherited-context", proofReason: "current-number-row-outside-native-viewport",
+        targetProven: false, inputEpoch: false, windowSet: true, dirtyState: true, nonce: secret, model: secret },
+    },
+  });
+  const diagnostic = result.freeRowSearch.cursorResult;
+  assert.equal(diagnostic.nativePosition.code, "unrecognized");
+  assert.equal(diagnostic.nativePosition.reason, "unrecognized");
+  assert.equal(diagnostic.nativePosition.transportKind, "unrecognized");
+  assert.equal(diagnostic.positionCheckpoint.reason, "inherited-context");
+  assert.equal(diagnostic.positionCheckpoint.proofReason, "current-number-row-outside-native-viewport");
+  assert.equal(diagnostic.positionCheckpoint.inputEpoch, false);
+  assert.equal(diagnostic.positionCheckpoint.windowSet, true);
+  assert.equal(JSON.stringify(result).includes(secret), false);
 });
 
 test("append phases share one monotonic budget and stop before another dispatch when exhausted or cancelled", async (context) => {

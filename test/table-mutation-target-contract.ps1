@@ -77,7 +77,8 @@ $expectedReject=@{
   'table-state'=@('table-state','table-editor',$null);'header-count'=@('header-count','header-count',$null)
   'shared-row'=@('row-cell-count','shared-row',$null);'row-rids'=@('row-rids-unique','shared-row',$null)
   'raw-missing'=@('raw-resolve','raw-resolve',$null);'header-name'=@('header-name-equal','cell-schema-geometry',1)
-  'header-x'=@('header-x-equal','cell-schema-geometry',1);'header-width'=@('header-width-equal','cell-schema-geometry',1)
+  'header-x'=@('header-x-equal','cell-schema-geometry',1);'header-width'=@('header-width-contained','cell-schema-geometry',1);
+  'cell-inset-two'=@('header-width-contained','cell-schema-geometry',1)
   'table-left'=@('table-left-contained','cell-schema-geometry',0);'table-right'=@('table-right-contained','cell-schema-geometry',6)
   'header-bottom'=@('header-bottom-contained','cell-schema-geometry',0);'live-bounds'=@('live-width-equal','live-metadata',1)
   'live-name'=@('live-name-equal','live-metadata',1);'grid-pattern'=@('grid-pattern-present','grid-pattern',1)
@@ -94,7 +95,7 @@ $allowedChecks=@('schema-exact','row-type','row-lower-bound','row-upper-bound','
   'text-type','text-present','fingerprint-format','headers-lower-bound','headers-upper-bound','model-cell-count','table-state','editor-free',
   'header-count','unique-text-target','row-cell-count','row-rids-unique','raw-resolve','cell-schema-exact','native-column-type',
   'native-column-lower-bound','native-column-upper-bound','native-column-unique','native-column-order','flags-type','cell-selectable',
-  'header-name-equal','header-x-equal','header-width-equal','table-left-contained','table-right-contained','header-bottom-contained',
+  'header-name-equal','header-x-equal','header-width-contained','table-left-contained','table-right-contained','header-bottom-contained',
   'table-bottom-contained','live-x-equal','live-y-equal','live-width-equal','live-height-equal','live-name-equal','grid-pattern-present',
   'grid-row-equal','grid-column-equal','grid-present','grid-pid-equal','grid-type-bound','grid-rid-equal','grid-aid-equal',
   'toggle-state-valid','toggle-pattern-present','toggle-value-equal','display-equal','target-rid-equal','target-display-equal',
@@ -130,7 +131,7 @@ function Assert-SafeTargetDiagnostic($Proof) {
     if ($safe.Contains($forbidden)) {throw 'Target diagnostics disclose model values, identities or exception text.'}
   }
 }
-foreach ($case in @('exact-seven-columns','wrong-row','wrong-column','foreign-grid','grid-rid','grid-aid','other-text','changed-cell',
+foreach ($case in @('exact-seven-columns','cell-grid-line','cell-inset-two','wrong-row','wrong-column','foreign-grid','grid-rid','grid-aid','other-text','changed-cell',
   'changed-checkbox','missing-checkbox','duplicate','caller-rid-stale','clipped','hidden-column','extra-prior-field','bad-native-flags','active-editor',
   'extra-target-field','bad-row-type','bad-column-type','model-count','table-state','header-count','shared-row','row-rids','raw-missing',
   'header-name','header-x','header-width','table-left','table-right','header-bottom','live-bounds','live-name','grid-pattern','grid-absent',
@@ -172,6 +173,8 @@ foreach ($case in @('exact-seven-columns','wrong-row','wrong-column','foreign-gr
     'header-name' {$headers[1].name='Other'}
     'header-x' {$headers[1].x++}
     'header-width' {$headers[1].w--}
+    'cell-grid-line' {foreach($cell in $cells) {$cell.w--;$script:elements[$cell.rid].Current.BoundingRectangle.Width--}}
+    'cell-inset-two' {$cells[1].w-=2;$script:elements[$cells[1].rid].Current.BoundingRectangle.Width-=2}
     'table-left' {$script:tree.nodes[0].x++}
     'table-right' {$script:tree.nodes[0].w--}
     'header-bottom' {$headers[0].h=65}
@@ -192,7 +195,7 @@ foreach ($case in @('exact-seven-columns','wrong-row','wrong-column','foreign-gr
     'proof-exception' {$container | Add-Member ScriptMethod GetRuntimeId {throw 'synthetic-private-exception'} -Force}
   }
   $result=Get-SSETableMutationTargetProof ([IntPtr]111) 7 $script:tree $target $rid
-  if ($result.ok -ne ($case -ceq 'exact-seven-columns')) {throw "$case native row/GridItem/checkbox proof disagreed."}
+  if ($result.ok -ne ($case -cin @('exact-seven-columns','cell-grid-line'))) {throw "$case native row/GridItem/checkbox proof disagreed."}
   if ($result.ok -and ($result.cells.Count -ne 7 -or $result.target.rid -cne $cells[2].rid)) {throw 'Exact seven-column model target was not returned.'}
   if ($result.ok) {
     if (@($result.PSObject.Properties.Name | Sort-Object) -join ',' -cne 'cells,ok,reason,target') {throw 'Successful target proof changed its output contract.'}

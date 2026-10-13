@@ -5,8 +5,9 @@
  * Die Komposition benutzt ausschliesslich bereits veroeffentlichte, einzeln
  * verifizierte Operationen ueber den verschachtelten API-Executor. Jeder
  * Schritt hat eine harte Vor- und Nachbedingung; scheitert ein Schritt vor
- * dem Speichern, wird die exakt gestartete PID ohne Speichern beendet. Nach
- * dem Speichern wird die neue Datei niemals wieder geloescht.
+ * dem Speichern, wird die exakt gestartete PID ohne Speichern beendet, sofern
+ * der Start keinen ungeprueften Dialog-/Wiederherstellungszustand erhalten
+ * muss. Nach dem Speichern wird die neue Datei niemals wieder geloescht.
  */
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -139,6 +140,7 @@ export async function executeCaseCreate(
   const steps: string[] = [];
   let pid = 0;
   let hwnd = 0;
+  let launchDispatched = false;
   let target: CaseCreateTarget | undefined;
 
   const step = async (operation: SseApiOperation, stepArgs: Record<string, unknown>, ceilingMs = budgetMs,
@@ -146,7 +148,11 @@ export async function executeCaseCreate(
     if (signal?.aborted) fail("aborted", "API-Client hat die Fallanlage abgebrochen.");
     const remaining = deadline - now();
     if (remaining < MIN_STEP_MS) fail("timeout", `Zeitbudget der Fallanlage ist vor '${operation}' erschoepft.`);
+    if (operation === "launch" && Math.min(remaining, ceilingMs) < MIN_LAUNCH_MS) {
+      fail("timeout", "Zeitbudget der Fallanlage reicht vor dem Programmstart nicht fuer den Mindest-Startvertrag.");
+    }
     steps.push(operation);
+    if (operation === "launch") launchDispatched = true;
     const result = await run(operation, stepArgs, Math.min(remaining, ceilingMs), signal);
     if (result.ok !== true) throw new StepFailure({ ...result, failedStep: operation });
     return result;
@@ -177,8 +183,15 @@ export async function executeCaseCreate(
 
     const launchBudget = Math.max(MIN_LAUNCH_MS, deadline - now() - WIZARD_RESERVE_MS);
     const launched = await step("launch", { mode }, launchBudget);
-    pid = Number(launched.pid);
-    if (!Number.isInteger(pid) || pid <= 0) fail("startup-pid", "Der Start lieferte keine verifizierbare PID.");
+    const launchedPid = Number(launched.pid);
+    if (!Number.isInteger(launchedPid) || launchedPid <= 0) fail("startup-pid", "Der Start lieferte keine verifizierbare PID.");
+    pid = launchedPid;
+    if (launched.ready !== true || launched.blockedByDialog === true || launched.outcomeUnknown === true || launched.processPreserved === true) {
+      throw new StepFailure({ ...launched, ok: false, kind: "startup-not-ready", failedStep: "launch",
+        error: "Der gestartete Prozess ist nicht bereit fuer die Fallanlage. Startdialog und moegliche Wiederherstellung frisch lesen; " +
+          "keine Assistentenaktion und kein automatisches Verwerfen oder Beenden.",
+        ready: false, processPreserved: true, reconciliationRequired: true, retryable: false });
+    }
 
     // Erst das breite Fallfenster binden, dann die Startseite des Assistenten
     // abwarten. Der Splash traegt denselben Prozess, aber nie die Ueberschrift.
@@ -186,10 +199,31 @@ export async function executeCaseCreate(
     for (;;) {
       const bound = await step("instances", {});
       const instance = asArray<Record<string, unknown>>(bound.instances).find((entry) => Number(entry.pid) === pid);
+      if (instance && (instance.recoveredState === true || instance.hung === true)) {
+        throw new StepFailure({ ok: false, kind: instance.recoveredState === true ? "recovered-state" : "startup-not-ready",
+          error: "Der gestartete Fall ist wiederhergestellt oder nicht responsiv; Zustand erhalten und frisch abgleichen.",
+          failedStep: "instances", pid, ready: false, processPreserved: true, processStillRunning: true,
+          outcomeUnknown: true, reconciliationRequired: true, retryable: false });
+      }
       if (instance && Number(bound.count) === 1 && instance.hung !== true && instance.recoveredState !== true) {
         hwnd = Number(instance.hwnd);
-        const state = await step("ui_state", { hwnd });
-        const heading = String(state.heading ?? "");
+        let state: WorkerResult | undefined;
+        try {
+          state = await step("ui_state", { hwnd });
+        } catch (error) {
+          // Passive native discovery can precede window materialization.
+          // Only its known pre-dispatch absence may use this startup poll;
+          // every other failure remains terminal and no wizard click repeats.
+          if (!(error instanceof StepFailure) || error.result.backend !== "qt"
+            || error.result.kind !== "no-window" || error.result.outcomeUnknown !== false) throw error;
+        }
+        if (state?.blockiert === true) {
+          throw new StepFailure({ ok: false, kind: "startup-not-ready",
+            error: "Der Startassistent ist durch einen Dialog blockiert; Zustand erhalten und frisch abgleichen.",
+            failedStep: "ui_state", pid, hwnd, ready: false, processPreserved: true, processStillRunning: true,
+            outcomeUnknown: true, reconciliationRequired: true, retryable: false });
+        }
+        const heading = String(state?.heading ?? "");
         const match = wizard.startHeading.exec(heading);
         if (match) {
           if (Number(match[1]) !== taxYear) {
@@ -295,15 +329,20 @@ export async function executeCaseCreate(
         "vor der ersten weiteren Mutation den Dateistand nach backups: sichern.",
     };
   } catch (error) {
-    const failure = error instanceof StepFailure
+    let failure = error instanceof StepFailure
       ? error.result
       : operationError(error instanceof Error ? error.message : String(error), signal?.aborted ? "aborted" : "case-create");
+    if (launchDispatched && pid <= 0 && !(failure.mutationStarted === false && failure.resultingState === "unchanged")) {
+      failure = { ...failure, failedStep: failure.failedStep ?? "launch", processPreserved: true, processStillRunning: failure.processStillRunning ?? null,
+        outcomeUnknown: true, reconciliationRequired: true, retryable: false };
+    }
     const created = target !== undefined && existsSync(target.path);
-    if (pid > 0 && !created) {
+    if (pid > 0 && !created && failure.processPreserved !== true) {
       const cleanupState = await cleanupStartedProcess(dependencies.worker, pid);
       return { ...failure, created: false, steps, pid, ...cleanupState };
     }
-    return { ...failure, created, steps, ...(pid > 0 ? { pid, processStillRunning: true } : {}),
+    return { ...failure, created, steps, ...(pid > 0 ? { pid, processStillRunning: failure.processPreserved === true
+      ? typeof failure.processStillRunning === "boolean" ? failure.processStillRunning : null : true } : {}),
       ...(created ? { caseRef: target!.ref || target!.path } : {}) };
   }
 }

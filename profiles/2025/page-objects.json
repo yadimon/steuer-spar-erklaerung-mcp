@@ -37,6 +37,15 @@
     "action": "SetFocus",
     "policy": "own-typed-table-editor-only"
   },
+  "tablePositionNameFocusSource": {
+    "id": "income_position_name",
+    "controlType": "Edit",
+    "automationIdSuffix": ".RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.AngabenZumUmsatz./.AngabenZumUmsatz.Bezeichnung./.AngabenZumUmsatz.Bezeichnung.Text",
+    "tableAutomationIdSuffix": ".RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Tabelle./.Tabelle.Tab",
+    "headingPrefix": "Einnahmen: ",
+    "headers": ["Nr.", "Datum", "Bezeichnung", "Betrag", "N", "Netto"],
+    "policy": "unchanged-position-name-only"
+  },
   "tableRegionBindings": [
     {
       "id": "vehicle_costs_with_input_tax",

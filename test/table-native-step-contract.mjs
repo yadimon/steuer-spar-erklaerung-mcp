@@ -237,7 +237,7 @@ assert.deepEqual(rejectedResume.result.nativeCursorFocusEvidence, { currentIndex
   selectedIndexes: [[1, 0]], selectedIndexesTruncated: false, focusActionVerified: true });
 assert.deepEqual(rejectedResume.keys, []); assert.equal(rejectedResume.focuses.length, 1); assert.deepEqual(rejectedResume.releases, []);
 assert.equal(rejectedResume.result.physicalInputAttempted, false); assert.equal(rejectedResume.result.physicalInputUsed, false);
-assert.equal(rejectedResume.result.outcomeUnknown, false); assert.equal(rejectedResume.result.retryable, false);
+assert.equal(rejectedResume.result.outcomeUnknown, true); assert.equal(rejectedResume.result.retryable, false);
 for (const key of ["tableName", "tableAid", "modelFingerprint", "windowTitle", "nonce", "rootHwnd"]) {
   assert.equal(Object.hasOwn(rejectedResume.result.nativeCursorFocusEvidence, key), false);
 }
@@ -248,8 +248,17 @@ for (const key of ["cursorBinding", "cursorLease", "selectedRids", "numberModel"
 for (const options of [{ noAck: true }, { focus: result => { result.focused = false; } },
   { focus: result => { result.inputTick++; } }, { focus: result => { result.binding.currentIndex = [2, 0]; } }]) {
   const stopped = await run(options); assert.equal(stopped.result.ok, false); assert.deepEqual(stopped.keys, []);
+  assert.equal(stopped.result.outcomeUnknown, true, "An unacknowledged or unproven dispatched native focus cannot claim a known unchanged model.");
   assert.equal(stopped.focuses.length, 1); assert.equal(stopped.releases.length, 1);
 }
+const focusModelDrift = await run({ model: (value, keyCount, focusCount) => {
+  if (focusCount === 1) value.values[0][2].edit = "Synthetic focus callback changed the model";
+} });
+assert.equal(focusModelDrift.result.ok, false);
+assert.equal(focusModelDrift.result.proofCheck, "native-step-whole-model");
+assert.equal(focusModelDrift.result.outcomeUnknown, true);
+assert.deepEqual(focusModelDrift.keys, []);
+assert.equal(focusModelDrift.releases.length, 1);
 for (const options of [
   { step: (result, count) => { if (count === 1) result.cursorBinding.dirty = false; } },
   { step: (result, count) => { if (count === 1) result.cursorBinding.windowFingerprint = "d".repeat(64); } },

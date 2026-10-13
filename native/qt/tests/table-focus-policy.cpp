@@ -157,7 +157,10 @@ int main(int argc, char **argv) {
     positionLayout.addWidget(&positionAnchor); positionLayout.addWidget(&positionTable);
     positionRoot.resize(420, 200); positionRoot.show(); QApplication::setActiveWindow(&positionRoot);
     positionAnchor.setFocus(); app.processEvents();
-    positionTable.setCurrentIndex(positionModel.index(0, 0));
+    positionTable.setCurrentIndex(QModelIndex()); positionTable.selectionModel()->clearSelection();
+    require(!positionTable.currentIndex().isValid() && positionTable.selectionModel()->selectedIndexes().isEmpty()
+        && tableFocusWidgetObstruction(&positionRoot, &positionTable) != nullptr,
+        "An unselected table must remain blocked for implicit focus-only initialization");
     const auto positionCapture = [&] {
         QStringList data;
         for (int row = 0; row < positionModel.rowCount(); ++row) for (int column = 0; column < positionModel.columnCount(); ++column)
@@ -167,6 +170,30 @@ int main(int argc, char **argv) {
     const auto originalPositionModel = positionCapture(); int positionClicks = 0;
     QObject::connect(&positionTable, &QTableView::clicked, [&] { ++positionClicks; });
     bool positionedAttempt = false;
+    const auto unselectedStale = dispatchExactTablePosition(&positionRoot, &positionTable, 61,
+        QStringList{QStringLiteral("stale")}, positionCapture, checkpoint, positionedAttempt);
+    require(unselectedStale.error && !positionedAttempt && !positionTable.currentIndex().isValid()
+        && positionTable.selectionModel()->selectedIndexes().isEmpty(),
+        "Unselected initialization must still reject a stale complete model before acting");
+    const auto unselectedEpoch = dispatchExactTablePosition(&positionRoot, &positionTable, 61,
+        originalPositionModel, positionCapture, staleEpoch, positionedAttempt);
+    require(unselectedEpoch.error && !positionedAttempt && !positionTable.currentIndex().isValid()
+        && positionTable.selectionModel()->selectedIndexes().isEmpty(),
+        "A foreign input epoch must leave the unselected current index and selection untouched");
+    QLineEdit unrelatedPositionEditor(&positionRoot); unrelatedPositionEditor.show(); unrelatedPositionEditor.setFocus();
+    const auto unselectedEditor = dispatchExactTablePosition(&positionRoot, &positionTable, 61,
+        originalPositionModel, positionCapture, checkpoint, positionedAttempt);
+    require(unselectedEditor.error && !positionedAttempt && !positionTable.currentIndex().isValid()
+        && positionTable.selectionModel()->selectedIndexes().isEmpty(),
+        "An unrelated focused editor must block unselected initialization before any selection");
+    unrelatedPositionEditor.hide(); positionAnchor.setFocus();
+    QLineEdit unselectedViewportEditor(positionTable.viewport()); unselectedViewportEditor.show();
+    const auto unselectedWidget = dispatchExactTablePosition(&positionRoot, &positionTable, 61,
+        originalPositionModel, positionCapture, checkpoint, positionedAttempt);
+    require(unselectedWidget.error && !positionedAttempt && !positionTable.currentIndex().isValid()
+        && positionTable.selectionModel()->selectedIndexes().isEmpty(),
+        "A live viewport widget must block unselected initialization before any selection");
+    unselectedViewportEditor.hide(); positionAnchor.setFocus();
     const auto positioned = dispatchExactTablePosition(&positionRoot, &positionTable, 61,
         originalPositionModel, positionCapture, checkpoint, positionedAttempt);
     require(!positioned.error && positionedAttempt && positionTable.currentIndex() == positionModel.index(61, 0),
@@ -177,6 +204,14 @@ int main(int argc, char **argv) {
     require(positionTable.viewport()->rect().contains(positionTable.visualRect(positionModel.index(61, 0)))
         && positionCapture() == originalPositionModel && positionClicks == 0 && positionAnchor.hasFocus(),
         "Position must preserve values and passive focus without clicks, keys or editor commits");
+    positionTable.setCurrentIndex(QModelIndex());
+    positionTable.selectionModel()->select(positionModel.index(1, 0), QItemSelectionModel::ClearAndSelect);
+    positionedAttempt = false;
+    const auto inconsistentPosition = dispatchExactTablePosition(&positionRoot, &positionTable, 62,
+        originalPositionModel, positionCapture, checkpoint, positionedAttempt);
+    require(inconsistentPosition.error && !positionedAttempt,
+        "An invalid current index with a nonempty selection must fail before positioning");
+    positionTable.selectionModel()->setCurrentIndex(positionModel.index(61, 0), QItemSelectionModel::ClearAndSelect);
     positionedAttempt = false;
     const auto wrongPosition = dispatchExactTablePosition(&positionRoot, &positionTable, 62,
         QStringList{QStringLiteral("stale")}, positionCapture, checkpoint, positionedAttempt);

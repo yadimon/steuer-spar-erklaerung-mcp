@@ -21,7 +21,7 @@ static QLineEdit *tablePositionNumberDelegate(QTableView *view, const QModelInde
 template<typename State, typename Capture, typename Checkpoint, typename PostObstruction>
 static TablePositionResult dispatchExactTablePosition(QWidget *root, QTableView *view, int row,
     const State &expectedModel, Capture captureModel, Checkpoint checkpoint, bool &mutationStarted, PostObstruction postObstruction) {
-    if (const auto *blocked = tableFocusWidgetObstruction(root, view)) return {false, blocked};
+    if (const auto *blocked = tableFocusWidgetObstruction(root, view, nullptr, true)) return {false, blocked};
     auto *model = view->model();
     if (row < 0 || row >= model->rowCount() || view->isRowHidden(row) || view->isColumnHidden(0))
         return {false, "The exact target Nr. index is hidden or outside its flat model"};

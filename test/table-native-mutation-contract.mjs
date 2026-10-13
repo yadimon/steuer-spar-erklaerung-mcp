@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { performance } from "node:perf_hooks";
+import { mock } from "node:test";
 import { executeTableCursorMutation, executeTableCursorRead } from "../dist/table-cursor-executor.js";
 import { QtNativeAcknowledgmentError } from "../dist/qt-native-client.js";
 
@@ -14,7 +16,7 @@ const base = { ok: true, controllerBound: true, windowEnabled: true, modalBlocke
     .map((value, column) => column === 4 ? { display: "", edit: false, flags: 49, checkState: 0 }
       : column === 6 ? { ...scalar(value), flags: 1 } : scalar(value))),
   rowFingerprints: Array.from({ length: 10 }, (_, row) => String(row).repeat(64)), hiddenColumns: [], hiddenRows: [],
-  complete: true, canFetchMore: false, tableCount: 1, table: { id: 9, name, class: "DialogUITable", visible: true },
+  complete: true, canFetchMore: false, tableCount: 1, table: { id: 9, name, class: "DialogUITable", visible: true, rows: 10, columns: 7 },
   summary: "100,00", binding: {}, summaries: [{ label: "Summe", vorkommen: 1, wert: "100,00" }],
   cursorFocusBinding: { tableId: 9, modelId: 10, tableName: name, tableAid: aid,
     currentIndex: [2, 0], selectedIndexes: [[2, 0]], modelFingerprint: "c".repeat(64) } };
@@ -77,7 +79,11 @@ async function run(options = {}) {
   const client = { binding: { hwnd: 111, pid: 7 }, request: async op => {
     if (op === "ping") return { result: { ok: true, pid: 7, hwnd: 111, recoveryRequired: false,
       mutationAcknowledgmentRequired: false, capabilities: { tableFocusOnlyProtocol: 1, tablePositionNumberProtocol: options.noPositionProtocol ? 0 : 1 } } };
-    if (["objects", "accessibility_snapshot"].includes(op)) return { result: nativeGeometry(op, model, binding) };
+    if (["objects", "accessibility_snapshot"].includes(op)) {
+      const result = nativeGeometry(op, model, binding);
+      options.geometryDone?.(op, positions.length, focuses.length);
+      return { result };
+    }
     assert.equal(op, "table_snapshot");
     const value = copy(model); options.read?.(value, keys.length, mutations.length, probes.length);
     return { result: value };
@@ -131,9 +137,14 @@ async function run(options = {}) {
       }
       else {
         model.values.splice(7, 1); model.rowFingerprints.splice(7, 1); model.rows--; model.readRows--;
+        if (Object.hasOwn(model.table, "rows")) model.table.rows--;
         model.summary = "90,00"; model.summaries[0].wert = "90,00";
       }
       if (options.otherRowChanged) model.values[0][2].edit = "Unexpected other row";
+      if (options.tableIdentityChanged) model.table.id++;
+      if (options.tableRowsChanged) model.table.rows++;
+      if (options.tableRowsRemoved) delete model.table.rows;
+      if (options.tableRowsAdded) model.table.rows = model.rows;
       if (options.targetChanged) model.values[7][2] = scalar("Unexpected target");
       if (options.targetEditChanged) model.values[7][2].edit = "Unexpected target edit";
       if (options.targetOtherColumnChanged) model.values[7][1] = scalar("02.01");
@@ -149,8 +160,10 @@ async function run(options = {}) {
       assert.equal(plan.target.row, 7); assert.equal(plan.target.column, 2); assert.equal(plan.target.cells.length, activeHeaders.length);
       return { ok: true, mutationTarget: { row: 7, column: 2, targetRid: plan.targetRid ?? "Synthetic.target.7" } };
     }
-    if (plan.phase === "native-acquire") {
+    if (plan.phase === "native-acquire" || plan.phase === "native-position-acquire") {
       assert.deepEqual(plan.numberPolicy, { tableName: model.table.name, headers: activeHeaders });
+      if (options.acquireFocusFails) return { ok: false, kind: "cursor-proof-failed", outcomeUnknown: false,
+        cursorActivation: { footerFocus: { focusAttempted: true } } };
       return { ok: true, cursorBinding: copy(binding), cursorLease: copy(lease), selectedRids: selected() };
     }
     if (plan.phase === "native-release") {
@@ -171,7 +184,11 @@ async function run(options = {}) {
     if (plan.phase === "native-position-checkpoint") {
       assert.equal(plan.position.targetRow, positionRow); assert.equal(plan.position.numberModel.length, 10);
       assert.equal(plan.binding.inputEpoch, 123); assert.equal(plan.lease.nonce, lease.nonce);
-      if (options.positionCheckpointFails || options.clipped) return { ok: false, kind: "interference" };
+      if (options.positionCheckpointFails || options.clipped) return { ok: false, kind: "interference", cursorActivation: {positionCheckpoint: {
+        reason: "target-proof", proofReason: options.clipped ? "current-number-row-outside-native-viewport" : "current-number-cell-not-selected", targetProven: false,
+        desktop: null, inputEpoch: null, foreground: null, windowSet: null, dirtyState: null,
+        leaseImported: null, leasePublished: null, nonce: "synthetic-private-checkpoint-authority",
+      } } };
       binding.snapshot.navigationBinding.contentSignature = "d".repeat(64);
       if (options.positionCheckpointEpochChanged) binding.inputEpoch++;
       lease = { ...lease, nonce: options.replayedPositionInitialLease ? initialNonce : options.replayedPositionLease ? lease.nonce : randomUUID(),
@@ -223,10 +240,112 @@ for (const operation of ["table_update", "table_delete"]) {
   assert.equal(JSON.stringify(result.result).includes("SyntheticCaller"), false);
   for (const field of ["cursorBinding", "mutationTarget", "__tableMutationBinding", "__tableTransportCapability"]) assert.equal(Object.hasOwn(result.result, field), false);
 }
+for (const operation of ["table_update", "table_delete"]) {
+  const unselected = await run({ operation, initial: model => {
+    model.cursorFocusBinding.currentIndex = [-1, -1]; model.cursorFocusBinding.selectedIndexes = [];
+  } });
+  assert.equal(unselected.result.ok, true);
+  assert.equal(unselected.positions.length, 1);
+  assert.equal(unselected.mutations.length, 1);
+  const acquired = await run({ operation, acquireFocusFails: true });
+  assert.equal(acquired.result.outcomeUnknown, true);
+  assert.equal(acquired.result.activationSubmitted, true);
+  assert.equal(acquired.result.mutationStarted, null);
+  assert.equal(acquired.result.resultingState, "unknown");
+  assert.equal(acquired.positions.length, 0);
+  assert.equal(acquired.mutations.length, 0);
+}
+const rejectedCheckpoint = await run({ positionCheckpointFails: true });
+assert.equal(rejectedCheckpoint.result.outcomeUnknown, true);
+assert.equal(rejectedCheckpoint.result.activationSubmitted, true);
+assert.equal(rejectedCheckpoint.result.phase, "native-position-checkpoint");
+assert.equal(rejectedCheckpoint.result.proofCheck, "native-position-checkpoint-worker-result");
+assert.equal(rejectedCheckpoint.result.cursorActivation.nativePosition.operation, "table_focus_only");
+assert.equal(rejectedCheckpoint.result.cursorActivation.positionCheckpoint.reason, "target-proof");
+assert.equal(rejectedCheckpoint.result.cursorActivation.positionCheckpoint.proofReason, "current-number-cell-not-selected");
+assert.equal(rejectedCheckpoint.result.cursorActivation.positionCheckpoint.targetProven, false);
+assert.equal(JSON.stringify(rejectedCheckpoint.result).includes("synthetic-private-checkpoint-authority"), false);
+assert.equal(rejectedCheckpoint.result.mutationStarted, null);
+assert.equal(rejectedCheckpoint.positions.length, 1);
+assert.equal(rejectedCheckpoint.mutations.length, 0);
+const clippedCheckpoint = await run({ clipped: true });
+assert.equal(clippedCheckpoint.result.cursorActivation.positionCheckpoint.proofReason, "current-number-row-outside-native-viewport");
+for (const operation of ["table_update", "table_delete"]) {
+  const changedIdentity = await run({ operation, tableIdentityChanged: true });
+  assert.equal(changedIdentity.result.ok, false);
+  assert.equal(changedIdentity.result.proofCheck, "mutation-native-structure-summary");
+  assert.equal(changedIdentity.result.outcomeUnknown, true);
+  assert.equal(changedIdentity.mutations.length, 1);
+  const badRowCount = await run({ operation, tableRowsChanged: true });
+  assert.equal(badRowCount.result.ok, false);
+  assert.equal(badRowCount.result.proofCheck, "mutation-native-table-row-count");
+  const absent = await run({ operation, initial: model => { delete model.table.rows; } });
+  assert.equal(absent.result.ok, true);
+  for (const drift of [
+    { tableRowsRemoved: true },
+    { tableRowsAdded: true, initial: model => { delete model.table.rows; } },
+  ]) {
+    const presenceChanged = await run({ operation, ...drift });
+    assert.equal(presenceChanged.result.ok, false);
+    assert.equal(presenceChanged.result.proofCheck, "mutation-native-table-row-count");
+    assert.equal(presenceChanged.mutations.length, 1);
+  }
+  const priorMismatch = await run({ operation, initial: model => { model.table.rows++; } });
+  assert.equal(priorMismatch.result.ok, false);
+  assert.equal(priorMismatch.result.proofCheck, "mutation-native-table-row-count");
+  assert.equal(priorMismatch.result.outcomeUnknown, false);
+  assert.equal(priorMismatch.result.mutationStarted, false);
+  assert.equal(priorMismatch.positions.length, 0);
+  assert.equal(priorMismatch.mutations.length, 0);
+}
 const profiledRead = await run({ publicRead: true });
 assert.equal(profiledRead.result.ok, true); assert.deepEqual(profiledRead.keys, ["home", ...Array(9).fill("down")]);
 assert.equal(profiledRead.mutations.length, 0);
-for (const options of [{}, { freshNumberEditor: true }, { initial: model => { model.hiddenRows = [9]; } }]) {
+for (const options of [{ positionModelChanged: true }, { wrongSelection: true }]) {
+  const append = await run({ ...options, appendSeek: true });
+  assert.equal(append.result.ok, false);
+  assert.equal(append.result.outcomeUnknown, true, "A dispatched position with failed model/selection proof cannot retain the initial unchanged claim.");
+  assert.equal(append.result.reconciliationRequired, true);
+  assert.equal(append.mutations.length, 0);
+  const mutation = await run(options);
+  assert.equal(mutation.result.ok, false);
+  assert.equal(mutation.result.outcomeUnknown, true);
+  assert.equal(mutation.result.mutationStarted, null, "An unknown cursor outcome must not claim globally that no mutation occurred.");
+  assert.equal(mutation.mutations.length, 0);
+}
+const unknownCursorMutation = await run({ positionUnknown: true });
+assert.equal(unknownCursorMutation.result.outcomeUnknown, true);
+assert.equal(unknownCursorMutation.result.mutationStarted, null);
+for (const expireAt of [2, 3]) {
+  let now = 0, reads = 0;
+  mock.method(performance, "now", () => now);
+  try {
+    const expired = await run({ appendSeek: true, read: () => { if (++reads === expireAt) now = 30_000; } });
+    assert.equal(expired.result.ok, false);
+    assert.equal(expired.positions.length, expireAt === 2 ? 0 : 1);
+    assert.equal(expired.focuses.length, 0);
+    assert.equal(expired.releases.length, 1, "A budget rejected before dispatch must release its owned passive lease.");
+    assert.notEqual(expired.result.cleanupRequired, true);
+    assert.equal(expired.result.activationSubmitted, expireAt !== 2);
+    assert.equal(expired.result.outcomeUnknown, expireAt !== 2);
+  } finally { mock.restoreAll(); }
+}
+for (const appendSeek of [true, false]) {
+  let now = 0;
+  mock.method(performance, "now", () => now);
+  try {
+    const expired = await run({ appendSeek, geometryDone: (op, positionCount, focusCount) => {
+      if (op === "objects" && positionCount === 1 && focusCount === 1) now = 30_000;
+    } });
+    assert.equal(expired.result.ok, false);
+    assert.equal(expired.result.phase, "native-position-checkpoint");
+    assert.equal(expired.positions.length, 1); assert.equal(expired.focuses.length, 1);
+    assert.equal(expired.releases.length, 1, "A checkpoint not dispatched because of the deadline must retain and release its own lease.");
+    assert.notEqual(expired.result.cleanupRequired, true);
+  } finally { mock.restoreAll(); }
+}
+for (const options of [{}, { freshNumberEditor: true }, { initial: model => { model.hiddenRows = [9]; } },
+  { initial: model => { model.cursorFocusBinding.currentIndex = [-1, -1]; model.cursorFocusBinding.selectedIndexes = []; } }]) {
   const append = await run({ ...options, appendSeek: true });
   assert.equal(append.result.ok, true);
   assert.equal(append.result.vollstaendig, true);

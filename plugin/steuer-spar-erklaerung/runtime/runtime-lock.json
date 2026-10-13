@@ -18,8 +18,8 @@
     },
     {
       "path": "dist/api.js",
-      "sha256": "85a47c264c58fd2203c2056700b0b94b1930b7b869f8a45adb5c1506e353b6b8",
-      "size": 1131444
+      "sha256": "a6bb968d43bda6c74abdb4a22b5319a7d6ce4a62743b46668c9daf7e6c8e691c",
+      "size": 1143522
     },
     {
       "path": "dist/mcp.js",
@@ -88,8 +88,8 @@
     },
     {
       "path": "powershell/sse-worker.ps1",
-      "sha256": "eaf34d8a7b48841cc0ee4c2ed51c170cb2b0d2337a4344fd3192a101c0575d81",
-      "size": 1446316
+      "sha256": "47f500c3e378833fd7113a053525ef5d601210c7bd18b23f95f62ded601a072a",
+      "size": 1451670
     },
     {
       "path": "powershell/structure-binding.ps1",
@@ -98,8 +98,8 @@
     },
     {
       "path": "powershell/table-combobox.ps1",
-      "sha256": "a60111e1439d08b273ed95fc014a44b66bc5d067967c2e7d20e50bbbdfe8b187",
-      "size": 44210
+      "sha256": "5b0b03096be5ac516600c7e42e54311116c9edf1273f053806b05c2d76caea43",
+      "size": 46528
     },
     {
       "path": "powershell/table-cursor-lease.ps1",
@@ -138,8 +138,8 @@
     },
     {
       "path": "profiles/2025/page-objects.json",
-      "sha256": "862cea5116ab62d2d4fae222a60d5205a70a704798ffe6bf47ce1072bc5b7870",
-      "size": 141275
+      "sha256": "9da3b62f798bc1f605d76c10bb78cf948ed9d12a2714314b514af9d4832adc43",
+      "size": 141897
     },
     {
       "path": "profiles/2025/profile.json",

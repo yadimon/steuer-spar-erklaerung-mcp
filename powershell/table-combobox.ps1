@@ -430,6 +430,32 @@ function Test-SSETableFooterFocusSource {
     ($FocusedAid -ceq $TableAid))
 }
 
+function Resolve-SSETablePositionNameFocusSource {
+  param($Tree,[string]$TableAid,[string]$TableRid,[string]$FocusedRid,[string]$FocusedAid,$Policy,[string]$Heading)
+  $tableSuffix='.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Tabelle./.Tabelle.Tab'
+  $sourceSuffix='.RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.AngabenZumUmsatz./.AngabenZumUmsatz.Bezeichnung./.AngabenZumUmsatz.Bezeichnung.Text'
+  if (-not $Policy -or $Policy.id -cne 'income_position_name' -or $Policy.controlType -cne 'Edit' -or
+      $Policy.automationIdSuffix -cne $sourceSuffix -or $Policy.tableAutomationIdSuffix -cne $tableSuffix -or
+      $Policy.headingPrefix -cne 'Einnahmen: ' -or $Policy.policy -cne 'unchanged-position-name-only' -or
+      -not $TableAid.EndsWith($tableSuffix,[StringComparison]::Ordinal) -or
+      -not $Heading.StartsWith('Einnahmen: ',[StringComparison]::Ordinal)) {return $null}
+  $name=$Heading.Substring('Einnahmen: '.Length)
+  if ($name.Length -lt 1 -or $name.Length -gt 80 -or $name -cne $name.Trim() -or $name -match '[\r\n\t]') {return $null}
+  $state=Get-SSETableSnapshotInputState $Tree $TableAid $TableRid
+  $headers=@($Tree.nodes | Where-Object {$_.p -eq $state.table.i -and $_.type -ceq 'Header' -and [string]$_.name -and $_.on -and $_.w -gt 0 -and $_.h -gt 0} | Sort-Object x)
+  $expectedHeaders=@('Nr.','Datum','Bezeichnung','Betrag','N','Netto')
+  if (-not $state.ok -or -not $state.editorFree -or
+      (@($headers.name) | ConvertTo-Json -Compress) -cne ($expectedHeaders | ConvertTo-Json -Compress) -or
+      (@($Policy.headers) | ConvertTo-Json -Compress) -cne ($expectedHeaders | ConvertTo-Json -Compress)) {return $null}
+  $prefix=$TableAid.Substring(0,$TableAid.Length-$tableSuffix.Length)
+  if (-not $prefix -or $FocusedAid -cne ($prefix+$sourceSuffix)) {return $null}
+  $sources=@($Tree.nodes | Where-Object {$_.rid -ceq $FocusedRid -and $_.aid -ceq $FocusedAid -and
+    $_.type -ceq 'Edit' -and $_.on -and $_.w -gt 0 -and $_.h -gt 0 -and $_.ro -is [bool] -and -not $_.ro -and
+    [string]$_.val -ceq $name})
+  if ($sources.Count -ne 1 -or @($Tree.nodes | Where-Object {$_.aid -ceq $FocusedAid}).Count -ne 1) {return $null}
+  [pscustomobject]@{node=$sources[0];expectedValue=$name}
+}
+
 function Get-SSETableRowRoot {
   param($Tree, $Cells)
   if (@($Cells).Count -ne 6) { return $null }

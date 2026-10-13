@@ -7576,7 +7576,7 @@ function Get-SSETableTypedEditorFocusProof {
 function Test-SSETableFocusedSource {
   param([IntPtr]$Hwnd,[int]$ProcessId,$Tree,[string]$TableAid,[string]$TableRid,$OwnedCell,$ExpectedSource,
     [ref]$FailureReason,[ref]$FailureEvidence,$NumberAnchor,[ref]$NumberEditorProof,$NumberModel,
-    [switch]$RequireNumberEditor,[int]$ExpectedNumberRow=-1,$TypedEditorAuthority,[ref]$TypedEditorProof,$NumberPolicy)
+    [switch]$RequireNumberEditor,[int]$ExpectedNumberRow=-1,$TypedEditorAuthority,[ref]$TypedEditorProof,$NumberPolicy,[ref]$PositionNameProof,[switch]$AllowPositionNameSource)
   if ($FailureReason) {$FailureReason.Value='source-focus-unbound'}
   if ($FailureEvidence) {$FailureEvidence.Value=$null}
   try {
@@ -7644,7 +7644,19 @@ function Test-SSETableFocusedSource {
         [Math]::Truncate($bounds.Width) -ne $nodes[0].w -or [Math]::Truncate($bounds.Height) -ne $nodes[0].h) {
       if ($FailureReason) {$FailureReason.Value='source-node-metadata-changed'};return $false
     }
-    if (-not (Test-SSETableFooterFocusSource $Tree $rid $aid $TableAid $TableRid $OwnedCell)) {
+    $sourceBound=Test-SSETableFooterFocusSource $Tree $rid $aid $TableAid $TableRid $OwnedCell
+    if (-not $sourceBound -and $AllowPositionNameSource -and -not $RequireNumberEditor -and -not $TypedEditorAuthority) {
+      $positionSource=Resolve-SSETablePositionNameFocusSource $Tree $TableAid $TableRid $rid $aid `
+        (Get-SSEPageObjects).tablePositionNameFocusSource (Get-CurrentHeading $Hwnd $Tree)
+      $positionValue=$null
+      if ($positionSource -and $focused.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern,[ref]$positionValue) -and
+          $positionValue.Current.IsReadOnly -is [bool] -and -not $positionValue.Current.IsReadOnly -and
+          [string]$positionValue.Current.Value -ceq $positionSource.expectedValue) {
+        $sourceBound=$true
+        if ($PositionNameProof) {$PositionNameProof.Value=[pscustomobject]@{valuePattern=$positionValue;expectedValue=$positionSource.expectedValue}}
+      }
+    }
+    if (-not $sourceBound) {
       if ($FailureReason) {$FailureReason.Value='source-editor-or-owned-cell-unbound'};return $false
     }
     $probe=$focused
@@ -7667,7 +7679,7 @@ function Test-SSETableFocusedSource {
 function Invoke-SSETableFooterFocus {
   param([IntPtr]$Hwnd,[int]$ProcessId,$Tree,[string]$TableAid,[string]$TableRid,[string]$ExpectedPage,
     $InputBaseline,[string]$WindowFingerprint,$OwnedCell,$NumberAnchor,$NumberModel,[switch]$RequireNumberEditor,
-    [int]$ExpectedNumberRow=-1,$TypedEditorAuthority,$NumberPolicy)
+    [int]$ExpectedNumberRow=-1,$TypedEditorAuthority,$NumberPolicy,[switch]$AllowPositionNameSource)
   $reject=[pscustomobject]@{ok=$false;reason='profiled-footer-focus-unbound';button=$null;
     phase='profile-binding';focusAttempted=$false;sourceReason=$null;uncachedReason=$null;
     exceptionType=$null;exceptionMessage=$null;errorRecord=$null;sourceEvidence=$null}
@@ -7695,12 +7707,13 @@ function Invoke-SSETableFooterFocus {
     if ($null -eq $InputBaseline -or -not (Test-SSELastInputUnchanged $InputBaseline)) {
       $reject.reason='footer-input-epoch-unbound';return $reject
     }
-    $sourceProofReason=$null;$sourceProofEvidence=$null;$numberEditorProof=$null;$typedEditorProof=$null
+    $sourceProofReason=$null;$sourceProofEvidence=$null;$numberEditorProof=$null;$typedEditorProof=$null;$positionNameProof=$null
     if (-not $sourceFocus -or [int]$sourceFocus.Current.ProcessId -ne $ProcessId -or
         -not (Test-SSETableFocusedSource $Hwnd $ProcessId $Tree $TableAid $TableRid $OwnedCell $sourceExpected `
           ([ref]$sourceProofReason) ([ref]$sourceProofEvidence) $NumberAnchor ([ref]$numberEditorProof) $NumberModel `
           -RequireNumberEditor:$RequireNumberEditor -ExpectedNumberRow $ExpectedNumberRow `
-          -TypedEditorAuthority $TypedEditorAuthority -TypedEditorProof ([ref]$typedEditorProof) -NumberPolicy $NumberPolicy)) {
+          -TypedEditorAuthority $TypedEditorAuthority -TypedEditorProof ([ref]$typedEditorProof) -NumberPolicy $NumberPolicy `
+          -PositionNameProof ([ref]$positionNameProof) -AllowPositionNameSource:$AllowPositionNameSource)) {
       $reject.sourceReason=$sourceProofReason
       $reject.sourceEvidence=$sourceProofEvidence
       $reject.reason='footer-source-focus-unbound';return $reject
@@ -7745,6 +7758,11 @@ function Invoke-SSETableFooterFocus {
     if ($numberEditorProof -and ($numberEditorProof.valuePattern.Current.IsReadOnly -isnot [bool] -or
         [string]$numberEditorProof.valuePattern.Current.Value -cne [string]$numberEditorProof.expectedValue)) {
       $reject.reason='footer-number-editor-value-changed';return $reject
+    }
+    if ($positionNameProof -and ($positionNameProof.valuePattern.Current.IsReadOnly -isnot [bool] -or
+        $positionNameProof.valuePattern.Current.IsReadOnly -or
+        [string]$positionNameProof.valuePattern.Current.Value -cne [string]$positionNameProof.expectedValue)) {
+      $reject.reason='footer-position-name-value-changed';return $reject
     }
     if ($typedEditorProof -and ($typedEditorProof.valuePattern.Current.IsReadOnly -isnot [bool] -or
         [string]$typedEditorProof.valuePattern.Current.Value -cne [string]$typedEditorProof.expectedValue -or
@@ -8044,7 +8062,9 @@ function Get-SSETableMutationTargetProof {
           (& $failed 'native-column-order' ($column -gt 0 -and $prior.nativeColumn -le $Target.cells[$column-1].nativeColumn)) -or
           (& $failed 'flags-type' ($prior.flags -isnot [int])) -or (& $failed 'cell-selectable' (($prior.flags -band 1) -ne 1)) -or
           (& $failed 'header-name-equal' ($header.name -cne [string]$Target.headers[$column])) -or
-          (& $failed 'header-x-equal' ($cell.x -ne $header.x)) -or (& $failed 'header-width-equal' ($cell.w -ne $header.w)) -or
+          # Qt excludes its one-pixel grid line from the cell content rectangle.
+          # Keep the exact left edge and reject any oversize or larger inset.
+          (& $failed 'header-x-equal' ($cell.x -ne $header.x)) -or (& $failed 'header-width-contained' ($cell.w -gt $header.w -or $cell.w -lt $header.w-1)) -or
           (& $failed 'table-left-contained' ($cell.x -lt $state.table.x)) -or
           (& $failed 'table-right-contained' ($cell.x+$cell.w -gt $state.table.x+$state.table.w)) -or
           (& $failed 'header-bottom-contained' ($cell.y -lt $header.y+$header.h)) -or
@@ -8136,7 +8156,8 @@ function Test-SSETableMutationActionEpoch {
 
 function Get-SSETableNativePositionCheckpointProof {
   param([IntPtr]$Hwnd,[int]$ProcessId,$Tree,$Snapshot,$Position,[int]$Dpi,$ClientOrigin,$NumberCell,[switch]$AllowPassiveFocus)
-  $reject=[pscustomobject]@{ok=$false;reason='native-position-checkpoint-unbound'}
+  $reject=[pscustomobject]@{ok=$false;reason='native-position-checkpoint-plan'}
+  try {
   if (-not (Test-SSEExactProperties $Position @('targetRow','numberModel','numberPolicy','geometry')) -or
       $Position.targetRow -isnot [int] -or $Position.targetRow -lt 0 -or $Position.targetRow -ge @($Position.numberModel).Count -or
       @($Position.numberModel).Count -gt 1000 -or
@@ -8151,7 +8172,9 @@ function Get-SSETableNativePositionCheckpointProof {
   $viewport=Get-SSETableReadViewportBounds $Tree $Snapshot $Position.geometry $Dpi $ClientOrigin
   $live=Get-SSETableLiveInputState $Hwnd $ProcessId $Snapshot.navigationBinding.tableRootAid `
     $Snapshot.navigationBinding.tableRootRid -RequireKeyboard:(-not $AllowPassiveFocus) -RequireSelection
-  if (-not $viewport -or -not $live.ok -or @($live.selectedRids).Count -ne 1) {return $reject}
+  if (-not $viewport) {$reject.reason='native-position-checkpoint-viewport';return $reject}
+  if (-not $live.ok) {$reject.reason='native-position-checkpoint-live-input';return $reject}
+  if (@($live.selectedRids).Count -ne 1) {$reject.reason='native-position-checkpoint-selection-count';return $reject}
   $current=Get-SSETableCursorNumberCellProof $Hwnd $ProcessId $Tree $Snapshot $NumberCell $Position.numberModel `
     $Position.targetRow -RequireSelected -SelectedRids $live.selectedRids -NumberPolicy $Position.numberPolicy `
     -ViewportBounds $viewport -RequireContained
@@ -8159,6 +8182,17 @@ function Get-SSETableNativePositionCheckpointProof {
     $reject.reason=[string]$current.reason;return $reject
   }
   [pscustomobject]@{ok=$true;reason='exact-native-position-current-selected-contained'}
+  } catch {$reject.reason='native-position-checkpoint-proof-exception';return $reject}
+}
+
+function New-SSETablePositionPhaseDiagnostic {
+  param([string]$Reason,[System.Collections.IDictionary]$Checks)
+  $checkpoint=[ordered]@{reason=$Reason;proofReason=$null;targetProven=$null;
+    desktop=$null;inputEpoch=$null;foreground=$null;windowSet=$null;dirtyState=$null;leaseImported=$null;leasePublished=$null}
+  foreach($key in @('desktop','inputEpoch','foreground','windowSet','dirtyState')) {
+    if($Checks.Contains($key) -and $Checks[$key] -is [bool]) {$checkpoint[$key]=$Checks[$key]}
+  }
+  [pscustomobject]@{cursorActivation=[pscustomobject]@{source='uia';subphase='native-position-checkpoint';positionCheckpoint=$checkpoint}}
 }
 
 function Get-SSETableNativePositionNumberAuthority {
@@ -19214,13 +19248,13 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $allowedPlanFields=@('schemaVersion','phase')
       if ($cursorPhase -ceq 'activate') { $allowedPlanFields+=@('binding','geometry') }
       elseif ($cursorPhase -ceq 'resume') { $allowedPlanFields+=@('binding','selectedRids','lease') }
-      elseif ($cursorPhase -ceq 'native-acquire') { $allowedPlanFields+=@('binding','numberModel','numberPolicy') }
+      elseif ($cursorPhase -cin @('native-acquire','native-position-acquire')) { $allowedPlanFields+=@('binding','numberModel','numberPolicy') }
       elseif ($cursorPhase -ceq 'native-step') { $allowedPlanFields+=@('binding','lease','selectedRids','step') }
       elseif ($cursorPhase -cin @('native-position-checkpoint','native-position-prepare')) { $allowedPlanFields+=@('binding','lease','position') }
       elseif ($cursorPhase -ceq 'mutation-target') { $allowedPlanFields+=@('binding','target','targetRid') }
       elseif ($cursorPhase -ceq 'native-release') { $allowedPlanFields+=@('binding','lease') }
       elseif ($cursorPhase -cin @('checkpoint','mutation-checkpoint')) { $allowedPlanFields+=@('binding') }
-      if ($cursorPlan.schemaVersion -ne 1 -or $cursorPhase -cnotin @('prebind','activate','resume','checkpoint','native-acquire','native-step','native-release','mutation-target','mutation-checkpoint','native-position-checkpoint','native-position-prepare') -or
+      if ($cursorPlan.schemaVersion -ne 1 -or $cursorPhase -cnotin @('prebind','activate','resume','checkpoint','native-acquire','native-position-acquire','native-step','native-release','mutation-target','mutation-checkpoint','native-position-checkpoint','native-position-prepare') -or
           @($cursorPlan.PSObject.Properties.Name | Where-Object { $_ -cnotin $allowedPlanFields }).Count -or
           (Arg $a 'noKeys') -ne $false -or -not $sumLabel) { Fail 'Privater Tabellenlaufplan ist nicht exakt gebunden.' 'bad-args' }
     }
@@ -19422,7 +19456,15 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           -not $erst.cursorAnchorIsNumber -or $erst.tabelleAnzahl -ne 1 -or
           @($phaseWindows.windows | Where-Object {$_.role -ne 'main'}).Count -or
           -not (Test-SSETableCursorPhaseEditorAuthority $cursorPhase $hwnd ([int]$main.pid) $latestTableSnapshot.tree $erst $cursorPlan) -or
-          -not (Test-SSELastInputUnchanged $phaseInputBefore)) { Fail 'Tabellenlaufphase ist nicht frisch und editorfrei gebunden; keine Eingabe.' 'precondition-failed' }
+          -not (Test-SSELastInputUnchanged $phaseInputBefore)) {
+        $phaseDiagnostic=$null
+        if($cursorPhase -ceq 'native-position-checkpoint') {
+          $phaseDiagnostic=New-SSETablePositionPhaseDiagnostic 'phase-precondition' @{
+            inputEpoch=[bool]($null -ne $phaseInputBefore -and (Test-SSELastInputUnchanged $phaseInputBefore));
+            windowSet=[bool](-not @($phaseWindows.windows | Where-Object {$_.role -ne 'main'}).Count)}
+        }
+        Fail 'Tabellenlaufphase ist nicht frisch und editorfrei gebunden; keine Eingabe.' 'precondition-failed' $phaseDiagnostic
+      }
       if ($cursorPhase -ceq 'prebind') {
         Emit ([pscustomobject]@{ok=$true;cursorBinding=(& $makeCursorBinding $erst $phaseInputBefore);physicalInputUsed=$false})
       }
@@ -19434,12 +19476,19 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           $inherited.windowFingerprint -cne $phaseWindows.fingerprint -or $inherited.dpi -ne [int][SW]::GetDpiForWindow($hwnd) -or
           (@($inherited.clientOrigin) -join ',') -cne (@([SW]::GetPhysicalClientOrigin($hwnd)) -join ',') -or
           -not (Test-SSETableReadSnapshotBinding $inherited.snapshot $erst -BeforeNavigation:($cursorPhase -cnotin @('mutation-checkpoint','native-position-checkpoint','native-position-prepare')))) {
-        Fail 'Phasenuebergreifende Fenster-, Tabellen- oder Eingabe-Epoche ging verloren; keine Eingabe.' 'interference'
+        $phaseDiagnostic=$null
+        if($cursorPhase -ceq 'native-position-checkpoint') {
+          $phaseDiagnostic=New-SSETablePositionPhaseDiagnostic 'inherited-context' @{
+            inputEpoch=[bool]($null -ne $inherited.inputEpoch -and (Test-SSELastInputUnchanged $inherited.inputEpoch));
+            windowSet=[bool]($inherited.windowFingerprint -ceq $phaseWindows.fingerprint);
+            dirtyState=[bool]($inherited.dirty -is [bool] -and $inherited.dirty -eq $dirtyBefore)}
+        }
+        Fail 'Phasenuebergreifende Fenster-, Tabellen- oder Eingabe-Epoche ging verloren; keine Eingabe.' 'interference' $phaseDiagnostic
       }
       if ($cursorPhase -cin @('checkpoint','mutation-checkpoint')) {
         Emit ([pscustomobject]@{ok=$true;cursorCheckpoint=$true;physicalInputUsed=$false;steps=0})
       }
-      if ($cursorPhase -ceq 'native-acquire' -and $cursorPlan.numberPolicy -and
+      if ($cursorPhase -cin @('native-acquire','native-position-acquire') -and $cursorPlan.numberPolicy -and
           -not (Test-SSETableNumberPolicy $cursorPlan.numberPolicy $erst.navigationBinding.tableRootAid @(
             $erst.kopf | ForEach-Object {[pscustomobject]@{name=$_}}))) {
         Fail 'Privater nativer Nummernspaltenplan stimmt nicht mit der frischen Tabelle ueberein.' 'bad-args'
@@ -19482,19 +19531,34 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       }
       if ($cursorPhase -ceq 'native-position-checkpoint') {
         $positionProof=Get-SSETableNativePositionCheckpointProof $hwnd ([int]$main.pid) $latestTableSnapshot.tree $erst $cursorPlan.position $inherited.dpi $inherited.clientOrigin
-        if (-not $positionProof.ok -or $script:DESKTOP_NAME -or
-            (Test-SSEWindowIsLockScreen ([SW]::GetForegroundWindow())) -or
-            -not (Test-SSELastInputUnchanged $inherited.inputEpoch) -or [SW]::GetForegroundWindow() -ne $hwnd -or
-            (Get-SSEInteractionWindowSet ([int]$main.pid) $hwnd).fingerprint -cne $inherited.windowFingerprint -or
-            (Get-DirtyStateFast $hwnd) -ne $inherited.dirty) {
-          Fail 'Native Zielposition ist nicht exakt ausgewaehlt und vollstaendig im echten Viewport; keine Mutation.' 'interference'
+        $positionCheckpoint=[ordered]@{reason='target-proof';proofReason=[string]$positionProof.reason;targetProven=[bool]$positionProof.ok;
+          desktop=$null;inputEpoch=$null;foreground=$null;windowSet=$null;dirtyState=$null;leaseImported=$null;leasePublished=$null}
+        $positionChecks=@(
+          @{name='desktop';read={-not $script:DESKTOP_NAME -and -not (Test-SSEWindowIsLockScreen ([SW]::GetForegroundWindow()))}},
+          @{name='inputEpoch';read={Test-SSELastInputUnchanged $inherited.inputEpoch}},
+          @{name='foreground';read={[SW]::GetForegroundWindow() -eq $hwnd}},
+          @{name='windowSet';read={(Get-SSEInteractionWindowSet ([int]$main.pid) $hwnd).fingerprint -ceq $inherited.windowFingerprint}},
+          @{name='dirtyState';read={(Get-DirtyStateFast $hwnd) -eq $inherited.dirty}}
+        )
+        $positionGuards=$positionProof.ok
+        foreach($check in $positionChecks) {
+          if(-not $positionGuards) {break}
+          $positionGuards=[bool](& $check.read);$positionCheckpoint[$check.name]=$positionGuards
+          if(-not $positionGuards) {$positionCheckpoint.reason=$check.name}
         }
-        if (-not (Import-SSETableCursorLease $hwnd ([int]$main.pid) $inherited.inputEpoch $cursorPlan.lease)) {
-          Fail 'Native Zielpositionshoheit ist nicht mehr exakt gebunden.' 'interference'
+        $positionDiagnostic=[pscustomobject]@{cursorActivation=[pscustomobject]@{source='uia';subphase='native-position-checkpoint';positionCheckpoint=$positionCheckpoint}}
+        if (-not $positionGuards) {
+          Fail 'Native Zielposition ist nicht exakt ausgewaehlt und vollstaendig im echten Viewport; keine Mutation.' 'interference' $positionDiagnostic
+        }
+        $positionCheckpoint.leaseImported=[bool](Import-SSETableCursorLease $hwnd ([int]$main.pid) $inherited.inputEpoch $cursorPlan.lease)
+        if (-not $positionCheckpoint.leaseImported) {
+          $positionCheckpoint.reason='lease-import'
+          Fail 'Native Zielpositionshoheit ist nicht mehr exakt gebunden.' 'interference' $positionDiagnostic
         }
         $positionBinding=& $makeCursorBinding $erst $inherited.inputEpoch
         $positionLease=Publish-SSETableCursorLeaseHandover $hwnd ([int]$main.pid) $inherited.inputEpoch
-        if (-not $positionLease -or $positionLease.nonce -ceq $cursorPlan.lease.nonce) {Fail 'Frische Zielpositionshoheit fehlt.' 'interference'}
+        $positionCheckpoint.leasePublished=[bool]($positionLease -and $positionLease.nonce -cne $cursorPlan.lease.nonce)
+        if (-not $positionCheckpoint.leasePublished) {$positionCheckpoint.reason='lease-publication';Fail 'Frische Zielpositionshoheit fehlt.' 'interference' $positionDiagnostic}
         Emit ([pscustomobject]@{ok=$true;cursorCheckpoint=$true;cursorBinding=$positionBinding;cursorLease=$positionLease;physicalInputUsed=$false;steps=0})
       }
       if ($cursorPhase -ceq 'native-step' -and (-not (Test-SSETableNativeCursorStepPlan $cursorPlan.step $cursorPlan.lease) -or
@@ -19664,7 +19728,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         }
         if (-not (& $readNavigationGuard 'fresh-focus-readback')) { throw 'Tabellenlauf vor dem Klick unterbrochen.' }
         $navigationState.snapshot=$focusedSnapshot
-        if ($cursorPhase -ceq 'native-acquire') {
+        if ($cursorPhase -cin @('native-acquire','native-position-acquire')) {
           $cursorActivation.subphase='native-current-cursor-proof'
           $boundCursor=Get-SSETableLiveInputState $hwnd $targetPid $focusedSnapshot.navigationBinding.tableRootAid `
             $focusedSnapshot.navigationBinding.tableRootRid -RequireKeyboard -RequireSelection
@@ -19673,7 +19737,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
             $footer=Invoke-SSETableFooterFocus $hwnd $targetPid $latestTableSnapshot.tree `
               $focusedSnapshot.navigationBinding.tableRootAid $focusedSnapshot.navigationBinding.tableRootRid `
               $erst.navigationBinding.heading $navigationState.tick $navigationState.windows.fingerprint $null $focusedSnapshot.ersteZelle `
-              $cursorPlan.numberModel -NumberPolicy $cursorPlan.numberPolicy
+              $cursorPlan.numberModel -NumberPolicy $cursorPlan.numberPolicy -AllowPositionNameSource:($cursorPhase -ceq 'native-position-acquire')
             $cursorActivation.footerFocus=[pscustomobject]@{ok=[bool]$footer.ok;reason=$footer.reason;phase=$footer.phase;
               focusAttempted=[bool]$footer.focusAttempted;sourceReason=$footer.sourceReason;uncachedReason=$footer.uncachedReason;
               exceptionType=$footer.exceptionType;exceptionMessage=$footer.exceptionMessage;errorRecord=$footer.errorRecord;sourceEvidence=$footer.sourceEvidence}
@@ -19682,20 +19746,22 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
             $afterFooter=LiesZeilen $hwnd
             if (-not (Test-SSETableReadSnapshotBinding $erst $afterFooter -BeforeNavigation)) {throw 'Fokusanker aenderte Tabelleninhalt.'}
             $navigationState.snapshot=$afterFooter
-            $cursorActivation.subphase='native-semantic-selection-proof'
-            if (-not $footer.currentNumberCell -or -not (& $readNavigationGuard 'native-before-semantic-selection') -or
-                -not (Invoke-SSETableReadAnchorSelection $hwnd $targetPid $afterFooter `
-                  $navigationState.tick $navigationState.windows.fingerprint $footer.currentNumberCell)) {
-              throw 'Native Fokusvorbereitung konnte ihre reine Ankerwahl nicht beweisen.'
+            if ($cursorPhase -ceq 'native-acquire') {
+              $cursorActivation.subphase='native-semantic-selection-proof'
+              if (-not $footer.currentNumberCell -or -not (& $readNavigationGuard 'native-before-semantic-selection') -or
+                  -not (Invoke-SSETableReadAnchorSelection $hwnd $targetPid $afterFooter `
+                    $navigationState.tick $navigationState.windows.fingerprint $footer.currentNumberCell)) {
+                throw 'Native Fokusvorbereitung konnte ihre reine Ankerwahl nicht beweisen.'
+              }
+              $cursorActivation.subphase='native-semantic-selection-table-readback'
+              $afterSelection=LiesZeilen $hwnd
+              if (-not (Test-SSETableReadSnapshotBinding $erst $afterSelection -BeforeNavigation)) {throw 'Ankerwahl aenderte Tabelleninhalt.'}
+              $navigationState.snapshot=$afterSelection
             }
-            $cursorActivation.subphase='native-semantic-selection-table-readback'
-            $afterSelection=LiesZeilen $hwnd
-            if (-not (Test-SSETableReadSnapshotBinding $erst $afterSelection -BeforeNavigation)) {throw 'Ankerwahl aenderte Tabelleninhalt.'}
-            $navigationState.snapshot=$afterSelection
           }
           $cursorActivation.subphase='native-selected-cursor-proof'
           $selectedCursor=Get-SSETableLiveInputState $hwnd $targetPid $navigationState.snapshot.navigationBinding.tableRootAid `
-            $navigationState.snapshot.navigationBinding.tableRootRid -RequireSelection
+            $navigationState.snapshot.navigationBinding.tableRootRid -RequireSelection:($cursorPhase -ceq 'native-acquire')
           if (-not $selectedCursor.ok -or -not (& $readNavigationGuard 'native-lease-handover') -or
               -not (& $readFocusCheckpoint 'native-lease-input-checkpoint')) {throw 'Privater Fokushandover verlor seine Bindung.'}
           $cursorActivation.subphase='native-lease-checkpoint'
@@ -19704,7 +19770,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           $handover=Publish-SSETableCursorLeaseHandover $hwnd $targetPid $navigationState.tick
           if (-not $handover) {throw 'Private Fokushoheit konnte nicht uebergeben werden.'}
           Emit ([pscustomobject]@{ok=$true;cursorBinding=(& $makeCursorBinding $navigationState.snapshot $navigationState.tick);
-            cursorLease=$handover;selectedRids=@($selectedCursor.selectedRids);physicalInputUsed=$false;steps=0})
+            cursorLease=$handover;selectedRids=@($selectedCursor.selectedRids);physicalInputUsed=$false;steps=0;
+            activationSubmitted=[bool]$cursorActivation.footerFocus.focusAttempted})
         }
         if ($cursorPhase -ceq 'activate') {
           $physicalUsed=$false;$viewportClickSubmitted=$false
@@ -19869,10 +19936,11 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         } elseif (-not $cursorActivation.anchorVerified -and $cursorActivation.reason -like '*-dispatched') {
           $cursorActivation.phase=$navigationState.phase;$cursorActivation.reason='post-focus-cursor-proof-failed'
         }
-        if ($cursorPhase -cin @('activate','native-acquire','resume')) {
+        if ($cursorPhase -cin @('activate','native-acquire','native-position-acquire','resume')) {
+          $focusActionSubmitted=[bool]($viewportClickSubmitted -or $cursorActivation.footerFocus.focusAttempted)
           Emit ([pscustomobject]@{ok=$false;kind='cursor-proof-failed';error='Viewportaktivierung ohne sicheren Abschluss; keine Cursortaste, nicht wiederholen.';
             cursorActivation=$cursorActivation;physicalInputUsed=[bool]$physicalUsed;physicalInputAttempted=[bool]$viewportClickSubmitted;
-            outcomeUnknown=[bool]$viewportClickSubmitted;reconciliationRequired=[bool]$viewportClickSubmitted;vollstaendig=$false;steps=0;retryable=$false})
+            activationSubmitted=$focusActionSubmitted;outcomeUnknown=$focusActionSubmitted;reconciliationRequired=$focusActionSubmitted;vollstaendig=$false;steps=0;retryable=$false})
         }
       } finally {
         [SW]::SetWindowPos($hwnd, $HWND_NOTOPMOST, 0, 0, 0, 0, $SWP) | Out-Null

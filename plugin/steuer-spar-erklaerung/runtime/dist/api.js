@@ -4772,6 +4772,17 @@ var init_product_profiles = __esm({
         action: external_exports.literal("SetFocus"),
         policy: external_exports.literal("own-typed-table-editor-only")
       }).strict().optional(),
+      tablePositionNameFocusSource: external_exports.object({
+        id: external_exports.literal("income_position_name"),
+        controlType: external_exports.literal("Edit"),
+        automationIdSuffix: external_exports.literal(
+          ".RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.AngabenZumUmsatz./.AngabenZumUmsatz.Bezeichnung./.AngabenZumUmsatz.Bezeichnung.Text"
+        ),
+        tableAutomationIdSuffix: external_exports.literal(".RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Tabelle./.Tabelle.Tab"),
+        headingPrefix: external_exports.literal("Einnahmen: "),
+        headers: external_exports.tuple([external_exports.literal("Nr."), external_exports.literal("Datum"), external_exports.literal("Bezeichnung"), external_exports.literal("Betrag"), external_exports.literal("N"), external_exports.literal("Netto")]),
+        policy: external_exports.literal("unchanged-position-name-only")
+      }).strict().optional(),
       pages: external_exports.record(pageObjectSchema).refine((value) => Object.keys(value).length > 0, "Seitenkatalog darf nicht leer sein.")
     }).passthrough().superRefine((catalog, context) => {
       const checkerTypes = (catalog.checkerStartBindings ?? []).flatMap((binding) => binding.documentTypes);
@@ -7922,12 +7933,17 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
   const steps = [];
   let pid2 = 0;
   let hwnd = 0;
+  let launchDispatched = false;
   let target;
   const step = async (operation, stepArgs, ceilingMs = budgetMs, run = dependencies.execute) => {
     if (signal?.aborted) fail("aborted", "API-Client hat die Fallanlage abgebrochen.");
     const remaining = deadline - now();
     if (remaining < MIN_STEP_MS) fail("timeout", `Zeitbudget der Fallanlage ist vor '${operation}' erschoepft.`);
+    if (operation === "launch" && Math.min(remaining, ceilingMs) < MIN_LAUNCH_MS) {
+      fail("timeout", "Zeitbudget der Fallanlage reicht vor dem Programmstart nicht fuer den Mindest-Startvertrag.");
+    }
     steps.push(operation);
+    if (operation === "launch") launchDispatched = true;
     const result = await run(operation, stepArgs, Math.min(remaining, ceilingMs), signal);
     if (result.ok !== true) throw new StepFailure({ ...result, failedStep: operation });
     return result;
@@ -7953,16 +7969,66 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
     }
     const launchBudget = Math.max(MIN_LAUNCH_MS, deadline - now() - WIZARD_RESERVE_MS);
     const launched = await step("launch", { mode }, launchBudget);
-    pid2 = Number(launched.pid);
-    if (!Number.isInteger(pid2) || pid2 <= 0) fail("startup-pid", "Der Start lieferte keine verifizierbare PID.");
+    const launchedPid = Number(launched.pid);
+    if (!Number.isInteger(launchedPid) || launchedPid <= 0) fail("startup-pid", "Der Start lieferte keine verifizierbare PID.");
+    pid2 = launchedPid;
+    if (launched.ready !== true || launched.blockedByDialog === true || launched.outcomeUnknown === true || launched.processPreserved === true) {
+      throw new StepFailure({
+        ...launched,
+        ok: false,
+        kind: "startup-not-ready",
+        failedStep: "launch",
+        error: "Der gestartete Prozess ist nicht bereit fuer die Fallanlage. Startdialog und moegliche Wiederherstellung frisch lesen; keine Assistentenaktion und kein automatisches Verwerfen oder Beenden.",
+        ready: false,
+        processPreserved: true,
+        reconciliationRequired: true,
+        retryable: false
+      });
+    }
     let startHeading = "";
     for (; ; ) {
       const bound2 = await step("instances", {});
       const instance = asArray(bound2.instances).find((entry2) => Number(entry2.pid) === pid2);
+      if (instance && (instance.recoveredState === true || instance.hung === true)) {
+        throw new StepFailure({
+          ok: false,
+          kind: instance.recoveredState === true ? "recovered-state" : "startup-not-ready",
+          error: "Der gestartete Fall ist wiederhergestellt oder nicht responsiv; Zustand erhalten und frisch abgleichen.",
+          failedStep: "instances",
+          pid: pid2,
+          ready: false,
+          processPreserved: true,
+          processStillRunning: true,
+          outcomeUnknown: true,
+          reconciliationRequired: true,
+          retryable: false
+        });
+      }
       if (instance && Number(bound2.count) === 1 && instance.hung !== true && instance.recoveredState !== true) {
         hwnd = Number(instance.hwnd);
-        const state = await step("ui_state", { hwnd });
-        const heading2 = String(state.heading ?? "");
+        let state;
+        try {
+          state = await step("ui_state", { hwnd });
+        } catch (error) {
+          if (!(error instanceof StepFailure) || error.result.backend !== "qt" || error.result.kind !== "no-window" || error.result.outcomeUnknown !== false) throw error;
+        }
+        if (state?.blockiert === true) {
+          throw new StepFailure({
+            ok: false,
+            kind: "startup-not-ready",
+            error: "Der Startassistent ist durch einen Dialog blockiert; Zustand erhalten und frisch abgleichen.",
+            failedStep: "ui_state",
+            pid: pid2,
+            hwnd,
+            ready: false,
+            processPreserved: true,
+            processStillRunning: true,
+            outcomeUnknown: true,
+            reconciliationRequired: true,
+            retryable: false
+          });
+        }
+        const heading2 = String(state?.heading ?? "");
         const match = wizard.startHeading.exec(heading2);
         if (match) {
           if (Number(match[1]) !== taxYear) {
@@ -8067,9 +8133,20 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
       note: "Der neue Fall ist geoeffnet und leer gespeichert. Stammdaten jetzt mit fill_fields fuellen; vor der ersten weiteren Mutation den Dateistand nach backups: sichern."
     };
   } catch (error) {
-    const failure6 = error instanceof StepFailure ? error.result : operationError(error instanceof Error ? error.message : String(error), signal?.aborted ? "aborted" : "case-create");
+    let failure6 = error instanceof StepFailure ? error.result : operationError(error instanceof Error ? error.message : String(error), signal?.aborted ? "aborted" : "case-create");
+    if (launchDispatched && pid2 <= 0 && !(failure6.mutationStarted === false && failure6.resultingState === "unchanged")) {
+      failure6 = {
+        ...failure6,
+        failedStep: failure6.failedStep ?? "launch",
+        processPreserved: true,
+        processStillRunning: failure6.processStillRunning ?? null,
+        outcomeUnknown: true,
+        reconciliationRequired: true,
+        retryable: false
+      };
+    }
     const created = target !== void 0 && existsSync7(target.path);
-    if (pid2 > 0 && !created) {
+    if (pid2 > 0 && !created && failure6.processPreserved !== true) {
       const cleanupState = await cleanupStartedProcess(dependencies.worker, pid2);
       return { ...failure6, created: false, steps, pid: pid2, ...cleanupState };
     }
@@ -8077,7 +8154,7 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
       ...failure6,
       created,
       steps,
-      ...pid2 > 0 ? { pid: pid2, processStillRunning: true } : {},
+      ...pid2 > 0 ? { pid: pid2, processStillRunning: failure6.processPreserved === true ? typeof failure6.processStillRunning === "boolean" ? failure6.processStillRunning : null : true } : {},
       ...created ? { caseRef: target.ref || target.path } : {}
     };
   }
@@ -17577,6 +17654,7 @@ async function executeNativeSteppedCursor(client, phase, args, initial, before, 
       focusActionVerified: false
     };
     currentPhase = "native-step-focus-only";
+    const budget = remaining();
     submitted = true;
     const reply = await client.requestAcknowledged("table_focus_only", {
       objectId: focus.tableId,
@@ -17585,7 +17663,7 @@ async function executeNativeSteppedCursor(client, phase, args, initial, before, 
       expectedPid: binding.pid,
       expectedInputTick: binding.inputEpoch,
       expectedWindowTitle: binding.windowTitle
-    }, remaining(), signal);
+    }, budget, signal);
     if (reply.result.ok !== true || reply.result.focused !== true || reply.result.physicalInputUsed !== false || reply.result.inputTick !== binding.inputEpoch || reply.result.outcomeUnknown === true || typeof reply.result.mutationAttempted !== "boolean" || reply.result.mutationAttempted && !reply.receiptAcknowledged || JSON.stringify(QT_TABLE_FOCUS_BINDING.parse(reply.result.binding)) !== JSON.stringify(focus)) {
       rejectProof("native-step-focus-acknowledged-postcondition");
     }
@@ -17600,6 +17678,7 @@ async function executeNativeSteppedCursor(client, phase, args, initial, before, 
     currentPhase = "native-acquire";
     const acquired = await phase("native-acquire", binding, { numberPolicy: policy, numberModel });
     if (!acquired.ok) return { ...publicCursorResult(acquired), retryable: false };
+    submitted = acquired.activationSubmitted === true;
     cleanupRequired = true;
     heldLease = leaseSchema.parse(acquired.cursorLease);
     const acquiredBinding = bindingSchema.parse(acquired.cursorBinding);
@@ -17694,7 +17773,7 @@ async function executeNativeSteppedCursor(client, phase, args, initial, before, 
       schritte: steps,
       physicalInputAttempted,
       activationSubmitted: submitted,
-      outcomeUnknown: steps > 0 || cleanupRequired,
+      outcomeUnknown: submitted || steps > 0 || cleanupRequired,
       reconciliationRequired: submitted || steps > 0,
       ...nativeCursorFocusEvidence ? { nativeCursorFocusEvidence } : {},
       retryable: false,
@@ -17743,6 +17822,41 @@ var init_table_cursor_step = __esm({
 });
 
 // src/table-cursor-position.ts
+function sanitizePositionCheckpoint(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return void 0;
+  const source = value;
+  const code = (key, allowed) => typeof source[key] === "string" ? allowed.has(source[key]) ? source[key] : "unrecognized" : null;
+  return {
+    reason: code("reason", checkpointReasons),
+    proofReason: code("proofReason", checkpointProofReasons),
+    ...Object.fromEntries(["targetProven", "desktop", "inputEpoch", "foreground", "windowSet", "dirtyState", "leaseImported", "leasePublished"].map((key) => [key, typeof source[key] === "boolean" ? source[key] : null]))
+  };
+}
+function sanitizeNativePositionDiagnostic(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return void 0;
+  const source = value;
+  if (source.operation !== "table_position_number" && source.operation !== "table_focus_only") return void 0;
+  const bool = (key) => typeof source[key] === "boolean" ? source[key] : null;
+  return {
+    operation: source.operation,
+    code: typeof source.code === "string" && nativeCodes.has(source.code) ? source.code : null,
+    reason: typeof source.reason === "string" && (source.reason === "unrecognized" || [...nativeReasons.values()].includes(source.reason)) ? source.reason : null,
+    transportKind: typeof source.transportKind === "string" && nativeTransportKinds.has(source.transportKind) ? source.transportKind : null,
+    ...Object.fromEntries([
+      "replyReceived",
+      "ok",
+      "completed",
+      "physicalInputUsed",
+      "inputEpochMatches",
+      "mutationAttempted",
+      "outcomeUnknown",
+      "receiptPresent",
+      "receiptFormatValid",
+      "receiptAcknowledged",
+      "numberEditorPending"
+    ].map((key) => [key, bool(key)]))
+  };
+}
 function nativePositionDiagnostic(operation, epoch, result, acknowledged, transportKind) {
   const bool = (value) => typeof value === "boolean" ? value : null;
   const receipt = result?.mutationReceipt;
@@ -17779,6 +17893,7 @@ async function executeNativeTargetPosition(client, phase, args, initial, before,
     return model;
   };
   const acknowledged = async (op, expected, extra = {}) => {
+    const budget = remaining();
     submitted = true;
     nativeQuiescent = false;
     nativeDiagnostic = nativePositionDiagnostic(op, binding.inputEpoch);
@@ -17792,7 +17907,7 @@ async function executeNativeTargetPosition(client, phase, args, initial, before,
         expectedInputTick: binding.inputEpoch,
         expectedWindowTitle: binding.windowTitle,
         ...extra
-      }, remaining(), signal);
+      }, budget, signal);
     } catch (error) {
       nativeDiagnostic = nativePositionDiagnostic(
         op,
@@ -17821,8 +17936,17 @@ async function executeNativeTargetPosition(client, phase, args, initial, before,
   try {
     await bindNativeViewport(client, initial, before, remaining, signal);
     stage = "native-position-acquire";
-    const acquired = await phase("native-acquire", binding, { numberPolicy: policy, numberModel });
-    if (!acquired.ok) return { ...publicCursorResult(acquired), retryable: false };
+    const acquired = await phase("native-position-acquire", binding, { numberPolicy: policy, numberModel });
+    const acquireActivation = acquired.cursorActivation;
+    const footerFocusAttempted = acquireActivation?.footerFocus?.focusAttempted === true || acquired.activationSubmitted === true;
+    if (!acquired.ok) return {
+      ...publicCursorResult(acquired),
+      phase: stage,
+      ...footerFocusAttempted ? { activationSubmitted: true, outcomeUnknown: true, reconciliationRequired: true } : {},
+      proofCheck: "native-position-acquire-worker-result",
+      retryable: false
+    };
+    submitted = footerFocusAttempted;
     unknownAuthority = true;
     lease = leaseSchema.parse(acquired.cursorLease);
     issuedNonces.add(lease.nonce);
@@ -17830,7 +17954,7 @@ async function executeNativeTargetPosition(client, phase, args, initial, before,
     if (!sameContext(binding, fresh) || lease.rootHwnd !== binding.hwnd || lease.targetPid !== binding.pid || lease.inputEpoch !== binding.inputEpoch || fresh.inputEpoch !== binding.inputEpoch) rejectProof("native-position-acquire-context");
     binding = fresh;
     unknownAuthority = false;
-    let model = await verify(), focus = nativeFocusBinding(model, binding, true);
+    let model = await verify(), focus = nativeFocusBinding(model, binding);
     stage = "native-position-dispatch";
     const positionReply = await acknowledged("table_position_number", focus, { targetRow }), afterPosition = positionReply.focus;
     positioned = true;
@@ -17843,12 +17967,13 @@ async function executeNativeTargetPosition(client, phase, args, initial, before,
       stage = "native-position-number-preparation";
       const geometry2 = await bindNativeViewport(client, binding, model, remaining, signal);
       const parent2 = lease;
-      lease = void 0;
-      unknownAuthority = true;
-      const prepared = await phase("native-position-prepare", binding, {
+      const preparation = phase("native-position-prepare", binding, {
         lease: parent2,
         position: { targetRow, numberModel, numberPolicy: policy, geometry: geometry2 }
       });
+      lease = void 0;
+      unknownAuthority = true;
+      const prepared = await preparation;
       if (!prepared.ok) rejectProof("native-position-number-closure");
       adopt(prepared, parent2);
       nativeQuiescent = true;
@@ -17864,14 +17989,37 @@ async function executeNativeTargetPosition(client, phase, args, initial, before,
     stage = "native-position-checkpoint";
     if (!lease) rejectProof("native-position-missing-checkpoint-authority");
     const parent = leaseSchema.parse(lease);
-    lease = void 0;
-    unknownAuthority = true;
-    const checkpoint = await phase("native-position-checkpoint", binding, {
+    const checking = phase("native-position-checkpoint", binding, {
       lease: parent,
       position: { targetRow, numberModel, numberPolicy: policy, geometry }
     });
+    lease = void 0;
+    unknownAuthority = true;
+    const checkpoint = await checking;
     if (!checkpoint.ok) {
-      result = { ...publicCursorResult(checkpoint), ok: false, cleanupRequired: true, reconciliationRequired: true, retryable: false };
+      const checkpointActivation = checkpoint.cursorActivation;
+      const positionCheckpoint = sanitizePositionCheckpoint(checkpointActivation && typeof checkpointActivation === "object" ? checkpointActivation.positionCheckpoint : void 0);
+      result = {
+        ...publicCursorResult(checkpoint),
+        ok: false,
+        phase: stage,
+        proofCheck: "native-position-checkpoint-worker-result",
+        activationSubmitted: submitted,
+        outcomeUnknown: true,
+        cleanupRequired: true,
+        reconciliationRequired: true,
+        retryable: false,
+        physicalInputUsed: false,
+        physicalInputAttempted: false,
+        steps: 0,
+        ...nativeDiagnostic ? { cursorActivation: {
+          source: "qt-native",
+          subphase: stage,
+          activationAttempted: submitted,
+          nativePosition: nativeDiagnostic,
+          ...positionCheckpoint ? { positionCheckpoint } : {}
+        } } : {}
+      };
     } else {
       adopt(checkpoint, parent);
       await verify();
@@ -17905,7 +18053,7 @@ async function executeNativeTargetPosition(client, phase, args, initial, before,
         activationAttempted: submitted,
         nativePosition: nativeDiagnostic
       } } : {},
-      outcomeUnknown: !nativeQuiescent,
+      outcomeUnknown: submitted || !nativeQuiescent,
       reconciliationRequired: submitted || positioned || unknownAuthority,
       retryable: false,
       vollstaendig: false
@@ -17924,7 +18072,7 @@ async function executeNativeTargetPosition(client, phase, args, initial, before,
   }
   return { ...result, ...unknownAuthority ? { ok: false, cleanupRequired: true, reconciliationRequired: true } : {} };
 }
-var nativeCodes, nativeReasons, nativeTransportKinds;
+var nativeCodes, nativeReasons, nativeTransportKinds, checkpointReasons, checkpointProofReasons;
 var init_table_cursor_position = __esm({
   "src/table-cursor-position.ts"() {
     "use strict";
@@ -17933,6 +18081,7 @@ var init_table_cursor_position = __esm({
     init_table_cursor_proofs();
     init_table_cursor_step();
     nativeCodes = /* @__PURE__ */ new Set([
+      "unrecognized",
       "INVALID_POSITION_TARGET",
       "precondition-failed",
       "position-outcome-unknown",
@@ -17984,6 +18133,7 @@ var init_table_cursor_position = __esm({
       ["Session controller lease could not be released", "controller-release"]
     ]);
     nativeTransportKinds = /* @__PURE__ */ new Set([
+      "unrecognized",
       "native-mutation-receipt",
       "native-timeout",
       "native-connection",
@@ -17994,6 +18144,45 @@ var init_table_cursor_position = __esm({
       "native-request-size",
       "native-queue-full",
       "aborted"
+    ]);
+    checkpointReasons = /* @__PURE__ */ new Set([
+      "phase-precondition",
+      "inherited-context",
+      "target-proof",
+      "desktop",
+      "inputEpoch",
+      "foreground",
+      "windowSet",
+      "dirtyState",
+      "lease-import",
+      "lease-publication"
+    ]);
+    checkpointProofReasons = /* @__PURE__ */ new Set([
+      "native-position-checkpoint-plan",
+      "native-position-checkpoint-viewport",
+      "native-position-checkpoint-live-input",
+      "native-position-checkpoint-selection-count",
+      "native-position-checkpoint-proof-exception",
+      "exact-native-position-current-selected-contained",
+      "current-number-cell-unbound",
+      "current-number-snapshot-unbound",
+      "current-number-policy-unbound",
+      "current-number-native-viewport-unbound",
+      "current-number-focused-source-unbound",
+      "current-number-selected-grid-pattern-unbound",
+      "current-number-selected-grid-container-unbound",
+      "current-number-focused-type-unbound",
+      "current-number-focused-node-not-unique",
+      "current-number-cell-metadata-unbound",
+      "current-number-cell-not-fresh",
+      "current-number-cell-live-metadata-changed",
+      "current-number-cell-pattern-unbound",
+      "current-number-cell-not-selected",
+      "current-number-cell-grid-unbound",
+      "current-number-cell-prior-native-value-unbound",
+      "current-number-row-outside-native-viewport",
+      "current-number-cell-proof-exception",
+      "exact-current-grid-number-cell"
     ]);
   }
 });
@@ -18090,6 +18279,7 @@ async function executeTableCursorMutation(operation, args, worker, dependencies,
     if (client.binding.hwnd !== binding.hwnd || client.binding.pid !== binding.pid) rejectProof("mutation-native-session");
     const nativeArgs = { ...readArgs, hwnd: binding.hwnd };
     const before = await readQtNativeCompleteTable(client, nativeArgs, remaining(), signal);
+    if (Object.hasOwn(before.table, "rows") && before.table.rows !== before.rows) rejectProof("mutation-native-table-row-count");
     if (!amountEqual(before.summary, args.expectedBefore)) rejectProof("mutation-native-summary-before");
     const matched = findQtNativeTableTarget(before, String(args.text)) ?? rejectProof("mutation-unique-native-target");
     const fingerprint = tableCursorModelFingerprint(before);
@@ -18117,7 +18307,15 @@ async function executeTableCursorMutation(operation, args, worker, dependencies,
     stage = "mutation-target-seek";
     cursorAttempted = true;
     cursorResult = await executeNativeTargetPosition(client, phase, readArgs, binding, before, remaining, release, matched.row, signal);
-    if (!cursorResult.ok) return { ...publicCursorResult(cursorResult), mutationStarted: false, retryable: false };
+    if (!cursorResult.ok) {
+      const unknown = cursorResult.outcomeUnknown === true || cursorResult.cleanupRequired === true;
+      return {
+        ...publicCursorResult(cursorResult),
+        mutationStarted: unknown ? null : false,
+        ...unknown ? { resultingState: "unknown" } : {},
+        retryable: false
+      };
+    }
     binding = bindingSchema.parse(cursorResult.cursorBinding);
     stage = "mutation-target-readback";
     const afterSeek = await readQtNativeCompleteTable(client, nativeArgs, remaining(), signal);
@@ -18143,15 +18341,21 @@ async function executeTableCursorMutation(operation, args, worker, dependencies,
     const postProof = external_exports.object({ inputEpoch: external_exports.number().int().min(0).max(4294967295), dirty: external_exports.boolean() }).strict().parse(result.mutationPostProof);
     stage = "mutation-native-postcondition";
     const after = await readQtNativeCompleteTable(client, nativeArgs, remaining(), signal);
-    const structure = (model) => JSON.stringify({
-      table: model.table,
-      columns: model.columns,
-      headers: model.headers,
-      hiddenColumns: model.hiddenColumns,
-      tableCount: model.tableCount,
-      windowEnabled: model.windowEnabled,
-      modalBlocked: model.modalBlocked
-    });
+    if (Object.hasOwn(before.table, "rows") !== Object.hasOwn(after.table, "rows") || Object.hasOwn(before.table, "rows") && after.table.rows !== after.rows) {
+      rejectProof("mutation-native-table-row-count");
+    }
+    const structure = (model) => {
+      const { rows: _rows, ...table } = model.table;
+      return JSON.stringify({
+        table,
+        columns: model.columns,
+        headers: model.headers,
+        hiddenColumns: model.hiddenColumns,
+        tableCount: model.tableCount,
+        windowEnabled: model.windowEnabled,
+        modalBlocked: model.modalBlocked
+      });
+    };
     if (structure(before) !== structure(after) || !amountEqual(after.summary, args.expectedAfter)) rejectProof("mutation-native-structure-summary");
     const untouched = before.values.filter((_, row) => row !== matched.row);
     const actual = operation === "table_update" ? after.values.filter((_, row) => row !== matched.row) : after.values;
@@ -18206,8 +18410,9 @@ async function executeTableCursorMutation(operation, args, worker, dependencies,
       phase: stage,
       proofCheck: error instanceof CursorProofFailure ? error.proofCheck : "mutation-target-contract",
       error: "Native Zielzeile verlor ihren Nachweis; frisch abgleichen, Mutation nicht wiederholen.",
-      mutationStarted: mutationSubmitted ? null : false,
-      outcomeUnknown: mutationSubmitted,
+      mutationStarted: mutationSubmitted || cursorAttempted ? null : false,
+      outcomeUnknown: mutationSubmitted || cursorAttempted,
+      ...mutationSubmitted || cursorAttempted ? { resultingState: "unknown" } : {},
       reconciliationRequired: cursorAttempted || mutationSubmitted,
       retryable: false,
       ...cursorResult ? { cursorSteps: cursorResult.steps } : {}
@@ -18446,7 +18651,12 @@ function tableAddCursorFailure(original, cursor) {
   const flag = (key) => typeof cursor[key] === "boolean" ? cursor[key] : null;
   const combinedFlag = (key) => original[key] === true || cursor[key] === true ? true : flag(key);
   const cleanupRequired = combinedFlag("cleanupRequired");
-  const outcomeUnknown = original.outcomeUnknown === true || cursor.outcomeUnknown !== false || cleanupRequired === true;
+  const activation = cursor.cursorActivation;
+  const footer = activation && typeof activation === "object" ? activation.footerFocus : void 0;
+  const footerFocusAttempted = footer && typeof footer === "object" && typeof footer.focusAttempted === "boolean" ? footer.focusAttempted : null;
+  const outcomeUnknown = original.outcomeUnknown === true || cursor.outcomeUnknown !== false || cleanupRequired === true || footerFocusAttempted === true;
+  const nativePosition = sanitizeNativePositionDiagnostic(activation && typeof activation === "object" ? activation.nativePosition : void 0);
+  const positionCheckpoint = sanitizePositionCheckpoint(activation && typeof activation === "object" ? activation.positionCheckpoint : void 0);
   return {
     ...original,
     ok: false,
@@ -18477,10 +18687,13 @@ function tableAddCursorFailure(original, cursor) {
         outcomeUnknown: flag("outcomeUnknown"),
         reconciliationRequired: flag("reconciliationRequired"),
         cleanupRequired: flag("cleanupRequired"),
-        activationSubmitted: flag("activationSubmitted"),
+        activationSubmitted: footerFocusAttempted === true ? true : flag("activationSubmitted"),
         physicalInputAttempted: flag("physicalInputAttempted"),
         physicalInputUsed: flag("physicalInputUsed"),
-        nativeWholeModelUnchanged: flag("nativeWholeModelUnchanged")
+        nativeWholeModelUnchanged: flag("nativeWholeModelUnchanged"),
+        footerFocusAttempted,
+        ...nativePosition ? { nativePosition } : {},
+        ...positionCheckpoint ? { positionCheckpoint } : {}
       }
     }
   };
@@ -18489,6 +18702,7 @@ var kinds, phases, proofChecks, stopKinds;
 var init_table_add_cursor_result = __esm({
   "src/table-add-cursor-result.ts"() {
     "use strict";
+    init_table_cursor_position();
     kinds = /* @__PURE__ */ new Set([
       "aborted",
       "busy",
@@ -18523,7 +18737,13 @@ var init_table_add_cursor_result = __esm({
       "native-step-home",
       "native-step-down",
       "native-step-focus-only",
-      "native-step-model-readback"
+      "native-step-model-readback",
+      "native-position-preproof",
+      "native-position-acquire",
+      "native-position-dispatch",
+      "native-position-number-preparation",
+      "native-position-focus-only",
+      "native-position-checkpoint"
     ]);
     proofChecks = /* @__PURE__ */ new Set([
       "native-or-worker-contract",
@@ -18539,7 +18759,27 @@ var init_table_add_cursor_result = __esm({
       "native-step-final-epoch",
       "cursor-transport-error",
       "cursor-deadline",
-      "append-no-mutation-proof"
+      "append-no-mutation-proof",
+      "native-position-acquire-worker-result",
+      "native-position-acknowledgment",
+      "native-position-whole-model",
+      "native-position-target-selection",
+      "native-position-checkpoint-context",
+      "native-position-number-closure",
+      "native-position-contract",
+      "native-append-position-protocol",
+      "native-append-position-empty-model",
+      "native-position-target-row",
+      "native-position-number-model",
+      "native-position-acquire-context",
+      "native-position-editor-inventory",
+      "native-position-current-model-readback",
+      "native-position-number-closure-model",
+      "native-position-focus-binding",
+      "native-position-focus-current-selection",
+      "native-position-missing-checkpoint-authority",
+      "native-position-final-epoch",
+      "native-position-checkpoint-worker-result"
     ]);
     stopKinds = /* @__PURE__ */ new Set(["cursor-unavailable", "max-rows", "cursor-stalled"]);
   }
@@ -18582,7 +18822,18 @@ async function executeTableAddSeek(original, args, readArgs, worker, dependencie
   const appendBudget = remaining();
   if (appendBudget < 1 || signal?.aborted) return deadline("passive-final-checkpoint", scrolled);
   const retried = await worker("table_add", args, appendBudget, signal);
-  return { ...retried, freeRowSearch: { retriedAfterTableWalk: true, rowsWalked: scrolled.anzahl ?? null } };
+  const inputSources = [original, scrolled, retried];
+  const cursorKeysUsed = typeof scrolled.steps === "number" && scrolled.steps > 0;
+  const inputFlag = (key) => {
+    if (cursorKeysUsed || inputSources.some((source) => source[key] === true) || key === "physicalInputAttempted" && inputSources.some((source) => source.physicalInputUsed === true)) return true;
+    return inputSources.every((source) => source[key] === false) ? false : null;
+  };
+  return {
+    ...retried,
+    physicalInputUsed: inputFlag("physicalInputUsed"),
+    physicalInputAttempted: inputFlag("physicalInputAttempted"),
+    freeRowSearch: { retriedAfterTableWalk: true, rowsWalked: scrolled.anzahl ?? null }
+  };
 }
 var init_table_add_seek = __esm({
   "src/table-add-seek.ts"() {

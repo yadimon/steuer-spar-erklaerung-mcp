@@ -196,6 +196,16 @@ const pageObjectsCompatibilitySchema = z.object({
     automationIdSuffix: z.literal(".RedThreadContent.ClientFrameSSE.ClientFooterSSE.HoverButton"),
     action: z.literal("SetFocus"), policy: z.literal("own-typed-table-editor-only"),
   }).strict().optional(),
+  tablePositionNameFocusSource: z.object({
+    id: z.literal("income_position_name"), controlType: z.literal("Edit"),
+    automationIdSuffix: z.literal(
+      ".RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.AngabenZumUmsatz./.AngabenZumUmsatz.Bezeichnung./.AngabenZumUmsatz.Bezeichnung.Text",
+    ),
+    tableAutomationIdSuffix: z.literal(".RedThreadContent.ClientFrameSSE.DialogWidget.DialogScrollArea.qt_scrollarea_viewport.DialogUI././.Tabelle./.Tabelle.Tab"),
+    headingPrefix: z.literal("Einnahmen: "),
+    headers: z.tuple([z.literal("Nr."), z.literal("Datum"), z.literal("Bezeichnung"), z.literal("Betrag"), z.literal("N"), z.literal("Netto")]),
+    policy: z.literal("unchanged-position-name-only"),
+  }).strict().optional(),
   pages: z.record(pageObjectSchema).refine((value) => Object.keys(value).length > 0, "Seitenkatalog darf nicht leer sein."),
 }).passthrough().superRefine((catalog, context) => {
   const checkerTypes = (catalog.checkerStartBindings ?? []).flatMap((binding) => binding.documentTypes);

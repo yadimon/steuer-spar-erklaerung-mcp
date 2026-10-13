@@ -14,7 +14,8 @@
 
 // This policy never clicks a cell, changes selection, commits an editor, or
 // synthesizes a key. The broker separately binds the window and model proof.
-static const char *tableFocusWidgetObstruction(QWidget *root, QTableView *view, QWidget *provenNumberDelegate = nullptr) {
+static const char *tableFocusWidgetObstruction(QWidget *root, QTableView *view, QWidget *provenNumberDelegate = nullptr,
+    bool allowUnselectedPosition = false) {
     if (!root || !view || root->thread() != QThread::currentThread()
         || view->thread() != QThread::currentThread() || view->window() != root->window()
         || !root->isEnabled() || !view->isVisible() || !view->isEnabled()
@@ -57,10 +58,13 @@ static const char *tableFocusWidgetObstruction(QWidget *root, QTableView *view, 
         || static_cast<qint64>(rows) * columns > 100000 || model->canFetchMore(QModelIndex()))
         return "The exact table model is not completely bounded";
     // Qt's first OtherFocusReason event can create a current index implicitly.
-    // Require an already bound current index; selection preparation belongs to
-    // the outer cursor transaction and must receive its own fresh readback.
+    // Focus-only requires an already bound current index. Exact positioning
+    // alone can initialize a positively proven invalid index with no selection;
+    // it owns one explicit target action and full model/selection readback.
     const auto current = view->currentIndex();
-    if (rows > 0 && (!current.isValid() || current.model() != model || current.parent().isValid()))
+    const bool unselectedPosition = allowUnselectedPosition && !current.isValid()
+        && view->selectionModel()->selectedIndexes().isEmpty();
+    if (rows > 0 && !unselectedPosition && (!current.isValid() || current.model() != model || current.parent().isValid()))
         return "The exact table has no already bound current model index";
     for (int row = 0; row < rows; ++row) for (int column = 0; column < columns; ++column) {
         const auto index = model->index(row, column);

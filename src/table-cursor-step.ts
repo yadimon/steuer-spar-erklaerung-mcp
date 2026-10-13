@@ -61,11 +61,13 @@ export async function executeNativeSteppedCursor(client: QtNativeClient, phase: 
     nativeCursorFocusEvidence = { currentIndex: [...focus.currentIndex], selectedIndexCount: focus.selectedIndexes.length,
       selectedIndexes: focus.selectedIndexes.slice(0, 32).map(index => [...index]),
       selectedIndexesTruncated: focus.selectedIndexes.length > 32, focusActionVerified: false };
-    currentPhase = "native-step-focus-only"; submitted = true;
+    currentPhase = "native-step-focus-only";
+    const budget = remaining();
+    submitted = true;
     const reply = await client.requestAcknowledged("table_focus_only", {
       objectId: focus.tableId, binding: focus, expectedRootHwnd: binding.hwnd, expectedPid: binding.pid,
       expectedInputTick: binding.inputEpoch, expectedWindowTitle: binding.windowTitle,
-    }, remaining(), signal);
+    }, budget, signal);
     if (reply.result.ok !== true || reply.result.focused !== true || reply.result.physicalInputUsed !== false
       || reply.result.inputTick !== binding.inputEpoch || reply.result.outcomeUnknown === true
       || typeof reply.result.mutationAttempted !== "boolean"
@@ -84,6 +86,7 @@ export async function executeNativeSteppedCursor(client: QtNativeClient, phase: 
     currentPhase = "native-acquire";
     const acquired = await phase("native-acquire", binding, { numberPolicy: policy, numberModel });
     if (!acquired.ok) return { ...publicCursorResult(acquired), retryable: false };
+    submitted = acquired.activationSubmitted === true;
     cleanupRequired = true; // A reported handover exists even when its schema is malformed.
     heldLease = leaseSchema.parse(acquired.cursorLease);
     const acquiredBinding = bindingSchema.parse(acquired.cursorBinding);
@@ -151,7 +154,7 @@ export async function executeNativeSteppedCursor(client: QtNativeClient, phase: 
       error: workerFailure?.error ?? "Tabellen-Cursorschritt verlor seinen Nachweis; frisch abgleichen, keine Taste wiederholen.",
       ...cursorProofActivation(error),
       steps, schritte: steps, physicalInputAttempted, activationSubmitted: submitted,
-      outcomeUnknown: steps > 0 || cleanupRequired, reconciliationRequired: submitted || steps > 0,
+      outcomeUnknown: submitted || steps > 0 || cleanupRequired, reconciliationRequired: submitted || steps > 0,
       ...(nativeCursorFocusEvidence ? { nativeCursorFocusEvidence } : {}),
       retryable: false, vollstaendig: false };
   } finally {

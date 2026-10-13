@@ -1,4 +1,5 @@
 import type { WorkerResult } from "./api-contract.js";
+import { sanitizeNativePositionDiagnostic, sanitizePositionCheckpoint } from "./table-cursor-position.js";
 
 const kinds = new Set([
   "aborted", "busy", "cancelled", "cursor-proof-failed", "cursor-unavailable", "interference", "not-found",
@@ -9,12 +10,22 @@ const phases = new Set([
   "prebind", "native-preproof", "native-acquire", "native-focus-preproof", "native-focus-only", "native-focus-readback",
   "cursor-resume", "native-final-readback", "passive-final-checkpoint", "viewport-activation", "native-activation-readback",
   "native-step-home", "native-step-down", "native-step-focus-only", "native-step-model-readback",
+  "native-position-preproof", "native-position-acquire", "native-position-dispatch", "native-position-number-preparation",
+  "native-position-focus-only", "native-position-checkpoint",
 ]);
 const proofChecks = new Set([
   "native-or-worker-contract", "native-step-contract", "native-session-not-ready", "native-viewport-dpi-geometry",
   "native-focus-resume-worker-result", "native-focus-resume-lease-completion", "native-focus-final-model",
   "native-focus-final-epoch", "native-step-worker-result", "native-step-last-row-clipped", "native-step-final-epoch",
   "cursor-transport-error", "cursor-deadline", "append-no-mutation-proof",
+  "native-position-acquire-worker-result", "native-position-acknowledgment", "native-position-whole-model",
+  "native-position-target-selection", "native-position-checkpoint-context", "native-position-number-closure",
+  "native-position-contract", "native-append-position-protocol", "native-append-position-empty-model",
+  "native-position-target-row", "native-position-number-model", "native-position-acquire-context",
+  "native-position-editor-inventory", "native-position-current-model-readback", "native-position-number-closure-model",
+  "native-position-focus-binding", "native-position-focus-current-selection", "native-position-missing-checkpoint-authority",
+  "native-position-final-epoch",
+  "native-position-checkpoint-worker-result",
 ]);
 const stopKinds = new Set(["cursor-unavailable", "max-rows", "cursor-stalled"]);
 
@@ -26,7 +37,15 @@ export function tableAddCursorFailure(original: WorkerResult, cursor: WorkerResu
   const flag = (key: string) => typeof cursor[key] === "boolean" ? cursor[key] : null;
   const combinedFlag = (key: string) => original[key] === true || cursor[key] === true ? true : flag(key);
   const cleanupRequired = combinedFlag("cleanupRequired");
-  const outcomeUnknown = original.outcomeUnknown === true || cursor.outcomeUnknown !== false || cleanupRequired === true;
+  const activation = cursor.cursorActivation;
+  const footer = activation && typeof activation === "object" ? (activation as Record<string, unknown>).footerFocus : undefined;
+  const footerFocusAttempted = footer && typeof footer === "object" && typeof (footer as Record<string, unknown>).focusAttempted === "boolean"
+    ? (footer as Record<string, unknown>).focusAttempted : null;
+  const outcomeUnknown = original.outcomeUnknown === true || cursor.outcomeUnknown !== false || cleanupRequired === true || footerFocusAttempted === true;
+  const nativePosition = sanitizeNativePositionDiagnostic(activation && typeof activation === "object"
+    ? (activation as Record<string, unknown>).nativePosition : undefined);
+  const positionCheckpoint = sanitizePositionCheckpoint(activation && typeof activation === "object"
+    ? (activation as Record<string, unknown>).positionCheckpoint : undefined);
   return {
     ...original, ok: false, kind: "cursor-proof-failed",
     error: "Anlegezeile nach Tabellenlauf nicht vollstaendig bewiesen; Teilzustand frisch abgleichen, nicht wiederholen.",
@@ -42,8 +61,11 @@ export function tableAddCursorFailure(original: WorkerResult, cursor: WorkerResu
         proofCheck: code(cursor.proofCheck, proofChecks), stopKind: code(cursor.stopKind, stopKinds),
         steps: count(cursor.steps), schritte: count(cursor.schritte),
         outcomeUnknown: flag("outcomeUnknown"), reconciliationRequired: flag("reconciliationRequired"), cleanupRequired: flag("cleanupRequired"),
-        activationSubmitted: flag("activationSubmitted"), physicalInputAttempted: flag("physicalInputAttempted"), physicalInputUsed: flag("physicalInputUsed"),
+        activationSubmitted: footerFocusAttempted === true ? true : flag("activationSubmitted"), physicalInputAttempted: flag("physicalInputAttempted"), physicalInputUsed: flag("physicalInputUsed"),
         nativeWholeModelUnchanged: flag("nativeWholeModelUnchanged"),
+        footerFocusAttempted,
+        ...(nativePosition ? { nativePosition } : {}),
+        ...(positionCheckpoint ? { positionCheckpoint } : {}),
       },
     },
   };

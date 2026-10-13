@@ -78,8 +78,8 @@ $stats=[pscustomobject]@{truncated=$false;depthLimited=$false;err=0;cyc=0;valErr
 $root=[pscustomobject]@{Current=[pscustomobject]@{ProcessId=7;ControlType=[System.Windows.Automation.ControlType]::Window;NativeWindowHandle=111};parent=$null}
 $WLK=[pscustomobject]@{}
 $WLK | Add-Member ScriptMethod GetParent {param($element) $element.parent}
-function Get-SSEPageObjects {[pscustomobject]@{tableComboFocusOut=$policy}}
-function Get-CurrentHeading {'Synthetic page'}
+function Get-SSEPageObjects {[pscustomobject]@{tableComboFocusOut=$policy;tablePositionNameFocusSource=$script:positionPolicy}}
+function Get-CurrentHeading {if($script:positionHeading){$script:positionHeading}else{'Synthetic page'}}
 function Get-SSEInteractionWindowSet {[pscustomobject]@{fingerprint='stable'}}
 function Test-SSELastInputUnchanged($Expected) {$Expected -eq $script:tick}
 function Walk-BoundTree {
@@ -96,6 +96,7 @@ function Get-SSETableReadUncachedElement {
   if ($Type -ceq 'DataItem') {return [pscustomobject]@{ok=$true;element=$script:numberAnchorLive;reason='synthetic-exact-number-anchor'}}
   if ($Type -ceq 'Table') {return [pscustomobject]@{ok=$true;element=$script:table;reason='synthetic-exact-table'}}
   if ($script:mode -eq 'number-value-late') {$script:numberSource.valuePattern.Current.Value='Synthetic changed number'}
+  if ($script:mode -eq 'position-name-late') {$script:positionSource.valuePattern.Current.Value='Synthetic changed position'}
   if ($script:mode -eq 'source-changed') {$AE::FocusedElement=New-Element $editorNode}
   if ($script:mode -eq 'source-type-changed') {$script:table.Current.ControlType=[System.Windows.Automation.ControlType]::Edit}
   if ($script:mode -eq 'fresh-unbound') {return [pscustomobject]@{ok=$false;reason='fresh-focus-walk-depth';element=$null}}
@@ -643,4 +644,46 @@ foreach ($case in @('pending-visible','pending-transient','pending-other-editor'
   $closed=$case -in @('pending-visible','pending-transient')
   if ($prepared.ok -ne $closed -or $script:focusCalls -ne [int]$closed) {throw "Exact visible/transient Nr. closure or zero-focus rejection mismatch: $case $($prepared.reason)"}
 }
+$positionProfile=(Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\profiles\2025\page-objects.json') -Raw | ConvertFrom-Json).tablePositionNameFocusSource
+foreach($case in @('position-name-success','position-name-late','position-name-live-value','position-name-readonly',
+  'position-name-wrong-heading','position-name-wrong-table','position-name-wrong-prefix','position-name-duplicate',
+  'position-name-active-editor','position-name-no-profile','position-name-wrong-profile','position-name-wrong-header',
+  'position-name-foreign-pid','position-name-foreign-window','position-name-no-authority')) {
+  $script:mode=$case;$script:focusCalls=0;$script:tick=10;$script:sourceSnapshotReads=0
+  $script:positionHeading='Einnahmen: Synthetic commissions';$script:positionPolicy=$positionProfile.PSObject.Copy()
+  $tableNode=$tableNode.PSObject.Copy();$tableNode.aid='Synthetic'+$positionProfile.tableAutomationIdSuffix
+  $positionTableAid=$tableNode.aid
+  $script:table=New-Element $tableNode;$script:table.parent=$root
+  $script:button=New-Element $buttonNode;$script:button.parent=$root
+  $source=[pscustomobject]@{i=20;p=-1;rid='42.777.4.-200';aid='Synthetic'+$positionProfile.automationIdSuffix;
+    type='Edit';name='Position';on=$true;x=100;y=40;w=300;h=24;val='Synthetic commissions';ro=$false}
+  $script:positionSource=New-Element $source;$script:positionSource.parent=$root
+  $script:positionSource.valuePattern=[pscustomobject]@{Current=[pscustomobject]@{Value=$source.val;IsReadOnly=$false}}
+  $headers=@(for($column=0;$column -lt 6;$column++) {[pscustomobject]@{i=30+$column;p=$tableNode.i;rid="42.777.4.-$($column+210)";
+    aid=$positionTableAid;type='Header';name=$positionProfile.headers[$column];on=$true;x=100+90*$column;y=80;w=90;h=24}})
+  $rowHeader=[pscustomobject]@{i=40;p=$tableNode.i;rid='42.777.4.-250';aid=$positionTableAid;type='Header';name='';on=$true;x=99;y=104;w=2;h=24}
+  $tree=[pscustomobject]@{nodes=@($tableNode,$buttonNode,$source)+$headers+@($rowHeader);stats=$stats}
+  switch($case) {
+    'position-name-live-value' {$script:positionSource.valuePattern.Current.Value='Uncommitted change'}
+    'position-name-readonly' {$source.ro=$true;$script:positionSource.valuePattern.Current.IsReadOnly=$true}
+    'position-name-wrong-heading' {$script:positionHeading='Other page: Synthetic commissions'}
+    'position-name-wrong-table' {$positionTableAid+='Other';$tableNode.aid=$positionTableAid;$script:table.Current.AutomationId=$positionTableAid}
+    'position-name-wrong-prefix' {$source.aid='Other'+$positionProfile.automationIdSuffix;$script:positionSource.Current.AutomationId=$source.aid}
+    'position-name-duplicate' {$duplicate=$source.PSObject.Copy();$duplicate.rid='42.777.4.-300';$tree.nodes+=@($duplicate)}
+    'position-name-active-editor' {$active=$editorNode.PSObject.Copy();$active.aid=$positionTableAid+'.(1).Betrag';$tree.nodes+=@($active)}
+    'position-name-no-profile' {$script:positionPolicy=$null}
+    'position-name-wrong-profile' {$script:positionPolicy.policy='allow-any-edit'}
+    'position-name-wrong-header' {$headers[0].name='Other column'}
+    'position-name-foreign-pid' {$script:positionSource.Current.ProcessId=8}
+    'position-name-foreign-window' {$script:positionSource.parent=[pscustomobject]@{Current=[pscustomobject]@{
+      ProcessId=7;ControlType=[System.Windows.Automation.ControlType]::Window;NativeWindowHandle=222}}}
+  }
+  $script:freshSourceTree=$tree;$AE::FocusedElement=$script:positionSource
+  $result=Invoke-SSETableFooterFocus ([IntPtr]111) 7 $tree $positionTableAid $tableNode.rid $script:positionHeading 10 'stable' $null `
+    -AllowPositionNameSource:($case -cne 'position-name-no-authority')
+  if($result.ok -ne ($case -ceq 'position-name-success')) {throw "$case`: exact unchanged position-name proof mismatch: $($result.reason)"}
+  if($script:focusCalls -ne [int]($case -ceq 'position-name-success')) {throw "$case`: unproven source caused focus or replay."}
+  if($case -ceq 'position-name-late' -and $result.reason -cne 'footer-position-name-value-changed') {throw 'Late position-name change was not caught before focus.'}
+}
+$script:positionHeading=$null;$script:positionPolicy=$null
 Write-Output 'table-footer-focus-contract: PASS (pure synthetic focus-only/owned-delegate/no-retry/precise-failure-proof)'

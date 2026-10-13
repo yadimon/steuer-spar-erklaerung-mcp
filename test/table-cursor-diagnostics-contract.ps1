@@ -3,14 +3,14 @@ $source=[IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\powershell\sse-worke
 $parseErrors=$null
 $ast=[Management.Automation.Language.Parser]::ParseInput($source,[ref]$null,[ref]$parseErrors)
 if (@($parseErrors).Count) {throw 'Worker syntax is invalid.'}
-foreach ($helperName in @('Get-SSETableExceptionDiagnostic','Get-SSETextSha256')) {
+foreach ($helperName in @('Get-SSETableExceptionDiagnostic','Get-SSETextSha256','New-SSETablePositionPhaseDiagnostic')) {
   $helper=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
     $node.Name -ceq $helperName},$true))
   if ($helper.Count -ne 1) {throw 'Productive diagnostic helper is absent.'}
   . ([scriptblock]::Create($helper[0].Extent.Text))
 }
 $nativeIf=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.IfStatementAst] -and
-  $node.Clauses[0].Item1.Extent.Text -ceq '$cursorPhase -ceq ''native-acquire'''},$true))
+  $node.Clauses[0].Item1.Extent.Text -ceq '$cursorPhase -cin @(''native-acquire'',''native-position-acquire'')'},$true))
 if ($nativeIf.Count -ne 1) {throw 'Productive native cursor acquire branch is absent.'}
 $activationTry=$nativeIf[0].Parent
 while ($activationTry -and $activationTry -isnot [Management.Automation.Language.TryStatementAst]) {$activationTry=$activationTry.Parent}
@@ -22,14 +22,19 @@ if (-not $activationTry -or $activationTry.CatchClauses.Count -ne 1) {throw 'Pro
 function Get-SSETableLiveInputState {
   param($Window,$ProcessId,$Aid,$Rid,[switch]$RequireKeyboard,[switch]$RequireSelection)
   $script:cursorReads++
+  if ($cursorPhase -ceq 'native-position-acquire') {
+    return [pscustomobject]@{ok=[bool](-not $RequireSelection -and $script:cursorReads -gt 1 -and $script:mode -ne 'position-passive-proof');selectedRids=@()}
+  }
   [pscustomobject]@{ok=$(if ($script:cursorReads -eq 1) {$script:mode -eq 'existing-focus'} else {$script:mode -ne 'selected-proof'});
     selectedRids=@('10.2');reason='Synthetic keyboard proof';editorClosed=$true;focusedType='Edit';selectedCount=1;
     keyboardEvidence=[pscustomobject]@{focusedSource=[pscustomobject]@{type='Edit';processId=7;aid='Synthetic.Table.(2).BelegNr';rid='10.9'}}}
 }
 function Invoke-SSETableFooterFocus {
+  param($Hwnd,$ProcessId,$Tree,$TableAid,$TableRid,$ExpectedPage,$InputBaseline,$WindowFingerprint,$OwnedCell,$NumberAnchor,$NumberModel,$NumberPolicy,[switch]$AllowPositionNameSource)
+  if([bool]$AllowPositionNameSource -ne ($cursorPhase -ceq 'native-position-acquire')) {throw 'Position-name permission was omitted or granted to another cursor phase.'}
   $script:footerCalls++
   [pscustomobject]@{ok=$script:mode -ne 'footer-proof';phase='source-binding';reason='footer-source-focus-unbound';
-    focusAttempted=$false;sourceReason='source-editor-or-owned-cell-unbound';uncachedReason=$null;
+    focusAttempted=[bool]($script:mode -ne 'footer-proof');sourceReason='source-editor-or-owned-cell-unbound';uncachedReason=$null;
     exceptionType=$null;exceptionMessage=$null;errorRecord=$null;currentNumberCell=[pscustomobject]@{rid='10.3';type='DataItem'}}
 }
 function LiesZeilen {$focusedSnapshot}
@@ -72,7 +77,7 @@ foreach ($case in @('existing-focus','selected-after-footer','footer-proof','foo
   if ($script:footerCalls -ne $(if ($case -eq 'existing-focus') {0} else {1})) {throw "$case`: footer callback retried or skipped."}
   if (-not $success) {
     if ($script:emitted.retryable -ne $false -or $script:emitted.steps -ne 0 -or $script:emitted.physicalInputUsed -or
-        $script:emitted.physicalInputAttempted -or $script:emitted.outcomeUnknown) {throw "$case`: failed acquire changed its no-input/no-retry contract."}
+        $script:emitted.physicalInputAttempted -or $script:emitted.outcomeUnknown -ne ($case -cne 'footer-proof')) {throw "$case`: failed acquire changed its physical-input/no-retry or dispatched-focus contract."}
     $expectedSubphase=switch ($case) {
       'footer-proof' {'native-footer-focus';break}
       'footer-snapshot' {'native-footer-table-readback';break}
@@ -85,10 +90,28 @@ foreach ($case in @('existing-focus','selected-after-footer','footer-proof','foo
         -not $cursorActivation.exceptionMessage -or -not $cursorActivation.errorRecord.fullyQualifiedErrorId -or
         $cursorActivation.errorRecord.scriptLineNumber -le 0) {throw "$case`: precise throw subphase or ErrorRecord was lost."}
     if ($cursorActivation.footerFocus.sourceReason -cne 'source-editor-or-owned-cell-unbound' -or
-        $cursorActivation.footerFocus.focusAttempted -ne $false) {throw "$case`: nested footer proof was lost."}
+        $cursorActivation.footerFocus.focusAttempted -ne ($case -cne 'footer-proof')) {throw "$case`: nested footer proof was lost."}
   }
   if ($case -eq 'selection-guard' -and $script:anchorCalls -ne 0) {throw 'A failed guard still invoked the anchor selection.'}
   if ($case -eq 'footer-proof' -and $script:snapshotProofs -ne 0) {throw 'An unproved footer was followed by another snapshot/selection.'}
+}
+$cursorPhase='native-position-acquire'
+foreach($case in @('position-empty-selection','position-passive-proof','footer-proof','footer-snapshot','lease-checkpoint','lease-publication')) {
+  $script:mode=$case;$script:cursorReads=0;$script:footerCalls=0;$script:snapshotProofs=0;$script:anchorCalls=0
+  $script:leaseCheckpoints=0;$script:leasePublications=0;$script:emitted=$null
+  $physicalUsed=$false;$viewportClickSubmitted=$false
+  $cursorActivation=[pscustomobject]@{method='none';phase='not-started';reason=$null;exceptionType=$null;
+    tableFocusable=$null;anchorFocusable=$null;anchorVerified=$false;subphase=$null;exceptionMessage=$null;errorRecord=$null;footerFocus=$null}
+  $navigationState=[pscustomobject]@{phase='fresh-focus-readback';snapshot=$focusedSnapshot;tick=10;
+    windows=[pscustomobject]@{fingerprint='Synthetic.Stable'}}
+  $readNavigationGuard={param($Phase) $navigationState.phase=$Phase;$true}
+  $readFocusCheckpoint={param($Phase) $navigationState.phase=$Phase;$script:mode -ne 'lease-checkpoint'}
+  Invoke-SyntheticCursorAcquire
+  if($script:emitted.ok -ne ($case -ceq 'position-empty-selection')) {throw "$case`: position-only passive lease proof mismatch."}
+  if($script:anchorCalls -ne 0 -or $script:footerCalls -ne 1) {throw "$case`: position acquisition selected an anchor or retried focus."}
+  if($script:emitted.physicalInputUsed -or $script:emitted.steps -ne 0) {throw 'Position acquisition issued input before the broker target action.'}
+  if($case -ceq 'position-empty-selection' -and @($script:emitted.selectedRids).Count) {throw 'An empty Qt selection was replaced by guessed UIA cell authority.'}
+  if($case -cne 'position-empty-selection' -and $script:emitted.outcomeUnknown -ne ($case -cne 'footer-proof')) {throw "$case`: dispatched footer focus was reported as a known outcome."}
 }
 $resumeIf=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.IfStatementAst] -and
   $node.Clauses[0].Item1.Extent.Text -ceq '$cursorPhase -ceq ''resume''' -and
@@ -141,4 +164,33 @@ if ($diagnostic.exceptionType -cne 'InvalidOperationException' -or $diagnostic.e
     $diagnostic.errorRecord.fullyQualifiedErrorId -cne 'Synthetic.Provider.Error' -or $json -match 'private folder|case\.bin|secret|TargetObject|StackTrace') {
   throw 'Bounded ErrorRecord projection leaked its target/path or lost its classification.'
 }
-Write-Output 'table-cursor-diagnostics-contract: PASS (actual acquire/resume/catch; synthetic callbacks; precise failures; no input/retry)'
+# Exercise the actual early rejection bodies before lease import. Their bounded
+# diagnosis must survive the shared dispatcher checks as well as the target proof.
+function Test-SSELastInputUnchanged {param($Tick) $Tick -eq 10}
+function Fail {param($Message,$Kind,$Metadata) $script:phaseFailure=$Metadata}
+$cursorPhase='native-position-checkpoint';$phaseInputBefore=11;$dirtyBefore=$true
+$phaseWindows=[pscustomobject]@{fingerprint='current';windows=@([pscustomobject]@{role='main'})}
+$inherited=[pscustomobject]@{inputEpoch=11;windowFingerprint='prior';dirty=$false;nonce='synthetic-private-authority'}
+foreach($spec in @(
+  @{condition='$null -eq $phaseInputBefore -or';reason='phase-precondition'},
+  @{condition='-not $inherited -or';reason='inherited-context'}
+)) {
+  $branch=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.IfStatementAst] -and
+    $node.Clauses[0].Item1.Extent.Text.StartsWith($spec.condition)},$true))
+  if($branch.Count -ne 1) {throw 'Actual shared checkpoint guard is absent or ambiguous.'}
+  . ([scriptblock]::Create('function Invoke-SyntheticPhaseRejection '+$branch[0].Clauses[0].Item2.Extent.Text))
+  $script:phaseFailure=$null;Invoke-SyntheticPhaseRejection
+  $checkpoint=$script:phaseFailure.cursorActivation.positionCheckpoint
+  if($checkpoint.reason -cne $spec.reason -or $checkpoint.inputEpoch -ne $false -or
+      $null -ne $checkpoint.leaseImported -or $null -ne $checkpoint.leasePublished) {throw 'Early checkpoint drift lost its precise bounded cause.'}
+  if($spec.reason -ceq 'inherited-context' -and ($checkpoint.windowSet -ne $false -or $checkpoint.dirtyState -ne $false)) {
+    throw 'Inherited window or dirty-state drift lost its bounded outcome.'
+  }
+  if(($script:phaseFailure | ConvertTo-Json -Depth 6 -Compress) -match 'synthetic-private-authority|nonce|windowFingerprint') {
+    throw 'Early checkpoint rejection exported private authority.'
+  }
+  $cursorPhase='native-release';$script:phaseFailure=$null;Invoke-SyntheticPhaseRejection
+  if($script:phaseFailure) {throw 'Checkpoint diagnosis was attached to another cursor phase.'}
+  $cursorPhase='native-position-checkpoint'
+}
+Write-Output 'table-cursor-diagnostics-contract: PASS (actual acquire/resume/catch/shared checkpoint guards; synthetic callbacks; precise failures; no input/retry)'
