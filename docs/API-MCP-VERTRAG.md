@@ -6,6 +6,7 @@
 - [Erreichbarkeit und Browser-Schutz](#erreichbarkeit-und-browser-schutz)
 - [HTTP-Hüllen](#http-hüllen)
 - [Startbereitschaft](#startbereitschaft)
+- [Zielbereitschaft nach Suchschluss](#zielbereitschaft-nach-suchschluss)
 - [Optionale Wiederholung bei belegter API](#optionale-wiederholung-bei-belegter-api)
 - [Dauerhaftes CLI-Journal](#dauerhaftes-cli-journal)
 - [MCP-Abbildung](#mcp-abbildung)
@@ -107,6 +108,19 @@ beantwortet, schließt oder übernimmt sie nicht automatisch. Ohne stabile
 Bereitschaft bleibt der möglicherweise gestartete Prozess erhalten. Ein
 fehlgeschlagener Readback veranlasst keinen erneuten Prozessstart. Spätere
 Operationen prüfen ihre Fenster- und Fallbindung weiterhin selbst.
+
+## Zielbereitschaft nach Suchschluss
+
+Der Standard-Worker bestaetigt einen aktivierten Suchtreffer nach dem
+Suchschluss mit demselben begrenzten Pollingbudget. Zwei aufeinanderfolgende
+Beobachtungen muessen dieselbe Zielueberschrift und ihre vollstaendig gebundenen
+profilierten Felder beziehungsweise Tabellen bestaetigen. Eine negative
+Beobachtung setzt die Bestaetigung zurueck. Nach Fristende startet keine neue
+Pruefung; ein bereits begonnener UIA-Read darf seinen gueltigen Beweis liefern.
+Der letzte erfolgreiche Inhaltsbeweis
+entscheidet ueber den Erfolg; ein weiterer Readback ohne Wartebudget folgt nicht.
+Bleibt die Bindung instabil, liefert `goto` `navigation-blocked` mit dem
+beobachteten Weg und loest keine weitere Navigation aus.
 
 ## Optionale Wiederholung bei belegter API
 

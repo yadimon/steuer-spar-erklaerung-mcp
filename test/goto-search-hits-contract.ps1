@@ -208,11 +208,12 @@ function Test-SearchSuccess([string]$HeadingAfter, [bool]$FieldsReady) {
   $script:searchWaits = New-Object System.Collections.ArrayList
   $aktiviert = $true; $hwnd = [IntPtr]4242; $nachSuche = 'Frueher bestaetigt'
   $ziel = 'Zielseite'; $pageId = 'synthetic.page'
-  $weg = @('Startseite'); $suchWeg = @('Suchtreffer aktiviert')
-  function WarteAufUeberschrift {
-    param([IntPtr]$h, [string]$vorher, [string]$erwartet, [int]$timeoutMs)
-    $null = $script:searchWaits.Add([pscustomobject]@{h=[int64]$h;target=$erwartet;timeoutMs=$timeoutMs})
-    $HeadingAfter
+  $weg = @('Startseite'); $suchWeg = New-Object System.Collections.ArrayList
+  $null = $suchWeg.Add('Suchtreffer aktiviert')
+  function WarteAufZielseite {
+    param([IntPtr]$h, [int]$timeoutMs)
+    $null = $script:searchWaits.Add([pscustomobject]@{h=[int64]$h;timeoutMs=$timeoutMs})
+    [pscustomobject]@{bereit=($FieldsReady -and $HeadingAfter -ceq $ziel);ueberschrift=$HeadingAfter;runden=@()}
   }
   function IstZielseite { param([IntPtr]$h, [string]$heading) $FieldsReady -and $heading -ceq $ziel }
   function Emit { param($result) $script:searchEmitted=$result; throw 'search-emitted' }
@@ -233,7 +234,80 @@ foreach ($case in @(
 }
 $ready = Test-SearchSuccess 'Zielseite' $true
 Assert-True ($ready.emitted.erreicht -eq $true -and $ready.emitted.ueberschrift -ceq 'Zielseite' -and
-  $ready.waits.Count -eq 1 -and $ready.waits[0].h -eq 4242 -and $ready.waits[0].target -ceq 'Zielseite' -and
+  $ready.waits.Count -eq 1 -and $ready.waits[0].h -eq 4242 -and
   $ready.waits[0].timeoutMs -eq 1800) 'Der Sucherfolg ist nicht frisch und begrenzt an die Zielseite gebunden.'
 
 Write-Output 'goto-Suchtreffer: genaue Titelzellen und frische Zielpruefung nach Suchschluss - bestanden'
+
+# Execute the productive wait together with the productive success block.
+# A positive sample followed by a relayout must consume its original wait
+# budget, never trigger more input or acquire a new unbudgeted readback.
+$targetWait=@($gotoBody.FindAll({param($node)
+  $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'WarteAufZielseite'
+},$true))
+Assert-True ($targetWait.Count -eq 1) 'Die begrenzte Zielpruefung fehlt.'
+function Test-StableSearchSuccess([object[]]$Rounds,[int]$ExpectedReads,[bool]$ExpectedSuccess,
+  [int]$Budget=0,[int]$SlowRead=-1,[int]$DelayMs=80) {
+  $script:searchEmitted=$null;$script:searchFailure=$null
+  $script:stableRound=-1;$script:stableReads=0;$script:stableSleeps=0;$script:stableBudget=0
+  $aktiviert=$true;$hwnd=[IntPtr]4242;$ziel='Zielseite';$pageId='';$nachSuche='Zielseite'
+  $weg=@('Startseite');$suchWeg=New-Object System.Collections.ArrayList
+  $null=$suchWeg.Add('Suchtreffer aktiviert')
+  . ([scriptblock]::Create($targetWait[0].Extent.Text.Replace('function WarteAufZielseite','function Invoke-ProductiveTargetWait')))
+  function WarteAufZielseite {
+    param([IntPtr]$h,[int]$timeoutMs)
+    $script:stableBudget=$timeoutMs
+    Invoke-ProductiveTargetWait $h $(if ($Budget -gt 0) {$Budget} elseif ($ExpectedSuccess) {1000} else {20})
+  }
+  function AktuelleUeberschrift {
+    param($h)
+    $script:stableRound=[Math]::Min($script:stableRound+1,$Rounds.Count-1)
+    $Rounds[$script:stableRound].heading
+  }
+  function IstZielseite {
+    param($h,$heading)
+    $script:stableReads++
+    if($ExpectedSuccess -and $script:stableReads -gt $ExpectedReads){throw 'Unbudgeted readiness recheck after acceptance.'}
+    if($script:stableReads -eq $SlowRead){[Threading.Thread]::Sleep($DelayMs)}
+    $Rounds[$script:stableRound].ready
+  }
+  function Start-Sleep {param($Milliseconds) $script:stableSleeps++}
+  function Click-VerifiedPoint {throw 'Search close wait dispatched input.'}
+  function DrueckeKnopf {throw 'Search close wait navigated.'}
+  function Emit {param($result) $script:searchEmitted=$result;throw 'search-emitted'}
+  function Fail {param($msg,$kind,$details) $script:searchFailure=[pscustomobject]@{kind=$kind;details=$details};throw 'search-failed'}
+  try { . $activatedBlock } catch {
+    Assert-True ($_.Exception.Message -in @('search-emitted','search-failed')) "Unexpected target wait: $($_.Exception.Message)"
+  }
+  Assert-True ($script:stableBudget -eq 1800) 'Suchschluss erhielt ein neues oder vergroessertes Wartebudget.'
+  if($ExpectedSuccess){
+    Assert-True ($script:searchEmitted.erreicht -eq $true -and $script:stableReads -eq $ExpectedReads -and
+      $script:stableSleeps -eq $ExpectedReads-1) 'Instabile Zielbindung wurde angenommen oder nachgeprueft.'
+  }else{
+    Assert-True ($null -eq $script:searchEmitted -and $script:searchFailure.kind -ceq 'navigation-blocked' -and
+      $script:searchFailure.details.weg.Count -gt 1) 'Fehlende Zielbindung erlaubte Erfolg oder verlor Diagnose.'
+    if($ExpectedReads -gt 0){Assert-True ($script:stableReads -eq $ExpectedReads) 'Eine neue Zielpruefung startete nach Fristende.'}
+  }
+}
+Test-StableSearchSuccess @(
+  [pscustomobject]@{heading='Zielseite';ready=$true},
+  [pscustomobject]@{heading='Zielseite';ready=$false},
+  [pscustomobject]@{heading='Zielseite';ready=$true},
+  [pscustomobject]@{heading='Zielseite';ready=$true}
+) 4 $true
+Test-StableSearchSuccess @(
+  [pscustomobject]@{heading='Andere Seite';ready=$false},
+  [pscustomobject]@{heading='Zielseite';ready=$true},
+  [pscustomobject]@{heading='Zielseite';ready=$true}
+) 3 $true
+Test-StableSearchSuccess @(
+  [pscustomobject]@{heading='Passender Titel A';ready=$true},
+  [pscustomobject]@{heading='Passender Titel B';ready=$true},
+  [pscustomobject]@{heading='Passender Titel B';ready=$true}
+) 3 $true
+Test-StableSearchSuccess @([pscustomobject]@{heading='Zielseite';ready=$false}) 0 $false
+Test-StableSearchSuccess @([pscustomobject]@{heading='Andere Seite';ready=$false}) 0 $false
+Test-StableSearchSuccess @([pscustomobject]@{heading='';ready=$false}) 0 $false
+Test-StableSearchSuccess @([pscustomobject]@{heading='Zielseite';ready=$true}) 2 $true 50 2
+Test-StableSearchSuccess @([pscustomobject]@{heading='Zielseite';ready=$true}) 1 $false 50 1
+Write-Output 'goto-Suchschluss: produktive Zielpruefung uebersteht Relayout, ohne erneute Eingabe oder budgetlosen Readback.'

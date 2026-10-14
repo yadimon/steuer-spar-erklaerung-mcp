@@ -18844,6 +18844,34 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       }
       return $letzte
     }
+    function WarteAufZielseite {
+      param([IntPtr]$h, [int]$timeoutMs = 1800)
+      # Suchschluss kann die Inhaltsgeometrie erneut aufbauen. Die letzte
+      # vollstaendige Zielpruefung ist der Beweis; eine weitere Pruefung nach
+      # Rueckkehr haette kein eigenes Wartebudget und koennte erneut kippen.
+      $sw = [Diagnostics.Stopwatch]::StartNew()
+      $letzte = $null; $bestaetigt = 0; $vorigeBereiteUeberschrift = $null
+      $runden = New-Object System.Collections.ArrayList
+      do {
+        $rundenStart = $sw.ElapsedMilliseconds
+        $letzte = AktuelleUeberschrift $h
+        $bereit = [bool](IstZielseite $h $letzte)
+        $bestaetigt = $(if ($bereit -and $letzte -ceq $vorigeBereiteUeberschrift) {
+          $bestaetigt + 1
+        } elseif ($bereit) { 1 } else { 0 })
+        $vorigeBereiteUeberschrift = $(if ($bereit) { $letzte } else { $null })
+        if ($runden.Count -lt 12) {
+          $null = $runden.Add("Zielpruefung: '$letzte', bereit=$bereit, bestaetigt=$bestaetigt, ms=$rundenStart/$($sw.ElapsedMilliseconds)")
+        }
+        if ($bestaetigt -ge 2) {
+          return [pscustomobject]@{ bereit=$true; ueberschrift=$letzte; runden=@($runden) }
+        }
+        $rest = $timeoutMs - $sw.ElapsedMilliseconds
+        if ($rest -le 0) { break }
+        Start-Sleep -Milliseconds ([Math]::Min(200, $rest))
+      } while ($sw.ElapsedMilliseconds -lt $timeoutMs)
+      [pscustomobject]@{ bereit=$false; ueberschrift=$letzte; runden=@($runden) }
+    }
     # Nach dem Invoke wartet der Klick auf den Seitenwechsel. Die festen 900 ms
     # waren dafuer das GESAMTE Budget: Die Blaetterschleife liest die
     # Ueberschrift danach genau einmal und deutet 'unveraendert' als
@@ -19128,15 +19156,26 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
               )
             }
             if ($suchSeiteGeoeffnet) {
+              $ze = $null
               $zu = Find-Node (Walk-Tree $hwnd 1200) 'Suche schließen'
-              if ($zu) { $ze = Get-LiveElement $hwnd $zu.rid; if ($ze) { try { $ze.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() } catch { } } }
+              $suchschluss = 'nicht-gebunden'
+              if ($zu) {
+                $ze = Get-LiveElement $hwnd $zu.rid
+                if ($ze) {
+                  try { $ze.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); $suchschluss = 'angefragt' }
+                  catch { $suchschluss = 'invoke-fehlgeschlagen' }
+                }
+              }
+              $null = $suchWeg.Add("Suchschluss: $suchschluss")
               $nachSuche = AktuelleUeberschrift $hwnd
               $null = $suchWeg.Add("Suchseite geöffnet: '$nachSuche'")
               if ($aktiviert) {
                 # Das Aktivierungssignal stammt von vor dem Suchschluss. Erst
                 # die frische Zielpruefung bestaetigt die danach sichtbare Seite.
-                $nachSuche = WarteAufUeberschrift $hwnd $nachSuche $ziel 1800
-                if (-not (IstZielseite $hwnd $nachSuche)) {
+                $zielBeweis = WarteAufZielseite $hwnd 1800
+                $nachSuche = [string]$zielBeweis.ueberschrift
+                if ($zielBeweis.bereit -ne $true) {
+                  foreach ($runde in @($zielBeweis.runden)) { $null = $suchWeg.Add($runde) }
                   Fail 'Die Zielseite ist nach dem Suchschluss nicht bereit; keine weitere Navigation.' 'navigation-blocked' `
                     ([pscustomobject]@{ ueberschrift = $nachSuche; weg = @($suchWeg) })
                 }
