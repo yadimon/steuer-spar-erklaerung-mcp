@@ -2,11 +2,13 @@
 #include <QtWidgets/QVBoxLayout>
 #include <QtWidgets/QPushButton>
 #include <QtWidgets/QScrollBar>
+#include <QtWidgets/QTextBrowser>
 #include <QtWidgets/QStyledItemDelegate>
 #include <QtGui/QStandardItemModel>
 #include <QtGui/QFocusEvent>
 #include <QtCore/QItemSelectionModel>
 #include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <functional>
 #include "../bridge-table-focus-policy.h"
@@ -104,6 +106,13 @@ int main(int argc, char **argv) {
     QWidget customFocused(&root); customFocused.setFocusPolicy(Qt::StrongFocus); customFocused.show(); customFocused.setFocus();
     require(tableFocusWidgetObstruction(&root, &table) != nullptr, "Unknown focused custom widget must block focus-out commits");
     anchor.setFocus(); customFocused.hide();
+    QTextBrowser helpText(&root); helpText.setReadOnly(true); helpText.show(); helpText.setFocus();
+    attempted = false;
+    const auto blockedHelp = dispatchExactTableFocus(&root, &table, initial, capture, checkpoint, attempted);
+    require(blockedHelp.status == TableFocusStatus::PreconditionFailed && !attempted && helpText.hasFocus()
+        && std::strcmp(blockedHelp.error, "The currently focused widget is not a proven owned passive focus source") == 0,
+        "Even a read-only browser must not broaden the native passive focus-source policy");
+    anchor.setFocus(); helpText.hide();
     table.setFocusProxy(&anchor);
     require(tableFocusWidgetObstruction(&root, &table) != nullptr, "Focus proxy must not redirect an exact table transaction");
     table.setFocusProxy(nullptr);
@@ -187,6 +196,22 @@ int main(int argc, char **argv) {
         && positionTable.selectionModel()->selectedIndexes().isEmpty(),
         "An unrelated focused editor must block unselected initialization before any selection");
     unrelatedPositionEditor.hide(); positionAnchor.setFocus();
+    QTextBrowser positionHelp(&positionRoot); positionHelp.setReadOnly(true); positionHelp.show(); positionHelp.setFocus();
+    const auto unselectedHelp = dispatchExactTablePosition(&positionRoot, &positionTable, 61,
+        originalPositionModel, positionCapture, checkpoint, positionedAttempt);
+    require(unselectedHelp.error && !positionedAttempt && positionHelp.hasFocus()
+        && std::strcmp(unselectedHelp.error, "The currently focused widget is not a proven owned passive focus source") == 0
+        && !positionTable.currentIndex().isValid() && positionTable.selectionModel()->selectedIndexes().isEmpty(),
+        "Read-only browser focus must not authorize native positioning or change selection");
+    positionHelp.hide(); positionAnchor.setFocus();
+    QWidget positionCustom(&positionRoot); positionCustom.setFocusPolicy(Qt::StrongFocus); positionCustom.show(); positionCustom.setFocus();
+    const auto unselectedCustom = dispatchExactTablePosition(&positionRoot, &positionTable, 61,
+        originalPositionModel, positionCapture, checkpoint, positionedAttempt);
+    require(unselectedCustom.error && !positionedAttempt && positionCustom.hasFocus()
+        && std::strcmp(unselectedCustom.error, "The currently focused widget is not a proven owned passive focus source") == 0
+        && !positionTable.currentIndex().isValid() && positionTable.selectionModel()->selectedIndexes().isEmpty(),
+        "Unknown plain widget focus must not authorize native positioning or change selection");
+    positionCustom.hide(); positionAnchor.setFocus();
     QLineEdit unselectedViewportEditor(positionTable.viewport()); unselectedViewportEditor.show();
     const auto unselectedWidget = dispatchExactTablePosition(&positionRoot, &positionTable, 61,
         originalPositionModel, positionCapture, checkpoint, positionedAttempt);

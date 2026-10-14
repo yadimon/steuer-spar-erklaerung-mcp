@@ -17894,6 +17894,7 @@ async function executeNativeTargetPosition(client, phase, args, initial, before,
   };
   const acknowledged = async (op, expected, extra = {}) => {
     const budget = remaining();
+    const priorSubmitted = submitted;
     submitted = true;
     nativeQuiescent = false;
     nativeDiagnostic = nativePositionDiagnostic(op, binding.inputEpoch);
@@ -17920,6 +17921,7 @@ async function executeNativeTargetPosition(client, phase, args, initial, before,
     }
     nativeDiagnostic = nativePositionDiagnostic(op, binding.inputEpoch, reply.result, reply.receiptAcknowledged);
     nativeQuiescent = reply.result.outcomeUnknown !== true && typeof reply.result.mutationAttempted === "boolean" && (!reply.result.mutationAttempted || reply.receiptAcknowledged);
+    if (!priorSubmitted && !positioned && op === "table_position_number" && reply.result.ok === false && reply.result.mutationAttempted === false && reply.result.outcomeUnknown !== true && !Object.hasOwn(reply.result, "mutationReceipt") && reply.receiptAcknowledged === false) submitted = false;
     if (reply.result.ok !== true || reply.result[op === "table_position_number" ? "positioned" : "focused"] !== true || reply.result.physicalInputUsed !== false || reply.result.inputTick !== binding.inputEpoch || reply.result.outcomeUnknown === true || typeof reply.result.mutationAttempted !== "boolean" || reply.result.mutationAttempted && !reply.receiptAcknowledged) rejectProof("native-position-acknowledgment");
     if (op === "table_position_number" && typeof reply.result.numberEditorPending !== "boolean") rejectProof("native-position-editor-inventory");
     if (reply.result.numberEditorPending === true) nativeQuiescent = false;

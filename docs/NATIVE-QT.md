@@ -23,6 +23,21 @@ dafür benötigte Accessibility-Abfrage. Private Cursortransaktionen fordern ihr
 zusätzlichen Fokus- und Geometrienachweis ausdrücklich an; öffentliche
 Leseparameter können diesen internen Pfad nicht einschalten.
 
+Bei der nativen Zielpositionierung kann ein noch nicht versuchter UIA-Fokusweg
+seine Quelle an die native Prüfung übergeben, wenn UIA keinen aktuellen Fokus
+oder nur einen nicht unterstützten Quelltyp meldet. Fenster-, Eingabe-,
+Tabellen- und Editorprüfungen bleiben dabei Pflicht; die native Brücke prüft
+ihren tatsächlichen Qt-Fokus unmittelbar vor einer Aktion. Der überprüfte
+Fokuswechsel aus einem eigenen unveränderten Positionsnamen bleibt erhalten.
+Ein bereits versuchter Fokuswechsel oder ein anderer Bindungsfehler erlaubt
+diese Übergabe nicht.
+
+Lehnt die Brücke den ersten Positionierungsauftrag nachweislich ohne Aktion
+ab, bleibt dessen Ausgang bekannt. Frühere Fokusaktionen, fehlende Antworten,
+unbekannte Ausgänge oder nicht bestätigte Mutationsbelege bleiben dagegen
+abgleichpflichtig. Auch eine bekannte Ablehnung löst keinen automatischen
+Schreibversuch aus.
+
 Die native Fixture prüft wiederholte Modell-/Seitenwechsel vor der ersten
 Accessibility-Aktivierung sowie kontrollierte GUI-Blockaden vor und während
 eines Modellreads. Ein vor Dispatch abgesagter Callback darf später nicht

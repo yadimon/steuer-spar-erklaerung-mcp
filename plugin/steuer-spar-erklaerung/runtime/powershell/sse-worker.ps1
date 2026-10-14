@@ -19751,22 +19751,29 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
             $cursorActivation.footerFocus=[pscustomobject]@{ok=[bool]$footer.ok;reason=$footer.reason;phase=$footer.phase;
               focusAttempted=[bool]$footer.focusAttempted;sourceReason=$footer.sourceReason;uncachedReason=$footer.uncachedReason;
               exceptionType=$footer.exceptionType;exceptionMessage=$footer.exceptionMessage;errorRecord=$footer.errorRecord;sourceEvidence=$footer.sourceEvidence}
-            if (-not $footer.ok) {throw 'Profilierter passiver Fokusanker ist nicht beweisbar.'}
-            $cursorActivation.subphase='native-footer-table-readback'
-            $afterFooter=LiesZeilen $hwnd
-            if (-not (Test-SSETableReadSnapshotBinding $erst $afterFooter -BeforeNavigation)) {throw 'Fokusanker aenderte Tabelleninhalt.'}
-            $navigationState.snapshot=$afterFooter
-            if ($cursorPhase -ceq 'native-acquire') {
-              $cursorActivation.subphase='native-semantic-selection-proof'
-              if (-not $footer.currentNumberCell -or -not (& $readNavigationGuard 'native-before-semantic-selection') -or
-                  -not (Invoke-SSETableReadAnchorSelection $hwnd $targetPid $afterFooter `
-                    $navigationState.tick $navigationState.windows.fingerprint $footer.currentNumberCell)) {
-                throw 'Native Fokusvorbereitung konnte ihre reine Ankerwahl nicht beweisen.'
+            # A Chromium Document can be an unavailable UIA source even while
+            # Qt has a passive focus widget. Only the unattempted source result
+            # may pass to the native source/editor proof, never a failed action.
+            if (-not $footer.ok -and -not (Test-SSETableNativeFocusDelegation $cursorPhase $footer)) {
+              throw 'Profilierter passiver Fokusanker ist nicht beweisbar.'
+            }
+            if ($footer.ok) {
+              $cursorActivation.subphase='native-footer-table-readback'
+              $afterFooter=LiesZeilen $hwnd
+              if (-not (Test-SSETableReadSnapshotBinding $erst $afterFooter -BeforeNavigation)) {throw 'Fokusanker aenderte Tabelleninhalt.'}
+              $navigationState.snapshot=$afterFooter
+              if ($cursorPhase -ceq 'native-acquire') {
+                $cursorActivation.subphase='native-semantic-selection-proof'
+                if (-not $footer.currentNumberCell -or -not (& $readNavigationGuard 'native-before-semantic-selection') -or
+                    -not (Invoke-SSETableReadAnchorSelection $hwnd $targetPid $afterFooter `
+                      $navigationState.tick $navigationState.windows.fingerprint $footer.currentNumberCell)) {
+                  throw 'Native Fokusvorbereitung konnte ihre reine Ankerwahl nicht beweisen.'
+                }
+                $cursorActivation.subphase='native-semantic-selection-table-readback'
+                $afterSelection=LiesZeilen $hwnd
+                if (-not (Test-SSETableReadSnapshotBinding $erst $afterSelection -BeforeNavigation)) {throw 'Ankerwahl aenderte Tabelleninhalt.'}
+                $navigationState.snapshot=$afterSelection
               }
-              $cursorActivation.subphase='native-semantic-selection-table-readback'
-              $afterSelection=LiesZeilen $hwnd
-              if (-not (Test-SSETableReadSnapshotBinding $erst $afterSelection -BeforeNavigation)) {throw 'Ankerwahl aenderte Tabelleninhalt.'}
-              $navigationState.snapshot=$afterSelection
             }
           }
           $cursorActivation.subphase='native-selected-cursor-proof'

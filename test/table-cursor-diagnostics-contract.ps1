@@ -1,4 +1,5 @@
 $ErrorActionPreference='Stop'
+. (Join-Path $PSScriptRoot '../powershell/table-combobox.ps1')
 $source=[IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\powershell\sse-worker.ps1'))
 $parseErrors=$null
 $ast=[Management.Automation.Language.Parser]::ParseInput($source,[ref]$null,[ref]$parseErrors)
@@ -33,6 +34,10 @@ function Invoke-SSETableFooterFocus {
   param($Hwnd,$ProcessId,$Tree,$TableAid,$TableRid,$ExpectedPage,$InputBaseline,$WindowFingerprint,$OwnedCell,$NumberAnchor,$NumberModel,$NumberPolicy,[switch]$AllowPositionNameSource)
   if([bool]$AllowPositionNameSource -ne ($cursorPhase -ceq 'native-position-acquire')) {throw 'Position-name permission was omitted or granted to another cursor phase.'}
   $script:footerCalls++
+  if ($script:mode -cin @('position-document-source','position-missing-source')) {
+    return [pscustomobject]@{ok=$false;phase='source-binding';reason='footer-source-focus-unbound';focusAttempted=$false;
+      sourceReason=$(if ($script:mode -ceq 'position-document-source') {'source-control-type-unbound'} else {'source-live-focus-unbound'})}
+  }
   [pscustomobject]@{ok=$script:mode -ne 'footer-proof';phase='source-binding';reason='footer-source-focus-unbound';
     focusAttempted=[bool]($script:mode -ne 'footer-proof');sourceReason='source-editor-or-owned-cell-unbound';uncachedReason=$null;
     exceptionType=$null;exceptionMessage=$null;errorRecord=$null;currentNumberCell=[pscustomobject]@{rid='10.3';type='DataItem'}}
@@ -61,7 +66,7 @@ $focusedSnapshot=[pscustomobject]@{navigationBinding=[pscustomobject]@{tableRoot
 $erst=$focusedSnapshot;$latestTableSnapshot=[pscustomobject]@{tree=$null}
 $makeCursorBinding={param($Snapshot,$Tick) [pscustomobject]@{synthetic=$true;inputEpoch=$Tick}}
 foreach ($case in @('existing-focus','selected-after-footer','footer-proof','footer-snapshot','selection-guard','anchor-proof',
-                    'selection-snapshot','selected-proof','lease-checkpoint','lease-publication')) {
+                    'selection-snapshot','selected-proof','lease-checkpoint','lease-publication','position-document-source','position-missing-source')) {
   $script:mode=$case;$script:cursorReads=0;$script:footerCalls=0;$script:snapshotProofs=0;$script:anchorCalls=0
   $script:leaseCheckpoints=0;$script:leasePublications=0;$script:emitted=$null
   $physicalUsed=$false;$viewportClickSubmitted=$false
@@ -73,13 +78,14 @@ foreach ($case in @('existing-focus','selected-after-footer','footer-proof','foo
   $readFocusCheckpoint={param($Phase) $navigationState.phase=$Phase;$script:mode -ne 'lease-checkpoint'}
   Invoke-SyntheticCursorAcquire
   $success=$case -in @('existing-focus','selected-after-footer')
+  $unattempted=$case -cin @('footer-proof','position-document-source','position-missing-source')
   if (-not $script:emitted -or $script:emitted.ok -ne $success) {throw "$case`: actual branch/catch proof mismatch."}
   if ($script:footerCalls -ne $(if ($case -eq 'existing-focus') {0} else {1})) {throw "$case`: footer callback retried or skipped."}
   if (-not $success) {
     if ($script:emitted.retryable -ne $false -or $script:emitted.steps -ne 0 -or $script:emitted.physicalInputUsed -or
-        $script:emitted.physicalInputAttempted -or $script:emitted.outcomeUnknown -ne ($case -cne 'footer-proof')) {throw "$case`: failed acquire changed its physical-input/no-retry or dispatched-focus contract."}
+        $script:emitted.physicalInputAttempted -or $script:emitted.outcomeUnknown -ne (-not $unattempted)) {throw "$case`: failed acquire changed its physical-input/no-retry or dispatched-focus contract."}
     $expectedSubphase=switch ($case) {
-      'footer-proof' {'native-footer-focus';break}
+      {$_ -cin @('footer-proof','position-document-source','position-missing-source')} {'native-footer-focus';break}
       'footer-snapshot' {'native-footer-table-readback';break}
       {$_ -in @('selection-guard','anchor-proof')} {'native-semantic-selection-proof';break}
       'selection-snapshot' {'native-semantic-selection-table-readback';break}
@@ -89,14 +95,22 @@ foreach ($case in @('existing-focus','selected-after-footer','footer-proof','foo
     if ($cursorActivation.subphase -cne $expectedSubphase -or $cursorActivation.exceptionType -cne 'RuntimeException' -or
         -not $cursorActivation.exceptionMessage -or -not $cursorActivation.errorRecord.fullyQualifiedErrorId -or
         $cursorActivation.errorRecord.scriptLineNumber -le 0) {throw "$case`: precise throw subphase or ErrorRecord was lost."}
-    if ($cursorActivation.footerFocus.sourceReason -cne 'source-editor-or-owned-cell-unbound' -or
-        $cursorActivation.footerFocus.focusAttempted -ne ($case -cne 'footer-proof')) {throw "$case`: nested footer proof was lost."}
+    $expectedSourceReason=switch($case) {
+      'position-document-source' {'source-control-type-unbound';break}
+      'position-missing-source' {'source-live-focus-unbound';break}
+      default {'source-editor-or-owned-cell-unbound'}
+    }
+    if ($cursorActivation.footerFocus.sourceReason -cne $expectedSourceReason -or
+        $cursorActivation.footerFocus.focusAttempted -ne (-not $unattempted)) {throw "$case`: nested footer proof was lost."}
   }
   if ($case -eq 'selection-guard' -and $script:anchorCalls -ne 0) {throw 'A failed guard still invoked the anchor selection.'}
-  if ($case -eq 'footer-proof' -and $script:snapshotProofs -ne 0) {throw 'An unproved footer was followed by another snapshot/selection.'}
+  if ($unattempted -and ($script:snapshotProofs -ne 0 -or $script:leasePublications -ne 0)) {
+    throw 'Ordinary cursor read followed an unavailable source with a snapshot, selection or lease delegation.'
+  }
 }
 $cursorPhase='native-position-acquire'
-foreach($case in @('position-empty-selection','position-passive-proof','footer-proof','footer-snapshot','lease-checkpoint','lease-publication')) {
+foreach($case in @('position-empty-selection','position-document-source','position-missing-source','position-passive-proof',
+  'footer-proof','footer-snapshot','lease-checkpoint','lease-publication')) {
   $script:mode=$case;$script:cursorReads=0;$script:footerCalls=0;$script:snapshotProofs=0;$script:anchorCalls=0
   $script:leaseCheckpoints=0;$script:leasePublications=0;$script:emitted=$null
   $physicalUsed=$false;$viewportClickSubmitted=$false
@@ -107,11 +121,28 @@ foreach($case in @('position-empty-selection','position-passive-proof','footer-p
   $readNavigationGuard={param($Phase) $navigationState.phase=$Phase;$true}
   $readFocusCheckpoint={param($Phase) $navigationState.phase=$Phase;$script:mode -ne 'lease-checkpoint'}
   Invoke-SyntheticCursorAcquire
-  if($script:emitted.ok -ne ($case -ceq 'position-empty-selection')) {throw "$case`: position-only passive lease proof mismatch."}
+  $success=$case -cin @('position-empty-selection','position-document-source','position-missing-source')
+  if($script:emitted.ok -ne $success) {throw "$case`: position-only passive lease proof mismatch."}
   if($script:anchorCalls -ne 0 -or $script:footerCalls -ne 1) {throw "$case`: position acquisition selected an anchor or retried focus."}
   if($script:emitted.physicalInputUsed -or $script:emitted.steps -ne 0) {throw 'Position acquisition issued input before the broker target action.'}
-  if($case -ceq 'position-empty-selection' -and @($script:emitted.selectedRids).Count) {throw 'An empty Qt selection was replaced by guessed UIA cell authority.'}
-  if($case -cne 'position-empty-selection' -and $script:emitted.outcomeUnknown -ne ($case -cne 'footer-proof')) {throw "$case`: dispatched footer focus was reported as a known outcome."}
+  if($success -and @($script:emitted.selectedRids).Count) {throw 'An empty Qt selection was replaced by guessed UIA cell authority.'}
+  if(-not $success -and $script:emitted.outcomeUnknown -ne ($case -cne 'footer-proof')) {throw "$case`: dispatched footer focus was reported as a known outcome."}
+  if($case -cin @('position-document-source','position-missing-source') -and
+      ($script:snapshotProofs -ne 0 -or $script:emitted.activationSubmitted -or $script:leasePublications -ne 1)) {
+    throw 'Unattempted UIA source delegation changed focus or omitted its exact passive lease.'
+  }
+}
+$unavailable=[pscustomobject]@{ok=$false;focusAttempted=$false;reason='footer-source-focus-unbound';sourceReason='source-control-type-unbound'}
+if (Test-SSETableNativeFocusDelegation 'native-acquire' $unavailable) {throw 'Ordinary cursor read gained an unproven source bypass.'}
+foreach ($invalid in @(
+  @{ok=$false;focusAttempted=$true;reason='footer-source-focus-unbound';sourceReason='source-control-type-unbound'},
+  @{ok=$false;focusAttempted=$false;reason='footer-source-focus-unbound';sourceReason='source-editor-or-owned-cell-unbound'},
+  @{ok=$false;focusAttempted=$false;reason='footer-input-epoch-unbound';sourceReason='source-control-type-unbound'},
+  @{ok=$false;reason='footer-source-focus-unbound';sourceReason='source-control-type-unbound'}
+)) {
+  if (Test-SSETableNativeFocusDelegation 'native-position-acquire' ([pscustomobject]$invalid)) {
+    throw 'A dispatched/unsafe/stale/unknown footer result gained native source delegation.'
+  }
 }
 $resumeIf=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.IfStatementAst] -and
   $node.Clauses[0].Item1.Extent.Text -ceq '$cursorPhase -ceq ''resume''' -and

@@ -115,7 +115,8 @@ async function run(options = {}) {
       if (options.positionAckThrows) throw new QtNativeAcknowledgmentError("Do not project raw transport messages", "native-mutation-receipt",
         { id: 4, ok: true, positioned: true, mutationAttempted: true, mutationReceipt: "987654321", physicalInputUsed: false,
           inputTick: 123, numberEditorPending: false, binding: copy(model.cursorFocusBinding) });
-      if (options.positionRejects) return { result: { ok: false, mutationAttempted: false }, receiptAcknowledged: false };
+      if (options.positionRejects) return { result: { ok: false, mutationAttempted: false, ...(options.nativePayload ?? {}) },
+        receiptAcknowledged: options.rejectedReceiptAcknowledged === true };
       model.cursorFocusBinding.currentIndex = [options.wrongPosition ? positionRow - 1 : positionRow, 0];
       model.cursorFocusBinding.selectedIndexes = [[positionRow, options.wrongSelection ? 1 : 0]];
       if (options.positionUnknown) return { result: { ok: false, mutationAttempted: true, outcomeUnknown: true,
@@ -184,7 +185,8 @@ async function run(options = {}) {
       assert.deepEqual(plan.numberPolicy, { tableName: model.table.name, headers: activeHeaders });
       if (options.acquireFocusFails) return { ok: false, kind: "cursor-proof-failed", outcomeUnknown: false,
         cursorActivation: { footerFocus: { focusAttempted: true } } };
-      return { ok: true, cursorBinding: copy(binding), cursorLease: copy(lease), selectedRids: selected() };
+      return { ok: true, cursorBinding: copy(binding), cursorLease: copy(lease), selectedRids: selected(),
+        activationSubmitted: options.acquireFocusSubmitted === true };
     }
     if (plan.phase === "native-release") {
       releases.push(plan.lease.nonce);
@@ -507,6 +509,26 @@ for (const options of [
   const failure = await run(options); assert.equal(failure.result.ok, false); assert.deepEqual(failure.keys, []);
   assert.equal(failure.mutations.length, 0);
 }
+const cleanNativeRejection = await run({ positionRejects: true });
+assert.equal(cleanNativeRejection.result.ok, false);
+assert.equal(cleanNativeRejection.result.outcomeUnknown, false);
+assert.equal(cleanNativeRejection.result.activationSubmitted, false);
+assert.equal(cleanNativeRejection.result.reconciliationRequired, false);
+assert.equal(cleanNativeRejection.mutations.length, 0);
+assert.equal(cleanNativeRejection.positions.length, 1);
+assert.equal(cleanNativeRejection.releases.length, 1, "Proven no-op must release its existing passive lease.");
+for (const options of [
+  { positionRejects: true, acquireFocusSubmitted: true },
+  { positionRejects: true, nativePayload: { outcomeUnknown: true } },
+  { positionRejects: true, nativePayload: { mutationReceipt: "12" } },
+  { positionRejects: true, rejectedReceiptAcknowledged: true },
+]) {
+  const rejected = await run(options);
+  assert.equal(rejected.result.outcomeUnknown, true, "Earlier/uncertain/receipted actions cannot become a no-op.");
+  assert.equal(rejected.mutations.length, 0);
+  assert.equal(rejected.positions.length, 1);
+}
+
 for (const options of [{ focusNoop: true }, { clipped: true }, { probeFails: true }, { noPositionProtocol: true },
   { positionNoop: true }, { positionRejects: true }, { noPositionAck: true }, { positionThrows: true },
   { wrongPosition: true }, { wrongSelection: true }, { positionEpochChanged: true }, { positionModelChanged: true },

@@ -114,6 +114,7 @@ export async function executeNativeTargetPosition(client: QtNativeClient, phase:
   };
   const acknowledged = async (op: string, expected: ReturnType<typeof nativeFocusBinding>, extra: Record<string, unknown> = {}) => {
     const budget = remaining();
+    const priorSubmitted = submitted;
     submitted = true; nativeQuiescent = false;
     nativeDiagnostic = nativePositionDiagnostic(op, binding.inputEpoch);
     let reply: Awaited<ReturnType<QtNativeClient["requestAcknowledged"]>>;
@@ -130,6 +131,11 @@ export async function executeNativeTargetPosition(client: QtNativeClient, phase:
     nativeDiagnostic = nativePositionDiagnostic(op, binding.inputEpoch, reply.result, reply.receiptAcknowledged);
     nativeQuiescent = reply.result.outcomeUnknown !== true && typeof reply.result.mutationAttempted === "boolean"
       && (!reply.result.mutationAttempted || reply.receiptAcknowledged);
+    // A first, explicitly rejected native dispatch is a proven no-op. A lost
+    // reply, a receipt, or any earlier footer/position action stays unknown.
+    if (!priorSubmitted && !positioned && op === "table_position_number" && reply.result.ok === false
+      && reply.result.mutationAttempted === false && reply.result.outcomeUnknown !== true
+      && !Object.hasOwn(reply.result, "mutationReceipt") && reply.receiptAcknowledged === false) submitted = false;
     if (reply.result.ok !== true || reply.result[op === "table_position_number" ? "positioned" : "focused"] !== true
       || reply.result.physicalInputUsed !== false || reply.result.inputTick !== binding.inputEpoch
       || reply.result.outcomeUnknown === true || typeof reply.result.mutationAttempted !== "boolean"

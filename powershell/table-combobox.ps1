@@ -405,6 +405,17 @@ function Resolve-SSETableFooterFocusNode {
   $button
 }
 
+function Test-SSETableNativeFocusDelegation {
+  param([string]$Phase,$Footer)
+  # Delegate only an unavailable UIA source, before any footer action. The
+  # native broker still proves its actual source/editor/model on the GUI thread.
+  [bool]($Phase -ceq 'native-position-acquire' -and
+    $Footer.ok -is [bool] -and -not $Footer.ok -and
+    $Footer.focusAttempted -is [bool] -and -not $Footer.focusAttempted -and
+    $Footer.reason -ceq 'footer-source-focus-unbound' -and
+    $Footer.sourceReason -cin @('source-control-type-unbound','source-live-focus-unbound'))
+}
+
 function Test-SSETableFooterFocusSource {
   param($Tree,[string]$FocusedRid,[string]$FocusedAid,[string]$TableAid,[string]$TableRid,$OwnedCell)
   $state=Get-SSETableSnapshotInputState $Tree $TableAid $TableRid
