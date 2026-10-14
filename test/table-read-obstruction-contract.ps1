@@ -24,7 +24,9 @@ function StatementIndex([string]$Prefix) {
 $activationStart=StatementIndex '$geklickt ='
 $stepsStart=StatementIndex '$schritte ='
 $finishStart=StatementIndex '$dirtyAfter ='
-$activation=[scriptblock]::Create(($statements[$activationStart..($stepsStart-1)].Extent.Text -join "`n"))
+$activationText=($statements[$activationStart..($stepsStart-1)].Extent.Text -join "`n")
+# A distinct fixture namespace cannot bind the real framework SendKeys type.
+$activation=[scriptblock]::Create($activationText.Replace('[System.Windows.Forms.SendKeys]','[SyntheticCursorInput.SendKeys]'))
 $completionNodes=@(
   $statements[(StatementIndex '$limitReached =')],
   $statements[(StatementIndex '$vollstaendig =')],
@@ -68,7 +70,7 @@ public static class SW {
     InputCalls++; throw new Exception("Unexpected physical input");
   }
 }
-namespace System.Windows.Forms {
+namespace SyntheticCursorInput {
   public static class SendKeys {
     public static int Calls;
     public static void SendWait(string key) { Calls++; }
@@ -266,26 +268,26 @@ Same $activeBeforeFocus.result.cursorActivation.errorRecord.category 'OperationS
 # none of these checks import Win32 or send input to any desktop.
 foreach ($mode in @('stable','input','foreground','windows','dirty','page','keyboard-or-summary','active-editor')) {
   $hwnd=[IntPtr]111; $a=@{noKeys=$true}; $dirtyBefore=$false
-  [SW]::Foreground=111; [System.Windows.Forms.SendKeys]::Calls=0
+  [SW]::Foreground=111; [SyntheticCursorInput.SendKeys]::Calls=0
   $script:guardMode=$mode
   $erst=[pscustomobject]@{ersteZelle=$null;tabelleAnzahl=1;navigationBinding=[pscustomobject]@{heading='Synthetic';editorFree=$true;tableRootAid='Synthetic.Table';tableRootRid='10.1'}}
   function Get-SSELastInputTick {
-    if ($script:guardMode -eq 'foreground' -and [System.Windows.Forms.SendKeys]::Calls -gt 0) { [SW]::Foreground=222 }
-    10 + [System.Windows.Forms.SendKeys]::Calls
+    if ($script:guardMode -eq 'foreground' -and [SyntheticCursorInput.SendKeys]::Calls -gt 0) { [SW]::Foreground=222 }
+    10 + [SyntheticCursorInput.SendKeys]::Calls
   }
   function Test-SSELastInputUnchanged($Tick) {
-    $Tick -eq (Get-SSELastInputTick) -and -not ($script:guardMode -eq 'input' -and [System.Windows.Forms.SendKeys]::Calls -gt 0)
+    $Tick -eq (Get-SSELastInputTick) -and -not ($script:guardMode -eq 'input' -and [SyntheticCursorInput.SendKeys]::Calls -gt 0)
   }
   function Get-SSEInteractionWindowSet($ProcessId,$Window) {
-    [pscustomobject]@{fingerprint=$(if ($script:guardMode -eq 'windows' -and [System.Windows.Forms.SendKeys]::Calls -gt 0) {'changed'} else {'stable'})}
+    [pscustomobject]@{fingerprint=$(if ($script:guardMode -eq 'windows' -and [SyntheticCursorInput.SendKeys]::Calls -gt 0) {'changed'} else {'stable'})}
   }
   function Get-CurrentHeading($Window) {
-    if ($script:guardMode -eq 'page' -and [System.Windows.Forms.SendKeys]::Calls -gt 0) { 'Changed' } else { 'Synthetic' }
+    if ($script:guardMode -eq 'page' -and [SyntheticCursorInput.SendKeys]::Calls -gt 0) { 'Changed' } else { 'Synthetic' }
   }
-  function Get-DirtyStateFast($Window) { $script:guardMode -eq 'dirty' -and [System.Windows.Forms.SendKeys]::Calls -gt 0 }
+  function Get-DirtyStateFast($Window) { $script:guardMode -eq 'dirty' -and [SyntheticCursorInput.SendKeys]::Calls -gt 0 }
   function Set-SSEForegroundLeaseInputCheckpoint($Tick,$Point,[string]$Context) { }
   function Test-SSETableReadKeyboardTarget($Window,$ProcessId,$Snapshot) {
-    $script:guardMode -ne 'active-editor' -and -not ($script:guardMode -eq 'keyboard-or-summary' -and [System.Windows.Forms.SendKeys]::Calls -gt 0)
+    $script:guardMode -ne 'active-editor' -and -not ($script:guardMode -eq 'keyboard-or-summary' -and [SyntheticCursorInput.SendKeys]::Calls -gt 0)
   }
   function Get-SSETableLiveInputState {
     [pscustomobject]@{ok=($script:guardMode -ne 'active-editor');editorClosed=($script:guardMode -ne 'active-editor')}
@@ -294,15 +296,15 @@ foreach ($mode in @('stable','input','foreground','windows','dirty','page','keyb
   $navigationState.tick=10; $navigationState.windows=[pscustomobject]@{fingerprint='stable'}
   $navigationState.point=[pscustomobject]@{x=30;y=32}
   $success=& $sendTableNavigation '{DOWN}' 3 'synthetic-read-down'
-  Same ([System.Windows.Forms.SendKeys]::Calls) $(if ($mode -eq 'stable') {3} elseif ($mode -eq 'active-editor') {0} else {1}) "$mode`: guard did not stop before the next key."
+  Same ([SyntheticCursorInput.SendKeys]::Calls) $(if ($mode -eq 'stable') {3} elseif ($mode -eq 'active-editor') {0} else {1}) "$mode`: guard did not stop before the next key."
   Same $success ($mode -eq 'stable') "$mode`: wrong navigation outcome."
   Same ([bool]$navigationState.failure) ($mode -ne 'stable') "$mode`: guard failure evidence missing."
 }
 $script:guardMode='active-editor'
 foreach ($key in @('^{HOME}','{DOWN}','{UP}')) {
-  [System.Windows.Forms.SendKeys]::Calls=0
+  [SyntheticCursorInput.SendKeys]::Calls=0
   Same (& $sendTableNavigation $key 1 'active-editor-before-key') $false "$key`: reader accepted an active editor."
-  Same ([System.Windows.Forms.SendKeys]::Calls) 0 "$key`: reader sent a cursor key into an active editor."
+  Same ([SyntheticCursorInput.SendKeys]::Calls) 0 "$key`: reader sent a cursor key into an active editor."
 }
 $proof=[pscustomobject]@{complete=$true;heading='Synthetic';tableIdentity='Synthetic.Header';scopePrefix='Synthetic.Scope';selectionMethod='aid';summaryIdentity='Synthetic.Sum';summaryValue='20,00';contentSignature='initial'}
 $before=[pscustomobject]@{navigationBinding=$proof;tabelleAnzahl=1;error=$null}
