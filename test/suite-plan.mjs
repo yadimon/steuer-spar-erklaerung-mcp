@@ -180,6 +180,7 @@ export const parallelSteps = Object.freeze([
   nodeFile("api-static-documents", "test/api-static-document-cache.mjs"),
   nodeFile("api-client-body-abort", "test/api-client-body-abort.mjs"),
   nodeFile("api-client-transport-timeout", "test/api-client-transport-timeout.mjs"),
+  nodeFile("api-busy-retry", "test/api-busy-retry.mjs"),
   nodeFile("api-local-http-transport", "test/api-local-http-transport.mjs"),
   nodeFile("api-single-flight", "test/api-single-flight.mjs"),
   nodeFile("checker-open-contract", "test/checker-open-contract.mjs"),
@@ -335,6 +336,7 @@ const FAST_STEP_NAMES = new Set([
   "api-static-documents",
   "api-client-body-abort",
   "api-client-transport-timeout",
+  "api-busy-retry",
   "api-local-http-transport",
   "api-single-flight",
   // checker-open-contract includes a real no-window worker probe. It remains

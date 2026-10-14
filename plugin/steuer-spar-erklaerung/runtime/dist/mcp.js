@@ -4312,12 +4312,14 @@ var init_api_client_error = __esm({
   "src/api-client-error.ts"() {
     "use strict";
     ApiClientError = class extends Error {
-      constructor(message, kind = "api") {
+      constructor(message, kind = "api", httpStatus) {
         super(message);
         this.kind = kind;
+        this.httpStatus = httpStatus;
         this.name = "ApiClientError";
       }
       kind;
+      httpStatus;
     };
   }
 });
@@ -7681,7 +7683,7 @@ function apiResponseError(payload, status) {
   const error2 = isRecord(payload.error) ? payload.error : void 0;
   const message = typeof error2?.message === "string" ? error2.message : `HTTP ${status}`;
   const kind = typeof error2?.code === "string" ? error2.code : "http";
-  return new ApiClientError(`SSE-API: ${message}`, kind);
+  return new ApiClientError(`SSE-API: ${message}`, kind, status);
 }
 function transportCodeFrom(value) {
   try {

@@ -90,6 +90,31 @@ aufgelöst. Die Einzel-Discovery liefert die Definition zusätzlich innerhalb
 ihres `resultSchema`, sodass es auch isoliert validiert werden kann. OpenAPI
 verwendet dafür die entsprechende gemeinsame Schema-Komponente.
 
+## Optionale Wiederholung bei belegter API
+
+`steuer-spar-erklaerung-call <operation> --busy-attempts 3` erlaubt insgesamt
+höchstens drei Versuche mit jeweils 250 ms Pause. Ohne diese Option oder mit
+`--busy-attempts 1` bleibt es beim unveränderten einzelnen Aufruf. Die
+Wiederholung greift ausschließlich bei einer validierten
+HTTP-409-Antwort mit Fehlercode `busy`: Diese Anfrage wurde vor der Ausführung
+abgelehnt. Eine Belegung innerhalb eines Worker-Ergebnisses, ein Transportfehler
+oder ein unbekannter Ausgang löst keine Wiederholung aus.
+
+Die CLI bindet vor dem ersten Versuch die Serverinstanz und behält dieselben
+Argumente und Vorbedingungen für alle Versuche. Eine inzwischen veränderte
+Seite oder Tabelle braucht passende, vom Server erneut geprüfte Vorbedingungen;
+die Wiederholung aktualisiert diese nicht automatisch. Identitätsabfrage,
+Wartezeiten und Ausführung teilen das Zeitbudget von `--timeout-ms`; die bestehende
+zusätzliche Frist zur Rücknahme und Prozessbereinigung bleibt erhalten. Nach
+Serverwechsel oder Abbruch endet der Aufruf mit Fehler. `not-dispatched`
+kennzeichnet eine gescheiterte Identitätsabfrage; `busy-budget-exhausted` ein
+vor der Ausführung erschöpftes Zeitbudget. Für Operationen mit Mindestbudget
+muss nach der Identitätsabfrage und den Pausen noch ausreichend Zeit bleiben;
+für `launch` sind das 30 Sekunden. Beide Fehler bedeuten, dass keine Operation
+gestartet wurde. Ungewisse Ausführungsfehler behalten den Vertrag des Rohclients.
+Das interne Clientmodul `api-busy-retry` bietet denselben Vertrag als
+`callApiOperationWithBusyRetry` und als Variante mit Ergebnisumschlag.
+
 ## Dauerhaftes CLI-Journal
 
 Die ausgelieferte CLI kann mit `--journal-file <neue.jsonl>` einen

@@ -9,6 +9,7 @@ import { Readable } from "node:stream";
 import { readCliInputBounded } from "../dist/api-cli.js";
 import { SSE_API_OPERATIONS } from "../dist/api-contract.js";
 import { createSseApiServer } from "../dist/api-server.js";
+import { callApiOperation } from "../dist/api-client.js";
 
 const temporary = mkdtempSync(join(tmpdir(), "sse-api-cli-"));
 const workspaceDir = join(temporary, "workspace");
@@ -28,9 +29,16 @@ const config = {
 let executeCalls = 0;
 let executeDelayMs = 0;
 let nextResult;
+let executeGate;
 const server = createSseApiServer({
   execute: async (operation, args) => {
     executeCalls += 1;
+    if (executeGate) {
+      const gate = executeGate;
+      executeGate = undefined;
+      gate.entered();
+      await gate.wait;
+    }
     if (executeDelayMs > 0) {
       await new Promise((resolveDelay) => setTimeout(resolveDelay, executeDelayMs));
       executeDelayMs = 0;
@@ -110,6 +118,39 @@ try {
   const health = await runCli("health", "--config", config.configPath);
   assert.equal(health.code, 0, health.stderr);
   assert.deepEqual(JSON.parse(health.stdout), { ok: true, operation: "health", args: {} });
+
+  for (const value of ["0", "4", "1.5"]) {
+    const invalid = await runCli("health", "--busy-attempts", value);
+    assert.equal(invalid.code, 2);
+  }
+  assert.equal((await runCli("discovery", "--busy-attempts", "3")).code, 2);
+  assert.equal((await runCli("health", "--busy-attempts", "2", "--busy-attempts", "3")).code, 2);
+  let releaseGate, notifyEntered;
+  const gateWait = new Promise(resolve => { releaseGate = resolve; });
+  const gateEntered = new Promise(resolve => { notifyEntered = resolve; });
+  executeGate = { wait: gateWait, entered: notifyEntered };
+  const active = callApiOperation("health", {}, 5000, { baseUrl: `http://127.0.0.1:${config.port}` });
+  await gateEntered;
+  let busyRejections = 0;
+  const observeBusy = (request, response) => {
+    response.once("finish", () => {
+      if (response.statusCode === 409 && ++busyRejections === 2) releaseGate();
+    });
+  };
+  try {
+    const busyDefault = await runCli("health", "--config", config.configPath);
+    assert.equal(busyDefault.code, 1);
+    assert.match(busyDefault.stderr, /busy|belegt/u);
+    server.on("request", observeBusy);
+    const retried = await runCli("health", "--busy-attempts", "3", "--config", config.configPath);
+    assert.equal(retried.code, 0, retried.stderr);
+    assert.equal(JSON.parse(retried.stdout).ok, true);
+    assert.equal(busyRejections, 2);
+  } finally {
+    server.removeListener("request", observeBusy);
+    releaseGate();
+    await active;
+  }
 
   const journalPath = join(temporary, "health-journal.jsonl");
   const journaledHealth = await runCli("health", "--journal-file", journalPath, "--config", config.configPath);

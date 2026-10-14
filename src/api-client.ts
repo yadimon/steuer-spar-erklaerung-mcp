@@ -176,7 +176,7 @@ export function apiResponseError(payload: Record<string, unknown>, status: numbe
   const error = isRecord(payload.error) ? payload.error : undefined;
   const message = typeof error?.message === "string" ? error.message : `HTTP ${status}`;
   const kind = typeof error?.code === "string" ? error.code : "http";
-  return new ApiClientError(`SSE-API: ${message}`, kind);
+  return new ApiClientError(`SSE-API: ${message}`, kind, status);
 }
 
 const HTTP_TRANSPORT_TIMEOUT_CODES = new Set([

@@ -15,23 +15,24 @@ interface CliArguments {
   configPath?: string;
   journalFile?: string;
   timeoutMs: number;
+  busyAttempts?: number;
 }
 
 /**
- * Diese vier steuern den Aufruf selbst. Alles andere in der Form `--name wert`
+ * Diese Optionen steuern den Aufruf selbst. Alles andere in der Form `--name wert`
  * ist ein Argument der Operation.
  *
  * Sie tragen bewusst Bindestriche, die Operationsargumente bewusst nicht: So
  * kann ein Tippfehler in einer dieser Optionen nicht stillschweigend zu einem
  * Operationsargument werden, sondern meldet sich als unbekannte Option.
  */
-const RESERVED_OPTIONS = ["--args-file", "--config", "--journal-file", "--timeout-ms"] as const;
+const RESERVED_OPTIONS = ["--args-file", "--config", "--journal-file", "--timeout-ms", "--busy-attempts"] as const;
 const OPERATION_ARGUMENT_NAME = /^[A-Za-z][A-Za-z0-9_]*$/u;
 
 const usage = [
   "Aufruf:",
   "  steuer-spar-erklaerung-call health [--config <config.json>] [--journal-file <new.jsonl>]",
-  "  steuer-spar-erklaerung-call <operation> [--<name> <wert> ...] [--args-file <args.json|->] [--timeout-ms <ms>] [--config <config.json>] [--journal-file <new.jsonl>]",
+  "  steuer-spar-erklaerung-call <operation> [--<name> <wert> ...] [--args-file <args.json|->] [--timeout-ms <ms>] [--busy-attempts <1..3>] [--config <config.json>] [--journal-file <new.jsonl>]",
   "  steuer-spar-erklaerung-call discovery [--config <config.json>] [--journal-file <new.jsonl>]",
   "  steuer-spar-erklaerung-call describe <operation> [--config <config.json>] [--journal-file <new.jsonl>]",
   "  steuer-spar-erklaerung-call openapi [--config <config.json>] [--journal-file <new.jsonl>]",
@@ -55,6 +56,7 @@ const usage = [
   "Verlauf stehen soll, ist --args-file der verlaessliche Weg.",
   "",
   "--journal-file legt vor dem Aufruf exklusiv ein dauerhaftes pending/result-Protokoll an und ueberschreibt nie.",
+  "--busy-attempts wiederholt ausschliesslich HTTP-409-busy vor der Ausfuehrung, mit gemeinsamem Zeitlimit; Standard: ein Versuch.",
 ].join("\n");
 
 /** Ein Wert ist JSON, wenn er sich als JSON lesen laesst - sonst eine Zeichenkette. */
@@ -75,6 +77,7 @@ function parseCliArguments(argv: readonly string[]): CliArguments {
   let configPath: string | undefined;
   let journalFile: string | undefined;
   let timeoutMs = command === "launch" ? LAUNCH_OPERATION_TIMEOUT_MS : DEFAULT_OPERATION_TIMEOUT_MS;
+  let busyAttempts: number | undefined;
   let targetOperation: string | undefined;
   let optionStart = 1;
   if (command === "describe") {
@@ -104,6 +107,12 @@ function parseCliArguments(argv: readonly string[]): CliArguments {
       if (!Number.isInteger(timeoutMs)) {
         throw new ApiClientError("--timeout-ms muss eine ganze Zahl sein.", "usage");
       }
+    } else if (option === "--busy-attempts") {
+      if (busyAttempts !== undefined) throw new ApiClientError("--busy-attempts ist doppelt angegeben.", "usage");
+      busyAttempts = Number(value);
+      if (!Number.isInteger(busyAttempts) || busyAttempts < 1 || busyAttempts > 3) {
+        throw new ApiClientError("--busy-attempts muss zwischen 1 und 3 liegen.", "usage");
+      }
     } else {
       // Ein zweimal genanntes Argument waere mehrdeutig; stillschweigend das
       // letzte zu nehmen verschleiert einen Tippfehler.
@@ -118,9 +127,13 @@ function parseCliArguments(argv: readonly string[]): CliArguments {
   if (["discovery", "describe", "openapi"].includes(command) && (argsFile || inlineCount)) {
     throw new ApiClientError(`${command} akzeptiert keine Operationsargumente.`, "usage");
   }
+  if (["discovery", "describe", "openapi"].includes(command) && busyAttempts !== undefined) {
+    throw new ApiClientError(`${command} akzeptiert --busy-attempts nicht.`, "usage");
+  }
   return {
     command,
     timeoutMs,
+    ...(busyAttempts !== undefined ? { busyAttempts } : {}),
     inlineArgs,
     ...(targetOperation ? { targetOperation } : {}),
     ...(argsFile ? { argsFile } : {}),
@@ -217,7 +230,13 @@ async function runApiCli(argv: readonly string[]): Promise<number> {
     if (cli.command === "discovery") output = await client.readApiDiscovery(options);
     else if (cli.command === "describe") output = await client.readApiOperationDiscovery(cli.targetOperation!, options);
     else if (cli.command === "openapi") output = await client.readOpenApiDocument(options);
-    else output = await client.callApiOperation(cli.command, await readOperationArgs(cli.argsFile, cli.inlineArgs), cli.timeoutMs, options);
+    else {
+      const args = await readOperationArgs(cli.argsFile, cli.inlineArgs);
+      output = cli.busyAttempts === undefined
+        ? await client.callApiOperation(cli.command, args, cli.timeoutMs, options)
+        : await (await import("./api-busy-retry.js")).callApiOperationWithBusyRetry(
+          cli.command, args, cli.timeoutMs, options, { maxAttempts: cli.busyAttempts });
+    }
     const exitCode = output && typeof output === "object" && "ok" in output && output.ok === false ? 1 : 0;
     journal?.complete(output, exitCode);
     process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);

@@ -3,7 +3,7 @@ import { asArray, type SseApiOperation, type WorkerResult } from "./api-contract
 import { operationError } from "./executor-errors.js";
 import type { ScenarioExecutor } from "./scenario.js";
 
-const MINIMUM_LAUNCH_TIMEOUT_MS = 30_000;
+export const MINIMUM_LAUNCH_TIMEOUT_MS = 30_000;
 // Der Skill empfiehlt fuer den ersten sichtbaren Start auf langsamen PCs und in
 // VMs ausdruecklich 280 Sekunden. Eine Obergrenze darunter haette diesen Wert
 // stillschweigend gekappt und den dokumentierten Weg unerreichbar gemacht.
