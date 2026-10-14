@@ -41,12 +41,21 @@ function Start-HiddenDelay([int]$Milliseconds) {
   $powershell = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
   $startInfo = New-Object Diagnostics.ProcessStartInfo
   $startInfo.FileName = $powershell
-  $startInfo.Arguments = "-NoLogo -NoProfile -NonInteractive -Command Start-Sleep -Milliseconds $Milliseconds"
+  $startInfo.Arguments = ('-NoLogo -NoProfile -NonInteractive -Command "' +
+    '[Console]::WriteLine(''ready''); [Console]::Out.Flush(); ' +
+    '[void][Console]::ReadLine(); Start-Sleep -Milliseconds ' + $Milliseconds + '"')
   $startInfo.UseShellExecute = $false
   $startInfo.CreateNoWindow = $true
+  $startInfo.RedirectStandardInput = $true
+  $startInfo.RedirectStandardOutput = $true
   $startInfo.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
   $process = [Diagnostics.Process]::Start($startInfo)
   $null = $fixtures.Add($process)
+  # The kernel-wait deadline starts after the fixture is ready, rather than
+  # including a competing cold PowerShell startup. Only the parent releases it.
+  $ready = $process.StandardOutput.ReadLineAsync()
+  Assert-True ($ready.Wait(30000)) 'Prozess-Fixture meldete ihre Bereitschaft nicht innerhalb des Startbudgets.'
+  Assert-True ($ready.GetAwaiter().GetResult() -ceq 'ready') 'Prozess-Fixture meldete keine eindeutige Bereitschaft.'
   $process
 }
 
@@ -76,6 +85,8 @@ try {
 
   $delayed = Start-HiddenDelay 250
   $delayedHandle = Get-SSEPinnedProcessHandle $delayed
+  $delayed.StandardInput.WriteLine('release')
+  $delayed.StandardInput.Flush()
   Assert-True (-not (Wait-SSEProcessExit $delayedHandle 5000)) 'Ein waehrend des Waits endender Prozess blieb angeblich aktiv.'
   Assert-True (-not (Wait-SSEProcessExit $delayedHandle 0)) 'Ein bereits beendeter gepinnter Prozess wurde als aktiv gemeldet.'
 
@@ -92,6 +103,8 @@ try {
 
   $disposed = Start-HiddenDelay 100
   $disposedHandle = Get-SSEPinnedProcessHandle $disposed
+  $disposed.StandardInput.WriteLine('release')
+  $disposed.StandardInput.Flush()
   Assert-True (-not (Wait-SSEProcessExit $disposedHandle 5000)) 'Disposed-Fixture endete nicht kontrolliert.'
   $disposed.Dispose()
   Assert-True ($null -eq (Get-SSEPinnedProcessHandle $disposed)) 'Ein disposed Process-Objekt wurde erneut als pinbar akzeptiert.'
