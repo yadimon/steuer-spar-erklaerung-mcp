@@ -115,3 +115,20 @@ Assert-Equal $unknown.retryable $false 'Unknown dispatch permitted a replay.'
 Assert-Equal $script:toggles 0 'Unknown dispatch used Toggle instead of the command.'
 Assert-Equal $script:invocations 1 'Unknown dispatch was retried.'
 Write-Output 'Checker start: exact case/profile, page/toolbar, stale/ambiguous/off-state and unknown-no-replay contracts passed.'
+
+# The earlier engine uses its explicit global toolbar for both supported
+# manufacturer case types. It must not borrow the newer income-tax page route.
+$catalog2024=Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\profiles\2024\page-objects.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+foreach($casePath in @('C:\synthetic\income.ESt2024','C:\synthetic\business.Gew2024')){
+  $script:casePath=$casePath
+  $policy2024=Get-SSECheckerStartPolicy $window $catalog2024
+  Assert-Equal $policy2024.ok $true 'The earlier engine lacks its own explicit checker route.'
+  Assert-Equal $policy2024.policy.id 'global_checker_toolbar' 'The earlier engine borrowed a newer page route.'
+  New-SyntheticStart $policy2024.policy
+  $script:actionThrows=$false
+  Assert-Equal (Invoke-SSECheckerStart 111 $window $script:tree $policy2024.policy).ok $true 'Bound earlier-engine toolbar did not start.'
+  Assert-Equal $script:invocations 1 'Earlier-engine checker did not invoke exactly once.'
+  Assert-Equal $script:toggles 0 'Earlier-engine checker used Toggle instead of its explicit command.'
+}
+$script:casePath='C:\synthetic\unknown.Prog2024'
+Assert-Equal (Get-SSECheckerStartPolicy $window $catalog2024).ok $false 'An unprofiled earlier-engine case acquired a checker route.'

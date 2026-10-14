@@ -9,6 +9,17 @@
     "policy": "Fail closed. Other tax-year installations, case years, and incompatible start modes are never controlled."
   },
   "privacy": "Only public UI metadata. Never store case values, names, tax IDs, file paths, or calculation results here.",
+  "checkerStartBindings": [
+    {
+      "id": "global_checker_toolbar",
+      "documentTypes": ["ESt", "Gew"],
+      "controlType": "CheckBox",
+      "name": "Prüfer",
+      "automationIdSuffix": ".MainToolBar.tb_pruefer",
+      "pattern": "Invoke",
+      "expectedToggleState": "Off"
+    }
+  ],
   "windows": {
     "main": {
       "process": "SSE",

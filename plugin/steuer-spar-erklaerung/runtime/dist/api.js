@@ -7926,6 +7926,9 @@ function expectedFileSuffix(profile, mode, wizard) {
   }
   return { suffix: `.${documentType}${taxYear}`, taxYear };
 }
+function isStartupUiaRootFailure(result, pid2, hwnd) {
+  return result.ok === false && result.backend === void 0 && result.kind === "uia-root-unavailable" && result.operation === "ui_state" && result.phase === "snapshot-root" && result.mutationStarted === false && result.outcomeUnknown === false && result.windowStateChanged === false && result.windowAlive === true && result.windowSetMainOnly === true && result.pid === pid2 && result.hwnd === hwnd;
+}
 async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
   const now = dependencies.now ?? Date.now;
   const budgetMs = Math.min(timeoutMs ?? LAUNCH_OPERATION_TIMEOUT_MS, MAX_OPERATION_TIMEOUT_MS);
@@ -7935,6 +7938,13 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
   let hwnd = 0;
   let launchDispatched = false;
   let target;
+  let uiaRootFailures = 0;
+  let uiaRootPinnedHwnd;
+  let lastUiaRootFailure;
+  const rootDiagnostics = () => uiaRootFailures > 0 ? {
+    startupUiaRootFailures: uiaRootFailures,
+    lastUiaRootFailure
+  } : {};
   const step = async (operation, stepArgs, ceilingMs = budgetMs, run = dependencies.execute) => {
     if (signal?.aborted) fail("aborted", "API-Client hat die Fallanlage abgebrochen.");
     const remaining = deadline - now();
@@ -8004,13 +8014,29 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
           retryable: false
         });
       }
+      if (uiaRootPinnedHwnd !== void 0 && (!instance || Number(bound2.count) !== 1 || Number(instance.hwnd) !== uiaRootPinnedHwnd)) {
+        fail("startup-binding-changed", "Die Startfensterbindung aenderte sich nach dem UIA-Lesefehler; keine Assistentenaktion.");
+      }
       if (instance && Number(bound2.count) === 1 && instance.hung !== true && instance.recoveredState !== true) {
         hwnd = Number(instance.hwnd);
         let state;
         try {
           state = await step("ui_state", { hwnd });
         } catch (error) {
-          if (!(error instanceof StepFailure) || error.result.backend !== "qt" || error.result.kind !== "no-window" || error.result.outcomeUnknown !== false) throw error;
+          if (error instanceof StepFailure && isStartupUiaRootFailure(error.result, pid2, hwnd)) {
+            uiaRootFailures += 1;
+            lastUiaRootFailure = {
+              exceptionType: error.result.exceptionType,
+              hresult: error.result.hresult,
+              error: error.result.error
+            };
+            if (uiaRootFailures >= 3) {
+              throw new StepFailure({ ...error.result, attempts: uiaRootFailures, failedStep: "ui_state", retryable: false });
+            }
+            uiaRootPinnedHwnd = hwnd;
+          } else {
+            if (!(error instanceof StepFailure) || error.result.backend !== "qt" || error.result.kind !== "no-window" || error.result.outcomeUnknown !== false) throw error;
+          }
         }
         if (state?.blockiert === true) {
           throw new StepFailure({
@@ -8029,6 +8055,9 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
           });
         }
         const heading2 = String(state?.heading ?? "");
+        if (state && (Number(state.instance?.pid) !== pid2 || Number(state.instance?.hwnd) !== hwnd)) {
+          fail("startup-binding-changed", "Die Startlesung bestaetigt nicht die gebundene PID und HWND; keine Assistentenaktion.");
+        }
         const match = wizard.startHeading.exec(heading2);
         if (match) {
           if (Number(match[1]) !== taxYear) {
@@ -8041,6 +8070,7 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
       if (deadline - now() < WIZARD_RESERVE_MS / 2) {
         fail("wizard-page", "Die Startseite des Assistenten erschien nicht rechtzeitig nach dem Programmstart.");
       }
+      if (signal?.aborted) fail("aborted", "API-Client hat die Fallanlage abgebrochen.");
       await wait(START_PAGE_POLL_MS);
     }
     const subpages = await step("subpages", { hwnd }, budgetMs, dependencies.worker);
@@ -8120,6 +8150,7 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
     return {
       ok: true,
       created: true,
+      ...rootDiagnostics(),
       caseRef: target.ref || target.path,
       sha256: sha2562.toUpperCase(),
       pid: pid2,
@@ -8134,6 +8165,7 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
     };
   } catch (error) {
     let failure6 = error instanceof StepFailure ? error.result : operationError(error instanceof Error ? error.message : String(error), signal?.aborted ? "aborted" : "case-create");
+    failure6 = { ...failure6, ...rootDiagnostics() };
     if (launchDispatched && pid2 <= 0 && !(failure6.mutationStarted === false && failure6.resultingState === "unchanged")) {
       failure6 = {
         ...failure6,

@@ -4256,6 +4256,40 @@ function Test-Canary([IntPtr]$hwnd, [int]$LimitMs = 1500) {
 # ------------------------------------------------------- Baum mit TreeWalker
 # NIE FindAll benutzen. Zyklussperre ist zwingend: GetNextSibling auf dem
 # ausgewaehlten Navigationsknoten liefert unbegrenzt denselben Knoten.
+function New-SSEUiStateRootContext($Window, [object[]]$BeforeRestore) {
+  if (-not $Window -or [int64]$Window.hwnd -le 0 -or [int]$Window.pid -le 0) { return $null }
+  $before = @($BeforeRestore | Where-Object { [int64]$_.hwnd -eq [int64]$Window.hwnd -and [int]$_.pid -eq [int]$Window.pid })
+  if ($before.Count -ne 1 -or $before[0].minimiert -isnot [bool]) { return $null }
+  [pscustomobject]@{ window=$Window; restored=[bool]$before[0].minimiert }
+}
+function Get-SSEUiStateRootFailure($ErrorRecord, [IntPtr]$Hwnd, $Context) {
+  if ($Op -cne 'ui_state' -or -not $Context -or [int64]$Context.window.hwnd -ne [int64]$Hwnd) { return $null }
+  $failure = $ErrorRecord.Exception
+  for ($depth=0; $depth -lt 8 -and $failure.InnerException; $depth++) { $failure=$failure.InnerException }
+  $live = $null
+  try { $live = Resolve-SSEMainWindowDescriptor ([pscustomobject]@{hwnd=[int64]$Hwnd}) } catch { return $null }
+  if (-not $live -or [int]$live.pid -ne [int]$Context.window.pid -or
+      [int64]$live.hwnd -ne [int64]$Hwnd -or [string]$live.title -cne [string]$Context.window.title -or
+      [string]$live.cls -cne [string]$Context.window.cls -or $live.minimiert -isnot [bool] -or $live.minimiert -or
+      $live.hung -isnot [bool] -or $live.hung) { return $null }
+  $windowSet = Get-SSEInteractionWindowSet ([int]$live.pid) $Hwnd
+  $mainOnly = [bool]($windowSet -and @($windowSet.windows).Count -eq 1 -and
+    $windowSet.windows[0].role -ceq 'main' -and [int64]$windowSet.windows[0].hwnd -eq [int64]$Hwnd)
+  $result = [pscustomobject]@{
+    ok=$false; kind='uia-root-unavailable'; operation='ui_state'; phase='snapshot-root'
+    error=[string]$failure.Message; exceptionType=$failure.GetType().FullName
+    hresult=('0x{0:X8}' -f ([long]$failure.HResult -band 0xFFFFFFFFL))
+    hwnd=[int64]$Hwnd; pid=[int]$live.pid; windowAlive=$true
+    windowStateChanged=[bool]$Context.restored; windowSetMainOnly=$mainOnly
+    mutationStarted=$false; outcomeUnknown=(-not $mainOnly)
+  }
+  if (-not $mainOnly) {
+    $result | Add-Member -NotePropertyName processPreserved -NotePropertyValue $true
+    $result | Add-Member -NotePropertyName reconciliationRequired -NotePropertyValue $true
+    $result | Add-Member -NotePropertyName retryable -NotePropertyValue $false
+  }
+  $result
+}
 function Walk-TreeLegacy {
   param([IntPtr]$hwnd, [int]$MaxNodes = 4000, [int]$TimeoutSec = 45, [int]$MaxDepth = 16,
         [switch]$WithValues, [switch]$WithScroll)
@@ -4269,7 +4303,11 @@ function Walk-TreeLegacy {
   # WithScroll: ScrollPattern gleich im Durchlauf mitnehmen. Nachtraeglich je
   # Knoten das lebende Element zu suchen waere quadratisch (gemessen: 34 s).
   $scrollTypes = @('Pane', 'Custom', 'Group', 'Table', 'List', 'Tree', 'Document')
-  $root = $AE::FromHandle($hwnd)
+  try { $root = $AE::FromHandle($hwnd) } catch {
+    $rootFailure = Get-SSEUiStateRootFailure $_ $hwnd $script:SSE_UI_STATE_ROOT_CONTEXT
+    if ($rootFailure) { Emit $rootFailure }
+    throw
+  }
   $sw = [Diagnostics.Stopwatch]::StartNew()
   $out = New-Object System.Collections.ArrayList
   $seen = New-Object 'System.Collections.Generic.HashSet[string]'
@@ -4410,6 +4448,17 @@ function Get-UiSnapshot {
   param([IntPtr]$hwnd, [int]$MaxNodes = 4000, [int]$TimeoutSec = 45, [int]$MaxDepth = 16,
         [switch]$WithValues, [switch]$WithScroll, $RootElement = $null)
   $snapshotWatch = [Diagnostics.Stopwatch]::StartNew()
+  # Only a bound ui_state root failure requests a fresh worker. Other jobs
+  # keep their existing bulk/legacy snapshot behavior.
+  $uiStateRootProbed = $false
+  if ($Op -ceq 'ui_state' -and $script:SSE_UI_STATE_ROOT_CONTEXT -and
+      [int64]$script:SSE_UI_STATE_ROOT_CONTEXT.window.hwnd -eq [int64]$hwnd) {
+    try { $null = $AE::FromHandle($hwnd); $uiStateRootProbed = $true } catch {
+      $rootFailure = Get-SSEUiStateRootFailure $_ $hwnd $script:SSE_UI_STATE_ROOT_CONTEXT
+      if ($rootFailure) { Emit $rootFailure }
+      throw
+    }
+  }
   try {
     # Der ERSTE UIA-Aufruf eines Arbeitsprozesses muss aus PowerShell kommen.
     #
@@ -4433,7 +4482,7 @@ function Get-UiSnapshot {
     # Aufruf dafuer, dass der native Lauf exakt dieselbe Sicht bekommt wie
     # der bisherige PowerShell-Lauf. test/uia-proxy-state-contract.ps1 haelt
     # beide Seiten dieses Verhaltens fest.
-    $null = $AE::FromHandle($hwnd)
+    if (-not $uiStateRootProbed) { $null = $AE::FromHandle($hwnd) }
     if ($null -ne $RootElement) {
       $native = [SSEUiaTree]::DescribeElement(
         $RootElement, $MaxNodes, ($TimeoutSec * 1000), $MaxDepth, [bool]$WithValues, [bool]$WithScroll)
@@ -25230,7 +25279,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       })
     }
 
+    $script:SSE_UI_STATE_ROOT_CONTEXT = $null
+    $stateWinsBeforeRestore = @($wins)
     $mainWindow = Resolve-SSEMainWindowDescriptor $a $wins -RestoreMinimized
+    $script:SSE_UI_STATE_ROOT_CONTEXT = New-SSEUiStateRootContext $mainWindow $stateWinsBeforeRestore
     $wins = @(Get-Windows 'SSE')
     # Hilfsfenster anderer gleichzeitig sichtbarer SSE-2025-Instanzen duerfen
     # weder den Dialogzustand noch den Fingerprint dieses Falls beeinflussen.

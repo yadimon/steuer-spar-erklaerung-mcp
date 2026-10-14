@@ -467,7 +467,7 @@ try {
     const { worker, calls } = scriptedWorker({
       ui_state: () => {
         stateCalls += 1;
-        return { ok: true, running: true, heading: stateCalls < 3 ? "" : START_PAGE, blockiert: false };
+        return { ok: true, running: true, heading: stateCalls < 3 ? "" : START_PAGE, blockiert: false, instance: {pid: PID, hwnd: HWND} };
       },
     });
     const result = await createApiExecutor(config, worker)("case_create", { targetRef: TARGET, mode: "einurvor" }, 240_000);
@@ -484,7 +484,7 @@ try {
     const { worker, calls } = scriptedWorker({
       ui_state: () => ++stateCalls < 3
         ? { ok: false, backend: "qt", kind: "no-window", outcomeUnknown: false, error: "Not materialized yet" }
-        : { ok: true, running: true, heading: START_PAGE, blockiert: false },
+        : { ok: true, running: true, heading: START_PAGE, blockiert: false, instance: {pid: PID, hwnd: HWND} },
     });
     const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 240_000, undefined, {
       execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
@@ -608,6 +608,125 @@ try {
       "Missing, disabled, anonymous or ambiguous wizard links must fail before dispatch.");
     assert.equal(closes(calls).length, 1);
     assert.equal(result.processStillRunning, false);
+  }
+  const rootFailure = (extra = {}) => ({
+    ok: false, kind: "uia-root-unavailable", error: "Synthetic UIA root failure", operation: "ui_state", phase: "snapshot-root",
+    pid: PID, hwnd: HWND, windowAlive: true, windowSetMainOnly: true, windowStateChanged: false, mutationStarted: false, outcomeUnknown: false,
+    exceptionType: "System.Runtime.InteropServices.COMException", hresult: "0x80004005", ...extra,
+  });
+  const rootScenario = async (overrides, timeout = 240_000) => {
+    let clock = 0;
+    const { worker, calls } = scriptedWorker(overrides);
+    const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, timeout, undefined, {
+      execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
+      profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
+      now: () => clock, wait: async ms => { clock += ms; },
+    });
+    return { result, calls, clock };
+  };
+  {
+    let reads = 0;
+    const {worker, calls} = scriptedWorker({ui_state: () => ++reads < 3 ? rootFailure()
+      : {ok: true, heading: START_PAGE, instance: {pid: PID, hwnd: HWND}, blockiert: false}});
+    const result = await createApiExecutor(config, worker)("case_create", {targetRef: TARGET, mode: "einurvor"}, 240_000);
+    assert.equal(result.ok, true, JSON.stringify(result)); assert.equal(result.startupUiaRootFailures, 2);
+    assert.equal(reads, 3); assert.equal(calls.filter(c => c.operation === "launch").length, 1);
+    assert.equal(closes(calls).length, 0); resetTarget();
+  }
+  {
+    let reads = 0;
+    const { result, calls, clock } = await rootScenario({ ui_state: () => ++reads < 3 ? rootFailure()
+      : { ok: true, heading: START_PAGE, blockiert: false, instance: {pid: PID, hwnd: HWND} } });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(reads, 3); assert.equal(clock, 3000);
+    assert.equal(result.startupUiaRootFailures, 2);
+    assert.equal(result.lastUiaRootFailure.hresult, "0x80004005");
+    assert.deepEqual(calls.filter(c => c.operation === "ui_state").map(c => c.timeoutMs), [240_000, 238_500, 237_000]);
+    assert.equal(calls.filter(c => c.operation === "launch").length, 1);
+    assert.deepEqual(calls.filter(c => c.operation === "ui_state").map(c => c.args.hwnd), [HWND, HWND, HWND]);
+    const start = operationsOf(calls);
+    assert.deepEqual(start.slice(3, 10), ["instances", "ui_state", "instances", "ui_state", "instances", "ui_state", "subpages"]);
+    assert.equal(closes(calls).length, 0); resetTarget();
+  }
+  {
+    const { result, calls, clock } = await rootScenario({ui_state: () => rootFailure()});
+    assert.equal(result.kind, "uia-root-unavailable"); assert.equal(result.attempts, 3); assert.equal(result.created, false);
+    assert.equal(result.retryable, false); assert.equal(result.processStillRunning, false);
+    assert.equal(calls.filter(c => c.operation === "ui_state").length, 3); assert.equal(clock, 3000);
+    assert.equal(calls.filter(c => c.operation === "launch").length, 1);
+    assert.equal(calls.filter(c => c.operation === "click" || c.operation === "file_dialog_select").length, 0);
+    assert.equal(closes(calls).length, 1); assert.equal(closes(calls)[0].args.pid, PID);
+  }
+  for (const extra of [
+    {kind: "worker-init"}, {operation: "subpages"}, {phase: "dispatch"}, {phase: undefined}, {backend: "qt"},
+    {windowAlive: false}, {windowAlive: undefined}, {windowSetMainOnly: false}, {windowSetMainOnly: undefined},
+    {windowStateChanged: true}, {windowStateChanged: undefined},
+    {mutationStarted: true}, {mutationStarted: undefined}, {outcomeUnknown: true}, {outcomeUnknown: undefined},
+    {pid: PID+1}, {hwnd: HWND+1},
+  ]) {
+    const { result, calls, clock } = await rootScenario({ui_state: () => rootFailure(extra)});
+    assert.equal(result.ok, false); assert.equal(result.created, false);
+    assert.equal(calls.filter(c => c.operation === "ui_state").length, 1); assert.equal(clock, 0);
+    assert.equal(calls.filter(c => c.operation === "click").length, 0); assert.equal(closes(calls).length, 1);
+  }
+  for (const extra of [{recoveredState: true}, {hung: true}]) {
+    let counts = 0;
+    const {result, calls} = await rootScenario({instances: () => ++counts === 1 ? noInstance : instance(counts < 3 ? {} : extra),
+      ui_state: () => rootFailure()});
+    assert.equal(result.processPreserved, true); assert.equal(result.startupUiaRootFailures, 1);
+    assert.equal(calls.filter(c => c.operation === "ui_state").length, 1); assert.equal(closes(calls).length, 0);
+  }
+  {
+    let counts = 0;
+    const { result, calls } = await rootScenario({
+      instances: () => ++counts === 1 ? noInstance : instance({hwnd: counts < 3 ? HWND : HWND+1}),
+      ui_state: () => rootFailure(),
+    });
+    assert.equal(result.kind, "startup-binding-changed");
+    assert.equal(calls.filter(c => c.operation === "ui_state").length, 1);
+    assert.equal(calls.filter(c => c.operation === "click").length, 0); assert.equal(closes(calls).length, 1);
+  }
+  {
+    const {result, calls} = await rootScenario({ui_state: () => rootFailure({windowSetMainOnly: false,
+      outcomeUnknown: true, processPreserved: true, retryable: false, reconciliationRequired: true})});
+    assert.equal(result.processPreserved, true); assert.equal(result.processStillRunning, null);
+    assert.equal(calls.filter(c => c.operation === "ui_state").length, 1); assert.equal(closes(calls).length, 0);
+  }
+  {
+    let reads = 0;
+    const { result, calls } = await rootScenario({ui_state: () => ++reads % 2 ? rootFailure()
+      : {ok: true, heading: "", instance: {pid: PID, hwnd: HWND}}});
+    assert.equal(result.kind, "uia-root-unavailable"); assert.equal(result.attempts, 3); assert.equal(reads, 5);
+    assert.equal(calls.filter(c => c.operation === "launch").length, 1); assert.equal(closes(calls).length, 1);
+  }
+  {
+    const { result, calls } = await rootScenario({ui_state: () => ({ok: true, heading: START_PAGE, instance: {pid: PID+1, hwnd: HWND}})});
+    assert.equal(result.kind, "startup-binding-changed");
+    assert.equal(calls.filter(c => c.operation === "click").length, 0); assert.equal(closes(calls).length, 1);
+  }
+  {
+    let clock = 0;
+    const controller = new AbortController();
+    const {worker, calls} = scriptedWorker({ui_state: () => {controller.abort(); return rootFailure();}});
+    const result = await executeCaseCreate({targetRef: TARGET, mode: "einurvor"}, 240_000, controller.signal, {
+      execute: worker, worker, resolveTarget: () => ({path: targetPath, ref: TARGET}),
+      profile: {taxYear: 2025, startModes: {einurvor: "GewErfass"}, additionalCaseYears: {einurvor: [2026]}},
+      now: () => clock, wait: async ms => {clock += ms;},
+    });
+    assert.equal(result.kind, "aborted"); assert.equal(clock, 0); assert.equal(result.startupUiaRootFailures, 1);
+    assert.equal(calls.filter(c => c.operation === "ui_state").length, 1); assert.equal(closes(calls).length, 1);
+  }
+  {
+    let clock = 0;
+    const {worker, calls} = scriptedWorker({ui_state: () => {clock = 89_999; return rootFailure();}});
+    const result = await executeCaseCreate({targetRef: TARGET, mode: "einurvor"}, 90_000, undefined, {
+      execute: worker, worker, resolveTarget: () => ({path: targetPath, ref: TARGET}),
+      profile: {taxYear: 2025, startModes: {einurvor: "GewErfass"}, additionalCaseYears: {einurvor: [2026]}},
+      now: () => clock, wait: async ms => {clock += ms;},
+    });
+    assert.equal(result.ok, false); assert.equal(clock, 89_999); assert.equal(result.startupUiaRootFailures, 1);
+    assert.equal(calls.filter(c => c.operation === "ui_state").length, 1);
+    assert.equal(calls.filter(c => c.operation === "launch").length, 1); assert.equal(closes(calls).length, 1);
   }
 } finally {
   rmSync(temporary, { recursive: true, force: true });

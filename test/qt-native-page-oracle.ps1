@@ -23,7 +23,7 @@ $switchClauses = @($oracleAstNodes | Where-Object { $_ -is [Management.Automatio
 foreach ($name in @('Get-ContentBounds','Get-SSEHeading','ConvertTo-Vergleichsform','Test-Versand','Get-SSETextSha256',
     'Get-CaptionMinX','Get-DirtyState','Get-SSECheckerTreeItems','Get-CheckerResults','Test-CheckerResultComplete',
     'Read-CheckerComplete','Convert-SSEComparableNumber','Read-ResultDetailsFromTree','New-SSETableRowDetails',
-    'Resolve-SSEToolWindowKind','Get-SSEMainWindowCandidates','Resolve-SSEMainWindowDescriptor',
+    'Resolve-SSEToolWindowKind','Get-SSEMainWindowCandidates','Resolve-SSEMainWindowDescriptor','New-SSEUiStateRootContext',
     'Test-SSEElementVisible','Get-SSEVisibleHeadingNode','Get-CurrentHeading')) {
     $definitions = @($functionDefinitions | Where-Object { $_.Name -eq $name })
     if ($definitions.Count -ne 1) { throw "Ambiguous worker function $name" }

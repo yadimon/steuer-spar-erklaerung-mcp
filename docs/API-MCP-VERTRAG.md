@@ -6,6 +6,7 @@
 - [Erreichbarkeit und Browser-Schutz](#erreichbarkeit-und-browser-schutz)
 - [HTTP-Hüllen](#http-hüllen)
 - [Startbereitschaft](#startbereitschaft)
+- [UIA-Startlesefehler bei der Fallanlage](#uia-startlesefehler-bei-der-fallanlage)
 - [Zielbereitschaft nach Suchschluss](#zielbereitschaft-nach-suchschluss)
 - [Optionale Wiederholung bei belegter API](#optionale-wiederholung-bei-belegter-api)
 - [Dauerhaftes CLI-Journal](#dauerhaftes-cli-journal)
@@ -108,6 +109,25 @@ beantwortet, schließt oder übernimmt sie nicht automatisch. Ohne stabile
 Bereitschaft bleibt der möglicherweise gestartete Prozess erhalten. Ein
 fehlgeschlagener Readback veranlasst keinen erneuten Prozessstart. Spätere
 Operationen prüfen ihre Fenster- und Fallbindung weiterhin selbst.
+
+## UIA-Startlesefehler bei der Fallanlage
+
+Der Standard-Worker kennzeichnet einen fehlgeschlagenen UIA-Wurzelzugriff
+innerhalb einer gebundenen `ui_state`-Lesung als `uia-root-unavailable`.
+Operation, Phase, PID/HWND, Exceptiontyp und HRESULT bleiben nachvollziehbar.
+Die Kennzeichnung bestaetigt einen aktuellen, nicht haengenden Hauptfensterrahmen;
+ein wiederhergestelltes minimiertes Fenster und unbekannte Peer-Fenster erhalten
+keine Freigabe fuer Wiederholungen. Bei unbekannten Peer-Fenstern wird der Prozess
+zur weiteren Klaerung erhalten.
+
+`case_create` erlaubt vor der ersten Assistentenaktion hoechstens drei solche
+belegten Lesefehler. Jeder neue Versuch benutzt einen frischen Worker,
+erneuert die Instanzlesung, behaelt dieselbe PID/HWND und verbraucht das
+urspruengliche Zeitbudget. Start, Assistentenaktionen und Schreiben werden nicht
+wiederholt. Allgemeines `worker-init`, ungewisse Ergebnisse oder geaenderte
+Bindungen bleiben terminal. Auf Erfolg oder spaeterem Fehler halten die optionalen
+Felder `startupUiaRootFailures` und `lastUiaRootFailure` die beobachteten Fehler fest.
+Andere Operationen behalten ihre bestehende Snapshot-/Legacy-Grenze.
 
 ## Zielbereitschaft nach Suchschluss
 

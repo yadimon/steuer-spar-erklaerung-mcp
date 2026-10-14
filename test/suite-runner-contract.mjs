@@ -22,6 +22,7 @@ import {
 } from "./suite-runner.mjs";
 
 const expectedNames = [
+  "uia-root-read",
   "checker-start-contract",
   "performance-harness",
   "execution-telemetry", "execution-telemetry-integration", "execution-trace-log", "api-mega-execution-traces",

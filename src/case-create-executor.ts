@@ -128,6 +128,13 @@ function expectedFileSuffix(
   return { suffix: `.${documentType}${taxYear}`, taxYear };
 }
 
+function isStartupUiaRootFailure(result: WorkerResult, pid: number, hwnd: number): boolean {
+  return result.ok === false && result.backend === undefined && result.kind === "uia-root-unavailable"
+    && result.operation === "ui_state" && result.phase === "snapshot-root"
+    && result.mutationStarted === false && result.outcomeUnknown === false && result.windowStateChanged === false
+    && result.windowAlive === true && result.windowSetMainOnly === true && result.pid === pid && result.hwnd === hwnd;
+}
+
 export async function executeCaseCreate(
   args: Record<string, unknown>,
   timeoutMs: number | undefined,
@@ -142,6 +149,11 @@ export async function executeCaseCreate(
   let hwnd = 0;
   let launchDispatched = false;
   let target: CaseCreateTarget | undefined;
+  let uiaRootFailures = 0;
+  let uiaRootPinnedHwnd: number | undefined;
+  let lastUiaRootFailure: Record<string, unknown> | undefined;
+  const rootDiagnostics = () => uiaRootFailures > 0 ? { startupUiaRootFailures: uiaRootFailures,
+    lastUiaRootFailure } : {};
 
   const step = async (operation: SseApiOperation, stepArgs: Record<string, unknown>, ceilingMs = budgetMs,
     run: NestedApiExecutor = dependencies.execute): Promise<WorkerResult> => {
@@ -205,17 +217,29 @@ export async function executeCaseCreate(
           failedStep: "instances", pid, ready: false, processPreserved: true, processStillRunning: true,
           outcomeUnknown: true, reconciliationRequired: true, retryable: false });
       }
+      if (uiaRootPinnedHwnd !== undefined && (!instance || Number(bound.count) !== 1 || Number(instance.hwnd) !== uiaRootPinnedHwnd)) {
+        fail("startup-binding-changed", "Die Startfensterbindung aenderte sich nach dem UIA-Lesefehler; keine Assistentenaktion.");
+      }
       if (instance && Number(bound.count) === 1 && instance.hung !== true && instance.recoveredState !== true) {
         hwnd = Number(instance.hwnd);
         let state: WorkerResult | undefined;
         try {
           state = await step("ui_state", { hwnd });
         } catch (error) {
-          // Passive native discovery can precede window materialization.
-          // Only its known pre-dispatch absence may use this startup poll;
-          // every other failure remains terminal and no wizard click repeats.
-          if (!(error instanceof StepFailure) || error.result.backend !== "qt"
-            || error.result.kind !== "no-window" || error.result.outcomeUnknown !== false) throw error;
+          if (error instanceof StepFailure && isStartupUiaRootFailure(error.result, pid, hwnd)) {
+            uiaRootFailures += 1;
+            lastUiaRootFailure = { exceptionType: error.result.exceptionType, hresult: error.result.hresult,
+              error: error.result.error };
+            if (uiaRootFailures >= 3) {
+              throw new StepFailure({ ...error.result, attempts: uiaRootFailures, failedStep: "ui_state", retryable: false });
+            }
+            uiaRootPinnedHwnd = hwnd;
+          } else {
+            // Passive native discovery can precede window materialization.
+            // Every other failure remains terminal; no wizard click repeats.
+            if (!(error instanceof StepFailure) || error.result.backend !== "qt"
+              || error.result.kind !== "no-window" || error.result.outcomeUnknown !== false) throw error;
+          }
         }
         if (state?.blockiert === true) {
           throw new StepFailure({ ok: false, kind: "startup-not-ready",
@@ -224,6 +248,10 @@ export async function executeCaseCreate(
             outcomeUnknown: true, reconciliationRequired: true, retryable: false });
         }
         const heading = String(state?.heading ?? "");
+        if (state && (Number((state.instance as Record<string, unknown> | undefined)?.pid) !== pid
+          || Number((state.instance as Record<string, unknown> | undefined)?.hwnd) !== hwnd)) {
+          fail("startup-binding-changed", "Die Startlesung bestaetigt nicht die gebundene PID und HWND; keine Assistentenaktion.");
+        }
         const match = wizard.startHeading.exec(heading);
         if (match) {
           if (Number(match[1]) !== taxYear) {
@@ -236,6 +264,7 @@ export async function executeCaseCreate(
       if (deadline - now() < WIZARD_RESERVE_MS / 2) {
         fail("wizard-page", "Die Startseite des Assistenten erschien nicht rechtzeitig nach dem Programmstart.");
       }
+      if (signal?.aborted) fail("aborted", "API-Client hat die Fallanlage abgebrochen.");
       await wait(START_PAGE_POLL_MS);
     }
 
@@ -322,7 +351,7 @@ export async function executeCaseCreate(
       throw new StepFailure(operationError("Der Dateihash nach dem Speichern weicht vom Dialog-Readback ab.", "postcondition-failed"));
     }
     return {
-      ok: true, created: true, caseRef: target.ref || target.path, sha256: sha256.toUpperCase(), pid, hwnd: Number(bound.hwnd),
+      ok: true, created: true, ...rootDiagnostics(), caseRef: target.ref || target.path, sha256: sha256.toUpperCase(), pid, hwnd: Number(bound.hwnd),
       caseHashSource: instanceHash ? "instances" : "local-file",
       mode, taxYear, heading: wizard.masterDataHeading, steps, effects: { ...EFFECTS },
       note: "Der neue Fall ist geoeffnet und leer gespeichert. Stammdaten jetzt mit fill_fields fuellen; " +
@@ -332,6 +361,7 @@ export async function executeCaseCreate(
     let failure = error instanceof StepFailure
       ? error.result
       : operationError(error instanceof Error ? error.message : String(error), signal?.aborted ? "aborted" : "case-create");
+    failure = { ...failure, ...rootDiagnostics() };
     if (launchDispatched && pid <= 0 && !(failure.mutationStarted === false && failure.resultingState === "unchanged")) {
       failure = { ...failure, failedStep: failure.failedStep ?? "launch", processPreserved: true, processStillRunning: failure.processStillRunning ?? null,
         outcomeUnknown: true, reconciliationRequired: true, retryable: false };
