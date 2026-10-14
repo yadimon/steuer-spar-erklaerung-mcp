@@ -501,6 +501,58 @@ try {
     assertPreserved(result, pid);
   }
 
+  {
+    const pid = 4126;
+    const result = await executeLaunchOperation({}, 30_000, undefined, async (operation) => {
+      if (operation === "launch") return { ok: true, launched: true, pid };
+      assert.equal(operation, "launch_probe");
+      return { ok: true, outcome: "observed", windows: [
+        { pid, hwnd: 9100, title: "Steuerprogramm", w: 1200, h: 800 }, mainWindow(pid),
+      ], dialogs: [] };
+    });
+    assert.equal(result.ready, true);
+    assert.equal(result.instance.hwnd, 9001, "Loaded case takes precedence over its generic startup window.");
+  }
+  {
+    const pid = 4127;
+    const result = await executeLaunchOperation({ file: "synthetic.Gew2025" }, 30_000, undefined, async (operation) => {
+      if (operation === "launch") return { ok: true, launched: true, pid };
+      assert.equal(operation, "launch_probe");
+      const splash = { pid, hwnd: 9127, title: "SteuerSparErklärung", w: 518, h: 260 };
+      return { ok: true, outcome: "deadline", windows: [splash], startupPrompts: [splash],
+        windowProbeSucceeded: true, mainWindowUnstable: true, lastProbeError: "Main window stayed unstable." };
+    });
+    assert.notEqual(result.kind, "startup-question", "Unstable main window must not be presented as a recovery question.");
+    assertPreserved(result, pid);
+    assert.equal(result.lastProbeError, "Main window stayed unstable.");
+  }
+  for (const file of [undefined, "synthetic.Gew2025"]) {
+    const pid = 4128;
+    const result = await executeLaunchOperation(file ? { file } : {}, 30_000, undefined, async (operation) => {
+      if (operation === "launch") return { ok: true, launched: true, pid };
+      assert.equal(operation, "launch_probe");
+      return { ok: true, outcome: "deadline", windows: [
+        { pid, hwnd: 9100, title: "Steuerprogramm", w: 1200, h: 800 }, mainWindow(pid),
+      ], dialogs: [], windowProbeSucceeded: true, mainWindowUnstable: true };
+    });
+    assert.notEqual(result.ready, true, "Deadline must never bind a generic or loaded main window.");
+    assert.equal(result.instance, undefined);
+    assertPreserved(result, pid);
+  }
+  {
+    const pid = 4129;
+    let probes = 0;
+    const result = await executeLaunchOperation({}, 30_000, undefined, async (operation) => {
+      if (operation === "launch") return { ok: true, launched: true, pid };
+      assert.equal(operation, "launch_probe");
+      return ++probes === 1
+        ? { ok: true, outcome: "retry-fresh", windowProbeSucceeded: true, windows: [], dialogs: [], mainWindowUnstable: true,
+          startupPrompts: [{ pid, hwnd: 9129, title: "SteuerSparErklärung", w: 518, h: 260 }] }
+        : { ok: false, kind: "worker", error: "Fresh read failed." };
+    });
+    assert.notEqual(result.kind, "startup-question", "Unstable-window diagnosis must survive a fresh-worker handover.");
+    assertPreserved(result, pid);
+  }
   process.stdout.write("Launch-Orchestrierung: synthetischer PID-Scope, Retry, Dialog, Abort und Prozess-Erhalt bestanden\n");
 } finally {
   rmSync(temporary, { recursive: true, force: true });

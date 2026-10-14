@@ -8256,6 +8256,7 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
   let probeFailures = 0;
   let probeHandoverRetries = 0;
   let lastStartupPrompts = [];
+  let mainWindowSeenUnstable = false;
   try {
     if (signal?.aborted) {
       return {
@@ -8278,6 +8279,7 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
         budgetMs: Math.floor(remainingMs - LAUNCH_PROBE_HANDOVER_ALLOWANCE_MS)
       };
       observed = await worker("launch_probe", launchProbePlan, remainingMs, signal);
+      mainWindowSeenUnstable ||= observed.mainWindowUnstable === true;
       if (observed.ok === false) {
         lastProbeError = `launch_probe: ${String(observed.error ?? observed.kind ?? "Startinventur fehlgeschlagen.")}`;
         probeFailures += 1;
@@ -8303,7 +8305,7 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
         break;
       }
       if (observed.windowProbeSucceeded === true) {
-        lastStartupPrompts = asArray(observed.startupPrompts).filter((window) => Number(window.pid) === pid2 && Number(window.hwnd) > 0);
+        lastStartupPrompts = asArray(observed.startupPrompts).filter((window) => Number(window.pid) === pid2 && Number(window.hwnd) > 0 && Number(window.w) > 0 && Number(window.w) < MIN_MAIN_WINDOW_WIDTH && window.minimiert !== true);
       }
       if (!signal?.aborted) await waitForNextProbe();
     }
@@ -8325,9 +8327,11 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
       const title = String(window.title ?? "");
       return title.includes("SteuerSparErklärung") || !hasCase && title === "Steuerprogramm";
     });
-    const mainCandidates = titledLikeSse.filter((window) => Number(window.w) >= MIN_MAIN_WINDOW_WIDTH || window.minimiert === true).sort((left, right) => Number(right.w) * Number(right.h) - Number(left.w) * Number(left.h));
+    const wideCandidates = titledLikeSse.filter((window) => Number(window.w) >= MIN_MAIN_WINDOW_WIDTH || window.minimiert === true).sort((left, right) => Number(right.w) * Number(right.h) - Number(left.w) * Number(left.h));
+    const loadedCases = wideCandidates.filter((window) => String(window.title ?? "").includes("SteuerSparErklärung"));
+    const mainCandidates = observed.outcome === "observed" ? loadedCases.length ? loadedCases : wideCandidates : [];
     if (terminalProbeResult) {
-      lastStartupPrompts = titledLikeSse.filter((window) => !mainCandidates.includes(window));
+      lastStartupPrompts = titledLikeSse.filter((window) => !mainCandidates.includes(window) && Number(window.w) > 0 && Number(window.w) < MIN_MAIN_WINDOW_WIDTH && window.minimiert !== true);
     }
     const dialogs = (terminalProbeResult ? asArray(observed.dialogs) : []).filter((dialog2) => Number(dialog2.pid) === pid2 && ["native-dialog", "qt-dialog"].includes(String(dialog2.kind)));
     if (mainCandidates.length > 0 || dialogs.length > 0) {
@@ -8364,7 +8368,7 @@ async function executeLaunchOperation(args, timeoutMs, signal, worker) {
         probeFailures
       };
     }
-    if (lastStartupPrompts.length > 0) {
+    if (lastStartupPrompts.length > 0 && !mainWindowSeenUnstable) {
       return {
         ok: false,
         kind: "startup-question",

@@ -5,6 +5,8 @@
 - [Rollen](#rollen)
 - [Erreichbarkeit und Browser-Schutz](#erreichbarkeit-und-browser-schutz)
 - [HTTP-Hüllen](#http-hüllen)
+- [Startbereitschaft](#startbereitschaft)
+- [Optionale Wiederholung bei belegter API](#optionale-wiederholung-bei-belegter-api)
 - [Dauerhaftes CLI-Journal](#dauerhaftes-cli-journal)
 - [MCP-Abbildung](#mcp-abbildung)
 - [Aliase und Kompositionen](#aliase-und-kompositionen)
@@ -89,6 +91,22 @@ Die `allOf`-Referenzen der `resultSchemas` werden gegen dieses Gesamtdokument
 aufgelöst. Die Einzel-Discovery liefert die Definition zusätzlich innerhalb
 ihres `resultSchema`, sodass es auch isoliert validiert werden kann. OpenAPI
 verwendet dafür die entsprechende gemeinsame Schema-Komponente.
+
+## Startbereitschaft
+
+`launch` startet den Prozess einmal und liest danach dessen Fensterzustand
+innerhalb des ursprünglichen Zeitbudgets. Ein einzelnes Hauptfenster wird erst
+nach drei übereinstimmenden Beobachtungen seiner PID, HWND, Klasse, Beschriftung
+und Geometrie als bereit gemeldet. Ein als hängend gemeldetes Fenster zählt
+nicht als bereit. Nach der Dialoginventur prüft ein frischer Win32-Read zusätzlich,
+dass sich die sichtbaren Top-Level-Fenster dieser PID nicht geändert haben.
+Eine abgelaufene Start-Probe bindet kein Fenster und meldet nie Bereitschaft.
+
+Rückfragen und mehrere Hauptfenster bleiben unmittelbar sichtbar; der Aufruf
+beantwortet, schließt oder übernimmt sie nicht automatisch. Ohne stabile
+Bereitschaft bleibt der möglicherweise gestartete Prozess erhalten. Ein
+fehlgeschlagener Readback veranlasst keinen erneuten Prozessstart. Spätere
+Operationen prüfen ihre Fenster- und Fallbindung weiterhin selbst.
 
 ## Optionale Wiederholung bei belegter API
 

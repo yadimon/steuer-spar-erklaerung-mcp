@@ -361,11 +361,12 @@ try {
     assert.deepEqual(operationsOf(calls), ["instances", "desktop_status", "launch", "launch_probe", "instances", "ui_state"]);
   }
   for (const spec of [
-    { kind: "startup-question", title: "SteuerSparErklärung", width: 518 },
-    { kind: "recovered-state", title: "SteuerSparErklärung (Wiederhergestellt)", width: 1200 },
-    { kind: "startup-timeout", title: null, width: 0 },
+    { kind: "startup-question", title: "SteuerSparErklärung", width: 518, outcome: "deadline" },
+    { kind: "recovered-state", title: "SteuerSparErklärung (Wiederhergestellt)", width: 1200, outcome: "observed" },
+    { kind: "startup-timeout", title: "SteuerSparErklärung (Wiederhergestellt)", width: 1200, outcome: "deadline" },
+    { kind: "startup-timeout", title: null, width: 0, outcome: "deadline" },
   ]) {
-    const { worker, calls } = scriptedWorker({ launch_probe: () => ({ ok: true, outcome: "deadline", dialogs: [],
+    const { worker, calls } = scriptedWorker({ launch_probe: () => ({ ok: true, outcome: spec.outcome, dialogs: [],
       windows: spec.title ? [{ pid: PID, hwnd: HWND, title: spec.title, w: spec.width, h: 800, minimiert: false }] : [],
     }) });
     const result = await createApiExecutor(config, worker)("case_create", { targetRef: TARGET, mode: "einurvor" }, 240_000);

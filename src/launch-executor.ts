@@ -111,6 +111,7 @@ export async function executeLaunchOperation(
   let probeFailures = 0;
   let probeHandoverRetries = 0;
   let lastStartupPrompts: Record<string, unknown>[] = [];
+  let mainWindowSeenUnstable = false;
   try {
     if (signal?.aborted) {
       return {
@@ -136,6 +137,7 @@ export async function executeLaunchOperation(
       // launch_probe ist ein privater Worker-Vertrag und deshalb bewusst kein
       // SseApiOperation. Der Cast bleibt an genau dieser internen Grenze.
       observed = await (worker as LaunchWorkerExecutor)("launch_probe", launchProbePlan, remainingMs, signal);
+      mainWindowSeenUnstable ||= observed.mainWindowUnstable === true;
       if (observed.ok === false) {
         lastProbeError = `launch_probe: ${String(observed.error ?? observed.kind ?? "Startinventur fehlgeschlagen.")}`;
         probeFailures += 1;
@@ -179,7 +181,8 @@ export async function executeLaunchOperation(
       // launch_probe darf innerhalb derselben absoluten Frist weiterpollten.
       if (observed.windowProbeSucceeded === true) {
         lastStartupPrompts = asArray<Record<string, unknown>>(observed.startupPrompts)
-          .filter((window) => Number(window.pid) === pid && Number(window.hwnd) > 0);
+          .filter((window) => Number(window.pid) === pid && Number(window.hwnd) > 0
+            && Number(window.w) > 0 && Number(window.w) < MIN_MAIN_WINDOW_WIDTH && window.minimiert !== true);
       }
       if (!signal?.aborted) await waitForNextProbe();
     }
@@ -211,14 +214,17 @@ export async function executeLaunchOperation(
     // waehrend die Frage noch offen stand - genau der Zustand, vor dem der
     // Skill warnt, denn ein 'Ja' laedt Daten, die zum geprueften Hash nicht
     // mehr passen.
-    const mainCandidates = titledLikeSse
+    const wideCandidates = titledLikeSse
       .filter((window) => Number(window.w) >= MIN_MAIN_WINDOW_WIDTH || window.minimiert === true)
       .sort((left, right) => Number(right.w) * Number(right.h) - Number(left.w) * Number(left.h));
+    const loadedCases = wideCandidates.filter((window) => String(window.title ?? "").includes("SteuerSparErklärung"));
+    const mainCandidates = observed.outcome === "observed" ? (loadedCases.length ? loadedCases : wideCandidates) : [];
     // Der Startbildschirm verschwindet von selbst, eine Rueckfrage nicht.
     // Beide sehen bis dahin gleich aus, deshalb wird hier nur gemerkt statt
     // geraten; entschieden wird erst, wenn das Startbudget abgelaufen ist.
     if (terminalProbeResult) {
-      lastStartupPrompts = titledLikeSse.filter((window) => !mainCandidates.includes(window));
+      lastStartupPrompts = titledLikeSse.filter((window) => !mainCandidates.includes(window)
+        && Number(window.w) > 0 && Number(window.w) < MIN_MAIN_WINDOW_WIDTH && window.minimiert !== true);
     }
 
     const dialogs = (terminalProbeResult ? asArray<Record<string, unknown>>(observed.dialogs) : [])
@@ -274,7 +280,7 @@ export async function executeLaunchOperation(
     // Wiederherstellungsdatei nach einem unsauberen Ende. Diesen Prozess zu
     // beenden waere das Schlimmste: der harte Abbruch erzeugt die naechste
     // Wiederherstellungsdatei, und der naechste Start endet genauso.
-    if (lastStartupPrompts.length > 0) {
+    if (lastStartupPrompts.length > 0 && !mainWindowSeenUnstable) {
       return {
         ok: false,
         kind: "startup-question",

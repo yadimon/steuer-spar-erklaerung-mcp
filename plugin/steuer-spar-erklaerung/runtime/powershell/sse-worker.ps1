@@ -3499,6 +3499,23 @@ function Get-SSEDeepestLastActivePopup([IntPtr]$Hwnd) {
   $current
 }
 
+function Test-SSELaunchMainWindowStable($State, $Candidates) {
+  $windows=@($Candidates)
+  if ($windows.Count -ne 1 -or $windows[0].hung -isnot [bool] -or $windows[0].hung) {
+    $State.signature=$null;$State.consecutive=0;return $false
+  }
+  $window=$windows[0]
+  $signature=[ordered]@{
+    pid=$window.pid;hwnd=$window.hwnd;title=$window.title;cls=$window.cls
+    x=$window.x;y=$window.y;w=$window.w;h=$window.h;minimiert=$window.minimiert
+  } | ConvertTo-Json -Compress
+  if ($State.signature -cne $signature) {
+    $State.signature=$signature;$State.consecutive=1;return $false
+  }
+  $State.consecutive++
+  $State.consecutive -ge 3
+}
+
 function Get-SSEMainWindowCandidates($Windows) {
   $wins = @($Windows | Where-Object { $null -ne $_ })
   # Geladene Faelle tragen immer den Produktnamen im Titel. SSE laesst beim
@@ -14531,6 +14548,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $lastProbeError = $null
     $probeFailures = 0
     $lastStartupPrompts = @()
+    $mainStability=[pscustomobject]@{signature=$null;consecutive=0}
+    $mainUnstableSeen=$false
     $windowProbeSucceeded = $false
     $probeTimer = [Diagnostics.Stopwatch]::StartNew()
     while (($probeTimer.ElapsedMilliseconds + 1000) -lt $probeBudgetMs) {
@@ -14544,6 +14563,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         $probeFailures++
         Emit ([pscustomobject]@{
           ok=$true; outcome='retry-fresh'; windows=@(); dialogs=@()
+          mainWindowUnstable=$mainUnstableSeen
           startupPrompts=$lastStartupPrompts; probeFailures=$probeFailures
           lastProbeError=$lastProbeError; windowProbeSucceeded=$windowProbeSucceeded
         })
@@ -14554,12 +14574,11 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         ([string]$_.title).Contains('SteuerSparErklärung') -or
         (-not [bool]$hasCaseRaw -and [string]$_.title -ceq 'Steuerprogramm')
       })
-      $mainCandidates = @($titledLikeSse | Where-Object {
-        [int]$_.w -ge 900 -or $_.minimiert -eq $true
-      } | Sort-Object { [int64]$_.w * [int64]$_.h } -Descending)
+      $mainCandidates = @(Get-SSEMainWindowCandidates $titledLikeSse)
       $lastStartupPrompts = @($titledLikeSse | Where-Object {
         $candidateHwnd = [int64]$_.hwnd
-        -not @($mainCandidates | Where-Object { [int64]$_.hwnd -eq $candidateHwnd }).Count
+        [int]$_.w -gt 0 -and [int]$_.w -lt 900 -and -not $_.minimiert -and
+          -not @($mainCandidates | Where-Object { [int64]$_.hwnd -eq $candidateHwnd }).Count
       })
 
       $dialogs = @()
@@ -14583,13 +14602,47 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           $probeFailures++
           Emit ([pscustomobject]@{
             ok=$true; outcome='retry-fresh'; windows=@(); dialogs=@()
+            mainWindowUnstable=([bool]($mainUnstableSeen -or $mainCandidates.Count))
             startupPrompts=$lastStartupPrompts; probeFailures=$probeFailures
             lastProbeError=$lastProbeError; windowProbeSucceeded=$windowProbeSucceeded
           })
         }
       }
 
-      if ($mainCandidates.Count -or $dialogs.Count) {
+      # A case window can replace or resize its first startup frame. Publish
+      # only a repeated passive identity, without repeating the process start.
+      $mainStable=Test-SSELaunchMainWindowStable $mainStability $mainCandidates
+      if ($mainCandidates.Count -and -not $mainStable) {
+        $mainUnstableSeen=$true
+        $lastProbeError="Hauptfenster noch nicht stabil oder nicht als antwortend gebunden ($($mainStability.consecutive)/3 Beobachtungen)."
+      }
+      if ($mainStable -and -not $dialogs.Count) {
+        try {
+          $checkpointWindows=@(Get-Windows 'SSE' | Where-Object {
+            [int]$_.pid -eq [int]$targetPid -and [int64]$_.hwnd -gt 0
+          })
+          $identityFields=@('pid','hwnd','title','cls','x','y','w','h','minimiert','hung')
+          $beforeIdentity=@($windows | Sort-Object hwnd | Select-Object $identityFields) | ConvertTo-Json -Compress
+          $afterIdentity=@($checkpointWindows | Sort-Object hwnd | Select-Object $identityFields) | ConvertTo-Json -Compress
+          if ($beforeIdentity -cne $afterIdentity) {
+            $mainUnstableSeen=$true
+            $lastProbeError='Sichtbarer Fenstersatz hat sich nach der Dialoginventur geaendert.'
+            $mainStability.signature=$null;$mainStability.consecutive=0
+            Start-Sleep -Milliseconds 250
+            continue
+          }
+          $windows=$checkpointWindows
+        } catch {
+          $lastProbeError="window-checkpoint: $($_.Exception.Message)";$probeFailures++
+          Emit ([pscustomobject]@{
+            ok=$true;outcome='retry-fresh';windows=@();dialogs=@()
+            mainWindowUnstable=$mainUnstableSeen
+            startupPrompts=$lastStartupPrompts;probeFailures=$probeFailures
+            lastProbeError=$lastProbeError;windowProbeSucceeded=$windowProbeSucceeded
+          })
+        }
+      }
+      if ($dialogs.Count -or $mainCandidates.Count -gt 1 -or $mainStable) {
         Emit ([pscustomobject]@{
           ok=$true; outcome='observed'; windows=$windows; dialogs=$dialogs
           startupPrompts=$lastStartupPrompts; probeFailures=$probeFailures
@@ -14601,6 +14654,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
 
     Emit ([pscustomobject]@{
       ok=$true; outcome='deadline'; windows=$lastStartupPrompts; dialogs=@()
+      mainWindowUnstable=$mainUnstableSeen
       startupPrompts=$lastStartupPrompts; probeFailures=$probeFailures
       lastProbeError=$lastProbeError; windowProbeSucceeded=$windowProbeSucceeded
     })
