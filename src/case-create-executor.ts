@@ -205,9 +205,10 @@ export async function executeCaseCreate(
         ready: false, processPreserved: true, reconciliationRequired: true, retryable: false });
     }
 
-    // Erst das breite Fallfenster binden, dann die Startseite des Assistenten
-    // abwarten. Der Splash traegt denselben Prozess, aber nie die Ueberschrift.
+    // Wait for a product-titled case window before touching UIA. A generic
+    // startup frame can already be wide but still gets replaced.
     let startHeading = "";
+    let waitingForCaseWindow = false;
     for (;;) {
       const bound = await step("instances", {});
       const instance = asArray<Record<string, unknown>>(bound.instances).find((entry) => Number(entry.pid) === pid);
@@ -220,7 +221,10 @@ export async function executeCaseCreate(
       if (uiaRootPinnedHwnd !== undefined && (!instance || Number(bound.count) !== 1 || Number(instance.hwnd) !== uiaRootPinnedHwnd)) {
         fail("startup-binding-changed", "Die Startfensterbindung aenderte sich nach dem UIA-Lesefehler; keine Assistentenaktion.");
       }
-      if (instance && Number(bound.count) === 1 && instance.hung !== true && instance.recoveredState !== true) {
+      const productWindow = instance && String(instance.title ?? "").includes("SteuerSparErklärung");
+      if (instance && !productWindow) waitingForCaseWindow = true;
+      if (instance && Number(bound.count) === 1 && instance.hung !== true && instance.recoveredState !== true && productWindow) {
+        waitingForCaseWindow = false;
         hwnd = Number(instance.hwnd);
         let state: WorkerResult | undefined;
         try {
@@ -262,6 +266,12 @@ export async function executeCaseCreate(
         }
       }
       if (deadline - now() < WIZARD_RESERVE_MS / 2) {
+        if (waitingForCaseWindow) {
+          throw new StepFailure({ ok: false, kind: "startup-not-ready", failedStep: "instances", pid, ready: false,
+            error: "Nach dem generischen Startfenster wurde kein lesbar gebundenes Fallfenster bestaetigt; Prozess und moegliche Rueckfragen frisch pruefen.",
+            processPreserved: true, processStillRunning: instance ? true : null,
+            outcomeUnknown: true, reconciliationRequired: true, retryable: false });
+        }
         fail("wizard-page", "Die Startseite des Assistenten erschien nicht rechtzeitig nach dem Programmstart.");
       }
       if (signal?.aborted) fail("aborted", "API-Client hat die Fallanlage abgebrochen.");

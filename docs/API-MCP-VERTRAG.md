@@ -109,12 +109,28 @@ beantwortet, schließt oder übernimmt sie nicht automatisch. Ohne stabile
 Bereitschaft bleibt der möglicherweise gestartete Prozess erhalten. Ein
 fehlgeschlagener Readback veranlasst keinen erneuten Prozessstart. Spätere
 Operationen prüfen ihre Fenster- und Fallbindung weiterhin selbst.
+Ohne Falldatei kann `launch` das generische Fenster `Steuerprogramm` als bereit
+melden; dessen HWND kann kurz darauf ersetzt werden. Direkte Aufrufer binden
+vor einem späteren UIA-Zugriff das aktuelle Fallfenster über `instances` frisch.
 
 ## UIA-Startlesefehler bei der Fallanlage
+
+Vor dem ersten UIA-Zugriff wartet `case_create` auf ein eindeutig an die gestartete
+PID gebundenes Fallfenster mit Produktnamen im Titel. Das generische Fenster
+`Steuerprogramm` kann bereits breit sein und trotzdem noch durch eine neue HWND
+ersetzt werden. `case_create` wiederholt die rein lesende Instanzabfrage innerhalb
+des bestehenden Zeitbudgets und wartet auf diesen Übergang. Start und
+Assistentenklicks werden nicht wiederholt. Bleibt der Übergang nach einem
+generischen Fenster unbestätigt, endet der Aufruf mit `startup-not-ready` und
+erhält die gestartete PID samt möglichen Rückfragen zur frischen Prüfung.
 
 Der Standard-Worker kennzeichnet einen fehlgeschlagenen UIA-Wurzelzugriff
 innerhalb einer gebundenen `ui_state`-Lesung als `uia-root-unavailable`.
 Operation, Phase, PID/HWND, Exceptiontyp und HRESULT bleiben nachvollziehbar.
+Die Diagnose verwendet eine rein lesende, frische Fensterinventur. Ein verschwundenes
+oder mehrdeutiges Fenster oder eine fehlgeschlagene Diagnose ersetzt die
+urspruengliche UIA-Ausnahme nicht durch einen anderen Fehler und erteilt keine
+neue Wiederholungsfreigabe.
 Die Kennzeichnung bestaetigt einen aktuellen, nicht haengenden Hauptfensterrahmen;
 ein wiederhergestelltes minimiertes Fenster und unbekannte Peer-Fenster erhalten
 keine Freigabe fuer Wiederholungen. Bei unbekannten Peer-Fenstern wird der Prozess

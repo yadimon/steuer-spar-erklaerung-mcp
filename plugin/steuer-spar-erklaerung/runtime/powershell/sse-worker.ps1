@@ -4297,13 +4297,19 @@ function Get-SSEUiStateRootFailure($ErrorRecord, [IntPtr]$Hwnd, $Context) {
   if ($Op -cne 'ui_state' -or -not $Context -or [int64]$Context.window.hwnd -ne [int64]$Hwnd) { return $null }
   $failure = $ErrorRecord.Exception
   for ($depth=0; $depth -lt 8 -and $failure.InnerException; $depth++) { $failure=$failure.InnerException }
-  $live = $null
-  try { $live = Resolve-SSEMainWindowDescriptor ([pscustomobject]@{hwnd=[int64]$Hwnd}) } catch { return $null }
-  if (-not $live -or [int]$live.pid -ne [int]$Context.window.pid -or
-      [int64]$live.hwnd -ne [int64]$Hwnd -or [string]$live.title -cne [string]$Context.window.title -or
-      [string]$live.cls -cne [string]$Context.window.cls -or $live.minimiert -isnot [bool] -or $live.minimiert -or
-      $live.hung -isnot [bool] -or $live.hung) { return $null }
-  $windowSet = Get-SSEInteractionWindowSet ([int]$live.pid) $Hwnd
+  try {
+    # Diagnostics must not call a resolver that can Emit/exit and replace the
+    # original UIA exception. Both inventories are read-only and may fail.
+    $liveMatches = @(Get-SSEMainWindowCandidates @(Get-Windows 'SSE') | Where-Object {
+      [int64]$_.hwnd -eq [int64]$Hwnd -and [int]$_.pid -eq [int]$Context.window.pid
+    })
+    if ($liveMatches.Count -ne 1) { return $null }
+    $live = $liveMatches[0]
+    if ([string]$live.title -cne [string]$Context.window.title -or
+        [string]$live.cls -cne [string]$Context.window.cls -or $live.minimiert -isnot [bool] -or $live.minimiert -or
+        $live.hung -isnot [bool] -or $live.hung) { return $null }
+    $windowSet = Get-SSEInteractionWindowSet ([int]$live.pid) $Hwnd
+  } catch { return $null }
   $mainOnly = [bool]($windowSet -and @($windowSet.windows).Count -eq 1 -and
     $windowSet.windows[0].role -ceq 'main' -and [int64]$windowSet.windows[0].hwnd -eq [int64]$Hwnd)
   $result = [pscustomobject]@{

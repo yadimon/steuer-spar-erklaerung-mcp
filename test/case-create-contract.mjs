@@ -38,7 +38,7 @@ const targetPath = join(caseDir, "neu.GewErfass2026");
 
 const instance = (extra = {}) => ({
   ok: true, count: 1, ambiguous: false, foregroundHwnd: HWND,
-  instances: [{ hwnd: HWND, pid: PID, title: "Gewinn-Erfassung 2026", hung: false, recoveredState: false, ...extra }],
+  instances: [{ hwnd: HWND, pid: PID, title: "Gewinn-Erfassung 2026: SteuerSparErklärung", hung: false, recoveredState: false, ...extra }],
 });
 const noInstance = { ok: true, count: 0, instances: [], ambiguous: false, foregroundHwnd: null };
 
@@ -340,7 +340,8 @@ try {
     assert.deepEqual(operationsOf(calls), ["instances", "desktop_status", "launch"]);
   }
 
-  for (const instanceState of [{ recoveredState: true }, { hung: true }]) {
+  for (const instanceState of [{ recoveredState: true }, { hung: true },
+    { recoveredState: true, title: "Steuerprogramm" }, { hung: true, title: "Steuerprogramm" }]) {
     let reads = 0;
     const { worker, calls } = scriptedWorker({ instances: () => ++reads === 1 ? noInstance : instance(instanceState) });
     const result = await createApiExecutor(config, worker)("case_create", { targetRef: TARGET, mode: "einurvor" }, 240_000);
@@ -349,6 +350,8 @@ try {
     assert.equal(result.processStillRunning, true);
     assert.equal(result.pid, PID);
     assert.equal(result.failedStep, "instances");
+    assert.equal(calls.filter(entry => entry.operation === "ui_state").length, 0);
+    assert.equal(closes(calls).length, 0);
     assert.deepEqual(operationsOf(calls), ["instances", "desktop_status", "launch", "launch_probe", "instances"]);
   }
   {
@@ -474,6 +477,84 @@ try {
     assert.equal(result.ok, true, JSON.stringify(result));
     assert.equal(calls.filter((entry) => entry.operation === "ui_state").length, 3);
     resetTarget();
+  }
+
+  {
+    // The generic startup frame can exceed the main-window width threshold
+    // before the product replaces it. Never bind UIA to that transient HWND.
+    let inventories = 0, clock = 0;
+    const { worker, calls } = scriptedWorker({
+      instances: args => {
+        inventories++;
+        if (inventories === 1) return noInstance;
+        if (inventories < 4) return instance({ hwnd: HWND - 1, title: "Steuerprogramm", w: 1200, h: 800 });
+        if (args.includeHash === true) {
+          writeFileSync(targetPath, "neu");
+          return instance({ caseName: "neu.GewErfass2026", caseSha256: HASH, casePath: targetPath });
+        }
+        return instance();
+      },
+      ui_state: args => {
+        assert.equal(args.hwnd, HWND, "The generic startup frame must never reach UIA.");
+        return { ok: true, heading: START_PAGE, blockiert: false, instance: { pid: PID, hwnd: HWND } };
+      },
+    });
+    const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 240_000, undefined, {
+      execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
+      profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
+      now: () => clock, wait: async ms => { clock += ms; },
+    });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(clock, 3_000);
+    assert.equal(result.hwnd, HWND);
+    assert.deepEqual(operationsOf(calls).slice(0, 7),
+      ["instances", "desktop_status", "launch", "instances", "instances", "instances", "ui_state"]);
+    assert.equal(calls.filter(entry => entry.operation === "launch").length, 1);
+    assert.deepEqual(calls.filter(entry => entry.operation === "ui_state").map(entry => entry.args.hwnd), [HWND]);
+    assert.equal(closes(calls).length, 0);
+    resetTarget();
+  }
+  {
+    let inventories = 0, clock = 0;
+    const { worker, calls } = scriptedWorker({
+      instances: () => ++inventories === 1 ? noInstance : instance({ title: "Steuerprogramm", w: 1500 }),
+    });
+    const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 90_000, undefined, {
+      execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
+      profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
+      now: () => clock, wait: async ms => { clock += ms; },
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.kind, "startup-not-ready");
+    assert.equal(clock, 61_500, "Generic frames consume the original wizard budget.");
+    assert.equal(result.processPreserved, true);
+    assert.equal(result.processStillRunning, true);
+    assert.equal(result.outcomeUnknown, true);
+    assert.equal(calls.filter(entry => entry.operation === "ui_state").length, 0);
+    assert.equal(calls.filter(entry => entry.operation === "click").length, 0);
+    assert.equal(calls.filter(entry => entry.operation === "launch").length, 1);
+    assert.equal(closes(calls).length, 0);
+    assert.equal(calls.filter(entry => entry.operation === "subpages").length, 0);
+  }
+  {
+    let inventories = 0, clock = 0;
+    const { worker, calls } = scriptedWorker({
+      instances: () => {
+        inventories++;
+        return inventories === 2 ? instance({ title: "Steuerprogramm" }) : noInstance;
+      },
+    });
+    const result = await executeCaseCreate({ targetRef: TARGET, mode: "einurvor" }, 90_000, undefined, {
+      execute: worker, worker, resolveTarget: () => ({ path: targetPath, ref: TARGET }),
+      profile: { taxYear: 2025, startModes: { einurvor: "GewErfass" }, additionalCaseYears: { einurvor: [2026] } },
+      now: () => clock, wait: async ms => { clock += ms; },
+    });
+    assert.equal(result.kind, "startup-not-ready");
+    assert.equal(result.processPreserved, true);
+    assert.equal(result.processStillRunning, null, "An absent main window is not proof the process is still alive.");
+    assert.equal(calls.filter(entry => entry.operation === "ui_state").length, 0);
+    assert.equal(calls.filter(entry => entry.operation === "launch").length, 1);
+    assert.equal(closes(calls).length, 0);
   }
 
   {

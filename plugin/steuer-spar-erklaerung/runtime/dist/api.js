@@ -7996,6 +7996,7 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
       });
     }
     let startHeading = "";
+    let waitingForCaseWindow = false;
     for (; ; ) {
       const bound2 = await step("instances", {});
       const instance = asArray(bound2.instances).find((entry2) => Number(entry2.pid) === pid2);
@@ -8017,7 +8018,10 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
       if (uiaRootPinnedHwnd !== void 0 && (!instance || Number(bound2.count) !== 1 || Number(instance.hwnd) !== uiaRootPinnedHwnd)) {
         fail("startup-binding-changed", "Die Startfensterbindung aenderte sich nach dem UIA-Lesefehler; keine Assistentenaktion.");
       }
-      if (instance && Number(bound2.count) === 1 && instance.hung !== true && instance.recoveredState !== true) {
+      const productWindow = instance && String(instance.title ?? "").includes("SteuerSparErklärung");
+      if (instance && !productWindow) waitingForCaseWindow = true;
+      if (instance && Number(bound2.count) === 1 && instance.hung !== true && instance.recoveredState !== true && productWindow) {
+        waitingForCaseWindow = false;
         hwnd = Number(instance.hwnd);
         let state;
         try {
@@ -8068,6 +8072,21 @@ async function executeCaseCreate(args, timeoutMs, signal, dependencies) {
         }
       }
       if (deadline - now() < WIZARD_RESERVE_MS / 2) {
+        if (waitingForCaseWindow) {
+          throw new StepFailure({
+            ok: false,
+            kind: "startup-not-ready",
+            failedStep: "instances",
+            pid: pid2,
+            ready: false,
+            error: "Nach dem generischen Startfenster wurde kein lesbar gebundenes Fallfenster bestaetigt; Prozess und moegliche Rueckfragen frisch pruefen.",
+            processPreserved: true,
+            processStillRunning: instance ? true : null,
+            outcomeUnknown: true,
+            reconciliationRequired: true,
+            retryable: false
+          });
+        }
         fail("wizard-page", "Die Startseite des Assistenten erschien nicht rechtzeitig nach dem Programmstart.");
       }
       if (signal?.aborted) fail("aborted", "API-Client hat die Fallanlage abgebrochen.");
