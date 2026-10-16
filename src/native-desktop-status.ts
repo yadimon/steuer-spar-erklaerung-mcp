@@ -30,7 +30,8 @@ const statusSchema = z.object({
     productName: z.string().max(4096), creationTime: z.string().regex(/^[1-9][0-9]{0,19}$/u)
       .refine(value => BigInt(value) <= 0xffffffffffffffffn),
   }).strict().nullable(),
-  windows: z.array(windowSchema).max(256), loaderBuildIdentity: z.string(), loaderMs: z.number().finite().nonnegative(),
+  windows: z.array(windowSchema).max(256), additionalInstances: z.array(windowSchema).max(256),
+  loaderBuildIdentity: z.string(), loaderMs: z.number().finite().nonnegative(),
 }).strict();
 const failure = (message: string, kind = "native-contract") => new QtNativeTransportError(message, kind);
 
@@ -38,7 +39,10 @@ export function parseNativeDesktopStatus(value: unknown, marker: DesktopMarker, 
   const status = statusSchema.parse(value), profile = options.profile;
   if (status.loaderBuildIdentity !== options.package.manifest.buildIdentity || status.desktop !== marker.name
     || status.pid !== (marker.pid ?? 0) || status.windows.some(window => window.pid !== marker.pid)
-    || (!status.reachable && status.windows.length)) throw failure("Native status returned a different ownership binding.", "native-binding");
+    || status.additionalInstances.some(window => !window.pid || window.pid === marker.pid)
+    || status.windows.length + status.additionalInstances.length > 256
+    || (!status.reachable && (status.windows.length || status.additionalInstances.length)))
+    throw failure("Native status returned a different ownership binding.", "native-binding");
   let identity: Record<string, unknown> | null = null;
   if (status.process) {
     const process = status.process, name = win32.basename(process.image), folder = win32.basename(win32.dirname(process.image));
@@ -63,10 +67,10 @@ export function parseNativeDesktopStatus(value: unknown, marker: DesktopMarker, 
   const active = Boolean(marker.pid && running && status.reachable && windows.length);
   return { ok: true, backend: "win32", aktiv: active, desktop: marker.name, pid: marker.pid ?? 0,
     sseLaeuft: running, processIdentity: identity, desktopErreichbar: status.reachable, markeVeraltet: !active,
-    fenster: windows, nativeMs: status.loaderMs,
+    fenster: windows, weitereInstanzen: status.additionalInstances, nativeMs: status.loaderMs,
     note: marker.owner === "center-test"
       ? "Status hat einen Center-Testmarker nur diagnostiziert; keine SSE-Instanz wurde uebernommen oder veraendert."
-      : `Status hat den markierten Desktop '${marker.name}' explizit geoeffnet und nur PID ${marker.pid ?? 0} geprueft.` };
+      : `Status hat den markierten Desktop '${marker.name}' explizit geoeffnet und seine Fenster diagnostiziert.` };
 }
 
 async function readNativeStatus(marker: DesktopMarker, options: NativeDesktopStatusOptions): Promise<WorkerResult> {
@@ -104,7 +108,7 @@ export async function executeNativeDesktopStatus(options: NativeDesktopStatusOpt
     if (remaining < 1) throw failure("Native status deadline exceeded before launch.", "native-timeout");
     const result = marker ? await readNativeStatus(marker, { ...options, timeoutMs: remaining }) : {
       ok: true, backend: "win32", aktiv: false, desktop: null, pid: 0, sseLaeuft: false, processIdentity: null,
-      desktopErreichbar: false, markeVeraltet: false, fenster: [], note: "Keine gueltige Desktopmarke geladen.",
+      desktopErreichbar: false, markeVeraltet: false, fenster: [], weitereInstanzen: [], note: "Keine gueltige Desktopmarke geladen.",
     };
     if (options.signal?.aborted) throw failure("Native status cancelled.", "aborted");
     if (JSON.stringify(readMarker()) !== JSON.stringify(marker)) throw failure("Desktop ownership changed during native status.", "native-binding");

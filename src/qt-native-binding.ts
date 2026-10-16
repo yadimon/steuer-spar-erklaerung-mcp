@@ -6,6 +6,7 @@ export interface QtNativeBinding {
   pid: number;
   hwnd: number;
   creationTime: string;
+  desktop?: string;
 }
 
 export interface QtNativeReply {

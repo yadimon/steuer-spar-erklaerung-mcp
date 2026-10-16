@@ -31,6 +31,8 @@ export async function verifyNativeDesktopStartContract() {
     const aborted = await executeNativeDesktopStart({ ...options, signal: cancelled.signal });
     assert.equal(aborted.kind, "aborted"); assert.equal(aborted.outcomeUnknown, false);
     assert.equal((await executeNativeDesktopStart({ ...options, timeoutMs: 6000 })).kind, "native-deadline");
+    assert.equal((await executeNativeDesktopStart({ ...options, timeoutMs: 180000 })).kind, "native-deadline",
+      "The external helper's own ceiling remains unchanged; the runtime must cap larger API deadlines");
     const prepared = prepareNativeDesktopStart(options);
     const window = { pid: 99, hwnd: 42, x: 0, y: 0, w: 1200, h: 800, cls: "Synthetic", title: "SteuerSparErklärung", hung: false, minimiert: false };
     const result = { ok: true, desktop: "SSEAuto", pid: 99, startPid: 99, wartesekunden: 0.1, kommandozeile: "synthetic",

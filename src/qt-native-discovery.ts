@@ -31,7 +31,8 @@ export function parseQtNativeDiscovery(value: unknown, options: QtNativeDiscover
     || found.image.toLowerCase() !== options.expectedImage.toLowerCase()
     || found.desktop !== options.marker?.name
     || (options.hwnd !== undefined && found.hwnd !== options.hwnd)
-    || (options.marker?.pid !== undefined && options.marker?.pid !== null && found.pid !== options.marker.pid)) {
+    || (options.hwnd === undefined && options.marker?.pid !== undefined && options.marker?.pid !== null
+      && found.pid !== options.marker.pid)) {
     throw failure("native-binding", "Native discovery did not verify the requested image, desktop, process and window.");
   }
   const expected = options.package.manifest.profile;
@@ -59,7 +60,9 @@ export async function discoverQtNativeTarget(options: QtNativeDiscoveryOptions):
   }
   const request = { mode: "discover", expectedImage: options.expectedImage, expectedProfile: options.package.manifest.profile,
     ...(options.hwnd !== undefined ? { hwnd: options.hwnd } : {}),
-    ...(marker ? { desktop: marker.name, ...(marker.pid !== null ? { pid: marker.pid } : {}) } : {}) };
+    // The marker selects the desktop. An explicit HWND selects its verified
+    // process there; an unbound request remains constrained to the marker PID.
+    ...(marker ? { desktop: marker.name, ...(options.hwnd === undefined && marker.pid !== null ? { pid: marker.pid } : {}) } : {}) };
   const body = Buffer.from(JSON.stringify(request));
   if (body.length > 65536) throw failure("native-request-size", "Native discovery request exceeds its bound.");
   return new Promise<QtNativeTarget>((resolveTarget, reject) => {

@@ -61,14 +61,18 @@ diesen Stand von funktionaler Live-Abdeckung und noch erforderlicher Integration
 `sse-native.dll` bezeichnet dagegen die bestehende C#-Worker-Hilfsbibliothek;
 die hier beschriebene C++-Brücke verwendet `sse-qt-read.dll` in SSE.
 
-`desktop_status` liefert `backend: "win32"`. Der gebundene Loader liest Prozessversion
-und sichtbare Fenster ausschließlich für die markierte PID auf dem ausdrücklich
-geöffneten Desktop. Er injiziert keine DLL, benötigt keinen UIA-Worker und verwendet
+`desktop_status` liefert `backend: "win32"`. Der gebundene Loader liest die
+Prozessversion der markierten PID und inventarisiert die sichtbaren Fenster
+des ausdrücklich geöffneten Desktops. Er injiziert keine DLL, benötigt keinen UIA-Worker und verwendet
 keinen Desktopwechsel. Der Marker wird vor und nach der Abfrage gelesen; geändertes
 Eigentum, nicht lesbare Identität, Controller-Konflikte und ungültige Ergebnisse
 scheitern ausdrücklich. Ohne Marker wird der inaktive Zustand direkt in Node
 ermittelt. Alte Marker und Center-Testmarker bleiben diagnostizierbar. Der Status
 belegt keinen gespeicherten Fall und ersetzt keine vollständige Startbereitschaft.
+
+Zusätzliche sichtbare Fenster anderer Prozesse stehen in `weitereInstanzen`
+mit PID und HWND. Die Liste bleibt auch nach dem Ende des Marker-Owners
+diagnostizierbar; sie überträgt keine Eigentumsrechte auf diese Prozesse.
 
 `desktop_start` verwendet ebenfalls `backend: "win32"`: Ressourcenreferenzen,
 Programmpfad, Produkt-Pin, Startmodus und Falljahr werden vor dem Prozessstart geprüft.
@@ -106,6 +110,24 @@ Entscheidung. Nur `discardChanges: true` erlaubt einen eindeutigen aktiven Butto
 gehaltenen Prozesses. Vorhandene unbekannte Fenster müssen separat behandelt werden.
 Dialoge mit Übermittlungsbezug, unvollständige Bäume, fehlende Invoke-Muster und
 veränderte Inhalte scheitern ausdrücklich; es gibt keinen Maus- oder Worker-Fallback.
+
+`desktop_stop` verweigert das Schließen mit `desktop-other-instances`, solange
+weitere sichtbare Fenster zu einem anderen Prozess gehören. Diese Instanzen
+zuerst explizit mit PID/HWND schließen. Fenster anderer Programme müssen
+regulär geschlossen werden. Der Marker bleibt bis dahin erhalten; die
+Peer-Prüfung erfolgt erneut unmittelbar vor der Markerbereinigung.
+Erscheint ein Peer erst nach der Schließaktion, kann der Owner schon beendet
+sein. Die Fehlerantwort erhält diesen bekannten Ausgang und die ausgeführten
+Schließaktionen. Dann mit `desktop_status` die verbleibenden Fenster prüfen,
+diese gezielt schließen und erst auf dem leeren Desktop die Stale-Marker-
+Bereinigung eines folgenden `desktop_start` verwenden. Ein erneuter Stop
+einer bereits beendeten Owner-PID ist kein zusätzlicher Schließversuch.
+
+Die an native Start- und Stop-Helfer übergebenen Budgets sind auf höchstens
+120 Sekunden begrenzt. Größere gültige API-Fristen erweitern diese Helfergrenze
+nicht; kürzere Aufruferfristen bleiben kürzer. Der vorherige Session-Abbau
+verbraucht dieses Restbudget. Ein noch wartender Session-Abbau kann die
+Antwortzeit verlängern.
 
 COM-Verbindungs- und Transaktionsaufrufe sowie Baumgröße, Tiefe und Gesamtdauer sind
 begrenzt. API und Helfer verwenden einen gemeinsamen absoluten Deadline-Wert;
@@ -447,9 +469,16 @@ Beim ersten nativen Leseaufruf liest Node den bestehenden Desktop-Marker mit
 demselben strengen Parser wie der Worker. Ein beschädigter oder fremder Marker
 führt zum Abbruch. Ein eigener, rein lesender Win32-Helfer findet auf dieser
 Arbeitsfläche das Hauptfenster der konfigurierten Installation und bestätigt
-Produkt-, Prozess-, HWND- und Erstellungszeit-Identität. Ein markierter Prozess
-muss zur Auswahl passen. Ohne explizites `hwnd` muss die Auswahl eindeutig sein;
-ein Markerwechsel während der Erkennung verhindert die Anbindung.
+Produkt-, Prozess-, HWND- und Erstellungszeit-Identität. Ein explizites `hwnd`
+kann ein weiteres verifiziertes SSE-Hauptfenster auf demselben markierten
+Desktop auswählen. Ohne `hwnd` bleibt die Marker-PID maßgeblich und die
+Auswahl muss eindeutig sein. Vor jeder Cache-Nutzung werden Desktop und
+gegebenenfalls Marker-PID frisch abgeglichen. Eine ausdrücklich gebundene
+zweite Instanz erhält dadurch keine implizite Autorität, wenn der Owner
+beendet ist oder vorübergehend kein erkennbares Hauptfenster hat.
+Ein Markerwechsel während der Erkennung verhindert die Anbindung; ein
+explizites Ziel auf einem anderen Desktop oder mit falscher Produktidentität
+wird abgewiesen.
 
 Diese Erkennung startet keine PowerShell und lädt noch keine DLL in das Ziel.
 Danach startet die API den dauerhaften Helfer mit der bereits geprüften

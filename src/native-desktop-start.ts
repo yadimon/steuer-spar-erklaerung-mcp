@@ -10,6 +10,8 @@ import type { ProductProfile } from "./product-profiles.js";
 import type { QtNativePackage } from "./qt-native-package.js";
 import { QtNativeTransportError } from "./qt-native-client.js";
 
+export const MAX_NATIVE_DESKTOP_START_TIMEOUT_MS = 120_000;
+
 export interface NativeDesktopStartOptions {
   package: QtNativePackage;
   profile: ProductProfile;
@@ -104,7 +106,7 @@ export async function executeNativeDesktopStart(options: NativeDesktopStartOptio
   const started = performance.now();
   try {
     if (options.signal?.aborted) throw failure("aborted", "Desktop start cancelled before launch.");
-    if (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 6500 || options.timeoutMs > 120000)
+    if (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 6500 || options.timeoutMs > MAX_NATIVE_DESKTOP_START_TIMEOUT_MS)
       throw failure("native-deadline", "Native desktop start requires a bounded deadline including verified cleanup.");
     const prepared = prepareNativeDesktopStart(options), markerPath = desktopMarkerPath();
     const marker = readDesktopMarker(markerPath);

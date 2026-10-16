@@ -7,6 +7,8 @@ import { DesktopMarkerError, desktopMarkerPath, readDesktopMarker, type DesktopM
 import { QtNativeTransportError } from "./qt-native-client.js";
 import type { QtNativePackage } from "./qt-native-package.js";
 
+export const MAX_NATIVE_DESKTOP_STOP_TIMEOUT_MS = 120_000;
+
 export interface NativeDesktopStopOptions {
   package: QtNativePackage;
   executable: string;
@@ -23,6 +25,8 @@ const resultSchema = z.object({
   hauptfensterVorher: z.number().int().min(0).max(256),
   hilfsfenster: z.array(z.object({ hwnd: z.number().int().positive().safe(), title: z.string().max(512),
     closedBeforeMain: z.boolean(), closed: z.boolean() }).strict()).max(256),
+  weitereInstanzen: z.array(z.object({ hwnd: z.number().int().positive().safe(),
+    pid: z.number().int().positive().max(0xffffffff), title: z.string().max(512) }).strict()).max(256),
   loaderBuildIdentity: z.string(), loaderMs: z.number().finite().nonnegative(),
   discardChanges: z.boolean().optional(), desktop: z.string().optional(), pid: z.number().int().positive().max(0xffffffff).optional(),
   ungespeichert: z.boolean().nullable().optional(), closeSubmitted: z.literal(true).optional(),
@@ -34,6 +38,9 @@ export function parseNativeDesktopStop(value: unknown, marker: DesktopMarker, op
   if (result.loaderBuildIdentity !== options.package.manifest.buildIdentity
     || (result.desktop !== undefined && result.desktop !== marker.name) || (result.pid !== undefined && result.pid !== marker.pid)
     || result.discardChanges !== (options.args.discardChanges === true)
+    || result.weitereInstanzen.some(window => window.pid === marker.pid)
+    || (result.weitereInstanzen.length > 0 && (result.ok || !result.markerBeibehalten || result.desktopMarkeEntfernt
+      || result.kind !== "desktop-other-instances"))
     || (result.ok && (!result.processExited || !result.desktopMarkeEntfernt || result.markerBeibehalten || result.outcomeUnknown
       || !result.mutationAttempted || result.pid !== marker.pid || result.desktop !== marker.name))
     || (result.hartBeendet && (options.args.discardChanges !== true || !result.mutationAttempted))
@@ -55,7 +62,7 @@ export async function executeNativeDesktopStop(options: NativeDesktopStopOptions
     if (options.signal?.aborted) throw failure("aborted", "Desktop stop cancelled before submission.");
     if (options.args.save === true && options.args.discardChanges === true) throw failure("bad-args", "Save and discard cannot both be requested.");
     if (options.args.save === true) throw failure("confirmation-required", "Use hash-bound save before stopping; desktop stop never saves a case.");
-    if (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 12000 || options.timeoutMs > 120000)
+    if (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 12000 || options.timeoutMs > MAX_NATIVE_DESKTOP_STOP_TIMEOUT_MS)
       throw failure("native-deadline", "Native desktop stop needs a bounded deadline including provider checks and verified exit.");
     const markerPath = desktopMarkerPath(), marker = readDesktopMarker(markerPath);
     if (!marker?.pid || marker.owner !== "sse") throw failure("ownership", "A valid owned SSE desktop marker with PID is required.");

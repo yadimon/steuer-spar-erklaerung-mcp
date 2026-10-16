@@ -79,6 +79,9 @@ $script:RunningIdentities = @(
   [pscustomobject]@{ supported=$true; path='D:\two\SSE.exe' }
 )
 $ambiguous = $null
+$selectionRequired = Resolve-SSEBuildIdentityForOperation 'tracked_set_value' $null
+Assert-True ($selectionRequired.reason -ceq 'instance-selection-required' -and $null -eq $selectionRequired.identity) `
+  'Mehrere Instanzen verloren ihren strukturierten Auswahlgrund oder erhielten eine Standardidentitaet.'
 try { Assert-SSEVerifiedBuildForOperation 'tracked_set_value' }
 catch { $ambiguous = $_.Exception.Message }
 Assert-True ($ambiguous -like 'build-identity-unverified|*') 'Mehrere laufende SSE-Instanzen duerfen ohne Bindung nicht den Default-Build verwenden.'

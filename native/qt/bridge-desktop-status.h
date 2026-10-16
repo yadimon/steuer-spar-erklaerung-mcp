@@ -39,24 +39,32 @@ static Json statusVersion(const std::wstring &path, bool withCompany = false) {
     if (withCompany) result["companyName"] = stringValue(L"CompanyName");
     return result;
 }
-struct StatusWindows { DWORD pid; Json windows = Json::array(); std::string failure; };
+struct StatusWindows { DWORD pid; Json windows = Json::array(); std::string failure; Json peers = Json::array(); };
 static BOOL CALLBACK collectStatusWindow(HWND window, LPARAM raw) {
     auto &status = *reinterpret_cast<StatusWindows*>(raw);
     try {
         DWORD pid = 0; GetWindowThreadProcessId(window, &pid);
-        if (pid != status.pid || !IsWindowVisible(window)) return TRUE;
-        if (status.windows.size() >= 256) throw std::runtime_error("Desktop window inventory exceeds its bound");
+        if (!IsWindowVisible(window) || pid == GetCurrentProcessId()) return TRUE;
+        if (status.windows.size() + status.peers.size() >= 256) throw std::runtime_error("Desktop window inventory exceeds its bound");
         wchar_t title[512]{}, name[256]{}; RECT rect{};
         GetWindowTextW(window, title, 512);
         if (!GetClassNameW(window, name, 256)) throw std::runtime_error("Window class unavailable: " + std::to_string(GetLastError()));
         if (!GetWindowRect(window, &rect)) throw std::runtime_error("Window rectangle unavailable: " + std::to_string(GetLastError()));
-        status.windows.push_back({{"hwnd", reinterpret_cast<std::uint64_t>(window)}, {"pid", pid},
+        auto &target = pid == status.pid ? status.windows : status.peers;
+        target.push_back({{"hwnd", reinterpret_cast<std::uint64_t>(window)}, {"pid", pid},
             {"x", rect.left}, {"y", rect.top}, {"w", rect.right - rect.left}, {"h", rect.bottom - rect.top},
             {"cls", narrow(name)}, {"title", narrow(title)}, {"hung", IsHungAppWindow(window) != FALSE},
             {"minimiert", IsIconic(window) != FALSE}});
         return TRUE;
     } catch (const std::exception &error) { status.failure = error.what(); return FALSE; }
     catch (...) { status.failure = "Unknown window enumeration failure"; return FALSE; }
+}
+static Json desktopPeerWindows(HDESK desktop, DWORD pid) {
+    StatusWindows status{pid}; SetLastError(0);
+    if (!EnumDesktopWindows(desktop, collectStatusWindow, reinterpret_cast<LPARAM>(&status)) && GetLastError() != 0)
+        throw DiscoveryError("state-unknown", "Desktop peer inventory failed");
+    if (!status.failure.empty()) throw DiscoveryError("state-unknown", status.failure.c_str());
+    return status.peers;
 }
 static Json desktopStatus(const Json &request) {
     StatusControllerLease lease;
@@ -68,7 +76,7 @@ static Json desktopStatus(const Json &request) {
     if (rawPid > MAXDWORD) throw DiscoveryError("desktop-marker-invalid", "Invalid diagnostic process ID");
     const auto pid = static_cast<DWORD>(rawPid);
     Json result = {{"ok", true}, {"desktop", desktopName}, {"pid", pid}, {"process", nullptr},
-        {"reachable", false}, {"windows", Json::array()}, {"loaderBuildIdentity", SSE_BRIDGE_BUILD_PREFIX SSE_BRIDGE_SOURCE_DIGEST}};
+        {"reachable", false}, {"windows", Json::array()}, {"additionalInstances", Json::array()}, {"loaderBuildIdentity", SSE_BRIDGE_BUILD_PREFIX SSE_BRIDGE_SOURCE_DIGEST}};
     // Keep the process handle open through enumeration to detect termination/PID reuse.
     HANDLE processRaw = pid ? OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, pid) : nullptr;
     if (pid && !processRaw && GetLastError() != ERROR_INVALID_PARAMETER)
@@ -106,6 +114,7 @@ static Json desktopStatus(const Json &request) {
                 > b.at("w").get<std::int64_t>() * b.at("h").get<std::int64_t>();
         });
         result["windows"] = status.windows;
+        result["additionalInstances"] = status.peers;
     } else if (GetLastError() != ERROR_FILE_NOT_FOUND && GetLastError() != ERROR_INVALID_HANDLE) {
         throw DiscoveryError("native-binding", "Marked desktop is not readable");
     }

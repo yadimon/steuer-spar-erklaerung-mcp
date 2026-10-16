@@ -94,6 +94,7 @@ $null = $cmd.Append(' -Op "' + $Op + '"')
 if ($B64) { $null = $cmd.Append(' -B64 "' + $B64 + '"') }
 if ($ArgsFile) { $null = $cmd.Append(' -ArgsFile "' + $ArgsFile + '"') }
 $null = $cmd.Append(' -OutFile "' + $aus + '"')
+if ($Op -ieq 'launch') { $null = $cmd.Append(' -PersistentGuiChild') }
 
 $si = New-Object DSK+SI
 $si.cb = [Runtime.InteropServices.Marshal]::SizeOf([type][DSK+SI])
@@ -109,6 +110,9 @@ if ($job -eq [IntPtr]::Zero) {
 }
 $jobBasic = New-Object DSK+JOBOBJECT_BASIC_LIMIT_INFORMATION
 $jobBasic.LimitFlags = 0x00002000 # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+# Only the validated GUI launch explicitly leaves this job. Ordinary child
+# helpers still inherit containment; silent breakaway is never enabled.
+if ($Op -ieq 'launch') { $jobBasic.LimitFlags = $jobBasic.LimitFlags -bor 0x00000800 } # BREAKAWAY_OK
 $jobInfo = New-Object DSK+JOBOBJECT_EXTENDED_LIMIT_INFORMATION
 $jobInfo.BasicLimitInformation = $jobBasic
 $jobInfoSize = [Runtime.InteropServices.Marshal]::SizeOf([type][DSK+JOBOBJECT_EXTENDED_LIMIT_INFORMATION])

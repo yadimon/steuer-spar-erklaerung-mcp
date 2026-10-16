@@ -23,6 +23,7 @@ import {
 
 const expectedNames = [
   "uia-root-read",
+  "desktop-persistent-launch",
   "checker-start-contract",
   "performance-harness",
   "execution-telemetry", "execution-telemetry-integration", "execution-trace-log", "api-mega-execution-traces",

@@ -77,20 +77,17 @@ let secondHwnd = null;
 let firstIdentity = null;
 let secondIdentity = null;
 const retainedTargets = [];
+const cleanupErrors = [];
 
 const callRaw = (name, args = {}, timeout = 180_000) => client.callTool(
   { name, arguments: args }, undefined, { timeout, maxTotalTimeout: timeout },
 );
 const call = async (name, args = {}, timeout = 180_000) => parsed(await callRaw(name, args, timeout), name);
 const expectAmbiguous = async (name, args) => {
-  let lastResult = null;
-  for (let attempt = 0; attempt < 10; attempt++) {
-    lastResult = await callRaw(name, args);
-    const message = fullText(lastResult);
-    if (lastResult?.isError === true && /Mehrere SSE-2025-Hauptfenster|Mehrere SSE-Instanzen/i.test(message)) return;
-    if (!/Kein SSE-2025-Hauptfenster gefunden/i.test(message)) break;
-    await wait(500);
-  }
+  const lastResult = await callRaw(name, args);
+  const result = parsed(lastResult, name, true);
+  if (lastResult?.isError === true && (result?.kind === "ambiguous"
+    || (result?.kind === "build-identity-unverified" && result?.reason === "instance-selection-required"))) return;
   const diagnosticWindows = await call("sse_windows");
   const marker = existsSync(markerPath) ? readFileSync(markerPath, "utf8").trim() : "<missing>";
   assert(false, `${name} war ohne hwnd nicht eindeutig fail-closed: ${fullText(lastResult)}; ` +
@@ -114,8 +111,12 @@ try {
   });
   assert(singleSave.ok === true && singleSave.noChanges === true && singleSave.path === firstRef,
     `sse_save band die einzelne Instanz ohne hwnd nicht sicher: ${JSON.stringify(singleSave)}`);
-  const second = await call("sse_launch", { caseRef: secondRef, mode: "einur" }, 120_000);
-  secondPid = second.pid;
+  const secondRaw = await callRaw("sse_launch", { caseRef: secondRef, mode: "einur" }, 120_000);
+  const second = parsed(secondRaw, "sse_launch", true);
+  secondPid = second?.pid;
+  secondHwnd = second?.instance?.hwnd ?? null;
+  assert(secondRaw?.isError !== true && secondRaw?.structuredContent?.ok === true && second?.ready === true,
+    `Second launch failed: ${fullText(secondRaw)}`);
   assert(Number.isInteger(firstPid) && Number.isInteger(secondPid) && firstPid !== secondPid,
     `Zwei getrennte SSE-Prozesse wurden nicht gestartet: ${firstPid}/${secondPid}`);
 
@@ -129,6 +130,17 @@ try {
   assert(Number.isInteger(firstMain?.hwnd), `Erstes Hauptfenster fehlt: ${JSON.stringify(windows.windows)}`);
   assert(Number.isInteger(secondMain?.hwnd), `Zweites Hauptfenster fehlt: ${JSON.stringify(windows.windows)}`);
   secondHwnd = secondMain.hwnd;
+
+  const markerBeforeStop = readFileSync(markerPath, "utf8");
+  const peerStatus = await call("sse_desktop_status");
+  assert(peerStatus.weitereInstanzen.some(window => window.pid === secondPid && window.hwnd === secondHwnd),
+    `Status omitted the additional desktop instance: ${JSON.stringify(peerStatus)}`);
+  const guardedStop = parsed(await callRaw("sse_desktop_stop", { discardChanges: true }), "peer-stop", true);
+  assert(guardedStop?.kind === "desktop-other-instances" && guardedStop.markerBeibehalten === true
+    && guardedStop.weitereInstanzen.some(window => window.pid === secondPid && window.hwnd === secondHwnd),
+    `Stop did not preserve the additional instance: ${JSON.stringify(guardedStop)}`);
+  assert(readFileSync(markerPath, "utf8") === markerBeforeStop && ssePids().split(",").includes(String(firstPid))
+    && ssePids().split(",").includes(String(secondPid)), "Peer refusal changed ownership or stopped a process.");
 
   await expectAmbiguous("sse_save", {
     caseRef: secondRef,
@@ -188,10 +200,12 @@ try {
 } finally {
   try {
     if (secondPid && secondHwnd) {
-      try { await callRaw("sse_close", { pid: secondPid, hwnd: secondHwnd, force: true, discardChanges: true }, 90_000); } catch { }
+      try { await call("sse_close", { pid: secondPid, hwnd: secondHwnd, force: true, discardChanges: true }, 90_000); }
+      catch (error) { cleanupErrors.push(`second-close: ${error.message}`); }
     }
     if (firstPid || existsSync(markerPath)) {
-      try { await callRaw("sse_desktop_stop", { discardChanges: true }, 120_000); } catch { }
+      try { await call("sse_desktop_stop", { discardChanges: true }, 120_000); }
+      catch (error) { cleanupErrors.push(`desktop-stop: ${error.message}`); }
     }
   } finally {
     try { await client.close(); } catch { }
@@ -217,8 +231,10 @@ try {
       if (existsSync(target)) await wait(250);
     }
   }
+  for (const error of cleanupErrors) process.stderr.write(`Cleanup failed: ${error}\n`);
 }
 
+assert(!cleanupErrors.length, `Mehrinstanz-Cleanup scheiterte: ${cleanupErrors.join("; ")}`);
 assert(!retainedTargets.length,
   `Mehrinstanz-Ziel war nicht mehr eindeutig test-eigen und wurde bewusst nicht geloescht: ${retainedTargets.join(", ")}`);
 assert(!existsSync(firstPath) && !existsSync(secondPath), "Eigene Mehrinstanz-Wegwerfkopie blieb gesperrt.");

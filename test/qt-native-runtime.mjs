@@ -62,12 +62,16 @@ try {
   const nativePackage = loadQtNativePackage(nativeConfig, profile);
   const statusMarker = { schemaVersion: 1, owner: "sse", name: "Owned", pid: 99 };
   const statusOptions = { package: nativePackage, profile, timeoutMs: 1000 };
-  const rawStatus = { ok: true, desktop: "Owned", pid: 99, reachable: true, loaderBuildIdentity: manifest.buildIdentity, loaderMs: 1,
+  const rawStatus = { ok: true, desktop: "Owned", pid: 99, reachable: true, additionalInstances: [], loaderBuildIdentity: manifest.buildIdentity, loaderMs: 1,
     process: { image: "C:\\Product\\Steuerjahr 2025\\SSE.exe", creationTime: "1", fileMajor: 31, fileVersion: "31.0.2.0", productName: "SSE" },
     windows: [{ hwnd: 42, pid: 99, x: 0, y: 0, w: 1200, h: 800, cls: "Qt692QWindowIcon", title: "Synthetic", hung: false, minimiert: false }] };
   const activeStatus = parseNativeDesktopStatus(rawStatus, statusMarker, statusOptions);
   assert.equal(activeStatus.aktiv, true); assert.equal(activeStatus.sseLaeuft, true); assert.equal(activeStatus.markeVeraltet, false);
   assert.equal(activeStatus.processIdentity.taxYear, 2025); assert.equal(activeStatus.fenster[0].titleFingerprint, digest("Synthetic").toUpperCase());
+  const peer = { ...rawStatus.windows[0], hwnd: 43, pid: 100, title: "Second" };
+  assert.deepEqual(parseNativeDesktopStatus({ ...rawStatus, additionalInstances: [peer] }, statusMarker, statusOptions).weitereInstanzen, [peer]);
+  for (const additionalInstances of [[rawStatus.windows[0]], [{ ...peer, pid: 0 }], Array(256).fill(peer)])
+    assert.throws(() => parseNativeDesktopStatus({ ...rawStatus, additionalInstances }, statusMarker, statusOptions));
   for (const patch of [{ fileMajor: 30 }, { image: "C:\\Product\\Steuerjahr 2024\\SSE.exe" }, { image: "C:\\Product\\Steuerjahr 2025\\Other.exe" }]) {
     const status = parseNativeDesktopStatus({ ...rawStatus, process: { ...rawStatus.process, ...patch } }, statusMarker, statusOptions);
     assert.equal(status.aktiv, false); assert.equal(status.markeVeraltet, true); assert.deepEqual(status.fenster, []);
@@ -151,6 +155,56 @@ try {
   assert.deepEqual(measured.consumeCompleted()[0].spans.map(span => span.phase), ["api"],
     "Warm bound reads must not be reported as a new discovery or bind");
   await measuredHarness.runtime.close();
+
+  const longStart = harness();
+  assert.equal((await longStart.runtime.desktopStart({ name: "Default\\Other" }, 180_000)).kind, "bad-args",
+    "A valid MCP deadline must reach argument validation within the native helper's shorter ceiling");
+  await longStart.runtime.close();
+  const previousTemp = process.env.TEMP;
+  const emptyDesktopTemp = mkdtempSync(join(temporary, "desktop-stop-"));
+  try {
+    process.env.TEMP = emptyDesktopTemp;
+    const longStop = harness();
+    assert.equal((await longStop.runtime.desktopStop({}, 180_000)).kind, "ownership",
+      "A larger direct API ceiling must reach marker validation after capping the native helper deadline.");
+    assert.equal((await longStop.runtime.desktopStop({}, 11_999)).kind, "native-deadline",
+      "Capping must not extend a caller budget below the helper minimum.");
+    const stopped = new AbortController(); stopped.abort();
+    assert.equal((await longStop.runtime.desktopStop({}, 180_000, stopped.signal)).kind, "aborted");
+    await longStop.runtime.close();
+  } finally {
+    if (previousTemp === undefined) delete process.env.TEMP;
+    else process.env.TEMP = previousTemp;
+  }
+  const markerOwner = { schemaVersion: 1, owner: "sse", name: "Owned", pid: 99 };
+  const selectedSibling = harness(); selectedSibling.state.marker = markerOwner;
+  selectedSibling.state.target = { pid: 100, hwnd: 43, creationTime: "2" };
+  assert.equal((await selectedSibling.runtime.client({ hwnd: 43 }, 1000)).binding.pid, 100);
+  await assert.rejects(selectedSibling.runtime.client({}, 1000), kind("native-binding"),
+    "A sole remaining cached sibling cannot acquire the marker owner's implicit authority.");
+  assert.equal(selectedSibling.starts.length, 1, "A rejected implicit selection must not create a broker.");
+  await selectedSibling.runtime.close();
+
+  const reachableOwner = harness(); reachableOwner.state.marker = markerOwner;
+  reachableOwner.state.target = { pid: 100, hwnd: 43, creationTime: "2" };
+  await reachableOwner.runtime.client({ hwnd: 43 }, 1000);
+  reachableOwner.state.target = { pid: 99, hwnd: 42, creationTime: "1" };
+  assert.equal((await reachableOwner.runtime.client({}, 1000)).binding.pid, 99,
+    "Implicit discovery must still bind the actual marker owner when it remains available.");
+  await reachableOwner.runtime.close();
+
+  const movedMarker = harness(); movedMarker.state.marker = markerOwner;
+  await movedMarker.runtime.client({ hwnd: 42 }, 1000);
+  movedMarker.state.marker = { ...markerOwner, name: "Other" };
+  await assert.rejects(movedMarker.runtime.client({ hwnd: 42 }, 1000), kind("native-binding"),
+    "A retained HWND cannot be reused across a changed desktop marker.");
+  assert.equal(movedMarker.starts.length, 1); await movedMarker.runtime.close();
+
+  const foreignCached = harness(); foreignCached.state.marker = markerOwner;
+  await foreignCached.runtime.client({ hwnd: 42 }, 1000);
+  foreignCached.state.markerError = new DesktopMarkerError("Foreign cached marker", "desktop-marker-owner");
+  await assert.rejects(foreignCached.runtime.client({ hwnd: 42 }, 1000), kind("desktop-marker-owner"));
+  await foreignCached.runtime.close();
 
   const h = harness();
   const first = await h.runtime.client({}, 1000);
@@ -415,6 +469,13 @@ try {
   assert.throws(() => parseQtNativeDiscovery({ ...identity, desktop: "Private" }, {
     ...discoveryOptions, marker: { schemaVersion: 1, owner: "sse", name: "Private", pid: 98 },
   }));
+  const siblingOptions = { ...discoveryOptions, hwnd: 42,
+    marker: { schemaVersion: 1, owner: "sse", name: "Private", pid: 98 } };
+  assert.deepEqual(parseQtNativeDiscovery({ ...identity, desktop: "Private" }, siblingOptions),
+    { pid: 99, hwnd: 42, creationTime: "1", desktop: "Private" },
+    "An explicit HWND may select a verified sibling process on the same marked desktop");
+  for (const patch of [{ hwnd: 43 }, { desktop: "Other" }, { image: "C:\\different.exe" }, { binaryIdentityVerified: false }])
+    assert.throws(() => parseQtNativeDiscovery({ ...identity, desktop: "Private", ...patch }, siblingOptions));
   await assert.rejects(discoverQtNativeTarget({ ...discoveryOptions, signal: stopped.signal }), kind("aborted"));
   await assert.rejects(discoverQtNativeTarget({ ...discoveryOptions, timeoutMs: 0 }), kind("native-deadline"));
   await assert.rejects(discoverQtNativeTarget({ ...discoveryOptions, expectedImage: "relative" }), kind("native-binding"));

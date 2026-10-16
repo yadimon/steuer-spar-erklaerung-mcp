@@ -24590,7 +24590,8 @@ import { win32 as win322 } from "node:path";
 import { performance as performance18 } from "node:perf_hooks";
 function parseNativeDesktopStatus(value, marker, options) {
   const status = statusSchema.parse(value), profile = options.profile;
-  if (status.loaderBuildIdentity !== options.package.manifest.buildIdentity || status.desktop !== marker.name || status.pid !== (marker.pid ?? 0) || status.windows.some((window) => window.pid !== marker.pid) || !status.reachable && status.windows.length) throw failure2("Native status returned a different ownership binding.", "native-binding");
+  if (status.loaderBuildIdentity !== options.package.manifest.buildIdentity || status.desktop !== marker.name || status.pid !== (marker.pid ?? 0) || status.windows.some((window) => window.pid !== marker.pid) || status.additionalInstances.some((window) => !window.pid || window.pid === marker.pid) || status.windows.length + status.additionalInstances.length > 256 || !status.reachable && (status.windows.length || status.additionalInstances.length))
+    throw failure2("Native status returned a different ownership binding.", "native-binding");
   let identity = null;
   if (status.process) {
     const process2 = status.process, name = win322.basename(process2.image), folder = win322.basename(win322.dirname(process2.image));
@@ -24632,8 +24633,9 @@ function parseNativeDesktopStatus(value, marker, options) {
     desktopErreichbar: status.reachable,
     markeVeraltet: !active,
     fenster: windows,
+    weitereInstanzen: status.additionalInstances,
     nativeMs: status.loaderMs,
-    note: marker.owner === "center-test" ? "Status hat einen Center-Testmarker nur diagnostiziert; keine SSE-Instanz wurde uebernommen oder veraendert." : `Status hat den markierten Desktop '${marker.name}' explizit geoeffnet und nur PID ${marker.pid ?? 0} geprueft.`
+    note: marker.owner === "center-test" ? "Status hat einen Center-Testmarker nur diagnostiziert; keine SSE-Instanz wurde uebernommen oder veraendert." : `Status hat den markierten Desktop '${marker.name}' explizit geoeffnet und seine Fenster diagnostiziert.`
   };
 }
 async function readNativeStatus(marker, options) {
@@ -24691,6 +24693,7 @@ async function executeNativeDesktopStatus(options) {
       desktopErreichbar: false,
       markeVeraltet: false,
       fenster: [],
+      weitereInstanzen: [],
       note: "Keine gueltige Desktopmarke geladen."
     };
     if (options.signal?.aborted) throw failure2("Native status cancelled.", "aborted");
@@ -24739,6 +24742,7 @@ var init_native_desktop_status = __esm({
         creationTime: external_exports.string().regex(/^[1-9][0-9]{0,19}$/u).refine((value) => BigInt(value) <= 0xffffffffffffffffn)
       }).strict().nullable(),
       windows: external_exports.array(windowSchema).max(256),
+      additionalInstances: external_exports.array(windowSchema).max(256),
       loaderBuildIdentity: external_exports.string(),
       loaderMs: external_exports.number().finite().nonnegative()
     }).strict();
@@ -24835,7 +24839,7 @@ async function executeNativeDesktopStart(options) {
   const started = performance19.now();
   try {
     if (options.signal?.aborted) throw failure3("aborted", "Desktop start cancelled before launch.");
-    if (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 6500 || options.timeoutMs > 12e4)
+    if (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 6500 || options.timeoutMs > MAX_NATIVE_DESKTOP_START_TIMEOUT_MS)
       throw failure3("native-deadline", "Native desktop start requires a bounded deadline including verified cleanup.");
     const prepared = prepareNativeDesktopStart(options), markerPath = desktopMarkerPath();
     const marker = readDesktopMarker(markerPath);
@@ -24929,13 +24933,14 @@ async function executeNativeDesktopStart(options) {
     };
   }
 }
-var failure3, pid, windowSchema2, resultSchema, failedResultSchema;
+var MAX_NATIVE_DESKTOP_START_TIMEOUT_MS, failure3, pid, windowSchema2, resultSchema, failedResultSchema;
 var init_native_desktop_start = __esm({
   "src/native-desktop-start.ts"() {
     "use strict";
     init_zod();
     init_desktop_marker();
     init_qt_native_client();
+    MAX_NATIVE_DESKTOP_START_TIMEOUT_MS = 12e4;
     failure3 = (kind, message, unknown = false) => new QtNativeTransportError(message, kind, unknown);
     pid = external_exports.number().int().min(1).max(4294967295);
     windowSchema2 = external_exports.object({
@@ -24989,7 +24994,7 @@ import { performance as performance20 } from "node:perf_hooks";
 import { win32 as win324 } from "node:path";
 function parseNativeDesktopStop(value, marker, options) {
   const result = resultSchema2.parse(value);
-  if (result.loaderBuildIdentity !== options.package.manifest.buildIdentity || result.desktop !== void 0 && result.desktop !== marker.name || result.pid !== void 0 && result.pid !== marker.pid || result.discardChanges !== (options.args.discardChanges === true) || result.ok && (!result.processExited || !result.desktopMarkeEntfernt || result.markerBeibehalten || result.outcomeUnknown || !result.mutationAttempted || result.pid !== marker.pid || result.desktop !== marker.name) || result.hartBeendet && (options.args.discardChanges !== true || !result.mutationAttempted) || result.speichernAntwort !== null && (!result.mutationAttempted || options.args.discardChanges !== true || !["nein", "nicht speichern", "verwerfen"].includes(result.speichernAntwort.toLowerCase()) || result.antwortMethode !== "uia-invoke") || result.outcomeUnknown !== (result.mutationAttempted && !result.processExited) || !result.ok && (!result.kind || !result.error))
+  if (result.loaderBuildIdentity !== options.package.manifest.buildIdentity || result.desktop !== void 0 && result.desktop !== marker.name || result.pid !== void 0 && result.pid !== marker.pid || result.discardChanges !== (options.args.discardChanges === true) || result.weitereInstanzen.some((window) => window.pid === marker.pid) || result.weitereInstanzen.length > 0 && (result.ok || !result.markerBeibehalten || result.desktopMarkeEntfernt || result.kind !== "desktop-other-instances") || result.ok && (!result.processExited || !result.desktopMarkeEntfernt || result.markerBeibehalten || result.outcomeUnknown || !result.mutationAttempted || result.pid !== marker.pid || result.desktop !== marker.name) || result.hartBeendet && (options.args.discardChanges !== true || !result.mutationAttempted) || result.speichernAntwort !== null && (!result.mutationAttempted || options.args.discardChanges !== true || !["nein", "nicht speichern", "verwerfen"].includes(result.speichernAntwort.toLowerCase()) || result.antwortMethode !== "uia-invoke") || result.outcomeUnknown !== (result.mutationAttempted && !result.processExited) || !result.ok && (!result.kind || !result.error))
     throw failure4("native-contract", "Native desktop stop returned inconsistent ownership or mutation evidence.", true);
   const { loaderBuildIdentity: _build, loaderMs, kind, error, ...reported } = result;
   return {
@@ -25007,7 +25012,7 @@ async function executeNativeDesktopStop(options) {
     if (options.signal?.aborted) throw failure4("aborted", "Desktop stop cancelled before submission.");
     if (options.args.save === true && options.args.discardChanges === true) throw failure4("bad-args", "Save and discard cannot both be requested.");
     if (options.args.save === true) throw failure4("confirmation-required", "Use hash-bound save before stopping; desktop stop never saves a case.");
-    if (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 12e3 || options.timeoutMs > 12e4)
+    if (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 12e3 || options.timeoutMs > MAX_NATIVE_DESKTOP_STOP_TIMEOUT_MS)
       throw failure4("native-deadline", "Native desktop stop needs a bounded deadline including provider checks and verified exit.");
     const markerPath = desktopMarkerPath(), marker = readDesktopMarker(markerPath);
     if (!marker?.pid || marker.owner !== "sse") throw failure4("ownership", "A valid owned SSE desktop marker with PID is required.");
@@ -25064,13 +25069,14 @@ async function executeNativeDesktopStop(options) {
     };
   }
 }
-var failure4, resultSchema2;
+var MAX_NATIVE_DESKTOP_STOP_TIMEOUT_MS, failure4, resultSchema2;
 var init_native_desktop_stop = __esm({
   "src/native-desktop-stop.ts"() {
     "use strict";
     init_zod();
     init_desktop_marker();
     init_qt_native_client();
+    MAX_NATIVE_DESKTOP_STOP_TIMEOUT_MS = 12e4;
     failure4 = (kind, message, unknown = false) => new QtNativeTransportError(message, kind, unknown);
     resultSchema2 = external_exports.object({
       ok: external_exports.boolean(),
@@ -25091,6 +25097,11 @@ var init_native_desktop_stop = __esm({
         closedBeforeMain: external_exports.boolean(),
         closed: external_exports.boolean()
       }).strict()).max(256),
+      weitereInstanzen: external_exports.array(external_exports.object({
+        hwnd: external_exports.number().int().positive().safe(),
+        pid: external_exports.number().int().positive().max(4294967295),
+        title: external_exports.string().max(512)
+      }).strict()).max(256),
       loaderBuildIdentity: external_exports.string(),
       loaderMs: external_exports.number().finite().nonnegative(),
       discardChanges: external_exports.boolean().optional(),
@@ -25109,7 +25120,7 @@ import { execFile as execFile5 } from "node:child_process";
 import { isAbsolute as isAbsolute9 } from "node:path";
 function parseQtNativeDiscovery(value, options) {
   const found = discoverySchema.parse(value);
-  if (found.loaderBuildIdentity !== options.package.manifest.buildIdentity || found.image.toLowerCase() !== options.expectedImage.toLowerCase() || found.desktop !== options.marker?.name || options.hwnd !== void 0 && found.hwnd !== options.hwnd || options.marker?.pid !== void 0 && options.marker?.pid !== null && found.pid !== options.marker.pid) {
+  if (found.loaderBuildIdentity !== options.package.manifest.buildIdentity || found.image.toLowerCase() !== options.expectedImage.toLowerCase() || found.desktop !== options.marker?.name || options.hwnd !== void 0 && found.hwnd !== options.hwnd || options.hwnd === void 0 && options.marker?.pid !== void 0 && options.marker?.pid !== null && found.pid !== options.marker.pid) {
     throw failure5("native-binding", "Native discovery did not verify the requested image, desktop, process and window.");
   }
   const expected = options.package.manifest.profile;
@@ -25135,7 +25146,9 @@ async function discoverQtNativeTarget(options) {
     expectedImage: options.expectedImage,
     expectedProfile: options.package.manifest.profile,
     ...options.hwnd !== void 0 ? { hwnd: options.hwnd } : {},
-    ...marker ? { desktop: marker.name, ...marker.pid !== null ? { pid: marker.pid } : {} } : {}
+    // The marker selects the desktop. An explicit HWND selects its verified
+    // process there; an unbound request remains constrained to the marker PID.
+    ...marker ? { desktop: marker.name, ...options.hwnd === void 0 && marker.pid !== null ? { pid: marker.pid } : {} } : {}
   };
   const body = Buffer.from(JSON.stringify(request));
   if (body.length > 65536) throw failure5("native-request-size", "Native discovery request exceeds its bound.");
@@ -25229,6 +25242,17 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
   let startupAbort;
   let stopped = false, revision = 0;
   const failure6 = (message, kind, outcomeUnknown = false) => new QtNativeTransportError(message, kind, outcomeUnknown);
+  function currentMarker() {
+    try {
+      return readMarker();
+    } catch (error) {
+      if (error instanceof DesktopMarkerError) throw failure6(error.message, error.kind);
+      throw error;
+    }
+  }
+  function matchesMarker(binding, marker, explicit) {
+    return binding.desktop === marker?.name && (explicit || marker?.pid == null || binding.pid === marker.pid);
+  }
   const left = (deadline) => {
     const value = Math.floor(deadline - performance21.now());
     if (value < 1) throw failure6("Native operation deadline exceeded before dispatch.", "native-timeout");
@@ -25297,7 +25321,9 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
   async function obtain(args, deadline, signal) {
     if (stopped || shutdown.aborted || signal?.aborted) throw failure6("Native runtime is stopping or the request was cancelled.", "aborted");
     const requested = typeof args.hwnd === "number" ? args.hwnd : selected;
-    if (requested !== void 0 && sessions.has(requested)) return sessions.get(requested);
+    const explicit = typeof args.hwnd === "number";
+    const retained = requested === void 0 ? void 0 : sessions.get(requested);
+    if (retained && matchesMarker(retained.client.binding, currentMarker(), explicit)) return retained;
     if (starting2) {
       await waitForStartup(starting2, deadline, signal);
       return obtain(args, deadline, signal);
@@ -25308,20 +25334,22 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
     starting2 = withCombinedAbortSignal([signal, shutdown, startupSignal], async (combined) => {
       const binding = await target(args, deadline, combined);
       if (combined.aborted || stopped || expectedRevision !== revision) throw failure6("Native attachment was cancelled before launch.", "aborted");
+      if (!matchesMarker(binding, currentMarker(), explicit))
+        throw failure6("Native target does not match the current desktop and implicit owner binding.", "native-binding");
       const existing = sessions.get(binding.hwnd);
       if (existing) {
-        if (existing.client.binding.pid !== binding.pid || existing.client.binding.creationTime !== binding.creationTime) {
+        if (existing.client.binding.pid !== binding.pid || existing.client.binding.creationTime !== binding.creationTime || existing.client.binding.desktop !== binding.desktop) {
           throw failure6("Rediscovered window does not match its retained process identity.", "native-binding");
         }
         selected = binding.hwnd;
         return existing;
       }
       if (sessions.size >= 4) {
-        for (const [hwnd, retained] of sessions) {
-          if (retained.client.binding.pid === binding.pid || retained.processExited !== true) continue;
+        for (const [hwnd, retained2] of sessions) {
+          if (retained2.client.binding.pid === binding.pid || retained2.processExited !== true) continue;
           let exists;
           try {
-            exists = processExists(retained.client.binding.pid);
+            exists = processExists(retained2.client.binding.pid);
           } catch {
             continue;
           }
@@ -25378,7 +25406,8 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
   }
   const runtime = {
     async desktopStop(args, timeoutMs, signal) {
-      const deadline = performance21.now() + timeoutMs;
+      const boundedTimeout = Number.isSafeInteger(timeoutMs) && timeoutMs >= 0 ? Math.min(timeoutMs, MAX_NATIVE_DESKTOP_STOP_TIMEOUT_MS) : 0;
+      const deadline = performance21.now() + boundedTimeout;
       await clear();
       return withCombinedAbortSignal([signal, shutdown], (combined) => executeNativeDesktopStop({
         package: nativePackage,
@@ -25389,7 +25418,8 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
       }));
     },
     async desktopStart(args, timeoutMs, signal) {
-      const deadline = performance21.now() + timeoutMs;
+      const boundedTimeout = Number.isSafeInteger(timeoutMs) && timeoutMs >= 0 ? Math.min(timeoutMs, MAX_NATIVE_DESKTOP_START_TIMEOUT_MS) : 0;
+      const deadline = performance21.now() + boundedTimeout;
       await clear();
       return withCombinedAbortSignal([signal, shutdown], (combined) => executeNativeDesktopStart({
         package: nativePackage,

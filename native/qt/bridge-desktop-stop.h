@@ -35,7 +35,7 @@ static Json nativeDesktopStop(const Json &request) {
     Json result = {{"ok", false}, {"hartBeendet", false}, {"desktopMarkeEntfernt", false}, {"markerBeibehalten", true},
         {"mutationAttempted", false}, {"outcomeUnknown", false}, {"processExited", false}, {"speichernAntwort", nullptr},
         {"antwortMethode", nullptr}, {"dialogFehler", nullptr}, {"gracefulWaitMs", 0}, {"hauptfensterVorher", 0},
-        {"hilfsfenster", Json::array()}, {"loaderBuildIdentity", SSE_BRIDGE_BUILD_PREFIX SSE_BRIDGE_SOURCE_DIGEST}};
+        {"hilfsfenster", Json::array()}, {"weitereInstanzen", Json::array()}, {"loaderBuildIdentity", SSE_BRIDGE_BUILD_PREFIX SSE_BRIDGE_SOURCE_DIGEST}};
     try {
         const bool discard = request.value("discardChanges", false), save = request.value("save", false);
         result["discardChanges"] = discard;
@@ -85,6 +85,14 @@ static Json nativeDesktopStop(const Json &request) {
         if (!synthetic && sha256(image) != SSE_NATIVE_EXE_SHA256)
             throw DiscoveryError("unsupported-version", "Marked process differs from the compiled product pin");
         StopDesktop desktop(name);
+        const auto checkPeers = [&] {
+            result["weitereInstanzen"] = Json::array();
+            for (const auto &peer : desktopPeerWindows(desktop.value, pid))
+                result["weitereInstanzen"].push_back({{"pid", peer.at("pid")}, {"hwnd", peer.at("hwnd")}, {"title", peer.at("title")}});
+            if (!result["weitereInstanzen"].empty())
+                throw DiscoveryError("desktop-other-instances", "Close the additional desktop instances explicitly by PID/HWND before stopping the marked instance");
+        };
+        checkPeers();
         auto windows = launchWindows(desktop.value, pid);
         if (windows.empty()) throw DiscoveryError("ownership", "Marked process has no window on its owned desktop");
         const auto parent = parentProcessId(); Handle owner(OpenProcess(SYNCHRONIZE, FALSE, parent));
@@ -181,6 +189,7 @@ static Json nativeDesktopStop(const Json &request) {
         }
         result["processExited"] = true;
         for (auto &aux : result["hilfsfenster"]) aux["closed"] = !IsWindow(stopHwnd(aux));
+        checkPeers();
         deleteNativeMarker(marker);
         result["desktopMarkeEntfernt"] = readNativeMarker(markerPath).value.is_null();
         if (result.at("desktopMarkeEntfernt") != true) throw DiscoveryError("marker-cleanup", "Marker deletion readback failed");

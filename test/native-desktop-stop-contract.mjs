@@ -9,7 +9,7 @@ export async function verifyNativeDesktopStopContract() {
   const marker = { schemaVersion: 1, owner: "sse", name: "SyntheticStop", pid: 99 };
   const result = { ok: true, hartBeendet: false, desktopMarkeEntfernt: true, markerBeibehalten: false,
     mutationAttempted: true, outcomeUnknown: false, processExited: true, speichernAntwort: null, antwortMethode: null,
-    dialogFehler: null, gracefulWaitMs: 100, hauptfensterVorher: 1, hilfsfenster: [],
+    dialogFehler: null, gracefulWaitMs: 100, hauptfensterVorher: 1, hilfsfenster: [], weitereInstanzen: [],
     loaderBuildIdentity: options.package.manifest.buildIdentity, loaderMs: 200, discardChanges: false, desktop: marker.name, pid: marker.pid };
   assert.equal(parseNativeDesktopStop(result, marker, options).backend, "win32-uia");
   for (const patch of [{ pid: 98 }, { desktop: "Other" }, { processExited: false }, { desktopMarkeEntfernt: false },
@@ -24,6 +24,12 @@ export async function verifyNativeDesktopStopContract() {
   const unknown = { ...result, ok: false, processExited: false, desktopMarkeEntfernt: false, markerBeibehalten: true,
     outcomeUnknown: true, kind: "state-unknown", error: "Synthetic interrupted invocation" };
   assert.equal(parseNativeDesktopStop(unknown, marker, options).outcomeUnknown, true);
+  const peers = { ...unknown, mutationAttempted: false, outcomeUnknown: false, kind: "desktop-other-instances",
+    error: "Close additional instances first", weitereInstanzen: [{ pid: 100, hwnd: 43, title: "Second" }] };
+  assert.deepEqual(parseNativeDesktopStop(peers, marker, options).weitereInstanzen, peers.weitereInstanzen);
+  for (const patch of [{ ok: true }, { markerBeibehalten: false }, { desktopMarkeEntfernt: true },
+    { kind: "state-unknown" }, { weitereInstanzen: [{ pid: 99, hwnd: 43, title: "Wrong owner" }] }])
+    assert.throws(() => parseNativeDesktopStop({ ...peers, ...patch }, marker, options));
   assert.equal((await executeNativeDesktopStop({ ...options, args: { save: true } })).kind, "confirmation-required");
   assert.equal((await executeNativeDesktopStop({ ...options, args: { save: true, discardChanges: true } })).kind, "bad-args");
   assert.equal((await executeNativeDesktopStop({ ...options, timeoutMs: 1000 })).kind, "native-deadline");

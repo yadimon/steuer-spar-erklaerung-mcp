@@ -16,10 +16,10 @@ const productionPath = loadQtNativePackage(configuration.qtNativeRuntime, loadPr
 const report = { cases: [], fixtures: [] }, fixtures = [];
 const json = path => JSON.parse(readFileSync(path, "utf8"));
 const persist = () => writeFileSync(join(attempt, "result.json"), JSON.stringify(report, null, 2));
-async function fixture(mode, label = mode) {
+async function fixture(mode, label = mode, sharedDesktop = null) {
   const directory = join(attempt, label); mkdirSync(directory);
   const readyPath = join(directory, "ready.json"), statePath = join(directory, "state.json"), markerPath = join(directory, "marker.json");
-  const desktop = `SSEStopTest_${process.pid}_${fixtures.length}`;
+  const desktop = sharedDesktop ?? `SSEStopTest_${process.pid}_${fixtures.length}`;
   const env = { ...process.env, QT_PLUGIN_PATH: resolve(qtBin, "../plugins") };
   const pathKey = Object.keys(env).find(key => key.toLowerCase() === "path"); env[pathKey] = `${qtBin};${env[pathKey]}`;
   const child = spawn(fixturePath, [desktop, readyPath, mode, statePath], { windowsHide: true, env, stdio: ["pipe", "pipe", "pipe"] });
@@ -33,13 +33,13 @@ async function fixture(mode, label = mode) {
   owned.marker = { schemaVersion: 1, owner: "sse", name: desktop, pid: child.pid };
   writeFileSync(markerPath, JSON.stringify(owned.marker)); persist(); return owned;
 }
-function helper(owned, overrides = {}, executable = helperPath) {
+function helper(owned, overrides = {}, executable = helperPath, timeoutMs = 12000) {
   const request = { ...owned.binding, mode: "desktop-stop", expectedImage: fixturePath, markerPath: owned.markerPath,
     expectedProfile: { id: "synthetic", qtVersion: "6.9.2" }, waitMs: 1500, deadlineUnixMs: Date.now() + 11000, ...overrides };
   const record = { label: owned.item.label, request }; report.cases.push(record); persist();
   const start = performance.now(); let child;
   const finished = new Promise(resolveCall => {
-    child = execFile(executable, ["--stdin"], { windowsHide: true, encoding: "utf8", timeout: 12000, maxBuffer: 1048576 }, (error, stdout, stderr) => {
+    child = execFile(executable, ["--stdin"], { windowsHide: true, encoding: "utf8", timeout: timeoutMs, maxBuffer: 1048576 }, (error, stdout, stderr) => {
       Object.assign(record, { durationMs: performance.now() - start, exitCode: error ? (error.code ?? null) : 0,
         signal: error?.signal ?? null, stdout, stderr });
       try { record.result = JSON.parse(stdout); } catch { record.result = null; }
@@ -63,6 +63,40 @@ async function quit(owned, expected = 0) {
   assert.equal(owned.child.exitCode, expected, owned.item.stderr); owned.item.exitCode = owned.child.exitCode; persist();
 }
 try {
+  const ownerWithPeer = await fixture("clean", "owner-with-peer");
+  const peer = await fixture("peer", "peer", ownerWithPeer.binding.desktop);
+  const peerStatus = await helper(ownerWithPeer, { mode: "desktop-status" }, productionPath).finished;
+  assert.equal(peerStatus.exitCode, 0, JSON.stringify(peerStatus));
+  assert(peerStatus.result.additionalInstances.some(window => window.pid === peer.child.pid));
+  const peerStop = await helper(ownerWithPeer, { discardChanges: true }).finished;
+  assert.equal(peerStop.result.kind, "desktop-other-instances", JSON.stringify(peerStop));
+  assert.equal(peerStop.result.mutationAttempted, false); assert.equal(peerStop.result.markerBeibehalten, true);
+  assert(peerStop.result.weitereInstanzen.some(window => window.pid === peer.child.pid));
+  preserved(ownerWithPeer); preserved(peer); await quit(peer);
+  const afterPeer = await helper(ownerWithPeer).finished;
+  assert.equal(afterPeer.result.ok, true, JSON.stringify(afterPeer)); await quit(ownerWithPeer);
+  const lateOwner = await fixture("ignore", "late-peer-owner");
+  const lateStop = helper(lateOwner, { waitMs: 12000, deadlineUnixMs: Date.now() + 25000 }, helperPath, 26000);
+  const lateDeadline = performance.now() + 3000;
+  while (performance.now() < lateDeadline && json(lateOwner.statePath).closeEvents === 0) await delay(20);
+  assert.equal(json(lateOwner.statePath).closeEvents, 1,
+    "The owner must receive close before the second process appears.");
+  const latePeer = await fixture("peer", "late-peer", lateOwner.binding.desktop);
+  await quit(lateOwner);
+  const lateResult = await lateStop.finished;
+  assert.equal(lateResult.result.kind, "desktop-other-instances", JSON.stringify(lateResult));
+  assert.equal(lateResult.result.processExited, true);
+  assert.equal(lateResult.result.mutationAttempted, true);
+  assert.equal(lateResult.result.outcomeUnknown, false);
+  assert.equal(lateResult.result.markerBeibehalten, true);
+  assert.equal(lateResult.result.desktopMarkeEntfernt, false);
+  assert(lateResult.result.weitereInstanzen.some(window => window.pid === latePeer.child.pid));
+  assert.deepEqual(json(lateOwner.markerPath), lateOwner.marker);
+  const deadOwnerStatus = await helper(lateOwner, { mode: "desktop-status" }, productionPath).finished;
+  assert.equal(deadOwnerStatus.exitCode, 0, JSON.stringify(deadOwnerStatus));
+  assert(deadOwnerStatus.result.additionalInstances.some(window => window.pid === latePeer.child.pid),
+    "Status must still expose the surviving peer after its marker owner exits.");
+  preserved(latePeer); await quit(latePeer);
   const clean = await fixture("clean");
   const production = await helper(clean, {}, productionPath).finished;
   assert(production.result, `Production loader returned no structured result: ${JSON.stringify(production)}`);

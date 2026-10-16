@@ -27876,7 +27876,7 @@ function registerDesktopTools(registry2) {
     "sse_desktop_stop",
     {
       title: "Unsichtbare Instanz beenden",
-      description: "Beendet die Instanz auf dem versteckten Desktop und raeumt ihn auf. Speichern gehoert vorher in den hashgebundenen Schritt sse_save; save=true ist hier gesperrt. Ohne discardChanges=true wird kein Speicherdialog mit Nein/Verwerfen beantwortet. Der Stop verlangt Markername, eigene SSE-PID und deren Fenster auf genau diesem Desktop. Bei unsicherem Dirty-/Dialogzustand bleiben Prozess und Marker zur bewussten Klaerung erhalten. Hat die markierte PID kein breites Hauptfenster mehr (nur Dialog oder Startbild, etwa nach einem nie gespeicherten Fall), beendet discardChanges=true genau diese PID hart und raeumt den Marker ab; ohne discardChanges bleibt sie mit confirmation-required erhalten. Das Ergebnis meldet hauptfensterVorher."
+      description: "Beendet die Instanz auf dem versteckten Desktop und raeumt ihn auf. Speichern gehoert vorher in den hashgebundenen Schritt sse_save; save=true ist hier gesperrt. Ohne discardChanges=true wird kein Speicherdialog mit Nein/Verwerfen beantwortet. Der Stop verlangt Markername, eigene SSE-PID und deren Fenster auf genau diesem Desktop. Bei unsicherem Dirty-/Dialogzustand bleiben Prozess und Marker zur bewussten Klaerung erhalten. Hat die markierte PID kein breites Hauptfenster mehr (nur Dialog oder Startbild, etwa nach einem nie gespeicherten Fall), beendet discardChanges=true genau diese PID hart und raeumt den Marker ab; ohne discardChanges bleibt sie mit confirmation-required erhalten. Weitere Instanzen auf dem Desktop muessen zuerst explizit mit PID/HWND geschlossen werden; desktop-other-instances erhaelt den Marker und meldet weitereInstanzen. Das Ergebnis meldet hauptfensterVorher."
     },
     { timeoutMs: 12e4 }
   );
@@ -27884,7 +27884,7 @@ function registerDesktopTools(registry2) {
     "sse_desktop_status",
     {
       title: "Laeuft die Instanz versteckt?",
-      description: "Prueft die markierte eigene PID und meldet auch eine veraltete oder unvollstaendige Desktop-Marke."
+      description: "Prueft die markierte eigene PID und meldet auch eine veraltete oder unvollstaendige Desktop-Marke. Weitere sichtbare Fenster anderer Prozesse auf diesem Desktop stehen mit PID/HWND in weitereInstanzen."
     },
     (r) => ({
       aktiv: r.aktiv,
@@ -27894,6 +27894,7 @@ function registerDesktopTools(registry2) {
       desktopErreichbar: r.desktopErreichbar,
       markeVeraltet: r.markeVeraltet,
       fenster: asArray(r.fenster),
+      weitereInstanzen: asArray(r.weitereInstanzen),
       note: r.note
     })
   );

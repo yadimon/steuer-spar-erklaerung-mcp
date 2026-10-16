@@ -264,6 +264,15 @@ try {
   assert.equal(calls.length, expectedInitialApiCalls,
     `Direkte und komponierte MCP-Aufrufe erzeugten unerwartet ${calls.length} API-Aufrufe.`);
 
+  const desktopPeers = [{ pid: 102, hwnd: 43, title: "Synthetic additional instance" }];
+  forcedResult = { ok: true, aktiv: true, desktop: "Synthetic", pid: 101, sseLaeuft: true,
+    desktopErreichbar: true, markeVeraltet: false, fenster: [], weitereInstanzen: desktopPeers };
+  const desktopStatus = await client.callTool({ name: "sse_desktop_status", arguments: {} });
+  assert.notEqual(desktopStatus.isError, true);
+  assert.deepEqual(desktopStatus.structuredContent.weitereInstanzen, desktopPeers);
+  const desktopStatusText = JSON.parse(desktopStatus.content.filter(entry => entry.type === "text").map(entry => entry.text).join("\n"));
+  assert.deepEqual(desktopStatusText.weitereInstanzen, desktopPeers, "Compact status must retain actionable PID/HWND peers");
+
   forcedResult = {
     ok: true,
     ref: "workspace:.",

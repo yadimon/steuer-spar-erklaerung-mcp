@@ -10,8 +10,8 @@ import { loadQtNativePackage, type QtNativePackage } from "./qt-native-package.j
 import { startQtNativeBroker, type QtNativeBrokerOptions, type QtNativeSession, type QtNativeTarget } from "./qt-native-broker.js";
 import { withCombinedAbortSignal } from "./abort.js";
 import { executeNativeDesktopStatus } from "./native-desktop-status.js";
-import { executeNativeDesktopStart } from "./native-desktop-start.js";
-import { executeNativeDesktopStop } from "./native-desktop-stop.js";
+import { executeNativeDesktopStart, MAX_NATIVE_DESKTOP_START_TIMEOUT_MS } from "./native-desktop-start.js";
+import { executeNativeDesktopStop, MAX_NATIVE_DESKTOP_STOP_TIMEOUT_MS } from "./native-desktop-stop.js";
 import { discoverQtNativeTarget, type QtNativeDiscoveryOptions } from "./qt-native-discovery.js";
 import { DesktopMarkerError, desktopMarkerPath, resolveDesktopMarkerForOperation, type DesktopMarker } from "./desktop-marker.js";
 
@@ -72,6 +72,16 @@ export function createQtNativeRuntime(
   let startupAbort: AbortController | undefined;
   let stopped = false, revision = 0;
   const failure = (message: string, kind: string, outcomeUnknown = false) => new QtNativeTransportError(message, kind, outcomeUnknown);
+  function currentMarker(): DesktopMarker | null {
+    try { return readMarker(); }
+    catch (error) {
+      if (error instanceof DesktopMarkerError) throw failure(error.message, error.kind);
+      throw error;
+    }
+  }
+  function matchesMarker(binding: QtNativeTarget, marker: DesktopMarker | null, explicit: boolean): boolean {
+    return binding.desktop === marker?.name && (explicit || marker?.pid == null || binding.pid === marker.pid);
+  }
   const left = (deadline: number) => {
     const value = Math.floor(deadline - performance.now());
     if (value < 1) throw failure("Native operation deadline exceeded before dispatch.", "native-timeout");
@@ -124,7 +134,9 @@ export function createQtNativeRuntime(
   async function obtain(args: Readonly<Record<string, unknown>>, deadline: number, signal?: AbortSignal): Promise<QtNativeSession> {
     if (stopped || shutdown.aborted || signal?.aborted) throw failure("Native runtime is stopping or the request was cancelled.", "aborted");
     const requested = typeof args.hwnd === "number" ? args.hwnd : selected;
-    if (requested !== undefined && sessions.has(requested)) return sessions.get(requested)!;
+    const explicit = typeof args.hwnd === "number";
+    const retained = requested === undefined ? undefined : sessions.get(requested);
+    if (retained && matchesMarker(retained.client.binding, currentMarker(), explicit)) return retained;
     if (starting) { await waitForStartup(starting, deadline, signal); return obtain(args, deadline, signal); }
     const expectedRevision = revision;
     startupAbort = new AbortController();
@@ -132,9 +144,12 @@ export function createQtNativeRuntime(
     starting = withCombinedAbortSignal([signal, shutdown, startupSignal], async combined => {
       const binding = await target(args, deadline, combined);
       if (combined.aborted || stopped || expectedRevision !== revision) throw failure("Native attachment was cancelled before launch.", "aborted");
+      if (!matchesMarker(binding, currentMarker(), explicit))
+        throw failure("Native target does not match the current desktop and implicit owner binding.", "native-binding");
       const existing = sessions.get(binding.hwnd);
       if (existing) {
-        if (existing.client.binding.pid !== binding.pid || existing.client.binding.creationTime !== binding.creationTime) {
+        if (existing.client.binding.pid !== binding.pid || existing.client.binding.creationTime !== binding.creationTime
+          || existing.client.binding.desktop !== binding.desktop) {
           throw failure("Rediscovered window does not match its retained process identity.", "native-binding");
         }
         // Rediscovery after an unrelated launch can select an existing session.
@@ -193,7 +208,9 @@ export function createQtNativeRuntime(
   }
   const runtime: QtNativeRuntime = {
     async desktopStop(args, timeoutMs, signal) {
-      const deadline = performance.now() + timeoutMs;
+      const boundedTimeout = Number.isSafeInteger(timeoutMs) && timeoutMs >= 0
+        ? Math.min(timeoutMs, MAX_NATIVE_DESKTOP_STOP_TIMEOUT_MS) : 0;
+      const deadline = performance.now() + boundedTimeout;
       await clear();
       return withCombinedAbortSignal([signal, shutdown], combined => executeNativeDesktopStop({
         package: nativePackage, executable: executable[0]!, args,
@@ -201,7 +218,11 @@ export function createQtNativeRuntime(
       }));
     },
     async desktopStart(args, timeoutMs, signal) {
-      const deadline = performance.now() + timeoutMs;
+      // A longer API/MCP ceiling never expands the external helper's bound.
+      // Retiring a prior session consumes this same capped absolute deadline.
+      const boundedTimeout = Number.isSafeInteger(timeoutMs) && timeoutMs >= 0
+        ? Math.min(timeoutMs, MAX_NATIVE_DESKTOP_START_TIMEOUT_MS) : 0;
+      const deadline = performance.now() + boundedTimeout;
       await clear();
       return withCombinedAbortSignal([signal, shutdown], combined => executeNativeDesktopStart({
         package: nativePackage, profile, executable: executable[0]!, args, timeoutMs: Math.max(0, Math.floor(deadline - performance.now())), signal: combined,

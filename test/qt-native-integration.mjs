@@ -745,10 +745,20 @@ try {
   const second = await fixture();
   await assert.rejects(discoverQtNativeTarget(discoveryOptions), error => error.kind === "ambiguous");
   assert.equal((await discoverQtNativeTarget({ ...discoveryOptions, hwnd: first.info.hwnd })).pid, first.info.pid);
-  await assert.rejects(discoverQtNativeTarget({ ...discoveryOptions, hwnd: second.info.hwnd }), error => error.kind === "native-binding");
+  const sibling = await discoverQtNativeTarget({ ...discoveryOptions, hwnd: second.info.hwnd });
+  assert.equal(sibling.pid, second.info.pid); assert.equal(sibling.hwnd, second.info.hwnd);
+  assert.equal(sibling.creationTime, second.info.creationTime); assert.equal(sibling.desktop, desktop);
+  assert.equal((await read("get_value", { aid: "syntheticField", hwnd: second.info.hwnd })).value, "Native field – пример");
   assert.equal((await read("get_value", { aid: "syntheticField" })).kind, "ambiguous");
+  assert.equal((await read("get_value", { aid: "syntheticField", hwnd: first.info.hwnd })).value, "Changed by fixture");
   assert.equal((await read("get_value", { aid: "syntheticField", hwnd: first.info.hwnd })).ok, true);
   second.child.stdin.write("quit\n"); await second.exited; assert.equal(second.child.exitCode, 0);
+  const retainedSessionCount = sessions.length;
+  assert.equal((await read("get_value", { aid: "syntheticField" })).value, "Changed by fixture",
+    "Implicit selection must rediscover only the surviving marker owner.");
+  assert.equal((await read("get_value", { aid: "syntheticField", hwnd: second.info.hwnd })).ok, false,
+    "An explicitly closed target must not silently reconnect to its surviving sibling.");
+  assert.equal(sessions.length, retainedSessionCount, "Closed explicit bindings must not create replacement brokers.");
   writeFileSync(markerPath, JSON.stringify({ ...marker, pid: second.info.pid }));
   const deadStatus = await read("desktop_status");
   assert.equal(deadStatus.ok, true); assert.equal(deadStatus.processIdentity, null); assert.equal(deadStatus.markeVeraltet, true);
@@ -758,10 +768,10 @@ try {
   writeFileSync(markerPath, JSON.stringify(marker));
   report.checks.push("Public desktop_status uses fresh Win32 diagnostics without injection/PowerShell; absent, malformed, foreign, stale and changed markers are checked");
   await assert.rejects(discoverQtNativeTarget({ ...discoveryOptions, marker: { ...marker, pid: second.info.pid } }), error => error.kind === "desktop-marker-stale");
-  await first.command("disable"); assert.equal((await read("get_value", { aid: "syntheticField" })).ok, false);
-  await first.command("enable"); assert.equal((await read("get_value", { aid: "syntheticField" })).ok, true);
-  await first.command("delete-field"); assert.equal((await read("get_value", { aid: "syntheticField" })).kind, "not-found");
-  assert.equal((await read("get_value", { rid: fieldRid })).kind, "not-found");
+  await first.command("disable"); assert.equal((await read("get_value", { aid: "syntheticField", hwnd: first.info.hwnd })).ok, false);
+  await first.command("enable"); assert.equal((await read("get_value", { aid: "syntheticField", hwnd: first.info.hwnd })).ok, true);
+  await first.command("delete-field"); assert.equal((await read("get_value", { aid: "syntheticField", hwnd: first.info.hwnd })).kind, "not-found");
+  assert.equal((await read("get_value", { rid: fieldRid, hwnd: first.info.hwnd })).kind, "not-found");
   report.checks.push("New window ambiguity, disabled windows and destroyed QObjects are observed on the retained connection");
   // Unknown mutation outcomes deliberately make this application refuse later
   // writes. Exercise that permanent barrier after the other mutation oracles.

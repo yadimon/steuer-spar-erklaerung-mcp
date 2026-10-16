@@ -25,6 +25,7 @@ param(
   [Parameter(Mandatory, ParameterSetName='Prewarm')][switch]$Prewarm,
   [string]$B64 = '',
   [string]$ArgsFile = '',
+  [Parameter(ParameterSetName='Run')][switch]$PersistentGuiChild,
   # Wird der Arbeiter auf einem eigenen Desktop gestartet, kommt seine
   # Standardausgabe nicht zurueck. Dann schreibt er das Ergebnis hierhin.
   [string]$OutFile = ''
@@ -71,6 +72,10 @@ if (-not (Test-Path -LiteralPath $transportCommonPath -PathType Leaf)) {
 # Auftrag, den ein vorgewaermter Arbeiter spaeter ueber seine Standardeingabe
 # entgegennimmt. Deshalb steht sie in einer Funktion statt einmalig im Rumpf.
 function Initialize-SSEWorkerTransport {
+  if ($PersistentGuiChild -and ($Op -ine 'launch' -or -not $OutFile)) {
+    [Console]::Out.Write((@{ok=$false;kind='bad-args';error='Persistenter GUI-Start ist nur im Desktop-Launch-Transport erlaubt.'} | ConvertTo-Json -Compress))
+    exit 1
+  }
   if ($B64 -and $ArgsFile) {
     [Console]::Out.Write((@{ ok=$false; kind='bad-args'; error='B64 und ArgsFile duerfen nicht gemeinsam gesetzt sein.' } | ConvertTo-Json -Compress))
     exit 1
@@ -2752,6 +2757,32 @@ function Get-WindowsOnDesktop(
   @($list | Sort-Object { $_.w * $_.h } -Descending)
 }
 
+function Get-SSEDesktopPeerWindows([IntPtr]$Desktop, [int]$OwnedPid) {
+  $peers = New-Object System.Collections.ArrayList
+  foreach ($window in @([DSK]::ListDesktopWindows($Desktop))) {
+    $windowPid = 0
+    $null = [SW]::GetWindowThreadProcessId($window, [ref]$windowPid)
+    if ($windowPid -eq $OwnedPid -or $windowPid -eq $PID -or -not [SW]::IsWindowVisible($window)) { continue }
+    if ($peers.Count -ge 256) { Fail 'Desktop-Inventur ist unvollstaendig; Marker beibehalten.' 'desktop-inventory-unavailable' }
+    $title = New-Object Text.StringBuilder 512
+    $null = [SW]::GetWindowTextW($window, $title, 512)
+    $null = $peers.Add([pscustomobject]@{pid=[int]$windowPid;hwnd=[int64]$window;title=$title.ToString()})
+  }
+  @($peers | Sort-Object pid,hwnd)
+}
+function Assert-SSEDesktopHasNoPeers([IntPtr]$Desktop, [int]$OwnedPid, $ExitResult = $null) {
+  $peers = @(Get-SSEDesktopPeerWindows $Desktop $OwnedPid)
+  if ($peers.Count) {
+    $details = [ordered]@{}
+    if ($ExitResult) {
+      foreach ($property in @($ExitResult.PSObject.Properties)) { $details[$property.Name] = $property.Value }
+    }
+    $details.markerBeibehalten = $true
+    $details.weitereInstanzen = $peers
+    Fail 'Weitere Instanzen besitzen Fenster auf dem markierten Desktop. Zuerst jede weitere Instanz explizit mit pid/hwnd schliessen; Marker beibehalten.' `
+      'desktop-other-instances' ([pscustomobject]$details)
+  }
+}
 function Get-ExactProcessWindowsOnDesktop([IntPtr]$Desktop, [int]$ExactProcessId) {
   if ($ExactProcessId -le 0) { return @() }
   $list = New-Object System.Collections.ArrayList
@@ -10254,7 +10285,7 @@ function Resolve-SSEBuildIdentityForOperation([string]$Operation, $OperationArgu
     return [pscustomobject]@{ identity=(Get-SSEExecutableIdentity ([string]$running[0].path)); source='running' }
   }
   if ($running.Count -gt 1) {
-    return [pscustomobject]@{ identity=$null; source='running'; error='Mehrere freigegebene SSE-Instanzen laufen; hwnd oder pid ist fuer die Build-Pruefung Pflicht.' }
+    return [pscustomobject]@{ identity=$null; source='running'; reason='instance-selection-required'; error='Mehrere freigegebene SSE-Instanzen laufen; hwnd oder pid ist fuer die Build-Pruefung Pflicht.' }
   }
   # Ohne steuerbare Instanz soll der nachfolgende Operationsweg weiterhin seine
   # praezise no-window-/unsupported-Version melden. Existiert dagegen eine
@@ -10269,7 +10300,10 @@ function Resolve-SSEBuildIdentityForOperation([string]$Operation, $OperationArgu
 function Assert-SSEVerifiedBuildForOperation([string]$Operation, $OperationArguments = $null) {
   if ($Operation -notin $buildDriftBlockedOps) { return }
   $resolved = Resolve-SSEBuildIdentityForOperation $Operation $OperationArguments
-  if ($resolved.error) { Fail $resolved.error 'build-identity-unverified' }
+  if ($resolved.error) {
+    $details = $(if ($resolved.reason) { [pscustomobject]@{reason=[string]$resolved.reason} } else { $null })
+    Fail $resolved.error 'build-identity-unverified' $details
+  }
   $identity = $resolved.identity
   # Ohne laufende Instanz delegieren wir weiter an die bestehende Operations-
   # grenze, damit sie ihren genaueren no-window-/unsupported-Version-Fehler
@@ -14563,7 +14597,30 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # Der Node-Worker selbst laeuft absichtlich mit windowsHide=true, damit kein
     # schwarzes PowerShell-Fenster aufblitzt. Ohne die explizite Fensterform
     # erbt die gestartete GUI diesen versteckten Zustand und bleibt unsichtbar.
-    $started = Start-Process -FilePath $productIdentity.path -ArgumentList $argl -WindowStyle Normal -PassThru
+    if ($PersistentGuiChild) {
+      # The worker remains in its kill-on-close job; only this validated SSE
+      # process explicitly leaves the worker job; host job limits still apply.
+      $guiStartup = New-Object DSK+SI
+      $guiStartup.cb = [Runtime.InteropServices.Marshal]::SizeOf([type][DSK+SI])
+      $guiStartup.flags = 1; $guiStartup.show = 1 # STARTF_USESHOWWINDOW / SW_SHOWNORMAL
+      $guiCommand = New-Object Text.StringBuilder 2048
+      $null = $guiCommand.Append('"' + $productIdentity.path + '" ' + ($argl -join ' '))
+      $guiProcess = New-Object DSK+PI
+      $guiCreated = [DSK]::CreateProcess($productIdentity.path, $guiCommand, [IntPtr]::Zero, [IntPtr]::Zero, $false,
+        0x01000000, [IntPtr]::Zero, (Split-Path $productIdentity.path -Parent), [ref]$guiStartup, [ref]$guiProcess) # CREATE_BREAKAWAY_FROM_JOB
+      if (-not $guiCreated) {
+        $guiError = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+        Fail "Persistenter SSE-Prozess konnte nicht gestartet werden (Win32-Fehler $guiError); kein zweiter Startweg." 'launch-error' `
+          ([pscustomobject]@{mutationStarted=$false;resultingState='unchanged'})
+      }
+      try { $started = [pscustomobject]@{Id=[int]$guiProcess.pid} }
+      finally {
+        if ($guiProcess.hThread -ne [IntPtr]::Zero) { $null = [DSK]::CloseHandle($guiProcess.hThread) }
+        if ($guiProcess.hProcess -ne [IntPtr]::Zero) { $null = [DSK]::CloseHandle($guiProcess.hProcess) }
+      }
+    } else {
+      $started = Start-Process -FilePath $productIdentity.path -ArgumentList $argl -WindowStyle Normal -PassThru
+    }
     Emit ([pscustomobject]@{
       # Fenster und Dialoge werden absichtlich erst durch frische Worker im
       # API-Executor verifiziert. Der Startprozess selbst kann seine von Qt
@@ -18465,7 +18522,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     if ($desktopHandle -eq [IntPtr]::Zero) {
       Fail "Markierter Desktop '$($script:DESKTOP_NAME)' ist nicht mehr erreichbar; nichts beendet." 'ownership'
     }
-    try { $desktopWins = @(Get-WindowsOnDesktop $desktopHandle 'SSE' | Where-Object { [int]$_.pid -eq $ownedPid }) }
+    try {
+      Assert-SSEDesktopHasNoPeers $desktopHandle $ownedPid
+      $desktopWins = @(Get-WindowsOnDesktop $desktopHandle 'SSE' | Where-Object { [int]$_.pid -eq $ownedPid })
+    }
     finally { [DSK]::CloseDesktop($desktopHandle) | Out-Null }
     if (-not $desktopWins.Count) {
       Fail "PID $ownedPid besitzt auf dem markierten Desktop '$($script:DESKTOP_NAME)' kein SSE-Fenster; nichts beendet." 'ownership'
@@ -18603,6 +18663,17 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         $auxStatus.closed = -not [SW]::IsWindow([IntPtr][int64]$auxStatus.hwnd)
       }
     }
+    $peerRecheck = [DSK]::OpenDesktop($script:DESKTOP_NAME, 0, $false, 0x10000000)
+    if ($peerRecheck -eq [IntPtr]::Zero) { Fail 'Desktop vor Markerbereinigung nicht verifizierbar; Marker beibehalten.' 'ownership' }
+    try {
+      Assert-SSEDesktopHasNoPeers $peerRecheck $ownedPid ([pscustomobject]@{
+        hartBeendet=$beendet; pid=$ownedPid; processExited=$true; mutationAttempted=$true; outcomeUnknown=$false
+        desktopMarkeEntfernt=$false; speichernAntwort=$antwort; antwortMethode=$antwortMethode
+        dialogFehler=$dialogFehler; gracefulWaitMs=$gracefulWaitMs; discardChanges=$discard
+        hauptfensterVorher=$hauptfensterVorher; hilfsfenster=@($auxiliaryClosed)
+      })
+    }
+    finally { $null = [DSK]::CloseDesktop($peerRecheck) }
     $markerError = $null
     try {
       $markerRemoved = Remove-SSEDesktopMarkerIfOwned $script:DESKTOP_MARKE 'sse' $script:DESKTOP_NAME $ownedPid
@@ -18624,12 +18695,13 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     $statusProcess = $(if ($script:DESKTOP_PID) { Get-Process -Id $script:DESKTOP_PID -ErrorAction SilentlyContinue } else { $null })
     $statusProcessIdentity = $(if ($statusProcess) { Get-SSEProcessIdentity $statusProcess } else { $null })
     $ownedRunning = [bool]($statusProcessIdentity -and $statusProcessIdentity.supported)
-    $statusWindows = @(); $desktopReachable = $false
+    $statusWindows = @(); $statusPeers = @(); $desktopReachable = $false
     if ($script:DESKTOP_NAME) {
       $statusDesktop = [DSK]::OpenDesktop($script:DESKTOP_NAME, 0, $false, 0x10000000)
       if ($statusDesktop -ne [IntPtr]::Zero) {
         $desktopReachable = $true
         try {
+          $statusPeers = @(Get-SSEDesktopPeerWindows $statusDesktop ([int]$script:DESKTOP_PID))
           $statusWindows = @(Get-WindowsOnDesktop $statusDesktop 'SSE' |
             Where-Object { [int]$_.pid -eq [int]$script:DESKTOP_PID })
         } finally { [DSK]::CloseDesktop($statusDesktop) | Out-Null }
@@ -18642,12 +18714,13 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       desktop = $script:DESKTOP_NAME
       pid = $script:DESKTOP_PID
       sseLaeuft = $ownedRunning
+      weitereInstanzen = $statusPeers
       processIdentity = $statusProcessIdentity
       desktopErreichbar = $desktopReachable
       markeVeraltet = [bool]($markerPresent -and -not ($script:DESKTOP_NAME -and $script:DESKTOP_PID -and $ownedRunning -and $desktopReachable -and $statusWindows.Count))
       fenster = $statusWindows
       note = $(if ($script:DESKTOP_OWNER -eq 'center-test') { 'Status hat einen Center-Testmarker nur diagnostiziert; keine SSE-Instanz wurde uebernommen oder veraendert.' }
-               elseif ($script:DESKTOP_NAME) { "Status hat den markierten Desktop '$($script:DESKTOP_NAME)' explizit geoeffnet und nur PID $($script:DESKTOP_PID) geprueft." }
+               elseif ($script:DESKTOP_NAME) { "Status hat den markierten Desktop '$($script:DESKTOP_NAME)' explizit geoeffnet und seine Fenster diagnostiziert." }
                else { 'Keine gueltige Desktopmarke geladen.' })
     })
   }

@@ -54,9 +54,9 @@ int main(int argc, char **argv) {
     if (argc != 5) return 2;
     const std::string name = argv[1], readyPath = argv[2], mode = argv[3], statePath = argv[4];
     if (name.rfind("SSEStopTest_", 0) != 0 || name.size() > 64) return 3;
-    const auto prior = OpenDesktopA(name.c_str(), 0, FALSE, DESKTOP_READOBJECTS);
-    if (prior) { CloseDesktop(prior); return 5; }
-    const auto desktop = CreateDesktopA(name.c_str(), nullptr, nullptr, 0, GENERIC_ALL, nullptr);
+    const auto prior = OpenDesktopA(name.c_str(), 0, FALSE, GENERIC_ALL);
+    if ((prior != nullptr) != (mode == "peer")) { if (prior) CloseDesktop(prior); return 5; }
+    const auto desktop = prior ? prior : CreateDesktopA(name.c_str(), nullptr, nullptr, 0, GENERIC_ALL, nullptr);
     if (!desktop || !SetThreadDesktop(desktop)) return 6;
     const auto input = OpenInputDesktop(0, FALSE, DESKTOP_READOBJECTS); char inputName[256]{}; DWORD needed = 0;
     if (!input || !GetUserObjectInformationA(input, UOI_NAME, inputName, sizeof(inputName), &needed) || name == inputName) return 7;

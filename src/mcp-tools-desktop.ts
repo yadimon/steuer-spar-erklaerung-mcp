@@ -45,7 +45,9 @@ export function registerDesktopTools(registry: McpRegistry): void {
         "bleiben Prozess und Marker zur bewussten Klaerung erhalten. Hat die markierte PID kein breites " +
         "Hauptfenster mehr (nur Dialog oder Startbild, etwa nach einem nie gespeicherten Fall), beendet " +
         "discardChanges=true genau diese PID hart und raeumt den Marker ab; ohne discardChanges bleibt sie " +
-        "mit confirmation-required erhalten. Das Ergebnis meldet hauptfensterVorher.",
+        "mit confirmation-required erhalten. Weitere Instanzen auf dem Desktop muessen zuerst explizit mit PID/HWND " +
+        "geschlossen werden; desktop-other-instances erhaelt den Marker und meldet weitereInstanzen. " +
+        "Das Ergebnis meldet hauptfensterVorher.",
     },
     { timeoutMs: 120_000 },
   );
@@ -54,7 +56,8 @@ export function registerDesktopTools(registry: McpRegistry): void {
     "sse_desktop_status",
     {
       title: "Laeuft die Instanz versteckt?",
-      description: "Prueft die markierte eigene PID und meldet auch eine veraltete oder unvollstaendige Desktop-Marke.",
+      description: "Prueft die markierte eigene PID und meldet auch eine veraltete oder unvollstaendige Desktop-Marke. " +
+        "Weitere sichtbare Fenster anderer Prozesse auf diesem Desktop stehen mit PID/HWND in weitereInstanzen.",
     },
     (r) => ({
       aktiv: r.aktiv,
@@ -64,6 +67,7 @@ export function registerDesktopTools(registry: McpRegistry): void {
       desktopErreichbar: r.desktopErreichbar,
       markeVeraltet: r.markeVeraltet,
       fenster: asArray(r.fenster),
+      weitereInstanzen: asArray(r.weitereInstanzen),
       note: r.note,
     }),
   );
