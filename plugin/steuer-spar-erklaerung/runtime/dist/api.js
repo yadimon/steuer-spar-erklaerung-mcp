@@ -7549,14 +7549,14 @@ async function executeCheckerOpen(args, timeoutMs, signal, worker) {
       Math.min(timeoutMs ?? 3e5, 3e5),
       signal
     );
-    const performance22 = result.performance && typeof result.performance === "object" && !Array.isArray(result.performance) ? result.performance : {};
+    const performance23 = result.performance && typeof result.performance === "object" && !Array.isArray(result.performance) ? result.performance : {};
     return {
       ...result,
       schemaVersion: 1,
       planKind: CHECKER_OPEN_PLAN_KIND,
       resultingState: typeof result.resultingState === "string" ? result.resultingState : result.ok === true ? "detail-verified" : "unknown",
       cleanupRequired: typeof result.cleanupRequired === "boolean" ? result.cleanupRequired : result.ok !== true,
-      performance: { ...performance22, workerProcessCount: 1 },
+      performance: { ...performance23, workerProcessCount: 1 },
       ...result.ok === true ? { kontrollbildEnthalten: typeof result.bildBase64 === "string" && result.bildBase64.length > 0 } : {}
     };
   } catch (error) {
@@ -24476,6 +24476,7 @@ async function readReadiness(child, timeoutMs, signal) {
   });
 }
 async function startQtNativeBroker(options) {
+  const started = performance.now();
   const { package: nativePackage, target, expectedImage, signal } = options;
   if (signal?.aborted) throw new QtNativeTransportError("Native startup cancelled before launch.", "aborted");
   if (!Number.isSafeInteger(target.pid) || target.pid < 1 || target.pid > 4294967295 || !Number.isSafeInteger(target.hwnd) || target.hwnd < 1 || !isAbsolute8(expectedImage) || /[\u0000-\u001f]/u.test(expectedImage) || target.desktop !== void 0 && !/^[A-Za-z0-9_-]{1,64}$/u.test(target.desktop)) {
@@ -24511,7 +24512,7 @@ async function startQtNativeBroker(options) {
       processExited = true;
       resolveExit();
     });
-    child.once("error", () => resolveExit());
+    child.on("error", () => resolveExit());
   });
   const abort = () => {
     client?.close();
@@ -24519,7 +24520,7 @@ async function startQtNativeBroker(options) {
   };
   signal?.addEventListener("abort", abort, { once: true });
   try {
-    const started = performance.now(), waiting = readReadiness(child, options.timeoutMs, signal);
+    const waiting = readReadiness(child, options.timeoutMs, signal);
     child.stdin.write(Buffer.concat([header, body]));
     const loaded = await waiting;
     if (loaded.ok !== true || loaded.pipePeerVerified !== true || loaded.binaryIdentityVerified !== true || loaded.bindingDiscovered !== true || loaded.bridgeImageVerified !== true || loaded.controllerPid !== process.pid || loaded.brokerPid !== child.pid || loaded.ownerPid !== child.pid || loaded.pid !== target.pid || loaded.hwnd !== target.hwnd || typeof loaded.ownerCreationTime !== "string" || !/^[1-9][0-9]{0,19}$/u.test(loaded.ownerCreationTime) || loaded.bridgeBuildIdentity !== nativePackage.manifest.buildIdentity || typeof loaded.image !== "string" || loaded.image.toLowerCase() !== expectedImage.toLowerCase()) {
@@ -24561,18 +24562,40 @@ async function startQtNativeBroker(options) {
     client?.close();
     stream?.destroy();
     child.kill();
-    await exited;
+    let grace;
+    try {
+      const remaining = Math.max(0, Math.min(STARTUP_EXIT_GRACE_MS, options.timeoutMs - (performance.now() - started)));
+      await Promise.race([exited, new Promise((resolveGrace) => {
+        grace = setTimeout(resolveGrace, remaining);
+      })]);
+    } finally {
+      clearTimeout(grace);
+    }
+    if (child.pid !== void 0 && !processExited) {
+      throw new QtNativeStartupUnprovenError({ close: () => exited, get processExited() {
+        return processExited;
+      } }, error);
+    }
     if (error instanceof QtNativeTransportError) throw error;
     throw new QtNativeTransportError("Native broker startup failed.", "native-startup", true);
   } finally {
     signal?.removeEventListener("abort", abort);
   }
 }
-var BrokerStream;
+var STARTUP_EXIT_GRACE_MS, QtNativeStartupUnprovenError, BrokerStream;
 var init_qt_native_broker = __esm({
   "src/qt-native-broker.ts"() {
     "use strict";
     init_qt_native_client();
+    STARTUP_EXIT_GRACE_MS = 1e3;
+    QtNativeStartupUnprovenError = class extends QtNativeTransportError {
+      constructor(retirement, cause) {
+        super("Native broker startup failed without a verified child exit.", "native-startup-unproven", true);
+        this.retirement = retirement;
+        this.cause = cause;
+      }
+      retirement;
+    };
     BrokerStream = class extends Duplex {
       constructor(child) {
         super();
@@ -25249,6 +25272,11 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
   };
   const readMarker = dependencies.readMarker ?? (() => resolveDesktopMarkerForOperation(desktopMarkerPath(), "get_value", false));
   const sessions = /* @__PURE__ */ new Map();
+  const retiring = /* @__PURE__ */ new Map();
+  const changeWaiters = /* @__PURE__ */ new Set();
+  const changed = () => {
+    for (const notify of [...changeWaiters]) notify();
+  };
   const processExists = dependencies.processExists ?? ((pid2) => {
     try {
       process.kill(pid2, 0);
@@ -25259,7 +25287,7 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
   });
   let selected, starting2;
   let startupAbort;
-  let stopped = false, revision = 0;
+  let stopped = false, revision = 0, lifecycleInFlight = false;
   const failure6 = (message, kind, outcomeUnknown = false) => new QtNativeTransportError(message, kind, outcomeUnknown);
   function currentMarker() {
     try {
@@ -25272,25 +25300,71 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
   function matchesMarker(binding, marker, explicit) {
     return binding.desktop === marker?.name && (explicit || marker?.pid == null || binding.pid === marker.pid);
   }
-  const left = (deadline) => {
+  const left = (deadline, kind = "native-timeout") => {
     const value = Math.floor(deadline - performance21.now());
-    if (value < 1) throw failure6("Native operation deadline exceeded before dispatch.", "native-timeout");
+    if (value < 1) throw failure6("Native operation deadline exceeded before dispatch.", kind);
     return value;
   };
-  async function waitForStartup(pending, deadline, signal) {
+  async function waitForChange(deadline, signal, kind) {
+    if (signal?.aborted) throw failure6("Native wait cancelled before dispatch.", "aborted");
+    const remaining = left(deadline, kind);
     await new Promise((resolveWait, reject) => {
+      let done = false;
       const finish = (error) => {
+        if (done) return;
+        done = true;
         clearTimeout(timer);
         signal?.removeEventListener("abort", abort);
+        changeWaiters.delete(notify);
         if (error) reject(error);
         else resolveWait();
       };
-      const abort = () => finish(failure6("Native startup wait cancelled.", "aborted"));
-      const timer = setTimeout(() => finish(failure6("Native startup wait exceeded its deadline.", "native-timeout")), left(deadline));
+      const abort = () => finish(failure6("Native wait cancelled before dispatch.", "aborted"));
+      const notify = () => {
+        try {
+          left(deadline, kind);
+          finish();
+        } catch (error) {
+          finish(error);
+        }
+      };
+      const timer = setTimeout(notify, Math.min(remaining, 100));
+      changeWaiters.add(notify);
       signal?.addEventListener("abort", abort, { once: true });
-      pending.then(() => finish(), (error) => finish(error));
       if (signal?.aborted) abort();
     });
+  }
+  async function waitForStartup(pending, deadline, signal) {
+    while (starting2 === pending) await waitForChange(deadline, signal, "native-timeout");
+    if (signal?.aborted) throw failure6("Native startup wait cancelled.", "aborted");
+    left(deadline);
+  }
+  function retire(session) {
+    if (retiring.has(session)) return;
+    const record = { settled: false };
+    retiring.set(session, record);
+    const settled = () => {
+      record.settled = true;
+      changed();
+    };
+    try {
+      void Promise.resolve(session.close()).then(settled, settled);
+    } catch {
+      settled();
+    }
+  }
+  function pruneRetirements() {
+    for (const session of retiring.keys()) if (session.processExited === true) retiring.delete(session);
+  }
+  async function quiesce(deadline, signal, includeLifecycle = true) {
+    for (; ; ) {
+      if (signal?.aborted) throw failure6("Native cleanup wait cancelled before dispatch.", "aborted");
+      pruneRetirements();
+      if ([...retiring.values()].some((record) => record.settled))
+        throw failure6("Native broker exit remains unverified; no new operation was submitted.", "native-retirement-unproven");
+      if (!starting2 && !retiring.size && (!includeLifecycle || !lifecycleInFlight)) return;
+      await waitForChange(deadline, signal, "native-session-retiring");
+    }
   }
   async function discoverOnce(args, deadline, signal) {
     try {
@@ -25339,6 +25413,7 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
   }
   async function obtain(args, deadline, signal) {
     if (stopped || shutdown.aborted || signal?.aborted) throw failure6("Native runtime is stopping or the request was cancelled.", "aborted");
+    if (lifecycleInFlight) throw failure6("A native desktop lifecycle operation is still running.", "native-session-changed");
     const requested = typeof args.hwnd === "number" ? args.hwnd : selected;
     const explicit = typeof args.hwnd === "number";
     const retained = requested === void 0 ? void 0 : sessions.get(requested);
@@ -25347,10 +25422,15 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
       await waitForStartup(starting2, deadline, signal);
       return obtain(args, deadline, signal);
     }
+    pruneRetirements();
+    if (retiring.size) {
+      await quiesce(deadline, signal);
+      return obtain(args, deadline, signal);
+    }
     const expectedRevision = revision;
     startupAbort = new AbortController();
     const startupSignal = startupAbort.signal;
-    starting2 = withCombinedAbortSignal([signal, shutdown, startupSignal], async (combined) => {
+    const pending = withCombinedAbortSignal([signal, shutdown, startupSignal], async (combined) => {
       const binding = await target(args, deadline, combined);
       if (combined.aborted || stopped || expectedRevision !== revision) throw failure6("Native attachment was cancelled before launch.", "aborted");
       if (!matchesMarker(binding, currentMarker(), explicit))
@@ -25381,71 +25461,105 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
       if ([...sessions.values()].some((session2) => session2.client.binding.pid === binding.pid)) {
         throw failure6("This process already has a native session bound to another window.", "native-window-conflict");
       }
-      const session = await start({
-        package: nativePackage,
-        target: binding,
-        expectedImage: executable[0],
-        timeoutMs: Math.min(left(deadline), 6e4),
-        signal: combined
-      });
-      if (stopped || shutdown.aborted || expectedRevision !== revision) {
-        await session.close();
+      let session;
+      try {
+        session = await start({
+          package: nativePackage,
+          target: binding,
+          expectedImage: executable[0],
+          timeoutMs: Math.min(left(deadline), 6e4),
+          signal: combined
+        });
+      } catch (error) {
+        if (error instanceof QtNativeStartupUnprovenError) retire(error.retirement);
+        throw error;
+      }
+      if (combined.aborted || stopped || shutdown.aborted || expectedRevision !== revision) {
+        retire(session);
         throw failure6("Native attachment was superseded by a lifecycle change.", "native-session-changed");
       }
       sessions.set(binding.hwnd, session);
       selected = binding.hwnd;
       return session;
     });
-    try {
-      return await starting2;
-    } finally {
-      starting2 = void 0;
-      startupAbort = void 0;
-    }
+    starting2 = pending;
+    const release = () => {
+      if (starting2 === pending) {
+        starting2 = void 0;
+        startupAbort = void 0;
+        changed();
+      }
+    };
+    void pending.then(release, release);
+    await waitForStartup(pending, deadline, signal);
+    return pending;
   }
-  async function clear() {
+  function clear() {
     revision++;
     selected = void 0;
     startupAbort?.abort(new Error("Native lifecycle changed during startup."));
-    const current = [...sessions.values()];
-    sessions.clear();
-    await Promise.all(current.map((session) => session.close()));
+    for (const [hwnd, session] of sessions) {
+      sessions.delete(hwnd);
+      retire(session);
+    }
   }
-  async function invalidate(predicate) {
+  function invalidate(predicate) {
     revision++;
     startupAbort?.abort(new Error("Native lifecycle changed during startup."));
-    const retiring = [];
     for (const [hwnd, session] of sessions) {
       if (!predicate(session)) continue;
       sessions.delete(hwnd);
       if (selected === hwnd) selected = void 0;
-      retiring.push(session);
+      retire(session);
     }
-    await Promise.all(retiring.map((session) => session.close()));
+  }
+  async function desktopLifecycle(timeoutMs, maximum, backend, signal, action) {
+    const started = performance21.now();
+    const budget = Number.isSafeInteger(timeoutMs) && timeoutMs >= 0 ? Math.min(timeoutMs, maximum) : 0;
+    const deadline = started + budget;
+    const beforeDispatchError = (error) => ({
+      ok: false,
+      backend,
+      kind: error instanceof QtNativeTransportError ? error.kind : "native-retirement-unproven",
+      error: error instanceof QtNativeTransportError ? error.message : "Native cleanup failed before desktop submission.",
+      outcomeUnknown: false,
+      ms: performance21.now() - started
+    });
+    return withCombinedAbortSignal([signal, shutdown], async (combined) => {
+      if (combined.aborted || stopped) return beforeDispatchError(failure6("Native desktop operation cancelled before submission.", "aborted"));
+      if (lifecycleInFlight) return beforeDispatchError(failure6("A native desktop lifecycle operation is still running.", "native-session-changed"));
+      lifecycleInFlight = true;
+      try {
+        clear();
+        try {
+          await quiesce(deadline, combined, false);
+        } catch (error) {
+          return beforeDispatchError(error);
+        }
+        return await action(Math.max(0, Math.floor(deadline - performance21.now())), combined);
+      } finally {
+        lifecycleInFlight = false;
+        changed();
+      }
+    });
   }
   const runtime = {
     async desktopStop(args, timeoutMs, signal) {
-      const boundedTimeout = Number.isSafeInteger(timeoutMs) && timeoutMs >= 0 ? Math.min(timeoutMs, MAX_NATIVE_DESKTOP_STOP_TIMEOUT_MS) : 0;
-      const deadline = performance21.now() + boundedTimeout;
-      await clear();
-      return withCombinedAbortSignal([signal, shutdown], (combined) => executeNativeDesktopStop({
+      return desktopLifecycle(timeoutMs, MAX_NATIVE_DESKTOP_STOP_TIMEOUT_MS, "win32-uia", signal, (remaining, combined) => executeNativeDesktopStop({
         package: nativePackage,
         executable: executable[0],
         args,
-        timeoutMs: Math.max(0, Math.floor(deadline - performance21.now())),
+        timeoutMs: remaining,
         signal: combined
       }));
     },
     async desktopStart(args, timeoutMs, signal) {
-      const boundedTimeout = Number.isSafeInteger(timeoutMs) && timeoutMs >= 0 ? Math.min(timeoutMs, MAX_NATIVE_DESKTOP_START_TIMEOUT_MS) : 0;
-      const deadline = performance21.now() + boundedTimeout;
-      await clear();
-      return withCombinedAbortSignal([signal, shutdown], (combined) => executeNativeDesktopStart({
+      return desktopLifecycle(timeoutMs, MAX_NATIVE_DESKTOP_START_TIMEOUT_MS, "win32", signal, (remaining, combined) => executeNativeDesktopStart({
         package: nativePackage,
         profile,
         executable: executable[0],
         args,
-        timeoutMs: Math.max(0, Math.floor(deadline - performance21.now())),
+        timeoutMs: remaining,
         signal: combined
       }));
     },
@@ -25473,42 +25587,43 @@ function createQtNativeRuntime(config, profile, shutdown, dependencies = {}) {
         return session.client;
       });
     },
+    async beforeWorker(timeoutMs, signal) {
+      if (stopped) throw failure6("Native runtime is stopping.", "aborted");
+      await withCombinedAbortSignal([signal, shutdown], (combined) => quiesce(performance21.now() + timeoutMs, combined));
+    },
     async afterWorker(operation, result, args = {}) {
       if (result.ok !== true || result.outcomeUnknown === true) return;
       const identity = (value) => typeof value === "number" && Number.isSafeInteger(value) && value > 0;
       if (operation === "window_close") {
         if (result.onlyTargetRemoved === true && result.verified === true && identity(result.hwnd)) {
-          await invalidate((session) => session.client.binding.hwnd === result.hwnd);
-        } else await clear();
+          invalidate((session) => session.client.binding.hwnd === result.hwnd);
+        } else clear();
         return;
       }
       if (!["desktop_start", "desktop_stop", "launch", "close", "save_as", "case_create"].includes(operation)) return;
       if (identity(result.pid)) {
-        await invalidate((session) => session.client.binding.pid === result.pid);
+        invalidate((session) => session.client.binding.pid === result.pid);
       } else if (identity(args.hwnd)) {
-        await invalidate((session) => session.client.binding.hwnd === args.hwnd);
+        invalidate((session) => session.client.binding.hwnd === args.hwnd);
       } else {
-        await clear();
+        clear();
       }
       if (operation === "launch" || operation === "desktop_start" || operation === "case_create") selected = void 0;
     },
-    async close() {
+    async close(timeoutMs = SHUTDOWN_TIMEOUT_MS) {
       stopped = true;
-      await clear();
-      if (starting2) {
-        try {
-          await starting2;
-        } catch {
-        }
-      }
+      clear();
+      const budget = Number.isSafeInteger(timeoutMs) && timeoutMs >= 0 ? Math.min(timeoutMs, SHUTDOWN_TIMEOUT_MS) : 0;
+      await quiesce(performance21.now() + budget);
     }
   };
   shutdown.addEventListener("abort", () => {
-    void runtime.close();
+    void runtime.close().catch(() => {
+    });
   }, { once: true });
   return runtime;
 }
-var contextSchema, NAMED_WINDOW_SETTLE_MS, NAMED_WINDOW_POLL_MS;
+var contextSchema, NAMED_WINDOW_SETTLE_MS, NAMED_WINDOW_POLL_MS, SHUTDOWN_TIMEOUT_MS;
 var init_qt_native_runtime = __esm({
   "src/qt-native-runtime.ts"() {
     "use strict";
@@ -25526,6 +25641,54 @@ var init_qt_native_runtime = __esm({
     contextSchema = external_exports.object({ ok: external_exports.literal(true), boundMain: external_exports.boolean(), unique: external_exports.boolean() }).passthrough();
     NAMED_WINDOW_SETTLE_MS = 2e3;
     NAMED_WINDOW_POLL_MS = 150;
+    SHUTDOWN_TIMEOUT_MS = 5e3;
+  }
+});
+
+// src/qt-native-worker.ts
+import { performance as performance22 } from "node:perf_hooks";
+function withQtNativeLifecycle(worker, native) {
+  let active = false;
+  return async (operation, args, timeoutMs, signal) => {
+    if (active) return {
+      ok: false,
+      kind: "busy",
+      error: "A native-managed worker operation is already running.",
+      outcomeUnknown: false,
+      mutationStarted: false,
+      resultingState: "unchanged"
+    };
+    active = true;
+    try {
+      const budget = timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS;
+      const started = performance22.now();
+      let remaining;
+      try {
+        await native.beforeWorker(budget, signal);
+        remaining = Math.floor(budget - (performance22.now() - started));
+        if (remaining < 1) throw new QtNativeTransportError("Worker deadline exceeded before submission.", "native-timeout");
+      } catch (error) {
+        return {
+          ok: false,
+          backend: "qt",
+          outcomeUnknown: false,
+          kind: error instanceof QtNativeTransportError ? error.kind : "native-retirement-unproven",
+          error: error instanceof QtNativeTransportError ? error.message : "Native cleanup failed before worker submission."
+        };
+      }
+      const result = await worker(operation, args, remaining, signal);
+      await native.afterWorker(operation, result, args);
+      return result;
+    } finally {
+      active = false;
+    }
+  };
+}
+var init_qt_native_worker = __esm({
+  "src/qt-native-worker.ts"() {
+    "use strict";
+    init_api_contract();
+    init_qt_native_client();
   }
 });
 
@@ -25665,16 +25828,16 @@ async function runApiRuntime(configPath, overrides = {}) {
     return attachScreenshotImage(config.resultDir, operation, args, result);
   };
   const native = config.qtNativeRuntime ? createQtNativeRuntime(config, loadProductProfile(config.profileId), shutdown.signal, overrides.qtNativeDependencies) : void 0;
-  const execute = createApiExecutor(config, async (operation, args, timeoutMs, signal) => {
-    const result = await worker(operation, args, timeoutMs, signal);
-    await native?.afterWorker(operation, result, args);
-    return result;
-  }, native ? {
-    qtNativeClientFor: native.client,
-    nativeDesktopStatus: native.desktopStatus,
-    nativeDesktopStart: native.desktopStart,
-    nativeDesktopStop: native.desktopStop
-  } : {});
+  const execute = createApiExecutor(
+    config,
+    native ? withQtNativeLifecycle(worker, native) : worker,
+    native ? {
+      qtNativeClientFor: native.client,
+      nativeDesktopStatus: native.desktopStatus,
+      nativeDesktopStart: native.desktopStart,
+      nativeDesktopStop: native.desktopStop
+    } : {}
+  );
   const logDir = join15(dirname14(config.configPath), "logs");
   const logPath = join15(logDir, "api.jsonl");
   const maxLogBytes = 5 * 1024 * 1024;
@@ -25692,7 +25855,10 @@ async function runApiRuntime(configPath, overrides = {}) {
     await listenSseApiServer(server, config.host, config.port);
   } catch (error) {
     lifecycle.dispose();
-    await native?.close();
+    try {
+      await native?.close();
+    } catch {
+    }
     throw error;
   }
   shutdown.signal.addEventListener("abort", shutdownWarmSpare, { once: true });
@@ -25719,6 +25885,7 @@ var init_api_runtime = __esm({
     init_bounded_files();
     init_jsonl_logger();
     init_qt_native_runtime();
+    init_qt_native_worker();
     init_product_profiles();
     MAX_SCREENSHOT_IMAGE_BYTES = 20 * 1024 * 1024;
     PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);

@@ -7,7 +7,8 @@ import type { SseApiOperation, WorkerResult } from "./api-contract.js";
 import type { ProductProfile } from "./product-profiles.js";
 import { QtNativeTransportError, type QtNativeClient } from "./qt-native-client.js";
 import { loadQtNativePackage, type QtNativePackage } from "./qt-native-package.js";
-import { startQtNativeBroker, type QtNativeBrokerOptions, type QtNativeSession, type QtNativeTarget } from "./qt-native-broker.js";
+import { startQtNativeBroker, QtNativeStartupUnprovenError,
+  type QtNativeBrokerOptions, type QtNativeSession, type QtNativeTarget, type QtNativeRetirementHandle } from "./qt-native-broker.js";
 import { withCombinedAbortSignal } from "./abort.js";
 import { executeNativeDesktopStatus } from "./native-desktop-status.js";
 import { executeNativeDesktopStart, MAX_NATIVE_DESKTOP_START_TIMEOUT_MS } from "./native-desktop-start.js";
@@ -24,14 +25,16 @@ const contextSchema = z.object({ ok: z.literal(true), boundMain: z.boolean(), un
 // never towards another target. Without an HWND 'no-window' stays immediate.
 const NAMED_WINDOW_SETTLE_MS = 2_000;
 const NAMED_WINDOW_POLL_MS = 150;
+const SHUTDOWN_TIMEOUT_MS = 5_000;
 
 export interface QtNativeRuntime {
   desktopStatus(timeoutMs: number, signal?: AbortSignal): Promise<WorkerResult>;
   desktopStart(args: Readonly<Record<string, unknown>>, timeoutMs: number, signal?: AbortSignal): Promise<WorkerResult>;
   desktopStop(args: Readonly<Record<string, unknown>>, timeoutMs: number, signal?: AbortSignal): Promise<WorkerResult>;
   client(args: Readonly<Record<string, unknown>>, timeoutMs: number, signal?: AbortSignal): Promise<QtNativeClient>;
+  beforeWorker(timeoutMs: number, signal?: AbortSignal): Promise<void>;
   afterWorker(operation: SseApiOperation, result: WorkerResult, args?: Readonly<Record<string, unknown>>): Promise<void>;
-  close(): Promise<void>;
+  close(timeoutMs?: number): Promise<void>;
 }
 
 export interface QtNativeRuntimeDependencies {
@@ -64,13 +67,16 @@ export function createQtNativeRuntime(
   };
   const readMarker = dependencies.readMarker ?? (() => resolveDesktopMarkerForOperation(desktopMarkerPath(), "get_value", false));
   const sessions = new Map<number, QtNativeSession>();
+  const retiring = new Map<QtNativeRetirementHandle, { settled: boolean }>();
+  const changeWaiters = new Set<() => void>();
+  const changed = () => { for (const notify of [...changeWaiters]) notify(); };
   const processExists = dependencies.processExists ?? ((pid: number): boolean | null => {
     try { process.kill(pid, 0); return true; }
     catch (error) { return (error as NodeJS.ErrnoException).code === "ESRCH" ? false : null; }
   });
   let selected: number | undefined, starting: Promise<QtNativeSession> | undefined;
   let startupAbort: AbortController | undefined;
-  let stopped = false, revision = 0;
+  let stopped = false, revision = 0, lifecycleInFlight = false;
   const failure = (message: string, kind: string, outcomeUnknown = false) => new QtNativeTransportError(message, kind, outcomeUnknown);
   function currentMarker(): DesktopMarker | null {
     try { return readMarker(); }
@@ -82,23 +88,60 @@ export function createQtNativeRuntime(
   function matchesMarker(binding: QtNativeTarget, marker: DesktopMarker | null, explicit: boolean): boolean {
     return binding.desktop === marker?.name && (explicit || marker?.pid == null || binding.pid === marker.pid);
   }
-  const left = (deadline: number) => {
+  const left = (deadline: number, kind = "native-timeout") => {
     const value = Math.floor(deadline - performance.now());
-    if (value < 1) throw failure("Native operation deadline exceeded before dispatch.", "native-timeout");
+    if (value < 1) throw failure("Native operation deadline exceeded before dispatch.", kind);
     return value;
   };
-  async function waitForStartup(pending: Promise<QtNativeSession>, deadline: number, signal?: AbortSignal): Promise<void> {
+  async function waitForChange(deadline: number, signal: AbortSignal | undefined, kind: string): Promise<void> {
+    if (signal?.aborted) throw failure("Native wait cancelled before dispatch.", "aborted");
+    const remaining = left(deadline, kind);
     await new Promise<void>((resolveWait, reject) => {
+      let done = false;
       const finish = (error?: unknown) => {
-        clearTimeout(timer); signal?.removeEventListener("abort", abort);
+        if (done) return; done = true;
+        clearTimeout(timer); signal?.removeEventListener("abort", abort); changeWaiters.delete(notify);
         if (error) reject(error); else resolveWait();
       };
-      const abort = () => finish(failure("Native startup wait cancelled.", "aborted"));
-      const timer = setTimeout(() => finish(failure("Native startup wait exceeded its deadline.", "native-timeout")), left(deadline));
+      const abort = () => finish(failure("Native wait cancelled before dispatch.", "aborted"));
+      const notify = () => {
+        try { left(deadline, kind); finish(); } catch (error) { finish(error); }
+      };
+      // Also observe a late actual exit after an error-fulfilled completion.
+      // Timed-out callers leave no reactions attached to an endless Promise.
+      const timer = setTimeout(notify, Math.min(remaining, 100));
+      changeWaiters.add(notify);
       signal?.addEventListener("abort", abort, { once: true });
-      pending.then(() => finish(), error => finish(error));
       if (signal?.aborted) abort();
     });
+  }
+  async function waitForStartup(pending: Promise<QtNativeSession>, deadline: number, signal?: AbortSignal): Promise<void> {
+    // Only the owner returns the startup's result. Later callers recheck
+    // retained ownership instead of inheriting another request's failure.
+    while (starting === pending) await waitForChange(deadline, signal, "native-timeout");
+    if (signal?.aborted) throw failure("Native startup wait cancelled.", "aborted");
+    left(deadline);
+  }
+  function retire(session: QtNativeRetirementHandle): void {
+    if (retiring.has(session)) return;
+    const record = { settled: false };
+    retiring.set(session, record);
+    const settled = () => { record.settled = true; changed(); };
+    try { void Promise.resolve(session.close()).then(settled, settled); }
+    catch { settled(); }
+  }
+  function pruneRetirements(): void {
+    for (const session of retiring.keys()) if (session.processExited === true) retiring.delete(session);
+  }
+  async function quiesce(deadline: number, signal?: AbortSignal, includeLifecycle = true): Promise<void> {
+    for (;;) {
+      if (signal?.aborted) throw failure("Native cleanup wait cancelled before dispatch.", "aborted");
+      pruneRetirements();
+      if ([...retiring.values()].some(record => record.settled))
+        throw failure("Native broker exit remains unverified; no new operation was submitted.", "native-retirement-unproven");
+      if (!starting && !retiring.size && (!includeLifecycle || !lifecycleInFlight)) return;
+      await waitForChange(deadline, signal, "native-session-retiring");
+    }
   }
   async function discoverOnce(args: Readonly<Record<string, unknown>>, deadline: number, signal?: AbortSignal): Promise<QtNativeTarget> {
     try {
@@ -133,15 +176,18 @@ export function createQtNativeRuntime(
   }
   async function obtain(args: Readonly<Record<string, unknown>>, deadline: number, signal?: AbortSignal): Promise<QtNativeSession> {
     if (stopped || shutdown.aborted || signal?.aborted) throw failure("Native runtime is stopping or the request was cancelled.", "aborted");
+    if (lifecycleInFlight) throw failure("A native desktop lifecycle operation is still running.", "native-session-changed");
     const requested = typeof args.hwnd === "number" ? args.hwnd : selected;
     const explicit = typeof args.hwnd === "number";
     const retained = requested === undefined ? undefined : sessions.get(requested);
     if (retained && matchesMarker(retained.client.binding, currentMarker(), explicit)) return retained;
     if (starting) { await waitForStartup(starting, deadline, signal); return obtain(args, deadline, signal); }
+    pruneRetirements();
+    if (retiring.size) { await quiesce(deadline, signal); return obtain(args, deadline, signal); }
     const expectedRevision = revision;
     startupAbort = new AbortController();
     const startupSignal = startupAbort.signal;
-    starting = withCombinedAbortSignal([signal, shutdown, startupSignal], async combined => {
+    const pending = withCombinedAbortSignal([signal, shutdown, startupSignal], async combined => {
       const binding = await target(args, deadline, combined);
       if (combined.aborted || stopped || expectedRevision !== revision) throw failure("Native attachment was cancelled before launch.", "aborted");
       if (!matchesMarker(binding, currentMarker(), explicit))
@@ -175,57 +221,78 @@ export function createQtNativeRuntime(
       if ([...sessions.values()].some(session => session.client.binding.pid === binding.pid)) {
         throw failure("This process already has a native session bound to another window.", "native-window-conflict");
       }
-      const session = await start({
-        package: nativePackage, target: binding, expectedImage: executable[0]!, timeoutMs: Math.min(left(deadline), 60_000), signal: combined,
-      });
-      if (stopped || shutdown.aborted || expectedRevision !== revision) {
-        await session.close(); throw failure("Native attachment was superseded by a lifecycle change.", "native-session-changed");
+      let session: QtNativeSession;
+      try {
+        session = await start({
+          package: nativePackage, target: binding, expectedImage: executable[0]!, timeoutMs: Math.min(left(deadline), 60_000), signal: combined,
+        });
+      } catch (error) {
+        if (error instanceof QtNativeStartupUnprovenError) retire(error.retirement);
+        throw error;
+      }
+      if (combined.aborted || stopped || shutdown.aborted || expectedRevision !== revision) {
+        retire(session); throw failure("Native attachment was superseded by a lifecycle change.", "native-session-changed");
       }
       sessions.set(binding.hwnd, session); selected = binding.hwnd;
       // Failed connections to live or unprovable processes stay bound until an explicit lifecycle change;
       // later requests do not silently reconnect or replay work.
       return session;
     });
-    try { return await starting; } finally { starting = undefined; startupAbort = undefined; }
+    starting = pending;
+    const release = () => {
+      if (starting === pending) { starting = undefined; startupAbort = undefined; changed(); }
+    };
+    void pending.then(release, release);
+    await waitForStartup(pending, deadline, signal); return pending;
   }
-  async function clear(): Promise<void> {
+  function clear(): void {
     revision++; selected = undefined;
     startupAbort?.abort(new Error("Native lifecycle changed during startup."));
-    const current = [...sessions.values()]; sessions.clear();
-    await Promise.all(current.map(session => session.close()));
+    for (const [hwnd, session] of sessions) { sessions.delete(hwnd); retire(session); }
   }
-  async function invalidate(predicate: (session: QtNativeSession) => boolean): Promise<void> {
+  function invalidate(predicate: (session: QtNativeSession) => boolean): void {
     revision++;
     startupAbort?.abort(new Error("Native lifecycle changed during startup."));
-    const retiring: QtNativeSession[] = [];
     for (const [hwnd, session] of sessions) {
       if (!predicate(session)) continue;
       sessions.delete(hwnd);
       if (selected === hwnd) selected = undefined;
-      retiring.push(session);
+      retire(session);
     }
-    await Promise.all(retiring.map(session => session.close()));
+  }
+  async function desktopLifecycle(timeoutMs: number, maximum: number, backend: "win32" | "win32-uia", signal: AbortSignal | undefined,
+    action: (remaining: number, combined: AbortSignal) => Promise<WorkerResult>): Promise<WorkerResult> {
+    const started = performance.now();
+    const budget = Number.isSafeInteger(timeoutMs) && timeoutMs >= 0 ? Math.min(timeoutMs, maximum) : 0;
+    const deadline = started + budget;
+    const beforeDispatchError = (error: unknown): WorkerResult => ({
+      ok: false, backend, kind: error instanceof QtNativeTransportError ? error.kind : "native-retirement-unproven",
+      error: error instanceof QtNativeTransportError ? error.message : "Native cleanup failed before desktop submission.",
+      outcomeUnknown: false, ms: performance.now() - started,
+    });
+    return withCombinedAbortSignal([signal, shutdown], async combined => {
+      if (combined.aborted || stopped) return beforeDispatchError(failure("Native desktop operation cancelled before submission.", "aborted"));
+      if (lifecycleInFlight) return beforeDispatchError(failure("A native desktop lifecycle operation is still running.", "native-session-changed"));
+      lifecycleInFlight = true;
+      try {
+        clear();
+        try { await quiesce(deadline, combined, false); } catch (error) { return beforeDispatchError(error); }
+        return await action(Math.max(0, Math.floor(deadline - performance.now())), combined);
+      } finally { lifecycleInFlight = false; changed(); }
+    });
   }
   const runtime: QtNativeRuntime = {
     async desktopStop(args, timeoutMs, signal) {
-      const boundedTimeout = Number.isSafeInteger(timeoutMs) && timeoutMs >= 0
-        ? Math.min(timeoutMs, MAX_NATIVE_DESKTOP_STOP_TIMEOUT_MS) : 0;
-      const deadline = performance.now() + boundedTimeout;
-      await clear();
-      return withCombinedAbortSignal([signal, shutdown], combined => executeNativeDesktopStop({
+      return desktopLifecycle(timeoutMs, MAX_NATIVE_DESKTOP_STOP_TIMEOUT_MS, "win32-uia", signal, (remaining, combined) => executeNativeDesktopStop({
         package: nativePackage, executable: executable[0]!, args,
-        timeoutMs: Math.max(0, Math.floor(deadline - performance.now())), signal: combined,
+        timeoutMs: remaining, signal: combined,
       }));
     },
     async desktopStart(args, timeoutMs, signal) {
       // A longer API/MCP ceiling never expands the external helper's bound.
       // Retiring a prior session consumes this same capped absolute deadline.
-      const boundedTimeout = Number.isSafeInteger(timeoutMs) && timeoutMs >= 0
-        ? Math.min(timeoutMs, MAX_NATIVE_DESKTOP_START_TIMEOUT_MS) : 0;
-      const deadline = performance.now() + boundedTimeout;
-      await clear();
-      return withCombinedAbortSignal([signal, shutdown], combined => executeNativeDesktopStart({
-        package: nativePackage, profile, executable: executable[0]!, args, timeoutMs: Math.max(0, Math.floor(deadline - performance.now())), signal: combined,
+      return desktopLifecycle(timeoutMs, MAX_NATIVE_DESKTOP_START_TIMEOUT_MS, "win32", signal, (remaining, combined) => executeNativeDesktopStart({
+        package: nativePackage, profile, executable: executable[0]!, args, timeoutMs: remaining, signal: combined,
       }));
     },
     async desktopStatus(timeoutMs, signal) {
@@ -246,6 +313,10 @@ export function createQtNativeRuntime(
         return session.client;
       });
     },
+    async beforeWorker(timeoutMs, signal) {
+      if (stopped) throw failure("Native runtime is stopping.", "aborted");
+      await withCombinedAbortSignal([signal, shutdown], combined => quiesce(performance.now() + timeoutMs, combined));
+    },
     async afterWorker(operation, result, args = {}) {
       // A failed/unknown mutation must retain its failed binding, not silently
       // create a fresh session that could be mistaken for permission to retry.
@@ -255,29 +326,30 @@ export function createQtNativeRuntime(
         // The worker proves that only this known auxiliary window disappeared.
         // Keep a healthy main-window session (and its object IDs) in the same PID.
         if (result.onlyTargetRemoved === true && result.verified === true && identity(result.hwnd)) {
-          await invalidate(session => session.client.binding.hwnd === result.hwnd);
-        } else await clear();
+          invalidate(session => session.client.binding.hwnd === result.hwnd);
+        } else clear();
         return;
       }
       if (!["desktop_start", "desktop_stop", "launch", "close", "save_as", "case_create"].includes(operation)) return;
       if (identity(result.pid)) {
-        await invalidate(session => session.client.binding.pid === result.pid);
+        invalidate(session => session.client.binding.pid === result.pid);
       } else if (identity(args.hwnd)) {
-        await invalidate(session => session.client.binding.hwnd === args.hwnd);
+        invalidate(session => session.client.binding.hwnd === args.hwnd);
       } else {
         // Older lifecycle results can omit identity (including close when no
         // process exists). Do not retain an unprovable case/window binding.
-        await clear();
+        clear();
       }
       // A new launch can change the implicit target while existing explicitly
       // addressed processes remain healthy. Resolve implicit selection afresh.
       if (operation === "launch" || operation === "desktop_start" || operation === "case_create") selected = undefined;
     },
-    async close() {
-      stopped = true; await clear();
-      if (starting) { try { await starting; } catch { /* Pending startup observes the stopped/revision guard. */ } }
+    async close(timeoutMs = SHUTDOWN_TIMEOUT_MS) {
+      stopped = true; clear();
+      const budget = Number.isSafeInteger(timeoutMs) && timeoutMs >= 0 ? Math.min(timeoutMs, SHUTDOWN_TIMEOUT_MS) : 0;
+      await quiesce(performance.now() + budget);
     },
   };
-  shutdown.addEventListener("abort", () => { void runtime.close(); }, { once: true });
+  shutdown.addEventListener("abort", () => { void runtime.close().catch(() => { /* Stopped runtime retains unresolved owners. */ }); }, { once: true });
   return runtime;
 }

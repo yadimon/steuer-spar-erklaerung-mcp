@@ -27,6 +27,7 @@ import { withCombinedAbortSignal } from "./abort.js";
 import { readFileBounded } from "./bounded-files.js";
 import { createRotatingJsonlLogger } from "./jsonl-logger.js";
 import { createQtNativeRuntime, type QtNativeRuntimeDependencies } from "./qt-native-runtime.js";
+import { withQtNativeLifecycle } from "./qt-native-worker.js";
 import { loadProductProfile } from "./product-profiles.js";
 import type { ScenarioExecutor } from "./scenario.js";
 
@@ -223,12 +224,9 @@ export async function runApiRuntime(
   const native = config.qtNativeRuntime
     ? createQtNativeRuntime(config, loadProductProfile(config.profileId), shutdown.signal, overrides.qtNativeDependencies)
     : undefined;
-  const execute = createApiExecutor(config, async (operation, args, timeoutMs, signal) => {
-    const result = await worker(operation, args, timeoutMs, signal);
-    await native?.afterWorker(operation, result, args);
-    return result;
-  }, native ? { qtNativeClientFor: native.client, nativeDesktopStatus: native.desktopStatus,
-    nativeDesktopStart: native.desktopStart, nativeDesktopStop: native.desktopStop } : {});
+  const execute = createApiExecutor(config, native ? withQtNativeLifecycle(worker, native) : worker,
+    native ? { qtNativeClientFor: native.client, nativeDesktopStatus: native.desktopStatus,
+      nativeDesktopStart: native.desktopStart, nativeDesktopStop: native.desktopStop } : {});
 
   const logDir = join(dirname(config.configPath), "logs");
   const logPath = join(logDir, "api.jsonl");
@@ -245,7 +243,11 @@ export async function runApiRuntime(
   });
   lifecycle = installApiShutdown(server, shutdown, log);
   try { await listenSseApiServer(server, config.host, config.port); }
-  catch (error) { lifecycle.dispose(); await native?.close(); throw error; }
+  catch (error) {
+    lifecycle.dispose();
+    try { await native?.close(); } catch { /* Preserve the listen error; the stopped runtime retains unresolved owners. */ }
+    throw error;
+  }
   // Der Reservearbeiter darf den beendeten Server nicht ueberleben.
   shutdown.signal.addEventListener("abort", shutdownWarmSpare, { once: true });
   // Erst nach dem erfolgreichen Binden vorwaermen: bei einem Portkonflikt

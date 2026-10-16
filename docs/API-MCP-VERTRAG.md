@@ -145,6 +145,14 @@ Bindungen bleiben terminal. Auf Erfolg oder spaeterem Fehler halten die optional
 Felder `startupUiaRootFailures` und `lastUiaRootFailure` die beobachteten Fehler fest.
 Andere Operationen behalten ihre bestehende Snapshot-/Legacy-Grenze.
 
+Beim optionalen nativen Backend bleibt ein noch nicht bestätigt beendeter
+Broker gebunden. Folgeaufrufe scheitern vor Dispatch mit einem typisierten
+Abbaufehler, wenn ihre Frist endet oder kein Exit-Beweis vorliegt. Ein bereits
+bestätigtes Worker-Ergebnis wird dadurch nicht in einen Fehler umgedeutet.
+Der ursprüngliche Startaufruf kann `native-startup-unproven` mit unbekanntem
+Ausgang melden; eine folgende Anfrage übernimmt diesen fremden Fehler nicht.
+Die Besitz- und Fristgrenzen stehen in [NATIVE-QT.md](NATIVE-QT.md).
+
 ## Zielbereitschaft nach Suchschluss
 
 Der Standard-Worker bestaetigt einen aktivierten Suchtreffer nach dem

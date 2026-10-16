@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApiExecutor } from "../dist/api-executor.js";
 import { createQtNativeRuntime } from "../dist/qt-native-runtime.js";
+import { withQtNativeLifecycle } from "../dist/qt-native-worker.js";
 import { loadQtNativePackage } from "../dist/qt-native-package.js";
 import { loadProductProfile } from "../dist/product-profiles.js";
 import { createSseApiServer } from "../dist/api-server.js";
@@ -139,12 +140,9 @@ const native = nativeDirectory ? createQtNativeRuntime({ ...config,
   qtNativeRuntime: { directory: nativeDirectory, manifestSha256: nativeDigest },
 }, loadProductProfile(config.profileId), nativeShutdown.signal, { telemetry }) : null;
 if (native && process.env.SSE_TEST_OPERATION_TRACE_DIR) throw new Error("Native benchmark cannot update the Worker coverage ledger.");
-const executor = createApiExecutor(config, async (...parameters) => {
-  const result = await worker(...parameters);
-  await native?.afterWorker(parameters[0], result, parameters[1]);
-  return result;
-}, { telemetry, ...(native ? { qtNativeClientFor: native.client, nativeDesktopStatus: native.desktopStatus,
-  nativeDesktopStart: native.desktopStart, nativeDesktopStop: native.desktopStop } : {}) });
+const executor = createApiExecutor(config, native ? withQtNativeLifecycle(worker, native) : worker,
+  { telemetry, ...(native ? { qtNativeClientFor: native.client, nativeDesktopStatus: native.desktopStatus,
+    nativeDesktopStart: native.desktopStart, nativeDesktopStop: native.desktopStop } : {}) });
 const execute = native ? executor : traceOperations("worker", executor);
 const server = createSseApiServer({
   execute,
@@ -205,12 +203,15 @@ try {
 } finally {
   await new Promise((resolve) => server.close(resolve));
   nativeShutdown.abort();
-  await native?.close();
-  if (useWorkerPrewarm) shutdownWarmSpare();
-  executionLog?.close();
-  if (childFailed && preserveTemporaryOnFailure) {
-    process.stderr.write(`Test-Sandbox zur Diagnose erhalten: ${temporary}\n`);
-  } else {
-    await removeDirectoryWhenFree(temporary);
+  try { await native?.close(); }
+  catch (error) { childFailed = true; throw error; }
+  finally {
+    if (useWorkerPrewarm) shutdownWarmSpare();
+    executionLog?.close();
+    if (childFailed && preserveTemporaryOnFailure) {
+      process.stderr.write(`Test-Sandbox zur Diagnose erhalten: ${temporary}\n`);
+    } else {
+      await removeDirectoryWhenFree(temporary);
+    }
   }
 }

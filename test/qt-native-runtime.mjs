@@ -19,6 +19,9 @@ import { DesktopMarkerError } from "../dist/desktop-marker.js";
 import { executeNativeDesktopStatus, parseNativeDesktopStatus } from "../dist/native-desktop-status.js";
 import { verifyNativeDesktopStartContract } from "./native-desktop-start-contract.mjs";
 import { verifyNativeDesktopStopContract } from "./native-desktop-stop-contract.mjs";
+import { verifyBrokerExitOwnership } from "./qt-native-broker-failures.mjs";
+import { verifyNativeRetirement } from "./qt-native-retirement.mjs";
+import { parseApiOperationResult } from "../dist/result-contract.js";
 
 await verifyNativeDesktopStartContract();
 await verifyNativeDesktopStopContract();
@@ -132,20 +135,50 @@ try {
       startSession: async request => {
         starts.push(request);
         await options.startWait?.(request);
+        if (state.startFailures?.length) throw state.startFailures.shift();
+        if (state.startError) throw state.startError;
         const session = {
           client: { binding: request.target, async request(operation) {
             assert.equal(operation, "window_context"); state.reads++;
             if (state.connectionError) throw state.connectionError;
             return { result: state.context };
           } },
+          // Most contracts assume an exited synthetic relay. Retirement tests
+          // explicitly keep it alive and model close/exit as separate events.
           brokerPid: 123, exited: Promise.resolve(), processExited: options.brokerProcessExited ?? true,
-          async close() { state.closed++; },
+          markExited() { this.processExited = true; },
+          async close() {
+            state.closed++; await options.closeWait?.(this);
+            if (!options.keepBrokerAliveOnClose) this.processExited = true;
+          },
         };
         sessions.push(session); return session;
       },
     });
     return { runtime, shutdown, calls, starts, sessions, state };
   }
+
+  for (const [method, operation] of [["desktopStart", "desktop_start"], ["desktopStop", "desktop_stop"]]) {
+    const closeGate = deferred(), cancel = new AbortController();
+    const hung = harness({ closeWait: () => closeGate.promise, brokerProcessExited: false });
+    await hung.runtime.client({}, 1000);
+    const pending = hung.runtime[method]({}, 30, cancel.signal);
+    let watchdog;
+    try {
+      const result = await Promise.race([pending,
+        new Promise(resolveWatchdog => { watchdog = setTimeout(() => resolveWatchdog("outer-watchdog"), 2_000); })]);
+      assert.notEqual(result, "outer-watchdog", "A hanging native close escaped the lifecycle caller deadline.");
+      assert.equal(result.kind, "native-session-retiring", "Teardown must stop before helper dispatch.");
+      assert.equal(result.outcomeUnknown, false);
+      assert.deepEqual(parseApiOperationResult(operation, result), result);
+    } finally {
+      clearTimeout(watchdog); cancel.abort(); closeGate.resolve();
+      await pending; await hung.runtime.close();
+    }
+  }
+
+  await verifyBrokerExitOwnership(nativePackage, config.sseExecutable);
+  await verifyNativeRetirement(harness, config);
 
   const measured = createExecutionTelemetry({ enabled: true });
   const measuredHarness = harness({ telemetry: measured });
@@ -440,7 +473,7 @@ try {
   await duringInventory.runtime.close();
 
   const startGate = deferred(), duringStart = harness({ startWait: () => startGate.promise });
-  const late = assert.rejects(duringStart.runtime.client({}, 5000), kind("native-session-changed"));
+  const late = assert.rejects(duringStart.runtime.client({}, 5000), kind("aborted"));
   await nextTurn(); duringStart.shutdown.abort(); startGate.resolve(); await late; await duringStart.runtime.close();
   assert.equal(duringStart.state.closed, 1, "A late attachment must be closed before it can be reused.");
 

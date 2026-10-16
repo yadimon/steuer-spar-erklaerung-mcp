@@ -5,6 +5,8 @@ import { isAbsolute } from "node:path";
 import { QtNativeClient, QtNativeTransportError, rejectQtNativePing, type QtNativeBinding } from "./qt-native-client.js";
 import type { QtNativePackage } from "./qt-native-package.js";
 
+const STARTUP_EXIT_GRACE_MS = 1_000;
+
 export interface QtNativeTarget {
   pid: number;
   hwnd: number;
@@ -12,14 +14,24 @@ export interface QtNativeTarget {
   creationTime?: string;
 }
 
-export interface QtNativeSession {
-  client: QtNativeClient;
-  brokerPid: number;
+export interface QtNativeRetirementHandle {
   close(): Promise<void>;
-  /** Cleanup completion can also report a child-process error; it is not proof of exit. */
-  exited: Promise<void>;
   /** True only after the owned child's actual exit event. */
   readonly processExited: boolean;
+}
+
+export class QtNativeStartupUnprovenError extends QtNativeTransportError {
+  constructor(readonly retirement: QtNativeRetirementHandle, cause?: unknown) {
+    super("Native broker startup failed without a verified child exit.", "native-startup-unproven", true);
+    this.cause = cause;
+  }
+}
+
+export interface QtNativeSession extends QtNativeRetirementHandle {
+  client: QtNativeClient;
+  brokerPid: number;
+  /** Cleanup completion can also report a child-process error; it is not proof of exit. */
+  exited: Promise<void>;
 }
 
 export interface QtNativeBrokerOptions {
@@ -82,6 +94,7 @@ async function readReadiness(child: ChildProcessWithoutNullStreams, timeoutMs: n
 }
 
 export async function startQtNativeBroker(options: QtNativeBrokerOptions): Promise<QtNativeSession> {
+  const started = performance.now();
   const { package: nativePackage, target, expectedImage, signal } = options;
   if (signal?.aborted) throw new QtNativeTransportError("Native startup cancelled before launch.", "aborted");
   if (!Number.isSafeInteger(target.pid) || target.pid < 1 || target.pid > 0xffffffff
@@ -110,12 +123,14 @@ export async function startQtNativeBroker(options: QtNativeBrokerOptions): Promi
   let processExited = false;
   const exited = new Promise<void>(resolveExit => {
     child.once("exit", () => { processExited = true; resolveExit(); });
-    child.once("error", () => resolveExit());
+    // More than one failed kill can emit errors before a real exit. Completion
+    // still does not prove exit, and later owned-child errors stay handled.
+    child.on("error", () => resolveExit());
   });
   const abort = () => { client?.close(); child.kill(); };
   signal?.addEventListener("abort", abort, { once: true });
   try {
-    const started = performance.now(), waiting = readReadiness(child, options.timeoutMs, signal);
+    const waiting = readReadiness(child, options.timeoutMs, signal);
     child.stdin.write(Buffer.concat([header, body]));
     const loaded = await waiting;
     if (loaded.ok !== true || loaded.pipePeerVerified !== true || loaded.binaryIdentityVerified !== true
@@ -148,7 +163,15 @@ export async function startQtNativeBroker(options: QtNativeBrokerOptions): Promi
     return { client, brokerPid: child.pid!, exited, get processExited() { return processExited; },
       async close() { client!.close(); child.kill(); await exited; } };
   } catch (error) {
-    client?.close(); stream?.destroy(); child.kill(); await exited;
+    client?.close(); stream?.destroy(); child.kill();
+    let grace: NodeJS.Timeout | undefined;
+    try {
+      const remaining = Math.max(0, Math.min(STARTUP_EXIT_GRACE_MS, options.timeoutMs - (performance.now() - started)));
+      await Promise.race([exited, new Promise<void>(resolveGrace => { grace = setTimeout(resolveGrace, remaining); })]);
+    } finally { clearTimeout(grace); }
+    if (child.pid !== undefined && !processExited) {
+      throw new QtNativeStartupUnprovenError({ close: () => exited, get processExited() { return processExited; } }, error);
+    }
     if (error instanceof QtNativeTransportError) throw error;
     throw new QtNativeTransportError("Native broker startup failed.", "native-startup", true);
   } finally { signal?.removeEventListener("abort", abort); }

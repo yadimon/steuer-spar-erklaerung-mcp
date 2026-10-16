@@ -55,6 +55,32 @@ werden die nicht mehr belegbaren Bindungen verworfen. Ein verifiziertes
 dagegen die gesunde Hauptfensterverbindung. Fehler und unbekannte Ausgänge
 erlauben keine automatische Neuverbindung oder Wiederholung.
 
+Die Runtime behält den Besitzer einer beendenden Verbindung bis zum tatsächlich
+bestätigten Brokerende. Eine erfüllte Cleanup-Promise oder ein Prozessfehler
+genügt dafür nicht. Neue Bindungen und Standard-Worker-Aufrufe warten innerhalb
+ihrer eigenen Frist auf diesen Abbau; dessen Wartezeit verbraucht dasselbe
+Aufrufbudget. Gesunde, nicht betroffene gecachte native Bindungen bleiben nutzbar.
+Das bestätigte Ergebnis einer erfolgreichen Worker-Operation bleibt erhalten,
+auch wenn ihr anschließender Verbindungsabbau noch nicht bestätigt ist.
+
+Ein Fristende beim Warten auf Abbau, gehaltenen Startup oder Desktop-Helfer
+liefert `native-session-retiring`; ein abgeschlossener
+Abbau ohne Exit-Beweis liefert `native-retirement-unproven`. Die noch nicht
+abgesandte Folgeoperation hat dabei `outcomeUnknown: false`. Der Besitzer bleibt
+gespeichert, und ein später bestätigter Exit kann die Sperre aufheben. Ein neuer
+API-Prozess allein beweist weder das Ende des alten Brokers noch den Ausgang
+früherer Mutationen. Ein Brokerende bestätigt außerdem nur das Ende des Relays;
+ein bereits begonnener Callback im Produkt kann weiterhin abgleichpflichtig sein.
+
+Scheitert schon die Anbindung und lässt sich ihr Brokerende nicht bestätigen,
+meldet der ursprüngliche Aufrufer `native-startup-unproven` mit
+`outcomeUnknown: true`. Der ursprüngliche Fehler bleibt intern als Ursache
+erhalten. Eine wartende Folgeanfrage übernimmt diesen fremden Fehler nicht;
+sie prüft die gehaltenen Besitzer innerhalb ihres eigenen Budgets erneut.
+Bleibt die Sperre dauerhaft bestehen, müssen Brokeridentität und Prozessende
+außerhalb der blockierten Worker-Aufrufe geklärt werden. Danach kann die API
+neu gestartet werden; ein SSE-Fensterstatus allein bestätigt kein Brokerende.
+
 Die [Native-Abdeckungsmatrix](NATIVE-COVERAGE.md) zählt alle 102 API-Operationen:
 22 direkte optionale Qt-Handler und 80 ohne direkten Qt-Pfad. Sie trennt
 diesen Stand von funktionaler Live-Abdeckung und noch erforderlicher Integration.
@@ -126,8 +152,9 @@ einer bereits beendeten Owner-PID ist kein zusätzlicher Schließversuch.
 Die an native Start- und Stop-Helfer übergebenen Budgets sind auf höchstens
 120 Sekunden begrenzt. Größere gültige API-Fristen erweitern diese Helfergrenze
 nicht; kürzere Aufruferfristen bleiben kürzer. Der vorherige Session-Abbau
-verbraucht dieses Restbudget. Ein noch wartender Session-Abbau kann die
-Antwortzeit verlängern.
+verbraucht dieses Restbudget und ist einschließlich Abbruch daran gebunden.
+Scheitert der Abbau, wird kein neuer Start- oder Stop-Helfer abgesandt. Während
+eines laufenden Desktop-Helfers veröffentlicht die Runtime keine neue Bindung.
 
 COM-Verbindungs- und Transaktionsaufrufe sowie Baumgröße, Tiefe und Gesamtdauer sind
 begrenzt. API und Helfer verwenden einen gemeinsamen absoluten Deadline-Wert;
@@ -510,12 +537,13 @@ bestehende Bindung werden auf diesem Weg nicht neu verbunden. Das Limit von vier
 Bindungen bleibt bestehen. Eine Platzfreigabe erklärt frühere unbekannte
 Mutationsausgänge nicht für geklärt und wiederholt keinen Auftrag.
 
-Erfolgreiche Worker-Operationen `launch`, `window_close`, `desktop_start` und
-`desktop_stop` verwerfen bestehende Bindungen und verhindern, dass eine ältere
-laufende Anbindung danach veröffentlicht wird. API-Shutdown schließt eigene
-Helfer. Ein Transportfehler löst weder einen automatischen Neustart noch eine
-Wiederholung oder einen Wechsel zum Worker aus. Ein späterer expliziter
-Lifecycle-Aufruf oder API-Neustart kann die fehlerhafte Bindung aufheben.
+Lifecycle-Änderungen verhindern, dass eine ältere laufende Anbindung danach
+veröffentlicht wird. Auch der ursprüngliche Startup-Aufrufer wartet begrenzt;
+sein Fristende vergisst keinen noch laufenden Anbindungsversuch. Eigene Helfer
+werden beim Shutdown zum Beenden aufgefordert. Das interne Warten ist auf
+höchstens fünf Sekunden begrenzt; fehlende Exit-Beweise bleiben als Fehler und
+gehaltene Besitzer erhalten. Ein Transportfehler löst weder einen automatischen
+Neustart noch eine Wiederholung oder einen Wechsel zum Worker aus.
 
 Dieser Pfad erweitert keine Schreib- oder Belegfreigaben. Native Ergebnisse
 kennzeichnet `backend: "qt"`; nach einem unsicheren Transportende bleibt
