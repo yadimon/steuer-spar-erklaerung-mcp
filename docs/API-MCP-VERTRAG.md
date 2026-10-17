@@ -3,7 +3,9 @@
 ## Inhalt
 
 - [Rollen](#rollen)
+- [Feldwerte mit explizitem Namensraum lesen](#feldwerte-mit-explizitem-namensraum-lesen)
 - [Tabellen ohne Fokuswechsel lesen](#tabellen-ohne-fokuswechsel-lesen)
+- [Bekanntes Hilfsfenster vor Tabellenbindung schließen](#bekanntes-hilfsfenster-vor-tabellenbindung-schließen)
 - [Erreichbarkeit und Browser-Schutz](#erreichbarkeit-und-browser-schutz)
 - [HTTP-Hüllen](#http-hüllen)
 - [Startbereitschaft](#startbereitschaft)
@@ -47,6 +49,38 @@ Die normativen Laufzeitquellen sind:
 
 Handgepflegte Operationszahlen in Prosa sind nicht normativ.
 
+## Feldwerte mit explizitem Namensraum lesen
+
+`get_value` beziehungsweise `sse_get_value` akzeptiert optional
+`selectorNamespace: "uia" | "qt-object"`. Der Namensraum bestimmt den
+Lesepfad vor dem ersten Backendaufruf; ein Fehler löst keinen Wechsel aus.
+
+| Namensraum | Auswahl und Ausführung |
+| --- | --- |
+| `uia` | Bestehender UIA-Worker, auch bei konfiguriertem Qt-Backend. `aid` ist eine AutomationId oder ein eindeutiges Endstück, `rid` eine UIA-Referenz der Familie `42.`. |
+| `qt-object` | Konfiguriertes Qt-Backend; `aid` muss der vollständige beobachtete QObject-`objectName` sein oder `rid` eine frische `qt:`-Referenz. Weitere Selektoren müssen dasselbe Objekt einschränken. |
+| Feld fehlt | Bisheriges Routing: Mit Qt-Backend führt eine `42.`-RID zum frischen nativen Accessibility-Snapshot, jeder andere Selektor zur QObject-Wertprojektion. Ohne Qt-Backend bleibt der UIA-Worker zuständig. |
+
+Punkte in Namen ändern das Legacy-Routing nicht. Die bisherigen
+QObject-Suffix-/Präfixaliase bleiben ohne expliziten Namensraum kompatibel;
+sie beweisen keinen vollständigen Elternpfad. Im expliziten `qt-object`-Pfad
+werden solche Aliase und erfundene Elternpräfixe nicht als Objektidentität
+akzeptiert. Fehlendes Qt-Backend und widersprüchliche RID-Familien scheitern
+mit `bad-args` vor Provider-Dispatch.
+
+Das Ergebnisformat bleibt unverändert. Im QObject-Ergebnis bezeichnet
+`node.aid` den `objectName` und `node.rid` die `qt:`-Referenz. Beides ist keine
+UIA-Schreibidentität. Ein Caller darf die RID nicht entfernen, um über einen
+ähnlichen Namen ein anderes Schreibziel zu wählen. Für UIA-Schreiboperationen
+sind frisch gelesene UIA-Selektoren nötig. Beschriftungen werden vom jeweiligen
+Lesepfad aufgelöst; eine allgemeine Gleichheit der QObject- und
+UIA-Labelzuordnung oder des Schreibziels ist nicht zugesagt.
+`aufgeloestUeber` beschreibt die tatsächlich verwendete Zuordnung.
+
+Der Getter liefert Textwerte. Checkboxzustände kommen typisiert aus dem
+Snapshot und werden mit `toggle` geändert; Combos verwenden `combo_select`.
+Die genaue native Identitätsgrenze steht in [NATIVE-QT.md](NATIVE-QT.md).
+
 ## Tabellen ohne Fokuswechsel lesen
 
 `table_read` mit `readMode: "grid"` wählt vor Beginn den reinen UIA-Gridpfad,
@@ -77,6 +111,35 @@ Vertrag mit Fokus- und Eingabeprüfungen.
 Die Spaltenzuordnung erwartet dieselbe logische und sichtbare Reihenfolge;
 eine abweichend gezogene Headerreihenfolge wird mit einem Bindungsfehler
 abgelehnt, statt Werte einer anderen Spalte zuzuordnen.
+
+## Bekanntes Hilfsfenster vor Tabellenbindung schließen
+
+Vor einem öffentlichen Cursorread und dem ersten privaten nativen
+`prebind` darf der Worker das katalogisierte Fenster `Steuer-Spar-Tipps`
+einmal schließen. Dasselbe gilt für eigenständiges `table_add`, `table_update`
+und `table_delete`, bevor ihre erste Tabellenbindung entsteht. Nach der
+Vorbereitung werden die normalen Seiten-, Tabellen- und Mutationsbindungen
+frisch aufgebaut. `readMode: "grid"`, `noKeys: true`, spätere private
+Cursorphasen und Mutationen mit geerbter Bindung führen diese Vorbereitung
+nicht aus. Der Cursorpfad auf versteckten Desktops erhält sie ebenfalls nicht.
+
+Die Vorbereitung benötigt eine ausdrückliche Profilrichtlinie. Erlaubt ist
+nur genau ein bekanntes, aktiviertes, nachweislich nichtmodales Hilfsfenster
+derselben PID mit exaktem Titel und AutomationId, das unmittelbar dem
+gebundenen Hauptfenster gehört. Andere relevante Fenster, unbekannte
+Dialoge oder ein aktiver Tabelleneditor blockieren das Schließen.
+Unmittelbar davor werden Fenster-/Prozessidentität, Eigentümer, Eingabe,
+Vordergrund sowie vollständiger Seitenzustand erneut geprüft. Danach müssen
+Hauptfenster, Seite, Feldwerte, Auswahl und Dirty-State unverändert sein;
+ein erwarteter Vordergrundübergang vom geschlossenen Hilfsfenster zum
+Hauptfenster wird dabei ausdrücklich gebunden.
+
+Ein nicht bestätigtes Schließen liefert `table-preparation-failed` und
+`retryable: false`. Nach abgesandtem Close bleiben `outcomeUnknown` und
+`reconciliationRequired` gesetzt, wenn der Abschlussnachweis fehlt. Es folgt
+kein weiterer Schließversuch und keine Tabellenmutation. Der Fokuskontext
+bleibt zur Klärung erhalten; eine automatische Fokuswiederherstellung oder
+alternative Provideraktion erfolgt nach diesem Fehler nicht.
 
 ## Erreichbarkeit und Browser-Schutz
 

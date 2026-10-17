@@ -22,6 +22,37 @@ Test mit fehlgeschlagener Bereinigung bleibt fehlgeschlagen. Die gezielte
 Regression prüft diese Regeln an echten Kindprozessen und der tatsächlichen
 Hülle, einschließlich der ausdrücklich angeforderten Diagnose-Sandbox.
 
+Die Getter-Regressionen `get-value-namespace-contract.mjs` und
+`get-value-worker-namespace-contract.ps1` prüfen die explizite Wahl zwischen
+UIA und QObject: Legacy-Namen mit und ohne Punkte, kanonische QObject-Namen,
+frische Referenzen, widersprüchliche RID-Familien und fehlendes Backend.
+Ungültige Kombinationen dürfen keine Provideraktion auslösen; ein
+fehlgeschlagener Read darf den Backendpfad nicht wechseln. Der erste Test
+führt den echten API-Executor sowie HTTP und den registrierten MCP-Handler
+über einen InMemory-Transport aus; die Backendantworten sind synthetische
+Vertragsdaten. Der Worker-Test führt den echten Dispatcher bis zu seiner
+Fensterresolvergrenze aus. `qt-native-client.mjs` prüft zusätzlich die
+framed Fake-Peer-Grenze. Diese Tests belegen weder reale Feldbedienung noch
+eine allgemeine Gleichheit der QObject-Labelauflösung mit UIA-Schreibzielen.
+
+`table-preparation-contract.ps1` prüft die tatsächlichen Vorbereitungs- und
+Schließfunktionen mit synthetischen Fenster-/Providergrenzen: exakte eigene
+nichtmodale Tips-Identität, fehlende Richtlinie, unbekannte oder zusätzliche
+Fenster, aktive Editoren sowie Änderungen an Prozess, Eigentümer, Eingabe,
+Vordergrund und vollständigem Seitenzustand. Fehler vor Dispatch müssen
+ohne Close enden; fehlende Bestätigung nach Dispatch darf weder Replay noch
+Tabellenmutation auslösen und muss den ungewissen Fokuskontext erhalten.
+`table-preparation-boundary-contract.ps1` prüft die echten Dispatcherpräfixe:
+Vorbereitung nur vor öffentlichem Cursorlesen, erstem nativen `prebind` und
+eigenständigen Mutationen; keine Vorbereitung für Grid, `noKeys: true`,
+spätere private Cursorphasen oder geerbte Mutationsbindungen.
+
+Diese Regressionen ersetzen keine reale GUI-Abnahme der neuen
+Tabellenvorbereitung und Fokuswege. Insbesondere sind große Tabellen,
+Nr.-Editorübergänge und das Zusammenwirken mit dem echten Hilfsfenster
+über eine vollständig geprüfte Arbeitskopie mit unverändertem
+unbeteiligtem Datenbestand und bestätigtem Abschluss zu verifizieren.
+
 Der optionale native `desktop_start` hat zusätzlich einen realen Win32-Test mit
 einem eigenen synthetischen Prozess. Er prüft Hauptfenster und Startdialog,
 vorhandene Desktops, fremde und beschädigte Marker, Startup-Timeout, frühen

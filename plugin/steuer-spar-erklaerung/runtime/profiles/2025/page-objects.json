@@ -259,7 +259,13 @@
   "taxTips": {
       "title": "Steuer-Spar-Tipps",
       "role": "nonmodal-help-window",
-      "closePolicy": "allow-exact-nonmodal-close"
+      "closePolicy": "allow-exact-nonmodal-close",
+      "tablePreparationPolicy": {
+        "mode": "close-once-before-table-binding",
+        "automationId": "SSE_Application.SteuerSparTipps-Dialog",
+        "owner": "exact-bound-main",
+        "requireNonModal": true
+      }
     },
     "vastAssignment": {
       "title": "Daten der vorausgefüllten Steuererklärung",

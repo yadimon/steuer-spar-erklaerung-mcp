@@ -11,6 +11,7 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $workerPath = Join-Path $root 'powershell\sse-worker.ps1'
 $catalogPath = Join-Path $root 'profiles\2025\page-objects.json'
+. (Join-Path $root 'powershell\window-close.ps1')
 
 $tokens = $null
 $errors = $null

@@ -2548,6 +2548,15 @@ if (-not (Test-Path -LiteralPath $tableComboHelpers -PathType Leaf)) {
   Fail "Tabellen-ComboBox-Helfer fehlt: $tableComboHelpers" 'not-found'
 }
 . $tableComboHelpers
+$windowCloseHelpers=Join-Path $PSScriptRoot 'window-close.ps1'
+if (-not (Test-Path -LiteralPath $windowCloseHelpers -PathType Leaf)) { Fail 'Exact auxiliary window close helper is missing.' 'not-found' }
+. $windowCloseHelpers
+$tablePreparationHelpers=Join-Path $PSScriptRoot 'table-preparation.ps1'
+if (-not (Test-Path -LiteralPath $tablePreparationHelpers -PathType Leaf)) { Fail 'Table preparation helper is missing.' 'not-found' }
+. $tablePreparationHelpers
+$tableNumberClickHelpers=Join-Path $PSScriptRoot 'table-number-click.ps1'
+if (-not (Test-Path -LiteralPath $tableNumberClickHelpers -PathType Leaf)) { Fail 'Exact number-cell activation helper is missing.' 'not-found' }
+. $tableNumberClickHelpers
 $tableCursorLeaseHelpers=Join-Path $PSScriptRoot 'table-cursor-lease.ps1'
 if (-not (Test-Path -LiteralPath $tableCursorLeaseHelpers -PathType Leaf)) { Fail 'Privater Cursor-Lease-Helfer fehlt.' 'not-found' }
 . $tableCursorLeaseHelpers
@@ -3114,9 +3123,19 @@ function Click-VerifiedPoint(
   [ValidateRange(1,3)][int]$ForegroundAttempts = 3,
   [string]$ExpectedRuntimeId = '',
   [scriptblock]$BeforeClickCheck = $null,
-  $BeforeClickBinding = $null
+  $BeforeClickBinding = $null,
+  [switch]$ThrowOnFailure
 ) {
-  if (-not $Node -or $Node.w -le 0 -or $Node.h -le 0) { Fail 'Klickziel hat keine sichtbare Flaeche.' 'offscreen' }
+  $pointFailure={
+    param($Message,[string]$Kind='error',$Details=$null)
+    if ($ThrowOnFailure) {
+      $failure=[InvalidOperationException]::new([string]$Message)
+      $failure.Data['kind']=$Kind
+      throw $failure
+    }
+    Fail $Message $Kind $Details
+  }
+  if (-not $Node -or $Node.w -le 0 -or $Node.h -le 0) { & $pointFailure 'Klickziel hat keine sichtbare Flaeche.' 'offscreen' }
   $px = [int]($Node.x + $Node.w / 2); $py = [int]($Node.y + $Node.h / 2)
   # Windows darf Vordergrundwechsel aus einem Hintergrundprozess ablehnen,
   # obwohl das Ziel weiterhin sichtbar und PID-/Root-gebunden ist. Vor einem
@@ -3139,12 +3158,12 @@ function Click-VerifiedPoint(
   }
   if (-not $foregroundReady) {
     Hide-SSETopmost $Window
-    Fail 'Gebundenes SSE-Fenster konnte vor dem verifizierten Klick nicht in den Vordergrund gebracht werden. NICHT geklickt.' 'interference'
+    & $pointFailure 'Gebundenes SSE-Fenster konnte vor dem verifizierten Klick nicht in den Vordergrund gebracht werden. NICHT geklickt.' 'interference'
   }
   $obstruction = Get-SSEPointObstruction $Window $px $py
   if (-not $obstruction.isBoundTarget) {
     Hide-SSETopmost $Window
-    Fail ("An Position $px,$py liegt nicht das gebundene SSE-Hauptfenster " +
+    & $pointFailure ("An Position $px,$py liegt nicht das gebundene SSE-Hauptfenster " +
           "($($obstruction.blockerKind): $($obstruction.processName)/$($obstruction.className), " +
           "hit=$($obstruction.hitWindow), root=$($obstruction.hitRoot), bound=$($obstruction.boundWindow), " +
           "pid=$($obstruction.hitPid)/$($obstruction.boundPid)). NICHT geklickt.") 'obstructed' `
@@ -3154,20 +3173,20 @@ function Click-VerifiedPoint(
     $fresh = [SSEAccessible]::DescribePointBasic($px, $py)
     if (-not $fresh -or [int]$fresh.Role -ne 43 -or [string]$fresh.Name -ne [string]$Node.name) {
       Hide-SSETopmost $Window
-      Fail "MSAA-Schaltflaeche '$($Node.name)' ist unmittelbar vor dem Klick nicht mehr identisch. NICHT geklickt." 'stale'
+      & $pointFailure "MSAA-Schaltflaeche '$($Node.name)' ist unmittelbar vor dem Klick nicht mehr identisch. NICHT geklickt." 'stale'
     }
     if ($px -lt $fresh.X -or $py -lt $fresh.Y -or $px -ge ($fresh.X + $fresh.W) -or $py -ge ($fresh.Y + $fresh.H)) {
       Hide-SSETopmost $Window
-      Fail "MSAA-Mittelpunkt liegt unmittelbar vor dem Klick nicht mehr im aktuellen Zielrechteck. NICHT geklickt." 'stale'
+      & $pointFailure "MSAA-Mittelpunkt liegt unmittelbar vor dem Klick nicht mehr im aktuellen Zielrechteck. NICHT geklickt." 'stale'
     }
   }
   if ($null -ne $ExpectedInputTick -and -not (Test-SSELastInputUnchanged $ExpectedInputTick)) {
     Hide-SSETopmost $Window
-    Fail 'Fremde Benutzereingabe unmittelbar vor dem verifizierten Klick erkannt. NICHT geklickt.' 'interference'
+    & $pointFailure 'Fremde Benutzereingabe unmittelbar vor dem verifizierten Klick erkannt. NICHT geklickt.' 'interference'
   }
   if ($RequireForeground -and [SW]::GetForegroundWindow() -ne $Window) {
     Hide-SSETopmost $Window
-    Fail 'Gebundenes SSE-Fenster ist unmittelbar vor dem verifizierten Klick nicht im Vordergrund. NICHT geklickt.' 'interference'
+    & $pointFailure 'Gebundenes SSE-Fenster ist unmittelbar vor dem verifizierten Klick nicht im Vordergrund. NICHT geklickt.' 'interference'
   }
   $foregroundHwndBeforeClick = [int64][SW]::GetForegroundWindow()
   $foregroundBoundBeforeClick = [bool]($foregroundHwndBeforeClick -eq [int64]$Window)
@@ -3186,18 +3205,18 @@ function Click-VerifiedPoint(
     }
     if (-not $pointBound) {
       Hide-SSETopmost $Window
-      Fail 'Der Klickpunkt gehoert nicht mehr zum exakt gebundenen UIA-Element. NICHT geklickt.' 'stale'
+      & $pointFailure 'Der Klickpunkt gehoert nicht mehr zum exakt gebundenen UIA-Element. NICHT geklickt.' 'stale'
     }
   }
   if ($BeforeClickCheck -and -not (& $BeforeClickCheck $Window $BeforeClickBinding $px $py)) {
     Hide-SSETopmost $Window
-    Fail 'Das gebundene Klickziel ist unmittelbar vor dem Mausklick nicht mehr bestaetigt. NICHT geklickt.' 'stale'
+    & $pointFailure 'Das gebundene Klickziel ist unmittelbar vor dem Mausklick nicht mehr bestaetigt. NICHT geklickt.' 'stale'
   }
   if (($null -ne $ExpectedInputTick -and -not (Test-SSELastInputUnchanged $ExpectedInputTick)) -or
       ($RequireForeground -and [SW]::GetForegroundWindow() -ne $Window) -or
       -not (Get-SSEPointObstruction $Window $px $py).isBoundTarget) {
     Hide-SSETopmost $Window
-    Fail 'Eingabe-Epoche, Vordergrund oder Verdeckung nach der letzten Zielpruefung geaendert. NICHT geklickt.' 'interference'
+    & $pointFailure 'Eingabe-Epoche, Vordergrund oder Verdeckung nach der letzten Zielpruefung geaendert. NICHT geklickt.' 'interference'
   }
   Assert-SSECursorPoint $px $py
   for ($clickNumber = 1; $clickNumber -le $ClickCount; $clickNumber++) {
@@ -3210,7 +3229,7 @@ function Click-VerifiedPoint(
   Start-Sleep -Milliseconds 180
   if ($null -ne $ExpectedInputTick -and -not (Test-SSELastInputUnchanged $inputTickAfterClick)) {
     Hide-SSETopmost $Window
-    Fail 'Eingabe-Epoche nach dem bereits ausgefuehrten verifizierten Klick geaendert oder nicht lesbar.' 'interference'
+    & $pointFailure 'Eingabe-Epoche nach dem bereits ausgefuehrten verifizierten Klick geaendert oder nicht lesbar.' 'interference'
   }
   if ([SW]::IsWindow($Window)) { Hide-SSETopmost $Window }
   [pscustomobject]@{
@@ -4564,13 +4583,11 @@ function Get-UiSnapshot {
     $st = [pscustomobject]@{
       n=$native.NodeCount; err=$native.WalkErrors; cyc=$native.CycleHits
       cycleRid=[string]$native.CycleRuntimeId; cycleName=''
-      truncated=$native.Truncated; valErr=$native.ValueErrors; scrollErr=$native.ScrollErrors
+      truncated=$native.Truncated; depthLimited=[bool]$native.DepthLimited
+      valErr=$native.ValueErrors; scrollErr=$native.ScrollErrors
       source='cache'; fallbackReason=''; snapshotMs=0
     }
     $st.snapshotMs = $snapshotWatch.ElapsedMilliseconds
-    if ($null -ne $RootElement) {
-      $st | Add-Member -NotePropertyName depthLimited -NotePropertyValue ([bool]$native.DepthLimited)
-    }
     if (-not $out.Count) { throw 'Bulk-Snapshot war unerwartet leer.' }
     return [pscustomobject]@{ nodes=@($out); stats=$st }
   } catch {
@@ -4601,8 +4618,14 @@ function Walk-Tree {
 # fremden Fensters als Seiteninhalt melden.
 function Walk-BoundTree {
   param([IntPtr]$hwnd, [int]$MaxNodes = 4000, [int]$TimeoutSec = 45, [int]$MaxDepth = 16,
-        [switch]$WithValues, [switch]$WithScroll)
-  $roh = Get-UiSnapshot $hwnd $MaxNodes $TimeoutSec $MaxDepth -WithValues:$WithValues -WithScroll:$WithScroll
+        [switch]$WithValues, [switch]$WithScroll, [switch]$Strict)
+  if ($Strict) {
+    $rootElement=$AE::FromHandle($hwnd)
+    if (-not $rootElement) { throw 'The strict bound snapshot root is unavailable.' }
+    $roh=Get-UiSnapshot $hwnd $MaxNodes $TimeoutSec $MaxDepth -WithValues:$WithValues -WithScroll:$WithScroll -RootElement $rootElement
+  } else {
+    $roh = Get-UiSnapshot $hwnd $MaxNodes $TimeoutSec $MaxDepth -WithValues:$WithValues -WithScroll:$WithScroll
+  }
   $scope = Split-SSEWindowScope $roh.nodes
   [pscustomobject]@{
     nodes = @($scope.own)
@@ -7270,7 +7293,7 @@ function Invoke-SSETableReadAnchorSelection {
 }
 
 function Invoke-SSETableReadInitialFocus {
-  param([IntPtr]$Hwnd,[int]$ProcessId,$Snapshot,[scriptblock]$Guard,[scriptblock]$RefreshSnapshot,[scriptblock]$FocusCheckpoint,[scriptblock]$CancelNumberEditor,[scriptblock]$MoveProfiledSource)
+  param([IntPtr]$Hwnd,[int]$ProcessId,$Snapshot,[scriptblock]$Guard,[scriptblock]$RefreshSnapshot,[scriptblock]$FocusCheckpoint,[scriptblock]$CancelNumberEditor,[scriptblock]$NumberCellClick)
   $binding=$Snapshot.navigationBinding
   $existing=Get-SSETableLiveInputState $Hwnd $ProcessId $binding.tableRootAid $binding.tableRootRid -RequireKeyboard -RequireSelection
   if ($existing.ok) {
@@ -7285,9 +7308,9 @@ function Invoke-SSETableReadInitialFocus {
     $cancelled=& $CancelNumberEditor $Snapshot
     if ($null -ne $cancelled) {return $cancelled}
   }
-  if ($MoveProfiledSource) {
-    $moved=& $MoveProfiledSource $Snapshot
-    if ($null -ne $moved) {return $moved}
+  if ($Snapshot.cursorAnchorIsNumber) {
+    if ($NumberCellClick) {return (& $NumberCellClick $Snapshot)}
+    return [pscustomobject]@{ok=$false;method='none';phase='number-cell-precondition';reason='number-cell-activation-unavailable';snapshot=$Snapshot}
   }
   $anchor=Get-LiveElement $Hwnd $Snapshot.ersteZelle.rid $Snapshot.ersteZelle.aid
   $selectionItem=$null
@@ -11728,100 +11751,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
   }
 
   'window_close' {
-    # Nur ein im aktiven Page-Object-Katalog explizit freigegebenes,
-    # nicht-modales Nebenfenster schliessen. Hauptfenster, modale Dialoge und
-    # unbekannte Fenster haben absichtlich eigene, strengere Werkzeuge.
-    $hwndRaw = Arg $a 'hwnd'
-    $pidRaw = Arg $a 'pid'
-    $expectedTitle = [string](Arg $a 'expectedTitle')
-    $titleFingerprint = ([string](Arg $a 'titleFingerprint')).ToUpperInvariant()
-    if (-not $hwndRaw -or $null -eq $pidRaw -or ([bool]$expectedTitle -eq [bool]$titleFingerprint)) {
-      Fail 'pid, hwnd und genau eines von titleFingerprint oder expectedTitle sind Pflicht.' 'bad-args'
-    }
-    $targetPid = [int](Get-SSEBoundedIntegerArg $a 'pid' 0 1 2147483647)
-    $beforeWindows = @(Get-Windows 'SSE' | Where-Object {
-      [int]$_.pid -eq $targetPid -and -not (Test-SSEWindowDecorationDescriptor $_)
-    })
-    $beforeHwnds = @($beforeWindows | ForEach-Object { [int64]$_.hwnd })
-    $descInventory = @(Get-DialogInventory $targetPid)
-    $desc = @($descInventory | Where-Object {
-      [int]$_.pid -eq $targetPid -and [int64]$_.hwnd -eq [int64]$hwndRaw
-    })
-    if ($desc.Count -ne 1) { Fail 'Das exakt adressierte Fenster existiert nicht mehr.' 'stale' }
-    $win = $desc[0]
-    $actualTitleFingerprint = ([string]$win.titleFingerprint).ToUpperInvariant()
-    if ($titleFingerprint -and $actualTitleFingerprint -ne $titleFingerprint) {
-      Fail "Fenstertitel-Fingerprint hat sich geaendert: '$actualTitleFingerprint' statt '$titleFingerprint'." 'precondition-failed'
-    }
-    if ($expectedTitle -and $win.title -cne $expectedTitle) {
-      Fail "Fenstertitel hat sich geaendert: '$($win.title)' statt '$expectedTitle'." 'precondition-failed'
-    }
-    $windowPolicy = Resolve-SSEClosableNonmodalWindowPolicy $win
-    $blockingBefore = @($descInventory | Where-Object { $_.kind -in @('native-dialog','qt-dialog') })
-    if (-not $windowPolicy -or $win.kind -notin @('tips','known-nonmodal') -or $win.cls -notmatch '^Qt' -or
-        -not (Test-SSESafeAuxiliaryDescriptor $win) -or $blockingBefore.Count -or
-        (Test-Versand ([string]$win.title))) {
-      Fail "Fensterart '$($win.kind)' ist nicht als bekanntes, dialogfreies Page-Object-Nebenfenster freigegeben. Hauptfenster mit sse_close, Dialoge mit sse_dialog_answer behandeln." 'blocked'
-    }
-    $beforePeers = @($beforeWindows | Where-Object { [int64]$_.hwnd -ne [int64]$hwndRaw } | ForEach-Object {
-      [pscustomobject]@{
-        hwnd=[int64]$_.hwnd; pid=[int]$_.pid; cls=[string]$_.cls
-        titleFingerprint=([string]$_.titleFingerprint).ToUpperInvariant()
-      }
-    })
-    $res = [IntPtr]::Zero
-    $sent = [SW]::SendMessageTimeout([IntPtr][int64]$hwndRaw, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero, 0x0002, 5000, [ref]$res)
-    if (-not $sent) { Fail 'WM_CLOSE konnte nicht sicher zugestellt werden.' 'timeout' }
-    # Warten, BIS das Fenster weg ist, statt die Frist pauschal abzusitzen: Die
-    # Zusage lautet "Wartezeit auf das Schliessen", also eine Obergrenze. Sie
-    # bleibt es auch - ein Fenster, das haengt, bekommt weiterhin die volle
-    # Frist, und `closed` wird danach genauso geprueft wie zuvor.
-    #
-    # Die Untergrenze von 300 ms bleibt als Beobachtungsfenster stehen. Die
-    # Nachbedingung prueft naemlich mehr als das Verschwinden des Ziels: dass
-    # kein neues Fenster und kein Dialog als Folge auftauchte. Dafuer braucht
-    # das Programm einen Moment, und 300 ms sind die kleinste Frist, die diese
-    # Operation ohnehin zulaesst.
-    #
-    # `IsWindow` ist ein einzelner Win32-Aufruf und kostet nichts; gemessen
-    # steht das Fenster lange vor der Untergrenze still, waehrend die Reise
-    # bisher 2000 ms je Aufruf voll bezahlte.
-    $fristMs = [Math]::Min(10000, [Math]::Max(300, [int](Arg $a 'waitMs' 800)))
-    $schliessUhr = [Diagnostics.Stopwatch]::StartNew()
-    while ($schliessUhr.ElapsedMilliseconds -lt $fristMs) {
-      Start-Sleep -Milliseconds 25
-      if ($schliessUhr.ElapsedMilliseconds -ge 300 -and -not [SW]::IsWindow([IntPtr][int64]$hwndRaw)) { break }
-    }
-    $closed = -not [SW]::IsWindow([IntPtr][int64]$hwndRaw)
-    $afterWindows = @(Get-Windows 'SSE' | Where-Object {
-      [int]$_.pid -eq $targetPid -and -not (Test-SSEWindowDecorationDescriptor $_)
-    })
-    $newWindows = @($afterWindows | Where-Object { [int64]$_.hwnd -notin $beforeHwnds } | ForEach-Object {
-      [pscustomobject]@{ hwnd=[int64]$_.hwnd; titleFingerprint=([string]$_.titleFingerprint).ToUpperInvariant() }
-    })
-    $missingOrChangedPeers = @($beforePeers | Where-Object {
-      $beforePeer = $_
-      $same = @($afterWindows | Where-Object { [int64]$_.hwnd -eq [int64]$beforePeer.hwnd })
-      $same.Count -ne 1 -or [int]$same[0].pid -ne [int]$beforePeer.pid -or
-        [string]$same[0].cls -cne [string]$beforePeer.cls -or
-        ([string]$same[0].titleFingerprint).ToUpperInvariant() -ne [string]$beforePeer.titleFingerprint
-    })
-    $newDialogs = @(Get-DialogInventory $targetPid | Where-Object { $_.kind -in @('native-dialog','qt-dialog') })
-    $onlyTargetRemoved = [bool]($closed -and $afterWindows.Count -eq ($beforeWindows.Count - 1) -and
-      -not $newWindows.Count -and -not $missingOrChangedPeers.Count -and -not $newDialogs.Count)
-    if (-not $onlyTargetRemoved) {
-      Emit ([pscustomobject]@{
-        ok = $false; kind = 'postcondition-failed'; hwnd = [int64]$hwndRaw
-        pid=$targetPid; titleFingerprint = $actualTitleFingerprint; closed = $closed
-        newWindows=$newWindows; missingOrChangedPeers=@($missingOrChangedPeers | ForEach-Object { $_.hwnd }); newDialogs = $newDialogs
-        error = 'Nebenfenster wurde nicht als einzige Fensteraenderung dialogfrei geschlossen; keine Wiederholung.'
-      })
-    }
-    Emit ([pscustomobject]@{
-      ok = $true; pid=$targetPid; hwnd = [int64]$hwndRaw; titleFingerprint = $actualTitleFingerprint
-      windowId=[string]$windowPolicy.id; windowRole=[string]$windowPolicy.role
-      closed = $true; onlyTargetRemoved=$true; verified = $true
-    })
+    Emit (Invoke-SSEWindowCloseTransaction $a)
   }
 
   'result_details' {
@@ -14365,6 +14295,15 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
   }
 
   'get_value' {
+    $selectorNamespace = [string](Arg $a 'selectorNamespace')
+    if ($selectorNamespace -and $selectorNamespace -cne 'uia') {
+      Fail 'Der UIA-Worker unterstuetzt nur selectorNamespace:uia; qt-object benoetigt das Qt-Backend.' 'bad-args'
+    }
+    $selectorRid = [string](Arg $a 'rid')
+    if ($selectorNamespace -ceq 'uia' -and $selectorRid -and
+        -not $selectorRid.StartsWith('42.', [StringComparison]::Ordinal)) {
+      Fail 'selectorNamespace:uia erfordert eine UIA-RuntimeId der Familie 42.' 'bad-args'
+    }
     $hwnd = Resolve-Window $a
     $name = [string](Arg $a 'name')
     $aid = [string](Arg $a 'aid')
@@ -19550,6 +19489,11 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           @($cursorPlan.PSObject.Properties.Name | Where-Object { $_ -cnotin $allowedPlanFields }).Count -or
           (Arg $a 'noKeys') -ne $false -or -not $sumLabel) { Fail 'Privater Tabellenlaufplan ist nicht exakt gebunden.' 'bad-args' }
     }
+    if (-not $gridRequested -and (-not $cursorPhase -or $cursorPhase -ceq 'prebind') -and
+        -not $script:DESKTOP_NAME -and (Arg $a 'noKeys' $false) -eq $false) {
+      $preparation=Invoke-SSETablePreparation $hwnd ([int]$main.pid)
+      if (-not $preparation.ok) { Emit $preparation }
+    }
     $phaseInputBefore=$(if ($cursorPhase -or $gridRequested) {Get-SSELastInputTick} else {$null})
     $gridForegroundBefore=$(if($gridRequested){[SW]::GetForegroundWindow()}else{$null})
     # Der Sichern-Schalter ist ein einzelnes Element mit stabiler AutomationId.
@@ -19942,6 +19886,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
 
     # Cursor ausschliesslich ueber gebundene Auswahl und Tabellenfokus aktivieren.
     $geklickt = $false
+    $readInputState=@{submitted=$false}
     $activationObstruction = $null
     $cursorUnavailable = $false
     $cursorActivation=[pscustomobject]@{method='none';phase='not-started';reason=$null;exceptionType=$null;
@@ -19961,7 +19906,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           $navigationState.snapshot.navigationBinding.tableRootRid).ok))
       $heading=Get-CurrentHeading $hwnd
       $keyboardEvidence=$null
-      $keyboardBound=[bool](-not $RequireKeyboard -or (Test-SSETableReadKeyboardTarget $hwnd $targetPid $navigationState.snapshot ([ref]$keyboardEvidence) -Tree $latestTableSnapshot.tree))
+      # Private native cursor phases retain their model-backed keyboard proof.
+      $keyboardTree=$(if (-not $cursorPhase) {$latestTableSnapshot.tree} else {$null})
+      $keyboardBound=[bool](-not $RequireKeyboard -or (Test-SSETableReadKeyboardTarget $hwnd $targetPid $navigationState.snapshot ([ref]$keyboardEvidence) -Tree $keyboardTree))
       $observedTick=Get-SSELastInputTick
       $currentPid=0; [SW]::GetWindowThreadProcessId($hwnd,[ref]$currentPid) | Out-Null
       $foreground=[SW]::GetForegroundWindow()
@@ -20012,6 +19959,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       param([string]$Key,[int]$Count,[string]$Phase)
       for ($keyIndex=0; $keyIndex -lt $Count; $keyIndex++) {
         if (-not (& $readNavigationGuard $Phase -RequireKeyboard)) { return $false }
+        if (-not $cursorPhase) {
+          $readInputState.submitted=$true
+          $script:SSE_CURSOR_PRESERVE_UNPROVEN_FOCUS=$true
+        }
         [System.Windows.Forms.SendKeys]::SendWait($Key)
         $navigationState.tick=Get-SSELastInputTick
         if ($null -eq $navigationState.tick) {
@@ -20099,59 +20050,21 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           $cancelled.ok=$true;$cancelled.reason='unchanged-number-editor-cancelled';$cancelled.snapshot=$afterCancel
           $cancelled
         }
-        $moveReadProfiledSource={
-          param($BeforeMove)
-          $positionProof=$null
-          if (-not (Test-SSETableFocusedSource $hwnd $targetPid $latestTableSnapshot.tree `
-                $BeforeMove.navigationBinding.tableRootAid $BeforeMove.navigationBinding.tableRootRid `
-                -AllowPositionNameSource -PositionNameProof ([ref]$positionProof)) -or -not $positionProof) {return $null}
-          $moved=[pscustomobject]@{ok=$false;method='profiled-footer-tab';phase='profiled-footer-focus';
-            reason='profiled-source-tab-unproven';exceptionType=$null;tableFocusable=$null;anchorFocusable=$null;snapshot=$BeforeMove;footerFocus=$null}
-          $script:SSE_CURSOR_PRESERVE_UNPROVEN_FOCUS=$true
-          $footer=Invoke-SSETableFooterFocus $hwnd $targetPid $latestTableSnapshot.tree `
-            $BeforeMove.navigationBinding.tableRootAid $BeforeMove.navigationBinding.tableRootRid `
-            $BeforeMove.navigationBinding.heading $navigationState.tick $navigationState.windows.fingerprint -AllowPositionNameSource
-          $moved.footerFocus=$footer
-          if (-not $footer.ok) {$moved.reason=$footer.reason;return $moved}
-          $afterFooter=LiesZeilen $hwnd;$navigationState.snapshot=$afterFooter
-          if (-not (Test-SSETableReadSnapshotBinding $BeforeMove $afterFooter -BeforeNavigation)) {return $moved}
-          # Each of at most three TABs needs a fresh passive source, unchanged
-          # values and a complete target proof. An unknown editor is terminal.
-          for($transfer=1;$transfer -le 3;$transfer++) {
-            $positionProof=$null
-            if (-not (Test-SSETableFocusedSource $hwnd $targetPid $latestTableSnapshot.tree `
-                  $BeforeMove.navigationBinding.tableRootAid $BeforeMove.navigationBinding.tableRootRid `
-                  -AllowPositionNameSource -PositionNameProof ([ref]$positionProof)) -or
-                -not (& $readNavigationGuard 'before-profiled-source-tab') -or
-                ($positionProof -and [string]$positionProof.valuePattern.Current.Value -cne $positionProof.expectedValue)) {return $moved}
-            $script:SSE_CURSOR_PRESERVE_UNPROVEN_FOCUS=$true
-            [System.Windows.Forms.SendKeys]::SendWait('+{TAB}')
-            $navigationState.tick=Get-SSELastInputTick
-            if ($null -eq $navigationState.tick) {return $moved}
-            Set-SSEForegroundLeaseInputCheckpoint $navigationState.tick -Context 'profiled-source-tab'
-            $afterMove=LiesZeilen $hwnd;$navigationState.snapshot=$afterMove
-            $moved.phase='profiled-source-tab-readback'
-            if (-not (Test-SSETableReadSnapshotBinding $BeforeMove $afterMove -BeforeNavigation) -or
-                -not (& $readNavigationGuard 'profiled-source-tab-readback') -or
-                -not (Invoke-SSETableReadAnchorSelection $hwnd $targetPid $afterMove $navigationState.tick $navigationState.windows.fingerprint)) {return $moved}
-            $afterSelection=LiesZeilen $hwnd;$navigationState.snapshot=$afterSelection
-            $moved.phase='profiled-source-selection-readback'
-            if (-not (Test-SSETableReadSnapshotBinding $BeforeMove $afterSelection -BeforeNavigation)) {return $moved}
-            $cancelled=& $cancelReadNumberEditor $afterSelection
-            if ($null -ne $cancelled) {return $cancelled}
-            $moved.phase='profiled-source-keyboard-proof'
-            $liveCursor=Get-SSETableLiveInputState $hwnd $targetPid $afterSelection.navigationBinding.tableRootAid `
-                  $afterSelection.navigationBinding.tableRootRid -RequireKeyboard -RequireSelection
-            $moved | Add-Member NoteProperty existingCursorProof ([pscustomobject]@{tabs=$transfer;
-              reason=$liveCursor.reason;source=$liveCursor.keyboardEvidence.focusedSource}) -Force
-            if ($liveCursor.ok -and (& $readNavigationGuard 'profiled-source-table-cursor' -RequireKeyboard)) {
-              $script:SSE_CURSOR_PRESERVE_UNPROVEN_FOCUS=$false
-              $moved.ok=$true;$moved.reason='profiled-source-table-cursor-verified';$moved.snapshot=$afterSelection
-              return $moved
+        $activateReadNumberCell={
+          param($BeforeClick)
+          $callbacks=@{
+            Guard=$readNavigationGuard
+            ReadSnapshot={ $fresh=LiesZeilen $hwnd;$navigationState.snapshot=$fresh;$fresh }
+            ReadTree={ $latestTableSnapshot.tree }
+            RecordInput={
+              param($Tick,$Node)
+              $navigationState.tick=$Tick
+              $navigationState.point=[pscustomobject]@{x=[int]($Node.x+$Node.w/2);y=[int]($Node.y+$Node.h/2)}
+              Set-SSEForegroundLeaseInputCheckpoint $Tick $navigationState.point -Context 'standard-number-cell-activation'
             }
-            if ($liveCursor.reason -ceq 'live-table-provider-error') {return $moved}
+            SendEscape={ [System.Windows.Forms.SendKeys]::SendWait('{ESC}') }
           }
-          $moved
+          Invoke-SSETableReadNumberCellClick $hwnd $targetPid $BeforeClick $latestTableSnapshot.tree $callbacks
         }
         if ($cursorPhase -cin @('native-acquire','native-position-acquire')) {
           $cursorActivation.subphase='native-current-cursor-proof'
@@ -20288,10 +20201,12 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
               tableFocusable=$null;anchorFocusable=$null;anchorVerified=$true;subphase=$null;exceptionMessage=$null;errorRecord=$null;footerFocus=$null}
           } else {
           $focusResult=Invoke-SSETableReadInitialFocus $hwnd $targetPid $focusedSnapshot $readNavigationGuard `
-            { LiesZeilen $hwnd } $readFocusCheckpoint $cancelReadNumberEditor $moveReadProfiledSource
+            { LiesZeilen $hwnd } $readFocusCheckpoint $cancelReadNumberEditor $activateReadNumberCell
           $cursorActivation=[pscustomobject]@{method=$focusResult.method;phase=$focusResult.phase;reason=$focusResult.reason;
             exceptionType=$focusResult.exceptionType;tableFocusable=$focusResult.tableFocusable;anchorFocusable=$focusResult.anchorFocusable;anchorVerified=$false;
-            subphase=$null;exceptionMessage=$null;errorRecord=$null;footerFocus=$focusResult.footerFocus;existingCursorProof=$focusResult.existingCursorProof}
+            subphase=$null;exceptionMessage=$null;errorRecord=$null;footerFocus=$focusResult.footerFocus;existingCursorProof=$focusResult.existingCursorProof;
+            activationSubmitted=[bool]$focusResult.activationSubmitted;physicalInputUsed=$focusResult.physicalInputUsed;
+            physicalInputAttempted=[bool]$focusResult.physicalInputAttempted;escapeSubmitted=[bool]$focusResult.escapeSubmitted}
           if (-not $focusResult.ok) { throw 'Semantischer Tabellenfokus ist nicht sicher verfuegbar.' }
           }
           $anchoredSnapshot=LiesZeilen $hwnd
@@ -20588,6 +20503,13 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         schritte=$schritte; steps=$schritte; limitReached=$false
         tabelleAnzahl=$erst.tabelleAnzahl; bindung=$erst.bindung; navigationEvidence=$navigationState.failure
         cursorActivation=$cursorActivation
+        activationSubmitted=[bool]$cursorActivation.activationSubmitted
+        physicalInputAttempted=[bool]$cursorActivation.physicalInputAttempted
+        physicalInputUsed=$(if ($readInputState.submitted) {$true} else {$cursorActivation.physicalInputUsed})
+        outcomeUnknown=[bool]($cursorActivation.activationSubmitted -or $readInputState.submitted)
+        reconciliationRequired=[bool]($cursorActivation.activationSubmitted -or $readInputState.submitted)
+        cleanupRequired=[bool]($cursorActivation.activationSubmitted -or $readInputState.submitted)
+        retryable=$false
         ungespeichertVorher=$dirtyBefore; ungespeichertNachher=$dirtyAfter
         ungespeichertEingefuehrt=[bool]((-not $dirtyBefore) -and $dirtyAfter)
       })
@@ -20661,6 +20583,16 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     if ($cursorPhase -ceq 'resume') {
       $completedTableRead | Add-Member NoteProperty cursorBinding (& $makeCursorBinding $navigationState.snapshot $navigationState.tick)
     }
+    if (-not $cursorPhase -and ($cursorActivation.activationSubmitted -or $readInputState.submitted)) {
+      $uncertain=[bool](-not $completedTableRead.ok)
+      foreach ($field in @{
+        activationSubmitted=[bool]$cursorActivation.activationSubmitted
+        physicalInputAttempted=[bool]$cursorActivation.physicalInputAttempted
+        physicalInputUsed=$(if ($readInputState.submitted) {$true} else {$cursorActivation.physicalInputUsed})
+        outcomeUnknown=$uncertain;reconciliationRequired=$uncertain;cleanupRequired=$uncertain;retryable=$false
+      }.GetEnumerator()) {$completedTableRead | Add-Member -NotePropertyName $field.Key -NotePropertyValue $field.Value}
+      if (-not $uncertain) {$script:SSE_CURSOR_PRESERVE_UNPROVEN_FOCUS=$false}
+    }
     Emit $completedTableRead
   }
 
@@ -20685,6 +20617,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     }
     $targetPid = 0
     [SW]::GetWindowThreadProcessId($hwnd, [ref]$targetPid) | Out-Null
+    if (-not (Arg $a '__tableMutationBinding')) {
+      $preparation=Invoke-SSETablePreparation $hwnd $targetPid
+      if (-not $preparation.ok) { Emit $preparation }
+    }
     $dialogsBefore = @(Get-DialogInventory | Where-Object {
       [int]$_.pid -eq $targetPid -and $_.kind -in @('native-dialog','qt-dialog')
     })
@@ -21502,6 +21438,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     }
     $targetPid = 0
     [SW]::GetWindowThreadProcessId($hwnd, [ref]$targetPid) | Out-Null
+    if (-not (Arg $a '__tableMutationBinding')) {
+      $preparation=Invoke-SSETablePreparation $hwnd $targetPid
+      if (-not $preparation.ok) { Emit $preparation }
+    }
     $dialogsBefore = @(Get-DialogInventory | Where-Object {
       [int]$_.pid -eq $targetPid -and $_.kind -in @('native-dialog','qt-dialog')
     })
@@ -22085,6 +22025,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
 
     $targetPid = 0
     [SW]::GetWindowThreadProcessId($hwnd, [ref]$targetPid) | Out-Null
+    if (-not (Arg $a '__tableMutationBinding')) {
+      $preparation=Invoke-SSETablePreparation $hwnd $targetPid
+      if (-not $preparation.ok) { Emit $preparation }
+    }
     $dialogsBefore = @(Get-DialogInventory | Where-Object {
       [int]$_.pid -eq $targetPid -and $_.kind -in @('native-dialog','qt-dialog')
     })

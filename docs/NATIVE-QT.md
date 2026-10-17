@@ -189,6 +189,32 @@ Windows-UIA-Client und verwirft veraltete Tabellen- und Baumzellen. Ungültige
 Kinder liefern `NATIVE_ACCESSIBILITY_INCOMPLETE`; sie werden weder übersprungen
 noch als vollständiger Baum ausgegeben. Der Client deaktiviert den Dienst nicht.
 
+Für `get_value` wählt das optionale Feld `selectorNamespace` den Lesepfad vor
+dem ersten Backendaufruf:
+
+- `uia` benutzt den bestehenden UIA-Worker auch bei konfiguriertem Qt-Backend.
+  `aid` ist eine AutomationId oder ein eindeutiges Endstück; `rid` gehört zur
+  UIA-Familie `42.`. Die Beschriftungszuordnung verwendet den UIA-Feldresolver.
+- `qt-object` benötigt das Qt-Backend und einen vollständigen beobachteten
+  QObject-`objectName` als `aid` oder eine frische `qt:`-Referenz als `rid`.
+  Ein zusätzliches `name` oder `type` muss dasselbe Objekt einschränken.
+  Teilnamen und erfundene Elternpräfixe gelten hier nicht als Objektidentität.
+- Ohne das Feld bleibt das bisherige Routing erhalten: Bei konfiguriertem
+  Qt-Backend verwendet eine `42.`-RID den nativen Accessibility-Snapshot,
+  alle anderen Selektoren die QObject-Wertprojektion. Punkte in einem Namen
+  ändern diesen Weg nicht. Die bisherigen QObject-Suffix-/Präfixaliase bleiben
+  kompatibel; sie beweisen keinen vollständigen UIA-Elternpfad. Ohne
+  Qt-Backend bleibt der bisherige UIA-Worker zuständig.
+
+Widersprüchliche RID-Familien und `qt-object` ohne Qt-Backend scheitern vor
+Dispatch mit `bad-args`. Ein fehlgeschlagener Read wechselt den Namensraum
+nicht. Beide Wege lesen frische Werte; das Ergebnisformat bleibt unverändert.
+Im QObject-Ergebnis ist `node.aid` ein `objectName` und `node.rid` eine
+`qt:`-Referenz, keine UIA-Schreibidentität. Für UIA-Schreiboperationen sind
+frische UIA-Selektoren nötig; eine Referenz wird nicht durch Weglassen der RID
+in eine andere Identität umgewandelt. Der Getter liest Textwerte. Checkboxen
+verwenden den typisierten Snapshot-Zustand und `toggle`, Combos `combo_select`.
+
 Die Wurzel wird wie beim Worker nicht ausgegeben. Vorgabe sind 4000 Knoten,
 Maximum 5000 und Tiefe 16; `stats.truncated` meldet eine überschrittene Grenze.
 Zeit-, Zyklus-, Text- und Ausgabebegrenzungen scheitern ausdrücklich. Passwortwerte

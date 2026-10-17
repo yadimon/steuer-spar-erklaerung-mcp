@@ -42,6 +42,13 @@ export async function executeQtNativeOperation(
   operation: QtNativeOperation, args: Readonly<Record<string, unknown>>, dependencies: QtNativeExecutorDependencies,
   timeoutMs = DEFAULT_OPERATION_TIMEOUT_MS, signal?: AbortSignal, profile?: ProductProfile,
 ): Promise<WorkerResult> {
+  if (operation === "get_value" && args.selectorNamespace !== undefined
+    && (args.selectorNamespace !== "qt-object"
+      || (!args.aid && !args.rid)
+      || (!dependencies.qtNativeClient && !dependencies.qtNativeClientFor)
+      || (typeof args.rid === "string" && !!args.rid && !args.rid.startsWith("qt:")))) {
+    return { ok: false, kind: "bad-args", error: "Explicit native get_value requires qt-object selectors and qt: references." };
+  }
   try {
     const started = performance.now();
     if (operation === "snapshot" && profile) args = qtSnapshotArguments(args, profile);

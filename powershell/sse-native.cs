@@ -204,6 +204,7 @@ public class SW {
   [DllImport("user32.dll", SetLastError=true)] public static extern bool PostMessage(IntPtr h,uint m,IntPtr w,IntPtr l);
   [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr h,uint m,IntPtr w,IntPtr l);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern uint GetDoubleClickTime();
   [DllImport("user32.dll")] public static extern IntPtr GetLastActivePopup(IntPtr h);
   [DllImport("user32.dll", SetLastError=true)] public static extern bool GetLastInputInfo(ref LASTINPUTINFO info);
   [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);

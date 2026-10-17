@@ -7,6 +7,7 @@ import {
 import { SSE_MCP_TOOL_SCHEMAS } from "./mcp-operation-schemas.js";
 import { SSE_API_RECEIPT_MANAGER_LINK_SCHEMA } from "./mcp-schemas-receipts.js";
 import { SSE_API_GOTO_SCHEMA } from "./operation-schema-goto.js";
+import { SSE_API_GET_VALUE_SCHEMA } from "./mcp-schemas-ui.js";
 import {
   BARE_RESOURCE_REF,
   PROCESS_ID,
@@ -284,9 +285,7 @@ schemasByOperation.toggle = requireCaseHashBinding(requireSelector(
   true,
 ));
 schemasByOperation.find = requireSelector(SSE_MCP_TOOL_SCHEMAS.sse_find, "sse_find", ["name", "aid", "type"], true);
-schemasByOperation.get_value = requireSelector(
-  SSE_MCP_TOOL_SCHEMAS.sse_get_value, "sse_get_value", ["name", "aid", "rid"], true,
-);
+schemasByOperation.get_value = SSE_API_GET_VALUE_SCHEMA;
 schemasByOperation.combo_options = requireSelector(
   SSE_MCP_TOOL_SCHEMAS.sse_combo_options, "sse_combo_options", ["name", "aid", "rid"], true,
 );

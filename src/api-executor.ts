@@ -185,10 +185,15 @@ export function createApiExecutor(
       if (operation === "table_read" && args.readMode === "grid" && args.noKeys === false) {
         return operationError("readMode:grid ist ein reiner Leser und kann nicht mit noKeys:false kombiniert werden.", "bad-args");
       }
+      if (operation === "get_value" && args.selectorNamespace === "qt-object"
+        && !dependencies.qtNativeClient && !dependencies.qtNativeClientFor) {
+        return operationError("selectorNamespace:qt-object erfordert ein konfiguriertes Qt-Backend.", "bad-args");
+      }
       if (operation === "desktop_status" && dependencies.nativeDesktopStatus) {
         return redactPaths(await win32(() => dependencies.nativeDesktopStatus!(timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS, signal)));
       }
       if (isQtNativeOperation(operation)
+        && !(operation === "get_value" && args.selectorNamespace === "uia")
         && !(operation === "table_read" && (args.noKeys === false || args.readMode === "grid"))
         && (dependencies.qtNativeClient || dependencies.qtNativeClientFor)) {
         const executeNative = () => executeQtNativeOperation(operation, args, dependencies, timeoutMs, signal, profile);

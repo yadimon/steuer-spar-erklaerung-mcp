@@ -277,6 +277,21 @@ try {
       assert.equal(bySuffix.value, byFullId.value);
       const byRuntimeId = await read({ rid: byFullId.node.rid });
       assert.equal(byRuntimeId.value, byFullId.value);
+      const explicitObject = await read({ selectorNamespace: "qt-object", aid: "/.Connection.Text", rid: byFullId.node.rid });
+      assert.equal(explicitObject.value, byFullId.value);
+      assert.equal(explicitObject.node.aid, "/.Connection.Text", "QObject objectName is retained without inventing a UIA parent path.");
+      assert.equal((await read({ selectorNamespace: "qt-object", aid: "Connection.Text" })).kind, "not-found");
+      assert.equal((await read({ selectorNamespace: "qt-object", aid: "WrongParent/.Connection.Text" })).kind, "not-found");
+      const beforeExplicitUia = requests.length;
+      let explicitUiaCalls = 0;
+      const explicitUia = createApiExecutor(config, async (operation, args) => {
+        explicitUiaCalls++;
+        assert.equal(operation, "get_value"); assert.equal(args.selectorNamespace, "uia");
+        return { ok: true, value: "UIA value", readOnly: false };
+      }, { qtNativeClient: client });
+      assert.equal((await explicitUia("get_value", { selectorNamespace: "uia", aid: "Connection.Text" })).value, "UIA value");
+      assert.equal(explicitUiaCalls, 1);
+      assert.equal(requests.length, beforeExplicitUia, "Explicit UIA routing must not dispatch any native request.");
       const byLabel = await read({ name: "schluss", contains: true });
       assert.equal(byLabel.value, byFullId.value);
       assert.equal(byLabel.aufgeloestUeber, "beschriftung");
@@ -292,6 +307,11 @@ try {
       assert.equal((await read({ aid: "Connection.Text", hwnd: binding.hwnd + 1 })).kind, "stale-window");
       await assert.rejects(read({}), error => error.kind === "bad-args");
       assert.equal((await execute("get_value", { aid: "Connection.Text", unexpected: true }, 5000)).kind, "bad-args");
+      for (const args of [
+        { selectorNamespace: "uia", rid: byFullId.node.rid },
+        { selectorNamespace: "qt-object", rid: "42.123.4.-2147483647" },
+        { selectorNamespace: "qt-object", name: "Anschluss" },
+      ]) assert.equal((await execute("get_value", args, 5000)).kind, "bad-args");
       const experimental = createApiExecutor({ ...config, profileId: "2024" }, worker, { qtNativeClient: client });
       assert.equal((await experimental("get_value", { aid: "Connection.Text" }, 5000)).kind, "profile-unverified");
       assert.equal(requests.length, requestsBeforeRejection, "Rejected selectors and profile gates must not call the native bridge.");

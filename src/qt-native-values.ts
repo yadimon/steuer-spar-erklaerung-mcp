@@ -39,6 +39,11 @@ export async function executeQtNativeGetValue(
   timeoutMs = 5_000,
   signal?: AbortSignal,
 ): Promise<WorkerResult> {
+  if (args.selectorNamespace !== undefined && (args.selectorNamespace !== "qt-object"
+    || (!args.aid && !args.rid)
+    || (typeof args.rid === "string" && !!args.rid && !args.rid.startsWith("qt:")))) {
+    return failure("bad-args", "Explicit QObject reads require qt-object selectors and qt: references.");
+  }
   if (args.hwnd !== undefined && args.hwnd !== client.binding.hwnd) {
     return failure("stale-window", "Requested window differs from the verified native session.");
   }
@@ -55,8 +60,11 @@ export async function executeQtNativeGetValue(
     const rid = (node: NativeNode) => `qt:${client.binding.pid}:${client.binding.creationTime}:${client.binding.hwnd}:${node.id}`;
     const nodes = parsed.objects.filter(node => node.visible && controlType(node));
     const candidates = nodes.filter(node => {
-      if (typeof args.aid === "string" && args.aid
-        && (!node.name || (!args.aid.endsWith(node.name) && !node.name.endsWith(args.aid)))) return false;
+      if (typeof args.aid === "string" && args.aid) {
+        const matches = args.selectorNamespace === "qt-object" ? args.aid === node.name
+          : !!node.name && (args.aid.endsWith(node.name) || node.name.endsWith(args.aid));
+        if (!matches) return false;
+      }
       if (typeof args.rid === "string" && args.rid && args.rid !== rid(node)) return false;
       if (typeof args.type === "string" && args.type && controlType(node)?.toLowerCase() !== args.type.toLowerCase()) return false;
       if (typeof args.name === "string" && args.name) {

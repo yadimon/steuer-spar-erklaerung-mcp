@@ -5909,7 +5909,29 @@ var init_mcp_schemas_receipts = __esm({
 });
 
 // src/mcp-schemas-ui.ts
-var TABLE_COMBO_EXPECTED_BEFORE, SSE_MCP_UI_SCHEMAS;
+function refineGetValueNamespace(value, context) {
+  if (![value.name, value.aid, value.rid].some((selector) => typeof selector === "string" && selector !== "")) context.addIssue({
+    code: external_exports.ZodIssueCode.custom,
+    message: "sse_get_value braucht einen Bezeichner: name, aid, rid."
+  });
+  if (value.contains === true && !value.name) context.addIssue({
+    code: external_exports.ZodIssueCode.custom,
+    path: ["contains"],
+    message: "contains=true ist nur zusammen mit 'name' erlaubt."
+  });
+  if (value.selectorNamespace === "qt-object" && !value.aid && !value.rid) context.addIssue({
+    code: external_exports.ZodIssueCode.custom,
+    message: "selectorNamespace:qt-object erfordert einen vollstaendigen objectName als aid oder eine qt:-RID."
+  });
+  if (typeof value.rid !== "string" || !value.rid || value.selectorNamespace === void 0) return;
+  const prefix = value.selectorNamespace === "uia" ? "42." : "qt:";
+  if (!value.rid.startsWith(prefix)) context.addIssue({
+    code: external_exports.ZodIssueCode.custom,
+    path: ["rid"],
+    message: `selectorNamespace:${value.selectorNamespace} erfordert eine ${prefix}-Referenz.`
+  });
+}
+var TABLE_COMBO_EXPECTED_BEFORE, SSE_MCP_UI_SCHEMAS, SSE_API_GET_VALUE_SCHEMA;
 var init_mcp_schemas_ui = __esm({
   "src/mcp-schemas-ui.ts"() {
     "use strict";
@@ -6079,14 +6101,18 @@ var init_mcp_schemas_ui = __esm({
         hwnd: WINDOW_HANDLE.optional()
       }).strict(),
       "sse_get_value": external_exports.object({
+        selectorNamespace: external_exports.enum(["uia", "qt-object"]).optional().describe(
+          "uia: Windows-Accessibility-Selektor; qt-object: exakter QObject-objectName oder frische qt:-RID, braucht Qt-Backend; ohne Feld gilt das bisherige Routing"
+        ),
         name: external_exports.string().optional().describe("Exakte sichtbare Beschriftung des Zielfelds"),
-        aid: external_exports.string().optional().describe("AutomationId oder eindeutiges Endstueck"),
-        rid: external_exports.string().optional().describe("RuntimeId aus einem unmittelbar vorherigen Snapshot"),
+        aid: external_exports.string().optional().describe("UIA: AutomationId oder eindeutiges Endstueck; qt-object: vollstaendiger beobachteter objectName"),
+        rid: external_exports.string().optional().describe("Frische UIA-RuntimeId (42.) oder QObject-Referenz (qt:), passend zum gewaehlten Namensraum"),
         type: external_exports.string().optional().describe("Optionaler UIA-Steuerelementtyp, z. B. 'Edit'"),
         contains: external_exports.boolean().optional().describe("Teilstringsuche fuer name statt exakter Uebereinstimmung"),
         hwnd: WINDOW_HANDLE.optional()
       }).strict()
     };
+    SSE_API_GET_VALUE_SCHEMA = SSE_MCP_UI_SCHEMAS.sse_get_value.superRefine(refineGetValueNamespace);
   }
 });
 
@@ -6360,6 +6386,7 @@ var init_operation_catalog = __esm({
     init_mcp_operation_schemas();
     init_mcp_schemas_receipts();
     init_operation_schema_goto();
+    init_mcp_schemas_ui();
     init_operation_schema_primitives();
     init_operation_schema_primitives();
     init_mcp_operation_schemas();
@@ -6507,12 +6534,7 @@ var init_operation_catalog = __esm({
       true
     ));
     schemasByOperation.find = requireSelector(SSE_MCP_TOOL_SCHEMAS.sse_find, "sse_find", ["name", "aid", "type"], true);
-    schemasByOperation.get_value = requireSelector(
-      SSE_MCP_TOOL_SCHEMAS.sse_get_value,
-      "sse_get_value",
-      ["name", "aid", "rid"],
-      true
-    );
+    schemasByOperation.get_value = SSE_API_GET_VALUE_SCHEMA;
     schemasByOperation.combo_options = requireSelector(
       SSE_MCP_TOOL_SCHEMAS.sse_combo_options,
       "sse_combo_options",
@@ -12794,6 +12816,9 @@ function failure(kind, error) {
   return { ok: false, kind, error };
 }
 async function executeQtNativeGetValue(client, args, timeoutMs = 5e3, signal) {
+  if (args.selectorNamespace !== void 0 && (args.selectorNamespace !== "qt-object" || !args.aid && !args.rid || typeof args.rid === "string" && !!args.rid && !args.rid.startsWith("qt:"))) {
+    return failure("bad-args", "Explicit QObject reads require qt-object selectors and qt: references.");
+  }
   if (args.hwnd !== void 0 && args.hwnd !== client.binding.hwnd) {
     return failure("stale-window", "Requested window differs from the verified native session.");
   }
@@ -12810,7 +12835,10 @@ async function executeQtNativeGetValue(client, args, timeoutMs = 5e3, signal) {
     const rid = (node) => `qt:${client.binding.pid}:${client.binding.creationTime}:${client.binding.hwnd}:${node.id}`;
     const nodes = parsed.objects.filter((node) => node.visible && controlType(node));
     const candidates = nodes.filter((node) => {
-      if (typeof args.aid === "string" && args.aid && (!node.name || !args.aid.endsWith(node.name) && !node.name.endsWith(args.aid))) return false;
+      if (typeof args.aid === "string" && args.aid) {
+        const matches = args.selectorNamespace === "qt-object" ? args.aid === node.name : !!node.name && (args.aid.endsWith(node.name) || node.name.endsWith(args.aid));
+        if (!matches) return false;
+      }
       if (typeof args.rid === "string" && args.rid && args.rid !== rid(node)) return false;
       if (typeof args.type === "string" && args.type && controlType(node)?.toLowerCase() !== args.type.toLowerCase()) return false;
       if (typeof args.name === "string" && args.name) {
@@ -17399,6 +17427,9 @@ function isQtNativeOperation(operation) {
   return QT_NATIVE_OPERATIONS.some((value) => value === operation);
 }
 async function executeQtNativeOperation(operation, args, dependencies, timeoutMs = DEFAULT_OPERATION_TIMEOUT_MS, signal, profile) {
+  if (operation === "get_value" && args.selectorNamespace !== void 0 && (args.selectorNamespace !== "qt-object" || !args.aid && !args.rid || !dependencies.qtNativeClient && !dependencies.qtNativeClientFor || typeof args.rid === "string" && !!args.rid && !args.rid.startsWith("qt:"))) {
+    return { ok: false, kind: "bad-args", error: "Explicit native get_value requires qt-object selectors and qt: references." };
+  }
   try {
     const started = performance12.now();
     if (operation === "snapshot" && profile) args = qtSnapshotArguments(args, profile);
@@ -19064,10 +19095,13 @@ function createApiExecutor(config, rawWorker, dependencies = {}) {
       if (operation === "table_read" && args.readMode === "grid" && args.noKeys === false) {
         return operationError("readMode:grid ist ein reiner Leser und kann nicht mit noKeys:false kombiniert werden.", "bad-args");
       }
+      if (operation === "get_value" && args.selectorNamespace === "qt-object" && !dependencies.qtNativeClient && !dependencies.qtNativeClientFor) {
+        return operationError("selectorNamespace:qt-object erfordert ein konfiguriertes Qt-Backend.", "bad-args");
+      }
       if (operation === "desktop_status" && dependencies.nativeDesktopStatus) {
         return redactPaths(await win325(() => dependencies.nativeDesktopStatus(timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS, signal)));
       }
-      if (isQtNativeOperation(operation) && !(operation === "table_read" && (args.noKeys === false || args.readMode === "grid")) && (dependencies.qtNativeClient || dependencies.qtNativeClientFor)) {
+      if (isQtNativeOperation(operation) && !(operation === "get_value" && args.selectorNamespace === "uia") && !(operation === "table_read" && (args.noKeys === false || args.readMode === "grid")) && (dependencies.qtNativeClient || dependencies.qtNativeClientFor)) {
         const executeNative = () => executeQtNativeOperation(operation, args, dependencies, timeoutMs, signal, profile);
         return redactPaths(await (telemetry?.enabled ? telemetry.runQtNative(executeNative) : executeNative()));
       }

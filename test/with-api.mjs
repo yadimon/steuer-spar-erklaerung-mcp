@@ -41,11 +41,13 @@ const workspaceDir = join(temporary, "workspace");
 const resultDir = join(temporary, "results");
 const documentsDir = join(temporary, "documents");
 const backupsDir = join(temporary, "backups");
-mkdirSync(caseDir, { recursive: true });
-mkdirSync(workspaceDir, { recursive: true });
-mkdirSync(resultDir, { recursive: true });
-mkdirSync(documentsDir, { recursive: true });
-mkdirSync(backupsDir, { recursive: true });
+let server, native, executionLog;
+const nativeShutdown = new AbortController();
+let prewarmStarted = false;
+let childFailed = false;
+let childExitCode = 1;
+let primaryFailure;
+let primaryPhase = "Test-API-Start";
 
 function interactiveReceiptLease() {
   if (process.env.SSE_TEST_INTERACTIVE_RECEIPTS !== "1") return null;
@@ -97,79 +99,83 @@ function interactiveReceiptLease() {
   return { token, issuedAt, expiresAt, sessionId: state.sessionId };
 }
 
-const receiptLease = interactiveReceiptLease();
-const useWorkerPrewarm = process.env.SSE_TEST_API_PREWARM === "1";
-const foregroundReceiptOperations = new Set(SSE_FOREGROUND_REQUIRED_RECEIPT_OPERATIONS);
-const worker = (operation, args, timeoutMs, signal) => callWorker(
-  operation,
-  receiptLease && foregroundReceiptOperations.has(operation)
-    ? { ...args, __interactiveReceiptLease: receiptLease.token }
-    : args,
-  timeoutMs,
-  signal,
-  telemetry,
-);
-const config = {
-  host: "127.0.0.1",
-  port: 1,
-  configPath: join(temporary, "config.json"),
-  workspaceDir,
-  resultDir,
-  documentsDir,
-  backupsDir,
-  caseDir,
-  sseExecutable: process.env.SSE_EXECUTABLE,
-  profileId: process.env.SSE_PROFILE_ID,
-  // Ein noch unverifiziertes Jahr laesst sich sonst nie verifizieren: seine
-  // Betriebsoperationen sind fail-closed. Nur ein ausdruecklich gesetztes
-  // SSE_OPERATE_EXPERIMENTAL oeffnet den Weg fuer genau solche Laeufe.
-  operateExperimental: process.env.SSE_OPERATE_EXPERIMENTAL === "1",
-  ...(receiptLease ? { interactiveReceiptLeaseToken: receiptLease.token } : {}),
-};
-const nativeDirectory = process.env.SSE_TEST_NATIVE_PACKAGE;
-const nativeDigest = process.env.SSE_TEST_NATIVE_MANIFEST_SHA256;
-if (Boolean(nativeDirectory) !== Boolean(nativeDigest)) throw new Error("Native test package and manifest digest must be supplied together.");
-const telemetry = process.env.SSE_MEGA_RAW_REPORT
-  ? createExecutionTelemetry({ enabled: true, maxSpansPerTrace: 4096 }) : undefined;
-const executionLog = telemetry ? createExecutionTraceLog({
-  telemetry, outputPath: `${process.env.SSE_MEGA_RAW_REPORT}.execution.jsonl`,
-  repositoryRoot: fileURLToPath(new URL("../", import.meta.url)),
-}) : undefined;
-const nativeShutdown = new AbortController();
-const native = nativeDirectory ? createQtNativeRuntime({ ...config,
-  qtNativeRuntime: { directory: nativeDirectory, manifestSha256: nativeDigest },
-}, loadProductProfile(config.profileId), nativeShutdown.signal, { telemetry }) : null;
-if (native && process.env.SSE_TEST_OPERATION_TRACE_DIR) throw new Error("Native benchmark cannot update the Worker coverage ledger.");
-const executor = createApiExecutor(config, native ? withQtNativeLifecycle(worker, native) : worker,
-  { telemetry, ...(native ? { qtNativeClientFor: native.client, nativeDesktopStatus: native.desktopStatus,
-    nativeDesktopStart: native.desktopStart, nativeDesktopStop: native.desktopStop } : {}) });
-const execute = native ? executor : traceOperations("worker", executor);
-const server = createSseApiServer({
-  execute,
-  ...(executionLog ? { log: record => executionLog.record(record) } : {}),
-  ...(useWorkerPrewarm ? {
-    prewarmStatus: () => ({ ready: isWarmSpareReady(), failure: lastPrewarmFailure(), poolTarget: warmSparePoolStatus().target }),
-  } : {}),
-});
-await listenOnFetchablePort(server);
-if (useWorkerPrewarm) {
-  enableWorkerPrewarm();
-  const deadline = performance.now() + prewarmStartupTimeoutMs();
-  while (!isWarmSpareReady() && performance.now() < deadline) {
-    if (lastPrewarmFailure()) break;
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  if (!isWarmSpareReady()) {
-    process.stderr.write(`API-Worker-Prewarm wurde vor dem Test nicht bereit: ${lastPrewarmFailure() ?? "timeout"}\n`);
-  }
-}
-const address = server.address();
-if (!address || typeof address !== "object") throw new Error("Test-API hat keinen TCP-Port erhalten.");
-
-let childFailed = false;
-let childExitCode = 1;
-let primaryFailure;
 try {
+  mkdirSync(caseDir, { recursive: true });
+  mkdirSync(workspaceDir, { recursive: true });
+  mkdirSync(resultDir, { recursive: true });
+  mkdirSync(documentsDir, { recursive: true });
+  mkdirSync(backupsDir, { recursive: true });
+  const receiptLease = interactiveReceiptLease();
+  const useWorkerPrewarm = process.env.SSE_TEST_API_PREWARM === "1";
+  const foregroundReceiptOperations = new Set(SSE_FOREGROUND_REQUIRED_RECEIPT_OPERATIONS);
+  const worker = (operation, args, timeoutMs, signal) => callWorker(
+    operation,
+    receiptLease && foregroundReceiptOperations.has(operation)
+      ? { ...args, __interactiveReceiptLease: receiptLease.token }
+      : args,
+    timeoutMs,
+    signal,
+    telemetry,
+  );
+  const config = {
+    host: "127.0.0.1",
+    port: 1,
+    configPath: join(temporary, "config.json"),
+    workspaceDir,
+    resultDir,
+    documentsDir,
+    backupsDir,
+    caseDir,
+    sseExecutable: process.env.SSE_EXECUTABLE,
+    profileId: process.env.SSE_PROFILE_ID,
+    // Ein noch unverifiziertes Jahr laesst sich sonst nie verifizieren: seine
+    // Betriebsoperationen sind fail-closed. Nur ein ausdruecklich gesetztes
+    // SSE_OPERATE_EXPERIMENTAL oeffnet den Weg fuer genau solche Laeufe.
+    operateExperimental: process.env.SSE_OPERATE_EXPERIMENTAL === "1",
+    ...(receiptLease ? { interactiveReceiptLeaseToken: receiptLease.token } : {}),
+  };
+  const nativeDirectory = process.env.SSE_TEST_NATIVE_PACKAGE;
+  const nativeDigest = process.env.SSE_TEST_NATIVE_MANIFEST_SHA256;
+  if (Boolean(nativeDirectory) !== Boolean(nativeDigest)) throw new Error("Native test package and manifest digest must be supplied together.");
+  const telemetry = process.env.SSE_MEGA_RAW_REPORT
+    ? createExecutionTelemetry({ enabled: true, maxSpansPerTrace: 4096 }) : undefined;
+  executionLog = telemetry ? createExecutionTraceLog({
+    telemetry, outputPath: `${process.env.SSE_MEGA_RAW_REPORT}.execution.jsonl`,
+    repositoryRoot: fileURLToPath(new URL("../", import.meta.url)),
+  }) : undefined;
+  native = nativeDirectory ? createQtNativeRuntime({ ...config,
+    qtNativeRuntime: { directory: nativeDirectory, manifestSha256: nativeDigest },
+  }, loadProductProfile(config.profileId), nativeShutdown.signal, { telemetry }) : null;
+  if (native && process.env.SSE_TEST_OPERATION_TRACE_DIR) throw new Error("Native benchmark cannot update the Worker coverage ledger.");
+  const executor = createApiExecutor(config, native ? withQtNativeLifecycle(worker, native) : worker,
+    { telemetry, ...(native ? { qtNativeClientFor: native.client, nativeDesktopStatus: native.desktopStatus,
+      nativeDesktopStart: native.desktopStart, nativeDesktopStop: native.desktopStop } : {}) });
+  const execute = native ? executor : traceOperations("worker", executor);
+  server = createSseApiServer({
+    execute,
+    ...(executionLog ? { log: record => executionLog.record(record) } : {}),
+    ...(useWorkerPrewarm ? {
+      prewarmStatus: () => ({ ready: isWarmSpareReady(), failure: lastPrewarmFailure(), poolTarget: warmSparePoolStatus().target }),
+    } : {}),
+  });
+  await listenOnFetchablePort(server);
+  if (useWorkerPrewarm) {
+    // A partially failed enable can already own workers.
+    prewarmStarted = true;
+    enableWorkerPrewarm();
+    const deadline = performance.now() + prewarmStartupTimeoutMs();
+    while (!isWarmSpareReady() && performance.now() < deadline) {
+      if (lastPrewarmFailure()) break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    if (!isWarmSpareReady()) {
+      process.stderr.write(`API-Worker-Prewarm wurde vor dem Test nicht bereit: ${lastPrewarmFailure() ?? "timeout"}\n`);
+    }
+  }
+  const address = server.address();
+  if (!address || typeof address !== "object") throw new Error("Test-API hat keinen TCP-Port erhalten.");
+
+  primaryPhase = "Testprozess";
   const childEnv = {
     ...process.env,
     SSE_API_URL: `http://127.0.0.1:${address.port}`,
@@ -211,18 +217,33 @@ try {
 // independent resources from being released. Keep the child's exact exit code.
 const cleanupFailures = [];
 async function cleanup(phase, action) {
-  try { await action(); }
+  let timer;
+  try {
+    await Promise.race([
+      Promise.resolve().then(action),
+      new Promise((_, reject) => {
+        // Native retirement has its own five-second budget. The wrapper also
+        // bounds a broken implementation or a callback that is never invoked.
+        timer = setTimeout(() => reject(Object.assign(
+          new Error(`Cleanup completion remains unproved [${phase}].`),
+          { code: "cleanup-timeout", phase },
+        )), phase === "sandbox" ? 15_000 : 6_000);
+      }),
+    ]);
+  }
   catch (error) {
     childFailed = true;
     cleanupFailures.push({ phase, error });
+  } finally {
+    clearTimeout(timer);
   }
 }
-await cleanup("http-server", () => new Promise((resolve, reject) => {
-  server.close((error) => error ? reject(error) : resolve());
+if (server) await cleanup("http-server", () => new Promise((resolve, reject) => {
+  server.close((error) => error && error.code !== "ERR_SERVER_NOT_RUNNING" ? reject(error) : resolve());
 }));
 await cleanup("native-shutdown", () => nativeShutdown.abort());
 await cleanup("native-runtime", () => native?.close());
-await cleanup("worker-prewarm", () => { if (useWorkerPrewarm) shutdownWarmSpare(); });
+if (prewarmStarted) await cleanup("worker-prewarm", () => shutdownWarmSpare());
 await cleanup("execution-log", () => executionLog?.close());
 let temporaryPreserved = false;
 if (childFailed && preserveTemporaryOnFailure) {
@@ -234,10 +255,11 @@ if (childFailed && preserveTemporaryOnFailure) {
   await cleanup("sandbox", () => removeDirectoryWhenFree(temporary));
 }
 
-if (primaryFailure) console.error("Testprozess fehlgeschlagen:", primaryFailure.error);
+if (primaryFailure) console.error(`${primaryPhase} fehlgeschlagen:`, primaryFailure.error);
 else if (childExitCode !== 0) process.stderr.write(`Testprozess fehlgeschlagen (Exit-Code ${childExitCode}).\n`);
 for (const { phase, error } of cleanupFailures) console.error(`Test-Cleanup fehlgeschlagen [${phase}]:`, error);
 if (temporaryPreserved) process.stderr.write(`Test-Sandbox zur Diagnose erhalten: ${temporary}\n`);
+if (cleanupFailures.some(({ phase }) => phase === "sandbox")) process.stderr.write(`Test-Sandbox-Cleanup nicht bestätigt: ${temporary}\n`);
 process.exitCode = childFailed ? childExitCode || 1 : 0;
 
 if (cleanupFailures.length > 0) {

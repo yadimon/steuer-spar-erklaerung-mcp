@@ -99,7 +99,7 @@ function Assert-SSENativeAssemblySurface([Reflection.Assembly]$Assembly) {
       'IsWindow','IsWindowUnicode','IsHungAppWindow',
       'SetForegroundWindow','SendMessageTimeout','SendMessageTimeoutA','SendMessageTimeoutW','SetCursorPos','GetCursorPos','mouse_event','keybd_event',
       'WindowFromPoint','GetAncestor','ShowWindow','SetWindowPos','BringWindowToTop','ScreenToClient','GetDpiForWindow','GetPhysicalClientOrigin','PostMessage',
-      'SendMessage','GetForegroundWindow','GetLastActivePopup','GetLastInputInfo','IsIconic','AttachThreadInput',
+      'SendMessage','GetForegroundWindow','GetDoubleClickTime','GetLastActivePopup','GetLastInputInfo','IsIconic','AttachThreadInput',
       'GetGUIThreadInfo','GetCurrentThreadId','SendUnicodeText')
     SSEWindowEnumerator=@('Describe','DescribeIncludingHidden','ToViews')
     SSEProcessCommandLine=@('TryGet')

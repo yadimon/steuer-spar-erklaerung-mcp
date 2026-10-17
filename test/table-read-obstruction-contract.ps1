@@ -10,6 +10,12 @@ $diagnosticHelper=@($ast.FindAll({ param($node)
 },$true))
 if ($diagnosticHelper.Count -ne 1) { throw 'Expected one real cursor exception diagnostic helper.' }
 . ([scriptblock]::Create($diagnosticHelper[0].Extent.Text))
+$initialFocusHelper=@($ast.FindAll({ param($node)
+  $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+  $node.Name -ceq 'Invoke-SSETableReadInitialFocus'
+},$true))
+if ($initialFocusHelper.Count -ne 1) { throw 'Expected one real initial cursor focus helper.' }
+. ([scriptblock]::Create($initialFocusHelper[0].Extent.Text))
 $clauses=@($ast.FindAll({ param($node) $node -is [Management.Automation.Language.SwitchStatementAst] },$true) |
   ForEach-Object { $_.Clauses } | Where-Object { $_.Item1.Extent.Text -ceq "'table_read'" })
 if ($clauses.Count -ne 1) { throw 'Expected one real table_read dispatcher branch.' }
@@ -62,6 +68,7 @@ public static class SW {
   public static int GetWindowThreadProcessId(IntPtr handle, out int pid) {
     pid = handle.ToInt64() == 111 ? 7 : HitPid; return 1;
   }
+  public static uint GetDpiForWindow(IntPtr handle) { return 96; }
   public static bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int w, int height, int flags) {
     Releases++; return true;
   }
@@ -141,7 +148,10 @@ function Run-Observation([bool]$NoKeys,[string]$BlockerKind,[int]$HitPid,[int]$H
     $script:pointQueries++; $script:pointObservation
   }
   function Get-DirtyStateFast($Window) { $false }
-  function Get-SSETableLiveInputState { [pscustomobject]@{ok=$true;editorClosed=$true} }
+  function Get-SSETableLiveInputState {
+    param($Window,$ProcessId,$Aid,$Rid,[switch]$RequireKeyboard,[switch]$RequireSelection)
+    [pscustomobject]@{ok=(-not $RequireKeyboard);editorClosed=$true}
+  }
   function Get-LiveElement { throw 'Synthetic table anchor cannot be resolved.' }
   function Emit($Result) { $script:captured=$Result; throw 'SSE_TEST_CAPTURED_RESULT' }
   $kopf=@('Datum','N','Betrag')

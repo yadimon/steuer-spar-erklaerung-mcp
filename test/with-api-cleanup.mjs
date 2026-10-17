@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -161,8 +161,103 @@ function runLifecycle(name, { code = 23, missing = false, nativeFailure = false,
   }
 }
 
+function runPendingOrStartup(name, { pending, startup, code = 23, holdHandle = true } = {}) {
+  const lifecycleTemporary = mkdtempSync(join(temporary, `${name}-`));
+  const capturePath = join(temporary, `${name}.jsonl`), markerPath = join(lifecycleTemporary, "sse-mcp-desktop.txt");
+  const recordSource = `import fs from 'node:fs';const record=phase=>fs.appendFileSync(${JSON.stringify(capturePath)},JSON.stringify({phase})+'\\n');`;
+  const hangSource = `const hang=()=>{${holdHandle ? "setInterval(()=>{},1000);" : ""}return new Promise(()=>{});};`;
+  const nativeStub = [recordSource, hangSource,
+    "export function createQtNativeRuntime(config,profile,signal){record('native-create');",
+    startup === "native" ? "throw new Error('synthetic-startup-native');" : "",
+    `fs.writeFileSync(${JSON.stringify(markerPath)},'synthetic unproved owner',{flag:'wx'});`,
+    "signal.addEventListener('abort',()=>record('native-shutdown'));",
+    "const unexpected=()=>{throw new Error('Product operations forbidden.');};",
+    "return{client:unexpected,desktopStatus:unexpected,desktopStart:unexpected,desktopStop:unexpected,beforeWorker:unexpected,afterWorker:unexpected,",
+    "close(){record('native-runtime');",
+    pending === "native-runtime" ? "return hang();" : `fs.unlinkSync(${JSON.stringify(markerPath)});`,
+    "}};}",
+  ].join("\n");
+  const prewarmStub = [recordSource, hangSource,
+    "export const enableWorkerPrewarm=()=>{record('prewarm-enable');",
+    startup === "prewarm" ? "throw new Error('synthetic-startup-prewarm');" : "",
+    "};export const isWarmSpareReady=()=>true;export const lastPrewarmFailure=()=>null;export const prewarmStartupTimeoutMs=()=>1000;",
+    "export const warmSparePoolStatus=()=>({target:1});export const ensureWarmSpare=()=>{};export const takeWarmSpare=()=>null;",
+    "export const shutdownWarmSpare=()=>{record('worker-prewarm');",
+    pending === "worker-prewarm" ? "return hang();" : "",
+    "};",
+  ].join("\n");
+  const traceStub = [recordSource, hangSource, "export const createExecutionTraceLog=()=>({record(){},close(){record('execution-log');",
+    pending === "execution-log" ? "return hang();" : "", "}});"].join("\n");
+  const sandboxStub = [recordSource, hangSource, "export const removeDirectoryWhenFree=()=>{record('sandbox');return hang();};"].join("\n");
+  const source = [
+    "import fs from 'node:fs';import http from 'node:http';import {registerHooks,syncBuiltinESMExports} from 'node:module';",
+    `const pending=${JSON.stringify(pending ?? null)},startup=${JSON.stringify(startup ?? null)};`,
+    `const record=value=>fs.appendFileSync(${JSON.stringify(capturePath)},JSON.stringify(value)+'\\n');`,
+    hangSource,
+    "const originalMkdtemp=fs.mkdtempSync;fs.mkdtempSync=(...args)=>{const path=originalMkdtemp(...args);record({phase:'created',path});return path;};",
+    "const originalMkdir=fs.mkdirSync;fs.mkdirSync=(path,...args)=>{if(startup==='mkdir'&&path.endsWith('workspace'))throw new Error('synthetic-startup-mkdir');return originalMkdir(path,...args);};",
+    "const originalRemove=fs.rmSync;fs.rmSync=(path,...args)=>{record({phase:'sandbox',path});return originalRemove(path,...args);};",
+    "const originalClose=http.Server.prototype.close;http.Server.prototype.close=function(callback){record({phase:'http-server'});if(pending==='http-server'){originalClose.call(this,()=>{});hang();return this;}return originalClose.call(this,callback);};",
+    "const originalListen=http.Server.prototype.listen;http.Server.prototype.listen=function(...args){if(startup==='listen')throw new Error('synthetic-startup-listen');return originalListen.apply(this,args);};",
+    ...(pending === "native-shutdown" ? ["const OriginalAbortController=globalThis.AbortController;globalThis.AbortController=class extends OriginalAbortController{abort(...args){super.abort(...args);return hang();}};"] : []),
+    `registerHooks({load(url,context,next){if(url.endsWith('/dist/qt-native-runtime.js'))return{format:'module',source:${JSON.stringify(nativeStub)},shortCircuit:true};if(url.endsWith('/dist/worker-prewarm.js'))return{format:'module',source:${JSON.stringify(prewarmStub)},shortCircuit:true};if(url.endsWith('/test/execution-trace-log.mjs'))return{format:'module',source:${JSON.stringify(traceStub)},shortCircuit:true};${pending === "sandbox" ? `if(url.endsWith('/test/remove-when-free.mjs'))return{format:'module',source:${JSON.stringify(sandboxStub)},shortCircuit:true};` : ""}return next(url,context);}});`,
+    "syncBuiltinESMExports();",
+  ].join("\n");
+  const started = performance.now();
+  const result = spawnSync(process.execPath, ["--import", "data:text/javascript," + encodeURIComponent(source), "test/with-api.mjs", process.execPath, "-e", `process.exitCode=${code};`], {
+    cwd: process.cwd(), env: { ...environment, TEMP: lifecycleTemporary, TMP: lifecycleTemporary,
+      SSE_TEST_NATIVE_PACKAGE: lifecycleTemporary, SSE_TEST_NATIVE_MANIFEST_SHA256: "0".repeat(64), SSE_TEST_API_PREWARM: "1", SSE_MEGA_RAW_REPORT: join(temporary, `${name}.report.json`) },
+    encoding: "utf8", windowsHide: true, timeout: 25_000, maxBuffer: 1024 * 1024,
+  });
+  const captures = readFileSync(capturePath, "utf8").trim().split("\n").map(line => JSON.parse(line));
+  const created = captures.find(entry => entry.phase === "created");
+  assert(created, `${name}: wrapper must record its owned sandbox`);
+  const sandbox = resolve(created.path);
+  assert.equal(dirname(sandbox).toLowerCase(), resolve(lifecycleTemporary).toLowerCase());
+  assert.match(basename(sandbox), /^sse-api-test-[a-zA-Z0-9]{6}$/u);
+  try {
+    assert.equal(result.error, undefined, `${name}: wrapper must bound unresolved cleanup (${result.stderr})`);
+    assert.equal(result.signal, null);
+    assert.equal(result.status, startup ? 1 : code || 1);
+    assert.doesNotThrow(() => process.kill(peer.pid, 0), `${name}: unrelated peer must remain alive after wrapper shutdown`);
+    const phases = captures.map(entry => entry.phase);
+    const expected = startup === "mkdir" ? ["created", "sandbox"] : ["created", "native-create",
+      ...(startup === "native" ? [] : [...(startup === "listen" ? [] : ["prewarm-enable"]), "http-server", "native-shutdown", "native-runtime", ...(startup === "listen" ? [] : ["worker-prewarm"])]),
+      "execution-log", ...(pending === "native-runtime" ? [] : ["sandbox"])];
+    assert.deepEqual(phases, expected, `${name}: release every acquired independent resource exactly once`);
+    assert.equal(existsSync(markerPath), pending === "native-runtime");
+    assert.equal(existsSync(sandbox), pending === "native-runtime" || pending === "sandbox");
+    assert.equal(result.stderr.includes("Test-Sandbox zur Diagnose erhalten:"), pending === "native-runtime");
+    if (pending) {
+      assert(result.stderr.includes(`Test-Cleanup fehlgeschlagen [${pending}]:`));
+      assert(result.stderr.includes("cleanup-timeout"), `${name}: deadline reason must identify unresolved completion`);
+      assert(performance.now() - started >= (pending === "sandbox" ? 14_500 : 5_500), `${name}: the cleanup deadline must remain referenced without relying on a resource handle`);
+      const primary = startup ? `synthetic-startup-${startup}` : code ? `Exit-Code ${code}` : null;
+      if (primary) assert(result.stderr.indexOf(primary) >= 0 && result.stderr.indexOf(primary) < result.stderr.indexOf("Test-Cleanup fehlgeschlagen"));
+    } else assert(result.stderr.includes(`synthetic-startup-${startup}`), `${name}: preserve original startup error`);
+  } finally {
+    rmSync(sandbox, { recursive: true, force: true });
+  }
+}
 
+
+const peer = spawn(process.execPath, ["-e", "setInterval(()=>{},1000);"], { stdio: "ignore", windowsHide: true });
+assert(Number.isSafeInteger(peer.pid) && peer.pid > 0, "The independent peer subprocess must have an owned PID.");
+peer.on("error", error => { throw error; });
 try {
+  runPendingOrStartup("pending-http-close", { pending: "http-server" });
+  runPendingOrStartup("pending-http-without-handles", { pending: "http-server", code: 0, holdHandle: false });
+  runPendingOrStartup("pending-shutdown", { pending: "native-shutdown" });
+  runPendingOrStartup("pending-native-close", { pending: "native-runtime" });
+  runPendingOrStartup("pending-native-after-success", { pending: "native-runtime", code: 0 });
+  runPendingOrStartup("pending-prewarm-close", { pending: "worker-prewarm" });
+  runPendingOrStartup("pending-trace-close", { pending: "execution-log" });
+  runPendingOrStartup("pending-sandbox-cleanup", { pending: "sandbox" });
+  runPendingOrStartup("startup-mkdir", { startup: "mkdir" });
+  runPendingOrStartup("startup-native", { startup: "native" });
+  runPendingOrStartup("startup-listen", { startup: "listen" });
+  runPendingOrStartup("startup-prewarm", { startup: "prewarm" });
+  runPendingOrStartup("startup-prewarm-with-pending-native", { startup: "prewarm", pending: "native-runtime" });
   runLifecycle("native-and-prewarm-failures", { nativeFailure: true, prewarmFailure: true, traceFailure: true });
   runLifecycle("native-failure-after-success", { code: 0, nativeFailure: true });
   runLifecycle("prewarm-failure", { prewarmFailure: true });
@@ -181,8 +276,10 @@ try {
   run("preserve-after-child-failure", { code: 23, preserve: true });
   const preservedSuccess = run("successful-test-not-preserved", { preserve: true });
   assert.equal(preservedSuccess.stderr, "");
-  process.stdout.write("API test wrapper: primary failures, exact child status, independent cleanup and sandbox retention verified\n");
+  assert.doesNotThrow(() => process.kill(peer.pid, 0), "Cleanup must not terminate the independent peer subprocess.");
+  process.stdout.write("API test wrapper: bounded cleanup, startup failures, exact child status, independent peer and sandbox retention verified\n");
 } finally {
+  peer.kill();
   const target = resolve(temporary);
   assert.equal(dirname(target).toLowerCase(), resolve(tmpdir()).toLowerCase());
   assert.match(basename(target), /^sse-api-cleanup-contract-[a-zA-Z0-9]{6}$/u);

@@ -440,8 +440,9 @@ export function registerUiTools(registry: McpRegistry): void {
       description:
         "Liest den Inhalt genau eines Eingabefeldes samt Schreibschutz-Kennzeichen. " +
         "Mehrdeutige Selektoren werden abgewiesen; fuer unbeschriftete Felder aid oder rid verwenden. " +
-        "Trifft name nur die Beschriftung, wird dasselbe Eingabefeld gelesen, das sse_change_field " +
-        "unter diesem Namen beschreiben wuerde; aufgeloestUeber sagt, welcher Weg gegriffen hat.",
+        "selectorNamespace:uia benutzt den UIA-Feldresolver auch mit Qt-Konfiguration; qt-object liest " +
+        "einen beobachteten QObject-Namen oder eine frische qt:-Referenz. Ohne Namensraum bleibt das bisherige Routing erhalten. " +
+        "Bei einer Beschriftung zeigt aufgeloestUeber die Feldzuordnung. QObject-Referenzen sind keine UIA-Schreibidentitaeten.",
     },
   );
 }

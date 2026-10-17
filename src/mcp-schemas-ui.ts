@@ -11,6 +11,25 @@ import {
   SNAPSHOT_MAX_NODES,
 } from "./operation-schema-primitives.js";
 
+/** Explicit getter namespaces never reinterpret a reference from another backend. */
+function refineGetValueNamespace(value: Record<string, unknown>, context: z.RefinementCtx): void {
+  if (![value.name, value.aid, value.rid].some(selector => typeof selector === "string" && selector !== "")) context.addIssue({
+    code: z.ZodIssueCode.custom, message: "sse_get_value braucht einen Bezeichner: name, aid, rid.",
+  });
+  if (value.contains === true && !value.name) context.addIssue({
+    code: z.ZodIssueCode.custom, path: ["contains"], message: "contains=true ist nur zusammen mit 'name' erlaubt.",
+  });
+  if (value.selectorNamespace === "qt-object" && !value.aid && !value.rid) context.addIssue({
+    code: z.ZodIssueCode.custom, message: "selectorNamespace:qt-object erfordert einen vollstaendigen objectName als aid oder eine qt:-RID.",
+  });
+  if (typeof value.rid !== "string" || !value.rid || value.selectorNamespace === undefined) return;
+  const prefix = value.selectorNamespace === "uia" ? "42." : "qt:";
+  if (!value.rid.startsWith(prefix)) context.addIssue({
+    code: z.ZodIssueCode.custom, path: ["rid"],
+    message: `selectorNamespace:${value.selectorNamespace} erfordert eine ${prefix}-Referenz.`,
+  });
+}
+
 const TABLE_COMBO_EXPECTED_BEFORE = z.record(
   z.string().regex(/^(?:0|[1-9][0-9]{0,2})$/u),
   z.string(),
@@ -197,11 +216,16 @@ export const SSE_MCP_UI_SCHEMAS = {
     hwnd: WINDOW_HANDLE.optional(),
   }).strict(),
   "sse_get_value": z.object({
+    selectorNamespace: z.enum(["uia", "qt-object"]).optional().describe(
+      "uia: Windows-Accessibility-Selektor; qt-object: exakter QObject-objectName oder frische qt:-RID, braucht Qt-Backend; ohne Feld gilt das bisherige Routing",
+    ),
     name: z.string().optional().describe("Exakte sichtbare Beschriftung des Zielfelds"),
-    aid: z.string().optional().describe("AutomationId oder eindeutiges Endstueck"),
-    rid: z.string().optional().describe("RuntimeId aus einem unmittelbar vorherigen Snapshot"),
+    aid: z.string().optional().describe("UIA: AutomationId oder eindeutiges Endstueck; qt-object: vollstaendiger beobachteter objectName"),
+    rid: z.string().optional().describe("Frische UIA-RuntimeId (42.) oder QObject-Referenz (qt:), passend zum gewaehlten Namensraum"),
     type: z.string().optional().describe("Optionaler UIA-Steuerelementtyp, z. B. 'Edit'"),
     contains: z.boolean().optional().describe("Teilstringsuche fuer name statt exakter Uebereinstimmung"),
     hwnd: WINDOW_HANDLE.optional(),
   }).strict(),
 } as const;
+
+export const SSE_API_GET_VALUE_SCHEMA = SSE_MCP_UI_SCHEMAS.sse_get_value.superRefine(refineGetValueNamespace);

@@ -14,7 +14,9 @@ function Get-SSETableLiveInputState {
   Assert-True ($Window -eq [IntPtr]111 -and $ProcessId -eq 7 -and $Aid -ceq 'Synthetic.Table' -and $Rid -ceq '1.1') 'Live proof lost target identity.'
   if($script:reads -eq 1){
     Assert-True ($RequireKeyboard -and $RequireSelection) 'Existing focus needs actual keyboard AND unique row selection.'
-    return [pscustomobject]@{ok=($script:mode -in @('existing','changed-guard'))}
+    return [pscustomobject]@{ok=($script:mode -in @('existing','changed-guard'));
+      reason=$(if($script:mode -like 'cancel-*'){'keyboard-focus-is-not-table-or-cell'}else{$null});
+      focusedType=$(if($script:mode -like 'cancel-*'){'Edit'}else{$null})}
   }
   [pscustomobject]@{ok=($script:reads -eq 2)}
 }
@@ -46,5 +48,30 @@ foreach($case in @('existing','changed-guard','unfocused','focus-failed')){
   }else{
     Assert-True ($script:reads -eq 3 -and $script:resolved -eq 1 -and $script:selections -eq 1 -and $script:focusCalls -eq 1) "$case`: original single semantic path changed or retried."
   }
+}
+foreach($case in @('number-success','number-failed','number-no-callback')) {
+  $numberSnapshot=$snapshot.PSObject.Copy();$numberSnapshot | Add-Member NoteProperty cursorAnchorIsNumber $true
+  $script:mode=$case;$script:reads=0;$script:resolved=0;$script:selections=0;$script:focusCalls=0;$script:clickCalls=0
+  $numberClick={param($BeforeClick)
+    Assert-True ($BeforeClick -eq $numberSnapshot -and $script:resolved -eq 0 -and $script:selections -eq 0 -and $script:focusCalls -eq 0) 'Number click was chosen after another activation.'
+    $script:clickCalls++
+    [pscustomobject]@{ok=($script:mode -ceq 'number-success');method='verified-first-number-cell';activationSubmitted=$true}
+  }
+  $callback=$(if($case -ceq 'number-no-callback'){$null}else{$numberClick})
+  $result=Invoke-SSETableReadInitialFocus ([IntPtr]111) 7 $numberSnapshot {$true} {throw 'Unexpected refresh'} {throw 'Unexpected focus'} -NumberCellClick $callback
+  Assert-True ($result.ok -eq ($case -ceq 'number-success') -and $script:reads -eq 1 -and $script:resolved -eq 0 -and
+    $script:selections -eq 0 -and $script:focusCalls -eq 0 -and $script:clickCalls -eq [int]($case -cne 'number-no-callback')) 'Numbered route retried selection or semantic focus after its chosen callback.'
+}
+foreach($case in @('cancel-success','cancel-unproved')) {
+  $numberSnapshot=$snapshot.PSObject.Copy();$numberSnapshot | Add-Member NoteProperty cursorAnchorIsNumber $true
+  $script:mode=$case;$script:reads=0;$script:resolved=0;$script:selections=0;$script:focusCalls=0;$script:cancelCalls=0
+  $cancel={param($BeforeCancel)
+    $script:cancelCalls++
+    [pscustomobject]@{ok=($script:mode -ceq 'cancel-success');method='existing-verified-table-focus'}
+  }
+  $result=Invoke-SSETableReadInitialFocus ([IntPtr]111) 7 $numberSnapshot {$true} {throw 'Unexpected refresh'} {throw 'Unexpected focus'} `
+    -CancelNumberEditor $cancel -NumberCellClick {throw 'An existing exact Nr. delegate must never lead to a second click strategy.'}
+  Assert-True ($result.ok -eq ($case -ceq 'cancel-success') -and $script:cancelCalls -eq 1 -and $script:reads -eq 1 -and
+    $script:resolved -eq 0 -and $script:selections -eq 0 -and $script:focusCalls -eq 0) 'Exact Nr. cancellation was retried or reached another action.'
 }
 Write-Output 'Existing table cursor: actual keyboard/selection proof reused without selection or focus; changed guard and single original focus failure remain terminal.'
