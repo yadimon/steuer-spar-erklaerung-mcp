@@ -22,6 +22,10 @@ import {
 } from "./suite-runner.mjs";
 
 const expectedNames = [
+  "with-api-cleanup",
+  "live-state-journey-contract", "table-grid-read-contract", "fresh-raw-resolver-contract",
+  "table-grid-api",
+  "table-existing-cursor",
   "uia-root-read",
   "desktop-persistent-launch",
   "checker-start-contract",
@@ -45,6 +49,7 @@ const expectedNames = [
   "cursor-input",
   "table-add-seek",
   "tracked-native-text",
+  "tracked-field-resolution",
   "qt-native-receipt-update",
   "qt-native-receipt-link",
   "qt-native-classification-options",

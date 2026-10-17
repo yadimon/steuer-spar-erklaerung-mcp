@@ -360,49 +360,8 @@ foreach ($case in @('stable','foreign-before-acquisition')) {
   } catch {if ($case -ceq 'stable' -or $_.Exception.Message -cne 'synthetic-inherited-epoch-rejected') {throw}}
   if ($script:shows -ne $(if ($case -ceq 'stable') {1} else {0}) -or $script:baselineReads -ne 0) {throw 'Inherited focus path acquired a fresh input baseline.'}
 }
-$collector=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
-  $node.Name -ceq 'Get-SSETableReadOnlyModelCells'},$true))
-if ($collector.Count -ne 1) {throw 'Read-only model collector is absent.'}
-. ([scriptblock]::Create($collector[0].Extent.Text.Replace('function Get-SSETableReadOnlyModelCells','function Invoke-SyntheticModelCells')))
-$RAW=[pscustomobject]@{}
-$RAW | Add-Member ScriptMethod GetFirstChild {param($element) if ($element.children.Count) {$element.children[0]} else {$null}}
-$RAW | Add-Member ScriptMethod GetNextSibling {
-  param($element)
-  if (-not $element.parent) {return $null}
-  $children=$element.parent.children
-  for ($index=0;$index -lt $children.Count;$index++) {if ($children[$index] -eq $element -and $index+1 -lt $children.Count) {return $children[$index+1]}}
-  $null
-}
-foreach ($case in @('disabled-passive','foreign-root-pid','foreign-root-hwnd','foreign-cell','wrong-aid','offscreen','duplicate-rid','missing-rid')) {
-  $root=[pscustomobject]@{rid='10.0';parent=$null;children=@();Current=[pscustomobject]@{ProcessId=7;ControlType='Window';NativeWindowHandle=111}}
-  $root | Add-Member ScriptMethod GetRuntimeId {$this.rid -split '\.'}
-  $nodes=@()
-  for ($column=0;$column -lt 7;$column++) {
-    $element=New-SyntheticCellElement $baseCells[$column] $null $column
-    $element | Add-Member NoteProperty rid $baseCells[$column].rid
-    $element | Add-Member NoteProperty parent $root
-    $element | Add-Member NoteProperty children @()
-    $element | Add-Member ScriptMethod GetRuntimeId {$this.rid -split '\.'}
-    $element.Current | Add-Member NoteProperty ProcessId 7
-    $element.Current | Add-Member NoteProperty ControlType 'DataItem'
-    $element.Current | Add-Member NoteProperty AutomationId $tableAid
-    $element.Current | Add-Member NoteProperty IsOffscreen $false
-    $nodes+=@($element)
-  }
-  $root.children=$nodes;$AE::Root=$root
-  switch ($case) {
-    'foreign-root-pid' {$root.Current.ProcessId=8}
-    'foreign-root-hwnd' {$root.Current.NativeWindowHandle=222}
-    'foreign-cell' {$nodes[2].Current.ProcessId=8}
-    'wrong-aid' {$nodes[2].Current.AutomationId='Other'}
-    'offscreen' {$nodes[2].Current.IsOffscreen=$true}
-    'duplicate-rid' {$nodes[2].rid=$nodes[1].rid}
-    'missing-rid' {$nodes[2].rid='10.99'}
-  }
-  $proof=Invoke-SyntheticModelCells ([IntPtr]111) 7 $tableAid @($baseCells.rid)
-  if ($proof.ok -ne ($case -ceq 'disabled-passive')) {throw "$case bounded fresh passive model row proof disagreed."}
-  if ($proof.ok -and ($proof.elements.Count -ne 7 -or $proof.elements[$baseCells[6].rid].Current.IsEnabled)) {
-    throw 'Disabled calculated output was omitted or upgraded to an active focus target.'
-  }
-}
+# The actual compiled collector and its PowerShell entry point are verified in
+# fresh-raw-resolver-contract.ps1, including disabled passive calculated cells.
+# The independent row/grid/model/context proof tests above retain this boundary
+# stub and all zero-action rejection assertions.
 Write-Output 'table-mutation-target-contract: PASS (actual helpers/response, bounded private diagnostics, strict grid/model/context guards)'

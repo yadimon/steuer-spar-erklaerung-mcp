@@ -86,6 +86,8 @@ function Test-SSENativeSurface {
     SSEProcessCommandLine=@('TryGet')
     SSEWindowNode=@()
     SSEAccessible=@('Describe','DescribePoint','DescribePointBasic','Invoke')
+    SSEUiaFreshRawResult=@()
+    SSEUiaFreshRaw=@('Focus','ModelCells')
     SSEWorkerControllerLease=@('Acquire','ReleaseAndClose')
     SSEUiaTree=@('Describe','DescribeElement','ToViews','Resolve')
     SSEUiaNode=@()

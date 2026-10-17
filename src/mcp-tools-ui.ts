@@ -80,18 +80,14 @@ export function registerUiTools(registry: McpRegistry): void {
     {
       title: "Tabelle vollstaendig lesen",
       description:
-        "Liest eine Eingabetabelle VOLLSTAENDIG - im Gegensatz zu sse_read_table, das nur die sichtbaren " +
-        "Zeilen liefert. Qt virtualisiert Tabellen: nur was auf dem Schirm ist, steht im Elementbaum, " +
-        "es gibt keinen scrollbaren Container und Bild-ab wirkt nicht. Dieses Werkzeug klickt in die " +
-        "Tabelle, springt zuerst an den Tabellenanfang und zieht den Cursor dann in Stapeln von Pfeiltasten " +
-        "weiter, bis nichts Neues mehr kommt. Ein Stapel bleibt kleiner als das Sichtfenster hoch ist, " +
-        "damit zwei aufeinanderfolgende Ansichten einander ueberlappen; diese Ueberlappung wird geprueft " +
-        "und belegt, dass keine Zeile uebersprungen wurde. " +
-        "Auf Seiten mit mehreren Eingabetabellen binden sumLabel und sumOccurrence den Lauf an genau die " +
-        "zugehoerige Summenregion; ohne diese Bindung wird nichts fokussiert und vollstaendig=false gemeldet. " +
-        "Nicht-modale Werte-Info-Tabellen werden aus dem Eingabeformular ausgeschlossen. " +
-        "ACHTUNG: holt das Fenster dafuer kurz nach vorn. " +
-        "Das Feld 'vollstaendig' sagt, ob das gelungen ist. Immer gegen die Summenzeile der Seite pruefen.",
+        "Liest die gebundene Eingabetabelle. Der native Qt-Zugriff liest normalerweise das Modell; " +
+        "Standard-UIA liefert mit noKeys:true nur sichtbare Zeilen und kann sonst einen Cursorlauf starten. readMode:'grid' liest explizit " +
+        "alle bereitgestellten UIA-Gridzeilen ohne Fokus, Scrollen oder Eingabe, einschliesslich leerer " +
+        "Eingabeslots. Zwei gleiche Beobachtungen sind kein atomarer Snapshot oder Schreibnachweis. " +
+        "noKeys:false fordert getrennt den geschuetzten Cursorlauf an und macht die letzte Zeile sichtbar; " +
+        "er kann das Fenster nach vorn holen und ist nicht mit readMode:'grid' kombinierbar. " +
+        "sumLabel und sumOccurrence binden Seiten mit mehreren Tabellen an eine eindeutige Summenregion. " +
+        "vollstaendig und limitReached beachten; Summe und alle benoetigten Werte gegenpruefen.",
     },
     (r) => ({
       kopf: asArray(r.kopf),
@@ -103,11 +99,14 @@ export function registerUiTools(registry: McpRegistry): void {
       limitReached: r.limitReached,
       tabelleAnzahl: r.tabelleAnzahl,
       bindung: r.bindung,
+      gridRead: r.gridRead,
+      physicalInputUsed: r.physicalInputUsed,
       ungespeichertVorher: r.ungespeichertVorher,
       ungespeichertNachher: r.ungespeichertNachher,
       ungespeichertEingefuehrt: r.ungespeichertEingefuehrt,
       hinweis: r.hinweis,
       zeilen: asArray(r.zeilen),
+      rowDetails: asArray(r.rowDetails),
       // Ohne die gelesene Kontrollsumme koennte ein Aufrufer die
       // Pflichtangabe expectedBefore der Tabellenmutationen nur raten.
       summe: r.summe,

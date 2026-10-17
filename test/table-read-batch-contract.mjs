@@ -78,8 +78,13 @@ assert.match(viewport, /-ExpectedRuntimeId[\s\S]*-BeforeClickCheck/,
   "Der Table-only-Klick muss unmittelbar davor RID, Epoche und direkten Table-Hit beweisen.");
 assert.doesNotMatch(tableRead.slice(0, viewportStart) + tableRead.slice(viewportEnd), /Click-VerifiedPoint/,
   "Ausserhalb des privaten Native-geprueften Viewportpfads bleibt jeder Readerklick verboten.");
-assert.match(tableRead, /\$selectionItem\.Select\(\)[\s\S]*Invoke-SSETableReadSemanticFocus/,
-  "Der Cursoranker muss ausschliesslich durch gebundene semantische Auswahl und Tabellenfokus entstehen.");
+assert.match(tableRead, /Invoke-SSETableReadInitialFocus/,
+  "Der Leser muss vorhandenen verifizierten Fokus vor einer neuen Fokusaktion pruefen.");
+const initialFocus = worker.slice(worker.indexOf("function Invoke-SSETableReadInitialFocus"),
+  worker.indexOf("function Invoke-SSETableReadSemanticFocus"));
+assert.match(initialFocus, /-RequireKeyboard -RequireSelection[\s\S]*if \(\$existing.ok\)/);
+assert.match(initialFocus, /\$selectionItem\.Select\(\)[\s\S]*Invoke-SSETableReadSemanticFocus/,
+  "Ohne vorhandenen Cursor bleibt der gebundene semantische Fokuspfad erhalten.");
 assert.match(tableRead, /cursorAnchorIsNumber=[\s\S]*\^Nr/,
   "Der alternative Fokusanker muss zur frisch gebundenen Nr.-Spalte gehoeren.");
 assert.match(tableRead, /semantic-table-focus' -RequireKeyboard/,
@@ -89,11 +94,19 @@ assert.match(tableRead, /\$anchoredSnapshot=LiesZeilen \$hwnd[\s\S]*semantic-tab
 assert.match(tableRead, /Test-SSETableReadSnapshotBinding \$erst \$focusedSnapshot -BeforeNavigation/,
   "Nach der Fokus-Uebernahme muss der unveraenderte Zellbestand frisch gebunden sein.");
 const uncached = worker.slice(worker.indexOf("function Get-SSETableReadUncachedElement"),
-  worker.indexOf("function Invoke-SSETableReadSemanticFocus"));
-assert.match(uncached, /\$AE::FromHandle\(\$Hwnd\)[\s\S]*\$RAW\.GetFirstChild/,
+  worker.indexOf("function Invoke-SSETableReadInitialFocus"));
+assert.match(uncached, /\[SSEUiaFreshRaw\]::Focus\(\$Hwnd,\$ProcessId,\$Rid,\$Aid,\$ExpectedType\)/,
   "Der letzte Fokusbezug muss cachefrei ab dem gebundenen Main-Handle entstehen.");
 assert.doesNotMatch(uncached, /UIAElementCache|Find-ExactAutomationElement|Get-LiveElement/,
   "Ein finaler Fokusbezug darf keinen alten Snapshot-/AIDbezug verwenden.");
+const nativeSource = readFileSync(join(root, "powershell", "sse-native.cs"), "utf8");
+const rawResolver = nativeSource.slice(nativeSource.indexOf("public static class SSEUiaFreshRaw {"),
+  nativeSource.indexOf("public sealed class SSEUiaScrollState {"));
+assert.match(rawResolver, /AutomationElement\.FromHandle\(hwnd\)/);
+assert.match(rawResolver, /TreeWalker\.RawViewWalker/);
+assert.match(rawResolver, /walker\.GetFirstChild\(element\)/);
+assert.doesNotMatch(rawResolver, /Cached|CacheRequest|ControlView|FindAll|FindFirst/,
+  "Der kompilierte Fokusbezug muss frische Current-/RawView-Objekte behalten.");
 const focusCheckpoint = tableRead.slice(tableRead.indexOf("$readFocusCheckpoint ="),
   tableRead.indexOf("$sendTableNavigation ="));
 assert.doesNotMatch(focusCheckpoint, /Get-UiSnapshot|Get-CurrentHeading|Get-DirtyStateFast|Get-SSETableLiveInputState/,

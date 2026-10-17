@@ -651,6 +651,126 @@ public static class SSEAccessible {
 // zuvor schon bei GetUpdatedCache(TreeScope.Subtree) beobachtet worden.
 // Deshalb: CacheRequest auf TreeScope.Element, ein Provideraufruf je Knoten,
 // und die Zyklussperre greift zwischen zwei Schritten.
+// Final table identity proofs must use fresh Current/RawView objects. This
+// resolver deliberately shares neither the snapshot cache nor ControlView.
+public sealed class SSEUiaFreshRawResult {
+  public bool Ok;
+  public AutomationElement Element;
+  public Hashtable Elements = new Hashtable(StringComparer.Ordinal);
+  public string Reason = "fresh-focus-element-unbound";
+  public int VisitedNodes, RemainingQueued, FoundNodes;
+}
+
+public static class SSEUiaFreshRaw {
+  sealed class Entry {
+    public AutomationElement Element;
+    public int Depth;
+    public Entry(AutomationElement element, int depth) { Element = element; Depth = depth; }
+  }
+
+  static string RuntimeId(AutomationElement element) {
+    int[] parts = element.GetRuntimeId();
+    return parts == null ? "" : string.Join(".", parts);
+  }
+
+  static SSEUiaFreshRawResult Reject(SSEUiaFreshRawResult result, string reason, Stack<Entry> stack) {
+    result.Reason = reason;
+    result.RemainingQueued = stack == null ? 0 : stack.Count;
+    return result;
+  }
+
+  public static SSEUiaFreshRawResult Focus(IntPtr hwnd, int processId, string rid, string aid, string expectedType) {
+    if (string.IsNullOrEmpty(rid) || string.IsNullOrEmpty(aid) ||
+        (expectedType != "Table" && expectedType != "DataItem" && expectedType != "Button")) {
+      return new SSEUiaFreshRawResult();
+    }
+    return Resolve(hwnd, processId, rid, aid, expectedType, null);
+  }
+
+  public static SSEUiaFreshRawResult ModelCells(IntPtr hwnd, int processId, string aid, string[] rids) {
+    var rejected = new SSEUiaFreshRawResult();
+    if (string.IsNullOrEmpty(aid) || rids == null || rids.Length < 2 || rids.Length > 100) return rejected;
+    var requested = new HashSet<string>(StringComparer.Ordinal);
+    foreach (string rid in rids) {
+      if (string.IsNullOrEmpty(rid) || !requested.Add(rid)) return rejected;
+    }
+    return Resolve(hwnd, processId, null, aid, null, requested);
+  }
+
+  static SSEUiaFreshRawResult Resolve(IntPtr hwnd, int processId, string rid, string aid,
+      string expectedType, HashSet<string> requested) {
+    var result = new SSEUiaFreshRawResult();
+    Stack<Entry> stack = null;
+    try {
+      AutomationElement root = AutomationElement.FromHandle(hwnd);
+      if (root == null) return result;
+      AutomationElement.AutomationElementInformation rootCurrent = root.Current;
+      if (rootCurrent.ProcessId != processId || rootCurrent.ControlType != ControlType.Window ||
+          (long)rootCurrent.NativeWindowHandle != hwnd.ToInt64()) return result;
+      var watch = Stopwatch.StartNew();
+      var seen = new HashSet<string>(StringComparer.Ordinal);
+      var found = new Hashtable(StringComparer.Ordinal);
+      TreeWalker walker = TreeWalker.RawViewWalker;
+      stack = new Stack<Entry>();
+      stack.Push(new Entry(root, 0));
+      while (stack.Count != 0) {
+        if (result.VisitedNodes >= 2048 || watch.ElapsedMilliseconds >= 5000)
+          return Reject(result, "fresh-focus-walk-limited", stack);
+        Entry entry = stack.Pop();
+        AutomationElement element = entry.Element;
+        AutomationElement.AutomationElementInformation current = element.Current;
+        string nodeRid = RuntimeId(element);
+        result.VisitedNodes++;
+        if (string.IsNullOrEmpty(nodeRid) || !seen.Add(nodeRid))
+          return Reject(result, "fresh-focus-walk-cycle", stack);
+        if (current.ProcessId != processId || (entry.Depth > 0 && current.ControlType == ControlType.Window)) continue;
+        bool match = requested == null ? nodeRid == rid && current.AutomationId == aid : requested.Contains(nodeRid);
+        if (match) {
+          // Focus keeps its final elapsed guard. The passive collector retains
+          // its existing all-found return after the current provider reads.
+          if (requested == null && watch.ElapsedMilliseconds >= 5000)
+            return Reject(result, "fresh-focus-walk-limited", stack);
+          bool typeBound = requested != null ? current.ControlType == ControlType.DataItem :
+            expectedType == "Table" ? current.ControlType == ControlType.Table || current.ControlType == ControlType.DataGrid :
+            expectedType == "Button" ? current.ControlType == ControlType.Button : current.ControlType == ControlType.DataItem;
+          if (!typeBound || (requested != null && current.AutomationId != aid) ||
+              (!current.IsEnabled && requested == null) || current.IsOffscreen ||
+              current.BoundingRectangle.Width <= 0 || current.BoundingRectangle.Height <= 0)
+            return Reject(result, "fresh-focus-element-unbound", stack);
+          if (requested == null) {
+            result.Ok = true;
+            result.Element = element;
+            result.FoundNodes = 1;
+            return Reject(result, "fresh-exact-focus-element", stack);
+          }
+          found[nodeRid] = element;
+          result.FoundNodes = found.Count;
+          if (found.Count == requested.Count) {
+            result.Ok = true;
+            result.Elements = found;
+            return Reject(result, "fresh-exact-model-cells", stack);
+          }
+        }
+        AutomationElement child = walker.GetFirstChild(element);
+        if (child != null && entry.Depth >= 16) return Reject(result, "fresh-focus-walk-depth", stack);
+        var siblings = new HashSet<string>(StringComparer.Ordinal);
+        while (child != null) {
+          if (stack.Count + result.VisitedNodes >= 2048 || watch.ElapsedMilliseconds >= 5000)
+            return Reject(result, "fresh-focus-walk-limited", stack);
+          string childRid = RuntimeId(child);
+          if (string.IsNullOrEmpty(childRid) || !siblings.Add(childRid))
+            return Reject(result, "fresh-focus-walk-cycle", stack);
+          stack.Push(new Entry(child, entry.Depth + 1));
+          child = walker.GetNextSibling(child);
+        }
+      }
+      return result;
+    } catch {
+      return Reject(result, "fresh-focus-walk-error", stack);
+    }
+  }
+}
+
 public sealed class SSEUiaScrollState {
   public bool VerticallyScrollable;
   public double VerticalScrollPercent;

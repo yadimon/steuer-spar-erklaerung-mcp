@@ -4988,7 +4988,11 @@ var init_execution_telemetry = __esm({
       "treeWalks",
       "treeWalkMs",
       "workerMs",
-      "nativeMs"
+      "nativeMs",
+      "freshRawFocusMs",
+      "freshRawFocusCount",
+      "freshRawModelCellsMs",
+      "freshRawModelCellsCount"
     ];
   }
 });
@@ -5947,7 +5951,10 @@ var init_mcp_schemas_ui = __esm({
         hwnd: WINDOW_HANDLE.optional()
       }).strict(),
       "sse_table_read": external_exports.object({
-        maxRows: TABLE_MAX_ROWS.optional().describe("Leselimit, Vorgabe 200, maximal 1000: UIA-Cursorschritte oder Ausgabezeilen beim nativen Qt-Zugriff"),
+        readMode: external_exports.literal("grid").optional().describe(
+          "Expliziter reiner UIA-Grid-Leser: alle bereitgestellten Modellkoordinaten ohne Fokuswechsel oder Eingabe. Zwei gleiche Beobachtungen, kein atomarer Snapshot. Einschliesslich Leer-/Eingabezeilen; maxRows begrenzt rohe Modellzeilen. Nicht mit noKeys:false kombinieren."
+        ),
+        maxRows: TABLE_MAX_ROWS.optional().describe("Leselimit, Vorgabe 200, maximal 1000: UIA-Cursorschritte, rohe Grid-Modellzeilen oder Ausgabezeilen beim nativen Qt-Zugriff"),
         noKeys: external_exports.boolean().optional().describe(
           "Ohne Angabe oder mit true liest der native Qt-Zugriff das Modell ohne Eingabe und Fokuswechsel; ein UIA-Zugriff mit true liefert nur sichtbare Zeilen. Explizites false fordert den gebundenen UIA-Cursorlauf mit Vordergrund-, Eingabe- und Tabellenpruefungen an und macht die letzte Zeile sichtbar."
         ),
@@ -19054,10 +19061,13 @@ function createApiExecutor(config, rawWorker, dependencies = {}) {
         }
       }
       args = internalCheckerClick ? parseCheckerReadOnlyClickArgs(args) : parseApiOperationArgs(operation, args);
+      if (operation === "table_read" && args.readMode === "grid" && args.noKeys === false) {
+        return operationError("readMode:grid ist ein reiner Leser und kann nicht mit noKeys:false kombiniert werden.", "bad-args");
+      }
       if (operation === "desktop_status" && dependencies.nativeDesktopStatus) {
         return redactPaths(await win325(() => dependencies.nativeDesktopStatus(timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS, signal)));
       }
-      if (isQtNativeOperation(operation) && !(operation === "table_read" && args.noKeys === false) && (dependencies.qtNativeClient || dependencies.qtNativeClientFor)) {
+      if (isQtNativeOperation(operation) && !(operation === "table_read" && (args.noKeys === false || args.readMode === "grid")) && (dependencies.qtNativeClient || dependencies.qtNativeClientFor)) {
         const executeNative = () => executeQtNativeOperation(operation, args, dependencies, timeoutMs, signal, profile);
         return redactPaths(await (telemetry?.enabled ? telemetry.runQtNative(executeNative) : executeNative()));
       }
@@ -22140,6 +22150,7 @@ var init_result_contract = __esm({
       // Tabellenmutationen nicht ermitteln; er bleibt null, wenn kein sumLabel
       // angegeben wurde.
       table_read: {
+        gridRead: OPTIONAL_OBJECT.describe("Expliziter UIA-Grid-Lesepfad: rohe Modellzeilen einschliesslich Eingabeslots, sichtbare Spalten und beobachtete Konsistenz; kein atomarer Snapshot"),
         zeilen: OPTIONAL_ARRAY,
         rowDetails: OPTIONAL_TABLE_ROW_DETAILS,
         vollstaendig: OPTIONAL_BOOLEAN,

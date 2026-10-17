@@ -5,6 +5,13 @@ assert.deepEqual(sanitizeWorkerPerformance({
   workerProcessCount: 1, treeWalks: 4, treeWalkMs: 12.5, nativeMs: 3, error: "private", path: "C:\\private", arbitrary: 9,
 }), { workerProcessCount: 1, treeWalks: 4, treeWalkMs: 12.5, nativeMs: 3 });
 assert.deepEqual(sanitizeWorkerPerformance({ workerProcessCount: 1.2, treeWalks: -1, treeWalkMs: Infinity }), {});
+assert.deepEqual(sanitizeWorkerPerformance({
+  freshRawFocusMs: 12.25, freshRawFocusCount: 3, freshRawModelCellsMs: 2.5, freshRawModelCellsCount: 1,
+  freshRawResolvers: { focus: { value: "private", aid: "private" } },
+}), { freshRawFocusMs: 12.25, freshRawFocusCount: 3, freshRawModelCellsMs: 2.5, freshRawModelCellsCount: 1 });
+assert.deepEqual(sanitizeWorkerPerformance({
+  freshRawFocusMs: NaN, freshRawFocusCount: 1.5, freshRawModelCellsMs: -1, freshRawModelCellsCount: Infinity,
+}), {});
 
 const telemetry = createExecutionTelemetry({ enabled: true, maxCompletedTraces: 2, maxSpansPerTrace: 3 });
 await telemetry.runApi("get_value", async () => {

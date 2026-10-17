@@ -2031,6 +2031,21 @@ function Emit($obj) {
       $obj | Add-Member -NotePropertyName treeWalkDetail -NotePropertyValue @($script:SSE_TREE_WALK_DETAIL) -Force
     }
   }
+  # Fresh RAW resolvers are separate from snapshot tree walks. Aggregate only
+  # fixed phase labels/counts and durations; diagnostics never replace output.
+  try {
+    if($script:SSE_TABLE_FRESH_RAW_TIMINGS) {
+      $obj | Add-Member -NotePropertyName freshRawResolvers -NotePropertyValue ([pscustomobject]$script:SSE_TABLE_FRESH_RAW_TIMINGS) -Force
+      if($script:SSE_TABLE_FRESH_RAW_TIMINGS.focus) {
+        $obj | Add-Member NoteProperty freshRawFocusMs ([double]$script:SSE_TABLE_FRESH_RAW_TIMINGS.focus.elapsedMs) -Force
+        $obj | Add-Member NoteProperty freshRawFocusCount ([int]$script:SSE_TABLE_FRESH_RAW_TIMINGS.focus.calls) -Force
+      }
+      if($script:SSE_TABLE_FRESH_RAW_TIMINGS.modelCells) {
+        $obj | Add-Member NoteProperty freshRawModelCellsMs ([double]$script:SSE_TABLE_FRESH_RAW_TIMINGS.modelCells.elapsedMs) -Force
+        $obj | Add-Member NoteProperty freshRawModelCellsCount ([int]$script:SSE_TABLE_FRESH_RAW_TIMINGS.modelCells.calls) -Force
+      }
+    }
+  } catch { }
   # Depth hoch, damit verschachtelte Baeume nicht abgeschnitten werden
   $json = $obj | ConvertTo-Json -Depth 24 -Compress
   if ($OutFile) {
@@ -2525,6 +2540,9 @@ if (-not (Test-Path -LiteralPath $tableValueHelpers -PathType Leaf)) {
   Fail "Tabellenwert-Helfer fehlt: $tableValueHelpers" 'not-found'
 }
 . $tableValueHelpers
+$tableGridHelpers = Join-Path $PSScriptRoot 'table-grid-read.ps1'
+if (-not (Test-Path -LiteralPath $tableGridHelpers -PathType Leaf)) { Fail 'Read-only Grid helper is missing.' 'not-found' }
+. $tableGridHelpers
 $tableComboHelpers = Join-Path $PSScriptRoot 'table-combobox.ps1'
 if (-not (Test-Path -LiteralPath $tableComboHelpers -PathType Leaf)) {
   Fail "Tabellen-ComboBox-Helfer fehlt: $tableComboHelpers" 'not-found'
@@ -7107,51 +7125,29 @@ function Get-SSETableLiveInputState {
     }
     [pscustomobject]@{ok=$true; editorClosed=$true; reason='exact-table-without-editor'; table=$table;
       focusedType=$focusedType; selectedCount=$selected.Count; selectedRids=@($selectedRids | Sort-Object);keyboardEvidence=$reject.keyboardEvidence}
-  } catch { $reject }
+  } catch { $reject.reason='live-table-provider-error';$reject }
 }
 
 function Get-SSETableReadUncachedElement {
   param([IntPtr]$Hwnd,[int]$ProcessId,[string]$Rid,[string]$Aid,[string]$ExpectedType)
   $reject=[pscustomobject]@{ok=$false;element=$null;reason='fresh-focus-element-unbound'}
+  $helperWatch=[Diagnostics.Stopwatch]::StartNew();$count=0;$queued=0;$resolvedCount=0
   try {
-    if (-not $Rid -or -not $Aid -or $ExpectedType -cnotin @('Table','DataItem','Button')) { return $reject }
-    $root=$AE::FromHandle($Hwnd)
-    $current=$root.Current
-    if ([int]$current.ProcessId -ne $ProcessId -or $current.ControlType -ne [System.Windows.Automation.ControlType]::Window -or
-        [int64]$current.NativeWindowHandle -ne [int64]$Hwnd) { return $reject }
-    # Never use the snapshot/AID caches for the final focus object. Qt can
-    # invalidate those wrappers when a selection or scoped snapshot is read.
-    $watch=[Diagnostics.Stopwatch]::StartNew();$seen=New-Object 'System.Collections.Generic.HashSet[string]'
-    $stack=New-Object System.Collections.Stack;$stack.Push([pscustomobject]@{element=$root;depth=0});$count=0
-    while ($stack.Count) {
-      if ($count -ge 2048 -or $watch.ElapsedMilliseconds -ge 5000) { $reject.reason='fresh-focus-walk-limited';return $reject }
-      $entry=$stack.Pop();$node=$entry.element;$current=$node.Current;$nodeRid=$node.GetRuntimeId() -join '.';$count++
-      if (-not $nodeRid -or -not $seen.Add($nodeRid)) { $reject.reason='fresh-focus-walk-cycle';return $reject }
-      if ([int]$current.ProcessId -ne $ProcessId -or
-          ($entry.depth -gt 0 -and $current.ControlType -eq [System.Windows.Automation.ControlType]::Window)) { continue }
-      if ($nodeRid -ceq $Rid -and [string]$current.AutomationId -ceq $Aid) {
-        if ($watch.ElapsedMilliseconds -ge 5000) { $reject.reason='fresh-focus-walk-limited';return $reject }
-        $typeBound=$(if ($ExpectedType -ceq 'Table') {
-          $current.ControlType -in @([System.Windows.Automation.ControlType]::Table,[System.Windows.Automation.ControlType]::DataGrid)
-        } elseif ($ExpectedType -ceq 'Button') { $current.ControlType -eq [System.Windows.Automation.ControlType]::Button
-        } else { $current.ControlType -eq [System.Windows.Automation.ControlType]::DataItem })
-        if (-not $typeBound -or -not $current.IsEnabled -or $current.IsOffscreen -isnot [bool] -or $current.IsOffscreen -or
-            $current.BoundingRectangle.Width -le 0 -or $current.BoundingRectangle.Height -le 0) { return $reject }
-        return [pscustomobject]@{ok=$true;element=$node;reason='fresh-exact-focus-element'}
+    $proof=[SSEUiaFreshRaw]::Focus($Hwnd,$ProcessId,$Rid,$Aid,$ExpectedType)
+    $count=$proof.VisitedNodes;$queued=$proof.RemainingQueued;$resolvedCount=$proof.FoundNodes
+    [pscustomobject]@{ok=[bool]$proof.Ok;element=$proof.Element;reason=[string]$proof.Reason}
+  } catch {$reject.reason='fresh-focus-walk-error';$reject}
+  finally {
+    try {
+      if (-not $script:SSE_TABLE_FRESH_RAW_TIMINGS) {$script:SSE_TABLE_FRESH_RAW_TIMINGS=@{}}
+      if (-not $script:SSE_TABLE_FRESH_RAW_TIMINGS.ContainsKey('focus')) {
+        $script:SSE_TABLE_FRESH_RAW_TIMINGS.focus=[ordered]@{implementation='compiled-raw';calls=0;elapsedMs=0.0;visitedNodes=0;remainingQueued=0;requestedNodes=0;foundNodes=0}
       }
-      $child=$RAW.GetFirstChild($node)
-      if ($child -and $entry.depth -ge 16) { $reject.reason='fresh-focus-walk-depth';return $reject }
-      $siblings=New-Object 'System.Collections.Generic.HashSet[string]'
-      while ($child) {
-        if ($stack.Count+$count -ge 2048 -or $watch.ElapsedMilliseconds -ge 5000) { $reject.reason='fresh-focus-walk-limited';return $reject }
-        $childRid=$child.GetRuntimeId() -join '.'
-        if (-not $childRid -or -not $siblings.Add($childRid)) { $reject.reason='fresh-focus-walk-cycle';return $reject }
-        $stack.Push([pscustomobject]@{element=$child;depth=1+[int]$entry.depth})
-        $child=$RAW.GetNextSibling($child)
-      }
-    }
-    $reject
-  } catch { $reject.reason='fresh-focus-walk-error';$reject }
+      $timing=$script:SSE_TABLE_FRESH_RAW_TIMINGS.focus
+      $timing.calls++;$timing.elapsedMs+=$helperWatch.Elapsed.TotalMilliseconds;$timing.visitedNodes+=$count
+      $timing.remainingQueued+=$queued;$timing.requestedNodes++;$timing.foundNodes+=$resolvedCount
+    } catch { }
+  }
 }
 
 function Get-SSETableReadViewportBounds {
@@ -7271,6 +7267,52 @@ function Invoke-SSETableReadAnchorSelection {
     $selection.Select()
     $true
   } catch { $false }
+}
+
+function Invoke-SSETableReadInitialFocus {
+  param([IntPtr]$Hwnd,[int]$ProcessId,$Snapshot,[scriptblock]$Guard,[scriptblock]$RefreshSnapshot,[scriptblock]$FocusCheckpoint,[scriptblock]$CancelNumberEditor,[scriptblock]$MoveProfiledSource)
+  $binding=$Snapshot.navigationBinding
+  $existing=Get-SSETableLiveInputState $Hwnd $ProcessId $binding.tableRootAid $binding.tableRootRid -RequireKeyboard -RequireSelection
+  if ($existing.ok) {
+    # Qt can already have its exact selected cursor after the window is raised.
+    # Reusing that proof avoids an unsupported, unnecessary SetFocus action.
+    $guarded=[bool](& $Guard 'existing-table-cursor' -RequireKeyboard)
+    return [pscustomobject]@{ok=$guarded;method='existing-verified-table-focus';phase='existing-cursor';
+      reason=$(if($guarded){'existing-table-cursor-verified'}else{'existing-table-cursor-binding-changed'});
+      exceptionType=$null;tableFocusable=$null;anchorFocusable=$null;snapshot=$Snapshot}
+  }
+  if ($CancelNumberEditor -and $existing.reason -ceq 'keyboard-focus-is-not-table-or-cell' -and $existing.focusedType -ceq 'Edit') {
+    $cancelled=& $CancelNumberEditor $Snapshot
+    if ($null -ne $cancelled) {return $cancelled}
+  }
+  if ($MoveProfiledSource) {
+    $moved=& $MoveProfiledSource $Snapshot
+    if ($null -ne $moved) {return $moved}
+  }
+  $anchor=Get-LiveElement $Hwnd $Snapshot.ersteZelle.rid $Snapshot.ersteZelle.aid
+  $selectionItem=$null
+  $state=Get-SSETableLiveInputState $Hwnd $ProcessId $binding.tableRootAid $binding.tableRootRid
+  if (-not $state.ok -or -not $anchor -or $anchor.Current.ControlType -ne [System.Windows.Automation.ControlType]::DataItem -or
+      [int]$anchor.Current.ProcessId -ne $ProcessId -or ($anchor.GetRuntimeId() -join '.') -cne [string]$Snapshot.ersteZelle.rid -or
+      [string]$anchor.Current.AutomationId -cne [string]$Snapshot.ersteZelle.aid -or
+      -not $anchor.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern,[ref]$selectionItem) -or
+      -not (& $Guard 'before-semantic-table-anchor')) {throw 'Semantischer Tabellenanker ist nicht sicher gebunden.'}
+  $selectionItem.Select()
+  if (-not (& $Guard 'semantic-table-anchor')) {throw 'Tabellenauswahl wurde unterbrochen.'}
+  $selected=Get-SSETableLiveInputState $Hwnd $ProcessId $binding.tableRootAid $binding.tableRootRid -RequireKeyboard -RequireSelection
+  if ($selected.ok) {
+    return [pscustomobject]@{ok=$true;method='existing-verified-table-focus';phase='selected-cursor';reason='selected-table-cursor-verified';
+      exceptionType=$null;tableFocusable=$null;anchorFocusable=$null;snapshot=$Snapshot}
+  }
+  if ($CancelNumberEditor -and $selected.reason -ceq 'keyboard-focus-is-not-table-or-cell' -and $selected.focusedType -ceq 'Edit') {
+    $cancelled=& $CancelNumberEditor $Snapshot
+    if ($null -ne $cancelled) {return $cancelled}
+  }
+  $result=Invoke-SSETableReadSemanticFocus $Hwnd $ProcessId $Snapshot $Guard $RefreshSnapshot $FocusCheckpoint
+  $result | Add-Member NoteProperty existingCursorProof ([pscustomobject]@{reason=$existing.reason;focusedType=$existing.focusedType;
+    selectedCount=$existing.selectedCount;selectedReason=$selected.reason;selectedFocusedType=$selected.focusedType;
+    selectedSource=$selected.keyboardEvidence.focusedSource;numberEditorReason=$script:SSE_TABLE_NUMBER_EDITOR_REJECTION})
+  $result
 }
 
 function Invoke-SSETableReadSemanticFocus {
@@ -8073,42 +8115,25 @@ function Get-SSETableCursorNumberCellProof {
 function Get-SSETableReadOnlyModelCells {
   param([IntPtr]$Hwnd,[int]$ProcessId,[string]$TableAid,[string[]]$Rids)
   $reject=[pscustomobject]@{ok=$false;elements=@{}}
+  $helperWatch=[Diagnostics.Stopwatch]::StartNew();$count=0;$queued=0;$foundCount=0
   try {
     if (-not $TableAid -or $Rids.Count -lt 2 -or $Rids.Count -gt 100 -or
         @($Rids | Sort-Object -Unique).Count -ne $Rids.Count -or @($Rids | Where-Object {-not $_}).Count) {return $reject}
-    $root=$AE::FromHandle($Hwnd)
-    if ([int]$root.Current.ProcessId -ne $ProcessId -or $root.Current.ControlType -ne [System.Windows.Automation.ControlType]::Window -or
-        [int64]$root.Current.NativeWindowHandle -ne [int64]$Hwnd) {return $reject}
-    # Passive calculated outputs may be disabled. This resolver exposes no
-    # focus/write action and preserves the stricter active focus binder.
-    $found=@{};$seen=New-Object 'System.Collections.Generic.HashSet[string]';$watch=[Diagnostics.Stopwatch]::StartNew()
-    $stack=New-Object System.Collections.Stack;$stack.Push([pscustomobject]@{element=$root;depth=0});$count=0
-    while ($stack.Count) {
-      if ($count -ge 2048 -or $watch.ElapsedMilliseconds -ge 5000) {return $reject}
-      $entry=$stack.Pop();$element=$entry.element;$current=$element.Current;$rid=$element.GetRuntimeId() -join '.';$count++
-      if (-not $rid -or -not $seen.Add($rid)) {return $reject}
-      if ([int]$current.ProcessId -ne $ProcessId -or
-          ($entry.depth -gt 0 -and $current.ControlType -eq [System.Windows.Automation.ControlType]::Window)) {continue}
-      if ($rid -cin $Rids) {
-        if ($current.ControlType -ne [System.Windows.Automation.ControlType]::DataItem -or
-            [string]$current.AutomationId -cne $TableAid -or $current.IsEnabled -isnot [bool] -or
-            $current.IsOffscreen -isnot [bool] -or $current.IsOffscreen -or
-            $current.BoundingRectangle.Width -le 0 -or $current.BoundingRectangle.Height -le 0) {return $reject}
-        $found[$rid]=$element
-        if ($found.Count -eq $Rids.Count) {return [pscustomobject]@{ok=$true;elements=$found}}
-      }
-      $child=$RAW.GetFirstChild($element)
-      if ($child -and $entry.depth -ge 16) {return $reject}
-      $siblings=New-Object 'System.Collections.Generic.HashSet[string]'
-      while ($child) {
-        if ($stack.Count+$count -ge 2048 -or $watch.ElapsedMilliseconds -ge 5000) {return $reject}
-        $childRid=$child.GetRuntimeId() -join '.'
-        if (-not $childRid -or -not $siblings.Add($childRid)) {return $reject}
-        $stack.Push([pscustomobject]@{element=$child;depth=1+[int]$entry.depth});$child=$RAW.GetNextSibling($child)
-      }
-    }
-    $reject
+    $proof=[SSEUiaFreshRaw]::ModelCells($Hwnd,$ProcessId,$TableAid,$Rids)
+    $count=$proof.VisitedNodes;$queued=$proof.RemainingQueued;$foundCount=$proof.FoundNodes
+    [pscustomobject]@{ok=[bool]$proof.Ok;elements=$proof.Elements}
   } catch {$reject}
+  finally {
+    try {
+      if (-not $script:SSE_TABLE_FRESH_RAW_TIMINGS) {$script:SSE_TABLE_FRESH_RAW_TIMINGS=@{}}
+      if (-not $script:SSE_TABLE_FRESH_RAW_TIMINGS.ContainsKey('modelCells')) {
+        $script:SSE_TABLE_FRESH_RAW_TIMINGS.modelCells=[ordered]@{implementation='compiled-raw';calls=0;elapsedMs=0.0;visitedNodes=0;remainingQueued=0;requestedNodes=0;foundNodes=0}
+      }
+      $timing=$script:SSE_TABLE_FRESH_RAW_TIMINGS.modelCells
+      $timing.calls++;$timing.elapsedMs+=$helperWatch.Elapsed.TotalMilliseconds;$timing.visitedNodes+=$count
+      $timing.remainingQueued+=$queued;$timing.requestedNodes+=$Rids.Count;$timing.foundNodes+=$foundCount
+    } catch { }
+  }
 }
 
 function Get-SSETableMutationTargetProof {
@@ -8544,7 +8569,26 @@ function Complete-SSETableComboEditor {
   } catch { $reject }
 }
 
-function Test-SSETableReadKeyboardTarget([IntPtr]$Hwnd, [int]$ProcessId, $Snapshot,[ref]$FailureEvidence) {
+function Test-SSETableReadNumberEditor([IntPtr]$Hwnd,[int]$ProcessId,$Snapshot,$Tree) {
+  $script:SSE_TABLE_NUMBER_EDITOR_REJECTION='number-editor-profile-unbound'
+  # CurrentChanged can open Qt's Nr. delegate during DOWN. Only the exact
+  # selected Nr. cell with its unchanged readable value can own further DOWNs.
+  if (-not $Tree -or -not $Snapshot.cursorAnchorIsNumber -or -not $Snapshot.navigationBinding.complete -or
+      -not $Snapshot.navigationBinding.editorFree -or [string]$Snapshot.kopf[0] -cnotmatch '^Nr\.?$') {return $false}
+  $binding=$Snapshot.navigationBinding;$split=$binding.tableRootAid.LastIndexOf('/.')
+  if ($split -lt 0) {return $false}
+  $policy=[pscustomobject]@{tableName=$binding.tableRootAid.Substring($split);headers=@($Snapshot.kopf)}
+  $selected=Get-SSETableLiveInputState $Hwnd $ProcessId $binding.tableRootAid $binding.tableRootRid -RequireSelection
+  if (-not $selected.ok) {$script:SSE_TABLE_NUMBER_EDITOR_REJECTION=$selected.reason;return $false}
+  $focused=$AE::FocusedElement
+  if (-not $focused -or -not $focused.Current.HasKeyboardFocus) {return $false}
+  $proof=Get-SSETableNumberAnchorFocusProof $Hwnd $ProcessId $Tree $binding.tableRootAid $binding.tableRootRid `
+    $Snapshot.ersteZelle $focused $null -NumberPolicy $policy
+  $script:SSE_TABLE_NUMBER_EDITOR_REJECTION=$(if(-not $proof.ok){$proof.reason}else{'number-editor-not-in-selection'})
+  [bool]($proof.ok -and $proof.ownedCell.rid -cin @($selected.selectedRids))
+}
+
+function Test-SSETableReadKeyboardTarget([IntPtr]$Hwnd, [int]$ProcessId, $Snapshot,[ref]$FailureEvidence,$Tree=$null) {
   $failure=[pscustomobject]@{phase='profile-binding';reason='keyboard-target-unbound';headersBound=0;
     summaryBound=$null;liveInput=$null;exceptionType=$null}
   if ($FailureEvidence) {$FailureEvidence.Value=$failure}
@@ -8578,12 +8622,17 @@ function Test-SSETableReadKeyboardTarget([IntPtr]$Hwnd, [int]$ProcessId, $Snapsh
       $failure.summaryBound=[bool](Test-SSEScalarEqual $value $binding.summaryValue)
       if (-not $failure.summaryBound) {$failure.reason='keyboard-summary-value-changed';return $false}
     }
-    # An inline delegate can change a category without changing the total or
-    # dirty flag. Require the actual model cursor, never an editor descendant.
+    # Arbitrary delegates cannot own navigation. Qt's unchanged selected Nr.
+    # delegate has a separate exact identity/value proof below.
     $failure.phase='live-cursor-binding'
     $liveState=Get-SSETableLiveInputState $Hwnd $ProcessId $binding.tableRootAid $binding.tableRootRid -RequireKeyboard -RequireSelection
     $failure.liveInput=[pscustomobject]@{reason=$liveState.reason;editorClosed=[bool]$liveState.editorClosed;
       focusedType=$liveState.focusedType;selectedCount=$liveState.selectedCount;keyboardEvidence=$liveState.keyboardEvidence}
+    if ($Tree -and -not $liveState.ok -and $liveState.reason -ceq 'keyboard-focus-is-not-table-or-cell' -and
+        $liveState.focusedType -ceq 'Edit' -and (Test-SSETableReadNumberEditor $Hwnd $ProcessId $Snapshot $Tree)) {
+      $failure.phase='owned-number-editor-binding';$failure.reason=$null
+      return $true
+    }
     $failure.reason=$(if ($liveState.ok) {$null} else {$liveState.reason})
     [bool]$liveState.ok
   } catch {$failure.reason='keyboard-target-proof-exception';$failure.exceptionType=$_.Exception.GetType().Name;$false}
@@ -9218,7 +9267,15 @@ function Compare-SSEPageCheckerMessages([object[]]$Before, [object[]]$After) {
 }
 
 function Resolve-TrackedFieldNode($Tree, $CallArgs, [IntPtr]$Hwnd) {
-  $direct = Resolve-Node $Tree $CallArgs
+  $directMatches = @(Resolve-Nodes $Tree $CallArgs)
+  $directFieldCount = 0
+  foreach ($candidate in $directMatches) {
+    if ($candidate.type -in @('Edit','DataItem')) { $directFieldCount++ }
+  }
+  if ($directFieldCount -gt 1) {
+    Fail "Zielfeldselektor trifft mehrere beschreibbare Felder ($directFieldCount); Zielbindung ist nicht eindeutig." 'ambiguous'
+  }
+  $direct = $directMatches[0]
   if ($direct -and $direct.type -in @('Edit','DataItem')) { return $direct }
   # sse_page zeigt menschenlesbare Feldbeschriftungen, Qt gibt den eigentlichen
   # Edit-Knoten aber oft namenlos aus. Ein atomarer Schreibaufruf soll genau
@@ -19463,6 +19520,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
   }
 
   'table_read' {
+    $gridRequested=[string](Arg $a 'readMode') -ceq 'grid'
+    if($gridRequested -and ((Arg $a 'noKeys') -eq $false -or (Arg $a '__tableCursorPlan'))) {
+      Fail 'readMode:grid kann keine Cursorphase oder Tasteneingabe anfordern.' 'bad-args'
+    }
     # Tabelle VOLLSTAENDIG lesen. Qt virtualisiert: nur sichtbare Zeilen
     # stehen im UIA-Baum, es gibt keinen ScrollPattern-Container und PgDn
     # wirkt nicht. Der Cursor zieht die Ansicht mit - also wandert er mit
@@ -19489,7 +19550,8 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           @($cursorPlan.PSObject.Properties.Name | Where-Object { $_ -cnotin $allowedPlanFields }).Count -or
           (Arg $a 'noKeys') -ne $false -or -not $sumLabel) { Fail 'Privater Tabellenlaufplan ist nicht exakt gebunden.' 'bad-args' }
     }
-    $phaseInputBefore=$(if ($cursorPhase) {Get-SSELastInputTick} else {$null})
+    $phaseInputBefore=$(if ($cursorPhase -or $gridRequested) {Get-SSELastInputTick} else {$null})
+    $gridForegroundBefore=$(if($gridRequested){[SW]::GetForegroundWindow()}else{$null})
     # Der Sichern-Schalter ist ein einzelnes Element mit stabiler AutomationId.
     # Ihn ueber einen vollstaendigen Baumlauf zu suchen kostete hier zweimal je
     # Aufruf einen kompletten Lauf; die gezielte Abfrage liefert denselben Wert
@@ -19596,7 +19658,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       } else { $null })
       $firstRowCells=@($z | Where-Object { [Math]::Abs($_.y - $z[0].y) -le 10 } | Sort-Object x)
       [pscustomobject]@{
-        kopf = @($hd | ForEach-Object { $_.name }); zeilen = $rows
+        kopf = @($hd | ForEach-Object { $_.name }); zeilen = $rows; headerNodes=@($hd)
         zeilenMitIdentitaet = @($rowsWithIdentity)
         ersteZelle = $(if ($z.Count) { $z[0] } else { $null })
         tableRoot=$(if ($tableRoots.Count -eq 1) {$tableRoots[0]} else {$null})
@@ -19669,6 +19731,68 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
 
     $erst = LiesZeilen $hwnd
     if ($erst.error) { Fail $erst.error 'precondition-failed' }
+    if($gridRequested) {
+      $inputBefore=$phaseInputBefore
+      $foregroundBefore=$gridForegroundBefore
+      $windowsBefore=Get-SSEInteractionWindowSet ([int]$main.pid) $hwnd
+      if($null -eq $inputBefore -or $null -eq $dirtyBefore -or $erst.tabelleAnzahl -ne 1 -or
+          -not $erst.navigationBinding.complete -or -not $erst.navigationBinding.editorFree -or -not $erst.tableRoot -or
+          @($windowsBefore.windows | Where-Object {$_.role -ne 'main'}).Count) {
+        Fail 'Read-only Grid requires one exact, editor-free and unobstructed table.' 'precondition-failed'
+      }
+      $gridGuard={
+        (Test-SSELastInputUnchanged $inputBefore) -and [SW]::IsWindow($hwnd) -and
+        [SW]::GetForegroundWindow() -eq $foregroundBefore
+      }.GetNewClosure()
+      try {
+        $gridWatch=[Diagnostics.Stopwatch]::StartNew()
+        $resolved=Get-SSETableReadUncachedElement $hwnd ([int]$main.pid) $erst.navigationBinding.tableRootRid $erst.navigationBinding.tableRootAid 'Table'
+        if(-not $resolved.ok) {throw 'Exact fresh Grid table could not be rebound.'}
+        $first=Read-SSEGridTableScan $resolved.element ([int]$main.pid) $erst.navigationBinding.tableRootRid `
+          $erst.navigationBinding.tableRootAid $maxSchritte $gridGuard $gridWatch
+        $second=Read-SSEGridTableScan $resolved.element ([int]$main.pid) $erst.navigationBinding.tableRootRid `
+          $erst.navigationBinding.tableRootAid $maxSchritte $gridGuard $gridWatch
+        $projected=ConvertTo-SSEGridTableProjection $first $second $maxSchritte
+        $gridHeaders=@($first.headers | Where-Object {$_.visible})
+        $expectedHeaders=@($erst.headerNodes)
+        if($gridHeaders.Count -ne $expectedHeaders.Count) {throw 'Grid headers differ from the bound visible table.'}
+        for($column=0;$column -lt $gridHeaders.Count;$column++) {
+          # Read cached direct RAW headers instead of allocating interfaces
+          # through GetColumnHeaders. Their exact RIDs, logical order, names
+          # and physical geometry must match the initial bound tree.
+          $rect=$gridHeaders[$column].rect;$expected=$expectedHeaders[$column]
+          if($gridHeaders[$column].name -cne $expected.name -or $gridHeaders[$column].rid -cne $expected.rid -or $rect.empty -or
+              [Math]::Abs($rect.x-[double]$expected.x) -gt 1 -or [Math]::Abs($rect.y-[double]$expected.y) -gt 1 -or
+              [Math]::Abs($rect.width-[double]$expected.w) -gt 1 -or [Math]::Abs($rect.height-[double]$expected.h) -gt 1) {
+            throw 'Grid header name, order or physical geometry changed.'
+          }
+        }
+        $after=LiesZeilen $hwnd
+        if(-not (& $gridGuard) -or -not $after.navigationBinding.editorFree -or
+            -not (Test-SSETableReadSnapshotBinding $erst $after -BeforeNavigation) -or
+            (Get-DirtyStateFast $hwnd) -ne $dirtyBefore -or
+            (Get-SSEInteractionWindowSet ([int]$main.pid) $hwnd).fingerprint -cne $windowsBefore.fingerprint) {
+          throw 'Window, table, summary or input binding changed during the Grid read.'
+        }
+        $projected | Add-Member NoteProperty ok $true
+        $projected | Add-Member NoteProperty backend 'uia'
+        $projected | Add-Member NoteProperty summe $(if($sumLabel){[string]$after.navigationBinding.summaryValue}else{$null})
+        $projected | Add-Member NoteProperty bindung $after.bindung
+        $projected | Add-Member NoteProperty tabelleAnzahl 1
+        $projected | Add-Member NoteProperty schritte 0
+        $projected | Add-Member NoteProperty steps 0
+        $projected | Add-Member NoteProperty physicalInputUsed $false
+        $projected | Add-Member NoteProperty ungespeichertVorher $dirtyBefore
+        $projected | Add-Member NoteProperty ungespeichertNachher $dirtyBefore
+        $projected | Add-Member NoteProperty ungespeichertEingefuehrt $false
+        $projected | Add-Member NoteProperty hinweis 'Alle bereitgestellten Grid-Zeilen einschliesslich Eingabeslots. Zwei gleiche Beobachtungen sind kein atomarer Snapshot und kein Schreibnachweis.'
+      } catch {
+        # A provider exception terminates this worker. Never attempt another
+        # UIA action, cursor fallback or cleanup against the poisoned provider.
+        Fail $_.Exception.Message 'grid-read-unavailable'
+      }
+      Emit $projected
+    }
     $kopf = $erst.kopf
     & $addSnapshotRows $erst
     $makeCursorBinding={
@@ -19837,7 +19961,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           $navigationState.snapshot.navigationBinding.tableRootRid).ok))
       $heading=Get-CurrentHeading $hwnd
       $keyboardEvidence=$null
-      $keyboardBound=[bool](-not $RequireKeyboard -or (Test-SSETableReadKeyboardTarget $hwnd $targetPid $navigationState.snapshot ([ref]$keyboardEvidence)))
+      $keyboardBound=[bool](-not $RequireKeyboard -or (Test-SSETableReadKeyboardTarget $hwnd $targetPid $navigationState.snapshot ([ref]$keyboardEvidence) -Tree $latestTableSnapshot.tree))
       $observedTick=Get-SSELastInputTick
       $currentPid=0; [SW]::GetWindowThreadProcessId($hwnd,[ref]$currentPid) | Out-Null
       $foreground=[SW]::GetForegroundWindow()
@@ -19959,6 +20083,76 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         }
         if (-not (& $readNavigationGuard 'fresh-focus-readback')) { throw 'Tabellenlauf vor dem Klick unterbrochen.' }
         $navigationState.snapshot=$focusedSnapshot
+        $cancelReadNumberEditor={
+          param($BeforeCancel)
+          if (-not (Test-SSETableReadNumberEditor $hwnd $targetPid $BeforeCancel $latestTableSnapshot.tree)) {return $null}
+          $script:SSE_CURSOR_PRESERVE_UNPROVEN_FOCUS=$true
+          $cancelled=[pscustomobject]@{ok=$false;method='existing-verified-table-focus';phase='number-editor-cancel';
+            reason='number-editor-cancel-unproven';exceptionType=$null;tableFocusable=$null;anchorFocusable=$null;snapshot=$BeforeCancel}
+          if (-not (& $sendTableNavigation '{ESC}' 1 'table-read-number-editor-cancel')) {return $cancelled}
+          $afterCancel=LiesZeilen $hwnd;$navigationState.snapshot=$afterCancel
+          if (-not (Test-SSETableReadSnapshotBinding $BeforeCancel $afterCancel -BeforeNavigation) -or
+              -not (Get-SSETableLiveInputState $hwnd $targetPid $afterCancel.navigationBinding.tableRootAid `
+                $afterCancel.navigationBinding.tableRootRid -RequireKeyboard -RequireSelection).ok -or
+              -not (& $readNavigationGuard 'number-editor-cancel-readback' -RequireKeyboard)) {return $cancelled}
+          $script:SSE_CURSOR_PRESERVE_UNPROVEN_FOCUS=$false
+          $cancelled.ok=$true;$cancelled.reason='unchanged-number-editor-cancelled';$cancelled.snapshot=$afterCancel
+          $cancelled
+        }
+        $moveReadProfiledSource={
+          param($BeforeMove)
+          $positionProof=$null
+          if (-not (Test-SSETableFocusedSource $hwnd $targetPid $latestTableSnapshot.tree `
+                $BeforeMove.navigationBinding.tableRootAid $BeforeMove.navigationBinding.tableRootRid `
+                -AllowPositionNameSource -PositionNameProof ([ref]$positionProof)) -or -not $positionProof) {return $null}
+          $moved=[pscustomobject]@{ok=$false;method='profiled-footer-tab';phase='profiled-footer-focus';
+            reason='profiled-source-tab-unproven';exceptionType=$null;tableFocusable=$null;anchorFocusable=$null;snapshot=$BeforeMove;footerFocus=$null}
+          $script:SSE_CURSOR_PRESERVE_UNPROVEN_FOCUS=$true
+          $footer=Invoke-SSETableFooterFocus $hwnd $targetPid $latestTableSnapshot.tree `
+            $BeforeMove.navigationBinding.tableRootAid $BeforeMove.navigationBinding.tableRootRid `
+            $BeforeMove.navigationBinding.heading $navigationState.tick $navigationState.windows.fingerprint -AllowPositionNameSource
+          $moved.footerFocus=$footer
+          if (-not $footer.ok) {$moved.reason=$footer.reason;return $moved}
+          $afterFooter=LiesZeilen $hwnd;$navigationState.snapshot=$afterFooter
+          if (-not (Test-SSETableReadSnapshotBinding $BeforeMove $afterFooter -BeforeNavigation)) {return $moved}
+          # Each of at most three TABs needs a fresh passive source, unchanged
+          # values and a complete target proof. An unknown editor is terminal.
+          for($transfer=1;$transfer -le 3;$transfer++) {
+            $positionProof=$null
+            if (-not (Test-SSETableFocusedSource $hwnd $targetPid $latestTableSnapshot.tree `
+                  $BeforeMove.navigationBinding.tableRootAid $BeforeMove.navigationBinding.tableRootRid `
+                  -AllowPositionNameSource -PositionNameProof ([ref]$positionProof)) -or
+                -not (& $readNavigationGuard 'before-profiled-source-tab') -or
+                ($positionProof -and [string]$positionProof.valuePattern.Current.Value -cne $positionProof.expectedValue)) {return $moved}
+            $script:SSE_CURSOR_PRESERVE_UNPROVEN_FOCUS=$true
+            [System.Windows.Forms.SendKeys]::SendWait('+{TAB}')
+            $navigationState.tick=Get-SSELastInputTick
+            if ($null -eq $navigationState.tick) {return $moved}
+            Set-SSEForegroundLeaseInputCheckpoint $navigationState.tick -Context 'profiled-source-tab'
+            $afterMove=LiesZeilen $hwnd;$navigationState.snapshot=$afterMove
+            $moved.phase='profiled-source-tab-readback'
+            if (-not (Test-SSETableReadSnapshotBinding $BeforeMove $afterMove -BeforeNavigation) -or
+                -not (& $readNavigationGuard 'profiled-source-tab-readback') -or
+                -not (Invoke-SSETableReadAnchorSelection $hwnd $targetPid $afterMove $navigationState.tick $navigationState.windows.fingerprint)) {return $moved}
+            $afterSelection=LiesZeilen $hwnd;$navigationState.snapshot=$afterSelection
+            $moved.phase='profiled-source-selection-readback'
+            if (-not (Test-SSETableReadSnapshotBinding $BeforeMove $afterSelection -BeforeNavigation)) {return $moved}
+            $cancelled=& $cancelReadNumberEditor $afterSelection
+            if ($null -ne $cancelled) {return $cancelled}
+            $moved.phase='profiled-source-keyboard-proof'
+            $liveCursor=Get-SSETableLiveInputState $hwnd $targetPid $afterSelection.navigationBinding.tableRootAid `
+                  $afterSelection.navigationBinding.tableRootRid -RequireKeyboard -RequireSelection
+            $moved | Add-Member NoteProperty existingCursorProof ([pscustomobject]@{tabs=$transfer;
+              reason=$liveCursor.reason;source=$liveCursor.keyboardEvidence.focusedSource}) -Force
+            if ($liveCursor.ok -and (& $readNavigationGuard 'profiled-source-table-cursor' -RequireKeyboard)) {
+              $script:SSE_CURSOR_PRESERVE_UNPROVEN_FOCUS=$false
+              $moved.ok=$true;$moved.reason='profiled-source-table-cursor-verified';$moved.snapshot=$afterSelection
+              return $moved
+            }
+            if ($liveCursor.reason -ceq 'live-table-provider-error') {return $moved}
+          }
+          $moved
+        }
         if ($cursorPhase -cin @('native-acquire','native-position-acquire')) {
           $cursorActivation.subphase='native-current-cursor-proof'
           $boundCursor=Get-SSETableLiveInputState $hwnd $targetPid $focusedSnapshot.navigationBinding.tableRootAid `
@@ -20093,22 +20287,11 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
             $cursorActivation=[pscustomobject]@{method='existing-verified-table-focus';phase='resume';reason=$null;exceptionType=$null;
               tableFocusable=$null;anchorFocusable=$null;anchorVerified=$true;subphase=$null;exceptionMessage=$null;errorRecord=$null;footerFocus=$null}
           } else {
-          $anchor=Get-LiveElement $hwnd $z0.rid $z0.aid
-          $selectionItem=$null
-          $tableState=Get-SSETableLiveInputState $hwnd $targetPid $focusedSnapshot.navigationBinding.tableRootAid `
-            $focusedSnapshot.navigationBinding.tableRootRid
-          if (-not $tableState.ok -or -not $anchor -or $anchor.Current.ControlType -ne [System.Windows.Automation.ControlType]::DataItem -or
-              [int]$anchor.Current.ProcessId -ne $targetPid -or ($anchor.GetRuntimeId() -join '.') -cne [string]$z0.rid -or
-              [string]$anchor.Current.AutomationId -cne [string]$z0.aid -or
-              -not $anchor.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern,[ref]$selectionItem) -or
-              -not (& $readNavigationGuard 'before-semantic-table-anchor')) { throw 'Semantischer Tabellenanker ist nicht sicher gebunden.' }
-          $selectionItem.Select()
-          if (-not (& $readNavigationGuard 'semantic-table-anchor')) { throw 'Tabellenauswahl wurde unterbrochen.' }
-          $focusResult=Invoke-SSETableReadSemanticFocus $hwnd $targetPid $focusedSnapshot $readNavigationGuard `
-            { LiesZeilen $hwnd } $readFocusCheckpoint
+          $focusResult=Invoke-SSETableReadInitialFocus $hwnd $targetPid $focusedSnapshot $readNavigationGuard `
+            { LiesZeilen $hwnd } $readFocusCheckpoint $cancelReadNumberEditor $moveReadProfiledSource
           $cursorActivation=[pscustomobject]@{method=$focusResult.method;phase=$focusResult.phase;reason=$focusResult.reason;
             exceptionType=$focusResult.exceptionType;tableFocusable=$focusResult.tableFocusable;anchorFocusable=$focusResult.anchorFocusable;anchorVerified=$false;
-            subphase=$null;exceptionMessage=$null;errorRecord=$null;footerFocus=$null}
+            subphase=$null;exceptionMessage=$null;errorRecord=$null;footerFocus=$focusResult.footerFocus;existingCursorProof=$focusResult.existingCursorProof}
           if (-not $focusResult.ok) { throw 'Semantischer Tabellenfokus ist nicht sicher verfuegbar.' }
           }
           $anchoredSnapshot=LiesZeilen $hwnd
@@ -20215,6 +20398,9 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
     # verschluckter Stapel; dann darf wieder bis zur Obergrenze gegangen
     # werden, statt den Rest einer langen Tabelle einzeln abzuschreiten.
     $stapelObergrenze = [Math]::Max(1, [Math]::Min(8, $sichtbareZeilen - 1))
+    # Rebind the visible cell inventory after every numbered-row transition:
+    # Qt may create an unchanged Nr. delegate or scroll at that boundary.
+    if ($erst.cursorAnchorIsNumber) {$stapelObergrenze=1}
     $stapelGroesse = $stapelObergrenze
     if ($geklickt -and -not $cursorUnavailable) {
       while ($schritte -lt $maxSchritte) {

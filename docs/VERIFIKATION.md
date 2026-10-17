@@ -15,6 +15,13 @@ und Beträge sowie die fail-closed-Zusagen bei unbekannter Produktversion.
 Was sie **nicht** beweist: dass ein Bedienschritt am realen Programm zum Ziel
 führt. Dafür zählt allein der Live-Nachweis.
 
+Die API-Testhülle erhält den ursprünglichen Fehler und den Exitcode ihres
+Testprozesses. Unabhängige Aufräumschritte werden auch nach einem Fehler
+versucht; zusätzliche Fehler tragen ihre eigene Phasenkennung. Ein erfolgreicher
+Test mit fehlgeschlagener Bereinigung bleibt fehlgeschlagen. Die gezielte
+Regression prüft diese Regeln an echten Kindprozessen und der tatsächlichen
+Hülle, einschließlich der ausdrücklich angeforderten Diagnose-Sandbox.
+
 Der optionale native `desktop_start` hat zusätzlich einen realen Win32-Test mit
 einem eigenen synthetischen Prozess. Er prüft Hauptfenster und Startdialog,
 vorhandene Desktops, fremde und beschädigte Marker, Startup-Timeout, frühen

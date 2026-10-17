@@ -203,6 +203,7 @@ const CORE_OPERATION_RESULT_FIELDS = {
   // Tabellenmutationen nicht ermitteln; er bleibt null, wenn kein sumLabel
   // angegeben wurde.
   table_read: {
+    gridRead: OPTIONAL_OBJECT.describe("Expliziter UIA-Grid-Lesepfad: rohe Modellzeilen einschliesslich Eingabeslots, sichtbare Spalten und beobachtete Konsistenz; kein atomarer Snapshot"),
     zeilen: OPTIONAL_ARRAY,
     rowDetails: OPTIONAL_TABLE_ROW_DETAILS,
     vollstaendig: OPTIONAL_BOOLEAN,

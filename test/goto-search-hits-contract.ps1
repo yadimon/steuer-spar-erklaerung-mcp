@@ -250,10 +250,17 @@ function Test-StableSearchSuccess([object[]]$Rounds,[int]$ExpectedReads,[bool]$E
   [int]$Budget=0,[int]$SlowRead=-1,[int]$DelayMs=80) {
   $script:searchEmitted=$null;$script:searchFailure=$null
   $script:stableRound=-1;$script:stableReads=0;$script:stableSleeps=0;$script:stableBudget=0
+  $script:stableClock=[pscustomobject]@{ElapsedMilliseconds=[long]0}
   $aktiviert=$true;$hwnd=[IntPtr]4242;$ziel='Zielseite';$pageId='';$nachSuche='Zielseite'
   $weg=@('Startseite');$suchWeg=New-Object System.Collections.ArrayList
   $null=$suchWeg.Add('Suchtreffer aktiviert')
-  . ([scriptblock]::Create($targetWait[0].Extent.Text.Replace('function WarteAufZielseite','function Invoke-ProductiveTargetWait')))
+  # Exercise the actual wait with a deterministic clock. Real compilation and
+  # scheduler latency must not consume a synthetic provider's deadline.
+  $clockSite='$sw = [Diagnostics.Stopwatch]::StartNew()'
+  $waitSource=$targetWait[0].Extent.Text
+  Assert-True ([regex]::Matches($waitSource,[regex]::Escape($clockSite)).Count -eq 1) 'Die produktive Wartezeit muss genau eine Uhr besitzen.'
+  $waitSource=$waitSource.Replace($clockSite,'$sw = $script:stableClock').Replace('function WarteAufZielseite','function Invoke-ProductiveTargetWait')
+  . ([scriptblock]::Create($waitSource))
   function WarteAufZielseite {
     param([IntPtr]$h,[int]$timeoutMs)
     $script:stableBudget=$timeoutMs
@@ -268,10 +275,10 @@ function Test-StableSearchSuccess([object[]]$Rounds,[int]$ExpectedReads,[bool]$E
     param($h,$heading)
     $script:stableReads++
     if($ExpectedSuccess -and $script:stableReads -gt $ExpectedReads){throw 'Unbudgeted readiness recheck after acceptance.'}
-    if($script:stableReads -eq $SlowRead){[Threading.Thread]::Sleep($DelayMs)}
+    if($script:stableReads -eq $SlowRead){$script:stableClock.ElapsedMilliseconds += $DelayMs}
     $Rounds[$script:stableRound].ready
   }
-  function Start-Sleep {param($Milliseconds) $script:stableSleeps++}
+  function Start-Sleep {param($Milliseconds) $script:stableSleeps++;$script:stableClock.ElapsedMilliseconds += $Milliseconds}
   function Click-VerifiedPoint {throw 'Search close wait dispatched input.'}
   function DrueckeKnopf {throw 'Search close wait navigated.'}
   function Emit {param($result) $script:searchEmitted=$result;throw 'search-emitted'}
@@ -308,6 +315,6 @@ Test-StableSearchSuccess @(
 Test-StableSearchSuccess @([pscustomobject]@{heading='Zielseite';ready=$false}) 0 $false
 Test-StableSearchSuccess @([pscustomobject]@{heading='Andere Seite';ready=$false}) 0 $false
 Test-StableSearchSuccess @([pscustomobject]@{heading='';ready=$false}) 0 $false
-Test-StableSearchSuccess @([pscustomobject]@{heading='Zielseite';ready=$true}) 2 $true 50 2
-Test-StableSearchSuccess @([pscustomobject]@{heading='Zielseite';ready=$true}) 1 $false 50 1
+Test-StableSearchSuccess @([pscustomobject]@{heading='Zielseite';ready=$true}) 2 $true 500 2 600
+Test-StableSearchSuccess @([pscustomobject]@{heading='Zielseite';ready=$true}) 1 $false 500 1 600
 Write-Output 'goto-Suchschluss: produktive Zielpruefung uebersteht Relayout, ohne erneute Eingabe oder budgetlosen Readback.'

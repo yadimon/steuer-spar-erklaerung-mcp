@@ -767,7 +767,7 @@ Operation: `table_delete` (destruktiv, drift-gesperrt).
 
 **Tabelle vollstaendig lesen**
 
-Liest eine Eingabetabelle VOLLSTAENDIG - im Gegensatz zu sse_read_table, das nur die sichtbaren Zeilen liefert.
+Liest die gebundene Eingabetabelle.
 
 Operation: `table_read` (zustandsaendernd).
 

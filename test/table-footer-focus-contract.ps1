@@ -8,18 +8,13 @@ if (@($parseErrors).Count) {throw 'Worker syntax is invalid.'}
 foreach ($name in @('Test-SSEExactProperties','Test-SSETableNumberPolicy','Get-SSETableExceptionDiagnostic','Get-SSETableNumberAnchorFocusProof','Test-SSETableFocusedSource','Invoke-SSETableFooterFocus',
   'Get-SSETableCursorNumberCellProof',
   'Get-SSETableNativePositionNumberAuthority','Get-SSETableNativePositionCheckpointProof','Invoke-SSETableNativePositionPreparation','Test-SSETableCursorPhaseEditorAuthority',
-  'Get-SSETableLiveInputState','Test-SSETableReadKeyboardTarget',
+  'Get-SSETableLiveInputState','Test-SSETableReadNumberEditor','Test-SSETableReadKeyboardTarget',
   'Invoke-SSETableReadAnchorSelection',
   'Get-SSETextSha256','New-SSESnapshotNodeIndex','Get-SSESnapshotParentLineageKey','Get-SSESnapshotPrivateComparisonKey','Compare-SSESnapshotNodes')) {
   $definition=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true))
   if ($definition.Count -ne 1) {throw 'Productive helper is absent.'}
   . ([scriptblock]::Create($definition[0].Extent.Text))
 }
-$uncachedDefinition=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
-  $node.Name -ceq 'Get-SSETableReadUncachedElement'},$true))
-if ($uncachedDefinition.Count -ne 1) {throw 'Productive uncached focus resolver is absent.'}
-. ([scriptblock]::Create($uncachedDefinition[0].Extent.Text.Replace(
-  'function Get-SSETableReadUncachedElement','function Invoke-SyntheticUncachedFooterRead')))
 Add-Type -TypeDefinition @'
 using System;
 public static class SW {public static IntPtr GetForegroundWindow(){return new IntPtr(111);}}
@@ -425,57 +420,9 @@ foreach ($case in @('keyboard-table','keyboard-cell','keyboard-transient-edit','
   if ($safe -match 'private aid|"name"|"value"|"val"|12,34|56,78') {throw 'Keyboard guard diagnostics exposed field values or foreign-app metadata.'}
 }
 
-# Exercise the productive raw resolver without a desktop or worker. The footer
-# action tests above deliberately replace only its result, so they cannot prove
-# its independent root/type/completeness guards.
-$RAW=[pscustomobject]@{}
-$RAW | Add-Member ScriptMethod GetParent {param($element) $element.parent}
-$RAW | Add-Member ScriptMethod GetFirstChild {param($element) @($element.children)[0]}
-$RAW | Add-Member ScriptMethod GetNextSibling {
-  param($element)
-  if (-not $element.parent) {return $null}
-  $siblings=@($element.parent.children)
-  for ($index=0;$index -lt $siblings.Count;$index++) {
-    if ([object]::ReferenceEquals($siblings[$index],$element)) {
-      if ($index+1 -lt $siblings.Count) {return $siblings[$index+1]};return $null
-    }
-  }
-}
-$rootTemplate=[pscustomobject]@{type='Window';name='';aid='Synthetic.Root';rid='1.1';x=0;y=0;w=800;h=600}
-foreach ($case in @('success','foreign-root-pid','foreign-root-hwnd','nested-window','duplicate-rid','depth-limited',
-                    'disabled','hidden','zero-size','wrong-type')) {
-  $lookupRoot=New-Element $rootTemplate;$lookupButton=New-Element $buttonNode
-  $lookupButton.parent=$lookupRoot;$lookupRoot.children=@($lookupButton)
-  $AE::Root=$lookupRoot
-  switch ($case) {
-    'foreign-root-pid' {$lookupRoot.Current.ProcessId=8}
-    'foreign-root-hwnd' {$lookupRoot.Current.NativeWindowHandle=222}
-    'nested-window' {
-      $inner=New-Element $rootTemplate;$inner.rid='1.2';$inner.Current.NativeWindowHandle=222
-      $inner.parent=$lookupRoot;$lookupRoot.children=@($inner);$inner.children=@($lookupButton);$lookupButton.parent=$inner
-    }
-    'duplicate-rid' {
-      $first=New-Element $tableNode;$second=New-Element $tableNode
-      $first.parent=$lookupRoot;$second.parent=$lookupRoot;$lookupRoot.children=@($first,$second,$lookupButton)
-    }
-    'depth-limited' {
-      $parent=$lookupRoot
-      for ($depth=1;$depth -le 17;$depth++) {
-        $next=New-Element $tableNode;$next.rid="20.$depth";$next.Current.ControlType=[System.Windows.Automation.ControlType]::Pane;$next.parent=$parent
-        $parent.children=@($next);$parent=$next
-      }
-      $parent.children=@($lookupButton);$lookupButton.parent=$parent
-    }
-    'disabled' {$lookupButton.Current.IsEnabled=$false}
-    'hidden' {$lookupButton.Current.IsOffscreen=$true}
-    'zero-size' {$lookupButton.Current.BoundingRectangle.Width=0}
-    'wrong-type' {$lookupButton.Current.ControlType=[System.Windows.Automation.ControlType]::Edit}
-  }
-  $resolved=Invoke-SyntheticUncachedFooterRead ([IntPtr]111) 7 $buttonNode.rid $buttonNode.aid 'Button'
-  if ($resolved.ok -ne ($case -eq 'success')) {throw "$case`: productive raw footer resolver guard mismatch."}
-  if ($case -eq 'duplicate-rid' -and $resolved.reason -cne 'fresh-focus-walk-cycle') {throw 'Duplicate raw RID reason was hidden.'}
-  if ($case -eq 'depth-limited' -and $resolved.reason -cne 'fresh-focus-walk-depth') {throw 'Raw depth limit reason was hidden.'}
-}
+# The actual compiled RawView boundary and worker wrappers are exercised by
+# fresh-raw-resolver-contract.ps1. These tests retain the caller's independent
+# source, semantic focus, lease and no-action-after-rejection proofs.
 # The broker can focus the table itself. Bind its one selected Nr. GridItem
 # rather than treating table focus as a missing cell or guessing a row number.
 foreach ($case in @('current-dataitem','current-table','current-table-ambiguous','current-wrong-grid-row','current-not-selected',

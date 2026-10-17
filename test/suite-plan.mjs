@@ -34,6 +34,12 @@ export const serialBuildSteps = Object.freeze([
 
 export const parallelSteps = Object.freeze([
   nodeFile("suite-runner-contract", "test/suite-runner-contract.mjs"),
+  nodeFile("with-api-cleanup", "test/with-api-cleanup.mjs"),
+  nodeFile("live-state-journey-contract", "test/live-state-journey-contract.mjs"),
+  psFile("table-grid-read-contract", "test/table-grid-read-contract.ps1"),
+  nodeFile("table-grid-api", "test/table-grid-api.mjs"),
+  psFile("fresh-raw-resolver-contract", "test/fresh-raw-resolver-contract.ps1"),
+  psFile("table-existing-cursor", "test/table-existing-cursor-contract.ps1"),
   nodeFile("public-skills", "test/public-skills.mjs"),
   nodeFile("repository-privacy", "test/repository-privacy-contract.mjs"),
   nodeFile("repository-privacy-upstream", "test/repository-privacy-upstream-contract.mjs"),
@@ -48,6 +54,7 @@ export const parallelSteps = Object.freeze([
   psFile("table-add-seek", "test/table-add-seek-contract.ps1"),
   psFile("tracked-date-rollback", "test/tracked-date-rollback-contract.ps1"),
   psFile("tracked-native-text", "test/tracked-native-text-contract.ps1"),
+  psFile("tracked-field-resolution", "test/tracked-field-resolution-contract.ps1"),
   psFile("value-info-window", "test/value-info-window-contract.ps1"),
   psFile("write-window-binding", "test/write-window-binding-contract.ps1"),
   psFile("case-binding", "test/case-binding-contract.ps1"),
@@ -294,6 +301,7 @@ const FAST_STEP_NAMES = new Set([
   "bulk-action-worker-contract",
   "tracked-date-rollback",
   "tracked-native-text",
+  "tracked-field-resolution",
   "case-binding",
   "recovery-answer-policy",
   "update-prompt",

@@ -3,6 +3,7 @@
 ## Inhalt
 
 - [Rollen](#rollen)
+- [Tabellen ohne Fokuswechsel lesen](#tabellen-ohne-fokuswechsel-lesen)
 - [Erreichbarkeit und Browser-Schutz](#erreichbarkeit-und-browser-schutz)
 - [HTTP-Hüllen](#http-hüllen)
 - [Startbereitschaft](#startbereitschaft)
@@ -45,6 +46,37 @@ Die normativen Laufzeitquellen sind:
 - der MCP-Werkzeugkatalog für strikte agententaugliche Eingaben.
 
 Handgepflegte Operationszahlen in Prosa sind nicht normativ.
+
+## Tabellen ohne Fokuswechsel lesen
+
+`table_read` mit `readMode: "grid"` wählt vor Beginn den reinen UIA-Gridpfad,
+auch wenn die optionale native Qt-Anbindung konfiguriert ist. Er bindet genau
+eine Tabelle über Fenster, Prozess, RuntimeId, AutomationId und Spaltenheader.
+`sumLabel` und `sumOccurrence` wählen bei mehreren Tabellen die Summenregion.
+Es gibt keinen nachgeschalteten Cursor- oder Backendversuch bei einem Fehler.
+`noKeys: false` kann mit diesem Modus nicht kombiniert werden.
+
+Der Leser prüft jede bereitgestellte Gridkoordinate und liest zweimal.
+Gleiche Beobachtungen sowie unveränderte Fenster-, Eingabe- und Tabellenbindung
+belegen beobachtete Konsistenz, keinen atomaren Snapshot und keine
+Schreibberechtigung. `gridRead.atomic` ist deshalb `false`. Ein UIA-Fehler
+beendet den Worker; er führt danach keine weitere Provideraktion aus.
+Fremde Eingabe oder ein Vordergrundwechsel beendet die Beobachtung ebenfalls.
+Die Enumeration hat eine gemeinsame Grenze von 20 Sekunden; eine kürzere
+Aufruferfrist oder ein Abbruch begrenzt weiterhin den gesamten Worker.
+
+`maxRows` begrenzt rohe Modellzeilen. `zeilen` enthält alle gelesenen Zeilen,
+einschließlich leerer Eingabeslots und Nullbeträge; `gridRead.rowFilter` ist
+`"none"`. Nur durch Headergeometrie belegte sichtbare Spalten werden ausgegeben;
+`gridRead.visibleColumns` ordnet sie den rohen Gridspalten zu. Offscreen-Zeilen
+werden weder gescrollt noch fokussiert. `rowDetails` erhält boolesche
+Checkboxwerte einschließlich des unbestimmten Zustands. `vollstaendig` und
+`limitReached` beschreiben die vollständige Enumeration dieser Gridzeilen.
+Der bestehende explizite Cursorlauf über `noKeys: false` bleibt ein eigener
+Vertrag mit Fokus- und Eingabeprüfungen.
+Die Spaltenzuordnung erwartet dieselbe logische und sichtbare Reihenfolge;
+eine abweichend gezogene Headerreihenfolge wird mit einem Bindungsfehler
+abgelehnt, statt Werte einer anderen Spalte zuzuordnen.
 
 ## Erreichbarkeit und Browser-Schutz
 

@@ -182,11 +182,14 @@ export function createApiExecutor(
       args = internalCheckerClick
         ? parseCheckerReadOnlyClickArgs(args)
         : parseApiOperationArgs(operation, args);
+      if (operation === "table_read" && args.readMode === "grid" && args.noKeys === false) {
+        return operationError("readMode:grid ist ein reiner Leser und kann nicht mit noKeys:false kombiniert werden.", "bad-args");
+      }
       if (operation === "desktop_status" && dependencies.nativeDesktopStatus) {
         return redactPaths(await win32(() => dependencies.nativeDesktopStatus!(timeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS, signal)));
       }
       if (isQtNativeOperation(operation)
-        && !(operation === "table_read" && args.noKeys === false)
+        && !(operation === "table_read" && (args.noKeys === false || args.readMode === "grid"))
         && (dependencies.qtNativeClient || dependencies.qtNativeClientFor)) {
         const executeNative = () => executeQtNativeOperation(operation, args, dependencies, timeoutMs, signal, profile);
         return redactPaths(await (telemetry?.enabled ? telemetry.runQtNative(executeNative) : executeNative()));

@@ -49,7 +49,12 @@ export const SSE_MCP_UI_SCHEMAS = {
     hwnd: WINDOW_HANDLE.optional(),
   }).strict(),
   "sse_table_read": z.object({
-    maxRows: TABLE_MAX_ROWS.optional().describe("Leselimit, Vorgabe 200, maximal 1000: UIA-Cursorschritte oder Ausgabezeilen beim nativen Qt-Zugriff"),
+    readMode: z.literal("grid").optional().describe(
+      "Expliziter reiner UIA-Grid-Leser: alle bereitgestellten Modellkoordinaten ohne Fokuswechsel oder Eingabe. "
+      + "Zwei gleiche Beobachtungen, kein atomarer Snapshot. Einschliesslich Leer-/Eingabezeilen; "
+      + "maxRows begrenzt rohe Modellzeilen. Nicht mit noKeys:false kombinieren.",
+    ),
+    maxRows: TABLE_MAX_ROWS.optional().describe("Leselimit, Vorgabe 200, maximal 1000: UIA-Cursorschritte, rohe Grid-Modellzeilen oder Ausgabezeilen beim nativen Qt-Zugriff"),
     noKeys: z.boolean().optional().describe(
       "Ohne Angabe oder mit true liest der native Qt-Zugriff das Modell ohne Eingabe und Fokuswechsel; "
       + "ein UIA-Zugriff mit true liefert nur sichtbare Zeilen. Explizites false fordert den gebundenen "

@@ -16,6 +16,7 @@ export type ExecutionTelemetryBackend = typeof EXECUTION_TELEMETRY_BACKENDS[numb
 
 export const WORKER_PERFORMANCE_COUNTERS = [
   "workerProcessCount", "internalOperationCount", "reusedReadbackCount", "treeWalks", "treeWalkMs", "workerMs", "nativeMs",
+  "freshRawFocusMs", "freshRawFocusCount", "freshRawModelCellsMs", "freshRawModelCellsCount",
 ] as const;
 export type WorkerPerformanceCounter = typeof WORKER_PERFORMANCE_COUNTERS[number];
 export type WorkerPerformanceCounters = Partial<Record<WorkerPerformanceCounter, number>>;

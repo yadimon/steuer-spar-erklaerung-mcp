@@ -18,13 +18,13 @@
     },
     {
       "path": "dist/api.js",
-      "sha256": "2db6350fa095ccc8a37dbcef48835f1558525418782cf31b8a991762bebf78ba",
-      "size": 1159020
+      "sha256": "79825e577fd8fb53c2ce37b57c2165e95c412a288968b93476afee2c49262a09",
+      "size": 1159979
     },
     {
       "path": "dist/mcp.js",
-      "sha256": "3d0a69c20074c1b919ff8e8a8f3af50023d7936cfaeebc9fa543ed7a0fe5ef87",
-      "size": 1195648
+      "sha256": "619b586d450b73ff51d96239f9d209cfe5f12ff14f60ebacdb6ca5d8a960e69d",
+      "size": 1196070
     },
     {
       "path": "powershell/akad-parser.ps1",
@@ -48,8 +48,8 @@
     },
     {
       "path": "powershell/load-native.ps1",
-      "sha256": "eb42aa7766d21f876812753ec4e3f005d6c2a8b8e8faa634cde945ef7e49e38e",
-      "size": 9240
+      "sha256": "27df31a38c00f970c602951f62df25fa490ec5794bc3786ad1cfcab45a601689",
+      "size": 9312
     },
     {
       "path": "powershell/ocr-image.ps1",
@@ -73,23 +73,23 @@
     },
     {
       "path": "powershell/sse-native.cs",
-      "sha256": "76c4ec49a8c8f80a92e936d8fa4cca4677a77e1600bb55768deeb4404d0e73a8",
-      "size": 50161
+      "sha256": "34e25234f1ea2fcabc04ba4ee898443a1c3e254b4e98d1759b763acb7c9a3982",
+      "size": 56127
     },
     {
       "path": "powershell/sse-native.dll",
-      "sha256": "3429550ea431b116b4937582daa3999642b3e87a288c0f14c7c25d00b6898107",
-      "size": 37888
+      "sha256": "d29b6c5ac3a50e069964b19e50f5a4e4197af9f2f6ae54ca37c6eef2e8ca4776",
+      "size": 40448
     },
     {
       "path": "powershell/sse-native.sha256",
-      "sha256": "eef77deacda5c5994000082f1c43397a55ddc0e399e3c26b1ffe7bd19f2507a6",
+      "sha256": "83f9c32c4739fa0eb4f4d4a7b99dd5d0b1234de1e69ec67c27b32ed71fc6c166",
       "size": 181
     },
     {
       "path": "powershell/sse-worker.ps1",
-      "sha256": "522f0a39401056c1be466d4ba1776bcca85d9ca224f07f3653f7d34194691498",
-      "size": 1465713
+      "sha256": "a1cca515755a6478b83ba50bfde48a7a6f606c686f13e80b027b7d6efadd3e96",
+      "size": 1478959
     },
     {
       "path": "powershell/structure-binding.ps1",
@@ -105,6 +105,11 @@
       "path": "powershell/table-cursor-lease.ps1",
       "sha256": "454794df283bfcdd46cb1496a1835b626ba033fc6f7685e141884b12dbb32035",
       "size": 3345
+    },
+    {
+      "path": "powershell/table-grid-read.ps1",
+      "sha256": "cb716377cde2f64ff3431d99bacd666fd0f23f9949a5aa970381e5685d6acca1",
+      "size": 14676
     },
     {
       "path": "powershell/table-region.ps1",

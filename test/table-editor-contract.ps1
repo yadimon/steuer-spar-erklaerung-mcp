@@ -4,7 +4,7 @@ $ErrorActionPreference='Stop'
 $source=[IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\powershell\sse-worker.ps1'))
 $ast=[Management.Automation.Language.Parser]::ParseInput($source,[ref]$null,[ref]$null)
 function Assert-True($Value,[string]$Message) { if (-not $Value) { throw $Message } }
-foreach ($name in @('Get-SSETableLiveInputState','Get-SSETableReadUncachedElement','Invoke-SSETableReadSemanticFocus','Complete-SSETableComboEditor')) {
+foreach ($name in @('Get-SSETableLiveInputState','Invoke-SSETableReadSemanticFocus','Complete-SSETableComboEditor')) {
   $functions=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true))
   Assert-True ($functions.Count -eq 1) "Missing productive function: $name"
   . ([scriptblock]::Create($functions[0].Extent.Text))
@@ -229,6 +229,21 @@ Assert-True ($null -eq $projected.editorClosed) 'Popup closure was still present
 
 # The real semantic focus helper runs against these UIA doubles only.
 # No physical cell click, Win32 import, keyboard command or real worker exists.
+# The actual compiled raw resolver is covered by fresh-raw-resolver-contract;
+# this narrow boundary double retains the caller's action/rejection coupling.
+function Get-SSETableReadUncachedElement {
+  param([IntPtr]$Hwnd,[int]$ProcessId,[string]$Rid,[string]$Aid,[string]$ExpectedType)
+  $reject=[pscustomobject]@{ok=$false;element=$null;reason='fresh-focus-element-unbound'}
+  if($script:semanticFocusMode -ceq 'fresh-walk-cycle') {$reject.reason='fresh-focus-walk-cycle';return $reject}
+  $root=[System.Windows.Automation.AutomationElement]::Root
+  if($Hwnd -ne [IntPtr]111 -or $root.Current.ProcessId -ne $ProcessId -or
+      $root.Current.NativeWindowHandle -ne [int64]$Hwnd) {return $reject}
+  $element=$(if($ExpectedType -ceq 'Table') {$freshTable} else {$number})
+  if($element.rid -cne $Rid -or $element.Current.AutomationId -cne $Aid -or
+      $element.Current.ProcessId -ne $ProcessId -or $element.Current.ControlType -cne $ExpectedType -or
+      -not $element.Current.IsEnabled -or $element.Current.IsOffscreen) {return $reject}
+  [pscustomobject]@{ok=$true;element=$element;reason='synthetic-fresh-resolver-boundary'}
+}
 $number=$script:elements['10.2']
 $number.parent=$table
 $number.selection=[pscustomobject]@{Current=[pscustomobject]@{SelectionContainer=$table;IsSelected=$true}}

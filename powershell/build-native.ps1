@@ -105,6 +105,8 @@ function Assert-SSENativeAssemblySurface([Reflection.Assembly]$Assembly) {
     SSEProcessCommandLine=@('TryGet')
     SSEWindowNode=@()
     SSEAccessible=@('Describe','DescribePoint','DescribePointBasic','Invoke')
+    SSEUiaFreshRawResult=@()
+    SSEUiaFreshRaw=@('Focus','ModelCells')
     SSEAccNode=@()
     SSEWorkerControllerLease=@('Acquire','ReleaseAndClose')
     SSEUiaTree=@('Describe','DescribeElement','ToViews','Resolve')

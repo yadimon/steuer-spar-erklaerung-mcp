@@ -39,14 +39,43 @@ const requiredMethods = (script, typeName) => {
   assert(match, `Native-Oberflaechenliste fuer ${typeName} fehlt.`);
   return [...match[1].matchAll(/'([^']+)'/g)].map((entry) => entry[1]).sort();
 };
-const publicStaticMethods = (sourceText, classMarker, nextClassMarker) => {
-  const start = sourceText.indexOf(classMarker);
-  const end = nextClassMarker ? sourceText.indexOf(nextClassMarker, start + classMarker.length) : sourceText.length;
-  assert(start >= 0 && end > start, `C#-Klassenabschnitt ${classMarker} fehlt.`);
-  return [...sourceText.slice(start, end).matchAll(/public static(?: extern)?\s+[^\s(]+\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/g)]
-    .map((entry) => entry[1])
-    .sort();
+const publicStaticMethods = (sourceText, classMarker) => {
+  // Keep offsets, but ignore braces and method-like text inside comments,
+  // ordinary/verbatim strings and character literals. A following class is
+  // not this class's boundary: new sibling types must not bleed into it.
+  const code = sourceText.replace(/\/\*[\s\S]*?\*\/|\/\/[^\r\n]*|@"(?:""|[^"])*"|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g,
+    (token) => token.replace(/[^\r\n]/g, " "));
+  const start = code.indexOf(classMarker);
+  assert(start >= 0, `C#-Klassenabschnitt ${classMarker} fehlt.`);
+  const open = code.indexOf("{", start + classMarker.length);
+  assert(open >= 0, `C#-Klassenrumpf ${classMarker} fehlt.`);
+  let depth = 1;
+  let end = open + 1;
+  while (end < code.length && depth) {
+    if (code[end] === "{") depth++;
+    else if (code[end] === "}") depth--;
+    end++;
+  }
+  assert.equal(depth, 0, `C#-Klassenrumpf ${classMarker} ist nicht geschlossen.`);
+  const body = code.slice(open + 1, end - 1);
+  const methods = [];
+  let position = 0;
+  depth = 0;
+  for (const match of body.matchAll(/public static(?: extern)?\s+[^\s(]+\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/g)) {
+    while (position < match.index) {
+      if (body[position] === "{") depth++;
+      else if (body[position] === "}") depth--;
+      position++;
+    }
+    if (depth === 0) methods.push(match[1]);
+  }
+  return methods.sort();
 };
+assert.deepEqual(publicStaticMethods(
+  'public static class First { string brace="}"; /* } */ public static void Own() {} ' +
+    'public class Nested { public static void Other() {} } } public static class Next { public static void Sibling() {} }',
+  "public static class First",
+), ["Own"], "Native surface extraction must respect true class and nested-type boundaries.");
 const completeSurface = {
   DSK: publicStaticMethods(originalNativeSource, "public class DSK", "public sealed class SSEWorkerControllerLease"),
   SSEWorkerControllerLease: publicStaticMethods(
@@ -75,6 +104,8 @@ const completeSurface = {
     "public static class SSEAccessible",
     "public sealed class SSEUiaScrollState",
   ),
+  SSEUiaFreshRawResult: publicStaticMethods(originalNativeSource, "public sealed class SSEUiaFreshRawResult"),
+  SSEUiaFreshRaw: publicStaticMethods(originalNativeSource, "public static class SSEUiaFreshRaw"),
   SSEUiaScrollState: publicStaticMethods(
     originalNativeSource,
     "public sealed class SSEUiaScrollState",

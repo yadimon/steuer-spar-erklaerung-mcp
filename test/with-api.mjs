@@ -167,6 +167,8 @@ const address = server.address();
 if (!address || typeof address !== "object") throw new Error("Test-API hat keinen TCP-Port erhalten.");
 
 let childFailed = false;
+let childExitCode = 1;
+let primaryFailure;
 try {
   const childEnv = {
     ...process.env,
@@ -199,19 +201,55 @@ try {
     throw new Error(`Testprozess wurde durch Signal ${signal} beendet.`);
   }
   childFailed = code !== 0;
-  process.exitCode = typeof code === "number" ? code : 1;
-} finally {
-  await new Promise((resolve) => server.close(resolve));
-  nativeShutdown.abort();
-  try { await native?.close(); }
-  catch (error) { childFailed = true; throw error; }
-  finally {
-    if (useWorkerPrewarm) shutdownWarmSpare();
-    executionLog?.close();
-    if (childFailed && preserveTemporaryOnFailure) {
-      process.stderr.write(`Test-Sandbox zur Diagnose erhalten: ${temporary}\n`);
-    } else {
-      await removeDirectoryWhenFree(temporary);
-    }
+  childExitCode = typeof code === "number" ? code : 1;
+} catch (error) {
+  primaryFailure = { error };
+  childFailed = true;
+}
+
+// A secondary teardown failure must neither hide the child failure nor prevent
+// independent resources from being released. Keep the child's exact exit code.
+const cleanupFailures = [];
+async function cleanup(phase, action) {
+  try { await action(); }
+  catch (error) {
+    childFailed = true;
+    cleanupFailures.push({ phase, error });
   }
+}
+await cleanup("http-server", () => new Promise((resolve, reject) => {
+  server.close((error) => error ? reject(error) : resolve());
+}));
+await cleanup("native-shutdown", () => nativeShutdown.abort());
+await cleanup("native-runtime", () => native?.close());
+await cleanup("worker-prewarm", () => { if (useWorkerPrewarm) shutdownWarmSpare(); });
+await cleanup("execution-log", () => executionLog?.close());
+let temporaryPreserved = false;
+if (childFailed && preserveTemporaryOnFailure) {
+  temporaryPreserved = true;
+} else if (cleanupFailures.some(({ phase }) => phase === "native-runtime")) {
+  // An unproved broker can still reference this workspace; retain its evidence.
+  temporaryPreserved = true;
+} else {
+  await cleanup("sandbox", () => removeDirectoryWhenFree(temporary));
+}
+
+if (primaryFailure) console.error("Testprozess fehlgeschlagen:", primaryFailure.error);
+else if (childExitCode !== 0) process.stderr.write(`Testprozess fehlgeschlagen (Exit-Code ${childExitCode}).\n`);
+for (const { phase, error } of cleanupFailures) console.error(`Test-Cleanup fehlgeschlagen [${phase}]:`, error);
+if (temporaryPreserved) process.stderr.write(`Test-Sandbox zur Diagnose erhalten: ${temporary}\n`);
+process.exitCode = childFailed ? childExitCode || 1 : 0;
+
+if (cleanupFailures.length > 0) {
+  // Failed teardown can leave referenced broker handles. Drain queued output,
+  // then terminate only this wrapper; a stuck diagnostic stream is bounded.
+  const exitCode = process.exitCode;
+  const watchdog = setTimeout(() => process.exit(exitCode), 5_000);
+  const flush = (stream) => new Promise((resolve) => {
+    try { stream.write("", () => resolve()); }
+    catch { resolve(); }
+  });
+  await Promise.all([flush(process.stdout), flush(process.stderr)]);
+  clearTimeout(watchdog);
+  process.exit(exitCode);
 }
