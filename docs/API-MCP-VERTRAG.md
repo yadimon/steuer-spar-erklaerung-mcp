@@ -137,6 +137,15 @@ Ausgangsauswahl wird unmittelbar vor dem vorhandenen Einzelklick identisch
 erneut bewiesen; erst der Klick darf sie verändern. Unbekannte, gemischte oder
 nicht sichtbare Auswahl erlaubt keine Aktion. Die Positionsnamen- und
 Hilfedokument-Pfade behalten ihre Voraussetzung einer leeren Auswahl.
+Meldet der Provider den ursprünglichen Nr.-Anker trotz abgeschnittener Lage als
+sichtbar, darf nur die früheste vollständig innerhalb des Tabelleninhalts
+liegende Nr.-Zelle als getrenntes Aktivierungsziel dienen. Diese Alternative
+benötigt zusätzlich eine eindeutige vollständige Rohzeilen-/Semantikzuordnung
+mit Inhalt außerhalb der Nr.-Spalte. Ein unbewiesener Eingabeslot genügt nicht.
+Ziel-RID und tatsächliche Grid-Zeile bleiben vor und nach dem Einzelklick fest;
+ein fehlgeschlagener Nachweis erlaubt keine Auswahl eines anderen Ziels.
+Der ursprüngliche Leseanker und die anschließende HOME-Navigation bleiben
+unverändert.
 Nach dem eigenen Sprung mit Strg+Home können aktueller Eintrag und Auswahl
 auseinanderliegen. Vor der ersten Abwärtstaste darf der öffentliche
 Standardcursor deshalb die frisch bewiesene unveränderte Nr.-Zelle auf

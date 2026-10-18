@@ -5,6 +5,7 @@ $ErrorActionPreference='Stop'
 function Assert-True([bool]$Condition,[string]$Message) {if (-not $Condition) {throw $Message}}
 Add-Type -TypeDefinition @'
 using System;
+public sealed class SyntheticVisibleNode {public int i,p,x,y,w,h;public string rid,aid,type,name,val;public bool on;}
 namespace System.Windows {public struct Point {public double X,Y;public Point(double x,double y){X=x;Y=y;}}}
 public static class SW {
  public static int ProcessId=7,Dpi=96,DoubleClickMs=100;
@@ -78,9 +79,9 @@ function Test-SSETableFocusedSource {
 function Get-SSETableNumberAnchorFocusProof {
   param($Hwnd,$ProcessId,$Tree,$TableAid,$TableRid,$Anchor,$Focused,$NumberModel,$NumberPolicy)
   $script:numberProofCalls++
-  Assert-True ($null -eq $NumberModel -and $Anchor.rid -ceq '1.3' -and $Tree.nodes.Count -ge 4 -and $NumberPolicy.tableName -ceq '/.Tab') 'Number click fabricated native flags, reused post-editor tree or changed clicked-cell authority.'
+  Assert-True ($null -eq $NumberModel -and $Anchor.rid -ceq $script:expectedClickRid -and $Tree.nodes.Count -ge 4 -and $NumberPolicy.tableName -ceq '/.Tab') 'Number click fabricated native flags, reused post-editor tree or changed clicked-cell authority.'
   if ($script:mode -cin @('other-row-editor','changed-editor','custom-editor','combo-editor','source-still-focused')) {return [pscustomobject]@{ok=$false}}
-  [pscustomobject]@{ok=$true;ownedCell=$script:cellNode;valuePattern=[pscustomobject]@{Current=[pscustomobject]@{Value='1'}};expectedValue='1'}
+  [pscustomobject]@{ok=$true;ownedCell=$script:cellNode;row=[int]$script:cell.patterns.grid.Current.Row;valuePattern=[pscustomobject]@{Current=[pscustomobject]@{Value=[string]$script:cellNode.name}};expectedValue=[string]$script:cellNode.name}
 }
 function Get-SSETableLiveInputState {
   param($Hwnd,$ProcessId,$Aid,$Rid,[switch]$RequireKeyboard,[switch]$RequireSelection)
@@ -100,8 +101,8 @@ function Start-Sleep {param([int]$Milliseconds) $script:waits+=@($Milliseconds)}
 function Click-VerifiedPoint {
   param($Hwnd,$Node,$ExpectedInputTick,[switch]$RequireForeground,[int]$ForegroundAttempts,[string]$ExpectedRuntimeId,[scriptblock]$BeforeClickCheck,$BeforeClickBinding,[switch]$ThrowOnFailure)
   $script:clickHelperCalls++
-  Assert-True ($Hwnd -eq [IntPtr]111 -and $Node.rid -ceq '1.3' -and $RequireForeground -and
-    $ForegroundAttempts -eq 1 -and $ExpectedRuntimeId -ceq '1.3' -and $null -ne $BeforeClickBinding -and $ThrowOnFailure) 'Click lost exact cell/foreground/one-attempt or throwing-result authority.'
+  Assert-True ($Hwnd -eq [IntPtr]111 -and $Node.rid -ceq $script:expectedClickRid -and $RequireForeground -and
+    $ForegroundAttempts -eq 1 -and $ExpectedRuntimeId -ceq $script:expectedClickRid -and $null -ne $BeforeClickBinding -and $ThrowOnFailure) 'Click lost exact cell/foreground/one-attempt or throwing-result authority.'
   if ($script:mode -ceq 'foreground-at-last-hook') {[SW]::Foreground=[IntPtr]999}
   if ($script:mode -ceq 'selection-at-last-hook') {$script:selection.items=@($script:cell)}
   if ($script:mode -ceq 'help-source-at-last-hook') {$AE::FocusedElement=$script:editor}
@@ -111,14 +112,21 @@ function Click-VerifiedPoint {
   if ($script:mode -ceq 'passive-selection-late-metadata') {$script:priorElements['1.5'].Current.Name='Changed selected value'}
   if ($script:mode -ceq 'passive-selection-late-set') {$script:selection.items=@($script:priorElements['1.5'],$script:priorElements['1.7'])}
   if ($script:mode -ceq 'passive-selection-order') {[array]::Reverse($script:selection.items)}
-  if (-not (& $BeforeClickCheck $Hwnd $BeforeClickBinding 120 140)) {throw 'Synthetic last click guard rejected.'}
+  if ($script:mode -ceq 'visible-earlier-at-last-hook') {$script:priorElements['1.9'].Current.BoundingRectangle.Y=145;$script:tree.nodes[-1].y=145}
+  if ($script:mode -ceq 'visible-row-at-last-hook') {$script:priorElements['1.5'].patterns.grid.Current.Row=[int]2}
+  if ($script:mode -ceq 'visible-bounds-at-last-hook') {$script:priorElements['1.5'].Current.BoundingRectangle.Width=39}
+  if ($script:mode -ceq 'visible-header-at-last-hook') {$script:headerNode.h=90;$script:header.Current.BoundingRectangle.Height=90}
+  if ($script:mode -ceq 'visible-same-center-resize') {$script:tree.nodes[5].y=171;$script:tree.nodes[5].h=28;$script:priorElements['1.5'].Current.BoundingRectangle.Y=171;$script:priorElements['1.5'].Current.BoundingRectangle.Height=28}
+  if ($script:mode -ceq 'visible-inplace-name') {$script:tree.nodes[5].name='2';$script:tree.nodes[5].val='2';$script:priorElements['1.5'].Current.Name='2';$script:snapshot.zeilenMitIdentitaet[0].werte[0]='2';$script:snapshot.zeilenMitIdentitaet[0].semanticCells[0].value='2'}
+  if (-not (& $BeforeClickCheck $Hwnd $BeforeClickBinding 120 $script:expectedClickY)) {throw 'Synthetic last click guard rejected.'}
+  $script:cell=$BeforeClickBinding.proof.element;$script:cellNode=$BeforeClickBinding.proof.node;$script:item=$script:cell.patterns.item
   $script:clicks++
   $script:tick=([long][Environment]::TickCount -band 4294967295L)
   $script:selection.items=@($script:cell);$script:item.Current.IsSelected=$true
   if ($script:mode -cin @('whole-row','different-selected-row','duplicate-selected-column')) {$script:selection.items+=@($script:secondCell)}
   $script:cell.Current.HasKeyboardFocus=$true
   $script:editorClosed=$true;$AE::FocusedElement=$script:cell;$script:table.Current.HasKeyboardFocus=$true
-  if ($script:mode -cin @('number-editor','editor-stays','table-unfocused-after-escape','other-row-editor','changed-editor','custom-editor','combo-editor')) {
+  if ($script:mode -cin @('number-editor','visible-number-editor','editor-stays','table-unfocused-after-escape','other-row-editor','changed-editor','custom-editor','combo-editor')) {
     $script:editorClosed=$false;$AE::FocusedElement=$script:editor;$script:table.Current.HasKeyboardFocus=$false
   }
   if ($script:mode -ceq 'source-still-focused') {$AE::FocusedElement=$script:source;$script:table.Current.HasKeyboardFocus=$false}
@@ -137,6 +145,7 @@ function Reset-Scenario {
   $script:sourceProofCalls=0;$script:numberProofCalls=0;$script:resolverCalls=0;$script:reads=0;$script:waits=@();$script:records=0
   $script:dirty=$false;$script:windowFingerprint='stable';$script:editorClosed=$true
   $script:priorElements=@{}
+  $script:expectedClickRid='1.3';$script:expectedClickY=140
   $script:tick=(([long][Environment]::TickCount -band 4294967295L)+4294966296L)%4294967296L
   [SW]::ProcessId=7;[SW]::Dpi=96;[SW]::DoubleClickMs=100;[SW]::Foreground=[IntPtr]111;[SW]::Origin=[int[]]@(0,0)
   $script:SSE_CURSOR_PRESERVE_UNPROVEN_FOCUS=$false
@@ -173,13 +182,16 @@ function Reset-Scenario {
       $script:reads++
       if ($script:mode -ceq 'provider-after-click' -and $script:clicks) {throw 'Synthetic unavailable after click'}
       $read=$script:snapshot | ConvertTo-Json -Depth 10 -Compress | ConvertFrom-Json
+      if ($script:mode -ceq 'visible-original-rid-at-last-hook' -and $script:clickHelperCalls -gt 0) {
+        $read.ersteZelle.rid='1.30';$replacement=$script:tree.nodes[2].PSObject.Copy();$replacement.rid='1.30';$script:tree.nodes[2]=$replacement
+      }
       if ($script:mode -ceq 'values-after-click' -and $script:clicks) {$read.navigationBinding.contentSignature='changed'}
       if ($script:mode -ceq 'page-after-click' -and $script:clicks) {$read.navigationBinding.heading='Other page'}
       $read.navigationBinding.editorFree=$script:editorClosed
       $read
     }
     ReadTree={$script:tree}
-    RecordInput={param($Tick,$Point) $script:records++;Assert-True ($Tick -eq $script:tick -and $Point.rid -ceq '1.3') 'Owned input checkpoint changed target.'}
+    RecordInput={param($Tick,$Point) $script:records++;Assert-True ($Tick -eq $script:tick -and $Point.rid -ceq $script:expectedClickRid) 'Owned input checkpoint changed target.'}
     SendEscape={
       $script:escapes++;$script:tick=($script:tick+1)%4294967296L
       if ($script:mode -cne 'editor-stays') {$script:editorClosed=$true;$AE::FocusedElement=$script:cell;$script:table.Current.HasKeyboardFocus=$true}
@@ -465,3 +477,98 @@ foreach ($case in @('passive-Button','passive-Table','passive-DataGrid','passive
   if ($case -ceq 'passive-too-many') {Assert-True ($script:resolverCalls -eq 2) 'Over-limit selection did provider work before enforcing its bound.'}
 }
 Write-Output 'Number-cell passive source: actual unchanged source proof and strict fresh prior selection, revalidated exactly before one click.'
+
+foreach ($case in @('visible-clipped-original','visible-number-editor','visible-no-full-cell','visible-empty-alternative',
+  'visible-incomplete-row','visible-semantic-error','visible-wrong-row-identity','visible-duplicate-candidate',
+  'visible-earlier-at-last-hook','visible-row-at-last-hook','visible-bounds-at-last-hook','visible-duplicate-row',
+  'visible-original-spoof','visible-empty-no-next','visible-narrow-no-next','visible-text-semantic-mismatch','visible-boolean-off',
+  'visible-boolean-indeterminate','visible-boolean-inconsistent','visible-boolean-on','visible-off-label-only','visible-indeterminate-label-only',
+  'visible-duplicate-cell-rid','visible-wrong-column','visible-header-at-last-hook','visible-same-center-resize','visible-inplace-name','visible-original-rid-at-last-hook')) {
+  $tableAid='Synthetic.RedThreadContent.ClientFrameSSE.DialogUI./.Tab'
+  Reset-Scenario;$script:mode=$case;$script:helpPolicy=$null;$script:providerReads=0
+  $script:expectedClickRid='1.5';$script:expectedClickY=185
+  $script:cellNode.y=124;$script:cell.Current.BoundingRectangle.Y=124
+  $sourceNode=[pscustomobject]@{i=4;p=-1;rid='2.1';aid='Synthetic.Results.MoreDetails';type='Button';name='More details';on=$true;x=600;y=100;w=100;h=30}
+  $script:source=New-Element $sourceNode 'Button';$script:source.Current.HasKeyboardFocus=$true
+  $window=New-Element ([pscustomobject]@{rid='9.1';aid='Synthetic.Main';name='';x=0;y=0;w=900;h=700}) 'Window'
+  $window.Current.NativeWindowHandle=111;$script:source.parent=$window;$AE::FocusedElement=$script:source
+  $candidate=[pscustomobject]@{i=5;p=0;rid='1.5';aid=$tableAid;type='DataItem';name='';val='';on=$true;x=100;y=170;w=40;h=30}
+  if ($case -ceq 'visible-inplace-name') {
+    $actualNode=New-Object SyntheticVisibleNode
+    foreach ($property in @('i','p','rid','aid','type','name','val','on','x','y','w','h')) {$actualNode.$property=$candidate.$property}
+    $candidate=$actualNode
+  }
+  $detail=[pscustomobject]@{i=6;p=0;rid='1.6';aid=$tableAid;type='DataItem';name='Synthetic row';val='Synthetic row';on=$true;x=140;y=170;w=100;h=30}
+  $script:tree.nodes+=@($sourceNode,$candidate,$detail)
+  foreach ($node in @($candidate,$detail)) {
+    $element=New-Element $node 'DataItem';$element.parent=$script:table
+    $element.patterns.grid=[pscustomobject]@{Current=[pscustomobject]@{Row=[int]1;Column=$(if($node.rid -ceq '1.5'){[int]0}else{[int]1});RowSpan=[int]1;ColumnSpan=[int]1;ContainingGrid=$script:table}}
+    $element.patterns.item=[pscustomobject]@{Current=[pscustomobject]@{IsSelected=$true;SelectionContainer=$script:table}}
+    $script:priorElements[$node.rid]=$element
+  }
+  $script:selection.items=@($script:priorElements['1.5'],$script:priorElements['1.6'])
+  $semantic=@([pscustomobject]@{type='text';value='';checkboxState=$null;ok=$true;error=$null},[pscustomobject]@{type='text';value='Synthetic row';checkboxState=$null;ok=$true;error=$null})
+  $AE::PointResult=$script:priorElements['1.5']
+  $script:snapshot | Add-Member NoteProperty zeilenMitIdentitaet @([pscustomobject]@{werte=@('','Synthetic row');identitaet='0=1.5|1=1.6';semanticCells=$semantic})
+  switch ($case) {
+    'visible-no-full-cell' {$candidate.h=300;$script:priorElements['1.5'].Current.BoundingRectangle.Height=300}
+    'visible-empty-alternative' {$detail.name='0,00';$script:priorElements['1.6'].Current.Name='0,00';$script:snapshot.zeilenMitIdentitaet[0].werte[1]='0,00';$semantic[1].value='0,00'}
+    'visible-incomplete-row' {$script:snapshot.zeilenMitIdentitaet[0].semanticCells=@($semantic[0])}
+    'visible-semantic-error' {$semantic[1].ok=$false;$semantic[1].error='Synthetic missing semantic proof'}
+    'visible-text-semantic-mismatch' {$semantic[1].value='Unmatched semantic value'}
+    'visible-boolean-off' {$semantic[1].type='boolean';$semantic[1].value=$false;$semantic[1].checkboxState='Off'}
+    'visible-boolean-indeterminate' {$semantic[1].type='boolean';$semantic[1].value=$null;$semantic[1].checkboxState='Indeterminate'}
+    'visible-boolean-inconsistent' {$semantic[1].type='boolean';$semantic[1].value=$true;$semantic[1].checkboxState='Off'}
+    'visible-boolean-on' {$semantic[1].type='boolean';$semantic[1].value=$true;$semantic[1].checkboxState='On'}
+    'visible-off-label-only' {$semantic[1].type='boolean';$semantic[1].value=$false;$semantic[1].checkboxState='Off'}
+    'visible-indeterminate-label-only' {$semantic[1].type='boolean';$semantic[1].value=$null;$semantic[1].checkboxState='Indeterminate'}
+    'visible-duplicate-cell-rid' {$script:snapshot.zeilenMitIdentitaet[0].identitaet='0=1.5|1=1.5'}
+    'visible-wrong-column' {$detail.x=110;$script:priorElements['1.6'].Current.BoundingRectangle.X=110}
+    'visible-wrong-row-identity' {$script:snapshot.zeilenMitIdentitaet[0].identitaet='0=1.7|1=1.6'}
+    'visible-duplicate-candidate' {$copy=$candidate.PSObject.Copy();$copy.i=7;$copy.rid='1.7';$script:tree.nodes+=@($copy)}
+    'visible-duplicate-row' {$script:snapshot.zeilenMitIdentitaet+=@($script:snapshot.zeilenMitIdentitaet[0].PSObject.Copy())}
+    'visible-original-spoof' {$script:snapshot.ersteZelle=$script:snapshot.ersteZelle.PSObject.Copy();$script:snapshot.ersteZelle.name='Different original'}
+    'visible-same-center-resize' {$script:selection.items=@();$script:priorElements['1.5'].patterns.item.Current.IsSelected=$false;$script:priorElements['1.6'].patterns.item.Current.IsSelected=$false}
+    {$_ -cin @('visible-empty-no-next','visible-narrow-no-next')} {
+      if ($case -ceq 'visible-empty-no-next') {$detail.name='0,00';$script:priorElements['1.6'].Current.Name='0,00';$script:snapshot.zeilenMitIdentitaet[0].werte[1]='0,00';$semantic[1].value='0,00'}
+      if ($case -ceq 'visible-narrow-no-next') {$candidate.w=4;$script:priorElements['1.5'].Current.BoundingRectangle.Width=4}
+      $next=$candidate.PSObject.Copy();$next.i=7;$next.rid='1.9';$next.y=220
+      $next.w=40
+      $nextDetail=$detail.PSObject.Copy();$nextDetail.i=8;$nextDetail.rid='1.10';$nextDetail.y=220;$nextDetail.name='Synthetic later row'
+      $script:tree.nodes+=@($next,$nextDetail)
+      $script:snapshot.zeilenMitIdentitaet+=@([pscustomobject]@{werte=@('','Synthetic later row');identitaet='0=1.9|1=1.10';semanticCells=@(
+        [pscustomobject]@{type='text';value='';checkboxState=$null;ok=$true;error=$null},
+        [pscustomobject]@{type='text';value='Synthetic later row';checkboxState=$null;ok=$true;error=$null})})
+    }
+    'visible-earlier-at-last-hook' {
+      $other=$candidate.PSObject.Copy();$other.i=7;$other.rid='1.9';$other.y=220;$script:tree.nodes+=@($other)
+      $script:priorElements['1.9']=New-Element $other 'DataItem'
+    }
+  }
+  if ($case -cin @('visible-boolean-off','visible-boolean-indeterminate')) {
+    $extraHeader=$script:headerNode.PSObject.Copy();$extraHeader.i=7;$extraHeader.rid='1.7';$extraHeader.x=240;$extraHeader.name='Description';$extraHeader.w=100
+    $extraCell=$detail.PSObject.Copy();$extraCell.i=8;$extraCell.rid='1.8';$extraCell.x=240;$extraCell.name='Synthetic content'
+    $script:tree.nodes+=@($extraHeader,$extraCell);$script:snapshot.kopf+=@('Description')
+    $script:snapshot.zeilenMitIdentitaet[0].werte+=@('Synthetic content');$script:snapshot.zeilenMitIdentitaet[0].identitaet+='|2=1.8'
+    $script:snapshot.zeilenMitIdentitaet[0].semanticCells+=@([pscustomobject]@{type='text';value='Synthetic content';checkboxState=$null;ok=$true;error=$null})
+  }
+  if ($case -ceq 'visible-number-editor') {
+    foreach ($name in @('Test-SSEExactProperties','Test-SSETableNumberPolicy','Get-SSETableNumberAnchorFocusProof')) {
+      $actual=@($workerAst.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true))
+      Assert-True ($actual.Count -eq 1) 'Actual number editor proof must be unique.'
+      . ([scriptblock]::Create($actual[0].Extent.Text))
+    }
+    $script:editor.Current.AutomationId=$tableAid+'.qt_scrollarea_viewport./.Tab.(2).BelegNr'
+    $script:editor.Current.Name='';$script:editor.Current.BoundingRectangle.Y=170;$script:editor.parent=$script:table
+    $script:editor.patterns.value=[pscustomobject]@{Current=[pscustomobject]@{Value='';IsReadOnly=$false}}
+  }
+  $positive=$case -cin @('visible-clipped-original','visible-number-editor','visible-boolean-off','visible-boolean-indeterminate','visible-boolean-on')
+  $late=$case -cin @('visible-earlier-at-last-hook','visible-row-at-last-hook','visible-bounds-at-last-hook','visible-header-at-last-hook','visible-same-center-resize','visible-inplace-name','visible-original-rid-at-last-hook')
+  $result=Invoke-Scenario $case $positive ([int]$positive) ([int]($case -ceq 'visible-number-editor')) $late
+  Assert-True ($script:snapshot.ersteZelle.rid -ceq '1.3' -and $script:snapshot.ersteZelle.y -eq 124) "$case rewrote the original read anchor to fabricate an activation target."
+  Assert-True ($script:clickHelperCalls -eq [int]($positive -or $late)) "$case changed or retried the planned visible target."
+  if ($case -cin @('visible-empty-no-next','visible-narrow-no-next')) {
+    Assert-True ($script:resolverCalls -eq 0) "$case skipped its fixed first candidate and inspected another provider target."
+  }
+}
+Write-Output 'Number-cell activation: fixed fully visible alternative binds actual Grid row while the original read anchor remains unchanged.'

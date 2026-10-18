@@ -17,6 +17,10 @@ Unbekannte Mutationsergebnisse werden zuerst abgeglichen. Ein Timeout erlaubt we
   direkte Trefferfläche, Sichtbarkeit, Auswahl und unveränderte Werte bleiben
   Voraussetzungen. Ein schmaleres Feld innerhalb des exakten Headers ist erlaubt;
   verschobene, überstehende oder verdeckte Flächen werden abgewiesen.
+  Für einen abgeschnittenen ursprünglichen Anker wird eine getrennte vollständig
+  sichtbare Nr.-Zelle mit eindeutigem Rohzeilen-/Semantik- und Inhaltsnachweis
+  gebunden. Ihre RID und echte Grid-Zeile bleiben über den Einzelklick fest;
+  der ursprüngliche Leseanker wird nicht ersetzt. Die reale Abnahme steht aus.
 - **Nr.-Editor und ESC:** Ein Nummerneditor darf die Navigation nur mit eigenem
   unverändertem ausgewähltem Zellnachweis tragen. ESC-Ausgang und spätere Navigation bleiben getrennt
   diagnostiziert; verlorene Ergebnisse erhalten auch öffentlich ihre Unsicherheit.
@@ -87,8 +91,11 @@ Projektion ist gezielt korrigiert. Ein weiterer Abbruch nach dem Seitenwechsel
 zeigte die fehlende Fokusübernahme vom eigenen Hilfe-Dokument. Diese Freigabe
 überwindet den Seitenwechsel und das folgende Anlegen mit vollständigem
 Readback. Nach der Werte-Info fand die Reise noch eine passive Schaltfläche
-mit erhaltener Zeilenauswahl; der ergänzte Nachweis muss die vollständige Reise
-auf dem gemeinsamen Endstand noch bestehen. Die große unmittelbare
+mit erhaltener Zeilenauswahl; deren ergänzter Nachweis überwindet diese Hürde.
+Der nächste kontrollierte Abbruch zeigte eine vom Provider als sichtbar
+gemeldete Nr.-Zelle oberhalb des Tabelleninhalts. Die getrennte vollständig
+sichtbare Aktivierungszelle muss die vollständige Reise auf dem gemeinsamen
+Endstand noch bestehen. Die große unmittelbare
 Add-/Delete-Cursorfolge besteht bereits für den vorherigen Stand; sie wird auf
 dem gemeinsamen Endstand erneut geprüft.
 Frühere passive Readbacks ersetzen diese Nachweise nicht.

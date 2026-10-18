@@ -79,6 +79,12 @@ Container, mehrere Zeilen, fehlende oder doppelte Identitäten, unbekannte
 Auswahlzustände und Änderungen unmittelbar vor dem Klick. Der erfolgreiche
 Klick darf die Auswahl und die alte Fokusquelle anschließend ändern; der
 frische vollständige Tabellenabgleich bleibt erforderlich.
+Die Sichtbarkeit des Aktivierungsziels muss unabhängig vom Provider-Flag gelten:
+Eine oberhalb des Headers oder unten abgeschnittene Nr.-Zelle darf keinen Klick
+erhalten. Eine getrennte vollständig sichtbare Zelle benötigt eindeutige
+Rohzeilen-/Semantikzuordnung und Inhalt außerhalb der Nr.-Spalte. Tests müssen
+leere oder unvollständige Alternativen sowie Änderungen von Ziel, Grid-Zeile
+und Geometrie vor der Aktion abweisen; nach der Zielwahl gibt es kein Ausweichen.
 
 `mcp-wrapper-all-tools.mjs` prüft die kompakte Tabellenantwort über tatsächliches
 HTTP und den MCP-Stdio-Adapter mit `incomplete: false`, `incomplete: true` und
@@ -105,16 +111,20 @@ regulären Live-Lauf: der gesamte BelegManager, `instances` und die
 VaSt-Operationen. Diese Trennung bleibt bewusst sichtbar, weil ein Nachweis aus
 einer abgeschotteten Umgebung weniger wiegt als einer aus dem Alltagsbetrieb.
 
-Noch 8 der 102 Operationen sind nicht live-funktional belegt.
+Im aggregierten Release-Snapshot sind noch 8 der 102 Operationen nicht
+live-funktional belegt.
 
-Von keinem automatisierten Suitelauf funktional ausgeübt wurden
+In diesem Snapshot nicht durch einen automatisierten Suitelauf funktional
+ausgeübt wurden
 `position_create`, `tax_knowledge_search`, `vast_apply`, `vast_dialog_read`,
 `vast_mapping_options`, `vast_mapping_select`, `vast_row_details` und
 `vast_row_set_expanded`.
 
-Die Bilanz zählt ausschließlich, was ein Suitelauf selbst protokolliert.
-Manuelle Stichproben ersetzen den fehlenden automatisierten Nachweis für
-`tax_knowledge_search` nicht.
+Die Bilanz zählt ausschließlich die dort registrierten Suite-Belege.
+Separate automatisierte Entwicklungsprüfungen für Positionsanlage und
+Steuerwissen ändern diesen Snapshot nicht; ihre Einzelbelege bleiben von der
+aggregierten Live-Matrix getrennt. Manuelle Stichproben ersetzen keinen
+automatisierten Nachweis.
 
 `node test/with-api.mjs node test/live-income-positions.mjs` ist eine separate,
 optionale Live-Prüfung mit einem vollständig neuen synthetischen Folgejahresfall.

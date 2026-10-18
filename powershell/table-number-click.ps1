@@ -107,7 +107,7 @@ function Get-SSETableNumberClickSourceProof {
 }
 
 function Get-SSETableNumberClickCellProof {
-  param([IntPtr]$Hwnd,[int]$ProcessId,$Tree,$Snapshot,[switch]$RequireUnselected,[int]$ExpectedRow=-1)
+  param([IntPtr]$Hwnd,[int]$ProcessId,$Tree,$Snapshot,[switch]$RequireUnselected,[int]$ExpectedRow=-1,[string]$ExpectedCellRid='')
   $binding=$Snapshot.navigationBinding
   $state=Get-SSETableSnapshotInputState $Tree $binding.tableRootAid $binding.tableRootRid
   if (-not $state.ok -or -not $state.editorFree -or -not $Snapshot.cursorAnchorIsNumber -or
@@ -122,14 +122,68 @@ function Get-SSETableNumberClickCellProof {
   }
   $cells=@($Tree.nodes | Where-Object {$_.p -eq $state.table.i -and $_.type -ceq 'DataItem' -and
     $_.aid -ceq $binding.tableRootAid -and $_.on -and $_.w -gt 0 -and $_.h -gt 0 -and $_.x -eq $headers[0].x} | Sort-Object y)
-  $cell=$Snapshot.ersteZelle
-  if (-not $cells.Count -or $cells[0].rid -cne $cell.rid -or
-      @($cells | Where-Object {$_.y -eq $cells[0].y}).Count -ne 1 -or $cell.aid -cne $binding.tableRootAid -or
-      $cell.w -lt 5 -or $cell.h -lt 5 -or $cell.x -ne $headers[0].x -or
-      $cell.x+$cell.w -gt $headers[0].x+$headers[0].w -or
-      $cell.x -lt $state.table.x -or $cell.y -lt $headers[0].y+$headers[0].h -or
-      $cell.x+$cell.w -gt $state.table.x+$state.table.w -or $cell.y+$cell.h -gt $state.table.y+$state.table.h) {
-    throw 'The first number cell is clipped, ambiguous or not the fixed initial anchor.'
+  $original=$Snapshot.ersteZelle
+  if (-not $cells.Count -or -not $original -or $original.type -cne 'DataItem' -or $cells[0].rid -cne $original.rid -or
+      @($cells | Where-Object {$_.y -eq $cells[0].y}).Count -ne 1 -or $original.aid -cne $binding.tableRootAid -or
+      @($Tree.nodes | Where-Object {$_.rid -ceq $original.rid}).Count -ne 1 -or
+      $original.x -ne $cells[0].x -or $original.y -ne $cells[0].y -or $original.w -ne $cells[0].w -or $original.h -ne $cells[0].h -or
+      [string]$original.name -cne [string]$cells[0].name -or [string]$original.val -cne [string]$cells[0].val) {
+    throw 'The original first number anchor is ambiguous or no longer bound.'
+  }
+  # Qt may expose clipped rows above its fixed header as on:true. Select the
+  # earliest fully visible Nr. cell before any provider action, without changing
+  # the read anchor or inferring a model row/input slot from its name or y.
+  $visible=@($cells | Where-Object {$_.y -ge $headers[0].y+$headers[0].h})
+  if (-not $visible.Count -or @($visible | Where-Object {$_.y -eq $visible[0].y}).Count -ne 1) {
+    throw 'No unique fully visible number-cell activation target is available.'
+  }
+  $cell=$visible[0]
+  if ($cell.w -lt 5 -or $cell.h -lt 5 -or $cell.x+$cell.w -gt $headers[0].x+$headers[0].w -or
+      $cell.x -lt $state.table.x -or $cell.x+$cell.w -gt $state.table.x+$state.table.w -or
+      $cell.y+$cell.h -gt $state.table.y+$state.table.h) {throw 'The fixed visible number cell is clipped or outside its header.'}
+  if ($ExpectedCellRid -and $cell.rid -cne $ExpectedCellRid) {throw 'The planned earliest visible number cell changed.'}
+  if ($cell.rid -cne $original.rid) {
+    # Only the new alternative needs a positively populated, complete row.
+    # Empty Nr. values are valid in existing business rows; never guess that
+    # they identify the model's input slot or its row number.
+    $rows=@($Snapshot.zeilenMitIdentitaet | Where-Object {([string]$_.identitaet).Split('|')[0] -ceq ('0='+$cell.rid)})
+    if ($rows.Count -ne 1 -or @($rows[0].werte).Count -ne $headers.Count -or
+        @($rows[0].semanticCells).Count -ne $headers.Count) {throw 'Alternative number cell has no unique complete observed row.'}
+    $row=$rows[0];$parts=([string]$row.identitaet).Split('|')
+    if ($parts.Count -ne $headers.Count) {throw 'Alternative row identities are incomplete.'}
+    $rowRids=New-Object 'Collections.Generic.HashSet[string]';$hasContent=$false
+    for ($column=0;$column -lt $headers.Count;$column++) {
+      $start=[string]$column+'='
+      if (-not $parts[$column].StartsWith($start,[StringComparison]::Ordinal)) {throw 'Alternative row column identity is unbound.'}
+      $rid=$parts[$column].Substring($start.Length)
+      if (-not $rid -or -not $rowRids.Add($rid)) {throw 'Alternative row identities are missing or duplicated.'}
+      $matches=@($Tree.nodes | Where-Object {$_.rid -ceq $rid -and $_.aid -ceq $binding.tableRootAid -and
+        $_.type -ceq 'DataItem' -and $_.p -eq $state.table.i -and $_.on -and $_.w -gt 0 -and $_.h -gt 0 -and
+        [Math]::Abs($_.y-$cell.y) -le 10 -and [string]$_.name -ceq [string]$row.werte[$column]})
+      $semantic=$row.semanticCells[$column]
+      if ($matches.Count -ne 1 -or $semantic.ok -isnot [bool] -or -not $semantic.ok -or $semantic.error) {
+        throw 'Alternative row cells or semantic observations are unbound.'
+      }
+      # Match the same nearest-header assignment used by LiesZeilen.
+      $nearest=0;$distance=[double]::PositiveInfinity
+      for ($headerColumn=0;$headerColumn -lt $headers.Count;$headerColumn++) {
+        $next=[Math]::Abs($matches[0].x-$headers[$headerColumn].x)
+        if ($next -lt $distance) {$distance=$next;$nearest=$headerColumn}
+      }
+      if ($nearest -ne $column) {throw 'Alternative row cell does not belong to the observed column.'}
+      if ($semantic.type -ceq 'text') {
+        if ($semantic.value -isnot [string] -or $semantic.value -cne [string]$row.werte[$column] -or $null -ne $semantic.checkboxState) {
+          throw 'Alternative text semantics disagree with the observed row.'
+        }
+        if ($column -gt 0 -and $semantic.value.Trim() -and $semantic.value.Trim() -cnotin @('0','0,00','0.00')) {$hasContent=$true}
+      } elseif ($semantic.type -ceq 'boolean') {
+        if (-not (($semantic.checkboxState -ceq 'On' -and $semantic.value -is [bool] -and $semantic.value) -or
+            ($semantic.checkboxState -ceq 'Off' -and $semantic.value -is [bool] -and -not $semantic.value) -or
+            ($semantic.checkboxState -ceq 'Indeterminate' -and $null -eq $semantic.value))) {throw 'Alternative checkbox semantics are inconsistent.'}
+        if ($column -gt 0 -and $semantic.checkboxState -ceq 'On') {$hasContent=$true}
+      } else {throw 'Alternative row semantic type is unknown.'}
+    }
+    if (-not $hasContent) {throw 'Alternative number cell belongs to a default-empty observed row.'}
   }
   $header=Get-LiveElement $Hwnd $headers[0].rid $headers[0].aid
   if (-not $header -or [int]$header.Current.ProcessId -ne $ProcessId -or
@@ -178,7 +232,9 @@ function Get-SSETableNumberClickCellProof {
       ($RequireUnselected -and ($item.IsSelected -or $selected.Count))) {
     throw 'The fixed first number cell has an unknown row, span or existing selection.'
   }
-  [pscustomobject]@{node=$cell;element=$resolved.element;table=$table.element;row=$grid.Row;selected=@($selected);targetSelected=$item.IsSelected}
+  $pinned=[pscustomobject]@{i=[int]$cell.i;p=[int]$cell.p;rid=[string]$cell.rid;aid=[string]$cell.aid;type=[string]$cell.type;
+    name=[string]$cell.name;val=$cell.val;on=$cell.on;x=$cell.x;y=$cell.y;w=$cell.w;h=$cell.h}
+  [pscustomobject]@{node=$pinned;element=$resolved.element;table=$table.element;row=$grid.Row;selected=@($selected);targetSelected=$item.IsSelected}
 }
 
 function Get-SSETableNumberClickPriorSelectionProof {
@@ -295,7 +351,8 @@ function Invoke-SSETableReadNumberCellClick {
     }
     $numberClickState=[pscustomobject]@{hwnd=$Hwnd;pid=$ProcessId;snapshot=$Snapshot;tree=$Tree;proof=$proof;input=$input;
       dirty=$dirty;windows=$windows.fingerprint;dpi=$dpi;origin=($origin | ConvertTo-Json -Compress);doubleClickMs=$doubleClickMs;
-      source=$source;sourceKind=$sourceProof.kind;positionProof=$positionProof;priorSelection=$priorSelection;callbacks=$Callbacks}
+      source=$source;sourceKind=$sourceProof.kind;positionProof=$positionProof;priorSelection=$priorSelection;callbacks=$Callbacks;
+      originalAnchorRid=[string]$Snapshot.ersteZelle.rid;originalAnchorAid=[string]$Snapshot.ersteZelle.aid}
     $context={
       $currentPid=0;$null=[SW]::GetWindowThreadProcessId($numberClickState.hwnd,[ref]$currentPid)
       $currentDirty=Get-DirtyStateFast $numberClickState.hwnd
@@ -324,14 +381,19 @@ function Invoke-SSETableReadNumberCellClick {
       $freshTree=& $numberClickState.callbacks.ReadTree
       if (-not (Test-SSETableReadSnapshotBinding $numberClickState.snapshot $readback -BeforeNavigation) -or
           -not (& $numberClickState.callbacks.Guard 'before-number-cell-click')) {return $false}
+      if ([string]$readback.ersteZelle.rid -cne $numberClickState.originalAnchorRid -or
+          [string]$readback.ersteZelle.aid -cne $numberClickState.originalAnchorAid) {return $false}
       $freshSource=Get-SSETableNumberClickSourceProof $numberClickState.hwnd $numberClickState.pid $freshTree $readback $numberClickState.source
       if (-not $freshSource.ok -or $freshSource.kind -cne $numberClickState.sourceKind -or
           ($freshSource.kind -ceq 'position-name' -and
             $freshSource.positionProof.expectedValue -cne $numberClickState.positionProof.expectedValue)) {return $false}
       $allowPriorSelection=$numberClickState.sourceKind -ceq 'passive-control'
-      $fresh=Get-SSETableNumberClickCellProof $numberClickState.hwnd $numberClickState.pid $freshTree $readback -RequireUnselected:(-not $allowPriorSelection) -ExpectedRow $numberClickState.proof.row
+      $fresh=Get-SSETableNumberClickCellProof $numberClickState.hwnd $numberClickState.pid $freshTree $readback -RequireUnselected:(-not $allowPriorSelection) -ExpectedRow $numberClickState.proof.row -ExpectedCellRid $numberClickState.proof.node.rid
       if ($allowPriorSelection -and (Get-SSETableNumberClickPriorSelectionProof $numberClickState.hwnd $numberClickState.pid $freshTree $readback $fresh) -cne $numberClickState.priorSelection) {return $false}
       if ($fresh.node.rid -cne $numberClickState.proof.node.rid -or
+          $fresh.node.aid -cne $numberClickState.proof.node.aid -or $fresh.node.name -cne $numberClickState.proof.node.name -or
+          $fresh.node.x -ne $numberClickState.proof.node.x -or $fresh.node.y -ne $numberClickState.proof.node.y -or
+          $fresh.node.w -ne $numberClickState.proof.node.w -or $fresh.node.h -ne $numberClickState.proof.node.h -or
           $X -ne [int]($fresh.node.x+$fresh.node.w/2) -or $Y -ne [int]($fresh.node.y+$fresh.node.h/2)) {return $false}
       # Prove all rectangular cell corners as well as the actual centre. No
       # native viewport or model flags are inferred from these UIA observations.
@@ -356,7 +418,7 @@ function Invoke-SSETableReadNumberCellClick {
     $after=& $Callbacks.ReadSnapshot
     if (-not (Test-SSETableReadSnapshotBinding $Snapshot $after -BeforeNavigation)) {throw 'Number-cell click changed the bound page or table values.'}
     $result.snapshot=$after
-    $current=Get-SSETableNumberClickCellProof $Hwnd $ProcessId $Tree $Snapshot -ExpectedRow $proof.row
+    $current=Get-SSETableNumberClickCellProof $Hwnd $ProcessId $Tree $Snapshot -ExpectedRow $proof.row -ExpectedCellRid $proof.node.rid
     $selectedRids=@(Get-SSETableNumberClickSelectedRow $ProcessId $Tree $Snapshot $current)
     $focused=$AE::FocusedElement
     if ($focused -and $focused.Current.ControlType -eq [System.Windows.Automation.ControlType]::Edit) {
@@ -365,7 +427,7 @@ function Invoke-SSETableReadNumberCellClick {
       if ($split -lt 0) {throw 'Exact number-editor policy is unavailable.'}
       $policy=[pscustomobject]@{tableName=$binding.tableRootAid.Substring($split);headers=@($Snapshot.kopf)}
       $editor=Get-SSETableNumberAnchorFocusProof $Hwnd $ProcessId $Tree $binding.tableRootAid $binding.tableRootRid $proof.node $focused $null -NumberPolicy $policy
-      if (-not $editor.ok -or $editor.ownedCell.rid -cne $proof.node.rid -or
+      if (-not $editor.ok -or $editor.ownedCell.rid -cne $proof.node.rid -or $editor.row -isnot [int] -or $editor.row -ne $proof.row -or
           [string]$editor.valuePattern.Current.Value -cne [string]$editor.expectedValue -or
           -not (& $context)) {throw 'Only the unchanged exact clicked-row number editor may receive Escape.'}
       $result.escapeSubmitted=$true
@@ -381,7 +443,7 @@ function Invoke-SSETableReadNumberCellClick {
     }
     $result.phase='number-cell-final-focus'
     $live=Get-SSETableLiveInputState $Hwnd $ProcessId $Snapshot.navigationBinding.tableRootAid $Snapshot.navigationBinding.tableRootRid -RequireKeyboard -RequireSelection
-    $current=Get-SSETableNumberClickCellProof $Hwnd $ProcessId $Tree $Snapshot -ExpectedRow $proof.row
+    $current=Get-SSETableNumberClickCellProof $Hwnd $ProcessId $Tree $Snapshot -ExpectedRow $proof.row -ExpectedCellRid $proof.node.rid
     $selectedRids=@(Get-SSETableNumberClickSelectedRow $ProcessId $Tree $Snapshot $current)
     $tableNow=Get-SSETableReadUncachedElement $Hwnd $ProcessId $Snapshot.navigationBinding.tableRootRid $Snapshot.navigationBinding.tableRootAid 'Table'
     if (-not $live.ok -or (@($live.selectedRids | Sort-Object) -join '|') -cne ($selectedRids -join '|') -or
