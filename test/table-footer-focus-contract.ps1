@@ -18,6 +18,7 @@ foreach ($name in @('Test-SSEExactProperties','Test-SSETableNumberPolicy','Get-S
 Add-Type -TypeDefinition @'
 using System;
 public static class SW {public static IntPtr GetForegroundWindow(){return new IntPtr(111);}}
+namespace System.Windows.Forms {public static class SendKeys {public static int Calls;public static void SendWait(string key){Calls++;}}}
 namespace System.Windows.Automation {
  public static class AutomationElement {
   public static object FocusedElement,Root;
@@ -35,6 +36,7 @@ namespace System.Windows.Automation {
  public static class ValuePattern {public static object Pattern=new object();}
  public static class SelectionPattern {public static object Pattern=new object();}
  public static class SelectionItemPattern {public static object Pattern=new object();}
+ public static class TogglePattern {public static object Pattern=new object();}
 }
 '@
 $AE=[System.Windows.Automation.AutomationElement]
@@ -44,7 +46,7 @@ $footerAid=$prefix+'.ClientFooterSSE.HoverButton'
 $policy=[pscustomobject]@{id='main_footer_next_focus';controlType='Button';name='Weiter';automationIdSuffix='.RedThreadContent.ClientFrameSSE.ClientFooterSSE.HoverButton';action='SetFocus';policy='own-typed-table-editor-only'}
 function New-Element($Node) {
   $controlType=[System.Windows.Automation.ControlType]::Table.GetType().GetField([string]$Node.type).GetValue($null)
-  $element=[pscustomobject]@{rid=$Node.rid;parent=$null;children=@();gridItem=$null;valuePattern=$null;selection=$null;selectionItem=$null;Current=[pscustomobject]@{ProcessId=7;ControlType=$controlType;
+  $element=[pscustomobject]@{rid=$Node.rid;parent=$null;children=@();gridItem=$null;valuePattern=$null;selection=$null;selectionItem=$null;toggle=$null;Current=[pscustomobject]@{ProcessId=7;ControlType=$controlType;
     Name=$Node.name;AutomationId=$Node.aid;HasKeyboardFocus=$true;IsKeyboardFocusable=$true;NativeWindowHandle=111;
     IsEnabled=$true;IsOffscreen=$false;BoundingRectangle=[pscustomobject]@{X=$Node.x;Y=$Node.y;Width=$Node.w;Height=$Node.h}}}
   $element | Add-Member ScriptMethod GetRuntimeId { $this.rid -split '\.' }
@@ -54,6 +56,7 @@ function New-Element($Node) {
     if ($Pattern -eq [System.Windows.Automation.ValuePattern]::Pattern -and $this.valuePattern) {$Result.Value=$this.valuePattern;return $true}
     if ($Pattern -eq [System.Windows.Automation.SelectionPattern]::Pattern -and $this.selection) {$Result.Value=$this.selection;return $true}
     if ($Pattern -eq [System.Windows.Automation.SelectionItemPattern]::Pattern -and $this.selectionItem) {$Result.Value=$this.selectionItem;return $true}
+    if ($Pattern -eq [System.Windows.Automation.TogglePattern]::Pattern -and $this.toggle) {$Result.Value=$this.toggle;return $true}
     $false
   }
   $element | Add-Member ScriptMethod SetFocus {
@@ -85,6 +88,10 @@ function Walk-BoundTree {
 }
 function Get-SSETableReadUncachedElement {
   param($Window,$ProcessId,$Rid,$Aid,$Type)
+  if ($Type -ceq 'DataItem' -and $script:mode -like 'keyboard-number-*') {
+    $script:keyboardNumberRawReads++
+    if ($script:mode -ceq 'keyboard-number-stale-raw') {return [pscustomobject]@{ok=$false;element=$null;reason='synthetic-stale-number-anchor'}}
+  }
   if ($Type -ceq 'DataItem' -and $script:currentNumberCells) {
     return [pscustomobject]@{ok=$script:currentNumberCells.ContainsKey($Rid);element=$script:currentNumberCells[$Rid];reason='synthetic-current-cell'}
   }
@@ -351,6 +358,10 @@ foreach ($case in @('selection-old-first','selection-current-second','selection-
 # Preserve the exact conjunct of the combined keyboard/header/summary guard.
 # The transient Edit stays absent from the complete bulk tree, as in Qt.
 function Get-LiveElement($Window,$Rid,$Aid) {
+  if ($script:mode -like 'keyboard-number-*') {
+    if ($Rid -cin $script:keyboardHeaderRids) {$script:keyboardHeaderReads++}
+    if ($Rid -ceq '30.90') {$script:keyboardSummaryReads++}
+  }
   $element=$script:keyboardElements[[string]$Rid]
   if ($element -and $element.Current.AutomationId -ceq $Aid) {$element}
 }
@@ -358,7 +369,10 @@ function Get-UiSnapshot($Window,$MaxNodes,$TimeoutSec,$MaxDepth,$RootElement) {
   if ($MaxNodes -ne 2048 -or $TimeoutSec -ne 5 -or $MaxDepth -ne 16 -or $RootElement.rid -cne '30.1') {
     throw 'Keyboard guard lost its bounded exact table walk.'
   }
-  [pscustomobject]@{stats=$stats;nodes=@($script:keyboardCells | ForEach-Object {
+  $script:keyboardWalks++
+  if ($script:keyboardFocusAfterWalk) {$AE::FocusedElement=$script:keyboardFocusAfterWalk}
+  if ($script:mode -ceq 'keyboard-number-late-value') {$script:numberSource.valuePattern.Current.Value='Synthetic changed number'}
+  [pscustomobject]@{stats=$(if ($script:keyboardStats) {$script:keyboardStats} else {$stats});nodes=@($script:keyboardCells | ForEach-Object {
     $copy=$_.PSObject.Copy();$copy.i=[int]$_.i-1;$copy.p=-1;$copy
   })}
 }
@@ -419,6 +433,143 @@ foreach ($case in @('keyboard-table','keyboard-cell','keyboard-transient-edit','
   $safe=$evidence | ConvertTo-Json -Depth 8 -Compress
   if ($safe -match 'private aid|"name"|"value"|"val"|12,34|56,78') {throw 'Keyboard guard diagnostics exposed field values or foreign-app metadata.'}
 }
+
+# The regular keyboard proof rejects Edit only after its complete scoped walk.
+# The standard Nr. path must keep the actual full selected-number proof while
+# avoiding that doomed first walk. No accepted helper is replaced by a stub.
+foreach ($case in @('keyboard-number-exact','keyboard-number-readonly','keyboard-number-table','keyboard-number-cell',
+  'keyboard-number-private','keyboard-number-header','keyboard-number-summary','keyboard-number-policy',
+  'keyboard-number-arbitrary-edit','keyboard-number-value','keyboard-number-late-value','keyboard-number-no-value',
+  'keyboard-number-untyped-readonly','keyboard-number-stale-raw','keyboard-number-geometry','keyboard-number-model-name',
+  'keyboard-number-anchor-geometry','keyboard-number-ordinal','keyboard-number-grid-row','keyboard-number-grid-column',
+  'keyboard-number-grid-root','keyboard-number-foreign-focus','keyboard-number-unfocused','keyboard-number-ancestry',
+  'keyboard-number-selection-empty','keyboard-number-selection-duplicate','keyboard-number-selection-other',
+  'keyboard-number-no-selection-pattern','keyboard-number-duplicate-current-cell',
+  'keyboard-number-current-incomplete','keyboard-number-current-errors','keyboard-number-snapshot-incomplete','keyboard-number-visible-editor',
+  'keyboard-number-edit-to-cell','keyboard-number-edit-to-foreign','keyboard-number-table-to-edit','keyboard-number-hint-throws')) {
+  $script:mode=$case;$script:focusCalls=0;$script:selectionCalls=0;$script:keyboardValueWrites=0;$script:keyboardToggles=0
+  $script:keyboardWalks=0;$script:keyboardNumberRawReads=0;$script:keyboardFocusAfterWalk=$null;$script:currentNumberCells=$null
+  $script:keyboardHeaderReads=0;$script:keyboardSummaryReads=0;$script:SSE_TABLE_NUMBER_EDITOR_REJECTION='synthetic-number-not-reached'
+  [System.Windows.Forms.SendKeys]::Calls=0
+  $numberTable=[pscustomobject]@{i=0;p=-1;type='Table';name='';aid=$numberTableAid;rid='30.1';on=$true;x=100;y=100;w=600;h=100}
+  $headers=@(0..5 | ForEach-Object {[pscustomobject]@{i=1+$_;p=0;type='Header';name=$(if ($_ -eq 0) {'Nr.'} else {'Synthetic header'});
+    aid=$numberTableAid+'.Header'+$_;rid='30.'+(20+$_);on=$true;x=100+100*$_;y=100;w=55;h=24}})
+  $script:keyboardHeaderRids=@($headers.rid)
+  $numberCell=[pscustomobject]@{i=7;p=0;type='DataItem';name='';val='';aid=$numberTableAid;rid='30.10';on=$true;x=100;y=140;w=55;h=24}
+  $tree=[pscustomobject]@{nodes=@($numberTable)+$headers+@($numberCell);stats=$stats.PSObject.Copy()}
+  $script:keyboardStats=$stats.PSObject.Copy();$script:keyboardCells=@($numberCell)
+  $script:table=New-Element $numberTable;$script:table.parent=$root
+  $script:numberAnchorLive=New-Element $numberCell;$script:numberAnchorLive.parent=$script:table
+  $script:numberAnchorLive.gridItem=[pscustomobject]@{Current=[pscustomobject]@{Row=[int]0;Column=[int]0;ContainingGrid=$script:table}}
+  $script:numberAnchorLive.selectionItem=[pscustomobject]@{Current=[pscustomobject]@{IsSelected=$true}}
+  $script:numberAnchorLive.selectionItem | Add-Member ScriptMethod Select {$script:selectionCalls++;$this.Current.IsSelected=$true}
+  $selectedCurrent=[pscustomobject]@{};$selectedCurrent | Add-Member ScriptMethod GetSelection {@($script:keyboardSelected)}
+  $script:table.selection=[pscustomobject]@{Current=$selectedCurrent};$script:keyboardSelected=@($script:numberAnchorLive)
+  $editor=$numberCell.PSObject.Copy();$editor.i=8;$editor.type='Edit';$editor.rid='30.99';$editor.aid=$numberEditorPrefix+'(1).BelegNr'
+  $script:numberSource=New-Element $editor;$script:numberSource.parent=$script:table
+  $script:numberSource.valuePattern=[pscustomobject]@{Current=[pscustomobject]@{Value='';IsReadOnly=$false}}
+  $script:numberSource.valuePattern | Add-Member ScriptMethod SetValue {param($Value)$script:keyboardValueWrites++;$this.Current.Value=$Value}
+  $script:numberSource.toggle=[pscustomobject]@{}
+  $script:numberSource.toggle | Add-Member ScriptMethod Toggle {$script:keyboardToggles++}
+  $summaryNode=[pscustomobject]@{type='Edit';name='12,34';rid='30.90';aid='Synthetic.Summary';x=100;y=300;w=90;h=24}
+  $summaryElement=New-Element $summaryNode
+  $script:keyboardElements=@{'30.1'=$script:table;'30.90'=$summaryElement}
+  foreach ($header in $headers) {$script:keyboardElements[$header.rid]=New-Element $header}
+  $snapshot=[pscustomobject]@{cursorAnchorIsNumber=$true;ersteZelle=$numberCell;kopf=@($headers.name);navigationBinding=[pscustomobject]@{
+    complete=$true;editorFree=$true;tableRootAid=$numberTableAid;tableRootRid='30.1';headers=@($headers);
+    summaryIdentity='Synthetic summary';summaryRid='30.90';summaryAid='Synthetic.Summary';summaryValue='12,34'}}
+  $AE::FocusedElement=$script:numberSource;$proofTree=$tree
+  switch ($case) {
+    'keyboard-number-readonly' {$script:numberSource.valuePattern.Current.IsReadOnly=$true}
+    'keyboard-number-table' {$AE::FocusedElement=$script:table}
+    'keyboard-number-cell' {$AE::FocusedElement=$script:numberAnchorLive}
+    'keyboard-number-private' {$proofTree=$null}
+    'keyboard-number-header' {$script:keyboardElements[$headers[0].rid].Current.Name='Changed'}
+    'keyboard-number-summary' {$summaryElement.Current.Name='56,78'}
+    'keyboard-number-policy' {$snapshot.cursorAnchorIsNumber=$false}
+    'keyboard-number-arbitrary-edit' {$script:numberSource.Current.AutomationId=$numberTableAid+'.UnknownEditor'}
+    'keyboard-number-value' {$script:numberSource.valuePattern.Current.Value='Synthetic changed number'}
+    'keyboard-number-no-value' {$script:numberSource.valuePattern=$null}
+    'keyboard-number-untyped-readonly' {$script:numberSource.valuePattern.Current.IsReadOnly='false'}
+    'keyboard-number-geometry' {$script:numberSource.Current.BoundingRectangle.X=101}
+    'keyboard-number-model-name' {$script:numberAnchorLive.Current.Name='Synthetic changed number'}
+    'keyboard-number-anchor-geometry' {$script:numberAnchorLive.Current.BoundingRectangle.X=101}
+    'keyboard-number-ordinal' {$script:numberSource.Current.AutomationId=$numberEditorPrefix+'(2).BelegNr'}
+    'keyboard-number-grid-row' {$script:numberAnchorLive.gridItem.Current.Row=[int]1}
+    'keyboard-number-grid-column' {$script:numberAnchorLive.gridItem.Current.Column=[int]1}
+    'keyboard-number-grid-root' {$other=New-Element $numberTable;$other.rid='30.555';$script:numberAnchorLive.gridItem.Current.ContainingGrid=$other}
+    'keyboard-number-foreign-focus' {$script:numberSource.Current.ProcessId=8}
+    'keyboard-number-unfocused' {$script:numberSource.Current.HasKeyboardFocus=$false}
+    'keyboard-number-ancestry' {$script:numberSource.parent=$root}
+    'keyboard-number-selection-empty' {$script:keyboardSelected=@()}
+    'keyboard-number-selection-duplicate' {$script:keyboardSelected=@($script:numberAnchorLive,$script:numberAnchorLive)}
+    'keyboard-number-selection-other' {
+      $other=$numberCell.PSObject.Copy();$other.i=9;$other.rid='30.11';$other.x=200
+      $script:keyboardCells+=@($other);$script:keyboardSelected=@((New-Element $other))
+    }
+    'keyboard-number-no-selection-pattern' {$script:table.selection=$null}
+    'keyboard-number-duplicate-current-cell' {$duplicate=$numberCell.PSObject.Copy();$duplicate.i=9;$duplicate.rid='30.11';$tree.nodes+=@($duplicate)}
+    'keyboard-number-current-incomplete' {$script:keyboardStats.truncated=$true}
+    'keyboard-number-current-errors' {$script:keyboardStats.err=1}
+    'keyboard-number-snapshot-incomplete' {$tree.stats.truncated=$true}
+    'keyboard-number-visible-editor' {$script:keyboardCells+=@($editor)}
+    'keyboard-number-edit-to-cell' {$script:keyboardFocusAfterWalk=$script:numberAnchorLive}
+    'keyboard-number-edit-to-foreign' {$foreign=New-Element $editor;$foreign.Current.ProcessId=8;$script:keyboardFocusAfterWalk=$foreign}
+    'keyboard-number-table-to-edit' {$AE::FocusedElement=$script:table;$script:keyboardFocusAfterWalk=$script:numberSource}
+    'keyboard-number-hint-throws' {
+      $script:keyboardHintReads=0
+      $script:numberSource | Add-Member NoteProperty ActualCurrent $script:numberSource.Current
+      $script:numberSource.PSObject.Properties.Remove('Current')
+      $script:numberSource | Add-Member ScriptProperty Current {
+        $script:keyboardHintReads++
+        if ($script:keyboardHintReads -eq 1) {throw [InvalidOperationException]::new('Synthetic transient focus read')}
+        $this.ActualCurrent
+      }
+    }
+  }
+  $evidence=$null
+  $actual=Test-SSETableReadKeyboardTarget ([IntPtr]111) 7 $snapshot ([ref]$evidence) $proofTree
+  $success=$case -in @('keyboard-number-exact','keyboard-number-readonly','keyboard-number-table','keyboard-number-cell','keyboard-number-table-to-edit','keyboard-number-hint-throws')
+  if ($actual -ne $success) {throw "$case`: exact selected-number proof changed acceptance: $($evidence | ConvertTo-Json -Depth 8 -Compress)"}
+  $expectedWalks=switch ($case) {
+    {$_ -in @('keyboard-number-header','keyboard-number-summary','keyboard-number-policy')} {0;break}
+    {$_ -in @('keyboard-number-table-to-edit','keyboard-number-hint-throws')} {2;break}
+    default {1}
+  }
+  if ($script:keyboardWalks -ne $expectedWalks) {throw "$case`: scoped walk count $($script:keyboardWalks) instead of $expectedWalks; duplicate work or omitted live selection proof."}
+  if ($case -in @('keyboard-number-exact','keyboard-number-readonly','keyboard-number-table-to-edit','keyboard-number-hint-throws') -and $script:keyboardNumberRawReads -ne 1) {
+    throw "$case`: independent fresh RAW/Grid/value proof was omitted or retried."
+  }
+  if ($case -in @('keyboard-number-exact','keyboard-number-readonly') -and ($evidence.phase -cne 'owned-number-editor-binding' -or $null -ne $evidence.liveInput)) {
+    throw 'Direct number proof fabricated a failed regular-read diagnostic.'
+  }
+  if ($case -eq 'keyboard-number-private' -and $script:keyboardNumberRawReads -ne 0) {throw 'Private/null-Tree phase entered the standard number-editor proof.'}
+  $expectedHeaderReads=$(if ($case -eq 'keyboard-number-header') {1} else {6})
+  $expectedSummaryReads=$(if ($case -eq 'keyboard-number-header') {0} else {1})
+  if ($script:keyboardHeaderReads -ne $expectedHeaderReads -or $script:keyboardSummaryReads -ne $expectedSummaryReads) {
+    throw "$case`: live header or summary binding was skipped or retried."
+  }
+  if ($case -in @('keyboard-number-table','keyboard-number-cell','keyboard-number-private','keyboard-number-header','keyboard-number-summary',
+      'keyboard-number-foreign-focus','keyboard-number-unfocused') -and $script:SSE_TABLE_NUMBER_EDITOR_REJECTION -cne 'synthetic-number-not-reached') {
+    throw "$case`: branch hint entered the number proof without its own focused Edit."
+  }
+  if ($case -in @('keyboard-number-foreign-focus','keyboard-number-unfocused') -and
+      ($evidence.reason -cne 'keyboard-focused-process-or-state-unbound' -or -not $evidence.liveInput.keyboardEvidence.focusedSource)) {
+    throw "$case`: the hint masked the ordinary process/focus rejection evidence."
+  }
+  if ($case -eq 'keyboard-number-hint-throws' -and ($script:keyboardHintReads -lt 2 -or $null -eq $evidence.liveInput)) {
+    throw 'A transient hint-read failure replaced the independent ordinary proof.'
+  }
+  if ($case -in @('keyboard-number-edit-to-cell','keyboard-number-edit-to-foreign') -and
+      ($evidence.reason -cne 'number-anchor-focused-type-unbound' -or $null -ne $evidence.liveInput)) {
+    throw "$case`: changed focus fell through to ordinary acceptance or fabricated its diagnostic."
+  }
+  if ($script:focusCalls -ne 0 -or $script:selectionCalls -ne 0 -or $script:keyboardValueWrites -ne 0 -or
+      $script:keyboardToggles -ne 0 -or [System.Windows.Forms.SendKeys]::Calls -ne 0) {throw "$case`: keyboard proof performed an input action."}
+  $safe=$evidence | ConvertTo-Json -Depth 8 -Compress
+  if ($safe -match 'Synthetic changed number|12,34|56,78|"name"|"value"|"val"') {throw 'Number keyboard diagnostics exposed field values.'}
+}
+$script:keyboardFocusAfterWalk=$null;$script:keyboardStats=$null
 
 # The actual compiled RawView boundary and worker wrappers are exercised by
 # fresh-raw-resolver-contract.ps1. These tests retain the caller's independent

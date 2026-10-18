@@ -8648,6 +8648,26 @@ function Test-SSETableReadKeyboardTarget([IntPtr]$Hwnd, [int]$ProcessId, $Snapsh
     # Arbitrary delegates cannot own navigation. Qt's unchanged selected Nr.
     # delegate has a separate exact identity/value proof below.
     $failure.phase='live-cursor-binding'
+    $editHint=$false
+    if ($null -ne $Tree) {
+      # This fresh type is only a branch hint. The number proof independently
+      # rereads focus, the complete live table/selection and the RAW anchor.
+      # A regular keyboard proof would walk the same table before rejecting Edit.
+      try {
+        $focusHint=$AE::FocusedElement
+        if ($focusHint) {
+          $hintCurrent=$focusHint.Current
+          $editHint=[bool]($hintCurrent.ControlType -eq [System.Windows.Automation.ControlType]::Edit -and
+            [int]$hintCurrent.ProcessId -eq $ProcessId -and $hintCurrent.HasKeyboardFocus -is [bool] -and $hintCurrent.HasKeyboardFocus)
+        }
+      } catch {$editHint=$false}
+    }
+    if ($editHint) {
+      $failure.phase='owned-number-editor-binding'
+      $numberEditorBound=[bool](Test-SSETableReadNumberEditor $Hwnd $ProcessId $Snapshot $Tree)
+      $failure.reason=$(if ($numberEditorBound) {$null} else {[string]$script:SSE_TABLE_NUMBER_EDITOR_REJECTION})
+      return $numberEditorBound
+    }
     $liveState=Get-SSETableLiveInputState $Hwnd $ProcessId $binding.tableRootAid $binding.tableRootRid -RequireKeyboard -RequireSelection
     $failure.liveInput=[pscustomobject]@{reason=$liveState.reason;editorClosed=[bool]$liveState.editorClosed;
       focusedType=$liveState.focusedType;selectedCount=$liveState.selectedCount;keyboardEvidence=$liveState.keyboardEvidence}

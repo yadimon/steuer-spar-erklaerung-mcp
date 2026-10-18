@@ -118,6 +118,11 @@ Nr-Zelle einmal aktivieren. Erst frischer Fokus-, Auswahl- und Datenabgleich
 erlaubt die Navigation. Ein vorhandener exakt zugehöriger Nummerneditor darf
 einmal per ESC abgeschlossen werden; nach ungewissem Ausgang folgt kein
 alternativer Aktivierungsversuch.
+Während der Navigation darf ein unveränderter ausgewählter Nr.-Editor den
+eigenen vollständigen Fokus-, RAW-Zell-, Wert- und Auswahlnachweis direkt
+durchlaufen. Ein frischer Fokus-Hinweis wählt lediglich diesen Prüfpfad;
+er ersetzt keinen Nachweis. Unbekannte oder inzwischen veränderte Editoren
+bleiben gesperrt.
 
 `physicalInputAttempted` bezeichnet einen begonnenen physischen Aufruf.
 `physicalInputUsed: null` erhält dessen ungewissen Ausgang; `true` belegt

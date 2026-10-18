@@ -26,16 +26,22 @@ explizite Grid-Lesepfad ersetzt weiterhin keine Cursor- oder Schreibabnahme.
 ## Bereits umgesetzt
 
 **Neue Gesamtprüfung:** Paketbau, Veröffentlichungs-Probelauf, saubere
-Testinstallation und Standard-Mega-Reise bestehen. Die Mega-Reise mit nativer
-Konfiguration bricht dagegen vor dem ersten Anhängen in der privaten
-Tipps-Bindungsprüfung ab, noch vor Close oder Tabellenänderung. Der
-Diagnosezusatz besteht in der Vollsuite. Er grenzt die Abweichung auf
-Geometrie von Hilfeelementen ein. Die zusätzliche einmalige passive
-Bestätigung eines rein geometrisch veränderten Zustands ist umgesetzt und
-besteht in gezielten Regressionen. Inhalte, Identität und ursprüngliche
-Fenster-/Eingabebindung bleiben streng. Erneute Vollsuite und
-Produkt-Gesamtabnahme dieser Korrektur stehen noch aus. Die Instanz wurde
-kontrolliert geschlossen, Daten und Konfiguration blieben unverändert.
+Testinstallation sowie Standard- und nativ konfigurierte Mega-Reise bestehen.
+Die Tipps-Vorbereitung bestätigt ausschließlich geometrische Änderungen
+einmal passiv; Inhalte, Identität und ursprüngliche Fenster-/Eingabebindung
+bleiben streng. Der zuvor reproduzierte Abbruch ist damit in der vollständigen
+Produktreise behoben. Positionsgruppen mit Speichern/Wiederöffnen und die
+Steuerwissenssuche mit tatsächlichem Artikelinhalt bestehen zusätzlich auf
+dem Entwicklungsstand; das veröffentlichte Evidenzregister bleibt ein
+gesonderter Release-Snapshot.
+
+Die Cursorprüfung vermeidet jetzt einen verworfenen doppelten Tabellenlauf
+beim bereits unveränderten ausgewählten Nr.-Editor. Der vollständige eigene
+Nachweis bleibt erhalten; gezielte Regressionen und unabhängige Reviews
+bestehen. Reale Vergleichsläufe, erneute Vollsuite und abschließende
+Gesamtabnahme dieser Optimierung stehen noch aus. Die bisher geprüften
+Produktreisen wurden kontrolliert geschlossen; Originaldaten und
+Konfiguration blieben unverändert.
 
 | Bereich | Umsetzung | Verbleibende Grenze |
 | --- | --- | --- |
