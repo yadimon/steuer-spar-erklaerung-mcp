@@ -93,6 +93,20 @@ export function enumChoices(schema) {
   return [...new Set(alternatives.flatMap(enumChoices))];
 }
 
+/** Advertised enum choices may require a matching cross-field selector context. */
+export function sampleEnumVariant(operation, baseArgs, property, choice) {
+  const args = { ...baseArgs, [property]: choice };
+  if (["get_value", "sse_get_value"].includes(operation) && property === "selectorNamespace") {
+    const selector = {
+      uia: { aid: "Synthetic.Window.Field", rid: "42.100.1.-2147481409" },
+      "qt-object": { aid: "/.Synthetic.Field", rid: "qt:100:134000000000000000:42:1" },
+    }[choice];
+    if (!selector) throw new Error(`No valid getter selector fixture for namespace '${choice}'.`);
+    Object.assign(args, selector);
+  }
+  return args;
+}
+
 function primitiveTypes(schema) {
   if (!schema || typeof schema !== "object") return new Set();
   const result = new Set(Array.isArray(schema.type) ? schema.type : schema.type ? [schema.type] : []);

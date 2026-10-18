@@ -30,6 +30,7 @@ const expectedNames = [
   "table-preparation", "window-close-helper", "get-value-namespace",
   "table-preparation-boundary",
   "table-number-click",
+  "table-read-public-input",
   "verified-point-failure",
   "ui-snapshot-depth",
   "get-value-worker-namespace",

@@ -19886,7 +19886,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
 
     # Cursor ausschliesslich ueber gebundene Auswahl und Tabellenfokus aktivieren.
     $geklickt = $false
-    $readInputState=@{submitted=$false}
+    $readInputState=@{submitted=$false;confirmed=$false}
     $activationObstruction = $null
     $cursorUnavailable = $false
     $cursorActivation=[pscustomobject]@{method='none';phase='not-started';reason=$null;exceptionType=$null;
@@ -19969,6 +19969,7 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
           $navigationState.failure=[pscustomobject]@{ phase=$Phase; reason='own-input-checkpoint-unreadable' }
           return $false
         }
+        if (-not $cursorPhase) {$readInputState.confirmed=$true}
         Set-SSEForegroundLeaseInputCheckpoint $navigationState.tick $navigationState.point -Context $Phase
       }
       $true
@@ -20504,8 +20505,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
         tabelleAnzahl=$erst.tabelleAnzahl; bindung=$erst.bindung; navigationEvidence=$navigationState.failure
         cursorActivation=$cursorActivation
         activationSubmitted=[bool]$cursorActivation.activationSubmitted
-        physicalInputAttempted=[bool]$cursorActivation.physicalInputAttempted
-        physicalInputUsed=$(if ($readInputState.submitted) {$true} else {$cursorActivation.physicalInputUsed})
+        physicalInputAttempted=[bool]($cursorActivation.physicalInputAttempted -or $readInputState.submitted)
+        physicalInputUsed=$(if ($readInputState.confirmed -or $cursorActivation.physicalInputUsed -eq $true) {$true}
+          elseif ($readInputState.submitted -or ($cursorActivation.physicalInputAttempted -and $null -eq $cursorActivation.physicalInputUsed)) {$null}
+          else {$false})
         outcomeUnknown=[bool]($cursorActivation.activationSubmitted -or $readInputState.submitted)
         reconciliationRequired=[bool]($cursorActivation.activationSubmitted -or $readInputState.submitted)
         cleanupRequired=[bool]($cursorActivation.activationSubmitted -or $readInputState.submitted)
@@ -20587,8 +20590,10 @@ function Invoke-SSEWorkerOperation([string]$Operation, $Arguments) {
       $uncertain=[bool](-not $completedTableRead.ok)
       foreach ($field in @{
         activationSubmitted=[bool]$cursorActivation.activationSubmitted
-        physicalInputAttempted=[bool]$cursorActivation.physicalInputAttempted
-        physicalInputUsed=$(if ($readInputState.submitted) {$true} else {$cursorActivation.physicalInputUsed})
+        physicalInputAttempted=[bool]($cursorActivation.physicalInputAttempted -or $readInputState.submitted)
+        physicalInputUsed=$(if ($readInputState.confirmed -or $cursorActivation.physicalInputUsed -eq $true) {$true}
+          elseif ($readInputState.submitted -or ($cursorActivation.physicalInputAttempted -and $null -eq $cursorActivation.physicalInputUsed)) {$null}
+          else {$false})
         outcomeUnknown=$uncertain;reconciliationRequired=$uncertain;cleanupRequired=$uncertain;retryable=$false
       }.GetEnumerator()) {$completedTableRead | Add-Member -NotePropertyName $field.Key -NotePropertyValue $field.Value}
       if (-not $uncertain) {$script:SSE_CURSOR_PRESERVE_UNPROVEN_FOCUS=$false}

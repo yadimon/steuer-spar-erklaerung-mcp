@@ -174,10 +174,9 @@ export const SSE_MCP_UI_SCHEMAS = {
   "sse_snapshot": z.object({
     hwnd: WINDOW_HANDLE.optional(),
     toolWindow: z.string().min(1).max(64).optional().describe(
-      "Statt des Hauptfensters ein katalogisiertes nichtmodales Nebenfenster lesen: 'receiptManager' (BelegManager), "
-      + "'taxTips' (Steuer-Spar-Tipps) oder 'resultComparison' (Werte-Info). Nur lesen - diese Fenster lassen sich "
-      + "nicht bedienen. Ohne diese Angabe haengt es von Fenstergroesse und Knotenbudget ab, wie viel von ihrem "
-      + "Teilbaum ueberhaupt ankommt; beim BelegManager blieb auf einem Rechner nur der Titel uebrig.",
+      "Nichtmodales Katalogfenster statt Hauptfenster lesen: receiptManager (BelegManager), "
+      + "taxTips (Steuer-Spar-Tipps), resultComparison (Werte-Info). Nur lesen. Ohne Auswahl koennen "
+      + "Geometrie und Knotenbudget den Teilbaum begrenzen.",
     ),
     types: z.array(z.string()).max(SSE_OPERATION_LIMITS.snapshotTypes).optional().describe("Nur diese Steuerelementtypen, z. B. ['Button','Edit']; maximal 50"),
     namedOnly: z.boolean().optional().describe("Nur Elemente mit Beschriftung"),

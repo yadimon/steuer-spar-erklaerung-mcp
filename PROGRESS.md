@@ -7,11 +7,11 @@ groß für eine gemeinsame Abnahme; die folgenden Arbeitspakete werden einzeln
 abgeschlossen. Ein implementierter Teil gilt erst nach den dazugehörigen
 Regressionen und erforderlichen Live-Prüfungen als abgenommen.
 
-**Übergabe: pausiert und als Checkpoint gesichert.** Es gibt noch keine
-Freigabe für Integration oder Veröffentlichung. Die nächste konkrete Aufgabe
-ist der rote OpenAPI-Größenvertrag; danach folgt eine vollständige Offline-Suite.
-Den Größenwächter dabei nicht lediglich lockern, sondern die erzeugte
-Beschreibung und mögliche Dopplungen prüfen.
+**Arbeit fortgesetzt; unfertiger Stand als Checkpoint gesichert.** Es gibt noch keine
+Freigabe für Integration oder Veröffentlichung. Die vollständige Offline-Suite
+einschließlich Ergebnis-/Abdeckungsbilanz und Doku-Abgleich besteht jetzt.
+Als Nächstes folgt die reale Abnahme der neuen Cursoraktivierung. Die getrennte
+native Qt-Integrationsprüfung hat weiterhin einen ungewissen ersten Texteingriff.
 
 Der Standard-Tabellencursor ist bei großen Tabellen noch nicht real abgenommen.
 Die erfolglose Footer-/TAB-Fokusroute ist entfernt. An ihre Stelle tritt eine
@@ -26,7 +26,7 @@ explizite Grid-Lesepfad ersetzt weiterhin keine Cursor- oder Schreibabnahme.
 | Desktop-Lebenszyklus | Eigentümerschaft bleibt über kurzlebige Worker hinweg erhalten; Status und Stop beachten fremde Instanzen. Commit `3eac0da`. | Auf dem später integrierten Stand erneut prüfen. |
 | Produktstart | Auf das tatsächliche Fallfenster warten und ursprüngliche UIA-Fehler erhalten. Commit `04cb5cf`. | Kein blindes erneutes Starten nach unbekanntem Ergebnis. |
 | Native Beendigung | Begrenzte Beendigung, Eigentümerschaft bis zum bestätigten Prozessende erhalten. Commit `7501b77`. | Bestandteil der abschließenden Gesamtprüfung. |
-| Testwrapper | Primärfehler und genauer Child-Exit-Code bleiben erhalten; asynchrone Cleanup-Phasen sind begrenzt; frühe Startfehler werden bereinigt; unbewiesenes Native-Cleanup erhält die Diagnose. Vertrag mit echten Subprozessen besteht auch innerhalb der jüngsten Vollsuite. | Ein Timer desselben Prozesses kann synchron blockierenden JS-/OS-Code nicht unterbrechen. Die gesamte Suite ist noch rot. |
+| Testwrapper | Primärfehler und genauer Child-Exit-Code bleiben erhalten; asynchrone Cleanup-Phasen sind begrenzt; frühe Startfehler werden bereinigt; unbewiesenes Native-Cleanup erhält die Diagnose. Vertrag mit echten Subprozessen besteht in der grünen Vollsuite. | Ein Timer desselben Prozesses kann synchron blockierenden JS-/OS-Code nicht unterbrechen. |
 | Zustandsreise | Dokumentjahr, sichtbare Zeilen und vollständiges Modell getrennt prüfen; eindeutige synthetische Ziele und unveränderte übrige Zeilen nachweisen. | Die vollständige Standardreise hängt weiter am Cursorproblem. |
 | Explizites Grid-Lesen | `table_read` mit `readMode: "grid"`: vollständige bereitgestellte UIA-Koordinaten, typisierte Werte, Rohzeilen einschließlich Eingabeslot; ohne Fokus-, Scroll- oder Schreibaktion. | Zwei gleiche Beobachtungen sind kein atomarer Snapshot und erteilen keine Schreibberechtigung. |
 | Frische RAW-Auflösung | Gebundene RAW-Identitätsprüfung in C# mit bestehenden Identitäts-, Zyklus-, Knoten-, Tiefen- und Fristgrenzen. Native Build-/Loader-Prüfung um neue Typen erweitert. | Eine Beschleunigung des gesamten Tabellenablaufs ist damit nicht belegt. |
@@ -34,8 +34,9 @@ explizite Grid-Lesepfad ersetzt weiterhin keine Cursor- oder Schreibabnahme.
 | Getter-Namensräume | Additives `selectorNamespace: "uia"` oder `"qt-object"`, unverändertes Legacy-Routing, kanonische explizite Qt-Identitäten und Ablehnung widersprüchlicher RID-Familien vor Dispatch. | Reale Getter/Schreiben/Getter-Reisen und verschachtelte Labelzuordnung bleiben separat zu prüfen. |
 | Tipps-Vorbereitung | Exaktes eigenes nicht modales Profilfenster einmal vor erster Bindung schließen; Providerfehler ohne Legacy-Requery; späte Owner-/Peer-/PID-Wechsel blockieren; ungewisser Ausgang erhält den Fokuskontext. `IntPtr.Zero` beim Close wird korrekt als Timeout behandelt. | Reale Standard-/Native-Abnahme einschließlich Nullwert-Umschaltung steht aus. |
 | UIA-Snapshot und Klickfehler | Tiefenbegrenzung auch bei vollständigen Snapshots ausweisen; strenge Vorbereitung ohne Provider-Fallback; transaktionale Klickaufrufe können Fehler auffangen, ohne den Worker vorzeitig zu beenden. | Die Standardfehlerbehandlung anderer Aufrufer bleibt erhalten; reale Cursorabnahme steht aus. |
-| Regressionen und Testinstallation | Neue Grid-, RAW-, Wrapper-, Zustandsreise- und Mehrdeutigkeitsverträge; deterministische Uhr im goto-Vertrag; echte C#-Klassengrenzen im Build-Cache-Test; Grid-Helfer in isolierte Worker-Fixtures aufgenommen. | Vollsuite auf dem gesamten aktuellen Stand muss noch vollständig grün werden. |
-| API-/MCP-Vertrag | Grid, Getter-Namensräume, Tipps-Vorbereitung und Grenzen dokumentiert; Plugin-Runtime aus Quellen regeneriert. | Doku und Runtime bei jeder weiteren Korrektur erneut abgleichen; der OpenAPI-Größenvertrag ist noch rot. |
+| Ungewisse Lesereingaben | Versuch und bestätigte Navigation getrennt halten; verlorene Klick-/Tastaturergebnisse in beiden öffentlichen Fehlerausgaben erhalten, einschließlich `physicalInputUsed: null`. Neuer Vertrag prüft echte Dispatcher-/Finish-Abschnitte und JSON-Ausgabe. | Ein bestätigter früherer Input bleibt als erfolgt belegt, auch wenn eine spätere Taste ungewiss ist. |
+| Regressionen und Testinstallation | Neue Grid-, RAW-, Wrapper-, Zustandsreise- und Mehrdeutigkeitsverträge; deterministische Uhr im goto-Vertrag; echte C#-Klassengrenzen im Build-Cache-Test; Helfer in isolierten Fixtures und tatsächlichen Ergebnisprüfungen gebunden. Vollsuite besteht. | Reale Abnahme der jüngsten UI-Änderungen bleibt separat erforderlich. |
+| API-/MCP-Vertrag | Grid, Getter-Namensräume, Tipps-Vorbereitung und Grenzen dokumentiert; Plugin-Runtime aus Quellen regeneriert. OpenAPI-Größenvertrag bei unverändertem Limit grün. | Doku und Runtime bei jeder weiteren Korrektur erneut abgleichen. |
 
 ## Laufende Cursorarbeit: teilweise umgesetzt, nicht abgenommen
 
@@ -62,14 +63,11 @@ explizite Grid-Lesepfad ersetzt weiterhin keine Cursor- oder Schreibabnahme.
 
 ## Nächste Schritte, jeweils getrennt umsetzen und abnehmen
 
-1. **OpenAPI-Vertrag und integrierte Offline-Suite abschließen.** Die alten
-   Helferbindungen in `table-read-obstruction` und `window-wait` sind korrigiert;
-   beide Verträge bestehen in der jüngsten Vollsuite. Diese stoppt jetzt bei
-   `api-openapi-contract`: Das erzeugte Dokument überschreitet die bestehende
-   Größenratsche. Beschreibung beziehungsweise Dopplungen gezielt prüfen,
-   Vertrag erhalten, fokussiert testen und anschließend `npm test` vollständig
-   grün abschließen. Keine spätere Prüfung als bestanden ausgeben, wenn sie
-   wegen des Abbruchs noch nicht ausgeführt wurde.
+1. **Offline-Gate abgeschlossen.** Redundante OpenAPI-Beschreibung gekürzt,
+   gültige Selektorkontexte für neue Namespace-Enumvarianten ergänzt und
+   Produkt-/Ergebnisprüfer an die tatsächlich geladenen Helfer gebunden.
+   Negative Fälle, Größenlimit und Ergebnisnachweis bleiben erhalten.
+   `npm test` ist einschließlich abschließender Bilanzen vollständig grün.
 2. **Standardcursor fertigstellen.** Den Anfangsfokus reproduzierbar an die
    konkrete Tabelle binden. Kleine und große Tabelle müssen vollständig gelesen
    werden; unbekannte Editoren oder Dialoge führen zum erklärten Abbruch.
@@ -111,7 +109,7 @@ nächste konkrete Aktion aktualisieren.
 
 | Paket | Eigener Umfang | Fertig, wenn |
 | --- | --- | --- |
-| A: Offline-Gate | OpenAPI-Beschreibung beziehungsweise Schema-Dopplung und passende Regression | Größenvertrag und vollständiges `npm test` bestehen. |
+| A: Offline-Gate | Abgeschlossen: OpenAPI-Beschreibung, gültige Enum-Kontexte und tatsächliche Helferproduzenten | Größenvertrag und vollständiges `npm test` bestehen. |
 | B: Standardcursor | Einzelne Nr-Zellenaktivierung, Fehlerausgang und Fokusgrenzen | Kleine und große Tabelle stimmen vollständig mit Rohmodell und typisierten Werten überein; Daten bleiben unverändert; Endposition stimmt. Zusätzlich erreicht ein ungewisser Klickausgang unverändert das öffentliche Fehlerergebnis. |
 | C: Tipps und Mutationen | Vorbereitung vor erster Bindung und native Nullwert-Umschaltung | Eigenes Tipps-Fenster kontrolliert vorbereitet; Off→On→Off und Löschen gelingen; alle übrigen Zeilen bleiben einschließlich versteckter Werte unverändert. Vorbereitung bei `add` und bei `update` getrennt belegen. |
 | D: Getter-Identität | Tatsächliche UIA-/Qt-Identität über API und MCP | Getter→Schreiben→Getter trifft eindeutig dasselbe Feld; widersprüchliche Selektoren scheitern vor Dispatch. |
@@ -133,26 +131,26 @@ Die neue Nr-Zellenaktivierung ist auf dem aktuellen Stand noch nicht real
 geprüft. Frühere grüne Prüfungen gelten für ihren jeweiligen Quellstand und
 ersetzen keine Abnahme der jüngsten Cursoränderungen.
 
-**Der vollständige aktuelle Stand ist noch nicht grün abgenommen.** Frühere
-Vollsuiten stoppten nacheinander bei goto-Testzeit, Native-Build-Cache und
-fehlendem Grid-Helfer in isolierten Produktprofil-Fixtures. Die jeweiligen
-Korrekturen bestanden gezielt; das allein ist keine grüne Gesamtprüfung.
+**Die Offline-Suite ist grün; die gesamte Produktabnahme bleibt offen.**
+Frühere Abbrüche bei Zeitsteuerung, Helferbindung, Enum-Kontext und
+Ergebnisextraktion sind korrigiert und durch die vollständige Suite bestätigt.
 
 Prüfstand des aktuellen Checkpoints:
 
 | Prüfung | Ergebnis | Konsequenz |
 | --- | --- | --- |
-| Jüngstes `npm test` | **ROT**, Abbruch bei `api-openapi-contract`: Größenlimit des erzeugten Dokuments überschritten. | Größenursache beheben und vollständige Offline-Suite erneut ausführen. |
-| Vorheriger integrierter Volltest | **ROT** bei `window-wait`, da der Vertrag die Close-Schleife noch im Worker statt im ausgelagerten Helfer suchte. | Vertrag an den tatsächlich aufgerufenen Helfer gebunden; besteht im jüngsten Volltest. |
+| Jüngstes `npm test` | **GRÜN**, einschließlich exklusiver Lebenszyklusprüfungen, Abdeckungs-/Ergebnisbilanz und Doku-Abgleich. | Reale Produktreisen und Paketprüfungen bleiben erforderlich. |
+| Allgemeine API-/MCP- und Produktverträge | Neue Getter-Enums mit gültigen Kontexten geprüft; Ergebnis- und Produkt-Gates folgen tatsächlichen Grid-/Close-Helfern. | Keine gelockerten Produktionsselektoren oder lediglich übersprungenen Prüfungen. |
 | Neue Verträge innerhalb der jüngsten Vollsuite | Getter-Namensräume über Parser/Executor/HTTP/MCP und Worker, Nr-Zellenaktivierung, Keyboard-Grenzen, Klickfehler, UIA-Tiefenbegrenzung, Tipps-Vorbereitung samt Dispatchergrenzen und Close-Helfer sowie Wrapper-Cleanup bestanden. | Kontrollierte Regressionen; reale GUI-Abnahme und nach dem Abbruch nicht ausgeführte Tests bleiben offen. |
 | Bereits geprüfte begrenzte Verträge | Grid-API/-Reader, bestehender Cursor, RAW-Resolver, Zustandsreise und direkte Feldauflösung bestanden. | Ersetzen keine vollständige aktuelle Produktreise. |
 | Syntax- und Repository-Privacy-Verträge | Innerhalb der Vollsuite bestanden; Repository-Privacy beim Checkpoint erneut bestanden. | Kein Ersatz für die Verhaltensabnahme. |
 | Build und gezielte Prüfungen | Build einschließlich C#-Helfer, TypeScript und Plugin-Erzeugung sowie gezielte neue Verträge bestanden. | Kein Ersatz für Vollsuite, reale Produktläufe und Paketabnahme. |
 | `npm run docs:check` und `npm run check:plugin` | Beim aktuellen Checkpoint erneut bestanden; erzeugte Runtime ohne Drift. | Maschineller Abgleich ergänzt die ausdrücklich dokumentierten offenen Verhaltensprüfungen. |
+| Getrennte native Qt-Tests | Fünf von sechs Prüfungen bestehen. Die Integration reproduziert einen Timeout beim ersten mehrsprachigen Texteingriff; nachfolgende unabhängige Reads belegen genau eine spätere Übernahme. | Ursache vor `textEdited` eingegrenzt; erstes Schrift-/Textlayout ist noch eine Hypothese. Keine Mutation wiederholen oder Frist blind erhöhen. |
 
 Die Sicherungscommits bewahren bewusst den unfertigen Stand. Die
-anschließenden Korrekturen sind keine Veröffentlichungsfreigabe. Erneute
-Vollsuite, passende Live-Läufe und Paketprüfungen auf dem integrierten Stand
+anschließenden Korrekturen sind keine Veröffentlichungsfreigabe. Passende
+Live-Läufe und Paketprüfungen auf dem integrierten Stand
 stehen aus. Messdaten belegen bisher keine wesentliche Beschleunigung der
 gesamten nativen Update-/Delete-Reise; weitere Optimierung braucht genauere
 Zeiten der gemeinsamen Proofphasen statt gestrichener Sicherheitsprüfungen.

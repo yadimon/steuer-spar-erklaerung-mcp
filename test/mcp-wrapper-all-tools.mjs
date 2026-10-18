@@ -18,6 +18,7 @@ import { SSE_API_PACKAGE_NAME, SSE_PACKAGE_VERSION } from "../dist/version.js";
 import {
   enumChoices,
   invalidTypeValue,
+  sampleEnumVariant,
   sampleJsonSchema,
   validBoundaryValues,
 } from "./json-schema-samples.mjs";
@@ -346,7 +347,7 @@ try {
       if (choices.length >= 2) {
         for (const choice of choices) {
           const beforeVariant = calls.length;
-          const variantArgs = { ...baseArgs, [property]: choice };
+          const variantArgs = sampleEnumVariant(tool.name, baseArgs, property, choice);
           if (tool.name === "sse_click" && property === "pattern" && choice === "select") {
             variantArgs.aid = ".Synthetic.Radio";
           }

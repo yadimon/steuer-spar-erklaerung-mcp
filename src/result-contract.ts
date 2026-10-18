@@ -209,7 +209,7 @@ const CORE_OPERATION_RESULT_FIELDS = {
     vollstaendig: OPTIONAL_BOOLEAN,
     anzahl: OPTIONAL_NON_NEGATIVE_NUMBER,
     summe: OPTIONAL_STRING,
-    cursorActivation: OPTIONAL_OBJECT.describe("Technischer Nachweis des semantischen Tabellenfokus; kein Zellklick"),
+    cursorActivation: OPTIONAL_OBJECT.describe("Nachweis der gewaehlten Cursoraktivierung"),
   },
   result_details: { zeilen: OPTIONAL_ARRAY, vollstaendig: OPTIONAL_BOOLEAN, anzahl: OPTIONAL_NON_NEGATIVE_NUMBER },
   snapshot: { nodes: OPTIONAL_ARRAY, count: OPTIONAL_NON_NEGATIVE_NUMBER, stats: OPTIONAL_OBJECT, toolWindow: OPTIONAL_STRING },

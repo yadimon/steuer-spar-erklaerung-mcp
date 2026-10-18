@@ -9,6 +9,7 @@
  * Discovery, OpenAPI oder das MCP-outputSchema liest.
  */
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,6 +22,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 const workerPath = join(here, "..", "powershell", "sse-worker.ps1");
 const lines = readFileSync(workerPath, "utf8").split("\n");
 const workerSource = lines.join("\n");
+const gridProjectionSource = readFileSync(join(here, "..", "powershell", "table-grid-read.ps1"), "utf8");
+const windowCloseSource = readFileSync(join(here, "..", "powershell", "window-close.ps1"), "utf8");
 const receiptPolicySource = readFileSync(join(here, "..", "src", "receipt-interaction-policy.ts"), "utf8");
 const localExecutors = new Map([
   ["backup_cases", readFileSync(join(here, "..", "src", "backup-executor.ts"), "utf8")],
@@ -196,11 +199,43 @@ function emittedResultObjects(body) {
     const openingBrace = assignment.index + assignment[0].length - 1;
     results.push(readOuterPowerShellObject(body, openingBrace));
   }
+  for (const emittedCall of body.matchAll(/^\s*Emit\s+\((Invoke-SSEWindowCloseTransaction)\s+\$a\)\s*$/gmu)) {
+    assertLoadedWorkerHelper("windowCloseHelpers", "window-close.ps1");
+    results.push(...parsedPowerShellHelperObjects(windowCloseSource, emittedCall[1], "returns"));
+  }
   return results;
 }
 
-/** Only this actual one-key helper's two direct result producers may cross a local Emit assignment. */
+function assertLoadedWorkerHelper(variable, file) {
+  assert(new RegExp(`^\\s*\\$${variable}\\s*=\\s*Join-Path\\s+\\$PSScriptRoot\\s+'${file.replaceAll(".", "\\.")}'\\s*$`, "mu").test(workerSource),
+    `Der Worker bindet die produktive Helper-Datei '${file}' nicht eindeutig.`);
+  assert(new RegExp(`^\\s*\\.\\s+\\$${variable}\\s*$`, "mu").test(workerSource),
+    `Der Worker laedt die produktive Helper-Datei '${file}' nicht.`);
+}
+
+/** Follow the actual assignment, object producer and same-variable additions. */
 function emittedWorkerHelperObjects(body, variable, source) {
+  if (variable === "projected") {
+    assertLoadedWorkerHelper("tableGridHelpers", "table-grid-read.ps1");
+    const assignments = [...body.matchAll(/^\s*\$projected\s*=/gmu)];
+    const calls = [...body.matchAll(/^\s*\$projected\s*=\s*ConvertTo-SSEGridTableProjection\b/gmu)];
+    assert.equal(assignments.length, 1, "Die emittierte Grid-Projektion darf nicht ueberschrieben werden.");
+    assert.equal(calls.length, 1, "Die emittierte Grid-Projektion braucht genau ihren produktiven Helper-Aufruf.");
+    const emitAt = body.indexOf("Emit $projected");
+    assert(calls[0].index < emitAt, "Die Grid-Projektion muss vor Emit erzeugt werden.");
+    const results = parsedPowerShellHelperObjects(gridProjectionSource, "ConvertTo-SSEGridTableProjection", "final");
+    const additions = [...body.matchAll(/^\s*\$projected\s*\|\s*Add-Member\s+NoteProperty\s+([A-Za-z][A-Za-z0-9_]*)\s+([^\r\n]+)/gmu)];
+    for (const addition of additions) {
+      assert(addition.index > calls[0].index && addition.index < emitAt,
+        "Nur vor Emit an genau die erzeugte Grid-Projektion angehaengte Felder zaehlen.");
+      for (const result of results) {
+        assert(!result.fields.has(addition[1]), `Grid-Ergebnisfeld '${addition[1]}' darf nicht doppelt gesetzt werden.`);
+        result.fields.add(addition[1]);
+        result.source += `\n${addition[1]}=${addition[2]}`;
+      }
+    }
+    return results;
+  }
   assert.equal(variable, "stepResult", `Emit-Variable '$${variable}' hat kein lokales PSCustomObject.`);
   const calls = [...body.matchAll(/^\s*\$stepResult\s*=\s*Invoke-SSETableNativeCursorStep\b/gmu)];
   assert.equal(calls.length, 1, "Der emittierte Cursorschritt muss genau einen produktiven Helper-Aufruf besitzen.");
@@ -224,6 +259,117 @@ function emittedWorkerHelperObjects(body, variable, source) {
   for (const field of ["kind", "error"]) assert(results[1].fields.has(field), `Cursorschritt-Fehlerumschlag ohne '${field}'.`);
   return results;
 }
+
+/** Parse source only: never dot-source or execute production helper functions. */
+function inspectPowerShellHelperObjects(entries) {
+  const program = String.raw`
+$ErrorActionPreference='Stop'
+[Console]::InputEncoding=New-Object Text.UTF8Encoding($false)
+[Console]::OutputEncoding=New-Object Text.UTF8Encoding($false)
+$entries=@(([Console]::In.ReadToEnd() | ConvertFrom-Json))
+$results=@(foreach($entry in $entries) {
+  try {
+    $errors=$null
+    $tree=[Management.Automation.Language.Parser]::ParseInput([string]$entry.source,[ref]$null,[ref]$errors)
+    if($errors.Count){throw 'Helper source has parse errors.'}
+    $definitions=@($tree.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $entry.name},$true))
+    if($definitions.Count -ne 1){throw 'Result helper definition must be unique.'}
+    $definition=$definitions[0]
+    $returns=@($definition.Body.FindAll({param($node) $node -is [Management.Automation.Language.ReturnStatementAst]},$true))
+    $objects=@(foreach($cast in @($definition.Body.FindAll({param($node)
+      $node -is [Management.Automation.Language.ConvertExpressionAst] -and $node.Type.TypeName.FullName -ieq 'pscustomobject'
+    },$true))) {
+      if($cast.Child -isnot [Management.Automation.Language.HashtableAst]){continue}
+      $expression=$cast
+      while($true) {
+        $parent=$expression.Parent
+        if(($parent -is [Management.Automation.Language.CommandExpressionAst] -and $parent.Expression -eq $expression) -or
+           ($parent -is [Management.Automation.Language.PipelineAst] -and $parent.PipelineElements.Count -eq 1 -and $parent.PipelineElements[0] -eq $expression) -or
+           ($parent -is [Management.Automation.Language.ParenExpressionAst] -and $parent.Pipeline -eq $expression)) {
+          $expression=$parent;continue
+        }
+        break
+      }
+      $owner=$expression
+      while($owner -and $owner -isnot [Management.Automation.Language.ScriptBlockAst]){$owner=$owner.Parent}
+      if($owner -ne $definition.Body){continue}
+      $isReturn=$expression.Parent -is [Management.Automation.Language.ReturnStatementAst]
+      $isFinal=$expression.Parent -eq $definition.Body.EndBlock -and $definition.Body.EndBlock.Statements[-1] -eq $expression
+      if(($entry.mode -ceq 'returns' -and -not $isReturn) -or ($entry.mode -ceq 'final' -and -not $isFinal)){continue}
+      $fields=@(foreach($pair in $cast.Child.KeyValuePairs) {
+        if($pair.Item1 -isnot [Management.Automation.Language.StringConstantExpressionAst]){throw 'Dynamic result property needs an explicit producer proof.'}
+        [string]$pair.Item1.Value
+      })
+      [pscustomobject]@{fields=@($fields);source=$cast.Child.Extent.Text}
+    })
+    if($entry.mode -ceq 'returns' -and ($returns.Count -eq 0 -or $returns.Count -ne $objects.Count)) {
+      throw 'Every helper return must directly return an outer PSCustomObject in that function.'
+    }
+    if($entry.mode -ceq 'final' -and ($returns.Count -ne 0 -or $objects.Count -ne 1)) {
+      throw 'Projection must emit exactly one final outer PSCustomObject and no indirect returns.'
+    }
+    [pscustomobject]@{objects=@($objects);error=$null}
+  }catch{[pscustomobject]@{objects=@();error=$_.Exception.Message}}
+})
+ConvertTo-Json -InputObject @($results) -Depth 8 -Compress
+`;
+  const result = spawnSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand",
+    Buffer.from(program, "utf16le").toString("base64")], {
+    input: JSON.stringify(entries), encoding: "utf8", windowsHide: true, timeout: 15_000, maxBuffer: 2 * 1024 * 1024,
+  });
+  assert.equal(result.error, undefined, "PowerShell result-source AST inspection failed.");
+  assert.equal(result.status, 0, result.stderr);
+  const inspected = JSON.parse(result.stdout.replace(/^\uFEFF/u, "").trim());
+  assert.equal(inspected.length, entries.length);
+  return inspected;
+}
+
+const projectionFixture = "function ConvertTo-SSEGridTableProjection { [pscustomobject]@{ rows=@(); binding=[pscustomobject]@{nestedOnly=1} } }";
+const closeFixture = "function Invoke-SSEWindowCloseTransaction { if($bad){return [pscustomobject]@{ok=$false;kind='bad';error='bad'}} return ([pscustomobject]@{ok=$true;closed=$true}) }";
+const inspectedHelperEntries = [
+  { source: gridProjectionSource, name: "ConvertTo-SSEGridTableProjection", mode: "final" },
+  { source: windowCloseSource, name: "Invoke-SSEWindowCloseTransaction", mode: "returns" },
+  { source: projectionFixture, name: "ConvertTo-SSEGridTableProjection", mode: "final" },
+  { source: closeFixture, name: "Invoke-SSEWindowCloseTransaction", mode: "returns" },
+  { source: projectionFixture.replace(" [pscustomobject]", " return $unproved; [pscustomobject]"), name: "ConvertTo-SSEGridTableProjection", mode: "final" },
+  { source: closeFixture.replace("return ([pscustomobject]@{ok=$true;closed=$true})", "return $unproved"), name: "Invoke-SSEWindowCloseTransaction", mode: "returns" },
+  { source: closeFixture.replace("return ([pscustomobject]@{ok=$true;closed=$true})", "function unused { return ([pscustomobject]@{ok=$true;closed=$true}) }"), name: "Invoke-SSEWindowCloseTransaction", mode: "returns" },
+  { source: closeFixture.replace("return ([pscustomobject]@{ok=$true;closed=$true})", "return ([hashtable]@{ok=$true;closed=$true})"), name: "Invoke-SSEWindowCloseTransaction", mode: "returns" },
+];
+const inspectedHelpers = inspectPowerShellHelperObjects(inspectedHelperEntries);
+function parsedPowerShellHelperObjects(source, name, mode) {
+  const index = inspectedHelperEntries.findIndex(entry => entry.source === source && entry.name === name && entry.mode === mode);
+  assert(index >= 0, "Uninspected external worker result helper.");
+  const inspected = inspectedHelpers[index];
+  assert.equal(inspected.error, null, inspected.error ?? "");
+  const objects = inspected.objects.map(result => ({ fields: new Set(result.fields), source: result.source }));
+  if (mode === "returns") {
+    for (const result of objects) {
+      assert(result.fields.has("ok"), "An external transaction result needs an outer ok field.");
+      if (/^@\{\s*ok\s*=\s*\$false\b/u.test(result.source)) {
+        for (const field of ["kind", "error"]) assert(result.fields.has(field), `External helper failure envelope lacks '${field}'.`);
+      }
+    }
+  }
+  return objects;
+}
+assert.deepEqual([...parsedPowerShellHelperObjects(projectionFixture, "ConvertTo-SSEGridTableProjection", "final")[0].fields].sort(),
+  ["binding", "rows"], "Nested projection fields are not outer result evidence.");
+assert.deepEqual([...new Set(parsedPowerShellHelperObjects(closeFixture, "Invoke-SSEWindowCloseTransaction", "returns")
+  .flatMap(result => [...result.fields]))].sort(), ["closed", "error", "kind", "ok"]);
+for (const index of [4, 5, 6, 7]) assert(inspectedHelpers[index].error,
+  "Indirect, nested or non-PSCustomObject returns must not satisfy the result producer guard.");
+const projectionCall = "$projected=ConvertTo-SSEGridTableProjection $first $second 2\n" +
+  "$nested | Add-Member NoteProperty unrelated 1\n$projected | Add-Member NoteProperty ok $true\nEmit $projected";
+const projectionFields = emittedWorkerHelperObjects(projectionCall, "projected", workerSource)[0].fields;
+assert(projectionFields.has("ok"));
+assert(!projectionFields.has("unrelated"), "Add-Member on a different object is not an emitted field producer.");
+assert.throws(() => emittedWorkerHelperObjects(projectionCall.replace("Emit $projected", "$projected=Unknown-Producer\nEmit $projected"),
+  "projected", workerSource), /ueberschrieben/u);
+assert.throws(() => emittedWorkerHelperObjects(projectionCall.replace("ConvertTo-SSEGridTableProjection", "Unknown-Producer"),
+  "projected", workerSource), /produktiven Helper-Aufruf/u);
+assert.throws(() => emittedWorkerHelperObjects(projectionCall + "\n$projected | Add-Member NoteProperty late 1",
+  "projected", workerSource), /vor Emit/u);
 
 function powerShellBraceDepth(source, until) {
   let depth = 0, quote = "", comment = false;

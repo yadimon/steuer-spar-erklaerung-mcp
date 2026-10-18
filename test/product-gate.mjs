@@ -285,7 +285,13 @@ try {
     centerRefreshBlock.includes("sortierungUnveraendert") &&
     !centerRefreshBlock.includes("Move-Item") && !centerRefreshBlock.includes("Remove-Item"),
   "sse_center_refresh ist nicht eng und dateineutral an die beiden Center-Ansichtsumschalter gebunden.");
-  const windowCloseBlock = workerOpBlock("window_close");
+  const windowCloseDispatch = workerOpBlock("window_close");
+  const windowCloseBlock = readFileSync(join(root, "powershell", "window-close.ps1"), "utf8");
+  assert(windowCloseDispatch.includes("Emit (Invoke-SSEWindowCloseTransaction $a)") &&
+    workerSource.includes("$windowCloseHelpers=Join-Path $PSScriptRoot 'window-close.ps1'") &&
+    /^\s*\. \$windowCloseHelpers\s*$/mu.test(workerSource) &&
+    windowCloseBlock.includes("function Invoke-SSEWindowCloseTransaction"),
+  "sse_window_close muss den geladenen gemeinsamen Close-Helfer ausfuehren und dessen Ergebnis emittieren.");
   assert(catalog.windows.taxTips.role === "nonmodal-help-window" &&
     catalog.windows.resultComparison.role === "nonmodal-result-window" &&
     catalog.windows.taxTips.closePolicy === "allow-exact-nonmodal-close" &&

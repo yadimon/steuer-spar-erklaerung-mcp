@@ -6,7 +6,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { SSE_API_OPERATIONS } from "../dist/api-contract.js";
 import { createSseApiServer } from "../dist/api-server.js";
 import { SSE_MCP_TOOL_OPERATIONS } from "../dist/operation-catalog.js";
-import { enumChoices, sampleJsonSchema } from "./json-schema-samples.mjs";
+import { enumChoices, sampleEnumVariant, sampleJsonSchema } from "./json-schema-samples.mjs";
 import { listenOnFetchablePort } from "./fetchable-port.mjs";
 
 const calls = [];
@@ -91,7 +91,7 @@ try {
 
     for (const [property, propertySchema] of Object.entries(schema?.properties ?? {})) {
       for (const choice of enumChoices(propertySchema)) {
-        const variantArgs = { ...args, [property]: choice };
+        const variantArgs = sampleEnumVariant(operation, args, property, choice);
         if (operation === "click" && property === "pattern" && choice === "select") {
           variantArgs.aid = ".Synthetic.Radio";
         }

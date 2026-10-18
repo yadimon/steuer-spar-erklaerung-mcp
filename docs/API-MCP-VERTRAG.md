@@ -108,6 +108,19 @@ Checkboxwerte einschließlich des unbestimmten Zustands. `vollstaendig` und
 `limitReached` beschreiben die vollständige Enumeration dieser Gridzeilen.
 Der bestehende explizite Cursorlauf über `noKeys: false` bleibt ein eigener
 Vertrag mit Fokus- und Eingabeprüfungen.
+Bei nummerierten Tabellen kann er eine vorab festgelegte, genau gebundene
+Nr-Zelle einmal aktivieren. Erst frischer Fokus-, Auswahl- und Datenabgleich
+erlaubt die Navigation. Ein vorhandener exakt zugehöriger Nummerneditor darf
+einmal per ESC abgeschlossen werden; nach ungewissem Ausgang folgt kein
+alternativer Aktivierungsversuch.
+
+`physicalInputAttempted` bezeichnet einen begonnenen physischen Aufruf.
+`physicalInputUsed: null` erhält dessen ungewissen Ausgang; `true` belegt
+mindestens eine bestätigte Eingabe, auch wenn eine spätere Taste ungewiss ist.
+Bei verlorenem Kontext oder unbewiesenem Ergebnis bleiben `outcomeUnknown`,
+`reconciliationRequired` und `cleanupRequired` gesetzt, mit `retryable: false`.
+`activationSubmitted` beschreibt gesondert die Cursoraktivierung; Navigation
+mit bereits vorhandenem Fokus benötigt keine neue Aktivierung.
 Die Spaltenzuordnung erwartet dieselbe logische und sichtbare Reihenfolge;
 eine abweichend gezogene Headerreihenfolge wird mit einem Bindungsfehler
 abgelehnt, statt Werte einer anderen Spalte zuzuordnen.

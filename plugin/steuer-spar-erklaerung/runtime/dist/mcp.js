@@ -5492,7 +5492,7 @@ var init_mcp_schemas_ui = __esm({
       "sse_snapshot": external_exports.object({
         hwnd: WINDOW_HANDLE.optional(),
         toolWindow: external_exports.string().min(1).max(64).optional().describe(
-          "Statt des Hauptfensters ein katalogisiertes nichtmodales Nebenfenster lesen: 'receiptManager' (BelegManager), 'taxTips' (Steuer-Spar-Tipps) oder 'resultComparison' (Werte-Info). Nur lesen - diese Fenster lassen sich nicht bedienen. Ohne diese Angabe haengt es von Fenstergroesse und Knotenbudget ab, wie viel von ihrem Teilbaum ueberhaupt ankommt; beim BelegManager blieb auf einem Rechner nur der Titel uebrig."
+          "Nichtmodales Katalogfenster statt Hauptfenster lesen: receiptManager (BelegManager), taxTips (Steuer-Spar-Tipps), resultComparison (Werte-Info). Nur lesen. Ohne Auswahl koennen Geometrie und Knotenbudget den Teilbaum begrenzen."
         ),
         types: external_exports.array(external_exports.string()).max(SSE_OPERATION_LIMITS.snapshotTypes).optional().describe("Nur diese Steuerelementtypen, z. B. ['Button','Edit']; maximal 50"),
         namedOnly: external_exports.boolean().optional().describe("Nur Elemente mit Beschriftung"),
@@ -7371,7 +7371,7 @@ var init_result_contract = __esm({
         vollstaendig: OPTIONAL_BOOLEAN,
         anzahl: OPTIONAL_NON_NEGATIVE_NUMBER,
         summe: OPTIONAL_STRING,
-        cursorActivation: OPTIONAL_OBJECT.describe("Technischer Nachweis des semantischen Tabellenfokus; kein Zellklick")
+        cursorActivation: OPTIONAL_OBJECT.describe("Nachweis der gewaehlten Cursoraktivierung")
       },
       result_details: { zeilen: OPTIONAL_ARRAY, vollstaendig: OPTIONAL_BOOLEAN, anzahl: OPTIONAL_NON_NEGATIVE_NUMBER },
       snapshot: { nodes: OPTIONAL_ARRAY, count: OPTIONAL_NON_NEGATIVE_NUMBER, stats: OPTIONAL_OBJECT, toolWindow: OPTIONAL_STRING },

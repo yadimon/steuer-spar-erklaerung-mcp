@@ -44,6 +44,7 @@ export const parallelSteps = Object.freeze([
   psFile("table-preparation", "test/table-preparation-contract.ps1"),
   psFile("table-preparation-boundary", "test/table-preparation-boundary-contract.ps1"),
   psFile("table-number-click", "test/table-number-click-contract.ps1"),
+  psFile("table-read-public-input", "test/table-read-public-input-contract.ps1"),
   psFile("verified-point-failure", "test/verified-point-failure-contract.ps1"),
   psFile("window-close-helper", "test/window-close-helper-contract.ps1"),
   psFile("ui-snapshot-depth", "test/ui-snapshot-depth-contract.ps1"),
