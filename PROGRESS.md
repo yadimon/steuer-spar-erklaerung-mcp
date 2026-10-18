@@ -2,8 +2,8 @@
 
 ## Arbeitsstand und Ziel
 
-Die Änderungen liegen im Arbeitsbranch `fix/api-stability-20261017`. Die Kernkorrekturen sind umgesetzt und gezielt geprüft.
-Die vorgesehenen Offline-, Live-, Mega-, nativen, Last- und Paketprüfungen sind abgeschlossen. Die erneute native Mega-Reise besteht ebenfalls; ein früherer kontrollierter Abbruch bleibt in seiner Ursache ungeklärt. Eine Integrations- oder Veröffentlichungsfreigabe wird daraus nicht vorweggenommen.
+`main` enthält den geprüften Stabilisierungsstand. Die Kernkorrekturen sind umgesetzt und gezielt geprüft.
+Die vorgesehenen Offline-, Live-, Mega-, nativen, Last- und Paketprüfungen sind abgeschlossen. Die erneute native Mega-Reise besteht ebenfalls; ein früherer kontrollierter Abbruch bleibt in seiner Ursache ungeklärt. Eine Freigabe für Produktivinstallation oder Veröffentlichung wird daraus nicht vorweggenommen.
 
 Ziel sind komfortable Low-Level-Operationen und überprüfte höhere Abläufe: Identität und Ausgangszustand lesen, Aktion gezielt ausführen, Ergebnis frisch lesen und prüfen.
 Unbekannte Mutationsergebnisse werden zuerst abgeglichen. Ein Timeout erlaubt weder blindes Wiederholen noch einen alternativen Eingriff.
@@ -129,7 +129,7 @@ Bereits bestandene Prüfungen früherer Quellstände ersetzen diese Abschlussgat
 Die abschließende Diagnoseänderung ist zusätzlich durch die normale vollständige
 Offline-Suite und eine eigene native Mega-Reise geprüft. Die Standardbedienungs-
 und Transportpfade der übrigen Funktionsnachweise sind unverändert.
-Der ursprüngliche Checkout bleibt unangetastet; der Arbeitsbranch ist der Prüfstand. Integration muss bestehende Änderungen ausdrücklich abgleichen.
+Der Stabilisierungsbranch ist nach `main` integriert. Produktivinstallation und Veröffentlichung bleiben getrennte Schritte.
 Es wurden keine Veröffentlichung, kein Push und keine Produktivinstallation vorgenommen.
 
 ## Grenzen und nächste Entscheidungen
