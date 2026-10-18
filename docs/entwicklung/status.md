@@ -173,7 +173,7 @@ Belege in der [Seitenlandkarte](funktionskatalog.md).
 | Eingabepruefung | **fertig** | `check` |
 | Steuerpruefer | **fertig** | sechs `checker_*`-Operationen |
 | Ergebnis und Vergleich | **teils** | `result_details`, Fenster `resultComparison` profiliert |
-| Steuer-Spar-Tipps | **teils** | Fenster `taxTips` nur lesend |
+| Steuer-Spar-Tipps | **teils** | Fenster `taxTips`: Lesen und exakt gebundenes Schließen |
 | Sollwerte abgleichen | **fertig** | `verify`, `snapshot_compare` |
 | Automatische Pruefhinweise | **fertig** | `warning_popup_read` |
 | Sparpotenzial | **offen** | vermutet Teil des Ergebnisbereichs, nicht gemessen |

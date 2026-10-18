@@ -116,11 +116,10 @@ regulären Live-Lauf: der gesamte BelegManager, `instances` und die
 VaSt-Operationen. Diese Trennung bleibt bewusst sichtbar, weil ein Nachweis aus
 einer abgeschotteten Umgebung weniger wiegt als einer aus dem Alltagsbetrieb.
 
-Im aggregierten Release-Snapshot sind noch 8 der 102 Operationen nicht
-live-funktional belegt.
+Noch 8 der 102 Operationen sind nicht live-funktional belegt.
+Diese Bilanz bezieht sich auf den aggregierten Release-Snapshot.
 
-In diesem Snapshot nicht durch einen automatisierten Suitelauf funktional
-ausgeübt wurden
+Von keinem automatisierten Suitelauf in diesem Snapshot funktional ausgeübt wurden
 `position_create`, `tax_knowledge_search`, `vast_apply`, `vast_dialog_read`,
 `vast_mapping_options`, `vast_mapping_select`, `vast_row_details` und
 `vast_row_set_expanded`.

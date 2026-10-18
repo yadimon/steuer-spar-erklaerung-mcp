@@ -226,7 +226,7 @@ die API vier funktional ab, drei teilweise, sieben gar nicht.
 | `FileOpen`, `FileClose`, `FileSaveAsCopy`, `ShowBelegManager` | abgedeckt |
 | `FileOpenFromDir` | teilweise – wir listen Faelle, oeffnen aber nicht aus einem Verzeichnis |
 | `DeleteBelegeOfDialog` | teilweise – wir loeschen Belege einzeln, nicht dialogweise |
-| `SteuerSparTipps` | teilweise – das Fenster ist nur lesend profiliert |
+| `SteuerSparTipps` | teilweise – das Fenster ist lesend und zum exakt gebundenen Schließen profiliert |
 | `CommandList`, `ExportCommands`, `StartCommandAsync` | nicht abgedeckt |
 | `WriteToDM` | nicht abgedeckt, und das mit Absicht: wir schreiben ausschliesslich ueber profilierte Feldpfade mit Readback |
 | `CopyDMNode`, `CopyDMNodeToDMExplorer` | nicht abgedeckt |
