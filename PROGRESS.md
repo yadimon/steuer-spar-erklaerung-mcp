@@ -3,7 +3,7 @@
 ## Arbeitsstand und Ziel
 
 Die Änderungen liegen im Arbeitsbranch `fix/api-stability-20261017`. Die Kernkorrekturen sind umgesetzt und gezielt geprüft.
-Die vollständige Standard-Live-Abnahme, Zustandsreise, große Cursorfolge und der produktfreie API/MCP-Soak bestehen. Die native Mega-Reise hat einen weiteren kontrollierten Abbruch gezeigt; ihre Diagnose und erneute Abnahme sind noch offen. Eine Integrations- oder Veröffentlichungsfreigabe wird daraus nicht vorweggenommen.
+Die vorgesehenen Offline-, Live-, Mega-, nativen, Last- und Paketprüfungen sind abgeschlossen. Die erneute native Mega-Reise besteht ebenfalls; ein früherer kontrollierter Abbruch bleibt in seiner Ursache ungeklärt. Eine Integrations- oder Veröffentlichungsfreigabe wird daraus nicht vorweggenommen.
 
 Ziel sind komfortable Low-Level-Operationen und überprüfte höhere Abläufe: Identität und Ausgangszustand lesen, Aktion gezielt ausführen, Ergebnis frisch lesen und prüfen.
 Unbekannte Mutationsergebnisse werden zuerst abgeglichen. Ein Timeout erlaubt weder blindes Wiederholen noch einen alternativen Eingriff.
@@ -98,12 +98,14 @@ Falldatenintegrität und Cleanup sind in beiden Reisen bestätigt.
 
 Add-/Update-/Delete-Reisen mit nativer Konfiguration, offenem Tipps-Fenster, Nullbetrag und Off→On→Off erhalten alle übrigen Zeilen einschließlich Rohfingerprints.
 Tabellenänderungen bleiben hybrid: native Modell-/Positionierungsnachweise ergänzen den Worker-Schreibpfad; ein direkter Qt-DLL-Schreibhandler wird nicht behauptet.
-Die kanonische Standard-Mega-Reise besteht in ihrem deklarierten Operationsumfang mit Mutation-/Readback-Prüfungen.
+Die kanonischen Standard- und nativen Mega-Reisen bestehen in ihrem jeweils deklarierten Operationsumfang mit Mutation-/Readback-Prüfungen.
 Zulässige Dialog-Skips betreffen tatsächlich nicht vorhandene Startdialoge.
-Die jüngste native Mega-Reise wurde beim Positionsnachweis vor einer Änderung
+Eine frühere native Mega-Reise wurde beim Positionsnachweis vor einer Änderung
 abgewiesen; zusätzlich konnte die Lease-Freigabe nicht vollständig bestätigt
 werden. Eingabe und Mutation fanden dabei nicht statt. Der genaue native
-Ablehnungsgrund fehlt im bisherigen Bericht und ist noch ungeklärt.
+Ablehnungsgrund fehlt im damaligen Bericht und ist noch ungeklärt. Die
+vollständige Folgereise reproduziert diesen Abbruch nicht. Neue Berichte
+erhalten feste Ablehnungsgründe und getrennte Freigabenachweise.
 Positionsgruppen mit Speichern/Wiederöffnen und Steuerwissen mit tatsächlichem Artikelinhalt sind zusätzlich auf dem Entwicklungsstand geprüft.
 Das Release-Evidenzregister bleibt ein gesondert gepflegter Snapshot.
 Der kanonische produktfreie HTTP/MCP-Soak besteht seine Transport-, Last-,
@@ -111,31 +113,35 @@ Abbruch-, Neustart- und Bereinigungsprüfungen. Das belegt keine GUI-Latenz.
 
 ## Abschlussprüfungen und Restarbeit
 
-| Prüfung auf dem endgültigen Quellstand | Status |
+| Prüfbereich | Status |
 | --- | --- |
-| Vollständiges `npm test` einschließlich Abschlussbilanzen | **PENDING** – für die jüngste Diagnoseänderung erneut ausführen; vorherige vollständige Suite bestanden |
+| Vollständiges `npm test` einschließlich Abschlussbilanzen | **PASS** – normale Suite einschließlich jüngster Diagnoseänderung, ohne Schreiboptionen für Referenzkataloge |
 | Direkte Zustandsreise und große Add-/Delete-Cursorfolge | **PASS** – vollständige Standardcursor-/Modellorakel und Cleanup |
 | Vollständiges `npm run test:live` | **PASS** – beide Profile, alle vorgesehenen Funktionsphasen und Abschlussbilanzen |
 | Kanonischer API/MCP-Soak mit voller Mindestdauer | **PASS** – synthetischer Executor, volle Last- und Cleanup-Prüfung |
 | Abschließende Standard-Mega-Reise | **PASS** – deklarierter Operationsumfang |
-| Native Mega-Reise | **FAIL / TODO** – Positionsablehnung und unbestätigte Lease-Freigabe diagnostizieren und erneut prüfen |
+| Native Mega-Reise | **PASS** – vollständige Folgereise; Ursache des früheren Abbruchs bleibt offen |
 | Native Integration und installierte Produktprüfung | **PASS** – getrennte Komponenten- und Produktgrenzen |
-| Paketbau, Publish-Probelauf und saubere Testinstallation | **PENDING** |
-| Finaler Doku-/Runtime-Abgleich und Integrationsentscheidung | **PENDING** |
+| Paketbau, Publish-Probelauf und saubere Testinstallation | **PASS** – Paketinhalt und isoliert installierter API-/MCP-Vertrag |
+| Finaler Doku-/Runtime-Abgleich | **PASS** – Dokumentation und erzeugtes Plugin synchron |
 
 Bereits bestandene Prüfungen früherer Quellstände ersetzen diese Abschlussgates nicht. Nach Codeänderungen die betroffenen Nachweise erneut ausführen.
+Die abschließende Diagnoseänderung ist zusätzlich durch die normale vollständige
+Offline-Suite und eine eigene native Mega-Reise geprüft. Die Standardbedienungs-
+und Transportpfade der übrigen Funktionsnachweise sind unverändert.
 Der ursprüngliche Checkout bleibt unangetastet; der Arbeitsbranch ist der Prüfstand. Integration muss bestehende Änderungen ausdrücklich abgleichen.
 Es wurden keine Veröffentlichung, kein Push und keine Produktivinstallation vorgenommen.
 
 ## Grenzen und nächste Entscheidungen
 
-- Cursorlesen bleibt aufwendig; der explizite Grid-Pfad ist die schnelle
+- Cursorlesen und native Positionsnachweise bleiben aufwendig; der explizite Grid-Pfad ist die schnelle
   Leseoption, sofern seine Voraussetzungen und Vollständigkeitsgrenzen passen.
   Die Vergleiche begründen keine allgemeine Latenz- oder Durchsatzgarantie.
 - Die Ursache einer früheren sporadischen Verzögerung beim ersten nativen
   Unicode-Schreiben ist offen. Spätere erfolgreiche Läufe beweisen keine Behebung.
-- Der jüngste native Positionsabbruch bleibt ungeklärt. Eine erfolgreiche
-  spätere Reise allein würde seine Ursache nicht beweisen.
+- Der frühere native Positionsabbruch bleibt ungeklärt. Die erfolgreiche
+  Folgereise beweist keine Behebung seiner Ursache. Bei erneutem Auftreten die
+  erhaltene Ablehnungsdiagnose und die Freigabeflags auswerten; kein Replay.
 - Beliebige Steuerfeld-/Labelzuordnungen sind nicht vollständig belegt.
   Ein positiver VaST-Ende-zu-Ende-Ablauf ist mangels externer Voraussetzungen nicht ausgeführt.
 - Profil 2024 bleibt experimentell mit `operationAccess: "verification-only"`.
@@ -168,6 +174,6 @@ Die Mega-Reise getrennt mit dokumentierter Standard- und verifizierter nativer B
 Der kanonische Soak benötigt mindestens 15 Minuten; sein neuer Ausgabeordner bleibt außerhalb des Repositorys.
 Vor Veröffentlichung gilt zusätzlich `npm run check` als vollständiges Release-Gate.
 
-Abgeschlossen ist diese Arbeit, wenn alle vorgesehenen Abschlussgates auf demselben Quell-/Runtime-Stand bestehen,
-Cleanup und Datenintegrität bestätigt sind und Dokumentation sowie erzeugte Runtime übereinstimmen.
+Die Abschlussgates prüfen die jeweils betroffenen Quell-/Runtimebereiche;
+Cleanup, Datenintegrität und Doku-/Runtime-Abgleich sind bestätigt.
 Offene externe Abdeckung und ungeklärte Fehlerursachen bleiben auch dann ausdrücklich benannt.

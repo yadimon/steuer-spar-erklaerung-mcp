@@ -173,6 +173,13 @@ führt der Differenzorakel-Test dieselben Worker-Zweige über denselben
 Knotenbestand aus.
 Die Zahl 94 funktional live belegter Operationen ist keine Qt-Abdeckung.
 
+`table-native-mutation-contract.mjs` prüft den echten Positionierer an
+synthetischen nativen Ablehnungen und erfolgreichen, unbestätigten oder
+fehlschlagenden Lease-Freigaben. `api-mega-contract.mjs` prüft die tatsächliche
+Berichtsgrenze, erhaltene Primärfehler und die wertfreie Projektion.
+Die vollständige native Mega-Reise ist ein separater Produktnachweis; eine
+erfolgreiche Folgereise klärt frühere sporadische Ablehnungen nicht automatisch.
+
 Der native CTest-Lauf prüft reale DLL, Broker, Discovery und HTTP-Runtime mit
 einem synthetischen Qt-Programm. Er ersetzt weder SSE-Live-Parität noch einen
 vollständigen Lauf mit dem ausgelieferten Produktprofil. Ein statisch gefundenes
